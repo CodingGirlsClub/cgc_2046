@@ -30,5 +30,12 @@ defmodule Cgc2046.Api do
     # T04 成员与角色(RBAC 数据层)
     resource Cgc2046.Workspaces.Role
     resource Cgc2046.Workspaces.MembershipRole
+    # T05 权限矩阵落地:Workflow / Step / StepRole / Agent / AgentRole / Invitation
+    resource Cgc2046.Workspaces.Workflow
+    resource Cgc2046.Workspaces.Step
+    resource Cgc2046.Workspaces.StepRole
+    resource Cgc2046.Workspaces.Agent
+    resource Cgc2046.Workspaces.AgentRole
+    resource Cgc2046.Workspaces.Invitation
   end
 end

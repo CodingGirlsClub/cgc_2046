@@ -5,6 +5,9 @@ defmodule Cgc2046Web.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    # T05 审计:每次 API 请求(成功或失败)落审计记录;放最前,用
+    # register_before_send 保证即使后续 401/403 halt 也会写入。
+    plug Cgc2046Web.AuditMiddleware
   end
 
   pipeline :graphql do
@@ -33,6 +36,23 @@ defmodule Cgc2046Web.Router do
 
     get "/me", MeController, :show
     post "/workspaces", WorkspacesController, :create
+
+    # T05 审计查询(spec §11 读隔离)
+    get "/audit_logs", AuditLogsController, :index
+    get "/workspaces/:workspace_id/audit_logs", AuditLogsController, :workspace_index
+
+    # T05 Workflow / Step(spec §4:workflow:create;Step 执行=角色交集非空)
+    post "/workspaces/:workspace_id/workflows", WorkflowsController, :create
+    post "/workspaces/:workspace_id/workflows/:workflow_id/steps", StepsController, :create
+    post "/workspaces/:workspace_id/steps/:step_id/execute", StepsController, :execute
+
+    # T05 Agent(个人=owner;公共增删改按权限矩阵)
+    post "/workspaces/:workspace_id/agents", AgentsController, :create
+    patch "/workspaces/:workspace_id/agents/:id", AgentsController, :update
+    delete "/workspaces/:workspace_id/agents/:id", AgentsController, :destroy
+
+    # T05 邀请(spec §12:invitation:create;Volunteer 不可预授权 Admin 级角色)
+    post "/workspaces/:workspace_id/invitations", InvitationsController, :create
   end
 
   scope "/api" do

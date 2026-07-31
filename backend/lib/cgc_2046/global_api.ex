@@ -25,5 +25,7 @@ defmodule Cgc2046.GlobalApi do
     resource Cgc2046.Accounts.Token
     # resource Cgc2046.Resources.Identity(待 OAuth 需求落地)
     resource Cgc2046.Workspaces.Workspace
+    # T05 审计:全局资源(不按租户隔离,读隔离走行级 filter)
+    resource Cgc2046.Audit.AuditLog
   end
 end

@@ -44,6 +44,7 @@ defmodule Cgc2046.Workspaces.Role do
   relationships do
     belongs_to :workspace, Cgc2046.Workspaces.Workspace,
       attribute_type: :uuid,
+      allow_nil?: false,
       public?: true
   end
 

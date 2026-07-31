@@ -59,7 +59,8 @@ defmodule Cgc2046.Rbac do
       "workflow:deploy",
       "member:manage",
       "join_request:manage",
-      "invitation:create"
+      "invitation:create",
+      "audit:view"
     ],
     "Tutor" => [
       "agent:personal:create",
@@ -121,6 +122,21 @@ defmodule Cgc2046.Rbac do
     end
   end
 
+  @doc """
+  before_action 用:无权时给 changeset 添加 Forbidden 错误(而非 raise),返回 changeset。
+
+  Ash 的 `run_before_actions/2` 不 rescue 异常,before_action 中 raise 会冒泡到
+  Phoenix 变成 500。改用 `Ash.Changeset.add_error(changeset, %Ash.Error.Forbidden{})`
+  后 `Ash.create/1` 会返回 `{:error, %Ash.Error.Forbidden{}}` → 控制器可映射 403。
+  """
+  def forbid_changeset(changeset, actor, permission, opts \\ []) do
+    if can?(actor, permission, opts) do
+      changeset
+    else
+      Ash.Changeset.add_error(changeset, Ash.Error.Forbidden.exception([]))
+    end
+  end
+
   @doc "actor 是否为该 workspace 的成员(内部查询绕过 policy,授权判定自身不被干扰)。"
   def member?(nil, _workspace_id), do: false
 
@@ -131,6 +147,38 @@ defmodule Cgc2046.Rbac do
     |> case do
       {:ok, [_ | _]} -> true
       _ -> false
+    end
+  end
+
+  @doc """
+  actor 在该 workspace 的角色 id 集合(`MapSet.t(role_id)`)。
+
+  成员可持多角色;非成员/无角色返回空集。供 Step/Agent 交集判定
+  (`role_intersection?/3`)与独立使用授权使用。
+  """
+  def actor_role_ids(actor, workspace_id) when is_binary(workspace_id) do
+    case member_roles(actor, workspace_id) do
+      {:ok, roles} -> MapSet.new(roles, & &1.id)
+      _ -> MapSet.new()
+    end
+  end
+
+  @doc """
+  actor 的成员角色集与允许角色集是否交集非空(Step 执行 / 独立使用公共 Agent)。
+
+  `allowed_role_ids` 为角色 id 列表(来自 Step/Agent 的 allowed_roles)。
+  允许集为空 → 恒 false(无授权不隐式放行);交集命中任一 → true。
+  """
+  def role_intersection?(nil, _workspace_id, _allowed_role_ids), do: false
+
+  def role_intersection?(actor, workspace_id, allowed_role_ids)
+      when is_binary(workspace_id) and is_list(allowed_role_ids) do
+    allowed = MapSet.new(allowed_role_ids)
+
+    if MapSet.size(allowed) == 0 do
+      false
+    else
+      not MapSet.disjoint?(actor_role_ids(actor, workspace_id), allowed)
     end
   end
 

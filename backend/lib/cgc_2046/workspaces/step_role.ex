@@ -1,13 +1,14 @@
-defmodule Cgc2046.Workspaces.MembershipRole do
+defmodule Cgc2046.Workspaces.StepRole do
   @moduledoc """
-  MembershipRole(租户内实体,T04):成员-角色关联,一人可持多角色。
+  StepRole(租户内实体,T05):Step 的执行角色关联(Step 允许角色集)。
 
-  每个记录把某 WorkspaceMembership 与某 Role 绑定;同一成员同一角色
-  只允许一条(唯一约束 `unique_membership_role`)。多角色权限取并集,
-  判定逻辑见 `Cgc2046.Rbac.can?/3`。
+  `role_id` 引用租户内 Role;一个 Step 可声明多个可执行角色。执行授权 =
+  成员角色集 ∩ Step 允许角色集 交集非空(`Rbac.role_intersection?/3`,
+  见 Cgc2046.Workspaces.Step.execute)。
 
-  授权:读需为成员;创建/删除需租户权限 `member:manage`(Owner/Admin)。
+  读 = 成员;创建/删除 = 需 `workflow:create`(部署者配置 Step 角色)。
   """
+
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
@@ -31,7 +32,7 @@ defmodule Cgc2046.Workspaces.MembershipRole do
       allow_nil?: false,
       public?: true
 
-    belongs_to :membership, Cgc2046.Workspaces.WorkspaceMembership,
+    belongs_to :step, Cgc2046.Workspaces.Step,
       attribute_type: :uuid,
       allow_nil?: false,
       public?: true
@@ -43,7 +44,7 @@ defmodule Cgc2046.Workspaces.MembershipRole do
   end
 
   identities do
-    identity :unique_membership_role, [:membership_id, :role_id]
+    identity :unique_step_role, [:step_id, :role_id]
   end
 
   actions do
@@ -51,7 +52,17 @@ defmodule Cgc2046.Workspaces.MembershipRole do
 
     create :create do
       primary? true
-      accept [:membership_id, :role_id]
+      accept [:step_id, :role_id]
+
+      change before_action(fn changeset, context ->
+               if context.authorize? != false do
+                 Cgc2046.Rbac.forbid_changeset(changeset, context.actor, "workflow:create",
+                   tenant: context.tenant
+                 )
+               else
+                 changeset
+               end
+             end)
     end
   end
 
@@ -62,13 +73,13 @@ defmodule Cgc2046.Workspaces.MembershipRole do
     end
 
     policy action_type([:create, :destroy]) do
-      authorize_if {Cgc2046.Rbac.Checks.HasPermission, permission: "member:manage"}
+      authorize_if {Cgc2046.Rbac.Checks.HasPermission, permission: "workflow:create"}
       forbid_if always()
     end
   end
 
   postgres do
-    table "membership_roles"
+    table "step_roles"
     repo Cgc2046.Repo
   end
 end

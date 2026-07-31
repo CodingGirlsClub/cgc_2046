@@ -19,7 +19,7 @@ defmodule Cgc2046.Rbac.Checks.MemberOfWorkspace do
   def match?(nil, _context, _opts), do: false
 
   def match?(actor, context, _opts) do
-    case tenant_from(context) do
+    case Cgc2046.Rbac.Checks.Tenant.from(context) do
       tenant when is_binary(tenant) ->
         Map.get(actor, :is_platform_admin, false) or Cgc2046.Rbac.member?(actor, tenant)
 
@@ -27,8 +27,4 @@ defmodule Cgc2046.Rbac.Checks.MemberOfWorkspace do
         false
     end
   end
-
-  defp tenant_from(%{subject: %Ash.Query{tenant: tenant}}), do: tenant
-  defp tenant_from(%{subject: %Ash.Changeset{tenant: tenant}}), do: tenant
-  defp tenant_from(_context), do: nil
 end

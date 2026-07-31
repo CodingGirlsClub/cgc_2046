@@ -1,13 +1,14 @@
-defmodule Cgc2046.Workspaces.MembershipRole do
+defmodule Cgc2046.Workspaces.AgentRole do
   @moduledoc """
-  MembershipRole(租户内实体,T04):成员-角色关联,一人可持多角色。
+  AgentRole(租户内实体,T05):公共 Agent 的独立使用授权关联。
 
-  每个记录把某 WorkspaceMembership 与某 Role 绑定;同一成员同一角色
-  只允许一条(唯一约束 `unique_membership_role`)。多角色权限取并集,
-  判定逻辑见 `Cgc2046.Rbac.can?/3`。
+  `role_id` 引用租户内 Role;公共 Agent 声明"哪些角色可直接用我"
+  (Workflow 之外独立使用,见 docs/领域模型定稿.md §3.3)。独立使用授权 =
+  成员角色集 ∩ AgentRole 角色集 交集非空。
 
-  授权:读需为成员;创建/删除需租户权限 `member:manage`(Owner/Admin)。
+  读 = 成员;创建/删除 = 需 `agent:public:edit`(Owner/Admin/Tutor)。
   """
+
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
@@ -31,7 +32,7 @@ defmodule Cgc2046.Workspaces.MembershipRole do
       allow_nil?: false,
       public?: true
 
-    belongs_to :membership, Cgc2046.Workspaces.WorkspaceMembership,
+    belongs_to :agent, Cgc2046.Workspaces.Agent,
       attribute_type: :uuid,
       allow_nil?: false,
       public?: true
@@ -43,7 +44,7 @@ defmodule Cgc2046.Workspaces.MembershipRole do
   end
 
   identities do
-    identity :unique_membership_role, [:membership_id, :role_id]
+    identity :unique_agent_role, [:agent_id, :role_id]
   end
 
   actions do
@@ -51,7 +52,17 @@ defmodule Cgc2046.Workspaces.MembershipRole do
 
     create :create do
       primary? true
-      accept [:membership_id, :role_id]
+      accept [:agent_id, :role_id]
+
+      change before_action(fn changeset, context ->
+               if context.authorize? != false do
+                 Cgc2046.Rbac.forbid_changeset(changeset, context.actor, "agent:public:edit",
+                   tenant: context.tenant
+                 )
+               else
+                 changeset
+               end
+             end)
     end
   end
 
@@ -62,13 +73,13 @@ defmodule Cgc2046.Workspaces.MembershipRole do
     end
 
     policy action_type([:create, :destroy]) do
-      authorize_if {Cgc2046.Rbac.Checks.HasPermission, permission: "member:manage"}
+      authorize_if {Cgc2046.Rbac.Checks.HasPermission, permission: "agent:public:edit"}
       forbid_if always()
     end
   end
 
   postgres do
-    table "membership_roles"
+    table "agent_roles"
     repo Cgc2046.Repo
   end
 end
