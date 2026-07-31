@@ -52,6 +52,12 @@ defmodule Cgc2046.Workspaces.Workspace do
   actions do
     defaults [:read]
 
+    # T06 发现列表(spec §12):仅 open/request 可被发现;invite_only 私密不可见。
+    # 搜索 q 由控制器追加 filter(表达式内不能插值 arg)。
+    read :discover do
+      filter expr(join_policy in [:open, :request])
+    end
+
     create :create do
       primary? true
       accept [:slug, :name, :join_policy, :owner_id]

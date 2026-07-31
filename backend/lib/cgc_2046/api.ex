@@ -37,5 +37,8 @@ defmodule Cgc2046.Api do
     resource Cgc2046.Workspaces.Agent
     resource Cgc2046.Workspaces.AgentRole
     resource Cgc2046.Workspaces.Invitation
+    # T06 加入流程:JoinRequest / Profile
+    resource Cgc2046.Workspaces.JoinRequest
+    resource Cgc2046.Workspaces.Profile
   end
 end

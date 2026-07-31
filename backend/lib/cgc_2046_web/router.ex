@@ -35,7 +35,24 @@ defmodule Cgc2046Web.Router do
     pipe_through [:api, :bearer_auth, :require_auth]
 
     get "/me", MeController, :show
+    # T06 发现列表(仅 open/request 可见;invite_only 私密)+ 创建
+    get "/workspaces", WorkspacesController, :index
     post "/workspaces", WorkspacesController, :create
+    # T06 加入流程(open 直接加入 / request 提交申请 / invite_only 仅链接)
+    post "/workspaces/:workspace_id/join", WorkspacesController, :join
+
+    # T06 JoinRequest 审批流程(spec §12)
+    get "/workspaces/:workspace_id/join_requests", JoinRequestsController, :index
+    post "/workspaces/:workspace_id/join_requests", JoinRequestsController, :create
+    post "/workspaces/:workspace_id/join_requests/:id/approve", JoinRequestsController, :approve
+    post "/workspaces/:workspace_id/join_requests/:id/reject", JoinRequestsController, :reject
+
+    # T06 Profile CRUD(租户内可见,写=本人)
+    get "/workspaces/:workspace_id/profiles", ProfilesController, :index
+    get "/workspaces/:workspace_id/profiles/:user_id", ProfilesController, :show
+    post "/workspaces/:workspace_id/profiles", ProfilesController, :create
+    patch "/workspaces/:workspace_id/profiles/:user_id", ProfilesController, :update
+    delete "/workspaces/:workspace_id/profiles/:user_id", ProfilesController, :delete
 
     # T05 审计查询(spec §11 读隔离)
     get "/audit_logs", AuditLogsController, :index
@@ -53,6 +70,9 @@ defmodule Cgc2046Web.Router do
 
     # T05 邀请(spec §12:invitation:create;Volunteer 不可预授权 Admin 级角色)
     post "/workspaces/:workspace_id/invitations", InvitationsController, :create
+    # T06 邀请消费(凭 token 加入)/ 撤销(置 revoked 立即失效)
+    post "/workspaces/:workspace_id/invitations/consume", InvitationsController, :consume
+    post "/workspaces/:workspace_id/invitations/:id/revoke", InvitationsController, :revoke
   end
 
   scope "/api" do
