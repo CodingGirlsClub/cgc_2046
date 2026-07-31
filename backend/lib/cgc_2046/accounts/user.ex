@@ -15,6 +15,7 @@ defmodule Cgc2046.Accounts.User do
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAuthentication],
+    authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
   attributes do
@@ -28,6 +29,11 @@ defmodule Cgc2046.Accounts.User do
       allow_nil?: false,
       sensitive?: true
 
+    attribute :is_platform_admin, :boolean,
+      allow_nil?: false,
+      default: false,
+      public?: true
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -38,6 +44,16 @@ defmodule Cgc2046.Accounts.User do
 
   actions do
     defaults [:read]
+  end
+
+  policies do
+    bypass AshAuthentication.Checks.AshAuthenticationInteraction do
+      authorize_if always()
+    end
+
+    policy always() do
+      forbid_if always()
+    end
   end
 
   authentication do

@@ -46,13 +46,22 @@ defmodule Cgc2046.TestFixturesContractTest do
     end
   end
 
-  describe "尚未落地时给出明确指引" do
-    test "seed_workspace 指向 T03" do
-      error = assert_raise RuntimeError, fn -> Cgc2046.TestFixtures.seed_workspace() end
-
-      assert error.message =~ "T03 Workspace 与多租户地基"
+  describe "T03 落地后 seed_platform_admin/seed_workspace 可用" do
+    test "seed_platform_admin 创建平台管理员" do
+      admin = Cgc2046.TestFixtures.seed_platform_admin()
+      assert %Cgc2046.Accounts.User{is_platform_admin: true} = admin
     end
 
+    test "seed_workspace 创建 Workspace 并返回记录" do
+      admin = Cgc2046.TestFixtures.seed_platform_admin()
+      ws = Cgc2046.TestFixtures.seed_workspace(owner: admin)
+
+      assert %Cgc2046.Workspaces.Workspace{} = ws
+      assert ws.owner_id == admin.id
+    end
+  end
+
+  describe "尚未落地时给出明确指引" do
     test "seed_membership 指向 T04" do
       error =
         assert_raise RuntimeError, fn ->

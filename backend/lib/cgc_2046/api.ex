@@ -25,7 +25,8 @@ defmodule Cgc2046.Api do
 
   resources do
     # 租户资源在此注册(按票据顺序):
-    # resource Cgc2046.Resources.WorkspaceMembership
+    # T03 Workspace 与多租户地基:WorkspaceMembership 最小骨架(隔离验证载体,T04 扩展)
+    resource Cgc2046.Workspaces.WorkspaceMembership
     # resource Cgc2046.Resources.MembershipRole
     # resource Cgc2046.Resources.Role
   end

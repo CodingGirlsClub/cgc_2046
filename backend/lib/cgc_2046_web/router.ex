@@ -32,6 +32,7 @@ defmodule Cgc2046Web.Router do
     pipe_through [:api, :bearer_auth, :require_auth]
 
     get "/me", MeController, :show
+    post "/workspaces", WorkspacesController, :create
   end
 
   scope "/api" do
