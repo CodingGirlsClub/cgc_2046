@@ -10,7 +10,7 @@ const PING = gql`
 `;
 
 export default function Home() {
-  const { data, loading, error } = useQuery(PING);
+  const { data, loading, error } = useQuery<{ ping: string }>(PING);
 
   return (
     <main className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
