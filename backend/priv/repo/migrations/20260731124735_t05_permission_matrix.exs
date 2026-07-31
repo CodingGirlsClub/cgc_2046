@@ -164,97 +164,9 @@ defmodule Cgc2046.Repo.Migrations.T05PermissionMatrix do
         null: false,
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
-
-    create table(:agents, primary_key: false) do
-      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-      add :name, :text, null: false
-      add :type, :text, null: false
-
-      add :inserted_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-
-      add :updated_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-
-      add :workspace_id,
-          references(:workspaces,
-            column: :id,
-            name: "agents_workspace_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          ), null: false
-
-      add :owner_id,
-          references(:workspace_memberships,
-            column: :id,
-            name: "agents_owner_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          )
-    end
-
-    create table(:agent_roles, primary_key: false) do
-      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-
-      add :inserted_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-
-      add :updated_at, :utc_datetime_usec,
-        null: false,
-        default: fragment("(now() AT TIME ZONE 'utc')")
-
-      add :workspace_id,
-          references(:workspaces,
-            column: :id,
-            name: "agent_roles_workspace_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          ), null: false
-
-      add :agent_id,
-          references(:agents,
-            column: :id,
-            name: "agent_roles_agent_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          ), null: false
-
-      add :role_id,
-          references(:roles,
-            column: :id,
-            name: "agent_roles_role_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          ), null: false
-    end
-
-    create unique_index(:agent_roles, [:workspace_id, :agent_id, :role_id],
-             name: "agent_roles_unique_agent_role_index"
-           )
   end
 
   def down do
-    drop constraint(:agent_roles, "agent_roles_workspace_id_fkey")
-
-    drop constraint(:agent_roles, "agent_roles_agent_id_fkey")
-
-    drop constraint(:agent_roles, "agent_roles_role_id_fkey")
-
-    drop_if_exists unique_index(:agent_roles, [:workspace_id, :agent_id, :role_id],
-                     name: "agent_roles_unique_agent_role_index"
-                   )
-
-    drop table(:agent_roles)
-
-    drop constraint(:agents, "agents_workspace_id_fkey")
-
-    drop constraint(:agents, "agents_owner_id_fkey")
-
-    drop table(:agents)
-
     drop table(:audit_logs)
 
     drop constraint(:invitations, "invitations_workspace_id_fkey")

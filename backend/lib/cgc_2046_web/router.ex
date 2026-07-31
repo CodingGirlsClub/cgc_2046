@@ -75,11 +75,6 @@ defmodule Cgc2046Web.Router do
     post "/workspaces/:workspace_id/steps/:step_id/execute", StepsController, :execute
     post "/workspaces/:workspace_id/steps/:step_id/complete", StepsController, :complete
 
-    # T05 Agent(个人=owner;公共增删改按权限矩阵)
-    post "/workspaces/:workspace_id/agents", AgentsController, :create
-    patch "/workspaces/:workspace_id/agents/:id", AgentsController, :update
-    delete "/workspaces/:workspace_id/agents/:id", AgentsController, :destroy
-
     # T05 邀请(spec §12:invitation:create;Volunteer 不可预授权 Admin 级角色)
     post "/workspaces/:workspace_id/invitations", InvitationsController, :create
     # T06 邀请消费(凭 token 加入)/ 撤销(置 revoked 立即失效)

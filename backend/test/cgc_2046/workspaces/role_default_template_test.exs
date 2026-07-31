@@ -61,24 +61,23 @@ defmodule Cgc2046.RoleDefaultTemplateTest do
       learner = role_by_name!(ws, "Learner")
 
       # 权限矩阵(见 docs/spec §4):
-      # 创建/编辑公共 Agent = Owner/Admin/Tutor;删除仅 Owner/Admin
-      # 创建/部署 Workflow = Owner/Admin/Tutor;创建个人 Agent = 任何成员
+      # 创建/部署 Workflow = Owner/Admin/Tutor;邀请 = Owner/Admin/Volunteer
+      # 成员管理 = Owner/Admin;角色管理/审计 = Owner
       assert "workflow:create" in owner.permissions
-      assert "agent:public:delete" in owner.permissions
+      assert "workflow:deploy" in owner.permissions
       assert "member:manage" in owner.permissions
 
-      assert "agent:public:delete" in admin_role.permissions
       assert "member:manage" in admin_role.permissions
+      refute "role:manage" in admin_role.permissions
 
       assert "workflow:create" in tutor.permissions
-      refute "agent:public:delete" in tutor.permissions
+      assert "invitation:create" in tutor.permissions
 
       refute "workflow:create" in volunteer.permissions
-      refute "workflow:create" in learner.permissions
+      assert "invitation:create" in volunteer.permissions
 
-      for role <- [owner, admin_role, tutor, volunteer, learner] do
-        assert "agent:personal:create" in role.permissions
-      end
+      refute "workflow:create" in learner.permissions
+      refute "invitation:create" in learner.permissions
     end
   end
 

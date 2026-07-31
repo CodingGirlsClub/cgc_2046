@@ -1,8 +1,8 @@
 defmodule Cgc2046.Api do
   @moduledoc """
   租户域(Tenant Api):承载按 `workspace_id` 隔离的租户资源 ——
-  WorkspaceMembership、MembershipRole、Role、Workflow、Step、Agent、
-  AgentRun、Invitation、JoinRequest、Profile 等。
+  WorkspaceMembership、MembershipRole、Role、Workflow、Step、Invitation、
+  JoinRequest、Profile 等。
 
   租户资源在资源级声明 `multitenancy strategy: :attribute, attribute: :workspace_id`,
   查询/写入必须显式 set_tenant(见 docs/multitenancy-调研.md 决策点)。
@@ -30,12 +30,10 @@ defmodule Cgc2046.Api do
     # T04 成员与角色(RBAC 数据层)
     resource Cgc2046.Workspaces.Role
     resource Cgc2046.Workspaces.MembershipRole
-    # T05 权限矩阵落地:Workflow / Step / StepRole / Agent / AgentRole / Invitation
+    # T05 权限矩阵落地:Workflow / Step / StepRole / Invitation
     resource Cgc2046.Workspaces.Workflow
     resource Cgc2046.Workspaces.Step
     resource Cgc2046.Workspaces.StepRole
-    resource Cgc2046.Workspaces.Agent
-    resource Cgc2046.Workspaces.AgentRole
     resource Cgc2046.Workspaces.Invitation
     # T06 加入流程:JoinRequest / Profile
     resource Cgc2046.Workspaces.JoinRequest

@@ -23,24 +23,20 @@ defmodule Cgc2046.Rbac do
   @default_role_descriptions %{
     "Owner" => "Workspace 所有者:管理成员/角色/邀请/审计与公共资源",
     "Admin" => "Workspace 管理员:管理成员与公共资源,无 Owner 专属权限",
-    "Tutor" => "教研老师:创建公共 Agent 与 Workflow,不管理成员",
+    "Tutor" => "教研老师:创建 Workflow,不管理成员",
     "Volunteer" => "志愿者:参与授权 Step,可发邀请(不高于 Admin 级)",
-    "Learner" => "学员:仅个人 Agent 与授权 Step"
+    "Learner" => "学员:参与授权 Step"
   }
 
   # 权限矩阵(spec §4):
-  # - 创建个人 Agent / 使用自己个人 Agent = 任何成员 → agent:personal:create(全部角色)
-  # - 创建/编辑公共 Agent = Owner/Admin/Tutor(删除仅 Owner/Admin)
   # - 创建/部署 Workflow = Owner/Admin/Tutor
   # - 成员管理(加入/角色分配/移除) = Owner/Admin
   # - 角色管理 = Owner;加入请求审批 = Owner/Admin;邀请 = Owner/Admin/Volunteer
   # - Workspace 级管理(join policy 等)与审计 = Owner
+  # - AI 执行不在平台:Agent/AgentRun 为本地 OpenClacky 概念(见 spec 决策 8),
+  #   平台只做业务逻辑与授权判定
   @default_role_permissions %{
     "Owner" => [
-      "agent:personal:create",
-      "agent:public:create",
-      "agent:public:edit",
-      "agent:public:delete",
       "workflow:create",
       "workflow:deploy",
       "member:manage",
@@ -51,10 +47,6 @@ defmodule Cgc2046.Rbac do
       "audit:view"
     ],
     "Admin" => [
-      "agent:personal:create",
-      "agent:public:create",
-      "agent:public:edit",
-      "agent:public:delete",
       "workflow:create",
       "workflow:deploy",
       "member:manage",
@@ -63,20 +55,14 @@ defmodule Cgc2046.Rbac do
       "audit:view"
     ],
     "Tutor" => [
-      "agent:personal:create",
-      "agent:public:create",
-      "agent:public:edit",
       "workflow:create",
       "workflow:deploy",
       "invitation:create"
     ],
     "Volunteer" => [
-      "agent:personal:create",
       "invitation:create"
     ],
-    "Learner" => [
-      "agent:personal:create"
-    ]
+    "Learner" => []
   }
 
   @doc "默认角色模板:角色名 → 权限集(供测试与审计查看)。"
@@ -153,7 +139,7 @@ defmodule Cgc2046.Rbac do
   @doc """
   actor 在该 workspace 的角色 id 集合(`MapSet.t(role_id)`)。
 
-  成员可持多角色;非成员/无角色返回空集。供 Step/Agent 交集判定
+  成员可持多角色;非成员/无角色返回空集。供 Step 交集判定
   (`role_intersection?/3`)与独立使用授权使用。
   """
   def actor_role_ids(actor, workspace_id) when is_binary(workspace_id) do
@@ -164,9 +150,9 @@ defmodule Cgc2046.Rbac do
   end
 
   @doc """
-  actor 的成员角色集与允许角色集是否交集非空(Step 执行 / 独立使用公共 Agent)。
+  actor 的成员角色集与允许角色集是否交集非空(Step 执行授权)。
 
-  `allowed_role_ids` 为角色 id 列表(来自 Step/Agent 的 allowed_roles)。
+  `allowed_role_ids` 为角色 id 列表(来自 Step 的 allowed_roles)。
   允许集为空 → 恒 false(无授权不隐式放行);交集命中任一 → true。
   """
   def role_intersection?(nil, _workspace_id, _allowed_role_ids), do: false

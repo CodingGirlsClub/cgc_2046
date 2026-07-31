@@ -120,7 +120,7 @@ defmodule Cgc2046.RbacTest do
       assert Rbac.can?(user, "workflow:create", tenant: ws.id)
     end
 
-    test "仅 Learner → workflow:create 拒绝,agent:personal:create 放行", %{
+    test "仅 Learner → workflow:create 拒绝,invitation:create 也拒绝", %{
       ws: ws,
       admin: admin,
       user: user,
@@ -135,16 +135,16 @@ defmodule Cgc2046.RbacTest do
         )
 
       refute Rbac.can?(user, "workflow:create", tenant: ws.id)
-      assert Rbac.can?(user, "agent:personal:create", tenant: ws.id)
+      refute Rbac.can?(user, "invitation:create", tenant: ws.id)
     end
 
     test "非成员 → 一律拒绝", %{ws: ws, stranger: stranger} do
-      refute Rbac.can?(stranger, "agent:personal:create", tenant: ws.id)
+      refute Rbac.can?(stranger, "invitation:create", tenant: ws.id)
       refute Rbac.can?(stranger, "workflow:create", tenant: ws.id)
     end
 
     test "无 actor → 拒绝", %{ws: ws} do
-      refute Rbac.can?(nil, "agent:personal:create", tenant: ws.id)
+      refute Rbac.can?(nil, "invitation:create", tenant: ws.id)
     end
   end
 

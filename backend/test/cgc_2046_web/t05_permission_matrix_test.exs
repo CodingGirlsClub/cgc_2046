@@ -3,9 +3,8 @@ defmodule Cgc2046Web.T05PermissionMatrixTest do
   T05 验收(HTTP 集成):权限矩阵逐操作判定 / 审计落表 / 审计查询隔离 / Step 执行交集。
 
   对应 issue #6 验收点 1–4。越权语义:
-  - 公共资源(Workflow/公共 Agent/邀请)越权 → **403**
-  - 个人 Agent 越权 → **404**(读隔离优先,他人不可见即"一律拒绝",
-    防枚举;个人 Agent 的 owner 专属语义见 spec §4)
+  - 公共资源(Workflow/邀请)越权 → **403**
+  - Step 执行交集空 → **403**(角色交集判定,见 spec §4)
   """
 
   use Cgc2046Web.HttpCase, async: true
@@ -71,64 +70,6 @@ defmodule Cgc2046Web.T05PermissionMatrixTest do
         |> post("/api/v1/workspaces/#{ws.id}/workflows", %{"name" => "wf-2"})
 
       assert response(conn, 403)
-    end
-
-    test "公共 Agent: Tutor 创建/编辑 → 201/200;Learner 创建 → 403;Volunteer 删除 → 403;Admin 删除 → 204",
-         %{owner: owner, ws: ws} do
-      tutor = member(ws, "Tutor")
-      learner = member(ws, "Learner")
-      volunteer = member(ws, "Volunteer")
-      admin = member(ws, "Admin")
-
-      # Tutor 创建公共 Agent → 201
-      conn =
-        auth_conn(tutor)
-        |> post("/api/v1/workspaces/#{ws.id}/agents", %{"name" => "tutor-bot", "type" => "public"})
-
-      agent = json_response(conn, 201)["agent"]
-      assert agent["type"] == "public"
-
-      # Tutor 编辑 → 200
-      conn =
-        auth_conn(tutor)
-        |> patch("/api/v1/workspaces/#{ws.id}/agents/#{agent["id"]}", %{"name" => "tutor-bot-2"})
-
-      assert json_response(conn, 200)["agent"]["name"] == "tutor-bot-2"
-
-      # Learner 创建公共 Agent → 403
-      conn =
-        auth_conn(learner)
-        |> post("/api/v1/workspaces/#{ws.id}/agents", %{"name" => "learner-bot", "type" => "public"})
-
-      assert response(conn, 403)
-
-      # Volunteer 删除公共 Agent → 403(删除仅 Owner/Admin)
-      conn = auth_conn(volunteer) |> delete("/api/v1/workspaces/#{ws.id}/agents/#{agent["id"]}")
-      assert response(conn, 403)
-
-      # Admin 删除 → 204
-      conn = auth_conn(admin) |> delete("/api/v1/workspaces/#{ws.id}/agents/#{agent["id"]}")
-      assert response(conn, 204)
-    end
-
-    test "个人 Agent: 成员创建 owner 自动;他人编辑 → 404", %{owner: owner, ws: ws} do
-      learner = member(ws, "Learner")
-      other = member(ws, "Learner")
-
-      # 任何成员可创建个人 Agent,owner 自动为 actor 的 membership
-      conn =
-        auth_conn(learner)
-        |> post("/api/v1/workspaces/#{ws.id}/agents", %{"name" => "my-bot", "type" => "personal"})
-
-      agent = json_response(conn, 201)["agent"]
-      assert agent["owner_id"]
-
-      # 他人编辑 → 404(读隔离:个人 Agent 仅 owner 可见,越权一律拒绝)
-      conn =
-        auth_conn(other)
-        |> patch("/api/v1/workspaces/#{ws.id}/agents/#{agent["id"]}", %{"name" => "hijack"})
-
-      assert response(conn, 404)
     end
 
     test "Step 执行: 成员角色∩Step允许角色交集非空 → 200;交集空 → 403", %{owner: owner, ws: ws} do
