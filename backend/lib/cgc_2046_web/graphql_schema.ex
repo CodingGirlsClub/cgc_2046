@@ -25,5 +25,30 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   mutation do
+    @desc "注册新用户并返回认证 token(全局账号)"
+    field :sign_up, :auth_result do
+      arg(:email, non_null(:string))
+      arg(:password, non_null(:string))
+
+      resolve(&Cgc2046Web.AuthResolver.sign_up/2)
+    end
+
+    @desc "登录并返回认证 token(全局账号)"
+    field :sign_in, :auth_result do
+      arg(:email, non_null(:string))
+      arg(:password, non_null(:string))
+
+      resolve(&Cgc2046Web.AuthResolver.sign_in/2)
+    end
+  end
+
+  object :auth_result do
+    field :token, non_null(:string)
+    field :user, non_null(:user)
+  end
+
+  object :user do
+    field :id, non_null(:id)
+    field :email, non_null(:string)
   end
 end

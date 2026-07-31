@@ -16,6 +16,12 @@ config :cgc_2046, AshPostgres,
   repo: Cgc2046.Repo,
   migrations: true
 
+# JWT 签名密钥(dev/test 用本地默认;生产由 runtime.exs 强制从环境变量读取)
+config :cgc_2046,
+  token_signing_secret:
+    System.get_env("CGC_TOKEN_SIGNING_SECRET") ||
+      "dev-and-test-only-token-signing-secret-change-me"
+
 # Configure the endpoint
 config :cgc_2046, Cgc2046Web.Endpoint,
   url: [host: "localhost"],

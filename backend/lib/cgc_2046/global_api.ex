@@ -21,9 +21,9 @@ defmodule Cgc2046.GlobalApi do
 
   resources do
     # 全局资源在此注册(按票据顺序):
-    # resource Cgc2046.Resources.User
-    # resource Cgc2046.Resources.Identity
-    # resource Cgc2046.Resources.Token
+    resource Cgc2046.Accounts.User
+    resource Cgc2046.Accounts.Token
+    # resource Cgc2046.Resources.Identity(待 OAuth 需求落地)
     # resource Cgc2046.Resources.Workspace
   end
 end

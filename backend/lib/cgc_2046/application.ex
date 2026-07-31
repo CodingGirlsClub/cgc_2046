@@ -10,6 +10,7 @@ defmodule Cgc2046.Application do
     children = [
       Cgc2046Web.Telemetry,
       Cgc2046.Repo,
+      {AshAuthentication.Supervisor, otp_app: :cgc_2046},
       {DNSCluster, query: Application.get_env(:cgc_2046, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Cgc2046.PubSub},
       # Start a worker by calling: Cgc2046.Worker.start_link(arg)

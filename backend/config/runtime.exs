@@ -57,6 +57,17 @@ if config_env() == :prod do
 
   config :cgc_2046, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # JWT 签名密钥:生产环境必须显式提供,禁止使用 dev/test 默认值
+  token_signing_secret =
+    System.get_env("CGC_TOKEN_SIGNING_SECRET") ||
+      raise """
+      environment variable CGC_TOKEN_SIGNING_SECRET is missing.
+      Set it to a long random string used to sign auth tokens (JWT).
+      You can generate one by calling: mix phx.gen.secret
+      """
+
+  config :cgc_2046, token_signing_secret: token_signing_secret
+
   config :cgc_2046, Cgc2046Web.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [

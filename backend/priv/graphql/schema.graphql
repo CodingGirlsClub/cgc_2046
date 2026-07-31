@@ -1,8 +1,27 @@
 schema {
+  mutation: RootMutationType
   query: RootQueryType
 }
 
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
+}
+
+type AuthResult {
+  token: String!
+  user: User!
+}
+
+type User {
+  id: ID!
+  email: String!
+}
+
+type RootMutationType {
+  "注册新用户并返回认证 token(全局账号)"
+  signUp(email: String!, password: String!): AuthResult
+
+  "登录并返回认证 token(全局账号)"
+  signIn(email: String!, password: String!): AuthResult
 }

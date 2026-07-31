@@ -8,11 +8,11 @@ defmodule Cgc2046.TestFixtures do
 
   ## 实现说明(blockers-first)
 
-  T01 仅建立函数**契约**(签名 + 文档),实现体在对应资源落地后填充,
-  以避免提前实现未落地的资源:
+  T01 阶段仅建立函数**契约**(签名 + 文档);T02 落地 `seed_user/1` 与
+  `seed_token/2`,其余实现体在对应资源落地后填充:
 
-  - `seed_user/1` 依赖 User 资源(全局)→ T02 全局账号与认证
-  - `seed_token/2` 依赖认证 token 白名单 → T02 全局账号与认证
+  - `seed_user/1` 依赖 User 资源(全局)→ **T02 已落地**
+  - `seed_token/2` 依赖认证 token 白名单 → **T02 已落地**
   - `seed_workspace/1` 依赖 Workspace 资源 → T03 Workspace 与多租户地基
   - `seed_membership/3` 依赖 WorkspaceMembership 资源 → T04 成员与角色
 
@@ -22,20 +22,37 @@ defmodule Cgc2046.TestFixtures do
   @doc """
   创建一个全局用户(默认 email 唯一)。
 
-  由 T02(全局账号与认证)落地实现:注册用户并返回 `%User{}`。
+  T02 已落地:通过 Password 策略注册用户并返回 `%User{}`。
+
+  ## Options
+  - `:email` - 指定邮箱(默认 `user_<n>@example.com`,保证唯一)
+  - `:password` - 指定密码(默认 `password123`)
   """
-  def seed_user(_opts \\ []) do
-    not_implemented!("seed_user/1", "T02 全局账号与认证")
+  def seed_user(opts \\ []) do
+    email = Keyword.get(opts, :email, "user_#{System.unique_integer([:positive])}@example.com")
+    password = Keyword.get(opts, :password, "password123")
+
+    {:ok, strategy} = AshAuthentication.Info.strategy(Cgc2046.Accounts.User, :password)
+
+    {:ok, user} =
+      AshAuthentication.Strategy.Password.Actions.register(
+        strategy,
+        %{"email" => email, "password" => password, "password_confirmation" => password},
+        []
+      )
+
+    user
   end
 
   @doc """
   为用户签发一个认证 token(白名单模式)。
 
-  由 T02(全局账号与认证)落地实现:返回可放入 `Authorization: Bearer <token>`
-  的 token 字符串。
+  T02 已落地:通过 JWT 签发返回可放入 `Authorization: Bearer <token>`
+  的 token 字符串(白名单模式下 token 自动写入 Token 资源)。
   """
-  def seed_token(_user, _opts \\ []) do
-    not_implemented!("seed_token/2", "T02 全局账号与认证")
+  def seed_token(user, _opts \\ []) do
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user)
+    token
   end
 
   @doc """

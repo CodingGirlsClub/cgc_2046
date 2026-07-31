@@ -1,12 +1,22 @@
 defmodule Cgc2046Web.Router do
   use Cgc2046Web, :router
 
+  import Cgc2046Web.AuthPlug
+
   pipeline :api do
     plug :accepts, ["json"]
   end
 
   pipeline :graphql do
     plug AshGraphql.Plug
+  end
+
+  pipeline :bearer_auth do
+    plug :load_from_bearer
+  end
+
+  pipeline :require_auth do
+    plug Cgc2046Web.RequireAuth
   end
 
   scope "/api", Cgc2046Web do
@@ -16,6 +26,12 @@ defmodule Cgc2046Web.Router do
             Absinthe.Plug,
             [schema: Module.concat(["Cgc2046Web.GraphqlSchema"])],
             alias: false
+  end
+
+  scope "/api/v1", Cgc2046Web do
+    pipe_through [:api, :bearer_auth, :require_auth]
+
+    get "/me", MeController, :show
   end
 
   scope "/api" do

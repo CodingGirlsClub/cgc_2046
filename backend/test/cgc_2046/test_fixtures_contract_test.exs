@@ -27,19 +27,26 @@ defmodule Cgc2046.TestFixturesContractTest do
     end
   end
 
-  describe "未实现时给出明确指引" do
-    test "seed_user 指向 T02" do
-      error = assert_raise RuntimeError, fn -> Cgc2046.TestFixtures.seed_user() end
-
-      assert error.message =~ "T02 全局账号与认证"
+  describe "T02 落地后 seed_user/seed_token 可用" do
+    test "seed_user 创建用户并返回 User 记录" do
+      user = Cgc2046.TestFixtures.seed_user()
+      assert %Cgc2046.Accounts.User{} = user
+      assert to_string(user.email) =~ "@example.com"
     end
 
-    test "seed_token 指向 T02" do
-      error = assert_raise RuntimeError, fn -> Cgc2046.TestFixtures.seed_token(%{}) end
-
-      assert error.message =~ "T02 全局账号与认证"
+    test "seed_user 支持自定义 email" do
+      user = Cgc2046.TestFixtures.seed_user(email: "custom@example.com")
+      assert to_string(user.email) == "custom@example.com"
     end
 
+    test "seed_token 返回可放入 Bearer 头的 token" do
+      user = Cgc2046.TestFixtures.seed_user()
+      token = Cgc2046.TestFixtures.seed_token(user)
+      assert is_binary(token) and byte_size(token) > 0
+    end
+  end
+
+  describe "尚未落地时给出明确指引" do
     test "seed_workspace 指向 T03" do
       error = assert_raise RuntimeError, fn -> Cgc2046.TestFixtures.seed_workspace() end
 

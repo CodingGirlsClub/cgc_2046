@@ -35,3 +35,7 @@ config :phoenix, :plug_init_mode, :runtime
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# 测试环境降低 bcrypt 计算开销(生产环境绝对不要设);见
+# docs/ash-authentication-token-调研.md / 技术调研员报告 §5 测试策略
+config :bcrypt_elixir, log_rounds: 1
