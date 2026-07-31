@@ -66,10 +66,12 @@ defmodule Cgc2046Web.MeController do
   defp executable_steps(user, workspace_id) do
     Step
     |> Ash.Query.load(:roles)
+    |> Ash.Query.load(:workflow)
     |> Ash.read!(tenant: workspace_id, authorize?: false)
     |> Enum.filter(fn step ->
-      allowed_role_ids = Enum.map(step.roles, & &1.id)
-      Rbac.role_intersection?(user, workspace_id, allowed_role_ids)
+      # T08:归档 Workflow 的 Step 不可执行(验收点 6)
+      step.workflow.status != "archived" and
+        Rbac.role_intersection?(user, workspace_id, Enum.map(step.roles, & &1.id))
     end)
     |> Enum.map(fn step ->
       %{

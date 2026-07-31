@@ -67,9 +67,13 @@ defmodule Cgc2046Web.Router do
     get "/workspaces/:workspace_id/audit_logs", AuditLogsController, :workspace_index
 
     # T05 Workflow / Step(spec §4:workflow:create;Step 执行=角色交集非空)
+    # T08:workflows create 升级为 DSL 部署(workflow:deploy,幂等);archive 归档;
+    #      step execute 顺序解锁;step complete 标记完成
     post "/workspaces/:workspace_id/workflows", WorkflowsController, :create
+    post "/workspaces/:workspace_id/workflows/:id/archive", WorkflowsController, :archive
     post "/workspaces/:workspace_id/workflows/:workflow_id/steps", StepsController, :create
     post "/workspaces/:workspace_id/steps/:step_id/execute", StepsController, :execute
+    post "/workspaces/:workspace_id/steps/:step_id/complete", StepsController, :complete
 
     # T05 Agent(个人=owner;公共增删改按权限矩阵)
     post "/workspaces/:workspace_id/agents", AgentsController, :create
