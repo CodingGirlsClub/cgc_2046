@@ -61,14 +61,25 @@ defmodule Cgc2046.TestFixturesContractTest do
     end
   end
 
-  describe "尚未落地时给出明确指引" do
-    test "seed_membership 指向 T04" do
-      error =
-        assert_raise RuntimeError, fn ->
-          Cgc2046.TestFixtures.seed_membership(%{}, %{})
-        end
+  describe "T04 落地后 seed_membership 可用" do
+    test "seed_membership 创建成员并可带角色" do
+      admin = Cgc2046.TestFixtures.seed_platform_admin()
+      ws = Cgc2046.TestFixtures.seed_workspace(owner: admin)
+      user = Cgc2046.TestFixtures.seed_user()
 
-      assert error.message =~ "T04 成员与角色"
+      membership = Cgc2046.TestFixtures.seed_membership(user, ws, roles: ["Learner"])
+
+      assert %Cgc2046.Workspaces.WorkspaceMembership{} = membership
+      assert membership.user_id == user.id
+
+      loaded =
+        Ash.get!(Cgc2046.Workspaces.WorkspaceMembership, membership.id,
+          tenant: ws.id,
+          authorize?: false,
+          load: [:roles]
+        )
+
+      assert Enum.map(loaded.roles, & &1.name) == ["Learner"]
     end
   end
 end

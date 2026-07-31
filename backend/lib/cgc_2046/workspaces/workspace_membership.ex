@@ -1,14 +1,17 @@
 defmodule Cgc2046.Workspaces.WorkspaceMembership do
   @moduledoc """
-  WorkspaceMembership(租户资源,T03 最小骨架)。
+  WorkspaceMembership(租户资源):成员与角色的载体。
 
-  T03 仅落地 attribute 多租户隔离载体:按 `workspace_id` 隔离,查询/写入
-  必须显式 set_tenant(见 docs/multitenancy-调研.md 决策点)。角色/默认
-  模板/多角色并集由 T04(成员与角色)扩展。
+  T03 落地 attribute 多租户隔离骨架;T04 扩展角色关联与租户授权:
+  - `membership_roles` / `roles` 关联(一人多角色)
+  - 读需为成员(MemberOfWorkspace);创建/删除需租户权限 `member:manage`
+    (Owner/Admin)。角色分配通过 MembershipRole 资源进行,同样受
+    `member:manage` 约束。
   """
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
   multitenancy do
@@ -30,11 +33,25 @@ defmodule Cgc2046.Workspaces.WorkspaceMembership do
   relationships do
     belongs_to :workspace, Cgc2046.Workspaces.Workspace,
       attribute_type: :uuid,
+      allow_nil?: false,
       public?: true
 
     belongs_to :user, Cgc2046.Accounts.User,
       attribute_type: :uuid,
+      allow_nil?: false,
       public?: true
+
+    has_many :membership_roles, Cgc2046.Workspaces.MembershipRole,
+      destination_attribute: :membership_id
+
+    many_to_many :roles, Cgc2046.Workspaces.Role,
+      through: Cgc2046.Workspaces.MembershipRole,
+      source_attribute_on_join_resource: :membership_id,
+      destination_attribute_on_join_resource: :role_id
+  end
+
+  identities do
+    identity :unique_user_per_workspace, [:workspace_id, :user_id]
   end
 
   actions do
@@ -43,6 +60,18 @@ defmodule Cgc2046.Workspaces.WorkspaceMembership do
     create :create do
       primary? true
       accept [:user_id]
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if Cgc2046.Rbac.Checks.MemberOfWorkspace
+      forbid_if always()
+    end
+
+    policy action_type([:create, :destroy]) do
+      authorize_if {Cgc2046.Rbac.Checks.HasPermission, permission: "member:manage"}
+      forbid_if always()
     end
   end
 

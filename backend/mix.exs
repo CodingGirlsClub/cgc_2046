@@ -57,6 +57,8 @@ defmodule Cgc2046.MixProject do
       {:ash_graphql, "~> 1.10"},
       {:ash_authentication, "~> 4.14"},
       {:ash_authentication_phoenix, "~> 2.4"},
+      # simple_sat: Ash.Policy.Authorizer 的 SMT 求解器依赖(经 crux),
+      # 用于策略场景可达性求解;Ash 授权(policies)运行时必需。
       {:simple_sat, "~> 0.1"},
       {:cors_plug, "~> 3.0"}
     ]

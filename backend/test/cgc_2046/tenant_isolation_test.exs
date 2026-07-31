@@ -25,22 +25,27 @@ defmodule Cgc2046.TenantIsolationTest do
       ws_a = TestFixtures.seed_workspace(slug: "iso-a", owner: admin)
       ws_b = TestFixtures.seed_workspace(slug: "iso-b", owner: admin)
 
+      # T04 起 WorkspaceMembership 需租户权限 member:manage;admin 是 Owner
+      # (seed_workspace 自动入会),可执行成员管理。无 actor 的裸创建已不再允许。
       {:ok, m_a} =
-        Ash.create(WorkspaceMembership, %{user_id: user_a.id}, tenant: ws_a.id)
+        Ash.create(WorkspaceMembership, %{user_id: user_a.id}, tenant: ws_a.id, actor: admin)
 
       {:ok, m_b} =
-        Ash.create(WorkspaceMembership, %{user_id: user_b.id}, tenant: ws_b.id)
+        Ash.create(WorkspaceMembership, %{user_id: user_b.id}, tenant: ws_b.id, actor: admin)
 
-      # tenant ws_a 只见 ws_a 的 membership
-      assert {:ok, [found_a]} = Ash.read(WorkspaceMembership, tenant: ws_a.id)
-      assert found_a.id == m_a.id
+      # tenant ws_a 只见 ws_a 的 membership(含 admin 的 Owner 成员身份),
+      # 不含 ws_b 的 membership
+      assert {:ok, found_a} = Ash.read(WorkspaceMembership, tenant: ws_a.id, actor: admin)
+      assert Enum.map(found_a, & &1.id) |> Enum.member?(m_a.id)
+      refute Enum.map(found_a, & &1.id) |> Enum.member?(m_b.id)
 
       # tenant ws_b 只见 ws_b 的 membership
-      assert {:ok, [found_b]} = Ash.read(WorkspaceMembership, tenant: ws_b.id)
-      assert found_b.id == m_b.id
+      assert {:ok, found_b} = Ash.read(WorkspaceMembership, tenant: ws_b.id, actor: admin)
+      assert Enum.map(found_b, & &1.id) |> Enum.member?(m_b.id)
+      refute Enum.map(found_b, & &1.id) |> Enum.member?(m_a.id)
 
       # 未指定 tenant → 报错(缺租户上下文)
-      assert {:error, error} = Ash.read(WorkspaceMembership)
+      assert {:error, error} = Ash.read(WorkspaceMembership, actor: admin)
       assert Exception.message(error) =~ "tenant"
     end
 

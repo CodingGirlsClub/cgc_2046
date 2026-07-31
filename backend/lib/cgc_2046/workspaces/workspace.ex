@@ -55,6 +55,11 @@ defmodule Cgc2046.Workspaces.Workspace do
     create :create do
       primary? true
       accept [:slug, :name, :join_policy, :owner_id]
+
+      change after_action(fn _changeset, workspace, _context ->
+               Cgc2046.Rbac.initialize_workspace!(workspace)
+               {:ok, workspace}
+             end)
     end
   end
 

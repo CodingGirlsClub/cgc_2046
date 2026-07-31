@@ -13,10 +13,8 @@ defmodule Cgc2046.TestFixtures do
 
   - `seed_user/1` 依赖 User 资源(全局)→ **T02 已落地**
   - `seed_token/2` 依赖认证 token 白名单 → **T02 已落地**
-  - `seed_workspace/1` 依赖 Workspace 资源 → T03 Workspace 与多租户地基
-  - `seed_membership/3` 依赖 WorkspaceMembership 资源 → T04 成员与角色
-
-  在资源落地前调用会 raise,错误信息指明由哪张票提供实现。
+  - `seed_workspace/1` 依赖 Workspace 资源 → **T03 已落地**
+  - `seed_membership/3` 依赖 WorkspaceMembership 资源 → **T04 已落地**
   """
 
   @doc """
@@ -110,13 +108,38 @@ defmodule Cgc2046.TestFixtures do
   @doc """
   把用户加入 Workspace 并创建 membership(可带角色)。
 
-  由 T04(成员与角色)落地实现:返回 `%WorkspaceMembership{}`。
-  """
-  def seed_membership(_user, _workspace, _opts \\ []) do
-    not_implemented!("seed_membership/3", "T04 成员与角色")
-  end
+  T04 已落地:创建 `%WorkspaceMembership{}`;`:roles` 选项为角色名列表
+  (如 `["Learner"]`),按名查找租户内默认角色并建立 MembershipRole 关联。
+  夹具走 `authorize?: false`(测试数据底座,不依赖具体 actor 授权)。
 
-  defp not_implemented!(fun, ticket) do
-    raise "Cgc2046.TestFixtures.#{fun} 尚未实现:依赖 #{ticket} 落地的资源。"
+  ## Options
+  - `:roles` - 角色名列表,默认 `[]`(仅入会不分配角色)
+  """
+  def seed_membership(user, workspace, opts \\ []) do
+    roles = Keyword.get(opts, :roles, [])
+    workspace_id = workspace.id
+
+    membership =
+      Ash.create!(Cgc2046.Workspaces.WorkspaceMembership, %{user_id: user.id},
+        tenant: workspace_id,
+        authorize?: false
+      )
+
+    all_roles = Ash.read!(Cgc2046.Workspaces.Role, tenant: workspace_id, authorize?: false)
+
+    for role_name <- roles do
+      role =
+        Enum.find(all_roles, fn r -> r.name == role_name end) ||
+          raise "Cgc2046.TestFixtures.seed_membership/3: 角色 #{role_name} 不存在(先 seed_workspace 生成默认模板)"
+
+      Ash.create!(
+        Cgc2046.Workspaces.MembershipRole,
+        %{
+          membership_id: membership.id,
+          role_id: role.id
+        }, tenant: workspace_id, authorize?: false)
+    end
+
+    membership
   end
 end
