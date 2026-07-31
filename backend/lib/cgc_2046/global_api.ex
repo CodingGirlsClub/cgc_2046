@@ -27,5 +27,8 @@ defmodule Cgc2046.GlobalApi do
     resource Cgc2046.Workspaces.Workspace
     # T05 审计:全局资源(不按租户隔离,读隔离走行级 filter)
     resource Cgc2046.Audit.AuditLog
+    # T07 机器/扩展凭证:ApiToken(全局资源,认证需跨租户按 hash 查表;
+    # workspace_id 为普通属性,用于绑定校验与 action 层 RBAC)
+    resource Cgc2046.Workspaces.ApiToken
   end
 end

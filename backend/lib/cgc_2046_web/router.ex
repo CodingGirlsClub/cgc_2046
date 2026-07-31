@@ -16,6 +16,9 @@ defmodule Cgc2046Web.Router do
 
   pipeline :bearer_auth do
     plug :load_from_bearer
+    # T07:JWT 会话认证失败后,尝试 ApiToken 机器凭证(每请求白名单校验,
+    # 撤销/过期即时全局失效;绑定 workspace 不一致 → 403)
+    plug Cgc2046Web.ApiTokenAuth
   end
 
   pipeline :require_auth do
@@ -35,6 +38,11 @@ defmodule Cgc2046Web.Router do
     pipe_through [:api, :bearer_auth, :require_auth]
 
     get "/me", MeController, :show
+
+    # T07 ApiToken 机器凭证(签发 = workspace 成员为自己签发;撤销 = 仅本人)
+    post "/workspaces/:workspace_id/api_tokens", ApiTokensController, :create
+    post "/workspaces/:workspace_id/api_tokens/:id/revoke", ApiTokensController, :revoke
+
     # T06 发现列表(仅 open/request 可见;invite_only 私密)+ 创建
     get "/workspaces", WorkspacesController, :index
     post "/workspaces", WorkspacesController, :create
