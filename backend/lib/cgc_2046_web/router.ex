@@ -1,11 +1,15 @@
 defmodule Cgc2046Web.Router do
   use Cgc2046Web, :router
 
+  import Cgc2046Web.AuthPlug
+
   pipeline :api do
     plug :accepts, ["json"]
   end
 
   pipeline :graphql do
+    plug :load_from_bearer
+    plug :load_actor
     plug AshGraphql.Plug
   end
 
