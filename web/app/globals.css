@@ -201,6 +201,34 @@ body {
     box-shadow: inset 0 0 0 1px var(--line);
   }
 
+  /* #65 成员角色徽章（角色并集展示；owner 强调色 / admin 蓝紫 / member 中性） */
+  .l-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 510;
+    padding: 1px 7px;
+    letter-spacing: 0.02em;
+  }
+  .l-badge-owner {
+    color: var(--accent);
+    background-color: var(--accent-mentionbg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .l-badge-admin {
+    color: var(--status-indigo);
+    background-color: color-mix(in srgb, var(--status-indigo) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-indigo) 35%, transparent);
+  }
+  .l-badge-member {
+    color: var(--ink-2);
+    background-color: var(--soft);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
   .l-codeblock {
     background-color: var(--soft);
     box-shadow: inset 0 0 0 1px var(--line);
