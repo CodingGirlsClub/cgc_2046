@@ -1,21 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import MembersPage from "./page";
-import {
-  MOCK_WORKSPACES,
-  MOCK_MEMBERS,
-  type WorkspaceMember,
-} from "@/lib/workspaces";
+import { MOCK_MEMBERS, MOCK_WORKSPACES, type WorkspaceMember } from "@/lib/workspaces";
 
-/**
- * 成员角色管理页测试（#65）。
- * mock：useRouter/useParams（next/navigation）、isAuthenticated（lib/auth）、
- * fetchWorkspaceMembers / assignMemberRoles（lib/workspaces，保留 MOCK 数据供校验）。
- */
-
-// 稳定 router 引用：避免每次 render 生成新对象导致 useEffect 无限循环
 const { router } = vi.hoisted(() => ({ router: { push: vi.fn(), replace: vi.fn() } }));
-const { replace } = router;
 const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
   isAuthenticated: vi.fn(),
   clearAuthToken: vi.fn(),
@@ -33,10 +21,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => params.value,
 }));
 
-vi.mock("@/lib/auth", () => ({
-  isAuthenticated,
-  clearAuthToken,
-}));
+vi.mock("@/lib/auth", () => ({ isAuthenticated, clearAuthToken }));
 
 vi.mock("@/lib/profile", async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
@@ -49,7 +34,6 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
     ...mod,
     fetchWorkspaceMembers: fetchMembers,
     assignMemberRoles: assignRoles,
-    // #70 QA P1：工作区上下文经 useWorkspaceBySlug → fetchMyWorkspaces 解析
     fetchMyWorkspaces,
   };
 });
@@ -68,8 +52,8 @@ beforeEach(() => {
   });
   fetchMembers.mockResolvedValue(MOCK_MEMBERS.ws_02);
   assignRoles.mockImplementation(
-    async (_wsId: string, membershipId: string, roleNames: string[]) => {
-      const member = MOCK_MEMBERS.ws_02.find((m) => m.membershipId === membershipId);
+    async (_workspaceId: string, membershipId: string, roleNames: string[]) => {
+      const member = MOCK_MEMBERS.ws_02.find((item) => item.membershipId === membershipId);
       if (!member) throw new Error("member not found");
       return { ...member, roles: roleNames } as WorkspaceMember;
     },
@@ -78,104 +62,112 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("成员角色管理页 /w/[slug]/members (#65)", () => {
-  it("未登录：重定向 /login", async () => {
+describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
+  it("未登录：重定向 /login 且不请求成员", async () => {
     isAuthenticated.mockReturnValue(false);
     render(<MembersPage />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(fetchMembers).not.toHaveBeenCalled();
   });
 
-  it("登录后：渲染成员列表（email/身份信息/角色徽章并集）", async () => {
+  it("按设计稿渲染 Workspace 管理壳、成员表和角色并集提示", async () => {
     render(<MembersPage />);
-    expect(await screen.findByText("方伯")).toBeInTheDocument();
-    expect(screen.getByText("fangbo@example.com")).toBeInTheDocument();
-    // 角色并集：方伯 owner + 小美 admin+member；多个成员持 member（并集）
-    expect(screen.getByText("Owner · 所有者")).toBeInTheDocument();
-    expect(screen.getByText("Admin · 管理员")).toBeInTheDocument();
-    expect(screen.getAllByText("Member · 成员").length).toBeGreaterThan(0);
-    // 4 个成员卡片
-    expect(screen.getAllByTestId("member-card")).toHaveLength(4);
-    // membership/user id 展示
-    expect(screen.getByText(/membership wm_0201/)).toBeInTheDocument();
+
+    expect(await screen.findByRole("heading", { name: "成员与角色" })).toBeInTheDocument();
+    expect(screen.getByText("管理工作区成员与角色分配")).toBeInTheDocument();
+    expect(screen.getByText("多角色权限取并集")).toBeInTheDocument();
+    expect(screen.getByText(/租户数据仅在当前 Workspace 内可见/)).toBeInTheDocument();
+    expect(screen.getAllByText("CGC 线上学院").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("linxi@cgc2046.org")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Owner").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Admin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tutor").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Volunteer").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Learner").length).toBeGreaterThan(0);
+    expect(screen.getByText("共 5 位成员")).toBeInTheDocument();
+    expect(screen.getAllByTestId("member-row")).toHaveLength(5);
   });
 
-  it("角色并集展示：同一成员多角色同时出现", async () => {
+  it("角色并集展示：同一成员的多个角色在同一行同时出现", async () => {
     render(<MembersPage />);
-    // header ProfileEntry 也显示当前用户「小美」，限定在成员卡片内查找
-    await waitFor(() => {
-      expect(screen.getAllByTestId("member-card")).toHaveLength(4);
-    });
-    const cards = screen.getAllByTestId("member-card");
-    const card = cards.find((c) => within(c).queryByText("小美")) as HTMLElement;
-    expect(card).toBeDefined();
-    // 小美持 admin+member 两个徽章（同卡片内）
-    expect(within(card).getAllByTestId("role-badge").length).toBe(2);
+    const rows = await screen.findAllByTestId("member-row");
+    const memberRow = rows.find((row) => within(row).queryByText("林溪")) as HTMLElement;
+    expect(memberRow).toBeDefined();
+    expect(within(memberRow).getAllByTestId("role-badge")).toHaveLength(2);
+    expect(within(memberRow).getByText("Owner")).toBeInTheDocument();
+    expect(within(memberRow).getByText("Tutor")).toBeInTheDocument();
   });
 
-  it("权限控制：Owner/Admin（cgc-academy myRoleNames=[admin]）显示分配操作并可保存", async () => {
+  it("U2：Owner 行锁定专门指派，不提供行内 Owner 编辑", async () => {
     render(<MembersPage />);
-    expect(await screen.findByText(/你是 Owner\/Admin，可分配角色/)).toBeInTheDocument();
-    // 每成员都有保存按钮（成员数据异步加载后渲染，等待就绪）
-    const saveButtons = await screen.findAllByRole("button", { name: /保存角色/ });
-    expect(saveButtons).toHaveLength(4);
-    // 切换角色并保存：给方伯加 member（owner+member）
-    const ownerCheckbox = (await screen.findAllByRole("checkbox"))[0];
-    expect(ownerCheckbox).toBeChecked();
-    fireEvent.click(saveButtons[0]);
-    await waitFor(() => expect(assignRoles).toHaveBeenCalled());
-    const [wsId, membershipId, roleNames] = assignRoles.mock.calls[0];
-    expect(wsId).toBe("ws_02");
-    expect(membershipId).toBe("wm_0201");
-    expect(roleNames).toEqual(["owner"]);
+    const ownerRow = (await screen.findAllByTestId("member-row"))[0];
+    const dedicated = within(ownerRow).getByRole("button", { name: /专门指派/ });
+    expect(dedicated).toBeDisabled();
+    expect(dedicated).toHaveAttribute("title", expect.stringContaining("专门指派流程"));
+    expect(within(ownerRow).queryByRole("button", { name: /编辑角色/ })).not.toBeInTheDocument();
   });
 
-  it("权限控制：非 Owner/Admin（cgc-shanghai myRoleNames=[member]）隐藏分配操作", async () => {
+  it("Owner/Admin 可打开非 Owner 行编辑器，选项排除 Owner 并保存整组角色", async () => {
+    render(<MembersPage />);
+    const rows = await screen.findAllByTestId("member-row");
+    const memberRow = rows.find((row) => within(row).queryByText("陈雨")) as HTMLElement;
+    fireEvent.click(within(memberRow).getByRole("button", { name: "编辑角色" }));
+
+    expect(within(memberRow).getByTestId("role-editor")).toBeInTheDocument();
+    expect(within(memberRow).getAllByRole("checkbox")).toHaveLength(4);
+    expect(within(memberRow).queryByLabelText("Owner 角色")).not.toBeInTheDocument();
+
+    // 陈雨当前为 Admin，新增 Tutor 后保存为两角色并集。
+    fireEvent.click(within(memberRow).getByRole("checkbox", { name: "Admin 角色" }));
+    fireEvent.click(within(memberRow).getByRole("checkbox", { name: "Tutor 角色" }));
+    fireEvent.click(within(memberRow).getByRole("button", { name: "保存角色" }));
+    await waitFor(() => expect(assignRoles).toHaveBeenCalledWith("ws_02", "wm_0202", ["tutor"]));
+    expect(within(memberRow).getByText("Tutor")).toBeInTheDocument();
+    expect(within(memberRow).queryByTestId("role-editor")).not.toBeInTheDocument();
+  });
+
+  it("搜索与角色筛选只影响当前表格可见行", async () => {
+    render(<MembersPage />);
+    await screen.findAllByTestId("member-row");
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索姓名或邮箱" }), { target: { value: "linxi" } });
+    expect(screen.getAllByTestId("member-row")).toHaveLength(1);
+    expect(screen.getByText("林溪")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "筛选角色" }), { target: { value: "learner" } });
+    expect(screen.queryAllByTestId("member-row")).toHaveLength(0);
+    expect(screen.getByText("没有匹配的成员")).toBeInTheDocument();
+  });
+
+  it("非 Owner/Admin 只能查看角色，没有编辑操作", async () => {
     params.value = { slug: "cgc-shanghai" };
     fetchMembers.mockResolvedValue(MOCK_MEMBERS.ws_01);
     render(<MembersPage />);
-    expect(await screen.findByText(/仅 Owner\/Admin 可分配角色/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /保存角色/ })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("仅查看")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /编辑角色/ })).not.toBeInTheDocument();
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    // 成员卡片经 fetchWorkspaceMembers 异步加载，等待就绪
-    expect(await screen.findAllByTestId("member-card")).toHaveLength(4);
+    expect(screen.getAllByTestId("member-row")).toHaveLength(4);
     expect(assignRoles).not.toHaveBeenCalled();
   });
 
-  it("#67 入口：提供「权限说明 →」链接到 /w/[slug]/permissions", async () => {
+  it("页签入口：成员选中，权限映射指向 #67，个人资料指向 #69", async () => {
     render(<MembersPage />);
-    const entry = await screen.findByRole("link", { name: /权限说明 →/ });
-    expect(entry).toHaveAttribute("href", "/w/cgc-academy/permissions");
+    expect(await screen.findByRole("link", { name: "权限映射" })).toHaveAttribute(
+      "href",
+      "/w/cgc-academy/permissions",
+    );
+    expect(screen.getByRole("link", { name: "成员与角色" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile");
   });
 
-  it("#69 入口：header 提供个人资料入口链接到 /profile", async () => {
-    render(<MembersPage />);
-    const entry = await screen.findByTestId("profile-entry");
-    expect(entry).toHaveAttribute("href", "/profile");
-  });
-
-  it("未知 slug：展示不存在提示 + 返回工作台", async () => {
+  it("未知 slug：展示不可访问提示和返回工作台", async () => {
     params.value = { slug: "not-exist" };
     render(<MembersPage />);
-    expect(await screen.findByText(/不存在或不可访问/)).toBeInTheDocument();
-    const back = screen.getByRole("link", { name: /← 工作台/ });
-    expect(back).toHaveAttribute("href", "/");
+    expect(await screen.findByText(/不存在或你没有访问权限/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回工作台" })).toHaveAttribute("href", "/");
+    expect(fetchMembers).not.toHaveBeenCalled();
   });
 
-  it("数据经 fetchWorkspaceMembers 获取（mock/真实切换由 lib 层 USE_MOCK 开关决定）", async () => {
-    // 页面始终通过 fetchWorkspaceMembers 取数；mock/真实由 lib 层 USE_MOCK_WORKSPACES 决定。
-    fetchMembers.mockResolvedValue([
-      { membershipId: "wm_real1", userId: "u_r1", email: "real@example.com", roles: ["admin"] },
-    ]);
-    // 切换 slug 触发重新 fetch（新挂载）
-    params.value = { slug: "cgc-shanghai" };
-    render(<MembersPage />);
-    expect(await screen.findAllByText("real@example.com").then((els) => els.length)).toBeGreaterThan(0);
-    expect(fetchMembers).toHaveBeenCalledWith("ws_01");
-  });
-
-  it("真实模式（#70 QA P1）：fetchMyWorkspaces 返回真实 ws（不在 mock），页面按真实数据渲染", async () => {
-    // 复现 QA 场景：真实工作区 slug 不在 MOCK_WORKSPACES 内
+  it("真实 Workspace 上下文仍通过 fetchMyWorkspaces 与成员数据渲染", async () => {
     fetchMyWorkspaces.mockResolvedValue([
       {
         id: "ws_real_9",
@@ -194,21 +186,16 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
     ]);
 
     render(<MembersPage />);
-    // 真实 ws 解析成功：标题展示真实名称，不再提示「不存在或不可访问」
-    expect(await screen.findByText("QA70 真实工作区 / 成员")).toBeInTheDocument();
-    expect(screen.queryByText(/不存在或不可访问/)).not.toBeInTheDocument();
-    // 真实成员列表渲染 + 角色上下文（owner 可分配）
+    expect((await screen.findAllByText("QA70 真实工作区")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("qa.member@example.com")).length).toBeGreaterThan(0);
-    expect(screen.getByText(/你是 Owner\/Admin，可分配角色/)).toBeInTheDocument();
-    expect(fetchMembers).toHaveBeenCalledWith("ws_real_9");
-    // 权限说明入口指向真实 slug
-    expect(screen.getByRole("link", { name: /权限说明 →/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "权限映射" })).toHaveAttribute(
       "href",
       "/w/qa70-owner-ws-999/permissions",
     );
+    expect(fetchMembers).toHaveBeenCalledWith("ws_real_9");
   });
 
-  it("真实模式：fetchMyWorkspaces 返回的 ws 无角色（member 视角）隐藏分配操作", async () => {
+  it("真实 Workspace 的普通成员视角不显示编辑按钮", async () => {
     fetchMyWorkspaces.mockResolvedValue([
       {
         id: "ws_real_m",
@@ -227,16 +214,19 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
     ]);
 
     render(<MembersPage />);
-    expect(await screen.findByText("DBG5 成员工作区 / 成员")).toBeInTheDocument();
-    expect(await screen.findByText(/仅 Owner\/Admin 可分配角色/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /保存角色/ })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("DBG5 成员工作区")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /编辑角色/ })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("仅查看")).length).toBeGreaterThan(0);
   });
 });
 
 describe("成员角色数据源（lib/workspaces）", () => {
-  it("mock 数据：每个 workspace 有成员且角色为并集数组", () => {
+  it("mock 数据包含设计稿所需的成员数量与角色并集", () => {
     expect(MOCK_MEMBERS.ws_01.length).toBeGreaterThan(0);
-    expect(MOCK_MEMBERS.ws_02.length).toBeGreaterThan(0);
-    expect(MOCK_WORKSPACES.find((w) => w.slug === "cgc-academy")?.myRoleNames).toEqual(["admin"]);
+    expect(MOCK_MEMBERS.ws_02).toHaveLength(5);
+    expect(MOCK_MEMBERS.ws_02.map((member) => member.displayName)).toEqual(["林溪", "陈雨", "周宁", "苏曼", "何苗"]);
+    expect(MOCK_MEMBERS.ws_02[0].roles).toEqual(["owner", "tutor"]);
+    expect(MOCK_MEMBERS.ws_02.some((member) => member.roles.length > 1)).toBe(true);
+    expect(MOCK_WORKSPACES.find((workspace) => workspace.slug === "cgc-academy")?.myRoleNames).toEqual(["admin"]);
   });
 });
