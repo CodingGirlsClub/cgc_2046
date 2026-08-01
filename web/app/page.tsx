@@ -1,9 +1,10 @@
 "use client";
 
 import { gql } from "@apollo/client";
+import type { TypedDocumentNode } from "@apollo/client";
 import { useQuery } from "@apollo/client/react";
 
-const PING = gql`
+const PING: TypedDocumentNode<{ ping: string | null }> = gql`
   query Ping {
     ping
   }
