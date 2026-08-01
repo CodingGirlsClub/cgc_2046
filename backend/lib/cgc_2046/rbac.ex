@@ -19,7 +19,9 @@ defmodule Cgc2046.Rbac do
 
   规则：
   - 成员资格内角色取**并集**（多角色并集，任一角色支持即支持，与 #64 `WorkspaceActorIsOwnerOrAdmin` 一致）
-  - 平台管理员拥有全部 workspace 级能力
+  - 平台管理员：对 `view_workspace` / `access_invite_only` 有豁免（非成员也可读，与资源 policy 一致）；
+    管理类能力（`list_members` / `manage_members` / `assign_roles`）**无豁免**，仍按实际 membership 判定
+    （#66 P2 决策：方向①判定侧收敛，#64 定稿语义「平台管理员非成员 canAccess=false」）
   - actor 为 `nil`（匿名）→ 一律 `false`
   - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：三角色均为 false）
 
@@ -49,14 +51,6 @@ defmodule Cgc2046.Rbac do
     :create_workspace
   ]
 
-  @workspace_abilities [
-    :view_workspace,
-    :access_invite_only,
-    :list_members,
-    :manage_members,
-    :assign_roles
-  ]
-
   @manage_abilities [:list_members, :manage_members, :assign_roles]
 
   @doc "全部能力列表（顺序即展示顺序，与前端 #67 表头一致）"
@@ -79,8 +73,14 @@ defmodule Cgc2046.Rbac do
     actor_is_platform_admin?(actor)
   end
 
-  def can?(actor, ability, opts) when ability in @workspace_abilities do
+  # view/access_invite_only：成员或平台管理员（平台管理员非成员也可读，与资源 policy 一致）
+  def can?(actor, ability, opts) when ability in [:view_workspace, :access_invite_only] do
     actor_is_platform_admin?(actor) or workspace_ability?(actor, ability, opts)
+  end
+
+  # 管理类能力：仅按 membership 判定（Owner/Admin 多角色并集），平台管理员无豁免
+  def can?(actor, ability, opts) when ability in @manage_abilities do
+    workspace_ability?(actor, ability, opts)
   end
 
   def can?(_actor, _ability, _opts), do: false
