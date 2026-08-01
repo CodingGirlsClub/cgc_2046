@@ -4,8 +4,14 @@ import {
   GET_WORKSPACE,
   GET_WORKSPACE_BY_ID,
   CREATE_WORKSPACE,
+  ME_WORKSPACES,
+  ASSIGN_ROLES,
   JOIN_POLICY_LABEL,
   JOIN_POLICY_HINT,
+  MEMBERSHIP_ROLES,
+  ROLE_LABEL,
+  ROLE_LABEL_ZH,
+  canAssignRoles,
 } from "./workspace";
 
 describe("workspace GraphQL 契约（对齐 #62 schema）", () => {
@@ -45,5 +51,46 @@ describe("join_policy 展示辅助", () => {
     expect(JOIN_POLICY_HINT.open).toBe("公开直接加入");
     expect(JOIN_POLICY_HINT.request).toBe("公开申请审批");
     expect(JOIN_POLICY_HINT.invite_only).toBe("私密仅邀请");
+  });
+});
+
+describe("#64/#65 成员角色契约", () => {
+  it("ME_WORKSPACES：可进入工作台列表含 #64 计算字段", () => {
+    const doc = print(ME_WORKSPACES);
+    expect(doc).toContain("query MeWorkspaces");
+    expect(doc).toContain("meWorkspaces {");
+    expect(doc).toContain("myRoleNames");
+    expect(doc).toContain("myMembershipId");
+    expect(doc).toContain("canAccess");
+  });
+
+  it("ASSIGN_ROLES：id + roleNames 输入，返回 WorkspaceMembership/errors", () => {
+    const doc = print(ASSIGN_ROLES);
+    expect(doc).toContain("mutation AssignRoles($id: ID!, $input: AssignRolesInput!)");
+    expect(doc).toContain("assignRoles(id: $id, input: $input)");
+    expect(doc).toContain("result {");
+    expect(doc).toContain("workspaceId");
+    expect(doc).toContain("userId");
+    expect(doc).toContain("errors {");
+  });
+
+  it("角色模型：owner/admin/member 标签齐全", () => {
+    expect(MEMBERSHIP_ROLES).toEqual(["owner", "admin", "member"]);
+    expect(ROLE_LABEL.owner).toBe("Owner");
+    expect(ROLE_LABEL.admin).toBe("Admin");
+    expect(ROLE_LABEL.member).toBe("Member");
+    expect(ROLE_LABEL_ZH.owner).toBe("所有者");
+    expect(ROLE_LABEL_ZH.admin).toBe("管理员");
+    expect(ROLE_LABEL_ZH.member).toBe("成员");
+  });
+
+  it("canAssignRoles：Owner/Admin 可分配，member/无角色不可", () => {
+    expect(canAssignRoles(["owner"])).toBe(true);
+    expect(canAssignRoles(["admin"])).toBe(true);
+    expect(canAssignRoles(["owner", "admin", "member"])).toBe(true);
+    expect(canAssignRoles(["member"])).toBe(false);
+    expect(canAssignRoles([])).toBe(false);
+    expect(canAssignRoles(null)).toBe(false);
+    expect(canAssignRoles(undefined)).toBe(false);
   });
 });
