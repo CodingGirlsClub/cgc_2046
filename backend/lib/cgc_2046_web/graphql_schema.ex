@@ -54,8 +54,51 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/avatarUrl/isPlatformAdmin"
+    field :me, :user do
+      resolve(fn _, _, %{context: context} ->
+        case context[:actor] do
+          nil -> {:error, "unauthorized"}
+          actor -> {:ok, actor}
+        end
+      end)
+    end
   end
 
   mutation do
+    @desc "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
+    field :update_profile, :user do
+      arg(:input, non_null(:update_profile_input))
+
+      resolve(fn _, %{input: input}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, "unauthorized"}
+
+          actor ->
+            attrs =
+              input
+              |> Map.take([:display_name, :avatar_url])
+              |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+              |> Map.new()
+
+            case Ash.update(actor, attrs, action: :update_profile, actor: actor) do
+              {:ok, user} ->
+                {:ok, user}
+
+              {:error, error} ->
+                message = Exception.message(Ash.Error.to_error_class(error))
+                {:error, message}
+            end
+        end
+      end)
+    end
+  end
+
+  input_object :update_profile_input do
+    @desc "updateProfile 输入（#68）：displayName 必填，avatarUrl 可选"
+    field :display_name, non_null(:string)
+    field :avatar_url, :string
   end
 end
