@@ -223,7 +223,18 @@ export async function assignMemberRoles(
   if (!result) {
     const msg = data?.assignRoles?.errors?.[0]?.message ?? "assignRoles failed";
     throw new Error(msg);
-  }  return {
+  }
+  return mapAssignRolesResult(result);
+}
+
+/**
+ * 将后端 assignRoles 返回的 WorkspaceMembership 映射为前端成员条目。
+ * #65 review 修复：selection 含 roles{id,name}，保存后回填非空（不再显示 []）。
+ */
+export function mapAssignRolesResult(
+  result: WorkspaceMembership,
+): WorkspaceMember {
+  return {
     membershipId: result.id,
     userId: result.userId,
     email: result.userId,

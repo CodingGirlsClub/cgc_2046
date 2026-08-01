@@ -159,6 +159,9 @@ export default function WorkspaceMembersPage() {
                   我的角色：{ws.myRoleNames.map((r) => ROLE_LABEL_ZH[r]).join(" + ")}
                 </span>
               )}
+              <Link href={`/w/${slug}/permissions`} className="l-chip l-chip-link">
+                权限说明 →
+              </Link>
             </div>
 
             {errorMsg && (
