@@ -1,0 +1,47 @@
+@startuml template-parameterization
+' ============================================================
+' L3 - 模板参数化：run input 注入（verify_8 D-A2b PASS）
+' 事实来源：docs/04-引擎验证/poc-验证报告.md §9.7（D-A2b）
+'   + poc/lib/poc/actions/research.ex（CreateOutline /
+'   PrepareRecruitMaterials / OpenQnA schema 均 required）
+' 机制：引擎没有内建占位符/模板变量替换——参数化靠运行期输入注入：
+'   run input 作为 signal data 传入 → SignalFact.from_signal 转 Runic
+'   Fact → ActionNode 执行时把 fact value merge 进 node params →
+'   Jido Action run(params) 从 params 读取 course_id/event_id。
+' ============================================================
+title 模板参数化机制（L3）— run input 注入，无占位符
+skinparam backgroundColor white
+
+' ---------------- 数据流（无占位符替换） ----------------
+package "参数化数据流（D-A2b）" #E8F0FE {
+    rectangle "event.launched 信号\ndata = %{key, course_id, event_id,\ntitle, research_requirements}" as INPUT
+    rectangle "SignalFact.from_signal\n→ Runic Fact\n(value = signal.data)" as FACT
+    rectangle "ActionNode 执行\nfact value merge 进 node params" as MERGE
+    rectangle "Jido Action run(params, ctx)\nschema: course_id/event_id required\nCreateOutline / PrepareRecruitMaterials / OpenQnA" as ACTION
+    INPUT -down-> FACT : signal data
+    FACT -down-> MERGE
+    MERGE -down-> ACTION : params 注入
+}
+
+' ---------------- 同一定义，两条实例各自按输入产出 ----------------
+package "POC 实证：同一定义，定向产物（D-A2b PASS）" #F0FDE8 {
+    rectangle "实例 course_1\ninput: course_id=course_1, title=公文写作训练营" as C1
+    rectangle "实例 course_2\ninput: course_id=course_2, title=AI 赋能教研" as C2
+    rectangle "产物 course_1\n【course_1】招生开启，欢迎报名" as O1
+    rectangle "产物 course_2\n【course_2】招生开启，欢迎报名" as O2
+    C1 -down-> O1 : CreateOutline / PrepareRecruitMaterials\n按输入生成定向物料文案
+    C2 -down-> O2 : CreateOutline / PrepareRecruitMaterials\n按输入生成定向物料文案
+}
+
+note bottom
+  **设计影响（教研 workflow §2.3）**：
+  - 教研「大纲设计/招募物料/答疑」Action 直接声明 course_id/event_id
+    为必填 schema 字段（verify_8 源码：CreateOutline/
+    PrepareRecruitMaterials/OpenQnA schema 均 required）
+  - Event/Course 上下文作为 run input 注入即可，**无需**为每个 Event
+    复制 Definition
+  - 若未来出现"运行期按配置改写 workflow 结构"需求：用 Workflow.merge/2
+    组合片段（编译期模板组合）或业务层参数化，勿期望引擎提供模板变量
+end note
+
+@enduml

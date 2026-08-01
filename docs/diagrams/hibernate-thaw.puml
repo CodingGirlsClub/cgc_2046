@@ -1,0 +1,43 @@
+@startuml hibernate-thaw
+' ============================================================
+' L3 - waiting 持久化 hibernate/thaw 机制（POC-2 G1 PASS）
+' 事实来源：docs/04-引擎验证/poc-验证报告.md §9.6 G1 + 报名设计 §3.3
+' 机制：waiting 挂起时落 checkpoint（workflow state + thread pointer
+'   %{id,rev}），thaw 时 rehydrate 完整 journal（rev 校验，不匹配报
+'   :thread_mismatch）；恢复期间到达信号不丢不重。
+' 核心 API：Jido.Agent.InstanceManager + Jido.Persist.hibernate/thaw
+' ============================================================
+title waiting 持久化 hibernate / thaw（L3）— POC-2 G1 PASS
+skinparam backgroundColor white
+
+    participant "WorkflowRun（AgentServer 实例）" as R
+    participant "Jido.Storage（Checkpoint + Thread journal）" as S
+    participant "人（表单/OpenClacky）" as P
+
+    Note over R: 执行到人工节点，置 waiting
+    R->>R: SignalMatch 挂起监听
+    R->>S: hibernate：落 checkpoint\n（workflow state + :__strategy__\nthread 只存 pointer %{id,rev}）
+    Note over R: 进程被回收（释放资源，长等待不占资源）
+
+    Note over S: 信号到达前可任意时长（审批可能数天）
+
+    P->>R: 发 Signal（enrollment.approved / research.question ...）
+    R->>S: thaw：读 checkpoint\nrehydrate 完整 journal\n（rev 校验，不匹配报 :thread_mismatch）
+    R->>R: SignalMatch 校验并放行
+    R->>R: 继续下游 Step（不丢不重）
+    Note over R: 可再次 hibernate（循环 2 周期正确，A5 PASS）
+
+note bottom
+  **POC-2 G1 关键断言（全 PASS）**：
+  - A1：waiting 挂起后 checkpoint 持久化 workflow 状态，thread 不内联
+  - A2：thaw 后 workflow 状态完整恢复（status/ran_nodes/pending 保留）
+  - A3：恢复后 feed 审批信号 → 放行 → create/notify 完成
+  - A4：恢复期间到达信号不丢失、不重复执行（幂等）
+  - A5：循环 2 周期（hibernate→thaw→放行）仍正确
+  **实现**：InstanceManager（keyed singleton + storage 备份）；
+  InstanceManager.stop → clean shutdown → 自动 Persist.hibernate；
+  恢复源 = checkpoint + thread journal（三表：checkpoints/threads/thread_meta）。
+  **未覆盖**：deadline 到点唤醒 → cancel 路径（🟡 待 v1 补集成测试）。
+end note
+
+@enduml

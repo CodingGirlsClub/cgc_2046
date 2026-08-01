@@ -1,0 +1,51 @@
+@startuml workflow-sponsorship
+' ============================================================
+' L2 - 赞助 Workflow DAG（type=sponsorship）
+' 事实来源：docs/01-定稿设计/赞助workflow详细设计.md v1.1 §2.1/§2.2
+' 说明：与报名 request 策略同构（审批两段式）；两级赞助 =
+'   Event 级（单场）+ Workspace 级（长期）；v1 只做意向+审批+权益
+'   生效，不收款（§3.3 资金边界）。
+' ============================================================
+title 赞助 Workflow（L2）— 审批两段式
+skinparam backgroundColor white
+
+' ---------------- 赞助段（Intent 段，Event 级与 Workspace 级共用） ----------------
+partition "赞助段（Intent 段，Event 级与 Workspace 级共用）" #E8F0FE {
+    start
+    :S1 人工步骤：赞助意向提交\nSignalMatch: sponsorship.intent\nStepRole: anyone（公开入口，未登录先注册全局账号）;
+    :S2 自动步骤：输入校验 validate_intent\n（level 必填 / 联系方式必填 /\nsponsorship_enabled = true / 唯一性预检）;
+    if (S3 门控/分支：赞助级别) then (event)
+        :S4 自动步骤：Event 校验 check_event\n（Event 存在 / enabled / 未过 sponsorship_deadline）;
+    else (workspace)
+        :S5 自动步骤：Workspace 校验 check_workspace\n（Workspace 存在 / enabled）;
+    endif
+    :P1 自动步骤：持久化 pending\npersist_sponsorship\n（同步创建 Sponsorship= pending，权益不生效\n唯一索引 (level, target_id, sponsor_user_id)）;
+    :停住：waiting 等审批信号\n（等审批段，hibernate）;
+    stop
+}
+
+' ---------------- 审批段（Approval 段，两级共用，参数化审批目标） ----------------
+partition "审批段（Approval 段，两级共用）" #F0FDE8 {
+    start
+    :A1 人工信号门控\nSignalMatch: sponsorship.approved / .rejected\n（网站后台审批页：赞助管理 → pending 列表\nEvent 级 = Owner/Admin；Workspace 级 = 仅 Owner）;
+    if (审批结果) then (approved)
+        :A2 自动步骤：approval_gate\n读回 DB pending Sponsorship 校验\n（仍 pending / 目标有效 / 审批人有权限）;
+        :A3 自动步骤：activate_sponsorship\npending→active 权益生效\n（v1 不限额；tier.limit 二期）\n记 approved_by / approved_at;
+        :A5 自动步骤：发异步 Signal\nsponsorship.active\n（权益展示更新 / 通知 / 财务登记 v1 可选）;
+        stop
+    else (rejected)
+        :A4 自动步骤：reject_sponsorship\npending→rejected，run 终态 failed;
+        stop
+    endif
+}
+
+note right
+  **与报名审批段的差异**：报名 A3 = pending→confirmed 扣名额（并发约束）；
+  赞助 A3 = pending→active 生效权益（无并发扣减；幂等点在"同一 sponsor
+  不重复生效"）。两级赞助流程差异仅审批目标与权限范围不同（用 level
+  参数化审批目标，不拆两个 workflow）。
+  **v1 资金边界**：只做意向 + 审批 + 权益生效，不收款（amount 仅登记）；
+  支付/开票 = 二期（状态机插 payment_pending → paid）。
+end note
+
+@enduml

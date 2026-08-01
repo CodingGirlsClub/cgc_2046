@@ -1,0 +1,39 @@
+@startuml workflow-invitation
+' ============================================================
+' L2 - 邀请 Workflow DAG（type=speaker_invitation）
+' 事实来源：docs/01-定稿设计/邀请workflow详细设计.md v1.1 §2.1/§2.2
+' 说明：接受/拒绝 = 同一决策点互斥双分支（单节点双信号）；
+'   Speaker 必须全局账号（接受时注册/登录，拍板 #1）；
+'   材料产出落 WorkflowRun.facts（用户侧 save_step_output）。
+' ============================================================
+title 邀请 Workflow（L2）— 接受/拒绝双分支 + 材料产出
+skinparam backgroundColor white
+
+' ---------------- 邀请段（Invitation 段，创建 + 等待 Speaker 决策） ----------------
+partition "邀请段（Invitation 段）" #E8F0FE {
+    start
+    :S1 自动步骤：创建 SpeakerInvitation\ncreate_invitation → ash_jido\n（Owner 后台表单；status=invited\n生成一次性 token_hash；\n唯一性 (event_id, speaker_email) 未终态）;
+    :S2 人工信号门控\nSignalMatch: speaker.accepted / speaker.declined\n（Speaker 打开邀请链接 → 登录/注册全局账号\n→ 接受 / 婉拒；token 校验）;
+    if (信号类型) then (accepted)
+        :A1 自动步骤：accept_invitation\ninvited→accepted\ntoken 置失效（一次性）\n记 accepted_by / accepted_at;
+        :M1 自动步骤：分享材料产出 produce_materials\n（落 WorkflowRun.facts，用户侧 save_step_output\n或网站表单上传；等待 speaker.materials_ready）;
+        :M2 自动步骤：标记完成 complete_speaking\naccepted→completed\n发异步 Signal speaker.completed\n（通知/归档；run succeeded）;
+        stop
+    else (declined)
+        :R1 自动步骤：decline_invitation\ninvited→declined\ntoken 置失效\nrun 终态 failed;
+        stop
+    endif
+}
+
+note right
+  **凭据对比（关键）**：
+  - 报名 invite_only = 共享批次码 + quota（一对多，InviteBatch）
+  - Speaker 邀请 = 逐人 token（一对一、一次性，accept/decline 后失效）
+  **双分支 vs 拆段**：接受/拒绝是同一决策点的互斥双分支，Workflow 层
+  单 run 可表达（POC §3.2 PASS）；Agent 层需拆段（§3.2，v1 主路径
+  = Workflow 层）。
+  v1 不拆独立分享 workflow（拍板 #4）：材料产出内嵌 M1，
+  保留 speaker.accepted 触发扩展点。
+end note
+
+@enduml

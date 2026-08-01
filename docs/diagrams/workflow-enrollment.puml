@@ -1,0 +1,57 @@
+@startuml workflow-enrollment
+' ============================================================
+' L2 - 报名 Workflow DAG（type=enrollment）
+' 事实来源：docs/01-定稿设计/报名workflow详细设计.md v1.3 §2.1/§2.2
+' 说明：request 策略必须 审批两段式（报名段 + 审批段），
+'   规避 Agent 层 join 双信号死锁（POC §3.3，规避 PASS §3.4）。
+' ============================================================
+title 报名 Workflow（L2）— 审批两段式
+skinparam backgroundColor white
+
+' ---------------- 报名段（Registration 段，所有策略） ----------------
+partition "报名段（Registration 段，所有策略）" #E8F0FE {
+    start
+    :S1 人工步骤：表单提交\nSignalMatch: enrollment.submitted\nStepRole: anyone（公开报名）;
+    :S2 自动步骤：输入校验\nvalidate_submission\n（schema / 已登录 / event 状态 open / 唯一性预检）;
+    if (S3 门控/分支：报名策略 enrollment_policy) then (open)
+        :S4 自动步骤：名额检查 check_capacity\n（预检，最终原子性由 S7 兜底）;
+    elseif (request) then
+        :P1 自动步骤：持久化 pending\npersist_pending\n（同步创建 Enrollment= pending，不占名额）;
+        :停住：waiting 等审批信号\n（等审批段，hibernate）;
+        stop
+    elseif (invite_only) then
+        :S6 自动步骤：邀请凭据校验 + 配额扣减\n（InviteBatch 存在/未过期/剩余配额>0\n→ 原子扣减 remaining_quota）;
+        :S4 自动步骤：名额检查 check_capacity;
+    endif
+    :S7 自动步骤：同步创建 Enrollment\ncreate_enrollment → ash_jido\n（status=confirmed，事务内原子扣名额\n唯一索引 (event_id,user_id) 兜底）;
+    :S8 自动步骤：发异步 Signal\nenrollment.completed\n（Signal Bus 异步投递订阅方）;
+    stop
+}
+
+' ---------------- 审批段（Approval 段，仅 request 策略） ----------------
+partition "审批段（Approval 段，仅 request 策略）" #F0FDE8 {
+    start
+    :A1 人工信号门控\nSignalMatch: enrollment.approved / .rejected\n（网站后台审批页：Owner/Admin 通过/拒绝）;
+    if (审批结果) then (approved)
+        :A2 自动步骤：approval_gate\n读回 DB pending Enrollment 校验\n（仍 pending / event open / 未过 deadline / 审批人有权限）;
+        :A3 自动步骤：confirm_enrollment\npending→confirmed，事务内原子扣名额\n记 approved_by / approved_at;
+        :A5 自动步骤：发异步 Signal\nenrollment.completed;
+        stop
+    else (rejected)
+        :A4 自动步骤：reject_enrollment\npending→rejected，run 终态 failed;
+        stop
+    endif
+}
+
+note right
+  **为什么拆两段（POC 实证）**：request 策略含两个人工信号等待
+  （报名 enrollment.submitted + 审批 enrollment.approved/rejected）。
+  jido_runic 1.0 Agent 策略(auto) 下单 workflow 内 join 等两个异步
+  信号会死锁（ran_nodes 过滤缺陷，POC §3.3 双向证明）；
+  审批两段式规避 PASS（POC §3.4）。
+  Enrollment 先落 DB（pending）停住 → 审批信号触发独立分支读回持久化结果。
+  幂等三层：request_id + 业务唯一索引 + signal idempotency_key
+  （承载 = Postgres 唯一约束 / Redis，勿用 action 进程 ETS）。
+end note
+
+@enduml
