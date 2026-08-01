@@ -18,8 +18,21 @@ import type { TypedDocumentNode } from "@apollo/client";
 
 export type JoinPolicy = "open" | "request" | "invite_only";
 
-/** 成员角色（#64 角色模型：owner/admin/member，多角色并集） */
-export type MembershipRoleName = "owner" | "admin" | "member";
+/**
+ * 成员角色名。
+ *
+ * #64 的早期 API 只 seed 了 owner/admin/member；Slice A 的正式领域设计
+ * 将 Role 定义为 Workspace 内可扩展实体，并约定默认模板为
+ * Owner/Admin/Tutor/Volunteer/Learner。前端因此同时识别两套名称：旧的
+ * member 仍可兼容读取，设计稿中的四个非 Owner 角色可直接展示与编辑。
+ */
+export type MembershipRoleName =
+  | "owner"
+  | "admin"
+  | "tutor"
+  | "volunteer"
+  | "learner"
+  | "member";
 
 export interface Workspace {
   id: string;
@@ -234,12 +247,18 @@ export const MEMBERSHIP_ROLES: MembershipRoleName[] = ["owner", "admin", "member
 export const ROLE_LABEL: Record<MembershipRoleName, string> = {
   owner: "Owner",
   admin: "Admin",
+  tutor: "Tutor",
+  volunteer: "Volunteer",
+  learner: "Learner",
   member: "Member",
 };
 
 export const ROLE_LABEL_ZH: Record<MembershipRoleName, string> = {
   owner: "所有者",
   admin: "管理员",
+  tutor: "教练",
+  volunteer: "志愿者",
+  learner: "学员",
   member: "成员",
 };
 
@@ -247,6 +266,9 @@ export const ROLE_LABEL_ZH: Record<MembershipRoleName, string> = {
 export const ROLE_BADGE_CLASS: Record<MembershipRoleName, string> = {
   owner: "l-badge l-badge-owner",
   admin: "l-badge l-badge-admin",
+  tutor: "l-badge l-badge-tutor",
+  volunteer: "l-badge l-badge-volunteer",
+  learner: "l-badge l-badge-learner",
   member: "l-badge l-badge-member",
 };
 
