@@ -545,6 +545,12 @@ type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
 
+  "角色权限矩阵（#66 Rbac）：三角色 × 六能力，对齐前端 #67 权限表（需登录）"
+  permissionMatrix: PermissionMatrixPayload
+
+  "当前用户在指定工作台的能力列表（#66 Rbac 动态判定，需登录）"
+  myAbilities(workspaceId: ID!): MyAbilitiesPayload
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -624,3 +630,27 @@ character sequences. The Json type is most often used to represent a free-form
 human-readable json string.
 """
 scalar Json
+
+type PermissionAbilities {
+  viewWorkspace: Boolean!
+  accessInviteOnly: Boolean!
+  listMembers: Boolean!
+  manageMembers: Boolean!
+  assignRoles: Boolean!
+  createWorkspace: Boolean!
+}
+
+type PermissionMatrixRow {
+  "角色名：owner \/ admin \/ member"
+  name: String!
+
+  abilities: PermissionAbilities!
+}
+
+type PermissionMatrixPayload {
+  roles: [PermissionMatrixRow!]!
+}
+
+type MyAbilitiesPayload {
+  abilities: [String!]!
+}

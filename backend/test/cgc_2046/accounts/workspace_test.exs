@@ -3,6 +3,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.Accounts.WorkspaceMembership
   alias AshAuthentication.Info, as: AuthInfo
 
   @admin_email "admin@example.com"
@@ -41,6 +42,23 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   defp normal_user do
     register_user(@normal_email, @password)
+  end
+
+  # 以 owner/admin 身份把一个用户拉进工作台（测试直接建成员资格）
+  defp add_member(workspace, user, actor, role_names) do
+    {:ok, membership} =
+      WorkspaceMembership
+      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
+      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
+
+    if role_names != [] do
+      assert {:ok, _membership} =
+               membership
+               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
+               |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
+    end
+
+    membership
   end
 
   describe "create workspace" do
@@ -213,6 +231,72 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
                Workspace
                |> Ash.Query.for_read(:get_by_slug, %{slug: "secret-ws"})
                |> Ash.read_one()
+    end
+
+    test "invite_only workspace: outsider cannot read (null/forbidden)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "invite-read-only-#{System.unique_integer([:positive])}",
+          name: "Invite Only",
+          join_policy: :invite_only
+        })
+        |> Ash.create(actor: admin)
+
+      outsider = register_user("invite-out@example.com", @password)
+
+      result =
+        Workspace
+        |> Ash.Query.for_read(:get_by_slug, %{slug: workspace.slug})
+        |> Ash.read_one(actor: outsider)
+
+      # 非成员读不到 invite_only：要么被过滤为 nil，要么被 forbid
+      assert result == {:ok, nil} or match?({:error, %Ash.Error.Forbidden{}}, result)
+    end
+
+    test "invite_only workspace: member can read" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "invite-read-member-#{System.unique_integer([:positive])}",
+          name: "Invite Only",
+          join_policy: :invite_only
+        })
+        |> Ash.create(actor: admin)
+
+      member = register_user("invite-member@example.com", @password)
+      add_member(workspace, member, admin, [:member])
+
+      assert {:ok, fetched} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: workspace.slug})
+               |> Ash.read_one(actor: member)
+
+      assert fetched.id == workspace.id
+    end
+
+    test "invite_only workspace: platform admin can read" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "invite-read-admin-#{System.unique_integer([:positive])}",
+          name: "Invite Only",
+          join_policy: :invite_only
+        })
+        |> Ash.create(actor: admin)
+
+      assert {:ok, fetched} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: workspace.slug})
+               |> Ash.read_one(actor: admin)
+
+      assert fetched.id == workspace.id
     end
   end
 

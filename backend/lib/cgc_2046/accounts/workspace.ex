@@ -194,8 +194,10 @@ defmodule Cgc2046.Accounts.Workspace do
     end
 
     # invite_only：仅成员可读；平台管理员可读全部
+    # 注意：relates_to_actor_via 需要完整路径 [:memberships, :user]，
+    # 否则 Ash 生成 membership.id == actor.id（主键直匹配）导致成员读不到（#66 review 发现）
     policy [action_type(:read), expr(join_policy == :invite_only)] do
-      authorize_if(relates_to_actor_via(:memberships))
+      authorize_if(relates_to_actor_via([:memberships, :user]))
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
   end
