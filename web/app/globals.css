@@ -201,6 +201,14 @@ body {
     box-shadow: inset 0 0 0 1px var(--line);
   }
 
+  /* #67 权限入口 chip（可点击链接） */
+  .l-chip-link {
+    color: var(--accent);
+    text-decoration: none;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .l-chip-link:hover { background-color: var(--accent-mentionbg); color: var(--accent); }
+
   /* #65 成员角色徽章（角色并集展示；owner 强调色 / admin 蓝紫 / member 中性） */
   .l-badge {
     display: inline-flex;
