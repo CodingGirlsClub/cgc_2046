@@ -121,6 +121,12 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
     expect(assignRoles).not.toHaveBeenCalled();
   });
 
+  it("#67 入口：提供「权限说明 →」链接到 /w/[slug]/permissions", async () => {
+    render(<MembersPage />);
+    const entry = await screen.findByRole("link", { name: /权限说明 →/ });
+    expect(entry).toHaveAttribute("href", "/w/cgc-academy/permissions");
+  });
+
   it("未知 slug：展示不存在提示 + 返回工作台", async () => {
     params.value = { slug: "not-exist" };
     render(<MembersPage />);
