@@ -49,6 +49,8 @@ export interface WorkspaceMember {
   email?: string;
   /** 展示名（mock 附加；真实数据暂无） */
   displayName?: string;
+  /** 加入时间（设计稿展示字段；真实 GraphQL 未返回时由页面显示 —） */
+  joinedAt?: string;
   /** 角色并集（同一成员可持多 role；与后端 multitenancy 多角色并集语义一致） */
   roles: MembershipRoleName[];
 }
@@ -100,36 +102,44 @@ export const MOCK_WORKSPACES: WorkspaceListItem[] = [
 
 /**
  * mock 成员数据：按 workspaceId 组织。
- * 角色并集演示：同一成员持有多个角色（owner+admin、admin+member 等）。
+ * 角色并集演示：同一成员持有多个角色（Owner+Tutor、Tutor+Volunteer 等）。
  */
 export const MOCK_MEMBERS: Record<string, WorkspaceMember[]> = {
   ws_01: [
-    { membershipId: "wm_0101", userId: "u_0101", email: "xiaomei@example.com", displayName: "小美", roles: ["owner"] },
-    { membershipId: "wm_0102", userId: "u_0102", email: "cheng@example.com", displayName: "阿成", roles: ["admin", "member"] },
-    { membershipId: "wm_0103", userId: "u_0103", email: "lucy@example.com", displayName: "Lucy", roles: ["member"] },
-    { membershipId: "wm_0104", userId: "u_0104", email: "frank@example.com", displayName: "Frank", roles: ["member"] },
+    { membershipId: "wm_0101", userId: "u_0101", email: "xiaomei@example.com", displayName: "小美", joinedAt: "2024-03-12", roles: ["owner"] },
+    { membershipId: "wm_0102", userId: "u_0102", email: "cheng@example.com", displayName: "阿成", joinedAt: "2024-04-08", roles: ["admin", "member"] },
+    { membershipId: "wm_0103", userId: "u_0103", email: "lucy@example.com", displayName: "Lucy", joinedAt: "2025-01-16", roles: ["member"] },
+    { membershipId: "wm_0104", userId: "u_0104", email: "frank@example.com", displayName: "Frank", joinedAt: "2025-05-21", roles: ["member"] },
   ],
   ws_02: [
-    { membershipId: "wm_0201", userId: "u_0201", email: "fangbo@example.com", displayName: "方伯", roles: ["owner"] },
-    { membershipId: "wm_0202", userId: "u_0202", email: "xiaomei@example.com", displayName: "小美", roles: ["admin", "member"] },
-    { membershipId: "wm_0203", userId: "u_0203", email: "lucy@example.com", displayName: "Lucy", roles: ["member"] },
-    { membershipId: "wm_0204", userId: "u_0204", email: "cheng@example.com", displayName: "阿成", roles: ["member"] },
+    { membershipId: "wm_0201", userId: "u_0201", email: "linxi@cgc2046.org", displayName: "林溪", joinedAt: "2024-03-12", roles: ["owner", "tutor"] },
+    { membershipId: "wm_0202", userId: "u_0202", email: "chenyu@cgc2046.org", displayName: "陈雨", joinedAt: "2024-04-08", roles: ["admin"] },
+    { membershipId: "wm_0203", userId: "u_0203", email: "zhouning@cgc2046.org", displayName: "周宁", joinedAt: "2025-01-16", roles: ["tutor", "volunteer"] },
+    { membershipId: "wm_0204", userId: "u_0204", email: "suman@cgc2046.org", displayName: "苏曼", joinedAt: "2025-05-21", roles: ["volunteer"] },
+    { membershipId: "wm_0205", userId: "u_0205", email: "hemiao@cgc2046.org", displayName: "何苗", joinedAt: "2026-07-30", roles: ["learner"] },
   ],
   ws_03: [
-    { membershipId: "wm_0301", userId: "u_0301", email: "sponsor-a@example.com", displayName: "赞助商 A", roles: ["member"] },
-    { membershipId: "wm_0302", userId: "u_0302", email: "sponsor-b@example.com", displayName: "赞助商 B", roles: ["member"] },
+    { membershipId: "wm_0301", userId: "u_0301", email: "sponsor-a@example.com", displayName: "赞助商 A", joinedAt: "2026-06-09", roles: ["member"] },
+    { membershipId: "wm_0302", userId: "u_0302", email: "sponsor-b@example.com", displayName: "赞助商 B", joinedAt: "2026-06-18", roles: ["member"] },
   ],
 };
 
 /**
  * 将后端 workspaceMembers 返回的 roles { id name } 对象数组映射为角色名并集。
- * 未知角色名（如 teacher）会被过滤，仅保留 owner/admin/member。
+ * 未知角色名（如 teacher）会被过滤；内置角色与旧 member 均保留。
  */
 export function mapRoleObjectsToNames(
   roles: WorkspaceMembershipRole[] | null | undefined,
 ): MembershipRoleName[] {
   if (!roles) return [];
-  const valid: MembershipRoleName[] = ["owner", "admin", "member"];
+  const valid: MembershipRoleName[] = [
+    "owner",
+    "admin",
+    "tutor",
+    "volunteer",
+    "learner",
+    "member",
+  ];
   return roles
     .map((r) => r.name as MembershipRoleName)
     .filter((n) => valid.includes(n));

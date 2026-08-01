@@ -19,11 +19,12 @@ describe("mapRoleObjectsToNames（后端 roles{id,name} → 角色名并集）",
       mapRoleObjectsToNames([
         { id: "r1", name: "owner" },
         { id: "r2", name: "member" },
+        { id: "r3", name: "tutor" },
       ]),
-    ).toEqual(["owner", "member"]);
+    ).toEqual(["owner", "member", "tutor"]);
   });
 
-  it("未知角色名被过滤（仅保留 owner/admin/member）", () => {
+  it("未知角色名被过滤，但保留设计稿默认角色", () => {
     expect(
       mapRoleObjectsToNames([
         { id: "r1", name: "teacher" },

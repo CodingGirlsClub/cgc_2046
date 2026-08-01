@@ -1,15 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { mapPermissionMatrixRows } from "./permissions";
+import { describe, expect, it } from "vitest";
+import {
+  mapPermissionMatrixRows,
+  PERMISSION_ABILITIES,
+  PERMISSION_ROLE_ORDER,
+} from "./permissions";
 import type { RbacPermissionMatrixRow } from "./graphql/permissions";
 
-/**
- * #67/#66 权限矩阵 lib 测试。
- * 纯函数测试 mapPermissionMatrixRows（后端 permissionMatrix roles → 前端行）。
- * fetchPermissionsMatrix/fetchMyAbilities 的 GraphQL 分支由页面测试 mock 覆盖
- * （USE_MOCK 模式保持 mock 矩阵）。
- */
-
-describe("mapPermissionMatrixRows（后端 permissionMatrix roles → 前端行）", () => {
+describe("mapPermissionMatrixRows（后端旧矩阵 → Slice A 设计矩阵）", () => {
   const backendRows: RbacPermissionMatrixRow[] = [
     {
       name: "owner",
@@ -46,40 +43,45 @@ describe("mapPermissionMatrixRows（后端 permissionMatrix roles → 前端行�
     },
   ];
 
-  it("三角色映射完整，abilities 字段名与前端 PermissionAbility 一致", () => {
+  it("总是返回五个设计角色，并将旧 member 映射为 Learner", () => {
     const rows = mapPermissionMatrixRows(backendRows);
-    expect(rows).toHaveLength(3);
-    expect(rows.map((r) => r.role)).toEqual(["owner", "admin", "member"]);
-    // owner/admin 管理能力全 true
-    expect(rows[0].abilities).toEqual({
-      view_workspace: true,
-      access_invite_only: true,
-      list_members: true,
+    expect(rows).toHaveLength(5);
+    expect(rows.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
+    expect(rows.every((row) => PERMISSION_ABILITIES.every((ability) => ability.id in row.abilities))).toBe(true);
+    expect(rows.find((row) => row.role === "owner")?.abilities).toMatchObject({
+      view_members: true,
       manage_members: true,
       assign_roles: true,
-      create_workspace: false,
+      change_join_policy: true,
+      view_profile: true,
+      edit_own_profile: true,
+      cross_workspace_access: false,
     });
-    expect(rows[1].abilities).toEqual(rows[0].abilities);
-    // member 仅 view/access
-    expect(rows[2].abilities).toEqual({
-      view_workspace: true,
-      access_invite_only: true,
-      list_members: false,
+    expect(rows.find((row) => row.role === "admin")?.abilities).toMatchObject({
+      manage_members: true,
+      assign_roles: true,
+      change_join_policy: false,
+    });
+    expect(rows.find((row) => row.role === "learner")?.abilities).toMatchObject({
+      view_members: true,
       manage_members: false,
       assign_roles: false,
-      create_workspace: false,
+      edit_own_profile: true,
+      cross_workspace_access: false,
     });
   });
 
-  it("未知角色名被过滤（仅保留 owner/admin/member）", () => {
+  it("保留后端已知角色，未知角色被过滤，缺失角色用默认能力补齐", () => {
     const rows = mapPermissionMatrixRows([
       { name: "teacher", abilities: backendRows[0].abilities },
-      ...backendRows,
+      { name: "tutor", abilities: backendRows[0].abilities },
+      ...backendRows.slice(0, 1),
     ]);
-    expect(rows.map((r) => r.role)).toEqual(["owner", "admin", "member"]);
+    expect(rows.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
+    expect(rows.find((row) => row.role === "tutor")?.abilities.manage_members).toBe(false);
   });
 
-  it("null/undefined/空数组 → []", () => {
+  it("null/undefined/空数组 → []，避免空 API payload 被伪造为完整矩阵", () => {
     expect(mapPermissionMatrixRows(null)).toEqual([]);
     expect(mapPermissionMatrixRows(undefined)).toEqual([]);
     expect(mapPermissionMatrixRows([])).toEqual([]);

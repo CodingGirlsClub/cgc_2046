@@ -88,13 +88,19 @@ describe("#64/#65 成员角色契约", () => {
     expect(doc).toContain("name");
   });
 
-  it("角色模型：owner/admin/member 标签齐全", () => {
+  it("角色模型：旧 member 与 Slice A 默认角色标签齐全", () => {
     expect(MEMBERSHIP_ROLES).toEqual(["owner", "admin", "member"]);
     expect(ROLE_LABEL.owner).toBe("Owner");
     expect(ROLE_LABEL.admin).toBe("Admin");
+    expect(ROLE_LABEL.tutor).toBe("Tutor");
+    expect(ROLE_LABEL.volunteer).toBe("Volunteer");
+    expect(ROLE_LABEL.learner).toBe("Learner");
     expect(ROLE_LABEL.member).toBe("Member");
     expect(ROLE_LABEL_ZH.owner).toBe("所有者");
     expect(ROLE_LABEL_ZH.admin).toBe("管理员");
+    expect(ROLE_LABEL_ZH.tutor).toBe("教练");
+    expect(ROLE_LABEL_ZH.volunteer).toBe("志愿者");
+    expect(ROLE_LABEL_ZH.learner).toBe("学员");
     expect(ROLE_LABEL_ZH.member).toBe("成员");
   });
 
