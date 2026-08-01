@@ -2,11 +2,11 @@ import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
 
 /**
- * #69 个人资料 GraphQL 契约。
+ * #69 个人资料 GraphQL 契约（已与后端 #68 定稿对齐，commit 4bd4165）。
  *
  * 关键约定：
- * - 当前用户查询建议 me/currentUser（与后端 #68 对齐；若 #68 定稿有差异以后端为准）。
- *   当前实现先按 `me` 写骨架；USE_MOCK 模式下不触发真实查询，后端 #68 完成后微调字段即可。
+ * - 当前用户查询：`me`（#68 定稿命名，非 currentUser）。
+ * - updateProfile input：displayName 必填（trim 后非空），avatarUrl 可选。
  * - 可编辑字段：displayName（展示名）。avatarUrl 仅展示（后端若有上传能力再扩展）。
  */
 
@@ -24,12 +24,15 @@ export interface ProfileUser {
 }
 
 export interface UpdateProfileInput {
-  displayName?: string | null;
+  /** 展示名（#68 契约必填，trim 后非空） */
+  displayName: string;
+  /** 头像 URL（可选，后端 #68 契约 avatarUrl: String） */
+  avatarUrl?: string | null;
 }
 
 /* ---------------- 真实 query / mutation ---------------- */
 
-/** 当前用户资料查询（建议 me；后端 #68 定稿后按实际字段微调） */
+/** 当前用户资料查询（#68 定稿 `me`；字段 id/email/displayName/avatarUrl/isPlatformAdmin） */
 export const ME_PROFILE: TypedDocumentNode<
   { me: ProfileUser | null },
   Record<string, never>
@@ -45,7 +48,7 @@ export const ME_PROFILE: TypedDocumentNode<
   }
 `;
 
-/** 更新当前用户资料（可编辑字段：displayName） */
+/** 更新当前用户资料（#68 定稿 updateProfile；input: {displayName 必填, avatarUrl 可选}） */
 export const UPDATE_PROFILE: TypedDocumentNode<
   { updateProfile: ProfileUser | null },
   { input: UpdateProfileInput }
