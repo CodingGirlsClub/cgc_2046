@@ -1,5 +1,7 @@
 import type { MembershipRoleName } from "./graphql/workspace";
 import { ROLE_LABEL, ROLE_LABEL_ZH, ROLE_BADGE_CLASS } from "./graphql/workspace";
+import { PERMISSION_MATRIX, MY_ABILITIES, type RbacAbility, type RbacPermissionMatrixRow } from "./graphql/permissions";
+import { client } from "./apollo-client";
 import { USE_MOCK_WORKSPACES } from "./workspaces";
 
 /**
@@ -12,8 +14,10 @@ import { USE_MOCK_WORKSPACES } from "./workspaces";
  * - role policy：读取 = 任何已认证用户（用于展示）
  * - createWorkspace：#62 起仅平台管理员（is_platform_admin）
  *
- * mock 先行；后端 #66 Rbac 定稿后（如 GET permissions / GraphQL query），
- * 将 USE_MOCK_WORKSPACES 置 false 并实现 fetchPermissionsMatrix() 真实分支，
+ * mock 先行；后端 #66 Rbac 已定稿（GraphQL permissionMatrix / myAbilities，commit 2fdf506）。
+ * USE_MOCK_WORKSPACES = false 时走真实分支：
+ * - fetchPermissionsMatrix() → permissionMatrix（三角色 × 六能力，需登录）
+ * - fetchMyAbilities(workspaceId) → myAbilities（当前用户动态能力，需登录）
  * 调用方无需改。
  */
 
@@ -142,15 +146,57 @@ export function myRolesHaveAbility(
 }
 
 /**
- * 获取权限矩阵（mock 先行；后端 #66 Rbac 定稿后切真实）。
- * 保持与 #63/#65 一致的 USE_MOCK 模式。
+ * 将后端 #66 permissionMatrix 返回的 roles（name + abilities）映射为前端
+ * PermissionMatrixRow 列表。未知角色名（非 owner/admin/member）会被过滤。
+ */
+export function mapPermissionMatrixRows(
+  rows: RbacPermissionMatrixRow[] | null | undefined,
+): PermissionMatrixRow[] {
+  if (!rows || !Array.isArray(rows)) return [];
+  const valid: MembershipRoleName[] = ["owner", "admin", "member"];
+  return rows
+    .filter(
+      (r): r is RbacPermissionMatrixRow & { name: MembershipRoleName } =>
+        valid.includes(r.name as MembershipRoleName),
+    )
+    .map((r) => ({
+      role: r.name,
+      abilities: {
+        view_workspace: r.abilities.view_workspace,
+        access_invite_only: r.abilities.access_invite_only,
+        list_members: r.abilities.list_members,
+        manage_members: r.abilities.manage_members,
+        assign_roles: r.abilities.assign_roles,
+        create_workspace: r.abilities.create_workspace,
+      },
+    }));
+}
+
+/**
+ * 获取权限矩阵（mock 先行；USE_MOCK_WORKSPACES = false 时走 #66 permissionMatrix 真实查询）。
+ * 后端返回 abilities 字段名即 snake_case 能力名，与 PermissionAbility 完全对齐。
  */
 export async function fetchPermissionsMatrix(): Promise<PermissionMatrixRow[]> {
   if (USE_MOCK_WORKSPACES) {
     return Promise.resolve(MOCK_PERMISSION_MATRIX);
   }
-  // TODO(#66): 真实权限矩阵查询落点（GET permissions / GraphQL query 待后端定稿）
-  return [];
+  const { data } = await client.query({ query: PERMISSION_MATRIX });
+  return mapPermissionMatrixRows(data?.permissionMatrix?.roles);
+}
+
+/**
+ * 当前用户在指定工作台的动态能力列表（#66 myAbilities，需登录）。
+ * 返回能力名数组（如 ["view_workspace","access_invite_only"]）；匿名/无权限时后端
+ * 返回 unauthorized，此处抛错由调用方捕获。
+ */
+export async function fetchMyAbilities(workspaceId: string): Promise<RbacAbility[]> {
+  if (USE_MOCK_WORKSPACES) {
+    // mock：基础访问能力（view/access），管理类能力由页面按矩阵+myRoles 推导
+    return Promise.resolve(["view_workspace", "access_invite_only"]);
+  }
+  const { data } = await client.query({ query: MY_ABILITIES, variables: { workspaceId } });
+  const abilities = (data?.myAbilities?.abilities ?? []) as RbacAbility[];
+  return abilities;
 }
 
 /** 角色展示辅助（复用 #65 角色模型） */
