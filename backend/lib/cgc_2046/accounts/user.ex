@@ -17,90 +17,95 @@ defmodule Cgc2046.Accounts.User do
     domain: Cgc2046.GlobalApi
 
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key(:id)
 
-    attribute :email, :ci_string,
+    attribute(:email, :ci_string,
       allow_nil?: false,
       public?: true,
       writable?: true,
       description: "用户邮箱（全局唯一，登录身份标识）"
+    )
 
-    attribute :hashed_password, :string,
+    attribute(:hashed_password, :string,
       allow_nil?: false,
       sensitive?: true,
       public?: false,
       writable?: true,
       description: "密码哈希（不对外暴露，由 hash provider 写入）"
+    )
 
-    attribute :is_platform_admin, :boolean,
+    attribute(:is_platform_admin, :boolean,
       allow_nil?: false,
       default: false,
       public?: true,
       writable?: false,
       description: "是否平台管理员（全局标记）"
+    )
 
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
+    create_timestamp(:inserted_at)
+    update_timestamp(:updated_at)
   end
 
   actions do
-    defaults [:read]
+    defaults([:read])
 
     read :get_by_subject do
-      description "通过 JWT subject claim 获取用户"
-      argument :subject, :string, allow_nil?: false
-      get? true
-      prepare AshAuthentication.Preparations.FilterBySubject
+      description("通过 JWT subject claim 获取用户")
+      argument(:subject, :string, allow_nil?: false)
+      get?(true)
+      prepare(AshAuthentication.Preparations.FilterBySubject)
     end
   end
 
   authentication do
     tokens do
-      enabled? true
-      token_resource Cgc2046.Accounts.Token
-      store_all_tokens? true
-      require_token_presence_for_authentication? false
-      signing_secret fn _, _ ->
+      enabled?(true)
+      token_resource(Cgc2046.Accounts.Token)
+      store_all_tokens?(true)
+      require_token_presence_for_authentication?(false)
+
+      signing_secret(fn _, _ ->
         Application.fetch_env(:cgc_2046, :token_signing_secret)
-      end
+      end)
     end
 
     strategies do
       password :password do
-        identity_field :email
-        confirmation_required? false
+        identity_field(:email)
+        confirmation_required?(false)
       end
     end
   end
 
   identities do
-    identity :unique_email, [:email]
+    identity(:unique_email, [:email])
   end
 
   postgres do
-    table "users"
-    repo Cgc2046.Repo
+    table("users")
+    repo(Cgc2046.Repo)
   end
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
-      authorize_if always()
+      authorize_if(always())
     end
 
     policy always() do
-      forbid_if always()
+      forbid_if(always())
     end
   end
 
   graphql do
-    type :user
+    type(:user)
 
     queries do
-      read_one :sign_in, :sign_in_with_password,
+      read_one(:sign_in, :sign_in_with_password,
         as_mutation?: true,
         type_name: :sign_in_result,
         show_metadata: [:token],
         description: "使用邮箱密码登录，成功后返回用户及 JWT token"
+      )
     end
 
     mutations do
