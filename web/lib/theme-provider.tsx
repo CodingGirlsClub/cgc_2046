@@ -52,9 +52,17 @@ function applyThemeClass(theme: ThemeMode) {
  * 作为本地回退 + 开发调试入口。
  */
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>(() => {
-    return readUrlTheme() ?? readStoredTheme() ?? "dark";
-  });
+  // SSR 与客户端 hydration 首帧固定 dark：localStorage/URL 偏好仅在客户端挂载后
+  // 异步应用，保证服务端输出与客户端首帧一致，杜绝 hydration mismatch。
+  const [theme, setThemeState] = useState<ThemeMode>("dark");
+
+  useEffect(() => {
+    // 客户端挂载后应用偏好（微任务提交，避免 react-hooks/set-state-in-effect 同步 setState）
+    queueMicrotask(() => {
+      const t = readUrlTheme() ?? readStoredTheme() ?? "dark";
+      setThemeState(t);
+    });
+  }, []);
 
   useEffect(() => {
     applyThemeClass(theme);
