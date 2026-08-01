@@ -17,6 +17,7 @@ const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
   clearAuthToken: vi.fn(),
 }));
 const { fetchMatrix } = vi.hoisted(() => ({ fetchMatrix: vi.fn() }));
+const { fetchMyWorkspaces } = vi.hoisted(() => ({ fetchMyWorkspaces: vi.fn() }));
 const { params } = vi.hoisted(() => ({ params: { value: { slug: "cgc-academy" } } }));
 const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
 
@@ -43,10 +44,23 @@ vi.mock("@/lib/permissions", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/workspaces", async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...mod,
+    // #70 QA P1：工作区上下文经 useWorkspaceBySlug → fetchMyWorkspaces 解析
+    fetchMyWorkspaces,
+  };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
+  fetchMyWorkspaces.mockResolvedValue([
+    { id: "ws_02", slug: "cgc-academy", name: "CGC 线上学院", joinPolicy: "request", sponsorshipEnabled: true, myRoleNames: ["admin"], roles: ["admin"], membershipStatus: "active" },
+    { id: "ws_01", slug: "cgc-shanghai", name: "CGC 上海分社", joinPolicy: "open", sponsorshipEnabled: true, myRoleNames: ["member"], roles: ["member"], membershipStatus: "active" },
+  ]);
   fetchCurrentProfile.mockResolvedValue({
     id: "u_0202",
     email: "xiaomei@example.com",
@@ -147,6 +161,40 @@ describe("/w/[slug]/permissions 权限表可视化页", () => {
     fetchMatrix.mockClear();
     render(<PermissionsPage />);
     await waitFor(() => expect(fetchMatrix).toHaveBeenCalledTimes(1));
+  });
+
+  it("真实模式（#70 QA P1）：fetchMyWorkspaces 返回真实 ws（不在 mock），权限页按真实角色渲染", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_real_perm",
+        slug: "be-verify-ws-456",
+        name: "BE 验证权限工作区",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: ["admin", "member"], // 多角色并集
+        roles: ["admin", "member"],
+        membershipStatus: "active",
+      },
+    ]);
+    params.value = { slug: "be-verify-ws-456" };
+
+    render(<PermissionsPage />);
+    // 真实 ws 解析成功：标题展示真实名称，不再提示「不存在或不可访问」
+    expect(await screen.findByText("BE 验证权限工作区 / 权限表")).toBeInTheDocument();
+    expect(screen.queryByText(/不存在或不可访问/)).not.toBeInTheDocument();
+    // 权限矩阵正常加载
+    await waitFor(() => expect(screen.getAllByTestId("permission-row")).toHaveLength(3));
+    // 当前用户多角色并集高亮（Admin + Member 均在 chips 区）
+    expect(screen.getAllByText("Admin · 管理员").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Member · 成员").length).toBeGreaterThanOrEqual(1);
+    expect(fetchMatrix).toHaveBeenCalledTimes(1);
+  });
+
+  it("真实模式：未知 slug（fetchMyWorkspaces 无匹配）→ 展示不存在提示", async () => {
+    params.value = { slug: "not-in-any-list" };
+    render(<PermissionsPage />);
+    expect(await screen.findByText(/工作区「not-in-any-list」不存在或不可访问/)).toBeInTheDocument();
+    expect(fetchMatrix).not.toHaveBeenCalled();
   });
 
   it("mock 数据源完整性：三角色 + 6 能力 + 每角色 abilities 齐全", () => {

@@ -146,7 +146,7 @@ export const WORKSPACE_MEMBERS: TypedDocumentNode<
   { workspaceMembers: WorkspaceMemberConnection },
   { filter: WorkspaceMembersFilter }
 > = gql`
-  query WorkspaceMembers($filter: WorkspaceMembersFilter!) {
+  query WorkspaceMembers($filter: WorkspaceMembershipFilterInput!) {
     workspaceMembers(filter: $filter) {
       count
       results {

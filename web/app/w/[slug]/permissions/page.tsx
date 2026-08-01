@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated, clearAuthToken } from "@/lib/auth";
-import { MOCK_WORKSPACES, type WorkspaceListItem } from "@/lib/workspaces";
+import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
   fetchPermissionsMatrix,
   myRolesHaveAbility,
@@ -35,31 +35,39 @@ export default function WorkspacePermissionsPage() {
   const router = useRouter();
   const authed = isAuthenticated();
 
-  const ws: WorkspaceListItem | undefined = MOCK_WORKSPACES.find((w) => w.slug === slug);
+  // #70 QA P1：工作区上下文优先真实数据（fetchMyWorkspaces），MOCK 仅首帧兜底
+  const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
   const myRoles = ws?.myRoleNames ?? [];
 
   const [matrix, setMatrix] = useState<PermissionMatrixRow[] | null>(null);
-  const [loading, setLoading] = useState(Boolean(ws));
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const wsId = ws?.id;
 
   useEffect(() => {
     if (!authed) {
       router.replace("/login");
       return;
     }
-    if (!ws) {
+    if (!wsId) {
       return;
     }
+    let cancelled = false;
     fetchPermissionsMatrix()
       .then((rows) => {
+        if (cancelled) return;
         setMatrix(rows);
         setErrorMsg(null);
       })
       .catch((e: unknown) => {
+        if (cancelled) return;
         setErrorMsg(e instanceof Error ? e.message : "加载权限表失败");
-      })
-      .finally(() => setLoading(false));
-  }, [authed, router, ws]);
+        setMatrix([]); // 失败后结束 loading，展示空态 + 错误横幅
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authed, router, wsId]);
 
   function handleSignOut() {
     clearAuthToken();
@@ -97,7 +105,7 @@ export default function WorkspacePermissionsPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        {!ws ? (
+        {!ws && !wsLoading ? (
           <div className="rounded-large bg-card p-10 text-center ring-1 ring-line">
             <p className="l-p text-ink-2">工作区「{slug}」不存在或不可访问。</p>
             <Link href="/" className="l-btn-ghost mt-4 inline-block">
@@ -127,7 +135,7 @@ export default function WorkspacePermissionsPage() {
               </div>
             )}
 
-            {loading ? (
+            {wsLoading || (ws && matrix === null) ? (
               <div className="h-40 animate-pulse rounded-large bg-card ring-1 ring-line" />
             ) : matrix && matrix.length > 0 ? (
               <>

@@ -88,6 +88,56 @@ describe("工作台页 (#63)", () => {
     expect(screen.getAllByRole("link", { name: /进入工作台/ })).toHaveLength(2); // 仅两个 active
   });
 
+  it("真实模式（#70 QA P2）：fetchMyWorkspaces 返回真实 ws（带 membershipStatus），统计与进入入口正确", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_real_a",
+        slug: "real-a",
+        name: "真实工作区 A",
+        joinPolicy: "open",
+        sponsorshipEnabled: true,
+        myRoleNames: ["owner"],
+        roles: ["owner"],
+        membershipStatus: "active",
+      },
+      {
+        id: "ws_real_b",
+        slug: "real-b",
+        name: "真实工作区 B",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: ["member"],
+        roles: ["member"],
+        membershipStatus: "active",
+      },
+      {
+        id: "ws_real_c",
+        slug: "real-c",
+        name: "真实工作区 C",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: [],
+        roles: [],
+        myMembershipId: "wm_p",
+        membershipStatus: "pending",
+      },
+    ]);
+
+    render(<HomePage />);
+    // 统计恢复：2 已加入 + 1 待处理（不再恒为 0）
+    const summary = await screen.findByText(/你加入了/);
+    expect(summary.textContent).toContain("2 个工作区");
+    expect(summary.textContent).toContain("1 个待处理");
+    // 两个 active 提供进入入口，pending 显示「申请审批中」且无入口
+    expect(screen.getAllByRole("link", { name: /进入工作台/ })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /进入工作台/ }).map((l) => l.getAttribute("href"))).toEqual([
+      "/w/real-a",
+      "/w/real-b",
+    ]);
+    expect(screen.getByText("申请审批中")).toBeInTheDocument();
+    expect(screen.queryByText("待凭据加入")).not.toBeInTheDocument();
+  });
+
   it("退出登录：清 token 并跳转 /login", async () => {
     render(<HomePage />);
     const signOut = await screen.findByRole("button", { name: "退出登录" });

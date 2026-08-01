@@ -104,7 +104,7 @@ function DevAuthToolbar({ variant }: { variant: string }) {
         aria-label="切换主题"
         className="flex h-7 items-center justify-center rounded-[6px] px-3 text-[13px] text-ink-3 transition hover:bg-soft hover:text-ink"
       >
-        {theme === "dark" ? "☾ Light" : "☀ Dark"}
+        {theme === "dark" ? "☀ Light" : "☾ Dark"}
       </button>
     </div>
   );
