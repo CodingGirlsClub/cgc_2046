@@ -1,0 +1,54 @@
+@startuml workflow-run-state
+' ============================================================
+' L2 - WorkflowRun 状态机与 Step 执行模型
+' 事实来源：docs/01-定稿设计/领域模型定稿.md §4.2/§4.3/§4.4
+' 状态机：pending → running → waiting → succeeded/failed/cancelled
+' 人工步骤模式：waiting 挂起 + hibernate/thaw；人发信号 → SignalMatch
+'   放行 → 恢复执行（人触发的是"恢复"而非"启动下一段"）。
+' ============================================================
+title WorkflowRun 状态机（L2）
+skinparam backgroundColor white
+
+state "pending\n（已创建，未启动）" as PENDING
+state "running\n（DAG 执行中）" as RUNNING
+state "waiting\n（人等信号，挂起 hibernate）" as WAITING
+state "succeeded\n（执行成功）" as SUCCEEDED
+state "failed\n（Action 失败 / 拒绝终态）" as FAILED
+state "cancelled\n（截止 / 超时 / 用户取消）" as CANCELLED
+
+[*] --> PENDING : 创建 run（实例化定义）
+PENDING --> RUNNING : 启动执行
+RUNNING --> WAITING : 执行到人工节点\n（SignalMatch 挂起监听）
+WAITING --> RUNNING : 信号到达 → thaw 恢复\nSignalMatch 校验并放行
+RUNNING --> SUCCEEDED : 全部 Step 完成
+RUNNING --> FAILED : Action 失败 / 校验拒绝
+RUNNING --> CANCELLED : 截止 / 超时 / 用户取消
+WAITING --> CANCELLED : deadline 到点唤醒 cancel（v1 补测）\n或用户主动取消
+
+note bottom of WAITING
+  **人工步骤模式（D-A1）**：WorkflowRun 是有状态实体，执行到人工节点
+  → waiting 挂起；人操作后发 Signal（如 enrollment.submitted）→
+  SignalMatch 放行 → 恢复执行。长等待由 hibernate/thaw 解决：
+  waiting 落 checkpoint（workflow state + thread pointer %{id,rev}），
+  信号到达 thaw 恢复（POC-2 G1 A1-A5 全 PASS；恢复期信号不丢不重）。
+end note
+
+note bottom of CANCELLED
+  **超时/取消语义（报名设计 §3.4）**：
+  - 报名截止：waiting 超时 → run cancelled；截止后 submitted 不再放行
+  - 审批超时：默认无超时自动拒绝（人为决策）；可选 N 天自动过期
+  - 用户主动取消：发 enrollment.cancelled → run cancelled
+  - hibernate 期间 deadline 唤醒 cancel：🟡 待 v1 补集成测试
+    （恢复时检查 deadline → Emit cancel，或 Schedule Directive）
+end note
+
+' ---------------- Step 四分类 ---------------- 
+note right
+  **Step 四分类（领域模型定稿 §4.3）**：
+  ① 自动步骤  = Jido Action（纯函数/可含副作用，schema 驱动校验）
+  ② 人工步骤  = SignalMatch 门控等待外部信号
+  ③ 门控/分支 = 按 Fact 条件路由下游
+  ④ 子 workflow = 嵌套 DAG（复用其他 WorkflowDefinition）
+end note
+
+@enduml

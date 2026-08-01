@@ -1,0 +1,328 @@
+@startuml domain-model-er
+' ============================================================
+' L1 - 领域模型 ER 图（Domain Model ER）
+' 事实来源：docs/01-定稿设计/领域模型定稿.md §5.2 ER 关系
+' 说明：全局资源（User/Identity/Token/Workspace）不按租户隔离；
+'   其余实体按租户隔离（tenant_id / partition = Workspace）。
+' ============================================================
+title CGC 平台领域模型 ER（L1）
+skinparam backgroundColor white
+skinparam linetype ortho
+skinparam Entity {
+    BackgroundColor #FFF7E6
+    BorderColor #B26A00
+}
+
+' ---------- 全局资源 ----------
+entity "User" as USER {
+    * id : uuid <<PK>>
+    --
+    email : string
+    is_platform_admin : boolean
+}
+entity "Identity" as IDENTITY {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+    provider : string
+}
+entity "Token" as TOKEN {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+}
+entity "Workspace" as WORKSPACE {
+    * id : uuid <<PK>>
+    --
+    slug : string <<UK>>
+    name : string
+    join_policy : open|request|invite_only
+    sponsorship_enabled : boolean
+}
+
+' ---------- 身份/租户 ----------
+entity "WorkspaceMembership" as WM {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+    workspace_id : uuid <<FK>>
+}
+entity "MembershipRole" as MR {
+    * id : uuid <<PK>>
+    --
+    membership_id : uuid <<FK>>
+    role_id : uuid <<FK>>
+}
+entity "Role" as ROLE {
+    * id : uuid <<PK>>
+    --
+    name : string
+}
+entity "Profile" as PROFILE {
+    * id : uuid <<PK>>
+    --
+    membership_id : uuid <<FK>>
+    avatar / intro / portfolio
+}
+entity "Invitation" as INVITATION {
+    * id : uuid <<PK>>
+    --
+    token_hash : string
+    expires_at : datetime
+    inviter_id : uuid <<FK>>
+    workspace_id : uuid <<FK>>
+    target_email : string
+    status : active|used|revoked
+}
+entity "JoinRequest" as JOINREQUEST {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+    workspace_id : uuid <<FK>>
+    status : pending|approved|rejected
+}
+
+' ---------- 引擎 context ----------
+entity "WorkflowDefinition" as WFDEF {
+    * id : uuid <<PK>>
+    --
+    name : string
+    type : platform_ops|learning|enrollment
+          |sponsorship|speaker_invitation|research
+    version : string
+    input_schema : json
+    node_def : Runic.Workflow
+    status : draft|published|archived
+}
+entity "WorkflowRun" as WFRUN {
+    * id : uuid <<PK>>
+    --
+    definition_id : uuid <<FK>>
+    status : pending|running|waiting
+            |succeeded|failed|cancelled
+    input_snapshot : json
+    facts : json
+    partition_id : uuid  (= workspace_id)
+    started_at / finished_at
+}
+entity "Step" as STEP {
+    * id : uuid <<PK>>
+    --
+    definition_id : uuid <<FK>>
+    type : auto|manual|gate|subworkflow
+    title : string
+    agent_id : uuid <<FK>>
+    sub_definition_id : uuid <<FK>>
+}
+entity "StepRole" as STEPROLE {
+    * id : uuid <<PK>>
+    --
+    step_id : uuid <<FK>>
+    role_id : uuid <<FK>>
+}
+entity "SignalLog" as SIGNALLOG {
+    * id : uuid <<PK>>
+    --
+    run_id : uuid <<FK>>
+    signal_type : string
+    payload : json
+    actor_id : uuid <<FK>>
+    received_at : datetime
+}
+
+' ---------- Agent / MCP ----------
+entity "Agent" as AGENT {
+    * id : uuid <<PK>>
+    --
+    type : personal|public
+    owner_id : uuid <<FK>>
+    openclacky_profile : string
+    model / system_prompt / skills
+}
+entity "AgentRole" as AGENTROLE {
+    * id : uuid <<PK>>
+    --
+    agent_id : uuid <<FK>>
+    role_id : uuid <<FK>>
+}
+entity "AgentRun" as AGENTRUN {
+    * id : uuid <<PK>>
+    --
+    agent_id : uuid <<FK>>
+    step_id : uuid <<FK>>
+    operator_id : uuid <<FK>>
+    summary : string
+    status : pending|running|succeeded|failed
+}
+entity "PendingOperation" as PENDING {
+    * id : uuid <<PK>>
+    --
+    actor_id : uuid <<FK>>
+    tool : string
+    params : json
+    summary : string
+    status : pending|confirmed|rejected|cancelled
+    expires_at : datetime
+}
+entity "ToolCallLog" as TOOLCALL {
+    * id : uuid <<PK>>
+    --
+    actor_id : uuid <<FK>>
+    tool : string
+    params / result : json
+    confirm_id : uuid <<FK>>
+    status : ok|denied|pending|confirmed|rejected
+}
+
+' ---------- 业务 ----------
+entity "Event" as EVENT {
+    * id : uuid <<PK>>
+    --
+    title : string
+    workflow_run_id : uuid <<FK>>  (教研产物)
+    start_at / end_at
+    enrollment_policy : open|request|invite_only
+    capacity : integer
+    registration_deadline : datetime
+    status : draft|open|closed|cancelled
+    sponsorship_enabled : boolean
+    sponsorship_deadline : datetime
+    materials_review_required : boolean
+}
+entity "Course" as COURSE {
+    * id : uuid <<PK>>
+    --
+    title : string
+    workflow_run_id : uuid <<FK>>
+    enrollment_policy / capacity
+    registration_deadline / status
+    materials_review_required : boolean
+}
+entity "Enrollment" as ENROLLMENT {
+    * id : uuid <<PK>>
+    --
+    event_id / course_id : uuid <<FK>> (二选一)
+    user_id : uuid <<FK>>
+    run_id : uuid <<FK>>
+    status : pending|confirmed|rejected|cancelled
+    invite_batch_id : uuid <<FK>>
+    approved_by / approved_at
+    rejection_reason
+}
+entity "InviteBatch" as INVITEBATCH {
+    * id : uuid <<PK>>
+    --
+    event_id / course_id : uuid <<FK>> (二选一)
+    invite_code : string <<UK>>
+    quota : integer
+    remaining_quota : integer
+    expires_at : datetime
+    status : active|disabled
+    remark : string
+}
+entity "Sponsorship" as SPONSORSHIP {
+    * id : uuid <<PK>>
+    --
+    level : event|workspace
+    event_id / workspace_id : uuid <<FK>>
+    sponsor_user_id : uuid <<FK>>
+    tier_id : uuid <<FK>>
+    tier_name : string
+    status : pending|active|rejected|ended
+    amount / company_name / contact_email / contact_phone
+    approved_by / approved_at / rejection_reason
+    workflow_run_id : uuid <<FK>>
+}
+entity "SponsorshipTier" as TIER {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>
+    name : string
+    amount_suggestion : decimal
+    benefits : list
+    limit : integer  (null = 不限, 二期)
+    enabled : boolean
+}
+entity "SpeakerInvitation" as SPEAKERINV {
+    * id : uuid <<PK>>
+    --
+    event_id : uuid <<FK>>
+    speaker_user_id : uuid <<FK>> (接受后绑定)
+    speaker_name / speaker_email
+    token_hash : string <<UK>> (一次性)
+    invited_by : uuid <<FK>>
+    status : invited|accepted|declined|completed
+    accepted_by / accepted_at / declined_at / completed_at
+    expires_at : datetime
+    workflow_run_id : uuid <<FK>>
+}
+entity "ResearchOutput" as RESEARCHOUT {
+    * id : uuid <<PK>>
+    --
+    key : event_#|course_#
+    event_id / course_id : uuid <<FK>> (二选一)
+    kind : outline|materials|archive
+    status : drafted|ready|archived
+    workflow_run_id : uuid <<FK>>
+    submitted_by : uuid <<FK>>
+    reviewed_by / reviewed_at (仅启用审核)
+}
+
+' ---------- 关系 ----------
+USER ||--o{ IDENTITY : 认证身份
+USER ||--o{ TOKEN : 登录令牌
+USER ||--o{ WM : 加入
+USER ||--o{ JOINREQUEST : 提交申请
+USER ||--o{ ENROLLMENT : 报名
+USER ||--o{ SPEAKERINV : 受邀演讲
+USER ||--o{ SPONSORSHIP : 赞助
+WORKSPACE ||--o{ WM : 包含成员
+WORKSPACE ||--o{ ROLE : 定义角色
+WORKSPACE ||--o{ WFDEF : 承载流程
+WORKSPACE ||--o{ AGENT : 承载 Agent
+WORKSPACE ||--o{ INVITATION : 发出邀请
+WORKSPACE ||--o{ JOINREQUEST : 收到申请
+WORKSPACE ||--o{ PENDING : 确认流
+WORKSPACE ||--o{ TOOLCALL : 工具调用审计
+WORKSPACE ||--o{ EVENT : 举办活动
+WORKSPACE ||--o{ COURSE : 开设课程
+WORKSPACE ||--o{ SPONSORSHIP : 赞助关系
+WORKSPACE ||--o{ TIER : 配置档位
+TIER ||--o{ SPONSORSHIP : tier_id 关联
+WM ||--o{ MR : 拥有角色
+ROLE ||--o{ MR : 被授予
+WM ||--o| PROFILE : 公开资料
+WFDEF ||--o{ STEP : 分解节点
+WFDEF ||--o{ WFRUN : 实例化
+WFRUN ||--o{ SIGNALLOG : 信号日志
+STEP }o--|| AGENT : 使用(人工步骤)
+STEP ||--o{ STEPROLE : 执行角色
+ROLE ||--o{ STEPROLE : 授权执行
+AGENT ||--o{ AGENTROLE : 独立使用授权
+ROLE ||--o{ AGENTROLE : 授权使用
+AGENT ||--o{ AGENTRUN : 执行记录
+STEP ||--o{ AGENTRUN : 按 Step 聚合
+TOOLCALL }o--o| PENDING : 确认关联
+WFRUN ||--o{ ENROLLMENT : 创建报名
+EVENT ||--o{ ENROLLMENT : 报名
+COURSE ||--o{ ENROLLMENT : 报名
+EVENT ||--o{ SPONSORSHIP : Event 级赞助
+EVENT ||--o{ SPEAKERINV : 邀请演讲者
+EVENT ||--o{ INVITEBATCH : 邀请批次
+EVENT ||--o{ RESEARCHOUT : 教研产出
+COURSE ||--o{ INVITEBATCH : 邀请批次
+COURSE ||--o{ RESEARCHOUT : 教研产出
+WFRUN ||--o{ RESEARCHOUT : 创建教研产出
+INVITEBATCH ||--o{ ENROLLMENT : 批次扣减
+
+note bottom of WFRUN
+  WORKFLOW_RUN.partition_id = workspace_id
+  （每个 Workspace = 一个 Jido partition，D-A5）
+  唯一索引要点：
+  - Enrollment: (event_id,user_id) / (course_id,user_id)
+  - Sponsorship: (level, target_id, sponsor_user_id)
+  - ResearchOutput: (key, kind)
+  - SpeakerInvitation.token_hash 一次性
+end note
+
+@enduml

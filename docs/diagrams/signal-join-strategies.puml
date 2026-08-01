@@ -1,0 +1,59 @@
+@startuml signal-join-strategies
+' ============================================================
+' L3 - 双信号 join 策略（Workflow 原生 / 审批两段式规避 / fan-in 修复）
+' 事实来源：docs/04-引擎验证/poc-验证报告.md §3.2/§3.3/§3.4 + 报名设计 §3.2
+' 定性：v1 主路径 = Workflow 层原生 join 能力（runic 直接驱动，
+'   POC §3.2 PASS）；审批两段式仅为 Agent 策略层缺陷（ran_nodes
+'   过滤，POC §3.3）未修复前的临时规避手段；根治方案 = 修复
+'   handle_apply_result ran_nodes 缺陷或采用官方 Coordinator fan-in。
+' 应用：报名 request 策略 / 赞助 workflow（同构）。
+' ============================================================
+title 双信号 join 策略（L3）— Workflow 原生路径 / 审批两段式规避 / fan-in 修复
+skinparam backgroundColor white
+
+' ---------------- 问题：Agent 层 join 死锁 ----------------
+' ---------------- 规避方案：审批两段式时序 ----------------
+    participant "Learner / Sponsor" as L
+    participant "网站表单/后台审批页" as W
+    participant "WorkflowRun（引擎）" as R
+    participant "业务 DB" as DB
+
+note over L,DB
+  **问题（POC §3.3，100% 双向证明）**：
+  同一 workflow 内用 join 等两个以上异步信号在 Agent 层死锁——
+  feed1 后 join 进入 ran_nodes（视为"已执行"）；feed2 时 join 已满足
+  却被 ran_nodes 过滤 → create/notify 永不执行。
+end note
+
+note over L,DB
+  **F1 修复已定位（2026-08-01）**：jido_runic handle_apply_result
+  ran_nodes 过滤缺陷——waiting 占位不应记 ran_nodes；修复 POC 已
+  验证 PASS；Agent 层标准写法采用官方 Coordinator fan-in
+  （orchestration guide 先例）。
+end note
+
+    Note over L,DB: 第一段：报名段 / 赞助段（Registration/Intent 段）
+    L->>W: 提交表单（enrollment.submitted / sponsorship.intent）
+    W->>R: 发信号 → SignalMatch 放行
+    R->>R: validate → persist_pending
+    R->>DB: 同步创建 Enrollment/Sponsorship（status=pending）
+    R->>R: 停住（waiting，不再等任何信号；可 hibernate）
+
+    Note over L,DB: 第二段：审批段（Approval 段，独立分支）
+    W->>R: 审批信号（enrollment.approved / sponsorship.approved）
+    R->>DB: approval_gate 读回 pending 记录校验
+    DB-->>R: pending 数据（仍 pending / 目标有效 / 审批人有权限）
+    R->>DB: confirm/activate（pending→confirmed/active 原子扣名额或生效）
+    R->>R: 发异步 Signal（enrollment.completed / sponsorship.active）
+    R->>R: run succeeded
+
+note bottom
+  **与真实业务一致**：实体存 DB，审批是更新实体状态
+  （pending→confirmed/rejected），不是重放报名/赞助流程；
+  审批段可独立重试/补发，互不阻塞。
+  **Workflow 层（runic 直接驱动）**：join 模式可用（POC §3.2 PASS，
+  进程内多信号 feed）；v1 主路径可走 Workflow 层。适配层必须内置
+  「多信号分批 feed」集成测试防回归。
+end note
+
+@enduml

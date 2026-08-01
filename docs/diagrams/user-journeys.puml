@@ -1,0 +1,75 @@
+@startuml user-journeys
+' ============================================================
+' L4 - 用户旅程总览（User Journeys）
+' 事实来源：docs/01-定稿设计/用户旅程与Web功能清单.md §1/§2
+' 八角色：Visitor / Learner / Tutor / Volunteer / Owner / Sponsor /
+'   Speaker / Admin；外加 J0 BYO 连接引导（三步）。
+' ============================================================
+title CGC 平台用户旅程总览（L4）
+skinparam backgroundColor white
+skinparam actor {
+    BackgroundColor #E8F0FE
+    BorderColor #1A73E8
+}
+
+actor "Visitor" as V
+actor "Learner" as L
+actor "Tutor" as T
+actor "Volunteer" as Vol
+actor "Owner" as O
+actor "Sponsor" as Sp
+actor "Speaker" as Spk
+actor "Admin" as A
+
+' ---------------- J0 BYO 连接引导（一次性三步） ----------------
+package "J0 BYO 连接引导（一次性三步，D-A7）" #FEF9C3 {
+    rectangle "① 注册/登录全局账号" as J0A
+    rectangle "② 安装 OpenClacky\n（网站给出安装命令）" as J0B
+    rectangle "③ 安装连接器扩展 cgc-2046\n扩展自动配置 mcp.json\n（网站只生成 token）" as J0C
+    rectangle "完成 → 进入工作台\n加入新 Workspace 无需重新配置\n（token 通用，scope 靠 workspace_id）" as J0D
+    J0A -down-> J0B : 进入连接引导页
+    J0B -down-> J0C
+    J0C -down-> J0D
+}
+
+' ---------------- 各角色旅程 ----------------
+package "角色旅程" #E8F0FE {
+    V -down-> L : 公开浏览 → 报名时注册登录\n（报名 workflow 触发注册）\n产物：全局账号 → Enrollment
+
+    L -down-> O : 事件级报名 + BYO 全链路学习\n（Enrollment，非成员）\n报名 workflow + 学习 workflow\n产物：Enrollment / 学习产出
+
+    T -down-> O : 教研 workflow 产出大纲材料 → 现场辅导\n（Workspace 成员）\n产物：大纲/材料（Step 产出）
+
+    Vol -down-> O : Workspace 长期成员 → 支持任务\n（教研招募物料步骤）\n产物：招募物料 / 支持记录
+
+    O -right-> O : 筹备活动/开课程 = 跨角色 workflow\n（单步 CRUD 用表单）\n产物：Event/Course / 审批记录
+
+    Sp -right-> O : Event+Workspace 两级赞助\n（非成员账号）\n产物：Sponsorship（两级）
+
+    Spk -right-> O : Event 级被邀请，分享完关系结束\n（非成员，必须全局账号）\n产物：SpeakerInvitation / 分享材料
+
+    A -right-> O : 平台级治理\nWorkspace 创建 = 申请审批 + 主动创建\n产物：Workspace / 审批记录
+}
+
+' ---------------- 跨角色协作 ----------------
+package "Owner 筹备（跨角色 workflow）" #F0FDE8 {
+    rectangle "创建 Event/Course\n单步 CRUD 用表单" as O1
+    rectangle "活动筹备 workflow\n跨角色编排" as O2
+    rectangle "招募 / 教研 / 赞助 / 邀请\n各角色按 Step 参与" as O3
+    rectangle "报名开启\nLearner 报名" as O4
+    O1 -down-> O2
+    O2 -down-> O3
+    O3 -down-> O4
+}
+
+note bottom
+  **形态 X（D4）**：网站无对话页/无执行页——聊天与 Agent 执行全在
+  用户自己的 OpenClacky，经 MCP 调用网站；网站只做业务中枢与产出/审计展示。
+  **两类关系互不替代（D-A4）**：Learner 既可以是 Workspace 成员
+  （运营角色），也可以是 Event/Course 参与者（Enrollment）。
+  **审批与审计（业务中枢）**：Owner/Admin 进工作台 → 审批加入申请/
+  报名/赞助/教研材料；审计查看页按成员/工具/时间筛选（谁·工具·参数·
+  结果·确认·时间）。
+end note
+
+@enduml
