@@ -41,6 +41,24 @@ defmodule Cgc2046.RbacTest do
     Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
   end
 
+  # 移除用户的成员资格（先删 membership_roles 关联记录，避免外键保护 "would leave records behind"）
+  defp remove_membership(workspace, user) do
+    loaded =
+      Ash.load!(workspace, :memberships, tenant: workspace.id, actor: user, authorize?: false)
+
+    membership = Enum.find(loaded.memberships, &(&1.user_id == user.id))
+    assert membership != nil
+
+    Ecto.Adapters.SQL.query!(
+      Cgc2046.Repo,
+      "DELETE FROM membership_roles WHERE membership_id = $1",
+      [Ecto.UUID.dump!(membership.id)]
+    )
+
+    Ash.destroy!(membership, tenant: workspace.id, actor: user, authorize?: false)
+    :ok
+  end
+
   defp create_workspace(admin, join_policy \\ :request) do
     slug = "rbac-ws-#{System.unique_integer([:positive])}"
 
@@ -83,20 +101,37 @@ defmodule Cgc2046.RbacTest do
       end
     end
 
-    test "platform admin has all abilities in any workspace (incl. non-member)" do
+    test "platform admin who is a member (owner) has all abilities" do
       admin = admin_user()
 
-      # 平台管理员自建工作台时自动成为 owner 成员，这里建两个，用非成员场景验证：
-      # 平台管理员在任意工作台（即使不是成员）也应拥有 workspace 级能力
+      # 平台管理员自建工作台时自动成为 owner 成员
       workspace = create_workspace(admin)
 
       for ability <- Rbac.abilities_list() do
         assert Rbac.can?(admin, ability, workspace_id: workspace.id),
-               "expected platform admin to have #{ability}"
+               "expected platform admin (owner member) to have #{ability}"
       end
 
-      # 平台管理员拥有 create_workspace
       assert Rbac.can?(admin, :create_workspace, [])
+    end
+
+    test "platform admin who is NOT a member only gets view/access (P2: no manage exemption)" do
+      # 平台管理员建工作台后移除自己的成员资格 → 模拟他人 workspace 的非成员平台管理员
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      remove_membership(workspace, admin)
+
+      assert Rbac.can?(admin, :view_workspace, workspace_id: workspace.id)
+      assert Rbac.can?(admin, :access_invite_only, workspace_id: workspace.id)
+
+      for ability <- [:list_members, :manage_members, :assign_roles] do
+        refute Rbac.can?(admin, ability, workspace_id: workspace.id),
+               "expected platform admin (non-member) to be denied #{ability}"
+      end
+
+      # 平台级能力仍保留
+      assert Rbac.can?(admin, :create_workspace, workspace_id: workspace.id)
     end
 
     test "owner member abilities match #67 matrix" do
@@ -244,6 +279,12 @@ defmodule Cgc2046.RbacTest do
                  :assign_roles,
                  :create_workspace
                ]
+
+      # 非成员平台管理员：仅 view/access + create_workspace（P2 判定侧收敛）
+      remove_membership(workspace, admin)
+
+      assert Rbac.abilities(admin, workspace_id: workspace.id) ==
+               [:view_workspace, :access_invite_only, :create_workspace]
     end
   end
 
