@@ -39,6 +39,24 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
   end
 
+  # 移除用户的成员资格（先删 membership_roles 关联记录，避免外键保护 "would leave records behind"）
+  defp remove_membership(workspace, user) do
+    loaded =
+      Ash.load!(workspace, :memberships, tenant: workspace.id, actor: user, authorize?: false)
+
+    membership = Enum.find(loaded.memberships, &(&1.user_id == user.id))
+    assert membership != nil
+
+    Ecto.Adapters.SQL.query!(
+      Cgc2046.Repo,
+      "DELETE FROM membership_roles WHERE membership_id = $1",
+      [Ecto.UUID.dump!(membership.id)]
+    )
+
+    Ash.destroy!(membership, tenant: workspace.id, actor: user, authorize?: false)
+    :ok
+  end
+
   defp graphql_post(conn, query, token \\ nil) do
     conn =
       if token do
@@ -234,6 +252,32 @@ defmodule Cgc2046Web.GraphqlRbacTest do
 
       assert %{"data" => %{"myAbilities" => %{"abilities" => abilities}}} = res
       assert abilities == []
+    end
+
+    test "non-member platform admin gets view/access + create_workspace only (P2)" do
+      admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-rbac-nm-#{System.unique_integer([:positive])}"
+      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Rbac NonMember"), token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      # 平台管理员移除自己的成员资格 → 非成员场景
+      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
+      remove_membership(workspace, admin)
+
+      query = """
+      query {
+        myAbilities(workspaceId: "#{ws_id}") {
+          abilities
+        }
+      }
+      """
+
+      res = graphql_post(build_conn(), query, token)
+
+      assert %{"data" => %{"myAbilities" => %{"abilities" => abilities}}} = res
+      assert abilities == ["view_workspace", "access_invite_only", "create_workspace"]
     end
   end
 end
