@@ -24,6 +24,7 @@ const { fetchMembers, assignRoles } = vi.hoisted(() => ({
   fetchMembers: vi.fn(),
   assignRoles: vi.fn(),
 }));
+const { fetchMyWorkspaces } = vi.hoisted(() => ({ fetchMyWorkspaces: vi.fn() }));
 const { params } = vi.hoisted(() => ({ params: { value: { slug: "cgc-academy" } } }));
 const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
 
@@ -48,6 +49,8 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
     ...mod,
     fetchWorkspaceMembers: fetchMembers,
     assignMemberRoles: assignRoles,
+    // #70 QA P1：工作区上下文经 useWorkspaceBySlug → fetchMyWorkspaces 解析
+    fetchMyWorkspaces,
   };
 });
 
@@ -55,6 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
+  fetchMyWorkspaces.mockResolvedValue(MOCK_WORKSPACES);
   fetchCurrentProfile.mockResolvedValue({
     id: "u_0202",
     email: "xiaomei@example.com",
@@ -167,6 +171,64 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
     render(<MembersPage />);
     expect(await screen.findAllByText("real@example.com").then((els) => els.length)).toBeGreaterThan(0);
     expect(fetchMembers).toHaveBeenCalledWith("ws_01");
+  });
+
+  it("真实模式（#70 QA P1）：fetchMyWorkspaces 返回真实 ws（不在 mock），页面按真实数据渲染", async () => {
+    // 复现 QA 场景：真实工作区 slug 不在 MOCK_WORKSPACES 内
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_real_9",
+        slug: "qa70-owner-ws-999",
+        name: "QA70 真实工作区",
+        joinPolicy: "open",
+        sponsorshipEnabled: true,
+        myRoleNames: ["owner"],
+        roles: ["owner"],
+        membershipStatus: "active",
+      },
+    ]);
+    params.value = { slug: "qa70-owner-ws-999" };
+    fetchMembers.mockResolvedValue([
+      { membershipId: "wm_r9", userId: "u_r9", email: "qa.member@example.com", roles: ["owner"] },
+    ]);
+
+    render(<MembersPage />);
+    // 真实 ws 解析成功：标题展示真实名称，不再提示「不存在或不可访问」
+    expect(await screen.findByText("QA70 真实工作区 / 成员")).toBeInTheDocument();
+    expect(screen.queryByText(/不存在或不可访问/)).not.toBeInTheDocument();
+    // 真实成员列表渲染 + 角色上下文（owner 可分配）
+    expect((await screen.findAllByText("qa.member@example.com")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/你是 Owner\/Admin，可分配角色/)).toBeInTheDocument();
+    expect(fetchMembers).toHaveBeenCalledWith("ws_real_9");
+    // 权限说明入口指向真实 slug
+    expect(screen.getByRole("link", { name: /权限说明 →/ })).toHaveAttribute(
+      "href",
+      "/w/qa70-owner-ws-999/permissions",
+    );
+  });
+
+  it("真实模式：fetchMyWorkspaces 返回的 ws 无角色（member 视角）隐藏分配操作", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_real_m",
+        slug: "dbg5-member-ws-777",
+        name: "DBG5 成员工作区",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: ["member"],
+        roles: ["member"],
+        membershipStatus: "active",
+      },
+    ]);
+    params.value = { slug: "dbg5-member-ws-777" };
+    fetchMembers.mockResolvedValue([
+      { membershipId: "wm_rm", userId: "u_rm", email: "me@example.com", roles: ["member"] },
+    ]);
+
+    render(<MembersPage />);
+    expect(await screen.findByText("DBG5 成员工作区 / 成员")).toBeInTheDocument();
+    expect(await screen.findByText(/仅 Owner\/Admin 可分配角色/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存角色/ })).not.toBeInTheDocument();
   });
 });
 
