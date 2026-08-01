@@ -7,10 +7,11 @@ import { USE_MOCK_WORKSPACES, fetchMyWorkspaces } from "./workspaces";
 /**
  * #69 个人资料数据源。
  *
- * 后端 #68 完成前 mock 先行；后端定稿后置 USE_MOCK_WORKSPACES = false，
- * 并实现 fetchCurrentProfile() / updateCurrentProfile() 内的真实 GraphQL 调用
- * （契约见 lib/graphql/profile.ts，建议 me/currentUser，以 #68 定稿为准），
- * 调用方（app/profile/page.tsx、ProfileEntry 组件）不需要改。
+ * 后端 #68 已定稿（me query + updateProfile mutation，commit 4bd4165）：
+ * USE_MOCK_WORKSPACES = false 走真实 GraphQL（fetchCurrentProfile /
+ * updateCurrentProfile / fetchProfileRoleSummary），mock 数据保留作兜底
+ * （切换 USE_MOCK_WORKSPACES = true 可回到 mock，便于本地无后端联调）。
+ * 调用方（app/profile/page.tsx、ProfileEntry 组件）无需改动。
  */
 
 export interface CurrentProfile {
@@ -45,7 +46,7 @@ export const MOCK_CURRENT_PROFILE: CurrentProfile = {
 /**
  * 获取当前用户资料。
  *
- * 后端 #68 me/currentUser 定稿后走真实 GraphQL query（需登录，Bearer token 自动附加）。
+ * 后端 #68 已定稿：真实分支走 `me` query（需登录，Bearer token 自动附加）。
  */
 export async function fetchCurrentProfile(): Promise<CurrentProfile> {
   if (USE_MOCK_WORKSPACES) {
@@ -65,7 +66,7 @@ export async function fetchCurrentProfile(): Promise<CurrentProfile> {
 
 /**
  * 更新当前用户资料（mock：内存更新 MOCK_CURRENT_PROFILE，成功后重新 fetch 拿到新值）。
- * 真实：调用后端 updateProfile mutation（字段以 #68 定稿为准）。
+ * 真实：调用后端 updateProfile mutation（#68 定稿：input.displayName 必填，avatarUrl 可选）。
  */
 export async function updateCurrentProfile(
   input: UpdateProfileInput,
@@ -93,8 +94,11 @@ export async function updateCurrentProfile(
 
 /**
  * 角色汇总：当前用户所进入 Workspace + 各工作台角色并集。
- * 数据源复用 #63 fetchMyWorkspaces（mock 时即 MOCK_WORKSPACES 的 myRoleNames）。
- * 展示时仅列当前用户已进入（可访问）的工作台；受邀未加入（myRoleNames=[]）由调用方决定是否展示。
+ * 数据源复用 #63 fetchMyWorkspaces（真实分支走后端 meWorkspaces，
+ * 用 exists(memberships) 过滤：受邀无 membership 的用户不返回，
+ * 故真实数据下角色汇总不会出现"受邀未加入"行；有 membership 但角色
+ * 被清空（assignRoles 空数组）时 myRoleNames=[]，展示"无角色"）。
+ * 展示时仅列当前用户已进入（可访问）的工作台。
  */
 export async function fetchProfileRoleSummary(): Promise<ProfileRoleSummary[]> {
   const workspaces = await fetchMyWorkspaces();
