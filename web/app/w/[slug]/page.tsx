@@ -14,7 +14,8 @@
 import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { isAuthenticated, clearAuthToken } from "@/lib/auth";
+import { clearAuthToken } from "@/lib/auth";
+import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
 import ProfileEntry from "@/components/profile-entry";
@@ -22,17 +23,18 @@ export default function WorkspacePage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
   const router = useRouter();
-  // isAuthenticated() 同步读 cookie；登录跳转由 useAuthSubmit router.push 触发重渲染
-  const authed = isAuthenticated();
+  // useAuthed()：首帧固定未确认/未登录（SSR/客户端 hydration 一致），挂载后读 cookie 确认
+  const { authed, confirmed } = useAuthed();
 
   // #70 QA P1：工作区上下文优先真实数据（fetchMyWorkspaces），MOCK 仅首帧兜底
   const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
   useEffect(() => {
-    if (!authed) {
+    // 登录态确认前不重定向（避免已登录用户被先跳 /login）
+    if (confirmed && !authed) {
       router.replace("/login");
     }
-  }, [authed, router]);
+  }, [authed, confirmed, router]);
 
   function handleSignOut() {
     clearAuthToken();
