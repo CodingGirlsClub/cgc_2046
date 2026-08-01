@@ -17,7 +17,6 @@ import Link from "next/link";
 import { isAuthenticated, clearAuthToken } from "@/lib/auth";
 import { MOCK_WORKSPACES, type WorkspaceListItem } from "@/lib/workspaces";
 import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
-
 export default function WorkspacePage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
@@ -67,25 +66,42 @@ export default function WorkspacePage() {
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         {ws ? (
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-large bg-card p-5 ring-1 ring-line">
-              <div className="l-overline">标识</div>
-              <div className="l-mono mt-2 text-sm text-ink">{ws.slug}</div>
-            </div>
-            <div className="rounded-large bg-card p-5 ring-1 ring-line">
-              <div className="l-overline">加入方式</div>
-              <div className="l-chip mt-2">
-                {JOIN_POLICY_LABEL[ws.joinPolicy]}
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-large bg-card p-5 ring-1 ring-line">
+                <div className="l-overline">标识</div>
+                <div className="l-mono mt-2 text-sm text-ink">{ws.slug}</div>
               </div>
-              <p className="l-p mt-2 text-xs text-ink-3">{JOIN_POLICY_HINT[ws.joinPolicy]}</p>
-            </div>
-            <div className="rounded-large bg-card p-5 ring-1 ring-line">
-              <div className="l-overline">赞助入口</div>
-              <div className="mt-2 text-sm text-ink">
-                {ws.sponsorshipEnabled ? "已开启" : "已关闭"}
+              <div className="rounded-large bg-card p-5 ring-1 ring-line">
+                <div className="l-overline">加入方式</div>
+                <div className="l-chip mt-2">
+                  {JOIN_POLICY_LABEL[ws.joinPolicy]}
+                </div>
+                <p className="l-p mt-2 text-xs text-ink-3">{JOIN_POLICY_HINT[ws.joinPolicy]}</p>
+              </div>
+              <div className="rounded-large bg-card p-5 ring-1 ring-line">
+                <div className="l-overline">赞助入口</div>
+                <div className="mt-2 text-sm text-ink">
+                  {ws.sponsorshipEnabled ? "已开启" : "已关闭"}
+                </div>
               </div>
             </div>
-          </div>
+
+            {/* #65 成员管理入口 */}
+            <div className="mt-4 rounded-large bg-card p-5 ring-1 ring-line">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="l-overline">成员角色管理</div>
+                  <p className="l-p mt-1 text-ink-2">
+                    查看成员列表与角色并集，Owner/Admin 可分配角色。
+                  </p>
+                </div>
+                <Link href={`/w/${slug}/members`} className="l-btn-primary">
+                  管理成员 →
+                </Link>
+              </div>
+            </div>
+          </>
         ) : (
           <div className="rounded-large bg-card p-10 text-center ring-1 ring-line">
             <p className="l-p text-ink-2">工作区「{slug}」建设中。</p>

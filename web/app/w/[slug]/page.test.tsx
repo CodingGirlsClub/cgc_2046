@@ -52,4 +52,10 @@ describe("工作区占位页 /w/[slug] (#63)", () => {
     const back = await screen.findByRole("link", { name: /← 工作台/ });
     expect(back).toHaveAttribute("href", "/");
   });
+
+  it("提供成员管理入口链接到 /w/[slug]/members (#65)", async () => {
+    render(<WorkspacePage />);
+    const link = await screen.findByRole("link", { name: /管理成员/ });
+    expect(link).toHaveAttribute("href", "/w/cgc-academy/members");
+  });
 });
