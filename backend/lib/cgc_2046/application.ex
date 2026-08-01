@@ -14,6 +14,8 @@ defmodule Cgc2046.Application do
       {Phoenix.PubSub, name: Cgc2046.PubSub},
       # Start a worker by calling: Cgc2046.Worker.start_link(arg)
       # {Cgc2046.Worker, arg},
+      # AshAuthentication supervisor (periodic token cleanup etc.)
+      {AshAuthentication.Supervisor, otp_app: :cgc_2046},
       # Start to serve requests, typically the last entry
       Cgc2046Web.Endpoint
     ]

@@ -1,0 +1,352 @@
+defmodule Cgc2046.Accounts.WorkspaceTest do
+  use Cgc2046Web.ConnCase, async: true
+
+  alias Cgc2046.Accounts.User
+  alias Cgc2046.Accounts.Workspace
+  alias AshAuthentication.Info, as: AuthInfo
+
+  @admin_email "admin@example.com"
+  @normal_email "normal@example.com"
+  @password "sup3r-secret-password"
+
+  defp password_strategy do
+    AuthInfo.strategy!(User, :password)
+  end
+
+  defp register_user(email, password) do
+    strategy = password_strategy()
+
+    assert {:ok, user} =
+             AshAuthentication.Strategy.action(strategy, :register, %{
+               email: email,
+               password: password
+             })
+
+    user
+  end
+
+  # 注册一个平台管理员用户（直接写库提权，模拟种子/运维操作）
+  defp admin_user do
+    user = register_user(@admin_email, @password)
+
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE users SET is_platform_admin = true WHERE id = $1",
+        [Ecto.UUID.dump!(user.id)]
+      )
+
+    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
+  end
+
+  defp normal_user do
+    register_user(@normal_email, @password)
+  end
+
+  describe "create workspace" do
+    test "platform admin can create a workspace with defaults" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{slug: "my-workspace", name: "My Workspace"})
+               |> Ash.create(actor: admin)
+
+      assert workspace.slug == "my-workspace"
+      assert workspace.name == "My Workspace"
+      assert workspace.join_policy == :request
+      assert workspace.sponsorship_enabled == true
+    end
+
+    test "non-admin cannot create a workspace" do
+      user = normal_user()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{slug: "my-workspace", name: "My Workspace"})
+               |> Ash.create(actor: user)
+    end
+
+    test "anonymous user cannot create a workspace" do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{slug: "my-workspace", name: "My Workspace"})
+               |> Ash.create()
+    end
+  end
+
+  describe "slug" do
+    setup do
+      {:ok, admin: admin_user()}
+    end
+
+    test "slug must be unique", %{admin: admin} do
+      assert {:ok, _workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{slug: "unique-slug", name: "One"})
+               |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{slug: "unique-slug", name: "Two"})
+               |> Ash.create(actor: admin)
+
+      assert Enum.any?(errors, fn error -> Exception.message(error) =~ "already been taken" end)
+    end
+
+    test "rejects invalid slug formats", %{admin: admin} do
+      for bad <- ["Uppercase", "has space", "has_underscore", "中文", ""] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 Workspace
+                 |> Ash.Changeset.for_create(:create, %{slug: bad, name: "Bad"})
+                 |> Ash.create(actor: admin)
+
+        assert Enum.any?(errors, fn error -> Exception.message(error) =~ "slug" end),
+               "expected slug #{inspect(bad)} to be rejected"
+      end
+    end
+
+    test "accepts valid slug formats", %{admin: admin} do
+      for good <- ["a", "a-b", "abc-123", "my-workspace-2"] do
+        assert {:ok, workspace} =
+                 Workspace
+                 |> Ash.Changeset.for_create(:create, %{slug: good, name: "Good"})
+                 |> Ash.create(actor: admin)
+
+        assert workspace.slug == good
+      end
+    end
+  end
+
+  describe "join_policy" do
+    setup do
+      {:ok, admin: admin_user()}
+    end
+
+    test "accepts the three allowed values", %{admin: admin} do
+      for policy <- [:open, :request, :invite_only] do
+        slug = "ws-#{policy}" |> String.replace("_", "-")
+
+        assert {:ok, workspace} =
+                 Workspace
+                 |> Ash.Changeset.for_create(:create, %{
+                   slug: slug,
+                   name: "WS",
+                   join_policy: policy
+                 })
+                 |> Ash.create(actor: admin)
+
+        assert workspace.join_policy == policy
+      end
+    end
+
+    test "rejects invalid join_policy values", %{admin: admin} do
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "bad-policy",
+                 name: "WS",
+                 join_policy: :public
+               })
+               |> Ash.create(actor: admin)
+
+      assert Enum.any?(errors, fn error -> Exception.message(error) =~ "join_policy" end)
+    end
+  end
+
+  describe "sponsorship_enabled" do
+    test "defaults to true" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{slug: "sponsorship-default", name: "WS"})
+               |> Ash.create(actor: admin)
+
+      assert workspace.sponsorship_enabled == true
+    end
+
+    test "can be set to false by admin" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "sponsorship-off",
+                 name: "WS",
+                 sponsorship_enabled: false
+               })
+               |> Ash.create(actor: admin)
+
+      assert workspace.sponsorship_enabled == false
+    end
+  end
+
+  describe "read workspace" do
+    test "any authenticated user can get a workspace by slug" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "readable-ws", name: "Readable"})
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      assert {:ok, fetched} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: "readable-ws"})
+               |> Ash.read_one(actor: user)
+
+      assert fetched.id == workspace.id
+    end
+
+    test "anonymous user cannot read a workspace" do
+      admin = admin_user()
+
+      {:ok, _workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "secret-ws", name: "Secret"})
+        |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: "secret-ws"})
+               |> Ash.read_one()
+    end
+  end
+
+  describe "update workspace" do
+    test "platform admin can update join_policy" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "updatable-ws", name: "Updatable"})
+        |> Ash.create(actor: admin)
+
+      assert {:ok, updated} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
+               |> Ash.update(actor: admin)
+
+      assert updated.join_policy == :invite_only
+    end
+
+    test "non-admin cannot update a workspace" do
+      admin = admin_user()
+      user = normal_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "locked-ws", name: "Locked"})
+        |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
+               |> Ash.update(actor: user)
+    end
+  end
+
+  describe "GraphQL createWorkspace mutation" do
+    defp graphql_post(conn, query, token \\ nil) do
+      conn =
+        if token do
+          put_req_header(conn, "authorization", "Bearer #{token}")
+        else
+          conn
+        end
+
+      conn
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => query})
+      |> json_response(200)
+    end
+
+    defp sign_in_token(email, password) do
+      query = """
+      mutation {
+        signIn(email: "#{email}", password: "#{password}") {
+          id
+          token
+        }
+      }
+      """
+
+      res = graphql_post(build_conn(), query)
+      assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+      token
+    end
+
+    defp create_workspace_query(slug, name, join_policy \\ nil) do
+      policy_arg =
+        case join_policy do
+          nil -> ""
+          value -> ", joinPolicy: \"#{value}\""
+        end
+
+      """
+      mutation {
+        createWorkspace(input: { slug: "#{slug}", name: "#{name}"#{policy_arg} }) {
+          result { id slug name joinPolicy sponsorshipEnabled }
+          errors { message }
+        }
+      }
+      """
+    end
+
+    test "platform admin can create a workspace via GraphQL" do
+      admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), create_workspace_query("graphql-ws", "GraphQL WS"), token)
+
+      assert %{"data" => %{"createWorkspace" => %{"result" => result, "errors" => []}}} = res
+      assert result["slug"] == "graphql-ws"
+      assert result["name"] == "GraphQL WS"
+      assert result["joinPolicy"] == "request"
+      assert result["sponsorshipEnabled"] == true
+      refute is_nil(admin.id)
+    end
+
+    test "non-admin cannot create a workspace via GraphQL" do
+      _user = normal_user()
+      token = sign_in_token(@normal_email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          create_workspace_query("forbidden-ws", "Forbidden"),
+          token
+        )
+
+      assert %{"data" => %{"createWorkspace" => %{"result" => result, "errors" => errors}}} = res
+      assert is_nil(result)
+      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
+    end
+
+    test "anonymous cannot create a workspace via GraphQL" do
+      res = graphql_post(build_conn(), create_workspace_query("anon-ws", "Anon"))
+
+      assert %{"data" => %{"createWorkspace" => %{"result" => result, "errors" => errors}}} = res
+      assert is_nil(result)
+      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
+    end
+
+    test "platform admin can create workspace with joinPolicy invite_only via GraphQL" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          create_workspace_query("invite-only-ws", "Invite Only", "invite_only"),
+          token
+        )
+
+      assert %{"data" => %{"createWorkspace" => %{"result" => result}}} = res
+      assert result["joinPolicy"] == "invite_only"
+    end
+  end
+end

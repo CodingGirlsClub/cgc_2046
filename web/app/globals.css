@@ -1,26 +1,228 @@
 @import "tailwindcss";
 
+/* ============================================================
+   Linear Design System — tokens ported from prototype-m0
+   (原型工程师/prototype-m0/app/globals.css, sourced from design-bites
+   linear.app DESIGN.md)
+   Dark / Light 双主题：:root = Dark（默认）；.light = Light。
+   主题切换：开发期 ?theme=dark|light URL 参数（U3 决策：正式版改用户偏好，
+   dev 参数保留为调试工具）。.light class 挂到 <html> 上。
+   ============================================================ */
+
+/* ---------- 运行时主题变量 ---------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ---- Dark（官方：design-bites linear.app DESIGN.md） ---- */
+  --canvas: #08090a; /* Surface/Base */
+  --frame: #090a0b; /* Surface/Frame */
+  --card: #0f1011; /* Surface/Card */
+  --view: #121314; /* Surface/View */
+  --chat: #161718; /* Surface/Chat */
+  --divider: #23252a; /* Surface/Divider */
+  --ink: #f7f8f8; /* Text/Primary */
+  --ink-2: #d0d6e0; /* Text/Secondary */
+  --ink-3: #8a8f98; /* Text/Tertiary */
+  --accent: #5e6ad2; /* Accent/Primary */
+  --accent-mention: #6d78d5;
+  --accent-mentionbg: #232534;
+  --status-red: #eb5757;
+  --status-violet: #8b5cf6;
+  --status-indigo: #6366f1;
+  --status-green: #10b981;
+  --status-cyan: #06b6d4;
+  --line: rgba(255, 255, 255, 0.08); /* Border/Subtle */
+  --line-soft: rgba(255, 255, 255, 0.04);
+  --line-input: rgba(255, 255, 255, 0.02);
+  --soft: rgba(255, 255, 255, 0.05); /* 浅层底色（chip/hover/codeblock） */
+  --soft-2: rgba(255, 255, 255, 0.02);
+  --line-strong: rgba(255, 255, 255, 0.15);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.light {
+  /* ---- Light（推断：官方品牌色 Mercury White #F4F5F8 / Nordic Gray #222326
+        与暗色 DESIGN.md 同源规范反转；强调色/状态色/字重/圆角/阴影机制两主题一致） ---- */
+  --canvas: #f4f5f8; /* 官方 Mercury White（Linear 浅色画布基调） */
+  --frame: #fafafa;
+  --card: #ffffff;
+  --view: #f7f7f8;
+  --chat: #f2f2f3;
+  --divider: #e4e4e7;
+  --ink: #222326; /* 官方 Nordic Gray（浅色主文字） */
+  --ink-2: #4b4d54;
+  --ink-3: #8a8a8d;
+  --accent: #5e6ad2; /* 品牌色两主题一致 */
+  --accent-mention: #4f5bd0;
+  --accent-mentionbg: #eceefb;
+  --status-red: #eb5757;
+  --status-violet: #8b5cf6;
+  --status-indigo: #6366f1;
+  --status-green: #10b981;
+  --status-cyan: #06b6d4;
+  --line: rgba(0, 0, 0, 0.08); /* 月光玻璃反转 */
+  --line-soft: rgba(0, 0, 0, 0.04);
+  --line-input: rgba(0, 0, 0, 0.02);
+  --soft: rgba(0, 0, 0, 0.05);
+  --soft-2: rgba(0, 0, 0, 0.02);
+  --line-strong: rgba(0, 0, 0, 0.15);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ---------- Tailwind token 映射（引用运行时变量，随主题 class 切换） ---------- */
+@theme {
+  --color-canvas: var(--canvas);
+  --color-frame: var(--frame);
+  --color-card: var(--card);
+  --color-view: var(--view);
+  --color-chat: var(--chat);
+  --color-divider: var(--divider);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-mention: var(--accent-mention);
+  --color-accent-mentionbg: var(--accent-mentionbg);
+  --color-status-red: var(--status-red);
+  --color-status-violet: var(--status-violet);
+  --color-status-indigo: var(--status-indigo);
+  --color-status-green: var(--status-green);
+  --color-status-cyan: var(--status-cyan);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-input: var(--line-input);
+  --color-soft: var(--soft);
+  --color-soft-2: var(--soft-2);
+  --color-line-strong: var(--line-strong);
+
+  --font-sans: var(--font-inter), "Inter Variable", "Inter", "SF Pro Display",
+    -apple-system, "system-ui", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: var(--font-geist-mono), "Berkeley Mono", ui-monospace, "SF Mono",
+    Menlo, monospace;
+
+  --radius-micro: 2px;
+  --radius-small: 4px;
+  --radius-base: 5px;
+  --radius-medium: 6px;
+  --radius-large: 8px;
+
+  --shadow-hairline: 0px 1.2px 0px 0px rgba(0, 0, 0, 0.03);
+  --shadow-ring: 0 0 0 1px rgba(0, 0, 0, 0.33);
+  --shadow-elevated: rgba(0, 0, 0, 0) 0px 8px 2px, rgba(0, 0, 0, 0.01) 0px 5px 2px,
+    rgba(0, 0, 0, 0.04) 0px 3px 2px, rgba(0, 0, 0, 0.07) 0px 1px 1px,
+    rgba(0, 0, 0, 0.08) 0px 0px 1px;
+  --shadow-press: rgba(0, 0, 0, 0.4) 0px 1px 0px 0px;
+}
+
+html {
+  color-scheme: dark;
+}
+html.light {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv01", "ss03";
+  font-size: 16px;
+  line-height: 24px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Linear 字阶（510/590 字重系统 + 随字号收紧的负字距） ---- */
+@layer utilities {
+  .l-h1 { font-size: 40px; line-height: 44px; letter-spacing: -0.88px; font-weight: 510; }
+  .l-h2 { font-size: 24px; line-height: 32px; letter-spacing: -0.4px; font-weight: 510; }
+  .l-h3 { font-size: 20px; line-height: 26.6px; letter-spacing: -0.24px; font-weight: 590; }
+  .l-h4 { font-size: 16px; line-height: 24px; font-weight: 590; }
+  .l-body { font-size: 16px; line-height: 24px; font-weight: 400; }
+  .l-p { font-size: 15px; line-height: 24px; letter-spacing: -0.165px; font-weight: 400; }
+  .l-link { font-size: 14px; line-height: 21px; font-weight: 510; }
+  .l-btn { font-size: 13px; line-height: 19.5px; font-weight: 400; }
+  .l-overline { font-size: 11px; line-height: 16px; font-weight: 510; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .l-code { font-size: 12.25px; line-height: 15.925px; letter-spacing: -0.182px; font-family: var(--font-mono); }
+  .l-mono { font-family: var(--font-mono); }
+}
+
+/* ---- 组件级 Linear 语言（button / chip / input / codeblock，两主题共用） ---- */
+@layer components {
+  .l-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border-radius: var(--radius-medium);
+    font-size: 13px;
+    line-height: 19.5px;
+    padding: 5px 12px;
+    transition: background-color 120ms ease;
+  }
+  .l-btn-primary:hover { background-color: var(--accent-mention); }
+
+  .l-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    color: var(--ink-3);
+    border-radius: var(--radius-medium);
+    font-size: 13px;
+    line-height: 19.5px;
+    padding: 5px 12px;
+    transition: color 120ms ease, background-color 120ms ease;
+  }
+  .l-btn-ghost:hover { color: var(--ink); background-color: var(--soft); }
+
+  .l-btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    color: var(--ink-2);
+    border-radius: var(--radius-medium);
+    font-size: 13px;
+    line-height: 19.5px;
+    padding: 5px 12px;
+    box-shadow: inset 0 0 0 1px var(--line);
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .l-btn-outline:hover { background-color: var(--soft); color: var(--ink); }
+
+  .l-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 9999px;
+    background-color: var(--soft);
+    color: var(--ink-2);
+    font-size: 11px;
+    line-height: 16px;
+    padding: 2px 8px;
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  .l-codeblock {
+    background-color: var(--soft);
+    box-shadow: inset 0 0 0 1px var(--line);
+    border-radius: var(--radius-micro);
+    font-family: var(--font-mono);
+    font-size: 12.25px;
+    line-height: 15.925px;
+    letter-spacing: -0.182px;
+    color: var(--ink-2);
+  }
+
+  .l-input {
+    background-color: var(--line-input);
+    box-shadow: inset 0 0 0 1px var(--line);
+    border-radius: var(--radius-medium);
+    color: var(--ink-2);
+    font-size: 16px;
+    line-height: 24px;
+    padding: 8px 12px;
+    outline: none;
+    transition: box-shadow 120ms ease;
+  }
+  .l-input::placeholder { color: var(--ink-3); }
+  .l-input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 }
