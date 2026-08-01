@@ -72,6 +72,8 @@ describe("#64/#65 成员角色契约", () => {
     expect(doc).toContain("result {");
     expect(doc).toContain("workspaceId");
     expect(doc).toContain("userId");
+    expect(doc).toContain("roles {");
+    expect(doc).toContain("name");
     expect(doc).toContain("errors {");
   });
 

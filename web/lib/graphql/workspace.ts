@@ -125,6 +125,10 @@ export const ASSIGN_ROLES: TypedDocumentNode<
         id
         workspaceId
         userId
+        roles {
+          id
+          name
+        }
       }
       errors {
         message

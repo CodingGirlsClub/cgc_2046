@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mapRoleObjectsToNames, mapWorkspaceMembers } from "./workspaces";
+import {
+  mapRoleObjectsToNames,
+  mapWorkspaceMembers,
+  mapAssignRolesResult,
+} from "./workspaces";
 
 describe("mapRoleObjectsToNames（后端 roles{id,name} → 角色名并集）", () => {
   it("合法角色名原样返回", () => {
@@ -70,5 +74,32 @@ describe("mapWorkspaceMembers（后端分页对象 count/results → 前端成�
     expect(mapWorkspaceMembers(null)).toEqual([]);
     expect(mapWorkspaceMembers(undefined)).toEqual([]);
     expect(mapWorkspaceMembers({ count: 0, results: [] })).toEqual([]);
+  });
+});
+
+describe("mapAssignRolesResult（#65 review：保存后回填非空）", () => {
+  it("selection 含 roles{id,name} 时回填角色并集非空", () => {
+    const member = mapAssignRolesResult({
+      id: "wm_0202",
+      workspaceId: "ws_02",
+      userId: "u_0202",
+      roles: [
+        { id: "r1", name: "admin" },
+        { id: "r2", name: "member" },
+      ],
+    });
+    expect(member.membershipId).toBe("wm_0202");
+    expect(member.userId).toBe("u_0202");
+    expect(member.roles).toEqual(["admin", "member"]); // 保存后 UI 徽章不再显示 []
+    expect(member.email).toBe("u_0202"); // 后端无 email，userId 兜底
+  });
+
+  it("roles 缺失（老 schema 未请求）时回填空数组，不崩溃", () => {
+    const member = mapAssignRolesResult({
+      id: "wm_0202",
+      workspaceId: "ws_02",
+      userId: "u_0202",
+    });
+    expect(member.roles).toEqual([]);
   });
 });
