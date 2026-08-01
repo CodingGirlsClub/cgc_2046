@@ -38,6 +38,7 @@ defmodule Cgc2046.Accounts.UserTest do
                })
 
       assert user.hashed_password != @password
+
       assert Ash.Resource.Info.public_attributes(User) |> Enum.map(& &1.name) ==
                [:id, :email, :is_platform_admin]
     end

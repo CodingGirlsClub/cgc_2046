@@ -12,13 +12,13 @@ defmodule Cgc2046.Accounts.Token do
     domain: Cgc2046.GlobalApi
 
   postgres do
-    table "tokens"
-    repo Cgc2046.Repo
+    table("tokens")
+    repo(Cgc2046.Repo)
   end
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
-      authorize_if always()
+      authorize_if(always())
     end
   end
 end

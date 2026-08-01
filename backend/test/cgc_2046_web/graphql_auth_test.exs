@@ -94,7 +94,9 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       res = graphql_post(build_conn(), query)
 
       assert %{"data" => %{"signIn" => nil}, "errors" => errors} = res
-      assert [%{"message" => "Invalid email or password", "code" => "authentication_failed"}] = errors
+
+      assert [%{"message" => "Invalid email or password", "code" => "authentication_failed"}] =
+               errors
     end
   end
 end
