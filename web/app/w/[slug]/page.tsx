@@ -17,6 +17,7 @@ import Link from "next/link";
 import { isAuthenticated, clearAuthToken } from "@/lib/auth";
 import { MOCK_WORKSPACES, type WorkspaceListItem } from "@/lib/workspaces";
 import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
+import ProfileEntry from "@/components/profile-entry";
 export default function WorkspacePage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
@@ -58,9 +59,12 @@ export default function WorkspacePage() {
               <h1 className="l-h2 text-ink">{ws?.name ?? slug}</h1>
             </div>
           </div>
-          <button className="l-btn-outline" onClick={handleSignOut}>
-            退出登录
-          </button>
+          <div className="flex items-center gap-3">
+            <ProfileEntry />
+            <button className="l-btn-outline" onClick={handleSignOut}>
+              退出登录
+            </button>
+          </div>
         </div>
       </header>
 

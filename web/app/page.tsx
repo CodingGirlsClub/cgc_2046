@@ -26,6 +26,7 @@ import {
   JOIN_POLICY_HINT,
   type JoinPolicy,
 } from "@/lib/graphql/workspace";
+import ProfileEntry from "@/components/profile-entry";
 
 /** join_policy 徽章：Linear 小圆点 + 浅底 pill */
 function JoinBadge({ policy }: { policy: JoinPolicy }) {
@@ -145,6 +146,7 @@ export default function HomePage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="l-p text-ink-3">已登录 · CGC 2046</span>
+            <ProfileEntry />
             <button className="l-btn-outline" onClick={handleSignOut}>
               退出登录
             </button>
