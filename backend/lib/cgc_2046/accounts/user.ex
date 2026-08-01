@@ -46,6 +46,12 @@ defmodule Cgc2046.Accounts.User do
     update_timestamp(:updated_at)
   end
 
+  validations do
+    validate(match(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
+      message: "must be a valid email address"
+    )
+  end
+
   actions do
     defaults([:read])
 
