@@ -88,8 +88,8 @@ describe("/w/[slug]/permissions 权限表可视化页", () => {
     await waitFor(() => {
       expect(screen.getByText("CGC 线上学院 / 权限表")).toBeInTheDocument();
     });
-    // 行数 = 三角色
-    const rows = screen.getAllByTestId("permission-row");
+    // 行数 = 三角色（数据经 fetchPermissionsMatrix 异步加载，等待就绪）
+    const rows = await screen.findAllByTestId("permission-row");
     expect(rows).toHaveLength(3);
     // 每行包含角色徽章
     expect(within(rows[0]).getByText(/Owner · 所有者/)).toBeInTheDocument();

@@ -16,7 +16,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { isAuthenticated, clearAuthToken } from "@/lib/auth";
+import { clearAuthToken } from "@/lib/auth";
+import { useAuthed } from "@/lib/use-authed";
 import {
   fetchMyWorkspaces,
   type WorkspaceListItem,
@@ -98,10 +99,12 @@ export default function HomePage() {
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  // isAuthenticated() 同步读 cookie；登录跳转由 useAuthSubmit router.push 触发重渲染
-  const authed = isAuthenticated();
+  // useAuthed()：首帧固定未确认/未登录（SSR/客户端 hydration 一致），挂载后读 cookie 确认
+  const { authed, confirmed } = useAuthed();
 
   useEffect(() => {
+    // 登录态确认前不重定向也不拉取（避免已登录用户被先跳 /login）
+    if (!confirmed) return;
     if (!authed) {
       router.replace("/login");
       return;
@@ -117,7 +120,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [authed, router]);
+  }, [authed, confirmed, router]);
 
   function handleSignOut() {
     clearAuthToken();
