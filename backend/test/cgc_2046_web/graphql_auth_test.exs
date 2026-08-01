@@ -47,6 +47,16 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       assert %{"data" => %{"signUp" => %{"errors" => errors}}} = res
       assert Enum.any?(errors, &(&1["message"] =~ "already been taken"))
     end
+
+    test "rejects an invalid email format" do
+      conn = build_conn()
+
+      res = graphql_post(conn, sign_up_query("not-an-email", @password))
+
+      assert %{"data" => %{"signUp" => %{"result" => result, "errors" => errors}}} = res
+      assert is_nil(result)
+      assert Enum.any?(errors, &(&1["message"] =~ "email"))
+    end
   end
 
   describe "signIn mutation" do

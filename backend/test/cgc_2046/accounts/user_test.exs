@@ -77,6 +77,21 @@ defmodule Cgc2046.Accounts.UserTest do
                _ -> false
              end)
     end
+
+    test "rejects an invalid email format" do
+      strategy = password_strategy()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AshAuthentication.Strategy.action(strategy, :register, %{
+                 email: "not-an-email",
+                 password: @password
+               })
+
+      assert Enum.any?(errors, fn
+               %Ash.Error.Changes.InvalidAttribute{field: :email} -> true
+               _ -> false
+             end)
+    end
   end
 
   describe "sign_in_with_password" do
