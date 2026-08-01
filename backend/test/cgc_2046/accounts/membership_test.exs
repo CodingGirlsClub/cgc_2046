@@ -247,6 +247,34 @@ defmodule Cgc2046.Accounts.MembershipTest do
       loaded2 = Ash.load!(fetched2, :my_role_names, actor: outsider)
       assert loaded2.my_role_names == []
     end
+
+    test "my_membership_id and can_access reflect actor membership" do
+      admin = admin_user()
+      workspace = create_workspace(admin, "me-mem-#{System.unique_integer([:positive])}")
+
+      user = normal_user()
+      membership = add_member(workspace, user, admin, [:member])
+
+      assert {:ok, [fetched]} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_id, %{id: workspace.id})
+               |> Ash.read(actor: user)
+
+      loaded = Ash.load!(fetched, [:my_membership_id, :can_access], actor: user)
+      assert loaded.my_membership_id == membership.id
+      assert loaded.can_access == true
+
+      outsider = register_user("outsider3@example.com", @password)
+
+      assert {:ok, [fetched2]} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_id, %{id: workspace.id})
+               |> Ash.read(actor: outsider)
+
+      loaded2 = Ash.load!(fetched2, [:my_membership_id, :can_access], actor: outsider)
+      assert loaded2.my_membership_id == nil
+      assert loaded2.can_access == false
+    end
   end
 
   describe "GraphQL members contract" do
