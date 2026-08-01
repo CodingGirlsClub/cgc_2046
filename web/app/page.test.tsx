@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import HomePage from "./page";
 import { MOCK_WORKSPACES } from "@/lib/workspaces";
 
@@ -14,6 +14,7 @@ const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
   clearAuthToken: vi.fn(),
 }));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({ fetchMyWorkspaces: vi.fn() }));
+const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
@@ -29,10 +30,22 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
   return { ...mod, fetchMyWorkspaces };
 });
 
+vi.mock("@/lib/profile", async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return { ...mod, fetchCurrentProfile };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   fetchMyWorkspaces.mockResolvedValue(MOCK_WORKSPACES);
+  fetchCurrentProfile.mockResolvedValue({
+    id: "u_0202",
+    email: "xiaomei@example.com",
+    displayName: "小美",
+    avatarUrl: null,
+    isPlatformAdmin: false,
+  });
 });
 
 afterEach(cleanup);
@@ -81,5 +94,12 @@ describe("工作台页 (#63)", () => {
     fireEvent.click(signOut);
     expect(clearAuthToken).toHaveBeenCalledTimes(1);
     expect(push).toHaveBeenCalledWith("/login");
+  });
+
+  it("header 提供个人资料入口链接到 /profile (#69)", async () => {
+    render(<HomePage />);
+    const entry = await screen.findByTestId("profile-entry");
+    expect(entry).toHaveAttribute("href", "/profile");
+    expect(within(entry).getByText("小美")).toBeInTheDocument();
   });
 });

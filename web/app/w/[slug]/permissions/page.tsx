@@ -27,6 +27,7 @@ import {
   PERMISSION_ROLE_LABEL_ZH,
   type PermissionMatrixRow,
 } from "@/lib/permissions";
+import ProfileEntry from "@/components/profile-entry";
 
 export default function WorkspacePermissionsPage() {
   const params = useParams<{ slug: string }>();
@@ -86,9 +87,12 @@ export default function WorkspacePermissionsPage() {
               <h1 className="l-h2 text-ink">{ws?.name ?? slug} / 权限表</h1>
             </div>
           </div>
-          <button className="l-btn-outline" onClick={handleSignOut}>
-            退出登录
-          </button>
+          <div className="flex items-center gap-3">
+            <ProfileEntry />
+            <button className="l-btn-outline" onClick={handleSignOut}>
+              退出登录
+            </button>
+          </div>
         </div>
       </header>
 

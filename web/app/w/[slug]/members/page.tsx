@@ -32,6 +32,7 @@ import {
   ROLE_LABEL_ZH,
   type MembershipRoleName,
 } from "@/lib/graphql/workspace";
+import ProfileEntry from "@/components/profile-entry";
 
 export default function WorkspaceMembersPage() {
   const params = useParams<{ slug: string }>();
@@ -132,9 +133,12 @@ export default function WorkspaceMembersPage() {
               <h1 className="l-h2 text-ink">{ws?.name ?? slug} / 成员</h1>
             </div>
           </div>
-          <button className="l-btn-outline" onClick={handleSignOut}>
-            退出登录
-          </button>
+          <div className="flex items-center gap-3">
+            <ProfileEntry />
+            <button className="l-btn-outline" onClick={handleSignOut}>
+              退出登录
+            </button>
+          </div>
         </div>
       </header>
 
