@@ -1,52 +1,405 @@
 "use client";
 
 /**
- * #69 个人资料页 /profile。
+ * #69 Profile 查看 / 编辑。
  *
- * 功能：
- * - 查看当前用户资料：头像（avatarUrl 或首字母圆形兜底）/ 展示名 / email / 平台管理员标记；
- * - 编辑：展示名可编辑（input + 保存），保存调 updateCurrentProfile（mock 内存更新），
- *   成功后刷新展示并提示；
- * - 角色汇总：当前用户所进入 Workspace 列表 + 各工作台角色并集徽章（owner/admin/member）；
- * - 数据：mock 先行（lib/profile + lib/workspaces），后端 #68 定稿后切真实
- *   （USE_MOCK_WORKSPACES = false 即可，调用方无需改）。
+ * 视觉与信息架构按 08-profile-view-light-v3 / 09-profile-edit-dark 落地：
+ * - 查看态展示租户内可见的摘要、关于我、技能、作品集预览和角色并集；
+ * - 首页只展示前三个作品，完整列表通过“查看全部 N 个作品”入口承载；
+ * - 编辑态把基本资料、只读的 Workspace 身份和 Portfolio 编辑区分开；
+ * - #68 API 当前只保证 displayName/avatarUrl，其他字段保留为前端可扩展资料模型。
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchCurrentProfile,
   fetchProfileRoleSummary,
+  MOCK_PROFILE_PORTFOLIO,
   updateCurrentProfile,
   type CurrentProfile,
+  type PortfolioIcon,
+  type ProfilePortfolioItem,
   type ProfileRoleSummary,
 } from "@/lib/profile";
 import {
   ROLE_BADGE_CLASS,
   ROLE_LABEL,
-  ROLE_LABEL_ZH,
+  type MembershipRoleName,
 } from "@/lib/graphql/workspace";
+
+type IconName =
+  | "home"
+  | "users"
+  | "settings"
+  | "user"
+  | "pin"
+  | "calendar"
+  | "visibility"
+  | "edit"
+  | "lock"
+  | "document"
+  | "book"
+  | "guide"
+  | "plus"
+  | "trash"
+  | "grip"
+  | "arrow"
+  | "check"
+  | "chevron";
+
+function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (name) {
+    case "home":
+      return <svg {...common}><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" /></svg>;
+    case "users":
+      return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.6-3.2 2.4-5 5.5-5s4.9 1.8 5.5 5" /><path d="M15.5 5.8a3 3 0 0 1 0 5.5M17.2 14.3c1.8.8 2.8 2.2 3.3 4.7" /></svg>;
+    case "settings":
+      return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 1.7-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-2.4v-.2a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.7-1.7.06-.06A1.7 1.7 0 0 0 8.46 15a1.7 1.7 0 0 0-1.56-1.03H6.7v-2.4h.2A1.7 1.7 0 0 0 8.46 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.7-1.7.06.06A1.7 1.7 0 0 0 10.99 7.46 1.7 1.7 0 0 0 12.02 5.9V5h2.4v.2a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.7 1.7-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.56 1.03h.2A1.7 1.7 0 0 0 19.4 15Z" /></svg>;
+    case "user":
+      return <svg {...common}><circle cx="12" cy="8" r="3.5" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
+    case "pin":
+      return <svg {...common}><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></svg>;
+    case "calendar":
+      return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></svg>;
+    case "visibility":
+      return <svg {...common}><path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.2" /></svg>;
+    case "edit":
+      return <svg {...common}><path d="m4 16.5-.7 3.8 3.8-.7L18.6 8.1a2.1 2.1 0 0 0-3-3L4 16.5Z" /><path d="m13.8 6.2 4 4" /></svg>;
+    case "lock":
+      return <svg {...common}><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>;
+    case "document":
+      return <svg {...common}><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></svg>;
+    case "book":
+      return <svg {...common}><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H12v18H7.5A3.5 3.5 0 0 0 4 23Z" /><path d="M20 5.5A3.5 3.5 0 0 0 16.5 2H12v18h4.5a3.5 3.5 0 0 1 3.5 3Z" /></svg>;
+    case "guide":
+      return <svg {...common}><path d="M5 4h6a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 1Z" /><path d="M19 4h-5a3 3 0 0 0-3 3v13h6a3 3 0 0 1 3 1Z" /></svg>;
+    case "plus":
+      return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+    case "trash":
+      return <svg {...common}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" /></svg>;
+    case "grip":
+      return <svg {...common}><circle cx="8" cy="7" r="1" fill="currentColor" stroke="none" /><circle cx="16" cy="7" r="1" fill="currentColor" stroke="none" /><circle cx="8" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="16" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="8" cy="17" r="1" fill="currentColor" stroke="none" /><circle cx="16" cy="17" r="1" fill="currentColor" stroke="none" /></svg>;
+    case "arrow":
+      return <svg {...common}><path d="M4 12h15M13 6l6 6-6 6" /></svg>;
+    case "check":
+      return <svg {...common}><path d="m5 12 4.5 4.5L19 7" /></svg>;
+    case "chevron":
+      return <svg {...common}><path d="m9 6 6 6-6 6" /></svg>;
+  }
+}
+
+interface ProfileContent {
+  name: string;
+  location: string;
+  about: string;
+  skills: string[];
+  joinedAt: string;
+  visibility: "workspace_members" | "workspace_public";
+  memberNumber: string;
+  workspaceName: string;
+  workspaceSlug: string;
+  workspaceRoles: MembershipRoleName[];
+  portfolio: ProfilePortfolioItem[];
+  avatarUrl: string | null;
+}
+
+interface ProfileDraft {
+  name: string;
+  location: string;
+  about: string;
+  skills: string[];
+  portfolio: ProfilePortfolioItem[];
+  avatarUrl: string | null;
+}
+
+const DEFAULT_ABOUT = "关注社区学习、AI 教育与开放协作。喜欢把复杂的问题整理成清晰、可执行的课程与活动。";
+const DEFAULT_SKILLS = ["AI 教育", "课程设计", "社区运营", "Elixir"];
+
+function roleLabel(role: MembershipRoleName) {
+  return ROLE_LABEL[role] ?? role;
+}
+
+function roleBadgeClass(role: MembershipRoleName) {
+  return ROLE_BADGE_CLASS[role] ?? "l-badge l-badge-member";
+}
+
+function portfolioIconName(icon: PortfolioIcon | undefined): IconName {
+  if (icon === "book") return "book";
+  if (icon === "guide") return "guide";
+  return "document";
+}
+
+function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummary[]): ProfileContent {
+  const summary = summaries.find((item) => item.myRoleNames.length > 0) ?? summaries[0];
+  const roles = profile.workspaceRoles?.length ? profile.workspaceRoles : (summary?.myRoleNames ?? []);
+  const portfolio = profile.portfolio ?? MOCK_PROFILE_PORTFOLIO;
+  return {
+    name: profile.displayName?.trim() || "未设置展示名",
+    location: profile.location || "上海",
+    about: profile.about || DEFAULT_ABOUT,
+    skills: profile.skills?.length ? [...profile.skills] : [...DEFAULT_SKILLS],
+    joinedAt: profile.joinedAt || "2024 年 3 月",
+    visibility: profile.visibility ?? "workspace_members",
+    memberNumber: profile.memberNumber || "CGC-SH-0018",
+    workspaceName: profile.workspaceName || summary?.workspaceName || "上海 Coding Girls Club",
+    workspaceSlug: profile.workspaceSlug || summary?.workspaceSlug || "cgc-shanghai",
+    workspaceRoles: roles,
+    portfolio: portfolio.map((item) => ({ ...item })),
+    avatarUrl: profile.avatarUrl ?? null,
+  };
+}
+
+function toDraft(content: ProfileContent): ProfileDraft {
+  return {
+    name: content.name === "未设置展示名" ? "" : content.name,
+    location: content.location,
+    about: content.about,
+    skills: [...content.skills],
+    portfolio: content.portfolio.map((item) => ({ ...item })),
+    avatarUrl: content.avatarUrl,
+  };
+}
+
+function Avatar({ content, editable = false, onFile }: { content: Pick<ProfileContent, "name" | "avatarUrl">; editable?: boolean; onFile?: (value: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const letter = (content.name || "?").slice(0, 1).toUpperCase();
+
+  function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !onFile) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") onFile(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className={`profile-avatar-wrap ${editable ? "profile-avatar-wrap--editable" : ""}`}>
+      {content.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={content.avatarUrl} alt={`${content.name} 的头像`} className="profile-avatar" />
+      ) : (
+        <span className="profile-avatar profile-avatar--fallback">{letter}</span>
+      )}
+      {editable && (
+        <>
+          <input ref={inputRef} type="file" accept="image/png,image/jpeg" className="profile-file-input" onChange={handleFile} />
+          <button type="button" className="profile-change-avatar" onClick={() => inputRef.current?.click()}>更换头像</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProfileSidebar({ workspaceSlug }: { workspaceSlug: string }) {
+  return (
+    <aside className="profile-sidebar">
+      <div className="profile-brand">
+        <span className="profile-brand__mark">CGC</span>
+        <span>上海 Coding Girls Club</span>
+        <span className="profile-brand__chevron">⌄</span>
+      </div>
+      <nav className="profile-sidebar__nav" aria-label="工作区导航">
+        <Link href={`/w/${workspaceSlug}`} className="profile-sidebar__item"><Icon name="home" size={23} /><span>概览</span></Link>
+        <Link href={`/w/${workspaceSlug}/members`} className="profile-sidebar__item"><Icon name="users" size={23} /><span>成员与角色</span></Link>
+        <button type="button" disabled className="profile-sidebar__item profile-sidebar__item--disabled"><Icon name="settings" size={23} /><span>工作区设置</span></button>
+        <Link href="/profile" className="profile-sidebar__item profile-sidebar__item--selected" aria-current="page"><Icon name="user" size={23} /><span>个人资料</span></Link>
+      </nav>
+    </aside>
+  );
+}
+
+function Breadcrumb({ editing }: { editing: boolean }) {
+  return (
+    <div className="profile-breadcrumb" aria-label="页面路径">
+      {editing ? (
+        <>
+          <Link href="/profile">成员 Profile</Link><span>›</span><strong>编辑个人资料</strong>
+        </>
+      ) : (
+        <>
+          <Link href="/" aria-label="返回工作台"><Icon name="home" size={17} /></Link><span>›</span><Link href="/profile">个人资料</Link><span>›</span><strong>成员 Profile</strong>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RoleChips({ roles, className = "" }: { roles: MembershipRoleName[]; className?: string }) {
+  return (
+    <div className={`profile-role-chips ${className}`}>
+      {roles.length > 0 ? roles.map((role) => <span key={role} className={roleBadgeClass(role)}>{roleLabel(role)}</span>) : <span className="profile-role-empty">未分配角色</span>}
+    </div>
+  );
+}
+
+function ProfileSummary({ content }: { content: ProfileContent }) {
+  return (
+    <section className="profile-summary" data-testid="profile-summary">
+      <Avatar content={content} />
+      <div className="profile-summary__identity">
+        <h2 data-testid="profile-display-name">{content.name}</h2>
+        <RoleChips roles={content.workspaceRoles} />
+        <div className="profile-summary__meta">
+          <span><Icon name="pin" size={20} />{content.location}</span><i />
+          <span><Icon name="calendar" size={20} />加入于 {content.joinedAt}</span><i />
+          <span className="profile-visibility-pill"><Icon name="visibility" size={18} />{content.visibility === "workspace_members" ? "仅当前 Workspace 成员可见" : "Workspace 内公开"}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PortfolioPreview({ portfolio }: { portfolio: ProfilePortfolioItem[] }) {
+  const preview = portfolio.slice(0, 3);
+  return (
+    <section className="profile-card profile-portfolio-card" data-testid="portfolio-card">
+      <header className="profile-card__heading">
+        <h2>作品集 <span className="profile-count">{portfolio.length}</span></h2>
+      </header>
+      {preview.length > 0 ? (
+        <div className="profile-portfolio-list">
+          {preview.map((item) => (
+            <a key={item.id} href={item.url || "#"} className="profile-portfolio-item" data-testid="portfolio-preview-item">
+              <span className={`profile-portfolio-icon profile-portfolio-icon--${item.icon ?? "document"}`}><Icon name={portfolioIconName(item.icon)} size={26} /></span>
+              <span className="profile-portfolio-item__body"><strong>{item.title}</strong><span>{item.description}</span></span>
+              <Icon name="arrow" size={20} />
+            </a>
+          ))}
+          <Link href="/profile/portfolio" className="profile-portfolio-more" data-testid="portfolio-all-link">查看全部 {portfolio.length} 个作品 <Icon name="arrow" size={18} /></Link>
+        </div>
+      ) : (
+        <div className="profile-empty-card">还没有添加作品集。</div>
+      )}
+    </section>
+  );
+}
+
+function ViewContent({ content }: { content: ProfileContent }) {
+  return (
+    <div className="profile-view-grid">
+      <div className="profile-view-main">
+        <section className="profile-card profile-about-card" data-testid="about-card">
+          <h2>关于我</h2>
+          <p>{content.about}</p>
+        </section>
+        <PortfolioPreview portfolio={content.portfolio} />
+      </div>
+      <div className="profile-view-aside">
+        <section className="profile-card profile-skills-card" data-testid="skills-card">
+          <h2>技能标签</h2>
+          <div className="profile-skill-list">{content.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
+        </section>
+        <section className="profile-card profile-identity-card" data-testid="identity-card">
+          <h2>工作区身份</h2>
+          <span className="profile-card__eyebrow">角色并集</span>
+          <RoleChips roles={content.workspaceRoles} />
+          <p>权限按所有角色并集合并</p>
+          <div className="profile-identity-divider" />
+          <div className="profile-member-number"><span>成员编号</span><strong>{content.memberNumber}</strong></div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function EditPortfolioRow({ item, onChange, onRemove }: { item: ProfilePortfolioItem; onChange: (next: ProfilePortfolioItem) => void; onRemove: () => void }) {
+  return (
+    <div className="profile-edit-portfolio-row" data-testid="portfolio-edit-row">
+      <span className="profile-drag-handle" aria-hidden="true"><Icon name="grip" size={19} /></span>
+      <label><span>作品标题</span><input value={item.title} onChange={(event) => onChange({ ...item, title: event.target.value })} /></label>
+      <label><span>作品简介</span><input value={item.description} onChange={(event) => onChange({ ...item, description: event.target.value })} /></label>
+      <label><span>作品链接</span><input value={item.url ?? ""} onChange={(event) => onChange({ ...item, url: event.target.value })} /></label>
+      <button type="button" className="profile-remove-portfolio" aria-label={`删除${item.title || "作品"}`} onClick={onRemove}><Icon name="trash" size={19} /></button>
+    </div>
+  );
+}
+
+function EditContent({ draft, roles, memberNumber, onDraftChange }: { draft: ProfileDraft; roles: MembershipRoleName[]; memberNumber: string; onDraftChange: (next: ProfileDraft) => void }) {
+  const [showAllPortfolio, setShowAllPortfolio] = useState(false);
+  const visiblePortfolio = showAllPortfolio ? draft.portfolio : draft.portfolio.slice(0, 2);
+
+  function addSkill() {
+    const skill = window.prompt("添加技能标签");
+    if (!skill?.trim() || draft.skills.includes(skill.trim())) return;
+    onDraftChange({ ...draft, skills: [...draft.skills, skill.trim()] });
+  }
+
+  return (
+    <div className="profile-edit-layout">
+      <section className="profile-edit-basic profile-card" data-testid="edit-basic-card">
+        <h2>基本资料</h2>
+        <div className="profile-edit-avatar-block">
+          <span className="profile-form-label">头像</span>
+          <div className="profile-edit-avatar-row">
+            <Avatar content={{ name: draft.name || "?", avatarUrl: draft.avatarUrl }} editable onFile={(avatarUrl) => onDraftChange({ ...draft, avatarUrl })} />
+            <p>支持 JPG、PNG，文件大小不超过 5MB。</p>
+          </div>
+        </div>
+        <div className="profile-edit-form-grid">
+          <label><span className="profile-form-label">姓名</span><input data-testid="profile-name-input" value={draft.name} onChange={(event) => onDraftChange({ ...draft, name: event.target.value })} /></label>
+          <label><span className="profile-form-label">所在地</span><input data-testid="profile-location-input" value={draft.location} onChange={(event) => onDraftChange({ ...draft, location: event.target.value })} /></label>
+        </div>
+        <label className="profile-edit-about"><span className="profile-form-label">个人简介</span><textarea data-testid="profile-about-input" maxLength={240} value={draft.about} onChange={(event) => onDraftChange({ ...draft, about: event.target.value })} /><span className="profile-char-count">{draft.about.length} / 240</span></label>
+        <div className="profile-edit-skills"><span className="profile-form-label">技能标签</span><div className="profile-edit-skill-box">{draft.skills.map((skill) => <span key={skill}>{skill}<button type="button" aria-label={`删除标签 ${skill}`} onClick={() => onDraftChange({ ...draft, skills: draft.skills.filter((item) => item !== skill) })}>×</button></span>)}<button type="button" className="profile-add-skill" onClick={addSkill}><Icon name="plus" size={16} />添加标签</button></div></div>
+      </section>
+
+      <aside className="profile-edit-side">
+        <section className="profile-card profile-edit-readonly" data-testid="edit-visibility-card">
+          <h2>可见范围</h2>
+          <p><Icon name="lock" size={16} />仅当前 Workspace 成员可见</p>
+          <div className="profile-edit-divider" />
+          <h2>工作区身份</h2>
+          <p>角色由 Owner / Admin 管理，此处不可编辑</p>
+          <RoleChips roles={roles} />
+          <label><span className="profile-form-label">成员编号</span><input value={memberNumber} readOnly /></label>
+        </section>
+      </aside>
+
+      <section className="profile-card profile-edit-portfolio" data-testid="edit-portfolio-card">
+        <h2>作品集</h2>
+        <div className="profile-edit-portfolio-list">
+          {visiblePortfolio.map((item) => (
+            <EditPortfolioRow key={item.id} item={item} onChange={(next) => onDraftChange({ ...draft, portfolio: draft.portfolio.map((entry) => entry.id === item.id ? next : entry) })} onRemove={() => onDraftChange({ ...draft, portfolio: draft.portfolio.filter((entry) => entry.id !== item.id) })} />
+          ))}
+        </div>
+        {!showAllPortfolio && draft.portfolio.length > 2 && <button type="button" className="profile-expand-portfolio" onClick={() => setShowAllPortfolio(true)}>展开其余 {draft.portfolio.length - 2} 个作品</button>}
+        <button type="button" className="profile-add-portfolio" onClick={() => onDraftChange({ ...draft, portfolio: [...draft.portfolio, { id: `portfolio-${Date.now()}`, title: "", description: "", url: "", icon: "document" }] })}><Icon name="plus" size={18} />添加作品</button>
+      </section>
+    </div>
+  );
+}
 
 export default function ProfilePage() {
   const router = useRouter();
-  // useAuthed()：首帧固定未确认/未登录（SSR/客户端 hydration 一致），挂载后读 cookie 确认
   const { authed, confirmed } = useAuthed();
-
   const [profile, setProfile] = useState<CurrentProfile | null>(null);
-  const [roles, setRoles] = useState<ProfileRoleSummary[]>([]);
+  const [summaries, setSummaries] = useState<ProfileRoleSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  // 编辑态：displayName draft
   const [editing, setEditing] = useState(false);
-  const [draftName, setDraftName] = useState("");
+  const [draft, setDraft] = useState<ProfileDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    // 登录态确认前不重定向也不拉取（避免已登录用户被先跳 /login）
     if (!confirmed) return;
     if (!authed) {
       router.replace("/login");
@@ -54,219 +407,105 @@ export default function ProfilePage() {
     }
     let cancelled = false;
     Promise.all([fetchCurrentProfile(), fetchProfileRoleSummary()])
-      .then(([p, r]) => {
+      .then(([nextProfile, nextSummaries]) => {
         if (cancelled) return;
-        setProfile(p);
-        setRoles(r);
-        setDraftName(p.displayName ?? "");
+        setProfile(nextProfile);
+        setSummaries(nextSummaries);
+        setDraft(toDraft(getProfileContent(nextProfile, nextSummaries)));
+        setErrorMsg(null);
       })
-      .catch((e: unknown) => {
-        if (!cancelled) setErrorMsg(e instanceof Error ? e.message : "加载资料失败");
+      .catch((error: unknown) => {
+        if (!cancelled) setErrorMsg(error instanceof Error ? error.message : "加载资料失败");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [authed, confirmed, router]);
+
+  const content = useMemo(() => profile ? getProfileContent(profile, summaries) : null, [profile, summaries]);
+  const workspaceSlug = content?.workspaceSlug || "cgc-shanghai";
+
+  const startEdit = useCallback(() => {
+    if (!content) return;
+    setDraft(toDraft(content));
+    setEditing(true);
+    setSavedMsg(null);
+    setErrorMsg(null);
+  }, [content]);
+
+  const cancelEdit = useCallback(() => {
+    if (content) setDraft(toDraft(content));
+    setEditing(false);
+    setErrorMsg(null);
+  }, [content]);
+
+  async function handleSave() {
+    if (!profile || !draft) return;
+    const name = draft.name.trim();
+    if (!name) {
+      setErrorMsg("姓名不能为空");
+      return;
+    }
+    setSaving(true);
+    setErrorMsg(null);
+    try {
+      // #68 当前 API 只接受 displayName/avatarUrl；其余设计字段先在资料页状态中保留。
+      const updated = await updateCurrentProfile({ displayName: name, avatarUrl: draft.avatarUrl });
+      setProfile({ ...profile, ...updated, displayName: name, avatarUrl: draft.avatarUrl, location: draft.location, about: draft.about, skills: draft.skills, portfolio: draft.portfolio });
+      setEditing(false);
+      setSavedMsg("资料已保存");
+    } catch (error: unknown) {
+      setErrorMsg(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function handleSignOut() {
     clearAuthToken();
     router.push("/login");
   }
 
-  const startEdit = useCallback(() => {
-    setDraftName(profile?.displayName ?? "");
-    setEditing(true);
-    setSavedMsg(null);
-    setErrorMsg(null);
-  }, [profile]);
+  if (!authed) return <main className="profile-loading">正在确认登录状态…</main>;
 
-  const cancelEdit = useCallback(() => {
-    setDraftName(profile?.displayName ?? "");
-    setEditing(false);
-    setErrorMsg(null);
-  }, [profile]);
-
-  async function handleSave() {
-    const name = draftName.trim();
-    if (!name) {
-      setErrorMsg("展示名不能为空");
-      return;
-    }
-    setSaving(true);
-    setErrorMsg(null);
-    try {
-      const updated = await updateCurrentProfile({ displayName: name });
-      setProfile(updated);
-      setDraftName(updated.displayName ?? "");
-      setEditing(false);
-      setSavedMsg("资料已保存");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setSaving(false);
-    }
+  if (loading) {
+    return <div className="profile-page"><ProfileSidebar workspaceSlug={workspaceSlug} /><main className="profile-main"><div className="profile-main__inner"><div className="profile-skeleton" /></div></main></div>;
   }
 
-  if (!authed) {
-    return (
-      <main className="flex flex-1 items-center justify-center bg-canvas">
-        <span className="l-p text-ink-3">加载中…</span>
-      </main>
-    );
+  if (!profile || !content) {
+    return <main className="profile-loading"><strong>无法加载个人资料</strong><span>{errorMsg || "请稍后重试。"}</span></main>;
   }
 
-  const avatarText = (profile?.displayName ?? profile?.email ?? "?").slice(0, 1).toUpperCase();
+  const currentDraft = draft ?? toDraft(content);
 
   return (
-    <div className="min-h-screen bg-canvas">
-      <header className="flex h-[72px] items-center border-b border-line">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="l-btn-ghost">
-              ← 工作台
-            </Link>
-            <div>
-              <div className="l-overline">Profile · 个人资料</div>
-              <h1 className="l-h2 text-ink">我的资料</h1>
-            </div>
-          </div>
-          <button className="l-btn-outline" onClick={handleSignOut}>
-            退出登录
-          </button>
+    <div className={`profile-page ${editing ? "profile-page--editing" : ""}`}>
+      <ProfileSidebar workspaceSlug={workspaceSlug} />
+      <main className="profile-main">
+        <div className="profile-main__inner">
+          <Breadcrumb editing={editing} />
+          <header className="profile-heading">
+            <h1>{editing ? "编辑个人资料" : "我的个人资料"}</h1>
+            {editing ? (
+              <div className="profile-heading__actions"><button type="button" className="profile-button profile-button--quiet" onClick={cancelEdit} disabled={saving}>取消</button><button type="button" className="profile-button profile-button--primary" onClick={handleSave} disabled={saving}>{saving ? "保存中…" : "保存更改"}</button></div>
+            ) : <button type="button" className="profile-button profile-button--outline" onClick={startEdit}><Icon name="edit" size={18} />编辑资料</button>}
+          </header>
+
+          {savedMsg && <div className="profile-toast" role="status"><Icon name="check" size={16} />{savedMsg}</div>}
+          {errorMsg && <div className="profile-error" role="alert">{errorMsg}</div>}
+
+          {editing ? (
+            <EditContent draft={currentDraft} roles={content.workspaceRoles} memberNumber={content.memberNumber} onDraftChange={setDraft} />
+          ) : (
+            <>
+              <ProfileSummary content={content} />
+              <ViewContent content={content} />
+            </>
+          )}
+
+          <footer className="profile-footer"><span>资料仅在当前 Workspace 内可见。</span><button type="button" onClick={handleSignOut}>退出登录</button></footer>
         </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        {loading ? (
-          <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-            <div className="h-64 animate-pulse rounded-large bg-card ring-1 ring-line" />
-            <div className="h-64 animate-pulse rounded-large bg-card ring-1 ring-line" />
-          </div>
-        ) : !profile ? (
-          <div className="rounded-large bg-card p-10 text-center ring-1 ring-line">
-            <p className="l-p text-ink-2">无法加载个人资料。</p>
-            {errorMsg && <p className="l-p mt-1 text-xs text-status-red">{errorMsg}</p>}
-          </div>
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-            {/* 左：资料卡 */}
-            <section className="h-fit rounded-large bg-card p-6 ring-1 ring-line" data-testid="profile-card">
-              <div className="flex flex-col items-center text-center">
-                {profile.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={profile.avatarUrl}
-                    alt="头像"
-                    className="h-20 w-20 rounded-full object-cover ring-1 ring-line"
-                  />
-                ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent-mentionbg text-2xl font-medium text-accent">
-                    {avatarText}
-                  </div>
-                )}
-                <div className="l-h3 mt-4 text-ink" data-testid="profile-display-name">
-                  {profile.displayName || "未设置展示名"}
-                </div>
-                <div className="l-mono mt-1 text-xs text-ink-3">{profile.email}</div>
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
-                  <span className="l-chip">
-                    {profile.isPlatformAdmin ? "平台管理员" : "普通用户"}
-                  </span>
-                  <span className="l-chip">ID {profile.id}</span>
-                </div>
-              </div>
-
-              {/* 编辑区 */}
-              <div className="mt-6 border-t border-line pt-4">
-                {!editing ? (
-                  <button className="l-btn-outline w-full justify-center" onClick={startEdit}>
-                    编辑资料
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <label className="l-overline block" htmlFor="display-name-input">
-                      展示名
-                    </label>
-                    <input
-                      id="display-name-input"
-                      className="l-input w-full"
-                      value={draftName}
-                      onChange={(e) => setDraftName(e.target.value)}
-                      data-testid="display-name-input"
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        className="l-btn-primary"
-                        disabled={saving}
-                        onClick={handleSave}
-                        data-testid="save-profile-btn"
-                      >
-                        {saving ? "保存中…" : "保存"}
-                      </button>
-                      <button
-                        className="l-btn-ghost"
-                        disabled={saving}
-                        onClick={cancelEdit}
-                        data-testid="cancel-edit-btn"
-                      >
-                        取消
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {savedMsg && <p className="l-p mt-3 text-sm text-status-green">{savedMsg}</p>}
-                {errorMsg && <p className="l-p mt-3 text-sm text-status-red">{errorMsg}</p>}
-              </div>
-            </section>
-
-            {/* 右：角色汇总 */}
-            <section className="rounded-large bg-card p-6 ring-1 ring-line" data-testid="role-summary">
-              <div className="l-overline">我的工作区与角色</div>
-              <h2 className="l-h3 mt-1 text-ink">角色汇总</h2>
-              <p className="l-p mt-1 text-ink-2">当前用户在各 Workspace 的角色并集（owner/admin/member）。</p>
-
-              {roles.length === 0 ? (
-                <div className="mt-6 rounded-large bg-soft-2 p-6 text-center ring-1 ring-line">
-                  <p className="l-p text-ink-3">还没有可进入的工作台。</p>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {roles.map((r) => (
-                    <div
-                      key={r.workspaceId}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-large bg-view p-4 ring-1 ring-line"
-                      data-testid="role-summary-row"
-                    >
-                      <div className="min-w-0">
-                        <Link
-                          href={`/w/${r.workspaceSlug}`}
-                          className="l-p font-medium text-ink transition hover:text-accent"
-                        >
-                          {r.workspaceName}
-                        </Link>
-                        <div className="l-mono text-xs text-ink-3">{r.workspaceSlug}</div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {r.myRoleNames.length === 0 ? (
-                          <span className="l-chip">无角色 · 受邀</span>
-                        ) : (
-                          r.myRoleNames.map((role) => (
-                            <span key={role} className={ROLE_BADGE_CLASS[role]} data-testid="role-summary-badge">
-                              {ROLE_LABEL[role]} · {ROLE_LABEL_ZH[role]}
-                            </span>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
       </main>
     </div>
   );
