@@ -460,6 +460,42 @@ input SignUpInput {
   password: String!
 }
 
+input UserFilterAvatarUrl {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input UserFilterDisplayName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
 input UserFilterIsPlatformAdmin {
   isNil: Boolean
   eq: Boolean
@@ -516,6 +552,12 @@ input UserFilterInput {
 
   "是否平台管理员（全局标记）"
   isPlatformAdmin: UserFilterIsPlatformAdmin
+
+  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
+  displayName: UserFilterDisplayName
+
+  "头像 URL（#68 Profile API，可选）"
+  avatarUrl: UserFilterAvatarUrl
 }
 
 type SignInResult {
@@ -526,6 +568,12 @@ type SignInResult {
 
   "是否平台管理员（全局标记）"
   isPlatformAdmin: Boolean!
+
+  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
+  displayName: String
+
+  "头像 URL（#68 Profile API，可选）"
+  avatarUrl: String
 
   "A JWT which the user can use to authenticate to the API."
   token: String!
@@ -539,6 +587,12 @@ type User {
 
   "是否平台管理员（全局标记）"
   isPlatformAdmin: Boolean!
+
+  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
+  displayName: String
+
+  "头像 URL（#68 Profile API，可选）"
+  avatarUrl: String
 }
 
 type RootQueryType {
@@ -550,6 +604,9 @@ type RootQueryType {
 
   "当前用户在指定工作台的能力列表（#66 Rbac 动态判定，需登录）"
   myAbilities(workspaceId: ID!): MyAbilitiesPayload
+
+  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/avatarUrl\/isPlatformAdmin"
+  me: User
 
   "按 slug 获取工作台（需登录）"
   getWorkspace(
@@ -598,7 +655,17 @@ type RootQueryType {
   ): KeysetPageOfWorkspaceMembership
 }
 
+input UpdateProfileInput {
+  "updateProfile 输入（#68）：displayName 必填，avatarUrl 可选"
+  displayName: String!
+
+  avatarUrl: String
+}
+
 type RootMutationType {
+  "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
+  updateProfile(input: UpdateProfileInput!): User
+
   "Register a new user with a username and password."
   signUp(input: SignUpInput!): SignUpResult!
 
