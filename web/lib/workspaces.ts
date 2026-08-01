@@ -1,5 +1,15 @@
 import type { JoinPolicy, MembershipRoleName } from "./graphql/workspace";
-import { canAssignRoles, ROLE_LABEL_ZH } from "./graphql/workspace";
+import {
+  canAssignRoles,
+  ROLE_LABEL_ZH,
+  WORKSPACE_MEMBERS,
+  ME_WORKSPACES,
+  ASSIGN_ROLES,
+  type WorkspaceMemberConnection,
+  type WorkspaceMembership,
+  type WorkspaceMembershipRole,
+} from "./graphql/workspace";
+import { client } from "./apollo-client";
 
 /**
  * #63/#65 工作台与成员角色数据源。
@@ -36,8 +46,9 @@ export interface WorkspaceMember {
   membershipId: string;
   /** 全局用户 ID */
   userId: string;
-  email: string;
-  /** 展示名（mock 附加） */
+  /** 邮箱（真实 workspaceMembers 返回可能不含 email，前端以 userId 兜底展示） */
+  email?: string;
+  /** 展示名（mock 附加；真实数据暂无） */
   displayName?: string;
   /** 角色并集（同一成员可持多 role；与后端 multitenancy 多角色并集语义一致） */
   roles: MembershipRoleName[];
@@ -112,24 +123,63 @@ export const MOCK_MEMBERS: Record<string, WorkspaceMember[]> = {
 };
 
 /**
+ * 将后端 workspaceMembers 返回的 roles { id name } 对象数组映射为角色名并集。
+ * 未知角色名（如 teacher）会被过滤，仅保留 owner/admin/member。
+ */
+export function mapRoleObjectsToNames(
+  roles: WorkspaceMembershipRole[] | null | undefined,
+): MembershipRoleName[] {
+  if (!roles) return [];
+  const valid: MembershipRoleName[] = ["owner", "admin", "member"];
+  return roles
+    .map((r) => r.name as MembershipRoleName)
+    .filter((n) => valid.includes(n));
+}
+
+/**
+ * 将后端 workspaceMembers 分页对象（count/results）映射为前端成员列表。
+ * 后端返回不含 email 时以 userId 兜底展示。
+ */
+export function mapWorkspaceMembers(
+  conn: WorkspaceMemberConnection | null | undefined,
+): WorkspaceMember[] {
+  if (!conn || !Array.isArray(conn.results)) return [];
+  return conn.results.map((m: WorkspaceMembership) => ({
+    membershipId: m.id,
+    userId: m.userId,
+    email: m.userId,
+    displayName: undefined,
+    roles: mapRoleObjectsToNames(m.roles),
+  }));
+}
+
+/**
  * 获取当前用户可进入的 Workspace 列表。
  *
- * TODO(#64)：后端 meWorkspaces 就绪后，将 USE_MOCK_WORKSPACES 置 false，
- * 并在此改为真实 GraphQL query（ME_WORKSPACES，需登录，Bearer token 自动附加）。
+ * 后端 #64 meWorkspaces 已定稿（含 myRoleNames/myMembershipId/canAccess）。
+ * USE_MOCK_WORKSPACES=false 时走真实 GraphQL query（需登录，Bearer token 自动附加）。
  */
 export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
   if (USE_MOCK_WORKSPACES) {
     return Promise.resolve(MOCK_WORKSPACES);
   }
-  // TODO(#64): 真实 meWorkspaces 查询落点
-  return [];
+  const { data } = await client.query({ query: ME_WORKSPACES });
+  return (data?.meWorkspaces ?? []).map((ws) => ({
+    id: ws.id,
+    slug: ws.slug,
+    name: ws.name,
+    joinPolicy: ws.joinPolicy,
+    sponsorshipEnabled: ws.sponsorshipEnabled,
+    myRoleNames: ws.myRoleNames ?? [],
+    roles: ws.myRoleNames ?? [],
+  }));
 }
 
 /**
  * 获取某 workspace 的成员列表（#65）。
  *
- * TODO(#64)：后端成员列表查询就绪后切换真实 query（当前后端 #64 未提供，
- * 用 mock 并保留 hook）。
+ * 后端 #64 workspaceMembers 已定稿（分页对象 count/results + roles{id,name}，
+ * filter 用 { workspaceId: { eq } } 内层包装）。USE_MOCK_WORKSPACES=false 时走真实 query。
  */
 export async function fetchWorkspaceMembers(
   workspaceId: string,
@@ -137,15 +187,18 @@ export async function fetchWorkspaceMembers(
   if (USE_MOCK_WORKSPACES) {
     return Promise.resolve(MOCK_MEMBERS[workspaceId] ?? []);
   }
-  // TODO(#64): 真实成员列表查询落点
-  return [];
+  const { data } = await client.query({
+    query: WORKSPACE_MEMBERS,
+    variables: { filter: { workspaceId: { eq: workspaceId } } },
+  });
+  return mapWorkspaceMembers(data?.workspaceMembers);
 }
 
 /**
  * 分配成员角色（多角色并集，替换整组；仅 Owner/Admin 应调用）。
  * mock：内存更新 MOCK_MEMBERS 中对应成员的 roles。
- *
- * TODO(#64)：真实 assignRoles mutation 就绪后切换（ASSIGN_ROLES）。
+ * 真实：调用后端 assignRoles mutation（id = membershipId，roleNames 替换整组，
+ * 空数组 = 清空角色；非 Owner/Admin 后端返回 forbidden error）。
  */
 export async function assignMemberRoles(
   workspaceId: string,
@@ -162,8 +215,21 @@ export async function assignMemberRoles(
     members[idx] = updated;
     return Promise.resolve(updated);
   }
-  // TODO(#64): 真实 assignRoles mutation 落点
-  throw new Error("real assignRoles not implemented yet");
+  const { data } = await client.mutate({
+    mutation: ASSIGN_ROLES,
+    variables: { id: membershipId, input: { roleNames } },
+  });
+  const result = data?.assignRoles?.result;
+  if (!result) {
+    const msg = data?.assignRoles?.errors?.[0]?.message ?? "assignRoles failed";
+    throw new Error(msg);
+  }  return {
+    membershipId: result.id,
+    userId: result.userId,
+    email: result.userId,
+    displayName: undefined,
+    roles: mapRoleObjectsToNames(result.roles),
+  };
 }
 
 /**

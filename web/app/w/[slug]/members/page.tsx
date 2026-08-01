@@ -187,13 +187,13 @@ export default function WorkspaceMembersPage() {
                         <div className="flex items-center gap-3">
                           {/* 头像：displayName/email 首字母 */}
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-mentionbg text-sm font-medium text-accent">
-                            {(m.displayName ?? m.email).slice(0, 1).toUpperCase()}
+                            {(m.displayName ?? m.email ?? m.userId).slice(0, 1).toUpperCase()}
                           </div>
                           <div>
                             <div className="l-p font-medium text-ink">
-                              {m.displayName ?? m.email}
+                              {m.displayName ?? m.email ?? m.userId}
                             </div>
-                            <div className="l-mono text-xs text-ink-3">{m.email}</div>
+                            <div className="l-mono text-xs text-ink-3">{m.email ?? m.userId}</div>
                           </div>
                         </div>
                         {/* 角色并集徽章 */}

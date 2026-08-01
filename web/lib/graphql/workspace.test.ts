@@ -6,6 +6,7 @@ import {
   CREATE_WORKSPACE,
   ME_WORKSPACES,
   ASSIGN_ROLES,
+  WORKSPACE_MEMBERS,
   JOIN_POLICY_LABEL,
   JOIN_POLICY_HINT,
   MEMBERSHIP_ROLES,
@@ -72,6 +73,17 @@ describe("#64/#65 成员角色契约", () => {
     expect(doc).toContain("workspaceId");
     expect(doc).toContain("userId");
     expect(doc).toContain("errors {");
+  });
+
+  it("WORKSPACE_MEMBERS：filter eq 包装 + 分页对象 count/results + roles{id,name}", () => {
+    const doc = print(WORKSPACE_MEMBERS);
+    expect(doc).toContain("query WorkspaceMembers($filter: WorkspaceMembersFilter!)");
+    expect(doc).toContain("workspaceMembers(filter: $filter)");
+    expect(doc).toContain("count");
+    expect(doc).toContain("results {");
+    expect(doc).toContain("roles {");
+    expect(doc).toContain("id");
+    expect(doc).toContain("name");
   });
 
   it("角色模型：owner/admin/member 标签齐全", () => {

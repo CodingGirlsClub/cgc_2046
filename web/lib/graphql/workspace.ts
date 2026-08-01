@@ -45,6 +45,25 @@ export interface WorkspaceMembership {
   workspaceId: string;
   /** 成员（全局用户）ID */
   userId: string;
+  /** 角色并集（#64 补充：workspaceMembers 返回 roles { id name } 对象数组） */
+  roles?: WorkspaceMembershipRole[] | null;
+}
+
+/** 成员角色对象（#64 workspaceMembers 的 roles 字段返回结构） */
+export interface WorkspaceMembershipRole {
+  id: string;
+  name: string;
+}
+
+/** workspaceMembers 分页对象（后端返回 count/results，不是直接数组） */
+export interface WorkspaceMemberConnection {
+  count: number;
+  results: WorkspaceMembership[];
+}
+
+/** workspaceMembers filter：workspaceId 用 eq 比较器内层包装 */
+export interface WorkspaceMembersFilter {
+  workspaceId?: { eq?: string } | null;
 }
 
 export interface MutationError {
@@ -110,6 +129,30 @@ export const ASSIGN_ROLES: TypedDocumentNode<
       errors {
         message
         code
+      }
+    }
+  }
+`;
+
+/**
+ * #64 workspaceMembers：成员列表查询（分页对象，filter 用 eq 比较器包装 workspaceId）。
+ * 单成员多角色通过 roles { id name } 并集返回。
+ */
+export const WORKSPACE_MEMBERS: TypedDocumentNode<
+  { workspaceMembers: WorkspaceMemberConnection },
+  { filter: WorkspaceMembersFilter }
+> = gql`
+  query WorkspaceMembers($filter: WorkspaceMembersFilter!) {
+    workspaceMembers(filter: $filter) {
+      count
+      results {
+        id
+        workspaceId
+        userId
+        roles {
+          id
+          name
+        }
       }
     }
   }
