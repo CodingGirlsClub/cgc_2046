@@ -79,7 +79,7 @@ describe("#64/#65 成员角色契约", () => {
 
   it("WORKSPACE_MEMBERS：filter eq 包装 + 分页对象 count/results + roles{id,name}", () => {
     const doc = print(WORKSPACE_MEMBERS);
-    expect(doc).toContain("query WorkspaceMembers($filter: WorkspaceMembersFilter!)");
+    expect(doc).toContain("query WorkspaceMembers($filter: WorkspaceMembershipFilterInput!)");
     expect(doc).toContain("workspaceMembers(filter: $filter)");
     expect(doc).toContain("count");
     expect(doc).toContain("results {");

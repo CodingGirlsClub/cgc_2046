@@ -15,7 +15,7 @@ import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated, clearAuthToken } from "@/lib/auth";
-import { MOCK_WORKSPACES, type WorkspaceListItem } from "@/lib/workspaces";
+import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
 import ProfileEntry from "@/components/profile-entry";
 export default function WorkspacePage() {
@@ -24,6 +24,9 @@ export default function WorkspacePage() {
   const router = useRouter();
   // isAuthenticated() 同步读 cookie；登录跳转由 useAuthSubmit router.push 触发重渲染
   const authed = isAuthenticated();
+
+  // #70 QA P1：工作区上下文优先真实数据（fetchMyWorkspaces），MOCK 仅首帧兜底
+  const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
   useEffect(() => {
     if (!authed) {
@@ -43,8 +46,6 @@ export default function WorkspacePage() {
       </main>
     );
   }
-
-  const ws: WorkspaceListItem | undefined = MOCK_WORKSPACES.find((w) => w.slug === slug);
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -69,7 +70,9 @@ export default function WorkspacePage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        {ws ? (
+        {wsLoading ? (
+          <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
+        ) : ws ? (
           <>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-large bg-card p-5 ring-1 ring-line">
