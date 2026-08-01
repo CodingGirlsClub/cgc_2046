@@ -15,13 +15,12 @@ import { client } from "./apollo-client";
  * #63/#65 工作台与成员角色数据源。
  *
  * 后端 #62 已完成（getWorkspace/getWorkspaceById/createWorkspace 真实可用）；
- * #64 后端已定稿 meWorkspaces + assignRoles（本地 schema 已含，未 push）。
- * Leader 拍板：#63/#65 以 UI/交互/路由为主，mock 先行，后端 #64 完成后切真实数据。
+ * #64 已定稿 meWorkspaces + assignRoles；#66 已定稿 permissionMatrix/myAbilities；
+ * #68 已定稿 me/updateProfile。
  *
- * 当前：mock 数据（USE_MOCK_WORKSPACES = true）。
- * 切换真实数据：改 USE_MOCK_WORKSPACES = false，并实现 fetchMyWorkspaces() /
- * fetchWorkspaceMembers() / assignMemberRoles() 内的真实 GraphQL 调用，
- * 调用方（app/page.tsx、app/w/[slug]/members/page.tsx）不需要改。
+ * 当前：真实数据（USE_MOCK_WORKSPACES = false），所有 fetch 与 assign 函数走 GraphQL。
+ * 保留 mock 数据作兜底：本地无后端联调时可切 USE_MOCK_WORKSPACES = true 回到 mock。
+ * 调用方（app/page.tsx、app/w/[slug]/members/page.tsx、app/profile/page.tsx）不需要改。
  */
 
 export interface WorkspaceListItem {
@@ -54,7 +53,7 @@ export interface WorkspaceMember {
   roles: MembershipRoleName[];
 }
 
-export const USE_MOCK_WORKSPACES = true;
+export const USE_MOCK_WORKSPACES = false;
 
 /** mock：贴合后端 Workspace 真实字段（slug/name/joinPolicy/sponsorshipEnabled + #64 myRoleNames） */
 export const MOCK_WORKSPACES: WorkspaceListItem[] = [
