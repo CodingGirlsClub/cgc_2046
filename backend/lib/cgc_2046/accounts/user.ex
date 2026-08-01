@@ -42,6 +42,20 @@ defmodule Cgc2046.Accounts.User do
       description: "是否平台管理员（全局标记）"
     )
 
+    attribute(:display_name, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
+    )
+
+    attribute(:avatar_url, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "头像 URL（#68 Profile API，可选）"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -60,6 +74,39 @@ defmodule Cgc2046.Accounts.User do
       argument(:subject, :string, allow_nil?: false)
       get?(true)
       prepare(AshAuthentication.Preparations.FilterBySubject)
+    end
+
+    update :update_profile do
+      description("更新当前用户个人资料（#68）：displayName（必填非空）+ avatarUrl（可选）")
+
+      require_atomic?(false)
+
+      accept([:display_name, :avatar_url])
+
+      # 规范化：displayName 先 trim 再校验非空
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :display_name) do
+          nil ->
+            changeset
+
+          name ->
+            Ash.Changeset.change_attribute(changeset, :display_name, String.trim(name))
+        end
+      end)
+
+      validate(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :display_name) do
+          nil ->
+            {:error, field: :display_name, message: "must not be blank"}
+
+          name ->
+            if String.trim(name) == "" do
+              {:error, field: :display_name, message: "must not be blank"}
+            else
+              :ok
+            end
+        end
+      end)
     end
   end
 
@@ -107,9 +154,20 @@ defmodule Cgc2046.Accounts.User do
       authorize_if(always())
     end
 
-    policy always() do
-      forbid_if(always())
+    # #68：用户可更新自己的个人资料（SimpleCheck，strict 阶段可判定）
+    policy action(:update_profile) do
+      authorize_if(Cgc2046.Policies.UpdateOwnProfile)
     end
+
+    # 用户只能读取自己（filter 阶段生效）
+    policy action_type(:read) do
+      authorize_if(expr(id == ^actor(:id)))
+    end
+
+    # 注意：不能使用 `policy always() do forbid_if(always()) end` 做默认拒绝。
+    # Ash 表达式求解中，always condition 会使 `one_condition_matches` 恒真，
+    # 从而把其它 normal policy 的授权要求从求解表达式中吸收掉（#68 已踩坑）。
+    # 未匹配任何 policy 的动作天然被拒绝（与 workspace_membership 一致）。
   end
 
   graphql do
