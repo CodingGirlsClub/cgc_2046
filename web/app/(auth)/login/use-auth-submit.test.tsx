@@ -34,7 +34,6 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 const loginPayload: AuthSubmitPayload = { mode: "login", email: "a@b.c", password: "secret123" };
 const registerPayload: AuthSubmitPayload = {
   mode: "register",
-  nickname: "阿麦",
   email: "a@b.c",
   password: "secret123",
 };
