@@ -57,6 +57,7 @@ defmodule Cgc2046.MixProject do
       {:ash_graphql, "~> 1.10"},
       {:ash_authentication, "~> 4.14"},
       {:ash_authentication_phoenix, "~> 2.4"},
+      {:simple_sat, "~> 0.1"},
       {:cors_plug, "~> 3.0"}
     ]
   end

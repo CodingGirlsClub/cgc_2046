@@ -68,7 +68,7 @@ defmodule Cgc2046.Accounts.User do
       enabled?(true)
       token_resource(Cgc2046.Accounts.Token)
       store_all_tokens?(true)
-      require_token_presence_for_authentication?(false)
+      require_token_presence_for_authentication?(true)
 
       signing_secret(fn _, _ ->
         Application.fetch_env(:cgc_2046, :token_signing_secret)
@@ -94,6 +94,16 @@ defmodule Cgc2046.Accounts.User do
 
   policies do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
+      authorize_if(always())
+    end
+
+    # GraphQL 层调用 signUp/signIn 时不会设置 `ash_authentication?` context，
+    # 需按 action 显式放行认证交互（register_with_password / sign_in_with_password）。
+    bypass action(:register_with_password) do
+      authorize_if(always())
+    end
+
+    bypass action(:sign_in_with_password) do
       authorize_if(always())
     end
 

@@ -24,6 +24,165 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :update_workspace mutation"
+type UpdateWorkspaceResult {
+  "The successful result of the mutation"
+  result: Workspace
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdateWorkspaceInput {
+  "工作台唯一标识（小写字母\/数字\/连字符，创建者提供）"
+  slug: String
+
+  "工作台名称"
+  name: String
+
+  "加入策略：open 公开直接加入 \/ request 公开申请审批 \/ invite_only 私密仅邀请"
+  joinPolicy: String
+
+  "是否开放赞助入口（默认开）"
+  sponsorshipEnabled: Boolean
+}
+
+"The result of the :create_workspace mutation"
+type CreateWorkspaceResult {
+  "The successful result of the mutation"
+  result: Workspace
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateWorkspaceInput {
+  "工作台唯一标识（小写字母\/数字\/连字符，创建者提供）"
+  slug: String!
+
+  "工作台名称"
+  name: String!
+
+  "加入策略：open 公开直接加入 \/ request 公开申请审批 \/ invite_only 私密仅邀请"
+  joinPolicy: String
+
+  "是否开放赞助入口（默认开）"
+  sponsorshipEnabled: Boolean
+}
+
+input WorkspaceFilterSponsorshipEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+}
+
+input WorkspaceFilterJoinPolicy {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input WorkspaceFilterName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceFilterSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkspaceFilterInput {
+  and: [WorkspaceFilterInput!]
+
+  or: [WorkspaceFilterInput!]
+
+  not: [WorkspaceFilterInput!]
+
+  id: WorkspaceFilterId
+
+  "工作台唯一标识（小写字母\/数字\/连字符，创建者提供）"
+  slug: WorkspaceFilterSlug
+
+  "工作台名称"
+  name: WorkspaceFilterName
+
+  "加入策略：open 公开直接加入 \/ request 公开申请审批 \/ invite_only 私密仅邀请"
+  joinPolicy: WorkspaceFilterJoinPolicy
+
+  "是否开放赞助入口（默认开）"
+  sponsorshipEnabled: WorkspaceFilterSponsorshipEnabled
+}
+
+type Workspace {
+  id: ID!
+
+  "工作台唯一标识（小写字母\/数字\/连字符，创建者提供）"
+  slug: String!
+
+  "工作台名称"
+  name: String!
+
+  "加入策略：open 公开直接加入 \/ request 公开申请审批 \/ invite_only 私密仅邀请"
+  joinPolicy: String!
+
+  "是否开放赞助入口（默认开）"
+  sponsorshipEnabled: Boolean!
+}
+
 type SignUpMetadata {
   "A JWT which the user can use to authenticate to the API."
   token: String!
@@ -133,6 +292,22 @@ type User {
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
+
+  "按 slug 获取工作台（需登录）"
+  getWorkspace(
+    "A filter to limit the results"
+    filter: WorkspaceFilterInput
+
+    slug: String!
+  ): Workspace
+
+  "按 id 获取工作台（需登录）"
+  getWorkspaceById(
+    "A filter to limit the results"
+    filter: WorkspaceFilterInput
+
+    id: ID!
+  ): Workspace
 }
 
 type RootMutationType {
@@ -150,6 +325,12 @@ type RootMutationType {
     "The password to check for the matching user."
     password: String!
   ): SignInResult
+
+  "创建工作台（仅平台管理员）"
+  createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
+
+  "更新工作台（平台管理员）"
+  updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
 }
 
 """
