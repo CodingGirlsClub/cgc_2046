@@ -7,6 +7,7 @@ const { push, replace } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() })
 const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
 const { params } = vi.hoisted(() => ({ params: { value: { slug: "cgc-academy" } } }));
 const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
+const { fetchMyWorkspaces } = vi.hoisted(() => ({ fetchMyWorkspaces: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
@@ -23,10 +24,20 @@ vi.mock("@/lib/profile", async (importOriginal) => {
   return { ...mod, fetchCurrentProfile };
 });
 
+vi.mock("@/lib/workspaces", async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...mod,
+    // #70 QA P1：工作区上下文经 useWorkspaceBySlug → fetchMyWorkspaces 解析
+    fetchMyWorkspaces,
+  };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
+  fetchMyWorkspaces.mockResolvedValue(MOCK_WORKSPACES);
   fetchCurrentProfile.mockResolvedValue({
     id: "u_0202",
     email: "xiaomei@example.com",
@@ -58,6 +69,33 @@ describe("工作区占位页 /w/[slug] (#63)", () => {
     render(<WorkspacePage />);
     expect(await screen.findByText(/建设中/)).toBeInTheDocument();
     expect(MOCK_WORKSPACES.length).toBeGreaterThan(0); // 引用 mock 防 tree-shake
+  });
+
+  it("真实模式（#70 QA P1）：fetchMyWorkspaces 返回真实 ws（不在 mock），详情页按真实数据渲染", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_real_detail",
+        slug: "qa70-real-ws-333",
+        name: "QA70 真实详情工作区",
+        joinPolicy: "invite_only",
+        sponsorshipEnabled: false,
+        myRoleNames: ["member"],
+        roles: ["member"],
+        membershipStatus: "active",
+      },
+    ]);
+    params.value = { slug: "qa70-real-ws-333" };
+
+    render(<WorkspacePage />);
+    // 不再显示「建设中」，展示真实工作区信息
+    expect(await screen.findByText("QA70 真实详情工作区")).toBeInTheDocument();
+    expect(screen.getByText("qa70-real-ws-333")).toBeInTheDocument();
+    expect(screen.getByText("仅邀请")).toBeInTheDocument();
+    expect(screen.getByText("已关闭")).toBeInTheDocument();
+    expect(screen.queryByText(/建设中/)).not.toBeInTheDocument();
+    // 成员管理入口指向真实 slug
+    const link = screen.getByRole("link", { name: /管理成员/ });
+    expect(link).toHaveAttribute("href", "/w/qa70-real-ws-333/members");
   });
 
   it("提供返回工作台链接", async () => {

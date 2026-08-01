@@ -17,13 +17,12 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated, clearAuthToken } from "@/lib/auth";
 import {
-  MOCK_WORKSPACES,
   fetchWorkspaceMembers,
   assignMemberRoles,
   currentUserCanAssignRoles,
-  type WorkspaceListItem,
   type WorkspaceMember,
 } from "@/lib/workspaces";
+import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
   JOIN_POLICY_LABEL,
   MEMBERSHIP_ROLES,
@@ -40,38 +39,45 @@ export default function WorkspaceMembersPage() {
   const router = useRouter();
   const authed = isAuthenticated();
 
-  const ws: WorkspaceListItem | undefined = MOCK_WORKSPACES.find((w) => w.slug === slug);
+  // #70 QA P1：工作区上下文优先真实数据（fetchMyWorkspaces），MOCK 仅首帧兜底
+  const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
   const canAssign = currentUserCanAssignRoles(ws);
 
   const [members, setMembers] = useState<WorkspaceMember[] | null>(null);
-  // 初始 loading 与 ws 是否存在关联：无 ws 直接显示不存在，无需 loading 态
-  const [loading, setLoading] = useState(Boolean(ws));
   const [savingId, setSavingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   /** 正在编辑的成员的待保存角色选择（membershipId -> 角色数组） */
   const [draft, setDraft] = useState<Record<string, MembershipRoleName[]>>({});
+
+  const wsId = ws?.id;
 
   useEffect(() => {
     if (!authed) {
       router.replace("/login");
       return;
     }
-    if (!ws) {
-      // 无 ws：loading 初始即 false（useState(Boolean(ws))），直接展示不存在
+    if (!wsId) {
+      // 无 ws：由 wsLoading 控制 loading 态，结束后展示「不存在」
       return;
     }
-    fetchWorkspaceMembers(ws.id)
+    let cancelled = false;
+    fetchWorkspaceMembers(wsId)
       .then((list) => {
+        if (cancelled) return;
         setMembers(list);
         // 初始化草稿为当前角色（供 Owner/Admin 修改）
         setDraft(Object.fromEntries(list.map((m) => [m.membershipId, [...m.roles]])));
         setErrorMsg(null);
       })
       .catch((e: unknown) => {
+        if (cancelled) return;
         setErrorMsg(e instanceof Error ? e.message : "加载成员失败");
-      })
-      .finally(() => setLoading(false));
-  }, [authed, router, ws]);
+        setMembers([]); // 失败后结束 loading，展示空态 + 错误横幅
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authed, router, wsId]);
 
   function handleSignOut() {
     clearAuthToken();
@@ -143,7 +149,7 @@ export default function WorkspaceMembersPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        {!ws ? (
+        {!ws && !wsLoading ? (
           <div className="rounded-large bg-card p-10 text-center ring-1 ring-line">
             <p className="l-p text-ink-2">工作区「{slug}」不存在或不可访问。</p>
             <Link href="/" className="l-btn-ghost mt-4 inline-block">
@@ -153,20 +159,22 @@ export default function WorkspaceMembersPage() {
         ) : (
           <>
             {/* 工作台上下文信息 */}
-            <div className="mb-6 flex flex-wrap items-center gap-2">
-              <span className="l-chip">{JOIN_POLICY_LABEL[ws.joinPolicy]}工作台</span>
-              <span className="l-chip">
-                {canAssign ? "你是 Owner/Admin，可分配角色" : "仅 Owner/Admin 可分配角色"}
-              </span>
-              {ws.myRoleNames && ws.myRoleNames.length > 0 && (
+            {ws && (
+              <div className="mb-6 flex flex-wrap items-center gap-2">
+                <span className="l-chip">{JOIN_POLICY_LABEL[ws.joinPolicy]}工作台</span>
                 <span className="l-chip">
-                  我的角色：{ws.myRoleNames.map((r) => ROLE_LABEL_ZH[r]).join(" + ")}
+                  {canAssign ? "你是 Owner/Admin，可分配角色" : "仅 Owner/Admin 可分配角色"}
                 </span>
-              )}
-              <Link href={`/w/${slug}/permissions`} className="l-chip l-chip-link">
-                权限说明 →
-              </Link>
-            </div>
+                {ws.myRoleNames && ws.myRoleNames.length > 0 && (
+                  <span className="l-chip">
+                    我的角色：{ws.myRoleNames.map((r) => ROLE_LABEL_ZH[r]).join(" + ")}
+                  </span>
+                )}
+                <Link href={`/w/${slug}/permissions`} className="l-chip l-chip-link">
+                  权限说明 →
+                </Link>
+              </div>
+            )}
 
             {errorMsg && (
               <div className="mb-4 rounded-large bg-card p-3 text-sm text-status-red ring-1 ring-line">
@@ -174,7 +182,7 @@ export default function WorkspaceMembersPage() {
               </div>
             )}
 
-            {loading ? (
+            {wsLoading || (ws && members === null) ? (
               <div className="space-y-3">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className="h-16 animate-pulse rounded-large bg-card ring-1 ring-line" />

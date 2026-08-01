@@ -1,4 +1,4 @@
-import type { JoinPolicy, MembershipRoleName } from "./graphql/workspace";
+import type { JoinPolicy, MembershipRoleName, Workspace } from "./graphql/workspace";
 import {
   canAssignRoles,
   ROLE_LABEL_ZH,
@@ -153,10 +153,30 @@ export function mapWorkspaceMembers(
 }
 
 /**
+ * 将后端 meWorkspaces 的 Workspace 映射为前端 membershipStatus（#70 QA P2）。
+ *
+ * 对齐后端契约字段：
+ * - canAccess === true 或持有角色（myRoleNames 非空）→ "active"（已加入，可进入）；
+ * - 有成员资格（myMembershipId）但暂不可访问 → "pending"（申请审批中）；
+ * - 仅受邀（无资格、无角色、不可访问）→ "invited"（待凭据加入）。
+ * 真实 meWorkspaces 语义为「当前用户可进入的工作台列表」，正常返回均为 active；
+ * 映射函数兼容后续后端扩展（邀请/待审批状态）。
+ */
+export function mapMembershipStatus(
+  ws: Pick<Workspace, "canAccess" | "myMembershipId" | "myRoleNames"> | null | undefined,
+): WorkspaceListItem["membershipStatus"] {
+  if (!ws) return "invited";
+  if (ws.canAccess === true || (ws.myRoleNames?.length ?? 0) > 0) return "active";
+  if (ws.myMembershipId) return "pending";
+  return "invited";
+}
+
+/**
  * 获取当前用户可进入的 Workspace 列表。
  *
  * 后端 #64 meWorkspaces 已定稿（含 myRoleNames/myMembershipId/canAccess）。
- * USE_MOCK_WORKSPACES=false 时走真实 GraphQL query（需登录，Bearer token 自动附加）。
+ * USE_MOCK_WORKSPACES=false 时走真实 GraphQL query（需登录，Bearer token 自动附加），
+ * 并补齐 membershipStatus（#70 QA P2：恢复已加入/待处理统计与进入入口）。
  */
 export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
   if (USE_MOCK_WORKSPACES) {
@@ -171,6 +191,7 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
     sponsorshipEnabled: ws.sponsorshipEnabled,
     myRoleNames: ws.myRoleNames ?? [],
     roles: ws.myRoleNames ?? [],
+    membershipStatus: mapMembershipStatus(ws),
   }));
 }
 
