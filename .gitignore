@@ -12,10 +12,3 @@
 
 # Logs
 *.log
-scripts/orca-setup.sh
-
-# wenyang's local agent tools config
-## openclacky
-.clackyrules
-文档修订工程师/
-领域建模工程师/
