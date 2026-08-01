@@ -124,9 +124,10 @@ describe("工作台页 (#63)", () => {
     ]);
 
     render(<HomePage />);
-    // 统计恢复：2 已加入 + 1 待处理（不再恒为 0）
-    const summary = await screen.findByText(/你加入了/);
-    expect(summary.textContent).toContain("2 个工作区");
+    // 先等完整页渲染（useAuthed 挂载确认后），统计数字在 <span> 内用 textContent 断言
+    await screen.findByText(/你加入了/);
+    const summary = screen.getByText(/你加入了/);
+    await waitFor(() => expect(summary.textContent).toContain("2 个工作区"));
     expect(summary.textContent).toContain("1 个待处理");
     // 两个 active 提供进入入口，pending 显示「申请审批中」且无入口
     expect(screen.getAllByRole("link", { name: /进入工作台/ })).toHaveLength(2);

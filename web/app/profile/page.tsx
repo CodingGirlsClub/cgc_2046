@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { isAuthenticated, clearAuthToken } from "@/lib/auth";
+import { clearAuthToken } from "@/lib/auth";
+import { useAuthed } from "@/lib/use-authed";
 import {
   fetchCurrentProfile,
   fetchProfileRoleSummary,
@@ -31,7 +32,8 @@ import {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const authed = isAuthenticated();
+  // useAuthed()：首帧固定未确认/未登录（SSR/客户端 hydration 一致），挂载后读 cookie 确认
+  const { authed, confirmed } = useAuthed();
 
   const [profile, setProfile] = useState<CurrentProfile | null>(null);
   const [roles, setRoles] = useState<ProfileRoleSummary[]>([]);
@@ -44,6 +46,8 @@ export default function ProfilePage() {
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    // 登录态确认前不重定向也不拉取（避免已登录用户被先跳 /login）
+    if (!confirmed) return;
     if (!authed) {
       router.replace("/login");
       return;
@@ -65,7 +69,7 @@ export default function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [authed, router]);
+  }, [authed, confirmed, router]);
 
   function handleSignOut() {
     clearAuthToken();

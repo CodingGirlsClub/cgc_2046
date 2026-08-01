@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { isAuthenticated, clearAuthToken } from "@/lib/auth";
+import { clearAuthToken } from "@/lib/auth";
+import { useAuthed } from "@/lib/use-authed";
 import {
   fetchWorkspaceMembers,
   assignMemberRoles,
@@ -37,7 +38,8 @@ export default function WorkspaceMembersPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
   const router = useRouter();
-  const authed = isAuthenticated();
+  // useAuthed()：首帧固定未确认/未登录（SSR/客户端 hydration 一致），挂载后读 cookie 确认
+  const { authed, confirmed } = useAuthed();
 
   // #70 QA P1：工作区上下文优先真实数据（fetchMyWorkspaces），MOCK 仅首帧兜底
   const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
@@ -52,6 +54,8 @@ export default function WorkspaceMembersPage() {
   const wsId = ws?.id;
 
   useEffect(() => {
+    // 登录态确认前不重定向也不拉取（避免已登录用户被先跳 /login）
+    if (!confirmed) return;
     if (!authed) {
       router.replace("/login");
       return;
@@ -77,7 +81,7 @@ export default function WorkspaceMembersPage() {
     return () => {
       cancelled = true;
     };
-  }, [authed, router, wsId]);
+  }, [authed, confirmed, router, wsId]);
 
   function handleSignOut() {
     clearAuthToken();

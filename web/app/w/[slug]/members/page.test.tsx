@@ -116,12 +116,12 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
   it("权限控制：Owner/Admin（cgc-academy myRoleNames=[admin]）显示分配操作并可保存", async () => {
     render(<MembersPage />);
     expect(await screen.findByText(/你是 Owner\/Admin，可分配角色/)).toBeInTheDocument();
-    // 每成员都有保存按钮
-    expect(screen.getAllByRole("button", { name: /保存角色/ })).toHaveLength(4);
+    // 每成员都有保存按钮（成员数据异步加载后渲染，等待就绪）
+    const saveButtons = await screen.findAllByRole("button", { name: /保存角色/ });
+    expect(saveButtons).toHaveLength(4);
     // 切换角色并保存：给方伯加 member（owner+member）
-    const ownerCheckbox = screen.getAllByRole("checkbox")[0];
+    const ownerCheckbox = (await screen.findAllByRole("checkbox"))[0];
     expect(ownerCheckbox).toBeChecked();
-    const saveButtons = screen.getAllByRole("button", { name: /保存角色/ });
     fireEvent.click(saveButtons[0]);
     await waitFor(() => expect(assignRoles).toHaveBeenCalled());
     const [wsId, membershipId, roleNames] = assignRoles.mock.calls[0];
@@ -137,7 +137,8 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
     expect(await screen.findByText(/仅 Owner\/Admin 可分配角色/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /保存角色/ })).not.toBeInTheDocument();
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    expect(screen.getAllByTestId("member-card")).toHaveLength(4);
+    // 成员卡片经 fetchWorkspaceMembers 异步加载，等待就绪
+    expect(await screen.findAllByTestId("member-card")).toHaveLength(4);
     expect(assignRoles).not.toHaveBeenCalled();
   });
 
