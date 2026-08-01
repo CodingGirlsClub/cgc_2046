@@ -1,0 +1,59 @@
+@startuml architecture-overview
+' ============================================================
+' L0 - 架构总览图（Architecture Overview）
+' 事实来源：docs/00-CGC平台设计总纲.md §2.2 架构分层图
+' 一句话架构：网站 = 业务中枢 + MCP server；用户自带 OpenClacky
+'   做 Agent 执行（BYO）；业务编排由网站侧 Jido workflow 引擎做
+'   确定性编排（workflow-first）。
+' ============================================================
+title CGC 平台架构总览（L0）
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+
+package "用户侧（BYO，用户自带）" #E8F0FE {
+    component "OpenClacky" as OC
+    component "连接器扩展 cgc-2046\n（自动配置 mcp.json / 同步 Skill / CGC 助手）" as EXT
+    OC -down- EXT : 本地集成
+}
+
+package "网站（业务中枢 + MCP server + workflow 引擎）" #F0FDE8 {
+
+    package "业务资源（Ash，tenant_id 隔离）" #FFF7E6 {
+        component "User / Workspace / Role" as U
+        component "Event / Course" as E
+        component "Enrollment / Sponsorship\nSpeakerInvitation / InviteBatch\nResearchOutput" as ENR
+    }
+
+    package "Workflow 引擎（Jido 生态）" #FDE8F0 {
+        component "WorkflowDefinition\nplatform_ops | learning | enrollment\nsponsorship | speaker_invitation | research" as DEF
+        component "WorkflowRun\npending→running→waiting\n→succeeded/failed/cancelled" as RUN
+        component "Step 四分类\n自动 / 人工 / 门控 / 子 workflow" as STEP
+        component "partition = Workspace" as PART
+        component "Thread journal 审计" as TJ
+        DEF -down-> RUN : 实例化
+        RUN -down-> STEP : 包含
+        RUN ..right-> PART : 归属
+        RUN ..right-> TJ : 审计
+    }
+
+    component "MCP server（anubis_mcp）\n读 / 写 / 管理类 + 确认流" as MCP
+    MCP -down-> U : 访问
+    MCP -down-> E
+    MCP -down-> ENR
+}
+
+OC -right-> MCP : "B 通道（唯一对外通道）\nMCP JSON-RPC over HTTP/SSE"
+MCP ..right-> RUN : "Signal 放行 / 读产物"
+RUN -down-> U : "同步调 Ash Action（8 成）"
+RUN -down-> ENR : "同步调 Ash Action（8 成）"
+RUN ..down-> ENR : "异步 Signal（2 成）"
+
+note bottom of RUN
+  **依赖方向恒为 workflow → 业务 Action 接口**
+  （D-A1/草案 B）；业务 context 反向只发 Signal、不调引擎。
+  MCP 作用域（D12）：所有工具必填 workspace_id，无状态、每调用鉴权 + 审计。
+  租户模型（D-A5）：一个 Workspace = 一个 Jido partition；
+  共享表 + tenant_id（Ash attribute 多租户），不走 schema-per-tenant。
+end note
+
+@enduml

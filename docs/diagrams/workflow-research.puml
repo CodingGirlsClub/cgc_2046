@@ -1,0 +1,55 @@
+@startuml workflow-research
+' ============================================================
+' L2 - 教研 Workflow DAG（type=research，三段式模板）
+' 事实来源：docs/01-定稿设计/教研workflow详细设计.md v1.1 §2.1/§2.2
+' 核心：定义一次（WorkflowDefinition = Agent module + workflow_fn 模板）、
+'   被多个 Event/Course 实例化复用（InstanceManager keyed singleton，
+'   key = event_# / course_#，D-A2 verify_8 全 PASS）。
+' ============================================================
+title 教研 Workflow（L2）— 三段式模板（定义一次，多实例复用）
+skinparam backgroundColor white
+
+partition "教研产出段（筹备期）" #E8F0FE {
+    start
+    :S0 自动步骤：实例化 + 参数注入 ResearchInit\n（event.launched → InstanceManager.get(key)\nkey = event_# / course_#\nfeed run input：course_id/event_id/教研需求）;
+    :S1 人工步骤：Tutor 提交大纲\nSignalMatch: research.outline.submitted\nStepRole: Tutor;
+    :S2 自动步骤：保存大纲 save_outline\n（同步 ash_jido，按 key 落点隔离）;
+    :S3 人工步骤：Volunteer/Tutor 提交招募物料\nSignalMatch: research.materials.submitted\nStepRole: Volunteer / Tutor;
+    :S4 自动步骤：保存物料 save_materials\n（同步，status=ready）;
+    if (S5 门控/分支：materials_review_required?) then (需要审核)
+        :S6 人工步骤：Owner 审核材料\nSignalMatch: research.materials.reviewed\n（网站后台审批页；通过→S7，打回→回 S3 重提）;
+    else (免审核)
+    endif
+}
+
+partition "现场辅导段（活动/教学期）" #F0FDE8 {
+    :S7 自动步骤：开启答疑 open_qna\n（event.started 驱动；qna thread 按 key 隔离）;
+    repeat
+        :S8 答疑交互\nSignalMatch: research.question（Learner 提问）\n自动应答 或 Tutor 人工介入（research.answer）;
+        if (S9 门控/分支：活动/课程结束?) then (进行中)
+        else (结束)
+        endif
+    repeat while (结束?) is (否) not (是)
+}
+
+partition "收尾段" #FFF7E6 {
+    :S10 自动步骤：材料归档 archive_materials\n（大纲/物料/答疑记录归档，status=archived）;
+    :S11 人工步骤：Tutor 复盘提交\nSignalMatch: research.retro.submitted\nStepRole: Tutor;
+    :S12 自动步骤：发异步 Signal research.completed\n（通知 / 报名页露出 / InstanceManager.stop 回收实例）;
+    stop
+}
+
+note right
+  **定义-实例化（verify_8 D-A2a 全 PASS）**：
+  - WorkflowDefinition ↔ Agent module + workflow_fn 模板（build/0 返回
+    全新不可变 Runic.Workflow，不携带运行期状态）
+  - WorkflowRun ↔ InstanceManager key（event_id / course_id）
+  - 参数化（D-A2b）：run input（signal data → fact → ActionNode params
+    注入），Action schema 声明 course_id/event_id 必填，无占位符替换
+  - 隔离（D-A2c）：进程级 + 产出按 key 落点；partition = 所属 Workspace
+  - 生命周期（D-A2d）：event.launched → get；idle hibernate；event.ended
+    → stop（再次 get 重新实例化）
+  多人工信号顺序等待：Workflow 层 PASS（POC §3.2）；Agent 层需拆段（Agent 策略层缺陷规避）。
+end note
+
+@enduml

@@ -1,0 +1,59 @@
+@startuml key-routing-isolation
+' ============================================================
+' L3 - 实例 key 路由与隔离（教研多实例 + partition）
+' 事实来源：docs/01-定稿设计/教研workflow详细设计.md §2.3/§3.1
+'   + poc-验证报告.md §9.7（verify_8 D-A2c/D-A2d）
+' 机制：InstanceManager keyed singleton（key = event_# / course_#）；
+'   信号 subject = key，SignalMatch 按 key 前缀路由到对应实例 run；
+'   实例级进程隔离 + 产出按 key 落点；partition = 更粗租户维度。
+' ============================================================
+title 实例 key 路由与隔离（L3）— 教研定义一次多实例
+skinparam backgroundColor white
+
+rectangle "WorkflowDefinition（模板：research）" as TEMPLATE #FDE8F0
+
+package "InstanceManager（keyed singleton）" #E8F0FE {
+    rectangle "实例 A：AgentServer\nkey = course_1" as INST1
+    rectangle "实例 B：AgentServer\nkey = course_2" as INST2
+    rectangle "实例 C：AgentServer\nkey = event_3" as INST3
+}
+
+package "信号路由（SignalMatch 按 key 前缀）" #F0FDE8 {
+    rectangle "research.outline.submitted\nsubject = course_1" as SIG1
+    rectangle "research.question\nsubject = course_2" as SIG2
+    rectangle "research.materials.submitted\nsubject = event_3" as SIG3
+}
+
+package "业务表落点（按 key 隔离）" #FFF7E6 {
+    rectangle "ResearchOutput\nkey = course_1" as OUT1
+    rectangle "ResearchOutput\nkey = course_2" as OUT2
+    rectangle "ResearchOutput\nkey = event_3" as OUT3
+}
+
+TEMPLATE -down-> INST1 : build/0 模板实例化（全新不可变 Workflow）
+TEMPLATE -down-> INST2 : build/0 模板实例化
+TEMPLATE -down-> INST3 : build/0 模板实例化
+
+SIG1 -right-> INST1 : 路由到 key 匹配实例
+SIG2 -right-> INST2 : 路由到 key 匹配实例
+SIG3 -right-> INST3 : 路由到 key 匹配实例
+
+INST1 -down-> OUT1 : 产出写业务表（course_id 落点）
+INST2 -down-> OUT2 : 产出写业务表（course_id 落点）
+INST3 -down-> OUT3 : 产出写业务表（event_id 落点）
+
+note bottom
+  **隔离边界（verify_8 D-A2c 实证）**：隔离 = AgentServer 进程 +
+  strategy state；feed course_1 后其 status=:success 而 course_2 仍
+  :idle（互不污染）；产出按 course_id 写业务表行。
+  **partition 的关系**：partition 是更粗的租户级隔离维度（registry
+  key = {partition, key}，verify_5 已证）；二者可叠加——
+  partition = Course/Event 所属 Workspace（D-A5）。
+  **参数化（D-A2b）**：run input（signal data → fact → ActionNode
+  params merge）注入，Action schema 声明 course_id/event_id 必填，
+  无占位符替换机制。
+  **生命周期（D-A2d）**：event.launched → get 实例化（幂等）；
+  idle 超时 hibernate；event.ended → stop（再次 get 重新实例化）。
+end note
+
+@enduml
