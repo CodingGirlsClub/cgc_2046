@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import MembersPage from "./page";
 import {
   MOCK_WORKSPACES,
@@ -25,6 +25,7 @@ const { fetchMembers, assignRoles } = vi.hoisted(() => ({
   assignRoles: vi.fn(),
 }));
 const { params } = vi.hoisted(() => ({ params: { value: { slug: "cgc-academy" } } }));
+const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => router,
@@ -35,6 +36,11 @@ vi.mock("@/lib/auth", () => ({
   isAuthenticated,
   clearAuthToken,
 }));
+
+vi.mock("@/lib/profile", async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return { ...mod, fetchCurrentProfile };
+});
 
 vi.mock("@/lib/workspaces", async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
@@ -49,6 +55,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
+  fetchCurrentProfile.mockResolvedValue({
+    id: "u_0202",
+    email: "xiaomei@example.com",
+    displayName: "小美",
+    avatarUrl: null,
+    isPlatformAdmin: false,
+  });
   fetchMembers.mockResolvedValue(MOCK_MEMBERS.ws_02);
   assignRoles.mockImplementation(
     async (_wsId: string, membershipId: string, roleNames: string[]) => {
@@ -85,12 +98,15 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
 
   it("角色并集展示：同一成员多角色同时出现", async () => {
     render(<MembersPage />);
-    const member = await screen.findByText("小美");
-    expect(member).toBeInTheDocument();
+    // header ProfileEntry 也显示当前用户「小美」，限定在成员卡片内查找
+    await waitFor(() => {
+      expect(screen.getAllByTestId("member-card")).toHaveLength(4);
+    });
+    const cards = screen.getAllByTestId("member-card");
+    const card = cards.find((c) => within(c).queryByText("小美")) as HTMLElement;
+    expect(card).toBeDefined();
     // 小美持 admin+member 两个徽章（同卡片内）
-    const card = member.closest("[data-testid='member-card']") as HTMLElement;
-    expect(card).not.toBeNull();
-    expect(card.querySelectorAll("[data-testid='role-badge']").length).toBe(2);
+    expect(within(card).getAllByTestId("role-badge").length).toBe(2);
   });
 
   it("权限控制：Owner/Admin（cgc-academy myRoleNames=[admin]）显示分配操作并可保存", async () => {
@@ -125,6 +141,12 @@ describe("成员角色管理页 /w/[slug]/members (#65)", () => {
     render(<MembersPage />);
     const entry = await screen.findByRole("link", { name: /权限说明 →/ });
     expect(entry).toHaveAttribute("href", "/w/cgc-academy/permissions");
+  });
+
+  it("#69 入口：header 提供个人资料入口链接到 /profile", async () => {
+    render(<MembersPage />);
+    const entry = await screen.findByTestId("profile-entry");
+    expect(entry).toHaveAttribute("href", "/profile");
   });
 
   it("未知 slug：展示不存在提示 + 返回工作台", async () => {

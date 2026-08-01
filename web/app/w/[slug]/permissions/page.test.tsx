@@ -18,6 +18,7 @@ const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
 }));
 const { fetchMatrix } = vi.hoisted(() => ({ fetchMatrix: vi.fn() }));
 const { params } = vi.hoisted(() => ({ params: { value: { slug: "cgc-academy" } } }));
+const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => router,
@@ -28,6 +29,11 @@ vi.mock("@/lib/auth", () => ({
   isAuthenticated,
   clearAuthToken,
 }));
+
+vi.mock("@/lib/profile", async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return { ...mod, fetchCurrentProfile };
+});
 
 vi.mock("@/lib/permissions", async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
@@ -41,6 +47,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
+  fetchCurrentProfile.mockResolvedValue({
+    id: "u_0202",
+    email: "xiaomei@example.com",
+    displayName: "小美",
+    avatarUrl: null,
+    isPlatformAdmin: false,
+  });
   fetchMatrix.mockResolvedValue(MOCK_PERMISSION_MATRIX);
 });
 
@@ -141,5 +154,11 @@ describe("/w/[slug]/permissions 权限表可视化页", () => {
     for (const row of MOCK_PERMISSION_MATRIX) {
       expect(PERMISSION_ABILITIES.map((a) => a.id).every((id) => id in row.abilities)).toBe(true);
     }
+  });
+
+  it("#69 入口：header 提供个人资料入口链接到 /profile", async () => {
+    render(<PermissionsPage />);
+    const entry = await screen.findByTestId("profile-entry");
+    expect(entry).toHaveAttribute("href", "/profile");
   });
 });

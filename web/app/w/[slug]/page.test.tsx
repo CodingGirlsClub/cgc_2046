@@ -6,6 +6,7 @@ import { MOCK_WORKSPACES } from "@/lib/workspaces";
 const { push, replace } = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
 const { params } = vi.hoisted(() => ({ params: { value: { slug: "cgc-academy" } } }));
+const { fetchCurrentProfile } = vi.hoisted(() => ({ fetchCurrentProfile: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
@@ -17,10 +18,22 @@ vi.mock("@/lib/auth", () => ({
   clearAuthToken: vi.fn(),
 }));
 
+vi.mock("@/lib/profile", async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return { ...mod, fetchCurrentProfile };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
+  fetchCurrentProfile.mockResolvedValue({
+    id: "u_0202",
+    email: "xiaomei@example.com",
+    displayName: "小美",
+    avatarUrl: null,
+    isPlatformAdmin: false,
+  });
 });
 
 afterEach(cleanup);
@@ -57,5 +70,11 @@ describe("工作区占位页 /w/[slug] (#63)", () => {
     render(<WorkspacePage />);
     const link = await screen.findByRole("link", { name: /管理成员/ });
     expect(link).toHaveAttribute("href", "/w/cgc-academy/members");
+  });
+
+  it("header 提供个人资料入口链接到 /profile (#69)", async () => {
+    render(<WorkspacePage />);
+    const entry = await screen.findByTestId("profile-entry");
+    expect(entry).toHaveAttribute("href", "/profile");
   });
 });
