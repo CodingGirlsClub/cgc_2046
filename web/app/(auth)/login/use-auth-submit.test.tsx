@@ -62,7 +62,7 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
 
   it("登录失败（ApolloError）：展示后端 message，不写 cookie 不跳转", async () => {
     signInMock.mockRejectedValue({
-      graphQLErrors: [{ message: "Invalid email or password", code: "authentication_failed" }],
+      errors: [{ message: "Invalid email or password", code: "authentication_failed" }],
     });
     const { result } = renderHook(() => useAuthSubmit());
     await act(() => result.current.onSubmit(loginPayload));

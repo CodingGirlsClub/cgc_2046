@@ -95,12 +95,33 @@ export function signUpErrorMessage(data: { signUp: SignUpResultData } | null | u
 }
 
 /**
- * signIn 失败：signIn 为 null 且顶层 errors 抛 ApolloError，
- * graphQLErrors[0] 形如 { message: "Invalid email or password", code: "authentication_failed" }。
- * 提取首条 message；非认证类错误返回 null（由调用方给兜底文案）。
+ * signIn 失败：signIn 为 null 且顶层 errors 抛异常。
+ * 错误对象结构随 @apollo/client 版本变化：
+ * - v4（本项目 4.2.9）：CombinedGraphQLErrors，持 `.errors` 数组（原始 GraphQL errors），
+ *   `.message` 已 join 各错误 message（QueryManager.js:166 `throw new CombinedGraphQLErrors(...)`）。
+ * - v3 及更早：ApolloError，持 `.graphQLErrors` 数组。
+ * 提取首条 message；非 GraphQL 错误（网络异常等）返回 null（由调用方给兜底文案）。
  */
 export function signInErrorMessage(e: unknown): string | null {
-  const graphQLErrors = (e as { graphQLErrors?: Array<{ message?: string }> })?.graphQLErrors;
-  const first = graphQLErrors?.[0];
-  return first?.message ?? null;
+  if (!e || typeof e !== "object") return null;
+  const err = e as {
+    errors?: Array<{ message?: string }>;
+    graphQLErrors?: Array<{ message?: string }>;
+    message?: string;
+  };
+
+  // Apollo v4 CombinedGraphQLErrors：errors 为原始 GraphQL errors 数组
+  const firstV4 = err.errors?.[0];
+  if (firstV4?.message) return firstV4.message;
+
+  // 兼容旧 ApolloError.graphQLErrors
+  const firstV3 = err.graphQLErrors?.[0];
+  if (firstV3?.message) return firstV3.message;
+
+  // 确认为 GraphQL 错误对象时，回退 v4 的 message（已 join 各错误文案，
+  // 如 "Invalid email or password"）；纯网络错误没有 errors/graphQLErrors，返回 null。
+  if (Array.isArray(err.errors) || Array.isArray(err.graphQLErrors)) {
+    if (err.message) return err.message;
+  }
+  return null;
 }

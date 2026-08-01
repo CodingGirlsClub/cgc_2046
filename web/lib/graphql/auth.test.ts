@@ -58,14 +58,25 @@ describe("signUpErrorMessage（signUp 失败走 result.errors）", () => {
   });
 });
 
-describe("signInErrorMessage（signIn 失败走 ApolloError.graphQLErrors）", () => {
-  it("提取认证失败 message", () => {
+describe("signInErrorMessage（signIn 失败走 Apollo v4 CombinedGraphQLErrors.errors）", () => {
+  it("提取认证失败 message（v4 CombinedGraphQLErrors 结构）", () => {
+    const e = { errors: [{ message: "Invalid email or password", code: "authentication_failed" }] };
+    expect(signInErrorMessage(e)).toBe("Invalid email or password");
+  });
+
+  it("兼容旧版 ApolloError.graphQLErrors 结构", () => {
     const e = { graphQLErrors: [{ message: "Invalid email or password", code: "authentication_failed" }] };
+    expect(signInErrorMessage(e)).toBe("Invalid email or password");
+  });
+
+  it("v4 错误无数组时回退 message（已 join 各错误文案）", () => {
+    const e = { errors: [], message: "Invalid email or password" };
     expect(signInErrorMessage(e)).toBe("Invalid email or password");
   });
 
   it("非 GraphQL 错误返回 null（由调用方兜底）", () => {
     expect(signInErrorMessage(new Error("network"))).toBeNull();
     expect(signInErrorMessage(undefined)).toBeNull();
+    expect(signInErrorMessage(null)).toBeNull();
   });
 });
