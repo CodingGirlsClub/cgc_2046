@@ -9,6 +9,7 @@ defmodule Cgc2046.GlobalApi do
 
   resources do
     # Global resources (User / Workspace) are registered here as the domain model is agreed on.
-    # (M0.1 项目接线: domain 就位, 资源自 M0.2 起逐个注册)
+    resource Cgc2046.Accounts.User
+    resource Cgc2046.Accounts.Token
   end
 end

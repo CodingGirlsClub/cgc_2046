@@ -68,6 +68,17 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
+  # JWT signing secret for ash_authentication. MUST be provided in prod
+  # (never commit a real secret).
+  token_signing_secret =
+    System.get_env("TOKEN_SIGNING_SECRET") ||
+      raise """
+      environment variable TOKEN_SIGNING_SECRET is missing.
+      Generate a strong random value, e.g. `mix phx.gen.secret`.
+      """
+
+  config :cgc_2046, :token_signing_secret, token_signing_secret
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

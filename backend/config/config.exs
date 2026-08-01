@@ -44,6 +44,11 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# JWT signing secret for ash_authentication.
+# Dev/test use a static dev-only value; prod MUST override via TOKEN_SIGNING_SECRET
+# in config/runtime.exs (never commit a real secret).
+config :cgc_2046, :token_signing_secret, "dev-only-token-signing-secret-change-me"
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
