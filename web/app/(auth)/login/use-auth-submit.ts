@@ -45,8 +45,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
           }
           setError("登录失败，请检查邮箱与密码");
         } else {
-          // 注意：后端 #60 signUp 仅接收 email/password（无 nickname 字段），
-          // 昵称字段暂为 UI 占位，profile 能力（#69）落地后再上送。
+          // 注意：后端 #60 signUp 仅接收 email/password；资料展示名由个人资料页维护。
           const { data } = await doSignUp({
             variables: { input: { email: payload.email, password: payload.password } },
           });
