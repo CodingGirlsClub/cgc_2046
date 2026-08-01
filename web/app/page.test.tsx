@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import HomePage from "./page";
 import { MOCK_WORKSPACES } from "@/lib/workspaces";
 
@@ -37,6 +37,7 @@ vi.mock("@/lib/profile", async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, "", "/");
   isAuthenticated.mockReturnValue(true);
   fetchMyWorkspaces.mockResolvedValue(MOCK_WORKSPACES);
   fetchCurrentProfile.mockResolvedValue({
@@ -58,37 +59,40 @@ describe("工作台页 (#63)", () => {
     expect(fetchMyWorkspaces).not.toHaveBeenCalled();
   });
 
-  it("登录后：渲染 workspace 列表（名称/slug/join_policy 标识）", async () => {
+  it("默认展示侧栏 + active 工作区详情", async () => {
     render(<HomePage />);
-    expect(await screen.findByText("CGC 上海分社")).toBeInTheDocument();
+
+    expect(await screen.findByRole("heading", { name: "工作区详情" })).toBeInTheDocument();
+    expect(screen.getAllByText("CGC 上海分社")).toHaveLength(2);
     expect(screen.getByText("cgc-shanghai")).toBeInTheDocument();
-    expect(screen.getByText("CGC 线上学院")).toBeInTheDocument();
-    expect(screen.getByText("cgc-academy")).toBeInTheDocument();
-    // join_policy 标签
-    expect(screen.getByText("公开")).toBeInTheDocument();
-    expect(screen.getByText("申请审批")).toBeInTheDocument();
-    expect(screen.getByText("仅邀请")).toBeInTheDocument();
-    // 赞助入口标识（两个 active 均为已开启，一个关闭）
-    expect(screen.getAllByText("赞助入口已开启")).toHaveLength(2);
-    expect(screen.getByText("赞助入口关闭")).toBeInTheDocument();
+    expect(screen.getAllByText("开放加入").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("最近动态")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /进入工作台/ })).toHaveAttribute("href", "/w/cgc-shanghai");
+    expect(screen.getByRole("link", { name: /成员与角色/ })).toHaveAttribute("href", "/w/cgc-shanghai/members");
   });
 
-  it("active workspace 提供「进入工作台」链接到 /w/[slug]", async () => {
+  it("点击侧栏工作区后，详情区跟随切换", async () => {
     render(<HomePage />);
-    const links = await screen.findAllByRole("link", { name: /进入工作台/ });
-    expect(links.map((l) => l.getAttribute("href"))).toEqual([
-      "/w/cgc-shanghai",
-      "/w/cgc-academy",
-    ]);
+    await screen.findByText("最近动态");
+
+    fireEvent.click(screen.getByRole("button", { name: /CGC 线上学院/ }));
+    expect(screen.getAllByText("CGC 线上学院")).toHaveLength(2);
+    expect(screen.getAllByText("申请制").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("link", { name: /进入工作台/ })).toHaveAttribute("href", "/w/cgc-academy");
   });
 
-  it("非 active workspace（invited）显示待加入状态，不提供进入链接", async () => {
+  it("选择 invited workspace：展示待凭据状态，不显示进入入口", async () => {
     render(<HomePage />);
-    expect(await screen.findByText("待凭据加入")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /进入工作台/ })).toHaveLength(2); // 仅两个 active
+    await screen.findByText("最近动态");
+
+    fireEvent.click(screen.getByRole("button", { name: /赞助商俱乐部/ }));
+    expect(screen.getAllByText("待凭据加入").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("邀请制")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /进入工作台/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "输入邀请凭据" })).toBeDisabled();
   });
 
-  it("真实模式（#70 QA P2）：fetchMyWorkspaces 返回真实 ws（带 membershipStatus），统计与进入入口正确", async () => {
+  it("真实模式：active / pending 状态跟随侧栏选择", async () => {
     fetchMyWorkspaces.mockResolvedValue([
       {
         id: "ws_real_a",
@@ -124,19 +128,30 @@ describe("工作台页 (#63)", () => {
     ]);
 
     render(<HomePage />);
-    // 先等完整页渲染（useAuthed 挂载确认后），统计数字在 <span> 内用 textContent 断言
-    await screen.findByText(/你加入了/);
-    const summary = screen.getByText(/你加入了/);
-    await waitFor(() => expect(summary.textContent).toContain("2 个工作区"));
-    expect(summary.textContent).toContain("1 个待处理");
-    // 两个 active 提供进入入口，pending 显示「申请审批中」且无入口
-    expect(screen.getAllByRole("link", { name: /进入工作台/ })).toHaveLength(2);
-    expect(screen.getAllByRole("link", { name: /进入工作台/ }).map((l) => l.getAttribute("href"))).toEqual([
-      "/w/real-a",
-      "/w/real-b",
+    expect(await screen.findByText("你加入了 2 个工作区 · 1 个待处理")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /进入工作台/ })).toHaveAttribute("href", "/w/real-a");
+
+    fireEvent.click(screen.getByRole("button", { name: /真实工作区 C/ }));
+    expect(screen.getByText("申请进度")).toBeInTheDocument();
+    expect(screen.getAllByText("申请审批中").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole("link", { name: /进入工作台/ })).not.toBeInTheDocument();
+  });
+
+  it("view=grid：展示首次登录卡片网格，只有 active 可进入", async () => {
+    window.history.replaceState({}, "", "/?view=grid");
+    fetchMyWorkspaces.mockResolvedValue([
+      { ...MOCK_WORKSPACES[0], name: "上海 Coding Girls Club", slug: "shanghai-cgc", membershipStatus: "active" },
+      { ...MOCK_WORKSPACES[1], name: "北京 Women in AI", slug: "beijing-wai", membershipStatus: "pending", myRoleNames: [], roles: [] },
+      { ...MOCK_WORKSPACES[2], name: "杭州创客空间", slug: "hangzhou-makers", membershipStatus: "invited" },
     ]);
-    expect(screen.getByText("申请审批中")).toBeInTheDocument();
-    expect(screen.queryByText("待凭据加入")).not.toBeInTheDocument();
+    render(<HomePage />);
+
+    expect(await screen.findByRole("heading", { name: "选择你的工作区" })).toBeInTheDocument();
+    expect(screen.getAllByText("active")).toHaveLength(1);
+    expect(screen.getByText("pending")).toBeInTheDocument();
+    expect(screen.getByText("invited")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "进入工作台" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /发现 \/ 申请加入新工作区/ })).toBeInTheDocument();
   });
 
   it("退出登录：清 token 并跳转 /login", async () => {
@@ -147,10 +162,10 @@ describe("工作台页 (#63)", () => {
     expect(push).toHaveBeenCalledWith("/login");
   });
 
-  it("header 提供个人资料入口链接到 /profile (#69)", async () => {
+  it("提供个人资料入口链接到 /profile (#69)", async () => {
     render(<HomePage />);
     const entry = await screen.findByTestId("profile-entry");
     expect(entry).toHaveAttribute("href", "/profile");
-    expect(within(entry).getByText("小美")).toBeInTheDocument();
+    expect(await screen.findByText("小美")).toBeInTheDocument();
   });
 });
