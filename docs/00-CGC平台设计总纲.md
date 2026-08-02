@@ -79,7 +79,7 @@ flowchart TB
 |---|---|---|---|
 | User | 全局账号，一人多 Workspace | 全局 | email、is_platform_admin |
 | Workspace | 组织单元/租户单元 | 全局 | slug（唯一）、join_policy（open\|request\|invite_only）、sponsorship_enabled；**UI 展示需区分策略三态与成员中间态（原型验证结论 #1）** |
-| WorkspaceMembership / MembershipRole / Role | 成员关系 + N:M 多角色；角色为可扩展实体 | 身份/租户 | 默认模板 Owner/Admin/Tutor/Volunteer/Learner；**成员中间态：request 策略申请中 → pending（JoinRequest）；invite_only 已受邀 → invited（Invitation）** |
+| WorkspaceMembership / MembershipRole / Role | 成员关系 + N:M 多角色；角色为可扩展实体 | 身份/租户 | 默认模板 Owner/Admin/Tutor/Volunteer/Learner；**成员中间态：request 策略申请中 → pending（JoinRequest）；invite_only 已受邀 → invited（Invitation）**；**角色扩展注记（2026-08-02 拍板）：切片 A 阶段角色为平台统一六模板（owner/admin/member/tutor/volunteer/learner），「自定义角色」为未来能力，当前不做（无真实差异化需求 + 保留静态 RBAC 简化）；触发条件 = 出现真实工作区角色差异化需求（预计 workflow 定制场景，F 切片之后）；届时增量落地：permissionMatrix(workspaceId) 租户查询 + Role 能力配置 + 动态判定，登记于 GitHub backlog** |
 | Invitation / JoinRequest | 加入 Workspace 的邀请链接 / 加入申请 | 身份/租户 | token_hash、expires_at、status；join_policy=request 时审批 |
 | WorkflowDefinition | DAG 蓝图（可复用、带版本） | 引擎 | type、version、input_schema、node_def（Runic.Workflow）、**approval_timeout**（审批超时，默认 7 天，可配置，null=无超时，F7 方案 A） |
 | WorkflowRun | DAG 执行实例 | 引擎 | status、input_snapshot、facts、signal 日志、partition_id（=workspace_id） |
