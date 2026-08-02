@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-	screen,
-	cleanup,
-	waitFor,
-	within,
-} from "@testing-library/react";
+import { screen, cleanup, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import WorkspacePage from "./page";
 
@@ -231,9 +226,10 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(
 			within(nav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("href", "/w/cgc-academy/members");
-		expect(
-			within(nav).getByRole("link", { name: "加入策略" }),
-		).toHaveAttribute("href", "/w/cgc-academy/settings");
+		expect(within(nav).getByRole("link", { name: "加入策略" })).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings",
+		);
 		// B-3 占位：disabled 按钮（管理可见，title 注明切片 B）
 		const approvalPlaceholder = within(nav).getByRole("button", {
 			name: "加入审批",
@@ -244,9 +240,10 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		});
 		expect(invitePlaceholder).toBeDisabled();
 		// 个人资料移出设置组（nav 外独立链接）
-		expect(
-			screen.getByRole("link", { name: "个人资料" }),
-		).toHaveAttribute("href", "/profile?ws=cgc-academy");
+		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
+			"href",
+			"/profile?ws=cgc-academy",
+		);
 		expect(
 			within(nav).queryByRole("link", { name: "个人资料" }),
 		).not.toBeInTheDocument();
@@ -273,9 +270,10 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		).not.toBeInTheDocument();
 		// 概览仍在，个人资料在 nav 外
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
-		expect(
-			screen.getByRole("link", { name: "个人资料" }),
-		).toHaveAttribute("href", "/profile?ws=cgc-shanghai");
+		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
+			"href",
+			"/profile?ws=cgc-shanghai",
+		);
 	});
 
 	it("展示我的角色 chips（Admin，Hero 与信息卡各一处）", async () => {
