@@ -42,7 +42,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
   params.value = { slug: "cgc-academy" };
-  fetchMyWorkspaces.mockResolvedValue(MOCK_WORKSPACES);
+  fetchMyWorkspaces.mockResolvedValue(
+    MOCK_WORKSPACES.map((ws) =>
+      ws.slug === "cgc-academy" ? { ...ws, memberCount: 5 } : ws,
+    ),
+  );
   fetchCurrentProfile.mockResolvedValue({
     id: "u_0202",
     email: "xiaomei@example.com",
@@ -147,6 +151,45 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(screen.getAllByTestId("member-row")).toHaveLength(4);
     expect(assignRoles).not.toHaveBeenCalled();
+  });
+
+  it("P2-5：非 Owner/Admin 视角下，主计数用 memberCount 并标注可见范围", async () => {
+    // 模拟 QA 场景：工作区物理总人数 2（owner + learner），但 learner 经 read policy
+    // 只能看到自己 1 条 membership → memberCount=2 vs workspaceMembers=1。
+    params.value = { slug: "cgc-academy" };
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_02",
+        slug: "cgc-academy",
+        name: "CGC 线上学院",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        memberCount: 2,
+        myRoleNames: ["learner"],
+        roles: ["learner"],
+        membershipStatus: "active",
+      },
+    ]);
+    fetchMembers.mockResolvedValue([MOCK_MEMBERS.ws_02[4]]); // learner 只能看到自己（何苗）
+    render(<MembersPage />);
+
+    expect(await screen.findByTestId("members-count")).toHaveTextContent(
+      "共 2 位成员（当前仅显示你有权查看的 1 位）",
+    );
+    expect(screen.getByTestId("members-visibility-note")).toHaveTextContent(
+      "仅显示你有权查看的成员（工作区共 2 位成员）",
+    );
+    expect(screen.getAllByTestId("member-row")).toHaveLength(1);
+    // 非 Owner/Admin 不提供行内编辑入口
+    expect(screen.queryByRole("button", { name: /编辑角色/ })).not.toBeInTheDocument();
+  });
+
+  it("P2-5：Owner/Admin 视角 memberCount 与可见列表一致时不加标注", async () => {
+    // 默认 beforeEach：cgc-academy 为 admin，memberCount 覆盖为 5 与列表一致。
+    render(<MembersPage />);
+    await screen.findAllByTestId("member-row");
+    expect(screen.getByTestId("members-count")).toHaveTextContent("共 5 位成员");
+    expect(screen.queryByTestId("members-visibility-note")).not.toBeInTheDocument();
   });
 
   it("页签入口：成员选中，权限映射指向 #67，个人资料指向 #69", async () => {
