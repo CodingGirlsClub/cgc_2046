@@ -99,7 +99,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
     expect(screen.getByText("Owner 专门指派")).toBeInTheDocument();
   });
 
-  it("展示五个设计角色和七项能力", async () => {
+  it("展示五个设计角色和六项能力", async () => {
     await renderReadyPage();
 
     expect(screen.getByRole("heading", { name: "权限矩阵" })).toBeInTheDocument();
@@ -113,7 +113,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
     expect(screen.getAllByTestId("permission-ability-status")).toHaveLength(PERMISSION_ABILITIES.length);
   });
 
-  it("矩阵语义符合设计：Owner/Admin 可管理，其他角色只读，跨 Workspace 全拒绝", async () => {
+  it("矩阵语义对齐后端六能力：Owner/Admin 可管理，其他角色只读，create_workspace 平台级不授予", async () => {
     await renderReadyPage();
 
     expect(screen.getByTestId("cell-owner-manage_members")).toHaveTextContent("✓");
@@ -122,15 +122,22 @@ describe("/w/[slug]/permissions 权限映射页", () => {
       expect(screen.getByTestId(`cell-${role}-manage_members`)).toHaveTextContent("—");
       expect(screen.getByTestId(`cell-${role}-assign_roles`)).toHaveTextContent("—");
     }
-    expect(screen.getByTestId("cell-owner-change_join_policy")).toHaveTextContent("✓");
-    expect(screen.getByTestId("cell-admin-change_join_policy")).toHaveTextContent("—");
+    expect(screen.getByTestId("cell-owner-view_workspace")).toHaveTextContent("✓");
+    expect(screen.getByTestId("cell-owner-access_invite_only")).toHaveTextContent("✓");
+    expect(screen.getByTestId("cell-owner-list_members")).toHaveTextContent("✓");
+    expect(screen.getByTestId("cell-admin-list_members")).toHaveTextContent("✓");
+    for (const role of ["tutor", "volunteer", "learner"]) {
+      expect(screen.getByTestId(`cell-${role}-list_members`)).toHaveTextContent("—");
+      expect(screen.getByTestId(`cell-${role}-view_workspace`)).toHaveTextContent("✓");
+    }
+    // create_workspace 为平台级能力：六角色均不授予
     for (const role of PERMISSION_ROLE_ORDER) {
-      expect(screen.getByTestId(`cell-${role}-cross_workspace_access`)).toHaveTextContent("⊘");
+      expect(screen.getByTestId(`cell-${role}-create_workspace`)).toHaveTextContent("—");
     }
     expect(screen.getByText("不含 Owner 角色授予")).toBeInTheDocument();
   });
 
-  it("判定示例展示林溪的 Owner + Tutor 并集，跨 Workspace 仍拒绝", async () => {
+  it("判定示例展示林溪的 Owner + Tutor 并集，create_workspace 平台级仍拒绝", async () => {
     await renderReadyPage();
 
     const example = screen.getByTestId("permission-example");
@@ -141,10 +148,10 @@ describe("/w/[slug]/permissions 权限映射页", () => {
     expect(within(example).getByText("允许", { selector: ".permissions-example__result span" })).toBeInTheDocument();
 
     const statuses = within(example).getAllByTestId("permission-ability-status");
-    expect(statuses).toHaveLength(7);
-    expect(statuses.slice(0, 6).every((item) => item.textContent?.includes("允许"))).toBe(true);
-    expect(statuses[6]).toHaveTextContent("跨 Workspace 访问");
-    expect(statuses[6]).toHaveTextContent("拒绝");
+    expect(statuses).toHaveLength(6);
+    expect(statuses.slice(0, 5).every((item) => item.textContent?.includes("允许"))).toBe(true);
+    expect(statuses[5]).toHaveTextContent("创建工作台");
+    expect(statuses[5]).toHaveTextContent("拒绝");
   });
 
   it("未知 slug 显示不可访问状态，不请求权限矩阵", async () => {
@@ -187,7 +194,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
     expect(fetchMatrix).not.toHaveBeenCalled();
   });
 
-  it("mock 数据源完整性：五角色 × 七能力，每个能力都有 boolean", () => {
+  it("mock 数据源完整性：五角色 × 六能力，每个能力都有 boolean", () => {
     expect(MOCK_PERMISSION_MATRIX).toHaveLength(5);
     expect(MOCK_PERMISSION_MATRIX.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
     for (const row of MOCK_PERMISSION_MATRIX) {

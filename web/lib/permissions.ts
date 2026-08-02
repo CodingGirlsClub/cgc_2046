@@ -12,21 +12,18 @@ import { USE_MOCK_WORKSPACES } from "./workspaces";
 /**
  * #67 权限映射页的数据模型。
  *
- * 设计稿将权限页收敛为 Workspace 内的七项能力，并以五个默认角色展示：
- * Owner / Admin / Tutor / Volunteer / Learner。后端 #66 的早期查询仍返回
- * owner/admin/member + 六项旧能力，因此真实分支在这里做一次兼容映射，避免
- * 页面把旧 GraphQL 字段直接暴露成过时的 UI。
+ * 单一数据源 = 后端 RBAC 真实能力（rbac.ex @abilities + GraphQL schema 六项）：
+ * view_workspace / access_invite_only / list_members / manage_members /
+ * assign_roles / create_workspace。设计稿曾多出 4 项无后端授权的假能力
+ * （修改加入策略 / 查看资料 / 编辑自己资料 / 跨工作区访问），
+ * 已按用户拍板砍掉，页面不再凭空画格子。
+ *
+ * 矩阵以五个默认角色展示：Owner / Admin / Tutor / Volunteer / Learner。
+ * 后端只返回 owner/admin/member，缺失角色用模板补齐（模板只含六能力）。
  */
 
-/** 设计稿中的能力 ID。 */
-export type PermissionAbility =
-  | "view_members"
-  | "manage_members"
-  | "assign_roles"
-  | "change_join_policy"
-  | "view_profile"
-  | "edit_own_profile"
-  | "cross_workspace_access";
+/** 能力 ID：与后端 RbacAbility 对齐（单一数据源，避免再次漂移）。 */
+export type PermissionAbility = RbacAbility;
 
 export interface PermissionAbilityDef {
   id: PermissionAbility;
@@ -50,8 +47,18 @@ export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = ROLE_NAMES.filter(
 
 export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
   {
-    id: "view_members",
-    label: "查看成员",
+    id: "view_workspace",
+    label: "查看工作台",
+    description: "查看当前 Workspace 的概览与基本信息。",
+  },
+  {
+    id: "access_invite_only",
+    label: "访问仅邀请",
+    description: "访问 invite_only 加入策略的 Workspace。",
+  },
+  {
+    id: "list_members",
+    label: "查看成员列表",
     description: "查看当前 Workspace 的成员列表与成员角色并集。",
   },
   {
@@ -61,56 +68,38 @@ export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
   },
   {
     id: "assign_roles",
-    label: "行内分配角色",
+    label: "分配角色",
     description: "在成员页调整 Owner 之外的角色；Owner 走专门指派流程。",
   },
   {
-    id: "change_join_policy",
-    label: "修改加入策略",
-    description: "修改 open / request / invite_only 等 Workspace 加入策略。",
-  },
-  {
-    id: "view_profile",
-    label: "查看租户内 Profile",
-    description: "查看当前 Workspace 成员可见的 Profile 信息。",
-  },
-  {
-    id: "edit_own_profile",
-    label: "编辑自己的 Profile",
-    description: "编辑自己的展示名、简介、技能标签与作品集。",
-  },
-  {
-    id: "cross_workspace_access",
-    label: "跨 Workspace 访问",
-    description: "跨租户读取或操作其他 Workspace 的资源，默认一律拒绝。",
+    id: "create_workspace",
+    label: "创建工作台",
+    description: "创建新的 Workspace（平台级能力，不随角色在矩阵中授予）。",
   },
 ];
 
 type PermissionAbilities = Record<PermissionAbility, boolean>;
 
 const OWNER_ABILITIES: PermissionAbilities = {
-  view_members: true,
+  view_workspace: true,
+  access_invite_only: true,
+  list_members: true,
   manage_members: true,
   assign_roles: true,
-  change_join_policy: true,
-  view_profile: true,
-  edit_own_profile: true,
-  cross_workspace_access: false,
+  create_workspace: false,
 };
 
 const ADMIN_ABILITIES: PermissionAbilities = {
   ...OWNER_ABILITIES,
-  change_join_policy: false,
 };
 
 const MEMBER_ABILITIES: PermissionAbilities = {
-  view_members: true,
+  view_workspace: true,
+  access_invite_only: true,
+  list_members: false,
   manage_members: false,
   assign_roles: false,
-  change_join_policy: false,
-  view_profile: true,
-  edit_own_profile: true,
-  cross_workspace_access: false,
+  create_workspace: false,
 };
 
 const ROLE_DEFAULT_ABILITIES: Record<MembershipRoleName, PermissionAbilities> = {
@@ -143,7 +132,7 @@ function mockPermissionRow(role: MembershipRoleName): PermissionMatrixRow {
   };
 }
 
-/** 设计稿示例矩阵：五角色 × 七能力。 */
+/** 设计稿示例矩阵：五角色 × 六能力（与后端 schema 字段一一对应）。 */
 export const MOCK_PERMISSION_MATRIX: PermissionMatrixRow[] = PERMISSION_ROLE_ORDER.map(mockPermissionRow);
 
 /** 当前用户某角色是否支持某能力。 */
@@ -177,8 +166,10 @@ function normalizeRoleName(name: string): MembershipRoleName | null {
 }
 
 /**
- * 将 #66 旧 permissionMatrix（owner/admin/member + 六项旧能力）映射为设计稿
- * 的五角色 × 七能力矩阵。缺失的 Tutor/Volunteer/Learner 用默认模板补齐。
+ * 将后端 permissionMatrix（owner/admin/member × 六能力）映射为五角色矩阵。
+ * 六能力直接从后端 abilities 字段直取（viewWorkspace/accessInviteOnly/
+ * listMembers/manageMembers/assignRoles/createWorkspace），不依赖旧字段名；
+ * 缺失的 Tutor/Volunteer/Learner 用默认模板补齐（模板只含六能力）。
  */
 export function mapPermissionMatrixRows(
   rows: RbacPermissionMatrixRow[] | null | undefined,
@@ -191,12 +182,13 @@ export function mapPermissionMatrixRows(
     if (!role || mapped.has(role)) continue;
 
     const abilities = cloneAbilities(role);
-    const legacy = backendRow.abilities;
-    if (role === "owner" || role === "admin") {
-      abilities.view_members = legacy.listMembers;
-      abilities.manage_members = legacy.manageMembers;
-      abilities.assign_roles = legacy.assignRoles;
-    }
+    const backend = backendRow.abilities;
+    abilities.view_workspace = backend.viewWorkspace;
+    abilities.access_invite_only = backend.accessInviteOnly;
+    abilities.list_members = backend.listMembers;
+    abilities.manage_members = backend.manageMembers;
+    abilities.assign_roles = backend.assignRoles;
+    abilities.create_workspace = backend.createWorkspace;
 
     mapped.set(role, {
       role,

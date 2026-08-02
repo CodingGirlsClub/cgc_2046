@@ -4,7 +4,8 @@
  * #67 权限映射页 /w/[slug]/permissions。
  *
  * 页面按 07-rbac-permission-map-light 设计稿落地：同一 Workspace 管理壳、
- * 五角色 × 七能力矩阵，以及 Owner + Tutor 的角色并集 can? 判定示例。
+ * 五角色 × 六能力矩阵（六能力 = 后端 RBAC 真实能力，单一数据源），以及
+ * Owner + Tutor 的角色并集 can? 判定示例。
  * 权限页只解释能力，不画 Agent / Workflow 执行 UI。
  */
 
@@ -117,10 +118,6 @@ function roleBadgeClass(role: MembershipRoleName) {
   return ROLE_BADGE_CLASS[role] ?? "l-badge l-badge-member";
 }
 
-function isCrossWorkspace(ability: PermissionAbility) {
-  return ability === "cross_workspace_access";
-}
-
 function PermissionCell({ row, ability }: { row: PermissionMatrixRow; ability: PermissionAbility }) {
   const allowed = row.abilities[ability];
   return (
@@ -129,7 +126,7 @@ function PermissionCell({ row, ability }: { row: PermissionMatrixRow; ability: P
       data-testid={`cell-${row.role}-${ability}`}
       aria-label={`${roleLabel(row.role)} ${ability}：${allowed ? "允许" : "拒绝"}`}
     >
-      {allowed ? "✓" : isCrossWorkspace(ability) ? "⊘" : "—"}
+      {allowed ? "✓" : "—"}
     </td>
   );
 }
@@ -213,11 +210,9 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
           </thead>
           <tbody>
             {PERMISSION_ABILITIES.map((ability) => {
-              const crossRow = isCrossWorkspace(ability.id);
               return (
                 <tr
                   key={ability.id}
-                  className={crossRow ? "permissions-matrix__row--cross" : undefined}
                   data-testid={`permission-row-${ability.id}`}
                 >
                   <th scope="row" className="permissions-ability-label">
