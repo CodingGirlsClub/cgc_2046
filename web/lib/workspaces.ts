@@ -149,7 +149,10 @@ export function mapRoleObjectsToNames(
 
 /**
  * 将后端 workspaceMembers 分页对象（count/results）映射为前端成员列表。
- * 后端返回不含 email 时以 userId 兜底展示。
+ * P1：平铺字段 userEmail/userDisplayName/joinedAt 直接映射
+ * （不再嵌套 user{}；后端 G6 偏离说明——User read policy 只允许本人读自己，
+ * 嵌套关系会被过滤为 null，故用 SQL LEFT JOIN 平铺字段）。
+ * 后端未返回时以 userId 兜底展示。
  */
 export function mapWorkspaceMembers(
   conn: WorkspaceMemberConnection | null | undefined,
@@ -158,8 +161,9 @@ export function mapWorkspaceMembers(
   return conn.results.map((m: WorkspaceMembership) => ({
     membershipId: m.id,
     userId: m.userId,
-    email: m.userId,
-    displayName: undefined,
+    email: m.userEmail ?? m.userId,
+    displayName: m.userDisplayName ?? undefined,
+    joinedAt: m.joinedAt ?? undefined,
     roles: mapRoleObjectsToNames(m.roles),
   }));
 }
@@ -205,6 +209,7 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
     roles: ws.myRoleNames ?? [],
     membershipStatus: mapMembershipStatus(ws),
     myMembershipId: ws.myMembershipId ?? null,
+    memberCount: ws.memberCount ?? undefined,
   }));
 }
 
@@ -263,6 +268,7 @@ export async function assignMemberRoles(
 /**
  * 将后端 assignRoles 返回的 WorkspaceMembership 映射为前端成员条目。
  * #65 review 修复：selection 含 roles{id,name}，保存后回填非空（不再显示 []）。
+ * P1：平铺 userEmail/userDisplayName/joinedAt 若返回则透传。
  */
 export function mapAssignRolesResult(
   result: WorkspaceMembership,
@@ -270,8 +276,9 @@ export function mapAssignRolesResult(
   return {
     membershipId: result.id,
     userId: result.userId,
-    email: result.userId,
-    displayName: undefined,
+    email: result.userEmail ?? result.userId,
+    displayName: result.userDisplayName ?? undefined,
+    joinedAt: result.joinedAt ?? undefined,
     roles: mapRoleObjectsToNames(result.roles),
   };
 }

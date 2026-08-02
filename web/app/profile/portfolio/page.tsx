@@ -12,8 +12,8 @@ import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchCurrentProfile,
+  fetchPortfolioItems,
   fetchProfileRoleSummary,
-  MOCK_PROFILE_PORTFOLIO,
   type ProfilePortfolioItem,
   type ProfileRoleSummary,
 } from "@/lib/profile";
@@ -68,14 +68,14 @@ export default function ProfilePortfolioPage() {
       return;
     }
     let cancelled = false;
-    Promise.all([fetchCurrentProfile(), fetchProfileRoleSummary()])
-      .then(([profile, summaries]) => {
+    Promise.all([fetchCurrentProfile(), fetchProfileRoleSummary(), fetchPortfolioItems()])
+      .then(([profile, summaries, portfolio]) => {
         if (cancelled) return;
         const summary = summaries.find((item: ProfileRoleSummary) => item.myRoleNames.length > 0) ?? summaries[0];
         setProfileName(profile.displayName?.trim() || "我的个人资料");
         setWorkspaceSlug(profile.workspaceSlug || summary?.workspaceSlug || "cgc-shanghai");
         setRoles(profile.workspaceRoles?.length ? profile.workspaceRoles : (summary?.myRoleNames ?? []));
-        setPortfolio(profile.portfolio ?? MOCK_PROFILE_PORTFOLIO);
+        setPortfolio(portfolio);
       })
       .catch((error: unknown) => {
         if (!cancelled) setErrorMsg(error instanceof Error ? error.message : "加载作品集失败");

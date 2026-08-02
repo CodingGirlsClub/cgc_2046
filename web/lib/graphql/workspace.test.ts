@@ -88,8 +88,8 @@ describe("#64/#65 成员角色契约", () => {
     expect(doc).toContain("name");
   });
 
-  it("角色模型：旧 member 与 Slice A 默认角色标签齐全", () => {
-    expect(MEMBERSHIP_ROLES).toEqual(["owner", "admin", "member"]);
+  it("角色模型：旧 member 与 Slice A 默认角色标签齐全（六角色）", () => {
+    expect(MEMBERSHIP_ROLES).toEqual(["owner", "admin", "tutor", "volunteer", "learner", "member"]);
     expect(ROLE_LABEL.owner).toBe("Owner");
     expect(ROLE_LABEL.admin).toBe("Admin");
     expect(ROLE_LABEL.tutor).toBe("Tutor");

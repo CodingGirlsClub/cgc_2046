@@ -96,6 +96,14 @@ export default function WorkspacePage() {
               </div>
             </div>
 
+            {/* P1：成员数量（meWorkspaces 计算字段） */}
+            <div className="mt-4 rounded-large bg-card p-5 ring-1 ring-line">
+              <div className="l-overline">成员数量</div>
+              <div className="mt-2 text-sm text-ink" data-testid="workspace-member-count">
+                {ws.memberCount != null ? `${ws.memberCount} 位成员` : "—"}
+              </div>
+            </div>
+
             {/* #65 成员管理入口 */}
             <div className="mt-4 rounded-large bg-card p-5 ring-1 ring-line">
               <div className="flex flex-wrap items-center justify-between gap-3">

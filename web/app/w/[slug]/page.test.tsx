@@ -82,6 +82,7 @@ describe("工作区占位页 /w/[slug] (#63)", () => {
         myRoleNames: ["member"],
         roles: ["member"],
         membershipStatus: "active",
+        memberCount: 42,
       },
     ]);
     params.value = { slug: "qa70-real-ws-333" };
@@ -96,6 +97,27 @@ describe("工作区占位页 /w/[slug] (#63)", () => {
     // 成员管理入口指向真实 slug
     const link = screen.getByRole("link", { name: /管理成员/ });
     expect(link).toHaveAttribute("href", "/w/qa70-real-ws-333/members");
+  });
+
+  it("P1：展示成员数量（meWorkspaces memberCount 计算字段）", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_mc",
+        slug: "qa70-count-ws",
+        name: "成员数工作区",
+        joinPolicy: "open",
+        sponsorshipEnabled: true,
+        myRoleNames: ["member"],
+        roles: ["member"],
+        membershipStatus: "active",
+        memberCount: 12,
+      },
+    ]);
+    params.value = { slug: "qa70-count-ws" };
+
+    render(<WorkspacePage />);
+    expect(await screen.findByText("成员数工作区")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-member-count")).toHaveTextContent("12 位成员");
   });
 
   it("提供返回工作台链接", async () => {

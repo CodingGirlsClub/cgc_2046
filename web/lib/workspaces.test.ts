@@ -67,6 +67,32 @@ describe("mapWorkspaceMembers（后端分页对象 count/results → 前端成�
     });
   });
 
+  it("P1 平铺字段：userEmail/userDisplayName/joinedAt 直接映射（不再嵌套 user）", () => {
+    const conn = {
+      count: 1,
+      results: [
+        {
+          id: "wm_2",
+          workspaceId: "ws_1",
+          userId: "u_2",
+          userEmail: "linxi@cgc2046.org",
+          userDisplayName: "林溪",
+          joinedAt: "2026-08-02T03:00:00Z",
+          roles: [{ id: "r1", name: "tutor" }],
+        },
+      ],
+    };
+    const list = mapWorkspaceMembers(conn);
+    expect(list[0]).toEqual({
+      membershipId: "wm_2",
+      userId: "u_2",
+      email: "linxi@cgc2046.org",
+      displayName: "林溪",
+      joinedAt: "2026-08-02T03:00:00Z",
+      roles: ["tutor"],
+    });
+  });
+
   it("roles 缺失时映射为空角色数组", () => {
     const conn = {
       count: 2,
@@ -148,7 +174,7 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
     queryMock.mockReset();
   });
 
-  it("meWorkspaces 返回 → 映射 slug/name/myRoleNames + membershipStatus=active", async () => {
+  it("meWorkspaces 返回 → 映射 slug/name/myRoleNames + membershipStatus=active + memberCount", async () => {
     queryMock.mockImplementation(({ query }) => {
       expect(opName(query)).toBe("MeWorkspaces");
       return Promise.resolve({
@@ -163,6 +189,7 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
               myRoleNames: ["owner", "member"],
               myMembershipId: "wm_1",
               canAccess: true,
+              memberCount: 12,
             },
             {
               id: "ws_real_2",
@@ -173,6 +200,7 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
               myRoleNames: ["member"],
               myMembershipId: "wm_2",
               canAccess: true,
+              memberCount: 5,
             },
           ],
         },
@@ -190,8 +218,10 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
       myRoleNames: ["owner", "member"],
       roles: ["owner", "member"],
       membershipStatus: "active", // #70：真实分支补 status，首页统计不再失真
+      memberCount: 12, // P1：meWorkspaces 计算字段透传
     });
     expect(list[1].membershipStatus).toBe("active");
+    expect(list[1].memberCount).toBe(5);
   });
 
   it("meWorkspaces 返回 pending/invited 形状 → 状态正确区分", async () => {
