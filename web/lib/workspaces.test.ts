@@ -5,6 +5,7 @@ vi.mock("./apollo-client", () => ({
 }));
 
 import { client } from "./apollo-client";
+import { ME_WORKSPACES } from "./graphql/workspace";
 import {
 	mapRoleObjectsToNames,
 	mapWorkspaceMembers,
@@ -419,6 +420,8 @@ describe("updateWorkspaceJoinPolicy（#78：mutation + 跨页缓存刷新）", (
 		const result = await updateWorkspaceJoinPolicy("ws_1", "invite_only");
 
 		expect(result.joinPolicy).toBe("invite_only");
+		// 锁死刷新目标查询（跨页同步契约：#78 review SUGGESTED-3）
+		expect(refetchMock).toHaveBeenCalledWith({ include: [ME_WORKSPACES] });
 		expect(refetchMock).toHaveBeenCalledTimes(1);
 	});
 

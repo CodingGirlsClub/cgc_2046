@@ -149,6 +149,37 @@ describe("/w/[slug]/settings 工作区设置页", () => {
 		expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled();
 	});
 
+	it("保存成功后改回原值：按钮启用且真实提交（review BLOCKING 钉测）", async () => {
+		updateWorkspaceJoinPolicy.mockResolvedValue({ joinPolicy: "invite_only" });
+		render(<SettingsPage />);
+
+		// 第一次：request → invite_only 保存成功（服务端新值，hook 本地 ws.joinPolicy 仍为过期 request）
+		const inviteRadio = await screen.findByRole("radio", { name: "仅邀请" });
+		fireEvent.click(inviteRadio);
+		fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
+		await waitFor(() =>
+			expect(updateWorkspaceJoinPolicy).toHaveBeenCalledWith(
+				"ws_02",
+				"invite_only",
+			),
+		);
+
+		// 改回原值 request：相对服务端新值（invite_only）这是真实变更 → 按钮必须启用
+		const requestRadio = screen.getByRole("radio", { name: "申请审批" });
+		fireEvent.click(requestRadio);
+		expect(screen.getByRole("button", { name: "保存更改" })).toBeEnabled();
+
+		// 点击保存必须真实提交（不得因 ws.joinPolicy 过期误判为无变更而静默 return）
+		updateWorkspaceJoinPolicy.mockResolvedValue({ joinPolicy: "request" });
+		fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
+		await waitFor(() =>
+			expect(updateWorkspaceJoinPolicy).toHaveBeenLastCalledWith(
+				"ws_02",
+				"request",
+			),
+		);
+	});
+
 	it("保存失败：显示错误提示（role=alert）", async () => {
 		updateWorkspaceJoinPolicy.mockRejectedValue(new Error("forbidden"));
 		render(<SettingsPage />);
