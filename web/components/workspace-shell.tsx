@@ -162,7 +162,7 @@ export default function WorkspaceShell({
 									aria-current={active === "settings" ? "page" : undefined}
 								>
 									<Icon name="settings" />
-									<span>工作区设置</span>
+									<span>加入策略</span>
 								</Link>
 							)}
 							{canSeeManagement && (

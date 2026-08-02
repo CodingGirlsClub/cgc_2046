@@ -187,11 +187,11 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 			"aria-current",
 			"page",
 		);
-		const shellLink = screen.getByRole("link", { name: "工作区设置" });
-		// #78：壳「工作区设置」由禁用按钮解禁为链接（指向设置页）
+		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
+		const shellLink = within(shellNav).getByRole("link", { name: "加入策略" });
+		// #78/#79：壳导航项「加入策略」指向设置页（breadcrumb 首项同名，须限定 nav 内查询）
 		expect(shellLink).toHaveAttribute("href", "/w/cgc-academy/settings");
 		// 壳 nav 激活态：/permissions 归「成员与角色」子页（⑤ review P3-4）
-		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
 		expect(
 			within(shellNav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("aria-current", "page");

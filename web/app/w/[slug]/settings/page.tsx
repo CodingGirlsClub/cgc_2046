@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * #78 工作区设置页 /w/[slug]/settings。
+ * #78 加入策略页 /w/[slug]/settings（#79 IA 改名：原「工作区设置」页）。
  *
  * 最小设置页：加入策略三态切换（开放加入 / 申请制 / 邀请制）。
  * - 数据路径：useWorkspaceBySlug（meWorkspaces 唯一真实路径），myAbilities
@@ -55,12 +55,13 @@ export default function WorkspaceSettingsPage() {
 	} | null>(null);
 	const [saving, setSaving] = useState(false);
 
-	const draft = draftState && draftState.wsId === ws?.id ? draftState.policy : null;
+	const draft =
+		draftState && draftState.wsId === ws?.id ? draftState.policy : null;
 	const effective = draft ?? ws?.joinPolicy ?? null;
 	const lastPersisted =
 		savedPolicyState && savedPolicyState.wsId === ws?.id
 			? savedPolicyState.policy
-			: ws?.joinPolicy ?? null;
+			: (ws?.joinPolicy ?? null);
 	const message =
 		saveState && saveState.wsId === ws?.id
 			? { kind: saveState.kind, text: saveState.text }
@@ -90,15 +91,15 @@ export default function WorkspaceSettingsPage() {
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
 				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href={`/w/${slug}`}>Workspace 设置</Link>
+					<Link href={`/w/${slug}`}>工作区设置</Link>
 					<span>›</span>
-					<strong>工作区设置</strong>
+					<strong>加入策略</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>工作区设置</h1>
-						<p>管理工作区的加入方式</p>
+						<h1>加入策略</h1>
+						<p>决定谁能加入这个 Workspace</p>
 					</div>
 				</header>
 
@@ -126,7 +127,10 @@ export default function WorkspaceSettingsPage() {
 							</span>
 						</div>
 
-						<fieldset className="settings-policy-options" disabled={!canUpdate || saving}>
+						<fieldset
+							className="settings-policy-options"
+							disabled={!canUpdate || saving}
+						>
 							<legend className="settings-policy-options__legend">
 								选择加入方式
 							</legend>
@@ -161,7 +165,10 @@ export default function WorkspaceSettingsPage() {
 						</fieldset>
 
 						{!canUpdate && (
-							<div className="settings-note" data-testid="settings-readonly-note">
+							<div
+								className="settings-note"
+								data-testid="settings-readonly-note"
+							>
 								仅 Owner / Admin 可修改加入策略；当前为只读展示。
 							</div>
 						)}
