@@ -33,6 +33,212 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :delete_portfolio_item mutation"
+type DeletePortfolioItemResult {
+  "The record that was successfully deleted"
+  result: PortfolioItem
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :update_portfolio_item mutation"
+type UpdatePortfolioItemResult {
+  "The successful result of the mutation"
+  result: PortfolioItem
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdatePortfolioItemInput {
+  "作品标题"
+  title: String
+
+  "作品描述"
+  description: String
+
+  "作品链接"
+  url: String
+
+  "作品图标类型（document\/book\/guide）"
+  icon: String
+}
+
+"The result of the :create_portfolio_item mutation"
+type CreatePortfolioItemResult {
+  "The successful result of the mutation"
+  result: PortfolioItem
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreatePortfolioItemInput {
+  "作品标题"
+  title: String!
+
+  "作品描述"
+  description: String
+
+  "作品链接"
+  url: String
+
+  "作品图标类型（document\/book\/guide）"
+  icon: String
+}
+
+enum PortfolioItemSortField {
+  ID
+  USER_ID
+  TITLE
+  DESCRIPTION
+  URL
+  ICON
+}
+
+input PortfolioItemFilterIcon {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input PortfolioItemFilterUrl {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input PortfolioItemFilterDescription {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input PortfolioItemFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input PortfolioItemFilterUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input PortfolioItemFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input PortfolioItemFilterInput {
+  and: [PortfolioItemFilterInput!]
+
+  or: [PortfolioItemFilterInput!]
+
+  not: [PortfolioItemFilterInput!]
+
+  id: PortfolioItemFilterId
+
+  "作品集所属用户 ID（仅本人，创建时自动填充）"
+  userId: PortfolioItemFilterUserId
+
+  "作品标题"
+  title: PortfolioItemFilterTitle
+
+  "作品描述"
+  description: PortfolioItemFilterDescription
+
+  "作品链接"
+  url: PortfolioItemFilterUrl
+
+  "作品图标类型（document\/book\/guide）"
+  icon: PortfolioItemFilterIcon
+}
+
+input PortfolioItemSortInput {
+  order: SortOrder
+  field: PortfolioItemSortField!
+}
+
+type PortfolioItem {
+  id: ID!
+
+  "作品集所属用户 ID（仅本人，创建时自动填充）"
+  userId: ID!
+
+  "作品标题"
+  title: String!
+
+  "作品描述"
+  description: String
+
+  "作品链接"
+  url: String
+
+  "作品图标类型（document\/book\/guide）"
+  icon: String!
+}
+
 enum RoleSortField {
   ID
   WORKSPACE_ID
@@ -836,6 +1042,15 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): KeysetPageOfWorkspaceMembership
+
+  "当前用户的作品集条目列表"
+  myPortfolio(
+    "How to sort the records in the response"
+    sort: [PortfolioItemSortInput]
+
+    "A filter to limit the results"
+    filter: PortfolioItemFilterInput
+  ): [PortfolioItem!]!
 }
 
 input UpdateProfileInput {
@@ -880,6 +1095,15 @@ type RootMutationType {
 
   "分配成员角色（多角色并集，仅 Owner\/Admin）"
   assignRoles(id: ID!, input: AssignRolesInput!): AssignRolesResult!
+
+  "创建作品集条目（user_id 自动为当前用户）"
+  createPortfolioItem(input: CreatePortfolioItemInput!): CreatePortfolioItemResult!
+
+  "更新自己的作品集条目"
+  updatePortfolioItem(id: ID!, input: UpdatePortfolioItemInput): UpdatePortfolioItemResult!
+
+  "删除自己的作品集条目"
+  deletePortfolioItem(id: ID!): DeletePortfolioItemResult!
 }
 
 """

@@ -16,5 +16,7 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.WorkspaceMembership)
     resource(Cgc2046.Accounts.MembershipRole)
     resource(Cgc2046.Accounts.Role)
+    # P1-4 G9：用户作品集条目（个人内容，非租户隔离）
+    resource(Cgc2046.Accounts.PortfolioItem)
   end
 end
