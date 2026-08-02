@@ -24,6 +24,8 @@
   --accent: #5e6ad2; /* Accent/Primary */
   --accent-mention: #6d78d5;
   --accent-mentionbg: #232534;
+  /* 强调文字色（members 页 primary action）：深色主题保持高亮蓝，浅色主题降深到 WCAG AA */
+  --accent-strong: #aab3ff;
   --status-red: #eb5757;
   --status-violet: #8b5cf6;
   --status-indigo: #6366f1;
@@ -718,7 +720,7 @@
   .members-empty-role { color: var(--ink-3); font-size: 12px; }
   .members-readonly-action { color: var(--ink-3); font-size: 12px; }
   .members-table-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-small); font-size: 12px; line-height: 18px; white-space: nowrap; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease; }
-  .members-table-action--primary { border-color: color-mix(in srgb, var(--accent) 75%, var(--line)); color: #aab3ff; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .members-table-action--primary { border-color: color-mix(in srgb, var(--accent) 75%, var(--line)); color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 8%, transparent); }
   .members-table-action--primary:hover { background: color-mix(in srgb, var(--accent) 17%, transparent); }
   .members-table-action--quiet { color: var(--ink-3); background: transparent; }
   .members-table-action--quiet:hover { color: var(--ink-2); background: var(--soft); }
@@ -794,6 +796,7 @@
   --accent: #5e6ad2; /* 品牌色两主题一致 */
   --accent-mention: #4f5bd0;
   --accent-mentionbg: #eceefb;
+  --accent-strong: #4f5bd0; /* 浅色主题强调文字：比 #aab3ff 深，达 WCAG AA */
   --status-red: #eb5757;
   --status-violet: #8b5cf6;
   --status-indigo: #6366f1;
@@ -1526,6 +1529,10 @@ body {
   .workspace-loading { display: grid; place-content: center; gap: 16px; min-height: 100svh; background: var(--canvas); color: var(--ink); text-align: center; }
   .workspace-loading__brand { color: var(--ink); font-size: 28px; font-weight: 590; letter-spacing: -0.9px; }
   .workspace-loading__text { color: var(--ink-3); font-size: 13px; line-height: 20px; }
+
+  .workspace-error { display: grid; justify-items: center; align-content: center; gap: 14px; min-height: 100svh; padding: 40px; background: var(--canvas); text-align: center; }
+  .workspace-error h1 { color: var(--ink); font-size: 24px; font-weight: 510; line-height: 32px; }
+  .workspace-error p { color: var(--ink-3); font-size: 14px; line-height: 22px; }
 
   @media (max-width: 1100px) {
     .workspace-info-grid { grid-template-columns: 1fr; }

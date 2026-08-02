@@ -460,6 +460,18 @@ function EmptyWorkspaceDetail() {
   );
 }
 
+function WorkspaceLoadError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <main className="workspace-page">
+      <div className="workspace-error" role="alert">
+        <h1>工作区加载失败</h1>
+        <p>暂时无法获取你的工作区列表，请稍后重试。</p>
+        <button type="button" className="workspace-button workspace-button--outline" onClick={onRetry}>重试</button>
+      </div>
+    </main>
+  );
+}
+
 function GridWorkspaceCard({ ws }: { ws: WorkspaceListItem }) {
   const status = getWorkspaceStatus(ws);
   const roles = getWorkspaceRoles(ws);
@@ -536,6 +548,7 @@ export default function HomePage() {
   const { authed, confirmed } = useAuthed();
   const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [gridView, setGridView] = useState(false);
 
@@ -559,7 +572,9 @@ export default function HomePage() {
         if (!cancelled) setWorkspaces(list);
       })
       .catch(() => {
-        if (!cancelled) setWorkspaces([]);
+        // 区分「加载失败」与「真实空数据」：失败保留错误态并允许重试，
+        // 空数据走 EmptyWorkspaceDetail 空态。
+        if (!cancelled) setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -569,6 +584,16 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [authed, confirmed, router]);
+
+  function retryLoad() {
+    setWorkspaces([]);
+    setLoading(true);
+    setLoadError(false);
+    fetchMyWorkspaces()
+      .then((list) => setWorkspaces(list))
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }
 
   const selectedWorkspace = useMemo(() => {
     if (selectedId) {
@@ -585,6 +610,7 @@ export default function HomePage() {
 
   if (!confirmed || !authed) return <LoadingState />;
   if (loading) return <LoadingState />;
+  if (loadError) return <WorkspaceLoadError onRetry={retryLoad} />;
   if (gridView) return <WorkspaceGrid workspaces={workspaces} onSignOut={handleSignOut} />;
 
   return (
