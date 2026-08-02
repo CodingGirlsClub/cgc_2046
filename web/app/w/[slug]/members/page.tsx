@@ -299,6 +299,16 @@ export default function WorkspaceMembersPage() {
   async function saveRoles(member: WorkspaceMember) {
     if (!ws || !canAssign || member.roles.includes("owner")) return;
     const roleNames = (draft[member.membershipId] ?? member.roles).filter((role) => role !== "owner");
+    // #64 已知陷阱：Admin 编辑自己的行并移除 admin 会造成自杀式降权。
+    // 若保存后当前用户不再持有 admin（原本持有），弹出确认；取消则不提交。
+    const isSelf = ws.myMembershipId != null && member.membershipId === ws.myMembershipId;
+    const hadAdmin = member.roles.includes("admin");
+    if (isSelf && hadAdmin && !roleNames.includes("admin")) {
+      const ok = window.confirm(
+        "移除你自己的 Admin 角色将立即失去该 Workspace 的管理权限，确认继续？",
+      );
+      if (!ok) return;
+    }
     setSavingId(member.membershipId);
     setErrorMsg(null);
     try {
