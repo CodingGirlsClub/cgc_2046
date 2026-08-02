@@ -63,10 +63,9 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
   end
 
   calculations do
-    # P1-4 G6：暴露成员 user 的 email/displayName。
-    # 注意不能直接暴露嵌套 `user` 关系：User read policy 仅本人可读自己，
-    # 嵌套关系加载会被 policy 过滤为 null。用 SQL 表达式（LEFT JOIN users）
-    # 平铺字段，不经 user read policy。
+    # P1-4 G6：暴露成员 user 的 email/displayName。嵌套 `user` 关系加载会被
+    # User read policy 滤空（默认 only_me 仅本人可读），故平铺 LEFT JOIN 绕过。
+    # 安全契约与 quirk 知识见 BypassReads（旁路读取面）moduledoc。
     calculate(:user_email, :string, expr(user.email),
       public?: true,
       description: "成员邮箱（平铺自 user 关系，P1 G6）"

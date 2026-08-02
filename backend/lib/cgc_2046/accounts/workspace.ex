@@ -94,8 +94,8 @@ defmodule Cgc2046.Accounts.Workspace do
     )
 
     # P1-4 memberCount：Repo 层批量 count（不经 membership read policy）。
-    # 见 MemberCount 模块注释：expr(count)/aggregate 的子查询会被 read policy
-    # 过滤成仅 actor 自己（SimpleCheck 在子查询取不到 workspace_id），计数错误。
+    # 见 BypassReads（旁路读取面）moduledoc：expr(count)/aggregate 子查询会被
+    # read policy 过滤成仅 actor 自己（SimpleCheck 子查询取不到 workspace_id）。
     calculate(
       :member_count,
       :integer,
