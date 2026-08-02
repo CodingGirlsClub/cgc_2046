@@ -35,6 +35,7 @@ import {
   ROLE_LABEL,
   type MembershipRoleName,
 } from "@/lib/graphql/workspace";
+import { USE_MOCK_WORKSPACES } from "@/lib/workspaces";
 import type { ProfileVisibility } from "@/lib/graphql/profile";
 
 type IconName =
@@ -155,17 +156,27 @@ function portfolioIconName(icon: PortfolioIcon | undefined): IconName {
 function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummary[]): ProfileContent {
   const summary = summaries.find((item) => item.myRoleNames.length > 0) ?? summaries[0];
   const roles = profile.workspaceRoles?.length ? profile.workspaceRoles : (summary?.myRoleNames ?? []);
-  const portfolio = profile.portfolio ?? MOCK_PROFILE_PORTFOLIO;
+  // P1-2（QA 复验 FAIL 修复）：渲染兜底区分数据源模式——
+  // - USE_MOCK_WORKSPACES=true（mock 样例）：字段缺失时用设计稿示例兜底（上海 / DEFAULT_ABOUT 等）；
+  // - 真实模式：字段缺失展示空态（未设置 / 暂无简介 / [] / —），不再伪造样例；
+  //   workspaceName / workspaceSlug 保留 summary 真实回退，去掉固定 mock 兜底。
+  const portfolio = profile.portfolio ?? (USE_MOCK_WORKSPACES ? MOCK_PROFILE_PORTFOLIO : []);
   return {
     name: profile.displayName?.trim() || "未设置展示名",
-    location: profile.location || "上海",
-    about: profile.about || DEFAULT_ABOUT,
-    skills: profile.skills?.length ? [...profile.skills] : [...DEFAULT_SKILLS],
-    joinedAt: formatJoinedDate(profile.joinedAt || "2024 年 3 月"),
+    location: USE_MOCK_WORKSPACES ? profile.location || "上海" : profile.location || "未设置",
+    about: USE_MOCK_WORKSPACES ? profile.about || DEFAULT_ABOUT : profile.about || "暂无简介",
+    skills: USE_MOCK_WORKSPACES
+      ? profile.skills?.length
+        ? [...profile.skills]
+        : [...DEFAULT_SKILLS]
+      : profile.skills?.length
+        ? [...profile.skills]
+        : [],
+    joinedAt: formatJoinedDate(USE_MOCK_WORKSPACES ? profile.joinedAt || "2024 年 3 月" : profile.joinedAt),
     visibility: profile.visibility ?? "workspace_members",
-    memberNumber: profile.memberNumber || "CGC-SH-0018",
-    workspaceName: profile.workspaceName || summary?.workspaceName || "上海 Coding Girls Club",
-    workspaceSlug: profile.workspaceSlug || summary?.workspaceSlug || "cgc-shanghai",
+    memberNumber: USE_MOCK_WORKSPACES ? profile.memberNumber || "CGC-SH-0018" : profile.memberNumber || "—",
+    workspaceName: profile.workspaceName || summary?.workspaceName || (USE_MOCK_WORKSPACES ? "上海 Coding Girls Club" : ""),
+    workspaceSlug: profile.workspaceSlug || summary?.workspaceSlug || (USE_MOCK_WORKSPACES ? "cgc-shanghai" : ""),
     workspaceRoles: roles,
     portfolio: portfolio.map((item) => ({ ...item })),
     avatarUrl: profile.avatarUrl ?? null,
@@ -175,8 +186,8 @@ function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummar
 function toDraft(content: ProfileContent): ProfileDraft {
   return {
     name: content.name === "未设置展示名" ? "" : content.name,
-    location: content.location,
-    about: content.about,
+    location: content.location === "未设置" ? "" : content.location,
+    about: content.about === "暂无简介" ? "" : content.about,
     skills: [...content.skills],
     visibility: content.visibility,
     portfolio: content.portfolio.map((item) => ({ ...item })),
@@ -340,7 +351,7 @@ function EditPortfolioRow({ item, onChange, onRemove }: { item: ProfilePortfolio
         <option value="book">书籍</option>
         <option value="guide">指南</option>
       </select></label>
-      <button type="button" className="profile-remove-portfolio" aria-label={`删除${item.title || "作品"}`} onClick={onRemove}><Icon name="trash" size={19} /></button>
+      <button type="button" className="profile-remove-portfolio" aria-label={`删除作品：${item.title || "未命名作品"}`} onClick={onRemove}><Icon name="trash" size={19} /></button>
     </div>
   );
 }
@@ -435,7 +446,8 @@ export default function ProfilePage() {
         const withPortfolio = { ...nextProfile, portfolio };
         setProfile(withPortfolio);
         setSummaries(nextSummaries);
-        setDraft(toDraft(getProfileContent(withPortfolio, nextSummaries)));
+        // P2-2：不再在加载时预填 draft，进入编辑态时再从真实值初始化（startEdit）
+        setDraft(null);
         setErrorMsg(null);
       })
       .catch((error: unknown) => {
@@ -548,6 +560,8 @@ export default function ProfilePage() {
   }
 
   const currentDraft = draft ?? toDraft(content);
+  // P2-1：底部可见范围文案随当前可见范围联动（编辑态实时预览 draft，查看态用真实值）
+  const footerVisibility = editing ? currentDraft.visibility : content.visibility;
 
   return (
     <div className={`profile-page ${editing ? "profile-page--editing" : ""}`}>
@@ -574,7 +588,7 @@ export default function ProfilePage() {
             </>
           )}
 
-          <footer className="profile-footer"><span>资料仅在当前 Workspace 内可见。</span><button type="button" onClick={handleSignOut}>退出登录</button></footer>
+          <footer className="profile-footer"><span>{footerVisibility === "workspace_public" ? "资料在 Workspace 内公开可见。" : "资料仅在当前 Workspace 内可见。"}</span><button type="button" onClick={handleSignOut}>退出登录</button></footer>
         </div>
       </main>
     </div>

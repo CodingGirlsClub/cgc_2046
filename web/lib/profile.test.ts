@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./apollo-client", () => ({
-  client: { query: vi.fn(), mutate: vi.fn() },
+  client: { query: vi.fn(), mutate: vi.fn(), cache: { evict: vi.fn(), gc: vi.fn() } },
 }));
 
 import { client } from "./apollo-client";
@@ -30,6 +30,7 @@ import {
 
 const queryMock = vi.mocked(client.query);
 const mutateMock = vi.mocked(client.mutate);
+const cacheMock = vi.mocked(client.cache);
 
 function opName(query: unknown): string | undefined {
   const q = query as {
@@ -41,6 +42,8 @@ function opName(query: unknown): string | undefined {
 beforeEach(() => {
   queryMock.mockReset();
   mutateMock.mockReset();
+  cacheMock.evict.mockReset();
+  cacheMock.gc.mockReset();
 });
 
 /** P1 契约形状：me 返回扩展字段 */
@@ -189,9 +192,11 @@ describe("lib/profile 真实分支（#68 me / updateProfile + P1 扩展）", () 
 });
 
 describe("lib/profile Portfolio CRUD 真实分支（P1 myPortfolio 契约）", () => {
-  it("fetchPortfolioItems：myPortfolio query 返回 → 映射为前端条目", async () => {
-    queryMock.mockImplementation(({ query }) => {
+  it("fetchPortfolioItems：myPortfolio query 返回 → 映射为前端条目（network-only 防旧缓存）", async () => {
+    queryMock.mockImplementation(({ query, fetchPolicy }) => {
       expect(opName(query)).toBe("MyPortfolio");
+      // P2-3：保存后重新拉取必须绕过 cache-first 旧缓存
+      expect(fetchPolicy).toBe("network-only");
       return Promise.resolve({
         data: {
           myPortfolio: [
@@ -263,6 +268,9 @@ describe("lib/profile Portfolio CRUD 真实分支（P1 myPortfolio 契约）", (
     expect(item.id).toBe("pf_new");
     expect(item.title).toBe("新作品");
     expect(item.icon).toBe("guide");
+    // P2-3：成功后失效 myPortfolio 缓存
+    expect(cacheMock.evict).toHaveBeenCalledWith({ fieldName: "myPortfolio" });
+    expect(cacheMock.gc).toHaveBeenCalledTimes(1);
   });
 
   it("createPortfolioItem：errors 返回 → 抛错", async () => {
@@ -275,6 +283,7 @@ describe("lib/profile Portfolio CRUD 真实分支（P1 myPortfolio 契约）", (
       },
     } as never);
     await expect(createPortfolioItem({ title: "" })).rejects.toThrow("title 不能为空");
+    expect(cacheMock.evict).not.toHaveBeenCalled();
   });
 
   it("updatePortfolioItem：updatePortfolioItem mutation → 返回更新后条目", async () => {
@@ -299,6 +308,9 @@ describe("lib/profile Portfolio CRUD 真实分支（P1 myPortfolio 契约）", (
 
     const item = await updatePortfolioItem("pf_1", { title: "改名" });
     expect(item.title).toBe("改名");
+    // P2-3：成功后失效 myPortfolio 缓存
+    expect(cacheMock.evict).toHaveBeenCalledWith({ fieldName: "myPortfolio" });
+    expect(cacheMock.gc).toHaveBeenCalledTimes(1);
   });
 
   it("deletePortfolioItem：deletePortfolioItem mutation 成功不抛错", async () => {
@@ -315,6 +327,9 @@ describe("lib/profile Portfolio CRUD 真实分支（P1 myPortfolio 契约）", (
     });
 
     await expect(deletePortfolioItem("pf_1")).resolves.toBeUndefined();
+    // P2-3：成功后失效 myPortfolio 缓存
+    expect(cacheMock.evict).toHaveBeenCalledWith({ fieldName: "myPortfolio" });
+    expect(cacheMock.gc).toHaveBeenCalledTimes(1);
   });
 
   it("deletePortfolioItem：errors 返回 → 抛错", async () => {
@@ -327,6 +342,7 @@ describe("lib/profile Portfolio CRUD 真实分支（P1 myPortfolio 契约）", (
       },
     } as never);
     await expect(deletePortfolioItem("pf_x")).rejects.toThrow("forbidden");
+    expect(cacheMock.evict).not.toHaveBeenCalled();
   });
 
   it("mock 兜底：MOCK_PROFILE_PORTFOLIO 是设计稿演示数据（10 条、三图标齐全）", () => {
