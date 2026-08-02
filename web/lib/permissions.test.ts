@@ -126,6 +126,37 @@ describe("mapPermissionMatrixRows（后端六能力矩阵 → 五角色展示矩
 		expect(rows).toHaveLength(2);
 	});
 
+	it("member 与 learner 并存时真实 learner 行优先（member 仅作兼容回退）", () => {
+		const rows = mapPermissionMatrixRows([
+			{
+				name: "member",
+				abilities: { ...backendRows[0].abilities, listMembers: false },
+			},
+			{
+				name: "learner",
+				abilities: { ...backendRows[0].abilities, listMembers: true },
+			},
+		]);
+		expect(rows.map((row) => row.role)).toEqual(["learner"]);
+		// 展示的 learner 列 = 真实 learner 行的能力，而非 member 行
+		expect(
+			rows.find((row) => row.role === "learner")?.abilities.list_members,
+		).toBe(true);
+	});
+
+	it("后端仅返回 member 时，member 兼容回退填充 learner 槽位", () => {
+		const rows = mapPermissionMatrixRows([
+			{
+				name: "member",
+				abilities: { ...backendRows[0].abilities, listMembers: false },
+			},
+		]);
+		expect(rows.map((row) => row.role)).toEqual(["learner"]);
+		expect(
+			rows.find((row) => row.role === "learner")?.abilities.list_members,
+		).toBe(false);
+	});
+
 	it("null/undefined/空数组 → []，避免空 API payload 被伪造为完整矩阵", () => {
 		expect(mapPermissionMatrixRows(null)).toEqual([]);
 		expect(mapPermissionMatrixRows(undefined)).toEqual([]);
