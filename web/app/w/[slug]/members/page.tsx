@@ -389,14 +389,14 @@ export default function WorkspaceMembersPage() {
             <Icon name="settings" />
             <span>工作区设置</span>
           </button>
-          <Link href="/profile" className="members-sidebar__item">
+          <Link href={`/profile?ws=${slug}`} className="members-sidebar__item">
             <Icon name="user" />
             <span>个人资料</span>
           </Link>
         </nav>
 
         <div className="members-sidebar__footer">
-          <ProfileEntry />
+          <ProfileEntry slug={slug} />
           <button type="button" className="members-signout" onClick={handleSignOut}>退出登录</button>
         </div>
       </aside>

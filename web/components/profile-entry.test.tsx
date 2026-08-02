@@ -50,4 +50,12 @@ describe("ProfileEntry 个人资料入口 (#69)", () => {
     });
     expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile");
   });
+
+  it("传入 slug 时链接带上 workspace 上下文（P1-3）", async () => {
+    render(<ProfileEntry slug="cgc-academy" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("profile-entry")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile?ws=cgc-academy");
+  });
 });

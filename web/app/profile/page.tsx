@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { formatJoinedDate } from "@/lib/format";
@@ -22,6 +22,8 @@ import {
   fetchCurrentProfile,
   fetchPortfolioItems,
   fetchProfileRoleSummary,
+  pickRoleSummary,
+  profileHref,
   MOCK_PROFILE_PORTFOLIO,
   updateCurrentProfile,
   updatePortfolioItem,
@@ -174,8 +176,8 @@ function portfolioIconName(icon: PortfolioIcon | undefined): IconName {
   return "document";
 }
 
-function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummary[]): ProfileContent {
-  const summary = summaries.find((item) => item.myRoleNames.length > 0) ?? summaries[0];
+function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummary[], wsSlug?: string | null): ProfileContent {
+  const summary = pickRoleSummary(summaries, wsSlug);
   const roles = profile.workspaceRoles?.length ? profile.workspaceRoles : (summary?.myRoleNames ?? []);
   // P1-2（QA 复验 FAIL 修复）：渲染兜底区分数据源模式——
   // - USE_MOCK_WORKSPACES=true（mock 样例）：字段缺失时用设计稿示例兜底（上海 / DEFAULT_ABOUT 等）；
@@ -260,22 +262,22 @@ function ProfileSidebar({ workspaceSlug }: { workspaceSlug: string }) {
         <Link href={`/w/${workspaceSlug}`} className="profile-sidebar__item"><Icon name="home" size={23} /><span>概览</span></Link>
         <Link href={`/w/${workspaceSlug}/members`} className="profile-sidebar__item"><Icon name="users" size={23} /><span>成员与角色</span></Link>
         <button type="button" disabled className="profile-sidebar__item profile-sidebar__item--disabled"><Icon name="settings" size={23} /><span>工作区设置</span></button>
-        <Link href="/profile" className="profile-sidebar__item profile-sidebar__item--selected" aria-current="page"><Icon name="user" size={23} /><span>个人资料</span></Link>
+        <Link href={profileHref(workspaceSlug)} className="profile-sidebar__item profile-sidebar__item--selected" aria-current="page"><Icon name="user" size={23} /><span>个人资料</span></Link>
       </nav>
     </aside>
   );
 }
 
-function Breadcrumb({ editing }: { editing: boolean }) {
+function Breadcrumb({ editing, workspaceSlug }: { editing: boolean; workspaceSlug: string }) {
   return (
     <div className="profile-breadcrumb" aria-label="页面路径">
       {editing ? (
         <>
-          <Link href="/profile">成员 Profile</Link><span>›</span><strong>编辑个人资料</strong>
+          <Link href={profileHref(workspaceSlug)}>成员 Profile</Link><span>›</span><strong>编辑个人资料</strong>
         </>
       ) : (
         <>
-          <Link href="/" aria-label="返回工作台"><Icon name="home" size={17} /></Link><span>›</span><Link href="/profile">个人资料</Link><span>›</span><strong>成员 Profile</strong>
+          <Link href="/" aria-label="返回工作台"><Icon name="home" size={17} /></Link><span>›</span><Link href={profileHref(workspaceSlug)}>个人资料</Link><span>›</span><strong>成员 Profile</strong>
         </>
       )}
     </div>
@@ -308,6 +310,7 @@ function ProfileSummary({ content }: { content: ProfileContent }) {
 }
 
 function PortfolioPreview({ portfolio }: { portfolio: ProfilePortfolioItem[] }) {
+  const wsSlug = useSearchParams().get("ws");
   const preview = portfolio.slice(0, 3);
   return (
     <section className="profile-card profile-portfolio-card" data-testid="portfolio-card">
@@ -323,7 +326,7 @@ function PortfolioPreview({ portfolio }: { portfolio: ProfilePortfolioItem[] }) 
               <Icon name="arrow" size={20} />
             </a>
           ))}
-          <Link href="/profile/portfolio" className="profile-portfolio-more" data-testid="portfolio-all-link">查看全部 {portfolio.length} 个作品 <Icon name="arrow" size={18} /></Link>
+          <Link href={wsSlug ? `/profile/portfolio?ws=${wsSlug}` : "/profile/portfolio"} className="profile-portfolio-more" data-testid="portfolio-all-link">查看全部 {portfolio.length} 个作品 <Icon name="arrow" size={18} /></Link>
         </div>
       ) : (
         <div className="profile-empty-card">还没有添加作品集。</div>
@@ -481,8 +484,9 @@ export default function ProfilePage() {
     return () => { cancelled = true; };
   }, [authed, confirmed, router]);
 
-  const content = useMemo(() => profile ? getProfileContent(profile, summaries) : null, [profile, summaries]);
-  const workspaceSlug = content?.workspaceSlug || "cgc-shanghai";
+  const wsSlug = useSearchParams().get("ws");
+  const content = useMemo(() => profile ? getProfileContent(profile, summaries, wsSlug) : null, [profile, summaries, wsSlug]);
+  const workspaceSlug = content?.workspaceSlug || "";
 
   const startEdit = useCallback(() => {
     if (!content) return;
@@ -590,7 +594,7 @@ export default function ProfilePage() {
       <ProfileSidebar workspaceSlug={workspaceSlug} />
       <main className="profile-main">
         <div className="profile-main__inner">
-          <Breadcrumb editing={editing} />
+          <Breadcrumb editing={editing} workspaceSlug={workspaceSlug} />
           <header className="profile-heading">
             <h1>{editing ? "编辑个人资料" : "我的个人资料"}</h1>
             {editing ? (

@@ -434,3 +434,26 @@ export async function fetchProfileRoleSummary(): Promise<ProfileRoleSummary[]> {
   }
   return summaries;
 }
+
+/**
+ * 按工作区上下文选角色摘要（P1-3）：
+ * 优先匹配 ?ws= 指定的工作区（从某 workspace 侧栏进入时看该工作区身份）；
+ * 无上下文或未命中 → 回退排序后第一个持有角色的工作区（见 fetchProfileRoleSummary
+ * 排序：active + 角色权重降序），全部无角色时取首个。
+ */
+export function pickRoleSummary(
+  summaries: ProfileRoleSummary[],
+  wsSlug?: string | null,
+): ProfileRoleSummary | undefined {
+  return (wsSlug ? summaries.find((s) => s.workspaceSlug === wsSlug) : null)
+    ?? summaries.find((s) => s.myRoleNames.length > 0)
+    ?? summaries[0];
+}
+
+/**
+ * 构造 /profile 链接：有 workspace slug 时带上下来（P1-3 上下文透传）。
+ * 单源供 profile 内部导航 / portfolio 回链 / ProfileEntry 入口复用。
+ */
+export function profileHref(workspaceSlug?: string | null): string {
+  return workspaceSlug ? `/profile?ws=${workspaceSlug}` : "/profile";
+}

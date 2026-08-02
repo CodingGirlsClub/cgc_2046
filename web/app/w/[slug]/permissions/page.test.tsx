@@ -207,7 +207,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
   it("提供个人资料入口并支持退出登录", async () => {
     await renderReadyPage();
 
-    expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile");
+    expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile?ws=cgc-academy");
     screen.getByRole("button", { name: "退出登录" }).click();
     expect(clearAuthToken).toHaveBeenCalledTimes(1);
     expect(router.push).toHaveBeenCalledWith("/login");

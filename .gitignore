@@ -15,3 +15,6 @@
 
 # Claude Code (project-local settings, not shared)
 .claude/settings.local.json
+
+# Node dependencies（根目录不应有 node_modules；web/ 各自忽略）
+node_modules/

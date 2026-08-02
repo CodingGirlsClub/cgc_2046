@@ -63,7 +63,7 @@ export default function WorkspacePage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <ProfileEntry />
+            <ProfileEntry slug={slug} />
             <button className="l-btn-outline" onClick={handleSignOut}>
               退出登录
             </button>

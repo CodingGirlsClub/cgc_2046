@@ -199,7 +199,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
       "/w/cgc-academy/permissions",
     );
     expect(screen.getByRole("link", { name: "成员与角色" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile");
+    expect(screen.getByTestId("profile-entry")).toHaveAttribute("href", "/profile?ws=cgc-academy");
   });
 
   it("未知 slug：展示不可访问提示和返回工作台", async () => {
