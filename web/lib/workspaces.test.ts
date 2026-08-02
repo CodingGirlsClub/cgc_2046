@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./apollo-client", () => ({
-	client: { query: vi.fn(), mutate: vi.fn() },
+	client: { query: vi.fn(), mutate: vi.fn(), refetchQueries: vi.fn() },
 }));
 
 import { client } from "./apollo-client";
@@ -11,7 +11,9 @@ import {
 	mapAssignRolesResult,
 	mapMembershipStatus,
 	currentUserCanAssignRoles,
+	currentUserCanUpdateJoinPolicy,
 	fetchMyWorkspaces,
+	updateWorkspaceJoinPolicy,
 } from "./workspaces";
 
 describe("mapRoleObjectsToNames（后端 roles{id,name} → 角色名并集）", () => {
@@ -332,5 +334,107 @@ describe("currentUserCanAssignRoles（#1 能力接口：消费 ws.myAbilities �
 				sponsorshipEnabled: true,
 			}),
 		).toBe(false);
+	});
+});
+
+describe("currentUserCanUpdateJoinPolicy（#78：myAbilities 门控）", () => {
+	it("myAbilities 含 update_join_policy → 可修改加入策略", () => {
+		expect(
+			currentUserCanUpdateJoinPolicy({
+				id: "ws_1",
+				slug: "s",
+				name: "n",
+				joinPolicy: "open",
+				sponsorshipEnabled: true,
+				myAbilities: ["view_workspace", "update_join_policy"],
+			}),
+		).toBe(true);
+	});
+
+	it("myAbilities 不含 update_join_policy（普通成员）→ 不可修改", () => {
+		expect(
+			currentUserCanUpdateJoinPolicy({
+				id: "ws_1",
+				slug: "s",
+				name: "n",
+				joinPolicy: "open",
+				sponsorshipEnabled: true,
+				myAbilities: ["view_workspace", "access_invite_only"],
+			}),
+		).toBe(false);
+	});
+
+	it("myAbilities 缺失 / ws undefined → 不可修改（保守兜底）", () => {
+		expect(currentUserCanUpdateJoinPolicy(undefined)).toBe(false);
+		expect(
+			currentUserCanUpdateJoinPolicy({
+				id: "ws_1",
+				slug: "s",
+				name: "n",
+				joinPolicy: "open",
+				sponsorshipEnabled: true,
+			}),
+		).toBe(false);
+	});
+});
+
+describe("updateWorkspaceJoinPolicy（#78：mutation + 跨页缓存刷新）", () => {
+	const mutateMock = vi.mocked(client.mutate);
+	const refetchMock = vi.mocked(client.refetchQueries);
+
+	const opName = (query: unknown): string | undefined => {
+		const q = query as { definitions?: Array<{ name?: { value?: string } }> };
+		return q.definitions?.[0]?.name?.value;
+	};
+
+	beforeEach(() => {
+		mutateMock.mockReset();
+		refetchMock.mockReset();
+	});
+
+	it("提交 UpdateWorkspace mutation 并携带 id + joinPolicy，成功后刷新 meWorkspaces 缓存", async () => {
+		mutateMock.mockImplementation(({ mutation, variables }) => {
+			expect(opName(mutation)).toBe("UpdateWorkspace");
+			expect(variables).toEqual({
+				id: "ws_1",
+				input: { joinPolicy: "invite_only" },
+			});
+			return Promise.resolve({
+				data: {
+					updateWorkspace: {
+						result: {
+							id: "ws_1",
+							slug: "s",
+							name: "n",
+							joinPolicy: "invite_only",
+							sponsorshipEnabled: true,
+						},
+						errors: [],
+					},
+				},
+			} as never);
+		});
+		refetchMock.mockResolvedValue({ data: {} } as never);
+
+		const result = await updateWorkspaceJoinPolicy("ws_1", "invite_only");
+
+		expect(result.joinPolicy).toBe("invite_only");
+		expect(refetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("mutation 返回 errors（无 result）→ 抛错且不刷新缓存", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				updateWorkspace: {
+					result: null,
+					errors: [{ message: "forbidden" }],
+				},
+			},
+		} as never);
+
+		await expect(
+			updateWorkspaceJoinPolicy("ws_1", "open"),
+		).rejects.toThrow("forbidden");
+		expect(refetchMock).not.toHaveBeenCalled();
 	});
 });

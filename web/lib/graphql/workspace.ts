@@ -115,6 +115,18 @@ export interface CreateWorkspaceResultData {
 	errors: MutationError[];
 }
 
+export interface UpdateWorkspaceInput {
+	slug?: string;
+	name?: string;
+	joinPolicy?: JoinPolicy;
+	sponsorshipEnabled?: boolean;
+}
+
+export interface UpdateWorkspaceResultData {
+	result: Workspace | null;
+	errors: MutationError[];
+}
+
 export interface AssignRolesInput {
 	/** 角色名数组（多角色并集，替换整组）；空数组 = 清空角色 */
 	roleNames: MembershipRoleName[];
@@ -239,6 +251,31 @@ export const CREATE_WORKSPACE: TypedDocumentNode<
 > = gql`
   mutation CreateWorkspace($input: CreateWorkspaceInput!) {
     createWorkspace(input: $input) {
+      result {
+        id
+        slug
+        name
+        joinPolicy
+        sponsorshipEnabled
+      }
+      errors {
+        message
+        code
+      }
+    }
+  }
+`;
+
+/**
+ * #78 updateWorkspace：更新工作台（Owner/Admin 或平台管理员）。
+ * 设置页仅用 joinPolicy 字段（最小范围）；accept 已含 slug/name/sponsorshipEnabled。
+ */
+export const UPDATE_WORKSPACE: TypedDocumentNode<
+	{ updateWorkspace: UpdateWorkspaceResultData },
+	{ id: string; input: UpdateWorkspaceInput }
+> = gql`
+  mutation UpdateWorkspace($id: ID!, $input: UpdateWorkspaceInput!) {
+    updateWorkspace(id: $id, input: $input) {
       result {
         id
         slug

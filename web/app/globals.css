@@ -666,6 +666,28 @@
   .members-empty-table p { color: var(--ink-3); font-size: 13px; line-height: 20px; }
   .members-page-footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 20px; color: var(--ink-3); font-size: 12px; line-height: 18px; }
 
+  /* ---------- 工作区设置页（#78）：加入策略三态切换 ---------- */
+  .settings-loading { display: grid; gap: 14px; margin-top: 30px; }
+  .settings-skeleton { height: 64px; border-radius: var(--radius-medium); background: var(--line-soft); animation: members-pulse 1.2s ease-in-out infinite alternate; }
+  .settings-skeleton--title { height: 36px; width: min(100%, 320px); }
+  .settings-policy-card { margin-top: 30px; padding: 26px 28px; border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--card); }
+  .settings-policy-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .settings-policy-card__header strong { color: var(--ink); font-size: 17px; font-weight: 510; line-height: 24px; }
+  .settings-policy-card__header p { margin-top: 4px; color: var(--ink-3); font-size: 13px; line-height: 20px; }
+  .settings-policy-options { display: grid; gap: 10px; margin-top: 22px; padding: 0; border: 0; }
+  .settings-policy-options__legend { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; line-height: 20px; }
+  .settings-policy-option { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--line-input); cursor: pointer; transition: border-color 120ms ease; }
+  .settings-policy-option input { margin: 0; accent-color: var(--accent); }
+  .settings-policy-option--selected { border-color: var(--accent); }
+  .settings-policy-option:has(input:disabled) { cursor: not-allowed; opacity: 0.72; }
+  .settings-policy-option__label { color: var(--ink-2); font-size: 14px; font-weight: 510; line-height: 20px; }
+  .settings-policy-option__hint { grid-column: 2; color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .settings-note { margin-top: 16px; padding: 11px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--soft-2); color: var(--ink-3); font-size: 13px; line-height: 20px; }
+  .settings-saved { margin-top: 14px; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--status-green) 40%, var(--line)); border-radius: var(--radius-medium); background: color-mix(in srgb, var(--status-green) 8%, var(--card)); color: var(--status-green); font-size: 13px; line-height: 20px; }
+  .settings-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+  .settings-save { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 18px; border: 0; border-radius: var(--radius-small); background: var(--accent); color: #fff; font-size: 14px; font-weight: 510; line-height: 20px; cursor: pointer; transition: opacity 120ms ease; }
+  .settings-save:disabled { cursor: not-allowed; opacity: 0.45; }
+
   .ws-shell-empty-page { display: grid; justify-items: center; gap: 10px; width: min(100%, 520px); margin: auto; padding: 42px; text-align: center; }
   .ws-shell-empty-page h1 { color: var(--ink); font-size: 25px; font-weight: 510; line-height: 32px; }
   .ws-shell-empty-page p { color: var(--ink-3); font-size: 14px; line-height: 22px; }

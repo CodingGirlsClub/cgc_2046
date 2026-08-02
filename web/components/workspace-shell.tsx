@@ -32,7 +32,7 @@ import ProfileEntry from "@/components/profile-entry";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
 
-type NavSection = "overview" | "members" | "profile" | null;
+type NavSection = "overview" | "members" | "settings" | "profile" | null;
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
@@ -42,6 +42,10 @@ function navSection(pathname: string, slug: string): NavSection {
 	) {
 		// 权限映射是「成员与角色」的子页
 		return "members";
+	}
+	if (pathname.startsWith(`/w/${slug}/settings`)) {
+		// #78：设置页（含后续 B-3 子页 requests/invitations 的父级高亮）
+		return "settings";
 	}
 	if (pathname.startsWith("/profile")) return "profile";
 	return null;
@@ -142,15 +146,14 @@ export default function WorkspaceShell({
 								<Icon name="users" />
 								<span>成员与角色</span>
 							</Link>
-							<button
-								type="button"
-								disabled
-								className="ws-shell-item ws-shell-item--disabled"
-								title="Workspace 设置将在后续版本开放"
+							<Link
+								href={`/w/${slug}/settings`}
+								className={`ws-shell-item ${active === "settings" ? "ws-shell-item--selected" : ""}`}
+								aria-current={active === "settings" ? "page" : undefined}
 							>
 								<Icon name="settings" />
 								<span>工作区设置</span>
-							</button>
+							</Link>
 							<Link
 								href={`/profile?ws=${slug}`}
 								className={`ws-shell-item ${active === "profile" ? "ws-shell-item--selected" : ""}`}
