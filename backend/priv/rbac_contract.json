@@ -5,6 +5,7 @@
     "list_members",
     "manage_members",
     "assign_roles",
+    "update_join_policy",
     "create_workspace"
   ],
   "matrix": [
@@ -15,6 +16,7 @@
         "create_workspace": false,
         "list_members": true,
         "manage_members": true,
+        "update_join_policy": true,
         "view_workspace": true
       },
       "role": "owner"
@@ -26,6 +28,7 @@
         "create_workspace": false,
         "list_members": true,
         "manage_members": true,
+        "update_join_policy": true,
         "view_workspace": true
       },
       "role": "admin"
@@ -37,6 +40,7 @@
         "create_workspace": false,
         "list_members": false,
         "manage_members": false,
+        "update_join_policy": false,
         "view_workspace": true
       },
       "role": "member"
@@ -48,6 +52,7 @@
         "create_workspace": false,
         "list_members": false,
         "manage_members": false,
+        "update_join_policy": false,
         "view_workspace": true
       },
       "role": "tutor"
@@ -59,6 +64,7 @@
         "create_workspace": false,
         "list_members": false,
         "manage_members": false,
+        "update_join_policy": false,
         "view_workspace": true
       },
       "role": "volunteer"
@@ -70,6 +76,7 @@
         "create_workspace": false,
         "list_members": false,
         "manage_members": false,
+        "update_join_policy": false,
         "view_workspace": true
       },
       "role": "learner"

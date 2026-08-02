@@ -15,13 +15,15 @@ defmodule Cgc2046.Rbac do
   | `:list_members` | 查看工作台全部成员列表 | Owner/Admin（多角色并集） |
   | `:manage_members` | 添加/移除成员 | Owner/Admin |
   | `:assign_roles` | 分配成员角色（多角色并集） | Owner/Admin |
+  | `:update_join_policy` | 修改加入策略（#78） | Owner/Admin + 平台管理员豁免 |
   | `:create_workspace` | 创建新工作台 | 平台管理员（`is_platform_admin`） |
 
   规则：
   - 成员资格内角色取**并集**（多角色并集，任一角色支持即支持，与 #64 `WorkspaceActorIsOwnerOrAdmin` 一致）
   - 平台管理员：对 `view_workspace` / `access_invite_only` 有豁免（非成员也可读，与资源 policy 一致）；
-    管理类能力（`list_members` / `manage_members` / `assign_roles`）**无豁免**，仍按实际 membership 判定
-    （#66 P2 决策：方向①判定侧收敛，#64 定稿语义「平台管理员非成员 canAccess=false」）
+    **`update_join_policy` 亦有豁免**（#78：Workspace 全局资源管理能力，平台管理员历史上可更新，能力不回收；
+    与 policy 侧并集一致）；管理类能力（`list_members` / `manage_members` / `assign_roles`）**无豁免**，
+    仍按实际 membership 判定（#66 P2 决策：方向①判定侧收敛，#64 定稿语义「平台管理员非成员 canAccess=false」）
   - actor 为 `nil`（匿名）→ 一律 `false`
   - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：六角色均为 false）
 
@@ -44,6 +46,7 @@ defmodule Cgc2046.Rbac do
           | :list_members
           | :manage_members
           | :assign_roles
+          | :update_join_policy
           | :create_workspace
 
   @abilities [
@@ -52,10 +55,11 @@ defmodule Cgc2046.Rbac do
     :list_members,
     :manage_members,
     :assign_roles,
+    :update_join_policy,
     :create_workspace
   ]
 
-  @manage_abilities [:list_members, :manage_members, :assign_roles]
+  @manage_abilities [:list_members, :manage_members, :assign_roles, :update_join_policy]
 
   # 管理角色（matrix 与 owner_or_admin? 共用；owner/admin 子集，管理角色单源在 Role.manage_roles/0）
   @manage_roles Role.manage_roles()
@@ -83,6 +87,12 @@ defmodule Cgc2046.Rbac do
   # view/access_invite_only：成员或平台管理员（平台管理员非成员也可读，与资源 policy 一致）
   def can?(actor, ability, opts) when ability in [:view_workspace, :access_invite_only] do
     actor_is_platform_admin?(actor) or workspace_ability?(actor, ability, opts)
+  end
+
+  # #78：update_join_policy 平台管理员豁免（Workspace 全局资源管理，非成员也可改，
+  # 与 policy 侧并集一致）；专用子句置于通用 manage 子句之前
+  def can?(actor, :update_join_policy, opts) do
+    actor_is_platform_admin?(actor) or workspace_ability?(actor, :update_join_policy, opts)
   end
 
   # 管理类能力：仅按 membership 判定（Owner/Admin 多角色并集），平台管理员无豁免
@@ -136,6 +146,7 @@ defmodule Cgc2046.Rbac do
   - `create_workspace`：仅平台管理员（不出现在角色矩阵，与 matrix 一致）
   - `view_workspace` / `access_invite_only`：平台管理员或成员（成员身份由调用方判定；
     角色列表为空时按成员语义仍具备 view/access）
+  - `update_join_policy`：平台管理员豁免或与 `@manage_roles` 有交集（#78）
   - 管理类能力（list_members / manage_members / assign_roles）：与 `@manage_roles` 有交集
   - 其余：false
   """
@@ -147,6 +158,10 @@ defmodule Cgc2046.Rbac do
           is_platform_admin
 
         ability in [:view_workspace, :access_invite_only] ->
+          is_platform_admin or roles_can?(roles, ability)
+
+        # #78：update_join_policy 平台管理员豁免（与 can?/3 专用子句、policy 并集一致）
+        ability == :update_join_policy ->
           is_platform_admin or roles_can?(roles, ability)
 
         ability in @manage_abilities ->
@@ -185,7 +200,8 @@ defmodule Cgc2046.Rbac do
   纯角色判定（工作台内能力）：成员持有角色名列表 `roles`（多角色并集）是否具备 `ability`。
 
   `can?/3` 的成员路径与 `matrix/0` 均由本函数派生（#4 单源收敛）：
-  - 管理类能力（list_members / manage_members / assign_roles）：与 `@manage_roles`（Role.manage_roles/0 单源）有交集
+  - 管理类能力（list_members / manage_members / assign_roles / update_join_policy）：
+    与 `@manage_roles`（Role.manage_roles/0 单源）有交集
   - view_workspace / access_invite_only：成员即具备
   - 其余能力（含平台级 create_workspace）：false
   """

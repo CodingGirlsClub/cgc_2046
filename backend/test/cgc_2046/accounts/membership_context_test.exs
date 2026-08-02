@@ -277,6 +277,15 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert MembershipContext.resolve_workspace_id(%{query: query}) == workspace.id
     end
 
+    test "场景4 changeset：Workspace 资源自身更新（#78，无 workspace_id 属性取 data.id）", %{
+      workspace: workspace
+    } do
+      changeset =
+        Ash.Changeset.for_update(workspace, :update, %{join_policy: :invite_only})
+
+      assert MembershipContext.resolve_workspace_id(%{changeset: changeset}) == workspace.id
+    end
+
     test "未知 context 返回 nil" do
       assert MembershipContext.resolve_workspace_id(%{data: %{}}) == nil
       assert MembershipContext.resolve_workspace_id(%{}) == nil

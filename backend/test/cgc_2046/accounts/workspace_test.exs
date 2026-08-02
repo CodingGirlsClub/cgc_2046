@@ -55,7 +55,12 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     if role_names != [] do
       assert {:ok, _membership} =
                membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
+               |> Ash.Changeset.for_update(
+                 :assign_roles,
+                 %{role_names: role_names},
+                 actor: actor,
+                 tenant: workspace.id
+               )
                |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
     end
 
@@ -376,7 +381,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   end
 
   describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities/2 语义一致)" do
-    test "owner member gets all six abilities (incl. create_workspace)" do
+    test "owner member gets all seven abilities (incl. create_workspace)" do
       admin = admin_user()
 
       {:ok, workspace} =
@@ -400,6 +405,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
                "list_members",
                "manage_members",
                "assign_roles",
+               "update_join_policy",
                "create_workspace"
              ]
     end
@@ -430,7 +436,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert fetched.my_abilities == ["view_workspace", "access_invite_only"]
     end
 
-    test "non-member platform admin gets view/access + create_workspace (matches Rbac.abilities/2)" do
+    test "non-member platform admin gets view/access + update_join_policy + create_workspace (matches Rbac.abilities/2)" do
       admin = admin_user()
 
       {:ok, workspace} =
@@ -466,8 +472,13 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
           domain: Cgc2046.GlobalApi
         )
 
-      # 与 Rbac.abilities/2 非成员平台管理员分支一致（#1 语义单源）
-      assert fetched.my_abilities == ["view_workspace", "access_invite_only", "create_workspace"]
+      # 与 Rbac.abilities/2 非成员平台管理员分支一致（#1 语义单源；#78 豁免）
+      assert fetched.my_abilities == [
+               "view_workspace",
+               "access_invite_only",
+               "update_join_policy",
+               "create_workspace"
+             ]
 
       # 对照 Rbac.abilities/2 直调结果完全一致
       assert Rbac.abilities(admin, workspace_id: workspace.id) ==
@@ -629,6 +640,79 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
                workspace
                |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
                |> Ash.update(actor: user)
+    end
+
+    test "owner can update join_policy（#78）" do
+      admin = admin_user()
+      owner = normal_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "owner-policy-ws", name: "Owner Policy"})
+        |> Ash.create(actor: admin)
+
+      add_member(workspace, owner, admin, [:owner])
+
+      assert {:ok, updated} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
+               |> Ash.update(actor: owner)
+
+      assert updated.join_policy == :invite_only
+    end
+
+    test "admin can update join_policy（#78）" do
+      admin = admin_user()
+      workspace_admin = normal_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "admin-policy-ws", name: "Admin Policy"})
+        |> Ash.create(actor: admin)
+
+      add_member(workspace, workspace_admin, admin, [:admin])
+
+      assert {:ok, updated} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
+               |> Ash.update(actor: workspace_admin)
+
+      assert updated.join_policy == :invite_only
+    end
+
+    test "regular member cannot update join_policy（#78）" do
+      admin = admin_user()
+      member = normal_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "member-policy-ws", name: "Member Policy"})
+        |> Ash.create(actor: admin)
+
+      add_member(workspace, member, admin, [:member])
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
+               |> Ash.update(actor: member)
+    end
+
+    test "non-member cannot update join_policy（#78）" do
+      admin = admin_user()
+      outsider = normal_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "outsider-policy-ws",
+          name: "Outsider Policy"
+        })
+        |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only})
+               |> Ash.update(actor: outsider)
     end
   end
 
