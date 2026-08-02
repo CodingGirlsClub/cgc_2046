@@ -119,17 +119,10 @@ defmodule Cgc2046.Accounts.Workspace do
         after_action(fn changeset, workspace, _context ->
           tenant = workspace.id
 
-          roles = [
-            {:owner, "工作台所有者：拥有全部管理权限"},
-            {:admin, "工作台管理员：成员管理、角色分配"},
-            {:member, "普通成员：可访问工作台内容"},
-            {:tutor, "讲师：内容与教学支持"},
-            {:volunteer, "志愿者：活动与运营支持"},
-            {:learner, "学员：学习与参与"}
-          ]
-
+          # 角色模板从 Role 模块单源取（role_descriptions/0），避免重复六角色字面量（G2 收敛）
           role_records =
-            Enum.map(roles, fn {name, description} ->
+            Cgc2046.Accounts.Role.role_descriptions()
+            |> Enum.map(fn {name, description} ->
               Ash.create!(Cgc2046.Accounts.Role, %{name: name, description: description},
                 tenant: tenant,
                 authorize?: false

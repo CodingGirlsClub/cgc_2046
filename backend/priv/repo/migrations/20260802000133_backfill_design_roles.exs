@@ -8,6 +8,12 @@ defmodule Cgc2046.Repo.Migrations.BackfillDesignRoles do
   新 workspace 由 `Workspace.create` after_action 直接 seed 六角色，无需处理。
 
   roles.name 为 text，唯一约束 (workspace_id, name) → `ON CONFLICT (workspace_id, name) DO NOTHING`。
+
+  ## 单源提示（G2 收敛）
+
+  角色枚举唯一真源是 `Cgc2046.Accounts.Role.role_names/0`（六角色 owner/admin/member/tutor/volunteer/learner）。
+  本迁移为**历史迁移**，仅含 G1 新增的设计角色子集（tutor/volunteer/learner），
+  保持不动以免破坏已执行的迁移历史；新增/修改角色请一律改 Role 模块。
   """
 
   use Ecto.Migration

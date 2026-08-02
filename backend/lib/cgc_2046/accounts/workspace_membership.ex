@@ -67,18 +67,21 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
     # 注意不能直接暴露嵌套 `user` 关系：User read policy 仅本人可读自己，
     # 嵌套关系加载会被 policy 过滤为 null。用 SQL 表达式（LEFT JOIN users）
     # 平铺字段，不经 user read policy。
-    calculate :user_email, :string, expr(user.email),
+    calculate(:user_email, :string, expr(user.email),
       public?: true,
       description: "成员邮箱（平铺自 user 关系，P1 G6）"
+    )
 
-    calculate :user_display_name, :string, expr(user.display_name),
+    calculate(:user_display_name, :string, expr(user.display_name),
       public?: true,
       description: "成员昵称（平铺自 user 关系，P1 G6）"
+    )
 
     # P1-4 G7：加入时间 = inserted_at（AshGraphql 未暴露 createdAt，补平铺字段）
-    calculate :joined_at, :utc_datetime, expr(inserted_at),
+    calculate(:joined_at, :utc_datetime, expr(inserted_at),
       public?: true,
       description: "加入时间（P1 G7，= inserted_at）"
+    )
   end
 
   actions do
@@ -98,7 +101,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
 
       argument(:role_names, {:array, :atom},
         allow_nil?: false,
-        constraints: [items: [one_of: [:owner, :admin, :member, :tutor, :volunteer, :learner]]]
+        constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 
       change(Cgc2046.Changes.AssignRoles)
