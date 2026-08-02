@@ -12,10 +12,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { clearAuthToken } from "@/lib/auth";
+import { useSearchParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
 import { formatJoinedDate } from "@/lib/format";
+import WorkspaceShell from "@/components/workspace-shell";
+import { Icon, type IconName } from "@/components/icons";
 import {
 	createPortfolioItem,
 	deletePortfolioItem,
@@ -37,168 +38,6 @@ import {
 	type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import type { ProfileVisibility } from "@/lib/graphql/profile";
-
-type IconName =
-	| "home"
-	| "users"
-	| "settings"
-	| "user"
-	| "pin"
-	| "calendar"
-	| "visibility"
-	| "edit"
-	| "lock"
-	| "document"
-	| "book"
-	| "guide"
-	| "plus"
-	| "trash"
-	| "grip"
-	| "arrow"
-	| "check"
-	| "chevron";
-
-function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
-	const common = {
-		width: size,
-		height: size,
-		viewBox: "0 0 24 24",
-		fill: "none",
-		stroke: "currentColor",
-		strokeWidth: 1.8,
-		strokeLinecap: "round" as const,
-		strokeLinejoin: "round" as const,
-		"aria-hidden": true,
-	};
-
-	switch (name) {
-		case "home":
-			return (
-				<svg {...common}>
-					<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" />
-				</svg>
-			);
-		case "users":
-			return (
-				<svg {...common}>
-					<circle cx="9" cy="8" r="3" />
-					<path d="M3.5 20c.6-3.2 2.4-5 5.5-5s4.9 1.8 5.5 5" />
-					<path d="M15.5 5.8a3 3 0 0 1 0 5.5M17.2 14.3c1.8.8 2.8 2.2 3.3 4.7" />
-				</svg>
-			);
-		case "settings":
-			return (
-				<svg {...common}>
-					<circle cx="12" cy="12" r="3" />
-					<path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 1.7-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-2.4v-.2a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.7-1.7.06-.06A1.7 1.7 0 0 0 8.46 15a1.7 1.7 0 0 0-1.56-1.03H6.7v-2.4h.2A1.7 1.7 0 0 0 8.46 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.7-1.7.06.06A1.7 1.7 0 0 0 10.99 7.46 1.7 1.7 0 0 0 12.02 5.9V5h2.4v.2a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.7 1.7-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.56 1.03h.2A1.7 1.7 0 0 0 19.4 15Z" />
-				</svg>
-			);
-		case "user":
-			return (
-				<svg {...common}>
-					<circle cx="12" cy="8" r="3.5" />
-					<path d="M4 21a8 8 0 0 1 16 0" />
-				</svg>
-			);
-		case "pin":
-			return (
-				<svg {...common}>
-					<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
-					<circle cx="12" cy="10" r="2.5" />
-				</svg>
-			);
-		case "calendar":
-			return (
-				<svg {...common}>
-					<rect x="3" y="5" width="18" height="16" rx="2" />
-					<path d="M7 3v4M17 3v4M3 10h18" />
-				</svg>
-			);
-		case "visibility":
-			return (
-				<svg {...common}>
-					<path d="M2.5 12s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z" />
-					<circle cx="12" cy="12" r="2.2" />
-				</svg>
-			);
-		case "edit":
-			return (
-				<svg {...common}>
-					<path d="m4 16.5-.7 3.8 3.8-.7L18.6 8.1a2.1 2.1 0 0 0-3-3L4 16.5Z" />
-					<path d="m13.8 6.2 4 4" />
-				</svg>
-			);
-		case "lock":
-			return (
-				<svg {...common}>
-					<rect x="5" y="10" width="14" height="11" rx="2" />
-					<path d="M8 10V7a4 4 0 0 1 8 0v3" />
-				</svg>
-			);
-		case "document":
-			return (
-				<svg {...common}>
-					<path d="M6 3h8l4 4v14H6Z" />
-					<path d="M14 3v5h5M9 13h6M9 17h6" />
-				</svg>
-			);
-		case "book":
-			return (
-				<svg {...common}>
-					<path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H12v18H7.5A3.5 3.5 0 0 0 4 23Z" />
-					<path d="M20 5.5A3.5 3.5 0 0 0 16.5 2H12v18h4.5a3.5 3.5 0 0 1 3.5 3Z" />
-				</svg>
-			);
-		case "guide":
-			return (
-				<svg {...common}>
-					<path d="M5 4h6a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 1Z" />
-					<path d="M19 4h-5a3 3 0 0 0-3 3v13h6a3 3 0 0 1 3 1Z" />
-				</svg>
-			);
-		case "plus":
-			return (
-				<svg {...common}>
-					<path d="M12 5v14M5 12h14" />
-				</svg>
-			);
-		case "trash":
-			return (
-				<svg {...common}>
-					<path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" />
-				</svg>
-			);
-		case "grip":
-			return (
-				<svg {...common}>
-					<circle cx="8" cy="7" r="1" fill="currentColor" stroke="none" />
-					<circle cx="16" cy="7" r="1" fill="currentColor" stroke="none" />
-					<circle cx="8" cy="12" r="1" fill="currentColor" stroke="none" />
-					<circle cx="16" cy="12" r="1" fill="currentColor" stroke="none" />
-					<circle cx="8" cy="17" r="1" fill="currentColor" stroke="none" />
-					<circle cx="16" cy="17" r="1" fill="currentColor" stroke="none" />
-				</svg>
-			);
-		case "arrow":
-			return (
-				<svg {...common}>
-					<path d="M4 12h15M13 6l6 6-6 6" />
-				</svg>
-			);
-		case "check":
-			return (
-				<svg {...common}>
-					<path d="m5 12 4.5 4.5L19 7" />
-				</svg>
-			);
-		case "chevron":
-			return (
-				<svg {...common}>
-					<path d="m9 6 6 6-6 6" />
-				</svg>
-			);
-	}
-}
 
 interface ProfileContent {
 	name: string;
@@ -361,47 +200,6 @@ function Avatar({
 	);
 }
 
-function ProfileSidebar({ workspaceSlug }: { workspaceSlug: string }) {
-	return (
-		<aside className="profile-sidebar">
-			<div className="profile-brand">
-				<span className="profile-brand__mark">CGC</span>
-				<span>上海 Coding Girls Club</span>
-				<span className="profile-brand__chevron">⌄</span>
-			</div>
-			<nav className="profile-sidebar__nav" aria-label="工作区导航">
-				<Link href={`/w/${workspaceSlug}`} className="profile-sidebar__item">
-					<Icon name="home" size={23} />
-					<span>概览</span>
-				</Link>
-				<Link
-					href={`/w/${workspaceSlug}/members`}
-					className="profile-sidebar__item"
-				>
-					<Icon name="users" size={23} />
-					<span>成员与角色</span>
-				</Link>
-				<button
-					type="button"
-					disabled
-					className="profile-sidebar__item profile-sidebar__item--disabled"
-				>
-					<Icon name="settings" size={23} />
-					<span>工作区设置</span>
-				</button>
-				<Link
-					href={profileHref(workspaceSlug)}
-					className="profile-sidebar__item profile-sidebar__item--selected"
-					aria-current="page"
-				>
-					<Icon name="user" size={23} />
-					<span>个人资料</span>
-				</Link>
-			</nav>
-		</aside>
-	);
-}
-
 function Breadcrumb({
 	editing,
 	workspaceSlug,
@@ -500,10 +298,9 @@ function PortfolioPreview({
 				</h2>
 			</header>
 			{preview.length > 0 ? (
-				// pi-lens-ignore: no-nested-links
 				<div className="profile-portfolio-list">
 					{preview.map((item) => (
-						<a
+						<Link
 							key={item.id}
 							href={item.url || "#"}
 							className="profile-portfolio-item"
@@ -519,7 +316,7 @@ function PortfolioPreview({
 								<span>{item.description}</span>
 							</span>
 							<Icon name="arrow" size={20} />
-						</a>
+						</Link>
 					))}
 					<Link
 						href={
@@ -858,7 +655,7 @@ function EditContent({
 }
 
 export default function ProfilePage() {
-	const router = useRouter();
+	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
 	const { authed, confirmed } = useAuthed();
 	const [profile, setProfile] = useState<CurrentProfile | null>(null);
 	const [summaries, setSummaries] = useState<ProfileRoleSummary[]>([]);
@@ -870,11 +667,7 @@ export default function ProfilePage() {
 	const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
 	useEffect(() => {
-		if (!confirmed) return;
-		if (!authed) {
-			router.replace("/login");
-			return;
-		}
+		if (!confirmed || !authed) return;
 		let cancelled = false;
 		Promise.all([
 			fetchCurrentProfile(),
@@ -900,7 +693,7 @@ export default function ProfilePage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, router]);
+	}, [authed, confirmed]);
 
 	const wsSlug = useSearchParams().get("ws");
 	const content = useMemo(
@@ -1006,24 +799,13 @@ export default function ProfilePage() {
 		}
 	}
 
-	function handleSignOut() {
-		clearAuthToken();
-		router.push("/login");
-	}
-
-	if (!authed)
-		return <main className="profile-loading">正在确认登录状态…</main>;
-
 	if (loading) {
 		return (
-			<div className="profile-page">
-				<ProfileSidebar workspaceSlug={workspaceSlug} />
-				<main className="profile-main">
-					<div className="profile-main__inner">
-						<div className="profile-skeleton" />
-					</div>
-				</main>
-			</div>
+			<WorkspaceShell slug={workspaceSlug} requireWs={false}>
+				<div className="profile-main__inner">
+					<div className="profile-skeleton" />
+				</div>
+			</WorkspaceShell>
 		);
 	}
 
@@ -1043,78 +825,76 @@ export default function ProfilePage() {
 		: content.visibility;
 
 	return (
-		<div className={`profile-page ${editing ? "profile-page--editing" : ""}`}>
-			<ProfileSidebar workspaceSlug={workspaceSlug} />
-			<main className="profile-main">
-				<div className="profile-main__inner">
-					<Breadcrumb editing={editing} workspaceSlug={workspaceSlug} />
-					<header className="profile-heading">
-						<h1>{editing ? "编辑个人资料" : "我的个人资料"}</h1>
-						{editing ? (
-							<div className="profile-heading__actions">
-								<button
-									type="button"
-									className="profile-button profile-button--quiet"
-									onClick={cancelEdit}
-									disabled={saving}
-								>
-									取消
-								</button>
-								<button
-									type="button"
-									className="profile-button profile-button--primary"
-									onClick={handleSave}
-									disabled={saving}
-								>
-									{saving ? "保存中…" : "保存更改"}
-								</button>
-							</div>
-						) : (
+		<WorkspaceShell
+			slug={workspaceSlug}
+			requireWs={false}
+			className={editing ? "ws-shell-page--editing" : undefined}
+		>
+			<div className="profile-main__inner">
+				<Breadcrumb editing={editing} workspaceSlug={workspaceSlug} />
+				<header className="profile-heading">
+					<h1>{editing ? "编辑个人资料" : "我的个人资料"}</h1>
+					{editing ? (
+						<div className="profile-heading__actions">
 							<button
 								type="button"
-								className="profile-button profile-button--outline"
-								onClick={startEdit}
+								className="profile-button profile-button--quiet"
+								onClick={cancelEdit}
+								disabled={saving}
 							>
-								<Icon name="edit" size={18} />
-								编辑资料
+								取消
 							</button>
-						)}
-					</header>
-
-					{savedMsg && (
-						<div className="profile-toast" role="status">
-							<Icon name="check" size={16} />
-							{savedMsg}
+							<button
+								type="button"
+								className="profile-button profile-button--primary"
+								onClick={handleSave}
+								disabled={saving}
+							>
+								{saving ? "保存中…" : "保存更改"}
+							</button>
 						</div>
-					)}
-					{errorMsg && (
-						<div className="profile-error" role="alert">
-							{errorMsg}
-						</div>
-					)}
-
-					{editing ? (
-						<EditContent
-							draft={currentDraft}
-							roles={content.workspaceRoles}
-							memberNumber={content.memberNumber}
-							onDraftChange={setDraft}
-						/>
 					) : (
-						<>
-							<ProfileSummary content={content} />
-							<ViewContent content={content} />
-						</>
-					)}
-
-					<footer className="profile-footer">
-						<span>{VISIBILITY_FOOTER_TEXT[footerVisibility]}</span>
-						<button type="button" onClick={handleSignOut}>
-							退出登录
+						<button
+							type="button"
+							className="profile-button profile-button--outline"
+							onClick={startEdit}
+						>
+							<Icon name="edit" size={18} />
+							编辑资料
 						</button>
-					</footer>
-				</div>
-			</main>
-		</div>
+					)}
+				</header>
+
+				{savedMsg && (
+					<div className="profile-toast" role="status">
+						<Icon name="check" size={16} />
+						{savedMsg}
+					</div>
+				)}
+				{errorMsg && (
+					<div className="profile-error" role="alert">
+						{errorMsg}
+					</div>
+				)}
+
+				{editing ? (
+					<EditContent
+						draft={currentDraft}
+						roles={content.workspaceRoles}
+						memberNumber={content.memberNumber}
+						onDraftChange={setDraft}
+					/>
+				) : (
+					<>
+						<ProfileSummary content={content} />
+						<ViewContent content={content} />
+					</>
+				)}
+
+				<footer className="profile-footer">
+					<span>{VISIBILITY_FOOTER_TEXT[footerVisibility]}</span>
+				</footer>
+			</div>
+		</WorkspaceShell>
 	);
 }

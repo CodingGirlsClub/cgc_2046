@@ -47,7 +47,12 @@ export function useWorkspaceBySlug(slug: string): WorkspaceBySlugState {
 	const ws = stale ? undefined : state.ws;
 	const loading = stale || !state.settled;
 
+	// 空 slug（⑤ WorkspaceShell：profile 页无工作区上下文时传 ""）不解析：
+	// 恒返回 { ws: undefined, loading: false }，不发起 fetchMyWorkspaces。
+	const skip = slug === "";
+
 	useEffect(() => {
+		if (skip) return;
 		let cancelled = false;
 		fetchMyWorkspaces()
 			.then((list) => {
@@ -67,7 +72,7 @@ export function useWorkspaceBySlug(slug: string): WorkspaceBySlugState {
 		return () => {
 			cancelled = true;
 		};
-	}, [slug]);
+	}, [skip, slug]);
 
-	return { ws, loading };
+	return skip ? { ws: undefined, loading: false } : { ws, loading };
 }

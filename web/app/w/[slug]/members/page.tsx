@@ -3,8 +3,8 @@
 /**
  * #65 成员与角色管理页 /w/[slug]/members。
  *
- * 页面结构按 slice A 的 Members 设计稿落地：Workspace 管理壳、成员表、
- * 角色并集提示、搜索/筛选和行内角色编辑。数据经 workspaces 数据层
+ * 页面结构按 slice A 的 Members 设计稿落地：Workspace 管理壳（WorkspaceShell）、
+ * 成员表、角色并集提示、搜索/筛选和行内角色编辑。数据经 workspaces 数据层
  * GraphQL 唯一路径（#1 能力接口：行内编辑权限消费 ws.myAbilities），
  * 页面不绕过 assignRoles 契约。
  *
@@ -15,8 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { clearAuthToken } from "@/lib/auth";
+import { useParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
 import { formatJoinedDate } from "@/lib/format";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
@@ -33,7 +32,8 @@ import {
 	type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import { PERMISSION_ROLE_ORDER } from "@/lib/permissions";
-import ProfileEntry from "@/components/profile-entry";
+import WorkspaceShell from "@/components/workspace-shell";
+import { Icon } from "@/components/icons";
 
 /**
  * 行内分配控件按设计只呈现 Admin/Tutor/Volunteer/Learner（不含 owner，
@@ -45,111 +45,6 @@ const INLINE_ROLE_OPTIONS = PERMISSION_ROLE_ORDER.filter(
 );
 
 type RoleFilter = MembershipRoleName | "all";
-
-function Icon({
-	name,
-	size = 20,
-}: {
-	name:
-		| "grid"
-		| "users"
-		| "settings"
-		| "user"
-		| "search"
-		| "chevron"
-		| "lock"
-		| "info"
-		| "shield"
-		| "calendar";
-	size?: number;
-}) {
-	const common = {
-		width: size,
-		height: size,
-		viewBox: "0 0 24 24",
-		fill: "none",
-		stroke: "currentColor",
-		strokeWidth: 1.7,
-		strokeLinecap: "round" as const,
-		strokeLinejoin: "round" as const,
-		"aria-hidden": true,
-	};
-
-	switch (name) {
-		case "grid":
-			return (
-				<svg {...common}>
-					<rect x="3" y="3" width="7" height="7" rx="1" />
-					<rect x="14" y="3" width="7" height="7" rx="1" />
-					<rect x="3" y="14" width="7" height="7" rx="1" />
-					<rect x="14" y="14" width="7" height="7" rx="1" />
-				</svg>
-			);
-		case "users":
-			return (
-				<svg {...common}>
-					<path d="M16 21v-1.6a4.4 4.4 0 0 0-4.4-4.4H7.4A4.4 4.4 0 0 0 3 19.4V21" />
-					<circle cx="9.5" cy="7.5" r="3.5" />
-					<path d="M21 21v-1.5a4.3 4.3 0 0 0-3.2-4.15M16.7 4.1a3.5 3.5 0 0 1 0 6.8" />
-				</svg>
-			);
-		case "settings":
-			return (
-				<svg {...common}>
-					<circle cx="12" cy="12" r="3" />
-					<path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 1.7-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-2.4v-.2a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.7-1.7.06-.06A1.7 1.7 0 0 0 8.46 15a1.7 1.7 0 0 0-1.56-1.03H6.7v-2.4h.2A1.7 1.7 0 0 0 8.46 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 1.7-1.7.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56V5h2.4v.2a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.7 1.7-.06.06A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.56 1.03h.2v2.4h-.2A1.7 1.7 0 0 0 19.4 15Z" />
-				</svg>
-			);
-		case "user":
-			return (
-				<svg {...common}>
-					<circle cx="12" cy="8" r="3.5" />
-					<path d="M4 21a8 8 0 0 1 16 0" />
-				</svg>
-			);
-		case "search":
-			return (
-				<svg {...common}>
-					<circle cx="10.8" cy="10.8" r="6.4" />
-					<path d="m16 16 4.5 4.5" />
-				</svg>
-			);
-		case "chevron":
-			return (
-				<svg {...common}>
-					<path d="m8 10 4 4 4-4" />
-				</svg>
-			);
-		case "lock":
-			return (
-				<svg {...common}>
-					<rect x="5" y="10" width="14" height="10" rx="2" />
-					<path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" />
-				</svg>
-			);
-		case "info":
-			return (
-				<svg {...common}>
-					<circle cx="12" cy="12" r="9" />
-					<path d="M12 10.5v5M12 7.5h.01" />
-				</svg>
-			);
-		case "shield":
-			return (
-				<svg {...common}>
-					<path d="M12 3 19 6v5c0 4.7-2.9 8.1-7 10-4.1-1.9-7-5.3-7-10V6l7-3Z" />
-					<path d="m9.3 12 1.8 1.8 3.7-4" />
-				</svg>
-			);
-		case "calendar":
-			return (
-				<svg {...common}>
-					<rect x="4" y="5" width="16" height="15" rx="2" />
-					<path d="M8 3v4M16 3v4M4 10h16" />
-				</svg>
-			);
-	}
-}
 
 function roleLabel(role: MembershipRoleName) {
 	return ROLE_LABEL[role] ?? role;
@@ -248,7 +143,7 @@ function RoleEditor({
 export default function WorkspaceMembersPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
-	const router = useRouter();
+	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
 	const { authed, confirmed } = useAuthed();
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 	const canAssign = currentUserCanAssignRoles(ws);
@@ -267,11 +162,7 @@ export default function WorkspaceMembersPage() {
 	const wsId = ws?.id;
 
 	useEffect(() => {
-		if (!confirmed) return;
-		if (!authed) {
-			router.replace("/login");
-			return;
-		}
+		if (!confirmed || !authed) return;
 		if (!wsId) return;
 
 		let cancelled = false;
@@ -299,7 +190,7 @@ export default function WorkspaceMembersPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, router, wsId]);
+	}, [authed, confirmed, wsId]);
 
 	const currentMembers = membersWorkspaceId === wsId ? members : null;
 
@@ -408,339 +299,252 @@ export default function WorkspaceMembersPage() {
 		}
 	}
 
-	function handleSignOut() {
-		clearAuthToken();
-		router.push("/login");
-	}
-
-	if (!authed) {
-		return (
-			<main className="members-loading">
-				<span>正在确认登录状态…</span>
-			</main>
-		);
-	}
-
-	if (!ws && !wsLoading) {
-		return (
-			<main className="members-page">
-				<div className="members-empty-page">
-					<h1>工作区不可访问</h1>
-					<p>工作区「{slug}」不存在或你没有访问权限。</p>
-					<Link href="/" className="members-primary-link">
-						返回工作台
-					</Link>
-				</div>
-			</main>
-		);
-	}
-
 	return (
-		<div className="members-page">
-			<aside className="members-sidebar">
-				<div className="members-brand">
-					<span className="members-brand__mark">CGC</span>
-					<span>上海 Coding Girls Club</span>
-					<span className="members-brand__chevron">⌄</span>
+		<WorkspaceShell slug={slug}>
+			<div className="members-main__inner">
+				<div className="members-breadcrumb" aria-label="页面路径">
+					<Link href={`/w/${slug}`}>Workspace 设置</Link>
+					<span>›</span>
+					<strong>成员与角色</strong>
 				</div>
 
-				<div className="members-workspace-context">
-					<span>当前 Workspace</span>
-					<strong>{ws?.name ?? slug}</strong>
-					<code>{ws?.slug ?? slug}</code>
-				</div>
+				<header className="members-heading">
+					<div>
+						<h1>成员与角色</h1>
+						<p>管理工作区成员与角色分配</p>
+					</div>
+					<div className="members-heading__workspace">
+						<span>{JOIN_POLICY_LABEL[ws?.joinPolicy ?? "open"]} Workspace</span>
+						<strong>{ws?.name ?? slug}</strong>
+					</div>
+				</header>
 
-				<div className="members-sidebar__heading">Workspace 设置</div>
-				<nav className="members-sidebar__nav" aria-label="Workspace 设置">
-					<Link href={`/w/${slug}`} className="members-sidebar__item">
-						<Icon name="grid" />
-						<span>概览</span>
-					</Link>
+				<nav className="members-tabs" aria-label="成员管理页签">
 					<Link
 						href={`/w/${slug}/members`}
-						className="members-sidebar__item members-sidebar__item--selected"
+						className="members-tab members-tab--selected"
 						aria-current="page"
 					>
-						<Icon name="users" />
-						<span>成员与角色</span>
+						成员
 					</Link>
-					<button
-						type="button"
-						className="members-sidebar__item members-sidebar__item--disabled"
-						disabled
-						title="Workspace 设置将在后续版本开放"
-					>
-						<Icon name="settings" />
-						<span>工作区设置</span>
-					</button>
-					<Link href={`/profile?ws=${slug}`} className="members-sidebar__item">
-						<Icon name="user" />
-						<span>个人资料</span>
+					<Link href={`/w/${slug}/permissions`} className="members-tab">
+						权限映射
 					</Link>
 				</nav>
 
-				<div className="members-sidebar__footer">
-					<ProfileEntry slug={slug} />
-					<button
-						type="button"
-						className="members-signout"
-						onClick={handleSignOut}
-					>
-						退出登录
-					</button>
-				</div>
-			</aside>
-
-			<main className="members-main">
-				<div className="members-main__inner">
-					<div className="members-breadcrumb" aria-label="页面路径">
-						<Link href={`/w/${slug}`}>Workspace 设置</Link>
-						<span>›</span>
-						<strong>成员与角色</strong>
+				<section className="members-notice" aria-label="角色并集说明">
+					<div className="members-notice__icon">
+						<Icon name="info" size={22} />
 					</div>
+					<div>
+						<strong>多角色权限取并集</strong>
+						<p>
+							同一成员拥有多个角色时，能力按角色权限并集合并。Owner
+							不可在此处行内授予。
+						</p>
+					</div>
+					<div className="members-notice__tenant">
+						<Icon name="shield" size={22} />
+						<span>租户数据仅在当前 Workspace 内可见</span>
+					</div>
+				</section>
 
-					<header className="members-heading">
-						<div>
-							<h1>成员与角色</h1>
-							<p>管理工作区成员与角色分配</p>
-						</div>
-						<div className="members-heading__workspace">
-							<span>
-								{JOIN_POLICY_LABEL[ws?.joinPolicy ?? "open"]} Workspace
-							</span>
-							<strong>{ws?.name ?? slug}</strong>
-						</div>
-					</header>
+				{errorMsg && (
+					<div className="members-error" role="alert">
+						{errorMsg}
+					</div>
+				)}
 
-					<nav className="members-tabs" aria-label="成员管理页签">
-						<Link
-							href={`/w/${slug}/members`}
-							className="members-tab members-tab--selected"
-							aria-current="page"
+				<section className="members-toolbar" aria-label="成员筛选">
+					<label className="members-search">
+						<Icon name="search" size={20} />
+						<input
+							value={search}
+							onChange={(event) => setSearch(event.target.value)}
+							placeholder="搜索姓名或邮箱"
+							aria-label="搜索姓名或邮箱"
+						/>
+					</label>
+					<label className="members-filter">
+						<select
+							value={roleFilter}
+							onChange={(event) =>
+								setRoleFilter(event.target.value as RoleFilter)
+							}
+							aria-label="筛选角色"
 						>
-							成员
-						</Link>
-						<Link href={`/w/${slug}/permissions`} className="members-tab">
-							权限映射
-						</Link>
-					</nav>
+							<option value="all">全部角色</option>
+							{roleFilterOptions.map((role) => (
+								<option key={role} value={role}>
+									{roleLabel(role)}
+								</option>
+							))}
+						</select>
+						<Icon name="chevron" size={17} />
+					</label>
+					<span className="members-count" data-testid="members-count">
+						共 {totalMemberCount} 位成员
+						{isLimitedMemberView
+							? `（当前仅显示你有权查看的 ${visibleMemberCount} 位）`
+							: visibleMembers.length !== visibleMemberCount
+								? ` · 显示 ${visibleMembers.length}`
+								: ""}
+					</span>
+				</section>
 
-					<section className="members-notice" aria-label="角色并集说明">
-						<div className="members-notice__icon">
-							<Icon name="info" size={22} />
-						</div>
-						<div>
-							<strong>多角色权限取并集</strong>
-							<p>
-								同一成员拥有多个角色时，能力按角色权限并集合并。Owner
-								不可在此处行内授予。
-							</p>
-						</div>
-						<div className="members-notice__tenant">
-							<Icon name="shield" size={22} />
-							<span>租户数据仅在当前 Workspace 内可见</span>
-						</div>
-					</section>
-
-					{errorMsg && (
-						<div className="members-error" role="alert">
-							{errorMsg}
-						</div>
-					)}
-
-					<section className="members-toolbar" aria-label="成员筛选">
-						<label className="members-search">
-							<Icon name="search" size={20} />
-							<input
-								value={search}
-								onChange={(event) => setSearch(event.target.value)}
-								placeholder="搜索姓名或邮箱"
-								aria-label="搜索姓名或邮箱"
-							/>
-						</label>
-						<label className="members-filter">
-							<select
-								value={roleFilter}
-								onChange={(event) =>
-									setRoleFilter(event.target.value as RoleFilter)
-								}
-								aria-label="筛选角色"
-							>
-								<option value="all">全部角色</option>
-								{roleFilterOptions.map((role) => (
-									<option key={role} value={role}>
-										{roleLabel(role)}
-									</option>
-								))}
-							</select>
-							<Icon name="chevron" size={17} />
-						</label>
-						<span className="members-count" data-testid="members-count">
-							共 {totalMemberCount} 位成员
-							{isLimitedMemberView
-								? `（当前仅显示你有权查看的 ${visibleMemberCount} 位）`
-								: visibleMembers.length !== visibleMemberCount
-									? ` · 显示 ${visibleMembers.length}`
-									: ""}
+				{isLimitedMemberView && (
+					<section
+						className="members-visibility-note"
+						aria-label="成员可见范围说明"
+						data-testid="members-visibility-note"
+					>
+						<Icon name="info" size={16} />
+						<span>
+							仅显示你有权查看的成员（工作区共 {totalMemberCount} 位成员）
 						</span>
 					</section>
+				)}
 
-					{isLimitedMemberView && (
-						<section
-							className="members-visibility-note"
-							aria-label="成员可见范围说明"
-							data-testid="members-visibility-note"
+				<section className="members-table-shell" aria-label="成员列表">
+					{wsLoading || currentMembers === null ? (
+						<div
+							className="members-table-loading"
+							data-testid="members-loading"
 						>
-							<Icon name="info" size={16} />
-							<span>
-								仅显示你有权查看的成员（工作区共 {totalMemberCount} 位成员）
-							</span>
-						</section>
-					)}
-
-					<section className="members-table-shell" aria-label="成员列表">
-						{wsLoading || currentMembers === null ? (
-							<div
-								className="members-table-loading"
-								data-testid="members-loading"
-							>
-								{[0, 1, 2, 3].map((item) => (
-									<div key={item} className="members-skeleton-row" />
-								))}
-							</div>
-						) : visibleMembers.length > 0 ? (
-							<div className="members-table-scroll">
-								<table className="members-table">
-									<thead>
-										<tr>
-											<th>成员</th>
-											<th>账号</th>
-											<th>角色并集</th>
-											<th>
-												<span className="members-th-with-icon">
-													<Icon name="calendar" size={16} />
-													加入时间
-												</span>
-											</th>
-											<th>操作</th>
-										</tr>
-									</thead>
-									<tbody>
-										{visibleMembers.map((member) => {
-											const isOwner = member.roles.includes("owner");
-											const isEditing = editingId === member.membershipId;
-											const currentRoles =
-												draft[member.membershipId] ?? member.roles;
-											return (
-												<tr
-													key={member.membershipId}
-													data-testid="member-row"
-													className={
-														isEditing
-															? "members-table__row--editing"
-															: undefined
-													}
-												>
-													<td>
-														<div className="members-person">
-															<span
-																className="members-person__avatar"
-																aria-hidden="true"
-															>
-																{avatarLetter(member)}
-															</span>
-															<strong>{memberName(member)}</strong>
-														</div>
-													</td>
-													<td>
-														<span className="members-account">
-															{member.email ?? member.userId}
+							{[0, 1, 2, 3].map((item) => (
+								<div key={item} className="members-skeleton-row" />
+							))}
+						</div>
+					) : visibleMembers.length > 0 ? (
+						<div className="members-table-scroll">
+							<table className="members-table">
+								<thead>
+									<tr>
+										<th>成员</th>
+										<th>账号</th>
+										<th>角色并集</th>
+										<th>
+											<span className="members-th-with-icon">
+												<Icon name="calendar" size={16} />
+												加入时间
+											</span>
+										</th>
+										<th>操作</th>
+									</tr>
+								</thead>
+								<tbody>
+									{visibleMembers.map((member) => {
+										const isOwner = member.roles.includes("owner");
+										const isEditing = editingId === member.membershipId;
+										const currentRoles =
+											draft[member.membershipId] ?? member.roles;
+										return (
+											<tr
+												key={member.membershipId}
+												data-testid="member-row"
+												className={
+													isEditing ? "members-table__row--editing" : undefined
+												}
+											>
+												<td>
+													<div className="members-person">
+														<span
+															className="members-person__avatar"
+															aria-hidden="true"
+														>
+															{avatarLetter(member)}
 														</span>
-													</td>
-													<td>
-														<div className="members-role-cell">
-															<MemberRoleChips roles={currentRoles} />
-															{isEditing && (
-																<RoleEditor
-																	member={member}
-																	roles={currentRoles}
-																	saving={savingId === member.membershipId}
-																	onToggle={(role) =>
-																		toggleRole(member.membershipId, role)
-																	}
-																	onCancel={() => cancelEdit(member)}
-																	onSave={() => saveRoles(member)}
-																/>
-															)}
-														</div>
-													</td>
-													<td>
-														<span className="members-date">
-															{memberJoinedAt(member)}
-														</span>
-													</td>
-													<td>
-														{isOwner ? (
-															<button
-																type="button"
-																className="members-table-action members-table-action--locked"
-																disabled
-																title="Owner 角色只能通过专门指派流程变更"
-															>
-																<Icon name="lock" size={17} />
-																专门指派
-															</button>
-														) : canAssign ? (
-															<button
-																type="button"
-																className="members-table-action members-table-action--primary"
-																aria-expanded={isEditing}
-																onClick={() =>
-																	isEditing
-																		? cancelEdit(member)
-																		: beginEdit(member)
+														<strong>{memberName(member)}</strong>
+													</div>
+												</td>
+												<td>
+													<span className="members-account">
+														{member.email ?? member.userId}
+													</span>
+												</td>
+												<td>
+													<div className="members-role-cell">
+														<MemberRoleChips roles={currentRoles} />
+														{isEditing && (
+															<RoleEditor
+																member={member}
+																roles={currentRoles}
+																saving={savingId === member.membershipId}
+																onToggle={(role) =>
+																	toggleRole(member.membershipId, role)
 																}
-															>
-																{isEditing ? "收起编辑" : "编辑角色"}
-															</button>
-														) : (
-															<span className="members-readonly-action">
-																仅查看
-															</span>
+																onCancel={() => cancelEdit(member)}
+																onSave={() => saveRoles(member)}
+															/>
 														)}
-													</td>
-												</tr>
-											);
-										})}
-									</tbody>
-								</table>
-							</div>
-						) : (
-							<div className="members-empty-table">
-								<Icon name="users" size={28} />
-								<strong>
-									{currentMembers.length > 0 ? "没有匹配的成员" : "暂无成员"}
-								</strong>
-								<p>
-									{currentMembers.length > 0
-										? "调整搜索词或角色筛选后重试。"
-										: "当前 Workspace 还没有可展示的成员。"}
-								</p>
-							</div>
-						)}
-					</section>
+													</div>
+												</td>
+												<td>
+													<span className="members-date">
+														{memberJoinedAt(member)}
+													</span>
+												</td>
+												<td>
+													{isOwner ? (
+														<button
+															type="button"
+															className="members-table-action members-table-action--locked"
+															disabled
+															title="Owner 角色只能通过专门指派流程变更"
+														>
+															<Icon name="lock" size={17} />
+															专门指派
+														</button>
+													) : canAssign ? (
+														<button
+															type="button"
+															className="members-table-action members-table-action--primary"
+															aria-expanded={isEditing}
+															onClick={() =>
+																isEditing
+																	? cancelEdit(member)
+																	: beginEdit(member)
+															}
+														>
+															{isEditing ? "收起编辑" : "编辑角色"}
+														</button>
+													) : (
+														<span className="members-readonly-action">
+															仅查看
+														</span>
+													)}
+												</td>
+											</tr>
+										);
+									})}
+								</tbody>
+							</table>
+						</div>
+					) : (
+						<div className="members-empty-table">
+							<Icon name="users" size={28} />
+							<strong>
+								{currentMembers.length > 0 ? "没有匹配的成员" : "暂无成员"}
+							</strong>
+							<p>
+								{currentMembers.length > 0
+									? "调整搜索词或角色筛选后重试。"
+									: "当前 Workspace 还没有可展示的成员。"}
+							</p>
+						</div>
+					)}
+				</section>
 
-					<footer className="members-page-footer">
-						<span>成员角色按 Workspace 隔离；权限按所有角色并集合并。</span>
-						{canAssign && (
-							<span>
-								你当前的角色：
-								{(ws?.myRoleNames ?? []).map(roleLabel).join(" + ") || "无"}
-							</span>
-						)}
-					</footer>
-				</div>
-			</main>
-		</div>
+				<footer className="members-page-footer">
+					<span>成员角色按 Workspace 隔离；权限按所有角色并集合并。</span>
+					{canAssign && (
+						<span>
+							你当前的角色：
+							{(ws?.myRoleNames ?? []).map(roleLabel).join(" + ") || "无"}
+						</span>
+					)}
+				</footer>
+			</div>
+		</WorkspaceShell>
 	);
 }

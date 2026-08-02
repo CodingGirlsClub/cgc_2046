@@ -93,6 +93,7 @@ const { fetchCurrentProfile } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useParams: () => params.value,
+	usePathname: () => `/w/${params.value.slug}/permissions`,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -177,6 +178,18 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 			"aria-current",
 			"page",
 		);
+		const shellButton = screen.getByRole("button", { name: "工作区设置" });
+		// 共享壳禁用项（⑤ review P2-2）：跨页同一组件，回归即跨三页静默落地
+		expect(shellButton).toBeDisabled();
+		expect(shellButton).toHaveAttribute(
+			"title",
+			"Workspace 设置将在后续版本开放",
+		);
+		// 壳 nav 激活态：/permissions 归「成员与角色」子页（⑤ review P3-4）
+		const shellNav = screen.getByRole("navigation", { name: "Workspace 设置" });
+		expect(
+			within(shellNav).getByRole("link", { name: "成员与角色" }),
+		).toHaveAttribute("aria-current", "page");
 		expect(screen.getByText("多角色取并集")).toBeInTheDocument();
 		expect(screen.getByText("租户边界优先")).toBeInTheDocument();
 		expect(screen.getByText("Owner 专门指派")).toBeInTheDocument();
@@ -297,7 +310,9 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(fetchMatrix).toHaveBeenCalledTimes(1);
 
 		params.value = { slug: "be-verify-ws-456" };
-		fetchMyWorkspaces.mockResolvedValueOnce([
+		// 双 useWorkspaceBySlug 实例（壳 + 页面）会各消费一次 mock：用持久 mockResolvedValue
+		// 建模生产语义（两实例拿到相同数据，Apollo 同查询去重），不用 mockResolvedValueOnce
+		fetchMyWorkspaces.mockResolvedValue([
 			{
 				id: "ws_real_perm",
 				slug: "be-verify-ws-456",
