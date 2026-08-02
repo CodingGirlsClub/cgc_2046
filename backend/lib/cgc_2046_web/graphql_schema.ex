@@ -63,11 +63,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, "unauthorized"}
 
           actor ->
-            {:ok,
-             Ash.load!(actor, [:member_number, :joined_at],
-               actor: actor,
-               domain: Cgc2046.GlobalApi
-             )}
+            {:ok, load_profile(actor, actor)}
         end
       end)
     end
@@ -105,11 +101,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
             case Ash.update(actor, attrs, action: :update_profile, actor: actor) do
               {:ok, user} ->
-                {:ok,
-                 Ash.load!(user, [:member_number, :joined_at],
-                   actor: actor,
-                   domain: Cgc2046.GlobalApi
-                 )}
+                {:ok, load_profile(user, actor)}
 
               {:error, error} ->
                 message = Exception.message(Ash.Error.to_error_class(error))
@@ -122,11 +114,19 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   input_object :update_profile_input do
     @desc "updateProfile 输入（P1）：displayName 必填，avatarUrl/location/about/skills/visibility 可选"
-    field :display_name, non_null(:string)
-    field :avatar_url, :string
-    field :location, :string
-    field :about, :string
-    field :skills, list_of(:string)
-    field :visibility, :string
+    field(:display_name, non_null(:string))
+    field(:avatar_url, :string)
+    field(:location, :string)
+    field(:about, :string)
+    field(:skills, list_of(:string))
+    field(:visibility, :string)
+  end
+
+  # 统一的个人资料加载：member_number/joined_at 为计算属性，获取与更新后均需显式加载
+  defp load_profile(user, actor) do
+    Ash.load!(user, [:member_number, :joined_at],
+      actor: actor,
+      domain: Cgc2046.GlobalApi
+    )
   end
 end
