@@ -15,7 +15,10 @@ defmodule Cgc2046Web.GraphqlSchema.RbacTypes do
   end
 
   object :permission_matrix_row do
-    field(:name, non_null(:string), description: "角色名：owner / admin / member")
+    field(:name, non_null(:string),
+      description: "角色名：owner / admin / member / tutor / volunteer / learner"
+    )
+
     field(:abilities, non_null(:permission_abilities))
   end
 

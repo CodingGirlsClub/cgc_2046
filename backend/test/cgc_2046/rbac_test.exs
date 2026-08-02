@@ -289,11 +289,12 @@ defmodule Cgc2046.RbacTest do
   end
 
   describe "matrix/0" do
-    test "matches the frontend #67 MOCK_PERMISSION_MATRIX" do
+    test "matches the frontend #67 MOCK_PERMISSION_MATRIX (6 roles, G1)" do
       matrix = Rbac.matrix()
 
-      assert length(matrix) == 3
-      assert Enum.map(matrix, & &1.role) == [:owner, :admin, :member]
+      assert length(matrix) == 6
+      assert Enum.map(matrix, & &1.role) ==
+               [:owner, :admin, :member, :tutor, :volunteer, :learner]
 
       for row <- matrix, row.role in [:owner, :admin] do
         assert row.abilities.view_workspace == true
@@ -304,13 +305,15 @@ defmodule Cgc2046.RbacTest do
         assert row.abilities.create_workspace == false
       end
 
-      member = Enum.find(matrix, &(&1.role == :member))
-      assert member.abilities.view_workspace == true
-      assert member.abilities.access_invite_only == true
-      assert member.abilities.list_members == false
-      assert member.abilities.manage_members == false
-      assert member.abilities.assign_roles == false
-      assert member.abilities.create_workspace == false
+      for role <- [:member, :tutor, :volunteer, :learner] do
+        row = Enum.find(matrix, &(&1.role == role))
+        assert row.abilities.view_workspace == true
+        assert row.abilities.access_invite_only == true
+        assert row.abilities.list_members == false
+        assert row.abilities.manage_members == false
+        assert row.abilities.assign_roles == false
+        assert row.abilities.create_workspace == false
+      end
     end
   end
 end

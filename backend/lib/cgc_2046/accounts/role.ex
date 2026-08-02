@@ -3,13 +3,16 @@ defmodule Cgc2046.Accounts.Role do
   租户内角色资源（#64）。
 
   领域模型（multitenancy-调研 §5.2）：Role 按租户隔离（workspace_id）。
-  角色为租户内预置数据（workspace 创建时 seed：owner/admin/member），
+  角色为租户内预置数据（workspace 创建时 seed：owner/admin/member/tutor/volunteer/learner），
   同一成员可持多个角色（多角色并集，权限判定取并集）。
 
-  角色枚举（#64 范围）：
+  角色枚举（#64 + G1 扩展，与设计稿 #67 对齐）：
   - `:owner`：工作台所有者（创建者），可管理成员与角色分配
   - `:admin`：管理员，可管理成员与角色分配
   - `:member`：普通成员
+  - `:tutor`：讲师（内容与教学支持，成员级权限）
+  - `:volunteer`：志愿者（活动与运营支持，成员级权限）
+  - `:learner`：学员（学习与参与，成员级权限）
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
@@ -31,8 +34,8 @@ defmodule Cgc2046.Accounts.Role do
       allow_nil?: false,
       public?: true,
       writable?: false,
-      constraints: [one_of: [:owner, :admin, :member]],
-      description: "角色名：owner / admin / member"
+      constraints: [one_of: [:owner, :admin, :member, :tutor, :volunteer, :learner]],
+      description: "角色名：owner / admin / member / tutor / volunteer / learner"
     )
 
     attribute(:description, :string,
@@ -57,11 +60,11 @@ defmodule Cgc2046.Accounts.Role do
     default_accept([:description])
     defaults([:read])
 
-    # 内部 seed 用 create（workspace 创建时自动建立 owner/admin/member）；
+    # 内部 seed 用 create（workspace 创建时自动建立 owner/admin/member/tutor/volunteer/learner）；
     # 对外策略仍为 never()，仅 authorize?: false 的内部调用可执行
     create :create do
       primary?(true)
-      argument(:name, :atom, constraints: [one_of: [:owner, :admin, :member]])
+      argument(:name, :atom, constraints: [one_of: [:owner, :admin, :member, :tutor, :volunteer, :learner]])
       change(set_attribute(:name, arg(:name)))
     end
   end

@@ -79,7 +79,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
 
       argument(:role_names, {:array, :atom},
         allow_nil?: false,
-        constraints: [items: [one_of: [:owner, :admin, :member]]]
+        constraints: [items: [one_of: [:owner, :admin, :member, :tutor, :volunteer, :learner]]]
       )
 
       change(Cgc2046.Changes.AssignRoles)

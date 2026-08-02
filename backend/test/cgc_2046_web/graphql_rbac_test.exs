@@ -109,7 +109,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
     end
 
-    test "authenticated user gets the 3-role × 6-ability matrix" do
+    test "authenticated user gets the 6-role × 6-ability matrix (G1)" do
       _admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
@@ -134,8 +134,9 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       res = graphql_post(build_conn(), query, token)
 
       assert %{"data" => %{"permissionMatrix" => %{"roles" => roles}}} = res
-      assert length(roles) == 3
-      assert Enum.map(roles, & &1["name"]) == ["owner", "admin", "member"]
+      assert length(roles) == 6
+      assert Enum.map(roles, & &1["name"]) ==
+               ["owner", "admin", "member", "tutor", "volunteer", "learner"]
 
       by_name = Map.new(roles, &{&1["name"], &1["abilities"]})
 
@@ -149,13 +150,15 @@ defmodule Cgc2046Web.GraphqlRbacTest do
         assert abilities["createWorkspace"] == false
       end
 
-      member = by_name["member"]
-      assert member["viewWorkspace"] == true
-      assert member["accessInviteOnly"] == true
-      assert member["listMembers"] == false
-      assert member["manageMembers"] == false
-      assert member["assignRoles"] == false
-      assert member["createWorkspace"] == false
+      for role <- ["member", "tutor", "volunteer", "learner"] do
+        abilities = by_name[role]
+        assert abilities["viewWorkspace"] == true
+        assert abilities["accessInviteOnly"] == true
+        assert abilities["listMembers"] == false
+        assert abilities["manageMembers"] == false
+        assert abilities["assignRoles"] == false
+        assert abilities["createWorkspace"] == false
+      end
     end
   end
 

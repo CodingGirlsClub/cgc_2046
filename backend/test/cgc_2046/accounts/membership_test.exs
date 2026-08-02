@@ -97,7 +97,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert [%Cgc2046.Accounts.Role{name: :owner}] = roles
     end
 
-    test "roles are seeded per workspace (owner/admin/member)" do
+    test "roles are seeded per workspace (owner/admin/member/tutor/volunteer/learner)" do
       admin = admin_user()
       workspace = create_workspace(admin)
 
@@ -106,7 +106,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
         |> Ash.Query.for_read(:read)
         |> Ash.read!(tenant: workspace.id, actor: admin)
 
-      assert Enum.map(roles, & &1.name) |> Enum.sort() == [:admin, :member, :owner]
+      assert Enum.map(roles, & &1.name) |> Enum.sort() ==
+               [:admin, :learner, :member, :owner, :tutor, :volunteer]
     end
   end
 
@@ -161,6 +162,24 @@ defmodule Cgc2046.Accounts.MembershipTest do
                membership
                |> Ash.Changeset.for_update(:assign_roles, %{role_names: [:superadmin]})
                |> Ash.update(tenant: workspace.id, actor: admin)
+    end
+
+    # G1 诊断复现：设计稿五角色（tutor/volunteer/learner）应可分配（P0）
+    test "design roles tutor/volunteer/learner can be assigned", %{
+      admin: admin,
+      workspace: workspace
+    } do
+      user = normal_user()
+      membership = add_member(workspace, user, admin)
+
+      assert {:ok, updated} =
+               membership
+               |> Ash.Changeset.for_update(:assign_roles, %{
+                 role_names: [:tutor, :volunteer, :learner]
+               })
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert load_role_names(updated) == [:learner, :tutor, :volunteer]
     end
 
     test "plain member cannot assign roles", %{admin: admin, workspace: workspace} do
