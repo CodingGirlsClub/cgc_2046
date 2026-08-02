@@ -27,6 +27,8 @@ export interface ProfileUser {
   avatarUrl?: string | null;
   /** 平台管理员（createWorkspace 等平台级能力依据） */
   isPlatformAdmin: boolean;
+  /** UI 主题偏好（U3）：dark | light，服务端持久化用于跨设备同步 */
+  uiThemePreference: string;
   /** 所在地（P1 扩展，可编辑） */
   location?: string | null;
   /** 个人简介（P1 扩展，可编辑） */
@@ -70,6 +72,7 @@ export const ME_PROFILE: TypedDocumentNode<
       displayName
       avatarUrl
       isPlatformAdmin
+      uiThemePreference
       location
       about
       skills
@@ -98,6 +101,19 @@ export const UPDATE_PROFILE: TypedDocumentNode<
       visibility
       memberNumber
       joinedAt
+    }
+  }
+`;
+
+/** 设置当前用户 UI 主题偏好（U3）：uiThemePreference 仅 dark | light，服务端持久化跨设备同步 */
+export const SET_UI_THEME: TypedDocumentNode<
+  { setUiTheme: { id: string; uiThemePreference: string } | null },
+  { input: { uiThemePreference: string } }
+> = gql`
+  mutation SetUiTheme($input: SetUiThemeInput!) {
+    setUiTheme(input: $input) {
+      id
+      uiThemePreference
     }
   }
 `;

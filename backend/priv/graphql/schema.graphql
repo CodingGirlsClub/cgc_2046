@@ -755,6 +755,24 @@ input UserFilterJoinedAt {
   isNotDistinctFrom: DateTime
 }
 
+input UserFilterUiThemePreference {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
 input UserFilterVisibility {
   isNil: Boolean
   eq: String
@@ -912,6 +930,9 @@ input UserFilterInput {
   "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
   visibility: UserFilterVisibility
 
+  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
+  uiThemePreference: UserFilterUiThemePreference
+
   "注册（加入）时间"
   joinedAt: UserFilterJoinedAt
 }
@@ -942,6 +963,9 @@ type SignInResult {
 
   "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
   visibility: String!
+
+  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
+  uiThemePreference: String!
 
   "A JWT which the user can use to authenticate to the API."
   token: String!
@@ -979,6 +1003,9 @@ type User {
 
   "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
   visibility: String!
+
+  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
+  uiThemePreference: String!
 
   "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
   memberNumber: String
@@ -1068,9 +1095,17 @@ input UpdateProfileInput {
   visibility: String
 }
 
+input SetUiThemeInput {
+  "setUiTheme 输入（U3）：uiThemePreference 必填，仅 dark | light"
+  uiThemePreference: String!
+}
+
 type RootMutationType {
   "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
   updateProfile(input: UpdateProfileInput!): User
+
+  "设置当前用户 UI 主题偏好（U3）：dark | light，服务端持久化"
+  setUiTheme(input: SetUiThemeInput!): User
 
   "Register a new user with a username and password."
   signUp(input: SignUpInput!): SignUpResult!

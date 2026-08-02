@@ -49,7 +49,8 @@ defmodule Cgc2046.Accounts.UserTest do
                  :location,
                  :about,
                  :skills,
-                 :visibility
+                 :visibility,
+                 :ui_theme_preference
                ]
     end
 

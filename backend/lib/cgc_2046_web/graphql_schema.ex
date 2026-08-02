@@ -96,6 +96,31 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    @desc "设置当前用户 UI 主题偏好（U3）：dark | light，服务端持久化"
+    field :set_ui_theme, :user do
+      arg(:input, non_null(:set_ui_theme_input))
+
+      resolve(fn _, %{input: input}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, "unauthorized"}
+
+          actor ->
+            case Ash.update(actor, %{ui_theme_preference: input.ui_theme_preference},
+                   action: :set_ui_theme,
+                   actor: actor
+                 ) do
+              {:ok, user} ->
+                {:ok, load_profile(user, actor)}
+
+              {:error, error} ->
+                message = Exception.message(Ash.Error.to_error_class(error))
+                {:error, message}
+            end
+        end
+      end)
+    end
   end
 
   input_object :update_profile_input do
@@ -106,6 +131,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:about, :string)
     field(:skills, list_of(:string))
     field(:visibility, :string)
+  end
+
+  input_object :set_ui_theme_input do
+    @desc "setUiTheme 输入（U3）：uiThemePreference 必填，仅 dark | light"
+    field(:ui_theme_preference, non_null(:string))
   end
 
   # 统一的个人资料加载：member_number/joined_at 为计算属性，获取与更新后均需显式加载

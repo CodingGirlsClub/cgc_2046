@@ -481,6 +481,18 @@
     transition: color 120ms ease;
   }
   .ws-shell-signout:hover { color: var(--status-red); }
+  .ws-shell-footer-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+  .ws-shell-theme {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--ink-3);
+    font-size: 12px;
+    line-height: 18px;
+    transition: color 120ms ease;
+  }
+  .ws-shell-theme:hover { color: var(--ink); }
   .ws-shell-page--editing .ws-shell-sidebar { flex-basis: 280px; min-width: 0; padding: 18px 12px 20px; }
   .ws-shell-page--editing .ws-shell-heading { margin-top: 22px; }
   .ws-shell-page--editing .ws-shell-item--selected { border-left: 3px solid var(--accent); border-radius: 0 var(--radius-medium) var(--radius-medium) 0; background: var(--soft); color: var(--ink); }

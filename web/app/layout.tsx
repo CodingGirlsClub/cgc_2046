@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import ApolloWrapper from "./apollo-provider";
 import ThemeProvider from "@/lib/theme-provider";
+import ThemeSync from "@/lib/theme-sync";
 import "./globals.css";
 
 // Linear 设计系统默认字体（Inter）；mono 沿用 Geist Mono。
@@ -30,7 +31,10 @@ export default function RootLayout({
     <html lang="zh-CN" className={`${inter.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
-          <ApolloWrapper>{children}</ApolloWrapper>
+          <ApolloWrapper>
+            <ThemeSync />
+            {children}
+          </ApolloWrapper>
         </ThemeProvider>
       </body>
     </html>

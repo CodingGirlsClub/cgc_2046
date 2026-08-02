@@ -88,6 +88,14 @@ defmodule Cgc2046.Accounts.User do
       description: "资料可见范围（三档）：public 所有登录用户可读 / workspace 同工作区成员可读 / only_me 仅本人可读（默认，隐私优先）"
     )
 
+    attribute(:ui_theme_preference, :string,
+      allow_nil?: false,
+      default: "dark",
+      public?: true,
+      writable?: true,
+      description: "用户 UI 主题偏好（U3）：dark（默认）/ light，服务端持久化用于跨设备同步"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -114,6 +122,11 @@ defmodule Cgc2046.Accounts.User do
   validations do
     validate(match(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
       message: "must be a valid email address"
+    )
+
+    # U3：主题偏好仅允许 dark | light（:string + 显式 match 校验，非 unsafe atom，遵 AGENTS.md atom 安全）
+    validate(match(:ui_theme_preference, ~r/^(dark|light)$/),
+      message: "must be dark or light"
     )
   end
 
@@ -168,6 +181,14 @@ defmodule Cgc2046.Accounts.User do
           url -> validate_avatar_url(url)
         end
       end)
+    end
+
+    update :set_ui_theme do
+      description("设置当前用户 UI 主题偏好（U3）：仅接受 dark | light")
+
+      require_atomic?(false)
+
+      accept([:ui_theme_preference])
     end
   end
 
@@ -261,6 +282,11 @@ defmodule Cgc2046.Accounts.User do
 
     # #68：用户可更新自己的个人资料（SimpleCheck，strict 阶段可判定）
     policy action(:update_profile) do
+      authorize_if(Cgc2046.Policies.UpdateOwnProfile)
+    end
+
+    # U3：用户可设置自己的 UI 主题偏好（复用 UpdateOwnProfile SimpleCheck，与 action 名无关）
+    policy action(:set_ui_theme) do
       authorize_if(Cgc2046.Policies.UpdateOwnProfile)
     end
 
