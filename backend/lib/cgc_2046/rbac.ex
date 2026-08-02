@@ -144,6 +144,51 @@ defmodule Cgc2046.Rbac do
     end)
   end
 
+  @doc """
+  返回 actor 在目标工作台的角色名列表（多角色并集，按 membership.roles 加载顺序）。
+
+  - `actor` 只需含 `:id` 字段（assign_roles grant scope 校验可用 `%{id: user_id}` 传 target）
+  - 非成员 / 匿名返回 `[]`
+  - 供 assign_roles 越权修复（P0）与其它判定复用
+
+  ## Examples
+
+      iex> Rbac.role_names(actor, ws_id)
+      [:owner]
+  """
+  @spec role_names(term, String.t()) :: [atom]
+  def role_names(nil, _workspace_id), do: []
+
+  def role_names(actor, workspace_id) do
+    case membership(actor, workspace_id) do
+      nil -> []
+      membership -> Enum.map(membership.roles, & &1.name)
+    end
+  end
+
+  @doc """
+  返回目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色只算 1 次）。
+
+  用于 assign_roles 的「最后 Owner 保护」（撤销 owner 时须保留至少 1 个 Owner）。
+  频次极低，直接加载 memberships + roles 统计；tenant 隔离由 multitenancy（workspace_id）保证。
+  """
+  @spec owner_count(String.t()) :: non_neg_integer
+  def owner_count(workspace_id) do
+    query =
+      WorkspaceMembership
+      |> Ash.Query.load(:roles)
+
+    case Ash.read(query, authorize?: false, tenant: workspace_id) do
+      {:ok, memberships} ->
+        Enum.count(memberships, fn membership ->
+          Enum.any?(membership.roles, &(&1.name == :owner))
+        end)
+
+      _ ->
+        0
+    end
+  end
+
   # -- 能力判定 ---------------------------------------------------------------
 
   defp workspace_ability?(actor, ability, opts) do

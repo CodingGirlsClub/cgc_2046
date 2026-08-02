@@ -84,7 +84,7 @@ defmodule Cgc2046.RbacTest do
     if role_names != [] do
       assert {:ok, _membership} =
                membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
+               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names}, actor: actor)
                |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
     end
 
