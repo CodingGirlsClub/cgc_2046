@@ -55,12 +55,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/avatarUrl/isPlatformAdmin"
+    @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/avatarUrl/isPlatformAdmin + P1 扩展字段"
     field :me, :user do
       resolve(fn _, _, %{context: context} ->
         case context[:actor] do
-          nil -> {:error, "unauthorized"}
-          actor -> {:ok, actor}
+          nil ->
+            {:error, "unauthorized"}
+
+          actor ->
+            {:ok,
+             Ash.load!(actor, [:member_number, :joined_at],
+               actor: actor,
+               domain: Cgc2046.GlobalApi
+             )}
         end
       end)
     end
@@ -78,14 +85,31 @@ defmodule Cgc2046Web.GraphqlSchema do
 
           actor ->
             attrs =
-              input
-              |> Map.take([:display_name, :avatar_url])
-              |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-              |> Map.new()
+              Enum.reduce(
+                [
+                  :display_name,
+                  :avatar_url,
+                  :location,
+                  :about,
+                  :skills,
+                  :visibility
+                ],
+                %{},
+                fn key, acc ->
+                  case input do
+                    %{^key => value} -> Map.put(acc, key, value)
+                    _ -> acc
+                  end
+                end
+              )
 
             case Ash.update(actor, attrs, action: :update_profile, actor: actor) do
               {:ok, user} ->
-                {:ok, user}
+                {:ok,
+                 Ash.load!(user, [:member_number, :joined_at],
+                   actor: actor,
+                   domain: Cgc2046.GlobalApi
+                 )}
 
               {:error, error} ->
                 message = Exception.message(Ash.Error.to_error_class(error))
@@ -97,8 +121,12 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   input_object :update_profile_input do
-    @desc "updateProfile 输入（#68）：displayName 必填，avatarUrl 可选"
+    @desc "updateProfile 输入（P1）：displayName 必填，avatarUrl/location/about/skills/visibility 可选"
     field :display_name, non_null(:string)
     field :avatar_url, :string
+    field :location, :string
+    field :about, :string
+    field :skills, list_of(:string)
+    field :visibility, :string
   end
 end
