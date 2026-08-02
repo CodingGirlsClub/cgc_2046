@@ -368,9 +368,6 @@
   .permissions-ability-label small svg { color: var(--accent); }
   .permissions-matrix__cell--allowed { color: var(--status-green) !important; }
   .permissions-matrix__cell--denied { color: var(--ink-3) !important; }
-  .permissions-matrix__row--cross th,
-  .permissions-matrix__row--cross td { border-color: color-mix(in srgb, var(--status-red) 32%, var(--line)); background: color-mix(in srgb, var(--status-red) 5%, transparent); }
-  .permissions-matrix__row--cross td { color: var(--status-red) !important; }
 
   .permissions-example-card { padding: 20px 22px 22px; }
   .permissions-example__person { display: flex; align-items: center; gap: 14px; margin-top: 17px; }

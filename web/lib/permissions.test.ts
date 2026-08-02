@@ -6,7 +6,7 @@ import {
 } from "./permissions";
 import type { RbacPermissionMatrixRow } from "./graphql/permissions";
 
-describe("mapPermissionMatrixRows（后端旧矩阵 → Slice A 设计矩阵）", () => {
+describe("mapPermissionMatrixRows（后端六能力矩阵 → 五角色展示矩阵）", () => {
   const backendRows: RbacPermissionMatrixRow[] = [
     {
       name: "owner",
@@ -49,36 +49,39 @@ describe("mapPermissionMatrixRows（后端旧矩阵 → Slice A 设计矩阵）"
     expect(rows.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
     expect(rows.every((row) => PERMISSION_ABILITIES.every((ability) => ability.id in row.abilities))).toBe(true);
     expect(rows.find((row) => row.role === "owner")?.abilities).toMatchObject({
-      view_members: true,
+      view_workspace: true,
+      access_invite_only: true,
+      list_members: true,
       manage_members: true,
       assign_roles: true,
-      change_join_policy: true,
-      view_profile: true,
-      edit_own_profile: true,
-      cross_workspace_access: false,
+      create_workspace: false,
     });
     expect(rows.find((row) => row.role === "admin")?.abilities).toMatchObject({
       manage_members: true,
       assign_roles: true,
-      change_join_policy: false,
+      create_workspace: false,
     });
     expect(rows.find((row) => row.role === "learner")?.abilities).toMatchObject({
-      view_members: true,
+      view_workspace: true,
+      access_invite_only: true,
+      list_members: false,
       manage_members: false,
       assign_roles: false,
-      edit_own_profile: true,
-      cross_workspace_access: false,
+      create_workspace: false,
     });
   });
 
-  it("保留后端已知角色，未知角色被过滤，缺失角色用默认能力补齐", () => {
+  it("保留后端已知角色并直取六能力，未知角色被过滤，缺失角色用默认能力补齐", () => {
     const rows = mapPermissionMatrixRows([
       { name: "teacher", abilities: backendRows[0].abilities },
       { name: "tutor", abilities: backendRows[0].abilities },
       ...backendRows.slice(0, 1),
     ]);
     expect(rows.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
-    expect(rows.find((row) => row.role === "tutor")?.abilities.manage_members).toBe(false);
+    // tutor 后端行直取六能力（传入 owner 的 abilities → manage_members 为 true）
+    expect(rows.find((row) => row.role === "tutor")?.abilities.manage_members).toBe(true);
+    // learner 后端未返回 → 用默认模板补齐（模板六能力中 manage_members 为 false）
+    expect(rows.find((row) => row.role === "learner")?.abilities.manage_members).toBe(false);
   });
 
   it("null/undefined/空数组 → []，避免空 API payload 被伪造为完整矩阵", () => {
