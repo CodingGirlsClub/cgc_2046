@@ -157,7 +157,7 @@ export const MOCK_CURRENT_PROFILE: CurrentProfile = {
   about: "关注社区学习、AI 教育与开放协作。喜欢把复杂的问题整理成清晰、可执行的课程与活动。",
   skills: ["AI 教育", "课程设计", "社区运营", "Elixir"],
   joinedAt: "2024 年 3 月",
-  visibility: "workspace_members",
+  visibility: "only_me",
   memberNumber: "CGC-SH-0018",
   workspaceName: "上海 Coding Girls Club",
   workspaceSlug: "cgc-shanghai",

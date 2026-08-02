@@ -56,7 +56,7 @@ const meShape = {
   location: "杭州",
   about: "P1 个人简介",
   skills: ["GraphQL", "Elixir"],
-  visibility: "workspace_public",
+  visibility: "workspace",
   memberNumber: "CGC-000042",
   joinedAt: "2026-08-02T03:00:00Z",
 };
@@ -78,7 +78,7 @@ describe("lib/profile 真实分支（#68 me / updateProfile + P1 扩展）", () 
       location: "杭州",
       about: "P1 个人简介",
       skills: ["GraphQL", "Elixir"],
-      visibility: "workspace_public",
+      visibility: "workspace",
       memberNumber: "CGC-000042",
       joinedAt: "2026-08-02T03:00:00Z",
     });
@@ -102,7 +102,7 @@ describe("lib/profile 真实分支（#68 me / updateProfile + P1 扩展）", () 
             displayName: "新名字",
             location: "深圳",
             skills: ["TS", "React"],
-            visibility: "workspace_members",
+            visibility: "only_me",
           },
         },
       } as never);
@@ -114,12 +114,12 @@ describe("lib/profile 真实分支（#68 me / updateProfile + P1 扩展）", () 
       location: "深圳",
       about: "P1 个人简介",
       skills: ["TS", "React"],
-      visibility: "workspace_members",
+      visibility: "only_me",
     });
     expect(updated.displayName).toBe("新名字");
     expect(updated.location).toBe("深圳");
     expect(updated.skills).toEqual(["TS", "React"]);
-    expect(updated.visibility).toBe("workspace_members");
+    expect(updated.visibility).toBe("only_me");
   });
 
   it("fetchProfileRoleSummary：meWorkspaces query 返回 → 映射角色并集（P1-3 确定性排序）", async () => {

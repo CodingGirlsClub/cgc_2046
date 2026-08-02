@@ -46,7 +46,7 @@ const designProfile = () => ({
   about: "关注社区学习、AI 教育与开放协作。喜欢把复杂的问题整理成清晰、可执行的课程与活动。",
   skills: ["AI 教育", "课程设计", "社区运营", "Elixir"],
   joinedAt: "2024 年 3 月",
-  visibility: "workspace_members" as const,
+  visibility: "only_me" as const,
   memberNumber: "CGC-SH-0018",
   workspaceName: "上海 Coding Girls Club",
   workspaceSlug: "cgc-shanghai",
@@ -93,7 +93,7 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
     expect(screen.getAllByText("Tutor").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("上海", { selector: ".profile-summary__meta span" })).toBeInTheDocument();
     expect(screen.getByText("加入于 2024 年 3 月")).toBeInTheDocument();
-    expect(screen.getByText("仅当前 Workspace 成员可见")).toBeInTheDocument();
+    expect(screen.getByText("仅自己可见")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "关于我" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "技能标签" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "工作区身份" })).toBeInTheDocument();
@@ -150,7 +150,7 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
     fireEvent.change(screen.getByTestId("profile-name-input"), { target: { value: "林溪新" } });
     fireEvent.change(screen.getByTestId("profile-location-input"), { target: { value: "杭州" } });
     fireEvent.change(screen.getByTestId("profile-about-input"), { target: { value: "新的个人简介" } });
-    fireEvent.change(screen.getByTestId("profile-visibility-input"), { target: { value: "workspace_public" } });
+    fireEvent.change(screen.getByTestId("profile-visibility-input"), { target: { value: "workspace" } });
     fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
 
     await waitFor(() => expect(updateProfile).toHaveBeenCalledWith({
@@ -159,13 +159,13 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
       location: "杭州",
       about: "新的个人简介",
       skills: ["AI 教育", "课程设计", "社区运营", "Elixir"],
-      visibility: "workspace_public",
+      visibility: "workspace",
     }));
     expect(await screen.findByRole("heading", { name: "我的个人资料" })).toBeInTheDocument();
     expect(screen.getByTestId("profile-display-name")).toHaveTextContent("林溪新");
     expect(screen.getByText("杭州", { selector: ".profile-summary__meta span" })).toBeInTheDocument();
     expect(screen.getByText("新的个人简介")).toBeInTheDocument();
-    expect(screen.getByText("Workspace 内公开")).toBeInTheDocument();
+    expect(screen.getByText("工作区公开")).toBeInTheDocument();
     expect(screen.getByText("资料已保存")).toBeInTheDocument();
     // 作品集未变更：不触发 CRUD，但保存成功后重新拉取
     expect(createPortfolio).not.toHaveBeenCalled();
@@ -266,25 +266,29 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
     expect(within(mainArea).queryByText("上海 Coding Girls Club")).not.toBeInTheDocument();
   });
 
-  it("可见范围 workspace_public 时底部文案联动（P2-1）", async () => {
-    fetchProfile.mockResolvedValue({ ...designProfile(), visibility: "workspace_public" as const });
+  it("可见范围三档：pill/底部文案随 visibility 联动（P2-1 三档对齐）", async () => {
+    fetchProfile.mockResolvedValue({ ...designProfile(), visibility: "workspace" as const });
     await renderReadyProfile();
 
-    expect(screen.getByText("Workspace 内公开")).toBeInTheDocument();
-    expect(screen.getByText("资料在 Workspace 内公开可见。")).toBeInTheDocument();
+    expect(screen.getByText("工作区公开")).toBeInTheDocument();
+    expect(screen.getByText("资料在同工作区公开（同工作区登录用户可见）。")).toBeInTheDocument();
 
-    // 进入编辑态切换为 workspace_members → 文案即时联动
+    // 进入编辑态依次切换三档 → 底部文案即时联动
     fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
-    fireEvent.change(screen.getByTestId("profile-visibility-input"), { target: { value: "workspace_members" } });
-    expect(screen.getByText("资料仅在当前 Workspace 内可见。")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("profile-visibility-input"), { target: { value: "only_me" } });
+    expect(screen.getByTestId("profile-visibility-input")).toHaveValue("only_me");
+    expect(screen.getByText("资料仅自己可见。")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("profile-visibility-input"), { target: { value: "public" } });
+    expect(screen.getByTestId("profile-visibility-input")).toHaveValue("public");
+    expect(screen.getByText("资料对全站公开（所有登录用户可见）。")).toBeInTheDocument();
   });
 
   it("进入编辑态时 visibility select 以真实值初始化（P2-2）", async () => {
-    fetchProfile.mockResolvedValue({ ...designProfile(), visibility: "workspace_public" as const });
+    fetchProfile.mockResolvedValue({ ...designProfile(), visibility: "public" as const });
     await renderReadyProfile();
 
     fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
-    expect(screen.getByTestId("profile-visibility-input")).toHaveValue("workspace_public");
+    expect(screen.getByTestId("profile-visibility-input")).toHaveValue("public");
   });
 
   it("删除作品按钮 aria-label 精确化，不与技能标签删除混淆（P2-4）", async () => {
