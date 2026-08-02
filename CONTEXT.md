@@ -88,7 +88,7 @@
 
 - **定义**：「actor ↔ 工作台」成员资格读取面的唯一归属：`membership_of/2`、`role_names/2`（角色名多角色并集，Rbac 同名委托）、`memberships_of_actor/1`（跨租户）、`owner_count/1`、`resolve_workspace_id/1`（policy 场景的 filter/changeset 目标工作台解析，含 Ash filter struct 提取钉测）。
 - **旁路读取面（BypassReads）**：「唯一允许原始 SQL 的出口」——`member_count/1`（GROUP BY 聚合）与 `shared_workspace_ids/1`（actor 已加入工作台集合）；平铺展示字段（`WorkspaceMembership.user_email`/`user_display_name` LEFT JOIN）同属此契约。安全契约成文：主查询仍受 policy 门控、旁路仅限聚合与平铺展示字段、新读路径先查此处不发明新逃生舱（2026-08-02 ③ 逃生舱收敛）。
-- **WorkspaceShell（工作区管理壳）**：前端展示层 seam（2026-08-02 ⑤ 壳收敛；#79 IA）——sidebar/退出登录/未认证壳/共享 Icon 集的唯一实现，interface `slug + children`（`requireWs` 供 profile 家族关闭 ws 解析）；members/permissions/profile/portfolio 四页退化为纯内容，加导航项不再改 4 个页面；导航激活态由 pathname 派生；管理项按 `myAbilities` 过滤（成员与角色=list_members、加入策略=update_join_policy，B-3 审批/邀请占位同组），普通成员仅见 概览/个人资料（页面级门控不变，后端 policy 权威拦截）。
+- **WorkspaceShell（工作区管理壳）**：前端展示层 seam（2026-08-02 ⑤ 壳收敛；#79 IA）——sidebar/退出登录/未认证壳/共享 Icon 集的唯一实现，interface `slug + children`（`requireWs` 供 profile 家族关闭 ws 解析）；members/permissions/profile/portfolio 四页退化为纯内容，加导航项不再改 4 个页面；导航激活态由 pathname 派生；管理项按 `myAbilities` 过滤（成员与角色=list_members、加入策略=update_join_policy，B-3 审批/邀请占位同组），普通成员仅见 概览/个人资料；profile 家族（`requireWs=false`）ws 不解析 → 能力为空 → 管理项恒隐藏（保守方向，页面级门控不变，后端 policy 权威拦截）。
 - **架构位置**：Rbac（判定）与 WorkspaceActorIsOwnerOrAdmin policy / CurrentMembershipInfo 计算字段（读取方）之间的数据 seam（2026-08-02 ② 成员资格读取收敛）：读取形状唯一实现，Ash 升级只炸本模块一处；判定语义仍在 Rbac。
 
 ### Role（角色，租户资源）

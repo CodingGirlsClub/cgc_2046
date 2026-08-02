@@ -254,10 +254,10 @@ function ActiveWorkspaceDetail({ ws }: { ws: WorkspaceListItem }) {
 					type="button"
 					className="workspace-button workspace-button--outline"
 					disabled
-					title="Workspace 设置将在后续页面开放"
+					title="工作区设置将在后续页面开放"
 				>
 					<Icon name="settings" />
-					Workspace 设置
+					工作区设置
 				</button>
 			</div>
 		</>

@@ -172,7 +172,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(fetchMatrix).not.toHaveBeenCalled();
 	});
 
-	it("按设计稿渲染 Workspace 设置壳、页签、规则提示和标题", async () => {
+	it("按设计稿渲染工作区设置壳、页签、规则提示和标题", async () => {
 		await renderReadyPage();
 
 		expect(screen.getByText("上海 Coding Girls Club")).toBeInTheDocument();

@@ -10,7 +10,7 @@
  * 职责：
  * - 未认证壳：useAuthed 守卫 + 未登录重定向 /login（页面不再各自实现）；
  * - 侧栏（members 设计为基准，2026-08-02 ⑤ Q2 决策：壳单设计）：品牌、
- *   workspace 上下文块、Workspace 设置导航（激活态由 pathname 派生）、
+ *   workspace 上下文块、工作区设置导航（激活态由 pathname 派生）、
  *   底部 ProfileEntry + 退出登录；
  * - 工作区不可访问态（requireWs 时：slug 无法解析 → 整页「不可访问」）。
  *
