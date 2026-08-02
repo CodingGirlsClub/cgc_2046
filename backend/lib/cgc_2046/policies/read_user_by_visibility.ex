@@ -10,19 +10,19 @@ defmodule Cgc2046.Policies.ReadUserByVisibility do
   - 匿名（actor nil）：一律不可读（filter 恒假）
 
   实现说明：使用 `Ash.Policy.FilterCheck` 在 filter 阶段**运行时**构造过滤器——
-  actor 的 workspace_id 集合在 filter/3 内通过 Repo 直查获取（不经
-  WorkspaceMembership read policy），再注入 `exists(workspace_memberships,
+  actor 的 workspace_id 集合经 BypassReads.shared_workspace_ids/1 取得（旁路
+  读取面，唯一允许原始 SQL 的出口），再注入 `exists(workspace_memberships,
   workspace_id in ^actor_ws_ids)` 子查询。
 
   为什么子查询可行：实测 `exists/2` 表达式生成的 SQL 子查询**不会**叠加
-  WorkspaceMembership 的 read policy（与 aggregate count 不同，后者会叠加并
-  被过滤，见 MemberCount 注释）。SQL 直接 `SELECT 1 FROM workspace_memberships
-  WHERE workspace_id = ANY($n) AND users.id = user_id`。
+  WorkspaceMembership 的 read policy（与 aggregate count 相反，后者会叠加并
+  被过滤，见 BypassReads moduledoc）。SQL 直接 `SELECT 1 FROM
+  workspace_memberships WHERE workspace_id = ANY($n) AND users.id = user_id`。
   """
 
   use Ash.Policy.FilterCheck
 
-  alias Cgc2046.Repo
+  alias Cgc2046.Accounts.BypassReads
 
   @impl true
   def describe(_opts), do: "用户资料可读：本人 / public / workspace 共享 / only_me（匿名不可读）"
@@ -35,7 +35,7 @@ defmodule Cgc2046.Policies.ReadUserByVisibility do
   end
 
   def filter(actor, _context, _opts) do
-    actor_ws_ids = actor_workspace_ids(actor)
+    actor_ws_ids = BypassReads.shared_workspace_ids(actor)
 
     expr(
       id == ^actor.id or
@@ -43,16 +43,5 @@ defmodule Cgc2046.Policies.ReadUserByVisibility do
         (visibility == :workspace and
            exists(workspace_memberships, workspace_id in ^actor_ws_ids))
     )
-  end
-
-  defp actor_workspace_ids(actor) do
-    {:ok, result} =
-      Ecto.Adapters.SQL.query(
-        Repo,
-        "SELECT workspace_id::text FROM workspace_memberships WHERE user_id = $1",
-        [Ecto.UUID.dump!(actor.id)]
-      )
-
-    Enum.map(result.rows, fn [wid] -> wid end)
   end
 end
