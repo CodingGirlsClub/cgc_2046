@@ -257,7 +257,7 @@ export default function WorkspacePermissionsPage() {
 		<WorkspaceShell slug={slug}>
 			<div className="permissions-main__inner">
 				<div className="permissions-breadcrumb" aria-label="页面路径">
-					<Link href={`/w/${slug}`}>Workspace 设置</Link>
+					<Link href={`/w/${slug}`}>工作区设置</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}/members`}>成员与角色</Link>
 					<span>›</span>

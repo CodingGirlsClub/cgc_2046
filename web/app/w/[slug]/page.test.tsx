@@ -232,7 +232,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			within(nav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("href", "/w/cgc-academy/members");
 		expect(
-			within(nav).getByRole("link", { name: "工作区设置" }),
+			within(nav).getByRole("link", { name: "加入策略" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings");
 		// B-3 占位：disabled 按钮（管理可见，title 注明切片 B）
 		const approvalPlaceholder = within(nav).getByRole("button", {
@@ -263,7 +263,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			within(nav).queryByRole("link", { name: "成员与角色" }),
 		).not.toBeInTheDocument();
 		expect(
-			within(nav).queryByRole("link", { name: "工作区设置" }),
+			within(nav).queryByRole("link", { name: "加入策略" }),
 		).not.toBeInTheDocument();
 		expect(
 			within(nav).queryByRole("button", { name: "加入审批" }),

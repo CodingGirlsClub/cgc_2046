@@ -435,9 +435,9 @@ describe("updateWorkspaceJoinPolicy（#78：mutation + 跨页缓存刷新）", (
 			},
 		} as never);
 
-		await expect(
-			updateWorkspaceJoinPolicy("ws_1", "open"),
-		).rejects.toThrow("forbidden");
+		await expect(updateWorkspaceJoinPolicy("ws_1", "open")).rejects.toThrow(
+			"forbidden",
+		);
 		expect(refetchMock).not.toHaveBeenCalled();
 	});
 });

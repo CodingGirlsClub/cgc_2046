@@ -80,7 +80,8 @@ export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 	{
 		id: "update_join_policy",
 		label: "修改加入策略",
-		description: "切换当前 Workspace 的加入方式（开放加入 / 申请制 / 邀请制）。",
+		description:
+			"切换当前 Workspace 的加入方式（开放加入 / 申请制 / 邀请制）。",
 	},
 	{
 		id: "create_workspace",

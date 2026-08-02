@@ -86,7 +86,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("/w/[slug]/settings 工作区设置页", () => {
+describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 	it("未登录重定向到 /login", async () => {
 		isAuthenticated.mockReturnValue(false);
 		render(<SettingsPage />);
@@ -98,8 +98,12 @@ describe("/w/[slug]/settings 工作区设置页", () => {
 		render(<SettingsPage />);
 
 		expect(
-			await screen.findByRole("heading", { name: "工作区设置" }),
+			await screen.findByRole("heading", { name: "加入策略" }),
 		).toBeInTheDocument();
+		// 页面副标题与卡片 header 同文案（#79 改名后），用 getAllByText 断言存在
+		expect(screen.getAllByText("决定谁能加入这个 Workspace").length).toBeGreaterThan(
+			0,
+		);
 		// 三态选项（label = JOIN_POLICY_LABEL）
 		const radioGroup = screen.getByRole("group", { name: "选择加入方式" });
 		expect(
@@ -119,10 +123,10 @@ describe("/w/[slug]/settings 工作区设置页", () => {
 		expect(
 			screen.getByText("申请审批", { selector: ".workspace-policy" }),
 		).toBeInTheDocument();
-		// 壳导航「工作区设置」激活态（#78）
+		// 壳导航「加入策略」激活态（#79 改名）
 		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
 		expect(
-			within(shellNav).getByRole("link", { name: "工作区设置" }),
+			within(shellNav).getByRole("link", { name: "加入策略" }),
 		).toHaveAttribute("aria-current", "page");
 		// 管理员可见保存按钮（当前策略未变时禁用）
 		expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled();
