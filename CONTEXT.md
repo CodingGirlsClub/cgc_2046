@@ -134,6 +134,11 @@
 - **定义**：MCP 工具只定义"能做什么"（形状）；同一个工具对所有人形状相同，能访问哪些数据由租户/角色过滤决定；每一次工具调用都必须落审计。
 - **架构位置**：D6 总原则，贯穿 MCP 工具集、workspace_id 作用域与 AgentRun 审计。
 
+### 能力接口（Capability Interface）
+
+- **定义**：平台向消费端（Web UI 与未来 MCP 工具）暴露的权限判定契约：`permissionMatrix`（角色→能力矩阵，abilities 为通用 `[{name, allowed}]` 列表）、`myAbilities`（当前用户在目标工作台的能力并集，随 `meWorkspaces` 下发）、角色名仅作展示词汇（徽章/筛选/标签）。消费端**不复写权限语义**：不做角色名→能力推断、不维护本地矩阵副本；能力/角色词汇唯一真源在后端 `Role`/`Rbac` 单源，经 `backend/priv/rbac_contract.json` 契约工件做跨语言 golden-file 守卫（`mix cgc2046.gen_rbac_contract` 再生成）。
+- **架构位置**：2026-08-02 契约收敛决策（原 #67 权限矩阵的跨语言 seam 深化）：Web UI 判定全部消费后端下发能力数据；新增角色/能力只改后端单源与前端展示标签（`ROLE_NAMES`/`PERMISSION_ABILITIES`），任何一边漏同步 = CI 红灯；与 ADR-0001「UI 与 MCP 走同一套授权链」一致，为 MCP 工具接入预留同一判定入口。
+
 ### 审计记录（Audit Record）
 
 - **定义**：每次 MCP 工具调用（谁/工具/参数/结果/确认/时间）的结构化记录；"无确认不落库"的写操作在确认后落库并审计。

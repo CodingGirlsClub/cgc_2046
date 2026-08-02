@@ -16,7 +16,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "角色权限矩阵（#66 Rbac）：三角色 × 六能力，对齐前端 #67 权限表（需登录）"
+    @desc "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
     field :permission_matrix, :permission_matrix_payload do
       resolve(fn _, _, %{context: context} ->
         case context[:actor] do
@@ -27,30 +27,16 @@ defmodule Cgc2046Web.GraphqlSchema do
             roles =
               Cgc2046.Rbac.matrix()
               |> Enum.map(fn row ->
-                %{name: to_string(row.role), abilities: row.abilities}
+                %{
+                  name: to_string(row.role),
+                  abilities:
+                    Enum.map(row.abilities, fn {name, allowed} ->
+                      %{name: to_string(name), allowed: allowed}
+                    end)
+                }
               end)
 
             {:ok, %{roles: roles}}
-        end
-      end)
-    end
-
-    @desc "当前用户在指定工作台的能力列表（#66 Rbac 动态判定，需登录）"
-    field :my_abilities, :my_abilities_payload do
-      arg(:workspace_id, non_null(:id))
-
-      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, "unauthorized"}
-
-          actor ->
-            abilities =
-              actor
-              |> Cgc2046.Rbac.abilities(workspace_id: workspace_id)
-              |> Enum.map(&to_string/1)
-
-            {:ok, %{abilities: abilities}}
         end
       end)
     end

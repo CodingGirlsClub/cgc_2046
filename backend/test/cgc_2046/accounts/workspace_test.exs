@@ -4,6 +4,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
+  alias Cgc2046.Rbac
   alias AshAuthentication.Info, as: AuthInfo
 
   @admin_email "admin@example.com"
@@ -341,6 +342,130 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         )
 
       assert fetched.member_count == 3
+    end
+  end
+
+  describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities/2 语义一致)" do
+    test "owner member gets all six abilities (incl. create_workspace)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "abil-#{System.unique_integer([:positive])}",
+          name: "ABIL"
+        })
+        |> Ash.create(actor: admin)
+
+      fetched =
+        Ash.get!(Workspace, workspace.id,
+          actor: admin,
+          load: [:my_abilities],
+          domain: Cgc2046.GlobalApi
+        )
+
+      assert fetched.my_abilities == [
+               "view_workspace",
+               "access_invite_only",
+               "list_members",
+               "manage_members",
+               "assign_roles",
+               "create_workspace"
+             ]
+    end
+
+    test "plain member gets view/access only" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "abil-m-#{System.unique_integer([:positive])}",
+          name: "ABILM"
+        })
+        |> Ash.create(actor: admin)
+
+      member =
+        register_user("abil-m-#{System.unique_integer([:positive])}@example.com", @password)
+
+      add_member(workspace, member, admin, [:member])
+
+      fetched =
+        Ash.get!(Workspace, workspace.id,
+          actor: member,
+          load: [:my_abilities],
+          domain: Cgc2046.GlobalApi
+        )
+
+      assert fetched.my_abilities == ["view_workspace", "access_invite_only"]
+    end
+
+    test "non-member platform admin gets view/access + create_workspace (matches Rbac.abilities/2)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "abil-nm-#{System.unique_integer([:positive])}",
+          name: "ABILNM"
+        })
+        |> Ash.create(actor: admin)
+
+      # 移除 admin 自己的成员资格（先删 membership_roles，避免外键保护）
+      loaded =
+        Ash.load!(workspace, :memberships,
+          tenant: workspace.id,
+          actor: admin,
+          authorize?: false
+        )
+
+      membership = Enum.find(loaded.memberships, &(&1.user_id == admin.id))
+
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "DELETE FROM membership_roles WHERE membership_id = $1",
+        [Ecto.UUID.dump!(membership.id)]
+      )
+
+      Ash.destroy!(membership, tenant: workspace.id, actor: admin, authorize?: false)
+
+      fetched =
+        Ash.get!(Workspace, workspace.id,
+          actor: admin,
+          load: [:my_abilities],
+          domain: Cgc2046.GlobalApi
+        )
+
+      # 与 Rbac.abilities/2 非成员平台管理员分支一致（#1 语义单源）
+      assert fetched.my_abilities == ["view_workspace", "access_invite_only", "create_workspace"]
+
+      # 对照 Rbac.abilities/2 直调结果完全一致
+      assert Rbac.abilities(admin, workspace_id: workspace.id) ==
+               Enum.map(fetched.my_abilities, &String.to_atom/1)
+    end
+
+    test "non-member non-admin gets []" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "abil-out-#{System.unique_integer([:positive])}",
+          name: "ABILOUT"
+        })
+        |> Ash.create(actor: admin)
+
+      outsider =
+        register_user("abil-out-#{System.unique_integer([:positive])}@example.com", @password)
+
+      fetched =
+        Ash.get!(Workspace, workspace.id,
+          actor: outsider,
+          load: [:my_abilities],
+          domain: Cgc2046.GlobalApi
+        )
+
+      assert fetched.my_abilities == []
     end
   end
 

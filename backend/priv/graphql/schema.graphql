@@ -710,6 +710,9 @@ type Workspace {
   "当前用户是否可进入该工作台（成员\/创建者）"
   canAccess: Boolean
 
+  "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities\/2 一致）"
+  myAbilities: [String!]
+
   "成员数量（P1 计算字段，SQL count(memberships)）"
   memberCount: Int
 }
@@ -988,11 +991,8 @@ type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
 
-  "角色权限矩阵（#66 Rbac）：三角色 × 六能力，对齐前端 #67 权限表（需登录）"
+  "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
   permissionMatrix: PermissionMatrixPayload
-
-  "当前用户在指定工作台的能力列表（#66 Rbac 动态判定，需登录）"
-  myAbilities(workspaceId: ID!): MyAbilitiesPayload
 
   "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/avatarUrl\/isPlatformAdmin + P1 扩展字段"
   me: User
@@ -1121,26 +1121,20 @@ be converted to UTC if there is an offset.
 """
 scalar DateTime
 
-type PermissionAbilities {
-  viewWorkspace: Boolean!
-  accessInviteOnly: Boolean!
-  listMembers: Boolean!
-  manageMembers: Boolean!
-  assignRoles: Boolean!
-  createWorkspace: Boolean!
+type AbilityGrant {
+  "能力名：view_workspace \/ access_invite_only \/ list_members \/ manage_members \/ assign_roles \/ create_workspace"
+  name: String!
+
+  allowed: Boolean!
 }
 
 type PermissionMatrixRow {
   "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: String!
 
-  abilities: PermissionAbilities!
+  abilities: [AbilityGrant!]!
 }
 
 type PermissionMatrixPayload {
   roles: [PermissionMatrixRow!]!
-}
-
-type MyAbilitiesPayload {
-  abilities: [String!]!
 }

@@ -290,7 +290,7 @@ defmodule Cgc2046.RbacTest do
   end
 
   describe "matrix/0" do
-    test "matches the frontend #67 MOCK_PERMISSION_MATRIX (6 roles, G1)" do
+    test "matches the contract artifact (6 roles, G1)" do
       matrix = Rbac.matrix()
 
       assert length(matrix) == 6
@@ -314,6 +314,73 @@ defmodule Cgc2046.RbacTest do
         assert row.abilities.manage_members == false
         assert row.abilities.assign_roles == false
         assert row.abilities.create_workspace == false
+      end
+    end
+  end
+
+  describe "abilities_for/2 (#1 能力接口收敛共享纯函数)" do
+    test "role-derived abilities match matrix rows" do
+      # owner/admin：全部管理能力 + view/access
+      for role <- [:owner, :admin] do
+        assert Rbac.abilities_for([role], false) == [
+                 :view_workspace,
+                 :access_invite_only,
+                 :list_members,
+                 :manage_members,
+                 :assign_roles
+               ]
+      end
+
+      # 成员级角色：仅 view/access
+      for role <- [:member, :tutor, :volunteer, :learner] do
+        assert Rbac.abilities_for([role], false) == [:view_workspace, :access_invite_only]
+      end
+    end
+
+    test "multi-role union takes precedence over single roles" do
+      assert Rbac.abilities_for([:member, :admin], false) == [
+               :view_workspace,
+               :access_invite_only,
+               :list_members,
+               :manage_members,
+               :assign_roles
+             ]
+    end
+
+    test "platform admin flag adds create_workspace and view/access exemption" do
+      # 非成员平台管理员（roles 为空）：view/access + create_workspace
+      assert Rbac.abilities_for([], true) == [
+               :view_workspace,
+               :access_invite_only,
+               :create_workspace
+             ]
+
+      # 成员平台管理员：全部六项
+      assert Rbac.abilities_for([:owner], true) == [
+               :view_workspace,
+               :access_invite_only,
+               :list_members,
+               :manage_members,
+               :assign_roles,
+               :create_workspace
+             ]
+
+      # 非平台管理员：create_workspace 永假（与矩阵一致）
+      refute :create_workspace in Rbac.abilities_for([:owner], false)
+    end
+
+    test "empty roles (member with no roles) still gets view/access — member semantics" do
+      # 成员身份由调用方（calc/can? 的 membership 门）判定；零角色成员仍可访问
+      # （与 roles_can? 的成员语义一致：view/access 无条件 true）
+      assert Rbac.abilities_for([], false) == [:view_workspace, :access_invite_only]
+    end
+
+    test "unions with matrix/0 for every role (single-source consistency)" do
+      for row <- Rbac.matrix() do
+        expected = for {ability, true} <- row.abilities, do: ability
+
+        # 语义集合一致（matrix 的 map 迭代序 ≠ @abilities 列表序，按集合比较）
+        assert Enum.sort(Rbac.abilities_for([row.role], false)) == Enum.sort(expected)
       end
     end
   end

@@ -1,0 +1,86 @@
+{
+  "abilities": [
+    "view_workspace",
+    "access_invite_only",
+    "list_members",
+    "manage_members",
+    "assign_roles",
+    "create_workspace"
+  ],
+  "matrix": [
+    {
+      "abilities": {
+        "access_invite_only": true,
+        "assign_roles": true,
+        "create_workspace": false,
+        "list_members": true,
+        "manage_members": true,
+        "view_workspace": true
+      },
+      "role": "owner"
+    },
+    {
+      "abilities": {
+        "access_invite_only": true,
+        "assign_roles": true,
+        "create_workspace": false,
+        "list_members": true,
+        "manage_members": true,
+        "view_workspace": true
+      },
+      "role": "admin"
+    },
+    {
+      "abilities": {
+        "access_invite_only": true,
+        "assign_roles": false,
+        "create_workspace": false,
+        "list_members": false,
+        "manage_members": false,
+        "view_workspace": true
+      },
+      "role": "member"
+    },
+    {
+      "abilities": {
+        "access_invite_only": true,
+        "assign_roles": false,
+        "create_workspace": false,
+        "list_members": false,
+        "manage_members": false,
+        "view_workspace": true
+      },
+      "role": "tutor"
+    },
+    {
+      "abilities": {
+        "access_invite_only": true,
+        "assign_roles": false,
+        "create_workspace": false,
+        "list_members": false,
+        "manage_members": false,
+        "view_workspace": true
+      },
+      "role": "volunteer"
+    },
+    {
+      "abilities": {
+        "access_invite_only": true,
+        "assign_roles": false,
+        "create_workspace": false,
+        "list_members": false,
+        "manage_members": false,
+        "view_workspace": true
+      },
+      "role": "learner"
+    }
+  ],
+  "roles": [
+    "owner",
+    "admin",
+    "member",
+    "tutor",
+    "volunteer",
+    "learner"
+  ]
+}

@@ -99,10 +99,60 @@ defmodule Cgc2046.Rbac do
 
   @doc """
   当前 actor 在给定上下文（工作台）的可用能力列表（按 `abilities_list/0` 顺序）。
+
+  成员路径与 `can?/3` 共用 `abilities_for/2`（#1 能力接口收敛，语义单源）；
+  非成员平台管理员豁免（view/access + create_workspace）与资源 policy 一致。
   """
   @spec abilities(term, keyword) :: [ability]
   def abilities(actor, opts) do
-    Enum.filter(@abilities, &can?(actor, &1, opts))
+    with {:ok, ws_id} <- workspace_id(opts) do
+      case membership(actor, ws_id) do
+        nil ->
+          # 非成员平台管理员豁免（view/access + create_workspace），
+          # 与 abilities_for/2 的平台管理员路径共用同一实现（#1 语义单源）
+          if actor_is_platform_admin?(actor), do: abilities_for([], true), else: []
+
+        membership ->
+          abilities_for(
+            Enum.map(membership.roles, & &1.name),
+            actor_is_platform_admin?(actor)
+          )
+      end
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  纯函数：给定角色名列表与平台管理员标记，返回能力列表（按 `abilities_list/0` 顺序）。
+
+  `can?/3` 成员路径、`abilities/2` 与 Workspace.my_abilities 计算字段
+  （CurrentMembershipInfo）共用本函数 —— 判定语义唯一实现（#1 能力接口收敛）。
+
+  语义（与 `roles_can?/2` + 平台管理员豁免一致）：
+  - `create_workspace`：仅平台管理员（不出现在角色矩阵，与 matrix 一致）
+  - `view_workspace` / `access_invite_only`：平台管理员或成员（成员身份由调用方判定；
+    角色列表为空时按成员语义仍具备 view/access）
+  - 管理类能力（list_members / manage_members / assign_roles）：与 `@manage_roles` 有交集
+  - 其余：false
+  """
+  @spec abilities_for([atom], boolean) :: [ability]
+  def abilities_for(roles, is_platform_admin) do
+    Enum.filter(@abilities, fn ability ->
+      cond do
+        ability == :create_workspace ->
+          is_platform_admin
+
+        ability in [:view_workspace, :access_invite_only] ->
+          is_platform_admin or roles_can?(roles, ability)
+
+        ability in @manage_abilities ->
+          roles_can?(roles, ability)
+
+        true ->
+          false
+      end
+    end)
   end
 
   @doc """
@@ -200,7 +250,7 @@ defmodule Cgc2046.Rbac do
           false
 
         membership ->
-          roles_can?(Enum.map(membership.roles, & &1.name), ability)
+          ability in abilities_for(Enum.map(membership.roles, & &1.name), false)
       end
     else
       _ -> false
