@@ -109,7 +109,7 @@ input RoleFilterInput {
   "所属工作台（租户）ID"
   workspaceId: RoleFilterWorkspaceId
 
-  "角色名：owner \/ admin \/ member"
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: RoleFilterName
 
   "角色说明"
@@ -127,7 +127,7 @@ type Role {
   "所属工作台（租户）ID"
   workspaceId: ID!
 
-  "角色名：owner \/ admin \/ member"
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: String!
 
   "角色说明"
@@ -708,7 +708,7 @@ type PermissionAbilities {
 }
 
 type PermissionMatrixRow {
-  "角色名：owner \/ admin \/ member"
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: String!
 
   abilities: PermissionAbilities!

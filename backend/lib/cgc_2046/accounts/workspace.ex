@@ -8,7 +8,7 @@ defmodule Cgc2046.Accounts.Workspace do
   - `sponsorship_enabled`：是否开放赞助入口，默认开
 
   权限（#62 + #64，Leader 已拍板）：
-  - 创建：仅平台管理员；创建时自动 seed 角色（owner/admin/member）并建立 Owner 成员资格（#64）
+  - 创建：仅平台管理员；创建时自动 seed 角色（owner/admin/member/tutor/volunteer/learner）并建立 Owner 成员资格（#64 + G1）
   - 读取：open/request 工作台对已认证用户可定向查询；invite_only 仅成员/管理员/平台管理员可读（非成员返回 null/forbidden，不可发现）
   - 更新：平台管理员可改；Owner 权限在 #64 之后收紧为成员管理相关操作
   - `me_workspaces`：返回当前用户可进入（成员或创建者）的工作台列表，供前端 #63 使用
@@ -111,7 +111,10 @@ defmodule Cgc2046.Accounts.Workspace do
           roles = [
             {:owner, "工作台所有者：拥有全部管理权限"},
             {:admin, "工作台管理员：成员管理、角色分配"},
-            {:member, "普通成员：可访问工作台内容"}
+            {:member, "普通成员：可访问工作台内容"},
+            {:tutor, "讲师：内容与教学支持"},
+            {:volunteer, "志愿者：活动与运营支持"},
+            {:learner, "学员：学习与参与"}
           ]
 
           role_records =

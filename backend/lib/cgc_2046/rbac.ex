@@ -23,7 +23,7 @@ defmodule Cgc2046.Rbac do
     管理类能力（`list_members` / `manage_members` / `assign_roles`）**无豁免**，仍按实际 membership 判定
     （#66 P2 决策：方向①判定侧收敛，#64 定稿语义「平台管理员非成员 canAccess=false」）
   - actor 为 `nil`（匿名）→ 一律 `false`
-  - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：三角色均为 false）
+  - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：六角色均为 false）
 
   与各资源 Ash policies 的关系：本模块是**判定入口**（供代码/GraphQL 查询调用），
   资源自身仍由 `policies do ... end` 强制（如 workspace 读取、workspace_membership 管理）。
@@ -102,12 +102,12 @@ defmodule Cgc2046.Rbac do
   end
 
   @doc """
-  静态角色 → 能力矩阵（三角色 × 六能力）。
+  静态角色 → 能力矩阵（六角色 × 六能力，G1 扩展）。
 
   与前端 #67 `MOCK_PERMISSION_MATRIX` 对齐：
   - owner/admin：view_workspace / access_invite_only / list_members / manage_members / assign_roles 全 true
-  - member：仅 view_workspace / access_invite_only
-  - create_workspace：平台管理员专属，三角色均 false
+  - member/tutor/volunteer/learner：仅 view_workspace / access_invite_only
+  - create_workspace：平台管理员专属，六角色均 false
 
   返回 `[%{role: atom, abilities: %{ability => boolean}}]`。
   """
@@ -138,6 +138,39 @@ defmodule Cgc2046.Rbac do
       },
       %{
         role: :member,
+        abilities: %{
+          view_workspace: true,
+          access_invite_only: true,
+          list_members: false,
+          manage_members: false,
+          assign_roles: false,
+          create_workspace: false
+        }
+      },
+      %{
+        role: :tutor,
+        abilities: %{
+          view_workspace: true,
+          access_invite_only: true,
+          list_members: false,
+          manage_members: false,
+          assign_roles: false,
+          create_workspace: false
+        }
+      },
+      %{
+        role: :volunteer,
+        abilities: %{
+          view_workspace: true,
+          access_invite_only: true,
+          list_members: false,
+          manage_members: false,
+          assign_roles: false,
+          create_workspace: false
+        }
+      },
+      %{
+        role: :learner,
         abilities: %{
           view_workspace: true,
           access_invite_only: true,
