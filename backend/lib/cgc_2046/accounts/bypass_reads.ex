@@ -36,16 +36,15 @@ defmodule Cgc2046.Accounts.BypassReads do
   UUID 输入在 `Ecto.UUID.dump!/1` 阶段即抛 ArgumentError。
   """
 
+  alias Cgc2046.Accounts.User
   alias Cgc2046.Repo
 
   @doc """
   按工作台批量统计成员数（GROUP BY workspace_id，不经 membership read policy）。
   返回 `%{workspace_id => count}`；无成员的工作台不出现（调用方 `Map.get(_, 0)`
-  兜底）；空输入返回 `%{}`。
+  兜底）；空输入返回 `%{}`（空数组下 `workspace_id = ANY($1::uuid[])` 恒 0 行）。
   """
   @spec member_count([String.t()]) :: %{String.t() => non_neg_integer}
-  def member_count([]), do: %{}
-
   def member_count(workspace_ids) do
     {:ok, result} =
       Ecto.Adapters.SQL.query(
@@ -66,7 +65,7 @@ defmodule Cgc2046.Accounts.BypassReads do
   actor 加入的全部工作台 id（不经 membership read policy；供
   ReadUserByVisibility 注入 exists 子查询）。非成员返回 `[]`。
   """
-  @spec shared_workspace_ids(map) :: [String.t()]
+  @spec shared_workspace_ids(%User{}) :: [String.t()]
   def shared_workspace_ids(actor) do
     {:ok, result} =
       Ecto.Adapters.SQL.query(
