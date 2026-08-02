@@ -170,10 +170,12 @@
   .profile-change-avatar:hover { border-color: var(--accent); color: var(--accent); }
   .profile-edit-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 17px; }
   .profile-edit-layout label { display: block; min-width: 0; }
-  .profile-edit-layout input, .profile-edit-layout textarea { display: block; width: 100%; margin-top: 7px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--line-input); color: var(--ink); font-size: 15px; line-height: 22px; outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }
+  .profile-edit-layout input, .profile-edit-layout textarea, .profile-edit-layout select { display: block; width: 100%; margin-top: 7px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--line-input); color: var(--ink); font-size: 15px; line-height: 22px; outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }
   .profile-edit-layout input { min-height: 42px; padding: 0 13px; }
   .profile-edit-layout textarea { min-height: 92px; resize: vertical; padding: 10px 13px; }
-  .profile-edit-layout input:focus, .profile-edit-layout textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .profile-edit-layout select { min-height: 42px; padding: 0 30px 0 13px; appearance: none; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888f9e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-position: right 12px center; background-size: 12px 12px; background-repeat: no-repeat; }
+  .profile-edit-layout input:focus, .profile-edit-layout textarea:focus, .profile-edit-layout select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .profile-visibility-options { margin-top: 14px; }
   .profile-edit-about { position: relative; margin-top: 17px; }
   .profile-char-count { display: block; margin-top: 4px; color: var(--ink-3); font-family: var(--font-mono); font-size: 11px; line-height: 16px; text-align: right; }
   .profile-edit-skills { margin-top: 14px; }
@@ -194,10 +196,10 @@
   .profile-edit-readonly input[readonly] { color: var(--ink-3); }
   .profile-edit-portfolio { grid-column: 1 / -1; padding: 22px 20px 18px; }
   .profile-edit-portfolio-list { display: grid; gap: 0; margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius-medium); overflow: hidden; }
-  .profile-edit-portfolio-row { display: grid; grid-template-columns: 28px minmax(150px, 1fr) minmax(180px, 1.1fr) minmax(190px, 1fr) 28px; align-items: end; gap: 14px; padding: 14px 12px 12px; border-top: 1px solid var(--line); background: var(--card); }
+  .profile-edit-portfolio-row { display: grid; grid-template-columns: 28px minmax(150px, 1fr) minmax(160px, 1.1fr) minmax(170px, 1fr) minmax(90px, .55fr) 28px; align-items: end; gap: 14px; padding: 14px 12px 12px; border-top: 1px solid var(--line); background: var(--card); }
   .profile-edit-portfolio-row:first-child { border-top: 0; }
   .profile-edit-portfolio-row label span { display: block; color: var(--ink-2); font-size: 12px; line-height: 18px; }
-  .profile-edit-portfolio-row input { margin-top: 5px; font-size: 13px; }
+  .profile-edit-portfolio-row input, .profile-edit-portfolio-row select { margin-top: 5px; font-size: 13px; }
   .profile-drag-handle { align-self: center; color: var(--ink-3); }
   .profile-remove-portfolio { align-self: center; color: var(--ink-3); }
   .profile-remove-portfolio:hover { color: var(--status-red); }
@@ -230,8 +232,7 @@
     .profile-edit-form-grid { grid-template-columns: 1fr; gap: 14px; }
     .profile-edit-portfolio { padding: 19px 12px 14px; }
     .profile-edit-portfolio-row { grid-template-columns: 20px minmax(0, 1fr) 26px; gap: 8px; }
-    .profile-edit-portfolio-row label:nth-of-type(2), .profile-edit-portfolio-row label:nth-of-type(3) { grid-column: 2 / -1; }
-    .profile-edit-portfolio-row label:nth-of-type(3) { grid-column: 2 / -1; }
+    .profile-edit-portfolio-row label:nth-of-type(2), .profile-edit-portfolio-row label:nth-of-type(3), .profile-edit-portfolio-row label:nth-of-type(4) { grid-column: 2 / -1; }
     .profile-edit-portfolio-row .profile-remove-portfolio { grid-column: 3; grid-row: 1; }
     .profile-footer { display: grid; gap: 6px; }
   }

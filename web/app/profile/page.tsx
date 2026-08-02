@@ -15,11 +15,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
+import { formatJoinedDate } from "@/lib/format";
 import {
+  createPortfolioItem,
+  deletePortfolioItem,
   fetchCurrentProfile,
+  fetchPortfolioItems,
   fetchProfileRoleSummary,
   MOCK_PROFILE_PORTFOLIO,
   updateCurrentProfile,
+  updatePortfolioItem,
   type CurrentProfile,
   type PortfolioIcon,
   type ProfilePortfolioItem,
@@ -30,6 +35,7 @@ import {
   ROLE_LABEL,
   type MembershipRoleName,
 } from "@/lib/graphql/workspace";
+import type { ProfileVisibility } from "@/lib/graphql/profile";
 
 type IconName =
   | "home"
@@ -124,6 +130,7 @@ interface ProfileDraft {
   location: string;
   about: string;
   skills: string[];
+  visibility: ProfileVisibility;
   portfolio: ProfilePortfolioItem[];
   avatarUrl: string | null;
 }
@@ -154,7 +161,7 @@ function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummar
     location: profile.location || "上海",
     about: profile.about || DEFAULT_ABOUT,
     skills: profile.skills?.length ? [...profile.skills] : [...DEFAULT_SKILLS],
-    joinedAt: profile.joinedAt || "2024 年 3 月",
+    joinedAt: formatJoinedDate(profile.joinedAt || "2024 年 3 月"),
     visibility: profile.visibility ?? "workspace_members",
     memberNumber: profile.memberNumber || "CGC-SH-0018",
     workspaceName: profile.workspaceName || summary?.workspaceName || "上海 Coding Girls Club",
@@ -171,6 +178,7 @@ function toDraft(content: ProfileContent): ProfileDraft {
     location: content.location,
     about: content.about,
     skills: [...content.skills],
+    visibility: content.visibility,
     portfolio: content.portfolio.map((item) => ({ ...item })),
     avatarUrl: content.avatarUrl,
   };
@@ -200,7 +208,7 @@ function Avatar({ content, editable = false, onFile }: { content: Pick<ProfileCo
       )}
       {editable && (
         <>
-          <input ref={inputRef} type="file" accept="image/png,image/jpeg" className="profile-file-input" onChange={handleFile} />
+          <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="profile-file-input" onChange={handleFile} />
           <button type="button" className="profile-change-avatar" onClick={() => inputRef.current?.click()}>更换头像</button>
         </>
       )}
@@ -327,6 +335,11 @@ function EditPortfolioRow({ item, onChange, onRemove }: { item: ProfilePortfolio
       <label><span>作品标题</span><input value={item.title} onChange={(event) => onChange({ ...item, title: event.target.value })} /></label>
       <label><span>作品简介</span><input value={item.description} onChange={(event) => onChange({ ...item, description: event.target.value })} /></label>
       <label><span>作品链接</span><input value={item.url ?? ""} onChange={(event) => onChange({ ...item, url: event.target.value })} /></label>
+      <label><span>图标类型</span><select value={item.icon ?? "document"} aria-label="作品图标类型" onChange={(event) => onChange({ ...item, icon: event.target.value as PortfolioIcon })}>
+        <option value="document">文档</option>
+        <option value="book">书籍</option>
+        <option value="guide">指南</option>
+      </select></label>
       <button type="button" className="profile-remove-portfolio" aria-label={`删除${item.title || "作品"}`} onClick={onRemove}><Icon name="trash" size={19} /></button>
     </div>
   );
@@ -350,7 +363,7 @@ function EditContent({ draft, roles, memberNumber, onDraftChange }: { draft: Pro
           <span className="profile-form-label">头像</span>
           <div className="profile-edit-avatar-row">
             <Avatar content={{ name: draft.name || "?", avatarUrl: draft.avatarUrl }} editable onFile={(avatarUrl) => onDraftChange({ ...draft, avatarUrl })} />
-            <p>支持 JPG、PNG，文件大小不超过 5MB。</p>
+            <p>支持 PNG、JPG、WebP、GIF，文件大小不超过 2.2MB。</p>
           </div>
         </div>
         <div className="profile-edit-form-grid">
@@ -364,7 +377,17 @@ function EditContent({ draft, roles, memberNumber, onDraftChange }: { draft: Pro
       <aside className="profile-edit-side">
         <section className="profile-card profile-edit-readonly" data-testid="edit-visibility-card">
           <h2>可见范围</h2>
-          <p><Icon name="lock" size={16} />仅当前 Workspace 成员可见</p>
+          <label className="profile-visibility-options">
+            <span className="profile-form-label">资料可见范围</span>
+            <select
+              data-testid="profile-visibility-input"
+              value={draft.visibility}
+              onChange={(event) => onDraftChange({ ...draft, visibility: event.target.value as ProfileVisibility })}
+            >
+              <option value="workspace_members">仅当前 Workspace 成员可见</option>
+              <option value="workspace_public">Workspace 内公开</option>
+            </select>
+          </label>
           <div className="profile-edit-divider" />
           <h2>工作区身份</h2>
           <p>角色由 Owner / Admin 管理，此处不可编辑</p>
@@ -406,12 +429,13 @@ export default function ProfilePage() {
       return;
     }
     let cancelled = false;
-    Promise.all([fetchCurrentProfile(), fetchProfileRoleSummary()])
-      .then(([nextProfile, nextSummaries]) => {
+    Promise.all([fetchCurrentProfile(), fetchProfileRoleSummary(), fetchPortfolioItems()])
+      .then(([nextProfile, nextSummaries, portfolio]) => {
         if (cancelled) return;
-        setProfile(nextProfile);
+        const withPortfolio = { ...nextProfile, portfolio };
+        setProfile(withPortfolio);
         setSummaries(nextSummaries);
-        setDraft(toDraft(getProfileContent(nextProfile, nextSummaries)));
+        setDraft(toDraft(getProfileContent(withPortfolio, nextSummaries)));
         setErrorMsg(null);
       })
       .catch((error: unknown) => {
@@ -450,15 +474,61 @@ export default function ProfilePage() {
     setSaving(true);
     setErrorMsg(null);
     try {
-      // #68 当前 API 只接受 displayName/avatarUrl；其余设计字段先在资料页状态中保留。
-      const updated = await updateCurrentProfile({ displayName: name, avatarUrl: draft.avatarUrl });
-      setProfile({ ...profile, ...updated, displayName: name, avatarUrl: draft.avatarUrl, location: draft.location, about: draft.about, skills: draft.skills, portfolio: draft.portfolio });
+      // P1：真实分支提交全部可编辑字段（displayName/avatarUrl/location/about/skills/visibility），
+      // 修复 G8 假保存——扩展字段不再只留在前端状态伪造。
+      const updated = await updateCurrentProfile({
+        displayName: name,
+        avatarUrl: draft.avatarUrl,
+        location: draft.location,
+        about: draft.about,
+        skills: draft.skills,
+        visibility: draft.visibility,
+      });
+      // P1：同步作品集 CRUD（新增/删除/变更 diff 提交后端，真实模式）
+      await syncPortfolioChanges(profile, draft.portfolio);
+      // 保存成功后重新拉取作品集，确保 id 与后端一致（新增条目由后端生成 uuid）
+      const refreshedPortfolio = await fetchPortfolioItems();
+      setProfile({ ...profile, ...updated, displayName: name, avatarUrl: draft.avatarUrl, location: draft.location, about: draft.about, skills: draft.skills, visibility: draft.visibility, portfolio: refreshedPortfolio });
       setEditing(false);
       setSavedMsg("资料已保存");
     } catch (error: unknown) {
       setErrorMsg(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** 作品集 diff 同步：新增条目 create、被移除条目 delete、内容变化条目 update（P1 CRUD 接线） */
+  async function syncPortfolioChanges(prev: CurrentProfile, next: ProfilePortfolioItem[]) {
+    const original = new Map((prev.portfolio ?? []).map((item) => [item.id, item]));
+    const nextIds = new Set(next.map((item) => item.id));
+    for (const item of next) {
+      const orig = original.get(item.id);
+      if (!orig) {
+        await createPortfolioItem({
+          title: item.title,
+          description: item.description,
+          url: item.url ?? null,
+          icon: item.icon ?? "document",
+        });
+      } else if (
+        orig.title !== item.title ||
+        (orig.description ?? "") !== (item.description ?? "") ||
+        (orig.url ?? null) !== (item.url ?? null) ||
+        (orig.icon ?? "document") !== (item.icon ?? "document")
+      ) {
+        await updatePortfolioItem(item.id, {
+          title: item.title,
+          description: item.description,
+          url: item.url ?? null,
+          icon: item.icon ?? "document",
+        });
+      }
+    }
+    for (const item of prev.portfolio ?? []) {
+      if (!nextIds.has(item.id)) {
+        await deletePortfolioItem(item.id);
+      }
     }
   }
 

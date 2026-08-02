@@ -50,6 +50,8 @@ export interface Workspace {
   myMembershipId?: string | null;
   /** 当前用户是否可进入该工作台（成员/创建者）— #64 */
   canAccess?: boolean;
+  /** 成员数量（P1 计算字段，SQL count(memberships)） */
+  memberCount?: number | null;
 }
 
 export interface WorkspaceMembership {
@@ -60,6 +62,12 @@ export interface WorkspaceMembership {
   userId: string;
   /** 角色并集（#64 补充：workspaceMembers 返回 roles { id name } 对象数组） */
   roles?: WorkspaceMembershipRole[] | null;
+  /** 成员邮箱（P1 平铺计算字段，SQL LEFT JOIN users，不经 User read policy） */
+  userEmail?: string | null;
+  /** 成员昵称（P1 平铺计算字段） */
+  userDisplayName?: string | null;
+  /** 加入时间（P1 平铺计算字段，= inserted_at） */
+  joinedAt?: string | null;
 }
 
 /** 成员角色对象（#64 workspaceMembers 的 roles 字段返回结构） */
@@ -108,7 +116,7 @@ export interface AssignRolesResultData {
 
 /* ---------------- 真实 query / mutation ---------------- */
 
-/** #64 meWorkspaces：当前用户可进入的工作台列表（成员资格 + 创建者） */
+/** #64 meWorkspaces：当前用户可进入的工作台列表（成员资格 + 创建者；P1 带 memberCount） */
 export const ME_WORKSPACES: TypedDocumentNode<{ meWorkspaces: Workspace[] }, Record<string, never>> = gql`
   query MeWorkspaces {
     meWorkspaces {
@@ -120,6 +128,7 @@ export const ME_WORKSPACES: TypedDocumentNode<{ meWorkspaces: Workspace[] }, Rec
       myRoleNames
       myMembershipId
       canAccess
+      memberCount
     }
   }
 `;
@@ -154,6 +163,7 @@ export const ASSIGN_ROLES: TypedDocumentNode<
 /**
  * #64 workspaceMembers：成员列表查询（分页对象，filter 用 eq 比较器包装 workspaceId）。
  * 单成员多角色通过 roles { id name } 并集返回。
+ * P1：平铺计算字段 userEmail/userDisplayName/joinedAt（不再嵌套 user，规避 User read policy 过滤）。
  */
 export const WORKSPACE_MEMBERS: TypedDocumentNode<
   { workspaceMembers: WorkspaceMemberConnection },
@@ -166,6 +176,9 @@ export const WORKSPACE_MEMBERS: TypedDocumentNode<
         id
         workspaceId
         userId
+        userEmail
+        userDisplayName
+        joinedAt
         roles {
           id
           name
@@ -242,7 +255,8 @@ export const JOIN_POLICY_HINT: Record<JoinPolicy, string> = {
 
 /* ---------------- 成员角色（#64）展示辅助 ---------------- */
 
-export const MEMBERSHIP_ROLES: MembershipRoleName[] = ["owner", "admin", "member"];
+/** 成员角色全集（P2-6 修复：与共享 ROLE_LABEL 六角色一致，不再遗漏 tutor/volunteer/learner） */
+export const MEMBERSHIP_ROLES: MembershipRoleName[] = ["owner", "admin", "tutor", "volunteer", "learner", "member"];
 
 export const ROLE_LABEL: Record<MembershipRoleName, string> = {
   owner: "Owner",

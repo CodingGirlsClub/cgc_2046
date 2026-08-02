@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
+import { formatJoinedDate } from "@/lib/format";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
   assignMemberRoles,
@@ -145,7 +146,7 @@ function avatarLetter(member: WorkspaceMember) {
 }
 
 function memberJoinedAt(member: WorkspaceMember) {
-  return member.joinedAt ?? "—";
+  return formatJoinedDate(member.joinedAt);
 }
 
 function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {

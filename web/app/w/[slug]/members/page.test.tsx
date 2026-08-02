@@ -297,6 +297,39 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
     expect(screen.queryByRole("button", { name: /编辑角色/ })).not.toBeInTheDocument();
     expect((await screen.findAllByText("仅查看")).length).toBeGreaterThan(0);
   });
+
+  it("P1 平铺字段：真实分支返回 userEmail/userDisplayName/joinedAt → 成员表展示平铺数据", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_real_t",
+        slug: "p1-flat-ws-666",
+        name: "P1 平铺字段工作区",
+        joinPolicy: "open",
+        sponsorshipEnabled: true,
+        myRoleNames: ["owner"],
+        roles: ["owner"],
+        membershipStatus: "active",
+      },
+    ]);
+    params.value = { slug: "p1-flat-ws-666" };
+    // 直接按后端 workspaceMembers 契约形状返回平铺字段
+    fetchMembers.mockResolvedValue([
+      {
+        membershipId: "wm_ft",
+        userId: "u_ft",
+        email: "flat.member@example.com",
+        displayName: "平铺成员",
+        joinedAt: "2026-08-02T03:00:00Z",
+        roles: ["tutor"],
+      },
+    ]);
+
+    render(<MembersPage />);
+    expect((await screen.findAllByText("平铺成员")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("flat.member@example.com")).length).toBeGreaterThan(0);
+    // ISO joinedAt 格式化为中文年月（P1）
+    expect(screen.getByText("2026 年 8 月")).toBeInTheDocument();
+  });
 });
 
 describe("成员角色数据源（lib/workspaces）", () => {
