@@ -161,6 +161,7 @@ export const MOCK_CURRENT_PROFILE: CurrentProfile = {
   memberNumber: "CGC-SH-0018",
   workspaceName: "上海 Coding Girls Club",
   workspaceSlug: "cgc-shanghai",
+  // 角色值引用 lib/graphql/workspace.ts 的 ROLE_NAMES 单源语义（此处为 mock 数据值，子集）
   workspaceRoles: ["owner", "tutor"],
   portfolio: MOCK_PROFILE_PORTFOLIO,
 };

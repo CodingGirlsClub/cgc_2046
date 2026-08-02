@@ -12,6 +12,7 @@ import {
   MEMBERSHIP_ROLES,
   ROLE_LABEL,
   ROLE_LABEL_ZH,
+  ROLE_NAMES,
   canAssignRoles,
 } from "./workspace";
 
@@ -89,7 +90,8 @@ describe("#64/#65 成员角色契约", () => {
   });
 
   it("角色模型：旧 member 与 Slice A 默认角色标签齐全（六角色）", () => {
-    expect(MEMBERSHIP_ROLES).toEqual(["owner", "admin", "tutor", "volunteer", "learner", "member"]);
+    // 断言引用 ROLE_NAMES 单源，不重复六角色字面量
+    expect(MEMBERSHIP_ROLES).toEqual([...ROLE_NAMES]);
     expect(ROLE_LABEL.owner).toBe("Owner");
     expect(ROLE_LABEL.admin).toBe("Admin");
     expect(ROLE_LABEL.tutor).toBe("Tutor");

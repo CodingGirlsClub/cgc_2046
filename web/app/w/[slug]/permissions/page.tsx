@@ -29,6 +29,7 @@ import {
 } from "@/lib/graphql/workspace";
 import ProfileEntry from "@/components/profile-entry";
 
+// 演示数据（角色值子集；枚举单源见 lib/graphql/workspace.ts 的 ROLE_NAMES）
 const EXAMPLE_ROLES: MembershipRoleName[] = ["owner", "tutor"];
 
 type IconName = "grid" | "users" | "settings" | "user" | "shield" | "info" | "owner" | "check";
