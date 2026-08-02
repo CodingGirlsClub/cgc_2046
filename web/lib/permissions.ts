@@ -26,6 +26,7 @@ import { USE_MOCK_WORKSPACES } from "./workspaces";
  * 矩阵以五个默认角色展示：Owner / Admin / Tutor / Volunteer / Learner。
  * 后端返回六角色（含 member），前端 normalize member→learner 后按五角色渲染；
  * 真实模式只渲染后端返回的行（缺行不伪造）；mock 模式（开发 fixture）用模板补齐（模板只含六能力）。
+ * member→learner 重映射见 normalizeRoleName：真实 learner 行优先，member 仅作兼容回退。
  */
 
 /** 能力 ID：与后端 RbacAbility 对齐（单一数据源，避免再次漂移）。 */
@@ -160,7 +161,8 @@ export function myRolesHaveAbility(
 ): boolean {
 	if (!myRoles || myRoles.length === 0) return false;
 	return myRoles.some((role) => {
-		const normalizedRole = role === "member" ? "learner" : role;
+		const normalizedRole = normalizeRoleName(role);
+		if (!normalizedRole) return false;
 		const row = matrix.find((item) => item.role === normalizedRole);
 		return row ? roleHasAbility(row, ability) : false;
 	});
@@ -179,19 +181,19 @@ function normalizeRoleName(name: string): MembershipRoleName | null {
  * 六能力直接从后端 abilities 字段直取（viewWorkspace/accessInviteOnly/
  * listMembers/manageMembers/assignRoles/createWorkspace）；
  * 后端缺行时不伪造，仅渲染后端实际返回的行（按设计稿角色顺序）。
+ * member→learner 优先级：真实 learner 行优先，member 仅在后端未返回 learner 时作兼容回退。
  */
 export function mapPermissionMatrixRows(
 	rows: RbacPermissionMatrixRow[] | null | undefined,
 ): PermissionMatrixRow[] {
 	if (!rows || !Array.isArray(rows) || rows.length === 0) return [];
 
-	const mapped = new Map<MembershipRoleName, PermissionMatrixRow>();
-	for (const backendRow of rows) {
-		const role = normalizeRoleName(backendRow.name);
-		if (!role || mapped.has(role)) continue;
-
+	const makeRow = (
+		backendRow: RbacPermissionMatrixRow,
+		role: MembershipRoleName,
+	): PermissionMatrixRow => {
 		const backend = backendRow.abilities;
-		mapped.set(role, {
+		return {
 			role,
 			abilities: {
 				view_workspace: backend.viewWorkspace,
@@ -202,7 +204,21 @@ export function mapPermissionMatrixRows(
 				create_workspace: backend.createWorkspace,
 			},
 			note: ROLE_NOTES[role],
-		});
+		};
+	};
+
+	const mapped = new Map<MembershipRoleName, PermissionMatrixRow>();
+	// 第一遍：非 member 行（真实 learner 行优先）
+	for (const backendRow of rows) {
+		if (backendRow.name === "member") continue;
+		const role = normalizeRoleName(backendRow.name);
+		if (!role || mapped.has(role)) continue;
+		mapped.set(role, makeRow(backendRow, role));
+	}
+	// 第二遍：member 仅作兼容回退——后端未返回 learner 时补 learner 槽位
+	const memberRow = rows.find((row) => row.name === "member");
+	if (memberRow && !mapped.has("learner")) {
+		mapped.set("learner", makeRow(memberRow, "learner"));
 	}
 
 	return PERMISSION_ROLE_ORDER.flatMap((role) => {
