@@ -124,7 +124,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin do
       |> Ash.Query.filter(user_id == ^actor.id)
       |> Ash.Query.load(:roles)
 
-    case Ash.read(query, actor: actor, authorize?: false, tenant: workspace_id) do
+    case Ash.read(query, authorize?: false, tenant: workspace_id) do
       {:ok, [membership | _]} ->
         Enum.any?(membership.roles, fn role -> role.name in Role.manage_roles() end)
 

@@ -149,6 +149,7 @@ defmodule Cgc2046.Rbac do
   返回 actor 在目标工作台的角色名列表（多角色并集，按 membership.roles 加载顺序）。
 
   - `actor` 只需含 `:id` 字段（assign_roles grant scope 校验可用 `%{id: user_id}` 传 target）
+  - 仅取 actor 的 `:id` 做成员过滤，不做鉴权（内部读取 authorize?: false）
   - 非成员 / 匿名返回 `[]`
   - 供 assign_roles 越权修复（P0）与其它判定复用
 
@@ -157,7 +158,7 @@ defmodule Cgc2046.Rbac do
       iex> Rbac.role_names(actor, ws_id)
       [:owner]
   """
-  @spec role_names(term, String.t()) :: [atom]
+  @spec role_names(%{optional(:id) => String.t()} | nil, String.t()) :: [atom]
   def role_names(nil, _workspace_id), do: []
 
   def role_names(actor, workspace_id) do
@@ -236,7 +237,7 @@ defmodule Cgc2046.Rbac do
       |> Ash.Query.filter(user_id == ^actor.id)
       |> Ash.Query.load(:roles)
 
-    case Ash.read(query, actor: actor, authorize?: false, tenant: workspace_id) do
+    case Ash.read(query, authorize?: false, tenant: workspace_id) do
       {:ok, [membership | _]} -> membership
       _ -> nil
     end
