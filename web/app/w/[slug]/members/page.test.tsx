@@ -167,6 +167,85 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
     expect(fetchMembers).not.toHaveBeenCalled();
   });
 
+  it("自杀式降权防护：Admin 编辑自己行移除 admin，确认框取消则不提交", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_02",
+        slug: "cgc-academy",
+        name: "CGC 线上学院",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: ["admin"],
+        myMembershipId: "wm_0202",
+        roles: ["admin"],
+        membershipStatus: "active",
+      },
+    ]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<MembersPage />);
+    const rows = await screen.findAllByTestId("member-row");
+    const selfRow = rows.find((row) => within(row).queryByText("陈雨")) as HTMLElement;
+    fireEvent.click(within(selfRow).getByRole("button", { name: "编辑角色" }));
+    // 取消 Admin 勾选（原本仅 admin）
+    fireEvent.click(within(selfRow).getByRole("checkbox", { name: "Admin 角色" }));
+    fireEvent.click(within(selfRow).getByRole("button", { name: "保存角色" }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+    expect(assignRoles).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("自杀式降权防护：确认后允许移除自身 admin", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_02",
+        slug: "cgc-academy",
+        name: "CGC 线上学院",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: ["admin"],
+        myMembershipId: "wm_0202",
+        roles: ["admin"],
+        membershipStatus: "active",
+      },
+    ]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<MembersPage />);
+    const rows = await screen.findAllByTestId("member-row");
+    const selfRow = rows.find((row) => within(row).queryByText("陈雨")) as HTMLElement;
+    fireEvent.click(within(selfRow).getByRole("button", { name: "编辑角色" }));
+    fireEvent.click(within(selfRow).getByRole("checkbox", { name: "Admin 角色" }));
+    fireEvent.click(within(selfRow).getByRole("button", { name: "保存角色" }));
+    await waitFor(() => expect(assignRoles).toHaveBeenCalledWith("ws_02", "wm_0202", []));
+    confirmSpy.mockRestore();
+  });
+
+  it("自杀式降权防护：编辑他人（非自己）移除 admin 不弹确认", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_02",
+        slug: "cgc-academy",
+        name: "CGC 线上学院",
+        joinPolicy: "request",
+        sponsorshipEnabled: true,
+        myRoleNames: ["admin"],
+        myMembershipId: "wm_0202",
+        roles: ["admin"],
+        membershipStatus: "active",
+      },
+    ]);
+    const confirmSpy = vi.spyOn(window, "confirm");
+    render(<MembersPage />);
+    const rows = await screen.findAllByTestId("member-row");
+    // 周宁（wm_0203）不是自己，但持有 tutor+volunteer；无 admin，不会触发确认。
+    const otherRow = rows.find((row) => within(row).queryByText("周宁")) as HTMLElement;
+    fireEvent.click(within(otherRow).getByRole("button", { name: "编辑角色" }));
+    fireEvent.click(within(otherRow).getByRole("checkbox", { name: "Tutor 角色" }));
+    fireEvent.click(within(otherRow).getByRole("button", { name: "保存角色" }));
+    await waitFor(() => expect(assignRoles).toHaveBeenCalled());
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
   it("真实 Workspace 上下文仍通过 fetchMyWorkspaces 与成员数据渲染", async () => {
     fetchMyWorkspaces.mockResolvedValue([
       {

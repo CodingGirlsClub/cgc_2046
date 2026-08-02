@@ -31,6 +31,8 @@ export interface WorkspaceListItem {
   sponsorshipEnabled: boolean;
   /** 当前用户在该工作台的角色名数组（#64 meWorkspaces 的 myRoleNames） */
   myRoleNames?: MembershipRoleName[];
+  /** 当前用户在该工作台的成员资格 ID（#64 meWorkspaces 的 myMembershipId；非成员为 null） */
+  myMembershipId?: string | null;
   /** 展示附加字段（mock；真实 meWorkspaces 返回后由后端补齐语义） */
   description?: string;
   memberCount?: number;
@@ -202,6 +204,7 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
     myRoleNames: ws.myRoleNames ?? [],
     roles: ws.myRoleNames ?? [],
     membershipStatus: mapMembershipStatus(ws),
+    myMembershipId: ws.myMembershipId ?? null,
   }));
 }
 
