@@ -23,6 +23,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			list_members: true,
 			manage_members: true,
 			assign_roles: true,
+			update_join_policy: true,
 			create_workspace: false,
 		},
 	},
@@ -34,6 +35,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			list_members: true,
 			manage_members: true,
 			assign_roles: true,
+			update_join_policy: true,
 			create_workspace: false,
 		},
 	},
@@ -45,6 +47,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			list_members: false,
 			manage_members: false,
 			assign_roles: false,
+			update_join_policy: false,
 			create_workspace: false,
 		},
 	},
@@ -56,6 +59,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			list_members: false,
 			manage_members: false,
 			assign_roles: false,
+			update_join_policy: false,
 			create_workspace: false,
 		},
 	},
@@ -67,6 +71,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			list_members: false,
 			manage_members: false,
 			assign_roles: false,
+			update_join_policy: false,
 			create_workspace: false,
 		},
 	},
@@ -178,13 +183,9 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 			"aria-current",
 			"page",
 		);
-		const shellButton = screen.getByRole("button", { name: "工作区设置" });
-		// 共享壳禁用项（⑤ review P2-2）：跨页同一组件，回归即跨三页静默落地
-		expect(shellButton).toBeDisabled();
-		expect(shellButton).toHaveAttribute(
-			"title",
-			"Workspace 设置将在后续版本开放",
-		);
+		const shellLink = screen.getByRole("link", { name: "工作区设置" });
+		// #78：壳「工作区设置」由禁用按钮解禁为链接（指向设置页）
+		expect(shellLink).toHaveAttribute("href", "/w/cgc-academy/settings");
 		// 壳 nav 激活态：/permissions 归「成员与角色」子页（⑤ review P3-4）
 		const shellNav = screen.getByRole("navigation", { name: "Workspace 设置" });
 		expect(
@@ -284,12 +285,13 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		const statuses = within(example).getAllByTestId(
 			"permission-ability-status",
 		);
-		expect(statuses).toHaveLength(6);
+		// #78：新增 update_join_policy（Owner+Tutor 并集 → 允许），拒绝项为平台级 create_workspace
+		expect(statuses).toHaveLength(7);
 		expect(
-			statuses.slice(0, 5).every((item) => item.textContent?.includes("允许")),
+			statuses.slice(0, 6).every((item) => item.textContent?.includes("允许")),
 		).toBe(true);
-		expect(statuses[5]).toHaveTextContent("创建工作台");
-		expect(statuses[5]).toHaveTextContent("拒绝");
+		expect(statuses[6]).toHaveTextContent("创建工作台");
+		expect(statuses[6]).toHaveTextContent("拒绝");
 	});
 
 	it("未知 slug 显示不可访问状态，不请求权限矩阵", async () => {

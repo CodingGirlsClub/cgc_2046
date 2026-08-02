@@ -78,6 +78,11 @@ export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 		description: "在成员页调整 Owner 之外的角色；Owner 走专门指派流程。",
 	},
 	{
+		id: "update_join_policy",
+		label: "修改加入策略",
+		description: "切换当前 Workspace 的加入方式（开放加入 / 申请制 / 邀请制）。",
+	},
+	{
 		id: "create_workspace",
 		label: "创建工作台",
 		description: "创建新的 Workspace（平台级能力，不随角色在矩阵中授予）。",

@@ -22,6 +22,7 @@ const MANAGER_ABILITIES = {
 	list_members: true,
 	manage_members: true,
 	assign_roles: true,
+	update_join_policy: true,
 	create_workspace: false,
 };
 
@@ -31,6 +32,7 @@ const MEMBER_ABILITIES = {
 	list_members: false,
 	manage_members: false,
 	assign_roles: false,
+	update_join_policy: false,
 	create_workspace: false,
 };
 
@@ -59,6 +61,7 @@ describe("mapPermissionMatrixRows（后端六角色矩阵 → 五角色展示矩
 			list_members: true,
 			manage_members: true,
 			assign_roles: true,
+			update_join_policy: true,
 			create_workspace: false,
 		});
 		expect(rows.find((row) => row.role === "admin")?.abilities).toMatchObject({

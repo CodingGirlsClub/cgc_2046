@@ -27,6 +27,7 @@ export type RbacAbility =
 	| "list_members"
 	| "manage_members"
 	| "assign_roles"
+	| "update_join_policy"
 	| "create_workspace";
 
 /** permissionMatrix 单行 abilities 的通用能力项（#1：通用列表，不再固定字段） */

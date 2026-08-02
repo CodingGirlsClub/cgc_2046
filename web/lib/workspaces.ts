@@ -9,6 +9,7 @@ import {
 	WORKSPACE_MEMBERS,
 	ME_WORKSPACES,
 	ASSIGN_ROLES,
+	UPDATE_WORKSPACE,
 	type WorkspaceMemberConnection,
 	type WorkspaceMembership,
 	type WorkspaceMembershipRole,
@@ -202,6 +203,41 @@ export function currentUserCanAssignRoles(
 	ws: WorkspaceListItem | undefined,
 ): boolean {
 	return ws?.myAbilities?.includes("assign_roles") ?? false;
+}
+
+/**
+ * 更新工作台加入策略（#78 工作区设置页）。
+ * 唯一真实路径：updateWorkspace mutation（id = workspace id，input.joinPolicy；
+ * 仅具备 update_join_policy 能力的用户应调用，无权限时后端返回 forbidden error）。
+ * 成功后刷新 meWorkspaces 缓存 —— 概览页/工作台徽章消费同一查询，跨页同步新策略。
+ */
+export async function updateWorkspaceJoinPolicy(
+	workspaceId: string,
+	joinPolicy: JoinPolicy,
+): Promise<{ joinPolicy: JoinPolicy }> {
+	const { data } = await client.mutate({
+		mutation: UPDATE_WORKSPACE,
+		variables: { id: workspaceId, input: { joinPolicy } },
+	});
+	const result = data?.updateWorkspace?.result;
+	if (!result) {
+		const msg =
+			data?.updateWorkspace?.errors?.[0]?.message ?? "updateWorkspace failed";
+		throw new Error(msg);
+	}
+	await client.refetchQueries({ include: [ME_WORKSPACES] });
+	return { joinPolicy: result.joinPolicy };
+}
+
+/**
+ * 当前用户是否可在某 workspace 内修改加入策略（#78 能力接口：
+ * 直接消费后端下发的 update_join_policy 能力，与 Rbac.can?/3 语义一致）。
+ * ws 可能为 undefined（未知 slug / 未匹配），此时不可修改。
+ */
+export function currentUserCanUpdateJoinPolicy(
+	ws: WorkspaceListItem | undefined,
+): boolean {
+	return ws?.myAbilities?.includes("update_join_policy") ?? false;
 }
 
 /** 角色并集的中文展示（成员卡片徽章文案） */
