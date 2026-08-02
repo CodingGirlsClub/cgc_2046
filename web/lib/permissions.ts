@@ -1,5 +1,5 @@
 import type { MembershipRoleName } from "./graphql/workspace";
-import { ROLE_BADGE_CLASS, ROLE_LABEL, ROLE_LABEL_ZH } from "./graphql/workspace";
+import { ROLE_BADGE_CLASS, ROLE_LABEL, ROLE_LABEL_ZH, ROLE_NAMES } from "./graphql/workspace";
 import {
   PERMISSION_MATRIX,
   MY_ABILITIES,
@@ -40,14 +40,13 @@ export interface PermissionMatrixRow {
   note?: string;
 }
 
-/** 设计稿固定的默认角色顺序；旧 member 只作为兼容输入，不出现在正式矩阵。 */
-export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = [
-  "owner",
-  "admin",
-  "tutor",
-  "volunteer",
-  "learner",
-];
+/**
+ * 设计稿固定的默认角色顺序（五角色，不含 member）。
+ * 由 ROLE_NAMES 单源过滤派生，避免重复六角色字面量；旧 member 只作为兼容输入，不出现在正式矩阵。
+ */
+export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = ROLE_NAMES.filter(
+  (role) => role !== "member",
+);
 
 export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
   {

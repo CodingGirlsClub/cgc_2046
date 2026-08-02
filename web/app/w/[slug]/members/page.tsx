@@ -29,6 +29,7 @@ import {
   JOIN_POLICY_LABEL,
   ROLE_BADGE_CLASS,
   ROLE_LABEL,
+  ROLE_NAMES,
   type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import ProfileEntry from "@/components/profile-entry";
@@ -37,7 +38,10 @@ import ProfileEntry from "@/components/profile-entry";
  * 设计稿里的默认角色模板。旧 API 返回的 `member` 仍可显示和筛选，
  * 但正式页面的行内分配控件按设计只呈现 Admin/Tutor/Volunteer/Learner。
  */
-const DESIGN_ROLE_OPTIONS: MembershipRoleName[] = ["owner", "admin", "tutor", "volunteer", "learner"];
+/** 设计稿选项（五角色，不含 member；由 ROLE_NAMES 单源过滤派生） */
+const DESIGN_ROLE_OPTIONS: MembershipRoleName[] = ROLE_NAMES.filter(
+  (role) => role !== "member",
+);
 const INLINE_ROLE_OPTIONS = DESIGN_ROLE_OPTIONS.filter(
   (role): role is Exclude<MembershipRoleName, "owner"> => role !== "owner",
 );

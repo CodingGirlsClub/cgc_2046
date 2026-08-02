@@ -2,6 +2,7 @@ import type { JoinPolicy, MembershipRoleName, Workspace } from "./graphql/worksp
 import {
   canAssignRoles,
   ROLE_LABEL_ZH,
+  ROLE_NAMES,
   WORKSPACE_MEMBERS,
   ME_WORKSPACES,
   ASSIGN_ROLES,
@@ -134,14 +135,7 @@ export function mapRoleObjectsToNames(
   roles: WorkspaceMembershipRole[] | null | undefined,
 ): MembershipRoleName[] {
   if (!roles) return [];
-  const valid: MembershipRoleName[] = [
-    "owner",
-    "admin",
-    "tutor",
-    "volunteer",
-    "learner",
-    "member",
-  ];
+  const valid: MembershipRoleName[] = [...ROLE_NAMES];
   return roles
     .map((r) => r.name as MembershipRoleName)
     .filter((n) => valid.includes(n));

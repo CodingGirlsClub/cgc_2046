@@ -19,20 +19,29 @@ import type { TypedDocumentNode } from "@apollo/client";
 export type JoinPolicy = "open" | "request" | "invite_only";
 
 /**
- * 成员角色名。
+ * 六角色枚举唯一真源（Shotgun Surgery 修复，2026-08-02）。
+ *
+ * 加第 7 个角色只改这里；其它文件一律 import ROLE_NAMES / MembershipRoleName，
+ * 不得重复六角色完整字面量数组。
+ */
+export const ROLE_NAMES = [
+  "owner",
+  "admin",
+  "tutor",
+  "volunteer",
+  "learner",
+  "member",
+] as const;
+
+/**
+ * 成员角色名（由 ROLE_NAMES 派生，保证与单源一致）。
  *
  * #64 的早期 API 只 seed 了 owner/admin/member；Slice A 的正式领域设计
  * 将 Role 定义为 Workspace 内可扩展实体，并约定默认模板为
  * Owner/Admin/Tutor/Volunteer/Learner。前端因此同时识别两套名称：旧的
  * member 仍可兼容读取，设计稿中的四个非 Owner 角色可直接展示与编辑。
  */
-export type MembershipRoleName =
-  | "owner"
-  | "admin"
-  | "tutor"
-  | "volunteer"
-  | "learner"
-  | "member";
+export type MembershipRoleName = (typeof ROLE_NAMES)[number];
 
 export interface Workspace {
   id: string;
@@ -255,8 +264,8 @@ export const JOIN_POLICY_HINT: Record<JoinPolicy, string> = {
 
 /* ---------------- 成员角色（#64）展示辅助 ---------------- */
 
-/** 成员角色全集（P2-6 修复：与共享 ROLE_LABEL 六角色一致，不再遗漏 tutor/volunteer/learner） */
-export const MEMBERSHIP_ROLES: MembershipRoleName[] = ["owner", "admin", "tutor", "volunteer", "learner", "member"];
+/** 成员角色全集（引用 ROLE_NAMES 单源，与共享 ROLE_LABEL 六角色一致） */
+export const MEMBERSHIP_ROLES: MembershipRoleName[] = [...ROLE_NAMES];
 
 export const ROLE_LABEL: Record<MembershipRoleName, string> = {
   owner: "Owner",
