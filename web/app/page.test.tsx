@@ -92,6 +92,27 @@ describe("工作台页 (#63)", () => {
     expect(screen.getByRole("button", { name: "输入邀请凭据" })).toBeDisabled();
   });
 
+  it("角色标签复用共享 ROLE_LABEL：tutor/volunteer/learner 渲染规范名（P2-3）", async () => {
+    fetchMyWorkspaces.mockResolvedValue([
+      {
+        id: "ws_roles",
+        slug: "roles-demo",
+        name: "角色演示工作区",
+        joinPolicy: "open",
+        sponsorshipEnabled: true,
+        myRoleNames: ["tutor", "volunteer", "learner"],
+        roles: ["tutor", "volunteer", "learner"],
+        membershipStatus: "active",
+      },
+    ]);
+    render(<HomePage />);
+
+    expect(await screen.findByText("Tutor / Volunteer / Learner")).toBeInTheDocument();
+    expect(screen.queryByText("tutor")).not.toBeInTheDocument();
+    expect(screen.queryByText("volunteer")).not.toBeInTheDocument();
+    expect(screen.queryByText("learner")).not.toBeInTheDocument();
+  });
+
   it("真实模式：active / pending 状态跟随侧栏选择", async () => {
     fetchMyWorkspaces.mockResolvedValue([
       {

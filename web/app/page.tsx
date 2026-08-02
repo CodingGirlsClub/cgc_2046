@@ -18,6 +18,7 @@ import {
   type WorkspaceListItem,
 } from "@/lib/workspaces";
 import ProfileEntry from "@/components/profile-entry";
+import { ROLE_LABEL } from "@/lib/graphql/workspace";
 
 type WorkspaceStatus = "active" | "pending" | "invited";
 type IconName = "community" | "role" | "members" | "activity" | "settings" | "enter" | "request" | "invite";
@@ -34,12 +35,6 @@ const STATUS_META: Record<WorkspaceStatus, { label: string; className: string }>
   invited: { label: "待凭据加入", className: "workspace-status--invited" },
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  member: "Member",
-};
-
 const APPLICATION_DATE = "2026 年 8 月 1 日";
 
 function getWorkspaceStatus(ws: WorkspaceListItem): WorkspaceStatus {
@@ -49,7 +44,7 @@ function getWorkspaceStatus(ws: WorkspaceListItem): WorkspaceStatus {
 
 function getWorkspaceRoles(ws: WorkspaceListItem): string[] {
   const roles = ws.myRoleNames?.length ? ws.myRoleNames : ws.roles ?? [];
-  return roles.map((role) => ROLE_LABELS[role] ?? role);
+  return roles.map((role) => ROLE_LABEL[role as keyof typeof ROLE_LABEL] ?? role);
 }
 
 function workspaceInitials(ws: WorkspaceListItem): string {
