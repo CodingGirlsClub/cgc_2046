@@ -15,8 +15,8 @@ import type { TypedDocumentNode } from "@apollo/client";
 
 /* ---------------- 类型 ---------------- */
 
-/** 资料可见范围（P1：workspace_members 仅工作区成员 / workspace_public 工作区内公开） */
-export type ProfileVisibility = "workspace_members" | "workspace_public";
+/** 资料可见范围（2026-08-02 三档对齐：public 全站公开 / workspace 工作区公开 / only_me 仅自己可见） */
+export type ProfileVisibility = "public" | "workspace" | "only_me";
 
 export interface ProfileUser {
   id: string;
@@ -33,7 +33,7 @@ export interface ProfileUser {
   about?: string | null;
   /** 技能标签列表（P1 扩展，可编辑，默认 []） */
   skills?: string[] | null;
-  /** 资料可见范围（P1 扩展，默认 workspace_members） */
+  /** 资料可见范围（2026-08-02 三档对齐，默认 only_me） */
   visibility?: ProfileVisibility | null;
   /** 平台级成员编号（P1 只读，格式 CGC-XXXXXX） */
   memberNumber?: string | null;

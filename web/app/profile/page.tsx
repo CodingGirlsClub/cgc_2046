@@ -117,7 +117,7 @@ interface ProfileContent {
   about: string;
   skills: string[];
   joinedAt: string;
-  visibility: "workspace_members" | "workspace_public";
+  visibility: ProfileVisibility;
   memberNumber: string;
   workspaceName: string;
   workspaceSlug: string;
@@ -138,6 +138,27 @@ interface ProfileDraft {
 
 const DEFAULT_ABOUT = "关注社区学习、AI 教育与开放协作。喜欢把复杂的问题整理成清晰、可执行的课程与活动。";
 const DEFAULT_SKILLS = ["AI 教育", "课程设计", "社区运营", "Elixir"];
+
+/** 资料可见范围三档（2026-08-02 对齐：public / workspace / only_me） */
+const VISIBILITY_LABEL: Record<ProfileVisibility, string> = {
+  public: "全站公开",
+  workspace: "工作区公开",
+  only_me: "仅自己可见",
+};
+
+/** 编辑态 select 选项文案（带括号说明） */
+const VISIBILITY_OPTION_LABEL: Record<ProfileVisibility, string> = {
+  public: "全站公开（所有登录用户可见）",
+  workspace: "工作区公开（同工作区登录用户可见）",
+  only_me: "仅自己可见",
+};
+
+/** 底部可见范围说明文案 */
+const VISIBILITY_FOOTER_TEXT: Record<ProfileVisibility, string> = {
+  public: "资料对全站公开（所有登录用户可见）。",
+  workspace: "资料在同工作区公开（同工作区登录用户可见）。",
+  only_me: "资料仅自己可见。",
+};
 
 function roleLabel(role: MembershipRoleName) {
   return ROLE_LABEL[role] ?? role;
@@ -173,7 +194,7 @@ function getProfileContent(profile: CurrentProfile, summaries: ProfileRoleSummar
         ? [...profile.skills]
         : [],
     joinedAt: formatJoinedDate(USE_MOCK_WORKSPACES ? profile.joinedAt || "2024 年 3 月" : profile.joinedAt),
-    visibility: profile.visibility ?? "workspace_members",
+    visibility: profile.visibility ?? "only_me",
     memberNumber: USE_MOCK_WORKSPACES ? profile.memberNumber || "CGC-SH-0018" : profile.memberNumber || "—",
     workspaceName: profile.workspaceName || summary?.workspaceName || (USE_MOCK_WORKSPACES ? "上海 Coding Girls Club" : ""),
     workspaceSlug: profile.workspaceSlug || summary?.workspaceSlug || (USE_MOCK_WORKSPACES ? "cgc-shanghai" : ""),
@@ -279,7 +300,7 @@ function ProfileSummary({ content }: { content: ProfileContent }) {
         <div className="profile-summary__meta">
           <span><Icon name="pin" size={20} />{content.location}</span><i />
           <span><Icon name="calendar" size={20} />加入于 {content.joinedAt}</span><i />
-          <span className="profile-visibility-pill"><Icon name="visibility" size={18} />{content.visibility === "workspace_members" ? "仅当前 Workspace 成员可见" : "Workspace 内公开"}</span>
+          <span className="profile-visibility-pill"><Icon name="visibility" size={18} />{VISIBILITY_LABEL[content.visibility]}</span>
         </div>
       </div>
     </section>
@@ -395,8 +416,9 @@ function EditContent({ draft, roles, memberNumber, onDraftChange }: { draft: Pro
               value={draft.visibility}
               onChange={(event) => onDraftChange({ ...draft, visibility: event.target.value as ProfileVisibility })}
             >
-              <option value="workspace_members">仅当前 Workspace 成员可见</option>
-              <option value="workspace_public">Workspace 内公开</option>
+              {(Object.keys(VISIBILITY_OPTION_LABEL) as ProfileVisibility[]).map((value) => (
+                <option key={value} value={value}>{VISIBILITY_OPTION_LABEL[value]}</option>
+              ))}
             </select>
           </label>
           <div className="profile-edit-divider" />
@@ -588,7 +610,7 @@ export default function ProfilePage() {
             </>
           )}
 
-          <footer className="profile-footer"><span>{footerVisibility === "workspace_public" ? "资料在 Workspace 内公开可见。" : "资料仅在当前 Workspace 内可见。"}</span><button type="button" onClick={handleSignOut}>退出登录</button></footer>
+          <footer className="profile-footer"><span>{VISIBILITY_FOOTER_TEXT[footerVisibility]}</span><button type="button" onClick={handleSignOut}>退出登录</button></footer>
         </div>
       </main>
     </div>
