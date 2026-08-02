@@ -53,7 +53,8 @@ defmodule Cgc2046.Accounts.User do
       allow_nil?: true,
       public?: true,
       writable?: true,
-      description: "头像 URL（#68 Profile API，可选；data URL 限 image/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
+      description:
+        "头像 URL（#68 Profile API，可选；data URL 限 image/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
     )
 
     attribute(:location, :string,
@@ -80,26 +81,31 @@ defmodule Cgc2046.Accounts.User do
 
     attribute(:visibility, :atom,
       allow_nil?: false,
-      default: :workspace_members,
+      default: :only_me,
       public?: true,
       writable?: true,
-      constraints: [one_of: [:workspace_members, :workspace_public]],
-      description: "资料可见范围（P1 Profile 扩展字段）：workspace_members 仅工作区成员 / workspace_public 工作区内公开"
+      constraints: [one_of: [:public, :workspace, :only_me]],
+      description: "资料可见范围（三档）：public 所有登录用户可读 / workspace 同工作区成员可读 / only_me 仅本人可读（默认，隐私优先）"
     )
 
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
 
+  relationships do
+    # visibility=:workspace 共享判断：actor 与 owner 同属任一工作区（共同 membership）
+    has_many(:workspace_memberships, Cgc2046.Accounts.WorkspaceMembership,
+      destination_attribute: :user_id
+    )
+  end
+
   calculations do
-    calculate(:member_number, :string,
-      {Cgc2046.Accounts.Calculations.MemberNumber, []},
+    calculate(:member_number, :string, {Cgc2046.Accounts.Calculations.MemberNumber, []},
       public?: true,
       description: "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
     )
 
-    calculate(:joined_at, :datetime,
-      expr(inserted_at),
+    calculate(:joined_at, :datetime, expr(inserted_at),
       public?: true,
       description: "注册（加入）时间"
     )
@@ -122,7 +128,9 @@ defmodule Cgc2046.Accounts.User do
     end
 
     update :update_profile do
-      description("更新当前用户个人资料（P1）：displayName 必填（trim 后非空），avatarUrl/location/about/skills/visibility 可选")
+      description(
+        "更新当前用户个人资料（P1）：displayName 必填（trim 后非空），avatarUrl/location/about/skills/visibility 可选"
+      )
 
       require_atomic?(false)
 
@@ -175,11 +183,11 @@ defmodule Cgc2046.Accounts.User do
           mime not in @avatar_allowed_mime ->
             {:error,
              field: :avatar_url,
-             message: "avatar data URL MIME must be one of image/png, image/jpeg, image/webp, image/gif"}
+             message:
+               "avatar data URL MIME must be one of image/png, image/jpeg, image/webp, image/gif"}
 
           byte_size("data:" <> rest) > @avatar_max_data_url_bytes ->
-            {:error,
-             field: :avatar_url, message: "avatar data URL too large (max ~2.2MB image)"}
+            {:error, field: :avatar_url, message: "avatar data URL too large (max ~2.2MB image)"}
 
           true ->
             :ok
@@ -204,7 +212,8 @@ defmodule Cgc2046.Accounts.User do
     end
   end
 
-  defp validate_avatar_url(_), do: {:error, field: :avatar_url, message: "avatarUrl must be a string"}
+  defp validate_avatar_url(_),
+    do: {:error, field: :avatar_url, message: "avatarUrl must be a string"}
 
   authentication do
     tokens do
@@ -255,9 +264,13 @@ defmodule Cgc2046.Accounts.User do
       authorize_if(Cgc2046.Policies.UpdateOwnProfile)
     end
 
-    # 用户只能读取自己（filter 阶段生效）
+    # 用户读取：本人永远可读；他人按 visibility 三档判定（Check 在 filter 阶段动态构造）
+    # - only_me：仅本人可读（filter 仅 id == actor.id）
+    # - workspace：同属任一工作区的登录用户可读（exists 子查询，SQL 直连不经 WorkspaceMembership policy）
+    # - public：所有登录用户可读
+    # - 匿名：不可读（actor nil -> filter 永假）
     policy action_type(:read) do
-      authorize_if(expr(id == ^actor(:id)))
+      authorize_if(Cgc2046.Policies.ReadUserByVisibility)
     end
 
     # 注意：不能使用 `policy always() do forbid_if(always()) end` 做默认拒绝。

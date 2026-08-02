@@ -122,7 +122,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       assert location == nil
       assert about == nil
       assert skills == []
-      assert visibility == "workspace_members"
+      assert visibility == "only_me"
       assert is_binary(member_number)
       assert String.starts_with?(member_number, "CGC-")
       assert is_binary(joined_at)
@@ -182,7 +182,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
               location: "上海"
               about: "关注社区学习与 AI 教育。"
               skills: ["AI 教育", "课程设计", "Elixir"]
-              visibility: "workspace_public"
+              visibility: "workspace"
             }) {
               id
               location
@@ -201,7 +201,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
                    "location" => "上海",
                    "about" => "关注社区学习与 AI 教育。",
                    "skills" => ["AI 教育", "课程设计", "Elixir"],
-                   "visibility" => "workspace_public"
+                   "visibility" => "workspace"
                  }
                }
              } = res
@@ -215,7 +215,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
                    "location" => "上海",
                    "about" => "关注社区学习与 AI 教育。",
                    "skills" => ["AI 教育", "课程设计", "Elixir"],
-                   "visibility" => "workspace_public"
+                   "visibility" => "workspace"
                  }
                }
              } = res
@@ -273,7 +273,8 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       token = sign_in_token(@admin_email, @password)
 
       # 1x1 透明 PNG data URL
-      data_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      data_url =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
       res = graphql_post(build_conn(), update_profile_query("阿麦", data_url), token)
       assert %{"data" => %{"updateProfile" => %{"avatarUrl" => ^data_url}}} = res

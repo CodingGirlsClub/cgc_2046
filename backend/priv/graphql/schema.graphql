@@ -906,7 +906,7 @@ input UserFilterInput {
   "个人简介（P1 Profile 扩展字段，可编辑）"
   about: UserFilterAbout
 
-  "资料可见范围（P1 Profile 扩展字段）：workspace_members 仅工作区成员 \/ workspace_public 工作区内公开"
+  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
   visibility: UserFilterVisibility
 
   "注册（加入）时间"
@@ -937,7 +937,7 @@ type SignInResult {
   "技能标签列表（P1 Profile 扩展字段，可编辑）"
   skills: [String!]
 
-  "资料可见范围（P1 Profile 扩展字段）：workspace_members 仅工作区成员 \/ workspace_public 工作区内公开"
+  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
   visibility: String!
 
   "A JWT which the user can use to authenticate to the API."
@@ -974,7 +974,7 @@ type User {
   "技能标签列表（P1 Profile 扩展字段，可编辑）"
   skills: [String!]
 
-  "资料可见范围（P1 Profile 扩展字段）：workspace_members 仅工作区成员 \/ workspace_public 工作区内公开"
+  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
   visibility: String!
 
   "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
