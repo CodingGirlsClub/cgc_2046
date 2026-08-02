@@ -28,12 +28,15 @@ defmodule Cgc2046.Rbac do
   与各资源 Ash policies 的关系：本模块是**判定入口**（供代码/GraphQL 查询调用），
   资源自身仍由 `policies do ... end` 强制（如 workspace 读取、workspace_membership 管理）。
   两者语义保持一致，测试中互相印证。
+
+  读取委托（2026-08-02 ② 成员资格读取收敛，Q5 决策）：成员资格读取实现在
+  `MembershipContext`（成员资格上下文），`role_names/2`、`owner_count/1` 与私有
+  `membership/2` 是**有意保留的稳定门面转发** —— 调用方依赖 Rbac 判定词汇契约而非
+  读取实现；读取形状可在 seam 侧独立演进（Ash 升级只改 MembershipContext 一处）。
   """
 
-  require Ash.Query
-
+  alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Accounts.WorkspaceMembership
 
   @type ability ::
           :view_workspace
@@ -201,7 +204,8 @@ defmodule Cgc2046.Rbac do
   - `actor` 只需含 `:id` 字段（assign_roles grant scope 校验可用 `%{id: user_id}` 传 target）
   - 仅取 actor 的 `:id` 做成员过滤，不做鉴权（内部读取 authorize?: false）
   - 非成员 / 匿名返回 `[]`
-  - 供 assign_roles 越权修复（P0）与其它判定复用
+  - 读取委托 `MembershipContext.role_names/2`（#2 成员资格读取收敛；同名转发，
+    调用方依赖 Rbac 判定门面，读取实现可在 seam 侧独立演进）
 
   ## Examples
 
@@ -209,37 +213,17 @@ defmodule Cgc2046.Rbac do
       [:owner]
   """
   @spec role_names(%{optional(:id) => String.t()} | nil, String.t()) :: [atom]
-  def role_names(nil, _workspace_id), do: []
-
-  def role_names(actor, workspace_id) do
-    case membership(actor, workspace_id) do
-      nil -> []
-      membership -> Enum.map(membership.roles, & &1.name)
-    end
-  end
+  def role_names(actor, workspace_id), do: MembershipContext.role_names(actor, workspace_id)
 
   @doc """
   返回目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色只算 1 次）。
 
   用于 assign_roles 的「最后 Owner 保护」（撤销 owner 时须保留至少 1 个 Owner）。
   频次极低，直接加载 memberships + roles 统计；tenant 隔离由 multitenancy（workspace_id）保证。
+  读取委托 `MembershipContext.owner_count/1`（#2 成员资格读取收敛）。
   """
   @spec owner_count(String.t()) :: non_neg_integer
-  def owner_count(workspace_id) do
-    query =
-      WorkspaceMembership
-      |> Ash.Query.load(:roles)
-
-    case Ash.read(query, authorize?: false, tenant: workspace_id) do
-      {:ok, memberships} ->
-        Enum.count(memberships, fn membership ->
-          Enum.any?(membership.roles, &(&1.name == :owner))
-        end)
-
-      _ ->
-        0
-    end
-  end
+  def owner_count(workspace_id), do: MembershipContext.owner_count(workspace_id)
 
   # -- 能力判定 ---------------------------------------------------------------
 
@@ -280,16 +264,7 @@ defmodule Cgc2046.Rbac do
   end
 
   # 读取 actor 在目标工作台的成员资格（含 roles，多角色并集）。
-  # 复用与 #64 WorkspaceActorIsOwnerOrAdmin 一致的读取方式（tenant 隔离 + global 跨租户）。
-  defp membership(actor, workspace_id) do
-    query =
-      WorkspaceMembership
-      |> Ash.Query.filter(user_id == ^actor.id)
-      |> Ash.Query.load(:roles)
-
-    case Ash.read(query, authorize?: false, tenant: workspace_id) do
-      {:ok, [membership | _]} -> membership
-      _ -> nil
-    end
-  end
+  # 复用与 #64 WorkspaceActorIsOwnerOrAdmin 一致的读取方式（tenant 隔离 + global 跨租户），
+  # 实现委托 MembershipContext.membership_of/2（#2 成员资格读取收敛）。
+  defp membership(actor, workspace_id), do: MembershipContext.membership_of(actor, workspace_id)
 end

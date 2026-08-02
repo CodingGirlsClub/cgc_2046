@@ -84,6 +84,11 @@
 - **定义**：membership ↔ Role 的 N:M 关联表。一人多角色由此表达。
 - **架构位置**：权限判定时"所有角色权限取并集"的数据基础。
 
+### 成员资格上下文（MembershipContext）
+
+- **定义**：「actor ↔ 工作台」成员资格读取面的唯一归属：`membership_of/2`、`role_names/2`（角色名多角色并集，Rbac 同名委托）、`memberships_of_actor/1`（跨租户）、`owner_count/1`、`resolve_workspace_id/1`（policy 场景的 filter/changeset 目标工作台解析，含 Ash filter struct 提取钉测）。
+- **架构位置**：Rbac（判定）与 WorkspaceActorIsOwnerOrAdmin policy / CurrentMembershipInfo 计算字段（读取方）之间的数据 seam（2026-08-02 ② 成员资格读取收敛）：读取形状唯一实现，Ash 升级只炸本模块一处；判定语义仍在 Rbac。
+
 ### Role（角色，租户资源）
 
 - **定义**：租户内角色实体，权限挂在角色上。**当前为静态六枚举**（2026-08-02 拍板，见总纲角色扩展注记）：owner / admin / member / tutor / volunteer / learner；member 为默认兜底成员角色，UI 角色分配/展示模板为五角色（不含 member，只作兼容输入）。「自定义角色」为未来能力：触发条件 = 真实工作区角色差异化需求（预计 workflow 定制场景，F 切片之后），届时增量落地 permissionMatrix 租户查询 + Role 能力配置，登记于 GitHub backlog。
