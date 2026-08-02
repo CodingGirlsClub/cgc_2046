@@ -232,4 +232,67 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
     expect(clearAuthToken).toHaveBeenCalledTimes(1);
     expect(router.push).toHaveBeenCalledWith("/login");
   });
+
+  it("真实模式缺字段不回退 mock 样例，展示空态（P1-2 QA 复验 FAIL 修复）", async () => {
+    fetchProfile.mockResolvedValue({
+      id: "u_empty",
+      email: "empty@example.com",
+      displayName: null,
+      avatarUrl: null,
+      isPlatformAdmin: false,
+      location: null,
+      about: null,
+      skills: null,
+      joinedAt: null,
+      visibility: null,
+      memberNumber: null,
+    });
+    fetchPortfolio.mockResolvedValue([]);
+    fetchRoles.mockResolvedValue([]);
+    await renderReadyProfile();
+
+    expect(screen.getByText("未设置", { selector: ".profile-summary__meta span" })).toBeInTheDocument();
+    expect(screen.getByText("暂无简介")).toBeInTheDocument();
+    expect(screen.getByText("加入于 —")).toBeInTheDocument();
+    expect(within(screen.getByTestId("identity-card")).getByText("—")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-card")).toBeInTheDocument();
+    expect(screen.getByText("还没有添加作品集。")).toBeInTheDocument();
+    // mock 样例不得出现（profile 主内容区；侧栏品牌名是静态导航 UI，不属于用户资料数据）
+    expect(screen.queryByText("上海", { selector: ".profile-summary__meta span" })).not.toBeInTheDocument();
+    expect(screen.queryByText("关注社区学习、AI 教育与开放协作。喜欢把复杂的问题整理成清晰、可执行的课程与活动。")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI 教育")).not.toBeInTheDocument();
+    expect(screen.queryByText("CGC-SH-0018")).not.toBeInTheDocument();
+    const mainArea = screen.getByRole("main");
+    expect(within(mainArea).queryByText("上海 Coding Girls Club")).not.toBeInTheDocument();
+  });
+
+  it("可见范围 workspace_public 时底部文案联动（P2-1）", async () => {
+    fetchProfile.mockResolvedValue({ ...designProfile(), visibility: "workspace_public" as const });
+    await renderReadyProfile();
+
+    expect(screen.getByText("Workspace 内公开")).toBeInTheDocument();
+    expect(screen.getByText("资料在 Workspace 内公开可见。")).toBeInTheDocument();
+
+    // 进入编辑态切换为 workspace_members → 文案即时联动
+    fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
+    fireEvent.change(screen.getByTestId("profile-visibility-input"), { target: { value: "workspace_members" } });
+    expect(screen.getByText("资料仅在当前 Workspace 内可见。")).toBeInTheDocument();
+  });
+
+  it("进入编辑态时 visibility select 以真实值初始化（P2-2）", async () => {
+    fetchProfile.mockResolvedValue({ ...designProfile(), visibility: "workspace_public" as const });
+    await renderReadyProfile();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
+    expect(screen.getByTestId("profile-visibility-input")).toHaveValue("workspace_public");
+  });
+
+  it("删除作品按钮 aria-label 精确化，不与技能标签删除混淆（P2-4）", async () => {
+    await renderReadyProfile();
+    fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
+
+    const firstRow = screen.getAllByTestId("portfolio-edit-row")[0];
+    const deleteBtn = within(firstRow).getByRole("button", { name: /删除作品/ });
+    expect(deleteBtn).toHaveAttribute("aria-label", "删除作品：AI 入门工作坊课程大纲");
+  });
 });

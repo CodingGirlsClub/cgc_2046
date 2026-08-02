@@ -271,8 +271,19 @@ export async function fetchPortfolioItems(): Promise<ProfilePortfolioItem[]> {
   if (USE_MOCK_WORKSPACES) {
     return Promise.resolve(MOCK_PROFILE_PORTFOLIO.map((item) => ({ ...item })));
   }
-  const { data } = await client.query({ query: MY_PORTFOLIO });
+  // P2-3：network-only 保证保存后重新拉取拿到最新列表
+  // （默认 cache-first 会命中 CRUD 前的旧缓存，导致保存后即时视图仍显示旧数据/空列表）。
+  const { data } = await client.query({
+    query: MY_PORTFOLIO,
+    fetchPolicy: "network-only",
+  });
   return (data?.myPortfolio ?? []).map(mapPortfolioItem);
+}
+
+/** P2-3：Portfolio CRUD 成功后失效 myPortfolio 根字段缓存，避免其它 cache-first 读取旧数据。 */
+function invalidatePortfolioCache(): void {
+  client.cache?.evict({ fieldName: "myPortfolio" });
+  client.cache?.gc();
 }
 
 /**
@@ -303,6 +314,7 @@ export async function createPortfolioItem(
     const msg = result?.errors?.[0]?.message ?? "createPortfolioItem failed";
     throw new Error(msg);
   }
+  invalidatePortfolioCache();
   return mapPortfolioItem(result.result);
 }
 
@@ -337,6 +349,7 @@ export async function updatePortfolioItem(
     const msg = result?.errors?.[0]?.message ?? "updatePortfolioItem failed";
     throw new Error(msg);
   }
+  invalidatePortfolioCache();
   return mapPortfolioItem(result.result);
 }
 
@@ -360,6 +373,7 @@ export async function deletePortfolioItem(id: string): Promise<void> {
     const msg = result.errors[0]?.message ?? "deletePortfolioItem failed";
     throw new Error(msg);
   }
+  invalidatePortfolioCache();
 }
 
 /** 角色权重（P1-3：Profile 绑定 Workspace 上下文的确定性排序依据） */
