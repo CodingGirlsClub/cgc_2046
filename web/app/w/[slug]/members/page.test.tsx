@@ -146,6 +146,7 @@ const { fetchCurrentProfile } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useParams: () => params.value,
+	usePathname: () => `/w/${params.value.slug}/members`,
 }));
 
 vi.mock("@/lib/auth", () => ({ isAuthenticated, clearAuthToken }));
@@ -340,7 +341,10 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		fetchMembers.mockResolvedValue([TEST_MEMBERS.ws_02[4]]); // learner 只能看到自己（何苗）
 		render(<MembersPage />);
 
-		expect(await screen.findByTestId("members-count")).toHaveTextContent(
+		// 先等成员列表落地再断言计数（findByTestId 只等元素出现，不等 fetch；
+		// 计数文本与成员行同一次 setState，行出现后文本必然正确）
+		await screen.findAllByTestId("member-row");
+		expect(screen.getByTestId("members-count")).toHaveTextContent(
 			"共 2 位成员（当前仅显示你有权查看的 1 位）",
 		);
 		expect(screen.getByTestId("members-visibility-note")).toHaveTextContent(

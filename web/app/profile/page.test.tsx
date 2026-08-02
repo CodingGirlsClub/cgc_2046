@@ -12,6 +12,13 @@ import ProfilePage from "./page";
 /** 测试本地作品集 fixture（原设计稿 10 条演示数据，与页面「预览 3 条/全量 N」断言一致） */
 const TEST_PORTFOLIO = [
 	{
+		id: "portfolio-no-url",
+		title: "无链接作品",
+		description: "url 为空时回落到 href=#（⑤ review P2-3）。",
+		url: "",
+		icon: "document" as const,
+	},
+	{
 		id: "portfolio-ai-course",
 		title: "AI 入门工作坊课程大纲",
 		description: "一套面向零基础学习者的 6 周课程设计。",
@@ -107,6 +114,7 @@ const { fetchPortfolio, createPortfolio, updatePortfolio, deletePortfolio } =
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useSearchParams: () => searchParams,
+	usePathname: () => "/profile",
 }));
 vi.mock("@/lib/auth", () => ({ isAuthenticated, clearAuthToken }));
 vi.mock("@/lib/profile", async (importOriginal) => {
@@ -211,11 +219,23 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 		expect(screen.getByTestId("portfolio-card")).toBeInTheDocument();
 		expect(screen.getByText("作品集")).toBeInTheDocument();
 		expect(
-			screen.getByText("10", { selector: ".profile-count" }),
+			screen.getByText("11", { selector: ".profile-count" }),
 		).toBeInTheDocument();
 		expect(screen.getAllByTestId("portfolio-preview-item")).toHaveLength(3);
+		// ⑤ review P2-3：作品条目是真实链接（<a>→<Link> 结构性修复的钉测）；
+		// 首条 url 为空 → href 回落到 "#"（fallback 分支被覆盖）
+		const previewItems = screen.getAllByTestId("portfolio-preview-item");
+		for (const item of previewItems) {
+			expect(item.tagName).toBe("A");
+			expect(item).toHaveAttribute("href");
+		}
+		expect(previewItems[0]).toHaveAttribute("href", "#");
+		expect(previewItems[1]).toHaveAttribute(
+			"href",
+			"https://example.com/ai-course",
+		);
 		expect(screen.getByTestId("portfolio-all-link")).toHaveTextContent(
-			"查看全部 10 个作品",
+			"查看全部 11 个作品",
 		);
 		expect(screen.getByTestId("portfolio-all-link")).toHaveAttribute(
 			"href",
@@ -251,7 +271,7 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 		expect(screen.getByDisplayValue("CGC-SH-0018")).toHaveAttribute("readonly");
 		expect(screen.getAllByTestId("portfolio-edit-row")).toHaveLength(2);
 		expect(
-			screen.getByRole("button", { name: "展开其余 8 个作品" }),
+			screen.getByRole("button", { name: "展开其余 9 个作品" }),
 		).toBeInTheDocument();
 	});
 
@@ -276,8 +296,8 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 		);
 		await renderReadyProfile();
 		fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
-		fireEvent.click(screen.getByRole("button", { name: "展开其余 8 个作品" }));
-		expect(screen.getAllByTestId("portfolio-edit-row")).toHaveLength(10);
+		fireEvent.click(screen.getByRole("button", { name: "展开其余 9 个作品" }));
+		expect(screen.getAllByTestId("portfolio-edit-row")).toHaveLength(11);
 		fireEvent.change(screen.getByTestId("profile-name-input"), {
 			target: { value: "林溪新" },
 		});
@@ -333,7 +353,7 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 		);
 		await renderReadyProfile();
 		fireEvent.click(screen.getByRole("button", { name: "编辑资料" }));
-		fireEvent.click(screen.getByRole("button", { name: "展开其余 8 个作品" }));
+		fireEvent.click(screen.getByRole("button", { name: "展开其余 9 个作品" }));
 
 		// 修改第一行标题
 		const firstRow = screen.getAllByTestId("portfolio-edit-row")[0];
@@ -354,10 +374,10 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "保存更改" }));
 		await waitFor(() => expect(updatePortfolio).toHaveBeenCalledTimes(1));
 		expect(updatePortfolio).toHaveBeenCalledWith(
-			"portfolio-ai-course",
+			"portfolio-no-url",
 			expect.objectContaining({ title: "改名作品" }),
 		);
-		expect(deletePortfolio).toHaveBeenCalledWith("portfolio-mentor-guide");
+		expect(deletePortfolio).toHaveBeenCalledWith("portfolio-ai-course");
 		expect(createPortfolio).toHaveBeenCalledWith(
 			expect.objectContaining({ title: "新作品" }),
 		);
@@ -501,10 +521,7 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 		const deleteBtn = within(firstRow).getByRole("button", {
 			name: /删除作品/,
 		});
-		expect(deleteBtn).toHaveAttribute(
-			"aria-label",
-			"删除作品：AI 入门工作坊课程大纲",
-		);
+		expect(deleteBtn).toHaveAttribute("aria-label", "删除作品：无链接作品");
 	});
 
 	it("P1-3：?ws= 指定工作区时按该工作区取角色身份（多 workspace 上下文）", async () => {
