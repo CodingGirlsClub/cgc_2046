@@ -54,8 +54,8 @@ defmodule Cgc2046.Rbac do
 
   @manage_abilities [:list_members, :manage_members, :assign_roles]
 
-  # 管理角色（matrix 与 owner_or_admin? 共用；owner/admin 子集，枚举单源在 Role.role_names/0）
-  @manage_roles [:owner, :admin]
+  # 管理角色（matrix 与 owner_or_admin? 共用；owner/admin 子集，管理角色单源在 Role.manage_roles/0）
+  @manage_roles Role.manage_roles()
 
   @doc "全部能力列表（顺序即展示顺序，与前端 #67 表头一致）"
   def abilities_list, do: @abilities

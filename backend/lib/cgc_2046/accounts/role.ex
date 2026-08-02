@@ -19,7 +19,9 @@ defmodule Cgc2046.Accounts.Role do
   六角色枚举的唯一真源是 `@role_names`，角色中文描述的唯一真源是 `@role_descriptions`，
   分别通过 `role_names/0` 与 `role_descriptions/0` 导出供其它模块编译期引用
   （workspace seed、rbac matrix、workspace_membership assign_roles one_of 等）。
-  新增第 7 个角色只需改本模块这两处常量。
+  管理角色子集（可管理成员/角色分配的角色）的唯一真源是 `@manage_roles`，
+  通过 `manage_roles/0` 导出供 rbac matrix 与 WorkspaceActorIsOwnerOrAdmin policy 共用。
+  新增第 7 个角色只需改本模块这几处常量。
   """
 
   @role_names [:owner, :admin, :member, :tutor, :volunteer, :learner]
@@ -33,8 +35,15 @@ defmodule Cgc2046.Accounts.Role do
     {:learner, "学员：学习与参与"}
   ]
 
+  # 管理角色子集（owner/admin，为 @role_names 的子集），
+  # 供 Rbac 能力判定与 WorkspaceActorIsOwnerOrAdmin policy 共用（G2 收敛）
+  @manage_roles [:owner, :admin]
+
   @doc "六角色枚举唯一真源（新增角色只改这里）"
   def role_names, do: @role_names
+
+  @doc "管理角色子集唯一真源（新增可管理角色只改这里）"
+  def manage_roles, do: @manage_roles
 
   @doc "角色名 → 中文描述唯一真源（workspace seed 复用）"
   def role_descriptions, do: @role_descriptions
