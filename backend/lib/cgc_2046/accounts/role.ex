@@ -13,7 +13,32 @@ defmodule Cgc2046.Accounts.Role do
   - `:tutor`：讲师（内容与教学支持，成员级权限）
   - `:volunteer`：志愿者（活动与运营支持，成员级权限）
   - `:learner`：学员（学习与参与，成员级权限）
+
+  ## 角色枚举单源（G2 收敛，消除 Shotgun Surgery）
+
+  六角色枚举的唯一真源是 `@role_names`，角色中文描述的唯一真源是 `@role_descriptions`，
+  分别通过 `role_names/0` 与 `role_descriptions/0` 导出供其它模块编译期引用
+  （workspace seed、rbac matrix、workspace_membership assign_roles one_of 等）。
+  新增第 7 个角色只需改本模块这两处常量。
   """
+
+  @role_names [:owner, :admin, :member, :tutor, :volunteer, :learner]
+
+  @role_descriptions [
+    {:owner, "工作台所有者：拥有全部管理权限"},
+    {:admin, "工作台管理员：成员管理、角色分配"},
+    {:member, "普通成员：可访问工作台内容"},
+    {:tutor, "讲师：内容与教学支持"},
+    {:volunteer, "志愿者：活动与运营支持"},
+    {:learner, "学员：学习与参与"}
+  ]
+
+  @doc "六角色枚举唯一真源（新增角色只改这里）"
+  def role_names, do: @role_names
+
+  @doc "角色名 → 中文描述唯一真源（workspace seed 复用）"
+  def role_descriptions, do: @role_descriptions
+
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource],
@@ -34,7 +59,7 @@ defmodule Cgc2046.Accounts.Role do
       allow_nil?: false,
       public?: true,
       writable?: false,
-      constraints: [one_of: [:owner, :admin, :member, :tutor, :volunteer, :learner]],
+      constraints: [one_of: @role_names],
       description: "角色名：owner / admin / member / tutor / volunteer / learner"
     )
 
@@ -64,7 +89,7 @@ defmodule Cgc2046.Accounts.Role do
     # 对外策略仍为 never()，仅 authorize?: false 的内部调用可执行
     create :create do
       primary?(true)
-      argument(:name, :atom, constraints: [one_of: [:owner, :admin, :member, :tutor, :volunteer, :learner]])
+      argument(:name, :atom, constraints: [one_of: @role_names])
       change(set_attribute(:name, arg(:name)))
     end
   end

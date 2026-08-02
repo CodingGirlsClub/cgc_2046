@@ -32,6 +32,7 @@ defmodule Cgc2046.Rbac do
 
   require Ash.Query
 
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.WorkspaceMembership
 
   @type ability ::
@@ -52,6 +53,9 @@ defmodule Cgc2046.Rbac do
   ]
 
   @manage_abilities [:list_members, :manage_members, :assign_roles]
+
+  # 管理角色（matrix 与 owner_or_admin? 共用；owner/admin 子集，枚举单源在 Role.role_names/0）
+  @manage_roles [:owner, :admin]
 
   @doc "全部能力列表（顺序即展示顺序，与前端 #67 表头一致）"
   def abilities_list, do: @abilities
@@ -113,74 +117,31 @@ defmodule Cgc2046.Rbac do
   """
   @spec matrix() :: [%{role: atom, abilities: map}]
   def matrix do
-    [
+    manager_abilities = %{
+      view_workspace: true,
+      access_invite_only: true,
+      list_members: true,
+      manage_members: true,
+      assign_roles: true,
+      create_workspace: false
+    }
+
+    member_abilities = %{
+      view_workspace: true,
+      access_invite_only: true,
+      list_members: false,
+      manage_members: false,
+      assign_roles: false,
+      create_workspace: false
+    }
+
+    # 角色枚举从 Role.role_names/0 单源派生（G2 收敛），顺序与 role.ex @role_names 一致
+    Enum.map(Role.role_names(), fn role ->
       %{
-        role: :owner,
-        abilities: %{
-          view_workspace: true,
-          access_invite_only: true,
-          list_members: true,
-          manage_members: true,
-          assign_roles: true,
-          create_workspace: false
-        }
-      },
-      %{
-        role: :admin,
-        abilities: %{
-          view_workspace: true,
-          access_invite_only: true,
-          list_members: true,
-          manage_members: true,
-          assign_roles: true,
-          create_workspace: false
-        }
-      },
-      %{
-        role: :member,
-        abilities: %{
-          view_workspace: true,
-          access_invite_only: true,
-          list_members: false,
-          manage_members: false,
-          assign_roles: false,
-          create_workspace: false
-        }
-      },
-      %{
-        role: :tutor,
-        abilities: %{
-          view_workspace: true,
-          access_invite_only: true,
-          list_members: false,
-          manage_members: false,
-          assign_roles: false,
-          create_workspace: false
-        }
-      },
-      %{
-        role: :volunteer,
-        abilities: %{
-          view_workspace: true,
-          access_invite_only: true,
-          list_members: false,
-          manage_members: false,
-          assign_roles: false,
-          create_workspace: false
-        }
-      },
-      %{
-        role: :learner,
-        abilities: %{
-          view_workspace: true,
-          access_invite_only: true,
-          list_members: false,
-          manage_members: false,
-          assign_roles: false,
-          create_workspace: false
-        }
+        role: role,
+        abilities: if(role in @manage_roles, do: manager_abilities, else: member_abilities)
       }
-    ]
+    end)
   end
 
   # -- 能力判定 ---------------------------------------------------------------
@@ -204,7 +165,7 @@ defmodule Cgc2046.Rbac do
   end
 
   defp owner_or_admin?(membership) do
-    Enum.any?(membership.roles, fn role -> role.name in [:owner, :admin] end)
+    Enum.any?(membership.roles, fn role -> role.name in @manage_roles end)
   end
 
   # -- 辅助 -----------------------------------------------------------------

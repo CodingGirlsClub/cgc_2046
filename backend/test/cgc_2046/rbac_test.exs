@@ -1,6 +1,7 @@
 defmodule Cgc2046.RbacTest do
   use Cgc2046Web.ConnCase, async: true
 
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
@@ -293,8 +294,8 @@ defmodule Cgc2046.RbacTest do
       matrix = Rbac.matrix()
 
       assert length(matrix) == 6
-      assert Enum.map(matrix, & &1.role) ==
-               [:owner, :admin, :member, :tutor, :volunteer, :learner]
+      # 角色枚举断言引用单源（G2 收敛），避免测试与 Role.role_names/0 漂移
+      assert Enum.map(matrix, & &1.role) == Role.role_names()
 
       for row <- matrix, row.role in [:owner, :admin] do
         assert row.abilities.view_workspace == true
