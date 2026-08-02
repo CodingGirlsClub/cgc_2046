@@ -259,7 +259,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 				screen.getByTestId(`cell-${role}-view_workspace`),
 			).toHaveTextContent("✓");
 		}
-		// create_workspace 为平台级能力：六角色均不授予
+		// create_workspace 为平台级能力：五角色均不授予（review SUGGESTED 笔误修正）
 		for (const role of PERMISSION_ROLE_ORDER) {
 			expect(
 				screen.getByTestId(`cell-${role}-create_workspace`),
