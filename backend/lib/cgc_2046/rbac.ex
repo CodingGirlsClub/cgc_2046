@@ -106,43 +106,44 @@ defmodule Cgc2046.Rbac do
   end
 
   @doc """
-  静态角色 → 能力矩阵（六角色 × 六能力，G1 扩展）。
+  角色 → 能力矩阵（六角色 × 六能力，G1 扩展）。
 
   与前端 #67 `MOCK_PERMISSION_MATRIX` 对齐：
   - owner/admin：view_workspace / access_invite_only / list_members / manage_members / assign_roles 全 true
   - member/tutor/volunteer/learner：仅 view_workspace / access_invite_only
   - create_workspace：平台管理员专属，六角色均 false
 
+  矩阵由 `roles_can?/2` 逐能力派生（#4 单源收敛，消除静态矩阵与 `can?/3` 双源），
+  角色枚举从 Role.role_names/0 单源派生（G2 收敛），顺序与 role.ex @role_names 一致。
+
   返回 `[%{role: atom, abilities: %{ability => boolean}}]`。
   """
   @spec matrix() :: [%{role: atom, abilities: map}]
   def matrix do
-    manager_abilities = %{
-      view_workspace: true,
-      access_invite_only: true,
-      list_members: true,
-      manage_members: true,
-      assign_roles: true,
-      create_workspace: false
-    }
-
-    member_abilities = %{
-      view_workspace: true,
-      access_invite_only: true,
-      list_members: false,
-      manage_members: false,
-      assign_roles: false,
-      create_workspace: false
-    }
-
-    # 角色枚举从 Role.role_names/0 单源派生（G2 收敛），顺序与 role.ex @role_names 一致
     Enum.map(Role.role_names(), fn role ->
       %{
         role: role,
-        abilities: if(role in @manage_roles, do: manager_abilities, else: member_abilities)
+        abilities: Map.new(@abilities, &{&1, roles_can?([role], &1)})
       }
     end)
   end
+
+  @doc """
+  纯角色判定（工作台内能力）：成员持有角色名列表 `roles`（多角色并集）是否具备 `ability`。
+
+  `can?/3` 的成员路径与 `matrix/0` 均由本函数派生（#4 单源收敛）：
+  - 管理类能力（list_members / manage_members / assign_roles）：与 `@manage_roles`（Role.manage_roles/0 单源）有交集
+  - view_workspace / access_invite_only：成员即具备
+  - 其余能力（含平台级 create_workspace）：false
+  """
+  @spec roles_can?([atom], ability) :: boolean
+  def roles_can?(roles, ability) when ability in @manage_abilities do
+    Enum.any?(roles, &(&1 in @manage_roles))
+  end
+
+  def roles_can?(_roles, ability) when ability in [:view_workspace, :access_invite_only], do: true
+
+  def roles_can?(_roles, _ability), do: false
 
   @doc """
   返回 actor 在目标工作台的角色名列表（多角色并集，按 membership.roles 加载顺序）。
@@ -198,19 +199,11 @@ defmodule Cgc2046.Rbac do
           false
 
         membership ->
-          cond do
-            ability in @manage_abilities -> owner_or_admin?(membership)
-            ability in [:view_workspace, :access_invite_only] -> true
-            true -> false
-          end
+          roles_can?(Enum.map(membership.roles, & &1.name), ability)
       end
     else
       _ -> false
     end
-  end
-
-  defp owner_or_admin?(membership) do
-    Enum.any?(membership.roles, fn role -> role.name in @manage_roles end)
   end
 
   # -- 辅助 -----------------------------------------------------------------
