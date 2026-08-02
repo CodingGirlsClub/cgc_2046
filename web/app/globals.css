@@ -692,6 +692,21 @@
   .members-filter svg { flex: 0 0 auto; pointer-events: none; color: var(--ink-3); }
   .members-count { margin-left: auto; color: var(--ink-2); font-size: 13px; line-height: 20px; }
 
+  .members-visibility-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-medium);
+    background: var(--soft-1);
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .members-visibility-note svg { flex: 0 0 auto; color: var(--accent); }
+
   .members-table-shell { margin-top: 18px; overflow: visible; border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--card); }
   .members-table-scroll { overflow: visible; }
   .members-table { width: 100%; min-width: 880px; border-collapse: collapse; table-layout: fixed; }

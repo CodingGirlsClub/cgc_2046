@@ -258,6 +258,13 @@ export default function WorkspaceMembersPage() {
 
   const currentMembers = membersWorkspaceId === wsId ? members : null;
 
+  // P2-5：区分「工作区总成员数」（memberCount，物理计数）与「当前可见成员数」
+  // （workspaceMembers，Ash read policy 过滤后的可见列表）。非 Owner/Admin 只能看到自己，
+  // 计数以 memberCount 为主，并标注可见范围，避免两个语义不同的数字并列误导。
+  const visibleMemberCount = currentMembers?.length ?? 0;
+  const totalMemberCount = ws?.memberCount ?? visibleMemberCount;
+  const isLimitedMemberView = !canAssign && totalMemberCount > visibleMemberCount;
+
   const visibleMembers = useMemo(() => {
     if (!currentMembers) return [];
     const needle = search.trim().toLowerCase();
@@ -437,8 +444,22 @@ export default function WorkspaceMembersPage() {
               </select>
               <Icon name="chevron" size={17} />
             </label>
-            <span className="members-count">共 {currentMembers?.length ?? 0} 位成员{visibleMembers.length !== (currentMembers?.length ?? 0) ? ` · 显示 ${visibleMembers.length}` : ""}</span>
+            <span className="members-count" data-testid="members-count">
+              共 {totalMemberCount} 位成员
+              {isLimitedMemberView
+                ? `（当前仅显示你有权查看的 ${visibleMemberCount} 位）`
+                : visibleMembers.length !== visibleMemberCount
+                  ? ` · 显示 ${visibleMembers.length}`
+                  : ""}
+            </span>
           </section>
+
+          {isLimitedMemberView && (
+            <section className="members-visibility-note" aria-label="成员可见范围说明" data-testid="members-visibility-note">
+              <Icon name="info" size={16} />
+              <span>仅显示你有权查看的成员（工作区共 {totalMemberCount} 位成员）</span>
+            </section>
+          )}
 
           <section className="members-table-shell" aria-label="成员列表">
             {wsLoading || currentMembers === null ? (
