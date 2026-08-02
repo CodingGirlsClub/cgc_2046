@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-	cleanup,
-	screen,
-	waitFor,
-	within,
-} from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import PermissionsPage from "./page";
 import {
@@ -134,6 +129,15 @@ beforeEach(() => {
 			sponsorshipEnabled: true,
 			myRoleNames: ["admin"],
 			roles: ["admin"],
+			// #79 IA：管理导航过滤依赖能力列表，管理员夹具需含管理能力
+			myAbilities: [
+				"view_workspace",
+				"access_invite_only",
+				"list_members",
+				"manage_members",
+				"assign_roles",
+				"update_join_policy",
+			],
 			membershipStatus: "active",
 		},
 	]);
@@ -187,7 +191,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		// #78：壳「工作区设置」由禁用按钮解禁为链接（指向设置页）
 		expect(shellLink).toHaveAttribute("href", "/w/cgc-academy/settings");
 		// 壳 nav 激活态：/permissions 归「成员与角色」子页（⑤ review P3-4）
-		const shellNav = screen.getByRole("navigation", { name: "Workspace 设置" });
+		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
 		expect(
 			within(shellNav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("aria-current", "page");
