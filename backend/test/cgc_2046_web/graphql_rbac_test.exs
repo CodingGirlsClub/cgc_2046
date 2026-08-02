@@ -1,6 +1,7 @@
 defmodule Cgc2046Web.GraphqlRbacTest do
   use Cgc2046Web.ConnCase, async: true
 
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
@@ -184,7 +185,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
 
       by_name = Map.new(roles, &{&1["name"], &1["abilities"]})
 
-      for role <- ["owner", "admin"] do
+      for role <- Enum.map(Role.manage_roles(), &to_string/1) do
         abilities = by_name[role]
         assert abilities["viewWorkspace"] == true
         assert abilities["accessInviteOnly"] == true

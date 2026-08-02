@@ -23,6 +23,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin do
 
   require Ash.Query
 
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.WorkspaceMembership
 
   @impl true
@@ -125,7 +126,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin do
 
     case Ash.read(query, actor: actor, authorize?: false, tenant: workspace_id) do
       {:ok, [membership | _]} ->
-        Enum.any?(membership.roles, fn role -> role.name in [:owner, :admin] end)
+        Enum.any?(membership.roles, fn role -> role.name in Role.manage_roles() end)
 
       _ ->
         false

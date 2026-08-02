@@ -297,7 +297,7 @@ defmodule Cgc2046.RbacTest do
       # 角色枚举断言引用单源（G2 收敛），避免测试与 Role.role_names/0 漂移
       assert Enum.map(matrix, & &1.role) == Role.role_names()
 
-      for row <- matrix, row.role in [:owner, :admin] do
+      for row <- matrix, row.role in Role.manage_roles() do
         assert row.abilities.view_workspace == true
         assert row.abilities.access_invite_only == true
         assert row.abilities.list_members == true
