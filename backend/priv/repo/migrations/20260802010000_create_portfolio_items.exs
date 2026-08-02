@@ -13,7 +13,9 @@ defmodule Cgc2046.Repo.Migrations.CreatePortfolioItems do
   use Ecto.Migration
 
   def up do
-    unless repo().query!("SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'portfolio_items'").num_rows > 0 do
+    unless repo().query!(
+             "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'portfolio_items'"
+           ).num_rows > 0 do
       create table(:portfolio_items, primary_key: false) do
         add :id, :binary_id, primary_key: true
         add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
@@ -30,7 +32,9 @@ defmodule Cgc2046.Repo.Migrations.CreatePortfolioItems do
   end
 
   def down do
-    if repo().query!("SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'portfolio_items'").num_rows > 0 do
+    if repo().query!(
+         "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'portfolio_items'"
+       ).num_rows > 0 do
       drop table(:portfolio_items)
     end
   end

@@ -86,10 +86,12 @@ defmodule Cgc2046.Accounts.PortfolioItem do
       # 且 Ash.create(changeset) 不重跑普通 change；before_action 在
       # authorization 通过后执行，真实 actor 在 changeset.context[:private][:actor]
       # （回调闭包捕获的 context 是构建阶段的，actor 为 nil）。
-      change before_action(fn changeset, _context ->
-        actor = changeset.context[:private][:actor]
-        Ash.Changeset.force_change_attribute(changeset, :user_id, actor.id)
-      end)
+      change(
+        before_action(fn changeset, _context ->
+          actor = changeset.context[:private][:actor]
+          Ash.Changeset.force_change_attribute(changeset, :user_id, actor.id)
+        end)
+      )
     end
 
     update :update do
@@ -125,20 +127,18 @@ defmodule Cgc2046.Accounts.PortfolioItem do
     type(:portfolio_item)
 
     queries do
-      list :my_portfolio, :my_portfolio,
+      list(:my_portfolio, :my_portfolio,
         type_name: :portfolio_item,
         description: "当前用户的作品集条目列表"
+      )
     end
 
     mutations do
-      create :create_portfolio_item, :create,
-        description: "创建作品集条目（user_id 自动为当前用户）"
+      create(:create_portfolio_item, :create, description: "创建作品集条目（user_id 自动为当前用户）")
 
-      update :update_portfolio_item, :update,
-        description: "更新自己的作品集条目"
+      update(:update_portfolio_item, :update, description: "更新自己的作品集条目")
 
-      destroy :delete_portfolio_item, :destroy,
-        description: "删除自己的作品集条目"
+      destroy(:delete_portfolio_item, :destroy, description: "删除自己的作品集条目")
     end
   end
 end

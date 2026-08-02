@@ -80,7 +80,10 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
 
       assert {:ok, updated} =
                item
-               |> Ash.Changeset.for_update(:update, %{title: "作品 A 改名", url: "https://example.com/a"})
+               |> Ash.Changeset.for_update(:update, %{
+                 title: "作品 A 改名",
+                 url: "https://example.com/a"
+               })
                |> Ash.update(actor: user)
 
       assert updated.title == "作品 A 改名"
@@ -208,7 +211,12 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
       _user = owner_user()
       token = sign_in_token(@owner_email, @password)
 
-      res = graphql_post(build_conn(), create_item_mutation("GraphQL 作品", url: "https://example.com"), token)
+      res =
+        graphql_post(
+          build_conn(),
+          create_item_mutation("GraphQL 作品", url: "https://example.com"),
+          token
+        )
 
       assert %{"data" => %{"createPortfolioItem" => %{"result" => result, "errors" => []}}} = res
       assert result["title"] == "GraphQL 作品"
@@ -220,7 +228,9 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     test "anonymous cannot createPortfolioItem" do
       res = graphql_post(build_conn(), create_item_mutation("匿名作品"))
 
-      assert %{"data" => %{"createPortfolioItem" => %{"result" => result, "errors" => errors}}} = res
+      assert %{"data" => %{"createPortfolioItem" => %{"result" => result, "errors" => errors}}} =
+               res
+
       assert is_nil(result)
       assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
     end
