@@ -183,6 +183,20 @@ describe("工作台页 (#63)", () => {
     expect(push).toHaveBeenCalledWith("/login");
   });
 
+  it("加载失败：展示错误态与重试，不混淆为真实空数据", async () => {
+    fetchMyWorkspaces.mockRejectedValueOnce(new Error("network down"));
+    render(<HomePage />);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("工作区加载失败")).toBeInTheDocument();
+    expect(screen.queryByText("还没有可进入的工作区")).not.toBeInTheDocument();
+
+    // 重试成功：回到工作台侧栏
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByRole("heading", { name: "工作区详情" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("提供个人资料入口链接到 /profile (#69)", async () => {
     render(<HomePage />);
     const entry = await screen.findByTestId("profile-entry");
