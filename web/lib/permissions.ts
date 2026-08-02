@@ -7,29 +7,28 @@ import {
 } from "./graphql/workspace";
 import {
 	PERMISSION_MATRIX,
-	MY_ABILITIES,
 	type RbacAbility,
 	type RbacPermissionMatrixRow,
 } from "./graphql/permissions";
 import { client } from "./apollo-client";
-import { USE_MOCK_WORKSPACES } from "./workspaces";
 
 /**
- * #67 权限映射页的数据模型。
+ * #67 权限映射页的数据模型（#1 能力接口收敛后）。
  *
- * 单一数据源 = 后端 RBAC 真实能力（rbac.ex @abilities + GraphQL schema 六项）：
- * view_workspace / access_invite_only / list_members / manage_members /
- * assign_roles / create_workspace。设计稿曾多出 4 项无后端授权的假能力
- * （修改加入策略 / 查看资料 / 编辑自己资料 / 跨工作区访问），
- * 已按用户拍板砍掉，页面不再凭空画格子。
+ * 单一数据源 = 后端 RBAC 真实能力（Rbac.abilities_list/0 + Rbac.matrix/0，
+ * 经 permissionMatrix GraphQL 契约下发）：abilities 为通用 [{name, allowed}]
+ * 列表，前端不再显式挑选六个字段 —— 新增能力自动透传。
  *
  * 矩阵以五个默认角色展示：Owner / Admin / Tutor / Volunteer / Learner。
- * 后端返回六角色（含 member），前端 normalize member→learner 后按五角色渲染；
- * 真实模式只渲染后端返回的行（缺行不伪造）；mock 模式（开发 fixture）用模板补齐（模板只含六能力）。
- * member→learner 重映射见 normalizeRoleName：真实 learner 行优先，member 仅作兼容回退。
+ * 后端返回六角色（含 member），member 行仅作展示隐藏（成员资格仍可持有，
+ * 徽章/筛选继续显示 member）；不做任何语义推断与回退（#1：member→learner
+ * 优先级逻辑已删除，真实模式只渲染后端返回行）。
+ *
+ * 静态展示词汇（PERMISSION_ABILITIES 标签键 / PERMISSION_ROLE_ORDER）由契约测试
+ * permissions.contract.test.ts 对照后端 rbac_contract.json 守卫同步。
  */
 
-/** 能力 ID：与后端 RbacAbility 对齐（单一数据源，避免再次漂移）。 */
+/** 能力 ID：与后端 RbacAbility 对齐（静态展示词汇，契约测试守卫）。 */
 export type PermissionAbility = RbacAbility;
 
 export interface PermissionAbilityDef {
@@ -46,7 +45,7 @@ export interface PermissionMatrixRow {
 
 /**
  * 设计稿固定的默认角色顺序（五角色，不含 member）。
- * 由 ROLE_NAMES 单源过滤派生，避免重复六角色字面量；旧 member 只作为兼容输入，不出现在正式矩阵。
+ * 由 ROLE_NAMES 单源过滤派生，避免重复六角色字面量；member 仅作兼容输入，不出现在正式矩阵。
  */
 export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = ROLE_NAMES.filter(
 	(role) => role !== "member",
@@ -85,46 +84,6 @@ export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 	},
 ];
 
-type PermissionAbilities = Record<PermissionAbility, boolean>;
-
-const OWNER_ABILITIES: PermissionAbilities = {
-	view_workspace: true,
-	access_invite_only: true,
-	list_members: true,
-	manage_members: true,
-	assign_roles: true,
-	create_workspace: false,
-};
-
-const ADMIN_ABILITIES: PermissionAbilities = {
-	...OWNER_ABILITIES,
-};
-
-const MEMBER_ABILITIES: PermissionAbilities = {
-	view_workspace: true,
-	access_invite_only: true,
-	list_members: false,
-	manage_members: false,
-	assign_roles: false,
-	create_workspace: false,
-};
-
-// 开发 fixture（仅 USE_MOCK_WORKSPACES 分支可达）：值需与后端 Rbac.matrix/0 同步，改后端能力值时一并更新
-const ROLE_DEFAULT_ABILITIES: Record<MembershipRoleName, PermissionAbilities> =
-	{
-		owner: OWNER_ABILITIES,
-		admin: ADMIN_ABILITIES,
-		tutor: MEMBER_ABILITIES,
-		volunteer: MEMBER_ABILITIES,
-		learner: MEMBER_ABILITIES,
-		// 早期 API 的 member 与设计稿 Learner 语义最接近。
-		member: MEMBER_ABILITIES,
-	};
-
-function cloneAbilities(role: MembershipRoleName): PermissionAbilities {
-	return { ...ROLE_DEFAULT_ABILITIES[role] };
-}
-
 const ROLE_NOTES: Partial<Record<MembershipRoleName, string>> = {
 	owner: "全部 Workspace 管理能力；Owner 变更走专门指派。",
 	admin: "可管理成员并行内分配非 Owner 角色。",
@@ -132,18 +91,6 @@ const ROLE_NOTES: Partial<Record<MembershipRoleName, string>> = {
 	volunteer: "可查看成员与 Profile，参与被授权的协作任务。",
 	learner: "可查看成员与 Profile，编辑自己的 Profile。",
 };
-
-function mockPermissionRow(role: MembershipRoleName): PermissionMatrixRow {
-	return {
-		role,
-		abilities: cloneAbilities(role),
-		note: ROLE_NOTES[role],
-	};
-}
-
-/** 设计稿示例矩阵：五角色 × 六能力（与后端 schema 字段一一对应）。 */
-export const MOCK_PERMISSION_MATRIX: PermissionMatrixRow[] =
-	PERMISSION_ROLE_ORDER.map(mockPermissionRow);
 
 /** 当前用户某角色是否支持某能力。 */
 export function roleHasAbility(
@@ -153,7 +100,10 @@ export function roleHasAbility(
 	return row.abilities[ability] === true;
 }
 
-/** 多角色并集：任一角色支持即支持。 */
+/**
+ * 多角色并集：任一角色支持即支持（#67 判定示例卡展示用，纯展示逻辑）。
+ * 角色名不在五角色展示模板内（如旧 member）不参与判定。
+ */
 export function myRolesHaveAbility(
 	myRoles: MembershipRoleName[] | null | undefined,
 	matrix: PermissionMatrixRow[],
@@ -161,98 +111,37 @@ export function myRolesHaveAbility(
 ): boolean {
 	if (!myRoles || myRoles.length === 0) return false;
 	return myRoles.some((role) => {
-		const normalizedRole = normalizeRoleName(role);
-		if (!normalizedRole) return false;
-		const row = matrix.find((item) => item.role === normalizedRole);
+		const row = matrix.find((item) => item.role === role);
 		return row ? roleHasAbility(row, ability) : false;
 	});
 }
 
-function normalizeRoleName(name: string): MembershipRoleName | null {
-	if (name === "member") return "learner";
-	if (PERMISSION_ROLE_ORDER.includes(name as MembershipRoleName)) {
-		return name as MembershipRoleName;
-	}
-	return null;
-}
-
 /**
- * 将后端 permissionMatrix（六角色 × 六能力）映射为五角色矩阵（member→learner）。
- * 六能力直接从后端 abilities 字段直取（viewWorkspace/accessInviteOnly/
- * listMembers/manageMembers/assignRoles/createWorkspace）；
- * 后端缺行时不伪造，仅渲染后端实际返回的行（按设计稿角色顺序）。
- * member→learner 优先级：真实 learner 行优先，member 仅在后端未返回 learner 时作兼容回退。
+ * 将后端 permissionMatrix（六角色 × 六能力，abilities 通用列表）映射为
+ * 五角色展示矩阵：按设计稿角色顺序取行，member 行隐藏，缺行不伪造。
+ * 不做语义推断（#1：无 member→learner 回退、无字段挑选 —— 能力透传后端返回值）。
  */
 export function mapPermissionMatrixRows(
 	rows: RbacPermissionMatrixRow[] | null | undefined,
 ): PermissionMatrixRow[] {
 	if (!rows || !Array.isArray(rows) || rows.length === 0) return [];
 
-	const makeRow = (
-		backendRow: RbacPermissionMatrixRow,
-		role: MembershipRoleName,
-	): PermissionMatrixRow => {
-		const backend = backendRow.abilities;
-		return {
-			role,
-			abilities: {
-				view_workspace: backend.viewWorkspace,
-				access_invite_only: backend.accessInviteOnly,
-				list_members: backend.listMembers,
-				manage_members: backend.manageMembers,
-				assign_roles: backend.assignRoles,
-				create_workspace: backend.createWorkspace,
-			},
-			note: ROLE_NOTES[role],
-		};
-	};
-
-	const mapped = new Map<MembershipRoleName, PermissionMatrixRow>();
-	// 第一遍：非 member 行（真实 learner 行优先）
-	for (const backendRow of rows) {
-		if (backendRow.name === "member") continue;
-		const role = normalizeRoleName(backendRow.name);
-		if (!role || mapped.has(role)) continue;
-		mapped.set(role, makeRow(backendRow, role));
-	}
-	// 第二遍：member 仅作兼容回退——后端未返回 learner 时补 learner 槽位
-	const memberRow = rows.find((row) => row.name === "member");
-	if (memberRow && !mapped.has("learner")) {
-		mapped.set("learner", makeRow(memberRow, "learner"));
-	}
+	const byName = new Map(rows.map((row) => [row.name, row]));
 
 	return PERMISSION_ROLE_ORDER.flatMap((role) => {
-		const row = mapped.get(role);
-		return row ? [row] : [];
+		const backendRow = byName.get(role);
+		if (!backendRow) return [];
+		const abilities = Object.fromEntries(
+			backendRow.abilities.map((grant) => [grant.name, grant.allowed]),
+		) as Record<PermissionAbility, boolean>;
+		return [{ role, abilities, note: ROLE_NOTES[role] }];
 	});
 }
 
-/** 获取角色 → 能力矩阵；mock/GraphQL 切换由 workspaces 数据层开关控制。 */
+/** 获取角色 → 能力矩阵（#1：唯一真实路径，GraphQL 契约消费端）。 */
 export async function fetchPermissionsMatrix(): Promise<PermissionMatrixRow[]> {
-	if (USE_MOCK_WORKSPACES) {
-		return Promise.resolve(
-			MOCK_PERMISSION_MATRIX.map((row) => ({
-				...row,
-				abilities: { ...row.abilities },
-			})),
-		);
-	}
 	const { data } = await client.query({ query: PERMISSION_MATRIX });
 	return mapPermissionMatrixRows(data?.permissionMatrix?.roles);
-}
-
-/** 保留 #66 动态能力查询，供后续页面接入真实 can? 结果。 */
-export async function fetchMyAbilities(
-	workspaceId: string,
-): Promise<RbacAbility[]> {
-	if (USE_MOCK_WORKSPACES) {
-		return Promise.resolve(["view_workspace", "access_invite_only"]);
-	}
-	const { data } = await client.query({
-		query: MY_ABILITIES,
-		variables: { workspaceId },
-	});
-	return (data?.myAbilities?.abilities ?? []) as RbacAbility[];
 }
 
 /** 角色展示辅助（复用 Workspace 角色契约）。 */
