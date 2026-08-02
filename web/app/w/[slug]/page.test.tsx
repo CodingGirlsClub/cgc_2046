@@ -24,6 +24,7 @@ const TEST_WORKSPACES = [
 			"list_members",
 			"manage_members",
 			"assign_roles",
+			"update_join_policy",
 		],
 		membershipStatus: "active" as const,
 		memberCount: 342,
@@ -213,11 +214,68 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("壳导航「概览」选中（aria-current=page）", async () => {
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
-			name: "Workspace 设置",
+			name: "工作区设置",
 		});
 		const overview = within(nav).getByRole("link", { name: "概览" });
 		expect(overview).toHaveAttribute("href", "/w/cgc-academy");
 		expect(overview).toHaveAttribute("aria-current", "page");
+	});
+
+	it("壳导航 IA（#79）：管理员见管理项 + B-3 占位，分组标题「工作区设置」", async () => {
+		render(<WorkspacePage />);
+		const nav = await screen.findByRole("navigation", {
+			name: "工作区设置",
+		});
+		// 设置组内四项：概览 / 成员与角色 / 工作区设置 / 占位×2
+		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
+		expect(
+			within(nav).getByRole("link", { name: "成员与角色" }),
+		).toHaveAttribute("href", "/w/cgc-academy/members");
+		expect(
+			within(nav).getByRole("link", { name: "工作区设置" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings");
+		// B-3 占位：disabled 按钮（管理可见，title 注明切片 B）
+		const approvalPlaceholder = within(nav).getByRole("button", {
+			name: "加入审批",
+		});
+		expect(approvalPlaceholder).toBeDisabled();
+		const invitePlaceholder = within(nav).getByRole("button", {
+			name: "邀请管理",
+		});
+		expect(invitePlaceholder).toBeDisabled();
+		// 个人资料移出设置组（nav 外独立链接）
+		expect(
+			screen.getByRole("link", { name: "个人资料" }),
+		).toHaveAttribute("href", "/profile?ws=cgc-academy");
+		expect(
+			within(nav).queryByRole("link", { name: "个人资料" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("壳导航权限过滤（#79）：普通成员仅见 概览 + 个人资料", async () => {
+		params.value = { slug: "cgc-shanghai" };
+		render(<WorkspacePage />);
+		const nav = await screen.findByRole("navigation", {
+			name: "工作区设置",
+		});
+		// 管理项与 B-3 占位一律不渲染
+		expect(
+			within(nav).queryByRole("link", { name: "成员与角色" }),
+		).not.toBeInTheDocument();
+		expect(
+			within(nav).queryByRole("link", { name: "工作区设置" }),
+		).not.toBeInTheDocument();
+		expect(
+			within(nav).queryByRole("button", { name: "加入审批" }),
+		).not.toBeInTheDocument();
+		expect(
+			within(nav).queryByRole("button", { name: "邀请管理" }),
+		).not.toBeInTheDocument();
+		// 概览仍在，个人资料在 nav 外
+		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("link", { name: "个人资料" }),
+		).toHaveAttribute("href", "/profile?ws=cgc-shanghai");
 	});
 
 	it("展示我的角色 chips（Admin，Hero 与信息卡各一处）", async () => {

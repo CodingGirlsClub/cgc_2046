@@ -109,6 +109,13 @@ export default function WorkspaceShell({
 
 	const active = navSection(pathname, slug);
 
+	// #79 IA：管理项按能力过滤（普通成员仅见 概览/个人资料）；
+	// 页面级门控不变（后端 policy 权威拦截，导航过滤仅为 UX）
+	const abilities = ws?.myAbilities ?? [];
+	const canSeeMembers = abilities.includes("list_members");
+	const canSeeJoinPolicy = abilities.includes("update_join_policy");
+	const canSeeManagement = canSeeMembers; // B-3 占位跟随管理可见性
+
 	return (
 		<div className={`ws-shell-page ${className ?? ""}`}>
 			<aside className="ws-shell-sidebar">
@@ -128,8 +135,8 @@ export default function WorkspaceShell({
 
 				{slug && (
 					<>
-						<div className="ws-shell-heading">Workspace 设置</div>
-						<nav className="ws-shell-nav" aria-label="Workspace 设置">
+						<div className="ws-shell-heading">工作区设置</div>
+						<nav className="ws-shell-nav" aria-label="工作区设置">
 							<Link
 								href={`/w/${slug}`}
 								className={`ws-shell-item ${active === "overview" ? "ws-shell-item--selected" : ""}`}
@@ -138,31 +145,57 @@ export default function WorkspaceShell({
 								<Icon name="grid" />
 								<span>概览</span>
 							</Link>
-							<Link
-								href={`/w/${slug}/members`}
-								className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
-								aria-current={active === "members" ? "page" : undefined}
-							>
-								<Icon name="users" />
-								<span>成员与角色</span>
-							</Link>
-							<Link
-								href={`/w/${slug}/settings`}
-								className={`ws-shell-item ${active === "settings" ? "ws-shell-item--selected" : ""}`}
-								aria-current={active === "settings" ? "page" : undefined}
-							>
-								<Icon name="settings" />
-								<span>工作区设置</span>
-							</Link>
-							<Link
-								href={`/profile?ws=${slug}`}
-								className={`ws-shell-item ${active === "profile" ? "ws-shell-item--selected" : ""}`}
-								aria-current={active === "profile" ? "page" : undefined}
-							>
-								<Icon name="user" />
-								<span>个人资料</span>
-							</Link>
+							{canSeeMembers && (
+								<Link
+									href={`/w/${slug}/members`}
+									className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
+									aria-current={active === "members" ? "page" : undefined}
+								>
+									<Icon name="users" />
+									<span>成员与角色</span>
+								</Link>
+							)}
+							{canSeeJoinPolicy && (
+								<Link
+									href={`/w/${slug}/settings`}
+									className={`ws-shell-item ${active === "settings" ? "ws-shell-item--selected" : ""}`}
+									aria-current={active === "settings" ? "page" : undefined}
+								>
+									<Icon name="settings" />
+									<span>工作区设置</span>
+								</Link>
+							)}
+							{canSeeManagement && (
+								<>
+									<button
+										type="button"
+										disabled
+										className="ws-shell-item ws-shell-item--disabled"
+										title="切片 B 开放（加入审批 / 邀请管理）"
+									>
+										<Icon name="shield" />
+										<span>加入审批</span>
+									</button>
+									<button
+										type="button"
+										disabled
+										className="ws-shell-item ws-shell-item--disabled"
+										title="切片 B 开放（加入审批 / 邀请管理）"
+									>
+										<Icon name="invite" />
+										<span>邀请管理</span>
+									</button>
+								</>
+							)}
 						</nav>
+						<Link
+							href={`/profile?ws=${slug}`}
+							className={`ws-shell-item ws-shell-item--profile ${active === "profile" ? "ws-shell-item--selected" : ""}`}
+							aria-current={active === "profile" ? "page" : undefined}
+						>
+							<Icon name="user" />
+							<span>个人资料</span>
+						</Link>
 					</>
 				)}
 

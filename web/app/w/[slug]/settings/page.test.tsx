@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { render } from "@/test-utils";
 import SettingsPage from "./page";
 
@@ -114,7 +120,7 @@ describe("/w/[slug]/settings 工作区设置页", () => {
 			screen.getByText("申请审批", { selector: ".workspace-policy" }),
 		).toBeInTheDocument();
 		// 壳导航「工作区设置」激活态（#78）
-		const shellNav = screen.getByRole("navigation", { name: "Workspace 设置" });
+		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
 		expect(
 			within(shellNav).getByRole("link", { name: "工作区设置" }),
 		).toHaveAttribute("aria-current", "page");
@@ -138,9 +144,9 @@ describe("/w/[slug]/settings 工作区设置页", () => {
 				"invite_only",
 			),
 		);
-		expect(
-			await screen.findByRole("status", { name: "" }),
-		).toHaveTextContent("加入策略已更新");
+		expect(await screen.findByRole("status", { name: "" })).toHaveTextContent(
+			"加入策略已更新",
+		);
 		// 保存后徽章同步为新策略
 		expect(
 			screen.getByText("仅邀请", { selector: ".workspace-policy" }),
