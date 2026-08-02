@@ -324,6 +324,54 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
+  describe "membership user_* / joined_at calculations (P1 G6/G7)" do
+    test "owner reading memberships gets userEmail/userDisplayName/joinedAt (flattened, bypassing user read policy)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "mbr-calc-#{System.unique_integer([:positive])}", name: "MBRCALC"})
+        |> Ash.create(actor: admin)
+
+      member = register_user("mbr-calc-m-#{System.unique_integer([:positive])}@example.com", @password)
+
+      # 给 member 设置 display_name
+      {:ok, member} =
+        member
+        |> Ash.Changeset.for_update(:update_profile, %{display_name: "Calc Member"})
+        |> Ash.update(actor: member)
+
+      add_member(workspace, member, admin, [:member])
+
+      require Ash.Query
+
+      {:ok, memberships} =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+        |> Ash.read(
+          actor: admin,
+          tenant: workspace.id,
+          load: [:user_email, :user_display_name, :joined_at],
+          domain: Cgc2046.GlobalApi
+        )
+
+      by_email = Map.new(memberships, &{&1.user_email, &1})
+      assert Map.has_key?(by_email, to_string(admin.email))
+      assert Map.has_key?(by_email, to_string(member.email))
+
+      # member 行：userEmail / userDisplayName 平铺字段可见（即使不是本人读）
+      member_ms = by_email[to_string(member.email)]
+      assert member_ms.user_email == to_string(member.email)
+      assert member_ms.user_display_name == "Calc Member"
+      assert not is_nil(member_ms.joined_at)
+
+      # owner 行：joined_at = inserted_at
+      owner_ms = by_email[to_string(admin.email)]
+      assert not is_nil(owner_ms.joined_at)
+    end
+  end
+
   describe "update workspace" do
     test "platform admin can update join_policy" do
       admin = admin_user()
