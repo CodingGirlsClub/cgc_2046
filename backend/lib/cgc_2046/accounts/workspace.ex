@@ -10,7 +10,8 @@ defmodule Cgc2046.Accounts.Workspace do
   权限（#62 + #64，Leader 已拍板）：
   - 创建：仅平台管理员；创建时自动 seed 角色（owner/admin/member/tutor/volunteer/learner）并建立 Owner 成员资格（#64 + G1）
   - 读取：open/request 工作台对已认证用户可定向查询；invite_only 仅成员/管理员/平台管理员可读（非成员返回 null/forbidden，不可发现）
-  - 更新：平台管理员可改；Owner 权限在 #64 之后收紧为成员管理相关操作
+  - 更新：Owner/Admin（多角色并集）或平台管理员可改（#78：放开 join_policy 修改，
+    对应能力 `:update_join_policy`，见 Rbac 能力表）
   - `me_workspaces`：返回当前用户可进入（成员或创建者）的工作台列表，供前端 #63 使用
   """
   use Ash.Resource,
@@ -203,6 +204,9 @@ defmodule Cgc2046.Accounts.Workspace do
     end
 
     policy action_type(:update) do
+      # #78：Owner/Admin（多角色并集）可更新（含 join_policy）；
+      # 平台管理员现状能力不回收（二者取并）
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
@@ -234,7 +238,7 @@ defmodule Cgc2046.Accounts.Workspace do
     mutations do
       create(:create_workspace, :create, description: "创建工作台（仅平台管理员）")
 
-      update(:update_workspace, :update, description: "更新工作台（平台管理员）")
+      update(:update_workspace, :update, description: "更新工作台（Owner/Admin 或平台管理员）")
     end
   end
 end

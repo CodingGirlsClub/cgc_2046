@@ -1125,7 +1125,7 @@ type RootMutationType {
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
 
-  "更新工作台（平台管理员）"
+  "更新工作台（Owner\/Admin 或平台管理员）"
   updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
 
   "分配成员角色（多角色并集，仅 Owner\/Admin）"

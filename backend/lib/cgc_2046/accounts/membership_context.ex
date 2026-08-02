@@ -100,6 +100,8 @@ defmodule Cgc2046.Accounts.MembershipContext do
   2. list query（成员列表）：tenant 可能为空（global 查询），从 filter 提取 workspace_id
   3. get-by-id（GraphQL update mutation 先读目标记录）：filter 只有 id，
      按 id 读出记录后再取 workspace_id
+  4. changeset 目标即 Workspace 资源自身（#78 update_workspace）：Workspace 无
+     workspace_id 属性，目标工作台 = 被更新记录本身（data.id / attributes.id）
 
   ## Ash 版本钉点
 
@@ -124,11 +126,25 @@ defmodule Cgc2046.Accounts.MembershipContext do
   # update/bulk 场景 changeset.data 可能为 nil，先保护再取
   defp changeset_workspace_id(changeset) do
     if changeset.data do
-      Ash.Changeset.get_attribute(changeset, :workspace_id)
+      Ash.Changeset.get_attribute(changeset, :workspace_id) ||
+        workspace_self_id(changeset)
     else
-      Map.get(changeset.attributes, :workspace_id)
+      Map.get(changeset.attributes, :workspace_id) || workspace_self_id(changeset)
     end
   end
+
+  # #78：目标资源即 Workspace 时，工作台 id = 被更新记录自身 id（data 可能为 nil，
+  # 回退 attributes）。仅限 Workspace 资源 —— 其它租户资源的 data.id 是记录自身
+  # 主键（如 membership id），不能误当作 workspace_id。
+  defp workspace_self_id(%Ash.Changeset{resource: Cgc2046.Accounts.Workspace} = changeset) do
+    if changeset.data do
+      Ash.Changeset.get_attribute(changeset, :id)
+    else
+      Map.get(changeset.attributes, :id)
+    end
+  end
+
+  defp workspace_self_id(_changeset), do: nil
 
   # actor 成员资格查询形状的唯一实现（membership_of / memberships_of_actor 共用）
   defp actor_memberships_query(actor) do

@@ -219,7 +219,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       """
     end
 
-    test "owner (platform admin) gets all six abilities" do
+    test "owner (platform admin) gets all seven abilities" do
       _admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
@@ -238,6 +238,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
                "list_members",
                "manage_members",
                "assign_roles",
+               "update_join_policy",
                "create_workspace"
              ]
     end
