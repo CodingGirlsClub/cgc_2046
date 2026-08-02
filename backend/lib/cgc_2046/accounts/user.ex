@@ -53,11 +53,56 @@ defmodule Cgc2046.Accounts.User do
       allow_nil?: true,
       public?: true,
       writable?: true,
-      description: "头像 URL（#68 Profile API，可选）"
+      description: "头像 URL（#68 Profile API，可选；data URL 限 image/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
+    )
+
+    attribute(:location, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "所在地（P1 Profile 扩展字段，可编辑）"
+    )
+
+    attribute(:about, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "个人简介（P1 Profile 扩展字段，可编辑）"
+    )
+
+    attribute(:skills, {:array, :string},
+      allow_nil?: true,
+      default: [],
+      public?: true,
+      writable?: true,
+      description: "技能标签列表（P1 Profile 扩展字段，可编辑）"
+    )
+
+    attribute(:visibility, :atom,
+      allow_nil?: false,
+      default: :workspace_members,
+      public?: true,
+      writable?: true,
+      constraints: [one_of: [:workspace_members, :workspace_public]],
+      description: "资料可见范围（P1 Profile 扩展字段）：workspace_members 仅工作区成员 / workspace_public 工作区内公开"
     )
 
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
+  end
+
+  calculations do
+    calculate(:member_number, :string,
+      {Cgc2046.Accounts.Calculations.MemberNumber, []},
+      public?: true,
+      description: "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
+    )
+
+    calculate(:joined_at, :datetime,
+      expr(inserted_at),
+      public?: true,
+      description: "注册（加入）时间"
+    )
   end
 
   validations do
@@ -77,11 +122,11 @@ defmodule Cgc2046.Accounts.User do
     end
 
     update :update_profile do
-      description("更新当前用户个人资料（#68）：displayName（必填非空）+ avatarUrl（可选）")
+      description("更新当前用户个人资料（P1）：displayName 必填（trim 后非空），avatarUrl/location/about/skills/visibility 可选")
 
       require_atomic?(false)
 
-      accept([:display_name, :avatar_url])
+      accept([:display_name, :avatar_url, :location, :about, :skills, :visibility])
 
       # 规范化：displayName 先 trim 再校验非空
       change(fn changeset, _context ->
@@ -107,8 +152,59 @@ defmodule Cgc2046.Accounts.User do
             end
         end
       end)
+
+      # P1-4 头像上传最小方案：data URL 限白名单 MIME + 体积上限；http(s) URL 限长度
+      validate(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :avatar_url) do
+          nil -> :ok
+          url -> validate_avatar_url(url)
+        end
+      end)
     end
   end
+
+  # 头像校验（P1-4 最小方案）：base64 data URL 直存 + 类型/大小限制，外部存储留待后续切片
+  @avatar_allowed_mime ["image/png", "image/jpeg", "image/webp", "image/gif"]
+  @avatar_max_data_url_bytes 3_000_000
+  @avatar_max_http_url_length 2048
+
+  defp validate_avatar_url("data:" <> rest) do
+    case String.split(rest, ";", parts: 2) do
+      [mime, "base64," <> _] ->
+        cond do
+          mime not in @avatar_allowed_mime ->
+            {:error,
+             field: :avatar_url,
+             message: "avatar data URL MIME must be one of image/png, image/jpeg, image/webp, image/gif"}
+
+          byte_size("data:" <> rest) > @avatar_max_data_url_bytes ->
+            {:error,
+             field: :avatar_url, message: "avatar data URL too large (max ~2.2MB image)"}
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        {:error, field: :avatar_url, message: "avatar data URL must be base64-encoded image"}
+    end
+  end
+
+  defp validate_avatar_url(url) when is_binary(url) do
+    cond do
+      String.starts_with?(url, "http://") or String.starts_with?(url, "https://") ->
+        if byte_size(url) <= @avatar_max_http_url_length do
+          :ok
+        else
+          {:error, field: :avatar_url, message: "avatar URL too long (max 2048 chars)"}
+        end
+
+      true ->
+        {:error, field: :avatar_url, message: "avatarUrl must be a data URL or http(s) URL"}
+    end
+  end
+
+  defp validate_avatar_url(_), do: {:error, field: :avatar_url, message: "avatarUrl must be a string"}
 
   authentication do
     tokens do

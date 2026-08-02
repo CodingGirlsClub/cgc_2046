@@ -100,6 +100,34 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       assert is_platform_admin == true
     end
 
+    test "me returns P1 extended profile fields (location/about/skills/visibility/memberNumber/joinedAt)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), me_query(), token)
+
+      assert %{
+               "data" => %{
+                 "me" => %{
+                   "location" => location,
+                   "about" => about,
+                   "skills" => skills,
+                   "visibility" => visibility,
+                   "memberNumber" => member_number,
+                   "joinedAt" => joined_at
+                 }
+               }
+             } = res
+
+      assert location == nil
+      assert about == nil
+      assert skills == []
+      assert visibility == "workspace_members"
+      assert is_binary(member_number)
+      assert String.starts_with?(member_number, "CGC-")
+      assert is_binary(joined_at)
+    end
+
     test "regular user me reflects profile updates" do
       _user = register_user(@user_email, @password)
       token = sign_in_token(@user_email, @password)
@@ -138,6 +166,148 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       # me 反映更新
       res = graphql_post(build_conn(), me_query(), token)
       assert %{"data" => %{"me" => %{"displayName" => "阿麦"}}} = res
+    end
+
+    test "updateProfile persists P1 extended fields (location/about/skills/visibility)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateProfile(input: {
+              displayName: "阿麦"
+              location: "上海"
+              about: "关注社区学习与 AI 教育。"
+              skills: ["AI 教育", "课程设计", "Elixir"]
+              visibility: "workspace_public"
+            }) {
+              id
+              location
+              about
+              skills
+              visibility
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{
+               "data" => %{
+                 "updateProfile" => %{
+                   "location" => "上海",
+                   "about" => "关注社区学习与 AI 教育。",
+                   "skills" => ["AI 教育", "课程设计", "Elixir"],
+                   "visibility" => "workspace_public"
+                 }
+               }
+             } = res
+
+      # me 反映更新
+      res = graphql_post(build_conn(), me_query(), token)
+
+      assert %{
+               "data" => %{
+                 "me" => %{
+                   "location" => "上海",
+                   "about" => "关注社区学习与 AI 教育。",
+                   "skills" => ["AI 教育", "课程设计", "Elixir"],
+                   "visibility" => "workspace_public"
+                 }
+               }
+             } = res
+    end
+
+    test "updateProfile can clear optional fields with explicit null" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      # 先写入
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateProfile(input: {
+              displayName: "阿麦"
+              location: "上海"
+              about: "简介"
+              skills: ["Elixir"]
+            }) { id location about skills }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"updateProfile" => %{"location" => "上海"}}} = res
+
+      # 显式 null 清空
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateProfile(input: {
+              displayName: "阿麦"
+              location: null
+              about: null
+              skills: null
+            }) { id location about skills }
+          }
+          """,
+          token
+        )
+
+      assert %{
+               "data" => %{
+                 "updateProfile" => %{"location" => nil, "about" => nil, "skills" => nil}
+               }
+             } = res
+    end
+
+    test "updateProfile accepts base64 data URL avatar (image/png)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      # 1x1 透明 PNG data URL
+      data_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", data_url), token)
+      assert %{"data" => %{"updateProfile" => %{"avatarUrl" => ^data_url}}} = res
+    end
+
+    test "updateProfile rejects non-image data URL avatar" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      data_url = "data:text/plain;base64,aGVsbG8="
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", data_url), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "MIME"))
+    end
+
+    test "updateProfile rejects oversized data URL avatar" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      huge = "data:image/png;base64," <> String.duplicate("A", 3_000_100)
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", huge), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "too large"))
+    end
+
+    test "updateProfile rejects non-URL/non-data avatar value" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", "not-a-url"), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "data URL or http(s) URL"))
     end
 
     test "trims displayName before persisting" do
@@ -221,6 +391,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
         displayName
         avatarUrl
         isPlatformAdmin
+        location
+        about
+        skills
+        visibility
+        memberNumber
+        joinedAt
       }
     }
     """
@@ -242,6 +418,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
         displayName
         avatarUrl
         isPlatformAdmin
+        location
+        about
+        skills
+        visibility
+        memberNumber
+        joinedAt
       }
     }
     """
