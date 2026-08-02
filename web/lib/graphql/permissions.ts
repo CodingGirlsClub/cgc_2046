@@ -6,18 +6,23 @@ import type { TypedDocumentNode } from "@apollo/client";
  *
  * 与后端工程师 worker_c5ca4e44 确认的契约（backend/priv/graphql/schema.graphql）：
  * - permissionMatrix（需登录，匿名返回 unauthorized）：
- *     query { permissionMatrix { roles { name abilities { view_workspace access_invite_only
- *       list_members manage_members assign_roles create_workspace } } } }
- *   返回 owner/admin/member 三角色 × 六能力 boolean，与 lib/permissions.ts
- *   PermissionMatrixRow 完全对齐（abilities 字段即 snake_case 能力名）。
+ *     query { permissionMatrix { roles { name abilities { viewWorkspace accessInviteOnly
+ *       listMembers manageMembers assignRoles createWorkspace } } } }
+ *   返回 owner/admin/member 三角色 × 六能力 boolean。字段名与 SDL 对齐为 camelCase
+ *   （后端 Absinthe 默认 camelize；P1-5 起前端不再依赖 snake_case 宽松匹配兜底）。
  * - myAbilities(workspaceId: ID!)（需登录）：
  *     query { myAbilities(workspaceId: "xxx") { abilities } }
  *   返回当前用户在该工作台能力名列表（如 ["view_workspace","access_invite_only",...]）。
+ *   注意：abilities 数组元素是业务枚举数据（能力名，snake_case），不是 GraphQL 字段名，
+ *   与 permissionMatrix.abilities 的 camelCase 字段名是两个维度，不互相影响。
  */
 
 /* ---------------- 类型（对齐 backend/priv/graphql/schema.graphql） ---------------- */
 
-/** 能力名（后端 Rbac abilities 的 snake_case 字符串，与前端 PermissionAbility 一致） */
+/**
+ * 能力名（后端 myAbilities 返回的业务枚举字符串，snake_case）。
+ * 这是业务数据而非 GraphQL 字段名，不随 P1-5 字段名统一改（避免牵连 myAbilities resolver）。
+ */
 export type RbacAbility =
   | "view_workspace"
   | "access_invite_only"
@@ -26,14 +31,14 @@ export type RbacAbility =
   | "assign_roles"
   | "create_workspace";
 
-/** permissionMatrix 单行 abilities（后端返回六能力 boolean） */
+/** permissionMatrix 单行 abilities（后端返回六能力 boolean，字段名 camelCase） */
 export interface RbacPermissionAbilities {
-  view_workspace: boolean;
-  access_invite_only: boolean;
-  list_members: boolean;
-  manage_members: boolean;
-  assign_roles: boolean;
-  create_workspace: boolean;
+  viewWorkspace: boolean;
+  accessInviteOnly: boolean;
+  listMembers: boolean;
+  manageMembers: boolean;
+  assignRoles: boolean;
+  createWorkspace: boolean;
 }
 
 /** permissionMatrix 单行（后端返回 name + abilities） */
@@ -64,12 +69,12 @@ export const PERMISSION_MATRIX: TypedDocumentNode<
       roles {
         name
         abilities {
-          view_workspace
-          access_invite_only
-          list_members
-          manage_members
-          assign_roles
-          create_workspace
+          viewWorkspace
+          accessInviteOnly
+          listMembers
+          manageMembers
+          assignRoles
+          createWorkspace
         }
       }
     }
