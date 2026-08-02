@@ -135,6 +135,6 @@ describe("工作区占位页 /w/[slug] (#63)", () => {
   it("header 提供个人资料入口链接到 /profile (#69)", async () => {
     render(<WorkspacePage />);
     const entry = await screen.findByTestId("profile-entry");
-    expect(entry).toHaveAttribute("href", "/profile");
+    expect(entry).toHaveAttribute("href", "/profile?ws=cgc-academy");
   });
 });

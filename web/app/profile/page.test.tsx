@@ -3,7 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import ProfilePage from "./page";
 import { MOCK_PROFILE_PORTFOLIO } from "@/lib/profile";
 
-const { router } = vi.hoisted(() => ({ router: { push: vi.fn(), replace: vi.fn() } }));
+const { router, searchParams } = vi.hoisted(() => ({
+  router: { push: vi.fn(), replace: vi.fn() },
+  searchParams: { get: vi.fn() },
+}));
 const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
   isAuthenticated: vi.fn(),
   clearAuthToken: vi.fn(),
@@ -20,7 +23,7 @@ const { fetchPortfolio, createPortfolio, updatePortfolio, deletePortfolio } = vi
   deletePortfolio: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: () => searchParams }));
 vi.mock("@/lib/auth", () => ({ isAuthenticated, clearAuthToken }));
 vi.mock("@/lib/profile", async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
@@ -57,6 +60,7 @@ const designProfile = () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   isAuthenticated.mockReturnValue(true);
+  searchParams.get.mockReturnValue(null);
   fetchProfile.mockResolvedValue(designProfile());
   fetchPortfolio.mockResolvedValue(designProfile().portfolio);
   fetchRoles.mockResolvedValue([{
@@ -298,5 +302,63 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
     const firstRow = screen.getAllByTestId("portfolio-edit-row")[0];
     const deleteBtn = within(firstRow).getByRole("button", { name: /删除作品/ });
     expect(deleteBtn).toHaveAttribute("aria-label", "删除作品：AI 入门工作坊课程大纲");
+  });
+
+  it("P1-3：?ws= 指定工作区时按该工作区取角色身份（多 workspace 上下文）", async () => {
+    // 真实 me 不返回 workspace* 字段 → 角色身份完全由 summaries（meWorkspaces）决定
+    fetchProfile.mockResolvedValue({
+      id: "u_multi",
+      email: "multi@example.com",
+      displayName: "林溪",
+      avatarUrl: null,
+      isPlatformAdmin: false,
+      location: null,
+      about: null,
+      skills: null,
+      joinedAt: null,
+      visibility: null,
+      memberNumber: null,
+    });
+    fetchPortfolio.mockResolvedValue([]);
+    fetchRoles.mockResolvedValue([
+      { workspaceId: "ws_01", workspaceSlug: "cgc-shanghai", workspaceName: "CGC 上海分社", myRoleNames: ["member"] },
+      { workspaceId: "ws_02", workspaceSlug: "cgc-academy", workspaceName: "CGC 线上学院", myRoleNames: ["admin"] },
+    ]);
+    searchParams.get.mockImplementation((key: string) => (key === "ws" ? "cgc-academy" : null));
+
+    await renderReadyProfile();
+
+    // 按选中工作区 academy 的角色（admin）渲染，而非第一个有角色的 shanghai（member）
+    expect(within(screen.getByTestId("identity-card")).getByText("Admin")).toBeInTheDocument();
+    expect(within(screen.getByTestId("identity-card")).queryByText("Member")).not.toBeInTheDocument();
+    // sidebar 概览链接反映选中工作区 slug
+    expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("href", "/w/cgc-academy");
+  });
+
+  it("P1-3：无 ?ws 时回退第一个有角色的工作区（首页/全局入口降级）", async () => {
+    fetchProfile.mockResolvedValue({
+      id: "u_multi",
+      email: "multi@example.com",
+      displayName: "林溪",
+      avatarUrl: null,
+      isPlatformAdmin: false,
+      location: null,
+      about: null,
+      skills: null,
+      joinedAt: null,
+      visibility: null,
+      memberNumber: null,
+    });
+    fetchPortfolio.mockResolvedValue([]);
+    fetchRoles.mockResolvedValue([
+      { workspaceId: "ws_01", workspaceSlug: "cgc-shanghai", workspaceName: "CGC 上海分社", myRoleNames: ["member"] },
+      { workspaceId: "ws_02", workspaceSlug: "cgc-academy", workspaceName: "CGC 线上学院", myRoleNames: ["admin"] },
+    ]);
+    // searchParams.get 默认 null（beforeEach）
+
+    await renderReadyProfile();
+
+    expect(within(screen.getByTestId("identity-card")).getByText("Member")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("href", "/w/cgc-shanghai");
   });
 });

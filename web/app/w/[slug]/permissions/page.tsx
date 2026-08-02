@@ -152,7 +152,7 @@ function Sidebar({ slug }: { slug: string }) {
           <Icon name="settings" size={22} />
           <span>工作区设置</span>
         </button>
-        <Link href="/profile" className="permissions-sidebar__item">
+        <Link href={`/profile?ws=${slug}`} className="permissions-sidebar__item">
           <Icon name="user" size={22} />
           <span>个人资料</span>
         </Link>
@@ -166,7 +166,7 @@ function Sidebar({ slug }: { slug: string }) {
       </Link>
 
       <div className="permissions-sidebar__footer">
-        <ProfileEntry />
+        <ProfileEntry slug={slug} />
       </div>
     </aside>
   );

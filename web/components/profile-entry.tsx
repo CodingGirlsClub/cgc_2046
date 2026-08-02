@@ -9,9 +9,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
+import { fetchCurrentProfile, profileHref, type CurrentProfile } from "@/lib/profile";
 
-export default function ProfileEntry({ compact = false }: { compact?: boolean }) {
+export default function ProfileEntry({ compact = false, slug }: { compact?: boolean; slug?: string | null }) {
   const [profile, setProfile] = useState<CurrentProfile | null>(null);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function ProfileEntry({ compact = false }: { compact?: boolean })
 
   return (
     <Link
-      href="/profile"
+      href={profileHref(slug)}
       className="flex items-center gap-2 rounded-medium px-2 py-1 transition hover:bg-soft"
       data-testid="profile-entry"
     >

@@ -7,15 +7,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchCurrentProfile,
   fetchPortfolioItems,
   fetchProfileRoleSummary,
+  pickRoleSummary,
+  profileHref,
   type ProfilePortfolioItem,
-  type ProfileRoleSummary,
 } from "@/lib/profile";
 import { ROLE_BADGE_CLASS, ROLE_LABEL, type MembershipRoleName } from "@/lib/graphql/workspace";
 
@@ -45,7 +46,7 @@ function PortfolioSidebar({ workspaceSlug }: { workspaceSlug: string }) {
         <Link href={`/w/${workspaceSlug}`} className="profile-sidebar__item"><NavIcon name="home" /><span>概览</span></Link>
         <Link href={`/w/${workspaceSlug}/members`} className="profile-sidebar__item"><NavIcon name="users" /><span>成员与角色</span></Link>
         <button type="button" disabled className="profile-sidebar__item profile-sidebar__item--disabled"><NavIcon name="settings" /><span>工作区设置</span></button>
-        <Link href="/profile" className="profile-sidebar__item profile-sidebar__item--selected" aria-current="page"><NavIcon name="user" /><span>个人资料</span></Link>
+        <Link href={profileHref(workspaceSlug)} className="profile-sidebar__item profile-sidebar__item--selected" aria-current="page"><NavIcon name="user" /><span>个人资料</span></Link>
       </nav>
     </aside>
   );
@@ -53,10 +54,11 @@ function PortfolioSidebar({ workspaceSlug }: { workspaceSlug: string }) {
 
 export default function ProfilePortfolioPage() {
   const router = useRouter();
+  const ws = useSearchParams().get("ws");
   const { authed, confirmed } = useAuthed();
   const [portfolio, setPortfolio] = useState<ProfilePortfolioItem[]>([]);
   const [profileName, setProfileName] = useState("我的个人资料");
-  const [workspaceSlug, setWorkspaceSlug] = useState("cgc-shanghai");
+  const [workspaceSlug, setWorkspaceSlug] = useState("");
   const [roles, setRoles] = useState<MembershipRoleName[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -71,9 +73,9 @@ export default function ProfilePortfolioPage() {
     Promise.all([fetchCurrentProfile(), fetchProfileRoleSummary(), fetchPortfolioItems()])
       .then(([profile, summaries, portfolio]) => {
         if (cancelled) return;
-        const summary = summaries.find((item: ProfileRoleSummary) => item.myRoleNames.length > 0) ?? summaries[0];
+        const summary = pickRoleSummary(summaries, ws);
         setProfileName(profile.displayName?.trim() || "我的个人资料");
-        setWorkspaceSlug(profile.workspaceSlug || summary?.workspaceSlug || "cgc-shanghai");
+        setWorkspaceSlug(profile.workspaceSlug || summary?.workspaceSlug || "");
         setRoles(profile.workspaceRoles?.length ? profile.workspaceRoles : (summary?.myRoleNames ?? []));
         setPortfolio(portfolio);
       })
@@ -84,7 +86,7 @@ export default function ProfilePortfolioPage() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [authed, confirmed, router]);
+  }, [authed, confirmed, router, ws]);
 
   function handleSignOut() {
     clearAuthToken();
@@ -93,15 +95,15 @@ export default function ProfilePortfolioPage() {
 
   if (!authed) return <main className="profile-loading">正在确认登录状态…</main>;
   if (loading) return <main className="profile-loading">正在加载作品集…</main>;
-  if (errorMsg) return <main className="profile-loading"><strong>无法加载作品集</strong><span>{errorMsg}</span><Link href="/profile" className="profile-button profile-button--outline">返回个人资料</Link></main>;
+  if (errorMsg) return <main className="profile-loading"><strong>无法加载作品集</strong><span>{errorMsg}</span><Link href={profileHref(workspaceSlug)} className="profile-button profile-button--outline">返回个人资料</Link></main>;
 
   return (
     <div className="profile-page profile-portfolio-page">
       <PortfolioSidebar workspaceSlug={workspaceSlug} />
       <main className="profile-main">
         <div className="profile-main__inner">
-          <div className="profile-breadcrumb" aria-label="页面路径"><Link href="/profile">个人资料</Link><span>›</span><strong>全部作品集</strong></div>
-          <header className="profile-heading profile-portfolio-heading"><div><h1>全部作品集</h1><p>来自 {profileName} 的 {portfolio.length} 个作品</p></div><Link href="/profile" className="profile-button profile-button--outline">返回个人资料</Link></header>
+          <div className="profile-breadcrumb" aria-label="页面路径"><Link href={profileHref(workspaceSlug)}>个人资料</Link><span>›</span><strong>全部作品集</strong></div>
+          <header className="profile-heading profile-portfolio-heading"><div><h1>全部作品集</h1><p>来自 {profileName} 的 {portfolio.length} 个作品</p></div><Link href={profileHref(workspaceSlug)} className="profile-button profile-button--outline">返回个人资料</Link></header>
           {portfolio.length === 0 ? <div className="profile-card profile-portfolio-empty">还没有添加作品集。</div> : <section className="profile-card profile-portfolio-full-list" data-testid="portfolio-full-list"><div className="profile-portfolio-full-list__meta"><span>共 {portfolio.length} 个作品</span><div className="profile-role-chips">{roles.map((role) => <span key={role} className={ROLE_BADGE_CLASS[role]}>{ROLE_LABEL[role]}</span>)}</div></div><div className="profile-portfolio-list">{portfolio.map((item) => <a key={item.id} href={item.url || "#"} className="profile-portfolio-item"><PortfolioIcon icon={item.icon} /><span className="profile-portfolio-item__body"><strong>{item.title}</strong><span>{item.description}</span></span><span className="profile-portfolio-link-label">查看 <span aria-hidden="true">→</span></span></a>)}</div><p className="profile-portfolio-full-list__footer">已显示全部 {portfolio.length} 个作品</p></section>}
           <footer className="profile-footer"><span>资料仅在当前 Workspace 内可见。</span><button type="button" onClick={handleSignOut}>退出登录</button></footer>
         </div>
