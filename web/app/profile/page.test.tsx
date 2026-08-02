@@ -2,11 +2,11 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
 	cleanup,
 	fireEvent,
-	render,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { render } from "@/test-utils";
 import ProfilePage from "./page";
 
 /** 测试本地作品集 fixture（原设计稿 10 条演示数据，与页面「预览 3 条/全量 N」断言一致） */

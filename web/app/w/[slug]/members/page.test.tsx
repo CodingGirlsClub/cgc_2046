@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
 	cleanup,
 	fireEvent,
-	render,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { render } from "@/test-utils";
 import MembersPage from "./page";
 import type { WorkspaceMember } from "@/lib/workspaces";
 

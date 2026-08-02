@@ -135,6 +135,14 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       res = graphql_post(build_conn(), me_query(), token)
       assert %{"data" => %{"me" => %{"isPlatformAdmin" => false}}} = res
     end
+
+    test "me returns default uiThemePreference (dark) for a new user (U3)" do
+      _user = register_user(@user_email, @password)
+      token = sign_in_token(@user_email, @password)
+
+      res = graphql_post(build_conn(), me_query(), token)
+      assert %{"data" => %{"me" => %{"uiThemePreference" => "dark"}}} = res
+    end
   end
 
   describe "updateProfile mutation (#68 Profile contract)" do
@@ -383,6 +391,72 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
   end
 
+  describe "setUiTheme mutation (U3 theme persistence)" do
+    test "persists theme preference and me reflects it (dark/light)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      # 切到 light
+      res = graphql_post(build_conn(), set_ui_theme_query("light"), token)
+      assert %{"data" => %{"setUiTheme" => %{"uiThemePreference" => "light"}}} = res
+
+      # me 反映
+      res = graphql_post(build_conn(), me_query(), token)
+      assert %{"data" => %{"me" => %{"uiThemePreference" => "light"}}} = res
+
+      # 切回 dark
+      res = graphql_post(build_conn(), set_ui_theme_query("dark"), token)
+      assert %{"data" => %{"setUiTheme" => %{"uiThemePreference" => "dark"}}} = res
+    end
+
+    test "rejects invalid theme value (must be dark or light)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), set_ui_theme_query("purple"), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "must be dark or light"))
+    end
+
+    test "anonymous is unauthorized" do
+      res = graphql_post(build_conn(), set_ui_theme_query("dark"))
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
+    end
+
+    test "user cannot set theme for another user via direct Ash action (policy: self only)" do
+      admin = admin_user()
+      _user = register_user(@user_email, @password)
+
+      user =
+        Ash.read_one!(
+          Ash.Query.filter(User, email == ^@user_email),
+          authorize?: false,
+          domain: Cgc2046.GlobalApi
+        )
+
+      # 普通用户尝试改平台管理员的主题：policy 应拒绝（id != actor.id）
+      result =
+        admin
+        |> Ash.Changeset.for_update(:set_ui_theme, %{ui_theme_preference: "light"})
+        |> Ash.update(actor: user)
+
+      assert {:error, error} = result
+      assert Exception.message(Ash.Error.to_error_class(error)) =~ "forbidden"
+    end
+  end
+
+  defp set_ui_theme_query(theme) do
+    """
+    mutation {
+      setUiTheme(input: { uiThemePreference: "#{theme}" }) {
+        id
+        uiThemePreference
+      }
+    }
+    """
+  end
+
   defp me_query do
     """
     query {
@@ -398,6 +472,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
         visibility
         memberNumber
         joinedAt
+        uiThemePreference
       }
     }
     """

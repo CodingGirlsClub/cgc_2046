@@ -29,6 +29,7 @@ import { clearAuthToken } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import ProfileEntry from "@/components/profile-entry";
+import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
 
 type NavSection = "overview" | "members" | "profile" | null;
@@ -164,13 +165,16 @@ export default function WorkspaceShell({
 
 				<div className="ws-shell-footer">
 					<ProfileEntry slug={slug} />
-					<button
-						type="button"
-						className="ws-shell-signout"
-						onClick={handleSignOut}
-					>
-						退出登录
-					</button>
+					<div className="ws-shell-footer-actions">
+						<ThemeToggle />
+						<button
+							type="button"
+							className="ws-shell-signout"
+							onClick={handleSignOut}
+						>
+							退出登录
+						</button>
+					</div>
 				</div>
 			</aside>
 

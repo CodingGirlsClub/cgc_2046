@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-	render,
 	screen,
 	cleanup,
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { render } from "@/test-utils";
 import WorkspacePage from "./page";
 
 /** 测试本地 fixture（#1 mock 已删除；页面只消费 fetchMyWorkspaces 返回值） */
