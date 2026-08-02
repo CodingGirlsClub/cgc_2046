@@ -194,9 +194,9 @@ export function mapPermissionMatrixRows(
     const abilities = cloneAbilities(role);
     const legacy = backendRow.abilities;
     if (role === "owner" || role === "admin") {
-      abilities.view_members = legacy.list_members;
-      abilities.manage_members = legacy.manage_members;
-      abilities.assign_roles = legacy.assign_roles;
+      abilities.view_members = legacy.listMembers;
+      abilities.manage_members = legacy.manageMembers;
+      abilities.assign_roles = legacy.assignRoles;
     }
 
     mapped.set(role, {
