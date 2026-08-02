@@ -461,6 +461,13 @@
     opacity: 0.68;
   }
 
+  /* #79 IA：个人资料移出设置组，nav 外独立项加顶部视觉分隔 */
+  .ws-shell-item--profile {
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 var(--radius-medium) var(--radius-medium);
+  }
+
   .ws-shell-footer {
     display: flex;
     align-items: center;
