@@ -9,6 +9,13 @@ defmodule Cgc2046.Repo.Migrations.BackfillDesignRoles do
 
   roles.name 为 text，唯一约束 (workspace_id, name) → `ON CONFLICT (workspace_id, name) DO NOTHING`。
 
+  ## gen_random_uuid 说明（Standards #10 误报留档）
+
+  本迁移 `INSERT ... SELECT gen_random_uuid()` 使用的是 PG 13+ **核心函数**，
+  不依赖 pgcrypto 扩展；仓库 `Cgc2046.Repo` 声明 `min_pg_version: 16`，
+  新环境必然可用，请勿加 `CREATE EXTENSION pgcrypto`（PG 13+ 安装反而可能
+  产生同名函数歧义）。全迁移链（uuid 列默认值、`uuid_generate_v7()`）同依赖此函数。
+
   ## 单源提示（G2 收敛）
 
   角色枚举唯一真源是 `Cgc2046.Accounts.Role.role_names/0`（六角色 owner/admin/member/tutor/volunteer/learner）。

@@ -394,6 +394,50 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       owner_ms = by_email[to_string(admin.email)]
       assert not is_nil(owner_ms.joined_at)
     end
+
+    test "regular member only sees own membership row (cannot read others' emails)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "mbr-neg-#{System.unique_integer([:positive])}",
+          name: "MBRNEG"
+        })
+        |> Ash.create(actor: admin)
+
+      member_a =
+        register_user("mbr-neg-a-#{System.unique_integer([:positive])}@example.com", @password)
+
+      member_b =
+        register_user("mbr-neg-b-#{System.unique_integer([:positive])}@example.com", @password)
+
+      add_member(workspace, member_a, admin, [:member])
+      add_member(workspace, member_b, admin, [:member])
+
+      require Ash.Query
+
+      {:ok, memberships} =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+        |> Ash.read(
+          actor: member_a,
+          tenant: workspace.id,
+          load: [:user_email, :user_display_name],
+          domain: Cgc2046.GlobalApi
+        )
+
+      # read policy 只放行本人行 → 只返回自己的成员资格
+      assert [own] = memberships
+      assert own.user_id == member_a.id
+      assert own.user_email == to_string(member_a.email)
+
+      # 负向：看不到其他成员（含 owner/admin）的 email / 行
+      refute Enum.any?(memberships, &(&1.user_email == to_string(member_b.email)))
+      refute Enum.any?(memberships, &(&1.user_id == member_b.id))
+      refute Enum.any?(memberships, &(&1.user_email == to_string(admin.email)))
+    end
   end
 
   describe "update workspace" do
