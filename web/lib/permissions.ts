@@ -19,7 +19,8 @@ import { USE_MOCK_WORKSPACES } from "./workspaces";
  * 已按用户拍板砍掉，页面不再凭空画格子。
  *
  * 矩阵以五个默认角色展示：Owner / Admin / Tutor / Volunteer / Learner。
- * 后端只返回 owner/admin/member，缺失角色用模板补齐（模板只含六能力）。
+ * 后端返回六角色（含 member），前端 normalize member→learner 后按五角色渲染；
+ * mock 模式与后端缺行时用模板补齐（模板只含六能力）。
  */
 
 /** 能力 ID：与后端 RbacAbility 对齐（单一数据源，避免再次漂移）。 */
@@ -166,10 +167,9 @@ function normalizeRoleName(name: string): MembershipRoleName | null {
 }
 
 /**
- * 将后端 permissionMatrix（owner/admin/member × 六能力）映射为五角色矩阵。
+ * 将后端 permissionMatrix（六角色 × 六能力）映射为五角色矩阵（member→learner）。
  * 六能力直接从后端 abilities 字段直取（viewWorkspace/accessInviteOnly/
- * listMembers/manageMembers/assignRoles/createWorkspace），不依赖旧字段名；
- * 缺失的 Tutor/Volunteer/Learner 用默认模板补齐（模板只含六能力）。
+ * listMembers/manageMembers/assignRoles/createWorkspace）；后端缺行时用模板补齐。
  */
 export function mapPermissionMatrixRows(
   rows: RbacPermissionMatrixRow[] | null | undefined,
@@ -181,18 +181,17 @@ export function mapPermissionMatrixRows(
     const role = normalizeRoleName(backendRow.name);
     if (!role || mapped.has(role)) continue;
 
-    const abilities = cloneAbilities(role);
     const backend = backendRow.abilities;
-    abilities.view_workspace = backend.viewWorkspace;
-    abilities.access_invite_only = backend.accessInviteOnly;
-    abilities.list_members = backend.listMembers;
-    abilities.manage_members = backend.manageMembers;
-    abilities.assign_roles = backend.assignRoles;
-    abilities.create_workspace = backend.createWorkspace;
-
     mapped.set(role, {
       role,
-      abilities,
+      abilities: {
+        view_workspace: backend.viewWorkspace,
+        access_invite_only: backend.accessInviteOnly,
+        list_members: backend.listMembers,
+        manage_members: backend.manageMembers,
+        assign_roles: backend.assignRoles,
+        create_workspace: backend.createWorkspace,
+      },
       note: ROLE_NOTES[role],
     });
   }
