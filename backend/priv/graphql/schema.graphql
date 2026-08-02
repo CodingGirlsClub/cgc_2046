@@ -433,6 +433,9 @@ type Workspace {
 
   "当前用户是否可进入该工作台（成员\/创建者）"
   canAccess: Boolean
+
+  "成员数量（P1 计算字段，SQL count(memberships)）"
+  memberCount: Int
 }
 
 type SignUpMetadata {

@@ -300,6 +300,30 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
+  describe "member_count calculation (P1)" do
+    test "returns member count including the owner creator" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{slug: "mc-#{System.unique_integer([:positive])}", name: "MC"})
+        |> Ash.create(actor: admin)
+
+      # 创建者自动成为 owner 成员 → 1
+      fetched = Ash.get!(Workspace, workspace.id, actor: admin, load: [:member_count], domain: Cgc2046.GlobalApi)
+      assert fetched.member_count == 1
+
+      # 拉入 2 个普通成员 → 3
+      for i <- 1..2 do
+        user = register_user("mc-user-#{i}-#{System.unique_integer([:positive])}@example.com", @password)
+        add_member(workspace, user, admin, [:member])
+      end
+
+      fetched = Ash.get!(Workspace, workspace.id, actor: admin, load: [:member_count], domain: Cgc2046.GlobalApi)
+      assert fetched.member_count == 3
+    end
+  end
+
   describe "update workspace" do
     test "platform admin can update join_policy" do
       admin = admin_user()

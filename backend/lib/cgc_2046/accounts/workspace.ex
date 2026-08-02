@@ -81,6 +81,17 @@ defmodule Cgc2046.Accounts.Workspace do
       public?: true,
       description: "当前用户是否可进入该工作台（成员/创建者）"
     )
+
+    # P1-4 memberCount：Repo 层批量 count（不经 membership read policy）。
+    # 见 MemberCount 模块注释：expr(count)/aggregate 的子查询会被 read policy
+    # 过滤成仅 actor 自己（SimpleCheck 在子查询取不到 workspace_id），计数错误。
+    calculate(
+      :member_count,
+      :integer,
+      {Cgc2046.Accounts.Calculations.MemberCount, []},
+      public?: true,
+      description: "成员数量（P1 计算字段，SQL count(memberships)）"
+    )
   end
 
   relationships do
@@ -169,7 +180,7 @@ defmodule Cgc2046.Accounts.Workspace do
 
       filter(expr(exists(memberships, user_id == ^actor(:id))))
 
-      prepare(build(load: [:my_role_names, :my_membership_id, :can_access]))
+      prepare(build(load: [:my_role_names, :my_membership_id, :can_access, :member_count]))
     end
   end
 
