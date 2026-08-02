@@ -306,20 +306,40 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       {:ok, workspace} =
         Workspace
-        |> Ash.Changeset.for_create(:create, %{slug: "mc-#{System.unique_integer([:positive])}", name: "MC"})
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "mc-#{System.unique_integer([:positive])}",
+          name: "MC"
+        })
         |> Ash.create(actor: admin)
 
       # 创建者自动成为 owner 成员 → 1
-      fetched = Ash.get!(Workspace, workspace.id, actor: admin, load: [:member_count], domain: Cgc2046.GlobalApi)
+      fetched =
+        Ash.get!(Workspace, workspace.id,
+          actor: admin,
+          load: [:member_count],
+          domain: Cgc2046.GlobalApi
+        )
+
       assert fetched.member_count == 1
 
       # 拉入 2 个普通成员 → 3
       for i <- 1..2 do
-        user = register_user("mc-user-#{i}-#{System.unique_integer([:positive])}@example.com", @password)
+        user =
+          register_user(
+            "mc-user-#{i}-#{System.unique_integer([:positive])}@example.com",
+            @password
+          )
+
         add_member(workspace, user, admin, [:member])
       end
 
-      fetched = Ash.get!(Workspace, workspace.id, actor: admin, load: [:member_count], domain: Cgc2046.GlobalApi)
+      fetched =
+        Ash.get!(Workspace, workspace.id,
+          actor: admin,
+          load: [:member_count],
+          domain: Cgc2046.GlobalApi
+        )
+
       assert fetched.member_count == 3
     end
   end
@@ -330,10 +350,14 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       {:ok, workspace} =
         Workspace
-        |> Ash.Changeset.for_create(:create, %{slug: "mbr-calc-#{System.unique_integer([:positive])}", name: "MBRCALC"})
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "mbr-calc-#{System.unique_integer([:positive])}",
+          name: "MBRCALC"
+        })
         |> Ash.create(actor: admin)
 
-      member = register_user("mbr-calc-m-#{System.unique_integer([:positive])}@example.com", @password)
+      member =
+        register_user("mbr-calc-m-#{System.unique_integer([:positive])}@example.com", @password)
 
       # 给 member 设置 display_name
       {:ok, member} =
