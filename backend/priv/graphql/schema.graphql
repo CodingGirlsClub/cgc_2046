@@ -151,6 +151,9 @@ enum WorkspaceMembershipSortField {
   ID
   WORKSPACE_ID
   USER_ID
+  USER_EMAIL
+  USER_DISPLAY_NAME
+  JOINED_AT
 }
 
 "A keyset page of :workspace_membership"
@@ -166,6 +169,55 @@ type KeysetPageOfWorkspaceMembership {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input WorkspaceMembershipFilterJoinedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkspaceMembershipFilterUserDisplayName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceMembershipFilterUserEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
 }
 
 input WorkspaceMembershipFilterUserId {
@@ -223,6 +275,15 @@ input WorkspaceMembershipFilterInput {
   userId: WorkspaceMembershipFilterUserId
 
   roles: RoleFilterInput
+
+  "成员邮箱（平铺自 user 关系，P1 G6）"
+  userEmail: WorkspaceMembershipFilterUserEmail
+
+  "成员昵称（平铺自 user 关系，P1 G6）"
+  userDisplayName: WorkspaceMembershipFilterUserDisplayName
+
+  "加入时间（P1 G7，= inserted_at）"
+  joinedAt: WorkspaceMembershipFilterJoinedAt
 }
 
 input WorkspaceMembershipSortInput {
@@ -252,6 +313,15 @@ type WorkspaceMembership {
     "The number of records to skip."
     offset: Int
   ): [Role!]!
+
+  "成员邮箱（平铺自 user 关系，P1 G6）"
+  userEmail: String
+
+  "成员昵称（平铺自 user 关系，P1 G6）"
+  userDisplayName: String
+
+  "加入时间（P1 G7，= inserted_at）"
+  joinedAt: DateTime
 }
 
 "The result of the :update_workspace mutation"
