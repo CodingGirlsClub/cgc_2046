@@ -196,7 +196,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(screen.getByText("Owner 专门指派")).toBeInTheDocument();
 	});
 
-	it("展示五个设计角色和六项能力", async () => {
+	it("展示五个设计角色和七项能力", async () => {
 		await renderReadyPage();
 
 		expect(
@@ -222,7 +222,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		);
 	});
 
-	it("矩阵语义对齐后端六能力：Owner/Admin 可管理，其他角色只读，create_workspace 平台级不授予", async () => {
+	it("矩阵语义对齐后端七能力：Owner/Admin 可管理，其他角色只读，create_workspace 平台级不授予", async () => {
 		await renderReadyPage();
 
 		expect(screen.getByTestId("cell-owner-manage_members")).toHaveTextContent(
@@ -342,7 +342,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(fetchMatrix).not.toHaveBeenCalled();
 	});
 
-	it("矩阵 fixture 完整性：五角色 × 六能力，每个能力都有 boolean", () => {
+	it("矩阵 fixture 完整性：五角色 × 七能力，每个能力都有 boolean", () => {
 		expect(TEST_MATRIX).toHaveLength(5);
 		expect(TEST_MATRIX.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
 		for (const row of TEST_MATRIX) {

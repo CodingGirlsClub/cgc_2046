@@ -67,7 +67,7 @@ export default function WorkspaceSettingsPage() {
 			: null;
 
 	async function handleSave() {
-		if (!ws || !canUpdate || !effective || effective === ws.joinPolicy) return;
+		if (!ws || !canUpdate || !effective || effective === lastPersisted) return;
 		setSaving(true);
 		setSaveState(null);
 		try {

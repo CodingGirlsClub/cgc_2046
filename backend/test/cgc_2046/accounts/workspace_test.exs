@@ -46,6 +46,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   end
 
   # 以 owner/admin 身份把一个用户拉进工作台（测试直接建成员资格）
+  # 注（#78 review SUGGESTED-2）：for_update 必须携带 actor/tenant（Owner 角色
+  # 授予校验读 changeset context；tenant 供多租户 update），与 #64 的 P0 grant
+  # scope 约定一致；authorize?: false 仅旁路授权、不旁路 action 校验。
   defp add_member(workspace, user, actor, role_names) do
     {:ok, membership} =
       WorkspaceMembership
