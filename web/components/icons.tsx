@@ -32,7 +32,15 @@ export type IconName =
 	| "visibility"
 	| "book"
 	| "guide"
-	| "document";
+	| "document"
+	| "community"
+	| "role"
+	| "members"
+	| "activity"
+	| "enter"
+	| "request"
+	| "invite"
+	| "workspace";
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 	const common = {
@@ -209,6 +217,56 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 				<svg {...common}>
 					<path d="M6 3h8l4 4v14H6Z" />
 					<path d="M14 3v5h5M9 13h6M9 17h6" />
+				</svg>
+			);
+		// 内容/工作区卡图标（2026-08-02 首页 WorkspaceIcon 合并：画法原样随迁，
+		// 线帽统一走共享 common（round）。内容图标与壳导航图标同集，禁止页面内手抄 SVG）
+		case "community":
+		case "members":
+			// 有意别名：community（加入方式卡）与 members（社区规模/成员按钮）同形，对标 owner/user
+			return (
+				<svg {...common}>
+					<circle cx="9" cy="8" r="3" />
+					<path d="M3.5 19c.6-3.2 2.4-5 5.5-5s4.9 1.8 5.5 5" />
+					<path d="M15.5 5.8a3 3 0 0 1 0 5.5M17.2 14.3c1.8.8 2.8 2.2 3.3 4.7" />
+				</svg>
+			);
+		case "role":
+			return (
+				<svg {...common}>
+					<circle cx="12" cy="8" r="3" />
+					<path d="M5.5 19.5c.8-3.2 3-4.8 6.5-4.8s5.7 1.6 6.5 4.8" />
+				</svg>
+			);
+		case "activity":
+			return (
+				<svg {...common}>
+					<path d="M4 5.5h16v10H9l-5 4v-14Z" />
+					<path d="M8 9.5h8M8 12.5h5" />
+				</svg>
+			);
+		case "enter":
+			return (
+				<svg {...common}>
+					<path d="M13 5h6v14h-6M4 12h11M11 8l4 4-4 4" />
+				</svg>
+			);
+		case "request":
+			return (
+				<svg {...common}>
+					<path d="M12 3v18M7.5 7.5h9M7.5 16.5h9" />
+					<circle cx="12" cy="12" r="8.5" />
+				</svg>
+			);
+		case "invite":
+		case "workspace":
+			// invite 与 workspace 同形：首页原无显式 invite case（落入默认 fallback 公文包，
+			// 用于「待凭据加入」状态卡）；合并后共享该画法，保持现状
+			return (
+				<svg {...common}>
+					<path d="M6 9.5V6.8A6 6 0 0 1 18 6.8v2.7" />
+					<rect x="4" y="9.5" width="16" height="10.5" rx="2" />
+					<path d="M12 13v3" />
 				</svg>
 			);
 		default: {
