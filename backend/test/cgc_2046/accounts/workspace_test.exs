@@ -343,6 +343,36 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       assert fetched.member_count == 3
     end
+
+    test "invite_only 工作台：outsider 读不到行 → member_count 数据不可达（policy 门控契约）" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "mc-invite-#{System.unique_integer([:positive])}",
+          name: "MC Invite",
+          join_policy: :invite_only
+        })
+        |> Ash.create(actor: admin)
+
+      member =
+        register_user("mc-invite-m-#{System.unique_integer([:positive])}@example.com", @password)
+
+      add_member(workspace, member, admin, [:member])
+
+      outsider =
+        register_user("mc-invite-o-#{System.unique_integer([:positive])}@example.com", @password)
+
+      # 安全契约（BypassReads moduledoc）：主查询仍受 policy 门控——旁路聚合
+      # 数据只在可读的 workspace 行上计算；读不到行即 count 数据不可达
+      result =
+        Workspace
+        |> Ash.Query.for_read(:get_by_slug, %{slug: workspace.slug})
+        |> Ash.read_one(actor: outsider, load: [:member_count])
+
+      assert result == {:ok, nil} or match?({:error, %Ash.Error.Forbidden{}}, result)
+    end
   end
 
   describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities/2 语义一致)" do

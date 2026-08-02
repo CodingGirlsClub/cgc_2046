@@ -125,7 +125,7 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
 
     test "非法 actor.id（非 UUID）抛 ArgumentError（错误姿态与收敛前一致）" do
       assert_raise ArgumentError, fn ->
-        BypassReads.shared_workspace_ids(%{id: "not-a-uuid"})
+        BypassReads.shared_workspace_ids(%User{id: "not-a-uuid"})
       end
     end
   end
