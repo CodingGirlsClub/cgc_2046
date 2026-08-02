@@ -34,14 +34,14 @@ export default function WorkspacePage() {
 
 	return (
 		<WorkspaceShell slug={slug}>
-			<div className="members-main__inner">
-				<div className="members-breadcrumb" aria-label="页面路径">
+			<div className="ws-page-main__inner">
+				<div className="ws-page-breadcrumb" aria-label="页面路径">
 					<Link href="/">← 工作台</Link>
 					<span>›</span>
 					<strong>概览</strong>
 				</div>
 
-				<header className="members-heading">
+				<header className="ws-page-heading">
 					<div>
 						<h1>概览</h1>
 						<p>工作区的入口信息与常用管理入口</p>

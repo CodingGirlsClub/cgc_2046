@@ -301,19 +301,19 @@ export default function WorkspaceMembersPage() {
 
 	return (
 		<WorkspaceShell slug={slug}>
-			<div className="members-main__inner">
-				<div className="members-breadcrumb" aria-label="页面路径">
+			<div className="ws-page-main__inner">
+				<div className="ws-page-breadcrumb" aria-label="页面路径">
 					<Link href={`/w/${slug}`}>Workspace 设置</Link>
 					<span>›</span>
 					<strong>成员与角色</strong>
 				</div>
 
-				<header className="members-heading">
+				<header className="ws-page-heading">
 					<div>
 						<h1>成员与角色</h1>
 						<p>管理工作区成员与角色分配</p>
 					</div>
-					<div className="members-heading__workspace">
+					<div className="members-heading-summary">
 						<span>{JOIN_POLICY_LABEL[ws?.joinPolicy ?? "open"]} Workspace</span>
 						<strong>{ws?.name ?? slug}</strong>
 					</div>
