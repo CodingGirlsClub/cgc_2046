@@ -19,7 +19,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   - `membership_of/2`：读失败返回 `nil`（Rbac 旧行为）
   - `memberships_of_actor/1`：读失败直接抛出（CurrentMembershipInfo 旧行为，read!）
-  - `owner_count/1`：读失败直接抛出（BypassReads 委托，与 member_count/1 一致）
+  - `owner_count/1`：读失败返回 0（BypassReads 委托，保守安全方向；与 member_count/1 一致降级）
 
   内部均 `authorize?: false`（读取面不做鉴权，鉴权由调用方判定语义负责）。
 

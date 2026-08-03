@@ -100,6 +100,13 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
       # 随机不存在的 workspace id：查询无该行 → 结果无 key
       assert BypassReads.member_count([Ecto.UUID.generate()]) == %{}
     end
+
+    test "DB 失败返回空 map（降级，不抛 500）" do
+      # 释放 sandbox 连接模拟 DB 不可用
+      Ecto.Adapters.SQL.Sandbox.checkin(Cgc2046.Repo)
+
+      assert BypassReads.member_count([Ecto.UUID.generate()]) == %{}
+    end
   end
 
   describe "shared_workspace_ids/1（成员资格旁路，供 exists 子查询注入）" do
@@ -127,6 +134,12 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
       assert_raise ArgumentError, fn ->
         BypassReads.shared_workspace_ids(%User{id: "not-a-uuid"})
       end
+    end
+
+    test "DB 失败返回空列表（降级，不抛 500）" do
+      Ecto.Adapters.SQL.Sandbox.checkin(Cgc2046.Repo)
+
+      assert BypassReads.shared_workspace_ids(%User{id: Ecto.UUID.generate()}) == []
     end
   end
 
@@ -184,6 +197,12 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
       assert_raise ArgumentError, fn ->
         BypassReads.owner_count("not-a-uuid")
       end
+    end
+
+    test "DB 失败返回 0（降级，不抛 500）" do
+      Ecto.Adapters.SQL.Sandbox.checkin(Cgc2046.Repo)
+
+      assert BypassReads.owner_count(Ecto.UUID.generate()) == 0
     end
   end
 end

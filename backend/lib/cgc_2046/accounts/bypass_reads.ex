@@ -29,76 +29,95 @@ defmodule Cgc2046.Accounts.BypassReads do
     policy 过滤为 null（User 默认 only_me 仅本人可读），故用 SQL 表达式
     LEFT JOIN users 平铺，不经 user read policy。
 
-  ## 错误姿态（与收敛前一致）
+  ## 错误姿态
 
-  两处查询均 `{:ok, result} = Ecto.Adapters.SQL.query(...)` 严格匹配：DB 失败
-  直接抛出（调用方在 policy / 计算字段热路径，失败即 500，无降级）。非法
-  UUID 输入在 `Ecto.UUID.dump!/1` 阶段即抛 ArgumentError。
+  三处查询均用 `case` 匹配：DB 失败（PG 重启、连接池耗尽等）记录日志并返回
+  安全默认值（`%{}` / `0` / `[]`），避免热路径 500。非法 UUID 输入在
+  `Ecto.UUID.dump!/1` 阶段即抛 ArgumentError（编程错误，不吞掉）。
   """
 
   alias Cgc2046.Accounts.User
   alias Cgc2046.Repo
 
+  require Logger
+
   @doc """
   按工作台批量统计成员数（GROUP BY workspace_id，不经 membership read policy）。
   返回 `%{workspace_id => count}`；无成员的工作台不出现（调用方 `Map.get(_, 0)`
   兜底）；空输入返回 `%{}`（空数组下 `workspace_id = ANY($1::uuid[])` 恒 0 行）。
+  DB 失败返回 `%{}`（调用方 `Map.get(_, 0)` 兜底为 0）。
   """
   @spec member_count([String.t()]) :: %{String.t() => non_neg_integer}
   def member_count(workspace_ids) do
-    {:ok, result} =
-      Ecto.Adapters.SQL.query(
-        Repo,
-        """
-        SELECT workspace_id::text, count(*)::bigint
-        FROM workspace_memberships
-        WHERE workspace_id = ANY($1::uuid[])
-        GROUP BY workspace_id
-        """,
-        [Enum.map(workspace_ids, &Ecto.UUID.dump!/1)]
-      )
+    ids = Enum.map(workspace_ids, &Ecto.UUID.dump!/1)
 
-    Map.new(result.rows, fn [workspace_id, count] -> {workspace_id, count} end)
+    case Ecto.Adapters.SQL.query(
+           Repo,
+           """
+           SELECT workspace_id::text, count(*)::bigint
+           FROM workspace_memberships
+           WHERE workspace_id = ANY($1::uuid[])
+           GROUP BY workspace_id
+           """,
+           [ids]
+         ) do
+      {:ok, result} ->
+        Map.new(result.rows, fn [workspace_id, count] -> {workspace_id, count} end)
+
+      {:error, error} ->
+        Logger.error("[BypassReads] member_count DB query failed: #{inspect(error)}")
+        %{}
+    end
   end
 
   @doc """
   目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色算 1 次）。
   不经 membership read policy（与 member_count/1 同一逃生舱契约）。
-  DB 失败直接抛（与 member_count/1 一致）。非 owner 的 membership 不计数。
+  DB 失败返回 0（保守安全方向：阻止最后 Owner 移除而非误放行）。
+  非 owner 的 membership 不计数。
   """
   @spec owner_count(String.t()) :: non_neg_integer
   def owner_count(workspace_id) do
-    {:ok, result} =
-      Ecto.Adapters.SQL.query(
-        Repo,
-        """
-        SELECT count(DISTINCT wm.id)::bigint
-        FROM workspace_memberships wm
-        JOIN membership_roles mr ON mr.membership_id = wm.id
-        JOIN roles r ON r.id = mr.role_id
-        WHERE wm.workspace_id = $1 AND r.name = 'owner'
-        """,
-        [Ecto.UUID.dump!(workspace_id)]
-      )
+    case Ecto.Adapters.SQL.query(
+           Repo,
+           """
+           SELECT count(DISTINCT wm.id)::bigint
+           FROM workspace_memberships wm
+           JOIN membership_roles mr ON mr.membership_id = wm.id
+           JOIN roles r ON r.id = mr.role_id
+           WHERE wm.workspace_id = $1 AND r.name = 'owner'
+           """,
+           [Ecto.UUID.dump!(workspace_id)]
+         ) do
+      {:ok, result} ->
+        case result.rows do
+          [[count]] -> count
+        end
 
-    case result.rows do
-      [[count]] -> count
+      {:error, error} ->
+        Logger.error("[BypassReads] owner_count DB query failed: #{inspect(error)}")
+        0
     end
   end
 
   @doc """
   actor 加入的全部工作台 id（不经 membership read policy；供
   ReadUserByVisibility 注入 exists 子查询）。非成员返回 `[]`。
+  DB 失败返回 `[]`（保守安全方向：仅 public/self 可见）。
   """
   @spec shared_workspace_ids(%User{}) :: [String.t()]
   def shared_workspace_ids(actor) do
-    {:ok, result} =
-      Ecto.Adapters.SQL.query(
-        Repo,
-        "SELECT workspace_id::text FROM workspace_memberships WHERE user_id = $1",
-        [Ecto.UUID.dump!(actor.id)]
-      )
+    case Ecto.Adapters.SQL.query(
+           Repo,
+           "SELECT workspace_id::text FROM workspace_memberships WHERE user_id = $1",
+           [Ecto.UUID.dump!(actor.id)]
+         ) do
+      {:ok, result} ->
+        Enum.map(result.rows, fn [workspace_id] -> workspace_id end)
 
-    Enum.map(result.rows, fn [workspace_id] -> workspace_id end)
+      {:error, error} ->
+        Logger.error("[BypassReads] shared_workspace_ids DB query failed: #{inspect(error)}")
+        []
+    end
   end
 end
