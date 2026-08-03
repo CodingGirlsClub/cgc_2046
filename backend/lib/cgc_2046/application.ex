@@ -14,6 +14,8 @@ defmodule Cgc2046.Application do
       {Phoenix.PubSub, name: Cgc2046.PubSub},
       # Start a worker by calling: Cgc2046.Worker.start_link(arg)
       # {Cgc2046.Worker, arg},
+      # ETS 限流器（signIn/signUp 5 次/15 分钟，零依赖）
+      Cgc2046Web.Plugs.RateLimit,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
       # Start to serve requests, typically the last entry
