@@ -12,34 +12,37 @@ import { useAuthed } from "./use-authed";
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
 
 vi.mock("@apollo/client/react", () => ({
-  useQuery: useQueryMock,
+	useQuery: useQueryMock,
 }));
 
 beforeEach(() => {
-  vi.clearAllMocks();
+	vi.clearAllMocks();
 });
 
 describe("useAuthed (#70 hydration-safe 登录态确认)", () => {
-  it("首帧 {authed:false, confirmed:false}（SSR 与 hydration 首帧一致）", () => {
-    useQueryMock.mockReturnValue({ data: undefined, loading: true });
-    const { result } = renderHook(() => useAuthed());
+	it("首帧 {authed:false, confirmed:false}（SSR 与 hydration 首帧一致）", () => {
+		useQueryMock.mockReturnValue({ data: undefined, loading: true });
+		const { result } = renderHook(() => useAuthed());
 
-    expect(result.current).toEqual({ authed: false, confirmed: false });
-  });
+		expect(result.current).toEqual({ authed: false, confirmed: false });
+	});
 
-  it("已登录：me 查询返回后 {authed:true, confirmed:true}", async () => {
-    useQueryMock.mockReturnValue({ data: { me: { id: "u1" } }, loading: false });
-    const { result } = renderHook(() => useAuthed());
+	it("已登录：me 查询返回后 {authed:true, confirmed:true}", async () => {
+		useQueryMock.mockReturnValue({
+			data: { me: { id: "u1" } },
+			loading: false,
+		});
+		const { result } = renderHook(() => useAuthed());
 
-    await act(async () => {});
-    expect(result.current).toEqual({ authed: true, confirmed: true });
-  });
+		await act(async () => {});
+		expect(result.current).toEqual({ authed: true, confirmed: true });
+	});
 
-  it("未登录：me 查询报错后 {authed:false, confirmed:true}", async () => {
-    useQueryMock.mockReturnValue({ data: undefined, loading: false });
-    const { result } = renderHook(() => useAuthed());
+	it("未登录：me 查询报错后 {authed:false, confirmed:true}", async () => {
+		useQueryMock.mockReturnValue({ data: undefined, loading: false });
+		const { result } = renderHook(() => useAuthed());
 
-    await act(async () => {});
-    expect(result.current).toEqual({ authed: false, confirmed: true });
-  });
+		await act(async () => {});
+		expect(result.current).toEqual({ authed: false, confirmed: true });
+	});
 });

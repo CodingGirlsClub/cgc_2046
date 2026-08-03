@@ -208,7 +208,7 @@ afterEach(cleanup);
 describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 	it("未登录：重定向 /login 且不请求成员", async () => {
 		isAuthenticated.mockReturnValue(false);
-	useAuthed.mockReturnValue({ authed: false, confirmed: true });
+		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<MembersPage />);
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
 		expect(fetchMembers).not.toHaveBeenCalled();

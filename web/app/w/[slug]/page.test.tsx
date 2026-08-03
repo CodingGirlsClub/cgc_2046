@@ -113,7 +113,7 @@ async function content() {
 describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("未登录：重定向 /login", async () => {
 		isAuthenticated.mockReturnValue(false);
-	useAuthed.mockReturnValue({ authed: false, confirmed: true });
+		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<WorkspacePage />);
 		await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
 	});

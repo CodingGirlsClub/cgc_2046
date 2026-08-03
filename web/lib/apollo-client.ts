@@ -8,13 +8,13 @@ import { ApolloClient, InMemoryCache, createHttpLink } from "@apollo/client";
  */
 
 const httpLink = createHttpLink({
-  // Default: go through the Next.js rewrite proxy (no CORS).
-  // Override with NEXT_PUBLIC_GRAPHQL_URL to talk to the backend directly.
-  uri: process.env.NEXT_PUBLIC_GRAPHQL_URL ?? "/api/graphql",
-  credentials: "same-origin",
+	// Default: go through the Next.js rewrite proxy (no CORS).
+	// Override with NEXT_PUBLIC_GRAPHQL_URL to talk to the backend directly.
+	uri: process.env.NEXT_PUBLIC_GRAPHQL_URL ?? "/api/graphql",
+	credentials: "same-origin",
 });
 
 export const client = new ApolloClient({
-  link: httpLink,
-  cache: new InMemoryCache(),
+	link: httpLink,
+	cache: new InMemoryCache(),
 });

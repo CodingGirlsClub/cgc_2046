@@ -5,10 +5,10 @@ import { useQuery } from "@apollo/client/react";
 import { gql } from "@apollo/client";
 
 export interface AuthedState {
-  /** 当前登录态（confirmed=true 后为真实值；此前固定 false 用于首帧渲染） */
-  authed: boolean;
-  /** 是否已完成登录态确认（me 查询返回后为 true） */
-  confirmed: boolean;
+	/** 当前登录态（confirmed=true 后为真实值；此前固定 false 用于首帧渲染） */
+	authed: boolean;
+	/** 是否已完成登录态确认（me 查询返回后为 true） */
+	confirmed: boolean;
 }
 
 const ME_QUERY = gql`
@@ -16,7 +16,7 @@ const ME_QUERY = gql`
 `;
 
 interface MeQueryResult {
-  me: { id: string } | null;
+	me: { id: string } | null;
 }
 
 /**
@@ -35,19 +35,21 @@ interface MeQueryResult {
  *   - 未登录 → { authed: false, confirmed: true }（调用方据此重定向 /login）。
  */
 export function useAuthed(): AuthedState {
-  const { data, loading } = useQuery<MeQueryResult>(ME_QUERY, { errorPolicy: "all" });
-  const [state, setState] = useState<AuthedState>({
-    authed: false,
-    confirmed: false,
-  });
+	const { data, loading } = useQuery<MeQueryResult>(ME_QUERY, {
+		errorPolicy: "all",
+	});
+	const [state, setState] = useState<AuthedState>({
+		authed: false,
+		confirmed: false,
+	});
 
-  useEffect(() => {
-    if (!loading) {
-      queueMicrotask(() => {
-        setState({ authed: !!data?.me, confirmed: true });
-      });
-    }
-  }, [data, loading]);
+	useEffect(() => {
+		if (!loading) {
+			queueMicrotask(() => {
+				setState({ authed: !!data?.me, confirmed: true });
+			});
+		}
+	}, [data, loading]);
 
-  return state;
+	return state;
 }

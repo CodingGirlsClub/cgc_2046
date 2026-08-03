@@ -94,7 +94,7 @@ afterEach(cleanup);
 describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 	it("未登录重定向到 /login", async () => {
 		isAuthenticated.mockReturnValue(false);
-	useAuthed.mockReturnValue({ authed: false, confirmed: true });
+		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<SettingsPage />);
 
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
