@@ -241,6 +241,48 @@ defmodule Cgc2046.Rbac do
   @spec owner_count(String.t()) :: non_neg_integer
   def owner_count(workspace_id), do: MembershipContext.owner_count(workspace_id)
 
+  @doc """
+  校验 owner 移除操作（规则 1 + 最后 Owner 保护），供 assign_roles 和 destroy 共用。
+
+  返回 `:ok` 或 `{:error, changeset_with_error}`。
+
+  ## 参数
+
+  - `changeset` — Ash Changeset，错误将添加到此 changeset
+  - `caller` — 操作者 actor（需含 `:id`）
+  - `target_user_id` — 目标成员的用户 ID
+  - `workspace_id` — 工作台 ID
+  - `opts` — 关键字列表：
+    - `:removing_owner` — 是否正在移除 owner（destroy 场景传 true；assign_roles 根据 role_names 判断）
+    - `:granting_owner` — 是否正在授予 owner（assign_roles 场景传 true）
+
+  ## 规则
+
+  1. 只有 Owner 能授予/撤销 owner（Admin 不能碰）
+  2. 撤销 owner 时必须保留至少 1 个 Owner（最后 Owner 保护）
+  """
+  @spec validate_owner_removal!(Ash.Changeset.t(), term, String.t(), String.t(), keyword) ::
+          :ok | {:error, Ash.Changeset.t()}
+  def validate_owner_removal!(changeset, caller, target_user_id, workspace_id, opts \\ []) do
+    removing_owner = Keyword.get(opts, :removing_owner, true)
+    granting_owner = Keyword.get(opts, :granting_owner, false)
+
+    caller_is_owner = :owner in role_names(caller, workspace_id)
+    target_is_owner = :owner in role_names(%{id: target_user_id}, workspace_id)
+    affects_owner = granting_owner or (removing_owner and target_is_owner)
+
+    cond do
+      affects_owner and not caller_is_owner ->
+        {:error, Ash.Changeset.add_error(changeset, "只有 Owner 能授予或撤销 Owner 角色")}
+
+      removing_owner and target_is_owner and owner_count(workspace_id) <= 1 ->
+        {:error, Ash.Changeset.add_error(changeset, "工作台必须至少保留一个 Owner")}
+
+      true ->
+        :ok
+    end
+  end
+
   # -- 能力判定 ---------------------------------------------------------------
 
   defp workspace_ability?(actor, ability, opts) do

@@ -83,7 +83,6 @@ defmodule Cgc2046.Accounts.BypassReads do
 
     case result.rows do
       [[count]] -> count
-      [] -> 0
     end
   end
 

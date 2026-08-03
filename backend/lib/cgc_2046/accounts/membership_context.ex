@@ -30,6 +30,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   """
 
   require Ash.Query
+  require Logger
 
   alias Cgc2046.Accounts.BypassReads
   alias Cgc2046.Accounts.WorkspaceMembership
@@ -42,8 +43,15 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   def membership_of(actor, workspace_id) do
     case Ash.read(actor_memberships_query(actor), authorize?: false, tenant: workspace_id) do
-      {:ok, [membership | _]} -> membership
-      _ -> nil
+      {:ok, [membership | _]} ->
+        membership
+
+      {:ok, []} ->
+        nil
+
+      {:error, error} ->
+        Logger.error("[MembershipContext] membership_of DB read failed: #{inspect(error)}")
+        nil
     end
   end
 
