@@ -10,7 +10,14 @@
  * - #68 API 当前只保证 displayName/avatarUrl，其他字段保留为前端可扩展资料模型。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
@@ -346,7 +353,9 @@ function ViewContent({ content }: { content: ProfileContent }) {
 					<h2>关于我</h2>
 					<p>{content.about}</p>
 				</section>
-				<PortfolioPreview portfolio={content.portfolio} />
+				<Suspense fallback={null}>
+					<PortfolioPreview portfolio={content.portfolio} />
+				</Suspense>
 			</div>
 			<div className="profile-view-aside">
 				<section
@@ -654,7 +663,7 @@ function EditContent({
 	);
 }
 
-export default function ProfilePage() {
+function ProfilePageInner() {
 	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
 	const { authed, confirmed } = useAuthed();
 	const [profile, setProfile] = useState<CurrentProfile | null>(null);
@@ -896,5 +905,13 @@ export default function ProfilePage() {
 				</footer>
 			</div>
 		</WorkspaceShell>
+	);
+}
+
+export default function ProfilePage() {
+	return (
+		<Suspense fallback={<main className="profile-loading">正在加载资料…</main>}>
+			<ProfilePageInner />
+		</Suspense>
 	);
 }

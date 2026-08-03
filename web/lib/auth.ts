@@ -1,4 +1,4 @@
-import { getAuthToken, buildAuthHeaders } from "./apollo-client";
+import { client, getAuthToken, buildAuthHeaders } from "./apollo-client";
 
 /**
  * 登录态工具（#61 A-2-FE）。
@@ -15,17 +15,28 @@ import { getAuthToken, buildAuthHeaders } from "./apollo-client";
 export const TOKEN_COOKIE = "cgc_token";
 
 export function setAuthToken(token: string): void {
-  if (typeof document === "undefined") return;
-  document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(token)}; path=/; max-age=86400; samesite=lax`;
+	if (typeof document === "undefined") return;
+	document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(token)}; path=/; max-age=86400; samesite=lax`;
 }
 
 export function clearAuthToken(): void {
-  if (typeof document === "undefined") return;
-  document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0; samesite=lax`;
+	if (typeof document === "undefined") return;
+	document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0; samesite=lax`;
 }
 
 export function isAuthenticated(): boolean {
-  return Boolean(getAuthToken());
+	return Boolean(getAuthToken());
+}
+
+/**
+ * 登出清理：清 cgc_token cookie + 清 Apollo InMemoryCache。
+ * 清缓存是换用户不串数据的关键——同一 SPA 会话内 logout→login 另一用户时，
+ * 单例 cache 仍持有前一用户的 meWorkspaces/me/myPortfolio，cache-first 会读到旧数据。
+ * 用 clearStore（不 refetch）：登出导航中无需重发活动查询。
+ */
+export async function clearSession(): Promise<void> {
+	clearAuthToken();
+	await client.clearStore();
 }
 
 export { getAuthToken, buildAuthHeaders };
