@@ -94,9 +94,10 @@ const { router, searchParams } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
 	searchParams: { get: vi.fn() },
 }));
-const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
+const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	isAuthenticated: vi.fn(),
 	clearAuthToken: vi.fn(),
+	clearSession: vi.fn(),
 }));
 const { fetchProfile, fetchRoles, updateProfile } = vi.hoisted(() => ({
 	fetchProfile: vi.fn(),
@@ -116,7 +117,11 @@ vi.mock("next/navigation", () => ({
 	useSearchParams: () => searchParams,
 	usePathname: () => "/profile",
 }));
-vi.mock("@/lib/auth", () => ({ isAuthenticated, clearAuthToken }));
+vi.mock("@/lib/auth", () => ({
+	isAuthenticated,
+	clearAuthToken,
+	clearSession,
+}));
 vi.mock("@/lib/profile", async (importOriginal) => {
 	const mod = (await importOriginal()) as Record<string, unknown>;
 	return {
@@ -419,8 +424,8 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 	it("退出登录清理 token 并跳转 /login", async () => {
 		await renderReadyProfile();
 		fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
-		expect(clearAuthToken).toHaveBeenCalledTimes(1);
-		expect(router.push).toHaveBeenCalledWith("/login");
+		expect(clearSession).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(router.push).toHaveBeenCalledWith("/login"));
 	});
 
 	it("真实模式缺字段不回退 mock 样例，展示空态（P1-2 QA 复验 FAIL 修复）", async () => {

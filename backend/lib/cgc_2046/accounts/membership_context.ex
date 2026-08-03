@@ -19,7 +19,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   - `membership_of/2`：读失败返回 `nil`（Rbac 旧行为）
   - `memberships_of_actor/1`：读失败直接抛出（CurrentMembershipInfo 旧行为，read!）
-  - `owner_count/1`：读失败返回 `0`（Rbac 旧行为）
+  - `owner_count/1`：读失败直接抛出（BypassReads 委托，与 member_count/1 一致）
 
   内部均 `authorize?: false`（读取面不做鉴权，鉴权由调用方判定语义负责）。
 
@@ -31,6 +31,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   require Ash.Query
 
+  alias Cgc2046.Accounts.BypassReads
   alias Cgc2046.Accounts.WorkspaceMembership
 
   @doc """
@@ -74,22 +75,11 @@ defmodule Cgc2046.Accounts.MembershipContext do
   @doc """
   返回目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色只算 1 次）。
 
-  用于 assign_roles 的「最后 Owner 保护」；读失败返回 `0`（旧行为）。
+  委托 BypassReads.owner_count/1（raw COUNT，不经 membership read policy）。
+  DB 失败直接抛（与 member_count/1 一致；不再吞错返 0）。
   """
   @spec owner_count(String.t()) :: non_neg_integer
-  def owner_count(workspace_id) do
-    query = WorkspaceMembership |> Ash.Query.load(:roles)
-
-    case Ash.read(query, authorize?: false, tenant: workspace_id) do
-      {:ok, memberships} ->
-        Enum.count(memberships, fn membership ->
-          Enum.any?(membership.roles, &(&1.name == :owner))
-        end)
-
-      _ ->
-        0
-    end
-  end
+  def owner_count(workspace_id), do: BypassReads.owner_count(workspace_id)
 
   @doc """
   从 policy context 解析目标工作台 id（#2 AST 提取收拢，三场景行为与收敛前一致）。

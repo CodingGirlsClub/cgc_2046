@@ -63,6 +63,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth", () => ({
 	isAuthenticated,
 	clearAuthToken: vi.fn(),
+	clearSession: vi.fn(),
 }));
 
 vi.mock("@/lib/profile", async (importOriginal) => {
