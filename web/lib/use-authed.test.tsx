@@ -6,14 +6,13 @@ import { useAuthed } from "./use-authed";
  * useAuthed（#70 hydration-safe 登录态确认）单测。
  *
  * 首帧固定 { authed: false, confirmed: false }（与 SSR 空壳一致），挂载后
- * 异步读 cookie 确认；confirmed=true 前调用方不得重定向，避免已登录用户
- * 被先跳 /login。
+ * 通过 GraphQL `me` 查询确认登录态；confirmed=true 前调用方不得重定向。
  */
 
-const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
+const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
 
-vi.mock("@/lib/auth", () => ({
-  isAuthenticated,
+vi.mock("@apollo/client/react", () => ({
+  useQuery: useQueryMock,
 }));
 
 beforeEach(() => {
@@ -22,28 +21,25 @@ beforeEach(() => {
 
 describe("useAuthed (#70 hydration-safe 登录态确认)", () => {
   it("首帧 {authed:false, confirmed:false}（SSR 与 hydration 首帧一致）", () => {
-    isAuthenticated.mockReturnValue(true);
+    useQueryMock.mockReturnValue({ data: undefined, loading: true });
     const { result } = renderHook(() => useAuthed());
 
     expect(result.current).toEqual({ authed: false, confirmed: false });
-    expect(isAuthenticated).not.toHaveBeenCalled();
   });
 
-  it("已登录：挂载后确认 {authed:true, confirmed:true}", async () => {
-    isAuthenticated.mockReturnValue(true);
+  it("已登录：me 查询返回后 {authed:true, confirmed:true}", async () => {
+    useQueryMock.mockReturnValue({ data: { me: { id: "u1" } }, loading: false });
     const { result } = renderHook(() => useAuthed());
 
     await act(async () => {});
     expect(result.current).toEqual({ authed: true, confirmed: true });
-    expect(isAuthenticated).toHaveBeenCalledTimes(1);
   });
 
-  it("未登录：挂载后 {authed:false, confirmed:true}（调用方据此重定向 /login）", async () => {
-    isAuthenticated.mockReturnValue(false);
+  it("未登录：me 查询报错后 {authed:false, confirmed:true}", async () => {
+    useQueryMock.mockReturnValue({ data: undefined, loading: false });
     const { result } = renderHook(() => useAuthed());
 
     await act(async () => {});
     expect(result.current).toEqual({ authed: false, confirmed: true });
-    expect(isAuthenticated).toHaveBeenCalledTimes(1);
   });
 });

@@ -80,6 +80,9 @@ const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	clearAuthToken: vi.fn(),
 	clearSession: vi.fn(),
 }));
+const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
+
+vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 const { fetchMatrix } = vi.hoisted(() => ({ fetchMatrix: vi.fn() }));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
@@ -121,6 +124,7 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 beforeEach(() => {
 	vi.clearAllMocks();
 	isAuthenticated.mockReturnValue(true);
+	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	params.value = { slug: "cgc-academy" };
 	fetchMyWorkspaces.mockResolvedValue([
 		{
@@ -168,6 +172,7 @@ async function renderReadyPage() {
 describe("/w/[slug]/permissions 权限映射页", () => {
 	it("未登录重定向到 /login，且不请求权限矩阵", async () => {
 		isAuthenticated.mockReturnValue(false);
+	useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<PermissionsPage />);
 
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));

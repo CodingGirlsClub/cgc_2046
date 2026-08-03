@@ -1,8 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useAuthSubmit } from "./use-auth-submit";
-import { clearAuthToken } from "@/lib/auth";
-import { getAuthToken } from "@/lib/apollo-client";
 import type { AuthSubmitPayload } from "./auth-form";
 
 // vi.mock 工厂会被提升（hoist），mock 函数必须用 vi.hoisted 定义
@@ -43,34 +41,29 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
     push.mockClear();
     signInMock.mockReset();
     signUpMock.mockReset();
-    clearAuthToken();
   });
 
-  afterEach(clearAuthToken);
-
-  it("登录成功：写 cgc_token cookie 并跳转首页", async () => {
+  it("登录成功：跳转首页（token 由后端 httpOnly cookie 交付）", async () => {
     signInMock.mockResolvedValue({
       data: { signIn: { id: "u1", email: "a@b.c", isPlatformAdmin: false, token: "jwt-login" } },
     });
     const { result } = renderHook(() => useAuthSubmit());
     await act(() => result.current.onSubmit(loginPayload));
-    expect(getAuthToken()).toBe("jwt-login");
     expect(push).toHaveBeenCalledWith("/");
     expect(result.current.error).toBeNull();
   });
 
-  it("登录失败（ApolloError）：展示后端 message，不写 cookie 不跳转", async () => {
+  it("登录失败（ApolloError）：展示后端 message，不跳转", async () => {
     signInMock.mockRejectedValue({
       errors: [{ message: "Invalid email or password", code: "authentication_failed" }],
     });
     const { result } = renderHook(() => useAuthSubmit());
     await act(() => result.current.onSubmit(loginPayload));
     await waitFor(() => expect(result.current.error).toBe("Invalid email or password"));
-    expect(getAuthToken()).toBeUndefined();
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("注册成功：写 cgc_token cookie（自动登录）并跳转首页", async () => {
+  it("注册成功：跳转首页（token 由后端 httpOnly cookie 交付）", async () => {
     signUpMock.mockResolvedValue({
       data: {
         signUp: {
@@ -82,18 +75,16 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
     });
     const { result } = renderHook(() => useAuthSubmit());
     await act(() => result.current.onSubmit(registerPayload));
-    expect(getAuthToken()).toBe("jwt-register");
     expect(push).toHaveBeenCalledWith("/");
   });
 
-  it("注册失败（重复邮箱）：展示 result.errors[0].message，不写 cookie", async () => {
+  it("注册失败（重复邮箱）：展示 result.errors[0].message，不跳转", async () => {
     signUpMock.mockResolvedValue({
       data: { signUp: { result: null, errors: [{ message: "has already been taken" }], metadata: null } },
     });
     const { result } = renderHook(() => useAuthSubmit());
     await act(() => result.current.onSubmit(registerPayload));
     await waitFor(() => expect(result.current.error).toBe("has already been taken"));
-    expect(getAuthToken()).toBeUndefined();
     expect(push).not.toHaveBeenCalled();
   });
 

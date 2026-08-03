@@ -74,6 +74,14 @@ const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	clearAuthToken: vi.fn(),
 	clearSession: vi.fn(),
 }));
+
+const { useAuthed } = vi.hoisted(() => ({
+	useAuthed: vi.fn(),
+}));
+
+vi.mock("@/lib/use-authed", () => ({
+	useAuthed,
+}));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
 }));
@@ -105,6 +113,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	window.history.replaceState({}, "", "/");
 	isAuthenticated.mockReturnValue(true);
+	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	fetchMyWorkspaces.mockResolvedValue(TEST_WORKSPACES);
 	fetchCurrentProfile.mockResolvedValue({
 		id: "u_0202",
@@ -120,6 +129,7 @@ afterEach(cleanup);
 describe("工作台页 (#63)", () => {
 	it("未登录：重定向 /login，不渲染列表", async () => {
 		isAuthenticated.mockReturnValue(false);
+		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<HomePage />);
 		await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
 		expect(fetchMyWorkspaces).not.toHaveBeenCalled();
