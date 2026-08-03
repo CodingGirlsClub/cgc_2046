@@ -23,6 +23,14 @@ end
 config :cgc_2046, Cgc2046Web.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# CORS origin: comma-separated list from env; defaults to localhost:3000 for dev.
+# Override in any env via CORS_ORIGIN (e.g., "https://app.example.com,https://admin.example.com").
+config :cgc_2046,
+       :cors_origin,
+       System.get_env("CORS_ORIGIN", "http://localhost:3000")
+       |> String.split(",", trim: true)
+       |> Enum.map(&String.trim/1)
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
