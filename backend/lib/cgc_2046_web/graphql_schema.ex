@@ -112,25 +112,49 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Accounts.User
           |> Ash.Changeset.for_create(:register_with_password, %{email: email, password: password})
 
-        case Ash.create(changeset) do
-          {:ok, user} ->
-            token = user.__metadata__[:token]
+        try do
+          case Ash.create(changeset) do
+            {:ok, user} ->
+              token = user.__metadata__[:token]
 
+              {:ok,
+               %{
+                 result: %{
+                   id: user.id,
+                   email: user.email,
+                   is_platform_admin: user.is_platform_admin
+                 },
+                 errors: [],
+                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+                 __token__: token
+               }}
+
+            {:error, _error} ->
+              {:ok,
+               %{
+                 result: nil,
+                 errors: [
+                   %{
+                     message: "Registration failed. Please check your input and try again.",
+                     code: "registration_failed"
+                   }
+                 ],
+                 __token__: nil
+               }}
+          end
+        rescue
+          _ ->
             {:ok,
              %{
-               result: %{
-                 id: user.id,
-                 email: user.email,
-                 is_platform_admin: user.is_platform_admin
-               },
-               errors: [],
-               # token 仅用于 middleware 传递到 before_send，不暴露在响应中
-               __token__: token
+               result: nil,
+               errors: [
+                 %{
+                   message: "Registration failed. Please check your input and try again.",
+                   code: "registration_failed"
+                 }
+               ],
+               __token__: nil
              }}
-
-          {:error, error} ->
-            message = error |> Ash.Error.to_error_class() |> Exception.message()
-            {:ok, %{result: nil, errors: [%{message: message, code: nil}], __token__: nil}}
         end
       end)
 
