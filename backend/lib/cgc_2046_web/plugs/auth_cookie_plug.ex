@@ -38,7 +38,7 @@ defmodule Cgc2046Web.Plugs.AuthCookiePlug do
   def before_send(conn, %{execution: %{context: context}}) do
     cond do
       context[:cgc_clear_token] ->
-        configure_session(conn, :renew) |> delete_resp_cookie(@cookie_key)
+        delete_resp_cookie(conn, @cookie_key)
 
       token = context[:cgc_auth_token] ->
         put_resp_cookie(conn, @cookie_key, token,

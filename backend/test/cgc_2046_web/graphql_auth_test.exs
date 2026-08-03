@@ -8,7 +8,22 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     conn
     |> put_req_header("content-type", "application/json")
     |> post("/api/graphql", %{"query" => query})
-    |> json_response(200)
+  end
+
+  defp graphql_response(conn) do
+    json_response(conn, 200)
+  end
+
+  # ponytail: 复用 graphql_profile_test.exs:72 的正向范式——读 conn.resp_cookies，
+  # 断言 before_send 写入了 httpOnly cgc_token。这是 GAP1 的正向 regression guard：
+  # 误删 router 的 before_send 注册或改错 cookie 选项时此断言会失败。
+  defp assert_auth_cookie_written(conn) do
+    cookie = conn.resp_cookies["cgc_token"]
+    assert cookie != nil, "expected cgc_token cookie to be written by before_send"
+    assert cookie.http_only == true, "cgc_token must be httpOnly (防 JS 读取)"
+    assert cookie.same_site == "Lax", "cgc_token sameSite 应为 Lax"
+    assert is_binary(cookie.value) and byte_size(cookie.value) > 0, "cgc_token 值非空"
+    cookie
   end
 
   defp sign_up_query(email, password) do
