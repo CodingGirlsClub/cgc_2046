@@ -2,9 +2,14 @@ import type { NextConfig } from "next";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
 
+const DEV_SCRIPT_SRC =
+	process.env.NODE_ENV === "production"
+		? "'self' 'unsafe-inline'"
+		: "'self' 'unsafe-inline' 'unsafe-eval'";
+
 const CONTENT_SECURITY_POLICY = [
 	"default-src 'self'",
-	"script-src 'self' 'unsafe-inline'",
+	`script-src ${DEV_SCRIPT_SRC}`,
 	"style-src 'self' 'unsafe-inline'",
 	"img-src 'self' data: https: http:",
 	"font-src 'self' data:",
