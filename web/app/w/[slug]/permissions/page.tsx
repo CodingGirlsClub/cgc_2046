@@ -18,13 +18,13 @@ import {
 	fetchPermissionsMatrix,
 	myRolesHaveAbility,
 	PERMISSION_ABILITIES,
-	PERMISSION_ROLE_LABEL,
 	PERMISSION_ROLE_ORDER,
 	type PermissionAbility,
 	type PermissionMatrixRow,
 } from "@/lib/permissions";
 import {
 	ROLE_BADGE_CLASS,
+	ROLE_LABEL,
 	type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
@@ -34,7 +34,7 @@ import { Icon, type IconName } from "@/components/icons";
 const EXAMPLE_ROLES: MembershipRoleName[] = ["owner", "tutor"];
 
 function roleLabel(role: MembershipRoleName) {
-	return PERMISSION_ROLE_LABEL[role] ?? role;
+	return ROLE_LABEL[role] ?? role;
 }
 
 function roleBadgeClass(role: MembershipRoleName) {
