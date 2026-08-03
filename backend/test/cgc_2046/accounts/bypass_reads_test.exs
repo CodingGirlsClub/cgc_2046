@@ -129,4 +129,61 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
       end
     end
   end
+
+  describe "owner_count/1（raw COUNT，按 membership 去重）" do
+    test "2 个 owner（不同 membership）→ 2" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      add_member(workspace, new_user(), admin, [:owner])
+
+      assert BypassReads.owner_count(workspace.id) == 2
+    end
+
+    test "一人持多角色（owner + admin）仍只算 1 次（去重）" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      multi = new_user()
+      add_member(workspace, multi, admin, [:owner, :admin])
+      add_member(workspace, new_user(), admin, [:owner])
+
+      # admin（创建者）+ multi + 新 owner = 3
+      assert BypassReads.owner_count(workspace.id) == 3
+    end
+
+    test "无 owner 的 workspace → 0" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      # 移除创建者自己的 owner 角色
+      loaded = Ash.load!(workspace, :memberships, tenant: workspace.id, authorize?: false)
+      membership = Enum.find(loaded.memberships, &(&1.user_id == admin.id))
+
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "DELETE FROM membership_roles WHERE membership_id = $1",
+        [Ecto.UUID.dump!(membership.id)]
+      )
+
+      Ash.destroy!(membership, tenant: workspace.id, actor: admin, authorize?: false)
+
+      assert BypassReads.owner_count(workspace.id) == 0
+    end
+
+    test "非 owner membership 不计数" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      add_member(workspace, new_user(), admin, [:admin])
+      add_member(workspace, new_user(), admin, [:member])
+
+      # admin（owner）+ 2 非 owner = 1
+      assert BypassReads.owner_count(workspace.id) == 1
+    end
+
+    test "非法 workspace_id 抛 ArgumentError（与 member_count 同姿态）" do
+      assert_raise ArgumentError, fn ->
+        BypassReads.owner_count("not-a-uuid")
+      end
+    end
+  end
 end

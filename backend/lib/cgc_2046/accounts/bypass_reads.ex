@@ -62,6 +62,32 @@ defmodule Cgc2046.Accounts.BypassReads do
   end
 
   @doc """
+  目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色算 1 次）。
+  不经 membership read policy（与 member_count/1 同一逃生舱契约）。
+  DB 失败直接抛（与 member_count/1 一致）。非 owner 的 membership 不计数。
+  """
+  @spec owner_count(String.t()) :: non_neg_integer
+  def owner_count(workspace_id) do
+    {:ok, result} =
+      Ecto.Adapters.SQL.query(
+        Repo,
+        """
+        SELECT count(DISTINCT wm.id)::bigint
+        FROM workspace_memberships wm
+        JOIN membership_roles mr ON mr.membership_id = wm.id
+        JOIN roles r ON r.id = mr.role_id
+        WHERE wm.workspace_id = $1 AND r.name = 'owner'
+        """,
+        [Ecto.UUID.dump!(workspace_id)]
+      )
+
+    case result.rows do
+      [[count]] -> count
+      [] -> 0
+    end
+  end
+
+  @doc """
   actor 加入的全部工作台 id（不经 membership read policy；供
   ReadUserByVisibility 注入 exists 子查询）。非成员返回 `[]`。
   """

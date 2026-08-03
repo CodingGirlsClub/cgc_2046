@@ -308,8 +308,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert MembershipContext.role_names(admin, "not-a-uuid") == []
     end
 
-    test "owner_count 读失败返回 0" do
-      assert MembershipContext.owner_count("not-a-uuid") == 0
+    test "owner_count 读失败抛出（与 member_count 一致）" do
+      assert_raise ArgumentError, fn ->
+        MembershipContext.owner_count("not-a-uuid")
+      end
     end
 
     test "memberships_of_actor 读失败抛出（read! 与收敛前一致）" do

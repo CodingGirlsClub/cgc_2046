@@ -3,8 +3,10 @@ defmodule Cgc2046.Changes.AssignRoles do
   替换某成员（WorkspaceMembership）的整组角色（多角色并集）。
 
   由 `WorkspaceMembership.assign_roles` update action 调用：
-  1. change 阶段：grant scope 校验（P0 越权修复）+ 只读校验 role_names 对应角色存在（不写库）
-  2. after_action 阶段（policy 授权通过后）：删除旧 MembershipRole 关联并创建新关联
+  1. change 阶段：只读校验 role_names 对应角色存在（不写库）
+  2. before_action 阶段（policy 授权通过后、事务内）：取 per-workspace advisory lock →
+     grant scope 校验（P0 越权修复 + 最后 Owner 保护）
+  3. after_action 阶段（同事务）：删除旧 MembershipRole 关联并创建新关联
 
   ## 为什么写库放 after_action
 
@@ -13,6 +15,13 @@ defmodule Cgc2046.Changes.AssignRoles do
   若在 change 阶段直接写库，会先于 policy 检查修改数据，导致
   `WorkspaceActorIsOwnerOrAdmin` 读到已被修改的角色而误放行（越权漏洞）。
   放 after_action 可保证只有通过授权后才写库。
+
+  ## 为什么 grant-scope 读移进 before_action
+
+  grant-scope 校验中的 `owner_count` 读（最后 Owner 保护）与 after_action 的写
+  必须在同一事务、同一 `pg_advisory_xact_lock` 下，以闭合 TOCTOU 竞态（孤儿工作台）。
+  故将 `validate_grant_scope` 的调用点从 change 阶段移到 before_action 内，
+  在取锁后执行。
 
   ## grant scope 校验（P0 安全最小集）
 
@@ -32,9 +41,10 @@ defmodule Cgc2046.Changes.AssignRoles do
 
   alias Cgc2046.Accounts.{MembershipRole, Role}
   alias Cgc2046.Rbac
+  alias Cgc2046.Repo
 
   @impl true
-  def change(changeset, _opts, context) do
+  def change(changeset, _opts, _context) do
     membership = changeset.data
     workspace_id = membership.workspace_id
 
@@ -45,25 +55,50 @@ defmodule Cgc2046.Changes.AssignRoles do
       |> Ash.Changeset.get_argument(:role_names)
       |> List.wrap()
 
-    # P0 越权修复：grant scope 校验（change 阶段、写库前；失败用 add_error 不写库）
-    case validate_grant_scope(changeset, context.actor, membership, workspace_id, role_names) do
-      :ok ->
-        case fetch_roles(workspace_id, role_names) do
-          {:ok, roles} ->
-            Ash.Changeset.after_action(changeset, fn _changeset, result ->
-              case replace_roles(workspace_id, membership.id, roles) do
-                :ok -> {:ok, result}
-                {:error, error} -> {:error, error}
-              end
-            end)
-
-          {:error, :role_not_found} ->
-            Ash.Changeset.add_error(changeset, "角色不存在或不属于该工作台")
-        end
-
-      {:error, changeset} ->
+    case fetch_roles(workspace_id, role_names) do
+      {:ok, roles} ->
         changeset
+        |> Ash.Changeset.before_action(fn cs ->
+          # 事务内取 per-workspace advisory lock：序列化同工作台的 owner 变更，
+          # 使 owner_count 读（validate_grant_scope）与 after_action 写同锁同事务。
+          acquire_workspace_lock!(workspace_id)
+
+          case validate_grant_scope(
+                 cs,
+                 cs.context[:private][:actor],
+                 membership,
+                 workspace_id,
+                 role_names
+               ) do
+            :ok -> cs
+            {:error, errored} -> errored
+          end
+        end)
+        |> Ash.Changeset.after_action(fn _cs, result ->
+          case replace_roles(workspace_id, membership.id, roles) do
+            :ok -> {:ok, result}
+            {:error, error} -> {:error, error}
+          end
+        end)
+
+      {:error, :role_not_found} ->
+        Ash.Changeset.add_error(changeset, "角色不存在或不属于该工作台")
     end
+  end
+
+  # 事务级 advisory lock（pg_advisory_xact_lock 在事务提交/回滚时自动释放）。
+  # 公开（def 而非 defp）：Step 4 的 destroy 守卫复用同一锁。
+  # ponytail: 无条件锁——assignRoles 是低频管理操作，简单正确优先；
+  # 若将来吞吐敏感，可只在 granting_owner/revoking_owner 时取锁。
+  def acquire_workspace_lock!(workspace_id) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Repo,
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        [workspace_id]
+      )
+
+    :ok
   end
 
   # grant scope 校验（P0 安全最小集，判定单源在 Rbac）：
