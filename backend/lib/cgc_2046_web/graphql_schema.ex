@@ -63,6 +63,8 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:email, non_null(:string))
       arg(:password, non_null(:string))
 
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:email])
+
       resolve(fn _, %{email: email, password: password}, _ ->
         query =
           Cgc2046.Accounts.User
@@ -98,6 +100,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
     field :sign_up, :sign_up_payload do
       arg(:input, non_null(:sign_up_input))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:input, :email])
 
       resolve(fn _, %{input: %{email: email, password: password}}, _ ->
         changeset =
