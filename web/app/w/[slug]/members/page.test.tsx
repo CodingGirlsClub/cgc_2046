@@ -191,7 +191,12 @@ beforeEach(() => {
 		avatarUrl: null,
 		isPlatformAdmin: false,
 	});
-	fetchMembers.mockResolvedValue(TEST_MEMBERS.ws_02);
+	// #10：fetchMembers 返回分页形状（count = 可见总数，hasMore 由页面按累积 < count 派生）
+	fetchMembers.mockResolvedValue({
+		members: TEST_MEMBERS.ws_02,
+		endKeyset: null,
+		count: 5,
+	});
 	assignRoles.mockImplementation(
 		async (membershipId: string, roleNames: string[]) => {
 			const member = TEST_MEMBERS.ws_02.find(
@@ -301,25 +306,43 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("搜索与角色筛选只影响当前表格可见行", async () => {
+	// #10：搜索/角色筛选改为后端下推，不再本地过滤
+	it("搜索与角色筛选触发后端重新查询", async () => {
+		fetchMembers.mockImplementation((_wsId: string, opts?: { search?: string; role?: string }) => {
+			if (opts?.role === "learner") {
+				return Promise.resolve({ members: [], endKeyset: null, count: 0 });
+			}
+			if (opts?.search === "linxi") {
+				return Promise.resolve({ members: [TEST_MEMBERS.ws_02[0]], endKeyset: null, count: 1 });
+			}
+			return Promise.resolve({ members: TEST_MEMBERS.ws_02, endKeyset: null, count: 5 });
+		});
+
 		render(<MembersPage />);
 		await screen.findAllByTestId("member-row");
+
+		// 搜索 "linxi" → debounce 300ms → 后端查询 → 仅返回林溪
 		fireEvent.change(screen.getByRole("textbox", { name: "搜索姓名或邮箱" }), {
 			target: { value: "linxi" },
 		});
-		expect(screen.getAllByTestId("member-row")).toHaveLength(1);
+		await waitFor(() => expect(screen.getAllByTestId("member-row")).toHaveLength(1));
 		expect(screen.getByText("林溪")).toBeInTheDocument();
 
+		// 角色筛选 "learner" → 立即触发后端查询 → 无匹配
 		fireEvent.change(screen.getByRole("combobox", { name: "筛选角色" }), {
 			target: { value: "learner" },
 		});
-		expect(screen.queryAllByTestId("member-row")).toHaveLength(0);
+		await waitFor(() => expect(screen.queryAllByTestId("member-row")).toHaveLength(0));
 		expect(screen.getByText("没有匹配的成员")).toBeInTheDocument();
 	});
 
 	it("非 Owner/Admin 只能查看角色，没有编辑操作", async () => {
 		params.value = { slug: "cgc-shanghai" };
-		fetchMembers.mockResolvedValue(TEST_MEMBERS.ws_01);
+		fetchMembers.mockResolvedValue({
+			members: TEST_MEMBERS.ws_01,
+			endKeyset: null,
+			count: 4,
+		});
 		render(<MembersPage />);
 		expect((await screen.findAllByText("仅查看")).length).toBeGreaterThan(0);
 		expect(
@@ -348,7 +371,11 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 				membershipStatus: "active",
 			},
 		]);
-		fetchMembers.mockResolvedValue([TEST_MEMBERS.ws_02[4]]); // learner 只能看到自己（何苗）
+		fetchMembers.mockResolvedValue({
+			members: [TEST_MEMBERS.ws_02[4]], // learner 只能看到自己（何苗）
+			endKeyset: null,
+			count: 1,
+		});
 		render(<MembersPage />);
 
 		// 先等成员列表落地再断言计数（findByTestId 只等元素出现，不等 fetch；
@@ -535,14 +562,18 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 			},
 		]);
 		params.value = { slug: "qa70-owner-ws-999" };
-		fetchMembers.mockResolvedValue([
-			{
-				membershipId: "wm_r9",
-				userId: "u_r9",
-				email: "qa.member@example.com",
-				roles: ["owner"],
-			},
-		]);
+		fetchMembers.mockResolvedValue({
+			members: [
+				{
+					membershipId: "wm_r9",
+					userId: "u_r9",
+					email: "qa.member@example.com",
+					roles: ["owner"],
+				},
+			],
+			endKeyset: null,
+			count: 1,
+		});
 
 		render(<MembersPage />);
 		expect(
@@ -555,7 +586,10 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 			"href",
 			"/w/qa70-owner-ws-999/permissions",
 		);
-		expect(fetchMembers).toHaveBeenCalledWith("ws_real_9");
+		expect(fetchMembers).toHaveBeenCalledWith(
+			"ws_real_9",
+			expect.objectContaining({}),
+		);
 	});
 
 	it("真实 Workspace 的普通成员视角不显示编辑按钮", async () => {
@@ -572,14 +606,18 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 			},
 		]);
 		params.value = { slug: "dbg5-member-ws-777" };
-		fetchMembers.mockResolvedValue([
-			{
-				membershipId: "wm_rm",
-				userId: "u_rm",
-				email: "me@example.com",
-				roles: ["member"],
-			},
-		]);
+		fetchMembers.mockResolvedValue({
+			members: [
+				{
+					membershipId: "wm_rm",
+					userId: "u_rm",
+					email: "me@example.com",
+					roles: ["member"],
+				},
+			],
+			endKeyset: null,
+			count: 1,
+		});
 
 		render(<MembersPage />);
 		expect(
@@ -606,16 +644,20 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		]);
 		params.value = { slug: "p1-flat-ws-666" };
 		// 直接按后端 workspaceMembers 契约形状返回平铺字段
-		fetchMembers.mockResolvedValue([
-			{
-				membershipId: "wm_ft",
-				userId: "u_ft",
-				email: "flat.member@example.com",
-				displayName: "平铺成员",
-				joinedAt: "2026-08-02T03:00:00Z",
-				roles: ["tutor"],
-			},
-		]);
+		fetchMembers.mockResolvedValue({
+			members: [
+				{
+					membershipId: "wm_ft",
+					userId: "u_ft",
+					email: "flat.member@example.com",
+					displayName: "平铺成员",
+					joinedAt: "2026-08-02T03:00:00Z",
+					roles: ["tutor"],
+				},
+			],
+			endKeyset: null,
+			count: 1,
+		});
 
 		render(<MembersPage />);
 		expect((await screen.findAllByText("平铺成员")).length).toBeGreaterThan(0);
@@ -624,6 +666,75 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		).toBeGreaterThan(0);
 		// ISO joinedAt 格式化为中文年月（P1）
 		expect(screen.getByText("2026 年 8 月")).toBeInTheDocument();
+	});
+
+	// #10：分页累积测试（hasMore 由累积已加载 < count 派生）
+	it("加载更多累积成员", async () => {
+		const firstBatch = TEST_MEMBERS.ws_02.slice(0, 3);
+		const secondBatch = TEST_MEMBERS.ws_02.slice(3);
+		fetchMembers
+			.mockResolvedValueOnce({
+				members: firstBatch,
+				endKeyset: "key1",
+				count: 5, // 全量可见总数；首屏 3 < 5 → hasMore=true
+			})
+			.mockResolvedValueOnce({
+				members: secondBatch,
+				endKeyset: null,
+				count: 5, // 累积 5 = 5 → hasMore=false
+			});
+
+		render(<MembersPage />);
+		await screen.findAllByTestId("member-row");
+		expect(screen.getAllByTestId("member-row")).toHaveLength(3);
+		expect(screen.getByTestId("load-more")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByTestId("load-more"));
+		await waitFor(() => expect(screen.getAllByTestId("member-row")).toHaveLength(5));
+		expect(fetchMembers).toHaveBeenLastCalledWith(
+			expect.any(String),
+			expect.objectContaining({ after: "key1" }),
+		);
+		expect(screen.queryByTestId("load-more")).not.toBeInTheDocument();
+	});
+
+	it("累积已加载 >= count 时不显示加载更多按钮", async () => {
+		// 默认 mock 返回 5 成员 count=5 → 5 < 5 = false → 无按钮
+		render(<MembersPage />);
+		await screen.findAllByTestId("member-row");
+		expect(screen.queryByTestId("load-more")).not.toBeInTheDocument();
+	});
+
+	it("搜索触发重新查询带 search 参数", async () => {
+		render(<MembersPage />);
+		await screen.findAllByTestId("member-row");
+
+		fireEvent.change(screen.getByRole("textbox", { name: "搜索姓名或邮箱" }), {
+			target: { value: "linxi" },
+		});
+
+		await waitFor(() => {
+			expect(fetchMembers).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({ search: "linxi" }),
+			);
+		});
+	});
+
+	it("角色筛选触发重新查询带 role 参数", async () => {
+		render(<MembersPage />);
+		await screen.findAllByTestId("member-row");
+
+		fireEvent.change(screen.getByRole("combobox", { name: "筛选角色" }), {
+			target: { value: "learner" },
+		});
+
+		await waitFor(() => {
+			expect(fetchMembers).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({ role: "learner" }),
+			);
+		});
 	});
 });
 

@@ -81,17 +81,19 @@ describe("#64/#65 成员角色契约", () => {
 		expect(doc).toContain("errors {");
 	});
 
-	it("WORKSPACE_MEMBERS：filter eq 包装 + 分页对象 count/results + roles{id,name}", () => {
+	it("WORKSPACE_MEMBERS：filter eq 包装 + 分页参数 + 游标 + count/results + roles{id,name}", () => {
 		const doc = print(WORKSPACE_MEMBERS);
 		expect(doc).toContain(
-			"query WorkspaceMembers($filter: WorkspaceMembershipFilterInput!)",
+			"query WorkspaceMembers($filter: WorkspaceMembershipFilterInput!, $first: Int, $after: String)",
 		);
-		expect(doc).toContain("workspaceMembers(filter: $filter)");
+		expect(doc).toContain("workspaceMembers(filter: $filter, first: $first, after: $after)");
 		expect(doc).toContain("count");
 		expect(doc).toContain("results {");
 		expect(doc).toContain("roles {");
 		expect(doc).toContain("id");
 		expect(doc).toContain("name");
+		expect(doc).toContain("startKeyset");
+		expect(doc).toContain("endKeyset");
 	});
 
 	it("角色模型：旧 member 与 Slice A 默认角色标签齐全（六角色）", () => {

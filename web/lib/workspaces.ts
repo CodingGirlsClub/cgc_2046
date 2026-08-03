@@ -11,6 +11,7 @@ import {
 	ASSIGN_ROLES,
 	UPDATE_WORKSPACE,
 	type WorkspaceMemberConnection,
+	type WorkspaceMembersFilter,
 	type WorkspaceMembership,
 	type WorkspaceMembershipRole,
 } from "./graphql/workspace";
@@ -43,6 +44,14 @@ export interface WorkspaceListItem {
 	unreadCount?: number;
 	roles?: string[];
 	membershipStatus?: "active" | "pending" | "invited";
+}
+
+/** 分页成员列表返回（#10：游标 + count，hasMore 由调用方按累积数 vs count 推断） */
+export interface WorkspaceMemberPage {
+	members: WorkspaceMember[];
+	endKeyset: string | null;
+	/** 本页可见总数（read policy 过滤后；Owner/Admin=全部成员，非 Owner/Admin=1） */
+	count: number;
 }
 
 /** 成员条目（#65 成员列表 + 角色分配） */
@@ -141,18 +150,72 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
 }
 
 /**
- * 获取某 workspace 的成员列表（#65）。
- * 唯一真实路径：workspaceMembers（分页对象 count/results + roles{id,name}，
+ * 获取某 workspace 的成员列表（#65 + #10 分页）。
+ * 唯一真实路径：workspaceMembers（分页对象 count/results + 游标，
  * filter 用 { workspaceId: { eq } } 内层包装）。
+ * 支持后端下推搜索（userEmail/userDisplayName ilike）与角色过滤（roles.name eq）。
  */
 export async function fetchWorkspaceMembers(
 	workspaceId: string,
-): Promise<WorkspaceMember[]> {
+	opts?: {
+		search?: string;
+		role?: MembershipRoleName | "all";
+		after?: string;
+		first?: number;
+	},
+): Promise<WorkspaceMemberPage> {
+	const first = opts?.first ?? 50;
+	const filter: WorkspaceMembersFilter = { workspaceId: { eq: workspaceId } };
+
+	const search = opts?.search?.trim();
+	if (search) {
+		// ilike：PG ILIKE 大小写不敏感，无需 toLowerCase；%search% 匹配子串。
+		const pattern = `%${search}%`;
+		filter.or = [
+			{ userEmail: { ilike: pattern } },
+			{ userDisplayName: { ilike: pattern } },
+		];
+	}
+
+	if (opts?.role && opts.role !== "all") {
+		filter.roles = { name: { eq: opts.role } };
+	}
+
+	// 当有 search 或 role 时，用 and 组合 workspaceId + or + roles
+	let queryFilter: WorkspaceMembersFilter;
+	if (filter.or || filter.roles) {
+		const andClauses: WorkspaceMembersFilter[] = [
+			{ workspaceId: { eq: workspaceId } },
+		];
+		if (filter.or) andClauses.push({ or: filter.or });
+		if (filter.roles) andClauses.push({ roles: filter.roles });
+		queryFilter = { and: andClauses };
+	} else {
+		queryFilter = filter;
+	}
+
+	const variables: { filter: WorkspaceMembersFilter; first?: number; after?: string } = {
+		filter: queryFilter,
+		first,
+	};
+	if (opts?.after) {
+		variables.after = opts.after;
+	}
+
 	const { data } = await client.query({
 		query: WORKSPACE_MEMBERS,
-		variables: { filter: { workspaceId: { eq: workspaceId } } },
+		variables,
 	});
-	return mapWorkspaceMembers(data?.workspaceMembers);
+
+	const conn = data?.workspaceMembers;
+	const members = mapWorkspaceMembers(conn);
+	const endKeyset = conn?.endKeyset ?? null;
+	// #10：count 是 read policy 过滤后的可见总数（Ash fetch_count 含授权 filter），
+	// 用于调用方判断 hasMore（累积已加载 >= count 即末页），替代 endKeyset 启发式。
+	// Ash GraphQL 非 relay keyset 不下发 more?，endKeyset 满页时无法区分有无后续。
+	const count = conn?.count ?? members.length;
+
+	return { members, endKeyset, count };
 }
 
 /**
