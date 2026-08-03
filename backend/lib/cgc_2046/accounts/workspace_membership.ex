@@ -85,7 +85,52 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
 
   actions do
     default_accept([])
-    defaults([:read, :destroy])
+    defaults([:read])
+
+    # destroy 显式化：补 last-owner 守卫（与 assign_roles 同一不变量）
+    destroy :destroy do
+      primary?(true)
+      require_atomic?(false)
+      # 内联 change 函数为 2 参数 (changeset, context)——Ash 3.31 的
+      # Ash.Resource.Change.Function 以 fun.(changeset, context) 调用（function.ex:9），
+      # 3 参数写法编译能过但运行时 BadArityError。
+      change(fn changeset, _context ->
+        membership = changeset.data
+        workspace_id = membership.workspace_id
+        cs = Ash.Changeset.set_tenant(changeset, workspace_id)
+
+        Ash.Changeset.before_action(cs, fn c ->
+          Cgc2046.Changes.AssignRoles.acquire_workspace_lock!(workspace_id)
+
+          # actor 从 before_action 回调参数 c 取（commit 阶段，actor 已注入）；
+          # 外层 cs 是 change 注册时的快照，此时 actor 可能尚未注入。
+          actor = c.context[:private][:actor]
+
+          target_is_owner =
+            :owner in Cgc2046.Accounts.MembershipContext.role_names(
+              %{id: membership.user_id},
+              workspace_id
+            )
+
+          caller_is_owner =
+            :owner in Cgc2046.Accounts.MembershipContext.role_names(actor, workspace_id)
+
+          cond do
+            # 规则 1 的镜像：只有 Owner 能移除 Owner 成员（Admin 不能删 owner 成员，
+            # 否则等效撤销 owner，绕过 assign_roles 规则1「Admin 不能碰 owner」）。
+            target_is_owner and not caller_is_owner ->
+              Ash.Changeset.add_error(c, "只有 Owner 能授予或撤销 Owner 角色")
+
+            # 最后 Owner 保护：删除唯一 Owner 会使工作台变孤儿。
+            target_is_owner and Cgc2046.Rbac.owner_count(workspace_id) <= 1 ->
+              Ash.Changeset.add_error(c, "工作台必须至少保留一个 Owner")
+
+            true ->
+              c
+          end
+        end)
+      end)
+    end
 
     create :create do
       primary?(true)
