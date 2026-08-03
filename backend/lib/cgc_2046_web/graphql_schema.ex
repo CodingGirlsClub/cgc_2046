@@ -1,6 +1,8 @@
 defmodule Cgc2046Web.GraphqlSchema do
   use Absinthe.Schema
 
+  require Logger
+
   use AshGraphql,
     domains: [Cgc2046.Api, Cgc2046.GlobalApi],
     generate_sdl_file: "priv/graphql/schema.graphql",
@@ -135,13 +137,14 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "登出：清除 httpOnly cookie 中的认证 token"
+    @desc "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
     field :sign_out, :string do
       resolve(fn _, _, _ ->
         {:ok, "signed_out"}
       end)
 
       middleware(fn res, _ ->
+        revoke_bearer_token(res.context)
         %{res | context: Map.put(res.context, :cgc_clear_token, true)}
       end)
     end
@@ -265,5 +268,25 @@ defmodule Cgc2046Web.GraphqlSchema do
       actor: actor,
       domain: Cgc2046.GlobalApi
     )
+  end
+
+  # 服务端撤销当前 token：往 tokens 表对当前 jti 做 upsert，把 purpose 从 "user"
+  # 覆盖成 "revocation"，下次 load_from_bearer 的 get_token 查不到 user 记录即认证失败。
+  # token 由 AuthTokenContextPlug 从 Authorization header 透传进 Absinthe context。
+  # 撤销失败不阻断登出：仍清 cookie 让用户侧登出成功，token 会在 14 天自然过期。
+  defp revoke_bearer_token(context) do
+    case context[:cgc_bearer_token] do
+      token when is_binary(token) and byte_size(token) > 0 ->
+        case AshAuthentication.TokenResource.Actions.revoke(Cgc2046.Accounts.Token, token, []) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("signOut token revoke failed: #{inspect(reason)}")
+        end
+
+      _ ->
+        :ok
+    end
   end
 end

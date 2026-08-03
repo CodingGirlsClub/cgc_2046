@@ -874,7 +874,7 @@ type RootMutationType {
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload
 
-  "登出：清除 httpOnly cookie 中的认证 token"
+  "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
 
   "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"

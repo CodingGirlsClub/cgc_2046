@@ -10,6 +10,7 @@ defmodule Cgc2046Web.Router do
   pipeline :graphql do
     plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
     plug(:load_from_bearer)
+    plug(Cgc2046Web.Plugs.AuthTokenContextPlug)
     plug(:load_actor)
     plug(AshGraphql.Plug)
   end
