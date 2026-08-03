@@ -1,8 +1,5 @@
 import type { MembershipRoleName } from "./graphql/workspace";
 import {
-	ROLE_BADGE_CLASS,
-	ROLE_LABEL,
-	ROLE_LABEL_ZH,
 	ROLE_NAMES,
 } from "./graphql/workspace";
 import {
@@ -149,8 +146,3 @@ export async function fetchPermissionsMatrix(): Promise<PermissionMatrixRow[]> {
 	const { data } = await client.query({ query: PERMISSION_MATRIX });
 	return mapPermissionMatrixRows(data?.permissionMatrix?.roles);
 }
-
-/** 角色展示辅助（复用 Workspace 角色契约）。 */
-export const PERMISSION_ROLE_LABEL = ROLE_LABEL;
-export const PERMISSION_ROLE_LABEL_ZH = ROLE_LABEL_ZH;
-export const PERMISSION_ROLE_BADGE_CLASS = ROLE_BADGE_CLASS;
