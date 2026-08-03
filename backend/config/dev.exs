@@ -52,6 +52,9 @@ config :cgc_2046, Cgc2046Web.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :cgc_2046, dev_routes: true
 
+# httpOnly auth cookie: allow non-Secure in dev (localhost HTTP)
+config :cgc_2046, :auth_cookie_secure, false
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 
