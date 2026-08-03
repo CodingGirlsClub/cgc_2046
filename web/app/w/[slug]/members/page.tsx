@@ -11,6 +11,8 @@
  * U2：Owner 不能在此页行内授予或编辑；Owner 行只展示「专门指派」锁定入口。
  * 行内编辑选项来自 Slice A 的默认角色模板（admin/tutor/volunteer/learner），
  * 同时兼容旧 API 返回的 member 角色展示。
+ *
+ * #10：keyset 分页累积 + 后端搜索/角色下推 + 加载更多按钮。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -148,7 +150,14 @@ export default function WorkspaceMembersPage() {
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 	const canAssign = currentUserCanAssignRoles(ws);
 
-	const [members, setMembers] = useState<WorkspaceMember[] | null>(null);
+	const [members, setMembers] = useState<WorkspaceMember[]>([]);
+	const [endKeyset, setEndKeyset] = useState<string | null>(null);
+	// #10：hasMore 由「累积已加载 < count」派生（count 是 read policy 过滤后的可见总数），
+	// 替代 endKeyset 启发式（Ash GraphQL 非 relay keyset 不下发 more?，末页满页时误报）。
+	const [visibleCount, setVisibleCount] = useState(0);
+	const [loadingMore, setLoadingMore] = useState(false);
+	// #10：pageLoading 派生自 fetchKey 不匹配（见下方 effect），不在 effect 体内同步 setState
+	const [loadedFetchKey, setLoadedFetchKey] = useState<string | null>(null);
 	const [membersWorkspaceId, setMembersWorkspaceId] = useState<string | null>(
 		null,
 	);
@@ -161,20 +170,48 @@ export default function WorkspaceMembersPage() {
 
 	const wsId = ws?.id;
 
+	// #10：搜索 debounce 300ms，避免每次按键都触发后端查询
+	const [debouncedSearch, setDebouncedSearch] = useState("");
+	useEffect(() => {
+		const timer = setTimeout(() => setDebouncedSearch(search), 300);
+		return () => clearTimeout(timer);
+	}, [search]);
+
+	// #10：keyset 分页查询，search/roleFilter 变化时重置从头查。
+	// pageLoading 由 fetchKey 不匹配派生，不在 effect 体内同步 setState（避免级联渲染）。
+	const fetchKey = `${wsId ?? ""}|${debouncedSearch}|${roleFilter}`;
+	const pageLoading = loadedFetchKey !== fetchKey;
+	// #10：hasMore 派生自累积已加载数 < 可见总数（count），比 endKeyset 启发式准确
+	const hasMore = members.length < visibleCount;
+
 	useEffect(() => {
 		if (!confirmed || !authed) return;
 		if (!wsId) return;
 
 		let cancelled = false;
-		fetchWorkspaceMembers(wsId)
-			.then((list) => {
+		const searchVal = debouncedSearch.trim() || undefined;
+		const roleVal = roleFilter === "all" ? undefined : roleFilter;
+		const key = fetchKey;
+
+		fetchWorkspaceMembers(wsId, {
+			search: searchVal,
+			role: roleVal,
+			first: 50,
+		})
+			.then((page) => {
 				if (cancelled) return;
-				setMembers(list);
+				setMembers(page.members);
+				setEndKeyset(page.endKeyset);
+				setVisibleCount(page.count);
 				setMembersWorkspaceId(wsId);
+				setLoadedFetchKey(key);
 				setEditingId(null);
 				setDraft(
 					Object.fromEntries(
-						list.map((member) => [member.membershipId, [...member.roles]]),
+						page.members.map((member) => [
+							member.membershipId,
+							[...member.roles],
+						]),
 					),
 				);
 				setErrorMsg(null);
@@ -182,15 +219,20 @@ export default function WorkspaceMembersPage() {
 			.catch((error: unknown) => {
 				if (cancelled) return;
 				setMembers([]);
+				setEndKeyset(null);
+				setVisibleCount(0);
 				setMembersWorkspaceId(wsId);
+				setLoadedFetchKey(key);
 				setEditingId(null);
-				setErrorMsg(error instanceof Error ? error.message : "加载成员失败");
+				setErrorMsg(
+					error instanceof Error ? error.message : "加载成员失败",
+				);
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, wsId]);
+	}, [authed, confirmed, wsId, debouncedSearch, roleFilter, fetchKey]);
 
 	const currentMembers = membersWorkspaceId === wsId ? members : null;
 
@@ -202,20 +244,7 @@ export default function WorkspaceMembersPage() {
 	const isLimitedMemberView =
 		!canAssign && totalMemberCount > visibleMemberCount;
 
-	const visibleMembers = useMemo(() => {
-		if (!currentMembers) return [];
-		const needle = search.trim().toLowerCase();
-		return currentMembers.filter((member) => {
-			const matchesSearch =
-				!needle ||
-				[memberName(member), member.email, member.userId]
-					.filter(Boolean)
-					.some((value) => value!.toLowerCase().includes(needle));
-			const matchesRole =
-				roleFilter === "all" || member.roles.includes(roleFilter);
-			return matchesSearch && matchesRole;
-		});
-	}, [currentMembers, roleFilter, search]);
+	// #10：搜索/角色已由后端下推，members 即为应展示的全部已加载行，不再本地过滤
 
 	const roleFilterOptions = useMemo(() => {
 		const extras = (currentMembers ?? [])
@@ -267,7 +296,8 @@ export default function WorkspaceMembersPage() {
 		// #64 已知陷阱：Admin 编辑自己的行并移除 admin 会造成自杀式降权。
 		// 若保存后当前用户不再持有 admin（原本持有），弹出确认；取消则不提交。
 		const isSelf =
-			ws.myMembershipId != null && member.membershipId === ws.myMembershipId;
+			ws.myMembershipId != null &&
+			member.membershipId === ws.myMembershipId;
 		const hadAdmin = member.roles.includes("admin");
 		if (isSelf && hadAdmin && !roleNames.includes("admin")) {
 			const ok = window.confirm(
@@ -278,14 +308,16 @@ export default function WorkspaceMembersPage() {
 		setSavingId(member.membershipId);
 		setErrorMsg(null);
 		try {
-			const updated = await assignMemberRoles(member.membershipId, roleNames);
-			setMembers(
-				(current) =>
-					current?.map((item) =>
-						item.membershipId === member.membershipId
-							? { ...item, roles: updated.roles }
-							: item,
-					) ?? current,
+			const updated = await assignMemberRoles(
+				member.membershipId,
+				roleNames,
+			);
+			setMembers((current) =>
+				current.map((item) =>
+					item.membershipId === member.membershipId
+						? { ...item, roles: updated.roles }
+						: item,
+				),
 			);
 			setDraft((current) => ({
 				...current,
@@ -293,9 +325,40 @@ export default function WorkspaceMembersPage() {
 			}));
 			setEditingId(null);
 		} catch (error: unknown) {
-			setErrorMsg(error instanceof Error ? error.message : "保存角色失败");
+			setErrorMsg(
+				error instanceof Error ? error.message : "保存角色失败",
+			);
 		} finally {
 			setSavingId(null);
+		}
+	}
+
+	// #10：加载更多（keyset 游标翻页）。捕获发起时的 fetchKey，await 后若筛选已变则丢弃结果。
+	async function loadMore() {
+		if (!wsId || !endKeyset) return;
+		setLoadingMore(true);
+		const searchVal = debouncedSearch.trim() || undefined;
+		const roleVal = roleFilter === "all" ? undefined : roleFilter;
+		const requestKey = fetchKey;
+		try {
+			const page = await fetchWorkspaceMembers(wsId, {
+				search: searchVal,
+				role: roleVal,
+				after: endKeyset,
+				first: 50,
+			});
+			if (requestKey !== fetchKey) return; // 筛选已变，结果作废
+			setMembers((prev) => [...prev, ...page.members]);
+			setEndKeyset(page.endKeyset);
+			setVisibleCount(page.count);
+			setErrorMsg(null);
+		} catch (error: unknown) {
+			if (requestKey !== fetchKey) return;
+			setErrorMsg(
+				error instanceof Error ? error.message : "加载更多成员失败",
+			);
+		} finally {
+			setLoadingMore(false);
 		}
 	}
 
@@ -314,7 +377,9 @@ export default function WorkspaceMembersPage() {
 						<p>管理工作区成员与角色分配</p>
 					</div>
 					<div className="members-heading-summary">
-						<span>{JOIN_POLICY_LABEL[ws?.joinPolicy ?? "open"]} Workspace</span>
+						<span>
+							{JOIN_POLICY_LABEL[ws?.joinPolicy ?? "open"]} Workspace
+						</span>
 						<strong>{ws?.name ?? slug}</strong>
 					</div>
 				</header>
@@ -386,8 +451,8 @@ export default function WorkspaceMembersPage() {
 						共 {totalMemberCount} 位成员
 						{isLimitedMemberView
 							? `（当前仅显示你有权查看的 ${visibleMemberCount} 位）`
-							: visibleMembers.length !== visibleMemberCount
-								? ` · 显示 ${visibleMembers.length}`
+							: hasMore
+								? ` · 已加载 ${members.length}`
 								: ""}
 					</span>
 				</section>
@@ -406,7 +471,7 @@ export default function WorkspaceMembersPage() {
 				)}
 
 				<section className="members-table-shell" aria-label="成员列表">
-					{wsLoading || currentMembers === null ? (
+					{wsLoading || pageLoading ? (
 						<div
 							className="members-table-loading"
 							data-testid="members-loading"
@@ -415,119 +480,157 @@ export default function WorkspaceMembersPage() {
 								<div key={item} className="members-skeleton-row" />
 							))}
 						</div>
-					) : visibleMembers.length > 0 ? (
-						<div className="members-table-scroll">
-							<table className="members-table">
-								<thead>
-									<tr>
-										<th>成员</th>
-										<th>账号</th>
-										<th>角色并集</th>
-										<th>
-											<span className="members-th-with-icon">
-												<Icon name="calendar" size={16} />
-												加入时间
-											</span>
-										</th>
-										<th>操作</th>
-									</tr>
-								</thead>
-								<tbody>
-									{visibleMembers.map((member) => {
-										const isOwner = member.roles.includes("owner");
-										const isEditing = editingId === member.membershipId;
-										const currentRoles =
-											draft[member.membershipId] ?? member.roles;
-										return (
-											<tr
-												key={member.membershipId}
-												data-testid="member-row"
-												className={
-													isEditing ? "members-table__row--editing" : undefined
-												}
-											>
-												<td>
-													<div className="members-person">
-														<span
-															className="members-person__avatar"
-															aria-hidden="true"
-														>
-															{avatarLetter(member)}
+					) : members.length > 0 ? (
+						<>
+							<div className="members-table-scroll">
+								<table className="members-table">
+									<thead>
+										<tr>
+											<th>成员</th>
+											<th>账号</th>
+											<th>角色并集</th>
+											<th>
+												<span className="members-th-with-icon">
+													<Icon name="calendar" size={16} />
+													加入时间
+												</span>
+											</th>
+											<th>操作</th>
+										</tr>
+									</thead>
+									<tbody>
+										{members.map((member) => {
+											const isOwner =
+												member.roles.includes("owner");
+											const isEditing =
+												editingId === member.membershipId;
+											const currentRoles =
+												draft[member.membershipId] ??
+												member.roles;
+											return (
+												<tr
+													key={member.membershipId}
+													data-testid="member-row"
+													className={
+														isEditing
+															? "members-table__row--editing"
+															: undefined
+													}
+												>
+													<td>
+														<div className="members-person">
+															<span
+																className="members-person__avatar"
+																aria-hidden="true"
+															>
+																{avatarLetter(member)}
+															</span>
+															<strong>
+																{memberName(member)}
+															</strong>
+														</div>
+													</td>
+													<td>
+														<span className="members-account">
+															{member.email ?? member.userId}
 														</span>
-														<strong>{memberName(member)}</strong>
-													</div>
-												</td>
-												<td>
-													<span className="members-account">
-														{member.email ?? member.userId}
-													</span>
-												</td>
-												<td>
-													<div className="members-role-cell">
-														<MemberRoleChips roles={currentRoles} />
-														{isEditing && (
-															<RoleEditor
-																member={member}
+													</td>
+													<td>
+														<div className="members-role-cell">
+															<MemberRoleChips
 																roles={currentRoles}
-																saving={savingId === member.membershipId}
-																onToggle={(role) =>
-																	toggleRole(member.membershipId, role)
-																}
-																onCancel={() => cancelEdit(member)}
-																onSave={() => saveRoles(member)}
 															/>
-														)}
-													</div>
-												</td>
-												<td>
-													<span className="members-date">
-														{memberJoinedAt(member)}
-													</span>
-												</td>
-												<td>
-													{isOwner ? (
-														<button
-															type="button"
-															className="members-table-action members-table-action--locked"
-															disabled
-															title="Owner 角色只能通过专门指派流程变更"
-														>
-															<Icon name="lock" size={17} />
-															专门指派
-														</button>
-													) : canAssign ? (
-														<button
-															type="button"
-															className="members-table-action members-table-action--primary"
-															aria-expanded={isEditing}
-															onClick={() =>
-																isEditing
-																	? cancelEdit(member)
-																	: beginEdit(member)
-															}
-														>
-															{isEditing ? "收起编辑" : "编辑角色"}
-														</button>
-													) : (
-														<span className="members-readonly-action">
-															仅查看
+															{isEditing && (
+																<RoleEditor
+																	member={member}
+																	roles={currentRoles}
+																	saving={
+																		savingId ===
+																		member.membershipId
+																	}
+																	onToggle={(role) =>
+																		toggleRole(
+																			member.membershipId,
+																			role,
+																		)
+																	}
+																	onCancel={() =>
+																		cancelEdit(member)
+																	}
+																	onSave={() =>
+																		saveRoles(member)
+																	}
+																/>
+															)}
+														</div>
+													</td>
+													<td>
+														<span className="members-date">
+															{memberJoinedAt(member)}
 														</span>
-													)}
-												</td>
-											</tr>
-										);
-									})}
-								</tbody>
-							</table>
-						</div>
+													</td>
+													<td>
+														{isOwner ? (
+															<button
+																type="button"
+																className="members-table-action members-table-action--locked"
+																disabled
+																title="Owner 角色只能通过专门指派流程变更"
+															>
+																<Icon name="lock" size={17} />
+																专门指派
+															</button>
+														) : canAssign ? (
+															<button
+																type="button"
+																className="members-table-action members-table-action--primary"
+																aria-expanded={isEditing}
+																onClick={() =>
+																	isEditing
+																		? cancelEdit(member)
+																		: beginEdit(member)
+																}
+															>
+																{isEditing
+																	? "收起编辑"
+																	: "编辑角色"}
+															</button>
+														) : (
+															<span className="members-readonly-action">
+																仅查看
+															</span>
+														)}
+													</td>
+												</tr>
+											);
+										})}
+									</tbody>
+								</table>
+							</div>
+							{hasMore && (
+								<div className="members-load-more">
+									<button
+										type="button"
+										data-testid="load-more"
+										className="members-table-action members-table-action--primary"
+										onClick={loadMore}
+										disabled={loadingMore}
+									>
+										{loadingMore ? "加载中…" : "加载更多"}
+									</button>
+								</div>
+							)}
+						</>
 					) : (
 						<div className="members-empty-table">
 							<Icon name="users" size={28} />
 							<strong>
-								{currentMembers.length > 0 ? "没有匹配的成员" : "暂无成员"}
+								{debouncedSearch.trim()
+									? "没有匹配的成员"
+									: "暂无成员"}
 							</strong>
 							<p>
-								{currentMembers.length > 0
+								{debouncedSearch.trim()
 									? "调整搜索词或角色筛选后重试。"
 									: "当前 Workspace 还没有可展示的成员。"}
 							</p>

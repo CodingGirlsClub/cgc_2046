@@ -14,6 +14,7 @@ import {
 	currentUserCanAssignRoles,
 	currentUserCanUpdateJoinPolicy,
 	fetchMyWorkspaces,
+	fetchWorkspaceMembers,
 	updateWorkspaceJoinPolicy,
 } from "./workspaces";
 
@@ -294,6 +295,272 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
 	it("meWorkspaces 为空 → 返回空数组", async () => {
 		queryMock.mockResolvedValue({ data: { meWorkspaces: [] } } as never);
 		expect(await fetchMyWorkspaces()).toEqual([]);
+	});
+});
+
+describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () => {
+	const queryMock = vi.mocked(client.query);
+	const opName = (query: unknown): string | undefined => {
+		const q = query as { definitions?: Array<{ name?: { value?: string } }> };
+		return q.definitions?.[0]?.name?.value;
+	};
+
+	beforeEach(() => {
+		queryMock.mockReset();
+	});
+
+	it("默认调用传 first: 50、无 after、filter 只含 workspaceId", async () => {
+		queryMock.mockImplementation(({ query, variables }) => {
+			expect(opName(query)).toBe("WorkspaceMembers");
+			expect(variables).toEqual({
+				filter: { workspaceId: { eq: "ws_1" } },
+				first: 50,
+			});
+			return Promise.resolve({
+				data: {
+					workspaceMembers: {
+						count: 2,
+						results: [
+							{
+								id: "wm_1",
+								workspaceId: "ws_1",
+								userId: "u_1",
+								roles: [{ id: "r1", name: "member" }],
+							},
+							{
+								id: "wm_2",
+								workspaceId: "ws_1",
+								userId: "u_2",
+								roles: [{ id: "r2", name: "admin" }],
+							},
+						],
+						endKeyset: "keyset_2",
+					},
+				},
+			} as never);
+		});
+
+		const page = await fetchWorkspaceMembers("ws_1");
+		expect(page.members).toHaveLength(2);
+		expect(page.endKeyset).toBe("keyset_2");
+		expect(page.count).toBe(2); // read policy 过滤后的可见总数
+	});
+
+	it("带 search 时 filter 含 or（userEmail/userDisplayName ilike）", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables).toEqual({
+				filter: {
+					and: [
+						{ workspaceId: { eq: "ws_1" } },
+						{
+							or: [
+								{ userEmail: { ilike: "%Linxi%" } },
+								{ userDisplayName: { ilike: "%Linxi%" } },
+							],
+						},
+					],
+				},
+				first: 50,
+			});
+			return Promise.resolve({
+				data: {
+					workspaceMembers: {
+						count: 1,
+						results: [
+							{
+								id: "wm_1",
+								workspaceId: "ws_1",
+								userId: "u_1",
+								userEmail: "linxi@cgc2046.org",
+								userDisplayName: "林溪",
+								roles: [{ id: "r1", name: "tutor" }],
+							},
+						],
+						endKeyset: "keyset_1",
+					},
+				},
+			} as never);
+		});
+
+		const page = await fetchWorkspaceMembers("ws_1", { search: "Linxi" });
+		expect(page.members).toHaveLength(1);
+		expect(page.members[0].email).toBe("linxi@cgc2046.org");
+	});
+
+	it("带 role（非 all）时 filter 含 roles.name.eq", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables).toEqual({
+				filter: {
+					and: [
+						{ workspaceId: { eq: "ws_1" } },
+						{ roles: { name: { eq: "admin" } } },
+					],
+				},
+				first: 50,
+			});
+			return Promise.resolve({
+				data: {
+					workspaceMembers: {
+						count: 1,
+						results: [
+							{
+								id: "wm_1",
+								workspaceId: "ws_1",
+								userId: "u_1",
+								roles: [{ id: "r1", name: "admin" }],
+							},
+						],
+						endKeyset: "keyset_1",
+					},
+				},
+			} as never);
+		});
+
+		const page = await fetchWorkspaceMembers("ws_1", { role: "admin" });
+		expect(page.members).toHaveLength(1);
+	});
+
+	it("search + role 同时存在时 and 含三个子句", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables).toEqual({
+				filter: {
+					and: [
+						{ workspaceId: { eq: "ws_1" } },
+						{
+							or: [
+								{ userEmail: { ilike: "%test%" } },
+								{ userDisplayName: { ilike: "%test%" } },
+							],
+						},
+						{ roles: { name: { eq: "member" } } },
+					],
+				},
+				first: 50,
+			});
+			return Promise.resolve({
+				data: {
+					workspaceMembers: {
+						count: 0,
+						results: [],
+						endKeyset: null,
+					},
+				},
+			} as never);
+		});
+
+		const page = await fetchWorkspaceMembers("ws_1", {
+			search: "test",
+			role: "member",
+		});
+		expect(page.members).toHaveLength(0);
+		expect(page.endKeyset).toBeNull();
+		expect(page.count).toBe(0);
+	});
+
+	it("role=all 时忽略角色过滤", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables).toEqual({
+				filter: { workspaceId: { eq: "ws_1" } },
+				first: 50,
+			});
+			return Promise.resolve({
+				data: {
+					workspaceMembers: {
+						count: 2,
+						results: [
+							{
+								id: "wm_1",
+								workspaceId: "ws_1",
+								userId: "u_1",
+								roles: [{ id: "r1", name: "member" }],
+							},
+							{
+								id: "wm_2",
+								workspaceId: "ws_1",
+								userId: "u_2",
+								roles: [{ id: "r2", name: "admin" }],
+							},
+						],
+						endKeyset: "keyset_2",
+					},
+				},
+			} as never);
+		});
+
+		const page = await fetchWorkspaceMembers("ws_1", { role: "all" });
+		expect(page.members).toHaveLength(2);
+	});
+
+	it("透传 count（满页且 count>本页时，调用方据此判断 hasMore）", async () => {
+		queryMock.mockResolvedValue({
+			data: {
+				workspaceMembers: {
+					count: 60,
+					results: Array.from({ length: 50 }, (_, i) => ({
+						id: `wm_${i}`,
+						workspaceId: "ws_1",
+						userId: `u_${i}`,
+						roles: [{ id: "r1", name: "member" }],
+					})),
+					endKeyset: "keyset_50",
+				},
+			},
+		} as never);
+
+		const page = await fetchWorkspaceMembers("ws_1", { first: 50 });
+		expect(page.members).toHaveLength(50);
+		expect(page.endKeyset).toBe("keyset_50");
+		expect(page.count).toBe(60); // 60 > 50 → 调用方 hasMore=true
+	});
+
+	it("末页满页时 count=已加载数（调用方 hasMore=false，消除 endKeyset 误报）", async () => {
+		queryMock.mockResolvedValue({
+			data: {
+				workspaceMembers: {
+					count: 30,
+					results: Array.from({ length: 30 }, (_, i) => ({
+						id: `wm_${i}`,
+						workspaceId: "ws_1",
+						userId: `u_${i}`,
+						roles: [{ id: "r1", name: "member" }],
+					})),
+					endKeyset: "keyset_30", // 非 null（末条 keyset），但 count=30=已加载 → 无更多
+				},
+			},
+		} as never);
+
+		const page = await fetchWorkspaceMembers("ws_1", { first: 50 });
+		expect(page.members).toHaveLength(30);
+		expect(page.endKeyset).toBe("keyset_30");
+		expect(page.count).toBe(30); // 30 >= 30 → 调用方 hasMore=false（旧 endKeyset 启发式会误报 true）
+	});
+
+	it("透传 after 游标到查询变量", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables!.after).toBe("keyset_prev");
+			return Promise.resolve({
+				data: {
+					workspaceMembers: {
+						count: 1,
+						results: [
+							{
+								id: "wm_next",
+								workspaceId: "ws_1",
+								userId: "u_next",
+								roles: [{ id: "r1", name: "member" }],
+							},
+						],
+						endKeyset: "keyset_next",
+					},
+				},
+			} as never);
+		});
+
+		const page = await fetchWorkspaceMembers("ws_1", {
+			after: "keyset_prev",
+		});
+		expect(page.members).toHaveLength(1);
+		expect(page.endKeyset).toBe("keyset_next");
 	});
 });
 

@@ -87,15 +87,25 @@ export interface WorkspaceMembershipRole {
 	name: string;
 }
 
-/** workspaceMembers 分页对象（后端返回 count/results，不是直接数组） */
+/** workspaceMembers 分页对象（后端返回 count/results + 游标） */
 export interface WorkspaceMemberConnection {
 	count: number;
 	results: WorkspaceMembership[];
+	startKeyset?: string | null;
+	endKeyset?: string | null;
 }
 
-/** workspaceMembers filter：workspaceId 用 eq 比较器内层包装 */
+/**
+ * workspaceMembers filter：workspaceId 用 eq 比较器内层包装；
+ * 支持后端下推搜索（userEmail/userDisplayName ilike，大小写不敏感）与角色过滤（roles.name eq）。
+ */
 export interface WorkspaceMembersFilter {
 	workspaceId?: { eq?: string } | null;
+	userEmail?: { ilike?: string } | null;
+	userDisplayName?: { ilike?: string } | null;
+	roles?: { name?: { eq?: string } | null } | null;
+	and?: WorkspaceMembersFilter[] | null;
+	or?: WorkspaceMembersFilter[] | null;
 }
 
 export interface MutationError {
@@ -191,13 +201,14 @@ export const ASSIGN_ROLES: TypedDocumentNode<
  * #64 workspaceMembers：成员列表查询（分页对象，filter 用 eq 比较器包装 workspaceId）。
  * 单成员多角色通过 roles { id name } 并集返回。
  * P1：平铺计算字段 userEmail/userDisplayName/joinedAt（不再嵌套 user，规避 User read policy 过滤）。
+ * #10：支持 keyset 分页（first/after）与后端下推搜索/角色过滤。
  */
 export const WORKSPACE_MEMBERS: TypedDocumentNode<
 	{ workspaceMembers: WorkspaceMemberConnection },
-	{ filter: WorkspaceMembersFilter }
+	{ filter: WorkspaceMembersFilter; first?: number; after?: string }
 > = gql`
-  query WorkspaceMembers($filter: WorkspaceMembershipFilterInput!) {
-    workspaceMembers(filter: $filter) {
+  query WorkspaceMembers($filter: WorkspaceMembershipFilterInput!, $first: Int, $after: String) {
+    workspaceMembers(filter: $filter, first: $first, after: $after) {
       count
       results {
         id
@@ -211,6 +222,8 @@ export const WORKSPACE_MEMBERS: TypedDocumentNode<
           name
         }
       }
+      startKeyset
+      endKeyset
     }
   }
 `;
