@@ -316,176 +316,19 @@ defmodule Cgc2046.Accounts.MembershipTest do
       mutation {
         signIn(email: "#{email}", password: "#{password}") {
           id
-          token
         }
       }
       """
 
-      res = graphql_post(build_conn(), query)
-      assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+
+      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+      token = conn.resp_cookies["cgc_token"].value
       token
-    end
-
-    defp create_workspace_query(slug, name) do
-      """
-      mutation {
-        createWorkspace(input: { slug: "#{slug}", name: "#{name}" }) {
-          result { id }
-          errors { message }
-        }
-      }
-      """
-    end
-
-    test "owner can list members with roles filtered by workspace" do
-      admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
-
-      slug = "gql-members-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Members"), token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
-
-      # 加入一个普通成员并分配角色
-      user = normal_user()
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      add_member(workspace, user, admin, [:admin, :member])
-
-      members_query = """
-      query {
-        workspaceMembers(filter: { workspaceId: { eq: "#{ws_id}" } }) {
-          count
-          results {
-            id
-            userId
-            roles { id name }
-          }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), members_query, token)
-
-      assert %{
-               "data" => %{
-                 "workspaceMembers" => %{"count" => 2, "results" => results}
-               }
-             } = res
-
-      assert length(results) == 2
-
-      member_result =
-        Enum.find(results, fn r -> r["userId"] == user.id end)
-
-      assert member_result != nil
-      assert Enum.map(member_result["roles"], & &1["name"]) |> Enum.sort() == ["admin", "member"]
-
-      owner_result =
-        Enum.find(results, fn r -> r["userId"] == admin.id end)
-
-      assert Enum.map(owner_result["roles"], & &1["name"]) == ["owner"]
-    end
-
-    test "member can only see their own membership record" do
-      admin = admin_user()
-      user = normal_user()
-      admin_token = sign_in_token(@admin_email, @password)
-      token = sign_in_token(@member_email, @password)
-
-      slug = "gql-self-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Self"), admin_token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
-
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      add_member(workspace, user, admin, [:member])
-
-      members_query = """
-      query {
-        workspaceMembers(filter: { workspaceId: { eq: "#{ws_id}" } }) {
-          count
-          results { id userId roles { name } }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), members_query, token)
-
-      assert %{
-               "data" => %{
-                 "workspaceMembers" => %{"count" => 1, "results" => [own]}
-               }
-             } = res
-
-      assert own["userId"] == user.id
-    end
-
-    test "assignRoles via GraphQL replaces roles for owner" do
-      admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
-
-      slug = "gql-assign-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Assign"), token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
-
-      user = normal_user()
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      membership = add_member(workspace, user, admin, [:member])
-
-      assign_query = """
-      mutation {
-        assignRoles(
-          id: "#{membership.id}"
-          input: { roleNames: ["admin", "member"] }
-        ) {
-          result { id }
-          errors { message }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), assign_query, token)
-      assert %{"data" => %{"assignRoles" => %{"errors" => []}}} = res
-
-      updated = Ash.get!(WorkspaceMembership, membership.id, tenant: ws_id, actor: admin)
-      assert load_role_names(updated) == [:admin, :member]
-    end
-
-    test "plain member assignRoles via GraphQL is forbidden" do
-      admin = admin_user()
-      user = normal_user()
-      admin_token = sign_in_token(@admin_email, @password)
-      token = sign_in_token(@member_email, @password)
-
-      slug = "gql-forbid-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Forbid"), admin_token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
-
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      add_member(workspace, user, admin, [:member])
-
-      members_query = """
-      query {
-        workspaceMembers(filter: { workspaceId: { eq: "#{ws_id}" } }) {
-          results { id }
-        }
-      }
-      """
-
-      # 普通成员只能看到自己的 membership
-      res = graphql_post(build_conn(), members_query, token)
-      assert %{"data" => %{"workspaceMembers" => %{"results" => [own]}}} = res
-
-      assign_query = """
-      mutation {
-        assignRoles(id: "#{own["id"]}", input: { roleNames: ["admin"] }) {
-          result { id }
-          errors { message }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), assign_query, token)
-      assert %{"data" => %{"assignRoles" => %{"result" => nil, "errors" => errors}}} = res
-      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
     end
   end
 

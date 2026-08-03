@@ -58,13 +58,18 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     mutation {
       signIn(email: "#{email}", password: "#{password}") {
         id
-        token
       }
     }
     """
 
-    res = graphql_post(build_conn(), query)
-    assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => query})
+
+    assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+    # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+    token = conn.resp_cookies["cgc_token"].value
     token
   end
 

@@ -4,10 +4,11 @@ import type { TypedDocumentNode } from "@apollo/client";
 /**
  * #61 登录/注册 GraphQL mutation（已按后端 #60 实际 schema 对齐，commit d73b578）。
  *
- * 关键约定（与后端工程师 worker_c5ca4e44 确认）：
- * - signUp 是 create mutation：参数 input 嵌套，返回 result/errors/metadata 三段式；
- *   token 在 metadata.token（响应体交付，前端写 cgc_token cookie —— 路径 A）。
- * - signIn 是 read_one as_mutation：参数平铺，返回平铺字段；失败时 signIn 为 null
+ * 关键约定（已迁移 httpOnly cookie —— 路径 B）：
+ * - signUp 是 create mutation：参数 input 嵌套，返回 result/errors 两段式；
+ *   token 由后端 before_send 写 httpOnly cookie，响应体不再返回。
+ * - signIn 是 read_one as_mutation：参数平铺，返回平铺字段（无 token）；
+ *   失败时 signIn 为 null
  *   且顶层 errors 含 [{ message, code: "authentication_failed" }]（Apollo 抛 ApolloError）。
  */
 
@@ -34,14 +35,12 @@ export interface UserLite {
 export interface SignUpResultData {
   result: UserLite | null;
   errors: MutationError[];
-  metadata: { token: string } | null;
 }
 
 export interface SignInResultData {
   id: string;
   email: string;
   isPlatformAdmin: boolean;
-  token: string;
 }
 
 /* ---------------- 真实 mutation ---------------- */
@@ -61,9 +60,6 @@ export const SIGN_UP: TypedDocumentNode<
         message
         code
       }
-      metadata {
-        token
-      }
     }
   }
 `;
@@ -77,7 +73,6 @@ export const SIGN_IN: TypedDocumentNode<
       id
       email
       isPlatformAdmin
-      token
     }
   }
 `;

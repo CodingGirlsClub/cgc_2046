@@ -17,23 +17,22 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       signUp(input: { email: "#{email}", password: "#{password}" }) {
         result { id email isPlatformAdmin }
         errors { message }
-        metadata { token }
       }
     }
     """
   end
 
   describe "signUp mutation" do
-    test "registers a user and returns a JWT token in metadata" do
+    test "registers a user and returns the user (token in httpOnly cookie)" do
       conn = build_conn()
 
       res = graphql_post(conn, sign_up_query(@email, @password))
 
-      assert %{"data" => %{"signUp" => %{"result" => result, "metadata" => metadata}}} = res
+      assert %{"data" => %{"signUp" => %{"result" => result}}} = res
       assert result["email"] == @email
       assert result["isPlatformAdmin"] == false
-      assert is_binary(metadata["token"])
-      assert length(String.split(metadata["token"], ".")) == 3
+      # token 由后端 before_send 写 httpOnly cookie，响应体不返回
+      refute Map.has_key?(res["data"]["signUp"], "metadata")
     end
 
     test "returns a validation error for a duplicate email" do
@@ -69,14 +68,13 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       {:ok, conn: conn}
     end
 
-    test "signs in with correct credentials and returns the user with token" do
+    test "signs in with correct credentials and returns the user (token in httpOnly cookie)" do
       query = """
       mutation {
         signIn(email: "#{@email}", password: "#{@password}") {
           id
           email
           isPlatformAdmin
-          token
         }
       }
       """
@@ -86,8 +84,8 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       assert %{"data" => %{"signIn" => sign_in}} = res
       assert sign_in["email"] == @email
       assert sign_in["isPlatformAdmin"] == false
-      assert is_binary(sign_in["token"])
-      assert length(String.split(sign_in["token"], ".")) == 3
+      # token 由后端 before_send 写 httpOnly cookie，响应体不返回
+      refute Map.has_key?(sign_in, "token")
     end
 
     test "returns an error for an invalid password" do
@@ -96,7 +94,6 @@ defmodule Cgc2046Web.GraphqlAuthTest do
         signIn(email: "#{@email}", password: "wrong-password") {
           id
           email
-          token
         }
       }
       """

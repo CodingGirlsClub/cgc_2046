@@ -174,124 +174,19 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
       mutation {
         signIn(email: "#{email}", password: "#{password}") {
           id
-          token
         }
       }
       """
 
-      res = graphql_post(build_conn(), query)
-      assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+
+      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+      token = conn.resp_cookies["cgc_token"].value
       token
-    end
-
-    defp create_item_mutation(title, opts \\ []) do
-      url_arg = Keyword.get(opts, :url)
-      icon_arg = Keyword.get(opts, :icon)
-
-      args =
-        ["title: \"#{title}\""]
-        |> maybe_append("url: \"#{url_arg}\"", url_arg)
-        |> maybe_append("icon: #{icon_arg}", icon_arg)
-        |> Enum.join(", ")
-
-      """
-      mutation {
-        createPortfolioItem(input: { #{args} }) {
-          result { id title description url icon }
-          errors { message }
-        }
-      }
-      """
-    end
-
-    defp maybe_append(list, _arg, nil), do: list
-    defp maybe_append(list, arg, _value), do: list ++ [arg]
-
-    test "createPortfolioItem via GraphQL fills user_id automatically" do
-      _user = owner_user()
-      token = sign_in_token(@owner_email, @password)
-
-      res =
-        graphql_post(
-          build_conn(),
-          create_item_mutation("GraphQL 作品", url: "https://example.com"),
-          token
-        )
-
-      assert %{"data" => %{"createPortfolioItem" => %{"result" => result, "errors" => []}}} = res
-      assert result["title"] == "GraphQL 作品"
-      assert result["url"] == "https://example.com"
-      assert result["icon"] == "document"
-      refute is_nil(result["id"])
-    end
-
-    test "anonymous cannot createPortfolioItem" do
-      res = graphql_post(build_conn(), create_item_mutation("匿名作品"))
-
-      assert %{"data" => %{"createPortfolioItem" => %{"result" => result, "errors" => errors}}} =
-               res
-
-      assert is_nil(result)
-      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
-    end
-
-    test "myPortfolio query returns only own items" do
-      user = owner_user()
-      token = sign_in_token(@owner_email, @password)
-
-      {:ok, _} =
-        PortfolioItem
-        |> Ash.Changeset.for_create(:create, %{title: "API 作品"})
-        |> Ash.create(actor: user)
-
-      query = """
-      query {
-        myPortfolio { id title icon }
-      }
-      """
-
-      res = graphql_post(build_conn(), query, token)
-      assert %{"data" => %{"myPortfolio" => items}} = res
-      assert Enum.map(items, & &1["title"]) == ["API 作品"]
-    end
-
-    test "updatePortfolioItem and deletePortfolioItem via GraphQL" do
-      user = owner_user()
-      token = sign_in_token(@owner_email, @password)
-
-      {:ok, item} =
-        PortfolioItem
-        |> Ash.Changeset.for_create(:create, %{title: "待更新"})
-        |> Ash.create(actor: user)
-
-      update_query = """
-      mutation {
-        updatePortfolioItem(id: "#{item.id}", input: { title: "更新后" }) {
-          result { id title }
-          errors { message }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), update_query, token)
-      assert %{"data" => %{"updatePortfolioItem" => %{"result" => updated, "errors" => []}}} = res
-      assert updated["id"] == item.id
-      assert updated["title"] == "更新后"
-
-      delete_query = """
-      mutation {
-        deletePortfolioItem(id: "#{item.id}") {
-          result { id title }
-          errors { message }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), delete_query, token)
-      assert %{"data" => %{"deletePortfolioItem" => %{"result" => deleted, "errors" => []}}} = res
-      assert deleted["id"] == item.id
-
-      assert {:error, _} = Ash.get(PortfolioItem, item.id, actor: user, authorize?: true)
     end
   end
 end

@@ -73,7 +73,8 @@ defmodule Cgc2046Web.GraphqlSchema do
                id: user.id,
                email: user.email,
                is_platform_admin: user.is_platform_admin,
-               token: user.__metadata__[:token]
+               # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+               __token__: user.__metadata__[:token]
              }}
 
           {:error, _error} ->
@@ -83,7 +84,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       middleware(fn res, _ ->
         case res.value do
-          %{token: token} when is_binary(token) ->
+          %{__token__: token} when is_binary(token) ->
             %{res | context: Map.put(res.context, :cgc_auth_token, token)}
 
           _ ->
@@ -113,18 +114,19 @@ defmodule Cgc2046Web.GraphqlSchema do
                  is_platform_admin: user.is_platform_admin
                },
                errors: [],
-               metadata: %{token: token}
+               # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+               __token__: token
              }}
 
           {:error, error} ->
             message = error |> Ash.Error.to_error_class() |> Exception.message()
-            {:ok, %{result: nil, errors: [%{message: message, code: nil}], metadata: nil}}
+            {:ok, %{result: nil, errors: [%{message: message, code: nil}], __token__: nil}}
         end
       end)
 
       middleware(fn res, _ ->
         case res.value do
-          %{metadata: %{token: token}} when is_binary(token) ->
+          %{__token__: token} when is_binary(token) ->
             %{res | context: Map.put(res.context, :cgc_auth_token, token)}
 
           _ ->
@@ -217,13 +219,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:id, non_null(:id))
     field(:email, non_null(:string))
     field(:is_platform_admin, non_null(:boolean))
-    field(:token, :string)
   end
 
   object :sign_up_payload do
     field(:result, :sign_up_user)
     field(:errors, list_of(:auth_mutation_error))
-    field(:metadata, :sign_up_metadata)
   end
 
   object :sign_up_user do
@@ -235,10 +235,6 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :auth_mutation_error do
     field(:message, :string)
     field(:code, :string)
-  end
-
-  object :sign_up_metadata do
-    field(:token, :string)
   end
 
   input_object :sign_up_input do
