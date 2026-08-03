@@ -192,7 +192,7 @@ async function renderReadyProfile() {
 describe("/profile 个人资料查看与编辑（#69）", () => {
 	it("未登录重定向到 /login，且不加载资料", async () => {
 		isAuthenticated.mockReturnValue(false);
-	useAuthed.mockReturnValue({ authed: false, confirmed: true });
+		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<ProfilePage />);
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
 		expect(fetchProfile).not.toHaveBeenCalled();

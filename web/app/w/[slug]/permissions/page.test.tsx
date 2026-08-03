@@ -172,7 +172,7 @@ async function renderReadyPage() {
 describe("/w/[slug]/permissions 权限映射页", () => {
 	it("未登录重定向到 /login，且不请求权限矩阵", async () => {
 		isAuthenticated.mockReturnValue(false);
-	useAuthed.mockReturnValue({ authed: false, confirmed: true });
+		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<PermissionsPage />);
 
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
