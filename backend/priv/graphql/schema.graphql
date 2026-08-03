@@ -824,13 +824,11 @@ type SignInResult {
   id: ID!
   email: String!
   isPlatformAdmin: Boolean!
-  token: String
 }
 
 type SignUpPayload {
   result: SignUpUser
   errors: [AuthMutationError]
-  metadata: SignUpMetadata
 }
 
 type SignUpUser {
@@ -842,10 +840,6 @@ type SignUpUser {
 type AuthMutationError {
   message: String
   code: String
-}
-
-type SignUpMetadata {
-  token: String
 }
 
 input SignUpInput {

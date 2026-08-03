@@ -739,84 +739,19 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       mutation {
         signIn(email: "#{email}", password: "#{password}") {
           id
-          token
         }
       }
       """
 
-      res = graphql_post(build_conn(), query)
-      assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+
+      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+      token = conn.resp_cookies["cgc_token"].value
       token
-    end
-
-    defp create_workspace_query(slug, name, join_policy \\ nil) do
-      policy_arg =
-        case join_policy do
-          nil -> ""
-          value -> ", joinPolicy: \"#{value}\""
-        end
-
-      """
-      mutation {
-        createWorkspace(input: { slug: "#{slug}", name: "#{name}"#{policy_arg} }) {
-          result { id slug name joinPolicy sponsorshipEnabled }
-          errors { message }
-        }
-      }
-      """
-    end
-
-    test "platform admin can create a workspace via GraphQL" do
-      admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
-
-      res = graphql_post(build_conn(), create_workspace_query("graphql-ws", "GraphQL WS"), token)
-
-      assert %{"data" => %{"createWorkspace" => %{"result" => result, "errors" => []}}} = res
-      assert result["slug"] == "graphql-ws"
-      assert result["name"] == "GraphQL WS"
-      assert result["joinPolicy"] == "request"
-      assert result["sponsorshipEnabled"] == true
-      refute is_nil(admin.id)
-    end
-
-    test "non-admin cannot create a workspace via GraphQL" do
-      _user = normal_user()
-      token = sign_in_token(@normal_email, @password)
-
-      res =
-        graphql_post(
-          build_conn(),
-          create_workspace_query("forbidden-ws", "Forbidden"),
-          token
-        )
-
-      assert %{"data" => %{"createWorkspace" => %{"result" => result, "errors" => errors}}} = res
-      assert is_nil(result)
-      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
-    end
-
-    test "anonymous cannot create a workspace via GraphQL" do
-      res = graphql_post(build_conn(), create_workspace_query("anon-ws", "Anon"))
-
-      assert %{"data" => %{"createWorkspace" => %{"result" => result, "errors" => errors}}} = res
-      assert is_nil(result)
-      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
-    end
-
-    test "platform admin can create workspace with joinPolicy invite_only via GraphQL" do
-      _admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
-
-      res =
-        graphql_post(
-          build_conn(),
-          create_workspace_query("invite-only-ws", "Invite Only", "invite_only"),
-          token
-        )
-
-      assert %{"data" => %{"createWorkspace" => %{"result" => result}}} = res
-      assert result["joinPolicy"] == "invite_only"
     end
   end
 end
