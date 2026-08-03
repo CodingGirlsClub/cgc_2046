@@ -717,266 +717,6 @@ type Workspace {
   memberCount: Int
 }
 
-type SignUpMetadata {
-  "A JWT which the user can use to authenticate to the API."
-  token: String!
-}
-
-"The result of the :sign_up mutation"
-type SignUpResult {
-  "The successful result of the mutation"
-  result: User
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-
-  "Metadata produced by the mutation"
-  metadata: SignUpMetadata
-}
-
-input SignUpInput {
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: String!
-
-  "The proposed password for the user, in plain text."
-  password: String!
-}
-
-input UserFilterJoinedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime!]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-}
-
-input UserFilterUiThemePreference {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterVisibility {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-}
-
-input UserFilterAbout {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterLocation {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterAvatarUrl {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterDisplayName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterIsPlatformAdmin {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-}
-
-input UserFilterEmail {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-}
-
-input UserFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input UserFilterInput {
-  and: [UserFilterInput!]
-
-  or: [UserFilterInput!]
-
-  not: [UserFilterInput!]
-
-  id: UserFilterId
-
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: UserFilterEmail
-
-  "是否平台管理员（全局标记）"
-  isPlatformAdmin: UserFilterIsPlatformAdmin
-
-  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
-  displayName: UserFilterDisplayName
-
-  "头像 URL（#68 Profile API，可选；data URL 限 image\/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
-  avatarUrl: UserFilterAvatarUrl
-
-  "所在地（P1 Profile 扩展字段，可编辑）"
-  location: UserFilterLocation
-
-  "个人简介（P1 Profile 扩展字段，可编辑）"
-  about: UserFilterAbout
-
-  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
-  visibility: UserFilterVisibility
-
-  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
-  uiThemePreference: UserFilterUiThemePreference
-
-  "注册（加入）时间"
-  joinedAt: UserFilterJoinedAt
-}
-
-type SignInResult {
-  id: ID!
-
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: String!
-
-  "是否平台管理员（全局标记）"
-  isPlatformAdmin: Boolean!
-
-  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
-  displayName: String
-
-  "头像 URL（#68 Profile API，可选；data URL 限 image\/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
-  avatarUrl: String
-
-  "所在地（P1 Profile 扩展字段，可编辑）"
-  location: String
-
-  "个人简介（P1 Profile 扩展字段，可编辑）"
-  about: String
-
-  "技能标签列表（P1 Profile 扩展字段，可编辑）"
-  skills: [String!]
-
-  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
-  visibility: String!
-
-  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
-  uiThemePreference: String!
-
-  "A JWT which the user can use to authenticate to the API."
-  token: String!
-
-  "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
-  memberNumber: String
-
-  "注册（加入）时间"
-  joinedAt: DateTime
-}
-
 type User {
   id: ID!
 
@@ -1080,6 +820,39 @@ type RootQueryType {
   ): [PortfolioItem!]!
 }
 
+type SignInResult {
+  id: ID!
+  email: String!
+  isPlatformAdmin: Boolean!
+  token: String
+}
+
+type SignUpPayload {
+  result: SignUpUser
+  errors: [AuthMutationError]
+  metadata: SignUpMetadata
+}
+
+type SignUpUser {
+  id: ID!
+  email: String!
+  isPlatformAdmin: Boolean!
+}
+
+type AuthMutationError {
+  message: String
+  code: String
+}
+
+type SignUpMetadata {
+  token: String
+}
+
+input SignUpInput {
+  email: String!
+  password: String!
+}
+
 input UpdateProfileInput {
   "updateProfile 输入（P1）：displayName 必填，avatarUrl\/location\/about\/skills\/visibility 可选"
   displayName: String!
@@ -1101,26 +874,17 @@ input SetUiThemeInput {
 }
 
 type RootMutationType {
+  "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
+  signIn(email: String!, password: String!): SignInResult
+
+  "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
+  signUp(input: SignUpInput!): SignUpPayload
+
   "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
   updateProfile(input: UpdateProfileInput!): User
 
   "设置当前用户 UI 主题偏好（U3）：dark | light，服务端持久化"
   setUiTheme(input: SetUiThemeInput!): User
-
-  "Register a new user with a username and password."
-  signUp(input: SignUpInput!): SignUpResult!
-
-  "使用邮箱密码登录，成功后返回用户及 JWT token"
-  signIn(
-    "A filter to limit the results"
-    filter: UserFilterInput
-
-    "The identity to use for retrieving the user."
-    email: String!
-
-    "The password to check for the matching user."
-    password: String!
-  ): SignInResult
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
