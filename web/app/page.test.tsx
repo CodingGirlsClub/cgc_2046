@@ -69,9 +69,10 @@ const { push, replace } = vi.hoisted(() => ({
 	push: vi.fn(),
 	replace: vi.fn(),
 }));
-const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
+const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	isAuthenticated: vi.fn(),
 	clearAuthToken: vi.fn(),
+	clearSession: vi.fn(),
 }));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
@@ -87,6 +88,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth", () => ({
 	isAuthenticated,
 	clearAuthToken,
+	clearSession,
 }));
 
 vi.mock("@/lib/workspaces", async (importOriginal) => {
@@ -286,8 +288,8 @@ describe("工作台页 (#63)", () => {
 		render(<HomePage />);
 		const signOut = await screen.findByRole("button", { name: "退出登录" });
 		fireEvent.click(signOut);
-		expect(clearAuthToken).toHaveBeenCalledTimes(1);
-		expect(push).toHaveBeenCalledWith("/login");
+		expect(clearSession).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
 	});
 
 	it("加载失败：展示错误态与重试，不混淆为真实空数据", async () => {

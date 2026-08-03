@@ -125,9 +125,10 @@ const TEST_MEMBERS: Record<string, WorkspaceMember[]> = {
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
 }));
-const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
+const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	isAuthenticated: vi.fn(),
 	clearAuthToken: vi.fn(),
+	clearSession: vi.fn(),
 }));
 const { fetchMembers, assignRoles } = vi.hoisted(() => ({
 	fetchMembers: vi.fn(),
@@ -149,7 +150,11 @@ vi.mock("next/navigation", () => ({
 	usePathname: () => `/w/${params.value.slug}/members`,
 }));
 
-vi.mock("@/lib/auth", () => ({ isAuthenticated, clearAuthToken }));
+vi.mock("@/lib/auth", () => ({
+	isAuthenticated,
+	clearAuthToken,
+	clearSession,
+}));
 
 vi.mock("@/lib/profile", async (importOriginal) => {
 	const mod = (await importOriginal()) as Record<string, unknown>;
