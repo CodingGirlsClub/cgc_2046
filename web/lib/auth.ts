@@ -18,8 +18,8 @@ import { gql } from "@apollo/client";
 export async function clearSession(): Promise<void> {
 	try {
 		await client.mutate({ mutation: SIGN_OUT_MUTATION });
-	} catch {
-		// signOut 失败不影响登出流程（cookie 可能已过期）
+	} catch (e) {
+		console.warn("signOut mutation failed, cookie may not be cleared", e);
 	}
 	await client.clearStore();
 }
