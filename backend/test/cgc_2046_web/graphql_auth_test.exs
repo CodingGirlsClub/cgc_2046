@@ -160,5 +160,33 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       assert cleared[:max_age] == 0,
              "signOut 应把 cgc_token 设为 max_age=0 过期清除，实际 #{inspect(cleared)}"
     end
+
+    test "revokes the token server-side (signOut 后旧 token 立即失效，不可重放)", %{token: token} do
+      # 用登录拿到的 cookie 调 signOut
+      sign_out_conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "mutation { signOut }"})
+
+      assert %{"data" => %{"signOut" => "signed_out"}} = graphql_response(sign_out_conn)
+
+      # 再用同一 token 打 me 查询——应判定未认证。
+      # revoke 已把 tokens 表中该 jti 的记录 purpose 从 "user" upsert 成 "revocation"，
+      # load_from_bearer 的 get_token 查 purpose: "user" 查不到 → user 不被 assign →
+      # me resolver 读到 context[:actor] == nil → 返回 unauthorized。
+      me_conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "{ me { id email } }"})
+
+      res = graphql_response(me_conn)
+
+      assert %{"data" => %{"me" => nil}, "errors" => errors} = res
+
+      assert Enum.any?(errors, &(&1["message"] == "unauthorized")),
+             "signOut 后旧 token 应被服务端撤销，me 查询应返回 unauthorized，实际 #{inspect(res)}"
+    end
   end
 end
