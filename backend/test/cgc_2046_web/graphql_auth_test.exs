@@ -23,6 +23,11 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     assert cookie.http_only == true, "cgc_token must be httpOnly (防 JS 读取)"
     assert cookie.same_site == "Lax", "cgc_token sameSite 应为 Lax"
     assert is_binary(cookie.value) and byte_size(cookie.value) > 0, "cgc_token 值非空"
+    # max_age 必须与 AshAuthentication token_lifetime（默认 14 天）对齐，
+    # 否则 cookie 比 token 早过期 → 用户登录次日即被判定未登录（#5 regression guard）。
+    assert cookie.max_age == 60 * 60 * 24 * 14,
+           "cgc_token max_age 应为 14 天对齐 token_lifetime，实际 #{inspect(cookie.max_age)}"
+
     cookie
   end
 
@@ -41,22 +46,24 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     test "registers a user and returns the user (token in httpOnly cookie)" do
       conn = build_conn()
 
-      res = graphql_post(conn, sign_up_query(@email, @password))
+      conn = graphql_post(conn, sign_up_query(@email, @password))
+      res = graphql_response(conn)
 
       assert %{"data" => %{"signUp" => %{"result" => result}}} = res
       assert result["email"] == @email
       assert result["isPlatformAdmin"] == false
-      # token 由后端 before_send 写 httpOnly cookie，响应体不返回
-      refute Map.has_key?(res["data"]["signUp"], "metadata")
+      # 正向 regression guard：before_send 必须写 httpOnly cgc_token。
+      # 误删 router 的 before_send 注册或改错 cookie 选项时此断言失败。
+      assert_auth_cookie_written(conn)
     end
 
     test "returns a validation error for a duplicate email" do
       conn = build_conn()
 
       assert %{"data" => %{"signUp" => %{"result" => %{"id" => _id}}}} =
-               graphql_post(conn, sign_up_query(@email, @password))
+               graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
 
-      res = graphql_post(conn, sign_up_query(@email, @password))
+      res = graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
 
       assert %{"data" => %{"signUp" => %{"errors" => errors}}} = res
       assert Enum.any?(errors, &(&1["message"] =~ "already been taken"))
@@ -65,7 +72,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     test "rejects an invalid email format" do
       conn = build_conn()
 
-      res = graphql_post(conn, sign_up_query("not-an-email", @password))
+      res = graphql_post(conn, sign_up_query("not-an-email", @password)) |> graphql_response()
 
       assert %{"data" => %{"signUp" => %{"result" => result, "errors" => errors}}} = res
       assert is_nil(result)
@@ -78,7 +85,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       conn = build_conn()
 
       assert %{"data" => %{"signUp" => %{"result" => %{"id" => _id}}}} =
-               graphql_post(conn, sign_up_query(@email, @password))
+               graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
 
       {:ok, conn: conn}
     end
@@ -94,13 +101,14 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       }
       """
 
-      res = graphql_post(build_conn(), query)
+      conn = graphql_post(build_conn(), query)
+      res = graphql_response(conn)
 
       assert %{"data" => %{"signIn" => sign_in}} = res
       assert sign_in["email"] == @email
       assert sign_in["isPlatformAdmin"] == false
-      # token 由后端 before_send 写 httpOnly cookie，响应体不返回
-      refute Map.has_key?(sign_in, "token")
+      # 正向 regression guard：before_send 必须写 httpOnly cgc_token
+      assert_auth_cookie_written(conn)
     end
 
     test "returns an error for an invalid password" do
@@ -113,12 +121,44 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       }
       """
 
-      res = graphql_post(build_conn(), query)
+      res = graphql_post(build_conn(), query) |> graphql_response()
 
       assert %{"data" => %{"signIn" => nil}, "errors" => errors} = res
 
       assert [%{"message" => "Invalid email or password", "code" => "authentication_failed"}] =
                errors
+    end
+  end
+
+  describe "signOut mutation" do
+    setup do
+      conn = build_conn()
+      conn = graphql_post(conn, sign_up_query(@email, @password))
+      cookie = assert_auth_cookie_written(conn)
+      {:ok, conn: conn, token: cookie.value}
+    end
+
+    test "clears the httpOnly auth cookie (登出后会话不残留)", %{token: token} do
+      # 用登录拿到的 cookie 作为请求凭证，调 signOut
+      conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "mutation { signOut }"})
+
+      res = graphql_response(conn)
+      assert %{"data" => %{"signOut" => "signed_out"}} = res
+
+      # 正向 regression guard：signOut 的 middleware→before_send 链路必须清掉 cgc_token。
+      # delete_resp_cookie 会写一个 max_age=0 的过期 Set-Cookie；Plug 把它收进 resp_cookies
+      # 且 value 为空。若误删 cgc_clear_token 分支或 before_send，此断言失败。
+      cleared = conn.resp_cookies["cgc_token"]
+      assert cleared != nil, "signOut 后应下发清除 cgc_token 的 Set-Cookie"
+
+      # delete_resp_cookie 写出的过期 cookie 形如 %{universal_time: ..., max_age: 0}，
+      # 不带 :value。max_age: 0 即过期清除信号——这就是 regression guard 抓的目标。
+      assert cleared[:max_age] == 0,
+             "signOut 应把 cgc_token 设为 max_age=0 过期清除，实际 #{inspect(cleared)}"
     end
   end
 end

@@ -62,16 +62,15 @@ const TEST_WORKSPACES = [
 
 /**
  * 工作台页测试（#63）。
- * mock：useRouter（next/navigation）、isAuthenticated（lib/auth）、fetchMyWorkspaces（lib/workspaces）。
+ * mock：useRouter（next/navigation）、useAuthed（lib/use-authed）、clearSession（lib/auth）、fetchMyWorkspaces（lib/workspaces）。
+ * 注：lib/auth 仅 export clearSession；isAuthenticated/clearAuthToken 已在 Phase 2 移除，不再 mock。
  */
 
 const { push, replace } = vi.hoisted(() => ({
 	push: vi.fn(),
 	replace: vi.fn(),
 }));
-const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
-	isAuthenticated: vi.fn(),
-	clearAuthToken: vi.fn(),
+const { clearSession } = vi.hoisted(() => ({
 	clearSession: vi.fn(),
 }));
 
@@ -94,8 +93,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-	isAuthenticated,
-	clearAuthToken,
 	clearSession,
 }));
 
@@ -112,7 +109,6 @@ vi.mock("@/lib/profile", async (importOriginal) => {
 beforeEach(() => {
 	vi.clearAllMocks();
 	window.history.replaceState({}, "", "/");
-	isAuthenticated.mockReturnValue(true);
 	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	fetchMyWorkspaces.mockResolvedValue(TEST_WORKSPACES);
 	fetchCurrentProfile.mockResolvedValue({
@@ -128,7 +124,6 @@ afterEach(cleanup);
 
 describe("工作台页 (#63)", () => {
 	it("未登录：重定向 /login，不渲染列表", async () => {
-		isAuthenticated.mockReturnValue(false);
 		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<HomePage />);
 		await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
