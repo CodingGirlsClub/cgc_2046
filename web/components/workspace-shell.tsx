@@ -25,7 +25,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { clearAuthToken } from "@/lib/auth";
+import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import ProfileEntry from "@/components/profile-entry";
@@ -80,8 +80,8 @@ export default function WorkspaceShell({
 		}
 	}, [authed, confirmed, router]);
 
-	function handleSignOut() {
-		clearAuthToken();
+	async function handleSignOut() {
+		await clearSession();
 		router.push("/login");
 	}
 

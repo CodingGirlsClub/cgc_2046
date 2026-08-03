@@ -6,7 +6,7 @@
  * 管理壳（侧栏/退出/未认证）由 WorkspaceShell 提供（⑤ 壳收敛）。
  */
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
@@ -45,7 +45,7 @@ function PortfolioIcon({ icon }: { icon?: ProfilePortfolioItem["icon"] }) {
 	);
 }
 
-export default function ProfilePortfolioPage() {
+function ProfilePortfolioInner() {
 	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
 	const { authed, confirmed } = useAuthed();
 	const ws = useSearchParams().get("ws");
@@ -175,5 +175,15 @@ export default function ProfilePortfolioPage() {
 				</footer>
 			</div>
 		</WorkspaceShell>
+	);
+}
+
+export default function ProfilePortfolioPage() {
+	return (
+		<Suspense
+			fallback={<main className="profile-loading">正在加载作品集…</main>}
+		>
+			<ProfilePortfolioInner />
+		</Suspense>
 	);
 }

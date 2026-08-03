@@ -69,6 +69,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth", () => ({
 	isAuthenticated,
 	clearAuthToken: vi.fn(),
+	clearSession: vi.fn(),
 }));
 
 vi.mock("@/lib/workspaces", async (importOriginal) => {
@@ -101,9 +102,9 @@ describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 			await screen.findByRole("heading", { name: "加入策略" }),
 		).toBeInTheDocument();
 		// 页面副标题与卡片 header 同文案（#79 改名后），用 getAllByText 断言存在
-		expect(screen.getAllByText("决定谁能加入这个 Workspace").length).toBeGreaterThan(
-			0,
-		);
+		expect(
+			screen.getAllByText("决定谁能加入这个 Workspace").length,
+		).toBeGreaterThan(0);
 		// 三态选项（label = JOIN_POLICY_LABEL）
 		const radioGroup = screen.getByRole("group", { name: "选择加入方式" });
 		expect(

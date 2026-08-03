@@ -11,7 +11,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearAuthToken } from "@/lib/auth";
+import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import ProfileEntry from "@/components/profile-entry";
@@ -658,8 +658,8 @@ export default function HomePage() {
 		);
 	}, [selectedId, workspaces]);
 
-	function handleSignOut() {
-		clearAuthToken();
+	async function handleSignOut() {
+		await clearSession();
 		router.push("/login");
 	}
 

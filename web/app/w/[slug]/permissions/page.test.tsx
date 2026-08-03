@@ -75,9 +75,10 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
 }));
-const { isAuthenticated, clearAuthToken } = vi.hoisted(() => ({
+const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	isAuthenticated: vi.fn(),
 	clearAuthToken: vi.fn(),
+	clearSession: vi.fn(),
 }));
 const { fetchMatrix } = vi.hoisted(() => ({ fetchMatrix: vi.fn() }));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
@@ -99,6 +100,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth", () => ({
 	isAuthenticated,
 	clearAuthToken,
+	clearSession,
 }));
 
 vi.mock("@/lib/profile", async (importOriginal) => {
@@ -364,7 +366,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 			"/profile?ws=cgc-academy",
 		);
 		screen.getByRole("button", { name: "退出登录" }).click();
-		expect(clearAuthToken).toHaveBeenCalledTimes(1);
-		expect(router.push).toHaveBeenCalledWith("/login");
+		expect(clearSession).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(router.push).toHaveBeenCalledWith("/login"));
 	});
 });
