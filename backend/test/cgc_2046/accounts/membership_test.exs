@@ -588,5 +588,41 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert Cgc2046.Rbac.owner_count(workspace.id) == 2
       assert Cgc2046.Rbac.role_names(third, workspace.id) == [:owner]
     end
+
+    test "allows destroying a non-owner member (admin role)" do
+      owner = admin_user()
+      workspace = create_workspace(owner)
+
+      # 纯 admin 角色的成员（非 owner）
+      admin_only =
+        register_user(
+          "destroy-non-owner-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
+
+      admin_membership = add_member(workspace, admin_only, owner, [:admin])
+      assert load_role_names(admin_membership) == [:admin]
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
+
+      # 先解 FK（membership_roles 无 on_delete cascade），再 destroy
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "DELETE FROM membership_roles WHERE membership_id = $1",
+        [Ecto.UUID.dump!(admin_membership.id)]
+      )
+
+      # 删除 admin 成员（非 owner），守卫应放行
+      assert :ok =
+               admin_membership
+               |> Ash.Changeset.for_destroy(:destroy)
+               |> Ash.destroy(tenant: workspace.id, actor: owner)
+
+      # owner 仍在，工作台未变孤儿
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
+      assert Cgc2046.Rbac.role_names(owner, workspace.id) == [:owner]
+
+      # admin_only 已不是成员
+      assert Cgc2046.Rbac.role_names(admin_only, workspace.id) == []
+    end
   end
 end

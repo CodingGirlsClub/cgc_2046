@@ -61,14 +61,22 @@ defmodule Cgc2046.Changes.AssignRoles do
         |> Ash.Changeset.before_action(fn cs ->
           # 事务内取 per-workspace advisory lock：序列化同工作台的 owner 变更，
           # 使 owner_count 读（validate_grant_scope）与 after_action 写同锁同事务。
-          acquire_workspace_lock!(workspace_id)
+          # 注意：Ash 的 require_atomic?(false) 保证 before_action 在 Repo.transaction 内执行，
+          # 因此后续 validate_grant_scope 中的 role_names/owner_count 读取与锁在同一连接。
+          Repo.acquire_workspace_lock!(workspace_id)
 
-          case validate_grant_scope(
+          # grant scope 校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
+          # 与 destroy 守卫共用同一实现）。
+          new_role_names = Ash.Changeset.get_argument(cs, :role_names) |> List.wrap()
+          actor = cs.context[:private][:actor]
+
+          case Rbac.validate_owner_removal!(
                  cs,
-                 cs.context[:private][:actor],
-                 membership,
+                 actor,
+                 membership.user_id,
                  workspace_id,
-                 role_names
+                 removing_owner: :owner not in new_role_names,
+                 granting_owner: :owner in new_role_names
                ) do
             :ok -> cs
             {:error, errored} -> errored
@@ -83,45 +91,6 @@ defmodule Cgc2046.Changes.AssignRoles do
 
       {:error, :role_not_found} ->
         Ash.Changeset.add_error(changeset, "角色不存在或不属于该工作台")
-    end
-  end
-
-  # 事务级 advisory lock（pg_advisory_xact_lock 在事务提交/回滚时自动释放）。
-  # 公开（def 而非 defp）：Step 4 的 destroy 守卫复用同一锁。
-  # ponytail: 无条件锁——assignRoles 是低频管理操作，简单正确优先；
-  # 若将来吞吐敏感，可只在 granting_owner/revoking_owner 时取锁。
-  def acquire_workspace_lock!(workspace_id) do
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Repo,
-        "SELECT pg_advisory_xact_lock(hashtext($1))",
-        [workspace_id]
-      )
-
-    :ok
-  end
-
-  # grant scope 校验（P0 安全最小集，判定单源在 Rbac）：
-  # - caller_is_owner：调用者在目标工作台持有 owner 角色
-  # - target_currently_owner：目标成员当前持有 owner 角色（用 %{id: user_id} map 复用 Rbac.role_names/2）
-  # - granting_owner / revoking_owner：本次变更是否授予/撤销 owner
-  defp validate_grant_scope(changeset, actor, membership, workspace_id, new_role_names) do
-    caller_is_owner = :owner in Rbac.role_names(actor, workspace_id)
-    target_currently_owner = :owner in Rbac.role_names(%{id: membership.user_id}, workspace_id)
-    granting_owner = :owner in new_role_names
-    revoking_owner = target_currently_owner and not granting_owner
-
-    cond do
-      # 规则 1：只有 Owner 能授予/撤销 owner（Admin 不能碰）
-      (granting_owner or revoking_owner) and not caller_is_owner ->
-        {:error, Ash.Changeset.add_error(changeset, "只有 Owner 能授予或撤销 Owner 角色")}
-
-      # 规则 2：撤销 owner 时必须保留至少 1 个 Owner（最后 Owner 保护）
-      revoking_owner and Rbac.owner_count(workspace_id) <= 1 ->
-        {:error, Ash.Changeset.add_error(changeset, "工作台必须至少保留一个 Owner")}
-
-      true ->
-        :ok
     end
   end
 

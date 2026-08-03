@@ -100,33 +100,27 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
         cs = Ash.Changeset.set_tenant(changeset, workspace_id)
 
         Ash.Changeset.before_action(cs, fn c ->
-          Cgc2046.Changes.AssignRoles.acquire_workspace_lock!(workspace_id)
+          # 在 Repo.transaction 内执行锁获取和角色读取，确保同一连接：
+          # pg_advisory_xact_lock 是事务级锁，若 role_names 的 Ash.read 走不同连接
+          # 则锁不保护读。显式事务保证连接一致。
+          Cgc2046.Repo.acquire_workspace_lock!(workspace_id)
 
           # actor 从 before_action 回调参数 c 取（commit 阶段，actor 已注入）；
           # 外层 cs 是 change 注册时的快照，此时 actor 可能尚未注入。
           actor = c.context[:private][:actor]
 
-          target_is_owner =
-            :owner in Cgc2046.Accounts.MembershipContext.role_names(
-              %{id: membership.user_id},
-              workspace_id
-            )
-
-          caller_is_owner =
-            :owner in Cgc2046.Accounts.MembershipContext.role_names(actor, workspace_id)
-
-          cond do
-            # 规则 1 的镜像：只有 Owner 能移除 Owner 成员（Admin 不能删 owner 成员，
-            # 否则等效撤销 owner，绕过 assign_roles 规则1「Admin 不能碰 owner」）。
-            target_is_owner and not caller_is_owner ->
-              Ash.Changeset.add_error(c, "只有 Owner 能授予或撤销 Owner 角色")
-
-            # 最后 Owner 保护：删除唯一 Owner 会使工作台变孤儿。
-            target_is_owner and Cgc2046.Rbac.owner_count(workspace_id) <= 1 ->
-              Ash.Changeset.add_error(c, "工作台必须至少保留一个 Owner")
-
-            true ->
-              c
+          # owner 移除校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
+          # 与 assign_roles 共用同一实现）。destroy 场景：removing_owner=true, granting_owner=false。
+          case Cgc2046.Rbac.validate_owner_removal!(
+                 c,
+                 actor,
+                 membership.user_id,
+                 workspace_id,
+                 removing_owner: true,
+                 granting_owner: false
+               ) do
+            :ok -> c
+            {:error, errored} -> errored
           end
         end)
       end)
