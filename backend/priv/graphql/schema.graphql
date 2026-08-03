@@ -880,6 +880,9 @@ type RootMutationType {
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload
 
+  "登出：清除 httpOnly cookie 中的认证 token"
+  signOut: String
+
   "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
   updateProfile(input: UpdateProfileInput!): User
 

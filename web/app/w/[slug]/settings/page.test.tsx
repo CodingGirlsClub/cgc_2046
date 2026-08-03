@@ -49,6 +49,9 @@ const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
 }));
 const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
+const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
+
+vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 const { params } = vi.hoisted(() => ({
 	params: { value: { slug: "cgc-academy" } },
 }));
@@ -80,6 +83,7 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 beforeEach(() => {
 	vi.clearAllMocks();
 	isAuthenticated.mockReturnValue(true);
+	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	params.value = { slug: "cgc-academy" };
 	fetchMyWorkspaces.mockResolvedValue(TEST_WORKSPACES);
 	updateWorkspaceJoinPolicy.mockResolvedValue({ joinPolicy: "invite_only" });
@@ -90,6 +94,7 @@ afterEach(cleanup);
 describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 	it("未登录重定向到 /login", async () => {
 		isAuthenticated.mockReturnValue(false);
+	useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<SettingsPage />);
 
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));

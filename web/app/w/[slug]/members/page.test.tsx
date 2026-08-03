@@ -130,6 +130,9 @@ const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	clearAuthToken: vi.fn(),
 	clearSession: vi.fn(),
 }));
+const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
+
+vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 const { fetchMembers, assignRoles } = vi.hoisted(() => ({
 	fetchMembers: vi.fn(),
 	assignRoles: vi.fn(),
@@ -174,6 +177,7 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 beforeEach(() => {
 	vi.clearAllMocks();
 	isAuthenticated.mockReturnValue(true);
+	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	params.value = { slug: "cgc-academy" };
 	fetchMyWorkspaces.mockResolvedValue(
 		TEST_WORKSPACES.map((ws) =>
@@ -204,6 +208,7 @@ afterEach(cleanup);
 describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 	it("未登录：重定向 /login 且不请求成员", async () => {
 		isAuthenticated.mockReturnValue(false);
+	useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<MembersPage />);
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
 		expect(fetchMembers).not.toHaveBeenCalled();

@@ -43,6 +43,9 @@ const { push, replace } = vi.hoisted(() => ({
 	replace: vi.fn(),
 }));
 const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
+const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
+
+vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 const { params } = vi.hoisted(() => ({
 	params: { value: { slug: "cgc-academy" } },
 }));
@@ -83,6 +86,7 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 beforeEach(() => {
 	vi.clearAllMocks();
 	isAuthenticated.mockReturnValue(true);
+	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	params.value = { slug: "cgc-academy" };
 	fetchMyWorkspaces.mockResolvedValue(TEST_WORKSPACES);
 	fetchCurrentProfile.mockResolvedValue({
@@ -109,6 +113,7 @@ async function content() {
 describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("未登录：重定向 /login", async () => {
 		isAuthenticated.mockReturnValue(false);
+	useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<WorkspacePage />);
 		await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
 	});

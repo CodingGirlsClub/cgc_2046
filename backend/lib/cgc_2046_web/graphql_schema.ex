@@ -133,6 +133,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "登出：清除 httpOnly cookie 中的认证 token"
+    field :sign_out, :string do
+      resolve(fn _, _, _ ->
+        {:ok, "signed_out"}
+      end)
+
+      middleware(fn res, _ ->
+        %{res | context: Map.put(res.context, :cgc_clear_token, true)}
+      end)
+    end
+
     @desc "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
     field :update_profile, :user do
       arg(:input, non_null(:update_profile_input))

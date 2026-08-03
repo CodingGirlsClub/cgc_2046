@@ -99,6 +99,13 @@ const { isAuthenticated, clearAuthToken, clearSession } = vi.hoisted(() => ({
 	clearAuthToken: vi.fn(),
 	clearSession: vi.fn(),
 }));
+const { useAuthed } = vi.hoisted(() => ({
+	useAuthed: vi.fn(),
+}));
+
+vi.mock("@/lib/use-authed", () => ({
+	useAuthed,
+}));
 const { fetchProfile, fetchRoles, updateProfile } = vi.hoisted(() => ({
 	fetchProfile: vi.fn(),
 	fetchRoles: vi.fn(),
@@ -158,6 +165,7 @@ const designProfile = () => ({
 beforeEach(() => {
 	vi.clearAllMocks();
 	isAuthenticated.mockReturnValue(true);
+	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	searchParams.get.mockReturnValue(null);
 	fetchProfile.mockResolvedValue(designProfile());
 	fetchPortfolio.mockResolvedValue(designProfile().portfolio);
@@ -184,6 +192,7 @@ async function renderReadyProfile() {
 describe("/profile 个人资料查看与编辑（#69）", () => {
 	it("未登录重定向到 /login，且不加载资料", async () => {
 		isAuthenticated.mockReturnValue(false);
+	useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<ProfilePage />);
 		await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
 		expect(fetchProfile).not.toHaveBeenCalled();
