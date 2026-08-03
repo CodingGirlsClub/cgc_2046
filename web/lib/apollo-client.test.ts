@@ -1,11 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { client } from "./apollo-client";
+import { client, httpLinkOptions } from "./apollo-client";
 
 describe("Apollo Client", () => {
-	it("uses httpLink with credentials: same-origin", () => {
-		const link = client.link;
-		// The link should be an HttpLink (not an ApolloLink chain with authLink)
-		expect(link).toBeDefined();
+	it("uses credentials: same-origin for httpOnly cookie auth", () => {
+		expect(httpLinkOptions.credentials).toBe("same-origin");
 	});
 
 	it("has an InMemoryCache", () => {

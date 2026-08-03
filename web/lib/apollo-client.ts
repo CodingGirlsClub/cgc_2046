@@ -7,12 +7,13 @@ import { ApolloClient, InMemoryCache, createHttpLink } from "@apollo/client";
  * 前端不再持有 token、不再拼 Authorization 头。
  */
 
-const httpLink = createHttpLink({
-	// Default: go through the Next.js rewrite proxy (no CORS).
-	// Override with NEXT_PUBLIC_GRAPHQL_URL to talk to the backend directly.
+// ponytail: 提取为命名常量以便测试断言 credentials 值
+export const httpLinkOptions = {
 	uri: process.env.NEXT_PUBLIC_GRAPHQL_URL ?? "/api/graphql",
-	credentials: "same-origin",
-});
+	credentials: "same-origin" as const,
+};
+
+const httpLink = createHttpLink(httpLinkOptions);
 
 export const client = new ApolloClient({
 	link: httpLink,
