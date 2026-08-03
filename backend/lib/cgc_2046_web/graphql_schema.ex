@@ -70,19 +70,23 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Accounts.User
           |> Ash.Query.for_read(:sign_in_with_password, %{email: email, password: password})
 
-        case Ash.read(query) do
-          {:ok, [user]} ->
-            {:ok,
-             %{
-               id: user.id,
-               email: user.email,
-               is_platform_admin: user.is_platform_admin,
-               # token 仅用于 middleware 传递到 before_send，不暴露在响应中
-               __token__: user.__metadata__[:token]
-             }}
+        try do
+          case Ash.read(query) do
+            {:ok, [user]} ->
+              {:ok,
+               %{
+                 id: user.id,
+                 email: user.email,
+                 is_platform_admin: user.is_platform_admin,
+                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+                 __token__: user.__metadata__[:token]
+               }}
 
-          {:error, _error} ->
-            {:error, message: "Invalid email or password", code: "authentication_failed"}
+            {:error, _error} ->
+              {:error, message: "Invalid email or password", code: "authentication_failed"}
+          end
+        rescue
+          _ -> {:error, message: "Invalid email or password", code: "authentication_failed"}
         end
       end)
 
