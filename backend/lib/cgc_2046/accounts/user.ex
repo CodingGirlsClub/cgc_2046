@@ -307,18 +307,5 @@ defmodule Cgc2046.Accounts.User do
 
   graphql do
     type(:user)
-
-    queries do
-      read_one(:sign_in, :sign_in_with_password,
-        as_mutation?: true,
-        type_name: :sign_in_result,
-        show_metadata: [:token],
-        description: "使用邮箱密码登录，成功后返回用户及 JWT token"
-      )
-    end
-
-    mutations do
-      create :sign_up, :register_with_password
-    end
   end
 end

@@ -8,6 +8,7 @@ defmodule Cgc2046Web.Router do
   end
 
   pipeline :graphql do
+    plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
     plug(:load_from_bearer)
     plug(:load_actor)
     plug(AshGraphql.Plug)
@@ -19,7 +20,10 @@ defmodule Cgc2046Web.Router do
     forward(
       "/graphql",
       Absinthe.Plug,
-      [schema: Module.concat(["Cgc2046Web.GraphqlSchema"])],
+      [
+        schema: Module.concat(["Cgc2046Web.GraphqlSchema"]),
+        before_send: {Cgc2046Web.Plugs.AuthCookiePlug, :before_send}
+      ],
       alias: false
     )
   end
