@@ -51,7 +51,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, "unauthorized"}
 
           actor ->
-            {:ok, load_profile(actor, actor)}
+            load_profile(actor, actor)
         end
       end)
     end
@@ -188,7 +188,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
             case Ash.update(actor, attrs, action: :update_profile, actor: actor) do
               {:ok, user} ->
-                {:ok, load_profile(user, actor)}
+                load_profile(user, actor)
 
               {:error, error} ->
                 message = Exception.message(Ash.Error.to_error_class(error))
@@ -213,7 +213,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                    actor: actor
                  ) do
               {:ok, user} ->
-                {:ok, load_profile(user, actor)}
+                load_profile(user, actor)
 
               {:error, error} ->
                 message = Exception.message(Ash.Error.to_error_class(error))
@@ -272,10 +272,16 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # 统一的个人资料加载：member_number/joined_at 为计算属性，获取与更新后均需显式加载
   defp load_profile(user, actor) do
-    Ash.load!(user, [:member_number, :joined_at],
-      actor: actor,
-      domain: Cgc2046.GlobalApi
-    )
+    case Ash.load(user, [:member_number, :joined_at],
+           actor: actor,
+           domain: Cgc2046.GlobalApi
+         ) do
+      {:ok, loaded} ->
+        {:ok, loaded}
+
+      {:error, error} ->
+        {:error, Exception.message(Ash.Error.to_error_class(error))}
+    end
   end
 
   # 服务端撤销当前 token：往 tokens 表对当前 jti 做 upsert，把 purpose 从 "user"
