@@ -334,7 +334,7 @@ describe("acceptInvitation", () => {
 	it("提交 AcceptInvitation mutation", async () => {
 		mutateMock.mockImplementation(({ mutation, variables }) => {
 			expect(mutation).toBe(ACCEPT_INVITATION);
-			expect(variables).toEqual({ id: "inv_1" });
+			expect(variables).toEqual({ id: "inv_1", token: "tok_1" });
 			return Promise.resolve({
 				data: {
 					acceptInvitation: {
@@ -350,7 +350,7 @@ describe("acceptInvitation", () => {
 			} as never);
 		});
 
-		const item = await acceptInvitation("inv_1");
+		const item = await acceptInvitation("inv_1", "tok_1");
 		expect(item.status).toBe("used");
 		expect(item.acceptedBy).toBe("u_1");
 	});

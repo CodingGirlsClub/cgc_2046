@@ -196,20 +196,20 @@ function JoinPageInner() {
 		}
 	}, [inviteToken]);
 
-	/** 接受邀请 */
+	/** 接受邀请（须透传 validate 时拿到的明文 token，后端复验持 token） */
 	const handleAcceptInvitation = useCallback(async () => {
-		if (!invitation) return;
+		if (!invitation || !inviteToken.trim()) return;
 		setLoading(true);
 		setError(null);
 		try {
-			await acceptInvitation(invitation.id);
+			await acceptInvitation(invitation.id, inviteToken.trim());
 			setStep("invite-accepted");
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "接受邀请失败");
 		} finally {
 			setLoading(false);
 		}
-	}, [invitation]);
+	}, [invitation, inviteToken]);
 
 	async function handleSignOut() {
 		await clearSession();

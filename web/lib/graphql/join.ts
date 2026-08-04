@@ -406,10 +406,10 @@ export const REVOKE_INVITATION: TypedDocumentNode<
  */
 export const ACCEPT_INVITATION: TypedDocumentNode<
 	{ acceptInvitation: AcceptInvitationResultData },
-	{ id: string }
+	{ id: string; token: string }
 > = gql`
-  mutation AcceptInvitation($id: ID!) {
-    acceptInvitation(id: $id) {
+  mutation AcceptInvitation($id: ID!, $token: String!) {
+    acceptInvitation(id: $id, input: { token: $token }) {
       result {
         id
         status

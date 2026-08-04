@@ -296,7 +296,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, _accepted} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
 
       # Now validate should return used
@@ -345,7 +347,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, accepted} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
 
       assert accepted.status == :used
@@ -375,7 +379,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, accepted} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
 
       assert accepted.status == :used
@@ -408,7 +414,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, accepted} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
 
       assert accepted.status == :used
@@ -438,7 +446,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
     end
 
@@ -458,7 +468,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
     end
 
@@ -471,15 +483,32 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, _accepted} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
 
       another_acceptor = normal_user("inv-accept-used2@example.com")
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: another_acceptor)
+    end
+
+    test "accept with wrong token fails" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin)
+
+      acceptor = normal_user("inv-accept-wrong-token@example.com")
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{token: "wrong-token"})
+               |> Ash.update(actor: acceptor)
     end
   end
 
