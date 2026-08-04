@@ -6,6 +6,18 @@ defmodule Cgc2046.Repo.Migrations.BackfillVisibilityOnlyMe do
   - DB 列默认值：由 `workspace_members` 改为 `only_me`（新注册用户默认仅本人可见）。
 
   幂等：UPDATE 重复执行结果不变；modify 默认值重复设置相同值安全。
+
+  ## 部署后验证（#15）
+
+  Ash 的 `visibility` 是 `:atom` + `one_of: [:public, :workspace, :only_me]`，
+  DB 列无 CHECK 约束兜底。若任何路径绕过 Ash 写入旧值（`workspace_members` /
+  `workspace_public`），残留行在 ReadUserByVisibility filter 阶段因 SQL 比较不匹配
+  合法值而静默从他人视角消失（本人读自己不依赖 visibility 比较仍可见）。迁移 up
+  已清洗存量，但需部署后确认无残留：
+
+      SELECT DISTINCT visibility FROM users
+      WHERE visibility NOT IN ('public', 'workspace', 'only_me');
+      -- 期望 0 行；若非 0，回填未覆盖到该值，需补 UPDATE 后重跑。
   """
 
   use Ecto.Migration
