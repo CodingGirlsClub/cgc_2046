@@ -837,6 +837,7 @@ function ProfilePageInner() {
 		<WorkspaceShell
 			slug={workspaceSlug}
 			requireWs={false}
+			workspaceName={content.workspaceName || undefined}
 			className={editing ? "ws-shell-page--editing" : undefined}
 		>
 			<div className="profile-main__inner">

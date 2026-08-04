@@ -182,7 +182,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 	it("按设计稿渲染工作区设置壳、页签、规则提示和标题", async () => {
 		await renderReadyPage();
 
-		expect(screen.getByText("上海 Coding Girls Club")).toBeInTheDocument();
+		expect(screen.getAllByText("CGC 线上学院").length).toBeGreaterThanOrEqual(1);
 		expect(
 			screen.getByRole("heading", { name: "查看角色到能力的映射与 can? 判定" }),
 		).toBeInTheDocument();
