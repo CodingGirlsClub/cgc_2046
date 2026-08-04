@@ -42,6 +42,11 @@ type AcceptInvitationResult {
   errors: [MutationError!]!
 }
 
+input AcceptInvitationInput {
+  "明文邀请令牌（accept 须复验，证明调用方持有 token）"
+  token: String!
+}
+
 "The result of the :revoke_invitation mutation"
 type RevokeInvitationResult {
   "The successful result of the mutation"
@@ -1542,7 +1547,7 @@ type RootMutationType {
   revokeInvitation(id: ID!): RevokeInvitationResult!
 
   "接受邀请→建 Membership + 预授权角色入座"
-  acceptInvitation(id: ID!): AcceptInvitationResult!
+  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult!
 }
 
 """

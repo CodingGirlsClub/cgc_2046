@@ -287,42 +287,61 @@ defmodule Cgc2046.Accounts.Invitation do
       description("接受邀请→建 Membership + 预授权角色入座（决策 6）")
       require_atomic?(false)
 
-      # 校验邀请状态（在 before_action 中重新加载记录以确保最新状态）
+      argument(:token, :string,
+        allow_nil?: false,
+        description: "明文邀请令牌（accept 须复验，证明调用方持有 token）"
+      )
+
+      # 复验 token + 校验邀请状态（before_action 重新加载记录以确保最新状态）
+      # token 校验先于状态校验：不匹配直接拒，不泄露 used/revoked/expired 状态信息
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, fn cs ->
           invitation = Ash.get!(Cgc2046.Accounts.Invitation, cs.data.id, authorize?: false)
 
-          cond do
-            invitation.status == :used ->
-              cs
-              |> Ash.Changeset.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :status,
-                  message: "Invitation has already been used"
-                )
-              )
+          token = Ash.Changeset.get_argument(cs, :token)
+          token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
 
-            invitation.status == :revoked ->
-              cs
-              |> Ash.Changeset.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :status,
-                  message: "Invitation has been revoked"
-                )
+          if invitation.token_hash != token_hash do
+            cs
+            |> Ash.Changeset.add_error(
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: :token,
+                message: "Invalid invitation token"
               )
-
-            invitation.expires_at &&
-                DateTime.compare(invitation.expires_at, DateTime.utc_now()) == :lt ->
-              cs
-              |> Ash.Changeset.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :expires_at,
-                  message: "Invitation has expired"
+            )
+          else
+            cond do
+              invitation.status == :used ->
+                cs
+                |> Ash.Changeset.add_error(
+                  Ash.Error.Changes.InvalidAttribute.exception(
+                    field: :status,
+                    message: "Invitation has already been used"
+                  )
                 )
-              )
 
-            true ->
-              cs
+              invitation.status == :revoked ->
+                cs
+                |> Ash.Changeset.add_error(
+                  Ash.Error.Changes.InvalidAttribute.exception(
+                    field: :status,
+                    message: "Invitation has been revoked"
+                  )
+                )
+
+              invitation.expires_at &&
+                  DateTime.compare(invitation.expires_at, DateTime.utc_now()) == :lt ->
+                cs
+                |> Ash.Changeset.add_error(
+                  Ash.Error.Changes.InvalidAttribute.exception(
+                    field: :expires_at,
+                    message: "Invitation has expired"
+                  )
+                )
+
+              true ->
+                cs
+            end
           end
         end)
       end)

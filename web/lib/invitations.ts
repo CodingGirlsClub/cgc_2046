@@ -174,12 +174,15 @@ export async function validateInvitation(
 }
 
 /**
- * 接受邀请→建 Membership + 预授权角色入座。
+ * 接受邀请→建 Membership + 预授权角色入座（须传明文 token，后端复验持 token）。
  */
-export async function acceptInvitation(id: string): Promise<InvitationItem> {
+export async function acceptInvitation(
+	id: string,
+	token: string,
+): Promise<InvitationItem> {
 	const { data } = await client.mutate({
 		mutation: ACCEPT_INVITATION,
-		variables: { id },
+		variables: { id, token },
 	});
 	const result = data?.acceptInvitation?.result;
 	if (!result) {

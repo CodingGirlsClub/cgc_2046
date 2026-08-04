@@ -91,7 +91,10 @@ defmodule Cgc2046.Repo.Migrations.AddJoinRequests do
       end
 
       # 索引幂等
-      unless index_exists?(:join_requests, "join_requests_unique_pending_join_request_per_ws_user_index") do
+      unless index_exists?(
+               :join_requests,
+               "join_requests_unique_pending_join_request_per_ws_user_index"
+             ) do
         create unique_index(:join_requests, [:workspace_id, :user_id],
                  name: "join_requests_unique_pending_join_request_per_ws_user_index",
                  where: "status = 'pending'"
