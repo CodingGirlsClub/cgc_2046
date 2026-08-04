@@ -26,6 +26,7 @@ import {
 } from "@/lib/graphql/join";
 import { ROLE_NAMES, type MembershipRoleName } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
+import SettingsTabs from "@/components/settings-tabs";
 import { Icon } from "@/components/icons";
 
 /** 可选的邀请角色（排除 owner/admin，Volunteer 不可预授权 Admin 级角色） */
@@ -174,21 +175,7 @@ export default function InvitationsPage() {
 				</header>
 
 				{ws && (
-					<nav className="ws-tabs" aria-label="加入管理页签">
-						<Link href={`/w/${slug}/settings`} className="ws-tab">
-							加入策略
-						</Link>
-						<Link href={`/w/${slug}/settings/requests`} className="ws-tab">
-							加入审批
-						</Link>
-						<Link
-							href={`/w/${slug}/settings/invitations`}
-							className="ws-tab ws-tab--selected"
-							aria-current="page"
-						>
-							邀请管理
-						</Link>
-					</nav>
+					<SettingsTabs slug={slug} current="invitations" canManage={canManage} />
 				)}
 
 				{wsLoading && (
