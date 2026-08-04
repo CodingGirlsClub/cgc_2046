@@ -13,14 +13,14 @@ defmodule Cgc2046Web.AuthPlug do
   此时 `current_user == nil` 与"无 token / token 无效"同形，`me` resolver
   无法区分，一律返回 unauthorized，DB 抖动时已登录用户被误踢。
 
-  `load_actor` 在 `current_user == nil` 时复验 token：`Jwt.verify` 只验签名 +
-  claims 不查 DB，成功说明 token 本身有效（user 未加载是撤销或 DB 故障），
-  标记 `cgc_auth_uncertain` 供 `me` resolver 返回 `auth_uncertain` 让前端保持
-  登录态重试；失败说明真未登录，不标记。
+  `load_actor` 在 `current_user == nil` 时复验 token：`Joken.verify` 只验签名
+  （不查 DB，与 `Jwt.verify` 不同），成功说明 token 本身有效（user 未加载是
+  撤销或 DB 故障），标记 `cgc_auth_uncertain` 供 `me` resolver 返回
+  `auth_uncertain` 让前端保持登录态重试；失败说明真未登录，不标记。
   """
   use AshAuthentication.Plug, otp_app: :cgc_2046
 
-  alias AshAuthentication.Jwt
+  alias AshAuthentication.Jwt.Config
 
   @uncertain_key :cgc_auth_uncertain
 
@@ -46,7 +46,8 @@ defmodule Cgc2046Web.AuthPlug do
   defp maybe_mark_auth_uncertain(conn) do
     with [<<"Bearer ", token::binary>>] when byte_size(token) > 0 <-
            Plug.Conn.get_req_header(conn, "authorization"),
-         {:ok, _claims, _resource} <- Jwt.verify(token, Cgc2046.Accounts.User) do
+         signer <- Config.token_signer(Cgc2046.Accounts.User, [], %{}),
+         {:ok, _claims} <- Joken.verify(token, signer) do
       mark_uncertain(conn)
     else
       _ -> conn

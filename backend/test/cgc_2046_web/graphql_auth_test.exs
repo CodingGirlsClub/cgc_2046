@@ -174,7 +174,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       # 再用同一 token 打 me 查询——应判定未认证。
       # revoke 已把 tokens 表中该 jti 的记录 purpose 从 "user" upsert 成 "revocation"，
       # load_from_bearer 的 get_token 查 purpose: "user" 查不到 → user 不被 assign →
-      # me resolver 读到 context[:actor] == nil → 返回 unauthorized。
+      # me resolver 读到 context[:actor] == nil → 进入 auth_uncertain 分支（Joken.verify 纯签名验证，不查 DB，对已撤销 token 仍成功）。
       me_conn =
         build_conn()
         |> put_req_cookie("cgc_token", token)
@@ -185,8 +185,8 @@ defmodule Cgc2046Web.GraphqlAuthTest do
 
       assert %{"data" => %{"me" => nil}, "errors" => errors} = res
 
-      assert Enum.any?(errors, &(&1["message"] == "unauthorized")),
-             "signOut 后旧 token 应被服务端撤销，me 查询应返回 unauthorized，实际 #{inspect(res)}"
+      assert Enum.any?(errors, &(&1["code"] == "auth_uncertain")),
+             "signOut 后旧 token 应返回 auth_uncertain（Joken.verify 不查 DB 故签名仍有效），实际 #{inspect(res)}"
     end
   end
 
