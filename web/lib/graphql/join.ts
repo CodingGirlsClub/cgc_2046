@@ -61,6 +61,8 @@ export interface Invitation {
 	expiresAt?: string | null;
 	/** 邀请状态 */
 	status: InvitationStatus;
+	/** 读时派生状态：expires_at < now 时为 "expired"，否则同 status；优先于 status 使用 */
+	effectiveStatus?: InvitationStatus | null;
 	/** 接受人（全局用户）ID */
 	acceptedBy?: string | null;
 	/** 接受时间 */
@@ -233,6 +235,7 @@ export const INVITATIONS: TypedDocumentNode<
         preauthorizedRoleNames
         expiresAt
         status
+        effectiveStatus
         acceptedBy
         acceptedAt
       }
@@ -255,6 +258,7 @@ export const VALIDATE_INVITATION: TypedDocumentNode<
       id
       workspaceId
       status
+      effectiveStatus
       targetEmail
       preauthorizedRoleNames
       expiresAt

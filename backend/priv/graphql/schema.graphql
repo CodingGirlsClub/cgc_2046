@@ -313,6 +313,8 @@ type Invitation {
   "接受时间"
   acceptedAt: DateTime
 
+  effectiveStatus: String
+
   workspaceName: String
 
   workspaceSlug: String
