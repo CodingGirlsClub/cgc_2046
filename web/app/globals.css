@@ -335,10 +335,10 @@
 
   .ws-shell-sidebar {
     display: flex;
-    flex: 0 0 324px;
+    flex: 0 0 280px;
     flex-direction: column;
     min-height: 100svh;
-    padding: 22px 14px 20px;
+    padding: 18px 12px 20px;
     border-right: 1px solid var(--line);
     background: var(--frame);
   }
@@ -511,10 +511,10 @@
   .ws-shell-item:hover { background: var(--soft); color: var(--ink); }
   .ws-shell-item:hover svg { color: currentColor; }
   .ws-shell-item--selected {
-    border-color: var(--line);
-    background: var(--view);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 var(--radius-medium) var(--radius-medium) 0;
+    background: var(--soft);
     color: var(--ink);
-    box-shadow: var(--shadow-hairline);
   }
   .ws-shell-item--selected svg { color: var(--ink); }
   .ws-shell-item--disabled,
@@ -563,9 +563,7 @@
     transition: color 120ms ease;
   }
   .ws-shell-theme:hover { color: var(--ink); }
-  .ws-shell-page--editing .ws-shell-sidebar { flex-basis: 280px; min-width: 0; padding: 18px 12px 20px; }
   .ws-shell-page--editing .ws-shell-heading { margin-top: 22px; }
-  .ws-shell-page--editing .ws-shell-item--selected { border-left: 3px solid var(--accent); border-radius: 0 var(--radius-medium) var(--radius-medium) 0; background: var(--soft); color: var(--ink); }
   .ws-shell-page--editing .ws-shell-item--selected svg { color: var(--ink); }
 
   .ws-shell-main {
