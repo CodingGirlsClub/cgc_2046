@@ -33,6 +33,294 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :reject_join_request mutation"
+type RejectJoinRequestResult {
+  "The successful result of the mutation"
+  result: JoinRequest
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectJoinRequestInput {
+  "拒绝原因"
+  rejectionReason: String
+}
+
+"The result of the :approve_join_request mutation"
+type ApproveJoinRequestResult {
+  "The successful result of the mutation"
+  result: JoinRequest
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input ApproveJoinRequestInput {
+  roleNames: [String!]
+}
+
+"The result of the :create_join_request mutation"
+type CreateJoinRequestResult {
+  "The successful result of the mutation"
+  result: JoinRequest
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateJoinRequestInput {
+  "申请留言（可选）"
+  message: String
+
+  "目标工作台 ID"
+  workspaceId: ID!
+
+  "申请人 ID"
+  userId: ID!
+}
+
+enum JoinRequestSortField {
+  ID
+  WORKSPACE_ID
+  USER_ID
+  STATUS
+  MESSAGE
+  APPROVED_BY
+  APPROVED_AT
+  REJECTION_REASON
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+}
+
+"A keyset page of :join_request"
+type KeysetPageOfJoinRequest {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [JoinRequest!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input JoinRequestFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input JoinRequestFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input JoinRequestFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input JoinRequestFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input JoinRequestFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input JoinRequestFilterMessage {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input JoinRequestFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input JoinRequestFilterUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input JoinRequestFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input JoinRequestFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input JoinRequestFilterInput {
+  and: [JoinRequestFilterInput!]
+
+  or: [JoinRequestFilterInput!]
+
+  not: [JoinRequestFilterInput!]
+
+  id: JoinRequestFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: JoinRequestFilterWorkspaceId
+
+  "申请人（全局用户）ID"
+  userId: JoinRequestFilterUserId
+
+  "申请状态"
+  status: JoinRequestFilterStatus
+
+  "申请留言（可选）"
+  message: JoinRequestFilterMessage
+
+  "审批人（全局用户）ID"
+  approvedBy: JoinRequestFilterApprovedBy
+
+  "审批时间"
+  approvedAt: JoinRequestFilterApprovedAt
+
+  "拒绝原因（可选）"
+  rejectionReason: JoinRequestFilterRejectionReason
+
+  "审批截止时间（默认 created_at + 7 天）"
+  approvalDeadline: JoinRequestFilterApprovalDeadline
+
+  "过期时间"
+  expiredAt: JoinRequestFilterExpiredAt
+}
+
+input JoinRequestSortInput {
+  order: SortOrder
+  field: JoinRequestSortField!
+}
+
+type JoinRequest {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "申请人（全局用户）ID"
+  userId: ID!
+
+  "申请状态"
+  status: String!
+
+  "申请留言（可选）"
+  message: String
+
+  "审批人（全局用户）ID"
+  approvedBy: ID
+
+  "审批时间"
+  approvedAt: DateTime
+
+  "拒绝原因（可选）"
+  rejectionReason: String
+
+  "审批截止时间（默认 created_at + 7 天）"
+  approvalDeadline: DateTime
+
+  "过期时间"
+  expiredAt: DateTime
+}
+
 "The result of the :delete_portfolio_item mutation"
 type DeletePortfolioItemResult {
   "The record that was successfully deleted"
@@ -818,6 +1106,27 @@ type RootQueryType {
     "A filter to limit the results"
     filter: PortfolioItemFilterInput
   ): [PortfolioItem!]!
+
+  "加入申请列表（申请人仅见自己；Owner\/Admin 见全部）"
+  joinRequests(
+    "How to sort the records in the response"
+    sort: [JoinRequestSortInput]
+
+    "A filter to limit the results"
+    filter: JoinRequestFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfJoinRequest
 }
 
 type SignInResult {
@@ -895,6 +1204,15 @@ type RootMutationType {
 
   "删除自己的作品集条目"
   deletePortfolioItem(id: ID!): DeletePortfolioItemResult!
+
+  "提交加入申请"
+  createJoinRequest(input: CreateJoinRequestInput!): CreateJoinRequestResult!
+
+  "审批通过加入申请（Owner\/Admin，自动建 Membership + MembershipRole）"
+  approveJoinRequest(id: ID!, input: ApproveJoinRequestInput): ApproveJoinRequestResult!
+
+  "拒绝加入申请（Owner\/Admin）"
+  rejectJoinRequest(id: ID!, input: RejectJoinRequestInput): RejectJoinRequestResult!
 }
 
 """
