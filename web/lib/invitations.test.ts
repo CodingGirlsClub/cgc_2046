@@ -91,6 +91,30 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 		expect(item.expiresAt).toBe("2026-08-01T00:00:00Z");
 	});
 
+	it("effectiveStatus 覆盖 status（读时派生过期优先于 DB 持久化状态）", () => {
+		const item = mapInvitation({
+			id: "inv_eff",
+			workspaceId: "ws_1",
+			tokenHash: "hash_eff",
+			inviterId: "admin_1",
+			status: "active",
+			effectiveStatus: "expired",
+			expiresAt: "2026-08-01T00:00:00Z",
+		});
+		expect(item.status).toBe("expired");
+	});
+
+	it("effectiveStatus 缺失时回落 status", () => {
+		const item = mapInvitation({
+			id: "inv_fallback",
+			workspaceId: "ws_1",
+			tokenHash: "hash_fb",
+			inviterId: "admin_1",
+			status: "active",
+		});
+		expect(item.status).toBe("active");
+	});
+
 	it("validateInvitation 返回含 workspace 预览字段", () => {
 		const item = mapInvitation({
 			id: "inv_5",

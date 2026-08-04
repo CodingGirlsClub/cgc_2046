@@ -395,10 +395,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
                |> Ash.Query.for_read(:read)
                |> Ash.read(tenant: workspace.id, actor: admin)
 
+      # Read 不再产生写副作用：status 保持 pending，过期由前端用 approval_deadline 读时计算
       expired = Enum.find(requests, &(&1.id == jr.id))
       assert expired != nil
-      assert expired.status == :expired
-      assert expired.expired_at != nil
+      assert expired.status == :pending
+      assert DateTime.compare(expired.approval_deadline, DateTime.utc_now()) == :lt
+      assert expired.expired_at == nil
     end
 
     test "pending request with future approval_deadline stays pending" do

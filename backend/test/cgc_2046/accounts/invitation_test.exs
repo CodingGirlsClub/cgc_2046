@@ -283,7 +283,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
                |> Ash.read_one(actor: admin)
 
       assert validated != nil
-      assert validated.status == :expired
+      assert validated.status == :active
+      assert validated.effective_status == "expired"
     end
 
     test "used invitation returns used status" do
@@ -612,7 +613,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
                |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
-      assert validated.status == :expired
+      assert validated.status == :active
+      assert validated.effective_status == "expired"
     end
 
     test "invitation with future expires_at stays active" do
@@ -643,6 +645,31 @@ defmodule Cgc2046.Accounts.InvitationTest do
                |> Ash.read_one(actor: admin)
 
       assert validated.status == :active
+    end
+
+    test "revoked invitation with past expires_at stays revoked (effective_status 不覆盖显式终结状态)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      invitation =
+        create_invitation(workspace, admin, %{
+          expires_at: DateTime.add(DateTime.utc_now(), -1, :day)
+        })
+
+      assert {:ok, revoked} =
+               invitation
+               |> Ash.Changeset.for_update(:revoke, %{}, actor: admin, tenant: workspace.id)
+               |> Ash.update()
+
+      assert revoked.status == :revoked
+
+      assert {:ok, validated} =
+               Invitation
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
+               |> Ash.read_one(actor: admin)
+
+      assert validated.status == :revoked
+      assert validated.effective_status == "revoked"
     end
   end
 

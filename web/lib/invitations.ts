@@ -58,7 +58,7 @@ export function mapInvitation(inv: Invitation): InvitationItem {
 		targetEmail: inv.targetEmail ?? null,
 		preauthorizedRoleNames: inv.preauthorizedRoleNames ?? null,
 		expiresAt: inv.expiresAt ?? null,
-		status: inv.status,
+		status: inv.effectiveStatus ?? inv.status,
 		acceptedBy: inv.acceptedBy ?? null,
 		acceptedAt: inv.acceptedAt ?? null,
 		workspaceName: inv.workspaceName ?? null,

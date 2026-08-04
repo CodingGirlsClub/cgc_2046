@@ -114,6 +114,26 @@ defmodule Cgc2046.Accounts.Invitation do
   end
 
   calculations do
+    # 读时派生过期状态：仅 active 且 expires_at < now 视为 expired，
+    # 避免 read 副产生写负载。used/revoked 等显式终结状态保持原样（与原 preparations WHERE status='active' 一致）。
+    # DB 中 status 保持 active，落库过期留待主动调度。
+    calculate(:effective_status, :string,
+      public?: true,
+      calculation: fn invitations, _opts ->
+        now = DateTime.utc_now()
+
+        Enum.map(invitations, fn invitation ->
+          if invitation.status == :active &&
+               invitation.expires_at &&
+               DateTime.compare(invitation.expires_at, now) == :lt do
+            "expired"
+          else
+            to_string(invitation.status)
+          end
+        end)
+      end
+    )
+
     # 工作台预览字段（决策 8）：内部 authorize?: false 读 workspace，绕过 read policy。
     # 供受邀人在 invite_only 场景下无需读 workspace 即可看到要加入哪个工作台。
     calculate(:workspace_name, :string,
@@ -174,21 +194,8 @@ defmodule Cgc2046.Accounts.Invitation do
     repo(Cgc2046.Repo)
   end
 
-  # 惰性 expired 转换：读取时检查 expires_at < now() 的 active 自动转 expired。
-  # 零外部依赖，UI 倒计时从 expires_at 字段计算。
-  # TODO: 引入 Quantum/Oban 定时器后改为主动转换，惰性检查作为兜底。
-  preparations do
-    prepare(fn query, _opts ->
-      now = DateTime.utc_now()
-
-      Cgc2046.Repo.query!(
-        "UPDATE invitations SET status = 'expired' WHERE status = 'active' AND expires_at < $1",
-        [now]
-      )
-
-      query
-    end)
-  end
+  # 过期判定改为读时计算（effective_status），不再在 read 时执行 UPDATE。
+  # TODO: 引入 Quantum/Oban 定时器后改为主动落库过期，effective_status 作为兜底。
 
   actions do
     default_accept([])
@@ -275,7 +282,12 @@ defmodule Cgc2046.Accounts.Invitation do
 
           query
           |> Ash.Query.filter(token_hash: token_hash)
-          |> Ash.Query.load([:workspace_name, :workspace_slug, :workspace_join_policy])
+          |> Ash.Query.load([
+            :effective_status,
+            :workspace_name,
+            :workspace_slug,
+            :workspace_join_policy
+          ])
           |> Ash.Query.ensure_selected([:workspace_id])
         else
           query

@@ -118,22 +118,9 @@ defmodule Cgc2046.Accounts.JoinRequest do
     identity_wheres_to_sql(unique_pending_join_request_per_ws_user: "status = 'pending'")
   end
 
-  # 惰性 expired 转换（决策 9）：读取时检查 approval_deadline < now() 的 pending 自动转 expired。
-  # 零外部依赖，UI 倒计时从 approval_deadline 字段计算。
-  # TODO: 引入 Quantum/Oban 定时器后改为主动转换，惰性检查作为兜底。
-  preparations do
-    prepare(fn query, _opts ->
-      now = DateTime.utc_now()
-
-      # 用 raw SQL 避免 Ash bulk_update 递归
-      Cgc2046.Repo.query!(
-        "UPDATE join_requests SET status = 'expired', expired_at = $1 WHERE status = 'pending' AND approval_deadline < $2",
-        [now, now]
-      )
-
-      query
-    end)
-  end
+  # 过期判定由前端 ApprovalChip 用 approval_deadline 读时计算（见 requests/page.tsx），
+  # 不再在 read 时执行 UPDATE。落库过期留待主动调度。
+  # TODO: 引入 Quantum/Oban 定时器后改为主动转换，惰性计算作为兜底。
 
   actions do
     default_accept([])
