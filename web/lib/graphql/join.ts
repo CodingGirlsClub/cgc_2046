@@ -271,14 +271,15 @@ export const VALIDATE_INVITATION: TypedDocumentNode<
 
 /**
  * joinWorkspace：直接加入公开工作台（join_policy==:open）。
- * 后端为 query（非 mutation），返回 Workspace。
+ * 后端为 generic action，GraphQL 暴露为 mutation（写操作语义）。
+ * 参数包进 JoinWorkspaceInput（AshGraphql mutation 惯例），返回非空 Workspace。
  */
 export const JOIN_WORKSPACE: TypedDocumentNode<
-	{ joinWorkspace: { id: string; slug: string; name: string } | null },
+	{ joinWorkspace: { id: string; slug: string; name: string } },
 	{ workspaceId: string }
 > = gql`
-  query JoinWorkspace($workspaceId: ID!) {
-    joinWorkspace(workspaceId: $workspaceId) {
+  mutation JoinWorkspace($workspaceId: ID!) {
+    joinWorkspace(input: { workspaceId: $workspaceId }) {
       id
       slug
       name

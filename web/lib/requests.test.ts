@@ -350,15 +350,15 @@ describe("rejectJoinRequest", () => {
 });
 
 describe("joinWorkspace", () => {
-	const queryMock = vi.mocked(client.query);
+	const mutateMock = vi.mocked(client.mutate);
 
 	beforeEach(() => {
-		queryMock.mockReset();
+		mutateMock.mockReset();
 	});
 
-	it("提交 JoinWorkspace query", async () => {
-		queryMock.mockImplementation(({ query, variables }) => {
-			expect(query).toBe(JOIN_WORKSPACE);
+	it("提交 JoinWorkspace mutation", async () => {
+		mutateMock.mockImplementation(({ mutation, variables }) => {
+			expect(mutation).toBe(JOIN_WORKSPACE);
 			expect(variables).toEqual({ workspaceId: "ws_1" });
 			return Promise.resolve({
 				data: {

@@ -179,13 +179,13 @@ export async function rejectJoinRequest(
 
 /**
  * 直接加入公开工作台（join_policy==:open）。
- * 后端为 query（非 mutation），返回 Workspace。
+ * 后端为 generic action，GraphQL mutation。
  */
 export async function joinWorkspace(
 	workspaceId: string,
 ): Promise<{ id: string; slug: string; name: string }> {
-	const { data } = await client.query({
-		query: JOIN_WORKSPACE,
+	const { data } = await client.mutate({
+		mutation: JOIN_WORKSPACE,
 		variables: { workspaceId },
 	});
 	const result = data?.joinWorkspace;

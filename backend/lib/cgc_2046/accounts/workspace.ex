@@ -190,88 +190,82 @@ defmodule Cgc2046.Accounts.Workspace do
       prepare(build(load: [:my_role_names, :my_membership_id, :can_access, :member_count]))
     end
 
-    # G13：open 直接加入
-    read :join do
+    # G13：open 直接加入。
+    # 用 generic action 而非 read：此操作创建 Membership + MembershipRole，是写操作，
+    # GraphQL 层暴露为 mutation（joinWorkspace），符合"mutation 改状态"的语义。
+    # 旧实现挂在 read :join 上暴露成 query，违反 GraphQL query 无副作用约定。
+    action :join, :struct do
       description("直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色")
+
+      constraints(instance_of: __MODULE__)
 
       argument(:workspace_id, :uuid,
         allow_nil?: false,
         description: "目标工作台 ID"
       )
 
-      # 校验 join_policy 并建 Membership + learner 角色
-      prepare(fn query, _opts ->
-        workspace_id = Ash.Query.get_argument(query, :workspace_id)
+      run(fn input, _context ->
+        workspace_id = input.arguments.workspace_id
+        actor = input.context[:private][:actor]
 
-        if workspace_id do
-          workspace = Ash.get!(Cgc2046.Accounts.Workspace, workspace_id, authorize?: false)
+        workspace = Ash.get!(__MODULE__, workspace_id, authorize?: false)
 
-          case workspace.join_policy do
-            :open ->
-              actor = query.context[:private][:actor]
+        case workspace.join_policy do
+          :open ->
+            if actor do
+              tenant = workspace_id
 
-              if actor do
-                tenant = workspace_id
+              # 幂等检查：已是成员则跳过建 Membership（不报错，直接返回 workspace）
+              existing_membership =
+                case Cgc2046.Accounts.WorkspaceMembership
+                     |> Ash.Query.for_read(:read)
+                     |> Ash.Query.filter(user_id: actor.id)
+                     |> Ash.read_one(tenant: tenant, actor: actor, authorize?: false) do
+                  {:ok, membership} -> membership
+                  _ -> nil
+                end
 
-                # 幂等检查：已是成员则跳过建 Membership（不报错，直接返回 workspace）
-                existing_membership =
-                  case Cgc2046.Accounts.WorkspaceMembership
-                       |> Ash.Query.for_read(:read)
-                       |> Ash.Query.filter(user_id: actor.id)
-                       |> Ash.read_one(tenant: tenant, actor: actor, authorize?: false) do
-                    {:ok, membership} -> membership
-                    _ -> nil
-                  end
+              if is_nil(existing_membership) do
+                # 建 Membership
+                {:ok, membership} =
+                  Cgc2046.Accounts.WorkspaceMembership
+                  |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
+                  |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
 
-                if is_nil(existing_membership) do
-                  # 建 Membership
-                  {:ok, membership} =
-                    Cgc2046.Accounts.WorkspaceMembership
-                    |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
-                    |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
+                # 建 learner 角色
+                roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
+                learner_role = Enum.find(roles, &(&1.name == :learner))
 
-                  # 建 learner 角色
-                  roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
-                  learner_role = Enum.find(roles, &(&1.name == :learner))
-
-                  if learner_role do
-                    Ash.create!(
-                      Cgc2046.Accounts.MembershipRole,
-                      %{
-                        membership_id: membership.id,
-                        role_id: learner_role.id
-                      },
-                      tenant: tenant,
-                      authorize?: false
-                    )
-                  end
+                if learner_role do
+                  Ash.create!(
+                    Cgc2046.Accounts.MembershipRole,
+                    %{
+                      membership_id: membership.id,
+                      role_id: learner_role.id
+                    },
+                    tenant: tenant,
+                    authorize?: false
+                  )
                 end
               end
+            end
 
-              # 返回 workspace（通过 filter 匹配）
-              Ash.Query.filter(query, id: workspace_id)
+            {:ok, workspace}
 
-            :request ->
-              query
-              |> Ash.Query.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :join_policy,
-                  message:
-                    "This workspace requires an application. Please use createJoinRequest instead."
-                )
-              )
+          :request ->
+            {:error,
+             Ash.Error.Changes.InvalidAttribute.exception(
+               field: :join_policy,
+               message:
+                 "This workspace requires an application. Please use createJoinRequest instead."
+             )}
 
-            :invite_only ->
-              query
-              |> Ash.Query.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :join_policy,
-                  message: "This workspace is invite-only. Please use an invitation link to join."
-                )
-              )
-          end
-        else
-          query
+          :invite_only ->
+            {:error,
+             Ash.Error.Changes.InvalidAttribute.exception(
+               field: :join_policy,
+               message: "This workspace is invite-only. Please use an invitation link to join."
+             )}
         end
       end)
     end
@@ -310,6 +304,12 @@ defmodule Cgc2046.Accounts.Workspace do
       authorize_if(relates_to_actor_via([:memberships, :user]))
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
+
+    # G13 join：generic action 无被查询记录集，无法用基于记录字段的策略；
+    # 已认证用户即可调用，join_policy 校验在 action 的 run 内完成。
+    policy action(:join) do
+      authorize_if(actor_present())
+    end
   end
 
   graphql do
@@ -321,16 +321,17 @@ defmodule Cgc2046.Accounts.Workspace do
       read_one(:get_workspace_by_id, :get_by_id, description: "按 id 获取工作台（需登录）")
 
       list(:me_workspaces, :me_workspaces, description: "当前用户可进入的工作台列表（成员资格 + 创建者）")
-
-      read_one(:join_workspace, :join,
-        description: "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
-      )
     end
 
     mutations do
       create(:create_workspace, :create, description: "创建工作台（仅平台管理员）")
 
       update(:update_workspace, :update, description: "更新工作台（Owner/Admin 或平台管理员）")
+
+      # join 为 generic action，用 action 暴露成 mutation（写操作语义）
+      action(:join_workspace, :join,
+        description: "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
+      )
     end
   end
 end
