@@ -4,10 +4,15 @@ import { useAuthSubmit } from "./use-auth-submit";
 import type { AuthSubmitPayload } from "./auth-form";
 
 // vi.mock 工厂会被提升（hoist），mock 函数必须用 vi.hoisted 定义
-const { push, signInMock, signUpMock } = vi.hoisted(() => ({
+const { push, signInMock, signUpMock, resetStore } = vi.hoisted(() => ({
 	push: vi.fn(),
 	signInMock: vi.fn(),
 	signUpMock: vi.fn(),
+	resetStore: vi.fn(),
+}));
+
+vi.mock("@/lib/apollo-client", () => ({
+	client: { resetStore },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -46,6 +51,7 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
 		push.mockClear();
 		signInMock.mockReset();
 		signUpMock.mockReset();
+		resetStore.mockClear();
 	});
 
 	it("登录成功：跳转首页（token 由后端 httpOnly cookie 交付）", async () => {
@@ -61,6 +67,8 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
 		});
 		const { result } = renderHook(() => useAuthSubmit());
 		await act(() => result.current.onSubmit(loginPayload));
+		expect(resetStore).toHaveBeenCalledTimes(1);
+		expect(resetStore).toHaveBeenCalledBefore(push);
 		expect(push).toHaveBeenCalledWith("/");
 		expect(result.current.error).toBeNull();
 	});
@@ -91,6 +99,8 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
 		});
 		const { result } = renderHook(() => useAuthSubmit());
 		await act(() => result.current.onSubmit(registerPayload));
+		expect(resetStore).toHaveBeenCalledTimes(1);
+		expect(resetStore).toHaveBeenCalledBefore(push);
 		expect(push).toHaveBeenCalledWith("/");
 	});
 
