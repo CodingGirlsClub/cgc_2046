@@ -29,6 +29,7 @@ import {
 	type JoinPolicy,
 } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
+import SettingsTabs from "@/components/settings-tabs";
 
 const JOIN_POLICIES: JoinPolicy[] = ["open", "request", "invite_only"];
 
@@ -110,31 +111,7 @@ export default function WorkspaceSettingsPage() {
 				</header>
 
 				{ws && (
-					<nav className="ws-tabs" aria-label="加入管理页签">
-						<Link
-							href={`/w/${slug}/settings`}
-							className="ws-tab ws-tab--selected"
-							aria-current="page"
-						>
-							加入策略
-						</Link>
-						{canManage && (
-							<>
-								<Link
-									href={`/w/${slug}/settings/requests`}
-									className="ws-tab"
-								>
-									加入审批
-								</Link>
-								<Link
-									href={`/w/${slug}/settings/invitations`}
-									className="ws-tab"
-								>
-									邀请管理
-								</Link>
-							</>
-						)}
-					</nav>
+					<SettingsTabs slug={slug} current="policy" canManage={canManage} />
 				)}
 
 				{wsLoading || !ws ? (
