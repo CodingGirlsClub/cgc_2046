@@ -215,8 +215,14 @@ defmodule Cgc2046.Accounts.Invitation do
         description: "邀请人 ID"
       )
 
-      change(set_attribute(:workspace_id, arg(:workspace_id)))
-      change(set_attribute(:inviter_id, arg(:inviter_id)))
+      # 手动解析 argument（非原子模式，set_attribute 的 change/3 不解析 {:_arg, _}）
+      # 使用 force_change_attribute（同 set_attribute 内部实现）绕过 writable?: false 并执行类型转换
+      change(fn changeset, _context ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(:workspace_id, Ash.Changeset.get_argument(changeset, :workspace_id))
+        |> Ash.Changeset.force_change_attribute(:inviter_id, Ash.Changeset.get_argument(changeset, :inviter_id))
+      end)
+
       change(set_attribute(:status, :active))
 
       # 生成 token 并存储 hash
@@ -257,6 +263,7 @@ defmodule Cgc2046.Accounts.Invitation do
           query
           |> Ash.Query.filter(token_hash: token_hash)
           |> Ash.Query.load([:workspace_name, :workspace_slug, :workspace_join_policy])
+          |> Ash.Query.ensure_selected([:workspace_id])
         else
           query
         end

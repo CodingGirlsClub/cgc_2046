@@ -122,12 +122,21 @@ defmodule Cgc2046.Accounts.MembershipContext do
   def resolve_workspace_id(_), do: nil
 
   # update/bulk 场景 changeset.data 可能为 nil，先保护再取
+  # create 场景 workspace_id 可能尚未从 argument 写入 attribute（policy 在 change 前执行），
+  # 回退检查 changeset.arguments
   defp changeset_workspace_id(changeset) do
-    if changeset.data do
-      Ash.Changeset.get_attribute(changeset, :workspace_id) ||
+    cond do
+      changeset.data && Ash.Changeset.get_attribute(changeset, :workspace_id) ->
+        Ash.Changeset.get_attribute(changeset, :workspace_id)
+
+      Map.get(changeset.attributes, :workspace_id) ->
+        Map.get(changeset.attributes, :workspace_id)
+
+      Ash.Changeset.get_argument(changeset, :workspace_id) ->
+        Ash.Changeset.get_argument(changeset, :workspace_id)
+
+      true ->
         workspace_self_id(changeset)
-    else
-      Map.get(changeset.attributes, :workspace_id) || workspace_self_id(changeset)
     end
   end
 
