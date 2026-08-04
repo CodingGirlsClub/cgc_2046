@@ -194,7 +194,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 			"aria-current",
 			"page",
 		);
-		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
+		const shellNav = screen.getByRole("navigation", { name: "工作区导航" });
 		const shellLink = within(shellNav).getByRole("link", { name: "加入策略" });
 		// #78/#79：壳导航项「加入策略」指向设置页（breadcrumb 首项同名，须限定 nav 内查询）
 		expect(shellLink).toHaveAttribute("href", "/w/cgc-academy/settings");

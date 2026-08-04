@@ -210,29 +210,31 @@ function Avatar({
 function Breadcrumb({
 	editing,
 	workspaceSlug,
+	workspaceName,
 }: {
 	editing: boolean;
 	workspaceSlug: string;
+	workspaceName: string;
 }) {
 	return (
 		<div className="profile-breadcrumb" aria-label="页面路径">
+			<Link href="/">工作台</Link>
+			{workspaceSlug ? (
+				<>
+					<span>›</span>
+					<Link href={`/w/${workspaceSlug}`}>
+						{workspaceName || workspaceSlug}
+					</Link>
+				</>
+			) : null}
+			<span>›</span>
+			<Link href={profileHref(workspaceSlug)}>个人资料</Link>
 			{editing ? (
 				<>
-					<Link href={profileHref(workspaceSlug)}>成员 Profile</Link>
 					<span>›</span>
 					<strong>编辑个人资料</strong>
 				</>
-			) : (
-				<>
-					<Link href="/" aria-label="返回工作台">
-						<Icon name="home" size={17} />
-					</Link>
-					<span>›</span>
-					<Link href={profileHref(workspaceSlug)}>个人资料</Link>
-					<span>›</span>
-					<strong>成员 Profile</strong>
-				</>
-			)}
+			) : null}
 		</div>
 	);
 }
@@ -841,7 +843,11 @@ function ProfilePageInner() {
 			className={editing ? "ws-shell-page--editing" : undefined}
 		>
 			<div className="profile-main__inner">
-				<Breadcrumb editing={editing} workspaceSlug={workspaceSlug} />
+				<Breadcrumb
+					editing={editing}
+					workspaceSlug={workspaceSlug}
+					workspaceName={content.workspaceName || ""}
+				/>
 				<header className="profile-heading">
 					<h1>{editing ? "编辑个人资料" : "我的个人资料"}</h1>
 					{editing ? (

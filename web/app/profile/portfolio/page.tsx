@@ -110,6 +110,14 @@ function ProfilePortfolioInner() {
 		<WorkspaceShell slug={workspaceSlug} requireWs={false}>
 			<div className="profile-main__inner">
 				<div className="profile-breadcrumb" aria-label="页面路径">
+					<Link href="/">工作台</Link>
+					{workspaceSlug ? (
+						<>
+							<span>›</span>
+							<Link href={`/w/${workspaceSlug}`}>{workspaceSlug}</Link>
+						</>
+					) : null}
+					<span>›</span>
 					<Link href={profileHref(workspaceSlug)}>个人资料</Link>
 					<span>›</span>
 					<strong>全部作品集</strong>

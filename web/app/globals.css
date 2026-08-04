@@ -524,6 +524,16 @@
     opacity: 0.68;
   }
 
+  /* P1-B：加入审批 / 邀请管理为「加入策略」子项，缩进表达父子层级 */
+  .ws-shell-subnav {
+    display: grid;
+    gap: 6px;
+    margin: 2px 0 0;
+    padding-left: 20px;
+    border-left: 1px solid var(--line);
+  }
+  .ws-shell-item--sub { min-height: 40px; font-size: 13px; }
+
   /* #79 IA：个人资料移出设置组，nav 外独立项加顶部视觉分隔 */
   .ws-shell-item--profile {
     margin-top: 16px;
