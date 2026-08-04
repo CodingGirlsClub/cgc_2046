@@ -1,5 +1,9 @@
 import type { MembershipRoleName } from "./graphql/workspace";
-import type { ProfileVisibility, UpdateProfileInput } from "./graphql/profile";
+import type {
+	ProfileUser,
+	ProfileVisibility,
+	UpdateProfileInput,
+} from "./graphql/profile";
 import { ME_PROFILE, UPDATE_PROFILE } from "./graphql/profile";
 import {
 	MY_PORTFOLIO,
@@ -84,10 +88,23 @@ export function mapPortfolioItem(item: PortfolioItem): ProfilePortfolioItem {
 /**
  * 获取当前用户资料。
  * 唯一真实路径：`me` query（需登录，Bearer token 自动附加），透传 P1 扩展字段。
+ *
+ * P3 去重：先 `client.readQuery` 读归一化缓存（AuthProvider 的 me 查询与首次
+ * 调用已写入 User 实体），命中则零网络返回；miss 才发网络请求。ProfileEntry
+ * 在两套壳间切换重新挂载时不再每次触发查询逻辑。clearStore/resetStore 后
+ * readQuery 返回 null，自然 fallback 到网络。
  */
 export async function fetchCurrentProfile(): Promise<CurrentProfile> {
+	const cached = client.readQuery({ query: ME_PROFILE });
+	if (cached?.me) {
+		return mapMeToProfile(cached.me);
+	}
 	const { data } = await client.query({ query: ME_PROFILE });
 	const me = data?.me;
+	return mapMeToProfile(me ?? null);
+}
+
+function mapMeToProfile(me: ProfileUser | null): CurrentProfile {
 	if (!me) {
 		return {
 			id: "",

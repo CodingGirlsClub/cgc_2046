@@ -182,6 +182,24 @@ export default function RequestsPage() {
 					</div>
 				</header>
 
+				{ws && (
+					<nav className="ws-tabs" aria-label="加入管理页签">
+						<Link href={`/w/${slug}/settings`} className="ws-tab">
+							加入策略
+						</Link>
+						<Link
+							href={`/w/${slug}/settings/requests`}
+							className="ws-tab ws-tab--selected"
+							aria-current="page"
+						>
+							加入审批
+						</Link>
+						<Link href={`/w/${slug}/settings/invitations`} className="ws-tab">
+							邀请管理
+						</Link>
+					</nav>
+				)}
+
 				{wsLoading && (
 					<div className="settings-loading" aria-label="加载中">
 						<div className="settings-skeleton settings-skeleton--title" />

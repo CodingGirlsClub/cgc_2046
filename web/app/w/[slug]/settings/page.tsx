@@ -10,6 +10,9 @@
  *   ME_WORKSPACES 缓存，概览页/工作台徽章跨页同步）；
  * - 壳：WorkspaceShell（requireWs 默认 true，未知 slug 自动「工作区不可访问」）；
  *   settings 前缀路由预留 B-3 审批/邀请子页（settings/requests、settings/invitations）。
+ *
+ * P3：settings 三子页统一 tab 导航（与 members/permissions tab 模式一致），
+ * 审批/邀请 tab 按 manage_members 能力过滤。
  */
 
 import { useState } from "react";
@@ -34,6 +37,7 @@ export default function WorkspaceSettingsPage() {
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 	const canUpdate = currentUserCanUpdateJoinPolicy(ws);
+	const canManage = ws?.myAbilities?.includes("manage_members") ?? false;
 
 	// 草稿策略：以 wsId 键控的派生状态（对齐 useWorkspaceBySlug 派生模式，
 	// 避免 effect 内同步 setState；跨 slug 切换时旧草稿自动失效不串台）
@@ -104,6 +108,34 @@ export default function WorkspaceSettingsPage() {
 						<p>决定谁能加入这个 Workspace</p>
 					</div>
 				</header>
+
+				{ws && (
+					<nav className="ws-tabs" aria-label="加入管理页签">
+						<Link
+							href={`/w/${slug}/settings`}
+							className="ws-tab ws-tab--selected"
+							aria-current="page"
+						>
+							加入策略
+						</Link>
+						{canManage && (
+							<>
+								<Link
+									href={`/w/${slug}/settings/requests`}
+									className="ws-tab"
+								>
+									加入审批
+								</Link>
+								<Link
+									href={`/w/${slug}/settings/invitations`}
+									className="ws-tab"
+								>
+									邀请管理
+								</Link>
+							</>
+						)}
+					</nav>
+				)}
 
 				{wsLoading || !ws ? (
 					<div
