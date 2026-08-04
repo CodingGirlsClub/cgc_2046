@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+	createContext,
+	useContext,
+	useEffect,
+	useReducer,
+	useRef,
+	type ReactNode,
+} from "react";
 import { useQuery } from "@apollo/client/react";
 import { gql } from "@apollo/client";
 import { CombinedGraphQLErrors } from "@apollo/client/errors";
@@ -35,7 +42,10 @@ interface MeQueryResult {
 	me: { id: string } | null;
 }
 
-const AuthContext = createContext<AuthedState>({ authed: false, confirmed: false });
+const AuthContext = createContext<AuthedState>({
+	authed: false,
+	confirmed: false,
+});
 
 /**
  * 网络错误判定：区分三种 error。
@@ -50,7 +60,14 @@ function isNetworkError(e: unknown): boolean {
 	if (CombinedGraphQLErrors.is(e)) {
 		// Absinthe 把 code 放顶层 errors[i].code（graphql_auth_test.exs:128 实证）；
 		// 兼容 GraphQL 规范的 extensions.code 以防序列化差异。
-		const first = (e as { errors?: ReadonlyArray<{ code?: string; extensions?: { code?: string } }> }).errors?.[0];
+		const first = (
+			e as {
+				errors?: ReadonlyArray<{
+					code?: string;
+					extensions?: { code?: string };
+				}>;
+			}
+		).errors?.[0];
 		const code = first?.code ?? first?.extensions?.code;
 		return code === "auth_uncertain";
 	}
@@ -61,9 +78,25 @@ function isNetworkError(e: unknown): boolean {
 // 首帧即失败时保持 confirmed:false（卡 LoadingState）比误踢 /login 安全。
 const RETRY_DELAYS = [1000, 2000, 4000];
 
+type Action = { type: "confirm"; authed: boolean } | { type: "retain" };
+
+function reducer(_state: AuthedState, action: Action): AuthedState {
+	switch (action.type) {
+		case "confirm":
+			return { authed: action.authed, confirmed: true };
+		case "retain":
+			return _state;
+	}
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-	const { data, loading, error, refetch } = useQuery<MeQueryResult>(ME_QUERY, { errorPolicy: "all" });
-	const [state, setState] = useState<AuthedState>({ authed: false, confirmed: false });
+	const { data, loading, error, refetch } = useQuery<MeQueryResult>(ME_QUERY, {
+		errorPolicy: "all",
+	});
+	const [state, dispatch] = useReducer(reducer, {
+		authed: false,
+		confirmed: false,
+	});
 	const retryingRef = useRef(false);
 
 	useEffect(() => {
@@ -77,7 +110,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			let attempt = 0;
 			const tryRetry = () => {
 				if (cancelled) return;
-				const delay = RETRY_DELAYS[attempt] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1];
+				const delay =
+					RETRY_DELAYS[attempt] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1];
 				setTimeout(() => {
 					if (cancelled) return;
 					refetch()
@@ -102,7 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		}
 
 		// 无 error（成功）或 CombinedGraphQLErrors（未登录）：据 data?.me 定登录态。
-		setState({ authed: !!data?.me, confirmed: true });
+		dispatch({ type: "confirm", authed: !!data?.me });
 	}, [data, loading, error, refetch]);
 
 	return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
