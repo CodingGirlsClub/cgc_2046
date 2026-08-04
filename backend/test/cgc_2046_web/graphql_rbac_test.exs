@@ -1,6 +1,7 @@
 defmodule Cgc2046Web.GraphqlRbacTest do
   use Cgc2046Web.ConnCase, async: true
 
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
@@ -57,6 +58,49 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     :ok
   end
 
+  # 以 owner/admin 身份把一个用户拉进工作台（测试直接建成员资格，可指定初始角色）
+  defp add_member(workspace, user, actor, role_names \\ []) do
+    {:ok, membership} =
+      WorkspaceMembership
+      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
+      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
+
+    if role_names != [] do
+      assert {:ok, _membership} =
+               membership
+               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names}, actor: actor)
+               |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
+    end
+
+    membership
+  end
+
+  defp find_membership(workspace, user) do
+    loaded =
+      Ash.load!(workspace, :memberships, tenant: workspace.id, actor: user, authorize?: false)
+
+    Enum.find(loaded.memberships, &(&1.user_id == user.id))
+  end
+
+  defp load_role_names(membership) do
+    Ash.load!(membership, :roles, tenant: membership.workspace_id, authorize?: false)
+    |> Map.fetch!(:roles)
+    |> Enum.map(& &1.name)
+  end
+
+  defp assign_roles_query(membership_id, role_names) do
+    names = role_names |> Enum.map(&("\"" <> to_string(&1) <> "\"")) |> Enum.join(", ")
+
+    """
+    mutation {
+      assignRoles(id: "#{membership_id}", input: { roleNames: [#{names}] }) {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+  end
+
   defp graphql_post(conn, query, token \\ nil) do
     conn =
       if token do
@@ -76,13 +120,18 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     mutation {
       signIn(email: "#{email}", password: "#{password}") {
         id
-        token
       }
     }
     """
 
-    res = graphql_post(build_conn(), query)
-    assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => query})
+
+    assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+    # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+    token = conn.resp_cookies["cgc_token"].value
     token
   end
 
@@ -97,19 +146,19 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     """
   end
 
-  describe "permissionMatrix (#66 Rbac contract)" do
+  describe "permissionMatrix (#66 Rbac contract, #1 abilities as generic list)" do
     test "anonymous is unauthorized" do
       res =
         graphql_post(
           build_conn(),
-          "query { permissionMatrix { roles { name abilities { viewWorkspace } } } }"
+          "query { permissionMatrix { roles { name abilities { name allowed } } } }"
         )
 
       assert %{"errors" => errors} = res
       assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
     end
 
-    test "authenticated user gets the 3-role × 6-ability matrix" do
+    test "authenticated user gets the 6-role × 6-ability matrix (G1)" do
       _admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
@@ -119,12 +168,8 @@ defmodule Cgc2046Web.GraphqlRbacTest do
           roles {
             name
             abilities {
-              viewWorkspace
-              accessInviteOnly
-              listMembers
-              manageMembers
-              assignRoles
-              createWorkspace
+              name
+              allowed
             }
           }
         }
@@ -134,80 +179,83 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       res = graphql_post(build_conn(), query, token)
 
       assert %{"data" => %{"permissionMatrix" => %{"roles" => roles}}} = res
-      assert length(roles) == 3
-      assert Enum.map(roles, & &1["name"]) == ["owner", "admin", "member"]
+      assert length(roles) == 6
 
-      by_name = Map.new(roles, &{&1["name"], &1["abilities"]})
+      assert Enum.map(roles, & &1["name"]) ==
+               ["owner", "admin", "member", "tutor", "volunteer", "learner"]
 
-      for role <- ["owner", "admin"] do
+      by_name =
+        Map.new(
+          roles,
+          &{&1["name"], Map.new(&1["abilities"], fn a -> {a["name"], a["allowed"]} end)}
+        )
+
+      for role <- Enum.map(Role.manage_roles(), &to_string/1) do
         abilities = by_name[role]
-        assert abilities["viewWorkspace"] == true
-        assert abilities["accessInviteOnly"] == true
-        assert abilities["listMembers"] == true
-        assert abilities["manageMembers"] == true
-        assert abilities["assignRoles"] == true
-        assert abilities["createWorkspace"] == false
+        assert abilities["view_workspace"] == true
+        assert abilities["access_invite_only"] == true
+        assert abilities["list_members"] == true
+        assert abilities["manage_members"] == true
+        assert abilities["assign_roles"] == true
+        assert abilities["create_workspace"] == false
       end
 
-      member = by_name["member"]
-      assert member["viewWorkspace"] == true
-      assert member["accessInviteOnly"] == true
-      assert member["listMembers"] == false
-      assert member["manageMembers"] == false
-      assert member["assignRoles"] == false
-      assert member["createWorkspace"] == false
+      for role <- ["member", "tutor", "volunteer", "learner"] do
+        abilities = by_name[role]
+        assert abilities["view_workspace"] == true
+        assert abilities["access_invite_only"] == true
+        assert abilities["list_members"] == false
+        assert abilities["manage_members"] == false
+        assert abilities["assign_roles"] == false
+        assert abilities["create_workspace"] == false
+      end
     end
   end
 
-  describe "myAbilities (#66 Rbac contract)" do
-    test "anonymous is unauthorized" do
-      res =
-        graphql_post(
-          build_conn(),
-          """
-          query {
-            myAbilities(workspaceId: "00000000-0000-0000-0000-000000000000") {
-              abilities
-            }
-          }
-          """
-        )
-
-      assert %{"errors" => errors} = res
-      assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
+  describe "meWorkspaces.myAbilities (#1 能力接口收敛，替代退役的 myAbilities query)" do
+    defp me_workspaces_query do
+      """
+      query {
+        meWorkspaces {
+          slug
+          myAbilities
+        }
+      }
+      """
     end
 
-    test "returns the actor's ability list for a workspace" do
-      admin = admin_user()
+    test "owner (platform admin) gets all seven abilities" do
+      _admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
       slug = "gql-rbac-ws-#{System.unique_integer([:positive])}"
       res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Rbac WS"), token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => _ws_id}}}} = res
 
-      # owner（admin 自建）的能力
-      query = """
-      query {
-        myAbilities(workspaceId: "#{ws_id}") {
-          abilities
-        }
-      }
-      """
+      res = graphql_post(build_conn(), me_workspaces_query(), token)
 
-      res = graphql_post(build_conn(), query, token)
-      assert %{"data" => %{"myAbilities" => %{"abilities" => abilities}}} = res
+      assert %{"data" => %{"meWorkspaces" => workspaces}} = res
+      ws = Enum.find(workspaces, &(&1["slug"] == slug))
 
-      # owner（平台管理员自建）拥有全部六项能力（含 create_workspace）
-      assert abilities == [
+      assert ws["myAbilities"] == [
                "view_workspace",
                "access_invite_only",
                "list_members",
                "manage_members",
                "assign_roles",
+               "update_join_policy",
                "create_workspace"
              ]
+    end
 
-      # 普通成员的能力（仅基础访问）
+    test "plain member gets view/access only" do
+      admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-rbac-member-ws-#{System.unique_integer([:positive])}"
+      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Rbac Member WS"), token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
       member = register_user(@member_email, @password)
       workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
 
@@ -222,39 +270,32 @@ defmodule Cgc2046Web.GraphqlRbacTest do
                |> Ash.update(tenant: workspace.id, actor: admin, authorize?: false)
 
       member_token = sign_in_token(@member_email, @password)
-      res = graphql_post(build_conn(), query, member_token)
+      res = graphql_post(build_conn(), me_workspaces_query(), member_token)
 
-      assert %{"data" => %{"myAbilities" => %{"abilities" => member_abilities}}} = res
-      assert member_abilities == ["view_workspace", "access_invite_only"]
+      assert %{"data" => %{"meWorkspaces" => workspaces}} = res
+      ws = Enum.find(workspaces, &(&1["slug"] == slug))
+      assert ws["myAbilities"] == ["view_workspace", "access_invite_only"]
     end
 
-    test "outsider gets empty ability list" do
+    test "outsider's meWorkspaces does not include the workspace" do
       _admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
       slug = "gql-rbac-out-#{System.unique_integer([:positive])}"
       res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Rbac Out"), token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => _ws_id}}}} = res
 
       outsider_email = "gql-rbac-outsider@example.com"
       _outsider = register_user(outsider_email, @password)
       outsider_token = sign_in_token(outsider_email, @password)
 
-      query = """
-      query {
-        myAbilities(workspaceId: "#{ws_id}") {
-          abilities
-        }
-      }
-      """
+      res = graphql_post(build_conn(), me_workspaces_query(), outsider_token)
 
-      res = graphql_post(build_conn(), query, outsider_token)
-
-      assert %{"data" => %{"myAbilities" => %{"abilities" => abilities}}} = res
-      assert abilities == []
+      assert %{"data" => %{"meWorkspaces" => workspaces}} = res
+      refute Enum.any?(workspaces, &(&1["slug"] == slug))
     end
 
-    test "non-member platform admin gets view/access + create_workspace only (P2)" do
+    test "non-member platform admin is not listed (P2: no manage exemption, list is membership-scoped)" do
       admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
@@ -266,18 +307,123 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
       remove_membership(workspace, admin)
 
-      query = """
-      query {
-        myAbilities(workspaceId: "#{ws_id}") {
-          abilities
-        }
-      }
-      """
+      res = graphql_post(build_conn(), me_workspaces_query(), token)
 
-      res = graphql_post(build_conn(), query, token)
+      assert %{"data" => %{"meWorkspaces" => workspaces}} = res
+      refute Enum.any?(workspaces, &(&1["slug"] == slug))
+    end
+  end
 
-      assert %{"data" => %{"myAbilities" => %{"abilities" => abilities}}} = res
-      assert abilities == ["view_workspace", "access_invite_only", "create_workspace"]
+  describe "assignRoles grant scope (P0 越权修复)" do
+    test "admin (non-owner) cannot grant owner role" do
+      owner = admin_user()
+      owner_token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-grant-owner-#{System.unique_integer([:positive])}"
+      res = graphql_post(build_conn(), create_workspace_query(slug, "Grant Owner"), owner_token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      admin_member_email = "gql-grant-adm#{System.unique_integer([:positive])}@example.com"
+      victim_email = "gql-grant-vic#{System.unique_integer([:positive])}@example.com"
+      admin_member = register_user(admin_member_email, @password)
+      victim = register_user(victim_email, @password)
+
+      workspace = Ash.get!(Workspace, ws_id, actor: owner, authorize?: false)
+      add_member(workspace, admin_member, owner, [:admin])
+      victim_membership = add_member(workspace, victim, owner)
+
+      # admin（非 owner）尝试授予 owner → 拒绝
+      admin_member_token = sign_in_token(admin_member_email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          assign_roles_query(victim_membership.id, [:owner]),
+          admin_member_token
+        )
+
+      assert %{"data" => %{"assignRoles" => %{"result" => nil, "errors" => errors}}} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "只有 Owner 能授予或撤销 Owner 角色"))
+
+      # 数据库未被改动：victim 仍无 owner 角色
+      refute :owner in load_role_names(victim_membership)
+    end
+
+    test "owner can grant owner role" do
+      owner = admin_user()
+      owner_token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-grant-owner-ok-#{System.unique_integer([:positive])}"
+
+      res =
+        graphql_post(build_conn(), create_workspace_query(slug, "Grant Owner OK"), owner_token)
+
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      new_owner_email = "gql-grant-newo#{System.unique_integer([:positive])}@example.com"
+      new_owner = register_user(new_owner_email, @password)
+      workspace = Ash.get!(Workspace, ws_id, actor: owner, authorize?: false)
+      membership = add_member(workspace, new_owner, owner)
+
+      res = graphql_post(build_conn(), assign_roles_query(membership.id, [:owner]), owner_token)
+      assert %{"data" => %{"assignRoles" => %{"errors" => []}}} = res
+
+      assert load_role_names(membership) == [:owner]
+    end
+
+    test "cannot remove the last owner (orphan protection)" do
+      owner = admin_user()
+      owner_token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-last-owner-#{System.unique_integer([:positive])}"
+      res = graphql_post(build_conn(), create_workspace_query(slug, "Last Owner"), owner_token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      workspace = Ash.get!(Workspace, ws_id, actor: owner, authorize?: false)
+      owner_membership = find_membership(workspace, owner)
+
+      # owner 自降 admin（唯一 owner）→ 孤儿保护拒绝
+      res =
+        graphql_post(
+          build_conn(),
+          assign_roles_query(owner_membership.id, [:admin]),
+          owner_token
+        )
+
+      assert %{"data" => %{"assignRoles" => %{"result" => nil, "errors" => errors}}} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "至少保留一个 Owner"))
+
+      # 数据库未被改动：owner 仍是 owner
+      assert load_role_names(owner_membership) == [:owner]
+    end
+
+    test "owner can self-demote when another owner remains" do
+      owner = admin_user()
+      owner_token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-two-owner-#{System.unique_integer([:positive])}"
+      res = graphql_post(build_conn(), create_workspace_query(slug, "Two Owner"), owner_token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      co_owner_email = "gql-two-owner2#{System.unique_integer([:positive])}@example.com"
+      co_owner = register_user(co_owner_email, @password)
+      workspace = Ash.get!(Workspace, ws_id, actor: owner, authorize?: false)
+      co_membership = add_member(workspace, co_owner, owner, [:owner])
+
+      owner_membership = find_membership(workspace, owner)
+
+      # 2 个 owner：owner 自降 admin 允许
+      res =
+        graphql_post(
+          build_conn(),
+          assign_roles_query(owner_membership.id, [:admin]),
+          owner_token
+        )
+
+      assert %{"data" => %{"assignRoles" => %{"errors" => []}}} = res
+
+      assert load_role_names(owner_membership) == [:admin]
+      assert load_role_names(co_membership) == [:owner]
     end
   end
 end

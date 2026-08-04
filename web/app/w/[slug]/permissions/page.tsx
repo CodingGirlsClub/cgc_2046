@@ -1,249 +1,337 @@
 "use client";
 
 /**
- * #67 权限表可视化 /w/[slug]/permissions。
+ * #67 权限映射页 /w/[slug]/permissions。
  *
- * 功能：
- * - 角色 → 能力映射矩阵（角色行 × 能力列，支持标记 ✓/✗），覆盖切片A 相关资源
- *   （Workspace 创建/读取、成员管理、角色分配、invite_only 读取等）；
- * - 能力来源：mock 矩阵（Owner/Admin/Member 三角色），语义对齐后端 #64/#66 Rbac
- *   can? 判定（多角色并集、member 仅基础访问、create_workspace 仅平台管理员）；
- * - 当前用户角色并集高亮 + 「我的能力」汇总（任一角色支持即支持）；
- * - 数据：mock 先行（lib/permissions），后端 #66 Rbac 定稿后切真实
- *   （USE_MOCK_WORKSPACES = false 即可，调用方无需改）。
+ * 页面按 07-rbac-permission-map-light 设计稿落地：同一 Workspace 管理壳
+ * （WorkspaceShell）、五角色 × 六能力矩阵（六能力 = 后端 RBAC 真实能力，
+ * 单一数据源），以及 Owner + Tutor 的角色并集 can? 判定示例。
+ * 权限页只解释能力，不画 Agent / Workflow 执行 UI。
  */
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { clearAuthToken } from "@/lib/auth";
+import { useParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
-  fetchPermissionsMatrix,
-  myRolesHaveAbility,
-  PERMISSION_ABILITIES,
-  PERMISSION_ROLE_BADGE_CLASS,
-  PERMISSION_ROLE_LABEL,
-  PERMISSION_ROLE_LABEL_ZH,
-  type PermissionMatrixRow,
+	fetchPermissionsMatrix,
+	myRolesHaveAbility,
+	PERMISSION_ABILITIES,
+	PERMISSION_ROLE_ORDER,
+	type PermissionAbility,
+	type PermissionMatrixRow,
 } from "@/lib/permissions";
-import ProfileEntry from "@/components/profile-entry";
+import {
+	ROLE_BADGE_CLASS,
+	ROLE_LABEL,
+	type MembershipRoleName,
+} from "@/lib/graphql/workspace";
+import WorkspaceShell from "@/components/workspace-shell";
+import { Icon, type IconName } from "@/components/icons";
+
+// 演示数据（角色值子集；枚举单源见 lib/graphql/workspace.ts 的 ROLE_NAMES）
+const EXAMPLE_ROLES: MembershipRoleName[] = ["owner", "tutor"];
+
+function roleLabel(role: MembershipRoleName) {
+	return ROLE_LABEL[role] ?? role;
+}
+
+function roleBadgeClass(role: MembershipRoleName) {
+	return ROLE_BADGE_CLASS[role] ?? "l-badge l-badge-member";
+}
+
+function PermissionCell({
+	row,
+	ability,
+}: {
+	row: PermissionMatrixRow;
+	ability: PermissionAbility;
+}) {
+	const allowed = row.abilities[ability];
+	return (
+		<td
+			className={`permissions-matrix__cell ${allowed ? "permissions-matrix__cell--allowed" : "permissions-matrix__cell--denied"}`}
+			data-testid={`cell-${row.role}-${ability}`}
+			aria-label={`${roleLabel(row.role)} ${ability}：${allowed ? "允许" : "拒绝"}`}
+		>
+			{allowed ? "✓" : "—"}
+		</td>
+	);
+}
+
+function NoticeCard({
+	icon,
+	tone,
+	title,
+	detail,
+}: {
+	icon: IconName;
+	tone: string;
+	title: string;
+	detail: string;
+}) {
+	return (
+		<article className={`permissions-notice permissions-notice--${tone}`}>
+			<span className="permissions-notice__icon">
+				<Icon name={icon} size={23} />
+			</span>
+			<div>
+				<strong>{title}</strong>
+				<span>{detail}</span>
+			</div>
+		</article>
+	);
+}
+
+function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
+	const rowsByRole = useMemo(
+		() => new Map(matrix.map((row) => [row.role, row])),
+		[matrix],
+	);
+	const orderedRows = PERMISSION_ROLE_ORDER.map((role) =>
+		rowsByRole.get(role),
+	).filter((row): row is PermissionMatrixRow => Boolean(row));
+
+	return (
+		<section className="permissions-matrix-card" aria-label="权限矩阵">
+			<header className="permissions-card-heading">
+				<h2>权限矩阵</h2>
+				<span>Role → capability</span>
+			</header>
+			<div className="permissions-matrix-scroll">
+				<table className="permissions-matrix">
+					<thead>
+						<tr>
+							<th scope="col">能力</th>
+							{PERMISSION_ROLE_ORDER.map((role) => (
+								<th key={role} scope="col">
+									<span className="permissions-role-header">
+										{roleLabel(role)}
+									</span>
+								</th>
+							))}
+						</tr>
+					</thead>
+					<tbody>
+						{PERMISSION_ABILITIES.map((ability) => {
+							return (
+								<tr
+									key={ability.id}
+									data-testid={`permission-row-${ability.id}`}
+								>
+									<th scope="row" className="permissions-ability-label">
+										<strong>{ability.label}</strong>
+										{ability.id === "assign_roles" && (
+											<small>
+												<Icon name="info" size={14} />
+												不含 Owner 角色授予
+											</small>
+										)}
+									</th>
+									{orderedRows.map((row) => (
+										<PermissionCell
+											key={`${row.role}-${ability.id}`}
+											row={row}
+											ability={ability.id}
+										/>
+									))}
+								</tr>
+							);
+						})}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	);
+}
+
+function ExampleCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
+	return (
+		<aside
+			className="permissions-example-card"
+			aria-label="判定示例"
+			data-testid="permission-example"
+		>
+			<h2>判定示例</h2>
+			<div className="permissions-example__person">
+				<span className="permissions-example__avatar">林</span>
+				<div>
+					<strong>林溪</strong>
+					<div className="permissions-example__roles">
+						{EXAMPLE_ROLES.map((role) => (
+							<span key={role} className={roleBadgeClass(role)}>
+								{roleLabel(role)}
+							</span>
+						))}
+						<button
+							type="button"
+							className="permissions-example__add"
+							aria-label="查看更多角色"
+						>
+							＋
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<div className="permissions-example__divider" />
+			<h3>合并后能力</h3>
+			<ul className="permissions-example__abilities">
+				{PERMISSION_ABILITIES.map((ability) => {
+					const allowed = myRolesHaveAbility(EXAMPLE_ROLES, matrix, ability.id);
+					return (
+						<li key={ability.id} data-testid="permission-ability-status">
+							<span
+								className={`permissions-example__status ${allowed ? "permissions-example__status--allowed" : "permissions-example__status--denied"}`}
+							>
+								{allowed ? "○" : "⊘"}
+							</span>
+							<span>{ability.label}</span>
+							<strong
+								className={
+									allowed
+										? "permissions-result--allowed"
+										: "permissions-result--denied"
+								}
+							>
+								{allowed ? "允许" : "拒绝"}
+							</strong>
+						</li>
+					);
+				})}
+			</ul>
+
+			<div className="permissions-example__result">
+				<code>can? = true</code>
+				<span>允许</span>
+			</div>
+			<p>权限来自当前 Workspace 的 MembershipRole 并集</p>
+		</aside>
+	);
+}
 
 export default function WorkspacePermissionsPage() {
-  const params = useParams<{ slug: string }>();
-  const slug = params?.slug ?? "";
-  const router = useRouter();
-  // useAuthed()：首帧固定未确认/未登录（SSR/客户端 hydration 一致），挂载后读 cookie 确认
-  const { authed, confirmed } = useAuthed();
+	const params = useParams<{ slug: string }>();
+	const slug = params?.slug ?? "";
+	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
+	const { authed, confirmed } = useAuthed();
+	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
+	const wsId = ws?.id;
 
-  // #70 QA P1：工作区上下文优先真实数据（fetchMyWorkspaces），MOCK 仅首帧兜底
-  const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
-  const myRoles = ws?.myRoleNames ?? [];
+	const [matrix, setMatrix] = useState<PermissionMatrixRow[] | null>(null);
+	const [matrixWorkspaceId, setMatrixWorkspaceId] = useState<string | null>(
+		null,
+	);
+	const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [matrix, setMatrix] = useState<PermissionMatrixRow[] | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+	useEffect(() => {
+		if (!confirmed || !authed) return;
+		if (!wsId) return;
 
-  const wsId = ws?.id;
+		let cancelled = false;
+		fetchPermissionsMatrix()
+			.then((rows) => {
+				if (cancelled) return;
+				setMatrix(rows);
+				setMatrixWorkspaceId(wsId);
+				setErrorMsg(null);
+			})
+			.catch((error: unknown) => {
+				if (cancelled) return;
+				setMatrix([]);
+				setMatrixWorkspaceId(wsId);
+				setErrorMsg(
+					error instanceof Error ? error.message : "加载权限映射失败",
+				);
+			});
 
-  useEffect(() => {
-    // 登录态确认前不重定向也不拉取（避免已登录用户被先跳 /login）
-    if (!confirmed) return;
-    if (!authed) {
-      router.replace("/login");
-      return;
-    }
-    if (!wsId) {
-      return;
-    }
-    let cancelled = false;
-    fetchPermissionsMatrix()
-      .then((rows) => {
-        if (cancelled) return;
-        setMatrix(rows);
-        setErrorMsg(null);
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setErrorMsg(e instanceof Error ? e.message : "加载权限表失败");
-        setMatrix([]); // 失败后结束 loading，展示空态 + 错误横幅
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authed, confirmed, router, wsId]);
+		return () => {
+			cancelled = true;
+		};
+	}, [authed, confirmed, wsId]);
 
-  function handleSignOut() {
-    clearAuthToken();
-    router.push("/login");
-  }
+	const currentMatrix = matrixWorkspaceId === wsId ? matrix : null;
 
-  if (!authed) {
-    return (
-      <main className="flex flex-1 items-center justify-center bg-canvas">
-        <span className="l-p text-ink-3">加载中…</span>
-      </main>
-    );
-  }
+	return (
+		<WorkspaceShell slug={slug}>
+			<div className="permissions-main__inner">
+				<div className="permissions-breadcrumb" aria-label="页面路径">
+					<Link href={`/w/${slug}`}>工作区设置</Link>
+					<span>›</span>
+					<Link href={`/w/${slug}/members`}>成员与角色</Link>
+					<span>›</span>
+					<strong>权限映射</strong>
+				</div>
 
-  return (
-    <div className="min-h-screen bg-canvas">
-      <header className="flex h-[72px] items-center border-b border-line">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-            <Link href={`/w/${slug}`} className="l-btn-ghost">
-              ← 返回工作区
-            </Link>
-            <div>
-              <div className="l-overline">Permissions · 权限说明</div>
-              <h1 className="l-h2 text-ink">{ws?.name ?? slug} / 权限表</h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <ProfileEntry />
-            <button className="l-btn-outline" onClick={handleSignOut}>
-              退出登录
-            </button>
-          </div>
-        </div>
-      </header>
+				<header className="permissions-heading">
+					<h1>查看角色到能力的映射与 can? 判定</h1>
+				</header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        {!ws && !wsLoading ? (
-          <div className="rounded-large bg-card p-10 text-center ring-1 ring-line">
-            <p className="l-p text-ink-2">工作区「{slug}」不存在或不可访问。</p>
-            <Link href="/" className="l-btn-ghost mt-4 inline-block">
-              ← 工作台
-            </Link>
-          </div>
-        ) : (
-          <>
-            {/* 上下文 chips */}
-            <div className="mb-6 flex flex-wrap items-center gap-2">
-              <span className="l-chip">我的角色</span>
-              {myRoles.length === 0 ? (
-                <span className="l-chip">（无）</span>
-              ) : (
-                myRoles.map((r) => (
-                  <span key={r} className={PERMISSION_ROLE_BADGE_CLASS[r]}>
-                    {PERMISSION_ROLE_LABEL[r]} · {PERMISSION_ROLE_LABEL_ZH[r]}
-                  </span>
-                ))
-              )}
-              <span className="l-chip">语义对齐后端 #64/#66 Rbac can?</span>
-            </div>
+				<nav className="permissions-tabs" aria-label="成员管理页签">
+					<Link href={`/w/${slug}/members`} className="permissions-tab">
+						成员
+					</Link>
+					<Link
+						href={`/w/${slug}/permissions`}
+						className="permissions-tab permissions-tab--selected"
+						aria-current="page"
+					>
+						权限映射
+					</Link>
+				</nav>
 
-            {errorMsg && (
-              <div className="mb-4 rounded-large bg-card p-3 text-sm text-status-red ring-1 ring-line">
-                {errorMsg}
-              </div>
-            )}
+				<section className="permissions-notices" aria-label="权限规则说明">
+					<NoticeCard
+						icon="users"
+						tone="green"
+						title="多角色取并集"
+						detail="任一角色允许，即可执行"
+					/>
+					<NoticeCard
+						icon="shield"
+						tone="cyan"
+						title="租户边界优先"
+						detail="跨 Workspace 一律拒绝"
+					/>
+					<NoticeCard
+						icon="owner"
+						tone="blue"
+						title="Owner 专门指派"
+						detail="不可通过行内角色编辑授予"
+					/>
+				</section>
 
-            {wsLoading || (ws && matrix === null) ? (
-              <div className="h-40 animate-pulse rounded-large bg-card ring-1 ring-line" />
-            ) : matrix && matrix.length > 0 ? (
-              <>
-                {/* 权限矩阵：角色行 × 能力列 */}
-                <div className="overflow-x-auto rounded-large bg-card ring-1 ring-line">
-                  <table className="w-full min-w-[720px] border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-line text-left">
-                        <th className="l-overline px-4 py-3 text-ink-3">角色</th>
-                        {PERMISSION_ABILITIES.map((a) => (
-                          <th key={a.id} className="l-overline px-3 py-3 text-center text-ink-3">
-                            {a.label}
-                          </th>
-                        ))}
-                        <th className="l-overline px-4 py-3 text-ink-3">说明</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {matrix.map((row) => {
-                        const isMyRole = myRoles.includes(row.role);
-                        return (
-                          <tr
-                            key={row.role}
-                            className={`border-b border-line last:border-b-0 ${
-                              isMyRole ? "bg-accent-mentionbg/40" : ""
-                            }`}
-                            data-testid="permission-row"
-                          >
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <span className={PERMISSION_ROLE_BADGE_CLASS[row.role]}>
-                                  {PERMISSION_ROLE_LABEL[row.role]} ·{" "}
-                                  {PERMISSION_ROLE_LABEL_ZH[row.role]}
-                                </span>
-                                {isMyRole && (
-                                  <span className="l-chip">我的角色</span>
-                                )}
-                              </div>
-                            </td>
-                            {PERMISSION_ABILITIES.map((a) => {
-                              const ok = row.abilities[a.id];
-                              return (
-                                <td
-                                  key={a.id}
-                                  className="px-3 py-3 text-center"
-                                  data-testid={`cell-${row.role}-${a.id}`}
-                                  aria-label={`${PERMISSION_ROLE_LABEL[row.role]} ${a.label}：${
-                                    ok ? "支持" : "不支持"
-                                  }`}
-                                >
-                                  {ok ? (
-                                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent-mentionbg text-accent">
-                                      ✓
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-ink-2/10 text-ink-3">
-                                      ✗
-                                    </span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                            <td className="px-4 py-3 text-xs text-ink-3">{row.note ?? ""}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+				{errorMsg && (
+					<div className="permissions-error" role="alert">
+						{errorMsg}
+					</div>
+				)}
 
-                {/* 能力说明 */}
-                <h2 className="l-overline mt-8 mb-3 text-ink-3">能力说明</h2>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {PERMISSION_ABILITIES.map((a) => {
-                    const supported = myRolesHaveAbility(myRoles, matrix, a.id);
-                    return (
-                      <div key={a.id} className="rounded-large bg-card p-4 ring-1 ring-line">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="l-p font-medium text-ink">{a.label}</span>
-                          {myRoles.length > 0 && (
-                            <span className={`l-chip ${supported ? "!text-accent" : ""}`}>
-                              {supported ? "我的角色支持" : "我的角色不支持"}
-                            </span>
-                          )}
-                        </div>
-                        <p className="l-p mt-1 text-xs text-ink-3">{a.description}</p>
-                      </div>
-                    );
-                  })}
-                </div>
+				{wsLoading || currentMatrix === null ? (
+					<div
+						className="permissions-loading-card"
+						data-testid="permissions-loading"
+					/>
+				) : currentMatrix.length > 0 ? (
+					<div className="permissions-content-grid">
+						<MatrixCard matrix={currentMatrix} />
+						<ExampleCard matrix={currentMatrix} />
+					</div>
+				) : (
+					<div className="permissions-empty-table">
+						<Icon name="shield" size={30} />
+						<strong>暂无权限映射</strong>
+						<p>当前 Workspace 还没有可展示的角色能力矩阵。</p>
+					</div>
+				)}
 
-                <p className="l-p mt-6 text-xs text-ink-3">
-                  ※ 多角色并集：同一成员可持多个角色，任一角色支持某能力即视为支持（与后端
-                  can? 判定语义一致）。「创建工作台」为平台管理员专属，不随工作台角色授予。
-                </p>
-              </>
-            ) : (
-              <div className="rounded-large bg-card p-10 text-center ring-1 ring-line">
-                <p className="l-p text-ink-2">暂无权限数据。</p>
-              </div>
-            )}
-          </>
-        )}
-      </main>
-    </div>
-  );
+				<footer className="permissions-footer">
+					<span>
+						角色权限按当前 Workspace 隔离；跨 Workspace 资源默认拒绝。
+					</span>
+				</footer>
+			</div>
+		</WorkspaceShell>
+	);
 }

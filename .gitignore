@@ -12,10 +12,9 @@
 
 # Logs
 *.log
-scripts/orca-setup.sh
 
-# wenyang's local agent tools config
-## openclacky
-.clackyrules
-文档修订工程师/
-领域建模工程师/
+# Claude Code (project-local settings, not shared)
+.claude/settings.local.json
+
+# Node dependencies（根目录不应有 node_modules；web/ 各自忽略）
+node_modules/

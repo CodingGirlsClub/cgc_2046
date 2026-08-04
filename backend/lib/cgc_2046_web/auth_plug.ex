@@ -7,18 +7,61 @@ defmodule Cgc2046Web.AuthPlug do
   - `load_actor/2` promotes that user into the Ash actor (via `Ash.PlugHelpers`),
     which `AshGraphql.Plug` then places into the Absinthe context so Ash policies
     can enforce actor-based rules (e.g. only platform admins may create workspaces).
+
+  #13 Finding A：`load_from_bearer` 的 `retrieve_from_bearer`（AshAuthentication）
+  用 `else _ -> conn` 吞掉所有失败——包括 DB 故障导致的 token 查询失败。
+  此时 `current_user == nil` 与"无 token / token 无效"同形，`me` resolver
+  无法区分，一律返回 unauthorized，DB 抖动时已登录用户被误踢。
+
+  `load_actor` 在 `current_user == nil` 时复验 token：`Joken.verify` 只验签名
+  （不查 DB，与 `Jwt.verify` 不同），成功说明 token 本身有效（user 未加载是
+  撤销或 DB 故障），标记 `cgc_auth_uncertain` 供 `me` resolver 返回
+  `auth_uncertain` 让前端保持登录态重试；失败说明真未登录，不标记。
   """
   use AshAuthentication.Plug, otp_app: :cgc_2046
+
+  alias AshAuthentication.Jwt.Config
+
+  @uncertain_key :cgc_auth_uncertain
 
   @doc """
   Sets the authenticated user (loaded from bearer token) as the Ash actor.
 
   Place this plug after `load_from_bearer/2` and before `AshGraphql.Plug`.
+
+  `current_user == nil` 时，若 Bearer token 签名仍有效（DB 无关的 `Jwt.verify`
+  成功），标记 `cgc_auth_uncertain` 进 Absinthe context——区分"token 有效但
+  user 加载失败"（撤销 / DB 故障）与"无 token / token 无效"。
   """
   def load_actor(conn, _opts) do
     case conn.assigns[:current_user] do
-      nil -> conn
-      user -> Ash.PlugHelpers.set_actor(conn, user)
+      nil ->
+        maybe_mark_auth_uncertain(conn)
+
+      user ->
+        Ash.PlugHelpers.set_actor(conn, user)
     end
+  end
+
+  defp maybe_mark_auth_uncertain(conn) do
+    with [<<"Bearer ", token::binary>>] when byte_size(token) > 0 <-
+           Plug.Conn.get_req_header(conn, "authorization"),
+         signer <- Config.token_signer(Cgc2046.Accounts.User, [], %{}),
+         {:ok, _claims} <- Joken.verify(token, signer) do
+      mark_uncertain(conn)
+    else
+      _ -> conn
+    end
+  end
+
+  defp mark_uncertain(conn) do
+    absinthe = Map.get(conn.private, :absinthe, %{})
+    context = Map.get(absinthe, :context, %{})
+
+    put_private(
+      conn,
+      :absinthe,
+      Map.put(absinthe, :context, Map.put(context, @uncertain_key, true))
+    )
   end
 end

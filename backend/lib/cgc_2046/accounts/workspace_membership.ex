@@ -62,9 +62,69 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
     )
   end
 
+  calculations do
+    # P1-4 G6：暴露成员 user 的 email/displayName。嵌套 `user` 关系加载会被
+    # User read policy 滤空（默认 only_me 仅本人可读），故平铺 LEFT JOIN 绕过。
+    # 安全契约与 quirk 知识见 BypassReads（旁路读取面）moduledoc。
+    calculate(:user_email, :string, expr(user.email),
+      public?: true,
+      description: "成员邮箱（平铺自 user 关系，P1 G6）"
+    )
+
+    calculate(:user_display_name, :string, expr(user.display_name),
+      public?: true,
+      description: "成员昵称（平铺自 user 关系，P1 G6）"
+    )
+
+    # P1-4 G7：加入时间 = inserted_at（AshGraphql 未暴露 createdAt，补平铺字段）
+    calculate(:joined_at, :utc_datetime, expr(inserted_at),
+      public?: true,
+      description: "加入时间（P1 G7，= inserted_at）"
+    )
+  end
+
   actions do
     default_accept([])
-    defaults([:read, :destroy])
+    defaults([:read])
+
+    # destroy 显式化：补 last-owner 守卫（与 assign_roles 同一不变量）
+    destroy :destroy do
+      primary?(true)
+      require_atomic?(false)
+      # 内联 change 函数为 2 参数 (changeset, context)——Ash 3.31 的
+      # Ash.Resource.Change.Function 以 fun.(changeset, context) 调用（function.ex:9），
+      # 3 参数写法编译能过但运行时 BadArityError。
+      change(fn changeset, _context ->
+        membership = changeset.data
+        workspace_id = membership.workspace_id
+        cs = Ash.Changeset.set_tenant(changeset, workspace_id)
+
+        Ash.Changeset.before_action(cs, fn c ->
+          # 在 Repo.transaction 内执行锁获取和角色读取，确保同一连接：
+          # pg_advisory_xact_lock 是事务级锁，若 role_names 的 Ash.read 走不同连接
+          # 则锁不保护读。显式事务保证连接一致。
+          Cgc2046.Repo.acquire_workspace_lock!(workspace_id)
+
+          # actor 从 before_action 回调参数 c 取（commit 阶段，actor 已注入）；
+          # 外层 cs 是 change 注册时的快照，此时 actor 可能尚未注入。
+          actor = c.context[:private][:actor]
+
+          # owner 移除校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
+          # 与 assign_roles 共用同一实现）。destroy 场景：removing_owner=true, granting_owner=false。
+          case Cgc2046.Rbac.validate_owner_removal!(
+                 c,
+                 actor,
+                 membership.user_id,
+                 workspace_id,
+                 removing_owner: true,
+                 granting_owner: false
+               ) do
+            :ok -> c
+            {:error, errored} -> errored
+          end
+        end)
+      end)
+    end
 
     create :create do
       primary?(true)
@@ -79,7 +139,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
 
       argument(:role_names, {:array, :atom},
         allow_nil?: false,
-        constraints: [items: [one_of: [:owner, :admin, :member]]]
+        constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 
       change(Cgc2046.Changes.AssignRoles)

@@ -36,7 +36,7 @@ OpenClacky 是运行在**用户本地电脑**上的 AI Agent:通过 **Skill**(�
 ### 1.3 与我们最相关的四种贡献
 
 | 贡献 | 承载 | 关键能力 |
-|---|---|---|
+| --- | --- | --- |
 | **skills** | SKILL.md + scripts/references | frontmatter 触发(description)/工具约束(forbidden_tools / allowed-tools)/隔离(fork_agent)/模型(model: lite)/注入(context)/执行后 hook(after_task);渐进加载(元数据常驻 → 正文触发时 → 资源按需) |
 | **agents** | prompt.md + 引用 | 专属人格;`panels: [id]` 挂面板、`skills: [id]` 绑技能;一个容器可定义**多个 Agent**(数组) |
 | **panels** | 普通 JS(无构建工具链) | `Clacky.ext.ui.mount(slot, render, opts?)` 挂具名插槽;`Clacky.ext.subscribe` 监听;`Clacky.ext.api.register` 注册数据源 |
@@ -183,7 +183,7 @@ Workflow。你默认绑定 workspace-workflow-builder 技能与 Workflow 面板�
 
 - 说话简洁、结构化,面向非技术教研老师。
 - 构建前澄清:面向谁 / 目标 / 规模 / 时长。
-- 角色命名必须与 CGC 平台角色一致(Owner/Admin/Tutor/Volunteer/Learner)。
+- 角色命名必须与 CGC 平台角色一致(六枚举:owner/admin/member/tutor/volunteer/learner;UI 展示模板五角色,member 为兜底成员角色)。
 - 所有对平台的操作一律经 cgc-bridge 发出;平台拒绝时如实转告,绝不绕过。
 ```
 
@@ -237,6 +237,7 @@ end
 ```
 
 **设计要点**:
+
 - cgc-bridge 是**唯一出入口**:官方 Agent/Skill、面板、用户自建 Skill 都经它访问平台(用户自建 Skill 也可直连,但同样过平台严格鉴权,见 §3)。
 - **不开放** `public_endpoint`:一切平台操作都要求身份。
 
@@ -276,7 +277,7 @@ flowchart LR
 ### 3.3 与领域模型权限矩阵的衔接
 
 | 平台操作(经 OpenClacky) | 平台侧强制校验 | 备注 |
-|---|---|---|
+| --- | --- | --- |
 | 部署 Workflow(workspace-workflow-builder) | RBAC:`workflow.create/deploy` 授权角色(Owner/Admin/Tutor) | 与领域模型 §5 一致 |
 | 执行 Agent Step | RBAC + Step.allowed_roles + 成员关系 | Learner/Volunteer 按 Workflow 授权 |
 | 创建个人 Agent(workspace-agent-builder) | 成员身份(任何成员可建自己的) | 个人 Agent owner = 创建者,仅本人可见可用 |
@@ -286,7 +287,7 @@ flowchart LR
 ### 3.4 CGC API Token 设计(平台签发)
 
 | 字段 | 说明 |
-|---|---|
+| --- | --- |
 | 签发方 | CGC 平台(网站"设置 → API Token"页) |
 | 绑定 | `user_id` + `workspace_id`(单 workspace 一个 token,多 workspace 各自签发) |
 | 能力域(可选) | `read` / `workflow:write` / `agent:write` —— 最小权限签发 |
@@ -321,7 +322,7 @@ flowchart LR
 ### 4.2 网站适配点清单
 
 | # | 适配点 | 位置 | 说明 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | **部署回调 API** | 后端 `/api/v1/workflows`(REST) | cgc-bridge 调用;走 §3 完整授权链;幂等(同 name+workspace 更新) |
 | 2 | **API Token 签发/撤销页** | 网站设置页 | 按 workspace 签发、设有效期、一键撤销;展示"我能做什么"(调 /me 渲染权限) |
 | 3 | **Workflow 结构展示** | Workflow 详情页 | 按 Step 渲染流程(含 allowed_roles/agent_hint) |
@@ -342,7 +343,7 @@ flowchart LR
 ### P0:OpenClacky CGC 扩展(local 层自测)
 
 | # | 步骤 | 动作 | 验证 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0.1 | 生成骨架 | `clacky ext new cgc --full` | `clacky ext verify` 绿 |
 | 0.2 | 写 workspace-workflow-builder | 编辑 SKILL.md(§2.3) | cgc-tutor 会话内触发 → 产出合法 JSON |
 | 0.3 | 写官方 Agent | workspace-tutor / workspace-event-prep | 新会话出现 Agent 卡片;面板出现 |
@@ -353,7 +354,7 @@ flowchart LR
 ### P1:CGC 后端严格授权链(Elixir,TDD —— 本阶段核心)
 
 | # | 功能 | 测试(先写) | 实现 | 验证 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 1.1 | token 认证 | 无/错/过期/撤销 token → 401 | token 校验中间件(Ash Authentication 扩展或 plug) | `mix test` 绿 |
 | 1.2 | 身份与成员关系 | token 用户非 workspace 成员 → 403 | 实时查成员关系 | 绿 |
 | 1.3 | RBAC 判定 | 角色权限矩阵;无权限操作 → 403 | 自研 Rbac 模块(角色 × 操作 × 资源) | 绿 |
@@ -366,7 +367,7 @@ flowchart LR
 ### P2:网站适配(Next.js,TDD)
 
 | # | 功能 | 测试 | 实现 | 验证 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 2.1 | Workflow 详情页(Step 流程渲染) | 组件测试 | Apollo query + 渲染 | 手动绿 |
 | 2.2 | API Token 签发/撤销页 | 组件测试 | 表单 + 撤销交互 | 手动绿 |
 | 2.3 | 扩展安装引导页 | 组件测试 | 步骤 + 探测指引 | 手动绿 |
@@ -398,7 +399,7 @@ flowchart LR
 ## 七、与既有文档的关系
 
 | 文档 | 关系 |
-|---|---|
+| --- | --- |
 | `docs/01-定稿设计/领域模型定稿.md` §2/§5 | 角色建模与 Workflow 部署权限是本方案授权链的输入;Agent 两形态(个人/公共)对应扩展内 Agent 的组织方式 |
 | `docs/01-定稿设计/用户旅程与Web功能清单.md` | 网站适配点(4.2)对应页面清单 |
 | `docs/01-定稿设计/技术调研与实施计划.md` M1/M2 | 平台的 Workflow/Step/AgentRun 资源与执行底座;本方案把"构建"环节搬到 OpenClacky,并新增"严格授权链"作为 P1 核心 |

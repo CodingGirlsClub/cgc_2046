@@ -1,3 +1,14 @@
+## Agent principles
+
+- **Don't preserve backward compatibility.** Delete obsolete code paths instead of adding compatibility layers, fallbacks, or migration code.
+- **Choose the simplest implementation** that fully meets current needs. Avoid speculative abstractions, configuration, and indirection.
+- **Build systems in layers.** Start with the smallest version that runs end-to-end, add new features on top of an already working product. Never trade a working product for unfinished complexity.
+- **Keep components modular** with clear separation of concerns.
+- **Prefer mature, well-maintained libraries** when they reduce overall complexity or improve reliability. Don't reimplement common functionality without good reason.
+- **Leverage existing dependencies** in the project before writing your own implementation or adding new packages. Don't assume a library lacks a capability without consulting its documentation and types.
+- **Make long-term architectural decisions.** Don't accept temporary solutions that only work now with the intention of replacing them later.
+- **Study how established products solve the problem** before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
+
 ## Agent skills
 
 ### Issue tracker

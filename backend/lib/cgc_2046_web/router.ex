@@ -4,31 +4,29 @@ defmodule Cgc2046Web.Router do
   import Cgc2046Web.AuthPlug
 
   pipeline :api do
-    plug :accepts, ["json"]
+    plug(:accepts, ["json"])
   end
 
   pipeline :graphql do
-    plug :load_from_bearer
-    plug :load_actor
-    plug AshGraphql.Plug
+    plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
+    plug(:load_from_bearer)
+    plug(Cgc2046Web.Plugs.AuthTokenContextPlug)
+    plug(:load_actor)
+    plug(AshGraphql.Plug)
   end
 
   scope "/api", Cgc2046Web do
-    pipe_through [:api, :graphql]
+    pipe_through([:api, :graphql])
 
-    forward "/graphql",
-            Absinthe.Plug,
-            [schema: Module.concat(["Cgc2046Web.GraphqlSchema"])],
-            alias: false
-  end
-
-  scope "/api" do
-    pipe_through :graphql
-
-    forward "/playground",
-            Absinthe.Plug.GraphiQL,
-            [schema: Module.concat(["Cgc2046Web.GraphqlSchema"]), interface: :playground],
-            alias: false
+    forward(
+      "/graphql",
+      Absinthe.Plug,
+      [
+        schema: Module.concat(["Cgc2046Web.GraphqlSchema"]),
+        before_send: {Cgc2046Web.Plugs.AuthCookiePlug, :before_send}
+      ],
+      alias: false
+    )
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
@@ -38,13 +36,26 @@ defmodule Cgc2046Web.Router do
     # If your application does not have an admins-only section yet,
     # you can use Plug.BasicAuth to set up some basic authentication
     # as long as you are also using SSL (which you should anyway).
+
+    # Playground (only in dev — GraphQL introspection surface)
+    scope "/api" do
+      pipe_through(:graphql)
+
+      forward(
+        "/playground",
+        Absinthe.Plug.GraphiQL,
+        [schema: Module.concat(["Cgc2046Web.GraphqlSchema"]), interface: :playground],
+        alias: false
+      )
+    end
+
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do
-      pipe_through [:fetch_session, :protect_from_forgery]
+      pipe_through([:fetch_session, :protect_from_forgery])
 
-      live_dashboard "/dashboard", metrics: Cgc2046Web.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
+      live_dashboard("/dashboard", metrics: Cgc2046Web.Telemetry)
+      forward("/mailbox", Plug.Swoosh.MailboxPreview)
     end
   end
 end

@@ -33,6 +33,212 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :delete_portfolio_item mutation"
+type DeletePortfolioItemResult {
+  "The record that was successfully deleted"
+  result: PortfolioItem
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :update_portfolio_item mutation"
+type UpdatePortfolioItemResult {
+  "The successful result of the mutation"
+  result: PortfolioItem
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdatePortfolioItemInput {
+  "作品标题"
+  title: String
+
+  "作品描述"
+  description: String
+
+  "作品链接"
+  url: String
+
+  "作品图标类型（document\/book\/guide）"
+  icon: String
+}
+
+"The result of the :create_portfolio_item mutation"
+type CreatePortfolioItemResult {
+  "The successful result of the mutation"
+  result: PortfolioItem
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreatePortfolioItemInput {
+  "作品标题"
+  title: String!
+
+  "作品描述"
+  description: String
+
+  "作品链接"
+  url: String
+
+  "作品图标类型（document\/book\/guide）"
+  icon: String
+}
+
+enum PortfolioItemSortField {
+  ID
+  USER_ID
+  TITLE
+  DESCRIPTION
+  URL
+  ICON
+}
+
+input PortfolioItemFilterIcon {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input PortfolioItemFilterUrl {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input PortfolioItemFilterDescription {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input PortfolioItemFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input PortfolioItemFilterUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input PortfolioItemFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input PortfolioItemFilterInput {
+  and: [PortfolioItemFilterInput!]
+
+  or: [PortfolioItemFilterInput!]
+
+  not: [PortfolioItemFilterInput!]
+
+  id: PortfolioItemFilterId
+
+  "作品集所属用户 ID（仅本人，创建时自动填充）"
+  userId: PortfolioItemFilterUserId
+
+  "作品标题"
+  title: PortfolioItemFilterTitle
+
+  "作品描述"
+  description: PortfolioItemFilterDescription
+
+  "作品链接"
+  url: PortfolioItemFilterUrl
+
+  "作品图标类型（document\/book\/guide）"
+  icon: PortfolioItemFilterIcon
+}
+
+input PortfolioItemSortInput {
+  order: SortOrder
+  field: PortfolioItemSortField!
+}
+
+type PortfolioItem {
+  id: ID!
+
+  "作品集所属用户 ID（仅本人，创建时自动填充）"
+  userId: ID!
+
+  "作品标题"
+  title: String!
+
+  "作品描述"
+  description: String
+
+  "作品链接"
+  url: String
+
+  "作品图标类型（document\/book\/guide）"
+  icon: String!
+}
+
 enum RoleSortField {
   ID
   WORKSPACE_ID
@@ -109,7 +315,7 @@ input RoleFilterInput {
   "所属工作台（租户）ID"
   workspaceId: RoleFilterWorkspaceId
 
-  "角色名：owner \/ admin \/ member"
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: RoleFilterName
 
   "角色说明"
@@ -127,7 +333,7 @@ type Role {
   "所属工作台（租户）ID"
   workspaceId: ID!
 
-  "角色名：owner \/ admin \/ member"
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: String!
 
   "角色说明"
@@ -151,6 +357,9 @@ enum WorkspaceMembershipSortField {
   ID
   WORKSPACE_ID
   USER_ID
+  USER_EMAIL
+  USER_DISPLAY_NAME
+  JOINED_AT
 }
 
 "A keyset page of :workspace_membership"
@@ -166,6 +375,55 @@ type KeysetPageOfWorkspaceMembership {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input WorkspaceMembershipFilterJoinedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkspaceMembershipFilterUserDisplayName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceMembershipFilterUserEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
 }
 
 input WorkspaceMembershipFilterUserId {
@@ -223,6 +481,15 @@ input WorkspaceMembershipFilterInput {
   userId: WorkspaceMembershipFilterUserId
 
   roles: RoleFilterInput
+
+  "成员邮箱（平铺自 user 关系，P1 G6）"
+  userEmail: WorkspaceMembershipFilterUserEmail
+
+  "成员昵称（平铺自 user 关系，P1 G6）"
+  userDisplayName: WorkspaceMembershipFilterUserDisplayName
+
+  "加入时间（P1 G7，= inserted_at）"
+  joinedAt: WorkspaceMembershipFilterJoinedAt
 }
 
 input WorkspaceMembershipSortInput {
@@ -252,6 +519,15 @@ type WorkspaceMembership {
     "The number of records to skip."
     offset: Int
   ): [Role!]!
+
+  "成员邮箱（平铺自 user 关系，P1 G6）"
+  userEmail: String
+
+  "成员昵称（平铺自 user 关系，P1 G6）"
+  userDisplayName: String
+
+  "加入时间（P1 G7，= inserted_at）"
+  joinedAt: DateTime
 }
 
 "The result of the :update_workspace mutation"
@@ -433,150 +709,12 @@ type Workspace {
 
   "当前用户是否可进入该工作台（成员\/创建者）"
   canAccess: Boolean
-}
 
-type SignUpMetadata {
-  "A JWT which the user can use to authenticate to the API."
-  token: String!
-}
+  "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities\/2 一致）"
+  myAbilities: [String!]
 
-"The result of the :sign_up mutation"
-type SignUpResult {
-  "The successful result of the mutation"
-  result: User
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-
-  "Metadata produced by the mutation"
-  metadata: SignUpMetadata
-}
-
-input SignUpInput {
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: String!
-
-  "The proposed password for the user, in plain text."
-  password: String!
-}
-
-input UserFilterAvatarUrl {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterDisplayName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input UserFilterIsPlatformAdmin {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-}
-
-input UserFilterEmail {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-}
-
-input UserFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input UserFilterInput {
-  and: [UserFilterInput!]
-
-  or: [UserFilterInput!]
-
-  not: [UserFilterInput!]
-
-  id: UserFilterId
-
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: UserFilterEmail
-
-  "是否平台管理员（全局标记）"
-  isPlatformAdmin: UserFilterIsPlatformAdmin
-
-  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
-  displayName: UserFilterDisplayName
-
-  "头像 URL（#68 Profile API，可选）"
-  avatarUrl: UserFilterAvatarUrl
-}
-
-type SignInResult {
-  id: ID!
-
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: String!
-
-  "是否平台管理员（全局标记）"
-  isPlatformAdmin: Boolean!
-
-  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
-  displayName: String
-
-  "头像 URL（#68 Profile API，可选）"
-  avatarUrl: String
-
-  "A JWT which the user can use to authenticate to the API."
-  token: String!
+  "成员数量（P1 计算字段，SQL count(memberships)）"
+  memberCount: Int
 }
 
 type User {
@@ -591,21 +729,39 @@ type User {
   "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
   displayName: String
 
-  "头像 URL（#68 Profile API，可选）"
+  "头像 URL（#68 Profile API，可选；data URL 限 image\/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
   avatarUrl: String
+
+  "所在地（P1 Profile 扩展字段，可编辑）"
+  location: String
+
+  "个人简介（P1 Profile 扩展字段，可编辑）"
+  about: String
+
+  "技能标签列表（P1 Profile 扩展字段，可编辑）"
+  skills: [String!]
+
+  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
+  visibility: String!
+
+  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
+  uiThemePreference: String!
+
+  "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
+  memberNumber: String
+
+  "注册（加入）时间"
+  joinedAt: DateTime
 }
 
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
 
-  "角色权限矩阵（#66 Rbac）：三角色 × 六能力，对齐前端 #67 权限表（需登录）"
+  "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
   permissionMatrix: PermissionMatrixPayload
 
-  "当前用户在指定工作台的能力列表（#66 Rbac 动态判定，需登录）"
-  myAbilities(workspaceId: ID!): MyAbilitiesPayload
-
-  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/avatarUrl\/isPlatformAdmin"
+  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/avatarUrl\/isPlatformAdmin + P1 扩展字段"
   me: User
 
   "按 slug 获取工作台（需登录）"
@@ -653,42 +809,92 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): KeysetPageOfWorkspaceMembership
+
+  "当前用户的作品集条目列表"
+  myPortfolio(
+    "How to sort the records in the response"
+    sort: [PortfolioItemSortInput]
+
+    "A filter to limit the results"
+    filter: PortfolioItemFilterInput
+  ): [PortfolioItem!]!
+}
+
+type SignInResult {
+  id: ID!
+  email: String!
+  isPlatformAdmin: Boolean!
+}
+
+type SignUpPayload {
+  result: SignUpUser
+  errors: [MutationError]
+}
+
+type SignUpUser {
+  id: ID!
+  email: String!
+  isPlatformAdmin: Boolean!
+}
+
+input SignUpInput {
+  email: String!
+  password: String!
 }
 
 input UpdateProfileInput {
-  "updateProfile 输入（#68）：displayName 必填，avatarUrl 可选"
+  "updateProfile 输入（P1）：displayName 必填，avatarUrl\/location\/about\/skills\/visibility 可选"
   displayName: String!
 
   avatarUrl: String
+
+  location: String
+
+  about: String
+
+  skills: [String]
+
+  visibility: String
+}
+
+input SetUiThemeInput {
+  "setUiTheme 输入（U3）：uiThemePreference 必填，仅 dark | light"
+  uiThemePreference: String!
 }
 
 type RootMutationType {
+  "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
+  signIn(email: String!, password: String!): SignInResult
+
+  "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
+  signUp(input: SignUpInput!): SignUpPayload
+
+  "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
+  signOut: String
+
   "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
   updateProfile(input: UpdateProfileInput!): User
 
-  "Register a new user with a username and password."
-  signUp(input: SignUpInput!): SignUpResult!
-
-  "使用邮箱密码登录，成功后返回用户及 JWT token"
-  signIn(
-    "A filter to limit the results"
-    filter: UserFilterInput
-
-    "The identity to use for retrieving the user."
-    email: String!
-
-    "The password to check for the matching user."
-    password: String!
-  ): SignInResult
+  "设置当前用户 UI 主题偏好（U3）：dark | light，服务端持久化"
+  setUiTheme(input: SetUiThemeInput!): User
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
 
-  "更新工作台（平台管理员）"
+  "更新工作台（Owner\/Admin 或平台管理员）"
   updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
 
   "分配成员角色（多角色并集，仅 Owner\/Admin）"
   assignRoles(id: ID!, input: AssignRolesInput!): AssignRolesResult!
+
+  "创建作品集条目（user_id 自动为当前用户）"
+  createPortfolioItem(input: CreatePortfolioItemInput!): CreatePortfolioItemResult!
+
+  "更新自己的作品集条目"
+  updatePortfolioItem(id: ID!, input: UpdatePortfolioItemInput): UpdatePortfolioItemResult!
+
+  "删除自己的作品集条目"
+  deletePortfolioItem(id: ID!): DeletePortfolioItemResult!
 }
 
 """
@@ -698,26 +904,28 @@ human-readable json string.
 """
 scalar Json
 
-type PermissionAbilities {
-  viewWorkspace: Boolean!
-  accessInviteOnly: Boolean!
-  listMembers: Boolean!
-  manageMembers: Boolean!
-  assignRoles: Boolean!
-  createWorkspace: Boolean!
+"""
+The `DateTime` scalar type represents a date and time in the UTC
+timezone. The DateTime appears in a JSON response as an ISO8601 formatted
+string, including UTC timezone ("Z"). The parsed date and time string will
+be converted to UTC if there is an offset.
+"""
+scalar DateTime
+
+type AbilityGrant {
+  "能力名：view_workspace \/ access_invite_only \/ list_members \/ manage_members \/ assign_roles \/ create_workspace"
+  name: String!
+
+  allowed: Boolean!
 }
 
 type PermissionMatrixRow {
-  "角色名：owner \/ admin \/ member"
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
   name: String!
 
-  abilities: PermissionAbilities!
+  abilities: [AbilityGrant!]!
 }
 
 type PermissionMatrixPayload {
   roles: [PermissionMatrixRow!]!
-}
-
-type MyAbilitiesPayload {
-  abilities: [String!]!
 }

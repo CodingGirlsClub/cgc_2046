@@ -8,9 +8,10 @@ defmodule Cgc2046.Accounts.Workspace do
   - `sponsorship_enabled`：是否开放赞助入口，默认开
 
   权限（#62 + #64，Leader 已拍板）：
-  - 创建：仅平台管理员；创建时自动 seed 角色（owner/admin/member）并建立 Owner 成员资格（#64）
+  - 创建：仅平台管理员；创建时自动 seed 角色（owner/admin/member/tutor/volunteer/learner）并建立 Owner 成员资格（#64 + G1）
   - 读取：open/request 工作台对已认证用户可定向查询；invite_only 仅成员/管理员/平台管理员可读（非成员返回 null/forbidden，不可发现）
-  - 更新：平台管理员可改；Owner 权限在 #64 之后收紧为成员管理相关操作
+  - 更新：Owner/Admin（多角色并集）或平台管理员可改（#78：放开 join_policy 修改，
+    对应能力 `:update_join_policy`，见 Rbac 能力表）
   - `me_workspaces`：返回当前用户可进入（成员或创建者）的工作台列表，供前端 #63 使用
   """
   use Ash.Resource,
@@ -81,6 +82,28 @@ defmodule Cgc2046.Accounts.Workspace do
       public?: true,
       description: "当前用户是否可进入该工作台（成员/创建者）"
     )
+
+    # #1 能力接口收敛：my_abilities 随 meWorkspaces 下发（退役独立 myAbilities query）。
+    # 语义与 Rbac.abilities/2 完全一致（含非成员分支）：成员路径由共享纯函数
+    # abilities_for/2 派生；非成员平台管理员豁免 view/access/create_workspace。
+    calculate(
+      :my_abilities,
+      {:array, :string},
+      {Cgc2046.Accounts.Calculations.CurrentMembershipInfo, key: :my_abilities},
+      public?: true,
+      description: "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities/2 一致）"
+    )
+
+    # P1-4 memberCount：Repo 层批量 count（不经 membership read policy）。
+    # 见 BypassReads（旁路读取面）moduledoc：expr(count)/aggregate 子查询会被
+    # read policy 过滤成仅 actor 自己（SimpleCheck 子查询取不到 workspace_id）。
+    calculate(
+      :member_count,
+      :integer,
+      {Cgc2046.Accounts.Calculations.MemberCount, []},
+      public?: true,
+      description: "成员数量（P1 计算字段，SQL count(memberships)）"
+    )
   end
 
   relationships do
@@ -108,14 +131,10 @@ defmodule Cgc2046.Accounts.Workspace do
         after_action(fn changeset, workspace, _context ->
           tenant = workspace.id
 
-          roles = [
-            {:owner, "工作台所有者：拥有全部管理权限"},
-            {:admin, "工作台管理员：成员管理、角色分配"},
-            {:member, "普通成员：可访问工作台内容"}
-          ]
-
+          # 角色模板从 Role 模块单源取（role_descriptions/0），避免重复六角色字面量（G2 收敛）
           role_records =
-            Enum.map(roles, fn {name, description} ->
+            Cgc2046.Accounts.Role.role_descriptions()
+            |> Enum.map(fn {name, description} ->
               Ash.create!(Cgc2046.Accounts.Role, %{name: name, description: description},
                 tenant: tenant,
                 authorize?: false
@@ -166,7 +185,7 @@ defmodule Cgc2046.Accounts.Workspace do
 
       filter(expr(exists(memberships, user_id == ^actor(:id))))
 
-      prepare(build(load: [:my_role_names, :my_membership_id, :can_access]))
+      prepare(build(load: [:my_role_names, :my_membership_id, :can_access, :member_count]))
     end
   end
 
@@ -185,6 +204,9 @@ defmodule Cgc2046.Accounts.Workspace do
     end
 
     policy action_type(:update) do
+      # #78：Owner/Admin（多角色并集）可更新（含 join_policy）；
+      # 平台管理员现状能力不回收（二者取并）
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
@@ -216,7 +238,7 @@ defmodule Cgc2046.Accounts.Workspace do
     mutations do
       create(:create_workspace, :create, description: "创建工作台（仅平台管理员）")
 
-      update(:update_workspace, :update, description: "更新工作台（平台管理员）")
+      update(:update_workspace, :update, description: "更新工作台（Owner/Admin 或平台管理员）")
     end
   end
 end
