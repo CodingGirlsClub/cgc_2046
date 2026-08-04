@@ -772,8 +772,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       assert {:ok, joined} =
                Workspace
-               |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
-               |> Ash.read_one(actor: user)
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
 
       assert joined.id == workspace.id
 
@@ -807,8 +807,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       result =
         Workspace
-        |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
-        |> Ash.read_one(actor: user)
+        |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+        |> Ash.run_action(actor: user)
 
       # Should return error because join_policy is :request
       assert match?({:error, _}, result) or result == {:ok, nil}
@@ -830,8 +830,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       result =
         Workspace
-        |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
-        |> Ash.read_one(actor: user)
+        |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+        |> Ash.run_action(actor: user)
 
       # Should return error because join_policy is :invite_only
       assert match?({:error, _}, result) or result == {:ok, nil}
@@ -851,8 +851,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       result =
         Workspace
-        |> Ash.Query.for_read(:join, %{workspace_id: workspace.id})
-        |> Ash.read_one()
+        |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id})
+        |> Ash.run_action()
 
       # Anonymous user should be forbidden
       assert match?({:error, %Ash.Error.Forbidden{}}, result)
@@ -875,8 +875,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       # First join - should create membership
       assert {:ok, joined} =
                Workspace
-               |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
-               |> Ash.read_one(actor: user)
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
 
       assert joined.id == workspace.id
 
@@ -891,8 +891,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       # Second join - should be idempotent, return workspace without error
       assert {:ok, joined_again} =
                Workspace
-               |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
-               |> Ash.read_one(actor: user)
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
 
       assert joined_again.id == workspace.id
 

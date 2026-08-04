@@ -1107,6 +1107,11 @@ type WorkspaceMembership {
   joinedAt: DateTime
 }
 
+input JoinWorkspaceInput {
+  "目标工作台 ID"
+  workspaceId: ID!
+}
+
 "The result of the :update_workspace mutation"
 type UpdateWorkspaceResult {
   "The successful result of the mutation"
@@ -1366,15 +1371,6 @@ type RootQueryType {
     filter: WorkspaceFilterInput
   ): [Workspace!]!
 
-  "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
-  joinWorkspace(
-    "A filter to limit the results"
-    filter: WorkspaceFilterInput
-
-    "目标工作台 ID"
-    workspaceId: ID!
-  ): Workspace
-
   "工作台成员列表（成员本人仅见自己；Owner\/Admin 见全部，供成员管理页）"
   workspaceMembers(
     "How to sort the records in the response"
@@ -1520,6 +1516,9 @@ type RootMutationType {
 
   "更新工作台（Owner\/Admin 或平台管理员）"
   updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
+
+  "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
+  joinWorkspace(input: JoinWorkspaceInput!): Workspace!
 
   "分配成员角色（多角色并集，仅 Owner\/Admin）"
   assignRoles(id: ID!, input: AssignRolesInput!): AssignRolesResult!
