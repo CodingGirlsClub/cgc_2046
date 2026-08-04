@@ -308,6 +308,24 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
                |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
                |> Ash.update(tenant: workspace.id, actor: outsider)
     end
+
+    test "approve fails when applicant is already a member" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      # 申请人已是成员
+      add_member(workspace, applicant, admin, [:member])
+      jr = create_join_request(workspace, applicant)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               jr
+               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      # join_request 仍为 pending（after_action 抛错回滚，未进 approved 终态）
+      assert {:ok, reloaded} = Ash.get(JoinRequest, jr.id, tenant: workspace.id, actor: admin)
+      assert reloaded.status == :pending
+    end
   end
 
   describe "reject join request" do
