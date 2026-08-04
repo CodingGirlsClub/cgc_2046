@@ -1,6 +1,7 @@
 defmodule Cgc2046.RbacTest do
   use Cgc2046Web.ConnCase, async: true
 
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
@@ -83,7 +84,7 @@ defmodule Cgc2046.RbacTest do
     if role_names != [] do
       assert {:ok, _membership} =
                membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
+               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names}, actor: actor)
                |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
     end
 
@@ -130,8 +131,39 @@ defmodule Cgc2046.RbacTest do
                "expected platform admin (non-member) to be denied #{ability}"
       end
 
+      # #78 例外：update_join_policy 是 Workspace 全局资源的管理能力，
+      # 平台管理员豁免（与 policy 侧并集一致、测试互证）；
+      # 与 #66 P2「成员域管理能力无豁免」的语义区分见 #78 票内口径。
+      assert Rbac.can?(admin, :update_join_policy, workspace_id: workspace.id)
+
       # 平台级能力仍保留
       assert Rbac.can?(admin, :create_workspace, workspace_id: workspace.id)
+    end
+
+    test "update_join_policy 能力语义（#78）：Owner/Admin 真，member/outsider 假" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      owner = register_user("rbac-upj-owner@example.com", @password)
+      add_member(workspace, owner, admin, [:owner])
+
+      admin_role = register_user("rbac-upj-admin@example.com", @password)
+      add_member(workspace, admin_role, admin, [:admin])
+
+      member = register_user("rbac-upj-member@example.com", @password)
+      add_member(workspace, member, admin, [:member])
+
+      outsider = register_user("rbac-upj-out@example.com", @password)
+
+      assert Rbac.can?(owner, :update_join_policy, workspace_id: workspace.id)
+      assert Rbac.can?(admin_role, :update_join_policy, workspace_id: workspace.id)
+      refute Rbac.can?(member, :update_join_policy, workspace_id: workspace.id)
+      refute Rbac.can?(outsider, :update_join_policy, workspace_id: workspace.id)
+
+      # 平台管理员豁免：非成员也可改（与 workspace.ex update policy 并集一致）
+      remove_membership(workspace, admin)
+      assert Rbac.can?(admin, :update_join_policy, workspace_id: workspace.id)
+      assert :update_join_policy in Rbac.abilities(admin, workspace_id: workspace.id)
     end
 
     test "owner member abilities match #67 matrix" do
@@ -147,6 +179,7 @@ defmodule Cgc2046.RbacTest do
       assert Rbac.can?(owner, :list_members, workspace_id: workspace.id)
       assert Rbac.can?(owner, :manage_members, workspace_id: workspace.id)
       assert Rbac.can?(owner, :assign_roles, workspace_id: workspace.id)
+      assert Rbac.can?(owner, :update_join_policy, workspace_id: workspace.id)
       refute Rbac.can?(owner, :create_workspace, workspace_id: workspace.id)
     end
 
@@ -162,7 +195,8 @@ defmodule Cgc2046.RbacTest do
             :access_invite_only,
             :list_members,
             :manage_members,
-            :assign_roles
+            :assign_roles,
+            :update_join_policy
           ] do
         assert Rbac.can?(user, ability, workspace_id: workspace.id),
                "expected admin member to have #{ability}"
@@ -183,6 +217,7 @@ defmodule Cgc2046.RbacTest do
       refute Rbac.can?(user, :list_members, workspace_id: workspace.id)
       refute Rbac.can?(user, :manage_members, workspace_id: workspace.id)
       refute Rbac.can?(user, :assign_roles, workspace_id: workspace.id)
+      refute Rbac.can?(user, :update_join_policy, workspace_id: workspace.id)
       refute Rbac.can?(user, :create_workspace, workspace_id: workspace.id)
     end
 
@@ -197,7 +232,8 @@ defmodule Cgc2046.RbacTest do
             :access_invite_only,
             :list_members,
             :manage_members,
-            :assign_roles
+            :assign_roles,
+            :update_join_policy
           ] do
         refute Rbac.can?(outsider, ability, workspace_id: workspace.id),
                "expected outsider to be denied #{ability}"
@@ -269,7 +305,7 @@ defmodule Cgc2046.RbacTest do
       outsider = register_user("rbac-abilities-out@example.com", @password)
       assert Rbac.abilities(outsider, workspace_id: workspace.id) == []
 
-      # 平台管理员（自建 workspace，owner 成员）拥有全部六项能力（含 create_workspace）
+      # 平台管理员（自建 workspace，owner 成员）拥有全部七项能力（含 create_workspace）
       assert Rbac.abilities(admin, workspace_id: workspace.id) ==
                [
                  :view_workspace,
@@ -277,40 +313,122 @@ defmodule Cgc2046.RbacTest do
                  :list_members,
                  :manage_members,
                  :assign_roles,
+                 :update_join_policy,
                  :create_workspace
                ]
 
-      # 非成员平台管理员：仅 view/access + create_workspace（P2 判定侧收敛）
+      # 非成员平台管理员：view/access + update_join_policy 豁免 + create_workspace（#78）
       remove_membership(workspace, admin)
 
       assert Rbac.abilities(admin, workspace_id: workspace.id) ==
-               [:view_workspace, :access_invite_only, :create_workspace]
+               [
+                 :view_workspace,
+                 :access_invite_only,
+                 :update_join_policy,
+                 :create_workspace
+               ]
     end
   end
 
   describe "matrix/0" do
-    test "matches the frontend #67 MOCK_PERMISSION_MATRIX" do
+    test "matches the contract artifact (6 roles, G1)" do
       matrix = Rbac.matrix()
 
-      assert length(matrix) == 3
-      assert Enum.map(matrix, & &1.role) == [:owner, :admin, :member]
+      assert length(matrix) == 6
+      # 角色枚举断言引用单源（G2 收敛），避免测试与 Role.role_names/0 漂移
+      assert Enum.map(matrix, & &1.role) == Role.role_names()
 
-      for row <- matrix, row.role in [:owner, :admin] do
+      for row <- matrix, row.role in Role.manage_roles() do
         assert row.abilities.view_workspace == true
         assert row.abilities.access_invite_only == true
         assert row.abilities.list_members == true
         assert row.abilities.manage_members == true
         assert row.abilities.assign_roles == true
+        assert row.abilities.update_join_policy == true
         assert row.abilities.create_workspace == false
       end
 
-      member = Enum.find(matrix, &(&1.role == :member))
-      assert member.abilities.view_workspace == true
-      assert member.abilities.access_invite_only == true
-      assert member.abilities.list_members == false
-      assert member.abilities.manage_members == false
-      assert member.abilities.assign_roles == false
-      assert member.abilities.create_workspace == false
+      for role <- [:member, :tutor, :volunteer, :learner] do
+        row = Enum.find(matrix, &(&1.role == role))
+        assert row.abilities.view_workspace == true
+        assert row.abilities.access_invite_only == true
+        assert row.abilities.list_members == false
+        assert row.abilities.manage_members == false
+        assert row.abilities.assign_roles == false
+        assert row.abilities.update_join_policy == false
+        assert row.abilities.create_workspace == false
+      end
+    end
+  end
+
+  describe "abilities_for/2 (#1 能力接口收敛共享纯函数)" do
+    test "role-derived abilities match matrix rows" do
+      # owner/admin：全部管理能力 + view/access
+      for role <- [:owner, :admin] do
+        assert Rbac.abilities_for([role], false) == [
+                 :view_workspace,
+                 :access_invite_only,
+                 :list_members,
+                 :manage_members,
+                 :assign_roles,
+                 :update_join_policy
+               ]
+      end
+
+      # 成员级角色：仅 view/access
+      for role <- [:member, :tutor, :volunteer, :learner] do
+        assert Rbac.abilities_for([role], false) == [:view_workspace, :access_invite_only]
+      end
+    end
+
+    test "multi-role union takes precedence over single roles" do
+      assert Rbac.abilities_for([:member, :admin], false) == [
+               :view_workspace,
+               :access_invite_only,
+               :list_members,
+               :manage_members,
+               :assign_roles,
+               :update_join_policy
+             ]
+    end
+
+    test "platform admin flag adds create_workspace and view/access exemption" do
+      # 非成员平台管理员（roles 为空）：view/access + update_join_policy 豁免 + create_workspace
+      assert Rbac.abilities_for([], true) == [
+               :view_workspace,
+               :access_invite_only,
+               :update_join_policy,
+               :create_workspace
+             ]
+
+      # 成员平台管理员：全部七项
+      assert Rbac.abilities_for([:owner], true) == [
+               :view_workspace,
+               :access_invite_only,
+               :list_members,
+               :manage_members,
+               :assign_roles,
+               :update_join_policy,
+               :create_workspace
+             ]
+
+      # 非平台管理员：create_workspace 永假（与矩阵一致）
+      refute :create_workspace in Rbac.abilities_for([:owner], false)
+    end
+
+    test "empty roles (member with no roles) still gets view/access — member semantics" do
+      # 成员身份由调用方（calc/can? 的 membership 门）判定；零角色成员仍可访问
+      # （与 roles_can? 的成员语义一致：view/access 无条件 true）
+      assert Rbac.abilities_for([], false) == [:view_workspace, :access_invite_only]
+    end
+
+    test "unions with matrix/0 for every role (single-source consistency)" do
+      for row <- Rbac.matrix() do
+        expected = for {ability, true} <- row.abilities, do: ability
+
+        # 语义集合一致（matrix 的 map 迭代序 ≠ @abilities 列表序，按集合比较）
+        assert Enum.sort(Rbac.abilities_for([row.role], false)) == Enum.sort(expected)
+      end
     end
   end
 end

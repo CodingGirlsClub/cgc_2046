@@ -1,29 +1,32 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { setAuthToken, clearAuthToken, isAuthenticated, TOKEN_COOKIE } from "./auth";
-import { getAuthToken } from "./apollo-client";
+import { describe, it, expect, vi } from "vitest";
 
-afterEach(clearAuthToken);
+const { mutate, clearStore } = vi.hoisted(() => ({
+	mutate: vi.fn().mockResolvedValue({ data: { signOut: "signed_out" } }),
+	clearStore: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./apollo-client", () => ({
+	client: { mutate, clearStore },
+}));
 
 describe("auth 登录态工具 (#61)", () => {
-  it("TOKEN_COOKIE 与 apollo-client 读取的 cookie 名一致", () => {
-    expect(TOKEN_COOKIE).toBe("cgc_token");
-  });
+	it("clearSession 调 signOut mutation 并清 Apollo 缓存", async () => {
+		const { clearSession } = await import("./auth");
+		await clearSession();
 
-  it("setAuthToken 写入 cgc_token cookie 后可被读取", () => {
-    setAuthToken("jwt-abc");
-    expect(getAuthToken()).toBe("jwt-abc");
-    expect(isAuthenticated()).toBe(true);
-  });
-
-  it("URL 编码 token 可被正确写回", () => {
-    setAuthToken("eyJ+tok");
-    expect(getAuthToken()).toBe("eyJ+tok");
-  });
-
-  it("clearAuthToken 清除后未登录", () => {
-    setAuthToken("jwt-abc");
-    clearAuthToken();
-    expect(getAuthToken()).toBeUndefined();
-    expect(isAuthenticated()).toBe(false);
-  });
+		// 正向 regression guard：mutate 必须以 signOut mutation document 被调。
+		// 弱断言 toHaveBeenCalled() 不能发现 clearSession 误改成调别的 mutation。
+		expect(mutate).toHaveBeenCalledTimes(1);
+		// mutate({ mutation: DocumentNode })——document 嵌在 call.mutation
+		const { mutation } = mutate.mock.calls[0][0] as { mutation: { definitions: unknown[] } };
+		expect(mutation.definitions).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					operation: "mutation",
+					name: expect.objectContaining({ value: "SignOut" }),
+				}),
+			]),
+		);
+		expect(clearStore).toHaveBeenCalledTimes(1);
+	});
 });

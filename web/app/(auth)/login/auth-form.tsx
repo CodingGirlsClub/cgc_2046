@@ -1,145 +1,266 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useState, type FormEvent } from "react";
 
 export type AuthMode = "login" | "register";
 
 export interface AuthSubmitPayload {
   mode: AuthMode;
+  /** 保留为兼容字段；注册页当前只收集邮箱和密码。 */
   nickname?: string;
   email: string;
   password: string;
 }
 
-/**
- * 登录/注册表单（#61 A-2-FE 静态骨架）。
- *
- * 形态与 prototype-m0/app/prototype/auth/page.tsx 的 AuthForm 一致（Linear 双主题）。
- * 静态阶段：提交仅本地提示；#60（signIn/signUp mutation）就绪后，
- * 由页面传入真实 onSubmit（走 lib/graphql/auth.ts + setAuthToken 写 cookie）。
- */
+function EyeIcon({ visible }: { visible: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      {visible ? (
+        <>
+          <path d="M2.8 12s3.2-5 9.2-5 9.2 5 9.2 5-3.2 5-9.2 5-9.2-5-9.2-5Z" />
+          <circle cx="12" cy="12" r="2.3" />
+        </>
+      ) : (
+        <>
+          <path d="M3 3l18 18" />
+          <path d="M10.6 6.9A9.7 9.7 0 0 1 12 6.8c5.9 0 9.2 5.2 9.2 5.2a16 16 0 0 1-3.1 3.4M6.1 7.7C3.9 9.1 2.8 12 2.8 12s3.2 5.2 9.2 5.2c1.3 0 2.5-.2 3.5-.6" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function PasswordField({
+  id,
+  placeholder,
+  value,
+  onChange,
+  visible,
+  onToggle,
+  autoComplete,
+}: {
+  id: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  visible: boolean;
+  onToggle: () => void;
+  autoComplete: string;
+}) {
+  return (
+    <div className="auth-input-wrap">
+      <input
+        id={id}
+        name={id}
+        className="auth-input auth-input--password"
+        type={visible ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete={autoComplete}
+        required
+        minLength={8}
+      />
+      <button
+        type="button"
+        className="auth-password-toggle"
+        onClick={onToggle}
+        aria-label={visible ? "隐藏密码" : "显示密码"}
+      >
+        <EyeIcon visible={visible} />
+      </button>
+    </div>
+  );
+}
+
+function passwordStrength(password: string) {
+  if (!password) return 0;
+
+  let score = password.length >= 8 ? 2 : 1;
+  if (password.length >= 12 && /[A-Z]/.test(password) && /\d/.test(password)) {
+    score = 3;
+  }
+  return score;
+}
+
+function PasswordStrength({ password }: { password: string }) {
+  const score = passwordStrength(password);
+  const label = score === 3 ? "强" : score === 2 ? "中" : score === 1 ? "弱" : "";
+  const tone = score === 3 ? "strong" : score === 2 ? "medium" : "weak";
+
+  return (
+    <div className="auth-password-strength" aria-label={label ? `密码强度：${label}` : "密码强度未设置"}>
+      <div className="auth-password-strength__bars" aria-hidden="true">
+        {[1, 2, 3].map((level) => (
+          <span
+            key={level}
+            className={level <= score ? `auth-password-strength__bar auth-password-strength__bar--${tone}` : "auth-password-strength__bar"}
+          />
+        ))}
+      </div>
+      <div className="auth-password-strength__labels" aria-hidden="true">
+        {["弱", "中", "强"].map((item) => (
+          <span key={item} className={item === label ? "auth-password-strength__label--active" : undefined}>
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AuthForm({
   mode,
   setMode,
   onSubmit,
-  busy,
+  busy = false,
   error,
 }: {
   mode: AuthMode;
-  setMode: (m: AuthMode) => void;
+  /** 仅供旧的组件测试/嵌入方使用；正式认证页通过路由切换。 */
+  setMode?: (mode: AuthMode) => void;
   onSubmit?: (payload: AuthSubmitPayload) => Promise<void>;
   busy?: boolean;
-  /** 后端返回的错误提示（signUp: result.errors / signIn: ApolloError） */
   error?: string | null;
 }) {
   const [submitted, setSubmitted] = useState(false);
-  const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const isRegister = mode === "register";
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitted(false);
+    setFormError(null);
+
+    if (isRegister && password.length < 8) {
+      setFormError("密码至少需要 8 个字符");
+      return;
+    }
+    if (isRegister && password !== confirmPassword) {
+      setFormError("两次输入的密码不一致");
+      return;
+    }
+
     if (onSubmit) {
-      await onSubmit({ mode, nickname: nickname || undefined, email, password });
+      await onSubmit({ mode, email, password });
     } else {
       setSubmitted(true);
     }
   };
 
-  return (
-    <div>
-      <div className="flex rounded-[6px] bg-soft p-0.5 ring-1 ring-line">
-        {(["login", "register"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`flex-1 rounded-[5px] py-1.5 text-[13px] font-[510] transition ${
-              mode === m ? "bg-view text-ink ring-1 ring-line" : "text-ink-3 hover:text-ink-2"
-            }`}
-          >
-            {m === "login" ? "登录" : "注册"}
-          </button>
-        ))}
-      </div>
+  const switchLabel = isRegister ? "返回登录" : "创建账号";
+  const switchHref = isRegister ? "/login" : "/register";
+  const displayError = formError ?? error;
 
-      <form className="mt-5 space-y-3" onSubmit={handleSubmit}>
-        {error && (
-          <div
-            role="alert"
-            className="rounded-[6px] bg-red-50 px-3 py-2 text-xs text-red-700 ring-1 ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900"
-          >
-            {error}
+  return (
+    <div className="auth-form-body">
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        {displayError && (
+          <div role="alert" className="auth-alert">
+            {displayError}
           </div>
         )}
-        {mode === "register" && (
-          <div>
-            <label className="l-overline block" htmlFor="auth-nickname">
-              昵称
-            </label>
-            <input
-              id="auth-nickname"
-              className="l-input mt-1 w-full"
-              placeholder="你的昵称"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-            />
-          </div>
-        )}
-        <div>
-          <label className="l-overline block" htmlFor="auth-email">
-            邮箱
-          </label>
+
+        <div className="auth-field">
+          <label className="auth-field__label" htmlFor="auth-email">邮箱</label>
           <input
             id="auth-email"
-            className="l-input mt-1 w-full"
+            name="email"
+            className="auth-input"
             type="email"
             placeholder="you@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setFormError(null);
+            }}
+            autoComplete="email"
+            autoFocus
+            required
           />
         </div>
-        <div>
-          <div className="flex items-center justify-between">
-            <label className="l-overline block" htmlFor="auth-password">
-              密码
-            </label>
-            {mode === "login" && (
-              <button type="button" className="text-xs text-accent transition hover:text-accent-mention">
+
+        <div className="auth-field">
+          <div className="auth-field__label-row">
+            <label className="auth-field__label" htmlFor="auth-password">密码</label>
+            {!isRegister && (
+              <button type="button" className="auth-inline-link">
                 忘记密码？
               </button>
             )}
           </div>
-          <input
+          <PasswordField
             id="auth-password"
-            className="l-input mt-1 w-full"
-            type="password"
-            placeholder="••••••••"
+            placeholder={isRegister ? "至少 8 个字符" : ""}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(value) => {
+              setPassword(value);
+              setFormError(null);
+            }}
+            visible={showPassword}
+            onToggle={() => setShowPassword((current) => !current)}
+            autoComplete={isRegister ? "new-password" : "current-password"}
           />
+          {isRegister && <PasswordStrength password={password} />}
         </div>
-        <button type="submit" className="l-btn-primary w-full justify-center" disabled={busy}>
-          {busy ? "处理中…" : mode === "login" ? "登录" : "创建账号"}
+
+        {isRegister && (
+          <div className="auth-field">
+            <label className="auth-field__label" htmlFor="auth-confirm-password">确认密码</label>
+            <PasswordField
+              id="auth-confirm-password"
+              placeholder="再次输入密码"
+              value={confirmPassword}
+              onChange={(value) => {
+                setConfirmPassword(value);
+                setFormError(null);
+              }}
+              visible={showConfirmPassword}
+              onToggle={() => setShowConfirmPassword((current) => !current)}
+              autoComplete="new-password"
+            />
+          </div>
+        )}
+
+        <button type="submit" className="auth-submit" disabled={busy} aria-busy={busy}>
+          {busy ? "处理中…" : isRegister ? "创建账号并继续" : "登录并进入工作台"}
         </button>
       </form>
 
       {submitted && !onSubmit && (
-        <div className="l-p mt-3 rounded-[6px] bg-soft p-3 text-xs text-ink-2 ring-1 ring-line">
-          （mock）提交成功——正式版经 signIn / signUp mutation 登录，token 写入{" "}
-          <span className="l-code px-1 py-0.5">cgc_token</span> cookie。
+        <div className="auth-submit-note">
+          （mock）提交成功——正式版经 signIn / signUp mutation 登录，token 写入 <code>cgc_token</code> cookie。
         </div>
       )}
 
-      <p className="l-p mt-4 text-center text-xs text-ink-3">
-        {mode === "login" ? "还没有账号？" : "已有账号？"}{" "}
-        <button
-          type="button"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
-          className="l-link text-accent transition hover:text-accent-mention"
-        >
-          {mode === "login" ? "立即注册" : "去登录"}
-        </button>
+      <p className="auth-switch">
+        {isRegister ? "已经有账号？" : "还没有账号？"}{" "}
+        {setMode ? (
+          <button
+            type="button"
+            className="auth-inline-link auth-switch__action"
+            onClick={() => setMode(isRegister ? "login" : "register")}
+          >
+            {switchLabel}
+          </button>
+        ) : (
+          <Link href={switchHref} className="auth-inline-link auth-switch__action">
+            {switchLabel}
+          </Link>
+        )}
+      </p>
+
+      <p className="auth-terms">
+        {isRegister ? "注册" : "登录"}即表示你同意
+        <a href="#terms" onClick={(event) => event.preventDefault()}>服务条款</a>
+        与
+        <a href="#privacy" onClick={(event) => event.preventDefault()}>隐私政策</a>
       </p>
     </div>
   );

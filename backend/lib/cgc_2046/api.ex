@@ -4,7 +4,11 @@ defmodule Cgc2046.Api do
     extensions: [AshGraphql.Domain]
 
   graphql do
-    authorize?(false)
+    # authorize?(true): matches GlobalApi. This domain has no resources yet;
+    # setting true ensures any future resource registered here defaults to
+    # Ash policy authorization (actions without a policy default to deny),
+    # preventing accidental public exposure of tenant-scoped resources.
+    authorize?(true)
   end
 
   resources do

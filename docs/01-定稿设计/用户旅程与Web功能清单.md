@@ -26,7 +26,7 @@
 ## 1. 八角色旅程总览
 
 | 角色 | 一句话旅程 | 与 Workspace 关系 | 关键 workflow | 产物落点 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Visitor | 公开浏览 → 报名时注册登录 | 无(游客) | 报名 workflow(触发注册) | 账号 → Enrollment |
 | Learner | 事件级报名 → BYO 全链路学习 | 非成员(Enrollment) | 报名 workflow + 学习 workflow | Enrollment / 学习产出 |
 | Tutor | 教研 workflow 产出大纲材料 → 现场辅导 | 成员 | 教研 workflow | 大纲/材料(Step 产出) |
@@ -232,7 +232,7 @@ flowchart TD
 ## 3. Web 页面清单(第一版)
 
 | 页面 | 说明 | 可访问角色 |
-|---|---|---|
+| --- | --- | --- |
 | 注册/登录页 | 全局账号;Visitor 报名时注册登录 | 所有人 |
 | 连接引导页(Onboarding) | 三步:装 OpenClacky → 装扩展 → 扩展自动检查并安装 MCP(自动配置 mcp.json;网站只生成 token) | 登录用户(首次) |
 | 连接设置页 | 生成/撤销每用户 MCP 连接 token(绑用户不绑工作区) | 登录用户(仅本人) |
@@ -251,6 +251,7 @@ flowchart TD
 | 平台管理后台 | 创建 Workspace(申请审批 + 主动创建)+ 指定 Owner | 平台管理员 |
 
 说明:
+
 - **形态 X(D4)**:无"Workflow 执行页"、无"Agent 对话页"——执行与聊天全在用户自己的 OpenClacky;网站只做业务中枢与产出/审计展示
 - **workflow 展示页(报名流程、赞助流程)为只读展示**(D-A 系列):显示 workflow 当前状态/所处步骤/产物,不提供执行;执行与推进在用户 OpenClacky 经 MCP/信号完成
 - Workflow 构建不做独立 UI 页面:用户在 OpenClacky 中经 CGC 助手构建,经 MCP `create_workflow` 部署为 Workspace 的 Workflow
@@ -264,9 +265,9 @@ flowchart TD
 ## 4. 关键权限补充
 
 | 操作 | 允许角色 |
-|---|---|
+| --- | --- |
 | 创建 Workspace + 指定 Owner(主动创建 / 审批申请) | 仅平台管理员(is_platform_admin);组织者可提交申请 |
-| 设置/修改加入策略 | Owner |
+| 设置/修改加入策略 | Owner/Admin（#78 拍板口径；平台管理员亦保留） |
 | 审批加入申请(request 空间) | Owner/Admin |
 | 审批报名申请(request 策略) | Owner/Admin of 活动所属 Workspace |
 | 审批赞助意向 | Event 级:Owner/Admin of 目标 Workspace;Workspace 级:仅 Owner |
@@ -279,8 +280,3 @@ flowchart TD
 | 生成/撤销 MCP 连接 token | 登录用户(仅本人,D13:绑用户不绑工作区) |
 | 查看审计 | Owner/Admin 看 workspace 全量;成员仅本人(D6/D9) |
 | 确认高风险 MCP 操作 | 操作发起者本人(经 OpenClacky 卡片,D8) |
-
-
-
-
-

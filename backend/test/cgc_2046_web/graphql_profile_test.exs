@@ -58,13 +58,18 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     mutation {
       signIn(email: "#{email}", password: "#{password}") {
         id
-        token
       }
     }
     """
 
-    res = graphql_post(build_conn(), query)
-    assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => query})
+
+    assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+    # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+    token = conn.resp_cookies["cgc_token"].value
     token
   end
 
@@ -100,12 +105,48 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       assert is_platform_admin == true
     end
 
+    test "me returns P1 extended profile fields (location/about/skills/visibility/memberNumber/joinedAt)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), me_query(), token)
+
+      assert %{
+               "data" => %{
+                 "me" => %{
+                   "location" => location,
+                   "about" => about,
+                   "skills" => skills,
+                   "visibility" => visibility,
+                   "memberNumber" => member_number,
+                   "joinedAt" => joined_at
+                 }
+               }
+             } = res
+
+      assert location == nil
+      assert about == nil
+      assert skills == []
+      assert visibility == "only_me"
+      assert is_binary(member_number)
+      assert String.starts_with?(member_number, "CGC-")
+      assert is_binary(joined_at)
+    end
+
     test "regular user me reflects profile updates" do
       _user = register_user(@user_email, @password)
       token = sign_in_token(@user_email, @password)
 
       res = graphql_post(build_conn(), me_query(), token)
       assert %{"data" => %{"me" => %{"isPlatformAdmin" => false}}} = res
+    end
+
+    test "me returns default uiThemePreference (dark) for a new user (U3)" do
+      _user = register_user(@user_email, @password)
+      token = sign_in_token(@user_email, @password)
+
+      res = graphql_post(build_conn(), me_query(), token)
+      assert %{"data" => %{"me" => %{"uiThemePreference" => "dark"}}} = res
     end
   end
 
@@ -138,6 +179,149 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       # me 反映更新
       res = graphql_post(build_conn(), me_query(), token)
       assert %{"data" => %{"me" => %{"displayName" => "阿麦"}}} = res
+    end
+
+    test "updateProfile persists P1 extended fields (location/about/skills/visibility)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateProfile(input: {
+              displayName: "阿麦"
+              location: "上海"
+              about: "关注社区学习与 AI 教育。"
+              skills: ["AI 教育", "课程设计", "Elixir"]
+              visibility: "workspace"
+            }) {
+              id
+              location
+              about
+              skills
+              visibility
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{
+               "data" => %{
+                 "updateProfile" => %{
+                   "location" => "上海",
+                   "about" => "关注社区学习与 AI 教育。",
+                   "skills" => ["AI 教育", "课程设计", "Elixir"],
+                   "visibility" => "workspace"
+                 }
+               }
+             } = res
+
+      # me 反映更新
+      res = graphql_post(build_conn(), me_query(), token)
+
+      assert %{
+               "data" => %{
+                 "me" => %{
+                   "location" => "上海",
+                   "about" => "关注社区学习与 AI 教育。",
+                   "skills" => ["AI 教育", "课程设计", "Elixir"],
+                   "visibility" => "workspace"
+                 }
+               }
+             } = res
+    end
+
+    test "updateProfile can clear optional fields with explicit null" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      # 先写入
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateProfile(input: {
+              displayName: "阿麦"
+              location: "上海"
+              about: "简介"
+              skills: ["Elixir"]
+            }) { id location about skills }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"updateProfile" => %{"location" => "上海"}}} = res
+
+      # 显式 null 清空
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateProfile(input: {
+              displayName: "阿麦"
+              location: null
+              about: null
+              skills: null
+            }) { id location about skills }
+          }
+          """,
+          token
+        )
+
+      assert %{
+               "data" => %{
+                 "updateProfile" => %{"location" => nil, "about" => nil, "skills" => nil}
+               }
+             } = res
+    end
+
+    test "updateProfile accepts base64 data URL avatar (image/png)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      # 1x1 透明 PNG data URL
+      data_url =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", data_url), token)
+      assert %{"data" => %{"updateProfile" => %{"avatarUrl" => ^data_url}}} = res
+    end
+
+    test "updateProfile rejects non-image data URL avatar" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      data_url = "data:text/plain;base64,aGVsbG8="
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", data_url), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "MIME"))
+    end
+
+    test "updateProfile rejects oversized data URL avatar" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      huge = "data:image/png;base64," <> String.duplicate("A", 3_000_100)
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", huge), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "too large"))
+    end
+
+    test "updateProfile rejects non-URL/non-data avatar value" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), update_profile_query("阿麦", "not-a-url"), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "data URL or http(s) URL"))
     end
 
     test "trims displayName before persisting" do
@@ -212,6 +396,72 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
   end
 
+  describe "setUiTheme mutation (U3 theme persistence)" do
+    test "persists theme preference and me reflects it (dark/light)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      # 切到 light
+      res = graphql_post(build_conn(), set_ui_theme_query("light"), token)
+      assert %{"data" => %{"setUiTheme" => %{"uiThemePreference" => "light"}}} = res
+
+      # me 反映
+      res = graphql_post(build_conn(), me_query(), token)
+      assert %{"data" => %{"me" => %{"uiThemePreference" => "light"}}} = res
+
+      # 切回 dark
+      res = graphql_post(build_conn(), set_ui_theme_query("dark"), token)
+      assert %{"data" => %{"setUiTheme" => %{"uiThemePreference" => "dark"}}} = res
+    end
+
+    test "rejects invalid theme value (must be dark or light)" do
+      _admin = admin_user()
+      token = sign_in_token(@admin_email, @password)
+
+      res = graphql_post(build_conn(), set_ui_theme_query("purple"), token)
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "must be dark or light"))
+    end
+
+    test "anonymous is unauthorized" do
+      res = graphql_post(build_conn(), set_ui_theme_query("dark"))
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
+    end
+
+    test "user cannot set theme for another user via direct Ash action (policy: self only)" do
+      admin = admin_user()
+      _user = register_user(@user_email, @password)
+
+      user =
+        Ash.read_one!(
+          Ash.Query.filter(User, email == ^@user_email),
+          authorize?: false,
+          domain: Cgc2046.GlobalApi
+        )
+
+      # 普通用户尝试改平台管理员的主题：policy 应拒绝（id != actor.id）
+      result =
+        admin
+        |> Ash.Changeset.for_update(:set_ui_theme, %{ui_theme_preference: "light"})
+        |> Ash.update(actor: user)
+
+      assert {:error, error} = result
+      assert Exception.message(Ash.Error.to_error_class(error)) =~ "forbidden"
+    end
+  end
+
+  defp set_ui_theme_query(theme) do
+    """
+    mutation {
+      setUiTheme(input: { uiThemePreference: "#{theme}" }) {
+        id
+        uiThemePreference
+      }
+    }
+    """
+  end
+
   defp me_query do
     """
     query {
@@ -221,6 +471,13 @@ defmodule Cgc2046Web.GraphqlProfileTest do
         displayName
         avatarUrl
         isPlatformAdmin
+        location
+        about
+        skills
+        visibility
+        memberNumber
+        joinedAt
+        uiThemePreference
       }
     }
     """
@@ -242,6 +499,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
         displayName
         avatarUrl
         isPlatformAdmin
+        location
+        about
+        skills
+        visibility
+        memberNumber
+        joinedAt
       }
     }
     """

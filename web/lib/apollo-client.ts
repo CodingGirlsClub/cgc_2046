@@ -1,48 +1,21 @@
-import { ApolloClient, InMemoryCache, createHttpLink, ApolloLink, from } from "@apollo/client";
+import { ApolloClient, InMemoryCache, createHttpLink } from "@apollo/client";
 
 /**
- * Reads the auth token from the httpOnly cookie set at login time.
- * Returns undefined when no token is present (public/guest requests).
+ * Apollo Client 实例。
+ *
+ * 认证 token 由后端通过 httpOnly cookie 交付（#60 路径 B），浏览器自动随同源请求携带。
+ * 前端不再持有 token、不再拼 Authorization 头。
  */
-export function getAuthToken(): string | undefined {
-  if (typeof document === "undefined") return undefined;
-  const match = document.cookie.match(/(?:^|;\s*)cgc_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : undefined;
-}
 
-/**
- * Builds request headers for a GraphQL operation, attaching
- * `Authorization: Bearer <token>` when a token is available.
- */
-export function buildAuthHeaders(
-  token: string | undefined,
-  headers: Record<string, string> = {},
-): Record<string, string> {
-  return {
-    ...headers,
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
-  };
-}
+// ponytail: 提取为命名常量以便测试断言 credentials 值
+export const httpLinkOptions = {
+	uri: process.env.NEXT_PUBLIC_GRAPHQL_URL ?? "/api/graphql",
+	credentials: "same-origin" as const,
+};
 
-/**
- * Apollo link middleware: attaches `Authorization: Bearer <token>` from the
- * httpOnly cookie to every request that has one.
- */
-export const authLink = new ApolloLink((operation, forward) => {
-  const token = getAuthToken();
-  operation.setContext(({ headers = {} }) => ({
-    headers: buildAuthHeaders(token, headers),
-  }));
-  return forward(operation);
-});
-
-const httpLink = createHttpLink({
-  // Default: go through the Next.js rewrite proxy (no CORS).
-  // Override with NEXT_PUBLIC_GRAPHQL_URL to talk to the backend directly.
-  uri: process.env.NEXT_PUBLIC_GRAPHQL_URL ?? "/api/graphql",
-});
+const httpLink = createHttpLink(httpLinkOptions);
 
 export const client = new ApolloClient({
-  link: from([authLink, httpLink]),
-  cache: new InMemoryCache(),
+	link: httpLink,
+	cache: new InMemoryCache(),
 });

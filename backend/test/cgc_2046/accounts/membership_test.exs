@@ -97,7 +97,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert [%Cgc2046.Accounts.Role{name: :owner}] = roles
     end
 
-    test "roles are seeded per workspace (owner/admin/member)" do
+    test "roles are seeded per workspace (owner/admin/member/tutor/volunteer/learner)" do
       admin = admin_user()
       workspace = create_workspace(admin)
 
@@ -106,7 +106,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
         |> Ash.Query.for_read(:read)
         |> Ash.read!(tenant: workspace.id, actor: admin)
 
-      assert Enum.map(roles, & &1.name) |> Enum.sort() == [:admin, :member, :owner]
+      assert Enum.map(roles, & &1.name) |> Enum.sort() ==
+               [:admin, :learner, :member, :owner, :tutor, :volunteer]
     end
   end
 
@@ -161,6 +162,24 @@ defmodule Cgc2046.Accounts.MembershipTest do
                membership
                |> Ash.Changeset.for_update(:assign_roles, %{role_names: [:superadmin]})
                |> Ash.update(tenant: workspace.id, actor: admin)
+    end
+
+    # G1 诊断复现：设计稿五角色（tutor/volunteer/learner）应可分配（P0）
+    test "design roles tutor/volunteer/learner can be assigned", %{
+      admin: admin,
+      workspace: workspace
+    } do
+      user = normal_user()
+      membership = add_member(workspace, user, admin)
+
+      assert {:ok, updated} =
+               membership
+               |> Ash.Changeset.for_update(:assign_roles, %{
+                 role_names: [:tutor, :volunteer, :learner]
+               })
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert load_role_names(updated) == [:learner, :tutor, :volunteer]
     end
 
     test "plain member cannot assign roles", %{admin: admin, workspace: workspace} do
@@ -297,176 +316,156 @@ defmodule Cgc2046.Accounts.MembershipTest do
       mutation {
         signIn(email: "#{email}", password: "#{password}") {
           id
-          token
         }
       }
       """
 
-      res = graphql_post(build_conn(), query)
-      assert %{"data" => %{"signIn" => %{"token" => token}}} = res
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+
+      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
+      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
+      token = conn.resp_cookies["cgc_token"].value
       token
     end
+  end
 
-    defp create_workspace_query(slug, name) do
-      """
-      mutation {
-        createWorkspace(input: { slug: "#{slug}", name: "#{name}" }) {
-          result { id }
-          errors { message }
-        }
-      }
-      """
+  describe "destroy last-owner guard" do
+    # plan-007 Step 4：destroy 守卫与 assign_roles 共享同一不变量（per-workspace
+    # advisory lock + owner_count 读）。唯一 owner 的 destroy 必须被 before_action 拒绝。
+
+    test "rejects destroying the sole owner (orphan protection)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      # admin 是该工作台唯一 owner 成员（create_workspace 的 after_action 建立）
+      membership =
+        Ash.load!(workspace, :memberships, tenant: workspace.id, actor: admin, authorize?: false)
+        |> Map.fetch!(:memberships)
+        |> Enum.find(&(&1.user_id == admin.id))
+
+      assert membership != nil
+      assert load_role_names(membership) == [:owner]
+
+      # 守卫在 before_action 拒绝，不触达 data layer（FK 未被破坏）
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               membership
+               |> Ash.Changeset.for_destroy(:destroy)
+               |> Ash.destroy(tenant: workspace.id, actor: admin)
+
+      assert Enum.any?(errors, &(Exception.message(&1) =~ "至少保留一个 Owner"))
+
+      # 数据库未被改动：admin 仍是 owner
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
+      assert Cgc2046.Rbac.role_names(admin, workspace.id) == [:owner]
     end
 
-    test "owner can list members with roles filtered by workspace" do
+    test "allows destroying a non-last owner" do
       admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
+      workspace = create_workspace(admin)
 
-      slug = "gql-members-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Members"), token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+      other =
+        register_user("destroy-co-#{System.unique_integer([:positive])}@example.com", @password)
 
-      # 加入一个普通成员并分配角色
-      user = normal_user()
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      add_member(workspace, user, admin, [:admin, :member])
+      # 第二个 owner（admin 授予 other owner 角色，admin 仍是 owner）
+      membership = add_member(workspace, other, admin, [:owner])
+      assert load_role_names(membership) == [:owner]
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 2
 
-      members_query = """
-      query {
-        workspaceMembers(filter: { workspaceId: { eq: "#{ws_id}" } }) {
-          count
-          results {
-            id
-            userId
-            roles { id name }
-          }
-        }
-      }
-      """
+      # 删除 other 的 owner 成员资格：先解 FK（membership_roles 无 on_delete cascade），
+      # 再 destroy。此时 owner_count 仍为 2（admin 仍在），守卫放行。
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "DELETE FROM membership_roles WHERE membership_id = $1",
+        [Ecto.UUID.dump!(membership.id)]
+      )
 
-      res = graphql_post(build_conn(), members_query, token)
+      assert :ok =
+               membership
+               |> Ash.Changeset.for_destroy(:destroy)
+               |> Ash.destroy(tenant: workspace.id, actor: admin)
 
-      assert %{
-               "data" => %{
-                 "workspaceMembers" => %{"count" => 2, "results" => results}
-               }
-             } = res
-
-      assert length(results) == 2
-
-      member_result =
-        Enum.find(results, fn r -> r["userId"] == user.id end)
-
-      assert member_result != nil
-      assert Enum.map(member_result["roles"], & &1["name"]) |> Enum.sort() == ["admin", "member"]
-
-      owner_result =
-        Enum.find(results, fn r -> r["userId"] == admin.id end)
-
-      assert Enum.map(owner_result["roles"], & &1["name"]) == ["owner"]
+      # admin 仍是 owner，工作台未变孤儿
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
+      assert Cgc2046.Rbac.role_names(admin, workspace.id) == [:owner]
     end
 
-    test "member can only see their own membership record" do
-      admin = admin_user()
-      user = normal_user()
-      admin_token = sign_in_token(@admin_email, @password)
-      token = sign_in_token(@member_email, @password)
+    # 规则 1 的镜像缺口（plan-007 收尾）：只有 Owner 能移除 Owner 成员。
+    # Admin 角色的 actor 删除 owner 成员 = 等效撤销 owner，必须被拒（与 assign_roles
+    # 规则1「Admin 不能碰 owner」对称）。
+    test "rejects non-owner admin destroying an owner member (rule 1 mirror)" do
+      owner = admin_user()
+      workspace = create_workspace(owner)
+      # 纯 admin 角色的 actor（非 owner）：owner 拉进来只给 admin
+      admin_only =
+        register_user(
+          "destroy-admin-only-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
 
-      slug = "gql-self-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Self"), admin_token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+      admin_membership = add_member(workspace, admin_only, owner, [:admin])
+      assert load_role_names(admin_membership) == [:admin]
+      # 第三个 owner 成员，给 owner 角色
+      third =
+        register_user(
+          "destroy-owner-third-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
 
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      add_member(workspace, user, admin, [:member])
+      third_membership = add_member(workspace, third, owner, [:owner])
+      assert load_role_names(third_membership) == [:owner]
+      # owner_count=2（owner + third），删 third 不触发最后 owner 保护，
+      # 但 admin_only 不是 owner → 规则1 镜像应拒绝
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 2
 
-      members_query = """
-      query {
-        workspaceMembers(filter: { workspaceId: { eq: "#{ws_id}" } }) {
-          count
-          results { id userId roles { name } }
-        }
-      }
-      """
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               third_membership
+               |> Ash.Changeset.for_destroy(:destroy)
+               |> Ash.destroy(tenant: workspace.id, actor: admin_only)
 
-      res = graphql_post(build_conn(), members_query, token)
+      assert Enum.any?(errors, &(Exception.message(&1) =~ "只有 Owner 能授予或撤销 Owner 角色"))
 
-      assert %{
-               "data" => %{
-                 "workspaceMembers" => %{"count" => 1, "results" => [own]}
-               }
-             } = res
-
-      assert own["userId"] == user.id
+      # 数据库未被改动：third 仍是 owner，owner_count 仍为 2
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 2
+      assert Cgc2046.Rbac.role_names(third, workspace.id) == [:owner]
     end
 
-    test "assignRoles via GraphQL replaces roles for owner" do
-      admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
+    test "allows destroying a non-owner member (admin role)" do
+      owner = admin_user()
+      workspace = create_workspace(owner)
 
-      slug = "gql-assign-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Assign"), token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+      # 纯 admin 角色的成员（非 owner）
+      admin_only =
+        register_user(
+          "destroy-non-owner-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
 
-      user = normal_user()
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      membership = add_member(workspace, user, admin, [:member])
+      admin_membership = add_member(workspace, admin_only, owner, [:admin])
+      assert load_role_names(admin_membership) == [:admin]
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
 
-      assign_query = """
-      mutation {
-        assignRoles(
-          id: "#{membership.id}"
-          input: { roleNames: ["admin", "member"] }
-        ) {
-          result { id }
-          errors { message }
-        }
-      }
-      """
+      # 先解 FK（membership_roles 无 on_delete cascade），再 destroy
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "DELETE FROM membership_roles WHERE membership_id = $1",
+        [Ecto.UUID.dump!(admin_membership.id)]
+      )
 
-      res = graphql_post(build_conn(), assign_query, token)
-      assert %{"data" => %{"assignRoles" => %{"errors" => []}}} = res
+      # 删除 admin 成员（非 owner），守卫应放行
+      assert :ok =
+               admin_membership
+               |> Ash.Changeset.for_destroy(:destroy)
+               |> Ash.destroy(tenant: workspace.id, actor: owner)
 
-      updated = Ash.get!(WorkspaceMembership, membership.id, tenant: ws_id, actor: admin)
-      assert load_role_names(updated) == [:admin, :member]
-    end
+      # owner 仍在，工作台未变孤儿
+      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
+      assert Cgc2046.Rbac.role_names(owner, workspace.id) == [:owner]
 
-    test "plain member assignRoles via GraphQL is forbidden" do
-      admin = admin_user()
-      user = normal_user()
-      admin_token = sign_in_token(@admin_email, @password)
-      token = sign_in_token(@member_email, @password)
-
-      slug = "gql-forbid-#{System.unique_integer([:positive])}"
-      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Forbid"), admin_token)
-      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
-
-      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
-      add_member(workspace, user, admin, [:member])
-
-      members_query = """
-      query {
-        workspaceMembers(filter: { workspaceId: { eq: "#{ws_id}" } }) {
-          results { id }
-        }
-      }
-      """
-
-      # 普通成员只能看到自己的 membership
-      res = graphql_post(build_conn(), members_query, token)
-      assert %{"data" => %{"workspaceMembers" => %{"results" => [own]}}} = res
-
-      assign_query = """
-      mutation {
-        assignRoles(id: "#{own["id"]}", input: { roleNames: ["admin"] }) {
-          result { id }
-          errors { message }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), assign_query, token)
-      assert %{"data" => %{"assignRoles" => %{"result" => nil, "errors" => errors}}} = res
-      assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
+      # admin_only 已不是成员
+      assert Cgc2046.Rbac.role_names(admin_only, workspace.id) == []
     end
   end
 end

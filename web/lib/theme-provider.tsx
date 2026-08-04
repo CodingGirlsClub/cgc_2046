@@ -47,9 +47,13 @@ function applyThemeClass(theme: ThemeMode) {
 /**
  * 全局主题 Provider（Dark/Light 双主题，Linear 设计系统）。
  *
- * 优先级：?theme= URL 参数（开发调试，U3）> localStorage（静态骨架占位）> dark（默认）。
- * 正式版（依赖 #68/#69 用户偏好持久化）改为服务端用户偏好驱动，本 Provider 保留
- * 作为本地回退 + 开发调试入口。
+ * 优先级：?theme= URL 参数（开发调试，U3）> localStorage(cgc_theme) > dark（默认）。
+ *
+ * 现状：U3 决策（docs/03-决策记录/前端UI设计决策-2026-08-01.md）要求主题按用户
+ * 持久化（跨设备同步），但服务端持久化尚未落地——本 Provider 目前是唯一的主题
+ * 机制：localStorage（同设备记忆）+ ?theme= dev 调试参数。SSR/客户端首帧固定 dark
+ * 以防 hydration mismatch，偏好仅客户端挂载后异步应用。
+ * 服务端持久化的实施方案见 plans/005-u3-theme-persistence-spike.md。
  */
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   // SSR 与客户端 hydration 首帧固定 dark：localStorage/URL 偏好仅在客户端挂载后
