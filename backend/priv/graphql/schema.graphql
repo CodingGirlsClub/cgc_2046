@@ -828,18 +828,13 @@ type SignInResult {
 
 type SignUpPayload {
   result: SignUpUser
-  errors: [AuthMutationError]
+  errors: [MutationError]
 }
 
 type SignUpUser {
   id: ID!
   email: String!
   isPlatformAdmin: Boolean!
-}
-
-type AuthMutationError {
-  message: String
-  code: String
 }
 
 input SignUpInput {
