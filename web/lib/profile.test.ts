@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("./apollo-client", () => ({
 	client: {
 		query: vi.fn(),
+		readQuery: vi.fn().mockReturnValue(null),
 		mutate: vi.fn(),
 		cache: { evict: vi.fn(), gc: vi.fn() },
 	},
@@ -29,6 +30,7 @@ import {
  */
 
 const queryMock = vi.mocked(client.query);
+const readQueryMock = vi.mocked(client.readQuery);
 const mutateMock = vi.mocked(client.mutate);
 const cacheMock = vi.mocked(client.cache);
 
@@ -41,6 +43,7 @@ function opName(query: unknown): string | undefined {
 
 beforeEach(() => {
 	queryMock.mockReset();
+	readQueryMock.mockReset().mockReturnValue(null);
 	mutateMock.mockReset();
 	cacheMock.evict.mockReset();
 	cacheMock.gc.mockReset();

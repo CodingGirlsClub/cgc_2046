@@ -106,7 +106,7 @@ afterEach(cleanup);
  * 避免与侧栏同文案（ws.name / ws.slug）撞查询。
  */
 async function content() {
-	await screen.findByRole("heading", { name: "概览" });
+	await screen.findByRole("heading", { name: "工作区概览" });
 	return within(screen.getByRole("main"));
 }
 

@@ -618,6 +618,61 @@
     line-height: 1.1;
   }
   .ws-page-heading p { margin-top: 8px; color: var(--ink-3); font-size: 15px; line-height: 22px; }
+
+  /* P3：概览页后续切片占位卡，虚线边框 + 角标，与可点击管理入口区分 */
+  .ws-placeholder-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius-large);
+    background: transparent;
+    padding: 24px;
+  }
+  .ws-placeholder-card__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    flex: 0 0 auto;
+    border-radius: 9999px;
+    border: 1px solid var(--line);
+    background: var(--soft-2);
+    color: var(--ink-3);
+  }
+  .ws-placeholder-card__badge {
+    flex: 0 0 auto;
+    padding: 2px 10px;
+    border-radius: 9999px;
+    background: var(--soft);
+    color: var(--ink-3);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  /* P3：settings 子页 tab，与 members/permissions tab 模式一致 */
+  .ws-tabs {
+    display: flex;
+    gap: 28px;
+    margin-top: 33px;
+    border-bottom: 1px solid var(--line);
+  }
+  .ws-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--ink-3);
+    font-size: 14px;
+    line-height: 20px;
+    text-decoration: none;
+    transition: color 120ms ease;
+  }
+  .ws-tab:hover { color: var(--ink); }
+  .ws-tab--selected { color: var(--ink); font-weight: 510; }
+  .ws-tab--selected::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--accent); content: ""; }
+
   .members-heading-summary { display: grid; gap: 4px; min-width: 210px; padding-left: 24px; border-left: 1px solid var(--line); text-align: right; }
   .members-heading-summary span { color: var(--ink-3); font-size: 12px; line-height: 18px; }
   .members-heading-summary strong { overflow: hidden; color: var(--ink-2); font-size: 14px; font-weight: 510; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
