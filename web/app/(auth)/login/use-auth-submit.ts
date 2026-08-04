@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useMutation } from "@apollo/client/react";
 import { useRouter } from "next/navigation";
+import { client } from "@/lib/apollo-client";
 import {
 	SIGN_IN,
 	SIGN_UP,
@@ -41,6 +42,10 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						variables: { email: payload.email, password: payload.password },
 					});
 					if (data?.signIn?.id) {
+						// ponytail: 同 SPA 会话换用户时 refetch me/ME_PROFILE。
+						// logout 用 clearStore（不 refetch，cookie 将失效避免 401 风暴）；
+						// login 时 cookie 新鲜，resetStore 用 B 的有效 cookie 重发所有活动查询。
+						await client.resetStore();
 						// token 由后端 before_send 写 httpOnly cookie
 						router.push("/");
 						return;
@@ -53,6 +58,10 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						},
 					});
 					if (data?.signUp?.result) {
+						// ponytail: 同 SPA 会话换用户时 refetch me/ME_PROFILE。
+						// logout 用 clearStore（不 refetch，cookie 将失效避免 401 风暴）；
+						// login 时 cookie 新鲜，resetStore 用 B 的有效 cookie 重发所有活动查询。
+						await client.resetStore();
 						// token 由后端 before_send 写 httpOnly cookie
 						router.push("/");
 						return;
