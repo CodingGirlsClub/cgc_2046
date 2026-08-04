@@ -22,6 +22,10 @@ export interface InvitationItem {
 	workspaceId: string;
 	tokenHash: string;
 	plainToken?: string | null;
+	/**
+	 * 明文邀请令牌。仅 createInvitation 返回时携带（来自 mutation metadata），
+	 * 列表/validate/revoke/accept 返回的 InvitationItem 恒为 null。
+	 */
 	inviterId: string;
 	targetEmail?: string | null;
 	preauthorizedRoleNames?: string[] | null;
@@ -49,7 +53,7 @@ export function mapInvitation(inv: Invitation): InvitationItem {
 		id: inv.id,
 		workspaceId: inv.workspaceId,
 		tokenHash: inv.tokenHash,
-		plainToken: inv.plainToken ?? null,
+		plainToken: null,
 		inviterId: inv.inviterId,
 		targetEmail: inv.targetEmail ?? null,
 		preauthorizedRoleNames: inv.preauthorizedRoleNames ?? null,
@@ -132,7 +136,9 @@ export async function createInvitation(input: {
 			data?.createInvitation?.errors?.[0]?.message ?? "createInvitation failed";
 		throw new Error(msg);
 	}
-	return mapInvitation(result);
+	// 明文 token 仅在创建时通过 mutation metadata 一次性返回，注入到 InvitationItem 供前端即时拼链接
+	const plainToken = data?.createInvitation?.metadata?.plainToken ?? null;
+	return { ...mapInvitation(result), plainToken };
 }
 
 /**

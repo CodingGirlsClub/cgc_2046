@@ -7,9 +7,10 @@ import type { TypedDocumentNode } from "@apollo/client";
  * 关键约定：
  * - JoinRequest type：{ id, workspaceId, userId, status, message?, approvedBy?,
  *   approvedAt?, rejectionReason?, approvalDeadline?, expiredAt? }
- * - Invitation type：{ id, workspaceId, tokenHash, plainToken?, inviterId,
+ * - Invitation type：{ id, workspaceId, tokenHash, inviterId,
  *   targetEmail?, preauthorizedRoleNames?, expiresAt?, status, acceptedBy?,
  *   acceptedAt?, workspaceName?, workspaceSlug?, workspaceJoinPolicy? }
+ * - createInvitation mutation result 额外含 metadata.plainToken（明文令牌仅创建时一次性返回，不落库）
  * - joinRequests(query)：keyset 分页，filter 支持 workspaceId/status 过滤。
  * - invitations(query)：keyset 分页，filter 支持 workspaceId/status 过滤。
  * - validateInvitation(token)：返回 Invitation（含 workspace 预览字段）。
@@ -50,8 +51,6 @@ export interface Invitation {
 	workspaceId: string;
 	/** 邀请令牌的 SHA256 哈希 */
 	tokenHash: string;
-	/** 明文邀请令牌（仅创建时返回） */
-	plainToken?: string | null;
 	/** 邀请人（全局用户）ID */
 	inviterId: string;
 	/** 目标邮箱（空=公开链接） */
@@ -124,9 +123,16 @@ export interface CreateInvitationInput {
 	inviterId: string;
 }
 
+export interface CreateInvitationMetadata {
+	/** 明文邀请令牌（仅创建时返回一次，不落库） */
+	plainToken: string;
+}
+
 export interface CreateInvitationResultData {
 	result: Invitation | null;
 	errors: MutationError[];
+	/** 明文邀请令牌（仅创建时一次性返回，列表 query 不含此字段） */
+	metadata?: CreateInvitationMetadata | null;
 }
 
 export interface RevokeInvitationResultData {
@@ -222,7 +228,6 @@ export const INVITATIONS: TypedDocumentNode<
         id
         workspaceId
         tokenHash
-        plainToken
         inviterId
         targetEmail
         preauthorizedRoleNames
@@ -359,11 +364,13 @@ export const CREATE_INVITATION: TypedDocumentNode<
       result {
         id
         workspaceId
-        plainToken
         targetEmail
         preauthorizedRoleNames
         expiresAt
         status
+      }
+      metadata {
+        plainToken
       }
       errors {
         message

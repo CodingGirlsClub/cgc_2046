@@ -134,10 +134,11 @@ export default function InvitationsPage() {
 		}
 	}, []);
 
-	/** 复制邀请链接 */
+	/** 复制邀请链接（仅创建时返回明文 token 的邀请可复制；历史邀请 token 不落库，无法重新复制） */
 	const handleCopyLink = useCallback((inv: InvitationItem) => {
+		if (!inv.plainToken) return;
 		const baseUrl = window.location.origin;
-		const link = `${baseUrl}/join?token=${inv.plainToken ?? inv.id}`;
+		const link = `${baseUrl}/join?token=${inv.plainToken}`;
 		navigator.clipboard.writeText(link).then(() => {
 			setCopiedId(inv.id);
 			setTimeout(() => setCopiedId(null), 2000);
@@ -325,6 +326,12 @@ export default function InvitationsPage() {
 												type="button"
 												className="join-button join-button--outline"
 												onClick={() => handleCopyLink(inv)}
+												disabled={!inv.plainToken}
+												title={
+													inv.plainToken
+														? "复制邀请链接"
+														: "令牌仅创建时可见，无法重新复制"
+												}
 											>
 												{copiedId === inv.id ? "已复制" : "复制链接"}
 											</button>

@@ -51,6 +51,11 @@ type RevokeInvitationResult {
   errors: [MutationError!]!
 }
 
+type CreateInvitationMetadata {
+  "明文邀请令牌（仅创建时返回一次，不落库）"
+  plainToken: String!
+}
+
 "The result of the :create_invitation mutation"
 type CreateInvitationResult {
   "The successful result of the mutation"
@@ -58,6 +63,9 @@ type CreateInvitationResult {
 
   "Any errors generated, if the mutation failed"
   errors: [MutationError!]!
+
+  "Metadata produced by the mutation"
+  metadata: CreateInvitationMetadata
 }
 
 input CreateInvitationInput {
@@ -81,7 +89,6 @@ enum InvitationSortField {
   ID
   WORKSPACE_ID
   TOKEN_HASH
-  PLAIN_TOKEN
   INVITER_ID
   TARGET_EMAIL
   EXPIRES_AT
@@ -188,24 +195,6 @@ input InvitationFilterInviterId {
   isNotDistinctFrom: ID
 }
 
-input InvitationFilterPlainToken {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
 input InvitationFilterTokenHash {
   isNil: Boolean
   eq: String
@@ -265,9 +254,6 @@ input InvitationFilterInput {
   "邀请令牌的 SHA256 哈希"
   tokenHash: InvitationFilterTokenHash
 
-  "明文邀请令牌（仅创建时返回）"
-  plainToken: InvitationFilterPlainToken
-
   "邀请人（全局用户）ID"
   inviterId: InvitationFilterInviterId
 
@@ -300,9 +286,6 @@ type Invitation {
 
   "邀请令牌的 SHA256 哈希"
   tokenHash: String!
-
-  "明文邀请令牌（仅创建时返回）"
-  plainToken: String
 
   "邀请人（全局用户）ID"
   inviterId: ID!

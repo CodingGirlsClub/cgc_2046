@@ -111,7 +111,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
       assert invitation.preauthorized_role_names == [:member]
       assert invitation.expires_at != nil
       assert invitation.token_hash != nil
-      assert invitation.plain_token != nil
+      # 明文 token 仅存在于 create action 返回的 metadata，不落库
+      assert invitation.__metadata__[:plain_token] != nil
     end
 
     test "admin can create an invitation" do
@@ -193,11 +194,12 @@ defmodule Cgc2046.Accounts.InvitationTest do
       workspace = create_workspace(admin)
 
       invitation = create_invitation(workspace, admin)
+      plain_token = invitation.__metadata__[:plain_token]
 
       # plain_token should not equal token_hash
-      assert invitation.plain_token != invitation.token_hash
+      assert plain_token != invitation.token_hash
       # token_hash should be the SHA256 hash of plain_token
-      assert invitation.token_hash == hash_token(invitation.plain_token)
+      assert invitation.token_hash == hash_token(plain_token)
     end
   end
 
@@ -209,7 +211,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated != nil
@@ -237,7 +239,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: outsider)
 
       assert validated != nil
@@ -256,7 +258,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated != nil
@@ -277,7 +279,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated != nil
@@ -300,7 +302,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
       # Now validate should return used
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated != nil
@@ -321,7 +323,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated != nil
@@ -578,7 +580,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated.status == :expired
@@ -595,7 +597,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated.status == :active
@@ -608,7 +610,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, validated} =
                Invitation
-               |> Ash.Query.for_read(:validate, %{token: invitation.plain_token})
+               |> Ash.Query.for_read(:validate, %{token: invitation.__metadata__[:plain_token]})
                |> Ash.read_one(actor: admin)
 
       assert validated.status == :active

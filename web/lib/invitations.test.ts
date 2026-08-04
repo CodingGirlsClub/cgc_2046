@@ -23,12 +23,11 @@ import {
 } from "./graphql/join";
 
 describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () => {
-	it("active 状态映射（含 plainToken）", () => {
+	it("active 状态映射（列表不含明文 token，plainToken 恒为 null）", () => {
 		const item = mapInvitation({
 			id: "inv_1",
 			workspaceId: "ws_1",
 			tokenHash: "hash_abc",
-			plainToken: "token_abc",
 			inviterId: "admin_1",
 			targetEmail: "user@test.com",
 			preauthorizedRoleNames: ["member"],
@@ -39,7 +38,7 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 			id: "inv_1",
 			workspaceId: "ws_1",
 			tokenHash: "hash_abc",
-			plainToken: "token_abc",
+			plainToken: null,
 			inviterId: "admin_1",
 			targetEmail: "user@test.com",
 			preauthorizedRoleNames: ["member"],
@@ -219,11 +218,11 @@ describe("createInvitation", () => {
 						result: {
 							id: "inv_new",
 							workspaceId: "ws_1",
-							plainToken: "token_new",
 							targetEmail: "user@test.com",
 							preauthorizedRoleNames: ["member"],
 							status: "active",
 						},
+						metadata: { plainToken: "token_new" },
 						errors: [],
 					},
 				},

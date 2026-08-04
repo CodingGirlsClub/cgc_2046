@@ -41,12 +41,6 @@ defmodule Cgc2046.Repo.Migrations.AddInvitations do
         end
       end
 
-      unless column_exists?(:invitations, :plain_token) do
-        alter table(:invitations) do
-          add :plain_token, :text
-        end
-      end
-
       unless column_exists?(:invitations, :inviter_id) do
         alter table(:invitations) do
           add :inviter_id, :uuid, null: false
@@ -109,7 +103,6 @@ defmodule Cgc2046.Repo.Migrations.AddInvitations do
             null: false
 
         add :token_hash, :text, null: false
-        add :plain_token, :text
         add :inviter_id, :uuid, null: false
         add :target_email, :text
         add :preauthorized_role_names, {:array, :text}
