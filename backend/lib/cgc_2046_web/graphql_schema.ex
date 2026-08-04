@@ -129,6 +129,17 @@ defmodule Cgc2046Web.GraphqlSchema do
                  __token__: token
                }}
 
+            {:error, %Ash.Error.Invalid{} = error} ->
+              # 透传 Ash 校验错误的具体 message（唯一性冲突 / 邮箱格式等），
+              # 而非统一抹成 generic "Registration failed"，前端才能按错误类型分流提示。
+              errors =
+                Enum.flat_map(error.errors, fn
+                  %{message: message} when is_binary(message) -> [%{message: message}]
+                  _ -> []
+                end)
+
+              {:ok, %{result: nil, errors: errors, __token__: nil}}
+
             {:error, _error} ->
               {:ok,
                %{
