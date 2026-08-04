@@ -376,35 +376,51 @@ defmodule Cgc2046.Accounts.Invitation do
           actor = changeset.context[:private][:actor]
           tenant = invitation.workspace_id
 
-          # 建 Membership
-          {:ok, membership} =
+          # 守卫：受邀人已是该工作台成员时不重复建成员资格（DB 唯一索引兜底，
+          # 此处转成带业务语义的错误，避免 generic unique-constraint 上抛）。
+          existing =
             Cgc2046.Accounts.WorkspaceMembership
-            |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
-            |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
+            |> Ash.Query.for_read(:read)
+            |> Ash.Query.filter(workspace_id == ^tenant and user_id == ^actor.id)
+            |> Ash.read!(tenant: tenant, authorize?: false)
 
-          # 有预授权角色则建 MembershipRole（决策 6）
-          if invitation.preauthorized_role_names &&
-               invitation.preauthorized_role_names != [] do
-            roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
+          if existing != [] do
+            {:error,
+             Ash.Error.Changes.InvalidAttribute.exception(
+               field: :user_id,
+               message: "你已是该工作台成员"
+             )}
+          else
+            # 建 Membership
+            {:ok, membership} =
+              Cgc2046.Accounts.WorkspaceMembership
+              |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
+              |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
 
-            Enum.each(invitation.preauthorized_role_names, fn role_name ->
-              role = Enum.find(roles, &(&1.name == role_name))
+            # 有预授权角色则建 MembershipRole（决策 6）
+            if invitation.preauthorized_role_names &&
+                 invitation.preauthorized_role_names != [] do
+              roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
 
-              if role do
-                Ash.create!(
-                  Cgc2046.Accounts.MembershipRole,
-                  %{
-                    membership_id: membership.id,
-                    role_id: role.id
-                  },
-                  tenant: tenant,
-                  authorize?: false
-                )
-              end
-            end)
+              Enum.each(invitation.preauthorized_role_names, fn role_name ->
+                role = Enum.find(roles, &(&1.name == role_name))
+
+                if role do
+                  Ash.create!(
+                    Cgc2046.Accounts.MembershipRole,
+                    %{
+                      membership_id: membership.id,
+                      role_id: role.id
+                    },
+                    tenant: tenant,
+                    authorize?: false
+                  )
+                end
+              end)
+            end
+
+            {:ok, invitation}
           end
-
-          {:ok, invitation}
         end)
       )
     end

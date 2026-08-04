@@ -511,6 +511,27 @@ defmodule Cgc2046.Accounts.InvitationTest do
                |> Ash.Changeset.for_update(:accept, %{token: "wrong-token"})
                |> Ash.update(actor: acceptor)
     end
+
+    test "cannot accept when already a member of this workspace" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
+
+      acceptor = normal_user("inv-accept-already-member@example.com")
+      # 受邀人已是该工作台成员
+      add_member(workspace, acceptor, admin, [:member])
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
+               |> Ash.update(actor: acceptor)
+
+      # invitation 仍为 active（after_action 抛错回滚，未进 used 终态）
+      assert {:ok, reloaded} = Ash.get(Invitation, invitation.id, actor: admin)
+      assert reloaded.status == :active
+    end
   end
 
   describe "revoke invitation" do
