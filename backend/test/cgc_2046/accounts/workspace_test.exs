@@ -754,4 +754,155 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       token
     end
   end
+
+  describe "join workspace (G13)" do
+    test "open workspace: user can join and gets learner role" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-open-#{System.unique_integer([:positive])}",
+          name: "Join Open",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      assert {:ok, joined} =
+               Workspace
+               |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.read_one(actor: user)
+
+      assert joined.id == workspace.id
+
+      # Verify membership exists
+      assert {:ok, memberships} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      membership = Enum.find(memberships, &(&1.user_id == user.id))
+      assert membership != nil
+
+      # Verify learner role was assigned
+      loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
+      assert Enum.any?(loaded.roles, &(&1.name == :learner))
+    end
+
+    test "request workspace: join action returns error" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-request-#{System.unique_integer([:positive])}",
+          name: "Join Request",
+          join_policy: :request
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      result =
+        Workspace
+        |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
+        |> Ash.read_one(actor: user)
+
+      # Should return error because join_policy is :request
+      assert match?({:error, _}, result) or result == {:ok, nil}
+    end
+
+    test "invite_only workspace: join action returns error" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-invite-#{System.unique_integer([:positive])}",
+          name: "Join Invite",
+          join_policy: :invite_only
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      result =
+        Workspace
+        |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
+        |> Ash.read_one(actor: user)
+
+      # Should return error because join_policy is :invite_only
+      assert match?({:error, _}, result) or result == {:ok, nil}
+    end
+
+    test "anonymous user cannot join open workspace" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-anon-#{System.unique_integer([:positive])}",
+          name: "Join Anon",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      result =
+        Workspace
+        |> Ash.Query.for_read(:join, %{workspace_id: workspace.id})
+        |> Ash.read_one()
+
+      # Anonymous user should be forbidden
+      assert match?({:error, %Ash.Error.Forbidden{}}, result)
+    end
+
+    test "open workspace: already a member returns workspace without creating duplicate membership" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-idemp-#{System.unique_integer([:positive])}",
+          name: "Join Idemp",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      # First join - should create membership
+      assert {:ok, joined} =
+               Workspace
+               |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.read_one(actor: user)
+
+      assert joined.id == workspace.id
+
+      # Count memberships before second join
+      assert {:ok, memberships_before} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      count_before = length(memberships_before)
+
+      # Second join - should be idempotent, return workspace without error
+      assert {:ok, joined_again} =
+               Workspace
+               |> Ash.Query.for_read(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.read_one(actor: user)
+
+      assert joined_again.id == workspace.id
+
+      # Count memberships after second join - should be the same (no duplicate)
+      assert {:ok, memberships_after} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert length(memberships_after) == count_before
+    end
+  end
 end

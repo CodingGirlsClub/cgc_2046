@@ -33,6 +33,305 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :accept_invitation mutation"
+type AcceptInvitationResult {
+  "The successful result of the mutation"
+  result: Invitation
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :revoke_invitation mutation"
+type RevokeInvitationResult {
+  "The successful result of the mutation"
+  result: Invitation
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_invitation mutation"
+type CreateInvitationResult {
+  "The successful result of the mutation"
+  result: Invitation
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateInvitationInput {
+  "目标邮箱（空=公开链接）"
+  targetEmail: String
+
+  "预授权角色名数组（可选）"
+  preauthorizedRoleNames: [String!]
+
+  "过期时间（可选）"
+  expiresAt: DateTime
+
+  "目标工作台 ID"
+  workspaceId: ID!
+
+  "邀请人 ID"
+  inviterId: ID!
+}
+
+enum InvitationSortField {
+  ID
+  WORKSPACE_ID
+  TOKEN_HASH
+  PLAIN_TOKEN
+  INVITER_ID
+  TARGET_EMAIL
+  EXPIRES_AT
+  STATUS
+  ACCEPTED_BY
+  ACCEPTED_AT
+}
+
+"A keyset page of :invitation"
+type KeysetPageOfInvitation {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Invitation!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input InvitationFilterAcceptedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input InvitationFilterAcceptedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InvitationFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input InvitationFilterExpiresAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input InvitationFilterTargetEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InvitationFilterInviterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InvitationFilterPlainToken {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InvitationFilterTokenHash {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InvitationFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InvitationFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InvitationFilterInput {
+  and: [InvitationFilterInput!]
+
+  or: [InvitationFilterInput!]
+
+  not: [InvitationFilterInput!]
+
+  id: InvitationFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: InvitationFilterWorkspaceId
+
+  "邀请令牌的 SHA256 哈希"
+  tokenHash: InvitationFilterTokenHash
+
+  "明文邀请令牌（仅创建时返回）"
+  plainToken: InvitationFilterPlainToken
+
+  "邀请人（全局用户）ID"
+  inviterId: InvitationFilterInviterId
+
+  "目标邮箱（空=公开链接）"
+  targetEmail: InvitationFilterTargetEmail
+
+  "过期时间（可选）"
+  expiresAt: InvitationFilterExpiresAt
+
+  "邀请状态"
+  status: InvitationFilterStatus
+
+  "接受人（全局用户）ID"
+  acceptedBy: InvitationFilterAcceptedBy
+
+  "接受时间"
+  acceptedAt: InvitationFilterAcceptedAt
+}
+
+input InvitationSortInput {
+  order: SortOrder
+  field: InvitationSortField!
+}
+
+type Invitation {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "邀请令牌的 SHA256 哈希"
+  tokenHash: String!
+
+  "明文邀请令牌（仅创建时返回）"
+  plainToken: String
+
+  "邀请人（全局用户）ID"
+  inviterId: ID!
+
+  "目标邮箱（空=公开链接）"
+  targetEmail: String
+
+  "预授权角色名数组（可选）"
+  preauthorizedRoleNames: [String!]
+
+  "过期时间（可选）"
+  expiresAt: DateTime
+
+  "邀请状态"
+  status: String!
+
+  "接受人（全局用户）ID"
+  acceptedBy: ID
+
+  "接受时间"
+  acceptedAt: DateTime
+
+  workspaceName: String
+
+  workspaceSlug: String
+
+  workspaceJoinPolicy: String
+}
+
 "The result of the :reject_join_request mutation"
 type RejectJoinRequestResult {
   "The successful result of the mutation"
@@ -1077,6 +1376,15 @@ type RootQueryType {
     filter: WorkspaceFilterInput
   ): [Workspace!]!
 
+  "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
+  joinWorkspace(
+    "A filter to limit the results"
+    filter: WorkspaceFilterInput
+
+    "目标工作台 ID"
+    workspaceId: ID!
+  ): Workspace
+
   "工作台成员列表（成员本人仅见自己；Owner\/Admin 见全部，供成员管理页）"
   workspaceMembers(
     "How to sort the records in the response"
@@ -1127,6 +1435,36 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): KeysetPageOfJoinRequest
+
+  "邀请列表（邀请人仅见自己；Owner\/Admin 见全部）"
+  invitations(
+    "How to sort the records in the response"
+    sort: [InvitationSortInput]
+
+    "A filter to limit the results"
+    filter: InvitationFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfInvitation
+
+  "校验邀请 token，返回邀请信息 + 工作台预览"
+  validateInvitation(
+    "A filter to limit the results"
+    filter: InvitationFilterInput
+
+    "明文邀请令牌"
+    token: String!
+  ): Invitation
 }
 
 type SignInResult {
@@ -1213,6 +1551,15 @@ type RootMutationType {
 
   "拒绝加入申请（Owner\/Admin）"
   rejectJoinRequest(id: ID!, input: RejectJoinRequestInput): RejectJoinRequestResult!
+
+  "创建邀请（Owner\/Admin\/Volunteer）"
+  createInvitation(input: CreateInvitationInput!): CreateInvitationResult!
+
+  "撤销邀请（邀请人本人或 Owner\/Admin）"
+  revokeInvitation(id: ID!): RevokeInvitationResult!
+
+  "接受邀请→建 Membership + 预授权角色入座"
+  acceptInvitation(id: ID!): AcceptInvitationResult!
 }
 
 """

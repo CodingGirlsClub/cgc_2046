@@ -20,5 +20,7 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.PortfolioItem)
     # B-1 #30：加入申请
     resource(Cgc2046.Accounts.JoinRequest)
+    # B-2 #31：邀请
+    resource(Cgc2046.Accounts.Invitation)
   end
 end
