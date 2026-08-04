@@ -36,7 +36,9 @@ export default function WorkspacePage() {
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
 				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">← 工作台</Link>
+					<Link href="/">工作台</Link>
+					<span>›</span>
+					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
 					<strong>概览</strong>
 				</div>

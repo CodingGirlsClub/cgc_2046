@@ -227,8 +227,8 @@ export default function WorkspaceShell({
 
 				{slug && (
 					<>
-						<div className="ws-shell-heading">工作区设置</div>
-						<nav className="ws-shell-nav" aria-label="工作区设置">
+						<div className="ws-shell-heading">工作区导航</div>
+						<nav className="ws-shell-nav" aria-label="工作区导航">
 							<Link
 								href={`/w/${slug}`}
 								className={`ws-shell-item ${active === "overview" ? "ws-shell-item--selected" : ""}`}
@@ -260,10 +260,10 @@ export default function WorkspaceShell({
 								</Link>
 							)}
 							{canSeeManagement && (
-								<>
+								<div className="ws-shell-subnav" role="group" aria-label="加入策略子项">
 									<Link
 										href={`/w/${slug}/settings/requests`}
-										className={`ws-shell-item ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
+										className={`ws-shell-item ws-shell-item--sub ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
 										aria-current={
 											active === "settings-requests" ? "page" : undefined
 										}
@@ -273,7 +273,7 @@ export default function WorkspaceShell({
 									</Link>
 									<Link
 										href={`/w/${slug}/settings/invitations`}
-										className={`ws-shell-item ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
+										className={`ws-shell-item ws-shell-item--sub ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
 										aria-current={
 											active === "settings-invitations" ? "page" : undefined
 										}
@@ -281,7 +281,7 @@ export default function WorkspaceShell({
 										<Icon name="invite" />
 										<span>邀请管理</span>
 									</Link>
-								</>
+								</div>
 							)}
 						</nav>
 						<Link

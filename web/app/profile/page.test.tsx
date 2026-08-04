@@ -223,7 +223,8 @@ describe("/profile 个人资料查看与编辑（#69）", () => {
 	it("查看态按 v3 设计稿渲染摘要、关于我、技能、作品集和 Workspace 身份", async () => {
 		await renderReadyProfile();
 
-		expect(screen.getByText("上海 Coding Girls Club")).toBeInTheDocument();
+		// 工作区名出现在面包屑链接与工作区身份卡（IA 统一后两处）
+		expect(screen.getAllByText("上海 Coding Girls Club").length).toBeGreaterThan(0);
 		expect(
 			screen.getByRole("heading", { name: "我的个人资料" }),
 		).toBeInTheDocument();
