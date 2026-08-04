@@ -95,6 +95,25 @@ describe("lib/profile 真实分支（#68 me / updateProfile + P1 扩展）", () 
 		expect(p.isPlatformAdmin).toBe(false);
 	});
 
+	it("fetchCurrentProfile：readQuery 缓存命中 → 零网络请求返回缓存数据", async () => {
+		readQueryMock.mockReturnValue({ me: meShape } as never);
+		const p = await fetchCurrentProfile();
+		expect(p).toEqual({
+			id: "u_999",
+			email: "real@example.com",
+			displayName: "真实用户",
+			avatarUrl: null,
+			isPlatformAdmin: true,
+			location: "杭州",
+			about: "P1 个人简介",
+			skills: ["GraphQL", "Elixir"],
+			visibility: "workspace",
+			memberNumber: "CGC-000042",
+			joinedAt: "2026-08-02T03:00:00Z",
+		});
+		expect(queryMock).not.toHaveBeenCalled();
+	});
+
 	it("updateCurrentProfile：updateProfile mutation 返回 → 映射更新后资料（含 P1 扩展）", async () => {
 		mutateMock.mockImplementation(({ mutation }) => {
 			expect(opName(mutation)).toBe("UpdateProfile");
