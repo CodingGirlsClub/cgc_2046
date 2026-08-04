@@ -81,7 +81,6 @@ const TEST_INVITATIONS = [
 		id: "inv_1",
 		workspaceId: "ws_02",
 		tokenHash: "hash_abc",
-		plainToken: "token_abc",
 		inviterId: "admin_1",
 		targetEmail: "user1@test.com",
 		preauthorizedRoleNames: ["member"],
@@ -92,7 +91,6 @@ const TEST_INVITATIONS = [
 		id: "inv_2",
 		workspaceId: "ws_02",
 		tokenHash: "hash_def",
-		plainToken: null,
 		inviterId: "admin_1",
 		targetEmail: null,
 		preauthorizedRoleNames: null,
@@ -105,7 +103,6 @@ const TEST_INVITATIONS = [
 		id: "inv_3",
 		workspaceId: "ws_02",
 		tokenHash: "hash_ghi",
-		plainToken: "token_ghi",
 		inviterId: "admin_1",
 		targetEmail: "user3@test.com",
 		preauthorizedRoleNames: ["tutor"],
@@ -166,13 +163,15 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 		expect(screen.getByText("已撤销")).toBeInTheDocument();
 	});
 
-	it("active 邀请显示复制链接和撤销按钮", async () => {
+	it("active 邀请显示复制链接和撤销按钮（历史邀请无明文 token，复制按钮禁用）", async () => {
 		render(<InvitationsPage />);
 
 		const copyButtons = await screen.findAllByRole("button", {
 			name: "复制链接",
 		});
 		expect(copyButtons).toHaveLength(1);
+		// 列表项无 plainToken（来自 fetchInvitations，后端不返回明文），复制按钮禁用
+		expect(copyButtons[0]).toBeDisabled();
 		const revokeButtons = await screen.findAllByRole("button", {
 			name: "撤销",
 		});

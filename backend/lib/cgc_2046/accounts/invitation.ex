@@ -8,7 +8,6 @@ defmodule Cgc2046.Accounts.Invitation do
 
   字段：
   - `token_hash`：邀请令牌的 SHA256 哈希（不存明文）
-  - `plain_token`：明文邀请令牌（仅创建时返回）
   - `inviter_id`：邀请人（全局用户）ID
   - `target_email`：目标邮箱（可选，空=公开链接）
   - `preauthorized_role_names`：预授权角色名数组（可选）
@@ -43,12 +42,6 @@ defmodule Cgc2046.Accounts.Invitation do
       allow_nil?: false,
       public?: true,
       description: "邀请令牌的 SHA256 哈希"
-    )
-
-    attribute(:plain_token, :string,
-      allow_nil?: true,
-      public?: true,
-      description: "明文邀请令牌（仅创建时返回）"
     )
 
     attribute(:inviter_id, :uuid,
@@ -219,24 +212,44 @@ defmodule Cgc2046.Accounts.Invitation do
       # 使用 force_change_attribute（同 set_attribute 内部实现）绕过 writable?: false 并执行类型转换
       change(fn changeset, _context ->
         changeset
-        |> Ash.Changeset.force_change_attribute(:workspace_id, Ash.Changeset.get_argument(changeset, :workspace_id))
-        |> Ash.Changeset.force_change_attribute(:inviter_id, Ash.Changeset.get_argument(changeset, :inviter_id))
+        |> Ash.Changeset.force_change_attribute(
+          :workspace_id,
+          Ash.Changeset.get_argument(changeset, :workspace_id)
+        )
+        |> Ash.Changeset.force_change_attribute(
+          :inviter_id,
+          Ash.Changeset.get_argument(changeset, :inviter_id)
+        )
       end)
 
       change(set_attribute(:status, :active))
 
-      # 生成 token 并存储 hash
+      # 生成 token 并存储 hash；明文 token 仅通过 metadata 一次性返回，不落库
       change(fn changeset, _context ->
         token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
         token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
 
         changeset
         |> Ash.Changeset.change_attribute(:token_hash, token_hash)
-        |> Ash.Changeset.change_attribute(:plain_token, token)
+        |> Ash.Changeset.put_context(:plain_token, token)
       end)
 
       # 校验 Volunteer 不可预授权 admin/owner（决策 5）
       change(Cgc2046.Changes.ValidateInviterRolePreauthorization)
+
+      # after_action 把明文 token 注入 record metadata（AshGraphql 暴露为 mutation result 的 metadata.plainToken）
+      change(
+        after_action(fn changeset, invitation, _context ->
+          token = changeset.context[:plain_token]
+          {:ok, Ash.Resource.put_metadata(invitation, :plain_token, token)}
+        end)
+      )
+
+      # 明文 token 仅创建时一次性返回，不落库（与 user.ex JWT token 范式一致）
+      metadata(:plain_token, :string,
+        allow_nil?: false,
+        description: "明文邀请令牌（仅创建时返回一次，不落库）"
+      )
     end
 
     update :revoke do
