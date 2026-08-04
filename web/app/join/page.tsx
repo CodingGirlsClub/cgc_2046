@@ -16,7 +16,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
 import {
 	fetchWorkspaceBySlug,
@@ -29,6 +29,9 @@ import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
 import { INVITATION_STATUS_LABEL } from "@/lib/graphql/join";
 import { Icon } from "@/components/icons";
 import type { InvitationItem } from "@/lib/invitations";
+import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
+import { clearSession } from "@/lib/auth";
+import WorkspaceListSidebar from "@/components/workspace-list-sidebar";
 
 type JoinStep =
 	| "input-slug"
@@ -44,9 +47,13 @@ type JoinStep =
 
 function JoinPageInner() {
 	const searchParams = useSearchParams();
+	const router = useRouter();
 	const { authed, confirmed, userId } = useAuthed();
 
 	const token = searchParams?.get("token") ?? null;
+
+	// 我的工作区列表（侧栏导航用）
+	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
 
 	const [step, setStep] = useState<JoinStep>(
 		token ? "invite-token-input" : "input-slug",
@@ -96,7 +103,21 @@ function JoinPageInner() {
 		};
 	}, [token, authed]);
 
-	/** 按 slug 查找工作台 */
+	// 加载我的工作区列表（侧栏用）
+	useEffect(() => {
+		if (!authed) return;
+		let cancelled = false;
+		fetchMyWorkspaces()
+			.then((list) => {
+				if (!cancelled) setWorkspaces(list);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [authed]);
+
+	/** 按 slug 查找工作区 */
 	const handleLookup = useCallback(async () => {
 		if (!slug.trim()) return;
 		setLoading(true);
@@ -190,9 +211,14 @@ function JoinPageInner() {
 		}
 	}, [invitation]);
 
+	async function handleSignOut() {
+		await clearSession();
+		router.push("/login");
+	}
+
 	if (!confirmed) {
 		return (
-			<main className="join-page">
+			<main className="join-page join-page--standalone">
 				<div className="join-loading">正在确认登录状态…</div>
 			</main>
 		);
@@ -200,7 +226,7 @@ function JoinPageInner() {
 
 	if (!authed) {
 		return (
-			<main className="join-page">
+			<main className="join-page join-page--standalone">
 				<div className="join-card">
 					<h1>加入工作区</h1>
 					<p>请先登录后再加入工作区。</p>
@@ -213,14 +239,21 @@ function JoinPageInner() {
 	}
 
 	return (
-		<main className="join-page">
-			<div className="join-card">
-				{/* 面包屑 */}
-				<div className="join-breadcrumb">
-					<Link href="/">工作台</Link>
-					<span>›</span>
-					<strong>加入工作区</strong>
-				</div>
+		<div className="workspace-page">
+			<WorkspaceListSidebar
+				workspaces={workspaces}
+				activeAction="discover"
+				onSignOut={handleSignOut}
+			/>
+
+			<main className="join-page">
+				<div className="join-card">
+					{/* 面包屑 */}
+					<div className="join-breadcrumb">
+						<Link href="/">工作台</Link>
+						<span>›</span>
+						<strong>加入工作区</strong>
+					</div>
 
 				{/* 输入 slug */}
 				{(step === "input-slug" || step === "workspace-preview") && (
@@ -523,6 +556,7 @@ function JoinPageInner() {
 				)}
 			</div>
 		</main>
+		</div>
 	);
 }
 
@@ -530,7 +564,7 @@ export default function JoinPage() {
 	return (
 		<Suspense
 			fallback={
-				<main className="join-page">
+				<main className="join-page join-page--standalone">
 					<div className="join-card">
 						<div className="join-loading">加载中…</div>
 					</div>
