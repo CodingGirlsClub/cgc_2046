@@ -189,4 +189,46 @@ defmodule Cgc2046Web.GraphqlAuthTest do
              "signOut 后旧 token 应被服务端撤销，me 查询应返回 unauthorized，实际 #{inspect(res)}"
     end
   end
+
+  # #13 Finding A：DB 故障时 load_from_bearer 的 token 查询失败被 AshAuthentication
+  # 的 else _ -> conn 吞掉，current_user 留 nil。AuthPlug.load_actor 复验 Jwt.verify
+  # （不查 DB）成功 → 标记 cgc_auth_uncertain → me resolver 返回 auth_uncertain 而非
+  # unauthorized，前端保持登录态重试而非误踢。
+  #
+  # 复现"token 签名有效但 user 加载失败"（与 DB 故障同形）：注册真用户拿有效 token，
+  # 删除该 user（token claims/签名不变，Jwt.verify 仍成功），但 subject_to_user 查不到
+  # user → current_user == nil → load_actor 标记 auth_uncertain。
+  describe "me resolver auth_uncertain（token 有效但 user 加载失败时不误踢）" do
+    test "有效 token 但 user 不存在时返回 auth_uncertain（不误判 unauthorized）" do
+      # 注册并拿有效 token（cookie）
+      conn = build_conn()
+      conn = graphql_post(conn, sign_up_query("uncertain@example.com", @password))
+      cookie = assert_auth_cookie_written(conn)
+      token = cookie.value
+
+      # 从 signUp 响应拿 user id，然后删除该 user（模拟 user 加载失败）。
+      res = graphql_response(conn)
+      user_id = res["data"]["signUp"]["result"]["id"]
+
+      # User 资源无 destroy action，直接 SQL 删行模拟"user 在 DB 中不存在"。
+      Ecto.Adapters.SQL.query!(Cgc2046.Repo, "DELETE FROM users WHERE id = $1", [
+        Ecto.UUID.dump!(user_id)
+      ])
+
+      # 用同一 token 打 me 查询：Jwt.verify 成功（签名有效）但 subject_to_user 查不到
+      # user → current_user == nil → AuthPlug 标记 auth_uncertain → me 返回 auth_uncertain。
+      me_conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "{ me { id } }"})
+
+      res = graphql_response(me_conn)
+
+      assert %{"data" => %{"me" => nil}, "errors" => errors} = res
+
+      assert Enum.any?(errors, &(&1["code"] == "auth_uncertain")),
+             "token 有效但 user 加载失败时应返回 auth_uncertain，实际 #{inspect(res)}"
+    end
+  end
 end

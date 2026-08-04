@@ -38,12 +38,23 @@ interface MeQueryResult {
 const AuthContext = createContext<AuthedState>({ authed: false, confirmed: false });
 
 /**
- * 网络错误判定：非 CombinedGraphQLErrors 的 error 均视为传输层失败。
- * CombinedGraphQLErrors = 服务端明确答复（含 unauthorized）→ 不是网络错误。
+ * 网络错误判定：区分三种 error。
+ * - 非 CombinedGraphQLErrors（ServerError / 传输层失败）→ 网络错误。
+ * - CombinedGraphQLErrors 且 code == "auth_uncertain" → 后端标记 token 签名有效
+ *   但 user 加载失败（DB 故障 / 撤销），归网络错误保持登录态重试（#13 Finding A）。
+ * - CombinedGraphQLErrors 且无 auth_uncertain code（如 unauthorized）→ 服务端
+ *   明确答复未登录，不是网络错误，据 data.me 判定。
  */
 function isNetworkError(e: unknown): boolean {
 	if (!e) return false;
-	return !CombinedGraphQLErrors.is(e);
+	if (CombinedGraphQLErrors.is(e)) {
+		// Absinthe 把 code 放顶层 errors[i].code（graphql_auth_test.exs:128 实证）；
+		// 兼容 GraphQL 规范的 extensions.code 以防序列化差异。
+		const first = (e as { errors?: ReadonlyArray<{ code?: string; extensions?: { code?: string } }> }).errors?.[0];
+		const code = first?.code ?? first?.extensions?.code;
+		return code === "auth_uncertain";
+	}
+	return true;
 }
 
 // ponytail: me 查询网络错误重试。指数退避 1s/2s/4s，最多 3 次。

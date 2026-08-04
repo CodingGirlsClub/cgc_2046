@@ -27,6 +27,17 @@ function unauthorizedError(): CombinedGraphQLErrors {
 	return new CombinedGraphQLErrors({ data: { me: null }, errors: [{ message: "unauthorized" }] });
 }
 
+// auth_uncertain 形态：后端标记 token 有效但 user 加载失败（DB 故障 / 撤销），
+// Absinthe 把 code 放顶层 errors[i].code（与 sign_in 的 authentication_failed 一致）。
+// GraphQLFormattedError 类型不含 code，用 as 断言贴合 Absinthe 实际行为。
+function authUncertainError(): CombinedGraphQLErrors {
+	const error = { message: "Auth state uncertain", code: "auth_uncertain" } as {
+		message: string;
+		code: string;
+	};
+	return new CombinedGraphQLErrors({ data: { me: null }, errors: [error] });
+}
+
 // 网络错误：非 200，Apollo 包成 Error 的传输层失败形态（非 CombinedGraphQLErrors）。
 function networkError(): Error {
 	return new Error("Network request failed");
@@ -104,6 +115,37 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 
 		// 核心断言：网络错误不应改变已确认的登录态
+		expect(result.current).toEqual({ authed: true, confirmed: true });
+		expect(failingRefetch).toHaveBeenCalled();
+	});
+
+	it("#13 Finding A auth_uncertain：token 有效但 user 加载失败时保持登录态", async () => {
+		vi.useFakeTimers();
+		// 先已登录
+		useQueryMock.mockReturnValue({
+			data: { me: { id: "u1" } },
+			loading: false,
+			error: undefined,
+			refetch: vi.fn(),
+		});
+		const { result, rerender } = renderHook(() => useAuthed(), { wrapper });
+		await act(async () => {});
+		expect(result.current).toEqual({ authed: true, confirmed: true });
+
+		// DB 故障：后端返回 auth_uncertain（CombinedGraphQLErrors + code）
+		const failingRefetch = vi.fn().mockRejectedValue(new Error("db still down"));
+		useQueryMock.mockReturnValue({
+			data: { me: null },
+			loading: false,
+			error: authUncertainError(),
+			refetch: failingRefetch,
+		});
+		rerender();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10000);
+		});
+
+		// auth_uncertain 应保持登录态并重试，而非判未登录踢出
 		expect(result.current).toEqual({ authed: true, confirmed: true });
 		expect(failingRefetch).toHaveBeenCalled();
 	});

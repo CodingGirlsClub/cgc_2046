@@ -48,7 +48,14 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, _, %{context: context} ->
         case context[:actor] do
           nil ->
-            {:error, "unauthorized"}
+            # #13 Finding A：token 签名有效但 user 加载失败（DB 故障 / 撤销）时
+            # AuthPlug.load_actor 已标记 cgc_auth_uncertain。返回 auth_uncertain
+            # 让前端保持登录态重试，而非误踢已登录用户。
+            if context[:cgc_auth_uncertain] do
+              {:error, message: "Auth state uncertain", code: "auth_uncertain"}
+            else
+              {:error, "unauthorized"}
+            end
 
           actor ->
             load_profile(actor, actor)
