@@ -137,12 +137,19 @@ defmodule Cgc2046Web.GraphqlSchema do
                }}
 
             {:error, %Ash.Error.Invalid{} = error} ->
-              # 透传 Ash 校验错误的具体 message（唯一性冲突 / 邮箱格式等），
-              # 而非统一抹成 generic "Registration failed"，前端才能按错误类型分流提示。
+              # 复用 Ash 的 AshGraphql.Error protocol 映射（产出 message/code/fields），
+              # 而非手写只取 message —— 前端可按 code/fields 分流
+              # （如唯一性冲突 → invalid_attribute + fields: [:email]）。
               errors =
-                Enum.flat_map(error.errors, fn
-                  %{message: message} when is_binary(message) -> [%{message: message}]
-                  _ -> []
+                error.errors
+                |> List.wrap()
+                |> Enum.flat_map(fn err ->
+                  if AshGraphql.Error.impl_for(err) do
+                    [AshGraphql.Error.to_error(err)]
+                  else
+                    Logger.warning("AshGraphql.Error not implemented for: #{inspect(err)}")
+                    []
+                  end
                 end)
 
               {:ok, %{result: nil, errors: errors, __token__: nil}}
@@ -276,18 +283,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   object :sign_up_payload do
     field(:result, :sign_up_user)
-    field(:errors, list_of(:auth_mutation_error))
+    field(:errors, list_of(:mutation_error))
   end
 
   object :sign_up_user do
     field(:id, non_null(:id))
     field(:email, non_null(:string))
     field(:is_platform_admin, non_null(:boolean))
-  end
-
-  object :auth_mutation_error do
-    field(:message, :string)
-    field(:code, :string)
   end
 
   input_object :sign_up_input do
