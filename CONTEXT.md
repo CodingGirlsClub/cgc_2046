@@ -316,13 +316,13 @@
 
 ### Invitation（邀请链接，租户资源）
 
-- **定义**：加入 Workspace 的链接：token（存 hash）、expires_at、邀请人、预授权角色、目标邮箱（空 = 公开链接）、状态（active/used/revoked）。Volunteer 可生成链接但不得赋予 Admin 级角色。
-- **架构位置**：租户资源；invite_only 空间唯一入口；撤销流程与到期清理留编码阶段细化。
+- **定义**：加入 Workspace 的链接：token（存 hash）、expires_at、邀请人、预授权角色、目标邮箱（空 = 公开链接）、状态（active/used/revoked/expired）。审计字段：accepted_by（接受人）、accepted_at（接受时间）。Volunteer 可生成链接但不得赋予 Admin 级角色。
+- **架构位置**：租户资源；invite_only 空间唯一入口；撤销流程与到期清理已实现（惰性过期检查）。
 
 ### JoinRequest（加入申请，租户资源）
 
-- **定义**：request 空间下的加入申请：申请人、Workspace、状态（pending/approved/rejected）；审批通过时分配角色。
-- **架构位置**：租户资源；审批动作属于高风险管理工具，走确认流。
+- **定义**：request 空间下的加入申请：申请人、Workspace、状态（pending/approved/rejected/expired）；审批通过时分配角色。审计字段：approved_by（审批人）、approved_at（审批时间）、rejection_reason（拒绝原因）、approval_deadline（审批截止时间，默认创建后 7 天）、expired_at（过期时间）。
+- **架构位置**：租户资源；审批动作属于高风险管理工具，走确认流。过期转换采用惰性检查（读取时若 pending 且 deadline 已过 → 转 expired）。
 
 ### Profile（成员公开资料，租户资源）
 
@@ -375,8 +375,8 @@
 
 ## 10. 待细化/待办（编码阶段）
 
-- Invitation 撤销流程（revoked 状态 + 到期清理）
-- JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）
+- ~~Invitation 撤销流程（revoked 状态 + 到期清理）~~ ✅ 已实现（slice-B）
+- ~~JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）~~ ✅ 已定稿：审批方指定（slice-B 决策 2）
 - AgentRun 的 token 用量字段（tokens_in/tokens_out）为计费留底
 - 确认流 auto_approve 模式的冷却期（二期）
 - 平台管理员建 Workspace 的审计留痕
