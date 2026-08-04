@@ -111,10 +111,10 @@ function WorkspaceSidebar({
 			</nav>
 
 			<div className="workspace-sidebar__footer">
-				<button type="button" className="workspace-dashed-action">
+				<Link href="/join" className="workspace-dashed-action">
 					<span aria-hidden="true">＋</span>
 					发现 / 申请加入新工作区
-				</button>
+				</Link>
 				<div className="workspace-sidebar__account">
 					<ProfileEntry />
 					<button
@@ -455,12 +455,12 @@ function EmptyWorkspaceDetail() {
 			<div className="workspace-empty-detail">
 				<h2>还没有可进入的工作区</h2>
 				<p>发现公开工作区，或使用邀请凭据加入新的协作空间。</p>
-				<button
-					type="button"
+				<Link
+					href="/join"
 					className="workspace-button workspace-button--outline"
 				>
 					发现 / 申请加入新工作区
-				</button>
+				</Link>
 			</div>
 		</main>
 	);
@@ -570,14 +570,14 @@ function WorkspaceGrid({
 					{workspaces.map((ws) => (
 						<GridWorkspaceCard key={ws.id} ws={ws} />
 					))}
-					<button
-						type="button"
+					<Link
+						href="/join"
 						className="workspace-grid-card workspace-grid-card--discover"
 					>
 						<span className="workspace-discover-icon">♧</span>
 						<strong>发现 / 申请加入新工作区</strong>
 						<span>浏览公开社区，或使用邀请凭据加入</span>
-					</button>
+					</Link>
 				</div>
 			</main>
 		</div>

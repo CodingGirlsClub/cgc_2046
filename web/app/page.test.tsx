@@ -285,7 +285,7 @@ describe("工作台页 (#63)", () => {
 		expect(screen.getByText("invited")).toBeInTheDocument();
 		expect(screen.getAllByRole("link", { name: "进入工作台" })).toHaveLength(1);
 		expect(
-			screen.getByRole("button", { name: /发现 \/ 申请加入新工作区/ }),
+			screen.getByRole("link", { name: /发现 \/ 申请加入新工作区/ }),
 		).toBeInTheDocument();
 	});
 

@@ -167,24 +167,22 @@ export default function WorkspaceShell({
 							)}
 							{canSeeManagement && (
 								<>
-									<button
-										type="button"
-										disabled
-										className="ws-shell-item ws-shell-item--disabled"
-										title="切片 B 开放（加入审批 / 邀请管理）"
+									<Link
+										href={`/w/${slug}/settings/requests`}
+										className={`ws-shell-item ${active === "settings" ? "ws-shell-item--selected" : ""}`}
+										aria-current={active === "settings" ? "page" : undefined}
 									>
 										<Icon name="shield" />
 										<span>加入审批</span>
-									</button>
-									<button
-										type="button"
-										disabled
-										className="ws-shell-item ws-shell-item--disabled"
-										title="切片 B 开放（加入审批 / 邀请管理）"
+									</Link>
+									<Link
+										href={`/w/${slug}/settings/invitations`}
+										className={`ws-shell-item ${active === "settings" ? "ws-shell-item--selected" : ""}`}
+										aria-current={active === "settings" ? "page" : undefined}
 									>
 										<Icon name="invite" />
 										<span>邀请管理</span>
-									</button>
+									</Link>
 								</>
 							)}
 						</nav>
