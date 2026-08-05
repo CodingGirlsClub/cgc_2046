@@ -226,13 +226,15 @@ defmodule Cgc2046.Accounts.MembershipContext do
   # 使用 query.resource 动态决定读取的资源类型（而非硬编码 WorkspaceMembership），
   # 因为 policy 检查可能发生在 JoinRequest、Invitation 等非 Membership 资源上
   # （如 approveJoinRequest 的 WorkspaceActorIsOwnerOrAdmin 检查）。
-  defp workspace_id_by_id_filter(%Ash.Filter{
-         expression: %Ash.Query.Operator.Eq{
-           left: %Ash.Query.Ref{attribute: %{name: :id}},
-           right: id
-         }
-       },
-       resource)
+  defp workspace_id_by_id_filter(
+         %Ash.Filter{
+           expression: %Ash.Query.Operator.Eq{
+             left: %Ash.Query.Ref{attribute: %{name: :id}},
+             right: id
+           }
+         },
+         resource
+       )
        when is_binary(id) do
     case Ash.get(resource, id, authorize?: false) do
       {:ok, record} -> record.workspace_id
