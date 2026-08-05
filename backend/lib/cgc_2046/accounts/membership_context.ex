@@ -27,6 +27,28 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   Ash 升级（filter struct 形状变化）只炸本模块 + `resolve_workspace_id/1` 钉测
   （membership_context_test.exs），一处炸、一处改。
+
+  ## 为何保留 filter struct 反向解析（已知 Ash 升级炸点，刻意不修）
+
+  `filter_workspace_id/1` 与 `workspace_id_by_id_filter/1` 反向解析 Ash 3.31 的
+  Eq / BooleanExpression / Ref struct——这是**已知技术债**，Ash 升级改 filter
+  struct 形状时此处 + 钉测必炸（钉测当场失败指路，可控）。曾考虑删掉、改由调用方在
+  policy 前显式注入 `workspace_id`（直读 `context[:workspace_id]`），但 research
+  （`workflows/research/2026-08-05-resolve-workspace-id-ash-filter-deletion-test.md`）
+  已证伪该方向的核心假设，**结论是不改**，此处记录以防后人重复研究同一死路：
+
+  - **get-by-id 场景无法注入**：6 个 update mutation 前端只传记录 `id`
+    （SDL `assignRoles(id:)` 等，schema.graphql:1518-1551），契约层面无 workspace_id
+    可注入；ash_graphql update resolver 必然 get-by-id 预读（resolver.ex:1667-1837），
+    预读 filter 仅 `id == ^value`。GraphQL 契约不变则该场景**必须**保留回查。
+  - **list query 场景无法便宜注入**：workspace_id 在前端 GraphQL `filter` 变量里，
+    Plug 层（HTTP）拿不到 GraphQL 变量；ash_graphql 无 per-query context 注入 DSL。
+  - **唯一能全删的是路径 A**（前端用 HTTP header 交付 workspace_id + 新 Plug 注入），
+    代价是跨前后端交付契约变更 + 跨租户/被邀请人边界处理，**代价过大，决策不取**。
+
+  即：真正脆弱的只有 query 分支这两段；changeset 分支走 `tenant` / `get_attribute`
+  / `data.id` 等稳定 Ash public API，本就不脆弱。保留现状 = 收壳点单一 + 钉测兜底。
+  若未来 GraphQL 契约有变（如引入 workspace header），可重启路径 A；否则不动。
   """
 
   require Ash.Query
@@ -97,7 +119,10 @@ defmodule Cgc2046.Accounts.MembershipContext do
   1. changeset（update / assign_roles）：`changeset.tenant` 或 changeset 上的 workspace_id
   2. list query（成员列表）：tenant 可能为空（global 查询），从 filter 提取 workspace_id
   3. get-by-id（GraphQL update mutation 先读目标记录）：filter 只有 id，
-     按 id 读出记录后再取 workspace_id
+     按 query.resource 动态决定读哪个资源（WorkspaceMembership / JoinRequest /
+     Invitation），读出记录后取其 workspace_id。曾硬编码 WorkspaceMembership 导致
+     approveJoinRequest 等 JoinRequest/Invitation 的 get-by-id 预读用错资源查不到
+     → policy 误拒（已修）。
   4. changeset 目标即 Workspace 资源自身（#78 update_workspace）：Workspace 无
      workspace_id 属性，目标工作台 = 被更新记录本身（data.id / attributes.id）
 
@@ -116,18 +141,27 @@ defmodule Cgc2046.Accounts.MembershipContext do
   def resolve_workspace_id(%{query: %Ash.Query{} = query}) do
     query.tenant ||
       filter_workspace_id(query.filter) ||
-      workspace_id_by_id_filter(query.filter)
+      workspace_id_by_id_filter(query.filter, query.resource)
   end
 
   def resolve_workspace_id(_), do: nil
 
   # update/bulk 场景 changeset.data 可能为 nil，先保护再取
+  # create 场景 workspace_id 可能尚未从 argument 写入 attribute（policy 在 change 前执行），
+  # 回退检查 changeset.arguments
   defp changeset_workspace_id(changeset) do
-    if changeset.data do
-      Ash.Changeset.get_attribute(changeset, :workspace_id) ||
+    cond do
+      changeset.data && Ash.Changeset.get_attribute(changeset, :workspace_id) ->
+        Ash.Changeset.get_attribute(changeset, :workspace_id)
+
+      Map.get(changeset.attributes, :workspace_id) ->
+        Map.get(changeset.attributes, :workspace_id)
+
+      Ash.Changeset.get_argument(changeset, :workspace_id) ->
+        Ash.Changeset.get_argument(changeset, :workspace_id)
+
+      true ->
         workspace_self_id(changeset)
-    else
-      Map.get(changeset.attributes, :workspace_id) || workspace_self_id(changeset)
     end
   end
 
@@ -187,19 +221,221 @@ defmodule Cgc2046.Accounts.MembershipContext do
   defp value_of(_), do: nil
 
   # get-by-id 场景：filter 形如 `id == "xxx"`（GraphQL update mutation 先按 id 读目标记录），
-  # 无 workspace_id 条件，按 id 读出记录后取其 workspace_id
-  defp workspace_id_by_id_filter(%Ash.Filter{
-         expression: %Ash.Query.Operator.Eq{
-           left: %Ash.Query.Ref{attribute: %{name: :id}},
-           right: id
-         }
-       })
+  # 无 workspace_id 条件，按 id 读出记录后取其 workspace_id。
+  #
+  # 使用 query.resource 动态决定读取的资源类型（而非硬编码 WorkspaceMembership），
+  # 因为 policy 检查可能发生在 JoinRequest、Invitation 等非 Membership 资源上
+  # （如 approveJoinRequest 的 WorkspaceActorIsOwnerOrAdmin 检查）。
+  defp workspace_id_by_id_filter(
+         %Ash.Filter{
+           expression: %Ash.Query.Operator.Eq{
+             left: %Ash.Query.Ref{attribute: %{name: :id}},
+             right: id
+           }
+         },
+         resource
+       )
        when is_binary(id) do
-    case Ash.get(WorkspaceMembership, id, authorize?: false) do
-      {:ok, membership} -> membership.workspace_id
+    case Ash.get(resource, id, authorize?: false) do
+      {:ok, record} -> record.workspace_id
       _ -> nil
     end
   end
 
-  defp workspace_id_by_id_filter(_), do: nil
+  defp workspace_id_by_id_filter(_, _resource), do: nil
+
+  # ── 成员入座（写入面）─────────────────────────────────────────────
+
+  # 业务错误文案作为 opt 传入：Invitation 对受邀人说「你」、JoinRequest 对审批方说「该用户」，
+  # 两个 action 的调用方视角不同（自助 vs 管理员代操作），文案差异是 UX 契约，抽出后保留。
+  @enroll_already_member_default "该用户已是本工作台成员"
+
+  @doc """
+  把一个用户入座到工作台：建 Membership + 按角色名入座 MembershipRole + 并发 unique 处理。
+
+  这是「加入工作台」不变量的唯一实现（Invitation.accept / JoinRequest.approve /
+  Workspace.join 三处 after_action 的入座段委托此处）。承担：
+
+  1. existing 守卫：已是成员 → `{:error, business_error}`（不重复建 Membership）
+  2. 建 Membership（并发下两个调用可能同时越过守卫，DB unique index 兜底）
+  3. 按角色名查 role record 入座 MembershipRole（reduce_while 短路，失败返回结构化错误）
+  4. unique 冲突按 `on_conflict` 转换：`:business_error` 转「已是成员」/ `:idempotent` 返成功
+  5. 非 unique 的真实 DB 故障原样上抛，不吞成「已是成员」（防静默数据丢失）
+
+  ## 事务边界
+
+  事务无关纯函数——不自己开事务，继承调用方 action 的事务上下文。Invitation.accept /
+  JoinRequest.approve 的 after_action 在父事务内，入座失败 rollback 父 action（状态 claim
+  一并回滚）；Workspace.join 的 `transaction?: false` 下两次写各自 autocommit，
+  MembershipRole 失败留孤儿 membership（已知风险，见 workspace.ex ponytail 注释，
+  升级路径为给 :join 加 transaction?: true，不在本函数职责内）。
+
+  ## opts
+
+  - `:on_conflict` — `:business_error`（默认，Invitation/JoinRequest）| `:idempotent`（Workspace.join）
+  - `:error_message` — 「已是成员」业务错误文案（默认「该用户已是本工作台成员」）
+
+  ## 返回
+
+  - `{:ok, membership}` — 入座成功（或幂等成功时为已有的 membership）
+  - `{:error, error}` — existing 守卫 / unique→业务错误 / 真 DB 故障 / MembershipRole 创建失败
+  """
+  @spec admit_member(String.t(), String.t(), [atom], keyword) ::
+          {:ok, WorkspaceMembership.t()} | {:error, term}
+  def admit_member(user_id, workspace_id, role_names, opts \\ []) do
+    on_conflict = Keyword.get(opts, :on_conflict, :business_error)
+    error_message = Keyword.get(opts, :error_message, @enroll_already_member_default)
+    role_names = List.wrap(role_names)
+
+    # existing 守卫：已是成员时按 on_conflict 分流——
+    # - :idempotent（Workspace.join）→ 幂等成功，回查已有 membership 返回（不报错）
+    # - :business_error（Invitation/JoinRequest）→ 转「已是成员」业务错误
+    # 非 bang Ash.read + case：读失败返结构化错误而非 raise——「已是成员」是业务判定
+    # 必须准确（不能吞成 nil 继续建），但也不该 raise 把结构化错误变成 500（#14 原则；
+    # Workspace.join 是 generic action transaction?: false，raise 在此最危险）。
+    # fail-closed 不变量保持：读失败既不建 membership 也不假装成功，上抛结构化错误。
+    existing_result =
+      WorkspaceMembership
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(workspace_id == ^workspace_id and user_id == ^user_id)
+      |> Ash.read(tenant: workspace_id, authorize?: false)
+
+    case existing_result do
+      {:ok, []} ->
+        create_membership_and_roles(user_id, workspace_id, role_names, on_conflict, error_message)
+
+      {:ok, [membership | _]} when on_conflict == :idempotent ->
+        {:ok, membership}
+
+      {:ok, [_ | _]} ->
+        {:error, already_member_error(error_message)}
+
+      {:error, _error} ->
+        {:error, membership_check_error()}
+    end
+  end
+
+  defp create_membership_and_roles(user_id, workspace_id, role_names, on_conflict, error_message) do
+    # Ash.create 省略 actor：authorize?: false 下 actor 不参与 policy 判定，
+    # 且 WorkspaceMembership / MembershipRole 的 create action 无读 actor 的 change（无审计字段），
+    # 故 actor 在此无作用。事务边界由调用方 action 控制（见 admit_member doc 事务边界段）。
+    case WorkspaceMembership
+         |> Ash.Changeset.for_create(:create, %{user_id: user_id})
+         |> Ash.create(tenant: workspace_id, authorize?: false) do
+      {:ok, membership} ->
+        # 空 role_names → 建 Membership 不建 MembershipRole（决策 6：无预授权角色待 Owner 手动 assign）
+        if role_names != [] do
+          # 非 bang Ash.read：读角色表失败返结构化错误而非 raise（与 existing 守卫 / 幂等回查统一，
+          # #14 原则）。:join 是 transaction?: false，Membership 已 commit 后读角色 raise 会留孤儿 membership。
+          with {:ok, roles} <-
+                 Ash.read(Cgc2046.Accounts.Role, tenant: workspace_id, authorize?: false) do
+            seat_roles(membership, role_names, roles, workspace_id)
+          else
+            {:error, _error} -> {:error, membership_check_error()}
+          end
+        else
+          {:ok, membership}
+        end
+
+      {:error, error} ->
+        if unique_membership_conflict?(error) do
+          handle_unique_conflict(on_conflict, error_message, workspace_id, user_id)
+        else
+          # 非 unique 的真实 DB 故障（连接断、磁盘满）必须原样上抛，不能吞成「已是成员」，
+          # 否则用户被误导且无告警（静默数据丢失）。
+          {:error, error}
+        end
+    end
+  end
+
+  # 按角色名入座 MembershipRole：reduce_while 短路，任一创建失败返回 {:error, _}。
+  # 角色名在租户内找不到对应 role record → 跳过该角色（与三处原 reduce_while 行为一致，
+  # 容错预授权/审批传入了租户内不存在的角色名）。
+  defp seat_roles(membership, role_names, roles, workspace_id) do
+    Enum.reduce_while(role_names, {:ok, membership}, fn role_name, _acc ->
+      role = Enum.find(roles, &(&1.name == role_name))
+
+      if role do
+        # actor 省略理由同 create_membership_and_roles（authorize?: false，create action 无 actor 依赖）
+        case Ash.create(
+               Cgc2046.Accounts.MembershipRole,
+               %{membership_id: membership.id, role_id: role.id},
+               tenant: workspace_id,
+               authorize?: false
+             ) do
+          {:ok, _} -> {:cont, {:ok, membership}}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      else
+        {:cont, {:ok, membership}}
+      end
+    end)
+  end
+
+  # unique 冲突的两种外露姿态（同一不变量）：
+  # - :business_error → 转「已是成员」业务错误（Invitation.accept / JoinRequest.approve）
+  # - :idempotent → 幂等成功，回查已有 membership 返回（Workspace.join）
+  defp handle_unique_conflict(:idempotent, _error_message, workspace_id, user_id) do
+    # 幂等成功：并发下另一请求已建 Membership，回查取已有记录返回。
+    # 非 bang Ash.read：回查失败（连接断、极端：刚建好又被删）按保守方向当结构化错误，
+    # 不 raise 也不假装成功（#14 原则）。
+    WorkspaceMembership
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(workspace_id == ^workspace_id and user_id == ^user_id)
+    |> Ash.read(tenant: workspace_id, authorize?: false)
+    |> case do
+      {:ok, [membership | _]} -> {:ok, membership}
+      {:ok, []} -> {:error, already_member_error(@enroll_already_member_default)}
+      {:error, _error} -> {:error, membership_check_error()}
+    end
+  end
+
+  defp handle_unique_conflict(:business_error, error_message, _workspace_id, _user_id) do
+    {:error, already_member_error(error_message)}
+  end
+
+  defp already_member_error(message) do
+    Ash.Error.Changes.InvalidAttribute.exception(field: :user_id, message: message)
+  end
+
+  # existing 守卫 / 幂等回查的 DB 读失败：fail-closed 结构化错误。
+  # 既不吞成 nil 继续建 membership（静默数据丢失），也不 raise 把错误变成 500
+  # （#14 原则：结构化错误走 ash_graphql to_errors）。
+  defp membership_check_error do
+    Ash.Error.Changes.InvalidAttribute.exception(
+      field: :user_id,
+      message: "成员资格检查失败"
+    )
+  end
+
+  @doc """
+  判断 Ash.create/ash_postgres 返回的 error 是否为 membership unique constraint 冲突。
+
+  ash_postgres 把 `wm_unique_ws_user_idx`（identity :unique_membership_per_workspace_user）
+  的 PG unique violation 转成 `Ash.Error.Invalid{errors: [InvalidAttribute{private_vars: [constraint_type: :unique]}]}`。
+  DB 断连、磁盘满等真实写失败不会带 `constraint_type: :unique`——调用方据此区分
+  「并发重复，可幂等/转业务错误」与「真实故障，必须上抛」。避免 `{:error, _}` 通配
+  把 DB 故障误判成「已是成员/成功」的静默数据丢失。
+  """
+  @spec unique_membership_conflict?(term) :: boolean
+  def unique_membership_conflict?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_constraint_leaf?/1)
+  end
+
+  # Ash.create 通常返回 Splode error class（%Ash.Error.Invalid{errors: [...]}），
+  # 但某些路径可能直接返回裸 leaf，兼容判断。
+  def unique_membership_conflict?(%Ash.Error.Changes.InvalidAttribute{} = leaf) do
+    unique_constraint_leaf?(leaf)
+  end
+
+  def unique_membership_conflict?(_), do: false
+
+  defp unique_constraint_leaf?(%Ash.Error.Changes.InvalidAttribute{
+         private_vars: private_vars
+       }) do
+    # private_vars 可能为 nil（InvalidAttribute 未传该字段时）
+    Keyword.get(private_vars || [], :constraint_type) == :unique
+  end
+
+  defp unique_constraint_leaf?(_), do: false
 end

@@ -366,7 +366,9 @@ export default function WorkspaceMembersPage() {
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
 				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href={`/w/${slug}`}>工作区设置</Link>
+					<Link href="/">工作台</Link>
+					<span>›</span>
+					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
 					<strong>成员与角色</strong>
 				</div>

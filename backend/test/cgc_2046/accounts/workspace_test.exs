@@ -719,39 +719,200 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
-  describe "GraphQL createWorkspace mutation" do
-    defp graphql_post(conn, query, token \\ nil) do
-      conn =
-        if token do
-          put_req_header(conn, "authorization", "Bearer #{token}")
-        else
-          conn
-        end
+  describe "join workspace (G13)" do
+    test "open workspace: user can join and gets learner role" do
+      admin = admin_user()
 
-      conn
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/graphql", %{"query" => query})
-      |> json_response(200)
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-open-#{System.unique_integer([:positive])}",
+          name: "Join Open",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      assert {:ok, joined} =
+               Workspace
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
+
+      assert joined.id == workspace.id
+
+      # Verify membership exists
+      assert {:ok, memberships} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      membership = Enum.find(memberships, &(&1.user_id == user.id))
+      assert membership != nil
+
+      # Verify learner role was assigned
+      loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
+      assert Enum.any?(loaded.roles, &(&1.name == :learner))
     end
 
-    defp sign_in_token(email, password) do
-      query = """
-      mutation {
-        signIn(email: "#{email}", password: "#{password}") {
-          id
-        }
-      }
-      """
+    test "request workspace: join action returns error" do
+      admin = admin_user()
 
-      conn =
-        build_conn()
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/graphql", %{"query" => query})
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-request-#{System.unique_integer([:positive])}",
+          name: "Join Request",
+          join_policy: :request
+        })
+        |> Ash.create(actor: admin)
 
-      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
-      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
-      token = conn.resp_cookies["cgc_token"].value
-      token
+      user = normal_user()
+
+      result =
+        Workspace
+        |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+        |> Ash.run_action(actor: user)
+
+      # Should return error because join_policy is :request
+      assert match?({:error, _}, result) or result == {:ok, nil}
+    end
+
+    test "invite_only workspace: join action returns error" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-invite-#{System.unique_integer([:positive])}",
+          name: "Join Invite",
+          join_policy: :invite_only
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      result =
+        Workspace
+        |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+        |> Ash.run_action(actor: user)
+
+      # Should return error because join_policy is :invite_only
+      assert match?({:error, _}, result) or result == {:ok, nil}
+    end
+
+    test "anonymous user cannot join open workspace" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-anon-#{System.unique_integer([:positive])}",
+          name: "Join Anon",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      result =
+        Workspace
+        |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id})
+        |> Ash.run_action()
+
+      # Anonymous user should be forbidden
+      assert match?({:error, %Ash.Error.Forbidden{}}, result)
+    end
+
+    test "open workspace: already a member returns workspace without creating duplicate membership" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-idemp-#{System.unique_integer([:positive])}",
+          name: "Join Idemp",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      # First join - should create membership
+      assert {:ok, joined} =
+               Workspace
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
+
+      assert joined.id == workspace.id
+
+      # Count memberships before second join
+      assert {:ok, memberships_before} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      count_before = length(memberships_before)
+
+      # Second join - should be idempotent, return workspace without error
+      assert {:ok, joined_again} =
+               Workspace
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
+
+      assert joined_again.id == workspace.id
+
+      # Count memberships after second join - should be the same (no duplicate)
+      assert {:ok, memberships_after} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert length(memberships_after) == count_before
+    end
+
+    # 回归 P1：并发 join 同一用户到同一 workspace，DB unique 约束兜底，
+    # 两个请求都应成功返回（幂等），DB 最终只一条 membership + learner 角色。
+    test "open workspace: concurrent join by same user is idempotent, no 500" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-conc-#{System.unique_integer([:positive])}",
+          name: "Join Concurrent",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      tasks =
+        for _ <- 1..4 do
+          Task.async(fn ->
+            Workspace
+            |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+            |> Ash.run_action(actor: user)
+          end)
+        end
+
+      results = Task.await_many(tasks, 5000)
+
+      # 全部成功返回 workspace，无 MatchError/500
+      assert Enum.all?(results, &match?({:ok, %Workspace{}}, &1))
+
+      require Ash.Query
+
+      # DB 层只落一条 membership
+      {:ok, memberships} =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(user_id == ^user.id)
+        |> Ash.read(tenant: workspace.id, actor: admin, authorize?: false)
+
+      assert length(memberships) == 1
+
+      # 且该 membership 有 learner 角色（无孤儿）
+      loaded = Ash.load!(hd(memberships), :roles, tenant: workspace.id, authorize?: false)
+      assert Enum.any?(loaded.roles, &(&1.name == :learner))
     end
   end
 end

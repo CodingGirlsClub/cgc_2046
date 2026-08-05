@@ -296,42 +296,6 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
   end
 
-  describe "GraphQL members contract" do
-    defp graphql_post(conn, query, token \\ nil) do
-      conn =
-        if token do
-          put_req_header(conn, "authorization", "Bearer #{token}")
-        else
-          conn
-        end
-
-      conn
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/graphql", %{"query" => query})
-      |> json_response(200)
-    end
-
-    defp sign_in_token(email, password) do
-      query = """
-      mutation {
-        signIn(email: "#{email}", password: "#{password}") {
-          id
-        }
-      }
-      """
-
-      conn =
-        build_conn()
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/graphql", %{"query" => query})
-
-      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
-      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
-      token = conn.resp_cookies["cgc_token"].value
-      token
-    end
-  end
-
   describe "destroy last-owner guard" do
     # plan-007 Step 4：destroy 守卫与 assign_roles 共享同一不变量（per-workspace
     # advisory lock + owner_count 读）。唯一 owner 的 destroy 必须被 before_action 拒绝。

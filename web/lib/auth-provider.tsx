@@ -32,6 +32,8 @@ export interface AuthedState {
 	authed: boolean;
 	/** 是否已完成登录态确认（me 查询返回后为 true） */
 	confirmed: boolean;
+	/** 当前登录用户 ID（confirmed=true 且 authed=true 时必有值；未登录或未确认时为 null） */
+	userId: string | null;
 }
 
 const ME_QUERY = gql`
@@ -45,6 +47,7 @@ interface MeQueryResult {
 const AuthContext = createContext<AuthedState>({
 	authed: false,
 	confirmed: false,
+	userId: null,
 });
 
 /**
@@ -78,12 +81,14 @@ function isNetworkError(e: unknown): boolean {
 // 首帧即失败时保持 confirmed:false（卡 LoadingState）比误踢 /login 安全。
 const RETRY_DELAYS = [1000, 2000, 4000];
 
-type Action = { type: "confirm"; authed: boolean } | { type: "retain" };
+type Action =
+	| { type: "confirm"; authed: boolean; userId: string | null }
+	| { type: "retain" };
 
 function reducer(_state: AuthedState, action: Action): AuthedState {
 	switch (action.type) {
 		case "confirm":
-			return { authed: action.authed, confirmed: true };
+			return { authed: action.authed, confirmed: true, userId: action.userId };
 		case "retain":
 			return _state;
 	}
@@ -96,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const [state, dispatch] = useReducer(reducer, {
 		authed: false,
 		confirmed: false,
+		userId: null,
 	});
 	const retryingRef = useRef(false);
 
@@ -136,7 +142,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		}
 
 		// 无 error（成功）或 CombinedGraphQLErrors（未登录）：据 data?.me 定登录态。
-		dispatch({ type: "confirm", authed: !!data?.me });
+		dispatch({
+			type: "confirm",
+			authed: !!data?.me,
+			userId: data?.me?.id ?? null,
+		});
 	}, [data, loading, error, refetch]);
 
 	return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;

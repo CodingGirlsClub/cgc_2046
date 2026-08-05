@@ -6,9 +6,11 @@ defmodule Cgc2046.Accounts.User do
   - `register_with_password`（create action）：注册，签发 JWT（存于 metadata `:token`）
   - `sign_in_with_password`（read action，get? true）：登录，校验密码后签发 JWT
 
-  GraphQL 暴露：
-  - mutation `signUp(input: {email, password})` → `SignUpResult { result, errors, metadata { token } }`
-  - mutation `signIn(email:, password:)` → `SignInResult`（含 `token` metadata 字段）
+  GraphQL 暴露（手写于 `Cgc2046Web.GraphqlSchema`，非 ash_authentication 自动生成；
+  登录 token 经 httpOnly cookie 交付 #60 路径 B，响应体不含 token）：
+  - mutation `signUp(input: {email, password})` → `SignUpPayload { result, errors }`（错误走 AshGraphql.Error 映射）
+  - mutation `signIn(email:, password:)` → `SignInResult { id, email, isPlatformAdmin }`
+  - mutation `updateProfile` / `setUiTheme` → `User`（actor-scoped 手写 resolve）
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,

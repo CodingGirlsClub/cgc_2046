@@ -18,11 +18,31 @@
       "generated?": false,
       "precision": null,
       "primary_key?": false,
-      "references": null,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "portfolio_items_user_id_fkey",
+        "on_delete": null,
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "public",
+        "table": "users"
+      },
       "scale": null,
       "size": null,
-      "source": "email",
-      "type": "citext"
+      "source": "user_id",
+      "type": "uuid"
     },
     {
       "allow_nil?": false,
@@ -33,20 +53,44 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "hashed_password",
+      "source": "title",
       "type": "text"
     },
     {
-      "allow_nil?": false,
-      "default": "false",
+      "allow_nil?": true,
+      "default": "nil",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
       "references": null,
       "scale": null,
       "size": null,
-      "source": "is_platform_admin",
-      "type": "boolean"
+      "source": "description",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "url",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"document\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "icon",
+      "type": "text"
     },
     {
       "allow_nil?": false,
@@ -79,23 +123,8 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "3726132FDD40B6BDD35FD59B0EEF6B55D23A59EB3D0FBB1906C30D61434C030E",
-  "identities": [
-    {
-      "all_tenants?": false,
-      "base_filter": null,
-      "index_name": "users_unique_email_index",
-      "keys": [
-        {
-          "type": "atom",
-          "value": "email"
-        }
-      ],
-      "name": "unique_email",
-      "nils_distinct?": true,
-      "where": null
-    }
-  ],
+  "hash": "F4A25B64AFEA7DAAC2C87E9451F47789525E4960EE61E5F5416D51E0AC6DF680",
+  "identities": [],
   "multitenancy": {
     "attribute": null,
     "global": null,
@@ -103,5 +132,5 @@
   },
   "repo": "Elixir.Cgc2046.Repo",
   "schema": null,
-  "table": "users"
+  "table": "portfolio_items"
 }
