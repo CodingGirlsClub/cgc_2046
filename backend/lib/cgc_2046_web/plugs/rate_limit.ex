@@ -80,7 +80,13 @@ defmodule Cgc2046Web.Plugs.RateLimit do
         end
       end)
 
-    "rate:#{remote_ip}:#{field_value}"
+    # ponytail: field_value 可能是明文凭证（invitation token），hash 后再作 ETS key，
+    # 防止 ETS 被 observer/remote_console inspect 时泄漏明文 token。
+    # SHA256 确定性 → 同 token 永远 hash 到同一 key，限流聚合语义不变。
+    hashed =
+      :crypto.hash(:sha256, to_string(field_value)) |> Base.encode16(case: :lower)
+
+    "rate:#{remote_ip}:#{hashed}"
   end
 
   defp check_rate(key) do
