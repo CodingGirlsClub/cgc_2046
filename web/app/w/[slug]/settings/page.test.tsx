@@ -130,7 +130,7 @@ describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 			screen.getByText("申请审批", { selector: ".workspace-policy" }),
 		).toBeInTheDocument();
 		// 壳导航「加入策略」激活态（#79 改名）
-		const shellNav = screen.getByRole("navigation", { name: "工作区设置" });
+		const shellNav = screen.getByRole("navigation", { name: "工作区导航" });
 		expect(
 			within(shellNav).getByRole("link", { name: "加入策略" }),
 		).toHaveAttribute("aria-current", "page");
