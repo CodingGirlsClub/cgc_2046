@@ -26,7 +26,7 @@ import {
 import { validateInvitation, acceptInvitation } from "@/lib/invitations";
 import type { Workspace } from "@/lib/graphql/workspace";
 import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
-import { INVITATION_STATUS_LABEL } from "@/lib/graphql/join";
+import { INVITATION_STATUS_LABEL } from "@/lib/graphql/invitation";
 import { Icon } from "@/components/icons";
 import type { InvitationItem } from "@/lib/invitations";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";

@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
+import type { MutationResult } from "./shared";
 
 /**
  * #61 登录/注册 GraphQL mutation（已按后端 #60 实际 schema 对齐，commit d73b578）。
@@ -21,21 +22,13 @@ export interface SignUpInput {
 	password: string;
 }
 
-export interface MutationError {
-	message?: string | null;
-	code?: string | null;
-}
-
 export interface UserLite {
 	id: string;
 	email: string;
 	isPlatformAdmin: boolean;
 }
 
-export interface SignUpResultData {
-	result: UserLite | null;
-	errors: MutationError[];
-}
+export type SignUpResultData = MutationResult<UserLite>;
 
 export interface SignInResultData {
 	id: string;

@@ -9,7 +9,7 @@ import {
 	type InvitationStatus,
 	type InvitationsFilter,
 	type InvitationConnection,
-} from "./graphql/join";
+} from "./graphql/invitation";
 
 /**
  * B-3 邀请数据源。

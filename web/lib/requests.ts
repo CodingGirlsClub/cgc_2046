@@ -9,7 +9,7 @@ import {
 	type JoinRequestStatus,
 	type JoinRequestsFilter,
 	type JoinRequestConnection,
-} from "./graphql/join";
+} from "./graphql/join-request";
 import { GET_WORKSPACE } from "./graphql/workspace";
 import type { Workspace } from "./graphql/workspace";
 import { graphqlErrorMessage } from "./graphql/auth";

@@ -21,7 +21,7 @@ import {
 	APPROVE_JOIN_REQUEST,
 	REJECT_JOIN_REQUEST,
 	JOIN_WORKSPACE,
-} from "./graphql/join";
+} from "./graphql/join-request";
 import { GET_WORKSPACE } from "./graphql/workspace";
 
 describe("mapJoinRequest（后端 JoinRequest → 前端 JoinRequestItem）", () => {
