@@ -160,6 +160,46 @@ defmodule Cgc2046.Accounts.InvitationTest do
                |> Ash.create(actor: volunteer)
     end
 
+    # 回归 #1：Volunteer 伪造 inviter_id 为某 Owner/Admin 的 ID，企图借其角色放行
+    # admin 预授权。两层防御：
+    #   - policy forbid_unless(inviter_id == actor.id)：inviter_id 与 actor 不符即拒
+    #   - change 用真实 actor 查角色：即便 inviter_id 伪造，也按 volunteer 实际角色拦
+    # 用 learner（非 admin 级）预授权测 policy 守卫——避免触发 change 的 admin 校验，
+    # 纯验 forbid_unless。Volunteer 传 admin 的 inviter_id 须被拒（Forbidden）。
+    test "volunteer cannot forge inviter_id (policy forbid_unless)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      volunteer = normal_user("inv-vol-forge@example.com")
+      add_member(workspace, volunteer, admin, [:volunteer])
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Invitation
+               |> Ash.Changeset.for_create(:create, %{
+                 workspace_id: workspace.id,
+                 inviter_id: admin.id,
+                 preauthorized_role_names: [:learner]
+               })
+               |> Ash.create(actor: volunteer)
+    end
+
+    # 回归 #1 纵深防御：即便绕过 policy，change 用真实 actor（volunteer）查角色，
+    # 传 admin 预授权仍被 change 的 admin 级角色校验拦截（InvalidAttribute error）。
+    test "volunteer cannot forge inviter_id to escalate preauthorized roles (change guard)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      volunteer = normal_user("inv-vol-forge2@example.com")
+      add_member(workspace, volunteer, admin, [:volunteer])
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Invitation
+               |> Ash.Changeset.for_create(:create, %{
+                 workspace_id: workspace.id,
+                 inviter_id: admin.id,
+                 preauthorized_role_names: [:admin]
+               })
+               |> Ash.create(actor: volunteer)
+    end
+
     test "plain member cannot create invitation" do
       admin = admin_user()
       workspace = create_workspace(admin)
