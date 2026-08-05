@@ -39,7 +39,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
     Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
   end
 
-  defp normal_user(email \\ "inv-user-#{System.unique_integer([:positive])}@example.com") do
+  defp normal_user(email) do
     register_user(email, @password)
   end
 
