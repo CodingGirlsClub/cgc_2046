@@ -38,7 +38,6 @@ type JoinStep =
 	| "workspace-preview"
 	| "join-success"
 	| "join-error"
-	| "request-form"
 	| "request-submitted"
 	| "invite-token-input"
 	| "invite-preview"
