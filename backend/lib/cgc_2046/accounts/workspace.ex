@@ -224,8 +224,10 @@ defmodule Cgc2046.Accounts.Workspace do
                    |> Ash.read_one(tenant: tenant, actor: actor, authorize?: false) do
                 {:ok, nil} ->
                   # 并发下另一请求可能已插入，DB unique 约束 (wm_unique_ws_user_idx
-                  # on user_id) 兜底。把 {:error, _} 当幂等成功返回——join 语义本就
-                  # 幂等（区别于 join_request approve 把重复审批当业务错误）。
+                  # on user_id) 兜底。unique 冲突当幂等成功返回——join 语义本就幂等
+                  # （区别于 join_request approve 把重复审批当业务错误）。
+                  # 非 unique 的真实 DB 故障（连接断、磁盘满）必须上抛，不能吞成「成功」，
+                  # 否则用户以为加入成功实际无 membership（静默数据丢失）。
                   # ponytail: 不包事务——MembershipRole 用 Ash.create! 失败会 raise
                   # 留孤儿 membership，但 learner 新 membership 不命中 unique 冲突，
                   # 仅 DB 连接断等极端情况触发，概率极低；与 join_request approve
@@ -250,8 +252,12 @@ defmodule Cgc2046.Accounts.Workspace do
                       end
 
                     # unique 冲突 → 幂等成功
-                    {:error, _} ->
-                      :ok
+                    {:error, error} ->
+                      if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
+                        :ok
+                      else
+                        {:error, error}
+                      end
                   end
 
                 {:ok, _membership} ->

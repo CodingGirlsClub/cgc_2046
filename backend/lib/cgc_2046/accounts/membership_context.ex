@@ -211,4 +211,35 @@ defmodule Cgc2046.Accounts.MembershipContext do
   end
 
   defp workspace_id_by_id_filter(_), do: nil
+
+  @doc """
+  判断 Ash.create/ash_postgres 返回的 error 是否为 membership unique constraint 冲突。
+
+  ash_postgres 把 `wm_unique_ws_user_idx`（identity :unique_membership_per_workspace_user）
+  的 PG unique violation 转成 `Ash.Error.Invalid{errors: [InvalidAttribute{private_vars: [constraint_type: :unique]}]}`。
+  DB 断连、磁盘满等真实写失败不会带 `constraint_type: :unique`——调用方据此区分
+  「并发重复，可幂等/转业务错误」与「真实故障，必须上抛」。避免 `{:error, _}` 通配
+  把 DB 故障误判成「已是成员/成功」的静默数据丢失。
+  """
+  @spec unique_membership_conflict?(term) :: boolean
+  def unique_membership_conflict?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_constraint_leaf?/1)
+  end
+
+  # Ash.create 通常返回 Splode error class（%Ash.Error.Invalid{errors: [...]}），
+  # 但某些路径可能直接返回裸 leaf，兼容判断。
+  def unique_membership_conflict?(%Ash.Error.Changes.InvalidAttribute{} = leaf) do
+    unique_constraint_leaf?(leaf)
+  end
+
+  def unique_membership_conflict?(_), do: false
+
+  defp unique_constraint_leaf?(%Ash.Error.Changes.InvalidAttribute{
+         private_vars: private_vars
+       }) do
+    # private_vars 可能为 nil（InvalidAttribute 未传该字段时）
+    Keyword.get(private_vars || [], :constraint_type) == :unique
+  end
+
+  defp unique_constraint_leaf?(_), do: false
 end
