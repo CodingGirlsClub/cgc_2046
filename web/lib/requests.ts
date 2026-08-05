@@ -12,6 +12,7 @@ import {
 } from "./graphql/join";
 import { GET_WORKSPACE } from "./graphql/workspace";
 import type { Workspace } from "./graphql/workspace";
+import { graphqlErrorMessage } from "./graphql/auth";
 
 /**
  * B-3 加入申请数据源。
@@ -179,20 +180,27 @@ export async function rejectJoinRequest(
 
 /**
  * 直接加入公开工作台（join_policy==:open）。
- * 后端为 generic action，GraphQL mutation。
+ * 后端为 generic action mutation，返回裸 Workspace（无 result/errors 包装）；
+ * 失败时后端返回的 Ash error 转成 top-level GraphQL error，Apollo v4 抛
+ * CombinedGraphQLErrors（持 .errors 数组），v3 抛 ApolloError（持 .graphQLErrors）。
+ * 从中提取首条 message；非 GraphQL 错误（网络异常等）回退兜底文案。
  */
 export async function joinWorkspace(
 	workspaceId: string,
 ): Promise<{ id: string; slug: string; name: string }> {
-	const { data } = await client.mutate({
-		mutation: JOIN_WORKSPACE,
-		variables: { workspaceId },
-	});
-	const result = data?.joinWorkspace;
-	if (!result) {
-		throw new Error("joinWorkspace failed");
+	try {
+		const { data } = await client.mutate({
+			mutation: JOIN_WORKSPACE,
+			variables: { workspaceId },
+		});
+		const result = data?.joinWorkspace;
+		if (!result) {
+			throw new Error("joinWorkspace failed");
+		}
+		return result;
+	} catch (e) {
+		throw new Error(graphqlErrorMessage(e, "joinWorkspace failed"));
 	}
-	return result;
 }
 
 /**
