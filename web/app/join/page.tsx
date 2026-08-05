@@ -23,15 +23,15 @@ import {
 	joinWorkspace,
 	createJoinRequest,
 } from "@/lib/requests";
-import { validateInvitation, acceptInvitation } from "@/lib/invitations";
 import type { Workspace } from "@/lib/graphql/workspace";
-import { JOIN_POLICY_LABEL, JOIN_POLICY_HINT } from "@/lib/graphql/workspace";
+import { validateInvitation, acceptInvitation } from "@/lib/invitations";
 import { INVITATION_STATUS_LABEL } from "@/lib/graphql/invitation";
 import { Icon } from "@/components/icons";
 import type { InvitationItem } from "@/lib/invitations";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import { clearSession } from "@/lib/auth";
 import WorkspaceListSidebar from "@/components/workspace-list-sidebar";
+import { WorkspacePreviewStep } from "./_steps/workspace-preview-step";
 
 type JoinStep =
 	| "input-slug"
@@ -61,7 +61,6 @@ function JoinPageInner() {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [message, setMessage] = useState("");
 	const [inviteToken, setInviteToken] = useState(token ?? "");
 	const [invitation, setInvitation] = useState<InvitationItem | null>(null);
 	const validatingRef = useRef(false);
@@ -153,19 +152,22 @@ function JoinPageInner() {
 	}, [workspace]);
 
 	/** request 提交申请 */
-	const handleSubmitRequest = useCallback(async () => {
-		if (!workspace || !authed || !userId) return;
-		setLoading(true);
-		setError(null);
-		try {
-			await createJoinRequest(workspace.id, userId, message || null);
-			setStep("request-submitted");
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "提交失败");
-		} finally {
-			setLoading(false);
-		}
-	}, [workspace, authed, userId, message]);
+	const handleSubmitRequest = useCallback(
+		async (message: string) => {
+			if (!workspace || !authed || !userId) return;
+			setLoading(true);
+			setError(null);
+			try {
+				await createJoinRequest(workspace.id, userId, message || null);
+				setStep("request-submitted");
+			} catch (e) {
+				setError(e instanceof Error ? e.message : "提交失败");
+			} finally {
+				setLoading(false);
+			}
+		},
+		[workspace, authed, userId],
+	);
 
 	/** 校验邀请 token */
 	const handleValidateToken = useCallback(async () => {
@@ -284,81 +286,14 @@ function JoinPageInner() {
 
 				{/* 工作台预览 + 分流 */}
 				{step === "workspace-preview" && workspace && (
-					<div className="join-workspace-preview">
-						<div className="join-workspace-info">
-							<h2>{workspace.name}</h2>
-							<code>{workspace.slug}</code>
-							<span
-								className={`workspace-policy workspace-policy--${workspace.joinPolicy}`}
-							>
-								{JOIN_POLICY_LABEL[workspace.joinPolicy]}
-							</span>
-							<p className="join-policy-hint">
-								{JOIN_POLICY_HINT[workspace.joinPolicy]}
-							</p>
-						</div>
-
-						{workspace.joinPolicy === "open" && (
-							<div className="join-action-area">
-								<button
-									type="button"
-									className="join-button join-button--primary"
-									onClick={handleJoinOpen}
-									disabled={loading}
-								>
-									{loading ? "加入中…" : "直接加入"}
-								</button>
-							</div>
-						)}
-
-						{workspace.joinPolicy === "request" && (
-							<div className="join-action-area">
-								<label className="join-field">
-									<span>申请留言（可选）</span>
-									<textarea
-										className="join-textarea"
-										placeholder="简单介绍一下自己…"
-										value={message}
-										onChange={(e) => setMessage(e.target.value)}
-										disabled={loading}
-										rows={3}
-									/>
-								</label>
-								<button
-									type="button"
-									className="join-button join-button--primary"
-									onClick={handleSubmitRequest}
-									disabled={loading}
-								>
-									{loading ? "提交中…" : "提交申请"}
-								</button>
-							</div>
-						)}
-
-						{workspace.joinPolicy === "invite_only" && (
-							<div className="join-action-area">
-								<div className="join-invite-notice">
-									<Icon name="lock" />
-									<span>该工作区为邀请制，需要有效邀请链接才能加入。</span>
-								</div>
-								<button
-									type="button"
-									className="join-button join-button--outline"
-									onClick={() => setStep("invite-token-input")}
-								>
-									我有邀请链接
-								</button>
-							</div>
-						)}
-
-						<button
-							type="button"
-							className="join-button join-button--ghost"
-							onClick={() => setStep("input-slug")}
-						>
-							← 查找其他工作区
-						</button>
-					</div>
+					<WorkspacePreviewStep
+						workspace={workspace}
+						loading={loading}
+						onJoinOpen={handleJoinOpen}
+						onSubmitRequest={handleSubmitRequest}
+						onHaveInvite={() => setStep("invite-token-input")}
+						onBack={() => setStep("input-slug")}
+					/>
 				)}
 
 				{/* 申请已提交中间态 */}
