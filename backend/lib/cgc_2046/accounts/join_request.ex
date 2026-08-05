@@ -24,8 +24,6 @@ defmodule Cgc2046.Accounts.JoinRequest do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
-  require Ash.Query
-
   @default_approval_timeout_days 7
 
   attributes do
@@ -210,75 +208,20 @@ defmodule Cgc2046.Accounts.JoinRequest do
 
       change(
         after_action(fn changeset, join_request, _context ->
-          actor = changeset.context[:private][:actor]
-          tenant = join_request.workspace_id
           role_names = Ash.Changeset.get_argument(changeset, :role_names)
 
-          # 守卫：申请人已是该工作台成员时不重复建成员资格（DB 唯一索引兜底，
-          # 此处转成带业务语义的错误，避免 generic unique-constraint 上抛）。
-          existing =
-            Cgc2046.Accounts.WorkspaceMembership
-            |> Ash.Query.for_read(:read)
-            |> Ash.Query.filter(workspace_id == ^tenant and user_id == ^join_request.user_id)
-            |> Ash.read!(tenant: tenant, authorize?: false)
-
-          if existing != [] do
-            {:error,
-             Ash.Error.Changes.InvalidAttribute.exception(
-               field: :user_id,
-               message: "该用户已是本工作台成员"
-             )}
-          else
-            # 建 Membership。并发下两个 approve 可能同时越过上面的 existing 检查，
-            # DB unique index (wm_unique_ws_user_idx) 会拒绝第二个；此处把 unique
-            # 冲突转成与上面一致的业务错误，避免裸 MatchError 上抛 500。
-            # 非 unique 的真实 DB 故障必须原样上抛，不能吞成「已是成员」。
-            case Cgc2046.Accounts.WorkspaceMembership
-                 |> Ash.Changeset.for_create(:create, %{user_id: join_request.user_id})
-                 |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
-              {:ok, membership} ->
-                # 建 MembershipRole（按角色名查找对应 role record）。
-                # reduce_while + Ash.create（非 bang）：失败短路返回 {:error, ...}，
-                # 走 ash_graphql to_errors → 结构化 GraphQL error；父事务仍 rollback，
-                # 已建的 Membership / :approved 标记一并回滚，数据完整性不变。
-                roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
-
-                Enum.reduce_while(role_names, :ok, fn role_name, _acc ->
-                  role = Enum.find(roles, &(&1.name == role_name))
-
-                  if role do
-                    case Ash.create(
-                           Cgc2046.Accounts.MembershipRole,
-                           %{
-                             membership_id: membership.id,
-                             role_id: role.id
-                           },
-                           tenant: tenant,
-                           authorize?: false
-                         ) do
-                      {:ok, _} -> {:cont, :ok}
-                      {:error, error} -> {:halt, {:error, error}}
-                    end
-                  else
-                    {:cont, :ok}
-                  end
-                end)
-                |> case do
-                  :ok -> {:ok, join_request}
-                  {:error, _} = err -> err
-                end
-
-              {:error, error} ->
-                if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
-                  {:error,
-                   Ash.Error.Changes.InvalidAttribute.exception(
-                     field: :user_id,
-                     message: "该用户已是本工作台成员"
-                   )}
-                else
-                  {:error, error}
-                end
-            end
+          # 入座委托 MembershipContext.admit_member/3（入座不变量唯一实现）。
+          # 入座 user = 申请人（join_request.user_id，非 actor），角色 = 审批方指定 role_names，
+          # 冲突语义 = 业务错误（「该用户」视角文案）。actor 仅用于父事务上下文，不传入 admit_member。
+          case Cgc2046.Accounts.MembershipContext.admit_member(
+                 join_request.user_id,
+                 join_request.workspace_id,
+                 role_names,
+                 on_conflict: :business_error,
+                 error_message: "该用户已是本工作台成员"
+               ) do
+            {:ok, _membership} -> {:ok, join_request}
+            {:error, _} = err -> err
           end
         end)
       )

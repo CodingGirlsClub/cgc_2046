@@ -60,7 +60,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     workspace
   end
 
-  defp add_member(workspace, user, actor, role_names \\ []) do
+  defp add_member(workspace, user, actor, role_names) do
     {:ok, membership} =
       WorkspaceMembership
       |> Ash.Changeset.for_create(:create, %{user_id: user.id})
