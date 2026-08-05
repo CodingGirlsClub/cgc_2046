@@ -119,7 +119,10 @@ defmodule Cgc2046.Accounts.MembershipContext do
   1. changeset（update / assign_roles）：`changeset.tenant` 或 changeset 上的 workspace_id
   2. list query（成员列表）：tenant 可能为空（global 查询），从 filter 提取 workspace_id
   3. get-by-id（GraphQL update mutation 先读目标记录）：filter 只有 id，
-     按 id 读出记录后再取 workspace_id
+     按 query.resource 动态决定读哪个资源（WorkspaceMembership / JoinRequest /
+     Invitation），读出记录后取其 workspace_id。曾硬编码 WorkspaceMembership 导致
+     approveJoinRequest 等 JoinRequest/Invitation 的 get-by-id 预读用错资源查不到
+     → policy 误拒（已修）。
   4. changeset 目标即 Workspace 资源自身（#78 update_workspace）：Workspace 无
      workspace_id 属性，目标工作台 = 被更新记录本身（data.id / attributes.id）
 
@@ -138,7 +141,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   def resolve_workspace_id(%{query: %Ash.Query{} = query}) do
     query.tenant ||
       filter_workspace_id(query.filter) ||
-      workspace_id_by_id_filter(query.filter)
+      workspace_id_by_id_filter(query.filter, query.resource)
   end
 
   def resolve_workspace_id(_), do: nil
@@ -218,21 +221,26 @@ defmodule Cgc2046.Accounts.MembershipContext do
   defp value_of(_), do: nil
 
   # get-by-id 场景：filter 形如 `id == "xxx"`（GraphQL update mutation 先按 id 读目标记录），
-  # 无 workspace_id 条件，按 id 读出记录后取其 workspace_id
+  # 无 workspace_id 条件，按 id 读出记录后取其 workspace_id。
+  #
+  # 使用 query.resource 动态决定读取的资源类型（而非硬编码 WorkspaceMembership），
+  # 因为 policy 检查可能发生在 JoinRequest、Invitation 等非 Membership 资源上
+  # （如 approveJoinRequest 的 WorkspaceActorIsOwnerOrAdmin 检查）。
   defp workspace_id_by_id_filter(%Ash.Filter{
          expression: %Ash.Query.Operator.Eq{
            left: %Ash.Query.Ref{attribute: %{name: :id}},
            right: id
          }
-       })
+       },
+       resource)
        when is_binary(id) do
-    case Ash.get(WorkspaceMembership, id, authorize?: false) do
-      {:ok, membership} -> membership.workspace_id
+    case Ash.get(resource, id, authorize?: false) do
+      {:ok, record} -> record.workspace_id
       _ -> nil
     end
   end
 
-  defp workspace_id_by_id_filter(_), do: nil
+  defp workspace_id_by_id_filter(_, _resource), do: nil
 
   # ── 成员入座（写入面）─────────────────────────────────────────────
 
