@@ -20,42 +20,42 @@ import type { MutationResult } from "./shared";
 export type JoinRequestStatus = "pending" | "approved" | "rejected" | "expired";
 
 export interface JoinRequest {
-	id: string;
-	/** 所属工作台（租户）ID */
-	workspaceId: string;
-	/** 申请人（全局用户）ID */
-	userId: string;
-	/** 申请状态 */
-	status: JoinRequestStatus;
-	/** 申请留言（可选） */
-	message?: string | null;
-	/** 审批人（全局用户）ID */
-	approvedBy?: string | null;
-	/** 审批时间 */
-	approvedAt?: string | null;
-	/** 拒绝原因（可选） */
-	rejectionReason?: string | null;
-	/** 审批截止时间（默认 created_at + 7 天） */
-	approvalDeadline?: string | null;
-	/** 过期时间 */
-	expiredAt?: string | null;
+  id: string;
+  /** 所属工作台（租户）ID */
+  workspaceId: string;
+  /** 申请人（全局用户）ID */
+  userId: string;
+  /** 申请状态 */
+  status: JoinRequestStatus;
+  /** 申请留言（可选） */
+  message?: string | null;
+  /** 审批人（全局用户）ID */
+  approvedBy?: string | null;
+  /** 审批时间 */
+  approvedAt?: string | null;
+  /** 拒绝原因（可选） */
+  rejectionReason?: string | null;
+  /** 审批截止时间（默认 created_at + 7 天） */
+  approvalDeadline?: string | null;
+  /** 过期时间 */
+  expiredAt?: string | null;
 }
 
 export interface CreateJoinRequestInput {
-	/** 申请留言（可选） */
-	message?: string | null;
-	/** 目标工作台 ID */
-	workspaceId: string;
-	/** 申请人 ID */
-	userId: string;
+  /** 申请留言（可选） */
+  message?: string | null;
+  /** 目标工作台 ID */
+  workspaceId: string;
+  /** 申请人 ID */
+  userId: string;
 }
 
 export interface ApproveJoinRequestInput {
-	roleNames?: string[] | null;
+  roleNames?: string[] | null;
 }
 
 export interface RejectJoinRequestInput {
-	rejectionReason?: string | null;
+  rejectionReason?: string | null;
 }
 
 export type CreateJoinRequestResultData = MutationResult<JoinRequest>;
@@ -64,17 +64,17 @@ export type RejectJoinRequestResultData = MutationResult<JoinRequest>;
 
 /** joinRequests 分页对象 */
 export interface JoinRequestConnection {
-	count: number;
-	results: JoinRequest[];
-	startKeyset?: string | null;
-	endKeyset?: string | null;
+  count: number;
+  results: JoinRequest[];
+  startKeyset?: string | null;
+  endKeyset?: string | null;
 }
 
 /** joinRequests filter */
 export interface JoinRequestsFilter {
-	workspaceId?: { eq?: string } | null;
-	status?: { eq?: string } | null;
-	userId?: { eq?: string } | null;
+  workspaceId?: { eq?: string } | null;
+  status?: { eq?: string } | null;
+  userId?: { eq?: string } | null;
 }
 
 /* ---------------- Query / Mutation TypedDocumentNode ---------------- */
@@ -84,14 +84,18 @@ export interface JoinRequestsFilter {
  * 申请人仅见自己；Owner/Admin 见全部。
  */
 export const JOIN_REQUESTS: TypedDocumentNode<
-	{ joinRequests: JoinRequestConnection },
-	{
-		filter: JoinRequestsFilter;
-		first?: number;
-		after?: string;
-	}
+  { joinRequests: JoinRequestConnection },
+  {
+    filter: JoinRequestsFilter;
+    first?: number;
+    after?: string;
+  }
 > = gql`
-  query JoinRequests($filter: JoinRequestFilterInput!, $first: Int, $after: String) {
+  query JoinRequests(
+    $filter: JoinRequestFilterInput!
+    $first: Int
+    $after: String
+  ) {
     joinRequests(filter: $filter, first: $first, after: $after) {
       count
       results {
@@ -122,8 +126,8 @@ export const JOIN_REQUESTS: TypedDocumentNode<
  * 前端从抛出的错误对象（Apollo CombinedGraphQLErrors）提取 message，而非读 data.xxx.errors。
  */
 export const JOIN_WORKSPACE: TypedDocumentNode<
-	{ joinWorkspace: { id: string; slug: string; name: string } },
-	{ workspaceId: string }
+  { joinWorkspace: { id: string; slug: string; name: string } },
+  { workspaceId: string }
 > = gql`
   mutation JoinWorkspace($workspaceId: ID!) {
     joinWorkspace(input: { workspaceId: $workspaceId }) {
@@ -138,8 +142,8 @@ export const JOIN_WORKSPACE: TypedDocumentNode<
  * createJoinRequest：提交加入申请。
  */
 export const CREATE_JOIN_REQUEST: TypedDocumentNode<
-	{ createJoinRequest: CreateJoinRequestResultData },
-	{ input: CreateJoinRequestInput }
+  { createJoinRequest: CreateJoinRequestResultData },
+  { input: CreateJoinRequestInput }
 > = gql`
   mutation CreateJoinRequest($input: CreateJoinRequestInput!) {
     createJoinRequest(input: $input) {
@@ -163,8 +167,8 @@ export const CREATE_JOIN_REQUEST: TypedDocumentNode<
  * approveJoinRequest：审批通过加入申请（Owner/Admin）。
  */
 export const APPROVE_JOIN_REQUEST: TypedDocumentNode<
-	{ approveJoinRequest: ApproveJoinRequestResultData },
-	{ id: string; input: ApproveJoinRequestInput }
+  { approveJoinRequest: ApproveJoinRequestResultData },
+  { id: string; input: ApproveJoinRequestInput }
 > = gql`
   mutation ApproveJoinRequest($id: ID!, $input: ApproveJoinRequestInput!) {
     approveJoinRequest(id: $id, input: $input) {
@@ -186,8 +190,8 @@ export const APPROVE_JOIN_REQUEST: TypedDocumentNode<
  * rejectJoinRequest：拒绝加入申请（Owner/Admin）。
  */
 export const REJECT_JOIN_REQUEST: TypedDocumentNode<
-	{ rejectJoinRequest: RejectJoinRequestResultData },
-	{ id: string; input: RejectJoinRequestInput }
+  { rejectJoinRequest: RejectJoinRequestResultData },
+  { id: string; input: RejectJoinRequestInput }
 > = gql`
   mutation RejectJoinRequest($id: ID!, $input: RejectJoinRequestInput!) {
     rejectJoinRequest(id: $id, input: $input) {
@@ -207,8 +211,8 @@ export const REJECT_JOIN_REQUEST: TypedDocumentNode<
 /* ---------------- 状态展示辅助 ---------------- */
 
 export const JOIN_REQUEST_STATUS_LABEL: Record<JoinRequestStatus, string> = {
-	pending: "申请审批中",
-	approved: "已通过",
-	rejected: "已拒绝",
-	expired: "已过期",
+  pending: "申请审批中",
+  approved: "已通过",
+  rejected: "已拒绝",
+  expired: "已过期",
 };

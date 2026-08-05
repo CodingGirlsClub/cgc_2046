@@ -15,11 +15,11 @@
  */
 
 export interface MutationError {
-	message?: string | null;
-	code?: string | null;
+  message?: string | null;
+  code?: string | null;
 }
 
 export type MutationResult<T> = {
-	result: T | null;
-	errors: MutationError[];
+  result: T | null;
+  errors: MutationError[];
 };

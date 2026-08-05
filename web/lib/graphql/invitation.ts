@@ -20,51 +20,51 @@ import type { MutationError, MutationResult } from "./shared";
 export type InvitationStatus = "active" | "used" | "revoked" | "expired";
 
 export interface Invitation {
-	id: string;
-	/** 所属工作台（租户）ID */
-	workspaceId: string;
-	/** 邀请令牌的 SHA256 哈希 */
-	tokenHash: string;
-	/** 邀请人（全局用户）ID */
-	inviterId: string;
-	/** 目标邮箱（空=公开链接） */
-	targetEmail?: string | null;
-	/** 预授权角色名数组（可选） */
-	preauthorizedRoleNames?: string[] | null;
-	/** 过期时间（可选） */
-	expiresAt?: string | null;
-	/** 邀请状态 */
-	status: InvitationStatus;
-	/** 读时派生状态：expires_at < now 时为 "expired"，否则同 status；优先于 status 使用 */
-	effectiveStatus?: InvitationStatus | null;
-	/** 接受人（全局用户）ID */
-	acceptedBy?: string | null;
-	/** 接受时间 */
-	acceptedAt?: string | null;
-	/** 工作台名称（validateInvitation 返回） */
-	workspaceName?: string | null;
-	/** 工作台 slug（validateInvitation 返回） */
-	workspaceSlug?: string | null;
-	/** 工作台加入策略（validateInvitation 返回） */
-	workspaceJoinPolicy?: string | null;
+  id: string;
+  /** 所属工作台（租户）ID */
+  workspaceId: string;
+  /** 邀请令牌的 SHA256 哈希 */
+  tokenHash: string;
+  /** 邀请人（全局用户）ID */
+  inviterId: string;
+  /** 目标邮箱（空=公开链接） */
+  targetEmail?: string | null;
+  /** 预授权角色名数组（可选） */
+  preauthorizedRoleNames?: string[] | null;
+  /** 过期时间（可选） */
+  expiresAt?: string | null;
+  /** 邀请状态 */
+  status: InvitationStatus;
+  /** 读时派生状态：expires_at < now 时为 "expired"，否则同 status；优先于 status 使用 */
+  effectiveStatus?: InvitationStatus | null;
+  /** 接受人（全局用户）ID */
+  acceptedBy?: string | null;
+  /** 接受时间 */
+  acceptedAt?: string | null;
+  /** 工作台名称（validateInvitation 返回） */
+  workspaceName?: string | null;
+  /** 工作台 slug（validateInvitation 返回） */
+  workspaceSlug?: string | null;
+  /** 工作台加入策略（validateInvitation 返回） */
+  workspaceJoinPolicy?: string | null;
 }
 
 export interface CreateInvitationInput {
-	/** 目标邮箱（空=公开链接） */
-	targetEmail?: string | null;
-	/** 预授权角色名数组（可选） */
-	preauthorizedRoleNames?: string[] | null;
-	/** 过期时间（可选） */
-	expiresAt?: string | null;
-	/** 目标工作台 ID */
-	workspaceId: string;
-	/** 邀请人 ID */
-	inviterId: string;
+  /** 目标邮箱（空=公开链接） */
+  targetEmail?: string | null;
+  /** 预授权角色名数组（可选） */
+  preauthorizedRoleNames?: string[] | null;
+  /** 过期时间（可选） */
+  expiresAt?: string | null;
+  /** 目标工作台 ID */
+  workspaceId: string;
+  /** 邀请人 ID */
+  inviterId: string;
 }
 
 export interface CreateInvitationMetadata {
-	/** 明文邀请令牌（仅创建时返回一次，不落库） */
-	plainToken: string;
+  /** 明文邀请令牌（仅创建时返回一次，不落库） */
+  plainToken: string;
 }
 
 /**
@@ -72,10 +72,10 @@ export interface CreateInvitationMetadata {
  * （明文令牌仅创建时一次性返回，列表 query 不含此字段）。
  */
 export interface CreateInvitationResultData {
-	result: Invitation | null;
-	errors: MutationError[];
-	/** 明文邀请令牌（仅创建时一次性返回，列表 query 不含此字段） */
-	metadata?: CreateInvitationMetadata | null;
+  result: Invitation | null;
+  errors: MutationError[];
+  /** 明文邀请令牌（仅创建时一次性返回，列表 query 不含此字段） */
+  metadata?: CreateInvitationMetadata | null;
 }
 
 export type RevokeInvitationResultData = MutationResult<Invitation>;
@@ -83,16 +83,16 @@ export type AcceptInvitationResultData = MutationResult<Invitation>;
 
 /** invitations 分页对象 */
 export interface InvitationConnection {
-	count: number;
-	results: Invitation[];
-	startKeyset?: string | null;
-	endKeyset?: string | null;
+  count: number;
+  results: Invitation[];
+  startKeyset?: string | null;
+  endKeyset?: string | null;
 }
 
 /** invitations filter */
 export interface InvitationsFilter {
-	workspaceId?: { eq?: string } | null;
-	status?: { eq?: string } | null;
+  workspaceId?: { eq?: string } | null;
+  status?: { eq?: string } | null;
 }
 
 /* ---------------- Query / Mutation TypedDocumentNode ---------------- */
@@ -102,14 +102,18 @@ export interface InvitationsFilter {
  * 邀请人仅见自己；Owner/Admin 见全部。
  */
 export const INVITATIONS: TypedDocumentNode<
-	{ invitations: InvitationConnection },
-	{
-		filter: InvitationsFilter;
-		first?: number;
-		after?: string;
-	}
+  { invitations: InvitationConnection },
+  {
+    filter: InvitationsFilter;
+    first?: number;
+    after?: string;
+  }
 > = gql`
-  query Invitations($filter: InvitationFilterInput!, $first: Int, $after: String) {
+  query Invitations(
+    $filter: InvitationFilterInput!
+    $first: Int
+    $after: String
+  ) {
     invitations(filter: $filter, first: $first, after: $after) {
       count
       results {
@@ -136,8 +140,8 @@ export const INVITATIONS: TypedDocumentNode<
  * 前端不调 getWorkspace，只调此 query（决策 8）。
  */
 export const VALIDATE_INVITATION: TypedDocumentNode<
-	{ validateInvitation: Invitation | null },
-	{ token: string }
+  { validateInvitation: Invitation | null },
+  { token: string }
 > = gql`
   query ValidateInvitation($token: String!) {
     validateInvitation(token: $token) {
@@ -159,8 +163,8 @@ export const VALIDATE_INVITATION: TypedDocumentNode<
  * createInvitation：创建邀请（Owner/Admin/Volunteer）。
  */
 export const CREATE_INVITATION: TypedDocumentNode<
-	{ createInvitation: CreateInvitationResultData },
-	{ input: CreateInvitationInput }
+  { createInvitation: CreateInvitationResultData },
+  { input: CreateInvitationInput }
 > = gql`
   mutation CreateInvitation($input: CreateInvitationInput!) {
     createInvitation(input: $input) {
@@ -187,8 +191,8 @@ export const CREATE_INVITATION: TypedDocumentNode<
  * revokeInvitation：撤销邀请（邀请人本人或 Owner/Admin）。
  */
 export const REVOKE_INVITATION: TypedDocumentNode<
-	{ revokeInvitation: RevokeInvitationResultData },
-	{ id: string }
+  { revokeInvitation: RevokeInvitationResultData },
+  { id: string }
 > = gql`
   mutation RevokeInvitation($id: ID!) {
     revokeInvitation(id: $id) {
@@ -208,8 +212,8 @@ export const REVOKE_INVITATION: TypedDocumentNode<
  * acceptInvitation：接受邀请→建 Membership + 预授权角色入座。
  */
 export const ACCEPT_INVITATION: TypedDocumentNode<
-	{ acceptInvitation: AcceptInvitationResultData },
-	{ id: string; token: string }
+  { acceptInvitation: AcceptInvitationResultData },
+  { id: string; token: string }
 > = gql`
   mutation AcceptInvitation($id: ID!, $token: String!) {
     acceptInvitation(id: $id, input: { token: $token }) {
@@ -230,15 +234,15 @@ export const ACCEPT_INVITATION: TypedDocumentNode<
 /* ---------------- 状态展示辅助 ---------------- */
 
 export const INVITATION_STATUS_LABEL: Record<InvitationStatus, string> = {
-	active: "有效",
-	used: "已使用",
-	revoked: "已撤销",
-	expired: "已过期",
+  active: "有效",
+  used: "已使用",
+  revoked: "已撤销",
+  expired: "已过期",
 };
 
 export const INVITATION_STATUS_CLASS: Record<InvitationStatus, string> = {
-	active: "invitation-status--active",
-	used: "invitation-status--used",
-	revoked: "invitation-status--revoked",
-	expired: "invitation-status--expired",
+  active: "invitation-status--active",
+  used: "invitation-status--used",
+  revoked: "invitation-status--revoked",
+  expired: "invitation-status--expired",
 };
