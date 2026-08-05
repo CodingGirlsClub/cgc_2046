@@ -32,6 +32,11 @@ import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import { clearSession } from "@/lib/auth";
 import WorkspaceListSidebar from "@/components/workspace-list-sidebar";
 import { WorkspacePreviewStep } from "./_steps/workspace-preview-step";
+import { SlugInputStep } from "./_steps/slug-input-step";
+import { InviteTokenInputStep } from "./_steps/invite-token-input-step";
+import { InvitePreviewStep } from "./_steps/invite-preview-step";
+import { InviteInvalidStep } from "./_steps/invite-invalid-step";
+import { JoinErrorStep } from "./_steps/join-error-step";
 
 type JoinStep =
 	| "input-slug"
@@ -252,30 +257,12 @@ function JoinPageInner() {
 
 				{/* 输入 slug */}
 				{(step === "input-slug" || step === "workspace-preview") && (
-					<>
-						<h1>加入工作区</h1>
-						<p>输入工作区标识（slug）查找并加入</p>
-						<div className="join-input-row">
-							<input
-								type="text"
-								className="join-input"
-								placeholder="输入工作区 slug，如 cgc-shanghai"
-								value={slug}
-								onChange={(e) => setSlug(e.target.value)}
-								onKeyDown={(e) => e.key === "Enter" && handleLookup()}
-								disabled={loading}
-								aria-label="工作区 slug"
-							/>
-							<button
-								type="button"
-								className="join-button join-button--primary"
-								onClick={handleLookup}
-								disabled={loading || !slug.trim()}
-							>
-								{loading ? "查询中…" : "查找"}
-							</button>
-						</div>
-					</>
+					<SlugInputStep
+						slug={slug}
+						setSlug={setSlug}
+						loading={loading}
+						onLookup={handleLookup}
+					/>
 				)}
 
 				{/* 工作台预览 + 分流 */}
@@ -326,90 +313,22 @@ function JoinPageInner() {
 
 				{/* 邀请 token 输入 */}
 				{step === "invite-token-input" && (
-					<>
-						<h1>使用邀请链接加入</h1>
-						<p>输入邀请链接中的 token 或完整链接</p>
-						<div className="join-input-row">
-							<input
-								type="text"
-								className="join-input"
-								placeholder="输入邀请 token 或粘贴完整链接"
-								value={inviteToken}
-								onChange={(e) => {
-									// 自动提取 token：如果粘贴的是完整 URL，提取 token 参数
-									const val = e.target.value;
-									try {
-										const url = new URL(val);
-										const t = url.searchParams.get("token");
-										if (t) {
-											setInviteToken(t);
-											return;
-										}
-									} catch {
-										// 不是 URL，直接使用输入值
-									}
-									setInviteToken(val);
-								}}
-								onKeyDown={(e) => e.key === "Enter" && handleValidateToken()}
-								disabled={loading}
-								aria-label="邀请 token"
-							/>
-							<button
-								type="button"
-								className="join-button join-button--primary"
-								onClick={handleValidateToken}
-								disabled={loading || !inviteToken.trim()}
-							>
-								{loading ? "校验中…" : "校验"}
-							</button>
-						</div>
-						<button
-							type="button"
-							className="join-button join-button--ghost"
-							onClick={() => setStep("input-slug")}
-						>
-							← 返回
-						</button>
-					</>
+					<InviteTokenInputStep
+						inviteToken={inviteToken}
+						setInviteToken={setInviteToken}
+						loading={loading}
+						onValidate={handleValidateToken}
+						onBack={() => setStep("input-slug")}
+					/>
 				)}
 
 				{/* 邀请预览 */}
 				{step === "invite-preview" && invitation && (
-					<div className="join-workspace-preview">
-						<div className="join-workspace-info">
-							<h2>{invitation.workspaceName ?? "未知工作区"}</h2>
-							{invitation.workspaceSlug && (
-								<code>{invitation.workspaceSlug}</code>
-							)}
-							{invitation.preauthorizedRoleNames &&
-								invitation.preauthorizedRoleNames.length > 0 && (
-									<div className="join-preauthorized-roles">
-										<span>预授权角色：</span>
-										{invitation.preauthorizedRoleNames.map((role) => (
-											<span className="workspace-role-chip" key={role}>
-												{role}
-											</span>
-										))}
-									</div>
-								)}
-							{(!invitation.preauthorizedRoleNames ||
-								invitation.preauthorizedRoleNames.length === 0) && (
-								<p className="join-note">
-									此邀请未预授权角色，加入后需 Owner 分配角色。
-								</p>
-							)}
-						</div>
-						<div className="join-action-area">
-							<button
-								type="button"
-								className="join-button join-button--primary"
-								onClick={handleAcceptInvitation}
-								disabled={loading}
-							>
-								{loading ? "接受中…" : "确认加入"}
-							</button>
-						</div>
-					</div>
+					<InvitePreviewStep
+						invitation={invitation}
+						loading={loading}
+						onAccept={handleAcceptInvitation}
+					/>
 				)}
 
 				{/* 邀请已接受 */}
@@ -428,52 +347,22 @@ function JoinPageInner() {
 
 				{/* 邀请无效 */}
 				{step === "invite-invalid" && (
-					<div className="join-status-card join-status-card--error">
-						<Icon name="lock" />
-						<h2>邀请无效</h2>
-						<p>{error}</p>
-						{invitation && invitation.status !== "active" && (
-							<p className="join-status-detail">
-								状态：{INVITATION_STATUS_LABEL[invitation.status]}
-							</p>
-						)}
-						<div className="join-actions">
-							<button
-								type="button"
-								className="join-button join-button--outline"
-								onClick={() => {
-									setStep("invite-token-input");
-									setError(null);
-								}}
-							>
-								重新输入
-							</button>
-							<Link href="/" className="join-button join-button--ghost">
-								返回工作台
-							</Link>
-						</div>
-					</div>
+					<InviteInvalidStep
+						error={error}
+						invitation={invitation}
+						onRetry={() => {
+							setStep("invite-token-input");
+							setError(null);
+						}}
+					/>
 				)}
 
 				{/* 加入错误 */}
 				{step === "join-error" && (
-					<div className="join-status-card join-status-card--error">
-						<Icon name="lock" />
-						<h2>加入失败</h2>
-						<p>{error}</p>
-						<div className="join-actions">
-							<button
-								type="button"
-								className="join-button join-button--outline"
-								onClick={() => setStep("workspace-preview")}
-							>
-								重试
-							</button>
-							<Link href="/" className="join-button join-button--ghost">
-								返回工作台
-							</Link>
-						</div>
-					</div>
+					<JoinErrorStep
+						error={error}
+						onRetry={() => setStep("workspace-preview")}
+					/>
 				)}
 
 				{/* 通用错误 */}
