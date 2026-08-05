@@ -133,40 +133,50 @@ defmodule Cgc2046.Accounts.Workspace do
         after_action(fn changeset, workspace, _context ->
           tenant = workspace.id
 
-          # 角色模板从 Role 模块单源取（role_descriptions/0），避免重复六角色字面量（G2 收敛）
+          # 角色模板从 Role 模块单源取（role_descriptions/0），避免重复六角色字面量（G2 收敛）。
+          # reduce_while + Ash.create（非 bang）：任一角色创建失败短路返回 {:error, ...}，
+          # 走 ash_graphql to_errors → 结构化错误；after_action 在父 create 事务内，
+          # 返回 {:error, _} 会 rollback 整个 workspace 创建，不留孤儿。
           role_records =
-            Cgc2046.Accounts.Role.role_descriptions()
-            |> Enum.map(fn {name, description} ->
-              Ash.create!(Cgc2046.Accounts.Role, %{name: name, description: description},
-                tenant: tenant,
-                authorize?: false
-              )
+            Enum.reduce_while(Cgc2046.Accounts.Role.role_descriptions(), [], fn {name, description},
+                                                                              acc ->
+              case Ash.create(Cgc2046.Accounts.Role, %{name: name, description: description},
+                     tenant: tenant,
+                     authorize?: false
+                   ) do
+                {:ok, role} -> {:cont, [role | acc]}
+                {:error, error} -> {:halt, {:error, error}}
+              end
             end)
+            |> case do
+              {:error, _} = err -> err
+              roles -> {:ok, roles}
+            end
 
-          actor = get_in(changeset.context, [:private, :actor])
-
-          if actor do
+          with {:ok, role_records} <- role_records,
+               actor when not is_nil(actor) <- get_in(changeset.context, [:private, :actor]) do
             owner_role = Enum.find(role_records, &(&1.name == :owner))
 
-            membership =
-              Ash.create!(Cgc2046.Accounts.WorkspaceMembership, %{user_id: actor.id},
-                tenant: tenant,
-                authorize?: false
-              )
-
-            Ash.create!(
-              Cgc2046.Accounts.MembershipRole,
-              %{
-                membership_id: membership.id,
-                role_id: owner_role.id
-              },
-              tenant: tenant,
-              authorize?: false
-            )
-
-            {:ok, workspace}
+            with {:ok, membership} <-
+                   Ash.create(Cgc2046.Accounts.WorkspaceMembership, %{user_id: actor.id},
+                     tenant: tenant,
+                     authorize?: false
+                   ),
+                 {:ok, _} <-
+                   Ash.create(Cgc2046.Accounts.MembershipRole,
+                     %{
+                       membership_id: membership.id,
+                       role_id: owner_role.id
+                     },
+                     tenant: tenant,
+                     authorize?: false
+                   ) do
+              {:ok, workspace}
+            end
           else
-            {:ok, workspace}
+            # actor 为 nil：无 actor 时仅 seed 角色，不建 Owner 成员资格
+            nil -> {:ok, workspace}
+            {:error, _} = err -> err
           end
         end)
       )
@@ -228,10 +238,11 @@ defmodule Cgc2046.Accounts.Workspace do
                   # （区别于 join_request approve 把重复审批当业务错误）。
                   # 非 unique 的真实 DB 故障（连接断、磁盘满）必须上抛，不能吞成「成功」，
                   # 否则用户以为加入成功实际无 membership（静默数据丢失）。
-                  # ponytail: 不包事务——MembershipRole 用 Ash.create! 失败会 raise
-                  # 留孤儿 membership，但 learner 新 membership 不命中 unique 冲突，
-                  # 仅 DB 连接断等极端情况触发，概率极低；与 join_request approve
-                  # 同款范式。若需强一致，升级为 Ash.transaction 包两次写。
+                  # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
+                  # 两次写不在同一事务——MembershipRole 创建失败返回 {:error, _} 时 Membership 已
+                  # commit，留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
+                  # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
+                  # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
                   case Cgc2046.Accounts.WorkspaceMembership
                        |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
                        |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
@@ -240,15 +251,20 @@ defmodule Cgc2046.Accounts.Workspace do
                       learner_role = Enum.find(roles, &(&1.name == :learner))
 
                       if learner_role do
-                        Ash.create!(
-                          Cgc2046.Accounts.MembershipRole,
-                          %{
-                            membership_id: membership.id,
-                            role_id: learner_role.id
-                          },
-                          tenant: tenant,
-                          authorize?: false
-                        )
+                        case Ash.create(
+                               Cgc2046.Accounts.MembershipRole,
+                               %{
+                                 membership_id: membership.id,
+                                 role_id: learner_role.id
+                               },
+                               tenant: tenant,
+                               authorize?: false
+                             ) do
+                          {:ok, _} -> :ok
+                          {:error, _} = err -> err
+                        end
+                      else
+                        :ok
                       end
 
                     # unique 冲突 → 幂等成功
