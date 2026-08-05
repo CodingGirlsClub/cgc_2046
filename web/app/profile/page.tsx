@@ -44,20 +44,9 @@ import {
 	VISIBILITY_OPTION_LABEL,
 	VISIBILITY_FOOTER_TEXT,
 } from "@/lib/profile";
-import {
-	ROLE_BADGE_CLASS,
-	ROLE_LABEL,
-	type MembershipRoleName,
-} from "@/lib/graphql/workspace";
+import { type MembershipRoleName } from "@/lib/graphql/workspace";
 import type { ProfileVisibility } from "@/lib/graphql/profile";
-
-function roleLabel(role: MembershipRoleName) {
-	return ROLE_LABEL[role] ?? role;
-}
-
-function roleBadgeClass(role: MembershipRoleName) {
-	return ROLE_BADGE_CLASS[role] ?? "l-badge l-badge-member";
-}
+import { RoleChips } from "./_sections/profile-role";
 
 function portfolioIconName(icon: PortfolioIcon | undefined): IconName {
 	if (icon === "book") return "book";
@@ -153,28 +142,6 @@ function Breadcrumb({
 					<strong>编辑个人资料</strong>
 				</>
 			) : null}
-		</div>
-	);
-}
-
-function RoleChips({
-	roles,
-	className = "",
-}: {
-	roles: MembershipRoleName[];
-	className?: string;
-}) {
-	return (
-		<div className={`profile-role-chips ${className}`}>
-			{roles.length > 0 ? (
-				roles.map((role) => (
-					<span key={role} className={roleBadgeClass(role)}>
-						{roleLabel(role)}
-					</span>
-				))
-			) : (
-				<span className="profile-role-empty">未分配角色</span>
-			)}
 		</div>
 	);
 }
