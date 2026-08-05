@@ -146,6 +146,30 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     """
   end
 
+  defp create_join_request_query(workspace_id, user_id) do
+    """
+    mutation {
+      createJoinRequest(input: { workspaceId: "#{workspace_id}", userId: "#{user_id}" }) {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+  end
+
+  defp approve_join_request_query(join_request_id, role_names) do
+    names = role_names |> Enum.map(&("\"" <> to_string(&1) <> "\"")) |> Enum.join(", ")
+
+    """
+    mutation {
+      approveJoinRequest(id: "#{join_request_id}", input: { roleNames: [#{names}] }) {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+  end
+
   describe "permissionMatrix (#66 Rbac contract, #1 abilities as generic list)" do
     test "anonymous is unauthorized" do
       res =
@@ -424,6 +448,61 @@ defmodule Cgc2046Web.GraphqlRbacTest do
 
       assert load_role_names(owner_membership) == [:admin]
       assert load_role_names(co_membership) == [:owner]
+    end
+  end
+
+  describe "approveJoinRequest get-by-id workspace_id resolution" do
+    # 回归守卫：approveJoinRequest 经 GraphQL update mutation 触发 ash_graphql get-by-id
+    # 预读（query.resource=JoinRequest, filter=id==jr_id, tenant=nil），policy
+    # WorkspaceActorIsOwnerOrAdmin → resolve_workspace_id → workspace_id_by_id_filter。
+    # 旧实现硬编码 Ash.get(WorkspaceMembership, id) 用 join_request id 查 membership
+    # → nil → policy 误拒。修复后按 query.resource 动态读 JoinRequest → record.workspace_id。
+    test "owner can approve join request via GraphQL (get-by-id resolves JoinRequest workspace_id)" do
+      owner = admin_user()
+      owner_token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-approve-jr-#{System.unique_integer([:positive])}"
+
+      res = graphql_post(build_conn(), create_workspace_query(slug, "Approve JR WS"), owner_token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      workspace = Ash.get!(Workspace, ws_id, actor: owner, authorize?: false)
+
+      applicant_email = "gql-approve-app#{System.unique_integer([:positive])}@example.com"
+      applicant = register_user(applicant_email, @password)
+
+      # 创建工作台需 join_policy:request 才能 createJoinRequest（非 open 直接 join）
+      {:ok, _} =
+        workspace
+        |> Ash.Changeset.for_update(:update, %{join_policy: :request}, actor: owner)
+        |> Ash.update(actor: owner)
+
+      applicant_token = sign_in_token(applicant_email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          create_join_request_query(ws_id, applicant.id),
+          applicant_token
+        )
+
+      assert %{"data" => %{"createJoinRequest" => %{"result" => %{"id" => jr_id}}}} = res
+
+      # owner 经 GraphQL approve——这是 get-by-id 预读 + policy 的真实 HTTP 路径
+      res =
+        graphql_post(build_conn(), approve_join_request_query(jr_id, [:member]), owner_token)
+
+      assert %{
+               "data" => %{
+                 "approveJoinRequest" => %{"result" => %{"status" => "approved"}, "errors" => []}
+               }
+             } =
+               res
+
+      # membership 已建，applicant 持 member 角色
+      membership = find_membership(workspace, applicant)
+      assert membership != nil
+      assert :member in load_role_names(membership)
     end
   end
 end

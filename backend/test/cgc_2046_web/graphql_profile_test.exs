@@ -302,6 +302,10 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       res = graphql_post(build_conn(), update_profile_query("阿麦", data_url), token)
       assert %{"errors" => errors} = res
       assert Enum.any?(errors, &(&1["message"] =~ "MIME"))
+
+      # 错误协议统一（Phase 1）：Ash action 校验失败走 AshGraphql.Error 映射，
+      # 顶层 errors 携带结构化 code（InvalidAttribute → invalid_attribute），而非纯 string。
+      assert Enum.any?(errors, &(&1["code"] == "invalid_attribute"))
     end
 
     test "updateProfile rejects oversized data URL avatar" do
@@ -421,6 +425,10 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       res = graphql_post(build_conn(), set_ui_theme_query("purple"), token)
       assert %{"errors" => errors} = res
       assert Enum.any?(errors, &(&1["message"] =~ "must be dark or light"))
+
+      # 错误协议统一（Phase 1）：set_ui_theme 校验失败同样走 AshGraphql.Error 映射，
+      # 顶层 errors 携带结构化 code。
+      assert Enum.any?(errors, &(&1["code"] == "invalid_attribute"))
     end
 
     test "anonymous is unauthorized" do
@@ -448,6 +456,57 @@ defmodule Cgc2046Web.GraphqlProfileTest do
 
       assert {:error, error} = result
       assert Exception.message(Ash.Error.to_error_class(error)) =~ "forbidden"
+    end
+  end
+
+  describe "load_profile error shape (Phase 1 错误协议统一)" do
+    # load_profile 被 me / update_profile / set_ui_theme 共用，calculation 加载失败（罕见）
+    # 时改走 to_ash_graphql_errors（与三条 mutation 同源），不再返回 Ash 内部 stacktrace。
+    #
+    # 真实 calculation（member_number/joined_at）在正常路径不会失败，且 load 名在
+    # resolver 内硬编码、无 mock 库，无法从 GraphQL 端到端可靠触发该分支。这里以一个
+    # 必然失败的 Ash.load（未知 calculation 名）复现 helper 消费的底层映射行为
+    # （AshGraphql.Errors.to_errors），锁定形状契约：结构化 map、含 message、不含 ash
+    # 内部 stacktrace 文本。load_profile 的 to_ash_graphql_errors 复用同一映射，故此为
+    # 该分支形状契约的代理证据。
+
+    test "calculation load failure maps to structured error, not raw stacktrace string" do
+      _user = register_user(@user_email, @password)
+
+      user =
+        Ash.read_one!(
+          Ash.Query.filter(User, email == ^@user_email),
+          authorize?: false,
+          domain: Cgc2046.GlobalApi
+        )
+
+      # 必然失败：未知 calculation 名 → Ash.Error.Query.InvalidLoad（无 AshGraphql.Error impl）
+      assert {:error, error} =
+               Ash.load(user, [:member_number, :nonexistent_calc],
+                 actor: user,
+                 domain: Cgc2046.GlobalApi
+               )
+
+      # 复现 load_profile 错误分支的映射（private helper 的同源逻辑）
+      mapped =
+        error
+        |> AshGraphql.Errors.to_errors(
+          %{},
+          Cgc2046.GlobalApi,
+          Cgc2046.Accounts.User,
+          :update_profile
+        )
+        |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+
+      assert is_list(mapped) and length(mapped) == 1
+      [entry] = mapped
+      assert is_map(entry), "错误为结构化 map，非纯 string（不再泄露 stacktrace）"
+      assert is_binary(entry[:message])
+
+      # InvalidLoad 无 AshGraphql.Error impl → 走 generic 分支，message 为通用文案 + 追踪 id，
+      # 不含 ash 内部路径 / 行号（改前 Exception.message 会把 (ash x.x.x) lib/... 塞进响应）。
+      refute entry[:message] =~ ~r/ash.*\.ex|stacktrace|InvalidLoad/,
+             "message 不应泄露 ash 内部路径/异常名: #{inspect(entry[:message])}"
     end
   end
 

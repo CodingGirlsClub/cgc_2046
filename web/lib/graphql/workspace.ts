@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
+import type { MutationResult } from "./shared";
 
 /**
  * #63/#65 Workspace GraphQL 契约（对齐后端 #62 schema commit af974b5 + #64 membership）。
@@ -108,11 +109,6 @@ export interface WorkspaceMembersFilter {
 	or?: WorkspaceMembersFilter[] | null;
 }
 
-export interface MutationError {
-	message?: string | null;
-	code?: string | null;
-}
-
 export interface CreateWorkspaceInput {
 	slug: string;
 	name: string;
@@ -120,10 +116,7 @@ export interface CreateWorkspaceInput {
 	sponsorshipEnabled?: boolean;
 }
 
-export interface CreateWorkspaceResultData {
-	result: Workspace | null;
-	errors: MutationError[];
-}
+export type CreateWorkspaceResultData = MutationResult<Workspace>;
 
 export interface UpdateWorkspaceInput {
 	slug?: string;
@@ -132,20 +125,14 @@ export interface UpdateWorkspaceInput {
 	sponsorshipEnabled?: boolean;
 }
 
-export interface UpdateWorkspaceResultData {
-	result: Workspace | null;
-	errors: MutationError[];
-}
+export type UpdateWorkspaceResultData = MutationResult<Workspace>;
 
 export interface AssignRolesInput {
 	/** 角色名数组（多角色并集，替换整组）；空数组 = 清空角色 */
 	roleNames: MembershipRoleName[];
 }
 
-export interface AssignRolesResultData {
-	result: WorkspaceMembership | null;
-	errors: MutationError[];
-}
+export type AssignRolesResultData = MutationResult<WorkspaceMembership>;
 
 /* ---------------- 真实 query / mutation ---------------- */
 

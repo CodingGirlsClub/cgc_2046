@@ -10,6 +10,9 @@
  *   ME_WORKSPACES 缓存，概览页/工作台徽章跨页同步）；
  * - 壳：WorkspaceShell（requireWs 默认 true，未知 slug 自动「工作区不可访问」）；
  *   settings 前缀路由预留 B-3 审批/邀请子页（settings/requests、settings/invitations）。
+ *
+ * P3：settings 三子页统一 tab 导航（与 members/permissions tab 模式一致），
+ * 审批/邀请 tab 按 manage_members 能力过滤。
  */
 
 import { useState } from "react";
@@ -26,6 +29,7 @@ import {
 	type JoinPolicy,
 } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
+import SettingsTabs from "@/components/settings-tabs";
 
 const JOIN_POLICIES: JoinPolicy[] = ["open", "request", "invite_only"];
 
@@ -34,6 +38,7 @@ export default function WorkspaceSettingsPage() {
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 	const canUpdate = currentUserCanUpdateJoinPolicy(ws);
+	const canManage = ws?.myAbilities?.includes("manage_members") ?? false;
 
 	// 草稿策略：以 wsId 键控的派生状态（对齐 useWorkspaceBySlug 派生模式，
 	// 避免 effect 内同步 setState；跨 slug 切换时旧草稿自动失效不串台）
@@ -91,7 +96,9 @@ export default function WorkspaceSettingsPage() {
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
 				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href={`/w/${slug}`}>工作区设置</Link>
+					<Link href="/">工作台</Link>
+					<span>›</span>
+					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
 					<strong>加入策略</strong>
 				</div>
@@ -102,6 +109,10 @@ export default function WorkspaceSettingsPage() {
 						<p>决定谁能加入这个 Workspace</p>
 					</div>
 				</header>
+
+				{ws && (
+					<SettingsTabs slug={slug} current="policy" canManage={canManage} />
+				)}
 
 				{wsLoading || !ws ? (
 					<div

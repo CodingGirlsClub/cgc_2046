@@ -15,6 +15,9 @@ const { fetchProfile, fetchRoles, fetchPortfolio } = vi.hoisted(() => ({
 	fetchRoles: vi.fn(),
 	fetchPortfolio: vi.fn(),
 }));
+const { fetchMyWorkspaces } = vi.hoisted(() => ({
+	fetchMyWorkspaces: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
@@ -32,6 +35,10 @@ vi.mock("@/lib/profile", async (importOriginal) => {
 		fetchProfileRoleSummary: fetchRoles,
 		fetchPortfolioItems: fetchPortfolio,
 	};
+});
+vi.mock("@/lib/workspaces", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return { ...mod, fetchMyWorkspaces };
 });
 
 const TEST_PORTFOLIO = [
@@ -80,6 +87,17 @@ beforeEach(() => {
 			workspaceSlug: "cgc-shanghai",
 			workspaceName: "上海 Coding Girls Club",
 			myRoleNames: ["owner", "tutor"],
+		},
+	]);
+	fetchMyWorkspaces.mockResolvedValue([
+		{
+			id: "ws_01",
+			slug: "cgc-shanghai",
+			name: "上海 Coding Girls Club",
+			joinPolicy: "open",
+			myRoleNames: ["owner", "tutor"],
+			roles: ["owner", "tutor"],
+			membershipStatus: "active",
 		},
 	]);
 });

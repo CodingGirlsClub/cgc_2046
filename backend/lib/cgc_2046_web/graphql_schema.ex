@@ -8,8 +8,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true
 
-  import_types(Cgc2046Web.GraphqlSchema.RbacTypes)
-
   query do
     @desc "Placeholder query until the first resource is added"
     field :ping, :string do
@@ -54,11 +52,11 @@ defmodule Cgc2046Web.GraphqlSchema do
             if context[:cgc_auth_uncertain] do
               {:error, message: "Auth state uncertain", code: "auth_uncertain"}
             else
-              {:error, "unauthorized"}
+              {:error, unauthorized_error()}
             end
 
           actor ->
-            load_profile(actor, actor)
+            load_profile(actor, actor, context, nil)
         end
       end)
     end
@@ -114,7 +112,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:input, :email])
 
-      resolve(fn _, %{input: %{email: email, password: password}}, _ ->
+      resolve(fn _, %{input: %{email: email, password: password}}, %{context: context} ->
         changeset =
           Cgc2046.Accounts.User
           |> Ash.Changeset.for_create(:register_with_password, %{email: email, password: password})
@@ -137,22 +135,15 @@ defmodule Cgc2046Web.GraphqlSchema do
                }}
 
             {:error, %Ash.Error.Invalid{} = error} ->
-              # 复用 Ash 的 AshGraphql.Error protocol 映射（产出 message/code/fields），
-              # 而非手写只取 message —— 前端可按 code/fields 分流
-              # （如唯一性冲突 → invalid_attribute + fields: [:email]）。
-              errors =
-                error.errors
-                |> List.wrap()
-                |> Enum.flat_map(fn err ->
-                  if AshGraphql.Error.impl_for(err) do
-                    [AshGraphql.Error.to_error(err)]
-                  else
-                    Logger.warning("AshGraphql.Error not implemented for: #{inspect(err)}")
-                    []
-                  end
-                end)
-
-              {:ok, %{result: nil, errors: errors, __token__: nil}}
+              # AshGraphql.Error protocol 映射（message/code/fields），与
+              # update_profile / set_ui_theme 同源（to_ash_graphql_errors）——前端可按
+              # code/fields 分流（如唯一性冲突 → invalid_attribute + fields: [:email]）。
+              {:ok,
+               %{
+                 result: nil,
+                 errors: to_ash_graphql_errors(error, context, :register_with_password),
+                 __token__: nil
+               }}
 
             {:error, _error} ->
               {:ok,
@@ -213,7 +204,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{input: input}, %{context: context} ->
         case context[:actor] do
           nil ->
-            {:error, "unauthorized"}
+            {:error, unauthorized_error()}
 
           actor ->
             attrs =
@@ -237,11 +228,10 @@ defmodule Cgc2046Web.GraphqlSchema do
 
             case Ash.update(actor, attrs, action: :update_profile, actor: actor) do
               {:ok, user} ->
-                load_profile(user, actor)
+                load_profile(user, actor, context, :update_profile)
 
               {:error, error} ->
-                message = Exception.message(Ash.Error.to_error_class(error))
-                {:error, message}
+                {:error, to_ash_graphql_errors(error, context, :update_profile)}
             end
         end
       end)
@@ -254,7 +244,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{input: input}, %{context: context} ->
         case context[:actor] do
           nil ->
-            {:error, "unauthorized"}
+            {:error, unauthorized_error()}
 
           actor ->
             case Ash.update(actor, %{ui_theme_preference: input.ui_theme_preference},
@@ -262,18 +252,53 @@ defmodule Cgc2046Web.GraphqlSchema do
                    actor: actor
                  ) do
               {:ok, user} ->
-                load_profile(user, actor)
+                load_profile(user, actor, context, :set_ui_theme)
 
               {:error, error} ->
-                message = Exception.message(Ash.Error.to_error_class(error))
-                {:error, message}
+                {:error, to_ash_graphql_errors(error, context, :set_ui_theme)}
             end
         end
       end)
     end
   end
 
+  # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
+
+  object :ability_grant do
+    field(:name, non_null(:string),
+      description:
+        "能力名：view_workspace / access_invite_only / list_members / manage_members / assign_roles / create_workspace"
+    )
+
+    field(:allowed, non_null(:boolean))
+  end
+
+  object :permission_matrix_row do
+    field(:name, non_null(:string),
+      description: "角色名：owner / admin / member / tutor / volunteer / learner"
+    )
+
+    field(:abilities, non_null(list_of(non_null(:ability_grant))))
+  end
+
+  object :permission_matrix_payload do
+    field(:roles, non_null(list_of(non_null(:permission_matrix_row))))
+  end
+
   # ── 认证相关类型（#60 路径 B：httpOnly cookie 交付 token） ──────────────
+
+  # 持 token 的邀请接口限流：validate/accept 均吃明文 token 参数，按 IP+token 计，
+  # 5 次/15 分钟（复用 RateLimit plug，与 sign_in/sign_up 同档位）。
+  # token 为 256-bit 强随机，枚举不成立；此为已知 token 被滥用探测时的加固。
+  # arity-3：Absinthe 的 middleware callback 是 arity-3（schema.middleware(mw, field, object)），
+  # arity-2 不会被框架调用。
+  def middleware(middleware, %{identifier: :validate_invitation}, _object),
+    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:token]} | middleware]
+
+  def middleware(middleware, %{identifier: :accept_invitation}, _object),
+    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:input, :token]} | middleware]
+
+  def middleware(middleware, _field, _object), do: middleware
 
   object :sign_in_result do
     field(:id, non_null(:id))
@@ -314,8 +339,24 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:ui_theme_preference, non_null(:string))
   end
 
-  # 统一的个人资料加载：member_number/joined_at 为计算属性，获取与更新后均需显式加载
-  defp load_profile(user, actor) do
+  # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
+  # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
+  defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
+
+  # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
+  # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
+  # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
+  defp to_ash_graphql_errors(error, context, action) do
+    error
+    |> AshGraphql.Errors.to_errors(context, Cgc2046.GlobalApi, Cgc2046.Accounts.User, action)
+    |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+  end
+
+  # 统一的个人资料加载：member_number/joined_at 为计算属性，获取与更新后均需显式加载。
+  # 加载失败（罕见：calculation/DB 异常）经 to_ash_graphql_errors 映射，与
+  # update_profile/set_ui_theme 同源——避免把 Ash 内部 stacktrace 当 string 返给客户端。
+  # `action` 用于错误路径解析（与出错 mutation 的 action 对齐，nil 表示 query 侧 me）。
+  defp load_profile(user, actor, context, action) do
     case Ash.load(user, [:member_number, :joined_at],
            actor: actor,
            domain: Cgc2046.GlobalApi
@@ -324,7 +365,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         {:ok, loaded}
 
       {:error, error} ->
-        {:error, Exception.message(Ash.Error.to_error_class(error))}
+        {:error, to_ash_graphql_errors(error, context, action)}
     end
   end
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("./apollo-client", () => ({
 	client: {
 		query: vi.fn(),
+		readQuery: vi.fn().mockReturnValue(null),
 		mutate: vi.fn(),
 		cache: { evict: vi.fn(), gc: vi.fn() },
 	},
@@ -29,6 +30,7 @@ import {
  */
 
 const queryMock = vi.mocked(client.query);
+const readQueryMock = vi.mocked(client.readQuery);
 const mutateMock = vi.mocked(client.mutate);
 const cacheMock = vi.mocked(client.cache);
 
@@ -41,6 +43,7 @@ function opName(query: unknown): string | undefined {
 
 beforeEach(() => {
 	queryMock.mockReset();
+	readQueryMock.mockReset().mockReturnValue(null);
 	mutateMock.mockReset();
 	cacheMock.evict.mockReset();
 	cacheMock.gc.mockReset();
@@ -90,6 +93,25 @@ describe("lib/profile 真实分支（#68 me / updateProfile + P1 扩展）", () 
 		expect(p.id).toBe("");
 		expect(p.displayName).toBeNull();
 		expect(p.isPlatformAdmin).toBe(false);
+	});
+
+	it("fetchCurrentProfile：readQuery 缓存命中 → 零网络请求返回缓存数据", async () => {
+		readQueryMock.mockReturnValue({ me: meShape } as never);
+		const p = await fetchCurrentProfile();
+		expect(p).toEqual({
+			id: "u_999",
+			email: "real@example.com",
+			displayName: "真实用户",
+			avatarUrl: null,
+			isPlatformAdmin: true,
+			location: "杭州",
+			about: "P1 个人简介",
+			skills: ["GraphQL", "Elixir"],
+			visibility: "workspace",
+			memberNumber: "CGC-000042",
+			joinedAt: "2026-08-02T03:00:00Z",
+		});
+		expect(queryMock).not.toHaveBeenCalled();
 	});
 
 	it("updateCurrentProfile：updateProfile mutation 返回 → 映射更新后资料（含 P1 扩展）", async () => {

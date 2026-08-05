@@ -86,10 +86,12 @@
 
 ### 成员资格上下文（MembershipContext）
 
-- **定义**：「actor ↔ 工作台」成员资格读取面的唯一归属：`membership_of/2`、`role_names/2`（角色名多角色并集，Rbac 同名委托）、`memberships_of_actor/1`（跨租户）、`owner_count/1`、`resolve_workspace_id/1`（policy 场景的 filter/changeset 目标工作台解析，含 Ash filter struct 提取钉测）。
+- **定义**：「actor ↔ 工作台」成员资格**读取与入座（写入）**面的唯一归属：
+  - **读取面**：`membership_of/2`、`role_names/2`（角色名多角色并集，Rbac 同名委托）、`memberships_of_actor/1`（跨租户）、`owner_count/1`、`resolve_workspace_id/1`（policy 场景的 filter/changeset 目标工作台解析，含 Ash filter struct 提取钉测）。
+  - **入座写入面**：`admit_member/3`（加入工作台不变量的唯一实现）——承担「existing 守卫 → 建 Membership → 按角色名入座 MembershipRole → 并发 unique 处理 → 真 DB 故障上抛」全流程；Invitation.accept / JoinRequest.approve / Workspace.join 三处 after_action 的入座段委托此处（2026-08-05 入座收敛，消除三处同构拷贝）。opts：`:on_conflict`（`:business_error` Invitation/JoinRequest 转「已是成员」业务错误｜`:idempotent` Workspace.join 幂等成功）、`:error_message`（文案随调用方视角：Invitation 对受邀人「你」、JoinRequest 对审批方「该用户」）。事务无关纯函数——事务边界由调用方 action 控制（`:join` 的 `transaction?: false` 孤儿 membership 风险已知，升级路径单独决策）。
 - **旁路读取面（BypassReads）**：「唯一允许原始 SQL 的出口」——`member_count/1`（GROUP BY 聚合）与 `shared_workspace_ids/1`（actor 已加入工作台集合）；平铺展示字段（`WorkspaceMembership.user_email`/`user_display_name` LEFT JOIN）同属此契约。安全契约成文：主查询仍受 policy 门控、旁路仅限聚合与平铺展示字段、新读路径先查此处不发明新逃生舱（2026-08-02 ③ 逃生舱收敛）。
 - **WorkspaceShell（工作区管理壳）**：前端展示层 seam（2026-08-02 ⑤ 壳收敛；#79 IA）——sidebar/退出登录/未认证壳/共享 Icon 集的唯一实现，interface `slug + children`（`requireWs` 供 profile 家族关闭 ws 解析）；members/permissions/profile/portfolio 四页退化为纯内容，加导航项不再改 4 个页面；导航激活态由 pathname 派生；管理项按 `myAbilities` 过滤（成员与角色=list_members、加入策略=update_join_policy，B-3 审批/邀请占位同组），普通成员仅见 概览/个人资料；profile 家族（`requireWs=false`）ws 不解析 → 能力为空 → 管理项恒隐藏（保守方向，页面级门控不变，后端 policy 权威拦截）。
-- **架构位置**：Rbac（判定）与 WorkspaceActorIsOwnerOrAdmin policy / CurrentMembershipInfo 计算字段（读取方）之间的数据 seam（2026-08-02 ② 成员资格读取收敛）：读取形状唯一实现，Ash 升级只炸本模块一处；判定语义仍在 Rbac。
+- **架构位置**：Rbac（判定）与 WorkspaceActorIsOwnerOrAdmin policy / CurrentMembershipInfo 计算字段（读取方）之间的数据 seam（2026-08-02 ② 成员资格读取收敛）：读取形状唯一实现，Ash 升级只炸本模块一处；判定语义仍在 Rbac。入座写入面（`admit_member/3`）收敛三处加入流程的建 Membership + 角色入座 + unique 处理同构拷贝（2026-08-05 入座收敛，近 10 次提交反复修同类 bug 的 locality 缺失被根除）。
 
 ### Role（角色，租户资源）
 
@@ -316,13 +318,13 @@
 
 ### Invitation（邀请链接，租户资源）
 
-- **定义**：加入 Workspace 的链接：token（存 hash）、expires_at、邀请人、预授权角色、目标邮箱（空 = 公开链接）、状态（active/used/revoked）。Volunteer 可生成链接但不得赋予 Admin 级角色。
-- **架构位置**：租户资源；invite_only 空间唯一入口；撤销流程与到期清理留编码阶段细化。
+- **定义**：加入 Workspace 的链接：token（存 hash）、expires_at、邀请人、预授权角色、目标邮箱（空 = 公开链接）、状态（active/used/revoked/expired）。审计字段：accepted_by（接受人）、accepted_at（接受时间）。Volunteer 可生成链接但不得赋予 Admin 级角色。
+- **架构位置**：租户资源；invite_only 空间唯一入口；撤销流程与到期清理已实现（惰性过期检查）。
 
 ### JoinRequest（加入申请，租户资源）
 
-- **定义**：request 空间下的加入申请：申请人、Workspace、状态（pending/approved/rejected）；审批通过时分配角色。
-- **架构位置**：租户资源；审批动作属于高风险管理工具，走确认流。
+- **定义**：request 空间下的加入申请：申请人、Workspace、状态（pending/approved/rejected/expired）；审批通过时分配角色。审计字段：approved_by（审批人）、approved_at（审批时间）、rejection_reason（拒绝原因）、approval_deadline（审批截止时间，默认创建后 7 天）、expired_at（过期时间）。
+- **架构位置**：租户资源；审批动作属于高风险管理工具，走确认流。过期转换采用惰性检查（读取时若 pending 且 deadline 已过 → 转 expired）。
 
 ### Profile（成员公开资料，租户资源）
 
@@ -375,8 +377,8 @@
 
 ## 10. 待细化/待办（编码阶段）
 
-- Invitation 撤销流程（revoked 状态 + 到期清理）
-- JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）
+- ~~Invitation 撤销流程（revoked 状态 + 到期清理）~~ ✅ 已实现（slice-B）
+- ~~JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）~~ ✅ 已定稿：审批方指定（slice-B 决策 2）
 - AgentRun 的 token 用量字段（tokens_in/tokens_out）为计费留底
 - 确认流 auto_approve 模式的冷却期（二期）
 - 平台管理员建 Workspace 的审计留痕

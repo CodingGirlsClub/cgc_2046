@@ -106,7 +106,7 @@ afterEach(cleanup);
  * 避免与侧栏同文案（ws.name / ws.slug）撞查询。
  */
 async function content() {
-	await screen.findByRole("heading", { name: "概览" });
+	await screen.findByRole("heading", { name: "工作区概览" });
 	return within(screen.getByRole("main"));
 }
 
@@ -121,7 +121,8 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("按 slug 匹配：展示名称/slug/加入方式/赞助状态", async () => {
 		render(<WorkspacePage />);
 		const main = await content();
-		expect(await main.findByText("CGC 线上学院")).toBeInTheDocument();
+		// 工作区名出现在面包屑链接与 Hero h2（面包屑 IA 统一后两处）
+		expect(main.getAllByText("CGC 线上学院").length).toBeGreaterThan(0);
 		expect(main.getByText("cgc-academy")).toBeInTheDocument();
 		// 加入方式 label 在 Hero 与信息卡各出现一次
 		expect(main.getAllByText("申请审批").length).toBeGreaterThan(0);
@@ -158,7 +159,8 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		render(<WorkspacePage />);
 		const main = await content();
 		// 不再显示「建设中」，展示真实工作区信息
-		expect(await main.findByText("QA70 真实详情工作区")).toBeInTheDocument();
+		// 工作区名出现在面包屑链接与 Hero h2
+		expect(main.getAllByText("QA70 真实详情工作区").length).toBeGreaterThan(0);
 		expect(main.getByText("qa70-real-ws-333")).toBeInTheDocument();
 		expect(main.getAllByText("仅邀请").length).toBeGreaterThan(0);
 		expect(main.getByText("暂未开放赞助")).toBeInTheDocument();
@@ -194,7 +196,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 
 	it("提供返回工作台链接（面包屑）", async () => {
 		render(<WorkspacePage />);
-		const back = await screen.findByRole("link", { name: /← 工作台/ });
+		const back = await screen.findByRole("link", { name: "工作台" });
 		expect(back).toHaveAttribute("href", "/");
 	});
 
@@ -215,7 +217,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("壳导航「概览」选中（aria-current=page）", async () => {
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
-			name: "工作区设置",
+			name: "工作区导航",
 		});
 		const overview = within(nav).getByRole("link", { name: "概览" });
 		expect(overview).toHaveAttribute("href", "/w/cgc-academy");
@@ -225,7 +227,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("壳导航 IA（#79）：管理员见管理项 + B-3 占位，分组标题「工作区设置」", async () => {
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
-			name: "工作区设置",
+			name: "工作区导航",
 		});
 		// 设置组内四项：概览 / 成员与角色 / 工作区设置 / 占位×2
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
@@ -236,15 +238,21 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			"href",
 			"/w/cgc-academy/settings",
 		);
-		// B-3 占位：disabled 按钮（管理可见，title 注明切片 B）
-		const approvalPlaceholder = within(nav).getByRole("button", {
+		// B-3 占位：Link（管理可见）
+		const approvalPlaceholder = within(nav).getByRole("link", {
 			name: "加入审批",
 		});
-		expect(approvalPlaceholder).toBeDisabled();
-		const invitePlaceholder = within(nav).getByRole("button", {
+		expect(approvalPlaceholder).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/requests",
+		);
+		const invitePlaceholder = within(nav).getByRole("link", {
 			name: "邀请管理",
 		});
-		expect(invitePlaceholder).toBeDisabled();
+		expect(invitePlaceholder).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/invitations",
+		);
 		// 个人资料移出设置组（nav 外独立链接）
 		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
 			"href",
@@ -259,7 +267,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		params.value = { slug: "cgc-shanghai" };
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
-			name: "工作区设置",
+			name: "工作区导航",
 		});
 		// 管理项与 B-3 占位一律不渲染
 		expect(
@@ -269,10 +277,10 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			within(nav).queryByRole("link", { name: "加入策略" }),
 		).not.toBeInTheDocument();
 		expect(
-			within(nav).queryByRole("button", { name: "加入审批" }),
+			within(nav).queryByRole("link", { name: "加入审批" }),
 		).not.toBeInTheDocument();
 		expect(
-			within(nav).queryByRole("button", { name: "邀请管理" }),
+			within(nav).queryByRole("link", { name: "邀请管理" }),
 		).not.toBeInTheDocument();
 		// 概览仍在，个人资料在 nav 外
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();

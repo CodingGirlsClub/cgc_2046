@@ -24,15 +24,23 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
+import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import ProfileEntry from "@/components/profile-entry";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
 
-type NavSection = "overview" | "members" | "settings" | "profile" | null;
+type NavSection =
+	| "overview"
+	| "members"
+	| "settings-join-policy"
+	| "settings-requests"
+	| "settings-invitations"
+	| "profile"
+	| null;
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
@@ -43,10 +51,11 @@ function navSection(pathname: string, slug: string): NavSection {
 		// 权限映射是「成员与角色」的子页
 		return "members";
 	}
-	if (pathname.startsWith(`/w/${slug}/settings`)) {
-		// #78：设置页（含后续 B-3 子页 requests/invitations 的父级高亮）
-		return "settings";
-	}
+	if (pathname === `/w/${slug}/settings`) return "settings-join-policy";
+	if (pathname.startsWith(`/w/${slug}/settings/requests`))
+		return "settings-requests";
+	if (pathname.startsWith(`/w/${slug}/settings/invitations`))
+		return "settings-invitations";
 	if (pathname.startsWith("/profile")) return "profile";
 	return null;
 }
@@ -56,6 +65,11 @@ interface WorkspaceShellProps {
 	slug: string;
 	/** 是否要求工作区可解析（默认 true）；false 时跳过 ws 解析与「不可访问」态 */
 	requireWs?: boolean;
+	/**
+	 * 显式工作区名（profile 页 requireWs=false 时用：档案数据自带 workspaceName，
+	 * 无需走 useWorkspaceBySlug）。优先于 ws?.name 与 slug 显示。
+	 */
+	workspaceName?: string;
 	/** 附加到页面根节点的类名（页面态布局钩子） */
 	className?: string;
 	children: React.ReactNode;
@@ -64,6 +78,7 @@ interface WorkspaceShellProps {
 export default function WorkspaceShell({
 	slug,
 	requireWs = true,
+	workspaceName,
 	className,
 	children,
 }: WorkspaceShellProps) {
@@ -73,6 +88,42 @@ export default function WorkspaceShell({
 	// requireWs=false（profile）时 slug 传 ""：hook 空 slug 不解析（见 hook 文档），
 	// 侧栏上下文块只展示 slug，不出现「不可访问」态
 	const { ws, loading } = useWorkspaceBySlug(requireWs ? slug : "");
+
+	// 工作区切换 dropdown（issue #83：ws-shell-brand ⌄ 可切换已加入的工作区）
+	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
+	const [brandOpen, setBrandOpen] = useState(false);
+	const brandRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (!authed) return;
+		let cancelled = false;
+		fetchMyWorkspaces()
+			.then((list) => {
+				if (!cancelled) setWorkspaces(list);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [authed]);
+
+	// 点外部收起 dropdown
+	useEffect(() => {
+		if (!brandOpen) return;
+		function onPointerDown(e: PointerEvent) {
+			if (brandRef.current && !brandRef.current.contains(e.target as Node)) {
+				setBrandOpen(false);
+			}
+		}
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [brandOpen]);
+
+	// 路由变化时收起（点 dropdown 项后导航走）
+	// 微任务提交，避免 react-hooks/set-state-in-effect 同步 setState
+	useEffect(() => {
+		queueMicrotask(() => setBrandOpen(false));
+	}, [pathname]);
 
 	useEffect(() => {
 		if (confirmed && !authed) {
@@ -119,10 +170,51 @@ export default function WorkspaceShell({
 	return (
 		<div className={`ws-shell-page ${className ?? ""}`}>
 			<aside className="ws-shell-sidebar">
-				<div className="ws-shell-brand">
-					<span className="ws-shell-brand__mark">CGC</span>
-					<span>上海 Coding Girls Club</span>
-					<span className="ws-shell-brand__chevron">⌄</span>
+				<div className="ws-shell-brand-wrap" ref={brandRef}>
+					<Link href="/" className="ws-shell-brand__mark" aria-label="返回工作台">
+						CGC
+					</Link>
+					<button
+						type="button"
+						className="ws-shell-brand"
+						aria-expanded={brandOpen}
+						aria-haspopup="menu"
+						onClick={() => setBrandOpen((v) => !v)}
+					>
+						<span className="ws-shell-brand__name">
+							{workspaceName ?? ws?.name ?? slug ?? "工作区"}
+						</span>
+						<span className="ws-shell-brand__chevron" aria-hidden="true">
+							⌄
+						</span>
+					</button>
+					{brandOpen && (
+						<div className="ws-shell-brand-menu" role="menu">
+							{workspaces.map((w) => (
+								<Link
+									key={w.id}
+									href={`/w/${w.slug}`}
+									className={`ws-shell-brand-menu__item ${w.slug === slug ? "ws-shell-brand-menu__item--current" : ""}`}
+									role="menuitem"
+								>
+									<span className="ws-shell-brand-menu__name">{w.name}</span>
+									{w.slug === slug && (
+										<span className="ws-shell-brand-menu__check" aria-hidden="true">
+											✓
+										</span>
+									)}
+								</Link>
+							))}
+							<Link
+								href="/"
+								className="ws-shell-brand-menu__item ws-shell-brand-menu__item--hub"
+								role="menuitem"
+							>
+								<Icon name="grid" />
+								<span>返回工作台</span>
+							</Link>
+						</div>
+					)}
 				</div>
 
 				{slug && (
@@ -135,8 +227,8 @@ export default function WorkspaceShell({
 
 				{slug && (
 					<>
-						<div className="ws-shell-heading">工作区设置</div>
-						<nav className="ws-shell-nav" aria-label="工作区设置">
+						<div className="ws-shell-heading">工作区导航</div>
+						<nav className="ws-shell-nav" aria-label="工作区导航">
 							<Link
 								href={`/w/${slug}`}
 								className={`ws-shell-item ${active === "overview" ? "ws-shell-item--selected" : ""}`}
@@ -158,8 +250,10 @@ export default function WorkspaceShell({
 							{canSeeJoinPolicy && (
 								<Link
 									href={`/w/${slug}/settings`}
-									className={`ws-shell-item ${active === "settings" ? "ws-shell-item--selected" : ""}`}
-									aria-current={active === "settings" ? "page" : undefined}
+									className={`ws-shell-item ${active === "settings-join-policy" ? "ws-shell-item--selected" : ""}`}
+									aria-current={
+										active === "settings-join-policy" ? "page" : undefined
+									}
 								>
 									<Icon name="settings" />
 									<span>加入策略</span>
@@ -167,24 +261,26 @@ export default function WorkspaceShell({
 							)}
 							{canSeeManagement && (
 								<>
-									<button
-										type="button"
-										disabled
-										className="ws-shell-item ws-shell-item--disabled"
-										title="切片 B 开放（加入审批 / 邀请管理）"
+									<Link
+										href={`/w/${slug}/settings/requests`}
+										className={`ws-shell-item ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
+										aria-current={
+											active === "settings-requests" ? "page" : undefined
+										}
 									>
 										<Icon name="shield" />
 										<span>加入审批</span>
-									</button>
-									<button
-										type="button"
-										disabled
-										className="ws-shell-item ws-shell-item--disabled"
-										title="切片 B 开放（加入审批 / 邀请管理）"
+									</Link>
+									<Link
+										href={`/w/${slug}/settings/invitations`}
+										className={`ws-shell-item ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
+										aria-current={
+											active === "settings-invitations" ? "page" : undefined
+										}
 									>
 										<Icon name="invite" />
 										<span>邀请管理</span>
-									</button>
+									</Link>
 								</>
 							)}
 						</nav>
