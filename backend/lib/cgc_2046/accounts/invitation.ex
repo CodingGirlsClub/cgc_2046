@@ -393,8 +393,10 @@ defmodule Cgc2046.Accounts.Invitation do
              )}
           else
             # 建 Membership。并发下两个 accept 可能同时越过上面的 existing 检查，
-            # DB unique index (wm_unique_ws_user_idx) 会拒绝第二个；此处把
-            # {:error, _} 转成与上面一致的业务错误，避免裸 MatchError 上抛 500。
+            # DB unique index (wm_unique_ws_user_idx) 会拒绝第二个；此处把 unique
+            # 冲突转成与上面一致的业务错误，避免裸 MatchError 上抛 500。
+            # 非 unique 的真实 DB 故障（连接断、磁盘满）必须原样上抛，不能吞成「已是成员」，
+            # 否则用户被误导且无告警（静默数据丢失）。
             case Cgc2046.Accounts.WorkspaceMembership
                  |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
                  |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
@@ -423,12 +425,16 @@ defmodule Cgc2046.Accounts.Invitation do
 
                 {:ok, invitation}
 
-              {:error, _} ->
-                {:error,
-                 Ash.Error.Changes.InvalidAttribute.exception(
-                   field: :user_id,
-                   message: "你已是该工作台成员"
-                 )}
+              {:error, error} ->
+                if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
+                  {:error,
+                   Ash.Error.Changes.InvalidAttribute.exception(
+                     field: :user_id,
+                     message: "你已是该工作台成员"
+                   )}
+                else
+                  {:error, error}
+                end
             end
           end
         end)

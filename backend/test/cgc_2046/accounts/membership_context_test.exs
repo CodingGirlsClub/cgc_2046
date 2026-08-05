@@ -321,4 +321,48 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       end
     end
   end
+
+  describe "unique_membership_conflict?/1" do
+    # 回归：{:error, _} 通配曾把 DB 断连等真实故障误判成「已是成员/幂等成功」，
+    # 静默数据丢失。此测试钉住 helper 只对 unique constraint 返回 true。
+    alias Ash.Error.Changes.InvalidAttribute
+
+    test "ash_postgres 包装的 unique constraint 冲突返回 true" do
+      # ash_postgres constraints_to_errors 把 wm_unique_ws_user_idx unique violation
+      # 转成 InvalidAttribute 带 private_vars: [constraint_type: :unique]，
+      # Ash.create 返回 Splode error class（Ash.Error.Invalid）包着 leaf errors。
+      leaf =
+        InvalidAttribute.exception(
+          field: :user_id,
+          message: "has already been taken",
+          private_vars: [
+            constraint: "wm_unique_ws_user_idx",
+            constraint_type: :unique,
+            detail: nil
+          ]
+        )
+
+      error = Ash.Error.to_error_class(leaf)
+
+      assert MembershipContext.unique_membership_conflict?(error) == true
+    end
+
+    test "非 unique 的真实 DB 故障返回 false（不被误判成幂等/已是成员）" do
+      # 模拟 DB 断连/磁盘满等：一个不带 constraint_type 的 InvalidAttribute
+      leaf =
+        InvalidAttribute.exception(
+          field: :user_id,
+          message: "something went wrong"
+        )
+
+      error = Ash.Error.to_error_class(leaf)
+
+      assert MembershipContext.unique_membership_conflict?(error) == false
+    end
+
+    test "裸 error（非 Splode error class）返回 false" do
+      assert MembershipContext.unique_membership_conflict?(%{errors: []}) == false
+      assert MembershipContext.unique_membership_conflict?(:something_else) == false
+    end
+  end
 end
