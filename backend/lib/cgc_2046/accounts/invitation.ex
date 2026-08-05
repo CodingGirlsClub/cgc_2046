@@ -109,6 +109,7 @@ defmodule Cgc2046.Accounts.Invitation do
 
     belongs_to(:accepted_by_user, Cgc2046.Accounts.User,
       define_attribute?: false,
+      source_attribute: :accepted_by,
       description: "接受人（全局用户）"
     )
   end
