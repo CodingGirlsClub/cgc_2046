@@ -135,52 +135,44 @@ defmodule Cgc2046.Accounts.Invitation do
       end
     )
 
-    # 工作台预览字段（决策 8）：内部 authorize?: false 读 workspace，绕过 read policy。
-    # 供受邀人在 invite_only 场景下无需读 workspace 即可看到要加入哪个工作台。
+    # 工作台预览字段（决策 8）：供受邀人在 invite_only 场景下无需读 workspace 即可看到
+    # 要加入哪个工作台。三个 calculation 共享同一 workspace 关系 load，Ash 把同关系路径
+    # 合并为一次批量查询（validate 单条 1 查询，list N 条也只 1 次批量 fetch），
+    # 消除原各自 Ash.get! 的 3×冗余查询。invite_only + 非成员仍能读到预览
+    #（见 invitation_test.exs "invite_only workspace is previewable via validate by non-member"），
+    # 因 :validate bypass policy 放行 Invitation 读取，workspace 关系 load 在此路径下
+    # 不被 Workspace read policy 拦截——保持原 authorize?: false 的绕过语义。
     calculate(:workspace_name, :string,
       public?: true,
+      load: [workspace: [:name, :slug, :join_policy]],
       calculation: fn invitations, _opts ->
         Enum.map(invitations, fn invitation ->
-          if invitation.workspace_id do
-            workspace =
-              Ash.get!(Cgc2046.Accounts.Workspace, invitation.workspace_id, authorize?: false)
-
-            workspace.name
-          else
-            nil
-          end
+          # match? 守卫排除 Ash.ForbiddenField（struct truthy 会 KeyError）与 nil；
+          # || nil 把 match? 的 false 落回 nil，避免 Ash String 把 false cast 成 "false"
+          match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
+            invitation.workspace.name || nil
         end)
       end
     )
 
     calculate(:workspace_slug, :string,
       public?: true,
+      load: [workspace: [:name, :slug, :join_policy]],
       calculation: fn invitations, _opts ->
         Enum.map(invitations, fn invitation ->
-          if invitation.workspace_id do
-            workspace =
-              Ash.get!(Cgc2046.Accounts.Workspace, invitation.workspace_id, authorize?: false)
-
-            workspace.slug
-          else
-            nil
-          end
+          match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
+            invitation.workspace.slug || nil
         end)
       end
     )
 
     calculate(:workspace_join_policy, :string,
       public?: true,
+      load: [workspace: [:name, :slug, :join_policy]],
       calculation: fn invitations, _opts ->
         Enum.map(invitations, fn invitation ->
-          if invitation.workspace_id do
-            workspace =
-              Ash.get!(Cgc2046.Accounts.Workspace, invitation.workspace_id, authorize?: false)
-
-            to_string(workspace.join_policy)
-          else
-            nil
-          end
+          match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
+            to_string(invitation.workspace.join_policy) || nil
         end)
       end
     )
@@ -351,16 +343,17 @@ defmodule Cgc2046.Accounts.Invitation do
         description: "明文邀请令牌（accept 须复验，证明调用方持有 token）"
       )
 
-      # 复验 token + 校验邀请状态（before_action 重新加载记录以确保最新状态）
-      # token 校验先于状态校验：不匹配直接拒，不泄露 used/revoked/expired 状态信息
+      # 原子 claim：token 复验 + 条件 UPDATE 合成一步（root-cause fix for #13 TOCTOU）。
+      # token 校验先于状态：不匹配直接拒，不泄露 used/revoked/expired 状态信息。
+      # 条件 UPDATE 把'读到 active 才置 used'下推成 DB 原子动作——行锁序列化并发 accept，
+      # 0 行命中=已被并发 claim 或已处终结态（used/revoked/expired），统一报 already used。
+      # 事务内执行：after_action 建 membership 失败时 status 置 used 一起回滚，不烧邀请。
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, fn cs ->
-          invitation = Ash.get!(Cgc2046.Accounts.Invitation, cs.data.id, authorize?: false)
-
           token = Ash.Changeset.get_argument(cs, :token)
           token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
 
-          if invitation.token_hash != token_hash do
+          if cs.data.token_hash != token_hash do
             cs
             |> Ash.Changeset.add_error(
               Ash.Error.Changes.InvalidAttribute.exception(
@@ -369,51 +362,40 @@ defmodule Cgc2046.Accounts.Invitation do
               )
             )
           else
-            cond do
-              invitation.status == :used ->
-                cs
-                |> Ash.Changeset.add_error(
-                  Ash.Error.Changes.InvalidAttribute.exception(
-                    field: :status,
-                    message: "Invitation has already been used"
-                  )
-                )
+            actor = cs.context[:private][:actor]
+            now = DateTime.utc_now()
 
-              invitation.status == :revoked ->
-                cs
-                |> Ash.Changeset.add_error(
-                  Ash.Error.Changes.InvalidAttribute.exception(
-                    field: :status,
-                    message: "Invitation has been revoked"
-                  )
-                )
+            # ponytail: 裸 SQL 条件 UPDATE 是最短可行根因修复；accepted_at/accepted_by
+            # 同写以让 Ash 返回记录正确（force_change_attribute 触发的二次 UPDATE 幂等，
+            # 同事务行锁已持有，无额外阻塞）。升级路径：Ash 原生 atomic update + custom change
+            # 若未来需跨 data layer 复用。
+            {:ok, res} =
+              Ecto.Adapters.SQL.query(
+                Cgc2046.Repo,
+                """
+                UPDATE invitations
+                SET status = 'used', accepted_at = $1, accepted_by = $2
+                WHERE id = $3 AND status = 'active'
+                  AND (expires_at IS NULL OR expires_at > $1)
+                """,
+                [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id)]
+              )
 
-              invitation.expires_at &&
-                  DateTime.compare(invitation.expires_at, DateTime.utc_now()) == :lt ->
-                cs
-                |> Ash.Changeset.add_error(
-                  Ash.Error.Changes.InvalidAttribute.exception(
-                    field: :expires_at,
-                    message: "Invitation has expired"
-                  )
+            if res.num_rows == 1 do
+              cs
+              |> Ash.Changeset.force_change_attribute(:status, :used)
+              |> Ash.Changeset.force_change_attribute(:accepted_at, now)
+              |> Ash.Changeset.force_change_attribute(:accepted_by, actor.id)
+            else
+              cs
+              |> Ash.Changeset.add_error(
+                Ash.Error.Changes.InvalidAttribute.exception(
+                  field: :status,
+                  message: "Invitation has already been used"
                 )
-
-              true ->
-                cs
+              )
             end
           end
-        end)
-      end)
-
-      # 设置状态为 used
-      change(set_attribute(:status, :used))
-      change(set_attribute(:accepted_at, DateTime.utc_now()))
-
-      # 设置 accepted_by（before_action + force_change_attribute 绕过已校验限制）
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          actor = cs.context[:private][:actor]
-          Ash.Changeset.force_change_attribute(cs, :accepted_by, actor && actor.id)
         end)
       end)
 
@@ -447,29 +429,42 @@ defmodule Cgc2046.Accounts.Invitation do
                  |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
                  |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
               {:ok, membership} ->
-                # 有预授权角色则建 MembershipRole（决策 6）
+                # 有预授权角色则建 MembershipRole（决策 6）。
+                # 用 reduce_while + Ash.create（非 bang）：失败时短路返回 {:error, ...}，
+                # 走 ash_graphql to_errors → 结构化 GraphQL error，而非 raise → 500。
+                # after_action 返回 {:error, ...} 时父事务仍 rollback（Ash 默认 rollback_on_error?），
+                # 故已建的 MembershipRole / Membership / :used 标记一并回滚，数据完整性不变。
                 if invitation.preauthorized_role_names &&
                      invitation.preauthorized_role_names != [] do
                   roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
 
-                  Enum.each(invitation.preauthorized_role_names, fn role_name ->
+                  Enum.reduce_while(invitation.preauthorized_role_names, :ok, fn role_name, _acc ->
                     role = Enum.find(roles, &(&1.name == role_name))
 
                     if role do
-                      Ash.create!(
-                        Cgc2046.Accounts.MembershipRole,
-                        %{
-                          membership_id: membership.id,
-                          role_id: role.id
-                        },
-                        tenant: tenant,
-                        authorize?: false
-                      )
+                      case Ash.create(
+                             Cgc2046.Accounts.MembershipRole,
+                             %{
+                               membership_id: membership.id,
+                               role_id: role.id
+                             },
+                             tenant: tenant,
+                             authorize?: false
+                           ) do
+                        {:ok, _} -> {:cont, :ok}
+                        {:error, error} -> {:halt, {:error, error}}
+                      end
+                    else
+                      {:cont, :ok}
                     end
                   end)
+                else
+                  :ok
                 end
-
-                {:ok, invitation}
+                |> case do
+                  :ok -> {:ok, invitation}
+                  {:error, _} = err -> err
+                end
 
               {:error, error} ->
                 if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
