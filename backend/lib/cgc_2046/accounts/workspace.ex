@@ -218,46 +218,55 @@ defmodule Cgc2046.Accounts.Workspace do
         workspace_id = input.arguments.workspace_id
         actor = input.context[:private][:actor]
 
-        workspace = Ash.get!(__MODULE__, workspace_id, authorize?: false)
+        case Ash.get(__MODULE__, workspace_id, authorize?: false) do
+          {:ok, nil} ->
+            {:error,
+             Ash.Error.Query.NotFound.exception(
+               path: [__MODULE__, workspace_id],
+               message: "Workspace not found"
+             )}
 
-        case workspace.join_policy do
-          :open ->
-            if actor do
-              # 入座委托 MembershipContext.admit_member/3（入座不变量唯一实现）。
-              # join 语义幂等：已是成员 / 并发 unique 冲突 → 成功返回 workspace（不报错），
-              # 区别于 join_request approve 把重复审批当业务错误。真 DB 故障上抛。
-              # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
-              # 两次写不在同一事务——MembershipRole 创建失败时 Membership 已 commit，
-              # 留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
-              # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
-              # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
-              case Cgc2046.Accounts.MembershipContext.admit_member(
-                     actor.id,
-                     workspace_id,
-                     [:learner],
-                     on_conflict: :idempotent
-                   ) do
-                {:ok, _membership} -> {:ok, workspace}
-                {:error, _} = err -> err
-              end
-            else
-              {:ok, workspace}
+          {:ok, workspace} ->
+            case workspace.join_policy do
+              :open ->
+                if actor do
+                  # 入座委托 MembershipContext.admit_member/3（入座不变量唯一实现）。
+                  # join 语义幂等：已是成员 / 并发 unique 冲突 → 成功返回 workspace（不报错），
+                  # 区别于 join_request approve 把重复审批当业务错误。真 DB 故障上抛。
+                  # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
+                  # 两次写不在同一事务——MembershipRole 创建失败时 Membership 已 commit，
+                  # 留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
+                  # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
+                  # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
+                  case Cgc2046.Accounts.MembershipContext.admit_member(
+                         actor.id,
+                         workspace_id,
+                         [:learner],
+                         on_conflict: :idempotent
+                       ) do
+                    {:ok, _membership} -> {:ok, workspace}
+                    {:error, _} = err -> err
+                  end
+                else
+                  {:ok, workspace}
+                end
+
+              :request ->
+                {:error,
+                 Ash.Error.Changes.InvalidAttribute.exception(
+                   field: :join_policy,
+                   message:
+                     "This workspace requires an application. Please use createJoinRequest instead."
+                 )}
+
+              :invite_only ->
+                {:error,
+                 Ash.Error.Changes.InvalidAttribute.exception(
+                   field: :join_policy,
+                   message:
+                     "This workspace is invite-only. Please use an invitation link to join."
+                 )}
             end
-
-          :request ->
-            {:error,
-             Ash.Error.Changes.InvalidAttribute.exception(
-               field: :join_policy,
-               message:
-                 "This workspace requires an application. Please use createJoinRequest instead."
-             )}
-
-          :invite_only ->
-            {:error,
-             Ash.Error.Changes.InvalidAttribute.exception(
-               field: :join_policy,
-               message: "This workspace is invite-only. Please use an invitation link to join."
-             )}
         end
       end)
     end

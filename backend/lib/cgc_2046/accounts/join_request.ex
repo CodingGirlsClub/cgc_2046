@@ -163,12 +163,14 @@ defmodule Cgc2046.Accounts.JoinRequest do
         constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 
-      # 原子 claim：条件 UPDATE 把'读到 pending 才置 approved'下推成 DB 原子动作
+      # 原子 claim：条件 UPDATE 把'读到 pending 且未过期才置 approved'下推成 DB 原子动作
       # （root-cause fix for approve TOCTOU，对齐 Invitation.accept 的 Option A 范式）。
-      # 0 行命中=已被并发 approve/处理或已处终态（approved/rejected/expired），统一报
-      # '该申请已被处理'。事务内执行：after_action 建 membership 失败时 status=approved
-      # 一并回滚，不留半态。替换原 validate_pending_status 快照守卫——条件 UPDATE 的
-      # WHERE status='pending' 已覆盖其'非 pending 拒绝'职责，且是原子版本。
+      # WHERE 同时检查 status='pending' 与 approval_deadline 未过期——approval_deadline
+      # 的 lazy 过期只在 read 时计算，approve 用 changeset 快照不重读，必须在此原子守卫，
+      # 否则过期申请仍能被审批。0 行命中=已终态/已过期/被并发 approve，统一报'该申请已被处理'。
+      # 事务内执行：after_action 建 membership 失败时 status=approved 一并回滚，不留半态。
+      # 替换原 validate_pending_status 快照守卫——条件 UPDATE 的 WHERE 已覆盖其'非 pending
+      # 拒绝'职责，且是原子版本。
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, fn cs ->
           actor = cs.context[:private][:actor]
@@ -185,6 +187,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
               UPDATE join_requests
               SET status = 'approved', approved_at = $1, approved_by = $2
               WHERE id = $3 AND status = 'pending'
+                AND (approval_deadline IS NULL OR approval_deadline > $1)
               """,
               [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id)]
             )
