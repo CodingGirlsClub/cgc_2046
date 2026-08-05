@@ -572,6 +572,38 @@ defmodule Cgc2046.Accounts.InvitationTest do
       assert {:ok, reloaded} = Ash.get(Invitation, invitation.id, actor: admin)
       assert reloaded.status == :active
     end
+
+    # 回归：同一用户并发 accept 同一邀请，DB unique constraint 拒绝第二个时，
+    # after_action 不得抛 MatchError/500，须转成业务错误。
+    # 两个并发请求都越过 existing 检查 → 一个建 membership 成功，一个撞 unique index。
+    test "concurrent accept by same user returns business error, not 500" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
+
+      acceptor = normal_user("inv-accept-concurrent@example.com")
+      token = invitation.__metadata__[:plain_token]
+
+      results =
+        [1, 2]
+        |> Task.async_stream(
+          fn _ ->
+            invitation
+            |> Ash.Changeset.for_update(:accept, %{token: token})
+            |> Ash.update(actor: acceptor)
+          end,
+          max_concurrency: 2,
+          timeout: 5_000
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      oks = Enum.filter(results, &match?({:ok, _}, &1))
+      errors = Enum.filter(results, &match?({:error, %Ash.Error.Invalid{}}, &1))
+
+      # 一个成功，一个返回业务错误；没有任何 MatchError/异常外泄
+      assert length(oks) == 1
+      assert length(errors) == 1
+    end
   end
 
   describe "revoke invitation" do

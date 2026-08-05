@@ -200,32 +200,41 @@ defmodule Cgc2046.Accounts.JoinRequest do
                message: "该用户已是本工作台成员"
              )}
           else
-            # 建 Membership
-            {:ok, membership} =
-              Cgc2046.Accounts.WorkspaceMembership
-              |> Ash.Changeset.for_create(:create, %{user_id: join_request.user_id})
-              |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
+            # 建 Membership。并发下两个 approve 可能同时越过上面的 existing 检查，
+            # DB unique index (wm_unique_ws_user_idx) 会拒绝第二个；此处把
+            # {:error, _} 转成与上面一致的业务错误，避免裸 MatchError 上抛 500。
+            case Cgc2046.Accounts.WorkspaceMembership
+                 |> Ash.Changeset.for_create(:create, %{user_id: join_request.user_id})
+                 |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
+              {:ok, membership} ->
+                # 建 MembershipRole（按角色名查找对应 role record）
+                roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
 
-            # 建 MembershipRole（按角色名查找对应 role record）
-            roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
+                Enum.each(role_names, fn role_name ->
+                  role = Enum.find(roles, &(&1.name == role_name))
 
-            Enum.each(role_names, fn role_name ->
-              role = Enum.find(roles, &(&1.name == role_name))
+                  if role do
+                    Ash.create!(
+                      Cgc2046.Accounts.MembershipRole,
+                      %{
+                        membership_id: membership.id,
+                        role_id: role.id
+                      },
+                      tenant: tenant,
+                      authorize?: false
+                    )
+                  end
+                end)
 
-              if role do
-                Ash.create!(
-                  Cgc2046.Accounts.MembershipRole,
-                  %{
-                    membership_id: membership.id,
-                    role_id: role.id
-                  },
-                  tenant: tenant,
-                  authorize?: false
-                )
-              end
-            end)
+                {:ok, join_request}
 
-            {:ok, join_request}
+              {:error, _} ->
+                {:error,
+                 Ash.Error.Changes.InvalidAttribute.exception(
+                   field: :user_id,
+                   message: "该用户已是本工作台成员"
+                 )}
+            end
           end
         end)
       )
