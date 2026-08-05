@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-	render,
 	screen,
 	fireEvent,
 	cleanup,
 	waitFor,
 } from "@testing-library/react";
+import { render } from "@/test-utils";
 import HomePage from "./page";
 
 /** 测试本地工作台 fixture（#1 mock 已删除） */
@@ -61,9 +61,10 @@ const TEST_WORKSPACES = [
 ];
 
 /**
- * 工作台页测试（#63）。
- * mock：useRouter（next/navigation）、useAuthed（lib/use-authed）、clearSession（lib/auth）、fetchMyWorkspaces（lib/workspaces）。
- * 注：lib/auth 仅 export clearSession；isAuthenticated/clearAuthToken 已在 Phase 2 移除，不再 mock。
+ * 工作台页测试（#63 / #83）。
+ * mock：useRouter（next/navigation）、useAuthed、clearSession、fetchMyWorkspaces、
+ * fetchCurrentProfile、apollo client（ThemeToggle fire-and-forget 持久化用）。
+ * #83：侧栏 nav item 改为 <Link href="/w/:slug">，首页为 Hub 占位，不再内联详情。
  */
 
 const { push, replace } = vi.hoisted(() => ({
@@ -77,17 +78,17 @@ const { clearSession } = vi.hoisted(() => ({
 const { useAuthed } = vi.hoisted(() => ({
 	useAuthed: vi.fn(),
 }));
-
-vi.mock("@/lib/use-authed", () => ({
-	useAuthed,
-}));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
 }));
 const { fetchCurrentProfile } = vi.hoisted(() => ({
 	fetchCurrentProfile: vi.fn(),
 }));
+const { mutate } = vi.hoisted(() => ({ mutate: vi.fn().mockResolvedValue({}) }));
 
+vi.mock("@/lib/use-authed", () => ({
+	useAuthed,
+}));
 vi.mock("next/navigation", () => ({
 	useRouter: () => ({ push, replace }),
 }));
@@ -106,6 +107,10 @@ vi.mock("@/lib/profile", async (importOriginal) => {
 	return { ...mod, fetchCurrentProfile };
 });
 
+vi.mock("@/lib/apollo-client", () => ({
+	client: { mutate },
+}));
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	window.history.replaceState({}, "", "/");
@@ -118,11 +123,12 @@ beforeEach(() => {
 		avatarUrl: null,
 		isPlatformAdmin: false,
 	});
+	mutate.mockResolvedValue({});
 });
 
 afterEach(cleanup);
 
-describe("工作台页 (#63)", () => {
+describe("工作台页 (#63 #83)", () => {
 	it("未登录：重定向 /login，不渲染列表", async () => {
 		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<HomePage />);
@@ -130,79 +136,42 @@ describe("工作台页 (#63)", () => {
 		expect(fetchMyWorkspaces).not.toHaveBeenCalled();
 	});
 
-	it("默认展示侧栏 + active 工作区详情", async () => {
+	it("默认展示侧栏 + Hub 占位（#83：不再内联工作区详情）", async () => {
 		render(<HomePage />);
 
 		expect(
-			await screen.findByRole("heading", { name: "工作区详情" }),
+			await screen.findByRole("heading", { name: "工作台" }),
 		).toBeInTheDocument();
-		expect(screen.getAllByText("CGC 上海分社")).toHaveLength(2);
-		expect(screen.getByText("cgc-shanghai")).toBeInTheDocument();
-		expect(screen.getAllByText("开放加入").length).toBeGreaterThanOrEqual(1);
-		expect(screen.getByText("最近动态")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: /进入工作台/ })).toHaveAttribute(
-			"href",
-			"/w/cgc-shanghai",
-		);
-		expect(screen.getByRole("link", { name: /成员与角色/ })).toHaveAttribute(
-			"href",
-			"/w/cgc-shanghai/members",
-		);
-	});
-
-	it("点击侧栏工作区后，详情区跟随切换", async () => {
-		render(<HomePage />);
-		await screen.findByText("最近动态");
-
-		fireEvent.click(screen.getByRole("button", { name: /CGC 线上学院/ }));
-		expect(screen.getAllByText("CGC 线上学院")).toHaveLength(2);
-		expect(screen.getAllByText("申请制").length).toBeGreaterThanOrEqual(1);
-		expect(screen.getByRole("link", { name: /进入工作台/ })).toHaveAttribute(
-			"href",
-			"/w/cgc-academy",
-		);
-	});
-
-	it("选择 invited workspace：展示待凭据状态，不显示进入入口", async () => {
-		render(<HomePage />);
-		await screen.findByText("最近动态");
-
-		fireEvent.click(screen.getByRole("button", { name: /赞助商俱乐部/ }));
-		expect(screen.getAllByText("待凭据加入").length).toBeGreaterThanOrEqual(2);
-		expect(screen.getByText("邀请制")).toBeInTheDocument();
+		// Hub 占位文案
 		expect(
-			screen.queryByRole("link", { name: /进入工作台/ }),
-		).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "输入邀请凭据" })).toBeDisabled();
+			screen.getByText("从左侧选择一个工作区开始"),
+		).toBeInTheDocument();
+		// 侧栏品牌可点回首页
+		expect(screen.getByRole("link", { name: "CGC 2046" })).toHaveAttribute(
+			"href",
+			"/",
+		);
 	});
 
-	it("角色标签复用共享 ROLE_LABEL：tutor/volunteer/learner 渲染规范名（P2-3）", async () => {
+	it("侧栏 nav item 为 Link 跳 /w/:slug（#83：URL 即资源）", async () => {
+		render(<HomePage />);
+		await screen.findByRole("heading", { name: "工作台" });
+
+		const shanghaiLink = screen.getByRole("link", {
+			name: /CGC 上海分社/,
+		});
+		expect(shanghaiLink).toHaveAttribute("href", "/w/cgc-shanghai");
+
+		const academyLink = screen.getByRole("link", {
+			name: /CGC 线上学院/,
+		});
+		expect(academyLink).toHaveAttribute("href", "/w/cgc-academy");
+	});
+
+	it("侧栏显示活跃工作区计数与待处理数", async () => {
 		fetchMyWorkspaces.mockResolvedValue([
 			{
-				id: "ws_roles",
-				slug: "roles-demo",
-				name: "角色演示工作区",
-				joinPolicy: "open",
-				sponsorshipEnabled: true,
-				myRoleNames: ["tutor", "volunteer", "learner"],
-				roles: ["tutor", "volunteer", "learner"],
-				membershipStatus: "active",
-			},
-		]);
-		render(<HomePage />);
-
-		expect(
-			await screen.findByText("Tutor / Volunteer / Learner"),
-		).toBeInTheDocument();
-		expect(screen.queryByText("tutor")).not.toBeInTheDocument();
-		expect(screen.queryByText("volunteer")).not.toBeInTheDocument();
-		expect(screen.queryByText("learner")).not.toBeInTheDocument();
-	});
-
-	it("真实模式：active / pending 状态跟随侧栏选择", async () => {
-		fetchMyWorkspaces.mockResolvedValue([
-			{
-				id: "ws_real_a",
+				id: "ws_a",
 				slug: "real-a",
 				name: "真实工作区 A",
 				joinPolicy: "open",
@@ -212,17 +181,7 @@ describe("工作台页 (#63)", () => {
 				membershipStatus: "active",
 			},
 			{
-				id: "ws_real_b",
-				slug: "real-b",
-				name: "真实工作区 B",
-				joinPolicy: "request",
-				sponsorshipEnabled: true,
-				myRoleNames: ["member"],
-				roles: ["member"],
-				membershipStatus: "active",
-			},
-			{
-				id: "ws_real_c",
+				id: "ws_c",
 				slug: "real-c",
 				name: "真实工作区 C",
 				joinPolicy: "request",
@@ -236,19 +195,8 @@ describe("工作台页 (#63)", () => {
 
 		render(<HomePage />);
 		expect(
-			await screen.findByText("你加入了 2 个工作区 · 1 个待处理"),
+			await screen.findByText("你加入了 1 个工作区 · 1 个待处理"),
 		).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: /进入工作台/ })).toHaveAttribute(
-			"href",
-			"/w/real-a",
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: /真实工作区 C/ }));
-		expect(screen.getByText("申请进度")).toBeInTheDocument();
-		expect(screen.getAllByText("申请审批中").length).toBeGreaterThanOrEqual(2);
-		expect(
-			screen.queryByRole("link", { name: /进入工作台/ }),
-		).not.toBeInTheDocument();
 	});
 
 	it("view=grid：展示首次登录卡片网格，只有 active 可进入", async () => {
@@ -285,7 +233,7 @@ describe("工作台页 (#63)", () => {
 		expect(screen.getByText("invited")).toBeInTheDocument();
 		expect(screen.getAllByRole("link", { name: "进入工作台" })).toHaveLength(1);
 		expect(
-			screen.getByRole("button", { name: /发现 \/ 申请加入新工作区/ }),
+			screen.getByRole("link", { name: /发现 \/ 申请加入新工作区/ }),
 		).toBeInTheDocument();
 	});
 
@@ -303,12 +251,14 @@ describe("工作台页 (#63)", () => {
 
 		expect(await screen.findByRole("alert")).toBeInTheDocument();
 		expect(screen.getByText("工作区加载失败")).toBeInTheDocument();
-		expect(screen.queryByText("还没有可进入的工作区")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("从左侧选择一个工作区开始"),
+		).not.toBeInTheDocument();
 
-		// 重试成功：回到工作台侧栏
+		// 重试成功：回到 Hub
 		fireEvent.click(screen.getByRole("button", { name: "重试" }));
 		expect(
-			await screen.findByRole("heading", { name: "工作区详情" }),
+			await screen.findByRole("heading", { name: "工作台" }),
 		).toBeInTheDocument();
 		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 	});
@@ -318,5 +268,23 @@ describe("工作台页 (#63)", () => {
 		const entry = await screen.findByTestId("profile-entry");
 		expect(entry).toHaveAttribute("href", "/profile");
 		expect(await screen.findByText("小美")).toBeInTheDocument();
+	});
+
+	it("品牌区链接回首页（#83：补回首页入口）", async () => {
+		render(<HomePage />);
+		const brand = await screen.findByRole("link", { name: "CGC 2046" });
+		expect(brand).toHaveAttribute("href", "/");
+	});
+
+	it("发现项链接到 /join（侧栏 + Hub 占位各一处）", async () => {
+		render(<HomePage />);
+		await screen.findByRole("heading", { name: "工作台" });
+		const discoverLinks = screen.getAllByRole("link", {
+			name: /发现 \/ 申请加入新工作区/,
+		});
+		expect(discoverLinks.length).toBeGreaterThanOrEqual(1);
+		for (const link of discoverLinks) {
+			expect(link).toHaveAttribute("href", "/join");
+		}
 	});
 });

@@ -24,7 +24,10 @@ vi.mock("@apollo/client/react", () => ({
 // CombinedGraphQLErrors.is 是 instance 判定，测试里用真实类构造更贴合生产行为。
 // 构造一个 unauthorized 形态的 CombinedGraphQLErrors（后端 me resolver 返回 {:error,"unauthorized"}）。
 function unauthorizedError(): CombinedGraphQLErrors {
-	return new CombinedGraphQLErrors({ data: { me: null }, errors: [{ message: "unauthorized" }] });
+	return new CombinedGraphQLErrors({
+		data: { me: null },
+		errors: [{ message: "unauthorized" }],
+	});
 }
 
 // auth_uncertain 形态：后端标记 token 有效但 user 加载失败（DB 故障 / 撤销），
@@ -43,7 +46,9 @@ function networkError(): Error {
 	return new Error("Network request failed");
 }
 
-const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
+const wrapper = ({ children }: { children: ReactNode }) => (
+	<AuthProvider>{children}</AuthProvider>
+);
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -54,14 +59,23 @@ afterEach(() => {
 });
 
 describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错误区分)", () => {
-	it("首帧 {authed:false, confirmed:false}（SSR 与 hydration 首帧一致）", () => {
-		useQueryMock.mockReturnValue({ data: undefined, loading: true, error: undefined, refetch: vi.fn() });
+	it("首帧 {authed:false, confirmed:false, userId:null}（SSR 与 hydration 首帧一致）", () => {
+		useQueryMock.mockReturnValue({
+			data: undefined,
+			loading: true,
+			error: undefined,
+			refetch: vi.fn(),
+		});
 		const { result } = renderHook(() => useAuthed(), { wrapper });
 
-		expect(result.current).toEqual({ authed: false, confirmed: false });
+		expect(result.current).toEqual({
+			authed: false,
+			confirmed: false,
+			userId: null,
+		});
 	});
 
-	it("已登录：me 查询返回后 {authed:true, confirmed:true}", async () => {
+	it("已登录：me 查询返回后 {authed:true, confirmed:true, userId}", async () => {
 		useQueryMock.mockReturnValue({
 			data: { me: { id: "u1" } },
 			loading: false,
@@ -71,10 +85,14 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		const { result } = renderHook(() => useAuthed(), { wrapper });
 
 		await act(async () => {});
-		expect(result.current).toEqual({ authed: true, confirmed: true });
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
 	});
 
-	it("未登录：me 查询返回 unauthorized(CombinedGraphQLErrors) 后 {authed:false, confirmed:true}", async () => {
+	it("未登录：me 查询返回 unauthorized(CombinedGraphQLErrors) 后 {authed:false, confirmed:true, userId:null}", async () => {
 		useQueryMock.mockReturnValue({
 			data: { me: null },
 			loading: false,
@@ -84,7 +102,11 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		const { result } = renderHook(() => useAuthed(), { wrapper });
 
 		await act(async () => {});
-		expect(result.current).toEqual({ authed: false, confirmed: true });
+		expect(result.current).toEqual({
+			authed: false,
+			confirmed: true,
+			userId: null,
+		});
 	});
 
 	it("#13 网络错误：保持上次 confirmed 状态，不踢已登录用户", async () => {
@@ -98,7 +120,11 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 		const { result, rerender } = renderHook(() => useAuthed(), { wrapper });
 		await act(async () => {});
-		expect(result.current).toEqual({ authed: true, confirmed: true });
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
 
 		// 网络抖动：data:undefined + 传输层 error（refetch 模拟立即失败）
 		const failingRefetch = vi.fn().mockRejectedValue(new Error("still down"));
@@ -115,7 +141,11 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 
 		// 核心断言：网络错误不应改变已确认的登录态
-		expect(result.current).toEqual({ authed: true, confirmed: true });
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
 		expect(failingRefetch).toHaveBeenCalled();
 	});
 
@@ -130,10 +160,16 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 		const { result, rerender } = renderHook(() => useAuthed(), { wrapper });
 		await act(async () => {});
-		expect(result.current).toEqual({ authed: true, confirmed: true });
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
 
 		// DB 故障：后端返回 auth_uncertain（CombinedGraphQLErrors + code）
-		const failingRefetch = vi.fn().mockRejectedValue(new Error("db still down"));
+		const failingRefetch = vi
+			.fn()
+			.mockRejectedValue(new Error("db still down"));
 		useQueryMock.mockReturnValue({
 			data: { me: null },
 			loading: false,
@@ -146,7 +182,11 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 
 		// auth_uncertain 应保持登录态并重试，而非判未登录踢出
-		expect(result.current).toEqual({ authed: true, confirmed: true });
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
 		expect(failingRefetch).toHaveBeenCalled();
 	});
 });

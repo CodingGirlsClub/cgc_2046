@@ -18,5 +18,9 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.Role)
     # P1-4 G9：用户作品集条目（个人内容，非租户隔离）
     resource(Cgc2046.Accounts.PortfolioItem)
+    # B-1 #30：加入申请
+    resource(Cgc2046.Accounts.JoinRequest)
+    # B-2 #31：邀请
+    resource(Cgc2046.Accounts.Invitation)
   end
 end
