@@ -275,6 +275,19 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # ── 认证相关类型（#60 路径 B：httpOnly cookie 交付 token） ──────────────
 
+  # 持 token 的邀请接口限流：validate/accept 均吃明文 token 参数，按 IP+token 计，
+  # 5 次/15 分钟（复用 RateLimit plug，与 sign_in/sign_up 同档位）。
+  # token 为 256-bit 强随机，枚举不成立；此为已知 token 被滥用探测时的加固。
+  # arity-3：Absinthe 的 middleware callback 是 arity-3（schema.middleware(mw, field, object)），
+  # arity-2 不会被框架调用。
+  def middleware(middleware, %{identifier: :validate_invitation}, _object),
+    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:token]} | middleware]
+
+  def middleware(middleware, %{identifier: :accept_invitation}, _object),
+    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:token]} | middleware]
+
+  def middleware(middleware, _field, _object), do: middleware
+
   object :sign_in_result do
     field(:id, non_null(:id))
     field(:email, non_null(:string))
