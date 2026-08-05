@@ -284,7 +284,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:token]} | middleware]
 
   def middleware(middleware, %{identifier: :accept_invitation}, _object),
-    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:token]} | middleware]
+    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:input, :token]} | middleware]
 
   def middleware(middleware, _field, _object), do: middleware
 

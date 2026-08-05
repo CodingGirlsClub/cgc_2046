@@ -186,6 +186,63 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
 
       assert rate_limited?(res)
     end
+
+    test "different tokens have independent counters" do
+      admin = admin_user("rl-admin-4@example.com")
+      workspace = create_workspace(admin)
+      inv_a = create_invitation(workspace, admin)
+      inv_b = create_invitation(workspace, admin)
+      token_a = inv_a.__metadata__[:plain_token]
+      token_b = inv_b.__metadata__[:plain_token]
+
+      _acceptor_a = register_user("rl-acceptor-a@example.com")
+      authed_a = sign_in_token("rl-acceptor-a@example.com")
+
+      _acceptor_b = register_user("rl-acceptor-b@example.com")
+      authed_b = sign_in_token("rl-acceptor-b@example.com")
+
+      mutation_a = """
+      mutation {
+        acceptInvitation(
+          id: "#{inv_a.id}"
+          input: { token: "#{token_a}" }
+        ) {
+          result { id }
+          errors { message code }
+        }
+      }
+      """
+
+      mutation_b = """
+      mutation {
+        acceptInvitation(
+          id: "#{inv_b.id}"
+          input: { token: "#{token_b}" }
+        ) {
+          result { id }
+          errors { message code }
+        }
+      }
+      """
+
+      accept = fn mutation, authed ->
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{authed}")
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => mutation})
+        |> json_response(200)
+      end
+
+      # token_a 打满额度（首次 accept 消费 invitation，后续返回业务错误，均非 rate_limited）
+      for i <- 1..3 do
+        res = accept.(mutation_a, authed_a)
+        refute rate_limited?(res), "token_a attempt #{i} should not be rate-limited, got: #{inspect(res)}"
+      end
+
+      assert rate_limited?(accept.(mutation_a, authed_a))
+      # token_b 仍放行（key 含 input.token，独立计数）
+      refute rate_limited?(accept.(mutation_b, authed_b))
+    end
   end
 
   defp rate_limited?(%{"errors" => errors}) when is_list(errors) do
