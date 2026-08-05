@@ -21,7 +21,6 @@ import {
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
-import { formatJoinedDate } from "@/lib/format";
 import WorkspaceShell from "@/components/workspace-shell";
 import { Icon, type IconName } from "@/components/icons";
 import {
@@ -30,14 +29,20 @@ import {
 	fetchCurrentProfile,
 	fetchPortfolioItems,
 	fetchProfileRoleSummary,
-	pickRoleSummary,
 	profileHref,
 	updateCurrentProfile,
 	updatePortfolioItem,
+	getProfileContent,
+	toDraft,
 	type CurrentProfile,
 	type PortfolioIcon,
+	type ProfileContent,
+	type ProfileDraft,
 	type ProfilePortfolioItem,
 	type ProfileRoleSummary,
+	VISIBILITY_LABEL,
+	VISIBILITY_OPTION_LABEL,
+	VISIBILITY_FOOTER_TEXT,
 } from "@/lib/profile";
 import {
 	ROLE_BADGE_CLASS,
@@ -45,52 +50,6 @@ import {
 	type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import type { ProfileVisibility } from "@/lib/graphql/profile";
-
-interface ProfileContent {
-	name: string;
-	location: string;
-	about: string;
-	skills: string[];
-	joinedAt: string;
-	visibility: ProfileVisibility;
-	memberNumber: string;
-	workspaceName: string;
-	workspaceSlug: string;
-	workspaceRoles: MembershipRoleName[];
-	portfolio: ProfilePortfolioItem[];
-	avatarUrl: string | null;
-}
-
-interface ProfileDraft {
-	name: string;
-	location: string;
-	about: string;
-	skills: string[];
-	visibility: ProfileVisibility;
-	portfolio: ProfilePortfolioItem[];
-	avatarUrl: string | null;
-}
-
-/** 资料可见范围三档（2026-08-02 对齐：public / workspace / only_me） */
-const VISIBILITY_LABEL: Record<ProfileVisibility, string> = {
-	public: "全站公开",
-	workspace: "工作区公开",
-	only_me: "仅自己可见",
-};
-
-/** 编辑态 select 选项文案（带括号说明） */
-const VISIBILITY_OPTION_LABEL: Record<ProfileVisibility, string> = {
-	public: "全站公开（所有登录用户可见）",
-	workspace: "工作区公开（同工作区登录用户可见）",
-	only_me: "仅自己可见",
-};
-
-/** 底部可见范围说明文案 */
-const VISIBILITY_FOOTER_TEXT: Record<ProfileVisibility, string> = {
-	public: "资料对全站公开（所有登录用户可见）。",
-	workspace: "资料在同工作区公开（同工作区登录用户可见）。",
-	only_me: "资料仅自己可见。",
-};
 
 function roleLabel(role: MembershipRoleName) {
 	return ROLE_LABEL[role] ?? role;
@@ -104,47 +63,6 @@ function portfolioIconName(icon: PortfolioIcon | undefined): IconName {
 	if (icon === "book") return "book";
 	if (icon === "guide") return "guide";
 	return "document";
-}
-
-function getProfileContent(
-	profile: CurrentProfile,
-	summaries: ProfileRoleSummary[],
-	wsSlug?: string | null,
-): ProfileContent {
-	const summary = pickRoleSummary(summaries, wsSlug);
-	const roles = profile.workspaceRoles?.length
-		? profile.workspaceRoles
-		: (summary?.myRoleNames ?? []);
-	// P1-2（QA 复验 FAIL 修复）：渲染兜底不伪造样例（#1 mock 已删除）——
-	// 字段缺失展示空态（未设置 / 暂无简介 / [] / —）；workspaceName / workspaceSlug
-	// 保留 summary 真实回退。
-	const portfolio = profile.portfolio ?? [];
-	return {
-		name: profile.displayName?.trim() || "未设置展示名",
-		location: profile.location || "未设置",
-		about: profile.about || "暂无简介",
-		skills: profile.skills?.length ? [...profile.skills] : [],
-		joinedAt: formatJoinedDate(profile.joinedAt),
-		visibility: profile.visibility ?? "only_me",
-		memberNumber: profile.memberNumber || "—",
-		workspaceName: profile.workspaceName || summary?.workspaceName || "",
-		workspaceSlug: profile.workspaceSlug || summary?.workspaceSlug || "",
-		workspaceRoles: roles,
-		portfolio: portfolio.map((item) => ({ ...item })),
-		avatarUrl: profile.avatarUrl ?? null,
-	};
-}
-
-function toDraft(content: ProfileContent): ProfileDraft {
-	return {
-		name: content.name === "未设置展示名" ? "" : content.name,
-		location: content.location === "未设置" ? "" : content.location,
-		about: content.about === "暂无简介" ? "" : content.about,
-		skills: [...content.skills],
-		visibility: content.visibility,
-		portfolio: content.portfolio.map((item) => ({ ...item })),
-		avatarUrl: content.avatarUrl,
-	};
 }
 
 function Avatar({
