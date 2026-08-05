@@ -215,42 +215,60 @@ defmodule Cgc2046.Accounts.Workspace do
             if actor do
               tenant = workspace_id
 
-              # 幂等检查：已是成员则跳过建 Membership（不报错，直接返回 workspace）
-              existing_membership =
-                case Cgc2046.Accounts.WorkspaceMembership
-                     |> Ash.Query.for_read(:read)
-                     |> Ash.Query.filter(user_id: actor.id)
-                     |> Ash.read_one(tenant: tenant, actor: actor, authorize?: false) do
-                  {:ok, membership} -> membership
-                  _ -> nil
-                end
+              # 幂等检查：已是成员则跳过建 Membership（不报错，直接返回 workspace）。
+              # fail-closed：读失败时返回错误，不降级成"无成员资格可建"——
+              # 否则 DB 读异常会被当成"可以建"继续插入，掩盖真实错误。
+              case Cgc2046.Accounts.WorkspaceMembership
+                   |> Ash.Query.for_read(:read)
+                   |> Ash.Query.filter(user_id: actor.id)
+                   |> Ash.read_one(tenant: tenant, actor: actor, authorize?: false) do
+                {:ok, nil} ->
+                  # 并发下另一请求可能已插入，DB unique 约束 (wm_unique_ws_user_idx
+                  # on user_id) 兜底。把 {:error, _} 当幂等成功返回——join 语义本就
+                  # 幂等（区别于 join_request approve 把重复审批当业务错误）。
+                  # ponytail: 不包事务——MembershipRole 用 Ash.create! 失败会 raise
+                  # 留孤儿 membership，但 learner 新 membership 不命中 unique 冲突，
+                  # 仅 DB 连接断等极端情况触发，概率极低；与 join_request approve
+                  # 同款范式。若需强一致，升级为 Ash.transaction 包两次写。
+                  case Cgc2046.Accounts.WorkspaceMembership
+                       |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
+                       |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
+                    {:ok, membership} ->
+                      roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
+                      learner_role = Enum.find(roles, &(&1.name == :learner))
 
-              if is_nil(existing_membership) do
-                # 建 Membership
-                {:ok, membership} =
-                  Cgc2046.Accounts.WorkspaceMembership
-                  |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
-                  |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
+                      if learner_role do
+                        Ash.create!(
+                          Cgc2046.Accounts.MembershipRole,
+                          %{
+                            membership_id: membership.id,
+                            role_id: learner_role.id
+                          },
+                          tenant: tenant,
+                          authorize?: false
+                        )
+                      end
 
-                # 建 learner 角色
-                roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
-                learner_role = Enum.find(roles, &(&1.name == :learner))
+                    # unique 冲突 → 幂等成功
+                    {:error, _} ->
+                      :ok
+                  end
 
-                if learner_role do
-                  Ash.create!(
-                    Cgc2046.Accounts.MembershipRole,
-                    %{
-                      membership_id: membership.id,
-                      role_id: learner_role.id
-                    },
-                    tenant: tenant,
-                    authorize?: false
-                  )
-                end
+                {:ok, _membership} ->
+                  :ok
+
+                {:error, read_error} ->
+                  {:error, read_error}
               end
+            else
+              :ok
             end
 
-            {:ok, workspace}
+            # 上面块返回 {:error, _}（读失败）时传播错误，否则返回 workspace
+            |> case do
+              {:error, _} = err -> err
+              _ -> {:ok, workspace}
+            end
 
           :request ->
             {:error,
