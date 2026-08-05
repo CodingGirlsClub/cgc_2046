@@ -27,6 +27,28 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   Ash 升级（filter struct 形状变化）只炸本模块 + `resolve_workspace_id/1` 钉测
   （membership_context_test.exs），一处炸、一处改。
+
+  ## 为何保留 filter struct 反向解析（已知 Ash 升级炸点，刻意不修）
+
+  `filter_workspace_id/1` 与 `workspace_id_by_id_filter/1` 反向解析 Ash 3.31 的
+  Eq / BooleanExpression / Ref struct——这是**已知技术债**，Ash 升级改 filter
+  struct 形状时此处 + 钉测必炸（钉测当场失败指路，可控）。曾考虑删掉、改由调用方在
+  policy 前显式注入 `workspace_id`（直读 `context[:workspace_id]`），但 research
+  （`workflows/research/2026-08-05-resolve-workspace-id-ash-filter-deletion-test.md`）
+  已证伪该方向的核心假设，**结论是不改**，此处记录以防后人重复研究同一死路：
+
+  - **get-by-id 场景无法注入**：6 个 update mutation 前端只传记录 `id`
+    （SDL `assignRoles(id:)` 等，schema.graphql:1518-1551），契约层面无 workspace_id
+    可注入；ash_graphql update resolver 必然 get-by-id 预读（resolver.ex:1667-1837），
+    预读 filter 仅 `id == ^value`。GraphQL 契约不变则该场景**必须**保留回查。
+  - **list query 场景无法便宜注入**：workspace_id 在前端 GraphQL `filter` 变量里，
+    Plug 层（HTTP）拿不到 GraphQL 变量；ash_graphql 无 per-query context 注入 DSL。
+  - **唯一能全删的是路径 A**（前端用 HTTP header 交付 workspace_id + 新 Plug 注入），
+    代价是跨前后端交付契约变更 + 跨租户/被邀请人边界处理，**代价过大，决策不取**。
+
+  即：真正脆弱的只有 query 分支这两段；changeset 分支走 `tenant` / `get_attribute`
+  / `data.id` 等稳定 Ash public API，本就不脆弱。保留现状 = 收壳点单一 + 钉测兜底。
+  若未来 GraphQL 契约有变（如引入 workspace header），可重启路径 A；否则不动。
   """
 
   require Ash.Query
