@@ -392,35 +392,44 @@ defmodule Cgc2046.Accounts.Invitation do
                message: "你已是该工作台成员"
              )}
           else
-            # 建 Membership
-            {:ok, membership} =
-              Cgc2046.Accounts.WorkspaceMembership
-              |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
-              |> Ash.create(tenant: tenant, actor: actor, authorize?: false)
+            # 建 Membership。并发下两个 accept 可能同时越过上面的 existing 检查，
+            # DB unique index (wm_unique_ws_user_idx) 会拒绝第二个；此处把
+            # {:error, _} 转成与上面一致的业务错误，避免裸 MatchError 上抛 500。
+            case Cgc2046.Accounts.WorkspaceMembership
+                 |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
+                 |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
+              {:ok, membership} ->
+                # 有预授权角色则建 MembershipRole（决策 6）
+                if invitation.preauthorized_role_names &&
+                     invitation.preauthorized_role_names != [] do
+                  roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
 
-            # 有预授权角色则建 MembershipRole（决策 6）
-            if invitation.preauthorized_role_names &&
-                 invitation.preauthorized_role_names != [] do
-              roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
+                  Enum.each(invitation.preauthorized_role_names, fn role_name ->
+                    role = Enum.find(roles, &(&1.name == role_name))
 
-              Enum.each(invitation.preauthorized_role_names, fn role_name ->
-                role = Enum.find(roles, &(&1.name == role_name))
-
-                if role do
-                  Ash.create!(
-                    Cgc2046.Accounts.MembershipRole,
-                    %{
-                      membership_id: membership.id,
-                      role_id: role.id
-                    },
-                    tenant: tenant,
-                    authorize?: false
-                  )
+                    if role do
+                      Ash.create!(
+                        Cgc2046.Accounts.MembershipRole,
+                        %{
+                          membership_id: membership.id,
+                          role_id: role.id
+                        },
+                        tenant: tenant,
+                        authorize?: false
+                      )
+                    end
+                  end)
                 end
-              end)
-            end
 
-            {:ok, invitation}
+                {:ok, invitation}
+
+              {:error, _} ->
+                {:error,
+                 Ash.Error.Changes.InvalidAttribute.exception(
+                   field: :user_id,
+                   message: "你已是该工作台成员"
+                 )}
+            end
           end
         end)
       )
