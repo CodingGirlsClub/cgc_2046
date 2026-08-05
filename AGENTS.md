@@ -14,7 +14,7 @@
 
 ### Issue tracker
 
-Issues and PRDs live as GitHub issues in `CodingGirlsClub/cgc_2046`, driven via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and PRDs live as GitHub issues in `CodingGirlsClub/cgc_2046`, driven via `gh-axi` (use `npx -y gh-axi` instead of raw `gh`). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
