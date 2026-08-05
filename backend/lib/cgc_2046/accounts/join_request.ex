@@ -166,6 +166,10 @@ defmodule Cgc2046.Accounts.JoinRequest do
       )
 
       change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &validate_pending_status/1)
+      end)
+
+      change(fn changeset, _context ->
         changeset
         |> Ash.Changeset.change_attribute(:status, :approved)
         |> Ash.Changeset.change_attribute(:approved_at, DateTime.utc_now())
@@ -208,26 +212,36 @@ defmodule Cgc2046.Accounts.JoinRequest do
                  |> Ash.Changeset.for_create(:create, %{user_id: join_request.user_id})
                  |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
               {:ok, membership} ->
-                # 建 MembershipRole（按角色名查找对应 role record）
+                # 建 MembershipRole（按角色名查找对应 role record）。
+                # reduce_while + Ash.create（非 bang）：失败短路返回 {:error, ...}，
+                # 走 ash_graphql to_errors → 结构化 GraphQL error；父事务仍 rollback，
+                # 已建的 Membership / :approved 标记一并回滚，数据完整性不变。
                 roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
 
-                Enum.each(role_names, fn role_name ->
+                Enum.reduce_while(role_names, :ok, fn role_name, _acc ->
                   role = Enum.find(roles, &(&1.name == role_name))
 
                   if role do
-                    Ash.create!(
-                      Cgc2046.Accounts.MembershipRole,
-                      %{
-                        membership_id: membership.id,
-                        role_id: role.id
-                      },
-                      tenant: tenant,
-                      authorize?: false
-                    )
+                    case Ash.create(
+                           Cgc2046.Accounts.MembershipRole,
+                           %{
+                             membership_id: membership.id,
+                             role_id: role.id
+                           },
+                           tenant: tenant,
+                           authorize?: false
+                         ) do
+                      {:ok, _} -> {:cont, :ok}
+                      {:error, error} -> {:halt, {:error, error}}
+                    end
+                  else
+                    {:cont, :ok}
                   end
                 end)
-
-                {:ok, join_request}
+                |> case do
+                  :ok -> {:ok, join_request}
+                  {:error, _} = err -> err
+                end
 
               {:error, error} ->
                 if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
@@ -247,11 +261,16 @@ defmodule Cgc2046.Accounts.JoinRequest do
 
     update :reject do
       description("拒绝加入申请（Owner/Admin，可选拒绝原因）")
+      require_atomic?(false)
 
       argument(:rejection_reason, :string,
         allow_nil?: true,
         description: "拒绝原因"
       )
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &validate_pending_status/1)
+      end)
 
       change(set_attribute(:status, :rejected))
       change(set_attribute(:rejection_reason, arg(:rejection_reason)))
@@ -259,11 +278,41 @@ defmodule Cgc2046.Accounts.JoinRequest do
 
     update :expire do
       description("将过期申请标记为 expired（内部使用）")
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &validate_pending_status/1)
+      end)
 
       change(set_attribute(:status, :expired))
       change(set_attribute(:expired_at, DateTime.utc_now()))
     end
   end
+
+  # 状态守卫：approve/reject/expire 仅允许从 :pending 转换（对齐 Invitation.accept 范式）。
+  # before_action 直接读 changeset.data.status 快照（action 调用刚加载，足够新鲜），
+  # 非法状态 add_error 阻止 commit，早于 P1#5 的 after_action 成员守卫，避免非法 approve
+  # 走到"该用户已是本工作台成员"误导路径。并发双 approve 的竞态由 DB unique index 兜底，
+  # 不在状态守卫职责内。
+  defp validate_pending_status(cs) do
+    case cs.data.status do
+      :pending ->
+        cs
+
+      status ->
+        cs
+        |> Ash.Changeset.add_error(
+          Ash.Error.Changes.InvalidAttribute.exception(
+            field: :status,
+            message: pending_status_message(status)
+          )
+        )
+    end
+  end
+
+  defp pending_status_message(:approved), do: "申请已通过，无法重复处理"
+  defp pending_status_message(:rejected), do: "申请已被拒绝，无法重复处理"
+  defp pending_status_message(:expired), do: "申请已过期，无法重复处理"
 
   policies do
     # :create 限申请人本人且 workspace join_policy==:request
