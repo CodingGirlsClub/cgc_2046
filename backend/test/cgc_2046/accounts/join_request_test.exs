@@ -502,6 +502,107 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
   end
 
+  describe "status guard on non-pending requests" do
+    defp set_status(jr, status) do
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE join_requests SET status = $2 WHERE id = $1",
+          [Ecto.UUID.dump!(jr.id), Atom.to_string(status)]
+        )
+
+      Ash.get!(JoinRequest, jr.id, authorize?: false)
+    end
+
+    test "approve on already-approved request is rejected and status unchanged" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      jr = create_join_request(workspace, applicant)
+      approved = set_status(jr, :approved)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               approved
+               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
+      assert reloaded.status == :approved
+    end
+
+    test "approve on rejected request is rejected (no越权放行)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      jr = create_join_request(workspace, applicant)
+      rejected = set_status(jr, :rejected)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               rejected
+               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
+      assert reloaded.status == :rejected
+    end
+
+    test "reject on already-approved request is rejected (no状态/数据分裂)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      jr = create_join_request(workspace, applicant)
+      approved = set_status(jr, :approved)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               approved
+               |> Ash.Changeset.for_update(:reject, %{rejection_reason: "try"})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
+      assert reloaded.status == :approved
+    end
+
+    test "expire on already-approved request is rejected" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      jr = create_join_request(workspace, applicant)
+      approved = set_status(jr, :approved)
+
+      # expire 是内部 action（无 policy 声明、无 GraphQL 暴露），用 authorize?: false 绕过授权测守卫
+      assert {:error, %Ash.Error.Invalid{}} =
+               approved
+               |> Ash.Changeset.for_update(:expire)
+               |> Ash.update(tenant: workspace.id, actor: admin, authorize?: false)
+
+      reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
+      assert reloaded.status == :approved
+    end
+
+    test "happy path still works: approve/reject/expire on pending succeeds" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      jr1 = create_join_request(workspace, applicant)
+
+      assert {:ok, approved} =
+               jr1
+               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert approved.status == :approved
+
+      jr2 = create_join_request(workspace, normal_user("jr-happy2@example.com"))
+
+      assert {:ok, rejected} =
+               jr2
+               |> Ash.Changeset.for_update(:reject, %{})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert rejected.status == :rejected
+    end
+  end
+
   describe "tenant isolation" do
     test "join requests are scoped to their workspace tenant" do
       admin = admin_user()
