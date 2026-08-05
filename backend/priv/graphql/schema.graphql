@@ -1453,6 +1453,24 @@ type RootQueryType {
   ): Invitation
 }
 
+type AbilityGrant {
+  "能力名：view_workspace \/ access_invite_only \/ list_members \/ manage_members \/ assign_roles \/ create_workspace"
+  name: String!
+
+  allowed: Boolean!
+}
+
+type PermissionMatrixRow {
+  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
+  name: String!
+
+  abilities: [AbilityGrant!]!
+}
+
+type PermissionMatrixPayload {
+  roles: [PermissionMatrixRow!]!
+}
+
 type SignInResult {
   id: ID!
   email: String!
@@ -1565,21 +1583,3 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
-
-type AbilityGrant {
-  "能力名：view_workspace \/ access_invite_only \/ list_members \/ manage_members \/ assign_roles \/ create_workspace"
-  name: String!
-
-  allowed: Boolean!
-}
-
-type PermissionMatrixRow {
-  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
-  name: String!
-
-  abilities: [AbilityGrant!]!
-}
-
-type PermissionMatrixPayload {
-  roles: [PermissionMatrixRow!]!
-}
