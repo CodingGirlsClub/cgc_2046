@@ -23,7 +23,7 @@ import type { InvitationItem } from "@/lib/invitations";
 import {
 	INVITATION_STATUS_LABEL,
 	INVITATION_STATUS_CLASS,
-} from "@/lib/graphql/join";
+} from "@/lib/graphql/invitation";
 import { ROLE_NAMES, type MembershipRoleName } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
 import SettingsTabs from "@/components/settings-tabs";

@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
+import type { MutationResult } from "./shared";
 
 /**
  * #P1 PortfolioItem GraphQL 契约（对齐后端 P1 commit 56b5ce2）。
@@ -46,10 +47,7 @@ export interface UpdatePortfolioItemInput {
   icon?: PortfolioIcon | null;
 }
 
-export interface PortfolioMutationResult {
-  result: PortfolioItem | null;
-  errors: { message?: string | null; code?: string | null }[];
-}
+export type PortfolioMutationResult = MutationResult<PortfolioItem>;
 
 /* ---------------- 真实 query / mutation ---------------- */
 

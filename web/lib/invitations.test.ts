@@ -20,7 +20,7 @@ import {
 	REVOKE_INVITATION,
 	ACCEPT_INVITATION,
 	VALIDATE_INVITATION,
-} from "./graphql/join";
+} from "./graphql/invitation";
 
 describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () => {
 	it("active 状态映射（列表不含明文 token，plainToken 恒为 null）", () => {
