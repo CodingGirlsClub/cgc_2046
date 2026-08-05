@@ -20,8 +20,6 @@ defmodule Cgc2046.Accounts.Workspace do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
-  require Ash.Query
-
   attributes do
     uuid_primary_key(:id)
 
@@ -138,8 +136,9 @@ defmodule Cgc2046.Accounts.Workspace do
           # 走 ash_graphql to_errors → 结构化错误；after_action 在父 create 事务内，
           # 返回 {:error, _} 会 rollback 整个 workspace 创建，不留孤儿。
           role_records =
-            Enum.reduce_while(Cgc2046.Accounts.Role.role_descriptions(), [], fn {name, description},
-                                                                              acc ->
+            Enum.reduce_while(Cgc2046.Accounts.Role.role_descriptions(), [], fn {name,
+                                                                                 description},
+                                                                                acc ->
               case Ash.create(Cgc2046.Accounts.Role, %{name: name, description: description},
                      tenant: tenant,
                      authorize?: false
@@ -163,7 +162,8 @@ defmodule Cgc2046.Accounts.Workspace do
                      authorize?: false
                    ),
                  {:ok, _} <-
-                   Ash.create(Cgc2046.Accounts.MembershipRole,
+                   Ash.create(
+                     Cgc2046.Accounts.MembershipRole,
                      %{
                        membership_id: membership.id,
                        role_id: owner_role.id
@@ -223,73 +223,25 @@ defmodule Cgc2046.Accounts.Workspace do
         case workspace.join_policy do
           :open ->
             if actor do
-              tenant = workspace_id
-
-              # 幂等检查：已是成员则跳过建 Membership（不报错，直接返回 workspace）。
-              # fail-closed：读失败时返回错误，不降级成"无成员资格可建"——
-              # 否则 DB 读异常会被当成"可以建"继续插入，掩盖真实错误。
-              case Cgc2046.Accounts.WorkspaceMembership
-                   |> Ash.Query.for_read(:read)
-                   |> Ash.Query.filter(user_id: actor.id)
-                   |> Ash.read_one(tenant: tenant, actor: actor, authorize?: false) do
-                {:ok, nil} ->
-                  # 并发下另一请求可能已插入，DB unique 约束 (wm_unique_ws_user_idx
-                  # on user_id) 兜底。unique 冲突当幂等成功返回——join 语义本就幂等
-                  # （区别于 join_request approve 把重复审批当业务错误）。
-                  # 非 unique 的真实 DB 故障（连接断、磁盘满）必须上抛，不能吞成「成功」，
-                  # 否则用户以为加入成功实际无 membership（静默数据丢失）。
-                  # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
-                  # 两次写不在同一事务——MembershipRole 创建失败返回 {:error, _} 时 Membership 已
-                  # commit，留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
-                  # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
-                  # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
-                  case Cgc2046.Accounts.WorkspaceMembership
-                       |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
-                       |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
-                    {:ok, membership} ->
-                      roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
-                      learner_role = Enum.find(roles, &(&1.name == :learner))
-
-                      if learner_role do
-                        case Ash.create(
-                               Cgc2046.Accounts.MembershipRole,
-                               %{
-                                 membership_id: membership.id,
-                                 role_id: learner_role.id
-                               },
-                               tenant: tenant,
-                               authorize?: false
-                             ) do
-                          {:ok, _} -> :ok
-                          {:error, _} = err -> err
-                        end
-                      else
-                        :ok
-                      end
-
-                    # unique 冲突 → 幂等成功
-                    {:error, error} ->
-                      if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
-                        :ok
-                      else
-                        {:error, error}
-                      end
-                  end
-
-                {:ok, _membership} ->
-                  :ok
-
-                {:error, read_error} ->
-                  {:error, read_error}
+              # 入座委托 MembershipContext.admit_member/3（入座不变量唯一实现）。
+              # join 语义幂等：已是成员 / 并发 unique 冲突 → 成功返回 workspace（不报错），
+              # 区别于 join_request approve 把重复审批当业务错误。真 DB 故障上抛。
+              # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
+              # 两次写不在同一事务——MembershipRole 创建失败时 Membership 已 commit，
+              # 留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
+              # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
+              # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
+              case Cgc2046.Accounts.MembershipContext.admit_member(
+                     actor.id,
+                     workspace_id,
+                     [:learner],
+                     on_conflict: :idempotent
+                   ) do
+                {:ok, _membership} -> {:ok, workspace}
+                {:error, _} = err -> err
               end
             else
-              :ok
-            end
-
-            # 上面块返回 {:error, _}（读失败）时传播错误，否则返回 workspace
-            |> case do
-              {:error, _} = err -> err
-              _ -> {:ok, workspace}
+              {:ok, workspace}
             end
 
           :request ->

@@ -236,7 +236,9 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
       # token_a 打满额度（首次 accept 消费 invitation，后续返回业务错误，均非 rate_limited）
       for i <- 1..3 do
         res = accept.(mutation_a, authed_a)
-        refute rate_limited?(res), "token_a attempt #{i} should not be rate-limited, got: #{inspect(res)}"
+
+        refute rate_limited?(res),
+               "token_a attempt #{i} should not be rate-limited, got: #{inspect(res)}"
       end
 
       assert rate_limited?(accept.(mutation_a, authed_a))

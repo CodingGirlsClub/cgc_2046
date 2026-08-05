@@ -59,7 +59,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
     workspace
   end
 
-  defp add_member(workspace, user, actor, role_names \\ []) do
+  defp add_member(workspace, user, actor, role_names) do
     {:ok, membership} =
       WorkspaceMembership
       |> Ash.Changeset.for_create(:create, %{user_id: user.id})
@@ -699,7 +699,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert {:ok, _accepted} =
                invitation
-               |> Ash.Changeset.for_update(:accept, %{token: invitation.__metadata__[:plain_token]})
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
                |> Ash.update(actor: acceptor)
 
       # revoke 已 used 的邀请是非法状态转换：membership 已建立，revoke 是假动作且会

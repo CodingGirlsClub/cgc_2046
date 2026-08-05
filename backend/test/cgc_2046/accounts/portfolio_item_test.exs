@@ -153,40 +153,4 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
       assert {:error, _} = Ash.get(PortfolioItem, item.id, actor: user, authorize?: true)
     end
   end
-
-  describe "PortfolioItem GraphQL contract" do
-    defp graphql_post(conn, query, token \\ nil) do
-      conn =
-        if token do
-          put_req_header(conn, "authorization", "Bearer #{token}")
-        else
-          conn
-        end
-
-      conn
-      |> put_req_header("content-type", "application/json")
-      |> post("/api/graphql", %{"query" => query})
-      |> json_response(200)
-    end
-
-    defp sign_in_token(email, password) do
-      query = """
-      mutation {
-        signIn(email: "#{email}", password: "#{password}") {
-          id
-        }
-      }
-      """
-
-      conn =
-        build_conn()
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/graphql", %{"query" => query})
-
-      assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
-      # token 由后端 before_send 写 httpOnly cookie，从 Set-Cookie 头提取
-      token = conn.resp_cookies["cgc_token"].value
-      token
-    end
-  end
 end

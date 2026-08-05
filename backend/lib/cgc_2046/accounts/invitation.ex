@@ -139,7 +139,7 @@ defmodule Cgc2046.Accounts.Invitation do
     # 要加入哪个工作台。三个 calculation 共享同一 workspace 关系 load，Ash 把同关系路径
     # 合并为一次批量查询（validate 单条 1 查询，list N 条也只 1 次批量 fetch），
     # 消除原各自 Ash.get! 的 3×冗余查询。invite_only + 非成员仍能读到预览
-    #（见 invitation_test.exs "invite_only workspace is previewable via validate by non-member"），
+    # （见 invitation_test.exs "invite_only workspace is previewable via validate by non-member"），
     # 因 :validate bypass policy 放行 Invitation 读取，workspace 关系 load 在此路径下
     # 不被 Workspace read policy 拦截——保持原 authorize?: false 的绕过语义。
     calculate(:workspace_name, :string,
@@ -149,8 +149,8 @@ defmodule Cgc2046.Accounts.Invitation do
         Enum.map(invitations, fn invitation ->
           # match? 守卫排除 Ash.ForbiddenField（struct truthy 会 KeyError）与 nil；
           # || nil 把 match? 的 false 落回 nil，避免 Ash String 把 false cast 成 "false"
-          match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
-            invitation.workspace.name || nil
+          (match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
+             invitation.workspace.name) || nil
         end)
       end
     )
@@ -160,8 +160,8 @@ defmodule Cgc2046.Accounts.Invitation do
       load: [workspace: [:name, :slug, :join_policy]],
       calculation: fn invitations, _opts ->
         Enum.map(invitations, fn invitation ->
-          match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
-            invitation.workspace.slug || nil
+          (match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
+             invitation.workspace.slug) || nil
         end)
       end
     )
@@ -171,8 +171,8 @@ defmodule Cgc2046.Accounts.Invitation do
       load: [workspace: [:name, :slug, :join_policy]],
       calculation: fn invitations, _opts ->
         Enum.map(invitations, fn invitation ->
-          match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
-            to_string(invitation.workspace.join_policy) || nil
+          (match?(%Cgc2046.Accounts.Workspace{}, invitation.workspace) &&
+             to_string(invitation.workspace.join_policy)) || nil
         end)
       end
     )
@@ -399,84 +399,22 @@ defmodule Cgc2046.Accounts.Invitation do
         end)
       end)
 
-      # 建 Membership + 预授权角色入座
+      # 建 Membership + 预授权角色入座（委托 MembershipContext.admit_member/3，入座不变量唯一实现）。
+      # after_action 回调签名 (changeset, record, context)，actor 在 changeset.context[:private][:actor]。
+      # 入座 user = 接受人（actor），角色 = 预授权角色，冲突语义 = 业务错误（「你」视角文案）。
       change(
         after_action(fn changeset, invitation, _context ->
           actor = changeset.context[:private][:actor]
-          tenant = invitation.workspace_id
 
-          # 守卫：受邀人已是该工作台成员时不重复建成员资格（DB 唯一索引兜底，
-          # 此处转成带业务语义的错误，避免 generic unique-constraint 上抛）。
-          existing =
-            Cgc2046.Accounts.WorkspaceMembership
-            |> Ash.Query.for_read(:read)
-            |> Ash.Query.filter(workspace_id == ^tenant and user_id == ^actor.id)
-            |> Ash.read!(tenant: tenant, authorize?: false)
-
-          if existing != [] do
-            {:error,
-             Ash.Error.Changes.InvalidAttribute.exception(
-               field: :user_id,
-               message: "你已是该工作台成员"
-             )}
-          else
-            # 建 Membership。并发下两个 accept 可能同时越过上面的 existing 检查，
-            # DB unique index (wm_unique_ws_user_idx) 会拒绝第二个；此处把 unique
-            # 冲突转成与上面一致的业务错误，避免裸 MatchError 上抛 500。
-            # 非 unique 的真实 DB 故障（连接断、磁盘满）必须原样上抛，不能吞成「已是成员」，
-            # 否则用户被误导且无告警（静默数据丢失）。
-            case Cgc2046.Accounts.WorkspaceMembership
-                 |> Ash.Changeset.for_create(:create, %{user_id: actor.id})
-                 |> Ash.create(tenant: tenant, actor: actor, authorize?: false) do
-              {:ok, membership} ->
-                # 有预授权角色则建 MembershipRole（决策 6）。
-                # 用 reduce_while + Ash.create（非 bang）：失败时短路返回 {:error, ...}，
-                # 走 ash_graphql to_errors → 结构化 GraphQL error，而非 raise → 500。
-                # after_action 返回 {:error, ...} 时父事务仍 rollback（Ash 默认 rollback_on_error?），
-                # 故已建的 MembershipRole / Membership / :used 标记一并回滚，数据完整性不变。
-                if invitation.preauthorized_role_names &&
-                     invitation.preauthorized_role_names != [] do
-                  roles = Ash.read!(Cgc2046.Accounts.Role, tenant: tenant, authorize?: false)
-
-                  Enum.reduce_while(invitation.preauthorized_role_names, :ok, fn role_name, _acc ->
-                    role = Enum.find(roles, &(&1.name == role_name))
-
-                    if role do
-                      case Ash.create(
-                             Cgc2046.Accounts.MembershipRole,
-                             %{
-                               membership_id: membership.id,
-                               role_id: role.id
-                             },
-                             tenant: tenant,
-                             authorize?: false
-                           ) do
-                        {:ok, _} -> {:cont, :ok}
-                        {:error, error} -> {:halt, {:error, error}}
-                      end
-                    else
-                      {:cont, :ok}
-                    end
-                  end)
-                else
-                  :ok
-                end
-                |> case do
-                  :ok -> {:ok, invitation}
-                  {:error, _} = err -> err
-                end
-
-              {:error, error} ->
-                if Cgc2046.Accounts.MembershipContext.unique_membership_conflict?(error) do
-                  {:error,
-                   Ash.Error.Changes.InvalidAttribute.exception(
-                     field: :user_id,
-                     message: "你已是该工作台成员"
-                   )}
-                else
-                  {:error, error}
-                end
-            end
+          case Cgc2046.Accounts.MembershipContext.admit_member(
+                 actor.id,
+                 invitation.workspace_id,
+                 invitation.preauthorized_role_names || [],
+                 on_conflict: :business_error,
+                 error_message: "你已是该工作台成员"
+               ) do
+            {:ok, _membership} -> {:ok, invitation}
+            {:error, _} = err -> err
           end
         end)
       )

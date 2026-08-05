@@ -20,7 +20,7 @@ defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
   def change(changeset, _opts, _context) do
     # 用 before_action：普通 change 在 for_create 构建阶段 actor 为 nil，
     # 真实 actor 只在 authorization 通过后的 before_action 回调里可取
-    #（与 portfolio_item.ex create :user_id 注入同款模式）。
+    # （与 portfolio_item.ex create :user_id 注入同款模式）。
     Ash.Changeset.before_action(changeset, fn cs ->
       preauthorized_role_names = Ash.Changeset.get_attribute(cs, :preauthorized_role_names)
 

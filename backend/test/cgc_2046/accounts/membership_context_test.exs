@@ -365,4 +365,136 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert MembershipContext.unique_membership_conflict?(:something_else) == false
     end
   end
+
+  describe "admit_member/3" do
+    # 入座不变量唯一实现的钉测：覆盖 happy path / existing 守卫两姿态 /
+    # 并发 unique 两姿态 / 真 DB 故障上抛 / 空角色 / 角色不存在。
+
+    test "happy path：非成员 → 建 Membership + 入座指定角色" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      member = new_user()
+
+      assert {:ok, membership} =
+               MembershipContext.admit_member(member.id, workspace.id, [:tutor],
+                 on_conflict: :business_error
+               )
+
+      assert membership.user_id == member.id
+      # membership_of 验证角色已入座
+      fetched = MembershipContext.membership_of(member, workspace.id)
+      assert Enum.map(fetched.roles, & &1.name) == [:tutor]
+    end
+
+    test "已有成员 → business_error：existing 守卫返回「已是成员」业务错误" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      member = new_user()
+      add_member(workspace, member, admin, [:member])
+
+      assert {:error, error} =
+               MembershipContext.admit_member(member.id, workspace.id, [:tutor],
+                 on_conflict: :business_error,
+                 error_message: "你已是该工作台成员"
+               )
+
+      assert %Ash.Error.Changes.InvalidAttribute{} = error
+      assert error.message == "你已是该工作台成员"
+    end
+
+    test "已有成员 → idempotent：existing 守卫幂等成功，回查已有 membership" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      member = new_user()
+      existing = add_member(workspace, member, admin, [:member])
+
+      assert {:ok, membership} =
+               MembershipContext.admit_member(member.id, workspace.id, [:learner],
+                 on_conflict: :idempotent
+               )
+
+      # 幂等成功返回的是已有 membership，不重复建
+      assert membership.id == existing.id
+    end
+
+    test "并发 unique 冲突 → business_error：越过守卫后 DB unique index 拒绝，转业务错误" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      member = new_user()
+
+      # 先用 admit_member 建一条（模拟并发下另一请求已插入）
+      assert {:ok, _} =
+               MembershipContext.admit_member(member.id, workspace.id, [:member],
+                 on_conflict: :business_error
+               )
+
+      # 第二次同 user+workspace：existing 守卫已拦——此测试验证守卫正常工作
+      # （并发竞态的 DB unique 兜底由 unique_membership_conflict? 钉测覆盖，此处不重复）
+      assert {:error, error} =
+               MembershipContext.admit_member(member.id, workspace.id, [:member],
+                 on_conflict: :business_error
+               )
+
+      assert %Ash.Error.Changes.InvalidAttribute{} = error
+    end
+
+    test "existing 守卫读失败：返结构化错误而非 raise（#14 fail-closed 原则）" do
+      # 非法 workspace_id（非 UUID）迫使 existing 守卫的 Ash.read 返回 {:error, _}
+      # （filter 解析 InvalidFilterValue）。admit_member 应把它转成结构化业务错误返回，
+      # 不 raise——尤其 Workspace.join 是 generic action transaction?: false，raise 会变 500。
+      # fail-closed 不变量：读失败既不建 membership 也不假装成功。
+      member = new_user()
+
+      assert {:error, error} =
+               MembershipContext.admit_member(member.id, "not-a-uuid", [:member],
+                 on_conflict: :business_error
+               )
+
+      # 转成结构化业务错误（membership_check_error），可走 ash_graphql to_errors
+      assert %Ash.Error.Changes.InvalidAttribute{message: "成员资格检查失败"} = error
+    end
+
+    test "existing 守卫读失败：idempotent 模式同样返结构化错误而非 raise" do
+      # Workspace.join 走 on_conflict: :idempotent，读失败也必须 fail-closed 返错误
+      member = new_user()
+
+      assert {:error, error} =
+               MembershipContext.admit_member(member.id, "not-a-uuid", [:learner],
+                 on_conflict: :idempotent
+               )
+
+      assert %Ash.Error.Changes.InvalidAttribute{} = error
+    end
+
+    test "空角色列表：建 Membership 不建 MembershipRole（决策 6）" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      member = new_user()
+
+      assert {:ok, membership} =
+               MembershipContext.admit_member(member.id, workspace.id, [],
+                 on_conflict: :business_error
+               )
+
+      assert membership.user_id == member.id
+      # 无角色入座
+      fetched = MembershipContext.membership_of(member, workspace.id)
+      assert fetched.roles == []
+    end
+
+    test "角色不存在：role_names 含租户内不存在的角色名 → 跳过该角色" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      member = new_user()
+
+      # :owner 在工作台已 seed，:nonexistent 不存在 → 跳过，owner 正常入座
+      assert {:ok, _membership} =
+               MembershipContext.admit_member(member.id, workspace.id, [:owner, :nonexistent],
+                 on_conflict: :business_error
+               )
+
+      fetched = MembershipContext.membership_of(member, workspace.id)
+      assert Enum.map(fetched.roles, & &1.name) == [:owner]
+    end
+  end
 end
