@@ -165,21 +165,46 @@ defmodule Cgc2046.Accounts.JoinRequest do
         constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 
+      # 原子 claim：条件 UPDATE 把'读到 pending 才置 approved'下推成 DB 原子动作
+      # （root-cause fix for approve TOCTOU，对齐 Invitation.accept 的 Option A 范式）。
+      # 0 行命中=已被并发 approve/处理或已处终态（approved/rejected/expired），统一报
+      # '该申请已被处理'。事务内执行：after_action 建 membership 失败时 status=approved
+      # 一并回滚，不留半态。替换原 validate_pending_status 快照守卫——条件 UPDATE 的
+      # WHERE status='pending' 已覆盖其'非 pending 拒绝'职责，且是原子版本。
       change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, &validate_pending_status/1)
-      end)
-
-      change(fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:status, :approved)
-        |> Ash.Changeset.change_attribute(:approved_at, DateTime.utc_now())
-      end)
-
-      change(fn changeset, _context ->
-        # before_action 在 commit 阶段运行，此时 actor 已在 changeset.context 中
         Ash.Changeset.before_action(changeset, fn cs ->
           actor = cs.context[:private][:actor]
-          cs |> Ash.Changeset.change_attribute(:approved_by, actor && actor.id)
+          now = DateTime.utc_now()
+
+          # ponytail: 裸 SQL 条件 UPDATE 是最短可行根因修复；approved_at/approved_by
+          # 同写以让 Ash 返回记录正确（force_change_attribute 触发的二次 UPDATE 幂等，
+          # 同事务行锁已持有，无额外阻塞）。升级路径：Ash 原生 atomic update + custom change
+          # 若未来需跨 data layer 复用。
+          {:ok, res} =
+            Ecto.Adapters.SQL.query(
+              Cgc2046.Repo,
+              """
+              UPDATE join_requests
+              SET status = 'approved', approved_at = $1, approved_by = $2
+              WHERE id = $3 AND status = 'pending'
+              """,
+              [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id)]
+            )
+
+          if res.num_rows == 1 do
+            cs
+            |> Ash.Changeset.force_change_attribute(:status, :approved)
+            |> Ash.Changeset.force_change_attribute(:approved_at, now)
+            |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
+          else
+            cs
+            |> Ash.Changeset.add_error(
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: :status,
+                message: "该申请已被处理"
+              )
+            )
+          end
         end)
       end)
 
@@ -289,11 +314,12 @@ defmodule Cgc2046.Accounts.JoinRequest do
     end
   end
 
-  # 状态守卫：approve/reject/expire 仅允许从 :pending 转换（对齐 Invitation.accept 范式）。
+  # 状态守卫：reject/expire 仅允许从 :pending 转换（对齐 Invitation.revoke 范式）。
   # before_action 直接读 changeset.data.status 快照（action 调用刚加载，足够新鲜），
-  # 非法状态 add_error 阻止 commit，早于 P1#5 的 after_action 成员守卫，避免非法 approve
-  # 走到"该用户已是本工作台成员"误导路径。并发双 approve 的竞态由 DB unique index 兜底，
-  # 不在状态守卫职责内。
+  # 非法状态 add_error 阻止 commit。reject/expire 无 side effect（不建 membership），
+  # 并发双操作的 net effect 只是两次同值终态 UPDATE，无数据完整性风险，故无需条件 UPDATE
+  # 原子 claim（与 approve 不同——approve 建 membership，并发会撞 unique index 产生 confusing
+  # 错误，已改条件 UPDATE）。approve 已不用此守卫，其并发与终态拦截由条件 UPDATE 承担。
   defp validate_pending_status(cs) do
     case cs.data.status do
       :pending ->
