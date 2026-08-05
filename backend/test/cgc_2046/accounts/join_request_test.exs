@@ -546,6 +546,30 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       assert reloaded.status == :rejected
     end
 
+    test "approve on pending request past approval_deadline is rejected (atomic WHERE guards expiry)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      applicant = normal_user()
+      jr = create_join_request(workspace, applicant)
+
+      # Manually set approval_deadline to past：status 仍 pending，但已过期
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE join_requests SET approval_deadline = NOW() - INTERVAL '1 day' WHERE id = $1",
+          [Ecto.UUID.dump!(jr.id)]
+        )
+
+      # approve 的原子条件 UPDATE WHERE 含 approval_deadline > now，过期不命中 → 0 rows → 报错
+      assert {:error, %Ash.Error.Invalid{}} =
+               jr
+               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
+      assert reloaded.status == :pending
+    end
+
     test "reject on already-approved request is rejected (no状态/数据分裂)" do
       admin = admin_user()
       workspace = create_workspace(admin)
