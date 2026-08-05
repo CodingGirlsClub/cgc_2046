@@ -65,6 +65,24 @@ function JoinPageInner() {
 	const [invitation, setInvitation] = useState<InvitationItem | null>(null);
 	const validatingRef = useRef(false);
 
+	// 邀请校验结果分流：null/非 active → invite-invalid + 错误文案；active → invite-preview。
+	// useEffect 自动校验与 handleValidateToken 手动校验共用（避免两处重复分支）。
+	const routeInvitation = useCallback((inv: InvitationItem | null) => {
+		if (!inv) {
+			setError("邀请链接无效或已失效");
+			setStep("invite-invalid");
+			return;
+		}
+		if (inv.status !== "active") {
+			setError(`邀请已${INVITATION_STATUS_LABEL[inv.status]}`);
+			setInvitation(inv);
+			setStep("invite-invalid");
+			return;
+		}
+		setInvitation(inv);
+		setStep("invite-preview");
+	}, []);
+
 	// token 参数存在时自动校验
 	useEffect(() => {
 		if (!token || !authed || validatingRef.current) return;
@@ -73,19 +91,7 @@ function JoinPageInner() {
 		validateInvitation(token)
 			.then((inv) => {
 				if (cancelled) return;
-				if (!inv) {
-					setError("邀请链接无效或已失效");
-					setStep("invite-invalid");
-					return;
-				}
-				if (inv.status !== "active") {
-					setError(`邀请已${INVITATION_STATUS_LABEL[inv.status]}`);
-					setInvitation(inv);
-					setStep("invite-invalid");
-					return;
-				}
-				setInvitation(inv);
-				setStep("invite-preview");
+				routeInvitation(inv);
 			})
 			.catch((e) => {
 				if (!cancelled) {
@@ -99,7 +105,7 @@ function JoinPageInner() {
 		return () => {
 			cancelled = true;
 		};
-	}, [token, authed]);
+	}, [token, authed, routeInvitation]);
 
 	// 加载我的工作区列表（侧栏用）
 	useEffect(() => {
@@ -176,26 +182,14 @@ function JoinPageInner() {
 		setError(null);
 		try {
 			const inv = await validateInvitation(inviteToken.trim());
-			if (!inv) {
-				setError("邀请链接无效或已失效");
-				setStep("invite-invalid");
-				return;
-			}
-			if (inv.status !== "active") {
-				setError(`邀请已${INVITATION_STATUS_LABEL[inv.status]}`);
-				setInvitation(inv);
-				setStep("invite-invalid");
-				return;
-			}
-			setInvitation(inv);
-			setStep("invite-preview");
+			routeInvitation(inv);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "校验失败");
 			setStep("invite-invalid");
 		} finally {
 			setLoading(false);
 		}
-	}, [inviteToken]);
+	}, [inviteToken, routeInvitation]);
 
 	/** 接受邀请（须透传 validate 时拿到的明文 token，后端复验持 token） */
 	const handleAcceptInvitation = useCallback(async () => {
