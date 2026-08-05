@@ -107,6 +107,7 @@ custom classes must fully style the input
 - You **must** use `Ecto.Changeset.get_field(changeset, :field)` to access changeset fields
 - Fields which are set programmatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files, so the correct timestamp and conventions are applied
+- **Snapshot 同步**：本 repo 走手写 migration 路线，`priv/resource_snapshots/repo/` 是 Ash 工具链的追踪镜像而非 source of truth。改 resource attribute 后须跑 `mix ash_postgres.generate_migrations --snapshots-only` 同步 snapshot，否则 `--check` 会报 pending codegen。doc debt：CI (`../.github/workflows/ci.yml`) 目前未跑 `mix ash_postgres.generate_migrations --check`，snapshot 滞后不会在 PR 阶段被拦——建议补这一步把维护纪律从人记忆转为流水线强制
 <!-- phoenix:ecto-end -->
 
 <!-- usage-rules-end -->
