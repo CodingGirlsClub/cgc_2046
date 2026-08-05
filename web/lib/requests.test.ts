@@ -370,6 +370,25 @@ describe("joinWorkspace", () => {
 		const result = await joinWorkspace("ws_1");
 		expect(result.slug).toBe("test");
 	});
+
+	it("后端拒绝（join_policy!=open）→ 从 top-level GraphQL error 提取 message", async () => {
+		// Apollo v4 CombinedGraphQLErrors：持 .errors 数组，mutate reject 抛出。
+		// 后端 workspace.ex :request 分支返回的 Ash error 被转成 top-level GraphQL error。
+		const gqlError = Object.assign(new Error("join failed"), {
+			errors: [{ message: "This workspace requires an application. Please use createJoinRequest instead." }],
+		});
+		mutateMock.mockRejectedValue(gqlError);
+
+		await expect(joinWorkspace("ws_1")).rejects.toThrow(
+			"This workspace requires an application. Please use createJoinRequest instead.",
+		);
+	});
+
+	it("非 GraphQL 错误（网络异常）→ 回退兜底文案", async () => {
+		mutateMock.mockRejectedValue(new Error("network"));
+
+		await expect(joinWorkspace("ws_1")).rejects.toThrow("joinWorkspace failed");
+	});
 });
 
 describe("fetchWorkspaceBySlug", () => {

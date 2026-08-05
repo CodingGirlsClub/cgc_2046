@@ -122,3 +122,12 @@ export function signInErrorMessage(e: unknown): string | null {
 	}
 	return null;
 }
+
+/**
+ * 通用版 signInErrorMessage：从 Apollo 抛出的 top-level GraphQL error 提取首条 message，
+ * 非 GraphQL 错误（网络异常等）回退 fallback。用于 generic action mutation（如 joinWorkspace）
+ * ——后端无 result/errors 包装，失败时错误走 top-level GraphQL error 而非 data.xxx.errors。
+ */
+export function graphqlErrorMessage(e: unknown, fallback: string): string {
+	return signInErrorMessage(e) ?? fallback;
+}

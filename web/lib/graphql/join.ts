@@ -273,6 +273,10 @@ export const VALIDATE_INVITATION: TypedDocumentNode<
  * joinWorkspace：直接加入公开工作台（join_policy==:open）。
  * 后端为 generic action，GraphQL 暴露为 mutation（写操作语义）。
  * 参数包进 JoinWorkspaceInput（AshGraphql mutation 惯例），返回非空 Workspace。
+ *
+ * 与 createInvitation/acceptInvitation 等 create/update mutation 不同：generic action 不生成
+ * { result, errors } 包装类型，返回裸 Workspace；失败时错误以 top-level GraphQL error 返回，
+ * 前端从抛出的错误对象（Apollo CombinedGraphQLErrors）提取 message，而非读 data.xxx.errors。
  */
 export const JOIN_WORKSPACE: TypedDocumentNode<
 	{ joinWorkspace: { id: string; slug: string; name: string } },
