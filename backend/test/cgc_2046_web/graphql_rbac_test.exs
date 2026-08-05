@@ -480,7 +480,11 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       applicant_token = sign_in_token(applicant_email, @password)
 
       res =
-        graphql_post(build_conn(), create_join_request_query(ws_id, applicant.id), applicant_token)
+        graphql_post(
+          build_conn(),
+          create_join_request_query(ws_id, applicant.id),
+          applicant_token
+        )
 
       assert %{"data" => %{"createJoinRequest" => %{"result" => %{"id" => jr_id}}}} = res
 
@@ -488,7 +492,11 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       res =
         graphql_post(build_conn(), approve_join_request_query(jr_id, [:member]), owner_token)
 
-      assert %{"data" => %{"approveJoinRequest" => %{"result" => %{"status" => "approved"}, "errors" => []}}} =
+      assert %{
+               "data" => %{
+                 "approveJoinRequest" => %{"result" => %{"status" => "approved"}, "errors" => []}
+               }
+             } =
                res
 
       # membership 已建，applicant 持 member 角色
