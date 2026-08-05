@@ -689,6 +689,46 @@ defmodule Cgc2046.Accounts.InvitationTest do
                |> Ash.Changeset.for_update(:revoke, %{})
                |> Ash.update(actor: outsider)
     end
+
+    test "cannot revoke an already used invitation" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
+
+      acceptor = normal_user("inv-revoke-used@example.com")
+
+      assert {:ok, _accepted} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{token: invitation.__metadata__[:plain_token]})
+               |> Ash.update(actor: acceptor)
+
+      # revoke 已 used 的邀请是非法状态转换：membership 已建立，revoke 是假动作且会
+      # 把 status 从 used 改成 revoked，篡改 accept 的状态判断语义
+      assert {:error, %Ash.Error.Invalid{}} =
+               invitation
+               |> Ash.Changeset.for_update(:revoke, %{})
+               |> Ash.update(actor: admin)
+
+      # status 仍为 used，未被改写成 revoked
+      assert {:ok, reloaded} = Ash.get(Invitation, invitation.id, actor: admin)
+      assert reloaded.status == :used
+    end
+
+    test "cannot revoke an already revoked invitation" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin)
+
+      assert {:ok, _revoked} =
+               invitation
+               |> Ash.Changeset.for_update(:revoke, %{})
+               |> Ash.update(actor: admin)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               invitation
+               |> Ash.Changeset.for_update(:revoke, %{})
+               |> Ash.update(actor: admin)
+    end
   end
 
   describe "expired invitation" do

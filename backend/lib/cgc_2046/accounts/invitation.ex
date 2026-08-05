@@ -264,6 +264,52 @@ defmodule Cgc2046.Accounts.Invitation do
       description("撤销邀请（邀请人本人或 Owner/Admin）")
       require_atomic?(false)
 
+      # 状态守卫：仅允许 active → revoked。before_action 重新加载记录以确保最新状态
+      # （复用 :accept action 的 before_action 重新加载范式，见下方 :accept）。
+      # - used：membership 已建立，revoke 是假动作且会把 status 从 used 改成 revoked，
+      #   篡改 accept 的状态判断语义并留下 accepted_by/accepted_at 残留 → 拒
+      # - revoked：重复撤销 → 拒（before_action 无法表达幂等成功，统一非 active 拒绝）
+      # - active 且 expires_at < now（读时 expired）：仍允许 revoke。DB status 仍 active，
+      #   属 active→revoked 合法转换；主动撤销覆盖自然过期语义（见 invitation_test.exs:743
+      #   "effective_status 不覆盖显式终结状态"），与 used/revoked 的非法转换不同。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          invitation = Ash.get!(Cgc2046.Accounts.Invitation, cs.data.id, authorize?: false)
+
+          cond do
+            invitation.status == :used ->
+              cs
+              |> Ash.Changeset.add_error(
+                Ash.Error.Changes.InvalidAttribute.exception(
+                  field: :status,
+                  message: "Cannot revoke an already used invitation"
+                )
+              )
+
+            invitation.status == :revoked ->
+              cs
+              |> Ash.Changeset.add_error(
+                Ash.Error.Changes.InvalidAttribute.exception(
+                  field: :status,
+                  message: "Invitation has already been revoked"
+                )
+              )
+
+            invitation.status == :active ->
+              cs
+
+            true ->
+              cs
+              |> Ash.Changeset.add_error(
+                Ash.Error.Changes.InvalidAttribute.exception(
+                  field: :status,
+                  message: "Cannot revoke invitation in status #{invitation.status}"
+                )
+              )
+          end
+        end)
+      end)
+
       change(set_attribute(:status, :revoked))
     end
 
