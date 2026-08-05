@@ -95,6 +95,7 @@ Conventions:
 
 - **Avoid adding new libraries.** Prefer the standard library, existing dependencies, or a few lines of code over pulling in another package.
 - If a new dependency is genuinely necessary, justify it in the PR description: why this library, why not write it ourselves, its license, and maintenance status.
+- **License compliance is mandatory:** every new dependency (direct or transitive) must be AGPL-3.0-compatible per [docs/开源合规/依赖引入规则.md](./docs/开源合规/依赖引入规则.md). GPL-2.0, SSPL, BUSL, Elastic, proprietary, and unlicensed packages are forbidden — CI enforces this via `mix cgc2046.check_licenses` + `pnpm check:licenses`.
 - Keep `pnpm-lock.yaml` / `mix.lock` up to date with the actual dependency change.
 
 ## 7. Exceptions

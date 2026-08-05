@@ -4,6 +4,7 @@ This is a web application written using the Phoenix web framework.
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
+- **License gate:** any new Hex dependency must be AGPL-3.0-compatible (permissive or MPL-2.0/LGPL-3.0+/EPL-2.0); **forbidden**: GPL-2.0, SSPL, BUSL, Elastic, proprietary, unlicensed. CI runs `mix cgc2046.check_licenses`; when unsure, open an issue first (see `docs/开源合规/依赖引入规则.md`)
 
 ### Phoenix v1.8 guidelines
 
@@ -17,7 +18,6 @@ This is a web application written using the Phoenix web framework.
 - **Always** use the imported `<.input>` component for form inputs from `core_components.ex` when available. `<.input>` is imported and using it will save steps and prevent errors
 - If you override the default input classes (`<.input class="myclass px-2 py-1 rounded-lg">)`) class with your own values, no default classes are inherited, so your
 custom classes must fully style the input
-
 
 <!-- usage-rules-start -->
 
@@ -76,7 +76,7 @@ custom classes must fully style the input
       ref = Process.monitor(pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
 
-   - Instead of sleeping to synchronize before the next call, **always** use `_ = :sys.get_state/1` to ensure the process has handled prior messages
+  - Instead of sleeping to synchronize before the next call, **always** use `_ = :sys.get_state/1` to ensure the process has handled prior messages
 <!-- phoenix:elixir-end -->
 
 <!-- phoenix:phoenix-start -->
