@@ -904,5 +904,51 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       assert length(memberships_after) == count_before
     end
+
+    # 回归 P1：并发 join 同一用户到同一 workspace，DB unique 约束兜底，
+    # 两个请求都应成功返回（幂等），DB 最终只一条 membership + learner 角色。
+    test "open workspace: concurrent join by same user is idempotent, no 500" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-conc-#{System.unique_integer([:positive])}",
+          name: "Join Concurrent",
+          join_policy: :open
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      tasks =
+        for _ <- 1..4 do
+          Task.async(fn ->
+            Workspace
+            |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+            |> Ash.run_action(actor: user)
+          end)
+        end
+
+      results = Task.await_many(tasks, 5000)
+
+      # 全部成功返回 workspace，无 MatchError/500
+      assert Enum.all?(results, &match?({:ok, %Workspace{}}, &1))
+
+      require Ash.Query
+
+      # DB 层只落一条 membership
+      {:ok, memberships} =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(user_id == ^user.id)
+        |> Ash.read(tenant: workspace.id, actor: admin, authorize?: false)
+
+      assert length(memberships) == 1
+
+      # 且该 membership 有 learner 角色（无孤儿）
+      loaded = Ash.load!(hd(memberships), :roles, tenant: workspace.id, authorize?: false)
+      assert Enum.any?(loaded.roles, &(&1.name == :learner))
+    end
   end
 end
