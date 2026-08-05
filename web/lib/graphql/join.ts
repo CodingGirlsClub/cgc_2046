@@ -14,7 +14,7 @@ import type { TypedDocumentNode } from "@apollo/client";
  * - joinRequests(query)：keyset 分页，filter 支持 workspaceId/status 过滤。
  * - invitations(query)：keyset 分页，filter 支持 workspaceId/status 过滤。
  * - validateInvitation(token)：返回 Invitation（含 workspace 预览字段）。
- * - joinWorkspace(workspaceId)：query（非 mutation），直接加入 open workspace。
+ * - joinWorkspace(workspaceId)：mutation（generic action，写操作语义），直接加入 open workspace。
  */
 
 /* ---------------- 类型 ---------------- */
