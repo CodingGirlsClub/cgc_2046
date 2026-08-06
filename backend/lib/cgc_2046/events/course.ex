@@ -156,6 +156,11 @@ defmodule Cgc2046.Events.Course do
     end
 
     defaults([:read])
+
+    # #40 展示页：按 id 取课程详情（GraphQL read_one）
+    read :get_by_id do
+      get_by([:id])
+    end
   end
 
   postgres do
@@ -179,5 +184,10 @@ defmodule Cgc2046.Events.Course do
 
   graphql do
     type(:course)
+
+    queries do
+      list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")
+      read_one(:get_course, :get_by_id, description: "按 id 获取课程（#40）")
+    end
   end
 end

@@ -154,6 +154,11 @@ defmodule Cgc2046.Events.Event do
     end
 
     defaults([:read])
+
+    # #40 展示页：按 id 取活动详情（GraphQL read_one）
+    read :get_by_id do
+      get_by([:id])
+    end
   end
 
   postgres do
@@ -177,5 +182,10 @@ defmodule Cgc2046.Events.Event do
 
   graphql do
     type(:event)
+
+    queries do
+      list(:list_events, :read, description: "工作台的活动列表（#40 展示页）")
+      read_one(:get_event, :get_by_id, description: "按 id 获取活动（#40）")
+    end
   end
 end
