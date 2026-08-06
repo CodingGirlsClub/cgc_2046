@@ -414,6 +414,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
 
     defaults([:read])
+
+    # #40 展示页：按 id 取 run 详情（GraphQL read_one）
+    read :get_by_id do
+      get_by([:id])
+    end
   end
 
   postgres do
@@ -445,6 +450,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   graphql do
     type(:workflow_run)
+
+    queries do
+      list(:list_workflow_runs, :read, description: "工作台的 workflow run 列表（#40 展示页）")
+      read_one(:get_workflow_run, :get_by_id, description: "按 id 获取 workflow run 详情（#40）")
+    end
   end
 
   # --- 产品层执行闭环辅助（阶段 4 #37） ---------------------------------------
