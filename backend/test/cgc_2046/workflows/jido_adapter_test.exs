@@ -1,5 +1,5 @@
 defmodule Cgc2046.Workflows.JidoAdapterTest do
-  use ExUnit.Case, async: false
+  use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
@@ -156,7 +156,10 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
       }
 
       assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"status" => "full", "text" => "hi"})
+
+      assert {:ok, workflow} =
+               JidoAdapter.react_until_satisfied(workflow, %{"status" => "full", "text" => "hi"})
+
       assert JidoAdapter.run_status(workflow) == :succeeded
       assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
     end
@@ -327,7 +330,7 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
     end
   end
 
-  describe "hibernate/thaw (ETS storage)" do
+  describe "hibernate/thaw (Postgres storage)" do
     test "round-trips workflow snapshot" do
       assert {:ok, workflow} = JidoAdapter.build_workflow(gated_node_def())
       assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
@@ -354,6 +357,23 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
 
     test "thaw of unknown run returns :not_found" do
       assert {:error, :not_found} = JidoAdapter.thaw("no-such-run", "no-such-partition")
+    end
+
+    test "delete_checkpoint removes checkpoint" do
+      assert {:ok, workflow} = JidoAdapter.build_workflow(gated_node_def())
+      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
+
+      run_id = "run-del-#{System.unique_integer([:positive])}"
+      partition = "ws-del-#{System.unique_integer([:positive])}"
+
+      assert :ok = JidoAdapter.hibernate(run_id, partition, workflow)
+      assert {:ok, _} = JidoAdapter.thaw(run_id, partition)
+
+      assert :ok = JidoAdapter.delete_checkpoint(run_id, partition)
+      assert {:error, :not_found} = JidoAdapter.thaw(run_id, partition)
+
+      # 重复删除幂等
+      assert :ok = JidoAdapter.delete_checkpoint(run_id, partition)
     end
   end
 
