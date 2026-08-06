@@ -129,10 +129,10 @@ describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 		expect(
 			screen.getByText("申请审批", { selector: ".workspace-policy" }),
 		).toBeInTheDocument();
-		// 壳导航「加入策略」激活态（#79 改名；B3 分组：设置组）
-		const settingsNav = screen.getByRole("navigation", { name: "设置" });
+		// 壳导航「加入策略」激活态（settings 模式：Workspace 分组）
+		const workspaceNav = screen.getByRole("navigation", { name: "Workspace" });
 		expect(
-			within(settingsNav).getByRole("link", { name: "加入策略" }),
+			within(workspaceNav).getByRole("link", { name: "加入策略" }),
 		).toHaveAttribute("aria-current", "page");
 		// 管理员可见保存按钮（当前策略未变时禁用）
 		expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled();

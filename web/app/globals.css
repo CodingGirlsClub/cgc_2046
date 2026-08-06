@@ -432,41 +432,51 @@
   }
   .ws-shell-brand[aria-expanded="true"] .ws-shell-brand__chevron { transform: rotate(180deg); }
 
-  /* issue #83：工作区切换 dropdown */
+  /* issue #83：工作区切换 dropdown（Linear 式命令菜单：邮箱 → 工作区列表 → 操作项） */
   .ws-shell-brand-menu {
     position: absolute;
     top: calc(100% + 6px);
-    left: 8px;
-    right: 8px;
+    left: 4px;
+    right: 4px;
     z-index: 20;
     display: grid;
     gap: 2px;
-    max-height: min(60svh, 420px);
+    max-height: min(60svh, 360px);
     overflow-y: auto;
     padding: 6px;
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius-medium);
+    border-radius: 8px;
     background: var(--card);
     box-shadow: var(--shadow-hairline), 0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+  .ws-shell-brand-menu__account {
+    padding: 8px 10px 6px;
+    color: var(--ink-3);
+    font-size: 11px;
+    line-height: 16px;
   }
   .ws-shell-brand-menu__item {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 10px;
-    border-radius: var(--radius-small);
+    min-height: 32px;
+    padding: 4px 10px;
+    border: none;
+    background: none;
+    border-radius: 6px;
     color: var(--ink-2);
     font-size: 13px;
     line-height: 20px;
+    text-align: left;
     text-decoration: none;
+    cursor: pointer;
     transition: background-color 120ms ease, color 120ms ease;
   }
   .ws-shell-brand-menu__item:hover { background: var(--soft-2); color: var(--ink); }
   .ws-shell-brand-menu__name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .ws-shell-brand-menu__check { color: var(--accent); font-size: 13px; }
+  .ws-shell-brand-menu__check { margin-left: auto; color: var(--accent); font-size: 13px; }
   .ws-shell-brand-menu__item--current { color: var(--ink); background: var(--soft-2); }
-  .ws-shell-brand-menu__item--hub { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--ink-3); }
-  .ws-shell-brand-menu__item--hub:hover { color: var(--accent); }
+  .ws-shell-brand-menu__divider { height: 1px; margin: 4px 6px; background: var(--line); }
 
   .ws-shell-heading {
     margin: 20px 12px 12px;
@@ -507,6 +517,12 @@
     color: var(--ink);
   }
   .ws-shell-item--selected svg { color: var(--ink); }
+  /* settings 模式：Back to app 返回链接（Linear 范式） */
+  .ws-shell-item--back {
+    margin-bottom: 4px;
+    color: var(--ink-3);
+  }
+  .ws-shell-item--back:hover { color: var(--ink); }
   .ws-shell-item--disabled,
   .ws-shell-item--disabled:hover {
     cursor: not-allowed;
@@ -526,14 +542,6 @@
 
   .ws-shell-footer [data-testid="profile-entry"] { min-width: 0; padding-left: 0; }
   .ws-shell-footer [data-testid="profile-entry"] span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ws-shell-signout {
-    flex: 0 0 auto;
-    color: var(--ink-3);
-    font-size: 12px;
-    line-height: 18px;
-    transition: color 120ms ease;
-  }
-  .ws-shell-signout:hover { color: var(--status-red); }
   .ws-shell-footer-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
   .ws-shell-theme {
     flex: 0 0 auto;

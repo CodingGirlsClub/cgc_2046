@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, cleanup, waitFor, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import WorkspacePage from "./page";
 
@@ -42,7 +42,10 @@ const { push, replace } = vi.hoisted(() => ({
 	push: vi.fn(),
 	replace: vi.fn(),
 }));
-const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
+const { isAuthenticated, clearSession } = vi.hoisted(() => ({
+	isAuthenticated: vi.fn(),
+	clearSession: vi.fn(),
+}));
 const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
 
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
@@ -66,7 +69,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth", () => ({
 	isAuthenticated,
 	clearAuthToken: vi.fn(),
-	clearSession: vi.fn(),
+	clearSession,
 }));
 
 vi.mock("@/lib/profile", async (importOriginal) => {
@@ -320,5 +323,36 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			await main.findByText("查看成员列表与自己的角色"),
 		).toBeInTheDocument();
 		expect(main.queryByText("管理成员列表与角色分配")).not.toBeInTheDocument();
+	});
+
+	it("品牌下拉菜单：邮箱行 + 工作区列表（带头像）+ 操作项 + 退出登录", async () => {
+		render(<WorkspacePage />);
+		await content();
+		// 打开 dropdown
+		fireEvent.click(
+			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),
+		);
+		const menu = await screen.findByRole("menu");
+		// 邮箱行
+		expect(within(menu).getByText("xiaomei@example.com")).toBeInTheDocument();
+		// 工作区项：名称 + 当前项 ✓
+		expect(
+			within(menu).getByRole("menuitem", { name: /CGC 线上学院/ }),
+		).toHaveAttribute("href", "/w/cgc-academy");
+		expect(
+			within(menu).getByRole("menuitem", { name: /CGC 上海分社/ }),
+		).toHaveAttribute("href", "/w/cgc-shanghai");
+		expect(within(menu).getByText("✓")).toBeInTheDocument();
+		// 操作项
+		expect(
+			within(menu).getByRole("menuitem", { name: "个人资料" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings/account/profile");
+		expect(
+			within(menu).getByRole("menuitem", { name: "发现 / 加入工作区" }),
+		).toHaveAttribute("href", "/join");
+		// 退出登录触发 clearSession + 跳转
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
+		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
+		await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
 	});
 });
