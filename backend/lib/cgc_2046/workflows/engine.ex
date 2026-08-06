@@ -30,6 +30,11 @@ defmodule Cgc2046.Workflows.Engine do
   """
 
   alias Cgc2046.Workflows.JidoAdapter
+  alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Workflows.Step
+  alias Cgc2046.Workflows.StepRole
+
+  require Ash.Query
 
   @telemetry_prefix [:cgc, :workflow, :run]
 
@@ -74,6 +79,59 @@ defmodule Cgc2046.Workflows.Engine do
 
       _ ->
         :ok
+    end
+  end
+
+  @doc """
+  StepRole 授权判定（#38，prepare 阶段钩子，ADR-0003 外置声明式）。
+
+  manual 步骤的信号发起人授权：actor 角色集 ∩ step 执行角色集 → 非空放行
+  （领域模型定稿 §3.2 授权最小单元 = Step，多角色并集命中即放行）。
+
+  - **Owner/Admin 豁免**：领域模型 §3.4 权限矩阵「执行 Workflow Step」全放行
+  - **无 StepRole 配置放行**：Step 行不存在或未关联角色 → 不限制（向后兼容，
+    未配置授权 = 不限制）
+  - **非 manual 步骤不授权**：自动/gate/sub_workflow 由引擎执行（§4.3），
+    本函数只服务 manual 信号授权
+
+  参数：actor（含 `:id` 的 map 或 User 记录）、workspace_id（租户）、
+  definition_id（WorkflowDefinition.id）、step_key（node_def 步骤标识）。
+
+  返回 `:ok` 或 `{:error, :unauthorized}`。
+  """
+  @spec authorize_signal(term(), String.t(), String.t(), String.t()) ::
+          :ok | {:error, :unauthorized}
+  def authorize_signal(actor, workspace_id, definition_id, step_key)
+      when is_binary(workspace_id) and is_binary(definition_id) and is_binary(step_key) do
+    roles = MembershipContext.role_names(actor, workspace_id)
+
+    cond do
+      Enum.any?(roles, &(&1 in [:owner, :admin])) ->
+        :ok
+
+      true ->
+        case step_allowed_roles(workspace_id, definition_id, step_key) do
+          [] -> :ok
+          allowed -> if Enum.any?(roles, &(&1 in allowed)), do: :ok, else: {:error, :unauthorized}
+        end
+    end
+  end
+
+  # 查 Step 行（definition_id + step_key）→ step_roles → role.name 原子列表。
+  # Step 行不存在 → []（未配置授权 = 不限制）。
+  defp step_allowed_roles(workspace_id, definition_id, step_key) do
+    case Ash.Query.filter(Step, definition_id == ^definition_id and step_key == ^step_key)
+         |> Ash.read_one(tenant: workspace_id, authorize?: false) do
+      {:ok, %Step{} = step} ->
+        case Ash.Query.filter(StepRole, step_id == ^step.id)
+             |> Ash.Query.load(:role)
+             |> Ash.read(tenant: workspace_id, authorize?: false) do
+          {:ok, step_roles} -> Enum.map(step_roles, & &1.role.name)
+          _ -> []
+        end
+
+      _ ->
+        []
     end
   end
 
