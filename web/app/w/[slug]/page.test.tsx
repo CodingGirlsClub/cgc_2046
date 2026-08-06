@@ -310,11 +310,15 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(within(menu).getByText("✓")).toBeInTheDocument();
 		// 操作项
 		expect(
-			within(menu).getByRole("menuitem", { name: "个人资料" }),
-		).toHaveAttribute("href", "/w/cgc-academy/settings/account/profile");
+			within(menu).getByRole("menuitem", { name: "Settings" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings");
 		expect(
 			within(menu).getByRole("menuitem", { name: "发现 / 加入工作区" }),
 		).toHaveAttribute("href", "/join");
+		// 个人资料已迁入 settings（Personal 组），菜单不再重复
+		expect(
+			within(menu).queryByRole("menuitem", { name: "个人资料" }),
+		).not.toBeInTheDocument();
 		// 退出登录触发 clearSession + 跳转
 		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
 		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
