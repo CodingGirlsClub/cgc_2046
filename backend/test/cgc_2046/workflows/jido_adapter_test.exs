@@ -61,8 +61,8 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
     end
 
     test "rejects unknown step type" do
-      node_def = %{"steps" => [%{"id" => "x", "type" => "gate"}]}
-      assert {:error, {:build_workflow_failed, _}} = JidoAdapter.build_workflow(node_def)
+      node_def = %{"steps" => [%{"id" => "x", "type" => "mystery"}]}
+      assert {:error, {:unsupported_step_type, "mystery"}} = JidoAdapter.build_workflow(node_def)
     end
 
     # /check SC2-001：未注册的 action 模块（如 Jido.Tools.Files.WriteFile）必须被拒，
@@ -92,6 +92,83 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
 
       assert {:error, {:build_workflow_failed, message}} = JidoAdapter.build_workflow(node_def)
       assert message =~ "invalid step id"
+    end
+
+    # #36：next 拓扑构建——next 声明顺序，与数组顺序无关
+    test "builds next-driven topology independent of array order" do
+      node_def = %{
+        "steps" => [
+          %{
+            "id" => "append_exclamation",
+            "type" => "auto",
+            "action" => "Elixir.Cgc2046.Workflows.TestActions.AppendExclamation"
+          },
+          %{
+            "id" => "uppercase",
+            "type" => "auto",
+            "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase",
+            "next" => ["append_exclamation"]
+          }
+        ]
+      }
+
+      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
+      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
+      assert JidoAdapter.run_status(workflow) == :succeeded
+
+      facts = JidoAdapter.list_run_facts(workflow)
+      assert facts["uppercase"] == %{text: "HI"}
+      assert facts["append_exclamation"] == %{text: "HI!"}
+    end
+
+    # #36：next 引用不存在的 step → 构建失败
+    test "rejects next referencing unknown step" do
+      node_def = %{
+        "steps" => [
+          %{
+            "id" => "uppercase",
+            "type" => "auto",
+            "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase",
+            "next" => ["ghost"]
+          }
+        ]
+      }
+
+      assert {:error, {:unknown_next, "ghost"}} = JidoAdapter.build_workflow(node_def)
+    end
+
+    # #36：gate 编译为 Condition 节点——条件满足放行下游
+    test "compiles gate to condition node routing downstream" do
+      node_def = %{
+        "steps" => [
+          %{
+            "id" => "check",
+            "type" => "gate",
+            "condition" => %{"field" => "status", "equals" => "full"},
+            "next" => ["uppercase"]
+          },
+          %{
+            "id" => "uppercase",
+            "type" => "auto",
+            "action" => "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
+          }
+        ]
+      }
+
+      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
+      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"status" => "full", "text" => "hi"})
+      assert JidoAdapter.run_status(workflow) == :succeeded
+      assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
+    end
+
+    # #36：sub_workflow v1 stub——透传输入，不报错
+    test "compiles sub_workflow to pass-through stub" do
+      node_def = %{"steps" => [%{"id" => "sub", "type" => "sub_workflow"}]}
+
+      assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
+      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
+      assert JidoAdapter.run_status(workflow) == :succeeded
+      assert JidoAdapter.list_run_facts(workflow)["sub"] == %{"text" => "hi"}
     end
   end
 
