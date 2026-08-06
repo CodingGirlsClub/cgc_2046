@@ -417,7 +417,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		);
 		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
 			"href",
-			"/profile?ws=cgc-academy",
+			"/w/cgc-academy/settings/account/profile",
 		);
 	});
 

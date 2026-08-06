@@ -40,7 +40,7 @@ type NavSection =
 	| "settings-join-policy"
 	| "settings-requests"
 	| "settings-invitations"
-	| "profile"
+	| "settings-account-profile"
 	| null;
 
 function navSection(pathname: string, slug: string): NavSection {
@@ -57,7 +57,8 @@ function navSection(pathname: string, slug: string): NavSection {
 		return "settings-requests";
 	if (pathname.startsWith(`/w/${slug}/settings/invitations`))
 		return "settings-invitations";
-	if (pathname.startsWith("/profile")) return "profile";
+	if (pathname.startsWith(`/w/${slug}/settings/account/profile`))
+		return "settings-account-profile";
 	return null;
 }
 
@@ -240,6 +241,9 @@ export default function WorkspaceShell({
 									<span>成员与角色</span>
 								</Link>
 							)}
+						</nav>
+						<div className="ws-shell-heading">设置</div>
+						<nav className="ws-shell-nav" aria-label="设置">
 							{canSeeJoinPolicy && (
 								<Link
 									href={`/w/${slug}/settings`}
@@ -276,15 +280,17 @@ export default function WorkspaceShell({
 									</Link>
 								</>
 							)}
+							<Link
+								href={`/w/${slug}/settings/account/profile`}
+								className={`ws-shell-item ${active === "settings-account-profile" ? "ws-shell-item--selected" : ""}`}
+								aria-current={
+									active === "settings-account-profile" ? "page" : undefined
+								}
+							>
+								<Icon name="user" />
+								<span>个人资料</span>
+							</Link>
 						</nav>
-						<Link
-							href={`/profile?ws=${slug}`}
-							className={`ws-shell-item ws-shell-item--profile ${active === "profile" ? "ws-shell-item--selected" : ""}`}
-							aria-current={active === "profile" ? "page" : undefined}
-						>
-							<Icon name="user" />
-							<span>个人资料</span>
-						</Link>
 					</>
 				)}
 
