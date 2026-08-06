@@ -66,14 +66,16 @@ export function workspaceInitials(ws: WorkspaceListItem): string {
 export function WorkspaceAvatar({
 	ws,
 	large = false,
+	small = false,
 }: {
 	ws: WorkspaceListItem;
 	large?: boolean;
+	small?: boolean;
 }) {
 	const status = getWorkspaceStatus(ws);
 	return (
 		<span
-			className={`workspace-avatar workspace-avatar--${status} ${large ? "workspace-avatar--large" : ""}`}
+			className={`workspace-avatar workspace-avatar--${status} ${large ? "workspace-avatar--large" : ""} ${small ? "workspace-avatar--small" : ""}`}
 		>
 			{workspaceInitials(ws)}
 		</span>
