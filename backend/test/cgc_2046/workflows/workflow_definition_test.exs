@@ -206,7 +206,14 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
       admin = platform_admin()
       workspace = create_workspace(admin)
 
-      for t <- [:platform_ops, :learning, :enrollment, :sponsorship, :speaker_invitation, :research] do
+      for t <- [
+            :platform_ops,
+            :learning,
+            :enrollment,
+            :sponsorship,
+            :speaker_invitation,
+            :research
+          ] do
         assert {:ok, defn} = create_definition(workspace, admin, %{name: "wf-#{t}", type: t})
         assert defn.type == t
       end
