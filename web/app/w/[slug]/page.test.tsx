@@ -208,10 +208,13 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/members");
 	});
 
-	it("壳 footer 提供个人资料入口链接到 /profile (#69)", async () => {
+	it("壳 footer 提供个人资料入口链接到 settings (#69)", async () => {
 		render(<WorkspacePage />);
 		const entry = await screen.findByTestId("profile-entry");
-		expect(entry).toHaveAttribute("href", "/profile?ws=cgc-academy");
+		expect(entry).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/account/profile",
+		);
 	});
 
 	it("壳导航「概览」选中（aria-current=page）", async () => {
@@ -224,43 +227,44 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(overview).toHaveAttribute("aria-current", "page");
 	});
 
-	it("壳导航 IA（#79）：管理员见管理项 + B-3 占位，分组标题「工作区设置」", async () => {
+	it("壳导航 IA（#79）：管理员见管理项 + B-3 占位，分组标题「工作区导航 / 设置」", async () => {
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
 			name: "工作区导航",
 		});
-		// 设置组内四项：概览 / 成员与角色 / 工作区设置 / 占位×2
+		// 工作区导航组：概览 / 成员与角色
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
 		expect(
 			within(nav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("href", "/w/cgc-academy/members");
-		expect(within(nav).getByRole("link", { name: "加入策略" })).toHaveAttribute(
-			"href",
-			"/w/cgc-academy/settings",
-		);
-		// B-3 占位：Link（管理可见）
-		const approvalPlaceholder = within(nav).getByRole("link", {
+		// 设置组：加入策略 / 加入审批 / 邀请管理 / 个人资料
+		const settingsNav = await screen.findByRole("navigation", {
+			name: "设置",
+		});
+		expect(
+			within(settingsNav).getByRole("link", { name: "加入策略" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings");
+		const approvalPlaceholder = within(settingsNav).getByRole("link", {
 			name: "加入审批",
 		});
 		expect(approvalPlaceholder).toHaveAttribute(
 			"href",
 			"/w/cgc-academy/settings/requests",
 		);
-		const invitePlaceholder = within(nav).getByRole("link", {
+		const invitePlaceholder = within(settingsNav).getByRole("link", {
 			name: "邀请管理",
 		});
 		expect(invitePlaceholder).toHaveAttribute(
 			"href",
 			"/w/cgc-academy/settings/invitations",
 		);
-		// 个人资料移出设置组（nav 外独立链接）
-		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
-			"href",
-			"/profile?ws=cgc-academy",
-		);
+		// 个人资料在设置组内（决策 B）
 		expect(
-			within(nav).queryByRole("link", { name: "个人资料" }),
-		).not.toBeInTheDocument();
+			within(settingsNav).getByRole("link", { name: "个人资料" }),
+		).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/account/profile",
+		);
 	});
 
 	it("壳导航权限过滤（#79）：普通成员仅见 概览 + 个人资料", async () => {
@@ -273,20 +277,26 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(
 			within(nav).queryByRole("link", { name: "成员与角色" }),
 		).not.toBeInTheDocument();
+		// 设置组：仅个人资料（管理项过滤）
+		const settingsNav = await screen.findByRole("navigation", {
+			name: "设置",
+		});
 		expect(
-			within(nav).queryByRole("link", { name: "加入策略" }),
+			within(settingsNav).queryByRole("link", { name: "加入策略" }),
 		).not.toBeInTheDocument();
 		expect(
-			within(nav).queryByRole("link", { name: "加入审批" }),
+			within(settingsNav).queryByRole("link", { name: "加入审批" }),
 		).not.toBeInTheDocument();
 		expect(
-			within(nav).queryByRole("link", { name: "邀请管理" }),
+			within(settingsNav).queryByRole("link", { name: "邀请管理" }),
 		).not.toBeInTheDocument();
-		// 概览仍在，个人资料在 nav 外
+		// 概览仍在；个人资料在设置组内
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
+		expect(
+			within(settingsNav).getByRole("link", { name: "个人资料" }),
+		).toHaveAttribute(
 			"href",
-			"/profile?ws=cgc-shanghai",
+			"/w/cgc-shanghai/settings/account/profile",
 		);
 	});
 

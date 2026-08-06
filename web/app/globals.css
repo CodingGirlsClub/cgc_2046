@@ -142,12 +142,12 @@
   .profile-edit-basic h2, .profile-edit-readonly h2, .profile-edit-portfolio h2 { font-size: 19px; }
   .profile-edit-avatar-block { margin-top: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
   .profile-form-label { display: block; color: var(--ink); font-size: 13px; font-weight: 510; line-height: 20px; }
-  .profile-edit-avatar-row { display: flex; align-items: center; gap: 20px; margin-top: 8px; }
-  .profile-edit-avatar-row .profile-avatar { width: 102px; height: 102px; font-size: 30px; }
+  .profile-edit-avatar-row { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+  .profile-edit-avatar-row .profile-avatar { width: 32px; height: 32px; font-size: 12px; }
   .profile-edit-avatar-row p { color: var(--ink-3); font-size: 13px; line-height: 20px; }
-  .profile-avatar-wrap--editable { align-items: flex-start; }
+  .profile-avatar-wrap--editable { align-items: center; }
   .profile-edit-layout input.profile-file-input { display: none; }
-  .profile-change-avatar { min-height: 39px; margin-left: 122px; margin-top: -41px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); color: var(--ink-2); font-size: 13px; line-height: 20px; }
+  .profile-change-avatar { min-height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink-2); font-size: 12px; line-height: 20px; white-space: nowrap; }
   .profile-change-avatar:hover { border-color: var(--accent); color: var(--accent); }
   .profile-edit-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 17px; }
   .profile-edit-layout label { display: block; min-width: 0; }
@@ -179,6 +179,13 @@
   .profile-edit-readonly .profile-role-chips { margin-top: 13px; }
   .profile-edit-readonly label { margin-top: 24px; }
   .profile-edit-readonly input[readonly] { color: var(--ink-3); }
+  /* 决策 B：邮箱只读字段视觉降级（Linear 风格：灰底 + 无边框感） */
+  .profile-settings-form input[readonly] {
+    background: var(--soft);
+    border-color: transparent;
+    color: var(--ink-3);
+    cursor: default;
+  }
   .profile-edit-portfolio { grid-column: 1 / -1; padding: 22px 20px 18px; }
   .profile-edit-portfolio-list { display: grid; gap: 0; margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius-medium); overflow: hidden; }
   .profile-edit-portfolio-row { display: grid; grid-template-columns: 28px minmax(150px, 1fr) minmax(160px, 1.1fr) minmax(170px, 1fr) minmax(90px, .55fr) 28px; align-items: end; gap: 14px; padding: 14px 12px 12px; border-top: 1px solid var(--line); background: var(--card); }
@@ -191,6 +198,21 @@
   .profile-expand-portfolio, .profile-add-portfolio { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; min-height: 42px; margin-top: 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius-medium); color: var(--ink-2); font-size: 13px; line-height: 20px; }
   .profile-expand-portfolio:hover, .profile-add-portfolio:hover { border-color: var(--accent); color: var(--accent); background: var(--soft-2); }
   .profile-add-portfolio { border-style: dashed; }
+
+  /* 决策 B：profile 设置表单（settings 内嵌页） */
+  .profile-settings-form { margin-top: 24px; }
+  .profile-settings-form__footer {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 4px;
+    color: var(--ink-3);
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .profile-settings-form__footer .l-btn-primary { min-height: 32px; }
 
   @media (max-width: 1100px) {
     .profile-view-grid, .profile-edit-layout { grid-template-columns: 1fr; }
