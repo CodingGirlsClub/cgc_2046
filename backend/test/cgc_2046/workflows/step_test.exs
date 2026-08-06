@@ -73,7 +73,10 @@ defmodule Cgc2046.Workflows.StepTest do
       }
 
       assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
-      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"status" => "full", "text" => "hi"})
+
+      assert {:ok, workflow} =
+               JidoAdapter.react_until_satisfied(workflow, %{"status" => "full", "text" => "hi"})
+
       assert JidoAdapter.run_status(workflow) == :succeeded
       assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
     end
@@ -187,7 +190,9 @@ defmodule Cgc2046.Workflows.StepTest do
         ]
       }
 
-      assert {:ok, facts, _workflow} = Engine.run(node_def, %{"status" => "partial", "text" => "hi"})
+      assert {:ok, facts, _workflow} =
+               Engine.run(node_def, %{"status" => "partial", "text" => "hi"})
+
       refute Map.has_key?(facts, "uppercase")
     end
 
@@ -243,7 +248,8 @@ defmodule Cgc2046.Workflows.StepTest do
         ]
       }
 
-      assert {:error, {:prepare_failed, {:type_mismatch, "uppercase", "text", "string", "integer"}}} =
+      assert {:error,
+              {:prepare_failed, {:type_mismatch, "uppercase", "text", "string", "integer"}}} =
                Engine.run(node_def, %{"text" => 123})
     end
 
@@ -278,7 +284,7 @@ defmodule Cgc2046.Workflows.StepTest do
     end
   end
 
-  describe "sub_workflow stub" do
+  describe "sub_workflow 透传（无 sub_definition_id）" do
     test "passes input through and chains to downstream" do
       node_def = %{
         "steps" => [
@@ -301,7 +307,8 @@ defmodule Cgc2046.Workflows.StepTest do
         ]
       }
 
-      assert {:error, {:prepare_failed, {:unknown_next, "ghost"}}} = Engine.run(node_def, %{"text" => "hi"})
+      assert {:error, {:prepare_failed, {:unknown_next, "ghost"}}} =
+               Engine.run(node_def, %{"text" => "hi"})
     end
   end
 
@@ -311,6 +318,7 @@ defmodule Cgc2046.Workflows.StepTest do
 
       assert :ok = Engine.prepare_step(step, %{"text" => "hi"}, %{})
       assert {:error, {:missing_field, "uppercase", "text"}} = Engine.prepare_step(step, %{}, %{})
+
       assert {:error, {:type_mismatch, "uppercase", "text", "string", "integer"}} =
                Engine.prepare_step(step, %{"text" => 1}, %{})
     end
@@ -320,7 +328,11 @@ defmodule Cgc2046.Workflows.StepTest do
       assert facts["uppercase"] == %{text: "HI"}
 
       assert {:waiting, _facts} =
-               Engine.execute_step(%{"id" => "approval", "type" => "manual"}, %{"text" => "hi"}, %{})
+               Engine.execute_step(
+                 %{"id" => "approval", "type" => "manual"},
+                 %{"text" => "hi"},
+                 %{}
+               )
     end
 
     test "finalize_step normalizes facts by step key" do

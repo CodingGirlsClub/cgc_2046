@@ -164,8 +164,9 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
       assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
     end
 
-    # #36：sub_workflow v1 stub——透传输入，不报错
-    test "compiles sub_workflow to pass-through stub" do
+    # #39：sub_workflow 无 sub_definition_id → 透传输入（向后兼容阶段 3 stub 行为）；
+    # 有 sub_definition_id 的嵌套执行在 teaching_learning_test.exs 验收
+    test "compiles sub_workflow without sub_definition_id to pass-through" do
       node_def = %{"steps" => [%{"id" => "sub", "type" => "sub_workflow"}]}
 
       assert {:ok, workflow} = JidoAdapter.build_workflow(node_def)
