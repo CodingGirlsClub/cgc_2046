@@ -16,11 +16,14 @@ defmodule Mix.Tasks.Cgc2046.CheckLicenses do
   use Mix.Task
 
   # 无 licenses 字段的已知包 → 实际许可证（mix hex.info 查证，2026-08-05）
+  # rebar3 包（fuse/poolboy）许可证在 hex_metadata.config 非 mix.exs，检查器读不到
   @known_no_field %{
     "idna" => "MIT",
     "telemetry" => "Apache-2.0",
     "telemetry_poller" => "Apache-2.0",
-    "yamerl" => "BSD-2-Clause"
+    "yamerl" => "BSD-2-Clause",
+    "fuse" => "MIT",
+    "poolboy" => "ISC"
   }
 
   # 黑名单：任何一项命中即违规（规则文件 §3）

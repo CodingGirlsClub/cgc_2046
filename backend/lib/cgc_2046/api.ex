@@ -14,5 +14,10 @@ defmodule Cgc2046.Api do
   resources do
     # Tenant-scoped resources are registered here as the domain model is agreed on.
     # (M0.1 项目接线: domain 就位, 资源自 M0.2 起逐个注册)
+
+    # Slice C workflow 引擎（#34-#39，ADR-0002 Jido + ADR-0003 pi 重构）
+    resource(Cgc2046.Workflows.WorkflowDefinition)
+    resource(Cgc2046.Workflows.Step)
+    resource(Cgc2046.Workflows.StepRole)
   end
 end
