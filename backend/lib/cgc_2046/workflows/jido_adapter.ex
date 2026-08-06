@@ -30,12 +30,14 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   门控语义已用 runic 公开 API 验证（条件节点透传事实、join 两路合并、下游收到
   合并后的 map）。阶段 4 在此之上接 hibernate/thaw + SignalMatch 完整形态。
 
-  ## 持久化（阶段 2 用 ETS）
+  ## 持久化（阶段 4 用 Postgres）
 
-  `hibernate/3` + `thaw/2` 包装 `Jido.Persist`，storage 用 Jido 内置 ETS
-  （`Jido.Storage.ETS`，表 `:cgc_jido_storage_*`，on-demand 建表）。载体是
+  `hibernate/3` + `thaw/2` 包装 `Jido.Persist`，storage 用 Postgres 适配器
+  （`Cgc2046.Workflows.JidoStoragePostgres`，表 `jido_checkpoints` /
+  `jido_thread_entries` / `jido_thread_meta`）。载体是
   `Cgc2046.Workflows.RunAgent`（最小 Jido Agent 形态，state 持 workflow 快照）。
-  Postgres Jido.Storage 适配器推迟到阶段 4。
+  checkpoint 数据 `term_to_binary` 编码存 `bytea`（workflow struct 含匿名闭包，
+  同 BEAM 内 round-trip 安全——单节点部署）。
 
   ## 信号总线
 
@@ -48,7 +50,7 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   alias Jido.Runic.ActionNode
   alias Cgc2046.Workflows.{RunAgent, StepHandlerRegistry}
 
-  @storage {Jido.Storage.ETS, table: :cgc_jido_storage}
+  @storage {Cgc2046.Workflows.JidoStoragePostgres, repo: Cgc2046.Repo}
   @bus_name :cgc_workflow_bus
 
   @type workflow :: Workflow.t()
@@ -542,7 +544,7 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   # --- 3. 持久化：hibernate/thaw（阶段 2 用 ETS） -----------------------------
 
   @doc """
-  挂起 run：把 workflow 快照写入 checkpoint（ETS storage）。
+  挂起 run：把 workflow 快照写入 checkpoint（Postgres storage）。
 
   载体是 `Cgc2046.Workflows.RunAgent`（最小 Jido Agent 形态，state 持 workflow）。
   返回 `:ok` 或 `{:error, reason}`。
@@ -565,6 +567,27 @@ defmodule Cgc2046.Workflows.JidoAdapter do
       {:ok, _other} -> {:error, :invalid_checkpoint}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @doc """
+  删除 run 的 checkpoint（执行完成/失败后清理）。
+
+  返回 `:ok` 或 `{:error, reason}`。
+  """
+  @spec delete_checkpoint(term(), term()) :: :ok | {:error, term()}
+  def delete_checkpoint(run_id, partition) do
+    key = Jido.partition_key(run_id, partition)
+
+    case Jido.Storage.fetch_checkpoint(elem(@storage, 0), {RunAgent, key}, elem(@storage, 1)) do
+      {:ok, _} -> do_delete_checkpoint(key)
+      {:error, :not_found} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_delete_checkpoint(key) do
+    {adapter, opts} = @storage
+    adapter.delete_checkpoint({RunAgent, key}, opts)
   end
 
   # --- 4. 信号总线 ------------------------------------------------------------
