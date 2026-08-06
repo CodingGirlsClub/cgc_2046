@@ -97,7 +97,7 @@ const { fetchCurrentProfile } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useParams: () => params.value,
-	usePathname: () => `/w/${params.value.slug}/permissions`,
+	usePathname: () => `/w/${params.value.slug}/settings/permissions`,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -188,22 +188,16 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "成员" })).toHaveAttribute(
 			"href",
-			"/w/cgc-academy/members",
+			"/w/cgc-academy/settings/members",
 		);
 		expect(screen.getByRole("link", { name: "权限映射" })).toHaveAttribute(
 			"aria-current",
 			"page",
 		);
-		const settingsNav = screen.getByRole("navigation", { name: "设置" });
-		const shellLink = within(settingsNav).getByRole("link", {
-			name: "加入策略",
-		});
-		// #78/#79：壳导航项「加入策略」指向设置页（breadcrumb 首项同名，须限定 nav 内查询）
-		expect(shellLink).toHaveAttribute("href", "/w/cgc-academy/settings");
-		// 壳 nav 激活态：/permissions 归「成员与角色」子页（⑤ review P3-4）
-		const shellNav = screen.getByRole("navigation", { name: "工作区导航" });
+		// settings 模式：/permissions 归「成员与角色」子页（Workspace 组激活态）
+		const workspaceNav = screen.getByRole("navigation", { name: "Workspace" });
 		expect(
-			within(shellNav).getByRole("link", { name: "成员与角色" }),
+			within(workspaceNav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("aria-current", "page");
 		expect(screen.getByText("多角色取并集")).toBeInTheDocument();
 		expect(screen.getByText("租户边界优先")).toBeInTheDocument();
@@ -366,13 +360,9 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		}
 	});
 
-	it("提供个人资料入口并支持退出登录（菜单内）", async () => {
+	it("支持退出登录（菜单内）", async () => {
 		await renderReadyPage();
 
-		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
-			"href",
-			"/w/cgc-academy/settings/account/profile",
-		);
 		// 退出登录已迁入品牌下拉菜单（Linear 范式）
 		fireEvent.click(
 			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),

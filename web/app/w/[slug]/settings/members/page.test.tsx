@@ -150,7 +150,7 @@ const { fetchCurrentProfile } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useParams: () => params.value,
-	usePathname: () => `/w/${params.value.slug}/members`,
+	usePathname: () => `/w/${params.value.slug}/settings/members`,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -406,18 +406,14 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("页签入口：成员选中，权限映射指向 #67，个人资料指向 #69", async () => {
+	it("页签入口：成员选中，权限映射指向 #67", async () => {
 		render(<MembersPage />);
 		expect(
 			await screen.findByRole("link", { name: "权限映射" }),
-		).toHaveAttribute("href", "/w/cgc-academy/permissions");
+		).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
 		expect(screen.getByRole("link", { name: "成员与角色" })).toHaveAttribute(
 			"aria-current",
 			"page",
-		);
-		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
-			"href",
-			"/w/cgc-academy/settings/account/profile",
 		);
 	});
 
@@ -584,7 +580,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		).toBeGreaterThan(0);
 		expect(screen.getByRole("link", { name: "权限映射" })).toHaveAttribute(
 			"href",
-			"/w/qa70-owner-ws-999/permissions",
+			"/w/qa70-owner-ws-999/settings/permissions",
 		);
 		expect(fetchMembers).toHaveBeenCalledWith(
 			"ws_real_9",

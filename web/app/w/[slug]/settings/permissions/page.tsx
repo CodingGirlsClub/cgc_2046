@@ -261,7 +261,7 @@ export default function WorkspacePermissionsPage() {
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/members`}>成员与角色</Link>
+					<Link href={`/w/${slug}/settings/members`}>成员与角色</Link>
 					<span>›</span>
 					<strong>权限映射</strong>
 				</div>
@@ -271,11 +271,11 @@ export default function WorkspacePermissionsPage() {
 				</header>
 
 				<nav className="permissions-tabs" aria-label="成员管理页签">
-					<Link href={`/w/${slug}/members`} className="permissions-tab">
+					<Link href={`/w/${slug}/settings/members`} className="permissions-tab">
 						成员
 					</Link>
 					<Link
-						href={`/w/${slug}/permissions`}
+						href={`/w/${slug}/settings/permissions`}
 						className="permissions-tab permissions-tab--selected"
 						aria-current="page"
 					>
