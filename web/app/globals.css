@@ -348,25 +348,25 @@
     background: var(--canvas);
   }
 
-  .ws-shell-brand-wrap { position: relative; display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+  .ws-shell-brand-wrap { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 
   .ws-shell-brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     flex: 1 1 auto;
     min-width: 0;
-    min-height: 40px;
-    padding: 0;
+    min-height: 28px;
+    padding: 0 8px;
     border: none;
     background: none;
     color: var(--ink);
-    font-size: 17px;
-    font-weight: 590;
-    letter-spacing: -0.25px;
+    font-size: 13px;
+    font-weight: 510;
+    letter-spacing: -0.1px;
     white-space: nowrap;
     cursor: pointer;
-    border-radius: var(--radius-small);
+    border-radius: 8px;
     transition: background-color 120ms ease;
   }
   .ws-shell-brand:hover { background: var(--soft-2); }
@@ -390,23 +390,22 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
     background: var(--accent);
     color: #fff;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: -0.04em;
     box-shadow: 0 5px 18px color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   .ws-shell-brand__chevron {
+    flex: 0 0 auto;
     margin-left: auto;
     color: var(--ink-3);
-    font-size: 21px;
-    line-height: 1;
     transition: transform 120ms ease;
   }
   .ws-shell-brand[aria-expanded="true"] .ws-shell-brand__chevron { transform: rotate(180deg); }
@@ -447,44 +446,8 @@
   .ws-shell-brand-menu__item--hub { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--ink-3); }
   .ws-shell-brand-menu__item--hub:hover { color: var(--accent); }
 
-  .ws-shell-workspace {
-    display: grid;
-    gap: 4px;
-    margin: 30px 8px 0;
-    padding: 14px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-medium);
-    background: var(--soft-2);
-  }
-
-  .ws-shell-workspace span {
-    color: var(--ink-3);
-    font-size: 11px;
-    line-height: 16px;
-  }
-
-  .ws-shell-workspace strong {
-    overflow: hidden;
-    color: var(--ink-2);
-    font-size: 14px;
-    font-weight: 510;
-    line-height: 20px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .ws-shell-workspace code {
-    overflow: hidden;
-    color: var(--ink-3);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .ws-shell-heading {
-    margin: 34px 12px 12px;
+    margin: 20px 12px 12px;
     color: var(--ink-3);
     font-size: 12px;
     line-height: 18px;
@@ -527,13 +490,6 @@
     cursor: not-allowed;
     color: var(--ink-3);
     opacity: 0.68;
-  }
-
-  /* #79 IA：个人资料移出设置组，nav 外独立项加顶部视觉分隔 */
-  .ws-shell-item--profile {
-    margin-top: 16px;
-    border-top: 1px solid var(--line);
-    border-radius: 0 0 8px 8px;
   }
 
   .ws-shell-footer {
@@ -835,7 +791,6 @@
     .ws-shell-page { display: block; }
     .ws-shell-main { margin: 8px; }
     .ws-shell-sidebar { min-height: auto; padding: 16px 14px 14px; border-right: 0; border-bottom: 1px solid var(--line); }
-    .ws-shell-workspace { margin-top: 18px; }
     .ws-shell-heading { margin-top: 20px; }
     .ws-shell-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ws-shell-item { min-height: 44px; }
@@ -1462,9 +1417,13 @@ body {
   }
 
   .workspace-avatar--large { width: 112px; height: 112px; border-radius: var(--radius-large); font-size: 40px; }
+  .workspace-avatar--small { width: 24px; height: 24px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: -0.2px; }
   .workspace-avatar--active { border-color: color-mix(in srgb, var(--status-green) 38%, var(--line)); background: color-mix(in srgb, var(--status-green) 12%, var(--soft)); color: var(--status-green); }
   .workspace-avatar--pending { border-color: color-mix(in srgb, var(--status-cyan) 38%, var(--line)); background: color-mix(in srgb, var(--status-cyan) 12%, var(--soft)); color: var(--status-cyan); }
   .workspace-avatar--invited { border-color: color-mix(in srgb, var(--status-violet) 38%, var(--line)); background: color-mix(in srgb, var(--status-violet) 12%, var(--soft)); color: var(--status-violet); }
+  .workspace-avatar--small.workspace-avatar--active { border-color: transparent; background: var(--status-green); color: #fff; }
+  .workspace-avatar--small.workspace-avatar--pending { border-color: transparent; background: var(--status-cyan); color: #fff; }
+  .workspace-avatar--small.workspace-avatar--invited { border-color: transparent; background: var(--status-violet); color: #fff; }
 
   .workspace-status { display: inline-flex; align-items: center; gap: 7px; width: fit-content; color: var(--ink-3); font-size: 13px; line-height: 19px; }
   .workspace-status__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }

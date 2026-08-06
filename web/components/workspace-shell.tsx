@@ -29,6 +29,7 @@ import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
+import { WorkspaceAvatar } from "@/components/workspace-ui";
 import ProfileEntry from "@/components/profile-entry";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
@@ -179,14 +180,14 @@ export default function WorkspaceShell({
 						className="ws-shell-brand"
 						aria-expanded={brandOpen}
 						aria-haspopup="menu"
+						aria-label={`${workspaceName ?? ws?.name ?? (slug || "工作区")} Workspace Menu`}
 						onClick={() => setBrandOpen((v) => !v)}
 					>
+						{ws && <WorkspaceAvatar ws={ws} small />}
 						<span className="ws-shell-brand__name">
-							{workspaceName ?? ws?.name ?? slug ?? "工作区"}
+							{workspaceName ?? ws?.name ?? (slug || "工作区")}
 						</span>
-						<span className="ws-shell-brand__chevron" aria-hidden="true">
-							⌄
-						</span>
+						<Icon name="chevron" size={16} className="ws-shell-brand__chevron" />
 					</button>
 					{brandOpen && (
 						<div className="ws-shell-brand-menu" role="menu">
@@ -216,14 +217,6 @@ export default function WorkspaceShell({
 						</div>
 					)}
 				</div>
-
-				{slug && (
-					<div className="ws-shell-workspace">
-						<span>当前 Workspace</span>
-						<strong>{ws?.name ?? slug}</strong>
-						<code>{ws?.slug ?? slug}</code>
-					</div>
-				)}
 
 				{slug && (
 					<>

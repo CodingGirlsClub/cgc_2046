@@ -42,7 +42,15 @@ export type IconName =
 	| "invite"
 	| "workspace";
 
-export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+export function Icon({
+	name,
+	size = 20,
+	className,
+}: {
+	name: IconName;
+	size?: number;
+	className?: string;
+}) {
 	const common = {
 		width: size,
 		height: size,
@@ -53,6 +61,7 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 		strokeLinecap: "round" as const,
 		strokeLinejoin: "round" as const,
 		"aria-hidden": true,
+		className,
 	};
 
 	switch (name) {
