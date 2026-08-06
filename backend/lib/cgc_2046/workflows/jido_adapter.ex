@@ -13,14 +13,19 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   （jido_runic 1.0 `handle_apply_result` 把 `result=:waiting` 的 join 占位也算
   「已运行」，第二次 feed 被 ran_nodes 过滤 → 死锁，见 docs/04-引擎验证/poc-验证报告.md §3.3）。
 
-  ## 人工步骤门控（阶段 2 形态）
+  ## 步骤四分类编译（#36）
 
-  `build_workflow/1` 把 node_def 的线性步骤链编译成 DAG：
+  `build_workflow/1` 把 node_def 的步骤链编译成 DAG（先建所有节点，再按
+  `steps[].next` 连边；无 `next` 字段回退数组顺序）：
 
   - `:auto` 步骤 → `Jido.Runic.ActionNode`（包装实现 `Jido.Action` 的模块）
   - `:manual` 步骤 → 信号门控子图：`signal_cond`（按 `data["signal_type"]` 匹配）
     → `signal_step`（透传，给信号事实正确 ancestry）→ `join`（等 [prev, signal_step]
-    两路）→ 下游。信号类型约定 `"workflow.<step_key>"`。
+    两路）→ `merge`（折叠成单 map）→ 下游。信号类型约定 `"workflow.<step_key>"`。
+  - `:gate` 步骤 → `Condition` 节点（按 `condition` 字段路由：`%{"field" => f,
+    "equals" => v}`，满足 → 放行 next；不满足 → 事实被消费）。gate 带 `action` 时
+    先跑 ActionNode（副作用）再判条件。
+  - `:sub_workflow` 步骤 → pass-through Step（v1 stub，#39 实现真实嵌套）。
 
   门控语义已用 runic 公开 API 验证（条件节点透传事实、join 两路合并、下游收到
   合并后的 map）。阶段 4 在此之上接 hibernate/thaw + SignalMatch 完整形态。
@@ -58,21 +63,23 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   # --- 1. DAG 构建 -----------------------------------------------------------
 
   @doc """
-  把 node_def 的线性步骤链编译成 runic DAG。
+  把 node_def 的步骤链编译成 runic DAG（#36 四分类 + next 顺序解锁）。
 
-  `node_def` 形态（#34 契约）：`%{"steps" => [%{"id" => ..., "type" => :auto|:manual,
-  "action" => "Elixir...."}]}`。v1 只做线性链（`next` 顺序解锁，#36 阶段 3 扩展）。
+  `node_def` 形态（#34 契约）：`%{"steps" => [%{"id" => ..., "type" => :auto|:manual|
+  :gate|:sub_workflow, "action" => "Elixir....", "next" => [...], "condition" => %{...}}]}`。
 
-  人工步骤门控子图（阶段 2 形态，语义已用 runic 公开 API 验证）：
+  ## 构建策略（先建节点，再连边）
 
-      prev ──────────────► join ──► next
-      signal_cond ──► signal_step ──┘
+  1. 先建所有节点（auto→ActionNode；manual→门控子图；gate→Condition；sub_workflow→stub）
+  2. 再按 `steps[].next` 连边：`Workflow.add(child, to: parent)`（parent 为 prev 输出组件）
+  3. 无 `next` 字段 → 回退数组顺序（向后兼容阶段 2 的 node_def 形态）
+  4. `next` 为空数组或不存在 → 链尾，不连下游边
 
-  - `signal_cond`：按 `data["signal_type"] == "workflow.<step_key>"` 匹配信号事实
-  - `signal_step`：透传（给信号事实正确 ancestry）
-  - `join`：等 [prev, signal_step] 两路，合并后放行下游
+  顺序解锁语义：runic 图边天然保证——child 的 `:runnable` 边只在 parent 产出 fact 后
+  出现（阶段 2 已实证）。`next` 只是显式声明这条边。
 
-  返回 `{:ok, workflow}`；步骤为空或含未知类型返回 `{:error, reason}`。
+  返回 `{:ok, workflow}`；步骤为空、含未知类型或 next 引用不存在的步骤返回
+  `{:error, reason}`。
   """
   @spec build_workflow(map()) :: {:ok, workflow()} | {:error, term()}
   def build_workflow(node_def) do
@@ -81,26 +88,69 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     if steps == [] do
       {:error, :no_steps}
     else
-      {:ok, build_chain(steps, Workflow.new(name: :cgc_workflow), nil)}
+      with {:ok, nodes} <- build_nodes(steps),
+           {:ok, wf} <- connect_nodes(Workflow.new(name: :cgc_workflow), steps, nodes) do
+        {:ok, wf}
+      end
     end
   rescue
     e -> {:error, {:build_workflow_failed, Exception.message(e)}}
   end
 
-  # 线性链构建：prev 是上一步的输出组件（auto 步骤的 ActionNode / manual 门控的 merge step）
-  defp build_chain([], wf, _prev), do: wf
+  # --- 1a. 建节点：steps → %{step_key => 输出组件} -----------------------------
 
-  defp build_chain([%{"type" => "auto"} = step | rest], wf, prev) do
+  defp build_nodes(steps) do
+    Enum.reduce_while(steps, {:ok, %{}}, fn step, {:ok, acc} ->
+      case build_node(step) do
+        {:ok, key, component} -> {:cont, {:ok, Map.put(acc, key, component)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp build_node(%{"type" => "auto"} = step) do
     step_key = validate_step_id!(step)
     action_mod = resolve_action!(step)
     node = ActionNode.new(action_mod, %{}, name: String.to_atom(step_key))
-
-    wf = Workflow.add(wf, node, to: prev)
-    build_chain(rest, wf, node)
+    {:ok, step_key, node}
   end
 
-  defp build_chain([%{"type" => "manual"} = step | rest], wf, prev) do
+  defp build_node(%{"type" => "manual"} = step) do
     step_key = validate_step_id!(step)
+    {:ok, step_key, build_manual_gate(step_key)}
+  end
+
+  defp build_node(%{"type" => "gate"} = step) do
+    step_key = validate_step_id!(step)
+    {:ok, step_key, build_gate(step)}
+  end
+
+  defp build_node(%{"type" => "sub_workflow"} = step) do
+    step_key = validate_step_id!(step)
+    {:ok, step_key, build_sub_workflow_stub(step_key)}
+  end
+
+  defp build_node(%{"type" => type}) do
+    {:error, {:unsupported_step_type, type}}
+  end
+
+  defp build_node(step) do
+    {:error, {:step_missing_required_fields, step}}
+  end
+
+  # 人工步骤门控子图（阶段 2 形态，语义已用 runic 公开 API 验证）：
+  #
+  #     prev ──────────────► join ──► merge ──► next
+  #     signal_cond ──► signal_step ──┘
+  #
+  # - `signal_cond`：按 `data["signal_type"] == "workflow.<step_key>"` 匹配信号事实
+  # - `signal_step`：透传（给信号事实正确 ancestry）
+  # - `join`：等 [prev, signal_step] 两路（eager 构建，prev 为 nil 时只等信号）
+  # - `merge`：join 产物是 [prev_value, signal_value] 列表，折叠成单 map 供下游消费
+  #
+  # join 在接线时创建（依赖 prev 是否存在），返回门控子图（map），输出组件是
+  # merge step（作为下游的 parent）。
+  defp build_manual_gate(step_key) do
     signal_type = "workflow.#{step_key}"
 
     signal_cond =
@@ -122,13 +172,6 @@ defmodule Cgc2046.Workflows.JidoAdapter do
         hash: :erlang.phash2({:signal_step, step_key})
       )
 
-    # 门控 join：等 [prev, signal_step] 两路（eager 构建，prev 为 nil 时只等信号）
-    join =
-      case prev do
-        nil -> Join.new([signal_step.hash])
-        _ -> Join.new([prev.hash, signal_step.hash])
-      end
-
     # join 产物是 [prev_value, signal_value] 列表，merge 折叠成单 map 供下游 Action 消费
     merge =
       Step.new(
@@ -139,27 +182,261 @@ defmodule Cgc2046.Workflows.JidoAdapter do
         hash: :erlang.phash2({:merge, step_key})
       )
 
+    %{signal_cond: signal_cond, signal_step: signal_step, merge: merge}
+  end
+
+  # gate 步骤编译为 runic Condition 节点（v1 只支持 equals 单值比较）：
+  #
+  #     prev ──► condition ──► next
+  #
+  # - 条件满足 → 放行 next（runic Condition 语义：prepare_next_runnables 把事实
+  #   连到下游）
+  # - 条件不满足 → 事实被消费（mark_runnable_as_ran，不传播）
+  #
+  # gate 带 `action` 时先跑 ActionNode（有副作用的 gate），再判条件。
+  defp build_gate(step) do
+    condition = Map.get(step, "condition", %{})
+
+    cond_node =
+      Condition.new(
+        work: fn data -> condition_satisfied?(condition, data) end,
+        name: :"#{step["id"]}_gate_cond",
+        hash: :erlang.phash2({:gate_cond, step["id"]}),
+        arity: 1
+      )
+
+    case Map.get(step, "action") do
+      nil ->
+        cond_node
+
+      action ->
+        action_mod = resolve_action_module!(action)
+        node = ActionNode.new(action_mod, %{}, name: String.to_atom(step["id"]))
+        %{action: node, condition: cond_node}
+    end
+  end
+
+  # v1 stub：sub_workflow 编译为 pass-through Step（透传输入，不报错）。
+  # 真实嵌套在 #39 实现（sub_definition_id 指向另一 WorkflowDefinition）。
+  # name 用 step key（与 auto 步骤一致），facts 按 step id 聚合。
+  defp build_sub_workflow_stub(step_key) do
+    Step.new(
+      work: fn data -> data end,
+      name: String.to_atom(step_key),
+      hash: :erlang.phash2({:sub_workflow, step_key})
+    )
+  end
+
+  # condition 字段形态：%{"field" => "status", "equals" => "full"}。
+  # v1 只做 equals 单值比较：data[field] == value。
+  # 无 condition 字段 → 恒真（纯放行）。
+  # field 按字符串匹配；data 可能是 string key（输入快照）或 atom key
+  # （Jido Action 产物），两种都查。
+  defp condition_satisfied?(condition, data) when is_map(condition) do
+    case {Map.get(condition, "field"), Map.get(condition, "equals")} do
+      {field, value} when is_binary(field) ->
+        field_value(data, field) == value
+
+      _ ->
+        true
+    end
+  end
+
+  defp condition_satisfied?(_condition, _data), do: true
+
+  # 按字符串 field 取 data 值：string key 直接取；atom key 遍历比较
+  # （不 String.to_atom——node_def 的 field 是租户输入，造原子会耗尽原子表，
+  # 见 /check SC2-002）
+  defp field_value(data, field) do
+    case Map.get(data, field) do
+      nil ->
+        case Enum.find(data, fn {k, _v} -> is_atom(k) and Atom.to_string(k) == field end) do
+          {_k, v} -> v
+          nil -> nil
+        end
+
+      value ->
+        value
+    end
+  end
+
+  # --- 1b. 连边：按 next 拓扑（无任何 next 时回退数组顺序） --------------------
+
+  # 构建策略：
+  # 1. 先接线所有子图（manual 门控 / gate 带 action），join 按上游输出 hash 创建
+  # 2. 再连边：next 驱动（有 next 字段）或数组顺序（全部无 next，阶段 2 兼容）
+  #
+  # next 驱动语义（#36 顺序解锁）：
+  # - 每个 step 连到其 next 列表中的步骤（child 的 parent 是本步骤输出组件）
+  # - next 为空/不存在 → 链尾，不连下游边
+  # - 无上游的步骤（入口）连到 root
+  defp connect_nodes(wf, steps, nodes) do
+    with :ok <- validate_next_refs!(steps, nodes) do
+      next_driven? = Enum.any?(steps, &has_next?/1)
+      upstream_keys = compute_upstream_keys(steps, next_driven?)
+
+      upstreams =
+        Map.new(upstream_keys, fn {key, upstream} ->
+          {key, upstream && output_hash(Map.fetch!(nodes, upstream))}
+        end)
+
+      # 1. 接线所有子图 → %{step_key => {input, output}}
+      {wf, outputs} =
+        Enum.reduce(steps, {wf, %{}}, fn step, {wf, outputs} ->
+          step_key = step["id"]
+          component = Map.fetch!(nodes, step_key)
+          {wf, input, output} = connect_step_subgraph(wf, component, Map.get(upstreams, step_key))
+          {wf, Map.put(outputs, step_key, {input, output})}
+        end)
+
+      # 2. 连边
+      wf =
+        if next_driven? do
+          # 入口步骤（无上游）连 root
+          wf =
+            Enum.reduce(steps, wf, fn step, wf ->
+              step_key = step["id"]
+              {input, _output} = Map.fetch!(outputs, step_key)
+
+              if Map.get(upstream_keys, step_key) == nil do
+                connect_upstream(wf, input, nil)
+              else
+                wf
+              end
+            end)
+
+          # next 边：本步骤输出 → next 步骤输入
+          Enum.reduce(steps, wf, fn step, wf ->
+            step_key = step["id"]
+            {_input, output} = Map.fetch!(outputs, step_key)
+
+            case Map.get(step, "next") do
+              next when is_list(next) and next != [] ->
+                Enum.reduce(next, wf, fn child_key, wf ->
+                  {child_input, _child_output} = Map.fetch!(outputs, child_key)
+                  connect_upstream(wf, child_input, output)
+                end)
+
+              _ ->
+                wf
+            end
+          end)
+        else
+          # 数组顺序链（阶段 2 兼容）：prev 是上一步输出组件
+          {wf, _} =
+            Enum.reduce(steps, {wf, nil}, fn step, {wf, prev_out} ->
+              step_key = step["id"]
+              {input, output} = Map.fetch!(outputs, step_key)
+              {connect_upstream(wf, input, prev_out), output}
+            end)
+
+          wf
+        end
+
+      {:ok, wf}
+    end
+  end
+
+  defp has_next?(step) do
+    case Map.get(step, "next") do
+      next when is_list(next) and next != [] -> true
+      _ -> false
+    end
+  end
+
+  # 每个 step 的上游 step id：
+  # - next 驱动：在 next 中引用它的 step（v1 线性 next，至多一个）
+  # - 数组顺序：前一个 step
+  defp compute_upstream_keys(steps, true) do
+    Map.new(steps, fn step ->
+      step_key = step["id"]
+
+      upstream =
+        Enum.find_value(steps, fn s ->
+          if step_key in (Map.get(s, "next") || []), do: s["id"], else: nil
+        end)
+
+      {step_key, upstream}
+    end)
+  end
+
+  defp compute_upstream_keys(steps, false) do
+    {map, _} =
+      Enum.reduce(steps, {%{}, nil}, fn step, {acc, prev_key} ->
+        {Map.put(acc, step["id"], prev_key), step["id"]}
+      end)
+
+    map
+  end
+
+  # 步骤输出组件的 hash（join 的 joins 列表需要知道等谁）：
+  # - manual：merge step（phash2({:merge, key})，建节点时已固定）
+  # - gate 带 action：condition 节点
+  # - 其余：组件自身
+  defp output_hash(%{merge: merge}), do: merge.hash
+  defp output_hash(%{condition: condition}), do: condition.hash
+  defp output_hash(component), do: component.hash
+
+  # 上游连接：把 prev 输出连到本步骤输入。
+  # - manual 门控的输入是 join（无 Component impl，用 raw add_step）
+  # - prev 为 nil（入口步骤）：连 root；manual 门控入口的 signal_cond 已在
+  #   子图接线时连 root，join 只等信号
+  defp connect_upstream(wf, %Join{}, nil), do: wf
+
+  defp connect_upstream(wf, input, nil), do: Workflow.add(wf, input, to: nil)
+
+  defp connect_upstream(wf, %Join{} = join, prev_out) do
+    Workflow.add_step(wf, prev_out, join)
+  end
+
+  defp connect_upstream(wf, input, prev_out) do
+    Workflow.add(wf, input, to: prev_out)
+  end
+
+  # 步骤子图接线，返回 {wf, input, output}（输入 = 上游连到哪，输出 = 下游从哪连）：
+  #
+  # - manual：signal_cond → signal_step → join（← 上游）→ merge；输入 join，输出 merge
+  # - gate 带 action：action → condition；输入 action，输出 condition
+  # - 其余（auto / sub_workflow / 纯条件 gate）：输入 = 输出 = 组件自身
+  defp connect_step_subgraph(wf, %{signal_cond: sc, signal_step: ss, merge: merge}, upstream_hash) do
+    # 门控 join：等 [上游输出, signal_step] 两路（无上游时只等信号）
+    join =
+      case upstream_hash do
+        nil -> Join.new([ss.hash])
+        _ -> Join.new([upstream_hash, ss.hash])
+      end
+
     wf =
       wf
-      |> Workflow.add(signal_cond)
-      |> Workflow.add(signal_step, to: :"#{step_key}_signal_cond")
-      |> then(fn wf ->
-        case prev do
-          nil -> Workflow.add_step(wf, [signal_step], join)
-          _ -> Workflow.add_step(wf, [prev, signal_step], join)
-        end
-      end)
+      |> Workflow.add(sc)
+      |> Workflow.add(ss, to: :"#{sc.name}")
+      |> Workflow.add_step([ss], join)
       |> Workflow.add(merge, to: join)
 
-    build_chain(rest, wf, merge)
+    {wf, join, merge}
   end
 
-  defp build_chain([%{"type" => type} | _], _wf, _prev) do
-    raise ArgumentError, "unsupported step type: #{inspect(type)}"
+  defp connect_step_subgraph(wf, %{action: action, condition: condition}, _upstream_hash) do
+    {Workflow.add(wf, condition, to: action), action, condition}
   end
 
-  defp build_chain([step | _], _wf, _prev) do
-    raise ArgumentError, "step missing required fields: #{inspect(step)}"
+  defp connect_step_subgraph(wf, component, _upstream_hash), do: {wf, component, component}
+
+  # next 引用完整性：next 指向的 step 必须存在（Engine.prepare_all 也校验，
+  # 这里在构建期提前失败，避免 runic 图里出现悬空引用）。
+  defp validate_next_refs!(steps, nodes) do
+    Enum.reduce_while(steps, :ok, fn step, :ok ->
+      case Map.get(step, "next") do
+        next when is_list(next) ->
+          case Enum.find(next, &(not Map.has_key?(nodes, &1))) do
+            nil -> {:cont, :ok}
+            missing -> {:halt, {:error, {:unknown_next, missing}}}
+          end
+
+        _ ->
+          {:cont, :ok}
+      end
+    end)
   end
 
   # step id 校验：受限字符集 + 长度上限，把 String.to_atom 的原子集限定在有界范围
