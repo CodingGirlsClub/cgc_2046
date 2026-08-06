@@ -25,7 +25,8 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   - `:gate` 步骤 → `Condition` 节点（按 `condition` 字段路由：`%{"field" => f,
     "equals" => v}`，满足 → 放行 next；不满足 → 事实被消费）。gate 带 `action` 时
     先跑 ActionNode（副作用）再判条件。
-  - `:sub_workflow` 步骤 → pass-through Step（v1 stub，#39 实现真实嵌套）。
+  - `:sub_workflow` 步骤 → 递归子 workflow Step（#39：sub_definition_id 指向另一
+    WorkflowDefinition，编译期预取子 node_def 注入闭包，运行时递归执行）。
 
   门控语义已用 runic 公开 API 验证（条件节点透传事实、join 两路合并、下游收到
   合并后的 map）。阶段 4 在此之上接 hibernate/thaw + SignalMatch 完整形态。
@@ -72,7 +73,7 @@ defmodule Cgc2046.Workflows.JidoAdapter do
 
   ## 构建策略（先建节点，再连边）
 
-  1. 先建所有节点（auto→ActionNode；manual→门控子图；gate→Condition；sub_workflow→stub）
+  1. 先建所有节点（auto→ActionNode；manual→门控子图；gate→Condition；sub_workflow→递归子 workflow）
   2. 再按 `steps[].next` 连边：`Workflow.add(child, to: parent)`（parent 为 prev 输出组件）
   3. 无 `next` 字段 → 回退数组顺序（向后兼容阶段 2 的 node_def 形态）
   4. `next` 为空数组或不存在 → 链尾，不连下游边
@@ -80,17 +81,20 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   顺序解锁语义：runic 图边天然保证——child 的 `:runnable` 边只在 parent 产出 fact 后
   出现（阶段 2 已实证）。`next` 只是显式声明这条边。
 
+  `opts` 支持 `:tenant`（#39）：sub_workflow 步骤编译期预取子定义 node_def 的租户
+  （work fn 运行时无 tenant 上下文，闭包捕获编译期预取的 node_def）。
+
   返回 `{:ok, workflow}`；步骤为空、含未知类型或 next 引用不存在的步骤返回
   `{:error, reason}`。
   """
-  @spec build_workflow(map()) :: {:ok, workflow()} | {:error, term()}
-  def build_workflow(node_def) do
+  @spec build_workflow(map(), keyword()) :: {:ok, workflow()} | {:error, term()}
+  def build_workflow(node_def, opts \\ []) do
     steps = Map.get(node_def || %{}, "steps", [])
 
     if steps == [] do
       {:error, :no_steps}
     else
-      with {:ok, nodes} <- build_nodes(steps),
+      with {:ok, nodes} <- build_nodes(steps, Keyword.get(opts, :tenant)),
            {:ok, wf} <- connect_nodes(Workflow.new(name: :cgc_workflow), steps, nodes) do
         {:ok, wf}
       end
@@ -101,42 +105,42 @@ defmodule Cgc2046.Workflows.JidoAdapter do
 
   # --- 1a. 建节点：steps → %{step_key => 输出组件} -----------------------------
 
-  defp build_nodes(steps) do
+  defp build_nodes(steps, tenant) do
     Enum.reduce_while(steps, {:ok, %{}}, fn step, {:ok, acc} ->
-      case build_node(step) do
+      case build_node(step, tenant) do
         {:ok, key, component} -> {:cont, {:ok, Map.put(acc, key, component)}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp build_node(%{"type" => "auto"} = step) do
+  defp build_node(%{"type" => "auto"} = step, _tenant) do
     step_key = validate_step_id!(step)
     action_mod = resolve_action!(step)
     node = ActionNode.new(action_mod, %{}, name: String.to_atom(step_key))
     {:ok, step_key, node}
   end
 
-  defp build_node(%{"type" => "manual"} = step) do
+  defp build_node(%{"type" => "manual"} = step, _tenant) do
     step_key = validate_step_id!(step)
     {:ok, step_key, build_manual_gate(step_key)}
   end
 
-  defp build_node(%{"type" => "gate"} = step) do
+  defp build_node(%{"type" => "gate"} = step, _tenant) do
     step_key = validate_step_id!(step)
     {:ok, step_key, build_gate(step)}
   end
 
-  defp build_node(%{"type" => "sub_workflow"} = step) do
+  defp build_node(%{"type" => "sub_workflow"} = step, tenant) do
     step_key = validate_step_id!(step)
-    {:ok, step_key, build_sub_workflow_stub(step_key)}
+    {:ok, step_key, build_sub_workflow(step_key, step, tenant)}
   end
 
-  defp build_node(%{"type" => type}) do
+  defp build_node(%{"type" => type}, _tenant) do
     {:error, {:unsupported_step_type, type}}
   end
 
-  defp build_node(step) do
+  defp build_node(step, _tenant) do
     {:error, {:step_missing_required_fields, step}}
   end
 
@@ -218,14 +222,51 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     end
   end
 
-  # v1 stub：sub_workflow 编译为 pass-through Step（透传输入，不报错）。
-  # 真实嵌套在 #39 实现（sub_definition_id 指向另一 WorkflowDefinition）。
-  # name 用 step key（与 auto 步骤一致），facts 按 step id 聚合。
-  defp build_sub_workflow_stub(step_key) do
+  # sub_workflow 步骤（#39 真实嵌套）：编译期（有 tenant）预取子定义 node_def，
+  # 注入 work fn 闭包——work fn 运行时无 tenant 上下文（runic Step work fn 只收
+  # data），闭包捕获编译期预取的 node_def。
+  #
+  # - 无 sub_definition_id 或查不到子定义 → 透传输入（向后兼容阶段 3 的 stub 行为）
+  # - 子定义含 manual 步骤 → 子 workflow 挂起（:waiting），v1 不支持嵌套 waiting
+  #   （父 workflow 需 hibernate 子 workflow 状态），返回 {:error, :nested_waiting_not_supported}
+  #   → 父 run failed。测试只用 auto 子定义。
+  # - 子 workflow 的 list_run_facts 产物（%{step_key => value}）作为本步骤的 fact value，
+  #   父 list_run_facts 聚合时 facts["sub_step_key"] = 子 facts map（嵌套）。
+  defp build_sub_workflow(step_key, step, tenant) do
+    sub_definition_id = Map.get(step, "sub_definition_id")
+
+    sub_node_def =
+      if is_binary(sub_definition_id) and is_binary(tenant) do
+        case Ash.get(Cgc2046.Workflows.WorkflowDefinition, sub_definition_id,
+               tenant: tenant,
+               authorize?: false
+             ) do
+          {:ok, defn} -> defn.node_def
+          _ -> nil
+        end
+      end
+
     Step.new(
-      work: fn data -> data end,
+      work: fn data ->
+        case sub_node_def do
+          nil ->
+            data
+
+          node_def ->
+            with {:ok, sub_workflow} <- build_workflow(node_def, tenant: tenant),
+                 {:ok, sub_workflow} <- react_until_satisfied(sub_workflow, data) do
+              case run_status(sub_workflow) do
+                :succeeded -> list_run_facts(sub_workflow)
+                :waiting -> {:error, :nested_waiting_not_supported}
+                :failed -> {:error, :sub_workflow_failed}
+              end
+            else
+              {:error, reason} -> {:error, reason}
+            end
+        end
+      end,
       name: String.to_atom(step_key),
-      hash: :erlang.phash2({:sub_workflow, step_key})
+      hash: :erlang.phash2({:sub_workflow, step_key, sub_definition_id})
     )
   end
 

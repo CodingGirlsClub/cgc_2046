@@ -460,7 +460,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
     case Ash.get(WorkflowDefinition, definition_id, tenant: tenant, authorize?: false) do
       {:ok, defn} ->
-        case Engine.run(defn.node_def, input, run_id: run_id, partition: partition) do
+        case Engine.run(defn.node_def, input,
+               run_id: run_id,
+               partition: partition,
+               tenant: tenant
+             ) do
           {:ok, facts, _workflow} -> {:ok, changeset, facts}
           {:waiting, facts, _workflow} -> {:waiting, changeset, facts}
           {:error, reason} -> {:error, changeset, reason}

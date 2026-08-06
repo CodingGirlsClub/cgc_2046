@@ -263,7 +263,8 @@ defmodule Cgc2046.Workflows.Engine do
 
   - `node_def`：WorkflowDefinition 的执行拓扑（`%{"steps" => [...]}`，#34 契约）
   - `input`：run 输入（input_snapshot）
-  - `opts`：可选，`run_id` + `partition`（挂起时自动 hibernate checkpoint）
+  - `opts`：可选，`run_id` + `partition`（挂起时自动 hibernate checkpoint）、
+    `tenant`（sub_workflow 步骤编译期预取子定义 node_def 的租户，#39）
 
   ## 返回
 
@@ -277,7 +278,8 @@ defmodule Cgc2046.Workflows.Engine do
     :telemetry.execute(@telemetry_prefix ++ [:start], %{}, %{node_def: node_def, input: input})
 
     with :ok <- prepare_all(node_def, input),
-         {:ok, workflow} <- JidoAdapter.build_workflow(node_def),
+         {:ok, workflow} <-
+           JidoAdapter.build_workflow(node_def, tenant: Keyword.get(opts, :tenant)),
          {:ok, workflow} <- JidoAdapter.react_until_satisfied(workflow, input) do
       case JidoAdapter.run_status(workflow) do
         :succeeded ->
