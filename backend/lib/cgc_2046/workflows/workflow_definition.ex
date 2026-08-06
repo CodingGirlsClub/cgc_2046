@@ -35,7 +35,14 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     domain: Cgc2046.Api
 
   # WorkflowDefinition.type 全 6 枚举（领域模型定稿 ER §5.2 权威源）
-  @type_values [:platform_ops, :learning, :enrollment, :sponsorship, :speaker_invitation, :research]
+  @type_values [
+    :platform_ops,
+    :learning,
+    :enrollment,
+    :sponsorship,
+    :speaker_invitation,
+    :research
+  ]
   @status_values [:draft, :published, :archived]
 
   attributes do
@@ -177,6 +184,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
 
       change(fn changeset, _context ->
         source_id = Ash.Changeset.get_argument(changeset, :source_definition_id)
+
         # 当前租户 = 目标 workspace_id（调用方必传 tenant）。用它限定 source 查询范围，
         # 杜绝跨租户读（H2：global?(true) 下不传 tenant 的 Ash.get 会全表读）。
         tenant = changeset.tenant

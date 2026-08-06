@@ -43,7 +43,8 @@ defmodule Cgc2046.Repo.Migrations.WorkflowSliceC do
             name: "workflow_step_roles_step_id_fkey",
             type: :uuid,
             prefix: "public"
-          ), null: false
+          ),
+          null: false
 
       add :role_id,
           references(:roles,
@@ -51,7 +52,8 @@ defmodule Cgc2046.Repo.Migrations.WorkflowSliceC do
             name: "workflow_step_roles_role_id_fkey",
             type: :uuid,
             prefix: "public"
-          ), null: false
+          ),
+          null: false
 
       add :inserted_at, :utc_datetime_usec,
         null: false,

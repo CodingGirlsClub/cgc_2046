@@ -195,7 +195,9 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
                    definition_id: published_a.id,
                    definition_version: published_a.version,
                    input_snapshot: %{"topic" => "t1"}
-                 }, tenant: ws_b.id)
+                 },
+                 tenant: ws_b.id
+               )
                |> Ash.create(tenant: ws_b.id, actor: admin)
 
       # 跨租户读被 tenant 作用域拒绝 → not found；若作用域失效则 workspace 归属守卫兜底
@@ -220,7 +222,9 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
                    definition_id: published.id,
                    definition_version: 999,
                    input_snapshot: %{"topic" => "t1"}
-                 }, tenant: workspace.id)
+                 },
+                 tenant: workspace.id
+               )
                |> Ash.create(tenant: workspace.id, actor: admin)
 
       assert Enum.any?(errors, &(Exception.message(&1) =~ "does not match published version"))
