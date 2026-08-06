@@ -428,6 +428,14 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
+    # #38 StepRole 授权：start_run（auto 步骤引擎执行不授权，§4.3）与 resume_signal
+    # （manual 信号发起人，StepRole 判定在 action 内）对成员放开；expire 仍限 Owner/Admin。
+    # bypass：命中则跳过后续 update policy（成员放行），失败则继续（非成员 → 后续拒绝）。
+    bypass action([:start_run, :resume_signal]) do
+      authorize_if(relates_to_actor_via([:definition, :workspace, :memberships, :user]))
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+    end
+
     # 写操作：Owner/Admin（多角色并集）或平台管理员
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
@@ -463,11 +471,12 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
   end
 
-  # resume_signal：写 SignalLog → Engine.resume（thaw → feed_signal）→ 按结果流转。
+  # resume_signal：授权（#38）→ 写 SignalLog → Engine.resume（thaw → feed_signal）→ 按结果流转。
   defp resume_signal_execute(changeset) do
     tenant = changeset.tenant
     run_id = Ash.Changeset.get_data(changeset, :id)
     partition = Ash.Changeset.get_data(changeset, :partition_id)
+    definition_id = Ash.Changeset.get_data(changeset, :definition_id)
     signal_type = Ash.Changeset.get_argument(changeset, :signal_type)
     payload = Ash.Changeset.get_argument(changeset, :payload) || %{}
     actor_id = Ash.Changeset.get_argument(changeset, :actor_id)
@@ -477,32 +486,62 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         Ash.Changeset.add_error(changeset, "signal_type is required")
 
       true ->
-        case write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
+        # #38 StepRole 授权：manual 步骤信号发起人（领域模型 §4.3）。
+        # actor_id 为 nil → 无角色 → 有 StepRole 配置则拒绝（安全方向）。
+        step_key = String.replace_prefix(signal_type, "workflow.", "")
+
+        case Engine.authorize_signal(%{id: actor_id}, tenant, definition_id, step_key) do
           :ok ->
-            # 信号 payload 并入 workflow 上下文（下游步骤可读 approved_by 等）
-            signal = Map.put(payload, "signal_type", signal_type)
+            resume_signal_authorized(
+              changeset,
+              tenant,
+              run_id,
+              partition,
+              signal_type,
+              payload,
+              actor_id
+            )
 
-            case Engine.resume(run_id, partition, signal) do
-              {:ok, facts, _workflow} ->
-                changeset
-                |> Ash.Changeset.force_change_attribute(:status, :succeeded)
-                |> Ash.Changeset.force_change_attribute(:facts, facts)
-                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
-
-              {:waiting, facts, _workflow} ->
-                changeset
-                |> Ash.Changeset.force_change_attribute(:status, :waiting)
-                |> Ash.Changeset.force_change_attribute(:facts, facts)
-
-              {:error, _reason} ->
-                changeset
-                |> Ash.Changeset.force_change_attribute(:status, :failed)
-                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
-            end
-
-          {:error, _} ->
-            Ash.Changeset.add_error(changeset, "failed to record signal log")
+          {:error, :unauthorized} ->
+            Ash.Changeset.add_error(changeset, "unauthorized to signal step #{step_key}")
         end
+    end
+  end
+
+  defp resume_signal_authorized(
+         changeset,
+         tenant,
+         run_id,
+         partition,
+         signal_type,
+         payload,
+         actor_id
+       ) do
+    case write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
+      :ok ->
+        # 信号 payload 并入 workflow 上下文（下游步骤可读 approved_by 等）
+        signal = Map.put(payload, "signal_type", signal_type)
+
+        case Engine.resume(run_id, partition, signal) do
+          {:ok, facts, _workflow} ->
+            changeset
+            |> Ash.Changeset.force_change_attribute(:status, :succeeded)
+            |> Ash.Changeset.force_change_attribute(:facts, facts)
+            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+
+          {:waiting, facts, _workflow} ->
+            changeset
+            |> Ash.Changeset.force_change_attribute(:status, :waiting)
+            |> Ash.Changeset.force_change_attribute(:facts, facts)
+
+          {:error, _reason} ->
+            changeset
+            |> Ash.Changeset.force_change_attribute(:status, :failed)
+            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+        end
+
+      {:error, _} ->
+        Ash.Changeset.add_error(changeset, "failed to record signal log")
     end
   end
 
