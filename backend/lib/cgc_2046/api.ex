@@ -19,5 +19,6 @@ defmodule Cgc2046.Api do
     resource(Cgc2046.Workflows.WorkflowDefinition)
     resource(Cgc2046.Workflows.Step)
     resource(Cgc2046.Workflows.StepRole)
+    resource(Cgc2046.Workflows.WorkflowRun)
   end
 end
