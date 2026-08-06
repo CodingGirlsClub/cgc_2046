@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import PermissionsPage from "./page";
 import {
@@ -366,14 +366,19 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		}
 	});
 
-	it("提供个人资料入口并支持退出登录", async () => {
+	it("提供个人资料入口并支持退出登录（菜单内）", async () => {
 		await renderReadyPage();
 
 		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
 			"href",
 			"/w/cgc-academy/settings/account/profile",
 		);
-		screen.getByRole("button", { name: "退出登录" }).click();
+		// 退出登录已迁入品牌下拉菜单（Linear 范式）
+		fireEvent.click(
+			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),
+		);
+		const menu = await screen.findByRole("menu");
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
 		expect(clearSession).toHaveBeenCalledTimes(1);
 		await waitFor(() => expect(router.push).toHaveBeenCalledWith("/login"));
 	});

@@ -29,7 +29,9 @@ import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
+import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
+import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
 import ProfileEntry from "@/components/profile-entry";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
@@ -93,15 +95,19 @@ export default function WorkspaceShell({
 
 	// 工作区切换 dropdown（issue #83：ws-shell-brand ⌄ 可切换已加入的工作区）
 	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
+	const [profile, setProfile] = useState<CurrentProfile | null>(null);
 	const [brandOpen, setBrandOpen] = useState(false);
 	const brandRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (!authed) return;
 		let cancelled = false;
-		fetchMyWorkspaces()
-			.then((list) => {
-				if (!cancelled) setWorkspaces(list);
+		// profile 走 fetchCurrentProfile（Apollo 缓存命中零网络，见 lib/profile 注释）
+		Promise.all([fetchMyWorkspaces(), fetchCurrentProfile()])
+			.then(([list, p]) => {
+				if (cancelled) return;
+				setWorkspaces(list);
+				setProfile(p);
 			})
 			.catch(() => {});
 		return () => {
@@ -161,6 +167,9 @@ export default function WorkspaceShell({
 	}
 
 	const active = navSection(pathname, slug);
+	// settings 模式：/w/[slug]/settings 前缀下侧边栏切换为 Linear 式分组导航
+	// （Personal / Workspace），非 settings 路由保持工作区导航
+	const isSettings = pathname.startsWith(`/w/${slug}/settings`);
 
 	// #79 IA：管理项按能力过滤（普通成员仅见 概览/个人资料）；
 	// 页面级门控不变（后端 policy 权威拦截，导航过滤仅为 UX）
@@ -191,35 +200,81 @@ export default function WorkspaceShell({
 						<Icon name="chevron" size={16} className="ws-shell-brand__chevron" />
 					</button>
 					{brandOpen && (
-						<div className="ws-shell-brand-menu" role="menu">
-							{workspaces.map((w) => (
-								<Link
-									key={w.id}
-									href={`/w/${w.slug}`}
-									className={`ws-shell-brand-menu__item ${w.slug === slug ? "ws-shell-brand-menu__item--current" : ""}`}
-									role="menuitem"
-								>
-									<span className="ws-shell-brand-menu__name">{w.name}</span>
-									{w.slug === slug && (
-										<span className="ws-shell-brand-menu__check" aria-hidden="true">
-											✓
-										</span>
-									)}
-								</Link>
-							))}
-							<Link
-								href="/"
-								className="ws-shell-brand-menu__item ws-shell-brand-menu__item--hub"
-								role="menuitem"
-							>
-								<Icon name="grid" />
-								<span>返回工作台</span>
-							</Link>
-						</div>
+						<WorkspaceSwitcherMenu
+							workspaces={workspaces}
+							currentSlug={slug}
+							profile={profile}
+							onNavigate={() => setBrandOpen(false)}
+							onSignOut={handleSignOut}
+						/>
 					)}
 				</div>
 
-				{slug && (
+				{slug && isSettings && (
+					<>
+						<Link
+							href={`/w/${slug}`}
+							className="ws-shell-item ws-shell-item--back"
+						>
+							<Icon name="arrow" />
+							<span>Back to app</span>
+						</Link>
+						<div className="ws-shell-heading">Personal</div>
+						<nav className="ws-shell-nav" aria-label="Personal">
+							<Link
+								href={`/w/${slug}/settings/account/profile`}
+								className={`ws-shell-item ${active === "settings-account-profile" ? "ws-shell-item--selected" : ""}`}
+								aria-current={
+									active === "settings-account-profile" ? "page" : undefined
+								}
+							>
+								<Icon name="user" />
+								<span>个人资料</span>
+							</Link>
+						</nav>
+						<div className="ws-shell-heading">Workspace</div>
+						<nav className="ws-shell-nav" aria-label="Workspace">
+							{canSeeJoinPolicy && (
+								<Link
+									href={`/w/${slug}/settings`}
+									className={`ws-shell-item ${active === "settings-join-policy" ? "ws-shell-item--selected" : ""}`}
+									aria-current={
+										active === "settings-join-policy" ? "page" : undefined
+									}
+								>
+									<Icon name="settings" />
+									<span>加入策略</span>
+								</Link>
+							)}
+							{canSeeManagement && (
+								<>
+									<Link
+										href={`/w/${slug}/settings/requests`}
+										className={`ws-shell-item ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
+										aria-current={
+											active === "settings-requests" ? "page" : undefined
+										}
+									>
+										<Icon name="shield" />
+										<span>加入审批</span>
+									</Link>
+									<Link
+										href={`/w/${slug}/settings/invitations`}
+										className={`ws-shell-item ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
+										aria-current={
+											active === "settings-invitations" ? "page" : undefined
+										}
+									>
+										<Icon name="invite" />
+										<span>邀请管理</span>
+									</Link>
+								</>
+							)}
+						</nav>
+					</>
+				)}
+
+				{slug && !isSettings && (
 					<>
 						<div className="ws-shell-heading">工作区导航</div>
 						<nav className="ws-shell-nav" aria-label="工作区导航">
@@ -298,13 +353,6 @@ export default function WorkspaceShell({
 					<ProfileEntry slug={slug} />
 					<div className="ws-shell-footer-actions">
 						<ThemeToggle />
-						<button
-							type="button"
-							className="ws-shell-signout"
-							onClick={handleSignOut}
-						>
-							退出登录
-						</button>
 					</div>
 				</div>
 			</aside>
