@@ -11,12 +11,12 @@
  * 1. 账号邮箱行（只读展示）；
  * 2. 工作区列表（WorkspaceAvatar small + 名称 + 当前项 ✓）；
  * 3. 分隔线；
- * 4. 操作项：个人资料（settings/account/profile）/ 发现加入工作区（/join）/ 退出登录。
+ * 4. 操作项：Settings（/w/[slug]/settings）/ 发现加入工作区（/join）/ 退出登录。
  */
 
 import Link from "next/link";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
-import { profileHref, type CurrentProfile } from "@/lib/profile";
+import type { CurrentProfile } from "@/lib/profile";
 import type { WorkspaceListItem } from "@/lib/workspaces";
 
 interface WorkspaceSwitcherMenuProps {
@@ -72,14 +72,6 @@ export default function WorkspaceSwitcherMenu({
 				onClick={onNavigate}
 			>
 				<span className="ws-shell-brand-menu__name">Settings</span>
-			</Link>
-			<Link
-				href={profileHref(currentSlug)}
-				className="ws-shell-brand-menu__item"
-				role="menuitem"
-				onClick={onNavigate}
-			>
-				<span className="ws-shell-brand-menu__name">个人资料</span>
 			</Link>
 			<Link
 				href="/join"
