@@ -107,7 +107,12 @@ defmodule Cgc2046.Workflows.Engine do
   @spec finalize_step(map(), term(), map()) :: {:ok, map()}
   def finalize_step(step, result, _ctx) when is_map(step) do
     facts = normalize_step_facts(step["id"], result)
-    :telemetry.execute(@telemetry_prefix ++ [:step, :complete], %{}, %{step: step["id"], facts: facts})
+
+    :telemetry.execute(@telemetry_prefix ++ [:step, :complete], %{}, %{
+      step: step["id"],
+      facts: facts
+    })
+
     {:ok, facts}
   end
 
@@ -160,8 +165,7 @@ defmodule Cgc2046.Workflows.Engine do
         not type_matches?(expected_type, Map.get(input, field)) ->
           {:halt,
            {:error,
-            {:type_mismatch, step_key, field, expected_type,
-             Map.get(input, field) |> type_name()}}}
+            {:type_mismatch, step_key, field, expected_type, Map.get(input, field) |> type_name()}}}
 
         true ->
           {:cont, :ok}
@@ -201,16 +205,17 @@ defmodule Cgc2046.Workflows.Engine do
 
   - `node_def`：WorkflowDefinition 的执行拓扑（`%{"steps" => [...]}`，#34 契约）
   - `input`：run 输入（input_snapshot）
+  - `opts`：可选，`run_id` + `partition`（挂起时自动 hibernate checkpoint）
 
   ## 返回
 
   - `{:ok, facts, workflow}`：全部自动步骤完成，`facts` 为按 step_key 聚合的产物
-  - `{:waiting, facts, workflow}`：执行到人工步骤挂起（阶段 4 接信号放行）
+  - `{:waiting, facts, workflow}`：执行到人工步骤挂起（已 hibernate，接信号放行）
   - `{:error, reason}`：构建或执行失败（含 `{:prepare_failed, ...}` 校验失败）
   """
-  @spec run(map(), map()) ::
+  @spec run(map(), map(), keyword()) ::
           {:ok, map(), term()} | {:waiting, map(), term()} | {:error, term()}
-  def run(node_def, input) when is_map(node_def) and is_map(input) do
+  def run(node_def, input, opts \\ []) when is_map(node_def) and is_map(input) do
     :telemetry.execute(@telemetry_prefix ++ [:start], %{}, %{node_def: node_def, input: input})
 
     with :ok <- prepare_all(node_def, input),
@@ -224,6 +229,14 @@ defmodule Cgc2046.Workflows.Engine do
 
         :waiting ->
           facts = JidoAdapter.list_run_facts(workflow)
+
+          # 产品层传入 run_id/partition 时自动 hibernate checkpoint（阶段 4 #37）
+          case {Keyword.get(opts, :run_id), Keyword.get(opts, :partition)} do
+            {nil, _} -> :ok
+            {_, nil} -> :ok
+            {run_id, partition} -> JidoAdapter.hibernate(run_id, partition, workflow)
+          end
+
           :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
           {:waiting, facts, workflow}
 
@@ -235,6 +248,44 @@ defmodule Cgc2046.Workflows.Engine do
       {:error, reason} ->
         :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{reason: reason})
         {:error, reason}
+    end
+  end
+
+  @doc """
+  恢复挂起的 run（阶段 4 #37）：thaw checkpoint → feed_signal → 判定状态。
+
+  参数：`run_id`（WorkflowRun.id）、`partition`（= workspace_id）、`signal`
+  （含 `signal_type`，如 `%{"signal_type" => "workflow.approval", "approved_by" => "u1"}`）。
+
+  返回与 `run/2` 相同契约。SignalLog 记录由调用方（产品层 action）写入，
+  引擎核心不碰审计资源（ADR-0003 审计走事件订阅）。
+
+  checkpoint 生命周期：`waiting` → 存回新 checkpoint（下次信号续传）；
+  `succeeded`/`failed` → 删除 checkpoint（run 结束清理）。
+  """
+  @spec resume(term(), term(), map()) ::
+          {:ok, map(), term()} | {:waiting, map(), term()} | {:error, term()}
+  def resume(run_id, partition, signal) when is_map(signal) do
+    with {:ok, workflow} <- JidoAdapter.thaw(run_id, partition),
+         {:ok, workflow} <- JidoAdapter.feed_signal(workflow, signal) do
+      case JidoAdapter.run_status(workflow) do
+        :succeeded ->
+          JidoAdapter.delete_checkpoint(run_id, partition)
+          facts = JidoAdapter.list_run_facts(workflow)
+          :telemetry.execute(@telemetry_prefix ++ [:complete], %{}, %{facts: facts})
+          {:ok, facts, workflow}
+
+        :waiting ->
+          :ok = JidoAdapter.hibernate(run_id, partition, workflow)
+          facts = JidoAdapter.list_run_facts(workflow)
+          :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
+          {:waiting, facts, workflow}
+
+        :failed ->
+          JidoAdapter.delete_checkpoint(run_id, partition)
+          :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{})
+          {:error, :step_failed}
+      end
     end
   end
 

@@ -45,6 +45,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
+  alias Cgc2046.Workflows.{Engine, SignalLog, WorkflowDefinition}
+
   @status_values [:pending, :running, :waiting, :succeeded, :failed, :cancelled, :expired]
 
   attributes do
@@ -233,6 +235,47 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       end)
     end
 
+    # pending → running/succeeded/waiting/failed：一步启动 + 执行闭环（阶段 4 #37）。
+    # 与纯状态机 :start 不同：本 action 调 Engine.run 执行 node_def，
+    # 按结果流转——succeeded 直接终态，waiting 自动 hibernate 后挂起。
+    update :start_run do
+      description("启动并执行：pending → running → succeeded | waiting | failed")
+      require_atomic?(false)
+      accept([])
+      change(optimistic_lock(:version))
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          :pending ->
+            run_started =
+              changeset
+              |> Ash.Changeset.force_change_attribute(:status, :running)
+              |> Ash.Changeset.force_change_attribute(:started_at, DateTime.utc_now())
+
+            case start_run_execute(run_started) do
+              {:ok, run_started, facts} ->
+                run_started
+                |> Ash.Changeset.force_change_attribute(:status, :succeeded)
+                |> Ash.Changeset.force_change_attribute(:facts, facts)
+                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+
+              {:waiting, run_started, facts} ->
+                run_started
+                |> Ash.Changeset.force_change_attribute(:status, :waiting)
+                |> Ash.Changeset.force_change_attribute(:facts, facts)
+
+              {:error, run_started, _reason} ->
+                run_started
+                |> Ash.Changeset.force_change_attribute(:status, :failed)
+                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+            end
+
+          status ->
+            Ash.Changeset.add_error(changeset, "cannot start_run from status=#{status}")
+        end
+      end)
+    end
+
     # running → waiting：执行到人工步骤挂起
     update :wait do
       description("挂起等待外部信号：running → waiting")
@@ -265,6 +308,27 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
           status ->
             Ash.Changeset.add_error(changeset, "cannot resume from status=#{status}")
+        end
+      end)
+    end
+
+    # waiting → running/succeeded/failed：信号放行 + 恢复执行闭环（阶段 4 #37）。
+    # 写 SignalLog 审计 → Engine.resume（thaw → feed_signal）→ 按结果流转。
+    update :resume_signal do
+      description("信号放行恢复执行：waiting → running → succeeded | waiting | failed")
+      require_atomic?(false)
+      argument(:signal_type, :string, allow_nil?: false)
+      argument(:payload, :map, default: %{})
+      argument(:actor_id, :uuid)
+      change(optimistic_lock(:version))
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          :waiting ->
+            resume_signal_execute(changeset)
+
+          status ->
+            Ash.Changeset.add_error(changeset, "cannot resume_signal from status=#{status}")
         end
       end)
     end
@@ -373,5 +437,88 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   graphql do
     type(:workflow_run)
+  end
+
+  # --- 产品层执行闭环辅助（阶段 4 #37） ---------------------------------------
+
+  # start_run：从 definition 读 node_def，调 Engine.run（waiting 自动 hibernate）。
+  # 返回 {status, changeset[, facts]}——status ∈ :ok | :waiting | :error
+  defp start_run_execute(changeset) do
+    tenant = changeset.tenant
+    run_id = Ash.Changeset.get_data(changeset, :id)
+    definition_id = Ash.Changeset.get_data(changeset, :definition_id)
+    partition = Ash.Changeset.get_data(changeset, :partition_id)
+    input = Ash.Changeset.get_data(changeset, :input_snapshot)
+
+    case Ash.get(WorkflowDefinition, definition_id, tenant: tenant, authorize?: false) do
+      {:ok, defn} ->
+        case Engine.run(defn.node_def, input, run_id: run_id, partition: partition) do
+          {:ok, facts, _workflow} -> {:ok, changeset, facts}
+          {:waiting, facts, _workflow} -> {:waiting, changeset, facts}
+          {:error, reason} -> {:error, changeset, reason}
+        end
+
+      {:error, _} ->
+        {:error, changeset, :definition_not_found}
+    end
+  end
+
+  # resume_signal：写 SignalLog → Engine.resume（thaw → feed_signal）→ 按结果流转。
+  defp resume_signal_execute(changeset) do
+    tenant = changeset.tenant
+    run_id = Ash.Changeset.get_data(changeset, :id)
+    partition = Ash.Changeset.get_data(changeset, :partition_id)
+    signal_type = Ash.Changeset.get_argument(changeset, :signal_type)
+    payload = Ash.Changeset.get_argument(changeset, :payload) || %{}
+    actor_id = Ash.Changeset.get_argument(changeset, :actor_id)
+
+    cond do
+      is_nil(signal_type) ->
+        Ash.Changeset.add_error(changeset, "signal_type is required")
+
+      true ->
+        case write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
+          :ok ->
+            # 信号 payload 并入 workflow 上下文（下游步骤可读 approved_by 等）
+            signal = Map.put(payload, "signal_type", signal_type)
+
+            case Engine.resume(run_id, partition, signal) do
+              {:ok, facts, _workflow} ->
+                changeset
+                |> Ash.Changeset.force_change_attribute(:status, :succeeded)
+                |> Ash.Changeset.force_change_attribute(:facts, facts)
+                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+
+              {:waiting, facts, _workflow} ->
+                changeset
+                |> Ash.Changeset.force_change_attribute(:status, :waiting)
+                |> Ash.Changeset.force_change_attribute(:facts, facts)
+
+              {:error, _reason} ->
+                changeset
+                |> Ash.Changeset.force_change_attribute(:status, :failed)
+                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+            end
+
+          {:error, _} ->
+            Ash.Changeset.add_error(changeset, "failed to record signal log")
+        end
+    end
+  end
+
+  defp write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
+    attrs = %{
+      run_id: run_id,
+      signal_type: signal_type,
+      payload: payload,
+      actor_id: actor_id
+    }
+
+    case SignalLog
+         |> Ash.Changeset.for_create(:create, attrs, tenant: tenant, authorize?: false)
+         |> Ash.create(tenant: tenant, authorize?: false) do
+      {:ok, _log} -> :ok
+      {:error, _} -> {:error, :signal_log_failed}
+    end
   end
 end
