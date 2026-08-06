@@ -32,8 +32,6 @@ import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
-import ProfileEntry from "@/components/profile-entry";
-import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
 
 type NavSection =
@@ -43,13 +41,14 @@ type NavSection =
 	| "settings-requests"
 	| "settings-invitations"
 	| "settings-account-profile"
+	| "settings-account-preferences"
 	| null;
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
 	if (
-		pathname.startsWith(`/w/${slug}/members`) ||
-		pathname.startsWith(`/w/${slug}/permissions`)
+		pathname.startsWith(`/w/${slug}/settings/members`) ||
+		pathname.startsWith(`/w/${slug}/settings/permissions`)
 	) {
 		// 权限映射是「成员与角色」的子页
 		return "members";
@@ -61,6 +60,8 @@ function navSection(pathname: string, slug: string): NavSection {
 		return "settings-invitations";
 	if (pathname.startsWith(`/w/${slug}/settings/account/profile`))
 		return "settings-account-profile";
+	if (pathname.startsWith(`/w/${slug}/settings/account/preferences`))
+		return "settings-account-preferences";
 	return null;
 }
 
@@ -216,11 +217,21 @@ export default function WorkspaceShell({
 							href={`/w/${slug}`}
 							className="ws-shell-item ws-shell-item--back"
 						>
-							<Icon name="arrow" />
+							<Icon name="arrow-left" />
 							<span>Back to app</span>
 						</Link>
 						<div className="ws-shell-heading">Personal</div>
 						<nav className="ws-shell-nav" aria-label="Personal">
+							<Link
+								href={`/w/${slug}/settings/account/preferences`}
+								className={`ws-shell-item ${active === "settings-account-preferences" ? "ws-shell-item--selected" : ""}`}
+								aria-current={
+									active === "settings-account-preferences" ? "page" : undefined
+								}
+							>
+								<Icon name="settings" />
+								<span>Preferences</span>
+							</Link>
 							<Link
 								href={`/w/${slug}/settings/account/profile`}
 								className={`ws-shell-item ${active === "settings-account-profile" ? "ws-shell-item--selected" : ""}`}
@@ -234,6 +245,16 @@ export default function WorkspaceShell({
 						</nav>
 						<div className="ws-shell-heading">Workspace</div>
 						<nav className="ws-shell-nav" aria-label="Workspace">
+							{canSeeMembers && (
+								<Link
+									href={`/w/${slug}/settings/members`}
+									className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
+									aria-current={active === "members" ? "page" : undefined}
+								>
+									<Icon name="users" />
+									<span>成员与角色</span>
+								</Link>
+							)}
 							{canSeeJoinPolicy && (
 								<Link
 									href={`/w/${slug}/settings`}
@@ -286,75 +307,9 @@ export default function WorkspaceShell({
 								<Icon name="grid" />
 								<span>概览</span>
 							</Link>
-							{canSeeMembers && (
-								<Link
-									href={`/w/${slug}/members`}
-									className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
-									aria-current={active === "members" ? "page" : undefined}
-								>
-									<Icon name="users" />
-									<span>成员与角色</span>
-								</Link>
-							)}
-						</nav>
-						<div className="ws-shell-heading">设置</div>
-						<nav className="ws-shell-nav" aria-label="设置">
-							{canSeeJoinPolicy && (
-								<Link
-									href={`/w/${slug}/settings`}
-									className={`ws-shell-item ${active === "settings-join-policy" ? "ws-shell-item--selected" : ""}`}
-									aria-current={
-										active === "settings-join-policy" ? "page" : undefined
-									}
-								>
-									<Icon name="settings" />
-									<span>加入策略</span>
-								</Link>
-							)}
-							{canSeeManagement && (
-								<>
-									<Link
-										href={`/w/${slug}/settings/requests`}
-										className={`ws-shell-item ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-requests" ? "page" : undefined
-										}
-									>
-										<Icon name="shield" />
-										<span>加入审批</span>
-									</Link>
-									<Link
-										href={`/w/${slug}/settings/invitations`}
-										className={`ws-shell-item ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-invitations" ? "page" : undefined
-										}
-									>
-										<Icon name="invite" />
-										<span>邀请管理</span>
-									</Link>
-								</>
-							)}
-							<Link
-								href={`/w/${slug}/settings/account/profile`}
-								className={`ws-shell-item ${active === "settings-account-profile" ? "ws-shell-item--selected" : ""}`}
-								aria-current={
-									active === "settings-account-profile" ? "page" : undefined
-								}
-							>
-								<Icon name="user" />
-								<span>个人资料</span>
-							</Link>
 						</nav>
 					</>
 				)}
-
-				<div className="ws-shell-footer">
-					<ProfileEntry slug={slug} />
-					<div className="ws-shell-footer-actions">
-						<ThemeToggle />
-					</div>
-				</div>
 			</aside>
 
 			<main className="ws-shell-main">{children}</main>

@@ -214,6 +214,33 @@
   }
   .profile-settings-form__footer .l-btn-primary { min-height: 32px; }
 
+  /* Preferences 页：主题设置行 */
+  .settings-preference-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .settings-preference-row .ws-shell-theme {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 20px;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+  .settings-preference-row .ws-shell-theme:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+
   @media (max-width: 1100px) {
     .profile-view-grid, .profile-edit-layout { grid-template-columns: 1fr; }
     .profile-edit-side { order: -1; }

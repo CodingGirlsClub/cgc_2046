@@ -388,13 +388,13 @@ export default function WorkspaceMembersPage() {
 
 				<nav className="members-tabs" aria-label="成员管理页签">
 					<Link
-						href={`/w/${slug}/members`}
+						href={`/w/${slug}/settings/members`}
 						className="members-tab members-tab--selected"
 						aria-current="page"
 					>
 						成员
 					</Link>
-					<Link href={`/w/${slug}/permissions`} className="members-tab">
+					<Link href={`/w/${slug}/settings/permissions`} className="members-tab">
 						权限映射
 					</Link>
 				</nav>
