@@ -21,5 +21,9 @@ defmodule Cgc2046.Api do
     resource(Cgc2046.Workflows.StepRole)
     resource(Cgc2046.Workflows.WorkflowRun)
     resource(Cgc2046.Workflows.SignalLog)
+
+    # 教研实例化实体（#39 阶段 6：Event/Course launch → 教研 workflow run）
+    resource(Cgc2046.Events.Event)
+    resource(Cgc2046.Events.Course)
   end
 end
