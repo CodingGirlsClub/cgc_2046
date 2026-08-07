@@ -183,8 +183,7 @@ defmodule Cgc2046.Workflows.HumanStepTest do
           :resume_signal,
           %{
             signal_type: "workflow.approval",
-            payload: %{approved_by: "u1"},
-            actor_id: admin.id
+            payload: %{approved_by: "u1"}
           },
           actor: admin
         )
@@ -213,8 +212,7 @@ defmodule Cgc2046.Workflows.HumanStepTest do
           :resume_signal,
           %{
             signal_type: "workflow.approval",
-            payload: %{approved_by: "u1"},
-            actor_id: admin.id
+            payload: %{approved_by: "u1"}
           },
           actor: admin
         )

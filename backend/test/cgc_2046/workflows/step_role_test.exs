@@ -229,8 +229,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
                |> Ash.Changeset.for_update(
                  :resume_signal,
                  %{
-                   signal_type: "workflow.approval",
-                   actor_id: volunteer.id
+                   signal_type: "workflow.approval"
                  },
                  actor: volunteer
                )
@@ -242,6 +241,43 @@ defmodule Cgc2046.Workflows.StepRoleTest do
       assert reloaded.status == :waiting
 
       # 被拒信号不写 SignalLog（信号未生效，避免误导审计）
+      assert {:ok, logs} =
+               SignalLog
+               |> Ash.Query.filter(run_id == ^run.id)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert logs == []
+    end
+
+    test "伪造 actor_id 越权被拒：volunteer 冒充 owner 发信号不放行（#4）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      volunteer = register_user("srole-forger@example.com")
+      add_member(workspace, volunteer, :volunteer)
+
+      # approval 仅授权 :owner——volunteer 无权放行
+      {run, _step} = setup_gated_run(workspace, admin, [:owner])
+      waiting = start_to_waiting(run, workspace, admin)
+
+      # #4 回归：resume_signal 不接受客户端 actor_id（已移除），授权只看认证 actor。
+      # volunteer 即使尝试伪造 owner 身份（旧版传 actor_id: admin.id）也无法放行。
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               waiting
+               |> Ash.Changeset.for_update(
+                 :resume_signal,
+                 %{
+                   signal_type: "workflow.approval"
+                 },
+                 actor: volunteer
+               )
+               |> Ash.update(tenant: workspace.id, actor: volunteer)
+
+      assert Enum.any?(errors, &(&1.message =~ "unauthorized to signal step approval"))
+
+      # 越权信号不生效：run 保持 waiting，且不写 SignalLog
+      reloaded = Ash.get!(WorkflowRun, run.id, tenant: workspace.id, actor: admin)
+      assert reloaded.status == :waiting
+
       assert {:ok, logs} =
                SignalLog
                |> Ash.Query.filter(run_id == ^run.id)
@@ -266,8 +302,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
           :resume_signal,
           %{
             signal_type: "workflow.approval",
-            payload: %{approved_by: "volunteer"},
-            actor_id: volunteer.id
+            payload: %{approved_by: "volunteer"}
           },
           actor: volunteer
         )
@@ -300,8 +335,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
         |> Ash.Changeset.for_update(
           :resume_signal,
           %{
-            signal_type: "workflow.approval",
-            actor_id: admin.id
+            signal_type: "workflow.approval"
           },
           actor: admin
         )
@@ -327,8 +361,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
         |> Ash.Changeset.for_update(
           :resume_signal,
           %{
-            signal_type: "workflow.approval",
-            actor_id: member.id
+            signal_type: "workflow.approval"
           },
           actor: member
         )
