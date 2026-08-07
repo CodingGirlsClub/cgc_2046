@@ -99,7 +99,9 @@ export default function WorkspaceWorkflowsPage() {
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
 	const [runs, setRuns] = useState<WorkflowRunItem[]>([]);
-	const [loading, setLoading] = useState(false);
+	// 初始 loading=true：effect 内不再同步 setState（react-hooks/set-state-in-effect），
+	// 首个 fetch 完成前由归属守卫 currentRuns === null 兜底加载态
+	const [loading, setLoading] = useState(true);
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
 	// 数据归属守卫：runs 属于哪个 workspace（wsId 变化时旧数据作废，回到 loading）
 	const [runsWorkspaceId, setRunsWorkspaceId] = useState<string | null>(null);
@@ -111,7 +113,6 @@ export default function WorkspaceWorkflowsPage() {
 		if (!wsId) return;
 
 		let cancelled = false;
-		setLoading(true);
 		fetchWorkflowRuns(wsId)
 			.then((items) => {
 				if (cancelled) return;
