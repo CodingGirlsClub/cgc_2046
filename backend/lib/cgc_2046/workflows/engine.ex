@@ -38,22 +38,19 @@ defmodule Cgc2046.Workflows.Engine do
 
   @telemetry_prefix [:cgc, :workflow, :run]
 
-  # --- 校验层（#36 阶段 3：prepare_all + 三阶段钩子） --------------------------
+  # --- 校验层（#36 阶段 3：prepare_all） --------------------------------------
 
   @doc """
-  执行前校验（#36 阶段 3，Engine 三阶段的 prepare 层）。
+  执行前校验（#36 阶段 3，Engine 的 prepare 层）。
 
-  校验两件事：
-
-  1. **input_schema**：每个 step 的 `input_schema`（map，字段 → 类型字符串）与
-     run 输入匹配——必填字段存在 + 类型匹配（string/integer/boolean/map/list）
-  2. **next 引用完整性**：`steps[].next` 引用的 step 必须存在
+  校验 input_schema：每个 step 的 `input_schema`（map，字段 → 类型字符串）与
+  run 输入匹配——必填字段存在 + 类型匹配（string/integer/boolean/map/list）。
+  next 引用完整性由 JidoAdapter.build_workflow 构建期校验（#10，不在此重复）。
 
   返回 `:ok` 或 `{:error, {:prepare_failed, reason}}`，其中 reason 为：
 
   - `{:missing_field, step_key, field}`：输入缺必填字段
   - `{:type_mismatch, step_key, field, expected, actual}`：字段类型不匹配
-  - `{:unknown_next, step_key}`：next 引用不存在的 step
 
   `run/2` 执行前先调本函数；校验失败不进入执行。
   """
@@ -62,23 +59,6 @@ defmodule Cgc2046.Workflows.Engine do
     case validate_all(node_def, input) do
       :ok -> :ok
       {:error, reason} -> {:error, {:prepare_failed, reason}}
-    end
-  end
-
-  @doc """
-  单步 prepare 钩子（阶段 4/5 的 checkpoint 回调、StepRole 授权复用）。
-
-  校验单个 step 的 input_schema 与输入匹配。返回 `:ok` 或
-  `{:error, {:missing_field, step_key, field}}` / `{:error, {:type_mismatch, ...}}`。
-  """
-  @spec prepare_step(map(), map(), map()) :: :ok | {:error, term()}
-  def prepare_step(step, input, _ctx) when is_map(step) and is_map(input) do
-    case Map.get(step, "input_schema") do
-      schema when is_map(schema) and map_size(schema) > 0 ->
-        validate_schema(step["id"], schema, input)
-
-      _ ->
-        :ok
     end
   end
 
@@ -135,68 +115,15 @@ defmodule Cgc2046.Workflows.Engine do
     end
   end
 
-  @doc """
-  单步 execute 钩子（阶段 4/5 复用；主路径仍走 `run/2` 的 runic 整体执行）。
-
-  把单个 step 编译成单节点 workflow 并执行，返回与 `run/2` 相同的状态契约
-  （auto→执行；manual→waiting；gate→条件路由；sub_workflow→透传）。
-  """
-  @spec execute_step(map(), map(), map()) ::
-          {:ok, map()} | {:waiting, map()} | {:error, term()}
-  def execute_step(step, input, _ctx) when is_map(step) and is_map(input) do
-    node_def = %{"steps" => [step]}
-
-    with {:ok, workflow} <- JidoAdapter.build_workflow(node_def),
-         {:ok, workflow} <- JidoAdapter.react_until_satisfied(workflow, input) do
-      case JidoAdapter.run_status(workflow) do
-        :succeeded -> {:ok, JidoAdapter.list_run_facts(workflow)}
-        :waiting -> {:waiting, JidoAdapter.list_run_facts(workflow)}
-        :failed -> {:error, :step_failed}
-      end
-    end
-  end
-
-  @doc """
-  单步 finalize 钩子（规范化 facts + telemetry，阶段 4/5 复用）。
-
-  把 execute 结果规范化为 `%{step_key => value}` 形态并发出 telemetry 事件。
-  返回 `{:ok, facts}`。
-  """
-  @spec finalize_step(map(), term(), map()) :: {:ok, map()}
-  def finalize_step(step, result, _ctx) when is_map(step) do
-    facts = normalize_step_facts(step["id"], result)
-
-    :telemetry.execute(@telemetry_prefix ++ [:step, :complete], %{}, %{
-      step: step["id"],
-      facts: facts
-    })
-
-    {:ok, facts}
-  end
-
+  # next 引用完整性由 JidoAdapter.build_workflow 构建期校验（#10：Engine 侧
+  # 重复实现会各自腐烂，保留一份）。Engine 只校验 input_schema。
   defp validate_all(node_def, input) do
     steps = Map.get(node_def, "steps", [])
-    step_keys = MapSet.new(steps, & &1["id"])
 
-    with :ok <- validate_next_refs(steps, step_keys),
-         :ok <- validate_input_schemas(steps, input) do
-      :ok
+    case validate_input_schemas(steps, input) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp validate_next_refs(steps, step_keys) do
-    Enum.reduce_while(steps, :ok, fn step, :ok ->
-      case Map.get(step, "next") do
-        next when is_list(next) ->
-          case Enum.find(next, &(not MapSet.member?(step_keys, &1))) do
-            nil -> {:cont, :ok}
-            missing -> {:halt, {:error, {:unknown_next, missing}}}
-          end
-
-        _ ->
-          {:cont, :ok}
-      end
-    end)
   end
 
   defp validate_input_schemas(steps, input) do
@@ -245,16 +172,6 @@ defmodule Cgc2046.Workflows.Engine do
   defp type_name(value) when is_map(value), do: "map"
   defp type_name(value) when is_list(value), do: "list"
   defp type_name(_value), do: "unknown"
-
-  # execute_step 结果规范化：%{step_key => value}（facts 已是该形态时原样返回）
-  defp normalize_step_facts(step_key, %{} = facts) do
-    case Map.get(facts, step_key) do
-      nil -> %{step_key => facts}
-      _ -> facts
-    end
-  end
-
-  defp normalize_step_facts(step_key, value), do: %{step_key => value}
 
   @doc """
   执行 workflow（无状态）。
@@ -361,38 +278,6 @@ defmodule Cgc2046.Workflows.Engine do
           :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{})
           {:error, :step_failed}
       end
-    end
-  end
-
-  @doc """
-  注入外部信号（人工步骤放行，阶段 4 完整接入）。
-
-  信号事实值约定含 `"signal_type"` 键（`"workflow.<step_key>"`），由
-  `JidoAdapter.feed_signal/2` 的门控匹配。返回与 `run/2` 相同契约。
-  """
-  @spec feed_signal(term(), map()) ::
-          {:ok, map(), term()} | {:waiting, map(), term()} | {:error, term()}
-  def feed_signal(workflow, signal) when is_map(signal) do
-    with {:ok, workflow} <- JidoAdapter.feed_signal(workflow, signal) do
-      case JidoAdapter.run_status(workflow) do
-        :succeeded ->
-          facts = JidoAdapter.list_run_facts(workflow)
-          :telemetry.execute(@telemetry_prefix ++ [:complete], %{}, %{facts: facts})
-          {:ok, facts, workflow}
-
-        :waiting ->
-          facts = JidoAdapter.list_run_facts(workflow)
-          :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
-          {:waiting, facts, workflow}
-
-        :failed ->
-          :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{})
-          {:error, :step_failed}
-      end
-    else
-      {:error, reason} ->
-        :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{reason: reason})
-        {:error, reason}
     end
   end
 end

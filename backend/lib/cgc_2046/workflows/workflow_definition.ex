@@ -10,7 +10,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
   - **蓝图是数据不是代码**：node_def 只存执行拓扑（步骤顺序/依赖），Step 字段（type/agent_id/
     sub_definition_id）独立存于 Step 资源。运行时由引擎读取驱动执行，改定义不改代码。
   - **核心是协议不是框架**：本资源只描述「做什么步骤、什么顺序、什么类型」，不内建审批/MCP/审计
-    逻辑——这些通过 Step 的 action（指向实现 StepHandler behaviour 的模块）外置。
+    逻辑——这些通过 Step 的 action（指向经 StepHandlerRegistry 注册的模块）外置。
 
   ## 生命周期/版本（#34 acceptance）
 

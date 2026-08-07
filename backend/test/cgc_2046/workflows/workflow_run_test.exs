@@ -6,6 +6,7 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.Engine
+  alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
   alias AshAuthentication.Info, as: AuthInfo
@@ -440,14 +441,18 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
         |> Ash.Changeset.for_update(:wait, %{}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
 
-      # 信号放行 → 下游继续
-      assert {:ok, facts2, _workflow} =
-               Engine.feed_signal(workflow, %{
+      # 信号放行 → 下游继续（#7：Engine.feed_signal/2 已删，零生产调用者；
+      # 直接经 JidoAdapter 验证内存 workflow 的信号门控）
+      assert {:ok, wf2} =
+               JidoAdapter.feed_signal(workflow, %{
                  "signal_type" => "workflow.approval",
                  "approved_by" => "u1"
                })
 
-      assert facts2["append_exclamation"] == %{text: "HI!"}
+      assert JidoAdapter.run_status(wf2) == :succeeded
+      assert JidoAdapter.list_run_facts(wf2)["append_exclamation"] == %{text: "HI!"}
+
+      facts2 = JidoAdapter.list_run_facts(wf2)
 
       {:ok, resumed} =
         waiting

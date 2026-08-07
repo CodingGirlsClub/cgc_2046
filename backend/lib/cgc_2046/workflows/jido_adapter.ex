@@ -60,9 +60,6 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   @doc "信号总线进程名（Application 启动时挂载）"
   def bus_name, do: @bus_name
 
-  @doc "阶段 2 的 ETS storage 配置（Postgres 适配器阶段 4 替换）"
-  def storage, do: @storage
-
   # --- 1. DAG 构建 -----------------------------------------------------------
 
   @doc """
