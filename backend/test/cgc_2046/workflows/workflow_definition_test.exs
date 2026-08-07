@@ -170,7 +170,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
       # 给源定义建 manual Step + StepRole（角色绑定：owner 可执行审批）
       {:ok, step} =
         Step
-        |> Ash.Changeset.for_create(:create,
+        |> Ash.Changeset.for_create(
+          :create,
           %{
             definition_id: defn.id,
             step_key: "approval",
@@ -189,7 +190,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
       assert {:ok, _step_role} =
                Cgc2046.Workflows.StepRole
-               |> Ash.Changeset.for_create(:create,
+               |> Ash.Changeset.for_create(
+                 :create,
                  %{step_id: step.id, role_id: owner_role.id},
                  tenant: workspace.id,
                  actor: admin

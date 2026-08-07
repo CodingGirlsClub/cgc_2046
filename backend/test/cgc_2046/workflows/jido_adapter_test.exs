@@ -102,6 +102,7 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
     # 反向解析；未注册/畸形 action 拒绝且不创建该名字的原子（原子表耗尽防护）。
     test "rejects unregistered action without creating atoms (#11)" do
       action = "Elixir.Cgc2046.Workflows.Nope_#{System.unique_integer([:positive])}"
+
       node_def = %{
         "steps" => [
           %{"id" => "x", "type" => "auto", "action" => action}

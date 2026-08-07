@@ -224,8 +224,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
                 "source definition #{source_id} status=#{source.status}, must be published"
               )
 
-              {:error, _} ->
-                Ash.Changeset.add_error(changeset, "source definition #{source_id} not found")
+            {:error, _} ->
+              Ash.Changeset.add_error(changeset, "source definition #{source_id} not found")
           end
         end
       end)
@@ -233,17 +233,19 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       # #15：新定义落库后复制 source 的 Step/StepRole 行（manual 步骤授权配置不能丢）。
       # 同事务（Ash create 默认 transaction?: true），失败回滚新定义。
       # after_action 契约：result 是裸 record，返回值须 {:ok, result} / {:error, error}。
-      change after_action(fn changeset, result, _context ->
-        case changeset.context[:new_version_source] do
-          {source, tenant} when is_struct(source) and is_binary(tenant) ->
-            copy_steps(result, source, tenant)
+      change(
+        after_action(fn changeset, result, _context ->
+          case changeset.context[:new_version_source] do
+            {source, tenant} when is_struct(source) and is_binary(tenant) ->
+              copy_steps(result, source, tenant)
 
-          _ ->
-            :ok
-        end
+            _ ->
+              :ok
+          end
 
-        {:ok, result}
-      end)
+          {:ok, result}
+        end)
+      )
     end
 
     defaults([:read])
@@ -261,7 +263,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     # #18：workspace_id 索引声明进 DSL（原先只在迁移手加，Ash codegen 不可见，
     # snapshot squash 会丢）；multitenancy 按 workspace_id 过滤，必查索引。
     custom_indexes do
-      index [:workspace_id]
+      index([:workspace_id])
     end
   end
 
