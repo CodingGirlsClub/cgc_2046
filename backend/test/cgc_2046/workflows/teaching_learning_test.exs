@@ -208,7 +208,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         run_1
         |> Ash.Changeset.for_update(
           :resume_signal,
-          %{signal_type: "workflow.approval", payload: %{approved_by: "u1"}, actor_id: admin.id},
+          %{signal_type: "workflow.approval", payload: %{approved_by: "u1"}},
           actor: admin
         )
         |> Ash.update(tenant: workspace.id, actor: admin)
@@ -217,7 +217,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         run_2
         |> Ash.Changeset.for_update(
           :resume_signal,
-          %{signal_type: "workflow.approval", payload: %{approved_by: "u1"}, actor_id: admin.id},
+          %{signal_type: "workflow.approval", payload: %{approved_by: "u1"}},
           actor: admin
         )
         |> Ash.update(tenant: workspace.id, actor: admin)
@@ -346,7 +346,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         run_1
         |> Ash.Changeset.for_update(
           :resume_signal,
-          %{signal_type: "workflow.approval", payload: %{approved_by: "u1"}, actor_id: admin.id},
+          %{signal_type: "workflow.approval", payload: %{approved_by: "u1"}},
           actor: admin
         )
         |> Ash.update(tenant: workspace.id, actor: admin)

@@ -319,7 +319,6 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       require_atomic?(false)
       argument(:signal_type, :string, allow_nil?: false)
       argument(:payload, :map, default: %{})
-      argument(:actor_id, :uuid)
       change(optimistic_lock(:version))
 
       change(fn changeset, _context ->
@@ -493,18 +492,24 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     definition_id = Ash.Changeset.get_data(changeset, :definition_id)
     signal_type = Ash.Changeset.get_argument(changeset, :signal_type)
     payload = Ash.Changeset.get_argument(changeset, :payload) || %{}
-    actor_id = Ash.Changeset.get_argument(changeset, :actor_id)
+
+    # 授权与审计一律用认证 actor（changeset.context[:private][:actor]），
+    # 不信任客户端传入的 actor_id——否则任何成员可伪造 owner id 放行 manual 门控（#4）。
+    actor = changeset.context[:private][:actor]
 
     cond do
       is_nil(signal_type) ->
         Ash.Changeset.add_error(changeset, "signal_type is required")
 
+      is_nil(actor) ->
+        Ash.Changeset.add_error(changeset, "resume_signal requires an authenticated actor")
+
       true ->
         # #38 StepRole 授权：manual 步骤信号发起人（领域模型 §4.3）。
-        # actor_id 为 nil → 无角色 → 有 StepRole 配置则拒绝（安全方向）。
+        # actor 为 nil → 无角色 → 有 StepRole 配置则拒绝（安全方向）。
         step_key = String.replace_prefix(signal_type, "workflow.", "")
 
-        case Engine.authorize_signal(%{id: actor_id}, tenant, definition_id, step_key) do
+        case Engine.authorize_signal(actor, tenant, definition_id, step_key) do
           :ok ->
             resume_signal_authorized(
               changeset,
@@ -513,7 +518,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
               partition,
               signal_type,
               payload,
-              actor_id
+              actor.id
             )
 
           {:error, :unauthorized} ->
