@@ -208,7 +208,7 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
              end)
     end
 
-    # /check SC2-004：definition_version 必须匹配 published 版本
+    # /check SC2-004：definition_version 必须与 definition_id 行的 version 一致（防矛盾/伪造）
     test "create rejects mismatched definition_version (SC2-004)" do
       admin = platform_admin()
       workspace = create_workspace(admin)
@@ -228,7 +228,7 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
                )
                |> Ash.create(tenant: workspace.id, actor: admin)
 
-      assert Enum.any?(errors, &(Exception.message(&1) =~ "does not match published version"))
+      assert Enum.any?(errors, &(Exception.message(&1) =~ "got definition_version"))
     end
 
     # /check SC2-005：状态流转 action 不接受 input_snapshot/definition_version（D-A2 快照）
