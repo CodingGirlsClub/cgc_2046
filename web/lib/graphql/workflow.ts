@@ -46,7 +46,8 @@ export interface WorkflowRun {
 
 /** listWorkflowRuns 分页对象（KeysetPageOfWorkflowRun 实测形态） */
 export interface WorkflowRunConnection {
-	count: number;
+	/** SDL 为 nullable `count: Int`（schema.graphql:19）— 与 SDL 对齐 */
+	count: number | null;
 	results: WorkflowRun[];
 	startKeyset?: string | null;
 	endKeyset?: string | null;

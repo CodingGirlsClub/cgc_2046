@@ -28,6 +28,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
   （ADR-0002 决策 6）。
   """
 
+  require Ash.Query
+
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource],
@@ -212,6 +214,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
                 |> Ash.Changeset.change_attribute(:input_schema, source.input_schema)
                 |> Ash.Changeset.change_attribute(:node_def, source.node_def)
                 |> Ash.Changeset.change_attribute(:approval_timeout, source.approval_timeout)
+                # #15：Step/StepRole 复制放 after_action（需新定义 id 已生成）
+                |> Ash.Changeset.put_context(:new_version_source, {source, tenant})
               end
 
             {:ok, source} ->
@@ -220,10 +224,25 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
                 "source definition #{source_id} status=#{source.status}, must be published"
               )
 
-            {:error, _} ->
-              Ash.Changeset.add_error(changeset, "source definition #{source_id} not found")
+              {:error, _} ->
+                Ash.Changeset.add_error(changeset, "source definition #{source_id} not found")
           end
         end
+      end)
+
+      # #15：新定义落库后复制 source 的 Step/StepRole 行（manual 步骤授权配置不能丢）。
+      # 同事务（Ash create 默认 transaction?: true），失败回滚新定义。
+      # after_action 契约：result 是裸 record，返回值须 {:ok, result} / {:error, error}。
+      change after_action(fn changeset, result, _context ->
+        case changeset.context[:new_version_source] do
+          {source, tenant} when is_struct(source) and is_binary(tenant) ->
+            copy_steps(result, source, tenant)
+
+          _ ->
+            :ok
+        end
+
+        {:ok, result}
       end)
     end
 
@@ -238,6 +257,12 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
   postgres do
     table("workflow_definitions")
     repo(Cgc2046.Repo)
+
+    # #18：workspace_id 索引声明进 DSL（原先只在迁移手加，Ash codegen 不可见，
+    # snapshot squash 会丢）；multitenancy 按 workspace_id 过滤，必查索引。
+    custom_indexes do
+      index [:workspace_id]
+    end
   end
 
   policies do
@@ -257,5 +282,65 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
 
   graphql do
     type(:workflow_definition)
+  end
+
+  # --- 私有实现 --------------------------------------------------------------
+
+  # #15：new_version 复制 source 的 Step 行 + StepRole 关联（同事务）。
+  # Step 字段按可写属性全量复制（definition_id 换新）；StepRole 按 step_id → 新 step_id
+  # 映射重建（role_id 不变——Role 是 workspace 级资源，非 definition 级）。
+  defp copy_steps(new_def, source, tenant) do
+    with {:ok, source_steps} <-
+           Ash.Query.filter(Cgc2046.Workflows.Step, definition_id == ^source.id)
+           |> Ash.read(tenant: tenant, authorize?: false) do
+      Enum.each(source_steps, fn source_step ->
+        case create_copied_step(source_step, new_def.id, tenant) do
+          {:ok, new_step} ->
+            copy_step_roles(source_step.id, new_step.id, tenant)
+
+          {:error, reason} ->
+            raise "new_version failed to copy step #{source_step.step_key}: #{inspect(reason)}"
+        end
+      end)
+    end
+
+    :ok
+  end
+
+  defp create_copied_step(source_step, new_definition_id, tenant) do
+    attrs = %{
+      definition_id: new_definition_id,
+      step_key: source_step.step_key,
+      title: source_step.title,
+      type: source_step.type,
+      action: source_step.action,
+      agent_id: source_step.agent_id,
+      sub_definition_id: source_step.sub_definition_id,
+      input_schema: source_step.input_schema
+    }
+
+    Cgc2046.Workflows.Step
+    |> Ash.Changeset.for_create(:create, attrs, tenant: tenant, authorize?: false)
+    |> Ash.create(tenant: tenant, authorize?: false)
+  end
+
+  defp copy_step_roles(source_step_id, new_step_id, tenant) do
+    case Ash.Query.filter(Cgc2046.Workflows.StepRole, step_id == ^source_step_id)
+         |> Ash.read(tenant: tenant, authorize?: false) do
+      {:ok, step_roles} ->
+        Enum.each(step_roles, fn step_role ->
+          Cgc2046.Workflows.StepRole
+          |> Ash.Changeset.for_create(
+            :create,
+            %{step_id: new_step_id, role_id: step_role.role_id},
+            tenant: tenant,
+            authorize?: false
+          )
+          |> Ash.create(tenant: tenant, authorize?: false)
+        end)
+
+      {:error, _} ->
+        :ok
+    end
   end
 end

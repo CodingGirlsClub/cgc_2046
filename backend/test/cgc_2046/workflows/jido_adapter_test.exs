@@ -52,8 +52,12 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
 
   describe "build_workflow" do
     test "builds linear DAG from node_def" do
+      # #19：build_workflow 只编译不执行，run_status 恒为 :succeeded——必须 react
+      # 到满足（执行全部 auto 步骤）后断言状态与产物，否则断言是空转。
       assert {:ok, workflow} = JidoAdapter.build_workflow(auto_node_def())
+      assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
       assert JidoAdapter.run_status(workflow) == :succeeded
+      assert JidoAdapter.list_run_facts(workflow)["uppercase"] == %{text: "HI"}
     end
 
     test "rejects empty steps" do
@@ -92,6 +96,26 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
 
       assert {:error, {:build_workflow_failed, message}} = JidoAdapter.build_workflow(node_def)
       assert message =~ "invalid step id"
+    end
+
+    # #11：action 字符串不造 BEAM atom——Module.concat 已移除，改为字符串 → 注册表
+    # 反向解析；未注册/畸形 action 拒绝且不创建该名字的原子（原子表耗尽防护）。
+    test "rejects unregistered action without creating atoms (#11)" do
+      action = "Elixir.Cgc2046.Workflows.Nope_#{System.unique_integer([:positive])}"
+      node_def = %{
+        "steps" => [
+          %{"id" => "x", "type" => "auto", "action" => action}
+        ]
+      }
+
+      assert {:error, {:build_workflow_failed, message}} = JidoAdapter.build_workflow(node_def)
+      assert message =~ "not a registered step handler"
+
+      # 该 action 字符串若被 Module.concat 过会永久占用原子——binary_to_existing_atom
+      # 只在原子已存在时成功；未创建则 raise（concat 移除 → 防护生效）。
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(action, :utf8)
+      end
     end
 
     # #36：next 拓扑构建——next 声明顺序，与数组顺序无关
@@ -173,6 +197,25 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
       assert {:ok, workflow} = JidoAdapter.react_until_satisfied(workflow, %{"text" => "hi"})
       assert JidoAdapter.run_status(workflow) == :succeeded
       assert JidoAdapter.list_run_facts(workflow)["sub"] == %{"text" => "hi"}
+    end
+
+    # #9：sub_definition_id 是 id 但查不到子定义 → 构建失败（配置错误暴露为
+    # run failed），不得静默透传——否则父 run succeeded 但子 workflow 从未执行。
+    test "rejects dangling sub_definition_id at build time" do
+      node_def = %{
+        "steps" => [
+          %{
+            "id" => "sub",
+            "type" => "sub_workflow",
+            "sub_definition_id" => "00000000-0000-0000-0000-000000000000"
+          }
+        ]
+      }
+
+      assert {:error, {:build_workflow_failed, message}} =
+               JidoAdapter.build_workflow(node_def, tenant: "tenant-x")
+
+      assert message =~ "unknown sub_definition_id"
     end
   end
 

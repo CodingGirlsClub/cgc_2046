@@ -223,7 +223,9 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   # 注入 work fn 闭包——work fn 运行时无 tenant 上下文（runic Step work fn 只收
   # data），闭包捕获编译期预取的 node_def。
   #
-  # - 无 sub_definition_id 或查不到子定义 → 透传输入（向后兼容阶段 3 的 stub 行为）
+  # - 无 sub_definition_id → 透传输入（该字段缺失 = 合法形态，保留阶段 3 stub 行为）
+  # - sub_definition_id 是 id 但查不到子定义 → raise（#9：配置错误应暴露为 run failed，
+  #   不得静默透传——否则父 run succeeded 但子 workflow 从未执行）
   # - 子定义含 manual 步骤 → 子 workflow 挂起（:waiting），v1 不支持嵌套 waiting
   #   （父 workflow 需 hibernate 子 workflow 状态），raise 领域错误 → 父 run failed
   # - 子 workflow 失败 → raise 领域错误（#3：不能返回 {:error, ...}——runic Step
@@ -241,8 +243,12 @@ defmodule Cgc2046.Workflows.JidoAdapter do
                tenant: tenant,
                authorize?: false
              ) do
-          {:ok, defn} -> defn.node_def
-          _ -> nil
+          {:ok, defn} ->
+            defn.node_def
+
+          {:error, _} ->
+            raise ArgumentError,
+                  "sub_workflow #{step_key} references unknown sub_definition_id #{inspect(sub_definition_id)}"
         end
       end
 
@@ -518,15 +524,31 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   # /check SC2-001：无校验时租户可让引擎执行任意带 run/2 的模块
   # （如 Jido.Tools.Files.WriteFile → 任意宿主文件读写）；Jido.Action 的 schema/0
   # 导出无法区分（WriteFile 也导出），必须用注册表白名单。
-  defp resolve_action_module!(action) do
-    mod = Module.concat([action])
+  #
+  # #11：不直接 Module.concat(action)——租户可控字符串会永久创建 BEAM atom，
+  # 耗尽原子表。改为字符串 → 注册表反向解析：只有 action 恰等于某已注册模块名
+  # 时返回该模块（此时模块 atom 已存在，无新原子产生）；否则拒绝。
+  @action_regex ~r/^[A-Za-z][A-Za-z0-9_.]{0,255}$/
 
-    if StepHandlerRegistry.allowed?(mod) do
-      mod
+  defp resolve_action_module!(action) when is_binary(action) do
+    if Regex.match?(@action_regex, action) do
+      case Enum.find(StepHandlerRegistry.registered(), fn mod ->
+             Atom.to_string(mod) == action
+           end) do
+        nil ->
+          raise ArgumentError,
+                "action #{inspect(action)} is not a registered step handler (StepHandlerRegistry)"
+
+        mod ->
+          mod
+      end
     else
-      raise ArgumentError,
-            "action #{inspect(action)} is not a registered step handler (StepHandlerRegistry)"
+      raise ArgumentError, "invalid action module name #{inspect(action)}"
     end
+  end
+
+  defp resolve_action_module!(action) do
+    raise ArgumentError, "invalid action module name #{inspect(action)}"
   end
 
   # --- 2. 执行（Workflow 层 runner，避 F1 死锁） ------------------------------

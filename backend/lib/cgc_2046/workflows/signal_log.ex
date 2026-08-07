@@ -117,6 +117,12 @@ defmodule Cgc2046.Workflows.SignalLog do
     references do
       reference(:run, ignore?: true)
     end
+
+    # #18：按 workspace + run 过滤信号日志的审计查询索引（原先只在迁移手加，
+    # Ash codegen 不可见，snapshot squash 会丢）。
+    custom_indexes do
+      index [:workspace_id, :run_id]
+    end
   end
 
   policies do

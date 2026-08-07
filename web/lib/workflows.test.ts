@@ -87,12 +87,15 @@ describe("fetchWorkflowRuns（#40：filter eq 包装 + 分页）", () => {
 	});
 
 	it("默认调用传 first: 50、filter 只含 workspaceId eq，返回映射后的 run 列表", async () => {
-		queryMock.mockImplementation(({ query, variables }) => {
+		queryMock.mockImplementation(({ query, variables, context }) => {
 			expect(opName(query)).toBe("ListWorkflowRuns");
 			expect(variables).toEqual({
 				filter: { workspaceId: { eq: "ws_1" } },
 				first: 50,
 			});
+			// #23：signal 必须是 AbortSignal 实例（曾传函数引用——Apollo 对其
+			// addEventListener 会 TypeError，测试 mock 掩盖了该 bug）
+			expect(context?.fetchOptions?.signal).toBeInstanceOf(AbortSignal);
 			return Promise.resolve({
 				data: {
 					listWorkflowRuns: {
