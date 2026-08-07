@@ -290,15 +290,30 @@ defmodule Cgc2046.Workflows.Engine do
         :waiting ->
           facts = JidoAdapter.list_run_facts(workflow)
 
-          # 产品层传入 run_id/partition 时自动 hibernate checkpoint（阶段 4 #37）
+          # 产品层传入 run_id/partition 时自动 hibernate checkpoint（阶段 4 #37）。
+          # #2：hibernate 失败必须上抛——否则 run 标 waiting 但无 checkpoint，
+          # 下次信号 thaw 死路，run 永久卡死。失败 → :failed（与 resume/3 的
+          # `:ok =` 严格模式一致，但以 error 返回而非 raise）。
           case {Keyword.get(opts, :run_id), Keyword.get(opts, :partition)} do
-            {nil, _} -> :ok
-            {_, nil} -> :ok
-            {run_id, partition} -> JidoAdapter.hibernate(run_id, partition, workflow)
-          end
+            {nil, _} ->
+              :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
+              {:waiting, facts, workflow}
 
-          :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
-          {:waiting, facts, workflow}
+            {_, nil} ->
+              :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
+              {:waiting, facts, workflow}
+
+            {run_id, partition} ->
+              case JidoAdapter.hibernate(run_id, partition, workflow) do
+                :ok ->
+                  :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
+                  {:waiting, facts, workflow}
+
+                {:error, reason} ->
+                  :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{reason: reason})
+                  {:error, {:hibernate_failed, reason}}
+              end
+          end
 
         :failed ->
           :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{})

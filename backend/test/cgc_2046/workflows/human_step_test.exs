@@ -330,6 +330,30 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     test "thaw of unknown run returns :not_found（Postgres 隔离）" do
       assert {:error, :not_found} = JidoAdapter.thaw("no-such-run", "no-such-partition")
     end
+
+    test "hibernate 失败时 run 标 failed 而非 waiting（#2 回归）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
+
+      # 模拟 checkpoint 写失败：drop jido_checkpoints 表（sandbox 事务内，测试结束回滚）。
+      # buggy 代码吞掉 hibernate 失败 → run 标 waiting 但无 checkpoint，下次信号
+      # thaw 死路，run 永久卡死。修复后：hibernate 失败 → run 标 failed。
+      {:ok, _} = Ecto.Adapters.SQL.query(Cgc2046.Repo, "DROP TABLE jido_checkpoints")
+
+      {:ok, failed} =
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert failed.status == :failed
+      refute is_nil(failed.finished_at)
+
+      # 无 checkpoint 残留（hibernate 未写入；表已 drop，thaw 报 storage_error）
+      assert {:error, _} = JidoAdapter.thaw(run.id, run.partition_id)
+    end
   end
 
   describe "多信号分批 feed（F1 死锁回归防护）" do
