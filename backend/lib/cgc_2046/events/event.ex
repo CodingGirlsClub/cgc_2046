@@ -27,6 +27,8 @@ defmodule Cgc2046.Events.Event do
 
   alias Cgc2046.Workflows.JidoAdapter
 
+  require Logger
+
   @status_values [:draft, :open, :closed, :cancelled]
 
   attributes do
@@ -120,6 +122,9 @@ defmodule Cgc2046.Events.Event do
 
     # draft → open：发布活动，发 event.launched 信号（教研实例化入口）。
     # 信号经 JidoAdapter 总线异步投递，ResearchInstantiator 订阅后创建教研 run。
+    # #1 TOCTOU：publish 必须在事务提交后（after_transaction）执行——change 回调
+    # 在 for_update 阶段（事务开始前）运行，此时订阅方读到未提交的 draft 状态，
+    # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。
     update :launch do
       description("发布活动：draft → open，发 event.launched 信号")
       require_atomic?(false)
@@ -128,8 +133,19 @@ defmodule Cgc2046.Events.Event do
       change(fn changeset, _context ->
         case Ash.Changeset.get_data(changeset, :status) do
           :draft ->
-            changeset = Ash.Changeset.force_change_attribute(changeset, :status, :open)
+            Ash.Changeset.force_change_attribute(changeset, :status, :open)
 
+          status ->
+            Ash.Changeset.add_error(changeset, "cannot launch from status=#{status}")
+        end
+      end)
+
+      # 事务提交成功后发布信号（提交失败不发布——订阅方不会读到孤儿信号）。
+      # 发布失败无法回滚事务，记 error 日志（best-effort，与 ResearchInstantiator
+      # 异步路径的容错语义一致）。
+      change after_transaction(fn changeset, result, _context ->
+        case result do
+          {:ok, _record} ->
             tenant = changeset.tenant
             id = Ash.Changeset.get_data(changeset, :id)
             title = Ash.Changeset.get_data(changeset, :title)
@@ -141,14 +157,15 @@ defmodule Cgc2046.Events.Event do
                    tenant
                  ) do
               :ok ->
-                changeset
+                result
 
               {:error, reason} ->
-                Ash.Changeset.add_error(changeset, "signal publish failed: #{inspect(reason)}")
+                Logger.error("event.launched publish failed for #{id}: #{inspect(reason)}")
+                result
             end
 
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot launch from status=#{status}")
+          _ ->
+            result
         end
       end)
     end
