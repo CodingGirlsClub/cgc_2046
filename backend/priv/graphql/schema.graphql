@@ -3,6 +3,609 @@ schema {
   query: RootQueryType
 }
 
+enum CourseSortField {
+  ID
+  WORKSPACE_ID
+  TITLE
+  RESEARCH_ENABLED
+  RESEARCH_REQUIREMENTS
+  STATUS
+  WORKFLOW_RUN_ID
+}
+
+"A keyset page of :course"
+type KeysetPageOfCourse {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Course!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input CourseFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input CourseFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input CourseFilterResearchRequirements {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input CourseFilterResearchEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+}
+
+input CourseFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input CourseFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input CourseFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input CourseFilterInput {
+  and: [CourseFilterInput!]
+
+  or: [CourseFilterInput!]
+
+  not: [CourseFilterInput!]
+
+  id: CourseFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: CourseFilterWorkspaceId
+
+  "课程标题"
+  title: CourseFilterTitle
+
+  "是否启用教研 workflow"
+  researchEnabled: CourseFilterResearchEnabled
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: CourseFilterResearchRequirements
+
+  "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: CourseFilterStatus
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: CourseFilterWorkflowRunId
+}
+
+input CourseSortInput {
+  order: SortOrder
+  field: CourseSortField!
+}
+
+type Course {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "课程标题"
+  title: String!
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean!
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: String!
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: ID
+}
+
+enum EventSortField {
+  ID
+  WORKSPACE_ID
+  TITLE
+  RESEARCH_ENABLED
+  RESEARCH_REQUIREMENTS
+  STATUS
+  WORKFLOW_RUN_ID
+}
+
+"A keyset page of :event"
+type KeysetPageOfEvent {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Event!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input EventFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EventFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input EventFilterResearchRequirements {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input EventFilterResearchEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+}
+
+input EventFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EventFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EventFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EventFilterInput {
+  and: [EventFilterInput!]
+
+  or: [EventFilterInput!]
+
+  not: [EventFilterInput!]
+
+  id: EventFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: EventFilterWorkspaceId
+
+  "活动标题"
+  title: EventFilterTitle
+
+  "是否启用教研 workflow"
+  researchEnabled: EventFilterResearchEnabled
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: EventFilterResearchRequirements
+
+  "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: EventFilterStatus
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: EventFilterWorkflowRunId
+}
+
+input EventSortInput {
+  order: SortOrder
+  field: EventSortField!
+}
+
+type Event {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "活动标题"
+  title: String!
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean!
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: String!
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: ID
+}
+
+enum WorkflowRunSortField {
+  ID
+  WORKSPACE_ID
+  DEFINITION_ID
+  DEFINITION_VERSION
+  STATUS
+  INPUT_SNAPSHOT
+  FACTS
+  PARTITION_ID
+  VERSION
+  STARTED_AT
+  FINISHED_AT
+}
+
+"A keyset page of :workflow_run"
+type KeysetPageOfWorkflowRun {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [WorkflowRun!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input WorkflowRunFilterFinishedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkflowRunFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkflowRunFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input WorkflowRunFilterPartitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkflowRunFilterFacts {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input WorkflowRunFilterInputSnapshot {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input WorkflowRunFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input WorkflowRunFilterDefinitionVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input WorkflowRunFilterDefinitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkflowRunFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkflowRunFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkflowRunFilterInput {
+  and: [WorkflowRunFilterInput!]
+
+  or: [WorkflowRunFilterInput!]
+
+  not: [WorkflowRunFilterInput!]
+
+  id: WorkflowRunFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: WorkflowRunFilterWorkspaceId
+
+  "绑定的 WorkflowDefinition ID"
+  definitionId: WorkflowRunFilterDefinitionId
+
+  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
+  definitionVersion: WorkflowRunFilterDefinitionVersion
+
+  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
+  status: WorkflowRunFilterStatus
+
+  "run 输入快照（创建时固化，执行引擎按此驱动）"
+  inputSnapshot: WorkflowRunFilterInputSnapshot
+
+  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
+  facts: WorkflowRunFilterFacts
+
+  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
+  partitionId: WorkflowRunFilterPartitionId
+
+  "乐观锁版本号，每次状态流转 +1"
+  version: WorkflowRunFilterVersion
+
+  "开始执行时间（start action 写入）"
+  startedAt: WorkflowRunFilterStartedAt
+
+  "结束时间（终态 action 写入）"
+  finishedAt: WorkflowRunFilterFinishedAt
+}
+
+input WorkflowRunSortInput {
+  order: SortOrder
+  field: WorkflowRunSortField!
+}
+
+type WorkflowRun {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "绑定的 WorkflowDefinition ID"
+  definitionId: ID!
+
+  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
+  definitionVersion: Int!
+
+  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
+  status: String!
+
+  "run 输入快照（创建时固化，执行引擎按此驱动）"
+  inputSnapshot: JsonString
+
+  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
+  facts: JsonString
+
+  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
+  partitionId: ID
+
+  "乐观锁版本号，每次状态流转 +1"
+  version: Int!
+
+  "开始执行时间（start action 写入）"
+  startedAt: DateTime
+
+  "结束时间（终态 action 写入）"
+  finishedAt: DateTime
+}
+
 enum SortOrder {
   DESC
   DESC_NULLS_FIRST
@@ -1451,6 +2054,93 @@ type RootQueryType {
     "明文邀请令牌"
     token: String!
   ): Invitation
+
+  "工作台的 workflow run 列表（#40 展示页）"
+  listWorkflowRuns(
+    "How to sort the records in the response"
+    sort: [WorkflowRunSortInput]
+
+    "A filter to limit the results"
+    filter: WorkflowRunFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfWorkflowRun
+
+  "按 id 获取 workflow run 详情（#40）"
+  getWorkflowRun(
+    "A filter to limit the results"
+    filter: WorkflowRunFilterInput
+
+    id: ID!
+  ): WorkflowRun
+
+  "工作台的活动列表（#40 展示页）"
+  listEvents(
+    "How to sort the records in the response"
+    sort: [EventSortInput]
+
+    "A filter to limit the results"
+    filter: EventFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfEvent
+
+  "按 id 获取活动（#40）"
+  getEvent(
+    "A filter to limit the results"
+    filter: EventFilterInput
+
+    id: ID!
+  ): Event
+
+  "工作台的课程列表（#40 展示页）"
+  listCourses(
+    "How to sort the records in the response"
+    sort: [CourseSortInput]
+
+    "A filter to limit the results"
+    filter: CourseFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfCourse
+
+  "按 id 获取课程（#40）"
+  getCourse(
+    "A filter to limit the results"
+    filter: CourseFilterInput
+
+    id: ID!
+  ): Course
 }
 
 type AbilityGrant {
@@ -1568,6 +2258,13 @@ type RootMutationType {
   "接受邀请→建 Membership + 预授权角色入座"
   acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult!
 }
+
+"""
+The `Json` scalar type represents arbitrary json string data, represented as UTF-8
+character sequences. The Json type is most often used to represent a free-form
+human-readable json string.
+"""
+scalar JsonString
 
 """
 The `Json` scalar type represents arbitrary json string data, represented as UTF-8
