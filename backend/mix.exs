@@ -5,7 +5,8 @@ defmodule Cgc2046.MixProject do
     [
       app: :cgc_2046,
       version: "0.1.0",
-      elixir: "~> 1.17",
+      # runic（jido_runic 底层）要求 Elixir ~> 1.18（1.17 无内置 JSON.Encoder）
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
