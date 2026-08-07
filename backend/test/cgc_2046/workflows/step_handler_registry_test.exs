@@ -9,12 +9,14 @@ defmodule Cgc2046.Workflows.StepHandlerRegistryTest do
   # allowed? 恒 false，引擎拒绝一切 auto 步骤。
   test "registrations survive caller process death (SC2-011)" do
     # 首个调用者是短命进程：旧实现表归它所有，死亡即销毁
-    spawn(fn ->
-      StepHandlerRegistry.register(TestActions.Uppercase)
-      Process.sleep(100)
-    end)
+    pid =
+      spawn(fn ->
+        StepHandlerRegistry.register(TestActions.Uppercase)
+      end)
 
-    Process.sleep(150)
+    # 等短命进程退出（#27：不用 Process.sleep——AGENTS.md 要求 monitor/DOWN）
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
 
     assert StepHandlerRegistry.allowed?(TestActions.Uppercase)
   end

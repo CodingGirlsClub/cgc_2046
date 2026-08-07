@@ -38,7 +38,8 @@ defmodule Cgc2046.Repo.Migrations.SliceCJidoStorage do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create index(:jido_thread_entries, [:thread_id])
+    # 不建单独 (thread_id) 索引（#26）：复合 PK (thread_id, seq) 最左前缀已覆盖
+    # `WHERE thread_id = ? ORDER BY seq` 查询，冗余索引只增写放大。
 
     create table(:jido_thread_meta, primary_key: false) do
       add :thread_id, :string, null: false, primary_key: true
@@ -52,7 +53,6 @@ defmodule Cgc2046.Repo.Migrations.SliceCJidoStorage do
 
   def down do
     drop table(:jido_thread_meta)
-    drop index(:jido_thread_entries, [:thread_id])
     drop table(:jido_thread_entries)
     drop table(:jido_checkpoints)
   end
