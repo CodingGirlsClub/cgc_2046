@@ -73,7 +73,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     workspace
   end
 
-  defp create_definition(workspace, actor, attrs \\ %{}) do
+  defp create_definition(workspace, actor, attrs) do
     defaults = %{
       name: "教研 workflow",
       type: :research,
@@ -445,7 +445,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       admin = platform_admin()
       workspace = create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
-      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
 
       # 白盒驱动异步路径（apply 私有函数；测试进程在沙箱内可查 DB，而真实订阅
@@ -469,7 +469,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       admin = platform_admin()
       workspace = create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
-      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
 
       # 直接置 open（不走 launch action——launch 现在会在事务提交后发信号触发
@@ -501,7 +501,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       admin = platform_admin()
       workspace = create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
-      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin, %{research_enabled: false})
 
       {:ok, _} =
@@ -639,8 +639,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       admin = platform_admin()
       workspace = create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
-      {:ok, published} = publish_definition(defn, workspace, admin)
-      {:ok, event} = create_event(workspace, admin)
+      {:ok, _published} = publish_definition(defn, workspace, admin)
+      {:ok, _event} = create_event(workspace, admin)
 
       # 直接经 Engine 跑含无 sub_definition_id 的 sub_workflow 步骤的 node_def
       node_def = %{

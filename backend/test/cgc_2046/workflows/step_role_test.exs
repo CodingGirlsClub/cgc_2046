@@ -95,7 +95,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     membership
   end
 
-  defp create_definition(workspace, actor, attrs \\ %{}) do
+  defp create_definition(workspace, actor, attrs) do
     defaults = %{
       name: "StepRole workflow",
       type: :research,
@@ -118,7 +118,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     |> Ash.update(tenant: workspace.id, actor: actor)
   end
 
-  defp create_run(workspace, actor, defn, attrs \\ %{}) do
+  defp create_run(workspace, actor, defn, attrs) do
     defaults = %{
       definition_id: defn.id,
       definition_version: defn.version,
@@ -400,7 +400,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
       {:ok, published} = publish_definition(defn, workspace, admin)
 
       # uppercase（auto）仅授权 :owner——引擎执行不授权（§4.3），volunteer 仍可跑
-      {:ok, _step} =
+      {:ok, step} =
         create_step(workspace, admin, defn, %{
           step_key: "uppercase",
           title: "大写",
@@ -408,7 +408,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
           action: "Elixir.Cgc2046.Workflows.TestActions.Uppercase"
         })
 
-      create_step_role(workspace, admin, _step, [:owner])
+      create_step_role(workspace, admin, step, [:owner])
 
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
 

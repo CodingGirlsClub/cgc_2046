@@ -7,26 +7,26 @@ defmodule Cgc2046.Workflows.TestActions do
   的 auto 步骤引用。
   """
 
-  @doc "把输入 text 转大写（验证事实传递）"
   defmodule Uppercase do
+    @moduledoc "把输入 text 转大写（验证事实传递）"
     use Jido.Action, name: "test_uppercase"
 
     def run(params, _context) do
-      {:ok, %{text: String.upcase(params["text"] || params.text || "")}}
+      {:ok, %{text: String.upcase(params["text"] || Map.get(params, :text) || "")}}
     end
   end
 
-  @doc "把输入 text 追加感叹号（验证链式传递）"
   defmodule AppendExclamation do
+    @moduledoc "把输入 text 追加感叹号（验证链式传递）"
     use Jido.Action, name: "test_append_exclamation"
 
     def run(params, _context) do
-      {:ok, %{text: (params["text"] || params.text || "") <> "!"}}
+      {:ok, %{text: (params["text"] || Map.get(params, :text) || "") <> "!"}}
     end
   end
 
-  @doc "总是失败（验证 failed 路径）"
   defmodule AlwaysFail do
+    @moduledoc "总是失败（验证 failed 路径）"
     use Jido.Action, name: "test_always_fail"
 
     def run(_params, _context), do: {:error, :boom}

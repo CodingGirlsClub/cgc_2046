@@ -165,6 +165,14 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
 
         :ok
 
+      # 无已 published 教研定义（read_first 返回 nil）是合法场景，走 skipped 而非 unexpected。
+      {:ok, nil} ->
+        Logger.warning(
+          "ResearchInstantiator skipped instantiation for #{entity_type} #{entity_id}: :research_definition_not_found"
+        )
+
+        :ok
+
       other ->
         Logger.warning(
           "ResearchInstantiator unexpected instantiation result for #{entity_type} #{entity_id}: #{inspect(other)}"
