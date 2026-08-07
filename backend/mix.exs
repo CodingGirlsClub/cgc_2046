@@ -5,7 +5,8 @@ defmodule Cgc2046.MixProject do
     [
       app: :cgc_2046,
       version: "0.1.0",
-      elixir: "~> 1.17",
+      # runic（jido_runic 底层）要求 Elixir ~> 1.18（1.17 无内置 JSON.Encoder）
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -45,7 +46,7 @@ defmodule Cgc2046.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:swoosh, "~> 1.16"},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.5 or ~> 0.6 or ~> 0.7"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
@@ -57,6 +58,10 @@ defmodule Cgc2046.MixProject do
       {:ash_graphql, "~> 1.10"},
       {:ash_authentication, "~> 4.14"},
       {:ash_authentication_phoenix, "~> 2.4"},
+      # Slice C workflow engine（ADR-0002 Jido 选型；jido_runic 底层 runic 仍 alpha，经 JidoAdapter 适配层隔离）
+      {:jido, "~> 2.3"},
+      {:jido_runic, "~> 1.0"},
+      {:ash_jido, "~> 1.0"},
       {:simple_sat, "~> 0.1"},
       {:cors_plug, "~> 3.0"}
     ]
