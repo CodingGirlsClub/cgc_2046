@@ -272,6 +272,57 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
                "append_exclamation" => %{"text" => "HI!"}
              }
     end
+
+    test "子 workflow 失败 → 父 run failed（#3 回归）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+
+      # 子定义含 AlwaysFail（auto 步骤失败）
+      {:ok, child} =
+        create_definition(workspace, admin, %{
+          node_def: %{
+            "steps" => [
+              %{
+                "id" => "boom",
+                "type" => "auto",
+                "action" => "Elixir.Cgc2046.Workflows.TestActions.AlwaysFail"
+              }
+            ]
+          }
+        })
+
+      {:ok, child_published} = publish_definition(child, workspace, admin)
+
+      # 父定义（sub_workflow → 失败子定义）publish
+      {:ok, parent} =
+        create_definition(workspace, admin, %{
+          name: "父教研 workflow（子失败）",
+          node_def: parent_node_def(child_published)
+        })
+
+      {:ok, parent_published} = publish_definition(parent, workspace, admin)
+
+      {:ok, event} = create_event(workspace, admin)
+
+      # buggy 代码：子 workflow 的 {:error, :sub_workflow_failed} 被 runic 当作
+      # 普通 fact 值，父 run 标 succeeded 且错误 tuple 嵌入 facts（#3）。
+      # 修复后：子失败 → 父 run failed。
+      assert {:ok, run} =
+               ResearchInstantiator.launch(
+                 workspace.id,
+                 parent_published.id,
+                 %{
+                   "event_id" => event.id,
+                   "title" => event.title,
+                   "research_requirements" => event.research_requirements,
+                   "text" => "hi"
+                 },
+                 :event
+               )
+
+      assert run.status == :failed
+      refute is_nil(run.finished_at)
+    end
   end
 
   describe "Event launch 发信号（#39 验收）" do

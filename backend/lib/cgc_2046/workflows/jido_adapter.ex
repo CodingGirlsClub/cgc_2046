@@ -228,8 +228,11 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   #
   # - 无 sub_definition_id 或查不到子定义 → 透传输入（向后兼容阶段 3 的 stub 行为）
   # - 子定义含 manual 步骤 → 子 workflow 挂起（:waiting），v1 不支持嵌套 waiting
-  #   （父 workflow 需 hibernate 子 workflow 状态），返回 {:error, :nested_waiting_not_supported}
-  #   → 父 run failed。测试只用 auto 子定义。
+  #   （父 workflow 需 hibernate 子 workflow 状态），raise 领域错误 → 父 run failed
+  # - 子 workflow 失败 → raise 领域错误（#3：不能返回 {:error, ...}——runic Step
+  #   work fn 的返回值一律当作 fact 值，错误 tuple 会嵌入父 facts 且持久化时
+  #   Jason 编码崩溃；raise 被 runic Invokable.execute 捕获 → Step runnable 标
+  #   :failed → 父 run failed）
   # - 子 workflow 的 list_run_facts 产物（%{step_key => value}）作为本步骤的 fact value，
   #   父 list_run_facts 聚合时 facts["sub_step_key"] = 子 facts map（嵌套）。
   defp build_sub_workflow(step_key, step, tenant) do
@@ -256,12 +259,18 @@ defmodule Cgc2046.Workflows.JidoAdapter do
             with {:ok, sub_workflow} <- build_workflow(node_def, tenant: tenant),
                  {:ok, sub_workflow} <- react_until_satisfied(sub_workflow, data) do
               case run_status(sub_workflow) do
-                :succeeded -> list_run_facts(sub_workflow)
-                :waiting -> {:error, :nested_waiting_not_supported}
-                :failed -> {:error, :sub_workflow_failed}
+                :succeeded ->
+                  list_run_facts(sub_workflow)
+
+                :waiting ->
+                  raise "sub_workflow #{step_key} nested waiting not supported"
+
+                :failed ->
+                  raise "sub_workflow #{step_key} failed"
               end
             else
-              {:error, reason} -> {:error, reason}
+              {:error, reason} ->
+                raise "sub_workflow #{step_key} execution failed: #{inspect(reason)}"
             end
         end
       end,
@@ -732,9 +741,11 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     end
   end
 
-  # 步骤失败：ActionNode 有 :ran 边但无 :produced 边（runic 失败语义：
+  # 步骤失败：节点有 :ran 边但无 :produced 边（runic 失败语义：
   # mark_runnable_as_ran + skip_downstream_subgraph，不产生产物事实）。
-  # 仅检查 ActionNode——Condition/Join 等门控节点合法地有 :ran 无 :produced。
+  # 检查 ActionNode（auto 步骤）与 Step（sub_workflow 步骤，#3：work fn raise
+  # 被 runic 捕获 → Step runnable 标 :failed → 同样有 :ran 无 :produced）。
+  # Condition/Join 等门控节点合法地有 :ran 无 :produced，不检查。
   defp failed?(workflow) do
     ran_nodes =
       workflow.graph
@@ -742,12 +753,19 @@ defmodule Cgc2046.Workflows.JidoAdapter do
       |> Enum.map(& &1.v2)
       |> Enum.filter(&match?(%Jido.Runic.ActionNode{}, &1))
 
+    ran_steps =
+      workflow.graph
+      |> Multigraph.edges(by: :ran)
+      |> Enum.map(& &1.v2)
+      |> Enum.filter(&match?(%Runic.Workflow.Step{}, &1))
+
     produced_nodes =
       workflow.graph
       |> Multigraph.edges(by: :produced)
       |> Enum.map(& &1.v1)
 
-    Enum.any?(ran_nodes, fn node -> node not in produced_nodes end)
+    Enum.any?(ran_nodes, fn node -> node not in produced_nodes end) or
+      Enum.any?(ran_steps, fn node -> node not in produced_nodes end)
   end
 
   # 人工门控挂起：门控 merge 步骤（join 输出）尚无产物。
