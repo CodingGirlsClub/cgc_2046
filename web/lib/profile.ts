@@ -317,11 +317,14 @@ export function pickRoleSummary(
 }
 
 /**
- * 构造 /profile 链接：有 workspace slug 时带上下来（P1-3 上下文透传）。
- * 单源供 profile 内部导航 / portfolio 回链 / ProfileEntry 入口复用。
+ * 构造个人资料设置链接（决策 B：profile 迁入 settings）。
+ * 有 workspace slug → 工作区设置页；无 → 全局设置页。
+ * 单源供 ProfileEntry 入口复用。
  */
 export function profileHref(workspaceSlug?: string | null): string {
-  return workspaceSlug ? `/profile?ws=${workspaceSlug}` : "/profile";
+  return workspaceSlug
+    ? `/w/${workspaceSlug}/settings/account/profile`
+    : "/settings/account/profile";
 }
 
 /**

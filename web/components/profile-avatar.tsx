@@ -1,6 +1,10 @@
 import { useRef } from "react";
 import type { ProfileContent } from "@/lib/profile";
 
+/**
+ * 个人资料头像（决策 B：profile 迁入 settings 后，头像仅存在于设置表单内，
+ * 32px 紧凑尺寸对齐 Linear /settings/account/profile）。
+ */
 export function Avatar({
   content,
   editable = false,

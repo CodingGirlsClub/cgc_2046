@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, cleanup, waitFor, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import WorkspacePage from "./page";
 
@@ -42,7 +42,10 @@ const { push, replace } = vi.hoisted(() => ({
 	push: vi.fn(),
 	replace: vi.fn(),
 }));
-const { isAuthenticated } = vi.hoisted(() => ({ isAuthenticated: vi.fn() }));
+const { isAuthenticated, clearSession } = vi.hoisted(() => ({
+	isAuthenticated: vi.fn(),
+	clearSession: vi.fn(),
+}));
 const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
 
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
@@ -66,7 +69,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth", () => ({
 	isAuthenticated,
 	clearAuthToken: vi.fn(),
-	clearSession: vi.fn(),
+	clearSession,
 }));
 
 vi.mock("@/lib/profile", async (importOriginal) => {
@@ -169,7 +172,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		const link = main.getByRole("link", {
 			name: /查看成员列表与自己的角色/,
 		});
-		expect(link).toHaveAttribute("href", "/w/qa70-real-ws-333/members");
+		expect(link).toHaveAttribute("href", "/w/qa70-real-ws-333/settings/members");
 	});
 
 	it("P1：展示成员数量（meWorkspaces memberCount 计算字段）", async () => {
@@ -205,13 +208,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		const link = await screen.findByRole("link", {
 			name: /管理成员列表与角色分配/,
 		});
-		expect(link).toHaveAttribute("href", "/w/cgc-academy/members");
-	});
-
-	it("壳 footer 提供个人资料入口链接到 /profile (#69)", async () => {
-		render(<WorkspacePage />);
-		const entry = await screen.findByTestId("profile-entry");
-		expect(entry).toHaveAttribute("href", "/profile?ws=cgc-academy");
+		expect(link).toHaveAttribute("href", "/w/cgc-academy/settings/members");
 	});
 
 	it("壳导航「概览」选中（aria-current=page）", async () => {
@@ -224,70 +221,51 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(overview).toHaveAttribute("aria-current", "page");
 	});
 
-	it("壳导航 IA（#79）：管理员见管理项 + B-3 占位，分组标题「工作区设置」", async () => {
+	it("壳导航 IA：工作区导航组仅 概览（成员/设置已迁入 settings 页）", async () => {
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
 			name: "工作区导航",
 		});
-		// 设置组内四项：概览 / 成员与角色 / 工作区设置 / 占位×2
+		// 工作区导航组：仅概览
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
 		expect(
-			within(nav).getByRole("link", { name: "成员与角色" }),
-		).toHaveAttribute("href", "/w/cgc-academy/members");
-		expect(within(nav).getByRole("link", { name: "加入策略" })).toHaveAttribute(
-			"href",
-			"/w/cgc-academy/settings",
-		);
-		// B-3 占位：Link（管理可见）
-		const approvalPlaceholder = within(nav).getByRole("link", {
-			name: "加入审批",
-		});
-		expect(approvalPlaceholder).toHaveAttribute(
-			"href",
-			"/w/cgc-academy/settings/requests",
-		);
-		const invitePlaceholder = within(nav).getByRole("link", {
-			name: "邀请管理",
-		});
-		expect(invitePlaceholder).toHaveAttribute(
-			"href",
-			"/w/cgc-academy/settings/invitations",
-		);
-		// 个人资料移出设置组（nav 外独立链接）
-		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
-			"href",
-			"/profile?ws=cgc-academy",
-		);
-		expect(
-			within(nav).queryByRole("link", { name: "个人资料" }),
+			within(nav).queryByRole("link", { name: "成员与角色" }),
 		).not.toBeInTheDocument();
+		// 设置项已迁入 settings 页（下拉框 Settings 入口），非 settings 路由不再渲染
+		expect(
+			screen.queryByRole("navigation", { name: "设置" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: "加入策略" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: "加入审批" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: "邀请管理" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: "个人资料" }),
+		).not.toBeInTheDocument();
+		// footer 已删（ProfileEntry 迁入 settings）
+		expect(screen.queryByTestId("profile-entry")).not.toBeInTheDocument();
 	});
 
-	it("壳导航权限过滤（#79）：普通成员仅见 概览 + 个人资料", async () => {
+	it("壳导航权限过滤（#79）：普通成员仅见 概览", async () => {
 		params.value = { slug: "cgc-shanghai" };
 		render(<WorkspacePage />);
 		const nav = await screen.findByRole("navigation", {
 			name: "工作区导航",
 		});
-		// 管理项与 B-3 占位一律不渲染
+		// 管理项不渲染
 		expect(
 			within(nav).queryByRole("link", { name: "成员与角色" }),
 		).not.toBeInTheDocument();
-		expect(
-			within(nav).queryByRole("link", { name: "加入策略" }),
-		).not.toBeInTheDocument();
-		expect(
-			within(nav).queryByRole("link", { name: "加入审批" }),
-		).not.toBeInTheDocument();
-		expect(
-			within(nav).queryByRole("link", { name: "邀请管理" }),
-		).not.toBeInTheDocument();
-		// 概览仍在，个人资料在 nav 外
+		// 概览仍在；设置项已迁入 settings 页
 		expect(within(nav).getByRole("link", { name: "概览" })).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "个人资料" })).toHaveAttribute(
-			"href",
-			"/profile?ws=cgc-shanghai",
-		);
+		expect(
+			screen.queryByRole("navigation", { name: "设置" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("展示我的角色 chips（Admin，Hero 与信息卡各一处）", async () => {
@@ -299,7 +277,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 	it("提供权限映射入口链接到 /w/[slug]/permissions", async () => {
 		render(<WorkspacePage />);
 		const link = await screen.findByRole("link", { name: /权限映射/ });
-		expect(link).toHaveAttribute("href", "/w/cgc-academy/permissions");
+		expect(link).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
 	});
 
 	it("canAssign=false：成员与角色入口显示只读门控文案", async () => {
@@ -310,5 +288,40 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			await main.findByText("查看成员列表与自己的角色"),
 		).toBeInTheDocument();
 		expect(main.queryByText("管理成员列表与角色分配")).not.toBeInTheDocument();
+	});
+
+	it("品牌下拉菜单：邮箱行 + 工作区列表（带头像）+ 操作项 + 退出登录", async () => {
+		render(<WorkspacePage />);
+		await content();
+		// 打开 dropdown
+		fireEvent.click(
+			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),
+		);
+		const menu = await screen.findByRole("menu");
+		// 邮箱行
+		expect(within(menu).getByText("xiaomei@example.com")).toBeInTheDocument();
+		// 工作区项：名称 + 当前项 ✓
+		expect(
+			within(menu).getByRole("menuitem", { name: /CGC 线上学院/ }),
+		).toHaveAttribute("href", "/w/cgc-academy");
+		expect(
+			within(menu).getByRole("menuitem", { name: /CGC 上海分社/ }),
+		).toHaveAttribute("href", "/w/cgc-shanghai");
+		expect(within(menu).getByText("✓")).toBeInTheDocument();
+		// 操作项
+		expect(
+			within(menu).getByRole("menuitem", { name: "Settings" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings");
+		expect(
+			within(menu).getByRole("menuitem", { name: "发现 / 加入工作区" }),
+		).toHaveAttribute("href", "/join");
+		// 个人资料已迁入 settings（Personal 组），菜单不再重复
+		expect(
+			within(menu).queryByRole("menuitem", { name: "个人资料" }),
+		).not.toBeInTheDocument();
+		// 退出登录触发 clearSession + 跳转
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
+		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
+		await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
 	});
 });

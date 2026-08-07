@@ -3,7 +3,8 @@
 /**
  * #69 个人资料入口（header 头像区）。
  *
- * 显示当前用户头像首字母 + 展示名，点击进入 /profile。
+ * 显示当前用户头像首字母 + 展示名，点击进入个人资料设置
+ * （决策 B：/w/[slug]/settings/account/profile 或 /settings/account/profile）。
  * 数据经 fetchCurrentProfile（mock 先行，后端 #68 定稿后自动切真实）。
  */
 

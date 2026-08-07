@@ -127,7 +127,7 @@
   .profile-card__eyebrow { display: block; margin-top: 23px; color: var(--ink-2); font-size: 14px; line-height: 20px; }
   .profile-identity-card .profile-role-chips { margin-top: 12px; }
   .profile-identity-card p { margin-top: 14px; color: var(--ink-3); font-size: 13px; line-height: 20px; }
-  .profile-identity-divider { height: 1px; margin: 22px 0 17px; background: var(--line); }
+  .profile-identity-divider { height: 0.5px; margin: 22px 0 17px; background: var(--line); }
   .profile-member-number { display: flex; align-items: center; justify-content: space-between; gap: 15px; color: var(--ink-2); font-size: 14px; line-height: 20px; }
   .profile-member-number strong { color: var(--ink); font-family: var(--font-mono); font-size: 15px; font-weight: 400; }
   .profile-footer { display: flex; justify-content: space-between; gap: 15px; margin-top: 20px; color: var(--ink-3); font-size: 12px; line-height: 18px; }
@@ -142,17 +142,17 @@
   .profile-edit-basic h2, .profile-edit-readonly h2, .profile-edit-portfolio h2 { font-size: 19px; }
   .profile-edit-avatar-block { margin-top: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
   .profile-form-label { display: block; color: var(--ink); font-size: 13px; font-weight: 510; line-height: 20px; }
-  .profile-edit-avatar-row { display: flex; align-items: center; gap: 20px; margin-top: 8px; }
-  .profile-edit-avatar-row .profile-avatar { width: 102px; height: 102px; font-size: 30px; }
+  .profile-edit-avatar-row { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+  .profile-edit-avatar-row .profile-avatar { width: 32px; height: 32px; font-size: 12px; }
   .profile-edit-avatar-row p { color: var(--ink-3); font-size: 13px; line-height: 20px; }
-  .profile-avatar-wrap--editable { align-items: flex-start; }
+  .profile-avatar-wrap--editable { align-items: center; }
   .profile-edit-layout input.profile-file-input { display: none; }
-  .profile-change-avatar { min-height: 39px; margin-left: 122px; margin-top: -41px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); color: var(--ink-2); font-size: 13px; line-height: 20px; }
+  .profile-change-avatar { min-height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink-2); font-size: 12px; line-height: 20px; white-space: nowrap; }
   .profile-change-avatar:hover { border-color: var(--accent); color: var(--accent); }
   .profile-edit-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 17px; }
   .profile-edit-layout label { display: block; min-width: 0; }
   .profile-edit-layout input, .profile-edit-layout textarea, .profile-edit-layout select { display: block; width: 100%; margin-top: 7px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--line-input); color: var(--ink); font-size: 15px; line-height: 22px; outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }
-  .profile-edit-layout input { min-height: 42px; padding: 0 13px; }
+  .profile-edit-layout input { min-height: 32px; padding: 0 13px; }
   .profile-edit-layout textarea { min-height: 92px; resize: vertical; padding: 10px 13px; }
   .profile-edit-layout select { min-height: 42px; padding: 0 30px 0 13px; appearance: none; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888f9e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-position: right 12px center; background-size: 12px 12px; background-repeat: no-repeat; }
   .profile-edit-layout input:focus, .profile-edit-layout textarea:focus, .profile-edit-layout select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
@@ -170,11 +170,22 @@
   .profile-edit-readonly { min-height: 420px; padding: 24px 25px; }
   .profile-edit-readonly > p { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--ink-2); font-size: 13px; line-height: 20px; }
   .profile-edit-readonly > p svg { color: var(--ink-3); }
-  .profile-edit-divider { height: 1px; margin: 24px 0 22px; background: var(--line); }
+  .profile-edit-divider { height: 0.5px; margin: 24px 0 22px; background: var(--line); }
+  @media not all and (min-resolution: 2dppx) {
+    .profile-identity-divider,
+    .profile-edit-divider { height: 1px; }
+  }
   .profile-edit-readonly h2 + p { color: var(--ink-3); }
   .profile-edit-readonly .profile-role-chips { margin-top: 13px; }
   .profile-edit-readonly label { margin-top: 24px; }
   .profile-edit-readonly input[readonly] { color: var(--ink-3); }
+  /* 决策 B：邮箱只读字段视觉降级（Linear 风格：灰底 + 无边框感） */
+  .profile-settings-form input[readonly] {
+    background: var(--soft);
+    border-color: transparent;
+    color: var(--ink-3);
+    cursor: default;
+  }
   .profile-edit-portfolio { grid-column: 1 / -1; padding: 22px 20px 18px; }
   .profile-edit-portfolio-list { display: grid; gap: 0; margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius-medium); overflow: hidden; }
   .profile-edit-portfolio-row { display: grid; grid-template-columns: 28px minmax(150px, 1fr) minmax(160px, 1.1fr) minmax(170px, 1fr) minmax(90px, .55fr) 28px; align-items: end; gap: 14px; padding: 14px 12px 12px; border-top: 1px solid var(--line); background: var(--card); }
@@ -187,6 +198,48 @@
   .profile-expand-portfolio, .profile-add-portfolio { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; min-height: 42px; margin-top: 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius-medium); color: var(--ink-2); font-size: 13px; line-height: 20px; }
   .profile-expand-portfolio:hover, .profile-add-portfolio:hover { border-color: var(--accent); color: var(--accent); background: var(--soft-2); }
   .profile-add-portfolio { border-style: dashed; }
+
+  /* 决策 B：profile 设置表单（settings 内嵌页） */
+  .profile-settings-form { margin-top: 24px; }
+  .profile-settings-form__footer {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 4px;
+    color: var(--ink-3);
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .profile-settings-form__footer .l-btn-primary { min-height: 32px; }
+
+  /* Preferences 页：主题设置行 */
+  .settings-preference-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .settings-preference-row .ws-shell-theme {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 20px;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+  .settings-preference-row .ws-shell-theme:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
 
   @media (max-width: 1100px) {
     .profile-view-grid, .profile-edit-layout { grid-template-columns: 1fr; }
@@ -335,33 +388,34 @@
 
   .ws-shell-sidebar {
     display: flex;
-    flex: 0 0 280px;
+    flex: 0 0 244px;
+    min-width: 0;
     flex-direction: column;
     min-height: 100svh;
     padding: 18px 12px 20px;
-    border-right: 1px solid var(--line);
-    background: var(--frame);
+    border-right: none;
+    background: var(--canvas);
   }
 
-  .ws-shell-brand-wrap { position: relative; display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+  .ws-shell-brand-wrap { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 
   .ws-shell-brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     flex: 1 1 auto;
     min-width: 0;
-    min-height: 40px;
-    padding: 0;
+    min-height: 28px;
+    padding: 0 8px;
     border: none;
     background: none;
     color: var(--ink);
-    font-size: 17px;
-    font-weight: 590;
-    letter-spacing: -0.25px;
+    font-size: 13px;
+    font-weight: 510;
+    letter-spacing: -0.1px;
     white-space: nowrap;
     cursor: pointer;
-    border-radius: var(--radius-small);
+    border-radius: 8px;
     transition: background-color 120ms ease;
   }
   .ws-shell-brand:hover { background: var(--soft-2); }
@@ -385,101 +439,74 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
     background: var(--accent);
     color: #fff;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: -0.04em;
     box-shadow: 0 5px 18px color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   .ws-shell-brand__chevron {
+    flex: 0 0 auto;
     margin-left: auto;
     color: var(--ink-3);
-    font-size: 21px;
-    line-height: 1;
     transition: transform 120ms ease;
   }
   .ws-shell-brand[aria-expanded="true"] .ws-shell-brand__chevron { transform: rotate(180deg); }
 
-  /* issue #83：工作区切换 dropdown */
+  /* issue #83：工作区切换 dropdown（Linear 式命令菜单：邮箱 → 工作区列表 → 操作项） */
   .ws-shell-brand-menu {
     position: absolute;
     top: calc(100% + 6px);
-    left: 8px;
-    right: 8px;
+    left: 4px;
+    right: 4px;
     z-index: 20;
     display: grid;
     gap: 2px;
-    max-height: min(60svh, 420px);
+    max-height: min(60svh, 360px);
     overflow-y: auto;
     padding: 6px;
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius-medium);
+    border-radius: 8px;
     background: var(--card);
     box-shadow: var(--shadow-hairline), 0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+  .ws-shell-brand-menu__account {
+    padding: 8px 10px 6px;
+    color: var(--ink-3);
+    font-size: 11px;
+    line-height: 16px;
   }
   .ws-shell-brand-menu__item {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 10px;
-    border-radius: var(--radius-small);
+    min-height: 32px;
+    padding: 4px 10px;
+    border: none;
+    background: none;
+    border-radius: 6px;
     color: var(--ink-2);
     font-size: 13px;
     line-height: 20px;
+    text-align: left;
     text-decoration: none;
+    cursor: pointer;
     transition: background-color 120ms ease, color 120ms ease;
   }
   .ws-shell-brand-menu__item:hover { background: var(--soft-2); color: var(--ink); }
   .ws-shell-brand-menu__name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .ws-shell-brand-menu__check { color: var(--accent); font-size: 13px; }
+  .ws-shell-brand-menu__check { margin-left: auto; color: var(--accent); font-size: 13px; }
   .ws-shell-brand-menu__item--current { color: var(--ink); background: var(--soft-2); }
-  .ws-shell-brand-menu__item--hub { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--ink-3); }
-  .ws-shell-brand-menu__item--hub:hover { color: var(--accent); }
-
-  .ws-shell-workspace {
-    display: grid;
-    gap: 4px;
-    margin: 30px 8px 0;
-    padding: 14px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-medium);
-    background: var(--soft-2);
-  }
-
-  .ws-shell-workspace span {
-    color: var(--ink-3);
-    font-size: 11px;
-    line-height: 16px;
-  }
-
-  .ws-shell-workspace strong {
-    overflow: hidden;
-    color: var(--ink-2);
-    font-size: 14px;
-    font-weight: 510;
-    line-height: 20px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .ws-shell-workspace code {
-    overflow: hidden;
-    color: var(--ink-3);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  .ws-shell-brand-menu__divider { height: 1px; margin: 4px 6px; background: var(--line); }
 
   .ws-shell-heading {
-    margin: 34px 12px 12px;
+    margin: 20px 12px 12px;
     color: var(--ink-3);
     font-size: 12px;
     line-height: 18px;
@@ -494,10 +521,10 @@
     display: flex;
     align-items: center;
     gap: 15px;
-    min-height: 52px;
+    min-height: 28px;
     padding: 0 14px;
     border: 1px solid transparent;
-    border-radius: var(--radius-medium);
+    border-radius: 8px;
     background: transparent;
     color: var(--ink-2);
     font-size: 14px;
@@ -512,23 +539,22 @@
   .ws-shell-item:hover svg { color: currentColor; }
   .ws-shell-item--selected {
     border-left: 3px solid var(--accent);
-    border-radius: 0 var(--radius-medium) var(--radius-medium) 0;
+    border-radius: 0 8px 8px 0;
     background: var(--soft);
     color: var(--ink);
   }
   .ws-shell-item--selected svg { color: var(--ink); }
+  /* settings 模式：Back to app 返回链接（Linear 范式） */
+  .ws-shell-item--back {
+    margin-bottom: 4px;
+    color: var(--ink-3);
+  }
+  .ws-shell-item--back:hover { color: var(--ink); }
   .ws-shell-item--disabled,
   .ws-shell-item--disabled:hover {
     cursor: not-allowed;
     color: var(--ink-3);
     opacity: 0.68;
-  }
-
-  /* #79 IA：个人资料移出设置组，nav 外独立项加顶部视觉分隔 */
-  .ws-shell-item--profile {
-    margin-top: 16px;
-    border-top: 1px solid var(--line);
-    border-radius: 0 0 var(--radius-medium) var(--radius-medium);
   }
 
   .ws-shell-footer {
@@ -543,14 +569,6 @@
 
   .ws-shell-footer [data-testid="profile-entry"] { min-width: 0; padding-left: 0; }
   .ws-shell-footer [data-testid="profile-entry"] span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ws-shell-signout {
-    flex: 0 0 auto;
-    color: var(--ink-3);
-    font-size: 12px;
-    line-height: 18px;
-    transition: color 120ms ease;
-  }
-  .ws-shell-signout:hover { color: var(--status-red); }
   .ws-shell-footer-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
   .ws-shell-theme {
     flex: 0 0 auto;
@@ -569,7 +587,9 @@
   .ws-shell-main {
     flex: 1;
     min-width: 0;
-    background: var(--canvas);
+    margin: 8px 8px 8px 0;
+    background: var(--view);
+    border-radius: 8px;
   }
 
   .ws-page-main__inner {
@@ -845,7 +865,7 @@
   .ws-shell-primary-link { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; margin-top: 8px; padding: 0 14px; border-radius: var(--radius-small); background: var(--accent); color: #fff; font-size: 13px; line-height: 20px; text-decoration: none; }
 
   @media (max-width: 980px) {
-    .ws-shell-sidebar { flex-basis: 252px; }
+    .ws-shell-sidebar { flex-basis: 216px; }
     .members-heading-summary { min-width: 170px; }
     .members-notice__tenant { padding-left: 12px; font-size: 12px; }
     .members-table th, .members-table td { padding-right: 16px; padding-left: 16px; }
@@ -854,8 +874,8 @@
 
   @media (max-width: 760px) {
     .ws-shell-page { display: block; }
+    .ws-shell-main { margin: 8px; }
     .ws-shell-sidebar { min-height: auto; padding: 16px 14px 14px; border-right: 0; border-bottom: 1px solid var(--line); }
-    .ws-shell-workspace { margin-top: 18px; }
     .ws-shell-heading { margin-top: 20px; }
     .ws-shell-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ws-shell-item { min-height: 44px; }
@@ -989,10 +1009,10 @@ body {
     gap: 6px;
     background-color: var(--accent);
     color: #ffffff;
-    border-radius: var(--radius-medium);
+    border-radius: 9999px;
     font-size: 13px;
     line-height: 19.5px;
-    padding: 5px 12px;
+    padding: 5px 14px;
     transition: background-color 120ms ease;
   }
   .l-btn-primary:hover { background-color: var(--accent-mention); }
@@ -1003,7 +1023,7 @@ body {
     gap: 6px;
     background: transparent;
     color: var(--ink-3);
-    border-radius: var(--radius-medium);
+    border-radius: 8px;
     font-size: 13px;
     line-height: 19.5px;
     padding: 5px 12px;
@@ -1017,7 +1037,7 @@ body {
     gap: 6px;
     background: transparent;
     color: var(--ink-2);
-    border-radius: var(--radius-medium);
+    border-radius: 8px;
     font-size: 13px;
     line-height: 19.5px;
     padding: 5px 12px;
@@ -1052,7 +1072,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 11px;
     line-height: 16px;
     font-weight: 510;
@@ -1103,12 +1123,12 @@ body {
 
   .l-input {
     background-color: var(--line-input);
-    box-shadow: inset 0 0 0 1px var(--line);
-    border-radius: var(--radius-medium);
+    box-shadow: inset 0 0 0 0.5px var(--line-strong);
+    border-radius: 8px;
     color: var(--ink-2);
-    font-size: 16px;
+    font-size: 13px;
     line-height: 24px;
-    padding: 8px 12px;
+    padding: 6px 10px;
     outline: none;
     transition: box-shadow 120ms ease;
   }
@@ -1483,9 +1503,13 @@ body {
   }
 
   .workspace-avatar--large { width: 112px; height: 112px; border-radius: var(--radius-large); font-size: 40px; }
+  .workspace-avatar--small { width: 24px; height: 24px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: -0.2px; }
   .workspace-avatar--active { border-color: color-mix(in srgb, var(--status-green) 38%, var(--line)); background: color-mix(in srgb, var(--status-green) 12%, var(--soft)); color: var(--status-green); }
   .workspace-avatar--pending { border-color: color-mix(in srgb, var(--status-cyan) 38%, var(--line)); background: color-mix(in srgb, var(--status-cyan) 12%, var(--soft)); color: var(--status-cyan); }
   .workspace-avatar--invited { border-color: color-mix(in srgb, var(--status-violet) 38%, var(--line)); background: color-mix(in srgb, var(--status-violet) 12%, var(--soft)); color: var(--status-violet); }
+  .workspace-avatar--small.workspace-avatar--active { border-color: transparent; background: var(--status-green); color: #fff; }
+  .workspace-avatar--small.workspace-avatar--pending { border-color: transparent; background: var(--status-cyan); color: #fff; }
+  .workspace-avatar--small.workspace-avatar--invited { border-color: transparent; background: var(--status-violet); color: #fff; }
 
   .workspace-status { display: inline-flex; align-items: center; gap: 7px; width: fit-content; color: var(--ink-3); font-size: 13px; line-height: 19px; }
   .workspace-status__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
