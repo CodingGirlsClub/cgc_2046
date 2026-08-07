@@ -25,8 +25,9 @@ defmodule Cgc2046.Workflows.Engine do
 
   - 审计走事件订阅：本模块只发 telemetry 事件（`[:cgc, :workflow, :run, ...]`），
     产品层按需订阅记录，不嵌入引擎核心。
-  - checkpoint 经回调不进核心：阶段 4 的 checkpoint 服务经 `transformContext`
-    回调接入，本模块不内建。
+  - checkpoint 不进核心：checkpoint 生命周期（waiting→hibernate、终态→delete）
+    在 `Cgc2046.Workflows.CheckpointLifecycle`（架构评审候选 #2），本模块只执行、
+    不调原语。
   - 授权外置：Step 执行角色授权（#38）在 `Cgc2046.Workflows.StepAuthorization`，
     本模块不直接读库。
   """
@@ -124,13 +125,13 @@ defmodule Cgc2046.Workflows.Engine do
 
   - `node_def`：WorkflowDefinition 的执行拓扑（`%{"steps" => [...]}`，#34 契约）
   - `input`：run 输入（input_snapshot）
-  - `opts`：可选，`run_id` + `partition`（挂起时自动 hibernate checkpoint）、
-    `tenant`（sub_workflow 步骤编译期预取子定义 node_def 的租户，#39）
+  - `opts`：可选，`tenant`（sub_workflow 步骤编译期预取子定义 node_def 的租户，#39）
 
   ## 返回
 
   - `{:ok, facts, workflow}`：全部自动步骤完成，`facts` 为按 step_key 聚合的产物
-  - `{:waiting, facts, workflow}`：执行到人工步骤挂起（已 hibernate，接信号放行）
+  - `{:waiting, facts, workflow}`：执行到人工步骤挂起（checkpoint 生命周期由产品层
+    `CheckpointLifecycle` 接线，接信号放行）
   - `{:error, reason}`：构建或执行失败（含 `{:prepare_failed, ...}` 校验失败）
   """
   @spec run(map(), map(), keyword()) ::
@@ -149,32 +150,11 @@ defmodule Cgc2046.Workflows.Engine do
           {:ok, facts, workflow}
 
         :waiting ->
+          # checkpoint 生命周期（hibernate）由产品层 CheckpointLifecycle 接线
+          # （架构评审候选 #2，ADR-0003「checkpoint 剥离出引擎核心」）。
           facts = JidoAdapter.list_run_facts(workflow)
-
-          # 产品层传入 run_id/partition 时自动 hibernate checkpoint（阶段 4 #37）。
-          # #2：hibernate 失败必须上抛——否则 run 标 waiting 但无 checkpoint，
-          # 下次信号 thaw 死路，run 永久卡死。失败 → :failed（与 resume/3 的
-          # `:ok =` 严格模式一致，但以 error 返回而非 raise）。
-          case {Keyword.get(opts, :run_id), Keyword.get(opts, :partition)} do
-            {nil, _} ->
-              :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
-              {:waiting, facts, workflow}
-
-            {_, nil} ->
-              :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
-              {:waiting, facts, workflow}
-
-            {run_id, partition} ->
-              case JidoAdapter.hibernate(run_id, partition, workflow) do
-                :ok ->
-                  :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
-                  {:waiting, facts, workflow}
-
-                {:error, reason} ->
-                  :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{reason: reason})
-                  {:error, {:hibernate_failed, reason}}
-              end
-          end
+          :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
+          {:waiting, facts, workflow}
 
         :failed ->
           :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{})
@@ -196,8 +176,8 @@ defmodule Cgc2046.Workflows.Engine do
   返回与 `run/2` 相同契约。SignalLog 记录由调用方（产品层 action）写入，
   引擎核心不碰审计资源（ADR-0003 审计走事件订阅）。
 
-  checkpoint 生命周期：`waiting` → 存回新 checkpoint（下次信号续传）；
-  `succeeded`/`failed` → 删除 checkpoint（run 结束清理）。
+  checkpoint 生命周期由产品层 `CheckpointLifecycle` 接线（架构评审候选 #2）：
+  `waiting` → 存回新 checkpoint（下次信号续传）；终态 → 删除 checkpoint（run 结束清理）。
   """
   @spec resume(term(), term(), map()) ::
           {:ok, map(), term()} | {:waiting, map(), term()} | {:error, term()}
@@ -206,19 +186,16 @@ defmodule Cgc2046.Workflows.Engine do
          {:ok, workflow} <- JidoAdapter.feed_signal(workflow, signal) do
       case JidoAdapter.run_status(workflow) do
         :succeeded ->
-          JidoAdapter.delete_checkpoint(run_id, partition)
           facts = JidoAdapter.list_run_facts(workflow)
           :telemetry.execute(@telemetry_prefix ++ [:complete], %{}, %{facts: facts})
           {:ok, facts, workflow}
 
         :waiting ->
-          :ok = JidoAdapter.hibernate(run_id, partition, workflow)
           facts = JidoAdapter.list_run_facts(workflow)
           :telemetry.execute(@telemetry_prefix ++ [:waiting], %{}, %{facts: facts})
           {:waiting, facts, workflow}
 
         :failed ->
-          JidoAdapter.delete_checkpoint(run_id, partition)
           :telemetry.execute(@telemetry_prefix ++ [:fail], %{}, %{})
           {:error, :step_failed}
       end

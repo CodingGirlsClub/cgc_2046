@@ -26,7 +26,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     引擎（`Cgc2046.Workflows.Engine`）是无状态纯函数，不持有任何状态。
   - **审计走事件订阅**：引擎只发 telemetry 事件（`[:cgc, :workflow, :run, ...]`），
     产品层按需订阅记录，不嵌入引擎核心。
-  - **checkpoint 经回调不进核心**：阶段 4 的 checkpoint 服务经引擎回调接入，本资源不内建。
+  - **checkpoint 生命周期在产品层**：waiting→hibernate、终态→delete 经
+    `Cgc2046.Workflows.CheckpointLifecycle` 接线（架构评审候选 #2），引擎只执行。
 
   ## 多租户
 
@@ -45,9 +46,13 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
-  require Logger
-
-  alias Cgc2046.Workflows.{Engine, JidoAdapter, SignalLog, StepAuthorization, WorkflowDefinition}
+  alias Cgc2046.Workflows.{
+    CheckpointLifecycle,
+    Engine,
+    SignalLog,
+    StepAuthorization,
+    WorkflowDefinition
+  }
 
   @status_values [:pending, :running, :waiting, :succeeded, :failed, :cancelled, :expired]
 
@@ -395,13 +400,13 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       end)
 
       # #16：waiting → cancelled 时删除 jido_checkpoints（不删则 checkpoint 行永久残留）；
-      # 失败记日志不阻塞状态流转（checkpoint 泄漏可对账，不该卡住取消）。
+      # 失败记日志不阻塞状态流转（策略单源在 CheckpointLifecycle，候选 #2）。
       change(
         after_transaction(fn changeset, result, _context ->
           if changeset.context[:delete_checkpoint] do
             case result do
               {:ok, _record} ->
-                delete_run_checkpoint(changeset)
+                cleanup_checkpoint(changeset, :cancelled)
 
               _ ->
                 :ok
@@ -439,7 +444,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
           if changeset.context[:delete_checkpoint] do
             case result do
               {:ok, _record} ->
-                delete_run_checkpoint(changeset)
+                cleanup_checkpoint(changeset, :expired)
 
               _ ->
                 :ok
@@ -497,7 +502,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   # --- 产品层执行闭环辅助（阶段 4 #37） ---------------------------------------
 
-  # start_run：从 definition 读 node_def，调 Engine.run（waiting 自动 hibernate）。
+  # start_run：从 definition 读 node_def，调 Engine.run；waiting 时经
+  # CheckpointLifecycle hibernate（架构评审候选 #2，checkpoint 生命周期收拢）。
   # 返回 {status, changeset[, facts]}——status ∈ :ok | :waiting | :error
   defp start_run_execute(changeset) do
     tenant = changeset.tenant
@@ -508,18 +514,32 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
     case Ash.get(WorkflowDefinition, definition_id, tenant: tenant, authorize?: false) do
       {:ok, defn} ->
-        case Engine.run(defn.node_def, input,
-               run_id: run_id,
-               partition: partition,
-               tenant: tenant
-             ) do
-          {:ok, facts, _workflow} -> {:ok, changeset, facts}
-          {:waiting, facts, _workflow} -> {:waiting, changeset, facts}
-          {:error, reason} -> {:error, changeset, reason}
+        case Engine.run(defn.node_def, input, tenant: tenant) do
+          {:ok, facts, _workflow} ->
+            {:ok, changeset, facts}
+
+          {:waiting, facts, workflow} ->
+            apply_waiting_result(changeset, run_id, partition, workflow, facts)
+
+          {:error, reason} ->
+            {:error, changeset, reason}
         end
 
       {:error, _} ->
         {:error, changeset, :definition_not_found}
+    end
+  end
+
+  # waiting → hibernate checkpoint。hibernate 失败 = waiting 但无 checkpoint =
+  # 下次信号 thaw 死路（#2 bug class）→ 上抛 error（start_run action 转 :failed，
+  # 与 Engine.run 旧路径 #2 语义一致）。
+  defp apply_waiting_result(changeset, run_id, partition, workflow, facts) do
+    case CheckpointLifecycle.on_status(:waiting, run_id, partition, workflow) do
+      :ok ->
+        {:waiting, changeset, facts}
+
+      {:error, reason} ->
+        {:error, changeset, {:hibernate_failed, reason}}
     end
   end
 
@@ -582,18 +602,35 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         signal = Map.put(payload, "signal_type", signal_type)
 
         case Engine.resume(run_id, partition, signal) do
-          {:ok, facts, _workflow} ->
+          {:ok, facts, workflow} ->
+            # 终态删除 checkpoint（宽松：失败记日志不阻塞；策略单源在 CheckpointLifecycle）
+            :ok = CheckpointLifecycle.on_status(:succeeded, run_id, partition, workflow)
+
             changeset
             |> Ash.Changeset.force_change_attribute(:status, :succeeded)
             |> Ash.Changeset.force_change_attribute(:facts, facts)
             |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
 
-          {:waiting, facts, _workflow} ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :waiting)
-            |> Ash.Changeset.force_change_attribute(:facts, facts)
+          {:waiting, facts, workflow} ->
+            # 续传 hibernate（严格：失败 → failed。行为变化点：原 `:ok =` raise
+            # 崩溃 → 受控失败，与 start_run 路径 #2 语义一致）。
+            case CheckpointLifecycle.on_status(:waiting, run_id, partition, workflow) do
+              :ok ->
+                changeset
+                |> Ash.Changeset.force_change_attribute(:status, :waiting)
+                |> Ash.Changeset.force_change_attribute(:facts, facts)
+
+              {:error, _reason} ->
+                changeset
+                |> Ash.Changeset.force_change_attribute(:status, :failed)
+                |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+            end
 
           {:error, _reason} ->
+            # 执行失败（:step_failed / thaw / feed_signal 失败）→ failed；
+            # 清 checkpoint（delete 幂等，thaw 失败时无害）
+            :ok = CheckpointLifecycle.on_status(:failed, run_id, partition, nil)
+
             changeset
             |> Ash.Changeset.force_change_attribute(:status, :failed)
             |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
@@ -620,20 +657,14 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
   end
 
-  # #16：cancel/expire 终态清理 checkpoint（提交后执行，失败只记日志不阻塞状态流转）。
-  defp delete_run_checkpoint(changeset) do
+  # cancel/expire 终态清理 checkpoint（提交后执行，失败记日志不阻塞状态流转）。
+  # 策略单源在 CheckpointLifecycle（候选 #2），本 helper 只做 changeset → 参数提取。
+  defp cleanup_checkpoint(changeset, status) do
     run_id = Ash.Changeset.get_data(changeset, :id)
     partition = Ash.Changeset.get_data(changeset, :partition_id)
 
     if is_binary(run_id) and is_binary(partition) do
-      case JidoAdapter.delete_checkpoint(run_id, partition) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          Logger.error("checkpoint cleanup failed for run #{run_id}: #{inspect(reason)}")
-          :ok
-      end
+      :ok = CheckpointLifecycle.on_status(status, run_id, partition, nil)
     end
 
     :ok
