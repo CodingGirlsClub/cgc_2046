@@ -172,6 +172,14 @@ defmodule Cgc2046.Events.Event do
 
     defaults([:read])
 
+    # #14：教研 run 创建后回写产物引用（ResearchInstantiator 内部调用，authorize?: false）。
+    # workflow_run_id 是 writable 属性但不在任何公开 action 的 accept——只有本 action 可写。
+    update :link_research_run do
+      description("回写教研 workflow 产物引用（#39 实例化后）")
+      require_atomic?(false)
+      accept([:workflow_run_id])
+    end
+
     # #40 展示页：按 id 取活动详情（GraphQL read_one）
     read :get_by_id do
       get_by([:id])

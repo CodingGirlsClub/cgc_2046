@@ -122,6 +122,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   def instantiate_from_signal(entity_id, entity_type, data) do
     with {:ok, entity} <- fetch_entity(entity_type, entity_id),
          :ok <- ensure_launched(entity),
+         :ok <- ensure_research_enabled(entity),
          {:ok, %WorkflowDefinition{} = defn} <- fetch_research_definition(entity.workspace_id) do
       input =
         case entity_type do
@@ -144,8 +145,10 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
       # 时 run 已落库但未启动，静默丢弃会让故障不可见。best-effort 语义保持
       # （异步路径不抛错），失败记 error 日志供对账。
       case launch(entity.workspace_id, defn.id, input, entity_type) do
-        {:ok, %WorkflowRun{} = _run} ->
-          :ok
+        {:ok, %WorkflowRun{} = run} ->
+          # #14：run 创建成功 → 回写实体 workflow_run_id（产物引用链；失败只记日志，
+          # 不阻塞实例化——引用可对账补写）。
+          link_research_run(entity, entity_type, run)
 
         {:error, reason} ->
           Logger.error(
@@ -206,6 +209,37 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   # 时事件仍为 draft 但信号已发），异步路径必须校验实体已 launch 才实例化。
   defp ensure_launched(%{status: :open}), do: :ok
   defp ensure_launched(%{status: status}), do: {:error, {:entity_not_launched, status}}
+
+  # #6：教研开关门控——research_enabled=false 的活动/课程不实例化教研 run
+  # （领域模型 §5.2：是否启用教研 workflow）。默认 true，仅显式关闭才拦截。
+  defp ensure_research_enabled(%{research_enabled: true}), do: :ok
+  defp ensure_research_enabled(%{research_enabled: false}),
+    do: {:error, :research_disabled}
+
+  # #14：run 创建成功后回写实体 workflow_run_id（产物引用链）。
+  # 失败只记日志不阻塞——引用可对账补写（best-effort，同 launch 容错语义）。
+  defp link_research_run(entity, _entity_type, run) do
+    attrs = %{workflow_run_id: run.id}
+
+    case entity
+         |> Ash.Changeset.for_update(
+           :link_research_run,
+           attrs,
+           tenant: entity.workspace_id,
+           authorize?: false
+         )
+         |> Ash.update(tenant: entity.workspace_id, authorize?: false) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "ResearchInstantiator link_research_run failed for #{entity.__struct__} #{entity.id}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
 
   # 异步路径：取该租户已 published 的教研定义。多个时取最新（version desc，
   # inserted_at desc 兜底）——read_one 无排序时 Postgres 返回任意行，实例化
