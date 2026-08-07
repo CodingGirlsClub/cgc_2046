@@ -37,13 +37,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ProfileEntry 个人资料入口 (#69)", () => {
-	it("渲染头像首字母 + 展示名，链接到 /profile", async () => {
+	it("渲染头像首字母 + 展示名，链接到全局设置", async () => {
 		render(<ProfileEntry />);
 		await waitFor(() => {
 			expect(screen.getByText("小美")).toBeInTheDocument();
 		});
 		const link = screen.getByTestId("profile-entry");
-		expect(link).toHaveAttribute("href", "/profile");
+		expect(link).toHaveAttribute("href", "/settings/account/profile");
 		// 头像首字母（小 → 小）
 		expect(within(link as HTMLElement).getByText("小")).toBeInTheDocument();
 	});
@@ -64,18 +64,18 @@ describe("ProfileEntry 个人资料入口 (#69)", () => {
 		});
 		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
 			"href",
-			"/profile",
+			"/settings/account/profile",
 		);
 	});
 
-	it("传入 slug 时链接带上 workspace 上下文（P1-3）", async () => {
+	it("传入 slug 时链接到工作区设置（P1-3）", async () => {
 		render(<ProfileEntry slug="cgc-academy" />);
 		await waitFor(() => {
 			expect(screen.getByTestId("profile-entry")).toBeInTheDocument();
 		});
 		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
 			"href",
-			"/profile?ws=cgc-academy",
+			"/w/cgc-academy/settings/account/profile",
 		);
 	});
 });

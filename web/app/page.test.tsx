@@ -263,10 +263,10 @@ describe("工作台页 (#63 #83)", () => {
 		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 	});
 
-	it("提供个人资料入口链接到 /profile (#69)", async () => {
+	it("提供个人资料入口链接到 settings (#69)", async () => {
 		render(<HomePage />);
 		const entry = await screen.findByTestId("profile-entry");
-		expect(entry).toHaveAttribute("href", "/profile");
+		expect(entry).toHaveAttribute("href", "/settings/account/profile");
 		expect(await screen.findByText("小美")).toBeInTheDocument();
 	});
 

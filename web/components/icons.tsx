@@ -24,6 +24,7 @@ export type IconName =
 	| "owner"
 	| "check"
 	| "arrow"
+	| "arrow-left"
 	| "edit"
 	| "grip"
 	| "pin"
@@ -42,7 +43,15 @@ export type IconName =
 	| "invite"
 	| "workspace";
 
-export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+export function Icon({
+	name,
+	size = 20,
+	className,
+}: {
+	name: IconName;
+	size?: number;
+	className?: string;
+}) {
 	const common = {
 		width: size,
 		height: size,
@@ -53,6 +62,7 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 		strokeLinecap: "round" as const,
 		strokeLinejoin: "round" as const,
 		"aria-hidden": true,
+		className,
 	};
 
 	switch (name) {
@@ -152,6 +162,12 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 			return (
 				<svg {...common}>
 					<path d="M4 12h15M13 6l6 6-6 6" />
+				</svg>
+			);
+		case "arrow-left":
+			return (
+				<svg {...common}>
+					<path d="M20 12H5M11 6l-6 6 6 6" />
 				</svg>
 			);
 		case "edit":

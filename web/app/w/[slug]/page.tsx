@@ -102,7 +102,7 @@ export default function WorkspacePage() {
 						{/* 管理入口：成员与角色（canAssign 门控文案）/ 权限映射 */}
 						<div className="mt-6 grid gap-4 sm:grid-cols-2">
 							<Link
-								href={`/w/${slug}/members`}
+								href={`/w/${slug}/settings/members`}
 								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
 							>
 								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
@@ -123,7 +123,7 @@ export default function WorkspacePage() {
 								</span>
 							</Link>
 							<Link
-								href={`/w/${slug}/permissions`}
+								href={`/w/${slug}/settings/permissions`}
 								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
 							>
 								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
