@@ -319,6 +319,37 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
                |> Ash.Changeset.for_update(:launch, %{}, actor: admin)
                |> Ash.update(tenant: workspace.id, actor: admin)
     end
+
+    test "launch 信号在事务提交后发布（#1 TOCTOU 回归）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, event} = create_event(workspace, admin)
+
+      parent = self()
+
+      assert {:ok, _sub_id} =
+               Cgc2046.Workflows.JidoAdapter.subscribe(
+                 "event.launched",
+                 fn signal -> send(parent, {:launched, signal.data}) end,
+                 nil
+               )
+
+      # 构建 changeset——buggy 代码在 change 回调（for_update 阶段，事务开始前）
+      # 发布信号，订阅方读到未提交的 draft 状态，ensure_launched 守卫静默丢弃
+      # 实例化（#1 TOCTOU）。修复后：for_update 阶段不得发布信号。
+      changeset = Ash.Changeset.for_update(event, :launch, %{}, actor: admin)
+
+      # 2s 窗口：buggy 代码在 for_update 发布 → 订阅方转发 → refute 失败（红）
+      refute_receive {:launched, _}, 2_000
+
+      {:ok, launched} = Ash.update(changeset, tenant: workspace.id, actor: admin)
+      assert launched.status == :open
+
+      # 提交后信号到达（订阅方此时读到已提交的 open 状态，实例化不被丢弃）
+      assert_receive {:launched, %{"event_id" => event_id, "title" => title}}, 1_000
+      assert event_id == event.id
+      assert title == event.title
+    end
   end
 
   describe "幂等实例化（#39 验收）" do
@@ -390,18 +421,21 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
 
-      {:ok, launched} =
-        event
-        |> Ash.Changeset.for_update(:launch, %{}, actor: admin)
-        |> Ash.update(tenant: workspace.id, actor: admin)
-
-      assert launched.status == :open
+      # 直接置 open（不走 launch action——launch 现在会在事务提交后发信号触发
+      # 生产订阅进程，与白盒调用竞态；#1 修复后生产路径已生效，白盒测试只测
+      # 守卫逻辑本身）。
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE events SET status = 'open' WHERE id = $1",
+          [Ecto.UUID.dump!(event.id)]
+        )
 
       assert :ok =
                apply(ResearchInstantiator, :instantiate_from_signal, [
-                 launched.id,
+                 event.id,
                  :event,
-                 %{"event_id" => launched.id, "title" => launched.title}
+                 %{"event_id" => event.id, "title" => event.title}
                ])
 
       runs =
@@ -459,16 +493,21 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       {:ok, event} = create_event(workspace, admin)
 
-      {:ok, launched} =
-        event
-        |> Ash.Changeset.for_update(:launch, %{}, actor: admin)
-        |> Ash.update(tenant: workspace.id, actor: admin)
+      # 直接置 open（不走 launch action——launch 现在会在事务提交后发信号触发
+      # 生产订阅进程，与白盒调用竞态；#1 修复后生产路径已生效，白盒测试只测
+      # 定义选择逻辑本身）。
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE events SET status = 'open' WHERE id = $1",
+          [Ecto.UUID.dump!(event.id)]
+        )
 
       assert :ok =
                apply(ResearchInstantiator, :instantiate_from_signal, [
-                 launched.id,
+                 event.id,
                  :event,
-                 %{"event_id" => launched.id, "title" => launched.title}
+                 %{"event_id" => event.id, "title" => event.title}
                ])
 
       runs =
