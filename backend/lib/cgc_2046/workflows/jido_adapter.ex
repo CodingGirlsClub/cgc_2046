@@ -477,8 +477,9 @@ defmodule Cgc2046.Workflows.JidoAdapter do
 
   defp connect_step_subgraph(wf, component, _upstream_hash), do: {wf, component, component}
 
-  # next 引用完整性：next 指向的 step 必须存在（Engine.prepare_all 也校验，
-  # 这里在构建期提前失败，避免 runic 图里出现悬空引用）。
+  # next 引用完整性：next 指向的 step 必须存在。唯一实现在本模块构建期校验
+  # （#10：Engine 侧重复实现会各自腐烂，保留一份；Engine 只校验 input_schema），
+  # 构建期提前失败，避免 runic 图里出现悬空引用。
   defp validate_next_refs!(steps, nodes) do
     Enum.reduce_while(steps, :ok, fn step, :ok ->
       case Map.get(step, "next") do
