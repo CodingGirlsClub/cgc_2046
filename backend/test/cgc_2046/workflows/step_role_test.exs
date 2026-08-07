@@ -286,6 +286,26 @@ defmodule Cgc2046.Workflows.StepRoleTest do
       assert logs == []
     end
 
+    test "无认证 actor 发信号被拒：resume_signal 要求认证 actor（#4 补）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+
+      # approval 仅授权 :owner
+      {run, _step} = setup_gated_run(workspace, admin, [:owner])
+      waiting = start_to_waiting(run, workspace, admin)
+
+      # 不传 actor（无认证身份）→ 拒绝，run 保持 waiting
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               waiting
+               |> Ash.Changeset.for_update(:resume_signal, %{signal_type: "workflow.approval"})
+               |> Ash.update(tenant: workspace.id)
+
+      assert Enum.any?(errors, &(&1.message =~ "resume_signal requires an authenticated actor"))
+
+      reloaded = Ash.get!(WorkflowRun, run.id, tenant: workspace.id, actor: admin)
+      assert reloaded.status == :waiting
+    end
+
     test "多角色并集命中放行：volunteer 在 step 执行角色集内" do
       admin = platform_admin()
       workspace = create_workspace(admin)
