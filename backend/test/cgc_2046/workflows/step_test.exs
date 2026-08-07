@@ -300,44 +300,16 @@ defmodule Cgc2046.Workflows.StepTest do
   end
 
   describe "next 引用完整性（Engine 层）" do
-    test "next referencing unknown step fails prepare" do
+    test "next referencing unknown step fails run" do
       node_def = %{
         "steps" => [
           Map.put(uppercase_step(), "next", ["ghost"])
         ]
       }
 
-      assert {:error, {:prepare_failed, {:unknown_next, "ghost"}}} =
-               Engine.run(node_def, %{"text" => "hi"})
-    end
-  end
-
-  describe "三阶段钩子（prepare_step/execute_step/finalize_step）" do
-    test "prepare_step validates single step input_schema" do
-      step = Map.put(uppercase_step(), "input_schema", %{"text" => "string"})
-
-      assert :ok = Engine.prepare_step(step, %{"text" => "hi"}, %{})
-      assert {:error, {:missing_field, "uppercase", "text"}} = Engine.prepare_step(step, %{}, %{})
-
-      assert {:error, {:type_mismatch, "uppercase", "text", "string", "integer"}} =
-               Engine.prepare_step(step, %{"text" => 1}, %{})
-    end
-
-    test "execute_step runs a single step" do
-      assert {:ok, facts} = Engine.execute_step(uppercase_step(), %{"text" => "hi"}, %{})
-      assert facts["uppercase"] == %{text: "HI"}
-
-      assert {:waiting, _facts} =
-               Engine.execute_step(
-                 %{"id" => "approval", "type" => "manual"},
-                 %{"text" => "hi"},
-                 %{}
-               )
-    end
-
-    test "finalize_step normalizes facts by step key" do
-      assert {:ok, %{"uppercase" => %{text: "HI"}}} =
-               Engine.finalize_step(uppercase_step(), %{text: "HI"}, %{})
+      # #10：next 校验唯一实现是 JidoAdapter.build_workflow（构建期），
+      # Engine 不再重复校验——错误直接透传。
+      assert {:error, {:unknown_next, "ghost"}} = Engine.run(node_def, %{"text" => "hi"})
     end
   end
 end

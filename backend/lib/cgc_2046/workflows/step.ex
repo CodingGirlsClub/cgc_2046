@@ -14,8 +14,9 @@ defmodule Cgc2046.Workflows.Step do
 
   ## ADR-0003 纪律
 
-  - `action` 是模块名字符串，指向实现 `Cgc2046.Workflows.StepHandler` behaviour 的模块。
-    引擎运行时解析 + behaviour 校验，不编译期 import（两阶段初始化）。
+  - `action` 是模块名字符串，指向经 `StepHandlerRegistry` 注册的 handler 模块。
+    引擎运行时解析 + 注册表白名单校验（#25：StepHandler behaviour 已删，
+    无实现者，注册表是唯一授权面）。
   - 子 workflow 是 step type 的一种，不是核心原语（pi「不内建 sub-agents」同构）。
   """
 
@@ -66,11 +67,11 @@ defmodule Cgc2046.Workflows.Step do
       description: "步骤类型：auto 自动 / manual 人工 / gate 门控 / sub_workflow 子 workflow"
     )
 
-    # action 指向实现 StepHandler behaviour 的模块名（auto/gate 类型）；manual 可空（等信号，无 action）
+    # action 指向经 StepHandlerRegistry 注册的 handler 模块名（auto/gate 类型）；manual 可空（等信号，无 action）
     attribute(:action, :string,
       public?: true,
       writable?: true,
-      description: "实现 Cgc2046.Workflows.StepHandler 的模块名（auto/gate）；manual 可空"
+      description: "经 StepHandlerRegistry 注册的模块名（auto/gate）；manual 可空"
     )
 
     # 人工步骤使用的 Agent（领域模型定稿 ER §5.2）
