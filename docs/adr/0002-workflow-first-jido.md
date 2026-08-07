@@ -45,6 +45,7 @@
   - 异步 Signal 路径需**幂等键与重试策略**（v1 设计阶段明确），避免重复通知/重复衍生。
   - 人工步骤需定义**超时/取消语义**（如报名截止后取消 run）。
   - 引擎与业务 context 的边界需要纪律：依赖方向恒为 workflow → 业务 Action 接口，业务侧不得反向调引擎。
+  - **人工步骤信号授权只认认证 actor（#4 教训）**：`resume_signal` 的授权与审计一律取 `changeset.context[:private][:actor]`，**不接受客户端传入的身份参数**（`actor_id` 已移除）——否则任何成员可伪造 owner id 放行 manual 门控。未来 MCP 工具暴露 `resume_signal` 时，actor 必须由服务端从认证上下文注入，禁止信任客户端身份；`start_run` 同组 bypass 但引擎执行 auto 步骤不授权（§4.3），无此漏洞。
 
 ## 决策依赖
 

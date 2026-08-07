@@ -35,6 +35,7 @@ import { Icon } from "@/components/icons";
 
 type NavSection =
 	| "overview"
+	| "workflows"
 	| "members"
 	| "settings-join-policy"
 	| "settings-requests"
@@ -44,6 +45,7 @@ type NavSection =
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
+	if (pathname.startsWith(`/w/${slug}/workflows`)) return "workflows";
 	if (
 		pathname.startsWith(`/w/${slug}/members`) ||
 		pathname.startsWith(`/w/${slug}/permissions`)
@@ -236,6 +238,14 @@ export default function WorkspaceShell({
 							>
 								<Icon name="grid" />
 								<span>概览</span>
+							</Link>
+							<Link
+								href={`/w/${slug}/workflows`}
+								className={`ws-shell-item ${active === "workflows" ? "ws-shell-item--selected" : ""}`}
+								aria-current={active === "workflows" ? "page" : undefined}
+							>
+								<Icon name="book" />
+								<span>教研产出</span>
 							</Link>
 							{canSeeMembers && (
 								<Link
