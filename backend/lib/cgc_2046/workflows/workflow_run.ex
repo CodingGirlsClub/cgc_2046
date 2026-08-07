@@ -621,6 +621,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
                 |> Ash.Changeset.force_change_attribute(:facts, facts)
 
               {:error, _reason} ->
+                # hibernate 失败 → failed；清掉旧 checkpoint（thaw 时读出的那份仍在
+                # 存储中，不删即孤儿残留；delete 幂等宽松，策略单源在
+                # CheckpointLifecycle，与 {:error, _reason} 分支一致）
+                :ok = CheckpointLifecycle.on_status(:failed, run_id, partition, nil)
+
                 changeset
                 |> Ash.Changeset.force_change_attribute(:status, :failed)
                 |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
