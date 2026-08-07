@@ -140,8 +140,20 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
             }
         end
 
-      _ = launch(entity.workspace_id, defn.id, input, entity_type)
-      :ok
+      # #13：不得丢弃 launch/4 返回值——创建成功但 start 失败（hibernate 写失败等）
+      # 时 run 已落库但未启动，静默丢弃会让故障不可见。best-effort 语义保持
+      # （异步路径不抛错），失败记 error 日志供对账。
+      case launch(entity.workspace_id, defn.id, input, entity_type) do
+        {:ok, %WorkflowRun{} = _run} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.error(
+            "ResearchInstantiator launch failed for #{entity_type} #{entity_id}: #{inspect(reason)}"
+          )
+
+          :ok
+      end
     else
       {:error, reason} ->
         Logger.warning(

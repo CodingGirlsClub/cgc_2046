@@ -3,6 +3,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.Step
   alias AshAuthentication.Info, as: AuthInfo
@@ -159,6 +160,71 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
       assert v2_draft.version == 2
       assert v2_draft.status == :draft
       assert v2_draft.name == published.name
+    end
+
+    test "new_version copies Step/StepRole rows (#15)" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin)
+
+      # 给源定义建 manual Step + StepRole（角色绑定：owner 可执行审批）
+      {:ok, step} =
+        Step
+        |> Ash.Changeset.for_create(:create,
+          %{
+            definition_id: defn.id,
+            step_key: "approval",
+            title: "审批",
+            type: :manual
+          },
+          tenant: workspace.id,
+          actor: admin
+        )
+        |> Ash.create(tenant: workspace.id, actor: admin)
+
+      {:ok, owner_role} =
+        Role
+        |> Ash.Query.filter(name == ^"owner")
+        |> Ash.read_one(tenant: workspace.id, authorize?: false)
+
+      assert {:ok, _step_role} =
+               Cgc2046.Workflows.StepRole
+               |> Ash.Changeset.for_create(:create,
+                 %{step_id: step.id, role_id: owner_role.id},
+                 tenant: workspace.id,
+                 actor: admin
+               )
+               |> Ash.create(tenant: workspace.id, actor: admin)
+
+      {:ok, published} =
+        defn
+        |> Ash.Changeset.for_update(:publish, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert {:ok, v2_draft} =
+               WorkflowDefinition
+               |> Ash.Changeset.for_create(:new_version, %{source_definition_id: published.id},
+                 tenant: workspace.id,
+                 actor: admin
+               )
+               |> Ash.create(tenant: workspace.id, actor: admin)
+
+      # Step 行复制到新定义（definition_id 换新，step_key 保留）
+      assert {:ok, v2_steps} =
+               Ash.Query.filter(Step, definition_id == ^v2_draft.id)
+               |> Ash.read(tenant: workspace.id, actor: admin, authorize?: false)
+
+      assert [copied_step] = v2_steps
+      assert copied_step.step_key == "approval"
+      assert copied_step.type == :manual
+      refute copied_step.id == step.id
+
+      # StepRole 关联复制：新 step 的 role 映射存在（role_id 指向同一 Role 集合）
+      assert {:ok, v2_step_roles} =
+               Ash.Query.filter(Cgc2046.Workflows.StepRole, step_id == ^copied_step.id)
+               |> Ash.read(tenant: workspace.id, actor: admin, authorize?: false)
+
+      assert v2_step_roles != []
     end
 
     test "new_version rejects non-published source" do

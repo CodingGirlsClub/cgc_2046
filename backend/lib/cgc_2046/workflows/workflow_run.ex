@@ -45,7 +45,9 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
-  alias Cgc2046.Workflows.{Engine, SignalLog, WorkflowDefinition}
+  require Logger
+
+  alias Cgc2046.Workflows.{Engine, JidoAdapter, SignalLog, WorkflowDefinition}
 
   @status_values [:pending, :running, :waiting, :succeeded, :failed, :cancelled, :expired]
 
@@ -385,10 +387,27 @@ defmodule Cgc2046.Workflows.WorkflowRun do
             changeset
             |> Ash.Changeset.force_change_attribute(:status, :cancelled)
             |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+            |> Ash.Changeset.put_context(:delete_checkpoint, true)
 
           status ->
             Ash.Changeset.add_error(changeset, "cannot cancel from status=#{status}")
         end
+      end)
+
+      # #16：waiting → cancelled 时删除 jido_checkpoints（不删则 checkpoint 行永久残留）；
+      # 失败记日志不阻塞状态流转（checkpoint 泄漏可对账，不该卡住取消）。
+      change after_transaction(fn changeset, result, _context ->
+        if changeset.context[:delete_checkpoint] do
+          case result do
+            {:ok, _record} ->
+              delete_run_checkpoint(changeset)
+
+            _ ->
+              :ok
+          end
+        end
+
+        result
       end)
     end
 
@@ -405,10 +424,26 @@ defmodule Cgc2046.Workflows.WorkflowRun do
             changeset
             |> Ash.Changeset.force_change_attribute(:status, :expired)
             |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+            |> Ash.Changeset.put_context(:delete_checkpoint, true)
 
           status ->
             Ash.Changeset.add_error(changeset, "cannot expire from status=#{status}")
         end
+      end)
+
+      # #16：waiting → expired 时删除 jido_checkpoints（同 cancel 的 checkpoint 清理）。
+      change after_transaction(fn changeset, result, _context ->
+        if changeset.context[:delete_checkpoint] do
+          case result do
+            {:ok, _record} ->
+              delete_run_checkpoint(changeset)
+
+            _ ->
+              :ok
+          end
+        end
+
+        result
       end)
     end
 
@@ -578,5 +613,24 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       {:ok, _log} -> :ok
       {:error, _} -> {:error, :signal_log_failed}
     end
+  end
+
+  # #16：cancel/expire 终态清理 checkpoint（提交后执行，失败只记日志不阻塞状态流转）。
+  defp delete_run_checkpoint(changeset) do
+    run_id = Ash.Changeset.get_data(changeset, :id)
+    partition = Ash.Changeset.get_data(changeset, :partition_id)
+
+    if is_binary(run_id) and is_binary(partition) do
+      case JidoAdapter.delete_checkpoint(run_id, partition) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.error("checkpoint cleanup failed for run #{run_id}: #{inspect(reason)}")
+          :ok
+      end
+    end
+
+    :ok
   end
 end

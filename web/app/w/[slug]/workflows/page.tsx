@@ -136,6 +136,9 @@ export default function WorkspaceWorkflowsPage() {
 
 	// 数据归属守卫：wsId 变化（或尚未解析）时旧 runs 不渲染
 	const currentRuns = runsWorkspaceId === wsId ? runs : null;
+	// #20：errorMsg 同样按归属守卫——runsWorkspaceId 由获胜 effect 提交（成功与
+	// 失败分支都 set），旧 workspace 的失败不渲染到新 workspace 上。
+	const currentError = runsWorkspaceId === wsId ? errorMsg : null;
 
 	return (
 		<WorkspaceShell slug={slug}>
@@ -155,9 +158,9 @@ export default function WorkspaceWorkflowsPage() {
 					</div>
 				</header>
 
-				{errorMsg && (
+				{currentError && (
 					<div className="members-error" role="alert">
-						{errorMsg}
+						{currentError}
 					</div>
 				)}
 
@@ -165,7 +168,7 @@ export default function WorkspaceWorkflowsPage() {
 					<div className="workflows-loading" data-testid="workflows-loading">
 						加载中…
 					</div>
-				) : errorMsg ? null : currentRuns.length === 0 ? (
+				) : currentError ? null : currentRuns.length === 0 ? (
 					<section className="workflows-empty" data-testid="workflows-empty">
 						<Icon name="book" size={28} />
 						<p>暂无教研产出</p>

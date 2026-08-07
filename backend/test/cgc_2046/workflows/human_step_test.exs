@@ -306,6 +306,33 @@ defmodule Cgc2046.Workflows.HumanStepTest do
       assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
     end
 
+    test "cancel 删除 checkpoint（#16：waiting → cancelled 不留 jido_checkpoints）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
+
+      {:ok, waiting} =
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert waiting.status == :waiting
+      # checkpoint 存在
+      assert {:ok, _} = JidoAdapter.thaw(run.id, run.partition_id)
+
+      assert {:ok, cancelled} =
+               waiting
+               |> Ash.Changeset.for_update(:cancel, %{}, actor: admin)
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert cancelled.status == :cancelled
+
+      # cancelled 后 checkpoint 已清理
+      assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
+    end
+
     test "Engine.resume 不匹配信号时保持 waiting 并更新 checkpoint" do
       admin = platform_admin()
       workspace = create_workspace(admin)
