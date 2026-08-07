@@ -6,7 +6,6 @@ defmodule Cgc2046.Workflows.HumanStepTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.SignalLog
-  alias Cgc2046.Workflows.Engine
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
@@ -278,7 +277,7 @@ defmodule Cgc2046.Workflows.HumanStepTest do
       assert JidoAdapter.run_status(restored2) == :succeeded
     end
 
-    test "Engine.resume 恢复执行并删除 checkpoint（succeeded 后）" do
+    test "resume_signal 恢复执行并删除 checkpoint（succeeded 后）" do
       admin = platform_admin()
       workspace = create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
@@ -294,13 +293,22 @@ defmodule Cgc2046.Workflows.HumanStepTest do
       # checkpoint 存在
       assert {:ok, _} = JidoAdapter.thaw(run.id, run.partition_id)
 
-      assert {:ok, facts, _workflow} =
-               Engine.resume(run.id, run.partition_id, %{
-                 "signal_type" => "workflow.approval",
-                 "approved_by" => "u1"
-               })
+      # 产品层闭环（#37）：信号放行 → Engine.resume 执行 → succeeded → checkpoint 清理
+      # （候选 #2 后 checkpoint 生命周期在 CheckpointLifecycle，不在 Engine.resume）
+      {:ok, succeeded} =
+        waiting
+        |> Ash.Changeset.for_update(
+          :resume_signal,
+          %{
+            signal_type: "workflow.approval",
+            payload: %{"approved_by" => "u1"}
+          },
+          actor: admin
+        )
+        |> Ash.update(tenant: workspace.id, actor: admin)
 
-      assert facts["append_exclamation"] == %{text: "HI!"}
+      assert succeeded.status == :succeeded
+      assert succeeded.facts["append_exclamation"] == %{"text" => "HI!"}
 
       # succeeded 后 checkpoint 已清理
       assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
@@ -333,7 +341,7 @@ defmodule Cgc2046.Workflows.HumanStepTest do
       assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
     end
 
-    test "Engine.resume 不匹配信号时保持 waiting 并更新 checkpoint" do
+    test "resume_signal 错误信号保持 waiting，checkpoint 保留" do
       admin = platform_admin()
       workspace = create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
@@ -345,12 +353,15 @@ defmodule Cgc2046.Workflows.HumanStepTest do
         |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
         |> Ash.update(tenant: workspace.id, actor: admin)
 
-      # 错误信号类型（不匹配门控）→ 仍 waiting，checkpoint 保持
-      assert {:waiting, _facts, _workflow} =
-               Engine.resume(run.id, run.partition_id, %{
-                 "signal_type" => "workflow.other_step"
-               })
+      # 错误信号类型（不匹配门控）→ 仍 waiting；续传 hibernate 覆盖写 checkpoint
+      {:ok, still_waiting} =
+        waiting
+        |> Ash.Changeset.for_update(:resume_signal, %{signal_type: "workflow.other_step"},
+          actor: admin
+        )
+        |> Ash.update(tenant: workspace.id, actor: admin)
 
+      assert still_waiting.status == :waiting
       assert {:ok, _} = JidoAdapter.thaw(run.id, run.partition_id)
     end
 
@@ -380,6 +391,36 @@ defmodule Cgc2046.Workflows.HumanStepTest do
 
       # 无 checkpoint 残留（hibernate 未写入；表已 drop，thaw 报 storage_error）
       assert {:error, _} = JidoAdapter.thaw(run.id, run.partition_id)
+    end
+
+    test "resume 路径存储故障时 run 标 failed（thaw 失败安全网）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
+
+      {:ok, waiting} =
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert waiting.status == :waiting
+
+      # 模拟存储故障：drop jido_checkpoints（checkpoint 已写入，thaw 先行失败，
+      # 到不了 hibernate 分支——本测试覆盖 thaw 失败安全网；waiting 分支的
+      # hibernate 失败由 checkpoint_lifecycle_test 直测覆盖）。
+      {:ok, _} = Ecto.Adapters.SQL.query(Cgc2046.Repo, "DROP TABLE jido_checkpoints")
+
+      {:ok, failed} =
+        waiting
+        |> Ash.Changeset.for_update(:resume_signal, %{signal_type: "workflow.approval"},
+          actor: admin
+        )
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert failed.status == :failed
+      refute is_nil(failed.finished_at)
     end
   end
 
