@@ -168,9 +168,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         end
       end)
 
-      # definition 归属校验（/check SC2-004）：definition_id 必须属于当前 tenant 且为
-      # published 版本，definition_version 必须匹配——对照 WorkflowDefinition.new_version
-      # 的 source.workspace_id != tenant 守卫，杜绝跨租户绑定执行
+      # definition 归属与版本一致性校验（/check SC2-004）：definition_id 必须属于当前
+      # tenant，其对应版本行状态必须为 published（draft/archived 不可建 run），且传入的
+      # definition_version 必须与该 id 行的 version 一致（防 id/version 矛盾或伪造）。
+      # 注意：版本行即 id（new_version 生成新行，见 WorkflowDefinition），故对「旧
+      # published 版本」建 run 是允许的——D-A2 快照由版本行不可变 + 按 id 回查保证
       change(fn changeset, _context ->
         tenant = changeset.tenant
         definition_id = Ash.Changeset.get_attribute(changeset, :definition_id)
@@ -197,7 +199,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
                 else
                   Ash.Changeset.add_error(
                     changeset,
-                    "definition version #{definition_version} does not match published version #{defn.version}"
+                    "definition #{definition_id} is version #{defn.version}, got definition_version #{definition_version}"
                   )
                 end
 
