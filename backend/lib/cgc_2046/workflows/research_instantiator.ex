@@ -213,6 +213,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   # #6：教研开关门控——research_enabled=false 的活动/课程不实例化教研 run
   # （领域模型 §5.2：是否启用教研 workflow）。默认 true，仅显式关闭才拦截。
   defp ensure_research_enabled(%{research_enabled: true}), do: :ok
+
   defp ensure_research_enabled(%{research_enabled: false}),
     do: {:error, :research_disabled}
 

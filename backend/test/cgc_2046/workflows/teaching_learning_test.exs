@@ -553,7 +553,9 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert updated.workflow_run_id != nil
 
-      run = Ash.get!(WorkflowRun, updated.workflow_run_id, tenant: workspace.id, authorize?: false)
+      run =
+        Ash.get!(WorkflowRun, updated.workflow_run_id, tenant: workspace.id, authorize?: false)
+
       assert run.definition_id == published.id
     end
   end

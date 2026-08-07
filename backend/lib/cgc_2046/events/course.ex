@@ -141,35 +141,37 @@ defmodule Cgc2046.Events.Course do
       # 事务提交成功后发布信号（提交失败不发布——订阅方不会读到孤儿信号）。
       # 发布失败无法回滚事务，记 error 日志（best-effort，与 ResearchInstantiator
       # 异步路径的容错语义一致）。
-      change after_transaction(fn changeset, result, _context ->
-        case result do
-          {:ok, _record} ->
-            tenant = changeset.tenant
-            id = Ash.Changeset.get_data(changeset, :id)
-            title = Ash.Changeset.get_data(changeset, :title)
-            requirements = Ash.Changeset.get_data(changeset, :research_requirements) || %{}
+      change(
+        after_transaction(fn changeset, result, _context ->
+          case result do
+            {:ok, _record} ->
+              tenant = changeset.tenant
+              id = Ash.Changeset.get_data(changeset, :id)
+              title = Ash.Changeset.get_data(changeset, :title)
+              requirements = Ash.Changeset.get_data(changeset, :research_requirements) || %{}
 
-            case JidoAdapter.publish(
-                   "course.launched",
-                   %{
-                     "course_id" => id,
-                     "title" => title,
-                     "research_requirements" => requirements
-                   },
-                   tenant
-                 ) do
-              :ok ->
-                result
+              case JidoAdapter.publish(
+                     "course.launched",
+                     %{
+                       "course_id" => id,
+                       "title" => title,
+                       "research_requirements" => requirements
+                     },
+                     tenant
+                   ) do
+                :ok ->
+                  result
 
-              {:error, reason} ->
-                Logger.error("course.launched publish failed for #{id}: #{inspect(reason)}")
-                result
-            end
+                {:error, reason} ->
+                  Logger.error("course.launched publish failed for #{id}: #{inspect(reason)}")
+                  result
+              end
 
-          _ ->
-            result
-        end
-      end)
+            _ ->
+              result
+          end
+        end)
+      )
     end
 
     defaults([:read])

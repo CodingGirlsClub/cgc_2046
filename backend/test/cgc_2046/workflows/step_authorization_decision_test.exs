@@ -13,11 +13,17 @@ defmodule Cgc2046.Workflows.StepAuthorizationDecisionTest do
     end
 
     test "多角色并集命中放行" do
-      assert :ok = StepAuthorization.authorize_roles([:member, :volunteer], {:ok, [:owner, :volunteer]})
+      assert :ok =
+               StepAuthorization.authorize_roles(
+                 [:member, :volunteer],
+                 {:ok, [:owner, :volunteer]}
+               )
     end
 
     test "并集未命中拒绝" do
-      assert {:error, :unauthorized} = StepAuthorization.authorize_roles([:member], {:ok, [:owner]})
+      assert {:error, :unauthorized} =
+               StepAuthorization.authorize_roles([:member], {:ok, [:owner]})
+
       assert {:error, :unauthorized} = StepAuthorization.authorize_roles([], {:ok, [:owner]})
     end
 

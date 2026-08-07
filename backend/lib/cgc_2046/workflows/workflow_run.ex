@@ -396,19 +396,21 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
       # #16：waiting → cancelled 时删除 jido_checkpoints（不删则 checkpoint 行永久残留）；
       # 失败记日志不阻塞状态流转（checkpoint 泄漏可对账，不该卡住取消）。
-      change after_transaction(fn changeset, result, _context ->
-        if changeset.context[:delete_checkpoint] do
-          case result do
-            {:ok, _record} ->
-              delete_run_checkpoint(changeset)
+      change(
+        after_transaction(fn changeset, result, _context ->
+          if changeset.context[:delete_checkpoint] do
+            case result do
+              {:ok, _record} ->
+                delete_run_checkpoint(changeset)
 
-            _ ->
-              :ok
+              _ ->
+                :ok
+            end
           end
-        end
 
-        result
-      end)
+          result
+        end)
+      )
     end
 
     # pending/waiting → expired：超时（阶段 4 deadline 唤醒路径）
@@ -432,19 +434,21 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       end)
 
       # #16：waiting → expired 时删除 jido_checkpoints（同 cancel 的 checkpoint 清理）。
-      change after_transaction(fn changeset, result, _context ->
-        if changeset.context[:delete_checkpoint] do
-          case result do
-            {:ok, _record} ->
-              delete_run_checkpoint(changeset)
+      change(
+        after_transaction(fn changeset, result, _context ->
+          if changeset.context[:delete_checkpoint] do
+            case result do
+              {:ok, _record} ->
+                delete_run_checkpoint(changeset)
 
-            _ ->
-              :ok
+              _ ->
+                :ok
+            end
           end
-        end
 
-        result
-      end)
+          result
+        end)
+      )
     end
 
     defaults([:read])
