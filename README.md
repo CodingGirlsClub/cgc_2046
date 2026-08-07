@@ -12,7 +12,7 @@
 
 | Layer | Stack |
 | ------- | ------- |
-| Backend | Elixir 1.17 / Phoenix / Ash Framework (AshGraphql, AshPolicy, ash_authentication) / PostgreSQL 16 |
+| Backend | Elixir 1.20 / Phoenix / Ash Framework (AshGraphql, AshPolicy, ash_authentication) / PostgreSQL 16+ |
 | Frontend | Next.js 16 / React 19 / TypeScript / Apollo Client 4 / Tailwind CSS v4 / Vitest |
 | Workflow | Jido ecosystem (jido, jido_runic, ash_jido) |
 
