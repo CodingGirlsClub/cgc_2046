@@ -47,7 +47,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   require Logger
 
-  alias Cgc2046.Workflows.{Engine, JidoAdapter, SignalLog, WorkflowDefinition}
+  alias Cgc2046.Workflows.{Engine, JidoAdapter, SignalLog, StepAuthorization, WorkflowDefinition}
 
   @status_values [:pending, :running, :waiting, :succeeded, :failed, :cancelled, :expired]
 
@@ -542,9 +542,10 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       true ->
         # #38 StepRole 授权：manual 步骤信号发起人（领域模型 §4.3）。
         # actor 为 nil → 无角色 → 有 StepRole 配置则拒绝（安全方向）。
+        # 判定在 StepAuthorization（Engine 不收授权）；错误文案由 error_message/2 产出。
         step_key = String.replace_prefix(signal_type, "workflow.", "")
 
-        case Engine.authorize_signal(actor, tenant, definition_id, step_key) do
+        case StepAuthorization.authorize_signal(actor, tenant, definition_id, step_key) do
           :ok ->
             resume_signal_authorized(
               changeset,
@@ -556,8 +557,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
               actor.id
             )
 
-          {:error, :unauthorized} ->
-            Ash.Changeset.add_error(changeset, "unauthorized to signal step #{step_key}")
+          {:error, reason} ->
+            Ash.Changeset.add_error(changeset, StepAuthorization.error_message(reason, step_key))
         end
     end
   end
