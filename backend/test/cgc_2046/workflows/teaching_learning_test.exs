@@ -496,6 +496,66 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert length(runs) == 1
     end
+
+    test "research_enabled=false 不实例化（#6 门控）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, event} = create_event(workspace, admin, %{research_enabled: false})
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE events SET status = 'open' WHERE id = $1",
+          [Ecto.UUID.dump!(event.id)]
+        )
+
+      assert :ok =
+               apply(ResearchInstantiator, :instantiate_from_signal, [
+                 event.id,
+                 :event,
+                 %{"event_id" => event.id, "title" => event.title}
+               ])
+
+      runs =
+        WorkflowRun
+        |> Ash.Query.for_read(:read)
+        |> Ash.read!(tenant: workspace.id, actor: admin)
+
+      assert runs == []
+    end
+
+    test "实例化后回写 workflow_run_id（#14 产物引用链）" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, event} = create_event(workspace, admin)
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE events SET status = 'open' WHERE id = $1",
+          [Ecto.UUID.dump!(event.id)]
+        )
+
+      assert :ok =
+               apply(ResearchInstantiator, :instantiate_from_signal, [
+                 event.id,
+                 :event,
+                 %{"event_id" => event.id, "title" => event.title}
+               ])
+
+      # 实体 workflow_run_id 已回写（非 nil 且指向真实 run）
+      updated =
+        Ash.get!(Event, event.id, tenant: workspace.id, actor: admin, authorize?: false)
+
+      assert updated.workflow_run_id != nil
+
+      run = Ash.get!(WorkflowRun, updated.workflow_run_id, tenant: workspace.id, authorize?: false)
+      assert run.definition_id == published.id
+    end
   end
 
   describe "异步路径教研定义选择（确定性）" do
