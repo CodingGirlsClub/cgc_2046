@@ -60,7 +60,7 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     workspace
   end
 
-  defp create_definition(workspace, actor, attrs \\ %{}) do
+  defp create_definition(workspace, actor, attrs) do
     defaults = %{
       name: "人工步骤 workflow",
       type: :research,
@@ -83,7 +83,7 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     |> Ash.update(tenant: workspace.id, actor: actor)
   end
 
-  defp create_run(workspace, actor, defn, attrs \\ %{}) do
+  defp create_run(workspace, actor, defn, attrs) do
     defaults = %{
       definition_id: defn.id,
       definition_version: defn.version,
