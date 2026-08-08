@@ -82,7 +82,8 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
       public?: true,
       writable?: true,
       constraints: [one_of: [:public, :workspace, :only_me]],
-      description: "资料可见范围（三档）：public 所有登录用户可读 / workspace 该 workspace 成员可读 / only_me 仅本人可读（默认，隐私优先）"
+      description:
+        "资料可见范围（三档）：public 所有登录用户可读 / workspace 该 workspace 成员可读 / only_me 仅本人可读（默认，隐私优先）"
     )
 
     attribute(:ui_theme_preference, :string,
