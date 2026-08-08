@@ -290,7 +290,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(main.queryByText("管理成员列表与角色分配")).not.toBeInTheDocument();
 	});
 
-	it("品牌下拉菜单：邮箱行 + 工作区列表（带头像）+ 操作项 + 退出登录", async () => {
+	it("品牌下拉菜单：一级操作项 + Switch workspace 展开二级工作区列表", async () => {
 		render(<WorkspacePage />);
 		await content();
 		// 打开 dropdown
@@ -298,29 +298,49 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),
 		);
 		const menu = await screen.findByRole("menu");
-		// 邮箱行
-		expect(within(menu).getByText("xiaomei@example.com")).toBeInTheDocument();
-		// 工作区项：名称 + 当前项 ✓
-		expect(
-			within(menu).getByRole("menuitem", { name: /CGC 线上学院/ }),
-		).toHaveAttribute("href", "/w/cgc-academy");
-		expect(
-			within(menu).getByRole("menuitem", { name: /CGC 上海分社/ }),
-		).toHaveAttribute("href", "/w/cgc-shanghai");
-		expect(within(menu).getByText("✓")).toBeInTheDocument();
-		// 操作项
+		// 一级：操作项
 		expect(
 			within(menu).getByRole("menuitem", { name: "Settings" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings/account/preferences");
 		expect(
-			within(menu).getByRole("menuitem", { name: "发现 / 加入工作区" }),
+			within(menu).getByRole("menuitem", { name: "邀请管理" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings/invitations");
+		// 一级：Switch workspace + 退出登录；工作区列表在二级，一级不可见
+		expect(
+			within(menu).getByRole("menuitem", { name: "Switch workspace" }),
+		).toBeInTheDocument();
+		expect(
+			within(menu).queryByText("xiaomei@example.com"),
+		).not.toBeInTheDocument();
+
+		// 展开二级
+		fireEvent.click(
+			within(menu).getByRole("menuitem", { name: "Switch workspace" }),
+		);
+		// 二级：邮箱行可见（一级不可见的标志内容现在出现）
+		const email = await screen.findByText("xiaomei@example.com");
+		const sub = email.closest("[role='menu']") as HTMLElement;
+		expect(sub).not.toBe(menu);
+		// 工作区项：名称 + 当前项 ✓
+		expect(
+			within(sub).getByRole("menuitem", { name: /CGC 线上学院/ }),
+		).toHaveAttribute("href", "/w/cgc-academy");
+		expect(
+			within(sub).getByRole("menuitem", { name: /CGC 上海分社/ }),
+		).toHaveAttribute("href", "/w/cgc-shanghai");
+		expect(within(sub).getByText("✓")).toBeInTheDocument();
+		// 操作项
+		expect(
+			within(sub).getByRole("menuitem", { name: "发现 / 加入工作区" }),
 		).toHaveAttribute("href", "/join");
 		// 个人资料已迁入 settings（Personal 组），菜单不再重复
 		expect(
-			within(menu).queryByRole("menuitem", { name: "个人资料" }),
+			within(sub).queryByRole("menuitem", { name: "个人资料" }),
 		).not.toBeInTheDocument();
-		// 退出登录触发 clearSession + 跳转
-		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
+		// 退出登录触发 clearSession + 跳转（一级）
+		fireEvent.click(
+			within(menu).getByRole("menuitem", { name: "退出登录" }),
+		);
 		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
 		await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
 	});
