@@ -1699,8 +1699,8 @@ type Workspace {
 type User {
   id: ID!
 
-  "用户邮箱（全局唯一，登录身份标识）"
-  email: String!
+  "用户邮箱（全局唯一；小程序手机号用户为 null——Phase 1 起放宽可空）"
+  email: String
 
   "是否平台管理员（全局标记）"
   isPlatformAdmin: Boolean!
@@ -1940,6 +1940,12 @@ type SignInResult {
   isPlatformAdmin: Boolean!
 }
 
+type SignInWithPlatformResult {
+  id: ID!
+  email: String
+  isPlatformAdmin: Boolean!
+}
+
 type SignUpPayload {
   result: SignUpUser
   errors: [MutationError]
@@ -2038,6 +2044,9 @@ type RootMutationType {
 
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload
+
+  "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
+  signInWithPlatform(platform: String!, code: String!, encryptedData: String!, iv: String!): SignInWithPlatformResult
 
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
