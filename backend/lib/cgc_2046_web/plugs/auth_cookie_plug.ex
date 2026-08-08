@@ -45,9 +45,9 @@ defmodule Cgc2046Web.Plugs.AuthCookiePlug do
           http_only: true,
           secure: Application.get_env(:cgc_2046, :auth_cookie_secure, true),
           same_site: "Lax",
-          # 与 AshAuthentication token_lifetime 对齐（默认 14 天，见 user.ex tokens 块）。
+          # 与 AshAuthentication token_lifetime 对齐（Phase 1 起 7 天，见 user.ex tokens 块）。
           # cookie 比 token 早过期会导致用户登录次日即被判定未登录（token 仍有效但 cookie 已丢）。
-          max_age: Application.get_env(:cgc_2046, :auth_cookie_max_age, 60 * 60 * 24 * 14)
+          max_age: Application.get_env(:cgc_2046, :auth_cookie_max_age, 60 * 60 * 24 * 7)
         )
 
       true ->

@@ -242,6 +242,59 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
+    field :sign_in_with_platform, :sign_in_with_platform_result do
+      arg(:platform, non_null(:string))
+      arg(:code, non_null(:string))
+      arg(:encrypted_data, non_null(:string))
+      arg(:iv, non_null(:string))
+
+      # getPhoneNumber 计费防刷：复用既有 RateLimit（按 IP+platform 计，5 次/15 分钟）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
+
+      resolve(fn _,
+                 %{platform: platform, code: code, encrypted_data: encrypted_data, iv: iv},
+                 _ ->
+        query =
+          Cgc2046.Accounts.User
+          |> Ash.Query.for_read(:sign_in_with_miniprogram, %{
+            platform: platform,
+            code: code,
+            encrypted_data: encrypted_data,
+            iv: iv
+          })
+
+        try do
+          case Ash.read(query) do
+            {:ok, [user]} ->
+              {:ok,
+               %{
+                 id: user.id,
+                 email: user.email,
+                 is_platform_admin: user.is_platform_admin,
+                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+                 __token__: user.__metadata__[:token]
+               }}
+
+            {:error, _error} ->
+              {:error, message: "Platform sign in failed", code: "authentication_failed"}
+          end
+        rescue
+          _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        end
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
     @desc "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
     field :sign_out, :string do
       resolve(fn _, _, _ ->
@@ -470,6 +523,13 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:is_platform_admin, non_null(:boolean))
   end
 
+  # 小程序手机号用户无邮箱 → email 可空（与 users.email 放宽一致）
+  object :sign_in_with_platform_result do
+    field(:id, non_null(:id))
+    field(:email, :string)
+    field(:is_platform_admin, non_null(:boolean))
+  end
+
   object :sign_up_payload do
     field(:result, :sign_up_user)
     field(:errors, list_of(:mutation_error))
@@ -590,7 +650,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 服务端撤销当前 token：往 tokens 表对当前 jti 做 upsert，把 purpose 从 "user"
   # 覆盖成 "revocation"，下次 load_from_bearer 的 get_token 查不到 user 记录即认证失败。
   # token 由 AuthTokenContextPlug 从 Authorization header 透传进 Absinthe context。
-  # 撤销失败不阻断登出：仍清 cookie 让用户侧登出成功，token 会在 14 天自然过期。
+  # 撤销失败不阻断登出：仍清 cookie 让用户侧登出成功，token 会在 7 天自然过期。
   defp revoke_bearer_token(context) do
     case context[:cgc_bearer_token] do
       token when is_binary(token) and byte_size(token) > 0 ->
