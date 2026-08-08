@@ -38,3 +38,7 @@ config :phoenix,
 
 # Disable rate limiting in test (ETS table is shared across async tests)
 config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999
+
+# Oban 测试模式：manual——job 只入队不自动执行（Oban 内部自动禁用 queues/plugins，
+# cron 不会在测试中触发）；断言用 Oban.Testing.assert_enqueued，执行用 perform_job。
+config :cgc_2046, Oban, testing: :manual

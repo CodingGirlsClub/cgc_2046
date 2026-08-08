@@ -63,7 +63,9 @@ defmodule Cgc2046.MixProject do
       {:jido_runic, "~> 1.0"},
       {:ash_jido, "~> 1.0"},
       {:simple_sat, "~> 0.1"},
-      {:cors_plug, "~> 3.0"}
+      {:cors_plug, "~> 3.0"},
+      # 0C：审批超时主动调度（JoinRequest/WorkflowRun expire、48h 提醒 cron）；Apache-2.0（合规门已审）
+      {:oban, "~> 2.20"}
     ]
   end
 

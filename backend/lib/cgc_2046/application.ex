@@ -26,6 +26,8 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.ResearchInstantiator,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
+      # 0C：Oban（审批超时扫描 + 48h 提醒 cron；需在 Repo 之后启动）
+      {Oban, Application.fetch_env!(:cgc_2046, Oban)},
       # Start to serve requests, typically the last entry
       Cgc2046Web.Endpoint
     ]
