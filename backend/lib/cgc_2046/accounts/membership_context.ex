@@ -56,6 +56,10 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   alias Cgc2046.Accounts.BypassReads
   alias Cgc2046.Accounts.WorkspaceMembership
+  alias Cgc2046.Accounts.WorkspaceProfile
+
+  # 默认社区 workspace（ADR-0004 §3.5）：新用户注册自动加入（member 角色）
+  @default_workspace_slug "2046"
 
   @doc """
   返回 actor 在目标工作台的成员资格（roles 已加载），非成员 / 匿名 / 读失败返回 `nil`。
@@ -245,6 +249,48 @@ defmodule Cgc2046.Accounts.MembershipContext do
   defp workspace_id_by_id_filter(_, _resource), do: nil
 
   # ── 成员入座（写入面）─────────────────────────────────────────────
+
+  @doc """
+  把新注册用户入座到默认社区 workspace `2046`（ADR-0004 §3.5）。
+
+  注册流程在 GraphQL signUp 创建 User 后调用：查默认 workspace(幂等)→
+  admit_member(member 角色, 幂等)→ 建该 user 在 2046 的 WorkspaceProfile
+  （复制全局 profile 字段, 默认 visibility=only_me）。保证"注册即有 workspace
+  上下文"可编辑 per-workspace 档案。
+
+  ## 降级语义
+
+  默认 workspace 加入失败**不阻断注册**（2046 是保障而非硬依赖）——调用方
+  （graphql signUp）应捕获返回并仅记录日志。返回：
+  - `{:ok, membership}` 入座成功（或幂等已入座）
+  - `{:error, :workspace_not_found}` 默认 workspace 未 seed（迁移未跑/被删）
+  - `{:error, _}` 其它失败（admit_member / profile 创建）
+  """
+  @spec admit_to_default_workspace(String.t()) :: {:ok, term} | {:error, term}
+  def admit_to_default_workspace(user_id) do
+    with {:ok, workspace} <- find_default_workspace(),
+         {:ok, membership} <-
+           admit_member(user_id, workspace.id, [:member], on_conflict: :idempotent) do
+      # 建 WorkspaceProfile（create action 默认 visibility=only_me / theme=dark / skills=[]；
+      # 冲突 = 已有档案，跳过）。失败不阻断入座（档案可后续 lazy 建）。
+      WorkspaceProfile
+      |> Ash.Changeset.for_create(:create, %{user_id: user_id})
+      |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      {:ok, membership}
+    end
+  end
+
+  # 查默认 workspace（by slug，幂等；Workspace 为全局资源无 tenant）
+  defp find_default_workspace do
+    case Cgc2046.Accounts.Workspace
+         |> Ash.Query.for_read(:get_by_slug, %{slug: @default_workspace_slug})
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> {:error, :workspace_not_found}
+      {:ok, workspace} -> {:ok, workspace}
+      {:error, _error} -> {:error, :workspace_not_found}
+    end
+  end
 
   # 业务错误文案作为 opt 传入：Invitation 对受邀人说「你」、JoinRequest 对审批方说「该用户」，
   # 两个 action 的调用方视角不同（自助 vs 管理员代操作），文案差异是 UX 契约，抽出后保留。

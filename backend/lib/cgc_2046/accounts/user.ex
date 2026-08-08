@@ -1,6 +1,6 @@
 defmodule Cgc2046.Accounts.User do
   @moduledoc """
-  全局用户资源。
+  全局用户资源（ADR-0004 收窄为全局身份）。
 
   使用 `ash_authentication` 的 Password 策略提供注册/登录：
   - `register_with_password`（create action）：注册，签发 JWT（存于 metadata `:token`）
@@ -10,7 +10,10 @@ defmodule Cgc2046.Accounts.User do
   登录 token 经 httpOnly cookie 交付 #60 路径 B，响应体不含 token）：
   - mutation `signUp(input: {email, password})` → `SignUpPayload { result, errors }`（错误走 AshGraphql.Error 映射）
   - mutation `signIn(email:, password:)` → `SignInResult { id, email, isPlatformAdmin }`
-  - mutation `updateProfile` / `setUiTheme` → `User`（actor-scoped 手写 resolve）
+  - query `me` → `User`（全局身份：id/email/displayName/isPlatformAdmin/memberNumber/joinedAt）
+
+  ADR-0004：profile 字段（avatar_url/location/about/skills/visibility/ui_theme_preference）
+  已迁至 `WorkspaceProfile`（per-workspace）；本资源仅保留全局身份字段。
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
@@ -48,54 +51,7 @@ defmodule Cgc2046.Accounts.User do
       allow_nil?: true,
       public?: true,
       writable?: true,
-      description: "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
-    )
-
-    attribute(:avatar_url, :string,
-      allow_nil?: true,
-      public?: true,
-      writable?: true,
-      description:
-        "头像 URL（#68 Profile API，可选；data URL 限 image/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
-    )
-
-    attribute(:location, :string,
-      allow_nil?: true,
-      public?: true,
-      writable?: true,
-      description: "所在地（P1 Profile 扩展字段，可编辑）"
-    )
-
-    attribute(:about, :string,
-      allow_nil?: true,
-      public?: true,
-      writable?: true,
-      description: "个人简介（P1 Profile 扩展字段，可编辑）"
-    )
-
-    attribute(:skills, {:array, :string},
-      allow_nil?: true,
-      default: [],
-      public?: true,
-      writable?: true,
-      description: "技能标签列表（P1 Profile 扩展字段，可编辑）"
-    )
-
-    attribute(:visibility, :atom,
-      allow_nil?: false,
-      default: :only_me,
-      public?: true,
-      writable?: true,
-      constraints: [one_of: [:public, :workspace, :only_me]],
-      description: "资料可见范围（三档）：public 所有登录用户可读 / workspace 同工作区成员可读 / only_me 仅本人可读（默认，隐私优先）"
-    )
-
-    attribute(:ui_theme_preference, :string,
-      allow_nil?: false,
-      default: "dark",
-      public?: true,
-      writable?: true,
-      description: "用户 UI 主题偏好（U3）：dark（默认）/ light，服务端持久化用于跨设备同步"
+      description: "显示名（全局身份字段；可为 null，前端以 email 前缀兜底）"
     )
 
     create_timestamp(:inserted_at)
@@ -103,7 +59,6 @@ defmodule Cgc2046.Accounts.User do
   end
 
   relationships do
-    # visibility=:workspace 共享判断：actor 与 owner 同属任一工作区（共同 membership）
     has_many(:workspace_memberships, Cgc2046.Accounts.WorkspaceMembership,
       destination_attribute: :user_id
     )
@@ -125,11 +80,6 @@ defmodule Cgc2046.Accounts.User do
     validate(match(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
       message: "must be a valid email address"
     )
-
-    # U3：主题偏好仅允许 dark | light（:string + 显式 match 校验，非 unsafe atom，遵 AGENTS.md atom 安全）
-    validate(match(:ui_theme_preference, ~r/^(dark|light)$/),
-      message: "must be dark or light"
-    )
   end
 
   actions do
@@ -142,14 +92,12 @@ defmodule Cgc2046.Accounts.User do
       prepare(AshAuthentication.Preparations.FilterBySubject)
     end
 
-    update :update_profile do
-      description(
-        "更新当前用户个人资料（P1）：displayName 必填（trim 后非空），avatarUrl/location/about/skills/visibility 可选"
-      )
+    update :update_display_name do
+      description("更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）")
 
       require_atomic?(false)
 
-      accept([:display_name, :avatar_url, :location, :about, :skills, :visibility])
+      accept([:display_name])
 
       # 规范化：displayName 先 trim 再校验非空
       change(fn changeset, _context ->
@@ -175,68 +123,8 @@ defmodule Cgc2046.Accounts.User do
             end
         end
       end)
-
-      # P1-4 头像上传最小方案：data URL 限白名单 MIME + 体积上限；http(s) URL 限长度
-      validate(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :avatar_url) do
-          nil -> :ok
-          url -> validate_avatar_url(url)
-        end
-      end)
-    end
-
-    update :set_ui_theme do
-      description("设置当前用户 UI 主题偏好（U3）：仅接受 dark | light")
-
-      require_atomic?(false)
-
-      accept([:ui_theme_preference])
     end
   end
-
-  # 头像校验（P1-4 最小方案）：base64 data URL 直存 + 类型/大小限制，外部存储留待后续切片
-  @avatar_allowed_mime ["image/png", "image/jpeg", "image/webp", "image/gif"]
-  @avatar_max_data_url_bytes 3_000_000
-  @avatar_max_http_url_length 2048
-
-  defp validate_avatar_url("data:" <> rest) do
-    case String.split(rest, ";", parts: 2) do
-      [mime, "base64," <> _] ->
-        cond do
-          mime not in @avatar_allowed_mime ->
-            {:error,
-             field: :avatar_url,
-             message:
-               "avatar data URL MIME must be one of image/png, image/jpeg, image/webp, image/gif"}
-
-          byte_size("data:" <> rest) > @avatar_max_data_url_bytes ->
-            {:error, field: :avatar_url, message: "avatar data URL too large (max ~2.2MB image)"}
-
-          true ->
-            :ok
-        end
-
-      _ ->
-        {:error, field: :avatar_url, message: "avatar data URL must be base64-encoded image"}
-    end
-  end
-
-  defp validate_avatar_url(url) when is_binary(url) do
-    cond do
-      String.starts_with?(url, "http://") or String.starts_with?(url, "https://") ->
-        if byte_size(url) <= @avatar_max_http_url_length do
-          :ok
-        else
-          {:error, field: :avatar_url, message: "avatar URL too long (max 2048 chars)"}
-        end
-
-      true ->
-        {:error, field: :avatar_url, message: "avatarUrl must be a data URL or http(s) URL"}
-    end
-  end
-
-  defp validate_avatar_url(_),
-    do: {:error, field: :avatar_url, message: "avatarUrl must be a string"}
 
   authentication do
     tokens do
@@ -282,23 +170,16 @@ defmodule Cgc2046.Accounts.User do
       authorize_if(always())
     end
 
-    # #68：用户可更新自己的个人资料（SimpleCheck，strict 阶段可判定）
-    policy action(:update_profile) do
-      authorize_if(Cgc2046.Policies.UpdateOwnProfile)
-    end
-
-    # U3：用户可设置自己的 UI 主题偏好（复用 UpdateOwnProfile SimpleCheck，与 action 名无关）
-    policy action(:set_ui_theme) do
-      authorize_if(Cgc2046.Policies.UpdateOwnProfile)
-    end
-
-    # 用户读取：本人永远可读；他人按 visibility 三档判定（Check 在 filter 阶段动态构造）
-    # - only_me：仅本人可读（filter 仅 id == actor.id）
-    # - workspace：同属任一工作区的登录用户可读（exists 子查询，SQL 直连不经 WorkspaceMembership policy）
-    # - public：所有登录用户可读
-    # - 匿名：不可读（actor nil -> filter 永假）
+    # 用户读取：仅本人可读（ADR-0004 后 User 为全局身份，profile 可见性已迁
+    # WorkspaceProfile.ReadWorkspaceProfileByVisibility；me 只查本人）。
+    # 匿名（actor nil）→ filter 恒假不可读。
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.ReadUserByVisibility)
+      authorize_if(Cgc2046.Policies.ReadOwnUser)
+    end
+
+    # 更新全局显示名：仅本人（SimpleCheck，strict 阶段可判定）
+    policy action(:update_display_name) do
+      authorize_if(Cgc2046.Policies.OwnUser)
     end
 
     # 注意：不能使用 `policy always() do forbid_if(always()) end` 做默认拒绝。
