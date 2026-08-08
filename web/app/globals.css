@@ -1701,6 +1701,41 @@ body {
 .settings-empty svg { width: 32px; height: 32px; color: var(--status-green); }
 .settings-empty p { color: var(--ink-3); font-size: 14px; line-height: 22px; }
 
+/* ---------- 切片 D #44：MCP 连接（设置页 + 引导页） ---------- */
+/* 一次性明文展示条（签发成功瞬间） */
+.mcp-token-once { display: grid; gap: 10px; margin-top: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--status-green) 40%, transparent); border-radius: var(--radius-medium); background: color-mix(in srgb, var(--status-green) 7%, var(--card)); }
+.mcp-token-once p { color: var(--ink-2); font-size: 13px; line-height: 20px; margin: 0; }
+.mcp-token-once__row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mcp-token-once__row code { flex: 1; min-width: 200px; padding: 6px 10px; border-radius: var(--radius-micro); background: var(--soft); color: var(--ink); font-family: var(--font-mono); font-size: 12.5px; line-height: 18px; word-break: break-all; }
+.mcp-copy-error { margin: 4px 0 0; color: var(--status-red); font-size: 12px; line-height: 18px; }
+
+/* 客户端配置片段（三 Tab） */
+.mcp-config-section { margin-top: 32px; display: grid; gap: 8px; }
+.mcp-config-section h2 { color: var(--ink); font-size: 15px; font-weight: 590; line-height: 22px; margin: 0; }
+.mcp-config-section__desc { color: var(--ink-3); font-size: 13px; line-height: 20px; margin: 0; }
+.mcp-snippet { display: grid; gap: 12px; margin-top: 4px; }
+.mcp-snippet__body { display: grid; gap: 8px; }
+.mcp-snippet__meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-3); font-size: 12.5px; line-height: 18px; }
+.mcp-snippet__meta code { color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; }
+.mcp-snippet__code { padding: 12px 14px; overflow-x: auto; white-space: pre; border-radius: var(--radius-small); margin: 0; }
+.mcp-snippet__note { color: var(--ink-3); font-size: 12px; line-height: 18px; margin: 0; }
+
+/* 三步向导 */
+.connect-steps { display: flex; gap: 8px; list-style: none; margin: 16px 0 20px; padding: 0; flex-wrap: wrap; }
+.connect-steps__item { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 5px; border-radius: 9999px; color: var(--ink-3); font-size: 12.5px; line-height: 20px; box-shadow: inset 0 0 0 1px var(--line); }
+.connect-steps__num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 9999px; background: var(--soft); color: var(--ink-3); font-size: 11px; font-weight: 590; }
+.connect-steps__item--current { color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.connect-steps__item--current .connect-steps__num { background: var(--accent); color: #fff; }
+.connect-steps__item--done { color: var(--status-green); }
+.connect-steps__item--done .connect-steps__num { background: color-mix(in srgb, var(--status-green) 16%, transparent); color: var(--status-green); }
+.connect-step-card { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--card); }
+.connect-step-card h2 { color: var(--ink); font-size: 15px; font-weight: 590; line-height: 22px; margin: 0; }
+.connect-step-card__desc { color: var(--ink-3); font-size: 13px; line-height: 20px; margin: 0; }
+.connect-step-card__actions { display: flex; gap: 8px; justify-content: flex-end; }
+.connect-step-card .settings-note { margin-top: 0; }
+.connect-step-card .invitation-form { display: grid; gap: 12px; }
+.connect-step-card .invitation-form > .join-button { justify-self: start; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 767px) {
   .join-card { gap: 16px; }
