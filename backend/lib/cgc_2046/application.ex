@@ -26,6 +26,8 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.ResearchInstantiator,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
+      # MCP server（Slice D #42，anubis_mcp streamable HTTP；挂载见 router :mcp pipeline）
+      {Cgc2046.Mcp.Server, transport: :streamable_http},
       # Start to serve requests, typically the last entry
       Cgc2046Web.Endpoint
     ]
