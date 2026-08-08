@@ -49,6 +49,14 @@ config :phoenix, :json_library, Jason
 # in config/runtime.exs (never commit a real secret).
 config :cgc_2046, :token_signing_secret, "dev-only-token-signing-secret-change-me"
 
+# 小程序平台凭证（Phase 1：wechat/tt/xhs 的 code2session）。
+# 此处为 dev/test dummy 值；prod 由 config/runtime.exs 经环境变量注入（不进 git）。
+config :cgc_2046, :miniprogram_platforms, %{
+  wechat: %{appid: "dev-wechat-appid", secret: "dev-wechat-secret"},
+  tt: %{appid: "dev-tt-appid", secret: "dev-tt-secret"},
+  xhs: %{appid: "dev-xhs-appid", secret: "dev-xhs-secret"}
+}
+
 # 0C：Oban（PG-backed，跑在现有 Phoenix 应用内，无新服务）。
 # - maintenance 队列：审批超时扫描（expiry）+ 48h 提醒（reminder）共用，并发 5 足够
 #   （两者均为轻量查询 + 少量 Ash update）。
