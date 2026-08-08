@@ -98,6 +98,16 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
+    field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
+      resolve(fn _, _, %{context: context} ->
+        case context[:actor] do
+          nil -> {:error, unauthorized_error()}
+          actor -> Cgc2046.Events.PendingApprovals.list(actor)
+        end
+      end)
+    end
   end
 
   mutation do
@@ -291,6 +301,113 @@ defmodule Cgc2046Web.GraphqlSchema do
 
           _ ->
             res
+        end
+      end)
+    end
+
+    @desc "Owner/Admin 创建一次性工作台邀请小程序码"
+    field :generate_mini_program_code, :miniprogram_code_result do
+      arg(:workspace_id, non_null(:id))
+      arg(:platform, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:workspace_id])
+
+      resolve(fn _, %{workspace_id: workspace_id, platform: platform}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.MiniprogramCode.generate(workspace_id, actor, platform) do
+              {:ok, result} ->
+                {:ok, result}
+
+              {:error, :forbidden} ->
+                {:error, message: "Forbidden", code: "forbidden"}
+
+              {:error, :invalid_platform} ->
+                {:error, message: "Invalid platform", code: "invalid_platform"}
+
+              {:error, :daily_quota_exhausted} ->
+                {:error, message: "Daily quota exhausted", code: "daily_quota_exhausted"}
+
+              {:error, _} ->
+                {:error, message: "Code generation failed", code: "code_generation_failed"}
+            end
+        end
+      end)
+    end
+
+    @desc "使用一次性小程序 scene 接受工作台邀请"
+    field :admit_member_by_token, :invitation do
+      arg(:scene, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:scene])
+
+      resolve(fn _, %{scene: scene}, %{context: context} ->
+        cond do
+          is_nil(context[:actor]) ->
+            {:error, unauthorized_error()}
+
+          not Cgc2046.MiniprogramCode.valid_scene?(scene) ->
+            {:error, message: "Invalid scene", code: "invalid_scene"}
+
+          true ->
+            actor = context[:actor]
+
+            with {:ok, code} <- Cgc2046.MiniprogramCode.code_for_scene(scene),
+                 {:ok, invitation} <-
+                   Ash.get(Cgc2046.Accounts.Invitation, code.invitation_id, authorize?: false),
+                 {:ok, accepted} <-
+                   invitation
+                   |> Ash.Changeset.for_update(:accept_miniprogram, %{scene: scene})
+                   |> Ash.update(actor: actor) do
+              {:ok, accepted}
+            else
+              {:error, :invalid_scene} ->
+                {:error, message: "Invalid scene", code: "invalid_scene"}
+
+              {:error, :invalid_or_expired_scene} ->
+                {:error,
+                 message: "Invitation has already been used or scene has expired",
+                 code: "invalid_or_expired_scene"}
+
+              {:error, error} ->
+                {:error,
+                 to_ash_graphql_errors(
+                   error,
+                   context,
+                   :accept_miniprogram,
+                   Cgc2046.Accounts.Invitation
+                 )}
+            end
+        end
+      end)
+    end
+
+    @desc "记录一次小程序订阅消息授权并增加一个可用次数"
+    field :grant_mini_program_notification_consent, :integer do
+      arg(:platform, non_null(:string))
+      arg(:template_key, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
+
+      resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.NotificationConsent.grant(actor.id, platform, template_key) do
+              {:ok, remaining} ->
+                {:ok, remaining}
+
+              {:error, :invalid_platform} ->
+                {:error, message: "Invalid platform", code: "invalid_platform"}
+
+              {:error, _} ->
+                {:error, message: "Consent grant failed", code: "consent_grant_failed"}
+            end
         end
       end)
     end
@@ -500,6 +617,25 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   object :permission_matrix_payload do
     field(:roles, non_null(list_of(non_null(:permission_matrix_row))))
+  end
+
+  object :pending_approval do
+    field(:id, non_null(:id))
+    field(:kind, non_null(:string))
+    field(:workspace_id, non_null(:id))
+    field(:user_id, non_null(:id))
+    field(:event_id, :id)
+    field(:course_id, :id)
+    field(:status, non_null(:string))
+    field(:approval_deadline, :datetime)
+  end
+
+  object :miniprogram_code_result do
+    field(:invitation_id, non_null(:id))
+    field(:platform, non_null(:string))
+    field(:scene, non_null(:string))
+    field(:code_base64, non_null(:string))
+    field(:expires_at, non_null(:datetime))
   end
 
   # ── 认证相关类型（#60 路径 B：httpOnly cookie 交付 token） ──────────────
