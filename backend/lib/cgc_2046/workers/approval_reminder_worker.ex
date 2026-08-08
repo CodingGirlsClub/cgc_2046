@@ -5,8 +5,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   F7 方案 A「deadline 前 48h 提醒审批人」的 v1 骨架：扫描 `waiting` 且 deadline
   （= run 进入 waiting 的 `updated_at` + definition.approval_timeout）落在未来 48h
   窗口内的 WorkflowRun，每 run 落一条 SignalLog（`signal_type=
-  "workflow.approval_reminder"`）作为提醒事实记录。**不接真实通知投递**——订阅消息
-  通道由 Phase 2 NotificationService 接线（消费 SignalLog 审计流或订阅本 job 事件）。
+  "workflow.approval_reminder"`）作为提醒事实记录；若 run 关联 pending Enrollment，
+  同时经 NotificationService 的 Oban 队列异步发送订阅消息。
 
   幂等两层：
   1. Oban 唯一任务（同 args 1h 窗口内不重复入队，防 cron 抖动/手动重触的并发拍）；
@@ -25,6 +25,9 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   require Ash.Query
   require Logger
 
+  alias Cgc2046.Accounts.WorkspaceMembership
+  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Rbac
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -73,6 +76,9 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
 
   defp maybe_remind(run, deadline) do
     if reminder_logged?(run) do
+      # 首次落日志后若入队瞬时失败，下一拍可安全重试；NotificationWorker 按完整 args
+      # 七天去重，已成功入队时不会产生重复通知。
+      enqueue_enrollment_reminder(run, deadline)
       :skip
     else
       SignalLog
@@ -91,6 +97,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
       |> Ash.create(tenant: run.workspace_id, authorize?: false)
       |> case do
         {:ok, _} ->
+          enqueue_enrollment_reminder(run, deadline)
           :remind
 
         {:error, error} ->
@@ -104,5 +111,35 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     SignalLog
     |> Ash.Query.filter(run_id == ^run.id and signal_type == ^@reminder_signal_type)
     |> Ash.exists?(authorize?: false)
+  end
+
+  defp enqueue_enrollment_reminder(run, deadline) do
+    Enrollment
+    |> Ash.Query.filter(workflow_run_id == ^run.id and status == :pending)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %Enrollment{workspace_id: workspace_id}} ->
+        workspace_id
+        |> managed_member_ids()
+        |> Enum.each(&Cgc2046.NotificationSubscriber.enqueue_reminder(&1, deadline))
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp managed_member_ids(workspace_id) do
+    WorkspaceMembership
+    |> Ash.Query.load(:roles)
+    |> Ash.read!(tenant: workspace_id, authorize?: false)
+    |> Enum.filter(fn membership ->
+      membership.roles
+      |> Enum.map(& &1.name)
+      |> Rbac.roles_can?(:manage_members)
+    end)
+    |> Enum.map(& &1.user_id)
+    |> Enum.uniq()
   end
 end

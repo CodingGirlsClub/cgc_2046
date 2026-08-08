@@ -57,6 +57,208 @@ defmodule Cgc2046.Miniprogram.Client do
     end
   end
 
+  @doc "生成平台小程序码；返回平台响应中的原始图片字节。"
+  @spec generate_code(platform, String.t()) :: {:ok, binary()} | {:error, term()}
+  def generate_code(platform, scene) when platform in @platforms and is_binary(scene) do
+    config = platform_config!(platform)
+
+    with {:ok, access_token} <- fetch_api_access_token(platform, config),
+         {:ok, image} <- request_code(platform, config, access_token, scene) do
+      {:ok, image}
+    end
+  end
+
+  @doc "发送一次订阅消息；三平台成功信封统一为 `:ok`。"
+  @spec send_notification(platform, String.t(), String.t(), map()) ::
+          :ok | {:error, term()}
+  def send_notification(platform, openid, template_id, data)
+      when platform in @platforms and is_binary(openid) and is_binary(template_id) and
+             is_map(data) do
+    config = platform_config!(platform)
+
+    with {:ok, access_token} <- fetch_api_access_token(platform, config) do
+      request_notification(platform, access_token, openid, template_id, data)
+    end
+  end
+
+  defp request_notification(:wechat, token, openid, template_id, data) do
+    "https://api.weixin.qq.com"
+    |> req()
+    |> Req.post(
+      url: "/cgi-bin/message/subscribe/send",
+      params: [access_token: token],
+      json: %{touser: openid, template_id: template_id, page: "pages/mine/index", data: data}
+    )
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{"errcode" => 0}}} -> :ok
+      response -> parse_platform_failure(response)
+    end
+  end
+
+  defp request_notification(:tt, token, openid, template_id, data) do
+    "https://open.douyin.com"
+    |> req()
+    |> Req.post(
+      url: "/api/notification/v2/subscription/notify_user/",
+      headers: [{"access-token", token}],
+      json: %{
+        open_id: openid,
+        msg_id: template_id,
+        page: "pages/mine/index",
+        notify_type: [1, 2],
+        data: data
+      }
+    )
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{"err_no" => 0}}} -> :ok
+      response -> parse_platform_failure(response)
+    end
+  end
+
+  defp request_notification(:xhs, token, openid, template_id, data) do
+    "https://miniapp.xiaohongshu.com"
+    |> req()
+    |> Req.post(
+      url: platform_config!(:xhs).notification_path,
+      headers: [{"access-token", token}],
+      json: %{open_id: openid, template_id: template_id, page: "pages/mine/index", data: data}
+    )
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{"code" => 0}}} -> :ok
+      response -> parse_platform_failure(response)
+    end
+  end
+
+  defp fetch_api_access_token(:wechat, config) do
+    "https://api.weixin.qq.com"
+    |> req()
+    |> Req.get(
+      url: "/cgi-bin/token",
+      params: [grant_type: "client_credential", appid: config.appid, secret: config.secret]
+    )
+    |> parse_access_token(:wechat)
+  end
+
+  defp fetch_api_access_token(:tt, config) do
+    "https://open.douyin.com"
+    |> req()
+    |> Req.post(
+      url: "/oauth/client_token/",
+      json: %{
+        client_key: config.appid,
+        client_secret: config.secret,
+        grant_type: "client_credential"
+      }
+    )
+    |> parse_access_token(:tt)
+  end
+
+  defp fetch_api_access_token(:xhs, config) do
+    fetch_xhs_access_token(@endpoints.xhs, config)
+  end
+
+  defp parse_access_token(
+         {:ok, %Req.Response{status: 200, body: %{"access_token" => token}}},
+         :wechat
+       )
+       when is_binary(token),
+       do: {:ok, token}
+
+  defp parse_access_token(
+         {:ok, %Req.Response{status: 200, body: %{"data" => %{"access_token" => token}}}},
+         :tt
+       )
+       when is_binary(token),
+       do: {:ok, token}
+
+  defp parse_access_token({:ok, %Req.Response{status: status}}, _),
+    do: {:error, {:platform_http_status, status}}
+
+  defp parse_access_token({:error, _}, _), do: {:error, :platform_unreachable}
+  defp parse_access_token(_, _), do: {:error, :platform_bad_response}
+
+  defp request_code(:wechat, _config, token, scene) do
+    "https://api.weixin.qq.com"
+    |> req()
+    |> Req.post(
+      url: "/wxa/getwxacodeunlimit",
+      params: [access_token: token],
+      json: %{scene: scene, page: "pages/invite/index", check_path: false}
+    )
+    |> parse_binary_image()
+  end
+
+  defp request_code(:tt, config, token, scene) do
+    "https://open.douyin.com"
+    |> req()
+    |> Req.post(
+      url: "/api/apps/v1/qrcode/create/",
+      headers: [{"access-token", token}],
+      json: %{
+        app_name: "douyin",
+        appid: config.appid,
+        path: "pages/invite/index?scene=#{scene}",
+        width: 430
+      }
+    )
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{"data" => %{"img" => encoded}}}}
+      when is_binary(encoded) ->
+        case Base.decode64(encoded) do
+          {:ok, image} -> {:ok, image}
+          :error -> {:error, :platform_bad_response}
+        end
+
+      response ->
+        parse_platform_failure(response)
+    end
+  end
+
+  defp request_code(:xhs, _config, token, scene) do
+    "https://miniapp.xiaohongshu.com"
+    |> req()
+    |> Req.post(
+      url: platform_config!(:xhs).qrcode_path,
+      headers: [{"access-token", token}],
+      json: %{scene: scene, page: "pages/invite/index"}
+    )
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{"code" => 0, "data" => data}}}
+      when is_map(data) ->
+        decode_image_field(data["base64"] || data["qrcode"] || data["url"])
+
+      response ->
+        parse_platform_failure(response)
+    end
+  end
+
+  defp parse_binary_image({:ok, %Req.Response{status: 200, body: body}}) when is_binary(body),
+    do: {:ok, body}
+
+  defp parse_binary_image(response), do: parse_platform_failure(response)
+
+  defp decode_image_field("data:image" <> _ = data_uri) do
+    case String.split(data_uri, ",", parts: 2) do
+      [_, encoded] -> decode_image_field(encoded)
+      _ -> {:error, :platform_bad_response}
+    end
+  end
+
+  defp decode_image_field(encoded) when is_binary(encoded) do
+    case Base.decode64(encoded) do
+      {:ok, image} -> {:ok, image}
+      :error -> {:error, :platform_bad_response}
+    end
+  end
+
+  defp decode_image_field(_), do: {:error, :platform_bad_response}
+
+  defp parse_platform_failure({:ok, %Req.Response{status: status}}),
+    do: {:error, {:platform_http_status, status}}
+
+  defp parse_platform_failure({:error, _}), do: {:error, :platform_unreachable}
+  defp parse_platform_failure(_), do: {:error, :platform_bad_response}
+
   defp single_call_code2session(platform, config, code) do
     endpoint = @endpoints[platform]
 

@@ -26,5 +26,7 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.JoinRequest)
     # B-2 #31：邀请
     resource(Cgc2046.Accounts.Invitation)
+    resource(Cgc2046.Miniprogram.Code)
+    resource(Cgc2046.Miniprogram.NotificationConsent)
   end
 end
