@@ -103,7 +103,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		confirmed: false,
 		userId: null,
 	});
+
+	// 重试状态全部入 ref —— effect 重跑不重置（#017 Bug A：refetch 把 loading 翻
+	// true 触发 effect 重跑，旧实现里 cleanup 取消重试导致指数退避 1 次即失效）。
 	const retryingRef = useRef(false);
+	const attemptRef = useRef(0);
+	// 定时器句柄：本项目全局 setTimeout 解析为 NodeJS.Timeout（@types/node 覆盖 DOM number）
+	const timerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+	const unmountedRef = useRef(false);
+
+	// 仅在卸载时清理 timer —— 不再在每次 effect 重跑时取消重试
+	useEffect(() => {
+		return () => {
+			unmountedRef.current = true;
+			clearTimeout(timerRef.current);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (loading) return;
@@ -112,36 +127,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		if (error && isNetworkError(error)) {
 			if (retryingRef.current) return;
 			retryingRef.current = true;
-			let cancelled = false;
-			let attempt = 0;
-			const tryRetry = () => {
-				if (cancelled) return;
+
+			const scheduleNext = () => {
+				if (unmountedRef.current) return;
 				const delay =
-					RETRY_DELAYS[attempt] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1];
-				setTimeout(() => {
-					if (cancelled) return;
+					RETRY_DELAYS[attemptRef.current] ??
+					RETRY_DELAYS[RETRY_DELAYS.length - 1];
+				timerRef.current = setTimeout(() => {
+					if (unmountedRef.current) return;
 					refetch()
 						.then(() => {
 							retryingRef.current = false;
+							attemptRef.current = 0;
 						})
 						.catch(() => {
-							attempt++;
-							if (attempt < RETRY_DELAYS.length) {
-								tryRetry();
+							attemptRef.current++;
+							if (attemptRef.current < RETRY_DELAYS.length) {
+								scheduleNext();
 							} else {
 								// ponytail: 重试用尽，保持上次 state（confirmed 不翻），等用户刷新恢复
 								retryingRef.current = false;
+								attemptRef.current = 0;
 							}
 						});
 				}, delay);
 			};
-			tryRetry();
-			return () => {
-				cancelled = true;
-			};
+			scheduleNext();
+			return;
 		}
 
 		// 无 error（成功）或 CombinedGraphQLErrors（未登录）：据 data?.me 定登录态。
+		// 同时重置重试状态 —— 下一轮网络错误从第 1 次退避重新开始。
+		retryingRef.current = false;
+		attemptRef.current = 0;
+		if (timerRef.current) {
+			clearTimeout(timerRef.current);
+			timerRef.current = undefined;
+		}
 		dispatch({
 			type: "confirm",
 			authed: !!data?.me,
