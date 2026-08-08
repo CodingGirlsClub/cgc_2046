@@ -155,6 +155,8 @@ beforeEach(() => {
 		isPlatformAdmin: false,
 	});
 	fetchMatrix.mockResolvedValue(TEST_MATRIX);
+	// #018：clearSession 返回 { ok } 契约
+	clearSession.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => cleanup());
@@ -284,24 +286,27 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(screen.getByText("不含 Owner 角色授予")).toBeInTheDocument();
 	});
 
-	it("判定示例展示林溪的 Owner + Tutor 并集，create_workspace 平台级仍拒绝", async () => {
+	it("我的能力卡：展示当前用户真实角色并集（fixture admin），create_workspace 平台级仍拒绝", async () => {
 		await renderReadyPage();
 
 		const example = screen.getByTestId("permission-example");
-		expect(within(example).getByText("林溪")).toBeInTheDocument();
-		expect(within(example).getByText("Owner")).toBeInTheDocument();
-		expect(within(example).getByText("Tutor")).toBeInTheDocument();
-		expect(within(example).getByText("can? = true")).toBeInTheDocument();
+		// plan 016：删除假成员「林溪」与假角色 owner/tutor，改用真实 myRoleNames
+		expect(within(example).queryByText("林溪")).not.toBeInTheDocument();
+		expect(within(example).queryByText("Owner")).not.toBeInTheDocument();
+		expect(within(example).queryByText("Tutor")).not.toBeInTheDocument();
+		// 当前用户真实角色（beforeEach fixture myRoleNames=["admin"]）
+		expect(within(example).getByText("我的能力")).toBeInTheDocument();
+		expect(within(example).getByText("Admin")).toBeInTheDocument();
+		// 假 aggregate 字面量与空 ＋ 按钮已删除
+		expect(within(example).queryByText("can? = true")).not.toBeInTheDocument();
 		expect(
-			within(example).getByText("允许", {
-				selector: ".permissions-example__result span",
-			}),
-		).toBeInTheDocument();
+			screen.queryByRole("button", { name: "查看更多角色" }),
+		).not.toBeInTheDocument();
 
 		const statuses = within(example).getAllByTestId(
 			"permission-ability-status",
 		);
-		// #78：新增 update_join_policy（Owner+Tutor 并集 → 允许），拒绝项为平台级 create_workspace
+		// admin 并集 → 六项管理能力允许，平台级 create_workspace 拒绝
 		expect(statuses).toHaveLength(7);
 		expect(
 			statuses.slice(0, 6).every((item) => item.textContent?.includes("允许")),

@@ -60,7 +60,12 @@ export default function InvitationsPage() {
 	useEffect(() => {
 		if (!ws || loadedRef.current) return;
 		loadedRef.current = true;
-		if (!canManage) return;
+		if (!canManage) {
+			// plan 016：无管理能力也要结束加载态，否则 loading 永真（B-3 bug）。
+			// 微任务提交，避免 react-hooks/set-state-in-effect 同步 setState
+			queueMicrotask(() => setLoading(false));
+			return;
+		}
 		let cancelled = false;
 		fetchInvitations(ws.id)
 			.then((page) => {

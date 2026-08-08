@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./apollo-client", () => ({
-	client: { query: vi.fn(), mutate: vi.fn() },
+	client: {
+		query: vi.fn(),
+		mutate: vi.fn(),
+		refetchQueries: vi.fn(),
+		cache: { evict: vi.fn(), gc: vi.fn() },
+	},
 }));
 
 import { client } from "./apollo-client";
@@ -22,7 +27,7 @@ import {
 	REJECT_JOIN_REQUEST,
 	JOIN_WORKSPACE,
 } from "./graphql/join-request";
-import { GET_WORKSPACE } from "./graphql/workspace";
+import { GET_WORKSPACE, ME_WORKSPACES } from "./graphql/workspace";
 
 describe("mapJoinRequest（后端 JoinRequest → 前端 JoinRequestItem）", () => {
 	it("pending 状态映射", () => {
@@ -250,9 +255,13 @@ describe("createJoinRequest", () => {
 
 describe("approveJoinRequest", () => {
 	const mutateMock = vi.mocked(client.mutate);
+	const evictMock = vi.mocked(client.cache.evict);
+	const gcMock = vi.mocked(client.cache.gc);
 
 	beforeEach(() => {
 		mutateMock.mockReset();
+		evictMock.mockReset();
+		gcMock.mockReset();
 	});
 
 	it("提交 ApproveJoinRequest mutation（默认 roleNames=[member]）", async () => {
@@ -298,6 +307,25 @@ describe("approveJoinRequest", () => {
 		});
 
 		await approveJoinRequest("jr_1", ["member", "tutor"]);
+	});
+
+	it("成功后 evict joinRequests/workspaceMembers 并 gc（审批后列表与成员页同步）", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				approveJoinRequest: {
+					result: { id: "jr_1", status: "approved" },
+					errors: [],
+				},
+			},
+		} as never);
+
+		await approveJoinRequest("jr_1");
+
+		expect(evictMock).toHaveBeenCalledWith({ fieldName: "joinRequests" });
+		expect(evictMock).toHaveBeenCalledWith({
+			fieldName: "workspaceMembers",
+		});
+		expect(gcMock).toHaveBeenCalled();
 	});
 });
 
@@ -351,9 +379,11 @@ describe("rejectJoinRequest", () => {
 
 describe("joinWorkspace", () => {
 	const mutateMock = vi.mocked(client.mutate);
+	const refetchMock = vi.mocked(client.refetchQueries);
 
 	beforeEach(() => {
 		mutateMock.mockReset();
+		refetchMock.mockReset();
 	});
 
 	it("提交 JoinWorkspace mutation", async () => {
@@ -388,6 +418,20 @@ describe("joinWorkspace", () => {
 		mutateMock.mockRejectedValue(new Error("network"));
 
 		await expect(joinWorkspace("ws_1")).rejects.toThrow("joinWorkspace failed");
+	});
+
+	it("成功后 refetch ME_WORKSPACES（加入后 / 概览页立即出现新工作台）", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				joinWorkspace: { id: "ws_1", slug: "test", name: "Test" },
+			},
+		} as never);
+		refetchMock.mockResolvedValue({ data: {} } as never);
+
+		await joinWorkspace("ws_1");
+
+		expect(refetchMock).toHaveBeenCalledWith({ include: [ME_WORKSPACES] });
+		expect(refetchMock).toHaveBeenCalledTimes(1);
 	});
 });
 

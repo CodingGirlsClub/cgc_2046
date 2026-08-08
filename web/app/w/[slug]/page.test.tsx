@@ -99,6 +99,8 @@ beforeEach(() => {
 		avatarUrl: null,
 		isPlatformAdmin: false,
 	});
+	// #018：clearSession 返回 { ok } 契约；失败用例单独覆盖
+	clearSession.mockResolvedValue({ ok: true });
 });
 
 afterEach(cleanup);
@@ -280,6 +282,17 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
 	});
 
+	it("Workflow 产出为真实链接卡（切片 C 已落地，plan 016 替换过期占位卡）", async () => {
+		render(<WorkspacePage />);
+		const main = await content();
+		const link = main.getByRole("link", { name: /Workflow 产出/ });
+		expect(link).toHaveAttribute("href", "/w/cgc-academy/workflows");
+		// 报名/赞助（切片 E）仍为 aria-disabled 占位卡
+		const placeholder = main.getByText("报名 / 赞助");
+		expect(placeholder.closest("[aria-disabled='true']")).not.toBeNull();
+		expect(main.queryByRole("link", { name: /报名/ })).not.toBeInTheDocument();
+	});
+
 	it("canAssign=false：成员与角色入口显示只读门控文案", async () => {
 		params.value = { slug: "cgc-shanghai" };
 		render(<WorkspacePage />);
@@ -343,5 +356,22 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		);
 		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
 		await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
+	});
+
+	it("登出失败（#018）：不导航 /login，菜单内渲染错误文案可重试", async () => {
+		render(<WorkspacePage />);
+		await content();
+		fireEvent.click(
+			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),
+		);
+		const menu = await screen.findByRole("menu");
+		clearSession.mockResolvedValue({ ok: false, error: new Error("boom") });
+
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
+
+		// mutation 失败 → clearSession 被调但不导航，错误文案渲染在菜单内
+		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
+		expect(push).not.toHaveBeenCalled();
+		expect(await screen.findByText("退出登录失败，请重试")).toBeInTheDocument();
 	});
 });
