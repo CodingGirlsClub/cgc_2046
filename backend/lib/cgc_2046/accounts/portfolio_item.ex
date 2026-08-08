@@ -2,11 +2,11 @@ defmodule Cgc2046.Accounts.PortfolioItem do
   @moduledoc """
   用户作品集条目资源（P1-4 G9）。
 
-  领域模型：
-  - PortfolioItem 属于全局 User（user_id，非租户隔离——作品集是用户个人内容，
-    不属于任何 Workspace）
+  领域模型（ADR-0004）：
+  - PortfolioItem 属于租户（workspace_id + user_id，multitenancy by workspace_id）——
+    作品集是 Profile 的一部分，per-workspace 展示
   - 字段：title（必填）/ description（可空）/ url（可空）/ icon（document|book|guide）
-  - 前端契约：profile 页 / portfolio 页展示作品集条目
+  - 前端契约：profile 页 / portfolio 页展示作品集条目（按当前 workspace 取）
 
   授权（仅本人）：
   - create：自动填 user_id = actor.id（GraphQL mutation 不接受 user_id 参数，
@@ -22,12 +22,18 @@ defmodule Cgc2046.Accounts.PortfolioItem do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
   attributes do
     uuid_primary_key(:id)
+
+    attribute(:workspace_id, :uuid,
+      allow_nil?: false,
+      public?: true,
+      writable?: false,
+      description: "所属工作台（租户）ID（ADR-0004：Portfolio 为租户资源）"
+    )
 
     attribute(:user_id, :uuid,
       allow_nil?: false,
@@ -71,7 +77,17 @@ defmodule Cgc2046.Accounts.PortfolioItem do
   end
 
   relationships do
+    belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
+
     belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false)
+  end
+
+  multitenancy do
+    strategy(:attribute)
+    attribute(:workspace_id)
+
+    # 允许跨租户读取（迁移回填等需要），隔离由 policy 保证
+    global?(true)
   end
 
   actions do
@@ -81,7 +97,8 @@ defmodule Cgc2046.Accounts.PortfolioItem do
       primary?(true)
       accept([:title, :description, :url, :icon])
 
-      # user_id 自动填 actor，GraphQL 不暴露 user_id 参数（防伪造）。
+      # user_id 自动填 actor，workspace_id 自动填 tenant（multitenancy）；GraphQL 不暴露
+      # user_id/workspace_id 参数（防伪造跨租户写入）。
       # 用 before_action：普通 change 在 for_create 构建阶段 actor 为 nil
       # 且 Ash.create(changeset) 不重跑普通 change；before_action 在
       # authorization 通过后执行，真实 actor 在 changeset.context[:private][:actor]
@@ -89,7 +106,15 @@ defmodule Cgc2046.Accounts.PortfolioItem do
       change(
         before_action(fn changeset, _context ->
           actor = changeset.context[:private][:actor]
-          Ash.Changeset.force_change_attribute(changeset, :user_id, actor.id)
+          cs = Ash.Changeset.force_change_attribute(changeset, :user_id, actor.id)
+
+          case changeset.tenant do
+            nil ->
+              cs
+
+            workspace_id ->
+              Ash.Changeset.force_change_attribute(cs, :workspace_id, workspace_id)
+          end
         end)
       )
     end
@@ -104,7 +129,8 @@ defmodule Cgc2046.Accounts.PortfolioItem do
       primary?(true)
     end
 
-    # 当前用户自己的作品集（GraphQL myPortfolio）
+    # 当前用户在某 workspace 自己的作品集（GraphQL myWorkspacePortfolio）。
+    # workspace_id 隔离由 multitenancy（tenant）自动应用，这里仅过滤本人。
     read :my_portfolio do
       filter(expr(user_id == ^actor(:id)))
     end
@@ -120,25 +146,6 @@ defmodule Cgc2046.Accounts.PortfolioItem do
     policy action_type([:create, :read, :update, :destroy]) do
       forbid_if(expr(is_nil(^actor(:id))))
       authorize_if(expr(user_id == ^actor(:id)))
-    end
-  end
-
-  graphql do
-    type(:portfolio_item)
-
-    queries do
-      list(:my_portfolio, :my_portfolio,
-        type_name: :portfolio_item,
-        description: "当前用户的作品集条目列表"
-      )
-    end
-
-    mutations do
-      create(:create_portfolio_item, :create, description: "创建作品集条目（user_id 自动为当前用户）")
-
-      update(:update_portfolio_item, :update, description: "更新自己的作品集条目")
-
-      destroy(:delete_portfolio_item, :destroy, description: "删除自己的作品集条目")
     end
   end
 end

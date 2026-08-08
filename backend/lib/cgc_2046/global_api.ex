@@ -16,8 +16,10 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.WorkspaceMembership)
     resource(Cgc2046.Accounts.MembershipRole)
     resource(Cgc2046.Accounts.Role)
-    # P1-4 G9：用户作品集条目（个人内容，非租户隔离）
+    # P1-4 G9：用户作品集条目（ADR-0004 后为租户资源，加 workspace_id）
     resource(Cgc2046.Accounts.PortfolioItem)
+    # ADR-0004：per-workspace 成员公开资料（租户资源）
+    resource(Cgc2046.Accounts.WorkspaceProfile)
     # B-1 #30：加入申请
     resource(Cgc2046.Accounts.JoinRequest)
     # B-2 #31：邀请
