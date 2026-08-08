@@ -1731,6 +1731,9 @@ type RootQueryType {
   "当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace）"
   myWorkspacePortfolio(workspaceId: ID!): [PortfolioItem]
 
+  "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
+  myMcpTokens: [McpToken]
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -2032,6 +2035,28 @@ input UpdatePortfolioItemInput {
   icon: String
 }
 
+type McpToken {
+  "MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面）"
+  id: ID!
+
+  name: String!
+
+  lastUsedAt: DateTime
+
+  revokedAt: DateTime
+
+  insertedAt: DateTime!
+}
+
+type CreateMcpTokenPayload {
+  "createMcpToken 返回：result 为 token 记录；plainToken 明文仅此一次"
+  result: McpToken
+
+  plainToken: String
+
+  errors: [MutationError]
+}
+
 type RootMutationType {
   "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
   signIn(email: String!, password: String!): SignInResult
@@ -2059,6 +2084,12 @@ type RootMutationType {
 
   "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
   deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
+
+  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash）"
+  createMcpToken(name: String!): CreateMcpTokenPayload
+
+  "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
+  revokeMcpToken(id: ID!): McpToken
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
