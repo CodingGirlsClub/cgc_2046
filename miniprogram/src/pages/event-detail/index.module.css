@@ -1,0 +1,73 @@
+.page {
+  min-height: 100vh;
+  padding: 24rpx 24rpx 160rpx;
+  box-sizing: border-box;
+}
+
+.header {
+  margin-bottom: 24rpx;
+}
+
+.title {
+  display: block;
+  font-size: 40rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.club {
+  font-size: 26rpx;
+  color: #7a7e83;
+}
+
+.block {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.row {
+  display: flex;
+  margin-bottom: 16rpx;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+.label {
+  width: 120rpx;
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: #7a7e83;
+}
+
+.value {
+  flex: 1;
+  font-size: 28rpx;
+}
+
+.description {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+}
+
+.footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.primaryButton {
+  background: #07c160;
+  color: #ffffff;
+  border-radius: 44rpx;
+  font-size: 30rpx;
+}

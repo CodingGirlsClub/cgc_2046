@@ -1,0 +1,83 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.list {
+  flex: 1;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.title {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.status {
+  font-size: 24rpx;
+}
+
+.pending {
+  color: #e6a23c;
+}
+
+.confirmed {
+  color: #07c160;
+}
+
+.rejected {
+  color: #fa5151;
+}
+
+.expired {
+  color: #7a7e83;
+}
+
+.cancelled {
+  color: #c0c4cc;
+}
+
+.meta {
+  display: block;
+  font-size: 24rpx;
+  color: #7a7e83;
+}
+
+.countdown {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #e6a23c;
+}
+
+.resubmit {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #07c160;
+}
+
+.platformTip {
+  padding: 20rpx 24rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #7a7e83;
+  background: #ffffff;
+  border-top: 1rpx solid #ebedf0;
+}
