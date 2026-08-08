@@ -17,6 +17,9 @@
 import { useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 import {
+  AVATAR_ALLOWED_TYPES,
+  AVATAR_MAX_MB,
+  AVATAR_TYPE_LABEL,
   createPortfolioItem,
   deletePortfolioItem,
   fetchPortfolioItems,
@@ -238,8 +241,12 @@ export function ProfileSettingsForm({
               content={{ name: draft.name || "?", avatarUrl: draft.avatarUrl }}
               editable
               onFile={(avatarUrl) => setDraft({ ...draft, avatarUrl })}
+              onError={(msg) => setErrorMsg(msg)}
             />
-            <p>支持 PNG、JPG、WebP、GIF，文件大小不超过 2.2MB。</p>
+            <p>
+              支持 {AVATAR_ALLOWED_TYPES.map((t) => AVATAR_TYPE_LABEL[t]).join("、")}
+              ，文件大小不超过 {AVATAR_MAX_MB}MB。
+            </p>
           </div>
         </div>
         <div className="profile-edit-form-grid">
