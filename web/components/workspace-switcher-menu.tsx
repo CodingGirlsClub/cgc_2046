@@ -16,6 +16,7 @@
 
 import Link from "next/link";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
+import ThemeToggle from "@/components/theme-toggle";
 import type { CurrentProfile } from "@/lib/profile";
 import type { WorkspaceListItem } from "@/lib/workspaces";
 
@@ -66,7 +67,7 @@ export default function WorkspaceSwitcherMenu({
 			<div className="ws-shell-brand-menu__divider" />
 
 			<Link
-				href={`/w/${currentSlug}/settings`}
+				href={`/w/${currentSlug}/settings/account/preferences`}
 				className="ws-shell-brand-menu__item"
 				role="menuitem"
 				onClick={onNavigate}
@@ -81,6 +82,7 @@ export default function WorkspaceSwitcherMenu({
 			>
 				<span className="ws-shell-brand-menu__name">发现 / 加入工作区</span>
 			</Link>
+			<ThemeToggle variant="menuitem" />
 			<button
 				type="button"
 				className="ws-shell-brand-menu__item ws-shell-brand-menu__item--action"
