@@ -4,7 +4,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
   F7 方案 A「deadline 前 48h 提醒审批人」的 v1 骨架：扫描 waiting 且 deadline 落在
   未来 48h 窗口内的 WorkflowRun，每 run 落一条 SignalLog（signal_type=
-  "workflow.approval_reminder"）；不接真实通知投递（Phase 2 NotificationService 接线）。
+  "workflow.approval_reminder"）；Phase 2 同时为关联 Enrollment 异步入通知队列。
   """
 
   use Cgc2046Web.ConnCase, async: false
@@ -12,6 +12,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Phase2Fixtures
   alias Cgc2046.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workers.ApprovalReminderWorker
   alias Cgc2046.Workflows.SignalLog
@@ -154,6 +156,58 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       refute is_nil(log.received_at)
     end
 
+    test "关联 pending Enrollment 时只提醒工作台 Owner/Admin，不提醒申请人" do
+      owner = platform_admin()
+      workspace = create_workspace(owner)
+      waiting = create_waiting_run(workspace, owner, 86_400)
+
+      admin =
+        register_user(
+          "reminder-workspace-admin-#{System.unique_integer([:positive])}@example.com"
+        )
+
+      Phase2Fixtures.add_member(workspace, admin, [:admin])
+
+      learner =
+        register_user("reminder-learner-#{System.unique_integer([:positive])}@example.com")
+
+      event = Phase2Fixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      Enrollment
+      |> Ash.Changeset.for_create(:create_enrollment, %{
+        event_id: event.id,
+        user_id: learner.id,
+        workflow_run_id: waiting.id
+      })
+      |> Ash.create!(tenant: workspace.id, actor: learner)
+
+      insert_identity(owner.id, "reminder-owner-openid")
+      insert_identity(admin.id, "reminder-admin-openid")
+      insert_identity(learner.id, "reminder-learner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      refute_enqueued(
+        worker: Cgc2046.Workers.NotificationWorker,
+        args: %{
+          "user_id" => learner.id,
+          "platform" => "wechat",
+          "template_key" => "approval_reminder"
+        }
+      )
+
+      for approver <- [owner, admin] do
+        assert_enqueued(
+          worker: Cgc2046.Workers.NotificationWorker,
+          args: %{
+            "user_id" => approver.id,
+            "platform" => "wechat",
+            "template_key" => "approval_reminder"
+          }
+        )
+      end
+    end
+
     test "deadline 超 48h → 不落" do
       admin = platform_admin()
       workspace = create_workspace(admin)
@@ -213,5 +267,15 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       assert job2.conflict?
       assert job2.id == job1.id
     end
+  end
+
+  defp insert_identity(user_id, uid) do
+    Cgc2046.Repo.query!(
+      """
+      INSERT INTO user_identities (id, provider, uid, user_id, inserted_at, updated_at)
+      VALUES (gen_random_uuid(), 'wechat', $1, $2, NOW(), NOW())
+      """,
+      [uid, Ecto.UUID.dump!(user_id)]
+    )
   end
 end
