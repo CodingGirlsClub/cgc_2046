@@ -404,20 +404,67 @@ defmodule Cgc2046.Accounts.Invitation do
       # 入座 user = 接受人（actor），角色 = 预授权角色，冲突语义 = 业务错误（「你」视角文案）。
       change(
         after_action(fn changeset, invitation, _context ->
-          actor = changeset.context[:private][:actor]
-
-          case Cgc2046.Accounts.MembershipContext.admit_member(
-                 actor.id,
-                 invitation.workspace_id,
-                 invitation.preauthorized_role_names || [],
-                 on_conflict: :business_error,
-                 error_message: "你已是该工作台成员"
-               ) do
-            {:ok, _membership} -> {:ok, invitation}
-            {:error, _} = err -> err
-          end
+          admit_actor(changeset, invitation)
         end)
       )
+    end
+
+    update :accept_miniprogram do
+      description("使用一次性小程序 scene 接受邀请并入座")
+      require_atomic?(false)
+
+      argument(:scene, :string, allow_nil?: false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          scene = Ash.Changeset.get_argument(cs, :scene)
+
+          if Cgc2046.MiniprogramCode.valid_scene?(scene) do
+            actor = cs.context[:private][:actor]
+            now = DateTime.utc_now()
+
+            {:ok, result} =
+              Ecto.Adapters.SQL.query(
+                Cgc2046.Repo,
+                """
+                UPDATE invitations AS i
+                SET status = 'used', accepted_at = $1, accepted_by = $2
+                FROM miniprogram_codes AS c
+                WHERE i.id = $3 AND c.invitation_id = i.id AND c.scene = $4
+                  AND i.status = 'active'
+                  AND (i.expires_at IS NULL OR i.expires_at > $1)
+                  AND c.expires_at > $1
+                """,
+                [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id), scene]
+              )
+
+            if result.num_rows == 1 do
+              cs
+              |> Ash.Changeset.force_change_attribute(:status, :used)
+              |> Ash.Changeset.force_change_attribute(:accepted_at, now)
+              |> Ash.Changeset.force_change_attribute(:accepted_by, actor.id)
+            else
+              Ash.Changeset.add_error(
+                cs,
+                Ash.Error.Changes.InvalidAttribute.exception(
+                  field: :scene,
+                  message: "Invitation has already been used or scene has expired"
+                )
+              )
+            end
+          else
+            Ash.Changeset.add_error(
+              cs,
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: :scene,
+                message: "Invalid scene"
+              )
+            )
+          end
+        end)
+      end)
+
+      change(after_action(&admit_actor/3))
     end
   end
 
@@ -449,10 +496,31 @@ defmodule Cgc2046.Accounts.Invitation do
       authorize_if(actor_present())
     end
 
+    policy action(:accept_miniprogram) do
+      authorize_if(actor_present())
+    end
+
     # :read 邀请人本人可读自己的邀请；Owner/Admin 可读该工作台全部邀请
     policy action_type(:read) do
       authorize_if(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+    end
+  end
+
+  defp admit_actor(changeset, invitation, _context), do: admit_actor(changeset, invitation)
+
+  defp admit_actor(changeset, invitation) do
+    actor = changeset.context[:private][:actor]
+
+    case Cgc2046.Accounts.MembershipContext.admit_member(
+           actor.id,
+           invitation.workspace_id,
+           invitation.preauthorized_role_names || [],
+           on_conflict: :business_error,
+           error_message: "你已是该工作台成员"
+         ) do
+      {:ok, _membership} -> {:ok, invitation}
+      {:error, _} = error -> error
     end
   end
 

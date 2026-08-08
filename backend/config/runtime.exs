@@ -113,11 +113,28 @@ if config_env() == :prod do
     },
     xhs: %{
       appid: System.fetch_env!("XHS_MP_APPID"),
-      secret: System.fetch_env!("XHS_MP_SECRET")
+      secret: System.fetch_env!("XHS_MP_SECRET"),
+      qrcode_path: System.fetch_env!("XHS_MP_QRCODE_PATH"),
+      notification_path: System.fetch_env!("XHS_MP_NOTIFICATION_PATH")
     }
   }
 
   config :cgc_2046, :miniprogram_platforms, miniprogram_platforms
+
+  config :cgc_2046, :miniprogram_templates, %{
+    wechat: %{
+      "approval_result" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER")
+    },
+    tt: %{
+      "approval_result" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_REMINDER")
+    },
+    xhs: %{
+      "approval_result" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_REMINDER")
+    }
+  }
 
   # ## SSL Support
   #

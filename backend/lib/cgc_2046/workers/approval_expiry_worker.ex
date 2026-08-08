@@ -35,6 +35,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   require Logger
 
   alias Cgc2046.Accounts.JoinRequest
+  alias Cgc2046.Events.Enrollment
   alias Cgc2046.Workflows.WorkflowRun
 
   @impl Oban.Worker
@@ -42,16 +43,31 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     now = DateTime.utc_now()
 
     expired_join_requests = expire_join_requests(now)
+    expired_enrollments = expire_enrollments(now)
     expired_runs = expire_waiting_runs(now)
 
-    if expired_join_requests + expired_runs > 0 do
+    if expired_join_requests + expired_enrollments + expired_runs > 0 do
       Logger.info(
         "approval expiry sweep: #{expired_join_requests} join_request(s), " <>
-          "#{expired_runs} workflow_run(s) expired"
+          "#{expired_enrollments} enrollment(s), #{expired_runs} workflow_run(s) expired"
       )
     end
 
     :ok
+  end
+
+  defp expire_enrollments(now) do
+    Enrollment
+    |> Ash.Query.filter(
+      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
+    )
+    |> Ash.read!(authorize?: false)
+    |> Enum.reduce(0, fn enrollment, acc ->
+      case expire_record(enrollment) do
+        :ok -> acc + 1
+        :skip -> acc
+      end
+    end)
   end
 
   defp expire_join_requests(now) do
@@ -104,6 +120,13 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     |> Ash.Changeset.for_update(:expire, %{})
     |> Ash.update(tenant: join_request.workspace_id, authorize?: false)
     |> handle_expire_result("join_request", join_request.id)
+  end
+
+  defp expire_record(%Enrollment{} = enrollment) do
+    enrollment
+    |> Ash.Changeset.for_update(:expire, %{})
+    |> Ash.update(tenant: enrollment.workspace_id, authorize?: false)
+    |> handle_expire_result("enrollment", enrollment.id)
   end
 
   defp expire_record(%WorkflowRun{} = run) do

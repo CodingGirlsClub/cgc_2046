@@ -54,7 +54,28 @@ config :cgc_2046, :token_signing_secret, "dev-only-token-signing-secret-change-m
 config :cgc_2046, :miniprogram_platforms, %{
   wechat: %{appid: "dev-wechat-appid", secret: "dev-wechat-secret"},
   tt: %{appid: "dev-tt-appid", secret: "dev-tt-secret"},
-  xhs: %{appid: "dev-xhs-appid", secret: "dev-xhs-secret"}
+  xhs: %{
+    appid: "dev-xhs-appid",
+    secret: "dev-xhs-secret",
+    qrcode_path: "/api/rmp/qrcode/unlimited",
+    notification_path: "/api/rmp/subscribe/send"
+  }
+}
+
+# 订阅消息模板 registry：dev/test 仅占位值；prod 由 runtime.exs 注入真实模板 ID。
+config :cgc_2046, :miniprogram_templates, %{
+  wechat: %{
+    "approval_result" => "dev-wechat-approval-result",
+    "approval_reminder" => "dev-wechat-approval-reminder"
+  },
+  tt: %{
+    "approval_result" => "dev-tt-approval-result",
+    "approval_reminder" => "dev-tt-approval-reminder"
+  },
+  xhs: %{
+    "approval_result" => "dev-xhs-approval-result",
+    "approval_reminder" => "dev-xhs-approval-reminder"
+  }
 }
 
 # 0C：Oban（PG-backed，跑在现有 Phoenix 应用内，无新服务）。
@@ -66,7 +87,7 @@ config :cgc_2046, :miniprogram_platforms, %{
 # 测试环境在 test.exs 以 testing: :manual 覆盖（Oban 自动禁用 queues/plugins/cron）。
 config :cgc_2046, Oban,
   repo: Cgc2046.Repo,
-  queues: [maintenance: 5],
+  queues: [maintenance: 5, notifications: 10],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     {Oban.Plugins.Cron,

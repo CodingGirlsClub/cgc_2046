@@ -24,6 +24,8 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
       Cgc2046.Workflows.ResearchInstantiator,
+      # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
+      Cgc2046.NotificationSubscriber,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
       # 0C：Oban（审批超时扫描 + 48h 提醒 cron；需在 Repo 之后启动）
