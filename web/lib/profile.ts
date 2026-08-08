@@ -35,6 +35,29 @@ import { formatJoinedDate } from "./format";
  * - Portfolio CRUD 全部带 workspaceId（tenant 隔离）。
  */
 
+/* ---------------- 头像上传限制（与后端契约对齐的单一数据源） ----------------
+ * 后端校验见 lib/graphql/profile.ts：data URL 限 image/png|jpeg|webp|gif 且 ≤2.2MB。
+ * 前端 UI 提示文案与上传校验共用此常量，避免后端调整时文案/校验漂移。
+ */
+export const AVATAR_MAX_MB = 2.2;
+/** 头像文件大小上限（bytes） */
+export const AVATAR_MAX_BYTES = AVATAR_MAX_MB * 1024 * 1024;
+/** 头像允许的 MIME 白名单（与后端一致） */
+export const AVATAR_ALLOWED_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+export type AvatarMimeType = (typeof AVATAR_ALLOWED_TYPES)[number];
+/** MIME → 展示名（格式提示/错误文案共用） */
+export const AVATAR_TYPE_LABEL: Record<AvatarMimeType, string> = {
+	"image/png": "PNG",
+	"image/jpeg": "JPG",
+	"image/webp": "WebP",
+	"image/gif": "GIF",
+};
+
 export interface CurrentProfile {
   id: string;
   email: string;
