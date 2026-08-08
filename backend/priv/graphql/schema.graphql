@@ -3,6 +3,579 @@ schema {
   query: RootQueryType
 }
 
+"The result of the :cancel_enrollment mutation"
+type CancelEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :reject_enrollment mutation"
+type RejectEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectEnrollmentInput {
+  rejectionReason: String
+}
+
+"The result of the :confirm_enrollment mutation"
+type ConfirmEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_enrollment mutation"
+type CreateEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateEnrollmentInput {
+  eventId: ID
+  courseId: ID
+  userId: ID!
+  workflowRunId: ID
+  submissionPayload: JsonString
+  approvalDeadline: DateTime
+  inviteCode: String
+}
+
+enum EnrollmentSortField {
+  ID
+  WORKSPACE_ID
+  EVENT_ID
+  COURSE_ID
+  USER_ID
+  WORKFLOW_RUN_ID
+  INVITE_BATCH_ID
+  STATUS
+  SUBMISSION_PAYLOAD
+  CAPACITY_SEQ
+  APPROVED_BY
+  APPROVED_AT
+  REJECTION_REASON
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+  CANCELLED_AT
+}
+
+"A keyset page of :enrollment"
+type KeysetPageOfEnrollment {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Enrollment!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input EnrollmentFilterCancelledAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EnrollmentFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EnrollmentFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EnrollmentFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EnrollmentFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EnrollmentFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterCapacitySeq {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input EnrollmentFilterSubmissionPayload {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString!]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input EnrollmentFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input EnrollmentFilterInviteBatchId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input EnrollmentFilterInput {
+  and: [EnrollmentFilterInput!]
+  or: [EnrollmentFilterInput!]
+  not: [EnrollmentFilterInput!]
+  id: EnrollmentFilterId
+  workspaceId: EnrollmentFilterWorkspaceId
+  eventId: EnrollmentFilterEventId
+  courseId: EnrollmentFilterCourseId
+  userId: EnrollmentFilterUserId
+  workflowRunId: EnrollmentFilterWorkflowRunId
+  inviteBatchId: EnrollmentFilterInviteBatchId
+  status: EnrollmentFilterStatus
+  submissionPayload: EnrollmentFilterSubmissionPayload
+  capacitySeq: EnrollmentFilterCapacitySeq
+  approvedBy: EnrollmentFilterApprovedBy
+  approvedAt: EnrollmentFilterApprovedAt
+  rejectionReason: EnrollmentFilterRejectionReason
+  approvalDeadline: EnrollmentFilterApprovalDeadline
+  expiredAt: EnrollmentFilterExpiredAt
+  cancelledAt: EnrollmentFilterCancelledAt
+}
+
+input EnrollmentSortInput {
+  order: SortOrder
+  field: EnrollmentSortField!
+}
+
+type Enrollment {
+  id: ID!
+  workspaceId: ID!
+  eventId: ID
+  courseId: ID
+  userId: ID!
+  workflowRunId: ID
+  inviteBatchId: ID
+  status: String!
+  submissionPayload: JsonString!
+  capacitySeq: Int
+  approvedBy: ID
+  approvedAt: DateTime
+  rejectionReason: String
+  approvalDeadline: DateTime
+  expiredAt: DateTime
+  cancelledAt: DateTime
+}
+
+"The result of the :disable_invite_batch mutation"
+type DisableInviteBatchResult {
+  "The successful result of the mutation"
+  result: InviteBatch
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_invite_batch mutation"
+type CreateInviteBatchResult {
+  "The successful result of the mutation"
+  result: InviteBatch
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateInviteBatchInput {
+  eventId: ID
+  courseId: ID
+  inviteCode: String!
+  quota: Int!
+  expiresAt: DateTime
+  status: String
+  remark: String
+}
+
+enum InviteBatchSortField {
+  ID
+  WORKSPACE_ID
+  EVENT_ID
+  COURSE_ID
+  INVITE_CODE
+  QUOTA
+  REMAINING_QUOTA
+  EXPIRES_AT
+  STATUS
+  REMARK
+}
+
+"A keyset page of :invite_batch"
+type KeysetPageOfInviteBatch {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [InviteBatch!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input InviteBatchFilterRemark {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InviteBatchFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input InviteBatchFilterExpiresAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input InviteBatchFilterRemainingQuota {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input InviteBatchFilterQuota {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input InviteBatchFilterInviteCode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InviteBatchFilterCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InviteBatchFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InviteBatchFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InviteBatchFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input InviteBatchFilterInput {
+  and: [InviteBatchFilterInput!]
+  or: [InviteBatchFilterInput!]
+  not: [InviteBatchFilterInput!]
+  id: InviteBatchFilterId
+  workspaceId: InviteBatchFilterWorkspaceId
+  eventId: InviteBatchFilterEventId
+  courseId: InviteBatchFilterCourseId
+  inviteCode: InviteBatchFilterInviteCode
+  quota: InviteBatchFilterQuota
+  remainingQuota: InviteBatchFilterRemainingQuota
+  expiresAt: InviteBatchFilterExpiresAt
+  status: InviteBatchFilterStatus
+  remark: InviteBatchFilterRemark
+}
+
+input InviteBatchSortInput {
+  order: SortOrder
+  field: InviteBatchSortField!
+}
+
+type InviteBatch {
+  id: ID!
+  workspaceId: ID!
+  eventId: ID
+  courseId: ID
+  inviteCode: String!
+  quota: Int!
+  remainingQuota: Int!
+  expiresAt: DateTime
+  status: String!
+  remark: String
+}
+
 enum CourseSortField {
   ID
   WORKSPACE_ID
@@ -11,6 +584,10 @@ enum CourseSortField {
   RESEARCH_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
+  ENROLLMENT_POLICY
+  CAPACITY
+  CONFIRMED_COUNT
+  REGISTRATION_DEADLINE
 }
 
 "A keyset page of :course"
@@ -26,6 +603,58 @@ type KeysetPageOfCourse {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input CourseFilterRegistrationDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input CourseFilterConfirmedCount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input CourseFilterCapacity {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input CourseFilterEnrollmentPolicy {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
 }
 
 input CourseFilterWorkflowRunId {
@@ -150,6 +779,18 @@ input CourseFilterInput {
 
   "教研 workflow 产物引用（领域模型 §5.2 ER）"
   workflowRunId: CourseFilterWorkflowRunId
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: CourseFilterEnrollmentPolicy
+
+  "报名名额上限；nil 表示不限"
+  capacity: CourseFilterCapacity
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: CourseFilterConfirmedCount
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: CourseFilterRegistrationDeadline
 }
 
 input CourseSortInput {
@@ -177,6 +818,18 @@ type Course {
 
   "教研 workflow 产物引用（领域模型 §5.2 ER）"
   workflowRunId: ID
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: Int!
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
 }
 
 enum EventSortField {
@@ -187,6 +840,10 @@ enum EventSortField {
   RESEARCH_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
+  ENROLLMENT_POLICY
+  CAPACITY
+  CONFIRMED_COUNT
+  REGISTRATION_DEADLINE
 }
 
 "A keyset page of :event"
@@ -202,6 +859,58 @@ type KeysetPageOfEvent {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input EventFilterRegistrationDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EventFilterConfirmedCount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input EventFilterCapacity {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input EventFilterEnrollmentPolicy {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
 }
 
 input EventFilterWorkflowRunId {
@@ -326,6 +1035,18 @@ input EventFilterInput {
 
   "教研 workflow 产物引用（领域模型 §5.2 ER）"
   workflowRunId: EventFilterWorkflowRunId
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: EventFilterEnrollmentPolicy
+
+  "报名名额上限；nil 表示不限"
+  capacity: EventFilterCapacity
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: EventFilterConfirmedCount
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: EventFilterRegistrationDeadline
 }
 
 input EventSortInput {
@@ -353,6 +1074,18 @@ type Event {
 
   "教研 workflow 产物引用（领域模型 §5.2 ER）"
   workflowRunId: ID
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: Int!
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
 }
 
 enum WorkflowRunSortField {
@@ -1731,6 +2464,9 @@ type RootQueryType {
   "当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace）"
   myWorkspacePortfolio(workspaceId: ID!): [PortfolioItem]
 
+  "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
+  myPendingApprovals: [PendingApproval!]!
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -1914,6 +2650,46 @@ type RootQueryType {
 
     id: ID!
   ): Course
+
+  inviteBatches(
+    "How to sort the records in the response"
+    sort: [InviteBatchSortInput]
+
+    "A filter to limit the results"
+    filter: InviteBatchFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfInviteBatch
+
+  enrollments(
+    "How to sort the records in the response"
+    sort: [EnrollmentSortInput]
+
+    "A filter to limit the results"
+    filter: EnrollmentFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfEnrollment
 }
 
 type AbilityGrant {
@@ -1932,6 +2708,25 @@ type PermissionMatrixRow {
 
 type PermissionMatrixPayload {
   roles: [PermissionMatrixRow!]!
+}
+
+type PendingApproval {
+  id: ID!
+  kind: String!
+  workspaceId: ID!
+  userId: ID!
+  eventId: ID
+  courseId: ID
+  status: String!
+  approvalDeadline: DateTime
+}
+
+type MiniprogramCodeResult {
+  invitationId: ID!
+  platform: String!
+  scene: String!
+  codeBase64: String!
+  expiresAt: DateTime!
 }
 
 type SignInResult {
@@ -2048,6 +2843,15 @@ type RootMutationType {
   "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
   signInWithPlatform(platform: String!, code: String!, encryptedData: String!, iv: String!): SignInWithPlatformResult
 
+  "Owner\/Admin 创建一次性工作台邀请小程序码"
+  generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
+
+  "使用一次性小程序 scene 接受工作台邀请"
+  admitMemberByToken(scene: String!): Invitation
+
+  "记录一次小程序订阅消息授权并增加一个可用次数"
+  grantMiniProgramNotificationConsent(platform: String!, templateKey: String!): Int
+
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
 
@@ -2098,6 +2902,22 @@ type RootMutationType {
 
   "接受邀请→建 Membership + 预授权角色入座"
   acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult!
+
+  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
+
+  disableInviteBatch(id: ID!): DisableInviteBatchResult!
+
+  "创建报名；open\/invite_only 立即占位，request 等待审批"
+  createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
+
+  "Owner\/Admin 确认 pending 报名并原子占用名额"
+  confirmEnrollment(id: ID!): ConfirmEnrollmentResult!
+
+  "Owner\/Admin 拒绝 pending 报名"
+  rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
+
+  "报名人取消报名；confirmed 报名释放名额"
+  cancelEnrollment(id: ID!): CancelEnrollmentResult!
 }
 
 """
