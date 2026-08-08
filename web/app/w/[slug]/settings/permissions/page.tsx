@@ -28,6 +28,7 @@ import {
 	type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
+import MembersTabs from "@/components/members-tabs";
 import { Icon, type IconName } from "@/components/icons";
 
 // 演示数据（角色值子集；枚举单源见 lib/graphql/workspace.ts 的 ROLE_NAMES）
@@ -255,33 +256,31 @@ export default function WorkspacePermissionsPage() {
 
 	return (
 		<WorkspaceShell slug={slug}>
-			<div className="permissions-main__inner">
-				<div className="permissions-breadcrumb" aria-label="页面路径">
+			<div className="ws-page-main__inner">
+				<div className="ws-page-breadcrumb" aria-label="页面路径">
 					<Link href="/">工作台</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/members`}>成员与角色</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
 					<span>›</span>
 					<strong>权限映射</strong>
 				</div>
 
-				<header className="permissions-heading">
-					<h1>查看角色到能力的映射与 can? 判定</h1>
+				<header className="ws-page-heading">
+					<div>
+						<h1>权限映射</h1>
+						<p>查看角色到能力的映射与 can? 判定</p>
+					</div>
 				</header>
 
-				<nav className="permissions-tabs" aria-label="成员管理页签">
-					<Link href={`/w/${slug}/settings/members`} className="permissions-tab">
-						成员
-					</Link>
-					<Link
-						href={`/w/${slug}/settings/permissions`}
-						className="permissions-tab permissions-tab--selected"
-						aria-current="page"
-					>
-						权限映射
-					</Link>
-				</nav>
+				{ws && (
+					<MembersTabs
+						slug={slug}
+						current="permissions"
+						abilities={ws.myAbilities ?? []}
+					/>
+				)}
 
 				<section className="permissions-notices" aria-label="权限规则说明">
 					<NoticeCard

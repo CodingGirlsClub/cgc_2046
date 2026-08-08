@@ -96,7 +96,7 @@ export default function WorkspaceAccountProfilePage() {
           <span>›</span>
           <Link href={`/w/${slug}`}>{summary?.workspaceName ?? slug}</Link>
           <span>›</span>
-          <Link href={`/w/${slug}/settings`}>设置</Link>
+          <Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
           <span>›</span>
           <strong>个人资料</strong>
         </div>

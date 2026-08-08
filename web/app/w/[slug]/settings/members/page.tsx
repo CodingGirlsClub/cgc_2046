@@ -28,13 +28,13 @@ import {
 	type WorkspaceMember,
 } from "@/lib/workspaces";
 import {
-	JOIN_POLICY_LABEL,
 	ROLE_BADGE_CLASS,
 	ROLE_LABEL,
 	type MembershipRoleName,
 } from "@/lib/graphql/workspace";
 import { PERMISSION_ROLE_ORDER } from "@/lib/permissions";
 import WorkspaceShell from "@/components/workspace-shell";
+import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
 
 /**
@@ -370,6 +370,8 @@ export default function WorkspaceMembersPage() {
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
+					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<span>›</span>
 					<strong>成员与角色</strong>
 				</div>
 
@@ -378,26 +380,15 @@ export default function WorkspaceMembersPage() {
 						<h1>成员与角色</h1>
 						<p>管理工作区成员与角色分配</p>
 					</div>
-					<div className="members-heading-summary">
-						<span>
-							{JOIN_POLICY_LABEL[ws?.joinPolicy ?? "open"]} Workspace
-						</span>
-						<strong>{ws?.name ?? slug}</strong>
-					</div>
 				</header>
 
-				<nav className="members-tabs" aria-label="成员管理页签">
-					<Link
-						href={`/w/${slug}/settings/members`}
-						className="members-tab members-tab--selected"
-						aria-current="page"
-					>
-						成员
-					</Link>
-					<Link href={`/w/${slug}/settings/permissions`} className="members-tab">
-						权限映射
-					</Link>
-				</nav>
+				{ws && (
+					<MembersTabs
+						slug={slug}
+						current="members"
+						abilities={ws.myAbilities ?? []}
+					/>
+				)}
 
 				<section className="members-notice" aria-label="角色并集说明">
 					<div className="members-notice__icon">

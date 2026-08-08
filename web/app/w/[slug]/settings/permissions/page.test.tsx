@@ -161,9 +161,7 @@ afterEach(() => cleanup());
 
 async function renderReadyPage() {
 	render(<PermissionsPage />);
-	await screen.findByRole("heading", {
-		name: "查看角色到能力的映射与 can? 判定",
-	});
+	await screen.findByRole("heading", { name: "权限映射" });
 	await waitFor(() =>
 		expect(screen.queryByTestId("permissions-loading")).not.toBeInTheDocument(),
 	);
@@ -184,21 +182,31 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 
 		expect(screen.getAllByText("CGC 线上学院").length).toBeGreaterThanOrEqual(1);
 		expect(
-			screen.getByRole("heading", { name: "查看角色到能力的映射与 can? 判定" }),
+			screen.getByRole("heading", { name: "权限映射" }),
 		).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "成员" })).toHaveAttribute(
+		expect(
+			screen.getByText("查看角色到能力的映射与 can? 判定"),
+		).toBeInTheDocument();
+		// 统一 ws-tabs：5 tab 全展示，权限映射高亮
+		const tabs = screen.getByRole("navigation", { name: "工作区设置页签" });
+		expect(
+			within(tabs).getByRole("link", { name: "权限映射" }),
+		).toHaveAttribute("aria-current", "page");
+		expect(
+			within(tabs).getByRole("link", { name: "成员与角色" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings/members");
+		expect(within(tabs).getByRole("link", { name: "加入策略" })).toHaveAttribute(
 			"href",
-			"/w/cgc-academy/settings/members",
+			"/w/cgc-academy/settings/join-policy",
 		);
-		expect(screen.getByRole("link", { name: "权限映射" })).toHaveAttribute(
-			"aria-current",
-			"page",
-		);
-		// settings 模式：/permissions 归「成员与角色」子页（Workspace 组激活态）
+		// 侧栏 Workspace 组：权限映射为独立导航项
 		const workspaceNav = screen.getByRole("navigation", { name: "Workspace" });
 		expect(
-			within(workspaceNav).getByRole("link", { name: "成员与角色" }),
+			within(workspaceNav).getByRole("link", { name: "权限映射" }),
 		).toHaveAttribute("aria-current", "page");
+		expect(
+			within(workspaceNav).getByRole("link", { name: "成员与角色" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings/members");
 		expect(screen.getByText("多角色取并集")).toBeInTheDocument();
 		expect(screen.getByText("租户边界优先")).toBeInTheDocument();
 		expect(screen.getByText("Owner 专门指派")).toBeInTheDocument();

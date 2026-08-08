@@ -311,7 +311,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		// 操作项
 		expect(
 			within(menu).getByRole("menuitem", { name: "Settings" }),
-		).toHaveAttribute("href", "/w/cgc-academy/settings");
+		).toHaveAttribute("href", "/w/cgc-academy/settings/account/preferences");
 		expect(
 			within(menu).getByRole("menuitem", { name: "发现 / 加入工作区" }),
 		).toHaveAttribute("href", "/join");

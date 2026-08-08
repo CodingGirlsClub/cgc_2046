@@ -20,7 +20,7 @@ import {
 import type { JoinRequestItem } from "@/lib/requests";
 import { ROLE_NAMES, type MembershipRoleName } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
-import SettingsTabs from "@/components/settings-tabs";
+import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
 
 /** 审批倒计时组件：<48h 脉冲高亮 */
@@ -171,7 +171,7 @@ export default function RequestsPage() {
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings`}>加入策略</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
 					<span>›</span>
 					<strong>加入审批</strong>
 				</div>
@@ -184,7 +184,11 @@ export default function RequestsPage() {
 				</header>
 
 				{ws && (
-					<SettingsTabs slug={slug} current="requests" canManage={canManage} />
+					<MembersTabs
+						slug={slug}
+						current="requests"
+						abilities={ws.myAbilities ?? []}
+					/>
 				)}
 
 				{wsLoading && (
