@@ -45,6 +45,7 @@ type NavSection =
 	| "settings-invitations"
 	| "settings-account-profile"
 	| "settings-account-preferences"
+	| "settings-connection"
 	| null;
 
 function navSection(pathname: string, slug: string): NavSection {
@@ -67,6 +68,8 @@ function navSection(pathname: string, slug: string): NavSection {
 		return "settings-account-profile";
 	if (pathname.startsWith(`/w/${slug}/settings/account/preferences`))
 		return "settings-account-preferences";
+	if (pathname.startsWith(`/w/${slug}/settings/connection`))
+		return "settings-connection";
 	return null;
 }
 
@@ -250,6 +253,16 @@ export default function WorkspaceShell({
 							>
 								<Icon name="user" />
 								<span>个人资料</span>
+							</Link>
+							<Link
+								href={`/w/${slug}/settings/connection`}
+								className={`ws-shell-item ${active === "settings-connection" ? "ws-shell-item--selected" : ""}`}
+								aria-current={
+									active === "settings-connection" ? "page" : undefined
+								}
+							>
+								<Icon name="activity" />
+								<span>连接</span>
 							</Link>
 						</nav>
 						<div className="ws-shell-heading">Workspace</div>
