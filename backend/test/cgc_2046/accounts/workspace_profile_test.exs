@@ -311,8 +311,13 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     test "same-workspace member cannot update another member's profile (review HIGH-1 regression)" do
       admin = admin_user()
       ws = create_workspace(admin)
-      member_a = register_user("wsp-a-#{System.unique_integer([:positive])}@example.com", @password)
-      member_b = register_user("wsp-b-#{System.unique_integer([:positive])}@example.com", @password)
+
+      member_a =
+        register_user("wsp-a-#{System.unique_integer([:positive])}@example.com", @password)
+
+      member_b =
+        register_user("wsp-b-#{System.unique_integer([:positive])}@example.com", @password)
+
       add_member(ws, member_a, admin)
       add_member(ws, member_b, admin)
       profile_a = create_profile(ws, member_a)
@@ -322,6 +327,6 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
                profile_a
                |> Ash.Changeset.for_update(:update_profile, %{about: "hack"})
                |> Ash.update(tenant: ws.id, actor: member_b)
-  end
+    end
   end
 end
