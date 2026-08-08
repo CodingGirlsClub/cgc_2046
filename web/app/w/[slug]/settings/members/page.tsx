@@ -15,7 +15,7 @@
  * #10：keyset 分页累积 + 后端搜索/角色下推 + 加载更多按钮。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
@@ -158,6 +158,10 @@ export default function WorkspaceMembersPage() {
 	const [loadingMore, setLoadingMore] = useState(false);
 	// #10：pageLoading 派生自 fetchKey 不匹配（见下方 effect），不在 effect 体内同步 setState
 	const [loadedFetchKey, setLoadedFetchKey] = useState<string | null>(null);
+	// loadMore stale guard 需要读取「最新已提交筛选 key」：闭包捕获的 loadedFetchKey 在
+	// await 返回后仍是发起时的旧值（与 requestKey 恒等，guard 永不生效），因此用 ref 镜像，
+	// 主查询 effect 完成时同步，loadMore 据此丢弃过期页。
+	const loadedFetchKeyRef = useRef<string | null>(null);
 	const [membersWorkspaceId, setMembersWorkspaceId] = useState<string | null>(
 		null,
 	);
@@ -204,6 +208,7 @@ export default function WorkspaceMembersPage() {
 				setEndKeyset(page.endKeyset);
 				setVisibleCount(page.count);
 				setMembersWorkspaceId(wsId);
+				loadedFetchKeyRef.current = key;
 				setLoadedFetchKey(key);
 				setEditingId(null);
 				setDraft(
@@ -222,6 +227,7 @@ export default function WorkspaceMembersPage() {
 				setEndKeyset(null);
 				setVisibleCount(0);
 				setMembersWorkspaceId(wsId);
+				loadedFetchKeyRef.current = key;
 				setLoadedFetchKey(key);
 				setEditingId(null);
 				setErrorMsg(
@@ -347,13 +353,13 @@ export default function WorkspaceMembersPage() {
 				after: endKeyset,
 				first: 50,
 			});
-			if (requestKey !== fetchKey) return; // 筛选已变，结果作废
+			if (requestKey !== loadedFetchKeyRef.current) return; // 主查询已切新筛选 —— 丢弃过期页
 			setMembers((prev) => [...prev, ...page.members]);
 			setEndKeyset(page.endKeyset);
 			setVisibleCount(page.count);
 			setErrorMsg(null);
 		} catch (error: unknown) {
-			if (requestKey !== fetchKey) return;
+			if (requestKey !== loadedFetchKeyRef.current) return;
 			setErrorMsg(
 				error instanceof Error ? error.message : "加载更多成员失败",
 			);
