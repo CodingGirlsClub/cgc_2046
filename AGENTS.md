@@ -23,3 +23,13 @@ Five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architecture decisions. See `docs/agents/domain.md`.
+
+### E2E validation
+
+前端 UI 改动后用 agent-browser 做端到端验证（web/ 目录，Dev 服务跑起来后），按确定性分层，能数值断言的不问模型：
+
+1. **结构 / 样式断言（主，确定性最高）**：`agent-browser eval` / `get styles` 拿 computed style 与几何（`getBoundingClientRect`），断言具体数值 —— 宽度 / 背景色 / 圆角 / 边距 / 选中态类名与边框 / 对齐差（<1px）。页面有渲染差异、组件回归、多页一致性都用这一层判定，不需要视觉模型。
+2. **交互走通**：`snapshot -i`（refs）→ `click @eN` / `fill` → `wait --text/--url`，断言导航与状态变化（错误分支、成功分支都走）。
+3. **视觉复核（兜底，仅感知层）**：截图交给视觉模型只查「无法数值断言」的主观项 —— 层级 / 对比度观感 / 留白协调 / 整体美感；同时截图作为给人看的证据。不要为每个页面都截图问模型；截图前先确认结构断言已全部通过。
+4. **登录态**：优先 `agent-browser connect <cdp-port>` 复用已登录浏览器；无法复用且确需登录时，先备份 `users.hashed_password`（psql `cgc_2046_dev`），临时重置密码完成验证后**必须恢复原哈希**。
+
