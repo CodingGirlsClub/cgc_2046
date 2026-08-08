@@ -20,7 +20,10 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     strategy = password_strategy()
 
     assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{email: email, password: password})
+             AshAuthentication.Strategy.action(strategy, :register, %{
+               email: email,
+               password: password
+             })
 
     user
   end
@@ -186,10 +189,14 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
         |> Ash.create(tenant: ws1.id, actor: user)
 
       # ws2 的 my_portfolio 看不到 ws1 的条目
-      assert {:ok, ws2_items} = Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws2.id, actor: user)
+      assert {:ok, ws2_items} =
+               Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws2.id, actor: user)
+
       assert ws2_items == []
 
-      assert {:ok, ws1_items} = Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws1.id, actor: user)
+      assert {:ok, ws1_items} =
+               Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws1.id, actor: user)
+
       assert Enum.map(ws1_items, & &1.title) == ["ws1 作品"]
     end
 
@@ -211,10 +218,14 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
         |> Ash.Changeset.for_create(:create, %{title: "别人的作品"})
         |> Ash.create(tenant: ws.id, actor: other)
 
-      assert {:ok, mine} = Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws.id, actor: user)
+      assert {:ok, mine} =
+               Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws.id, actor: user)
+
       assert Enum.map(mine, & &1.title) == ["我的作品"]
 
-      assert {:ok, theirs} = Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws.id, actor: other)
+      assert {:ok, theirs} =
+               Ash.read(PortfolioItem, action: :my_portfolio, tenant: ws.id, actor: other)
+
       assert Enum.map(theirs, & &1.title) == ["别人的作品"]
     end
 
@@ -230,7 +241,9 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
         |> Ash.create(tenant: ws.id, actor: user)
 
       assert :ok = Ash.destroy(item, tenant: ws.id, actor: user)
-      assert {:error, _} = Ash.get(PortfolioItem, item.id, tenant: ws.id, actor: user, authorize?: true)
+
+      assert {:error, _} =
+               Ash.get(PortfolioItem, item.id, tenant: ws.id, actor: user, authorize?: true)
     end
   end
 end
