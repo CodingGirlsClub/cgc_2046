@@ -497,4 +497,72 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert Enum.map(fetched.roles, & &1.name) == [:owner]
     end
   end
+
+  describe "admit_to_default_workspace (ADR-0004 默认 workspace 2046)" do
+    test "新用户入座 2046 为 member 并建 WorkspaceProfile" do
+      user = new_user()
+
+      assert {:ok, _membership} = MembershipContext.admit_to_default_workspace(user.id)
+
+      # 查 2046 workspace
+      assert {:ok, ws} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: "2046"})
+               |> Ash.read_one(authorize?: false)
+
+      # 已是 member（roles 含 member）
+      membership = MembershipContext.membership_of(user, ws.id)
+      refute is_nil(membership)
+      assert Enum.map(membership.roles, & &1.name) == [:member]
+
+      # WorkspaceProfile 已建（默认 only_me / dark）
+      assert {:ok, [profile]} =
+               Cgc2046.Accounts.WorkspaceProfile
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(user_id == ^user.id)
+               |> Ash.read(tenant: ws.id, authorize?: false)
+
+      assert profile.workspace_id == ws.id
+      assert profile.visibility == :only_me
+      assert profile.ui_theme_preference == "dark"
+    end
+
+    test "幂等：重复调用不报错、不重复入座" do
+      user = new_user()
+
+      assert {:ok, _} = MembershipContext.admit_to_default_workspace(user.id)
+      assert {:ok, _} = MembershipContext.admit_to_default_workspace(user.id)
+
+      # 仍只有一份 membership + 一份 profile
+      assert {:ok, ws} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: "2046"})
+               |> Ash.read_one(authorize?: false)
+
+      memberships =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(user_id == ^user.id)
+        |> Ash.read!(tenant: ws.id, authorize?: false)
+
+      assert length(memberships) == 1
+    end
+
+    test "已加入其它 workspace 的用户也可入座 2046" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      user = new_user()
+      add_member(workspace, user, admin, [:learner])
+
+      assert {:ok, _} = MembershipContext.admit_to_default_workspace(user.id)
+
+      assert {:ok, ws} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: "2046"})
+               |> Ash.read_one(authorize?: false)
+
+      membership = MembershipContext.membership_of(user, ws.id)
+      refute is_nil(membership)
+    end
+  end
 end

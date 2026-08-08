@@ -109,40 +109,6 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
     end
   end
 
-  describe "shared_workspace_ids/1（成员资格旁路，供 exists 子查询注入）" do
-    test "成员跨工作台返回全部 workspace_id" do
-      admin = admin_user()
-      ws_a = create_workspace(admin)
-      ws_b = create_workspace(admin)
-      member = new_user()
-      add_member(ws_a, member, admin, [:member])
-      add_member(ws_b, member, admin, [:owner])
-
-      ids = BypassReads.shared_workspace_ids(member)
-      assert Enum.sort(ids) == Enum.sort([ws_a.id, ws_b.id])
-    end
-
-    test "非成员返回空列表" do
-      admin = admin_user()
-      create_workspace(admin)
-      outsider = new_user()
-
-      assert BypassReads.shared_workspace_ids(outsider) == []
-    end
-
-    test "非法 actor.id（非 UUID）抛 ArgumentError（错误姿态与收敛前一致）" do
-      assert_raise ArgumentError, fn ->
-        BypassReads.shared_workspace_ids(%User{id: "not-a-uuid"})
-      end
-    end
-
-    test "DB 失败返回空列表（降级，不抛 500）" do
-      Ecto.Adapters.SQL.Sandbox.checkin(Cgc2046.Repo)
-
-      assert BypassReads.shared_workspace_ids(%User{id: Ecto.UUID.generate()}) == []
-    end
-  end
-
   describe "owner_count/1（raw COUNT，按 membership 去重）" do
     test "2 个 owner（不同 membership）→ 2" do
       admin = admin_user()

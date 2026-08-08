@@ -211,6 +211,25 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       user_id = res["data"]["signUp"]["result"]["id"]
 
       # User 资源无 destroy action，直接 SQL 删行模拟"user 在 DB 中不存在"。
+      # 注册自动加入默认 workspace 2046（ADR-0004）会建 membership + member 角色，
+      # 先级联删除（membership_roles → memberships）避免外键冲突。
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        """
+        DELETE FROM membership_roles
+        WHERE membership_id IN (
+          SELECT id FROM workspace_memberships WHERE user_id = $1
+        )
+        """,
+        [Ecto.UUID.dump!(user_id)]
+      )
+
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "DELETE FROM workspace_memberships WHERE user_id = $1",
+        [Ecto.UUID.dump!(user_id)]
+      )
+
       Ecto.Adapters.SQL.query!(Cgc2046.Repo, "DELETE FROM users WHERE id = $1", [
         Ecto.UUID.dump!(user_id)
       ])
