@@ -1213,212 +1213,6 @@ type JoinRequest {
   expiredAt: DateTime
 }
 
-"The result of the :delete_portfolio_item mutation"
-type DeletePortfolioItemResult {
-  "The record that was successfully deleted"
-  result: PortfolioItem
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :update_portfolio_item mutation"
-type UpdatePortfolioItemResult {
-  "The successful result of the mutation"
-  result: PortfolioItem
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input UpdatePortfolioItemInput {
-  "作品标题"
-  title: String
-
-  "作品描述"
-  description: String
-
-  "作品链接"
-  url: String
-
-  "作品图标类型（document\/book\/guide）"
-  icon: String
-}
-
-"The result of the :create_portfolio_item mutation"
-type CreatePortfolioItemResult {
-  "The successful result of the mutation"
-  result: PortfolioItem
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreatePortfolioItemInput {
-  "作品标题"
-  title: String!
-
-  "作品描述"
-  description: String
-
-  "作品链接"
-  url: String
-
-  "作品图标类型（document\/book\/guide）"
-  icon: String
-}
-
-enum PortfolioItemSortField {
-  ID
-  USER_ID
-  TITLE
-  DESCRIPTION
-  URL
-  ICON
-}
-
-input PortfolioItemFilterIcon {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-}
-
-input PortfolioItemFilterUrl {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input PortfolioItemFilterDescription {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input PortfolioItemFilterTitle {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input PortfolioItemFilterUserId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input PortfolioItemFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-}
-
-input PortfolioItemFilterInput {
-  and: [PortfolioItemFilterInput!]
-
-  or: [PortfolioItemFilterInput!]
-
-  not: [PortfolioItemFilterInput!]
-
-  id: PortfolioItemFilterId
-
-  "作品集所属用户 ID（仅本人，创建时自动填充）"
-  userId: PortfolioItemFilterUserId
-
-  "作品标题"
-  title: PortfolioItemFilterTitle
-
-  "作品描述"
-  description: PortfolioItemFilterDescription
-
-  "作品链接"
-  url: PortfolioItemFilterUrl
-
-  "作品图标类型（document\/book\/guide）"
-  icon: PortfolioItemFilterIcon
-}
-
-input PortfolioItemSortInput {
-  order: SortOrder
-  field: PortfolioItemSortField!
-}
-
-type PortfolioItem {
-  id: ID!
-
-  "作品集所属用户 ID（仅本人，创建时自动填充）"
-  userId: ID!
-
-  "作品标题"
-  title: String!
-
-  "作品描述"
-  description: String
-
-  "作品链接"
-  url: String
-
-  "作品图标类型（document\/book\/guide）"
-  icon: String!
-}
-
 enum RoleSortField {
   ID
   WORKSPACE_ID
@@ -1911,26 +1705,8 @@ type User {
   "是否平台管理员（全局标记）"
   isPlatformAdmin: Boolean!
 
-  "显示名（#68 Profile API；可为 null，前端以 email 前缀兜底）"
+  "显示名（全局身份字段；可为 null，前端以 email 前缀兜底）"
   displayName: String
-
-  "头像 URL（#68 Profile API，可选；data URL 限 image\/png|jpeg|webp|gif 且 ≤2.2MB，http(s) URL 限 2048 字符）"
-  avatarUrl: String
-
-  "所在地（P1 Profile 扩展字段，可编辑）"
-  location: String
-
-  "个人简介（P1 Profile 扩展字段，可编辑）"
-  about: String
-
-  "技能标签列表（P1 Profile 扩展字段，可编辑）"
-  skills: [String!]
-
-  "资料可见范围（三档）：public 所有登录用户可读 \/ workspace 同工作区成员可读 \/ only_me 仅本人可读（默认，隐私优先）"
-  visibility: String!
-
-  "用户 UI 主题偏好（U3）：dark（默认）\/ light，服务端持久化用于跨设备同步"
-  uiThemePreference: String!
 
   "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
   memberNumber: String
@@ -1946,8 +1722,14 @@ type RootQueryType {
   "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
   permissionMatrix: PermissionMatrixPayload
 
-  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/avatarUrl\/isPlatformAdmin + P1 扩展字段"
+  "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/isPlatformAdmin + memberNumber\/joinedAt（ADR-0004 收窄为全局身份）"
   me: User
+
+  "当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权）"
+  workspaceProfile(workspaceId: ID!): WorkspaceProfile
+
+  "当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace）"
+  myWorkspacePortfolio(workspaceId: ID!): [PortfolioItem]
 
   "按 slug 获取工作台（需登录）"
   getWorkspace(
@@ -1994,15 +1776,6 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): KeysetPageOfWorkspaceMembership
-
-  "当前用户的作品集条目列表"
-  myPortfolio(
-    "How to sort the records in the response"
-    sort: [PortfolioItemSortInput]
-
-    "A filter to limit the results"
-    filter: PortfolioItemFilterInput
-  ): [PortfolioItem!]!
 
   "加入申请列表（申请人仅见自己；Owner\/Admin 见全部）"
   joinRequests(
@@ -2183,10 +1956,44 @@ input SignUpInput {
   password: String!
 }
 
-input UpdateProfileInput {
-  "updateProfile 输入（P1）：displayName 必填，avatarUrl\/location\/about\/skills\/visibility 可选"
-  displayName: String!
+type WorkspaceProfile {
+  "per-workspace 成员公开资料（ADR-0004）"
+  id: ID!
 
+  workspaceId: ID!
+
+  userId: ID!
+
+  avatarUrl: String
+
+  location: String
+
+  about: String
+
+  skills: [String]
+
+  visibility: String
+
+  uiThemePreference: String!
+}
+
+type PortfolioItem {
+  "per-workspace 作品集条目（ADR-0004）"
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  description: String
+
+  url: String
+
+  icon: String!
+}
+
+input UpdateWorkspaceProfileInput {
+  "updateWorkspaceProfile 输入（ADR-0004）：avatarUrl\/location\/about\/skills\/visibility 可选"
   avatarUrl: String
 
   location: String
@@ -2198,9 +2005,31 @@ input UpdateProfileInput {
   visibility: String
 }
 
-input SetUiThemeInput {
-  "setUiTheme 输入（U3）：uiThemePreference 必填，仅 dark | light"
+input SetWorkspaceThemeInput {
+  "setWorkspaceTheme 输入：uiThemePreference 必填，仅 dark | light"
   uiThemePreference: String!
+}
+
+input CreatePortfolioItemInput {
+  "createPortfolioItem 输入：title 必填，description\/url\/icon 可选"
+  title: String!
+
+  description: String
+
+  url: String
+
+  icon: String
+}
+
+input UpdatePortfolioItemInput {
+  "updatePortfolioItem 输入：title\/description\/url\/icon 可选"
+  title: String
+
+  description: String
+
+  url: String
+
+  icon: String
 }
 
 type RootMutationType {
@@ -2213,11 +2042,23 @@ type RootMutationType {
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
 
-  "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
-  updateProfile(input: UpdateProfileInput!): User
+  "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
+  updateDisplayName(displayName: String!): User
 
-  "设置当前用户 UI 主题偏好（U3）：dark | light，服务端持久化"
-  setUiTheme(input: SetUiThemeInput!): User
+  "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
+  updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile
+
+  "设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace）"
+  setWorkspaceTheme(workspaceId: ID!, input: SetWorkspaceThemeInput!): WorkspaceProfile
+
+  "在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造）"
+  createPortfolioItem(workspaceId: ID!, input: CreatePortfolioItemInput!): PortfolioItem
+
+  "更新某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+  updatePortfolioItem(id: ID!, workspaceId: ID!, input: UpdatePortfolioItemInput!): PortfolioItem
+
+  "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+  deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
@@ -2230,15 +2071,6 @@ type RootMutationType {
 
   "分配成员角色（多角色并集，仅 Owner\/Admin）"
   assignRoles(id: ID!, input: AssignRolesInput!): AssignRolesResult!
-
-  "创建作品集条目（user_id 自动为当前用户）"
-  createPortfolioItem(input: CreatePortfolioItemInput!): CreatePortfolioItemResult!
-
-  "更新自己的作品集条目"
-  updatePortfolioItem(id: ID!, input: UpdatePortfolioItemInput): UpdatePortfolioItemResult!
-
-  "删除自己的作品集条目"
-  deletePortfolioItem(id: ID!): DeletePortfolioItemResult!
 
   "提交加入申请"
   createJoinRequest(input: CreateJoinRequestInput!): CreateJoinRequestResult!
