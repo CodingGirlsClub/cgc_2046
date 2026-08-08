@@ -16,7 +16,7 @@ import Link from "next/link";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
-import { SETTINGS_NAV, canSee } from "@/components/workspace-nav";
+import { canSeeByKey } from "@/components/workspace-nav";
 import type { CurrentProfile } from "@/lib/profile";
 import type { WorkspaceListItem } from "@/lib/workspaces";
 
@@ -92,7 +92,7 @@ export default function WorkspaceSwitcherMenu({
 			>
 				<span className="ws-shell-brand-menu__name">Settings</span>
 			</Link>
-			{canSee(SETTINGS_NAV.find((d) => d.key === "invitations")!, abilities) && (
+			{canSeeByKey("invitations", abilities) && (
 				<Link
 					href={`/w/${currentSlug}/settings/invitations`}
 					className="ws-shell-brand-menu__item"

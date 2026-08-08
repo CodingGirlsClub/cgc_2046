@@ -33,38 +33,12 @@ import { writeLastWorkspace } from "@/lib/use-last-workspace";
 import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
-import { Icon, type IconName } from "@/components/icons";
-import { SETTINGS_NAV, canSee } from "@/components/workspace-nav";
-
-/** 侧栏 Workspace 组：目的地 key → 激活态 section（SETTINGS_NAV 同 key 对齐） */
-const NAV_ACTIVE_BY_KEY: Record<string, NavSection> = {
-	members: "members",
-	permissions: "settings-permissions",
-	policy: "settings-join-policy",
-	requests: "settings-requests",
-	invitations: "settings-invitations",
-};
-
-/** 侧栏 Workspace 组：目的地 key → 图标 */
-const NAV_ICON_BY_KEY: Record<string, IconName> = {
-	members: "users",
-	permissions: "role",
-	policy: "settings",
-	requests: "shield",
-	invitations: "invite",
-};
-
-type NavSection =
-	| "overview"
-	| "workflows"
-	| "members"
-	| "settings-permissions"
-	| "settings-join-policy"
-	| "settings-requests"
-	| "settings-invitations"
-	| "settings-account-profile"
-	| "settings-account-preferences"
-	| null;
+import { Icon } from "@/components/icons";
+import {
+	SETTINGS_NAV,
+	canSee,
+	type NavSection,
+} from "@/components/workspace-nav";
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
@@ -315,14 +289,12 @@ export default function WorkspaceShell({
 								<Link
 									key={dest.key}
 									href={dest.href(slug)}
-									className={`ws-shell-item ${active === NAV_ACTIVE_BY_KEY[dest.key] ? "ws-shell-item--selected" : ""}`}
+									className={`ws-shell-item ${active === dest.active ? "ws-shell-item--selected" : ""}`}
 									aria-current={
-										active === NAV_ACTIVE_BY_KEY[dest.key]
-											? "page"
-											: undefined
+										active === dest.active ? "page" : undefined
 									}
 								>
-									<Icon name={NAV_ICON_BY_KEY[dest.key]} />
+									<Icon name={dest.icon!} />
 									<span>{dest.label}</span>
 								</Link>
 							))}
