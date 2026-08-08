@@ -194,9 +194,6 @@ export default function WorkspaceShell({
 		<div className={`ws-shell-page ${className ?? ""}`}>
 			<aside className="ws-shell-sidebar">
 				<div className="ws-shell-brand-wrap" ref={brandRef}>
-					<Link href="/" className="ws-shell-brand__mark" aria-label="返回工作台">
-						CGC
-					</Link>
 					<button
 						type="button"
 						className="ws-shell-brand"

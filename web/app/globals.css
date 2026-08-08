@@ -401,35 +401,12 @@
   }
   .ws-shell-brand:hover { background: var(--soft-2); }
 
-  /* logo mark：独立 Link 回首页（issue #83），从 button 拆出避免 a 嵌套 button */
-  .ws-shell-brand-wrap > .ws-shell-brand__mark {
-    flex: 0 0 auto;
-    text-decoration: none;
-  }
-  .ws-shell-brand-wrap > .ws-shell-brand__mark:hover { opacity: 0.88; }
-
   .ws-shell-brand__name {
     flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
-  }
-
-  .ws-shell-brand__mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #fff;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: -0.04em;
-    box-shadow: 0 5px 18px color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   .ws-shell-brand__chevron {
