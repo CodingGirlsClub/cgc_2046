@@ -99,6 +99,8 @@ beforeEach(() => {
 		avatarUrl: null,
 		isPlatformAdmin: false,
 	});
+	// #018：clearSession 返回 { ok } 契约；失败用例单独覆盖
+	clearSession.mockResolvedValue({ ok: true });
 });
 
 afterEach(cleanup);
@@ -343,5 +345,22 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		);
 		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
 		await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));
+	});
+
+	it("登出失败（#018）：不导航 /login，菜单内渲染错误文案可重试", async () => {
+		render(<WorkspacePage />);
+		await content();
+		fireEvent.click(
+			screen.getByRole("button", { name: "CGC 线上学院 Workspace Menu" }),
+		);
+		const menu = await screen.findByRole("menu");
+		clearSession.mockResolvedValue({ ok: false, error: new Error("boom") });
+
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "退出登录" }));
+
+		// mutation 失败 → clearSession 被调但不导航，错误文案渲染在菜单内
+		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
+		expect(push).not.toHaveBeenCalled();
+		expect(await screen.findByText("退出登录失败，请重试")).toBeInTheDocument();
 	});
 });
