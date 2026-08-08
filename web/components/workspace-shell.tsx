@@ -97,7 +97,9 @@ export default function WorkspaceShell({
 	const { authed, confirmed } = useAuthed();
 	// requireWs=false（profile）时 slug 传 ""：hook 空 slug 不解析（见 hook 文档），
 	// 侧栏上下文块只展示 slug，不出现「不可访问」态
-	const { ws, loading } = useWorkspaceBySlug(requireWs ? slug : "");
+	const { ws, loading, error: wsError, retry } = useWorkspaceBySlug(
+		requireWs ? slug : "",
+	);
 
 	// 工作区切换 dropdown（issue #83：ws-shell-brand ⌄ 可切换已加入的工作区）
 	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
@@ -165,6 +167,27 @@ export default function WorkspaceShell({
 	}
 
 	if (requireWs && slug && !ws && !loading) {
+		// #017 Bug B：网络/服务器错误 ≠「无权限」——给重试出口，不误报「工作区不可访问」
+		if (wsError) {
+			return (
+				<main className="ws-shell-page">
+					<div className="ws-shell-empty-page">
+						<h1>加载失败</h1>
+						<p>工作区数据加载出错：{wsError.message}</p>
+						<button
+							type="button"
+							className="join-button join-button--primary"
+							onClick={retry}
+						>
+							重试
+						</button>
+						<Link href="/" className="ws-shell-primary-link">
+							返回工作台
+						</Link>
+					</div>
+				</main>
+			);
+		}
 		return (
 			<main className="ws-shell-page">
 				<div className="ws-shell-empty-page">
