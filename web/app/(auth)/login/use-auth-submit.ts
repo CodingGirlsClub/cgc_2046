@@ -24,7 +24,8 @@ export interface UseAuthSubmitResult {
  *
  * - token 交付：后端 #60 路径 B（httpOnly cookie），signIn/signUp 响应体暂仍返回 token
  *   （Phase 1 向后兼容），但前端不再 setAuthToken——token 由后端 before_send 写 httpOnly cookie。
- * - 成功跳转：暂跳 "/"（#63 workspace 选择页落地后改为 /workspaces）。
+ * - 成功跳转：跳 "/"——首页按 workspace 列表分发：有可进入工作区 → 重定向默认
+ *   workspace（最近记忆 > 第一个 active）；无 → 极简空态引导去 /join。
  * - 失败提示：signUp 取 result.errors[0].message；signIn 取 ApolloError.graphQLErrors[0].message。
  */
 export function useAuthSubmit(): UseAuthSubmitResult {

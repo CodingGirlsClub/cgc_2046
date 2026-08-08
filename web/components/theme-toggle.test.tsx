@@ -52,4 +52,18 @@ describe("ThemeToggle（U3 主题持久化）", () => {
       variables: { input: { uiThemePreference: "dark" } },
     });
   });
+
+  it("menuitem 形态：渲染菜单项并切换主题", () => {
+    render(<ThemeToggle variant="menuitem" />);
+
+    const item = screen.getByRole("menuitem", { name: /切换为浅色主题/ });
+    expect(item.className).toContain("ws-shell-brand-menu__item");
+    fireEvent.click(item);
+
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(client.mutate).toHaveBeenCalledWith({
+      mutation: expect.anything(),
+      variables: { input: { uiThemePreference: "light" } },
+    });
+  });
 });
