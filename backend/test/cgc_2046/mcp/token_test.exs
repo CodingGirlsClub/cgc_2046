@@ -10,6 +10,8 @@ defmodule Cgc2046.Mcp.TokenTest do
   """
   use Cgc2046.DataCase, async: true
 
+  require Ash.Query
+
   alias Cgc2046.Mcp.Token
 
   defp register_user(email) do
@@ -62,6 +64,40 @@ defmodule Cgc2046.Mcp.TokenTest do
       assert {:ok, _t2} =
                Token
                |> Ash.Changeset.for_create(:issue, %{name: "B"}, actor: user)
+               |> Ash.create()
+    end
+
+    test "active token 达 10 个上限后拒绝签发；撤销一个后可再签" do
+      user = register_user("mcp-token-cap@example.com")
+
+      for i <- 1..10 do
+        assert {:ok, _} =
+                 Token
+                 |> Ash.Changeset.for_create(:issue, %{name: "t#{i}"}, actor: user)
+                 |> Ash.create()
+      end
+
+      assert {:error, %Ash.Error.Invalid{} = error} =
+               Token
+               |> Ash.Changeset.for_create(:issue, %{name: "over"}, actor: user)
+               |> Ash.create()
+
+      assert Exception.message(error) =~ "active connection token limit reached"
+
+      # 撤销一个后恢复可签（上限按 active 计数）
+      first =
+        Token
+        |> Ash.Query.filter(user_id == ^user.id and name == "t1")
+        |> Ash.read_one!(actor: user)
+
+      assert {:ok, _} =
+               first
+               |> Ash.Changeset.for_update(:revoke, %{}, actor: user)
+               |> Ash.update()
+
+      assert {:ok, _} =
+               Token
+               |> Ash.Changeset.for_create(:issue, %{name: "after-revoke"}, actor: user)
                |> Ash.create()
     end
 
