@@ -3,10 +3,8 @@ defmodule Cgc2046.Events.Event do
   活动资源（Slice C #39，阶段 6 教研实例化最小子集）。
 
   领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Event 是活动实体，
-  本阶段只建教研 workflow 实例化所需字段（title/research_enabled/
-  research_requirements/status/workflow_run_id）。报名/赞助字段
-  （enrollment_policy/capacity/registration_deadline/sponsorship_enabled/
-  materials_review_required）不在本阶段——后续 slice（报名/赞助 workflow）再加。
+  教研字段之外，Phase 2 加入报名策略、容量与报名截止时间。`confirmed_count`
+  是数据库原子占位计数，Enrollment 创建/确认通过条件 UPDATE 维护，防并发超卖。
 
   ## 教研实例化（#39）
 
@@ -30,6 +28,7 @@ defmodule Cgc2046.Events.Event do
   require Logger
 
   @status_values [:draft, :open, :closed, :cancelled]
+  @enrollment_policy_values [:open, :request, :invite_only]
 
   attributes do
     uuid_primary_key(:id)
@@ -78,6 +77,39 @@ defmodule Cgc2046.Events.Event do
       description: "教研 workflow 产物引用（领域模型 §5.2 ER）"
     )
 
+    attribute(:enrollment_policy, :atom,
+      allow_nil?: false,
+      default: :open,
+      public?: true,
+      writable?: true,
+      constraints: [one_of: @enrollment_policy_values],
+      description: "报名策略：open / request / invite_only"
+    )
+
+    attribute(:capacity, :integer,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      constraints: [min: 1],
+      description: "报名名额上限；nil 表示不限"
+    )
+
+    attribute(:confirmed_count, :integer,
+      allow_nil?: false,
+      default: 0,
+      public?: true,
+      writable?: false,
+      constraints: [min: 0],
+      description: "已确认名额数（仅由 Enrollment 原子维护）"
+    )
+
+    attribute(:registration_deadline, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "报名截止时间；nil 表示不设截止"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -103,11 +135,26 @@ defmodule Cgc2046.Events.Event do
   end
 
   actions do
-    default_accept([:title, :research_enabled, :research_requirements])
+    default_accept([
+      :title,
+      :research_enabled,
+      :research_requirements,
+      :enrollment_policy,
+      :capacity,
+      :registration_deadline
+    ])
 
     create :create do
       description("创建活动（默认 status=draft）")
-      accept([:title, :research_enabled, :research_requirements])
+
+      accept([
+        :title,
+        :research_enabled,
+        :research_requirements,
+        :enrollment_policy,
+        :capacity,
+        :registration_deadline
+      ])
 
       change(set_attribute(:status, :draft))
 

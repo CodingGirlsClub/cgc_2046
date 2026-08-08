@@ -25,5 +25,7 @@ defmodule Cgc2046.Api do
     # 教研实例化实体（#39 阶段 6：Event/Course launch → 教研 workflow run）
     resource(Cgc2046.Events.Event)
     resource(Cgc2046.Events.Course)
+    resource(Cgc2046.Events.InviteBatch)
+    resource(Cgc2046.Events.Enrollment)
   end
 end
