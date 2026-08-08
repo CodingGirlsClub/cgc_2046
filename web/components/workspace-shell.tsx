@@ -29,6 +29,7 @@ import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
+import { writeLastWorkspace } from "@/lib/use-last-workspace";
 import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
@@ -38,6 +39,7 @@ type NavSection =
 	| "overview"
 	| "workflows"
 	| "members"
+	| "settings-permissions"
 	| "settings-join-policy"
 	| "settings-requests"
 	| "settings-invitations"
@@ -49,13 +51,14 @@ function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
 	if (pathname.startsWith(`/w/${slug}/workflows`)) return "workflows";
 	if (
-		pathname.startsWith(`/w/${slug}/settings/members`) ||
-		pathname.startsWith(`/w/${slug}/settings/permissions`)
+		pathname.startsWith(`/w/${slug}/settings/members`)
 	) {
-		// 权限映射是「成员与角色」的子页
 		return "members";
 	}
-	if (pathname === `/w/${slug}/settings`) return "settings-join-policy";
+	if (pathname.startsWith(`/w/${slug}/settings/permissions`)) {
+		return "settings-permissions";
+	}
+	if (pathname === `/w/${slug}/settings/join-policy`) return "settings-join-policy";
 	if (pathname.startsWith(`/w/${slug}/settings/requests`))
 		return "settings-requests";
 	if (pathname.startsWith(`/w/${slug}/settings/invitations`))
@@ -135,6 +138,12 @@ export default function WorkspaceShell({
 	useEffect(() => {
 		queueMicrotask(() => setBrandOpen(false));
 	}, [pathname]);
+
+	// IA 收敛：进入某工作区时记忆 slug（首页 / 分发用「最近记忆 > 第一个 active」）。
+	// requireWs=false（profile 页）时 ws 为 undefined，不写——看个人资料不算「进入某工作区」。
+	useEffect(() => {
+		if (ws?.slug) writeLastWorkspace(ws.slug);
+	}, [ws?.slug]);
 
 	useEffect(() => {
 		if (confirmed && !authed) {
@@ -248,18 +257,30 @@ export default function WorkspaceShell({
 						<div className="ws-shell-heading">Workspace</div>
 						<nav className="ws-shell-nav" aria-label="Workspace">
 							{canSeeMembers && (
-								<Link
-									href={`/w/${slug}/settings/members`}
-									className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
-									aria-current={active === "members" ? "page" : undefined}
-								>
-									<Icon name="users" />
-									<span>成员与角色</span>
-								</Link>
+								<>
+									<Link
+										href={`/w/${slug}/settings/members`}
+										className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
+										aria-current={active === "members" ? "page" : undefined}
+									>
+										<Icon name="users" />
+										<span>成员与角色</span>
+									</Link>
+									<Link
+										href={`/w/${slug}/settings/permissions`}
+										className={`ws-shell-item ${active === "settings-permissions" ? "ws-shell-item--selected" : ""}`}
+										aria-current={
+											active === "settings-permissions" ? "page" : undefined
+										}
+									>
+										<Icon name="role" />
+										<span>权限映射</span>
+									</Link>
+								</>
 							)}
 							{canSeeJoinPolicy && (
 								<Link
-									href={`/w/${slug}/settings`}
+									href={`/w/${slug}/settings/join-policy`}
 									className={`ws-shell-item ${active === "settings-join-policy" ? "ws-shell-item--selected" : ""}`}
 									aria-current={
 										active === "settings-join-policy" ? "page" : undefined

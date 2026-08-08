@@ -65,8 +65,8 @@ const { updateWorkspaceJoinPolicy } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useParams: () => params.value,
-	// 壳导航激活态由 pathname 派生：设置页 pathname 前缀 /w/${slug}/settings
-	usePathname: () => `/w/${params.value.slug}/settings`,
+	// 壳导航激活态由 pathname 派生：加入策略页 pathname = /w/${slug}/settings/join-policy
+	usePathname: () => `/w/${params.value.slug}/settings/join-policy`,
 }));
 
 vi.mock("@/lib/auth", () => ({

@@ -1,39 +1,37 @@
 "use client";
 
 /**
- * settings 三子页（加入策略 / 加入审批 / 邀请管理）共享的页签导航。
- * 与 members/permissions 的 tab 模式一致；审批/邀请 tab 按 manage_members 过滤。
+ * Settings 子域通用 Tab 渲染层（面向未来多域架构）。
+ *
+ * 各 Settings 子域实例组件（members-tabs.tsx、未来 teams-tabs.tsx…）定义自己的
+ * tab 列表（SettingsTabDef[]），传入本组件渲染统一的 ws-tabs 栏。
+ * 门控：tab.ability 缺失 = 恒显；否则需 abilities 包含该能力。
  */
 import Link from "next/link";
 
-export type SettingsTab = "policy" | "requests" | "invitations";
-
-const TABS: { key: SettingsTab; label: string; href: (slug: string) => string }[] =
-	[
-		{ key: "policy", label: "加入策略", href: (s) => `/w/${s}/settings` },
-		{ key: "requests", label: "加入审批", href: (s) => `/w/${s}/settings/requests` },
-		{
-			key: "invitations",
-			label: "邀请管理",
-			href: (s) => `/w/${s}/settings/invitations`,
-		},
-	];
+export type SettingsTabDef = {
+	key: string;
+	label: string;
+	href: (slug: string) => string;
+	/** 门控能力；缺省 = 恒显（不参与过滤） */
+	ability?: string;
+};
 
 export default function SettingsTabs({
 	slug,
+	tabs,
 	current,
-	canManage,
+	abilities,
 }: {
 	slug: string;
-	current: SettingsTab;
-	/** 审批/邀请 tab 仅 manage_members 可见（与侧栏门控一致） */
-	canManage: boolean;
+	tabs: SettingsTabDef[];
+	current: string;
+	abilities: string[];
 }) {
 	return (
-		<nav className="ws-tabs" aria-label="加入管理页签">
-			{TABS.map((tab) => {
-				// 审批/邀请 tab 在非管理员视图隐藏（加入策略 tab 始终可见）
-				if (tab.key !== "policy" && !canManage) return null;
+		<nav className="ws-tabs" aria-label="工作区设置页签">
+			{tabs.map((tab) => {
+				if (tab.ability && !abilities.includes(tab.ability)) return null;
 				const selected = tab.key === current;
 				return (
 					<Link

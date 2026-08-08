@@ -26,7 +26,7 @@ export default function WorkspaceAccountPreferencesPage() {
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
 					<span>›</span>
 					<strong>Preferences</strong>
 				</div>

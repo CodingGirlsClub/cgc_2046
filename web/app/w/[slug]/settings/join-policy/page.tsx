@@ -29,7 +29,7 @@ import {
 	type JoinPolicy,
 } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
-import SettingsTabs from "@/components/settings-tabs";
+import MembersTabs from "@/components/members-tabs";
 
 const JOIN_POLICIES: JoinPolicy[] = ["open", "request", "invite_only"];
 
@@ -38,7 +38,6 @@ export default function WorkspaceSettingsPage() {
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 	const canUpdate = currentUserCanUpdateJoinPolicy(ws);
-	const canManage = ws?.myAbilities?.includes("manage_members") ?? false;
 
 	// 草稿策略：以 wsId 键控的派生状态（对齐 useWorkspaceBySlug 派生模式，
 	// 避免 effect 内同步 setState；跨 slug 切换时旧草稿自动失效不串台）
@@ -100,6 +99,8 @@ export default function WorkspaceSettingsPage() {
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
+					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<span>›</span>
 					<strong>加入策略</strong>
 				</div>
 
@@ -111,7 +112,11 @@ export default function WorkspaceSettingsPage() {
 				</header>
 
 				{ws && (
-					<SettingsTabs slug={slug} current="policy" canManage={canManage} />
+					<MembersTabs
+						slug={slug}
+						current="policy"
+						abilities={ws.myAbilities ?? []}
+					/>
 				)}
 
 				{wsLoading || !ws ? (

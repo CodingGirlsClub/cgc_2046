@@ -406,15 +406,16 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("页签入口：成员选中，权限映射指向 #67", async () => {
+	it("页签入口：成员与角色选中，权限映射指向 #67", async () => {
 		render(<MembersPage />);
+		await screen.findByRole("navigation", { name: "工作区设置页签" });
+		const tabs = screen.getByRole("navigation", { name: "工作区设置页签" });
 		expect(
-			await screen.findByRole("link", { name: "权限映射" }),
+			within(tabs).getByRole("link", { name: "权限映射" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
-		expect(screen.getByRole("link", { name: "成员与角色" })).toHaveAttribute(
-			"aria-current",
-			"page",
-		);
+		expect(
+			within(tabs).getByRole("link", { name: "成员与角色" }),
+		).toHaveAttribute("aria-current", "page");
 	});
 
 	it("未知 slug：展示不可访问提示和返回工作台", async () => {
@@ -554,6 +555,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 				sponsorshipEnabled: true,
 				myRoleNames: ["owner"],
 				roles: ["owner"],
+				myAbilities: ["list_members", "manage_members"],
 				membershipStatus: "active",
 			},
 		]);
@@ -578,10 +580,10 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		expect(
 			(await screen.findAllByText("qa.member@example.com")).length,
 		).toBeGreaterThan(0);
-		expect(screen.getByRole("link", { name: "权限映射" })).toHaveAttribute(
-			"href",
-			"/w/qa70-owner-ws-999/settings/permissions",
-		);
+		const tabs = screen.getByRole("navigation", { name: "工作区设置页签" });
+		expect(
+			within(tabs).getByRole("link", { name: "权限映射" }),
+		).toHaveAttribute("href", "/w/qa70-owner-ws-999/settings/permissions");
 		expect(fetchMembers).toHaveBeenCalledWith(
 			"ws_real_9",
 			expect.objectContaining({}),
@@ -635,6 +637,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 				sponsorshipEnabled: true,
 				myRoleNames: ["owner"],
 				roles: ["owner"],
+				myAbilities: ["list_members", "manage_members"],
 				membershipStatus: "active",
 			},
 		]);
