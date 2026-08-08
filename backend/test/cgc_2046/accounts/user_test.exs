@@ -39,18 +39,13 @@ defmodule Cgc2046.Accounts.UserTest do
 
       assert user.hashed_password != @password
 
+      # ADR-0004：profile 字段已迁至 WorkspaceProfile，User 仅保留全局身份
       assert Ash.Resource.Info.public_attributes(User) |> Enum.map(& &1.name) ==
                [
                  :id,
                  :email,
                  :is_platform_admin,
-                 :display_name,
-                 :avatar_url,
-                 :location,
-                 :about,
-                 :skills,
-                 :visibility,
-                 :ui_theme_preference
+                 :display_name
                ]
     end
 

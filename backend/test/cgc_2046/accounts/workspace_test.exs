@@ -528,10 +528,10 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       member =
         register_user("mbr-calc-m-#{System.unique_integer([:positive])}@example.com", @password)
 
-      # 给 member 设置 display_name
+      # 给 member 设置 display_name（ADR-0004：User 收窄为全局身份，displayName 经 update_display_name）
       {:ok, member} =
         member
-        |> Ash.Changeset.for_update(:update_profile, %{display_name: "Calc Member"})
+        |> Ash.Changeset.for_update(:update_display_name, %{display_name: "Calc Member"})
         |> Ash.update(actor: member)
 
       add_member(workspace, member, admin, [:member])
