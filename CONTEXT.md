@@ -328,8 +328,10 @@
 
 ### Profile（成员公开资料，租户资源）
 
-- **定义**：头像、简介、标签（含 Portfolio 作品展示）。
-- **架构位置**：租户资源；二期需要聚合展示时再拆。
+- **定义**：头像、简介、技能标签（含 Portfolio 作品展示）per-workspace（ADR-0004，2026-08-08 落地）；`display_name`/`email` 为全局身份字段（不属于 Profile）。主题偏好（ui_theme_preference）同挂 per-workspace。
+- **架构位置**：租户资源（WorkspaceProfile，workspace_id + user_id 唯一）；PortfolioItem 同属租户维度（加 workspace_id）。visibility=:workspace 语义 = **目标 workspace 成员可读**（收窄自"任一 workspace"）。
+- **默认归属**：默认 workspace "2046"（slug=`2046`，open 策略）——新用户注册自动加入（member 角色），保证注册即有 profile 编辑上下文；全局 `/settings/account/profile` 入口已下线，redirect 到 `/w/2046/settings/account/profile`。
+- 二期需要聚合展示时再拆。
 
 ### Event / Course（活动 / 线上课程）
 
