@@ -2,6 +2,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   use Absinthe.Schema
 
   require Logger
+  require Ash.Query
 
   use AshGraphql,
     domains: [Cgc2046.Api, Cgc2046.GlobalApi],
@@ -41,7 +42,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/avatarUrl/isPlatformAdmin + P1 扩展字段"
+    @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/isPlatformAdmin + memberNumber/joinedAt（ADR-0004 收窄为全局身份）"
     field :me, :user do
       resolve(fn _, _, %{context: context} ->
         case context[:actor] do
@@ -57,6 +58,43 @@ defmodule Cgc2046Web.GraphqlSchema do
 
           actor ->
             load_profile(actor, actor, context, nil)
+        end
+      end)
+    end
+
+    @desc "当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权）"
+    field :workspace_profile, :workspace_profile do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            Cgc2046.Accounts.WorkspaceProfile
+            |> Ash.Query.for_read(:read)
+            |> Ash.Query.filter(user_id == ^actor.id)
+            |> Ash.read_one(tenant: workspace_id, actor: actor)
+        end
+      end)
+    end
+
+    @desc "当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace）"
+    field :my_workspace_portfolio, list_of(:portfolio_item) do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            Ash.read(Cgc2046.Accounts.PortfolioItem,
+              action: :my_portfolio,
+              tenant: workspace_id,
+              actor: actor
+            )
         end
       end)
     end
@@ -121,6 +159,25 @@ defmodule Cgc2046Web.GraphqlSchema do
           case Ash.create(changeset) do
             {:ok, user} ->
               token = user.__metadata__[:token]
+
+              # ADR-0004 §3.5：新用户自动加入默认社区 workspace 2046（member 角色）
+              # + 建 per-workspace 档案。失败降级不阻断注册（2046 是保障而非硬依赖）。
+              # 故意宽捕 rescue：入座失败不应让注册 500（user 已建，2046 是兜底），
+              # 包括编程错误也一律降级为 warning 日志——后续排查依赖该日志，不静默吞掉。
+              try do
+                case Cgc2046.Accounts.MembershipContext.admit_to_default_workspace(user.id) do
+                  {:ok, _} ->
+                    :ok
+
+                  {:error, reason} ->
+                    Logger.warning("[signUp] default workspace enroll failed: #{inspect(reason)}")
+                end
+              rescue
+                error ->
+                  Logger.warning(
+                    "[signUp] default workspace enroll raised: #{Exception.message(error)}"
+                  )
+              end
 
               {:ok,
                %{
@@ -197,65 +254,172 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "更新当前用户个人资料（#68）：displayName 必填（trim 后非空），avatarUrl 可选"
-    field :update_profile, :user do
-      arg(:input, non_null(:update_profile_input))
+    @desc "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
+    field :update_display_name, :user do
+      arg(:display_name, non_null(:string))
 
-      resolve(fn _, %{input: input}, %{context: context} ->
+      resolve(fn _, %{display_name: display_name}, %{context: context} ->
         case context[:actor] do
           nil ->
             {:error, unauthorized_error()}
 
           actor ->
-            attrs =
-              Enum.reduce(
-                [
-                  :display_name,
-                  :avatar_url,
-                  :location,
-                  :about,
-                  :skills,
-                  :visibility
-                ],
-                %{},
-                fn key, acc ->
-                  case input do
-                    %{^key => value} -> Map.put(acc, key, value)
-                    _ -> acc
-                  end
-                end
-              )
-
-            case Ash.update(actor, attrs, action: :update_profile, actor: actor) do
+            case Ash.update(actor, %{display_name: display_name},
+                   action: :update_display_name,
+                   actor: actor
+                 ) do
               {:ok, user} ->
-                load_profile(user, actor, context, :update_profile)
+                # member_number/joined_at 为计算属性，返回前需显式加载
+                load_profile(user, actor, context, :update_display_name)
 
               {:error, error} ->
-                {:error, to_ash_graphql_errors(error, context, :update_profile)}
+                {:error, to_ash_graphql_errors(error, context, :update_display_name)}
             end
         end
       end)
     end
 
-    @desc "设置当前用户 UI 主题偏好（U3）：dark | light，服务端持久化"
-    field :set_ui_theme, :user do
-      arg(:input, non_null(:set_ui_theme_input))
+    @desc "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
+    field :update_workspace_profile, :workspace_profile do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:update_workspace_profile_input))
 
-      resolve(fn _, %{input: input}, %{context: context} ->
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
         case context[:actor] do
           nil ->
             {:error, unauthorized_error()}
 
           actor ->
-            case Ash.update(actor, %{ui_theme_preference: input.ui_theme_preference},
-                   action: :set_ui_theme,
-                   actor: actor
-                 ) do
-              {:ok, user} ->
-                load_profile(user, actor, context, :set_ui_theme)
+            case Cgc2046.Accounts.WorkspaceProfile
+                 |> Ash.Query.for_read(:read)
+                 |> Ash.Query.filter(user_id == ^actor.id)
+                 |> Ash.read_one(tenant: workspace_id, actor: actor) do
+              {:ok, nil} ->
+                {:error,
+                 message: "Workspace profile not found or not accessible",
+                 code: "workspace_profile_not_found"}
+
+              {:ok, profile} ->
+                profile
+                |> Ash.Changeset.for_update(:update_profile, map_input(input))
+                |> Ash.update(tenant: workspace_id, actor: actor)
 
               {:error, error} ->
-                {:error, to_ash_graphql_errors(error, context, :set_ui_theme)}
+                {:error,
+                 to_ash_graphql_errors(
+                   error,
+                   context,
+                   :update_workspace_profile,
+                   Cgc2046.Accounts.WorkspaceProfile
+                 )}
+            end
+        end
+      end)
+    end
+
+    @desc "设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace）"
+    field :set_workspace_theme, :workspace_profile do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:set_workspace_theme_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.Accounts.WorkspaceProfile
+                 |> Ash.Query.for_read(:read)
+                 |> Ash.Query.filter(user_id == ^actor.id)
+                 |> Ash.read_one(tenant: workspace_id, actor: actor) do
+              {:ok, nil} ->
+                {:error,
+                 message: "Workspace profile not found or not accessible",
+                 code: "workspace_profile_not_found"}
+
+              {:ok, profile} ->
+                profile
+                |> Ash.Changeset.for_update(:set_ui_theme, %{
+                  ui_theme_preference: input.ui_theme_preference
+                })
+                |> Ash.update(tenant: workspace_id, actor: actor)
+
+              {:error, error} ->
+                {:error,
+                 to_ash_graphql_errors(
+                   error,
+                   context,
+                   :set_workspace_theme,
+                   Cgc2046.Accounts.WorkspaceProfile
+                 )}
+            end
+        end
+      end)
+    end
+
+    @desc "在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造）"
+    field :create_portfolio_item, :portfolio_item do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:create_portfolio_item_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            attrs = map_input(input, [:title, :description, :url, :icon])
+
+            Cgc2046.Accounts.PortfolioItem
+            |> Ash.Changeset.for_create(:create, attrs)
+            |> Ash.create(tenant: workspace_id, actor: actor)
+        end
+      end)
+    end
+
+    @desc "更新某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+    field :update_portfolio_item, :portfolio_item do
+      arg(:id, non_null(:id))
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:update_portfolio_item_input))
+
+      resolve(fn _, %{id: id, workspace_id: workspace_id, input: input}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            attrs = map_input(input, [:title, :description, :url, :icon])
+
+            with {:ok, item} <-
+                   Cgc2046.Accounts.PortfolioItem
+                   |> Ash.get(id, tenant: workspace_id, actor: actor) do
+              item
+              |> Ash.Changeset.for_update(:update, attrs)
+              |> Ash.update(tenant: workspace_id, actor: actor)
+            end
+        end
+      end)
+    end
+
+    @desc "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+    field :delete_portfolio_item, :portfolio_item do
+      arg(:id, non_null(:id))
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{id: id, workspace_id: workspace_id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            with {:ok, item} <-
+                   Cgc2046.Accounts.PortfolioItem
+                   |> Ash.get(id, tenant: workspace_id, actor: actor) do
+              case Ash.destroy(item, tenant: workspace_id, actor: actor) do
+                :ok -> {:ok, item}
+                {:error, error} -> {:error, error}
+              end
             end
         end
       end)
@@ -322,11 +486,33 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:password, non_null(:string))
   end
 
-  # ── 个人资料相关类型 ──────────────────────────────────────────────────
+  # ── 个人资料相关类型（ADR-0004 per-workspace）────────────────────────
 
-  input_object :update_profile_input do
-    @desc "updateProfile 输入（P1）：displayName 必填，avatarUrl/location/about/skills/visibility 可选"
-    field(:display_name, non_null(:string))
+  object :workspace_profile do
+    @desc "per-workspace 成员公开资料（ADR-0004）"
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:user_id, non_null(:id))
+    field(:avatar_url, :string)
+    field(:location, :string)
+    field(:about, :string)
+    field(:skills, list_of(:string))
+    field(:visibility, :string)
+    field(:ui_theme_preference, non_null(:string))
+  end
+
+  object :portfolio_item do
+    @desc "per-workspace 作品集条目（ADR-0004）"
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:description, :string)
+    field(:url, :string)
+    field(:icon, non_null(:string))
+  end
+
+  input_object :update_workspace_profile_input do
+    @desc "updateWorkspaceProfile 输入（ADR-0004）：avatarUrl/location/about/skills/visibility 可选"
     field(:avatar_url, :string)
     field(:location, :string)
     field(:about, :string)
@@ -334,9 +520,25 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:visibility, :string)
   end
 
-  input_object :set_ui_theme_input do
-    @desc "setUiTheme 输入（U3）：uiThemePreference 必填，仅 dark | light"
+  input_object :set_workspace_theme_input do
+    @desc "setWorkspaceTheme 输入：uiThemePreference 必填，仅 dark | light"
     field(:ui_theme_preference, non_null(:string))
+  end
+
+  input_object :create_portfolio_item_input do
+    @desc "createPortfolioItem 输入：title 必填，description/url/icon 可选"
+    field(:title, non_null(:string))
+    field(:description, :string)
+    field(:url, :string)
+    field(:icon, :string)
+  end
+
+  input_object :update_portfolio_item_input do
+    @desc "updatePortfolioItem 输入：title/description/url/icon 可选"
+    field(:title, :string)
+    field(:description, :string)
+    field(:url, :string)
+    field(:icon, :string)
   end
 
   # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
@@ -346,10 +548,26 @@ defmodule Cgc2046Web.GraphqlSchema do
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
   # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
-  defp to_ash_graphql_errors(error, context, action) do
+  defp to_ash_graphql_errors(error, context, action, resource \\ Cgc2046.Accounts.User) do
     error
-    |> AshGraphql.Errors.to_errors(context, Cgc2046.GlobalApi, Cgc2046.Accounts.User, action)
+    |> AshGraphql.Errors.to_errors(context, Cgc2046.GlobalApi, resource, action)
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+  end
+
+  # 把 Absinthe input map 转为 Ash attrs map（只取指定字段，忽略缺省）。
+  # map_input(input, keys)：keys 内存在才放进去；
+  # map_input(input)：全量取（用于 update_workspace_profile_input 的全部可选字段）。
+  defp map_input(input, keys) do
+    Enum.reduce(keys, %{}, fn key, acc ->
+      case input do
+        %{^key => value} -> Map.put(acc, key, value)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp map_input(input) do
+    map_input(input, [:avatar_url, :location, :about, :skills, :visibility])
   end
 
   # 统一的个人资料加载：member_number/joined_at 为计算属性，获取与更新后均需显式加载。
