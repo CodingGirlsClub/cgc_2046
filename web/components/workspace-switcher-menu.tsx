@@ -16,6 +16,7 @@ import Link from "next/link";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
+import { SETTINGS_NAV, canSee } from "@/components/workspace-nav";
 import type { CurrentProfile } from "@/lib/profile";
 import type { WorkspaceListItem } from "@/lib/workspaces";
 
@@ -26,6 +27,8 @@ interface WorkspaceSwitcherMenuProps {
 	currentSlug: string;
 	/** 当前工作区 id（per-workspace 主题持久化目标） */
 	currentWorkspaceId?: string;
+	/** 当前工作区能力列表（plan 016：邀请管理链接按 manage_members 门控） */
+	abilities: string[];
 	/** 当前用户（邮箱展示；null 时显示占位） */
 	profile: CurrentProfile | null;
 	/** 点任意项后收起菜单 */
@@ -38,6 +41,7 @@ export default function WorkspaceSwitcherMenu({
 	workspaces,
 	currentSlug,
 	currentWorkspaceId,
+	abilities,
 	profile,
 	onNavigate,
 	onSignOut,
@@ -82,14 +86,16 @@ export default function WorkspaceSwitcherMenu({
 			>
 				<span className="ws-shell-brand-menu__name">Settings</span>
 			</Link>
-			<Link
-				href={`/w/${currentSlug}/settings/invitations`}
-				className="ws-shell-brand-menu__item"
-				role="menuitem"
-				onClick={onNavigate}
-			>
-				<span className="ws-shell-brand-menu__name">邀请管理</span>
-			</Link>
+			{canSee(SETTINGS_NAV.find((d) => d.key === "invitations")!, abilities) && (
+				<Link
+					href={`/w/${currentSlug}/settings/invitations`}
+					className="ws-shell-brand-menu__item"
+					role="menuitem"
+					onClick={onNavigate}
+				>
+					<span className="ws-shell-brand-menu__name">邀请管理</span>
+				</Link>
+			)}
 
 			<div className="ws-shell-brand-menu__divider" />
 

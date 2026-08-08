@@ -33,7 +33,26 @@ import { writeLastWorkspace } from "@/lib/use-last-workspace";
 import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
-import { Icon } from "@/components/icons";
+import { Icon, type IconName } from "@/components/icons";
+import { SETTINGS_NAV, canSee } from "@/components/workspace-nav";
+
+/** 侧栏 Workspace 组：目的地 key → 激活态 section（SETTINGS_NAV 同 key 对齐） */
+const NAV_ACTIVE_BY_KEY: Record<string, NavSection> = {
+	members: "members",
+	permissions: "settings-permissions",
+	policy: "settings-join-policy",
+	requests: "settings-requests",
+	invitations: "settings-invitations",
+};
+
+/** 侧栏 Workspace 组：目的地 key → 图标 */
+const NAV_ICON_BY_KEY: Record<string, IconName> = {
+	members: "users",
+	permissions: "role",
+	policy: "settings",
+	requests: "shield",
+	invitations: "invite",
+};
 
 type NavSection =
 	| "overview"
@@ -184,11 +203,13 @@ export default function WorkspaceShell({
 	const isSettings = pathname.startsWith(`/w/${slug}/settings`);
 
 	// #79 IA：管理项按能力过滤（普通成员仅见 概览/个人资料）；
-	// 页面级门控不变（后端 policy 权威拦截，导航过滤仅为 UX）
+	// 页面级门控不变（后端 policy 权威拦截，导航过滤仅为 UX）。
+	// plan 016：门控单源化 —— 侧栏/tab 条/下拉菜单统一消费 SETTINGS_NAV 注册表，
+	// 审批/邀请跟随 manage_members（不再跟随 list_members）。
 	const abilities = ws?.myAbilities ?? [];
-	const canSeeMembers = abilities.includes("list_members");
-	const canSeeJoinPolicy = abilities.includes("update_join_policy");
-	const canSeeManagement = canSeeMembers; // B-3 占位跟随管理可见性
+	const workspaceNav = SETTINGS_NAV.filter(
+		(d) => d.group === "workspace" && canSee(d, abilities),
+	);
 
 	return (
 		<div className={`ws-shell-page ${className ?? ""}`}>
@@ -213,6 +234,7 @@ export default function WorkspaceShell({
 							workspaces={workspaces}
 							currentSlug={slug}
 							currentWorkspaceId={ws?.id}
+							abilities={abilities}
 							profile={profile}
 							onNavigate={() => setBrandOpen(false)}
 							onSignOut={handleSignOut}
@@ -254,64 +276,21 @@ export default function WorkspaceShell({
 						</nav>
 						<div className="ws-shell-heading">Workspace</div>
 						<nav className="ws-shell-nav" aria-label="Workspace">
-							{canSeeMembers && (
-								<>
-									<Link
-										href={`/w/${slug}/settings/members`}
-										className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
-										aria-current={active === "members" ? "page" : undefined}
-									>
-										<Icon name="users" />
-										<span>成员与角色</span>
-									</Link>
-									<Link
-										href={`/w/${slug}/settings/permissions`}
-										className={`ws-shell-item ${active === "settings-permissions" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-permissions" ? "page" : undefined
-										}
-									>
-										<Icon name="role" />
-										<span>权限映射</span>
-									</Link>
-								</>
-							)}
-							{canSeeJoinPolicy && (
+							{workspaceNav.map((dest) => (
 								<Link
-									href={`/w/${slug}/settings/join-policy`}
-									className={`ws-shell-item ${active === "settings-join-policy" ? "ws-shell-item--selected" : ""}`}
+									key={dest.key}
+									href={dest.href(slug)}
+									className={`ws-shell-item ${active === NAV_ACTIVE_BY_KEY[dest.key] ? "ws-shell-item--selected" : ""}`}
 									aria-current={
-										active === "settings-join-policy" ? "page" : undefined
+										active === NAV_ACTIVE_BY_KEY[dest.key]
+											? "page"
+											: undefined
 									}
 								>
-									<Icon name="settings" />
-									<span>加入策略</span>
+									<Icon name={NAV_ICON_BY_KEY[dest.key]} />
+									<span>{dest.label}</span>
 								</Link>
-							)}
-							{canSeeManagement && (
-								<>
-									<Link
-										href={`/w/${slug}/settings/requests`}
-										className={`ws-shell-item ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-requests" ? "page" : undefined
-										}
-									>
-										<Icon name="shield" />
-										<span>加入审批</span>
-									</Link>
-									<Link
-										href={`/w/${slug}/settings/invitations`}
-										className={`ws-shell-item ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-invitations" ? "page" : undefined
-										}
-									>
-										<Icon name="invite" />
-										<span>邀请管理</span>
-									</Link>
-								</>
-							)}
+							))}
 						</nav>
 					</>
 				)}
