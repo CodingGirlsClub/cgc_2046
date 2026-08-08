@@ -10,6 +10,7 @@ import {
 	type InvitationsFilter,
 	type InvitationConnection,
 } from "./graphql/invitation";
+import { ME_WORKSPACES } from "./graphql/workspace";
 
 /**
  * B-3 邀请数据源。
@@ -138,6 +139,9 @@ export async function createInvitation(input: {
 	}
 	// 明文 token 仅在创建时通过 mutation metadata 一次性返回，注入到 InvitationItem 供前端即时拼链接
 	const plainToken = data?.createInvitation?.metadata?.plainToken ?? null;
+	// 新建邀请改变 invitations 列表 → evict 根字段强制重查
+	client.cache.evict({ fieldName: "invitations" });
+	client.cache.gc();
 	return { ...mapInvitation(result), plainToken };
 }
 
@@ -155,6 +159,9 @@ export async function revokeInvitation(id: string): Promise<InvitationItem> {
 			data?.revokeInvitation?.errors?.[0]?.message ?? "revokeInvitation failed";
 		throw new Error(msg);
 	}
+	// 撤销邀请改变 invitations 列表 → evict 根字段强制重查
+	client.cache.evict({ fieldName: "invitations" });
+	client.cache.gc();
 	return mapInvitation(result);
 }
 
@@ -190,5 +197,7 @@ export async function acceptInvitation(
 			data?.acceptInvitation?.errors?.[0]?.message ?? "acceptInvitation failed";
 		throw new Error(msg);
 	}
+	// 接受邀请后当前用户成为新成员 → 刷新 meWorkspaces 缓存（/ 立即出现新工作台）
+	await client.refetchQueries({ include: [ME_WORKSPACES] });
 	return mapInvitation(result);
 }
