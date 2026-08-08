@@ -1,0 +1,15 @@
+{
+  "miniprogramRoot": "dist/weapp/",
+  "projectname": "cgc-miniprogram-spike",
+  "description": "CGC 小程序 Taro spike（微信端产物指向 dist/weapp）",
+  "appid": "touristappid",
+  "setting": {
+    "es6": false,
+    "enhance": false,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": false
+  },
+  "compileType": "miniprogram",
+  "srcMiniprogramRoot": "dist/weapp/"
+}

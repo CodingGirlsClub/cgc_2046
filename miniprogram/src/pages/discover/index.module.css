@@ -1,0 +1,59 @@
+.page {
+  min-height: 100vh;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.section {
+  margin-bottom: 32rpx;
+}
+
+.sectionTitle {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.cardHover {
+  background: #f0f0f0;
+}
+
+.cardMain {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.cardTitle {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.cardMeta {
+  font-size: 24rpx;
+  color: #7a7e83;
+}
+
+.tag {
+  font-size: 22rpx;
+  color: #07c160;
+  border: 1rpx solid #07c160;
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
+}
+
+.arrow {
+  font-size: 40rpx;
+  color: #c0c4cc;
+}
