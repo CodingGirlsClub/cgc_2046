@@ -12,8 +12,11 @@ defmodule Cgc2046.Mcp.Token do
   - 明文仅 `:issue` 创建时经 `metadata.plain_token` 一次性返回
   - 撤销 = 置 `revoked_at`（保留审计行，不删记录）
 
-  每用户可同时持有多个 token（D-D4 定稿：撤销粒度按 token）。
+  每用户可同时持有多个 token（D-D4 定稿：撤销粒度按 token），
+  active 上限 10 个（`@max_active_tokens_per_user`，防无限铸造；已撤销不计）。
   """
+  # 每用户 active token 上限（review 修复：无速率限制中间件可适配按用户计数，故在资源层守卫）
+  @max_active_tokens_per_user 10
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
@@ -94,6 +97,31 @@ defmodule Cgc2046.Mcp.Token do
         end
       end)
 
+      # 每用户 active token 上限（防无限铸造：无 RateLimit 适配——其中间件按
+      # arguments 建 key，换备注名即绕过；有效治理是按用户计数）。已撤销不计。
+      # 须在 user_id 落 changeset 之后执行，故排在上一 change 之后。
+      change(fn changeset, _context ->
+        actor_id = Ash.Changeset.get_attribute(changeset, :user_id)
+
+        active_count =
+          __MODULE__
+          |> Ash.Query.filter(user_id == ^actor_id and is_nil(revoked_at))
+          |> Ash.count!(authorize?: false)
+
+        if active_count >= @max_active_tokens_per_user do
+          Ash.Changeset.add_error(
+            changeset,
+            Ash.Error.Changes.InvalidAttribute.exception(
+              field: :name,
+              message:
+                "active connection token limit reached (#{@max_active_tokens_per_user}); revoke an unused token first"
+            )
+          )
+        else
+          changeset
+        end
+      end)
+
       # 生成 token 并存储 hash；明文仅通过 metadata 一次性返回，不落库
       change(fn changeset, _context ->
         token = "cgc_" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
@@ -135,6 +163,13 @@ defmodule Cgc2046.Mcp.Token do
             )
           end
         end)
+      end)
+
+      # 原子条件：UPDATE ... WHERE revoked_at IS NULL。before_action 读的是内存副本，
+      # 并发/陈旧 struct 会绕过它——DB 级 WHERE 兜底，竞态失败者影响 0 行 → StaleRecord，
+      # 不再静默覆盖审计时间戳（同 pending_operation.ex MEDIUM-1 范式）
+      change(fn changeset, _context ->
+        Ash.Changeset.filter(changeset, expr(is_nil(revoked_at)))
       end)
 
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
