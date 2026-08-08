@@ -56,7 +56,7 @@ export default function WorkspaceAccountPreferencesPage() {
 							</div>
 						</div>
 						<div className="settings-preference-row">
-							<ThemeToggle />
+							<ThemeToggle workspaceId={ws.id} />
 						</div>
 					</section>
 				)}

@@ -27,6 +27,8 @@ const { acceptInvitation } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useSearchParams: () => searchParams,
+	// ThemeProvider 依赖 usePathname 解析 workspace slug（ADR-0004）
+	usePathname: () => "/join",
 }));
 
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));

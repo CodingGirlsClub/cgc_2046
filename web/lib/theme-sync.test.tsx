@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, waitFor, cleanup } from "@testing-library/react";
 import { MockedProvider } from "@apollo/client/testing/react";
-import { ME_PROFILE } from "@/lib/graphql/profile";
+import { ME_WORKSPACES } from "@/lib/graphql/workspace";
+import { WORKSPACE_PROFILE } from "@/lib/graphql/profile";
 import ThemeSync from "./theme-sync";
 
 /**
- * ThemeSync 单测（#77）。
+ * ThemeSync 单测（ADR-0004 per-workspace 主题同步）。
  *
- * 核心回归保护：appliedForUserId ref 确保换用户时重应用服务端主题，
- * 旧 applied 布尔实现会在「u1→u2」换用户时失败（不重应用）。
+ * 核心回归保护：appliedFor ref 按 workspace 记忆，切换 workspace 时重应用服务端主题。
+ * 数据链：meWorkspaces(slug→id) → workspaceProfile(workspaceId).uiThemePreference。
  */
 
 const { useAuthed } = vi.hoisted(() => ({
@@ -21,6 +22,12 @@ const { useTheme } = vi.hoisted(() => ({
 
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("@/lib/theme-provider", () => ({ useTheme }));
+
+// mock next/navigation usePathname
+const pathnameMock = vi.fn(() => "/w/cgc-camp/settings/account/preferences");
+vi.mock("next/navigation", () => ({
+	usePathname: () => pathnameMock(),
+}));
 
 // jsdom 不提供 localStorage，用 in-memory 实现
 const store = new Map<string, string>();
@@ -43,23 +50,68 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	store.clear();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true });
+	pathnameMock.mockReturnValue("/w/cgc-camp/settings/account/preferences");
 });
 
-function makeMock(data: { id: string; uiThemePreference: string } | null) {
-	return {
-		request: { query: ME_PROFILE },
-		result: { data: { me: data } },
-	};
+/** meWorkspaces mock：slug → id */
+function wsMocks(workspaces: Array<{ slug: string; id: string }>) {
+	return [
+		{
+			request: { query: ME_WORKSPACES },
+			result: {
+				data: {
+					meWorkspaces: workspaces.map((w) => ({
+						id: w.id,
+						slug: w.slug,
+						name: w.slug,
+						joinPolicy: "open",
+						sponsorshipEnabled: true,
+						myRoleNames: ["member"],
+						myMembershipId: "wm_1",
+						canAccess: true,
+					})),
+				},
+			},
+		},
+	];
 }
 
-describe("ThemeSync（#77 按 userId 重置）", () => {
+/** workspaceProfile mock */
+function profileMocks(
+	workspaceId: string,
+	pref: string | null,
+): Array<import("@apollo/client/testing").MockedResponse> {
+	return [
+		{
+			request: { query: WORKSPACE_PROFILE, variables: { workspaceId } },
+			result: {
+				data: {
+					workspaceProfile:
+						pref == null
+							? null
+							: {
+									id: "wsp_1",
+									workspaceId,
+									userId: "u1",
+									uiThemePreference: pref,
+								},
+				},
+			},
+		},
+	];
+}
+
+describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 	it("首次拿到服务端偏好时应用一次", async () => {
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
 		render(
 			<MockedProvider
-				mocks={[makeMock({ id: "u1", uiThemePreference: "light" })]}
+				mocks={[
+					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
+					...profileMocks("ws_1", "light"),
+				]}
 			>
 				<ThemeSync />
 			</MockedProvider>,
@@ -77,7 +129,10 @@ describe("ThemeSync（#77 按 userId 重置）", () => {
 
 		render(
 			<MockedProvider
-				mocks={[makeMock({ id: "u1", uiThemePreference: "neon" })]}
+				mocks={[
+					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
+					...profileMocks("ws_1", "neon"),
+				]}
 			>
 				<ThemeSync />
 			</MockedProvider>,
@@ -99,7 +154,10 @@ describe("ThemeSync（#77 按 userId 重置）", () => {
 
 		render(
 			<MockedProvider
-				mocks={[makeMock({ id: "u1", uiThemePreference: "light" })]}
+				mocks={[
+					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
+					...profileMocks("ws_1", "light"),
+				]}
 			>
 				<ThemeSync />
 			</MockedProvider>,
@@ -114,14 +172,20 @@ describe("ThemeSync（#77 按 userId 重置）", () => {
 		});
 	});
 
-	it("换用户重应用（核心回归保护，闭合 #76）", async () => {
+	it("切换 workspace 重应用（核心回归保护）", async () => {
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
-		// 首次渲染：u1 light
+		// 首次渲染：cgc-camp → ws_1 → light
 		render(
 			<MockedProvider
-				mocks={[makeMock({ id: "u1", uiThemePreference: "light" })]}
+				mocks={[
+					...wsMocks([
+						{ slug: "cgc-camp", id: "ws_1" },
+						{ slug: "cgc-academy", id: "ws_2" },
+					]),
+					...profileMocks("ws_1", "light"),
+				]}
 			>
 				<ThemeSync />
 			</MockedProvider>,
@@ -132,79 +196,44 @@ describe("ThemeSync（#77 按 userId 重置）", () => {
 		});
 		expect(setTheme).toHaveBeenCalledWith("light");
 
-		// 卸载并重新渲染：u2 dark（模拟换用户场景）
+		// 切到另一个 workspace：ws_2 → dark，应重新应用
 		cleanup();
 		vi.clearAllMocks();
-		useAuthed.mockReturnValue({ authed: true, confirmed: true });
-		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
+		pathnameMock.mockReturnValue("/w/cgc-academy/settings/account/profile");
+		useTheme.mockReturnValue({ setTheme, theme: "light", toggleTheme: vi.fn() });
 
 		render(
 			<MockedProvider
-				mocks={[makeMock({ id: "u2", uiThemePreference: "dark" })]}
+				mocks={[
+					...wsMocks([
+						{ slug: "cgc-camp", id: "ws_1" },
+						{ slug: "cgc-academy", id: "ws_2" },
+					]),
+					...profileMocks("ws_2", "dark"),
+				]}
 			>
 				<ThemeSync />
 			</MockedProvider>,
 		);
 
 		await waitFor(() => {
-			// 旧 applied 布尔实现会在此失败——setTheme 不会被再次调用
 			expect(setTheme).toHaveBeenCalledTimes(1);
 		});
 		expect(setTheme).toHaveBeenCalledWith("dark");
 	});
 
-	it("登出（data.me 为 undefined）复位后重登仍应用", async () => {
+	it("非 workspace 页面（无 slug）不拉取、不应用", async () => {
+		pathnameMock.mockReturnValue("/login");
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
-		// 首次渲染：u1 light
 		render(
-			<MockedProvider
-				mocks={[makeMock({ id: "u1", uiThemePreference: "light" })]}
-			>
-				<ThemeSync />
-			</MockedProvider>,
-		);
-
-		await waitFor(() => {
-			expect(setTheme).toHaveBeenCalledTimes(1);
-		});
-		expect(setTheme).toHaveBeenCalledWith("light");
-
-		// 登出：data.me 为 null
-		cleanup();
-		vi.clearAllMocks();
-		useAuthed.mockReturnValue({ authed: true, confirmed: true });
-		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
-
-		render(
-			<MockedProvider mocks={[makeMock(null)]}>
+			<MockedProvider mocks={[]}>
 				<ThemeSync />
 			</MockedProvider>,
 		);
 
 		await new Promise((resolve) => setTimeout(resolve, 200));
-		// 登出不应触发 setTheme
-		expect(setTheme).toHaveBeenCalledTimes(0);
-
-		// 重新登录：u1 light（应重新应用）
-		cleanup();
-		vi.clearAllMocks();
-		useAuthed.mockReturnValue({ authed: true, confirmed: true });
-		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
-
-		render(
-			<MockedProvider
-				mocks={[makeMock({ id: "u1", uiThemePreference: "light" })]}
-			>
-				<ThemeSync />
-			</MockedProvider>,
-		);
-
-		await waitFor(() => {
-			// 复位后应重新应用
-			expect(setTheme).toHaveBeenCalledTimes(1);
-		});
-		expect(setTheme).toHaveBeenCalledWith("light");
+		expect(setTheme).not.toHaveBeenCalled();
 	});
 });

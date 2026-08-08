@@ -24,6 +24,8 @@ interface WorkspaceSwitcherMenuProps {
 	workspaces: WorkspaceListItem[];
 	/** 当前工作区 slug（高亮 + ✓） */
 	currentSlug: string;
+	/** 当前工作区 id（per-workspace 主题持久化目标） */
+	currentWorkspaceId?: string;
 	/** 当前用户（邮箱展示；null 时显示占位） */
 	profile: CurrentProfile | null;
 	/** 点任意项后收起菜单 */
@@ -35,6 +37,7 @@ interface WorkspaceSwitcherMenuProps {
 export default function WorkspaceSwitcherMenu({
 	workspaces,
 	currentSlug,
+	currentWorkspaceId,
 	profile,
 	onNavigate,
 	onSignOut,
@@ -159,7 +162,7 @@ export default function WorkspaceSwitcherMenu({
 					>
 						<span className="ws-shell-brand-menu__name">发现 / 加入工作区</span>
 					</Link>
-					<ThemeToggle variant="menuitem" />
+					<ThemeToggle variant="menuitem" workspaceId={currentWorkspaceId} />
 				</div>
 			)}
 		</div>
