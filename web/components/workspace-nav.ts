@@ -11,6 +11,21 @@
  * 缺省 ability = 恒显（不参与过滤）。
  */
 
+import type { IconName } from "@/components/icons";
+
+/** 侧栏激活态 section 名（由 pathname 派生，见 workspace-shell.tsx navSection） */
+export type NavSection =
+	| "overview"
+	| "workflows"
+	| "members"
+	| "settings-permissions"
+	| "settings-join-policy"
+	| "settings-requests"
+	| "settings-invitations"
+	| "settings-account-profile"
+	| "settings-account-preferences"
+	| null;
+
 export interface NavDestination {
 	key: string;
 	label: string;
@@ -19,6 +34,10 @@ export interface NavDestination {
 	ability?: string;
 	/** 所属分组（侧栏 Linear 分组用） */
 	group: "personal" | "workspace";
+	/** 侧栏激活态 section 名（侧栏用） */
+	active?: NavSection;
+	/** 侧栏图标名（侧栏用） */
+	icon?: IconName;
 }
 
 export const SETTINGS_NAV: NavDestination[] = [
@@ -28,6 +47,8 @@ export const SETTINGS_NAV: NavDestination[] = [
 		href: (s) => `/w/${s}/settings/members`,
 		ability: "list_members",
 		group: "workspace",
+		active: "members",
+		icon: "users",
 	},
 	{
 		key: "permissions",
@@ -35,12 +56,16 @@ export const SETTINGS_NAV: NavDestination[] = [
 		href: (s) => `/w/${s}/settings/permissions`,
 		ability: "list_members",
 		group: "workspace",
+		active: "settings-permissions",
+		icon: "role",
 	},
 	{
 		key: "policy",
 		label: "加入策略",
 		href: (s) => `/w/${s}/settings/join-policy`,
 		group: "workspace",
+		active: "settings-join-policy",
+		icon: "settings",
 	},
 	{
 		key: "requests",
@@ -48,6 +73,8 @@ export const SETTINGS_NAV: NavDestination[] = [
 		href: (s) => `/w/${s}/settings/requests`,
 		ability: "manage_members",
 		group: "workspace",
+		active: "settings-requests",
+		icon: "shield",
 	},
 	{
 		key: "invitations",
@@ -55,10 +82,21 @@ export const SETTINGS_NAV: NavDestination[] = [
 		href: (s) => `/w/${s}/settings/invitations`,
 		ability: "manage_members",
 		group: "workspace",
+		active: "settings-invitations",
+		icon: "invite",
 	},
 ];
 
 /** 某目的地对给定能力列表是否可见（无 ability = 恒显）。 */
-export function canSee(dest: NavDestination, abilities: string[]): boolean {
+export function canSee(
+	dest: Pick<NavDestination, "ability">,
+	abilities: string[],
+): boolean {
 	return !dest.ability || abilities.includes(dest.ability);
+}
+
+/** 按 key 查找目的地并做门控判定；key 不存在时返回 false（不 throw）。 */
+export function canSeeByKey(key: string, abilities: string[]): boolean {
+	const dest = SETTINGS_NAV.find((d) => d.key === key);
+	return dest ? canSee(dest, abilities) : false;
 }
