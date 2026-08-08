@@ -164,7 +164,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
       _admin = admin_user()
       token = sign_in_token(@admin_email, @password)
 
-      res = graphql_post(build_conn(), "{ me { avatarUrl uiThemePreference visibility location } }", token)
+      res =
+        graphql_post(
+          build_conn(),
+          "{ me { avatarUrl uiThemePreference visibility location } }",
+          token
+        )
 
       # 字段不在全局 User type 上 → 报 GraphQL 字段不存在错误
       assert %{"errors" => errors} = res
@@ -297,6 +302,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     test "non-member cannot update profile in a workspace" do
       admin = admin_user()
       ws = create_workspace(admin, "gql-forbid-ws")
+
       # outsider 未加入 ws（仅 admin 是成员）；用 outsider 的 token 尝试改 admin 的档案
       outsider = register_user(@other_email, @password)
       ensure_profile(ws, admin)
