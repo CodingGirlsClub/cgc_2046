@@ -155,6 +155,8 @@ beforeEach(() => {
 		isPlatformAdmin: false,
 	});
 	fetchMatrix.mockResolvedValue(TEST_MATRIX);
+	// #018：clearSession 返回 { ok } 契约
+	clearSession.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => cleanup());

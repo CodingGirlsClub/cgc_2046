@@ -32,6 +32,10 @@ interface WorkspaceSwitcherMenuProps {
 	onNavigate: () => void;
 	/** 退出登录 */
 	onSignOut: () => void;
+	/** 登出失败错误文案（#018：非 null 时在退出登录项下方展示） */
+	signOutError?: string | null;
+	/** 登出进行中（禁用退出登录项防重复触发） */
+	signingOut?: boolean;
 }
 
 export default function WorkspaceSwitcherMenu({
@@ -41,6 +45,8 @@ export default function WorkspaceSwitcherMenu({
 	profile,
 	onNavigate,
 	onSignOut,
+	signOutError = null,
+	signingOut = false,
 }: WorkspaceSwitcherMenuProps) {
 	// 二级（Switch workspace）展开态；由菜单内 state 管理（Linear 式子菜单）
 	const [submenuOpen, setSubmenuOpen] = useState(false);
@@ -113,9 +119,18 @@ export default function WorkspaceSwitcherMenu({
 				className="ws-shell-brand-menu__item ws-shell-brand-menu__item--action"
 				role="menuitem"
 				onClick={onSignOut}
+				disabled={signingOut}
 			>
-				<span className="ws-shell-brand-menu__name">退出登录</span>
+				<span className="ws-shell-brand-menu__name">
+					{signingOut ? "退出中…" : "退出登录"}
+				</span>
 			</button>
+
+			{signOutError && (
+				<div className="members-error" role="alert">
+					{signOutError}
+				</div>
+			)}
 
 			{submenuOpen && subPos && (
 				<div

@@ -105,6 +105,9 @@ export default function WorkspaceShell({
 	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
 	const [profile, setProfile] = useState<CurrentProfile | null>(null);
 	const [brandOpen, setBrandOpen] = useState(false);
+	// 登出失败上报（#018）：mutation 失败不导航，原菜单内展示错误 + 可重试
+	const [signOutError, setSignOutError] = useState<string | null>(null);
+	const [signingOut, setSigningOut] = useState(false);
 	const brandRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -154,7 +157,14 @@ export default function WorkspaceShell({
 	}, [authed, confirmed, router]);
 
 	async function handleSignOut() {
-		await clearSession();
+		setSigningOut(true);
+		setSignOutError(null);
+		const result = await clearSession();
+		setSigningOut(false);
+		if (!result.ok) {
+			setSignOutError("退出登录失败，请重试");
+			return; // 不导航 —— 让用户看到错误并重试
+		}
 		router.push("/login");
 	}
 
@@ -239,6 +249,8 @@ export default function WorkspaceShell({
 							profile={profile}
 							onNavigate={() => setBrandOpen(false)}
 							onSignOut={handleSignOut}
+							signOutError={signOutError}
+							signingOut={signingOut}
 						/>
 					)}
 				</div>
