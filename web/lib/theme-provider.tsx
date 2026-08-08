@@ -8,10 +8,12 @@ import {
   useMemo,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 
 export type ThemeMode = "dark" | "light";
 
-const STORAGE_KEY = "cgc_theme";
+/** 全局主题 key（无 workspace 上下文时用，如登录页/首页） */
+const STORAGE_KEY_BASE = "cgc_theme";
 
 interface ThemeContextValue {
   theme: ThemeMode;
@@ -21,6 +23,17 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+/** 从 pathname 提取当前 workspace slug（/w/[slug]/... → slug）；无则 null */
+function workspaceSlugFromPath(pathname: string): string | null {
+  const match = /^\/w\/([^/]+)/.exec(pathname);
+  return match?.[1] ?? null;
+}
+
+/** per-workspace localStorage key（ADR-0004：主题按 workspace 隔离） */
+function storageKey(slug: string | null): string {
+  return slug ? `${STORAGE_KEY_BASE}_${slug}` : STORAGE_KEY_BASE;
+}
+
 /** 开发期调试参数：?theme=light|dark（U3 决策保留为 dev 工具，正式版改用户偏好）。 */
 function readUrlTheme(): ThemeMode | null {
   if (typeof window === "undefined") return null;
@@ -29,10 +42,10 @@ function readUrlTheme(): ThemeMode | null {
   return t === "light" || t === "dark" ? t : null;
 }
 
-function readStoredTheme(): ThemeMode | null {
+function readStoredTheme(key: string): ThemeMode | null {
   if (typeof window === "undefined") return null;
   try {
-    const t = localStorage.getItem(STORAGE_KEY);
+    const t = localStorage.getItem(key);
     return t === "light" || t === "dark" ? t : null;
   } catch {
     return null;
@@ -47,51 +60,56 @@ function applyThemeClass(theme: ThemeMode) {
 /**
  * 全局主题 Provider（Dark/Light 双主题，Linear 设计系统）。
  *
- * 优先级：?theme= URL 参数（开发调试，U3）> localStorage(cgc_theme) > dark（默认）。
+ * 优先级：?theme= URL 参数（开发调试，U3）> localStorage（per-workspace）> dark（默认）。
  *
- * 现状：U3 决策（docs/03-决策记录/前端UI设计决策-2026-08-01.md）要求主题按用户
- * 持久化（跨设备同步），但服务端持久化尚未落地——本 Provider 目前是唯一的主题
- * 机制：localStorage（同设备记忆）+ ?theme= dev 调试参数。SSR/客户端首帧固定 dark
- * 以防 hydration mismatch，偏好仅客户端挂载后异步应用。
- * 服务端持久化的实施方案见 plans/005-u3-theme-persistence-spike.md。
+ * ADR-0004：主题按 workspace 隔离——localStorage key 为 `cgc_theme_<slug>`
+ * （无 workspace 上下文时回退 `cgc_theme`）；pathname 变化（进入/切换 workspace）
+ * 时重新读取对应 key 应用。SSR 与客户端 hydration 首帧固定 dark：
+ * localStorage/URL 偏好仅在客户端挂载后异步应用，杜绝 hydration mismatch。
+ * 服务端持久化由 ThemeToggle 按 workspace 调 setWorkspaceTheme。
  */
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // SSR 与客户端 hydration 首帧固定 dark：localStorage/URL 偏好仅在客户端挂载后
-  // 异步应用，保证服务端输出与客户端首帧一致，杜绝 hydration mismatch。
+  const pathname = usePathname();
+  // 当前 workspace slug（无 ws 上下文页面为 null）
+  const slug = workspaceSlugFromPath(pathname);
+
   const [theme, setThemeState] = useState<ThemeMode>("dark");
 
+  // workspace 上下文变化时应用对应 key 的主题（客户端挂载后与切换时）
   useEffect(() => {
-    // 客户端挂载后应用偏好（微任务提交，避免 react-hooks/set-state-in-effect 同步 setState）
     queueMicrotask(() => {
-      const t = readUrlTheme() ?? readStoredTheme() ?? "dark";
+      const t = readUrlTheme() ?? readStoredTheme(storageKey(slug)) ?? "dark";
       setThemeState(t);
     });
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     applyThemeClass(theme);
   }, [theme]);
 
-  const setTheme = useCallback((t: ThemeMode) => {
-    setThemeState(t);
-    try {
-      localStorage.setItem(STORAGE_KEY, t);
-    } catch {
-      // ignore private-mode write errors
-    }
-  }, []);
+  const setTheme = useCallback(
+    (t: ThemeMode) => {
+      setThemeState(t);
+      try {
+        localStorage.setItem(storageKey(slug), t);
+      } catch {
+        // ignore private-mode write errors
+      }
+    },
+    [slug],
+  );
 
   const toggleTheme = useCallback(() => {
     setThemeState((prev) => {
       const next = prev === "light" ? "dark" : "light";
       try {
-        localStorage.setItem(STORAGE_KEY, next);
+        localStorage.setItem(storageKey(slug), next);
       } catch {
         // ignore private-mode write errors
       }
       return next;
     });
-  }, []);
+  }, [slug]);
 
   const value = useMemo(
     () => ({ theme, setTheme, toggleTheme }),

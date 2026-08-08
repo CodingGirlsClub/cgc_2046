@@ -1,49 +1,58 @@
 "use client";
 
 /**
- * 工作区设置 → 个人资料（决策 B：profile 迁入 settings）。
+ * 工作区设置 → 个人资料（ADR-0004 per-workspace）。
  *
- * 展示当前用户资料编辑表单，工作区身份（角色/成员编号）取当前 slug 上下文。
- * 数据路径：fetchCurrentProfile + fetchProfileRoleSummary（pickRoleSummary 按
- * slug 匹配）+ fetchPortfolioItems；壳 WorkspaceShell（requireWs 默认 true，
- * 未知 slug 自动「工作区不可访问」）。
+ * 展示当前用户在该工作区的档案编辑表单：per-workspace 字段
+ * （avatar/location/about/skills/visibility/portfolio）取 workspaceProfile +
+ * myWorkspacePortfolio；全局身份（displayName/memberNumber/joinedAt）取 me。
+ * 工作区身份（角色/成员编号）取当前 slug 上下文。
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAuthed } from "@/lib/use-authed";
+import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import { ProfileSettingsForm } from "@/components/profile-settings-form";
 import {
   fetchCurrentProfile,
+  fetchWorkspaceProfile,
   fetchPortfolioItems,
   fetchProfileRoleSummary,
   pickRoleSummary,
   type CurrentProfile,
   type ProfileRoleSummary,
+  type WorkspaceProfileContent,
 } from "@/lib/profile";
 
 export default function WorkspaceAccountProfilePage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
   const { authed, confirmed } = useAuthed();
+  const { ws } = useWorkspaceBySlug(slug);
   const [profile, setProfile] = useState<CurrentProfile | null>(null);
+  const [wsProfile, setWsProfile] = useState<WorkspaceProfileContent | null>(null);
   const [summaries, setSummaries] = useState<ProfileRoleSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const workspaceId = ws?.id;
+
   useEffect(() => {
-    if (!confirmed || !authed) return;
+    if (!confirmed || !authed || !workspaceId) return;
     let cancelled = false;
     Promise.all([
       fetchCurrentProfile(),
+      fetchWorkspaceProfile(workspaceId),
+      fetchPortfolioItems(workspaceId),
       fetchProfileRoleSummary(),
-      fetchPortfolioItems(),
     ])
-      .then(([nextProfile, nextSummaries, nextPortfolio]) => {
+      .then(([nextProfile, nextWsProfile, nextPortfolio, nextSummaries]) => {
         if (cancelled) return;
-        setProfile({ ...nextProfile, portfolio: nextPortfolio });
+        setProfile(nextProfile);
+        setWsProfile(nextWsProfile ? { ...nextWsProfile, portfolio: nextPortfolio } : null);
         setSummaries(nextSummaries);
         setErrorMsg(null);
       })
@@ -57,7 +66,7 @@ export default function WorkspaceAccountProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [authed, confirmed]);
+  }, [authed, confirmed, workspaceId]);
 
   if (loading) {
     return (
@@ -104,12 +113,14 @@ export default function WorkspaceAccountProfilePage() {
         <header className="ws-page-heading">
           <div>
             <h1>个人资料</h1>
-            <p>管理你的展示信息与可见范围</p>
+            <p>管理你在该工作区的展示信息与可见范围</p>
           </div>
         </header>
 
         <ProfileSettingsForm
           profile={profile}
+          wsProfile={wsProfile}
+          workspaceId={workspaceId ?? ""}
           roles={roles}
           memberNumber={profile.memberNumber ?? "—"}
         />

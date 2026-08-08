@@ -1,17 +1,15 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
-import type { MutationResult } from "./shared";
 
 /**
- * #P1 PortfolioItem GraphQL 契约（对齐后端 P1 commit 56b5ce2）。
+ * #P1 PortfolioItem GraphQL 契约（ADR-0004 per-workspace 改造）。
  *
- * 关键约定（与后端工程师确认）：
- * - myPortfolio 查询：当前用户作品集条目列表，返回 { id title description url icon }。
- * - icon 为 String 而非 enum：取值 "document" | "book" | "guide"，与前端 mock 类型一致。
- * - createPortfolioItem input：title 必填，description/url/icon 可选；user_id 后端自动填 actor（GraphQL 不可写，防伪造）。
- * - updatePortfolioItem(id, input)：仅本人可更新自己的条目。
- * - deletePortfolioItem(id)：仅本人可删除。
- * - Result 类型：{ result, errors }，errors[0].message 供前端展示。
+ * - `myWorkspacePortfolio(workspaceId)`：当前用户在某工作台的作品集。
+ * - `createPortfolioItem(workspaceId, input)`：在某工作台创建条目。
+ * - `updatePortfolioItem(id, workspaceId, input)`：更新某工作台条目（tenant 隔离）。
+ * - `deletePortfolioItem(id, workspaceId)`：删除某工作台条目（tenant 隔离）。
+ *
+ * Result 类型：{ result, errors }，errors[0].message 供前端展示。
  */
 
 /* ---------------- 类型 ---------------- */
@@ -21,8 +19,8 @@ export type PortfolioIcon = "document" | "book" | "guide";
 
 export interface PortfolioItem {
   id: string;
-  /** 所属用户 ID（仅本人，创建时后端自动填充） */
-  userId: string;
+  /** 所属工作台（租户）ID */
+  workspaceId: string;
   /** 作品标题（必填） */
   title: string;
   /** 作品描述（可选） */
@@ -47,19 +45,17 @@ export interface UpdatePortfolioItemInput {
   icon?: PortfolioIcon | null;
 }
 
-export type PortfolioMutationResult = MutationResult<PortfolioItem>;
-
 /* ---------------- 真实 query / mutation ---------------- */
 
-/** myPortfolio：当前用户作品集条目列表 */
-export const MY_PORTFOLIO: TypedDocumentNode<
-  { myPortfolio: PortfolioItem[] | null },
-  Record<string, never>
+/** myWorkspacePortfolio：当前用户在某工作台的作品集条目列表 */
+export const MY_WORKSPACE_PORTFOLIO: TypedDocumentNode<
+  { myWorkspacePortfolio: PortfolioItem[] | null },
+  { workspaceId: string }
 > = gql`
-  query MyPortfolio {
-    myPortfolio {
+  query MyWorkspacePortfolio($workspaceId: ID!) {
+    myWorkspacePortfolio(workspaceId: $workspaceId) {
       id
-      userId
+      workspaceId
       title
       description
       url
@@ -68,71 +64,53 @@ export const MY_PORTFOLIO: TypedDocumentNode<
   }
 `;
 
-/** createPortfolioItem：新建作品集条目（user_id 自动为当前用户） */
+/** createPortfolioItem：在某工作台新建作品集条目（workspace_id/user_id 后端自动填充） */
 export const CREATE_PORTFOLIO_ITEM: TypedDocumentNode<
-  { createPortfolioItem: PortfolioMutationResult },
-  { input: CreatePortfolioItemInput }
+  { createPortfolioItem: PortfolioItem | null },
+  { workspaceId: string; input: CreatePortfolioItemInput }
 > = gql`
-  mutation CreatePortfolioItem($input: CreatePortfolioItemInput!) {
-    createPortfolioItem(input: $input) {
-      result {
-        id
-        userId
-        title
-        description
-        url
-        icon
-      }
-      errors {
-        message
-        code
-      }
+  mutation CreatePortfolioItem($workspaceId: ID!, $input: CreatePortfolioItemInput!) {
+    createPortfolioItem(workspaceId: $workspaceId, input: $input) {
+      id
+      workspaceId
+      title
+      description
+      url
+      icon
     }
   }
 `;
 
-/** updatePortfolioItem：更新自己的作品集条目 */
+/** updatePortfolioItem：更新某工作台自己的作品集条目 */
 export const UPDATE_PORTFOLIO_ITEM: TypedDocumentNode<
-  { updatePortfolioItem: PortfolioMutationResult },
-  { id: string; input: UpdatePortfolioItemInput }
+  { updatePortfolioItem: PortfolioItem | null },
+  { id: string; workspaceId: string; input: UpdatePortfolioItemInput }
 > = gql`
-  mutation UpdatePortfolioItem($id: ID!, $input: UpdatePortfolioItemInput!) {
-    updatePortfolioItem(id: $id, input: $input) {
-      result {
-        id
-        userId
-        title
-        description
-        url
-        icon
-      }
-      errors {
-        message
-        code
-      }
+  mutation UpdatePortfolioItem($id: ID!, $workspaceId: ID!, $input: UpdatePortfolioItemInput!) {
+    updatePortfolioItem(id: $id, workspaceId: $workspaceId, input: $input) {
+      id
+      workspaceId
+      title
+      description
+      url
+      icon
     }
   }
 `;
 
-/** deletePortfolioItem：删除自己的作品集条目 */
+/** deletePortfolioItem：删除某工作台自己的作品集条目 */
 export const DELETE_PORTFOLIO_ITEM: TypedDocumentNode<
-  { deletePortfolioItem: PortfolioMutationResult },
-  { id: string }
+  { deletePortfolioItem: PortfolioItem | null },
+  { id: string; workspaceId: string }
 > = gql`
-  mutation DeletePortfolioItem($id: ID!) {
-    deletePortfolioItem(id: $id) {
-      result {
-        id
-        userId
-        title
-        description
-        url
-        icon
-      }
-      errors {
-        message
-        code
-      }
+  mutation DeletePortfolioItem($id: ID!, $workspaceId: ID!) {
+    deletePortfolioItem(id: $id, workspaceId: $workspaceId) {
+      id
+      workspaceId
+      title
+      description
+      url
+      icon
     }
   }
 `;

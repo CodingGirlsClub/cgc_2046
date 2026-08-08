@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * 个人资料设置表单（决策 B：profile 迁入 settings 后唯一编辑入口）。
+ * 个人资料设置表单（ADR-0004 per-workspace 后唯一编辑入口）。
  *
- * 由两个页面共享：
- * - /w/[slug]/settings/account/profile（工作区上下文，展示该工作区身份）
- * - /settings/account/profile（全局设置，无工作区上下文）
+ * 由工作区 profile 页使用：
+ * - /w/[slug]/settings/account/profile（per-workspace 档案编辑）
  *
- * 字段对齐 Linear /settings/account/profile：32px 头像上传 + Email 只读 +
- * Full name / Location / About / Skills / Visibility + Workspace access（只读）
- * + Portfolio CRUD。保存走 updateCurrentProfile + Portfolio diff 同步。
+ * 数据流：
+ * - 全局身份（displayName/memberNumber）来自 me（CurrentProfile）
+ * - per-workspace 字段（avatar/location/about/skills/visibility/portfolio）
+ *   来自 workspaceProfile + myWorkspacePortfolio（WorkspaceProfileContent）
+ * - 保存：updateDisplayName（全局）+ updateWorkspaceProfile（per-workspace）
+ *   + Portfolio diff 同步（带 workspaceId）
  */
 
 import { useRef, useState } from "react";
@@ -18,12 +20,14 @@ import {
   createPortfolioItem,
   deletePortfolioItem,
   fetchPortfolioItems,
-  updateCurrentProfile,
+  updateDisplayName,
   updatePortfolioItem,
+  updateWorkspaceProfile,
   type CurrentProfile,
   type PortfolioIcon,
   type ProfileDraft,
   type ProfilePortfolioItem,
+  type WorkspaceProfileContent,
   VISIBILITY_FOOTER_TEXT,
   VISIBILITY_OPTION_LABEL,
 } from "@/lib/profile";
@@ -100,24 +104,30 @@ function EditPortfolioRow({
 
 export function ProfileSettingsForm({
   profile,
+  wsProfile,
+  workspaceId,
   roles,
   memberNumber,
 }: {
   profile: CurrentProfile;
+  wsProfile: WorkspaceProfileContent | null;
+  workspaceId: string;
   roles: MembershipRoleName[];
   memberNumber: string;
 }) {
   const [draft, setDraft] = useState<ProfileDraft>(() => ({
     name: profile.displayName ?? "",
-    location: profile.location ?? "",
-    about: profile.about ?? "",
-    skills: profile.skills ?? [],
-    visibility: profile.visibility ?? "only_me",
-    portfolio: (profile.portfolio ?? []).map((item) => ({ ...item })),
-    avatarUrl: profile.avatarUrl ?? null,
+    location: wsProfile?.location ?? "",
+    about: wsProfile?.about ?? "",
+    skills: wsProfile?.skills ?? [],
+    visibility: wsProfile?.visibility ?? "only_me",
+    portfolio: (wsProfile?.portfolio ?? []).map((item) => ({ ...item })),
+    avatarUrl: wsProfile?.avatarUrl ?? null,
   }));
   // 上次已同步到后端的作品集（保存后刷新，避免二次保存把已建条目当新增重复 create）
-  const lastSyncedRef = useRef<ProfilePortfolioItem[]>(profile.portfolio ?? []);
+  const lastSyncedRef = useRef<ProfilePortfolioItem[]>(
+    wsProfile?.portfolio ?? [],
+  );
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -132,7 +142,7 @@ export function ProfileSettingsForm({
     setDraft({ ...draft, skills: [...draft.skills, skill.trim()] });
   }
 
-  /** 作品集 diff 同步：新增条目 create、被移除条目 delete、内容变化条目 update（P1 CRUD 接线） */
+  /** 作品集 diff 同步：新增条目 create、被移除条目 delete、内容变化条目 update（带 workspaceId） */
   async function syncPortfolioChanges(
     prev: ProfilePortfolioItem[],
     next: ProfilePortfolioItem[],
@@ -142,7 +152,7 @@ export function ProfileSettingsForm({
     for (const item of next) {
       const orig = original.get(item.id);
       if (!orig) {
-        await createPortfolioItem({
+        await createPortfolioItem(workspaceId, {
           title: item.title,
           description: item.description,
           url: item.url ?? null,
@@ -154,7 +164,7 @@ export function ProfileSettingsForm({
         (orig.url ?? null) !== (item.url ?? null) ||
         (orig.icon ?? "document") !== (item.icon ?? "document")
       ) {
-        await updatePortfolioItem(item.id, {
+        await updatePortfolioItem(item.id, workspaceId, {
           title: item.title,
           description: item.description,
           url: item.url ?? null,
@@ -164,7 +174,7 @@ export function ProfileSettingsForm({
     }
     for (const item of prev) {
       if (!nextIds.has(item.id)) {
-        await deletePortfolioItem(item.id);
+        await deletePortfolioItem(item.id, workspaceId);
       }
     }
   }
@@ -179,9 +189,10 @@ export function ProfileSettingsForm({
     setErrorMsg(null);
     setSavedMsg(null);
     try {
-      // P1：真实分支提交全部可编辑字段（displayName/avatarUrl/location/about/skills/visibility）
-      await updateCurrentProfile({
-        displayName: name,
+      // 全局身份：displayName → updateDisplayName
+      await updateDisplayName(name);
+      // per-workspace 档案：avatar/location/about/skills/visibility → updateWorkspaceProfile
+      await updateWorkspaceProfile(workspaceId, {
         avatarUrl: draft.avatarUrl,
         location: draft.location,
         about: draft.about,
@@ -190,7 +201,7 @@ export function ProfileSettingsForm({
       });
       await syncPortfolioChanges(lastSyncedRef.current, draft.portfolio);
       // 保存成功后重新拉取作品集，确保 id 与后端一致（新增条目由后端生成 uuid）
-      const refreshedPortfolio = await fetchPortfolioItems();
+      const refreshedPortfolio = await fetchPortfolioItems(workspaceId);
       lastSyncedRef.current = refreshedPortfolio;
       setDraft({ ...draft, name, portfolio: refreshedPortfolio });
       setSavedMsg("资料已保存");
@@ -221,7 +232,7 @@ export function ProfileSettingsForm({
         </div>
         <div className="profile-edit-form-grid">
           <label>
-            <span className="profile-form-label">姓名</span>
+            <span className="profile-form-label">姓名（全局）</span>
             <input
               data-testid="profile-name-input"
               value={draft.name}
@@ -375,6 +386,7 @@ export function ProfileSettingsForm({
                 ...draft.portfolio,
                 {
                   id: `portfolio-${Date.now()}`,
+                  workspaceId,
                   title: "",
                   description: "",
                   url: "",

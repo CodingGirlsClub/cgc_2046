@@ -29,6 +29,8 @@ const { readLastWorkspace } = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
 	useRouter: () => ({ replace, push }),
+	// ThemeProvider 依赖 usePathname 解析 workspace slug（ADR-0004）
+	usePathname: () => "/",
 }));
 
 vi.mock("@/lib/use-authed", () => ({

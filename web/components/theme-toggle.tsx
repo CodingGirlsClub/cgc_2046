@@ -2,26 +2,25 @@
 
 import { useTheme } from "@/lib/theme-provider";
 import { client } from "@/lib/apollo-client";
-import { SET_UI_THEME } from "@/lib/graphql/profile";
+import { SET_WORKSPACE_THEME } from "@/lib/graphql/profile";
 
 /**
- * 主题切换按钮（U3）：toggle 本地主题（state + localStorage + class，即时生效），
- * 同时 fire-and-forget 持久化到服务端（跨设备同步）。失败静默——localStorage 已是 single-source 兜底。
+ * 主题切换按钮（U3，ADR-0004 per-workspace）：toggle 本地主题（state +
+ * localStorage + class，即时生效），同时 fire-and-forget 持久化到服务端
+ * （setWorkspaceTheme，跨设备同步）。失败静默——localStorage 已是 single-source 兜底。
  *
- * 用命令式 `client.mutate`（singleton）而非 `useMutation` hook：渲染时不依赖 Apollo context，
- * 使 WorkspaceShell 在无 ApolloProvider 的测试里也能渲染（只需 ThemeProvider）。
+ * `workspaceId` 必传（per-workspace 主题持久化目标）；缺失时仅本地切换不持久化。
  *
  * 两种形态（variant）：
  * - "button"（默认）：独立小按钮，挂在 preferences 页设置行（settings-preference-row）；
- * - "menuitem"：品牌下拉菜单项（WorkspaceSwitcherMenu），点击不触发 onNavigate（不收菜单，
- *   切主题不是导航，用户可连续切换；菜单由点外部/路由变化收起逻辑处理）。
- *
- * 按钮文案 = 点击后切换到的目标主题（深色态显示「浅色」入口，反之亦然）。
+ * - "menuitem"：品牌下拉菜单项（WorkspaceSwitcherMenu），点击不触发 onNavigate。
  */
 export default function ThemeToggle({
 	variant = "button",
+	workspaceId,
 }: {
 	variant?: "button" | "menuitem";
+	workspaceId?: string;
 }) {
 	const { theme, setTheme } = useTheme();
 
@@ -29,12 +28,17 @@ export default function ThemeToggle({
 		const next = theme === "dark" ? "light" : "dark";
 		setTheme(next);
 		// fire-and-forget：失败静默，localStorage 已是 single-source 兜底
-		client
-			.mutate({
-				mutation: SET_UI_THEME,
-				variables: { input: { uiThemePreference: next } },
-			})
-			.catch(() => {});
+		if (workspaceId) {
+			client
+				.mutate({
+					mutation: SET_WORKSPACE_THEME,
+					variables: {
+						workspaceId,
+						input: { uiThemePreference: next },
+					},
+				})
+				.catch(() => {});
+		}
 	}
 
 	const isDark = theme === "dark";

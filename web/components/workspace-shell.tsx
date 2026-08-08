@@ -212,6 +212,7 @@ export default function WorkspaceShell({
 						<WorkspaceSwitcherMenu
 							workspaces={workspaces}
 							currentSlug={slug}
+							currentWorkspaceId={ws?.id}
 							profile={profile}
 							onNavigate={() => setBrandOpen(false)}
 							onSignOut={handleSignOut}

@@ -36,14 +36,17 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("ProfileEntry 个人资料入口 (#69)", () => {
-	it("渲染头像首字母 + 展示名，链接到全局设置", async () => {
+describe("ProfileEntry 个人资料入口 (#69, ADR-0004)", () => {
+	it("渲染头像首字母 + 展示名，链接到默认社区工作区设置（2046）", async () => {
 		render(<ProfileEntry />);
 		await waitFor(() => {
 			expect(screen.getByText("小美")).toBeInTheDocument();
 		});
 		const link = screen.getByTestId("profile-entry");
-		expect(link).toHaveAttribute("href", "/settings/account/profile");
+		expect(link).toHaveAttribute(
+			"href",
+			"/w/2046/settings/account/profile",
+		);
 		// 头像首字母（小 → 小）
 		expect(within(link as HTMLElement).getByText("小")).toBeInTheDocument();
 	});
@@ -64,7 +67,7 @@ describe("ProfileEntry 个人资料入口 (#69)", () => {
 		});
 		expect(screen.getByTestId("profile-entry")).toHaveAttribute(
 			"href",
-			"/settings/account/profile",
+			"/w/2046/settings/account/profile",
 		);
 	});
 
