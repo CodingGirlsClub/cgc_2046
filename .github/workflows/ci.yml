@@ -71,3 +71,33 @@ jobs:
       - run: pnpm check:licenses
       - run: pnpm test
         timeout-minutes: 10
+
+  miniprogram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: miniprogram
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm/action-setup must run BEFORE setup-node so the `cache: pnpm`
+      # resolver finds the pnpm binary. (Same ordering as the web job.)
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: miniprogram/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # 从 backend/priv/graphql/schema.graphql 重新生成 TS 类型，确保契约无漂移
+      - run: pnpm codegen
+      - run: pnpm typecheck
+      - run: pnpm check:licenses
+      - run: pnpm test:unit
+      # 三端编译（Phase 4 才裁剪，现在不能破）
+      - run: pnpm build:weapp
+      - run: pnpm build:tt
+      - run: pnpm build:xhs
+        timeout-minutes: 15
