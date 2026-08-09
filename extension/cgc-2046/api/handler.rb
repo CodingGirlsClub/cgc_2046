@@ -100,11 +100,55 @@ class Cgc2046Ext < Clacky::ApiExtension
     text = Cgc2046McpConfig.load_text(Cgc2046McpConfig.config_path)
 
     st = Cgc2046McpConfig.status_of(text, name: SERVER_NAME)
-    json(ok: true, configured: st[:configured], url: st[:url])
+    json(ok: true, configured: st[:configured], url: st[:url], token_configured: st[:token_configured],
+         web_url: config["web_url"])
   rescue Clacky::ApiExtension::Halt
     raise
   rescue StandardError => e
     error!("status failed: #{e.message}", status: 500)
+  end
+
+  # DELETE /api/ext/cgc-2046/connect
+  # 移除 mcpServers["cgc"] 条目并 reload MCP registry（断开连接）。
+  # 加固与 connect 相同：类级互斥 + 原子写 + reload 失败逐字节回滚 + 二次 reload。
+  delete "/connect" do
+    path = Cgc2046McpConfig.config_path
+    removed = false
+
+    self.class.write_mutex.synchronize do
+      old_text = Cgc2046McpConfig.load_text(path)
+      result = Cgc2046McpConfig.remove_server(old_text, name: SERVER_NAME)
+      removed = result[:removed]
+
+      if removed
+        Cgc2046McpConfig.persist(path, result[:data])
+
+        begin
+          @http_server&.send(:mcp_registry)&.reload
+        rescue StandardError
+          # best-effort 回滚：旧文本原样写回（有 cgc 条目 ⇒ 文件必存在 ⇒ old_text 非 nil），
+          # 逐字节恢复被移除的条目；恢复后再 reload 一次。
+          begin
+            Cgc2046McpConfig.persist_text(path, old_text) if old_text
+          rescue StandardError
+            # 回滚失败不掩盖原始错误
+          end
+          begin
+            @http_server&.send(:mcp_registry)&.reload
+          rescue StandardError
+            # 忽略：与 connect 同口径，运行时状态需下次请求重试
+          end
+          error!("disconnect failed: mcp registry reload failed", status: 500)
+        end
+      end
+    end
+
+    json(ok: true, removed: removed)
+  rescue Clacky::ApiExtension::Halt
+    # helper（json/error!）通过 Halt 结束请求，必须放行
+    raise
+  rescue StandardError => e
+    error!("disconnect failed: #{e.message}", status: 500)
   end
 
   # POST /api/ext/cgc-2046/skills/sync

@@ -313,4 +313,85 @@ class McpConfigTest < Minitest::Test
       end
     end
   end
+
+  # ---- remove_server（断开连接：移除 cgc 条目，其它 server 无损）----
+
+  def test_remove_server_removes_cgc_preserving_others
+    input = JSON.generate(
+      "mcpServers" => {
+        "cgc" => SPEC,
+        "other" => { "type" => "stdio", "command" => "x" }
+      }
+    )
+
+    result = Cgc2046McpConfig.remove_server(input, name: "cgc")
+
+    assert result[:removed], "存在 cgc 条目时应移除"
+    assert_nil result[:data]["mcpServers"]["cgc"], "cgc 条目必须被移除"
+    assert_equal({ "type" => "stdio", "command" => "x" }, result[:data]["mcpServers"]["other"],
+                 "其它 server 条目不得受影响")
+  end
+
+  def test_remove_server_noop_when_missing
+    input = JSON.generate("mcpServers" => { "other" => { "type" => "stdio" } })
+
+    result = Cgc2046McpConfig.remove_server(input, name: "cgc")
+
+    refute result[:removed], "无 cgc 条目时应为 no-op"
+    assert_equal({ "other" => { "type" => "stdio" } }, result[:data]["mcpServers"])
+    assert_equal JSON.parse(input), result[:data], "内容必须保持不变"
+  end
+
+  def test_remove_server_noop_on_empty_config
+    result = Cgc2046McpConfig.remove_server("{}", name: "cgc")
+
+    refute result[:removed]
+    assert_nil result[:data]["mcpServers"], "no-op 时不得无谓创建 mcpServers 键"
+    assert_equal({}, result[:data])
+  end
+
+  def test_remove_server_treats_invalid_json_as_empty
+    result = Cgc2046McpConfig.remove_server("{broken", name: "cgc")
+
+    refute result[:removed]
+    assert_nil result[:data]["mcpServers"]
+    assert_equal({}, result[:data])
+  end
+
+  def test_remove_server_accepts_hash_input_without_mutating_it
+    input = JSON.parse(JSON.generate("mcpServers" => { "cgc" => SPEC, "other" => { "type" => "stdio" } }))
+    snapshot = JSON.generate(input)
+
+    result = Cgc2046McpConfig.remove_server(input, name: "cgc")
+
+    assert result[:removed]
+    assert_equal snapshot, JSON.generate(input), "不得修改调用方传入的 Hash"
+  end
+
+  # ---- status_of 的 token 状态（token_configured，仍不泄漏 token）----
+
+  def test_status_of_reports_token_configured_when_authorization_present
+    text = JSON.generate({ "mcpServers" => { "cgc" => SPEC } })
+    st = Cgc2046McpConfig.status_of(text, name: "cgc")
+
+    assert_equal true, st[:token_configured]
+    assert_equal true, st[:configured]
+    refute_includes JSON.generate(st), "tok_secret_123"
+    refute_includes JSON.generate(st), "Bearer"
+  end
+
+  def test_status_of_token_unconfigured_when_no_headers
+    text = JSON.generate("mcpServers" => { "cgc" => { "type" => "http", "url" => "http://x/mcp" } })
+    st = Cgc2046McpConfig.status_of(text, name: "cgc")
+
+    assert_equal false, st[:token_configured]
+    assert_equal true, st[:configured]
+  end
+
+  def test_status_of_token_unconfigured_when_disconnected
+    st = Cgc2046McpConfig.status_of('{"mcpServers":{}}', name: "cgc")
+
+    assert_equal false, st[:token_configured]
+    assert_equal false, st[:configured]
+  end
 end

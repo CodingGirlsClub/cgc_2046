@@ -11,9 +11,18 @@ description: CGC-2046 平台连接器：写入 MCP 配置、提供工作台助�
 # 生产域名未定前的联调默认值；全包唯一改 URL 的点
 config:
   mcp_url: "http://localhost:4102/mcp"
+  web_url: "http://localhost:3000"
 
 contributes:
   api: api/handler.rb
+  panels:
+    - id: cgc-2046
+      title: CGC-2046
+      title_zh: CGC-2046
+      description: CGC-2046 平台连接状态
+      description_zh: CGC-2046 平台连接状态
+      view: panels/workspace/view.js
+      order: 8
   agents:
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
