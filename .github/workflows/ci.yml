@@ -100,4 +100,6 @@ jobs:
       - run: pnpm build:weapp
       - run: pnpm build:tt
       - run: pnpm build:xhs
+      # 零导流红线（§2）：裁剪端产物 escape-aware 禁词断言
+      - run: pnpm check:diversion
         timeout-minutes: 15
