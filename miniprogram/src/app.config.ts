@@ -2,8 +2,14 @@ export default defineAppConfig({
   pages: [
     'pages/discover/index',
     'pages/event-detail/index',
+    'pages/login/index',
     'pages/register-form/index',
-    'pages/my-registrations/index'
+    'pages/enrollment-result/index',
+    'pages/my-enrollments/index',
+    'pages/workspace/index',
+    'pages/profile/index',
+    'pages/join/index',
+    'pages/openclacky/index'
   ],
   window: {
     backgroundTextStyle: 'light',
@@ -22,8 +28,16 @@ export default defineAppConfig({
         text: '发现'
       },
       {
-        pagePath: 'pages/my-registrations/index',
+        pagePath: 'pages/my-enrollments/index',
         text: '我的报名'
+      },
+      {
+        pagePath: 'pages/workspace/index',
+        text: '工作台'
+      },
+      {
+        pagePath: 'pages/profile/index',
+        text: '我的'
       }
     ]
   }

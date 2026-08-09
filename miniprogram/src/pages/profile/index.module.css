@@ -1,0 +1,37 @@
+.page { min-height: 100vh; }
+.scroll { height: 100vh; padding-bottom: 150rpx; box-sizing: border-box; }
+.header { padding: 48rpx 32rpx 30rpx; background: #fff; }
+.eyebrow { display: block; color: #5e6ad2; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
+.title { display: block; margin-top: 10rpx; font-size: 48rpx; font-weight: 700; }
+.content, .loggedOut { padding: 26rpx 28rpx; }
+.loggedOut { text-align: center; }
+.loggedOutTitle { display: block; margin-top: 80rpx; font-size: 34rpx; font-weight: 650; }
+.loggedOutText { display: block; margin-top: 12rpx; color: #667085; font-size: 24rpx; }
+.primaryButton { margin-top: 34rpx; color: #fff; background: #5e6ad2; border-radius: 18rpx; }
+.userCard { padding: 26rpx; display: flex; align-items: center; background: #172033; color: #fff; border-radius: 22rpx; }
+.avatar { width: 82rpx; height: 82rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #5e6ad2; border-radius: 50%; font-size: 32rpx; font-weight: 700; }
+.userMain { flex: 1; margin-left: 20rpx; }
+.userName { display: block; font-size: 31rpx; font-weight: 600; }
+.userMeta { display: block; margin-top: 5rpx; color: #cbd1e2; font-size: 21rpx; }
+.logout { margin: 0; color: #fff; background: rgba(255,255,255,.12); border-radius: 24rpx; font-size: 20rpx; }
+.sectionTitle { display: block; margin: 34rpx 0 16rpx; font-size: 30rpx; font-weight: 650; }
+.panel { padding: 24rpx; background: #fff; border-radius: 20rpx; }
+.notification { padding: 18rpx 0; display: flex; border-bottom: 1rpx solid #eaecf0; }
+.notification:last-child { border-bottom: 0; }
+.dot { width: 12rpx; height: 12rpx; margin: 12rpx 16rpx 0 0; flex-shrink: 0; background: #5e6ad2; border-radius: 50%; }
+.notificationMain { flex: 1; }
+.notificationTitle { display: block; font-size: 27rpx; font-weight: 600; }
+.notificationBody { display: block; margin-top: 6rpx; color: #667085; font-size: 22rpx; line-height: 1.5; }
+.panelText { display: block; color: #667085; font-size: 23rpx; }
+.inlineForm { margin-top: 18rpx; display: flex; align-items: center; gap: 14rpx; }
+.codeInput { flex: 1; padding: 18rpx; background: #f7f8fa; border-radius: 14rpx; font-size: 25rpx; }
+.inlineButton { margin: 0; color: #fff; background: #5e6ad2; border-radius: 24rpx; font-size: 21rpx; }
+.scanButton { margin: 18rpx 0 0; color: #5e6ad2; background: #eff0ff; border-radius: 24rpx; font-size: 21rpx; }
+.codeRow { padding: 14rpx 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1rpx solid #eaecf0; }
+.codeResult { padding-top: 22rpx; text-align: center; }
+.codeImage { width: 300rpx; height: 300rpx; }
+.scene, .expires { display: block; margin-top: 10rpx; color: #667085; font-size: 22rpx; word-break: break-all; }
+.openclacky { padding: 28rpx; display: flex; align-items: center; justify-content: space-between; color: #fff; background: #5e6ad2; border-radius: 22rpx; }
+.openclackyTitle { display: block; font-size: 30rpx; font-weight: 650; }
+.openclackyText { display: block; margin-top: 8rpx; max-width: 520rpx; color: #e4e6ff; font-size: 22rpx; line-height: 1.45; }
+.openclackyArrow { font-size: 38rpx; }
