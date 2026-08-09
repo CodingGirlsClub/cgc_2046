@@ -14,6 +14,7 @@
     "check:graphql": "node scripts/check-graphql.mjs",
     "typecheck": "tsc --noEmit",
     "check:licenses": "node scripts/check-licenses.mjs",
+    "check:diversion": "node scripts/check-no-diversion.mjs",
     "test:unit": "node --experimental-strip-types --test tests/*.test.ts",
     "check:ci": "pnpm codegen && pnpm typecheck && pnpm build:weapp",
     "build:all": "pnpm build:weapp && pnpm build:tt && pnpm build:xhs",
