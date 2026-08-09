@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:diversion": "node scripts/check-no-diversion.mjs",
-    "test:unit": "node --experimental-strip-types --test tests/domain.test.ts tests/diversion-policy.test.ts tests/license-policy.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/domain.test.ts tests/diversion-policy.test.ts tests/license-policy.test.mjs && vitest run tests/api-client.test.ts",
     "check:ci": "pnpm codegen && pnpm typecheck && pnpm build:weapp",
     "build:all": "pnpm build:weapp && pnpm build:tt && pnpm build:xhs",
     "e2e": "node e2e/run.mjs"
@@ -60,6 +60,8 @@
     "react-refresh": "^0.14.2",
     "spdx-expression-parse": "5.0.0",
     "typescript": "^5.8.3",
+    "vite": "8.2.1",
+    "vitest": "4.1.10",
     "webpack": "^5.91.0"
   }
 }
