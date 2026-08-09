@@ -1,78 +1,114 @@
 import Taro from '@tarojs/taro'
+import type { RequestDocument } from 'graphql-request'
+import { mockGraphQLRequest } from './mockTransport'
+import { clearWorkspaceTab } from '@/state/workspaceTab'
 
-/**
- * GraphQL 薄客户端（graphql-request 级别）
- *
- * 仅做一件事：把 query + variables POST 到后端 /api/graphql。
- * Bearer token 为占位——N1 一键登录落地前，调用方可 setAuthToken 注入。
- *
- * 端点不走环境变量：小程序构建期 defineConstants 注入成本高于收益，
- * v1 前由 Plan Phase 3 决定配置化方案。
- */
-const GRAPHQL_ENDPOINT = 'http://localhost:4000/api/graphql'
+const AUTH_TOKEN_KEY = 'cgc.auth_token'
 
-let authToken: string | null = null
+let authToken: string | null = Taro.getStorageSync<string>(AUTH_TOKEN_KEY) || null
 
-/** 注入 / 清除 Bearer token（占位，登录链路接通后由 auth 模块调用） */
-export function setAuthToken(token: string | null): void {
-  authToken = token
-}
-
-export interface GraphQLError {
+export interface GraphQLErrorPayload {
   message: string
-  extensions?: Record<string, unknown>
+  code?: string
+  extensions?: { code?: string } & Record<string, unknown>
 }
 
-export interface GraphQLResponse<T> {
+interface GraphQLResponse<T> {
   data?: T
-  errors?: GraphQLError[]
+  errors?: GraphQLErrorPayload[]
 }
 
 export class GraphQLRequestError extends Error {
   constructor(
     message: string,
     public readonly statusCode: number,
-    public readonly errors?: GraphQLError[]
+    public readonly errors: GraphQLErrorPayload[] = []
   ) {
     super(message)
     this.name = 'GraphQLRequestError'
   }
 }
 
-/**
- * 执行 GraphQL 请求。
- *
- * - HTTP 非 2xx（如 401 鉴权拒绝）→ throw GraphQLRequestError
- * - 响应含 errors → throw GraphQLRequestError（调用方按需捕获）
- * - 网络层失败（域名未白名单、后端未启动）→ Taro.request reject 原样上抛
- */
-export async function graphqlRequest<TData = Record<string, unknown>>(
-  query: string,
-  variables?: Record<string, unknown>
-): Promise<TData> {
-  const header: Record<string, string> = {
-    'Content-Type': 'application/json'
+export function isAuthenticationError(error: unknown): boolean {
+  return error instanceof GraphQLRequestError && (
+    error.statusCode === 401 ||
+    error.errors.some(({ code, extensions }) =>
+      ['unauthorized', 'unauthenticated', 'not_authenticated'].includes(code ?? extensions?.code ?? '')
+    )
+  )
+}
+
+function clearExpiredAuthentication(): void {
+  setAuthToken(null)
+  clearWorkspaceTab()
+}
+
+export function setAuthToken(token: string | null): void {
+  authToken = token
+  if (token) Taro.setStorageSync(AUTH_TOKEN_KEY, token)
+  else Taro.removeStorageSync(AUTH_TOKEN_KEY)
+}
+
+export function getAuthToken(): string | null {
+  return authToken
+}
+
+function extractAuthToken(cookies: string[] | undefined, header: Record<string, unknown>): string | null {
+  const headerCookie = header['set-cookie'] ?? header['Set-Cookie']
+  const candidates = [
+    ...(cookies ?? []),
+    ...(Array.isArray(headerCookie) ? headerCookie : [headerCookie])
+  ].filter((value): value is string => typeof value === 'string')
+
+  for (const cookie of candidates) {
+    const match = cookie.match(/(?:^|[,;]\s*)cgc_token=([^;,]+)/)
+    if (match?.[1]) return decodeURIComponent(match[1])
   }
-  if (authToken) {
-    header.Authorization = `Bearer ${authToken}`
+  return null
+}
+
+export async function graphqlRequest<TData, TVariables extends object>(
+  document: RequestDocument,
+  variables: TVariables,
+  options: { captureAuthCookie?: boolean } = {}
+): Promise<TData> {
+  if (__E2E_MOCK__) {
+    if (options.captureAuthCookie) setAuthToken('e2e-mock-token')
+    return mockGraphQLRequest<TData>(document, variables)
   }
 
-  const res = await Taro.request<GraphQLResponse<TData>>({
-    url: GRAPHQL_ENDPOINT,
+  const header: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authToken) header.Authorization = `Bearer ${authToken}`
+
+  const response = await Taro.request<GraphQLResponse<TData>>({
+    url: __GRAPHQL_ENDPOINT__,
     method: 'POST',
+    timeout: 15_000,
     header,
-    data: { query, variables }
+    data: { query: String(document), variables }
   })
 
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    throw new GraphQLRequestError(`GraphQL HTTP ${res.statusCode}`, res.statusCode)
+  if (options.captureAuthCookie) {
+    const token = extractAuthToken(response.cookies, response.header as Record<string, unknown>)
+    if (token) setAuthToken(token)
   }
-  if (res.data?.errors?.length) {
-    throw new GraphQLRequestError(
-      res.data.errors.map((e) => e.message).join('; '),
-      res.statusCode,
-      res.data.errors
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    const error = new GraphQLRequestError(`请求失败（HTTP ${response.statusCode}）`, response.statusCode)
+    if (isAuthenticationError(error)) clearExpiredAuthentication()
+    throw error
+  }
+  if (response.data.errors?.length) {
+    const error = new GraphQLRequestError(
+      response.data.errors.map(({ message }) => message).join('；'),
+      response.statusCode,
+      response.data.errors
     )
+    if (isAuthenticationError(error)) clearExpiredAuthentication()
+    throw error
   }
-  return res.data?.data as TData
+  if (!response.data.data) {
+    throw new GraphQLRequestError('服务端未返回数据', response.statusCode)
+  }
+  return response.data.data
 }
