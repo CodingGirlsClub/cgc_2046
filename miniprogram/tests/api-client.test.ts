@@ -191,3 +191,84 @@ describe('失败分类与状态清理', () => {
     expect(client.isAuthenticationError(new Error('boom'))).toBe(false)
   })
 })
+
+describe('认证提交顺序（candidate cookie 只在成功响应后落盘）', () => {
+  function authWrites(): Array<[string, unknown]> {
+    return mocks.setStorageSync.mock.calls.filter(([key]) => key === AUTH_TOKEN_KEY)
+  }
+
+  it('401 携 cookie：candidate 从未写入 auth key，最终 token 为空', async () => {
+    mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
+    await loadClient()
+    const candidate = 'should-never-commit-401'
+    mocks.request.mockResolvedValue(
+      httpResponse(401, { data: null }, {}, [`cgc_token=${candidate}; Path=/`])
+    )
+    await expect(client.graphqlRequest('q', {}, { captureAuthCookie: true })).rejects.toMatchObject({
+      statusCode: 401
+    })
+    expect(client.getAuthToken()).toBeNull()
+    expect(authWrites().some(([, value]) => value === candidate)).toBe(false)
+  })
+
+  it('200 带 GraphQL auth error + cookie：不提交 candidate，并清旧认证状态', async () => {
+    mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
+    await loadClient()
+    const candidate = 'should-never-commit-auth-error'
+    mocks.request.mockResolvedValue(
+      httpResponse(
+        200,
+        { data: null, errors: [{ message: 'denied', code: 'unauthorized' }] },
+        {},
+        [`cgc_token=${candidate}; Path=/`]
+      )
+    )
+    await expect(client.graphqlRequest('q', {}, { captureAuthCookie: true })).rejects.toMatchObject({
+      name: 'GraphQLRequestError'
+    })
+    expect(client.getAuthToken()).toBeNull()
+    expect(authWrites().some(([, value]) => value === candidate)).toBe(false)
+  })
+
+  it('200 带普通 GraphQL error + cookie：不提交 candidate，保留旧 token', async () => {
+    mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
+    await loadClient()
+    const candidate = 'should-never-commit-validation'
+    mocks.request.mockResolvedValue(
+      httpResponse(
+        200,
+        { data: null, errors: [{ message: 'validation failed', code: 'validation' }] },
+        {},
+        [`cgc_token=${candidate}; Path=/`]
+      )
+    )
+    await expect(client.graphqlRequest('q', {}, { captureAuthCookie: true })).rejects.toMatchObject({
+      name: 'GraphQLRequestError'
+    })
+    expect(client.getAuthToken()).toBe(FIXTURE_TOKEN)
+    expect(authWrites().some(([, value]) => value === candidate)).toBe(false)
+  })
+
+  it('200 缺 data + cookie：不提交 candidate，保留旧 token', async () => {
+    mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
+    await loadClient()
+    const candidate = 'should-never-commit-empty-data'
+    mocks.request.mockResolvedValue(
+      httpResponse(200, {}, {}, [`cgc_token=${candidate}; Path=/`])
+    )
+    await expect(client.graphqlRequest('q', {}, { captureAuthCookie: true })).rejects.toThrow(
+      '服务端未返回数据'
+    )
+    expect(client.getAuthToken()).toBe(FIXTURE_TOKEN)
+    expect(authWrites().some(([, value]) => value === candidate)).toBe(false)
+  })
+
+  it('只有 2xx 无 errors 有 data 时才提交 candidate token', async () => {
+    const candidate = 'commit-on-success'
+    mocks.request.mockResolvedValue(okResponse({ ok: true }, {}, [`cgc_token=${candidate}; Path=/`]))
+    const data = await client.graphqlRequest('q', {}, { captureAuthCookie: true })
+    expect(data).toEqual({ ok: true })
+    expect(client.getAuthToken()).toBe(candidate)
+    expect(authWrites().some(([, value]) => value === candidate)).toBe(true)
+  })
+})
