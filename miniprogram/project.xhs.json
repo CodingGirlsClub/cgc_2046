@@ -1,7 +1,7 @@
 {
   "miniprogramRoot": "dist/xhs/",
-  "projectname": "cgc-miniprogram-spike",
-  "description": "CGC 小程序 Taro spike（小红书端产物指向 dist/xhs）",
+  "projectname": "cgc-miniprogram",
+  "description": "CGC 小程序（小红书端产物指向 dist/xhs）",
   "appid": "touristappid",
   "libVersion": "3.102.3",
   "setting": {

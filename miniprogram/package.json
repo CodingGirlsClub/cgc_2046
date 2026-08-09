@@ -2,7 +2,7 @@
   "name": "cgc-miniprogram",
   "version": "0.0.1",
   "private": true,
-  "description": "CGC 小程序（Taro 4 + React 18 + TS，三端 spike）",
+  "description": "CGC 微信小程序全量端（Taro 4 + React 18 + TypeScript）",
   "scripts": {
     "build:weapp": "taro build --type weapp",
     "build:tt": "taro build --type tt",
@@ -10,8 +10,14 @@
     "dev:weapp": "taro build --type weapp --watch",
     "dev:tt": "taro build --type tt --watch",
     "dev:xhs": "taro build --type xhs --watch",
+    "codegen": "graphql-codegen --config codegen.yml",
     "check:graphql": "node scripts/check-graphql.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/*.test.ts",
+    "check:ci": "pnpm codegen && pnpm typecheck && pnpm build:weapp",
+    "build:all": "pnpm build:weapp && pnpm build:tt && pnpm build:xhs",
+    "e2e": "node e2e/run.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -28,12 +34,17 @@
     "@tarojs/runtime": "4.2.1",
     "@tarojs/shared": "4.2.1",
     "@tarojs/taro": "4.2.1",
+    "graphql": "16.11.0",
+    "graphql-request": "7.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
     "@babel/preset-react": "^7.29.7",
+    "@graphql-codegen/cli": "7.2.0",
+    "@graphql-codegen/typescript": "6.1.0",
+    "@graphql-codegen/typescript-operations": "6.1.5",
     "@prefresh/babel-plugin": "^0.5.3",
     "@tarojs/cli": "4.2.1",
     "@tarojs/plugin-framework-react": "4.2.1",
@@ -43,6 +54,7 @@
     "@tarojs/webpack5-runner": "4.2.1",
     "@types/react": "^18.3.12",
     "babel-preset-taro": "4.2.1",
+    "miniprogram-automator": "0.12.1",
     "postcss": "^8.4.47",
     "react-refresh": "^0.14.2",
     "typescript": "^5.8.3",

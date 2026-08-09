@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
- * Spike 0A GraphQL 连通性检查
+ * GraphQL 连通性检查
  *
  * 直连 dev backend 做 introspection：{ __schema { queryType { name } } }
- * 判定（与 spike 验收口径一致）：
+ * 判定：
  *   - 任何 HTTP 响应（200 数据 / 401·403 鉴权拒绝）都算"连通"，exit 0
  *   - 网络层失败（ECONNREFUSED 等）才算不连通，exit 1
  *
  * 用法：node scripts/check-graphql.mjs [endpoint]
- * 默认 endpoint：http://localhost:4000/api/graphql（可用环境变量 GRAPHQL_ENDPOINT 覆盖）
+ * 默认 endpoint：http://localhost:4001/api/graphql（可用环境变量 CGC_GRAPHQL_ENDPOINT 覆盖）
  */
 
 const endpoint =
-  process.argv[2] || process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/api/graphql'
+  process.argv[2] || process.env.CGC_GRAPHQL_ENDPOINT || 'http://localhost:4001/api/graphql'
 
 const INTROSPECTION = '{__schema{queryType{name}}}'
 
@@ -52,7 +52,7 @@ async function main() {
     console.log('[check-graphql] PASS: 鉴权拒绝（连通性成立，需 Bearer token）')
     process.exit(0)
   }
-  // 其它 HTTP 状态：服务可达但响应异常，仍视为连通（spike 口径），但给出警告
+  // 其它 HTTP 状态：服务可达但响应异常，仍视为连通，但给出警告。
   console.log('[check-graphql] PASS(with warning): 服务可达，但响应非预期 introspection 结果')
   process.exit(0)
 }
