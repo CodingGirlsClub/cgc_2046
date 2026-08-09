@@ -1,0 +1,27 @@
+#!/bin/sh
+# CGC-2046 扩展打包脚本
+#
+# 流程（契约 §11.2）：
+#   1. 把 repo 内源目录 symlink 到 openclacky 开发层 ~/.clacky/ext/local/cgc-2046
+#      （symlink 根目录安全；容器内部不得有嵌套 symlink——本包保持无 symlink）
+#   2. openclacky ext pack → extension/dist/cgc-2046.zip
+#      （dist 在容器目录外，避免上次 zip 被打进新包）
+#   3. openclacky ext verify 做结构校验
+#
+# 用法：extension/cgc-2046/bin/pack
+set -eu
+
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$SRC/../.." && pwd)"
+DIST="$REPO/extension/dist"
+LOCAL_DIR="$HOME/.clacky/ext/local"
+
+mkdir -p "$LOCAL_DIR"
+ln -sfn "$SRC" "$LOCAL_DIR/cgc-2046"
+
+mkdir -p "$DIST"
+openclacky ext pack cgc-2046 --out "$DIST"
+
+openclacky ext verify
+
+echo "packed: $DIST/cgc-2046.zip"
