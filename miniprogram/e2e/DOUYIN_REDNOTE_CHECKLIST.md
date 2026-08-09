@@ -5,7 +5,8 @@
 ## 准备
 
 - [ ] 抖音开放平台 / 小红书专业号：非个人主体资质 + 小程序 appid/secret（§9 human 决策项：主体资质 + ICP）
-- [ ] 抖音开发者工具 / 小红书开发者工具导入 `miniprogram/`，替换 `project.config.json` / `project.xhs.json` 的 appid
+- [ ] 抖音：执行 `pnpm build:tt` 后，开发者工具导入 `dist/tt/`（Taro 输入模板为 `project.tt.json`，构建输出为 `dist/tt/project.config.json`）；真实 AppID 只在工具本地设置。
+- [ ] 小红书：执行 `pnpm build:xhs` 后，开发者工具导入 `dist/xhs/`；不要使用微信 `project.config.json`。
 - [ ] 手机与开发机可访问 4001（或将 `CGC_GRAPHQL_ENDPOINT` 设为已配置合法域名的测试后端）
 - [ ] 后端已配置抖音/小红书 appid/secret；平台后台把 GraphQL 域名加入 request 合法域名
 - [ ] 抖音订阅消息模板 ID 配 `CGC_TT_TEMPLATE_APPROVAL_RESULT` / `CGC_TT_TEMPLATE_EVENT_REMINDER`；小红书走服务通知，无需模板 ID
