@@ -26,8 +26,11 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.ResearchInstantiator,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
-      # MCP server（Slice D #42，anubis_mcp streamable HTTP；挂载见 router :mcp pipeline）
-      {Cgc2046.Mcp.Server, transport: :streamable_http},
+      # MCP server（Slice D #42，anubis_mcp streamable HTTP；挂载见 router :mcp pipeline）。
+      # start: true 强制启动 session 设施（registry/监督树，无独立 HTTP listener）——
+      # anubis 默认按 :phoenix, :serve_endpoints 探测，test 环境为 false 会导致
+      # persistent_term 缺失、Plug 无法工作；本 server 永远经 Phoenix forward 提供。
+      {Cgc2046.Mcp.Server, transport: {:streamable_http, start: true}},
       # Start to serve requests, typically the last entry
       Cgc2046Web.Endpoint
     ]
