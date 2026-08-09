@@ -31,9 +31,6 @@ import WorkspaceShell from "@/components/workspace-shell";
 import MembersTabs from "@/components/members-tabs";
 import { Icon, type IconName } from "@/components/icons";
 
-// 演示数据（角色值子集；枚举单源见 lib/graphql/workspace.ts 的 ROLE_NAMES）
-const EXAMPLE_ROLES: MembershipRoleName[] = ["owner", "tutor"];
-
 function roleLabel(role: MembershipRoleName) {
 	return ROLE_LABEL[role] ?? role;
 }
@@ -147,31 +144,36 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 	);
 }
 
-function ExampleCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
+function ExampleCard({
+	matrix,
+	myRoles,
+}: {
+	matrix: PermissionMatrixRow[];
+	myRoles: MembershipRoleName[];
+}) {
 	return (
 		<aside
 			className="permissions-example-card"
-			aria-label="判定示例"
+			aria-label="我的能力"
 			data-testid="permission-example"
 		>
-			<h2>判定示例</h2>
+			<h2>我的能力</h2>
 			<div className="permissions-example__person">
-				<span className="permissions-example__avatar">林</span>
+				<span className="permissions-example__avatar">我</span>
 				<div>
-					<strong>林溪</strong>
+					<strong>当前角色</strong>
 					<div className="permissions-example__roles">
-						{EXAMPLE_ROLES.map((role) => (
-							<span key={role} className={roleBadgeClass(role)}>
-								{roleLabel(role)}
+						{myRoles.length > 0 ? (
+							myRoles.map((role) => (
+								<span key={role} className={roleBadgeClass(role)}>
+									{roleLabel(role)}
+								</span>
+							))
+						) : (
+							<span className="permissions-example__no-roles">
+								暂无角色
 							</span>
-						))}
-						<button
-							type="button"
-							className="permissions-example__add"
-							aria-label="查看更多角色"
-						>
-							＋
-						</button>
+						)}
 					</div>
 				</div>
 			</div>
@@ -180,7 +182,7 @@ function ExampleCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 			<h3>合并后能力</h3>
 			<ul className="permissions-example__abilities">
 				{PERMISSION_ABILITIES.map((ability) => {
-					const allowed = myRolesHaveAbility(EXAMPLE_ROLES, matrix, ability.id);
+					const allowed = myRolesHaveAbility(myRoles, matrix, ability.id);
 					return (
 						<li key={ability.id} data-testid="permission-ability-status">
 							<span
@@ -202,11 +204,6 @@ function ExampleCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 					);
 				})}
 			</ul>
-
-			<div className="permissions-example__result">
-				<code>can? = true</code>
-				<span>允许</span>
-			</div>
 			<p>权限来自当前 Workspace 的 MembershipRole 并集</p>
 		</aside>
 	);
@@ -317,7 +314,10 @@ export default function WorkspacePermissionsPage() {
 				) : currentMatrix.length > 0 ? (
 					<div className="permissions-content-grid">
 						<MatrixCard matrix={currentMatrix} />
-						<ExampleCard matrix={currentMatrix} />
+						<ExampleCard
+							matrix={currentMatrix}
+							myRoles={ws?.myRoleNames ?? []}
+						/>
 					</div>
 				) : (
 					<div className="permissions-empty-table">

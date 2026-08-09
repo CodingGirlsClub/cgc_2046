@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	screen,
@@ -695,6 +696,71 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 			expect.objectContaining({ after: "key1" }),
 		);
 		expect(screen.queryByTestId("load-more")).not.toBeInTheDocument();
+	});
+
+	// #10：loadMore stale guard —— 筛选变更后返回的旧页不追加
+	it("loadMore 过期页丢弃：筛选变更后 resolve 的旧页不污染新筛选结果", async () => {
+		const firstBatch = TEST_MEMBERS.ws_02.slice(0, 3); // 林溪/陈雨/周宁
+		const secondBatch = TEST_MEMBERS.ws_02.slice(3); // 苏曼/何苗
+		let resolveStale!: (value: {
+			members: WorkspaceMember[];
+			endKeyset: string | null;
+			count: number;
+		}) => void;
+		const stalePage = new Promise<{
+			members: WorkspaceMember[];
+			endKeyset: string | null;
+			count: number;
+		}>((resolve) => {
+			resolveStale = resolve;
+		});
+
+		// 首屏 3 行 + endKeyset；loadMore（带 after）挂起；新筛选主查询返回仅林溪
+		fetchMembers.mockImplementation(
+			(
+				_wsId: string,
+				opts?: { search?: string; role?: string; after?: string },
+			) => {
+				if (opts?.after) return stalePage;
+				if (opts?.search === "linxi") {
+					return Promise.resolve({
+						members: [TEST_MEMBERS.ws_02[0]],
+						endKeyset: null,
+						count: 1,
+					});
+				}
+				return Promise.resolve({
+					members: firstBatch,
+					endKeyset: "key1",
+					count: 5,
+				});
+			},
+		);
+
+		render(<MembersPage />);
+		await screen.findAllByTestId("member-row");
+		expect(screen.getAllByTestId("member-row")).toHaveLength(3);
+
+		// 触发 loadMore —— 请求挂起（手动 resolve）
+		fireEvent.click(screen.getByTestId("load-more"));
+
+		// 挂起期间改 search → debounce 300ms → 新筛选主查询完成
+		fireEvent.change(screen.getByRole("textbox", { name: "搜索姓名或邮箱" }), {
+			target: { value: "linxi" },
+		});
+		await waitFor(() =>
+			expect(screen.getAllByTestId("member-row")).toHaveLength(1),
+		);
+		expect(screen.getByText("林溪")).toBeInTheDocument();
+
+		// 现在 resolve 过期 loadMore 页 —— 不应追加（新筛选结果保持 1 行）
+		await act(async () => {
+			resolveStale({ members: secondBatch, endKeyset: null, count: 5 });
+		});
+
+		expect(screen.getAllByTestId("member-row")).toHaveLength(1);
+		expect(screen.queryByText("苏曼")).not.toBeInTheDocument();
+		expect(screen.queryByText("何苗")).not.toBeInTheDocument();
 	});
 
 	it("累积已加载 >= count 时不显示加载更多按钮", async () => {
