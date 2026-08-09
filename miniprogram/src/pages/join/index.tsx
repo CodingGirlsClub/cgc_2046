@@ -32,7 +32,11 @@ export default function JoinPage() {
       const result = await api.admitMember(scene.trim())
       Taro.removeStorageSync(STORAGE_KEYS.pendingScene)
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
-      setTimeout(() => Taro.switchTab({ url: '/pages/workspace/index' }), 500)
+      // 裁剪端（抖音/小红书）无工作台 Tab，入座后回落我的报名
+      const nextTab = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+        ? '/pages/my-enrollments/index'
+        : '/pages/workspace/index'
+      setTimeout(() => Taro.switchTab({ url: nextTab }), 500)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '邀请码无效或已过期')
     } finally {

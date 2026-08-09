@@ -41,9 +41,12 @@ declare const defineAppConfig: (config: Record<string, unknown>) => Record<strin
 declare const definePageConfig: (config: Record<string, unknown>) => Record<string, unknown>
 declare const __GRAPHQL_ENDPOINT__: string
 declare const __E2E_MOCK__: boolean
+declare const __PLATFORM_NAME__: string
 declare const __WECHAT_TEMPLATE_APPROVAL_RESULT__: string
 declare const __WECHAT_TEMPLATE_APPROVAL_REMINDER__: string
 declare const __WECHAT_TEMPLATE_EVENT_REMINDER__: string
+declare const __TT_TEMPLATE_APPROVAL_RESULT__: string
+declare const __TT_TEMPLATE_EVENT_REMINDER__: string
 
 declare module '*.module.css' {
   const classes: Record<string, string>

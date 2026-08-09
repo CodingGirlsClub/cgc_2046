@@ -1,16 +1,43 @@
+// 裁剪端（抖音/小红书）：2 Tab 漏斗——发现/我的报名 + 流程页，无管理/协作功能（§2 平台矩阵）
+const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+
+const cutPages = [
+  'pages/discover/index',
+  'pages/my-enrollments/index',
+  'pages/event-detail/index',
+  'pages/login/index',
+  'pages/register-form/index',
+  'pages/enrollment-result/index',
+  'pages/join/index'
+]
+
+const fullPages = [
+  'pages/discover/index',
+  'pages/event-detail/index',
+  'pages/login/index',
+  'pages/register-form/index',
+  'pages/enrollment-result/index',
+  'pages/my-enrollments/index',
+  'pages/workspace/index',
+  'pages/profile/index',
+  'pages/join/index',
+  'pages/openclacky/index'
+]
+
+const cutTabList = [
+  { pagePath: 'pages/discover/index', text: '发现' },
+  { pagePath: 'pages/my-enrollments/index', text: '我的报名' }
+]
+
+const fullTabList = [
+  { pagePath: 'pages/discover/index', text: '发现' },
+  { pagePath: 'pages/my-enrollments/index', text: '我的报名' },
+  { pagePath: 'pages/workspace/index', text: '工作台' },
+  { pagePath: 'pages/profile/index', text: '我的' }
+]
+
 export default defineAppConfig({
-  pages: [
-    'pages/discover/index',
-    'pages/event-detail/index',
-    'pages/login/index',
-    'pages/register-form/index',
-    'pages/enrollment-result/index',
-    'pages/my-enrollments/index',
-    'pages/workspace/index',
-    'pages/profile/index',
-    'pages/join/index',
-    'pages/openclacky/index'
-  ],
+  pages: isCut ? cutPages : fullPages,
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
@@ -22,23 +49,6 @@ export default defineAppConfig({
     selectedColor: '#07c160',
     backgroundColor: '#ffffff',
     borderStyle: 'black',
-    list: [
-      {
-        pagePath: 'pages/discover/index',
-        text: '发现'
-      },
-      {
-        pagePath: 'pages/my-enrollments/index',
-        text: '我的报名'
-      },
-      {
-        pagePath: 'pages/workspace/index',
-        text: '工作台'
-      },
-      {
-        pagePath: 'pages/profile/index',
-        text: '我的'
-      }
-    ]
+    list: isCut ? cutTabList : fullTabList
   }
 })
