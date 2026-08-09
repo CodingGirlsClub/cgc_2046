@@ -2,6 +2,7 @@ import Taro from '@tarojs/taro'
 import type { RequestDocument } from 'graphql-request'
 import { mockGraphQLRequest } from './mockTransport'
 import { clearWorkspaceTab } from '@/state/workspaceTab'
+import { clearAccountState } from '@/state/accountState'
 
 const AUTH_TOKEN_KEY = 'cgc.auth_token'
 
@@ -41,6 +42,7 @@ export function isAuthenticationError(error: unknown): boolean {
 function clearExpiredAuthentication(): void {
   setAuthToken(null)
   clearWorkspaceTab()
+  clearAccountState({ clearPendingScene: true })
 }
 
 export function setAuthToken(token: string | null): void {
@@ -88,10 +90,10 @@ export async function graphqlRequest<TData, TVariables extends object>(
     data: { query: String(document), variables }
   })
 
-  if (options.captureAuthCookie) {
-    const token = extractAuthToken(response.cookies, response.header as Record<string, unknown>)
-    if (token) setAuthToken(token)
-  }
+  // candidate token 只在 HTTP/GraphQL/data 三层校验全部通过后才提交（原子提交）
+  const candidateToken = options.captureAuthCookie
+    ? extractAuthToken(response.cookies, response.header as Record<string, unknown>)
+    : null
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     const error = new GraphQLRequestError(`请求失败（HTTP ${response.statusCode}）`, response.statusCode)
@@ -110,5 +112,6 @@ export async function graphqlRequest<TData, TVariables extends object>(
   if (!response.data.data) {
     throw new GraphQLRequestError('服务端未返回数据', response.statusCode)
   }
+  if (candidateToken) setAuthToken(candidateToken)
   return response.data.data
 }
