@@ -29,7 +29,7 @@
 | [002](./002-diversion-gate-fail-closed.md) | 让零导流产物门禁真实、完整且 fail-closed | P1 | S | — | DONE |
 | [003](./003-add-toutiao-project-config.md) | 补齐抖音工程配置并隔离本机项目标识 | P1 | S | — | DONE |
 | [004](./004-establish-api-contract-tests.md) | 建立 API/认证边界自动化测试 | P1 | M | 001, 002 | DONE |
-| [005](./005-make-auth-state-atomic.md) | 让认证状态提交原子化并隔离账号本地数据 | P1 | M | 004 | TODO |
+| [005](./005-make-auth-state-atomic.md) | 让认证状态提交原子化并隔离账号本地数据 | P1 | M | 004 | DONE |
 
 状态值：`TODO`、`IN PROGRESS`、`DONE`、`BLOCKED（附一行原因）`、
 `REJECTED（附一行理由）`。
