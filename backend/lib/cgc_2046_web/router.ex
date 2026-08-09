@@ -16,8 +16,11 @@ defmodule Cgc2046Web.Router do
   end
 
   # MCP endpoint（Slice D #42）：独立 Bearer 鉴权（连接 token，非 AshAuthentication token），
-  # 不过 :api（anubis transport 自行处理 body/streaming）
+  # 不过 :api（anubis transport 自行处理 body/streaming）。
+  # McpProtocolCompatPlug 必须在鉴权之前：OpenClacky ≤1.5.6 client 硬编码的旧版
+  # protocol header 会在 anubis 协商前 400，先 shim 掉（见该模块 @moduledoc）。
   pipeline :mcp do
+    plug(Cgc2046Web.Plugs.McpProtocolCompatPlug)
     plug(Cgc2046Web.Plugs.McpAuthPlug)
   end
 
