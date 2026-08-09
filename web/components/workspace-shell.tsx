@@ -34,18 +34,11 @@ import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
 import { Icon } from "@/components/icons";
-
-type NavSection =
-	| "overview"
-	| "workflows"
-	| "members"
-	| "settings-permissions"
-	| "settings-join-policy"
-	| "settings-requests"
-	| "settings-invitations"
-	| "settings-account-profile"
-	| "settings-account-preferences"
-	| null;
+import {
+	SETTINGS_NAV,
+	canSee,
+	type NavSection,
+} from "@/components/workspace-nav";
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
@@ -67,6 +60,8 @@ function navSection(pathname: string, slug: string): NavSection {
 		return "settings-account-profile";
 	if (pathname.startsWith(`/w/${slug}/settings/account/preferences`))
 		return "settings-account-preferences";
+	if (pathname.startsWith(`/w/${slug}/settings/connection`))
+		return "settings-connection";
 	return null;
 }
 
@@ -97,12 +92,17 @@ export default function WorkspaceShell({
 	const { authed, confirmed } = useAuthed();
 	// requireWs=false（profile）时 slug 传 ""：hook 空 slug 不解析（见 hook 文档），
 	// 侧栏上下文块只展示 slug，不出现「不可访问」态
-	const { ws, loading } = useWorkspaceBySlug(requireWs ? slug : "");
+	const { ws, loading, error: wsError, retry } = useWorkspaceBySlug(
+		requireWs ? slug : "",
+	);
 
 	// 工作区切换 dropdown（issue #83：ws-shell-brand ⌄ 可切换已加入的工作区）
 	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
 	const [profile, setProfile] = useState<CurrentProfile | null>(null);
 	const [brandOpen, setBrandOpen] = useState(false);
+	// 登出失败上报（#018）：mutation 失败不导航，原菜单内展示错误 + 可重试
+	const [signOutError, setSignOutError] = useState<string | null>(null);
+	const [signingOut, setSigningOut] = useState(false);
 	const brandRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -152,7 +152,14 @@ export default function WorkspaceShell({
 	}, [authed, confirmed, router]);
 
 	async function handleSignOut() {
-		await clearSession();
+		setSigningOut(true);
+		setSignOutError(null);
+		const result = await clearSession();
+		setSigningOut(false);
+		if (!result.ok) {
+			setSignOutError("退出登录失败，请重试");
+			return; // 不导航 —— 让用户看到错误并重试
+		}
 		router.push("/login");
 	}
 
@@ -165,6 +172,27 @@ export default function WorkspaceShell({
 	}
 
 	if (requireWs && slug && !ws && !loading) {
+		// #017 Bug B：网络/服务器错误 ≠「无权限」——给重试出口，不误报「工作区不可访问」
+		if (wsError) {
+			return (
+				<main className="ws-shell-page">
+					<div className="ws-shell-empty-page">
+						<h1>加载失败</h1>
+						<p>工作区数据加载出错：{wsError.message}</p>
+						<button
+							type="button"
+							className="join-button join-button--primary"
+							onClick={retry}
+						>
+							重试
+						</button>
+						<Link href="/" className="ws-shell-primary-link">
+							返回工作台
+						</Link>
+					</div>
+				</main>
+			);
+		}
 		return (
 			<main className="ws-shell-page">
 				<div className="ws-shell-empty-page">
@@ -184,11 +212,13 @@ export default function WorkspaceShell({
 	const isSettings = pathname.startsWith(`/w/${slug}/settings`);
 
 	// #79 IA：管理项按能力过滤（普通成员仅见 概览/个人资料）；
-	// 页面级门控不变（后端 policy 权威拦截，导航过滤仅为 UX）
+	// 页面级门控不变（后端 policy 权威拦截，导航过滤仅为 UX）。
+	// plan 016：门控单源化 —— 侧栏/tab 条/下拉菜单统一消费 SETTINGS_NAV 注册表，
+	// 审批/邀请跟随 manage_members（不再跟随 list_members）。
 	const abilities = ws?.myAbilities ?? [];
-	const canSeeMembers = abilities.includes("list_members");
-	const canSeeJoinPolicy = abilities.includes("update_join_policy");
-	const canSeeManagement = canSeeMembers; // B-3 占位跟随管理可见性
+	const workspaceNav = SETTINGS_NAV.filter(
+		(d) => d.group === "workspace" && canSee(d, abilities),
+	);
 
 	return (
 		<div className={`ws-shell-page ${className ?? ""}`}>
@@ -213,9 +243,12 @@ export default function WorkspaceShell({
 							workspaces={workspaces}
 							currentSlug={slug}
 							currentWorkspaceId={ws?.id}
+							abilities={abilities}
 							profile={profile}
 							onNavigate={() => setBrandOpen(false)}
 							onSignOut={handleSignOut}
+							signOutError={signOutError}
+							signingOut={signingOut}
 						/>
 					)}
 				</div>
@@ -251,67 +284,32 @@ export default function WorkspaceShell({
 								<Icon name="user" />
 								<span>个人资料</span>
 							</Link>
+							<Link
+								href={`/w/${slug}/settings/connection`}
+								className={`ws-shell-item ${active === "settings-connection" ? "ws-shell-item--selected" : ""}`}
+								aria-current={
+									active === "settings-connection" ? "page" : undefined
+								}
+							>
+								<Icon name="activity" />
+								<span>连接</span>
+							</Link>
 						</nav>
 						<div className="ws-shell-heading">Workspace</div>
 						<nav className="ws-shell-nav" aria-label="Workspace">
-							{canSeeMembers && (
-								<>
-									<Link
-										href={`/w/${slug}/settings/members`}
-										className={`ws-shell-item ${active === "members" ? "ws-shell-item--selected" : ""}`}
-										aria-current={active === "members" ? "page" : undefined}
-									>
-										<Icon name="users" />
-										<span>成员与角色</span>
-									</Link>
-									<Link
-										href={`/w/${slug}/settings/permissions`}
-										className={`ws-shell-item ${active === "settings-permissions" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-permissions" ? "page" : undefined
-										}
-									>
-										<Icon name="role" />
-										<span>权限映射</span>
-									</Link>
-								</>
-							)}
-							{canSeeJoinPolicy && (
+							{workspaceNav.map((dest) => (
 								<Link
-									href={`/w/${slug}/settings/join-policy`}
-									className={`ws-shell-item ${active === "settings-join-policy" ? "ws-shell-item--selected" : ""}`}
+									key={dest.key}
+									href={dest.href(slug)}
+									className={`ws-shell-item ${active === dest.active ? "ws-shell-item--selected" : ""}`}
 									aria-current={
-										active === "settings-join-policy" ? "page" : undefined
+										active === dest.active ? "page" : undefined
 									}
 								>
-									<Icon name="settings" />
-									<span>加入策略</span>
+									<Icon name={dest.icon!} />
+									<span>{dest.label}</span>
 								</Link>
-							)}
-							{canSeeManagement && (
-								<>
-									<Link
-										href={`/w/${slug}/settings/requests`}
-										className={`ws-shell-item ${active === "settings-requests" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-requests" ? "page" : undefined
-										}
-									>
-										<Icon name="shield" />
-										<span>加入审批</span>
-									</Link>
-									<Link
-										href={`/w/${slug}/settings/invitations`}
-										className={`ws-shell-item ${active === "settings-invitations" ? "ws-shell-item--selected" : ""}`}
-										aria-current={
-											active === "settings-invitations" ? "page" : undefined
-										}
-									>
-										<Icon name="invite" />
-										<span>邀请管理</span>
-									</Link>
-								</>
-							)}
+							))}
 						</nav>
 					</>
 				)}

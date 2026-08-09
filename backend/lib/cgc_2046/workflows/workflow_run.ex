@@ -464,6 +464,28 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     read :get_by_id do
       get_by([:id])
     end
+
+    # 切片 D MCP save_step_output 工具：浅合并 facts（StepRole 授权在工具层判定）。
+    # 不走状态机 action（complete/fail 等）——MCP 写产出不改变 run 状态；
+    # 终态 run 拒绝写入（避免伪造执行产物）。
+    update :update_facts_for_mcp do
+      description("MCP 工具写入 step 产出（facts 浅合并；终态拒绝）")
+      require_atomic?(false)
+      accept([:facts])
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          status when status in [:pending, :running, :waiting] ->
+            changeset
+
+          status ->
+            Ash.Changeset.add_error(
+              changeset,
+              "cannot save step output to run in status=#{status}"
+            )
+        end
+      end)
+    end
   end
 
   postgres do
@@ -489,6 +511,13 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     # 写操作：Owner/Admin（多角色并集）或平台管理员
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+    end
+
+    # 切片 D：MCP save_step_output 的 facts 写入对成员放开（StepRole 细粒度授权
+    # 已在工具层经 StepAuthorization.authorize_signal/4 判定，本层只做成员门槛）
+    bypass action(:update_facts_for_mcp) do
+      authorize_if(relates_to_actor_via([:definition, :workspace, :memberships, :user]))
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
   end

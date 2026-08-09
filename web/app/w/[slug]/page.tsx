@@ -143,27 +143,28 @@ export default function WorkspacePage() {
 							</Link>
 						</div>
 
-						{/* 后续切片占位条：不渲染假数据（2026-08-02 mock 双轨删除决策）。
-						    视觉降级：虚线边框 + 「即将开放」角标，与可点击管理入口区分 */}
+						{/* 教研产出入口（切片 C 已落地，见 workflows 页；plan 016 替换过期占位卡）。
+						    报名/赞助（切片 E）仍为占位：视觉降级虚线边框 + 「即将开放」角标 */}
 						<div className="mt-4 grid gap-4 sm:grid-cols-2">
-							<div
-								className="ws-placeholder-card"
-								aria-disabled="true"
-								title="后续切片开放"
+							<Link
+								href={`/w/${slug}/workflows`}
+								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
 							>
-								<span className="ws-placeholder-card__icon">
-									<Icon name="activity" />
+								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
+									<Icon name="book" />
 								</span>
 								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink-3">
+									<span className="block text-sm font-medium text-ink">
 										Workflow 产出
 									</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										后续切片开放（切片 C）
+										查看教研产出与工作流结果
 									</span>
 								</span>
-								<span className="ws-placeholder-card__badge">即将开放</span>
-							</div>
+								<span className="flex-none text-ink-3">
+									<Icon name="arrow" />
+								</span>
+							</Link>
 							<div
 								className="ws-placeholder-card"
 								aria-disabled="true"

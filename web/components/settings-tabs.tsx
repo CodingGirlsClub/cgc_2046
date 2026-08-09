@@ -8,6 +8,7 @@
  * 门控：tab.ability 缺失 = 恒显；否则需 abilities 包含该能力。
  */
 import Link from "next/link";
+import { canSee } from "./workspace-nav";
 
 export type SettingsTabDef = {
 	key: string;
@@ -31,7 +32,7 @@ export default function SettingsTabs({
 	return (
 		<nav className="ws-tabs" aria-label="工作区设置页签">
 			{tabs.map((tab) => {
-				if (tab.ability && !abilities.includes(tab.ability)) return null;
+				if (!canSee(tab, abilities)) return null;
 				const selected = tab.key === current;
 				return (
 					<Link

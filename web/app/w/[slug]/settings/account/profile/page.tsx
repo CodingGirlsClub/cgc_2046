@@ -23,6 +23,7 @@ import {
   fetchProfileRoleSummary,
   pickRoleSummary,
   type CurrentProfile,
+  type ProfilePortfolioItem,
   type ProfileRoleSummary,
   type WorkspaceProfileContent,
 } from "@/lib/profile";
@@ -34,6 +35,7 @@ export default function WorkspaceAccountProfilePage() {
   const { ws } = useWorkspaceBySlug(slug);
   const [profile, setProfile] = useState<CurrentProfile | null>(null);
   const [wsProfile, setWsProfile] = useState<WorkspaceProfileContent | null>(null);
+  const [portfolio, setPortfolio] = useState<ProfilePortfolioItem[]>([]);
   const [summaries, setSummaries] = useState<ProfileRoleSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -52,7 +54,10 @@ export default function WorkspaceAccountProfilePage() {
       .then(([nextProfile, nextWsProfile, nextPortfolio, nextSummaries]) => {
         if (cancelled) return;
         setProfile(nextProfile);
-        setWsProfile(nextWsProfile ? { ...nextWsProfile, portfolio: nextPortfolio } : null);
+        // portfolio 单独经 initialPortfolio 传给表单：wsProfile 为 null（尚无 WorkspaceProfile 行）
+        // 时也不丢刚拉到的作品集
+        setWsProfile(nextWsProfile);
+        setPortfolio(nextPortfolio);
         setSummaries(nextSummaries);
         setErrorMsg(null);
       })
@@ -123,6 +128,7 @@ export default function WorkspaceAccountProfilePage() {
           workspaceId={workspaceId ?? ""}
           roles={roles}
           memberNumber={profile.memberNumber ?? "—"}
+          initialPortfolio={portfolio}
         />
       </div>
     </WorkspaceShell>
