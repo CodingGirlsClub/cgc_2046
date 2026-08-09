@@ -1,0 +1,41 @@
+.state {
+  min-height: 360rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  box-sizing: border-box;
+  color: #667085;
+}
+
+.icon {
+  width: 64rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #eef0ff;
+  color: #5e6ad2;
+  font-weight: 700;
+}
+
+.title {
+  margin-top: 20rpx;
+  color: #344054;
+  font-weight: 600;
+}
+
+.message {
+  margin-top: 12rpx;
+  text-align: center;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.retry {
+  margin-top: 24rpx;
+  color: #5e6ad2;
+  border: 1rpx solid #5e6ad2;
+  background: #fff;
+}

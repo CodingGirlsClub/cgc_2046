@@ -1,0 +1,29 @@
+.page { min-height: 100vh; }
+.scroll { height: 100vh; padding-bottom: 140rpx; box-sizing: border-box; }
+.header { padding: 48rpx 32rpx 36rpx; color: #fff; background: #172033; }
+.eyebrow { display: block; color: #aeb6ff; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
+.title { display: block; margin-top: 10rpx; font-size: 48rpx; font-weight: 700; }
+.subtitle { display: block; margin-top: 10rpx; color: #cbd1e2; font-size: 24rpx; }
+.content { padding: 30rpx 28rpx; }
+.approvalHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
+.sectionTitle { display: block; font-size: 32rpx; font-weight: 650; }
+.approvalSummary { display: block; margin-top: 7rpx; color: #667085; font-size: 22rpx; }
+.urgentText { color: #d92d20; }
+.subscribe { margin: 0; color: #5e6ad2; background: #eff0ff; border-radius: 25rpx; font-size: 21rpx; }
+.approvalCard { margin-bottom: 18rpx; padding: 24rpx; background: #fff; border: 1rpx solid #eaecf0; border-radius: 20rpx; }
+.urgentCard { border-color: #fda29b; background: #fffafa; }
+.tags { display: flex; gap: 10rpx; }
+.workspaceTag, .kindTag { padding: 4rpx 12rpx; border-radius: 14rpx; font-size: 20rpx; }
+.workspaceTag { color: #3943a2; background: #eff0ff; }
+.kindTag { color: #475467; background: #f2f4f7; }
+.approvalTitle { display: block; margin-top: 17rpx; font-size: 29rpx; font-weight: 600; }
+.deadline { display: block; margin-top: 8rpx; color: #667085; font-size: 23rpx; }
+.actions { margin-top: 20rpx; display: flex; justify-content: flex-end; gap: 14rpx; }
+.reject, .approve { margin: 0; border-radius: 25rpx; font-size: 22rpx; }
+.reject { color: #475467; background: #f2f4f7; }
+.approve { color: #fff; background: #5e6ad2; }
+.workspaceCard { margin: 20rpx 0 18rpx; padding: 26rpx; display: flex; align-items: center; justify-content: space-between; background: #fff; border-radius: 20rpx; }
+.workspaceName { display: block; font-size: 29rpx; font-weight: 600; }
+.workspaceMeta { display: block; margin-top: 8rpx; color: #98a2b3; font-size: 21rpx; }
+.roleList { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8rpx; }
+.role { padding: 5rpx 12rpx; color: #5e6ad2; background: #eff0ff; border-radius: 14rpx; font-size: 20rpx; }

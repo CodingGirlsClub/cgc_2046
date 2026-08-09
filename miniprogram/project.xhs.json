@@ -1,0 +1,16 @@
+{
+  "miniprogramRoot": "dist/xhs/",
+  "projectname": "cgc-miniprogram",
+  "description": "CGC 小程序（小红书端产物指向 dist/xhs）",
+  "appid": "touristappid",
+  "libVersion": "3.102.3",
+  "setting": {
+    "es6": false,
+    "enhance": false,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": false
+  },
+  "compileType": "miniprogram",
+  "srcMiniprogramRoot": "dist/xhs/"
+}

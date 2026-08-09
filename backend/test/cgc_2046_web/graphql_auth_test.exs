@@ -23,10 +23,11 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     assert cookie.http_only == true, "cgc_token must be httpOnly (防 JS 读取)"
     assert cookie.same_site == "Lax", "cgc_token sameSite 应为 Lax"
     assert is_binary(cookie.value) and byte_size(cookie.value) > 0, "cgc_token 值非空"
-    # max_age 必须与 AshAuthentication token_lifetime（默认 14 天）对齐，
+
+    # max_age 必须与 AshAuthentication token_lifetime（Phase 1 起 7 天，见 user.ex tokens 块）对齐，
     # 否则 cookie 比 token 早过期 → 用户登录次日即被判定未登录（#5 regression guard）。
-    assert cookie.max_age == 60 * 60 * 24 * 14,
-           "cgc_token max_age 应为 14 天对齐 token_lifetime，实际 #{inspect(cookie.max_age)}"
+    assert cookie.max_age == 60 * 60 * 24 * 7,
+           "cgc_token max_age 应为 7 天对齐 token_lifetime，实际 #{inspect(cookie.max_age)}"
 
     cookie
   end

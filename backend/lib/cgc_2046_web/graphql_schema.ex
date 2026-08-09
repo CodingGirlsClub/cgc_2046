@@ -113,6 +113,16 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
+    field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
+      resolve(fn _, _, %{context: context} ->
+        case context[:actor] do
+          nil -> {:error, unauthorized_error()}
+          actor -> Cgc2046.Events.PendingApprovals.list(actor)
+        end
+      end)
+    end
   end
 
   mutation do
@@ -253,6 +263,166 @@ defmodule Cgc2046Web.GraphqlSchema do
 
           _ ->
             res
+        end
+      end)
+    end
+
+    @desc "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
+    field :sign_in_with_platform, :sign_in_with_platform_result do
+      arg(:platform, non_null(:string))
+      arg(:code, non_null(:string))
+      arg(:encrypted_data, non_null(:string))
+      arg(:iv, non_null(:string))
+
+      # getPhoneNumber 计费防刷：复用既有 RateLimit（按 IP+platform 计，5 次/15 分钟）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
+
+      resolve(fn _,
+                 %{platform: platform, code: code, encrypted_data: encrypted_data, iv: iv},
+                 _ ->
+        query =
+          Cgc2046.Accounts.User
+          |> Ash.Query.for_read(:sign_in_with_miniprogram, %{
+            platform: platform,
+            code: code,
+            encrypted_data: encrypted_data,
+            iv: iv
+          })
+
+        try do
+          case Ash.read(query) do
+            {:ok, [user]} ->
+              {:ok,
+               %{
+                 id: user.id,
+                 email: user.email,
+                 is_platform_admin: user.is_platform_admin,
+                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+                 __token__: user.__metadata__[:token]
+               }}
+
+            {:error, _error} ->
+              {:error, message: "Platform sign in failed", code: "authentication_failed"}
+          end
+        rescue
+          _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        end
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
+    @desc "Owner/Admin 创建一次性工作台邀请小程序码"
+    field :generate_mini_program_code, :miniprogram_code_result do
+      arg(:workspace_id, non_null(:id))
+      arg(:platform, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:workspace_id])
+
+      resolve(fn _, %{workspace_id: workspace_id, platform: platform}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.MiniprogramCode.generate(workspace_id, actor, platform) do
+              {:ok, result} ->
+                {:ok, result}
+
+              {:error, :forbidden} ->
+                {:error, message: "Forbidden", code: "forbidden"}
+
+              {:error, :invalid_platform} ->
+                {:error, message: "Invalid platform", code: "invalid_platform"}
+
+              {:error, :daily_quota_exhausted} ->
+                {:error, message: "Daily quota exhausted", code: "daily_quota_exhausted"}
+
+              {:error, _} ->
+                {:error, message: "Code generation failed", code: "code_generation_failed"}
+            end
+        end
+      end)
+    end
+
+    @desc "使用一次性小程序 scene 接受工作台邀请"
+    field :admit_member_by_token, :invitation do
+      arg(:scene, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:scene])
+
+      resolve(fn _, %{scene: scene}, %{context: context} ->
+        cond do
+          is_nil(context[:actor]) ->
+            {:error, unauthorized_error()}
+
+          not Cgc2046.MiniprogramCode.valid_scene?(scene) ->
+            {:error, message: "Invalid scene", code: "invalid_scene"}
+
+          true ->
+            actor = context[:actor]
+
+            with {:ok, code} <- Cgc2046.MiniprogramCode.code_for_scene(scene),
+                 {:ok, invitation} <-
+                   Ash.get(Cgc2046.Accounts.Invitation, code.invitation_id, authorize?: false),
+                 {:ok, accepted} <-
+                   invitation
+                   |> Ash.Changeset.for_update(:accept_miniprogram, %{scene: scene})
+                   |> Ash.update(actor: actor) do
+              {:ok, accepted}
+            else
+              {:error, :invalid_scene} ->
+                {:error, message: "Invalid scene", code: "invalid_scene"}
+
+              {:error, :invalid_or_expired_scene} ->
+                {:error,
+                 message: "Invitation has already been used or scene has expired",
+                 code: "invalid_or_expired_scene"}
+
+              {:error, error} ->
+                {:error,
+                 to_ash_graphql_errors(
+                   error,
+                   context,
+                   :accept_miniprogram,
+                   Cgc2046.Accounts.Invitation
+                 )}
+            end
+        end
+      end)
+    end
+
+    @desc "记录一次小程序订阅消息授权并增加一个可用次数"
+    field :grant_mini_program_notification_consent, :integer do
+      arg(:platform, non_null(:string))
+      arg(:template_key, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
+
+      resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.NotificationConsent.grant(actor.id, platform, template_key) do
+              {:ok, remaining} ->
+                {:ok, remaining}
+
+              {:error, :invalid_platform} ->
+                {:error, message: "Invalid platform", code: "invalid_platform"}
+
+              {:error, _} ->
+                {:error, message: "Consent grant failed", code: "consent_grant_failed"}
+            end
         end
       end)
     end
@@ -528,6 +698,25 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:roles, non_null(list_of(non_null(:permission_matrix_row))))
   end
 
+  object :pending_approval do
+    field(:id, non_null(:id))
+    field(:kind, non_null(:string))
+    field(:workspace_id, non_null(:id))
+    field(:user_id, non_null(:id))
+    field(:event_id, :id)
+    field(:course_id, :id)
+    field(:status, non_null(:string))
+    field(:approval_deadline, :datetime)
+  end
+
+  object :miniprogram_code_result do
+    field(:invitation_id, non_null(:id))
+    field(:platform, non_null(:string))
+    field(:scene, non_null(:string))
+    field(:code_base64, non_null(:string))
+    field(:expires_at, non_null(:datetime))
+  end
+
   # ── 认证相关类型（#60 路径 B：httpOnly cookie 交付 token） ──────────────
 
   # 持 token 的邀请接口限流：validate/accept 均吃明文 token 参数，按 IP+token 计，
@@ -546,6 +735,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :sign_in_result do
     field(:id, non_null(:id))
     field(:email, non_null(:string))
+    field(:is_platform_admin, non_null(:boolean))
+  end
+
+  # 小程序手机号用户无邮箱 → email 可空（与 users.email 放宽一致）
+  object :sign_in_with_platform_result do
+    field(:id, non_null(:id))
+    field(:email, :string)
     field(:is_platform_admin, non_null(:boolean))
   end
 
@@ -694,7 +890,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 服务端撤销当前 token：往 tokens 表对当前 jti 做 upsert，把 purpose 从 "user"
   # 覆盖成 "revocation"，下次 load_from_bearer 的 get_token 查不到 user 记录即认证失败。
   # token 由 AuthTokenContextPlug 从 Authorization header 透传进 Absinthe context。
-  # 撤销失败不阻断登出：仍清 cookie 让用户侧登出成功，token 会在 14 天自然过期。
+  # 撤销失败不阻断登出：仍清 cookie 让用户侧登出成功，token 会在 7 天自然过期。
   defp revoke_bearer_token(context) do
     case context[:cgc_bearer_token] do
       token when is_binary(token) and byte_size(token) > 0 ->
