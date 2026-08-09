@@ -118,10 +118,33 @@ module Cgc2046McpConfig
     { data: data, created: created }
   end
 
+  # 移除一个 server 条目（断开连接）。
+  #
+  # @param json_text_or_hash [String, Hash, nil] mcp.json 原文、已解析的 Hash 或 nil
+  # @param name  [String] 条目名（handler 写死 "cgc"）
+  # @return [Hash] { data:, removed: }
+  #   data    — 移除后的完整配置 Hash（string keys）
+  #   removed — true 表示该条目确实被移除；false 表示本来就不存在（no-op，内容不变）
+  #
+  # - 无效 JSON / 非 Hash 输入按 {} 处理，不抛异常；
+  # - 只动 name 条目，其它 server 条目不受影响；调用方传入的 Hash 不被修改。
+  def remove_server(json_text_or_hash, name:)
+    data = normalize(json_text_or_hash)
+    servers = data["mcpServers"]
+
+    if servers.is_a?(Hash) && servers.key?(name)
+      servers.delete(name)
+      { data: data, removed: true }
+    else
+      { data: data, removed: false }
+    end
+  end
+
   # 查询条目配置状态。
   #
-  # @return [Hash] { configured: bool, url: String|nil }
-  #   永不返回 headers / token。configured 定义：条目存在且含非空 url。
+  # @return [Hash] { configured: bool, url: String|nil, token_configured: bool }
+  #   永不返回 headers / token。configured 定义：条目存在且含非空 url；
+  #   token_configured 定义：条目 headers 中含非空 Authorization（仅布尔，不泄露值）。
   def status_of(json_text_or_hash, name:)
     data = normalize(json_text_or_hash)
     servers = data["mcpServers"]
@@ -130,7 +153,11 @@ module Cgc2046McpConfig
     url = entry.is_a?(Hash) ? entry["url"] : nil
     configured = url.is_a?(String) && !url.empty?
 
-    { configured: configured, url: configured ? url : nil }
+    headers = entry.is_a?(Hash) && entry["headers"].is_a?(Hash) ? entry["headers"] : {}
+    auth = headers["Authorization"]
+    token_configured = auth.is_a?(String) && !auth.empty?
+
+    { configured: configured, url: configured ? url : nil, token_configured: token_configured }
   end
 
   # 序列化为 pretty JSON 文本（以 "\n" 结尾），对齐 HttpServer 先例。

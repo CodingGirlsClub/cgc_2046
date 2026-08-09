@@ -58,9 +58,10 @@ class HandlerRequestTest < Minitest::Test
     routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
 
     assert_includes routes, [:post, "/connect"]
+    assert_includes routes, [:delete, "/connect"]
     assert_includes routes, [:get, "/status"]
     assert_includes routes, [:post, "/skills/sync"]
-    assert_equal 3, Cgc2046Ext.routes.size
+    assert_equal 4, Cgc2046Ext.routes.size
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
@@ -269,6 +270,7 @@ class HandlerRequestTest < Minitest::Test
       payload = JSON.parse(halt.payload)
       assert_equal true, payload["ok"]
       assert_equal true, payload["configured"]
+      assert_equal true, payload["token_configured"], "有 Authorization header 时应报 token_configured:true"
       assert_equal URL, payload["url"]
       refute_includes halt.payload, "tok_secret_status", "status 不得泄漏 token"
       refute_includes halt.payload, "Bearer"
@@ -283,7 +285,84 @@ class HandlerRequestTest < Minitest::Test
       assert_equal 200, halt.status
       payload = JSON.parse(halt.payload)
       assert_equal false, payload["configured"]
+      assert_equal false, payload["token_configured"]
       assert_nil payload["url"]
+    end
+  end
+
+  def test_status_returns_web_url_from_config
+    with_meta({ "config" => { "web_url" => "http://localhost:3000" } }) do
+      stub_fs(old_text: nil) do
+        halt = invoke(:get, "/status", build)
+
+        assert_equal 200, halt.status
+        assert_equal "http://localhost:3000", JSON.parse(halt.payload)["web_url"]
+      end
+    end
+  end
+
+  # ---- disconnect（DELETE /connect：移除 cgc 条目 + reload）----
+
+  def test_disconnect_removes_and_reloads
+    old = JSON.generate("mcpServers" => { "cgc" => {
+      "type" => "http", "url" => URL,
+      "headers" => { "Authorization" => "Bearer tok_old" }, "description" => "x"
+    }, "other" => { "type" => "stdio", "command" => "x" } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:delete, "/connect", build(registry: registry))
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal true, payload["ok"]
+      assert_equal true, payload["removed"]
+
+      assert_equal 1, persisted.size, "应恰好 persist 一次"
+      _path, data = persisted.first
+      assert_nil data.dig("mcpServers", "cgc"), "cgc 条目必须被移除"
+      assert_equal({ "type" => "stdio", "command" => "x" }, data.dig("mcpServers", "other"),
+                   "其它 server 条目语义无损")
+
+      assert_equal 1, registry.reload_count, "写后必须 reload registry"
+    end
+  end
+
+  def test_disconnect_noop_when_not_configured
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:delete, "/connect", build(registry: registry))
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal true, payload["ok"]
+      assert_equal false, payload["removed"], "无 cgc 条目时应为 no-op"
+
+      assert_empty persisted, "no-op 时不得写盘（避免无谓重写/权限变化）"
+      assert_equal 0, registry.reload_count, "no-op 时不得 reload"
+    end
+  end
+
+  def test_disconnect_reload_failure_rolls_back_and_reloads_again
+    old = JSON.generate("mcpServers" => { "cgc" => {
+      "type" => "http", "url" => URL, "headers" => { "Authorization" => "Bearer tok_old" }
+    }, "other" => { "type" => "stdio", "command" => "x" } })
+    registry = FakeRegistry.new(fail_times: 1)
+
+    stub_fs(old_text: old) do |persisted, restored|
+      halt = invoke(:delete, "/connect", build(registry: registry))
+
+      assert_equal 500, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "reload"
+
+      assert_equal 1, persisted.size, "正向移除写恰好一次"
+      assert_equal 1, restored.size, "回滚写恰好一次"
+      assert_equal old, restored.first[1],
+                   "回滚必须写回进入时的原文 bytes（cgc 条目必须被恢复）"
+
+      assert_equal 2, registry.reload_count, "恢复落盘后必须 best-effort 再 reload 一次"
     end
   end
 
