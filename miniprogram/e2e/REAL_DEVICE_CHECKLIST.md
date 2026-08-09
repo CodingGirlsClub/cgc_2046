@@ -4,7 +4,7 @@
 
 ## 准备
 
-- [ ] 在微信开发者工具导入 `miniprogram/`，替换 `project.config.json` 的真实 appid。
+- [ ] 执行 `pnpm build:weapp` 后，在微信开发者工具导入 `dist/weapp/`；真实 AppID 只写入开发者工具本地的私有配置，操作后用 `git status` 确认 tracked `project.config.json` 未被改动。
 - [ ] 手机与开发机在可访问 4001 的网络内；或将 `CGC_GRAPHQL_ENDPOINT` 设置为已配置 HTTPS 合法域名的测试后端。
 - [ ] 后端已配置微信 appid/secret；微信后台已把 GraphQL 域名加入 request 合法域名。
 - [ ] 配置三个模板 ID：`CGC_WECHAT_TEMPLATE_APPROVAL_RESULT`、`CGC_WECHAT_TEMPLATE_APPROVAL_REMINDER`、`CGC_WECHAT_TEMPLATE_EVENT_REMINDER`。

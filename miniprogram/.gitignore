@@ -4,4 +4,4 @@ dist/
 .DS_Store
 *.log
 .swc/
-project.private.config.json/
+project.private.config.json
