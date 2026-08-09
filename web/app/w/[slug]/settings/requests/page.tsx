@@ -107,7 +107,9 @@ export default function RequestsPage() {
 		if (!ws || loadedRef.current) return;
 		loadedRef.current = true;
 		if (!canManage) {
-			loadedRef.current = true;
+			// plan 016：与邀请页同修 —— 无管理能力也要结束加载态，否则 loading 永真。
+			// 微任务提交，避免 react-hooks/set-state-in-effect 同步 setState
+			queueMicrotask(() => setLoading(false));
 			return;
 		}
 		let cancelled = false;

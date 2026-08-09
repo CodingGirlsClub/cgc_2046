@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./apollo-client", () => ({
-	client: { query: vi.fn(), mutate: vi.fn() },
+	client: {
+		query: vi.fn(),
+		mutate: vi.fn(),
+		refetchQueries: vi.fn(),
+		cache: { evict: vi.fn(), gc: vi.fn() },
+	},
 }));
 
 import { client } from "./apollo-client";
@@ -21,6 +26,7 @@ import {
 	ACCEPT_INVITATION,
 	VALIDATE_INVITATION,
 } from "./graphql/invitation";
+import { ME_WORKSPACES } from "./graphql/workspace";
 
 describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () => {
 	it("active 状态映射（列表不含明文 token，plainToken 恒为 null）", () => {
@@ -220,9 +226,13 @@ describe("fetchInvitations", () => {
 
 describe("createInvitation", () => {
 	const mutateMock = vi.mocked(client.mutate);
+	const evictMock = vi.mocked(client.cache.evict);
+	const gcMock = vi.mocked(client.cache.gc);
 
 	beforeEach(() => {
 		mutateMock.mockReset();
+		evictMock.mockReset();
+		gcMock.mockReset();
 	});
 
 	it("提交 CreateInvitation mutation", async () => {
@@ -277,6 +287,26 @@ describe("createInvitation", () => {
 		await expect(
 			createInvitation({ workspaceId: "ws_1", inviterId: "admin_1" }),
 		).rejects.toThrow("forbidden");
+	});
+
+	it("成功后 evict invitations 并 gc（列表页即时同步新建邀请）", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				createInvitation: {
+					result: { id: "inv_new", status: "active" },
+					metadata: { plainToken: "tok_1" },
+					errors: [],
+				},
+			},
+		} as never);
+
+		await createInvitation({
+			workspaceId: "ws_1",
+			inviterId: "admin_1",
+		});
+
+		expect(evictMock).toHaveBeenCalledWith({ fieldName: "invitations" });
+		expect(gcMock).toHaveBeenCalled();
 	});
 });
 
@@ -350,9 +380,11 @@ describe("validateInvitation", () => {
 
 describe("acceptInvitation", () => {
 	const mutateMock = vi.mocked(client.mutate);
+	const refetchMock = vi.mocked(client.refetchQueries);
 
 	beforeEach(() => {
 		mutateMock.mockReset();
+		refetchMock.mockReset();
 	});
 
 	it("提交 AcceptInvitation mutation", async () => {
@@ -377,5 +409,22 @@ describe("acceptInvitation", () => {
 		const item = await acceptInvitation("inv_1", "tok_1");
 		expect(item.status).toBe("used");
 		expect(item.acceptedBy).toBe("u_1");
+	});
+
+	it("成功后 refetch ME_WORKSPACES（接受邀请后 / 立即出现新工作台）", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				acceptInvitation: {
+					result: { id: "inv_1", status: "used" },
+					errors: [],
+				},
+			},
+		} as never);
+		refetchMock.mockResolvedValue({ data: {} } as never);
+
+		await acceptInvitation("inv_1", "tok_1");
+
+		expect(refetchMock).toHaveBeenCalledWith({ include: [ME_WORKSPACES] });
+		expect(refetchMock).toHaveBeenCalledTimes(1);
 	});
 });

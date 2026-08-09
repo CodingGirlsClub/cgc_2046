@@ -190,3 +190,128 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		expect(failingRefetch).toHaveBeenCalled();
 	});
 });
+
+describe("#017 Bug A 回归：me 重试链不再被 refetch 的 loading 翻转取消", () => {
+	it("网络错误：1s/2s/4s 指数退避重试共 3 次，期间保持 confirmed:false", async () => {
+		vi.useFakeTimers();
+		const refetchMock = vi.fn().mockRejectedValue(new Error("still down"));
+		useQueryMock.mockReturnValue({
+			data: undefined,
+			loading: false,
+			error: networkError(),
+			refetch: refetchMock,
+		});
+		const { result } = renderHook(() => useAuthed(), { wrapper });
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000); // 第 1 次（1s 退避）
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(2000); // 第 2 次（2s 退避）
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(4000); // 第 3 次（4s 退避）
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(3);
+
+		// 重试用尽：保持首帧 confirmed:false（不误判登录态），等用户刷新恢复
+		expect(result.current).toEqual({
+			authed: false,
+			confirmed: false,
+			userId: null,
+		});
+	});
+
+	it("重试中成功：第 2 次 refetch resolve → confirmed:true，不再发起第 3 次", async () => {
+		vi.useFakeTimers();
+		const refetchMock = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("still down"))
+			.mockImplementationOnce(() => {
+				// 模拟 Apollo：refetch 成功后 data 到位，effect 据 data?.me 确认登录态
+				useQueryMock.mockReturnValue({
+					data: { me: { id: "u1" } },
+					loading: false,
+					error: undefined,
+					refetch: refetchMock,
+				});
+				rerender();
+				return Promise.resolve({ data: { me: { id: "u1" } } });
+			});
+		useQueryMock.mockReturnValue({
+			data: undefined,
+			loading: false,
+			error: networkError(),
+			refetch: refetchMock,
+		});
+		const { result, rerender } = renderHook(() => useAuthed(), { wrapper });
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000); // 第 1 次失败
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(2000); // 第 2 次成功
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(2);
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
+
+		// 成功后不再安排第 3 次重试
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10000);
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("refetch 期间 loading 翻转（Apollo 默认 notifyOnNetworkStatusChange:true）不取消重试链", async () => {
+		vi.useFakeTimers();
+		let rerenderFn: () => void = () => {};
+		const refetchMock = vi.fn(() => {
+			// 模拟 Apollo：refetch 开始 loading 翻 true（触发 effect 重跑），
+			// 失败后再回 false + error —— 旧实现里 cleanup 在此杀死重试链（#017 Bug A）
+			useQueryMock.mockReturnValue({
+				data: undefined,
+				loading: true,
+				error: undefined,
+				refetch: refetchMock,
+			});
+			rerenderFn();
+			useQueryMock.mockReturnValue({
+				data: undefined,
+				loading: false,
+				error: networkError(),
+				refetch: refetchMock,
+			});
+			rerenderFn();
+			return Promise.reject(new Error("still down"));
+		});
+		useQueryMock.mockReturnValue({
+			data: undefined,
+			loading: false,
+			error: networkError(),
+			refetch: refetchMock,
+		});
+		const { rerender } = renderHook(() => useAuthed(), { wrapper });
+		rerenderFn = rerender;
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1000);
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		expect(refetchMock).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(4000);
+		});
+		// 重试链跑满 3 次（旧实现第 1 次就被 loading 翻转取消，这里只会有 1 次）
+		expect(refetchMock).toHaveBeenCalledTimes(3);
+	});
+});

@@ -1,0 +1,94 @@
+defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
+  @moduledoc """
+  MCP Bearer 鉴权 plug 测试（D13）：
+
+  - 有效 token → assign(:current_user, user)
+  - 缺失/格式错误/无效/已撤销 → 401 + WWW-Authenticate
+  """
+  use Cgc2046Web.ConnCase, async: true
+
+  alias Cgc2046.Mcp.Token
+  alias Cgc2046Web.Plugs.McpAuthPlug
+
+  defp register_user(email) do
+    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
+
+    {:ok, user} =
+      AshAuthentication.Strategy.action(strategy, :register, %{
+        email: email,
+        password: "sup3r-secret-password"
+      })
+
+    user
+  end
+
+  defp issue_token(user) do
+    {:ok, token} =
+      Token
+      |> Ash.Changeset.for_create(:issue, %{name: "plug test"}, actor: user)
+      |> Ash.create()
+
+    {token, token.__metadata__[:plain_token]}
+  end
+
+  defp call(conn), do: McpAuthPlug.call(conn, McpAuthPlug.init([]))
+
+  test "有效 Bearer token → current_user 注入，请求放行" do
+    user = register_user("mcp-plug-ok@example.com")
+    {_token, plain} = issue_token(user)
+
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{plain}")
+      |> call()
+
+    refute conn.halted
+    assert conn.assigns[:current_user].id == user.id
+  end
+
+  test "无 Authorization header → 401 + WWW-Authenticate" do
+    conn = call(build_conn())
+
+    assert conn.halted
+    assert conn.status == 401
+    assert get_resp_header(conn, "www-authenticate") != []
+  end
+
+  test "非 Bearer scheme → 401" do
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Basic abc123")
+      |> call()
+
+    assert conn.halted
+    assert conn.status == 401
+  end
+
+  test "无效 token → 401" do
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer cgc_not_a_real_token")
+      |> call()
+
+    assert conn.halted
+    assert conn.status == 401
+  end
+
+  test "已撤销 token → 401" do
+    user = register_user("mcp-plug-revoked@example.com")
+    {token, plain} = issue_token(user)
+
+    {:ok, _} =
+      token
+      |> Ash.Changeset.for_update(:revoke, %{}, actor: user)
+      |> Ash.update()
+
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{plain}")
+      |> call()
+
+    assert conn.halted
+    assert conn.status == 401
+  end
+end

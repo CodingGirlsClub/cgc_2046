@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mutate, clearStore } = vi.hoisted(() => ({
 	mutate: vi.fn().mockResolvedValue({ data: { signOut: "signed_out" } }),
@@ -10,6 +10,10 @@ vi.mock("./apollo-client", () => ({
 }));
 
 describe("auth 登录态工具 (#61)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it("clearSession 调 signOut mutation 并清 Apollo 缓存", async () => {
 		const { clearSession } = await import("./auth");
 		await clearSession();
@@ -27,6 +31,23 @@ describe("auth 登录态工具 (#61)", () => {
 				}),
 			]),
 		);
+		expect(clearStore).toHaveBeenCalledTimes(1);
+	});
+
+	it("signOut 成功：返回 { ok: true }（#018 上报契约）", async () => {
+		const { clearSession } = await import("./auth");
+		await expect(clearSession()).resolves.toEqual({ ok: true });
+		expect(clearStore).toHaveBeenCalledTimes(1);
+	});
+
+	it("signOut 失败：返回 { ok: false, error }，clearStore 仍被调（#018）", async () => {
+		const { clearSession } = await import("./auth");
+		mutate.mockRejectedValueOnce(new Error("network down"));
+		const result = await clearSession();
+
+		expect(result.ok).toBe(false);
+		expect(result.error).toBeInstanceOf(Error);
+		// 即便 mutation 失败也清本地缓存（换用户不串数据的底线）
 		expect(clearStore).toHaveBeenCalledTimes(1);
 	});
 });

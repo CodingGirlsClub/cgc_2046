@@ -99,6 +99,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
+    field :my_mcp_tokens, list_of(:mcp_token) do
+      resolve(fn _, _, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            Cgc2046.Mcp.Token
+            |> Ash.Query.sort(inserted_at: :desc)
+            |> Ash.read(actor: actor)
+        end
+      end)
+    end
+
     @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
     field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
       resolve(fn _, _, %{context: context} ->
@@ -594,6 +609,70 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    @desc "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash）"
+    field :create_mcp_token, :create_mcp_token_payload do
+      arg(:name, non_null(:string))
+
+      resolve(fn _, %{name: name}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.Mcp.Token
+                 |> Ash.Changeset.for_create(:issue, %{name: name}, actor: actor)
+                 |> Ash.create() do
+              {:ok, token} ->
+                {:ok,
+                 %{
+                   result: token,
+                   plain_token: token.__metadata__[:plain_token],
+                   errors: []
+                 }}
+
+              {:error, %Ash.Error.Invalid{} = error} ->
+                {:ok,
+                 %{
+                   result: nil,
+                   plain_token: nil,
+                   errors:
+                     to_ash_graphql_errors(error, context, :issue, Cgc2046.Mcp.Token, Cgc2046.Mcp)
+                 }}
+            end
+        end
+      end)
+    end
+
+    @desc "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
+    field :revoke_mcp_token, :mcp_token do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            with {:ok, token} <- Ash.get(Cgc2046.Mcp.Token, id, actor: actor),
+                 {:ok, revoked} <-
+                   token
+                   |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
+                   |> Ash.update() do
+              {:ok, revoked}
+            else
+              {:error, %Ash.Error.Invalid{} = error} ->
+                {:error,
+                 to_ash_graphql_errors(error, context, :revoke, Cgc2046.Mcp.Token, Cgc2046.Mcp)}
+
+              {:error, error} ->
+                # NotFound / Forbidden（读他人 token）经 AshGraphql 统一序列化为
+                # code: "not_found"——未知 id 与他人 token 不可区分，不泄露存在性
+                {:error, error}
+            end
+        end
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -737,6 +816,24 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:icon, :string)
   end
 
+  # ── MCP 连接 token（切片 D #44；手写三入口，资源不经 AshGraphql 自动暴露）──
+
+  object :mcp_token do
+    @desc "MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面）"
+    field(:id, non_null(:id))
+    field(:name, non_null(:string))
+    field(:last_used_at, :datetime)
+    field(:revoked_at, :datetime)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :create_mcp_token_payload do
+    @desc "createMcpToken 返回：result 为 token 记录；plainToken 明文仅此一次"
+    field(:result, :mcp_token)
+    field(:plain_token, :string)
+    field(:errors, list_of(:mutation_error))
+  end
+
   # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
@@ -744,9 +841,16 @@ defmodule Cgc2046Web.GraphqlSchema do
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
   # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
-  defp to_ash_graphql_errors(error, context, action, resource \\ Cgc2046.Accounts.User) do
+  # domain 默认 GlobalApi（历史调用方均属此域）；其它域的资源（如 Cgc2046.Mcp.Token）须显式传入。
+  defp to_ash_graphql_errors(
+         error,
+         context,
+         action,
+         resource \\ Cgc2046.Accounts.User,
+         domain \\ Cgc2046.GlobalApi
+       ) do
     error
-    |> AshGraphql.Errors.to_errors(context, Cgc2046.GlobalApi, resource, action)
+    |> AshGraphql.Errors.to_errors(context, domain, resource, action)
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
   end
 
