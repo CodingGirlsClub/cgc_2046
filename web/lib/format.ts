@@ -13,3 +13,12 @@ export function formatJoinedDate(value?: string | null): string {
   if (Number.isNaN(date.getTime())) return value;
   return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
 }
+
+/** 把 ISO/日期字符串格式化为 "YYYY-MM-DD HH:mm"（本地时区）；空值 "—"，无法解析原样返回。 */
+export function formatDateTime(value?: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

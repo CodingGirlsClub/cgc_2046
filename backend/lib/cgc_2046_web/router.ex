@@ -15,6 +15,21 @@ defmodule Cgc2046Web.Router do
     plug(AshGraphql.Plug)
   end
 
+  # MCP endpoint（Slice D #42）：独立 Bearer 鉴权（连接 token，非 AshAuthentication token），
+  # 不过 :api（anubis transport 自行处理 body/streaming）。
+  # McpProtocolCompatPlug 必须在鉴权之前：OpenClacky ≤1.5.6 client 硬编码的旧版
+  # protocol header 会在 anubis 协商前 400，先 shim 掉（见该模块 @moduledoc）。
+  pipeline :mcp do
+    plug(Cgc2046Web.Plugs.McpProtocolCompatPlug)
+    plug(Cgc2046Web.Plugs.McpAuthPlug)
+  end
+
+  scope "/mcp" do
+    pipe_through(:mcp)
+
+    forward("/", Anubis.Server.Transport.StreamableHTTP.Plug, server: Cgc2046.Mcp.Server)
+  end
+
   scope "/api", Cgc2046Web do
     pipe_through([:api, :graphql])
 
