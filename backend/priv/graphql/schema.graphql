@@ -2470,7 +2470,6 @@ type RootQueryType {
   "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
   myPendingApprovals: [PendingApproval!]!
 
-
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
