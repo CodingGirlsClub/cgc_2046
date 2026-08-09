@@ -24,6 +24,8 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
       Cgc2046.Workflows.ResearchInstantiator,
+      # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
+      Cgc2046.NotificationSubscriber,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
       # MCP server（Slice D #42，anubis_mcp streamable HTTP；挂载见 router :mcp pipeline）。
@@ -31,6 +33,8 @@ defmodule Cgc2046.Application do
       # anubis 默认按 :phoenix, :serve_endpoints 探测，test 环境为 false 会导致
       # persistent_term 缺失、Plug 无法工作；本 server 永远经 Phoenix forward 提供。
       {Cgc2046.Mcp.Server, transport: {:streamable_http, start: true}},
+      # 0C：Oban（审批超时扫描 + 48h 提醒 cron；需在 Repo 之后启动）
+      {Oban, Application.fetch_env!(:cgc_2046, Oban)},
       # Start to serve requests, typically the last entry
       Cgc2046Web.Endpoint
     ]

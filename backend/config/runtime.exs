@@ -100,6 +100,42 @@ if config_env() == :prod do
 
   config :cgc_2046, :token_signing_secret, token_signing_secret
 
+  # 小程序平台凭证（Phase 1）。prod 必须经环境变量提供，缺失即启动失败；
+  # 任何环境下都不把真实 appid/secret 提交进 git。
+  miniprogram_platforms = %{
+    wechat: %{
+      appid: System.fetch_env!("WECHAT_MP_APPID"),
+      secret: System.fetch_env!("WECHAT_MP_SECRET")
+    },
+    tt: %{
+      appid: System.fetch_env!("TT_MP_APPID"),
+      secret: System.fetch_env!("TT_MP_SECRET")
+    },
+    xhs: %{
+      appid: System.fetch_env!("XHS_MP_APPID"),
+      secret: System.fetch_env!("XHS_MP_SECRET"),
+      qrcode_path: System.fetch_env!("XHS_MP_QRCODE_PATH"),
+      notification_path: System.fetch_env!("XHS_MP_NOTIFICATION_PATH")
+    }
+  }
+
+  config :cgc_2046, :miniprogram_platforms, miniprogram_platforms
+
+  config :cgc_2046, :miniprogram_templates, %{
+    wechat: %{
+      "approval_result" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER")
+    },
+    tt: %{
+      "approval_result" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_REMINDER")
+    },
+    xhs: %{
+      "approval_result" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_REMINDER")
+    }
+  }
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

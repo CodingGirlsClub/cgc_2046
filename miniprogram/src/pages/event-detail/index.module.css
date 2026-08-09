@@ -1,0 +1,21 @@
+.page { min-height: 100vh; background: #fff; }
+.scroll { height: 100vh; padding-bottom: 150rpx; box-sizing: border-box; }
+.header { padding: 54rpx 32rpx 38rpx; background: #172033; color: #fff; }
+.kind { display: block; color: #aeb6ff; font-size: 20rpx; font-weight: 700; letter-spacing: 4rpx; }
+.title { display: block; margin-top: 18rpx; font-size: 48rpx; line-height: 1.3; font-weight: 700; }
+.club { display: block; margin-top: 18rpx; color: #cbd1e2; font-size: 25rpx; }
+.metrics { margin: -18rpx 24rpx 0; padding: 28rpx 12rpx; position: relative; display: flex; background: #fff; border-radius: 22rpx; box-shadow: 0 12rpx 36rpx rgba(18, 25, 52, .1); }
+.metric { flex: 1; display: flex; flex-direction: column; align-items: center; border-right: 1rpx solid #eaecf0; }
+.metric:last-child { border-right: 0; }
+.metricValue { color: #344054; font-size: 31rpx; font-weight: 700; }
+.metricLabel { margin-top: 6rpx; color: #98a2b3; font-size: 21rpx; }
+.block { margin: 38rpx 32rpx 0; }
+.blockTitle { display: block; margin-bottom: 6rpx; font-size: 32rpx; font-weight: 650; }
+.row { display: flex; gap: 24rpx; padding: 24rpx 0; border-bottom: 1rpx solid #eaecf0; }
+.label { width: 150rpx; flex-shrink: 0; color: #667085; font-size: 25rpx; }
+.value { flex: 1; color: #344054; font-size: 27rpx; line-height: 1.55; }
+.policyBlock { margin: 30rpx 32rpx; padding: 26rpx; background: #f4f5ff; border-radius: 18rpx; }
+.policyTitle { display: block; color: #3943a2; font-weight: 650; }
+.policyText, .deadline { display: block; margin-top: 9rpx; color: #667085; font-size: 23rpx; }
+.footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom)); background: #fff; border-top: 1rpx solid #eaecf0; }
+.primaryButton { color: #fff; background: #5e6ad2; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }

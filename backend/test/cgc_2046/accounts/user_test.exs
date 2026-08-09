@@ -98,6 +98,22 @@ defmodule Cgc2046.Accounts.UserTest do
                _ -> false
              end)
     end
+
+    # Phase 1：users.email/hashed_password 列放宽可空（小程序手机号用户无邮箱），
+    # 但 password 策略注册必须仍强制 email——由 register action 的
+    # require_attributes: [:email] 在策略层兜底（非 DB 层）。
+    test "still requires email after users.email became nullable" do
+      strategy = password_strategy()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AshAuthentication.Strategy.action(strategy, :register, %{
+                 password: @password
+               })
+
+      assert Enum.any?(errors, fn error ->
+               Exception.message(error) =~ "email"
+             end)
+    end
   end
 
   describe "sign_in_with_password" do

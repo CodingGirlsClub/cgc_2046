@@ -1,0 +1,18 @@
+schema: ../backend/priv/graphql/schema.graphql
+documents: src/api/operations.ts
+generates:
+  src/api/generated/schema.ts:
+    plugins:
+      - typescript
+    config: &sharedConfig
+      enumsAsTypes: true
+      useTypeImports: true
+      skipTypename: true
+      scalars:
+        DateTime: string
+        Json: string
+        JsonString: string
+  src/api/generated/graphql.ts:
+    plugins:
+      - typescript-operations
+    config: *sharedConfig

@@ -11,6 +11,8 @@ defmodule Cgc2046.GlobalApi do
     # Global resources (User / Workspace) are registered here as the domain model is agreed on.
     resource(Cgc2046.Accounts.User)
     resource(Cgc2046.Accounts.Token)
+    # Phase 1 身份基座：小程序平台身份绑定（provider/uid/unionid/user_id）
+    resource(Cgc2046.Accounts.UserIdentity)
     resource(Cgc2046.Accounts.Workspace)
     # Tenant-scoped resources (#64): isolated by workspace_id, policies enforced.
     resource(Cgc2046.Accounts.WorkspaceMembership)
@@ -24,5 +26,7 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.JoinRequest)
     # B-2 #31：邀请
     resource(Cgc2046.Accounts.Invitation)
+    resource(Cgc2046.Miniprogram.Code)
+    resource(Cgc2046.Miniprogram.NotificationConsent)
   end
 end

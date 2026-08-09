@@ -11,7 +11,9 @@ config :cgc_2046, Cgc2046.Repo,
   hostname: "localhost",
   database: "cgc_2046_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  # 下限 8：并发竞态测试（miniprogram_race_test）用 unboxed_run 各占一条真实连接，
+  # 低核 CI runner（schedulers_online=2 → pool=4）会连接池耗尽超时
+  pool_size: max(System.schedulers_online() * 2, 8)
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -38,3 +40,11 @@ config :phoenix,
 
 # Disable rate limiting in test (ETS table is shared across async tests)
 config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999
+
+# Oban 测试模式：manual——job 只入队不自动执行（Oban 内部自动禁用 queues/plugins，
+# cron 不会在测试中触发）；断言用 Oban.Testing.assert_enqueued，执行用 perform_job。
+config :cgc_2046, Oban, testing: :manual
+
+# 小程序平台 HTTP 客户端走 Req.Test stub（测试进程按名注册；未 stub 的请求直接失败，
+# 保证测试绝不发真实外网请求）。Req.Test ownership 沿 $callers 解析，Task 并发可用。
+config :cgc_2046, :miniprogram_req_plug, {Req.Test, Cgc2046.MiniprogramClientStub}
