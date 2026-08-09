@@ -38,13 +38,15 @@ function isBlacklisted(candidate) {
 
 /**
  * Normalize a package.json `license` field into a list of candidate
- * licenses. Handles: string, SPDX "A OR B" expressions, {type,url} objects.
- * Returns null when no license is declared.
+ * licenses. Handles: string, SPDX "A OR B" expressions（含外层括号分组）,
+ * {type,url} objects. Returns null when no license is declared.
  */
 function candidatesOf(license) {
 	if (!license) return null;
 	if (typeof license === "string") {
-		return license
+		// 剥离 SPDX 分组括号，如 "(BSD-3-Clause OR GPL-2.0)" → ["BSD-3-Clause", "GPL-2.0"]
+		const stripped = license.trim().replace(/^\(+/, "").replace(/\)+$/, "");
+		return stripped
 			.split(/\s+OR\s+/i)
 			.map((s) => s.trim())
 			.filter(Boolean);
@@ -99,16 +101,17 @@ function scan() {
 			}
 
 			const candidates = candidatesOf(pkg.license);
-			if (candidates === null) {
+			if (candidates === null || candidates.length === 0) {
 				violations.push({ name: pkg.name ?? entry.name, license: "UNKNOWN" });
 				continue;
 			}
 
-			const hit = candidates.filter(isBlacklisted);
-			if (hit.length > 0) {
+			// SPDX OR / 多许可语义：存在任一允许项即放行（AGENTS.md：multi-license
+			// declarations 至少一个允许选项即可；仅 GPL-2.0-only 等才违规）
+			if (candidates.every(isBlacklisted)) {
 				violations.push({
 					name: pkg.name ?? entry.name,
-					license: hit.join(" / "),
+					license: candidates.join(" / "),
 				});
 			}
 		}
