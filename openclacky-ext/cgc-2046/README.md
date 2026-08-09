@@ -12,7 +12,7 @@ OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供�
 ## 目录结构
 
 ```
-extension/cgc-2046/
+openclacky-ext/cgc-2046/
   ext.yml                          # manifest（id 与目录名一致；config.mcp_url 是唯一改 URL 的点）
   api/
     handler.rb                     # 薄 DSL 层：路由 + 上下文 + error! 惯例 + 互斥/回滚加固
@@ -32,11 +32,11 @@ extension/cgc-2046/
 ## 打包与安装
 
 ```bash
-# 打包（产物在 extension/dist/，已 gitignore）
-extension/cgc-2046/bin/pack
+# 打包（产物在 openclacky-ext/dist/，已 gitignore）
+openclacky-ext/cgc-2046/bin/pack
 
 # 安装
-openclacky ext install extension/dist/cgc-2046.zip
+openclacky ext install openclacky-ext/dist/cgc-2046.zip
 ```
 
 `bin/pack` 会把本目录 symlink 到 `~/.clacky/ext/local/cgc-2046`（openclacky 开发层），因此开发期改完文件即生效（handler 按请求热加载），无需重复打包。
@@ -86,14 +86,14 @@ rm -rf ~/.clacky/ext/installed/cgc-2046
 需在项目 mise 环境（Ruby 4.x，系统 ruby 2.6 无 openclacky gem）：
 
 ```bash
-cd extension/cgc-2046
+cd openclacky-ext/cgc-2046
 mise exec -- ruby test/mcp_config_test.rb        # mcp.json merge / 原子写 / 权限（test-first 交付）
 mise exec -- ruby test/handler_routes_test.rb    # 请求级：422/200/回滚/500/501 + 无 token 泄漏（不落盘）
 ```
 
 ## 验证步骤（安装后自测）
 
-1. `openclacky ext install extension/dist/cgc-2046.zip`，确认 `openclacky ext list` 出现 `cgc-2046`。
+1. `openclacky ext install openclacky-ext/dist/cgc-2046.zip`，确认 `openclacky ext list` 出现 `cgc-2046`。
 2. 预置一个含其它 server 条目的 `~/.clacky/mcp.json`，走一遍「使用流程」；完成后检查：其它条目语义无损、`cgc` 条目四键正确、文件权限 0600（既有文件 mode 不变）。
 3. `GET /api/ext/cgc-2046/status` 返回 `configured:true` 且响应无 headers/token；`token_configured:true`、`web_url` 正确。
 4. 在 agent 会话调 `get_workspace_context` 成功返回工作台信息。
