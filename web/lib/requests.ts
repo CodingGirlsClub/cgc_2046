@@ -10,7 +10,7 @@ import {
 	type JoinRequestsFilter,
 	type JoinRequestConnection,
 } from "./graphql/join-request";
-import { GET_WORKSPACE } from "./graphql/workspace";
+import { GET_WORKSPACE, ME_WORKSPACES } from "./graphql/workspace";
 import type { Workspace } from "./graphql/workspace";
 import { graphqlErrorMessage } from "./graphql/auth";
 
@@ -151,6 +151,10 @@ export async function approveJoinRequest(
 			"approveJoinRequest failed";
 		throw new Error(msg);
 	}
+	// 审批通过会改变 joinRequests 与 workspaceMembers 两个列表 → evict 根字段强制重查
+	client.cache.evict({ fieldName: "joinRequests" });
+	client.cache.evict({ fieldName: "workspaceMembers" });
+	client.cache.gc();
 	return mapJoinRequest(result);
 }
 
@@ -175,6 +179,9 @@ export async function rejectJoinRequest(
 			"rejectJoinRequest failed";
 		throw new Error(msg);
 	}
+	// 拒绝会改变 joinRequests 列表 → evict 根字段强制重查
+	client.cache.evict({ fieldName: "joinRequests" });
+	client.cache.gc();
 	return mapJoinRequest(result);
 }
 
@@ -197,6 +204,8 @@ export async function joinWorkspace(
 		if (!result) {
 			throw new Error("joinWorkspace failed");
 		}
+		// 加入后刷新 meWorkspaces 缓存 —— / 概览页立即出现新工作台（与 updateWorkspaceJoinPolicy 同模式）
+		await client.refetchQueries({ include: [ME_WORKSPACES] });
 		return result;
 	} catch (e) {
 		throw new Error(graphqlErrorMessage(e, "joinWorkspace failed"));

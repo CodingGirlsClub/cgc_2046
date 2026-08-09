@@ -17,6 +17,9 @@
 import { useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 import {
+  AVATAR_ALLOWED_TYPES,
+  AVATAR_MAX_MB,
+  AVATAR_TYPE_LABEL,
   createPortfolioItem,
   deletePortfolioItem,
   fetchPortfolioItems,
@@ -40,10 +43,12 @@ function EditPortfolioRow({
   item,
   onChange,
   onRemove,
+  disabled,
 }: {
   item: ProfilePortfolioItem;
   onChange: (next: ProfilePortfolioItem) => void;
   onRemove: () => void;
+  disabled: boolean;
 }) {
   return (
     <div
@@ -57,6 +62,7 @@ function EditPortfolioRow({
         <span>作品标题</span>
         <input
           value={item.title}
+          disabled={disabled}
           onChange={(event) => onChange({ ...item, title: event.target.value })}
         />
       </label>
@@ -64,6 +70,7 @@ function EditPortfolioRow({
         <span>作品简介</span>
         <input
           value={item.description}
+          disabled={disabled}
           onChange={(event) =>
             onChange({ ...item, description: event.target.value })
           }
@@ -73,6 +80,7 @@ function EditPortfolioRow({
         <span>作品链接</span>
         <input
           value={item.url ?? ""}
+          disabled={disabled}
           onChange={(event) => onChange({ ...item, url: event.target.value })}
         />
       </label>
@@ -80,6 +88,7 @@ function EditPortfolioRow({
         <span>图标类型</span>
         <select
           value={item.icon ?? "document"}
+          disabled={disabled}
           aria-label="作品图标类型"
           onChange={(event) =>
             onChange({ ...item, icon: event.target.value as PortfolioIcon })
@@ -94,6 +103,7 @@ function EditPortfolioRow({
         type="button"
         className="profile-remove-portfolio"
         aria-label={`删除作品：${item.title || "未命名作品"}`}
+        disabled={disabled}
         onClick={onRemove}
       >
         <Icon name="trash" size={19} />
@@ -108,12 +118,14 @@ export function ProfileSettingsForm({
   workspaceId,
   roles,
   memberNumber,
+  initialPortfolio,
 }: {
   profile: CurrentProfile;
   wsProfile: WorkspaceProfileContent | null;
   workspaceId: string;
   roles: MembershipRoleName[];
   memberNumber: string;
+  initialPortfolio: ProfilePortfolioItem[];
 }) {
   const [draft, setDraft] = useState<ProfileDraft>(() => ({
     name: profile.displayName ?? "",
@@ -121,13 +133,11 @@ export function ProfileSettingsForm({
     about: wsProfile?.about ?? "",
     skills: wsProfile?.skills ?? [],
     visibility: wsProfile?.visibility ?? "only_me",
-    portfolio: (wsProfile?.portfolio ?? []).map((item) => ({ ...item })),
+    portfolio: initialPortfolio.map((item) => ({ ...item })),
     avatarUrl: wsProfile?.avatarUrl ?? null,
   }));
   // 上次已同步到后端的作品集（保存后刷新，避免二次保存把已建条目当新增重复 create）
-  const lastSyncedRef = useRef<ProfilePortfolioItem[]>(
-    wsProfile?.portfolio ?? [],
-  );
+  const lastSyncedRef = useRef<ProfilePortfolioItem[]>(initialPortfolio);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -200,14 +210,19 @@ export function ProfileSettingsForm({
         visibility: draft.visibility,
       });
       await syncPortfolioChanges(lastSyncedRef.current, draft.portfolio);
-      // 保存成功后重新拉取作品集，确保 id 与后端一致（新增条目由后端生成 uuid）
-      const refreshedPortfolio = await fetchPortfolioItems(workspaceId);
-      lastSyncedRef.current = refreshedPortfolio;
-      setDraft({ ...draft, name, portfolio: refreshedPortfolio });
       setSavedMsg("资料已保存");
     } catch (error: unknown) {
       setErrorMsg(error instanceof Error ? error.message : "保存失败");
     } finally {
+      // 无论成败，与服务器 reconcile——部分 create 已落库时，重试不会把它们当新增重复创建
+      try {
+        const refreshed = await fetchPortfolioItems(workspaceId);
+        lastSyncedRef.current = refreshed;
+        // 函数式更新：即使保存期间有其它 setDraft 排队，也只覆盖 portfolio 字段
+        setDraft((prev) => ({ ...prev, portfolio: refreshed }));
+      } catch {
+        // reconcile 失败静默——下次保存仍会重试
+      }
       setSaving(false);
     }
   }
@@ -226,8 +241,12 @@ export function ProfileSettingsForm({
               content={{ name: draft.name || "?", avatarUrl: draft.avatarUrl }}
               editable
               onFile={(avatarUrl) => setDraft({ ...draft, avatarUrl })}
+              onError={(msg) => setErrorMsg(msg)}
             />
-            <p>支持 PNG、JPG、WebP、GIF，文件大小不超过 2.2MB。</p>
+            <p>
+              支持 {AVATAR_ALLOWED_TYPES.map((t) => AVATAR_TYPE_LABEL[t]).join("、")}
+              ，文件大小不超过 {AVATAR_MAX_MB}MB。
+            </p>
           </div>
         </div>
         <div className="profile-edit-form-grid">
@@ -236,6 +255,7 @@ export function ProfileSettingsForm({
             <input
               data-testid="profile-name-input"
               value={draft.name}
+              disabled={saving}
               onChange={(event) =>
                 setDraft({ ...draft, name: event.target.value })
               }
@@ -243,13 +263,14 @@ export function ProfileSettingsForm({
           </label>
           <label>
             <span className="profile-form-label">邮箱</span>
-            <input value={profile.email} readOnly data-testid="profile-email-input" />
+            <input value={profile.email} readOnly disabled={saving} data-testid="profile-email-input" />
           </label>
           <label>
             <span className="profile-form-label">所在地</span>
             <input
               data-testid="profile-location-input"
               value={draft.location}
+              disabled={saving}
               onChange={(event) =>
                 setDraft({ ...draft, location: event.target.value })
               }
@@ -262,6 +283,7 @@ export function ProfileSettingsForm({
             data-testid="profile-about-input"
             maxLength={240}
             value={draft.about}
+            disabled={saving}
             onChange={(event) =>
               setDraft({ ...draft, about: event.target.value })
             }
@@ -277,6 +299,7 @@ export function ProfileSettingsForm({
                 <button
                   type="button"
                   aria-label={`删除标签 ${skill}`}
+                  disabled={saving}
                   onClick={() =>
                     setDraft({
                       ...draft,
@@ -291,6 +314,7 @@ export function ProfileSettingsForm({
             <button
               type="button"
               className="profile-add-skill"
+              disabled={saving}
               onClick={addSkill}
             >
               <Icon name="plus" size={16} />
@@ -311,6 +335,7 @@ export function ProfileSettingsForm({
             <select
               data-testid="profile-visibility-input"
               value={draft.visibility}
+              disabled={saving}
               onChange={(event) =>
                 setDraft({
                   ...draft,
@@ -333,7 +358,7 @@ export function ProfileSettingsForm({
           <RoleChips roles={roles} />
           <label>
             <span className="profile-form-label">成员编号</span>
-            <input value={memberNumber} readOnly />
+            <input value={memberNumber} readOnly disabled={saving} />
           </label>
         </section>
       </aside>
@@ -348,6 +373,7 @@ export function ProfileSettingsForm({
             <EditPortfolioRow
               key={item.id}
               item={item}
+              disabled={saving}
               onChange={(next) =>
                 setDraft({
                   ...draft,
@@ -371,6 +397,7 @@ export function ProfileSettingsForm({
           <button
             type="button"
             className="profile-expand-portfolio"
+            disabled={saving}
             onClick={() => setShowAllPortfolio(true)}
           >
             展开其余 {draft.portfolio.length - 2} 个作品
@@ -379,13 +406,14 @@ export function ProfileSettingsForm({
         <button
           type="button"
           className="profile-add-portfolio"
+          disabled={saving}
           onClick={() =>
             setDraft({
               ...draft,
               portfolio: [
                 ...draft.portfolio,
                 {
-                  id: `portfolio-${Date.now()}`,
+                  id: `portfolio-${crypto.randomUUID()}`,
                   workspaceId,
                   title: "",
                   description: "",
