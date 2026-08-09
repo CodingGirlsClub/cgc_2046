@@ -21,7 +21,13 @@ export default function LoginPage() {
       const returnUrl = router.params.returnUrl
       if (returnUrl) await Taro.redirectTo({ url: decodeURIComponent(returnUrl) })
       else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
-      else await Taro.switchTab({ url: '/pages/profile/index' })
+      // 裁剪端（抖音/小红书）未注册「我的」页，fallback 落回已注册的「我的报名」
+      else {
+        const fallbackTab = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+          ? '/pages/my-enrollments/index'
+          : '/pages/profile/index'
+        await Taro.switchTab({ url: fallbackTab })
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登录失败，请重试')
     } finally {
@@ -51,9 +57,12 @@ export default function LoginPage() {
         onClick={__E2E_MOCK__ ? () => login() : undefined}
         onGetPhoneNumber={(event) => login(event.detail)}
       >
-        {submitting ? '正在登录…' : '微信手机号快捷登录'}
+        {submitting ? '正在登录…' : `${__PLATFORM_NAME__}手机号快捷登录`}
       </Button>
-      <Text className={styles.agreement}>登录即表示你同意隐私授权说明；可在「我的」中退出。</Text>
+      <Text className={styles.agreement}>
+        登录即表示你同意隐私授权说明
+        {process.env.TARO_ENV !== 'tt' && process.env.TARO_ENV !== 'xhs' ? '；可在「我的」中退出' : ''}。
+      </Text>
     </View>
   )
 }

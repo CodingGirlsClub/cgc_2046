@@ -23,6 +23,12 @@ export default {
   defineConstants: {
     __GRAPHQL_ENDPOINT__: JSON.stringify(graphqlEndpoint),
     __E2E_MOCK__: JSON.stringify(process.env.CGC_E2E_MOCK === 'true'),
+    // 当前平台显示名（构建期单值：微信/抖音/小红书）——裁剪端产物不含「微信」字样（零导流红线）
+    __PLATFORM_NAME__: JSON.stringify(
+      process.env.TARO_ENV === 'tt' ? '抖音'
+        : process.env.TARO_ENV === 'xhs' ? '小红书'
+        : '微信'
+    ),
     __WECHAT_TEMPLATE_APPROVAL_RESULT__: JSON.stringify(
       process.env.CGC_WECHAT_TEMPLATE_APPROVAL_RESULT ?? ''
     ),
@@ -31,6 +37,12 @@ export default {
     ),
     __WECHAT_TEMPLATE_EVENT_REMINDER__: JSON.stringify(
       process.env.CGC_WECHAT_TEMPLATE_EVENT_REMINDER ?? ''
+    ),
+    __TT_TEMPLATE_APPROVAL_RESULT__: JSON.stringify(
+      process.env.CGC_TT_TEMPLATE_APPROVAL_RESULT ?? ''
+    ),
+    __TT_TEMPLATE_EVENT_REMINDER__: JSON.stringify(
+      process.env.CGC_TT_TEMPLATE_EVENT_REMINDER ?? ''
     )
   },
   copy: {
