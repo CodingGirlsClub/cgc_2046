@@ -4,7 +4,7 @@
 # FS 读写收敛在 Cgc2046McpConfig 的可 stub 模块函数上；除两个回滚磁盘级用例
 # （Dir.mktmpdir 真实落盘验证逐字节恢复）外均不落盘。
 #
-# 运行（需项目 mise 环境）：cd extension/cgc-2046 && mise exec -- ruby test/handler_routes_test.rb
+# 运行（需项目 mise 环境）：cd openclacky-ext/cgc-2046 && mise exec -- ruby test/handler_routes_test.rb
 
 require "minitest/autorun"
 require "json"

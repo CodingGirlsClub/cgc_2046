@@ -3,7 +3,7 @@
 # mcp_config 纯逻辑模块单测（test-first：先红后绿）。
 # 只依赖 Ruby stdlib，不 require clacky gem。
 #
-# 运行（需项目 mise 环境）：cd extension/cgc-2046 && mise exec -- ruby test/mcp_config_test.rb
+# 运行（需项目 mise 环境）：cd openclacky-ext/cgc-2046 && mise exec -- ruby test/mcp_config_test.rb
 
 require "minitest/autorun"
 require "json"
