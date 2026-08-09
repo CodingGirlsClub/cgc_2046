@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
-import { STORAGE_KEYS } from '@/state/storage'
+import { takePendingScene } from '@/state/accountState'
 import styles from './index.module.css'
 
 export default function JoinPage() {
   const router = useRouter()
-  const [scene, setScene] = useState(
-    () => router.params.scene ?? Taro.getStorageSync<string>(STORAGE_KEYS.pendingScene) ?? ''
-  )
+  const [scene, setScene] = useState(() => takePendingScene(router.params.scene))
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -30,7 +28,7 @@ export default function JoinPage() {
     setError('')
     try {
       const result = await api.admitMember(scene.trim())
-      Taro.removeStorageSync(STORAGE_KEYS.pendingScene)
+      // takePendingScene 已在页面初始化时消费并删除持久 scene，这里无需再 remove
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
       // 裁剪端（抖音/小红书）无工作台 Tab，入座后回落我的报名
       const nextTab = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
