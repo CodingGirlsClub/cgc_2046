@@ -11,7 +11,9 @@ config :cgc_2046, Cgc2046.Repo,
   hostname: "localhost",
   database: "cgc_2046_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  # 下限 8：并发竞态测试（miniprogram_race_test）用 unboxed_run 各占一条真实连接，
+  # 低核 CI runner（schedulers_online=2 → pool=4）会连接池耗尽超时
+  pool_size: max(System.schedulers_online() * 2, 8)
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
