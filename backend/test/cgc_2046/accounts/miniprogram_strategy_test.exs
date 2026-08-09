@@ -375,6 +375,52 @@ defmodule Cgc2046.Accounts.MiniprogramStrategyTest do
       assert Enum.all?(identities, &(&1.user_id == wechat_user.id))
       assert Enum.map(identities, & &1.provider) == [:tt, :wechat]
     end
+
+    test "wechat + tt + xhs 三平台同手机号归一到同一 User，三 Identity 各自落库且 unionid 按平台落库（Phase 5 归一 E2E）" do
+      # wechat：本地号 + countryCode，带 unionid
+      {wechat_body, wechat_ed, wechat_iv} =
+        login_fixture(
+          :wechat,
+          "w-openid-uni3",
+          Fixtures.phone_payload("13800000011"),
+          "w-unionid-uni"
+        )
+
+      # tt：带区号 phoneNumber，带 unionid
+      {tt_body, tt_ed, tt_iv} =
+        login_fixture(
+          :tt,
+          "t-openid-uni3",
+          %{"phoneNumber" => "8613800000011", "countryCode" => "86"},
+          "t-unionid-uni"
+        )
+
+      # xhs：官方文档无 unionid → 恒为 nil
+      {xhs_body, xhs_ed, xhs_iv} =
+        login_fixture(:xhs, "x-openid-uni3", Fixtures.phone_payload("13800000011"))
+
+      Fixtures.stub_code2session(%{wechat: wechat_body, tt: tt_body, xhs: xhs_body})
+
+      assert {:ok, wechat_user} = sign_in("wechat", "code-uni-w", wechat_ed, wechat_iv)
+      assert {:ok, tt_user} = sign_in("tt", "code-uni-t", tt_ed, tt_iv)
+      assert {:ok, xhs_user} = sign_in("xhs", "code-uni-x", xhs_ed, xhs_iv)
+
+      assert tt_user.id == wechat_user.id, "tt 与 wechat 应归一到同一 User"
+      assert xhs_user.id == wechat_user.id, "xhs 与 wechat 应归一到同一 User"
+
+      assert [found_user] = users_with_phone("+8613800000011")
+      assert found_user.id == wechat_user.id
+
+      identities = all_identities() |> Enum.sort_by(& &1.provider)
+      assert length(identities) == 3
+      assert Enum.all?(identities, &(&1.user_id == wechat_user.id))
+      assert Enum.map(identities, & &1.provider) == [:tt, :wechat, :xhs]
+
+      by_provider = Map.new(identities, &{&1.provider, &1})
+      assert by_provider[:wechat].unionid == "w-unionid-uni"
+      assert by_provider[:tt].unionid == "t-unionid-uni"
+      assert is_nil(by_provider[:xhs].unionid), "xhs 官方无 unionid，恒为 nil"
+    end
   end
 
   describe "重登与 Identity upsert" do

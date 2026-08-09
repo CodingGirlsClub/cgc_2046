@@ -45,6 +45,26 @@ defmodule Cgc2046.Events.EnrollmentTest do
       assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
     end
 
+    test "outsider 非本 workspace 成员审批 pending 报名被拒，状态不变（Phase 5 越权演练）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = Fixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      learner = Fixtures.register_user("enrollment-outsider-applicant")
+      outsider = Fixtures.register_user("enrollment-outsider")
+      {:ok, pending} = create_enrollment(event, learner)
+
+      assert {:error, _} = confirm(pending, outsider)
+
+      assert {:error, _} =
+               pending
+               |> Ash.Changeset.for_update(:reject_enrollment, %{rejection_reason: "越权"})
+               |> Ash.update(tenant: workspace.id, actor: outsider)
+
+      reloaded = Ash.get!(Enrollment, pending.id, authorize?: false)
+      assert reloaded.status == :pending
+      assert is_nil(reloaded.approved_by)
+    end
+
     test "reject 记录审批人与原因，终态不能再次审批" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
