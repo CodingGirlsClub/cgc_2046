@@ -1,4 +1,3 @@
-import Taro from '@tarojs/taro'
 import type {
   AdmitMemberByTokenMutation,
   AdmitMemberByTokenMutationVariables,
@@ -67,9 +66,12 @@ import type {
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
 import { clearWorkspaceTab, rememberWorkspaceTab } from '@/state/workspaceTab'
-import { STORAGE_KEYS } from '@/state/storage'
-
-const NOTIFICATION_KEY = 'cgc.local_notifications'
+import {
+  activateAccount,
+  appendLocalNotification,
+  clearAccountState,
+  readLocalNotifications
+} from '@/state/accountState'
 
 type ContentRecord = NonNullable<NonNullable<CatalogQuery['listEvents']>['results']>[number]
 
@@ -100,16 +102,6 @@ function readPayload(raw: string): Record<string, unknown> {
   }
 }
 
-function storedNotifications(): NotificationItem[] {
-  return Taro.getStorageSync<NotificationItem[]>(NOTIFICATION_KEY) || []
-}
-
-function addNotification(title: string, body: string): void {
-  const notifications = storedNotifications()
-  notifications.unshift({ id: `${Date.now()}`, title, body, createdAt: new Date().toISOString(), read: false })
-  Taro.setStorageSync(NOTIFICATION_KEY, notifications.slice(0, 50))
-}
-
 export class RealMiniProgramApi implements MiniProgramApi {
   async getCatalog(): Promise<CatalogItem[]> {
     const data = await graphqlRequest<CatalogQuery, CatalogQueryVariables>(CatalogQueryDocument, { first: 50 })
@@ -138,6 +130,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
   async getSession(): Promise<SessionSnapshot> {
     if (!getAuthToken()) {
       clearWorkspaceTab()
+      // 保留 pending scene（clearPendingScene 默认 false），扫码→登录交接继续
+      clearAccountState()
       return { user: null, workspaces: [], approvals: [] }
     }
     let data: SessionQuery
@@ -166,6 +160,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       approvalDeadline: approval.approvalDeadline
     }))
     rememberWorkspaceTab(workspaces)
+    if (data.me) activateAccount(data.me.id)
     return {
       user: data.me
         ? {
@@ -184,6 +179,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
     if (!payload.loginCode || !payload.encryptedData || !payload.iv) {
       throw new Error('平台登录参数不完整')
     }
+    // 新登录事务：清旧 token/Workspace/账号状态，保留 pending scene（扫码→登录交接）
+    setAuthToken(null)
+    clearWorkspaceTab()
+    clearAccountState()
     await graphqlRequest<SignInWithPlatformMutation, SignInWithPlatformMutationVariables>(
       SignInWithPlatformMutationDocument,
       {
@@ -195,7 +194,15 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { captureAuthCookie: true }
     )
     if (!getAuthToken()) throw new Error('登录成功但未收到 Bearer token，请检查响应 cookie 契约')
-    return this.getSession()
+    try {
+      return await this.getSession()
+    } catch (error) {
+      // session hydration 失败：全量回滚，UI 显示失败与设备状态一致
+      setAuthToken(null)
+      clearWorkspaceTab()
+      clearAccountState()
+      throw error
+    }
   }
 
   async signOut(): Promise<void> {
@@ -206,8 +213,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
     } finally {
       setAuthToken(null)
       clearWorkspaceTab()
-      Taro.removeStorageSync(NOTIFICATION_KEY)
-      Taro.removeStorageSync(STORAGE_KEYS.lastEnrollment)
+      clearAccountState({ clearPendingScene: true })
     }
   }
 
@@ -273,7 +279,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id }
     )
     if (!data.confirmEnrollment.result) mutationError(data.confirmEnrollment.errors)
-    addNotification('审批已完成', '已通过该报名申请。')
+    appendLocalNotification('审批已完成', '已通过该报名申请。')
   }
 
   private async rejectEnrollment(id: string, reason?: string): Promise<void> {
@@ -282,7 +288,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id, input: reason ? { rejectionReason: reason } : undefined }
     )
     if (!data.rejectEnrollment.result) mutationError(data.rejectEnrollment.errors)
-    addNotification('审批已完成', reason ? `已拒绝该报名申请：${reason}` : '已拒绝该报名申请。')
+    appendLocalNotification('审批已完成', reason ? `已拒绝该报名申请：${reason}` : '已拒绝该报名申请。')
   }
 
   async approvePending(approval: ApprovalSummary): Promise<void> {
@@ -292,7 +298,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id: approval.id }
     )
     if (!data.approveJoinRequest.result) mutationError(data.approveJoinRequest.errors)
-    addNotification('加入申请已通过', `${approval.workspaceName} 已接纳新成员。`)
+    appendLocalNotification('加入申请已通过', `${approval.workspaceName} 已接纳新成员。`)
   }
 
   async rejectPending(approval: ApprovalSummary, reason?: string): Promise<void> {
@@ -302,7 +308,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id: approval.id, input: reason ? { rejectionReason: reason } : undefined }
     )
     if (!data.rejectJoinRequest.result) mutationError(data.rejectJoinRequest.errors)
-    addNotification('加入申请未通过', reason || `${approval.workspaceName} 拒绝了加入申请。`)
+    appendLocalNotification('加入申请未通过', reason || `${approval.workspaceName} 拒绝了加入申请。`)
   }
 
   async grantConsent(scenario: SubscriptionScenario): Promise<number> {
@@ -310,7 +316,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       GrantConsentMutationDocument,
       { platform: currentPlatform(), templateKey: scenario }
     )
-    addNotification('订阅授权已记录', '平台会在对应业务节点发送一次服务通知。')
+    appendLocalNotification('订阅授权已记录', '平台会在对应业务节点发送一次服务通知。')
     return data.grantMiniProgramNotificationConsent ?? 0
   }
 
@@ -336,6 +342,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
   }
 
   async getNotifications(): Promise<NotificationItem[]> {
-    return storedNotifications()
+    return readLocalNotifications()
   }
 }
