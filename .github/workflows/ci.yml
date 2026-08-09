@@ -110,3 +110,19 @@ jobs:
       # 零导流红线（§2）：裁剪端产物 escape-aware 禁词断言
       - run: pnpm check:diversion
         timeout-minutes: 15
+
+  # 密钥门禁：任何提交/分支不得含真实凭据（fail-closed）。
+  # 用免费 MIT 许可的 gitleaks CLI 而非官方 action——官方 action 对组织仓库
+  # 强制 GITLEAKS_LICENSE 商业许可；CLI 自取二进制，行为等价（检出即非零退出）。
+  # 放行项仅 dev/test 静态 secret_key_base，见根目录 .gitleaks.toml。
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 扫历史需要完整 git 对象
+      - name: Gitleaks scan
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks detect --source . --log-opts="--all" --config=.gitleaks.toml --no-banner

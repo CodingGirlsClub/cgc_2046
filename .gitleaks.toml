@@ -1,0 +1,12 @@
+# Gitleaks 配置：默认规则全开（extend useDefault），仅放行仓库内已知的
+# dev/test 静态占位凭据。任何真实密钥出现在任何提交/分支即视为失败。
+#
+# 放行理由：backend/config/dev.exs 与 test.exs 的 secret_key_base 是 Phoenix
+# 生成器标准做法——固定 dev 值仅用于本地开发；prod 由 config/runtime.exs 强制
+# 从环境变量注入（System.fetch_env! 缺失即拒绝启动），见 docs/ 合规说明。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）"
+paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''']
