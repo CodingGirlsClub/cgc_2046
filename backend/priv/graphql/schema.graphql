@@ -1369,6 +1369,323 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :reject_workspace_application mutation"
+type RejectWorkspaceApplicationResult {
+  "The successful result of the mutation"
+  result: WorkspaceApplication
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectWorkspaceApplicationInput {
+  "拒绝原因"
+  rejectionReason: String
+}
+
+"The result of the :approve_workspace_application mutation"
+type ApproveWorkspaceApplicationResult {
+  "The successful result of the mutation"
+  result: WorkspaceApplication
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_workspace_application mutation"
+type CreateWorkspaceApplicationResult {
+  "The successful result of the mutation"
+  result: WorkspaceApplication
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateWorkspaceApplicationInput {
+  "申请创建的工作台名称"
+  name: String!
+
+  "申请创建的工作台 slug（创建时校验全局唯一）"
+  slug: String!
+
+  "申请目的"
+  purpose: String!
+
+  "申请人 ID"
+  applicantId: ID!
+}
+
+enum WorkspaceApplicationSortField {
+  ID
+  APPLICANT_ID
+  NAME
+  SLUG
+  PURPOSE
+  STATUS
+  REJECTION_REASON
+  APPROVED_BY
+  APPROVED_AT
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+}
+
+"A keyset page of :workspace_application"
+type KeysetPageOfWorkspaceApplication {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [WorkspaceApplication!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input WorkspaceApplicationFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkspaceApplicationFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkspaceApplicationFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkspaceApplicationFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkspaceApplicationFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceApplicationFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input WorkspaceApplicationFilterPurpose {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceApplicationFilterSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceApplicationFilterName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkspaceApplicationFilterApplicantId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkspaceApplicationFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkspaceApplicationFilterInput {
+  and: [WorkspaceApplicationFilterInput!]
+
+  or: [WorkspaceApplicationFilterInput!]
+
+  not: [WorkspaceApplicationFilterInput!]
+
+  id: WorkspaceApplicationFilterId
+
+  "申请人（全局用户）ID"
+  applicantId: WorkspaceApplicationFilterApplicantId
+
+  "申请创建的工作台名称"
+  name: WorkspaceApplicationFilterName
+
+  "申请创建的工作台 slug（创建时校验全局唯一）"
+  slug: WorkspaceApplicationFilterSlug
+
+  "申请目的"
+  purpose: WorkspaceApplicationFilterPurpose
+
+  "申请状态"
+  status: WorkspaceApplicationFilterStatus
+
+  "拒绝原因（可选）"
+  rejectionReason: WorkspaceApplicationFilterRejectionReason
+
+  "审批人（platform_admin）ID"
+  approvedBy: WorkspaceApplicationFilterApprovedBy
+
+  "审批时间"
+  approvedAt: WorkspaceApplicationFilterApprovedAt
+
+  "审批截止时间（默认 created_at + 7 天）"
+  approvalDeadline: WorkspaceApplicationFilterApprovalDeadline
+
+  "过期时间"
+  expiredAt: WorkspaceApplicationFilterExpiredAt
+}
+
+input WorkspaceApplicationSortInput {
+  order: SortOrder
+  field: WorkspaceApplicationSortField!
+}
+
+type WorkspaceApplication {
+  id: ID!
+
+  "申请人（全局用户）ID"
+  applicantId: ID!
+
+  "申请创建的工作台名称"
+  name: String!
+
+  "申请创建的工作台 slug（创建时校验全局唯一）"
+  slug: String!
+
+  "申请目的"
+  purpose: String!
+
+  "申请状态"
+  status: String!
+
+  "拒绝原因（可选）"
+  rejectionReason: String
+
+  "审批人（platform_admin）ID"
+  approvedBy: ID
+
+  "审批时间"
+  approvedAt: DateTime
+
+  "审批截止时间（默认 created_at + 7 天）"
+  approvalDeadline: DateTime
+
+  "过期时间"
+  expiredAt: DateTime
+}
+
 "The result of the :revoke_invitation mutation"
 type RevokeInvitationResult {
   "The successful result of the mutation"
@@ -2470,6 +2787,27 @@ type RootQueryType {
   "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
   myPendingApprovals: [PendingApproval!]!
 
+  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
+  listUsers(search: String, first: Int, after: String): [AdminUser!]!
+
+  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
+  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
+
+  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
+  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
+
+  "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
+  myWorkspaceApplications: [AdminWorkspaceApplication!]!
+
+  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listToolCallLogs(workspaceId: ID, first: Int, after: String): [AdminToolCallLog!]!
+
+  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listPendingOperations(workspaceId: ID, first: Int, after: String): [AdminPendingOperation!]!
+
+  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
+  listSignalLogs(workspaceId: ID, first: Int, after: String): [AdminSignalLog!]!
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -2566,6 +2904,27 @@ type RootQueryType {
     "明文邀请令牌"
     token: String!
   ): Invitation
+
+  "工作台创建申请列表（申请人仅见自己；platform_admin 见全部）"
+  workspaceApplications(
+    "How to sort the records in the response"
+    sort: [WorkspaceApplicationSortInput]
+
+    "A filter to limit the results"
+    filter: WorkspaceApplicationFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfWorkspaceApplication
 
   "工作台的 workflow run 列表（#40 展示页）"
   listWorkflowRuns(
@@ -2870,6 +3229,69 @@ type AcceptInvitationResult {
   errors: [MutationError!]!
 }
 
+type AdminUser {
+  id: ID!
+  email: String
+  displayName: String
+  isPlatformAdmin: Boolean!
+  insertedAt: DateTime!
+  workspaceMembershipCount: Int
+}
+
+type AdminWorkspace {
+  id: ID!
+  slug: String!
+  name: String!
+  joinPolicy: String!
+  sponsorshipEnabled: Boolean!
+  insertedAt: DateTime!
+  memberCount: Int!
+}
+
+type AdminWorkspaceApplication {
+  id: ID!
+  applicantId: ID!
+  name: String!
+  slug: String!
+  purpose: String!
+  status: String!
+  rejectionReason: String
+  insertedAt: DateTime!
+}
+
+type AdminToolCallLog {
+  id: ID!
+  userId: ID!
+  tool: String!
+  resultStatus: String!
+  errorMessage: String
+  latencyMs: Int
+  insertedAt: DateTime!
+}
+
+type AdminPendingOperation {
+  id: ID!
+  userId: ID!
+  tool: String!
+  summary: String!
+  status: String!
+  insertedAt: DateTime!
+}
+
+type AdminSignalLog {
+  id: ID!
+  workspaceId: ID!
+  signalType: String!
+  insertedAt: DateTime!
+}
+
+type AdminUserPayload {
+  id: ID!
+  email: String
+  isPlatformAdmin: Boolean!
+  errors: [MutationError]
+}
+
 type RootMutationType {
   "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
   signIn(email: String!, password: String!): SignInResult
@@ -2919,6 +3341,12 @@ type RootMutationType {
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
 
+  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
+  promoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：降级用户 platform_admin（R9；≥1 admin 约束 + 自降级检查）"
+  demoteUser(id: ID!): AdminUserPayload
+
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
 
@@ -2945,6 +3373,15 @@ type RootMutationType {
 
   "撤销邀请（邀请人本人或 Owner\/Admin）"
   revokeInvitation(id: ID!): RevokeInvitationResult!
+
+  "提交创建工作台申请"
+  createWorkspaceApplication(input: CreateWorkspaceApplicationInput!): CreateWorkspaceApplicationResult!
+
+  "审批通过创建工作台申请（platform_admin，自动创建 workspace + applicant 为 Owner）"
+  approveWorkspaceApplication(id: ID!): ApproveWorkspaceApplicationResult!
+
+  "拒绝创建工作台申请（platform_admin）"
+  rejectWorkspaceApplication(id: ID!, input: RejectWorkspaceApplicationInput): RejectWorkspaceApplicationResult!
 
   createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
 

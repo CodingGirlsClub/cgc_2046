@@ -3,6 +3,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   require Logger
   require Ash.Query
+  require Ash.Expr
 
   use AshGraphql,
     domains: [Cgc2046.Api, Cgc2046.GlobalApi],
@@ -121,6 +122,140 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    # ── Platform Admin Dashboard Phase 5：admin queries（R3-R13 数据层）──
+
+    @desc "平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after）"
+    field :list_users, non_null(list_of(non_null(:admin_user))) do
+      arg(:search, :string)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          Cgc2046.Accounts.User
+          |> Ash.Query.for_read(:read)
+          |> maybe_user_search(args[:search])
+          |> paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> load_membership_counts(context)
+        end)
+      end)
+    end
+
+    @desc "平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after）"
+    field :list_workspaces, non_null(list_of(non_null(:admin_workspace))) do
+      arg(:search, :string)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          Cgc2046.Accounts.Workspace
+          |> Ash.Query.for_read(:read)
+          |> maybe_workspace_search(args[:search])
+          |> Ash.Query.load(:member_count)
+          |> paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> map_error(context, :read, Cgc2046.Accounts.Workspace, Cgc2046.GlobalApi)
+        end)
+      end)
+    end
+
+    @desc "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after）"
+    field :list_workspace_applications,
+          non_null(list_of(non_null(:admin_workspace_application))) do
+      arg(:status, :string)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          Cgc2046.Accounts.WorkspaceApplication
+          |> Ash.Query.for_read(:read)
+          |> maybe_status_filter(args[:status])
+          |> paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+        end)
+      end)
+    end
+
+    @desc "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
+    field :my_workspace_applications, non_null(list_of(non_null(:admin_workspace_application))) do
+      resolve(fn _, _, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            Cgc2046.Accounts.WorkspaceApplication
+            |> Ash.Query.for_read(:read)
+            |> Ash.Query.filter(applicant_id == ^actor.id)
+            |> Ash.read(actor: actor)
+            |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+        end
+      end)
+    end
+
+    @desc "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+    field :list_tool_call_logs, non_null(list_of(non_null(:admin_tool_call_log))) do
+      arg(:workspace_id, :id)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          Cgc2046.Mcp.ToolCallLog
+          |> Ash.Query.for_read(:read)
+          |> maybe_workspace_filter(args[:workspace_id])
+          |> paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> map_error(context, :read, Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
+        end)
+      end)
+    end
+
+    @desc "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+    field :list_pending_operations, non_null(list_of(non_null(:admin_pending_operation))) do
+      arg(:workspace_id, :id)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          Cgc2046.Mcp.PendingOperation
+          |> Ash.Query.for_read(:read)
+          |> maybe_workspace_filter(args[:workspace_id])
+          |> paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> map_error(context, :read, Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
+        end)
+      end)
+    end
+
+    @desc "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after）"
+    field :list_signal_logs, non_null(list_of(non_null(:admin_signal_log))) do
+      arg(:workspace_id, :id)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          Cgc2046.Workflows.SignalLog
+          |> Ash.Query.for_read(:read)
+          |> maybe_real_workspace_filter(args[:workspace_id])
+          |> paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> map_error(context, :read, Cgc2046.Workflows.SignalLog, Cgc2046.Api)
+        end)
+      end)
+    end
+
+    # S1（advisor02）：listWorkflowRuns 不手写——WorkflowRun 资源已自动暴露同名 query
+    # （list_workflow_runs: filter/sort/first/before/after，前端 web/lib/graphql/workflow.ts
+    # 在用），platform_admin read policy 已解锁（Phase 2）。自动版 filter.workspaceId.eq
+    # 即真实列过滤，功能与手写版等价，避免同名 field 冲突。
   end
 
   mutation do
@@ -727,6 +862,85 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    # ── Platform Admin Dashboard Phase 5：admin mutations（R9 promote/demote）──
+
+    @desc "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
+    field :promote_user, :admin_user_payload do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, user} <- Ash.get(Cgc2046.Accounts.User, id, actor: actor) do
+            user
+            |> Ash.Changeset.for_update(:set_platform_admin, %{is_platform_admin: true})
+            |> Ash.update(actor: actor)
+            |> map_update_result(context)
+          else
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(error, context, :set_platform_admin, Cgc2046.Accounts.User)}
+          end
+        end)
+      end)
+    end
+
+    @desc "平台管理员：降级用户 platform_admin（R9；≥1 admin 约束 + 自降级检查）"
+    field :demote_user, :admin_user_payload do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, user} <- Ash.get(Cgc2046.Accounts.User, args[:id], actor: actor) do
+            # S2（advisor02）：≥1 admin 约束用原子条件 UPDATE（同 JoinRequest.approve
+            # 范式）——WHERE 子查询 count(platform_admin) > 1 下推成 DB 原子判定，
+            # 并发双 demote 只有一个成功；0 行命中 = 目标非 admin 或已是最后 admin。
+            # 自降级允许（R9 前端确认弹窗由 Phase 9 承担），仅受 ≥1 admin 约束。
+            if user.is_platform_admin do
+              {:ok, res} =
+                Ecto.Adapters.SQL.query(
+                  Cgc2046.Repo,
+                  """
+                  UPDATE users
+                  SET is_platform_admin = false
+                  WHERE id = $1 AND is_platform_admin = true
+                    AND (SELECT count(*) FROM users WHERE is_platform_admin = true) > 1
+                  """,
+                  [Ecto.UUID.dump!(user.id)]
+                )
+
+              if res.num_rows == 1 do
+                reloaded = Ash.get!(Cgc2046.Accounts.User, user.id, authorize?: false)
+
+                {:ok,
+                 %{
+                   id: reloaded.id,
+                   email: reloaded.email,
+                   is_platform_admin: reloaded.is_platform_admin,
+                   errors: []
+                 }}
+              else
+                {:error,
+                 %{
+                   message: "cannot demote the last remaining platform admin",
+                   code: "last_admin_denied"
+                 }}
+              end
+            else
+              {:error,
+               %{
+                 message: "user is not a platform admin",
+                 code: "not_platform_admin"
+               }}
+            end
+          else
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(error, context, :set_platform_admin, Cgc2046.Accounts.User)}
+          end
+        end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -984,5 +1198,219 @@ defmodule Cgc2046Web.GraphqlSchema do
       _ ->
         :ok
     end
+  end
+
+  # ── Platform Admin Dashboard Phase 5：类型（前缀 admin_ 避免与自动类型冲突）──
+
+  object :admin_user do
+    field(:id, non_null(:id))
+    field(:email, :string)
+    field(:display_name, :string)
+    field(:is_platform_admin, non_null(:boolean))
+    field(:inserted_at, non_null(:datetime))
+    # membership 概要（R8）：用户参与的工作台数
+    field(:workspace_membership_count, :integer)
+  end
+
+  object :admin_workspace do
+    field(:id, non_null(:id))
+    field(:slug, non_null(:string))
+    field(:name, non_null(:string))
+    field(:join_policy, non_null(:string))
+    field(:sponsorship_enabled, non_null(:boolean))
+    field(:inserted_at, non_null(:datetime))
+    field(:member_count, non_null(:integer))
+  end
+
+  object :admin_workspace_application do
+    field(:id, non_null(:id))
+    field(:applicant_id, non_null(:id))
+    field(:name, non_null(:string))
+    field(:slug, non_null(:string))
+    field(:purpose, non_null(:string))
+    field(:status, non_null(:string))
+    field(:rejection_reason, :string)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :admin_tool_call_log do
+    field(:id, non_null(:id))
+    field(:user_id, non_null(:id))
+    field(:tool, non_null(:string))
+    field(:result_status, non_null(:string))
+    field(:error_message, :string)
+    field(:latency_ms, :integer)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :admin_pending_operation do
+    field(:id, non_null(:id))
+    field(:user_id, non_null(:id))
+    field(:tool, non_null(:string))
+    field(:summary, non_null(:string))
+    field(:status, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :admin_signal_log do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:signal_type, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :admin_user_payload do
+    field(:id, non_null(:id))
+    field(:email, :string)
+    field(:is_platform_admin, non_null(:boolean))
+    field(:errors, list_of(:mutation_error))
+  end
+
+  # ── Platform Admin Dashboard Phase 5：resolver helpers ─────────────────
+
+  # admin 门控：非 platform_admin → forbidden（与 Phase 1 PlatformAdminPlug 同语义）。
+  # 未登录 → unauthorized。通过后执行 fun(actor)。
+  defp with_admin(context, fun) do
+    case context[:actor] do
+      %{is_platform_admin: true} ->
+        fun.(context[:actor])
+
+      nil ->
+        {:error, unauthorized_error()}
+
+      _ ->
+        {:error, [message: "forbidden", code: "forbidden"]}
+    end
+  end
+
+  # search 模糊过滤（字段静态，search 运行时值经 ^ pin 注入）：
+  # - maybe_user_search：email（ci_string）/ display_name contains OR
+  # - maybe_workspace_search：name / slug contains OR
+  defp maybe_user_search(query, nil), do: query
+  defp maybe_user_search(query, ""), do: query
+
+  defp maybe_user_search(query, search) do
+    Ash.Query.filter(
+      query,
+      contains(email, ^search) or contains(display_name, ^search)
+    )
+  end
+
+  defp maybe_workspace_search(query, nil), do: query
+  defp maybe_workspace_search(query, ""), do: query
+
+  defp maybe_workspace_search(query, search) do
+    Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
+  end
+
+  # status 过滤（WorkspaceApplication.status 是 atom 约束）
+  defp maybe_status_filter(query, nil), do: query
+
+  defp maybe_status_filter(query, status) do
+    case String.to_existing_atom(status) do
+      atom -> Ash.Query.filter(query, status == ^atom)
+    end
+  rescue
+    ArgumentError -> query
+  end
+
+  # D5：ToolCallLog / PendingOperation 的 workspace_id 在 params JSONB 内
+  defp maybe_workspace_filter(query, nil), do: query
+
+  defp maybe_workspace_filter(query, workspace_id) do
+    # params->>'workspace_id' 是 JSONB text 提取，与 uuid 字符串比较。
+    # 不显式调 expr/1（非宏函数无法处理 ^ pin）——filter/2 宏的 expression
+    # 分支内部 require Ash.Expr 并解析 pin，故直接传 fragment 表达式。
+    ws_id = to_string(workspace_id)
+    Ash.Query.filter(query, fragment("params->>'workspace_id' = ?", ^ws_id))
+  end
+
+  # B1（advisor02）：SignalLog / WorkflowRun 有真实 workspace_id 列（非 params JSONB），
+  # 用真实列过滤（区别于 maybe_workspace_filter 的 JSONB 版本）。
+  defp maybe_real_workspace_filter(query, nil), do: query
+
+  defp maybe_real_workspace_filter(query, workspace_id) do
+    Ash.Query.filter(query, workspace_id == ^workspace_id)
+  end
+
+  # 分页：first 限条数（默认 50），after 为上一页已返回的条数（offset）。
+  # offset 分页对 admin 内部列表足够（数据量有限），避免手写 keyset cursor
+  # 的 datetime 解析复杂度；排序按 inserted_at+id 稳定。
+  defp paginate(query, first, after_offset) do
+    query
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(first || 50)
+    |> maybe_offset(after_offset)
+  end
+
+  defp maybe_offset(query, nil), do: query
+
+  # B2（advisor02）：GraphQL arg(:after, :string) 声明为 string，Ash.Query.offset
+  # 期望 integer——这里显式转换；非法值（非数字）rescue 回退 0（忽略分页偏移）。
+  defp maybe_offset(query, offset) when is_integer(offset), do: Ash.Query.offset(query, offset)
+
+  defp maybe_offset(query, offset) when is_binary(offset) do
+    case Integer.parse(offset) do
+      {n, ""} when n >= 0 -> Ash.Query.offset(query, n)
+      _ -> query
+    end
+  end
+
+  # Ash.read 结果 → Absinthe 结果（错误统一走 to_ash_graphql_errors）
+  defp map_error(result, context, action, resource, domain) do
+    case result do
+      {:ok, records} -> {:ok, records}
+      {:error, error} -> {:error, to_ash_graphql_errors(error, context, action, resource, domain)}
+    end
+  end
+
+  # listUsers 的 membership 概要（R8）：count aggregate 子查询会被
+  # WorkspaceMembership read policy 过滤（BypassReads 已知问题），
+  # 故对结果集批量 load 关系后计数（admin 列表量小，可接受）。
+  defp load_membership_counts({:ok, users}, _context) do
+    case Ash.load(users, :workspace_memberships, authorize?: false) do
+      {:ok, loaded} ->
+        result =
+          Enum.map(loaded, fn user ->
+            %{
+              id: user.id,
+              email: user.email,
+              display_name: user.display_name,
+              is_platform_admin: user.is_platform_admin,
+              inserted_at: user.inserted_at,
+              workspace_membership_count: length(user.workspace_memberships || [])
+            }
+          end)
+
+        {:ok, result}
+
+      {:error, error} ->
+        {:error, to_ash_graphql_errors(error, nil, :read, Cgc2046.Accounts.User)}
+    end
+  end
+
+  defp load_membership_counts({:error, error}, context) do
+    {:error, to_ash_graphql_errors(error, context, :read, Cgc2046.Accounts.User)}
+  end
+
+  # 更新 user 的 result → payload（result + errors）
+  defp map_update_result({:ok, user}, _context) do
+    {:ok,
+     %{
+       id: user.id,
+       email: user.email,
+       is_platform_admin: user.is_platform_admin,
+       errors: []
+     }}
+  end
+
+  defp map_update_result({:error, error}, context) do
+    {:ok,
+     %{
+       id: nil,
+       email: nil,
+       is_platform_admin: nil,
+       errors: to_ash_graphql_errors(error, context, :set_platform_admin, Cgc2046.Accounts.User)
+     }}
   end
 end
