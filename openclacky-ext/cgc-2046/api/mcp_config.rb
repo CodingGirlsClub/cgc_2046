@@ -22,6 +22,15 @@ module Cgc2046McpConfig
   # upsert 时允许写入/更新的键（条目上的未知额外键保留）
   ENTRY_KEYS = %w[type url headers description].freeze
 
+  # 模块级写锁：保护 read-merge-write 事务不被本包自身并发打断。
+  # 挂在 module 对象上——热加载 reopen 保持同一 module 对象身份，锁实例稳定。
+  @write_mutex = Mutex.new
+
+  # @return [Mutex] 模块级写锁单例
+  def self.write_mutex
+    @write_mutex
+  end
+
   module_function
 
   # 默认配置文件路径（~/.clacky/mcp.json，运行时解析 Dir.home）
@@ -158,6 +167,85 @@ module Cgc2046McpConfig
     token_configured = auth.is_a?(String) && !auth.empty?
 
     { configured: configured, url: configured ? url : nil, token_configured: token_configured }
+  end
+
+  # 连接事务：独占一次配置变更——snapshot（读进入时原文）→ upsert → 原子提交 →
+  # reload；reload 失败时 byte-exact 回滚 + best-effort 二次 reload，再抛异常。
+  #
+  # @param name      [String] 条目名（handler 写死 "cgc-2046"，防 clobber 任意条目）
+  # @param spec      [Hash]   完整条目内容（type/url/headers/description 四键）
+  # @param reloader  [Proc]   注入的 registry reload callable（handler 封装宿主私有 registry）
+  # @return [Hash] { created: bool }
+  # @raise [RuntimeError] reload 失败时抛出（消息含 "mcp registry reload failed"）；
+  #   此时落盘已回滚为进入时原文，且已 best-effort 二次 reload
+  def connect_server(name:, spec:, reloader:)
+    write_mutex.synchronize do
+      path = config_path
+      old_text = load_text(path)
+      merged = upsert_server(old_text, name: name, spec: spec)
+      persist(path, merged[:data])
+
+      begin
+        reloader.call
+      rescue StandardError
+        rollback_to(path, old_text)
+        safe_reload(reloader)
+        raise "mcp registry reload failed"
+      end
+
+      { created: merged[:created] }
+    end
+  end
+
+  # 断开事务：独占一次配置变更——snapshot → remove → 原子提交 → reload；
+  # reload 失败时回滚（恢复被移除条目）+ best-effort 二次 reload，再抛异常。
+  #
+  # @param name      [String] 条目名（handler 写死 "cgc-2046"）
+  # @param reloader  [Proc]   注入的 registry reload callable
+  # @return [Hash] { removed: bool }（removed:false 时 no-op，不写盘不 reload）
+  # @raise [RuntimeError] reload 失败时抛出（消息含 "mcp registry reload failed"）；
+  #   此时落盘已回滚（cgc-2046 条目恢复），且已 best-effort 二次 reload
+  def disconnect_server(name:, reloader:)
+    write_mutex.synchronize do
+      path = config_path
+      old_text = load_text(path)
+      result = remove_server(old_text, name: name)
+      return { removed: false } unless result[:removed]
+
+      persist(path, result[:data])
+
+      begin
+        reloader.call
+      rescue StandardError
+        rollback_to(path, old_text)
+        safe_reload(reloader)
+        raise "mcp registry reload failed"
+      end
+
+      { removed: true }
+    end
+  end
+
+  # @api private
+  # byte-exact recovery：old_text 非空逐字节写回（禁止 normalize——非法 JSON 也逐字节
+  # 恢复）；为空（旧文件原本不存在）则删掉新建文件。回滚失败不掩盖原始异常。
+  def rollback_to(path, old_text)
+    if old_text
+      persist_text(path, old_text)
+    elsif File.exist?(path)
+      File.delete(path)
+    end
+  rescue StandardError
+    # 回滚失败不掩盖原始异常
+  end
+
+  # @api private
+  # best-effort 二次 reload（恢复落盘后把旧配置载回运行时 registry）；失败忽略，
+  # 运行时状态待下次 connect/disconnect 重试，不掩盖原始异常。
+  def safe_reload(reloader)
+    reloader.call
+  rescue StandardError
+    # 忽略
   end
 
   # 序列化为 pretty JSON 文本（以 "\n" 结尾），对齐 HttpServer 先例。
