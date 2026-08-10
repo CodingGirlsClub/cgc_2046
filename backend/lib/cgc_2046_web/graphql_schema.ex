@@ -107,9 +107,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, unauthorized_error()}
 
           actor ->
-            Cgc2046.Mcp.Token
-            |> Ash.Query.sort(inserted_at: :desc)
-            |> Ash.read(actor: actor)
+            Cgc2046.Mcp.Token.list_for(actor)
         end
       end)
     end
@@ -620,18 +618,11 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, unauthorized_error()}
 
           actor ->
-            case Cgc2046.Mcp.Token
-                 |> Ash.Changeset.for_create(:issue, %{name: name}, actor: actor)
-                 |> Ash.create() do
-              {:ok, token} ->
-                {:ok,
-                 %{
-                   result: token,
-                   plain_token: token.__metadata__[:plain_token],
-                   errors: []
-                 }}
+            case Cgc2046.Mcp.Token.issue(name, actor) do
+              {:ok, token, plain} ->
+                {:ok, %{result: token, plain_token: plain, errors: []}}
 
-              {:error, %Ash.Error.Invalid{} = error} ->
+              {:error, error} ->
                 {:ok,
                  %{
                    result: nil,
@@ -654,21 +645,17 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, unauthorized_error()}
 
           actor ->
-            with {:ok, token} <- Ash.get(Cgc2046.Mcp.Token, id, actor: actor),
-                 {:ok, revoked} <-
-                   token
-                   |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
-                   |> Ash.update() do
-              {:ok, revoked}
-            else
-              {:error, %Ash.Error.Invalid{} = error} ->
+            case Cgc2046.Mcp.Token.revoke(id, actor) do
+              {:ok, revoked} ->
+                {:ok, revoked}
+
+              {:error, :not_found} ->
+                # NotFound（他人 token / 不存在 id）统一塌缩，不泄露存在性
+                {:error, [message: "not found", code: "not_found"]}
+
+              {:error, {:invalid, error}} ->
                 {:error,
                  to_ash_graphql_errors(error, context, :revoke, Cgc2046.Mcp.Token, Cgc2046.Mcp)}
-
-              {:error, error} ->
-                # NotFound / Forbidden（读他人 token）经 AshGraphql 统一序列化为
-                # code: "not_found"——未知 id 与他人 token 不可区分，不泄露存在性
-                {:error, error}
             end
         end
       end)

@@ -205,6 +205,66 @@ defmodule Cgc2046.Mcp.Token do
   end
 
   @doc """
+  列出当前 actor 的连接 token，按签发时间新→旧排序。
+
+  仅返回本人 token（policy `read` 约束 `user_id == actor`，无需重复过滤）。
+  """
+  @spec list_for(Cgc2046.Accounts.User.t()) :: {:ok, [__MODULE__.t()]} | {:error, term()}
+  def list_for(%{id: _} = actor) do
+    __MODULE__
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.read(actor: actor)
+  end
+
+  @doc """
+  签发连接 token，返回 `{:ok, token, plain}`——明文仅此一次交付，不落库。
+
+  - 未认证 actor（nil）返回 `{:error, %Ash.Error.Forbidden{}}`
+  - active token 达 `@max_active_tokens_per_user` 上限返回 `{:error, %Ash.Error.Invalid{}}`
+  """
+  @spec issue(String.t(), Cgc2046.Accounts.User.t() | nil) ::
+          {:ok, __MODULE__.t(), String.t()} | {:error, term()}
+  def issue(name, actor) do
+    case __MODULE__
+         |> Ash.Changeset.for_create(:issue, %{name: name}, actor: actor)
+         |> Ash.create() do
+      {:ok, token} ->
+        {:ok, token, token.__metadata__[:plain_token]}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
+  撤销连接 token（置 `revoked_at`，保留审计行）。
+
+  - 本人 token → `{:ok, token}`
+  - 他人 token / 不存在 id → `{:error, :not_found}`（统一塌缩，不泄露存在性）
+  - 撤销失败（重复撤销 / 并发竞态败者）→ `{:error, {:invalid, error}}`
+  """
+  @spec revoke(term(), Cgc2046.Accounts.User.t()) ::
+          {:ok, __MODULE__.t()} | {:error, :not_found} | {:error, {:invalid, term()}}
+  def revoke(id, %{id: _} = actor) do
+    with {:ok, token} <- Ash.get(__MODULE__, id, actor: actor),
+         {:ok, revoked} <-
+           token
+           |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
+           |> Ash.update() do
+      {:ok, revoked}
+    else
+      # get 失败（他人 token / 不存在 id）统一塌缩为 :not_found，不泄露存在性。
+      # Ash 3.31 的 Ash.get 对无权/不存在的记录统一返回
+      # %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}（越权不暴露 Forbidden）。
+      {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} -> {:error, :not_found}
+      {:error, %Ash.Error.Forbidden{}} -> {:error, :not_found}
+      # revoke action 失败（重复撤销 / 竞态败者）
+      {:error, %Ash.Error.Invalid{} = error} -> {:error, {:invalid, error}}
+      {:error, error} -> {:error, {:invalid, error}}
+    end
+  end
+
+  @doc """
   按明文 token 校验并返回所属 user；无效/已撤销返回 `:error`。
 
   MCP 鉴权前置路径：token 本身即凭证，故绕 policy 查询（authorize?: false）。
