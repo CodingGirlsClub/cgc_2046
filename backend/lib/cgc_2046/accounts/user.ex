@@ -26,7 +26,12 @@ defmodule Cgc2046.Accounts.User do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshAuthentication, AshGraphql.Resource, Cgc2046.Accounts.Strategies.Miniprogram],
+    extensions: [
+      AshAuthentication,
+      AshGraphql.Resource,
+      AshAdmin.Resource,
+      Cgc2046.Accounts.Strategies.Miniprogram
+    ],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -251,5 +256,16 @@ defmodule Cgc2046.Accounts.User do
 
   graphql do
     type(:user)
+  end
+
+  admin do
+    # Phase 6 / R12：AshAdmin 列表列裁剪 + sensitive 字段不显示。
+    # phone/hashed_password 为 sensitive?: true，默认会被 ash_admin redact；
+    # show_sensitive_fields([]) 显式声明不展示任何 sensitive 字段值（防泄露）。
+    table_columns([:id, :email, :display_name, :is_platform_admin, :inserted_at])
+    show_sensitive_fields([])
+    # ash_admin actor impersonation：允许 platform_admin 以 User 为 actor 浏览
+    # （门控在 :admin_browser pipeline 的 PlatformAdminPlug，actor 机制仅作调试用）
+    actor?(true)
   end
 end
