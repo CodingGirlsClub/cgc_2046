@@ -9,6 +9,7 @@ export function proxy(request: NextRequest) {
 		`script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
 		`style-src 'self'${isDev ? " 'unsafe-inline'" : ` 'nonce-${nonce}'`}`,
 		"img-src 'self' data:",
+		`frame-src https://www.openclacky.com`,
 		"font-src 'self' data:",
 		"connect-src 'self'",
 		"frame-ancestors 'none'",
