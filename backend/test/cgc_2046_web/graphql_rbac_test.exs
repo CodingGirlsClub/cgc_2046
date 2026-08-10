@@ -170,6 +170,17 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     """
   end
 
+  defp update_workspace_query(workspace_id, join_policy) do
+    """
+    mutation {
+      updateWorkspace(id: "#{workspace_id}", input: { joinPolicy: "#{join_policy}" }) {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+  end
+
   describe "permissionMatrix (#66 Rbac contract, #1 abilities as generic list)" do
     test "anonymous is unauthorized" do
       res =
@@ -503,6 +514,53 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       membership = find_membership(workspace, applicant)
       assert membership != nil
       assert :member in load_role_names(membership)
+    end
+  end
+
+  describe "updateWorkspace non-platform-admin owner (#88)" do
+    # 守卫「非平台管理员 Owner 经 GraphQL 更新工作台」用户契约。此前所有 GraphQL
+    # 测试的 owner 都是平台管理员（is_platform_admin fallback 掩盖 policy 路径），
+    # 本测试是唯一覆盖普通用户 owner 经 GraphQL 改工作台（如 join_policy）的。
+    #
+    # #88 背景：旧版 ash_graphql update resolver 用 get-by-id 预读（query 形态 policy
+    # 求值），workspace_id_by_id_filter 点访问 %Workspace{}.workspace_id（Workspace
+    # 无该字段）抛 KeyError。当前版本 resolver 改用 Ash.bulk_update
+    # （deps/ash_graphql resolver.ex:1716），update policy 在 changeset 形态求值，
+    # #78 workspace_self_id 已覆盖 Workspace 自身更新——故本测试在 #88 修复前后均绿，
+    # 不直接守卫 query 分支（该分支由 membership_context_test.exs「场景3 Workspace
+    # 资源自身」钉测守卫）。若未来 ash_graphql 行为回退至 get-by-id 预读，本测试
+    # 将转红并指向 #88 修复点，起到未来防御作用。
+    # 关键：owner 必须是非平台管理员普通用户，否则平台管理员 fallback 恒绿。
+    test "non-platform-admin owner can update workspace via GraphQL" do
+      admin = admin_user()
+      admin_token = sign_in_token(@admin_email, @password)
+
+      slug = "gql-upd-ws-#{System.unique_integer([:positive])}"
+      res = graphql_post(build_conn(), create_workspace_query(slug, "GQL Update WS"), admin_token)
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      workspace = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
+
+      # 普通用户（非平台管理员）成为 owner
+      owner_email = "gql-updws-owner#{System.unique_integer([:positive])}@example.com"
+      owner = register_user(owner_email, @password)
+      add_member(workspace, owner, admin, [:owner])
+
+      owner_token = sign_in_token(owner_email, @password)
+
+      # owner 经 GraphQL updateWorkspace 改 join_policy——get-by-id 预读 + policy 的真实 HTTP 路径
+      res =
+        graphql_post(build_conn(), update_workspace_query(ws_id, "invite_only"), owner_token)
+
+      assert %{
+               "data" => %{
+                 "updateWorkspace" => %{"result" => %{"id" => ^ws_id}, "errors" => []}
+               }
+             } = res
+
+      # DB 生效
+      updated = Ash.get!(Workspace, ws_id, actor: admin, authorize?: false)
+      assert updated.join_policy == :invite_only
     end
   end
 end
