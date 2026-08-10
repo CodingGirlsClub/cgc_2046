@@ -149,6 +149,19 @@ defmodule Cgc2046.Accounts.User do
         end
       end)
     end
+
+    update :set_platform_admin do
+      description("设置 is_platform_admin 标记（platform_admin 专用；CLI task 以 authorize?: false 调用）")
+      require_atomic?(false)
+
+      argument(:is_platform_admin, :boolean, allow_nil?: false)
+
+      # writable?: false 阻止普通 change，需 force_change_attribute 绕过
+      change(fn changeset, _context ->
+        value = Ash.Changeset.get_argument(changeset, :is_platform_admin)
+        Ash.Changeset.force_change_attribute(changeset, :is_platform_admin, value)
+      end)
+    end
   end
 
   authentication do
@@ -217,11 +230,17 @@ defmodule Cgc2046.Accounts.User do
     # 匿名（actor nil）→ filter 恒假不可读。
     policy action_type(:read) do
       authorize_if(Cgc2046.Policies.ReadOwnUser)
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
     # 更新全局显示名：仅本人（SimpleCheck，strict 阶段可判定）
     policy action(:update_display_name) do
       authorize_if(Cgc2046.Policies.OwnUser)
+    end
+
+    # promote/demote：仅 platform_admin 可调用 set_platform_admin
+    policy action(:set_platform_admin) do
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
     # 注意：不能使用 `policy always() do forbid_if(always()) end` 做默认拒绝。

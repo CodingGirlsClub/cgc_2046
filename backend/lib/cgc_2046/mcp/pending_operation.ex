@@ -182,6 +182,7 @@ defmodule Cgc2046.Mcp.PendingOperation do
 
     policy action(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
     policy action([:confirm, :cancel]) do
