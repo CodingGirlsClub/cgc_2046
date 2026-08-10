@@ -6,9 +6,9 @@
 # 安全红线：token 只允许写入 ~/.clacky/mcp.json；任何路径不得把 token
 # 写进响应体、日志或 data_path 文件。
 #
-# 写入加固：类级互斥锁包住「读-merge-写-reload」整段；落盘走
-# Cgc2046McpConfig.persist（0600 排他 tmp + 原子 rename）；reload 失败
-# best-effort 逐字节回滚旧内容并二次 reload。
+# 写入加固：读-merge-写-reload 事务收在 Cgc2046McpConfig（connect_server/disconnect_server，
+# 模块级互斥 + 0600 排他 tmp + 原子 rename；reload 失败逐字节回滚并二次 reload）。
+# 本 adapter 只保留请求校验与结果翻译。
 
 require "json"
 require "fileutils"
@@ -21,15 +21,10 @@ class Cgc2046Ext < Clacky::ApiExtension
   SERVER_NAME = "cgc-2046"
   DESCRIPTION = "CGC-2046 platform capabilities"
 
-  # 类级互斥锁：防 handler 自并发的 read-merge-write 竞态。
-  # 用惰性 ivar 而非常量——热加载 reopen 同一类对象时保持同一锁实例，且避免重复赋值告警。
-  def self.write_mutex
-    @write_mutex ||= Mutex.new
-  end
-
   # POST /api/ext/cgc-2046/connect
   # body: { "token": "<必填>", "url": "<可选，缺省读 ext.yml config.mcp_url>" }
-  # read-merge-write ~/.clacky/mcp.json 的 mcpServers["cgc-2046"]，然后 reload MCP registry。
+  # 校验后交给 Cgc2046McpConfig.connect_server 独占事务
+  # （snapshot→upsert→原子提交→reload→失败逐字节回滚并二次 reload）。
   post "/connect" do
     body  = json_body
     token = (body["token"] || body[:token]).to_s.strip
@@ -42,54 +37,27 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("mcp url is not configured", status: 422) if url.empty?
     error!("mcp url must start with http:// or https://", status: 422) unless url.match?(%r{\Ahttps?://})
 
-    path = Cgc2046McpConfig.config_path
+    # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe：registry 惰性创建，
+    # 尚未创建时 reload 是 no-op，下次用到会读新文件）
+    reloader = -> { @http_server&.send(:mcp_registry)&.reload }
 
-    merged = nil
-    self.class.write_mutex.synchronize do
-      old_text = Cgc2046McpConfig.load_text(path)
+    result = Cgc2046McpConfig.connect_server(
+      name: SERVER_NAME,
+      spec: {
+        "type"        => "http",
+        "url"         => url,
+        "headers"     => { "Authorization" => "Bearer #{token}" },
+        "description" => DESCRIPTION
+      },
+      reloader: reloader
+    )
 
-      merged = Cgc2046McpConfig.upsert_server(
-        old_text,
-        name: SERVER_NAME,
-        spec: {
-          "type"        => "http",
-          "url"         => url,
-          "headers"     => { "Authorization" => "Bearer #{token}" },
-          "description" => DESCRIPTION
-        }
-      )
-      Cgc2046McpConfig.persist(path, merged[:data])
-
-      begin
-        # nil-safe：registry 惰性创建，尚未创建时下次用到会读新文件
-        @http_server&.send(:mcp_registry)&.reload
-      rescue StandardError
-        # best-effort 回滚：进入时的原文 bytes 原样写回（禁止 normalize——非法 JSON
-        # 也必须逐字节恢复）；旧文件原本不存在则删掉新建文件。
-        begin
-          if old_text
-            Cgc2046McpConfig.persist_text(path, old_text)
-          elsif File.exist?(path)
-            File.delete(path)
-          end
-        rescue StandardError
-          # 回滚失败不掩盖原始错误
-        end
-        # 恢复落盘后再 best-effort reload 一次，把旧配置载回运行时 registry
-        begin
-          @http_server&.send(:mcp_registry)&.reload
-        rescue StandardError
-          # 忽略：已创建的 registry 只在显式 reload 时重读配置（不会随请求自动加载），
-          # 此处失败后运行时状态未确认，需下次 connect 重试；不掩盖原始错误
-        end
-        error!("connect failed: mcp registry reload failed", status: 500)
-      end
-    end
-
-    json(ok: true, created: merged[:created], url: url)
+    json(ok: true, created: result[:created], url: url)
   rescue Clacky::ApiExtension::Halt
     # helper（json/error!）通过 Halt 结束请求，必须放行，否则会被下面的 500 吞掉
     raise
+  rescue RuntimeError => e
+    error!("connect failed: #{e.message}", status: 500)
   rescue StandardError => e
     error!("connect failed: #{e.message}", status: 500)
   end
@@ -110,43 +78,18 @@ class Cgc2046Ext < Clacky::ApiExtension
 
   # DELETE /api/ext/cgc-2046/connect
   # 移除 mcpServers["cgc-2046"] 条目并 reload MCP registry（断开连接）。
-  # 加固与 connect 相同：类级互斥 + 原子写 + reload 失败逐字节回滚 + 二次 reload。
+  # 事务（snapshot→remove→原子提交→reload→回滚）收在 Cgc2046McpConfig.disconnect_server。
   delete "/connect" do
-    path = Cgc2046McpConfig.config_path
-    removed = false
+    # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe）
+    reloader = -> { @http_server&.send(:mcp_registry)&.reload }
 
-    self.class.write_mutex.synchronize do
-      old_text = Cgc2046McpConfig.load_text(path)
-      result = Cgc2046McpConfig.remove_server(old_text, name: SERVER_NAME)
-      removed = result[:removed]
-
-      if removed
-        Cgc2046McpConfig.persist(path, result[:data])
-
-        begin
-          @http_server&.send(:mcp_registry)&.reload
-        rescue StandardError
-          # best-effort 回滚：旧文本原样写回（有 cgc-2046 条目 ⇒ 文件必存在 ⇒ old_text 非 nil），
-          # 逐字节恢复被移除的条目；恢复后再 reload 一次。
-          begin
-            Cgc2046McpConfig.persist_text(path, old_text) if old_text
-          rescue StandardError
-            # 回滚失败不掩盖原始错误
-          end
-          begin
-            @http_server&.send(:mcp_registry)&.reload
-          rescue StandardError
-            # 忽略：与 connect 同口径，运行时状态需下次请求重试
-          end
-          error!("disconnect failed: mcp registry reload failed", status: 500)
-        end
-      end
-    end
-
-    json(ok: true, removed: removed)
+    result = Cgc2046McpConfig.disconnect_server(name: SERVER_NAME, reloader: reloader)
+    json(ok: true, removed: result[:removed])
   rescue Clacky::ApiExtension::Halt
     # helper（json/error!）通过 Halt 结束请求，必须放行
     raise
+  rescue RuntimeError => e
+    error!("disconnect failed: #{e.message}", status: 500)
   rescue StandardError => e
     error!("disconnect failed: #{e.message}", status: 500)
   end

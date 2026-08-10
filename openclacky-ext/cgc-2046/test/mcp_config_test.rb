@@ -394,4 +394,195 @@ class McpConfigTest < Minitest::Test
     assert_equal false, st[:token_configured]
     assert_equal false, st[:configured]
   end
+
+  # ---- 事务方法（connect_server / disconnect_server）----
+  # 测试先行（Phase 0）：方法未实现时此段应因 NoMethodError 失败（红）。
+  # reloader 为注入 callable；persist/persist_text 被 stub 记录调用，不真实落盘。
+
+  def test_connect_server_success_persists_once_and_reloads_once
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+
+    stub_fs(old_text: old) do |persisted, _restored, reloader|
+      result = Cgc2046McpConfig.connect_server(name: "cgc-2046", spec: SPEC, reloader: reloader)
+
+      assert_equal({ created: true }, result)
+      assert_equal 1, persisted.size, "应恰好 persist 一次"
+      entry = persisted.first[1].dig("mcpServers", "cgc-2046")
+      assert_equal "Bearer tok_secret_123", entry.dig("headers", "Authorization"),
+                   "token 的唯一去向是 mcp.json 的 headers"
+      assert_equal({ "type" => "stdio", "command" => "x" }, persisted.first[1].dig("mcpServers", "other"),
+                   "既有 server 条目语义无损")
+      assert_equal 1, reloader.count, "写后必须 reload 恰好一次"
+    end
+  end
+
+  def test_connect_server_existing_entry_returns_created_false
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://old/mcp", "headers" => {}, "custom" => "keep"
+    } })
+
+    stub_fs(old_text: old) do |persisted, _restored, reloader|
+      result = Cgc2046McpConfig.connect_server(name: "cgc-2046", spec: SPEC, reloader: reloader)
+
+      assert_equal({ created: false }, result)
+      assert_equal 1, persisted.size
+      entry = persisted.first[1].dig("mcpServers", "cgc-2046")
+      assert_equal "keep", entry["custom"], "条目上的未知额外键必须保留"
+      assert_equal "Bearer tok_secret_123", entry.dig("headers", "Authorization")
+      assert_equal 1, reloader.count
+    end
+  end
+
+  def test_connect_server_reload_failure_raises_and_rolls_back_raw_text
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+    reloader = failing_reloader(fail_times: 1)
+
+    stub_fs(old_text: old) do |persisted, restored, _reloader|
+      err = assert_raises(RuntimeError) do
+        Cgc2046McpConfig.connect_server(name: "cgc-2046", spec: SPEC, reloader: reloader[:fn])
+      end
+      assert_includes err.message, "reload failed", "必须抛出含 reload failed 的 RuntimeError"
+
+      assert_equal 1, persisted.size, "正向写恰好一次"
+      assert_equal 1, restored.size, "回滚写恰好一次"
+      assert_equal old, restored.first[1], "回滚必须写回进入时的原文 bytes（禁止 normalize 后重序列化）"
+      assert_equal 2, reloader[:count][0], "恢复落盘后必须 best-effort 再 reload 一次"
+    end
+  end
+
+  def test_disconnect_server_success_removes_and_reloads
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://x/mcp", "headers" => { "Authorization" => "Bearer tok_old" }
+    }, "other" => { "type" => "stdio", "command" => "x" } })
+
+    stub_fs(old_text: old) do |persisted, _restored, reloader|
+      result = Cgc2046McpConfig.disconnect_server(name: "cgc-2046", reloader: reloader)
+
+      assert_equal({ removed: true }, result)
+      assert_equal 1, persisted.size, "应恰好 persist 一次"
+      assert_nil persisted.first[1].dig("mcpServers", "cgc-2046"), "cgc-2046 条目必须被移除"
+      assert_equal({ "type" => "stdio", "command" => "x" }, persisted.first[1].dig("mcpServers", "other"),
+                   "其它 server 条目语义无损")
+      assert_equal 1, reloader.count, "写后必须 reload 恰好一次"
+    end
+  end
+
+  def test_disconnect_server_noop_without_persist_or_reload
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+
+    stub_fs(old_text: old) do |persisted, _restored, reloader|
+      result = Cgc2046McpConfig.disconnect_server(name: "cgc-2046", reloader: reloader)
+
+      assert_equal({ removed: false }, result)
+      assert_empty persisted, "no-op 时不得写盘"
+      assert_equal 0, reloader.count, "no-op 时不得 reload"
+    end
+  end
+
+  def test_disconnect_server_reload_failure_rolls_back_and_reloads_again
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://x/mcp", "headers" => { "Authorization" => "Bearer tok_old" }
+    }, "other" => { "type" => "stdio", "command" => "x" } })
+    reloader = failing_reloader(fail_times: 1)
+
+    stub_fs(old_text: old) do |persisted, restored, _reloader|
+      err = assert_raises(RuntimeError) do
+        Cgc2046McpConfig.disconnect_server(name: "cgc-2046", reloader: reloader[:fn])
+      end
+      assert_includes err.message, "reload failed"
+
+      assert_equal 1, persisted.size, "正向移除写恰好一次"
+      assert_equal 1, restored.size, "回滚写恰好一次"
+      assert_equal old, restored.first[1], "回滚必须写回进入时的原文 bytes（cgc-2046 条目必须被恢复）"
+      assert_equal 2, reloader[:count][0], "恢复落盘后必须 best-effort 再 reload 一次"
+    end
+  end
+
+  # mutex 决策 3=A：模块级 @write_mutex，事务期间持锁（其它线程被阻塞）
+  def test_connect_server_holds_module_write_mutex_during_transaction
+    assert_kind_of Mutex, Cgc2046McpConfig.write_mutex, "模块级 write_mutex 必须是 Mutex"
+    assert_same Cgc2046McpConfig.write_mutex, Cgc2046McpConfig.write_mutex,
+                "write_mutex 必须是模块级单例"
+
+    in_lock = Queue.new
+    proceed = Queue.new
+    other_entered = false
+    reloader = lambda do
+      in_lock << true # 通知主测试线程：事务线程已持锁
+      proceed.pop     # 阻塞在锁内，等主测试线程完成检测
+    end
+
+    stub_fs(old_text: "{}") do |_persisted, _restored, _reloader|
+      tx = Thread.new do
+        Cgc2046McpConfig.connect_server(name: "cgc-2046", spec: SPEC, reloader: reloader)
+      end
+
+      other = Thread.new do
+        Cgc2046McpConfig.write_mutex.synchronize { other_entered = true }
+      end
+
+      in_lock.pop # 事务线程已进入锁内（reloader 执行中）
+      refute other.join(0.1), "事务持锁期间其它线程不得进入临界区"
+      other.kill
+      other.join
+      proceed << true # 放行事务线程完成
+      tx.join
+    end
+  end
+
+  private
+
+  # reloader 计数器（count 穿透闭包），fail_times 控制前 N 次抛错（之后成功）。
+  # 返回 { fn:, count: }，count 是单元素数组，事后可断言调用次数。
+  def failing_reloader(fail_times:)
+    count = [0]
+    fn = lambda do
+      count[0] += 1
+      if fail_times > 0
+        fail_times -= 1
+        raise "registry boom"
+      end
+    end
+    { fn: fn, count: count }
+  end
+
+  # stub config_path/load_text/persist/persist_text（singleton method 重定义，ensure 恢复）。
+  # persist 记录序列化写，persist_text 记录原文写；reloader 为可调用 + count 的计数器。
+  FakeReloader = Struct.new(:count) do
+    def call
+      self.count += 1
+    end
+  end
+
+  def stub_fs(old_text:)
+    persisted = []
+    restored = []
+    reloader = FakeReloader.new(0)
+    writer = ->(path, hash) { persisted << [path, hash] }
+    raw_writer = ->(path, text) { restored << [path, text] }
+
+    stubs = {
+      config_path:  "/fake/home/.clacky/mcp.json",
+      load_text:    old_text,
+      persist:      writer,
+      persist_text: raw_writer
+    }
+    with_stubs(**stubs) { yield persisted, restored, reloader }
+  end
+
+  # 临时重定义 Cgc2046McpConfig 的模块函数，ensure 中恢复原实现。
+  # 值语义：callable 直接作为实现；其它值包装成定值 lambda。
+  def with_stubs(stubs)
+    originals = {}
+    stubs.each do |name, impl|
+      originals[name] = Cgc2046McpConfig.method(name)
+      fn = impl.respond_to?(:call) ? impl : ->(*_args) { impl }
+      Cgc2046McpConfig.define_singleton_method(name, &fn)
+    end
+    yield
+  ensure
+    originals.each do |name, meth|
+      Cgc2046McpConfig.define_singleton_method(name, meth)
+    end
+  end
 end
