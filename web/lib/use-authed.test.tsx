@@ -136,11 +136,12 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 		rerender();
 		await act(async () => {
-			// 推进 fake timer 让重试 setTimeout 触发并完成
-			await vi.advanceTimersByTimeAsync(10000);
+			// #101：只推进到重试窗口内（第 1 次退避 1s）——重试窗口内网络错误
+			// 不踢已登录用户；持续 >7s 故障的兜底行为由「#101 重试耗尽兜底」describe 覆盖
+			await vi.advanceTimersByTimeAsync(1000);
 		});
 
-		// 核心断言：网络错误不应改变已确认的登录态
+		// 核心断言：重试窗口内网络错误不应改变已确认的登录态
 		expect(result.current).toEqual({
 			authed: true,
 			confirmed: true,
@@ -166,10 +167,13 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 			userId: "u1",
 		});
 
-		// DB 故障：后端返回 auth_uncertain（CombinedGraphQLErrors + code）
-		const failingRefetch = vi
-			.fn()
-			.mockRejectedValue(new Error("db still down"));
+		// DB 故障：后端返回 auth_uncertain（HTTP 200 + GraphQL errors）——Apollo
+		// refetch 会 resolve 而非 reject（errorPolicy:"all" 下 res.error 携带
+		// CombinedGraphQLErrors）。真实 Apollo 行为，见 #101。
+		const failingRefetch = vi.fn().mockResolvedValue({
+			data: { me: null },
+			error: authUncertainError(),
+		});
 		useQueryMock.mockReturnValue({
 			data: { me: null },
 			loading: false,
@@ -178,7 +182,8 @@ describe("useAuthed (#70 hydration-safe，#7 根 layout 共享，#13 网络错�
 		});
 		rerender();
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(10000);
+			// #101：只推进到重试窗口内（第 1 次退避 1s）；持续故障兜底见「#101 重试耗尽兜底」
+			await vi.advanceTimersByTimeAsync(1000);
 		});
 
 		// auth_uncertain 应保持登录态并重试，而非判未登录踢出
@@ -216,10 +221,11 @@ describe("#017 Bug A 回归：me 重试链不再被 refetch 的 loading 翻转�
 		});
 		expect(refetchMock).toHaveBeenCalledTimes(3);
 
-		// 重试用尽：保持首帧 confirmed:false（不误判登录态），等用户刷新恢复
+		// #101：重试用尽（持续故障 1s+2s+4s）兜底判未登录（confirmed:true + authed:false），
+		// 走既有 /login 守卫，避免受保护页永久卡「正在确认登录状态」
 		expect(result.current).toEqual({
 			authed: false,
-			confirmed: false,
+			confirmed: true,
 			userId: null,
 		});
 	});
@@ -313,5 +319,121 @@ describe("#017 Bug A 回归：me 重试链不再被 refetch 的 loading 翻转�
 		});
 		// 重试链跑满 3 次（旧实现第 1 次就被 loading 翻转取消，这里只会有 1 次）
 		expect(refetchMock).toHaveBeenCalledTimes(3);
+	});
+});
+
+describe("#101 重试耗尽兜底：持续网络故障不永久卡「正在确认登录状态」", () => {
+	it("未登录 + auth_uncertain 重试耗尽 → 兜底判未登录（confirmed:true），走 /login 守卫", async () => {
+		vi.useFakeTimers();
+		// auth_uncertain 是 HTTP 200 + GraphQL errors：Apollo refetch resolve（真实
+		// 行为，非 reject），res.error 持续携带 CombinedGraphQLErrors。
+		const refetchMock = vi.fn().mockResolvedValue({
+			data: { me: null },
+			error: authUncertainError(),
+		});
+		useQueryMock.mockReturnValue({
+			data: { me: null },
+			loading: false,
+			error: authUncertainError(),
+			refetch: refetchMock,
+		});
+		const { result } = renderHook(() => useAuthed(), { wrapper });
+
+		await act(async () => {
+			// 推进覆盖 1s/2s/4s 三次退避 + 耗尽
+			await vi.advanceTimersByTimeAsync(10000);
+		});
+
+		// 3 次重试全部失败后兜底判未登录，而非永久卡 confirmed:false
+		expect(refetchMock).toHaveBeenCalledTimes(3);
+		expect(result.current).toEqual({
+			authed: false,
+			confirmed: true,
+			userId: null,
+		});
+	});
+
+	it("已确认登录态 + 持续网络故障耗尽 → 保持原登录态，不兜底误踢（#13）", async () => {
+		vi.useFakeTimers();
+		// 先已登录（服务端实锤 me.id）
+		useQueryMock.mockReturnValue({
+			data: { me: { id: "u1" } },
+			loading: false,
+			error: undefined,
+			refetch: vi.fn(),
+		});
+		const { result, rerender } = renderHook(() => useAuthed(), { wrapper });
+		await act(async () => {});
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
+
+		// 持续网络故障：refetch 全部失败
+		const refetchMock = vi.fn().mockRejectedValue(new Error("still down"));
+		useQueryMock.mockReturnValue({
+			data: undefined,
+			loading: false,
+			error: networkError(),
+			refetch: refetchMock,
+		});
+		rerender();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10000);
+		});
+
+		// 重试 3 次耗尽：已确认的登录态是服务端实锤（me.id 曾返回），兜底仅针对
+		// 首帧未确认（#101 分流语义），已登录用户不被误踢 /login
+		expect(refetchMock).toHaveBeenCalledTimes(3);
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
+	});
+
+	it("已确认登录态 + auth_uncertain（resolve）持续 3 次耗尽 → 保持登录态，不兜底误踢（#13）", async () => {
+		vi.useFakeTimers();
+		// 先已登录（服务端实锤 me.id）
+		useQueryMock.mockReturnValue({
+			data: { me: { id: "u1" } },
+			loading: false,
+			error: undefined,
+			refetch: vi.fn(),
+		});
+		const { result, rerender } = renderHook(() => useAuthed(), { wrapper });
+		await act(async () => {});
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
+
+		// DB 故障持续：auth_uncertain（HTTP 200 + errors）→ Apollo refetch resolve、
+		// res.error 仍 auth_uncertain → 走 .then() 继续退避分支（#101 新增路径）。
+		// 此前该路径在 .then() 里归零 attemptRef → 无限退避循环。
+		const refetchMock = vi.fn().mockResolvedValue({
+			data: { me: null },
+			error: authUncertainError(),
+		});
+		useQueryMock.mockReturnValue({
+			data: { me: null },
+			loading: false,
+			error: authUncertainError(),
+			refetch: refetchMock,
+		});
+		rerender();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10000);
+		});
+
+		// 3 次 resolve 退避耗尽：已确认登录态保持，不被误踢 /login
+		expect(refetchMock).toHaveBeenCalledTimes(3);
+		expect(result.current).toEqual({
+			authed: true,
+			confirmed: true,
+			userId: "u1",
+		});
 	});
 });

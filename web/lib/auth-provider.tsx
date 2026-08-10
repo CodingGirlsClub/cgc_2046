@@ -83,7 +83,8 @@ const RETRY_DELAYS = [1000, 2000, 4000];
 
 type Action =
 	| { type: "confirm"; authed: boolean; userId: string | null }
-	| { type: "retain" };
+	| { type: "retain" }
+	| { type: "uncertain-fallback" };
 
 function reducer(_state: AuthedState, action: Action): AuthedState {
 	switch (action.type) {
@@ -91,6 +92,13 @@ function reducer(_state: AuthedState, action: Action): AuthedState {
 			return { authed: action.authed, confirmed: true, userId: action.userId };
 		case "retain":
 			return _state;
+		case "uncertain-fallback":
+			// #101：重试耗尽兜底。已确认过登录态（服务端实锤过 me.id，如会话中网络
+			// 抖动）→ 保持原状态不误踢（#13）；首帧从未确认 → 兜底判未登录，走既有
+			// /login 守卫，避免受保护页永久卡「正在确认登录状态」。
+			return _state.confirmed
+				? _state
+				: { authed: false, confirmed: true, userId: null };
 	}
 }
 
@@ -127,6 +135,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		if (error && isNetworkError(error)) {
 			if (retryingRef.current) return;
 			retryingRef.current = true;
+			attemptRef.current = 0;
+
+			// 重试耗尽：重置状态并兜底。首帧未确认过登录态 → 判未登录走 /login 守卫
+			// （#101：避免永久卡「正在确认登录状态」）；已确认登录态由 reducer 内
+			// 判断保持原状态（#13 不误踢）。
+			const finishRetry = () => {
+				retryingRef.current = false;
+				attemptRef.current = 0;
+				dispatch({ type: "uncertain-fallback" });
+			};
 
 			const scheduleNext = () => {
 				if (unmountedRef.current) return;
@@ -136,7 +154,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				timerRef.current = setTimeout(() => {
 					if (unmountedRef.current) return;
 					refetch()
-						.then(() => {
+						.then((res) => {
+							// Apollo 对 HTTP 200 + GraphQL errors（auth_uncertain）会 resolve
+							// 而非 reject；errorPolicy:"all" 下 res.error 携带
+							// CombinedGraphQLErrors。#101：若此处直接归零，effect 因 error
+							// 未变而重跑时会重新从 1s 退避 → 无限循环（真实卡死主因，
+							// 单测用 reject mock 掩盖了该路径）。
+							if (res.error && isNetworkError(res.error)) {
+								attemptRef.current++;
+								if (attemptRef.current < RETRY_DELAYS.length) {
+									scheduleNext();
+								} else {
+									finishRetry();
+								}
+								return;
+							}
+							// 已恢复（成功或 unauthorized 明确未登录）：重置，effect 据
+							// error 变化重跑走 confirm 分支。
 							retryingRef.current = false;
 							attemptRef.current = 0;
 						})
@@ -145,9 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 							if (attemptRef.current < RETRY_DELAYS.length) {
 								scheduleNext();
 							} else {
-								// ponytail: 重试用尽，保持上次 state（confirmed 不翻），等用户刷新恢复
-								retryingRef.current = false;
-								attemptRef.current = 0;
+								finishRetry();
 							}
 						});
 				}, delay);
