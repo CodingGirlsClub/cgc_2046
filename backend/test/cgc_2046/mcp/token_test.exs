@@ -205,4 +205,101 @@ defmodule Cgc2046.Mcp.TokenTest do
       assert hd(mine).name == "u1"
     end
   end
+
+  describe "语义函数（list_for/issue/revoke）" do
+    test "list_for/1：返回本人 token，新→旧排序" do
+      user = register_user("mcp-token-12@example.com")
+
+      {:ok, t1, _} = Token.issue("first", user)
+      {:ok, t2, _} = Token.issue("second", user)
+
+      assert {:ok, tokens} = Token.list_for(user)
+      assert Enum.map(tokens, & &1.id) == [t2.id, t1.id]
+      assert Enum.map(tokens, & &1.name) == ["second", "first"]
+    end
+
+    test "list_for/1：不含他人 token" do
+      u1 = register_user("mcp-token-13@example.com")
+      u2 = register_user("mcp-token-14@example.com")
+
+      {:ok, _, _} = Token.issue("mine", u1)
+      {:ok, _, _} = Token.issue("theirs", u2)
+
+      assert {:ok, tokens} = Token.list_for(u1)
+      assert Enum.map(tokens, & &1.name) == ["mine"]
+    end
+
+    test "issue/2：返回 {:ok, token, plain}，plain 以 cgc_ 开头且 token_hash 匹配" do
+      user = register_user("mcp-token-15@example.com")
+
+      assert {:ok, token, plain} = Token.issue("我的 Mac", user)
+      assert is_binary(plain)
+      assert String.starts_with?(plain, "cgc_")
+      assert byte_size(plain) > 20
+
+      # 库中只存 hash，且任何字段不含明文
+      assert token.token_hash != plain
+      expected_hash = :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower)
+      assert token.token_hash == expected_hash
+
+      assert token.user_id == user.id
+
+      # 明文不落库：按 hash 读回 DB 行，任何字段不含明文
+      stored =
+        Token
+        |> Ash.Query.filter(token_hash == ^expected_hash)
+        |> Ash.read_one!(authorize?: false)
+
+      refute inspect(Map.from_struct(stored)) =~ plain
+    end
+
+    test "issue/2：active 上限达 10 返回 {:error, _}" do
+      user = register_user("mcp-token-16@example.com")
+
+      for i <- 1..10 do
+        assert {:ok, _, _} = Token.issue("t#{i}", user)
+      end
+
+      assert {:error, %Ash.Error.Invalid{} = error} = Token.issue("over", user)
+      assert Exception.message(error) =~ "active connection token limit reached"
+    end
+
+    test "issue/2：未认证 actor 返回 {:error, _}" do
+      assert {:error, %Ash.Error.Forbidden{}} = Token.issue("X", nil)
+    end
+
+    test "revoke/2：本人撤销返回 {:ok, revoked}" do
+      user = register_user("mcp-token-17@example.com")
+
+      {:ok, token, _} = Token.issue("A", user)
+
+      assert {:ok, revoked} = Token.revoke(token.id, user)
+      assert %DateTime{} = revoked.revoked_at
+    end
+
+    test "revoke/2：他人 token → {:error, :not_found}（不泄露存在性）" do
+      owner = register_user("mcp-token-18@example.com")
+      other = register_user("mcp-token-19@example.com")
+
+      {:ok, token, _} = Token.issue("A", owner)
+
+      assert {:error, :not_found} = Token.revoke(token.id, other)
+    end
+
+    test "revoke/2：不存在 id → {:error, :not_found}" do
+      user = register_user("mcp-token-20@example.com")
+
+      assert {:error, :not_found} = Token.revoke(Ecto.UUID.generate(), user)
+    end
+
+    test "revoke/2：重复撤销 → {:error, {:invalid, _}}" do
+      user = register_user("mcp-token-21@example.com")
+
+      {:ok, token, _} = Token.issue("A", user)
+
+      assert {:ok, _} = Token.revoke(token.id, user)
+      assert {:error, {:invalid, error}} = Token.revoke(token.id, user)
+      assert Exception.message(error) =~ "already been revoked"
+    end
+  end
 end
