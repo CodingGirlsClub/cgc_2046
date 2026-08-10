@@ -37,7 +37,7 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
   end
 
   @doc """
-  确认后真正执行（由 `Confirmation` 执行器注册表调用）。
+  确认后真正执行（由 `Confirmation.execute/3` 直接分派调用）。
   params 为 pending 落库的 redact 后参数（本工具参数无敏感键，直接可用）。
   """
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}

@@ -34,8 +34,8 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
     op
   end
 
-  # 注册临时执行器（绕过 Confirmation 私有 executors 表：直接测 confirm 内部语义，
-  # 用已登记的 create_invitation 路径做端到端由 tools_test 覆盖）
+  # 直接测 PendingOperation :confirm action 的 DB 层条件更新原子性，隔离 executor 副作用
+  # （MEDIUM-2 已用真实 create_invitation 路径覆盖 confirm 全链）
   describe "MEDIUM-1 并发双确认" do
     test "并发 confirm 同一 pending：数据库层条件更新保证只有一个成功" do
       user = register_user("race-1@example.com")
@@ -80,6 +80,23 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
 
       # 可再次发起 confirm（重试不被「已确认」卡死）
       assert {:error, _} = Confirmation.confirm(user, op.id)
+    end
+  end
+
+  describe "MEDIUM-3 未知 tool dispatch fallback" do
+    test "confirm 未知 tool → 明确错误，pending 仍可恢复" do
+      user = register_user("unknown-tool@example.com")
+      # 直接造一条 tool 字段为未知值的 pending（绕过 request，模拟数据异常）
+      op = pend(user, "no_such_tool")
+
+      assert {:error, msg} = Confirmation.confirm(user, op.id)
+      assert msg =~ "no executor"
+
+      # mark_confirmed 已成功 → execute/3 fallback 失败 → revert 回 pending，
+      # 不留 confirmed-but-no-effect（与 MEDIUM-2 同不变式）
+      reloaded = Ash.get!(PendingOperation, op.id, authorize?: false)
+      assert reloaded.status == :pending
+      assert reloaded.resolved_at == nil
     end
   end
 end
