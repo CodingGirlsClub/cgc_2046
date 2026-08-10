@@ -21,20 +21,20 @@ class McpConfigTest < Minitest::Test
     "description" => "CGC-2046 platform capabilities"
   }.freeze
 
-  # 1. 空/缺失数据 → 新建 mcpServers + cgc 条目
+  # 1. 空/缺失数据 → 新建 mcpServers + cgc-2046 条目
   def test_upsert_creates_entry_on_empty_config
-    result = Cgc2046McpConfig.upsert_server("{}", name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server("{}", name: "cgc-2046", spec: SPEC)
 
     assert result[:created], "空配置上应为新建"
-    assert_equal SPEC, result[:data]["mcpServers"]["cgc"]
+    assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
   def test_upsert_creates_mcpservers_key_when_missing
-    result = Cgc2046McpConfig.upsert_server('{"otherTop":1}', name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server('{"otherTop":1}', name: "cgc-2046", spec: SPEC)
 
     assert result[:created]
     assert_equal 1, result[:data]["otherTop"], "顶层其它键必须保留"
-    assert_equal SPEC, result[:data]["mcpServers"]["cgc"]
+    assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
   # 2. 已有其它 server 条目 → merge 后原条目语义无损保留
@@ -47,18 +47,18 @@ class McpConfigTest < Minitest::Test
     }
     input = JSON.generate({ "mcpServers" => { "other" => other } })
 
-    result = Cgc2046McpConfig.upsert_server(input, name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server(input, name: "cgc-2046", spec: SPEC)
 
     assert result[:created]
     assert_equal other, result[:data]["mcpServers"]["other"], "其它 server 条目内容不得变动"
-    assert_equal SPEC, result[:data]["mcpServers"]["cgc"]
+    assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
-  # 3. 已有 cgc 条目 → 只更新四键，未知额外键保留，其它 server 不动
+  # 3. 已有 cgc-2046 条目 → 只更新四键，未知额外键保留，其它 server 不动
   def test_upsert_updates_only_known_keys_and_keeps_extras
     input = JSON.generate(
       "mcpServers" => {
-        "cgc" => {
+        "cgc-2046" => {
           "type"        => "http",
           "url"         => "http://old.example/mcp",
           "headers"     => { "Authorization" => "Bearer tok_old" },
@@ -69,10 +69,10 @@ class McpConfigTest < Minitest::Test
       }
     )
 
-    result = Cgc2046McpConfig.upsert_server(input, name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server(input, name: "cgc-2046", spec: SPEC)
 
     refute result[:created], "条目已存在时不是新建"
-    entry = result[:data]["mcpServers"]["cgc"]
+    entry = result[:data]["mcpServers"]["cgc-2046"]
     assert_equal "http://localhost:4102/mcp", entry["url"]
     assert_equal({ "Authorization" => "Bearer tok_secret_123" }, entry["headers"])
     assert_equal "CGC-2046 platform capabilities", entry["description"]
@@ -83,23 +83,23 @@ class McpConfigTest < Minitest::Test
 
   # 4. 非法 JSON 输入 → 按空处理（不抛异常）
   def test_upsert_treats_invalid_json_as_empty
-    result = Cgc2046McpConfig.upsert_server("{not json", name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server("{not json", name: "cgc-2046", spec: SPEC)
 
     assert result[:created]
-    assert_equal SPEC, result[:data]["mcpServers"]["cgc"]
+    assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
   # 4b. 非 Hash 的 JSON（数组/标量）同样按空处理
   def test_upsert_treats_non_object_json_as_empty
-    result = Cgc2046McpConfig.upsert_server('["a","b"]', name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server('["a","b"]', name: "cgc-2046", spec: SPEC)
 
     assert result[:created]
-    assert_equal SPEC, result[:data]["mcpServers"]["cgc"]
+    assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
   # 5. 输出 pretty JSON 且以 \n 结尾
   def test_to_json_text_is_pretty_and_newline_terminated
-    hash = { "mcpServers" => { "cgc" => SPEC } }
+    hash = { "mcpServers" => { "cgc-2046" => SPEC } }
     text = Cgc2046McpConfig.to_json_text(hash)
 
     assert text.end_with?("\n"), "输出必须以换行结尾"
@@ -109,8 +109,8 @@ class McpConfigTest < Minitest::Test
 
   # 6. status_of 返回 configured/url，且结果无 headers/token 泄漏
   def test_status_of_configured
-    text = JSON.generate({ "mcpServers" => { "cgc" => SPEC } })
-    st = Cgc2046McpConfig.status_of(text, name: "cgc")
+    text = JSON.generate({ "mcpServers" => { "cgc-2046" => SPEC } })
+    st = Cgc2046McpConfig.status_of(text, name: "cgc-2046")
 
     assert_equal true, st[:configured]
     assert_equal "http://localhost:4102/mcp", st[:url]
@@ -121,14 +121,14 @@ class McpConfigTest < Minitest::Test
   end
 
   def test_status_of_unconfigured_when_missing
-    st = Cgc2046McpConfig.status_of('{"mcpServers":{}}', name: "cgc")
+    st = Cgc2046McpConfig.status_of('{"mcpServers":{}}', name: "cgc-2046")
 
     assert_equal false, st[:configured]
     assert_nil st[:url]
   end
 
   def test_status_of_unconfigured_on_invalid_json
-    st = Cgc2046McpConfig.status_of("garbage", name: "cgc")
+    st = Cgc2046McpConfig.status_of("garbage", name: "cgc-2046")
 
     assert_equal false, st[:configured]
     assert_nil st[:url]
@@ -139,11 +139,11 @@ class McpConfigTest < Minitest::Test
     input = { "mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } } }
     frozen_input = JSON.parse(JSON.generate(input))
 
-    result = Cgc2046McpConfig.upsert_server(input, name: "cgc", spec: SPEC)
+    result = Cgc2046McpConfig.upsert_server(input, name: "cgc-2046", spec: SPEC)
 
     assert result[:created]
     assert_equal frozen_input, input, "不得修改调用方传入的 Hash"
-    assert_equal SPEC, result[:data]["mcpServers"]["cgc"]
+    assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
   # ---- persist / load_text（写入加固：原子写 + 0600 + mode 保留）----
@@ -314,20 +314,20 @@ class McpConfigTest < Minitest::Test
     end
   end
 
-  # ---- remove_server（断开连接：移除 cgc 条目，其它 server 无损）----
+  # ---- remove_server（断开连接：移除 cgc-2046 条目，其它 server 无损）----
 
   def test_remove_server_removes_cgc_preserving_others
     input = JSON.generate(
       "mcpServers" => {
-        "cgc" => SPEC,
+        "cgc-2046" => SPEC,
         "other" => { "type" => "stdio", "command" => "x" }
       }
     )
 
-    result = Cgc2046McpConfig.remove_server(input, name: "cgc")
+    result = Cgc2046McpConfig.remove_server(input, name: "cgc-2046")
 
-    assert result[:removed], "存在 cgc 条目时应移除"
-    assert_nil result[:data]["mcpServers"]["cgc"], "cgc 条目必须被移除"
+    assert result[:removed], "存在 cgc-2046 条目时应移除"
+    assert_nil result[:data]["mcpServers"]["cgc-2046"], "cgc-2046 条目必须被移除"
     assert_equal({ "type" => "stdio", "command" => "x" }, result[:data]["mcpServers"]["other"],
                  "其它 server 条目不得受影响")
   end
@@ -335,15 +335,15 @@ class McpConfigTest < Minitest::Test
   def test_remove_server_noop_when_missing
     input = JSON.generate("mcpServers" => { "other" => { "type" => "stdio" } })
 
-    result = Cgc2046McpConfig.remove_server(input, name: "cgc")
+    result = Cgc2046McpConfig.remove_server(input, name: "cgc-2046")
 
-    refute result[:removed], "无 cgc 条目时应为 no-op"
+    refute result[:removed], "无 cgc-2046 条目时应为 no-op"
     assert_equal({ "other" => { "type" => "stdio" } }, result[:data]["mcpServers"])
     assert_equal JSON.parse(input), result[:data], "内容必须保持不变"
   end
 
   def test_remove_server_noop_on_empty_config
-    result = Cgc2046McpConfig.remove_server("{}", name: "cgc")
+    result = Cgc2046McpConfig.remove_server("{}", name: "cgc-2046")
 
     refute result[:removed]
     assert_nil result[:data]["mcpServers"], "no-op 时不得无谓创建 mcpServers 键"
@@ -351,7 +351,7 @@ class McpConfigTest < Minitest::Test
   end
 
   def test_remove_server_treats_invalid_json_as_empty
-    result = Cgc2046McpConfig.remove_server("{broken", name: "cgc")
+    result = Cgc2046McpConfig.remove_server("{broken", name: "cgc-2046")
 
     refute result[:removed]
     assert_nil result[:data]["mcpServers"]
@@ -359,10 +359,10 @@ class McpConfigTest < Minitest::Test
   end
 
   def test_remove_server_accepts_hash_input_without_mutating_it
-    input = JSON.parse(JSON.generate("mcpServers" => { "cgc" => SPEC, "other" => { "type" => "stdio" } }))
+    input = JSON.parse(JSON.generate("mcpServers" => { "cgc-2046" => SPEC, "other" => { "type" => "stdio" } }))
     snapshot = JSON.generate(input)
 
-    result = Cgc2046McpConfig.remove_server(input, name: "cgc")
+    result = Cgc2046McpConfig.remove_server(input, name: "cgc-2046")
 
     assert result[:removed]
     assert_equal snapshot, JSON.generate(input), "不得修改调用方传入的 Hash"
@@ -371,8 +371,8 @@ class McpConfigTest < Minitest::Test
   # ---- status_of 的 token 状态（token_configured，仍不泄漏 token）----
 
   def test_status_of_reports_token_configured_when_authorization_present
-    text = JSON.generate({ "mcpServers" => { "cgc" => SPEC } })
-    st = Cgc2046McpConfig.status_of(text, name: "cgc")
+    text = JSON.generate({ "mcpServers" => { "cgc-2046" => SPEC } })
+    st = Cgc2046McpConfig.status_of(text, name: "cgc-2046")
 
     assert_equal true, st[:token_configured]
     assert_equal true, st[:configured]
@@ -381,15 +381,15 @@ class McpConfigTest < Minitest::Test
   end
 
   def test_status_of_token_unconfigured_when_no_headers
-    text = JSON.generate("mcpServers" => { "cgc" => { "type" => "http", "url" => "http://x/mcp" } })
-    st = Cgc2046McpConfig.status_of(text, name: "cgc")
+    text = JSON.generate("mcpServers" => { "cgc-2046" => { "type" => "http", "url" => "http://x/mcp" } })
+    st = Cgc2046McpConfig.status_of(text, name: "cgc-2046")
 
     assert_equal false, st[:token_configured]
     assert_equal true, st[:configured]
   end
 
   def test_status_of_token_unconfigured_when_disconnected
-    st = Cgc2046McpConfig.status_of('{"mcpServers":{}}', name: "cgc")
+    st = Cgc2046McpConfig.status_of('{"mcpServers":{}}', name: "cgc-2046")
 
     assert_equal false, st[:token_configured]
     assert_equal false, st[:configured]

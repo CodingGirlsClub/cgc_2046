@@ -128,7 +128,7 @@ class HandlerRequestTest < Minitest::Test
 
       assert_equal 1, persisted.size, "应恰好 persist 一次"
       _path, data = persisted.first
-      entry = data.dig("mcpServers", "cgc")
+      entry = data.dig("mcpServers", "cgc-2046")
       assert_equal "Bearer #{TOKEN}", entry.dig("headers", "Authorization"),
                    "token 的唯一去向是 mcp.json 的 headers"
       assert_equal({ "type" => "stdio", "command" => "x" }, data.dig("mcpServers", "other"),
@@ -139,7 +139,7 @@ class HandlerRequestTest < Minitest::Test
   end
 
   def test_connect_existing_entry_reports_created_false
-    old = JSON.generate("mcpServers" => { "cgc" => {
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
       "type" => "http", "url" => "http://old/mcp", "headers" => {}, "custom" => "keep"
     } })
 
@@ -151,7 +151,7 @@ class HandlerRequestTest < Minitest::Test
 
       assert_equal 200, halt.status
       assert_equal false, JSON.parse(halt.payload)["created"]
-      entry = persisted.first[1].dig("mcpServers", "cgc")
+      entry = persisted.first[1].dig("mcpServers", "cgc-2046")
       assert_equal "keep", entry["custom"], "条目上的未知额外键必须保留"
       assert_equal "Bearer #{TOKEN}", entry.dig("headers", "Authorization")
     end
@@ -167,7 +167,7 @@ class HandlerRequestTest < Minitest::Test
 
         assert_equal 200, halt.status
         assert_equal URL, JSON.parse(halt.payload)["url"]
-        assert_equal URL, persisted.first[1].dig("mcpServers", "cgc", "url")
+        assert_equal URL, persisted.first[1].dig("mcpServers", "cgc-2046", "url")
       end
     end
   end
@@ -257,7 +257,7 @@ class HandlerRequestTest < Minitest::Test
   # ---- status ----
 
   def test_status_configured_without_headers_or_token_leak
-    old = JSON.generate("mcpServers" => { "cgc" => {
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
       "type" => "http", "url" => URL,
       "headers" => { "Authorization" => "Bearer tok_secret_status" },
       "description" => "x"
@@ -301,10 +301,10 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
-  # ---- disconnect（DELETE /connect：移除 cgc 条目 + reload）----
+  # ---- disconnect（DELETE /connect：移除 cgc-2046 条目 + reload）----
 
   def test_disconnect_removes_and_reloads
-    old = JSON.generate("mcpServers" => { "cgc" => {
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
       "type" => "http", "url" => URL,
       "headers" => { "Authorization" => "Bearer tok_old" }, "description" => "x"
     }, "other" => { "type" => "stdio", "command" => "x" } })
@@ -320,7 +320,7 @@ class HandlerRequestTest < Minitest::Test
 
       assert_equal 1, persisted.size, "应恰好 persist 一次"
       _path, data = persisted.first
-      assert_nil data.dig("mcpServers", "cgc"), "cgc 条目必须被移除"
+      assert_nil data.dig("mcpServers", "cgc-2046"), "cgc-2046 条目必须被移除"
       assert_equal({ "type" => "stdio", "command" => "x" }, data.dig("mcpServers", "other"),
                    "其它 server 条目语义无损")
 
@@ -338,7 +338,7 @@ class HandlerRequestTest < Minitest::Test
       assert_equal 200, halt.status
       payload = JSON.parse(halt.payload)
       assert_equal true, payload["ok"]
-      assert_equal false, payload["removed"], "无 cgc 条目时应为 no-op"
+      assert_equal false, payload["removed"], "无 cgc-2046 条目时应为 no-op"
 
       assert_empty persisted, "no-op 时不得写盘（避免无谓重写/权限变化）"
       assert_equal 0, registry.reload_count, "no-op 时不得 reload"
@@ -346,7 +346,7 @@ class HandlerRequestTest < Minitest::Test
   end
 
   def test_disconnect_reload_failure_rolls_back_and_reloads_again
-    old = JSON.generate("mcpServers" => { "cgc" => {
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
       "type" => "http", "url" => URL, "headers" => { "Authorization" => "Bearer tok_old" }
     }, "other" => { "type" => "stdio", "command" => "x" } })
     registry = FakeRegistry.new(fail_times: 1)
@@ -360,7 +360,7 @@ class HandlerRequestTest < Minitest::Test
       assert_equal 1, persisted.size, "正向移除写恰好一次"
       assert_equal 1, restored.size, "回滚写恰好一次"
       assert_equal old, restored.first[1],
-                   "回滚必须写回进入时的原文 bytes（cgc 条目必须被恢复）"
+                   "回滚必须写回进入时的原文 bytes（cgc-2046 条目必须被恢复）"
 
       assert_equal 2, registry.reload_count, "恢复落盘后必须 best-effort 再 reload 一次"
     end
