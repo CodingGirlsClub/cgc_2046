@@ -1,0 +1,138 @@
+"use client";
+
+/**
+ * /admin/workspaces/[id] 工作台详情（Phase 8 / R13）。
+ * - 基础信息：name/slug/joinPolicy/创建时间
+ * - pending-owner 状态：有 active 且 preauthorized [:owner] 的 Invitation
+ *   （复用 Invitation 生命周期，OQ6 选项 3）
+ * - 成员列表（Owner/Admin 可见全部）
+ */
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { gql } from "@apollo/client";
+import { client } from "@/lib/apollo-client";
+import {
+	JOIN_POLICY_LABEL,
+	type Workspace,
+} from "@/lib/graphql/workspace";
+import { fetchWorkspaceMembers, type WorkspaceMember } from "@/lib/workspaces";
+import { fetchInvitations } from "@/lib/invitations";
+
+const GET_WORKSPACE_BY_ID = gql`
+  query GetWorkspaceById($id: ID!) {
+    getWorkspaceById(id: $id) {
+      id
+      slug
+      name
+      joinPolicy
+      sponsorshipEnabled
+    }
+  }
+`;
+
+interface WorkspaceByIdResult {
+	getWorkspaceById: Workspace | null;
+}
+
+export default function AdminWorkspaceDetailPage() {
+	const params = useParams<{ id: string }>();
+	const workspaceId = params.id;
+
+	const [workspace, setWorkspace] = useState<Workspace | null>(null);
+	const [members, setMembers] = useState<WorkspaceMember[] | null>(null);
+	const [pendingOwner, setPendingOwner] = useState(false);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			setLoading(true);
+			setError(false);
+			try {
+				const [{ data }, memberPage, invitations] = await Promise.all([
+					client.query<WorkspaceByIdResult>({
+						query: GET_WORKSPACE_BY_ID,
+						variables: { id: workspaceId },
+					}),
+					fetchWorkspaceMembers(workspaceId),
+					fetchInvitations(workspaceId),
+				]);
+				if (cancelled) return;
+				setWorkspace(data?.getWorkspaceById ?? null);
+				setMembers(memberPage.members);
+				setPendingOwner(
+					invitations.items.some(
+						(inv) =>
+							inv.status === "active" &&
+							(inv.preauthorizedRoleNames ?? []).includes("owner"),
+					),
+				);
+			} catch {
+				if (!cancelled) setError(true);
+			} finally {
+				if (!cancelled) setLoading(false);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [workspaceId]);
+
+	if (loading) {
+		return <p className="text-sm text-neutral-500">加载中…</p>;
+	}
+
+	if (error || !workspace) {
+		return <p className="text-sm text-red-600">加载失败，工作台不存在或无权查看。</p>;
+	}
+
+	return (
+		<section>
+			<h1 className="text-2xl font-semibold mb-1">{workspace.name}</h1>
+			<p className="text-neutral-600 text-sm mb-2">
+				{workspace.slug} · {JOIN_POLICY_LABEL[workspace.joinPolicy]}
+			</p>
+
+			{pendingOwner && (
+				<p className="inline-block px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-800 mb-4">
+					待指定 Owner（有 active Owner 邀请）
+				</p>
+			)}
+
+			<h2 className="text-lg font-medium mt-6 mb-2">成员（{members?.length ?? 0}）</h2>
+			{members && members.length > 0 ? (
+				<table className="w-full text-sm border-collapse">
+					<thead>
+						<tr className="text-left text-neutral-500 border-b border-neutral-200">
+							<th className="py-2">成员</th>
+							<th className="py-2">角色</th>
+						</tr>
+					</thead>
+					<tbody>
+						{members.map((m) => (
+							<tr key={m.membershipId} className="border-b border-neutral-100">
+								<td className="py-2">
+									{m.displayName || m.email || m.userId}
+									<span className="text-neutral-500 text-xs ml-2">{m.email}</span>
+								</td>
+								<td className="py-2">
+									{m.roles.map((r) => (
+										<span
+											key={r}
+											className="inline-block px-2 py-0.5 rounded bg-neutral-100 text-xs mr-1"
+										>
+											{r}
+										</span>
+									))}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			) : (
+				<p className="text-sm text-neutral-500">暂无成员。</p>
+			)}
+		</section>
+	);
+}
