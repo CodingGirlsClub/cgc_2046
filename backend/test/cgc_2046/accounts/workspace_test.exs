@@ -102,6 +102,113 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
+  describe "create workspace with designated owner (Phase 4 / D1)" do
+    test "owner_user_id specified -> Owner membership is created for that user, not the actor" do
+      admin = admin_user()
+      owner = register_user("ws-owner-id@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-id-#{System.unique_integer([:positive])}",
+                 name: "Owner ID WS",
+                 owner_user_id: owner.id
+               })
+               |> Ash.create(actor: admin)
+
+      # Owner membership 建给指定用户
+      assert Cgc2046.Accounts.MembershipContext.role_names(owner, workspace.id) == [:owner]
+      # actor（platform_admin）不再是 Owner
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == []
+    end
+
+    test "owner_email specified -> active Invitation created with preauthorized [:owner]" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-email-#{System.unique_integer([:positive])}",
+                 name: "Owner Email WS",
+                 owner_email: "future-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      require Ash.Query
+
+      assert {:ok, invitations} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "future-owner@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert [invitation] = invitations
+      assert invitation.status == :active
+      assert invitation.preauthorized_role_names == [:owner]
+      assert invitation.workspace_id == workspace.id
+      assert invitation.inviter_id == admin.id
+      # 明文 token 经 workspace create metadata 一次性交付（R5）
+      refute is_nil(workspace.__metadata__[:owner_invitation_token])
+      # pending-owner：Owner membership 尚未建立（接受邀请后才有）
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == []
+    end
+
+    test "owner_email invitation accept -> Owner membership is created" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-accept-#{System.unique_integer([:positive])}",
+                 name: "Owner Accept WS",
+                 owner_email: "owner-accept@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      require Ash.Query
+
+      assert {:ok, invitations} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "owner-accept@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert [invitation] = invitations
+
+      # 明文 token 经 workspace create 的 metadata 一次性交付（R5）
+      token = workspace.__metadata__[:owner_invitation_token]
+      refute is_nil(token)
+
+      acceptor = register_user("owner-accept@example.com", @password)
+
+      assert {:ok, accepted} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: token
+               })
+               |> Ash.update(actor: acceptor)
+
+      assert accepted.status == :used
+
+      # 接受邀请后 Owner membership + owner 角色建立
+      assert Cgc2046.Accounts.MembershipContext.role_names(acceptor, workspace.id) == [:owner]
+    end
+
+    test "no owner arguments -> fallback to actor.id as Owner" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-fallback-#{System.unique_integer([:positive])}",
+                 name: "Owner Fallback WS"
+               })
+               |> Ash.create(actor: admin)
+
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == [:owner]
+    end
+  end
+
   describe "slug" do
     setup do
       {:ok, admin: admin_user()}
