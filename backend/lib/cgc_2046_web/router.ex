@@ -61,6 +61,16 @@ defmodule Cgc2046Web.Router do
     )
   end
 
+  # Phase 6 / R12：AshAdmin 挂载（ops 调试面）。
+  # 门控由 :admin_browser pipeline 末尾的 PlatformAdminPlug 承担——
+  # 非 platform_admin 在 live_session 之前被 403（不依赖 ash_admin actor impersonation）。
+  scope "/ops" do
+    import AshAdmin.Router
+
+    pipe_through([:admin_browser])
+    ash_admin("/admin")
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:cgc_2046, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put

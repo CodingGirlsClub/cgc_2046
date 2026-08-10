@@ -7,7 +7,13 @@ defmodule Cgc2046.Mcp do
   - `Cgc2046.Mcp.ToolCallLog`：每次工具调用审计（D9）
   - `Cgc2046.Mcp.PendingOperation`：高风险工具确认流两阶段提交（D8 two-tool 模式，D-D3）
   """
-  use Ash.Domain
+  use Ash.Domain, extensions: [AshAdmin.Domain]
+
+  admin do
+    # Phase 6 / R12：AshAdmin /ops/admin 暴露该 Domain（安全门控由 :admin_browser pipeline
+    # 的 PlatformAdminPlug 承担，不依赖 ash_admin actor 机制）
+    show?(true)
+  end
 
   resources do
     resource(Cgc2046.Mcp.Token)
