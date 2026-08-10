@@ -26,6 +26,9 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.JoinRequest)
     # B-2 #31：邀请
     resource(Cgc2046.Accounts.Invitation)
+
+    # Platform Admin Dashboard R6/R7：工作台创建申请（全局资源，platform_admin 审批）
+    resource(Cgc2046.Accounts.WorkspaceApplication)
     resource(Cgc2046.Miniprogram.Code)
     resource(Cgc2046.Miniprogram.NotificationConsent)
   end
