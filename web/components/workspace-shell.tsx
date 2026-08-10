@@ -60,8 +60,12 @@ function navSection(pathname: string, slug: string): NavSection {
 		return "settings-account-profile";
 	if (pathname.startsWith(`/w/${slug}/settings/account/preferences`))
 		return "settings-account-preferences";
-	if (pathname.startsWith(`/w/${slug}/settings/connection`))
-		return "settings-connection";
+	if (
+		pathname.startsWith(
+			`/w/${slug}/settings/integrations/agents`,
+		)
+	)
+		return "settings-integrations-agents";
 	return null;
 }
 
@@ -284,15 +288,18 @@ export default function WorkspaceShell({
 								<Icon name="user" />
 								<span>个人资料</span>
 							</Link>
+						</nav>
+						<div className="ws-shell-heading">集成</div>
+						<nav className="ws-shell-nav" aria-label="集成">
 							<Link
-								href={`/w/${slug}/settings/connection`}
-								className={`ws-shell-item ${active === "settings-connection" ? "ws-shell-item--selected" : ""}`}
+								href={`/w/${slug}/settings/integrations/agents/mcp`}
+								className={`ws-shell-item ${active === "settings-integrations-agents" ? "ws-shell-item--selected" : ""}`}
 								aria-current={
-									active === "settings-connection" ? "page" : undefined
+									active === "settings-integrations-agents" ? "page" : undefined
 								}
 							>
 								<Icon name="activity" />
-								<span>连接</span>
+								<span>Agents</span>
 							</Link>
 						</nav>
 						<div className="ws-shell-heading">Workspace</div>

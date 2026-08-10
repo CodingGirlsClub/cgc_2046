@@ -92,6 +92,17 @@ export default function WorkspaceSwitcherMenu({
 			>
 				<span className="ws-shell-brand-menu__name">Settings</span>
 			</Link>
+
+			<div className="ws-shell-brand-menu__divider" />
+
+			<Link
+				href={`/w/${currentSlug}/settings/integrations/agents/mcp`}
+				className="ws-shell-brand-menu__item"
+				role="menuitem"
+				onClick={onNavigate}
+			>
+				<span className="ws-shell-brand-menu__name">MCP</span>
+			</Link>
 			{canSeeByKey("invitations", abilities) && (
 				<Link
 					href={`/w/${currentSlug}/settings/invitations`}

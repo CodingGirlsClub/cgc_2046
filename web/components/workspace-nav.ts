@@ -24,7 +24,7 @@ export type NavSection =
 	| "settings-invitations"
 	| "settings-account-profile"
 	| "settings-account-preferences"
-	| "settings-connection"
+	| "settings-integrations-agents"
 	| null;
 
 export interface NavDestination {
