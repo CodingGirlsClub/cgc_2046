@@ -6,6 +6,10 @@ OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供�
 - **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）。
 - **agent**：`cgc-assistant`——通过 CGC MCP 工具读写工作台的助手（8 个工具，含 two-tool 确认流）。
 - **skill**：`cgc2046-onboarding`——引导创建 token、经剪贴板管道调 connect、验证状态的连接流程。
+- **hooks**（OpenClacky ≥1.5.7 事件能力）：
+  - `after_tool_use`——主 agent 每次调用 CGC MCP server（virtual skill `mcp:cgc-2046`，条目名与扩展 id 统一）后推 `ext.cgc-2046.tool_used` 事件（成功 persist: true 进消息流，失败仅实时提示）；subagent 内 curl 连接失败不抛异常、错误文本藏在 subagent summary 里——文本特征命中（MCP server 'cgc 前缀 / Connection refused / Failed to open TCP / localhost:4102 等具体形态）时另推 `ext.cgc-2046.mcp_error`（错误片段截断 + 抹凭证，覆盖 Bearer / cgc_ 前缀 / 裸 JWT 形态）。
+  - `on_tool_error`——防御性：工具调用真正抛异常且错误与 CGC MCP 连接相关时推 `ext.cgc-2046.mcp_error`（当前 agent 侧 MCP 走 virtual skill + curl 路径，一般不触发）。
+- **面板事件订阅**：面板「最近活动」区实时展示上述两个事件。
 
 要求 **openclacky >= 1.3.7**（api handler / ext pack / install 能力自 v1.3.7 引入）。
 

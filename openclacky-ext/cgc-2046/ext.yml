@@ -30,3 +30,8 @@ contributes:
       skills: [cgc2046-onboarding]
   skills:
     - id: cgc2046-onboarding
+  hooks:
+    - event: on_tool_error
+      file: hooks/on_tool_error.rb
+    - event: after_tool_use
+      file: hooks/after_tool_use.rb
