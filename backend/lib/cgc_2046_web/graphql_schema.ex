@@ -398,6 +398,60 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载）"
+    field :accept_invitation, :accept_invitation_result do
+      arg(:id, non_null(:id))
+      arg(:input, non_null(:accept_invitation_input))
+
+      # 手写 field 不经过 middleware/3 回调（那是 AshGraphql 自动 mutation 的接线），
+      # 与 admit_member_by_token 一致显式挂载；限流 key 与自动 mutation 相同（input.token）。
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:input, :token])
+
+      resolve(fn _, %{id: id, input: %{token: token}}, %{context: context} ->
+        cond do
+          is_nil(context[:actor]) ->
+            {:error, unauthorized_error()}
+
+          true ->
+            actor = context[:actor]
+            token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+
+            # #96：AshGraphql update mutation 的 read-before-write 用 :read action 加载记录
+            # （read policy 下推成 inviter_id == actor.id），受邀者被拒成 not_found，到不了
+            # accept action。这里改为 id + token_hash 双因子定位 + authorize?: false 加载：
+            # 两个条件都匹配才放行（token 是凭证，与 validateInvitation 信息面一致），
+            # 不匹配返回 not_found，不泄露邀请存在性。accept action 的
+            # authorize_if(actor_present()) 与 before_action token 复验仍完整生效。
+            with {:ok, invitation} when not is_nil(invitation) <-
+                   Cgc2046.Accounts.Invitation
+                   |> Ash.Query.do_filter(id: id, token_hash: token_hash)
+                   |> Ash.read_one(authorize?: false),
+                 {:ok, accepted} <-
+                   invitation
+                   |> Ash.Changeset.for_update(:accept, %{token: token})
+                   |> Ash.update(actor: actor) do
+              {:ok, %{result: accepted, errors: []}}
+            else
+              {:ok, nil} ->
+                {:ok, %{result: nil, errors: accept_not_found_errors(context, id)}}
+
+              {:error, error} ->
+                {:ok,
+                 %{
+                   result: nil,
+                   errors:
+                     to_ash_graphql_errors(
+                       error,
+                       context,
+                       :accept,
+                       Cgc2046.Accounts.Invitation
+                     )
+                 }}
+            end
+        end
+      end)
+    end
+
     @desc "记录一次小程序订阅消息授权并增加一个可用次数"
     field :grant_mini_program_notification_consent, :integer do
       arg(:platform, non_null(:string))
@@ -727,8 +781,8 @@ defmodule Cgc2046Web.GraphqlSchema do
   def middleware(middleware, %{identifier: :validate_invitation}, _object),
     do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:token]} | middleware]
 
-  def middleware(middleware, %{identifier: :accept_invitation}, _object),
-    do: [{Cgc2046Web.Plugs.RateLimit, key_path: [:input, :token]} | middleware]
+  # 注：accept_invitation 现为手写 field，RateLimit 在 field 内显式挂载
+  # （手写 field 不经过 middleware/3 回调），不再需要此处的 identifier 分支。
 
   def middleware(middleware, _field, _object), do: middleware
 
@@ -834,6 +888,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # acceptInvitation 手写 resolver 的类型（#96）：与自动生成的同名同形，
+  # API 形态不变（acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult!）。
+  input_object :accept_invitation_input do
+    @desc "acceptInvitation 输入：token 为明文邀请令牌（accept 须复验）"
+    field(:token, non_null(:string))
+  end
+
+  object :accept_invitation_result do
+    @desc "acceptInvitation 返回：result 为已接受邀请记录；errors 为业务错误"
+    field(:result, :invitation)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
   # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
@@ -852,6 +919,18 @@ defmodule Cgc2046Web.GraphqlSchema do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+  end
+
+  # acceptInvitation 的 not_found：id+token 双因子不匹配时返回，与 AshGraphql 自动 mutation
+  # 的 NotFound 映射一致（message "could not be found" / code "not_found"），复用同一序列化路径。
+  defp accept_not_found_errors(context, id) do
+    error =
+      Ash.Error.Query.NotFound.exception(
+        primary_key: %{id: id},
+        resource: Cgc2046.Accounts.Invitation
+      )
+
+    to_ash_graphql_errors(error, context, :accept, Cgc2046.Accounts.Invitation)
   end
 
   # 把 Absinthe input map 转为 Ash attrs map（只取指定字段，忽略缺省）。

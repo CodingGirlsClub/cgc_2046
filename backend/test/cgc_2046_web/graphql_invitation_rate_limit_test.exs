@@ -174,6 +174,12 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
           |> json_response(200)
 
         refute rate_limited?(res), "attempt #{i} should not be rate-limited, got: #{inspect(res)}"
+
+        # #96 盲区补强：首次 accept 必须真正成功（受邀者路径不得 not_found）——
+        # 修复前受邀者恒 not_found，refute rate_limited? 也会通过。
+        if i == 1 do
+          assert %{"result" => %{"id" => _}} = get_in(res, ["data", "acceptInvitation"])
+        end
       end
 
       # 第 4 次被拦

@@ -22,30 +22,28 @@ defmodule Cgc2046Web.GraphqlWiringTest do
     assert response(conn, 404) =~ "Not Found"
   end
 
-  # 防回归：middleware/3 callback 的 pattern 必须把 RateLimit 挂到这两个 field。
-  # validate_invitation 是 query、accept_invitation 是 mutation，分别从对应类型取。
-  # 端到端限流测试（graphql_invitation_rate_limit_test.exs）测的是 plug 运行时行为，
-  # 这里测的是 schema 接线——identifier 改名或 callback 被删时，这里会精确失败。
+  # 防回归：validate_invitation 是 AshGraphql 自动生成的 query field，其 RateLimit 由
+  # middleware/3 callback 挂载，静态 field.middleware 列表可见——identifier 改名或
+  # callback 被删时，这里会精确失败。
+  # accept_invitation 现为手写 resolver field（#96 绕过 read policy 记录加载），
+  # 其 RateLimit 经 middleware/2 宏声明。手写 field（resolve(fn) 形式）的 middleware
+  # 被 Absinthe shim 包装，不进静态 field.middleware 列表（与 sign_in /
+  # admit_member_by_token 一致），故其限流由 graphql_invitation_rate_limit_test.exs
+  # 端到端运行时验证，不在此静态内省。
   # 纯 schema 内省，不依赖 DB / conn / 限流计数。
   describe "RateLimit middleware wiring" do
-    test "validate_invitation (query) and accept_invitation (mutation) mount RateLimit" do
+    test "validate_invitation (auto query) mounts RateLimit via middleware/3 callback" do
       schema = Cgc2046Web.GraphqlSchema
       query_type = Absinthe.Schema.lookup_type(schema, :query)
-      mutation_type = Absinthe.Schema.lookup_type(schema, :mutation)
 
-      for {name, type} <- [
-            {:validate_invitation, query_type},
-            {:accept_invitation, mutation_type}
-          ] do
-        field = type.fields[name]
-        assert field != nil, "#{name} field missing from #{type.identifier} type"
+      field = query_type.fields[:validate_invitation]
+      assert field != nil, "validate_invitation field missing from query type"
 
-        assert Enum.any?(field.middleware, fn
-                 {Cgc2046Web.Plugs.RateLimit, _} -> true
-                 _ -> false
-               end),
-               "#{name} middleware list missing RateLimit: #{inspect(field.middleware)}"
-      end
+      assert Enum.any?(field.middleware, fn
+               {Cgc2046Web.Plugs.RateLimit, _} -> true
+               _ -> false
+             end),
+             "validate_invitation middleware list missing RateLimit: #{inspect(field.middleware)}"
     end
   end
 end
