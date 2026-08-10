@@ -2251,6 +2251,11 @@ input UpdateWorkspaceInput {
   sponsorshipEnabled: Boolean
 }
 
+type CreateWorkspaceMetadata {
+  "pending-owner 邀请明文 token（仅创建时返回一次，不落库）"
+  ownerInvitationToken: String
+}
+
 "The result of the :create_workspace mutation"
 type CreateWorkspaceResult {
   "The successful result of the mutation"
@@ -2258,6 +2263,9 @@ type CreateWorkspaceResult {
 
   "Any errors generated, if the mutation failed"
   errors: [MutationError!]!
+
+  "Metadata produced by the mutation"
+  metadata: CreateWorkspaceMetadata
 }
 
 input CreateWorkspaceInput {
@@ -2272,6 +2280,12 @@ input CreateWorkspaceInput {
 
   "是否开放赞助入口（默认开）"
   sponsorshipEnabled: Boolean
+
+  "指定已有用户为 Owner（替代 actor.id 建 Owner membership）"
+  ownerUserId: ID
+
+  "邀请新用户为 Owner（创建 preauthorized [:owner] 的 Invitation，pending-owner）"
+  ownerEmail: String
 }
 
 enum WorkspaceSortField {
