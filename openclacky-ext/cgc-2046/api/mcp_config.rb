@@ -89,7 +89,7 @@ module Cgc2046McpConfig
   # 合并写入一个 server 条目。
   #
   # @param json_text_or_hash [String, Hash, nil] mcp.json 原文、已解析的 Hash 或 nil
-  # @param name  [String] 条目名（handler 写死 "cgc"，防止 clobber 任意条目）
+  # @param name  [String] 条目名（handler 写死 "cgc-2046"，防止 clobber 任意条目）
   # @param spec  [Hash]   完整条目内容（type/url/headers/description 四键）
   # @return [Hash] { data:, created: }
   #   data    — 合并后的完整配置 Hash（string keys，可交 to_json_text 序列化）
@@ -121,7 +121,7 @@ module Cgc2046McpConfig
   # 移除一个 server 条目（断开连接）。
   #
   # @param json_text_or_hash [String, Hash, nil] mcp.json 原文、已解析的 Hash 或 nil
-  # @param name  [String] 条目名（handler 写死 "cgc"）
+  # @param name  [String] 条目名（handler 写死 "cgc-2046"）
   # @return [Hash] { data:, removed: }
   #   data    — 移除后的完整配置 Hash（string keys）
   #   removed — true 表示该条目确实被移除；false 表示本来就不存在（no-op，内容不变）

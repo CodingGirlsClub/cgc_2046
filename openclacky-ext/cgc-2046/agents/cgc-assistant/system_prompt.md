@@ -45,7 +45,7 @@
 
 ## 使用前提
 
-如果 MCP 工具调用失败（连接错误 / 401 / 找不到 server），说明用户尚未完成连接配置。引导用户走 `cgc2046-onboarding` skill：去 CGC-2046 网站的「连接设置」页创建 token 并完成连接。**提醒用户 token 只复制到剪贴板，不要粘贴进对话**——onboarding 主流程经剪贴板管道写入配置，token 不进入会话记录。
+如果 MCP 工具调用失败（连接错误 / 401 / 找不到 server），说明用户尚未完成连接配置。引导用户走 `cgc2046-onboarding` skill：去 CGC-2046 网站的「MCP」页创建 token 并完成连接。**提醒用户 token 只复制到剪贴板，不要粘贴进对话**——onboarding 主流程经剪贴板管道写入配置，token 不进入会话记录。
 
 ## 纪律
 

@@ -2,7 +2,7 @@
 
 OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供：
 
-- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。
+- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。
 - **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）。
 - **agent**：`cgc-assistant`——通过 CGC MCP 工具读写工作台的助手（8 个工具，含 two-tool 确认流）。
 - **skill**：`cgc2046-onboarding`——引导创建 token、经剪贴板管道调 connect、验证状态的连接流程。
@@ -43,11 +43,11 @@ openclacky ext install openclacky-ext/dist/cgc-2046.zip
 
 ## 使用流程
 
-1. 在 CGC-2046 网站工作台的「连接设置」页 `/w/<slug>/settings/connection` 创建 token 并**复制到剪贴板**（明文只显示一次；不要粘贴进对话）。
+1. 在 CGC-2046 网站工作台的「MCP」页 `/w/<slug>/settings/integrations/agents/mcp` 创建 token 并**复制到剪贴板**（明文只显示一次；不要粘贴进对话）。
 2. 在 OpenClacky 里新建会话、选择 `cgc-assistant`（或任意带 terminal 的会话触发 `cgc2046-onboarding` skill）。
 3. skill 用「剪贴板 → stdin 管道」命令 curl `POST /api/ext/cgc-2046/connect` 写入配置（loopback 免 access-key；token 不进 argv、不进入会话记录）。
 4. `GET /api/ext/cgc-2046/status` 返回 `configured:true` 后即可提问工作台问题。
-5. 侧边栏「CGC-2046」入口可随时查看连接状态；「断开连接」移除 `cgc` 条目（`DELETE /api/ext/cgc-2046/connect`），不触碰其它 server 条目。
+5. 侧边栏「CGC-2046」入口可随时查看连接状态；「断开连接」移除 `cgc-2046` 条目（`DELETE /api/ext/cgc-2046/connect`），不触碰其它 server 条目。
 
 ## 配置点
 
@@ -61,8 +61,8 @@ openclacky ext install openclacky-ext/dist/cgc-2046.zip
 
 ```bash
 rm -rf ~/.clacky/ext/installed/cgc-2046
-# 断开连接（移除 cgc 条目）：面板「断开连接」或 curl -X DELETE http://127.0.0.1:7070/api/ext/cgc-2046/connect
-# 或手动编辑 ~/.clacky/mcp.json，删除 mcpServers 下的 "cgc" 条目
+# 断开连接（移除 cgc-2046 条目）：面板「断开连接」或 curl -X DELETE http://127.0.0.1:7070/api/ext/cgc-2046/connect
+# 或手动编辑 ~/.clacky/mcp.json，删除 mcpServers 下的 "cgc-2046" 条目
 ```
 
 `~/.clacky/ext-data/cgc-2046/`（若存在）默认保留。
@@ -74,12 +74,12 @@ rm -rf ~/.clacky/ext/installed/cgc-2046
 - 无剪贴板 CLI 的环境首选备选 A（用户亲手把 token 写入 0600 临时文件、agent 管道读取、成功后删除）；对话粘贴是最后手段（备选 B），token 会留在会话记录中——skill 会明示代价并建议撤销后改走无留痕通道重签。
 - MCP 工具结果（如 `invitation_token` 明文）会被客户端运行时记入会话记录，这是既定事实；我们的纪律是不主动把凭证写进额外文件/日志。
 - status 端点只返回 `configured` / `url` / `token_configured`（布尔）/ `web_url`，永不返回 headers 或 token；面板与 handler 均不渲染 token。
-- connect 的条目名写死 `cgc`，不会改动 mcp.json 里的其它 server 条目；更新时保留该条目上的未知额外键；`DELETE /connect` 只移除 `cgc` 条目。
+- connect 的条目名写死 `cgc-2046`，不会改动 mcp.json 里的其它 server 条目；更新时保留该条目上的未知额外键；`DELETE /connect` 只移除 `cgc-2046` 条目。
 
 ## Known limitations
 
 - **宿主其它写路径不在本包控制面**：OpenClacky WebUI 的 `/api/mcp` 管理端点与本扩展可能并发写同一 `mcp.json`。本包内已用类级互斥锁 + 原子写加固自身路径，但无法锁住宿主写路径；根本解是在 OpenClacky 侧提供统一写 API（如 `Registry#upsert_server`），属上游改进建议。
-- 卸载不自动清理 mcp.json 的 `cgc` 条目（无 uninstall CLI）。
+- 卸载不自动清理 mcp.json 的 `cgc-2046` 条目（无 uninstall CLI）。
 
 ## 测试
 
@@ -94,7 +94,7 @@ mise exec -- ruby test/handler_routes_test.rb    # 请求级：422/200/回滚/50
 ## 验证步骤（安装后自测）
 
 1. `openclacky ext install openclacky-ext/dist/cgc-2046.zip`，确认 `openclacky ext list` 出现 `cgc-2046`。
-2. 预置一个含其它 server 条目的 `~/.clacky/mcp.json`，走一遍「使用流程」；完成后检查：其它条目语义无损、`cgc` 条目四键正确、文件权限 0600（既有文件 mode 不变）。
+2. 预置一个含其它 server 条目的 `~/.clacky/mcp.json`，走一遍「使用流程」；完成后检查：其它条目语义无损、`cgc-2046` 条目四键正确、文件权限 0600（既有文件 mode 不变）。
 3. `GET /api/ext/cgc-2046/status` 返回 `configured:true` 且响应无 headers/token；`token_configured:true`、`web_url` 正确。
 4. 在 agent 会话调 `get_workspace_context` 成功返回工作台信息。
 5. OpenClacky 侧边栏出现「CGC-2046」入口，打开面板显示已连接 + token 已配置；点「断开连接」确认后 `status` 变 `configured:false`，其它 server 条目无损。

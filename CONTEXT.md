@@ -38,7 +38,7 @@
 ### 连接器扩展 cgc-2046（Connector Extension）
 
 - **定义**：用户侧 OpenClacky 的官方扩展，id/名称统一为 `cgc-2046`；安装后提供 CGC 助手、本地 Skill 同步、MCP 连接读取等能力（D14）。**负责自动配置 mcp.json**——安装后自动检查并安装 MCP（网站只生成 token，用户不再手动粘贴配置片段，D-A7）。
-- **架构位置**：用户侧入口。`openclacky ext install <zip URL>` 安装（D13 步骤 2 / D-A7）；扩展自动写入 `mcp.json` 的 cgc 条目获取 URL + token，零额外配置。
+- **架构位置**：用户侧入口。`openclacky ext install <zip URL>` 安装（D13 步骤 2 / D-A7）；扩展自动写入 `mcp.json` 的 `cgc-2046` 条目获取 URL + token，零额外配置。
 
 ### CGC 助手（CGC Assistant）
 
@@ -105,7 +105,7 @@
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
 
-- **定义**：每用户一个的 MCP 认证凭证。**绑用户、不绑工作区**；可访问用户加入的多个 Workspace，具体租户由每次调用的目标资源（workspace_id）判定（D6/D13）。在网站"连接设置"页生成。
+- **定义**：每用户一个的 MCP 认证凭证。**绑用户、不绑工作区**；可访问用户加入的多个 Workspace，具体租户由每次调用的目标资源（workspace_id）判定（D6/D13）。在网站「MCP」页生成。
 - **架构位置**：MCP server 的 `Authorization: Bearer <token>` 头；`mcp.json` 是它的单一配置点。**区别于网站登录 Token**：登录 Token 是 httpOnly cookie，只用于网站 UI。
 - ⚠️ 注意：本术语**取代**更早调研文档（`docs/02-调研分析/OpenClacky扩展调研与实施计划.md` §3.4）中"token 绑 workspace_id"的旧设计——D13 定稿为绑用户不绑工作区。
 

@@ -3,7 +3,7 @@
 // 能力：
 //   - 侧边栏入口（sidebar.nav.bottom）→ 打开本面板页
 //   - 连接状态卡：configured / url / token_configured（GET /api/ext/cgc-2046/status，脱敏）
-//   - 断开连接：DELETE /api/ext/cgc-2046/connect（带 confirm，移除 mcp.json 的 cgc 条目）
+//   - 断开连接：DELETE /api/ext/cgc-2046/connect（带 confirm，移除 mcp.json 的 cgc-2046 条目）
 //   - 跳转网站（status.web_url，来自 ext.yml config）
 //
 // 安全红线：面板只展示 status 的布尔/URL 字段，绝不渲染 token/headers。
@@ -91,7 +91,7 @@
   }
 
   async function disconnect(container) {
-    if (!window.confirm("确认断开 CGC-2046 连接？将移除 mcp.json 中的 cgc 条目。")) return;
+    if (!window.confirm("确认断开 CGC-2046 连接？将移除 mcp.json 中的 cgc-2046 条目。")) return;
 
     const discEl = container.querySelector("#cgc-disconnect");
     const webEl = container.querySelector("#cgc-open-web");

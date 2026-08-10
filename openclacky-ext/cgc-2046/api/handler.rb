@@ -18,7 +18,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
 
   # 条目名写死，防止 clobber mcp.json 中的任意条目
-  SERVER_NAME = "cgc"
+  SERVER_NAME = "cgc-2046"
   DESCRIPTION = "CGC-2046 platform capabilities"
 
   # 类级互斥锁：防 handler 自并发的 read-merge-write 竞态。
@@ -29,7 +29,7 @@ class Cgc2046Ext < Clacky::ApiExtension
 
   # POST /api/ext/cgc-2046/connect
   # body: { "token": "<必填>", "url": "<可选，缺省读 ext.yml config.mcp_url>" }
-  # read-merge-write ~/.clacky/mcp.json 的 mcpServers["cgc"]，然后 reload MCP registry。
+  # read-merge-write ~/.clacky/mcp.json 的 mcpServers["cgc-2046"]，然后 reload MCP registry。
   post "/connect" do
     body  = json_body
     token = (body["token"] || body[:token]).to_s.strip
@@ -109,7 +109,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   end
 
   # DELETE /api/ext/cgc-2046/connect
-  # 移除 mcpServers["cgc"] 条目并 reload MCP registry（断开连接）。
+  # 移除 mcpServers["cgc-2046"] 条目并 reload MCP registry（断开连接）。
   # 加固与 connect 相同：类级互斥 + 原子写 + reload 失败逐字节回滚 + 二次 reload。
   delete "/connect" do
     path = Cgc2046McpConfig.config_path
@@ -126,7 +126,7 @@ class Cgc2046Ext < Clacky::ApiExtension
         begin
           @http_server&.send(:mcp_registry)&.reload
         rescue StandardError
-          # best-effort 回滚：旧文本原样写回（有 cgc 条目 ⇒ 文件必存在 ⇒ old_text 非 nil），
+          # best-effort 回滚：旧文本原样写回（有 cgc-2046 条目 ⇒ 文件必存在 ⇒ old_text 非 nil），
           # 逐字节恢复被移除的条目；恢复后再 reload 一次。
           begin
             Cgc2046McpConfig.persist_text(path, old_text) if old_text

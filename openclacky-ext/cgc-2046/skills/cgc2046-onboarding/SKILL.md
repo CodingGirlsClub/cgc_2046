@@ -13,10 +13,10 @@ description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CG
 
 ### 1. 让用户创建 token 并只复制到剪贴板
 
-引导用户打开 CGC-2046 网站对应工作台的「连接设置」页：
+引导用户打开 CGC-2046 网站对应工作台的「MCP」页：
 
 ```
-/w/<slug>/settings/connection
+/w/<slug>/settings/integrations/agents/mcp
 ```
 
 （`<slug>` 是用户工作台的 slug，不知道就问用户。）
@@ -51,7 +51,7 @@ pbpaste | ruby -rjson -e 'print JSON.generate({token: STDIN.read.strip})' | \
 - `JSON.generate` 负责转义，剪贴板内容含引号 / 换行也不会破坏请求；`strip` 去掉首尾空白；
 - 命令输出是响应 JSON（不含 token）。
 
-该端点会把 `mcpServers["cgc"]` 条目原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建文件权限 0600）并热重载 MCP registry，不影响其它已有 server 条目。
+该端点会把 `mcpServers["cgc-2046"]` 条目原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建文件权限 0600）并热重载 MCP registry，不影响其它已有 server 条目。
 
 ### 3. 断言连接结果
 
@@ -89,10 +89,10 @@ ruby -rjson -e 'print JSON.generate({token: File.read(ARGV[0]).strip})' ~/.clack
 
 仅在主流程与备选 A 都不可用时，允许用户在对话里粘贴 token，agent 再放进 curl 参数。**必须事先明示代价**：
 
-> 这种方式 token 会留在本机会话记录文件里。建议连接完成后回到连接设置页**撤销这个 token**，然后改用剪贴板管道（主流程）或临时文件管道（备选 A）重签一个并完成连接——新通道不留痕，补救真实有效。
+> 这种方式 token 会留在本机会话记录文件里。建议连接完成后回到 MCP 页**撤销这个 token**，然后改用剪贴板管道（主流程）或临时文件管道（备选 A）重签一个并完成连接——新通道不留痕，补救真实有效。
 
 ## 纪律
 
 - token 的目标落盘点只有 `~/.clacky/mcp.json`（写入期间有短暂 0600 临时文件）；agent 不得主动把 token 写进任何其它文件或日志。
 - 用户没给 token 时**不要编造**；connect 返回 422 就说明 token 缺失或格式不对，如实告诉用户。
-- token 明文只在网站创建时显示一次；用户弄丢了就让他回连接设置页撤销旧 token、重新签一个。
+- token 明文只在网站创建时显示一次；用户弄丢了就让他回 MCP 页撤销旧 token、重新签一个。
