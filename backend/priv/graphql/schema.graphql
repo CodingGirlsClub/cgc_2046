@@ -1369,20 +1369,6 @@ type MutationError {
   path: [String!]
 }
 
-"The result of the :accept_invitation mutation"
-type AcceptInvitationResult {
-  "The successful result of the mutation"
-  result: Invitation
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input AcceptInvitationInput {
-  "明文邀请令牌（accept 须复验，证明调用方持有 token）"
-  token: String!
-}
-
 "The result of the :revoke_invitation mutation"
 type RevokeInvitationResult {
   "The successful result of the mutation"
@@ -2858,6 +2844,18 @@ type CreateMcpTokenPayload {
   errors: [MutationError]
 }
 
+input AcceptInvitationInput {
+  "acceptInvitation 输入：token 为明文邀请令牌（accept 须复验）"
+  token: String!
+}
+
+type AcceptInvitationResult {
+  "acceptInvitation 返回：result 为已接受邀请记录；errors 为业务错误"
+  result: Invitation
+
+  errors: [MutationError!]!
+}
+
 type RootMutationType {
   "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
   signIn(email: String!, password: String!): SignInResult
@@ -2873,6 +2871,9 @@ type RootMutationType {
 
   "使用一次性小程序 scene 接受工作台邀请"
   admitMemberByToken(scene: String!): Invitation
+
+  "接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载）"
+  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult
 
   "记录一次小程序订阅消息授权并增加一个可用次数"
   grantMiniProgramNotificationConsent(platform: String!, templateKey: String!): Int
@@ -2930,9 +2931,6 @@ type RootMutationType {
 
   "撤销邀请（邀请人本人或 Owner\/Admin）"
   revokeInvitation(id: ID!): RevokeInvitationResult!
-
-  "接受邀请→建 Membership + 预授权角色入座"
-  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult!
 
   createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
 

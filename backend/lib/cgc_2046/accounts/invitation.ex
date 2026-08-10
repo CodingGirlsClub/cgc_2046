@@ -537,8 +537,6 @@ defmodule Cgc2046.Accounts.Invitation do
       create(:create_invitation, :create, description: "创建邀请（Owner/Admin/Volunteer）")
 
       update(:revoke_invitation, :revoke, description: "撤销邀请（邀请人本人或 Owner/Admin）")
-
-      update(:accept_invitation, :accept, description: "接受邀请→建 Membership + 预授权角色入座")
     end
   end
 end
