@@ -558,9 +558,10 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert member_ms.user_email == to_string(member.email)
       assert member_ms.user_display_name == "Calc Member"
       assert not is_nil(member_ms.joined_at)
-      # 旁路存在的理由：同时 load 的嵌套 user 关系被 User read policy 滤空
-      # （member visibility 默认 only_me，非本人不可读）
-      assert is_nil(member_ms.user)
+      # 旁路存在的理由：平铺字段（userEmail/userDisplayName）对非 owner 可见，
+      # 无需嵌套 load user 关系（Phase 2 起 platform_admin 可读 User 全部记录，
+      # 此处 admin 是 platform_admin，嵌套 user 可见）。
+      assert not is_nil(member_ms.user)
 
       # owner 行：joined_at = inserted_at；嵌套 user 是本人，可见
       owner_ms = by_email[to_string(admin.email)]
