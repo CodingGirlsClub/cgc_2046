@@ -114,9 +114,20 @@ export interface CreateWorkspaceInput {
 	name: string;
 	joinPolicy?: JoinPolicy;
 	sponsorshipEnabled?: boolean;
+	/** 指定已有用户为 Owner（Phase 4：替代 actor.id 建 Owner membership） */
+	ownerUserId?: string;
+	/** 邀请新用户为 Owner（创建 preauthorized [:owner] 的 Invitation，pending-owner） */
+	ownerEmail?: string;
 }
 
-export type CreateWorkspaceResultData = MutationResult<Workspace>;
+/** createWorkspace 的 metadata：pending-owner 邀请明文 token（仅创建时返回一次） */
+export interface CreateWorkspaceMetadata {
+	ownerInvitationToken?: string | null;
+}
+
+export type CreateWorkspaceResultData = MutationResult<Workspace> & {
+	metadata?: CreateWorkspaceMetadata | null;
+};
 
 export interface UpdateWorkspaceInput {
 	slug?: string;
@@ -257,6 +268,9 @@ export const CREATE_WORKSPACE: TypedDocumentNode<
         name
         joinPolicy
         sponsorshipEnabled
+      }
+      metadata {
+        ownerInvitationToken
       }
       errors {
         message
