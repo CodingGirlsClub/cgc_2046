@@ -277,6 +277,14 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert MembershipContext.resolve_workspace_id(%{query: query}) == workspace.id
     end
 
+    test "场景3 get-by-id：Workspace 资源自身（#88，id 即 workspace_id）", %{
+      workspace: workspace
+    } do
+      query = Ash.Query.filter(Workspace, id == ^workspace.id)
+
+      assert MembershipContext.resolve_workspace_id(%{query: query}) == workspace.id
+    end
+
     test "场景4 changeset：Workspace 资源自身更新（#78，无 workspace_id 属性取 data.id）", %{
       workspace: workspace
     } do

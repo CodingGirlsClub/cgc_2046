@@ -124,9 +124,11 @@ defmodule Cgc2046.Accounts.MembershipContext do
   2. list query（成员列表）：tenant 可能为空（global 查询），从 filter 提取 workspace_id
   3. get-by-id（GraphQL update mutation 先读目标记录）：filter 只有 id，
      按 query.resource 动态决定读哪个资源（WorkspaceMembership / JoinRequest /
-     Invitation），读出记录后取其 workspace_id。曾硬编码 WorkspaceMembership 导致
-     approveJoinRequest 等 JoinRequest/Invitation 的 get-by-id 预读用错资源查不到
-     → policy 误拒（已修）。
+     Invitation / Workspace），读出记录后取其 workspace_id。曾硬编码
+     WorkspaceMembership 导致 approveJoinRequest 等 JoinRequest/Invitation 的
+     get-by-id 预读用错资源查不到 → policy 误拒（已修）；Workspace 无
+     workspace_id 属性，其 id 即 workspace_id（#88，与场景 4 同语义），
+     新增其它无 workspace_id 的全局资源时需在此同步处理。
   4. changeset 目标即 Workspace 资源自身（#78 update_workspace）：Workspace 无
      workspace_id 属性，目标工作台 = 被更新记录本身（data.id / attributes.id）
 
@@ -230,6 +232,9 @@ defmodule Cgc2046.Accounts.MembershipContext do
   # 使用 query.resource 动态决定读取的资源类型（而非硬编码 WorkspaceMembership），
   # 因为 policy 检查可能发生在 JoinRequest、Invitation 等非 Membership 资源上
   # （如 approveJoinRequest 的 WorkspaceActorIsOwnerOrAdmin 检查）。
+  #
+  # Workspace 特判（#88）：Workspace 无 :workspace_id attribute（点访问会抛 KeyError），
+  # 且它就是目标工作台本身 → 返回 record.id（与 #78 workspace_self_id 同语义）。
   defp workspace_id_by_id_filter(
          %Ash.Filter{
            expression: %Ash.Query.Operator.Eq{
@@ -241,8 +246,15 @@ defmodule Cgc2046.Accounts.MembershipContext do
        )
        when is_binary(id) do
     case Ash.get(resource, id, authorize?: false) do
-      {:ok, record} -> record.workspace_id
-      _ -> nil
+      # Workspace 是全局资源，无 :workspace_id attribute，其 id 即 workspace_id
+      # （#88，与 #78 workspace_self_id 的 changeset 语义一致）；其它租户资源
+      # （WorkspaceMembership / JoinRequest / Invitation）取 record.workspace_id。
+      # 新增其它无 :workspace_id 的全局资源时需在此同步处理。
+      {:ok, record} ->
+        if resource == Cgc2046.Accounts.Workspace, do: record.id, else: record.workspace_id
+
+      _ ->
+        nil
     end
   end
 
