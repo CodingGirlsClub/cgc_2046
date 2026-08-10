@@ -650,8 +650,21 @@ defmodule Cgc2046Web.GraphqlSchema do
                 {:ok, revoked}
 
               {:error, :not_found} ->
-                # NotFound（他人 token / 不存在 id）统一塌缩，不泄露存在性
-                {:error, [message: "not found", code: "not_found"]}
+                # NotFound（他人 token / 不存在 id）统一塌缩，不泄露存在性。
+                # 与 invalid 分支同经 AshGraphql 序列化（message/code/fields 齐备），
+                # 恢复 AshGraphql 原行为的 error 结构（message "could not be found"、
+                # fields ["id"]）。
+                {:error,
+                 to_ash_graphql_errors(
+                   Ash.Error.Query.NotFound.exception(
+                     primary_key: %{id: id},
+                     resource: Cgc2046.Mcp.Token
+                   ),
+                   context,
+                   :revoke,
+                   Cgc2046.Mcp.Token,
+                   Cgc2046.Mcp
+                 )}
 
               {:error, {:invalid, error}} ->
                 {:error,

@@ -275,4 +275,83 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
       assert Enum.any?(errors, &(&1["message"] =~ "already been revoked"))
     end
   end
+
+  describe "revokeMcpToken error structure contract" do
+    # advisor02 SUGGESTED：revoke 各错误分支的 GraphQL error 对象字段结构应与
+    # AshGraphql 原行为（to_ash_graphql_errors 输出）一致——message/code/fields
+    # 齐备，未来客户端可依赖统一错误形状分流。
+    test "not_found (other user / unknown id) exposes message/code/fields like AshGraphql" do
+      register_user(@user_email, @password)
+      register_user(@other_email, @password)
+      auth = sign_in_token(@user_email, @password)
+      other_auth = sign_in_token(@other_email, @password)
+      {%{"id" => other_id}, _} = issue_token(other_auth, "other-token")
+
+      for id <- [other_id, Ecto.UUID.generate()] do
+        res =
+          graphql_post(
+            build_conn(),
+            ~s|mutation { revokeMcpToken(id: "#{id}") { id } }|,
+            auth
+          )
+
+        assert %{"errors" => [error]} = res
+        assert error["code"] == "not_found"
+        # AshGraphql NotFound.to_error 的 message
+        assert error["message"] == "could not be found"
+        # NotFound.to_error: fields = Map.keys(primary_key || %{})，Ash.get 失败时
+        # primary_key = %{id: id} → fields = ["id"]（探针实测）
+        assert error["fields"] == ["id"]
+      end
+    end
+
+    test "invalid (already revoked) exposes message/code/fields like AshGraphql" do
+      register_user(@user_email, @password)
+      auth = sign_in_token(@user_email, @password)
+      {%{"id" => id}, _} = issue_token(auth, "double-revoke")
+
+      mutation = ~s|mutation { revokeMcpToken(id: "#{id}") { id revokedAt } }|
+
+      assert %{"data" => %{"revokeMcpToken" => %{"revokedAt" => _}}} =
+               graphql_post(build_conn(), mutation, auth)
+
+      res = graphql_post(build_conn(), mutation, auth)
+
+      assert %{"errors" => [error]} = res
+      assert error["code"] == "invalid_attribute"
+      assert error["message"] == "Token has already been revoked"
+      assert error["fields"] == ["revoked_at"]
+    end
+
+    test "all revoke error branches share the same error entry field keys" do
+      register_user(@user_email, @password)
+      register_user(@other_email, @password)
+      auth = sign_in_token(@user_email, @password)
+      other_auth = sign_in_token(@other_email, @password)
+      {%{"id" => other_id}, _} = issue_token(other_auth, "other-token")
+      {%{"id" => own_id}, _} = issue_token(auth, "own-token")
+
+      mutation = ~s|mutation { revokeMcpToken(id: "#{own_id}") { id revokedAt } }|
+
+      assert %{"data" => %{"revokeMcpToken" => %{"revokedAt" => _}}} =
+               graphql_post(build_conn(), mutation, auth)
+
+      [nf_error] =
+        graphql_post(
+          build_conn(),
+          ~s|mutation { revokeMcpToken(id: "#{other_id}") { id } }|,
+          auth
+        )["errors"]
+
+      [inv_error] = graphql_post(build_conn(), mutation, auth)["errors"]
+
+      # Absinthe 自动附加 locations/path；契约要求 message/code/fields 三键各分支齐备
+      assert MapSet.subset?(
+               MapSet.new(["message", "code", "fields"]),
+               MapSet.new(Map.keys(nf_error))
+             )
+
+      assert MapSet.new(Map.keys(nf_error)) == MapSet.new(Map.keys(inv_error))
+    end
+  end
 end

@@ -56,8 +56,6 @@ class Cgc2046Ext < Clacky::ApiExtension
   rescue Clacky::ApiExtension::Halt
     # helper（json/error!）通过 Halt 结束请求，必须放行，否则会被下面的 500 吞掉
     raise
-  rescue RuntimeError => e
-    error!("connect failed: #{e.message}", status: 500)
   rescue StandardError => e
     error!("connect failed: #{e.message}", status: 500)
   end
@@ -88,8 +86,6 @@ class Cgc2046Ext < Clacky::ApiExtension
   rescue Clacky::ApiExtension::Halt
     # helper（json/error!）通过 Halt 结束请求，必须放行
     raise
-  rescue RuntimeError => e
-    error!("disconnect failed: #{e.message}", status: 500)
   rescue StandardError => e
     error!("disconnect failed: #{e.message}", status: 500)
   end

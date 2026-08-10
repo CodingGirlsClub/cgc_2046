@@ -86,6 +86,7 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
   describe "MEDIUM-3 未知 tool dispatch fallback" do
     test "confirm 未知 tool → 明确错误，pending 仍可恢复" do
       user = register_user("unknown-tool@example.com")
+
       # 直接造一条 tool 字段为未知值的 pending（绕过 request，模拟数据异常）
       op = pend(user, "no_such_tool")
 
