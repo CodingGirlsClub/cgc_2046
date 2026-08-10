@@ -66,7 +66,7 @@ class HandlerRequestTest < Minitest::Test
   end
 
   def test_write_mutex_exists
-    assert_kind_of Mutex, Cgc2046Ext.write_mutex
+    assert_kind_of Mutex, Cgc2046McpConfig.write_mutex
   end
 
   # ---- connect 校验分支（422）----
