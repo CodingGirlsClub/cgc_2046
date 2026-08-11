@@ -250,7 +250,10 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
           definition_id: definition.id,
           definition_version: definition.version,
           input_snapshot: %{"topic" => "t1"}
-        }, tenant: workspace.id, actor: actor)
+        },
+        tenant: workspace.id,
+        actor: actor
+      )
       |> Ash.create(tenant: workspace.id, actor: actor)
 
     run
