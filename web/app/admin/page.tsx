@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { fetchApplications, fetchUsers, fetchWorkspaces } from "@/lib/admin";
+import { Icon } from "@/components/icons";
 
 export default function AdminHomePage() {
 	const [counts, setCounts] = useState<{
@@ -48,47 +49,41 @@ export default function AdminHomePage() {
 		{ label: "待审批申请数", value: counts.applications, href: "/admin/applications" },
 	];
 
+	const links: Array<{ label: string; href: string }> = [
+		{ label: "工作台管理", href: "/admin/workspaces" },
+		{ label: "用户管理", href: "/admin/users" },
+		{ label: "申请审批", href: "/admin/applications" },
+		{ label: "审计", href: "/admin/audit" },
+		{ label: "OpenClacky", href: "/admin/openclacky" },
+	];
+
 	return (
 		<section>
-			<h1 className="text-2xl font-semibold mb-1">平台管理概览</h1>
-			<p className="text-neutral-600 text-sm mb-6">
-				平台管理员仪表盘。
-			</p>
+			<div className="admin-page__head">
+				<div>
+					<h1>平台管理概览</h1>
+					<p className="admin-page__desc">平台管理员仪表盘。</p>
+				</div>
+			</div>
 
-			<div className="grid grid-cols-3 gap-4 mb-8">
+			<div className="admin-stats">
 				{stats.map((s) => (
-					<Link
-						key={s.label}
-						href={s.href}
-						className="rounded-lg border border-neutral-200 p-4 hover:bg-neutral-50"
-					>
-						<div
-							aria-label={s.label}
-							className="text-2xl font-semibold"
-						>
+					<Link key={s.label} href={s.href} className="admin-card admin-stat">
+						<span aria-label={s.label} className="admin-stat__value">
 							{s.value ?? "—"}
-						</div>
-						<div className="text-sm text-neutral-500 mt-1">{s.label}</div>
+						</span>
+						<span className="admin-stat__label">{s.label}</span>
 					</Link>
 				))}
 			</div>
 
-			<nav aria-label="平台管理入口" className="flex flex-col gap-1">
-				<Link href="/admin/workspaces" className="text-sm text-blue-600 hover:underline">
-					工作台管理
-				</Link>
-				<Link href="/admin/users" className="text-sm text-blue-600 hover:underline">
-					用户管理
-				</Link>
-				<Link href="/admin/applications" className="text-sm text-blue-600 hover:underline">
-					申请审批
-				</Link>
-				<Link href="/admin/audit" className="text-sm text-blue-600 hover:underline">
-					审计
-				</Link>
-				<Link href="/admin/openclacky" className="text-sm text-blue-600 hover:underline">
-					OpenClacky
-				</Link>
+			<nav aria-label="平台管理入口" className="admin-card admin-links">
+				{links.map((l) => (
+					<Link key={l.href} href={l.href} className="admin-links__item">
+						<span>{l.label}</span>
+						<Icon name="arrow" size={14} />
+					</Link>
+				))}
 			</nav>
 		</section>
 	);

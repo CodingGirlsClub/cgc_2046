@@ -50,6 +50,12 @@ export interface AdminWorkspaceApplication {
 	purpose: string;
 	status: AdminApplicationStatus;
 	rejectionReason?: string | null;
+	/** 审批处理人 ID（status = approved 时由后端写入） */
+	approvedBy?: string | null;
+	approvedAt?: string | null;
+	/** 拒绝处理人 ID（status = rejected 时由后端写入） */
+	rejectedBy?: string | null;
+	rejectedAt?: string | null;
 	insertedAt: string;
 }
 
@@ -76,6 +82,21 @@ export interface AdminSignalLog {
 	id: string;
 	workspaceId: string;
 	signalType: string;
+	insertedAt: string;
+}
+
+/** 平台治理操作审计日志（listAdminActionLogs） */
+export interface AdminActionLog {
+	id: string;
+	/** 操作者 ID；null = 系统/CLI 触发 */
+	actorId: string | null;
+	/** 枚举值：workspace_create | application_approve | application_reject | admin_promote | admin_demote */
+	action: string;
+	/** 目标类型：workspace | workspace_application | user */
+	targetType: string;
+	targetId: string;
+	/** v1 恒为 "success" */
+	result: string;
 	insertedAt: string;
 }
 
@@ -141,6 +162,10 @@ export const LIST_WORKSPACE_APPLICATIONS: TypedDocumentNode<
       purpose
       status
       rejectionReason
+      approvedBy
+      approvedAt
+      rejectedBy
+      rejectedAt
       insertedAt
     }
   }
@@ -206,6 +231,23 @@ export const LIST_SIGNAL_LOGS: TypedDocumentNode<
       id
       workspaceId
       signalType
+      insertedAt
+    }
+  }
+`;
+
+export const LIST_ADMIN_ACTION_LOGS: TypedDocumentNode<
+	{ listAdminActionLogs: AdminActionLog[] },
+	{ action?: string | null; first?: number; after?: string } & AdminListArgs
+> = gql`
+  query ListAdminActionLogs($action: String, $first: Int, $after: String) {
+    listAdminActionLogs(action: $action, first: $first, after: $after) {
+      id
+      actorId
+      action
+      targetType
+      targetId
+      result
       insertedAt
     }
   }

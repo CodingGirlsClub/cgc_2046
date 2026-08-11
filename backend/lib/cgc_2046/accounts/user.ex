@@ -360,5 +360,8 @@ defmodule Cgc2046.Accounts.User do
     # ash_admin actor impersonation：允许 platform_admin 以 User 为 actor 浏览
     # （门控在 :admin_browser pipeline 的 PlatformAdminPlug，actor 机制仅作调试用）
     actor?(true)
+    # #113 ops 面优化：导航分组 + 关系下拉以 email 标识用户
+    resource_group(:accounts)
+    label_field(:email)
   end
 end

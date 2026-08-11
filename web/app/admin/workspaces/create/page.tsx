@@ -72,42 +72,50 @@ export default function AdminWorkspacesCreatePage() {
 	if (createdSlug) {
 		return (
 			<section>
-				<h1 className="text-2xl font-semibold mb-2">工作台已创建</h1>
-				<p className="text-neutral-600 mb-2">
-					工作台 <span className="font-medium">{createdSlug}</span> 创建成功。
+				<div className="admin-page__head">
+					<h1>工作台已创建</h1>
+				</div>
+				<p className="admin-muted">
+					工作台 <strong>{createdSlug}</strong> 创建成功。
 				</p>
 				{inviteToken && (
-					<div className="mb-4 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm">
-						<p className="font-medium mb-1">Owner 邀请已生成（仅显示一次）</p>
-						<code className="text-xs break-all">{inviteToken}</code>
+					<div className="admin-alert admin-alert--warn admin-result-back">
+						<div>
+							<p>Owner 邀请已生成（仅显示一次）</p>
+							<code className="l-codeblock">{inviteToken}</code>
+						</div>
 					</div>
 				)}
-				<Link href="/admin/workspaces" className="text-sm text-blue-600 hover:underline">
-					返回工作台列表
-				</Link>
+				<p className="admin-result-back">
+					<Link href="/admin/workspaces" className="admin-link">
+						返回工作台列表
+					</Link>
+				</p>
 			</section>
 		);
 	}
 
 	return (
-		<section className="max-w-xl">
-			<h1 className="text-2xl font-semibold mb-4">创建工作台</h1>
+		<section>
+			<div className="admin-page__head">
+				<h1>创建工作台</h1>
+			</div>
 
-			<div className="space-y-4">
-				<div>
-					<label htmlFor="ws-name" className="block text-sm font-medium mb-1">
+			<div className="admin-form">
+				<div className="admin-field">
+					<label htmlFor="ws-name" className="admin-field__label">
 						名称
 					</label>
 					<input
 						id="ws-name"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
-						className="w-full px-3 py-1.5 rounded-md border border-neutral-300 text-sm"
+						className="l-input"
 					/>
 				</div>
 
-				<div>
-					<label htmlFor="ws-slug" className="block text-sm font-medium mb-1">
+				<div className="admin-field">
+					<label htmlFor="ws-slug" className="admin-field__label">
 						slug
 					</label>
 					<input
@@ -115,19 +123,19 @@ export default function AdminWorkspacesCreatePage() {
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
 						placeholder="小写字母/数字/连字符"
-						className="w-full px-3 py-1.5 rounded-md border border-neutral-300 text-sm"
+						className="l-input"
 					/>
 				</div>
 
-				<div>
-					<label htmlFor="ws-join-policy" className="block text-sm font-medium mb-1">
+				<div className="admin-field">
+					<label htmlFor="ws-join-policy" className="admin-field__label">
 						加入策略
 					</label>
 					<select
 						id="ws-join-policy"
 						value={joinPolicy}
 						onChange={(e) => setJoinPolicy(e.target.value as JoinPolicy)}
-						className="w-full px-3 py-1.5 rounded-md border border-neutral-300 text-sm"
+						className="l-input"
 					>
 						{(Object.keys(JOIN_POLICY_LABEL) as JoinPolicy[]).map((p) => (
 							<option key={p} value={p}>
@@ -137,10 +145,10 @@ export default function AdminWorkspacesCreatePage() {
 					</select>
 				</div>
 
-				<fieldset>
-					<legend className="text-sm font-medium mb-1">Owner 指定</legend>
-					<div className="flex gap-4 mb-2">
-						<label className="flex items-center gap-1 text-sm">
+				<fieldset className="admin-field">
+					<legend className="admin-field__label">Owner 指定</legend>
+					<div className="admin-radio-row">
+						<label className="admin-radio">
 							<input
 								type="radio"
 								name="owner-mode"
@@ -149,7 +157,7 @@ export default function AdminWorkspacesCreatePage() {
 							/>
 							选择已有用户
 						</label>
-						<label className="flex items-center gap-1 text-sm">
+						<label className="admin-radio">
 							<input
 								type="radio"
 								name="owner-mode"
@@ -163,28 +171,28 @@ export default function AdminWorkspacesCreatePage() {
 					{ownerMode === "existing" ? (
 						<div>
 							{!selectedUser && (
-								<div className="flex gap-2">
+								<div className="admin-toolbar">
 									<input
 										value={userSearch}
 										onChange={(e) => setUserSearch(e.target.value)}
 										placeholder="搜索用户（email / 显示名）"
-										className="flex-1 px-3 py-1.5 rounded-md border border-neutral-300 text-sm"
+										className="l-input"
 									/>
 									<button
 										type="button"
 										onClick={handleSearchUser}
-										className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm"
+										className="l-btn-outline"
 									>
 										搜索
 									</button>
 								</div>
 							)}
-							{searching && <p className="text-sm text-neutral-500 mt-2">搜索中…</p>}
+							{searching && <p className="admin-muted">搜索中…</p>}
 							{userResults && userResults.length === 0 && (
-								<p className="text-sm text-neutral-500 mt-2">未找到匹配用户。</p>
+								<p className="admin-muted">未找到匹配用户。</p>
 							)}
 							{userResults && userResults.length > 0 && (
-								<ul className="mt-2 border border-neutral-200 rounded-md divide-y divide-neutral-100">
+								<ul className="admin-pick-list">
 									{userResults.map((u) => (
 										<li key={u.id}>
 											<button
@@ -193,7 +201,7 @@ export default function AdminWorkspacesCreatePage() {
 													setSelectedUser(u);
 													setUserResults(null);
 												}}
-												className="w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+												className="admin-pick-list__item"
 											>
 												{u.displayName || u.email}（{u.email}）
 											</button>
@@ -202,12 +210,13 @@ export default function AdminWorkspacesCreatePage() {
 								</ul>
 							)}
 							{selectedUser && (
-								<p className="text-sm mt-2">
+								<p className="admin-muted">
 									已选 Owner：{selectedUser.displayName || selectedUser.email}
+									{" · "}
 									<button
 										type="button"
 										onClick={() => setSelectedUser(null)}
-										className="ml-2 text-blue-600 hover:underline"
+										className="admin-link"
 									>
 										更换
 									</button>
@@ -215,8 +224,8 @@ export default function AdminWorkspacesCreatePage() {
 							)}
 						</div>
 					) : (
-						<div>
-							<label htmlFor="ws-owner-email" className="block text-sm mb-1">
+						<div className="admin-field">
+							<label htmlFor="ws-owner-email" className="admin-field__label">
 								邀请邮箱
 							</label>
 							<input
@@ -225,22 +234,24 @@ export default function AdminWorkspacesCreatePage() {
 								value={ownerEmail}
 								onChange={(e) => setOwnerEmail(e.target.value)}
 								placeholder="newowner@example.com"
-								className="w-full px-3 py-1.5 rounded-md border border-neutral-300 text-sm"
+								className="l-input"
 							/>
 						</div>
 					)}
 				</fieldset>
 
-				{error && <p className="text-sm text-red-600">{error}</p>}
+				{error && <p className="admin-alert admin-alert--error">{error}</p>}
 
-				<button
-					type="button"
-					onClick={handleSubmit}
-					disabled={submitting || !name || !slug}
-					className="px-4 py-2 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-700 disabled:opacity-50"
-				>
-					创建工作台
-				</button>
+				<div>
+					<button
+						type="button"
+						onClick={handleSubmit}
+						disabled={submitting || !name || !slug}
+						className="l-btn-primary"
+					>
+						创建工作台
+					</button>
+				</div>
 			</div>
 		</section>
 	);

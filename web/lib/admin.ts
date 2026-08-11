@@ -1,6 +1,7 @@
 import type { FetchPolicy, TypedDocumentNode } from "@apollo/client";
 import { client } from "./apollo-client";
 import type {
+  AdminActionLog,
   AdminApplicationStatus,
   AdminListArgs,
   AdminPendingOperation,
@@ -17,6 +18,7 @@ import {
   APPROVE_WORKSPACE_APPLICATION,
   CREATE_WORKSPACE_APPLICATION,
   DEMOTE_USER,
+  LIST_ADMIN_ACTION_LOGS,
   LIST_PENDING_OPERATIONS,
   LIST_SIGNAL_LOGS,
   LIST_TOOL_CALL_LOGS,
@@ -187,6 +189,19 @@ export async function fetchSignalLogs(
     LIST_SIGNAL_LOGS,
     { workspaceId: workspaceId ?? null },
     "listSignalLogs",
+    opts,
+  );
+}
+
+/** 平台管理员：治理操作审计（R10；action 枚举过滤，无 workspace 维度） */
+export async function fetchAdminActionLogs(
+  action?: string,
+  opts?: AdminListArgs,
+): Promise<AdminActionLog[]> {
+  return adminList(
+    LIST_ADMIN_ACTION_LOGS,
+    { action: action ?? null },
+    "listAdminActionLogs",
     opts,
   );
 }

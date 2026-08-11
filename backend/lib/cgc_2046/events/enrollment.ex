@@ -10,7 +10,7 @@ defmodule Cgc2046.Events.Enrollment do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
@@ -528,4 +528,10 @@ defmodule Cgc2046.Events.Enrollment do
   defp publish_approval_signal(_changeset, result, _signal_type), do: result
 
   defp uuid!(value), do: Ecto.UUID.dump!(value)
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:events)
+    table_columns([:id, :workspace_id, :user_id, :event_id, :course_id, :status, :inserted_at])
+  end
 end

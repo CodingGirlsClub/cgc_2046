@@ -13,6 +13,9 @@ defmodule Cgc2046.Mcp do
     # Phase 6 / R12：AshAdmin /ops/admin 暴露该 Domain（安全门控由 :admin_browser pipeline
     # 的 PlatformAdminPlug 承担，不依赖 ash_admin actor 机制）
     show?(true)
+    # #113 ops 面优化：domain 命名 + 资源分组标签
+    name("MCP")
+    resource_group_labels(mcp: "MCP")
   end
 
   resources do

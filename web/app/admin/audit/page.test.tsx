@@ -7,11 +7,13 @@ const {
 	fetchToolCallLogs,
 	fetchPendingOperations,
 	fetchSignalLogs,
+	fetchAdminActionLogs,
 	fetchWorkflowRuns,
 } = vi.hoisted(() => ({
 	fetchToolCallLogs: vi.fn(),
 	fetchPendingOperations: vi.fn(),
 	fetchSignalLogs: vi.fn(),
+	fetchAdminActionLogs: vi.fn(),
 	fetchWorkflowRuns: vi.fn(),
 }));
 
@@ -19,6 +21,7 @@ vi.mock("@/lib/admin", () => ({
 	fetchToolCallLogs,
 	fetchPendingOperations,
 	fetchSignalLogs,
+	fetchAdminActionLogs,
 }));
 
 vi.mock("@/lib/workflows", () => ({
@@ -54,6 +57,18 @@ const signalLogs = [
 		workspaceId: "ws1",
 		signalType: "workflow.approval",
 		insertedAt: "2026-08-01T00:00:00Z",
+	},
+];
+
+const adminActionLogs = [
+	{
+		id: "act1",
+		actorId: "admin-1",
+		action: "workspace_create",
+		targetType: "workspace",
+		targetId: "ws-abcdef123456",
+		result: "success",
+		insertedAt: "2026-08-03T00:00:00Z",
 	},
 ];
 
@@ -135,6 +150,26 @@ describe("/admin/audit 审计仪表盘", () => {
 
 		await vi.waitFor(() =>
 			expect(fetchSignalLogs).toHaveBeenLastCalledWith("ws1", { first: 50 }),
+		);
+	});
+
+	it("治理操作 tab：渲染中文 action 名与 result，忽略 workspace 过滤", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		fetchAdminActionLogs.mockResolvedValue(adminActionLogs);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		fireEvent.click(screen.getByRole("button", { name: /治理操作/ }));
+
+		// action 枚举映射为中文名；summary 为 targetId 短 ID
+		expect(await screen.findByText("创建工作台")).toBeInTheDocument();
+		expect(screen.getByText("ws-abcde")).toBeInTheDocument();
+		expect(screen.getByText("success")).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(fetchAdminActionLogs).toHaveBeenCalledWith(undefined, {
+				first: 50,
+			}),
 		);
 	});
 

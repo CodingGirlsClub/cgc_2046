@@ -19,6 +19,7 @@ defmodule Cgc2046.Mcp.Token do
   @max_active_tokens_per_user 10
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Mcp
 
@@ -304,5 +305,11 @@ defmodule Cgc2046.Mcp.Token do
       {:ok, _} -> :ok
       _ -> :ok
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:mcp)
+    table_columns([:id, :name, :user_id, :last_used_at, :revoked_at, :inserted_at])
   end
 end

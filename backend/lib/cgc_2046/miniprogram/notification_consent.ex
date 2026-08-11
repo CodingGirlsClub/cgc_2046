@@ -3,6 +3,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshAdmin.Resource],
     domain: Cgc2046.GlobalApi
 
   attributes do
@@ -36,5 +37,10 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
   postgres do
     table("mp_notification_consents")
     repo(Cgc2046.Repo)
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组
+    resource_group(:miniprogram)
   end
 end

@@ -62,81 +62,83 @@ export default function AdminWorkspacesPage() {
 
 	return (
 		<section>
-			<div className="flex items-center justify-between mb-4">
-				<h1 className="text-2xl font-semibold">工作台</h1>
+			<div className="admin-page__head">
+				<h1>工作台</h1>
 				<Link
 					href="/admin/workspaces/create"
-					className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-700"
+					className="l-btn-primary"
 				>
 					创建工作台
 				</Link>
 			</div>
 
-			<div className="flex gap-2 mb-4">
+			<div className="admin-toolbar">
 				<input
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleSearch()}
 					placeholder="搜索工作台（name / slug）"
 					aria-label="搜索工作台"
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm flex-1"
+					className="l-input"
 				/>
 				<button
 					type="button"
 					onClick={handleSearch}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm hover:bg-neutral-50"
+					className="l-btn-outline"
 				>
 					搜索
 				</button>
 			</div>
 
-			{error && <p className="text-sm text-red-600 mb-4">加载失败，请稍后重试。</p>}
-			{loading && <p className="text-sm text-neutral-500">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
+			{loading && <p className="admin-muted">加载中…</p>}
 
 			{!loading && !error && workspaces && workspaces.length === 0 && (
-				<p className="text-sm text-neutral-500">暂无工作台。</p>
+				<p className="admin-empty">暂无工作台。</p>
 			)}
 
 			{!loading && !error && workspaces && workspaces.length > 0 && (
-				<table className="w-full text-sm border-collapse">
-					<thead>
-						<tr className="text-left text-neutral-500 border-b border-neutral-200">
-							<th className="py-2">名称</th>
-							<th className="py-2">slug</th>
-							<th className="py-2">加入策略</th>
-							<th className="py-2">成员数</th>
-							<th className="py-2">创建时间</th>
-						</tr>
-					</thead>
-					<tbody>
-						{workspaces.map((ws) => (
-							<tr key={ws.id} className="border-b border-neutral-100">
-								<td className="py-2">
-									<Link
-										href={`/admin/workspaces/${ws.id}`}
-										className="font-medium hover:underline"
-									>
-										{ws.name}
-									</Link>
-								</td>
-								<td className="py-2 text-neutral-600">{ws.slug}</td>
-								<td className="py-2">{JOIN_POLICY_LABEL[ws.joinPolicy]}</td>
-								<td className="py-2">{ws.memberCount}</td>
-								<td className="py-2 text-neutral-600">
-									{new Date(ws.insertedAt).toLocaleDateString("zh-CN")}
-								</td>
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>名称</th>
+								<th>slug</th>
+								<th>加入策略</th>
+								<th className="admin-table__num">成员数</th>
+								<th>创建时间</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{workspaces.map((ws) => (
+								<tr key={ws.id}>
+									<td>
+										<Link
+											href={`/admin/workspaces/${ws.id}`}
+											className="admin-table__primary hover:underline"
+										>
+											{ws.name}
+										</Link>
+									</td>
+									<td>{ws.slug}</td>
+									<td>{JOIN_POLICY_LABEL[ws.joinPolicy]}</td>
+									<td className="admin-table__num">{ws.memberCount}</td>
+									<td>
+										{new Date(ws.insertedAt).toLocaleDateString("zh-CN")}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			)}
 
-			<div className="flex gap-2 mt-4">
+			<div className="admin-pager">
 				<button
 					type="button"
 					onClick={handlePrev}
 					disabled={offset === 0 || loading}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm disabled:opacity-50"
+					className="l-btn-outline"
 				>
 					上一页
 				</button>
@@ -144,7 +146,7 @@ export default function AdminWorkspacesPage() {
 					type="button"
 					onClick={handleNext}
 					disabled={loading}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm disabled:opacity-50"
+					className="l-btn-outline"
 				>
 					下一页
 				</button>

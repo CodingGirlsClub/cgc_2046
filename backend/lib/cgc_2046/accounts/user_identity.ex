@@ -15,6 +15,7 @@ defmodule Cgc2046.Accounts.UserIdentity do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -78,5 +79,10 @@ defmodule Cgc2046.Accounts.UserIdentity do
     bypass AshAuthentication.Checks.AshAuthenticationInteraction do
       authorize_if(always())
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组
+    resource_group(:accounts)
   end
 end

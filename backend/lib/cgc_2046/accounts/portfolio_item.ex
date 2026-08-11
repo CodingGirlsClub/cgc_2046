@@ -22,6 +22,7 @@ defmodule Cgc2046.Accounts.PortfolioItem do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -147,5 +148,11 @@ defmodule Cgc2046.Accounts.PortfolioItem do
       forbid_if(expr(is_nil(^actor(:id))))
       authorize_if(expr(user_id == ^actor(:id)))
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:accounts)
+    table_columns([:id, :workspace_id, :user_id, :title, :url, :inserted_at])
   end
 end

@@ -45,7 +45,7 @@ export default function AdminGuard({ children }: { children: ReactNode }) {
 
 	if (state !== "allowed") {
 		return (
-			<div className="flex min-h-[50vh] items-center justify-center text-sm text-neutral-500">
+			<div className="admin-guard-loading">
 				正在确认权限…
 			</div>
 		);

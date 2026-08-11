@@ -129,4 +129,53 @@ describe("/admin/applications 申请审批", () => {
 		expect(await screen.findByText("已拒绝空间")).toBeInTheDocument();
 		expect(screen.getByText(/原因：不符合要求/)).toBeInTheDocument();
 	});
+
+	it("处理人列：approved 显示 approvedBy 短 ID，rejected 显示 rejectedBy 短 ID", async () => {
+		const processedApps = [
+			{
+				id: "app-a",
+				applicantId: "u1",
+				name: "已通过空间",
+				slug: "approved-space",
+				purpose: "测试",
+				status: "approved",
+				rejectionReason: null,
+				approvedBy: "admin-1111-2222",
+				approvedAt: "2026-08-02T00:00:00Z",
+				rejectedBy: null,
+				rejectedAt: null,
+				insertedAt: "2026-08-01T00:00:00Z",
+			},
+			{
+				id: "app-b",
+				applicantId: "u2",
+				name: "被拒绝空间",
+				slug: "rejected-space-2",
+				purpose: "测试",
+				status: "rejected",
+				rejectionReason: null,
+				approvedBy: null,
+				approvedAt: null,
+				rejectedBy: "admin-3333-4444",
+				rejectedAt: "2026-08-02T00:00:00Z",
+				insertedAt: "2026-08-01T00:00:00Z",
+			},
+		];
+		fetchApplications.mockResolvedValue(processedApps);
+
+		render(<AdminApplicationsPage />);
+		await screen.findByText("已通过空间");
+
+		expect(screen.getByText("admin-11")).toBeInTheDocument();
+		expect(screen.getByText("admin-33")).toBeInTheDocument();
+	});
+
+	it("处理人列：pending 申请显示 —", async () => {
+		fetchApplications.mockResolvedValue(pendingApps);
+
+		render(<AdminApplicationsPage />);
+		await screen.findByText("研究协作空间");
+
+		expect(screen.getByText("—")).toBeInTheDocument();
+	});
 });

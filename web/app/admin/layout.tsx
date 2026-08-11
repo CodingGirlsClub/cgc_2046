@@ -5,10 +5,13 @@
  *
  * AdminGuard 门控（D6 方案 A）+ 平台管理导航。
  * 各页面（Phase 8/9 填充数据源）作为 server components 渲染在 client layout 内。
+ *
+ * 样式：admin-* 组件类（globals.css），Linear token 双主题自适应（#113 样式收敛）。
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import AdminGuard from "@/components/admin-guard";
+import { Icon } from "@/components/icons";
 
 const ADMIN_NAV = [
 	{ href: "/admin", label: "概览", exact: true },
@@ -26,13 +29,13 @@ export default function AdminLayout({
 
 	return (
 		<AdminGuard>
-			<div className="min-h-screen flex flex-col">
-				<header className="border-b border-neutral-200">
-					<div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-						<Link href="/admin" className="font-semibold">
+			<div className="admin-shell">
+				<header className="admin-topbar">
+					<div className="admin-topbar__inner">
+						<Link href="/admin" className="admin-brand">
 							平台管理
 						</Link>
-						<nav aria-label="平台管理导航" className="flex gap-1">
+						<nav aria-label="平台管理导航" className="admin-nav">
 							{ADMIN_NAV.map((item) => {
 								const selected = item.exact
 									? pathname === item.href
@@ -41,11 +44,7 @@ export default function AdminLayout({
 									<Link
 										key={item.href}
 										href={item.href}
-										className={`px-3 py-1.5 rounded-md text-sm ${
-											selected
-												? "bg-neutral-100 font-medium"
-												: "text-neutral-600 hover:bg-neutral-50"
-										}`}
+										className={`admin-nav__item ${selected ? "admin-nav__item--selected" : ""}`}
 										aria-current={selected ? "page" : undefined}
 									>
 										{item.label}
@@ -53,9 +52,13 @@ export default function AdminLayout({
 								);
 							})}
 						</nav>
+						<Link href="/" className="admin-topbar__exit">
+							<Icon name="arrow-left" size={14} />
+							<span>返回工作台</span>
+						</Link>
 					</div>
 				</header>
-				<main className="mx-auto max-w-6xl w-full px-4 py-8">{children}</main>
+				<main className="admin-page">{children}</main>
 			</div>
 		</AdminGuard>
 	);

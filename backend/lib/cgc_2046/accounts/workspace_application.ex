@@ -20,7 +20,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -373,5 +373,11 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
       update(:reject_workspace_application, :reject, description: "拒绝创建工作台申请（platform_admin）")
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:access)
+    table_columns([:id, :name, :slug, :status, :applicant_id, :approval_deadline, :inserted_at])
   end
 end
