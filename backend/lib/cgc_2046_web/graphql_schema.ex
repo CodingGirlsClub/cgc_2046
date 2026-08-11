@@ -867,58 +867,50 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "平台管理员：降级用户 platform_admin（R9；≥1 admin 约束 + 自降级检查）"
+    @desc "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
     field :demote_user, :admin_user_payload do
       arg(:id, non_null(:id))
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn actor ->
           with {:ok, user} <- Ash.get(Cgc2046.Accounts.User, args[:id], actor: actor) do
-            # S2（advisor02）：≥1 admin 约束用原子条件 UPDATE（同 JoinRequest.approve
-            # 范式）——WHERE 子查询 count(platform_admin) > 1 下推成 DB 原子判定，
-            # 并发双 demote 只有一个成功；0 行命中 = 目标非 admin 或已是最后 admin。
-            # 自降级允许（R9 前端确认弹窗由 Phase 9 承担），仅受 ≥1 admin 约束。
-            if user.is_platform_admin do
-              {:ok, res} =
-                Ecto.Adapters.SQL.query(
-                  Cgc2046.Repo,
-                  """
-                  UPDATE users
-                  SET is_platform_admin = false
-                  WHERE id = $1 AND is_platform_admin = true
-                    AND (SELECT count(*) FROM users WHERE is_platform_admin = true) > 1
-                  """,
-                  [Ecto.UUID.dump!(user.id)]
-                )
+            # ≥1 admin 原子判定与错误契约（last_admin_denied / not_platform_admin）
+            # 全在 action 内：不变量唯一入口，resolver 仅透传。
+            # demote_platform_admin 非 primary update action，须经 for_update
+            # 构造 changeset（同 promote 调 set_platform_admin 的范式）。
+            result =
+              user
+              |> Ash.Changeset.for_update(:demote_platform_admin, %{})
+              |> Ash.update(actor: actor)
 
-              if res.num_rows == 1 do
-                reloaded = Ash.get!(Cgc2046.Accounts.User, user.id, authorize?: false)
-
+            case result do
+              {:ok, updated} ->
                 {:ok,
                  %{
-                   id: reloaded.id,
-                   email: reloaded.email,
-                   is_platform_admin: reloaded.is_platform_admin,
+                   id: updated.id,
+                   email: updated.email,
+                   is_platform_admin: updated.is_platform_admin,
                    errors: []
                  }}
-              else
+
+              {:error, error} ->
                 {:error,
-                 %{
-                   message: "cannot demote the last remaining platform admin",
-                   code: "last_admin_denied"
-                 }}
-              end
-            else
-              {:error,
-               %{
-                 message: "user is not a platform admin",
-                 code: "not_platform_admin"
-               }}
+                 to_ash_graphql_errors(
+                   error,
+                   context,
+                   :demote_platform_admin,
+                   Cgc2046.Accounts.User
+                 )}
             end
           else
             {:error, error} ->
               {:error,
-               to_ash_graphql_errors(error, context, :set_platform_admin, Cgc2046.Accounts.User)}
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :demote_platform_admin,
+                 Cgc2046.Accounts.User
+               )}
           end
         end)
       end)

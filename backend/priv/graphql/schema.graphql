@@ -3344,7 +3344,7 @@ type RootMutationType {
   "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
   promoteUser(id: ID!): AdminUserPayload
 
-  "平台管理员：降级用户 platform_admin（R9；≥1 admin 约束 + 自降级检查）"
+  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
   demoteUser(id: ID!): AdminUserPayload
 
   "创建工作台（仅平台管理员）"

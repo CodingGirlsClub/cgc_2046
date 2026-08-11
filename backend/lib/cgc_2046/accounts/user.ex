@@ -167,6 +167,55 @@ defmodule Cgc2046.Accounts.User do
         Ash.Changeset.force_change_attribute(changeset, :is_platform_admin, value)
       end)
     end
+
+    update :demote_platform_admin do
+      description("降级平台管理员（≥1 admin 不变量唯一入口；原子条件 UPDATE 判定，并发双 demote 只有一个成功）")
+
+      require_atomic?(false)
+
+      # ≥1 admin 不变量：WHERE 子查询 count(platform_admin) > 1 下推成 DB 原子判定
+      # （同 JoinRequest.approve 范式）；0 行命中 = 目标非 admin 或已是最后 admin。
+      # 判定必须在 before_action 执行：change 在 for_update 阶段（授权前）运行，
+      # 若在此直接写 DB 会"先写后授权"绕过 action policy；before_action 在授权后、
+      # 事务内、Ash 写入前执行。成功路径 force_change_attribute 使 changeset 标记
+      # 变更 → Ash 随后再写一次（幂等重复，无害），并让返回 record 反映新值。
+      # 错误经 PlatformAdminError 携带 GraphQL code 契约。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn changeset ->
+          user = changeset.data
+
+          if user.is_platform_admin do
+            {:ok, res} =
+              Ecto.Adapters.SQL.query(
+                Cgc2046.Repo,
+                """
+                UPDATE users
+                SET is_platform_admin = false
+                WHERE id = $1 AND is_platform_admin = true
+                  AND (SELECT count(*) FROM users WHERE is_platform_admin = true) > 1
+                """,
+                [Ecto.UUID.dump!(user.id)]
+              )
+
+            if res.num_rows == 1 do
+              Ash.Changeset.force_change_attribute(changeset, :is_platform_admin, false)
+            else
+              {:error,
+               Cgc2046.Accounts.PlatformAdminError.exception(
+                 code: "last_admin_denied",
+                 message: "cannot demote the last remaining platform admin"
+               )}
+            end
+          else
+            {:error,
+             Cgc2046.Accounts.PlatformAdminError.exception(
+               code: "not_platform_admin",
+               message: "user is not a platform admin"
+             )}
+          end
+        end)
+      end)
+    end
   end
 
   authentication do
@@ -245,6 +294,11 @@ defmodule Cgc2046.Accounts.User do
 
     # promote/demote：仅 platform_admin 可调用 set_platform_admin
     policy action(:set_platform_admin) do
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+    end
+
+    # demote 的 ≥1 admin 不变量由 action 自身守卫（原子条件 UPDATE）
+    policy action(:demote_platform_admin) do
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
