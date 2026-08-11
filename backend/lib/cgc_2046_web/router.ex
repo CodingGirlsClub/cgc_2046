@@ -62,13 +62,19 @@ defmodule Cgc2046Web.Router do
   end
 
   # Phase 6 / R12：AshAdmin 挂载（ops 调试面）。
-  # 门控由 :admin_browser pipeline 末尾的 PlatformAdminPlug 承担——
-  # 非 platform_admin 在 live_session 之前被 403（不依赖 ash_admin actor impersonation）。
+  # 门控双层（P0 修复）：HTTP 层 :admin_browser pipeline 末尾 PlatformAdminPlug
+  # 挡首帧渲染；live_session WebSocket 通道独立于 HTTP pipeline，必须用
+  # PlatformAdminLiveAuth on_mount 在 mount 生命周期再校验（否则普通用户可经
+  # WebSocket 直连绕过）。session 由 session_data/1 在 HTTP 层注入 current_user_id。
   scope "/ops" do
     import AshAdmin.Router
 
     pipe_through([:admin_browser])
-    ash_admin("/admin")
+
+    ash_admin("/admin",
+      on_mount: [Cgc2046Web.Live.PlatformAdminLiveAuth],
+      session: {Cgc2046Web.Live.PlatformAdminLiveAuth, :session_data, []}
+    )
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
