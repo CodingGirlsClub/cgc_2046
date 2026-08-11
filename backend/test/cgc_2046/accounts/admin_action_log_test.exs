@@ -177,4 +177,90 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
                |> Ash.read(actor: outsider)
     end
   end
+
+  describe "owner reassign / invitation cancel hooks (#114)" do
+    test "reassign_owner -> one owner_reassign row for that workspace" do
+      admin = admin_user()
+      new_owner = register_user("aal-reassign-owner@example.com")
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "aal-reassign-#{System.unique_integer([:positive])}",
+          name: "AAL Reassign",
+          owner_email: "aal-old-owner@example.com"
+        })
+        |> Ash.create(actor: admin)
+
+      {:ok, _workspace} =
+        workspace
+        |> Ash.Changeset.for_update(:reassign_owner, %{owner_user_id: new_owner.id})
+        |> Ash.update(actor: admin)
+
+      assert [log] = read_logs_for(admin, :owner_reassign, workspace.id)
+      assert log.actor_id == admin.id
+      assert log.target_type == :workspace
+      assert log.metadata["owner_user_id"] == new_owner.id
+    end
+
+    test "platform admin revoking owner-preauthorized invitation -> owner_invitation_cancel row" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "aal-cancel-#{System.unique_integer([:positive])}",
+          name: "AAL Cancel",
+          owner_email: "aal-cancel-owner@example.com"
+        })
+        |> Ash.create(actor: admin)
+
+      [invitation] =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+        |> Ash.read!(tenant: workspace.id, actor: admin)
+
+      {:ok, _revoked} =
+        invitation
+        |> Ash.Changeset.for_update(:revoke, %{})
+        |> Ash.update(actor: admin)
+
+      assert [log] = read_logs_for(admin, :owner_invitation_cancel, workspace.id)
+      assert log.actor_id == admin.id
+      assert log.metadata["invitation_id"] == invitation.id
+      assert log.metadata["target_email"] == "aal-cancel-owner@example.com"
+    end
+
+    test "non-admin inviter revoking plain invitation -> no owner_invitation_cancel row" do
+      admin = admin_user()
+      owner = register_user("aal-plain-owner@example.com")
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "aal-nolog-#{System.unique_integer([:positive])}",
+          name: "AAL NoLog",
+          owner_user_id: owner.id
+        })
+        |> Ash.create(actor: admin)
+
+      {:ok, invitation} =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Changeset.for_create(:create, %{
+          workspace_id: workspace.id,
+          inviter_id: owner.id,
+          target_email: "aal-member-invite@example.com"
+        })
+        |> Ash.create(actor: owner)
+
+      {:ok, _revoked} =
+        invitation
+        |> Ash.Changeset.for_update(:revoke, %{})
+        |> Ash.update(actor: owner)
+
+      # owner（非 platform_admin）撤销普通成员邀请 → 不记治理留痕
+      assert [] = read_logs_for(admin, :owner_invitation_cancel, workspace.id)
+    end
+  end
 end

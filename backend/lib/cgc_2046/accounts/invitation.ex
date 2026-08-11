@@ -187,8 +187,9 @@ defmodule Cgc2046.Accounts.Invitation do
     repo(Cgc2046.Repo)
   end
 
-  # 过期判定改为读时计算（effective_status），不再在 read 时执行 UPDATE。
-  # TODO: 引入 Quantum/Oban 定时器后改为主动落库过期，effective_status 作为兜底。
+  # 过期判定双轨（#114）：ApprovalExpiryWorker 经 :expire action 主动落库过期；
+  # 读时 effective_status 计算作为兜底（扫描间隙内已过点的 active 行仍派生 expired），
+  # 不在 read 时执行 UPDATE。
 
   actions do
     default_accept([])
@@ -253,7 +254,7 @@ defmodule Cgc2046.Accounts.Invitation do
     end
 
     update :revoke do
-      description("撤销邀请（邀请人本人或 Owner/Admin）")
+      description("撤销邀请（邀请人本人或 Owner/Admin 或平台管理员）")
       require_atomic?(false)
 
       # 状态守卫：仅允许 active → revoked。before_action 重新加载记录以确保最新状态
@@ -303,6 +304,60 @@ defmodule Cgc2046.Accounts.Invitation do
       end)
 
       change(set_attribute(:status, :revoked))
+
+      # #114：platform admin 撤销 Owner 预授权邀请（pending-owner 取消）→ 治理留痕。
+      # 条件挂接：actor 是 platform_admin 且 preauthorized 含 :owner；成员撤销自己的
+      # 普通邀请不记。fail-closed：留痕失败回滚撤销本身（同一事务）。
+      change(
+        after_action(fn changeset, invitation, _context ->
+          actor = get_in(changeset.context, [:private, :actor])
+
+          if actor && actor.is_platform_admin &&
+               :owner in (invitation.preauthorized_role_names || []) do
+            with {:ok, _log} <-
+                   Cgc2046.Accounts.AdminActionLog.log(%{
+                     actor_id: actor.id,
+                     action: :owner_invitation_cancel,
+                     target_type: :workspace,
+                     target_id: invitation.workspace_id,
+                     metadata: %{
+                       invitation_id: invitation.id,
+                       target_email: invitation.target_email
+                     }
+                   }) do
+              {:ok, invitation}
+            end
+          else
+            {:ok, invitation}
+          end
+        end)
+      )
+    end
+
+    update :expire do
+      description("将过期邀请标记为 expired（内部使用，ApprovalExpiryWorker；不暴露 GraphQL）")
+      require_atomic?(false)
+
+      # 状态守卫：仅 active → expired（对齐 JoinRequest.:expire 与本资源 :revoke 范式）。
+      # used/revoked/expired 均非法转换；before_action 读 data 快照拦截，并发终态变化由
+      # 守卫拒绝（worker 侧预期竞态，记 warning 跳过）。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          if cs.data.status == :active do
+            cs
+          else
+            Ash.Changeset.add_error(
+              cs,
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: :status,
+                message: "Cannot expire invitation in status #{cs.data.status}"
+              )
+            )
+          end
+        end)
+      end)
+
+      change(set_attribute(:status, :expired))
     end
 
     read :validate do
@@ -481,10 +536,12 @@ defmodule Cgc2046.Accounts.Invitation do
       authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
-    # :revoke 限邀请人本人或 Owner/Admin
+    # :revoke 限邀请人本人或 Owner/Admin；#114 加 platform_admin bypass
+    # （pending-owner 期间无工作台 Owner/Admin，取消邀请须任意平台管理员可达）
     policy action(:revoke) do
       authorize_if(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
     # :validate 持 token 即可（不要求成员）
@@ -502,10 +559,12 @@ defmodule Cgc2046.Accounts.Invitation do
       authorize_if(actor_present())
     end
 
-    # :read 邀请人本人可读自己的邀请；Owner/Admin 可读该工作台全部邀请
+    # :read 邀请人本人可读自己的邀请；Owner/Admin 可读该工作台全部邀请；
+    # #114 加 platform_admin bypass（admin 详情页 pending-owner badge 任意平台管理员可见）
     policy action_type(:read) do
       authorize_if(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
   end
 
@@ -538,7 +597,7 @@ defmodule Cgc2046.Accounts.Invitation do
     mutations do
       create(:create_invitation, :create, description: "创建邀请（Owner/Admin/Volunteer）")
 
-      update(:revoke_invitation, :revoke, description: "撤销邀请（邀请人本人或 Owner/Admin）")
+      update(:revoke_invitation, :revoke, description: "撤销邀请（邀请人本人或 Owner/Admin 或平台管理员）")
     end
   end
 

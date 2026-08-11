@@ -82,6 +82,8 @@ const ACTION_LABEL: Record<string, string> = {
 	application_reject: "审批拒绝",
 	admin_promote: "提升管理员",
 	admin_demote: "降级管理员",
+	owner_reassign: "重指派 Owner",
+	owner_invitation_cancel: "取消 Owner 邀请",
 };
 
 function adminActionToRow(log: AdminActionLog): AuditRow {

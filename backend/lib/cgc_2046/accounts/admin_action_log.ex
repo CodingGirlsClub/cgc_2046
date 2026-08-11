@@ -5,9 +5,9 @@ defmodule Cgc2046.Accounts.AdminActionLog do
   每条平台治理操作落一行：谁（actor）/ 动作（action）/ 目标（target）/ 结果（result）/
   时间（inserted_at）。区别于运营审计（Mcp.ToolCallLog 等四资源）——本资源只覆盖
   治理操作：workspace 直接创建、工作台创建申请审批（approve/reject）、
-  platform_admin 提升/降级。
+  platform_admin 提升/降级、pending-owner 重指派与邀请取消（#114）。
 
-  写入路径：4 个治理 action 的 after_action 经 `log/1` 同事务落库（authorize?: false），
+  写入路径：6 处挂接点的 after_action 经 `log/1` 同事务落库（authorize?: false），
   失败上抛回滚治理操作本身（fail-closed，不留半态，对齐 workspace create 角色 seed 范式）。
   读路径：仅 platform_admin（/admin/audit 治理操作 tab + AshAdmin /ops/admin）。
 
@@ -38,7 +38,9 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :application_approve,
           :application_reject,
           :admin_promote,
-          :admin_demote
+          :admin_demote,
+          :owner_reassign,
+          :owner_invitation_cancel
         ]
       ],
       description: "治理动作类型"

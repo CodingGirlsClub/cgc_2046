@@ -467,4 +467,64 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
       assert succeeded.status == :succeeded
     end
   end
+
+  describe "invitation expiry sweep (#114)" do
+    test "active invitation with past expires_at -> swept to expired in DB" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+
+      {:ok, invitation} =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Changeset.for_create(:create, %{
+          workspace_id: workspace.id,
+          inviter_id: admin.id,
+          target_email: "sweep-past@example.com",
+          expires_at: DateTime.add(DateTime.utc_now(), -3600, :second)
+        })
+        |> Ash.create(actor: admin)
+
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+
+      reloaded = Ash.get!(Cgc2046.Accounts.Invitation, invitation.id, authorize?: false)
+      assert reloaded.status == :expired
+    end
+
+    test "future expires_at / terminal status invitations are untouched" do
+      admin = platform_admin()
+      workspace = create_workspace(admin)
+
+      {:ok, future} =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Changeset.for_create(:create, %{
+          workspace_id: workspace.id,
+          inviter_id: admin.id,
+          target_email: "sweep-future@example.com",
+          expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+        })
+        |> Ash.create(actor: admin)
+
+      {:ok, revoked} =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Changeset.for_create(:create, %{
+          workspace_id: workspace.id,
+          inviter_id: admin.id,
+          target_email: "sweep-revoked@example.com",
+          expires_at: DateTime.add(DateTime.utc_now(), -3600, :second)
+        })
+        |> Ash.create(actor: admin)
+
+      assert {:ok, revoked} =
+               revoked
+               |> Ash.Changeset.for_update(:revoke, %{})
+               |> Ash.update(actor: admin)
+
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+
+      assert Ash.get!(Cgc2046.Accounts.Invitation, future.id, authorize?: false).status ==
+               :active
+
+      assert Ash.get!(Cgc2046.Accounts.Invitation, revoked.id, authorize?: false).status ==
+               :revoked
+    end
+  end
 end

@@ -129,6 +129,22 @@ export type CreateWorkspaceResultData = MutationResult<Workspace> & {
 	metadata?: CreateWorkspaceMetadata | null;
 };
 
+export interface ReassignWorkspaceOwnerInput {
+	/** 改指现有用户为 Owner（建 Owner membership）；与 ownerEmail 二选一 */
+	ownerUserId?: string;
+	/** 改发 pending-owner 邀请给新邮箱（preauthorized [:owner]，带 expires_at）；与 ownerUserId 二选一 */
+	ownerEmail?: string;
+}
+
+/** reassignWorkspaceOwner 的 metadata：新 pending-owner 邀请明文 token（仅返回一次，不落库） */
+export interface ReassignWorkspaceOwnerMetadata {
+	ownerInvitationToken?: string | null;
+}
+
+export type ReassignWorkspaceOwnerResultData = MutationResult<Workspace> & {
+	metadata?: ReassignWorkspaceOwnerMetadata | null;
+};
+
 export interface UpdateWorkspaceInput {
 	slug?: string;
 	name?: string;
@@ -262,6 +278,36 @@ export const CREATE_WORKSPACE: TypedDocumentNode<
 > = gql`
   mutation CreateWorkspace($input: CreateWorkspaceInput!) {
     createWorkspace(input: $input) {
+      result {
+        id
+        slug
+        name
+        joinPolicy
+        sponsorshipEnabled
+      }
+      metadata {
+        ownerInvitationToken
+      }
+      errors {
+        message
+        code
+      }
+    }
+  }
+`;
+
+/**
+ * #114 reassignWorkspaceOwner：重指派 pending-owner 工作台的 Owner（仅平台管理员，
+ * 工作台已有 Owner 时后端报错）。原子撤销当前 active Owner 邀请 +
+ * ownerUserId 改指现有用户直接入座 / ownerEmail 改发新 pending-owner 邀请
+ * （7 天有效期，明文 token 经 metadata 仅返回一次）。
+ */
+export const REASSIGN_WORKSPACE_OWNER: TypedDocumentNode<
+	{ reassignWorkspaceOwner: ReassignWorkspaceOwnerResultData },
+	{ id: string; input: ReassignWorkspaceOwnerInput }
+> = gql`
+  mutation ReassignWorkspaceOwner($id: ID!, $input: ReassignWorkspaceOwnerInput!) {
+    reassignWorkspaceOwner(id: $id, input: $input) {
       result {
         id
         slug
