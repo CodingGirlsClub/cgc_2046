@@ -96,6 +96,10 @@ export async function fetchApplications(
 	const { data } = await client.query({
 		query: LIST_WORKSPACE_APPLICATIONS,
 		variables: listVars({ status: status ?? null }, opts),
+		// P3：审批列表高频变动，始终走网络——cache-first 会在 mutation 后命中旧缓存，
+		// 且 refetchQueries 依赖 cache key 与页面变量完全一致（cache-key mismatch 根因）。
+		// network-only 让页面 load(status) 在 approve/reject 后必然拿到新数据。
+		fetchPolicy: "network-only",
 	});
 	return data?.listWorkspaceApplications ?? [];
 }
@@ -164,14 +168,13 @@ export async function fetchSignalLogs(
 }
 
 /** 审批通过工作台创建申请（R7；platform_admin，自动创建 workspace + applicant 为 Owner）。
- *  成功后 refetch LIST_WORKSPACE_APPLICATIONS（P3：审批后列表自动刷新，不依赖手动刷新）。 */
+ *  列表刷新由页面 load(status) 承担——fetchApplications 已 network-only（P3 根治）。 */
 export async function approveApplication(
 	id: string,
 ): Promise<ApproveApplicationResultData> {
 	const { data } = await client.mutate({
 		mutation: APPROVE_WORKSPACE_APPLICATION,
 		variables: { id },
-		refetchQueries: [{ query: LIST_WORKSPACE_APPLICATIONS, variables: listVars({ status: null }) }],
 	});
 	return (
 		data?.approveWorkspaceApplication ?? {
@@ -182,7 +185,7 @@ export async function approveApplication(
 }
 
 /** 拒绝工作台创建申请（R7；可选拒绝原因）。
- *  成功后 refetch LIST_WORKSPACE_APPLICATIONS（P3：审批后列表自动刷新）。 */
+ *  列表刷新由页面 load(status) 承担——fetchApplications 已 network-only（P3 根治）。 */
 export async function rejectApplication(
 	id: string,
 	rejectionReason?: string | null,
@@ -190,7 +193,6 @@ export async function rejectApplication(
 	const { data } = await client.mutate({
 		mutation: REJECT_WORKSPACE_APPLICATION,
 		variables: { id, input: { rejectionReason: rejectionReason ?? null } },
-		refetchQueries: [{ query: LIST_WORKSPACE_APPLICATIONS, variables: listVars({ status: null }) }],
 	});
 	return (
 		data?.rejectWorkspaceApplication ?? {

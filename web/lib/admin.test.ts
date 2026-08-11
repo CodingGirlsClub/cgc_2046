@@ -140,6 +140,15 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 		expect(apps[0].status).toBe("pending");
 	});
 
+	it("fetchApplications 始终走网络（P3：network-only，避免 cache-key mismatch 导致审批后列表不刷新）", async () => {
+		queryMock.mockResolvedValue({ data: { listWorkspaceApplications: [] } } as never);
+
+		await fetchApplications("pending");
+
+		// 审批后页面 load(status) 重新调用 fetchApplications，必须绕过 cache-first 命中旧缓存
+		expect(queryMock.mock.calls[0][0].fetchPolicy).toBe("network-only");
+	});
+
 	it("fetchMyApplications 不带变量，返回申请人自己的申请", async () => {
 		queryMock.mockResolvedValue({
 			data: { myWorkspaceApplications: [] },
