@@ -1023,6 +1023,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert Enum.any?(loaded.roles, &(&1.name == :learner))
     end
   end
+
   describe "platform_admin bypass on membership read (Phase 10 P2)" do
     test "platform_admin non-member can read all workspace memberships (R13 详情页)" do
       admin = admin_user()
@@ -1058,7 +1059,11 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         )
 
       other_admin =
-        Ash.get!(User, other_admin.id, actor: other_admin, authorize?: false, domain: Cgc2046.GlobalApi)
+        Ash.get!(User, other_admin.id,
+          actor: other_admin,
+          authorize?: false,
+          domain: Cgc2046.GlobalApi
+        )
 
       require Ash.Query
 
