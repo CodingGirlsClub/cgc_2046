@@ -1,7 +1,13 @@
 defmodule Cgc2046.GlobalApi do
   use Ash.Domain,
     otp_app: :cgc_2046,
-    extensions: [AshGraphql.Domain]
+    extensions: [AshGraphql.Domain, AshAdmin.Domain]
+
+  admin do
+    # Phase 6 / R12：AshAdmin /ops/admin 暴露该 Domain（安全门控由 :admin_browser pipeline
+    # 的 PlatformAdminPlug 承担，不依赖 ash_admin actor 机制）
+    show?(true)
+  end
 
   graphql do
     authorize?(true)
@@ -26,6 +32,9 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.JoinRequest)
     # B-2 #31：邀请
     resource(Cgc2046.Accounts.Invitation)
+
+    # Platform Admin Dashboard R6/R7：工作台创建申请（全局资源，platform_admin 审批）
+    resource(Cgc2046.Accounts.WorkspaceApplication)
     resource(Cgc2046.Miniprogram.Code)
     resource(Cgc2046.Miniprogram.NotificationConsent)
   end

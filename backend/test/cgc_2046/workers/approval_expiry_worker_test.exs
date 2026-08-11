@@ -27,6 +27,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
@@ -95,6 +96,31 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
              |> Ash.create(actor: user)
 
     join_request
+  end
+
+  defp create_workspace_application(user) do
+    assert {:ok, application} =
+             WorkspaceApplication
+             |> Ash.Changeset.for_create(:create, %{
+               applicant_id: user.id,
+               name: "Expiry App WS",
+               slug: "expiry-wapp-#{System.unique_integer([:positive])}",
+               purpose: "过期扫描测试"
+             })
+             |> Ash.create(actor: user)
+
+    application
+  end
+
+  # interval 为测试内硬编码字面量（同 backdate_join_request_deadline 惯例），
+  # Postgrex 无法把字符串参数编码为 interval，故内联进 SQL
+  defp backdate_workspace_application_deadline(application, interval) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE workspace_applications SET approval_deadline = NOW() - INTERVAL '#{interval}' WHERE id = $1",
+        [Ecto.UUID.dump!(application.id)]
+      )
   end
 
   # interval 为测试内硬编码字面量（同 join_request_test.exs 既有惯例），Postgrex
@@ -314,6 +340,62 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
 
       reloaded = Ash.get!(WorkflowRun, run.id, authorize?: false)
       assert reloaded.status == :pending
+    end
+  end
+
+  describe "WorkspaceApplication 过期扫描" do
+    test "approval_deadline 过点的 pending 申请转 expired（既有 :expire action，落 expired_at）" do
+      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      application = create_workspace_application(applicant)
+      backdate_workspace_application_deadline(application, "1 day")
+
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+
+      reloaded = Ash.get!(WorkspaceApplication, application.id, authorize?: false)
+      assert reloaded.status == :expired
+      refute is_nil(reloaded.expired_at)
+    end
+
+    test "未到期的 pending 申请不动" do
+      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      application = create_workspace_application(applicant)
+
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+
+      reloaded = Ash.get!(WorkspaceApplication, application.id, authorize?: false)
+      assert reloaded.status == :pending
+      assert is_nil(reloaded.expired_at)
+    end
+
+    test "已终态申请即使 deadline 过点也不动（status 过滤语义）" do
+      admin = platform_admin()
+      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      application = create_workspace_application(applicant)
+
+      assert {:ok, rejected} =
+               application
+               |> Ash.Changeset.for_update(:reject, %{}, actor: admin)
+               |> Ash.update(actor: admin)
+
+      backdate_workspace_application_deadline(rejected, "1 day")
+
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+
+      reloaded = Ash.get!(WorkspaceApplication, application.id, authorize?: false)
+      assert reloaded.status == :rejected
+      assert is_nil(reloaded.expired_at)
+    end
+
+    test "重复执行幂等：第二拍无新转换、不报错" do
+      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      application = create_workspace_application(applicant)
+      backdate_workspace_application_deadline(application, "1 day")
+
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+      assert :ok = perform_job(ApprovalExpiryWorker, %{})
+
+      reloaded = Ash.get!(WorkspaceApplication, application.id, authorize?: false)
+      assert reloaded.status == :expired
     end
   end
 

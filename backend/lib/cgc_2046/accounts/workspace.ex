@@ -123,9 +123,27 @@ defmodule Cgc2046.Accounts.Workspace do
     defaults([:read, :update])
 
     create :create do
-      description("创建工作台（仅平台管理员）；自动 seed 角色并建立 Owner 成员资格")
+      description(
+        "创建工作台（仅平台管理员）；自动 seed 角色并建立 Owner 成员资格（默认 actor，可指定 owner_user_id 或 owner_email）"
+      )
 
       accept([:slug, :name, :join_policy, :sponsorship_enabled])
+
+      argument(:owner_user_id, :uuid,
+        allow_nil?: true,
+        description: "指定已有用户为 Owner（替代 actor.id 建 Owner membership）"
+      )
+
+      argument(:owner_email, :string,
+        allow_nil?: true,
+        description: "邀请新用户为 Owner（创建 preauthorized [:owner] 的 Invitation，pending-owner）"
+      )
+
+      # owner_email 路径创建的 pending-owner 邀请明文 token（一次性返回，不落库）
+      metadata(:owner_invitation_token, :string,
+        allow_nil?: true,
+        description: "pending-owner 邀请明文 token（仅创建时返回一次，不落库）"
+      )
 
       change(
         after_action(fn changeset, workspace, _context ->
@@ -152,30 +170,29 @@ defmodule Cgc2046.Accounts.Workspace do
               roles -> {:ok, roles}
             end
 
-          with {:ok, role_records} <- role_records,
-               actor when not is_nil(actor) <- get_in(changeset.context, [:private, :actor]) do
-            owner_role = Enum.find(role_records, &(&1.name == :owner))
+          with {:ok, role_records} <- role_records do
+            # Owner 来源优先级：owner_user_id > owner_email > actor.id（D1）
+            # owner_user_id：建 Owner membership 给该用户；owner_email：建 pending-owner
+            # Invitation（preauthorized [:owner]）；都无：回退 actor（现有行为）。
+            owner_user_id = Ash.Changeset.get_argument(changeset, :owner_user_id)
+            owner_email = Ash.Changeset.get_argument(changeset, :owner_email)
+            actor = get_in(changeset.context, [:private, :actor])
 
-            with {:ok, membership} <-
-                   Ash.create(Cgc2046.Accounts.WorkspaceMembership, %{user_id: actor.id},
-                     tenant: tenant,
-                     authorize?: false
-                   ),
-                 {:ok, _} <-
-                   Ash.create(
-                     Cgc2046.Accounts.MembershipRole,
-                     %{
-                       membership_id: membership.id,
-                       role_id: owner_role.id
-                     },
-                     tenant: tenant,
-                     authorize?: false
-                   ) do
-              {:ok, workspace}
+            cond do
+              owner_user_id ->
+                create_owner_membership(workspace, tenant, owner_user_id, role_records)
+
+              owner_email && actor ->
+                create_owner_invitation(workspace, tenant, actor, owner_email)
+
+              actor ->
+                create_owner_membership(workspace, tenant, actor.id, role_records)
+
+              true ->
+                # actor 为 nil：无 actor 时仅 seed 角色，不建 Owner 成员资格/邀请
+                {:ok, workspace}
             end
           else
-            # actor 为 nil：无 actor 时仅 seed 角色，不建 Owner 成员资格
-            nil -> {:ok, workspace}
             {:error, _} = err -> err
           end
         end)
@@ -333,6 +350,54 @@ defmodule Cgc2046.Accounts.Workspace do
       action(:join_workspace, :join,
         description: "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
       )
+    end
+  end
+
+  # Phase 4（D1）：为指定 user_id 建 Owner membership + Owner 角色。
+  # 与 create after_action 内联逻辑等价，抽出供 owner_user_id 与 actor 回退两分支复用。
+  defp create_owner_membership(workspace, tenant, user_id, role_records) do
+    owner_role = Enum.find(role_records, &(&1.name == :owner))
+
+    with {:ok, membership} <-
+           Ash.create(Cgc2046.Accounts.WorkspaceMembership, %{user_id: user_id},
+             tenant: tenant,
+             authorize?: false
+           ),
+         {:ok, _} <-
+           Ash.create(
+             Cgc2046.Accounts.MembershipRole,
+             %{
+               membership_id: membership.id,
+               role_id: owner_role.id
+             },
+             tenant: tenant,
+             authorize?: false
+           ) do
+      {:ok, workspace}
+    end
+  end
+
+  # Phase 4（D5/D3）：为 owner_email 创建 pending-owner Invitation（preauthorized [:owner]）。
+  # inviter_id = actor（platform_admin）；Invitation 是租户资源，须带 tenant。
+  # authorize?: false 调用（父 create 事务内，角色 seed 同款）；create policy 仍加
+  # platform_admin bypass 供外部（GraphQL Phase 5）直接创建时使用。
+  # 明文 token 写入 workspace metadata（owner_invitation_token）一次性交付，
+  # 供 GraphQL 层把邀请链接发给目标邮箱（R5）。
+  defp create_owner_invitation(workspace, tenant, actor, owner_email) do
+    case Cgc2046.Accounts.Invitation
+         |> Ash.Changeset.for_create(:create, %{
+           workspace_id: workspace.id,
+           inviter_id: actor.id,
+           target_email: owner_email,
+           preauthorized_role_names: [:owner]
+         })
+         |> Ash.create(actor: actor, tenant: tenant, authorize?: false) do
+      {:ok, invitation} ->
+        token = invitation.__metadata__[:plain_token]
+        {:ok, Ash.Resource.put_metadata(workspace, :owner_invitation_token, token)}
+
+      {:error, _} = err ->
+        err
     end
   end
 end

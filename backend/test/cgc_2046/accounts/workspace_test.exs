@@ -102,6 +102,113 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
+  describe "create workspace with designated owner (Phase 4 / D1)" do
+    test "owner_user_id specified -> Owner membership is created for that user, not the actor" do
+      admin = admin_user()
+      owner = register_user("ws-owner-id@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-id-#{System.unique_integer([:positive])}",
+                 name: "Owner ID WS",
+                 owner_user_id: owner.id
+               })
+               |> Ash.create(actor: admin)
+
+      # Owner membership 建给指定用户
+      assert Cgc2046.Accounts.MembershipContext.role_names(owner, workspace.id) == [:owner]
+      # actor（platform_admin）不再是 Owner
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == []
+    end
+
+    test "owner_email specified -> active Invitation created with preauthorized [:owner]" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-email-#{System.unique_integer([:positive])}",
+                 name: "Owner Email WS",
+                 owner_email: "future-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      require Ash.Query
+
+      assert {:ok, invitations} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "future-owner@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert [invitation] = invitations
+      assert invitation.status == :active
+      assert invitation.preauthorized_role_names == [:owner]
+      assert invitation.workspace_id == workspace.id
+      assert invitation.inviter_id == admin.id
+      # 明文 token 经 workspace create metadata 一次性交付（R5）
+      refute is_nil(workspace.__metadata__[:owner_invitation_token])
+      # pending-owner：Owner membership 尚未建立（接受邀请后才有）
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == []
+    end
+
+    test "owner_email invitation accept -> Owner membership is created" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-accept-#{System.unique_integer([:positive])}",
+                 name: "Owner Accept WS",
+                 owner_email: "owner-accept@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      require Ash.Query
+
+      assert {:ok, invitations} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "owner-accept@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert [invitation] = invitations
+
+      # 明文 token 经 workspace create 的 metadata 一次性交付（R5）
+      token = workspace.__metadata__[:owner_invitation_token]
+      refute is_nil(token)
+
+      acceptor = register_user("owner-accept@example.com", @password)
+
+      assert {:ok, accepted} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: token
+               })
+               |> Ash.update(actor: acceptor)
+
+      assert accepted.status == :used
+
+      # 接受邀请后 Owner membership + owner 角色建立
+      assert Cgc2046.Accounts.MembershipContext.role_names(acceptor, workspace.id) == [:owner]
+    end
+
+    test "no owner arguments -> fallback to actor.id as Owner" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-owner-fallback-#{System.unique_integer([:positive])}",
+                 name: "Owner Fallback WS"
+               })
+               |> Ash.create(actor: admin)
+
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == [:owner]
+    end
+  end
+
   describe "slug" do
     setup do
       {:ok, admin: admin_user()}
@@ -558,9 +665,10 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert member_ms.user_email == to_string(member.email)
       assert member_ms.user_display_name == "Calc Member"
       assert not is_nil(member_ms.joined_at)
-      # 旁路存在的理由：同时 load 的嵌套 user 关系被 User read policy 滤空
-      # （member visibility 默认 only_me，非本人不可读）
-      assert is_nil(member_ms.user)
+      # 旁路存在的理由：平铺字段（userEmail/userDisplayName）对非 owner 可见，
+      # 无需嵌套 load user 关系（Phase 2 起 platform_admin 可读 User 全部记录，
+      # 此处 admin 是 platform_admin，嵌套 user 可见）。
+      assert not is_nil(member_ms.user)
 
       # owner 行：joined_at = inserted_at；嵌套 user 是本人，可见
       owner_ms = by_email[to_string(admin.email)]
@@ -913,6 +1021,64 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       # 且该 membership 有 learner 角色（无孤儿）
       loaded = Ash.load!(hd(memberships), :roles, tenant: workspace.id, authorize?: false)
       assert Enum.any?(loaded.roles, &(&1.name == :learner))
+    end
+  end
+
+  describe "platform_admin bypass on membership read (Phase 10 P2)" do
+    test "platform_admin non-member can read all workspace memberships (R13 详情页)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "padm-mbr-#{System.unique_integer([:positive])}",
+          name: "PADM MBR"
+        })
+        |> Ash.create(actor: admin)
+
+      owner =
+        register_user(
+          "padm-mbr-owner-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
+
+      add_member(workspace, owner, admin, [:owner])
+
+      # 另一个 platform_admin（非该 workspace 成员）读 memberships
+      other_admin =
+        register_user(
+          "padm-mbr-admin-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET is_platform_admin = true WHERE id = $1",
+          [Ecto.UUID.dump!(other_admin.id)]
+        )
+
+      other_admin =
+        Ash.get!(User, other_admin.id,
+          actor: other_admin,
+          authorize?: false,
+          domain: Cgc2046.GlobalApi
+        )
+
+      require Ash.Query
+
+      {:ok, memberships} =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+        |> Ash.read(
+          actor: other_admin,
+          tenant: workspace.id,
+          domain: Cgc2046.GlobalApi
+        )
+
+      # platform_admin 非成员应可见全部成员（含 owner 行）
+      assert Enum.any?(memberships, &(&1.user_id == owner.id))
     end
   end
 end

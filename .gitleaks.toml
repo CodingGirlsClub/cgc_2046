@@ -8,5 +8,5 @@
 useDefault = true
 
 [allowlist]
-description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）"
-paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''']
+description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）；hooks_test.rb 的裸 JWT 为固定测试样本（标准示例 token，非真实密钥）"
+paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''', '''openclacky-ext/cgc-2046/test/hooks_test\.rb''']

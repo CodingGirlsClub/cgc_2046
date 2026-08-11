@@ -2,9 +2,26 @@ defmodule Cgc2046Web.Router do
   use Cgc2046Web, :router
 
   import Cgc2046Web.AuthPlug
+  import Phoenix.LiveView.Router
 
   pipeline :api do
     plug(:accepts, ["json"])
+  end
+
+  # Phase 1 / R12：AshAdmin + 未来 /admin 浏览器路由门控管线。
+  # 复用认证管线（AuthCookiePlug + load_from_bearer + load_actor）+ PlatformAdminPlug。
+  # put_root_layout 用 AshAdmin.Layouts（前端是 Next.js，无项目级 HTML layout）。
+  pipeline :admin_browser do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_root_layout, html: {AshAdmin.Layouts, :root})
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+    plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
+    plug(:load_from_bearer)
+    plug(:load_actor)
+    plug(Cgc2046Web.Plugs.PlatformAdminPlug)
   end
 
   pipeline :graphql do
@@ -41,6 +58,22 @@ defmodule Cgc2046Web.Router do
         before_send: {Cgc2046Web.Plugs.AuthCookiePlug, :before_send}
       ],
       alias: false
+    )
+  end
+
+  # Phase 6 / R12：AshAdmin 挂载（ops 调试面）。
+  # 门控双层（P0 修复）：HTTP 层 :admin_browser pipeline 末尾 PlatformAdminPlug
+  # 挡首帧渲染；live_session WebSocket 通道独立于 HTTP pipeline，必须用
+  # PlatformAdminLiveAuth on_mount 在 mount 生命周期再校验（否则普通用户可经
+  # WebSocket 直连绕过）。session 由 session_data/1 在 HTTP 层注入 current_user_id。
+  scope "/ops" do
+    import AshAdmin.Router
+
+    pipe_through([:admin_browser])
+
+    ash_admin("/admin",
+      on_mount: [Cgc2046Web.Live.PlatformAdminLiveAuth],
+      session: {Cgc2046Web.Live.PlatformAdminLiveAuth, :session_data, []}
     )
   end
 
