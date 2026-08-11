@@ -234,6 +234,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       )
     end
 
+    @desc "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first/after）"
+    field :list_admin_action_logs, non_null(list_of(non_null(:admin_action_log))) do
+      arg(:action, :string)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(
+        admin_list(
+          Cgc2046.Accounts.AdminActionLog,
+          fn q, args -> maybe_action_filter(q, args[:action]) end,
+          admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.GlobalApi)
+        )
+      )
+    end
+
     # S1（advisor02）：listWorkflowRuns 不手写——WorkflowRun 资源已自动暴露同名 query
     # （list_workflow_runs: filter/sort/first/before/after，前端 web/lib/graphql/workflow.ts
     # 在用），platform_admin read policy 已解锁（Phase 2）。自动版 filter.workspaceId.eq
@@ -1204,6 +1219,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:purpose, non_null(:string))
     field(:status, non_null(:string))
     field(:rejection_reason, :string)
+    # #116 R10a：处理人/时间（approve/reject 对称四字段；pending/expired 为 null）
+    field(:approved_by, :id)
+    field(:approved_at, :datetime)
+    field(:rejected_by, :id)
+    field(:rejected_at, :datetime)
     field(:inserted_at, non_null(:datetime))
   end
 
@@ -1230,6 +1250,17 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:id, non_null(:id))
     field(:workspace_id, non_null(:id))
     field(:signal_type, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI；metadata v1 不暴露，落 DB 备用）
+  object :admin_action_log do
+    field(:id, non_null(:id))
+    field(:actor_id, :id)
+    field(:action, non_null(:string))
+    field(:target_type, non_null(:string))
+    field(:target_id, non_null(:id))
+    field(:result, non_null(:string))
     field(:inserted_at, non_null(:datetime))
   end
 
@@ -1308,6 +1339,18 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp maybe_status_filter(query, status) do
     case String.to_existing_atom(status) do
       atom -> Ash.Query.filter(query, status == ^atom)
+    end
+  rescue
+    ArgumentError -> query
+  end
+
+  # #116 action 过滤（AdminActionLog.action 是 atom 约束；非枚举值静默忽略过滤，
+  # 与 maybe_status_filter 的 rescue 回退一致——to_existing_atom 防 atom 表污染）
+  defp maybe_action_filter(query, nil), do: query
+
+  defp maybe_action_filter(query, action) do
+    case String.to_existing_atom(action) do
+      atom -> Ash.Query.filter(query, action == ^atom)
     end
   rescue
     ArgumentError -> query

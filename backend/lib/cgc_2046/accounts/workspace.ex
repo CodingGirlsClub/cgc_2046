@@ -170,30 +170,37 @@ defmodule Cgc2046.Accounts.Workspace do
               roles -> {:ok, roles}
             end
 
-          with {:ok, role_records} <- role_records do
-            # Owner 来源优先级：owner_user_id > owner_email > actor.id（D1）
-            # owner_user_id：建 Owner membership 给该用户；owner_email：建 pending-owner
-            # Invitation（preauthorized [:owner]）；都无：回退 actor（现有行为）。
-            owner_user_id = Ash.Changeset.get_argument(changeset, :owner_user_id)
-            owner_email = Ash.Changeset.get_argument(changeset, :owner_email)
-            actor = get_in(changeset.context, [:private, :actor])
+          result =
+            with {:ok, role_records} <- role_records do
+              # Owner 来源优先级：owner_user_id > owner_email > actor.id（D1）
+              # owner_user_id：建 Owner membership 给该用户；owner_email：建 pending-owner
+              # Invitation（preauthorized [:owner]）；都无：回退 actor（现有行为）。
+              owner_user_id = Ash.Changeset.get_argument(changeset, :owner_user_id)
+              owner_email = Ash.Changeset.get_argument(changeset, :owner_email)
+              actor = get_in(changeset.context, [:private, :actor])
 
-            cond do
-              owner_user_id ->
-                create_owner_membership(workspace, tenant, owner_user_id, role_records)
+              cond do
+                owner_user_id ->
+                  create_owner_membership(workspace, tenant, owner_user_id, role_records)
 
-              owner_email && actor ->
-                create_owner_invitation(workspace, tenant, actor, owner_email)
+                owner_email && actor ->
+                  create_owner_invitation(workspace, tenant, actor, owner_email)
 
-              actor ->
-                create_owner_membership(workspace, tenant, actor.id, role_records)
+                actor ->
+                  create_owner_membership(workspace, tenant, actor.id, role_records)
 
-              true ->
-                # actor 为 nil：无 actor 时仅 seed 角色，不建 Owner 成员资格/邀请
-                {:ok, workspace}
+                true ->
+                  # actor 为 nil：无 actor 时仅 seed 角色，不建 Owner 成员资格/邀请
+                  {:ok, workspace}
+              end
+            else
+              {:error, _} = err -> err
             end
-          else
-            {:error, _} = err -> err
+
+          # #116 R10a：治理留痕（workspace 直接创建；approve 路径无 actor，天然不双记）
+          with {:ok, workspace} <- result,
+               {:ok, _log} <- maybe_log_workspace_create(changeset, workspace) do
+            {:ok, workspace}
           end
         end)
       )
@@ -246,26 +253,37 @@ defmodule Cgc2046.Accounts.Workspace do
           {:ok, workspace} ->
             case workspace.join_policy do
               :open ->
-                if actor do
-                  # 入座委托 MembershipContext.admit_member/3（入座不变量唯一实现）。
-                  # join 语义幂等：已是成员 / 并发 unique 冲突 → 成功返回 workspace（不报错），
-                  # 区别于 join_request approve 把重复审批当业务错误。真 DB 故障上抛。
-                  # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
-                  # 两次写不在同一事务——MembershipRole 创建失败时 Membership 已 commit，
-                  # 留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
-                  # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
-                  # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
-                  case Cgc2046.Accounts.MembershipContext.admit_member(
-                         actor.id,
-                         workspace_id,
-                         [:learner],
-                         on_conflict: :idempotent
-                       ) do
-                    {:ok, _membership} -> {:ok, workspace}
-                    {:error, _} = err -> err
-                  end
+                # #115 ownerless 门控（方案 B）：pending-owner（Owner 邀请未接受）期间阻断
+                # 直接加入——ownerless 时工作台无任何管理角色，先入座会留下无人管理的成员。
+                # Owner 接受邀请入座后 owner_count > 0，门控自动解除。
+                if Cgc2046.Accounts.MembershipContext.owner_count(workspace_id) == 0 do
+                  {:error,
+                   Ash.Error.Changes.InvalidAttribute.exception(
+                     field: :status,
+                     message: "工作台尚未开放加入（Owner 未就位）"
+                   )}
                 else
-                  {:ok, workspace}
+                  if actor do
+                    # 入座委托 MembershipContext.admit_member/3（入座不变量唯一实现）。
+                    # join 语义幂等：已是成员 / 并发 unique 冲突 → 成功返回 workspace（不报错），
+                    # 区别于 join_request approve 把重复审批当业务错误。真 DB 故障上抛。
+                    # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
+                    # 两次写不在同一事务——MembershipRole 创建失败时 Membership 已 commit，
+                    # 留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
+                    # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
+                    # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
+                    case Cgc2046.Accounts.MembershipContext.admit_member(
+                           actor.id,
+                           workspace_id,
+                           [:learner],
+                           on_conflict: :idempotent
+                         ) do
+                      {:ok, _membership} -> {:ok, workspace}
+                      {:error, _} = err -> err
+                    end
+                  else
+                    {:ok, workspace}
+                  end
                 end
 
               :request ->
@@ -350,6 +368,29 @@ defmodule Cgc2046.Accounts.Workspace do
       action(:join_workspace, :join,
         description: "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
       )
+    end
+  end
+
+  # #116 R10a：workspace 直接创建的治理留痕。actor 为 nil（WorkspaceApplication.approve
+  # 路径 / CLI 调用）时不落行——approve 的留痕由 approve 自己的 after_action 落
+  # application_approve，天然避免双记（该不变量由 admin_action_log_test 钉死）。
+  # 留痕失败上抛回滚整个创建（fail-closed）。
+  defp maybe_log_workspace_create(changeset, workspace) do
+    case get_in(changeset.context, [:private, :actor]) do
+      nil ->
+        {:ok, workspace}
+
+      actor ->
+        with {:ok, _log} <-
+               Cgc2046.Accounts.AdminActionLog.log(%{
+                 actor_id: actor.id,
+                 action: :workspace_create,
+                 target_type: :workspace,
+                 target_id: workspace.id,
+                 metadata: %{slug: workspace.slug, name: workspace.name}
+               }) do
+          {:ok, workspace}
+        end
     end
   end
 

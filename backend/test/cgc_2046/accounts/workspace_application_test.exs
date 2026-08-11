@@ -250,6 +250,20 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
       assert rejected.rejection_reason == nil
     end
 
+    test "reject records rejected_by/rejected_at (#116 与 approved_by/at 对称)" do
+      admin = platform_admin()
+      applicant = normal_user()
+      application = create_application(applicant)
+
+      assert {:ok, rejected} =
+               application
+               |> Ash.Changeset.for_update(:reject, %{rejection_reason: "不合适"})
+               |> Ash.update(actor: admin)
+
+      assert rejected.rejected_by == admin.id
+      assert rejected.rejected_at != nil
+    end
+
     test "non-platform-admin cannot reject" do
       applicant = normal_user()
       application = create_application(applicant)

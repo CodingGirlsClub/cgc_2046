@@ -1425,6 +1425,8 @@ enum WorkspaceApplicationSortField {
   REJECTION_REASON
   APPROVED_BY
   APPROVED_AT
+  REJECTED_BY
+  REJECTED_AT
   APPROVAL_DEADLINE
   EXPIRED_AT
 }
@@ -1468,6 +1470,32 @@ input WorkspaceApplicationFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
+}
+
+input WorkspaceApplicationFilterRejectedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input WorkspaceApplicationFilterRejectedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
 }
 
 input WorkspaceApplicationFilterApprovedAt {
@@ -1640,6 +1668,12 @@ input WorkspaceApplicationFilterInput {
   "审批时间"
   approvedAt: WorkspaceApplicationFilterApprovedAt
 
+  "拒绝人（platform_admin）ID"
+  rejectedBy: WorkspaceApplicationFilterRejectedBy
+
+  "拒绝时间"
+  rejectedAt: WorkspaceApplicationFilterRejectedAt
+
   "审批截止时间（默认 created_at + 7 天）"
   approvalDeadline: WorkspaceApplicationFilterApprovalDeadline
 
@@ -1678,6 +1712,12 @@ type WorkspaceApplication {
 
   "审批时间"
   approvedAt: DateTime
+
+  "拒绝人（platform_admin）ID"
+  rejectedBy: ID
+
+  "拒绝时间"
+  rejectedAt: DateTime
 
   "审批截止时间（默认 created_at + 7 天）"
   approvalDeadline: DateTime
@@ -2808,6 +2848,9 @@ type RootQueryType {
   "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
   listSignalLogs(workspaceId: ID, first: Int, after: String): [AdminSignalLog!]!
 
+  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
+  listAdminActionLogs(action: String, first: Int, after: String): [AdminActionLog!]!
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -3256,6 +3299,10 @@ type AdminWorkspaceApplication {
   purpose: String!
   status: String!
   rejectionReason: String
+  approvedBy: ID
+  approvedAt: DateTime
+  rejectedBy: ID
+  rejectedAt: DateTime
   insertedAt: DateTime!
 }
 
@@ -3282,6 +3329,16 @@ type AdminSignalLog {
   id: ID!
   workspaceId: ID!
   signalType: String!
+  insertedAt: DateTime!
+}
+
+type AdminActionLog {
+  id: ID!
+  actorId: ID
+  action: String!
+  targetType: String!
+  targetId: ID!
+  result: String!
   insertedAt: DateTime!
 }
 
