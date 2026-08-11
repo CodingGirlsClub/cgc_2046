@@ -244,11 +244,13 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   defp create_workflow_run(workspace, actor, definition) do
     {:ok, run} =
       WorkflowRun
-      |> Ash.Changeset.for_create(:create, %{
-        definition_id: definition.id,
-        definition_version: definition.version,
-        input_snapshot: %{"topic" => "t1"}
-      }, tenant: workspace.id, actor: actor)
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          definition_id: definition.id,
+          definition_version: definition.version,
+          input_snapshot: %{"topic" => "t1"}
+        }, tenant: workspace.id, actor: actor)
       |> Ash.create(tenant: workspace.id, actor: actor)
 
     run
