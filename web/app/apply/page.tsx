@@ -16,7 +16,7 @@ import {
 import { useAuthed } from "@/lib/use-authed";
 
 export default function ApplyPage() {
-	const { authed, confirmed } = useAuthed();
+	const { authed, confirmed, userId } = useAuthed();
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
 	const [purpose, setPurpose] = useState("");
@@ -51,7 +51,7 @@ export default function ApplyPage() {
 		setFormError(null);
 		setSubmitting(true);
 		try {
-			const res = await createApplication({ name, slug, purpose });
+			const res = await createApplication({ name, slug, purpose, applicantId: userId! });
 			if (res.result) {
 				setSubmitted(true);
 				setName("");

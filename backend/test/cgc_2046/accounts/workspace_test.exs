@@ -1023,4 +1023,57 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert Enum.any?(loaded.roles, &(&1.name == :learner))
     end
   end
+  describe "platform_admin bypass on membership read (Phase 10 P2)" do
+    test "platform_admin non-member can read all workspace memberships (R13 详情页)" do
+      admin = admin_user()
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "padm-mbr-#{System.unique_integer([:positive])}",
+          name: "PADM MBR"
+        })
+        |> Ash.create(actor: admin)
+
+      owner =
+        register_user(
+          "padm-mbr-owner-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
+
+      add_member(workspace, owner, admin, [:owner])
+
+      # 另一个 platform_admin（非该 workspace 成员）读 memberships
+      other_admin =
+        register_user(
+          "padm-mbr-admin-#{System.unique_integer([:positive])}@example.com",
+          @password
+        )
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET is_platform_admin = true WHERE id = $1",
+          [Ecto.UUID.dump!(other_admin.id)]
+        )
+
+      other_admin =
+        Ash.get!(User, other_admin.id, actor: other_admin, authorize?: false, domain: Cgc2046.GlobalApi)
+
+      require Ash.Query
+
+      {:ok, memberships} =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+        |> Ash.read(
+          actor: other_admin,
+          tenant: workspace.id,
+          domain: Cgc2046.GlobalApi
+        )
+
+      # platform_admin 非成员应可见全部成员（含 owner 行）
+      assert Enum.any?(memberships, &(&1.user_id == owner.id))
+    end
+  end
 end

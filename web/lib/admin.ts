@@ -108,13 +108,16 @@ export async function fetchMyApplications(): Promise<AdminWorkspaceApplication[]
 	return data?.myWorkspaceApplications ?? [];
 }
 
-/** 提交创建工作台申请（R6 /apply 表单；applicant 自动取当前登录用户） */
+/** 提交创建工作台申请（R6 /apply 表单；applicantId 由调用方从 useAuthed 传入）。
+ *  后端 policy 强制 applicant_id == actor.id 防伪造。 */
 export async function createApplication(
 	input: CreateWorkspaceApplicationInput,
 ): Promise<CreateWorkspaceApplicationResultData> {
 	const { data } = await client.mutate({
 		mutation: CREATE_WORKSPACE_APPLICATION,
 		variables: { input },
+		// 提交成功后刷新「我的申请」列表（Apollo cache-first 不会自动失效）
+		refetchQueries: [{ query: MY_WORKSPACE_APPLICATIONS }],
 	});
 	return (
 		data?.createWorkspaceApplication ?? {
@@ -160,13 +163,15 @@ export async function fetchSignalLogs(
 	return data?.listSignalLogs ?? [];
 }
 
-/** 审批通过工作台创建申请（R7；platform_admin，自动创建 workspace + applicant 为 Owner） */
+/** 审批通过工作台创建申请（R7；platform_admin，自动创建 workspace + applicant 为 Owner）。
+ *  成功后 refetch LIST_WORKSPACE_APPLICATIONS（P3：审批后列表自动刷新，不依赖手动刷新）。 */
 export async function approveApplication(
 	id: string,
 ): Promise<ApproveApplicationResultData> {
 	const { data } = await client.mutate({
 		mutation: APPROVE_WORKSPACE_APPLICATION,
 		variables: { id },
+		refetchQueries: [{ query: LIST_WORKSPACE_APPLICATIONS, variables: listVars({ status: null }) }],
 	});
 	return (
 		data?.approveWorkspaceApplication ?? {
@@ -176,7 +181,8 @@ export async function approveApplication(
 	);
 }
 
-/** 拒绝工作台创建申请（R7；可选拒绝原因） */
+/** 拒绝工作台创建申请（R7；可选拒绝原因）。
+ *  成功后 refetch LIST_WORKSPACE_APPLICATIONS（P3：审批后列表自动刷新）。 */
 export async function rejectApplication(
 	id: string,
 	rejectionReason?: string | null,
@@ -184,6 +190,7 @@ export async function rejectApplication(
 	const { data } = await client.mutate({
 		mutation: REJECT_WORKSPACE_APPLICATION,
 		variables: { id, input: { rejectionReason: rejectionReason ?? null } },
+		refetchQueries: [{ query: LIST_WORKSPACE_APPLICATIONS, variables: listVars({ status: null }) }],
 	});
 	return (
 		data?.rejectWorkspaceApplication ?? {

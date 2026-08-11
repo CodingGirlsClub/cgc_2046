@@ -8,6 +8,7 @@ vi.mock("./apollo-client", () => ({
 	},
 }));
 
+
 import { client } from "./apollo-client";
 import {
 	approveApplication,
@@ -353,7 +354,7 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 		expect(result.metadata?.ownerInvitationToken).toBe("tok456");
 	});
 
-	it("createApplication 提交工作台创建申请（R6 /apply）", async () => {
+	it("createApplication 提交工作台创建申请（R6 /apply；传 applicantId）", async () => {
 		mutateMock.mockResolvedValue({
 			data: {
 				createWorkspaceApplication: {
@@ -376,17 +377,22 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 			name: "研究空间",
 			slug: "research",
 			purpose: "团队研究",
+			applicantId: "u1",
 		});
 
 		expect(opName(mutateMock.mock.calls[0][0].mutation)).toBe(
 			"CreateWorkspaceApplication",
 		);
 		expect(mutateMock.mock.calls[0][0].variables).toEqual({
-			input: { name: "研究空间", slug: "research", purpose: "团队研究" },
+			input: {
+				name: "研究空间",
+				slug: "research",
+				purpose: "团队研究",
+				applicantId: "u1",
+			},
 		});
 		expect(result.result?.status).toBe("pending");
 	});
-
 	it("createApplication 失败返回错误信封", async () => {
 		mutateMock.mockResolvedValue({
 			data: {
@@ -401,6 +407,7 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 			name: "研究空间",
 			slug: "taken",
 			purpose: "测试",
+			applicantId: "u1",
 		});
 
 		expect(result.result).toBeNull();
