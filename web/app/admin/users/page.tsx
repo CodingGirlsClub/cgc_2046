@@ -105,104 +105,106 @@ export default function AdminUsersPage() {
 
 	return (
 		<section>
-			<div className="flex items-center justify-between mb-4">
-				<h1 className="text-2xl font-semibold">用户</h1>
+			<div className="admin-page__head">
+				<h1>用户</h1>
 			</div>
 
-			<div className="flex gap-2 mb-4">
+			<div className="admin-toolbar">
 				<input
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleSearch()}
 					placeholder="搜索用户（email / 显示名）"
 					aria-label="搜索用户"
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm flex-1"
+					className="l-input"
 				/>
 				<button
 					type="button"
 					onClick={handleSearch}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm hover:bg-neutral-50"
+					className="l-btn-outline"
 				>
 					搜索
 				</button>
 			</div>
 
-			{error && <p className="text-sm text-red-600 mb-4">加载失败，请稍后重试。</p>}
-			{actionError && <p className="text-sm text-red-600 mb-4">{actionError}</p>}
-			{loading && <p className="text-sm text-neutral-500">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
+			{actionError && <p className="admin-alert admin-alert--error">{actionError}</p>}
+			{loading && <p className="admin-muted">加载中…</p>}
 
 			{!loading && !error && users && users.length === 0 && (
-				<p className="text-sm text-neutral-500">暂无用户。</p>
+				<p className="admin-empty">暂无用户。</p>
 			)}
 
 			{!loading && !error && users && users.length > 0 && (
-				<table className="w-full text-sm border-collapse">
-					<thead>
-						<tr className="text-left text-neutral-500 border-b border-neutral-200">
-							<th className="py-2">用户</th>
-							<th className="py-2">平台管理员</th>
-							<th className="py-2">成员概要</th>
-							<th className="py-2">加入时间</th>
-							<th className="py-2">操作</th>
-						</tr>
-					</thead>
-					<tbody>
-						{users.map((user) => (
-							<tr key={user.id} className="border-b border-neutral-100">
-								<td className="py-2">
-									<div className="font-medium">
-										{user.displayName || user.email || "（未命名）"}
-									</div>
-									{user.email && user.displayName && (
-										<div className="text-neutral-500 text-xs">{user.email}</div>
-									)}
-								</td>
-								<td className="py-2">
-									{user.isPlatformAdmin ? (
-										<span className="l-badge l-badge-success">管理员</span>
-									) : (
-										<span className="l-badge l-badge-muted">普通用户</span>
-									)}
-								</td>
-								<td className="py-2 text-neutral-600">
-									{user.workspaceMembershipCount ?? 0} 个成员
-								</td>
-								<td className="py-2 text-neutral-600">
-									{new Date(user.insertedAt).toLocaleDateString("zh-CN")}
-								</td>
-								<td className="py-2">
-									{user.isPlatformAdmin ? (
-										<button
-											type="button"
-											onClick={() => handleDemoteClick(user)}
-											disabled={busyId === user.id}
-											className="px-2 py-1 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50"
-										>
-											降级
-										</button>
-									) : (
-										<button
-											type="button"
-											onClick={() => handlePromote(user)}
-											disabled={busyId === user.id}
-											className="px-2 py-1 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50"
-										>
-											提升
-										</button>
-									)}
-								</td>
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>用户</th>
+								<th>平台管理员</th>
+								<th className="admin-table__num">成员概要</th>
+								<th>加入时间</th>
+								<th className="admin-table__actions">操作</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{users.map((user) => (
+								<tr key={user.id}>
+									<td>
+										<span className="admin-table__primary">
+											{user.displayName || user.email || "（未命名）"}
+										</span>
+										{user.email && user.displayName && (
+											<span className="admin-table__sub">{user.email}</span>
+										)}
+									</td>
+									<td>
+										{user.isPlatformAdmin ? (
+											<span className="l-badge l-badge-admin">管理员</span>
+										) : (
+											<span className="l-badge l-badge-muted">普通用户</span>
+										)}
+									</td>
+									<td className="admin-table__num">
+										{user.workspaceMembershipCount ?? 0} 个成员
+									</td>
+									<td>
+										{new Date(user.insertedAt).toLocaleDateString("zh-CN")}
+									</td>
+									<td className="admin-table__actions">
+										{user.isPlatformAdmin ? (
+											<button
+												type="button"
+												onClick={() => handleDemoteClick(user)}
+												disabled={busyId === user.id}
+												className="l-btn-outline l-btn-outline--danger"
+											>
+												降级
+											</button>
+										) : (
+											<button
+												type="button"
+												onClick={() => handlePromote(user)}
+												disabled={busyId === user.id}
+												className="l-btn-outline"
+											>
+												提升
+											</button>
+										)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			)}
 
-			<div className="flex gap-2 mt-4">
+			<div className="admin-pager">
 				<button
 					type="button"
 					onClick={handlePrev}
 					disabled={offset === 0 || loading}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm disabled:opacity-50"
+					className="l-btn-outline"
 				>
 					上一页
 				</button>
@@ -210,7 +212,7 @@ export default function AdminUsersPage() {
 					type="button"
 					onClick={handleNext}
 					disabled={loading}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm disabled:opacity-50"
+					className="l-btn-outline"
 				>
 					下一页
 				</button>
@@ -220,26 +222,26 @@ export default function AdminUsersPage() {
 				<div
 					role="dialog"
 					aria-label="确认降级"
-					className="fixed inset-0 bg-black/40 flex items-center justify-center"
+					className="admin-modal-overlay"
 				>
-					<div className="bg-white rounded-lg p-6 max-w-sm w-full">
-						<h2 className="text-lg font-semibold mb-2">确认降级</h2>
-						<p className="text-sm text-neutral-600 mb-4">
+					<div className="admin-modal">
+						<h2>确认降级</h2>
+						<p>
 							你将降级自己（{confirmDemote.email || confirmDemote.displayName || "当前用户"}）的
 							平台管理员权限。请确认。
 						</p>
-						<div className="flex justify-end gap-2">
+						<div className="admin-modal__actions">
 							<button
 								type="button"
 								onClick={() => setConfirmDemote(null)}
-								className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm hover:bg-neutral-50"
+								className="l-btn-outline"
 							>
 								取消
 							</button>
 							<button
 								type="button"
 								onClick={handleConfirmDemote}
-								className="px-3 py-1.5 rounded-md bg-red-600 text-white text-sm hover:bg-red-500"
+								className="l-btn-danger"
 							>
 								确认
 							</button>

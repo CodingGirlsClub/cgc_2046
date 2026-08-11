@@ -22,7 +22,7 @@ defmodule Cgc2046.Workflows.Step do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
@@ -168,5 +168,11 @@ defmodule Cgc2046.Workflows.Step do
 
   graphql do
     type(:workflow_step)
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:workflows)
+    table_columns([:id, :definition_id, :step_key, :title, :type, :action, :inserted_at])
   end
 end

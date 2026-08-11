@@ -12,7 +12,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -190,5 +190,10 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
     mutations do
       update(:assign_roles, :assign_roles, description: "分配成员角色（多角色并集，仅 Owner/Admin）")
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组
+    resource_group(:tenancy)
   end
 end

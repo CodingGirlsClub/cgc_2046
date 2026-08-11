@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.Invitation do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -540,5 +540,21 @@ defmodule Cgc2046.Accounts.Invitation do
 
       update(:revoke_invitation, :revoke, description: "撤销邀请（邀请人本人或 Owner/Admin）")
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:access)
+    label_field(:target_email)
+
+    table_columns([
+      :id,
+      :workspace_id,
+      :target_email,
+      :inviter_id,
+      :status,
+      :expires_at,
+      :inserted_at
+    ])
   end
 end

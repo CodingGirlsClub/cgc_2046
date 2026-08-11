@@ -11,6 +11,7 @@ defmodule Cgc2046.Mcp.PendingOperation do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Mcp
 
@@ -195,5 +196,11 @@ defmodule Cgc2046.Mcp.PendingOperation do
       changeset,
       Ash.Error.Changes.InvalidAttribute.exception(field: :status, message: message)
     )
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:mcp)
+    table_columns([:id, :user_id, :tool, :status, :summary, :expires_at, :inserted_at])
   end
 end

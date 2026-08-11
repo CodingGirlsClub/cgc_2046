@@ -19,6 +19,13 @@ import {
 
 const PAGE_SIZE = 50;
 
+/** 处理人短 ID：approved → approvedBy，rejected → rejectedBy；其余状态或空值 → "—" */
+function handlerShortId(app: AdminWorkspaceApplication): string {
+	if (app.status === "approved") return app.approvedBy?.slice(0, 8) ?? "—";
+	if (app.status === "rejected") return app.rejectedBy?.slice(0, 8) ?? "—";
+	return "—";
+}
+
 export default function AdminApplicationsPage() {
 	const [applications, setApplications] = useState<AdminWorkspaceApplication[] | null>(null);
 	const [status, setStatus] = useState<"pending" | "all">("pending");
@@ -98,129 +105,127 @@ export default function AdminApplicationsPage() {
 
 	return (
 		<section>
-			<div className="flex items-center justify-between mb-4">
-				<h1 className="text-2xl font-semibold">申请审批</h1>
-				<div className="flex gap-1">
+			<div className="admin-page__head">
+				<h1>申请审批</h1>
+				<div className="admin-tabs">
 					<button
 						type="button"
+						aria-pressed={status === "pending"}
 						onClick={() => handleTabChange("pending")}
-						className={`px-3 py-1.5 rounded-md text-sm ${
-							status === "pending"
-								? "bg-neutral-900 text-white"
-								: "border border-neutral-300 hover:bg-neutral-50"
-						}`}
+						className={`admin-tabs__tab ${status === "pending" ? "admin-tabs__tab--selected" : ""}`}
 					>
 						待审批
 					</button>
 					<button
 						type="button"
+						aria-pressed={status === "all"}
 						onClick={() => handleTabChange("all")}
-						className={`px-3 py-1.5 rounded-md text-sm ${
-							status === "all"
-								? "bg-neutral-900 text-white"
-								: "border border-neutral-300 hover:bg-neutral-50"
-						}`}
+						className={`admin-tabs__tab ${status === "all" ? "admin-tabs__tab--selected" : ""}`}
 					>
 						全部
 					</button>
 				</div>
 			</div>
 
-			{error && <p className="text-sm text-red-600 mb-4">加载失败，请稍后重试。</p>}
-			{actionError && <p className="text-sm text-red-600 mb-4">{actionError}</p>}
-			{loading && <p className="text-sm text-neutral-500">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
+			{actionError && <p className="admin-alert admin-alert--error">{actionError}</p>}
+			{loading && <p className="admin-muted">加载中…</p>}
 
 			{!loading && !error && applications && applications.length === 0 && (
-				<p className="text-sm text-neutral-500">暂无申请。</p>
+				<p className="admin-empty">暂无申请。</p>
 			)}
 
 			{!loading && !error && applications && applications.length > 0 && (
-				<table className="w-full text-sm border-collapse">
-					<thead>
-						<tr className="text-left text-neutral-500 border-b border-neutral-200">
-							<th className="py-2">工作台</th>
-							<th className="py-2">slug</th>
-							<th className="py-2">用途</th>
-							<th className="py-2">状态</th>
-							<th className="py-2">申请时间</th>
-							<th className="py-2">操作</th>
-						</tr>
-					</thead>
-					<tbody>
-						{applications.map((app) => (
-							<tr key={app.id} className="border-b border-neutral-100">
-								<td className="py-2 font-medium">{app.name}</td>
-								<td className="py-2 text-neutral-600">{app.slug}</td>
-								<td className="py-2 text-neutral-600">{app.purpose}</td>
-								<td className="py-2">
-									<span className={APPLICATION_STATUS_CLASS[app.status]}>
-										{APPLICATION_STATUS_LABEL[app.status]}
-									</span>
-									{app.rejectionReason && (
-										<div className="text-xs text-neutral-500 mt-0.5">
-											原因：{app.rejectionReason}
-										</div>
-									)}
-								</td>
-								<td className="py-2 text-neutral-600">
-									{new Date(app.insertedAt).toLocaleDateString("zh-CN")}
-								</td>
-								<td className="py-2">
-									{app.status === "pending" && (
-										<div className="flex gap-2">
-											<button
-												type="button"
-												onClick={() => handleApprove(app)}
-												disabled={busyId === app.id}
-												className="px-2 py-1 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50"
-											>
-												通过
-											</button>
-											{rejectingId === app.id ? (
-												<div className="flex gap-1 items-center">
-													<input
-														value={rejectReason}
-														onChange={(e) => setRejectReason(e.target.value)}
-														placeholder="拒绝原因"
-														aria-label="拒绝原因"
-														className="px-2 py-1 rounded-md border border-neutral-300 text-xs w-40"
-													/>
-													<button
-														type="button"
-														onClick={() => handleReject(app)}
-														disabled={busyId === app.id}
-														className="px-2 py-1 rounded-md bg-red-600 text-white text-xs disabled:opacity-50"
-													>
-														确认拒绝
-													</button>
-													<button
-														type="button"
-														onClick={() => {
-															setRejectingId(null);
-															setRejectReason("");
-														}}
-														className="px-2 py-1 rounded-md border border-neutral-300 text-xs"
-													>
-														取消
-													</button>
-												</div>
-											) : (
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>工作台</th>
+								<th>slug</th>
+								<th>用途</th>
+								<th>状态</th>
+								<th>处理人</th>
+								<th>申请时间</th>
+								<th className="admin-table__actions">操作</th>
+							</tr>
+						</thead>
+						<tbody>
+							{applications.map((app) => (
+								<tr key={app.id}>
+									<td className="admin-table__primary">{app.name}</td>
+									<td>{app.slug}</td>
+									<td>{app.purpose}</td>
+									<td>
+										<span className={APPLICATION_STATUS_CLASS[app.status]}>
+											{APPLICATION_STATUS_LABEL[app.status]}
+										</span>
+										{app.rejectionReason && (
+											<span className="admin-table__sub">
+												原因：{app.rejectionReason}
+											</span>
+										)}
+									</td>
+									<td>{handlerShortId(app)}</td>
+									<td>
+										{new Date(app.insertedAt).toLocaleDateString("zh-CN")}
+									</td>
+									<td className="admin-table__actions">
+										{app.status === "pending" && (
+											<>
 												<button
 													type="button"
-													onClick={() => setRejectingId(app.id)}
+													onClick={() => handleApprove(app)}
 													disabled={busyId === app.id}
-													className="px-2 py-1 rounded-md border border-neutral-300 text-xs hover:bg-neutral-50 disabled:opacity-50"
+													className="l-btn-outline"
 												>
-													拒绝
+													通过
 												</button>
-											)}
-										</div>
-									)}
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+												{rejectingId === app.id ? (
+													<span className="admin-inline-form">
+														<input
+															value={rejectReason}
+															onChange={(e) => setRejectReason(e.target.value)}
+															placeholder="拒绝原因"
+															aria-label="拒绝原因"
+															className="l-input"
+														/>
+														<button
+															type="button"
+															onClick={() => handleReject(app)}
+															disabled={busyId === app.id}
+															className="l-btn-danger"
+														>
+															确认拒绝
+														</button>
+														<button
+															type="button"
+															onClick={() => {
+																setRejectingId(null);
+																setRejectReason("");
+															}}
+															className="l-btn-ghost"
+														>
+															取消
+														</button>
+													</span>
+												) : (
+													<button
+														type="button"
+														onClick={() => setRejectingId(app.id)}
+														disabled={busyId === app.id}
+														className="l-btn-outline l-btn-outline--danger"
+													>
+														拒绝
+													</button>
+												)}
+											</>
+										)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			)}
 		</section>
 	);

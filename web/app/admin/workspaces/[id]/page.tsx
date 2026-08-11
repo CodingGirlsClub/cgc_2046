@@ -80,58 +80,67 @@ export default function AdminWorkspaceDetailPage() {
 	}, [workspaceId]);
 
 	if (loading) {
-		return <p className="text-sm text-neutral-500">加载中…</p>;
+		return <p className="admin-muted">加载中…</p>;
 	}
 
 	if (error || !workspace) {
-		return <p className="text-sm text-red-600">加载失败，工作台不存在或无权查看。</p>;
+		return <p className="admin-alert admin-alert--error">加载失败，工作台不存在或无权查看。</p>;
 	}
 
 	return (
 		<section>
-			<h1 className="text-2xl font-semibold mb-1">{workspace.name}</h1>
-			<p className="text-neutral-600 text-sm mb-2">
-				{workspace.slug} · {JOIN_POLICY_LABEL[workspace.joinPolicy]}
-			</p>
+			<div className="admin-page__head">
+				<div>
+					<h1>{workspace.name}</h1>
+					<p className="admin-page__desc">
+						{workspace.slug} · {JOIN_POLICY_LABEL[workspace.joinPolicy]}
+					</p>
+				</div>
+			</div>
 
 			{pendingOwner && (
-				<p className="inline-block px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-800 mb-4">
+				<p className="admin-alert admin-alert--warn">
 					待指定 Owner（有 active Owner 邀请）
 				</p>
 			)}
 
-			<h2 className="text-lg font-medium mt-6 mb-2">成员（{members?.length ?? 0}）</h2>
+			<h2 className="admin-section-title">成员（{members?.length ?? 0}）</h2>
 			{members && members.length > 0 ? (
-				<table className="w-full text-sm border-collapse">
-					<thead>
-						<tr className="text-left text-neutral-500 border-b border-neutral-200">
-							<th className="py-2">成员</th>
-							<th className="py-2">角色</th>
-						</tr>
-					</thead>
-					<tbody>
-						{members.map((m) => (
-							<tr key={m.membershipId} className="border-b border-neutral-100">
-								<td className="py-2">
-									{m.displayName || m.email || m.userId}
-									<span className="text-neutral-500 text-xs ml-2">{m.email}</span>
-								</td>
-								<td className="py-2">
-									{m.roles.map((r) => (
-										<span
-											key={r}
-											className="inline-block px-2 py-0.5 rounded bg-neutral-100 text-xs mr-1"
-										>
-											{r}
-										</span>
-									))}
-								</td>
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>成员</th>
+								<th>角色</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{members.map((m) => (
+								<tr key={m.membershipId}>
+									<td>
+										<span className="admin-table__primary">
+											{m.displayName || m.email || m.userId}
+										</span>
+										{m.email && (
+											<span className="admin-table__sub">{m.email}</span>
+										)}
+									</td>
+									<td>
+										<span className="admin-badge-row">
+											{m.roles.map((r) => (
+												<span key={r} className="l-badge l-badge-member">
+													{r}
+												</span>
+											))}
+										</span>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			) : (
-				<p className="text-sm text-neutral-500">暂无成员。</p>
+				<p className="admin-empty">暂无成员。</p>
 			)}
 		</section>
 	);

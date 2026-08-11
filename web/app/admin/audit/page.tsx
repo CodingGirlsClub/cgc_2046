@@ -2,17 +2,20 @@
 
 /**
  * /admin/audit 审计仪表盘（Phase 9 / R10）。
- * 4 资源 tab（ToolCallLog / PendingOperation / WorkflowRun / SignalLog）+ workspace 过滤。
+ * 5 资源 tab（ToolCallLog / PendingOperation / WorkflowRun / SignalLog / AdminActionLog）+ workspace 过滤。
  * - ToolCallLog / PendingOperation：D5 JSONB（params->>'workspace_id'）
  * - WorkflowRun / SignalLog：真实 workspace_id 列
+ * - AdminActionLog（治理操作）：平台级日志，无 workspace 维度，忽略过滤输入
  */
 import { useCallback, useEffect, useState } from "react";
 import {
+	fetchAdminActionLogs,
 	fetchPendingOperations,
 	fetchSignalLogs,
 	fetchToolCallLogs,
 } from "@/lib/admin";
 import type {
+	AdminActionLog,
 	AdminPendingOperation,
 	AdminSignalLog,
 	AdminToolCallLog,
@@ -22,7 +25,7 @@ import type { WorkflowRunItem } from "@/lib/workflows";
 
 const PAGE_SIZE = 50;
 
-type AuditTab = "tool" | "pending" | "workflow" | "signal";
+type AuditTab = "tool" | "pending" | "workflow" | "signal" | "action";
 
 /** 审计表格统一投影：4 类日志各经一个 typed adapter 收敛到这一行，render 不再猜字段。 */
 interface AuditRow {
@@ -72,11 +75,31 @@ function signalLogToRow(log: AdminSignalLog): AuditRow {
 	};
 }
 
+/** 治理操作 action 枚举 → 中文名（未知枚举值回退原串） */
+const ACTION_LABEL: Record<string, string> = {
+	workspace_create: "创建工作台",
+	application_approve: "审批通过",
+	application_reject: "审批拒绝",
+	admin_promote: "提升管理员",
+	admin_demote: "降级管理员",
+};
+
+function adminActionToRow(log: AdminActionLog): AuditRow {
+	return {
+		id: log.id,
+		time: log.insertedAt,
+		identity: ACTION_LABEL[log.action] ?? log.action,
+		summary: log.targetId.slice(0, 8),
+		status: log.result,
+	};
+}
+
 const TABS: Array<{ id: AuditTab; label: string }> = [
 	{ id: "tool", label: "工具调用" },
 	{ id: "pending", label: "待确认操作" },
 	{ id: "workflow", label: "工作流运行" },
 	{ id: "signal", label: "信号日志" },
+	{ id: "action", label: "治理操作" },
 ];
 
 export default function AdminAuditPage() {
@@ -104,9 +127,14 @@ export default function AdminAuditPage() {
 										list.map(workflowRunToRow),
 									)
 								: Promise.resolve([]))
-						: fetchSignalLogs(ws, { first: PAGE_SIZE }).then((list) =>
-								list.map(signalLogToRow),
-							);
+						: activeTab === "action"
+							? // 治理操作无 workspace 维度，忽略过滤输入
+								fetchAdminActionLogs(undefined, { first: PAGE_SIZE }).then(
+									(list) => list.map(adminActionToRow),
+								)
+							: fetchSignalLogs(ws, { first: PAGE_SIZE }).then((list) =>
+									list.map(signalLogToRow),
+								);
 
 		return p
 			.then((list) => {
@@ -138,87 +166,85 @@ export default function AdminAuditPage() {
 
 	return (
 		<section>
-			<h1 className="text-2xl font-semibold mb-4">审计</h1>
+			<div className="admin-page__head">
+				<h1>审计</h1>
+			</div>
 
-			<div className="flex items-center gap-2 mb-4">
-				<div className="flex gap-1">
+			<div className="admin-toolbar">
+				<div className="admin-tabs">
 					{TABS.map((t) => (
 						<button
 							key={t.id}
 							type="button"
+							aria-pressed={tab === t.id}
 							onClick={() => handleTabChange(t.id)}
-							className={`px-3 py-1.5 rounded-md text-sm ${
-								tab === t.id
-									? "bg-neutral-900 text-white"
-									: "border border-neutral-300 hover:bg-neutral-50"
-							}`}
+							className={`admin-tabs__tab ${tab === t.id ? "admin-tabs__tab--selected" : ""}`}
 						>
 							{t.label}
 						</button>
 					))}
 				</div>
+				<div className="admin-toolbar__spacer" />
 				<input
 					value={workspaceId}
 					onChange={(e) => setWorkspaceId(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleFilter()}
 					placeholder="workspace 过滤（ID）"
 					aria-label="workspace 过滤"
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm flex-1 ml-2"
+					className="l-input"
 				/>
 				<button
 					type="button"
 					onClick={handleFilter}
-					className="px-3 py-1.5 rounded-md border border-neutral-300 text-sm hover:bg-neutral-50"
+					className="l-btn-outline"
 				>
 					过滤
 				</button>
 			</div>
 
-			{error && <p className="text-sm text-red-600 mb-4">加载失败，请稍后重试。</p>}
-			{loading && <p className="text-sm text-neutral-500">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
+			{loading && <p className="admin-muted">加载中…</p>}
 
 			{tab === "workflow" && !workspaceId.trim() && (
-				<p className="text-sm text-neutral-500 mb-4">
+				<p className="admin-alert admin-alert--plain">
 					工作流运行需按 workspace 过滤（输入 workspace ID）。
 				</p>
 			)}
 
 			{!loading && !error && rows && rows.length === 0 && (
-				<p className="text-sm text-neutral-500">暂无记录。</p>
+				<p className="admin-empty">暂无记录。</p>
 			)}
 
 			{!loading && !error && rows && rows.length > 0 && (
-				<table className="w-full text-sm border-collapse">
-					<thead>
-						<tr className="text-left text-neutral-500 border-b border-neutral-200">
-							<th className="py-2">时间</th>
-							<th className="py-2">标识</th>
-							<th className="py-2">状态</th>
-						</tr>
-					</thead>
-					<tbody>
-						{rows.map((row) => (
-							<tr key={row.id} className="border-b border-neutral-100">
-								<td className="py-2 text-neutral-600">
-									{row.time
-										? new Date(row.time).toLocaleString("zh-CN")
-										: "—"}
-								</td>
-								<td className="py-2">
-									<span className="font-mono text-xs">
-										{row.identity}
-									</span>
-									{row.summary && (
-										<span className="text-neutral-500 text-xs ml-2">
-											{row.summary}
-										</span>
-									)}
-								</td>
-								<td className="py-2">{row.status}</td>
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>时间</th>
+								<th>标识</th>
+								<th>状态</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{rows.map((row) => (
+								<tr key={row.id}>
+									<td>
+										{row.time
+											? new Date(row.time).toLocaleString("zh-CN")
+											: "—"}
+									</td>
+									<td>
+										<span className="l-mono">{row.identity}</span>
+										{row.summary && (
+											<span className="admin-table__sub">{row.summary}</span>
+										)}
+									</td>
+									<td>{row.status}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			)}
 		</section>
 	);

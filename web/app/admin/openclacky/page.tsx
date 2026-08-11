@@ -7,21 +7,27 @@
  */
 export default function AdminOpenClackyPage() {
 	return (
-		<section className="max-w-2xl">
-			<h1 className="text-2xl font-semibold mb-2">OpenClacky</h1>
-			<p className="text-neutral-600 mb-4">
-				OpenClacky 是 Coding Girls Club 的 AI 协作平台企业版，面向团队深度研究协作。
-				它运行在独立服务器（oc.codingirlsclub.com），拥有独立的认证体系——
-				本平台的账号权限与 OpenClacky 互不影响。
-			</p>
-			<a
-				href="https://oc.codingirlsclub.com"
-				target="_blank"
-				rel="noopener noreferrer"
-				className="inline-block px-4 py-2 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-700"
-			>
-				前往 OpenClacky（oc.codingirlsclub.com）
-			</a>
+		<section>
+			<div className="admin-page__head">
+				<h1>OpenClacky</h1>
+			</div>
+			<div className="admin-card admin-card__body admin-card--narrow">
+				<p className="admin-muted">
+					OpenClacky 是 Coding Girls Club 的 AI 协作平台企业版，面向团队深度研究协作。
+					它运行在独立服务器（oc.codingirlsclub.com），拥有独立的认证体系——
+					本平台的账号权限与 OpenClacky 互不影响。
+				</p>
+				<p>
+					<a
+						href="https://oc.codingirlsclub.com"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="l-btn-primary"
+					>
+						前往 OpenClacky（oc.codingirlsclub.com）
+					</a>
+				</p>
+			</div>
 		</section>
 	);
 }

@@ -16,7 +16,7 @@ defmodule Cgc2046.Accounts.Workspace do
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
@@ -440,5 +440,13 @@ defmodule Cgc2046.Accounts.Workspace do
       {:error, _} = err ->
         err
     end
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
+    resource_group(:tenancy)
+    label_field(:name)
+    show_calculations([:member_count])
+    table_columns([:id, :slug, :name, :join_policy, :sponsorship_enabled, :inserted_at])
   end
 end

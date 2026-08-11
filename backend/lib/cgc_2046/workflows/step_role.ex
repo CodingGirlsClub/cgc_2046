@@ -15,7 +15,7 @@ defmodule Cgc2046.Workflows.StepRole do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshGraphql.Resource],
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
@@ -103,5 +103,10 @@ defmodule Cgc2046.Workflows.StepRole do
 
   graphql do
     type(:workflow_step_role)
+  end
+
+  admin do
+    # #113 ops 面优化：导航分组
+    resource_group(:workflows)
   end
 end
