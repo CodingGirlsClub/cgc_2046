@@ -131,16 +131,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:first, :integer)
       arg(:after, :string)
 
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          Cgc2046.Accounts.User
-          |> Ash.Query.for_read(:read)
-          |> maybe_user_search(args[:search])
-          |> paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> load_membership_counts(context)
-        end)
-      end)
+      resolve(
+        admin_list(
+          Cgc2046.Accounts.User,
+          fn q, args -> maybe_user_search(q, args[:search]) end,
+          &load_membership_counts/2
+        )
+      )
     end
 
     @desc "平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after）"
@@ -149,17 +146,14 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:first, :integer)
       arg(:after, :string)
 
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          Cgc2046.Accounts.Workspace
-          |> Ash.Query.for_read(:read)
-          |> maybe_workspace_search(args[:search])
-          |> Ash.Query.load(:member_count)
-          |> paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Accounts.Workspace, Cgc2046.GlobalApi)
-        end)
-      end)
+      resolve(
+        admin_list(
+          Cgc2046.Accounts.Workspace,
+          fn q, args -> maybe_workspace_search(q, args[:search]) end,
+          admin_result(Cgc2046.Accounts.Workspace, Cgc2046.GlobalApi),
+          pre_read: fn q -> Ash.Query.load(q, :member_count) end
+        )
+      )
     end
 
     @desc "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after）"
@@ -169,16 +163,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:first, :integer)
       arg(:after, :string)
 
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          Cgc2046.Accounts.WorkspaceApplication
-          |> Ash.Query.for_read(:read)
-          |> maybe_status_filter(args[:status])
-          |> paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
-        end)
-      end)
+      resolve(
+        admin_list(
+          Cgc2046.Accounts.WorkspaceApplication,
+          fn q, args -> maybe_status_filter(q, args[:status]) end,
+          admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+        )
+      )
     end
 
     @desc "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
@@ -204,16 +195,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:first, :integer)
       arg(:after, :string)
 
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          Cgc2046.Mcp.ToolCallLog
-          |> Ash.Query.for_read(:read)
-          |> maybe_workspace_filter(args[:workspace_id])
-          |> paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
-        end)
-      end)
+      resolve(
+        admin_list(
+          Cgc2046.Mcp.ToolCallLog,
+          fn q, args -> maybe_workspace_filter(q, args[:workspace_id]) end,
+          admin_result(Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
+        )
+      )
     end
 
     @desc "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
@@ -222,16 +210,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:first, :integer)
       arg(:after, :string)
 
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          Cgc2046.Mcp.PendingOperation
-          |> Ash.Query.for_read(:read)
-          |> maybe_workspace_filter(args[:workspace_id])
-          |> paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
-        end)
-      end)
+      resolve(
+        admin_list(
+          Cgc2046.Mcp.PendingOperation,
+          fn q, args -> maybe_workspace_filter(q, args[:workspace_id]) end,
+          admin_result(Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
+        )
+      )
     end
 
     @desc "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after）"
@@ -240,16 +225,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:first, :integer)
       arg(:after, :string)
 
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          Cgc2046.Workflows.SignalLog
-          |> Ash.Query.for_read(:read)
-          |> maybe_real_workspace_filter(args[:workspace_id])
-          |> paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Workflows.SignalLog, Cgc2046.Api)
-        end)
-      end)
+      resolve(
+        admin_list(
+          Cgc2046.Workflows.SignalLog,
+          fn q, args -> maybe_real_workspace_filter(q, args[:workspace_id]) end,
+          admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Api)
+        )
+      )
     end
 
     # S1（advisor02）：listWorkflowRuns 不手写——WorkflowRun 资源已自动暴露同名 query
@@ -1281,6 +1263,31 @@ defmodule Cgc2046Web.GraphqlSchema do
       _ ->
         {:error, [message: "forbidden", code: "forbidden"]}
     end
+  end
+
+  # admin 列表 resolver 工厂：with_admin 门控 → for_read → filter → pre_read →
+  # paginate → read → post_read。一处接线顺序，N 个 query 声明式复用（leverage）；
+  # gate/filter/paginate 顺序只在此验证（locality）。
+  # my_workspace_applications 不用此构造器：gate 是 applicant 非 platform_admin，形状不同。
+  defp admin_list(resource, filter_fn, post_fn, opts \\ []) do
+    pre_read = Keyword.get(opts, :pre_read, fn q -> q end)
+
+    fn _, args, %{context: context} ->
+      with_admin(context, fn actor ->
+        resource
+        |> Ash.Query.for_read(:read)
+        |> filter_fn.(args)
+        |> pre_read.()
+        |> paginate(args[:first], args[:after])
+        |> Ash.read(actor: actor)
+        |> post_fn.(context)
+      end)
+    end
+  end
+
+  # admin 列表 read 结果 → map_error（统一 :read action；resource/domain 按 query 闭包）
+  defp admin_result(resource, domain) do
+    fn result, context -> map_error(result, context, :read, resource, domain) end
   end
 
   # search 模糊过滤（字段静态，search 运行时值经 ^ pin 注入）：

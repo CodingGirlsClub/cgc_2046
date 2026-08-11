@@ -732,6 +732,32 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
       reloaded = Ash.get!(User, admin.id, authorize?: false)
       assert reloaded.is_platform_admin == true
     end
+
+    test "demoteUser rejects when target is not a platform admin" do
+      admin = platform_admin("admin-queries-notadmin@example.com")
+      target = register_user("admin-queries-notadmin-target@example.com")
+      token = sign_in_token(admin.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            demoteUser(id: "#{target.id}") {
+              isPlatformAdmin
+              errors { message }
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"demoteUser" => nil}} = resp
+      assert %{"errors" => [%{"code" => "not_platform_admin"}]} = resp
+
+      reloaded = Ash.get!(User, target.id, authorize?: false)
+      assert reloaded.is_platform_admin == false
+    end
   end
 
   describe "createWorkspaceWithOwner (auto-generated createWorkspace with owner args)" do
