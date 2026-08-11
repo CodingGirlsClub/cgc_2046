@@ -41,8 +41,9 @@ describe("/admin/applications 申请审批", () => {
 		expect(screen.getByText("团队研究协作")).toBeInTheDocument();
 	});
 
-	it("approve 调用 approveApplication", async () => {
-		fetchApplications.mockResolvedValue(pendingApps);
+	it("approve 后列表按当前 filter 重新加载（P3：新状态无手动刷新）", async () => {
+		// 首次加载：pending 列表有 app1；approve 后重新加载：pending 过滤下 app1 消失
+		fetchApplications.mockResolvedValueOnce(pendingApps).mockResolvedValueOnce([]);
 		approveApplication.mockResolvedValue({
 			result: { id: "app1", status: "approved" },
 			errors: [],
@@ -52,7 +53,16 @@ describe("/admin/applications 申请审批", () => {
 		await screen.findByText("研究协作空间");
 
 		fireEvent.click(screen.getByRole("button", { name: /通过/ }));
-		await vi.waitFor(() => expect(approveApplication).toHaveBeenCalledWith("app1"));
+
+		// approve 后 fetchApplications 再次被调用，且仍按当前 filter（pending）加载
+		await vi.waitFor(() => {
+			expect(fetchApplications).toHaveBeenCalledTimes(2);
+			expect(fetchApplications).toHaveBeenLastCalledWith("pending", { first: 50 });
+		});
+		// 列表刷新：app1 不再显示
+		await vi.waitFor(() => {
+			expect(screen.queryByText("研究协作空间")).not.toBeInTheDocument();
+		});
 	});
 
 	it("reject 输入原因后调用 rejectApplication 带 rejectionReason", async () => {
