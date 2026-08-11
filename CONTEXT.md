@@ -101,6 +101,7 @@
 ### 平台管理员（Platform Admin）
 
 - **定义**：全局标记（`is_platform_admin`，非租户角色），可多人；负责创建 Workspace 并指定 Owner。
+- **不变量**：系统必须维持 ≥1 名平台管理员；降级最后一名管理员被拒绝（不变量由 `User :demote_platform_admin` action 守卫）。
 - **架构位置**：User 上的布尔标记，跨租户生效。
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
