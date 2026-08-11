@@ -95,6 +95,37 @@ defmodule Cgc2046.Accounts.InvitationTest do
   end
 
   describe "create invitation" do
+    test "platform admin can create a pending-owner invitation with [:owner] preauthorized role (Phase 4)" do
+      # workspace 由 admin_a 创建（其成为 Owner）；admin_b 是另一 platform_admin、
+      # 非该 workspace 成员，验证 create policy 的 platform_admin bypass +
+      # ValidateInviterRolePreauthorization 豁免。
+      admin_a = admin_user()
+      workspace = create_workspace(admin_a)
+
+      admin_b_user = normal_user("inv-padmin-b@example.com")
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET is_platform_admin = true WHERE id = $1",
+          [Ecto.UUID.dump!(admin_b_user.id)]
+        )
+
+      admin_b =
+        Ash.get!(User, admin_b_user.id, authorize?: false, domain: Cgc2046.GlobalApi)
+
+      invitation =
+        create_invitation(workspace, admin_b, %{
+          target_email: "pending-owner@example.com",
+          preauthorized_role_names: [:owner]
+        })
+
+      assert invitation.status == :active
+      assert invitation.preauthorized_role_names == [:owner]
+      assert invitation.target_email == "pending-owner@example.com"
+      assert invitation.inviter_id == admin_b.id
+    end
+
     test "owner can create an invitation with preauthorized roles" do
       admin = admin_user()
       workspace = create_workspace(admin)

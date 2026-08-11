@@ -469,7 +469,8 @@ defmodule Cgc2046.Accounts.Invitation do
   end
 
   policies do
-    # :create 限工作台成员（Owner/Admin/Volunteer），且 inviter_id 必须是 actor 本人。
+    # :create 限工作台成员（Owner/Admin/Volunteer），且 inviter_id 必须是 actor 本人；
+    # platform_admin（Phase 4 D1）可创建 pending-owner 邀请（非成员，预授权 [:owner]）。
     # forbid_unless 是守卫语义（不满足即拒绝），不同于 authorize_if 的 OR 短路放行——
     # 若用 authorize_if 加 inviter_id 校验，Volunteer 会被其后的 Volunteer check 放行，
     # inviter_id 校验形同虚设。预授权角色约束由 change 校验。
@@ -477,6 +478,7 @@ defmodule Cgc2046.Accounts.Invitation do
       forbid_unless(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(Cgc2046.Policies.WorkspaceActorIsVolunteer)
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
     end
 
     # :revoke 限邀请人本人或 Owner/Admin

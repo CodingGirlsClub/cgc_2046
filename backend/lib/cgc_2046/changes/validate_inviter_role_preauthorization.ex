@@ -22,43 +22,55 @@ defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
     # 真实 actor 只在 authorization 通过后的 before_action 回调里可取
     # （与 portfolio_item.ex create :user_id 注入同款模式）。
     Ash.Changeset.before_action(changeset, fn cs ->
-      preauthorized_role_names = Ash.Changeset.get_attribute(cs, :preauthorized_role_names)
+      actor = cs.context[:private][:actor]
 
-      # 无预授权角色则无需校验
-      if is_nil(preauthorized_role_names) || preauthorized_role_names == [] do
+      # platform_admin 豁免（Phase 4 D1）：platform_admin 可创建 pending-owner 邀请
+      # （预授权 [:owner]），其非 workspace 成员时 role_names 返回 [] 会被误判为
+      # Volunteer 拒绝——平台级管理角色天然具备预授权任意角色的权限。
+      if actor && actor.is_platform_admin do
         cs
       else
-        workspace_id = Ash.Changeset.get_attribute(cs, :workspace_id)
-        actor = cs.context[:private][:actor]
-
-        if workspace_id && actor do
-          # 用真实 actor 查角色，杜绝 inviter_id 伪造导致的权限提升
-          inviter_roles = MembershipContext.role_names(actor, workspace_id)
-          manage_roles = Role.manage_roles()
-
-          # 如果 inviter 没有管理角色（owner/admin），则检查预授权角色
-          if Enum.any?(inviter_roles, &(&1 in manage_roles)) do
-            cs
-          else
-            forbidden = Enum.filter(preauthorized_role_names, &(&1 in manage_roles))
-
-            if forbidden == [] do
-              cs
-            else
-              cs
-              |> Ash.Changeset.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :preauthorized_role_names,
-                  message:
-                    "Volunteer cannot preauthorize admin-level roles: #{Enum.map(forbidden, &to_string/1) |> Enum.join(", ")}"
-                )
-              )
-            end
-          end
-        else
-          cs
-        end
+        validate_inviter_role(cs, actor)
       end
     end)
+  end
+
+  defp validate_inviter_role(cs, actor) do
+    preauthorized_role_names = Ash.Changeset.get_attribute(cs, :preauthorized_role_names)
+
+    # 无预授权角色则无需校验
+    if is_nil(preauthorized_role_names) || preauthorized_role_names == [] do
+      cs
+    else
+      workspace_id = Ash.Changeset.get_attribute(cs, :workspace_id)
+
+      if workspace_id && actor do
+        # 用真实 actor 查角色，杜绝 inviter_id 伪造导致的权限提升
+        inviter_roles = MembershipContext.role_names(actor, workspace_id)
+        manage_roles = Role.manage_roles()
+
+        # 如果 inviter 没有管理角色（owner/admin），则检查预授权角色
+        if Enum.any?(inviter_roles, &(&1 in manage_roles)) do
+          cs
+        else
+          forbidden = Enum.filter(preauthorized_role_names, &(&1 in manage_roles))
+
+          if forbidden == [] do
+            cs
+          else
+            cs
+            |> Ash.Changeset.add_error(
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: :preauthorized_role_names,
+                message:
+                  "Volunteer cannot preauthorize admin-level roles: #{Enum.map(forbidden, &to_string/1) |> Enum.join(", ")}"
+              )
+            )
+          end
+        end
+      else
+        cs
+      end
+    end
   end
 end

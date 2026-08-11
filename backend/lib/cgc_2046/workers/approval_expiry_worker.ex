@@ -2,8 +2,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   @moduledoc """
   审批超时扫描 worker（0C；Oban cron 每 5 分钟一拍，见 config.exs）。
 
-  把「读时惰性计算过期」升级为「主动落库过期」，覆盖两类既有审批实体
-  （Enrollment 尚未建模，Phase 2 接入时复用本 worker 同一扫描模式）：
+  把「读时惰性计算过期」升级为「主动落库过期」，覆盖三类既有审批实体
+  （Enrollment 尚未建模，接入时复用本 worker 同一扫描模式）：
 
   1. `JoinRequest`（accounts）：`status=pending 且 approval_deadline 已过` → 走既有
      `:expire` 领域 action 转 expired。落地 join_request.ex 的 TODO：「引入
@@ -14,6 +14,9 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
      含 checkpoint 终态清理）。deadline = run 进入 waiting 的时间（`updated_at`，
      每次 waiting 迁移刷新，重进 waiting 重新计窗）+ approval_timeout；
      `approval_timeout = nil` = 无超时，永不扫中。pending（未进入审批等待）不扫。
+  3. `WorkspaceApplication`（accounts，全局资源）：`status=pending 且 approval_deadline
+     已过` → 走既有 `:expire` 领域 action 转 expired（Platform Admin Dashboard R6/R7
+     申请审批队列；全局资源无 tenant，update 不带 tenant）。
 
   本 worker 即 POC-2 G1 遗留缺口（poc-验证报告 §10：「deadline 到点唤醒 → cancel
   路径未验证」）的 v1 唤醒机制：以 Oban 周期扫描替代 Schedule Directive，链路测试见
@@ -35,6 +38,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   require Logger
 
   alias Cgc2046.Accounts.JoinRequest
+  alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -45,11 +49,14 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     expired_join_requests = expire_join_requests(now)
     expired_enrollments = expire_enrollments(now)
     expired_runs = expire_waiting_runs(now)
+    expired_workspace_applications = expire_workspace_applications(now)
 
-    if expired_join_requests + expired_enrollments + expired_runs > 0 do
+    if expired_join_requests + expired_enrollments + expired_runs + expired_workspace_applications >
+         0 do
       Logger.info(
         "approval expiry sweep: #{expired_join_requests} join_request(s), " <>
-          "#{expired_enrollments} enrollment(s), #{expired_runs} workflow_run(s) expired"
+          "#{expired_enrollments} enrollment(s), #{expired_runs} workflow_run(s), " <>
+          "#{expired_workspace_applications} workspace_application(s) expired"
       )
     end
 
@@ -78,6 +85,22 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     |> Ash.read!(authorize?: false)
     |> Enum.reduce(0, fn join_request, acc ->
       case expire_record(join_request) do
+        :ok -> acc + 1
+        :skip -> acc
+      end
+    end)
+  end
+
+  # WorkspaceApplication（accounts，全局资源）：pending + deadline 过点 → 走 :expire
+  # action 转 expired。全局资源无 tenant，update 不传 tenant（区别于租户资源）。
+  defp expire_workspace_applications(now) do
+    WorkspaceApplication
+    |> Ash.Query.filter(
+      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
+    )
+    |> Ash.read!(authorize?: false)
+    |> Enum.reduce(0, fn application, acc ->
+      case expire_record(application) do
         :ok -> acc + 1
         :skip -> acc
       end
@@ -120,6 +143,14 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     |> Ash.Changeset.for_update(:expire, %{})
     |> Ash.update(tenant: join_request.workspace_id, authorize?: false)
     |> handle_expire_result("join_request", join_request.id)
+  end
+
+  # WorkspaceApplication 是全局资源：update 不带 tenant（区别于上述租户资源）
+  defp expire_record(%WorkspaceApplication{} = application) do
+    application
+    |> Ash.Changeset.for_update(:expire, %{})
+    |> Ash.update(authorize?: false)
+    |> handle_expire_result("workspace_application", application.id)
   end
 
   defp expire_record(%Enrollment{} = enrollment) do
