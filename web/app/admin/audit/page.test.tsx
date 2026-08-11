@@ -7,16 +7,22 @@ const {
 	fetchToolCallLogs,
 	fetchPendingOperations,
 	fetchSignalLogs,
+	fetchWorkflowRuns,
 } = vi.hoisted(() => ({
 	fetchToolCallLogs: vi.fn(),
 	fetchPendingOperations: vi.fn(),
 	fetchSignalLogs: vi.fn(),
+	fetchWorkflowRuns: vi.fn(),
 }));
 
 vi.mock("@/lib/admin", () => ({
 	fetchToolCallLogs,
 	fetchPendingOperations,
 	fetchSignalLogs,
+}));
+
+vi.mock("@/lib/workflows", () => ({
+	fetchWorkflowRuns,
 }));
 
 const toolLogs = [
@@ -51,6 +57,17 @@ const signalLogs = [
 	},
 ];
 
+const workflowRuns = [
+	{
+		id: "run1",
+		status: "succeeded",
+		definitionId: "def_lesson_plan",
+		facts: {},
+		startedAt: "2026-08-02T00:00:00Z",
+		finishedAt: "2026-08-02T00:05:00Z",
+	},
+];
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -77,6 +94,27 @@ describe("/admin/audit 审计仪表盘", () => {
 		fireEvent.click(screen.getByRole("button", { name: /待确认操作/ }));
 		expect(await screen.findByText("创建邀请")).toBeInTheDocument();
 		await vi.waitFor(() => expect(fetchPendingOperations).toHaveBeenCalled());
+	});
+
+	it("WorkflowRun tab：时间列取 startedAt，非 Invalid Date（typed adapter 修复）", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		fetchWorkflowRuns.mockResolvedValue(workflowRuns);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		// workflow 分支要求 workspace 过滤
+		fireEvent.change(screen.getByPlaceholderText(/workspace/), {
+			target: { value: "ws1" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /工作流运行/ }));
+
+		expect(await screen.findByText("def_lesson_plan")).toBeInTheDocument();
+		expect(screen.getByText("succeeded")).toBeInTheDocument();
+		// startedAt（2026-08-02T00:00:00Z）必须渲染为真实日期；字段擦除时代码取
+		// row.insertedAt（WorkflowRun 无此字段）→ 时间列空/Invalid Date，此处断言年份出现。
+		expect(screen.getByText(/2026/)).toBeInTheDocument();
+		expect(screen.queryByText("Invalid Date")).not.toBeInTheDocument();
 	});
 
 	it("SignalLog tab：workspace 过滤传 workspaceId", async () => {
