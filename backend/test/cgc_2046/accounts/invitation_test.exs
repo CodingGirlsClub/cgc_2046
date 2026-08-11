@@ -856,4 +856,75 @@ defmodule Cgc2046.Accounts.InvitationTest do
       refute Enum.any?(ws_b_invitations, &(&1.id == inv_a.id))
     end
   end
+
+  describe ":expire action (#114)" do
+    test "active invitation -> expired" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin)
+
+      assert {:ok, expired} =
+               invitation
+               |> Ash.Changeset.for_update(:expire, %{})
+               |> Ash.update(tenant: workspace.id, authorize?: false)
+
+      assert expired.status == :expired
+    end
+
+    test "revoked invitation -> expire rejected (terminal state guard)" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+      invitation = create_invitation(workspace, admin)
+
+      assert {:ok, revoked} =
+               invitation
+               |> Ash.Changeset.for_update(:revoke, %{})
+               |> Ash.update(actor: admin)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               revoked
+               |> Ash.Changeset.for_update(:expire, %{})
+               |> Ash.update(tenant: workspace.id, authorize?: false)
+
+      assert Enum.any?(errors, fn e -> Exception.message(e) =~ "Cannot expire" end)
+    end
+  end
+
+  describe "platform_admin bypass on read/revoke (#114)" do
+    test "non-inviter platform admin can read and revoke pending-owner invitation" do
+      admin = admin_user()
+      workspace = create_workspace(admin)
+
+      invitation =
+        create_invitation(workspace, admin, %{
+          target_email: "pending-owner@example.com",
+          preauthorized_role_names: [:owner]
+        })
+
+      # 第二个 platform admin（非 inviter、非成员）：注册 + 写库提权（同 admin_user 范式）
+      other = register_user("inv-other-admin@example.com", @password)
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET is_platform_admin = true WHERE id = $1",
+          [Ecto.UUID.dump!(other.id)]
+        )
+
+      other_admin =
+        Ash.get!(User, other.id, actor: other, authorize?: false, domain: Cgc2046.GlobalApi)
+
+      # read bypass：非 inviter 的 platform admin 也能读到（admin 详情页 badge 前提）
+      assert {:ok, read_back} = Ash.get(Invitation, invitation.id, actor: other_admin)
+      assert read_back.id == invitation.id
+
+      # revoke bypass：任意 platform admin 可取消 pending-owner 邀请
+      assert {:ok, revoked} =
+               read_back
+               |> Ash.Changeset.for_update(:revoke, %{})
+               |> Ash.update(actor: other_admin)
+
+      assert revoked.status == :revoked
+    end
+  end
 end

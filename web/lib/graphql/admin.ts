@@ -90,7 +90,7 @@ export interface AdminActionLog {
 	id: string;
 	/** 操作者 ID；null = 系统/CLI 触发 */
 	actorId: string | null;
-	/** 枚举值：workspace_create | application_approve | application_reject | admin_promote | admin_demote */
+	/** 枚举值：workspace_create | application_approve | application_reject | admin_promote | admin_demote | owner_reassign | owner_invitation_cancel */
 	action: string;
 	/** 目标类型：workspace | workspace_application | user */
 	targetType: string;

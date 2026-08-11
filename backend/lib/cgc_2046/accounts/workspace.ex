@@ -20,6 +20,8 @@ defmodule Cgc2046.Accounts.Workspace do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
+  require Ash.Query
+
   attributes do
     uuid_primary_key(:id)
 
@@ -206,6 +208,87 @@ defmodule Cgc2046.Accounts.Workspace do
       )
     end
 
+    # #114：重指派 Owner（仅平台管理员，pending-owner 期间）。
+    # 语义 = 原子地「撤销当前 active Owner 邀请 + 改指现有用户 / 发新邀请」。
+    # 不走 RBAC assignRoles（「只有 Owner 能授/撤 owner」不变量，pending-owner 无 Owner
+    # 故走不通，rbac.ex validate_owner_removal!），复用 create 的
+    # create_owner_membership / create_owner_invitation 私有路径，同一事务。
+    update :reassign_owner do
+      description("重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请")
+      require_atomic?(false)
+      accept([])
+
+      argument(:owner_user_id, :uuid,
+        allow_nil?: true,
+        description: "改指现有用户为 Owner（建 Owner membership）"
+      )
+
+      argument(:owner_email, :string,
+        allow_nil?: true,
+        description: "改发 pending-owner 邀请给新邮箱（preauthorized [:owner]，带 expires_at）"
+      )
+
+      # owner_email 分支新邀请的明文 token（一次性返回，不落库，同 create 的交付语义）
+      metadata(:owner_invitation_token, :string,
+        allow_nil?: true,
+        description: "新 pending-owner 邀请明文 token（仅返回一次，不落库）"
+      )
+
+      change(
+        after_action(fn changeset, workspace, _context ->
+          owner_user_id = Ash.Changeset.get_argument(changeset, :owner_user_id)
+          owner_email = Ash.Changeset.get_argument(changeset, :owner_email)
+          actor = get_in(changeset.context, [:private, :actor])
+          tenant = workspace.id
+
+          cond do
+            is_nil(owner_user_id) and is_nil(owner_email) ->
+              {:error,
+               Ash.Error.Changes.InvalidAttribute.exception(
+                 field: :owner_user_id,
+                 message: "必须提供 owner_user_id 或 owner_email 之一"
+               )}
+
+            owner_user_id && owner_email ->
+              {:error,
+               Ash.Error.Changes.InvalidAttribute.exception(
+                 field: :owner_user_id,
+                 message: "owner_user_id 与 owner_email 只能提供一个"
+               )}
+
+            Cgc2046.Accounts.MembershipContext.owner_count(tenant) > 0 ->
+              {:error,
+               Ash.Error.Changes.InvalidAttribute.exception(
+                 field: :status,
+                 message: "工作台已有 Owner，重指派仅适用于 pending-owner 期间"
+               )}
+
+            true ->
+              # 撤销旧邀请 → 入座新 Owner → 治理留痕，任一失败回滚整个 reassign。
+              # 撤销 fail-closed：邀请被并发 accept（used）时 :revoke 状态守卫报错，
+              # 整个 reassign 回滚，不出现双 Owner。
+              with :ok <- revoke_active_owner_invitations(tenant),
+                   {:ok, workspace} <-
+                     seat_new_owner(workspace, tenant, actor, owner_user_id, owner_email),
+                   {:ok, _log} <-
+                     Cgc2046.Accounts.AdminActionLog.log(%{
+                       actor_id: actor && actor.id,
+                       action: :owner_reassign,
+                       target_type: :workspace,
+                       target_id: workspace.id,
+                       metadata:
+                         if(owner_user_id,
+                           do: %{owner_user_id: owner_user_id},
+                           else: %{owner_email: owner_email}
+                         )
+                     }) do
+                {:ok, workspace}
+              end
+          end
+        end)
+      )
+    end
+
     read :get_by_slug do
       description("按 slug 获取工作台")
       get_by([:slug])
@@ -346,6 +429,14 @@ defmodule Cgc2046.Accounts.Workspace do
     policy action(:join) do
       authorize_if(actor_present())
     end
+
+    # #114 reassign_owner：仅平台管理员。action_type(:update) 的 Owner/Admin 授权会连带
+    # 匹配本 action，必须用 forbid_unless 显式封堵（forbid 优先）；同时 Ash 策略按
+    # 「所有适用 policy 均须授权」求值，authorize_if 与 forbid_unless 缺一不可。
+    policy action(:reassign_owner) do
+      forbid_unless(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+    end
   end
 
   graphql do
@@ -363,6 +454,10 @@ defmodule Cgc2046.Accounts.Workspace do
       create(:create_workspace, :create, description: "创建工作台（仅平台管理员）")
 
       update(:update_workspace, :update, description: "更新工作台（Owner/Admin 或平台管理员）")
+
+      update(:reassign_workspace_owner, :reassign_owner,
+        description: "重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请"
+      )
 
       # join 为 generic action，用 action 暴露成 mutation（写操作语义）
       action(:join_workspace, :join,
@@ -394,29 +489,53 @@ defmodule Cgc2046.Accounts.Workspace do
     end
   end
 
-  # Phase 4（D1）：为指定 user_id 建 Owner membership + Owner 角色。
+  # Phase 4（D1）：为指定 user_id 落定 Owner 席位（membership + Owner 角色）。
   # 与 create after_action 内联逻辑等价，抽出供 owner_user_id 与 actor 回退两分支复用。
+  # #114 review 修复：目标用户已是本工作台成员时（reassign 晋升场景：pending-owner
+  # 期间经成员邀请/CLI 等路径先入座的非 Owner 成员）不新建 membership——否则撞
+  # wm_unique_ws_user_idx 唯一约束，admin 拿到原始 DB 报错且晋升静默失败；改为在
+  # 既有 membership 上补 Owner 角色（多角色并集，保留原角色）。该用户不可能已持
+  # Owner 角色（:reassign_owner 的 owner_count 守卫前置拦截；:create 路径工作台新建
+  # 无成员），unique_membership_role 仅作 fail-closed 兜底。
   defp create_owner_membership(workspace, tenant, user_id, role_records) do
     owner_role = Enum.find(role_records, &(&1.name == :owner))
 
-    with {:ok, membership} <-
-           Ash.create(Cgc2046.Accounts.WorkspaceMembership, %{user_id: user_id},
-             tenant: tenant,
-             authorize?: false
-           ),
-         {:ok, _} <-
-           Ash.create(
-             Cgc2046.Accounts.MembershipRole,
-             %{
-               membership_id: membership.id,
-               role_id: owner_role.id
-             },
-             tenant: tenant,
-             authorize?: false
-           ) do
-      {:ok, workspace}
+    case Cgc2046.Accounts.WorkspaceMembership
+         |> Ash.Query.filter(workspace_id == ^tenant and user_id == ^user_id)
+         |> Ash.read(tenant: tenant, authorize?: false) do
+      {:ok, []} ->
+        with {:ok, membership} <-
+               Ash.create(Cgc2046.Accounts.WorkspaceMembership, %{user_id: user_id},
+                 tenant: tenant,
+                 authorize?: false
+               ),
+             {:ok, _} <- create_membership_role(membership, owner_role, tenant) do
+          {:ok, workspace}
+        end
+
+      {:ok, [membership | _]} ->
+        case create_membership_role(membership, owner_role, tenant) do
+          {:ok, _} -> {:ok, workspace}
+          {:error, _} = err -> err
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
   end
+
+  defp create_membership_role(membership, role, tenant) do
+    Ash.create(
+      Cgc2046.Accounts.MembershipRole,
+      %{membership_id: membership.id, role_id: role.id},
+      tenant: tenant,
+      authorize?: false
+    )
+  end
+
+  # pending-owner 邀请有效期（天），对齐既有邀请约定 MiniprogramCode.@default_expiry_days。
+  # 过期由 ApprovalExpiryWorker 落库 expired（#114）；读时 effective_status 兜底。
+  @owner_invitation_expiry_days 7
 
   # Phase 4（D5/D3）：为 owner_email 创建 pending-owner Invitation（preauthorized [:owner]）。
   # inviter_id = actor（platform_admin）；Invitation 是租户资源，须带 tenant。
@@ -424,13 +543,15 @@ defmodule Cgc2046.Accounts.Workspace do
   # platform_admin bypass 供外部（GraphQL Phase 5）直接创建时使用。
   # 明文 token 写入 workspace metadata（owner_invitation_token）一次性交付，
   # 供 GraphQL 层把邀请链接发给目标邮箱（R5）。
+  # #114：创建即带 expires_at（@owner_invitation_expiry_days 天），不再永不过期。
   defp create_owner_invitation(workspace, tenant, actor, owner_email) do
     case Cgc2046.Accounts.Invitation
          |> Ash.Changeset.for_create(:create, %{
            workspace_id: workspace.id,
            inviter_id: actor.id,
            target_email: owner_email,
-           preauthorized_role_names: [:owner]
+           preauthorized_role_names: [:owner],
+           expires_at: DateTime.add(DateTime.utc_now(), @owner_invitation_expiry_days, :day)
          })
          |> Ash.create(actor: actor, tenant: tenant, authorize?: false) do
       {:ok, invitation} ->
@@ -440,6 +561,49 @@ defmodule Cgc2046.Accounts.Workspace do
       {:error, _} = err ->
         err
     end
+  end
+
+  # #114：撤销该工作台全部 active 且 preauthorized [:owner] 的邀请（reassign 前置步骤）。
+  # 不传 actor 调用（authorize?: false）：避免触发 :revoke 的 owner_invitation_cancel
+  # 条件留痕 hook——取消语义已被 reassign 自己的 :owner_reassign 留痕覆盖，不双记。
+  # used/revoked 等非法转换由 :revoke 状态守卫报错（并发 accept 竞态 → reassign 回滚）。
+  defp revoke_active_owner_invitations(tenant) do
+    Cgc2046.Accounts.Invitation
+    |> Ash.Query.filter(workspace_id == ^tenant and status == :active)
+    |> Ash.read!(authorize?: false)
+    |> Enum.filter(&(:owner in (&1.preauthorized_role_names || [])))
+    |> Enum.reduce_while(:ok, fn invitation, :ok ->
+      case invitation
+           |> Ash.Changeset.for_update(:revoke, %{})
+           |> Ash.update(tenant: tenant, authorize?: false) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  # #114：reassign 入座分支——现有用户建 Owner membership（复用 create 私有路径）；
+  # 邮箱发新 pending-owner 邀请（带 expires_at，token 经 metadata 一次性交付）。
+  # owner_email 分支 actor 为 nil（CLI 无 actor 调用）时报结构化错误而非崩溃。
+  defp seat_new_owner(workspace, tenant, _actor, owner_user_id, nil) do
+    owner_role =
+      Cgc2046.Accounts.Role
+      |> Ash.read!(tenant: tenant, authorize?: false)
+      |> Enum.find(&(&1.name == :owner))
+
+    create_owner_membership(workspace, tenant, owner_user_id, [owner_role])
+  end
+
+  defp seat_new_owner(_workspace, _tenant, nil, nil, owner_email) when not is_nil(owner_email) do
+    {:error,
+     Ash.Error.Changes.InvalidAttribute.exception(
+       field: :owner_email,
+       message: "owner_email 重指派需要 actor（邀请人）；CLI 无 actor 调用请改用 owner_user_id"
+     )}
+  end
+
+  defp seat_new_owner(workspace, tenant, actor, nil, owner_email) do
+    create_owner_invitation(workspace, tenant, actor, owner_email)
   end
 
   admin do

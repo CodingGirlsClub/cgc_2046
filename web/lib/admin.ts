@@ -33,8 +33,11 @@ import {
 } from "./graphql/admin";
 import {
   CREATE_WORKSPACE,
+  REASSIGN_WORKSPACE_OWNER,
   type CreateWorkspaceInput,
   type CreateWorkspaceResultData,
+  type ReassignWorkspaceOwnerInput,
+  type ReassignWorkspaceOwnerResultData,
 } from "./graphql/workspace";
 
 /**
@@ -277,6 +280,31 @@ export async function createWorkspaceWithOwner(
     data?.createWorkspace ?? {
       result: null,
       errors: [{ message: "创建工作台失败", code: "no_data" }],
+    }
+  );
+}
+
+/**
+ * 重指派 pending-owner 工作台的 Owner（#114；platform_admin，已有 Owner 时后端报错）。
+ * ownerUserId：改指现有用户直接入座；ownerEmail：原子撤销当前 active Owner 邀请 +
+ * 改发新 pending-owner 邀请（7 天有效期，ownerInvitationToken 仅展示一次）。
+ * 两者须且只能提供一个（都空或都给后端均报错）。
+ */
+export async function reassignWorkspaceOwner(
+  id: string,
+  input: ReassignWorkspaceOwnerInput,
+): Promise<ReassignWorkspaceOwnerResultData> {
+  const { data } = await client.mutate({
+    mutation: REASSIGN_WORKSPACE_OWNER,
+    variables: { id, input },
+  });
+  // 重指派改变 invitations 列表（撤销旧邀请/发新邀请）→ evict 根字段强制重查（同 createInvitation 惯例）
+  client.cache.evict({ fieldName: "invitations" });
+  client.cache.gc();
+  return (
+    data?.reassignWorkspaceOwner ?? {
+      result: null,
+      errors: [{ message: "重指派 Owner 失败", code: "no_data" }],
     }
   );
 }

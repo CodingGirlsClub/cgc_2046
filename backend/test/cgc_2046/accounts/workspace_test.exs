@@ -209,6 +209,274 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
+  describe "pending-owner invitation lifecycle (#114)" do
+    test "owner_email create -> invitation carries expires_at (~7 days)" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-expiry-#{System.unique_integer([:positive])}",
+                 name: "Expiry WS",
+                 owner_email: "expiry-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      require Ash.Query
+
+      assert {:ok, [invitation]} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "expiry-owner@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      refute is_nil(invitation.expires_at)
+
+      # 约 7 天（@owner_invitation_expiry_days 7，对齐 MiniprogramCode 约定）：执行偏差收敛到 6..7 天窗口
+      assert DateTime.diff(invitation.expires_at, DateTime.utc_now(), :day) in 6..7
+    end
+  end
+
+  describe "reassign_owner (#114)" do
+    test "reassign to existing user -> old invitation revoked, user seated as Owner" do
+      admin = admin_user()
+      new_owner = register_user("reassign-new-owner@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-u-#{System.unique_integer([:positive])}",
+                 name: "Reassign User WS",
+                 owner_email: "reassign-old@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      assert {:ok, _workspace} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{owner_user_id: new_owner.id})
+               |> Ash.update(actor: admin)
+
+      # 新 Owner 入座（membership + owner 角色）
+      assert Cgc2046.Accounts.MembershipContext.role_names(new_owner, workspace.id) == [:owner]
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
+
+      require Ash.Query
+
+      assert {:ok, [old_invitation]} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "reassign-old@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert old_invitation.status == :revoked
+    end
+
+    test "reassign to a user who is already a member -> promoted on existing membership, no unique conflict" do
+      admin = admin_user()
+      member = register_user("reassign-member@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-m-#{System.unique_integer([:positive])}",
+                 name: "Reassign Member WS",
+                 owner_email: "reassign-owner-m@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      # pending-owner 期间已入座的非 Owner 成员（成员邀请接受 / CLI 直建等路径）
+      assert {:ok, _membership} =
+               Cgc2046.Accounts.MembershipContext.admit_member(member.id, workspace.id, [:learner])
+
+      assert {:ok, _workspace} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{owner_user_id: member.id})
+               |> Ash.update(actor: admin)
+
+      # 既有 membership 上补 Owner 角色（多角色并集），不新建 membership、不撞唯一约束
+      roles = Cgc2046.Accounts.MembershipContext.role_names(member, workspace.id)
+      assert Enum.sort(roles) == [:learner, :owner]
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
+
+      require Ash.Query
+
+      assert {:ok, memberships} =
+               Cgc2046.Accounts.WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(user_id == ^member.id)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert length(memberships) == 1
+    end
+
+    test "reassign to email -> old revoked, new active invitation with expires_at + one-time token" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-e-#{System.unique_integer([:positive])}",
+                 name: "Reassign Email WS",
+                 owner_email: "reassign-old-e@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      assert {:ok, workspace} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{
+                 owner_email: "reassign-new-e@example.com"
+               })
+               |> Ash.update(actor: admin)
+
+      # 新邀请明文 token 经 metadata 一次性交付（同 create 的 R5 语义）
+      refute is_nil(workspace.__metadata__[:owner_invitation_token])
+
+      require Ash.Query
+
+      assert {:ok, invitations} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(workspace_id == ^workspace.id)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      old = Enum.find(invitations, &(&1.target_email == "reassign-old-e@example.com"))
+      new = Enum.find(invitations, &(&1.target_email == "reassign-new-e@example.com"))
+      assert old.status == :revoked
+      assert new.status == :active
+      assert new.preauthorized_role_names == [:owner]
+      refute is_nil(new.expires_at)
+    end
+
+    test "workspace with seated Owner -> reassign rejected" do
+      admin = admin_user()
+      owner = register_user("seated-owner@example.com", @password)
+      other = register_user("seated-other@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-seated-#{System.unique_integer([:positive])}",
+                 name: "Seated WS",
+                 owner_user_id: owner.id
+               })
+               |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{owner_user_id: other.id})
+               |> Ash.update(actor: admin)
+
+      assert Enum.any?(errors, fn e -> Exception.message(e) =~ "已有 Owner" end)
+    end
+
+    test "neither or both owner arguments -> rejected" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-args-#{System.unique_integer([:positive])}",
+                 name: "Reassign Args WS",
+                 owner_email: "args-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Invalid{errors: e1}} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{})
+               |> Ash.update(actor: admin)
+
+      assert Enum.any?(e1, fn e -> Exception.message(e) =~ "必须提供" end)
+
+      assert {:error, %Ash.Error.Invalid{errors: e2}} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{
+                 owner_user_id: admin.id,
+                 owner_email: "both@example.com"
+               })
+               |> Ash.update(actor: admin)
+
+      assert Enum.any?(e2, fn e -> Exception.message(e) =~ "只能提供一个" end)
+    end
+
+    test "accepted invitation (Owner seated via invite) -> reassign rejected, no double Owner" do
+      admin = admin_user()
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-acc-#{System.unique_integer([:positive])}",
+                 name: "Reassign Acc WS",
+                 owner_email: "acc-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      token = workspace.__metadata__[:owner_invitation_token]
+      acceptor = register_user("acc-owner@example.com", @password)
+
+      require Ash.Query
+
+      assert {:ok, [invitation]} =
+               Cgc2046.Accounts.Invitation
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(target_email == "acc-owner@example.com")
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert {:ok, _} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{token: token})
+               |> Ash.update(actor: acceptor)
+
+      # Owner 已入座：reassign 被 owner_count 守卫拒绝（并发 accept 竞态的等价终态）
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{owner_email: "late@example.com"})
+               |> Ash.update(actor: admin)
+
+      assert Enum.any?(errors, fn e -> Exception.message(e) =~ "已有 Owner" end)
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
+    end
+
+    test "non-platform-admin outsider -> forbidden" do
+      admin = admin_user()
+      outsider = register_user("reassign-outsider@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-f-#{System.unique_integer([:positive])}",
+                 name: "Reassign F WS",
+                 owner_email: "forbid-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{owner_user_id: outsider.id})
+               |> Ash.update(actor: outsider)
+    end
+
+    test "workspace Owner (non-platform-admin) is also forbidden (forbid_unless closes action_type(:update) hole)" do
+      admin = admin_user()
+      owner = register_user("reassign-owner-caller@example.com", @password)
+      other = register_user("reassign-other-caller@example.com", @password)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "ws-reassign-hole-#{System.unique_integer([:positive])}",
+                 name: "Reassign Hole WS",
+                 owner_user_id: owner.id
+               })
+               |> Ash.create(actor: admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               workspace
+               |> Ash.Changeset.for_update(:reassign_owner, %{owner_user_id: other.id})
+               |> Ash.update(actor: owner)
+    end
+  end
+
   describe "slug" do
     setup do
       {:ok, admin: admin_user()}

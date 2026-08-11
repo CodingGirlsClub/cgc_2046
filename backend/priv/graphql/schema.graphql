@@ -2585,6 +2585,31 @@ input JoinWorkspaceInput {
   workspaceId: ID!
 }
 
+type ReassignWorkspaceOwnerMetadata {
+  "新 pending-owner 邀请明文 token（仅返回一次，不落库）"
+  ownerInvitationToken: String
+}
+
+"The result of the :reassign_workspace_owner mutation"
+type ReassignWorkspaceOwnerResult {
+  "The successful result of the mutation"
+  result: Workspace
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+
+  "Metadata produced by the mutation"
+  metadata: ReassignWorkspaceOwnerMetadata
+}
+
+input ReassignWorkspaceOwnerInput {
+  "改指现有用户为 Owner（建 Owner membership）"
+  ownerUserId: ID
+
+  "改发 pending-owner 邀请给新邮箱（preauthorized [:owner]，带 expires_at）"
+  ownerEmail: String
+}
+
 "The result of the :update_workspace mutation"
 type UpdateWorkspaceResult {
   "The successful result of the mutation"
@@ -3410,6 +3435,9 @@ type RootMutationType {
   "更新工作台（Owner\/Admin 或平台管理员）"
   updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
 
+  "重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请"
+  reassignWorkspaceOwner(id: ID!, input: ReassignWorkspaceOwnerInput): ReassignWorkspaceOwnerResult!
+
   "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
   joinWorkspace(input: JoinWorkspaceInput!): Workspace!
 
@@ -3428,7 +3456,7 @@ type RootMutationType {
   "创建邀请（Owner\/Admin\/Volunteer）"
   createInvitation(input: CreateInvitationInput!): CreateInvitationResult!
 
-  "撤销邀请（邀请人本人或 Owner\/Admin）"
+  "撤销邀请（邀请人本人或 Owner\/Admin 或平台管理员）"
   revokeInvitation(id: ID!): RevokeInvitationResult!
 
   "提交创建工作台申请"
