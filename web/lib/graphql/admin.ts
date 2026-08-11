@@ -263,11 +263,13 @@ export const REJECT_WORKSPACE_APPLICATION: TypedDocumentNode<
   }
 `;
 
-/** 申请创建工作台（R6 /apply 表单；applicant 自动取当前用户） */
+/** 申请创建工作台（R6 /apply 表单；applicantId 由 createApplication 自动注入） */
 export interface CreateWorkspaceApplicationInput {
 	name: string;
 	slug: string;
 	purpose: string;
+	/** 申请人 ID（后端 required；由 createApplication 内部 fetchCurrentProfile 取） */
+	applicantId: string;
 }
 
 export interface CreateWorkspaceApplicationResultData {
@@ -289,7 +291,6 @@ export const CREATE_WORKSPACE_APPLICATION: TypedDocumentNode<
         purpose
         status
         rejectionReason
-        insertedAt
       }
       errors {
         message

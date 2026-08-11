@@ -63,6 +63,7 @@ describe("/apply 申请创建工作台", () => {
 				name: "研究空间",
 				slug: "research",
 				purpose: "团队研究",
+				applicantId: "u1",
 			}),
 		);
 		expect(await screen.findByText(/提交成功|待审批/)).toBeInTheDocument();
