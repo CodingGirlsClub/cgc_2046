@@ -930,6 +930,57 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert match?({:error, %Ash.Error.Forbidden{}}, result)
     end
 
+    test "ownerless (pending-owner) open workspace: join blocked until owner accepts invitation (#115)" do
+      admin = admin_user()
+
+      # owner_email 创建 → pending-owner：角色已 seed 但无 Owner membership
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "join-ownerless-#{System.unique_integer([:positive])}",
+          name: "Join Ownerless",
+          join_policy: :open,
+          owner_email: "pending-owner-join@example.com"
+        })
+        |> Ash.create(actor: admin)
+
+      user = normal_user()
+
+      # ownerless：join 被门控拒绝（Owner 未就位）
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Workspace
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
+
+      assert Enum.any?(errors, fn e -> Exception.message(e) =~ "Owner 未就位" end)
+
+      # Owner 接受邀请入座 → owner_count > 0 → 门控自动解除
+      token = workspace.__metadata__[:owner_invitation_token]
+      refute is_nil(token)
+
+      require Ash.Query
+
+      {:ok, [invitation]} =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(target_email == "pending-owner-join@example.com")
+        |> Ash.read(tenant: workspace.id, actor: admin)
+
+      owner = register_user("pending-owner-join@example.com", @password)
+
+      assert {:ok, _} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{token: token})
+               |> Ash.update(actor: owner)
+
+      assert {:ok, joined} =
+               Workspace
+               |> Ash.ActionInput.for_action(:join, %{workspace_id: workspace.id}, actor: user)
+               |> Ash.run_action(actor: user)
+
+      assert joined.id == workspace.id
+    end
+
     test "open workspace: already a member returns workspace without creating duplicate membership" do
       admin = admin_user()
 

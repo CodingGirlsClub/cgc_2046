@@ -269,7 +269,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
             "query { listWorkspaces { id slug } }",
             "query { listToolCallLogs { id tool } }",
             "query { listPendingOperations { id tool } }",
-            "query { listSignalLogs { id } }"
+            "query { listSignalLogs { id } }",
+            "query { listAdminActionLogs { id action } }"
           ] do
         resp = graphql_post(build_conn(), query, token)
 
@@ -488,6 +489,80 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
       assert %{"data" => %{"listPendingOperations" => ops}} = resp
       assert [op] = ops
       assert op["tool"] == "filtered_op"
+    end
+  end
+
+  describe "listAdminActionLogs (#116 R10a)" do
+    test "platform_admin can list admin action logs and filter by action" do
+      admin = platform_admin("admin-queries-aal@example.com")
+
+      # 资源层直接创建（带 actor）→ 落一行 workspace_create 治理留痕
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "gql-aal-#{System.unique_integer([:positive])}",
+          name: "GQL AAL"
+        })
+        |> Ash.create(actor: admin)
+
+      token = sign_in_token(admin.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listAdminActionLogs(first: 10) {
+              id actorId action targetType targetId result insertedAt
+            }
+          }
+          """,
+          token
+        )
+
+      # 断言一律按 target_id 收敛到本测试自建行，不断言全局行数 ——
+      # 测试 DB 会累积其他用例经非沙箱上下文提交的留痕行。
+      # first: 10 + inserted_at desc，本测试新建的行最新必在首页。
+      assert %{"data" => %{"listAdminActionLogs" => logs}} = resp
+
+      log = Enum.find(logs, &(&1["targetId"] == workspace.id))
+      assert log, "expected workspace_create log for #{workspace.id} on first page"
+      assert log["action"] == "workspace_create"
+      assert log["actorId"] == admin.id
+      assert log["targetType"] == "workspace"
+      assert log["result"] == "success"
+
+      # action 过滤：返回行全部命中过滤条件，且本测试的 workspace_create 行被滤除
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listAdminActionLogs(action: "application_approve", first: 10) { id action targetId }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listAdminActionLogs" => approve_logs}} = resp
+      assert Enum.all?(approve_logs, &(&1["action"] == "application_approve"))
+      refute Enum.any?(approve_logs, &(&1["targetId"] == workspace.id))
+
+      # action 过滤命中 → 含本测试行且全部命中过滤条件
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listAdminActionLogs(action: "workspace_create", first: 10) { id action targetId }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listAdminActionLogs" => filtered_logs}} = resp
+      assert Enum.all?(filtered_logs, &(&1["action"] == "workspace_create"))
+      assert Enum.any?(filtered_logs, &(&1["targetId"] == workspace.id))
     end
   end
 

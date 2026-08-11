@@ -83,6 +83,20 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       description: "审批时间"
     )
 
+    # #116 R10a：与 approved_by/approved_at 对称，reject 落处理人/时间
+    # （展示用；留痕 single source of truth 是 AdminActionLog）
+    attribute(:rejected_by, :uuid,
+      allow_nil?: true,
+      public?: true,
+      description: "拒绝人（platform_admin）ID"
+    )
+
+    attribute(:rejected_at, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      description: "拒绝时间"
+    )
+
     attribute(:approval_deadline, :utc_datetime,
       allow_nil?: true,
       public?: true,
@@ -190,6 +204,10 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
           # admit_member 指定给申请人——applicant 为唯一 Owner（验收标准）。
           # slug 冲突 / 角色 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
           # UPDATE 一并回滚，application 保持 pending，不留孤儿 workspace）。
+          # #116：无 actor 调 create 同时保证治理留痕不双记——workspace_create 行只在
+          # actor 非 nil 的直接创建路径落（workspace.ex maybe_log_workspace_create）。
+          actor = changeset.context[:private][:actor]
+
           with {:ok, workspace} <-
                  Cgc2046.Accounts.Workspace
                  |> Ash.Changeset.for_create(:create, %{
@@ -206,7 +224,20 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
                    [:owner],
                    on_conflict: :business_error,
                    error_message: "该用户已是本工作台成员"
-                 ) do
+                 ),
+               {:ok, _log} <-
+                 Cgc2046.Accounts.AdminActionLog.log(%{
+                   actor_id: actor && actor.id,
+                   action: :application_approve,
+                   target_type: :workspace_application,
+                   target_id: application.id,
+                   metadata: %{
+                     slug: application.slug,
+                     name: application.name,
+                     applicant_id: application.applicant_id,
+                     workspace_id: workspace.id
+                   }
+                 }) do
             {:ok, application}
           else
             {:error, _} = err -> err
@@ -230,6 +261,43 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
       change(set_attribute(:status, :rejected))
       change(set_attribute(:rejection_reason, arg(:rejection_reason)))
+
+      # #116 R10a：落处理人/时间（与 approve 的 approved_by/at 对称，展示用；
+      # default_accept([]) 不接受外部输入，force_change_attribute 显式落）。
+      # 必须在 before_action 读 actor：for_update 阶段 actor 尚未注入 changeset
+      # context（actor 经 Ash.update(actor:) 执行期才合并，approve 同款约束）。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          actor = cs.context[:private][:actor]
+
+          cs
+          |> Ash.Changeset.force_change_attribute(:rejected_by, actor && actor.id)
+          |> Ash.Changeset.force_change_attribute(:rejected_at, DateTime.utc_now())
+        end)
+      end)
+
+      # #116 R10a：治理留痕 application_reject（失败上抛回滚，fail-closed）
+      change(
+        after_action(fn changeset, application, _context ->
+          actor = changeset.context[:private][:actor]
+
+          with {:ok, _log} <-
+                 Cgc2046.Accounts.AdminActionLog.log(%{
+                   actor_id: actor && actor.id,
+                   action: :application_reject,
+                   target_type: :workspace_application,
+                   target_id: application.id,
+                   metadata: %{
+                     slug: application.slug,
+                     name: application.name,
+                     applicant_id: application.applicant_id,
+                     rejection_reason: application.rejection_reason
+                   }
+                 }) do
+            {:ok, application}
+          end
+        end)
+      )
     end
 
     update :expire do

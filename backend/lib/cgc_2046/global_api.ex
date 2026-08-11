@@ -35,6 +35,9 @@ defmodule Cgc2046.GlobalApi do
 
     # Platform Admin Dashboard R6/R7：工作台创建申请（全局资源，platform_admin 审批）
     resource(Cgc2046.Accounts.WorkspaceApplication)
+
+    # #116 R10a：admin 治理操作留痕（全局资源，区别于 Mcp.ToolCallLog 运营审计）
+    resource(Cgc2046.Accounts.AdminActionLog)
     resource(Cgc2046.Miniprogram.Code)
     resource(Cgc2046.Miniprogram.NotificationConsent)
   end

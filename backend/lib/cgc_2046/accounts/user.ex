@@ -166,6 +166,26 @@ defmodule Cgc2046.Accounts.User do
         value = Ash.Changeset.get_argument(changeset, :is_platform_admin)
         Ash.Changeset.force_change_attribute(changeset, :is_platform_admin, value)
       end)
+
+      # #116 R10a：治理留痕 promote/demote（CLI 无 actor 调用时 actor_id 落 nil）；
+      # 留痕失败上抛回滚本次变更（fail-closed）
+      change(
+        after_action(fn changeset, user, _context ->
+          actor = changeset.context[:private][:actor]
+          value = Ash.Changeset.get_argument(changeset, :is_platform_admin)
+
+          with {:ok, _log} <-
+                 Cgc2046.Accounts.AdminActionLog.log(%{
+                   actor_id: actor && actor.id,
+                   action: if(value, do: :admin_promote, else: :admin_demote),
+                   target_type: :user,
+                   target_id: user.id,
+                   metadata: %{email: to_string(user.email)}
+                 }) do
+            {:ok, user}
+          end
+        end)
+      )
     end
 
     update :demote_platform_admin do
@@ -215,6 +235,25 @@ defmodule Cgc2046.Accounts.User do
           end
         end)
       end)
+
+      # #116 R10a：治理留痕 demote（原子 UPDATE 成功后才进 after_action；
+      # 失败上抛回滚，fail-closed）
+      change(
+        after_action(fn changeset, user, _context ->
+          actor = changeset.context[:private][:actor]
+
+          with {:ok, _log} <-
+                 Cgc2046.Accounts.AdminActionLog.log(%{
+                   actor_id: actor && actor.id,
+                   action: :admin_demote,
+                   target_type: :user,
+                   target_id: user.id,
+                   metadata: %{email: to_string(user.email)}
+                 }) do
+            {:ok, user}
+          end
+        end)
+      )
     end
   end
 

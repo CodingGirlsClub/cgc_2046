@@ -199,6 +199,56 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
                })
                |> Ash.create(actor: outsider)
     end
+
+    test "ownerless (pending-owner) workspace: join request blocked until owner accepts invitation (#115)" do
+      admin = admin_user()
+
+      # owner_email 创建 → pending-owner：角色已 seed 但无 Owner membership（ownerless）
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Changeset.for_create(:create, %{
+                 slug: "jr-ownerless-#{System.unique_integer([:positive])}",
+                 name: "JR Ownerless",
+                 join_policy: :request,
+                 owner_email: "jr-pending-owner@example.com"
+               })
+               |> Ash.create(actor: admin)
+
+      applicant = normal_user()
+
+      # ownerless：申请被门控拒绝——此时无任何 Owner/Admin 可审批，申请只会挂着等过期
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               JoinRequest
+               |> Ash.Changeset.for_create(:create, %{
+                 workspace_id: workspace.id,
+                 user_id: applicant.id
+               })
+               |> Ash.create(actor: applicant)
+
+      assert Enum.any?(errors, fn e -> Exception.message(e) =~ "Owner 未就位" end)
+
+      # Owner 接受邀请入座 → owner_count > 0 → 门控自动解除
+      token = workspace.__metadata__[:owner_invitation_token]
+      refute is_nil(token)
+
+      require Ash.Query
+
+      {:ok, [invitation]} =
+        Cgc2046.Accounts.Invitation
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(target_email == "jr-pending-owner@example.com")
+        |> Ash.read(tenant: workspace.id, actor: admin)
+
+      owner = register_user("jr-pending-owner@example.com", @password)
+
+      assert {:ok, _} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{token: token})
+               |> Ash.update(actor: owner)
+
+      join_request = create_join_request(workspace, applicant)
+      assert join_request.status == :pending
+    end
   end
 
   describe "approve join request" do
