@@ -12,11 +12,65 @@ import {
 	fetchSignalLogs,
 	fetchToolCallLogs,
 } from "@/lib/admin";
+import type {
+	AdminPendingOperation,
+	AdminSignalLog,
+	AdminToolCallLog,
+} from "@/lib/graphql/admin";
 import { fetchWorkflowRuns } from "@/lib/workflows";
+import type { WorkflowRunItem } from "@/lib/workflows";
 
 const PAGE_SIZE = 50;
 
 type AuditTab = "tool" | "pending" | "workflow" | "signal";
+
+/** 审计表格统一投影：4 类日志各经一个 typed adapter 收敛到这一行，render 不再猜字段。 */
+interface AuditRow {
+	id: string;
+	/** ISO 时间串；未开始（如 WorkflowRun.startedAt 为 null）→ 渲染 "—" */
+	time: string | null;
+	identity: string;
+	/** 副标识（仅 PendingOperation 的 summary） */
+	summary?: string | null;
+	status: string;
+}
+
+function toolCallToRow(log: AdminToolCallLog): AuditRow {
+	return {
+		id: log.id,
+		time: log.insertedAt,
+		identity: log.tool,
+		status: log.resultStatus,
+	};
+}
+
+function pendingOpToRow(log: AdminPendingOperation): AuditRow {
+	return {
+		id: log.id,
+		time: log.insertedAt,
+		identity: log.tool,
+		summary: log.summary,
+		status: log.status,
+	};
+}
+
+function workflowRunToRow(run: WorkflowRunItem): AuditRow {
+	return {
+		id: run.id,
+		time: run.startedAt,
+		identity: run.definitionId,
+		status: run.status,
+	};
+}
+
+function signalLogToRow(log: AdminSignalLog): AuditRow {
+	return {
+		id: log.id,
+		time: log.insertedAt,
+		identity: log.workspaceId,
+		status: log.signalType,
+	};
+}
 
 const TABS: Array<{ id: AuditTab; label: string }> = [
 	{ id: "tool", label: "工具调用" },
@@ -28,27 +82,35 @@ const TABS: Array<{ id: AuditTab; label: string }> = [
 export default function AdminAuditPage() {
 	const [tab, setTab] = useState<AuditTab>("tool");
 	const [workspaceId, setWorkspaceId] = useState("");
-	const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
+	const [rows, setRows] = useState<AuditRow[] | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState(false);
 
 	const load = useCallback((activeTab: AuditTab, wsId: string) => {
 		// .then/.catch 链（join 页模式）：effect 内调用不触发 set-state-in-effect
 		const ws = wsId.trim() || undefined;
-		const p =
+		const p: Promise<AuditRow[]> =
 			activeTab === "tool"
-				? fetchToolCallLogs(ws, { first: PAGE_SIZE })
+				? fetchToolCallLogs(ws, { first: PAGE_SIZE }).then((list) =>
+						list.map(toolCallToRow),
+					)
 				: activeTab === "pending"
-					? fetchPendingOperations(ws, { first: PAGE_SIZE })
+					? fetchPendingOperations(ws, { first: PAGE_SIZE }).then((list) =>
+							list.map(pendingOpToRow),
+						)
 					: activeTab === "workflow"
 						? (ws
-								? fetchWorkflowRuns(ws, { first: PAGE_SIZE })
-								: Promise.resolve([] as never))
-						: fetchSignalLogs(ws, { first: PAGE_SIZE });
+								? fetchWorkflowRuns(ws, { first: PAGE_SIZE }).then((list) =>
+										list.map(workflowRunToRow),
+									)
+								: Promise.resolve([]))
+						: fetchSignalLogs(ws, { first: PAGE_SIZE }).then((list) =>
+								list.map(signalLogToRow),
+							);
 
 		return p
 			.then((list) => {
-				setRows(list as unknown as Record<string, unknown>[]);
+				setRows(list);
 				setError(false);
 			})
 			.catch(() => {
@@ -135,36 +197,26 @@ export default function AdminAuditPage() {
 						</tr>
 					</thead>
 					<tbody>
-						{rows.map((row) => {
-							const id = (row.id as string) ?? "";
-							const insertedAt = (row.insertedAt as string) ?? "";
-							const status =
-								(row.resultStatus as string) ??
-								(row.status as string) ??
-								(row.signalType as string) ??
-								"-";
-							// 标识列：tool（ToolCallLog/PendingOperation）、signalType 作状态
-							// （SignalLog）、id 前缀兜底；summary（PendingOperation）作为副标识。
-							const identity =
-								(row.tool as string) ?? id.slice(0, 8);
-							const summary = (row.summary as string) ?? null;
-							return (
-								<tr key={id} className="border-b border-neutral-100">
-									<td className="py-2 text-neutral-600">
-										{new Date(insertedAt).toLocaleString("zh-CN")}
-									</td>
-									<td className="py-2">
-										<span className="font-mono text-xs">{identity}</span>
-										{summary && (
-											<span className="text-neutral-500 text-xs ml-2">
-												{summary}
-											</span>
-										)}
-									</td>
-									<td className="py-2">{status}</td>
-								</tr>
-							);
-						})}
+						{rows.map((row) => (
+							<tr key={row.id} className="border-b border-neutral-100">
+								<td className="py-2 text-neutral-600">
+									{row.time
+										? new Date(row.time).toLocaleString("zh-CN")
+										: "—"}
+								</td>
+								<td className="py-2">
+									<span className="font-mono text-xs">
+										{row.identity}
+									</span>
+									{row.summary && (
+										<span className="text-neutral-500 text-xs ml-2">
+											{row.summary}
+										</span>
+									)}
+								</td>
+								<td className="py-2">{row.status}</td>
+							</tr>
+						))}
 					</tbody>
 				</table>
 			)}
