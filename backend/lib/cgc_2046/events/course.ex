@@ -223,6 +223,56 @@ defmodule Cgc2046.Events.Course do
       )
     end
 
+    # open → closed：结束课程（手动，或 registration_deadline 到点由
+    # EventLifecycleWorker 自动执行）。发 course.ended 信号——E-9 #124 级联：
+    # 订阅方 = 教研 run 回收 / 报名窗锁定（赞助随 Event 语义，Course 无赞助）。
+    update :close do
+      description("结束课程：open → closed，发 course.ended 信号")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          :open ->
+            Ash.Changeset.force_change_attribute(changeset, :status, :closed)
+
+          status ->
+            Ash.Changeset.add_error(changeset, "cannot close from status=#{status}")
+        end
+      end)
+
+      # 事务提交成功后发 course.ended（TOCTOU 纪律同 launch；发布失败记日志
+      # best-effort，消费方去重交给 signal_idempotency / 对账）。
+      change(
+        after_transaction(fn changeset, result, _context ->
+          publish_ended(changeset, result)
+        end)
+      )
+    end
+
+    # open → cancelled：取消课程。同样发 course.ended（D4：closed/cancelled 即 ended）。
+    update :cancel do
+      description("取消课程：open → cancelled，发 course.ended 信号")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          :open ->
+            Ash.Changeset.force_change_attribute(changeset, :status, :cancelled)
+
+          status ->
+            Ash.Changeset.add_error(changeset, "cannot cancel from status=#{status}")
+        end
+      end)
+
+      change(
+        after_transaction(fn changeset, result, _context ->
+          publish_ended(changeset, result)
+        end)
+      )
+    end
+
     defaults([:read])
 
     # #14：教研 run 创建后回写产物引用（ResearchInstantiator 内部调用，authorize?: false）。
@@ -238,6 +288,25 @@ defmodule Cgc2046.Events.Course do
       get_by([:id])
     end
   end
+
+  # 结束信号发布（close/cancel 共用）：事务提交成功后发 course.ended，
+  # 失败记 error 日志（best-effort，同 launch 的容错语义；失败可见性交对账）。
+  defp publish_ended(changeset, {:ok, _record} = result) do
+    tenant = changeset.tenant
+    id = Ash.Changeset.get_data(changeset, :id)
+    title = Ash.Changeset.get_data(changeset, :title)
+
+    case JidoAdapter.publish("course.ended", %{"course_id" => id, "title" => title}, tenant) do
+      :ok ->
+        result
+
+      {:error, reason} ->
+        Logger.error("course.ended publish failed for #{id}: #{inspect(reason)}")
+        result
+    end
+  end
+
+  defp publish_ended(_changeset, result), do: result
 
   postgres do
     table("courses")
