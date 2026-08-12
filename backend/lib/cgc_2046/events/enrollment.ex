@@ -20,6 +20,10 @@ defmodule Cgc2046.Events.Enrollment do
 
   @default_approval_timeout_days 7
 
+  @submitted_signal "enrollment.submitted"
+  @completed_signal "enrollment.completed"
+  @completed_idempotency_prefix "enrollment.completed:"
+
   attributes do
     uuid_primary_key(:id)
 
@@ -530,26 +534,29 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_message(reason), do: inspect(reason)
 
   defp publish_approval_signal(changeset, {:ok, enrollment} = result, signal_type) do
-    payload = %{
-      "enrollment_id" => enrollment.id,
-      "workspace_id" => enrollment.workspace_id,
-      "user_id" => enrollment.user_id,
-      "status" => to_string(enrollment.status)
-    }
-
-    _ = JidoAdapter.publish(signal_type, payload, changeset.tenant)
+    _ = JidoAdapter.publish(signal_type, base_enrollment_payload(enrollment), changeset.tenant)
     result
   end
 
   defp publish_approval_signal(_changeset, result, _signal_type), do: result
 
+  defp base_enrollment_payload(enrollment) do
+    %{
+      "enrollment_id" => enrollment.id,
+      "workspace_id" => enrollment.workspace_id,
+      "user_id" => enrollment.user_id,
+      "status" => to_string(enrollment.status)
+    }
+  end
+
   # create：任何策略都发 enrollment.submitted；结果为 confirmed（open/invite_only
   # 自动确认）时同钩子再发 enrollment.completed（KTD1/R3）。
   defp publish_submitted_signal(changeset, {:ok, enrollment} = result) do
-    publish_signal(changeset, enrollment, "enrollment.submitted")
+    policy = enrollment_policy_of(enrollment)
+    publish_signal(changeset, enrollment, @submitted_signal, policy)
 
     if enrollment.status == :confirmed do
-      publish_signal(changeset, enrollment, "enrollment.completed")
+      publish_signal(changeset, enrollment, @completed_signal, policy)
     end
 
     result
@@ -560,7 +567,7 @@ defmodule Cgc2046.Events.Enrollment do
   # confirm 审批通过：既有 enrollment.approved 之外增发 enrollment.completed
   # （生命周期终态，幂等键去重）。失败结果（如重复 confirm）不发。
   defp publish_completed_signal(changeset, {:ok, enrollment} = result) do
-    publish_signal(changeset, enrollment, "enrollment.completed")
+    publish_signal(changeset, enrollment, @completed_signal, enrollment_policy_of(enrollment))
     result
   end
 
@@ -568,10 +575,10 @@ defmodule Cgc2046.Events.Enrollment do
 
   # best-effort 发布；与 publish_approval_signal 的静默丢弃不同（KTD4），
   # 新信号发布失败必须记录日志，至少一次投递交给未来的 outbox/对账。
-  defp publish_signal(changeset, enrollment, signal_type) do
+  defp publish_signal(changeset, enrollment, signal_type, policy) do
     case JidoAdapter.publish(
            signal_type,
-           enrollment_signal_payload(enrollment, signal_type),
+           enrollment_signal_payload(enrollment, signal_type, policy),
            changeset.tenant
          ) do
       :ok ->
@@ -584,22 +591,20 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  # 载荷键镜像 publish_approval_signal（enrollment_id/workspace_id/user_id/status），
-  # 另加 event_id/course_id 与 enrollment_policy；completed 带 §4.2 幂等键约定。
-  defp enrollment_signal_payload(enrollment, signal_type) do
-    payload = %{
-      "enrollment_id" => enrollment.id,
-      "workspace_id" => enrollment.workspace_id,
-      "user_id" => enrollment.user_id,
-      "status" => to_string(enrollment.status),
-      "event_id" => enrollment.event_id,
-      "course_id" => enrollment.course_id,
-      "enrollment_policy" => enrollment_policy_of(enrollment)
-    }
+  # completed 带报名设计文档 §4.2 幂等键约定。
+  defp enrollment_signal_payload(enrollment, signal_type, policy) do
+    payload =
+      enrollment
+      |> base_enrollment_payload()
+      |> Map.merge(%{
+        "event_id" => enrollment.event_id,
+        "course_id" => enrollment.course_id,
+        "enrollment_policy" => policy
+      })
 
     case signal_type do
-      "enrollment.completed" ->
-        Map.put(payload, "idempotency_key", "enrollment.completed:" <> enrollment.id)
+      @completed_signal ->
+        Map.put(payload, "idempotency_key", @completed_idempotency_prefix <> enrollment.id)
 
       _ ->
         payload
