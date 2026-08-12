@@ -175,6 +175,161 @@ defmodule Cgc2046.Events.EnrollmentTest do
     end
   end
 
+  describe "信号发布（enrollment.submitted / completed）" do
+    test "request 策略 create 发 submitted（status=pending），不发 completed（AE1）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      learner = Fixtures.register_user("enrollment-signal-request")
+
+      subscribe_signals(["enrollment.submitted", "enrollment.completed"])
+
+      assert {:ok, pending} = create_enrollment(event, learner)
+      assert pending.status == :pending
+
+      assert_receive {:signal, "enrollment.submitted", submitted}, 1_000
+      assert submitted["status"] == "pending"
+      assert submitted["enrollment_id"] == pending.id
+      assert submitted["enrollment_policy"] == "request"
+      assert submitted["event_id"] == event.id
+      assert submitted["course_id"] == nil
+      assert submitted["workspace_id"] == workspace.id
+      assert submitted["user_id"] == learner.id
+      refute_receive {:signal, "enrollment.completed", _}, 500
+    end
+
+    test "open 策略 create 自动确认：submitted 与 completed 各一条（AE5）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{capacity: 10})
+      learner = Fixtures.register_user("enrollment-signal-open")
+
+      subscribe_signals(["enrollment.submitted", "enrollment.completed"])
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :confirmed
+
+      assert_receive {:signal, "enrollment.submitted", submitted}, 1_000
+      assert submitted["status"] == "confirmed"
+      assert submitted["enrollment_id"] == enrollment.id
+
+      assert_receive {:signal, "enrollment.completed", completed}, 1_000
+      assert completed["status"] == "confirmed"
+      assert completed["idempotency_key"] == "enrollment.completed:" <> enrollment.id
+      assert completed["enrollment_policy"] == "open"
+      assert completed["event_id"] == event.id
+      assert completed["workspace_id"] == workspace.id
+      assert completed["user_id"] == learner.id
+    end
+
+    test "course 目标 create：payload 带 course_id、event_id 为 nil、policy 正确" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{enrollment_policy: :request})
+      learner = Fixtures.register_user("enrollment-signal-course")
+
+      subscribe_signals(["enrollment.submitted"])
+
+      assert {:ok, pending} = create_enrollment(course, learner)
+      assert pending.status == :pending
+
+      assert_receive {:signal, "enrollment.submitted", submitted}, 1_000
+      assert submitted["course_id"] == course.id
+      assert submitted["event_id"] == nil
+      assert submitted["enrollment_policy"] == "request"
+    end
+
+    test "invite_only 有效邀请码 create 自动确认并发 completed" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :invite_only})
+
+      _batch =
+        InviteBatch
+        |> Ash.Changeset.for_create(:create, %{
+          event_id: event.id,
+          invite_code: "CAMPUS_B",
+          quota: 1
+        })
+        |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      learner = Fixtures.register_user("enrollment-signal-invite")
+
+      subscribe_signals(["enrollment.completed"])
+
+      assert {:ok, enrollment} = create_enrollment(event, learner, %{invite_code: "CAMPUS_B"})
+      assert enrollment.status == :confirmed
+
+      assert_receive {:signal, "enrollment.completed", completed}, 1_000
+      assert completed["idempotency_key"] == "enrollment.completed:" <> enrollment.id
+      assert completed["enrollment_id"] == enrollment.id
+    end
+
+    test "重复 confirm 只发一次 completed（AE4）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      learner = Fixtures.register_user("enrollment-signal-reconfirm")
+      {:ok, pending} = create_enrollment(event, learner)
+
+      subscribe_signals(["enrollment.completed", "enrollment.approved"])
+
+      assert {:ok, _confirmed} = confirm(pending, admin)
+      assert_receive {:signal, "enrollment.completed", completed}, 1_000
+      assert completed["idempotency_key"] == "enrollment.completed:" <> pending.id
+      assert_receive {:signal, "enrollment.approved", approved}, 1_000
+      assert approved["enrollment_id"] == pending.id
+
+      assert {:error, _} = confirm(pending, admin)
+      refute_receive {:signal, "enrollment.completed", _}, 500
+      refute_receive {:signal, "enrollment.approved", _}, 500
+    end
+
+    test "reject 不发出 completed" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      learner = Fixtures.register_user("enrollment-signal-reject")
+      {:ok, pending} = create_enrollment(event, learner)
+
+      subscribe_signals(["enrollment.completed"])
+
+      assert {:ok, _rejected} =
+               pending
+               |> Ash.Changeset.for_update(:reject_enrollment, %{rejection_reason: "材料不完整"})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      refute_receive {:signal, "enrollment.completed", _}, 500
+    end
+
+    test "发布失败（bus 报错）→ action 仍成功且错误被记录（KTD4）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{capacity: 10})
+      learner = Fixtures.register_user("enrollment-signal-publish-fail")
+
+      # 经 supervisor terminate_child 终止 bus：子进程从监督树移除，不会自动重启，
+      # 发布确定性失败（对比 GenServer.stop：permanent 子进程会被重启，与事务内工作竞态）。
+      # 测试后恢复。
+      bus_id = Cgc2046.Workflows.JidoAdapter.bus_name()
+      assert :ok = Supervisor.terminate_child(Cgc2046.Supervisor, bus_id)
+
+      try do
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            assert {:ok, enrollment} = create_enrollment(event, learner)
+            assert enrollment.status == :confirmed
+          end)
+
+        assert log =~ "failed to publish enrollment.submitted"
+        assert log =~ "failed to publish enrollment.completed"
+      after
+        # 恢复 bus（后续测试依赖信号总线）
+        assert {:ok, _pid} = Supervisor.restart_child(Cgc2046.Supervisor, bus_id)
+      end
+    end
+  end
+
   describe "ApprovalExpiryWorker" do
     test "过期 pending Enrollment 转 expired 并落 expired_at" do
       admin = Fixtures.platform_admin()
@@ -199,6 +354,19 @@ defmodule Cgc2046.Events.EnrollmentTest do
       assert resubmitted.status == :pending
       assert resubmitted.id != expired.id
     end
+  end
+
+  defp subscribe_signals(patterns) do
+    parent = self()
+
+    Enum.each(patterns, fn pattern ->
+      assert {:ok, _sub_id} =
+               Cgc2046.Workflows.JidoAdapter.subscribe(
+                 pattern,
+                 fn signal -> send(parent, {:signal, signal.type, signal.data}) end,
+                 nil
+               )
+    end)
   end
 
   defp create_enrollment(target, user, attrs \\ %{}) do

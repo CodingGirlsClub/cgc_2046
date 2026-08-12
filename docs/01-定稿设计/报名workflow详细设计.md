@@ -1,6 +1,6 @@
 # 报名 Workflow 详细设计（平台第一个业务 workflow）
 
-> 日期：2026-08-01 ｜ 作者：领域建模工程师（worker_f150e10b） ｜ 状态：**v1.4 定稿（已吸收 POC 五项 + POC-2 G1/G2 全 PASS 实证 + #3/#4/#16 用户拍板）**
+> 日期：2026-08-01 ｜ 作者：领域建模工程师（worker_f150e10b） ｜ 状态：**部分退稿（2026-08-12）**——仅报名 DAG（§2.1 报名段 S1-S8 + 审批段 A1-A5）由 [ADR-0005](../adr/0005-workflow-run-worthiness.md) 退稿（理由：Enrollment 并发不变量已由 DB 条件 UPDATE/唯一索引/事务承担、资源行即 pending checkpoint、引擎化零增量不变量；保留可逆性）；**审批两段式模式与 §4.2 幂等键约定继续有效**。（原状态：v1.4 定稿——已吸收 POC 五项 + POC-2 G1/G2 全 PASS 实证 + #3/#4/#16 用户拍板）
 > 依据：`docs/01-定稿设计/领域模型定稿.md`（§4 引擎 context、§5 ER、§6）、`docs/01-定稿设计/用户旅程与Web功能清单.md`（J-Visitor/J-Learner/J-Owner）、`docs/03-决策记录/grill-决策记录-2026-08-01.md`（D-A1/D-A3/D-A4/D-A6/D-A7）、`docs/04-引擎验证/workflow-engine-ddd-design.md`（§2 设计定稿）、`docs/04-引擎验证/poc-验证报告.md`（2026-08-01，POC 5 项 PASS + POC-2 G1/G2 全 PASS）、`docs/03-决策记录/开放问题决策清单.md`（F7 审批超时拍板）
 > 定位：平台第一个要落地的业务 workflow——Learner 报名 Event/Course，同步创建 Enrollment（D-A4）。
 > v1.1 修订要点（吸收 POC 实证）：① request 策略改为 **审批两段式（事件驱动）**（报名段 persist_pending 停住 + 审批段 approval_gate 读回 pending，规避 Agent 层 join 死锁）；② 人工门控限定 **Workflow 层或审批段分支**；③ 补充 ash_jido 约束/`public?: true`、Signal Bus signal_routes、Thread journal instruction_start/end 实证。
