@@ -3374,9 +3374,9 @@ type AdminActionLog {
 }
 
 type AdminUserPayload {
-  id: ID!
+  id: ID
   email: String
-  isPlatformAdmin: Boolean!
+  isPlatformAdmin: Boolean
   errors: [MutationError]
 }
 

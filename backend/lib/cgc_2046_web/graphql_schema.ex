@@ -902,7 +902,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             user
             |> Ash.Changeset.for_update(:set_platform_admin, %{is_platform_admin: true})
             |> Ash.update(actor: actor)
-            |> map_update_result(context)
+            |> map_update_result(context, :set_platform_admin)
           else
             {:error, error} ->
               {:error,
@@ -920,33 +920,13 @@ defmodule Cgc2046Web.GraphqlSchema do
         with_admin(context, fn actor ->
           with {:ok, user} <- Ash.get(Cgc2046.Accounts.User, args[:id], actor: actor) do
             # ≥1 admin 原子判定与错误契约（last_admin_denied / not_platform_admin）
-            # 全在 action 内：不变量唯一入口，resolver 仅透传。
+            # 全在 action 内：不变量唯一入口，resolver 仅透传为 payload errors。
             # demote_platform_admin 非 primary update action，须经 for_update
             # 构造 changeset（同 promote 调 set_platform_admin 的范式）。
-            result =
-              user
-              |> Ash.Changeset.for_update(:demote_platform_admin, %{})
-              |> Ash.update(actor: actor)
-
-            case result do
-              {:ok, updated} ->
-                {:ok,
-                 %{
-                   id: updated.id,
-                   email: updated.email,
-                   is_platform_admin: updated.is_platform_admin,
-                   errors: []
-                 }}
-
-              {:error, error} ->
-                {:error,
-                 to_ash_graphql_errors(
-                   error,
-                   context,
-                   :demote_platform_admin,
-                   Cgc2046.Accounts.User
-                 )}
-            end
+            user
+            |> Ash.Changeset.for_update(:demote_platform_admin, %{})
+            |> Ash.update(actor: actor)
+            |> map_update_result(context, :demote_platform_admin)
           else
             {:error, error} ->
               {:error,
@@ -1294,10 +1274,12 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
+  # id / is_platform_admin 可空：update 失败时承载错误 payload（errors 非空、业务字段为 nil），
+  # 与 admin 面其它 mutation 的 payload 式错误通道一致。
   object :admin_user_payload do
-    field(:id, non_null(:id))
+    field(:id, :id)
     field(:email, :string)
-    field(:is_platform_admin, non_null(:boolean))
+    field(:is_platform_admin, :boolean)
     field(:errors, list_of(:mutation_error))
   end
 
@@ -1512,7 +1494,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   # 更新 user 的 result → payload（result + errors）
-  defp map_update_result({:ok, user}, _context) do
+  defp map_update_result({:ok, user}, _context, _action) do
     {:ok,
      %{
        id: user.id,
@@ -1522,13 +1504,13 @@ defmodule Cgc2046Web.GraphqlSchema do
      }}
   end
 
-  defp map_update_result({:error, error}, context) do
+  defp map_update_result({:error, error}, context, action) do
     {:ok,
      %{
        id: nil,
        email: nil,
        is_platform_admin: nil,
-       errors: to_ash_graphql_errors(error, context, :set_platform_admin, Cgc2046.Accounts.User)
+       errors: to_ash_graphql_errors(error, context, action, Cgc2046.Accounts.User)
      }}
   end
 end
