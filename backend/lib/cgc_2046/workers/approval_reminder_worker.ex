@@ -9,10 +9,11 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
      的 Oban 队列为工作台 Owner/Admin 异步发送 approval_reminder 提醒。入队 args
      含 recipient identity + enrollment_id + deadline，NotificationWorker 7 天
      args-unique 保证同一报名同一收件人不重复、不同报名/不同收件人不折叠。
-  2. WorkflowRun 扫描（保留给非 Enrollment 的 waiting runs）：`waiting` 且 deadline
+  2. WorkflowRun 扫描：`waiting` 且 deadline
      （= run 进入 waiting 的 `updated_at` + definition.approval_timeout）落在未来
      48h 窗口内的 run，每 run 落一条 SignalLog（`signal_type=
-     "workflow.approval_reminder"`）作为提醒事实记录。run 扫描不再反查 Enrollment
+     "workflow.approval_reminder"`）——该行仅为**审计事实记录**，对**所有** waiting
+     run 落行（含关联 Enrollment 的 run），不触发通知。run 扫描不再反查 Enrollment
      发提醒——报名提醒由 Enrollment 扫描单属主承担，避免两条扫描 deadline 不同
      导致的重复提醒。
 
@@ -46,12 +47,12 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     window_end = DateTime.add(now, @reminder_window_hours, :hour)
 
     reminded_runs = remind_waiting_runs(now, window_end)
-    reminded_enrollments = remind_pending_enrollments(now, window_end)
+    enqueued_notifications = remind_pending_enrollments(now, window_end)
 
-    if reminded_runs + reminded_enrollments > 0 do
+    if reminded_runs + enqueued_notifications > 0 do
       Logger.info(
-        "approval reminder sweep: #{reminded_runs} run(s), " <>
-          "#{reminded_enrollments} enrollment(s) reminded"
+        "approval reminder sweep: #{reminded_runs} run log(s), " <>
+          "#{enqueued_notifications} notification(s) enqueued"
       )
     end
 
@@ -76,6 +77,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
 
   # run-less 报名的单属主提醒路径（语义与窗口见 moduledoc）。
   # 按 workspace 分组：成员名单与平台身份每工作台各读一次，与报名数解耦。
+  # 计数为实际入队的通知数（无平台身份的成员不计入）。
   defp remind_pending_enrollments(now, window_end) do
     Enrollment
     |> Ash.Query.filter(
@@ -88,18 +90,18 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Enum.map(fn {workspace_id, enrollments} ->
       identities_by_user = managed_identities_by_user(workspace_id)
 
-      Enum.each(enrollments, fn enrollment ->
-        Enum.each(identities_by_user, fn {user_id, identities} ->
+      Enum.reduce(enrollments, 0, fn enrollment, acc ->
+        Enum.reduce(identities_by_user, acc, fn {user_id, identities}, acc2 ->
           Cgc2046.NotificationSubscriber.enqueue_reminder_jobs(
             identities,
             user_id,
             enrollment.id,
             enrollment.approval_deadline
           )
+
+          acc2 + length(identities)
         end)
       end)
-
-      length(enrollments)
     end)
     |> Enum.sum()
   end
