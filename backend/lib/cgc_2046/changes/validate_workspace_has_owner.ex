@@ -20,7 +20,7 @@ defmodule Cgc2046.Changes.ValidateWorkspaceHasOwner do
     if workspace_id do
       case Ash.get(Workspace, workspace_id, authorize?: false) do
         {:ok, %Workspace{}} ->
-          if MembershipContext.owner_count(workspace_id) == 0 do
+          if MembershipContext.ownerless?(workspace_id) do
             changeset
             |> Ash.Changeset.add_error(
               Ash.Error.Changes.InvalidAttribute.exception(

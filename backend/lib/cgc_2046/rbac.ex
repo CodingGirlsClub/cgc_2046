@@ -174,7 +174,7 @@ defmodule Cgc2046.Rbac do
       affects_owner and not caller_is_owner ->
         {:error, Ash.Changeset.add_error(changeset, "只有 Owner 能授予或撤销 Owner 角色")}
 
-      removing_owner and target_is_owner and MembershipContext.owner_count(workspace_id) <= 1 ->
+      removing_owner and target_is_owner and MembershipContext.last_owner?(workspace_id) ->
         {:error, Ash.Changeset.add_error(changeset, "工作台必须至少保留一个 Owner")}
 
       true ->

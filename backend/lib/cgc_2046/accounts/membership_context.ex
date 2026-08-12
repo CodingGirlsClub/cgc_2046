@@ -109,10 +109,43 @@ defmodule Cgc2046.Accounts.MembershipContext do
   返回目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色只算 1 次）。
 
   委托 BypassReads.owner_count/1（raw COUNT，不经 membership read policy）。
-  DB 失败直接抛（与 member_count/1 一致；不再吞错返 0）。
+  DB 失败返回 0（保守安全方向：门控阻断而非误放行）；非法 id 由 `Ecto.UUID.dump!/1` 抛出。
   """
   @spec owner_count(String.t()) :: non_neg_integer
   def owner_count(workspace_id), do: BypassReads.owner_count(workspace_id)
+
+  # ── Owner 状态谓词族（架构评审候选 9：给 ownerless 门禁一个名字）─────────────
+  # 「pending-owner 工作台对外关闭」与「最后 Owner 保护」两个不变量的唯一判定处。
+  # 入口（Workspace.join / JoinRequest.create / reassign 守卫 / Rbac 移除保护）
+  # 复用谓词；文案留在各入口（加入/申请/重指派视角差异是 UX 契约，不收敛）。
+  # 失败姿态继承 owner_count/1：DB 失败返回 0 → ownerless?/last_owner? 为 true
+  # （阻断，fail-closed）、has_owner? 为 false。
+
+  @doc """
+  「pending-owner 工作台对外关闭」不变量：工作台尚无 Owner 就位。
+
+  pending-owner（owner_email 邀请未接受）期间工作台无任何管理角色，
+  join / JoinRequest.create 等对外入口据此阻断；Owner 接受邀请入座后自动解除。
+  """
+  @spec ownerless?(String.t()) :: boolean
+  def ownerless?(workspace_id), do: owner_count(workspace_id) == 0
+
+  @doc """
+  `ownerless?/1` 的正向方向：工作台已有 Owner 就位（reassign 守卫据此拒绝重指派）。
+  """
+  @spec has_owner?(String.t()) :: boolean
+  def has_owner?(workspace_id), do: owner_count(workspace_id) > 0
+
+  @doc """
+  「最后 Owner 保护」不变量：工作台 Owner 数 ≤1。
+
+  移除守卫语境下目标必为 Owner（count ≥1），≤1 即最后一名，移除将孤儿化；
+  0-Owner（已处孤儿态）亦返回 true，属保守方向。与 `ownerless?/1` 语义不同——
+  ownerless? 判「对外关闭」，last_owner? 判「移除即孤儿」
+  （Rbac.validate_owner_removal! 据此阻断最后 Owner 的撤销/移除）。
+  """
+  @spec last_owner?(String.t()) :: boolean
+  def last_owner?(workspace_id), do: owner_count(workspace_id) <= 1
 
   @doc """
   从 policy context 解析目标工作台 id（#2 AST 提取收拢，三场景行为与收敛前一致）。
