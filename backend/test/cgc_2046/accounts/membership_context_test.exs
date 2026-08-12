@@ -121,6 +121,39 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
   end
 
+  describe "Owner 状态谓词族（ownerless? / has_owner? / last_owner?，候选 9）" do
+    test "0 个 Owner（pending-owner）→ ownerless? true / has_owner? false / last_owner? true" do
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+
+      # 移除创建者自己后为空（等价 pending-owner 的 ownerless 终态）
+      Fixtures.remove_membership(workspace, admin)
+
+      assert MembershipContext.ownerless?(workspace.id)
+      refute MembershipContext.has_owner?(workspace.id)
+      assert MembershipContext.last_owner?(workspace.id)
+    end
+
+    test "1 个 Owner → has_owner? true / last_owner? true（再移除即孤儿）" do
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+
+      refute MembershipContext.ownerless?(workspace.id)
+      assert MembershipContext.has_owner?(workspace.id)
+      assert MembershipContext.last_owner?(workspace.id)
+    end
+
+    test "2 个 Owner → last_owner? false（可安全移除其一）" do
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, Fixtures.register_user("mc-owner"), [:owner])
+
+      refute MembershipContext.ownerless?(workspace.id)
+      assert MembershipContext.has_owner?(workspace.id)
+      refute MembershipContext.last_owner?(workspace.id)
+    end
+  end
+
   describe "resolve_workspace_id（Ash 3.31 filter struct 钉测）" do
     # 钉测：用真实 Ash.Query / Ash.Changeset 生成三场景上下文，断言提取结果。
     # Ash 升级改 filter struct 形状时，提取返回 nil → 断言失败 → 当场点名唯一需改的模块。

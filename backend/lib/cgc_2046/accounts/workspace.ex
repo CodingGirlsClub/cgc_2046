@@ -272,7 +272,7 @@ defmodule Cgc2046.Accounts.Workspace do
                  message: "owner_user_id 与 owner_email 只能提供一个"
                )}
 
-            Cgc2046.Accounts.MembershipContext.owner_count(tenant) > 0 ->
+            Cgc2046.Accounts.MembershipContext.has_owner?(tenant) ->
               {:error,
                Ash.Error.Changes.InvalidAttribute.exception(
                  field: :status,
@@ -353,8 +353,8 @@ defmodule Cgc2046.Accounts.Workspace do
               :open ->
                 # #115 ownerless 门控（方案 B）：pending-owner（Owner 邀请未接受）期间阻断
                 # 直接加入——ownerless 时工作台无任何管理角色，先入座会留下无人管理的成员。
-                # Owner 接受邀请入座后 owner_count > 0，门控自动解除。
-                if Cgc2046.Accounts.MembershipContext.owner_count(workspace_id) == 0 do
+                # Owner 接受邀请入座后 has_owner? → true，门控自动解除。
+                if Cgc2046.Accounts.MembershipContext.ownerless?(workspace_id) do
                   {:error,
                    Ash.Error.Changes.InvalidAttribute.exception(
                      field: :status,
