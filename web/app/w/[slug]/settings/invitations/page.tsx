@@ -24,15 +24,13 @@ import {
 	INVITATION_STATUS_LABEL,
 	INVITATION_STATUS_CLASS,
 } from "@/lib/graphql/invitation";
-import { ROLE_NAMES, type MembershipRoleName } from "@/lib/graphql/workspace";
+import {
+	GRANTABLE_ROLE_NAMES,
+	type MembershipRoleName,
+} from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
 import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
-
-/** 可选的邀请角色（排除 owner/admin，Volunteer 不可预授权 Admin 级角色） */
-const INVITABLE_ROLES = ROLE_NAMES.filter(
-	(r) => r !== "owner" && r !== "admin",
-);
 
 export default function InvitationsPage() {
 	const params = useParams<{ slug: string }>();
@@ -220,7 +218,7 @@ export default function InvitationsPage() {
 							<label className="join-field">
 								<span>预授权角色（可选，多选）</span>
 								<div className="invitation-role-select">
-									{INVITABLE_ROLES.map((role) => (
+									{GRANTABLE_ROLE_NAMES.map((role) => (
 										<label key={role} className="invitation-role-option">
 											<input
 												type="checkbox"

@@ -95,30 +95,6 @@ const ROLE_NOTES: Partial<Record<MembershipRoleName, string>> = {
 	learner: "可查看成员与 Profile，编辑自己的 Profile。",
 };
 
-/** 当前用户某角色是否支持某能力。 */
-export function roleHasAbility(
-	row: PermissionMatrixRow,
-	ability: PermissionAbility,
-): boolean {
-	return row.abilities[ability] === true;
-}
-
-/**
- * 多角色并集：任一角色支持即支持（#67 判定示例卡展示用，纯展示逻辑）。
- * 角色名不在五角色展示模板内（如旧 member）不参与判定。
- */
-export function myRolesHaveAbility(
-	myRoles: MembershipRoleName[] | null | undefined,
-	matrix: PermissionMatrixRow[],
-	ability: PermissionAbility,
-): boolean {
-	if (!myRoles || myRoles.length === 0) return false;
-	return myRoles.some((role) => {
-		const row = matrix.find((item) => item.role === role);
-		return row ? roleHasAbility(row, ability) : false;
-	});
-}
-
 /**
  * 将后端 permissionMatrix（六角色 × 六能力，abilities 通用列表）映射为
  * 五角色展示矩阵：按设计稿角色顺序取行，member 行隐藏，缺行不伪造。

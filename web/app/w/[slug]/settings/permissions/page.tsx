@@ -5,7 +5,10 @@
  *
  * 页面按 07-rbac-permission-map-light 设计稿落地：同一 Workspace 管理壳
  * （WorkspaceShell）、五角色 × 六能力矩阵（六能力 = 后端 RBAC 真实能力，
- * 单一数据源），以及 Owner + Tutor 的角色并集 can? 判定示例。
+ * 单一数据源），以及「我的能力」示例卡。
+ * 「我的能力」只消费 ws.myAbilities（后端 Rbac 下发的权威能力列表），
+ * 不在前端用角色名 × 矩阵复写权限语义（platform admin 无成员角色时
+ * 本地自算会误显「拒绝」）。
  * 权限页只解释能力，不画 Agent / Workflow 执行 UI。
  */
 
@@ -16,7 +19,6 @@ import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	fetchPermissionsMatrix,
-	myRolesHaveAbility,
 	PERMISSION_ABILITIES,
 	PERMISSION_ROLE_ORDER,
 	type PermissionAbility,
@@ -145,10 +147,10 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 }
 
 function ExampleCard({
-	matrix,
+	myAbilities,
 	myRoles,
 }: {
-	matrix: PermissionMatrixRow[];
+	myAbilities: string[];
 	myRoles: MembershipRoleName[];
 }) {
 	return (
@@ -179,10 +181,10 @@ function ExampleCard({
 			</div>
 
 			<div className="permissions-example__divider" />
-			<h3>合并后能力</h3>
+			<h3>我的能力（后端下发）</h3>
 			<ul className="permissions-example__abilities">
 				{PERMISSION_ABILITIES.map((ability) => {
-					const allowed = myRolesHaveAbility(myRoles, matrix, ability.id);
+					const allowed = myAbilities.includes(ability.id);
 					return (
 						<li key={ability.id} data-testid="permission-ability-status">
 							<span
@@ -204,7 +206,7 @@ function ExampleCard({
 					);
 				})}
 			</ul>
-			<p>权限来自当前 Workspace 的 MembershipRole 并集</p>
+			<p>能力来自后端 ws.myAbilities 下发（权威真源，前端不自算）</p>
 		</aside>
 	);
 }
@@ -315,7 +317,7 @@ export default function WorkspacePermissionsPage() {
 					<div className="permissions-content-grid">
 						<MatrixCard matrix={currentMatrix} />
 						<ExampleCard
-							matrix={currentMatrix}
+							myAbilities={ws?.myAbilities ?? []}
 							myRoles={ws?.myRoleNames ?? []}
 						/>
 					</div>

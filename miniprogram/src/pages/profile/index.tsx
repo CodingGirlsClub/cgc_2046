@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
+import { canManageMembers } from '@/domain/format'
 import type { MiniProgramCode, NotificationItem, SessionSnapshot } from '@/domain/models'
 import styles from './index.module.css'
 
@@ -79,8 +80,9 @@ export default function ProfilePage() {
     }
   }
 
-  const ownerWorkspaces = session?.workspaces.filter(({ roleNames }) =>
-    roleNames.some((role) => role === 'owner' || role === 'admin')
+  // 管理级工作台：复用 canManageMembers 原语（能力下发），不硬编码角色名
+  const manageableWorkspaces = session?.workspaces.filter(({ abilities }) =>
+    canManageMembers(abilities)
   ) ?? []
 
   return (
@@ -137,11 +139,11 @@ export default function ProfilePage() {
               <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码识别</Button>
             </View>
 
-            {ownerWorkspaces.length > 0 && (
+            {manageableWorkspaces.length > 0 && (
               <>
                 <Text className={styles.sectionTitle}>邀请小程序码</Text>
                 <View className={styles.panel}>
-                  {ownerWorkspaces.map((workspace) => (
+                  {manageableWorkspaces.map((workspace) => (
                     <View key={workspace.id} className={styles.codeRow}>
                       <Text>{workspace.name}</Text>
                       <Button className={styles.inlineButton} size='mini' loading={action === `code-${workspace.id}`} onClick={() => generateCode(workspace.id)}>生成</Button>
