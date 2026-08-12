@@ -20,14 +20,14 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceApplication
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.PendingOperation
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
-  alias AshAuthentication.Info, as: AuthInfo
 
-  @password "sup3r-secret-password"
+  @password Fixtures.password()
 
   setup do
     Cgc2046.Workflows.StepHandlerRegistry.register(Cgc2046.Workflows.TestActions.Uppercase)
@@ -41,40 +41,9 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     # demote 的 ≥1 admin 约束依赖全局 admin 计数：清掉先前测试（sandbox 外）
     # 残留的 is_platform_admin 标记，保证每个测试从无 admin 状态开始（否则
     # 历史遗留 admin 会让"最后一个 admin"断言失真）。
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = false WHERE is_platform_admin = true"
-      )
+    Fixtures.reset_platform_admins()
 
     :ok
-  end
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
   end
 
   defp sign_in_token(email, password) do
@@ -107,21 +76,6 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     |> put_req_header("content-type", "application/json")
     |> post("/api/graphql", %{"query" => query})
     |> json_response(200)
-  end
-
-  defp create_workspace(admin, attrs \\ %{}) do
-    slug = attrs[:slug] || "admin-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{
-               slug: slug,
-               name: attrs[:name] || "Admin WS",
-               join_policy: attrs[:join_policy] || :request
-             })
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp create_workspace_application(user, attrs \\ %{}) do
@@ -261,7 +215,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "admin queries: non-admin is forbidden" do
     test "listUsers / listWorkspaces / listToolCallLogs / listPendingOperations / listSignalLogs all return forbidden for non-admin" do
-      user = register_user("admin-queries-regular@example.com")
+      user = Fixtures.register_user("admin-queries-regular")
       token = sign_in_token(user.email, @password)
 
       for query <- [
@@ -282,7 +236,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listWorkspaceApplications returns forbidden for non-admin" do
-      user = register_user("admin-queries-regular2@example.com")
+      user = Fixtures.register_user("admin-queries-regular2")
       token = sign_in_token(user.email, @password)
 
       resp = graphql_post(build_conn(), "query { listWorkspaceApplications { id } }", token)
@@ -292,7 +246,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "promoteUser / demoteUser return forbidden for non-admin" do
-      user = register_user("admin-queries-regular3@example.com")
+      user = Fixtures.register_user("admin-queries-regular3")
       token = sign_in_token(user.email, @password)
 
       for query <- [
@@ -309,8 +263,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "listUsers" do
     test "platform_admin can list users with membership summary" do
-      admin = platform_admin("admin-queries-list@example.com")
-      _member = register_user("admin-queries-target@example.com")
+      admin = Fixtures.platform_admin("admin-queries-list")
+      member = Fixtures.register_user("admin-queries-target")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -328,13 +282,13 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
       assert %{"data" => %{"listUsers" => users}} = resp
       assert [user] = users
-      assert user["email"] == "admin-queries-target@example.com"
+      assert user["email"] == to_string(member.email)
       assert user["isPlatformAdmin"] == false
       assert user["workspaceMembershipCount"] >= 0
     end
 
     test "listUsers without search returns paged users (platform_admin)" do
-      admin = platform_admin("admin-queries-listall@example.com")
+      admin = Fixtures.platform_admin("admin-queries-listall")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -352,8 +306,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "listWorkspaces" do
     test "platform_admin can list all workspaces" do
-      admin = platform_admin("admin-queries-ws@example.com")
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("admin-queries-ws")
+      workspace = Fixtures.create_workspace(admin)
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -379,8 +333,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "listWorkspaceApplications" do
     test "platform_admin can list applications with status filter" do
-      admin = platform_admin("admin-queries-applist@example.com")
-      applicant = register_user("admin-queries-applicant@example.com")
+      admin = Fixtures.platform_admin("admin-queries-applist")
+      applicant = Fixtures.register_user("admin-queries-applicant")
       application = create_workspace_application(applicant)
       token = sign_in_token(admin.email, @password)
 
@@ -405,8 +359,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "myWorkspaceApplications" do
     test "applicant sees only own applications (R7a)" do
-      applicant = register_user("admin-queries-myapp@example.com")
-      other = register_user("admin-queries-myapp2@example.com")
+      applicant = Fixtures.register_user("admin-queries-myapp")
+      other = Fixtures.register_user("admin-queries-myapp2")
       _mine = create_workspace_application(applicant)
       create_workspace_application(other)
       token = sign_in_token(applicant.email, @password)
@@ -432,7 +386,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "listToolCallLogs / listPendingOperations (D5 JSONB workspace filter)" do
     test "platform_admin can list tool call logs filtered by workspace_id in params JSONB" do
-      admin = platform_admin("admin-queries-tcl@example.com")
+      admin = Fixtures.platform_admin("admin-queries-tcl")
       ws_id = Ecto.UUID.generate()
       create_tool_call_log(%{params: %{"workspace_id" => ws_id}, tool: "filtered_tool"})
 
@@ -462,7 +416,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "platform_admin can list pending operations filtered by workspace_id in params JSONB" do
-      admin = platform_admin("admin-queries-po@example.com")
+      admin = Fixtures.platform_admin("admin-queries-po")
       ws_id = Ecto.UUID.generate()
       create_pending_operation(%{params: %{"workspace_id" => ws_id}, tool: "filtered_op"})
 
@@ -494,7 +448,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "listAdminActionLogs (#116 R10a)" do
     test "platform_admin can list admin action logs and filter by action" do
-      admin = platform_admin("admin-queries-aal@example.com")
+      admin = Fixtures.platform_admin("admin-queries-aal")
 
       # 资源层直接创建（带 actor）→ 落一行 workspace_create 治理留痕
       {:ok, workspace} =
@@ -568,10 +522,12 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "listSignalLogs" do
     test "platform_admin can list signal logs filtered by workspace" do
-      admin = platform_admin("admin-queries-sl@example.com")
+      admin = Fixtures.platform_admin("admin-queries-sl")
 
       workspace =
-        create_workspace(admin, slug: "admin-sl-ws-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-sl-ws-#{System.unique_integer([:positive])}"
+        })
 
       _signal = create_signal_log(workspace)
       token = sign_in_token(admin.email, @password)
@@ -591,13 +547,17 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     # B1（advisor02）：SignalLog 有真实 workspace_id 列（非 params JSONB），
     # workspaceId 过滤必须走真实列（否则 SQL 访问不存在的 params 列报错）
     test "platform_admin can list signal logs filtered by workspaceId (real column)" do
-      admin = platform_admin("admin-queries-sl-ws@example.com")
+      admin = Fixtures.platform_admin("admin-queries-sl-ws")
 
       ws_a =
-        create_workspace(admin, slug: "admin-sl-a-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-sl-a-#{System.unique_integer([:positive])}"
+        })
 
       ws_b =
-        create_workspace(admin, slug: "admin-sl-b-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-sl-b-#{System.unique_integer([:positive])}"
+        })
 
       create_signal_log(ws_a, %{signal_type: :approval_ok})
       create_signal_log(ws_b, %{signal_type: :rejected})
@@ -638,7 +598,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     defp iso(dt), do: DateTime.to_iso8601(dt)
 
     test "listToolCallLogs: status maps to result_status; workspace+status+time combo" do
-      admin = platform_admin("admin-queries-f-tcl@example.com")
+      admin = Fixtures.platform_admin("admin-queries-f-tcl")
       ws_id = Ecto.UUID.generate()
       now = DateTime.utc_now()
 
@@ -718,7 +678,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listPendingOperations: status enums + derived expired special-case" do
-      admin = platform_admin("admin-queries-f-po@example.com")
+      admin = Fixtures.platform_admin("admin-queries-f-po")
       ws_id = Ecto.UUID.generate()
 
       pending_op = create_pending_operation(%{params: %{"workspace_id" => ws_id}})
@@ -788,10 +748,12 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listSignalLogs: signal_type + time range combo" do
-      admin = platform_admin("admin-queries-f-sl@example.com")
+      admin = Fixtures.platform_admin("admin-queries-f-sl")
 
       workspace =
-        create_workspace(admin, slug: "admin-f-sl-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-f-sl-#{System.unique_integer([:positive])}"
+        })
 
       now = DateTime.utc_now()
       target = create_signal_log(workspace, %{signal_type: "workflow.approval"})
@@ -821,7 +783,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listAdminActionLogs: time range filter" do
-      admin = platform_admin("admin-queries-f-aal@example.com")
+      admin = Fixtures.platform_admin("admin-queries-f-aal")
 
       {:ok, workspace} =
         Workspace
@@ -882,10 +844,12 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listWorkflowRuns: workspaceId + status combo (auto filter)" do
-      admin = platform_admin("admin-queries-f-wfr@example.com")
+      admin = Fixtures.platform_admin("admin-queries-f-wfr")
 
       workspace =
-        create_workspace(admin, slug: "admin-f-wfr-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-f-wfr-#{System.unique_integer([:positive])}"
+        })
 
       definition = create_definition(workspace, admin)
       publish_definition(definition, workspace, admin)
@@ -928,10 +892,12 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listWorkflowRuns: startedAt time range (LOW-2; NULL started_at excluded = LOW-1 语义固化)" do
-      admin = platform_admin("admin-queries-f-wfr-time@example.com")
+      admin = Fixtures.platform_admin("admin-queries-f-wfr-time")
 
       workspace =
-        create_workspace(admin, slug: "admin-f-wfr-t-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-f-wfr-t-#{System.unique_integer([:positive])}"
+        })
 
       definition = create_definition(workspace, admin)
       publish_definition(definition, workspace, admin)
@@ -1016,8 +982,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   # B2（advisor02）：after 参数是 string，须转 integer 传给 Ash.Query.offset
   describe "pagination after parameter" do
     test "listUsers with after offset returns paged subset" do
-      admin = platform_admin("admin-queries-after@example.com")
-      for i <- 1..3, do: register_user("admin-queries-after-#{i}@example.com")
+      admin = Fixtures.platform_admin("admin-queries-after")
+      for i <- 1..3, do: Fixtures.register_user("admin-queries-after-#{i}")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1038,10 +1004,12 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   # filter.workspaceId.eq 真实列过滤；platform_admin read policy 已解锁）。
   describe "listWorkflowRuns (auto-generated)" do
     test "platform_admin can list workflow runs filtered by workspace" do
-      admin = platform_admin("admin-queries-wfr@example.com")
+      admin = Fixtures.platform_admin("admin-queries-wfr")
 
       workspace =
-        create_workspace(admin, slug: "admin-wfr-ws-#{System.unique_integer([:positive])}")
+        Fixtures.create_workspace(admin, %{
+          slug: "admin-wfr-ws-#{System.unique_integer([:positive])}"
+        })
 
       definition = create_definition(workspace, admin)
       publish_definition(definition, workspace, admin)
@@ -1070,7 +1038,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "listWorkflowRuns returns empty for non-admin (filter + policy)" do
-      user = register_user("admin-queries-wfr-reg@example.com")
+      user = Fixtures.register_user("admin-queries-wfr-reg")
       token = sign_in_token(user.email, @password)
 
       resp =
@@ -1087,8 +1055,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "approveWorkspaceApplication (auto-generated)" do
     test "platform_admin approve creates workspace with applicant as Owner" do
-      admin = platform_admin("admin-queries-approve@example.com")
-      applicant = register_user("admin-queries-approve-app@example.com")
+      admin = Fixtures.platform_admin("admin-queries-approve")
+      applicant = Fixtures.register_user("admin-queries-approve-app")
       application = create_workspace_application(applicant)
       token = sign_in_token(admin.email, @password)
 
@@ -1123,8 +1091,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "promoteUser / demoteUser" do
     test "platform_admin can promote a user" do
-      admin = platform_admin("admin-queries-promote@example.com")
-      target = register_user("admin-queries-promote-target@example.com")
+      admin = Fixtures.platform_admin("admin-queries-promote")
+      target = Fixtures.register_user("admin-queries-promote-target")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1148,8 +1116,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "platform_admin can demote a non-last admin" do
-      admin = platform_admin("admin-queries-demote@example.com")
-      target = platform_admin("admin-queries-demote-target@example.com")
+      admin = Fixtures.platform_admin("admin-queries-demote")
+      target = Fixtures.platform_admin("admin-queries-demote-target")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1173,7 +1141,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "demoteUser rejects when target is the last remaining platform admin" do
-      admin = platform_admin("admin-queries-lastadmin@example.com")
+      admin = Fixtures.platform_admin("admin-queries-lastadmin")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1199,8 +1167,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "demoteUser rejects when target is not a platform admin" do
-      admin = platform_admin("admin-queries-notadmin@example.com")
-      target = register_user("admin-queries-notadmin-target@example.com")
+      admin = Fixtures.platform_admin("admin-queries-notadmin")
+      target = Fixtures.register_user("admin-queries-notadmin-target")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1225,7 +1193,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "demoteUser returns top-level not_found error for a nonexistent id" do
-      admin = platform_admin("admin-queries-demote-notfound@example.com")
+      admin = Fixtures.platform_admin("admin-queries-demote-notfound")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1251,8 +1219,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   describe "createWorkspaceWithOwner (auto-generated createWorkspace with owner args)" do
     test "platform_admin can create workspace designating existing user as Owner" do
-      admin = platform_admin("admin-queries-cws@example.com")
-      owner = register_user("admin-queries-cws-owner@example.com")
+      admin = Fixtures.platform_admin("admin-queries-cws")
+      owner = Fixtures.register_user("admin-queries-cws-owner")
       token = sign_in_token(admin.email, @password)
 
       resp =
@@ -1290,7 +1258,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
 
     test "platform_admin can create workspace with owner_email -> pending-owner invitation token returned" do
-      admin = platform_admin("admin-queries-cws2@example.com")
+      admin = Fixtures.platform_admin("admin-queries-cws2")
       token = sign_in_token(admin.email, @password)
 
       resp =

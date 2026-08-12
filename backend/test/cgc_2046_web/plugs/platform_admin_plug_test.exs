@@ -9,44 +9,13 @@ defmodule Cgc2046Web.Plugs.PlatformAdminPlugTest do
 
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046Web.Plugs.PlatformAdminPlug
-
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
 
   defp call(conn), do: PlatformAdminPlug.call(conn, PlatformAdminPlug.init([]))
 
   test "platform_admin 用户 -> 放行" do
-    admin = platform_admin("padm-plug-ok@example.com")
+    admin = Fixtures.platform_admin("padm-plug-ok")
 
     conn = build_conn() |> Plug.Conn.assign(:current_user, admin) |> call()
 
@@ -55,7 +24,7 @@ defmodule Cgc2046Web.Plugs.PlatformAdminPlugTest do
   end
 
   test "非 platform_admin 用户 -> 403" do
-    user = register_user("padm-plug-regular@example.com")
+    user = Fixtures.register_user("padm-plug-regular")
 
     conn = build_conn() |> Plug.Conn.assign(:current_user, user) |> call()
 

@@ -17,38 +17,8 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuthTest do
 
   import Plug.Conn
 
-  alias Cgc2046.Accounts.User
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046Web.Live.PlatformAdminLiveAuth
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
 
   defp socket do
     %Phoenix.LiveView.Socket{endpoint: Cgc2046Web.Endpoint, id: "test-socket"}
@@ -61,7 +31,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuthTest do
     end
 
     test "session 有 non-admin user → halt" do
-      user = register_user("live-auth-regular@example.com")
+      user = Fixtures.register_user("live-auth-regular")
 
       session = %{PlatformAdminLiveAuth.session_key() => user.id}
 
@@ -70,7 +40,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuthTest do
     end
 
     test "session 有 platform_admin user → cont（放行）" do
-      admin = platform_admin("live-auth-admin@example.com")
+      admin = Fixtures.platform_admin("live-auth-admin")
 
       session = %{PlatformAdminLiveAuth.session_key() => admin.id}
 
@@ -83,7 +53,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuthTest do
 
   describe "session_data/1（HTTP 层注入 session）" do
     test "已认证 current_user → session 存 user id" do
-      user = register_user("live-auth-session@example.com")
+      user = Fixtures.register_user("live-auth-session")
 
       conn = build_conn() |> assign(:current_user, user)
       key = PlatformAdminLiveAuth.session_key()

@@ -6,7 +6,7 @@ defmodule Cgc2046.NotificationServiceTest do
   alias Cgc2046.NotificationConsent
   alias Cgc2046.NotificationService
   alias Cgc2046.NotificationSubscriber
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
     test_pid = self()

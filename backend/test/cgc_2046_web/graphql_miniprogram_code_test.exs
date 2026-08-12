@@ -1,9 +1,7 @@
 defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
   use Cgc2046Web.ConnCase, async: false
 
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
-
-  @password "sup3r-secret-password"
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
     Req.Test.stub(Cgc2046.MiniprogramClientStub, fn conn ->
@@ -155,7 +153,7 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
 
   defp sign_in_token(user) do
     mutation = """
-    mutation { signIn(email: "#{user.email}", password: "#{@password}") { id } }
+    mutation { signIn(email: "#{user.email}", password: "#{Fixtures.password()}") { id } }
     """
 
     conn =

@@ -1,56 +1,12 @@
 defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.Role
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.Step
-  alias AshAuthentication.Info, as: AuthInfo
 
   require Ash.Query
-
-  @admin_email "wfdef-admin@example.com"
-  @outsider_email "wfdef-outsider@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "wfdef-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "WF Def WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
 
   defp create_definition(workspace, actor, attrs \\ %{}) do
     defaults = %{
@@ -71,8 +27,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   describe "lifecycle: draft → published → archived" do
     test "create defaults to status=draft, version=1" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       assert defn.status == :draft
@@ -80,8 +36,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "draft → published → archived" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       assert {:ok, published} =
@@ -100,8 +56,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "cannot publish from archived" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       {:ok, defn} =
@@ -121,8 +77,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "cannot publish from non-draft (already published)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       {:ok, published} =
@@ -139,8 +95,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   describe "version snapshot (D-A2)" do
     test "new_version creates draft v+1 from published definition" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       assert defn.version == 1
 
@@ -163,8 +119,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "new_version copies Step/StepRole rows (#15)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       # 给源定义建 manual Step + StepRole（角色绑定：owner 可执行审批）
@@ -230,8 +186,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "new_version rejects non-published source" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       assert {:error, _} =
@@ -244,8 +200,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "published v1 unaffected by new v2 draft" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: %{steps: ["v1_step"]}})
 
       {:ok, published} =
@@ -271,8 +227,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   describe "type enum (全 6 个)" do
     test "accepts all 6 type values" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
 
       for t <- [
             :platform_ops,
@@ -288,8 +244,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "rejects invalid type" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
 
       assert {:error, _} = create_definition(workspace, admin, %{type: :invalid_type})
     end
@@ -297,8 +253,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   describe "Step as independent resource" do
     test "step belongs to definition, keyed by step_key" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       assert {:ok, step} =
@@ -317,8 +273,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "step_key unique per definition" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       attrs = %{definition_id: defn.id, step_key: "dup", title: "A", type: :auto}
@@ -337,8 +293,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "definition has_many steps" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       for key <- ["s1", "s2"] do
@@ -359,9 +315,9 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   describe "tenant isolation" do
     test "cross-workspace definition not visible" do
-      admin = platform_admin()
-      ws_a = create_workspace(admin)
-      ws_b = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      ws_a = Fixtures.create_workspace(admin)
+      ws_b = Fixtures.create_workspace(admin)
 
       {:ok, _defn_a} = create_definition(ws_a, admin, %{name: "isolated-wf"})
 
@@ -378,9 +334,9 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   describe "authorization" do
     test "non-platform-admin non-member cannot create definition" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      outsider = register_user(@outsider_email)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
+      outsider = Fixtures.register_user("wfdef-outsider")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                WorkflowDefinition
@@ -396,10 +352,10 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     # 修复后非成员被拒（Ash 对 get policy 失败返回 Forbidden 或 NotFound，取决于评估路径，
     # 都表示读不到——核心断言是「读不到数据」而非具体错误类型）。
     test "non-member non-platform-admin cannot read definition (H3)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
-      outsider = register_user(@outsider_email)
+      outsider = Fixtures.register_user("wfdef-outsider")
 
       assert {:error, _} =
                Ash.get(WorkflowDefinition, defn.id, tenant: workspace.id, actor: outsider)
@@ -410,9 +366,9 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     # H2 回归：new_version 的 source_definition_id 不能指向其它租户的 definition。
     # 未修复前 Ash.get 不传 tenant，global?(true) 下能跨租户读 source。
     test "new_version rejects source from another workspace" do
-      admin = platform_admin()
-      ws_a = create_workspace(admin)
-      ws_b = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      ws_a = Fixtures.create_workspace(admin)
+      ws_b = Fixtures.create_workspace(admin)
 
       # ws_a 有 published 定义
       {:ok, defn_a} = create_definition(ws_a, admin, %{name: "ws-a-wf"})
@@ -433,8 +389,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
 
     test "new_version requires tenant" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
 
       {:ok, published} =

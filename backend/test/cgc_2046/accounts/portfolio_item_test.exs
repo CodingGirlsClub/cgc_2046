@@ -2,77 +2,14 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.PortfolioItem
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
-  alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "portfolio-admin@example.com"
-  @owner_email "portfolio-owner@example.com"
-  @other_email "portfolio-other@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin, slug \\ "portfolio-ws-#{System.unique_integer([:positive])}") do
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "Portfolio WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  defp add_member(workspace, user, actor) do
-    assert {:ok, membership} =
-             WorkspaceMembership
-             |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-             |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    membership
-  end
-
-  defp owner_user do
-    register_user(@owner_email, @password)
-  end
-
-  defp other_user do
-    register_user(@other_email, @password)
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   describe "PortfolioItem resource (ADR-0004 per-workspace)" do
     test "create auto-fills user_id + workspace_id (tenant) and defaults icon to document" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      user = owner_user()
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("portfolio-owner")
+      Fixtures.add_member(ws, user)
 
       assert {:ok, item} =
                PortfolioItem
@@ -88,10 +25,10 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "create requires title" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      user = owner_user()
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("portfolio-owner")
+      Fixtures.add_member(ws, user)
 
       assert {:error, %Ash.Error.Invalid{}} =
                PortfolioItem
@@ -100,11 +37,11 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "create cannot forge another user_id (writable?: false + accept whitelist)" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      _user = owner_user()
-      other = other_user()
-      add_member(ws, other, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      _user = Fixtures.register_user("portfolio-owner")
+      other = Fixtures.register_user("portfolio-other")
+      Fixtures.add_member(ws, other)
 
       changeset =
         PortfolioItem
@@ -117,10 +54,10 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "update only allows own items" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      user = owner_user()
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("portfolio-owner")
+      Fixtures.add_member(ws, user)
 
       {:ok, item} =
         PortfolioItem
@@ -140,12 +77,12 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "other user cannot update or destroy someone else's item" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      user = owner_user()
-      other = other_user()
-      add_member(ws, user, admin)
-      add_member(ws, other, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("portfolio-owner")
+      other = Fixtures.register_user("portfolio-other")
+      Fixtures.add_member(ws, user)
+      Fixtures.add_member(ws, other)
 
       {:ok, item} =
         PortfolioItem
@@ -166,8 +103,8 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "anonymous cannot create" do
-      admin = admin_user()
-      ws = create_workspace(admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                PortfolioItem
@@ -176,12 +113,12 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "tenant isolation: same user portfolio not visible in another workspace" do
-      admin = admin_user()
-      ws1 = create_workspace(admin, "portfolio-iso-ws1")
-      ws2 = create_workspace(admin, "portfolio-iso-ws2")
-      user = owner_user()
-      add_member(ws1, user, admin)
-      add_member(ws2, user, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws1 = Fixtures.create_workspace(admin, %{slug: "portfolio-iso-ws1"})
+      ws2 = Fixtures.create_workspace(admin, %{slug: "portfolio-iso-ws2"})
+      user = Fixtures.register_user("portfolio-owner")
+      Fixtures.add_member(ws1, user)
+      Fixtures.add_member(ws2, user)
 
       {:ok, _item_ws1} =
         PortfolioItem
@@ -201,12 +138,12 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "my_portfolio only returns the actor's items within the tenant" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      user = owner_user()
-      other = other_user()
-      add_member(ws, user, admin)
-      add_member(ws, other, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("portfolio-owner")
+      other = Fixtures.register_user("portfolio-other")
+      Fixtures.add_member(ws, user)
+      Fixtures.add_member(ws, other)
 
       {:ok, _mine} =
         PortfolioItem
@@ -230,10 +167,10 @@ defmodule Cgc2046.Accounts.PortfolioItemTest do
     end
 
     test "destroy removes own item" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      user = owner_user()
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("portfolio-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("portfolio-owner")
+      Fixtures.add_member(ws, user)
 
       {:ok, item} =
         PortfolioItem

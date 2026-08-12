@@ -4,7 +4,7 @@ defmodule Cgc2046.MiniprogramCodeTest do
   alias Cgc2046.Accounts.Invitation
   alias Cgc2046.Miniprogram.Client
   alias Cgc2046.MiniprogramCode
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
     test_pid = self()

@@ -2,93 +2,18 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.MembershipContext
-  alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @password "sup3r-secret-password"
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   require Ash.Query
 
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  # 注册一个平台管理员用户（直接写库提权，模拟种子/运维操作）
-  defp admin_user do
-    user = register_user("mc-admin-#{System.unique_integer([:positive])}@example.com", @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp new_user do
-    register_user("mc-user-#{System.unique_integer([:positive])}@example.com", @password)
-  end
-
-  defp create_workspace(admin) do
-    {:ok, workspace} =
-      Workspace
-      |> Ash.Changeset.for_create(:create, %{
-        slug: "mc-#{System.unique_integer([:positive])}",
-        name: "MC"
-      })
-      |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  # 以 owner/admin 身份把一个用户拉进工作台（测试直接建成员资格）
-  defp add_member(workspace, user, actor, role_names) do
-    {:ok, membership} =
-      WorkspaceMembership
-      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    if role_names != [] do
-      # assign_roles 的 P0 grant scope 校验读 context.actor：actor/tenant 必须
-      # 在 for_update 阶段传入（进 changeset context）；Ash.update(changeset,
-      # actor:) 只进 opts，change 内 context.actor 为 nil（GraphQL 走 run_action
-      # 同样在 for_update 传 actor，行为一致）。
-      assert {:ok, _membership} =
-               membership
-               |> Ash.Changeset.for_update(
-                 :assign_roles,
-                 %{role_names: role_names},
-                 actor: actor,
-                 tenant: workspace.id
-               )
-               |> Ash.update()
-    end
-
-    membership
-  end
-
   describe "membership_of / role_names" do
     test "成员返回记录（roles 已加载），role_names 返回角色名原子" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
-      membership = add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+      membership = Fixtures.add_member(workspace, member, [:member])
 
       fetched = MembershipContext.membership_of(member, workspace.id)
       assert fetched.id == membership.id
@@ -97,28 +22,28 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "多角色并集按 roles 加载顺序返回" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
-      add_member(workspace, member, admin, [:member, :tutor])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+      Fixtures.add_member(workspace, member, [:member, :tutor])
 
       roles = MembershipContext.role_names(member, workspace.id)
       assert Enum.sort(roles) == [:member, :tutor]
     end
 
     test "actor 只需 :id 字段（assign_roles grant scope 契约：%{id: user_id} map）" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
-      add_member(workspace, member, admin, [:owner])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+      Fixtures.add_member(workspace, member, [:owner])
 
       assert MembershipContext.role_names(%{id: member.id}, workspace.id) == [:owner]
     end
 
     test "非成员 / 匿名返回 nil / []" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      outsider = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      outsider = Fixtures.register_user("mc-outsider")
 
       assert MembershipContext.membership_of(outsider, workspace.id) == nil
       assert MembershipContext.role_names(outsider, workspace.id) == []
@@ -127,12 +52,12 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "租户隔离：同一 user 在 A 工作台的成员资格不影响 B 工作台" do
-      admin = admin_user()
-      workspace_a = create_workspace(admin)
-      workspace_b = create_workspace(admin)
-      member = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace_a = Fixtures.create_workspace(admin)
+      workspace_b = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
 
-      add_member(workspace_a, member, admin, [:member])
+      Fixtures.add_member(workspace_a, member, [:member])
 
       assert MembershipContext.role_names(member, workspace_a.id) == [:member]
       assert MembershipContext.role_names(member, workspace_b.id) == []
@@ -141,13 +66,13 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
 
   describe "memberships_of_actor" do
     test "跨租户返回 actor 全部成员资格（roles 已加载）" do
-      admin = admin_user()
-      workspace_a = create_workspace(admin)
-      workspace_b = create_workspace(admin)
-      member = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace_a = Fixtures.create_workspace(admin)
+      workspace_b = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
 
-      add_member(workspace_a, member, admin, [:member])
-      add_member(workspace_b, member, admin, [:tutor])
+      Fixtures.add_member(workspace_a, member, [:member])
+      Fixtures.add_member(workspace_b, member, [:tutor])
 
       memberships = MembershipContext.memberships_of_actor(member)
       assert length(memberships) == 2
@@ -158,48 +83,39 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "无成员资格返回 []" do
-      member = new_user()
+      member = Fixtures.register_user("mc-member")
       assert MembershipContext.memberships_of_actor(member) == []
     end
   end
 
   describe "owner_count" do
     test "1 owner + 1 普通成员 → 1" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      add_member(workspace, new_user(), admin, [:member])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, Fixtures.register_user("mc-member"), [:member])
 
       assert MembershipContext.owner_count(workspace.id) == 1
     end
 
     test "第二个 owner 加入 → 2（一人多角色只算 1 次）" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       # 一人持 owner + member 两角色，仍只算 1 次；
       # admin（创建者）+ multi + 新 owner = 3
-      multi = new_user()
-      add_member(workspace, multi, admin, [:owner, :member])
-      add_member(workspace, new_user(), admin, [:owner])
+      multi = Fixtures.register_user("mc-multi")
+      Fixtures.add_member(workspace, multi, [:owner, :member])
+      Fixtures.add_member(workspace, Fixtures.register_user("mc-owner"), [:owner])
 
       assert MembershipContext.owner_count(workspace.id) == 3
     end
 
     test "空工作台 → 0" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       # 移除创建者自己后为空
-      loaded = Ash.load!(workspace, :memberships, tenant: workspace.id, authorize?: false)
-      membership = Enum.find(loaded.memberships, &(&1.user_id == admin.id))
-
-      Ecto.Adapters.SQL.query!(
-        Cgc2046.Repo,
-        "DELETE FROM membership_roles WHERE membership_id = $1",
-        [Ecto.UUID.dump!(membership.id)]
-      )
-
-      Ash.destroy!(membership, tenant: workspace.id, actor: admin, authorize?: false)
+      Fixtures.remove_membership(workspace, admin)
 
       assert MembershipContext.owner_count(workspace.id) == 0
     end
@@ -210,10 +126,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     # Ash 升级改 filter struct 形状时，提取返回 nil → 断言失败 → 当场点名唯一需改的模块。
 
     setup do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
-      membership = add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+      membership = Fixtures.add_member(workspace, member, [:member])
 
       %{admin: admin, workspace: workspace, member: member, membership: membership}
     end
@@ -309,7 +225,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
 
   describe "错误姿态（与收敛前一致，失败路径钉测）" do
     test "membership_of 读失败返回 nil、role_names 返回 []" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("mc-admin")
 
       # 非法 tenant（非 UUID）迫使 Ash.read 返回 {:error, _} → nil / []
       assert MembershipContext.membership_of(admin, "not-a-uuid") == nil
@@ -379,9 +295,9 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     # 并发 unique 两姿态 / 真 DB 故障上抛 / 空角色 / 角色不存在。
 
     test "happy path：非成员 → 建 Membership + 入座指定角色" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
 
       assert {:ok, membership} =
                MembershipContext.admit_member(member.id, workspace.id, [:tutor],
@@ -395,10 +311,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "已有成员 → business_error：existing 守卫返回「已是成员」业务错误" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
-      add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+      Fixtures.add_member(workspace, member, [:member])
 
       assert {:error, error} =
                MembershipContext.admit_member(member.id, workspace.id, [:tutor],
@@ -411,10 +327,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "已有成员 → idempotent：existing 守卫幂等成功，回查已有 membership" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
-      existing = add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+      existing = Fixtures.add_member(workspace, member, [:member])
 
       assert {:ok, membership} =
                MembershipContext.admit_member(member.id, workspace.id, [:learner],
@@ -426,9 +342,9 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "并发 unique 冲突 → business_error：越过守卫后 DB unique index 拒绝，转业务错误" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
 
       # 先用 admit_member 建一条（模拟并发下另一请求已插入）
       assert {:ok, _} =
@@ -451,7 +367,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       # （filter 解析 InvalidFilterValue）。admit_member 应把它转成结构化业务错误返回，
       # 不 raise——尤其 Workspace.join 是 generic action transaction?: false，raise 会变 500。
       # fail-closed 不变量：读失败既不建 membership 也不假装成功。
-      member = new_user()
+      member = Fixtures.register_user("mc-member")
 
       assert {:error, error} =
                MembershipContext.admit_member(member.id, "not-a-uuid", [:member],
@@ -464,7 +380,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
 
     test "existing 守卫读失败：idempotent 模式同样返结构化错误而非 raise" do
       # Workspace.join 走 on_conflict: :idempotent，读失败也必须 fail-closed 返错误
-      member = new_user()
+      member = Fixtures.register_user("mc-member")
 
       assert {:error, error} =
                MembershipContext.admit_member(member.id, "not-a-uuid", [:learner],
@@ -475,9 +391,9 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "空角色列表：建 Membership 不建 MembershipRole（决策 6）" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
 
       assert {:ok, membership} =
                MembershipContext.admit_member(member.id, workspace.id, [],
@@ -491,9 +407,9 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "角色不存在：role_names 含租户内不存在的角色名 → 跳过该角色" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = new_user()
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
 
       # :owner 在工作台已 seed，:nonexistent 不存在 → 跳过，owner 正常入座
       assert {:ok, _membership} =
@@ -508,7 +424,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
 
   describe "admit_to_default_workspace (ADR-0004 默认 workspace 2046)" do
     test "新用户入座 2046 为 member 并建 WorkspaceProfile" do
-      user = new_user()
+      user = Fixtures.register_user("mc-user")
 
       assert {:ok, _membership} = MembershipContext.admit_to_default_workspace(user.id)
 
@@ -536,7 +452,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "幂等：重复调用不报错、不重复入座" do
-      user = new_user()
+      user = Fixtures.register_user("mc-user")
 
       assert {:ok, _} = MembershipContext.admit_to_default_workspace(user.id)
       assert {:ok, _} = MembershipContext.admit_to_default_workspace(user.id)
@@ -557,10 +473,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     end
 
     test "已加入其它 workspace 的用户也可入座 2046" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      user = new_user()
-      add_member(workspace, user, admin, [:learner])
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("mc-user")
+      Fixtures.add_member(workspace, user, [:learner])
 
       assert {:ok, _} = MembershipContext.admit_to_default_workspace(user.id)
 

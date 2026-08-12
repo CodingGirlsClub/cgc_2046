@@ -1,74 +1,9 @@
 defmodule Cgc2046.Accounts.MembershipTest do
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "member-admin@example.com"
-  @member_email "member-normal@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  # 注册一个平台管理员用户（直接写库提权，模拟种子/运维操作）
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp normal_user do
-    register_user(@member_email, @password)
-  end
-
-  defp create_workspace(admin, slug \\ "membership-ws-#{System.unique_integer([:positive])}") do
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "Membership WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  # 以 owner/admin 身份把一个用户拉进工作台（目前无 join 流程，测试直接建成员资格）
-  defp add_member(workspace, user, actor, role_names \\ []) do
-    {:ok, membership} =
-      WorkspaceMembership
-      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    if role_names != [] do
-      assert {:ok, _membership} =
-               membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
-               |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
-    end
-
-    membership
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp load_role_names(membership) do
     Ash.load!(membership, :roles, tenant: membership.workspace_id, authorize?: false)
@@ -79,8 +14,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
 
   describe "create workspace establishes owner membership" do
     test "platform admin becomes an owner member with owner role" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       assert {:ok, memberships} =
                WorkspaceMembership
@@ -98,8 +33,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "roles are seeded per workspace (owner/admin/member/tutor/volunteer/learner)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       roles =
         Cgc2046.Accounts.Role
@@ -113,14 +48,14 @@ defmodule Cgc2046.Accounts.MembershipTest do
 
   describe "assign_roles" do
     setup do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, admin: admin, workspace: workspace}
     end
 
     test "owner can assign multiple roles (set semantics)", %{admin: admin, workspace: workspace} do
-      user = normal_user()
-      membership = add_member(workspace, user, admin)
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user)
 
       assert {:ok, updated} =
                membership
@@ -131,8 +66,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "assigning again replaces the whole role set", %{admin: admin, workspace: workspace} do
-      user = normal_user()
-      membership = add_member(workspace, user, admin, [:admin, :member])
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user, [:admin, :member])
 
       assert {:ok, updated} =
                membership
@@ -143,8 +78,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "empty role_names clears all roles", %{admin: admin, workspace: workspace} do
-      user = normal_user()
-      membership = add_member(workspace, user, admin, [:admin, :member])
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user, [:admin, :member])
 
       assert {:ok, updated} =
                membership
@@ -155,8 +90,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "rejects unknown role names", %{admin: admin, workspace: workspace} do
-      user = normal_user()
-      membership = add_member(workspace, user, admin)
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user)
 
       assert {:error, %Ash.Error.Invalid{}} =
                membership
@@ -169,8 +104,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
       admin: admin,
       workspace: workspace
     } do
-      user = normal_user()
-      membership = add_member(workspace, user, admin)
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user)
 
       assert {:ok, updated} =
                membership
@@ -182,9 +117,9 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert load_role_names(updated) == [:learner, :tutor, :volunteer]
     end
 
-    test "plain member cannot assign roles", %{admin: admin, workspace: workspace} do
-      user = normal_user()
-      membership = add_member(workspace, user, admin, [:member])
+    test "plain member cannot assign roles", %{workspace: workspace} do
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user, [:member])
 
       assert {:error, %Ash.Error.Forbidden{}} =
                membership
@@ -192,10 +127,10 @@ defmodule Cgc2046.Accounts.MembershipTest do
                |> Ash.update(tenant: workspace.id, actor: user)
     end
 
-    test "outsider cannot assign roles", %{admin: admin, workspace: workspace} do
-      outsider = register_user("outsider@example.com", @password)
-      user = normal_user()
-      membership = add_member(workspace, user, admin)
+    test "outsider cannot assign roles", %{workspace: workspace} do
+      outsider = Fixtures.register_user("outsider")
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                membership
@@ -206,12 +141,16 @@ defmodule Cgc2046.Accounts.MembershipTest do
 
   describe "tenant isolation" do
     test "memberships are scoped to their workspace tenant" do
-      admin = admin_user()
-      ws_a = create_workspace(admin, "tenant-a-#{System.unique_integer([:positive])}")
-      ws_b = create_workspace(admin, "tenant-b-#{System.unique_integer([:positive])}")
+      admin = Fixtures.platform_admin("member-admin")
 
-      user = normal_user()
-      add_member(ws_a, user, admin, [:member])
+      ws_a =
+        Fixtures.create_workspace(admin, %{slug: "tenant-a-#{System.unique_integer([:positive])}"})
+
+      ws_b =
+        Fixtures.create_workspace(admin, %{slug: "tenant-b-#{System.unique_integer([:positive])}"})
+
+      user = Fixtures.register_user("member-normal")
+      Fixtures.add_member(ws_a, user, [:member])
 
       # ws_b 里查不到 ws_a 的成员（ws_b 只应有 admin 自己的 owner membership）
       assert {:ok, ws_b_members} =
@@ -224,12 +163,16 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "me_workspaces only returns workspaces the actor belongs to" do
-      admin = admin_user()
-      ws_a = create_workspace(admin, "me-a-#{System.unique_integer([:positive])}")
-      ws_b = create_workspace(admin, "me-b-#{System.unique_integer([:positive])}")
+      admin = Fixtures.platform_admin("member-admin")
 
-      user = normal_user()
-      add_member(ws_a, user, admin, [:member])
+      ws_a =
+        Fixtures.create_workspace(admin, %{slug: "me-a-#{System.unique_integer([:positive])}"})
+
+      ws_b =
+        Fixtures.create_workspace(admin, %{slug: "me-b-#{System.unique_integer([:positive])}"})
+
+      user = Fixtures.register_user("member-normal")
+      Fixtures.add_member(ws_a, user, [:member])
 
       assert {:ok, mine} =
                Workspace
@@ -242,11 +185,13 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "my_role_names reflects actor membership ([] for non-member)" do
-      admin = admin_user()
-      workspace = create_workspace(admin, "roles-me-#{System.unique_integer([:positive])}")
+      admin = Fixtures.platform_admin("member-admin")
 
-      user = normal_user()
-      add_member(workspace, user, admin, [:member])
+      workspace =
+        Fixtures.create_workspace(admin, %{slug: "roles-me-#{System.unique_integer([:positive])}"})
+
+      user = Fixtures.register_user("member-normal")
+      Fixtures.add_member(workspace, user, [:member])
 
       assert {:ok, [fetched]} =
                Workspace
@@ -256,7 +201,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       loaded = Ash.load!(fetched, :my_role_names, actor: user)
       assert loaded.my_role_names == ["member"]
 
-      outsider = register_user("outsider2@example.com", @password)
+      outsider = Fixtures.register_user("outsider2")
 
       assert {:ok, [fetched2]} =
                Workspace
@@ -268,11 +213,13 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "my_membership_id and can_access reflect actor membership" do
-      admin = admin_user()
-      workspace = create_workspace(admin, "me-mem-#{System.unique_integer([:positive])}")
+      admin = Fixtures.platform_admin("member-admin")
 
-      user = normal_user()
-      membership = add_member(workspace, user, admin, [:member])
+      workspace =
+        Fixtures.create_workspace(admin, %{slug: "me-mem-#{System.unique_integer([:positive])}"})
+
+      user = Fixtures.register_user("member-normal")
+      membership = Fixtures.add_member(workspace, user, [:member])
 
       assert {:ok, [fetched]} =
                Workspace
@@ -283,7 +230,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert loaded.my_membership_id == membership.id
       assert loaded.can_access == true
 
-      outsider = register_user("outsider3@example.com", @password)
+      outsider = Fixtures.register_user("outsider3")
 
       assert {:ok, [fetched2]} =
                Workspace
@@ -301,8 +248,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
     # advisory lock + owner_count 读）。唯一 owner 的 destroy 必须被 before_action 拒绝。
 
     test "rejects destroying the sole owner (orphan protection)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       # admin 是该工作台唯一 owner 成员（create_workspace 的 after_action 建立）
       membership =
@@ -327,14 +274,13 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "allows destroying a non-last owner" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(admin)
 
-      other =
-        register_user("destroy-co-#{System.unique_integer([:positive])}@example.com", @password)
+      other = Fixtures.register_user("destroy-co")
 
       # 第二个 owner（admin 授予 other owner 角色，admin 仍是 owner）
-      membership = add_member(workspace, other, admin, [:owner])
+      membership = Fixtures.add_member(workspace, other, [:owner])
       assert load_role_names(membership) == [:owner]
       assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 2
 
@@ -360,25 +306,17 @@ defmodule Cgc2046.Accounts.MembershipTest do
     # Admin 角色的 actor 删除 owner 成员 = 等效撤销 owner，必须被拒（与 assign_roles
     # 规则1「Admin 不能碰 owner」对称）。
     test "rejects non-owner admin destroying an owner member (rule 1 mirror)" do
-      owner = admin_user()
-      workspace = create_workspace(owner)
+      owner = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(owner)
       # 纯 admin 角色的 actor（非 owner）：owner 拉进来只给 admin
-      admin_only =
-        register_user(
-          "destroy-admin-only-#{System.unique_integer([:positive])}@example.com",
-          @password
-        )
+      admin_only = Fixtures.register_user("destroy-admin-only")
 
-      admin_membership = add_member(workspace, admin_only, owner, [:admin])
+      admin_membership = Fixtures.add_member(workspace, admin_only, [:admin])
       assert load_role_names(admin_membership) == [:admin]
       # 第三个 owner 成员，给 owner 角色
-      third =
-        register_user(
-          "destroy-owner-third-#{System.unique_integer([:positive])}@example.com",
-          @password
-        )
+      third = Fixtures.register_user("destroy-owner-third")
 
-      third_membership = add_member(workspace, third, owner, [:owner])
+      third_membership = Fixtures.add_member(workspace, third, [:owner])
       assert load_role_names(third_membership) == [:owner]
       # owner_count=2（owner + third），删 third 不触发最后 owner 保护，
       # 但 admin_only 不是 owner → 规则1 镜像应拒绝
@@ -397,17 +335,13 @@ defmodule Cgc2046.Accounts.MembershipTest do
     end
 
     test "allows destroying a non-owner member (admin role)" do
-      owner = admin_user()
-      workspace = create_workspace(owner)
+      owner = Fixtures.platform_admin("member-admin")
+      workspace = Fixtures.create_workspace(owner)
 
       # 纯 admin 角色的成员（非 owner）
-      admin_only =
-        register_user(
-          "destroy-non-owner-#{System.unique_integer([:positive])}@example.com",
-          @password
-        )
+      admin_only = Fixtures.register_user("destroy-non-owner")
 
-      admin_membership = add_member(workspace, admin_only, owner, [:admin])
+      admin_membership = Fixtures.add_member(workspace, admin_only, [:admin])
       assert load_role_names(admin_membership) == [:admin]
       assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
 

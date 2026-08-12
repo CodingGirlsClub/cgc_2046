@@ -10,10 +10,9 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
   use Cgc2046Web.ConnCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Phase2Fixtures
+  alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workers.ApprovalReminderWorker
   alias Cgc2046.Workflows.SignalLog
@@ -21,7 +20,6 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
   alias Cgc2046.Workflows.TestActions
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
-  alias AshAuthentication.Info, as: AuthInfo
 
   require Ash.Query
 
@@ -29,44 +27,6 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
     StepHandlerRegistry.register(TestActions.Uppercase)
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     :ok
-  end
-
-  @password "sup3r-secret-password"
-
-  defp register_user(email) do
-    strategy = AuthInfo.strategy!(User, :password)
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin do
-    user = register_user("reminder-admin-#{System.unique_integer([:positive])}@example.com")
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "reminder-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "Reminder WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp gated_node_def do
@@ -141,8 +101,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
   describe "48h 提醒窗口" do
     test "waiting 且 deadline 在未来 48h 内 → 落 SignalLog 提醒" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(admin)
       # 审批超时 24h：deadline ≈ now+24h，落在 48h 窗口内
       waiting = create_waiting_run(workspace, admin, 86_400)
 
@@ -157,21 +117,19 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
     end
 
     test "关联 pending Enrollment 时只提醒工作台 Owner/Admin，不提醒申请人" do
-      owner = platform_admin()
-      workspace = create_workspace(owner)
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
       waiting = create_waiting_run(workspace, owner, 86_400)
 
       admin =
-        register_user(
-          "reminder-workspace-admin-#{System.unique_integer([:positive])}@example.com"
-        )
+        Fixtures.register_user("reminder-workspace-admin-#{System.unique_integer([:positive])}")
 
-      Phase2Fixtures.add_member(workspace, admin, [:admin])
+      Fixtures.add_member(workspace, admin, [:admin])
 
       learner =
-        register_user("reminder-learner-#{System.unique_integer([:positive])}@example.com")
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
 
-      event = Phase2Fixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
 
       Enrollment
       |> Ash.Changeset.for_create(:create_enrollment, %{
@@ -209,8 +167,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
     end
 
     test "deadline 超 48h → 不落" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(admin)
       # 审批超时 72h：deadline ≈ now+72h，超出 48h 窗口
       waiting = create_waiting_run(workspace, admin, 259_200)
 
@@ -220,8 +178,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
     end
 
     test "approval_timeout = nil（无超时）→ 不落" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(admin)
       waiting = create_waiting_run(workspace, admin, nil)
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
@@ -230,8 +188,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
     end
 
     test "幂等：同 run 重复执行只落一条（Oban 唯一任务之外的落库查重兜底）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(admin)
       waiting = create_waiting_run(workspace, admin, 86_400)
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})

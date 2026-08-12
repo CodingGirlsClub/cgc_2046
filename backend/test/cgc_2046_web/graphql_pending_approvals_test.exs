@@ -2,10 +2,9 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
   use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.Accounts.JoinRequest
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
-
-  @password "sup3r-secret-password"
+  alias Cgc2046.EventsFixtures, as: EventFixtures
 
   @query """
   query {
@@ -35,7 +34,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     Fixtures.add_member(workspace, owner, [:owner])
     Fixtures.add_member(other_workspace, other_owner, [:owner])
 
-    event = Fixtures.create_event(workspace, platform_admin, %{enrollment_policy: :request})
+    event = EventFixtures.create_event(workspace, platform_admin, %{enrollment_policy: :request})
 
     enrollment = create_pending_enrollment(event, applicant_a)
     join_request = create_join_request(workspace, applicant_b)
@@ -94,7 +93,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
   defp sign_in_token(user) do
     mutation = """
     mutation {
-      signIn(email: "#{user.email}", password: "#{@password}") { id }
+      signIn(email: "#{user.email}", password: "#{Fixtures.password()}") { id }
     }
     """
 

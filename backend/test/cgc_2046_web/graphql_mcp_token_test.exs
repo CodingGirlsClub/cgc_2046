@@ -12,24 +12,10 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
   require Ash.Query
 
   alias Cgc2046.Accounts.User
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.Token, as: McpToken
-  alias AshAuthentication.Info, as: AuthInfo
 
-  @user_email "gql-mcp-token-user@example.com"
-  @other_email "gql-mcp-token-other@example.com"
-  @password "sup3r-secret-password"
-
-  defp register_user(email, password) do
-    strategy = AuthInfo.strategy!(User, :password)
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
+  @password Fixtures.password()
 
   defp graphql_post(conn, query, token \\ nil) do
     conn =
@@ -99,10 +85,10 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "returns own tokens newest first, excluding other users'" do
-      register_user(@user_email, @password)
-      register_user(@other_email, @password)
-      auth = sign_in_token(@user_email, @password)
-      other_auth = sign_in_token(@other_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      other = Fixtures.register_user("gql-mcp-token-other")
+      auth = sign_in_token(user.email, @password)
+      other_auth = sign_in_token(other.email, @password)
 
       {_t1, _} = issue_token(auth, "first")
       {_t2, _} = issue_token(auth, "second")
@@ -121,8 +107,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "token type does not expose plainToken (明文不可经 query 读回)" do
-      register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
 
       res = graphql_post(build_conn(), "query { myMcpTokens { id plainToken } }", auth)
 
@@ -139,8 +125,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "issues token: plaintext returned once, only SHA256 hash persisted" do
-      user = register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
 
       {result, plain} = issue_token(auth, "my-laptop")
 
@@ -166,8 +152,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "blank name returns structured errors, no token created" do
-      register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
 
       res = graphql_post(build_conn(), create_mcp_token_mutation(""), auth)
 
@@ -199,8 +185,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "revokes own token: revokedAt set and token stops validating" do
-      register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
       {%{"id" => id}, plain} = issue_token(auth, "to-revoke")
 
       res =
@@ -226,10 +212,10 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "revoking another user's token returns not_found (不泄露存在性)" do
-      register_user(@user_email, @password)
-      register_user(@other_email, @password)
-      auth = sign_in_token(@user_email, @password)
-      other_auth = sign_in_token(@other_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      other = Fixtures.register_user("gql-mcp-token-other")
+      auth = sign_in_token(user.email, @password)
+      other_auth = sign_in_token(other.email, @password)
       {%{"id" => other_id}, _} = issue_token(other_auth, "other-token")
 
       res =
@@ -244,8 +230,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "revoking unknown id returns not_found" do
-      register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
 
       res =
         graphql_post(
@@ -259,8 +245,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "revoking an already revoked token returns invalid_attribute" do
-      register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
       {%{"id" => id}, _} = issue_token(auth, "double-revoke")
 
       mutation = ~s|mutation { revokeMcpToken(id: "#{id}") { id revokedAt } }|
@@ -281,10 +267,10 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     # AshGraphql 原行为（to_ash_graphql_errors 输出）一致——message/code/fields
     # 齐备，未来客户端可依赖统一错误形状分流。
     test "not_found (other user / unknown id) exposes message/code/fields like AshGraphql" do
-      register_user(@user_email, @password)
-      register_user(@other_email, @password)
-      auth = sign_in_token(@user_email, @password)
-      other_auth = sign_in_token(@other_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      other = Fixtures.register_user("gql-mcp-token-other")
+      auth = sign_in_token(user.email, @password)
+      other_auth = sign_in_token(other.email, @password)
       {%{"id" => other_id}, _} = issue_token(other_auth, "other-token")
 
       for id <- [other_id, Ecto.UUID.generate()] do
@@ -306,8 +292,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "invalid (already revoked) exposes message/code/fields like AshGraphql" do
-      register_user(@user_email, @password)
-      auth = sign_in_token(@user_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      auth = sign_in_token(user.email, @password)
       {%{"id" => id}, _} = issue_token(auth, "double-revoke")
 
       mutation = ~s|mutation { revokeMcpToken(id: "#{id}") { id revokedAt } }|
@@ -324,10 +310,10 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
     end
 
     test "all revoke error branches share the same error entry field keys" do
-      register_user(@user_email, @password)
-      register_user(@other_email, @password)
-      auth = sign_in_token(@user_email, @password)
-      other_auth = sign_in_token(@other_email, @password)
+      user = Fixtures.register_user("gql-mcp-token-user")
+      other = Fixtures.register_user("gql-mcp-token-other")
+      auth = sign_in_token(user.email, @password)
+      other_auth = sign_in_token(other.email, @password)
       {%{"id" => other_id}, _} = issue_token(other_auth, "other-token")
       {%{"id" => own_id}, _} = issue_token(auth, "own-token")
 

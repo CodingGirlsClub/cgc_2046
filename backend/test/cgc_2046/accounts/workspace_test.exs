@@ -1,78 +1,14 @@
 defmodule Cgc2046.Accounts.WorkspaceTest do
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Rbac
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "admin@example.com"
-  @normal_email "normal@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  # 注册一个平台管理员用户（直接写库提权，模拟种子/运维操作）
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp normal_user do
-    register_user(@normal_email, @password)
-  end
-
-  # 以 owner/admin 身份把一个用户拉进工作台（测试直接建成员资格）
-  # 注（#78 review SUGGESTED-2）：for_update 必须携带 actor/tenant（Owner 角色
-  # 授予校验读 changeset context；tenant 供多租户 update），与 #64 的 P0 grant
-  # scope 约定一致；authorize?: false 仅旁路授权、不旁路 action 校验。
-  defp add_member(workspace, user, actor, role_names) do
-    {:ok, membership} =
-      WorkspaceMembership
-      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    if role_names != [] do
-      assert {:ok, _membership} =
-               membership
-               |> Ash.Changeset.for_update(
-                 :assign_roles,
-                 %{role_names: role_names},
-                 actor: actor,
-                 tenant: workspace.id
-               )
-               |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
-    end
-
-    membership
-  end
 
   describe "create workspace" do
     test "platform admin can create a workspace with defaults" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -86,7 +22,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "non-admin cannot create a workspace" do
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Workspace
@@ -104,8 +40,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "create workspace with designated owner (Phase 4 / D1)" do
     test "owner_user_id specified -> Owner membership is created for that user, not the actor" do
-      admin = admin_user()
-      owner = register_user("ws-owner-id@example.com", @password)
+      admin = Fixtures.platform_admin("ws-admin")
+      owner = Fixtures.register_user("ws-owner-id")
 
       assert {:ok, workspace} =
                Workspace
@@ -123,7 +59,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "owner_email specified -> active Invitation created with preauthorized [:owner]" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -154,14 +90,16 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "owner_email invitation accept -> Owner membership is created" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      acceptor = Fixtures.register_user("owner-accept")
+      acceptor_email = to_string(acceptor.email)
 
       assert {:ok, workspace} =
                Workspace
                |> Ash.Changeset.for_create(:create, %{
                  slug: "ws-owner-accept-#{System.unique_integer([:positive])}",
                  name: "Owner Accept WS",
-                 owner_email: "owner-accept@example.com"
+                 owner_email: acceptor_email
                })
                |> Ash.create(actor: admin)
 
@@ -170,7 +108,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert {:ok, invitations} =
                Cgc2046.Accounts.Invitation
                |> Ash.Query.for_read(:read)
-               |> Ash.Query.filter(target_email == "owner-accept@example.com")
+               |> Ash.Query.filter(target_email == ^acceptor_email)
                |> Ash.read(tenant: workspace.id, actor: admin)
 
       assert [invitation] = invitations
@@ -178,8 +116,6 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       # 明文 token 经 workspace create 的 metadata 一次性交付（R5）
       token = workspace.__metadata__[:owner_invitation_token]
       refute is_nil(token)
-
-      acceptor = register_user("owner-accept@example.com", @password)
 
       assert {:ok, accepted} =
                invitation
@@ -195,7 +131,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "no owner arguments -> fallback to actor.id as Owner" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -211,7 +147,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "pending-owner invitation lifecycle (#114)" do
     test "owner_email create -> invitation carries expires_at (~7 days)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -239,8 +175,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "reassign_owner (#114)" do
     test "reassign to existing user -> old invitation revoked, user seated as Owner" do
-      admin = admin_user()
-      new_owner = register_user("reassign-new-owner@example.com", @password)
+      admin = Fixtures.platform_admin("ws-admin")
+      new_owner = Fixtures.register_user("reassign-new-owner")
 
       assert {:ok, workspace} =
                Workspace
@@ -272,8 +208,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "reassign to a user who is already a member -> promoted on existing membership, no unique conflict" do
-      admin = admin_user()
-      member = register_user("reassign-member@example.com", @password)
+      admin = Fixtures.platform_admin("ws-admin")
+      member = Fixtures.register_user("reassign-member")
 
       assert {:ok, workspace} =
                Workspace
@@ -310,7 +246,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "reassign to email -> old revoked, new active invitation with expires_at + one-time token" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -348,9 +284,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "workspace with seated Owner -> reassign rejected" do
-      admin = admin_user()
-      owner = register_user("seated-owner@example.com", @password)
-      other = register_user("seated-other@example.com", @password)
+      admin = Fixtures.platform_admin("ws-admin")
+      owner = Fixtures.register_user("seated-owner")
+      other = Fixtures.register_user("seated-other")
 
       assert {:ok, workspace} =
                Workspace
@@ -370,7 +306,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "neither or both owner arguments -> rejected" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -400,26 +336,27 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "accepted invitation (Owner seated via invite) -> reassign rejected, no double Owner" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      acceptor = Fixtures.register_user("acc-owner")
+      acceptor_email = to_string(acceptor.email)
 
       assert {:ok, workspace} =
                Workspace
                |> Ash.Changeset.for_create(:create, %{
                  slug: "ws-reassign-acc-#{System.unique_integer([:positive])}",
                  name: "Reassign Acc WS",
-                 owner_email: "acc-owner@example.com"
+                 owner_email: acceptor_email
                })
                |> Ash.create(actor: admin)
 
       token = workspace.__metadata__[:owner_invitation_token]
-      acceptor = register_user("acc-owner@example.com", @password)
 
       require Ash.Query
 
       assert {:ok, [invitation]} =
                Cgc2046.Accounts.Invitation
                |> Ash.Query.for_read(:read)
-               |> Ash.Query.filter(target_email == "acc-owner@example.com")
+               |> Ash.Query.filter(target_email == ^acceptor_email)
                |> Ash.read(tenant: workspace.id, actor: admin)
 
       assert {:ok, _} =
@@ -438,8 +375,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "non-platform-admin outsider -> forbidden" do
-      admin = admin_user()
-      outsider = register_user("reassign-outsider@example.com", @password)
+      admin = Fixtures.platform_admin("ws-admin")
+      outsider = Fixtures.register_user("reassign-outsider")
 
       assert {:ok, workspace} =
                Workspace
@@ -457,9 +394,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "workspace Owner (non-platform-admin) is also forbidden (forbid_unless closes action_type(:update) hole)" do
-      admin = admin_user()
-      owner = register_user("reassign-owner-caller@example.com", @password)
-      other = register_user("reassign-other-caller@example.com", @password)
+      admin = Fixtures.platform_admin("ws-admin")
+      owner = Fixtures.register_user("reassign-owner-caller")
+      other = Fixtures.register_user("reassign-other-caller")
 
       assert {:ok, workspace} =
                Workspace
@@ -479,7 +416,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "slug" do
     setup do
-      {:ok, admin: admin_user()}
+      {:ok, admin: Fixtures.platform_admin("ws-admin")}
     end
 
     test "slug must be unique", %{admin: admin} do
@@ -522,7 +459,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "join_policy" do
     setup do
-      {:ok, admin: admin_user()}
+      {:ok, admin: Fixtures.platform_admin("ws-admin")}
     end
 
     test "accepts the three allowed values", %{admin: admin} do
@@ -558,7 +495,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "sponsorship_enabled" do
     test "defaults to true" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -569,7 +506,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "can be set to false by admin" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       assert {:ok, workspace} =
                Workspace
@@ -586,14 +523,14 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "read workspace" do
     test "any authenticated user can get a workspace by slug" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
         |> Ash.Changeset.for_create(:create, %{slug: "readable-ws", name: "Readable"})
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       assert {:ok, fetched} =
                Workspace
@@ -604,7 +541,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "anonymous user cannot read a workspace" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, _workspace} =
         Workspace
@@ -618,7 +555,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "invite_only workspace: outsider cannot read (null/forbidden)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -629,7 +566,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      outsider = register_user("invite-out@example.com", @password)
+      outsider = Fixtures.register_user("invite-out")
 
       result =
         Workspace
@@ -641,7 +578,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "invite_only workspace: member can read" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -652,8 +589,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      member = register_user("invite-member@example.com", @password)
-      add_member(workspace, member, admin, [:member])
+      member = Fixtures.register_user("invite-member")
+      Fixtures.add_member(workspace, member, [:member])
 
       assert {:ok, fetched} =
                Workspace
@@ -664,7 +601,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "invite_only workspace: platform admin can read" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -686,7 +623,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "member_count calculation (P1)" do
     test "returns member count including the owner creator" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -708,13 +645,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       # 拉入 2 个普通成员 → 3
       for i <- 1..2 do
-        user =
-          register_user(
-            "mc-user-#{i}-#{System.unique_integer([:positive])}@example.com",
-            @password
-          )
+        user = Fixtures.register_user("mc-user-#{i}")
 
-        add_member(workspace, user, admin, [:member])
+        Fixtures.add_member(workspace, user, [:member])
       end
 
       fetched =
@@ -728,7 +661,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "invite_only 工作台：outsider 读不到行 → member_count 数据不可达（policy 门控契约）" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -739,13 +672,11 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      member =
-        register_user("mc-invite-m-#{System.unique_integer([:positive])}@example.com", @password)
+      member = Fixtures.register_user("mc-invite-m")
 
-      add_member(workspace, member, admin, [:member])
+      Fixtures.add_member(workspace, member, [:member])
 
-      outsider =
-        register_user("mc-invite-o-#{System.unique_integer([:positive])}@example.com", @password)
+      outsider = Fixtures.register_user("mc-invite-o")
 
       # 安全契约（BypassReads moduledoc）：主查询仍受 policy 门控——旁路聚合
       # 数据只在可读的 workspace 行上计算；读不到行即 count 数据不可达
@@ -760,7 +691,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities_for/2 语义一致)" do
     test "owner member gets all seven abilities (incl. create_workspace)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -789,7 +720,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "plain member gets view/access only" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -799,10 +730,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      member =
-        register_user("abil-m-#{System.unique_integer([:positive])}@example.com", @password)
+      member = Fixtures.register_user("abil-m")
 
-      add_member(workspace, member, admin, [:member])
+      Fixtures.add_member(workspace, member, [:member])
 
       fetched =
         Ash.get!(Workspace, workspace.id,
@@ -815,7 +745,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "non-member platform admin gets view/access + update_join_policy + create_workspace (matches Rbac.abilities_for/2)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -864,7 +794,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "non-member non-admin gets []" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -874,8 +804,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      outsider =
-        register_user("abil-out-#{System.unique_integer([:positive])}@example.com", @password)
+      outsider = Fixtures.register_user("abil-out")
 
       fetched =
         Ash.get!(Workspace, workspace.id,
@@ -890,7 +819,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "membership user_* / joined_at calculations (P1 G6/G7)" do
     test "owner reading memberships gets userEmail/userDisplayName/joinedAt (flattened, bypassing user read policy)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -900,8 +829,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      member =
-        register_user("mbr-calc-m-#{System.unique_integer([:positive])}@example.com", @password)
+      member = Fixtures.register_user("mbr-calc-m")
 
       # 给 member 设置 display_name（ADR-0004：User 收窄为全局身份，displayName 经 update_display_name）
       {:ok, member} =
@@ -909,7 +837,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         |> Ash.Changeset.for_update(:update_display_name, %{display_name: "Calc Member"})
         |> Ash.update(actor: member)
 
-      add_member(workspace, member, admin, [:member])
+      Fixtures.add_member(workspace, member, [:member])
 
       require Ash.Query
 
@@ -945,7 +873,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "regular member only sees own membership row (cannot read others' emails)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -955,14 +883,12 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      member_a =
-        register_user("mbr-neg-a-#{System.unique_integer([:positive])}@example.com", @password)
+      member_a = Fixtures.register_user("mbr-neg-a")
 
-      member_b =
-        register_user("mbr-neg-b-#{System.unique_integer([:positive])}@example.com", @password)
+      member_b = Fixtures.register_user("mbr-neg-b")
 
-      add_member(workspace, member_a, admin, [:member])
-      add_member(workspace, member_b, admin, [:member])
+      Fixtures.add_member(workspace, member_a, [:member])
+      Fixtures.add_member(workspace, member_b, [:member])
 
       require Ash.Query
 
@@ -991,7 +917,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "update workspace" do
     test "platform admin can update join_policy" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1007,8 +933,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "non-admin cannot update a workspace" do
-      admin = admin_user()
-      user = normal_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      user = Fixtures.register_user("ws-normal")
 
       {:ok, workspace} =
         Workspace
@@ -1022,15 +948,15 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "owner can update join_policy（#78）" do
-      admin = admin_user()
-      owner = normal_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      owner = Fixtures.register_user("ws-normal")
 
       {:ok, workspace} =
         Workspace
         |> Ash.Changeset.for_create(:create, %{slug: "owner-policy-ws", name: "Owner Policy"})
         |> Ash.create(actor: admin)
 
-      add_member(workspace, owner, admin, [:owner])
+      Fixtures.add_member(workspace, owner, [:owner])
 
       assert {:ok, updated} =
                workspace
@@ -1041,15 +967,15 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "admin can update join_policy（#78）" do
-      admin = admin_user()
-      workspace_admin = normal_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      workspace_admin = Fixtures.register_user("ws-normal")
 
       {:ok, workspace} =
         Workspace
         |> Ash.Changeset.for_create(:create, %{slug: "admin-policy-ws", name: "Admin Policy"})
         |> Ash.create(actor: admin)
 
-      add_member(workspace, workspace_admin, admin, [:admin])
+      Fixtures.add_member(workspace, workspace_admin, [:admin])
 
       assert {:ok, updated} =
                workspace
@@ -1060,15 +986,15 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "regular member cannot update join_policy（#78）" do
-      admin = admin_user()
-      member = normal_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      member = Fixtures.register_user("ws-normal")
 
       {:ok, workspace} =
         Workspace
         |> Ash.Changeset.for_create(:create, %{slug: "member-policy-ws", name: "Member Policy"})
         |> Ash.create(actor: admin)
 
-      add_member(workspace, member, admin, [:member])
+      Fixtures.add_member(workspace, member, [:member])
 
       assert {:error, %Ash.Error.Forbidden{}} =
                workspace
@@ -1077,8 +1003,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "non-member cannot update join_policy（#78）" do
-      admin = admin_user()
-      outsider = normal_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      outsider = Fixtures.register_user("ws-normal")
 
       {:ok, workspace} =
         Workspace
@@ -1097,7 +1023,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "join workspace (G13)" do
     test "open workspace: user can join and gets learner role" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1108,7 +1034,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       assert {:ok, joined} =
                Workspace
@@ -1132,7 +1058,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "request workspace: join action returns error" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1143,7 +1069,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       result =
         Workspace
@@ -1155,7 +1081,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "invite_only workspace: join action returns error" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1166,7 +1092,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       result =
         Workspace
@@ -1178,7 +1104,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "anonymous user cannot join open workspace" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1199,7 +1125,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "ownerless (pending-owner) open workspace: join blocked until owner accepts invitation (#115)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
+      owner = Fixtures.register_user("pending-owner-join")
+      owner_email = to_string(owner.email)
 
       # owner_email 创建 → pending-owner：角色已 seed 但无 Owner membership
       {:ok, workspace} =
@@ -1208,11 +1136,11 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
           slug: "join-ownerless-#{System.unique_integer([:positive])}",
           name: "Join Ownerless",
           join_policy: :open,
-          owner_email: "pending-owner-join@example.com"
+          owner_email: owner_email
         })
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       # ownerless：join 被门控拒绝（Owner 未就位）
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
@@ -1231,10 +1159,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       {:ok, [invitation]} =
         Cgc2046.Accounts.Invitation
         |> Ash.Query.for_read(:read)
-        |> Ash.Query.filter(target_email == "pending-owner-join@example.com")
+        |> Ash.Query.filter(target_email == ^owner_email)
         |> Ash.read(tenant: workspace.id, actor: admin)
-
-      owner = register_user("pending-owner-join@example.com", @password)
 
       assert {:ok, _} =
                invitation
@@ -1250,7 +1176,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     test "open workspace: already a member returns workspace without creating duplicate membership" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1261,7 +1187,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       # First join - should create membership
       assert {:ok, joined} =
@@ -1299,7 +1225,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     # 回归 P1：并发 join 同一用户到同一 workspace，DB unique 约束兜底，
     # 两个请求都应成功返回（幂等），DB 最终只一条 membership + learner 角色。
     test "open workspace: concurrent join by same user is idempotent, no 500" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1310,7 +1236,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      user = normal_user()
+      user = Fixtures.register_user("ws-normal")
 
       tasks =
         for _ <- 1..4 do
@@ -1345,7 +1271,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
   describe "platform_admin bypass on membership read (Phase 10 P2)" do
     test "platform_admin non-member can read all workspace memberships (R13 详情页)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
         Workspace
@@ -1355,34 +1281,12 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         })
         |> Ash.create(actor: admin)
 
-      owner =
-        register_user(
-          "padm-mbr-owner-#{System.unique_integer([:positive])}@example.com",
-          @password
-        )
+      owner = Fixtures.register_user("padm-mbr-owner")
 
-      add_member(workspace, owner, admin, [:owner])
+      Fixtures.add_member(workspace, owner, [:owner])
 
       # 另一个 platform_admin（非该 workspace 成员）读 memberships
-      other_admin =
-        register_user(
-          "padm-mbr-admin-#{System.unique_integer([:positive])}@example.com",
-          @password
-        )
-
-      {:ok, _} =
-        Ecto.Adapters.SQL.query(
-          Cgc2046.Repo,
-          "UPDATE users SET is_platform_admin = true WHERE id = $1",
-          [Ecto.UUID.dump!(other_admin.id)]
-        )
-
-      other_admin =
-        Ash.get!(User, other_admin.id,
-          actor: other_admin,
-          authorize?: false,
-          domain: Cgc2046.GlobalApi
-        )
+      other_admin = Fixtures.platform_admin("padm-mbr-admin")
 
       require Ash.Query
 

@@ -14,8 +14,6 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
   use Cgc2046Web.ConnCase, async: false
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Events.{Course, Event}
 
   alias Cgc2046.Workflows.{
@@ -25,11 +23,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     WorkflowDefinition
   }
 
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "gql-wf-admin@example.com"
-  @outsider_email "gql-wf-outsider@example.com"
-  @password "sup3r-secret-password"
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
     # 注册测试 step handlers（ADR-0003 两阶段初始化）
@@ -37,33 +31,6 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     StepHandlerRegistry.register(TestActions.AlwaysFail)
     :ok
-  end
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
   end
 
   defp graphql_post(conn, query, token) do
@@ -96,17 +63,6 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
     assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
     conn.resp_cookies["cgc_token"].value
-  end
-
-  defp create_workspace(admin) do
-    slug = "gql-wf-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "GQL WF WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   # 纯 auto 教研定义：uppercase → append_exclamation（start_run 直接 succeeded）
@@ -158,8 +114,8 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
   # 建 workspace + published 教研定义 + 已启动 run（succeeded）
   defp seeded_run do
-    admin = platform_admin()
-    workspace = create_workspace(admin)
+    admin = Fixtures.platform_admin("gql-wf-admin")
+    workspace = Fixtures.create_workspace(admin)
     {:ok, defn} = create_definition(workspace, admin, auto_node_def())
     {:ok, published} = publish_definition(defn, workspace, admin)
     {:ok, event} = create_event(workspace, admin)
@@ -177,8 +133,8 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
   describe "listWorkflowRuns / getWorkflowRun（#40）" do
     test "成员可见本工作台 run（count + results + status）" do
-      {_admin, workspace, run} = seeded_run()
-      token = sign_in_token(@admin_email, @password)
+      {admin, workspace, run} = seeded_run()
+      token = sign_in_token(admin.email, Fixtures.password())
 
       query = """
       query {
@@ -205,8 +161,8 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
     test "非成员空结果（read policy 过滤）" do
       {_admin, workspace, _run} = seeded_run()
-      _outsider = register_user(@outsider_email)
-      token = sign_in_token(@outsider_email, @password)
+      outsider = Fixtures.register_user("gql-wf-outsider")
+      token = sign_in_token(outsider.email, Fixtures.password())
 
       query = """
       query {
@@ -227,8 +183,8 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     end
 
     test "getWorkflowRun 按 id 取详情（含 facts JsonString）" do
-      {_admin, _workspace, run} = seeded_run()
-      token = sign_in_token(@admin_email, @password)
+      {admin, _workspace, run} = seeded_run()
+      token = sign_in_token(admin.email, Fixtures.password())
 
       query = """
       query {
@@ -256,11 +212,11 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
   describe "listEvents / getEvent / listCourses / getCourse（#40）" do
     test "成员可见本工作台活动与课程" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("gql-wf-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, event} = create_event(workspace, admin)
       {:ok, course} = create_course(workspace, admin)
-      token = sign_in_token(@admin_email, @password)
+      token = sign_in_token(admin.email, Fixtures.password())
 
       events_query = """
       query {

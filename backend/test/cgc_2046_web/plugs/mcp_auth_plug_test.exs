@@ -7,20 +7,9 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
   """
   use Cgc2046Web.ConnCase, async: true
 
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.Token
   alias Cgc2046Web.Plugs.McpAuthPlug
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
 
   defp issue_token(user) do
     {:ok, token} =
@@ -34,7 +23,7 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
   defp call(conn), do: McpAuthPlug.call(conn, McpAuthPlug.init([]))
 
   test "有效 Bearer token → current_user 注入，请求放行" do
-    user = register_user("mcp-plug-ok@example.com")
+    user = Fixtures.register_user("mcp-plug-ok")
     {_token, plain} = issue_token(user)
 
     conn =
@@ -75,7 +64,7 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
   end
 
   test "已撤销 token → 401" do
-    user = register_user("mcp-plug-revoked@example.com")
+    user = Fixtures.register_user("mcp-plug-revoked")
     {token, plain} = issue_token(user)
 
     {:ok, _} =

@@ -1,47 +1,10 @@
 defmodule Cgc2046Web.GraphqlProfileTest do
   use Cgc2046Web.ConnCase, async: true
 
-  require Ash.Query
-
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
-  alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.Accounts.WorkspaceProfile
-  alias AshAuthentication.Info, as: AuthInfo
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
-  @admin_email "gql-profile-admin@example.com"
-  @user_email "gql-profile-user@example.com"
-  @other_email "gql-profile-other@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
+  @password Fixtures.password()
 
   defp graphql_post(conn, query, token \\ nil) do
     conn =
@@ -74,24 +37,6 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     assert %{"data" => %{"signIn" => %{"id" => _id}}} = json_response(conn, 200)
     token = conn.resp_cookies["cgc_token"].value
     token
-  end
-
-  defp create_workspace(admin, slug) do
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "GQL Profile WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  defp add_member(workspace, user, actor) do
-    assert {:ok, membership} =
-             WorkspaceMembership
-             |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-             |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    membership
   end
 
   defp ensure_profile(workspace, user, attrs \\ %{}) do
@@ -133,8 +78,8 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
 
     test "returns global identity fields only (no profile fields)" do
-      _admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      token = sign_in_token(admin.email, @password)
 
       res = graphql_post(build_conn(), me_query(), token)
 
@@ -152,7 +97,7 @@ defmodule Cgc2046Web.GraphqlProfileTest do
              } = res
 
       assert is_binary(id)
-      assert email == @admin_email
+      assert email == to_string(admin.email)
       assert display_name == nil
       assert is_platform_admin == true
       assert is_binary(member_number)
@@ -161,8 +106,8 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
 
     test "me does not expose per-workspace profile fields" do
-      _admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      token = sign_in_token(admin.email, @password)
 
       res =
         graphql_post(
@@ -185,12 +130,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
 
     test "returns current user profile in the workspace" do
-      admin = admin_user()
-      ws = create_workspace(admin, "gql-profile-ws")
-      user = register_user(@user_email, @password)
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("gql-profile-user")
+      Fixtures.add_member(ws, user)
       ensure_profile(ws, user, %{location: "杭州", about: "介绍", skills: ["TS"]})
-      token = sign_in_token(@user_email, @password)
+      token = sign_in_token(user.email, @password)
 
       res =
         graphql_post(
@@ -227,15 +172,15 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
 
     test "workspaceProfile is per-workspace (different data in different ws)" do
-      admin = admin_user()
-      ws1 = create_workspace(admin, "gql-profile-ws1")
-      ws2 = create_workspace(admin, "gql-profile-ws2")
-      user = register_user(@user_email, @password)
-      add_member(ws1, user, admin)
-      add_member(ws2, user, admin)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws1 = Fixtures.create_workspace(admin)
+      ws2 = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("gql-profile-user")
+      Fixtures.add_member(ws1, user)
+      Fixtures.add_member(ws2, user)
       ensure_profile(ws1, user, %{about: "ws1 简介"})
       ensure_profile(ws2, user, %{about: "ws2 简介"})
-      token = sign_in_token(@user_email, @password)
+      token = sign_in_token(user.email, @password)
 
       res1 =
         graphql_post(
@@ -259,12 +204,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
 
   describe "updateWorkspaceProfile mutation (ADR-0004)" do
     test "updates own profile in workspace" do
-      admin = admin_user()
-      ws = create_workspace(admin, "gql-upd-ws")
-      user = register_user(@user_email, @password)
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("gql-profile-user")
+      Fixtures.add_member(ws, user)
       ensure_profile(ws, user)
-      token = sign_in_token(@user_email, @password)
+      token = sign_in_token(user.email, @password)
 
       res =
         graphql_post(
@@ -300,13 +245,13 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
 
     test "non-member cannot update profile in a workspace" do
-      admin = admin_user()
-      ws = create_workspace(admin, "gql-forbid-ws")
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws = Fixtures.create_workspace(admin)
 
       # outsider 未加入 ws（仅 admin 是成员）；用 outsider 的 token 尝试改 admin 的档案
-      outsider = register_user(@other_email, @password)
+      outsider = Fixtures.register_user("gql-profile-other")
       ensure_profile(ws, admin)
-      token = sign_in_token(@other_email, @password)
+      token = sign_in_token(outsider.email, @password)
 
       res =
         graphql_post(
@@ -332,8 +277,8 @@ defmodule Cgc2046Web.GraphqlProfileTest do
 
   describe("updateDisplayName mutation (ADR-0004 全局身份)") do
     test "updates global display name and returns calculation fields" do
-      admin = admin_user()
-      token = sign_in_token(@admin_email, @password)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      token = sign_in_token(admin.email, @password)
 
       res =
         graphql_post(
@@ -368,12 +313,12 @@ defmodule Cgc2046Web.GraphqlProfileTest do
 
   describe "setWorkspaceTheme mutation (ADR-0004 per-workspace theme)" do
     test "sets theme in a workspace" do
-      admin = admin_user()
-      ws = create_workspace(admin, "gql-theme-ws")
-      user = register_user(@user_email, @password)
-      add_member(ws, user, admin)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("gql-profile-user")
+      Fixtures.add_member(ws, user)
       ensure_profile(ws, user)
-      token = sign_in_token(@user_email, @password)
+      token = sign_in_token(user.email, @password)
 
       res =
         graphql_post(
@@ -395,15 +340,15 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
 
     test "theme is per-workspace" do
-      admin = admin_user()
-      ws1 = create_workspace(admin, "gql-theme-ws1")
-      ws2 = create_workspace(admin, "gql-theme-ws2")
-      user = register_user(@user_email, @password)
-      add_member(ws1, user, admin)
-      add_member(ws2, user, admin)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws1 = Fixtures.create_workspace(admin)
+      ws2 = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("gql-profile-user")
+      Fixtures.add_member(ws1, user)
+      Fixtures.add_member(ws2, user)
       ensure_profile(ws1, user)
       ensure_profile(ws2, user)
-      token = sign_in_token(@user_email, @password)
+      token = sign_in_token(user.email, @password)
 
       graphql_post(
         build_conn(),
@@ -431,13 +376,13 @@ defmodule Cgc2046Web.GraphqlProfileTest do
 
   describe "portfolio CRUD (ADR-0004 per-workspace)" do
     test "create + list + update + delete in a workspace (tenant isolated)" do
-      admin = admin_user()
-      ws1 = create_workspace(admin, "gql-pf-ws1")
-      ws2 = create_workspace(admin, "gql-pf-ws2")
-      user = register_user(@user_email, @password)
-      add_member(ws1, user, admin)
-      add_member(ws2, user, admin)
-      token = sign_in_token(@user_email, @password)
+      admin = Fixtures.platform_admin("gql-profile-admin")
+      ws1 = Fixtures.create_workspace(admin)
+      ws2 = Fixtures.create_workspace(admin)
+      user = Fixtures.register_user("gql-profile-user")
+      Fixtures.add_member(ws1, user)
+      Fixtures.add_member(ws2, user)
+      token = sign_in_token(user.email, @password)
 
       # create in ws1
       res_create =

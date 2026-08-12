@@ -2,79 +2,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.JoinRequest
-  alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "jr-admin@example.com"
-  @applicant_email "jr-applicant@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp normal_user(email \\ @applicant_email) do
-    register_user(email, @password)
-  end
-
-  defp create_workspace(admin, opts \\ []) do
-    slug = opts[:slug] || "jr-ws-#{System.unique_integer([:positive])}"
-    join_policy = opts[:join_policy] || :request
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{
-               slug: slug,
-               name: "JR WS",
-               join_policy: join_policy
-             })
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  defp add_member(workspace, user, actor, role_names) do
-    {:ok, membership} =
-      WorkspaceMembership
-      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    if role_names != [] do
-      assert {:ok, _membership} =
-               membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
-               |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
-    end
-
-    membership
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp create_join_request(workspace, user, attrs \\ %{}) do
     changes =
@@ -93,9 +23,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
   describe "create join request" do
     test "applicant can create a pending join request when join_policy is :request" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
 
       join_request = create_join_request(workspace, applicant)
 
@@ -106,9 +36,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "approval_deadline is set to 7 days from now" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
 
       join_request = create_join_request(workspace, applicant)
 
@@ -121,9 +51,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "duplicate pending join request is rejected" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
 
       create_join_request(workspace, applicant)
 
@@ -137,9 +67,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "rejected applicant can reapply" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
 
       jr = create_join_request(workspace, applicant)
 
@@ -158,9 +88,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "cannot create join request when join_policy is :open" do
-      admin = admin_user()
-      workspace = create_workspace(admin, join_policy: :open)
-      applicant = normal_user("open-applicant@example.com")
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin, %{join_policy: :open})
+      applicant = Fixtures.register_user("open-applicant")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                JoinRequest
@@ -172,9 +102,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "cannot create join request when join_policy is :invite_only" do
-      admin = admin_user()
-      workspace = create_workspace(admin, join_policy: :invite_only)
-      applicant = normal_user("invite-applicant@example.com")
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin, %{join_policy: :invite_only})
+      applicant = Fixtures.register_user("invite-applicant")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                JoinRequest
@@ -186,10 +116,10 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "outsider cannot create join request on behalf of another user" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
-      outsider = register_user("outsider-jr@example.com", @password)
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
+      outsider = Fixtures.register_user("outsider-jr")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                JoinRequest
@@ -201,7 +131,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "ownerless (pending-owner) workspace: join request blocked until owner accepts invitation (#115)" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      owner = Fixtures.register_user("jr-pending-owner")
+      owner_email = to_string(owner.email)
 
       # owner_email 创建 → pending-owner：角色已 seed 但无 Owner membership（ownerless）
       assert {:ok, workspace} =
@@ -210,11 +142,11 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
                  slug: "jr-ownerless-#{System.unique_integer([:positive])}",
                  name: "JR Ownerless",
                  join_policy: :request,
-                 owner_email: "jr-pending-owner@example.com"
+                 owner_email: owner_email
                })
                |> Ash.create(actor: admin)
 
-      applicant = normal_user()
+      applicant = Fixtures.register_user("jr-applicant")
 
       # ownerless：申请被门控拒绝——此时无任何 Owner/Admin 可审批，申请只会挂着等过期
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
@@ -236,10 +168,8 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       {:ok, [invitation]} =
         Cgc2046.Accounts.Invitation
         |> Ash.Query.for_read(:read)
-        |> Ash.Query.filter(target_email == "jr-pending-owner@example.com")
+        |> Ash.Query.filter(target_email == ^owner_email)
         |> Ash.read(tenant: workspace.id, actor: admin)
-
-      owner = register_user("jr-pending-owner@example.com", @password)
 
       assert {:ok, _} =
                invitation
@@ -253,9 +183,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
   describe "approve join request" do
     test "owner can approve and creates membership with roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, approved} =
@@ -289,12 +219,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "admin can approve join request" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      admin_member = register_user("jr-admin2@example.com", @password)
-      add_member(workspace, admin_member, admin, [:admin])
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      admin_member = Fixtures.register_user("jr-admin2")
+      Fixtures.add_member(workspace, admin_member, [:admin])
 
-      applicant = normal_user()
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, approved} =
@@ -306,9 +236,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "approve with multiple roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, approved} =
@@ -331,12 +261,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "plain member cannot approve join request" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = register_user("jr-plain@example.com", @password)
-      add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("jr-plain")
+      Fixtures.add_member(workspace, member)
 
-      applicant = normal_user()
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:error, %Ash.Error.Forbidden{}} =
@@ -346,12 +276,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "outsider cannot approve join request" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
-      outsider = register_user("outsider-approve@example.com", @password)
+      outsider = Fixtures.register_user("outsider-approve")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                jr
@@ -360,11 +290,11 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "approve fails when applicant is already a member" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       # 申请人已是成员
-      add_member(workspace, applicant, admin, [:member])
+      Fixtures.add_member(workspace, applicant)
       jr = create_join_request(workspace, applicant)
 
       assert {:error, %Ash.Error.Invalid{}} =
@@ -380,9 +310,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
   describe "reject join request" do
     test "owner can reject with reason" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, rejected} =
@@ -395,9 +325,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "owner can reject without reason" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, rejected} =
@@ -410,12 +340,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "admin can reject join request" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      admin_member = register_user("jr-reject-admin@example.com", @password)
-      add_member(workspace, admin_member, admin, [:admin])
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      admin_member = Fixtures.register_user("jr-reject-admin")
+      Fixtures.add_member(workspace, admin_member, [:admin])
 
-      applicant = normal_user()
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, rejected} =
@@ -427,12 +357,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "plain member cannot reject" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = register_user("jr-reject-plain@example.com", @password)
-      add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("jr-reject-plain")
+      Fixtures.add_member(workspace, member)
 
-      applicant = normal_user()
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:error, %Ash.Error.Forbidden{}} =
@@ -444,9 +374,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
   describe "expired join request" do
     test "pending request with past approval_deadline is returned as expired on read" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       # Manually set approval_deadline to past
@@ -472,9 +402,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "pending request with future approval_deadline stays pending" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       # Read should not expire it
@@ -491,9 +421,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
   describe "read permissions" do
     test "applicant can read own join requests" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, requests} =
@@ -505,9 +435,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "owner can read all join requests in workspace" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, requests} =
@@ -519,13 +449,13 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "plain member cannot read others' join requests" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
-      member = register_user("jr-read-member@example.com", @password)
-      add_member(workspace, member, admin, [:member])
+      member = Fixtures.register_user("jr-read-member")
+      Fixtures.add_member(workspace, member)
 
       assert {:ok, requests} =
                JoinRequest
@@ -536,12 +466,12 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "outsider cannot read any join requests" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
-      outsider = register_user("jr-read-outsider@example.com", @password)
+      outsider = Fixtures.register_user("jr-read-outsider")
 
       assert {:ok, requests} =
                JoinRequest
@@ -565,9 +495,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "approve on already-approved request is rejected and status unchanged" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
       approved = set_status(jr, :approved)
 
@@ -581,9 +511,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "approve on rejected request is rejected (no越权放行)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
       rejected = set_status(jr, :rejected)
 
@@ -597,9 +527,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "approve on pending request past approval_deadline is rejected (atomic WHERE guards expiry)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
 
       # Manually set approval_deadline to past：status 仍 pending，但已过期
@@ -621,9 +551,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "reject on already-approved request is rejected (no状态/数据分裂)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
       approved = set_status(jr, :approved)
 
@@ -637,9 +567,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "expire on already-approved request is rejected" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr = create_join_request(workspace, applicant)
       approved = set_status(jr, :approved)
 
@@ -654,9 +584,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
     end
 
     test "happy path still works: approve/reject/expire on pending succeeds" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("jr-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("jr-applicant")
       jr1 = create_join_request(workspace, applicant)
 
       assert {:ok, approved} =
@@ -666,7 +596,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert approved.status == :approved
 
-      jr2 = create_join_request(workspace, normal_user("jr-happy2@example.com"))
+      jr2 = create_join_request(workspace, Fixtures.register_user("jr-happy2"))
 
       assert {:ok, rejected} =
                jr2
@@ -679,11 +609,15 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
   describe "tenant isolation" do
     test "join requests are scoped to their workspace tenant" do
-      admin = admin_user()
-      ws_a = create_workspace(admin, slug: "jr-iso-a-#{System.unique_integer([:positive])}")
-      ws_b = create_workspace(admin, slug: "jr-iso-b-#{System.unique_integer([:positive])}")
+      admin = Fixtures.platform_admin("jr-admin")
 
-      applicant = normal_user()
+      ws_a =
+        Fixtures.create_workspace(admin, %{slug: "jr-iso-a-#{System.unique_integer([:positive])}"})
+
+      ws_b =
+        Fixtures.create_workspace(admin, %{slug: "jr-iso-b-#{System.unique_integer([:positive])}"})
+
+      applicant = Fixtures.register_user("jr-applicant")
       create_join_request(ws_a, applicant)
 
       # ws_b should not see ws_a's join requests

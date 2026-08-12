@@ -1,63 +1,19 @@
 defmodule Cgc2046.Workflows.HumanStepTest do
   use Cgc2046Web.ConnCase, async: false
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
-  alias AshAuthentication.Info, as: AuthInfo
 
   setup do
     # 注册测试 step handlers（ADR-0003 两阶段初始化）
     StepHandlerRegistry.register(TestActions.Uppercase)
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     StepHandlerRegistry.register(TestActions.AlwaysFail)
-    :ok
-  end
-
-  @admin_email "hstep-admin@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "hstep-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "Human Step WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp create_definition(workspace, actor, attrs) do
@@ -159,8 +115,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
 
   describe "信号放行与恢复（#37 验收）" do
     test "start_run → waiting → resume_signal → succeeded，facts 含下游产物" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -194,8 +150,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "resume_signal 写 SignalLog 审计记录" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -232,8 +188,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "start_run 前 resume_signal 被拒（非 waiting 状态）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -249,8 +205,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
 
   describe "hibernate/thaw（Postgres storage）" do
     test "start_run 到 waiting 后 checkpoint 可 thaw 恢复（round-trip）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -278,8 +234,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "resume_signal 恢复执行并删除 checkpoint（succeeded 后）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -315,8 +271,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "cancel 删除 checkpoint（#16：waiting → cancelled 不留 jido_checkpoints）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -342,8 +298,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "resume_signal 错误信号保持 waiting，checkpoint 保留" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -370,8 +326,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "hibernate 失败时 run 标 failed 而非 waiting（#2 回归）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -394,8 +350,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "resume 路径存储故障时 run 标 failed（thaw 失败安全网）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -426,8 +382,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
 
   describe "多信号分批 feed（F1 死锁回归防护）" do
     test "双人工步骤依次放行，不丢不重" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: double_gate_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -474,8 +430,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
     end
 
     test "waiting 分支更新中间 facts，信号 payload 进入下游上下文" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       {:ok, defn} =
         create_definition(workspace, admin, %{node_def: gate_with_intermediate_auto_node_def()})
@@ -532,8 +488,8 @@ defmodule Cgc2046.Workflows.HumanStepTest do
 
   describe "deadline expire" do
     test "waiting → expire（人工触发，状态流转验证）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})

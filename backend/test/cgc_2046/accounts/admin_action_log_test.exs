@@ -2,43 +2,14 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.AdminActionLog
-  alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceApplication
-  alias AshAuthentication.Info, as: AuthInfo
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   require Ash.Query
 
-  @password "Test1234!"
-
   # 断言纪律：admin_action_logs 是全局表，测试 DB 跨用例累积（部分用例经非沙箱
   # 上下文写日志且提交），所有断言按 target_id 收敛，不断言全局行数。
-
-  defp register_user(email) do
-    strategy = AuthInfo.strategy!(User, :password)
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  # 注册一个平台管理员用户（直接写库提权，模拟种子/运维操作）
-  defp admin_user(email \\ "aal-admin@example.com") do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
 
   defp create_application(user) do
     {:ok, application} =
@@ -64,7 +35,7 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
 
   describe "workspace_create hook" do
     test "direct workspace create with actor -> one workspace_create row for that workspace" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("aal-admin")
       slug = "aal-ws-#{System.unique_integer([:positive])}"
 
       {:ok, workspace} =
@@ -83,8 +54,8 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
 
   describe "application approve/reject hooks" do
     test "approve -> application_approve row for the application and NO workspace_create row for the created workspace (#116 不双记不变量)" do
-      admin = admin_user()
-      applicant = register_user("aal-applicant-approve@example.com")
+      admin = Fixtures.platform_admin("aal-admin")
+      applicant = Fixtures.register_user("aal-applicant-approve")
       application = create_application(applicant)
 
       assert {:ok, approved} =
@@ -111,8 +82,8 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
     end
 
     test "reject -> application_reject row + rejected_by/rejected_at set on application" do
-      admin = admin_user()
-      applicant = register_user("aal-applicant-reject@example.com")
+      admin = Fixtures.platform_admin("aal-admin")
+      applicant = Fixtures.register_user("aal-applicant-reject")
       application = create_application(applicant)
 
       assert {:ok, rejected} =
@@ -131,8 +102,8 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
 
   describe "promote/demote hooks" do
     test "set_platform_admin(true) -> admin_promote row; demote_platform_admin -> admin_demote row" do
-      admin = admin_user()
-      target = register_user("aal-target@example.com")
+      admin = Fixtures.platform_admin("aal-admin")
+      target = Fixtures.register_user("aal-target")
 
       assert {:ok, promoted} =
                target
@@ -142,7 +113,7 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
       assert [promote_log] = read_logs_for(admin, :admin_promote, target.id)
       assert promote_log.actor_id == admin.id
       assert promote_log.target_type == :user
-      assert promote_log.metadata["email"] == "aal-target@example.com"
+      assert promote_log.metadata["email"] == to_string(target.email)
 
       # 此时有 2 个 admin（admin + promoted），demote 不触发 last-admin 不变量
       assert {:ok, _demoted} =
@@ -157,7 +128,7 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
 
   describe "read policy" do
     test "platform_admin can read; non-admin is denied" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("aal-admin")
 
       {:ok, workspace} =
         Workspace
@@ -169,7 +140,7 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
 
       assert [_] = read_logs_for(admin, :workspace_create, workspace.id)
 
-      outsider = register_user("aal-outsider@example.com")
+      outsider = Fixtures.register_user("aal-outsider")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                AdminActionLog
@@ -180,8 +151,8 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
 
   describe "owner reassign / invitation cancel hooks (#114)" do
     test "reassign_owner -> one owner_reassign row for that workspace" do
-      admin = admin_user()
-      new_owner = register_user("aal-reassign-owner@example.com")
+      admin = Fixtures.platform_admin("aal-admin")
+      new_owner = Fixtures.register_user("aal-reassign-owner")
 
       {:ok, workspace} =
         Workspace
@@ -204,7 +175,7 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
     end
 
     test "platform admin revoking owner-preauthorized invitation -> owner_invitation_cancel row" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("aal-admin")
 
       {:ok, workspace} =
         Workspace
@@ -233,8 +204,8 @@ defmodule Cgc2046.Accounts.AdminActionLogTest do
     end
 
     test "non-admin inviter revoking plain invitation -> no owner_invitation_cancel row" do
-      admin = admin_user()
-      owner = register_user("aal-plain-owner@example.com")
+      admin = Fixtures.platform_admin("aal-admin")
+      owner = Fixtures.register_user("aal-plain-owner")
 
       {:ok, workspace} =
         Workspace

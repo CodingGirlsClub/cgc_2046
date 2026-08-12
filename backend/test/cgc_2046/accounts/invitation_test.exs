@@ -2,78 +2,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.Invitation
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "inv-admin@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp normal_user(email) do
-    register_user(email, @password)
-  end
-
-  defp create_workspace(admin, opts \\ []) do
-    slug = opts[:slug] || "inv-ws-#{System.unique_integer([:positive])}"
-    join_policy = opts[:join_policy] || :request
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{
-               slug: slug,
-               name: "Inv WS",
-               join_policy: join_policy
-             })
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  defp add_member(workspace, user, actor, role_names) do
-    {:ok, membership} =
-      WorkspaceMembership
-      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    if role_names != [] do
-      assert {:ok, _membership} =
-               membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: role_names})
-               |> Ash.update(tenant: workspace.id, actor: actor, authorize?: false)
-    end
-
-    membership
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp create_invitation(workspace, inviter, attrs \\ %{}) do
     changes =
@@ -99,20 +29,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
       # workspace 由 admin_a 创建（其成为 Owner）；admin_b 是另一 platform_admin、
       # 非该 workspace 成员，验证 create policy 的 platform_admin bypass +
       # ValidateInviterRolePreauthorization 豁免。
-      admin_a = admin_user()
-      workspace = create_workspace(admin_a)
+      admin_a = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin_a)
 
-      admin_b_user = normal_user("inv-padmin-b@example.com")
-
-      {:ok, _} =
-        Ecto.Adapters.SQL.query(
-          Cgc2046.Repo,
-          "UPDATE users SET is_platform_admin = true WHERE id = $1",
-          [Ecto.UUID.dump!(admin_b_user.id)]
-        )
-
-      admin_b =
-        Ash.get!(User, admin_b_user.id, authorize?: false, domain: Cgc2046.GlobalApi)
+      admin_b = Fixtures.platform_admin("inv-padmin-b")
 
       invitation =
         create_invitation(workspace, admin_b, %{
@@ -127,8 +47,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "owner can create an invitation with preauthorized roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
@@ -147,10 +67,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "admin can create an invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      admin_member = normal_user("inv-admin2@example.com")
-      add_member(workspace, admin_member, admin, [:admin])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      admin_member = Fixtures.register_user("inv-admin2")
+      Fixtures.add_member(workspace, admin_member, [:admin])
 
       invitation =
         create_invitation(workspace, admin_member, %{
@@ -161,10 +81,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "volunteer can create an invitation with non-admin roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      volunteer = normal_user("inv-volunteer@example.com")
-      add_member(workspace, volunteer, admin, [:volunteer])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("inv-volunteer")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       invitation =
         create_invitation(workspace, volunteer, %{
@@ -176,10 +96,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "volunteer cannot preauthorize admin or owner roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      volunteer = normal_user("inv-vol-pre@example.com")
-      add_member(workspace, volunteer, admin, [:volunteer])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("inv-vol-pre")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       assert {:error, %Ash.Error.Invalid{}} =
                Invitation
@@ -198,10 +118,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     # 用 learner（非 admin 级）预授权测 policy 守卫——避免触发 change 的 admin 校验，
     # 纯验 forbid_unless。Volunteer 传 admin 的 inviter_id 须被拒（Forbidden）。
     test "volunteer cannot forge inviter_id (policy forbid_unless)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      volunteer = normal_user("inv-vol-forge@example.com")
-      add_member(workspace, volunteer, admin, [:volunteer])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("inv-vol-forge")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Invitation
@@ -216,10 +136,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     # 回归 #1 纵深防御：即便绕过 policy，change 用真实 actor（volunteer）查角色，
     # 传 admin 预授权仍被 change 的 admin 级角色校验拦截（InvalidAttribute error）。
     test "volunteer cannot forge inviter_id to escalate preauthorized roles (change guard)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      volunteer = normal_user("inv-vol-forge2@example.com")
-      add_member(workspace, volunteer, admin, [:volunteer])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("inv-vol-forge2")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       assert {:error, %Ash.Error.Invalid{}} =
                Invitation
@@ -232,10 +152,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "plain member cannot create invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      member = normal_user("inv-plain@example.com")
-      add_member(workspace, member, admin, [:member])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("inv-plain")
+      Fixtures.add_member(workspace, member)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Invitation
@@ -247,9 +167,9 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "outsider cannot create invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      outsider = normal_user("inv-outsider@example.com")
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      outsider = Fixtures.register_user("inv-outsider")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Invitation
@@ -261,8 +181,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "token is hashed before storage" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation = create_invitation(workspace, admin)
       plain_token = invitation.__metadata__[:plain_token]
@@ -276,8 +196,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe "validate invitation" do
     test "valid token returns invitation with workspace preview" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, validated} =
@@ -291,7 +211,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "invalid token returns nil" do
-      admin = admin_user()
+      admin = Fixtures.platform_admin("inv-admin")
 
       assert {:ok, nil} =
                Invitation
@@ -300,13 +220,13 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "invite_only workspace is previewable via validate by non-member" do
-      admin = admin_user()
-      workspace = create_workspace(admin, join_policy: :invite_only)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin, %{join_policy: :invite_only})
       invitation = create_invitation(workspace, admin)
 
       # Non-member (not admin, not a workspace member) should be able to validate
       # the invitation and see workspace preview fields (decision 8)
-      outsider = normal_user("inv-validate-nm@example.com")
+      outsider = Fixtures.register_user("inv-validate-nm")
 
       assert {:ok, validated} =
                Invitation
@@ -323,8 +243,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "invite_only workspace is previewable via validate by admin" do
-      admin = admin_user()
-      workspace = create_workspace(admin, join_policy: :invite_only)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin, %{join_policy: :invite_only})
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, validated} =
@@ -340,8 +260,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "expired invitation returns expired status" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
@@ -359,12 +279,12 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "used invitation returns used status" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       # Accept the invitation first
-      acceptor = normal_user("inv-used-acceptor@example.com")
+      acceptor = Fixtures.register_user("inv-used-acceptor")
 
       assert {:ok, _accepted} =
                invitation
@@ -384,8 +304,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "revoked invitation returns revoked status" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, revoked} =
@@ -407,15 +327,15 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe "accept invitation" do
     test "accept creates membership with preauthorized roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
           preauthorized_role_names: [:member]
         })
 
-      acceptor = normal_user("inv-accept@example.com")
+      acceptor = Fixtures.register_user("inv-accept")
 
       assert {:ok, accepted} =
                invitation
@@ -443,11 +363,11 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "accept without preauthorized roles creates membership without roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
-      acceptor = normal_user("inv-accept-norole@example.com")
+      acceptor = Fixtures.register_user("inv-accept-norole")
 
       assert {:ok, accepted} =
                invitation
@@ -474,15 +394,15 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "accept with multiple preauthorized roles" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
           preauthorized_role_names: [:admin, :member]
         })
 
-      acceptor = normal_user("inv-accept-multi@example.com")
+      acceptor = Fixtures.register_user("inv-accept-multi")
 
       assert {:ok, accepted} =
                invitation
@@ -506,15 +426,15 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "cannot accept expired invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
           expires_at: DateTime.add(DateTime.utc_now(), -1, :day)
         })
 
-      acceptor = normal_user("inv-accept-expired@example.com")
+      acceptor = Fixtures.register_user("inv-accept-expired")
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
@@ -525,8 +445,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "cannot accept revoked invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, revoked} =
@@ -536,7 +456,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert revoked.status == :revoked
 
-      acceptor = normal_user("inv-accept-revoked@example.com")
+      acceptor = Fixtures.register_user("inv-accept-revoked")
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
@@ -547,11 +467,11 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "cannot accept already used invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
-      acceptor = normal_user("inv-accept-used@example.com")
+      acceptor = Fixtures.register_user("inv-accept-used")
 
       assert {:ok, _accepted} =
                invitation
@@ -560,7 +480,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
                })
                |> Ash.update(actor: acceptor)
 
-      another_acceptor = normal_user("inv-accept-used2@example.com")
+      another_acceptor = Fixtures.register_user("inv-accept-used2")
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
@@ -571,11 +491,11 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "accept with wrong token fails" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
-      acceptor = normal_user("inv-accept-wrong-token@example.com")
+      acceptor = Fixtures.register_user("inv-accept-wrong-token")
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
@@ -584,13 +504,13 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "cannot accept when already a member of this workspace" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
 
-      acceptor = normal_user("inv-accept-already-member@example.com")
+      acceptor = Fixtures.register_user("inv-accept-already-member")
       # 受邀人已是该工作台成员
-      add_member(workspace, acceptor, admin, [:member])
+      Fixtures.add_member(workspace, acceptor)
 
       assert {:error, %Ash.Error.Invalid{}} =
                invitation
@@ -608,11 +528,11 @@ defmodule Cgc2046.Accounts.InvitationTest do
     # after_action 不得抛 MatchError/500，须转成业务错误。
     # 两个并发请求都越过 existing 检查 → 一个建 membership 成功，一个撞 unique index。
     test "concurrent accept by same user returns business error, not 500" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
 
-      acceptor = normal_user("inv-accept-concurrent@example.com")
+      acceptor = Fixtures.register_user("inv-accept-concurrent")
       token = invitation.__metadata__[:plain_token]
 
       results =
@@ -639,8 +559,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe "revoke invitation" do
     test "inviter can revoke their own invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, revoked} =
@@ -652,10 +572,10 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "owner can revoke any invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      volunteer = normal_user("inv-revoke-vol@example.com")
-      add_member(workspace, volunteer, admin, [:volunteer])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("inv-revoke-vol")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       invitation =
         create_invitation(workspace, volunteer, %{
@@ -672,13 +592,13 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "admin can revoke any invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      admin_member = normal_user("inv-revoke-admin@example.com")
-      add_member(workspace, admin_member, admin, [:admin])
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
+      admin_member = Fixtures.register_user("inv-revoke-admin")
+      Fixtures.add_member(workspace, admin_member, [:admin])
 
-      volunteer = normal_user("inv-revoke-vol2@example.com")
-      add_member(workspace, volunteer, admin, [:volunteer])
+      volunteer = Fixtures.register_user("inv-revoke-vol2")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       invitation =
         create_invitation(workspace, volunteer, %{
@@ -695,12 +615,12 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "plain member cannot revoke invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
-      member = normal_user("inv-revoke-plain@example.com")
-      add_member(workspace, member, admin, [:member])
+      member = Fixtures.register_user("inv-revoke-plain")
+      Fixtures.add_member(workspace, member)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                invitation
@@ -709,11 +629,11 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "outsider cannot revoke invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
-      outsider = normal_user("inv-revoke-out@example.com")
+      outsider = Fixtures.register_user("inv-revoke-out")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                invitation
@@ -722,11 +642,11 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "cannot revoke an already used invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
 
-      acceptor = normal_user("inv-revoke-used@example.com")
+      acceptor = Fixtures.register_user("inv-revoke-used")
 
       assert {:ok, _accepted} =
                invitation
@@ -748,8 +668,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "cannot revoke an already revoked invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, _revoked} =
@@ -766,8 +686,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe "expired invitation" do
     test "invitation with past expires_at is returned as expired on validate" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
@@ -784,8 +704,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "invitation with future expires_at stays active" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
@@ -801,8 +721,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "invitation without expires_at never expires" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, validated} =
@@ -814,8 +734,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "revoked invitation with past expires_at stays revoked (effective_status 不覆盖显式终结状态)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
@@ -841,9 +761,17 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe "tenant isolation" do
     test "invitations are scoped to their workspace tenant" do
-      admin = admin_user()
-      ws_a = create_workspace(admin, slug: "inv-iso-a-#{System.unique_integer([:positive])}")
-      ws_b = create_workspace(admin, slug: "inv-iso-b-#{System.unique_integer([:positive])}")
+      admin = Fixtures.platform_admin("inv-admin")
+
+      ws_a =
+        Fixtures.create_workspace(admin, %{
+          slug: "inv-iso-a-#{System.unique_integer([:positive])}"
+        })
+
+      ws_b =
+        Fixtures.create_workspace(admin, %{
+          slug: "inv-iso-b-#{System.unique_integer([:positive])}"
+        })
 
       inv_a = create_invitation(ws_a, admin)
 
@@ -859,8 +787,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe ":expire action (#114)" do
     test "active invitation -> expired" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, expired} =
@@ -872,8 +800,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
     end
 
     test "revoked invitation -> expire rejected (terminal state guard)" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
 
       assert {:ok, revoked} =
@@ -892,8 +820,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
   describe "platform_admin bypass on read/revoke (#114)" do
     test "non-inviter platform admin can read and revoke pending-owner invitation" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("inv-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       invitation =
         create_invitation(workspace, admin, %{
@@ -901,18 +829,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
           preauthorized_role_names: [:owner]
         })
 
-      # 第二个 platform admin（非 inviter、非成员）：注册 + 写库提权（同 admin_user 范式）
-      other = register_user("inv-other-admin@example.com", @password)
-
-      {:ok, _} =
-        Ecto.Adapters.SQL.query(
-          Cgc2046.Repo,
-          "UPDATE users SET is_platform_admin = true WHERE id = $1",
-          [Ecto.UUID.dump!(other.id)]
-        )
-
-      other_admin =
-        Ash.get!(User, other.id, actor: other, authorize?: false, domain: Cgc2046.GlobalApi)
+      # 第二个 platform admin（非 inviter、非成员），经 Fixtures 域 action 提权
+      other_admin = Fixtures.platform_admin("inv-other-admin")
 
       # read bypass：非 inviter 的 platform admin 也能读到（admin 详情页 badge 前提）
       assert {:ok, read_back} = Ash.get(Invitation, invitation.id, actor: other_admin)

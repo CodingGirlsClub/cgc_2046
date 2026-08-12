@@ -8,18 +8,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.Mcp.PendingOperation
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp pend(user, tool \\ "create_invitation") do
     PendingOperation
@@ -33,7 +22,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
 
   describe "pend（创建 pending）" do
     test "创建成功：默认 pending，expires_at 默认约 10 分钟后" do
-      user = register_user("pend-1@example.com")
+      user = Fixtures.register_user("pend-1")
 
       assert {:ok, op} = pend(user)
       assert op.status == :pending
@@ -47,7 +36,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
 
   describe "confirm" do
     test "本人确认 pending → confirmed + resolved_at" do
-      user = register_user("pend-2@example.com")
+      user = Fixtures.register_user("pend-2")
       {:ok, op} = pend(user)
 
       assert {:ok, confirmed} =
@@ -58,7 +47,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
     end
 
     test "非 pending 不可重复确认" do
-      user = register_user("pend-3@example.com")
+      user = Fixtures.register_user("pend-3")
       {:ok, op} = pend(user)
 
       {:ok, confirmed} =
@@ -69,8 +58,8 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
     end
 
     test "他人不可确认（Forbidden）" do
-      owner = register_user("pend-4@example.com")
-      other = register_user("pend-5@example.com")
+      owner = Fixtures.register_user("pend-4")
+      other = Fixtures.register_user("pend-5")
       {:ok, op} = pend(owner)
 
       assert {:error, %Ash.Error.Forbidden{}} =
@@ -78,7 +67,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
     end
 
     test "已过期（expires_at < now）不可确认" do
-      user = register_user("pend-6@example.com")
+      user = Fixtures.register_user("pend-6")
       {:ok, op} = pend(user)
 
       # 直接把 expires_at 改到过去（绕过 action，直改库）
@@ -99,7 +88,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
 
   describe "cancel" do
     test "本人取消 pending → cancelled" do
-      user = register_user("pend-7@example.com")
+      user = Fixtures.register_user("pend-7")
       {:ok, op} = pend(user)
 
       assert {:ok, cancelled} =
@@ -109,7 +98,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
     end
 
     test "confirmed 不可取消" do
-      user = register_user("pend-8@example.com")
+      user = Fixtures.register_user("pend-8")
       {:ok, op} = pend(user)
 
       {:ok, confirmed} =
@@ -122,7 +111,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
 
   describe "effective_status（读时派生过期）" do
     test "pending 未过期 → pending；过期 → expired（不落库）" do
-      user = register_user("pend-9@example.com")
+      user = Fixtures.register_user("pend-9")
       {:ok, op} = pend(user)
 
       loaded =
@@ -133,7 +122,7 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
     end
 
     test "confirmed 显示 confirmed（不被过期覆盖）" do
-      user = register_user("pend-10@example.com")
+      user = Fixtures.register_user("pend-10")
       {:ok, op} = pend(user)
 
       {:ok, confirmed} =
@@ -149,8 +138,8 @@ defmodule Cgc2046.Mcp.PendingOperationTest do
 
   describe "read" do
     test "只能读到自己的 pending" do
-      u1 = register_user("pend-11@example.com")
-      u2 = register_user("pend-12@example.com")
+      u1 = Fixtures.register_user("pend-11")
+      u2 = Fixtures.register_user("pend-12")
 
       {:ok, _} = pend(u1)
       {:ok, _} = pend(u2)

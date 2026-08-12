@@ -8,18 +8,7 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
   use Cgc2046.DataCase, async: false
 
   alias Cgc2046.Mcp.{Confirmation, PendingOperation}
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp pend(user, tool \\ "race_probe") do
     {:ok, op} =
@@ -38,7 +27,7 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
   # （MEDIUM-2 已用真实 create_invitation 路径覆盖 confirm 全链）
   describe "MEDIUM-1 并发双确认" do
     test "并发 confirm 同一 pending：数据库层条件更新保证只有一个成功" do
-      user = register_user("race-1@example.com")
+      user = Fixtures.register_user("race-1")
       op = pend(user)
 
       # 直接对 :confirm action 并发发起（不经 Confirmation.confirm，隔离测 action 原子性）
@@ -67,7 +56,7 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
 
   describe "MEDIUM-2 执行器失败" do
     test "执行器返回 error → pending 恢复为 :pending 可重试" do
-      user = register_user("race-2@example.com")
+      user = Fixtures.register_user("race-2")
       op = pend(user, "create_invitation")
 
       # create_invitation 执行器需要 workspace_id；params 缺它 → 执行器 error
@@ -85,7 +74,7 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
 
   describe "MEDIUM-3 未知 tool dispatch fallback" do
     test "confirm 未知 tool → 明确错误，pending 仍可恢复" do
-      user = register_user("unknown-tool@example.com")
+      user = Fixtures.register_user("unknown-tool")
 
       # 直接造一条 tool 字段为未知值的 pending（绕过 request，模拟数据异常）
       op = pend(user, "no_such_tool")
