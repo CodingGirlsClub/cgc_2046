@@ -120,6 +120,14 @@ defmodule Cgc2046.Accounts.Workspace do
     )
   end
 
+  # #116 R10a：workspace 直接创建的留痕 metadata 纯函数（供 LogAdminAction change
+  # 声明以远程捕获引用；DSL 实体 opts 需可转义：匿名 fn 与私有函数捕获都不可，
+  # 须为 public 且定义在 actions 之前）。
+  @doc false
+  def workspace_log_metadata(_changeset, workspace) do
+    %{slug: workspace.slug, name: workspace.name}
+  end
+
   actions do
     default_accept(:*)
     defaults([:read, :update])
@@ -199,12 +207,20 @@ defmodule Cgc2046.Accounts.Workspace do
               {:error, _} = err -> err
             end
 
-          # #116 R10a：治理留痕（workspace 直接创建；approve 路径无 actor，天然不双记）
-          with {:ok, workspace} <- result,
-               {:ok, _log} <- maybe_log_workspace_create(changeset, workspace) do
-            {:ok, workspace}
-          end
+          result
         end)
+      )
+
+      # #116 R10a：治理留痕（workspace 直接创建；approve 路径无 actor 时
+      # on_missing_actor: :skip 不落行，天然不双记——approve 的留痕由 approve 自己的
+      # after_action 落 application_approve，该不变量由 admin_action_log_test 钉死）。
+      # 留痕失败上抛回滚整个创建（fail-closed）。
+      change(
+        {Cgc2046.Changes.LogAdminAction,
+         action: :workspace_create,
+         target_type: :workspace,
+         on_missing_actor: :skip,
+         metadata: &__MODULE__.workspace_log_metadata/2}
       )
     end
 
@@ -271,8 +287,7 @@ defmodule Cgc2046.Accounts.Workspace do
                    {:ok, workspace} <-
                      seat_new_owner(workspace, tenant, actor, owner_user_id, owner_email),
                    {:ok, _log} <-
-                     Cgc2046.Accounts.AdminActionLog.log(%{
-                       actor_id: actor && actor.id,
+                     Cgc2046.Changes.LogAdminAction.log(changeset, workspace, %{
                        action: :owner_reassign,
                        target_type: :workspace,
                        target_id: workspace.id,
@@ -463,29 +478,6 @@ defmodule Cgc2046.Accounts.Workspace do
       action(:join_workspace, :join,
         description: "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
       )
-    end
-  end
-
-  # #116 R10a：workspace 直接创建的治理留痕。actor 为 nil（WorkspaceApplication.approve
-  # 路径 / CLI 调用）时不落行——approve 的留痕由 approve 自己的 after_action 落
-  # application_approve，天然避免双记（该不变量由 admin_action_log_test 钉死）。
-  # 留痕失败上抛回滚整个创建（fail-closed）。
-  defp maybe_log_workspace_create(changeset, workspace) do
-    case get_in(changeset.context, [:private, :actor]) do
-      nil ->
-        {:ok, workspace}
-
-      actor ->
-        with {:ok, _log} <-
-               Cgc2046.Accounts.AdminActionLog.log(%{
-                 actor_id: actor.id,
-                 action: :workspace_create,
-                 target_type: :workspace,
-                 target_id: workspace.id,
-                 metadata: %{slug: workspace.slug, name: workspace.name}
-               }) do
-          {:ok, workspace}
-        end
     end
   end
 
