@@ -38,8 +38,9 @@ defmodule Cgc2046.NotificationSubscriber do
     )
   end
 
-  def enqueue_reminder(user_id, deadline) do
+  def enqueue_reminder(user_id, enrollment_id, deadline) do
     enqueue_for_identities(user_id, "approval_reminder", %{
+      "enrollment_id" => enrollment_id,
       "approval_deadline" => DateTime.to_iso8601(deadline)
     })
   end
