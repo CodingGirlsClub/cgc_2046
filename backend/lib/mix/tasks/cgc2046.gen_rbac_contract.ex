@@ -3,11 +3,12 @@ defmodule Mix.Tasks.Cgc2046.GenRbacContract do
 
   @moduledoc """
   从 `Cgc2046.Rbac` / `Cgc2046.Accounts.Role` 单源重新生成跨语言契约工件
-  `backend/priv/rbac_contract.json`（roles / abilities / matrix）。
+  `backend/priv/rbac_contract.json`（roles / abilities / matrix / manage_roles）。
 
   #1 能力接口收敛：前端静态展示词汇（web/lib ROLE_NAMES / PERMISSION_ABILITIES）
   由 golden-file 契约测试守卫 —— 后端新增角色/能力后跑本任务再生成，
-  前端不同步则 CI 红灯。
+  前端不同步则 CI 红灯。manage_roles（管理角色子集，单源 `Role.manage_roles/0`）
+  同样下发：前端 MANAGE_ROLE_NAMES 与之漂移即契约测试红灯。
 
   ## 用法
 
@@ -46,6 +47,7 @@ defmodule Mix.Tasks.Cgc2046.GenRbacContract do
   defp contract_payload do
     roles = Enum.map(Cgc2046.Accounts.Role.role_names(), &Atom.to_string/1)
     abilities = Enum.map(Cgc2046.Rbac.abilities_list(), &Atom.to_string/1)
+    manage_roles = Enum.map(Cgc2046.Accounts.Role.manage_roles(), &Atom.to_string/1)
 
     matrix =
       Enum.map(Cgc2046.Rbac.matrix(), fn row ->
@@ -58,6 +60,14 @@ defmodule Mix.Tasks.Cgc2046.GenRbacContract do
         }
       end)
 
-    Jason.encode!(%{"roles" => roles, "abilities" => abilities, "matrix" => matrix}, pretty: true)
+    Jason.encode!(
+      %{
+        "roles" => roles,
+        "abilities" => abilities,
+        "matrix" => matrix,
+        "manage_roles" => manage_roles
+      },
+      pretty: true
+    )
   end
 end

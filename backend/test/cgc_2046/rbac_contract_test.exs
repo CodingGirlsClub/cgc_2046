@@ -3,7 +3,7 @@ defmodule Cgc2046.RbacContractTest do
   golden-file 契约守卫（#1 能力接口收敛）。
 
   断言 `backend/priv/rbac_contract.json` 与 Rbac 单源（Role.role_names / Rbac.abilities_list /
-  Rbac.matrix）完全一致 —— 后端新增角色/能力后须运行
+  Rbac.matrix / Role.manage_roles）完全一致 —— 后端新增角色/能力或调整管理角色子集后须运行
   `mix cgc2046.gen_rbac_contract` 再生成，前端静态展示词汇测试
   （web/lib/permissions.contract.test.ts）据此守卫跨语言同步。
 
@@ -38,6 +38,10 @@ defmodule Cgc2046.RbacContractTest do
       end)
 
     assert contract["matrix"] == expected_matrix,
+           "rbac_contract.json 已过期 —— 运行 `mix cgc2046.gen_rbac_contract` 再生成"
+
+    assert contract["manage_roles"] ==
+             Enum.map(Role.manage_roles(), &Atom.to_string/1),
            "rbac_contract.json 已过期 —— 运行 `mix cgc2046.gen_rbac_contract` 再生成"
   end
 end

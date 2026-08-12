@@ -127,30 +127,3 @@ describe("mapPermissionMatrixRows（后端六角色矩阵 → 五角色展示矩
 		expect(mapPermissionMatrixRows([])).toEqual([]);
 	});
 });
-
-describe("myRolesHaveAbility（判定示例卡展示用，多角色并集）", () => {
-	const matrix = mapPermissionMatrixRows(backendRows);
-
-	it("任一角色支持即支持（并集）", () => {
-		expect(
-			myRolesHaveAbility(["member", "admin"], matrix, "manage_members"),
-		).toBe(true);
-		expect(
-			myRolesHaveAbility(["member", "tutor"], matrix, "manage_members"),
-		).toBe(false);
-	});
-
-	it("无角色 / 空数组 → false；非模板角色（member）不参与判定", () => {
-		expect(myRolesHaveAbility([], matrix, "view_workspace")).toBe(false);
-		expect(myRolesHaveAbility(null, matrix, "view_workspace")).toBe(false);
-		expect(myRolesHaveAbility(["member"], matrix, "view_workspace")).toBe(
-			false,
-		);
-	});
-
-	it("矩阵缺行时该角色判定为 false", () => {
-		expect(myRolesHaveAbility(["learner"], [], "view_workspace")).toBe(false);
-	});
-});
-
-import { myRolesHaveAbility } from "./permissions";

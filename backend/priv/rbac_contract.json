@@ -8,6 +8,10 @@
     "update_join_policy",
     "create_workspace"
   ],
+  "manage_roles": [
+    "owner",
+    "admin"
+  ],
   "matrix": [
     {
       "abilities": {

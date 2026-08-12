@@ -18,7 +18,10 @@ import {
 	rejectJoinRequest,
 } from "@/lib/requests";
 import type { JoinRequestItem } from "@/lib/requests";
-import { ROLE_NAMES, type MembershipRoleName } from "@/lib/graphql/workspace";
+import {
+	GRANTABLE_ROLE_NAMES,
+	type MembershipRoleName,
+} from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
 import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
@@ -159,11 +162,8 @@ export default function RequestsPage() {
 		}
 	}, [rejectTarget, rejectReason]);
 
-	/** 可选的审批角色（排除 owner/admin） */
-	const approvableRoles = useMemo(
-		() => ROLE_NAMES.filter((r) => r !== "owner" && r !== "admin"),
-		[],
-	);
+	/** 可选的审批角色（单一来源 GRANTABLE_ROLE_NAMES = ROLE_NAMES − 管理角色，契约守卫） */
+	const approvableRoles = GRANTABLE_ROLE_NAMES;
 
 	return (
 		<WorkspaceShell slug={slug}>

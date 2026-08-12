@@ -35,6 +35,24 @@ export const ROLE_NAMES = [
 ] as const;
 
 /**
+ * 管理角色子集（可管理成员/角色分配）前端唯一真源。
+ *
+ * 后端单源是 `Role.manage_roles/0`，经契约工件 rbac_contract.json 的
+ * manage_roles 字段下发；permissions.contract.test.ts 断言本常量与工件
+ * 双向一致 —— 后端调整子集后未同步此处 = CI 红灯。
+ * 其它文件一律 import 本常量 / GRANTABLE_ROLE_NAMES，不得重申 owner/admin 子集。
+ */
+export const MANAGE_ROLE_NAMES: MembershipRoleName[] = ["owner", "admin"];
+
+/**
+ * 可授予角色子集（邀请预授权 / 加入审批可选角色）= ROLE_NAMES − 管理角色。
+ * 管理级角色（owner/admin）不可经邀请/审批授予，Owner 走专门指派。
+ */
+export const GRANTABLE_ROLE_NAMES: MembershipRoleName[] = ROLE_NAMES.filter(
+	(role) => !MANAGE_ROLE_NAMES.includes(role),
+);
+
+/**
  * 成员角色名（由 ROLE_NAMES 派生，保证与单源一致）。
  *
  * #64 的早期 API 只 seed 了 owner/admin/member；Slice A 的正式领域设计
