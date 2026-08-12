@@ -304,6 +304,99 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
                )
     end
 
+    test "被丢弃的提醒任务释放去重名额，下一拍可重建（#7）" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner =
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      create_pending_enrollment(event, workspace, learner, %{
+        approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+      })
+
+      insert_identity(owner.id, "reminder-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      assert [job] =
+               all_enqueued(
+                 worker: Cgc2046.Workers.NotificationWorker,
+                 args: %{"user_id" => owner.id, "template_key" => "approval_reminder"}
+               )
+
+      # 模拟三次尝试耗尽的 discarded 终态
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE oban_jobs SET state = 'discarded' WHERE id = $1",
+          [job.id]
+        )
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      # discarded 释放名额 → 重拍插入新行（all_enqueued 只见 available/scheduled/suspended，
+      # 故用全表计数证明新插入发生）
+      {:ok, %{rows: [[count]]}} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Workers.NotificationWorker' AND args->>'user_id' = $1 AND args->>'template_key' = 'approval_reminder'",
+          [owner.id]
+        )
+
+      assert count == 2
+
+      assert [_new] =
+               all_enqueued(
+                 worker: Cgc2046.Workers.NotificationWorker,
+                 args: %{"user_id" => owner.id, "template_key" => "approval_reminder"}
+               )
+    end
+
+    test "提醒发送时重查：报名已过期 → 不投递不消耗授权（#4）" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner =
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      enrollment =
+        create_pending_enrollment(event, workspace, learner, %{
+          approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      insert_identity(owner.id, "reminder-owner-openid")
+      {:ok, _} = Cgc2046.NotificationConsent.grant(owner.id, :wechat, "approval_reminder")
+
+      # 入队后、执行前，报名被过期扫描转 expired
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE enrollments SET status = 'expired' WHERE id = $1",
+          [Ecto.UUID.dump!(enrollment.id)]
+        )
+
+      assert :ok =
+               perform_job(Cgc2046.Workers.NotificationWorker, %{
+                 "user_id" => owner.id,
+                 "identity_uid" => "reminder-owner-openid",
+                 "platform" => "wechat",
+                 "template_key" => "approval_reminder",
+                 "data" => %{
+                   "enrollment_id" => enrollment.id,
+                   "approval_deadline" => DateTime.to_iso8601(enrollment.approval_deadline)
+                 }
+               })
+
+      # 未投递 → 授权未被消费
+      assert {:ok, 1} =
+               Cgc2046.NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+    end
+
     test "带非空 workflow_run_id 的 pending Enrollment 处于窗口内 → 仅由 Enrollment 扫描产生每收件人一条提醒" do
       owner = Fixtures.platform_admin("reminder-admin")
       workspace = Fixtures.create_workspace(owner)

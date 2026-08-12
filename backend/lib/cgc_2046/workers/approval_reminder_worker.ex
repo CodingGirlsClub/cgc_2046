@@ -32,7 +32,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{Role, WorkspaceMembership}
+  alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowRun
@@ -75,7 +75,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   end
 
   # run-less 报名的单属主提醒路径（语义与窗口见 moduledoc）。
-  # 按 workspace 分组，成员名单每工作台只读一次。
+  # 按 workspace 分组：成员名单与平台身份每工作台各读一次，与报名数解耦。
   defp remind_pending_enrollments(now, window_end) do
     Enrollment
     |> Ash.Query.filter(
@@ -86,17 +86,17 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Ash.read!(authorize?: false)
     |> Enum.group_by(& &1.workspace_id)
     |> Enum.map(fn {workspace_id, enrollments} ->
-      managed_ids = managed_member_ids(workspace_id)
+      identities_by_user = managed_identities_by_user(workspace_id)
 
       Enum.each(enrollments, fn enrollment ->
-        Enum.each(
-          managed_ids,
-          &Cgc2046.NotificationSubscriber.enqueue_reminder(
-            &1,
+        Enum.each(identities_by_user, fn {user_id, identities} ->
+          Cgc2046.NotificationSubscriber.enqueue_reminder_jobs(
+            identities,
+            user_id,
             enrollment.id,
             enrollment.approval_deadline
           )
-        )
+        end)
       end)
 
       length(enrollments)
@@ -163,5 +163,19 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     end)
     |> Enum.map(& &1.user_id)
     |> Enum.uniq()
+  end
+
+  # 每工作台一次身份读取，按 user_id 分组（消除 enrollment × 成员 的 N+1）。
+  defp managed_identities_by_user(workspace_id) do
+    case managed_member_ids(workspace_id) do
+      [] ->
+        %{}
+
+      managed_ids ->
+        UserIdentity
+        |> Ash.Query.filter(user_id in ^managed_ids)
+        |> Ash.read!(authorize?: false)
+        |> Enum.group_by(& &1.user_id)
+    end
   end
 end

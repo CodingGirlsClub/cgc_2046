@@ -691,7 +691,7 @@ defmodule Cgc2046.Events.Enrollment do
       |> Map.merge(%{
         "event_id" => enrollment.event_id,
         "course_id" => enrollment.course_id,
-        "enrollment_policy" => policy
+        "enrollment_policy" => policy && to_string(policy)
       })
 
     case signal_type do
