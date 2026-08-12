@@ -171,10 +171,11 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
     # 读取：成员本人可读自己的成员资格；Owner/Admin 可读该工作台全部成员（成员管理）
     # platform_admin bypass（Phase 10 P2）：非成员 platform_admin 可读全部成员
     # （R13 admin 详情页成员列表），对齐 Phase 2 的 User/ToolCallLog/PendingOperation 模式。
+    # 双面契约见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

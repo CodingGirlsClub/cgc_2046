@@ -68,7 +68,7 @@ defmodule Cgc2046.Accounts.MembershipRole do
     # 读取：仅该 membership 所属用户本人可读（或平台管理员）
     policy action_type(:read) do
       authorize_if(expr(membership.user_id == ^actor(:id)))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

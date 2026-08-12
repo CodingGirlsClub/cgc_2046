@@ -497,7 +497,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     # 读取（H3）：经 definition → workspace → memberships 路径，仅成员或平台管理员
     policy action_type(:read) do
       authorize_if(relates_to_actor_via([:definition, :workspace, :memberships, :user]))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # #38 StepRole 授权：start_run（auto 步骤引擎执行不授权，§4.3）与 resume_signal
@@ -505,20 +505,20 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     # bypass：命中则跳过后续 update policy（成员放行），失败则继续（非成员 → 后续拒绝）。
     bypass action([:start_run, :resume_signal]) do
       authorize_if(relates_to_actor_via([:definition, :workspace, :memberships, :user]))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 写操作：Owner/Admin（多角色并集）或平台管理员
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 切片 D：MCP save_step_output 的 facts 写入对成员放开（StepRole 细粒度授权
     # 已在工具层经 StepAuthorization.authorize_signal/4 判定，本层只做成员门槛）
     bypass action(:update_facts_for_mcp) do
       authorize_if(relates_to_actor_via([:definition, :workspace, :memberships, :user]))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

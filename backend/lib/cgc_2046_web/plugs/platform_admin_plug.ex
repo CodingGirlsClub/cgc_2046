@@ -14,19 +14,19 @@ defmodule Cgc2046Web.Plugs.PlatformAdminPlug do
 
   import Plug.Conn
 
+  alias Cgc2046.Policies.PlatformAdmin
+
   @impl true
   def init(opts), do: opts
 
   @impl true
   def call(conn, _opts) do
-    case conn.assigns[:current_user] do
-      %{is_platform_admin: true} ->
-        conn
-
-      _ ->
-        conn
-        |> send_resp(403, "Forbidden")
-        |> halt()
+    if PlatformAdmin.platform_admin?(conn.assigns[:current_user]) do
+      conn
+    else
+      conn
+      |> send_resp(403, "Forbidden")
+      |> halt()
     end
   end
 end

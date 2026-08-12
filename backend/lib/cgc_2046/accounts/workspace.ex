@@ -401,14 +401,14 @@ defmodule Cgc2046.Accounts.Workspace do
 
   policies do
     policy action_type(:create) do
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     policy action_type(:update) do
       # #78：Owner/Admin（多角色并集）可更新（含 join_policy）；
       # 平台管理员现状能力不回收（二者取并）
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # open/request：已认证用户可定向读取（匿名不可）
@@ -421,7 +421,7 @@ defmodule Cgc2046.Accounts.Workspace do
     # 否则 Ash 生成 membership.id == actor.id（主键直匹配）导致成员读不到（#66 review 发现）
     policy [action_type(:read), expr(join_policy == :invite_only)] do
       authorize_if(relates_to_actor_via([:memberships, :user]))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # G13 join：generic action 无被查询记录集，无法用基于记录字段的策略；
@@ -434,8 +434,8 @@ defmodule Cgc2046.Accounts.Workspace do
     # 匹配本 action，必须用 forbid_unless 显式封堵（forbid 优先）；同时 Ash 策略按
     # 「所有适用 policy 均须授权」求值，authorize_if 与 forbid_unless 缺一不可。
     policy action(:reassign_owner) do
-      forbid_unless(actor_attribute_equals(:is_platform_admin, true))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      forbid_unless(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

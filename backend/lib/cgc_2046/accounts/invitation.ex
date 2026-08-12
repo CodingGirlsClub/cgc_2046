@@ -312,7 +312,7 @@ defmodule Cgc2046.Accounts.Invitation do
         after_action(fn changeset, invitation, _context ->
           actor = get_in(changeset.context, [:private, :actor])
 
-          if actor && actor.is_platform_admin &&
+          if Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) &&
                :owner in (invitation.preauthorized_role_names || []) do
             with {:ok, _log} <-
                    Cgc2046.Accounts.AdminActionLog.log(%{
@@ -533,7 +533,7 @@ defmodule Cgc2046.Accounts.Invitation do
       forbid_unless(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(Cgc2046.Policies.WorkspaceActorIsVolunteer)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # :revoke 限邀请人本人或 Owner/Admin；#114 加 platform_admin bypass
@@ -541,7 +541,7 @@ defmodule Cgc2046.Accounts.Invitation do
     policy action(:revoke) do
       authorize_if(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # :validate 持 token 即可（不要求成员）
@@ -564,7 +564,7 @@ defmodule Cgc2046.Accounts.Invitation do
     policy action_type(:read) do
       authorize_if(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

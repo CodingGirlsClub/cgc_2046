@@ -23,13 +23,14 @@ defmodule Cgc2046.Rbac do
   - 平台管理员：对 `view_workspace` / `access_invite_only` 有豁免（非成员也可读，与资源 policy 一致）；
     **`update_join_policy` 亦有豁免**（#78：Workspace 全局资源管理能力，平台管理员历史上可更新，能力不回收；
     与 policy 侧并集一致）；管理类能力（`list_members` / `manage_members` / `assign_roles`）**无豁免**，
-    仍按实际 membership 判定（#66 P2 决策：方向①判定侧收敛，#64 定稿语义「平台管理员非成员 canAccess=false」）
+    仍按实际 membership 判定——此拒绝是双面契约的能力面，契约真源见
+    `Cgc2046.Policies.PlatformAdmin` moduledoc（#66 P2 方向①，#64「平台管理员非成员 canAccess=false」）
   - actor 为 `nil`（匿名）→ 一律 `false`
   - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：六角色均为 false）
 
   与各资源 Ash policies 的关系：本模块是**判定入口**（供代码/GraphQL 查询调用），
   资源自身仍由 `policies do ... end` 强制（如 workspace 读取、workspace_membership 管理）。
-  两者语义保持一致，测试中互相印证。
+  policy 面与能力面的分工（双面契约）见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
 
   读取委托（2026-08-02 ② 成员资格读取收敛，Q5 决策）：成员资格读取实现在
   `MembershipContext`（成员资格上下文），`role_names/2`、`owner_count/1` 与私有
@@ -39,6 +40,7 @@ defmodule Cgc2046.Rbac do
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
+  alias Cgc2046.Policies.PlatformAdmin
 
   @type ability ::
           :view_workspace
@@ -302,7 +304,7 @@ defmodule Cgc2046.Rbac do
   # -- 辅助 -----------------------------------------------------------------
 
   defp actor_is_platform_admin?(actor) do
-    actor.is_platform_admin == true
+    PlatformAdmin.platform_admin?(actor)
   end
 
   defp workspace_id(opts) do

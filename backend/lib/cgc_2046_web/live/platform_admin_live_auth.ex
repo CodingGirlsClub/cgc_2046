@@ -22,6 +22,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuth do
   import Phoenix.Component
 
   alias Cgc2046.Accounts.User
+  alias Cgc2046.Policies.PlatformAdmin
 
   @session_key "cgc_current_user_id"
 
@@ -59,11 +60,12 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuth do
 
   defp authorize_user(user_id, socket) do
     case Ash.get(User, user_id, authorize?: false, domain: Cgc2046.GlobalApi) do
-      {:ok, %{is_platform_admin: true} = user} ->
-        {:cont, assign(socket, :current_user, user)}
-
-      {:ok, _user} ->
-        {:halt, socket}
+      {:ok, user} ->
+        if PlatformAdmin.platform_admin?(user) do
+          {:cont, assign(socket, :current_user, user)}
+        else
+          {:halt, socket}
+        end
 
       {:error, error} ->
         # DB 故障等：fail-closed，不渲染 admin 内容（与 HTTP 层 403 同安全方向）

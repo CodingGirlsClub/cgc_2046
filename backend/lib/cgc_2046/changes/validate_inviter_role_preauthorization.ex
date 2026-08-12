@@ -15,6 +15,7 @@ defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
+  alias Cgc2046.Policies.PlatformAdmin
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -27,7 +28,7 @@ defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
       # platform_admin 豁免（Phase 4 D1）：platform_admin 可创建 pending-owner 邀请
       # （预授权 [:owner]），其非 workspace 成员时 role_names 返回 [] 会被误判为
       # Volunteer 拒绝——平台级管理角色天然具备预授权任意角色的权限。
-      if actor && actor.is_platform_admin do
+      if PlatformAdmin.platform_admin?(actor) do
         cs
       else
         validate_inviter_role(cs, actor)
