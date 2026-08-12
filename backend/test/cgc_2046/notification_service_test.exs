@@ -111,6 +111,41 @@ defmodule Cgc2046.NotificationServiceTest do
     refute_receive {:notification, _, _}
   end
 
+  test "同用户同平台两个身份的提醒各自入队、不被 args 去重折叠（#3）" do
+    user = Fixtures.register_user("notification-multi-identity")
+    insert_identity(user.id, :wechat, "wx-openid-1")
+    insert_identity(user.id, :wechat, "wx-openid-2")
+    enrollment_id = Ecto.UUID.generate()
+    deadline = DateTime.add(DateTime.utc_now(), 24, :hour)
+
+    assert :ok = NotificationSubscriber.enqueue_reminder(user.id, enrollment_id, deadline)
+
+    jobs = all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
+    assert length(jobs) == 2
+
+    assert Enum.map(jobs, & &1.args["identity_uid"]) |> Enum.sort() ==
+             ["wx-openid-1", "wx-openid-2"]
+  end
+
+  test "send_to_identity 按指定身份精确投递（#3）" do
+    user = Fixtures.register_user("notification-identity-target")
+    insert_identity(user.id, :wechat, "wx-openid-1")
+    insert_identity(user.id, :wechat, "wx-openid-2")
+
+    {:ok, _} = NotificationConsent.grant(user.id, :wechat, "approval_result")
+
+    assert :ok =
+             NotificationService.send_to_identity(
+               user.id,
+               :wechat,
+               "wx-openid-2",
+               "approval_result",
+               %{"thing1" => %{"value" => "报名已通过"}}
+             )
+
+    assert_receive {:notification, :wechat, %{"touser" => "wx-openid-2"}}
+  end
+
   defp insert_identity(user_id, platform, uid) do
     Cgc2046.Repo.query!(
       """
