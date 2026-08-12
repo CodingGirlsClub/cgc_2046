@@ -224,8 +224,8 @@ defmodule Cgc2046.Events.Enrollment do
 
     with {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
          {:ok, target} <- eligible_target(target_kind, target_id),
-         :ok <- tenant_matches?(changeset.tenant, target.workspace_id),
-         {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target) do
+         {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
+         {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant) do
       Enum.reduce(attrs, changeset, fn {key, value}, cs ->
         Ash.Changeset.force_change_attribute(cs, key, value)
       end)
@@ -234,29 +234,29 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  defp prepare_policy(changeset, _kind, _target_id, %{enrollment_policy: :request}) do
+  defp prepare_policy(changeset, _kind, _target_id, %{enrollment_policy: :request}, tenant) do
     deadline =
       Ash.Changeset.get_attribute(changeset, :approval_deadline) ||
         DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
 
-    {:ok, %{workspace_id: changeset.tenant, status: :pending, approval_deadline: deadline}}
+    {:ok, %{workspace_id: tenant, status: :pending, approval_deadline: deadline}}
   end
 
-  defp prepare_policy(changeset, kind, target_id, %{enrollment_policy: :open}) do
+  defp prepare_policy(_changeset, kind, target_id, %{enrollment_policy: :open}, tenant) do
     with {:ok, sequence} <- reserve_capacity(kind, target_id) do
-      {:ok, %{workspace_id: changeset.tenant, status: :confirmed, capacity_seq: sequence}}
+      {:ok, %{workspace_id: tenant, status: :confirmed, capacity_seq: sequence}}
     end
   end
 
-  defp prepare_policy(changeset, kind, target_id, %{enrollment_policy: :invite_only}) do
+  defp prepare_policy(changeset, kind, target_id, %{enrollment_policy: :invite_only}, tenant) do
     invite_code = Ash.Changeset.get_argument(changeset, :invite_code)
 
     with true <- (is_binary(invite_code) and invite_code != "") || {:error, :invite_code_required},
          {:ok, sequence} <- reserve_capacity(kind, target_id),
-         {:ok, batch_id} <- consume_invite_quota(changeset.tenant, kind, target_id, invite_code) do
+         {:ok, batch_id} <- consume_invite_quota(tenant, kind, target_id, invite_code) do
       {:ok,
        %{
-         workspace_id: changeset.tenant,
+         workspace_id: tenant,
          status: :confirmed,
          capacity_seq: sequence,
          invite_batch_id: batch_id
@@ -481,8 +481,10 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  defp tenant_matches?(tenant, workspace_id) when tenant == workspace_id, do: :ok
-  defp tenant_matches?(_, _), do: {:error, :target_tenant_mismatch}
+  # GraphQL 入口不注入 tenant（nil 时从目标派生）；显式传错 tenant 仍拒绝（防跨 workspace 越权）
+  defp resolve_tenant(nil, workspace_id), do: {:ok, workspace_id}
+  defp resolve_tenant(tenant, tenant), do: {:ok, tenant}
+  defp resolve_tenant(_, _), do: {:error, :target_tenant_mismatch}
 
   defp target_table(:event), do: "events"
   defp target_table(:course), do: "courses"
