@@ -60,7 +60,7 @@ export interface Workspace {
 	myMembershipId?: string | null;
 	/** 当前用户是否可进入该工作台（成员/创建者）— #64 */
 	canAccess?: boolean;
-	/** 当前用户在该工作台的能力列表（#1 能力接口：随 meWorkspaces 下发，语义与后端 Rbac.abilities/2 一致） */
+	/** 当前用户在该工作台的能力列表（#1 能力接口：随 meWorkspaces 下发，由后端 Rbac.abilities_for/2 单源派生） */
 	myAbilities?: string[];
 	/** 成员数量（P1 计算字段，SQL count(memberships)） */
 	memberCount?: number | null;

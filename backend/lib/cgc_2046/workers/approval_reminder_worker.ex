@@ -25,9 +25,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.WorkspaceMembership
+  alias Cgc2046.Accounts.{Role, WorkspaceMembership}
   alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Rbac
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -137,7 +136,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Enum.filter(fn membership ->
       membership.roles
       |> Enum.map(& &1.name)
-      |> Rbac.roles_can?(:manage_members)
+      |> Enum.any?(&Role.manage_role?/1)
     end)
     |> Enum.map(& &1.user_id)
     |> Enum.uniq()

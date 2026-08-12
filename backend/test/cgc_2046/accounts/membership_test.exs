@@ -322,8 +322,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert Enum.any?(errors, &(Exception.message(&1) =~ "至少保留一个 Owner"))
 
       # 数据库未被改动：admin 仍是 owner
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
-      assert Cgc2046.Rbac.role_names(admin, workspace.id) == [:owner]
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == [:owner]
     end
 
     test "allows destroying a non-last owner" do
@@ -336,7 +336,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       # 第二个 owner（admin 授予 other owner 角色，admin 仍是 owner）
       membership = add_member(workspace, other, admin, [:owner])
       assert load_role_names(membership) == [:owner]
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 2
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 2
 
       # 删除 other 的 owner 成员资格：先解 FK（membership_roles 无 on_delete cascade），
       # 再 destroy。此时 owner_count 仍为 2（admin 仍在），守卫放行。
@@ -352,8 +352,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
                |> Ash.destroy(tenant: workspace.id, actor: admin)
 
       # admin 仍是 owner，工作台未变孤儿
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
-      assert Cgc2046.Rbac.role_names(admin, workspace.id) == [:owner]
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin, workspace.id) == [:owner]
     end
 
     # 规则 1 的镜像缺口（plan-007 收尾）：只有 Owner 能移除 Owner 成员。
@@ -382,7 +382,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert load_role_names(third_membership) == [:owner]
       # owner_count=2（owner + third），删 third 不触发最后 owner 保护，
       # 但 admin_only 不是 owner → 规则1 镜像应拒绝
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 2
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 2
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                third_membership
@@ -392,8 +392,8 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert Enum.any?(errors, &(Exception.message(&1) =~ "只有 Owner 能授予或撤销 Owner 角色"))
 
       # 数据库未被改动：third 仍是 owner，owner_count 仍为 2
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 2
-      assert Cgc2046.Rbac.role_names(third, workspace.id) == [:owner]
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 2
+      assert Cgc2046.Accounts.MembershipContext.role_names(third, workspace.id) == [:owner]
     end
 
     test "allows destroying a non-owner member (admin role)" do
@@ -409,7 +409,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
 
       admin_membership = add_member(workspace, admin_only, owner, [:admin])
       assert load_role_names(admin_membership) == [:admin]
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
 
       # 先解 FK（membership_roles 无 on_delete cascade），再 destroy
       Ecto.Adapters.SQL.query!(
@@ -425,11 +425,11 @@ defmodule Cgc2046.Accounts.MembershipTest do
                |> Ash.destroy(tenant: workspace.id, actor: owner)
 
       # owner 仍在，工作台未变孤儿
-      assert Cgc2046.Rbac.owner_count(workspace.id) == 1
-      assert Cgc2046.Rbac.role_names(owner, workspace.id) == [:owner]
+      assert Cgc2046.Accounts.MembershipContext.owner_count(workspace.id) == 1
+      assert Cgc2046.Accounts.MembershipContext.role_names(owner, workspace.id) == [:owner]
 
       # admin_only 已不是成员
-      assert Cgc2046.Rbac.role_names(admin_only, workspace.id) == []
+      assert Cgc2046.Accounts.MembershipContext.role_names(admin_only, workspace.id) == []
     end
   end
 end

@@ -7,8 +7,8 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
   批量加载 actor 在所有租户的成员资格（WorkspaceMembership 已开启 global? true，
   允许跨租户读取），再按 workspace_id 分组，避免 N+1（#2 成员资格读取收敛）。
 
-  my_abilities（#1 能力接口收敛）：与 Rbac.abilities/2 语义**完全一致**（含非成员分支）：
-  成员路径由共享纯函数 Rbac.abilities_for/2 从已加载的角色并集派生；非成员分支
+  my_abilities（#1 能力接口收敛）：由共享纯函数 Rbac.abilities_for/2 派生（含非成员分支）：
+  成员路径从已加载的角色并集派生；非成员分支
   （actor 不在该工作台）平台管理员豁免 view/access/create_workspace、其余为 []。
   返回能力名字符串列表，顺序同 Rbac.abilities_list/0。
   双面契约（policy 面放行 vs 能力面拒绝）真源见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
@@ -46,7 +46,7 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
     Enum.map(records, fn workspace ->
       case Map.get(by_workspace, workspace.id) do
         nil ->
-          # 非成员分支与 Rbac.abilities/2 语义一致：平台管理员豁免
+          # 非成员分支同样由 Rbac.abilities_for/2 派生：平台管理员豁免
           # view/access + create_workspace，其余为 []
           # （双面契约能力面，真源见 Cgc2046.Policies.PlatformAdmin moduledoc）
           if key == :my_abilities do

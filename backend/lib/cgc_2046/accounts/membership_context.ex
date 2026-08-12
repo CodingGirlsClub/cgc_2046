@@ -6,14 +6,13 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   持有全部成员资格读取形状（`WorkspaceMembership` + `load(:roles)`），供
   Rbac 判定、WorkspaceActorIsOwnerOrAdmin policy、CurrentMembershipInfo 计算字段
-  委托。判定语义（roles_can? / abilities_for）不在本模块 —— 那是 Rbac 的职责；
+  委托。判定语义（abilities_for / matrix）不在本模块 —— 那是 Rbac 的职责；
   角色名字符串化也不在本模块 —— 那是 GraphQL 边缘（CurrentMembershipInfo）的职责。
 
   ## 成员资格上下文（术语）
 
   见 CONTEXT.md「成员资格上下文」：actor 在目标工作台（租户）的成员资格及角色
-  名字（原子列表）的读取面；`role_names/2` 为 Rbac.role_names/2 的同名委托目标，
-  读取实现唯一归属本模块。
+  名字（原子列表）的读取面；`role_names/2` 等读取实现的唯一归属是本模块。
 
   ## 错误姿态（与收敛前一致）
 

@@ -45,6 +45,9 @@ defmodule Cgc2046.Accounts.Role do
   @doc "管理角色子集唯一真源（新增可管理角色只改这里）"
   def manage_roles, do: @manage_roles
 
+  @doc "管理角色谓词：管理级 = 可管理成员/角色分配的角色类（唯一真源 `@manage_roles`），与能力矩阵刻意解耦"
+  def manage_role?(role), do: role in @manage_roles
+
   @doc "角色名 → 中文描述唯一真源（workspace seed 复用）"
   def role_descriptions, do: @role_descriptions
 

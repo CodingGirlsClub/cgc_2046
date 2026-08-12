@@ -86,14 +86,14 @@ defmodule Cgc2046.Accounts.Workspace do
     )
 
     # #1 能力接口收敛：my_abilities 随 meWorkspaces 下发（退役独立 myAbilities query）。
-    # 语义与 Rbac.abilities/2 完全一致（含非成员分支）：成员路径由共享纯函数
-    # abilities_for/2 派生；非成员平台管理员豁免 view/access/create_workspace。
+    # 由共享纯函数 Rbac.abilities_for/2 派生（含非成员分支）：成员路径从角色并集
+    # 派生；非成员平台管理员豁免 view/access/create_workspace。
     calculate(
       :my_abilities,
       {:array, :string},
       {Cgc2046.Accounts.Calculations.CurrentMembershipInfo, key: :my_abilities},
       public?: true,
-      description: "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities/2 一致）"
+      description: "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities_for/2 一致）"
     )
 
     # P1-4 memberCount：Repo 层批量 count（不经 membership read policy）。

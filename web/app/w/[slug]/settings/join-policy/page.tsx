@@ -5,7 +5,7 @@
  *
  * 最小设置页：加入策略三态切换（开放加入 / 申请制 / 邀请制）。
  * - 数据路径：useWorkspaceBySlug（meWorkspaces 唯一真实路径），myAbilities
- *   含 update_join_policy 才可修改（能力接口门控，与 Rbac.can?/3 语义一致）；
+ *   含 update_join_policy 才可修改（能力接口门控，判定单源为后端 Rbac.abilities_for/2）；
  * - 保存：updateWorkspaceJoinPolicy（updateWorkspace mutation + refetch
  *   ME_WORKSPACES 缓存，概览页/工作台徽章跨页同步）；
  * - 壳：WorkspaceShell（requireWs 默认 true，未知 slug 自动「工作区不可访问」）；

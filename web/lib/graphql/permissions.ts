@@ -11,7 +11,7 @@ import type { TypedDocumentNode } from "@apollo/client";
  *   （#1 收敛：不再固定六个字段，新增能力自动透传；能力词汇唯一真源在后端
  *   Rbac.abilities_list/0，契约工件 backend/priv/rbac_contract.json 做守卫）。
  * - myAbilities 已退役（#1）：能力列表随 meWorkspaces.myAbilities 下发，
- *   与后端 Rbac.abilities/2 语义一致。
+ *   由后端 Rbac.abilities_for/2 单源派生。
  */
 
 /* ---------------- 类型（对齐 backend/priv/graphql/schema.graphql） ---------------- */

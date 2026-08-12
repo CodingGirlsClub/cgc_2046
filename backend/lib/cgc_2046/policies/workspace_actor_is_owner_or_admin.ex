@@ -16,13 +16,13 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin do
 
   本模块是**薄适配器**：工作台 id 解析（含 Ash filter struct 提取）与成员资格读取
   全部委托 `MembershipContext`（#2 成员资格读取收敛）；管理判定委托
-  `Rbac.roles_can?/2`（与 `Role.manage_roles/0` 同一规则）。Ash 3.31 filter
+  `Role.manage_role?/1`（单源 `Role.manage_roles/0`）。Ash 3.31 filter
   struct 匹配细节见 MembershipContext 的 `resolve_workspace_id/1` 与钉测。
   """
   use Ash.Policy.SimpleCheck
 
   alias Cgc2046.Accounts.MembershipContext
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Role
 
   @impl true
   def describe(_opts), do: "actor is owner or admin of the target workspace"
@@ -40,11 +40,11 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin do
     end
   end
 
-  # 管理判定：成员角色多角色并集 ∩ Role.manage_roles()（owner/admin），
-  # 与 Rbac 管理类能力（list_members / manage_members / assign_roles）同一规则
+  # 管理判定：成员角色多角色并集，任一命中 Role.manage_role?/1（owner/admin，
+  # 单源 Role.manage_roles/0）即通过
   defp manages_workspace?(actor, workspace_id) do
     actor
     |> MembershipContext.role_names(workspace_id)
-    |> Rbac.roles_can?(:manage_members)
+    |> Enum.any?(&Role.manage_role?/1)
   end
 end

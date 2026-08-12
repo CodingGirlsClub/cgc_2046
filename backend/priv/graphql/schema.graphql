@@ -2804,7 +2804,7 @@ type Workspace {
   "当前用户是否可进入该工作台（成员\/创建者）"
   canAccess: Boolean
 
-  "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities\/2 一致）"
+  "当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities_for\/2 一致）"
   myAbilities: [String!]
 
   "成员数量（P1 计算字段，SQL count(memberships)）"

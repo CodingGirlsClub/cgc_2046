@@ -48,13 +48,12 @@ defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
       if workspace_id && actor do
         # 用真实 actor 查角色，杜绝 inviter_id 伪造导致的权限提升
         inviter_roles = MembershipContext.role_names(actor, workspace_id)
-        manage_roles = Role.manage_roles()
 
         # 如果 inviter 没有管理角色（owner/admin），则检查预授权角色
-        if Enum.any?(inviter_roles, &(&1 in manage_roles)) do
+        if Enum.any?(inviter_roles, &Role.manage_role?/1) do
           cs
         else
-          forbidden = Enum.filter(preauthorized_role_names, &(&1 in manage_roles))
+          forbidden = Enum.filter(preauthorized_role_names, &Role.manage_role?/1)
 
           if forbidden == [] do
             cs
