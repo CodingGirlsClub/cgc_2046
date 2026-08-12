@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ideation: Course &amp; Event 与其 Workflows — Slice E</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,510;14..32,590&display=swap">
+<style>
+  :root {
+    --base: rgb(8, 9, 10);
+    --card: rgb(15, 16, 17);
+    --view: rgb(18, 19, 20);
+    --chat: rgb(22, 23, 24);
+    --ink: rgb(247, 248, 248);
+    --ink-2: rgb(208, 214, 224);
+    --ink-3: rgb(138, 143, 152);
+    --accent: rgb(94, 106, 210);
+    --accent-soft: rgb(35, 37, 52);
+    --accent-text: rgb(171, 178, 236);
+    --green: rgb(16, 185, 129);
+    --cyan: rgb(6, 182, 212);
+    --violet: rgb(139, 92, 246);
+    --red: rgb(235, 87, 87);
+    --line: rgba(255, 255, 255, 0.08);
+    --code-bg: rgba(255, 255, 255, 0.05);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--base);
+    color: var(--ink-2);
+    font-family: "Inter Variable", Inter, -apple-system, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 920px; margin: 0 auto; padding: 56px 28px 80px; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 1px 5px;
+    color: var(--ink-2);
+  }
+  strong { font-weight: 590; color: inherit; }
+  a { color: var(--accent-text); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .eyebrow {
+    font-size: 11.5px; font-weight: 590; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--accent-text); margin-bottom: 10px;
+  }
+  h1 { font-size: 29px; font-weight: 590; color: var(--ink); letter-spacing: -0.4px; line-height: 1.25; margin-bottom: 18px; }
+  h2 { font-size: 21px; font-weight: 590; color: var(--ink); letter-spacing: -0.2px; margin: 0 0 14px; }
+  h3 { font-size: 16.5px; font-weight: 590; color: var(--ink); margin: 0 0 8px; }
+  p { margin-bottom: 12px; max-width: 72ch; }
+
+  header.doc { border-bottom: 1px solid var(--line); padding-bottom: 26px; margin-bottom: 26px; }
+  dl.meta { display: flex; flex-wrap: wrap; gap: 8px 28px; }
+  dl.meta > div { display: flex; gap: 8px; font-size: 13.5px; }
+  dl.meta dt { color: var(--ink-3); }
+  dl.meta dd { color: var(--ink-2); font-weight: 510; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 8px; }
+  .stat {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; color: var(--ink-3);
+  }
+  .stat b { display: block; font-size: 19px; font-weight: 590; color: var(--ink); }
+
+  nav.toc { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin-bottom: 40px; font-size: 13.5px; }
+  nav.toc span { color: var(--ink-3); margin-right: 12px; font-weight: 510; }
+  nav.toc a { margin-right: 16px; }
+
+  section { margin-bottom: 48px; }
+  section > .eyebrow { margin-bottom: 6px; }
+
+  .grounding h3 { margin-top: 18px; color: var(--ink); font-size: 14.5px; }
+  .grounding ul { margin: 6px 0 14px 20px; }
+  .grounding li { margin-bottom: 6px; }
+
+  .axes { display: grid; gap: 8px; }
+  .axis-row {
+    display: flex; gap: 12px; align-items: baseline;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px;
+  }
+  .axis-row .n { color: var(--accent-text); font-weight: 590; font-size: 13px; min-width: 18px; }
+  .axis-row .name { font-weight: 590; color: var(--ink); min-width: 150px; }
+  .axis-row .desc { color: var(--ink-3); font-size: 13.5px; }
+
+  ol.jump { margin: 0 0 22px 20px; font-size: 14px; }
+  ol.jump li { margin-bottom: 5px; }
+  ol.jump a { font-weight: 510; }
+
+  article.idea {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 20px 22px; margin-bottom: 20px;
+  }
+  article.idea .rank { font-size: 12px; font-weight: 590; color: var(--accent-text); letter-spacing: 0.08em; margin-bottom: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+  .chip {
+    font-size: 12px; font-weight: 510; border-radius: 9999px; padding: 2px 10px;
+    background: var(--accent-soft); color: var(--accent-text);
+  }
+  .chip.neutral { background: var(--chat); color: var(--ink-3); }
+  .chip.green { background: rgba(16,185,129,0.14); color: rgb(94, 210, 170); }
+  .chip.cyan { background: rgba(6,182,212,0.13); color: rgb(90, 205, 228); }
+  .field { margin-bottom: 12px; max-width: 74ch; }
+  .field .label { font-size: 11.5px; font-weight: 590; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; }
+  .field p { margin-bottom: 6px; }
+  .basis { font-size: 13.5px; color: var(--ink-3); }
+  .basis code { font-size: 12px; }
+  figure { margin: 14px 0 6px; background: var(--view); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  figcaption { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: inherit; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font-weight: 590; color: var(--ink); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--ink-2); vertical-align: top; }
+  td.num { color: var(--ink-3); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .tbl-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+
+  footer.composition-signal { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc">
+  <div class="eyebrow">Ideation · Repo-Grounded</div>
+  <h1>Course &amp; Event 与其 Workflows — Slice E 方向候选</h1>
+  <dl class="meta">
+    <div><dt>Date</dt><dd><time datetime="2026-08-12">2026-08-12</time></dd></div>
+    <div><dt>Topic</dt><dd>course-event-slice-e</dd></div>
+    <div><dt>Focus</dt><dd>course and event, and its workflows, slice E</dd></div>
+    <div><dt>Mode</dt><dd>repo-grounded</dd></div>
+  </dl>
+  <div class="stats">
+    <div class="stat"><b>47</b>原始候选（5 帧代理）</div>
+    <div class="stat"><b>31</b>合并后候选</div>
+    <div class="stat"><b>17/14/0</b>验证 sound / weak / refuted</div>
+    <div class="stat"><b>7</b>幸存方向 · 5 轴全覆盖</div>
+  </div>
+</header>
+
+<nav class="toc">
+  <span>Jump to</span>
+  <a href="#grounding-context">Grounding Context</a>
+  <a href="#topic-axes">Topic Axes</a>
+  <a href="#ranked-ideas">Ranked Ideas</a>
+  <a href="#rejection-summary">Rejection Summary</a>
+</nav>
+
+<section id="grounding-context" class="grounding">
+  <div class="eyebrow">Section 01</div>
+  <h2>Grounding Context</h2>
+  <p>CGC 2046：Elixir/Phoenix/Ash 后端 + Next.js/Apollo web + OpenClacky 连接器。BYO 架构（网站 = 业务中枢 + 单一 MCP server，网站不跑 LLM）；多租户 <code>workspace_id</code> = Jido partition。战略约束：workflow-first；同步/异步 8:2（D-A6）；报名 ≠ 成员（D-A4）；不留兼容层；最简单实现；依赖许可证门禁。</p>
+
+  <h3>Codebase 现状（2026-08-12, branch develop）</h3>
+  <ul>
+    <li><strong>Event/Course</strong>（<code>backend/lib/cgc_2046/events/</code>）：近乎逐行复制的两个 Ash 资源。status <code>draft/open/closed/cancelled</code> —— 只有 <code>launch</code>（draft→open）存在，closed/cancelled 是不可达死枚举，无 close/cancel 动作，全库无 <code>event.ended</code> 信号。<code>launch</code> 在 after_transaction 发 <code>event.launched</code>/<code>course.launched</code>（TOCTOU 安全）。#40 GraphQL 查询（list/get）已建已测，web 零消费。</li>
+    <li><strong>Enrollment</strong>：业务 context 全量建成但未引擎化。DB 条件 UPDATE 承担并发不变量（confirmed_count 占位/释放、InviteBatch remaining_quota 原子扣减、partial unique index）；<code>approval_deadline</code> 硬编码 7 天；after_transaction 发 enrollment.approved/rejected；<strong>无 enrollment.submitted/completed 生产者</strong>，无 type=:enrollment 定义被种子/实例化。报名设计文档的 DAG 与已建动作 1:1 映射（接线 = DAG + 信号，零新业务逻辑）。无候补（v1 定稿不做）。</li>
+    <li><strong>Slice C 引擎</strong>：无状态 Engine + JidoAdapter（jido_runic v0.1.0，Git pin）；Step 四分类 auto/manual/gate/sub_workflow；WorkflowDefinition 6 类型齐备（含 learning/enrollment/sponsorship/speaker_invitation）；WorkflowRun 状态机 pending→running→waiting→终态；hibernate/thaw 落 Postgres。<strong>仅 research workflow 端到端实例化</strong>（ResearchInstantiator，幂等 per instance key，回写 workflow_run_id）。</li>
+    <li><strong>赞助/邀请</strong>：两份详细设计定稿（赞助 v1.2 / 邀请 v1.1，开放问题全拍板，含 F7 7 天过期 + 48h 提醒 + 可重提），<strong>零实现</strong>——无 Sponsorship/SpeakerInvitation 资源，无 UI。设计↔代码分歧：总纲：90 规划 Event/Course 带 sponsorship_enabled/materials_review_required，代码两者皆无。</li>
+    <li><strong>学习 workflow</strong>：无设计文档，明确推迟到 slice E（slice-c-implementation-plan.md:184-191，理由：等 research E2E 暴露引擎形态）。模板 = 教研文档（定义一次/多实例复用）；触发约定 = enrollment.completed + 幂等键；BYO 在 Learner 侧 OpenClacky 执行；产出经 MCP 工具落平台。</li>
+    <li><strong>运营/审批</strong>：PendingApprovals 聚合 pending Enrollment+JoinRequest（GraphQL my_pending_approvals，<strong>web 零消费</strong>）；ApprovalExpiryWorker（Oban 5min cron）扫 5 类实体；ApprovalReminderWorker（48h）<strong>只扫 WorkflowRun-waiting</strong> → run-less 报名永不提醒。<code>approval_timeout</code> 漂移：三处硬编码 7d vs WorkflowDefinition.approval_timeout 存在却无人读。</li>
+    <li><strong>signal_idempotency 表</strong>：总纲：177 + §6 模式库 + 四份 workflow 文档共同规定（四 workflow 共享一张），<strong>migrations/lib 零命中</strong>。</li>
+    <li><strong>Web</strong>：/w/[slug] 仅 aria-disabled「报名/赞助 · 切片 E」占位卡；无 Event/Course/Enrollment 页面；用户旅程规划的公开发现页/公开主页/Event 报名页全部未建；#3 拍板审批入口 = 网站后台审批页（未建）。</li>
+  </ul>
+
+  <h3>External context（web research，价值 high）</h3>
+  <ul>
+    <li>Prior art：state-machine-as-data（Step Functions/Camunda/XState/MS Declarative Workflows）；定义加载期校验（Dapr verifier）；human-in-the-loop 是一等原语；小团队选 declarative/managed 而非自建 durable 引擎。</li>
+    <li>Adjacent：Maven cohort 漏斗（waitlist→申请状态→报名窗+deadline→回退 waitlist→cancel/defer）；Luma 审批票 hold-and-capture + 满员自动 waitlist + 批量审批；Eventbrite release-and-claim 带过期；SponsorCX 履约模式（<strong>头号文档化失败 = 售出套餐未交付因为履约未追踪</strong>：inventory→agreement→带日期交付清单→proof-of-performance→90 天续期）；教研所循环（集体备课→研究课→结构化观课→修订→再教→分享）。</li>
+    <li>Market：cohort 完成率 64-85% vs 自学 5-48%——cohort 运营机制值回票价；赞助自动化是已验证细分。</li>
+    <li>Cross-domain：Odoo cohort 状态机一键流转；航司排班（技能+可用性匹配、预建改期 playbook）；临床路径（care pathway：专家协议/逐病人参数化/variance 记录/出院标准）；CDN purge（at-least-once + 幂等 + 版本序）；航空 GO/NO-GO 清单；银行对账扫描。</li>
+  </ul>
+
+  <h3>Past learnings（无正式语料；POC 报告 + 定稿文档即机构知识）</h3>
+  <ul>
+    <li>POC 踩坑：幂等去重表不得用 action 进程自建 ETS（进程退出即失效）——Postgres 唯一约束或 Redis；deadline 到点唤醒→cancel 路径 POC 未覆盖（报名唯一遗留 🟡）。</li>
+    <li>F1：jido_runic Agent 策略层 join 死锁（ran_nodes 过滤缺陷）→ 两个人工信号的 workflow 必须审批两段式（persist_pending 停住 + approval_gate 读回）。</li>
+    <li>教研 verify_8 D-A2 实证：定义一次/多实例复用可行（同一定义，course_1/course_2 各自定向产出）。</li>
+    <li>ADR-0002 #4 教训：resume_signal 授权只认认证 actor。</li>
+  </ul>
+</section>
+
+<section id="topic-axes">
+  <div class="eyebrow">Section 02</div>
+  <h2>Topic Axes</h2>
+  <div class="axes">
+    <div class="axis-row"><span class="n">1</span><span class="name">报名与名额</span><span class="desc">enrollment workflow 接线、capacity/候补/邀请配额机制、策略路由</span></div>
+    <div class="axis-row"><span class="n">2</span><span class="name">学习 workflow 设计</span><span class="desc">slice C 推迟至此、唯一无设计文档的 workflow 类型</span></div>
+    <div class="axis-row"><span class="n">3</span><span class="name">赞助与邀请</span><span class="desc">两个已定稿但零实现的 workflow（Sponsorship / SpeakerInvitation）</span></div>
+    <div class="axis-row"><span class="n">4</span><span class="name">生命周期与发现</span><span class="desc">Course/Event 状态机、launch/end 信号、公开发现页</span></div>
+    <div class="axis-row"><span class="n">5</span><span class="name">运营与审批体验</span><span class="desc">审批聚合、过期/提醒 worker、超时配置、可观测性</span></div>
+  </div>
+</section>
+
+<section id="ranked-ideas">
+  <div class="eyebrow">Section 03</div>
+  <h2>Ranked Ideas</h2>
+  <ol class="jump">
+    <li><a href="#idea-1">报名引擎化 vs 删除 DAG：slice E 的第一决策</a></li>
+    <li><a href="#idea-2">学习 workflow 设计：协议 + 授权账本，care-pathway 语义</a></li>
+    <li><a href="#idea-3">公开发现面：open⇒公开可读 + 宿主页 + GO/NO-GO</a></li>
+    <li><a href="#idea-4">审批控制台：泛化 PendingApprovals 落地 #3 拍板</a></li>
+    <li><a href="#idea-5">生命周期级联：close/cancel + event.ended 幂等扇出</a></li>
+    <li><a href="#idea-6">赞助：履约账本 + 权益渲染面先行</a></li>
+    <li><a href="#idea-7">对账扫描：best-effort 路径的孤儿报告</a></li>
+  </ol>
+
+  <article class="idea" id="idea-1">
+    <div class="rank">IDEA 1 · TOP PICK</div>
+    <h3>报名引擎化 vs 删除 DAG：slice E 的第一决策</h3>
+    <div class="chips">
+      <span class="chip">轴 1 · 报名与名额</span>
+      <span class="chip green">Confidence 85%</span>
+      <span class="chip cyan">Complexity M</span>
+      <span class="chip neutral">basis: direct</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>slice E 的第一个决定不是「先建哪个」，而是「报名到底要不要引擎化」——两条互斥路径的 basis 都被独立验证为 sound。</p>
+      <p><strong>路径 A · 引擎化</strong>：seed <code>type=:enrollment</code> WorkflowDefinition。DAG 已全设计（报名 §2.1/§2.2），每步 1:1 映射已建 Enrollment 动作（create/confirm/reject/expire/cancel），新增只有「DAG + 信号 + 幂等键」的数据接线——business-workflow-as-data 的旗舰证明，且顺带让只扫 waiting run 的 reminder worker 能找到报名。</p>
+      <p><strong>路径 B · 删除 DAG</strong>：Enrollment moduledoc 自述全部并发不变量由 DB 条件 UPDATE / partial unique index / action 事务承担；引擎化买不来任何新不变量，只买来 journal 可观测性，却付出定义种子、实例化器、两段式接线、WorkflowRun 生命周期的整套成本。在 create action 里照 <code>publish_approval_signal</code> 同款模式补发 <code>enrollment.completed</code>，学习触发与通知变成普通订阅方。</p>
+      <p>真正的工件是<strong>决策判据</strong>本身：「哪些 workflow 配得上 run」一旦写下，赞助/邀请/学习的同类问题全部有答案。</p>
+    </div>
+    <figure>
+      <svg viewBox="0 0 760 300" role="img" aria-label="路径 A 引擎化与路径 B 直接信号的对比">
+        <defs>
+          <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgb(138,143,152)"></path>
+          </marker>
+        </defs>
+        <text x="20" y="26" font-size="13" font-weight="590" fill="rgb(171,178,236)">路径 A · 引擎化（买可观测性）</text>
+        <g font-size="11.5" fill="rgb(208,214,224)">
+          <rect x="20" y="44" width="150" height="34" rx="6" fill="rgb(35,37,52)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="95" y="65" text-anchor="middle">seed :enrollment 定义</text>
+          <rect x="20" y="98" width="150" height="34" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="95" y="119" text-anchor="middle">Instantiator 实例化</text>
+          <rect x="20" y="152" width="150" height="34" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="95" y="173" text-anchor="middle">WorkflowRun + 两段式</text>
+          <rect x="20" y="206" width="150" height="34" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="95" y="227" text-anchor="middle">DAG steps → Enrollment</text>
+          <rect x="20" y="256" width="150" height="34" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="95" y="277" text-anchor="middle">journal / StepAuth 可观测</text>
+        </g>
+        <g stroke="rgb(138,143,152)" stroke-width="1.2">
+          <line x1="95" y1="78" x2="95" y2="96" marker-end="url(#ar1)"></line>
+          <line x1="95" y1="132" x2="95" y2="150" marker-end="url(#ar1)"></line>
+          <line x1="95" y1="186" x2="95" y2="204" marker-end="url(#ar1)"></line>
+          <line x1="95" y1="240" x2="95" y2="254" marker-end="url(#ar1)"></line>
+        </g>
+        <text x="420" y="26" font-size="13" font-weight="590" fill="rgb(171,178,236)">路径 B · 删除 DAG（不变量已在 DB）</text>
+        <g font-size="11.5" fill="rgb(208,214,224)">
+          <rect x="420" y="44" width="150" height="34" rx="6" fill="rgb(35,37,52)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="495" y="65" text-anchor="middle">Enrollment action 事务</text>
+          <rect x="420" y="98" width="150" height="34" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="495" y="119" text-anchor="middle">after_transaction 信号</text>
+          <rect x="420" y="152" width="150" height="34" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="495" y="158" text-anchor="middle">普通订阅方：</text>
+          <text x="495" y="173" text-anchor="middle">通知 / 学习触发</text>
+        </g>
+        <g stroke="rgb(138,143,152)" stroke-width="1.2">
+          <line x1="495" y1="78" x2="495" y2="96" marker-end="url(#ar1)"></line>
+          <line x1="495" y1="132" x2="495" y2="150" marker-end="url(#ar1)"></line>
+        </g>
+        <text x="420" y="230" font-size="11.5" fill="rgb(138,143,152)">判据：run 买来的东西（journal、</text>
+        <text x="420" y="246" font-size="11.5" fill="rgb(138,143,152)">StepAuthorization、统一生命周期）</text>
+        <text x="420" y="262" font-size="11.5" fill="rgb(138,143,152)">是否值整套接线成本？</text>
+      </svg>
+      <figcaption>两条互斥路径都被验证为 sound——slice E 的第一个会议该拍的是判据，不是路径。</figcaption>
+    </figure>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> <code>enrollment.ex:1-8</code> moduledoc「核心并发不变量由数据库承担…所有写都位于 Ash action 事务内」；<code>enrollment.ex:518-528</code> publish_approval_signal after_transaction（同款模式先例）；<code>workflow_definition.ex:42-46</code> type enum 含 :enrollment 但无实例化；<code>approval_reminder_worker.ex:28-33</code> 只扫 WorkflowRun waiting（run-less 报名永不提醒）；报名workflow详细设计.md §2.1/§2.2 DAG 逐步映射已建动作。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>两条路都便宜到可做、都证据确凿、且互斥——这正是 ideation 该摆上会议桌的形态：不是选一个实现，而是写下「什么配得上 run」的判据。判据一旦存在，slice E 其余每个 workflow（赞助/邀请/学习）的形态问题都变成查表。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>选 A 要接受 run 生命周期维护与 run-less 提醒盲区的修复成本；选 B 要放弃统一 journal/StepAuthorization 可观测性，并与 workflow-first 总纲叙事重新对齐。两条路的共同前置：补 enrollment.submitted/completed 信号生产者。</p>
+    </div>
+  </article>
+
+  <article class="idea" id="idea-2">
+    <div class="rank">IDEA 2</div>
+    <h3>学习 workflow 设计：协议 + 授权账本，care-pathway 语义</h3>
+    <div class="chips">
+      <span class="chip">轴 2 · 学习 workflow 设计</span>
+      <span class="chip green">Confidence 80%</span>
+      <span class="chip cyan">Complexity M</span>
+      <span class="chip neutral">basis: direct + external</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>推迟的前提（「等 research E2E 暴露引擎形态」）已被 ResearchInstantiator 消除——信号驱动、幂等实例化、workflow_run_id 回写三件套已在生产代码里跑通。BYO 下平台侧没有可编排的执行（学习在 Learner 自己的 OpenClacky 运行），所以这份「缺失的设计」不是 DAG，而是<strong>协议</strong>：<code>enrollment.completed</code>（幂等键 <code>"enrollment.completed:"+enrollment_id</code>）种一个 run，Learner agent 经已存在且 StepAuthorization 门控的 <code>save_step_output</code> 逐 manual step 写 facts；平台侧产物是一本授权进度账本 + 投影，只有真交互分支（答疑线程）才实例化子 run。</p>
+      <p>写设计文档时采用<strong>临床路径（care pathway）</strong>语义：专家定义一次 / 逐学员参数化实例 / 非专家执行——与教研模板精确同构——并补齐三个文档从未问的决策：<strong>variance 记录</strong>（跳过步骤须说明原因）、<strong>completion/discharge 标准</strong>（run 如何终结、出院时产出什么工件）、<strong>停滞升级</strong>（学员卡住时发生什么）。</p>
+    </div>
+    <figure>
+      <svg viewBox="0 0 760 210" role="img" aria-label="学习 workflow 协议流">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgb(138,143,152)"></path>
+          </marker>
+        </defs>
+        <g font-size="11.5" fill="rgb(208,214,224)">
+          <rect x="10" y="60" width="140" height="44" rx="6" fill="rgb(35,37,52)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="80" y="78" text-anchor="middle">enrollment.completed</text>
+          <text x="80" y="93" text-anchor="middle" fill="rgb(138,143,152)">幂等键去重</text>
+          <rect x="190" y="60" width="130" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="255" y="78" text-anchor="middle">种 learning run</text>
+          <text x="255" y="93" text-anchor="middle" fill="rgb(138,143,152)">per learner</text>
+          <rect x="360" y="30" width="150" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="435" y="48" text-anchor="middle">Learner OpenClacky</text>
+          <text x="435" y="63" text-anchor="middle" fill="rgb(138,143,152)">BYO 侧执行</text>
+          <rect x="360" y="106" width="150" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="435" y="124" text-anchor="middle">save_step_output</text>
+          <text x="435" y="139" text-anchor="middle" fill="rgb(138,143,152)">StepAuthorization 门控</text>
+          <rect x="550" y="60" width="130" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="615" y="78" text-anchor="middle">run.facts 账本</text>
+          <text x="615" y="93" text-anchor="middle" fill="rgb(138,143,152)">授权进度记录</text>
+          <rect x="550" y="140" width="130" height="40" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="615" y="157" text-anchor="middle">进度投影 / 答疑</text>
+          <text x="615" y="172" text-anchor="middle" fill="rgb(138,143,152)">（交互才实例化子 run）</text>
+        </g>
+        <g stroke="rgb(138,143,152)" stroke-width="1.2">
+          <line x1="150" y1="82" x2="188" y2="82" marker-end="url(#ar2)"></line>
+          <line x1="320" y1="82" x2="358" y2="82" marker-end="url(#ar2)"></line>
+          <line x1="435" y1="74" x2="435" y2="104" marker-end="url(#ar2)"></line>
+          <line x1="435" y1="106" x2="435" y2="76" marker-end="url(#ar2)"></line>
+          <line x1="510" y1="90" x2="548" y2="86" marker-end="url(#ar2)"></line>
+          <line x1="615" y1="104" x2="615" y2="138" marker-end="url(#ar2)"></line>
+        </g>
+      </svg>
+      <figcaption>平台侧没有可编排的执行——设计坍缩为协议（触发 / 工具 / 幂等键），账本经已门控的 MCP 写工具累积。</figcaption>
+    </figure>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> <code>slice-c-implementation-plan.md:184-191</code> 推迟理由原文；报名 doc <code>:335-347</code> 幂等键约定；<code>save_step_output.ex:5-7</code> StepAuthorization 门控写路径；领域模型定稿 <code>:582-585</code> 学习读写 MCP 工具（get_learner_history / reply_learner_question）；<code>workflow-engine-ddd-design.md:87</code>「学习执行 workflow 在 Learner 侧运行」；<code>research_instantiator.ex:296-320</code> 幂等 find_or_create 蓝图。<code>external:</code> clinical care pathways（专家协议 / 逐病人参数化 / variance tracking / discharge criteria，医疗运营成熟方法论）。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>把 slice E 最大 blocker（「设计缺失 → 推迟」）反转为「无需 DAG 设计，只需协议 + 三个语义决策」；与 BYO 完全一致，零新引擎模式，save_step_output 成为唯一写路径、审计走 run journal 顺带获得。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>协议形态意味着平台放弃对学习执行节奏的编排控制（提醒/催办要在通知层或 Learner 侧另解）；care-pathway 是类比输入而非本地证据，variance/completion/停滞三个决策仍需 grill 拍板。</p>
+    </div>
+  </article>
+
+  <article class="idea" id="idea-3">
+    <div class="rank">IDEA 3</div>
+    <h3>公开发现面：open⇒公开可读 + 宿主页 + GO/NO-GO</h3>
+    <div class="chips">
+      <span class="chip">轴 4 · 生命周期与发现</span>
+      <span class="chip green">Confidence 85%</span>
+      <span class="chip cyan">Complexity M</span>
+      <span class="chip neutral">basis: direct + external</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>slice E 三个 workflow 的入口全部悬空：报名表单、「赞助我们」按钮、speaker-invite token 着陆页（<code>/events/{slug}/speaker-invite/{token}</code>）都没有宿主页；而已建已测的 #40 查询 web 零消费。根因是一个访问决策：Event/Course 读策略是成员专属，而 slice E 的目标 actor（Visitor/Sponsor/Speaker/Learner）全是非成员——旅程规格与读策略结构性矛盾。</p>
+      <p>一键启动包：<strong>①读策略翻转</strong>——status=open ⇒ 匿名可读（写入仍走 partition），发现成为数据属性而非「要建的页面」；<strong>②公开 Event/Course 宿主页</strong>——一次消费 #40，同时承载报名/赞助/邀请三个入口；<strong>③launch 加 GO/NO-GO readiness 清单</strong>——已 published 教研定义？capacity/deadline 已设？把 research_instantiator 的静默 no-op 变成显式阻塞或带警告放行。</p>
+    </div>
+    <figure>
+      <svg viewBox="0 0 760 240" role="img" aria-label="读策略翻转为三个漏斗入口供血">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgb(138,143,152)"></path>
+          </marker>
+        </defs>
+        <g font-size="11.5" fill="rgb(208,214,224)">
+          <rect x="20" y="20" width="180" height="40" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="110" y="37" text-anchor="middle">launch → GO/NO-GO 清单</text>
+          <text x="110" y="52" text-anchor="middle" fill="rgb(138,143,152)">readiness 显式化</text>
+          <rect x="20" y="100" width="180" height="44" rx="6" fill="rgb(35,37,52)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="110" y="119" text-anchor="middle">status=open ⇒ 匿名可读</text>
+          <text x="110" y="134" text-anchor="middle" fill="rgb(138,143,152)">读策略翻转（写入仍走 partition）</text>
+          <rect x="20" y="180" width="180" height="40" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="110" y="197" text-anchor="middle">#40 list/get 查询</text>
+          <text x="110" y="212" text-anchor="middle" fill="rgb(138,143,152)">已建已测 · 零消费</text>
+          <rect x="330" y="20" width="190" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="425" y="38" text-anchor="middle">Visitor · 公开发现页</text>
+          <text x="425" y="53" text-anchor="middle" fill="rgb(138,143,152)">浏览 Workspace/Event/Course</text>
+          <rect x="330" y="100" width="190" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="425" y="118" text-anchor="middle">Learner · Event 报名页</text>
+          <text x="425" y="133" text-anchor="middle" fill="rgb(138,143,152)">轻量表单 → 报名 workflow</text>
+          <rect x="330" y="180" width="190" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="425" y="198" text-anchor="middle">Sponsor · 赞助入口</text>
+          <text x="425" y="213" text-anchor="middle" fill="rgb(138,143,152)">Event/Workspace 公开页发起</text>
+          <rect x="580" y="100" width="170" height="44" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="665" y="118" text-anchor="middle">Speaker · token 着陆页</text>
+          <text x="665" y="133" text-anchor="middle" fill="rgb(138,143,152)">/events/{slug}/speaker-invite</text>
+        </g>
+        <g stroke="rgb(138,143,152)" stroke-width="1.2">
+          <line x1="110" y1="60" x2="110" y2="98" marker-end="url(#ar3)"></line>
+          <line x1="110" y1="144" x2="110" y2="178" marker-end="url(#ar3)"></line>
+          <line x1="200" y1="113" x2="328" y2="46" marker-end="url(#ar3)"></line>
+          <line x1="200" y1="122" x2="328" y2="122" marker-end="url(#ar3)"></line>
+          <line x1="200" y1="131" x2="328" y2="198" marker-end="url(#ar3)"></line>
+          <line x1="520" y1="122" x2="578" y2="122" marker-end="url(#ar3)"></line>
+        </g>
+      </svg>
+      <figcaption>一个策略翻转 + 一个宿主页 + 一个清单，同时打通 Visitor / Learner / Sponsor / Speaker 四条漏斗。</figcaption>
+    </figure>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> <code>event.ex:250-254</code> 读策略成员-or-PlatformAdmin；<code>graphql_workflow_test.exs:213-294</code> #40 已测；web grep listEvents/getEvent 0 命中；用户旅程 <code>:91-92,239-241</code> J-Visitor 公开页清单；邀请 doc <code>:63</code> token URL 格式；<code>research_instantiator.ex:141-145</code> 无 published 定义时静默跳过；<code>event.ex:188-189</code> launch 只校验 status。<code>external:</code> 航空 pre-flight / NASA GO-NO-GO 纪律。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>宿主页是 slice E 三个 workflow 的共享入口，杠杆最高的首个 web 构建；读策略翻转是一处策略变更却让发现页/报名页/BYO 入口全部解耦可独立交付。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>读策略翻转是安全语义变更，需要明确公开字段白名单（capacity/confirmed_count 等是否对匿名暴露要拍板）；GO/NO-GO 引入「什么叫 ready」的新配置面，清单项需要按 workflow 逐个定义。</p>
+    </div>
+  </article>
+
+  <article class="idea" id="idea-4">
+    <div class="rank">IDEA 4</div>
+    <h3>审批控制台：泛化 PendingApprovals 落地 #3 拍板</h3>
+    <div class="chips">
+      <span class="chip">轴 5 · 运营与审批体验</span>
+      <span class="chip green">Confidence 90%</span>
+      <span class="chip cyan">Complexity M</span>
+      <span class="chip neutral">basis: direct</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>request 策略报名今天在任何界面上都<strong>无处可审</strong>：#3 已拍板审批入口 = 网站后台审批页，<code>my_pending_approvals</code> 跨工作台聚合 + GraphQL 字段已建（含 deadline 排序），web 端零消费——Owner/Admin 找不到「通过/拒绝」入口，审批两段式的 A1 人工信号永远没有落点，request 策略报名人是死信。</p>
+      <p>把聚合泛化为 kind-agnostic（Enrollment / JoinRequest / 未来 Sponsorship / WorkflowRun-waiting），审批页作为唯一控制台消费：每行通过/拒绝 → 发 <code>enrollment.approved/.rejected</code> 信号接上 A1 门控；ApprovalChip 倒计时/过期 UX 一次落地。此后每种新审批类型（赞助是下一个）复利进同一表面，而不是每实体一页一查一 chip。</p>
+    </div>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> 报名 doc <code>:267-269</code>「#3 request 审批入口 ✅ 定稿 = 网站后台审批页」；<code>pending_approvals.ex:3-7,49-58</code> RBAC 收窄 + 逐台 pending 读；<code>graphql_schema.ex:116-124</code> 字段已暴露；web grep myPendingApprovals 0 命中（verifier 复核确认）；审批两段式模式库 总纲 §6:187。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>审批是每个 workflow 的 human-in-the-loop 核心；一个 kind-agnostic 控制台把「每加一个 workflow 就加一页审批」变成「每加一个 workflow 就多一种 chip」——聚合层已是已付成本，只差消费面。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>泛化要定义统一的 kind/dispatch 形状（每种的 approve/decline 动作与信号名不同）；纳入 WorkflowRun-waiting 时会与 run 级授权（StepAuthorization）产生双重语义，需要对齐「谁能点」的判定顺序。</p>
+    </div>
+  </article>
+
+  <article class="idea" id="idea-5">
+    <div class="rank">IDEA 5</div>
+    <h3>生命周期级联：close/cancel + event.ended 幂等扇出</h3>
+    <div class="chips">
+      <span class="chip">轴 4 · 生命周期与发现</span>
+      <span class="chip green">Confidence 85%</span>
+      <span class="chip cyan">Complexity M</span>
+      <span class="chip neutral">basis: direct + external</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>closed/cancelled 是<strong>死枚举</strong>：唯一存在的状态动作是 launch（draft→open），没有任何 close/cancel 动作，全库无 event.ended 生产者——活动结束后永远停在 open，已过 deadline 的活动仍在「开放」而报名 SQL 已在拒绝。三条已设计链路全被这一个空缺卡住：赞助随 Event 结束自动 ended（总纲:105）、教研 run stop 回收、报名窗关闭。</p>
+      <p>实现 close/cancel 动作（<code>registration_deadline</code>/<code>end_at</code> 到点自动 + 手动，Oban cron 模式现成可复制）并发射 <code>event.ended</code>/<code>course.ended</code>；按 <strong>CDN purge</strong> 语义扇出：at-least-once 投递、每个依赖方经共享 signal_idempotency 表幂等消费、版本化保证旧事件不覆盖新状态。launch 路径已证明团队掌握 publish-after-commit + 订阅方守卫纪律，结束路径需要同样的纪律反向走一遍。</p>
+    </div>
+    <figure>
+      <svg viewBox="0 0 760 190" role="img" aria-label="event.ended 幂等级联扇出">
+        <defs>
+          <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgb(138,143,152)"></path>
+          </marker>
+        </defs>
+        <g font-size="11.5" fill="rgb(208,214,224)">
+          <rect x="20" y="20" width="180" height="40" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="110" y="37" text-anchor="middle">deadline / end_at 到点</text>
+          <text x="110" y="52" text-anchor="middle" fill="rgb(138,143,152)">或手动 close / cancel</text>
+          <rect x="20" y="100" width="180" height="44" rx="6" fill="rgb(35,37,52)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="110" y="119" text-anchor="middle">open→closed + event.ended</text>
+          <text x="110" y="134" text-anchor="middle" fill="rgb(138,143,152)">after_transaction · 版本化</text>
+          <rect x="320" y="8" width="200" height="36" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="420" y="31" text-anchor="middle">赞助 active → ended（总纲:105）</text>
+          <rect x="320" y="56" width="200" height="36" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="420" y="79" text-anchor="middle">教研 run stop / hibernate 回收</text>
+          <rect x="320" y="104" width="200" height="36" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="420" y="127" text-anchor="middle">报名窗锁定（submitted 不放行）</text>
+          <rect x="320" y="152" width="200" height="36" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="420" y="175" text-anchor="middle">pending 邀请 / 赞助意向过期</text>
+          <rect x="580" y="70" width="160" height="50" rx="6" fill="rgb(22,23,24)" stroke="rgba(255,255,255,0.08)"></rect>
+          <text x="660" y="90" text-anchor="middle">signal_idempotency</text>
+          <text x="660" y="105" text-anchor="middle" fill="rgb(138,143,152)">每消费方幂等去重</text>
+        </g>
+        <g stroke="rgb(138,143,152)" stroke-width="1.2">
+          <line x1="110" y1="60" x2="110" y2="98" marker-end="url(#ar5)"></line>
+          <line x1="200" y1="106" x2="318" y2="30" marker-end="url(#ar5)"></line>
+          <line x1="200" y1="114" x2="318" y2="78" marker-end="url(#ar5)"></line>
+          <line x1="200" y1="122" x2="318" y2="126" marker-end="url(#ar5)"></line>
+          <line x1="200" y1="130" x2="318" y2="174" marker-end="url(#ar5)"></line>
+          <line x1="520" y1="74" x2="578" y2="90" marker-end="url(#ar5)"></line>
+          <line x1="520" y1="122" x2="578" y2="100" marker-end="url(#ar5)"></line>
+        </g>
+      </svg>
+      <figcaption>「结束」做成一等可测信号路径：一次状态迁移，幂等扇出到四个依赖方——而不是每个 workflow 各自挂脆弱钩子。</figcaption>
+    </figure>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> <code>event.ex:30,175,188-189</code> 死枚举与唯一动作；events/ grep 无 close/cancel，lib grep 无 .ended 信号（verifier 复核确认）；总纲 <code>:105</code> 赞助自动 ended、<code>:171</code> event.ended→stop 回收意图；报名 doc <code>:259</code> 截止后 submitted 不放行；<code>approval_expiry_worker.ex:37-43</code> 现成 Oban cron 模式。<code>external:</code> CDN cache invalidation（at-least-once 投递、按源幂等、版本序防陈旧覆盖）。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>结束级联是三个 workflow 的共享前置，且今天不可被任何单个 workflow 构建——它是 slice E 所有生命周期逻辑的地基。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>级联扇出要求 signal_idempotency 表先落库（当前 0 schema）；自动 closed 的触发时点（deadline vs end_at vs 手动）需要拍板；级联失败的重放语义要与对账机制（Idea 7）一起定义。</p>
+    </div>
+  </article>
+
+  <article class="idea" id="idea-6">
+    <div class="rank">IDEA 6</div>
+    <h3>赞助：履约账本 + 权益渲染面先行</h3>
+    <div class="chips">
+      <span class="chip">轴 3 · 赞助与邀请</span>
+      <span class="chip green">Confidence 75%</span>
+      <span class="chip cyan">Complexity M</span>
+      <span class="chip neutral">basis: direct + external</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>赞助行业头号文档化失败 = 「售出套餐未交付，因为履约未追踪」。我们的设计有同一个洞：权益执行 =「网站自动露出 + 物料类手动」——手动侧零追踪，而自动侧（v1 唯一自动化的权益）连渲染面都不存在（web 唯一的赞助元素是 workspace 的「已开放赞助」信息卡）。</p>
+      <p>落 Sponsorship 资源之前先定两件事：<strong>①权益在哪里被看到</strong>——渲染面（公开页赞助区块 / 报名页 logo 位），否则「权益生效」发生在看不见的地方；<strong>②激活即物化履约账本</strong>——从 <code>sponsorship_tiers</code> 权益项自动生成带日期的交付清单（logo 何时上线、哪场活动露出、物料交付），逐项核销 proof-of-performance；独占权益位（hero banner、演讲 slot）复用 enrollment 同款条件 UPDATE 防双重预定；欠交付（活动提前取消）触发 <strong>makegood</strong>（下期抵扣）而非 ended 死端。active 从「一个承诺」变成「一本可审计账本」。</p>
+    </div>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> 开放问题决策清单 <code>:14</code> 权益执行定稿「网站自动露出 + 物料类手动」；赞助 doc <code>:182-184</code> v1 不收款；<code>w/[slug]/page.tsx:98</code> 唯一赞助元素（verifier 复核确认）；总纲 <code>:90</code> 规划的 materials_review_required 代码缺失；赞助 doc 状态机 pending→active→ended 中间无履约步骤。<code>external:</code> SponsorCX 模式（asset/tier inventory → agreement 自动转带日期交付清单 → proof-of-performance → 90 天续期触发）；广告业 makegood 是欠交付的标准补偿。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>把最高失败风险环节变成引擎原生结构化任务（带日期任务清单正是引擎擅长的东西），给 Workspace 级长期赞助一个真实的 ended/续期评估点；在设计期就防住已知失败模式，而不是上线后复制它。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>履约清单给 v1 增加了设计外的实体（任务行/核销记录），需要设计修订流程；makegood 依赖二期续期概念才能完整闭环；渲染面与公开发现面（Idea 3）强耦合，顺序上应先有宿主页。</p>
+    </div>
+  </article>
+
+  <article class="idea" id="idea-7">
+    <div class="rank">IDEA 7</div>
+    <h3>对账扫描：best-effort 路径的孤儿报告</h3>
+    <div class="chips">
+      <span class="chip">轴 5 · 运营与审批体验</span>
+      <span class="chip green">Confidence 80%</span>
+      <span class="chip cyan">Complexity L</span>
+      <span class="chip neutral">basis: direct + external</span>
+    </div>
+    <div class="field">
+      <div class="label">Description</div>
+      <p>平台建在 best-effort 异步路径上：publish 失败仅 Logger.error、实例化静默跳过、workflow_run_id 回写 best-effort、enrollment.completed 连生产者都没有——断裂管道（confirmed 无 run / waiting 无 deadline / approved 无信号 / launch 无定义）在人撞上前不可见。代码自己已经预言了对账：<code>research_instantiator.ex</code> 注释「失败记 error 日志供对账」。</p>
+      <p>按<strong>银行对账</strong>模式加一个周期 job：对比「应发生 vs 实际状态」，产出孤儿报告——已确认但学习 run 未建的报名、waiting 却无 deadline 的 run、launch 了无 published 定义的活动、approved 但成功信号未发出的记录。每条路径单独看都「没问题，best-effort」，合起来平台无法自知 workflow 坏了；对账把不可见失败变成可审队列，比把每条路径改强一致便宜得多。</p>
+    </div>
+    <div class="field">
+      <div class="label">Basis</div>
+      <p class="basis"><code>direct:</code> <code>event.ex:202-217</code> publish 失败仅 log 不回滚；<code>research_instantiator.ex:107-113,229-234</code> best-effort + 「供对账」注释（verifier 复核确认）；grep 确认无 enrollment.completed 生产者；<code>approval_expiry_worker.ex:178-194</code> 单记录失败 Logger.warning + skip。<code>external:</code> 银行对账 / 未结算支票扫描；支付系统 void 从未结算的授权。</p>
+    </div>
+    <div class="field">
+      <div class="label">Rationale</div>
+      <p>slice E 每落一个 workflow 就多一条 best-effort 路径；对账扫描是平台对自身 workflow 健康度的自我认知，复杂度低（一个 Oban job + 报告），且与级联（Idea 5）互为补集——级联负责发，对账负责发现没发到。</p>
+    </div>
+    <div class="field">
+      <div class="label">Downsides</div>
+      <p>报告队列需要消费纪律，否则变成第二个无人看的日志；「什么算孤儿」的判定规则随每个 workflow 落地要持续维护。</p>
+    </div>
+  </article>
+</section>
+
+<section id="rejection-summary">
+  <div class="eyebrow">Section 04</div>
+  <h2>Rejection Summary</h2>
+  <p>31 个合并候选，24 个被裁（含 3 个并入幸存者的组件候选）。每个一票否决理由如下；验证裁决来自独立 fresh-context verifier（17 sound / 14 weak / 0 refuted）。</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Idea</th><th>Reason Rejected</th></tr></thead>
+    <tbody>
+      <tr><td class="num">2</td><td>报名信号补发 + per-record deadline 定时器</td><td>sound 核心（补 submitted/completed 生产者、提醒覆盖 run-less 报名）随报名接线（Idea 1 路径 A）自然落地；per-record 定时器重写重开已拍板的 Oban 扫描机制（approval_expiry_worker.ex:25-27 即 POC G1 缺口的 v1 答案）。</td></tr>
+      <tr><td class="num">3</td><td>名额释放回流（release-and-claim）</td><td>「记录感兴趣者」本质是变相候补——重开定稿「v1 不做候补」却没有与之兼容的机制（verifier weak）。</td></tr>
+      <tr><td class="num">6</td><td>审批自动化（策略门控 / 反对窗口）</td><td>自动确认依赖的 allowlist/历史出席数据在代码中不存在；挑战 F7 拍板（7 天过期 + 可重提）无新证据。</td></tr>
+      <tr><td class="num">7</td><td>Cohort 粒度 run（一场一 run）</td><td>前提依赖 Idea 1 路径 A 成立；「候补晋升为 run facts」contradict 定稿；「1M 学员探针」被 verifier 判为 fabricated support。</td></tr>
+      <tr><td class="num">10</td><td>平台托管 Learner 档（BYO 降级）</td><td>「BYO 规模封顶」无 repo 证据；单一假设上的投机扩面，meeting-test 边缘。</td></tr>
+      <tr><td class="num">11</td><td>通用 WorkflowInstantiator 抽取</td><td>骨架真实但单消费者时抽取 = premature abstraction；第二个 workflow（报名）落地时自然发生，不独立成立。</td></tr>
+      <tr><td class="num">14</td><td>Speaker understudy 后备队列</td><td>重开邀请-#3 二期拍板（候选池）；与一次性 token 设计冲突，无新证据。</td></tr>
+      <tr><td class="num">15</td><td>赞助意向自动生效</td><td>verifier：品牌展示位即为被门控的承诺——「零承诺记录」overstated；去掉审批又不带履约追踪 = 去掉全部问责。</td></tr>
+      <tr><td class="num">16</td><td>收款预留 schema（payment_pending→paid）</td><td>Ash one_of 加枚举值是 additive cheap——「后补是破坏性迁移」为 false；预加不可达状态 = YAGNI dead flexibility。</td></tr>
+      <tr><td class="num">17</td><td>InviteBatch 原语化</td><td>三个具名消费者（批量邀请/tier.limit/候补码）全在二期或 contradict 定稿；premature。</td></tr>
+      <tr><td class="num">21</td><td>Event/Course 收敛为单一 Offering</td><td>basis sound（近乎逐行复制已确认）但迁移负担为全部候选最高；收益在第三个 workflow 机制落地前是推测——值得届时作为重构议题单独 brainstorm。</td></tr>
+      <tr><td class="num">23</td><td>signal_idempotency 表落库</td><td>四份文档 + 总纲已完全规定、零开放设计决策——是直接执行的 task（建议作 slice E 首批 migration），不是 ideation 方向。</td></tr>
+      <tr><td class="num">24</td><td>approval_timeout 单一事实源</td><td>basis sound，但完整形态依赖 Idea 1 路径 A 的 enrollment↔definition 链接；随报名接线顺手落地，不独立成立。</td></tr>
+      <tr><td class="num">25</td><td>审批 SLA 升级阶梯</td><td>平台 Admin 复核队列冲突「平台 Admin 备案二期」拍板；48h 提醒已是既有缓解。</td></tr>
+      <tr><td class="num">27</td><td>组织者侧 MCP/GraphQL 优先</td><td>与 #3 拍板（审批入口 = 网站后台审批页，业务操作非 MCP）直接冲突；作为平台级 web/MCP 策略超出 Course/Event + slice E 主题范围。</td></tr>
+      <tr><td class="num">28</td><td>首发三件套（wire-not-build 包）</td><td>打包预判了 Idea 1 的决策对；继承 premature 的 Instantiator 抽取；唯一无条件成立的组件（signal_idempotency）已单独处理。</td></tr>
+      <tr><td class="num">30</td><td>赞助完整形态包</td><td>打包继承 weak 的收款预留；sound 核心（履约账本 + 渲染面）已合并晋级为 Idea 6。</td></tr>
+      <tr><td class="num">31</td><td>信任层包（级联 + 对账）</td><td>duplicate——两组件已分别晋级为 Idea 5 与 Idea 7。</td></tr>
+      <tr><td class="num">19/20/22</td><td>公开宿主页 / GO-NO-GO 清单 / open⇒公开可读</td><td>未被裁——打包晋级为 Idea 3（捆绑候选验证 verdict: sound）。</td></tr>
+      <tr><td class="num">5/8/9/12/13</td><td>删除 DAG / 学习协议+账本 / care pathway / 履约账本 / 权益渲染面</td><td>未被裁——两两合并后晋级（Idea 1/2/6）。</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="margin-top:12px; font-size:13px; color:rgb(138,143,152)">Axis 覆盖：5/5 轴均有幸存方向，无空缺轴。模型分层说明：本 harness 的子代理工具不支持按代理指定模型，全部代理按降级规则继承当前模型运行（读预算与 dossier 上限保留）。</p>
+</section>
+
+<footer class="composition-signal">Composed 2026-08-12 by ce-ideate from focus "course and event, and its workflows, slice E" · repo CodingGirlsClub/cgc_2046 @ develop (e1188e3) · 5 grounding agents + 5 evidence scouts + 5 ideation frames + 1 basis verifier</footer>
+
+</div>
+</body>
+</html>
