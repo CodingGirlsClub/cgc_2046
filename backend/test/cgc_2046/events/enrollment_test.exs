@@ -155,6 +155,24 @@ defmodule Cgc2046.Events.EnrollmentTest do
       assert cancelled.status == :cancelled
       assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
     end
+
+    test "显式传错 tenant 仍报 target_tenant_mismatch（#104 验收：派生不放开越权）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      other_workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("enrollment-wrong-tenant")
+
+      assert {:error, error} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 event_id: event.id,
+                 user_id: learner.id
+               })
+               |> Ash.create(tenant: other_workspace.id, actor: learner)
+
+      assert Exception.message(error) =~ "target does not belong to tenant"
+    end
   end
 
   describe "ApprovalExpiryWorker" do
