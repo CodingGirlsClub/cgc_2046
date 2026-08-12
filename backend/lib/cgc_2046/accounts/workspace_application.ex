@@ -128,6 +128,19 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
     repo(Cgc2046.Repo)
   end
 
+  # #116 R10a：reject 留痕的 metadata 纯函数（供 LogAdminAction change 声明以远程
+  # 捕获引用；DSL 实体 opts 需可转义：匿名 fn 与私有函数捕获都不可，须为 public
+  # 且定义在 actions 之前）。
+  @doc false
+  def application_log_metadata(_changeset, application) do
+    %{
+      slug: application.slug,
+      name: application.name,
+      applicant_id: application.applicant_id,
+      rejection_reason: application.rejection_reason
+    }
+  end
+
   actions do
     default_accept([])
     defaults([:read])
@@ -205,8 +218,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
           # slug 冲突 / 角色 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
           # UPDATE 一并回滚，application 保持 pending，不留孤儿 workspace）。
           # #116：无 actor 调 create 同时保证治理留痕不双记——workspace_create 行只在
-          # actor 非 nil 的直接创建路径落（workspace.ex maybe_log_workspace_create）。
-          actor = changeset.context[:private][:actor]
+          # actor 非 nil 的直接创建路径落（workspace.ex on_missing_actor: :skip）。
 
           with {:ok, workspace} <-
                  Cgc2046.Accounts.Workspace
@@ -226,8 +238,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
                    error_message: "该用户已是本工作台成员"
                  ),
                {:ok, _log} <-
-                 Cgc2046.Accounts.AdminActionLog.log(%{
-                   actor_id: actor && actor.id,
+                 Cgc2046.Changes.LogAdminAction.log(changeset, application, %{
                    action: :application_approve,
                    target_type: :workspace_application,
                    target_id: application.id,
@@ -278,25 +289,10 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
       # #116 R10a：治理留痕 application_reject（失败上抛回滚，fail-closed）
       change(
-        after_action(fn changeset, application, _context ->
-          actor = changeset.context[:private][:actor]
-
-          with {:ok, _log} <-
-                 Cgc2046.Accounts.AdminActionLog.log(%{
-                   actor_id: actor && actor.id,
-                   action: :application_reject,
-                   target_type: :workspace_application,
-                   target_id: application.id,
-                   metadata: %{
-                     slug: application.slug,
-                     name: application.name,
-                     applicant_id: application.applicant_id,
-                     rejection_reason: application.rejection_reason
-                   }
-                 }) do
-            {:ok, application}
-          end
-        end)
+        {Cgc2046.Changes.LogAdminAction,
+         action: :application_reject,
+         target_type: :workspace_application,
+         metadata: &__MODULE__.application_log_metadata/2}
       )
     end
 
