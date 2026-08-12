@@ -15,6 +15,7 @@ import {
 	createApplication,
 	createWorkspaceWithOwner,
 	demoteUser,
+	fetchAdminActionLogs,
 	fetchApplications,
 	fetchMyApplications,
 	fetchPendingOperations,
@@ -210,6 +211,9 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 		expect(opName(queryMock.mock.calls[0][0].query)).toBe("ListToolCallLogs");
 		expect(queryMock.mock.calls[0][0].variables).toEqual({
 			workspaceId: "ws1",
+			status: null,
+			insertedAfter: null,
+			insertedBefore: null,
 			first: 50,
 		});
 		expect(logs[0].resultStatus).toBe("ok");
@@ -217,6 +221,52 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 		expect(ops[0].summary).toBe("发送邮件");
 		expect(opName(queryMock.mock.calls[2][0].query)).toBe("ListSignalLogs");
 		expect(signals[0].signalType).toBe("workflow.approval");
+	});
+
+	it("#117 审计筛选：status/signalType/时间范围透传为 GraphQL 变量", async () => {
+		queryMock.mockResolvedValue({ data: {} } as never);
+
+		const filters = {
+			status: "forbidden",
+			insertedAfter: "2026-08-01T00:00:00Z",
+			insertedBefore: "2026-08-10T00:00:00Z",
+		};
+		await fetchToolCallLogs("ws1", filters);
+		expect(queryMock.mock.calls[0][0].variables).toEqual({
+			workspaceId: "ws1",
+			status: "forbidden",
+			insertedAfter: "2026-08-01T00:00:00Z",
+			insertedBefore: "2026-08-10T00:00:00Z",
+			first: 50,
+		});
+
+		await fetchPendingOperations(undefined, { status: "expired" });
+		expect(queryMock.mock.calls[1][0].variables).toEqual({
+			workspaceId: null,
+			status: "expired",
+			insertedAfter: null,
+			insertedBefore: null,
+			first: 50,
+		});
+
+		await fetchSignalLogs("ws1", { signalType: "workflow.approval" });
+		expect(queryMock.mock.calls[2][0].variables).toEqual({
+			workspaceId: "ws1",
+			signalType: "workflow.approval",
+			insertedAfter: null,
+			insertedBefore: null,
+			first: 50,
+		});
+
+		await fetchAdminActionLogs(undefined, {
+			insertedAfter: "2026-08-01T00:00:00Z",
+		});
+		expect(queryMock.mock.calls[3][0].variables).toEqual({
+			action: null,
+			insertedAfter: "2026-08-01T00:00:00Z",
+			insertedBefore: null,
+			first: 50,
+		});
 	});
 
 	it("approveApplication 调 approveWorkspaceApplication mutation", async () => {

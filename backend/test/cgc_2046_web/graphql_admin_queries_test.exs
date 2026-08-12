@@ -623,6 +623,396 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
     end
   end
 
+  # #117：status / signal_type / inserted_after / inserted_before 组合筛选。
+  # inserted_at / expires_at 由资源 action 自动控制，测试经 SQL backdate 造时间边界
+  # （与 setup 的 UPDATE users 先例一致——非沙箱全局状态，断言一律收敛到本测试自建行）。
+  describe "admin queries: status/time filters (#117)" do
+    defp backdate(table, id, dt) do
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE #{table} SET inserted_at = $1 WHERE id = $2",
+        [dt, Ecto.UUID.dump!(id)]
+      )
+    end
+
+    defp iso(dt), do: DateTime.to_iso8601(dt)
+
+    test "listToolCallLogs: status maps to result_status; workspace+status+time combo" do
+      admin = platform_admin("admin-queries-f-tcl@example.com")
+      ws_id = Ecto.UUID.generate()
+      now = DateTime.utc_now()
+
+      target =
+        create_tool_call_log(%{
+          params: %{"workspace_id" => ws_id},
+          tool: "combo_tool",
+          result_status: :ok
+        })
+
+      backdate("mcp_tool_call_logs", target.id, DateTime.add(now, -3 * 86_400, :second))
+
+      # 干扰：同 ws 不同状态 / 同状态不同 ws（默认随机 ws）/ 同 ws 同状态但时间新鲜
+      create_tool_call_log(%{params: %{"workspace_id" => ws_id}, result_status: :forbidden})
+      create_tool_call_log(%{tool: "combo_tool", result_status: :ok})
+
+      fresh =
+        create_tool_call_log(%{
+          params: %{"workspace_id" => ws_id},
+          tool: "combo_tool",
+          result_status: :ok
+        })
+
+      token = sign_in_token(admin.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listToolCallLogs(
+              workspaceId: "#{ws_id}"
+              status: "ok"
+              insertedAfter: "#{iso(DateTime.add(now, -4 * 86_400, :second))}"
+              insertedBefore: "#{iso(DateTime.add(now, -2 * 86_400, :second))}"
+              first: 10
+            ) { id tool resultStatus }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listToolCallLogs" => [log]}} = resp
+      assert log["id"] == target.id
+      assert log["resultStatus"] == "ok"
+
+      # 时间窗挪到 backdate 之后 → 只剩 fresh 行
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listToolCallLogs(
+              workspaceId: "#{ws_id}"
+              status: "ok"
+              insertedAfter: "#{iso(DateTime.add(now, -1 * 86_400, :second))}"
+              first: 10
+            ) { id }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listToolCallLogs" => logs}} = resp
+      assert Enum.map(logs, & &1["id"]) == [fresh.id]
+
+      # 非法 status 静默忽略（to_existing_atom rescue 回退），不 500、不过滤
+      resp =
+        graphql_post(
+          build_conn(),
+          ~s|query { listToolCallLogs(status: "no_such_atom_xyz", first: 10) { id } }|,
+          token
+        )
+
+      assert %{"data" => %{"listToolCallLogs" => logs}} = resp
+      assert is_list(logs)
+    end
+
+    test "listPendingOperations: status enums + derived expired special-case" do
+      admin = platform_admin("admin-queries-f-po@example.com")
+      ws_id = Ecto.UUID.generate()
+
+      pending_op = create_pending_operation(%{params: %{"workspace_id" => ws_id}})
+      confirmed_op = create_pending_operation(%{params: %{"workspace_id" => ws_id}})
+
+      # :pend 不接受 status/expires_at（accept 白名单 + change 自动写），SQL 直改造态
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE mcp_pending_operations SET status = $1 WHERE id = $2",
+        ["confirmed", Ecto.UUID.dump!(confirmed_op.id)]
+      )
+
+      expired_op = create_pending_operation(%{params: %{"workspace_id" => ws_id}})
+
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE mcp_pending_operations SET expires_at = $1 WHERE id = $2",
+        [DateTime.add(DateTime.utc_now(), -60, :second), Ecto.UUID.dump!(expired_op.id)]
+      )
+
+      token = sign_in_token(admin.email, @password)
+
+      # expired 特判：status == :pending 且 expires_at < now → 只中过期行
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listPendingOperations(workspaceId: "#{ws_id}", status: "expired", first: 10) { id }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listPendingOperations" => [op]}} = resp
+      assert op["id"] == expired_op.id
+
+      # pending 按落库语义：未过期 + 已过期两行都中（expired 是读时派生视图）
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listPendingOperations(workspaceId: "#{ws_id}", status: "pending", first: 10) { id }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listPendingOperations" => ops}} = resp
+      assert Enum.sort(Enum.map(ops, & &1["id"])) == Enum.sort([pending_op.id, expired_op.id])
+
+      # confirmed 单行
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listPendingOperations(workspaceId: "#{ws_id}", status: "confirmed", first: 10) { id }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listPendingOperations" => [op]}} = resp
+      assert op["id"] == confirmed_op.id
+    end
+
+    test "listSignalLogs: signal_type + time range combo" do
+      admin = platform_admin("admin-queries-f-sl@example.com")
+
+      workspace =
+        create_workspace(admin, slug: "admin-f-sl-#{System.unique_integer([:positive])}")
+
+      now = DateTime.utc_now()
+      target = create_signal_log(workspace, %{signal_type: "workflow.approval"})
+      backdate("signal_logs", target.id, DateTime.add(now, -3 * 86_400, :second))
+      create_signal_log(workspace, %{signal_type: "workflow.rejected"})
+      token = sign_in_token(admin.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listSignalLogs(
+              workspaceId: "#{workspace.id}"
+              signalType: "workflow.approval"
+              insertedAfter: "#{iso(DateTime.add(now, -4 * 86_400, :second))}"
+              insertedBefore: "#{iso(DateTime.add(now, -2 * 86_400, :second))}"
+              first: 10
+            ) { id signalType }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listSignalLogs" => [signal]}} = resp
+      assert signal["id"] == target.id
+    end
+
+    test "listAdminActionLogs: time range filter" do
+      admin = platform_admin("admin-queries-f-aal@example.com")
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "gql-f-aal-#{System.unique_integer([:positive])}",
+          name: "GQL F AAL"
+        })
+        |> Ash.create(actor: admin)
+
+      now = DateTime.utc_now()
+
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE admin_action_logs SET inserted_at = $1 WHERE target_id = $2",
+        [DateTime.add(now, -3 * 86_400, :second), Ecto.UUID.dump!(workspace.id)]
+      )
+
+      token = sign_in_token(admin.email, @password)
+
+      # 时间窗覆盖 backdate 行 → 含本测试行
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listAdminActionLogs(
+              action: "workspace_create"
+              insertedAfter: "#{iso(DateTime.add(now, -4 * 86_400, :second))}"
+              insertedBefore: "#{iso(DateTime.add(now, -2 * 86_400, :second))}"
+              first: 50
+            ) { id targetId }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listAdminActionLogs" => logs}} = resp
+      assert Enum.any?(logs, &(&1["targetId"] == workspace.id))
+
+      # 时间窗在 backdate 之后 → 本测试行被排除
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listAdminActionLogs(
+              action: "workspace_create"
+              insertedAfter: "#{iso(DateTime.add(now, -1 * 86_400, :second))}"
+              first: 50
+            ) { id targetId }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listAdminActionLogs" => logs}} = resp
+      refute Enum.any?(logs, &(&1["targetId"] == workspace.id))
+    end
+
+    test "listWorkflowRuns: workspaceId + status combo (auto filter)" do
+      admin = platform_admin("admin-queries-f-wfr@example.com")
+
+      workspace =
+        create_workspace(admin, slug: "admin-f-wfr-#{System.unique_integer([:positive])}")
+
+      definition = create_definition(workspace, admin)
+      publish_definition(definition, workspace, admin)
+      run = create_workflow_run(workspace, admin, definition)
+      token = sign_in_token(admin.email, @password)
+
+      # create 落 pending 态：workspaceId + status 组合命中；换个状态则空
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listWorkflowRuns(
+              filter: { workspaceId: { eq: "#{workspace.id}" }, status: { eq: "pending" } }
+              first: 10
+            ) { results { id status } }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listWorkflowRuns" => %{"results" => runs}}} = resp
+      assert Enum.map(runs, & &1["id"]) == [run.id]
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listWorkflowRuns(
+              filter: { workspaceId: { eq: "#{workspace.id}" }, status: { eq: "succeeded" } }
+              first: 10
+            ) { results { id } }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listWorkflowRuns" => %{"results" => []}}} = resp
+    end
+
+    test "listWorkflowRuns: startedAt time range (LOW-2; NULL started_at excluded = LOW-1 语义固化)" do
+      admin = platform_admin("admin-queries-f-wfr-time@example.com")
+
+      workspace =
+        create_workspace(admin, slug: "admin-f-wfr-t-#{System.unique_integer([:positive])}")
+
+      definition = create_definition(workspace, admin)
+      publish_definition(definition, workspace, admin)
+      run = create_workflow_run(workspace, admin, definition)
+      never_started = create_workflow_run(workspace, admin, definition)
+
+      now = DateTime.utc_now()
+
+      # create 不落 started_at（start action 才写），SQL backdate 造时间边界
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE workflow_runs SET started_at = $1 WHERE id = $2",
+        [DateTime.add(now, -3 * 86_400, :second), Ecto.UUID.dump!(run.id)]
+      )
+
+      token = sign_in_token(admin.email, @password)
+
+      # 时间窗覆盖 backdate 行 → 仅命中它；started_at NULL 的 run 被排除
+      # （SQL 比较对 NULL 求值 NULL/false——LOW-1 的 tab 语义差异固化为断言）
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listWorkflowRuns(
+              filter: {
+                workspaceId: { eq: "#{workspace.id}" }
+                startedAt: {
+                  greaterThanOrEqual: "#{iso(DateTime.add(now, -4 * 86_400, :second))}"
+                  lessThanOrEqual: "#{iso(DateTime.add(now, -2 * 86_400, :second))}"
+                }
+              }
+              first: 10
+            ) { results { id } }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listWorkflowRuns" => %{"results" => [hit]}}} = resp
+      assert hit["id"] == run.id
+
+      # 时间窗在 backdate 之后 → 空
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listWorkflowRuns(
+              filter: {
+                workspaceId: { eq: "#{workspace.id}" }
+                startedAt: { greaterThanOrEqual: "#{iso(DateTime.add(now, -1 * 86_400, :second))}" }
+              }
+              first: 10
+            ) { results { id } }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listWorkflowRuns" => %{"results" => []}}} = resp
+
+      # 对照：无时间范围时两行都在（排除确由时间过滤造成）
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listWorkflowRuns(filter: { workspaceId: { eq: "#{workspace.id}" } }, first: 10) {
+              results { id }
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listWorkflowRuns" => %{"results" => runs}}} = resp
+      assert Enum.sort(Enum.map(runs, & &1["id"])) == Enum.sort([run.id, never_started.id])
+    end
+  end
+
   # B2（advisor02）：after 参数是 string，须转 integer 传给 Ash.Query.offset
   describe "pagination after parameter" do
     test "listUsers with after offset returns paged subset" do

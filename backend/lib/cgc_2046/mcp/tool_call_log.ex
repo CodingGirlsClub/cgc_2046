@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.ToolCallLog do
   params 落库前经 `Cgc2046.Mcp.Redact` 过滤 token/secret 等敏感键）。
 
   写入路径：tool wrapper 统一落库，policy 放行系统写（authorize?: false 调用）；
-  读路径在切片 F 审计页开放（本期 deny read by default）。
+  读路径：platform_admin 可读全部（R10/R12，/admin/audit 页 + AshAdmin）；非 admin 仍 default-deny。
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,

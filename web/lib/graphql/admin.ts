@@ -114,6 +114,12 @@ export interface AdminListArgs {
 	after?: string;
 }
 
+/** #117 审计筛选公共时间范围变量（ISO8601 串；null/undefined = 不过滤） */
+export interface AuditTimeRangeVars {
+	insertedAfter?: string | null;
+	insertedBefore?: string | null;
+}
+
 /* ---------------- 真实 query / mutation ---------------- */
 
 export const LIST_USERS: TypedDocumentNode<
@@ -191,10 +197,30 @@ export const MY_WORKSPACE_APPLICATIONS: TypedDocumentNode<
 
 export const LIST_TOOL_CALL_LOGS: TypedDocumentNode<
 	{ listToolCallLogs: AdminToolCallLog[] },
-	{ workspaceId?: string | null; first?: number; after?: string } & AdminListArgs
+	{
+		workspaceId?: string | null;
+		status?: string | null;
+		first?: number;
+		after?: string;
+	} & AdminListArgs &
+		AuditTimeRangeVars
 > = gql`
-  query ListToolCallLogs($workspaceId: ID, $first: Int, $after: String) {
-    listToolCallLogs(workspaceId: $workspaceId, first: $first, after: $after) {
+  query ListToolCallLogs(
+    $workspaceId: ID
+    $status: String
+    $insertedAfter: DateTime
+    $insertedBefore: DateTime
+    $first: Int
+    $after: String
+  ) {
+    listToolCallLogs(
+      workspaceId: $workspaceId
+      status: $status
+      insertedAfter: $insertedAfter
+      insertedBefore: $insertedBefore
+      first: $first
+      after: $after
+    ) {
       id
       userId
       tool
@@ -208,10 +234,30 @@ export const LIST_TOOL_CALL_LOGS: TypedDocumentNode<
 
 export const LIST_PENDING_OPERATIONS: TypedDocumentNode<
 	{ listPendingOperations: AdminPendingOperation[] },
-	{ workspaceId?: string | null; first?: number; after?: string } & AdminListArgs
+	{
+		workspaceId?: string | null;
+		status?: string | null;
+		first?: number;
+		after?: string;
+	} & AdminListArgs &
+		AuditTimeRangeVars
 > = gql`
-  query ListPendingOperations($workspaceId: ID, $first: Int, $after: String) {
-    listPendingOperations(workspaceId: $workspaceId, first: $first, after: $after) {
+  query ListPendingOperations(
+    $workspaceId: ID
+    $status: String
+    $insertedAfter: DateTime
+    $insertedBefore: DateTime
+    $first: Int
+    $after: String
+  ) {
+    listPendingOperations(
+      workspaceId: $workspaceId
+      status: $status
+      insertedAfter: $insertedAfter
+      insertedBefore: $insertedBefore
+      first: $first
+      after: $after
+    ) {
       id
       userId
       tool
@@ -224,10 +270,30 @@ export const LIST_PENDING_OPERATIONS: TypedDocumentNode<
 
 export const LIST_SIGNAL_LOGS: TypedDocumentNode<
 	{ listSignalLogs: AdminSignalLog[] },
-	{ workspaceId?: string | null; first?: number; after?: string } & AdminListArgs
+	{
+		workspaceId?: string | null;
+		signalType?: string | null;
+		first?: number;
+		after?: string;
+	} & AdminListArgs &
+		AuditTimeRangeVars
 > = gql`
-  query ListSignalLogs($workspaceId: ID, $first: Int, $after: String) {
-    listSignalLogs(workspaceId: $workspaceId, first: $first, after: $after) {
+  query ListSignalLogs(
+    $workspaceId: ID
+    $signalType: String
+    $insertedAfter: DateTime
+    $insertedBefore: DateTime
+    $first: Int
+    $after: String
+  ) {
+    listSignalLogs(
+      workspaceId: $workspaceId
+      signalType: $signalType
+      insertedAfter: $insertedAfter
+      insertedBefore: $insertedBefore
+      first: $first
+      after: $after
+    ) {
       id
       workspaceId
       signalType
@@ -238,10 +304,23 @@ export const LIST_SIGNAL_LOGS: TypedDocumentNode<
 
 export const LIST_ADMIN_ACTION_LOGS: TypedDocumentNode<
 	{ listAdminActionLogs: AdminActionLog[] },
-	{ action?: string | null; first?: number; after?: string } & AdminListArgs
+	{ action?: string | null; first?: number; after?: string } & AdminListArgs &
+		AuditTimeRangeVars
 > = gql`
-  query ListAdminActionLogs($action: String, $first: Int, $after: String) {
-    listAdminActionLogs(action: $action, first: $first, after: $after) {
+  query ListAdminActionLogs(
+    $action: String
+    $insertedAfter: DateTime
+    $insertedBefore: DateTime
+    $first: Int
+    $after: String
+  ) {
+    listAdminActionLogs(
+      action: $action
+      insertedAfter: $insertedAfter
+      insertedBefore: $insertedBefore
+      first: $first
+      after: $after
+    ) {
       id
       actorId
       action

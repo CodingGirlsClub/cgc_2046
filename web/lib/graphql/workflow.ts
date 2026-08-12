@@ -53,10 +53,15 @@ export interface WorkflowRunConnection {
 	endKeyset?: string | null;
 }
 
-/** listWorkflowRuns filter：workspaceId 用 eq 比较器内层包装（同 WorkspaceMembersFilter 模式） */
+/** listWorkflowRuns filter：比较器内层包装（同 WorkspaceMembersFilter 模式） */
 export interface WorkflowRunFilter {
 	workspaceId?: { eq?: string } | null;
 	status?: { eq?: string } | null;
+	/** #117：audit 页时间范围映射到 startedAt（自动 filter 无 insertedAt） */
+	startedAt?: {
+		greaterThanOrEqual?: string;
+		lessThanOrEqual?: string;
+	} | null;
 }
 
 /* ---------------- 真实 query ---------------- */

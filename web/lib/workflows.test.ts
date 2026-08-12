@@ -161,4 +161,45 @@ describe("fetchWorkflowRuns（#40：filter eq 包装 + 分页）", () => {
 		queryMock.mockResolvedValue({ data: { listWorkflowRuns: null } } as never);
 		expect(await fetchWorkflowRuns("ws_1")).toEqual([]);
 	});
+
+	it("#117：免 workspace 全量 + status/时间 filter 组装", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables).toEqual({
+				filter: {
+					status: { eq: "waiting" },
+					startedAt: {
+						greaterThanOrEqual: "2026-08-01T00:00:00Z",
+						lessThanOrEqual: "2026-08-10T00:00:00Z",
+					},
+				},
+				first: 50,
+			});
+			return Promise.resolve({
+				data: { listWorkflowRuns: { count: 0, results: [] } },
+			} as never);
+		});
+
+		const runs = await fetchWorkflowRuns(undefined, {
+			filters: {
+				status: "waiting",
+				insertedAfter: "2026-08-01T00:00:00Z",
+				insertedBefore: "2026-08-10T00:00:00Z",
+			},
+		});
+		expect(runs).toEqual([]);
+	});
+
+	it("#117：workspace 与 filters 可组合", async () => {
+		queryMock.mockImplementation(({ variables }) => {
+			expect(variables).toEqual({
+				filter: { workspaceId: { eq: "ws_1" }, status: { eq: "pending" } },
+				first: 50,
+			});
+			return Promise.resolve({
+				data: { listWorkflowRuns: { count: 0, results: [] } },
+			} as never);
+		});
+
+		await fetchWorkflowRuns("ws_1", { filters: { status: "pending" } });
+	});
 });

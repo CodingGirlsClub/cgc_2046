@@ -3,6 +3,7 @@ import { print } from "graphql";
 import {
   APPROVE_WORKSPACE_APPLICATION,
   DEMOTE_USER,
+  LIST_ADMIN_ACTION_LOGS,
   LIST_PENDING_OPERATIONS,
   LIST_SIGNAL_LOGS,
   LIST_TOOL_CALL_LOGS,
@@ -45,19 +46,32 @@ describe("admin GraphQL 契约（Phase 5 后端 schema 对齐）", () => {
     expect(doc).toContain("myWorkspaceApplications");
   });
 
-  it("审计日志查询（ToolCallLog/PendingOperation/SignalLog）带 workspaceId 过滤", () => {
+  it("审计日志查询（ToolCallLog/PendingOperation/SignalLog）带 workspaceId + 筛选参数（#117）", () => {
     const logs = print(LIST_TOOL_CALL_LOGS);
     expect(logs).toContain("query ListToolCallLogs");
-    expect(logs).toContain("listToolCallLogs(workspaceId: $workspaceId");
+    expect(logs).toContain("listToolCallLogs(");
+    expect(logs).toContain("workspaceId: $workspaceId");
+    expect(logs).toContain("status: $status");
+    expect(logs).toContain("insertedAfter: $insertedAfter");
+    expect(logs).toContain("insertedBefore: $insertedBefore");
     expect(logs).toContain("resultStatus");
 
     const ops = print(LIST_PENDING_OPERATIONS);
     expect(ops).toContain("query ListPendingOperations");
-    expect(ops).toContain("listPendingOperations(workspaceId: $workspaceId");
+    expect(ops).toContain("workspaceId: $workspaceId");
+    expect(ops).toContain("status: $status");
 
     const signals = print(LIST_SIGNAL_LOGS);
     expect(signals).toContain("query ListSignalLogs");
-    expect(signals).toContain("listSignalLogs(workspaceId: $workspaceId");
+    expect(signals).toContain("workspaceId: $workspaceId");
+    expect(signals).toContain("signalType: $signalType");
+    expect(signals).toContain("insertedAfter: $insertedAfter");
+
+    const actions = print(LIST_ADMIN_ACTION_LOGS);
+    expect(actions).toContain("query ListAdminActionLogs");
+    expect(actions).toContain("action: $action");
+    expect(actions).toContain("insertedAfter: $insertedAfter");
+    expect(actions).not.toContain("status: $status");
   });
 
   it("approve/reject mutation 返回 result + errors", () => {
