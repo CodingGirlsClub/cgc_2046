@@ -185,6 +185,7 @@ flowchart TB
 | 模式 | 说明 | 出处 |
 |---|---|---|
 | 审批两段式 | 含两个人工信号（如报名+审批）必须拆段：第一段 persist_pending 停住，第二段 approval_gate 读回持久化结果再确认（业务异步审批需要；Agent 策略层 join 死锁缺陷未修复前的架构层规避） | 报名 §3.2 / 赞助 §2.1（POC §3.4 PASS） |
+| 实体自序贯 | 单 context 状态机 + DB 已强制全部并发不变量 + after_transaction 信号可达全部订阅方时，workflow 默认不引擎化：资源行即 pending checkpoint，信号经 action after_transaction 直发订阅方；引擎化需证成（跨角色编排 / 多实例复用 / 分支或子 workflow 拓扑 / 超出实体 policy 的分步授权）；审批入口仍为网站后台审批页 | ADR-0005（报名先例；backend/lib/cgc_2046/events/enrollment.ex） |
 | SignalMatch 门控 | 人工步骤 = 按 signal type 前缀门控下游；人触发的是「恢复」而非「启动下一段」 | 报名 §3.1（verify_2 PASS） |
 | hibernate/thaw | waiting 落 checkpoint 休眠，信号到达 thaw 恢复；长等待不占资源 | POC-2 G1 PASS（报名 §3.3） |
 | signal_idempotency | 异步副作用幂等键承载 = Postgres 唯一约束 / Redis；勿用 action 进程 ETS | POC-2 G2 B3（报名 §4.3） |
