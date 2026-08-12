@@ -93,8 +93,8 @@ export type AdminUser = {
 export type AdminUserPayload = {
   email?: Maybe<Scalars['String']['output']>;
   errors?: Maybe<Array<Maybe<MutationError>>>;
-  id: Scalars['ID']['output'];
-  isPlatformAdmin: Scalars['Boolean']['output'];
+  id?: Maybe<Scalars['ID']['output']>;
+  isPlatformAdmin?: Maybe<Scalars['Boolean']['output']>;
 };
 
 export type AdminWorkspace = {
