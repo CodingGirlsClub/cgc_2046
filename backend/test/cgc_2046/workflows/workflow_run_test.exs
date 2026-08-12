@@ -1,15 +1,14 @@
 defmodule Cgc2046.Workflows.WorkflowRunTest do
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.AccountsFixtures, as: Fixtures
+
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.Engine
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
-  alias AshAuthentication.Info, as: AuthInfo
 
   require Ash.Query
 
@@ -19,48 +18,6 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     StepHandlerRegistry.register(TestActions.AlwaysFail)
     :ok
-  end
-
-  @admin_email "wfrun-admin@example.com"
-  @outsider_email "wfrun-outsider@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "wfrun-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "WF Run WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp create_definition(workspace, actor, attrs \\ %{}) do
@@ -140,8 +97,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
   describe "state machine" do
     test "create defaults to status=pending, version=1, facts=%{}" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
 
@@ -159,8 +116,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "partition_id forced to workspace_id (ADR-0002 决策 6)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
 
@@ -181,9 +138,9 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
     # /check SC2-004：跨租户 definition_id 必须被拒（对照 new_version 的归属守卫）
     test "create rejects cross-tenant definition_id (SC2-004)" do
-      admin = platform_admin()
-      ws_a = create_workspace(admin)
-      ws_b = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      ws_a = Fixtures.create_workspace(admin)
+      ws_b = Fixtures.create_workspace(admin)
 
       {:ok, defn_a} = create_definition(ws_a, admin)
       {:ok, published_a} = publish_definition(defn_a, ws_a, admin)
@@ -210,8 +167,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
     # /check SC2-004：definition_version 必须与 definition_id 行的 version 一致（防矛盾/伪造）
     test "create rejects mismatched definition_version (SC2-004)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
 
@@ -233,8 +190,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
     # /check SC2-005：状态流转 action 不接受 input_snapshot/definition_version（D-A2 快照）
     test "start rejects input_snapshot/definition_version rebinding (SC2-005)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
@@ -249,8 +206,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "pending → running → waiting → running → succeeded" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
@@ -291,8 +248,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "running → failed" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
@@ -312,8 +269,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "pending → cancelled" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
@@ -327,8 +284,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "waiting → expired" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
@@ -352,8 +309,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "invalid transitions rejected" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
@@ -394,8 +351,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
   describe "engine execution" do
     test "auto steps produce facts, run completes" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: auto_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -420,8 +377,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "manual step gates downstream until signal (waiting → resume → complete)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published, %{input_snapshot: %{"text" => "hi"}})
@@ -468,8 +425,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "failing step returns {:error, :step_failed}" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       node_def = %{
         "steps" => [
@@ -503,9 +460,9 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
   describe "tenant isolation" do
     test "cross-workspace run not visible" do
-      admin = platform_admin()
-      ws_a = create_workspace(admin)
-      ws_b = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      ws_a = Fixtures.create_workspace(admin)
+      ws_b = Fixtures.create_workspace(admin)
 
       {:ok, defn_a} = create_definition(ws_a, admin)
       {:ok, published_a} = publish_definition(defn_a, ws_a, admin)
@@ -521,12 +478,12 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
 
     test "non-member non-platform-admin cannot read run (H3)" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)
-      outsider = register_user(@outsider_email)
+      outsider = Fixtures.register_user("wfrun-outsider")
 
       assert {:error, _} =
                Ash.get(WorkflowRun, run.id, tenant: workspace.id, actor: outsider)
@@ -535,8 +492,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
   describe "optimistic lock" do
     test "concurrent update on stale version rejected" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("wfrun-admin")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, run} = create_run(workspace, admin, published)

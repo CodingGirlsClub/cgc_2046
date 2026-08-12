@@ -1,11 +1,8 @@
 defmodule Cgc2046.Workflows.StepRoleTest do
   use Cgc2046Web.ConnCase, async: false
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Accounts.WorkspaceMembership
-  alias Cgc2046.Accounts.MembershipRole
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.SignalLog
@@ -13,7 +10,6 @@ defmodule Cgc2046.Workflows.StepRoleTest do
   alias Cgc2046.Workflows.StepRole
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
-  alias AshAuthentication.Info, as: AuthInfo
 
   require Ash.Query
 
@@ -24,47 +20,6 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     :ok
   end
 
-  @admin_email "srole-admin@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "srole-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "StepRole WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
   # workspace create 时已 seed 六角色（workspace.ex after_action），按 name 取 role_id
   defp role_by_name(workspace, name) do
     assert {:ok, role} =
@@ -73,26 +28,6 @@ defmodule Cgc2046.Workflows.StepRoleTest do
              |> Ash.read_one(tenant: workspace.id, authorize?: false)
 
     role
-  end
-
-  # 建非 owner 成员（volunteer 等）：Membership + MembershipRole（参照 workspace.ex owner 建立模式）
-  defp add_member(workspace, user, role_name) do
-    role = role_by_name(workspace, role_name)
-
-    assert {:ok, membership} =
-             WorkspaceMembership
-             |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-             |> Ash.create(tenant: workspace.id, authorize?: false)
-
-    assert {:ok, _} =
-             MembershipRole
-             |> Ash.Changeset.for_create(:create, %{
-               membership_id: membership.id,
-               role_id: role.id
-             })
-             |> Ash.create(tenant: workspace.id, authorize?: false)
-
-    membership
   end
 
   defp create_definition(workspace, actor, attrs) do
@@ -214,10 +149,10 @@ defmodule Cgc2046.Workflows.StepRoleTest do
 
   describe "StepRole 授权（#38）" do
     test "无权限执行被拒：信号发起人角色不在 step 执行角色集" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      volunteer = register_user("srole-volunteer@example.com")
-      add_member(workspace, volunteer, :volunteer)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("srole-volunteer")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       # approval 仅授权 :owner
       {run, _step} = setup_gated_run(workspace, admin, [:owner])
@@ -250,10 +185,10 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
 
     test "伪造 actor_id 越权被拒：volunteer 冒充 owner 发信号不放行（#4）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      volunteer = register_user("srole-forger@example.com")
-      add_member(workspace, volunteer, :volunteer)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("srole-forger")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       # approval 仅授权 :owner——volunteer 无权放行
       {run, _step} = setup_gated_run(workspace, admin, [:owner])
@@ -287,8 +222,8 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
 
     test "无认证 actor 发信号被拒：resume_signal 要求认证 actor（#4 补）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
 
       # approval 仅授权 :owner
       {run, _step} = setup_gated_run(workspace, admin, [:owner])
@@ -307,10 +242,10 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
 
     test "多角色并集命中放行：volunteer 在 step 执行角色集内" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      volunteer = register_user("srole-volunteer2@example.com")
-      add_member(workspace, volunteer, :volunteer)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("srole-volunteer2")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       # approval 授权 [:owner, :volunteer]（并集命中）
       {run, _step} = setup_gated_run(workspace, admin, [:owner, :volunteer])
@@ -343,8 +278,8 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
 
     test "Owner/Admin 豁免：owner 发信号不受 step 角色集限制" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
 
       # approval 仅授权 :volunteer，owner 仍可放行（矩阵 §3.4 全放行）
       {run, _step} = setup_gated_run(workspace, admin, [:volunteer])
@@ -365,10 +300,10 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
 
     test "无 StepRole 配置放行：未建 Step/StepRole 行不限制" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      member = register_user("srole-member@example.com")
-      add_member(workspace, member, :member)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("srole-member")
+      Fixtures.add_member(workspace, member, [:member])
 
       # 不建 Step/StepRole 行（human_step_test 同款路径）
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
@@ -391,10 +326,10 @@ defmodule Cgc2046.Workflows.StepRoleTest do
     end
 
     test "auto 步骤不授权：引擎执行不受 StepRole 限制" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      volunteer = register_user("srole-volunteer3@example.com")
-      add_member(workspace, volunteer, :volunteer)
+      admin = Fixtures.platform_admin("srole")
+      workspace = Fixtures.create_workspace(admin)
+      volunteer = Fixtures.register_user("srole-volunteer3")
+      Fixtures.add_member(workspace, volunteer, [:volunteer])
 
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)

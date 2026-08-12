@@ -12,18 +12,7 @@ defmodule Cgc2046.Mcp.TokenRaceTest do
   use Cgc2046.DataCase, async: false
 
   alias Cgc2046.Mcp.Token
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp issue(user, name) do
     {:ok, token} =
@@ -35,7 +24,7 @@ defmodule Cgc2046.Mcp.TokenRaceTest do
   end
 
   test "陈旧副本重撤：必须报错且 revoked_at 不被改写" do
-    user = register_user("race-revoke-stale@example.com")
+    user = Fixtures.register_user("race-revoke-stale")
     stale = issue(user, "stale-copy")
 
     # 正常路径撤销（模拟 resolver：每次请求重新 get）
@@ -62,7 +51,7 @@ defmodule Cgc2046.Mcp.TokenRaceTest do
   end
 
   test "8 路并发撤销（各自独立 get，resolver 同路径）：恰好一个成功" do
-    user = register_user("race-revoke-concurrent@example.com")
+    user = Fixtures.register_user("race-revoke-concurrent")
     token = issue(user, "concurrent")
 
     results =

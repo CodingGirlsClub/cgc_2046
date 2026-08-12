@@ -5,11 +5,9 @@ defmodule Cgc2046Web.GraphqlAcceptInvitationTest do
 
   alias Cgc2046.Accounts.Invitation
   alias Cgc2046.Accounts.WorkspaceMembership
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   require Ash.Query
-
-  @password "sup3r-secret-password"
 
   defp create_invitation(workspace, inviter, attrs \\ %{}) do
     {:ok, invitation} =
@@ -31,7 +29,7 @@ defmodule Cgc2046Web.GraphqlAcceptInvitationTest do
   defp sign_in_token(email) do
     query = """
     mutation {
-      signIn(email: "#{email}", password: "#{@password}") {
+      signIn(email: "#{email}", password: "#{Fixtures.password()}") {
         id
       }
     }

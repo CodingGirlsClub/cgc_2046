@@ -1,66 +1,10 @@
 defmodule Cgc2046.Accounts.WorkspaceProfileTest do
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
-  alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.Accounts.WorkspaceProfile
-  alias AshAuthentication.Info, as: AuthInfo
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   require Ash.Query
-
-  @admin_email "wsp-admin@example.com"
-  @member_email "wsp-member@example.com"
-  @outsider_email "wsp-outsider@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  defp admin_user do
-    user = register_user(@admin_email, @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin, slug \\ "wsp-ws-#{System.unique_integer([:positive])}") do
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "WSP WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  # 以 owner/admin 身份把用户拉进工作台
-  defp add_member(workspace, user, actor) do
-    assert {:ok, membership} =
-             WorkspaceMembership
-             |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-             |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    membership
-  end
 
   # 建 WorkspaceProfile（模拟注册/迁移回填的 authorize?: false 建）
   defp create_profile(workspace, user) do
@@ -74,10 +18,10 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
 
   describe "WorkspaceProfile resource (ADR-0004)" do
     test "identity: unique per (workspace_id, user_id)" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
       create_profile(ws, member)
 
       # 同一 ws 重复建 → unique 冲突
@@ -88,10 +32,10 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "defaults: visibility only_me, theme dark, skills []" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
 
       profile = create_profile(ws, member)
       assert profile.visibility == :only_me
@@ -101,10 +45,10 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "update_profile accepts profile fields (own profile, member)" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
       profile = create_profile(ws, member)
 
       assert {:ok, updated} =
@@ -126,10 +70,10 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "set_ui_theme only accepts dark|light" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
       profile = create_profile(ws, member)
 
       assert {:ok, updated} =
@@ -146,10 +90,10 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "avatar validation: non-data/http URL rejected" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
       profile = create_profile(ws, member)
 
       assert {:error, %Ash.Error.Invalid{}} =
@@ -159,11 +103,11 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "anonymous cannot read any profile" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
-      profile = create_profile(ws, member)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
+      _profile = create_profile(ws, member)
 
       assert {:ok, []} =
                WorkspaceProfile
@@ -174,11 +118,11 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
 
   describe "visibility read authorization (ADR-0004)" do
     test "only_me: only the owner can read" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      outsider = register_user(@outsider_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      outsider = Fixtures.register_user("wsp-outsider")
+      Fixtures.add_member(ws, member)
       profile = create_profile(ws, member)
 
       # 本人可读
@@ -206,12 +150,12 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "workspace visibility: only target workspace members can read" do
-      admin = admin_user()
-      ws1 = create_workspace(admin, "wsp-vis-ws1")
-      ws2 = create_workspace(admin, "wsp-vis-ws2")
-      member = register_user(@member_email, @password)
-      add_member(ws1, member, admin)
-      add_member(ws2, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws1 = Fixtures.create_workspace(admin, %{slug: "wsp-vis-ws1"})
+      ws2 = Fixtures.create_workspace(admin, %{slug: "wsp-vis-ws2"})
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws1, member)
+      Fixtures.add_member(ws2, member)
       profile = create_profile(ws1, member)
 
       # 设为 workspace 可见
@@ -230,8 +174,8 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
       assert found.id == profile.id
 
       # ws2 的成员（非目标 workspace）不可读——目标 workspace 语义
-      other_member = register_user("wsp-ws2-member@example.com", @password)
-      add_member(ws2, other_member, admin)
+      other_member = Fixtures.register_user("wsp-ws2-member")
+      Fixtures.add_member(ws2, other_member)
 
       assert {:ok, []} =
                WorkspaceProfile
@@ -241,11 +185,11 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "public visibility: any logged-in user can read" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      outsider = register_user(@outsider_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      outsider = Fixtures.register_user("wsp-outsider")
+      Fixtures.add_member(ws, member)
       profile = create_profile(ws, member)
 
       assert {:ok, _} =
@@ -266,9 +210,9 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
 
   describe "write authorization" do
     test "non-member cannot update profile in a workspace" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      outsider = register_user(@outsider_email, @password)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      outsider = Fixtures.register_user("wsp-outsider")
       profile = create_profile(ws, admin)
 
       # outsider 非该 ws 成员（authorize 路径下被 ActorIsWorkspaceMember 拒绝）
@@ -279,11 +223,11 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "member in one workspace cannot update profile in another" do
-      admin = admin_user()
-      ws1 = create_workspace(admin, "wsp-write-ws1")
-      ws2 = create_workspace(admin, "wsp-write-ws2")
-      member = register_user(@member_email, @password)
-      add_member(ws1, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws1 = Fixtures.create_workspace(admin, %{slug: "wsp-write-ws1"})
+      ws2 = Fixtures.create_workspace(admin, %{slug: "wsp-write-ws2"})
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws1, member)
       profile_ws2 = create_profile(ws2, admin)
 
       # member 是 ws1 成员但非 ws2 成员 → 不可改 ws2 的 admin 档案
@@ -294,10 +238,10 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "own profile in member workspace is updatable through authorization" do
-      admin = admin_user()
-      ws = create_workspace(admin)
-      member = register_user(@member_email, @password)
-      add_member(ws, member, admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("wsp-member")
+      Fixtures.add_member(ws, member)
       profile = create_profile(ws, member)
 
       assert {:ok, updated} =
@@ -309,17 +253,14 @@ defmodule Cgc2046.Accounts.WorkspaceProfileTest do
     end
 
     test "same-workspace member cannot update another member's profile (review HIGH-1 regression)" do
-      admin = admin_user()
-      ws = create_workspace(admin)
+      admin = Fixtures.platform_admin("wsp-admin")
+      ws = Fixtures.create_workspace(admin)
 
-      member_a =
-        register_user("wsp-a-#{System.unique_integer([:positive])}@example.com", @password)
+      member_a = Fixtures.register_user("wsp-a")
+      member_b = Fixtures.register_user("wsp-b")
 
-      member_b =
-        register_user("wsp-b-#{System.unique_integer([:positive])}@example.com", @password)
-
-      add_member(ws, member_a, admin)
-      add_member(ws, member_b, admin)
+      Fixtures.add_member(ws, member_a)
+      Fixtures.add_member(ws, member_b)
       profile_a = create_profile(ws, member_a)
 
       # member_b 与 member_a 同属 ws，但不是 profile_a 的本人 → forbid_unless OwnWorkspaceProfile 拦截

@@ -6,21 +6,10 @@ defmodule Cgc2046.Mcp.ToolCallLogTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.Mcp.ToolCallLog
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   test "log 落库成功：字段完整" do
-    user = register_user("log-1@example.com")
+    user = Fixtures.register_user("log-1")
 
     assert {:ok, log} =
              ToolCallLog
@@ -45,7 +34,7 @@ defmodule Cgc2046.Mcp.ToolCallLogTest do
   end
 
   test "needs_confirmation 状态可挂 pending_operation_id" do
-    user = register_user("log-2@example.com")
+    user = Fixtures.register_user("log-2")
     pending_id = Ecto.UUID.generate()
 
     assert {:ok, log} =
@@ -67,7 +56,7 @@ defmodule Cgc2046.Mcp.ToolCallLogTest do
   end
 
   test "error 状态可带错误摘要" do
-    user = register_user("log-3@example.com")
+    user = Fixtures.register_user("log-3")
 
     assert {:ok, log} =
              ToolCallLog
@@ -88,7 +77,7 @@ defmodule Cgc2046.Mcp.ToolCallLogTest do
   end
 
   test "非法 result_status 被拒绝" do
-    user = register_user("log-4@example.com")
+    user = Fixtures.register_user("log-4")
 
     assert {:error, _} =
              ToolCallLog
@@ -101,7 +90,7 @@ defmodule Cgc2046.Mcp.ToolCallLogTest do
   end
 
   test "默认 actor 不可读（切片 F 再开放）" do
-    user = register_user("log-5@example.com")
+    user = Fixtures.register_user("log-5")
 
     {:ok, _} =
       ToolCallLog

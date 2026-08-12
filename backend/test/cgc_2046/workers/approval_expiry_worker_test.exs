@@ -25,65 +25,19 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.Accounts.JoinRequest
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceApplication
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
-  alias AshAuthentication.Info, as: AuthInfo
 
   setup do
     StepHandlerRegistry.register(TestActions.Uppercase)
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     :ok
-  end
-
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin do
-    user = register_user("expiry-admin-#{System.unique_integer([:positive])}@example.com")
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "expiry-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{
-               slug: slug,
-               name: "Expiry WS",
-               join_policy: :request
-             })
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp create_join_request(workspace, user) do
@@ -214,9 +168,9 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
 
   describe "JoinRequest 过期扫描" do
     test "approval_deadline 过点的 pending 申请转 expired（既有 :expire action，落 expired_at）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      applicant = register_user("expiry-jr-#{System.unique_integer([:positive])}@example.com")
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("expiry-jr-#{System.unique_integer([:positive])}")
       jr = create_join_request(workspace, applicant)
       backdate_join_request_deadline(jr, "1 day")
 
@@ -228,9 +182,9 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "未到期的 pending 申请不动" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      applicant = register_user("expiry-jr-#{System.unique_integer([:positive])}@example.com")
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("expiry-jr-#{System.unique_integer([:positive])}")
       jr = create_join_request(workspace, applicant)
 
       assert :ok = perform_job(ApprovalExpiryWorker, %{})
@@ -241,9 +195,9 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "已终态申请即使 deadline 过点也不动（status 过滤语义）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      applicant = register_user("expiry-jr-#{System.unique_integer([:positive])}@example.com")
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("expiry-jr-#{System.unique_integer([:positive])}")
       jr = create_join_request(workspace, applicant)
 
       assert {:ok, rejected} =
@@ -261,9 +215,9 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "重复执行幂等：第二拍无新转换、不报错" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      applicant = register_user("expiry-jr-#{System.unique_integer([:positive])}@example.com")
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
+      applicant = Fixtures.register_user("expiry-jr-#{System.unique_integer([:positive])}")
       jr = create_join_request(workspace, applicant)
       backdate_join_request_deadline(jr, "1 day")
 
@@ -277,8 +231,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
 
   describe "WorkflowRun 过期扫描（F7 审批超时）" do
     test "waiting 且 approval_timeout 过点 → 走 :expire 转 expired" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 3_600)
       waiting = create_waiting_run(workspace, admin, published)
       backdate_run_updated_at(waiting, "2 hours")
@@ -291,8 +245,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "waiting 但未过点 → 不动" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 604_800)
       waiting = create_waiting_run(workspace, admin, published)
 
@@ -303,8 +257,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "approval_timeout = nil（无超时，F7 方案 A）→ 不动" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, nil)
       waiting = create_waiting_run(workspace, admin, published)
       backdate_run_updated_at(waiting, "30 days")
@@ -316,8 +270,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "pending（未进入审批等待）→ 不动" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 3_600)
 
       assert {:ok, run} =
@@ -345,7 +299,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
 
   describe "WorkspaceApplication 过期扫描" do
     test "approval_deadline 过点的 pending 申请转 expired（既有 :expire action，落 expired_at）" do
-      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      applicant = Fixtures.register_user("expiry-wapp-#{System.unique_integer([:positive])}")
       application = create_workspace_application(applicant)
       backdate_workspace_application_deadline(application, "1 day")
 
@@ -357,7 +311,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "未到期的 pending 申请不动" do
-      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      applicant = Fixtures.register_user("expiry-wapp-#{System.unique_integer([:positive])}")
       application = create_workspace_application(applicant)
 
       assert :ok = perform_job(ApprovalExpiryWorker, %{})
@@ -368,8 +322,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "已终态申请即使 deadline 过点也不动（status 过滤语义）" do
-      admin = platform_admin()
-      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      admin = Fixtures.platform_admin("expiry-admin")
+      applicant = Fixtures.register_user("expiry-wapp-#{System.unique_integer([:positive])}")
       application = create_workspace_application(applicant)
 
       assert {:ok, rejected} =
@@ -387,7 +341,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "重复执行幂等：第二拍无新转换、不报错" do
-      applicant = register_user("expiry-wapp-#{System.unique_integer([:positive])}@example.com")
+      applicant = Fixtures.register_user("expiry-wapp-#{System.unique_integer([:positive])}")
       application = create_workspace_application(applicant)
       backdate_workspace_application_deadline(application, "1 day")
 
@@ -403,8 +357,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
   # 唤醒 → cancel 的完整链路。唤醒 = Oban worker 扫描；cancel = WorkflowRun :expire。
   describe "POC-2 G1 补测：hibernate→thaw→cancel 链路" do
     test "waiting hibernate（checkpoint 可 thaw 恢复）→ deadline 过点 → worker 唤醒转 expired → checkpoint 清理 → 信号放行被拒" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 3_600)
       waiting = create_waiting_run(workspace, admin, published)
 
@@ -440,8 +394,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "deadline 未过点的 hibernated run 不被唤醒 cancel（thaw 后仍可正常放行）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
       published = create_published_definition(workspace, admin, 604_800)
       waiting = create_waiting_run(workspace, admin, published)
 
@@ -470,8 +424,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
 
   describe "invitation expiry sweep (#114)" do
     test "active invitation with past expires_at -> swept to expired in DB" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       {:ok, invitation} =
         Cgc2046.Accounts.Invitation
@@ -490,8 +444,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
     end
 
     test "future expires_at / terminal status invitations are untouched" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("expiry-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       {:ok, future} =
         Cgc2046.Accounts.Invitation

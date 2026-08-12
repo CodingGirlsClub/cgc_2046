@@ -14,15 +14,13 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   use Cgc2046Web.ConnCase, async: false
 
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.ResearchInstantiator
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
-  alias AshAuthentication.Info, as: AuthInfo
 
   setup do
     # 注册测试 step handlers（ADR-0003 两阶段初始化）
@@ -30,47 +28,6 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     StepHandlerRegistry.register(TestActions.AlwaysFail)
     :ok
-  end
-
-  @admin_email "tl-admin@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "tl-ws-#{System.unique_integer([:positive])}"
-
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{slug: slug, name: "Teaching Learning WS"})
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp create_definition(workspace, actor, attrs) do
@@ -160,8 +117,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "教研定义复用多实例（#39 验收）" do
     test "一个 research 定义实例化多个 Event，各自独立 run，facts 不串" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
 
@@ -233,8 +190,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "子 workflow 嵌套（#39 验收）" do
     test "父定义 sub_workflow 步骤递归执行子定义，facts 嵌套" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
 
       # 子定义（纯 auto）publish
       {:ok, child} = create_definition(workspace, admin, %{node_def: child_node_def()})
@@ -274,8 +231,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "子 workflow 失败 → 父 run failed（#3 回归）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
 
       # 子定义含 AlwaysFail（auto 步骤失败）
       {:ok, child} =
@@ -327,8 +284,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "Event launch 发信号（#39 验收）" do
     test "launch action → status=open + event.launched 信号已发" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, event} = create_event(workspace, admin)
 
       # 订阅 event.launched 信号（验证 launch action 发布）
@@ -354,8 +311,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "非 draft 状态不可 launch" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, event} = create_event(workspace, admin)
 
       {:ok, launched} =
@@ -372,8 +329,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "launch 信号在事务提交后发布（#1 TOCTOU 回归）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, event} = create_event(workspace, admin)
 
       parent = self()
@@ -405,8 +362,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "幂等实例化（#39 验收）" do
     test "同一 Event 重复 launch → 返回同一 run（不重复创建）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
@@ -442,8 +399,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "异步信号状态守卫（孤儿 run 防护）" do
     test "draft event 信号不创建 run" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
@@ -466,8 +423,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "open event 信号创建 run（守卫不误伤）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
@@ -498,8 +455,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "research_enabled=false 不实例化（#6 门控）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin, %{research_enabled: false})
@@ -527,8 +484,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "实例化后回写 workflow_run_id（#14 产物引用链）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
@@ -562,8 +519,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "异步路径教研定义选择（确定性）" do
     test "无 published 教研定义时跳过实例化（不 raise、不建 run）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, event} = create_event(workspace, admin)
 
       {:ok, launched} =
@@ -591,8 +548,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     end
 
     test "多个 published 教研定义时取最新（inserted_at desc）" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
 
       {:ok, def_a} =
         create_definition(workspace, admin, %{name: "教研 A", node_def: research_node_def()})
@@ -636,8 +593,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   describe "sub_workflow 无 sub_definition_id 透传（向后兼容）" do
     test "step 无 sub_definition_id → 透传 data，不报错" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("tl")
+      workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, _event} = create_event(workspace, admin)

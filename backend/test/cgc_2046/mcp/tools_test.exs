@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.ToolsTest do
 
   alias Anubis.Server.Frame
 
-  alias Cgc2046.Accounts.{User, Workspace}
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
 
   alias Cgc2046.Mcp.Tools.{
@@ -23,44 +23,6 @@ defmodule Cgc2046.Mcp.ToolsTest do
   }
 
   require Ash.Query
-
-  @admin_email "mcp-tools-admin@example.com"
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
-
-  defp platform_admin(email \\ @admin_email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    slug = "mcp-tools-ws-#{System.unique_integer([:positive])}"
-
-    {:ok, workspace} =
-      Workspace
-      |> Ash.Changeset.for_create(:create, %{slug: slug, name: "MCP Tools WS"})
-      |> Ash.create(actor: admin)
-
-    workspace
-  end
 
   defp frame_for(user), do: Frame.new(current_user: user)
 
@@ -77,7 +39,7 @@ defmodule Cgc2046.Mcp.ToolsTest do
 
   describe "workspace_id 必填（D12）" do
     test "缺 workspace_id → JSON-RPC error + forbidden 审计" do
-      admin = platform_admin()
+      admin = Fixtures.platform_admin("mcp-tools")
 
       assert {:error, %Anubis.MCP.Error{reason: :execution_error, message: msg}, _frame} =
                CreateInvitation.execute(%{"target_email" => "a@b.com"}, frame_for(admin))
@@ -89,7 +51,7 @@ defmodule Cgc2046.Mcp.ToolsTest do
     end
 
     test "confirm_operation / cancel_operation 不要求 workspace_id" do
-      admin = platform_admin()
+      admin = Fixtures.platform_admin("mcp-tools")
 
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =
                ConfirmOperation.execute(%{"pending_id" => Ash.UUID.generate()}, frame_for(admin))
@@ -106,9 +68,9 @@ defmodule Cgc2046.Mcp.ToolsTest do
 
   describe "membership 鉴权" do
     test "非成员调 get_workspace_context → Forbidden 错误 + 审计" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      outsider = register_user("mcp-tools-outsider@example.com")
+      admin = Fixtures.platform_admin("mcp-tools")
+      workspace = Fixtures.create_workspace(admin)
+      outsider = Fixtures.register_user("mcp-tools-outsider")
 
       assert {:error, %Anubis.MCP.Error{reason: :execution_error, message: msg}, _} =
                GetWorkspaceContext.execute(
@@ -123,8 +85,8 @@ defmodule Cgc2046.Mcp.ToolsTest do
     end
 
     test "成员调 get_workspace_context → ok + ok 审计" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("mcp-tools")
+      workspace = Fixtures.create_workspace(admin)
 
       assert {:reply, _, _} =
                reply =
@@ -146,8 +108,8 @@ defmodule Cgc2046.Mcp.ToolsTest do
 
   describe "确认流两段（D-D3）" do
     test "create_invitation → needs_confirmation 不落库 → confirm → 真正创建 Invitation" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("mcp-tools")
+      workspace = Fixtures.create_workspace(admin)
 
       # 第一段：不落 Invitation，只建 PendingOperation
       assert {:reply, _, _} =
@@ -203,9 +165,9 @@ defmodule Cgc2046.Mcp.ToolsTest do
     end
 
     test "他人不可确认我的 pending" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
-      outsider_admin = platform_admin("mcp-tools-admin2@example.com")
+      admin = Fixtures.platform_admin("mcp-tools")
+      workspace = Fixtures.create_workspace(admin)
+      outsider_admin = Fixtures.platform_admin("mcp-tools-admin2")
 
       {:reply, _, _} =
         reply =
@@ -227,8 +189,8 @@ defmodule Cgc2046.Mcp.ToolsTest do
     end
 
     test "cancel_operation 取消后 confirm 被拒" do
-      admin = platform_admin()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("mcp-tools")
+      workspace = Fixtures.create_workspace(admin)
 
       {:reply, _, _} =
         reply =

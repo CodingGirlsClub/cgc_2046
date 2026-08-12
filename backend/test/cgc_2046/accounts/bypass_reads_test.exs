@@ -2,88 +2,16 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.BypassReads
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
-  alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @password "sup3r-secret-password"
-
-  defp password_strategy do
-    AuthInfo.strategy!(User, :password)
-  end
-
-  defp register_user(email, password) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: password
-             })
-
-    user
-  end
-
-  defp admin_user do
-    user = register_user("br-admin-#{System.unique_integer([:positive])}@example.com", @password)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp new_user do
-    register_user("br-user-#{System.unique_integer([:positive])}@example.com", @password)
-  end
-
-  defp create_workspace(admin) do
-    {:ok, workspace} =
-      Workspace
-      |> Ash.Changeset.for_create(:create, %{
-        slug: "br-#{System.unique_integer([:positive])}",
-        name: "BR"
-      })
-      |> Ash.create(actor: admin)
-
-    workspace
-  end
-
-  defp add_member(workspace, user, actor, role_names) do
-    {:ok, membership} =
-      WorkspaceMembership
-      |> Ash.Changeset.for_create(:create, %{user_id: user.id})
-      |> Ash.create(tenant: workspace.id, actor: actor, authorize?: false)
-
-    if role_names != [] do
-      # P0 grant scope 校验依赖 context.actor：actor/tenant 在 for_update 阶段传
-      assert {:ok, _membership} =
-               membership
-               |> Ash.Changeset.for_update(
-                 :assign_roles,
-                 %{role_names: role_names},
-                 actor: actor,
-                 tenant: workspace.id
-               )
-               |> Ash.update()
-    end
-
-    membership
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   describe "member_count/1（聚合旁路，GROUP BY）" do
     test "跨工作台批量统计（含创建者自身）" do
-      admin = admin_user()
-      ws_a = create_workspace(admin)
-      ws_b = create_workspace(admin)
-      add_member(ws_a, new_user(), admin, [:member])
-      add_member(ws_a, new_user(), admin, [:member])
-      add_member(ws_b, new_user(), admin, [:admin])
+      admin = Fixtures.platform_admin("br-admin")
+      ws_a = Fixtures.create_workspace(admin)
+      ws_b = Fixtures.create_workspace(admin)
+      Fixtures.add_member(ws_a, Fixtures.register_user("br-user"), [:member])
+      Fixtures.add_member(ws_a, Fixtures.register_user("br-user"), [:member])
+      Fixtures.add_member(ws_b, Fixtures.register_user("br-user"), [:admin])
 
       # 创建者自动是成员：ws_a = admin + 2，ws_b = admin + 1
       assert BypassReads.member_count([ws_a.id, ws_b.id]) == %{
@@ -111,28 +39,28 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
 
   describe "owner_count/1（raw COUNT，按 membership 去重）" do
     test "2 个 owner（不同 membership）→ 2" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      add_member(workspace, new_user(), admin, [:owner])
+      admin = Fixtures.platform_admin("br-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, Fixtures.register_user("br-user"), [:owner])
 
       assert BypassReads.owner_count(workspace.id) == 2
     end
 
     test "一人持多角色（owner + admin）仍只算 1 次（去重）" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("br-admin")
+      workspace = Fixtures.create_workspace(admin)
 
-      multi = new_user()
-      add_member(workspace, multi, admin, [:owner, :admin])
-      add_member(workspace, new_user(), admin, [:owner])
+      multi = Fixtures.register_user("br-user")
+      Fixtures.add_member(workspace, multi, [:owner, :admin])
+      Fixtures.add_member(workspace, Fixtures.register_user("br-user"), [:owner])
 
       # admin（创建者）+ multi + 新 owner = 3
       assert BypassReads.owner_count(workspace.id) == 3
     end
 
     test "无 owner 的 workspace → 0" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("br-admin")
+      workspace = Fixtures.create_workspace(admin)
 
       # 移除创建者自己的 owner 角色
       loaded = Ash.load!(workspace, :memberships, tenant: workspace.id, authorize?: false)
@@ -150,10 +78,10 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
     end
 
     test "非 owner membership 不计数" do
-      admin = admin_user()
-      workspace = create_workspace(admin)
-      add_member(workspace, new_user(), admin, [:admin])
-      add_member(workspace, new_user(), admin, [:member])
+      admin = Fixtures.platform_admin("br-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, Fixtures.register_user("br-user"), [:admin])
+      Fixtures.add_member(workspace, Fixtures.register_user("br-user"), [:member])
 
       # admin（owner）+ 2 非 owner = 1
       assert BypassReads.owner_count(workspace.id) == 1

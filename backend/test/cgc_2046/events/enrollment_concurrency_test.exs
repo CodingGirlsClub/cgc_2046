@@ -1,16 +1,17 @@
 defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
   use Cgc2046.DataCase, async: false
 
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Enrollment, InviteBatch}
+  alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.MiniprogramFixtures.Barrier
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
 
   test "capacity=1 的两个并发 open 报名恰好一个成功" do
     {admin, workspace, event, users} =
       unboxed(fn ->
         admin = Fixtures.platform_admin("capacity-race-admin")
         workspace = Fixtures.create_workspace(admin)
-        event = Fixtures.create_event(workspace, admin, %{capacity: 1})
+        event = EventFixtures.create_event(workspace, admin, %{capacity: 1})
 
         users = [
           Fixtures.register_user("capacity-race-a"),
@@ -37,7 +38,7 @@ defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
       unboxed(fn ->
         admin = Fixtures.platform_admin("quota-race-admin")
         workspace = Fixtures.create_workspace(admin)
-        event = Fixtures.create_event(workspace, admin, %{enrollment_policy: :invite_only})
+        event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :invite_only})
 
         batch =
           InviteBatch

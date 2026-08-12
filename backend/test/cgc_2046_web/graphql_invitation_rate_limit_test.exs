@@ -4,11 +4,9 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
   use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.Accounts.Invitation
-  alias Cgc2046.Accounts.User
-  alias Cgc2046.Accounts.Workspace
-  alias AshAuthentication.Info, as: AuthInfo
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
-  @password "sup3r-secret-password"
+  @password Fixtures.password()
 
   setup do
     :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
@@ -19,44 +17,6 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
     end)
 
     :ok
-  end
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(password_strategy(), :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp admin_user(email) do
-    user = register_user(email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp create_workspace(admin) do
-    assert {:ok, workspace} =
-             Workspace
-             |> Ash.Changeset.for_create(:create, %{
-               slug: "rl-ws-#{System.unique_integer([:positive])}",
-               name: "RL WS",
-               join_policy: :request
-             })
-             |> Ash.create(actor: admin)
-
-    workspace
   end
 
   defp create_invitation(workspace, inviter) do
@@ -108,8 +68,8 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
 
   describe "validateInvitation rate limit" do
     test "blocks after max_attempts with the same token" do
-      admin = admin_user("rl-admin@example.com")
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("rl-admin")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
       token = invitation.__metadata__[:plain_token]
 
@@ -125,8 +85,8 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
     end
 
     test "different tokens have independent counters" do
-      admin = admin_user("rl-admin-2@example.com")
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("rl-admin-2")
+      workspace = Fixtures.create_workspace(admin)
       inv_a = create_invitation(workspace, admin)
       inv_b = create_invitation(workspace, admin)
       token_a = inv_a.__metadata__[:plain_token]
@@ -143,13 +103,13 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
 
   describe "acceptInvitation rate limit" do
     test "blocks after max_attempts with the same token" do
-      admin = admin_user("rl-admin-3@example.com")
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("rl-admin-3")
+      workspace = Fixtures.create_workspace(admin)
       invitation = create_invitation(workspace, admin)
       token = invitation.__metadata__[:plain_token]
 
-      _acceptor = register_user("rl-acceptor@example.com")
-      authed = sign_in_token("rl-acceptor@example.com")
+      acceptor = Fixtures.register_user("rl-acceptor")
+      authed = sign_in_token(acceptor.email)
 
       mutation = """
       mutation {
@@ -194,18 +154,18 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
     end
 
     test "different tokens have independent counters" do
-      admin = admin_user("rl-admin-4@example.com")
-      workspace = create_workspace(admin)
+      admin = Fixtures.platform_admin("rl-admin-4")
+      workspace = Fixtures.create_workspace(admin)
       inv_a = create_invitation(workspace, admin)
       inv_b = create_invitation(workspace, admin)
       token_a = inv_a.__metadata__[:plain_token]
       token_b = inv_b.__metadata__[:plain_token]
 
-      _acceptor_a = register_user("rl-acceptor-a@example.com")
-      authed_a = sign_in_token("rl-acceptor-a@example.com")
+      acceptor_a = Fixtures.register_user("rl-acceptor-a")
+      authed_a = sign_in_token(acceptor_a.email)
 
-      _acceptor_b = register_user("rl-acceptor-b@example.com")
-      authed_b = sign_in_token("rl-acceptor-b@example.com")
+      acceptor_b = Fixtures.register_user("rl-acceptor-b")
+      authed_b = sign_in_token(acceptor_b.email)
 
       mutation_a = """
       mutation {

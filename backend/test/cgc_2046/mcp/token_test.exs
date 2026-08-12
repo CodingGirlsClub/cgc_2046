@@ -13,22 +13,11 @@ defmodule Cgc2046.Mcp.TokenTest do
   require Ash.Query
 
   alias Cgc2046.Mcp.Token
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   describe "issue（签发）" do
     test "签发成功：hash 落库，明文仅在 metadata.plain_token 一次性返回" do
-      user = register_user("mcp-token-1@example.com")
+      user = Fixtures.register_user("mcp-token-1")
 
       assert {:ok, token} =
                Token
@@ -54,7 +43,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "同一用户可持有多个 token（D-D4：撤销粒度按 token）" do
-      user = register_user("mcp-token-2@example.com")
+      user = Fixtures.register_user("mcp-token-2")
 
       assert {:ok, _t1} =
                Token
@@ -68,7 +57,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "active token 达 10 个上限后拒绝签发；撤销一个后可再签" do
-      user = register_user("mcp-token-cap@example.com")
+      user = Fixtures.register_user("mcp-token-cap")
 
       for i <- 1..10 do
         assert {:ok, _} =
@@ -111,7 +100,7 @@ defmodule Cgc2046.Mcp.TokenTest do
 
   describe "validate_token（MCP 鉴权路径）" do
     test "有效明文 token → 返回所属 user" do
-      user = register_user("mcp-token-3@example.com")
+      user = Fixtures.register_user("mcp-token-3")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
@@ -125,7 +114,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "已撤销 token → :error" do
-      user = register_user("mcp-token-4@example.com")
+      user = Fixtures.register_user("mcp-token-4")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
@@ -139,7 +128,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "validate_token 触碰 last_used_at" do
-      user = register_user("mcp-token-5@example.com")
+      user = Fixtures.register_user("mcp-token-5")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
@@ -153,7 +142,7 @@ defmodule Cgc2046.Mcp.TokenTest do
 
   describe "revoke（撤销）" do
     test "本人可撤销自己的 token" do
-      user = register_user("mcp-token-6@example.com")
+      user = Fixtures.register_user("mcp-token-6")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
@@ -165,8 +154,8 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "他人不可撤销（Forbidden）" do
-      owner = register_user("mcp-token-7@example.com")
-      other = register_user("mcp-token-8@example.com")
+      owner = Fixtures.register_user("mcp-token-7")
+      other = Fixtures.register_user("mcp-token-8")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: owner) |> Ash.create()
@@ -176,7 +165,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "重复撤销被拒绝" do
-      user = register_user("mcp-token-9@example.com")
+      user = Fixtures.register_user("mcp-token-9")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
@@ -191,8 +180,8 @@ defmodule Cgc2046.Mcp.TokenTest do
 
   describe "read（列表）" do
     test "只能读到自己的 token" do
-      u1 = register_user("mcp-token-10@example.com")
-      u2 = register_user("mcp-token-11@example.com")
+      u1 = Fixtures.register_user("mcp-token-10")
+      u2 = Fixtures.register_user("mcp-token-11")
 
       {:ok, _} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "u1"}, actor: u1) |> Ash.create()
@@ -208,7 +197,7 @@ defmodule Cgc2046.Mcp.TokenTest do
 
   describe "语义函数（list_for/issue/revoke）" do
     test "list_for/1：返回本人 token，新→旧排序" do
-      user = register_user("mcp-token-12@example.com")
+      user = Fixtures.register_user("mcp-token-12")
 
       {:ok, t1, _} = Token.issue("first", user)
       {:ok, t2, _} = Token.issue("second", user)
@@ -219,8 +208,8 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "list_for/1：不含他人 token" do
-      u1 = register_user("mcp-token-13@example.com")
-      u2 = register_user("mcp-token-14@example.com")
+      u1 = Fixtures.register_user("mcp-token-13")
+      u2 = Fixtures.register_user("mcp-token-14")
 
       {:ok, _, _} = Token.issue("mine", u1)
       {:ok, _, _} = Token.issue("theirs", u2)
@@ -230,7 +219,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "issue/2：返回 {:ok, token, plain}，plain 以 cgc_ 开头且 token_hash 匹配" do
-      user = register_user("mcp-token-15@example.com")
+      user = Fixtures.register_user("mcp-token-15")
 
       assert {:ok, token, plain} = Token.issue("我的 Mac", user)
       assert is_binary(plain)
@@ -254,7 +243,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "issue/2：active 上限达 10 返回 {:error, _}" do
-      user = register_user("mcp-token-16@example.com")
+      user = Fixtures.register_user("mcp-token-16")
 
       for i <- 1..10 do
         assert {:ok, _, _} = Token.issue("t#{i}", user)
@@ -269,7 +258,7 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "revoke/2：本人撤销返回 {:ok, revoked}" do
-      user = register_user("mcp-token-17@example.com")
+      user = Fixtures.register_user("mcp-token-17")
 
       {:ok, token, _} = Token.issue("A", user)
 
@@ -278,8 +267,8 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "revoke/2：他人 token → {:error, :not_found}（不泄露存在性）" do
-      owner = register_user("mcp-token-18@example.com")
-      other = register_user("mcp-token-19@example.com")
+      owner = Fixtures.register_user("mcp-token-18")
+      other = Fixtures.register_user("mcp-token-19")
 
       {:ok, token, _} = Token.issue("A", owner)
 
@@ -287,13 +276,13 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
 
     test "revoke/2：不存在 id → {:error, :not_found}" do
-      user = register_user("mcp-token-20@example.com")
+      user = Fixtures.register_user("mcp-token-20")
 
       assert {:error, :not_found} = Token.revoke(Ecto.UUID.generate(), user)
     end
 
     test "revoke/2：重复撤销 → {:error, {:invalid, _}}" do
-      user = register_user("mcp-token-21@example.com")
+      user = Fixtures.register_user("mcp-token-21")
 
       {:ok, token, _} = Token.issue("A", user)
 

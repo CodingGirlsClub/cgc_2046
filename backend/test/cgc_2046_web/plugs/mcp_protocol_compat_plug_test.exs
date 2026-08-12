@@ -14,24 +14,13 @@ defmodule Cgc2046Web.Plugs.McpProtocolCompatPlugTest do
   """
   use Cgc2046Web.ConnCase, async: true
 
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.Token
   alias Cgc2046Web.Plugs.McpProtocolCompatPlug
 
   @legacy_version "2024-11-05"
 
   @initialize_body ~s({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"compat-test","version":"0.0.0"}}})
-
-  defp register_user(email) do
-    strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
-
-    {:ok, user} =
-      AshAuthentication.Strategy.action(strategy, :register, %{
-        email: email,
-        password: "sup3r-secret-password"
-      })
-
-    user
-  end
 
   defp issue_token(user) do
     {:ok, token} =
@@ -118,7 +107,7 @@ defmodule Cgc2046Web.Plugs.McpProtocolCompatPlugTest do
   end
 
   test "集成：旧版 2024-11-05 header 经 shim 后 initialize 成功" do
-    user = register_user("compat-legacy-ok@example.com")
+    user = Fixtures.register_user("compat-legacy-ok")
     {_token, plain} = issue_token(user)
 
     conn = post_initialize(plain, @legacy_version)
@@ -128,7 +117,7 @@ defmodule Cgc2046Web.Plugs.McpProtocolCompatPlugTest do
   end
 
   test "集成：其它不支持版本（1999-01-01）仍 400 Unsupported" do
-    user = register_user("compat-bad-version@example.com")
+    user = Fixtures.register_user("compat-bad-version")
     {_token, plain} = issue_token(user)
 
     conn = post_initialize(plain, "1999-01-01")
@@ -138,7 +127,7 @@ defmodule Cgc2046Web.Plugs.McpProtocolCompatPlugTest do
   end
 
   test "集成：无 header 行为不变（200）" do
-    user = register_user("compat-no-header@example.com")
+    user = Fixtures.register_user("compat-no-header")
     {_token, plain} = issue_token(user)
 
     conn = post_initialize(plain, nil)

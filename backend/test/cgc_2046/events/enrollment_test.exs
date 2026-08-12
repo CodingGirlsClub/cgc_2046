@@ -1,14 +1,15 @@
 defmodule Cgc2046.Events.EnrollmentTest do
   use Cgc2046.DataCase, async: false
 
+  alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Enrollment, InviteBatch}
-  alias Cgc2046.Phase2Fixtures, as: Fixtures
+  alias Cgc2046.EventsFixtures, as: EventFixtures
 
   describe "create_enrollment" do
     test "open 活动立即 confirmed，并原子占用一个名额" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{capacity: 1})
+      event = EventFixtures.create_event(workspace, admin, %{capacity: 1})
       learner = Fixtures.register_user("enrollment-open")
 
       assert {:ok, enrollment} = create_enrollment(event, learner)
@@ -27,7 +28,10 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "request 活动先 pending，Owner/Admin 确认时才占名额；普通成员无权审批" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{capacity: 1, enrollment_policy: :request})
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{capacity: 1, enrollment_policy: :request})
+
       learner = Fixtures.register_user("enrollment-request")
       member = Fixtures.register_user("enrollment-member")
       Fixtures.add_member(workspace, member)
@@ -48,7 +52,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "outsider 非本 workspace 成员审批 pending 报名被拒，状态不变（Phase 5 越权演练）" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
       learner = Fixtures.register_user("enrollment-outsider-applicant")
       outsider = Fixtures.register_user("enrollment-outsider")
       {:ok, pending} = create_enrollment(event, learner)
@@ -68,7 +72,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "reject 记录审批人与原因，终态不能再次审批" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
       learner = Fixtures.register_user("enrollment-reject")
       {:ok, pending} = create_enrollment(event, learner)
 
@@ -86,8 +90,8 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "event/course 二选一且各自防重复报名" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin)
-      course = Fixtures.create_course(workspace, admin)
+      event = EventFixtures.create_event(workspace, admin)
+      course = EventFixtures.create_course(workspace, admin)
       learner = Fixtures.register_user("enrollment-unique")
 
       assert {:ok, _} = create_enrollment(event, learner)
@@ -108,7 +112,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "invite_only 成功报名原子消耗批次配额，quota=1 后拒绝第二人" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{enrollment_policy: :invite_only})
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :invite_only})
 
       batch =
         InviteBatch
@@ -134,7 +138,10 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "旧 pending 记录在并发确认后取消，仍释放已占用名额" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{capacity: 1, enrollment_policy: :request})
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{capacity: 1, enrollment_policy: :request})
+
       learner = Fixtures.register_user("enrollment-stale-cancel")
 
       assert {:ok, stale_pending} = create_enrollment(event, learner)
@@ -154,7 +161,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
     test "过期 pending Enrollment 转 expired 并落 expired_at" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
-      event = Fixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
       learner = Fixtures.register_user("enrollment-expire")
       {:ok, pending} = create_enrollment(event, learner)
 

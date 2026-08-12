@@ -1,44 +1,10 @@
 defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.Accounts.WorkspaceMembership
-  alias AshAuthentication.Info, as: AuthInfo
-
-  @admin_email "wapp-admin@example.com"
-  @applicant_email "wapp-applicant@example.com"
-  @password "sup3r-secret-password"
-
-  defp password_strategy, do: AuthInfo.strategy!(User, :password)
-
-  defp register_user(email) do
-    strategy = password_strategy()
-
-    assert {:ok, user} =
-             AshAuthentication.Strategy.action(strategy, :register, %{
-               email: email,
-               password: @password
-             })
-
-    user
-  end
-
-  defp platform_admin do
-    user = register_user(@admin_email)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE users SET is_platform_admin = true WHERE id = $1",
-        [Ecto.UUID.dump!(user.id)]
-      )
-
-    Ash.get!(User, user.id, actor: user, authorize?: false, domain: Cgc2046.GlobalApi)
-  end
-
-  defp normal_user(email \\ @applicant_email), do: register_user(email)
+  alias Cgc2046.AccountsFixtures, as: Fixtures
 
   defp create_application(user, attrs \\ %{}) do
     changes =
@@ -82,7 +48,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
 
   describe "create workspace application" do
     test "applicant can create a pending application with 7-day deadline" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert application.status == :pending
@@ -94,7 +60,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "approval_deadline is set to roughly 7 days from now" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert DateTime.compare(application.approval_deadline, DateTime.utc_now()) == :gt
@@ -105,7 +71,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "slug must match workspace slug format" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
 
       assert {:error, %Ash.Error.Invalid{}} =
                WorkspaceApplication
@@ -118,8 +84,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "outsider cannot create application on behalf of another user" do
-      applicant = normal_user()
-      outsider = register_user("wapp-outsider@example.com")
+      applicant = Fixtures.register_user("wapp-applicant")
+      outsider = Fixtures.register_user("wapp-outsider")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                WorkspaceApplication
@@ -135,8 +101,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
 
   describe "approve workspace application" do
     test "platform_admin approve creates workspace with applicant as Owner" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, approved} =
@@ -170,9 +136,9 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "non-platform-admin cannot approve" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
-      outsider = register_user("wapp-nonadmin@example.com")
+      outsider = Fixtures.register_user("wapp-nonadmin")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                application
@@ -181,8 +147,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "approve fails and rolls back when slug is already taken" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       # 预占 slug：platform_admin 直接创建同名 workspace
@@ -206,8 +172,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "approve on application past approval_deadline is rejected (atomic WHERE guards expiry)" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
       backdate_deadline(application, "1 day")
 
@@ -223,8 +189,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
 
   describe "reject workspace application" do
     test "platform_admin can reject with reason" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, rejected} =
@@ -237,8 +203,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "platform_admin can reject without reason" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, rejected} =
@@ -251,8 +217,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "reject records rejected_by/rejected_at (#116 与 approved_by/at 对称)" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, rejected} =
@@ -265,9 +231,9 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "non-platform-admin cannot reject" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
-      outsider = register_user("wapp-reject-nonadmin@example.com")
+      outsider = Fixtures.register_user("wapp-reject-nonadmin")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                application
@@ -278,7 +244,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
 
   describe "expire workspace application" do
     test "expire transitions pending application to expired (internal action)" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, expired} =
@@ -293,8 +259,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
 
   describe "status guard on non-pending applications" do
     test "approve on already-approved application is rejected" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
       approved = set_status(application, :approved)
 
@@ -308,8 +274,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "reject on already-approved application is rejected" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
       approved = set_status(application, :approved)
 
@@ -323,7 +289,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "expire on already-approved application is rejected" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
       approved = set_status(application, :approved)
 
@@ -339,8 +305,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
 
   describe "read permissions" do
     test "applicant can read own application including status and rejection_reason" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, rejected} =
@@ -362,8 +328,8 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "platform_admin can read all applications" do
-      admin = platform_admin()
-      applicant = normal_user()
+      admin = Fixtures.platform_admin("wapp-admin")
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
 
       assert {:ok, applications} =
@@ -375,9 +341,9 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
     end
 
     test "other user cannot read applicant's application" do
-      applicant = normal_user()
+      applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
-      outsider = register_user("wapp-read-outsider@example.com")
+      outsider = Fixtures.register_user("wapp-read-outsider")
 
       assert {:ok, applications} =
                WorkspaceApplication
