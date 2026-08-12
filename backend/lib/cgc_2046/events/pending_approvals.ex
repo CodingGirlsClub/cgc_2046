@@ -9,9 +9,8 @@ defmodule Cgc2046.Events.PendingApprovals do
 
   require Ash.Query
 
-  alias Cgc2046.Accounts.{JoinRequest, MembershipContext}
+  alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role}
   alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Rbac
 
   @spec list(term()) :: {:ok, [map()]} | {:error, term()}
   def list(actor) do
@@ -41,7 +40,7 @@ defmodule Cgc2046.Events.PendingApprovals do
     |> Enum.filter(fn membership ->
       membership.roles
       |> Enum.map(& &1.name)
-      |> Rbac.roles_can?(:manage_members)
+      |> Enum.any?(&Role.manage_role?/1)
     end)
     |> Enum.map(& &1.workspace_id)
     |> Enum.uniq()

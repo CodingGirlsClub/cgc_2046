@@ -259,7 +259,7 @@ export function mapAssignRolesResult(
 
 /**
  * 当前用户是否可在某 workspace 内分配角色（#1 能力接口：不再由角色名推断，
- * 直接消费后端下发的 assign_roles 能力，与 Rbac.can?/3 语义一致）。
+ * 直接消费后端下发的 assign_roles 能力，判定单源为后端 Rbac.abilities_for/2）。
  * ws 可能为 undefined（未知 slug / 未匹配），此时不可分配。
  */
 export function currentUserCanAssignRoles(
@@ -294,7 +294,7 @@ export async function updateWorkspaceJoinPolicy(
 
 /**
  * 当前用户是否可在某 workspace 内修改加入策略（#78 能力接口：
- * 直接消费后端下发的 update_join_policy 能力，与 Rbac.can?/3 语义一致）。
+ * 直接消费后端下发的 update_join_policy 能力，判定单源为后端 Rbac.abilities_for/2）。
  * ws 可能为 undefined（未知 slug / 未匹配），此时不可修改。
  */
 export function currentUserCanUpdateJoinPolicy(

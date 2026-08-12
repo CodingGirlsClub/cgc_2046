@@ -3,7 +3,8 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   Step 执行角色授权判定（#38 语义从 Engine 剥离；ADR-0003「审批策略外置」）。
 
   判定 = actor 角色集合 ∩ step 执行角色集合，命中即放行（多角色并集）。
-  owner/admin 豁免。Step/StepRole 未配置 = 不限制。
+  owner/admin 豁免（管理角色类，机制委托 `Role.manage_role?/1`，单源 `Role.manage_roles/0`）。
+  Step/StepRole 未配置 = 不限制。
 
   ## fail-closed（2026-08-07 用户决策）
 
@@ -16,16 +17,13 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   """
 
   alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Accounts.Role
   alias Cgc2046.Workflows.Step
   alias Cgc2046.Workflows.StepRole
 
   require Ash.Query
 
   @type step_roles_result :: {:ok, [atom]} | {:error, term}
-
-  # owner/admin 豁免集（领域模型 §3.4「执行 Workflow Step」全放行）。
-  # authorize_signal/5 与 authorize_roles/2 共用，改豁免集只动这一处。
-  @exempt_roles [:owner, :admin]
 
   @doc """
   IO 入口：查 actor 在目标工作台的角色 + step 执行角色配置，委托纯判定。
@@ -53,8 +51,9 @@ defmodule Cgc2046.Workflows.StepAuthorization do
     roles = MembershipContext.role_names(actor, workspace_id)
 
     # owner/admin 豁免在读取 step 配置前短路（旧 Engine 语义）：豁免是领域规则，
+    # 豁免集单源为 Role.manage_roles/0（经 Role.manage_role?/1），
     # 不依赖 StepRole 配置，也不该被配置读取失败（fail-closed）波及。
-    if Enum.any?(roles, &(&1 in @exempt_roles)) do
+    if Enum.any?(roles, &Role.manage_role?/1) do
       :ok
     else
       authorize_roles(roles, fetch_step_allowed_roles.(workspace_id, definition_id, step_key))
@@ -64,7 +63,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   @doc """
   纯判定矩阵（无 IO，可直测）：
 
-  - owner/admin 豁免 → `:ok`
+  - owner/admin 豁免（`Role.manage_role?/1`）→ `:ok`
   - `{:ok, []}`（未配置 = 不限制）→ `:ok`
   - `{:ok, allowed}` → 角色并集命中 `:ok`，未命中 `{:error, :unauthorized}`
   - `{:error, _}`（配置读取失败）→ `{:error, :authorization_unavailable}`（fail-closed）
@@ -73,7 +72,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
           :ok | {:error, :unauthorized | :authorization_unavailable}
   def authorize_roles(roles, step_roles_result) do
     cond do
-      Enum.any?(roles, &(&1 in @exempt_roles)) ->
+      Enum.any?(roles, &Role.manage_role?/1) ->
         :ok
 
       true ->

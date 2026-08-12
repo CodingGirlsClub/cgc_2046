@@ -758,7 +758,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
-  describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities/2 语义一致)" do
+  describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities_for/2 语义一致)" do
     test "owner member gets all seven abilities (incl. create_workspace)" do
       admin = admin_user()
 
@@ -814,7 +814,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       assert fetched.my_abilities == ["view_workspace", "access_invite_only"]
     end
 
-    test "non-member platform admin gets view/access + update_join_policy + create_workspace (matches Rbac.abilities/2)" do
+    test "non-member platform admin gets view/access + update_join_policy + create_workspace (matches Rbac.abilities_for/2)" do
       admin = admin_user()
 
       {:ok, workspace} =
@@ -850,7 +850,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
           domain: Cgc2046.GlobalApi
         )
 
-      # 与 Rbac.abilities/2 非成员平台管理员分支一致（#1 语义单源；#78 豁免）
+      # 与 Rbac.abilities_for/2 非成员平台管理员分支一致（#1 语义单源；#78 豁免）
       assert fetched.my_abilities == [
                "view_workspace",
                "access_invite_only",
@@ -858,8 +858,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
                "create_workspace"
              ]
 
-      # 对照 Rbac.abilities/2 直调结果完全一致
-      assert Rbac.abilities(admin, workspace_id: workspace.id) ==
+      # 对照共享纯函数 Rbac.abilities_for/2 直调结果完全一致
+      assert Rbac.abilities_for([], true) ==
                Enum.map(fetched.my_abilities, &String.to_atom/1)
     end
 

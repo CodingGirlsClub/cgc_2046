@@ -9,10 +9,9 @@ defmodule Cgc2046.MiniprogramCode do
 
   require Ash.Query
 
-  alias Cgc2046.Accounts.{Invitation, MembershipContext}
+  alias Cgc2046.Accounts.{Invitation, MembershipContext, Role}
   alias Cgc2046.Miniprogram.Client
   alias Cgc2046.Miniprogram.Code
-  alias Cgc2046.Rbac
 
   @scene_regex ~r/^[A-Za-z0-9_]{1,32}$/
   @default_expiry_days 7
@@ -96,7 +95,7 @@ defmodule Cgc2046.MiniprogramCode do
   defp authorize_generator(actor, workspace_id) do
     roles = MembershipContext.role_names(actor, workspace_id)
 
-    if Rbac.roles_can?(roles, :manage_members) do
+    if Enum.any?(roles, &Role.manage_role?/1) do
       :ok
     else
       {:error, :forbidden}
