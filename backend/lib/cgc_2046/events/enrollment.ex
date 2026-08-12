@@ -16,7 +16,21 @@ defmodule Cgc2046.Events.Enrollment do
 
   alias Cgc2046.Workflows.JidoAdapter
 
+  require Logger
+
   @default_approval_timeout_days 7
+
+  @submitted_signal "enrollment.submitted"
+  @completed_signal "enrollment.completed"
+  @completed_idempotency_prefix "enrollment.completed:"
+
+  # 目标 enrollment_policy 白名单（替代 String.to_existing_atom，杜绝未知字符串
+  # 造原子 / 静默 raise；prepare_create/confirm 阶段解析后存入 changeset context）
+  @enrollment_policy_atoms %{
+    "open" => :open,
+    "request" => :request,
+    "invite_only" => :invite_only
+  }
 
   attributes do
     uuid_primary_key(:id)
@@ -116,6 +130,12 @@ defmodule Cgc2046.Events.Enrollment do
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_create/1)
       end)
+
+      change(
+        after_transaction(fn changeset, result, _context ->
+          publish_submitted_signal(changeset, result)
+        end)
+      )
     end
 
     update :confirm_enrollment do
@@ -130,6 +150,12 @@ defmodule Cgc2046.Events.Enrollment do
       change(
         after_transaction(fn changeset, result, _context ->
           publish_approval_signal(changeset, result, "enrollment.approved")
+        end)
+      )
+
+      change(
+        after_transaction(fn changeset, result, _context ->
+          publish_completed_signal(changeset, result)
         end)
       )
     end
@@ -226,9 +252,14 @@ defmodule Cgc2046.Events.Enrollment do
          {:ok, target} <- eligible_target(target_kind, target_id),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant) do
-      Enum.reduce(attrs, changeset, fn {key, value}, cs ->
-        Ash.Changeset.force_change_attribute(cs, key, value)
-      end)
+      changeset =
+        Enum.reduce(attrs, changeset, fn {key, value}, cs ->
+          Ash.Changeset.force_change_attribute(cs, key, value)
+        end)
+
+      # 目标 enrollment_policy 已由 eligible_target 加载（FOR SHARE），存入 context
+      # 供 after_transaction 发布信号使用，避免提交后再查一次（#5）
+      Ash.Changeset.put_context(changeset, :enrollment_policy, target.enrollment_policy)
     else
       {:error, reason} -> add_domain_error(changeset, reason)
     end
@@ -276,6 +307,7 @@ defmodule Cgc2046.Events.Enrollment do
       |> Ash.Changeset.force_change_attribute(:capacity_seq, sequence)
       |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
       |> Ash.Changeset.force_change_attribute(:approved_at, now)
+      |> stash_target_policy(kind, target_id)
     else
       {:ok, 0} -> add_domain_error(changeset, :already_processed)
       {:error, reason} -> add_domain_error(changeset, reason)
@@ -365,14 +397,57 @@ defmodule Cgc2046.Events.Enrollment do
 
     case Cgc2046.Repo.query(sql, [uuid!(id)]) do
       {:ok, %{rows: [[workspace_id, policy]]}} ->
-        {:ok,
-         %{
-           workspace_id: Ecto.UUID.load!(workspace_id),
-           enrollment_policy: String.to_existing_atom(policy)
-         }}
+        case Map.get(@enrollment_policy_atoms, policy) do
+          nil ->
+            {:error, {:unknown_enrollment_policy, policy}}
+
+          enrollment_policy ->
+            {:ok,
+             %{
+               workspace_id: Ecto.UUID.load!(workspace_id),
+               enrollment_policy: enrollment_policy
+             }}
+        end
 
       {:ok, %{rows: []}} ->
         {:error, :target_not_open_or_registration_closed}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  # confirm 路径的目标 enrollment_policy 单次查询（#5：事务内解析并存入 context，
+  # 不再提交后再查）。失败只记日志、stash nil，不阻断确认动作本身。
+  defp stash_target_policy(changeset, kind, target_id) do
+    policy =
+      case target_policy(kind, target_id) do
+        {:ok, policy} ->
+          policy
+
+        {:error, reason} ->
+          Logger.error(
+            "failed to read enrollment_policy for #{kind} #{target_id}: #{inspect(reason)}"
+          )
+
+          nil
+      end
+
+    Ash.Changeset.put_context(changeset, :enrollment_policy, policy)
+  end
+
+  defp target_policy(kind, id) do
+    table = target_table(kind)
+
+    case Cgc2046.Repo.query("SELECT enrollment_policy FROM #{table} WHERE id = $1", [uuid!(id)]) do
+      {:ok, %{rows: [[policy]]}} ->
+        case Map.get(@enrollment_policy_atoms, policy) do
+          nil -> {:error, {:unknown_policy, policy}}
+          atom -> {:ok, atom}
+        end
+
+      {:ok, %{rows: []}} ->
+        {:error, :target_not_found}
 
       {:error, reason} ->
         {:error, {:database, reason}}
@@ -508,6 +583,9 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_message(:invite_quota_unavailable), do: "invite quota is unavailable"
   defp domain_error_message(:already_processed), do: "enrollment has already been processed"
 
+  defp domain_error_message({:unknown_enrollment_policy, _policy}),
+    do: "target has an unknown enrollment policy"
+
   defp domain_error_message(:not_expired_pending),
     do: "enrollment is not an expired pending record"
 
@@ -516,18 +594,114 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_message(reason), do: inspect(reason)
 
   defp publish_approval_signal(changeset, {:ok, enrollment} = result, signal_type) do
-    payload = %{
+    try do
+      _ = JidoAdapter.publish(signal_type, base_enrollment_payload(enrollment), changeset.tenant)
+    rescue
+      error ->
+        Logger.error(
+          "failed to publish #{signal_type} for enrollment #{enrollment.id}: " <>
+            Exception.format(:error, error, __STACKTRACE__)
+        )
+    end
+
+    result
+  end
+
+  defp publish_approval_signal(_changeset, result, _signal_type), do: result
+
+  defp base_enrollment_payload(enrollment) do
+    %{
       "enrollment_id" => enrollment.id,
       "workspace_id" => enrollment.workspace_id,
       "user_id" => enrollment.user_id,
       "status" => to_string(enrollment.status)
     }
+  end
 
-    _ = JidoAdapter.publish(signal_type, payload, changeset.tenant)
+  # create：任何策略都发 enrollment.submitted；结果为 confirmed（open/invite_only
+  # 自动确认）时同钩子再发 enrollment.completed（KTD1/R3）。
+  defp publish_submitted_signal(changeset, {:ok, enrollment} = result) do
+    policy = changeset.context[:enrollment_policy]
+
+    try do
+      publish_signal(changeset, enrollment, @submitted_signal, policy)
+
+      if enrollment.status == :confirmed do
+        publish_signal(changeset, enrollment, @completed_signal, policy)
+      end
+    rescue
+      error ->
+        Logger.error(
+          "failed to publish signals for enrollment #{enrollment.id}: " <>
+            Exception.format(:error, error, __STACKTRACE__)
+        )
+    end
+
     result
   end
 
-  defp publish_approval_signal(_changeset, result, _signal_type), do: result
+  defp publish_submitted_signal(_changeset, result), do: result
+
+  # confirm 审批通过：既有 enrollment.approved 之外增发 enrollment.completed
+  # （生命周期终态，幂等键去重）。失败结果（如重复 confirm）不发。
+  defp publish_completed_signal(changeset, {:ok, enrollment} = result) do
+    try do
+      publish_signal(
+        changeset,
+        enrollment,
+        @completed_signal,
+        changeset.context[:enrollment_policy]
+      )
+    rescue
+      error ->
+        Logger.error(
+          "failed to publish signals for enrollment #{enrollment.id}: " <>
+            Exception.format(:error, error, __STACKTRACE__)
+        )
+    end
+
+    result
+  end
+
+  defp publish_completed_signal(_changeset, result), do: result
+
+  # best-effort 发布；与 publish_approval_signal 的静默丢弃不同（KTD4），
+  # 新信号发布失败必须记录日志，至少一次投递交给未来的 outbox/对账。
+  defp publish_signal(changeset, enrollment, signal_type, policy) do
+    case JidoAdapter.publish(
+           signal_type,
+           enrollment_signal_payload(enrollment, signal_type, policy),
+           changeset.tenant
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "failed to publish #{signal_type} for enrollment #{enrollment.id}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  # completed 带报名设计文档 §4.2 幂等键约定。
+  defp enrollment_signal_payload(enrollment, signal_type, policy) do
+    payload =
+      enrollment
+      |> base_enrollment_payload()
+      |> Map.merge(%{
+        "event_id" => enrollment.event_id,
+        "course_id" => enrollment.course_id,
+        "enrollment_policy" => policy && to_string(policy)
+      })
+
+    case signal_type do
+      @completed_signal ->
+        Map.put(payload, "idempotency_key", @completed_idempotency_prefix <> enrollment.id)
+
+      _ ->
+        payload
+    end
+  end
 
   defp uuid!(value), do: Ecto.UUID.dump!(value)
 

@@ -8,10 +8,16 @@ defmodule Cgc2046.NotificationService do
   alias Cgc2046.NotificationConsent
 
   def send_to_user(user_id, platform, template_key, data) when is_map(data) do
+    with {:ok, uid} <- identity_uid(user_id, platform) do
+      send_to_identity(user_id, platform, uid, template_key, data)
+    end
+  end
+
+  @doc "投递到指定平台身份（uid 已知，如同用户多身份场景）；授权按 user+platform 原子消费。"
+  def send_to_identity(user_id, platform, uid, template_key, data) when is_map(data) do
     with {:ok, template_id} <- template_id(platform, template_key),
-         {:ok, openid} <- identity_uid(user_id, platform),
          {:ok, _remaining} <- NotificationConsent.take(user_id, platform, template_key) do
-      case Client.send_notification(platform, openid, template_id, data) do
+      case Client.send_notification(platform, uid, template_id, data) do
         :ok ->
           :ok
 
