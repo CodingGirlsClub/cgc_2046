@@ -35,16 +35,91 @@ export type AbilityGrant = {
 };
 
 export type AcceptInvitationInput = {
-  /** 明文邀请令牌（accept 须复验，证明调用方持有 token） */
+  /** acceptInvitation 输入：token 为明文邀请令牌（accept 须复验） */
   token: Scalars['String']['input'];
 };
 
-/** The result of the :accept_invitation mutation */
 export type AcceptInvitationResult = {
-  /** Any errors generated, if the mutation failed */
   errors: Array<MutationError>;
-  /** The successful result of the mutation */
+  /** acceptInvitation 返回：result 为已接受邀请记录；errors 为业务错误 */
   result?: Maybe<Invitation>;
+};
+
+export type AdminActionLog = {
+  action: Scalars['String']['output'];
+  actorId?: Maybe<Scalars['ID']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  result: Scalars['String']['output'];
+  targetId: Scalars['ID']['output'];
+  targetType: Scalars['String']['output'];
+};
+
+export type AdminPendingOperation = {
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  status: Scalars['String']['output'];
+  summary: Scalars['String']['output'];
+  tool: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
+export type AdminSignalLog = {
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  signalType: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type AdminToolCallLog = {
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  resultStatus: Scalars['String']['output'];
+  tool: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
+export type AdminUser = {
+  displayName?: Maybe<Scalars['String']['output']>;
+  email?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  isPlatformAdmin: Scalars['Boolean']['output'];
+  workspaceMembershipCount?: Maybe<Scalars['Int']['output']>;
+};
+
+export type AdminUserPayload = {
+  email?: Maybe<Scalars['String']['output']>;
+  errors?: Maybe<Array<Maybe<MutationError>>>;
+  id: Scalars['ID']['output'];
+  isPlatformAdmin: Scalars['Boolean']['output'];
+};
+
+export type AdminWorkspace = {
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  joinPolicy: Scalars['String']['output'];
+  memberCount: Scalars['Int']['output'];
+  name: Scalars['String']['output'];
+  slug: Scalars['String']['output'];
+  sponsorshipEnabled: Scalars['Boolean']['output'];
+};
+
+export type AdminWorkspaceApplication = {
+  applicantId: Scalars['ID']['output'];
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['ID']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  name: Scalars['String']['output'];
+  purpose: Scalars['String']['output'];
+  rejectedAt?: Maybe<Scalars['DateTime']['output']>;
+  rejectedBy?: Maybe<Scalars['ID']['output']>;
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  slug: Scalars['String']['output'];
+  status: Scalars['String']['output'];
 };
 
 export type ApproveJoinRequestInput = {
@@ -57,6 +132,14 @@ export type ApproveJoinRequestResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<JoinRequest>;
+};
+
+/** The result of the :approve_workspace_application mutation */
+export type ApproveWorkspaceApplicationResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<WorkspaceApplication>;
 };
 
 export type AssignRolesInput = {
@@ -385,6 +468,13 @@ export type CreateJoinRequestResult = {
   result?: Maybe<JoinRequest>;
 };
 
+export type CreateMcpTokenPayload = {
+  errors?: Maybe<Array<Maybe<MutationError>>>;
+  plainToken?: Maybe<Scalars['String']['output']>;
+  /** createMcpToken 返回：result 为 token 记录；plainToken 明文仅此一次 */
+  result?: Maybe<McpToken>;
+};
+
 export type CreatePortfolioItemInput = {
   description?: InputMaybe<Scalars['String']['input']>;
   icon?: InputMaybe<Scalars['String']['input']>;
@@ -393,21 +483,51 @@ export type CreatePortfolioItemInput = {
   url?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type CreateWorkspaceApplicationInput = {
+  /** 申请人 ID */
+  applicantId: Scalars['ID']['input'];
+  /** 申请创建的工作台名称 */
+  name: Scalars['String']['input'];
+  /** 申请目的 */
+  purpose: Scalars['String']['input'];
+  /** 申请创建的工作台 slug（创建时校验全局唯一） */
+  slug: Scalars['String']['input'];
+};
+
+/** The result of the :create_workspace_application mutation */
+export type CreateWorkspaceApplicationResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<WorkspaceApplication>;
+};
+
 export type CreateWorkspaceInput = {
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 工作台名称 */
   name: Scalars['String']['input'];
+  /** 邀请新用户为 Owner（创建 preauthorized [:owner] 的 Invitation，pending-owner） */
+  ownerEmail?: InputMaybe<Scalars['String']['input']>;
+  /** 指定已有用户为 Owner（替代 actor.id 建 Owner membership） */
+  ownerUserId?: InputMaybe<Scalars['ID']['input']>;
   /** 工作台唯一标识（小写字母/数字/连字符，创建者提供） */
   slug: Scalars['String']['input'];
   /** 是否开放赞助入口（默认开） */
   sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
+export type CreateWorkspaceMetadata = {
+  /** pending-owner 邀请明文 token（仅创建时返回一次，不落库） */
+  ownerInvitationToken?: Maybe<Scalars['String']['output']>;
+};
+
 /** The result of the :create_workspace mutation */
 export type CreateWorkspaceResult = {
   /** Any errors generated, if the mutation failed */
   errors: Array<MutationError>;
+  /** Metadata produced by the mutation */
+  metadata?: Maybe<CreateWorkspaceMetadata>;
   /** The successful result of the mutation */
   result?: Maybe<Workspace>;
 };
@@ -1585,6 +1705,18 @@ export type KeysetPageOfWorkflowRun = {
   startKeyset?: Maybe<Scalars['String']['output']>;
 };
 
+/** A keyset page of :workspace_application */
+export type KeysetPageOfWorkspaceApplication = {
+  /** Total count on all pages */
+  count?: Maybe<Scalars['Int']['output']>;
+  /** The last keyset in the results */
+  endKeyset?: Maybe<Scalars['String']['output']>;
+  /** The records contained in the page */
+  results?: Maybe<Array<WorkspaceApplication>>;
+  /** The first keyset in the results */
+  startKeyset?: Maybe<Scalars['String']['output']>;
+};
+
 /** A keyset page of :workspace_membership */
 export type KeysetPageOfWorkspaceMembership = {
   /** Total count on all pages */
@@ -1595,6 +1727,15 @@ export type KeysetPageOfWorkspaceMembership = {
   results?: Maybe<Array<WorkspaceMembership>>;
   /** The first keyset in the results */
   startKeyset?: Maybe<Scalars['String']['output']>;
+};
+
+export type McpToken = {
+  /** MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面） */
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  lastUsedAt?: Maybe<Scalars['DateTime']['output']>;
+  name: Scalars['String']['output'];
+  revokedAt?: Maybe<Scalars['DateTime']['output']>;
 };
 
 export type MiniprogramCodeResult = {
@@ -1652,6 +1793,28 @@ export type PortfolioItem = {
   workspaceId: Scalars['ID']['output'];
 };
 
+export type ReassignWorkspaceOwnerInput = {
+  /** 改发 pending-owner 邀请给新邮箱（preauthorized [:owner]，带 expires_at） */
+  ownerEmail?: InputMaybe<Scalars['String']['input']>;
+  /** 改指现有用户为 Owner（建 Owner membership） */
+  ownerUserId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type ReassignWorkspaceOwnerMetadata = {
+  /** 新 pending-owner 邀请明文 token（仅返回一次，不落库） */
+  ownerInvitationToken?: Maybe<Scalars['String']['output']>;
+};
+
+/** The result of the :reassign_workspace_owner mutation */
+export type ReassignWorkspaceOwnerResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** Metadata produced by the mutation */
+  metadata?: Maybe<ReassignWorkspaceOwnerMetadata>;
+  /** The successful result of the mutation */
+  result?: Maybe<Workspace>;
+};
+
 export type RejectEnrollmentInput = {
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
 };
@@ -1675,6 +1838,19 @@ export type RejectJoinRequestResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<JoinRequest>;
+};
+
+export type RejectWorkspaceApplicationInput = {
+  /** 拒绝原因 */
+  rejectionReason?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** The result of the :reject_workspace_application mutation */
+export type RejectWorkspaceApplicationResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<WorkspaceApplication>;
 };
 
 /** The result of the :revoke_invitation mutation */
@@ -1777,12 +1953,14 @@ export type RoleSortInput = {
 };
 
 export type RootMutationType = {
-  /** 接受邀请→建 Membership + 预授权角色入座 */
-  acceptInvitation: AcceptInvitationResult;
+  /** 接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载） */
+  acceptInvitation?: Maybe<AcceptInvitationResult>;
   /** 使用一次性小程序 scene 接受工作台邀请 */
   admitMemberByToken?: Maybe<Invitation>;
   /** 审批通过加入申请（Owner/Admin，自动建 Membership + MembershipRole） */
   approveJoinRequest: ApproveJoinRequestResult;
+  /** 审批通过创建工作台申请（platform_admin，自动创建 workspace + applicant 为 Owner） */
+  approveWorkspaceApplication: ApproveWorkspaceApplicationResult;
   /** 分配成员角色（多角色并集，仅 Owner/Admin） */
   assignRoles: AssignRolesResult;
   /** 报名人取消报名；confirmed 报名释放名额 */
@@ -1796,12 +1974,18 @@ export type RootMutationType = {
   createInviteBatch: CreateInviteBatchResult;
   /** 提交加入申请 */
   createJoinRequest: CreateJoinRequestResult;
+  /** 签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash） */
+  createMcpToken?: Maybe<CreateMcpTokenPayload>;
   /** 在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造） */
   createPortfolioItem?: Maybe<PortfolioItem>;
   /** 创建工作台（仅平台管理员） */
   createWorkspace: CreateWorkspaceResult;
+  /** 提交创建工作台申请 */
+  createWorkspaceApplication: CreateWorkspaceApplicationResult;
   /** 删除某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   deletePortfolioItem?: Maybe<PortfolioItem>;
+  /** 平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫） */
+  demoteUser?: Maybe<AdminUserPayload>;
   disableInviteBatch: DisableInviteBatchResult;
   /** Owner/Admin 创建一次性工作台邀请小程序码 */
   generateMiniProgramCode?: Maybe<MiniprogramCodeResult>;
@@ -1809,12 +1993,20 @@ export type RootMutationType = {
   grantMiniProgramNotificationConsent?: Maybe<Scalars['Int']['output']>;
   /** 直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色 */
   joinWorkspace: Workspace;
+  /** 平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调） */
+  promoteUser?: Maybe<AdminUserPayload>;
+  /** 重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请 */
+  reassignWorkspaceOwner: ReassignWorkspaceOwnerResult;
   /** Owner/Admin 拒绝 pending 报名 */
   rejectEnrollment: RejectEnrollmentResult;
   /** 拒绝加入申请（Owner/Admin） */
   rejectJoinRequest: RejectJoinRequestResult;
-  /** 撤销邀请（邀请人本人或 Owner/Admin） */
+  /** 拒绝创建工作台申请（platform_admin） */
+  rejectWorkspaceApplication: RejectWorkspaceApplicationResult;
+  /** 撤销邀请（邀请人本人或 Owner/Admin 或平台管理员） */
   revokeInvitation: RevokeInvitationResult;
+  /** 撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性） */
+  revokeMcpToken?: Maybe<McpToken>;
   /** 设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace） */
   setWorkspaceTheme?: Maybe<WorkspaceProfile>;
   /** 使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token） */
@@ -1850,6 +2042,11 @@ export type RootMutationTypeAdmitMemberByTokenArgs = {
 export type RootMutationTypeApproveJoinRequestArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<ApproveJoinRequestInput>;
+};
+
+
+export type RootMutationTypeApproveWorkspaceApplicationArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -1889,6 +2086,11 @@ export type RootMutationTypeCreateJoinRequestArgs = {
 };
 
 
+export type RootMutationTypeCreateMcpTokenArgs = {
+  name: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeCreatePortfolioItemArgs = {
   input: CreatePortfolioItemInput;
   workspaceId: Scalars['ID']['input'];
@@ -1900,9 +2102,19 @@ export type RootMutationTypeCreateWorkspaceArgs = {
 };
 
 
+export type RootMutationTypeCreateWorkspaceApplicationArgs = {
+  input: CreateWorkspaceApplicationInput;
+};
+
+
 export type RootMutationTypeDeletePortfolioItemArgs = {
   id: Scalars['ID']['input'];
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeDemoteUserArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -1928,6 +2140,17 @@ export type RootMutationTypeJoinWorkspaceArgs = {
 };
 
 
+export type RootMutationTypePromoteUserArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeReassignWorkspaceOwnerArgs = {
+  id: Scalars['ID']['input'];
+  input?: InputMaybe<ReassignWorkspaceOwnerInput>;
+};
+
+
 export type RootMutationTypeRejectEnrollmentArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<RejectEnrollmentInput>;
@@ -1940,7 +2163,18 @@ export type RootMutationTypeRejectJoinRequestArgs = {
 };
 
 
+export type RootMutationTypeRejectWorkspaceApplicationArgs = {
+  id: Scalars['ID']['input'];
+  input?: InputMaybe<RejectWorkspaceApplicationInput>;
+};
+
+
 export type RootMutationTypeRevokeInvitationArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeRevokeMcpTokenArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -2010,18 +2244,36 @@ export type RootQueryType = {
   inviteBatches?: Maybe<KeysetPageOfInviteBatch>;
   /** 加入申请列表（申请人仅见自己；Owner/Admin 见全部） */
   joinRequests?: Maybe<KeysetPageOfJoinRequest>;
+  /** 平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first/after） */
+  listAdminActionLogs: Array<AdminActionLog>;
   /** 工作台的课程列表（#40 展示页） */
   listCourses?: Maybe<KeysetPageOfCourse>;
   /** 工作台的活动列表（#40 展示页） */
   listEvents?: Maybe<KeysetPageOfEvent>;
+  /** 平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5） */
+  listPendingOperations: Array<AdminPendingOperation>;
+  /** 平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after） */
+  listSignalLogs: Array<AdminSignalLog>;
+  /** 平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5） */
+  listToolCallLogs: Array<AdminToolCallLog>;
+  /** 平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after） */
+  listUsers: Array<AdminUser>;
   /** 工作台的 workflow run 列表（#40 展示页） */
   listWorkflowRuns?: Maybe<KeysetPageOfWorkflowRun>;
+  /** 平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after） */
+  listWorkspaceApplications: Array<AdminWorkspaceApplication>;
+  /** 平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after） */
+  listWorkspaces: Array<AdminWorkspace>;
   /** 当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/isPlatformAdmin + memberNumber/joinedAt（ADR-0004 收窄为全局身份） */
   me?: Maybe<User>;
   /** 当前用户可进入的工作台列表（成员资格 + 创建者） */
   meWorkspaces: Array<Workspace>;
+  /** 当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人） */
+  myMcpTokens?: Maybe<Array<Maybe<McpToken>>>;
   /** 当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest） */
   myPendingApprovals: Array<PendingApproval>;
+  /** 当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请） */
+  myWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace） */
   myWorkspacePortfolio?: Maybe<Array<Maybe<PortfolioItem>>>;
   /** 角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */
@@ -2030,6 +2282,8 @@ export type RootQueryType = {
   ping?: Maybe<Scalars['String']['output']>;
   /** 校验邀请 token，返回邀请信息 + 工作台预览 */
   validateInvitation?: Maybe<Invitation>;
+  /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
+  workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
   workspaceMembers?: Maybe<KeysetPageOfWorkspaceMembership>;
   /** 当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权） */
@@ -2107,6 +2361,15 @@ export type RootQueryTypeJoinRequestsArgs = {
 };
 
 
+export type RootQueryTypeListAdminActionLogsArgs = {
+  action?: InputMaybe<Scalars['String']['input']>;
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  insertedAfter?: InputMaybe<Scalars['DateTime']['input']>;
+  insertedBefore?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+
 export type RootQueryTypeListCoursesArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   before?: InputMaybe<Scalars['String']['input']>;
@@ -2127,6 +2390,43 @@ export type RootQueryTypeListEventsArgs = {
 };
 
 
+export type RootQueryTypeListPendingOperationsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  insertedAfter?: InputMaybe<Scalars['DateTime']['input']>;
+  insertedBefore?: InputMaybe<Scalars['DateTime']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type RootQueryTypeListSignalLogsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  insertedAfter?: InputMaybe<Scalars['DateTime']['input']>;
+  insertedBefore?: InputMaybe<Scalars['DateTime']['input']>;
+  signalType?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type RootQueryTypeListToolCallLogsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  insertedAfter?: InputMaybe<Scalars['DateTime']['input']>;
+  insertedBefore?: InputMaybe<Scalars['DateTime']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type RootQueryTypeListUsersArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type RootQueryTypeListWorkflowRunsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   before?: InputMaybe<Scalars['String']['input']>;
@@ -2134,6 +2434,20 @@ export type RootQueryTypeListWorkflowRunsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<Array<InputMaybe<WorkflowRunSortInput>>>;
+};
+
+
+export type RootQueryTypeListWorkspaceApplicationsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeListWorkspacesArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -2151,6 +2465,16 @@ export type RootQueryTypeMyWorkspacePortfolioArgs = {
 export type RootQueryTypeValidateInvitationArgs = {
   filter?: InputMaybe<InvitationFilterInput>;
   token: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeWorkspaceApplicationsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  filter?: InputMaybe<WorkspaceApplicationFilterInput>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<WorkspaceApplicationSortInput>>>;
 };
 
 
@@ -2479,7 +2803,7 @@ export type Workspace = {
   joinPolicy: Scalars['String']['output'];
   /** 成员数量（P1 计算字段，SQL count(memberships)） */
   memberCount?: Maybe<Scalars['Int']['output']>;
-  /** 当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities/2 一致） */
+  /** 当前用户在该工作台的能力列表（能力接口，与 Rbac.abilities_for/2 一致） */
   myAbilities?: Maybe<Array<Scalars['String']['output']>>;
   /** 当前用户在该工作台的成员资格 ID（非成员为 null） */
   myMembershipId?: Maybe<Scalars['ID']['output']>;
@@ -2491,6 +2815,274 @@ export type Workspace = {
   slug: Scalars['String']['output'];
   /** 是否开放赞助入口（默认开） */
   sponsorshipEnabled: Scalars['Boolean']['output'];
+};
+
+export type WorkspaceApplication = {
+  /** 申请人（全局用户）ID */
+  applicantId: Scalars['ID']['output'];
+  /** 审批截止时间（默认 created_at + 7 天） */
+  approvalDeadline?: Maybe<Scalars['DateTime']['output']>;
+  /** 审批时间 */
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 审批人（platform_admin）ID */
+  approvedBy?: Maybe<Scalars['ID']['output']>;
+  /** 过期时间 */
+  expiredAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  /** 申请创建的工作台名称 */
+  name: Scalars['String']['output'];
+  /** 申请目的 */
+  purpose: Scalars['String']['output'];
+  /** 拒绝时间 */
+  rejectedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 拒绝人（platform_admin）ID */
+  rejectedBy?: Maybe<Scalars['ID']['output']>;
+  /** 拒绝原因（可选） */
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  /** 申请创建的工作台 slug（创建时校验全局唯一） */
+  slug: Scalars['String']['output'];
+  /** 申请状态 */
+  status: Scalars['String']['output'];
+};
+
+export type WorkspaceApplicationFilterApplicantId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type WorkspaceApplicationFilterApprovalDeadline = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type WorkspaceApplicationFilterApprovedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type WorkspaceApplicationFilterApprovedBy = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type WorkspaceApplicationFilterExpiredAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type WorkspaceApplicationFilterId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type WorkspaceApplicationFilterInput = {
+  and?: InputMaybe<Array<WorkspaceApplicationFilterInput>>;
+  /** 申请人（全局用户）ID */
+  applicantId?: InputMaybe<WorkspaceApplicationFilterApplicantId>;
+  /** 审批截止时间（默认 created_at + 7 天） */
+  approvalDeadline?: InputMaybe<WorkspaceApplicationFilterApprovalDeadline>;
+  /** 审批时间 */
+  approvedAt?: InputMaybe<WorkspaceApplicationFilterApprovedAt>;
+  /** 审批人（platform_admin）ID */
+  approvedBy?: InputMaybe<WorkspaceApplicationFilterApprovedBy>;
+  /** 过期时间 */
+  expiredAt?: InputMaybe<WorkspaceApplicationFilterExpiredAt>;
+  id?: InputMaybe<WorkspaceApplicationFilterId>;
+  /** 申请创建的工作台名称 */
+  name?: InputMaybe<WorkspaceApplicationFilterName>;
+  not?: InputMaybe<Array<WorkspaceApplicationFilterInput>>;
+  or?: InputMaybe<Array<WorkspaceApplicationFilterInput>>;
+  /** 申请目的 */
+  purpose?: InputMaybe<WorkspaceApplicationFilterPurpose>;
+  /** 拒绝时间 */
+  rejectedAt?: InputMaybe<WorkspaceApplicationFilterRejectedAt>;
+  /** 拒绝人（platform_admin）ID */
+  rejectedBy?: InputMaybe<WorkspaceApplicationFilterRejectedBy>;
+  /** 拒绝原因（可选） */
+  rejectionReason?: InputMaybe<WorkspaceApplicationFilterRejectionReason>;
+  /** 申请创建的工作台 slug（创建时校验全局唯一） */
+  slug?: InputMaybe<WorkspaceApplicationFilterSlug>;
+  /** 申请状态 */
+  status?: InputMaybe<WorkspaceApplicationFilterStatus>;
+};
+
+export type WorkspaceApplicationFilterName = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkspaceApplicationFilterPurpose = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkspaceApplicationFilterRejectedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type WorkspaceApplicationFilterRejectedBy = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type WorkspaceApplicationFilterRejectionReason = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkspaceApplicationFilterSlug = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkspaceApplicationFilterStatus = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkspaceApplicationSortField =
+  | 'APPLICANT_ID'
+  | 'APPROVAL_DEADLINE'
+  | 'APPROVED_AT'
+  | 'APPROVED_BY'
+  | 'EXPIRED_AT'
+  | 'ID'
+  | 'NAME'
+  | 'PURPOSE'
+  | 'REJECTED_AT'
+  | 'REJECTED_BY'
+  | 'REJECTION_REASON'
+  | 'SLUG'
+  | 'STATUS';
+
+export type WorkspaceApplicationSortInput = {
+  field: WorkspaceApplicationSortField;
+  order?: InputMaybe<SortOrder>;
 };
 
 export type WorkspaceFilterId = {
