@@ -16,6 +16,8 @@ defmodule Cgc2046.Events.Enrollment do
 
   alias Cgc2046.Workflows.JidoAdapter
 
+  require Logger
+
   @default_approval_timeout_days 7
 
   attributes do
@@ -116,6 +118,12 @@ defmodule Cgc2046.Events.Enrollment do
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_create/1)
       end)
+
+      change(
+        after_transaction(fn changeset, result, _context ->
+          publish_submitted_signal(changeset, result)
+        end)
+      )
     end
 
     update :confirm_enrollment do
@@ -130,6 +138,12 @@ defmodule Cgc2046.Events.Enrollment do
       change(
         after_transaction(fn changeset, result, _context ->
           publish_approval_signal(changeset, result, "enrollment.approved")
+        end)
+      )
+
+      change(
+        after_transaction(fn changeset, result, _context ->
+          publish_completed_signal(changeset, result)
         end)
       )
     end
@@ -528,6 +542,86 @@ defmodule Cgc2046.Events.Enrollment do
   end
 
   defp publish_approval_signal(_changeset, result, _signal_type), do: result
+
+  # create：任何策略都发 enrollment.submitted；结果为 confirmed（open/invite_only
+  # 自动确认）时同钩子再发 enrollment.completed（KTD1/R3）。
+  defp publish_submitted_signal(changeset, {:ok, enrollment} = result) do
+    publish_signal(changeset, enrollment, "enrollment.submitted")
+
+    if enrollment.status == :confirmed do
+      publish_signal(changeset, enrollment, "enrollment.completed")
+    end
+
+    result
+  end
+
+  defp publish_submitted_signal(_changeset, result), do: result
+
+  # confirm 审批通过：既有 enrollment.approved 之外增发 enrollment.completed
+  # （生命周期终态，幂等键去重）。失败结果（如重复 confirm）不发。
+  defp publish_completed_signal(changeset, {:ok, enrollment} = result) do
+    publish_signal(changeset, enrollment, "enrollment.completed")
+    result
+  end
+
+  defp publish_completed_signal(_changeset, result), do: result
+
+  # best-effort 发布；与 publish_approval_signal 的静默丢弃不同（KTD4），
+  # 新信号发布失败必须记录日志，至少一次投递交给未来的 outbox/对账。
+  defp publish_signal(changeset, enrollment, signal_type) do
+    case JidoAdapter.publish(
+           signal_type,
+           enrollment_signal_payload(enrollment, signal_type),
+           changeset.tenant
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "failed to publish #{signal_type} for enrollment #{enrollment.id}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  # 载荷键镜像 publish_approval_signal（enrollment_id/workspace_id/user_id/status），
+  # 另加 event_id/course_id 与 enrollment_policy；completed 带 §4.2 幂等键约定。
+  defp enrollment_signal_payload(enrollment, signal_type) do
+    payload = %{
+      "enrollment_id" => enrollment.id,
+      "workspace_id" => enrollment.workspace_id,
+      "user_id" => enrollment.user_id,
+      "status" => to_string(enrollment.status),
+      "event_id" => enrollment.event_id,
+      "course_id" => enrollment.course_id,
+      "enrollment_policy" => enrollment_policy_of(enrollment)
+    }
+
+    case signal_type do
+      "enrollment.completed" ->
+        Map.put(payload, "idempotency_key", "enrollment.completed:" <> enrollment.id)
+
+      _ ->
+        payload
+    end
+  end
+
+  defp enrollment_policy_of(%{event_id: event_id, course_id: nil}) when is_binary(event_id),
+    do: target_enrollment_policy(:event, event_id)
+
+  defp enrollment_policy_of(%{event_id: nil, course_id: course_id}) when is_binary(course_id),
+    do: target_enrollment_policy(:course, course_id)
+
+  defp enrollment_policy_of(_enrollment), do: nil
+
+  defp target_enrollment_policy(kind, id) do
+    table = target_table(kind)
+
+    case Cgc2046.Repo.query("SELECT enrollment_policy FROM #{table} WHERE id = $1", [uuid!(id)]) do
+      {:ok, %{rows: [[policy]]}} -> String.to_existing_atom(policy)
+      _ -> nil
+    end
+  end
 
   defp uuid!(value), do: Ecto.UUID.dump!(value)
 
