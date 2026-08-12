@@ -74,17 +74,34 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     end)
   end
 
-  # run-less 报名的单属主提醒路径：pending 且 approval_deadline ∈ (now, now+48h]。
-  # 逐条为工作台 Owner/Admin 入队提醒；args 含 enrollment_id + deadline，
-  # NotificationWorker 7 天 args-unique 去重。
+  # run-less 报名的单属主提醒路径（语义与窗口见 moduledoc）。
+  # 按 workspace 分组，成员名单每工作台只读一次。
   defp remind_pending_enrollments(now, window_end) do
     Enrollment
     |> Ash.Query.filter(
       status == :pending and not is_nil(approval_deadline) and approval_deadline > ^now and
         approval_deadline <= ^window_end
     )
+    |> Ash.Query.select([:id, :workspace_id, :approval_deadline])
     |> Ash.read!(authorize?: false)
-    |> Enum.count(&(enqueue_enrollment_reminder(&1) == :ok))
+    |> Enum.group_by(& &1.workspace_id)
+    |> Enum.map(fn {workspace_id, enrollments} ->
+      managed_ids = managed_member_ids(workspace_id)
+
+      Enum.each(enrollments, fn enrollment ->
+        Enum.each(
+          managed_ids,
+          &Cgc2046.NotificationSubscriber.enqueue_reminder(
+            &1,
+            enrollment.id,
+            enrollment.approval_deadline
+          )
+        )
+      end)
+
+      length(enrollments)
+    end)
+    |> Enum.sum()
   end
 
   defp approval_deadline(run) do
@@ -133,20 +150,6 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     SignalLog
     |> Ash.Query.filter(run_id == ^run.id and signal_type == ^@reminder_signal_type)
     |> Ash.exists?(authorize?: false)
-  end
-
-  defp enqueue_enrollment_reminder(%Enrollment{} = enrollment) do
-    enrollment.workspace_id
-    |> managed_member_ids()
-    |> Enum.each(
-      &Cgc2046.NotificationSubscriber.enqueue_reminder(
-        &1,
-        enrollment.id,
-        enrollment.approval_deadline
-      )
-    )
-
-    :ok
   end
 
   defp managed_member_ids(workspace_id) do
