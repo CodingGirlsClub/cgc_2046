@@ -1183,16 +1183,16 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
           mutation {
             demoteUser(id: "#{admin.id}") {
               isPlatformAdmin
-              errors { message }
+              errors { message code }
             }
           }
           """,
           token
         )
 
-      # 最后一个 admin 不可降级（含自降级场景）
-      assert %{"data" => %{"demoteUser" => nil}} = resp
-      assert %{"errors" => [%{"code" => "last_admin_denied"}]} = resp
+      # 最后一个 admin 不可降级（含自降级场景）；错误走 payload errors 通道
+      assert %{"data" => %{"demoteUser" => %{"errors" => [%{"code" => "last_admin_denied"}]}}} =
+               resp
 
       reloaded = Ash.get!(User, admin.id, authorize?: false)
       assert reloaded.is_platform_admin == true
@@ -1210,18 +1210,42 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
           mutation {
             demoteUser(id: "#{target.id}") {
               isPlatformAdmin
-              errors { message }
+              errors { message code }
             }
           }
           """,
           token
         )
 
-      assert %{"data" => %{"demoteUser" => nil}} = resp
-      assert %{"errors" => [%{"code" => "not_platform_admin"}]} = resp
+      assert %{"data" => %{"demoteUser" => %{"errors" => [%{"code" => "not_platform_admin"}]}}} =
+               resp
 
       reloaded = Ash.get!(User, target.id, authorize?: false)
       assert reloaded.is_platform_admin == false
+    end
+
+    test "demoteUser returns top-level not_found error for a nonexistent id" do
+      admin = platform_admin("admin-queries-demote-notfound@example.com")
+      token = sign_in_token(admin.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            demoteUser(id: "#{Ecto.UUID.generate()}") {
+              isPlatformAdmin
+              errors { message code }
+            }
+          }
+          """,
+          token
+        )
+
+      # action 之前的失败（Ash.get not-found）走 top-level error 通道，
+      # 与 action 之内领域错误的 payload 通道分界
+      assert %{"data" => %{"demoteUser" => nil}} = resp
+      assert %{"errors" => [%{"code" => "not_found"}]} = resp
     end
   end
 
