@@ -1,10 +1,13 @@
 defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
   @moduledoc """
-  0C 48h 审批提醒 job 骨架测试。
+  48h 审批提醒 job 测试。
 
-  F7 方案 A「deadline 前 48h 提醒审批人」的 v1 骨架：扫描 waiting 且 deadline 落在
-  未来 48h 窗口内的 WorkflowRun，每 run 落一条 SignalLog（signal_type=
-  "workflow.approval_reminder"）；Phase 2 同时为关联 Enrollment 异步入通知队列。
+  F7 方案 A「deadline 前 48h 提醒审批人」的两条独立扫描：
+  1. Enrollment 扫描（run-less 报名的单属主提醒路径）：status=pending 且
+     approval_deadline 落在 (now, now+48h] 的报名，为工作台 Owner/Admin 逐人
+     入队 approval_reminder 提醒（NotificationWorker 7 天 args-unique 去重）；
+  2. WorkflowRun 扫描：waiting 且 deadline 落在 48h 窗口内的 run，每 run 落一条
+     SignalLog（signal_type="workflow.approval_reminder"）作为提醒事实记录。
   """
 
   use Cgc2046Web.ConnCase, async: false
@@ -93,6 +96,19 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
     waiting
   end
 
+  # 建 pending Enrollment：request 策略活动 + 指定 approval_deadline（默认创建后 7 天，
+  # 测试显式放入 48h 窗口）
+  defp create_pending_enrollment(event, workspace, learner, attrs) do
+    Enrollment
+    |> Ash.Changeset.for_create(
+      :create_enrollment,
+      Map.merge(%{event_id: event.id, user_id: learner.id}, attrs),
+      tenant: workspace.id,
+      actor: learner
+    )
+    |> Ash.create!(tenant: workspace.id, actor: learner)
+  end
+
   defp reminder_logs_for(run) do
     SignalLog
     |> Ash.Query.filter(run_id == ^run.id and signal_type == "workflow.approval_reminder")
@@ -116,10 +132,9 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       refute is_nil(log.received_at)
     end
 
-    test "关联 pending Enrollment 时只提醒工作台 Owner/Admin，不提醒申请人" do
+    test "多审批人：进入窗口的 pending Enrollment 给 Owner 与 Admin 各入队一条，不提醒申请人" do
       owner = Fixtures.platform_admin("reminder-admin")
       workspace = Fixtures.create_workspace(owner)
-      waiting = create_waiting_run(workspace, owner, 86_400)
 
       admin =
         Fixtures.register_user("reminder-workspace-admin-#{System.unique_integer([:positive])}")
@@ -131,13 +146,9 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
 
-      Enrollment
-      |> Ash.Changeset.for_create(:create_enrollment, %{
-        event_id: event.id,
-        user_id: learner.id,
-        workflow_run_id: waiting.id
+      create_pending_enrollment(event, workspace, learner, %{
+        approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
       })
-      |> Ash.create!(tenant: workspace.id, actor: learner)
 
       insert_identity(owner.id, "reminder-owner-openid")
       insert_identity(admin.id, "reminder-admin-openid")
@@ -196,6 +207,167 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
       assert [_one] = reminder_logs_for(waiting)
+    end
+  end
+
+  describe "48h 提醒窗口（Enrollment 扫描单属主，run-less 覆盖）" do
+    test "无 run 的 pending Enrollment 进入 48h 窗口 → 提醒审批人" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner =
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      enrollment =
+        create_pending_enrollment(event, workspace, learner, %{
+          approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      assert is_nil(enrollment.workflow_run_id)
+
+      insert_identity(owner.id, "reminder-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      assert_enqueued(
+        worker: Cgc2046.Workers.NotificationWorker,
+        args: %{
+          "user_id" => owner.id,
+          "platform" => "wechat",
+          "template_key" => "approval_reminder",
+          "data" => %{"enrollment_id" => enrollment.id}
+        }
+      )
+    end
+
+    test "deadline 超 48h 或已过期 → 不提醒" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      learner_future =
+        Fixtures.register_user("reminder-learner-future-#{System.unique_integer([:positive])}")
+
+      learner_expired =
+        Fixtures.register_user("reminder-learner-expired-#{System.unique_integer([:positive])}")
+
+      create_pending_enrollment(event, workspace, learner_future, %{
+        approval_deadline: DateTime.add(DateTime.utc_now(), 72, :hour)
+      })
+
+      create_pending_enrollment(event, workspace, learner_expired, %{
+        approval_deadline: DateTime.add(DateTime.utc_now(), -1, :hour)
+      })
+
+      insert_identity(owner.id, "reminder-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      refute_enqueued(
+        worker: Cgc2046.Workers.NotificationWorker,
+        args: %{
+          "user_id" => owner.id,
+          "platform" => "wechat",
+          "template_key" => "approval_reminder"
+        }
+      )
+    end
+
+    test "连续两次 perform_job → 同一报名同一收件人不重复入队" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner =
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      create_pending_enrollment(event, workspace, learner, %{
+        approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+      })
+
+      insert_identity(owner.id, "reminder-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      assert [_one] =
+               all_enqueued(
+                 worker: Cgc2046.Workers.NotificationWorker,
+                 args: %{
+                   "user_id" => owner.id,
+                   "template_key" => "approval_reminder"
+                 }
+               )
+    end
+
+    test "带非空 workflow_run_id 的 pending Enrollment 处于窗口内 → 仅由 Enrollment 扫描产生每收件人一条提醒" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner =
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      # run 的 deadline 在窗口外（approval_timeout 7 天），Enrollment 的 deadline 在窗口内
+      waiting = create_waiting_run(workspace, owner, 7 * 86_400)
+
+      enrollment =
+        create_pending_enrollment(event, workspace, learner, %{
+          workflow_run_id: waiting.id,
+          approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      insert_identity(owner.id, "reminder-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      assert [_one] =
+               all_enqueued(
+                 worker: Cgc2046.Workers.NotificationWorker,
+                 args: %{
+                   "user_id" => owner.id,
+                   "template_key" => "approval_reminder",
+                   "data" => %{"enrollment_id" => enrollment.id}
+                 }
+               )
+    end
+
+    test "同一报名在两条扫描窗口内也只由 Enrollment 路径提醒一次（单属主）" do
+      owner = Fixtures.platform_admin("reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner =
+        Fixtures.register_user("reminder-learner-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :request})
+
+      # run 的 deadline（approval_timeout 24h）与 Enrollment 的 deadline 都在 48h 窗口内
+      waiting = create_waiting_run(workspace, owner, 86_400)
+
+      enrollment =
+        create_pending_enrollment(event, workspace, learner, %{
+          workflow_run_id: waiting.id,
+          approval_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      insert_identity(owner.id, "reminder-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      assert [_one] =
+               all_enqueued(
+                 worker: Cgc2046.Workers.NotificationWorker,
+                 args: %{
+                   "user_id" => owner.id,
+                   "template_key" => "approval_reminder",
+                   "data" => %{"enrollment_id" => enrollment.id}
+                 }
+               )
     end
   end
 
