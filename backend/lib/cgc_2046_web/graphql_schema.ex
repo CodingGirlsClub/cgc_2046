@@ -192,13 +192,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
     field :list_tool_call_logs, non_null(list_of(non_null(:admin_tool_call_log))) do
       arg(:workspace_id, :id)
+      arg(:status, :string)
+      arg(:inserted_after, :datetime)
+      arg(:inserted_before, :datetime)
       arg(:first, :integer)
       arg(:after, :string)
 
       resolve(
         admin_list(
           Cgc2046.Mcp.ToolCallLog,
-          fn q, args -> maybe_workspace_filter(q, args[:workspace_id]) end,
+          fn q, args ->
+            q
+            |> maybe_workspace_filter(args[:workspace_id])
+            |> maybe_status_filter(args[:status], :result_status)
+            |> maybe_time_range_filter(args)
+          end,
           admin_result(Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
         )
       )
@@ -207,13 +215,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
     field :list_pending_operations, non_null(list_of(non_null(:admin_pending_operation))) do
       arg(:workspace_id, :id)
+      arg(:status, :string)
+      arg(:inserted_after, :datetime)
+      arg(:inserted_before, :datetime)
       arg(:first, :integer)
       arg(:after, :string)
 
       resolve(
         admin_list(
           Cgc2046.Mcp.PendingOperation,
-          fn q, args -> maybe_workspace_filter(q, args[:workspace_id]) end,
+          fn q, args ->
+            q
+            |> maybe_workspace_filter(args[:workspace_id])
+            |> maybe_pending_status_filter(args[:status])
+            |> maybe_time_range_filter(args)
+          end,
           admin_result(Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
         )
       )
@@ -222,13 +238,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after）"
     field :list_signal_logs, non_null(list_of(non_null(:admin_signal_log))) do
       arg(:workspace_id, :id)
+      arg(:signal_type, :string)
+      arg(:inserted_after, :datetime)
+      arg(:inserted_before, :datetime)
       arg(:first, :integer)
       arg(:after, :string)
 
       resolve(
         admin_list(
           Cgc2046.Workflows.SignalLog,
-          fn q, args -> maybe_real_workspace_filter(q, args[:workspace_id]) end,
+          fn q, args ->
+            q
+            |> maybe_real_workspace_filter(args[:workspace_id])
+            |> maybe_signal_type_filter(args[:signal_type])
+            |> maybe_time_range_filter(args)
+          end,
           admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Api)
         )
       )
@@ -237,13 +261,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first/after）"
     field :list_admin_action_logs, non_null(list_of(non_null(:admin_action_log))) do
       arg(:action, :string)
+      arg(:inserted_after, :datetime)
+      arg(:inserted_before, :datetime)
       arg(:first, :integer)
       arg(:after, :string)
 
       resolve(
         admin_list(
           Cgc2046.Accounts.AdminActionLog,
-          fn q, args -> maybe_action_filter(q, args[:action]) end,
+          fn q, args ->
+            q
+            |> maybe_action_filter(args[:action])
+            |> maybe_time_range_filter(args)
+          end,
           admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.GlobalApi)
         )
       )
@@ -1333,15 +1363,59 @@ defmodule Cgc2046Web.GraphqlSchema do
     Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
   end
 
-  # status 过滤（WorkspaceApplication.status 是 atom 约束）
-  defp maybe_status_filter(query, nil), do: query
+  # status 过滤（atom 约束字段；非枚举值静默忽略过滤——to_existing_atom 防 atom 表污染）。
+  # field 参数化：WorkspaceApplication/PendingOperation 是 :status，ToolCallLog 是 :result_status。
+  defp maybe_status_filter(query, status, field \\ :status)
 
-  defp maybe_status_filter(query, status) do
+  defp maybe_status_filter(query, nil, _field), do: query
+
+  defp maybe_status_filter(query, status, field) do
     case String.to_existing_atom(status) do
-      atom -> Ash.Query.filter(query, status == ^atom)
+      # keyword 整体 ^ pin：字段名运行时化（宏模板内未 pin 变量会被当字段引用）
+      atom -> Ash.Query.filter(query, ^[{field, atom}])
     end
   rescue
     ArgumentError -> query
+  end
+
+  # #117 PendingOperation 状态过滤：expired 不落库（读时派生 calculation，不能下推 SQL），
+  # 特判为 status == :pending and expires_at < now（与 effective_status 同语义）；
+  # 其余枚举值走通用 maybe_status_filter。
+  defp maybe_pending_status_filter(query, nil), do: query
+
+  defp maybe_pending_status_filter(query, "expired") do
+    now = DateTime.utc_now()
+    Ash.Query.filter(query, status == :pending and expires_at < ^now)
+  end
+
+  defp maybe_pending_status_filter(query, status), do: maybe_status_filter(query, status)
+
+  # #117 SignalLog 信号类型过滤（自由 string 精确匹配，如 "workflow.approval"；空串忽略）
+  defp maybe_signal_type_filter(query, nil), do: query
+  defp maybe_signal_type_filter(query, ""), do: query
+
+  defp maybe_signal_type_filter(query, signal_type) do
+    Ash.Query.filter(query, signal_type == ^signal_type)
+  end
+
+  # #117 时间范围过滤（inserted_at）：inserted_after → >=，inserted_before → <=。
+  # Absinthe :datetime 标量已把 ISO8601 解析为 DateTime；nil 分支不过滤。
+  defp maybe_time_range_filter(query, args) do
+    query
+    |> maybe_inserted_after(args[:inserted_after])
+    |> maybe_inserted_before(args[:inserted_before])
+  end
+
+  defp maybe_inserted_after(query, nil), do: query
+
+  defp maybe_inserted_after(query, dt) do
+    Ash.Query.filter(query, inserted_at >= ^dt)
+  end
+
+  defp maybe_inserted_before(query, nil), do: query
+
+  defp maybe_inserted_before(query, dt) do
+    Ash.Query.filter(query, inserted_at <= ^dt)
   end
 
   # #116 action 过滤（AdminActionLog.action 是 atom 约束；非枚举值静默忽略过滤，

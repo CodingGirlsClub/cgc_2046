@@ -1,4 +1,5 @@
 import { client } from "./apollo-client";
+import type { AuditFilters } from "./admin";
 import {
 	LIST_WORKFLOW_RUNS,
 	type WorkflowRun,
@@ -66,16 +67,34 @@ export function mapWorkflowRun(r: WorkflowRun): WorkflowRunItem {
 }
 
 /**
- * 获取某 workspace 的教研产出 run 列表（#40 展示页）。
- * filter 用 workspaceId eq 包装；read policy 经 workspace → memberships 路径，
+ * 获取 run 列表（#40 展示页按 workspace；#117 audit 页可免 workspace 全量 + status/时间筛选）。
+ * filter 用 eq 内层包装；read policy 经 workspace → memberships 路径，
  * 成员可见本工作台 run，非成员空结果（无需额外 query 内 filter）。
+ * #117：filters.status → status.eq；filters.insertedAfter/Before → startedAt 比较器
+ * （自动 filter 无 insertedAt；startedAt 与 audit 页时间列一致）。
  */
 export async function fetchWorkflowRuns(
-	workspaceId: string,
-	opts?: { first?: number; after?: string },
+	workspaceId?: string,
+	opts?: { first?: number; after?: string; filters?: AuditFilters },
 ): Promise<WorkflowRunItem[]> {
 	const first = opts?.first ?? 50;
-	const filter: WorkflowRunFilter = { workspaceId: { eq: workspaceId } };
+	const filter: WorkflowRunFilter = {};
+	if (workspaceId) {
+		filter.workspaceId = { eq: workspaceId };
+	}
+	if (opts?.filters?.status) {
+		filter.status = { eq: opts.filters.status };
+	}
+	if (opts?.filters?.insertedAfter || opts?.filters?.insertedBefore) {
+		filter.startedAt = {
+			...(opts.filters.insertedAfter
+				? { greaterThanOrEqual: opts.filters.insertedAfter }
+				: {}),
+			...(opts.filters.insertedBefore
+				? { lessThanOrEqual: opts.filters.insertedBefore }
+				: {}),
+		};
+	}
 
 	const variables: { filter: WorkflowRunFilter; first?: number; after?: string } = {
 		filter,

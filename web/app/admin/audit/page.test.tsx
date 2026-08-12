@@ -96,7 +96,8 @@ describe("/admin/audit 审计仪表盘", () => {
 		render(<AdminAuditPage />);
 
 		expect(await screen.findByText("get_workspace_context")).toBeInTheDocument();
-		expect(screen.getByText("ok")).toBeInTheDocument();
+		// #117 状态下拉也含 "ok" option——断言精确到表格 cell，避多重匹配
+		expect(screen.getByRole("cell", { name: "ok" })).toBeInTheDocument();
 	});
 
 	it("切换 tab 加载对应资源", async () => {
@@ -118,14 +119,15 @@ describe("/admin/audit 审计仪表盘", () => {
 		render(<AdminAuditPage />);
 		await screen.findByText("get_workspace_context");
 
-		// workflow 分支要求 workspace 过滤
+		// #117：workflow tab 可带 workspace 过滤（也支持免 workspace 全量，见下测试）
 		fireEvent.change(screen.getByPlaceholderText(/workspace/), {
 			target: { value: "ws1" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: /工作流运行/ }));
 
 		expect(await screen.findByText("def_lesson_plan")).toBeInTheDocument();
-		expect(screen.getByText("succeeded")).toBeInTheDocument();
+		// #117 状态下拉也含 "succeeded" option——断言精确到表格 cell
+		expect(screen.getByRole("cell", { name: "succeeded" })).toBeInTheDocument();
 		// startedAt（2026-08-02T00:00:00Z）必须渲染为真实日期；字段擦除时代码取
 		// row.insertedAt（WorkflowRun 无此字段）→ 时间列空/Invalid Date，此处断言年份出现。
 		expect(screen.getByText(/2026/)).toBeInTheDocument();
@@ -149,7 +151,26 @@ describe("/admin/audit 审计仪表盘", () => {
 		fireEvent.click(screen.getByRole("button", { name: /过滤/ }));
 
 		await vi.waitFor(() =>
-			expect(fetchSignalLogs).toHaveBeenLastCalledWith("ws1", { first: 50 }),
+			expect(fetchSignalLogs).toHaveBeenLastCalledWith("ws1", {}, { first: 50 }),
+		);
+	});
+
+	it("WorkflowRun tab：免 workspace 过滤全量列出（#117）", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		fetchWorkflowRuns.mockResolvedValue(workflowRuns);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		// 不输入 workspace，直接切 tab → 全量加载
+		fireEvent.click(screen.getByRole("button", { name: /工作流运行/ }));
+
+		expect(await screen.findByText("def_lesson_plan")).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(fetchWorkflowRuns).toHaveBeenCalledWith(undefined, {
+				first: 50,
+				filters: {},
+			}),
 		);
 	});
 
@@ -167,7 +188,7 @@ describe("/admin/audit 审计仪表盘", () => {
 		expect(screen.getByText("ws-abcde")).toBeInTheDocument();
 		expect(screen.getByText("success")).toBeInTheDocument();
 		await vi.waitFor(() =>
-			expect(fetchAdminActionLogs).toHaveBeenCalledWith(undefined, {
+			expect(fetchAdminActionLogs).toHaveBeenCalledWith(undefined, {}, {
 				first: 50,
 			}),
 		);
@@ -185,7 +206,7 @@ describe("/admin/audit 审计仪表盘", () => {
 		fireEvent.click(screen.getByRole("button", { name: /过滤/ }));
 
 		await vi.waitFor(() =>
-			expect(fetchToolCallLogs).toHaveBeenLastCalledWith("ws9", { first: 50 }),
+			expect(fetchToolCallLogs).toHaveBeenLastCalledWith("ws9", {}, { first: 50 }),
 		);
 	});
 });

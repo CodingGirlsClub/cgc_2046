@@ -157,14 +157,33 @@ export async function createApplication(
   );
 }
 
+/**
+ * #117 审计筛选条件（audit 页 toolbar → fetch 参数；空值 = 不过滤）。
+ * status 语义按 tab：ToolCallLog → resultStatus / PendingOperation → status（含派生
+ * expired）/ WorkflowRun → status；signalType 仅 SignalLog tab 用。时间范围为 ISO8601
+ * 串；WorkflowRun tab 由 fetchWorkflowRuns 映射到 startedAt（自动 filter 无 insertedAt）。
+ */
+export interface AuditFilters {
+  status?: string;
+  signalType?: string;
+  insertedAfter?: string;
+  insertedBefore?: string;
+}
+
 /** 平台管理员：MCP 工具调用审计（R10；workspaceId 按 params JSONB 过滤，D5） */
 export async function fetchToolCallLogs(
   workspaceId?: string,
+  filters?: AuditFilters,
   opts?: AdminListArgs,
 ): Promise<AdminToolCallLog[]> {
   return adminList(
     LIST_TOOL_CALL_LOGS,
-    { workspaceId: workspaceId ?? null },
+    {
+      workspaceId: workspaceId ?? null,
+      status: filters?.status ?? null,
+      insertedAfter: filters?.insertedAfter ?? null,
+      insertedBefore: filters?.insertedBefore ?? null,
+    },
     "listToolCallLogs",
     opts,
   );
@@ -173,11 +192,17 @@ export async function fetchToolCallLogs(
 /** 平台管理员：MCP 待确认操作审计（R10；workspaceId 按 params JSONB 过滤，D5） */
 export async function fetchPendingOperations(
   workspaceId?: string,
+  filters?: AuditFilters,
   opts?: AdminListArgs,
 ): Promise<AdminPendingOperation[]> {
   return adminList(
     LIST_PENDING_OPERATIONS,
-    { workspaceId: workspaceId ?? null },
+    {
+      workspaceId: workspaceId ?? null,
+      status: filters?.status ?? null,
+      insertedAfter: filters?.insertedAfter ?? null,
+      insertedBefore: filters?.insertedBefore ?? null,
+    },
     "listPendingOperations",
     opts,
   );
@@ -186,11 +211,17 @@ export async function fetchPendingOperations(
 /** 平台管理员：workflow 信号日志审计（R10；workspaceId 按真实列过滤） */
 export async function fetchSignalLogs(
   workspaceId?: string,
+  filters?: AuditFilters,
   opts?: AdminListArgs,
 ): Promise<AdminSignalLog[]> {
   return adminList(
     LIST_SIGNAL_LOGS,
-    { workspaceId: workspaceId ?? null },
+    {
+      workspaceId: workspaceId ?? null,
+      signalType: filters?.signalType ?? null,
+      insertedAfter: filters?.insertedAfter ?? null,
+      insertedBefore: filters?.insertedBefore ?? null,
+    },
     "listSignalLogs",
     opts,
   );
@@ -199,11 +230,16 @@ export async function fetchSignalLogs(
 /** 平台管理员：治理操作审计（R10；action 枚举过滤，无 workspace 维度） */
 export async function fetchAdminActionLogs(
   action?: string,
+  filters?: AuditFilters,
   opts?: AdminListArgs,
 ): Promise<AdminActionLog[]> {
   return adminList(
     LIST_ADMIN_ACTION_LOGS,
-    { action: action ?? null },
+    {
+      action: action ?? null,
+      insertedAfter: filters?.insertedAfter ?? null,
+      insertedBefore: filters?.insertedBefore ?? null,
+    },
     "listAdminActionLogs",
     opts,
   );
