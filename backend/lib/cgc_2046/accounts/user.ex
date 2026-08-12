@@ -323,7 +323,7 @@ defmodule Cgc2046.Accounts.User do
     # 匿名（actor nil）→ filter 恒假不可读。
     policy action_type(:read) do
       authorize_if(Cgc2046.Policies.ReadOwnUser)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 更新全局显示名：仅本人（SimpleCheck，strict 阶段可判定）
@@ -333,12 +333,12 @@ defmodule Cgc2046.Accounts.User do
 
     # promote/demote：仅 platform_admin 可调用 set_platform_admin
     policy action(:set_platform_admin) do
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # demote 的 ≥1 admin 不变量由 action 自身守卫（原子条件 UPDATE）
     policy action(:demote_platform_admin) do
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 注意：不能使用 `policy always() do forbid_if(always()) end` 做默认拒绝。

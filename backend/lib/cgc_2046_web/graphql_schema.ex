@@ -1306,14 +1306,16 @@ defmodule Cgc2046Web.GraphqlSchema do
   # admin 门控：非 platform_admin → forbidden（与 Phase 1 PlatformAdminPlug 同语义）。
   # 未登录 → unauthorized。通过后执行 fun(actor)。
   defp with_admin(context, fun) do
-    case context[:actor] do
-      %{is_platform_admin: true} ->
-        fun.(context[:actor])
+    actor = context[:actor]
 
-      nil ->
+    cond do
+      Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) ->
+        fun.(actor)
+
+      is_nil(actor) ->
         {:error, unauthorized_error()}
 
-      _ ->
+      true ->
         {:error, [message: "forbidden", code: "forbidden"]}
     end
   end

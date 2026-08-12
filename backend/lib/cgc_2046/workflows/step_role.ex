@@ -92,12 +92,12 @@ defmodule Cgc2046.Workflows.StepRole do
     policy action_type(:read) do
       authorize_if(relates_to_actor_via([:step, :definition, :workspace, :memberships, :user]))
 
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

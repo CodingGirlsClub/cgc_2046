@@ -157,12 +157,12 @@ defmodule Cgc2046.Workflows.Step do
     # 读取（H3）：经 definition → workspace → memberships 路径，仅成员或平台管理员
     policy action_type(:read) do
       authorize_if(relates_to_actor_via([:definition, :workspace, :memberships, :user]))
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(actor_attribute_equals(:is_platform_admin, true))
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

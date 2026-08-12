@@ -11,10 +11,12 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
   成员路径由共享纯函数 Rbac.abilities_for/2 从已加载的角色并集派生；非成员分支
   （actor 不在该工作台）平台管理员豁免 view/access/create_workspace、其余为 []。
   返回能力名字符串列表，顺序同 Rbac.abilities_list/0。
+  双面契约（policy 面放行 vs 能力面拒绝）真源见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
   """
   use Ash.Resource.Calculation
 
   alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Policies.PlatformAdmin
   alias Cgc2046.Rbac
 
   @impl true
@@ -46,6 +48,7 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
         nil ->
           # 非成员分支与 Rbac.abilities/2 语义一致：平台管理员豁免
           # view/access + create_workspace，其余为 []
+          # （双面契约能力面，真源见 Cgc2046.Policies.PlatformAdmin moduledoc）
           if key == :my_abilities do
             non_member_abilities(actor)
           else
@@ -67,7 +70,7 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
   end
 
   defp actor_is_platform_admin?(actor) do
-    Map.get(actor, :is_platform_admin, false) == true
+    PlatformAdmin.platform_admin?(actor)
   end
 
   defp non_member_abilities(actor) do
