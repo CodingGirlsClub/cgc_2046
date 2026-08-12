@@ -8,5 +8,5 @@
 useDefault = true
 
 [allowlist]
-description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）；hooks_test.rb 的裸 JWT 为固定测试样本（标准示例 token，非真实密钥）"
-paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''', '''openclacky-ext/cgc-2046/test/hooks_test\.rb''']
+description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）；hooks_test.rb 的裸 JWT 为固定测试样本（标准示例 token，非真实密钥）；admin workspaces 测试的 tok-reassign-1 为 mock 的一次性邀请 token 字面量（非真实凭据）"
+paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''', '''openclacky-ext/cgc-2046/test/hooks_test\.rb''', '''web/app/admin/workspaces/\[id\]/page\.test\.tsx''']
