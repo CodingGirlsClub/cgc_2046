@@ -57,9 +57,9 @@ slice E 开工在即，报名 workflow 面对一个未被检验的隐含假设�
 
 **报名最小接线**
 
-- R3. Enrollment 的 create action 在 after_transaction 发 `enrollment.submitted`；任何路径到达 `confirmed`（create 内 open/invite_only 自动确认，或 confirm action 审批通过）都在 after_transaction 发 `enrollment.completed`，幂等键沿用 `"enrollment.completed:" + enrollment_id` 约定（docs/01-定稿设计/报名workflow详细设计.md §4.2）。
+- R3. Enrollment 的 create action 在 after_transaction 发 `enrollment.submitted`；任何路径到达 `confirmed`（create 内 open/invite_only 自动确认，或 confirm action 审批通过）都在 after_transaction 发 `enrollment.completed`，幂等键沿用 `"enrollment.completed:" + enrollment_id` 约定（docs/01-定稿设计/报名workflow详细设计.md §4.2）。订阅方契约：`submitted` = 行已持久化（含已确认），仅用于提交可观测；`completed` = 生命周期终态，是学习触发的唯一依据；open/invite_only 路径两信号于同一 after_transaction 先后发出。
 - R4. 48h 审批提醒覆盖无 WorkflowRun 的 pending Enrollment：提醒判定以 `approval_deadline` 为准，不再以 `workflow_run_id` 为唯一反查条件；有 run 与无 run 的待审批实体享受同等提醒覆盖。
-- R5. 正式修订 docs/01-定稿设计/报名workflow详细设计.md：DAG（报名段 S1-S8 + 审批段 A1-A5）标记退稿，记录理由（零增量不变量、资源行即 checkpoint、可逆性优先）并引用判据 ADR；文档状态由定稿改为已退稿。
+- R5. 正式修订 docs/01-定稿设计/报名workflow详细设计.md：仅 DAG（报名段 S1-S8 + 审批段 A1-A5）标记退稿，记录理由（零增量不变量、资源行即 checkpoint、可逆性优先）并引用判据 ADR；审批两段式与 §4.2 幂等键约定明确标注继续有效。
 
 ```mermaid
 flowchart TB
@@ -108,9 +108,9 @@ flowchart TB
 
 ### Success Criteria
 
-- 下一个 workflow（赞助）的形态决策通过查判据一次完成，不再重开「要不要 run」辩论。
+- 下一个 workflow（赞助）的形态决策通过查判据一次完成，不再重开「要不要 run」辩论；本 plan 内的验收证据为 AE3（判据对两类假想 workflow 的分类与报名/赞助先例一致）。
 - 无 run 的 pending Enrollment 48h 提醒覆盖率从 0% 升至 100%。
-- `enrollment.completed` 在全部确认路径（含 open/invite_only 自动确认）可观测，学习 workflow 的触发前置解除。
+- 每条到达 confirmed 的路径都尝试发布 `enrollment.completed`、发布失败必记录日志（best-effort 语义；可靠投递由后续 outbox/对账工作承担），学习 workflow 的触发前置解除。
 
 ### Scope Boundaries
 
@@ -159,7 +159,7 @@ Product Contract preservation: restructured, no scope change — R3 措辞扩展
 - KTD1. **`enrollment.completed` 覆盖所有到达 confirmed 的路径**：create 内 open/invite_only 自动确认与 confirm action 都发；`enrollment.submitted` 在每次 create 发出。open 是默认策略，只在 confirm 发 completed 会让学习触发在主路径上永远缺失（流程分析 C1）。Governs R3。实施于 U3。
 - KTD2. **run-less 提醒去重依赖 Oban unique（3600s）+ NotificationWorker 7 天全 args unique**：args 含 enrollment 身份与 deadline，同一报名的提醒在窗口内只入队一次；不写 SignalLog 标记行（`run_id` not-null 使该模式对无 run 实体不可用）。Governs R4。实施于 U4。
 - KTD3. **Enrollment 提醒由「按 `approval_deadline` 的扫描」单属主承担**：退役 run 扫描里的 Enrollment 反查分支——两条扫描算出的 deadline 不同会让同一报名收到双份提醒，且该分支 `read_one` 只提醒首条；run 扫描保留给非 Enrollment 的 waiting runs。Governs R4。实施于 U4。
-- KTD4. **信号发布保持 best-effort + 失败 Logger.error**：与 `publish_approval_signal` 同款；至少一次投递交给未来的 `signal_idempotency` 表与对账扫描（Deferred to Follow-Up Work）。Governs R3。实施于 U3。
+- KTD4. **信号发布保持 best-effort，新 helper 自行承担失败日志**：既有 `publish_approval_signal` 以 `_ = JidoAdapter.publish(...)` 静默丢弃返回值、全程无日志（enrollment.ex:528）；新的 submitted/completed 发布 helper 必须自行对 `{:error, reason}` 调 Logger.error。至少一次投递交给未来的 `signal_idempotency` 表与对账扫描（Deferred to Follow-Up Work）。Governs R3。实施于 U3。
 
 ### High-Level Technical Design
 
@@ -189,7 +189,7 @@ flowchart TB
 
 ### Sequencing
 
-U1 → U2 → U3 → U4。U1/U2（文档）与 U3/U4（代码）之间无编译依赖，但文档先行让决策先于实现落盘；U3 与 U4 可并行。
+U1 → U2 → (U3 ∥ U4)。U1/U2（文档）与 U3/U4（代码）之间无编译依赖，但文档先行让决策先于实现落盘；U3 与 U4 可并行。
 
 ---
 
@@ -204,7 +204,7 @@ U1 → U2 → U3 → U4。U1/U2（文档）与 U3/U4（代码）之间无编译�
 - **Approach:** 遵循 docs/adr/0001-0004 约定：文件名 NNNN-kebab-title.md；头部 blockquote 含 日期/状态/决策者/关联/触发，状态行写 `状态：**已接受（Accepted）**`。内容四段：背景（报名 DAG 定稿与 Enrollment 自序贯现实的张力）、判据（R1 的四证成理由与判负条件，逐条给出本仓库先例）、决定（默认实体自序贯；报名为先例；两段式模式保留给无自序贯实体的 workflow）、后果（workflow-first 收紧为 workflow-where-it-earns；未来 workflow 设计先查判据）。
 - **Patterns to follow:** docs/adr/0002-workflow-first-jido.md、docs/adr/0004-per-workspace-profile.md 的头部与章节骨架。
 - **Test scenarios:** Test expectation: none — 纯决策文档。
-- **Verification:** ADR 头部与结构同 0002-0004 约定；判据完整覆盖 R1 的四理由与判负条件；报名先例明确引用 enrollment.ex 与退稿标记（U2）。
+- **Verification:** ADR 头部与结构同 0002-0004 约定；判据完整覆盖 R1 的四理由与判负条件；报名先例明确引用 enrollment.ex（退稿标记链接在 U2 落盘后补齐）。
 
 ### U2. 模式库条目与报名定稿退稿标记
 
@@ -214,7 +214,7 @@ U1 → U2 → U3 → U4。U1/U2（文档）与 U3/U4（代码）之间无编译�
 - **Files:** docs/00-CGC平台设计总纲.md（§6 表，约 :181-197）；docs/01-定稿设计/报名workflow详细设计.md（头部状态行，第 3 行附近）
 - **Approach:**
   1. 总纲 §6 表为 3 列 `| 模式 | 说明 | 出处 |`；新增一行「实体自序贯」——说明含：资源行即 pending checkpoint、信号经 action after_transaction 直发、适用条件（单 context 状态机 + DB 已强制不变量）、与审批两段式的并存关系；出处写 ADR-0005 与 `backend/lib/cgc_2046/events/enrollment.ex`。
-  2. 报名 doc 头部状态行由 `状态：**v1.4 定稿（...）**` 改为已退稿标记：`状态：**已退稿（Superseded）**——DAG 部分由 ADR-0005 退稿（理由：零增量不变量、资源行即 checkpoint、可逆性优先）；§4.2 幂等键约定仍然有效。docs/ 无既有退稿先例，本次创立格式。
+  2. 报名 doc 头部状态行由 `状态：**v1.4 定稿（...）**` 改为：`状态：**部分退稿**——仅报名 DAG（§2.1 报名段 S1-S8 + 审批段 A1-A5）由 ADR-0005 退稿（理由：零增量不变量、资源行即 checkpoint、可逆性优先）；审批两段式模式与 §4.2 幂等键约定继续有效。docs/ 无既有退稿先例，本次创立格式。
 - **Patterns to follow:** 总纲 §6 既有表行格式；docs/01-定稿设计/ 各文档头部状态行约定。
 - **Test scenarios:** Test expectation: none — 纯文档编辑。
 - **Verification:** 表格渲染列数一致；退稿标记含 ADR 链接与一句话理由；§4.2 幂等键约定保留。
@@ -225,8 +225,8 @@ U1 → U2 → U3 → U4。U1/U2（文档）与 U3/U4（代码）之间无编译�
 - **Requirements:** R3（KTD1, KTD4）
 - **Dependencies:** 无
 - **Files:** backend/lib/cgc_2046/events/enrollment.ex；backend/test/cgc_2046/events/enrollment_test.exs
-- **Approach:** 镜像既有 `publish_approval_signal`（after_transaction、best-effort、失败 Logger.error 不回滚）。create：任何策略都发 `enrollment.submitted`；结果为 confirmed（open/invite_only 自动确认）时同钩子发 `enrollment.completed`。confirm：既有 `enrollment.approved` 之外增发 `enrollment.completed`。completed 的 data 带 `idempotency_key: "enrollment.completed:" <> enrollment_id`（报名 doc §4.2 约定）。载荷形状 per Assumptions。
-- **Execution note:** 先写失败测试——测试内订阅 bus 后 assert_receive（参照 backend/test/cgc_2046/workflows/jido_adapter_test.exs 与 teaching_learning_test.exs 的订阅断言模式）。
+- **Approach:** 参照既有 `publish_approval_signal` 的 after_transaction/best-effort 结构，但注意它 `_ = JidoAdapter.publish(...)` 静默丢弃返回值（enrollment.ex:528）——新的发布 helper 须自行对错误返回 Logger.error（KTD4）。create：任何策略都发 `enrollment.submitted`；结果为 confirmed（open/invite_only 自动确认）时同钩子发 `enrollment.completed`。confirm：既有 `enrollment.approved` 之外增发 `enrollment.completed`。completed 的 data 带 `idempotency_key: "enrollment.completed:" <> enrollment_id`（报名 doc §4.2 约定）。载荷形状 per Assumptions。
+- **Execution note:** 先写失败测试——测试内订阅 bus 后 assert_receive（参照 backend/test/cgc_2046/workflows/jido_adapter_test.exs 与 teaching_learning_test.exs 的订阅断言模式）。发布失败用例的故障注入：代码库无 mock 库，用 Process.whereis 找到 :cgc_workflow_bus 后 GenServer.stop 令发布返回错误，ExUnit.CaptureLog 断言 Logger.error 输出。
 - **Patterns to follow:** `publish_approval_signal`（enrollment.ex:518-530 附近）；jido_adapter_test.exs 的 bus subscribe + assert_receive。
 - **Test scenarios:**
   - Covers AE1. request 策略 create → 收到 `enrollment.submitted`（payload status=pending），无 `enrollment.completed`。
@@ -243,15 +243,17 @@ U1 → U2 → U3 → U4。U1/U2（文档）与 U3/U4（代码）之间无编译�
 - **Requirements:** R4（KTD2, KTD3）
 - **Dependencies:** 无（与 U3 可并行）
 - **Files:** backend/lib/cgc_2046/workers/approval_reminder_worker.ex；backend/test/cgc_2046/workers/approval_reminder_worker_test.exs；如复用需要：backend/lib/cgc_2046/notification_subscriber.ex
-- **Approach:** worker 新增 Enrollment 扫描分支：`status=pending ∧ approval_deadline ∈ (now, now+48h]`，逐条经既有通知链路（enqueue_reminder → NotificationWorker，args 含 enrollment 身份与 deadline）发 approval_reminder；去重靠 Oban unique（3600s）+ NotificationWorker 7 天 args-unique（KTD2），不写 SignalLog 标记行。退役 run 扫描中的 Enrollment 反查分支（KTD3）；run 扫描保留给非 Enrollment 的 waiting runs。
+- **Approach:** worker 新增 Enrollment 扫描分支：`status=pending ∧ approval_deadline ∈ (now, now+48h]`，逐条经既有通知链路（enqueue_reminder → NotificationWorker）发 approval_reminder；入队 args 必须含 recipient identity 与 enrollment_id + deadline，使 NotificationWorker 7 天 args-unique 既不重复也不把不同报名/不同收件人折叠（KTD2）；不写 SignalLog 标记行（SignalLog.run_id not-null）。退役 run 扫描中的 Enrollment 反查分支（KTD3）；run 扫描保留给非 Enrollment 的 waiting runs。
+- **注意（实现时必做）：** 既有测试「关联 pending Enrollment 时只提醒工作台 Owner/Admin」用 run 的 approval_timeout 建窗、其 Enrollment 的 approval_deadline 默认创建后 7 天——单属主切换后落在 48h 窗口外，必须重写（把 approval_deadline 放进窗口）；其余既有 reminder/expiry 测试不回归。
 - **Patterns to follow:** approval_expiry_worker.ex 的 Enrollment 扫描段（:66-78 附近的 filter + 逐条处理模式）；approval_reminder_worker.ex 现有窗口判定（:62-74）。
 - **Test scenarios:**
   - Covers AE2. 无 run 的 pending Enrollment 进入 48h 窗口 → perform_job 后 assert_enqueued 对应审批人的提醒。
   - 窗口外（超过 48h 或已过期）→ refute_enqueued。
   - 连续两次 perform_job → 不重复入队。
   - 同一报名不会被两条扫描路径重复提醒（退役反查分支后只有单属主）。
+  - 带非空 workflow_run_id 的 pending Enrollment 处于窗口内 → 同样且仅由 Enrollment 扫描产生每收件人一条提醒（R4 对等覆盖）。
   - 多审批人（Owner + Admin）→ 每个 identity 各入队一条。
-- **Verification:** worker 测试绿（Oban.Testing perform_job/assert_enqueued 约定）；既有 reminder/expiry 测试不回归。
+- **Verification:** worker 测试绿（Oban.Testing perform_job/assert_enqueued 约定）；既有 run 关联提醒测试按上方注意点重写，其余既有 reminder/expiry 测试不回归。
 
 ---
 
