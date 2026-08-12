@@ -78,7 +78,7 @@ defmodule Cgc2046.Workflows.SignalLog do
 
   relationships do
     # define_attribute?: false——run_id 已手动定义（signal 日志在 run 删除后仍保留
-    # 审计，不加 FK 约束；belongs_to 仅用于 policy 链 relates_to_actor_via）
+    # 审计，不加 FK 约束；belongs_to 仅用于 policy 链 ActorIsWorkspaceMemberVia）
     belongs_to(:run, Cgc2046.Workflows.WorkflowRun,
       source_attribute: :run_id,
       destination_attribute: :id,
@@ -113,7 +113,7 @@ defmodule Cgc2046.Workflows.SignalLog do
     repo(Cgc2046.Repo)
 
     # run_id 不加 FK 约束（signal 日志在 run 删除后仍保留审计，计划 §步骤 3）；
-    # belongs_to 仅用于 policy 链 relates_to_actor_via
+    # belongs_to 仅用于 policy 链 ActorIsWorkspaceMemberVia
     references do
       reference(:run, ignore?: true)
     end
@@ -128,7 +128,10 @@ defmodule Cgc2046.Workflows.SignalLog do
   policies do
     # 读取（H3）：经 run → definition → workspace → memberships 路径，仅成员或平台管理员
     policy action_type(:read) do
-      authorize_if(relates_to_actor_via([:run, :definition, :workspace, :memberships, :user]))
+      authorize_if(
+        {Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:run, :definition, :workspace]}
+      )
+
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
