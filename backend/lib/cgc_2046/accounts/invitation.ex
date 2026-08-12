@@ -191,6 +191,26 @@ defmodule Cgc2046.Accounts.Invitation do
   # 读时 effective_status 计算作为兜底（扫描间隙内已过点的 active 行仍派生 expired），
   # 不在 read 时执行 UPDATE。
 
+  # #114：revoke 留痕的 target_id/skip_unless/metadata 纯函数（供 LogAdminAction change
+  # 声明以远程捕获引用；DSL 实体 opts 需可转义：匿名 fn 与私有函数捕获都不可，
+  # 须为 public 且定义在 actions 之前）。skip_unless = actor 是 platform_admin 且
+  # preauthorized 含 :owner；成员撤销自己的普通邀请不记。
+  @doc false
+  def invitation_log_target_id(_changeset, invitation), do: invitation.workspace_id
+
+  @doc false
+  def invitation_log_skip_unless(changeset, invitation) do
+    actor = get_in(changeset.context, [:private, :actor])
+
+    Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) and
+      :owner in (invitation.preauthorized_role_names || [])
+  end
+
+  @doc false
+  def invitation_log_metadata(_changeset, invitation) do
+    %{invitation_id: invitation.id, target_email: invitation.target_email}
+  end
+
   actions do
     default_accept([])
     defaults([:read])
@@ -309,28 +329,12 @@ defmodule Cgc2046.Accounts.Invitation do
       # 条件挂接：actor 是 platform_admin 且 preauthorized 含 :owner；成员撤销自己的
       # 普通邀请不记。fail-closed：留痕失败回滚撤销本身（同一事务）。
       change(
-        after_action(fn changeset, invitation, _context ->
-          actor = get_in(changeset.context, [:private, :actor])
-
-          if Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) &&
-               :owner in (invitation.preauthorized_role_names || []) do
-            with {:ok, _log} <-
-                   Cgc2046.Accounts.AdminActionLog.log(%{
-                     actor_id: actor.id,
-                     action: :owner_invitation_cancel,
-                     target_type: :workspace,
-                     target_id: invitation.workspace_id,
-                     metadata: %{
-                       invitation_id: invitation.id,
-                       target_email: invitation.target_email
-                     }
-                   }) do
-              {:ok, invitation}
-            end
-          else
-            {:ok, invitation}
-          end
-        end)
+        {Cgc2046.Changes.LogAdminAction,
+         action: :owner_invitation_cancel,
+         target_type: :workspace,
+         target_id: &__MODULE__.invitation_log_target_id/2,
+         skip_unless: &__MODULE__.invitation_log_skip_unless/2,
+         metadata: &__MODULE__.invitation_log_metadata/2}
       )
     end
 
