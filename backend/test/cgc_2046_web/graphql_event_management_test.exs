@@ -8,6 +8,7 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
+  alias Cgc2046.EventsFixtures, as: EventFixtures
 
   defp create_event_mutation(workspace_id, attrs) do
     """
@@ -102,6 +103,38 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
     reloaded = Ash.get!(Event, created["id"], authorize?: false)
     assert reloaded.status == :closed
     assert reloaded.visibility == :workspace
+  end
+
+  test "offeringReadiness：登录用户可查 GO/NO-GO 清单；匿名拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+    token = sign_in_token(admin)
+
+    query = """
+    query {
+      offeringReadiness(id: "#{event.id}") {
+        ready
+        items { key label ok }
+      }
+    }
+    """
+
+    assert %{"data" => %{"offeringReadiness" => %{"ready" => ready, "items" => items}}} =
+             graphql(query, token)
+
+    # registration_deadline 默认已设（fixture 7 天后）；research 定义未建 → ready=false
+    assert is_boolean(ready)
+    assert length(items) == 2
+
+    # 匿名拒绝
+    anon =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => query})
+      |> json_response(200)
+
+    assert %{"data" => %{"offeringReadiness" => nil}} = anon
   end
 
   test "普通成员不能 createEvent（写策略 Owner/Admin）" do

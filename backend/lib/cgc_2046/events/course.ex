@@ -49,6 +49,20 @@ defmodule Cgc2046.Events.Course do
       description: "课程标题"
     )
 
+    attribute(:slug, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "公开 URL 段（/courses/[slug]，全局唯一）"
+    )
+
+    attribute(:description, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "公开展示文案（可空；null 由展示层按空串呈现）"
+    )
+
     attribute(:research_enabled, :boolean,
       allow_nil?: false,
       default: true,
@@ -153,7 +167,9 @@ defmodule Cgc2046.Events.Course do
       :enrollment_policy,
       :capacity,
       :registration_deadline,
-      :visibility
+      :visibility,
+      :slug,
+      :description
     ])
 
     create :create do
@@ -166,7 +182,9 @@ defmodule Cgc2046.Events.Course do
         :enrollment_policy,
         :capacity,
         :registration_deadline,
-        :visibility
+        :visibility,
+        :slug,
+        :description
       ])
 
       # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
@@ -178,6 +196,39 @@ defmodule Cgc2046.Events.Course do
       )
 
       change(set_attribute(:status, :draft))
+
+      # slug 未提供时兜底生成（公开 URL 段；唯一索引防碰撞）
+      change(fn changeset, _context ->
+        changeset =
+          case Ash.Changeset.get_attribute(changeset, :slug) do
+            value when is_binary(value) and value != "" ->
+              changeset
+
+            _ ->
+              suffix = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+              Ash.Changeset.force_change_attribute(changeset, :slug, "c-" <> suffix)
+          end
+
+        changeset
+      end)
+
+      # slug 单段 URL 约束（公开路由 /courses/[slug]；非法字符拒绝）
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :slug) do
+          value when is_binary(value) and value != "" ->
+            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
+              changeset
+            else
+              Ash.Changeset.add_error(
+                changeset,
+                "slug must be a single lowercase URL segment ([a-z0-9-])"
+              )
+            end
+
+          _ ->
+            changeset
+        end
+      end)
 
       # workspace_id 由 argument 或 tenant 强制，不接受属性直传
       change(fn changeset, _context ->
@@ -206,7 +257,9 @@ defmodule Cgc2046.Events.Course do
         :enrollment_policy,
         :capacity,
         :registration_deadline,
-        :visibility
+        :visibility,
+        :slug,
+        :description
       ])
 
       # 强制非原子执行（同 event.ex :update 注释——GraphQL bulk_update 原子
@@ -214,6 +267,24 @@ defmodule Cgc2046.Events.Course do
       change(fn changeset, _context ->
         _ = Ash.Changeset.get_data(changeset, :status)
         changeset
+      end)
+
+      # slug 单段 URL 约束（create/update 同规则；非法拒绝）
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :slug) do
+          value when is_binary(value) and value != "" ->
+            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
+              changeset
+            else
+              Ash.Changeset.add_error(
+                changeset,
+                "slug must be a single lowercase URL segment ([a-z0-9-])"
+              )
+            end
+
+          _ ->
+            changeset
+        end
       end)
     end
 
@@ -264,6 +335,19 @@ defmodule Cgc2046.Events.Course do
               id = Ash.Changeset.get_data(changeset, :id)
               title = Ash.Changeset.get_data(changeset, :title)
               requirements = Ash.Changeset.get_data(changeset, :research_requirements) || %{}
+
+              # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
+              # 明细经 GraphQL readiness 查询暴露后台。
+              record = elem(result, 1)
+
+              case Cgc2046.Events.Readiness.evaluate(record) do
+                %{ready: true} ->
+                  :ok
+
+                %{items: items} ->
+                  missing = Enum.map_join(items, ", ", & &1.label)
+                  Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
+              end
 
               case JidoAdapter.publish(
                      "course.launched",
@@ -404,6 +488,11 @@ defmodule Cgc2046.Events.Course do
     read :get_by_id do
       get_by([:id])
     end
+
+    # E-5 #50 公开宿主页：按 slug 取详情（全局唯一，公开路由无 workspace 前缀）
+    read :get_by_slug do
+      get_by([:slug])
+    end
   end
 
   # DB 级 compare-and-set：条件 UPDATE 原子抢占状态迁移（enrollment.expire 同款
@@ -475,6 +564,7 @@ defmodule Cgc2046.Events.Course do
     queries do
       list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")
       read_one(:get_course, :get_by_id, description: "按 id 获取课程（#40）")
+      read_one(:get_course_by_slug, :get_by_slug, description: "按 slug 获取（E-5 公开宿主页）")
     end
 
     mutations do

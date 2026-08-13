@@ -12,6 +12,24 @@ import {
 } from "@/lib/graphql/auth";
 import type { AuthSubmitPayload } from "./auth-form";
 
+/**
+ * 解析登录后跳转目标（同源校验；任意写法——含 /\evil.example 反斜杠绕过——
+ * 经 URL 解析后 origin 必须等于本站 origin）。非法/跨域输入回退 "/"。
+ */
+export function resolveNextTarget(raw: string | null, origin: string): string {
+	if (!raw) return "/";
+	try {
+		const target = new URL(raw, origin);
+		const path = target.pathname + target.search + target.hash;
+		// 同源但 pathname 以 // 开头（http://本域//evil.example）会被 Next 路由
+		// 解析为协议相对跳转 → 一并拒绝。
+		if (target.origin !== origin || path.startsWith("//")) return "/";
+		return path;
+	} catch {
+		return "/";
+	}
+}
+
 export interface UseAuthSubmitResult {
 	/** 表单提交回调：mode=login 走 signIn，mode=register 走 signUp，成功跳转首页 */
 	onSubmit: (payload: AuthSubmitPayload) => Promise<void>;
@@ -30,6 +48,16 @@ export interface UseAuthSubmitResult {
  */
 export function useAuthSubmit(): UseAuthSubmitResult {
 	const router = useRouter();
+	const searchParams = new URLSearchParams(
+		typeof window !== "undefined" ? window.location.search : "",
+	);
+	// 登录前来源（公开面报名引导：/login?next=...）。同源校验逻辑收敛在
+	// resolveNextTarget（纯函数，单测覆盖反斜杠绕过等恶意输入）。
+	const nextRaw = searchParams.get("next");
+	const next =
+		typeof window !== "undefined"
+			? resolveNextTarget(nextRaw, window.location.origin)
+			: "/";
 	const [error, setError] = useState<string | null>(null);
 	const [doSignIn, signInState] = useMutation(SIGN_IN);
 	const [doSignUp, signUpState] = useMutation(SIGN_UP);
@@ -48,7 +76,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						// login 时 cookie 新鲜，resetStore 用 B 的有效 cookie 重发所有活动查询。
 						await client.resetStore();
 						// token 由后端 before_send 写 httpOnly cookie
-						router.push("/");
+						router.push(next);
 						return;
 					}
 					setError("登录失败，请检查邮箱与密码");
@@ -64,7 +92,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						// login 时 cookie 新鲜，resetStore 用 B 的有效 cookie 重发所有活动查询。
 						await client.resetStore();
 						// token 由后端 before_send 写 httpOnly cookie
-						router.push("/");
+						router.push(next);
 						return;
 					}
 					setError(signUpErrorMessage(data) ?? "注册失败，请稍后重试");
@@ -73,7 +101,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 				setError(signInErrorMessage(e) ?? "网络异常，请稍后重试");
 			}
 		},
-		[doSignIn, doSignUp, router],
+		[doSignIn, doSignUp, router, next],
 	);
 
 	return { onSubmit, busy: signInState.loading || signUpState.loading, error };
