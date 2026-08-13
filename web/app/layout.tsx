@@ -20,7 +20,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
 	title: "CGC 2046",
-	description: "CGC 2046 platform",
+	description:
+		"Coding Girls Club（程序媛汇）：从 2016 到 2046，陪一代女性走进编程的公益编程社群。",
 };
 
 export default async function RootLayout({

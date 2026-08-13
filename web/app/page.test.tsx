@@ -4,10 +4,10 @@ import { render } from "@/test-utils";
 import HomePage from "./page";
 
 /**
- * 首页路由分发器测试（IA 收敛）。
+ * 首页测试（M2：公开 Landing + 已登录分发器）。
  *
- * 行为：登录后 / 按 workspace 列表分发——
- * 1. 未登录 → replace /login；
+ * 行为：
+ * 1. 未登录（confirmed && !authed）→ 渲染公开 Landing 页，不重定向、不拉取工作区列表；
  * 2. 有可进入（active）工作区 → replace 到默认 workspace（最近记忆 > 第一个 active）；
  * 3. 无任何工作区 → 渲染极简空态（去 /join），不 replace。
  * 加载失败 → 错误态 + 重试。
@@ -45,6 +45,15 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 vi.mock("@/lib/use-last-workspace", () => ({
 	readLastWorkspace,
 	writeLastWorkspace: vi.fn(),
+}));
+
+const { fetchPublicOfferings } = vi.hoisted(() => ({
+	fetchPublicOfferings: vi.fn(),
+}));
+
+// Landing 页动态区块走公开 API；首页测试只关心分支，不关心条目数据
+vi.mock("@/lib/public-offerings", () => ({
+	fetchPublicOfferings,
 }));
 
 /** 分发 fixture：三个状态各异的工作区 */
@@ -87,15 +96,45 @@ beforeEach(() => {
 	window.history.replaceState({}, "", "/");
 	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	readLastWorkspace.mockReturnValue(null);
+	fetchPublicOfferings.mockResolvedValue([]);
 });
 
 afterEach(cleanup);
 
-describe("首页路由分发（IA 收敛）", () => {
-	it("未登录：重定向 /login，不拉取列表", async () => {
+describe("首页（公开 Landing + 已登录分发）", () => {
+	it("未登录：渲染公开 Landing，不重定向 /login、不拉取工作区列表", async () => {
 		useAuthed.mockReturnValue({ authed: false, confirmed: true });
 		render(<HomePage />);
-		await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+
+		// Landing Hero 与登录/注册 CTA 可见
+		expect(
+			await screen.findByRole("heading", {
+				name: "从 2016 到 2046，陪一代女性走进编程",
+			}),
+		).toBeInTheDocument();
+		expect(screen.getAllByRole("link", { name: "登录" })[0]).toHaveAttribute(
+			"href",
+			"/login",
+		);
+		expect(screen.getAllByRole("link", { name: "加入我们" })[0]).toHaveAttribute(
+			"href",
+			"/register",
+		);
+		expect(replace).not.toHaveBeenCalled();
+		expect(fetchMyWorkspaces).not.toHaveBeenCalled();
+	});
+
+	it("登录态确认中：只渲染 spinner，不闪烁 Landing 或分发器内容", () => {
+		useAuthed.mockReturnValue({ authed: false, confirmed: false });
+		render(<HomePage />);
+
+		expect(screen.getByText("正在确认登录状态…")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("heading", {
+				name: "从 2016 到 2046，陪一代女性走进编程",
+			}),
+		).not.toBeInTheDocument();
+		expect(replace).not.toHaveBeenCalled();
 		expect(fetchMyWorkspaces).not.toHaveBeenCalled();
 	});
 

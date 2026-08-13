@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * 已登录首页（IA 收敛：路由分发器）。
+ * 首页 /（M2：公开 Landing + 已登录分发器）。
  *
- * 登录后落点统一为 /（use-auth-submit 的 push("/")），本页按 workspace 列表分发：
- * - 有可进入（active）工作区 → 重定向到默认 workspace（最近记忆 > 第一个 active）；
- * - 无任何工作区 → 渲染极简全屏空态，引导去 /join 发现/申请。
- *
- * 不再有「工作台 Hub」中间层：工作区切换 / 发现加入 / 账号 / 主题全部收敛到
- * WorkspaceShell 的品牌下拉菜单；/?view=grid onboarding 卡片网格一并删除。
+ * - 未登录（confirmed && !authed）→ 渲染公开 Landing 页（LandingPage），
+ *   不再重定向 /login；confirmed 前只渲染全屏 spinner，避免闪烁分发器内容；
+ * - 已登录（confirmed && authed）→ 保持既有工作区分发逻辑：
+ *   有可进入（active）工作区 → 重定向到默认 workspace（最近记忆 > 第一个 active）；
+ *   无任何工作区 → 渲染极简全屏空态，引导去 /join 发现/申请。
  */
 
 import Link from "next/link";
@@ -18,6 +17,7 @@ import { useAuthed } from "@/lib/use-authed";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import { getWorkspaceStatus } from "@/components/workspace-ui";
 import { readLastWorkspace } from "@/lib/use-last-workspace";
+import LandingPage from "@/components/landing-page";
 
 function FullPageSpinner({ text }: { text: string }) {
 	return (
@@ -73,11 +73,8 @@ export default function HomePage() {
 	const [loadError, setLoadError] = useState(false);
 
 	useEffect(() => {
-		if (!confirmed) return;
-		if (!authed) {
-			router.replace("/login");
-			return;
-		}
+		// 未登录 → 渲染公开 Landing（M2），不再重定向 /login，也不拉取工作区列表
+		if (!confirmed || !authed) return;
 		let cancelled = false;
 		fetchMyWorkspaces()
 			.then((list) => {
@@ -117,7 +114,9 @@ export default function HomePage() {
 		if (target) router.replace(`/w/${target.slug}`);
 	}, [target, router]);
 
-	if (!confirmed || !authed) return <FullPageSpinner text="正在确认登录状态…" />;
+	if (!confirmed) return <FullPageSpinner text="正在确认登录状态…" />;
+	// 未登录 → 公开 Landing；confirmed 前只渲染 spinner，避免闪烁分发器内容
+	if (!authed) return <LandingPage />;
 	if (loadError) return <FullPageRetry onRetry={retryLoad} />;
 	if (workspaces === null) return <FullPageSpinner text="加载工作区…" />;
 	// replace 不进历史：浏览器后退不卡在分发器；重定向期间渲染 spinner 防闪
