@@ -23,6 +23,11 @@ export default function MembersTabs({
 	abilities: string[];
 }) {
 	return (
-		<SettingsTabs slug={slug} tabs={SETTINGS_NAV} current={current} abilities={abilities} />
+		<SettingsTabs
+			slug={slug}
+			tabs={SETTINGS_NAV.filter((t) => t.settingsTab !== false)}
+			current={current}
+			abilities={abilities}
+		/>
 	);
 }
