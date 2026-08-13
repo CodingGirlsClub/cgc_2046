@@ -3065,6 +3065,8 @@ type RootQueryType {
   "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
   permissionMatrix: PermissionMatrixPayload
 
+  offeringReadiness(id: ID!): OfferingReadinessPayload
+
   "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/isPlatformAdmin + memberNumber\/joinedAt（ADR-0004 收窄为全局身份）"
   me: User
 
@@ -3372,6 +3374,17 @@ type PermissionMatrixRow {
 
 type PermissionMatrixPayload {
   roles: [PermissionMatrixRow!]!
+}
+
+type OfferingReadinessPayload {
+  ready: Boolean!
+  items: [OfferingReadinessItem!]!
+}
+
+type OfferingReadinessItem {
+  key: String!
+  label: String!
+  ok: Boolean!
 }
 
 type PendingApproval {

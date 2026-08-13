@@ -43,6 +43,20 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    field :offering_readiness, :offering_readiness_payload do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, "unauthorized"}
+
+          actor ->
+            resolve_readiness(id, actor)
+        end
+      end)
+    end
+
     @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/isPlatformAdmin + memberNumber/joinedAt（ADR-0004 收窄为全局身份）"
     field :me, :user do
       resolve(fn _, _, %{context: context} ->
@@ -965,6 +979,17 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:roles, non_null(list_of(non_null(:permission_matrix_row))))
   end
 
+  object :offering_readiness_payload do
+    field(:ready, non_null(:boolean))
+    field(:items, non_null(list_of(non_null(:offering_readiness_item))))
+  end
+
+  object :offering_readiness_item do
+    field(:key, non_null(:string))
+    field(:label, non_null(:string))
+    field(:ok, non_null(:boolean))
+  end
+
   object :pending_approval do
     field(:id, non_null(:id))
     field(:kind, non_null(:string))
@@ -1512,5 +1537,18 @@ defmodule Cgc2046Web.GraphqlSchema do
        is_platform_admin: nil,
        errors: to_ash_graphql_errors(error, context, action, Cgc2046.Accounts.User)
      }}
+  end
+
+  defp resolve_readiness(id, actor) do
+    with {:ok, entity} <- fetch_offering_by_id(id, actor) do
+      {:ok, Cgc2046.Events.Readiness.evaluate(entity)}
+    end
+  end
+
+  defp fetch_offering_by_id(id, actor) do
+    case Ash.get(Cgc2046.Events.Event, id, actor: actor) do
+      {:ok, entity} -> {:ok, entity}
+      {:error, _} -> Ash.get(Cgc2046.Events.Course, id, actor: actor)
+    end
   end
 end
