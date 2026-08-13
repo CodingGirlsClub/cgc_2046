@@ -44,9 +44,7 @@ execution: code
 
 **设计**
 - `close` 动作（open→closed）：手动 + `registration_deadline` 到点自动（Oban cron，复用 `ApprovalExpiryWorker` 模式）；`cancel` 动作（→cancelled）。
-- 两动作 after_transaction 发 `event.ended`/`course.ended`（publish 失败记日志；至少一次投递，消费方经 signal_idempotency 去重）。closed/cancelled 即结束语义——代码无 `end_at`，不引入新字段（决策 D4）。
-- 订阅方：① 教研 run stop 回收（`event.ended` → 停该 entity 的 research runs，总纲:171）；② 赞助 Event 级自动 ended（总纲:105，随 E-3 落地订阅）；③ 报名窗锁定（close 后 SQL 守卫 + 状态显式化）。
-- **报名 #5-② 消解说明**：原「hibernate 期间 deadline 唤醒 cancel」是 run 语义；报名实体自序贯后无 run，报名窗锁定由 close + SQL 守卫承担，pending 过期由既有 `expire` 承担——该项不再需要实现。
+- 两动作 after_transaction 发 `event.ended`/`course.ended`（publish 失败入队 SignalPublishWorker 重试，至少一次投递；消费方经 signal_idempotency claim 去重，claim 后置于副作用成功后写入）。closed/cancelled 即结束语义——代码无 `end_at`，不引入新字段（决策 D4）。**终态不可逆（v1）**：closed/cancelled 无恢复 action，误操作恢复路径 = 新建活动（避免生命周期 epoch 版本化的复杂度；codex 评审 BLOCKING 6 定稿）。
 
 **验收**：close/cancel 动作测试；ended 信号幂等投递测试；教研 run 回收测试；deadline 到点自动 close 测试。
 

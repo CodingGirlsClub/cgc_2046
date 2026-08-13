@@ -1,6 +1,7 @@
 defmodule Cgc2046.Events.EventLifecycleTest do
   @moduledoc """
-  E-9 #124 生命周期动作测试：close/cancel 状态迁移 + 越权拒绝（Event/Course 双覆盖）。
+  E-9 #124 生命周期动作测试：close/cancel 状态迁移 + 越权拒绝 + DB 级
+  compare-and-set 陈旧守卫（Event/Course 双覆盖）。
 
   信号发布不在此断言：信号总线异步投递在 POC 已验证，测试不覆盖异步路径
   （同 ResearchInstantiator 纪律）；发布契约由 :close/:cancel 的
@@ -26,27 +27,22 @@ defmodule Cgc2046.Events.EventLifecycleTest do
   end
 
   describe "close" do
-    test "open → closed（Event）" do
+    test "open → closed（Event/Course）" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin)
+      course = EventFixtures.create_course(workspace, admin)
 
       assert {:ok, closed} = close(event, workspace, admin)
       assert closed.status == :closed
       assert reload(Event, event.id).status == :closed
-    end
 
-    test "open → closed（Course）" do
-      admin = Fixtures.platform_admin()
-      workspace = Fixtures.create_workspace(admin)
-      course = EventFixtures.create_course(workspace, admin)
-
-      assert {:ok, closed} = close(course, workspace, admin)
-      assert closed.status == :closed
+      assert {:ok, closed_course} = close(course, workspace, admin)
+      assert closed_course.status == :closed
       assert reload(Course, course.id).status == :closed
     end
 
-    test "非法迁移：draft 不能 close，新鲜读下终态不能重复 close" do
+    test "非法迁移：draft 不能 close；新鲜读重复 close 被状态守卫拒绝" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
 
@@ -57,10 +53,27 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       event = EventFixtures.create_event(workspace, admin)
       assert {:ok, _} = close(event, workspace, admin)
 
-      # 第二次 close 走新鲜读（现实路径：GraphQL/worker 每次重读）。
       fresh = reload(Event, event.id)
       assert {:error, again} = close(fresh, workspace, admin)
       assert Exception.message(again) =~ "cannot close from status=closed"
+    end
+
+    test "DB 级 compare-and-set：陈旧 struct（内存 open、DB 已 closed）被 CAS 拒绝" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      # 并发另一路已 close（模拟 cron 与手动竞态的后到者）
+      assert {:ok, _} = close(event, workspace, admin)
+      assert reload(Event, event.id).status == :closed
+
+      # 后到者持旧 struct（内存 status 仍 :open）——前置守卫放行，DB CAS num_rows=0 拒绝
+      assert {:error, race} = close(event, workspace, admin)
+      assert Exception.message(race) =~ "concurrently"
+
+      # 信号不重复发布的前提成立：CAS 拒绝后 after_transaction 不执行（发布失败
+      # 路径由 SignalPublishWorker 测试覆盖）。
+      assert reload(Event, event.id).status == :closed
     end
   end
 
@@ -81,6 +94,19 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       draft = create_draft_event(workspace, admin, "Draft 2")
       assert {:error, error} = cancel(draft, workspace, admin)
       assert Exception.message(error) =~ "cannot cancel from status=draft"
+    end
+
+    test "close 与 cancel 并发互斥：CAS 只放行一个" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      assert {:ok, _} = cancel(event, workspace, admin)
+
+      # 陈旧 struct 上的 close（内存仍 open）被 CAS 拒绝
+      assert {:error, race} = close(event, workspace, admin)
+      assert Exception.message(race) =~ "concurrently"
+      assert reload(Event, event.id).status == :cancelled
     end
   end
 
