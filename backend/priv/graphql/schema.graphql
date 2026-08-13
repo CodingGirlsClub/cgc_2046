@@ -616,6 +616,12 @@ input UpdateCourseInput {
   "课程标题"
   title: String
 
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
   "是否启用教研 workflow"
   researchEnabled: Boolean
 
@@ -648,6 +654,12 @@ input CreateCourseInput {
   "课程标题"
   title: String!
 
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
   "是否启用教研 workflow"
   researchEnabled: Boolean
 
@@ -674,6 +686,8 @@ enum CourseSortField {
   ID
   WORKSPACE_ID
   TITLE
+  SLUG
+  DESCRIPTION
   RESEARCH_ENABLED
   RESEARCH_REQUIREMENTS
   STATUS
@@ -817,6 +831,42 @@ input CourseFilterResearchEnabled {
   isNotDistinctFrom: Boolean
 }
 
+input CourseFilterDescription {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input CourseFilterSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
 input CourseFilterTitle {
   isNil: Boolean
   eq: String
@@ -876,6 +926,12 @@ input CourseFilterInput {
   "课程标题"
   title: CourseFilterTitle
 
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: CourseFilterSlug
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: CourseFilterDescription
+
   "是否启用教研 workflow"
   researchEnabled: CourseFilterResearchEnabled
 
@@ -917,6 +973,12 @@ type Course {
 
   "课程标题"
   title: String!
+
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
 
   "是否启用教研 workflow"
   researchEnabled: Boolean!
@@ -986,6 +1048,12 @@ input UpdateEventInput {
   "活动标题"
   title: String
 
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
   "是否启用教研 workflow"
   researchEnabled: Boolean
 
@@ -1018,6 +1086,12 @@ input CreateEventInput {
   "活动标题"
   title: String!
 
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
   "是否启用教研 workflow"
   researchEnabled: Boolean
 
@@ -1044,6 +1118,8 @@ enum EventSortField {
   ID
   WORKSPACE_ID
   TITLE
+  SLUG
+  DESCRIPTION
   RESEARCH_ENABLED
   RESEARCH_REQUIREMENTS
   STATUS
@@ -1187,6 +1263,42 @@ input EventFilterResearchEnabled {
   isNotDistinctFrom: Boolean
 }
 
+input EventFilterDescription {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EventFilterSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
 input EventFilterTitle {
   isNil: Boolean
   eq: String
@@ -1246,6 +1358,12 @@ input EventFilterInput {
   "活动标题"
   title: EventFilterTitle
 
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: EventFilterSlug
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: EventFilterDescription
+
   "是否启用教研 workflow"
   researchEnabled: EventFilterResearchEnabled
 
@@ -1287,6 +1405,12 @@ type Event {
 
   "活动标题"
   title: String!
+
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
 
   "是否启用教研 workflow"
   researchEnabled: Boolean!
@@ -3288,6 +3412,14 @@ type RootQueryType {
     id: ID!
   ): Event
 
+  "按 slug 获取（E-5 公开宿主页）"
+  getEventBySlug(
+    "A filter to limit the results"
+    filter: EventFilterInput
+
+    slug: String!
+  ): Event
+
   "工作台的课程列表（#40 展示页）"
   listCourses(
     "How to sort the records in the response"
@@ -3315,6 +3447,14 @@ type RootQueryType {
     filter: CourseFilterInput
 
     id: ID!
+  ): Course
+
+  "按 slug 获取（E-5 公开宿主页）"
+  getCourseBySlug(
+    "A filter to limit the results"
+    filter: CourseFilterInput
+
+    slug: String!
   ): Course
 
   inviteBatches(
