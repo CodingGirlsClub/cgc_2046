@@ -13,12 +13,7 @@ config :cgc_2046, Cgc2046.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   # 下限 8：并发竞态测试（miniprogram_race_test）用 unboxed_run 各占一条真实连接，
   # 低核 CI runner（schedulers_online=2 → pool=4）会连接池耗尽超时
-  pool_size: max(System.schedulers_online() * 2, 8),
-  # 异步信号订阅方（NotificationSubscriber 等应用级进程）在共享 sandbox 连接上
-  # 与测试进程并发查询；提高 checkout 排队预算，避免共享连接短暂繁忙时订阅方
-  # 的投递被 DBConnection 丢弃（async_signal_test 异步最终一致的确定性）。
-  queue_target: 2_000,
-  queue_interval: 2_000
+  pool_size: max(System.schedulers_online() * 2, 8)
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
