@@ -37,10 +37,8 @@ defmodule Cgc2046.NotificationSubscriber do
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
 
-  # 信号处理完成事件（metadata: signal_type / enrollment_id / result）：
-  # 生产观测用；async_signal_test 借此与订阅进程确定性同步（异步最终一致
-  # 断言不依赖 DB 轮询与连接竞争窗口）。
-  @telemetry_prefix [:cgc_2046, :notification_subscriber]
+  @doc "当前订阅的信号类型列表（init 逐个订阅；测试断言接线用）。"
+  def patterns, do: @patterns
 
   # 提醒任务的去重窗口：discarded/cancelled 释放名额（失败后下拍可重建），
   # completed/在途仍阻塞重复（#7）。
@@ -154,32 +152,17 @@ defmodule Cgc2046.NotificationSubscriber do
   进程崩溃。重复投递（同 idempotency_key 已 claim）返回 `:duplicate` 并跳过。
   """
   def handle_signal(signal) do
-    signal_type = Map.get(signal, :type)
     data = Map.get(signal, :data) || %{}
 
-    result =
-      case signal_type do
-        @submitted_signal -> handle_submitted(data)
-        @completed_signal -> handle_completed(data)
-        _ -> enqueue_approval_result(data)
-      end
-
-    emit_handled(signal_type, data, result)
-    result
+    case Map.get(signal, :type) do
+      @submitted_signal -> handle_submitted(data)
+      @completed_signal -> handle_completed(data)
+      _ -> enqueue_approval_result(data)
+    end
   rescue
     error ->
       Logger.warning("notification signal handling failed: #{Exception.message(error)}")
-      emit_handled(Map.get(signal, :type), Map.get(signal, :data) || %{}, :error)
       :ok
-  end
-
-  # 处理完成事件：成功/重复/异常均发射（订阅进程与测试/观测的确定性同步点）。
-  defp emit_handled(signal_type, data, result) do
-    :telemetry.execute(@telemetry_prefix ++ [:handled], %{}, %{
-      signal_type: signal_type,
-      enrollment_id: Map.get(data, "enrollment_id"),
-      result: result
-    })
   end
 
   # submitted：request 策略才有「待审批」语义；open/invite_only 提交即确认，不通知。
