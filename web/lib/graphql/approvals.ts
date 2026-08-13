@@ -11,7 +11,7 @@ import type { TypedDocumentNode } from "@apollo/client";
 
 export interface PendingApprovalItem {
 	id: string;
-	kind: "enrollment" | "join_request" | string;
+	kind: "enrollment" | "join_request" | "sponsorship" | string;
 	workspaceId: string;
 	userId: string;
 	eventId?: string | null;
@@ -22,6 +22,12 @@ export interface PendingApprovalItem {
 	requesterName?: string | null;
 	workspaceName?: string | null;
 	contextTitle?: string | null;
+	/** E-3 #48 sponsorship 行（其他 kind 为 null） */
+	level?: string | null;
+	companyName?: string | null;
+	contactEmail?: string | null;
+	tierName?: string | null;
+	amount?: number | null;
 }
 
 export const MY_PENDING_APPROVALS: TypedDocumentNode<
@@ -42,6 +48,11 @@ export const MY_PENDING_APPROVALS: TypedDocumentNode<
 			requesterName
 			workspaceName
 			contextTitle
+			level
+			companyName
+			contactEmail
+			tierName
+			amount
 		}
 	}
 `;

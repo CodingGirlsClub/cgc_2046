@@ -7,6 +7,7 @@ import {
 	PUBLIC_LIST_EVENTS,
 	type EnrollmentSubmissionResult,
 } from "./graphql/events";
+import type { SponsorshipTierConfig } from "./graphql/sponsorship";
 import { client } from "./apollo-client";
 
 /**
@@ -60,4 +61,49 @@ export async function submitEnrollment(input: {
 	return (
 		data?.createEnrollment ?? { result: null, errors: [{ message: "无响应" }] }
 	);
+}
+
+/**
+ * E-3 #48：sponsorshipTiers 是 JsonString 数组（每项 JSON 编码字符串），
+ * 逐项 JSON.parse 为 SponsorshipTierConfig；解析失败/结构非法项静默丢弃
+ * （展示层不假定结构，同 workflows.ts parseJsonString 纪律）。
+ */
+export function parseSponsorshipTiers(
+	raw: string[] | null | undefined,
+): SponsorshipTierConfig[] {
+	if (!Array.isArray(raw)) return [];
+
+	return raw.flatMap((item) => {
+		try {
+			const tier: unknown = JSON.parse(item);
+			if (
+				typeof tier === "object" &&
+				tier !== null &&
+				typeof (tier as Record<string, unknown>).id === "string" &&
+				typeof (tier as Record<string, unknown>).name === "string" &&
+				Array.isArray((tier as Record<string, unknown>).benefits)
+			) {
+				const t = tier as {
+					id: string;
+					name: string;
+					// 后端档位 json 为 snake_case 键（见 sponsorship_tier.ex）
+					amount_suggestion?: number | null;
+					benefits: string[];
+					exclusive?: boolean;
+				};
+				return [
+					{
+						id: t.id,
+						name: t.name,
+						amountSuggestion: t.amount_suggestion ?? null,
+						benefits: t.benefits.filter((b): b is string => typeof b === "string"),
+						exclusive: t.exclusive === true,
+					},
+				];
+			}
+			return [];
+		} catch {
+			return [];
+		}
+	});
 }

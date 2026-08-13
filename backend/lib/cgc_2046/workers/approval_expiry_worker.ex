@@ -45,6 +45,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Workflows.WorkflowRun
 
   @impl Oban.Worker
@@ -53,15 +54,17 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
 
     expired_join_requests = expire_join_requests(now)
     expired_enrollments = expire_enrollments(now)
+    expired_sponsorships = expire_sponsorships(now)
     expired_runs = expire_waiting_runs(now)
     expired_workspace_applications = expire_workspace_applications(now)
     expired_invitations = expire_invitations(now)
 
-    if expired_join_requests + expired_enrollments + expired_runs + expired_workspace_applications +
-         expired_invitations > 0 do
+    if expired_join_requests + expired_enrollments + expired_sponsorships + expired_runs +
+         expired_workspace_applications + expired_invitations > 0 do
       Logger.info(
         "approval expiry sweep: #{expired_join_requests} join_request(s), " <>
-          "#{expired_enrollments} enrollment(s), #{expired_runs} workflow_run(s), " <>
+          "#{expired_enrollments} enrollment(s), #{expired_sponsorships} sponsorship(s), " <>
+          "#{expired_runs} workflow_run(s), " <>
           "#{expired_workspace_applications} workspace_application(s), " <>
           "#{expired_invitations} invitation(s) expired"
       )
@@ -92,6 +95,21 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     |> Ash.read!(authorize?: false)
     |> Enum.reduce(0, fn join_request, acc ->
       case expire_record(join_request) do
+        :ok -> acc + 1
+        :skip -> acc
+      end
+    end)
+  end
+
+  # E-3 #48 F7：pending 赞助超时 → expired（≠ rejected，可重提；重提走新行）。
+  defp expire_sponsorships(now) do
+    Sponsorship
+    |> Ash.Query.filter(
+      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
+    )
+    |> Ash.read!(authorize?: false)
+    |> Enum.reduce(0, fn sponsorship, acc ->
+      case expire_record(sponsorship) do
         :ok -> acc + 1
         :skip -> acc
       end
@@ -187,6 +205,13 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     |> Ash.Changeset.for_update(:expire, %{})
     |> Ash.update(tenant: enrollment.workspace_id, authorize?: false)
     |> handle_expire_result("enrollment", enrollment.id)
+  end
+
+  defp expire_record(%Sponsorship{} = sponsorship) do
+    sponsorship
+    |> Ash.Changeset.for_update(:expire, %{})
+    |> Ash.update(tenant: sponsorship.workspace_id, authorize?: false)
+    |> handle_expire_result("sponsorship", sponsorship.id)
   end
 
   defp expire_record(%WorkflowRun{} = run) do

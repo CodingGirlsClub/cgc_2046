@@ -1010,6 +1010,13 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:requester_name, :string)
     field(:workspace_name, :string)
     field(:context_title, :string)
+
+    # E-3 #48 sponsorship 行（其他 kind 为 null）
+    field(:level, :string)
+    field(:company_name, :string)
+    field(:contact_email, :string)
+    field(:tier_name, :string)
+    field(:amount, :integer)
   end
 
   object :miniprogram_code_result do

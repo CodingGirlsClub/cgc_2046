@@ -1,6 +1,6 @@
 # 赞助 Workflow 详细设计（平台第二个业务 workflow）
 
-> 日期：2026-08-01 ｜ 作者：领域建模工程师（worker_f150e10b） ｜ 状态：**v1.2 定稿（9 项开放问题拍板 + F7 审批超时拍板已落地，见 §7 与附 B）**
+> 日期：2026-08-01（v1.3 修订 2026-08-13） ｜ 作者：领域建模工程师（worker_f150e10b） ｜ 状态：**v1.3 定稿（v1.2 + D5 履约账本拍板落地，见 §5.4 与附 B）**
 > 依据：`docs/01-定稿设计/领域模型定稿.md`（§4 引擎 context、§5 ER、§8 审计）、`docs/01-定稿设计/用户旅程与Web功能清单.md`（J-Sponsor）、`docs/03-决策记录/grill-决策记录-2026-08-01.md`（D-A3 Sponsor 角色、D-A5 partition、D-A6 同步/异步）、`docs/01-定稿设计/报名workflow详细设计.md`（v1.4，模板与 POC 实证来源）、`docs/03-决策记录/开放问题决策清单.md`（F7 审批超时拍板）
 > 定位：第二个要落地的业务 workflow——Sponsor（非成员账号）在 Event/Workspace 公开页发起赞助，两级赞助 = Event 级（单场）+ Workspace 级（长期），审批后权益生效。
 > **模板复用说明**：本设计复用报名 workflow 的全部模式结论（审批两段式、SignalMatch 门控、幂等承载 Postgres/Redis、partition + Thread journal 审计、hibernate/thaw 持久化），不再重复论证，只标注差异与复用点（§8）。
@@ -35,7 +35,7 @@
   | 属性 | 取值 | 说明 |
   |---|---|---|
   | `sponsorship_enabled` | boolean | 是否开放赞助入口（默认 Event 开、Workspace 开） |
-  | `sponsorship_tiers` | json | 赞助档位配置实体 **SPONSORSHIP_TIER**（如「基础/标准/冠名」，各档**名称/建议金额/权益项列表**：logo 展示位、报名页露出、鸣谢页、现场物料位；Sponsorship 关联 `tier_id`，拍板 #3） |
+  | `sponsorship_tiers` | json | 赞助档位配置实体 **SPONSORSHIP_TIER**（如「基础/标准/冠名」，各档**名称/建议金额/权益项列表/独占位标记 exclusive**：logo 展示位、报名页露出、鸣谢页、现场物料位；Sponsorship 关联 `tier_id`，拍板 #3；v1.3 落地形态 = Event/Workspace 的嵌入式 json 配置，形状见 §5.4/§5.1） |
   | `sponsorship_deadline` | datetime|null | 赞助意向截止（Event 级建议在活动开始前；Workspace 级可空=长期开放） |
 - v1 主路径 = **意向提交 + 审批 + 权益生效**；**不收款**（见 §3.3 资金边界）。
 
@@ -308,6 +308,7 @@ flowchart LR
   "name": "string",                     // 档位名（基础/标准/冠名）
   "amount_suggestion": "decimal | null",// 建议金额（v1 仅登记不收款）
   "benefits": ["string"],               // 权益项列表（logo 展示位/报名页露出/鸣谢页/现场物料位）
+  "exclusive": "boolean",               // v1.3 独占位标记（D5）：同一目标该档位至多一个 active（§5.4.2）
   "limit": "integer | null",            // 限量（null = 不限；二期启用校验，拍板 #1）
   "enabled": "boolean",
   "created_at": "datetime",
@@ -349,6 +350,58 @@ stateDiagram-v2
 - **查询需求**：公开页展示赞助方列表 → 按 event_id/workspace_id 查 active Sponsorship；赞助流程展示页 → 按 workflow_run_id 或 sponsor_user_id+target 查 run 状态。
 - v1 建议：Sponsorship 为主查询入口（展示侧），WorkflowRun 为流程状态展示入口（Sponsor 侧）；二者通过 workflow_run_id 双向可达（同报名 §5.3）。
 - **Step 产物展示（原型验证结论 #3）**：赞助流程展示页的 Step 产物展示采用 **schema 驱动 key-value 渲染**（不手工排版），与领域模型/Step 的产物 schema 字段对齐（output schema → key 标签 + value 渲染，缺省字段自动隐藏）。
+
+---
+
+## 5.4 履约账本（D5 拍板，v1.3 新增）
+
+> 来源：切片集成计划 `docs/plans/2026-08-13-001-slice-e-integration-plan.md` Idea 6 + 决策 D5
+> （「履约账本引入设计外实体 → ✅ 批准：SponsorshipDelivery 最小账本；makegood 二期」）。
+> 本节为 D5 拍板原文落地规格，E-3 #48 实现以本节为准。
+
+### 5.4.1 SponsorshipDelivery 实体（最小账本）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | uuid | 交付行主键 |
+| sponsorship_id | uuid | 归属 Sponsorship |
+| workspace_id | uuid | 物化时从 Sponsorship 复制（租户） |
+| benefit | string | 权益项名（物化自 tier.benefits） |
+| due_date | datetime|null | 交付时限（v1 无时限约定，恒 null 预留） |
+| fulfilled_at | datetime|null | 核销时间（proof-of-performance 落点） |
+| proof_note | string|null | 核销凭证说明 |
+| exclusive | boolean | 独占位标记（随档位复制到交付行） |
+
+- **物化时机（D5 原文「激活 A3 时从 tier.benefits 物化交付行」）**：A3
+  activate_sponsorship 事务内，pending→active 的条件 UPDATE 成功后同事务
+  insert_all 交付行——行数 = tier.benefits 权益项数（无档位 → 0 行，账本为空）。
+  materialize 失败 → 整个激活回滚（强一致）。
+- **欠交付可见性（D5 原文「欠交付以未核销行可见」）**：欠交付 = fulfilled_at
+  为空的未核销行，Owner 后台逐项可见；**不做 makegood**（出界理由见下）。
+- **核销**：后台逐项勾销 + proof_note（fulfill_delivery 领域 action，条件
+  UPDATE 状态守卫 fulfilled_at IS NULL 幂等——重复核销拒绝）；权限 = 目标
+  Workspace Owner/Admin。
+
+### 5.4.2 独占权益位（D5 原文「条件 UPDATE 防双重预定」）
+
+- 档位配置新增 **独占位标记** exclusive（tier json 字段，§1.3/§5.1 档位形状
+  扩展）：exclusive=true 的档位占一个独占位（如冠名位）——**同一目标
+  （Event/Workspace）同一独占档位至多一个 active Sponsorship**。
+- 复用 **报名名额扣减的原子 UPDATE ... WHERE 模式**（enrollment
+  reserve_capacity 同款）：激活条件 UPDATE 增加 NOT EXISTS 守卫
+  （无同目标同档位 active 行）+ 事务级 advisory lock 按 (target, tier) 键
+  串行化并发激活（两个并发激活更新的是不同 sponsorship 行，无行锁竞争，
+  READ COMMITTED 快照看不到未提交赢家——advisory lock 消除该逃逸窗口）。
+  双重预定（并发或顺序）→ 后到者激活拒绝，error = exclusive_slot_taken，
+  记录保持 pending（可改档位重审）。
+- 非独占档位无守卫：不限数量（v1 拍板 #1 语义不变）。
+
+### 5.4.3 makegood 出界理由（D5 拍板）
+
+- makegood（补偿性补交付）依赖**二期续期闭环**（终止/续期流程）才有语义基础；
+  v1 无续期入口，补偿无从触发。欠交付在 v1 的处置 = 账本可见 + Owner 后台
+  人工跟进，不做自动补偿动作。此为**范围决策而非技术债**：续期 workflow
+  落地时再引入 makegood 状态机（unfulfilled → makegood → fulfilled）。
 
 ---
 
@@ -421,3 +474,4 @@ stateDiagram-v2
 | v1.1.1 | 2026-08-01 | 一致性修正（Leader 拍板）：§1.2 引用「领域模型定稿 §5.1 Sponsorship 实体」更新为最新字段（`tier_id`/`tier_name`、`sponsor_user_id`、`status` 全枚举 pending\|active\|rejected\|ended、意向登记字段、审批审计字段、`workflow_run_id`）；WorkflowDefinition `type=sponsorship` 与统一枚举一致（平台统一：platform_ops\|learning\|enrollment\|sponsorship\|speaker_invitation\|research） |
 | v1.2 | 2026-08-01 | **用户拍板 #11 审批超时（F7 方案 A，2026-08-01）**：`approval_timeout` 默认 7 天（可配置，null=无超时）；pending 超时 → Sponsorship 转 `expired` 终态（≠ rejected，走 F4 快照机制，run 转 cancelled/failed reason=approval_timeout）；deadline 前 48h 提醒审批人；过期后赞助方可重新提交（新 run，request_id 区分幂等不冲突）。修订点：§2.2 A1（审批超时语义）/A2（未 expired 校验）、§3.4 差异表（审批超时行）、§5.1 Sponsorship 字段（+approval_deadline/expired_at，status 全枚举 +expired）、§5.2 状态机（+expired 分支 + 实现说明）、§7（+#11 定稿，统计 ✅ 10 / 🟡 1 / 🔶 0）。依赖 F2 deadline 唤醒路径（与报名 #16 同机制，集成测试合并验证） |
 | v1.2.1 | 2026-08-01 | **原型验证结论回填（2026-08-01）**：① §5.1 `approval_deadline` 注释补 UI 显著区分表达——waiting 琥珀/青色脉冲 + 剩余倒计时（原型验证结论 #4，同报名 §3.4/§5.1）；② §5.3 补「Step 产物展示」——schema 驱动 key-value 渲染，与产物 schema 字段对齐（#3，同 Web Workflow 产出展示页/报名/教研 §5.3） |
+| v1.3 | 2026-08-13 | **履约账本（D5 拍板落地，切片集成计划 Idea 6）**：新增 §5.4 履约账本节——① SponsorshipDelivery 最小账本（benefit/due_date/fulfilled_at/proof_note/独占位标记），A3 激活同事务从 tier.benefits 物化交付行，欠交付 = 未核销行自然可见，后台逐项核销 proof-of-performance；② 独占权益位语义：tier 配置新增 exclusive 标记，同一目标同一独占档位至多一个 active，条件 UPDATE NOT EXISTS + 事务级 advisory lock 防双重预定（复用报名名额扣减模式）；③ makegood 出界理由（依赖二期续期闭环，范围决策非技术债）。§1.3 档位形状 +§5.1 SPONSORSHIP_TIER 字段（benefits 列表 + exclusive 标记）同步修订 |

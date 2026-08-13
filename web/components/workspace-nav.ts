@@ -24,6 +24,7 @@ export type NavSection =
 	| "settings-join-policy"
 	| "settings-requests"
 	| "settings-invitations"
+	| "settings-sponsorship"
 	| "settings-account-profile"
 	| "settings-account-preferences"
 	| "settings-integrations-agents"
@@ -98,6 +99,15 @@ export const SETTINGS_NAV: NavDestination[] = [
 		group: "workspace",
 		active: "settings-requests",
 		icon: "shield",
+	},
+	{
+		key: "sponsorship",
+		label: "赞助管理",
+		href: (s) => `/w/${s}/settings/sponsorship`,
+		group: "workspace",
+		active: "settings-sponsorship",
+		icon: "community",
+		settingsTab: true,
 	},
 	{
 		key: "invitations",

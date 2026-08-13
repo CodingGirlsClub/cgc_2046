@@ -7,6 +7,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
     unique: [period: 604_800, fields: [:worker, :args], states: :all]
 
   alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Events.Sponsorship
   alias Cgc2046.NotificationService
 
   @impl Oban.Worker
@@ -55,6 +56,24 @@ defmodule Cgc2046.Workers.NotificationWorker do
        })
        when is_binary(id) do
     case Ash.get(Enrollment, id, authorize?: false) do
+      {:ok, %{status: :pending, approval_deadline: nil}} ->
+        false
+
+      {:ok, %{status: :pending, approval_deadline: deadline}} ->
+        DateTime.compare(deadline, DateTime.utc_now()) != :gt
+
+      _ ->
+        true
+    end
+  end
+
+  # 赞助提醒发送时重查：仅当赞助仍 pending 且 deadline 未过时投递。
+  defp stale_reminder?(%{
+         "template_key" => "approval_reminder",
+         "data" => %{"sponsorship_id" => id}
+       })
+       when is_binary(id) do
+    case Ash.get(Sponsorship, id, authorize?: false) do
       {:ok, %{status: :pending, approval_deadline: nil}} ->
         false
 

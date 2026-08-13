@@ -160,3 +160,98 @@ describe("E-8 #123 审批控制台", () => {
 		);
 	});
 });
+
+const PENDING_SPONSORSHIP = {
+	id: "sp-1",
+	kind: "sponsorship",
+	workspaceId: "ws-1",
+	userId: "u-3",
+	eventId: "ev-1",
+	courseId: null,
+	status: "pending",
+	approvalDeadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+	expiredAt: null,
+	requesterName: "Acme 冠名",
+	workspaceName: "CGC 学院",
+	contextTitle: "教研分享会",
+	level: "event",
+	companyName: "Acme 冠名",
+	contactEmail: null,
+	tierName: "冠名",
+	amount: 10_000,
+};
+
+describe("E-3 #48 sponsorship kind dispatch", () => {
+	it("赞助行渲染 kind 标签 + 档位名；通过 → approveSponsorship(id)", async () => {
+		const refetch = vi.fn();
+		useQuery.mockReturnValue({
+			data: { myPendingApprovals: [PENDING_SPONSORSHIP] },
+			loading: false,
+			error: undefined,
+			refetch,
+		});
+		mutate.mockResolvedValue({
+			data: { approveSponsorship: { result: { id: "sp-1", status: "active" } } },
+		});
+
+		render(<ApprovalsPage />);
+		expect(screen.getByText("活动赞助")).toBeInTheDocument();
+		expect(screen.getByText(/教研分享会 · CGC 学院 · 冠名/)).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "通过" }));
+		await waitFor(() => expect(mutate).toHaveBeenCalledOnce());
+		expect(mutate.mock.calls[0][0].variables).toEqual({ id: "sp-1" });
+		await waitFor(() => expect(refetch).toHaveBeenCalled());
+	});
+
+	it("拒绝 → rejectSponsorship 携带 rejectionReason", async () => {
+		useQuery.mockReturnValue({
+			data: { myPendingApprovals: [PENDING_SPONSORSHIP] },
+			loading: false,
+			error: undefined,
+			refetch: vi.fn(),
+		});
+		mutate.mockResolvedValue({
+			data: { rejectSponsorship: { result: { id: "sp-1", status: "rejected" } } },
+		});
+
+		render(<ApprovalsPage />);
+		fireEvent.click(screen.getByRole("button", { name: "拒绝" }));
+		fireEvent.change(screen.getByLabelText("拒绝原因"), {
+			target: { value: "物料不符合" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "确认拒绝" }));
+
+		await waitFor(() => expect(mutate).toHaveBeenCalledOnce());
+		expect(mutate.mock.calls[0][0].variables).toEqual({
+			id: "sp-1",
+			input: { rejectionReason: "物料不符合" },
+		});
+	});
+
+	it("approve 失败（如 Workspace 级 Admin 越权）回显后端错误", async () => {
+		useQuery.mockReturnValue({
+			data: {
+				myPendingApprovals: [{ ...PENDING_SPONSORSHIP, level: "workspace", eventId: null }],
+			},
+			loading: false,
+			error: undefined,
+			refetch: vi.fn(),
+		});
+		mutate.mockResolvedValue({
+			data: {
+				approveSponsorship: {
+					result: null,
+					errors: [{ message: "forbidden" }],
+				},
+			},
+		});
+
+		render(<ApprovalsPage />);
+		fireEvent.click(screen.getByRole("button", { name: "通过" }));
+		await waitFor(() =>
+			expect(screen.getByRole("alert")).toHaveTextContent("forbidden"),
+		);
+	});
+});
+

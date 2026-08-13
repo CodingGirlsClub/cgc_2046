@@ -32,6 +32,8 @@ export interface WorkspaceListItem {
 	name: string;
 	joinPolicy: JoinPolicy;
 	sponsorshipEnabled: boolean;
+	/** 赞助档位配置（JsonString 数组；E-3 #48） */
+	sponsorshipTiers?: string[] | null;
 	/** 当前用户在该工作台的角色名数组（#64 meWorkspaces 的 myRoleNames） */
 	myRoleNames?: MembershipRoleName[];
 	/** 当前用户在该工作台的能力列表（#1 能力接口，meWorkspaces.myAbilities） */
@@ -140,6 +142,7 @@ export async function fetchMyWorkspaces(): Promise<WorkspaceListItem[]> {
 		name: ws.name,
 		joinPolicy: ws.joinPolicy,
 		sponsorshipEnabled: ws.sponsorshipEnabled,
+		sponsorshipTiers: ws.sponsorshipTiers ?? null,
 		myRoleNames: ws.myRoleNames ?? [],
 		myAbilities: ws.myAbilities ?? [],
 		roles: ws.myRoleNames ?? [],
@@ -290,6 +293,27 @@ export async function updateWorkspaceJoinPolicy(
 	}
 	await client.refetchQueries({ include: [ME_WORKSPACES] });
 	return { joinPolicy: result.joinPolicy };
+}
+
+/**
+ * E-3 #48：保存工作台级赞助档位配置（tiersJson 为每项 JSON.stringify
+ * 后的 JsonString 数组，对齐后端 sponsorship_tiers: {:array, :map}）。
+ */
+export async function updateWorkspaceSponsorshipTiers(
+	workspaceId: string,
+	tiersJson: string[],
+): Promise<void> {
+	const { data } = await client.mutate({
+		mutation: UPDATE_WORKSPACE,
+		variables: { id: workspaceId, input: { sponsorshipTiers: tiersJson } },
+	});
+	if (!data?.updateWorkspace?.result) {
+		const msg =
+			data?.updateWorkspace?.errors?.[0]?.message ??
+			"updateWorkspace sponsorshipTiers failed";
+		throw new Error(msg);
+	}
+	await client.refetchQueries({ include: [ME_WORKSPACES] });
 }
 
 /**

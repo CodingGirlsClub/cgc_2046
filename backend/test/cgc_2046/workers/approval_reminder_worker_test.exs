@@ -15,6 +15,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Events.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workers.ApprovalReminderWorker
@@ -461,6 +462,145 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
                    "data" => %{"enrollment_id" => enrollment.id}
                  }
                )
+    end
+  end
+
+  describe "48h 提醒窗口（E-3 #48 赞助扫描，F7）" do
+    test "Event 级提醒 Owner/Admin；Workspace 级仅提醒 Owner（拍板 #4）" do
+      owner = Fixtures.platform_admin("sponsor-reminder-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      admin =
+        Fixtures.register_user("sponsor-reminder-ws-admin-#{System.unique_integer([:positive])}")
+
+      Fixtures.add_member(workspace, admin, [:admin])
+
+      event_sponsor =
+        Fixtures.register_user(
+          "sponsor-reminder-event-sponsor-#{System.unique_integer([:positive])}"
+        )
+
+      ws_sponsor =
+        Fixtures.register_user(
+          "sponsor-reminder-ws-sponsor-#{System.unique_integer([:positive])}"
+        )
+
+      event = EventFixtures.create_event(workspace, owner)
+
+      {:ok, event_pending} =
+        Sponsorship
+        |> Ash.Changeset.for_create(:create_sponsorship, %{
+          level: :event,
+          event_id: event.id,
+          sponsor_user_id: event_sponsor.id,
+          company_name: "Acme",
+          contact_email: event_sponsor.email
+        })
+        |> Ash.create(tenant: workspace.id, actor: event_sponsor)
+
+      {:ok, ws_pending} =
+        Sponsorship
+        |> Ash.Changeset.for_create(:create_sponsorship, %{
+          level: :workspace,
+          target_workspace_id: workspace.id,
+          sponsor_user_id: ws_sponsor.id,
+          company_name: "Beta",
+          contact_email: ws_sponsor.email
+        })
+        |> Ash.create(tenant: workspace.id, actor: ws_sponsor)
+
+      # deadline 由服务端固定生成（评审修复后不接受客户端传入）；测试经 SQL
+      # 注入 48h 窗口（同 enrollment 提醒测试的窗口布置纪律）
+      deadline = DateTime.add(DateTime.utc_now(), 24, :hour)
+
+      for pending <- [event_pending, ws_pending] do
+        {:ok, _} =
+          Ecto.Adapters.SQL.query(
+            Cgc2046.Repo,
+            "UPDATE sponsorships SET approval_deadline = $1 WHERE id = $2",
+            [deadline, Ecto.UUID.dump!(pending.id)]
+          )
+      end
+
+      insert_identity(owner.id, "sponsor-reminder-owner-openid")
+      insert_identity(admin.id, "sponsor-reminder-admin-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      # Event 级：Owner 与 Admin 各一条，data 带 sponsorship_id
+      for approver <- [owner, admin] do
+        assert_enqueued(
+          worker: Cgc2046.Workers.NotificationWorker,
+          args: %{
+            "user_id" => approver.id,
+            "platform" => "wechat",
+            "template_key" => "approval_reminder",
+            "data" => %{"sponsorship_id" => event_pending.id}
+          }
+        )
+      end
+
+      # Workspace 级：仅 Owner（Admin 不提醒，拍板 #4）
+      assert_enqueued(
+        worker: Cgc2046.Workers.NotificationWorker,
+        args: %{
+          "user_id" => owner.id,
+          "platform" => "wechat",
+          "template_key" => "approval_reminder",
+          "data" => %{"sponsorship_id" => ws_pending.id}
+        }
+      )
+
+      refute_enqueued(
+        worker: Cgc2046.Workers.NotificationWorker,
+        args: %{
+          "user_id" => admin.id,
+          "platform" => "wechat",
+          "template_key" => "approval_reminder",
+          "data" => %{"sponsorship_id" => ws_pending.id}
+        }
+      )
+    end
+
+    test "deadline 超 48h 的 pending 赞助 → 不提醒" do
+      owner = Fixtures.platform_admin("sponsor-reminder-skip-admin")
+      workspace = Fixtures.create_workspace(owner)
+
+      sponsor =
+        Fixtures.register_user("sponsor-reminder-skip-#{System.unique_integer([:positive])}")
+
+      event = EventFixtures.create_event(workspace, owner)
+
+      {:ok, pending} =
+        Sponsorship
+        |> Ash.Changeset.for_create(:create_sponsorship, %{
+          level: :event,
+          event_id: event.id,
+          sponsor_user_id: sponsor.id,
+          company_name: "Acme",
+          contact_email: sponsor.email
+        })
+        |> Ash.create(tenant: workspace.id, actor: sponsor)
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE sponsorships SET approval_deadline = $1 WHERE id = $2",
+          [DateTime.add(DateTime.utc_now(), 72, :hour), Ecto.UUID.dump!(pending.id)]
+        )
+
+      insert_identity(owner.id, "sponsor-reminder-skip-owner-openid")
+
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      refute_enqueued(
+        worker: Cgc2046.Workers.NotificationWorker,
+        args: %{
+          "user_id" => owner.id,
+          "platform" => "wechat",
+          "template_key" => "approval_reminder"
+        }
+      )
     end
   end
 
