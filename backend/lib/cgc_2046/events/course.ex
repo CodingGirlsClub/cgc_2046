@@ -197,7 +197,7 @@ defmodule Cgc2046.Events.Course do
 
       change(set_attribute(:status, :draft))
 
-      # slug/description 未提供时兜底（公开 URL 段 + 展示文案；唯一索引防碰撞）
+      # slug 未提供时兜底生成（公开 URL 段；唯一索引防碰撞）
       change(fn changeset, _context ->
         changeset =
           case Ash.Changeset.get_attribute(changeset, :slug) do
@@ -209,12 +209,21 @@ defmodule Cgc2046.Events.Course do
               Ash.Changeset.force_change_attribute(changeset, :slug, "c-" <> suffix)
           end
 
-        case Ash.Changeset.get_attribute(changeset, :description) do
-          {:_arg, _} ->
-            Ash.Changeset.force_change_attribute(changeset, :description, "")
+        changeset
+      end)
 
-          nil ->
-            Ash.Changeset.force_change_attribute(changeset, :description, "")
+      # slug 单段 URL 约束（公开路由 /courses/[slug]；非法字符拒绝）
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :slug) do
+          value when is_binary(value) and value != "" ->
+            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
+              changeset
+            else
+              Ash.Changeset.add_error(
+                changeset,
+                "slug must be a single lowercase URL segment ([a-z0-9-])"
+              )
+            end
 
           _ ->
             changeset

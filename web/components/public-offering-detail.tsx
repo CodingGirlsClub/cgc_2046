@@ -165,7 +165,7 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 							{!authed ? (
 								<div className="text-sm">
 									<Link
-										href={`/login?next=${encodeURIComponent(`/${kind === "event" ? "events" : "courses"}/${offering.id}`)}`}
+										href={`/login?next=${encodeURIComponent(`/${kind === "event" ? "events" : "courses"}/${offering.slug}`)}`}
 										className="join-button join-button--primary inline-block"
 									>
 										登录后报名

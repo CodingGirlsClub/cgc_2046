@@ -20,9 +20,9 @@ defmodule Cgc2046.Repo.Migrations.AddSlugAndDescriptionToOfferings do
       add :description, :text
     end
 
-    execute("UPDATE events SET slug = 'e-' || substr(id::text, 1, 8) WHERE slug IS NULL")
+    execute("UPDATE events SET slug = 'e-' || replace(id::text, '-', '') WHERE slug IS NULL")
 
-    execute("UPDATE courses SET slug = 'c-' || substr(id::text, 1, 8) WHERE slug IS NULL")
+    execute("UPDATE courses SET slug = 'c-' || replace(id::text, '-', '') WHERE slug IS NULL")
 
     alter table(:events) do
       modify :slug, :string, null: false
