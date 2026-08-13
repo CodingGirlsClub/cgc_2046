@@ -4,9 +4,10 @@ defmodule Cgc2046.Events.SpeakerInvitation do
 
   生命周期：Owner/Admin 创建 → invited（逐人 token，库中只存 SHA256 hash，
   明文仅创建响应出现一次）→ Speaker 在着陆页用 token accepted / declined
-  （token 一次性：状态机保证只有 invited 可决策）→ 接受后产出分享材料
-  （save_materials，落 WorkflowRun.facts["materials"]）→ complete_speaking
-  置 completed（分享完关系结束）；declined = 终态。
+  （token 一次性：状态机保证只有 invited 可决策；accept 另需登录账号与
+  speaker_email 匹配——token + 账号匹配双重校验，邀请设计 §2.2 S2 拍板 #1）
+  → 接受后产出分享材料（save_materials，落 WorkflowRun.facts["materials"]）
+  → complete_speaking 置 completed（分享完关系结束）；declined = 终态。
 
   ## ADR-0005 实体自序贯
 
@@ -197,7 +198,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       )
 
       # token 哈希作为 argument 接收（属性 writable?: false，杜绝经属性通道直写；
-      # 明文由 issue/2 生成，库中只落哈希）
+      # 明文由 issue/3 生成，库中只落哈希）
       argument(:token_hash, :string,
         allow_nil?: true,
         description: "邀请 token 的 SHA256 哈希（内部入口传；缺失则拒绝）"
@@ -211,7 +212,10 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
 
     update :accept_invitation do
-      description("Speaker 用 token 接受：invited → accepted（token 一次性）")
+      description(
+        "Speaker 用 token 接受：invited → accepted（token 一次性；定向邀请需登录账号与 speaker_email 匹配，邀请设计 §2.2 S2 拍板 #1）"
+      )
+
       require_atomic?(false)
       accept([])
       argument(:token, :string, allow_nil?: false)
@@ -344,7 +348,9 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
 
     # 决策：token 即凭据（token 持有者自助操作，拍板 #1 必须登录），
-    # token 有效/未过期/未使用在 action 内校验
+    # token 有效/未过期/未使用在 action 内校验；accept 的「账号与 speaker_email
+    # 匹配」双重校验也在 action 逻辑层（decide/2）——policy 层拿不到邀请行的
+    # email 做比较，见 decide/2 注释的不对称决策说明
     policy action([:accept_invitation, :decline_invitation]) do
       authorize_if(actor_present())
     end
@@ -402,6 +408,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   # --- 创建准备 ------------------------------------------------------------
 
   defp prepare_create(changeset) do
+    changeset = normalize_speaker_email(changeset)
     actor = changeset.context[:private][:actor]
     event_id = Ash.Changeset.get_attribute(changeset, :event_id)
     workspace_id = Ash.Changeset.get_argument(changeset, :workspace_id) || changeset.tenant
@@ -487,6 +494,19 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
   end
 
+  # speaker_email 写入前归一（trim + downcase，全空白 → nil）：部分唯一索引
+  # 大小写敏感，归一后大小写变体（A@x.com / a@x.com）无法双邀；同时避免空串
+  # 触发 `speaker_email IS NOT NULL` 部分索引的裸唯一冲突（空串语义 = 无邮箱）
+  defp normalize_speaker_email(changeset) do
+    case Ash.Changeset.get_attribute(changeset, :speaker_email) do
+      email when is_binary(email) ->
+        Ash.Changeset.change_attribute(changeset, :speaker_email, normalize_email(email))
+
+      _ ->
+        changeset
+    end
+  end
+
   defp ensure_speaker_name(changeset) do
     case Ash.Changeset.get_attribute(changeset, :speaker_name) do
       name when is_binary(name) ->
@@ -510,12 +530,22 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   # token 一次性 + 有效/未过期/未使用：条件 UPDATE 抢占（invited → 目标状态，
   # token_hash 复验 + 过期校验），num_rows=0 → 统一拒绝（不区分无效/已用/过期，
   # 错误信息统一即可，任务验收明确不做防枚举）。
+  #
+  # accept / decline 校验不对称（刻意决策，邀请设计 §2.2 S2 拍板 #1「token +
+  # 账号匹配双重校验」；评审 E-4 BLOCKING 修复）：
+  # - accept 为双重校验：speaker_email 非空（定向邀请）时仅被邀请账号可接受
+  #   （两边 trim + downcase 比较），防任意登录用户持有效链接把自己绑为
+  #   speaker_user_id；speaker_email 为空（手动转发链接）时 token 即凭据。
+  # - decline 保持 token-only：不绑定账号、无劫持收益，手动转发场景持链接即可
+  #   婉拒——与 accept 的不对称是刻意决策，勿"对齐"。
+  # 匹配校验必须先于条件 UPDATE 抢占——不匹配的 accept 不得消耗 token。
   defp decide(changeset, to_status) do
     actor = changeset.context[:private][:actor]
     token = Ash.Changeset.get_argument(changeset, :token)
     now = DateTime.utc_now()
 
     with {:ok, token_hash} <- valid_token(token),
+         :ok <- ensure_decision_actor(changeset, to_status, actor),
          {:ok, 1} <- claim_decision(changeset, to_status, actor, now, token_hash) do
       changeset
       |> force_decision_fields(to_status, actor, now)
@@ -524,6 +554,26 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       {:error, reason} -> add_domain_error(changeset, reason)
     end
   end
+
+  # accept 双重校验的账号匹配侧（token 侧由 claim_decision 条件 UPDATE 复验）。
+  # speaker_email 自创建归一（trim + downcase），actor.email 为 ci_string，
+  # 统一 to_string 后归一比较；账号无邮箱（如小程序手机号用户）恒不匹配。
+  defp ensure_decision_actor(_changeset, :declined, _actor), do: :ok
+
+  defp ensure_decision_actor(changeset, :accepted, actor) do
+    case normalize_email(changeset.data.speaker_email) do
+      nil ->
+        :ok
+
+      invited_email ->
+        if normalize_email(actor_email(actor)) == invited_email,
+          do: :ok,
+          else: {:error, :forbidden}
+    end
+  end
+
+  defp actor_email(%{email: email}) when not is_nil(email), do: to_string(email)
+  defp actor_email(_), do: nil
 
   defp valid_token(token) when is_binary(token) and token != "", do: {:ok, hash_token(token)}
   defp valid_token(_), do: {:error, :invalid_or_expired_token}
@@ -760,6 +810,16 @@ defmodule Cgc2046.Events.SpeakerInvitation do
 
   # --- 通用辅助 ---------------------------------------------------------------
 
+  # 邮箱归一：trim + downcase；全空白/非字符串 → nil（语义 = 无邮箱）
+  defp normalize_email(email) when is_binary(email) do
+    case email |> String.trim() |> String.downcase() do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_email(_), do: nil
+
   defp query_count(sql, params) do
     case Repo.query(sql, params) do
       {:ok, %{num_rows: count}} -> {:ok, count}
@@ -779,6 +839,9 @@ defmodule Cgc2046.Events.SpeakerInvitation do
 
   defp domain_error_message(:invalid_or_expired_token),
     do: "invitation token is invalid, expired or already used"
+
+  defp domain_error_message(:forbidden),
+    do: "only the invited speaker account may accept this invitation"
 
   defp domain_error_message(:event_not_found), do: "event not found"
   defp domain_error_message(:event_not_open), do: "event is closed or cancelled"

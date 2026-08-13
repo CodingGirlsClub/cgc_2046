@@ -1030,6 +1030,35 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner/Admin 兜底；materials 为 JSON 字符串）"
+    field :save_speaker_materials, :speaker_invitation_action_payload do
+      arg(:invitation_id, non_null(:id))
+      arg(:materials, non_null(:json_string))
+
+      resolve(fn _, %{invitation_id: id, materials: materials}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
+              {:ok, invitation} when not is_nil(invitation) ->
+                invitation
+                |> Ash.Changeset.for_update(:save_materials, %{materials: materials},
+                  actor: actor,
+                  tenant: invitation.workspace_id
+                )
+                |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+                |> speaker_invitation_action_result(context, :save_materials)
+
+              _ ->
+                {:ok,
+                 %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
+            end
+        end
+      end)
+    end
+
     @desc "材料产出后完成邀请（Speaker 本人自助或 Owner/Admin 兜底；accepted → completed）"
     field :complete_speaker_invitation, :speaker_invitation_action_payload do
       arg(:id, non_null(:id))
@@ -1343,7 +1372,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   object :speaker_invitation_action_payload do
-    @desc "accept/decline/completeSpeakerInvitation 返回：result + errors 两段式"
+    @desc "accept/decline/saveSpeakerMaterials/completeSpeakerInvitation 返回：result + errors 两段式"
     field(:result, :speaker_invitation)
     field(:errors, non_null(list_of(non_null(:mutation_error))))
   end

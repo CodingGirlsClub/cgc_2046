@@ -88,6 +88,39 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert {:ok, _again, _new_token} = SpeakerInvitation.issue(attrs, admin, workspace.id)
     end
 
+    test "speaker_email 归一化（trim + downcase）：大小写/空白变体视为同一邮箱，重复邀请被拒" do
+      admin = Fixtures.platform_admin("spk-normalize")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      assert {:ok, invitation, _token} =
+               SpeakerInvitation.issue(
+                 %{
+                   event_id: event.id,
+                   speaker_name: "嘉宾丑",
+                   speaker_email: "  Speaker-Case@Example.COM "
+                 },
+                 admin,
+                 workspace.id
+               )
+
+      # 写入前归一：trim + downcase（唯一索引大小写敏感，归一后变体无法双邀）
+      assert invitation.speaker_email == "speaker-case@example.com"
+
+      assert {:error, error} =
+               SpeakerInvitation.issue(
+                 %{
+                   event_id: event.id,
+                   speaker_name: "嘉宾丑",
+                   speaker_email: "speaker-case@example.com"
+                 },
+                 admin,
+                 workspace.id
+               )
+
+      assert Exception.message(error) =~ "already exists"
+    end
+
     test "普通成员不能创建（Forbidden）；event 归属与 tenant 不符被拒" do
       admin = Fixtures.platform_admin("spk-perm")
       workspace = Fixtures.create_workspace(admin)
@@ -182,7 +215,8 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
     end
 
     test "已用 token（accept 后）→ 统一错误", %{invitation: invitation, token: token} do
-      speaker = Fixtures.register_user("spk-used")
+      # 定向邀请（speaker-e@example.com）：accept 需账号匹配（§2.2 S2 拍板 #1）
+      speaker = Fixtures.register_user_with_email("speaker-e@example.com")
       assert {:ok, _accepted} = decide(invitation, speaker, :accept_invitation, token)
       assert {:error, :invalid_or_expired_token} = SpeakerInvitations.card(token)
     end
@@ -218,7 +252,8 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
           workspace.id
         )
 
-      speaker = Fixtures.register_user("spk-speaker-g")
+      # accept 双重校验（token + 账号匹配，§2.2 S2 拍板 #1）：speaker 须以被邀请邮箱注册
+      speaker = Fixtures.register_user_with_email("speaker-g@example.com")
 
       %{admin: admin, invitation: invitation, token: token, speaker: speaker}
     end
@@ -271,6 +306,46 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       speaker = Fixtures.register_user("spk-expired-accept")
       assert {:error, error} = decide(expired, speaker, :accept_invitation, expired_token)
       assert Exception.message(error) =~ "invalid, expired or already used"
+    end
+
+    test "邮箱不匹配的账号 accept 被拒（:forbidden），邀请仍 invited、token 未消耗", %{
+      invitation: invitation,
+      token: token,
+      speaker: speaker
+    } do
+      # 定向邀请（speaker-g@example.com）：token + 账号匹配双重校验（§2.2 S2 拍板 #1）
+      mismatched = Fixtures.register_user("spk-mismatch")
+
+      assert {:error, error} = decide(invitation, mismatched, :accept_invitation, token)
+      assert Exception.message(error) =~ "only the invited speaker account"
+
+      # 匹配校验先于条件 UPDATE 抢占：邀请仍 invited，token 未被消耗
+      reloaded = Ash.get!(SpeakerInvitation, invitation.id, authorize?: false)
+      assert reloaded.status == :invited
+      assert is_nil(reloaded.speaker_user_id)
+
+      # 正确账号随后可正常 accept
+      assert {:ok, accepted} = decide(invitation, speaker, :accept_invitation, token)
+      assert accepted.status == :accepted
+      assert accepted.speaker_user_id == speaker.id
+    end
+
+    test "无 speaker_email 的邀请（手动转发链接）：任何登录账号可 accept", %{
+      admin: admin,
+      invitation: invitation
+    } do
+      {:ok, open_invitation, open_token} =
+        SpeakerInvitation.issue(
+          %{event_id: invitation.event_id, speaker_name: "嘉宾壬"},
+          admin,
+          invitation.workspace_id
+        )
+
+      anyone = Fixtures.register_user("spk-anyone")
+
+      assert {:ok, accepted} = decide(open_invitation, anyone, :accept_invitation, open_token)
+      assert accepted.status == :accepted
+      assert accepted.speaker_user_id == anyone.id
     end
 
     test "材料产出 → complete → completed + speaker.completed（幂等键）+ run succeeded", %{
@@ -388,8 +463,34 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
 
       assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "speaker.declined"})
 
-      assert {:error, error} = decide(invitation, speaker, :accept_invitation, token)
+      # decline 消耗 token：即使被邀请账号本人随后 accept 也统一拒绝
+      # （非匹配账号此处会先命中 accept 的账号匹配门，单独用例覆盖）
+      invited_account = Fixtures.register_user_with_email("speaker-k@example.com")
+
+      assert {:error, error} = decide(invitation, invited_account, :accept_invitation, token)
       assert Exception.message(error) =~ "invalid, expired or already used"
+    end
+
+    test "decline 不需要账号匹配（token-only，与 accept 的不对称是刻意决策）", %{} do
+      admin = Fixtures.platform_admin("spk-decline-anyone")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      {:ok, invitation, token} =
+        SpeakerInvitation.issue(
+          %{event_id: event.id, speaker_name: "嘉宾卯", speaker_email: "speaker-m@example.com"},
+          admin,
+          workspace.id
+        )
+
+      # 非匹配账号持有效 token 即可婉拒：不绑定账号、无劫持收益（见 decide/2 注释）
+      non_matching = Fixtures.register_user("spk-decline-nonmatching")
+
+      assert {:ok, declined} = decide(invitation, non_matching, :decline_invitation, token)
+
+      assert declined.status == :declined
+      refute is_nil(declined.declined_at)
+      assert is_nil(declined.speaker_user_id)
     end
   end
 
@@ -478,7 +579,8 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       admin = Fixtures.platform_admin("spk-sub-complete")
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin)
-      speaker = Fixtures.register_user("spk-sub-speaker")
+      # accept 需账号匹配（§2.2 S2 拍板 #1）：以被邀请邮箱注册 speaker
+      speaker = Fixtures.register_user_with_email("speaker-y@example.com")
 
       insert_identity(admin.id, "spk-sub-complete-admin-openid")
       insert_identity(speaker.id, "spk-sub-complete-speaker-openid")

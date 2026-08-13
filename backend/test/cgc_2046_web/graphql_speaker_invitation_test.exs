@@ -7,6 +7,8 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     非 Owner 失败（payload errors）
   - speakerInvitationCard：公开 token 校验（有效/无效统一错误，无需登录）
   - accept/declineSpeakerInvitation：登录决策 + token 一次性（复用失效）
+  - saveSpeakerMaterials：Speaker 本人存材料（落 run facts）→ complete 可达；
+    无关用户 forbidden
   - speakerInvitations(eventId)：Owner 列表；普通成员 forbidden
 
   行为断言主路径在 speaker_flow_test.exs（Ash 层），本测试只证明 GraphQL
@@ -17,6 +19,8 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Events.SpeakerInvitation
+  alias Cgc2046.Workflows.WorkflowRun
 
   defp graphql_post(conn, query, token \\ nil) do
     conn =
@@ -214,6 +218,99 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
              build_conn() |> graphql_post(decline_query, speaker_token)
   end
 
+  test "saveSpeakerMaterials：Speaker 本人可存 → 材料落 run facts → completeSpeakerInvitation 达 completed（run succeeded）",
+       %{workspace: workspace, event: event, owner_token: owner_token} do
+    # accept 双重校验（token + 账号匹配）：speaker 以被邀请邮箱注册
+    speaker = Fixtures.register_user_with_email("gql-speaker-m@example.com")
+    speaker_token = sign_in_token(speaker.email)
+
+    invitation_id =
+      create_and_accept(workspace, event, owner_token, speaker_token, speaker.email)
+
+    materials = %{"title" => "分享大纲", "link" => "https://example.com/slides"}
+
+    save_query = """
+    mutation {
+      saveSpeakerMaterials(
+        invitationId: "#{invitation_id}",
+        materials: #{Jason.encode!(Jason.encode!(materials))}
+      ) {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "saveSpeakerMaterials" => %{"result" => %{"status" => "accepted"}, "errors" => []}
+             }
+           } =
+             build_conn() |> graphql_post(save_query, speaker_token)
+
+    # 材料产出落点：WorkflowRun.facts["materials"]（邀请设计 §5.3）
+    invitation = Ash.get!(SpeakerInvitation, invitation_id, authorize?: false)
+    run = Ash.get!(WorkflowRun, invitation.workflow_run_id, authorize?: false)
+    assert run.facts["materials"] == materials
+
+    complete_query = """
+    mutation {
+      completeSpeakerInvitation(id: "#{invitation_id}") {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "completeSpeakerInvitation" => %{
+                 "result" => %{"status" => "completed"},
+                 "errors" => []
+               }
+             }
+           } =
+             build_conn() |> graphql_post(complete_query, speaker_token)
+
+    # M2 完成 → run 镜像 succeeded（materials 门控放行）
+    assert Ash.get!(WorkflowRun, run.id, authorize?: false).status == :succeeded
+  end
+
+  test "saveSpeakerMaterials：无关用户 forbidden", %{
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    speaker = Fixtures.register_user_with_email("gql-speaker-n@example.com")
+    speaker_token = sign_in_token(speaker.email)
+    outsider = Fixtures.register_user("gql-spk-outsider")
+    outsider_token = sign_in_token(outsider.email)
+
+    invitation_id =
+      create_and_accept(workspace, event, owner_token, speaker_token, speaker.email)
+
+    save_query = """
+    mutation {
+      saveSpeakerMaterials(
+        invitationId: "#{invitation_id}",
+        materials: #{Jason.encode!(Jason.encode!(%{"title" => "劫持材料"}))}
+      ) {
+        result { id status }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "saveSpeakerMaterials" => %{"result" => nil, "errors" => errors}
+             }
+           } =
+             build_conn() |> graphql_post(save_query, outsider_token)
+
+    assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
+  end
+
   test "非 Owner/Admin 不能 create/list（payload/top-level 错误协议）", %{
     workspace: workspace,
     event: event
@@ -259,5 +356,52 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
              build_conn() |> graphql_post(list_query, member_token)
 
     assert message =~ "forbidden"
+  end
+
+  # 布置：Owner 创建定向邀请（speakerEmail = 已登录 speaker 邮箱）→ speaker accept，
+  # 返回 invitation id（saveSpeakerMaterials / completeSpeakerInvitation 测试共享）。
+  defp create_and_accept(workspace, event, owner_token, speaker_token, speaker_email) do
+    create_query = """
+    mutation {
+      createSpeakerInvitation(input: {
+        workspaceId: "#{workspace.id}",
+        eventId: "#{event.id}",
+        speakerName: "嘉宾己",
+        speakerEmail: "#{speaker_email}"
+      }) {
+        result { id status }
+        plainToken
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "createSpeakerInvitation" => %{
+                 "result" => %{"id" => invitation_id},
+                 "plainToken" => token
+               }
+             }
+           } =
+             build_conn() |> graphql_post(create_query, owner_token)
+
+    accept_query = """
+    mutation {
+      acceptSpeakerInvitation(token: "#{token}") {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "acceptSpeakerInvitation" => %{"result" => %{"status" => "accepted"}}
+             }
+           } =
+             build_conn() |> graphql_post(accept_query, speaker_token)
+
+    invitation_id
   end
 end
