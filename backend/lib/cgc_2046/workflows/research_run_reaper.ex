@@ -10,15 +10,15 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
   异步路径）。订阅回调在 JidoAdapter.subscribe 转发的独立进程中执行，
   rescue 兜底防订阅进程崩溃。
 
-  幂等两层（#124 验收）：
-  - signal_idempotency claim（PR #121）：消费方作用域幂等键
-    `"<signal_type>:<entity_key>:research_run_reaper"`，先 claim 后执行，
-    同键重复投递只执行一次；
-  - 业务幂等：非终态过滤 + cancel 状态守卫双层兜底；单 run 失败记日志不
-    中断整批（best-effort，失败可见性交对账扫描 E-10）。
+  ## 幂等语义（codex 评审 BLOCKING 2/3 修复后）
 
-  发布方是 best-effort 至少一次投递：claim 保证至多一次执行，执行中途失败
-  由对账发现（重放语义与 Idea 7 一起维护）。
+  - **claim 后置**：先执行副作用（cancel 本身幂等——非终态过滤 + cancel
+    状态守卫），成功后写 claim 作执行标记。失败不写 claim → 重投仍会执行，
+    不会出现「claim 永久化吞掉逃逸 run」。重复投递重放副作用无害（幂等）。
+  - **非 research 不碰**：按 `definition.type == :research` 过滤（BLOCKING 5），
+    同 instance key 的其他类型 run 不受影响。
+  - **竞态兜底**：ResearchInstantiator 建 run 前二次校验实体 open（BLOCKING 3）；
+    残余窗口（二次校验与 INSERT 之间 close）由对账扫描 E-10 发现。
   """
 
   use GenServer
@@ -60,10 +60,10 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
 
     case {Map.get(data, "event_id"), Map.get(data, "course_id")} do
       {event_id, _} when is_binary(event_id) ->
-        stop_runs_if_unclaimed("event.ended", "event_#{event_id}")
+        stop_runs_then_claim("event.ended", "event_#{event_id}")
 
       {_, course_id} when is_binary(course_id) ->
-        stop_runs_if_unclaimed("course.ended", "course_#{course_id}")
+        stop_runs_then_claim("course.ended", "course_#{course_id}")
 
       _ ->
         Logger.warning("ResearchRunReaper received signal without entity id: #{inspect(data)}")
@@ -76,20 +76,25 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
       :ok
   end
 
-  # claim 先于执行：同键重复投递只执行一次（消费方作用域键，多消费方互不冲突；
-  # workspace_id 仅观测，claim/3 第三参传 nil）。
-  defp stop_runs_if_unclaimed(signal_type, entity_key) do
+  # 先执行后 claim：cancel 幂等，重复投递重放无害；失败不写 claim → 重投仍执行。
+  defp stop_runs_then_claim(signal_type, entity_key) do
+    stop_runs(entity_key)
+
     case SignalIdempotency.claim(signal_type, "#{signal_type}:#{entity_key}:research_run_reaper") do
-      :ok -> stop_runs(entity_key)
+      :ok -> :ok
       {:error, :already_claimed} -> :ok
     end
   end
 
   # instance key 存于 input_snapshot["key"]（research_instantiator 写入约定）。
   # WorkflowRun multitenancy global?(true)：无 tenant 全局读（同 expiry worker）。
+  # 限定 definition.type == :research（BLOCKING 5：不碰同 key 的其他类型 run）。
   defp stop_runs(key) do
     WorkflowRun
-    |> Ash.Query.filter(status in @non_terminal_statuses and input_snapshot["key"] == ^key)
+    |> Ash.Query.filter(
+      definition.type == :research and status in @non_terminal_statuses and
+        input_snapshot["key"] == ^key
+    )
     |> Ash.read!(authorize?: false)
     |> Enum.each(fn run ->
       case run

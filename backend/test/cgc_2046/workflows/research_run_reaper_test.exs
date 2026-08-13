@@ -17,17 +17,18 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
   alias Cgc2046.Workflows.{
     ResearchInstantiator,
     ResearchRunReaper,
+    SignalIdempotency,
     WorkflowDefinition,
     WorkflowRun
   }
 
-  defp create_definition(workspace, actor) do
+  defp create_definition(workspace, actor, type \\ :research) do
     WorkflowDefinition
     |> Ash.Changeset.for_create(
       :create,
       %{
-        name: "教研回收测试-#{System.unique_integer([:positive])}",
-        type: :research,
+        name: "回收测试-#{type}-#{System.unique_integer([:positive])}",
+        type: type,
         input_schema: %{"text" => "string"},
         node_def: %{"steps" => [%{"id" => "approval", "type" => "manual"}]},
         approval_timeout: 604_800
@@ -56,6 +57,8 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
 
     run
   end
+
+  defp claim_rows, do: SignalIdempotency |> Ash.read!(authorize?: false) |> length()
 
   test "event.ended → waiting 教研 run 被 cancel（含 instance key 约定验证）" do
     admin = Fixtures.platform_admin()
@@ -88,7 +91,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     assert Ash.get!(WorkflowRun, other_run.id, authorize?: false).status == :waiting
   end
 
-  test "终态 run 不动；重复信号幂等" do
+  test "终态 run 不动；重复信号幂等且 claim 只登记一次（claim 后置语义）" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
@@ -126,6 +129,36 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
 
     assert Ash.get!(WorkflowRun, succeeded.id, authorize?: false).status == :succeeded
+    # claim 后置 + 唯一索引：两次投递只登记一行
+    assert claim_rows() == 1
+  end
+
+  test "非 research run 同 instance key 不受影响（BLOCKING 5 负向）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    learning_defn = create_definition(workspace, admin, :learning)
+
+    learning_run =
+      WorkflowRun
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          definition_id: learning_defn.id,
+          definition_version: learning_defn.version,
+          input_snapshot: %{"key" => "event_#{event.id}"}
+        },
+        tenant: workspace.id,
+        authorize?: false
+      )
+      |> Ash.create!(tenant: workspace.id, authorize?: false)
+
+    assert learning_run.status == :pending
+
+    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+
+    assert Ash.get!(WorkflowRun, learning_run.id, authorize?: false).status == :pending
   end
 
   test "无 entity id 的信号与异常输入不崩溃" do
