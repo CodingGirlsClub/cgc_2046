@@ -39,5 +39,8 @@ defmodule Cgc2046.Api do
     resource(Cgc2046.Events.Enrollment)
     resource(Cgc2046.Events.Sponsorship)
     resource(Cgc2046.Events.SponsorshipDelivery)
+
+    # 邀请 workflow（E-4 #49：Event 级逐人定向 SpeakerInvitation）
+    resource(Cgc2046.Events.SpeakerInvitation)
   end
 end

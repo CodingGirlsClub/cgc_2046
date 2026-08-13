@@ -27,6 +27,8 @@ export interface OfferingItem {
 	id: string;
 	workspaceId: string | null;
 	title: string;
+	/** 公开 URL 段（E-4 Speaker 邀请链接原料；成员可见） */
+	slug: string | null;
 	status: EventStatus;
 	visibility: Visibility;
 	enrollmentPolicy: EnrollmentPolicy;
@@ -134,6 +136,7 @@ export const GET_EVENT: TypedDocumentNode<{ getEvent: OfferingItem }, { id: stri
 			id
 			workspaceId
 			title
+			slug
 			status
 			visibility
 			enrollmentPolicy

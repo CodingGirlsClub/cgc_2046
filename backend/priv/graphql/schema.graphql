@@ -3,6 +3,54 @@ schema {
   query: RootQueryType
 }
 
+type SpeakerInvitation {
+  id: ID!
+
+  "所属工作台（租户）ID（= Event 的 workspace_id）"
+  workspaceId: ID!
+
+  "目标活动（Event）ID"
+  eventId: ID!
+
+  "接受后绑定的全局账号（拍板 #1：Speaker 必须全局账号，不成为成员）"
+  speakerUserId: ID
+
+  "被邀请人姓名"
+  speakerName: String!
+
+  "被邀请人邮箱（可空 = 手动转发链接）"
+  speakerEmail: String
+
+  "分享主题（可选）"
+  topic: String
+
+  "分享时间（可选）"
+  scheduledAt: DateTime
+
+  "备注（可选）"
+  note: String
+
+  "发起人（Owner\/Admin）"
+  invitedBy: ID!
+
+  "状态机：invited \/ accepted \/ declined \/ completed"
+  status: String!
+
+  acceptedBy: ID
+
+  acceptedAt: DateTime
+
+  declinedAt: DateTime
+
+  completedAt: DateTime
+
+  "token 有效期（可空 = 不设过期）"
+  expiresAt: DateTime
+
+  "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
+  workflowRunId: ID
+}
+
 "The result of the :fulfill_delivery mutation"
 type FulfillDeliveryResult {
   "The successful result of the mutation"
@@ -4028,6 +4076,12 @@ type RootQueryType {
   "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
   myPendingApprovals(includeExpired: Boolean): [PendingApproval!]!
 
+  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
+  speakerInvitationCard(token: String!): SpeakerInvitationCard
+
+  "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
+  speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
+
   "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
   listUsers(search: String, first: Int, after: String): [AdminUser!]!
 
@@ -4542,6 +4596,60 @@ type AcceptInvitationResult {
   errors: [MutationError!]!
 }
 
+type SpeakerInvitationCard {
+  "token 公开卡片：邀请主题\/时间 + Event 公开信息（D2 白名单，不泄露其它邀请）"
+  status: String!
+
+  topic: String
+
+  scheduledAt: DateTime
+
+  event: SpeakerInvitationCardEvent!
+}
+
+type SpeakerInvitationCardEvent {
+  id: ID!
+  slug: String
+  title: String!
+  description: String
+  status: String!
+}
+
+input CreateSpeakerInvitationInput {
+  "createSpeakerInvitation 输入：workspaceId + eventId + speakerName 必填，其余可选"
+  workspaceId: ID!
+
+  eventId: ID!
+
+  speakerName: String!
+
+  speakerEmail: String
+
+  topic: String
+
+  scheduledAt: DateTime
+
+  note: String
+
+  expiresAt: DateTime
+}
+
+type CreateSpeakerInvitationPayload {
+  "createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次"
+  result: SpeakerInvitation
+
+  plainToken: String
+
+  errors: [MutationError!]!
+}
+
+type SpeakerInvitationActionPayload {
+  "accept\/decline\/saveSpeakerMaterials\/completeSpeakerInvitation 返回：result + errors 两段式"
+  result: SpeakerInvitation
+
+  errors: [MutationError!]!
+}
+
 type AdminUser {
   id: ID!
   email: String
@@ -4667,6 +4775,21 @@ type RootMutationType {
 
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
+
+  "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
+  createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
+
+  "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
+  acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
+  declineSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner\/Admin 兜底；materials 为 JSON 字符串）"
+  saveSpeakerMaterials(invitationId: ID!, materials: JsonString!): SpeakerInvitationActionPayload
+
+  "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
+  completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
 
   "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
   promoteUser(id: ID!): AdminUserPayload

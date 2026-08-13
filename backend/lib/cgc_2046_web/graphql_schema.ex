@@ -144,6 +144,52 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # ── SpeakerInvitation（E-4 #49）──
+
+    @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请"
+    field :speaker_invitation_card, :speaker_invitation_card do
+      arg(:token, non_null(:string))
+
+      resolve(fn _, %{token: token}, _ ->
+        case Cgc2046.Events.SpeakerInvitations.card(token) do
+          {:ok, card} ->
+            {:ok, card}
+
+          {:error, _reason} ->
+            {:error,
+             message: "invitation token is invalid, expired or already used",
+             code: "invalid_token"}
+        end
+      end)
+    end
+
+    @desc "某 Event 的 Speaker 邀请列表（仅 Owner/Admin 或平台管理员，read policy 兜底）"
+    field :speaker_invitations, non_null(list_of(non_null(:speaker_invitation))) do
+      arg(:event_id, non_null(:id))
+
+      resolve(fn _, %{event_id: event_id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Cgc2046.Events.SpeakerInvitations.list_for_event(event_id, actor) do
+              {:ok, invitations} ->
+                {:ok, invitations}
+
+              {:error, :forbidden} ->
+                {:error, [message: "forbidden", code: "forbidden"]}
+
+              {:error, :event_not_found} ->
+                {:error, [message: "event not found", code: "not_found"]}
+
+              {:error, reason} ->
+                {:error, [message: inspect(reason), code: "invalid"]}
+            end
+        end
+      end)
+    end
+
     # ── Platform Admin Dashboard Phase 5：admin queries（R3-R13 数据层）──
 
     @desc "平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after）"
@@ -911,6 +957,136 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # ── SpeakerInvitation（E-4 #49；手写 resolver 绕过 read policy 记录加载，同 accept_invitation #96 先例）──
+
+    @desc "Owner/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
+    field :create_speaker_invitation, :create_speaker_invitation_payload do
+      arg(:input, non_null(:create_speaker_invitation_input))
+
+      resolve(fn _, %{input: input}, %{context: context} ->
+        with %{workspace_id: workspace_id} <- input,
+             actor when not is_nil(actor) <- context[:actor],
+             {:ok, invitation, plain_token} <-
+               Cgc2046.Events.SpeakerInvitation.issue(
+                 map_input(input, [
+                   :event_id,
+                   :speaker_name,
+                   :speaker_email,
+                   :topic,
+                   :scheduled_at,
+                   :note,
+                   :expires_at
+                 ]),
+                 actor,
+                 workspace_id
+               ) do
+          {:ok, %{result: invitation, plain_token: plain_token, errors: []}}
+        else
+          %{} ->
+            {:error, [message: "workspaceId is required", code: "invalid_input"]}
+
+          nil ->
+            {:error, unauthorized_error()}
+
+          {:error, error} ->
+            {:ok,
+             %{
+               result: nil,
+               plain_token: nil,
+               errors:
+                 to_ash_graphql_errors(
+                   error,
+                   context,
+                   :create_invitation,
+                   Cgc2046.Events.SpeakerInvitation,
+                   Cgc2046.Api
+                 )
+             }}
+        end
+      end)
+    end
+
+    @desc "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
+    field :accept_speaker_invitation, :speaker_invitation_action_payload do
+      arg(:token, non_null(:string))
+
+      # 手写 field 不经过 middleware/3 回调，与 admit_member_by_token 一致显式挂载；
+      # 限流按 IP+token 计（5 次/15 分钟，复用 RateLimit plug）。
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token}, context ->
+        decide_speaker_invitation(context, token, :accept_invitation)
+      end)
+    end
+
+    @desc "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
+    field :decline_speaker_invitation, :speaker_invitation_action_payload do
+      arg(:token, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token}, context ->
+        decide_speaker_invitation(context, token, :decline_invitation)
+      end)
+    end
+
+    @desc "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner/Admin 兜底；materials 为 JSON 字符串）"
+    field :save_speaker_materials, :speaker_invitation_action_payload do
+      arg(:invitation_id, non_null(:id))
+      arg(:materials, non_null(:json_string))
+
+      resolve(fn _, %{invitation_id: id, materials: materials}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
+              {:ok, invitation} when not is_nil(invitation) ->
+                invitation
+                |> Ash.Changeset.for_update(:save_materials, %{materials: materials},
+                  actor: actor,
+                  tenant: invitation.workspace_id
+                )
+                |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+                |> speaker_invitation_action_result(context, :save_materials)
+
+              _ ->
+                {:ok,
+                 %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
+            end
+        end
+      end)
+    end
+
+    @desc "材料产出后完成邀请（Speaker 本人自助或 Owner/Admin 兜底；accepted → completed）"
+    field :complete_speaker_invitation, :speaker_invitation_action_payload do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        case context[:actor] do
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
+              {:ok, invitation} when not is_nil(invitation) ->
+                invitation
+                |> Ash.Changeset.for_update(:complete_speaking, %{},
+                  actor: actor,
+                  tenant: invitation.workspace_id
+                )
+                |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+                |> speaker_invitation_action_result(context, :complete_speaking)
+
+              _ ->
+                {:ok,
+                 %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
+            end
+        end
+      end)
+    end
+
     # ── Platform Admin Dashboard Phase 5：admin mutations（R9 promote/demote）──
 
     @desc "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
@@ -1157,6 +1333,50 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, non_null(list_of(non_null(:mutation_error))))
   end
 
+  # ── SpeakerInvitation（E-4 #49；record 类型由 AshGraphql 自动生成 :speaker_invitation，
+  # 此处只定义卡片/输入/payload 类型；token_hash 已 hide_fields）──
+
+  object :speaker_invitation_card do
+    @desc "token 公开卡片：邀请主题/时间 + Event 公开信息（D2 白名单，不泄露其它邀请）"
+    field(:status, non_null(:string))
+    field(:topic, :string)
+    field(:scheduled_at, :datetime)
+    field(:event, non_null(:speaker_invitation_card_event))
+  end
+
+  object :speaker_invitation_card_event do
+    field(:id, non_null(:id))
+    field(:slug, :string)
+    field(:title, non_null(:string))
+    field(:description, :string)
+    field(:status, non_null(:string))
+  end
+
+  input_object :create_speaker_invitation_input do
+    @desc "createSpeakerInvitation 输入：workspaceId + eventId + speakerName 必填，其余可选"
+    field(:workspace_id, non_null(:id))
+    field(:event_id, non_null(:id))
+    field(:speaker_name, non_null(:string))
+    field(:speaker_email, :string)
+    field(:topic, :string)
+    field(:scheduled_at, :datetime)
+    field(:note, :string)
+    field(:expires_at, :datetime)
+  end
+
+  object :create_speaker_invitation_payload do
+    @desc "createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次"
+    field(:result, :speaker_invitation)
+    field(:plain_token, :string)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
+  object :speaker_invitation_action_payload do
+    @desc "accept/decline/saveSpeakerMaterials/completeSpeakerInvitation 返回：result + errors 两段式"
+    field(:result, :speaker_invitation)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
   # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
@@ -1175,6 +1395,70 @@ defmodule Cgc2046Web.GraphqlSchema do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+  end
+
+  # SpeakerInvitation 决策（accept/decline）：token 即凭据——按 token_hash 定位邀请
+  # （read policy 不适用：token 持有者非成员），action 内复验 token 有效/未过期/未使用
+  # （统一错误，不防枚举）。无效 token 与已用/过期同形返回 payload errors。
+  defp decide_speaker_invitation(%{context: context}, token, action) do
+    with %{actor: actor} when not is_nil(actor) <- context,
+         {:ok, hash} <- speaker_token_hash(token),
+         {:ok, invitation} when not is_nil(invitation) <- fetch_speaker_invitation(hash) do
+      invitation
+      |> Ash.Changeset.for_update(action, %{token: token},
+        actor: actor,
+        tenant: invitation.workspace_id
+      )
+      |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+      |> speaker_invitation_action_result(context, action)
+    else
+      %{} ->
+        {:error, unauthorized_error()}
+
+      _ ->
+        {:ok,
+         %{
+           result: nil,
+           errors: [
+             %{
+               message: "invitation token is invalid, expired or already used",
+               code: "invalid_token"
+             }
+           ]
+         }}
+    end
+  end
+
+  defp speaker_token_hash(token) when is_binary(token) and token != "" do
+    {:ok, Cgc2046.Events.SpeakerInvitation.hash_token(token)}
+  end
+
+  defp speaker_token_hash(_), do: {:error, :invalid_token}
+
+  defp fetch_speaker_invitation(hash) do
+    Cgc2046.Events.SpeakerInvitation
+    |> Ash.Query.filter(token_hash == ^hash)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  # SpeakerInvitation action 结果 → payload（result + errors 两段式，同 sign_up 错误协议）
+  defp speaker_invitation_action_result({:ok, invitation}, _context, _action) do
+    {:ok, %{result: invitation, errors: []}}
+  end
+
+  defp speaker_invitation_action_result({:error, error}, context, action) do
+    {:ok,
+     %{
+       result: nil,
+       errors:
+         to_ash_graphql_errors(
+           error,
+           context,
+           action,
+           Cgc2046.Events.SpeakerInvitation,
+           Cgc2046.Api
+         )
+     }}
   end
 
   # acceptInvitation 的 not_found：id+token 双因子不匹配时返回，与 AshGraphql 自动 mutation
