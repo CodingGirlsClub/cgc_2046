@@ -98,5 +98,6 @@ v1 四条规则（confirmed 无 learning run / pending 无 approval_deadline / s
 - 用户签核（逐字引用）：「**新增 issue（E-11 workspace 活动管理面）， 普通成员也在 workspace 内看到活动列表**」
 - 用户签核（逐字引用，成员级可见性取舍）：「**a 就可以了**」（对应选项 A：不引入第四轴；「私享会」= `visibility=workspace + enrollment_policy=invite_only`）
 - D9 定稿：`visibility: public | workspace` 字段；读策略修订为 `open + visibility=public` ⇒ 匿名可读（D2 条件化）；成员见 workspace 全量活动。
-- **按推荐采纳（非显式签核，可推翻）**：默认 `public`；open 后 visibility 不可改；执行顺序 E-11（#127）先行、E-5（#50）后行。
+- **按推荐采纳（非显式签核，可推翻）**：默认 `public`；执行顺序 E-11（#127）先行、E-5（#50）后行。（open 后不可改推荐已被用户推翻，见下条。）
+- 用户签核（逐字引用，可改性）：「**允许默认值后续可以切换呀， 既允许 plublic --> workspace, and also allow open --> 其他的。**」→ visibility 可随时双向切换（含 open 后）；「open 后不可改」推荐被推翻。
 - 登记：#127（E-11）；修订 #50（E-5 只消费 open+public，Blocked by #127）；整合计划拓扑重排（Phase 2=E-11，Phase 3=E-5）。

@@ -50,7 +50,7 @@ execution: code
 
 ### Idea 3 · 公开发现面 → E-5 #50 增强（经 E-11 可见性轴修订）
 
-**可见性轴（2026-08-13 用户拍板）**：新增 Event/Course `visibility: public | workspace` 字段——「私享会」= `visibility=workspace + enrollment_policy=invite_only`（全员可见、凭码报名，用户拍板 A：**不引入第四轴成员级可见性**）。默认 `public`（按推荐采纳，可推翻）；draft 可改、open 后不可改。落在 E-11 #127 交付。
+**可见性轴（2026-08-13 用户拍板）**：新增 Event/Course `visibility: public | workspace` 字段——「私享会」= `visibility=workspace + enrollment_policy=invite_only`（全员可见、凭码报名，用户拍板 A：**不引入第四轴成员级可见性**）。默认 `public`；**可随时双向切换（含 open 后）**——公开页查询读时评估，切换零数据迁移；已报名非成员在切到 workspace 后失去详情访问（Enrollment/学习 run 不受影响）。落在 E-11 #127 交付。
 
 **设计**
 1. **读策略条件**（D2 修订）：`status=open AND visibility=public` ⇒ 匿名可读；其余 status/visibility 一律成员可读；写入不动。公开字段白名单 = 决策 D2。
@@ -151,7 +151,7 @@ body 移除 ash_jido/人工步骤表述（已按 ADR-0005 实体自序贯）；�
 | D6 | 学习三语义（variance/completion/停滞） | ✅ 批准：reason 字段 / 末步即 discharge / 对账 + 提醒（N=7） | 设计定稿 |
 | D7 | 审批控制台形状 | ✅ 批准：kind-agnostic；v1 不含 WorkflowRun-waiting | 设计定稿 |
 | D8 | 对账规则与消费纪律 | ✅ 批准：四条规则 + 规则⑤（B3 兜底）；报告落 /admin 对账页 | 设计定稿 |
-| D9 | 可见性轴 + E-11 | ✅ 拍板（2026-08-13）：新增 `visibility: public\|workspace`；无第四轴（拍板 A，「私享会」= workspace+invite_only）；成员见 workspace 全量活动；默认 public、open 后不可改（按推荐采纳，可推翻）；E-11 先行 | 产品语义 + 工作登记 |
+| D9 | 可见性轴 + E-11 | ✅ 拍板（2026-08-13）：新增 `visibility: public\|workspace`；无第四轴（拍板 A，「私享会」= workspace+invite_only）；成员见 workspace 全量活动；默认 public；**visibility 可随时双向切换（含 open 后，用户拍板）**；E-11 先行 | 产品语义 + 工作登记 |
 
 
 
