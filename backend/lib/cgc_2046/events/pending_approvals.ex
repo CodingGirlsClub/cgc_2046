@@ -29,7 +29,7 @@ defmodule Cgc2046.Events.PendingApprovals do
          {:ok, expired} <- collect_expired(workspace_ids, actor, include_expired) do
       rows =
         (Enum.sort_by(pending, &sort_key/1) ++
-           Enum.sort_by(expired, &expired_sort_key/1, {:desc, DateTime}))
+           Enum.sort_by(expired, &expired_key/1, {:desc, DateTime}))
         |> enrich()
 
       {:ok, rows}
@@ -141,8 +141,11 @@ defmodule Cgc2046.Events.PendingApprovals do
   defp sort_key(%{approval_deadline: nil, id: id}), do: {1, nil, id}
   defp sort_key(%{approval_deadline: deadline, id: id}), do: {0, deadline, id}
 
-  defp expired_sort_key(%{expired_at: nil, id: id}), do: {~U[9999-01-01 00:00:00Z], id}
-  defp expired_sort_key(%{expired_at: expired_at, id: id}), do: {expired_at, id}
+  # expired 按过期时间倒序（最近过期在前）；nil 兜底排最前（不应出现，worker 必写 expired_at）。
+  # 键必须是 DateTime——{:desc, DateTime} sorter 对键调 DateTime.compare，tuple 键会
+  # FunctionClauseError（评审实证：两条以上 expired 行才触发）。
+  defp expired_key(%{expired_at: nil}), do: ~U[9999-01-01 00:00:00Z]
+  defp expired_key(%{expired_at: expired_at}), do: expired_at
 
   # ── 摘要装配（内部批量读；可见性已在聚合层收窄）──
 
