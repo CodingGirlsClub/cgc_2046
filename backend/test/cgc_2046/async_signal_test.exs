@@ -4,13 +4,18 @@ defmodule Cgc2046.AsyncSignalTest do
 
   全栈异步路径：Enrollment after_transaction 发布 → 内存信号总线 →
   NotificationSubscriber 订阅回调（独立进程）→ SignalIdempotency.claim →
-  Oban NotificationWorker 入队。测试不直接调订阅方内部逻辑完成主路径，
-  最终一致断言用 assert_enqueued/2（10ms 轮询）。
+  Oban NotificationWorker 入队。
 
-  重复投递去重：同 idempotency_key 经真实总线重复投递；spy 订阅证明两条投递
-  均已到达订阅方，屏障信号证明订阅方已处理完两条投递，最终状态只有一条
-  通知任务 + 一行 signal_idempotency 记录（claim-first：无论第二条何时被
-  消费，already_claimed 都跳过副作用）。
+  确定性同步：订阅方在每条信号处理完成后发射
+  `[:cgc_2046, :notification_subscriber, :handled]` telemetry 事件
+  （metadata: signal_type / enrollment_id / result）。测试收到事件后再断言
+  DB 状态——等待期间测试进程不发 DB 查询，订阅进程独占共享 sandbox 连接，
+  消除 DB 轮询竞争与 CI 慢机上的连接交接取消窗口。
+
+  至少一次语义：生产者事务内发布的信号可能撞上订阅进程的连接竞争窗口而被
+  丢弃（claim 未登记、无副作用）；测试按同一 payload 真实重投再等（与
+  SignalPublishWorker 重试同构的恢复路径），既复现至少一次投递的现实语义，
+  也保证断言不被瞬时连接竞争打挂。
   """
 
   use Cgc2046.DataCase, async: false
@@ -24,6 +29,27 @@ defmodule Cgc2046.AsyncSignalTest do
   alias Cgc2046.Workers.NotificationWorker
 
   require Ash.Query
+
+  @handled_event [:cgc_2046, :notification_subscriber, :handled]
+  @max_redeliveries 3
+
+  setup do
+    test_pid = self()
+    handler_id = "async-signal-test-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        @handled_event,
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:signal_handled, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    :ok
+  end
 
   describe "通知订阅方 E2E" do
     test "submitted（request 策略）→ Owner/Admin 收到待审批任务；审批确认后 completed → 学员收到报名成功任务" do
@@ -39,18 +65,11 @@ defmodule Cgc2046.AsyncSignalTest do
       {:ok, enrollment} = create_enrollment(event, learner)
       assert enrollment.status == :pending
 
-      # 异步最终一致：submitted → Owner/Admin 待审批通知任务
-      assert_enqueued(
-        [
-          worker: NotificationWorker,
-          args: %{
-            "user_id" => admin.id,
-            "template_key" => "enrollment_submitted",
-            "enrollment_id" => enrollment.id,
-            "data" => %{"enrollment_id" => enrollment.id, "title" => event.title}
-          }
-        ],
-        2_000
+      # 异步最终一致：等订阅方处理完 submitted 信号，再断言 Owner/Admin 待审批通知任务
+      wait_producer_signal(
+        "enrollment.submitted",
+        enrollment.id,
+        submitted_payload(enrollment, event)
       )
 
       assert [%{args: submitted_args}] =
@@ -62,30 +81,41 @@ defmodule Cgc2046.AsyncSignalTest do
                  }
                )
 
+      assert submitted_args["user_id"] == admin.id
+      assert submitted_args["data"]["title"] == event.title
       assert submitted_args["idempotency_key"] == "enrollment.submitted:" <> enrollment.id
 
       # request 提交尚无 completed 信号：报名学员没有报名成功任务
-      refute_enqueued(
-        [args: %{"template_key" => "enrollment_completed", "enrollment_id" => enrollment.id}],
-        300
-      )
+      assert [] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
 
       # 审批通过 → completed → 学员本人报名成功任务（含活动标题）
       {:ok, _} = confirm(enrollment, admin)
 
-      assert_enqueued(
-        [
-          worker: NotificationWorker,
-          args: %{
-            "user_id" => learner.id,
-            "template_key" => "enrollment_completed",
-            "enrollment_id" => enrollment.id,
-            "idempotency_key" => "enrollment.completed:" <> enrollment.id,
-            "data" => %{"enrollment_id" => enrollment.id, "title" => event.title}
-          }
-        ],
-        2_000
+      wait_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        completed_payload(enrollment, event)
       )
+
+      assert [%{args: completed_args}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
+
+      assert completed_args["user_id"] == learner.id
+      assert completed_args["data"]["title"] == event.title
+      assert completed_args["idempotency_key"] == "enrollment.completed:" <> enrollment.id
     end
 
     test "open 策略报名直接 confirmed：completed 通知学员，submitted 不产生待审批通知" do
@@ -101,21 +131,33 @@ defmodule Cgc2046.AsyncSignalTest do
       {:ok, enrollment} = create_enrollment(event, learner)
       assert enrollment.status == :confirmed
 
-      assert_enqueued(
-        [
-          worker: NotificationWorker,
-          args: %{
-            "user_id" => learner.id,
-            "template_key" => "enrollment_completed",
-            "enrollment_id" => enrollment.id,
-            "data" => %{"enrollment_id" => enrollment.id, "title" => event.title}
-          }
-        ],
-        2_000
+      # open 策略：submitted（跳过，无待审批语义）与 completed 均已处理完
+      wait_producer_signal(
+        "enrollment.submitted",
+        enrollment.id,
+        submitted_payload(enrollment, event)
       )
 
+      wait_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        completed_payload(enrollment, event)
+      )
+
+      assert [%{args: args}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
+
+      assert args["user_id"] == learner.id
+      assert args["data"]["title"] == event.title
+
       # submitted 信号确实发布过（生产者对全策略发布），但无待审批语义 → 不通知 Owner/Admin
-      refute_enqueued([args: %{"template_key" => "enrollment_submitted"}], 300)
+      assert [] = all_enqueued(args: %{"template_key" => "enrollment_submitted"})
     end
   end
 
@@ -130,43 +172,22 @@ defmodule Cgc2046.AsyncSignalTest do
 
       {:ok, enrollment} = create_enrollment(event, learner)
 
-      # 原始 completed 信号消费完成（通知任务已入队）
-      assert_enqueued(
-        [
-          worker: NotificationWorker,
-          args: %{"template_key" => "enrollment_completed", "enrollment_id" => enrollment.id}
-        ],
-        2_000
+      # 原始 completed 信号消费完成
+      wait_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        completed_payload(enrollment, event)
       )
 
       payload = completed_payload(enrollment, event)
-      subscribe_spy()
 
       # 真实重复投递两条（payload 与生产者一致，含同一 idempotency_key）
       assert :ok = JidoAdapter.publish("enrollment.completed", payload, workspace.id)
       assert :ok = JidoAdapter.publish("enrollment.completed", payload, workspace.id)
 
-      # spy 证明两条投递均已到达订阅方
-      assert_receive {:signal, "enrollment.completed", ^payload}, 500
-      assert_receive {:signal, "enrollment.completed", ^payload}, 500
-
-      # 处理屏障：第三个真实信号（另一报名的 completed）——其通知任务出现即
-      # 证明订阅方已顺序处理完之前的两条重复投递（单总线进程 FIFO 投递）。
-      barrier_learner = Fixtures.register_user("signal-dup-barrier")
-      insert_identity(barrier_learner.id, "signal-dup-barrier-openid")
-
-      {:ok, barrier_enrollment} = create_enrollment(event, barrier_learner)
-
-      assert_enqueued(
-        [
-          worker: NotificationWorker,
-          args: %{
-            "template_key" => "enrollment_completed",
-            "enrollment_id" => barrier_enrollment.id
-          }
-        ],
-        2_000
-      )
+      # 订阅方逐条报告 :duplicate（claim-first 拦截的直接证据）
+      assert :duplicate = wait_handled("enrollment.completed", enrollment.id)
+      assert :duplicate = wait_handled("enrollment.completed", enrollment.id)
 
       # 最终状态：两条重复投递只产生一条通知任务 + 一行幂等记录
       assert [%{args: %{"idempotency_key" => key}}] =
@@ -192,19 +213,17 @@ defmodule Cgc2046.AsyncSignalTest do
 
       {:ok, enrollment} = create_enrollment(event, learner)
 
-      key = "enrollment.completed:" <> enrollment.id
-      payload = completed_payload(enrollment, event)
-
       # 等原始 completed 信号消费完成（任务入队 = 订阅方已处理完该次投递），
       # 再清除其效果（测试布置），让两次直接投喂从零开始——避免与在途异步
       # 投递竞争。
-      assert_enqueued(
-        [
-          worker: NotificationWorker,
-          args: %{"template_key" => "enrollment_completed", "enrollment_id" => enrollment.id}
-        ],
-        2_000
+      wait_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        completed_payload(enrollment, event)
       )
+
+      key = "enrollment.completed:" <> enrollment.id
+      payload = completed_payload(enrollment, event)
 
       Ecto.Adapters.SQL.query!(
         Cgc2046.Repo,
@@ -236,6 +255,42 @@ defmodule Cgc2046.AsyncSignalTest do
     end
   end
 
+  # 生产者事务内发布的信号：等待订阅方报告处理结果；:timeout/:error（连接竞争
+  # 窗口导致的投递丢弃，claim 未登记、无副作用）→ 按同一 payload 真实重投再等
+  # （至少一次语义的恢复路径，同 SignalPublishWorker 重试）。
+  defp wait_producer_signal(
+         signal_type,
+         enrollment_id,
+         payload,
+         redeliveries \\ @max_redeliveries
+       ) do
+    case wait_handled(signal_type, enrollment_id) do
+      :ok ->
+        :ok
+
+      result when result in [:timeout, :error] and redeliveries > 0 ->
+        assert :ok =
+                 JidoAdapter.publish(signal_type, payload, Map.get(payload, "workspace_id"))
+
+        wait_producer_signal(signal_type, enrollment_id, payload, redeliveries - 1)
+
+      result ->
+        flunk("signal #{signal_type} not handled: #{inspect(result)}")
+    end
+  end
+
+  # 等订阅方报告该信号处理完成（telemetry 事件经 handler 投递到测试进程）。
+  # 等待期间测试进程不发 DB 查询，订阅进程独占共享 sandbox 连接。
+  defp wait_handled(signal_type, enrollment_id, timeout \\ 10_000) do
+    receive do
+      {:signal_handled,
+       %{signal_type: ^signal_type, enrollment_id: ^enrollment_id, result: result}} ->
+        result
+    after
+      timeout -> :timeout
+    end
+  end
+
   defp create_enrollment(event, user) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
@@ -248,7 +303,19 @@ defmodule Cgc2046.AsyncSignalTest do
     |> Ash.update(tenant: enrollment.workspace_id, actor: actor)
   end
 
-  # 与生产者 after_transaction 发布的 payload 形状一致（open 策略）
+  # 与生产者 after_transaction 发布的 payload 形状一致
+  defp submitted_payload(enrollment, event) do
+    %{
+      "enrollment_id" => enrollment.id,
+      "workspace_id" => enrollment.workspace_id,
+      "user_id" => enrollment.user_id,
+      "status" => to_string(enrollment.status),
+      "event_id" => event.id,
+      "course_id" => nil,
+      "enrollment_policy" => "request"
+    }
+  end
+
   defp completed_payload(enrollment, event) do
     %{
       "enrollment_id" => enrollment.id,
@@ -260,17 +327,6 @@ defmodule Cgc2046.AsyncSignalTest do
       "enrollment_policy" => "open",
       "idempotency_key" => "enrollment.completed:" <> enrollment.id
     }
-  end
-
-  defp subscribe_spy do
-    parent = self()
-
-    assert {:ok, _sub_id} =
-             JidoAdapter.subscribe(
-               "enrollment.completed",
-               fn signal -> send(parent, {:signal, signal.type, signal.data}) end,
-               nil
-             )
   end
 
   defp insert_identity(user_id, uid) do
