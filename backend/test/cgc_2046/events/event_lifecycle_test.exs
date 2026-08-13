@@ -74,8 +74,8 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:error, race} = close(event, workspace, admin)
       assert Exception.message(race) =~ "concurrently"
 
-      # CAS 拒绝后不重复发布：仅第一次 close 入队 ended job（本测试无其他发布源）
-      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "event.ended"})
+      # CAS 拒绝后不重复发布：仅第一次 close 入队一个 ended job（精确计数）
+      assert length(all_enqueued(worker: SignalPublishWorker)) == 1
     end
   end
 
@@ -89,10 +89,11 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:ok, cancelled} = cancel(event, workspace, admin)
       assert cancelled.status == :cancelled
       assert reload(Event, event.id).status == :cancelled
+      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "event.ended"})
 
       assert {:ok, cancelled_course} = cancel(course, workspace, admin)
       assert cancelled_course.status == :cancelled
-
+      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "course.ended"})
       draft = create_draft_event(workspace, admin, "Draft 2")
       assert {:error, error} = cancel(draft, workspace, admin)
       assert Exception.message(error) =~ "cannot cancel from status=draft"
