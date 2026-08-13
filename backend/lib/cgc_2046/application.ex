@@ -30,6 +30,9 @@ defmodule Cgc2046.Application do
       Cgc2046.Events.SponsorshipEndedSubscriber,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
       Cgc2046.NotificationSubscriber,
+      # SpeakerInvitation 生命周期信号 → Oban 异步订阅消息（E-4 #49；
+      # SignalIdempotency 幂等去重）。
+      Cgc2046.SpeakerSubscriber,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
       # MCP server（Slice D #42，anubis_mcp streamable HTTP；挂载见 router :mcp pipeline）。
