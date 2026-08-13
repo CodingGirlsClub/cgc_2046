@@ -84,6 +84,32 @@ defmodule Cgc2046.NotificationSubscriber do
       :ok
   end
 
+  @doc """
+  E-3 #48 赞助审批 48h 提醒批量入口（F7；复用 approval_reminder 模板，
+  data 携带 sponsorship_id 区分报名提醒）。
+  """
+  def enqueue_sponsorship_reminder_jobs(identities, user_id, sponsorship_id, deadline) do
+    Enum.each(identities, fn identity ->
+      insert_notification(
+        identity,
+        user_id,
+        "approval_reminder",
+        %{
+          "sponsorship_id" => sponsorship_id,
+          "approval_deadline" => DateTime.to_iso8601(deadline)
+        },
+        %{"sponsorship_id" => sponsorship_id},
+        @reminder_unique
+      )
+    end)
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("sponsorship approval reminder enqueue failed: #{Exception.message(error)}")
+      :ok
+  end
+
   @doc "批量入口：调用方已预取该用户的平台身份（如按 workspace 一次读出）。"
   def enqueue_reminder_jobs(identities, user_id, enrollment_id, deadline) do
     Enum.each(identities, fn identity ->

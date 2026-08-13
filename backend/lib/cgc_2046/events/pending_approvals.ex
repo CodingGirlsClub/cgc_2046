@@ -18,7 +18,7 @@ defmodule Cgc2046.Events.PendingApprovals do
   require Ash.Query
 
   alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role, User, Workspace}
-  alias Cgc2046.Events.{Course, Enrollment, Event}
+  alias Cgc2046.Events.{Course, Enrollment, Event, Sponsorship}
 
   @spec list(term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list(actor, opts \\ []) do
@@ -51,10 +51,12 @@ defmodule Cgc2046.Events.PendingApprovals do
   defp collect_pending(workspace_ids, actor) do
     Enum.reduce_while(workspace_ids, {:ok, []}, fn workspace_id, {:ok, acc} ->
       with {:ok, enrollments} <- pending_enrollments(workspace_id, actor),
-           {:ok, join_requests} <- pending_join_requests(workspace_id, actor) do
+           {:ok, join_requests} <- pending_join_requests(workspace_id, actor),
+           {:ok, sponsorships} <- pending_sponsorships(workspace_id, actor) do
         items =
           Enum.map(enrollments, &from_enrollment(&1, :pending)) ++
-            Enum.map(join_requests, &from_join_request(&1, :pending))
+            Enum.map(join_requests, &from_join_request(&1, :pending)) ++
+            Enum.map(sponsorships, &from_sponsorship(&1, :pending))
 
         {:cont, {:ok, items ++ acc}}
       else
@@ -68,10 +70,12 @@ defmodule Cgc2046.Events.PendingApprovals do
   defp collect_expired(workspace_ids, actor, true) do
     Enum.reduce_while(workspace_ids, {:ok, []}, fn workspace_id, {:ok, acc} ->
       with {:ok, enrollments} <- expired_enrollments(workspace_id, actor),
-           {:ok, join_requests} <- expired_join_requests(workspace_id, actor) do
+           {:ok, join_requests} <- expired_join_requests(workspace_id, actor),
+           {:ok, sponsorships} <- expired_sponsorships(workspace_id, actor) do
         items =
           Enum.map(enrollments, &from_enrollment(&1, :expired)) ++
-            Enum.map(join_requests, &from_join_request(&1, :expired))
+            Enum.map(join_requests, &from_join_request(&1, :expired)) ++
+            Enum.map(sponsorships, &from_sponsorship(&1, :expired))
 
         {:cont, {:ok, items ++ acc}}
       else
@@ -100,6 +104,18 @@ defmodule Cgc2046.Events.PendingApprovals do
 
   defp expired_join_requests(workspace_id, actor) do
     JoinRequest
+    |> Ash.Query.filter(status == :expired)
+    |> Ash.read(tenant: workspace_id, actor: actor)
+  end
+
+  defp pending_sponsorships(workspace_id, actor) do
+    Sponsorship
+    |> Ash.Query.filter(status == :pending)
+    |> Ash.read(tenant: workspace_id, actor: actor)
+  end
+
+  defp expired_sponsorships(workspace_id, actor) do
+    Sponsorship
     |> Ash.Query.filter(status == :expired)
     |> Ash.read(tenant: workspace_id, actor: actor)
   end
@@ -138,6 +154,30 @@ defmodule Cgc2046.Events.PendingApprovals do
     }
   end
 
+  # 赞助行：requester 摘要 = 公司名（sponsor 为全局账号，公司名即展示身份）；
+  # context 摘要 = 目标 Event 名（Event 级）/ 目标 Workspace 名（Workspace 级）。
+  defp from_sponsorship(sponsorship, _status) do
+    %{
+      id: sponsorship.id,
+      kind: "sponsorship",
+      workspace_id: sponsorship.workspace_id,
+      user_id: sponsorship.sponsor_user_id,
+      event_id: sponsorship.event_id,
+      course_id: nil,
+      level: to_string(sponsorship.level),
+      status: to_string(sponsorship.status),
+      approval_deadline: sponsorship.approval_deadline,
+      expired_at: sponsorship.expired_at,
+      company_name: sponsorship.company_name,
+      contact_email: sponsorship.contact_email,
+      tier_name: sponsorship.tier_name,
+      amount: sponsorship.amount,
+      requester_name: nil,
+      workspace_name: nil,
+      context_title: nil
+    }
+  end
+
   defp sort_key(%{approval_deadline: nil, id: id}), do: {1, nil, id}
   defp sort_key(%{approval_deadline: deadline, id: id}), do: {0, deadline, id}
 
@@ -159,15 +199,26 @@ defmodule Cgc2046.Events.PendingApprovals do
 
       %{
         row
-        | requester_name: Map.get(user_names, row.user_id),
+        | requester_name: requester_name(row, user_names),
           workspace_name: workspace_name,
           context_title: context_title(row, titles, workspace_name)
       }
     end)
   end
 
+  # 赞助行的 requester 摘要用公司名（不查用户表；sponsor 账号名 ≠ 展示身份）。
+  defp requester_name(%{kind: "sponsorship", company_name: company_name}, _user_names)
+       when is_binary(company_name),
+       do: company_name
+
+  defp requester_name(row, user_names), do: Map.get(user_names, row.user_id)
+
   defp load_user_names(rows) do
-    ids = rows |> Enum.map(& &1.user_id) |> Enum.uniq()
+    ids =
+      rows
+      |> Enum.reject(&(&1.kind == "sponsorship"))
+      |> Enum.map(& &1.user_id)
+      |> Enum.uniq()
 
     User
     |> Ash.Query.filter(id in ^ids)
@@ -207,6 +258,9 @@ defmodule Cgc2046.Events.PendingApprovals do
   end
 
   defp context_title(%{kind: "join_request"}, _titles, workspace_name), do: workspace_name
+
+  defp context_title(%{kind: "sponsorship", level: "workspace"}, _titles, workspace_name),
+    do: workspace_name
 
   defp context_title(%{event_id: event_id}, titles, _workspace_name)
        when not is_nil(event_id),

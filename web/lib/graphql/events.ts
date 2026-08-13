@@ -35,6 +35,12 @@ export interface OfferingItem {
 	/** 已确认名额数（非成员读到 null，D2 白名单） */
 	confirmedCount: number | null;
 	registrationDeadline: string | null;
+	/** 是否开放赞助入口（仅 event；E-3 #48） */
+	sponsorshipEnabled?: boolean;
+	/** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
+	sponsorshipTiers?: string[] | null;
+	/** 赞助意向截止（仅 event） */
+	sponsorshipDeadline?: string | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -134,6 +140,9 @@ export const GET_EVENT: TypedDocumentNode<{ getEvent: OfferingItem }, { id: stri
 			capacity
 			confirmedCount
 			registrationDeadline
+			sponsorshipEnabled
+			sponsorshipTiers
+			sponsorshipDeadline
 		}
 	}
 `;
@@ -363,6 +372,10 @@ export interface PublicOfferingItem {
 	visibility: Visibility;
 	enrollmentPolicy: EnrollmentPolicy;
 	registrationDeadline: string | null;
+	/** 是否开放赞助入口（仅 event 有；E-3 #48） */
+	sponsorshipEnabled?: boolean;
+	/** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
+	sponsorshipTiers?: string[] | null;
 }
 
 export const PUBLIC_LIST_EVENTS: TypedDocumentNode<
@@ -417,6 +430,8 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
 			visibility
 			enrollmentPolicy
 			registrationDeadline
+			sponsorshipEnabled
+			sponsorshipTiers
 		}
 	}
 `;

@@ -56,6 +56,21 @@ defmodule Cgc2046.Accounts.Workspace do
       description: "是否开放赞助入口（默认开）"
     )
 
+    attribute(:sponsorship_tiers, {:array, :map},
+      allow_nil?: false,
+      default: [],
+      public?: true,
+      writable?: true,
+      description: "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+    )
+
+    attribute(:sponsorship_deadline, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "赞助意向截止；nil 表示长期开放"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -118,6 +133,8 @@ defmodule Cgc2046.Accounts.Workspace do
     validate(match(:slug, ~r/^[a-z0-9-]+$/),
       message: "slug must only contain lowercase letters, numbers and hyphens"
     )
+
+    validate({Cgc2046.Events.SponsorshipTiersValidation, []})
   end
 
   # #116 R10a：workspace 直接创建的留痕 metadata 纯函数（供 LogAdminAction change
@@ -137,7 +154,14 @@ defmodule Cgc2046.Accounts.Workspace do
         "创建工作台（仅平台管理员）；自动 seed 角色并建立 Owner 成员资格（默认 actor，可指定 owner_user_id 或 owner_email）"
       )
 
-      accept([:slug, :name, :join_policy, :sponsorship_enabled])
+      accept([
+        :slug,
+        :name,
+        :join_policy,
+        :sponsorship_enabled,
+        :sponsorship_tiers,
+        :sponsorship_deadline
+      ])
 
       argument(:owner_user_id, :uuid,
         allow_nil?: true,
