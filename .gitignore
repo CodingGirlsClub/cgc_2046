@@ -19,3 +19,6 @@
 # Node dependencies（根目录不应有 node_modules；web/ 各自忽略）
 node_modules/
 openclacky-ext/dist/
+
+# pnpm store（web 工作区的全局硬链接缓存，不入库）
+.pnpm-store/
