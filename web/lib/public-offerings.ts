@@ -32,18 +32,18 @@ export async function fetchPublicOfferings(
 }
 
 export async function fetchPublicOffering(
-	id: string,
+	slug: string,
 	kind: OfferingKind,
 ): Promise<PublicOfferingItem | null> {
 	const query = kind === "event" ? PUBLIC_GET_EVENT : PUBLIC_GET_COURSE;
-	const { data } = await client.query({ query, variables: { id } });
+	const { data } = await client.query({ query, variables: { slug } });
 
 	const result = data as unknown as Record<
-		"getEvent" | "getCourse",
+		"getEventBySlug" | "getCourseBySlug",
 		PublicOfferingItem | null
 	>;
 
-	return result[kind === "event" ? "getEvent" : "getCourse"] ?? null;
+	return result[kind === "event" ? "getEventBySlug" : "getCourseBySlug"] ?? null;
 }
 
 export async function submitEnrollment(input: {

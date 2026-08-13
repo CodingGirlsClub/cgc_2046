@@ -356,7 +356,9 @@ export const CANCEL_COURSE: TypedDocumentNode<
 /** 公开活动/课程条目（匿名可读白名单：id/title/status/visibility/enrollmentPolicy/registrationDeadline） */
 export interface PublicOfferingItem {
 	id: string;
+	slug: string;
 	title: string;
+	description: string | null;
 	status: EventStatus;
 	visibility: Visibility;
 	enrollmentPolicy: EnrollmentPolicy;
@@ -370,7 +372,9 @@ export const PUBLIC_LIST_EVENTS: TypedDocumentNode<
 		listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
 			results {
 				id
+				slug
 				title
+				description
 				status
 				visibility
 				enrollmentPolicy
@@ -387,7 +391,9 @@ export const PUBLIC_LIST_COURSES: TypedDocumentNode<
 		listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
 			results {
 				id
+				slug
 				title
+				description
 				status
 				visibility
 				enrollmentPolicy
@@ -398,13 +404,15 @@ export const PUBLIC_LIST_COURSES: TypedDocumentNode<
 `;
 
 export const PUBLIC_GET_EVENT: TypedDocumentNode<
-	{ getEvent: PublicOfferingItem | null },
-	{ id: string }
+	{ getEventBySlug: PublicOfferingItem | null },
+	{ slug: string }
 > = gql`
-	query PublicGetEvent($id: ID!) {
-		getEvent(id: $id) {
+	query PublicGetEvent($slug: String!) {
+		getEventBySlug(slug: $slug) {
 			id
+			slug
 			title
+			description
 			status
 			visibility
 			enrollmentPolicy
@@ -414,13 +422,15 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
 `;
 
 export const PUBLIC_GET_COURSE: TypedDocumentNode<
-	{ getCourse: PublicOfferingItem | null },
-	{ id: string }
+	{ getCourseBySlug: PublicOfferingItem | null },
+	{ slug: string }
 > = gql`
-	query PublicGetCourse($id: ID!) {
-		getCourse(id: $id) {
+	query PublicGetCourse($slug: String!) {
+		getCourseBySlug(slug: $slug) {
 			id
+			slug
 			title
+			description
 			status
 			visibility
 			enrollmentPolicy

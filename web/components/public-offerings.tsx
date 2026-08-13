@@ -31,7 +31,7 @@ function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: Offering
 	const base = kind === "event" ? "/events" : "/courses";
 	return (
 		<Link
-			href={`${base}/${item.id}`}
+			href={`${base}/${item.slug}`}
 			className="join-card flex items-center gap-4 !p-6"
 		>
 			<span className="min-w-0 flex-1">
