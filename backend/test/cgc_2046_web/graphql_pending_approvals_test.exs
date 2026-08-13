@@ -126,6 +126,28 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     assert expired_row["id"] == expired.id
   end
 
+  test "多条 expired 行按 expired_at 倒序且不 crash（评审回归：DateTime sorter 键）" do
+    platform_admin = Fixtures.platform_admin("expsort-platform")
+    owner = Fixtures.register_user("expsort-owner")
+    workspace = Fixtures.create_workspace(platform_admin)
+    Fixtures.add_member(workspace, owner, [:owner])
+    event = EventFixtures.create_event(workspace, platform_admin, %{enrollment_policy: :request})
+
+    older_user = Fixtures.register_user("expsort-older")
+    newer_user = Fixtures.register_user("expsort-newer")
+    older = create_pending_enrollment(event, older_user)
+    newer = create_pending_enrollment(event, newer_user)
+    set_status("enrollments", older.id, "expired", "2026-08-11 00:00:00")
+    set_status("enrollments", newer.id, "expired", "2026-08-12 00:00:00")
+
+    query = """
+    query { myPendingApprovals(includeExpired: true) { id status } }
+    """
+
+    assert %{"data" => %{"myPendingApprovals" => rows}} = graphql(query, sign_in_token(owner))
+    assert Enum.map(rows, & &1["id"]) == [newer.id, older.id]
+  end
+
   test "普通成员与非成员查询均为空，不泄露 pending 审批" do
     platform_admin = Fixtures.platform_admin("pending-deny-platform")
     member = Fixtures.register_user("pending-member")
@@ -154,12 +176,14 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     |> Ash.create!(actor: user)
   end
 
-  defp set_status(table, id, status) do
+  defp set_status(table, id, status, expired_at \\ nil) do
+    {:ok, expired_at_dt, 0} = DateTime.from_iso8601((expired_at || "2026-08-12 00:00:00") <> "Z")
+
     {:ok, _} =
       Ecto.Adapters.SQL.query(
         Cgc2046.Repo,
-        "UPDATE #{table} SET status = $1, expired_at = now() WHERE id = $2",
-        [status, Ecto.UUID.dump!(id)]
+        "UPDATE #{table} SET status = $1, expired_at = $2 WHERE id = $3",
+        [status, expired_at_dt, Ecto.UUID.dump!(id)]
       )
   end
 
