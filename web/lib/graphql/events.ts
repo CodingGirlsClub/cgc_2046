@@ -350,6 +350,119 @@ export const CANCEL_COURSE: TypedDocumentNode<
 	}
 `;
 
+
+/* ---------------- 公开面（E-5 #50：匿名白名单字段查询，不含 D2 敏感字段） ---------------- */
+
+/** 公开活动/课程条目（匿名可读白名单：id/title/status/visibility/enrollmentPolicy/registrationDeadline） */
+export interface PublicOfferingItem {
+	id: string;
+	slug: string;
+	title: string;
+	description: string | null;
+	status: EventStatus;
+	visibility: Visibility;
+	enrollmentPolicy: EnrollmentPolicy;
+	registrationDeadline: string | null;
+}
+
+export const PUBLIC_LIST_EVENTS: TypedDocumentNode<
+	{ listEvents: { results: PublicOfferingItem[] } }
+> = gql`
+	query PublicListEvents {
+		listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+			results {
+				id
+				slug
+				title
+				description
+				status
+				visibility
+				enrollmentPolicy
+				registrationDeadline
+			}
+		}
+	}
+`;
+
+export const PUBLIC_LIST_COURSES: TypedDocumentNode<
+	{ listCourses: { results: PublicOfferingItem[] } }
+> = gql`
+	query PublicListCourses {
+		listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+			results {
+				id
+				slug
+				title
+				description
+				status
+				visibility
+				enrollmentPolicy
+				registrationDeadline
+			}
+		}
+	}
+`;
+
+export const PUBLIC_GET_EVENT: TypedDocumentNode<
+	{ getEventBySlug: PublicOfferingItem | null },
+	{ slug: string }
+> = gql`
+	query PublicGetEvent($slug: String!) {
+		getEventBySlug(slug: $slug) {
+			id
+			slug
+			title
+			description
+			status
+			visibility
+			enrollmentPolicy
+			registrationDeadline
+		}
+	}
+`;
+
+export const PUBLIC_GET_COURSE: TypedDocumentNode<
+	{ getCourseBySlug: PublicOfferingItem | null },
+	{ slug: string }
+> = gql`
+	query PublicGetCourse($slug: String!) {
+		getCourseBySlug(slug: $slug) {
+			id
+			slug
+			title
+			description
+			status
+			visibility
+			enrollmentPolicy
+			registrationDeadline
+		}
+	}
+`;
+
+/* ---------------- 报名（E-5 #50：createEnrollment 既有 mutation） ---------------- */
+
+export type EnrollmentSubmissionResult = MutationResult<{
+	id: string;
+	status: string;
+}>;
+
+export const CREATE_ENROLLMENT: TypedDocumentNode<
+	{ createEnrollment: EnrollmentSubmissionResult },
+	{ input: Record<string, unknown> }
+> = gql`
+	mutation CreateEnrollment($input: CreateEnrollmentInput!) {
+		createEnrollment(input: $input) {
+			result {
+				id
+				status
+			}
+			errors {
+				message
+			}
+		}
+	}
+`;
+
 /* ---------------- Enrollment 计数（详情页报名数据视图） ---------------- */
 
 /** pending 报名数（request 策略待审批） */
