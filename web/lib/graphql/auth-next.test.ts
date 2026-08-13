@@ -17,4 +17,8 @@ describe("resolveNextTarget（登录后跳转同源校验）", () => {
 		expect(resolveNextTarget(null, origin)).toBe("/");
 		expect(resolveNextTarget("", origin)).toBe("/");
 	});
+
+	it("同源但协议相对 pathname（本域//evil.example）拒绝", () => {
+		expect(resolveNextTarget("http://localhost:3000//evil.example", origin)).toBe("/");
+	});
 });
