@@ -31,6 +31,7 @@ defmodule Cgc2046.Events.Event do
 
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
+  @visibility_values [:public, :workspace]
 
   attributes do
     uuid_primary_key(:id)
@@ -88,6 +89,15 @@ defmodule Cgc2046.Events.Event do
       description: "报名策略：open / request / invite_only"
     )
 
+    attribute(:visibility, :atom,
+      allow_nil?: false,
+      default: :public,
+      public?: true,
+      writable?: true,
+      constraints: [one_of: @visibility_values],
+      description: "可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9）"
+    )
+
     attribute(:capacity, :integer,
       allow_nil?: true,
       public?: true,
@@ -143,7 +153,8 @@ defmodule Cgc2046.Events.Event do
       :research_requirements,
       :enrollment_policy,
       :capacity,
-      :registration_deadline
+      :registration_deadline,
+      :visibility
     ])
 
     create :create do
@@ -155,24 +166,59 @@ defmodule Cgc2046.Events.Event do
         :research_requirements,
         :enrollment_policy,
         :capacity,
-        :registration_deadline
+        :registration_deadline,
+        :visibility
       ])
+
+      # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
+      # 内部调用方（fixtures/测试）直接传 tenant 亦可。policy 经
+      # MembershipContext 的 argument 回退解析工作台（invitation.ex 同款先例）。
+      argument(:workspace_id, :uuid,
+        allow_nil?: true,
+        description: "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
+      )
 
       change(set_attribute(:status, :draft))
 
-      # workspace_id 由 tenant 强制（同 WorkflowRun.create 模式），不接受调用方传入
+      # workspace_id 由 argument 或 tenant 强制，不接受属性直传
       change(fn changeset, _context ->
-        case changeset.tenant do
-          nil -> Ash.Changeset.add_error(changeset, "create requires a tenant (workspace_id)")
-          tenant -> Ash.Changeset.force_change_attribute(changeset, :workspace_id, tenant)
+        workspace_id = Ash.Changeset.get_argument(changeset, :workspace_id) || changeset.tenant
+
+        if workspace_id do
+          changeset
+          |> Ash.Changeset.set_tenant(workspace_id)
+          |> Ash.Changeset.force_change_attribute(:workspace_id, workspace_id)
+        else
+          Ash.Changeset.add_error(changeset, "create requires a tenant (workspace_id)")
         end
       end)
     end
 
-    # draft → open：发布活动，发 event.launched 信号（教研实例化入口）。
-    # 信号经 JidoAdapter 总线异步投递，ResearchInstantiator 订阅后创建教研 run。
-    # #1 TOCTOU：publish 必须在事务提交后（after_transaction）执行——change 回调
-    # 在 for_update 阶段（事务开始前）运行，此时订阅方读到未提交的 draft 状态，
+    # 编辑活动元数据（E-11 #127）：visibility 可随时双向切换（含 open 后，D9）。
+    # status/workflow_run_id/confirmed_count 不在此 accept（状态走专用 action）。
+    update :update do
+      description("编辑活动元数据（Owner/Admin）")
+      require_atomic?(false)
+
+      accept([
+        :title,
+        :research_enabled,
+        :research_requirements,
+        :enrollment_policy,
+        :capacity,
+        :registration_deadline,
+        :visibility
+      ])
+
+      # 强制非原子执行：GraphQL update 走 bulk_update（原子路径）时 policy 的
+      # changeset.data 读取会 raise（AtomicChangeset 无原数据）。本函数 change
+      # 使 action 原子能力判定失败，回落到带原数据的常规 update 路径。
+      change(fn changeset, _context ->
+        _ = Ash.Changeset.get_data(changeset, :status)
+        changeset
+      end)
+    end
+
     # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。
     update :launch do
       description("发布活动：draft → open，发 event.launched 信号")
@@ -368,15 +414,35 @@ defmodule Cgc2046.Events.Event do
   end
 
   policies do
-    # 读取（H3）：经 workspace → memberships 路径，仅成员或平台管理员
+    # 读取（D9 修订）：成员/平台管理员可读全部；匿名（无 actor）仅可读
+    # open + visibility=public（公开发现面，D2 白名单由 field_policies 收窄）。
     policy action_type(:read) do
       authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(expr(status == :open and visibility == :public))
     end
 
     # 写操作：Owner/Admin（多角色并集）或平台管理员
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
+  end
+
+  # D2 公开字段白名单：名额余量属运营信息，对非成员/匿名不暴露（成员与平台
+  # 管理员经 authorize_if 放行；匿名读时这两字段被 field policy 筛除）。
+  field_policies do
+    field_policy :* do
+      authorize_if(always())
+    end
+
+    field_policy :capacity do
+      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
+
+    field_policy :confirmed_count do
+      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
@@ -387,6 +453,14 @@ defmodule Cgc2046.Events.Event do
     queries do
       list(:list_events, :read, description: "工作台的活动列表（#40 展示页）")
       read_one(:get_event, :get_by_id, description: "按 id 获取活动（#40）")
+    end
+
+    mutations do
+      create(:create_event, :create)
+      update(:update_event, :update)
+      update(:launch_event, :launch)
+      update(:close_event, :close)
+      update(:cancel_event, :cancel)
     end
   end
 
