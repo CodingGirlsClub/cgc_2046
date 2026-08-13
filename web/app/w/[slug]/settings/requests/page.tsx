@@ -8,7 +8,7 @@
  * 复用 WorkspaceShell + 能力门控 manage_members。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
@@ -25,46 +25,7 @@ import {
 import WorkspaceShell from "@/components/workspace-shell";
 import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
-
-/** 审批倒计时组件：<48h 脉冲高亮 */
-function ApprovalChip({ deadline }: { deadline: string | null }) {
-	const [now, setNow] = useState(() => Date.now());
-
-	useEffect(() => {
-		const timer = setInterval(() => setNow(Date.now()), 60000);
-		return () => clearInterval(timer);
-	}, []);
-
-	const timeLeft = useMemo(() => {
-		if (!deadline) return null;
-		const deadlineMs = new Date(deadline).getTime();
-		const diff = deadlineMs - now;
-		if (diff <= 0) return { hours: 0, minutes: 0, expired: true as const };
-		return {
-			hours: Math.floor(diff / 3600000),
-			minutes: Math.floor((diff % 3600000) / 60000),
-			expired: false as const,
-		};
-	}, [deadline, now]);
-
-	if (!timeLeft) return null;
-	if (timeLeft.expired) {
-		return <span className="approval-chip approval-chip--expired">已过期</span>;
-	}
-
-	const urgent = timeLeft.hours < 48;
-	return (
-		<span
-			className={`approval-chip ${urgent ? "approval-chip--urgent" : ""}`}
-			title={`审批剩余：${timeLeft.hours} 小时 ${timeLeft.minutes} 分钟`}
-		>
-			{urgent && <span className="approval-chip__pulse" aria-hidden="true" />}
-			{timeLeft.hours > 0
-				? `剩余 ${timeLeft.hours}h`
-				: `剩余 ${timeLeft.minutes}m`}
-		</span>
-	);
-}
+import { ApprovalChip } from "@/components/approval-chip";
 
 export default function RequestsPage() {
 	const params = useParams<{ slug: string }>();
