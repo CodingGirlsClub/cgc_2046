@@ -90,3 +90,13 @@ v1 四条规则（confirmed 无 learning run / pending 无 approval_deadline / s
 ## Open decisions
 
 - 无。D3 的「阻塞升级」时点、D6 的 N 值调整可在实施中提出，不阻塞开工。
+
+---
+
+# 二次签核记录（2026-08-13 · E-11 与可见性轴）
+
+- 用户签核（逐字引用）：「**新增 issue（E-11 workspace 活动管理面）， 普通成员也在 workspace 内看到活动列表**」
+- 用户签核（逐字引用，成员级可见性取舍）：「**a 就可以了**」（对应选项 A：不引入第四轴；「私享会」= `visibility=workspace + enrollment_policy=invite_only`）
+- D9 定稿：`visibility: public | workspace` 字段；读策略修订为 `open + visibility=public` ⇒ 匿名可读（D2 条件化）；成员见 workspace 全量活动。
+- **按推荐采纳（非显式签核，可推翻）**：默认 `public`；open 后 visibility 不可改；执行顺序 E-11（#127）先行、E-5（#50）后行。
+- 登记：#127（E-11）；修订 #50（E-5 只消费 open+public，Blocked by #127）；整合计划拓扑重排（Phase 2=E-11，Phase 3=E-5）。
