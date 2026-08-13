@@ -68,19 +68,25 @@ config :cgc_2046, :miniprogram_templates, %{
     "approval_result" => "dev-wechat-approval-result",
     "approval_reminder" => "dev-wechat-approval-reminder",
     "enrollment_submitted" => "dev-wechat-enrollment-submitted",
-    "enrollment_completed" => "dev-wechat-enrollment-completed"
+    "enrollment_completed" => "dev-wechat-enrollment-completed",
+    "speaker_accepted" => "dev-wechat-speaker-accepted",
+    "speaker_completed" => "dev-wechat-speaker-completed"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
     "approval_reminder" => "dev-tt-approval-reminder",
     "enrollment_submitted" => "dev-tt-enrollment-submitted",
-    "enrollment_completed" => "dev-tt-enrollment-completed"
+    "enrollment_completed" => "dev-tt-enrollment-completed",
+    "speaker_accepted" => "dev-tt-speaker-accepted",
+    "speaker_completed" => "dev-tt-speaker-completed"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
     "approval_reminder" => "dev-xhs-approval-reminder",
     "enrollment_submitted" => "dev-xhs-enrollment-submitted",
-    "enrollment_completed" => "dev-xhs-enrollment-completed"
+    "enrollment_completed" => "dev-xhs-enrollment-completed",
+    "speaker_accepted" => "dev-xhs-speaker-accepted",
+    "speaker_completed" => "dev-xhs-speaker-completed"
   }
 }
 

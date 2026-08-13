@@ -40,6 +40,7 @@ import {
 } from "@/lib/graphql/events";
 import WorkspaceShell from "@/components/workspace-shell";
 import EventStatusTag from "@/components/event-status-tag";
+import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
 import { parseSponsorshipTiers } from "@/lib/public-offerings";
@@ -603,6 +604,16 @@ export function OfferingDetailPage({
 									}}
 								/>
 							</div>
+						) : null}
+
+
+						{/* E-4 #49：Speaker 邀请（仅 Event；Owner/Admin 入口） */}
+						{manage && kind === "event" ? (
+							<SpeakerInvitationPanel
+								eventId={offering.id}
+								eventSlug={offering.slug}
+								workspaceId={offering.workspaceId ?? ws?.id ?? ""}
+							/>
 						) : null}
 					</>
 				)}
