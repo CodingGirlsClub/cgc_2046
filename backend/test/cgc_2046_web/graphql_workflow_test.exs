@@ -112,13 +112,26 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     |> Ash.create(tenant: workspace.id, actor: actor)
   end
 
+  # 布置而非被测对象：直调 launch/4 的用例要求实体已 launch（open），直接写库
+  # 置位（EventsFixtures.force_open 同款）。
+  defp force_open(%{__struct__: resource} = record, table) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE #{table} SET status = 'open' WHERE id = $1",
+        [Ecto.UUID.dump!(record.id)]
+      )
+
+    Ash.get!(resource, record.id, authorize?: false)
+  end
+
   # 建 workspace + published 教研定义 + 已启动 run（succeeded）
   defp seeded_run do
     admin = Fixtures.platform_admin("gql-wf-admin")
     workspace = Fixtures.create_workspace(admin)
     {:ok, defn} = create_definition(workspace, admin, auto_node_def())
     {:ok, published} = publish_definition(defn, workspace, admin)
-    {:ok, event} = create_event(workspace, admin)
+    event = force_open(create_event(workspace, admin) |> elem(1), :events)
 
     assert {:ok, run} =
              ResearchInstantiator.launch(

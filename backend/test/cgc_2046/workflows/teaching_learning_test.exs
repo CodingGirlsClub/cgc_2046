@@ -64,6 +64,20 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     |> Ash.create(tenant: workspace.id, actor: actor)
   end
 
+  # 布置而非被测对象：直调 launch/4 的用例要求实体已 launch（open）——
+  # launch 动作会触发异步信号订阅，测试不走该路径，直接写库置位
+  # （EventsFixtures.force_open 同款）。
+  defp force_open_event(%Event{} = event) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE events SET status = 'open' WHERE id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+    Ash.get!(Event, event.id, authorize?: false)
+  end
+
   # 教研定义：uppercase → (manual approval) → append_exclamation
   defp research_node_def do
     %{
@@ -122,8 +136,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
 
-      {:ok, event_1} = create_event(workspace, admin, %{title: "活动一"})
-      {:ok, event_2} = create_event(workspace, admin, %{title: "活动二"})
+      event_1 = force_open_event(create_event(workspace, admin, %{title: "活动一"}) |> elem(1))
+      event_2 = force_open_event(create_event(workspace, admin, %{title: "活动二"}) |> elem(1))
 
       # 各自实例化 → 独立 run，均 waiting（执行到人工步骤）
       assert {:ok, run_1} =
@@ -206,7 +220,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       {:ok, parent_published} = publish_definition(parent, workspace, admin)
 
-      {:ok, event} = create_event(workspace, admin)
+      event = force_open_event(create_event(workspace, admin) |> elem(1))
 
       assert {:ok, run} =
                ResearchInstantiator.launch(
@@ -259,7 +273,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       {:ok, parent_published} = publish_definition(parent, workspace, admin)
 
-      {:ok, event} = create_event(workspace, admin)
+      event = force_open_event(create_event(workspace, admin) |> elem(1))
 
       # buggy 代码：子 workflow 的 {:error, :sub_workflow_failed} 被 runic 当作
       # 普通 fact 值，父 run 标 succeeded 且错误 tuple 嵌入 facts（#3）。
@@ -366,7 +380,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       workspace = Fixtures.create_workspace(admin)
       {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
-      {:ok, event} = create_event(workspace, admin)
+      event = force_open_event(create_event(workspace, admin) |> elem(1))
 
       input = %{
         "event_id" => event.id,

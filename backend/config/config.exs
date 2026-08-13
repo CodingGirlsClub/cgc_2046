@@ -93,6 +93,7 @@ config :cgc_2046, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"*/5 * * * *", Cgc2046.Workers.ApprovalExpiryWorker},
+       {"*/5 * * * *", Cgc2046.Workers.EventLifecycleWorker},
        {"17 * * * *", Cgc2046.Workers.ApprovalReminderWorker}
      ]}
   ]

@@ -23,6 +23,8 @@ defmodule Cgc2046.Events.Event do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
+  alias Cgc2046.Repo
+  alias Cgc2046.Workers.SignalPublishWorker
   alias Cgc2046.Workflows.JidoAdapter
 
   require Logger
@@ -223,6 +225,107 @@ defmodule Cgc2046.Events.Event do
       )
     end
 
+    # open → closed：结束活动（手动，或 registration_deadline 到点由
+    # EventLifecycleWorker 自动执行）。发 event.ended 信号——E-9 #124 级联：
+    # 订阅方 = 教研 run 回收 / 赞助 Event 级自动 ended / 报名窗锁定。
+    # 终态不可逆（D4 v1 语义）：closed/cancelled 无恢复 action，恢复路径 =
+    # 新建活动。DB 级 compare-and-set 防陈旧/并发双成功（cron 与手动竞态，
+    # codex 评审 BLOCKING 4）。
+    update :close do
+      description("结束活动：open → closed，发 event.ended 信号")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          case Ash.Changeset.get_data(cs, :status) do
+            :open ->
+              case status_transition(cs, :closed) do
+                :ok ->
+                  Ash.Changeset.force_change_attribute(cs, :status, :closed)
+
+                {:error, :status_race} ->
+                  Ash.Changeset.add_error(
+                    cs,
+                    "close failed: status changed concurrently, retry on fresh read"
+                  )
+
+                {:error, {:database, _} = reason} ->
+                  Ash.Changeset.add_error(cs, reason)
+              end
+
+            status ->
+              Ash.Changeset.add_error(cs, "cannot close from status=#{status}")
+          end
+        end)
+      end)
+
+      # 事务内 outbox：ended 发布经 SignalPublishWorker 统一投递。after_action
+      # 在数据层成功后、事务提交前执行（Ash 文档：错误会回滚整个事务）——
+      # job 与事件终态同事务提交；入队失败 → 事务回滚，close/cancel 整体失败
+      # 可安全重试（幂等）。CAS 失败路径不会到达 after_action，不产生孤儿 job。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn cs, record ->
+          id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
+          title = Ash.Changeset.get_data(cs, :title)
+
+          SignalPublishWorker.enqueue_in_transaction(
+            "event.ended",
+            %{"event_id" => id, "title" => title},
+            cs.tenant
+          )
+
+          {:ok, record}
+        end)
+      end)
+    end
+
+    # open → cancelled：取消活动。同样发 event.ended（D4：closed/cancelled 即 ended）。
+    update :cancel do
+      description("取消活动：open → cancelled，发 event.ended 信号")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          case Ash.Changeset.get_data(cs, :status) do
+            :open ->
+              case status_transition(cs, :cancelled) do
+                :ok ->
+                  Ash.Changeset.force_change_attribute(cs, :status, :cancelled)
+
+                {:error, :status_race} ->
+                  Ash.Changeset.add_error(
+                    cs,
+                    "cancel failed: status changed concurrently, retry on fresh read"
+                  )
+
+                {:error, {:database, _} = reason} ->
+                  Ash.Changeset.add_error(cs, reason)
+              end
+
+            status ->
+              Ash.Changeset.add_error(cs, "cannot cancel from status=#{status}")
+          end
+        end)
+      end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn cs, record ->
+          id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
+          title = Ash.Changeset.get_data(cs, :title)
+
+          SignalPublishWorker.enqueue_in_transaction(
+            "event.ended",
+            %{"event_id" => id, "title" => title},
+            cs.tenant
+          )
+
+          {:ok, record}
+        end)
+      end)
+    end
+
     defaults([:read])
 
     # #14：教研 run 创建后回写产物引用（ResearchInstantiator 内部调用，authorize?: false）。
@@ -236,6 +339,26 @@ defmodule Cgc2046.Events.Event do
     # #40 展示页：按 id 取活动详情（GraphQL read_one）
     read :get_by_id do
       get_by([:id])
+    end
+  end
+
+  # DB 级 compare-and-set：条件 UPDATE 原子抢占状态迁移（enrollment.expire 同款
+  # 纪律）。num_rows=0 → 并发竞态（cron 与手动双拍），拒绝而非双成功双发布。
+  # 成功后由调用方 force_change（Ash 后续写同值幂等，返回 record 状态正确）。
+  defp status_transition(changeset, to_status) do
+    sql = "UPDATE events SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3"
+    id = Ash.Changeset.get_data(changeset, :id)
+    from_status = Ash.Changeset.get_data(changeset, :status)
+
+    case Repo.query(sql, [to_string(to_status), Ecto.UUID.dump!(id), to_string(from_status)]) do
+      {:ok, %{num_rows: 1}} ->
+        :ok
+
+      {:ok, %{num_rows: 0}} ->
+        {:error, :status_race}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
     end
   end
 
