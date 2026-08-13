@@ -234,8 +234,6 @@ input CreateSponsorshipInput {
   "赞助方（全局账号，非成员）"
   sponsorUserId: ID!
 
-  workflowRunId: ID
-
   "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
   tierId: ID
 
@@ -252,8 +250,6 @@ input CreateSponsorshipInput {
 
   "备注\/合作意向"
   message: String
-
-  approvalDeadline: DateTime
 
   targetWorkspaceId: ID
 }

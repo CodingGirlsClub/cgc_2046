@@ -166,18 +166,18 @@ defmodule Cgc2046.Events.Sponsorship do
     create :create_sponsorship do
       description("提交赞助意向：校验后创建 pending（不生效权益，等审批）")
 
+      # workflow_run_id 保留列与关系供二期引擎化（v1 实体自序贯不创建 run），
+      # 不接受客户端写入（评审 A1）
       accept([
         :level,
         :event_id,
         :sponsor_user_id,
-        :workflow_run_id,
         :tier_id,
         :amount,
         :company_name,
         :contact_email,
         :contact_phone,
-        :message,
-        :approval_deadline
+        :message
       ])
 
       # GraphQL 入口不注入 tenant：Workspace 级赞助的目标工作台由本参数提供
@@ -316,9 +316,9 @@ defmodule Cgc2046.Events.Sponsorship do
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, tier} <- resolve_tier(tier_id, target),
          :ok <- uniqueness_precheck(level, target_kind, target_id, sponsor_id) do
-      deadline =
-        Ash.Changeset.get_attribute(changeset, :approval_deadline) ||
-          DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
+      # F7 审批超时由服务端固定生成（评审 NEEDS_CHANGES 修复：不开放客户端
+      # 自设 deadline，防止绕过过期 SLA / 48h 提醒）
+      deadline = DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
 
       changeset =
         changeset
@@ -362,8 +362,11 @@ defmodule Cgc2046.Events.Sponsorship do
 
   # 目标存在 + 赞助开放 + 未过赞助截止（FOR SHARE 锁，同报名 eligible_target）
   defp eligible_target(:event, id) do
+    # v1 赞助入口挂公开宿主页：仅 public 活动可收赞助意向（评审 A5；
+    # 私发邀请赞助二期再解耦）
     case Repo.query(
            "SELECT workspace_id FROM events WHERE id = $1 AND sponsorship_enabled = TRUE " <>
+             "AND visibility = 'public' " <>
              "AND (sponsorship_deadline IS NULL OR sponsorship_deadline > NOW()) FOR SHARE",
            [uuid!(id)]
          ) do
@@ -507,6 +510,7 @@ defmodule Cgc2046.Events.Sponsorship do
       AND EXISTS (
         SELECT 1 FROM #{target_table(target_kind)} t
         WHERE t.id = $4 AND t.sponsorship_enabled = TRUE
+          AND (t.sponsorship_deadline IS NULL OR t.sponsorship_deadline > $2)
       )
     #{exclusive_guard}
     """
@@ -632,10 +636,25 @@ defmodule Cgc2046.Events.Sponsorship do
         |> Ash.Changeset.force_change_attribute(:rejection_reason, reason)
 
       {:ok, %{num_rows: 0}} ->
-        add_domain_error(changeset, :already_processed)
+        # 区分「已处理」与「审批超时」（expiry worker 未拍时误报修复，评审 A4）
+        add_domain_error(changeset, reject_conflict(changeset.data, now))
 
       {:error, reason} ->
         add_domain_error(changeset, {:database, reason})
+    end
+  end
+
+  defp reject_conflict(record, now) do
+    case Repo.query("SELECT status FROM sponsorships WHERE id = $1", [uuid!(record.id)]) do
+      {:ok, %{rows: [[status]]}} ->
+        cond do
+          status != "pending" -> :already_processed
+          deadline_passed?(record, now) -> :approval_deadline_passed
+          true -> :already_processed
+        end
+
+      {:error, reason} ->
+        {:database, reason}
     end
   end
 
@@ -742,7 +761,9 @@ defmodule Cgc2046.Events.Sponsorship do
 
   defp publish_approval_signal(_changeset, result, _signal_type), do: result
 
-  # A5：sponsorship.active 带幂等键（订阅方 SignalIdempotency 去重）。
+  # A5（赞助 doc §2.2/§4.2）：sponsorship.active 带幂等键。生产订阅方
+  # （权益展示/通知，SignalIdempotency 去重）由 E-2 #47 订阅方收尾接入——
+  # v1 本资源只负责按约定生产信号（评审 A1 注释澄清）。
   defp publish_active_signal(changeset, {:ok, sponsorship} = result) do
     try do
       publish_signal(changeset, sponsorship, @active_signal)
