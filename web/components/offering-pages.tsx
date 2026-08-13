@@ -41,6 +41,8 @@ import {
 import WorkspaceShell from "@/components/workspace-shell";
 import EventStatusTag from "@/components/event-status-tag";
 import { Icon } from "@/components/icons";
+import SponsorshipManagement from "@/components/sponsorship-management";
+import { parseSponsorshipTiers } from "@/lib/public-offerings";
 
 const TRANSITION_LABEL: Record<EventTransition, string> = {
 	launch: "发布（开放报名）",
@@ -563,6 +565,43 @@ export function OfferingDetailPage({
 								{saveMessage ? (
 									<p className="mt-3 text-[13px] text-ink-3">{saveMessage}</p>
 								) : null}
+							</div>
+						) : null}
+
+						{kind === "event" ? (
+							<div className="mt-4">
+								<SponsorshipManagement
+									target={{
+										kind: "event",
+										id: offering.id,
+										workspaceId: offering.workspaceId ?? "",
+									}}
+									tiers={parseSponsorshipTiers(offering.sponsorshipTiers)}
+									manage={manage}
+									onSaveTiers={async (tiers) => {
+										try {
+											const res = await updateOffering(offering.id, kind, {
+												sponsorshipTiers: tiers.map((t) => JSON.stringify(t)),
+											});
+											if (res.result) {
+												setState({
+													id: offering.id,
+													row: {
+														...offering,
+														sponsorshipTiers: tiers.map((t) => JSON.stringify(t)),
+													},
+													error: null,
+												});
+												return true;
+											}
+											setSaveMessage(res.errors[0]?.message ?? "保存失败");
+											return false;
+										} catch (e: unknown) {
+											setSaveMessage(e instanceof Error ? e.message : "保存失败");
+											return false;
+										}
+									}}
+								/>
 							</div>
 						) : null}
 					</>

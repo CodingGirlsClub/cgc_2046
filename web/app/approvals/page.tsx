@@ -26,12 +26,19 @@ import {
 } from "@/lib/graphql/approvals";
 import { approveJoinRequest, rejectJoinRequest } from "@/lib/requests";
 import { ApprovalChip } from "@/components/approval-chip";
+import {
+	APPROVE_SPONSORSHIP,
+	REJECT_SPONSORSHIP,
+} from "@/lib/graphql/sponsorship";
 
 function kindLabel(item: PendingApprovalItem): string {
 	if (item.kind === "enrollment") {
 		return item.courseId ? "课程报名" : "活动报名";
 	}
 	if (item.kind === "join_request") return "加入申请";
+	if (item.kind === "sponsorship") {
+		return item.level === "workspace" ? "工作台赞助" : "活动赞助";
+	}
 	return item.kind;
 }
 
@@ -88,6 +95,30 @@ export default function ApprovalsPage() {
 					if (!payload?.result) {
 						throw new Error(payload?.errors?.[0]?.message ?? "操作失败，请稍后重试");
 					}
+				} else if (item.kind === "sponsorship") {
+					// E-3 #48：kind dispatch 增量——approve/reject sponsorship
+					// （reject 带 reason 落审计字段；Workspace 级仅 Owner，Admin
+					// 被后端 SponsorshipApprover policy 拒绝，错误经 payload.errors 回显）
+					const payload =
+						decision === "approve"
+							? (
+									await client.mutate({
+										mutation: APPROVE_SPONSORSHIP,
+										variables: { id: item.id },
+									})
+								).data?.approveSponsorship
+							: (
+									await client.mutate({
+										mutation: REJECT_SPONSORSHIP,
+										variables: {
+											id: item.id,
+											input: { rejectionReason: reason?.trim() || undefined },
+										},
+									})
+								).data?.rejectSponsorship;
+					if (!payload?.result) {
+						throw new Error(payload?.errors?.[0]?.message ?? "操作失败，请稍后重试");
+					}
 				} else if (decision === "approve") {
 					await approveJoinRequest(item.id);
 				} else {
@@ -127,7 +158,7 @@ export default function ApprovalsPage() {
 
 			<header className="approvals-header">
 				<h1>审批中心</h1>
-				<p>你作为 Owner / Admin 的跨工作台待审批项（报名与加入申请）。</p>
+				<p>你作为 Owner / Admin 的跨工作台待审批项（报名、加入申请与赞助意向）。</p>
 			</header>
 
 			{actionError && (
@@ -156,6 +187,7 @@ export default function ApprovalsPage() {
 								<strong>{item.requesterName ?? "—"}</strong>
 								<span>
 									{item.contextTitle ?? "—"} · {item.workspaceName ?? "—"}
+									{item.tierName ? ` · ${item.tierName}` : ""}
 								</span>
 							</div>
 							<ApprovalChip deadline={item.approvalDeadline ?? null} />
@@ -226,6 +258,7 @@ export default function ApprovalsPage() {
 									<strong>{item.requesterName ?? "—"}</strong>
 									<span>
 										{item.contextTitle ?? "—"} · {item.workspaceName ?? "—"}
+										{item.tierName ? ` · ${item.tierName}` : ""}
 									</span>
 								</div>
 								<span className="approval-chip approval-chip--expired">

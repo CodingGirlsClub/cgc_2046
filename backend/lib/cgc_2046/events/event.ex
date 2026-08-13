@@ -136,8 +136,35 @@ defmodule Cgc2046.Events.Event do
       description: "报名截止时间；nil 表示不设截止"
     )
 
+    attribute(:sponsorship_enabled, :boolean,
+      allow_nil?: false,
+      default: true,
+      public?: true,
+      writable?: true,
+      description: "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+    )
+
+    attribute(:sponsorship_tiers, {:array, :map},
+      allow_nil?: false,
+      default: [],
+      public?: true,
+      writable?: true,
+      description: "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+    )
+
+    attribute(:sponsorship_deadline, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "赞助意向截止；nil 表示长期开放"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
+  end
+
+  validations do
+    validate({Cgc2046.Events.SponsorshipTiersValidation, []})
   end
 
   multitenancy do
@@ -170,7 +197,10 @@ defmodule Cgc2046.Events.Event do
       :registration_deadline,
       :visibility,
       :slug,
-      :description
+      :description,
+      :sponsorship_enabled,
+      :sponsorship_tiers,
+      :sponsorship_deadline
     ])
 
     create :create do
@@ -185,7 +215,10 @@ defmodule Cgc2046.Events.Event do
         :registration_deadline,
         :visibility,
         :slug,
-        :description
+        :description,
+        :sponsorship_enabled,
+        :sponsorship_tiers,
+        :sponsorship_deadline
       ])
 
       # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
@@ -260,7 +293,10 @@ defmodule Cgc2046.Events.Event do
         :registration_deadline,
         :visibility,
         :slug,
-        :description
+        :description,
+        :sponsorship_enabled,
+        :sponsorship_tiers,
+        :sponsorship_deadline
       ])
 
       # 强制非原子执行：GraphQL update 走 bulk_update（原子路径）时 policy 的
