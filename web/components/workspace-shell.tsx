@@ -46,8 +46,9 @@ function navSection(pathname: string, slug: string): NavSection {
 	if (
 		pathname.startsWith(`/w/${slug}/events`) ||
 		pathname.startsWith(`/w/${slug}/courses`)
-	)
-		return "events";
+	) {
+		return pathname.startsWith(`/w/${slug}/courses`) ? "courses" : "events";
+	}
 	if (
 		pathname.startsWith(`/w/${slug}/settings/members`)
 	) {
@@ -353,6 +354,14 @@ export default function WorkspaceShell({
 							>
 								<Icon name="book" />
 								<span>活动</span>
+							</Link>
+							<Link
+								href={`/w/${slug}/courses`}
+								className={`ws-shell-item ${active === "courses" ? "ws-shell-item--selected" : ""}`}
+								aria-current={active === "courses" ? "page" : undefined}
+							>
+								<Icon name="guide" />
+								<span>课程</span>
 							</Link>
 						</nav>
 					</>

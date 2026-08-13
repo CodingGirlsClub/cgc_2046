@@ -232,7 +232,10 @@ export function OfferingDetailPage({
 	const [saveBusy, setSaveBusy] = useState(false);
 	const [saveMessage, setSaveMessage] = useState<string | null>(null);
 	const [busyTransition, setBusyTransition] = useState<EventTransition | null>(null);
-	const [pendingCount, setPendingCount] = useState<number | null>(null);
+	const [pendingState, setPendingState] = useState<{
+		status: "loading" | "ok" | "error";
+		value: number;
+	}>({ status: "loading", value: 0 });
 
 	useEffect(() => {
 		if (!id) return;
@@ -264,10 +267,11 @@ export function OfferingDetailPage({
 
 		fetchPendingCount(id, kind)
 			.then((n) => {
-				if (!cancelled) setPendingCount(n);
+				if (!cancelled) setPendingState({ status: "ok", value: n });
 			})
 			.catch(() => {
-				if (!cancelled) setPendingCount(0);
+				// 失败 ≠ 0：不得把未知数据误报为「无人待审批」（复审 BLOCKING 3）
+				if (!cancelled) setPendingState({ status: "error", value: 0 });
 			});
 
 		return () => {
@@ -419,9 +423,15 @@ export function OfferingDetailPage({
 											? `不限（已确认 ${offering.confirmedCount ?? 0}）`
 											: `${offering.confirmedCount ?? 0} / ${offering.capacity}`}
 									</Field>
-									<Field label="待审批报名">
-										{pendingCount === null ? "—" : pendingCount}
-									</Field>
+									{manage ? (
+										<Field label="待审批报名">
+											{pendingState.status === "loading"
+												? "—"
+												: pendingState.status === "error"
+													? "加载失败"
+													: pendingState.value}
+										</Field>
+									) : null}
 								</div>
 							</div>
 

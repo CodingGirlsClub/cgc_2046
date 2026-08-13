@@ -18,6 +18,7 @@ export type NavSection =
 	| "overview"
 	| "workflows"
 	| "events"
+	| "courses"
 	| "members"
 	| "settings-permissions"
 	| "settings-join-policy"
@@ -52,6 +53,15 @@ export const SETTINGS_NAV: NavDestination[] = [
 		group: "workspace",
 		active: "events",
 		icon: "book",
+		settingsTab: false,
+	},
+	{
+		key: "courses",
+		label: "课程",
+		href: (s) => `/w/${s}/courses`,
+		group: "workspace",
+		active: "courses",
+		icon: "guide",
 		settingsTab: false,
 	},
 	{
