@@ -23,10 +23,16 @@ defmodule Cgc2046.Policies.SponsorshipDeliveryReadable do
   @impl true
   def match?(nil, _context, _opts), do: false
 
+  # 全部命中 id 可见才放行（评审 A2：Enum.any? 会把多 id 查询过近似授权——
+  # 混合多个工作台的 filter 只要一个可见就放行全部）；空 filter 拒绝（无依据）。
   def match?(actor, %{query: %Ash.Query{} = query}, _opts) do
-    query
-    |> sponsorship_ids()
-    |> Enum.any?(&sponsorship_visible_to?(actor, &1))
+    case sponsorship_ids(query) do
+      [] ->
+        false
+
+      ids ->
+        Enum.all?(ids, &sponsorship_visible_to?(actor, &1))
+    end
   end
 
   def match?(_actor, _context, _opts), do: false

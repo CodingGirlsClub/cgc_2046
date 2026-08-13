@@ -487,8 +487,6 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       event = EventFixtures.create_event(workspace, owner)
 
-      deadline = DateTime.add(DateTime.utc_now(), 24, :hour)
-
       {:ok, event_pending} =
         Sponsorship
         |> Ash.Changeset.for_create(:create_sponsorship, %{
@@ -496,8 +494,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
           event_id: event.id,
           sponsor_user_id: event_sponsor.id,
           company_name: "Acme",
-          contact_email: event_sponsor.email,
-          approval_deadline: deadline
+          contact_email: event_sponsor.email
         })
         |> Ash.create(tenant: workspace.id, actor: event_sponsor)
 
@@ -508,10 +505,22 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
           target_workspace_id: workspace.id,
           sponsor_user_id: ws_sponsor.id,
           company_name: "Beta",
-          contact_email: ws_sponsor.email,
-          approval_deadline: deadline
+          contact_email: ws_sponsor.email
         })
         |> Ash.create(tenant: workspace.id, actor: ws_sponsor)
+
+      # deadline 由服务端固定生成（评审修复后不接受客户端传入）；测试经 SQL
+      # 注入 48h 窗口（同 enrollment 提醒测试的窗口布置纪律）
+      deadline = DateTime.add(DateTime.utc_now(), 24, :hour)
+
+      for pending <- [event_pending, ws_pending] do
+        {:ok, _} =
+          Ecto.Adapters.SQL.query(
+            Cgc2046.Repo,
+            "UPDATE sponsorships SET approval_deadline = $1 WHERE id = $2",
+            [deadline, Ecto.UUID.dump!(pending.id)]
+          )
+      end
 
       insert_identity(owner.id, "sponsor-reminder-owner-openid")
       insert_identity(admin.id, "sponsor-reminder-admin-openid")
@@ -562,17 +571,23 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       event = EventFixtures.create_event(workspace, owner)
 
-      {:ok, _pending} =
+      {:ok, pending} =
         Sponsorship
         |> Ash.Changeset.for_create(:create_sponsorship, %{
           level: :event,
           event_id: event.id,
           sponsor_user_id: sponsor.id,
           company_name: "Acme",
-          contact_email: sponsor.email,
-          approval_deadline: DateTime.add(DateTime.utc_now(), 72, :hour)
+          contact_email: sponsor.email
         })
         |> Ash.create(tenant: workspace.id, actor: sponsor)
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE sponsorships SET approval_deadline = $1 WHERE id = $2",
+          [DateTime.add(DateTime.utc_now(), 72, :hour), Ecto.UUID.dump!(pending.id)]
+        )
 
       insert_identity(owner.id, "sponsor-reminder-skip-owner-openid")
 

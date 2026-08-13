@@ -40,7 +40,7 @@ defmodule Cgc2046.Events.SponsorshipDeliveryReadTest do
       |> Ash.update(tenant: workspace.id, actor: admin)
 
     loaded = Ash.load!(pending, :deliveries, tenant: workspace.id, actor: owner)
-    IO.inspect(length(loaded.deliveries), label: "owner deliveries")
+    assert length(loaded.deliveries) == 1
 
     assert {:error, _} =
              Ash.load(pending, :deliveries, tenant: workspace.id, actor: outsider)
