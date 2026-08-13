@@ -31,7 +31,7 @@ defmodule Cgc2046.Events.Course do
 
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
-
+  @visibility_values [:public, :workspace]
   attributes do
     uuid_primary_key(:id)
 
@@ -86,6 +86,15 @@ defmodule Cgc2046.Events.Course do
       writable?: true,
       constraints: [one_of: @enrollment_policy_values],
       description: "报名策略：open / request / invite_only"
+    )
+
+    attribute(:visibility, :atom,
+      allow_nil?: false,
+      default: :public,
+      public?: true,
+      writable?: true,
+      constraints: [one_of: @visibility_values],
+      description: "可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9）"
     )
 
     attribute(:capacity, :integer,
@@ -143,7 +152,8 @@ defmodule Cgc2046.Events.Course do
       :research_requirements,
       :enrollment_policy,
       :capacity,
-      :registration_deadline
+      :registration_deadline,
+      :visibility
     ])
 
     create :create do
@@ -155,17 +165,55 @@ defmodule Cgc2046.Events.Course do
         :research_requirements,
         :enrollment_policy,
         :capacity,
-        :registration_deadline
+        :registration_deadline,
+        :visibility
       ])
+
+      # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
+      # 内部调用方（fixtures/测试）直接传 tenant 亦可。policy 经
+      # MembershipContext 的 argument 回退解析工作台（invitation.ex 同款先例）。
+      argument(:workspace_id, :uuid,
+        allow_nil?: true,
+        description: "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
+      )
 
       change(set_attribute(:status, :draft))
 
-      # workspace_id 由 tenant 强制（同 WorkflowRun.create 模式），不接受调用方传入
+      # workspace_id 由 argument 或 tenant 强制，不接受属性直传
       change(fn changeset, _context ->
-        case changeset.tenant do
-          nil -> Ash.Changeset.add_error(changeset, "create requires a tenant (workspace_id)")
-          tenant -> Ash.Changeset.force_change_attribute(changeset, :workspace_id, tenant)
+        workspace_id = Ash.Changeset.get_argument(changeset, :workspace_id) || changeset.tenant
+
+        if workspace_id do
+          changeset
+          |> Ash.Changeset.set_tenant(workspace_id)
+          |> Ash.Changeset.force_change_attribute(:workspace_id, workspace_id)
+        else
+          Ash.Changeset.add_error(changeset, "create requires a tenant (workspace_id)")
         end
+      end)
+    end
+
+    # 编辑课程元数据（E-11 #127）：visibility 可随时双向切换（含 open 后，D9）。
+    # status/workflow_run_id/confirmed_count 不在此 accept（状态走专用 action）。
+    update :update do
+      description("编辑课程元数据（Owner/Admin）")
+      require_atomic?(false)
+
+      accept([
+        :title,
+        :research_enabled,
+        :research_requirements,
+        :enrollment_policy,
+        :capacity,
+        :registration_deadline,
+        :visibility
+      ])
+
+      # 强制非原子执行（同 event.ex :update 注释——GraphQL bulk_update 原子
+      # 路径下 policy 的 changeset.data 读取会 raise）。
+      change(fn changeset, _context ->
+        _ = Ash.Changeset.get_data(changeset, :status)
+        changeset
       end)
     end
 
@@ -179,14 +227,30 @@ defmodule Cgc2046.Events.Course do
       require_atomic?(false)
       accept([])
 
+      # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
+      # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
       change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          :draft ->
-            Ash.Changeset.force_change_attribute(changeset, :status, :open)
+        Ash.Changeset.before_action(changeset, fn cs ->
+          case Ash.Changeset.get_data(cs, :status) do
+            :draft ->
+              case status_transition(cs, :open) do
+                :ok ->
+                  Ash.Changeset.force_change_attribute(cs, :status, :open)
 
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot launch from status=#{status}")
-        end
+                {:error, :status_race} ->
+                  Ash.Changeset.add_error(
+                    cs,
+                    "launch failed: status changed concurrently, retry on fresh read"
+                  )
+
+                {:error, {:database, _} = reason} ->
+                  Ash.Changeset.add_error(cs, reason)
+              end
+
+            status ->
+              Ash.Changeset.add_error(cs, "cannot launch from status=#{status}")
+          end
+        end)
       end)
 
       # 事务提交成功后发布信号（提交失败不发布——订阅方不会读到孤儿信号）。
@@ -368,15 +432,39 @@ defmodule Cgc2046.Events.Course do
   end
 
   policies do
-    # 读取（H3）：经 workspace → memberships 路径，仅成员或平台管理员
+    # 读取（D9 修订）：成员/平台管理员可读全部；匿名（无 actor）仅可读
+    # open + visibility=public（公开发现面，D2 白名单由 field_policies 收窄）。
     policy action_type(:read) do
       authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(expr(status == :open and visibility == :public))
     end
 
     # 写操作：Owner/Admin（多角色并集）或平台管理员
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
+  end
+
+  # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
+  # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
+  # research_enabled / research_requirements / workflow_run_id / capacity /
+  # confirmed_count，匿名被筛除。
+  field_policies do
+    field_policy :* do
+      authorize_if(always())
+    end
+
+    field_policy [
+      :workspace_id,
+      :research_enabled,
+      :research_requirements,
+      :workflow_run_id,
+      :capacity,
+      :confirmed_count
+    ] do
+      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
@@ -387,6 +475,14 @@ defmodule Cgc2046.Events.Course do
     queries do
       list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")
       read_one(:get_course, :get_by_id, description: "按 id 获取课程（#40）")
+    end
+
+    mutations do
+      create(:create_course, :create)
+      update(:update_course, :update)
+      update(:launch_course, :launch)
+      update(:close_course, :close)
+      update(:cancel_course, :cancel)
     end
   end
 
