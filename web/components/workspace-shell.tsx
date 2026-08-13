@@ -42,7 +42,12 @@ import {
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
-	if (pathname.startsWith(`/w/${slug}/events`)) return "events";
+	if (pathname.startsWith(`/w/${slug}/workflows`)) return "workflows";
+	if (
+		pathname.startsWith(`/w/${slug}/events`) ||
+		pathname.startsWith(`/w/${slug}/courses`)
+	)
+		return "events";
 	if (
 		pathname.startsWith(`/w/${slug}/settings/members`)
 	) {
@@ -340,6 +345,14 @@ export default function WorkspaceShell({
 							>
 								<Icon name="book" />
 								<span>教研产出</span>
+							</Link>
+							<Link
+								href={`/w/${slug}/events`}
+								className={`ws-shell-item ${active === "events" ? "ws-shell-item--selected" : ""}`}
+								aria-current={active === "events" ? "page" : undefined}
+							>
+								<Icon name="book" />
+								<span>活动</span>
 							</Link>
 						</nav>
 					</>

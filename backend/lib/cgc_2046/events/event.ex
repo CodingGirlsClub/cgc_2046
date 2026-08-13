@@ -225,14 +225,30 @@ defmodule Cgc2046.Events.Event do
       require_atomic?(false)
       accept([])
 
+      # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
+      # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
       change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          :draft ->
-            Ash.Changeset.force_change_attribute(changeset, :status, :open)
+        Ash.Changeset.before_action(changeset, fn cs ->
+          case Ash.Changeset.get_data(cs, :status) do
+            :draft ->
+              case status_transition(cs, :open) do
+                :ok ->
+                  Ash.Changeset.force_change_attribute(cs, :status, :open)
 
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot launch from status=#{status}")
-        end
+                {:error, :status_race} ->
+                  Ash.Changeset.add_error(
+                    cs,
+                    "launch failed: status changed concurrently, retry on fresh read"
+                  )
+
+                {:error, {:database, _} = reason} ->
+                  Ash.Changeset.add_error(cs, reason)
+              end
+
+            status ->
+              Ash.Changeset.add_error(cs, "cannot launch from status=#{status}")
+          end
+        end)
       end)
 
       # 事务提交成功后发布信号（提交失败不发布——订阅方不会读到孤儿信号）。
@@ -429,19 +445,23 @@ defmodule Cgc2046.Events.Event do
     end
   end
 
-  # D2 公开字段白名单：名额余量属运营信息，对非成员/匿名不暴露（成员与平台
-  # 管理员经 authorize_if 放行；匿名读时这两字段被 field policy 筛除）。
+  # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
+  # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
+  # research_enabled / research_requirements / workflow_run_id / capacity /
+  # confirmed_count，匿名被筛除。
   field_policies do
     field_policy :* do
       authorize_if(always())
     end
 
-    field_policy :capacity do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
-    end
-
-    field_policy :confirmed_count do
+    field_policy [
+      :workspace_id,
+      :research_enabled,
+      :research_requirements,
+      :workflow_run_id,
+      :capacity,
+      :confirmed_count
+    ] do
       authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end

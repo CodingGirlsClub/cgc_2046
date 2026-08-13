@@ -9,7 +9,7 @@ export default function Page() {
 		<OfferingDetailPage
 			slug={params?.slug ?? ""}
 			id={params?.id ?? ""}
-			kind="event"
+			kind="course"
 		/>
 	);
 }

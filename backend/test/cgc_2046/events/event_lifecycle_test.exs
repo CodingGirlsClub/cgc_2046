@@ -61,6 +61,19 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert Exception.message(again) =~ "cannot close from status=closed"
     end
 
+    test "launch 也走 DB 级 CAS：陈旧 struct 重复 launch 被拒绝（并发双信号防护）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = create_draft_event(workspace, admin, "Launch CAS")
+
+      assert {:ok, launched} = launch(event, workspace, admin)
+      assert launched.status == :open
+
+      # 陈旧 struct（内存仍 draft）再次 launch → CAS num_rows=0 拒绝
+      assert {:error, race} = launch(event, workspace, admin)
+      assert Exception.message(race) =~ "concurrently"
+    end
+
     test "DB 级 compare-and-set：陈旧 struct（内存 open、DB 已 closed）被 CAS 拒绝" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
@@ -125,6 +138,12 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:error, _} = cancel(event, workspace, member)
       assert reload(Event, event.id).status == :open
     end
+  end
+
+  defp launch(entity, workspace, actor) do
+    entity
+    |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id, actor: actor)
+    |> Ash.update(tenant: workspace.id, actor: actor)
   end
 
   defp close(entity, workspace, actor) do
