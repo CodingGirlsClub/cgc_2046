@@ -4,6 +4,7 @@ defmodule Cgc2046.AccountsFixtures do
 
   - `register_user/1`：password strategy 注册用户，邮箱 `"<prefix>-<uuid>@example.com"`
     防冲突；固定密码经 `password/0` 暴露，登录流程断言统一引用，不在测试文件硬编码。
+    `register_user_with_email/1`：指定邮箱变体（定向邀请账号匹配等需固定邮箱场景）。
   - `platform_admin/1`：注册后走 User `:set_platform_admin` 域 action 提权
     （`authorize?: false` 模拟种子/运维路径，与 `mix cgc2046.promote_admin` 同一动作）。
     禁止在测试里手写 `UPDATE users SET is_platform_admin` 裸 SQL 绕过。
@@ -29,8 +30,14 @@ defmodule Cgc2046.AccountsFixtures do
   def password, do: @password
 
   def register_user(prefix) do
-    email = "#{prefix}-#{Ecto.UUID.generate()}@example.com"
+    register_user_with_email("#{prefix}-#{Ecto.UUID.generate()}@example.com")
+  end
 
+  @doc """
+  以指定邮箱注册用户（定向邀请 accept 账号匹配等需固定邮箱的布置用；
+  其余语义同 register_user/1）。
+  """
+  def register_user_with_email(email) do
     {:ok, user} =
       User
       |> Info.strategy!(:password)

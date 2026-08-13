@@ -3790,7 +3790,7 @@ type CreateSpeakerInvitationPayload {
 }
 
 type SpeakerInvitationActionPayload {
-  "accept\/decline\/completeSpeakerInvitation 返回：result + errors 两段式"
+  "accept\/decline\/saveSpeakerMaterials\/completeSpeakerInvitation 返回：result + errors 两段式"
   result: SpeakerInvitation
 
   errors: [MutationError!]!
@@ -3930,6 +3930,9 @@ type RootMutationType {
 
   "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
   declineSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner\/Admin 兜底；materials 为 JSON 字符串）"
+  saveSpeakerMaterials(invitationId: ID!, materials: JsonString!): SpeakerInvitationActionPayload
 
   "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
   completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload

@@ -23,7 +23,7 @@ defmodule Cgc2046.Workflows.SpeakerInvitationInstantiator do
 
   @doc """
   为邀请创建并启动 workflow run。返回 {:ok, run}（waiting）或 {:error, reason}。
-  调用方（SpeakerInvitation.create_invitation 的 after_action）在同一事务内
+  调用方（SpeakerInvitation.create_invitation 的 before_action）在同一事务内
   执行——失败回滚邀请创建，不落孤儿邀请。
   """
   @spec start_run(String.t(), String.t(), String.t()) ::
