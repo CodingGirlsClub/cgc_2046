@@ -68,6 +68,8 @@ export type OfferingUpdateInput = {
 	visibility?: Visibility;
 	capacity?: number | null;
 	registrationDeadline?: string | null;
+	/** 赞助档位配置（每项 JSON.stringify 后作为 JsonString 提交；E-3 #48，仅 event） */
+	sponsorshipTiers?: string[];
 };
 
 /** 状态机动作（详情页按钮） */

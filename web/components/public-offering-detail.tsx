@@ -18,8 +18,10 @@ import { useEffect, useState } from "react";
 import { useAuthed } from "@/lib/use-authed";
 import {
 	fetchPublicOffering,
+	parseSponsorshipTiers,
 	submitEnrollment,
 } from "@/lib/public-offerings";
+import SponsorshipIntentForm from "@/components/sponsorship-intent-form";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import {
 	ENROLLMENT_POLICY_LABEL,
@@ -77,6 +79,16 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 	const loadError = stale ? null : state.error;
 	const label = OFFERING_LABEL[kind];
 	const listHref = kind === "event" ? "/events" : "/courses";
+
+	// E-3 #48 赞助入口（仅 event；enabled + tiers 已配才显示，对齐 E-5 readiness ②）
+	const sponsorshipTiers = offering
+		? parseSponsorshipTiers(offering.sponsorshipTiers)
+		: [];
+	const sponsorshipOpen =
+		kind === "event" &&
+		offering !== null &&
+		offering.sponsorshipEnabled === true &&
+		sponsorshipTiers.length > 0;
 
 	async function submit() {
 		if (!offering || !authed || !userId) return;
@@ -218,6 +230,63 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 							)}
 						</div>
 					</div>
+
+					{sponsorshipOpen ? (
+						<div className="join-card !p-8">
+							<h2 className="text-lg font-semibold">赞助本场</h2>
+							<p className="mt-1 text-[13px] text-ink-3">
+								提交赞助意向，审批通过后权益生效（意向登记，不收款）。
+							</p>
+							<div className="mt-4 grid gap-2">
+								{sponsorshipTiers.map((tier) => (
+									<div
+										key={tier.id}
+										className="rounded-large border border-line bg-soft-2 p-3 text-sm"
+									>
+										<p className="flex items-center gap-2 font-medium">
+											{tier.name}
+											{tier.exclusive ? (
+												<span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
+													独占位
+												</span>
+											) : null}
+										</p>
+										{tier.amountSuggestion ? (
+											<p className="mt-0.5 text-[13px] text-ink-3">
+												建议金额 ¥{tier.amountSuggestion}
+											</p>
+										) : null}
+										{tier.benefits.length > 0 ? (
+											<p className="mt-0.5 text-[13px] text-ink-3">
+												权益：{tier.benefits.join(" / ")}
+											</p>
+										) : null}
+									</div>
+								))}
+							</div>
+							<div className="mt-5 border-t border-line pt-5">
+								{!authed ? (
+									<div className="text-sm">
+										<Link
+											href={`/login?next=${encodeURIComponent(`/events/${offering.slug}`)}`}
+											className="join-button join-button--primary inline-block"
+										>
+											登录后赞助
+										</Link>
+										<p className="mt-2 text-[13px] text-ink-3">
+											赞助需登录全局账号（不自动成为工作台成员）。
+										</p>
+									</div>
+								) : userId ? (
+									<SponsorshipIntentForm
+										eventId={offering.id}
+										sponsorUserId={userId}
+										tiers={sponsorshipTiers}
+									/>
+								) : null}
+							</div>
+						</div>
+					) : null}
 				</>
 			)}
 		</main>

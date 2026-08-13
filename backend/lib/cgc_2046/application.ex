@@ -26,6 +26,8 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.ResearchInstantiator,
       # 生命周期级联（E-9 #124：订阅 event/course.ended 信号 → 停教研 run 回收）
       Cgc2046.Workflows.ResearchRunReaper,
+      # 赞助关系级联（E-3 #48：订阅 event.ended → Event 级 active Sponsorship 转 ended）
+      Cgc2046.Events.SponsorshipEndedSubscriber,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
       Cgc2046.NotificationSubscriber,
       # AshAuthentication supervisor (periodic token cleanup etc.)

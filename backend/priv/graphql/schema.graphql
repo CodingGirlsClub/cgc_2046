@@ -3,6 +3,736 @@ schema {
   query: RootQueryType
 }
 
+"The result of the :fulfill_delivery mutation"
+type FulfillDeliveryResult {
+  "The successful result of the mutation"
+  result: SponsorshipDelivery
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input FulfillDeliveryInput {
+  proofNote: String!
+}
+
+enum SponsorshipDeliverySortField {
+  ID
+  WORKSPACE_ID
+  SPONSORSHIP_ID
+  BENEFIT
+  DUE_DATE
+  FULFILLED_AT
+  PROOF_NOTE
+  EXCLUSIVE
+}
+
+input SponsorshipDeliveryFilterExclusive {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+}
+
+input SponsorshipDeliveryFilterProofNote {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipDeliveryFilterFulfilledAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipDeliveryFilterDueDate {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipDeliveryFilterBenefit {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipDeliveryFilterSponsorshipId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipDeliveryFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipDeliveryFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipDeliveryFilterInput {
+  and: [SponsorshipDeliveryFilterInput!]
+
+  or: [SponsorshipDeliveryFilterInput!]
+
+  not: [SponsorshipDeliveryFilterInput!]
+
+  id: SponsorshipDeliveryFilterId
+
+  "所属工作台（物化时从 Sponsorship 复制，租户）"
+  workspaceId: SponsorshipDeliveryFilterWorkspaceId
+
+  sponsorshipId: SponsorshipDeliveryFilterSponsorshipId
+
+  "权益项名（物化自 tier.benefits）"
+  benefit: SponsorshipDeliveryFilterBenefit
+
+  dueDate: SponsorshipDeliveryFilterDueDate
+
+  fulfilledAt: SponsorshipDeliveryFilterFulfilledAt
+
+  proofNote: SponsorshipDeliveryFilterProofNote
+
+  "独占位标记（随档位复制）"
+  exclusive: SponsorshipDeliveryFilterExclusive
+}
+
+input SponsorshipDeliverySortInput {
+  order: SortOrder
+  field: SponsorshipDeliverySortField!
+}
+
+type SponsorshipDelivery {
+  id: ID!
+
+  "所属工作台（物化时从 Sponsorship 复制，租户）"
+  workspaceId: ID!
+
+  sponsorshipId: ID!
+
+  "权益项名（物化自 tier.benefits）"
+  benefit: String!
+
+  dueDate: DateTime
+
+  fulfilledAt: DateTime
+
+  proofNote: String
+
+  "独占位标记（随档位复制）"
+  exclusive: Boolean!
+}
+
+"The result of the :reject_sponsorship mutation"
+type RejectSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectSponsorshipInput {
+  rejectionReason: String
+}
+
+"The result of the :approve_sponsorship mutation"
+type ApproveSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_sponsorship mutation"
+type CreateSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateSponsorshipInput {
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: String!
+
+  eventId: ID
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: ID!
+
+  workflowRunId: ID
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: ID
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: Int
+
+  "赞助方公司\/展示名"
+  companyName: String!
+
+  "联系邮箱（必填）"
+  contactEmail: String!
+
+  contactPhone: String
+
+  "备注\/合作意向"
+  message: String
+
+  approvalDeadline: DateTime
+
+  targetWorkspaceId: ID
+}
+
+enum SponsorshipSortField {
+  ID
+  LEVEL
+  WORKSPACE_ID
+  EVENT_ID
+  SPONSOR_USER_ID
+  WORKFLOW_RUN_ID
+  TIER_ID
+  TIER_NAME
+  STATUS
+  AMOUNT
+  COMPANY_NAME
+  CONTACT_EMAIL
+  CONTACT_PHONE
+  MESSAGE
+  APPROVED_BY
+  APPROVED_AT
+  REJECTION_REASON
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+  STARTED_AT
+  ENDED_AT
+}
+
+"A keyset page of :sponsorship"
+type KeysetPageOfSponsorship {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Sponsorship!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input SponsorshipFilterEndedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input SponsorshipFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterMessage {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterContactPhone {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterContactEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterCompanyName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterAmount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input SponsorshipFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input SponsorshipFilterTierName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterTierId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterSponsorUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterLevel {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input SponsorshipFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input SponsorshipFilterInput {
+  and: [SponsorshipFilterInput!]
+
+  or: [SponsorshipFilterInput!]
+
+  not: [SponsorshipFilterInput!]
+
+  id: SponsorshipFilterId
+
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: SponsorshipFilterLevel
+
+  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
+  workspaceId: SponsorshipFilterWorkspaceId
+
+  eventId: SponsorshipFilterEventId
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: SponsorshipFilterSponsorUserId
+
+  workflowRunId: SponsorshipFilterWorkflowRunId
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: SponsorshipFilterTierId
+
+  "档位展示名冗余（审批\/展示用）"
+  tierName: SponsorshipFilterTierName
+
+  status: SponsorshipFilterStatus
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: SponsorshipFilterAmount
+
+  "赞助方公司\/展示名"
+  companyName: SponsorshipFilterCompanyName
+
+  "联系邮箱（必填）"
+  contactEmail: SponsorshipFilterContactEmail
+
+  contactPhone: SponsorshipFilterContactPhone
+
+  "备注\/合作意向"
+  message: SponsorshipFilterMessage
+
+  approvedBy: SponsorshipFilterApprovedBy
+
+  approvedAt: SponsorshipFilterApprovedAt
+
+  rejectionReason: SponsorshipFilterRejectionReason
+
+  approvalDeadline: SponsorshipFilterApprovalDeadline
+
+  expiredAt: SponsorshipFilterExpiredAt
+
+  startedAt: SponsorshipFilterStartedAt
+
+  endedAt: SponsorshipFilterEndedAt
+
+  deliveries: SponsorshipDeliveryFilterInput
+}
+
+input SponsorshipSortInput {
+  order: SortOrder
+  field: SponsorshipSortField!
+}
+
+type Sponsorship {
+  id: ID!
+
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: String!
+
+  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
+  workspaceId: ID!
+
+  eventId: ID
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: ID!
+
+  workflowRunId: ID
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: ID
+
+  "档位展示名冗余（审批\/展示用）"
+  tierName: String
+
+  status: String!
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: Int
+
+  "赞助方公司\/展示名"
+  companyName: String!
+
+  "联系邮箱（必填）"
+  contactEmail: String!
+
+  contactPhone: String
+
+  "备注\/合作意向"
+  message: String
+
+  approvedBy: ID
+
+  approvedAt: DateTime
+
+  rejectionReason: String
+
+  approvalDeadline: DateTime
+
+  expiredAt: DateTime
+
+  startedAt: DateTime
+
+  endedAt: DateTime
+
+  deliveries(
+    "How to sort the records in the response"
+    sort: [SponsorshipDeliverySortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipDeliveryFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [SponsorshipDelivery!]!
+}
+
 "The result of the :cancel_enrollment mutation"
 type CancelEnrollmentResult {
   "The successful result of the mutation"
@@ -1071,6 +1801,15 @@ input UpdateEventInput {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: Boolean
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
 }
 
 "The result of the :create_event mutation"
@@ -1110,6 +1849,15 @@ input CreateEventInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: Boolean
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
+
   "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
   workspaceId: ID
 }
@@ -1129,6 +1877,8 @@ enum EventSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  SPONSORSHIP_ENABLED
+  SPONSORSHIP_DEADLINE
 }
 
 "A keyset page of :event"
@@ -1144,6 +1894,32 @@ type KeysetPageOfEvent {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input EventFilterSponsorshipDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input EventFilterSponsorshipEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
 }
 
 input EventFilterRegistrationDeadline {
@@ -1390,6 +2166,12 @@ input EventFilterInput {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: EventFilterRegistrationDeadline
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: EventFilterSponsorshipEnabled
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: EventFilterSponsorshipDeadline
 }
 
 input EventSortInput {
@@ -1438,6 +2220,15 @@ type Event {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: Boolean!
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]!
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
 }
 
 enum WorkflowRunSortField {
@@ -2983,6 +3774,12 @@ input UpdateWorkspaceInput {
 
   "是否开放赞助入口（默认开）"
   sponsorshipEnabled: Boolean
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
 }
 
 type CreateWorkspaceMetadata {
@@ -3015,6 +3812,12 @@ input CreateWorkspaceInput {
   "是否开放赞助入口（默认开）"
   sponsorshipEnabled: Boolean
 
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
+
   "指定已有用户为 Owner（替代 actor.id 建 Owner membership）"
   ownerUserId: ID
 
@@ -3028,6 +3831,20 @@ enum WorkspaceSortField {
   NAME
   JOIN_POLICY
   SPONSORSHIP_ENABLED
+  SPONSORSHIP_DEADLINE
+}
+
+input WorkspaceFilterSponsorshipDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
 }
 
 input WorkspaceFilterSponsorshipEnabled {
@@ -3125,6 +3942,9 @@ input WorkspaceFilterInput {
 
   "是否开放赞助入口（默认开）"
   sponsorshipEnabled: WorkspaceFilterSponsorshipEnabled
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: WorkspaceFilterSponsorshipDeadline
 }
 
 input WorkspaceSortInput {
@@ -3146,6 +3966,12 @@ type Workspace {
 
   "是否开放赞助入口（默认开）"
   sponsorshipEnabled: Boolean!
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]!
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
 
   "当前用户在该工作台的角色名数组（非成员为 []）"
   myRoleNames: [String!]
@@ -3496,6 +4322,33 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): KeysetPageOfEnrollment
+
+  sponsorships(
+    "How to sort the records in the response"
+    sort: [SponsorshipSortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfSponsorship
+
+  getSponsorship(
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    id: ID!
+  ): Sponsorship
 }
 
 type AbilityGrant {
@@ -3540,6 +4393,11 @@ type PendingApproval {
   requesterName: String
   workspaceName: String
   contextTitle: String
+  level: String
+  companyName: String
+  contactEmail: String
+  tierName: String
+  amount: Int
 }
 
 type MiniprogramCodeResult {
@@ -3904,6 +4762,18 @@ type RootMutationType {
 
   "报名人取消报名；confirmed 报名释放名额"
   cancelEnrollment(id: ID!): CancelEnrollmentResult!
+
+  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
+  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
+
+  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
+  approveSponsorship(id: ID!): ApproveSponsorshipResult!
+
+  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
+  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
+
+  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
+  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
 }
 
 """

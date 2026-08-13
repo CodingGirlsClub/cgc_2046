@@ -37,5 +37,7 @@ defmodule Cgc2046.Api do
     resource(Cgc2046.Events.Course)
     resource(Cgc2046.Events.InviteBatch)
     resource(Cgc2046.Events.Enrollment)
+    resource(Cgc2046.Events.Sponsorship)
+    resource(Cgc2046.Events.SponsorshipDelivery)
   end
 end
