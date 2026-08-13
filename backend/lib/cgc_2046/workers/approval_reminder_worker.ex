@@ -2,14 +2,18 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   @moduledoc """
   48h 审批提醒 job（0C；Oban cron 每小时一拍，见 config.exs）。
 
-  F7 方案 A「deadline 前 48h 提醒审批人」的两条独立扫描：
+  F7 方案 A「deadline 前 48h 提醒审批人」的三条独立扫描：
 
   1. Enrollment 扫描（run-less 报名的单属主提醒路径）：`status=pending` 且
      `approval_deadline` 落在 (now, now+48h] 的报名，逐条经 NotificationService
      的 Oban 队列为工作台 Owner/Admin 异步发送 approval_reminder 提醒。入队 args
      含 recipient identity + enrollment_id + deadline，NotificationWorker 7 天
      args-unique 保证同一报名同一收件人不重复、不同报名/不同收件人不折叠。
-  2. WorkflowRun 扫描：`waiting` 且 deadline
+  2. Sponsorship 扫描（E-3 #48 F7）：`status=pending` 且 deadline 落在 48h
+     窗口内的赞助，为审批人入队 approval_reminder 提醒（data 携带
+     sponsorship_id）——Event 级提醒 Owner/Admin、Workspace 级仅提醒 Owner
+     （拍板 #4）。
+  3. WorkflowRun 扫描：`waiting` 且 deadline
      （= run 进入 waiting 的 `updated_at` + definition.approval_timeout）落在未来
      48h 窗口内的 run，每 run 落一条 SignalLog（`signal_type=
      "workflow.approval_reminder"`）——该行仅为**审计事实记录**，对**所有** waiting
