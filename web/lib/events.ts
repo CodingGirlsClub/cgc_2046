@@ -1,32 +1,41 @@
 import type {
-	EventItem,
-	EventMutationResult,
-	EventStatus,
 	EnrollmentPolicy,
+	OfferingItem,
+	OfferingKind,
+	OfferingMutationResult,
+	EventStatus,
 	Visibility,
 } from "./graphql/events";
 import {
+	CANCEL_COURSE,
 	CANCEL_EVENT,
+	CLOSE_COURSE,
 	CLOSE_EVENT,
+	CREATE_COURSE,
 	CREATE_EVENT,
+	GET_COURSE,
 	GET_EVENT,
+	LAUNCH_COURSE,
 	LAUNCH_EVENT,
+	LIST_COURSES,
+	LIST_COURSE_ENROLLMENTS,
 	LIST_EVENTS,
+	LIST_EVENT_ENROLLMENTS,
+	UPDATE_COURSE,
 	UPDATE_EVENT,
 } from "./graphql/events";
 import { MANAGE_ROLE_NAMES } from "./graphql/workspace";
 import { client } from "./apollo-client";
 
 /**
- * E-11 #127 活动数据源（唯一真实路径 = GraphQL，同 workspaces.ts 纪律）。
+ * E-11 #127 活动/课程数据源（唯一真实路径 = GraphQL，同 workspaces.ts 纪律）。
  *
- * - fetchWorkspaceEvents：成员读本工作台全部活动（含 draft/closed）；
- * - createEvent / updateEvent / launchEvent / closeEvent / cancelEvent：
- *   Owner/Admin 管理动作（后端 policy 兜底）；
+ * - fetchWorkspaceOfferings：成员读本工作台全部活动/课程（含 draft/closed）；
+ * - create/update/transition：Owner/Admin 管理动作（后端 policy 兜底）；
  * - 状态机前置守卫在页面前端做乐观判定，后端返回 errors 时以 error 态呈现。
  */
 
-/** 管理角色判定（列表/详情/新建三页共用；后端 policy 兜底） */
+/** 管理角色判定（列表/详情/新建页共用；后端 policy 兜底） */
 export function canManageEvents(roleNames: string[] = []): boolean {
 	return roleNames.some((r) => (MANAGE_ROLE_NAMES as readonly string[]).includes(r));
 }
@@ -45,7 +54,7 @@ export function formatDeadline(deadline: string | null): string {
 	});
 }
 
-export type EventDraftInput = {
+export type OfferingDraftInput = {
 	title: string;
 	enrollmentPolicy: EnrollmentPolicy;
 	visibility: Visibility;
@@ -53,7 +62,7 @@ export type EventDraftInput = {
 	registrationDeadline?: string | null;
 };
 
-export type EventUpdateInput = {
+export type OfferingUpdateInput = {
 	title?: string;
 	enrollmentPolicy?: EnrollmentPolicy;
 	visibility?: Visibility;
@@ -61,14 +70,15 @@ export type EventUpdateInput = {
 	registrationDeadline?: string | null;
 };
 
-/** 状态机动作（列表/详情页按钮） */
+/** 状态机动作（详情页按钮） */
 export type EventTransition = "launch" | "close" | "cancel";
 
-/** 后端状态机允许的动作（乐观前置守卫；后端仍会复验） */
+/** 后端状态机允许的动作（乐观前置守卫；后端仍会复验）。draft 仅 launch（后端
+ * 只允许 open→cancel，draft 取消走删除语义 v1 不提供）。 */
 export function allowedTransitions(status: EventStatus): EventTransition[] {
 	switch (status) {
 		case "draft":
-			return ["launch", "cancel"];
+			return ["launch"];
 		case "open":
 			return ["close", "cancel"];
 		default:
@@ -76,26 +86,82 @@ export function allowedTransitions(status: EventStatus): EventTransition[] {
 	}
 }
 
-export async function fetchWorkspaceEvents(workspaceId: string): Promise<EventItem[]> {
+const QUERY_BY_KIND = {
+	event: { list: LIST_EVENTS, get: GET_EVENT },
+	course: { list: LIST_COURSES, get: GET_COURSE },
+};
+
+export async function fetchWorkspaceOfferings(
+	workspaceId: string,
+	kind: OfferingKind,
+): Promise<OfferingItem[]> {
+	const query = QUERY_BY_KIND[kind].list;
+
 	const { data } = await client.query({
-		query: LIST_EVENTS,
+		query,
 		variables: { workspaceId },
 	});
 
-	return data?.listEvents ?? [];
+	const result = data as unknown as Record<
+		"listEvents" | "listCourses",
+		{ results: OfferingItem[] }
+	>;
+
+	return result[kind === "event" ? "listEvents" : "listCourses"]?.results ?? [];
 }
 
-export async function fetchEvent(id: string): Promise<EventItem | null> {
-	const { data } = await client.query({ query: GET_EVENT, variables: { id } });
-	return data?.getEvent ?? null;
+export async function fetchOffering(
+	id: string,
+	kind: OfferingKind,
+): Promise<OfferingItem | null> {
+	const query = QUERY_BY_KIND[kind].get;
+	const { data } = await client.query({ query, variables: { id } });
+
+	const result = data as unknown as Record<"getEvent" | "getCourse", OfferingItem>;
+	return result[kind === "event" ? "getEvent" : "getCourse"] ?? null;
 }
 
-export async function createEvent(
+const MUTATION_BY_KIND = {
+	event: {
+		create: CREATE_EVENT,
+		update: UPDATE_EVENT,
+		launch: LAUNCH_EVENT,
+		close: CLOSE_EVENT,
+		cancel: CANCEL_EVENT,
+	},
+	course: {
+		create: CREATE_COURSE,
+		update: UPDATE_COURSE,
+		launch: LAUNCH_COURSE,
+		close: CLOSE_COURSE,
+		cancel: CANCEL_COURSE,
+	},
+};
+
+const MUTATION_FIELDS: Record<OfferingKind, Record<"create" | "update" | EventTransition, string>> = {
+	event: {
+		create: "createEvent",
+		update: "updateEvent",
+		launch: "launchEvent",
+		close: "closeEvent",
+		cancel: "cancelEvent",
+	},
+	course: {
+		create: "createCourse",
+		update: "updateCourse",
+		launch: "launchCourse",
+		close: "closeCourse",
+		cancel: "cancelCourse",
+	},
+};
+
+export async function createOffering(
 	workspaceId: string,
-	input: EventDraftInput,
-): Promise<EventMutationResult> {
+	kind: OfferingKind,
+	input: OfferingDraftInput,
+): Promise<OfferingMutationResult> {
 	const { data } = await client.mutate({
-		mutation: CREATE_EVENT,
+		mutation: MUTATION_BY_KIND[kind].create,
 		variables: {
 			input: {
 				workspaceId,
@@ -108,46 +174,58 @@ export async function createEvent(
 		},
 	});
 
-	return data?.createEvent ?? { result: null, errors: [{ message: "无响应" }] };
+	const result = data as unknown as Record<string, OfferingMutationResult>;
+	return (
+		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [{ message: "无响应" }] }
+	);
 }
 
-export async function updateEvent(
+export async function updateOffering(
 	id: string,
-	input: EventUpdateInput,
-): Promise<EventMutationResult> {
+	kind: OfferingKind,
+	input: OfferingUpdateInput,
+): Promise<OfferingMutationResult> {
 	const { data } = await client.mutate({
-		mutation: UPDATE_EVENT,
+		mutation: MUTATION_BY_KIND[kind].update,
 		variables: { id, input },
 	});
 
-	return data?.updateEvent ?? { result: null, errors: [{ message: "无响应" }] };
+	const result = data as unknown as Record<string, OfferingMutationResult>;
+	return (
+		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [{ message: "无响应" }] }
+	);
 }
 
-export async function transitionEvent(
+export async function transitionOffering(
 	id: string,
+	kind: OfferingKind,
 	transition: EventTransition,
-): Promise<EventMutationResult> {
-	const mutation =
-		transition === "launch"
-			? LAUNCH_EVENT
-			: transition === "close"
-				? CLOSE_EVENT
-				: CANCEL_EVENT;
+): Promise<OfferingMutationResult> {
+	const { data } = await client.mutate({
+		mutation: MUTATION_BY_KIND[kind][transition],
+		variables: { id },
+	});
 
-	const { data } = await client.mutate({ mutation, variables: { id } });
+	const result = data as unknown as Record<string, OfferingMutationResult>;
+	return (
+		result[MUTATION_FIELDS[kind][transition]] ??
+		{ result: null, errors: [{ message: "无响应" }] }
+	);
+}
 
-	// data 类型为三个 mutation 结果对象的并集；按 transition 收窄后索引
-	const result = data as unknown as Record<
-		"launchEvent" | "closeEvent" | "cancelEvent",
-		EventMutationResult
-	>;
+/** pending 报名数（request 策略待审批；详情页报名数据视图） */
+export async function fetchPendingCount(id: string, kind: OfferingKind): Promise<number> {
+	if (kind === "event") {
+		const { data } = await client.query({
+			query: LIST_EVENT_ENROLLMENTS,
+			variables: { eventId: id },
+		});
+		return data?.enrollments?.count ?? 0;
+	}
 
-	const field =
-		transition === "launch"
-			? "launchEvent"
-			: transition === "close"
-				? "closeEvent"
-				: "cancelEvent";
-
-	return result[field] ?? { result: null, errors: [{ message: "无响应" }] };
+	const { data } = await client.query({
+		query: LIST_COURSE_ENROLLMENTS,
+		variables: { courseId: id },
+	});
+	return data?.enrollments?.count ?? 0;
 }

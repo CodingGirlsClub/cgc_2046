@@ -1,9 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { OfferingsListPage } from "@/components/offering-pages";
+import { OfferingNewPage } from "@/components/offering-pages";
 
 export default function Page() {
 	const params = useParams<{ slug: string }>();
-	return <OfferingsListPage slug={params?.slug ?? ""} kind="event" />;
+	return <OfferingNewPage slug={params?.slug ?? ""} kind="course" />;
 }
