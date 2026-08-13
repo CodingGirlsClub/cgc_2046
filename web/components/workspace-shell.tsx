@@ -42,7 +42,7 @@ import {
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
-	if (pathname.startsWith(`/w/${slug}/workflows`)) return "workflows";
+	if (pathname.startsWith(`/w/${slug}/events`)) return "events";
 	if (
 		pathname.startsWith(`/w/${slug}/settings/members`)
 	) {

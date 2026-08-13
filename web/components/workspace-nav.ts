@@ -17,6 +17,7 @@ import type { IconName } from "@/components/icons";
 export type NavSection =
 	| "overview"
 	| "workflows"
+	| "events"
 	| "members"
 	| "settings-permissions"
 	| "settings-join-policy"
@@ -39,9 +40,20 @@ export interface NavDestination {
 	active?: NavSection;
 	/** 侧栏图标名（侧栏用） */
 	icon?: IconName;
+	/** 是否出现在设置 Tab 条（members-tabs 等）；false = 仅侧栏入口（如活动） */
+	settingsTab?: boolean;
 }
 
 export const SETTINGS_NAV: NavDestination[] = [
+	{
+		key: "events",
+		label: "活动",
+		href: (s) => `/w/${s}/events`,
+		group: "workspace",
+		active: "events",
+		icon: "book",
+		settingsTab: false,
+	},
 	{
 		key: "members",
 		label: "成员与角色",
