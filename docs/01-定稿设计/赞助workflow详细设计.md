@@ -376,6 +376,10 @@ stateDiagram-v2
   activate_sponsorship 事务内，pending→active 的条件 UPDATE 成功后同事务
   insert_all 交付行——行数 = tier.benefits 权益项数（无档位 → 0 行，账本为空）。
   materialize 失败 → 整个激活回滚（强一致）。
+- **档位按审批时点重读（非意向时点快照）**：A3 执行时重读目标
+  Event/Workspace 的 sponsorship_tiers 当前配置并以其为准物化；两段式之间
+  档位被 Owner 修改 → 按新配置物化，被删除 → 审批报 tier_not_found 拒绝，
+  Owner 需恢复档位或拒绝该意向（实现锚点 sponsorship.ex approve 前置重读注释）。
 - **欠交付可见性（D5 原文「欠交付以未核销行可见」）**：欠交付 = fulfilled_at
   为空的未核销行，Owner 后台逐项可见；**不做 makegood**（出界理由见下）。
 - **核销**：后台逐项勾销 + proof_note（fulfill_delivery 领域 action，条件
