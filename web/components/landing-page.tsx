@@ -7,10 +7,10 @@
  *   推动女性进入并留在科技领域；语气真诚朴素，不浮夸。
  * - 「最新活动 / 精选课程」复用公开 API（fetchPublicOfferings，匿名白名单查询），
  *   各取前 3 条；加载失败时降级为入口链接，不阻塞整页。
- * - 「媒体报道 / 合作企业」为静态文案（M1 调研大纲 + tower 拍板口径）：
- *   均为 2017-2018 历史素材，媒体报道无原文链接故纯文本列表；
- *   合作企业为历史同行者口径，不暗示当前仍在合作。
- * - 论文/学术引用区块：当前零素材，按 tower 拍板砍掉不留空壳。
+ * - 「报道与认可 / 合作伙伴」为静态文案，素材取自 2021 年版机构介绍 deck
+ *   （docs/宣传素材/，M1 调研权威清单 + tower 拍板口径）：
+ *   媒体报道前 4 条附原文链接、果壳网只列媒体+标题；
+ *   合作伙伴为精选科技类 8 家的历史同行者口径，不暗示当前仍在合作。
  */
 
 import Link from "next/link";
@@ -21,42 +21,69 @@ import { ENROLLMENT_POLICY_LABEL } from "@/lib/graphql/events";
 import EventStatusTag from "@/components/event-status-tag";
 import { formatDeadline } from "@/lib/events";
 
-/* ---------------- 静态素材（M1 调研大纲，tower 拍板口径） ---------------- */
+/* ---------------- 静态素材（2021 年版机构介绍 deck 权威清单，tower 拍板口径） ---------------- */
 
 interface MediaReport {
 	outlet: string;
 	title: string;
-	date: string;
+	/** null = 仅列媒体+标题，不放链接（果壳网 PDF 内是公众号长链接） */
+	url: string | null;
 }
 
-/** 媒体报道：2017-2018 历史素材，无原文链接，纯文本列表（不放假链接） */
+/** 媒体报道：权威版 5 条，前 4 条附原文链接 */
 const MEDIA_REPORTS: MediaReport[] = [
 	{
+		outlet: "环球时报",
+		title: "Ladies Who Code",
+		url: "http://www.globaltimes.cn/content/954372.shtml",
+	},
+	{
+		outlet: "中国日报",
+		title: "Helping women to break social programming",
+		url: "http://www.chinadaily.com.cn/china/2017-01/13/content_27943815.htm",
+	},
+	{
+		outlet: "中国日报",
+		title: "Looking to crack the unwritten code",
+		url: "http://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm",
+	},
+	{
+		outlet: "CCTV / CGTN",
+		title: "Chinese women take on computer programming",
+		url: "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html",
+	},
+	{
 		outlet: "果壳网",
-		title: "《自学编程的故事与未来》",
-		date: "2017-01-14",
-	},
-	{
-		outlet: "CCTV 英文频道",
-		title: "报道 Girls Coding Day",
-		date: "2017-02-16",
-	},
-	{
-		outlet: "联合国开发计划署驻华代表处",
-		title: "入选「科技与慈善」项目",
-		date: "2018-06-27",
+		title: "自学编程的故事与未来",
+		url: null,
 	},
 ];
 
-/** 合作企业：历史同行者清单（2017-2018 口径，只列名称，不暗示当前仍在合作） */
+/** 学术论文：与卡耐基梅隆大学学者合作，ICSE CHASE 2021 收录，IEEE 出版 */
+const PAPER = {
+	title:
+		"Approaches to Diversifying the Programmer Community — The Case of the Girls Coding Day",
+	venue: "与卡耐基梅隆大学学者合作 · ICSE CHASE 2021 · IEEE 出版",
+	url: "https://www.computer.org/csdl/proceedings-article/chase/2021/140900a091/1tB7t8SZKcE",
+};
+
+/** 机构荣誉（报道与认可区块的荣誉行） */
+const HONORS: string[] = [
+	"2018 年入选联合国开发计划署「科技与慈善」项目案例集",
+	"2019 年共青团中央「全国青年社会组织伙伴计划」获奖项目",
+	"支持联合国开发计划署与联合国妇女署 #科技遇见她# 一小时编程挑战",
+];
+
+/** 合作伙伴：PDF logo 墙精选科技类 8 家（历史同行者口径，不暗示当前仍在合作） */
 const PARTNERS: string[] = [
+	"UNDP",
 	"ThoughtWorks",
 	"GitHub",
-	"Yunbi",
-	"NEO",
+	"ByteDance",
+	"FreeWheel",
 	"个推",
 	"掘金",
-	"WorldQuant",
+	"freeCodeCamp",
 ];
 
 /* ---------------- 活动/课程卡片（与 /events、/courses 发现页同款） ---------------- */
@@ -216,14 +243,21 @@ export default function LandingPage() {
 					从 2016 到 2046，陪一代女性走进编程
 				</h1>
 				<p className="l-p mt-6 max-w-2xl text-ink-2">
-					程序媛汇（Coding Girls Club）创立于 2016 年，是一个帮助女性进入
-					并留在科技领域的公益编程社群。2046 是我们给自己定的期限：
+					74% 的女孩对 STEM 有强烈兴趣，仅 0.04% 的女性以计算机科学为专业——
+					我们想改变这个落差。程序媛汇（Coding Girls Club）创立于 2016 年，
+					是一个帮助女性进入并留在科技领域的公益编程社群。2046 是我们给自己定的期限：
 					把这件事认真做满三十年——一年一年地做，从一堂课、一次活动、
 					一个可以互相求助的同伴开始。
 				</p>
-				<p className="mt-4 text-[13px] text-ink-3">
-					截至 2018 年，我们走过 10 个城市、办了 50 场活动、
-					陪伴 2500 名学员、与 500 位教练同行。
+				<blockquote className="mt-6 max-w-2xl border-l-2 border-accent pl-4 text-sm text-ink-2">
+					「以帮助女性数字赋能为使命，以平凡的姿态做不平凡的事情。」
+					<span className="mt-1 block text-[13px] text-ink-3">
+						—— 创始人 文洋
+					</span>
+				</blockquote>
+				<p className="mt-6 text-[13px] text-ink-3">
+					截至 2021 年，我们走过 10 个城市、办了 50+ 场线下工作坊、
+					走进 17 所高校，陪伴 4000+ 名学员、与 1000+ 位教练同行。
 				</p>
 				<div className="mt-8 flex items-center gap-3">
 					<Link
@@ -257,36 +291,73 @@ export default function LandingPage() {
 				state={courses}
 			/>
 
-			{/* 媒体报道（静态文案，2017-2018 历史素材） */}
+			{/* 报道与认可（静态文案，2021 deck 权威素材） */}
 			<section aria-labelledby="landing-media-heading" className="mt-16">
 				<h2 id="landing-media-heading" className="l-h2">
-					媒体报道
+					报道与认可
 				</h2>
 				<p className="mt-2 text-sm text-ink-3">
-					一路上被记录下来的片段（2017–2018）。
+					一路上被记录、被研究、被认可的片段。
 				</p>
-				<ul className="mt-6 grid gap-3">
+
+				{/* 学术论文 */}
+				<a
+					href={PAPER.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="join-card mt-6 block !w-full !gap-1 !p-6"
+				>
+					<span className="text-sm font-medium">{PAPER.title}</span>
+					<span className="text-[13px] text-ink-3">{PAPER.venue}</span>
+				</a>
+
+				{/* 媒体报道 */}
+				<ul className="mt-3 grid gap-3">
 					{MEDIA_REPORTS.map((report) => (
+						<li key={`${report.outlet}-${report.title}`}>
+							{report.url ? (
+								<a
+									href={report.url}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="join-card block !w-full !gap-1 !p-6"
+								>
+									<span className="text-sm font-medium">{report.title}</span>
+									<span className="text-[13px] text-ink-3">{report.outlet}</span>
+								</a>
+							) : (
+								<div className="join-card !w-full !gap-1 !p-6">
+									<span className="text-sm font-medium">{report.title}</span>
+									<span className="text-[13px] text-ink-3">{report.outlet}</span>
+								</div>
+							)}
+						</li>
+					))}
+				</ul>
+
+				{/* 机构荣誉 */}
+				<ul className="mt-6 grid gap-2">
+					{HONORS.map((honor) => (
 						<li
-							key={`${report.outlet}-${report.title}`}
-							className="join-card !w-full !gap-1 !p-6"
+							key={honor}
+							className="flex items-center gap-2 text-[13px] text-ink-2"
 						>
-							<span className="text-sm font-medium">{report.title}</span>
-							<span className="text-[13px] text-ink-3">
-								{report.outlet} · {report.date}
+							<span className="text-accent" aria-hidden="true">
+								★
 							</span>
+							{honor}
 						</li>
 					))}
 				</ul>
 			</section>
 
-			{/* 合作企业（静态文案，历史同行者口径） */}
+			{/* 合作伙伴（静态文案，历史同行者口径） */}
 			<section aria-labelledby="landing-partners-heading" className="mt-16">
 				<h2 id="landing-partners-heading" className="l-h2">
-					合作企业
+					合作伙伴
 				</h2>
 				<p className="mt-2 text-sm text-ink-3">
-					曾经的同行者——感谢他们与我们并肩走过一程（2017–2018）。
+					曾经的同行者——感谢他们与我们并肩走过一程。
 				</p>
 				<ul className="mt-6 flex flex-wrap gap-3">
 					{PARTNERS.map((partner) => (
