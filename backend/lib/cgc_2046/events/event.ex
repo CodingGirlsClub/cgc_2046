@@ -198,7 +198,7 @@ defmodule Cgc2046.Events.Event do
 
       change(set_attribute(:status, :draft))
 
-      # slug/description 未提供时兜底（公开 URL 段 + 展示文案；唯一索引防碰撞）
+      # slug 未提供时兜底生成（公开 URL 段；唯一索引防碰撞）
       change(fn changeset, _context ->
         changeset =
           case Ash.Changeset.get_attribute(changeset, :slug) do
@@ -211,6 +211,24 @@ defmodule Cgc2046.Events.Event do
           end
 
         changeset
+      end)
+
+      # slug 单段 URL 约束（公开路由 /events/[slug]；非法字符拒绝）
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :slug) do
+          value when is_binary(value) and value != "" ->
+            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
+              changeset
+            else
+              Ash.Changeset.add_error(
+                changeset,
+                "slug must be a single lowercase URL segment ([a-z0-9-])"
+              )
+            end
+
+          _ ->
+            changeset
+        end
       end)
 
       # workspace_id 由 argument 或 tenant 强制，不接受属性直传

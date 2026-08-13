@@ -12,6 +12,22 @@ import {
 } from "@/lib/graphql/auth";
 import type { AuthSubmitPayload } from "./auth-form";
 
+/**
+ * 解析登录后跳转目标（同源校验；任意写法——含 /\evil.example 反斜杠绕过——
+ * 经 URL 解析后 origin 必须等于本站 origin）。非法/跨域输入回退 "/"。
+ */
+export function resolveNextTarget(raw: string | null, origin: string): string {
+	if (!raw) return "/";
+	try {
+		const target = new URL(raw, origin);
+		return target.origin === origin
+			? target.pathname + target.search + target.hash
+			: "/";
+	} catch {
+		return "/";
+	}
+}
+
 export interface UseAuthSubmitResult {
 	/** 表单提交回调：mode=login 走 signIn，mode=register 走 signUp，成功跳转首页 */
 	onSubmit: (payload: AuthSubmitPayload) => Promise<void>;
@@ -33,11 +49,12 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 	const searchParams = new URLSearchParams(
 		typeof window !== "undefined" ? window.location.search : "",
 	);
-	// 登录前来源（公开面报名引导：/login?next=...；白名单路径才放行，防开放重定向）
+	// 登录前来源（公开面报名引导：/login?next=...）。同源校验逻辑收敛在
+	// resolveNextTarget（纯函数，单测覆盖反斜杠绕过等恶意输入）。
 	const nextRaw = searchParams.get("next");
 	const next =
-		nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//")
-			? nextRaw
+		typeof window !== "undefined"
+			? resolveNextTarget(nextRaw, window.location.origin)
 			: "/";
 	const [error, setError] = useState<string | null>(null);
 	const [doSignIn, signInState] = useMutation(SIGN_IN);
