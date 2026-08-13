@@ -66,15 +66,21 @@ config :cgc_2046, :miniprogram_platforms, %{
 config :cgc_2046, :miniprogram_templates, %{
   wechat: %{
     "approval_result" => "dev-wechat-approval-result",
-    "approval_reminder" => "dev-wechat-approval-reminder"
+    "approval_reminder" => "dev-wechat-approval-reminder",
+    "enrollment_submitted" => "dev-wechat-enrollment-submitted",
+    "enrollment_completed" => "dev-wechat-enrollment-completed"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
-    "approval_reminder" => "dev-tt-approval-reminder"
+    "approval_reminder" => "dev-tt-approval-reminder",
+    "enrollment_submitted" => "dev-tt-enrollment-submitted",
+    "enrollment_completed" => "dev-tt-enrollment-completed"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
-    "approval_reminder" => "dev-xhs-approval-reminder"
+    "approval_reminder" => "dev-xhs-approval-reminder",
+    "enrollment_submitted" => "dev-xhs-enrollment-submitted",
+    "enrollment_completed" => "dev-xhs-enrollment-completed"
   }
 }
 

@@ -1,12 +1,34 @@
 defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
-  use Cgc2046.DataCase, async: false
+  # 不走 DataCase 默认 sandbox：本测试的 unboxed 清理须在 sandbox 事务结束后
+  # 执行——应用级订阅方（NotificationSubscriber，E-2 #47）在共享 sandbox 事务
+  # 内写 signal_idempotency claim，其 workspaces 外键 KEY SHARE 锁持有至事务
+  # 结束；不先停 owner，清理里的 unboxed DELETE FROM workspaces 会阻塞到连接
+  # 超时。故自管 owner 生命周期，清理回调先 stop_owner 再删真实行。
+  use ExUnit.Case, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.MiniprogramFixtures.Barrier
 
-  test "capacity=1 的两个并发 open 报名恰好一个成功" do
+  setup do
+    owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Cgc2046.Repo, shared: true)
+
+    on_exit(fn ->
+      # 幂等容错：cleanup_on_exit 可能已提前 stop_owner（释放外键锁），
+      # 已停止时 GenServer.stop 抛 noproc exit（{:noproc, _} 或 :noproc），忽略。
+      try do
+        Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
+      catch
+        :exit, {:noproc, _} -> :ok
+        :exit, :noproc -> :ok
+      end
+    end)
+
+    %{sandbox_owner: owner}
+  end
+
+  test "capacity=1 的两个并发 open 报名恰好一个成功", %{sandbox_owner: owner} do
     {admin, workspace, event, users} =
       unboxed(fn ->
         admin = Fixtures.platform_admin("capacity-race-admin")
@@ -21,7 +43,7 @@ defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
         {admin, workspace, event, users}
       end)
 
-    cleanup_on_exit(workspace.id, [admin | users])
+    cleanup_on_exit(owner, workspace.id, [admin | users])
     barrier = start_supervised!({Barrier, 2})
 
     results = race_enrollments(event, users, barrier, %{})
@@ -31,7 +53,7 @@ defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
     assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
   end
 
-  test "quota=1 的两个并发 invite_only 报名恰好消费一次" do
+  test "quota=1 的两个并发 invite_only 报名恰好消费一次", %{sandbox_owner: owner} do
     invite_code = "RACE_#{Ecto.UUID.generate()}"
 
     {admin, workspace, event, batch, users} =
@@ -53,7 +75,7 @@ defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
         {admin, workspace, event, batch, users}
       end)
 
-    cleanup_on_exit(workspace.id, [admin | users])
+    cleanup_on_exit(owner, workspace.id, [admin | users])
     barrier = start_supervised!({Barrier, 2})
 
     results = race_enrollments(event, users, barrier, %{invite_code: invite_code})
@@ -81,8 +103,12 @@ defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
     |> Task.await_many(15_000)
   end
 
-  defp cleanup_on_exit(workspace_id, users) do
+  defp cleanup_on_exit(owner, workspace_id, users) do
     on_exit(fn ->
+      # 先结束 sandbox 事务（回滚订阅方 claim 等共享写入）→ 释放 signal_idempotency
+      # 对 workspaces 行的外键 KEY SHARE 锁；否则 unboxed DELETE 阻塞至连接超时。
+      Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
+
       unboxed(fn ->
         Cgc2046.Repo.query!(
           "DELETE FROM membership_roles WHERE membership_id IN (SELECT id FROM workspace_memberships WHERE workspace_id = $1)",
