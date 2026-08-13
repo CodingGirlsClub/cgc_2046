@@ -233,9 +233,10 @@ export function OfferingDetailPage({
 	const [saveMessage, setSaveMessage] = useState<string | null>(null);
 	const [busyTransition, setBusyTransition] = useState<EventTransition | null>(null);
 	const [pendingState, setPendingState] = useState<{
+		id: string;
 		status: "loading" | "ok" | "error";
 		value: number;
-	}>({ status: "loading", value: 0 });
+	}>({ id: "", status: "loading", value: 0 });
 
 	useEffect(() => {
 		if (!id) return;
@@ -267,11 +268,11 @@ export function OfferingDetailPage({
 
 		fetchPendingCount(id, kind)
 			.then((n) => {
-				if (!cancelled) setPendingState({ status: "ok", value: n });
+				if (!cancelled) setPendingState({ id, status: "ok", value: n });
 			})
 			.catch(() => {
 				// 失败 ≠ 0：不得把未知数据误报为「无人待审批」（复审 BLOCKING 3）
-				if (!cancelled) setPendingState({ status: "error", value: 0 });
+				if (!cancelled) setPendingState({ id, status: "error", value: 0 });
 			});
 
 		return () => {
@@ -425,7 +426,7 @@ export function OfferingDetailPage({
 									</Field>
 									{manage ? (
 										<Field label="待审批报名">
-											{pendingState.status === "loading"
+											{pendingState.id !== id || pendingState.status === "loading"
 												? "—"
 												: pendingState.status === "error"
 													? "加载失败"
