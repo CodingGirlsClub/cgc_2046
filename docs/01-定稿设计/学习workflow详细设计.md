@@ -17,7 +17,7 @@
 flowchart LR
   A[enrollment.completed<br/>幂等键 claim] --> B[LearningInstantiator<br/>种 learning run per enrollment]
   B --> C[Learner OpenClacky<br/>BYO 侧执行]
-  C -->|save_step_output<br/>StepAuthorization 门控| D[run.facts 授权账本<br/>浅合并 facts[step_key]]
+  C -->|save_step_output<br/>StepAuthorization 门控| D["run.facts 授权账本<br/>浅合并 facts[step_key]"]
   D --> E{末步已写?}
   E -->|是| F[LearningProgressWorker<br/>run → succeeded]
   E -->|否| C
