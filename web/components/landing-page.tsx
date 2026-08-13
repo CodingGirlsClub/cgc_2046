@@ -30,7 +30,7 @@ interface MediaReport {
 	url: string | null;
 }
 
-/** 媒体报道：权威版 5 条，前 4 条附原文链接 */
+/** 媒体报道：权威版 6 条，除果壳网外均附原文链接 */
 const MEDIA_REPORTS: MediaReport[] = [
 	{
 		outlet: "环球时报",
@@ -51,6 +51,11 @@ const MEDIA_REPORTS: MediaReport[] = [
 		outlet: "CCTV / CGTN",
 		title: "Chinese women take on computer programming",
 		url: "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html",
+	},
+	{
+		outlet: "36氪",
+		title: "性别教育，反行业歧视，志愿者社群：那些正在为女性权益行动的人",
+		url: "https://m.36kr.com/p/1129142659517446",
 	},
 	{
 		outlet: "果壳网",
@@ -231,20 +236,23 @@ export default function LandingPage() {
 				</div>
 			</header>
 
-			{/* Hero：30 年叙事主线 */}
+			{/* Hero：组织历史 slogan（桥）+ 30 年叙事主线 */}
 			<section aria-labelledby="landing-hero-heading" className="mt-16">
 				<p className="text-sm text-accent">
-					Coding Girls Club · 程序媛汇
+					从 2016 到 2046，陪一代女性走进编程
 				</p>
 				<h1
 					id="landing-hero-heading"
 					className="l-h1 mt-4 max-w-2xl"
 				>
-					从 2016 到 2046，陪一代女性走进编程
+					一桥飞架南北，天堑变通途
 				</h1>
+				<p className="l-h3 mt-6 max-w-2xl">
+					Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥。
+				</p>
 				<p className="l-p mt-6 max-w-2xl text-ink-2">
 					74% 的女孩对 STEM 有强烈兴趣，仅 0.04% 的女性以计算机科学为专业——
-					我们想改变这个落差。程序媛汇（Coding Girls Club）创立于 2016 年，
+					我们想改变这个落差。程序媛汇创立于 2016 年，
 					是一个帮助女性进入并留在科技领域的公益编程社群。2046 是我们给自己定的期限：
 					把这件事认真做满三十年——一年一年地做，从一堂课、一次活动、
 					一个可以互相求助的同伴开始。
@@ -400,7 +408,17 @@ export default function LandingPage() {
 			</section>
 
 			<footer className="mt-16 border-t border-line pt-6 text-[13px] text-ink-3">
-				Coding Girls Club · 程序媛汇 — 2016 → 2046
+				<p>Coding Girls Club · 程序媛汇 — 2016 → 2046</p>
+				<p className="mt-2">
+					<a
+						href="https://github.com/CodingGirlsClub"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-accent hover:text-accent-mention"
+					>
+						工作坊教程在 GitHub 开源 ›
+					</a>
+				</p>
 			</footer>
 		</main>
 	);

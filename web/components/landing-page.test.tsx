@@ -61,7 +61,7 @@ describe("公开 Landing 页", () => {
 
 		expect(
 			screen.getByRole("heading", {
-				name: "从 2016 到 2046，陪一代女性走进编程",
+				name: "一桥飞架南北，天堑变通途",
 			}),
 		).toBeInTheDocument();
 		expect(
@@ -110,8 +110,20 @@ describe("公开 Landing 页", () => {
 		expect(courseLink).toHaveAttribute("href", "/courses/web-bootcamp");
 	});
 
-	it("Hero：STEM 落差钩子、创始人引语、截至 2021 数据带", () => {
+	it("Hero：历史 slogan 主标语、kicker、点题句（含中文名）、钩子、引语、数据带", () => {
 		render(<LandingPage />);
+
+		// 主标语为组织历史 slogan；「从 2016 到 2046」降级为 kicker 保留
+		expect(
+			screen.getByRole("heading", { name: "一桥飞架南北，天堑变通途" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("从 2016 到 2046，陪一代女性走进编程"),
+		).toBeInTheDocument();
+		// 点题句：中英对照品牌名（中文名「程序媛汇」必须出现）
+		expect(
+			screen.getByText(/Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥/),
+		).toBeInTheDocument();
 
 		expect(screen.getByText(/74% 的女孩对 STEM 有强烈兴趣/)).toBeInTheDocument();
 		expect(
@@ -126,7 +138,20 @@ describe("公开 Landing 页", () => {
 		expect(screen.getByText(/4000\+ 名学员/)).toBeInTheDocument();
 	});
 
-	it("报道与认可：论文（ICSE CHASE 2021 链接）、媒体 5 条（前 4 条有链接）、机构荣誉", () => {
+	it("页尾：GitHub 开源教程链接", () => {
+		render(<LandingPage />);
+
+		const ghLink = screen.getByRole("link", {
+			name: /工作坊教程在 GitHub 开源/,
+		});
+		expect(ghLink).toHaveAttribute(
+			"href",
+			"https://github.com/CodingGirlsClub",
+		);
+		expect(ghLink).toHaveAttribute("target", "_blank");
+	});
+
+	it("报道与认可：论文（ICSE CHASE 2021 链接）、媒体 6 条（5 条有链接）、机构荣誉", () => {
 		render(<LandingPage />);
 
 		// 论文：computer.org 权威链接
@@ -166,6 +191,11 @@ describe("公开 Landing 页", () => {
 			"href",
 			"https://news.cgtn.com/news/3d49544e31516a4d/share_p.html",
 		);
+		expect(
+			screen.getByRole("link", {
+				name: /性别教育，反行业歧视，志愿者社群/,
+			}),
+		).toHaveAttribute("href", "https://m.36kr.com/p/1129142659517446");
 		expect(screen.getByText("自学编程的故事与未来")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("link", { name: /自学编程的故事与未来/ }),
@@ -209,7 +239,7 @@ describe("公开 Landing 页", () => {
 		// Hero 与静态区块仍正常渲染
 		expect(
 			screen.getByRole("heading", {
-				name: "从 2016 到 2046，陪一代女性走进编程",
+				name: "一桥飞架南北，天堑变通途",
 			}),
 		).toBeInTheDocument();
 		expect(
