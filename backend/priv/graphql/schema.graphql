@@ -576,6 +576,100 @@ type InviteBatch {
   remark: String
 }
 
+"The result of the :cancel_course mutation"
+type CancelCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :close_course mutation"
+type CloseCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :launch_course mutation"
+type LaunchCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :update_course mutation"
+type UpdateCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdateCourseInput {
+  "课程标题"
+  title: String
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+}
+
+"The result of the :create_course mutation"
+type CreateCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateCourseInput {
+  "课程标题"
+  title: String!
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
+  workspaceId: ID
+}
+
 enum CourseSortField {
   ID
   WORKSPACE_ID
@@ -585,6 +679,7 @@ enum CourseSortField {
   STATUS
   WORKFLOW_RUN_ID
   ENROLLMENT_POLICY
+  VISIBILITY
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
@@ -642,6 +737,19 @@ input CourseFilterCapacity {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
+}
+
+input CourseFilterVisibility {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
 }
 
 input CourseFilterEnrollmentPolicy {
@@ -783,6 +891,9 @@ input CourseFilterInput {
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: CourseFilterEnrollmentPolicy
 
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: CourseFilterVisibility
+
   "报名名额上限；nil 表示不限"
   capacity: CourseFilterCapacity
 
@@ -822,6 +933,9 @@ type Course {
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String!
 
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String!
+
   "报名名额上限；nil 表示不限"
   capacity: Int
 
@@ -830,6 +944,100 @@ type Course {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+}
+
+"The result of the :cancel_event mutation"
+type CancelEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :close_event mutation"
+type CloseEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :launch_event mutation"
+type LaunchEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :update_event mutation"
+type UpdateEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdateEventInput {
+  "活动标题"
+  title: String
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+}
+
+"The result of the :create_event mutation"
+type CreateEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateEventInput {
+  "活动标题"
+  title: String!
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
+  workspaceId: ID
 }
 
 enum EventSortField {
@@ -841,6 +1049,7 @@ enum EventSortField {
   STATUS
   WORKFLOW_RUN_ID
   ENROLLMENT_POLICY
+  VISIBILITY
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
@@ -898,6 +1107,19 @@ input EventFilterCapacity {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
+}
+
+input EventFilterVisibility {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
 }
 
 input EventFilterEnrollmentPolicy {
@@ -1039,6 +1261,9 @@ input EventFilterInput {
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: EventFilterEnrollmentPolicy
 
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: EventFilterVisibility
+
   "报名名额上限；nil 表示不限"
   capacity: EventFilterCapacity
 
@@ -1077,6 +1302,9 @@ type Event {
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String!
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String!
 
   "报名名额上限；nil 表示不限"
   capacity: Int
@@ -3473,6 +3701,36 @@ type RootMutationType {
 
   "拒绝创建工作台申请（platform_admin）"
   rejectWorkspaceApplication(id: ID!, input: RejectWorkspaceApplicationInput): RejectWorkspaceApplicationResult!
+
+  "创建活动（默认 status=draft）"
+  createEvent(input: CreateEventInput!): CreateEventResult!
+
+  "编辑活动元数据（Owner\/Admin）"
+  updateEvent(id: ID!, input: UpdateEventInput): UpdateEventResult!
+
+  "发布活动：draft → open，发 event.launched 信号"
+  launchEvent(id: ID!): LaunchEventResult!
+
+  "结束活动：open → closed，发 event.ended 信号"
+  closeEvent(id: ID!): CloseEventResult!
+
+  "取消活动：open → cancelled，发 event.ended 信号"
+  cancelEvent(id: ID!): CancelEventResult!
+
+  "创建课程（默认 status=draft）"
+  createCourse(input: CreateCourseInput!): CreateCourseResult!
+
+  "编辑课程元数据（Owner\/Admin）"
+  updateCourse(id: ID!, input: UpdateCourseInput): UpdateCourseResult!
+
+  "发布课程：draft → open，发 course.launched 信号"
+  launchCourse(id: ID!): LaunchCourseResult!
+
+  "结束课程：open → closed，发 course.ended 信号"
+  closeCourse(id: ID!): CloseCourseResult!
+
+  "取消课程：open → cancelled，发 course.ended 信号"
+  cancelCourse(id: ID!): CancelCourseResult!
 
   createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
 

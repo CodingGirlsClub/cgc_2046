@@ -282,15 +282,15 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
 	});
 
-	it("Workflow 产出为真实链接卡（切片 C 已落地，plan 016 替换过期占位卡）", async () => {
+	it("Workflow 产出与活动为真实链接卡（切片 C/E 已落地，plan 016 替换过期占位卡）", async () => {
 		render(<WorkspacePage />);
 		const main = await content();
 		const link = main.getByRole("link", { name: /Workflow 产出/ });
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/workflows");
-		// 报名/赞助（切片 E）仍为 aria-disabled 占位卡
-		const placeholder = main.getByText("报名 / 赞助");
-		expect(placeholder.closest("[aria-disabled='true']")).not.toBeNull();
-		expect(main.queryByRole("link", { name: /报名/ })).not.toBeInTheDocument();
+		// 报名/赞助占位卡已由活动入口卡取代（E-11 #127）
+		const eventsLink = main.getByRole("link", { name: /活动/ });
+		expect(eventsLink).toHaveAttribute("href", "/w/cgc-academy/events");
+		expect(main.queryByText("报名 / 赞助")).not.toBeInTheDocument();
 	});
 
 	it("canAssign=false：成员与角色入口显示只读门控文案", async () => {

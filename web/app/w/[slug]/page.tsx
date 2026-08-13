@@ -165,24 +165,23 @@ export default function WorkspacePage() {
 									<Icon name="arrow" />
 								</span>
 							</Link>
-							<div
-								className="ws-placeholder-card"
-								aria-disabled="true"
-								title="后续切片开放"
+							<Link
+								href={`/w/${slug}/events`}
+								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
 							>
-								<span className="ws-placeholder-card__icon">
-									<Icon name="request" />
+								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
+									<Icon name="book" />
 								</span>
 								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink-3">
-										报名 / 赞助
-									</span>
+									<span className="block text-sm font-medium text-ink">活动</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										后续切片开放（切片 E）
+										创建与管理活动：草稿、发布、报名与结束（切片 E）
 									</span>
 								</span>
-								<span className="ws-placeholder-card__badge">即将开放</span>
-							</div>
+								<span className="flex-none text-ink-3">
+									<Icon name="arrow" />
+								</span>
+							</Link>
 						</div>
 					</>
 				) : null}
