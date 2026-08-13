@@ -20,9 +20,11 @@ export function resolveNextTarget(raw: string | null, origin: string): string {
 	if (!raw) return "/";
 	try {
 		const target = new URL(raw, origin);
-		return target.origin === origin
-			? target.pathname + target.search + target.hash
-			: "/";
+		const path = target.pathname + target.search + target.hash;
+		// 同源但 pathname 以 // 开头（http://本域//evil.example）会被 Next 路由
+		// 解析为协议相对跳转 → 一并拒绝。
+		if (target.origin !== origin || path.startsWith("//")) return "/";
+		return path;
 	} catch {
 		return "/";
 	}

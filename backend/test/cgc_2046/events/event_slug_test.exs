@@ -39,6 +39,32 @@ defmodule Cgc2046.Events.EventSlugTest do
     end
   end
 
+  test "update 同样拒绝非法 slug（create 与 update 同规则）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, event} = create_event(workspace, admin)
+
+    assert {:error, error} =
+             event
+             |> Ash.Changeset.for_update(:update, %{slug: "x/y"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug must be a single lowercase URL segment"
+
+    assert {:ok, kept} =
+             event
+             |> Ash.Changeset.for_update(:update, %{slug: "valid-slug-2"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert kept.slug == "valid-slug-2"
+  end
+
   test "Course 同构：自动生成 c- 前缀 + 非法 slug 拒绝" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)

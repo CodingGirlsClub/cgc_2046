@@ -268,6 +268,24 @@ defmodule Cgc2046.Events.Course do
         _ = Ash.Changeset.get_data(changeset, :status)
         changeset
       end)
+
+      # slug 单段 URL 约束（create/update 同规则；非法拒绝）
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :slug) do
+          value when is_binary(value) and value != "" ->
+            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
+              changeset
+            else
+              Ash.Changeset.add_error(
+                changeset,
+                "slug must be a single lowercase URL segment ([a-z0-9-])"
+              )
+            end
+
+          _ ->
+            changeset
+        end
+      end)
     end
 
     # draft → open：发布课程，发 course.launched 信号（教研实例化入口）。

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 
 export type AuthMode = "login" | "register";
 
@@ -155,7 +156,12 @@ export default function AuthForm({
   };
 
   const switchLabel = isRegister ? "返回登录" : "创建账号";
-  const switchHref = isRegister ? "/login" : "/register";
+  // 切换登录/注册保留 next（报名页引导链路不回丢）
+  const searchParams = useSearchParams();
+  const nextRaw = searchParams?.get("next") ?? null;
+  const switchHref =
+    (isRegister ? "/login" : "/register") +
+    (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
   const displayError = formError ?? error;
 
   return (
