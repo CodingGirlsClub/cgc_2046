@@ -124,15 +124,21 @@ if config_env() == :prod do
   config :cgc_2046, :miniprogram_templates, %{
     wechat: %{
       "approval_result" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER")
+      "approval_reminder" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.fetch_env!("WECHAT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "enrollment_completed" => System.fetch_env!("WECHAT_MP_TEMPLATE_ENROLLMENT_COMPLETED")
     },
     tt: %{
       "approval_result" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_REMINDER")
+      "approval_reminder" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.fetch_env!("TT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "enrollment_completed" => System.fetch_env!("TT_MP_TEMPLATE_ENROLLMENT_COMPLETED")
     },
     xhs: %{
       "approval_result" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_REMINDER")
+      "approval_reminder" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.fetch_env!("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "enrollment_completed" => System.fetch_env!("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED")
     }
   }
 
