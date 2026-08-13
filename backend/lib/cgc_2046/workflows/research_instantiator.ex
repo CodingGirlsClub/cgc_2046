@@ -271,7 +271,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
         {:ok, run}
 
       {:ok, nil} ->
-        create_and_start_run(workspace_id, defn, input, key)
+        create_and_start_run(workspace_id, defn, input, key, entity_type)
     end
   end
 
@@ -299,22 +299,33 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
     |> Ash.read_one(tenant: workspace_id, authorize?: false)
   end
 
-  defp create_and_start_run(workspace_id, defn, input, key) do
-    attrs = %{
-      definition_id: defn.id,
-      definition_version: defn.version,
-      input_snapshot: Map.put(input, "key", key)
-    }
+  defp create_and_start_run(workspace_id, defn, input, key, entity_type) do
+    # BLOCKING 3 修复：ensure_launched 与 INSERT 之间的窗口内 close 会种下孤儿
+    # run（reaper 已扫过、claim 已写）。创建前重读实体二次校验；残余极小窗口
+    # 由对账扫描（E-10）兜底。
+    with {:ok, entity} <- fetch_entity(entity_type, input_entity_id(input)),
+         :ok <- ensure_launched(entity) do
+      attrs = %{
+        definition_id: defn.id,
+        definition_version: defn.version,
+        input_snapshot: Map.put(input, "key", key)
+      }
 
-    with {:ok, run} <-
-           WorkflowRun
-           |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
-           |> Ash.create(tenant: workspace_id, authorize?: false),
-         {:ok, started} <-
-           run
-           |> Ash.Changeset.for_update(:start_run, %{}, tenant: workspace_id, authorize?: false)
-           |> Ash.update(tenant: workspace_id, authorize?: false) do
-      {:ok, started}
+      with {:ok, run} <-
+             WorkflowRun
+             |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
+             |> Ash.create(tenant: workspace_id, authorize?: false),
+           {:ok, started} <-
+             run
+             |> Ash.Changeset.for_update(:start_run, %{}, tenant: workspace_id, authorize?: false)
+             |> Ash.update(tenant: workspace_id, authorize?: false) do
+        {:ok, started}
+      end
     end
+  end
+
+  defp input_entity_id(input) do
+    Map.get(input, "event_id") || Map.get(input, :event_id) ||
+      Map.get(input, "course_id") || Map.get(input, :course_id)
   end
 end

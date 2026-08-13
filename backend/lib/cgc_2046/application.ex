@@ -24,6 +24,8 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
       Cgc2046.Workflows.ResearchInstantiator,
+      # 生命周期级联（E-9 #124：订阅 event/course.ended 信号 → 停教研 run 回收）
+      Cgc2046.Workflows.ResearchRunReaper,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
       Cgc2046.NotificationSubscriber,
       # AshAuthentication supervisor (periodic token cleanup etc.)
