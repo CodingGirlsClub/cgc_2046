@@ -35,7 +35,7 @@
   | 属性 | 取值 | 说明 |
   |---|---|---|
   | `sponsorship_enabled` | boolean | 是否开放赞助入口（默认 Event 开、Workspace 开） |
-  | `sponsorship_tiers` | json | 赞助档位配置实体 **SPONSORSHIP_TIER**（如「基础/标准/冠名」，各档**名称/建议金额/权益项列表**：logo 展示位、报名页露出、鸣谢页、现场物料位；Sponsorship 关联 `tier_id`，拍板 #3） |
+  | `sponsorship_tiers` | json | 赞助档位配置实体 **SPONSORSHIP_TIER**（如「基础/标准/冠名」，各档**名称/建议金额/权益项列表/独占位标记 exclusive**：logo 展示位、报名页露出、鸣谢页、现场物料位；Sponsorship 关联 `tier_id`，拍板 #3；v1.3 落地形态 = Event/Workspace 的嵌入式 json 配置，形状见 §5.4/§5.1） |
   | `sponsorship_deadline` | datetime|null | 赞助意向截止（Event 级建议在活动开始前；Workspace 级可空=长期开放） |
 - v1 主路径 = **意向提交 + 审批 + 权益生效**；**不收款**（见 §3.3 资金边界）。
 
@@ -308,6 +308,7 @@ flowchart LR
   "name": "string",                     // 档位名（基础/标准/冠名）
   "amount_suggestion": "decimal | null",// 建议金额（v1 仅登记不收款）
   "benefits": ["string"],               // 权益项列表（logo 展示位/报名页露出/鸣谢页/现场物料位）
+  "exclusive": "boolean",               // v1.3 独占位标记（D5）：同一目标该档位至多一个 active（§5.4.2）
   "limit": "integer | null",            // 限量（null = 不限；二期启用校验，拍板 #1）
   "enabled": "boolean",
   "created_at": "datetime",
