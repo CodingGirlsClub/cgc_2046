@@ -260,11 +260,12 @@ defmodule Cgc2046.Events.Event do
         end)
       end)
 
-      # 事务内 outbox：ended 发布经 SignalPublishWorker 统一投递（事务提交前
-      # 入队，入队失败随事务回滚——至少一次投递由事务性 job + Oban 重试保证，
-      # 消费方 signal_idempotency 幂等去重；复审 B1 收口）。
+      # 事务内 outbox：ended 发布经 SignalPublishWorker 统一投递。after_action
+      # 在数据层成功后、事务提交前执行（Ash 文档：错误会回滚整个事务）——
+      # job 与事件终态同事务提交；入队失败 → 事务回滚，close/cancel 整体失败
+      # 可安全重试（幂等）。CAS 失败路径不会到达 after_action，不产生孤儿 job。
       change(fn changeset, _context ->
-        Ash.Changeset.before_transaction(changeset, fn cs ->
+        Ash.Changeset.after_action(changeset, fn cs, record ->
           id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
           title = Ash.Changeset.get_data(cs, :title)
 
@@ -274,7 +275,7 @@ defmodule Cgc2046.Events.Event do
             cs.tenant
           )
 
-          cs
+          {:ok, record}
         end)
       end)
     end
@@ -310,7 +311,7 @@ defmodule Cgc2046.Events.Event do
       end)
 
       change(fn changeset, _context ->
-        Ash.Changeset.before_transaction(changeset, fn cs ->
+        Ash.Changeset.after_action(changeset, fn cs, record ->
           id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
           title = Ash.Changeset.get_data(cs, :title)
 
@@ -320,7 +321,7 @@ defmodule Cgc2046.Events.Event do
             cs.tenant
           )
 
-          cs
+          {:ok, record}
         end)
       end)
     end

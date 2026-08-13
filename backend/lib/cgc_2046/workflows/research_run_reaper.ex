@@ -78,7 +78,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
   # 全部 cancel 成功（或无可回收 run）才写 claim；任一失败不写 → 重投仍执行。
   defp stop_runs_then_claim(signal_type, entity_key) do
     case stop_runs(entity_key) do
-      {:ok, _cancelled} ->
+      :ok ->
         case SignalIdempotency.claim(
                signal_type,
                "#{signal_type}:#{entity_key}:research_run_reaper"
@@ -99,7 +99,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
   # instance key 存于 input_snapshot["key"]（research_instantiator 写入约定）。
   # WorkflowRun multitenancy global?(true)：无 tenant 全局读（同 expiry worker）。
   # 限定 definition.type == :research（BLOCKING 5：不碰同 key 的其他类型 run）。
-  # 返回 {:ok, cancelled_count} | {:error, failed_count}。
+  # 返回 :ok | {:error, failed_count}。
   defp stop_runs(key) do
     WorkflowRun
     |> Ash.Query.filter(
@@ -107,16 +107,10 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
         input_snapshot["key"] == ^key
     )
     |> Ash.read!(authorize?: false)
-    |> Enum.reduce({:ok, 0}, fn run, acc ->
+    |> Enum.reduce(:ok, fn run, acc ->
       case cancel_run(run) do
-        :ok ->
-          acc
-
-        :error ->
-          case acc do
-            {:ok, _} -> {:error, 1}
-            {:error, n} -> {:error, n + 1}
-          end
+        :ok -> acc
+        :error -> {:error, if(acc == :ok, do: 1, else: elem(acc, 1) + 1)}
       end
     end)
   end
