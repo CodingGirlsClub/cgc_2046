@@ -36,8 +36,8 @@ interface DetailState {
 }
 
 export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind }) {
-	const params = useParams<{ id: string }>();
-	const id = params?.id ?? "";
+	const params = useParams<{ slug: string }>();
+	const slug = params?.slug ?? "";
 	const router = useRouter();
 	const { authed, userId } = useAuthed();
 
@@ -50,17 +50,17 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 	}>({ kind: "idle", message: null });
 
 	useEffect(() => {
-		if (!id) return;
+		if (!slug) return;
 		let cancelled = false;
 
-		fetchPublicOffering(id, kind)
+		fetchPublicOffering(slug, kind)
 			.then((row) => {
-				if (!cancelled) setState({ id, row, error: null });
+				if (!cancelled) setState({ id: slug, row, error: null });
 			})
 			.catch((e: unknown) => {
 				if (!cancelled) {
 					setState({
-						id,
+						id: slug,
 						row: null,
 						error: e instanceof Error ? e.message : "加载失败",
 					});
@@ -70,9 +70,9 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 		return () => {
 			cancelled = true;
 		};
-	}, [id, kind]);
+	}, [slug, kind]);
 
-	const stale = state.id !== id;
+	const stale = state.id !== slug;
 	const offering = stale ? null : state.row;
 	const loadError = stale ? null : state.error;
 	const label = OFFERING_LABEL[kind];
@@ -154,6 +154,11 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 						<div className="mt-4 grid gap-2 text-sm text-ink-3">
 							<span>报名策略：{ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]}</span>
 							<span>报名截止：{formatDeadline(offering.registrationDeadline)}</span>
+							{offering.description ? (
+								<p className="mt-3 whitespace-pre-wrap text-sm text-ink-3">
+									{offering.description}
+								</p>
+							) : null}
 						</div>
 
 						<div className="mt-6 border-t border-line pt-5">
