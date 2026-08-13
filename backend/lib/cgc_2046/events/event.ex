@@ -263,6 +263,19 @@ defmodule Cgc2046.Events.Event do
               title = Ash.Changeset.get_data(changeset, :title)
               requirements = Ash.Changeset.get_data(changeset, :research_requirements) || %{}
 
+              # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
+              # 明细经 GraphQL readiness 查询暴露后台。
+              record = elem(result, 1)
+
+              case Cgc2046.Events.Readiness.evaluate(record) do
+                %{ready: true} ->
+                  :ok
+
+                %{items: items} ->
+                  missing = Enum.map_join(items, ", ", & &1.label)
+                  Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
+              end
+
               case JidoAdapter.publish(
                      "event.launched",
                      %{
