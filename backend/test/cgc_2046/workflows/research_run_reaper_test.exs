@@ -74,6 +74,8 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     reloaded = Ash.get!(WorkflowRun, run.id, authorize?: false)
     assert reloaded.status == :cancelled
     refute is_nil(reloaded.finished_at)
+    # 全部成功 → claim 登记一行
+    assert claim_rows() == 1
   end
 
   test "course.ended 同样回收；其他实体的 run 不受影响" do
@@ -91,7 +93,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     assert Ash.get!(WorkflowRun, other_run.id, authorize?: false).status == :waiting
   end
 
-  test "终态 run 不动；重复信号幂等且 claim 只登记一次（claim 后置语义）" do
+  test "终态 run 不动；重复信号幂等且 claim 只登记一次" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
@@ -129,7 +131,18 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
 
     assert Ash.get!(WorkflowRun, succeeded.id, authorize?: false).status == :succeeded
-    # claim 后置 + 唯一索引：两次投递只登记一行
+    # 唯一索引：两次投递只登记一行
+    assert claim_rows() == 1
+  end
+
+  test "无可回收 run 时仍登记 claim（0 次取消 = 全部成功语义，阻断后续重复投递）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+
     assert claim_rows() == 1
   end
 

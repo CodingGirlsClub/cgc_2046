@@ -260,13 +260,23 @@ defmodule Cgc2046.Events.Event do
         end)
       end)
 
-      # 事务提交成功后发 event.ended（TOCTOU 纪律同 launch；发布失败入队重试，
-      # 兑现至少一次投递——消费方 signal_idempotency 幂等去重）。
-      change(
-        after_transaction(fn changeset, result, _context ->
-          publish_ended(changeset, result)
+      # 事务内 outbox：ended 发布经 SignalPublishWorker 统一投递（事务提交前
+      # 入队，入队失败随事务回滚——至少一次投递由事务性 job + Oban 重试保证，
+      # 消费方 signal_idempotency 幂等去重；复审 B1 收口）。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_transaction(changeset, fn cs ->
+          id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
+          title = Ash.Changeset.get_data(cs, :title)
+
+          SignalPublishWorker.enqueue_in_transaction(
+            "event.ended",
+            %{"event_id" => id, "title" => title},
+            cs.tenant
+          )
+
+          cs
         end)
-      )
+      end)
     end
 
     # open → cancelled：取消活动。同样发 event.ended（D4：closed/cancelled 即 ended）。
@@ -299,11 +309,20 @@ defmodule Cgc2046.Events.Event do
         end)
       end)
 
-      change(
-        after_transaction(fn changeset, result, _context ->
-          publish_ended(changeset, result)
+      change(fn changeset, _context ->
+        Ash.Changeset.before_transaction(changeset, fn cs ->
+          id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
+          title = Ash.Changeset.get_data(cs, :title)
+
+          SignalPublishWorker.enqueue_in_transaction(
+            "event.ended",
+            %{"event_id" => id, "title" => title},
+            cs.tenant
+          )
+
+          cs
         end)
-      )
+      end)
     end
 
     defaults([:read])
@@ -341,27 +360,6 @@ defmodule Cgc2046.Events.Event do
         {:error, {:database, reason}}
     end
   end
-
-  # 结束信号发布（close/cancel 共用）：事务提交成功后发 event.ended。
-  # 发布失败入队 SignalPublishWorker 重试（至少一次投递），同时记 error 日志供对账。
-  defp publish_ended(changeset, {:ok, _record} = result) do
-    tenant = changeset.tenant
-    id = Ecto.UUID.cast!(Ash.Changeset.get_data(changeset, :id))
-    title = Ash.Changeset.get_data(changeset, :title)
-    data = %{"event_id" => id, "title" => title}
-
-    case JidoAdapter.publish("event.ended", data, tenant) do
-      :ok ->
-        result
-
-      {:error, reason} ->
-        Logger.error("event.ended publish failed for #{id}: #{inspect(reason)}; enqueueing retry")
-        SignalPublishWorker.retry_later("event.ended", data, tenant)
-        result
-    end
-  end
-
-  defp publish_ended(_changeset, result), do: result
 
   postgres do
     table("events")

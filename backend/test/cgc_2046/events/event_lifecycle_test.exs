@@ -3,16 +3,17 @@ defmodule Cgc2046.Events.EventLifecycleTest do
   E-9 #124 生命周期动作测试：close/cancel 状态迁移 + 越权拒绝 + DB 级
   compare-and-set 陈旧守卫（Event/Course 双覆盖）。
 
-  信号发布不在此断言：信号总线异步投递在 POC 已验证，测试不覆盖异步路径
-  （同 ResearchInstantiator 纪律）；发布契约由 :close/:cancel 的
-  after_transaction 接线承担，订阅方行为由 ResearchRunReaper 测试覆盖。
+  信号发布不在此断言：发布路径由事务内 outbox 入队（SignalPublishWorker）承担，
+  本测试断言 close/cancel 后 job 已入队；订阅方行为由 ResearchRunReaper 测试覆盖。
   """
 
   use Cgc2046.DataCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Course, Event}
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Workers.SignalPublishWorker
 
   defp reload(resource, id), do: Ash.get!(resource, id, authorize?: false)
 
@@ -36,10 +37,12 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:ok, closed} = close(event, workspace, admin)
       assert closed.status == :closed
       assert reload(Event, event.id).status == :closed
+      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "event.ended"})
 
       assert {:ok, closed_course} = close(course, workspace, admin)
       assert closed_course.status == :closed
       assert reload(Course, course.id).status == :closed
+      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "course.ended"})
     end
 
     test "非法迁移：draft 不能 close；新鲜读重复 close 被状态守卫拒绝" do
@@ -71,9 +74,8 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:error, race} = close(event, workspace, admin)
       assert Exception.message(race) =~ "concurrently"
 
-      # 信号不重复发布的前提成立：CAS 拒绝后 after_transaction 不执行（发布失败
-      # 路径由 SignalPublishWorker 测试覆盖）。
-      assert reload(Event, event.id).status == :closed
+      # CAS 拒绝后不重复发布：仅第一次 close 入队 ended job（本测试无其他发布源）
+      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "event.ended"})
     end
   end
 

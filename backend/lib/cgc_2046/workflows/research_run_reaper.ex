@@ -10,15 +10,14 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
   异步路径）。订阅回调在 JidoAdapter.subscribe 转发的独立进程中执行，
   rescue 兜底防订阅进程崩溃。
 
-  ## 幂等语义（codex 评审 BLOCKING 2/3 修复后）
+  ## 幂等语义（codex 复审 B2 收口）
 
-  - **claim 后置**：先执行副作用（cancel 本身幂等——非终态过滤 + cancel
-    状态守卫），成功后写 claim 作执行标记。失败不写 claim → 重投仍会执行，
-    不会出现「claim 永久化吞掉逃逸 run」。重复投递重放副作用无害（幂等）。
-  - **非 research 不碰**：按 `definition.type == :research` 过滤（BLOCKING 5），
-    同 instance key 的其他类型 run 不受影响。
+  - **先执行后 claim，全部成功才 claim**：cancel 幂等（非终态过滤 + 状态守卫），
+    重复投递重放无害；任一 cancel 失败 → 不写 claim，重投（SignalPublishWorker
+    重试或对账）仍会再次执行，逃逸 run 不会与「已完成」claim 并存。
+  - **非 research 不碰**：按 `definition.type == :research` 过滤（BLOCKING 5）。
   - **竞态兜底**：ResearchInstantiator 建 run 前二次校验实体 open（BLOCKING 3）；
-    残余窗口（二次校验与 INSERT 之间 close）由对账扫描 E-10 发现。
+    残余窗口由对账扫描 E-10 规则⑤登记（#125）。
   """
 
   use GenServer
@@ -76,19 +75,31 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
       :ok
   end
 
-  # 先执行后 claim：cancel 幂等，重复投递重放无害；失败不写 claim → 重投仍执行。
+  # 全部 cancel 成功（或无可回收 run）才写 claim；任一失败不写 → 重投仍执行。
   defp stop_runs_then_claim(signal_type, entity_key) do
-    stop_runs(entity_key)
+    case stop_runs(entity_key) do
+      {:ok, _cancelled} ->
+        case SignalIdempotency.claim(
+               signal_type,
+               "#{signal_type}:#{entity_key}:research_run_reaper"
+             ) do
+          :ok -> :ok
+          {:error, :already_claimed} -> :ok
+        end
 
-    case SignalIdempotency.claim(signal_type, "#{signal_type}:#{entity_key}:research_run_reaper") do
-      :ok -> :ok
-      {:error, :already_claimed} -> :ok
+      {:error, failed} ->
+        Logger.error(
+          "ResearchRunReaper: #{failed} cancel(s) failed for #{entity_key}; claim skipped for redelivery"
+        )
+
+        :ok
     end
   end
 
   # instance key 存于 input_snapshot["key"]（research_instantiator 写入约定）。
   # WorkflowRun multitenancy global?(true)：无 tenant 全局读（同 expiry worker）。
   # 限定 definition.type == :research（BLOCKING 5：不碰同 key 的其他类型 run）。
+  # 返回 {:ok, cancelled_count} | {:error, failed_count}。
   defp stop_runs(key) do
     WorkflowRun
     |> Ash.Query.filter(
@@ -96,16 +107,30 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
         input_snapshot["key"] == ^key
     )
     |> Ash.read!(authorize?: false)
-    |> Enum.each(fn run ->
-      case run
-           |> Ash.Changeset.for_update(:cancel, %{}, tenant: run.workspace_id, authorize?: false)
-           |> Ash.update(tenant: run.workspace_id, authorize?: false) do
-        {:ok, _} ->
-          :ok
+    |> Enum.reduce({:ok, 0}, fn run, acc ->
+      case cancel_run(run) do
+        :ok ->
+          acc
 
-        {:error, reason} ->
-          Logger.warning("ResearchRunReaper cancel failed for run #{run.id}: #{inspect(reason)}")
+        :error ->
+          case acc do
+            {:ok, _} -> {:error, 1}
+            {:error, n} -> {:error, n + 1}
+          end
       end
     end)
+  end
+
+  defp cancel_run(run) do
+    case run
+         |> Ash.Changeset.for_update(:cancel, %{}, tenant: run.workspace_id, authorize?: false)
+         |> Ash.update(tenant: run.workspace_id, authorize?: false) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("ResearchRunReaper cancel failed for run #{run.id}: #{inspect(reason)}")
+        :error
+    end
   end
 end
