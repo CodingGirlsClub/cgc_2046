@@ -265,7 +265,9 @@ defmodule Cgc2046.AsyncSignalTest do
          redeliveries \\ @max_redeliveries
        ) do
     case wait_handled(signal_type, enrollment_id) do
-      :ok ->
+      # :ok 与 :duplicate 均满足前置条件：:duplicate = 原始（或先前重投）已被
+      # claim 消费、副作用已完成——仅时序上晚于 10s 窗口。
+      result when result in [:ok, :duplicate] ->
         :ok
 
       result when result in [:timeout, :error] and redeliveries > 0 ->
