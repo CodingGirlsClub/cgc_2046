@@ -109,7 +109,7 @@ describe("首页（公开 Landing + 已登录分发）", () => {
 		// Landing Hero 与登录/注册 CTA 可见
 		expect(
 			await screen.findByRole("heading", {
-				name: "从 2016 到 2046，陪一代女性走进编程",
+				name: "一桥飞架南北，天堑变通途",
 			}),
 		).toBeInTheDocument();
 		expect(screen.getAllByRole("link", { name: "登录" })[0]).toHaveAttribute(
@@ -131,7 +131,7 @@ describe("首页（公开 Landing + 已登录分发）", () => {
 		expect(screen.getByText("正在确认登录状态…")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("heading", {
-				name: "从 2016 到 2046，陪一代女性走进编程",
+				name: "一桥飞架南北，天堑变通途",
 			}),
 		).not.toBeInTheDocument();
 		expect(replace).not.toHaveBeenCalled();
