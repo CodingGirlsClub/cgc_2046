@@ -127,12 +127,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
+    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
     field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
-      resolve(fn _, _, %{context: context} ->
+      arg(:include_expired, :boolean)
+
+      resolve(fn _, args, %{context: context} ->
         case context[:actor] do
-          nil -> {:error, unauthorized_error()}
-          actor -> Cgc2046.Events.PendingApprovals.list(actor)
+          nil ->
+            {:error, unauthorized_error()}
+
+          actor ->
+            Cgc2046.Events.PendingApprovals.list(actor,
+              include_expired: args[:include_expired] || false
+            )
         end
       end)
     end
@@ -999,6 +1006,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:course_id, :id)
     field(:status, non_null(:string))
     field(:approval_deadline, :datetime)
+    field(:expired_at, :datetime)
+    field(:requester_name, :string)
+    field(:workspace_name, :string)
+    field(:context_title, :string)
   end
 
   object :miniprogram_code_result do
