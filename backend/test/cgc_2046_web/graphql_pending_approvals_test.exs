@@ -51,6 +51,81 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     refute Enum.any?(approvals, &(&1["userId"] == applicant_other.id))
   end
 
+  test "行含 requester/context 摘要（E-8 D7 行形状）" do
+    platform_admin = Fixtures.platform_admin("summary-platform")
+    owner = Fixtures.register_user("summary-owner")
+    applicant = Fixtures.register_user("summary-applicant")
+    workspace = Fixtures.create_workspace(platform_admin, %{name: "Summary WS"})
+    Fixtures.add_member(workspace, owner, [:owner])
+
+    event =
+      EventFixtures.create_event(workspace, platform_admin, %{
+        enrollment_policy: :request,
+        title: "教研分享会"
+      })
+
+    _enrollment = create_pending_enrollment(event, applicant)
+    _join = create_join_request(workspace, applicant)
+
+    query = """
+    query {
+      myPendingApprovals {
+        kind
+        requesterName
+        workspaceName
+        contextTitle
+        expiredAt
+      }
+    }
+    """
+
+    assert %{"data" => %{"myPendingApprovals" => rows}} = graphql(query, sign_in_token(owner))
+    assert length(rows) == 2
+
+    enrollment_row = Enum.find(rows, &(&1["kind"] == "enrollment"))
+    join_row = Enum.find(rows, &(&1["kind"] == "join_request"))
+
+    # fixture 未设 display_name → 摘要回落 email
+    assert enrollment_row["requesterName"] == to_string(applicant.email)
+    assert enrollment_row["workspaceName"] == "Summary WS"
+    assert enrollment_row["contextTitle"] == "教研分享会"
+    assert is_nil(enrollment_row["expiredAt"])
+
+    # JoinRequest 无活动上下文：context 摘要回落 Workspace 名
+    assert join_row["contextTitle"] == "Summary WS"
+  end
+
+  test "include_expired=true 附带已过期行（只读，排在 pending 后）" do
+    platform_admin = Fixtures.platform_admin("expired-platform")
+    owner = Fixtures.register_user("expired-owner")
+    applicant = Fixtures.register_user("expired-applicant")
+    workspace = Fixtures.create_workspace(platform_admin)
+    Fixtures.add_member(workspace, owner, [:owner])
+    event = EventFixtures.create_event(workspace, platform_admin, %{enrollment_policy: :request})
+
+    pending = create_pending_enrollment(event, applicant)
+    expired_user = Fixtures.register_user("expired-applicant-2")
+    expired = create_pending_enrollment(event, expired_user)
+    set_status("enrollments", expired.id, "expired")
+
+    query = """
+    query {
+      withExpired: myPendingApprovals(includeExpired: true) { id status expiredAt }
+      pendingOnly: myPendingApprovals { id status }
+    }
+    """
+
+    assert %{"data" => %{"withExpired" => all, "pendingOnly" => only}} =
+             graphql(query, sign_in_token(owner))
+
+    assert Enum.map(all, & &1["status"]) == ["pending", "expired"]
+    assert length(only) == 1
+    assert hd(only)["id"] == pending.id
+
+    expired_row = Enum.find(all, &(&1["status"] == "expired"))
+    assert expired_row["id"] == expired.id
+  end
+
   test "普通成员与非成员查询均为空，不泄露 pending 审批" do
     platform_admin = Fixtures.platform_admin("pending-deny-platform")
     member = Fixtures.register_user("pending-member")
@@ -77,6 +152,15 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     JoinRequest
     |> Ash.Changeset.for_create(:create, %{workspace_id: workspace.id, user_id: user.id})
     |> Ash.create!(actor: user)
+  end
+
+  defp set_status(table, id, status) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE #{table} SET status = $1, expired_at = now() WHERE id = $2",
+        [status, Ecto.UUID.dump!(id)]
+      )
   end
 
   defp set_deadline(table, id, timestamp) do

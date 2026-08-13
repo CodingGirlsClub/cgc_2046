@@ -3203,8 +3203,8 @@ type RootQueryType {
   "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
   myMcpTokens: [McpToken]
 
-  "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）"
-  myPendingApprovals: [PendingApproval!]!
+  "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
+  myPendingApprovals(includeExpired: Boolean): [PendingApproval!]!
 
   "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
   listUsers(search: String, first: Int, after: String): [AdminUser!]!
@@ -3536,6 +3536,10 @@ type PendingApproval {
   courseId: ID
   status: String!
   approvalDeadline: DateTime
+  expiredAt: DateTime
+  requesterName: String
+  workspaceName: String
+  contextTitle: String
 }
 
 type MiniprogramCodeResult {
