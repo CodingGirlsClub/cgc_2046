@@ -16,11 +16,11 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   WorkflowRun 是镜像 + 材料产出落点（一个邀请 = 一个 run，邀请设计 §2.3，
   run 持 decision/materials 两个人工门控，见 SpeakerInvitationInstantiator）。
 
-  ## 信号（事务内 outbox，SignalPublishWorker 异步投递）
+  ## 信号（SignalEmitter 事务内 outbox，SignalPublishWorker 异步投递）
 
   - speaker.accepted / speaker.declined：决策后发布
-  - speaker.completed：完成发布，幂等键 "speaker.completed:" <> id
-    （邀请设计 §4.2/§4.3）
+  - speaker.completed：完成发布，幂等键由 emitter 注入 "<type>:<id>"
+    （与邀请设计 §4.2/§4.3 约定逐值一致）
   """
 
   use Ash.Resource,
@@ -30,7 +30,6 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     domain: Cgc2046.Api
 
   alias Cgc2046.Repo
-  alias Cgc2046.Workers.SignalPublishWorker
   alias Cgc2046.Workflows.{SpeakerInvitationInstantiator, WorkflowRun}
 
   require Ash.Query
@@ -42,7 +41,6 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   @accepted_signal "speaker.accepted"
   @declined_signal "speaker.declined"
   @completed_signal "speaker.completed"
-  @completed_idempotency_prefix "speaker.completed:"
 
   attributes do
     uuid_primary_key(:id)
@@ -225,10 +223,8 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       end)
 
       change(
-        after_action(fn changeset, record, _context ->
-          enqueue_signal(changeset, record, @accepted_signal, signal_payload(record))
-          {:ok, record}
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @accepted_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
@@ -257,10 +253,8 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       end)
 
       change(
-        after_action(fn changeset, record, _context ->
-          enqueue_signal(changeset, record, @declined_signal, signal_payload(record))
-          {:ok, record}
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @declined_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
@@ -299,14 +293,8 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       end)
 
       change(
-        after_action(fn changeset, record, _context ->
-          payload =
-            signal_payload(record)
-            |> Map.put("idempotency_key", @completed_idempotency_prefix <> record.id)
-
-          enqueue_signal(changeset, record, @completed_signal, payload)
-          {:ok, record}
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @completed_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
@@ -790,19 +778,13 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp ensure_accepted(%{status: :accepted}), do: :ok
   defp ensure_accepted(_), do: {:error, :not_accepted}
 
-  # --- 信号（事务内 outbox，总纲三律：job 与状态同事务提交，SignalPublishWorker
-  # 异步投递，消费方 SignalIdempotency 去重） ----------------------------------
+  # --- 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
+  # idempotency_key / workspace_id 由 emitter 统一注入，plan 2026-08-14-003 Q12）——
 
-  defp enqueue_signal(changeset, record, signal_type, payload) do
-    SignalPublishWorker.enqueue_in_transaction(signal_type, payload, changeset.tenant)
-    {:ok, record}
-  end
-
-  defp signal_payload(record) do
+  def signal_payload(_changeset, record) do
     %{
       "speaker_invitation_id" => record.id,
       "event_id" => record.event_id,
-      "workspace_id" => record.workspace_id,
       "speaker_user_id" => record.speaker_user_id,
       "status" => to_string(record.status)
     }

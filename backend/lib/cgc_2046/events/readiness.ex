@@ -15,6 +15,7 @@ defmodule Cgc2046.Events.Readiness do
   """
 
   require Ash.Query
+  require Logger
 
   alias Cgc2046.Workflows.WorkflowDefinition
 
@@ -34,6 +35,21 @@ defmodule Cgc2046.Events.Readiness do
     ]
 
     %{items: items, ready: Enum.all?(items, & &1.ok)}
+  end
+
+  @doc """
+  GO/NO-GO 发布警告（D3 警告放行）：launch 后清单非 ready 记 warning 不阻塞发布，
+  明细经 GraphQL readiness 查询暴露后台。after_transaction 回调形态（Event/Course
+  launch 共用）——仅成功结果评估，原样透传 result。
+  """
+  def warn_unless_ready(_changeset, result, _context) do
+    with {:ok, record} <- result,
+         %{ready: false, items: items} <- evaluate(record) do
+      missing = items |> Enum.reject(& &1.ok) |> Enum.map_join(", ", & &1.label)
+      Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
+    end
+
+    result
   end
 
   # 已发布教研定义（多个取任意即可，实例化取最新）——查询失败视为未就绪

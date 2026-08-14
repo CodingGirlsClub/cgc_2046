@@ -1,9 +1,11 @@
 defmodule Cgc2046.Events.SponsorshipFlowTest do
   use Cgc2046.DataCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Sponsorship, SponsorshipDelivery}
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Workers.SignalPublishWorker
 
   require Ash.Query
 
@@ -416,33 +418,46 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
   end
 
   describe "信号发布" do
-    test "submitted/approved/rejected/active 信号按两段式发布，active 带幂等键" do
+    test "submitted/approved/rejected/active 信号按两段式入队，幂等键由 emitter 注入" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin)
 
-      parent = self()
-
-      assert {:ok, _} =
-               Cgc2046.Workflows.JidoAdapter.subscribe(
-                 "sponsorship.*",
-                 fn signal -> send(parent, {:signal, signal.type, signal.data}) end,
-                 nil
-               )
-
+      # 事务内 outbox（plan 2026-08-14-003 Q6）：信号经 SignalPublishWorker job
+      # 与实体终态同事务入队；幂等键 <type>:<record_id> 由 SignalEmitter 注入
       sponsor = Fixtures.register_user("sponsor-signals")
       {:ok, pending} = create_sponsorship(%{level: :event, event_id: event.id}, sponsor)
-      assert_receive {:signal, "sponsorship.submitted", %{"sponsorship_id" => id}}, 1_000
-      assert id == pending.id
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "sponsorship.submitted",
+          "data" => %{
+            "sponsorship_id" => pending.id,
+            "idempotency_key" => "sponsorship.submitted:" <> pending.id,
+            "workspace_id" => workspace.id
+          }
+        }
+      )
 
       {:ok, active} = approve(pending, admin)
-      expected_id = pending.id
 
-      assert_receive {:signal, "sponsorship.approved", %{"sponsorship_id" => ^expected_id}},
-                     1_000
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "sponsorship.approved",
+          "data" => %{"sponsorship_id" => pending.id}
+        }
+      )
 
-      assert_receive {:signal, "sponsorship.active", %{"idempotency_key" => key}}, 1_000
-      assert key == "sponsorship.active:" <> pending.id
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "sponsorship.active",
+          "data" => %{"idempotency_key" => "sponsorship.active:" <> pending.id}
+        }
+      )
+
       assert active.status == :active
 
       rejected_sponsor = Fixtures.register_user("sponsor-signals-rejected")
@@ -453,10 +468,13 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
         |> Ash.Changeset.for_update(:reject_sponsorship, %{rejection_reason: "不符合"})
         |> Ash.update(tenant: workspace.id, actor: admin)
 
-      expected_id2 = pending2.id
-
-      assert_receive {:signal, "sponsorship.rejected", %{"sponsorship_id" => ^expected_id2}},
-                     1_000
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "sponsorship.rejected",
+          "data" => %{"sponsorship_id" => pending2.id}
+        }
+      )
     end
   end
 

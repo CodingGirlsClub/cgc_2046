@@ -26,9 +26,6 @@ defmodule Cgc2046.Events.Sponsorship do
 
   alias Cgc2046.Repo
   alias Cgc2046.Events.SponsorshipTier
-  alias Cgc2046.Workflows.JidoAdapter
-
-  require Logger
 
   @default_approval_timeout_days 7
 
@@ -36,7 +33,6 @@ defmodule Cgc2046.Events.Sponsorship do
   @approved_signal "sponsorship.approved"
   @rejected_signal "sponsorship.rejected"
   @active_signal "sponsorship.active"
-  @active_idempotency_prefix "sponsorship.active:"
 
   attributes do
     uuid_primary_key(:id)
@@ -188,10 +184,10 @@ defmodule Cgc2046.Events.Sponsorship do
         Ash.Changeset.before_action(changeset, &prepare_create/1)
       end)
 
+      # 信号经 SignalEmitter 事务内 outbox 入队（plan 2026-08-14-003 Q6）。
       change(
-        after_transaction(fn changeset, result, _context ->
-          publish_submitted_signal(changeset, result)
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @submitted_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
 
@@ -204,16 +200,16 @@ defmodule Cgc2046.Events.Sponsorship do
         Ash.Changeset.before_action(changeset, &prepare_approve/1)
       end)
 
+      # 审批通过：先发 approved，再发 active（按声明顺序入队；active 幂等键由
+      # emitter 注入，赞助 doc §2.2/§4.2 约定逐值一致）。
       change(
-        after_transaction(fn changeset, result, _context ->
-          publish_approval_signal(changeset, result, @approved_signal)
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @approved_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
-        after_transaction(fn changeset, result, _context ->
-          publish_active_signal(changeset, result)
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @active_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
 
@@ -228,9 +224,8 @@ defmodule Cgc2046.Events.Sponsorship do
       end)
 
       change(
-        after_transaction(fn changeset, result, _context ->
-          publish_approval_signal(changeset, result, @rejected_signal)
-        end)
+        {Cgc2046.Changes.SignalEmitter,
+         type: @rejected_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
 
@@ -727,98 +722,22 @@ defmodule Cgc2046.Events.Sponsorship do
   defp target_table(:event), do: "events"
   defp target_table(:workspace), do: "workspaces"
 
-  # ── 信号发布（best-effort，同报名纪律）────────────────────────────────────
-
-  defp publish_submitted_signal(changeset, {:ok, sponsorship} = result) do
-    try do
-      publish_signal(changeset, sponsorship, @submitted_signal)
-    rescue
-      error ->
-        Logger.error(
-          "failed to publish #{@submitted_signal} for sponsorship #{sponsorship.id}: " <>
-            Exception.format(:error, error, __STACKTRACE__)
-        )
-    end
-
-    result
-  end
-
-  defp publish_submitted_signal(_changeset, result), do: result
-
-  defp publish_approval_signal(changeset, {:ok, sponsorship} = result, signal_type) do
-    try do
-      publish_signal(changeset, sponsorship, signal_type)
-    rescue
-      error ->
-        Logger.error(
-          "failed to publish #{signal_type} for sponsorship #{sponsorship.id}: " <>
-            Exception.format(:error, error, __STACKTRACE__)
-        )
-    end
-
-    result
-  end
-
-  defp publish_approval_signal(_changeset, result, _signal_type), do: result
-
-  # A5（赞助 doc §2.2/§4.2）：sponsorship.active 带幂等键。生产订阅方
-  # （权益展示/通知，SignalIdempotency 去重）由 E-2 #47 订阅方收尾接入——
-  # v1 本资源只负责按约定生产信号（评审 A1 注释澄清）。
-  defp publish_active_signal(changeset, {:ok, sponsorship} = result) do
-    try do
-      publish_signal(changeset, sponsorship, @active_signal)
-    rescue
-      error ->
-        Logger.error(
-          "failed to publish #{@active_signal} for sponsorship #{sponsorship.id}: " <>
-            Exception.format(:error, error, __STACKTRACE__)
-        )
-    end
-
-    result
-  end
-
-  defp publish_active_signal(_changeset, result), do: result
-
-  defp publish_signal(changeset, sponsorship, signal_type) do
-    payload =
-      sponsorship
-      |> base_signal_payload()
-      |> Map.merge(%{
-        "level" => to_string(sponsorship.level),
-        "company_name" => sponsorship.company_name,
-        "amount" => sponsorship.amount,
-        "tier_id" => sponsorship.tier_id,
-        "tier_name" => sponsorship.tier_name
-      })
-
-    payload =
-      case signal_type do
-        @active_signal ->
-          Map.put(payload, "idempotency_key", @active_idempotency_prefix <> sponsorship.id)
-
-        _ ->
-          payload
-      end
-
-    case JidoAdapter.publish(signal_type, payload, changeset.tenant) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error(
-          "failed to publish #{signal_type} for sponsorship #{sponsorship.id}: #{inspect(reason)}"
-        )
-    end
-  end
-
-  defp base_signal_payload(sponsorship) do
+  # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
+  # idempotency_key / workspace_id 由 emitter 统一注入，plan 2026-08-14-003 Q12）──
+  #
+  # A5（赞助 doc §2.2/§4.2）：生产订阅方（权益展示/通知，SignalIdempotency 去重）
+  # 由 E-2 #47 订阅方收尾接入——v1 本资源只负责按约定生产信号（评审 A1 注释澄清）。
+  def signal_payload(_changeset, sponsorship) do
     %{
       "sponsorship_id" => sponsorship.id,
-      "workspace_id" => sponsorship.workspace_id,
       "event_id" => sponsorship.event_id,
       "sponsor_user_id" => sponsorship.sponsor_user_id,
-      "status" => to_string(sponsorship.status)
+      "status" => to_string(sponsorship.status),
+      "level" => to_string(sponsorship.level),
+      "company_name" => sponsorship.company_name,
+      "amount" => sponsorship.amount,
+      "tier_id" => sponsorship.tier_id,
+      "tier_name" => sponsorship.tier_name
     }
   end
 
