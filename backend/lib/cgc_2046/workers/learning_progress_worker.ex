@@ -141,12 +141,25 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   defp remind_stagnant(%WorkflowRun{} = run) do
     with enrollment_id when is_binary(enrollment_id) <- enrollment_id_of(run),
          {:ok, %Enrollment{status: :confirmed} = enrollment} <- fetch_enrollment(enrollment_id) do
-      case Cgc2046.NotificationSubscriber.enqueue_learning_stagnation_jobs(
-             enrollment.user_id,
-             run
-           ) do
-        :ok -> :reminded
-        :no_identity -> :skipped
+      identities = Cgc2046.NotificationFanout.identities(enrollment.user_id)
+
+      if identities == [] do
+        # 无平台身份 → 无可入队（:no_identity 分类语义留在本 worker，PR-C）
+        :skipped
+      else
+        Cgc2046.NotificationFanout.deliver(
+          {enrollment.user_id, identities},
+          "learning_stagnation",
+          %{
+            "enrollment_id" => run.input_snapshot["enrollment_id"],
+            "run_id" => run.id,
+            "title" => run.input_snapshot["title"]
+          },
+          %{"run_id" => run.id},
+          :reminder_7d
+        )
+
+        :reminded
       end
     else
       _ -> :skipped

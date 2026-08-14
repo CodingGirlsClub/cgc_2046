@@ -10,8 +10,9 @@ defmodule Cgc2046.NotificationSubscriber do
   - `enrollment.completed`（open 直接确认或审批通过）→ 报名学员本人（报名成功）
 
   订阅骨架与 claim-first 幂等语义由 `Cgc2046.Workflows.SignalSubscriber` 统一
-  持有（语义事实见其 moduledoc）；入队侧 NotificationWorker 7 天全 args unique，
-  同一信号重复入队被折叠。
+  持有（语义事实见其 moduledoc）；收件人解析与 Oban 入队收敛到
+  `Cgc2046.NotificationFanout`（唯一实现，通知分发面深化 PR-C）——本模块退化为
+  **纯订阅方**，无公共入队面（异步计划 Q4 backlog）。
   """
 
   use Cgc2046.Workflows.SignalSubscriber,
@@ -23,139 +24,19 @@ defmodule Cgc2046.NotificationSubscriber do
     ],
     idempotency: :claim_first
 
-  require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
   alias Cgc2046.Events.{Course, Event}
-  alias Cgc2046.Workflows.WorkflowRun
-  alias Cgc2046.Workers.NotificationWorker
 
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
-
-  # 提醒任务的去重窗口：discarded/cancelled 释放名额（失败后下拍可重建），
-  # completed/在途仍阻塞重复（#7）。
-  @reminder_unique [
-    period: 604_800,
-    fields: [:worker, :args],
-    states: [:scheduled, :available, :executing, :retryable, :completed]
-  ]
-
-  def enqueue_approval_result(%{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload) do
-    enqueue_for_identities(
-      user_id,
-      "approval_result",
-      %{
-        "status" => payload["status"] || "processed",
-        "enrollment_id" => enrollment_id
-      },
-      %{"enrollment_id" => enrollment_id}
-    )
-  end
-
-  def enqueue_reminder(user_id, enrollment_id, deadline) do
-    user_id
-    |> identities_for_user()
-    |> enqueue_reminder_jobs(user_id, enrollment_id, deadline)
-  rescue
-    error ->
-      Logger.warning("approval reminder enqueue failed: #{Exception.message(error)}")
-      :ok
-  end
-
-  @doc """
-  E-7 #122 学习 run 停滞提醒入队（D6-③；LearningProgressWorker 调用）。
-
-  收件人 = 报名学员本人的全部平台身份（逐身份入队，同用户多身份不折叠）。
-  返回 `:ok`（至少入队一条）或 `:no_identity`（无平台身份，无可入队）。
-  NotificationWorker 7 天 args-unique（args 含 run_id）保证同一 run 同一
-  收件人 7 天内至多一条；发送时 `stale_reminder?` 重查 run 仍 running 才投递。
-  """
-  def enqueue_learning_stagnation_jobs(user_id, %WorkflowRun{} = run) do
-    identities = identities_for_user(user_id)
-
-    if identities == [] do
-      :no_identity
-    else
-      Enum.each(identities, fn identity ->
-        insert_notification(
-          identity,
-          user_id,
-          "learning_stagnation",
-          %{
-            "enrollment_id" => run.input_snapshot["enrollment_id"],
-            "run_id" => run.id,
-            "title" => run.input_snapshot["title"]
-          },
-          %{"run_id" => run.id},
-          @reminder_unique
-        )
-      end)
-
-      :ok
-    end
-  rescue
-    error ->
-      Logger.warning("learning stagnation reminder enqueue failed: #{Exception.message(error)}")
-      :ok
-  end
-
-  @doc """
-  E-3 #48 赞助审批 48h 提醒批量入口（F7；复用 approval_reminder 模板，
-  data 携带 sponsorship_id 区分报名提醒）。
-  """
-  def enqueue_sponsorship_reminder_jobs(identities, user_id, sponsorship_id, deadline) do
-    Enum.each(identities, fn identity ->
-      insert_notification(
-        identity,
-        user_id,
-        "approval_reminder",
-        %{
-          "sponsorship_id" => sponsorship_id,
-          "approval_deadline" => DateTime.to_iso8601(deadline)
-        },
-        %{"sponsorship_id" => sponsorship_id},
-        @reminder_unique
-      )
-    end)
-
-    :ok
-  rescue
-    error ->
-      Logger.warning("sponsorship approval reminder enqueue failed: #{Exception.message(error)}")
-      :ok
-  end
-
-  @doc "批量入口：调用方已预取该用户的平台身份（如按 workspace 一次读出）。"
-  def enqueue_reminder_jobs(identities, user_id, enrollment_id, deadline) do
-    Enum.each(identities, fn identity ->
-      insert_notification(
-        identity,
-        user_id,
-        "approval_reminder",
-        %{
-          "enrollment_id" => enrollment_id,
-          "approval_deadline" => DateTime.to_iso8601(deadline)
-        },
-        %{"enrollment_id" => enrollment_id},
-        @reminder_unique
-      )
-    end)
-
-    :ok
-  rescue
-    error ->
-      Logger.warning("approval reminder enqueue failed: #{Exception.message(error)}")
-      :ok
-  end
 
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(@submitted_signal, data), do: handle_submitted(data)
   def handle(@completed_signal, data), do: handle_completed(data)
 
   # approved / rejected → 审批结果通知（既有路径）
-  def handle(_type, data), do: enqueue_approval_result(data)
+  def handle(_type, data), do: handle_approval_result(data)
 
   # submitted：request 策略才有「待审批」语义；open/invite_only 提交即确认，不通知。
   defp handle_submitted(data) do
@@ -178,45 +59,23 @@ defmodule Cgc2046.NotificationSubscriber do
     end
   end
 
-  defp enqueue_for_identities(user_id, template_key, data, job_meta) do
-    user_id
-    |> identities_for_user()
-    |> Enum.each(&insert_notification(&1, user_id, template_key, data, job_meta, nil))
-
-    :ok
-  rescue
-    error ->
-      Logger.warning("approval notification enqueue failed: #{Exception.message(error)}")
-      :ok
+  # approved / rejected → 报名学员本人，逐平台身份入队（#3）。
+  defp handle_approval_result(
+         %{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload
+       ) do
+    Cgc2046.NotificationFanout.deliver(
+      {user_id, Cgc2046.NotificationFanout.identities(user_id)},
+      "approval_result",
+      %{
+        "status" => payload["status"] || "processed",
+        "enrollment_id" => enrollment_id
+      },
+      %{"enrollment_id" => enrollment_id}
+    )
   end
 
-  defp identities_for_user(user_id) do
-    UserIdentity
-    |> Ash.Query.filter(user_id == ^user_id)
-    |> Ash.read!(authorize?: false)
-  end
-
-  # args 携带 identity_uid：同用户同平台多身份不再被 args-unique 折叠，
-  # 发送侧按该身份精确投递（#3）。
-  defp insert_notification(identity, user_id, template_key, data, job_meta, unique_override) do
-    args =
-      job_meta
-      |> Map.merge(%{
-        "user_id" => user_id,
-        "identity_uid" => identity.uid,
-        "platform" => to_string(identity.provider),
-        "template_key" => template_key,
-        "data" => data
-      })
-
-    case unique_override do
-      nil -> NotificationWorker.new(args)
-      unique -> NotificationWorker.new(args, unique: unique)
-    end
-    |> Oban.insert!()
-  end
-
-  # 待审批报名 → workspace Owner/Admin（管理角色判定与 ApprovalReminderWorker 同款）。
+  # 待审批报名 → workspace Owner/Admin（管理角色判定唯一真源
+  # `Role.manage_roles/0`，经 NotificationFanout.managers/2 收敛）。
   defp notify_workspace_managers(data) do
     enrollment_id = Map.fetch!(data, "enrollment_id")
     job_meta = %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
@@ -224,19 +83,12 @@ defmodule Cgc2046.NotificationSubscriber do
     with {:ok, title} <- target_title(data) do
       data
       |> Map.fetch!("workspace_id")
-      |> managed_identities_by_user()
-      |> Enum.each(fn {user_id, identities} ->
-        Enum.each(identities, fn identity ->
-          insert_notification(
-            identity,
-            user_id,
-            "enrollment_submitted",
-            %{"enrollment_id" => enrollment_id, "title" => title},
-            job_meta,
-            nil
-          )
-        end)
-      end)
+      |> Cgc2046.NotificationFanout.managers()
+      |> Cgc2046.NotificationFanout.deliver(
+        "enrollment_submitted",
+        %{"enrollment_id" => enrollment_id, "title" => title},
+        job_meta
+      )
     else
       {:error, reason} ->
         Logger.warning(
@@ -257,8 +109,8 @@ defmodule Cgc2046.NotificationSubscriber do
 
     with {:ok, title} <- target_title(data),
          user_id when is_binary(user_id) <- Map.get(data, "user_id") do
-      enqueue_for_identities(
-        user_id,
+      Cgc2046.NotificationFanout.deliver(
+        {user_id, Cgc2046.NotificationFanout.identities(user_id)},
         "enrollment_completed",
         %{"enrollment_id" => enrollment_id, "title" => title},
         %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
@@ -294,31 +146,4 @@ defmodule Cgc2046.NotificationSubscriber do
   end
 
   defp target_title(_data), do: {:error, :target_not_found}
-
-  # workspace Owner/Admin 的平台身份（按 user_id 分组；每工作台一次读取，
-  # 与 ApprovalReminderWorker.managed_identities_by_user 同款实现）。
-  defp managed_identities_by_user(workspace_id) do
-    managed_ids =
-      WorkspaceMembership
-      |> Ash.Query.load(:roles)
-      |> Ash.read!(tenant: workspace_id, authorize?: false)
-      |> Enum.filter(fn membership ->
-        membership.roles
-        |> Enum.map(& &1.name)
-        |> Enum.any?(&Role.manage_role?/1)
-      end)
-      |> Enum.map(& &1.user_id)
-      |> Enum.uniq()
-
-    case managed_ids do
-      [] ->
-        %{}
-
-      managed_ids ->
-        UserIdentity
-        |> Ash.Query.filter(user_id in ^managed_ids)
-        |> Ash.read!(authorize?: false)
-        |> Enum.group_by(& &1.user_id)
-    end
-  end
 end
