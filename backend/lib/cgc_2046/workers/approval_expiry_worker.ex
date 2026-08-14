@@ -2,8 +2,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   @moduledoc """
   审批超时扫描 worker（0C；Oban cron 每 5 分钟一拍，见 config.exs）。
 
-  把「读时惰性计算过期」升级为「主动落库过期」，覆盖四类实体
-  （Enrollment 尚未建模，接入时复用本 worker 同一扫描模式）：
+  把「读时惰性计算过期」升级为「主动落库过期」，六份扫描由 @expiry_specs
+  声明式规格驱动（列实体 SQL 下推过滤 + WorkflowRun 内存派生）：
 
   1. `JoinRequest`（accounts）：`status=pending 且 approval_deadline 已过` → 走既有
      `:expire` 领域 action 转 expired。落地 join_request.ex 的 TODO：「引入
@@ -41,118 +41,107 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   require Ash.Query
   require Logger
 
+  # `^ref(column)` 动态列引用（@expiry_specs 表驱动下推过滤用）
+  import Ash.Expr, only: [ref: 1]
+
   alias Cgc2046.Accounts.Invitation
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.Accounts.WorkspaceApplication
+  alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Workflows.WorkflowRun
+
+  # 六份过期扫描的声明式规格（PR-D）：每行 = 一个资源面。
+  # - 列实体（deadline: {:column, atom}）：SQL 下推过滤（status + 列非空 + 列 < now），
+  #   不退化为全表 load；列实体 deadline 列 nil 的永不扫中。
+  # - WorkflowRun（deadline: :derived）：load definition + ApprovalDeadline.overdue?
+  #   内存判断——唯一非列路径，绝不可并入纯 SQL 分支（timeout nil 的 run 靠
+  #   overdue? 返回 false 永不扫中）。
+  # - tenant 字段是各资源租户性质的声明；per-record 的 :expire 转换带/不带 tenant
+  #   由下方 expire_record 子句按结构体原样处理（全局资源 update 不带 tenant）。
+  @expiry_specs [
+    # E-3 #48 F7：pending 报名超时 → expired。
+    %{
+      resource: Enrollment,
+      status: :pending,
+      deadline: {:column, :approval_deadline},
+      tenant: true
+    },
+    # 决策 3：pending 加入申请超时 → expired。
+    %{
+      resource: JoinRequest,
+      status: :pending,
+      deadline: {:column, :approval_deadline},
+      tenant: true
+    },
+    # E-3 #48 F7：pending 赞助超时 → expired（≠ rejected，可重提；重提走新行）。
+    %{
+      resource: Sponsorship,
+      status: :pending,
+      deadline: {:column, :approval_deadline},
+      tenant: true
+    },
+    # WorkspaceApplication（accounts，全局资源）：pending + deadline 过点 → :expire。
+    %{
+      resource: WorkspaceApplication,
+      status: :pending,
+      deadline: {:column, :approval_deadline},
+      tenant: false
+    },
+    # Invitation（accounts，租户资源，#114）：active + expires_at 过点 → :expire。
+    # expires_at = nil（存量及 member 邀请默认）永不扫中；读时 effective_status 兜底不变。
+    %{resource: Invitation, status: :active, deadline: {:column, :expires_at}, tenant: true},
+    # WorkflowRun：waiting + 内存派生 deadline 过点（唯一 :derived 路径）。deadline =
+    # run 进入 waiting 的时间（updated_at，waiting 迁移刷新）+ approval_timeout；
+    # approval_timeout = nil → 无超时（F7 方案 A），永不扫中。
+    %{resource: WorkflowRun, status: :waiting, deadline: :derived, tenant: true}
+  ]
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     now = DateTime.utc_now()
 
-    expired_join_requests = expire_join_requests(now)
-    expired_enrollments = expire_enrollments(now)
-    expired_sponsorships = expire_sponsorships(now)
-    expired_runs = expire_waiting_runs(now)
-    expired_workspace_applications = expire_workspace_applications(now)
-    expired_invitations = expire_invitations(now)
+    expired =
+      Enum.map(@expiry_specs, fn spec ->
+        {spec.resource, sweep(spec, now)}
+      end)
 
-    if expired_join_requests + expired_enrollments + expired_sponsorships + expired_runs +
-         expired_workspace_applications + expired_invitations > 0 do
-      Logger.info(
-        "approval expiry sweep: #{expired_join_requests} join_request(s), " <>
-          "#{expired_enrollments} enrollment(s), #{expired_sponsorships} sponsorship(s), " <>
-          "#{expired_runs} workflow_run(s), " <>
-          "#{expired_workspace_applications} workspace_application(s), " <>
-          "#{expired_invitations} invitation(s) expired"
-      )
+    if Enum.any?(expired, fn {_resource, count} -> count > 0 end) do
+      summary =
+        expired
+        |> Enum.map(fn {resource, count} -> "#{count} #{kind(resource)}(s)" end)
+        |> Enum.join(", ")
+
+      Logger.info("approval expiry sweep: #{summary} expired")
     end
 
     :ok
   end
 
-  defp expire_enrollments(now) do
-    Enrollment
-    |> Ash.Query.filter(
-      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
-    )
+  # 列实体：SQL 下推过滤（status + 列非空 + 列 < now），不退化为全表 load。
+  defp sweep(%{resource: resource, status: status, deadline: {:column, column}}, now) do
+    resource
+    |> Ash.Query.filter(status == ^status and not is_nil(^ref(column)) and ^ref(column) < ^now)
     |> Ash.read!(authorize?: false)
-    |> Enum.reduce(0, fn enrollment, acc ->
-      case expire_record(enrollment) do
+    |> Enum.reduce(0, fn record, acc ->
+      case expire_record(record) do
         :ok -> acc + 1
         :skip -> acc
       end
     end)
   end
 
-  defp expire_join_requests(now) do
-    JoinRequest
-    |> Ash.Query.filter(
-      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
-    )
-    |> Ash.read!(authorize?: false)
-    |> Enum.reduce(0, fn join_request, acc ->
-      case expire_record(join_request) do
-        :ok -> acc + 1
-        :skip -> acc
-      end
-    end)
-  end
-
-  # E-3 #48 F7：pending 赞助超时 → expired（≠ rejected，可重提；重提走新行）。
-  defp expire_sponsorships(now) do
-    Sponsorship
-    |> Ash.Query.filter(
-      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
-    )
-    |> Ash.read!(authorize?: false)
-    |> Enum.reduce(0, fn sponsorship, acc ->
-      case expire_record(sponsorship) do
-        :ok -> acc + 1
-        :skip -> acc
-      end
-    end)
-  end
-
-  # WorkspaceApplication（accounts，全局资源）：pending + deadline 过点 → 走 :expire
-  # action 转 expired。全局资源无 tenant，update 不传 tenant（区别于租户资源）。
-  defp expire_workspace_applications(now) do
-    WorkspaceApplication
-    |> Ash.Query.filter(
-      status == :pending and not is_nil(approval_deadline) and approval_deadline < ^now
-    )
-    |> Ash.read!(authorize?: false)
-    |> Enum.reduce(0, fn application, acc ->
-      case expire_record(application) do
-        :ok -> acc + 1
-        :skip -> acc
-      end
-    end)
-  end
-
-  # Invitation（accounts，租户资源，#114）：active + expires_at 过点 → 走 :expire 转 expired。
-  # expires_at = nil（存量及 member 邀请默认）永不扫中；读时 effective_status 兜底不变。
-  defp expire_invitations(now) do
-    Invitation
-    |> Ash.Query.filter(status == :active and not is_nil(expires_at) and expires_at < ^now)
-    |> Ash.read!(authorize?: false)
-    |> Enum.reduce(0, fn invitation, acc ->
-      case expire_record(invitation) do
-        :ok -> acc + 1
-        :skip -> acc
-      end
-    end)
-  end
-
-  defp expire_waiting_runs(now) do
+  # :derived 路径（WorkflowRun）：load definition + ApprovalDeadline.overdue? 内存判断。
+  # deadline 派生唯一真源 = ApprovalDeadline（updated_at + definition.approval_timeout，
+  # nil = 永不过期）。
+  defp sweep(%{resource: WorkflowRun, status: :waiting, deadline: :derived}, now) do
     WorkflowRun
     |> Ash.Query.filter(status == :waiting)
     |> Ash.Query.load(definition: [:approval_timeout])
     |> Ash.read!(authorize?: false)
     |> Enum.reduce(0, fn run, acc ->
-      if approval_overdue?(run, now) do
+      if ApprovalDeadline.overdue?(run, now) do
         case expire_record(run) do
           :ok -> acc + 1
           :skip -> acc
@@ -163,17 +152,8 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
     end)
   end
 
-  # deadline = run 进入 waiting 的时间（updated_at，waiting 迁移刷新）+ approval_timeout。
-  # approval_timeout = nil → 无超时（F7 方案 A），永不扫中。
-  defp approval_overdue?(%WorkflowRun{} = run, now) do
-    case run.definition.approval_timeout do
-      nil ->
-        false
-
-      timeout ->
-        DateTime.compare(DateTime.add(run.updated_at, timeout, :second), now) == :lt
-    end
-  end
+  # 日志与 warning 的 kind 短名（JoinRequest → "join_request"，与收敛前字面量一致）
+  defp kind(resource), do: resource |> Module.split() |> List.last() |> Macro.underscore()
 
   # 单个记录转换失败不中断整拍：并发终态变化（approve/reject/expire 先落库）会被
   # 各领域 action 的状态守卫拒绝，属预期竞态，记 warning 跳过即可。
