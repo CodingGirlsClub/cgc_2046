@@ -81,7 +81,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
                    "key" => "enrollment_#{enrollment_id}",
                    "enrollment_id" => enrollment_id
                  }
-               }, tenant: workspace.id, actor: actor)
+               },
+               tenant: workspace.id,
+               actor: actor
+             )
              |> Ash.create(tenant: workspace.id, actor: actor)
 
     run
@@ -96,7 +99,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
                  definition_id: definition.id,
                  definition_version: definition.version,
                  input_snapshot: %{"key" => key}
-               }, tenant: workspace.id, actor: actor)
+               },
+               tenant: workspace.id,
+               actor: actor
+             )
              |> Ash.create(tenant: workspace.id, actor: actor)
 
     run
