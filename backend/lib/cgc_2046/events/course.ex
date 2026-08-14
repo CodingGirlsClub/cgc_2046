@@ -26,8 +26,6 @@ defmodule Cgc2046.Events.Course do
 
   alias Cgc2046.Repo
 
-  require Logger
-
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
   @visibility_values [:public, :workspace]
@@ -323,23 +321,13 @@ defmodule Cgc2046.Events.Course do
       end)
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: "course.launched", payload: &__MODULE__.launched_payload/2}
       )
 
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
-      # 明细经 GraphQL readiness 查询暴露后台。
-      change(
-        after_transaction(fn _changeset, result, _context ->
-          with {:ok, record} <- result,
-               %{items: items} <- Cgc2046.Events.Readiness.evaluate(record) do
-            missing = Enum.map_join(items, ", ", & &1.label)
-            Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
-          end
-
-          result
-        end)
-      )
+      # 明细经 GraphQL readiness 查询暴露后台（event.launch 同款，Readiness 统一）。
+      change(after_transaction(&Cgc2046.Events.Readiness.warn_unless_ready/3))
     end
 
     # open → closed：结束课程（手动，或 registration_deadline 到点由
@@ -380,7 +368,8 @@ defmodule Cgc2046.Events.Course do
       # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Events.SignalEmitter, type: "course.ended", payload: &__MODULE__.ended_payload/2}
+        {Cgc2046.Changes.SignalEmitter,
+         type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
 
@@ -417,7 +406,8 @@ defmodule Cgc2046.Events.Course do
       # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Events.SignalEmitter, type: "course.ended", payload: &__MODULE__.ended_payload/2}
+        {Cgc2046.Changes.SignalEmitter,
+         type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
 

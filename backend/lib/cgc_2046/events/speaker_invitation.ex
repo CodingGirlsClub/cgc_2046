@@ -223,7 +223,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       end)
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @accepted_signal, payload: &__MODULE__.signal_payload/2}
       )
 
@@ -253,7 +253,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       end)
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @declined_signal, payload: &__MODULE__.signal_payload/2}
       )
 
@@ -293,7 +293,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       end)
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @completed_signal, payload: &__MODULE__.signal_payload/2}
       )
 

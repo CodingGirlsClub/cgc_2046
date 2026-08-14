@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.SignalEmitterTest do
+defmodule Cgc2046.Changes.SignalEmitterTest do
   @moduledoc """
   SignalEmitter 契约测试（plan 2026-08-14-003 Phase A.1 验收）：
 
@@ -7,19 +7,24 @@ defmodule Cgc2046.Events.SignalEmitterTest do
   - `workspace_id` 由 emitter 从 record 注入（payload fn 不再自拼）
   - payload fn 调用契约：`fn changeset, record -> map`（context 可达）
   - `skip_unless` 谓词 false 跳过入队；payload 键在 emitter 边界归一为字符串
+  - 入队失败（Oban insert raise）→ 事务回滚，终态不落库（Q6 事务性 outbox）
   """
 
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Enrollment, SignalEmitter}
+  alias Cgc2046.Changes.SignalEmitter
+  alias Cgc2046.Events.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.SignalPublishWorker
 
   # 直挂契约测试用 opts（远程捕获须为 public 模块函数）
   def atom_keyed_payload(_changeset, record), do: %{enrollment_id: record.id, note: :atom_value}
   def skip_all(_changeset, _record), do: false
+
+  # Jason 无法编码 tuple：经 Oban insert 的 jsonb 落库路径真实 raise（回滚用例）
+  def unencodable_payload(_changeset, record), do: %{enrollment_id: record.id, bad: {1, 2}}
 
   test "event close：事务内入队 ended job，幂等键 <type>:<record_id> 与 workspace_id 注入" do
     admin = Fixtures.platform_admin("emitter-close-admin")
@@ -179,5 +184,48 @@ defmodule Cgc2046.Events.SignalEmitterTest do
              |> Ash.update(tenant: workspace.id, actor: learner)
 
     refute_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "test.skipped"})
+  end
+
+  # Q6 事务性 outbox 的回滚面：入队失败（Oban insert 经 jsonb 落库对不可编码值
+  # 真实 raise）必须连同数据层变更一起回滚——终态不落库、无孤儿 job，action
+  # 可安全重试。异常类型随 Oban/Postgrex 编码路径而定，不在此锚定。
+  test "入队失败 raise → 事务回滚：终态不落库、不产生孤儿 job" do
+    admin = Fixtures.platform_admin("emitter-rollback-admin")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin, %{capacity: 10})
+    learner = Fixtures.register_user("emitter-rollback-learner")
+
+    assert {:ok, enrollment} =
+             Enrollment
+             |> Ash.Changeset.for_create(:create_enrollment, %{
+               event_id: event.id,
+               user_id: learner.id
+             })
+             |> Ash.create(tenant: workspace.id, actor: learner)
+
+    assert enrollment.status == :confirmed
+
+    raised =
+      try do
+        enrollment
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> SignalEmitter.change(
+          [type: "test.rollback", payload: &__MODULE__.unencodable_payload/2],
+          %{}
+        )
+        |> Ash.update(tenant: workspace.id, actor: learner)
+
+        nil
+      rescue
+        e -> e
+      end
+
+    assert raised != nil
+
+    # 数据层变更随入队失败一并回滚：报名仍 confirmed（未取消）
+    reloaded = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+    assert reloaded.status == :confirmed
+
+    refute_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "test.rollback"})
   end
 end

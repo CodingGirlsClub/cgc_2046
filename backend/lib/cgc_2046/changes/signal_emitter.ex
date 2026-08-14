@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.SignalEmitter do
+defmodule Cgc2046.Changes.SignalEmitter do
   @moduledoc """
   信号发布 change（异步链路深化 PR-A；plan 2026-08-14-003 决策 Q5/Q6/Q12/Q13/Q14）。
 
@@ -8,10 +8,15 @@ defmodule Cgc2046.Events.SignalEmitter do
   事务回滚，action 整体失败可安全重试（幂等）。worker 异步投递失败经 Oban 重试
   （max_attempts 8），消费方经 SignalIdempotency 幂等去重。
 
+  顺序语义：同一 action 成对入队的信号（如 create 自动确认时的
+  submitted → completed）是 :maintenance 队列上的独立 job，Oban 并发执行不保证
+  先后——completed 可能先于 submitted 投递（旧直发路径为同步有序）。当前订阅方
+  彼此独立且幂等，乱序到达安全；若未来订阅方依赖顺序，须按 record 状态自决。
+
   用法（fn 须为 public 模块函数的远程捕获——Spark DSL 实体 opts 需可转义，
   匿名 fn 与私有捕获会在资源编译期报错，同 LogAdminAction 契约）：
 
-      change {Cgc2046.Events.SignalEmitter,
+      change {Cgc2046.Changes.SignalEmitter,
         type: "enrollment.completed", payload: &__MODULE__.signal_payload/2}
 
   opts：
