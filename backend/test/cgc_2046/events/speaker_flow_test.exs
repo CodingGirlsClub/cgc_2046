@@ -26,6 +26,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
   alias Cgc2046.Events.{SpeakerInvitation, SpeakerInvitations}
   alias Cgc2046.SpeakerSubscriber
   alias Cgc2046.Workflows.SignalIdempotency
+  alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workers.{NotificationWorker, SignalPublishWorker}
 
@@ -556,16 +557,17 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
         "event_id" => event.id,
         "workspace_id" => workspace.id,
         "speaker_user_id" => nil,
-        "status" => "accepted"
+        "status" => "accepted",
+        "idempotency_key" => "speaker.accepted:" <> invitation.id
       }
 
-      assert :ok = SpeakerSubscriber.handle_signal(%{type: "speaker.accepted", data: data})
+      assert :ok = SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
 
       assert_enqueued(worker: NotificationWorker, args: %{"template_key" => "speaker_accepted"})
       assert claim_rows("speaker.accepted") == 1
 
       # 同信号重复投递 → 幂等跳过（不再新增通知与 claim）
-      assert :duplicate = SpeakerSubscriber.handle_signal(%{type: "speaker.accepted", data: data})
+      assert :duplicate = SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
 
       accepted_jobs =
         all_enqueued(worker: NotificationWorker)
@@ -603,7 +605,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
         "idempotency_key" => "speaker.completed:" <> invitation.id
       }
 
-      assert :ok = SpeakerSubscriber.handle_signal(%{type: "speaker.completed", data: data})
+      assert :ok = SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.completed", data: data})
 
       completed_jobs =
         all_enqueued(worker: NotificationWorker)

@@ -20,10 +20,8 @@ defmodule Cgc2046.Workers.SignalPublishWorker do
   alias Cgc2046.Workflows.JidoAdapter
 
   @impl Oban.Worker
-  def perform(%Oban.Job{
-        args: %{"signal_type" => signal_type, "data" => data, "tenant" => tenant}
-      }) do
-    case JidoAdapter.publish(signal_type, data, tenant) do
+  def perform(%Oban.Job{args: %{"signal_type" => signal_type, "data" => data}}) do
+    case JidoAdapter.publish(signal_type, data) do
       :ok ->
         :ok
 
