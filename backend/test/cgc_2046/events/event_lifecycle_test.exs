@@ -17,6 +17,17 @@ defmodule Cgc2046.Events.EventLifecycleTest do
 
   defp reload(resource, id), do: Ash.get!(resource, id, authorize?: false)
 
+  # 按 (signal_type, 实体 id) 计数：event.ended 带 event_id、course.ended 带 course_id。
+  defp count_ended_jobs(signal_type, entity_id) do
+    id_key = if signal_type == "event.ended", do: "event_id", else: "course_id"
+
+    [worker: SignalPublishWorker]
+    |> all_enqueued()
+    |> Enum.count(
+      &(&1.args["signal_type"] == signal_type && get_in(&1.args, ["data", id_key]) == entity_id)
+    )
+  end
+
   defp create_draft_event(workspace, admin, title) do
     Event
     |> Ash.Changeset.for_create(
@@ -37,12 +48,20 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:ok, closed} = close(event, workspace, admin)
       assert closed.status == :closed
       assert reload(Event, event.id).status == :closed
-      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "event.ended"})
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "event.ended", "data" => %{"event_id" => event.id}}
+      )
 
       assert {:ok, closed_course} = close(course, workspace, admin)
       assert closed_course.status == :closed
       assert reload(Course, course.id).status == :closed
-      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "course.ended"})
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "course.ended", "data" => %{"course_id" => course.id}}
+      )
     end
 
     test "非法迁移：draft 不能 close；新鲜读重复 close 被状态守卫拒绝" do
@@ -87,8 +106,9 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:error, race} = close(event, workspace, admin)
       assert Exception.message(race) =~ "concurrently"
 
-      # CAS 拒绝后不重复发布：仅第一次 close 入队一个 ended job（精确计数）
-      assert length(all_enqueued(worker: SignalPublishWorker)) == 1
+      # CAS 拒绝后不重复发布：仅第一次 close 入队一个 ended job（精确计数；
+      # 锚定本事件 id——套件内并发类测试真实提交的残留 job 不影响断言）
+      assert count_ended_jobs("event.ended", event.id) == 1
     end
   end
 
@@ -102,11 +122,20 @@ defmodule Cgc2046.Events.EventLifecycleTest do
       assert {:ok, cancelled} = cancel(event, workspace, admin)
       assert cancelled.status == :cancelled
       assert reload(Event, event.id).status == :cancelled
-      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "event.ended"})
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "event.ended", "data" => %{"event_id" => event.id}}
+      )
 
       assert {:ok, cancelled_course} = cancel(course, workspace, admin)
       assert cancelled_course.status == :cancelled
-      assert_enqueued(worker: SignalPublishWorker, args: %{"signal_type" => "course.ended"})
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "course.ended", "data" => %{"course_id" => course.id}}
+      )
+
       draft = create_draft_event(workspace, admin, "Draft 2")
       assert {:error, error} = cancel(draft, workspace, admin)
       assert Exception.message(error) =~ "cannot cancel from status=draft"
