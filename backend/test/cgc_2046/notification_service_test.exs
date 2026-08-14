@@ -4,8 +4,8 @@ defmodule Cgc2046.NotificationServiceTest do
 
   alias Cgc2046.Miniprogram.Client
   alias Cgc2046.NotificationConsent
+  alias Cgc2046.NotificationFanout
   alias Cgc2046.NotificationService
-  alias Cgc2046.NotificationSubscriber
   alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
@@ -87,20 +87,23 @@ defmodule Cgc2046.NotificationServiceTest do
     insert_identity(user.id, :wechat, "signal-openid")
     first_enrollment_id = Ecto.UUID.generate()
     second_enrollment_id = Ecto.UUID.generate()
+    identities = NotificationFanout.identities(user.id)
 
     assert :ok =
-             NotificationSubscriber.enqueue_approval_result(%{
-               "user_id" => user.id,
-               "status" => "confirmed",
-               "enrollment_id" => first_enrollment_id
-             })
+             NotificationFanout.deliver(
+               {user.id, identities},
+               "approval_result",
+               %{"status" => "confirmed", "enrollment_id" => first_enrollment_id},
+               %{"enrollment_id" => first_enrollment_id}
+             )
 
     assert :ok =
-             NotificationSubscriber.enqueue_approval_result(%{
-               "user_id" => user.id,
-               "status" => "confirmed",
-               "enrollment_id" => second_enrollment_id
-             })
+             NotificationFanout.deliver(
+               {user.id, identities},
+               "approval_result",
+               %{"status" => "confirmed", "enrollment_id" => second_enrollment_id},
+               %{"enrollment_id" => second_enrollment_id}
+             )
 
     jobs = all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
     assert length(jobs) == 2
@@ -118,7 +121,17 @@ defmodule Cgc2046.NotificationServiceTest do
     enrollment_id = Ecto.UUID.generate()
     deadline = DateTime.add(DateTime.utc_now(), 24, :hour)
 
-    assert :ok = NotificationSubscriber.enqueue_reminder(user.id, enrollment_id, deadline)
+    assert :ok =
+             NotificationFanout.deliver(
+               {user.id, NotificationFanout.identities(user.id)},
+               "approval_reminder",
+               %{
+                 "enrollment_id" => enrollment_id,
+                 "approval_deadline" => DateTime.to_iso8601(deadline)
+               },
+               %{"enrollment_id" => enrollment_id},
+               :reminder_7d
+             )
 
     jobs = all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
     assert length(jobs) == 2
