@@ -52,7 +52,11 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
              entity_type in [:event, :course] do
     with {:ok, defn} <- fetch_definition(workspace_id, definition_id),
          :ok <- ensure_research_definition(defn),
-         {:ok, run} <- find_or_create_run(workspace_id, defn, input, entity_type) do
+         :ok <- ensure_create_guards(entity_type, input),
+         {:ok, run, _status} <-
+           WorkflowRun.find_or_create_and_start(workspace_id, defn, input,
+             key: instance_key(entity_type, input)
+           ) do
       {:ok, run}
     end
   end
@@ -221,20 +225,18 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
     |> Ash.read_first(tenant: workspace_id, authorize?: false)
   end
 
-  # 幂等：同一 definition + instance key 已有非终态 run → 返回已有 run。
-  # instance key 存于 input_snapshot["key"]（"event_#{id}" / "course_#{id}"）。
-  defp find_or_create_run(workspace_id, defn, input, entity_type) do
-    key = instance_key(entity_type, input)
-
-    case existing_run(workspace_id, defn.id, key) do
-      {:ok, %WorkflowRun{} = run} ->
-        {:ok, run}
-
-      {:ok, nil} ->
-        create_and_start_run(workspace_id, defn, input, key, entity_type)
+  # BLOCKING 3 修复：ensure_launched 与 INSERT 之间的窗口内 close 会种下孤儿 run
+  # （reaper 已扫过、claim 已写）。创建前重读实体二次校验；残余极小窗口由对账
+  # 扫描（E-10）兜底。前置守卫留调用侧（PR-F D5）——统一入口只内化
+  # create→start 顺序与非终态去重。
+  defp ensure_create_guards(entity_type, input) do
+    with {:ok, entity} <- fetch_entity(entity_type, input_entity_id(input)),
+         :ok <- ensure_launched(entity) do
+      :ok
     end
   end
 
+  # instance key 派生（"event_#{id}" / "course_#{id}"；input 自带 key 时原样使用）。
   defp instance_key(entity_type, input) do
     case Map.get(input, "key") || Map.get(input, :key) do
       nil ->
@@ -246,41 +248,6 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
 
       key ->
         key
-    end
-  end
-
-  defp existing_run(workspace_id, definition_id, key) do
-    WorkflowRun
-    |> Ash.Query.filter(
-      definition_id == ^definition_id and
-        status in [:pending, :running, :waiting] and
-        input_snapshot["key"] == ^key
-    )
-    |> Ash.read_one(tenant: workspace_id, authorize?: false)
-  end
-
-  defp create_and_start_run(workspace_id, defn, input, key, entity_type) do
-    # BLOCKING 3 修复：ensure_launched 与 INSERT 之间的窗口内 close 会种下孤儿
-    # run（reaper 已扫过、claim 已写）。创建前重读实体二次校验；残余极小窗口
-    # 由对账扫描（E-10）兜底。
-    with {:ok, entity} <- fetch_entity(entity_type, input_entity_id(input)),
-         :ok <- ensure_launched(entity) do
-      attrs = %{
-        definition_id: defn.id,
-        definition_version: defn.version,
-        input_snapshot: Map.put(input, "key", key)
-      }
-
-      with {:ok, run} <-
-             WorkflowRun
-             |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
-             |> Ash.create(tenant: workspace_id, authorize?: false),
-           {:ok, started} <-
-             run
-             |> Ash.Changeset.for_update(:start_run, %{}, tenant: workspace_id, authorize?: false)
-             |> Ash.update(tenant: workspace_id, authorize?: false) do
-        {:ok, started}
-      end
     end
   end
 

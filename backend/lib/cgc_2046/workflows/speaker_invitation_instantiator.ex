@@ -30,25 +30,17 @@ defmodule Cgc2046.Workflows.SpeakerInvitationInstantiator do
           {:ok, WorkflowRun.t()} | {:error, term()}
   def start_run(workspace_id, event_id, invitation_id) do
     with {:ok, defn} <- ensure_definition(workspace_id) do
-      attrs = %{
-        definition_id: defn.id,
-        definition_version: defn.version,
-        input_snapshot: %{
-          "key" => "speaker_invitation_#{invitation_id}",
-          "speaker_invitation_id" => invitation_id,
-          "event_id" => event_id
-        }
+      input = %{
+        "key" => "speaker_invitation_#{invitation_id}",
+        "speaker_invitation_id" => invitation_id,
+        "event_id" => event_id
       }
 
-      with {:ok, run} <-
-             WorkflowRun
-             |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
-             |> Ash.create(tenant: workspace_id, authorize?: false),
-           {:ok, started} <-
-             run
-             |> Ash.Changeset.for_update(:start_run, %{}, tenant: workspace_id, authorize?: false)
-             |> Ash.update(tenant: workspace_id, authorize?: false) do
-        {:ok, started}
+      # key: nil → 不去重直接 create+start（PR-F D3）：邀请唯一性由调用侧
+      # ensure_no_active_invitation 保证；input 的 key 字段随 run 落库不变。
+      case WorkflowRun.find_or_create_and_start(workspace_id, defn, input) do
+        {:ok, run, _status} -> {:ok, run}
+        {:error, reason} -> {:error, reason}
       end
     end
   end
