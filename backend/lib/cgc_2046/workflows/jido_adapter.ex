@@ -668,8 +668,8 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   `signal_type` 为字符串（如 `"workflow.run.completed"`），`payload` 为 map。
   返回 `:ok` 或 `{:error, reason}`。
   """
-  @spec publish(String.t(), map(), term()) :: :ok | {:error, term()}
-  def publish(signal_type, payload, _partition) when is_binary(signal_type) and is_map(payload) do
+  @spec publish(String.t(), map()) :: :ok | {:error, term()}
+  def publish(signal_type, payload) when is_binary(signal_type) and is_map(payload) do
     with {:ok, signal} <- Jido.Signal.new(signal_type, payload, source: "/cgc/workflows") do
       case Jido.Signal.Bus.publish(@bus_name, [signal]) do
         {:ok, _} -> :ok
@@ -679,42 +679,25 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   end
 
   @doc """
-  订阅信号（异步消费）。
+  订阅信号（异步消费；plan 2026-08-14-003 D1 唯一语义 = 崩溃隔离）。
 
-  `pattern` 为路径模式（如 `"workflow.run.*"`），`fun` 为 `(signal -> any)` 回调。
-  内部 spawn 一个转发进程接收总线投递的 `{:signal, signal}` 消息并调用 `fun`。
-  返回 `{:ok, subscription_id}` 或 `{:error, reason}`。
-  """
-  @spec subscribe(String.t(), (Jido.Signal.t() -> any()), term()) ::
-          {:ok, term()} | {:error, term()}
-  def subscribe(pattern, fun, _partition) when is_binary(pattern) and is_function(fun, 1) do
-    subscriber =
-      spawn_link(fn ->
-        forward_loop(fun)
-      end)
+  `pattern` 为路径模式（如 `"workflow.run.*"`）；`fun` 为
+  `(signal_type, data) -> any`——Jido.Signal struct 在本 adapter 解包，不外泄
+  （Jido 升级只影响本模块）。转发进程 `spawn` 接收总线投递并调用 `fun`，
+  与调用者崩溃隔离（历史 `spawn_link` 连坐变体已删：转发进程崩溃连带调用者
+  死亡，测试沙箱下连锁重启耗尽监督预算——E-7 #122 实锤）。反向收割由转发
+  进程 monitor 调用者保证：调用者死亡 → 转发进程自退，不留僵尸订阅消费
+  总线投递（spawn_link 变体的隐性清道夫语义，崩溃隔离后必须显式补回）。
 
-    Jido.Signal.Bus.subscribe(@bus_name, pattern,
-      dispatch: {:pid, target: subscriber, delivery_mode: :async}
-    )
-  end
-
-  @doc """
-  订阅信号（异步消费，转发进程与调用者**崩溃隔离**）。
-
-  与 `subscribe/3` 的差异：`subscribe/3` 的转发进程 `spawn_link` 到调用者，
-  转发进程崩溃会连带订阅者 GenServer 一起死——测试沙箱下异步 DB 访问
-  常收到连接代理的 `:shutdown` 退出（`rescue` 拦不住退出信号），连锁
-  重启会耗尽监督树预算拖垮整棵树。本变体用 `spawn` + `monitor`：
-  转发进程死亡时调用者收 `{:DOWN, ref, :process, pid, reason}`，自行决定
-  重建订阅（E-7 #122 LearningInstantiator 的用法见该模块）。
-
+  调用者持有返回的 monitor：转发进程死亡收 `{:DOWN, ref, :process, pid, reason}`
+  后自行重建订阅（`Cgc2046.Workflows.SignalSubscriber` 骨架统一持有）。
   返回 `{:ok, subscription_id, monitor_ref}` 或 `{:error, reason}`。
   """
-  @spec subscribe_detached(String.t(), (Jido.Signal.t() -> any()), term()) ::
+  @spec subscribe(String.t(), (String.t(), map() -> any())) ::
           {:ok, term(), reference()} | {:error, term()}
-  def subscribe_detached(pattern, fun, _partition)
-      when is_binary(pattern) and is_function(fun, 1) do
-    subscriber = spawn(fn -> forward_loop(fun) end)
+  def subscribe(pattern, fun) when is_binary(pattern) and is_function(fun, 2) do
+    caller = self()
+    subscriber = spawn(fn -> forward_loop(fun, caller) end)
     monitor_ref = Process.monitor(subscriber)
 
     case Jido.Signal.Bus.subscribe(@bus_name, pattern,
@@ -731,14 +714,24 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     end
   end
 
-  defp forward_loop(fun) do
+  defp forward_loop(fun, caller) do
+    caller_ref = Process.monitor(caller)
+
+    forward_loop(fun, caller, caller_ref)
+  end
+
+  defp forward_loop(fun, caller, caller_ref) do
     receive do
+      # 订阅方进程已死：转发进程自退（残余总线路由指向死 pid，投递为 no-op）
+      {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
+        :ok
+
       {:signal, signal} ->
-        fun.(signal)
-        forward_loop(fun)
+        fun.(Map.get(signal, :type), Map.get(signal, :data) || %{})
+        forward_loop(fun, caller, caller_ref)
 
       _other ->
-        forward_loop(fun)
+        forward_loop(fun, caller, caller_ref)
     end
   end
 

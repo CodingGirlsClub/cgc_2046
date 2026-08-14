@@ -2,7 +2,7 @@ defmodule Cgc2046.AsyncSignalTest do
   @moduledoc """
   E-2 #47 验收：异步衍生 Signal 订阅方（NotificationSubscriber）端到端测试。
 
-  分层（与 repo 既有纪律对齐——research_run_reaper_test 直接调 handle_signal，
+  分层（与 repo 既有纪律对齐——research_run_reaper_test 直接调 deliver/2，
   「信号总线异步投递在 POC 已验证」）：
 
   1. **真实总线异步投递**：Enrollment after_action 事务内入队 SignalPublishWorker
@@ -10,14 +10,16 @@ defmodule Cgc2046.AsyncSignalTest do
      内存信号总线 → 测试进程的订阅转发进程（JidoAdapter.subscribe 的 forwarder）
      → 测试进程邮箱。转发只收发消息、不做 DB（跨进程零竞争）。
   2. **真实订阅方处理**：测试进程对投递到的信号执行同一个
-     NotificationSubscriber.handle_signal/1（claim-first 幂等 + Oban 入队全路径）。
-     测试进程是 sandbox owner，DB 副作用确定性执行，不受应用级进程与共享连接
-     竞争影响（CI 慢机上曾出现 DBConnection 连接交接取消在途查询、应用订阅方
-     长时间静默导致轮询断言超时——本设计从结构上消除该竞争）。
+     `SignalSubscriber.deliver/2`（与生产 forwarder 同码：claim-first 幂等 +
+     Oban 入队全路径）。测试进程是 sandbox owner，DB 副作用确定性执行，不受
+     应用级进程与共享连接竞争影响（CI 慢机上曾出现 DBConnection 连接交接取消
+     在途查询、应用订阅方长时间静默导致轮询断言超时——本设计从结构上消除该
+     竞争）。
 
   应用级订阅方（Application 监督树中的实例）在本测试期间被 terminate/restart，
-  避免其并发消费同一信号造成 claim 竞争；订阅接线由 patterns/0 断言 + 全量套件
-  中订阅方的实际消费行为覆盖。
+  避免其并发消费同一信号造成 claim 竞争（骨架统一 claim 键后两方仍争同键，
+  该搏斗无法安全移除——plan「若可行」判定为不可行）；订阅接线由 patterns/0
+  断言 + 全量套件中订阅方的实际消费行为覆盖。
 
   至少一次语义：生产者事务内发布的信号若未在窗口内投递（:timeout），按同一
   payload 真实重投再等（与 SignalPublishWorker 重试同构的恢复路径）。
@@ -30,7 +32,7 @@ defmodule Cgc2046.AsyncSignalTest do
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.NotificationSubscriber
-  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency}
+  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, SignalSubscriber}
   alias Cgc2046.Workers.{NotificationWorker, SignalPublishWorker}
 
   require Ash.Query
@@ -39,7 +41,7 @@ defmodule Cgc2046.AsyncSignalTest do
 
   setup do
     # 停掉应用级订阅方：本测试经自己的订阅转发进程接收同一信号并同步驱动
-    # handle_signal（sandbox owner），避免两个消费者对同一 claim 的竞争。
+    # deliver/2（sandbox owner），避免两个消费者对同一 claim 的竞争。
     :ok = Supervisor.terminate_child(Cgc2046.Supervisor, NotificationSubscriber)
 
     on_exit(fn ->
@@ -49,12 +51,10 @@ defmodule Cgc2046.AsyncSignalTest do
     test_pid = self()
 
     for pattern <- NotificationSubscriber.patterns() do
-      assert {:ok, _sub_id} =
-               JidoAdapter.subscribe(
-                 pattern,
-                 fn signal -> send(test_pid, {:bus_signal, signal}) end,
-                 nil
-               )
+      assert {:ok, _sub_id, _monitor_ref} =
+               JidoAdapter.subscribe(pattern, fn type, data ->
+                 send(test_pid, {:bus_signal, %{type: type, data: data}})
+               end)
     end
 
     :ok
@@ -208,8 +208,8 @@ defmodule Cgc2046.AsyncSignalTest do
       payload = completed_payload(enrollment, event)
 
       # 真实重复投递两条（payload 与生产者一致，含同一 idempotency_key）
-      assert :ok = JidoAdapter.publish("enrollment.completed", payload, workspace.id)
-      assert :ok = JidoAdapter.publish("enrollment.completed", payload, workspace.id)
+      assert :ok = JidoAdapter.publish("enrollment.completed", payload)
+      assert :ok = JidoAdapter.publish("enrollment.completed", payload)
 
       # 订阅方逐条执行真实处理并返回 :duplicate（claim-first 拦截的直接证据）
       assert :duplicate = handle_delivered_signal("enrollment.completed", enrollment.id)
@@ -226,7 +226,7 @@ defmodule Cgc2046.AsyncSignalTest do
                )
 
       assert key == "enrollment.completed:" <> enrollment.id
-      assert claim_rows("enrollment.completed", key) == 1
+      assert claim_rows("enrollment.completed", claim_key(enrollment.id)) == 1
     end
 
     test "同键信号重复投喂：第二次返回 :duplicate 且不重复入队" do
@@ -255,7 +255,7 @@ defmodule Cgc2046.AsyncSignalTest do
       Ecto.Adapters.SQL.query!(
         Cgc2046.Repo,
         "DELETE FROM signal_idempotency WHERE signal_type = 'enrollment.completed' AND idempotency_key = $1",
-        [key]
+        [claim_key(enrollment.id)]
       )
 
       Ecto.Adapters.SQL.query!(
@@ -266,8 +266,8 @@ defmodule Cgc2046.AsyncSignalTest do
 
       signal = %{type: "enrollment.completed", data: payload}
 
-      assert :ok = NotificationSubscriber.handle_signal(signal)
-      assert :duplicate = NotificationSubscriber.handle_signal(signal)
+      assert :ok = SignalSubscriber.deliver(NotificationSubscriber, signal)
+      assert :duplicate = SignalSubscriber.deliver(NotificationSubscriber, signal)
 
       assert [%{args: %{"idempotency_key" => ^key}}] =
                all_enqueued(
@@ -278,7 +278,7 @@ defmodule Cgc2046.AsyncSignalTest do
                  }
                )
 
-      assert claim_rows("enrollment.completed", key) == 1
+      assert claim_rows("enrollment.completed", claim_key(enrollment.id)) == 1
     end
   end
 
@@ -311,8 +311,7 @@ defmodule Cgc2046.AsyncSignalTest do
         :ok
 
       :timeout when redeliveries > 0 ->
-        assert :ok =
-                 JidoAdapter.publish(signal_type, payload, Map.get(payload, "workspace_id"))
+        assert :ok = JidoAdapter.publish(signal_type, payload)
 
         handle_producer_signal(signal_type, enrollment_id, payload, redeliveries - 1)
 
@@ -321,15 +320,20 @@ defmodule Cgc2046.AsyncSignalTest do
     end
   end
 
-  # 从测试进程邮箱取一条该 (type, enrollment_id) 的真实总线投递并执行 handle_signal。
+  # 从测试进程邮箱取一条该 (type, enrollment_id) 的真实总线投递并同步驱动订阅方
+  # （deliver/2 与生产 forwarder 同码）。
   defp handle_delivered_signal(signal_type, enrollment_id, timeout \\ 10_000) do
     receive do
       {:bus_signal, %{type: ^signal_type, data: %{"enrollment_id" => ^enrollment_id}} = signal} ->
-        NotificationSubscriber.handle_signal(signal)
+        SignalSubscriber.deliver(NotificationSubscriber, signal)
     after
       timeout -> :timeout
     end
   end
+
+  # 骨架消费键（plan Q12）：生产者键 <> ":" <> 消费者短名。
+  defp claim_key(enrollment_id),
+    do: "enrollment.completed:" <> enrollment_id <> ":notification_subscriber"
 
   defp create_enrollment(event, user) do
     Enrollment

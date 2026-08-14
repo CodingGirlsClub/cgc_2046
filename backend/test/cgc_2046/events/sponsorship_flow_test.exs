@@ -5,6 +5,7 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Sponsorship, SponsorshipDelivery}
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workers.SignalPublishWorker
 
   require Ash.Query
@@ -393,20 +394,29 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
       {:ok, _} = approve(event_pending, admin)
       {:ok, _} = approve(ws_pending, admin)
 
-      signal = %{data: %{"event_id" => event.id, "title" => event.title}}
-      assert :ok = Cgc2046.Events.SponsorshipEndedSubscriber.handle_signal(signal)
+      signal = %{
+        type: "event.ended",
+        data: %{
+          "event_id" => event.id,
+          "title" => event.title,
+          "idempotency_key" => "event.ended:" <> event.id
+        }
+      }
+
+      assert :ok = SignalSubscriber.deliver(Cgc2046.Events.SponsorshipEndedSubscriber, signal)
 
       assert Ash.get!(Sponsorship, event_pending.id, authorize?: false).status == :ended
       assert Ash.get!(Sponsorship, ws_pending.id, authorize?: false).status == :active
 
       # 重复投递：状态守卫幂等 + SignalIdempotency claim
       ended_at = Ash.get!(Sponsorship, event_pending.id, authorize?: false).ended_at
-      assert :ok = Cgc2046.Events.SponsorshipEndedSubscriber.handle_signal(signal)
+      assert :ok = SignalSubscriber.deliver(Cgc2046.Events.SponsorshipEndedSubscriber, signal)
 
       assert %{status: :ended, ended_at: ^ended_at} =
                Ash.get!(Sponsorship, event_pending.id, authorize?: false)
 
-      claim_key = "event.ended:event_#{event.id}:sponsorship_ended"
+      # 骨架消费键（plan Q12）：生产者键 <> ":" <> 消费者短名
+      claim_key = "event.ended:" <> event.id <> ":sponsorship_ended_subscriber"
 
       claim =
         Cgc2046.Workflows.SignalIdempotency

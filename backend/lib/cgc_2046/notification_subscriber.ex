@@ -9,36 +9,30 @@ defmodule Cgc2046.NotificationSubscriber do
     （有新的待审批报名；open/invite_only 提交即刻确认，无待审批语义，不通知）
   - `enrollment.completed`（open 直接确认或审批通过）→ 报名学员本人（报名成功）
 
-  幂等两层（对齐 approval_reminder 模式）：
-
-  1. 订阅方执行任何副作用前先 `SignalIdempotency.claim/3`（`(signal_type,
-     idempotency_key)` 唯一索引兜底，并发登记至多一行成功）；claim 返回
-     `{:error, :already_claimed}`（已消费）→ 跳过执行并返回 `:duplicate`；
-  2. 入队侧 NotificationWorker 7 天全 args unique，同一信号重复入队被折叠。
+  订阅骨架与 claim-first 幂等语义由 `Cgc2046.Workflows.SignalSubscriber` 统一
+  持有（语义事实见其 moduledoc）；入队侧 NotificationWorker 7 天全 args unique，
+  同一信号重复入队被折叠。
   """
 
-  use GenServer
+  use Cgc2046.Workflows.SignalSubscriber,
+    patterns: [
+      "enrollment.approved",
+      "enrollment.rejected",
+      "enrollment.submitted",
+      "enrollment.completed"
+    ],
+    idempotency: :claim_first
 
   require Ash.Query
   require Logger
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
   alias Cgc2046.Events.{Course, Event}
-  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, WorkflowRun}
+  alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workers.NotificationWorker
-
-  @patterns [
-    "enrollment.approved",
-    "enrollment.rejected",
-    "enrollment.submitted",
-    "enrollment.completed"
-  ]
 
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
-
-  @doc "当前订阅的信号类型列表（init 逐个订阅；测试断言接线用）。"
-  def patterns, do: @patterns
 
   # 提醒任务的去重窗口：discarded/cancelled 释放名额（失败后下拍可重建），
   # completed/在途仍阻塞重复（#7）。
@@ -47,20 +41,6 @@ defmodule Cgc2046.NotificationSubscriber do
     fields: [:worker, :args],
     states: [:scheduled, :available, :executing, :retryable, :completed]
   ]
-
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-
-  @impl true
-  def init(_opts) do
-    Enum.each(@patterns, fn pattern ->
-      case JidoAdapter.subscribe(pattern, &handle_signal/1, nil) do
-        {:ok, _subscription} -> :ok
-        {:error, reason} -> Logger.warning("notification subscribe failed: #{inspect(reason)}")
-      end
-    end)
-
-    {:ok, %{}}
-  end
 
   def enqueue_approval_result(%{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload) do
     enqueue_for_identities(
@@ -170,6 +150,34 @@ defmodule Cgc2046.NotificationSubscriber do
       :ok
   end
 
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def handle(@submitted_signal, data), do: handle_submitted(data)
+  def handle(@completed_signal, data), do: handle_completed(data)
+
+  # approved / rejected → 审批结果通知（既有路径）
+  def handle(_type, data), do: enqueue_approval_result(data)
+
+  # submitted：request 策略才有「待审批」语义；open/invite_only 提交即确认，不通知。
+  defp handle_submitted(data) do
+    case data do
+      %{"enrollment_policy" => "request", "enrollment_id" => id} when is_binary(id) ->
+        notify_workspace_managers(data)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_completed(data) do
+    case Map.get(data, "enrollment_id") do
+      id when is_binary(id) ->
+        enqueue_completed(data)
+
+      _ ->
+        :ok
+    end
+  end
+
   defp enqueue_for_identities(user_id, template_key, data, job_meta) do
     user_id
     |> identities_for_user()
@@ -208,67 +216,10 @@ defmodule Cgc2046.NotificationSubscriber do
     |> Oban.insert!()
   end
 
-  @doc """
-  信号总线回调：按 `signal.type` 分流到对应通知路径。
-
-  回调运行在 JidoAdapter 转发的独立进程中（spawn_link），rescue 兜底防订阅
-  进程崩溃。重复投递（同 idempotency_key 已 claim）返回 `:duplicate` 并跳过。
-  """
-  def handle_signal(signal) do
-    data = Map.get(signal, :data) || %{}
-
-    case Map.get(signal, :type) do
-      @submitted_signal -> handle_submitted(data)
-      @completed_signal -> handle_completed(data)
-      _ -> enqueue_approval_result(data)
-    end
-  rescue
-    error ->
-      Logger.warning("notification signal handling failed: #{Exception.message(error)}")
-      :ok
-  end
-
-  # submitted：request 策略才有「待审批」语义；open/invite_only 提交即确认，不通知。
-  defp handle_submitted(data) do
-    case data do
-      %{"enrollment_policy" => "request", "enrollment_id" => id} when is_binary(id) ->
-        with {:ok, key} <- claim(@submitted_signal, id, data) do
-          notify_workspace_managers(data, key)
-        end
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp handle_completed(data) do
-    case Map.get(data, "enrollment_id") do
-      id when is_binary(id) ->
-        with {:ok, key} <- claim(@completed_signal, id, data) do
-          enqueue_completed(data, key)
-        end
-
-      _ ->
-        :ok
-    end
-  end
-
-  # 副作用前幂等登记：首次 claim 返回 {:ok, key}；同 (signal_type, idempotency_key)
-  # 已消费返回 :duplicate（调用方跳过）。key 优先取生产者携带的 idempotency_key
-  # （completed），否则按 <signal_type>:<enrollment_id> 派生（submitted）。
-  defp claim(signal_type, enrollment_id, data) do
-    key = Map.get(data, "idempotency_key") || "#{signal_type}:#{enrollment_id}"
-
-    case SignalIdempotency.claim(signal_type, key, Map.get(data, "workspace_id")) do
-      :ok -> {:ok, key}
-      {:error, :already_claimed} -> :duplicate
-    end
-  end
-
   # 待审批报名 → workspace Owner/Admin（管理角色判定与 ApprovalReminderWorker 同款）。
-  defp notify_workspace_managers(data, key) do
+  defp notify_workspace_managers(data) do
     enrollment_id = Map.fetch!(data, "enrollment_id")
-    job_meta = %{"enrollment_id" => enrollment_id, "idempotency_key" => key}
+    job_meta = %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
 
     with {:ok, title} <- target_title(data) do
       data
@@ -301,7 +252,7 @@ defmodule Cgc2046.NotificationSubscriber do
   end
 
   # 报名成功 → 报名学员本人（7 天 args-unique 走 NotificationWorker 默认 unique）。
-  defp enqueue_completed(data, key) do
+  defp enqueue_completed(data) do
     enrollment_id = Map.fetch!(data, "enrollment_id")
 
     with {:ok, title} <- target_title(data),
@@ -310,7 +261,7 @@ defmodule Cgc2046.NotificationSubscriber do
         user_id,
         "enrollment_completed",
         %{"enrollment_id" => enrollment_id, "title" => title},
-        %{"enrollment_id" => enrollment_id, "idempotency_key" => key}
+        %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
       )
     else
       {:error, reason} ->
@@ -322,6 +273,9 @@ defmodule Cgc2046.NotificationSubscriber do
         Logger.warning("enrollment completed notification skipped: missing user_id")
     end
   end
+
+  # 任务身份锚用生产者注入的幂等键（SignalEmitter 保证存在，骨架 claim 前置门控）。
+  defp producer_key(data), do: Map.fetch!(data, "idempotency_key")
 
   defp target_title(%{"event_id" => id}) when is_binary(id) and id != "" do
     case Ash.get(Event, id, authorize?: false) do
