@@ -37,7 +37,6 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{UserIdentity, WorkspaceMembership}
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Workflows.SignalLog
@@ -83,7 +82,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   end
 
   # run-less 报名的单属主提醒路径（语义与窗口见 moduledoc）。
-  # 按 workspace 分组：成员名单与平台身份每工作台各读一次，与报名数解耦。
+  # 按 workspace 分组：收件人（成员名单 + 平台身份）每工作台预取一次、逐条
+  # enrollment 复用（消 N+1 的形状保持不变，通知分发面收敛 PR-C）。
   # 计数为实际入队的通知数（无平台身份的成员不计入）。
   defp remind_pending_enrollments(now, window_end) do
     Enrollment
@@ -95,27 +95,30 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Ash.read!(authorize?: false)
     |> Enum.group_by(& &1.workspace_id)
     |> Enum.map(fn {workspace_id, enrollments} ->
-      identities_by_user = managed_identities_by_user(workspace_id)
+      recipients = Cgc2046.NotificationFanout.managers(workspace_id)
 
       Enum.reduce(enrollments, 0, fn enrollment, acc ->
-        Enum.reduce(identities_by_user, acc, fn {user_id, identities}, acc2 ->
-          Cgc2046.NotificationSubscriber.enqueue_reminder_jobs(
-            identities,
-            user_id,
-            enrollment.id,
-            enrollment.approval_deadline
-          )
+        Cgc2046.NotificationFanout.deliver(
+          recipients,
+          "approval_reminder",
+          %{
+            "enrollment_id" => enrollment.id,
+            "approval_deadline" => DateTime.to_iso8601(enrollment.approval_deadline)
+          },
+          %{"enrollment_id" => enrollment.id},
+          :reminder_7d
+        )
 
-          acc2 + length(identities)
-        end)
+        acc + recipient_count(recipients)
       end)
     end)
     |> Enum.sum()
   end
 
   # E-3 #48 F7：赞助 48h 提醒。Event 级通知 Owner/Admin；Workspace 级仅 Owner
-  # （拍板 #4）。入队 args 含 sponsorship_id + deadline（NotificationWorker
-  # 7 天 args-unique 保证同一赞助同一收件人不重复）。
+  # （拍板 #4，`:manage` 窄集语义经 NotificationFanout 选择器收敛）。入队 args
+  # 含 sponsorship_id + deadline（NotificationWorker 7 天 args-unique 保证同一
+  # 赞助同一收件人不重复）。
   defp remind_pending_sponsorships(now, window_end) do
     Sponsorship
     |> Ash.Query.filter(
@@ -126,23 +129,25 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Ash.read!(authorize?: false)
     |> Enum.group_by(& &1.workspace_id)
     |> Enum.map(fn {workspace_id, sponsorships} ->
-      identities_by_user = managed_identities_by_user(workspace_id, [:owner, :admin])
-      owner_identities_by_user = managed_identities_by_user(workspace_id, [:owner])
+      recipients = Cgc2046.NotificationFanout.managers(workspace_id)
+      owner_recipients = Cgc2046.NotificationFanout.managers(workspace_id, {:roles, [:owner]})
 
       Enum.reduce(sponsorships, 0, fn sponsorship, acc ->
         recipients =
-          if is_nil(sponsorship.event_id), do: owner_identities_by_user, else: identities_by_user
+          if is_nil(sponsorship.event_id), do: owner_recipients, else: recipients
 
-        Enum.reduce(recipients, acc, fn {user_id, identities}, acc2 ->
-          Cgc2046.NotificationSubscriber.enqueue_sponsorship_reminder_jobs(
-            identities,
-            user_id,
-            sponsorship.id,
-            sponsorship.approval_deadline
-          )
+        Cgc2046.NotificationFanout.deliver(
+          recipients,
+          "approval_reminder",
+          %{
+            "sponsorship_id" => sponsorship.id,
+            "approval_deadline" => DateTime.to_iso8601(sponsorship.approval_deadline)
+          },
+          %{"sponsorship_id" => sponsorship.id},
+          :reminder_7d
+        )
 
-          acc2 + length(identities)
-        end)
+        acc + recipient_count(recipients)
       end)
     end)
     |> Enum.sum()
@@ -196,31 +201,9 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Ash.exists?(authorize?: false)
   end
 
-  # role_filter 收窄收件人（赞助 Workspace 级 = 仅 Owner，拍板 #4）。
-  defp managed_member_ids(workspace_id, role_filter) do
-    WorkspaceMembership
-    |> Ash.Query.load(:roles)
-    |> Ash.read!(tenant: workspace_id, authorize?: false)
-    |> Enum.filter(fn membership ->
-      membership.roles
-      |> Enum.map(& &1.name)
-      |> Enum.any?(&(&1 in role_filter))
-    end)
-    |> Enum.map(& &1.user_id)
-    |> Enum.uniq()
-  end
-
-  # 每工作台一次身份读取，按 user_id 分组（消除 enrollment × 成员 的 N+1）。
-  defp managed_identities_by_user(workspace_id, role_filter \\ [:owner, :admin]) do
-    case managed_member_ids(workspace_id, role_filter) do
-      [] ->
-        %{}
-
-      managed_ids ->
-        UserIdentity
-        |> Ash.Query.filter(user_id in ^managed_ids)
-        |> Ash.read!(authorize?: false)
-        |> Enum.group_by(& &1.user_id)
-    end
+  # 计数语义与收敛前一致：每 (user_id × identity) 一条通知（无平台身份的
+  # 成员不计入）。
+  defp recipient_count(recipients) do
+    Enum.reduce(recipients, 0, fn {_user_id, identities}, acc -> acc + length(identities) end)
   end
 end

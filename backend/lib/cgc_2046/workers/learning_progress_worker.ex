@@ -141,16 +141,41 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   defp remind_stagnant(%WorkflowRun{} = run) do
     with enrollment_id when is_binary(enrollment_id) <- enrollment_id_of(run),
          {:ok, %Enrollment{status: :confirmed} = enrollment} <- fetch_enrollment(enrollment_id) do
-      case Cgc2046.NotificationSubscriber.enqueue_learning_stagnation_jobs(
-             enrollment.user_id,
-             run
-           ) do
-        :ok -> :reminded
-        :no_identity -> :skipped
-      end
+      remind_stagnant_for(run, enrollment)
     else
       _ -> :skipped
     end
+  end
+
+  # 基线吞错语义（迁移前 NS.enqueue_learning_stagnation_jobs 的 rescue 分支原样
+  # 收敛于此，评审 MED-1）：identities 读取或入队抛错 → Logger.warning + 该记录
+  # 按 :reminded 计（基线 rescue 返回 :ok → LPW 映射 :reminded），单记录失败
+  # 不中断整拍（moduledoc 不变量）。
+  defp remind_stagnant_for(run, enrollment) do
+    identities = Cgc2046.NotificationFanout.identities(enrollment.user_id)
+
+    if identities == [] do
+      # 无平台身份 → 无可入队（:no_identity 分类语义留在本 worker，PR-C）
+      :skipped
+    else
+      Cgc2046.NotificationFanout.deliver(
+        {enrollment.user_id, identities},
+        "learning_stagnation",
+        %{
+          "enrollment_id" => run.input_snapshot["enrollment_id"],
+          "run_id" => run.id,
+          "title" => run.input_snapshot["title"]
+        },
+        %{"run_id" => run.id},
+        :reminder_7d
+      )
+
+      :reminded
+    end
+  rescue
+    error ->
+      Logger.warning("learning stagnation reminder enqueue failed: #{Exception.message(error)}")
+      :reminded
   end
 
   defp enrollment_id_of(%WorkflowRun{input_snapshot: input}) when is_map(input) do
