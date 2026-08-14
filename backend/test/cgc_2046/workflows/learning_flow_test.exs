@@ -26,6 +26,7 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Tools.SaveStepOutput
+  alias Cgc2046.Workflows.SignalIdempotency
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workers.LearningProgressWorker
   alias Cgc2046.Workers.NotificationWorker
@@ -227,9 +228,9 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
 
       instantiate(enrollment)
 
-      # 第二层证据：claim-first 拦截重复投递（deliver 原样返回 :duplicate，
-      # 旧 instantiate_from_signal 会归一成 :ok；find_or_create 仍是兜底层）
-      assert :duplicate =
+      # claim_in_handle：校验链后才 claim，重复投递由 LI 归一化为 :ok（旧
+      # instantiate_from_signal/2 语义）；claim 行只此一条，find_or_create 仍兜底
+      assert :ok =
                SignalSubscriber.deliver(LearningInstantiator, %{
                  type: "enrollment.completed",
                  data: %{
@@ -237,6 +238,13 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
                    "idempotency_key" => "enrollment.completed:" <> enrollment.id
                  }
                })
+
+      claim_key = "enrollment.completed:" <> enrollment.id <> ":learning_instantiator"
+
+      assert [%{idempotency_key: ^claim_key}] =
+               SignalIdempotency
+               |> Ash.Query.filter(signal_type == "enrollment.completed")
+               |> Ash.read!(authorize?: false)
 
       key = "enrollment_#{enrollment.id}"
       _run = await_run(published.id, key)
