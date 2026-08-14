@@ -423,20 +423,15 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
   end
 
   describe "publish/subscribe" do
-    test "subscriber receives published signal" do
+    test "subscriber receives published signal (unpacked type + data, no struct leak)" do
       parent = self()
-      partition = "ws-#{System.unique_integer([:positive])}"
 
-      assert {:ok, _sub_id} =
-               JidoAdapter.subscribe(
-                 "workflow.run.*",
-                 fn signal ->
-                   send(parent, {:signal, signal.type, signal.data})
-                 end,
-                 partition
-               )
+      assert {:ok, _sub_id, _monitor_ref} =
+               JidoAdapter.subscribe("workflow.run.*", fn type, data ->
+                 send(parent, {:signal, type, data})
+               end)
 
-      assert :ok = JidoAdapter.publish("workflow.run.completed", %{"run_id" => "r1"}, partition)
+      assert :ok = JidoAdapter.publish("workflow.run.completed", %{"run_id" => "r1"})
 
       assert_receive {:signal, "workflow.run.completed", %{"run_id" => "r1"}}, 1_000
     end

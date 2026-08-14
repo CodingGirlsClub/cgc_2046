@@ -2,9 +2,8 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
   @moduledoc """
   E-9 #124 教研 run 回收测试：event.ended 信号 → 停该实体的非终态教研 run。
 
-  测试直接调 handle_signal/1（信号总线异步投递在 POC 已验证，测试不覆盖
-  异步路径——同 ResearchInstantiator 纪律）。信号 map 用 atom key :data
-  （与 ResearchInstantiator.handle_signal 的解析约定一致）。实例化走
+  测试直接调 SignalSubscriber.deliver/2（与生产 forwarder 同码；信号总线异步
+  投递在 POC 已验证，测试不覆盖异步路径）。实例化走
   ResearchInstantiator.launch/4 真实路径，验证 instance key 约定
   （input_snapshot["key"] = "event_\#{id}"）。
   """
@@ -18,6 +17,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     ResearchInstantiator,
     ResearchRunReaper,
     SignalIdempotency,
+    SignalSubscriber,
     WorkflowDefinition,
     WorkflowRun
   }
@@ -60,6 +60,16 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
 
   defp claim_rows, do: SignalIdempotency |> Ash.read!(authorize?: false) |> length()
 
+  # 生产者 payload 形状（SignalEmitter 注入 idempotency_key = "<type>:<record_id>"）
+  defp ended_signal(entity, type \\ "event.ended") do
+    id_key = if type == "event.ended", do: "event_id", else: "course_id"
+
+    SignalSubscriber.deliver(ResearchRunReaper, %{
+      type: type,
+      data: %{id_key => entity.id, "idempotency_key" => type <> ":" <> entity.id}
+    })
+  end
+
   test "event.ended → waiting 教研 run 被 cancel（含 instance key 约定验证）" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
@@ -69,7 +79,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     run = launch_research_run(workspace, admin, event, :event)
     assert run.status == :waiting
 
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+    assert :ok = ended_signal(event)
 
     reloaded = Ash.get!(WorkflowRun, run.id, authorize?: false)
     assert reloaded.status == :cancelled
@@ -87,7 +97,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     course_run = launch_research_run(workspace, admin, course, :course)
     other_run = launch_research_run(workspace, admin, other_event, :event)
 
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"course_id" => course.id}})
+    assert :ok = ended_signal(course, "course.ended")
 
     assert Ash.get!(WorkflowRun, course_run.id, authorize?: false).status == :cancelled
     assert Ash.get!(WorkflowRun, other_run.id, authorize?: false).status == :waiting
@@ -127,8 +137,8 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
 
     assert succeeded.status == :succeeded
 
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+    assert :ok = ended_signal(event)
+    assert :ok = ended_signal(event)
 
     assert Ash.get!(WorkflowRun, succeeded.id, authorize?: false).status == :succeeded
     # 唯一索引：两次投递只登记一行
@@ -140,8 +150,8 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
 
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+    assert :ok = ended_signal(event)
+    assert :ok = ended_signal(event)
 
     assert claim_rows() == 1
   end
@@ -169,13 +179,24 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
 
     assert learning_run.status == :pending
 
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => event.id}})
+    assert :ok = ended_signal(event)
 
     assert Ash.get!(WorkflowRun, learning_run.id, authorize?: false).status == :pending
   end
 
-  test "无 entity id 的信号与异常输入不崩溃" do
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{}})
-    assert :ok = ResearchRunReaper.handle_signal(%{data: %{"event_id" => nil}})
+  test "无 entity id 的信号不崩溃；缺幂等键的信号被丢弃" do
+    # 有消费键、无 entity id → catch-all 分支跳过，不崩溃
+    assert :ok =
+             SignalSubscriber.deliver(ResearchRunReaper, %{
+               type: "event.ended",
+               data: %{"event_id" => nil, "idempotency_key" => "event.ended:no-entity"}
+             })
+
+    # 缺 idempotency_key = 生产者契约违约 → 丢弃（不执行副作用、不 crash）
+    assert {:error, :missing_idempotency_key} =
+             SignalSubscriber.deliver(ResearchRunReaper, %{
+               type: "event.ended",
+               data: %{}
+             })
   end
 end

@@ -11,9 +11,9 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
   4. 末个 manual step 已写 → LearningProgressWorker 置 `succeeded`（D6-②）；
      停滞 > 7 天 → 提醒任务入队（D6-③，不自动 cancel）。
 
-  测试直调 `LearningInstantiator.instantiate_from_signal/2`（同步，不依赖异步
-  信号投递——ResearchInstantiator 同款测试纪律）；工具层直调
-  `SaveStepOutput.execute/2`（ToolsTest 同款 frame 注入）。
+  测试直调 `SignalSubscriber.deliver/2`（同步，与生产 forwarder 同码，不依赖
+  异步信号投递）；工具层直调 `SaveStepOutput.execute/2`（ToolsTest 同款
+  frame 注入）。
   """
 
   use Cgc2046.DataCase, async: false
@@ -26,6 +26,8 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Tools.SaveStepOutput
+  alias Cgc2046.Workflows.SignalIdempotency
+  alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workers.LearningProgressWorker
   alias Cgc2046.Workers.NotificationWorker
   alias Cgc2046.Workflows.LearningInstantiator
@@ -82,8 +84,12 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
 
   defp instantiate(enrollment) do
     :ok =
-      LearningInstantiator.instantiate_from_signal(enrollment.id, %{
-        "enrollment_id" => enrollment.id
+      SignalSubscriber.deliver(LearningInstantiator, %{
+        type: "enrollment.completed",
+        data: %{
+          "enrollment_id" => enrollment.id,
+          "idempotency_key" => "enrollment.completed:" <> enrollment.id
+        }
       })
   end
 
@@ -221,7 +227,24 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
       published = create_learning_definition(workspace, admin)
 
       instantiate(enrollment)
-      instantiate(enrollment)
+
+      # claim_in_handle：校验链后才 claim，重复投递由 LI 归一化为 :ok（旧
+      # instantiate_from_signal/2 语义）；claim 行只此一条，find_or_create 仍兜底
+      assert :ok =
+               SignalSubscriber.deliver(LearningInstantiator, %{
+                 type: "enrollment.completed",
+                 data: %{
+                   "enrollment_id" => enrollment.id,
+                   "idempotency_key" => "enrollment.completed:" <> enrollment.id
+                 }
+               })
+
+      claim_key = "enrollment.completed:" <> enrollment.id <> ":learning_instantiator"
+
+      assert [%{idempotency_key: ^claim_key}] =
+               SignalIdempotency
+               |> Ash.Query.filter(signal_type == "enrollment.completed")
+               |> Ash.read!(authorize?: false)
 
       key = "enrollment_#{enrollment.id}"
       _run = await_run(published.id, key)

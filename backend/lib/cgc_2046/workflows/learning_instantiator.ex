@@ -8,33 +8,27 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
   - **实例 key**：`"enrollment_<enrollment_id>"`（一个报名 = 一个 learning run；
     expired 后重提 → 新 enrollment → 新 key）。
-  - **幂等两层**：① `SignalIdempotency.claim`（键带消费者作用域后缀
-    `:learning_instantiator`——裸键 `"enrollment.completed:<id>"` 已被
-    `NotificationSubscriber` 占用，消费者作用域后缀是
-    `SponsorshipEndedSubscriber`/`ResearchRunReaper` 既有惯例）；② find_or_create
+  - **幂等两层**：① claim-in-handle（校验链通过后、launch 前经骨架 `claim/3`
+    登记，键 = 消费者作用域——校验不过不烧 claim，重投仍可推进）；② find_or_create
     非终态 run（`ResearchInstantiator` 同款，终态后可重新实例化）。
   - **定义获取**：租户内已 published 的 `type=learning` 定义（多个取最新，
     version desc + inserted_at desc）。无 published 定义 → warning skip 供对账
     （E-10 规则：confirmed enrollment 无 learning run）。
 
-  ## 信号订阅（生产路径）
-
-  本模块同时是 GenServer：Application 启动时订阅 `enrollment.completed`，
-  收到信号 → 校验链 → 实例化。测试直接调 `instantiate_from_signal/2`（同步，
-  不依赖异步信号投递——同 `ResearchInstantiator` 测试纪律）。
-
-  异步路径是 best-effort：任一环节失败只记日志不崩溃订阅进程（try/rescue 兜底）。
+  订阅骨架（订阅生命周期 / DOWN 重订阅 / rescue 壳）由
+  `Cgc2046.Workflows.SignalSubscriber` 统一持有。
   """
 
-  use GenServer
+  use Cgc2046.Workflows.SignalSubscriber,
+    patterns: ["enrollment.completed"],
+    idempotency: :claim_in_handle
 
   require Ash.Query
   require Logger
 
   alias Cgc2046.Events.{Course, Enrollment, Event}
-  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, WorkflowDefinition, WorkflowRun}
+  alias Cgc2046.Workflows.{SignalSubscriber, WorkflowDefinition, WorkflowRun}
 
-  @signal_patterns ["enrollment.completed"]
   @completed_signal "enrollment.completed"
 
   # --- 公开 API --------------------------------------------------------------
@@ -59,90 +53,30 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
     end
   end
 
-  # --- GenServer（生产信号订阅） ----------------------------------------------
+  # --- 信号处理 ----------------------------------------------------------------
 
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def handle(_type, %{"enrollment_id" => enrollment_id} = data) when is_binary(enrollment_id) do
+    instantiate(enrollment_id, data)
   end
 
-  @impl true
-  def init(_opts) do
-    # 订阅失败不阻塞启动（信号总线在 Application children 中先于本模块启动）。
-    {:ok, %{subscriptions: subscribe_all(%{})}}
-  end
-
-  @impl true
-  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Map.pop(state.subscriptions, ref) do
-      {{pattern, _sub_id}, subscriptions} ->
-        # 转发进程崩溃（如测试沙箱下连接代理 :shutdown 退出）：重建该订阅。
-        # GenServer 本体不受影响，监督树重启预算不被消耗。
-        Logger.warning(
-          "LearningInstantiator forwarder for #{pattern} down: #{inspect(reason)}; resubscribing"
-        )
-
-        {:noreply, %{state | subscriptions: subscribe_one(pattern, subscriptions)}}
-
-      {nil, _} ->
-        {:noreply, state}
-    end
-  end
-
-  def handle_info(_other, state), do: {:noreply, state}
-
-  defp subscribe_all(acc), do: Enum.reduce(@signal_patterns, acc, &subscribe_one/2)
-
-  defp subscribe_one(pattern, acc) do
-    case JidoAdapter.subscribe_detached(pattern, &handle_signal/1, nil) do
-      {:ok, sub_id, monitor_ref} ->
-        Map.put(acc, monitor_ref, {pattern, sub_id})
-
-      {:error, reason} ->
-        Logger.warning("LearningInstantiator subscribe #{pattern} failed: #{inspect(reason)}")
-        acc
-    end
-  end
-
-  # signal.data 形态（Enrollment create/confirm action 发布）：
-  # %{"enrollment_id" => id, "workspace_id" => ..., "user_id" => ...,
-  #   "event_id" => id | nil, "course_id" => id | nil, "idempotency_key" => ...}
-  # 订阅回调在 JidoAdapter.subscribe 转发的独立进程中执行（非 GenServer 进程），
-  # rescue 兜底防订阅进程崩溃（测试沙箱下异步 DB 访问会 raise）。
-  defp handle_signal(signal) do
-    data = Map.get(signal, :data) || %{}
-
-    case Map.get(data, "enrollment_id") do
-      enrollment_id when is_binary(enrollment_id) ->
-        instantiate_from_signal(enrollment_id, data)
-
-      _ ->
-        Logger.warning(
-          "LearningInstantiator received signal without enrollment id: #{inspect(data)}"
-        )
-    end
+  def handle(_type, data) do
+    Logger.warning("LearningInstantiator received signal without enrollment id: #{inspect(data)}")
 
     :ok
-  rescue
-    e ->
-      Logger.warning("LearningInstantiator signal handling failed: #{Exception.message(e)}")
-      :ok
   end
 
-  @doc """
-  异步信号实例化入口（生产路径：GenServer 订阅回调 → 本函数；测试直接调用）。
-
-  校验链（设计 §3）：enrollment 存在且 status=confirmed（孤儿防护）→ 反查
-  entity（Event/Course）拿 workspace_id + title → 取该租户已 published 的学习
-  定义 → claim 幂等键 → find_or_create run。任一环节失败返回 `:ok`
-  （best-effort，不抛错；失败可见性交给对账扫描 E-10）。
-  """
-  @spec instantiate_from_signal(String.t(), map()) :: :ok
-  def instantiate_from_signal(enrollment_id, _data) when is_binary(enrollment_id) do
+  # 校验链（设计 §3）：enrollment 存在且 status=confirmed（孤儿防护）→ 反查
+  # entity（Event/Course）拿 workspace_id + title → 取该租户已 published 的学习
+  # 定义 → claim（骨架助手，校验链后——无定义/读失败不烧 claim，重投仍可推进）→
+  # find_or_create run。任一环节失败返回 `:ok`（best-effort，不抛错；失败可见性
+  # 交给对账扫描 E-10）。
+  defp instantiate(enrollment_id, data) do
     with {:ok, %Enrollment{} = enrollment} <- fetch_enrollment(enrollment_id),
          :ok <- ensure_confirmed(enrollment),
          {:ok, entity} <- fetch_entity(enrollment),
          {:ok, %WorkflowDefinition{} = defn} <- fetch_learning_definition(entity.workspace_id),
-         :ok <- claim(enrollment_id, entity.workspace_id) do
+         {:ok, _claim_key} <- SignalSubscriber.claim(__MODULE__, @completed_signal, data) do
       input = %{
         "enrollment_id" => enrollment.id,
         "user_id" => enrollment.user_id,
@@ -179,7 +113,8 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
         :ok
 
-      # 幂等键已登记（重复投递）→ 跳过，不重复实例化。
+      # 幂等键已登记（重复投递）→ 跳过，不重复实例化（归一化为 :ok，同旧
+      # instantiate_from_signal/2 语义）。
       :duplicate ->
         :ok
 
@@ -241,16 +176,6 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
   defp ensure_learning_definition(%WorkflowDefinition{type: type, status: status}) do
     {:error, {:definition_not_learning_published, type, status}}
-  end
-
-  # 幂等登记（设计 §2 层①）：消费者作用域键，重复投递返回 :already_claimed → :duplicate。
-  defp claim(enrollment_id, workspace_id) do
-    key = "#{@completed_signal}:#{enrollment_id}:learning_instantiator"
-
-    case SignalIdempotency.claim(@completed_signal, key, workspace_id) do
-      :ok -> :ok
-      {:error, :already_claimed} -> :duplicate
-    end
   end
 
   # 异步路径：取该租户已 published 的学习定义。多个时取最新（version desc，
