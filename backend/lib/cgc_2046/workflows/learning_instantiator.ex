@@ -58,9 +58,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   end
 
   def handle(_type, data) do
-    Logger.warning(
-      "LearningInstantiator received signal without enrollment id: #{inspect(data)}"
-    )
+    Logger.warning("LearningInstantiator received signal without enrollment id: #{inspect(data)}")
 
     :ok
   end
