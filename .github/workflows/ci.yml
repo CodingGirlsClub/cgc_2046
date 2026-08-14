@@ -31,6 +31,10 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      # CI 单环境：compile 与 test 共用 test 环境，消灭 dev+test 双份编译；
+      # format/rbac/license 检查均环境无关
+      MIX_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -39,14 +43,26 @@ jobs:
           # runic 编译崩溃）；1.20 + OTP 29 与本地开发环境完全对齐，避免版本错位
           elixir-version: "1.20"
           otp-version: "29"
+      - uses: actions/cache@v4
+        with:
+          # deps+_build 缓存：compile 从零编 4m45s 降为增量；key 绑 mix.lock，
+          # 依赖变更自动失效，restore-keys 允许跨 PR 复用同前缀缓存
+          path: |
+            deps
+            _build
+          key: mix-1.20-otp29-test-${{ hashFiles('backend/mix.lock') }}
+          restore-keys: |
+            mix-1.20-otp29-test-
       - run: mix deps.get
-      - run: mix compile --warnings-as-errors
+      # format 提前到 compile 前：秒级检查先行，格式错误不必等分钟级编译才红
+      # （.formatter.exs 的 import_deps 依赖 deps 已拉取，故置于 deps.get 之后）
       - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      # rbac/license 是项目内 mix task，需项目编译后才可执行
       - run: mix cgc2046.gen_rbac_contract --check
       - run: mix cgc2046.check_licenses
       - run: mix test
         timeout-minutes: 15
-
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -110,6 +126,10 @@ jobs:
       # 零导流红线（§2）：裁剪端产物 escape-aware 禁词断言
       - run: pnpm check:diversion
         timeout-minutes: 15
+
+  # CI 耗时实测（2026-08-14 run 31802814605）：backend job ≈10-11min，其中
+  # compile 零缓存全量重编 4m45s + dev/test 双环境重复编译。上述缓存与
+  # MIX_ENV=test 两项即为对症修复；web/miniprogram job 未动。
 
   # 密钥门禁：任何提交/分支不得含真实凭据（fail-closed）。
   # 用免费 MIT 许可的 gitleaks CLI 而非官方 action——官方 action 对组织仓库
