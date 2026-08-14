@@ -26,8 +26,6 @@ defmodule Cgc2046.Events.Event do
 
   alias Cgc2046.Repo
 
-  require Logger
-
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
   @visibility_values [:public, :workspace]
@@ -361,23 +359,13 @@ defmodule Cgc2046.Events.Event do
       # Q6）：job 与 open 终态同事务提交，SignalPublishWorker 提交后异步投递——
       # 订阅方读到的必是已提交 open 状态（#1 TOCTOU 由 outbox 结构性解决）。
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: "event.launched", payload: &__MODULE__.launched_payload/2}
       )
 
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
-      # 明细经 GraphQL readiness 查询暴露后台。
-      change(
-        after_transaction(fn _changeset, result, _context ->
-          with {:ok, record} <- result,
-               %{items: items} <- Cgc2046.Events.Readiness.evaluate(record) do
-            missing = Enum.map_join(items, ", ", & &1.label)
-            Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
-          end
-
-          result
-        end)
-      )
+      # 明细经 GraphQL readiness 查询暴露后台（course.launch 同款，Readiness 统一）。
+      change(after_transaction(&Cgc2046.Events.Readiness.warn_unless_ready/3))
     end
 
     # open → closed：结束活动（手动，或 registration_deadline 到点由
@@ -418,7 +406,7 @@ defmodule Cgc2046.Events.Event do
       # event.ended 经 SignalEmitter 事务内 outbox 入队：job 与事件终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Events.SignalEmitter, type: "event.ended", payload: &__MODULE__.ended_payload/2}
+        {Cgc2046.Changes.SignalEmitter, type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
 
@@ -455,7 +443,7 @@ defmodule Cgc2046.Events.Event do
       # event.ended 经 SignalEmitter 事务内 outbox 入队：job 与事件终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Events.SignalEmitter, type: "event.ended", payload: &__MODULE__.ended_payload/2}
+        {Cgc2046.Changes.SignalEmitter, type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
 

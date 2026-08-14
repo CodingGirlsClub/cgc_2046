@@ -186,7 +186,7 @@ defmodule Cgc2046.Events.Sponsorship do
 
       # 信号经 SignalEmitter 事务内 outbox 入队（plan 2026-08-14-003 Q6）。
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @submitted_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -203,12 +203,12 @@ defmodule Cgc2046.Events.Sponsorship do
       # 审批通过：先发 approved，再发 active（按声明顺序入队；active 幂等键由
       # emitter 注入，赞助 doc §2.2/§4.2 约定逐值一致）。
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @approved_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @active_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -224,7 +224,7 @@ defmodule Cgc2046.Events.Sponsorship do
       end)
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @rejected_signal, payload: &__MODULE__.signal_payload/2}
       )
     end

@@ -134,12 +134,12 @@ defmodule Cgc2046.Events.Enrollment do
       # 任何策略都发 submitted；open/invite_only 自动确认（confirmed）时再发
       # completed（KTD1/R3），两个 after_action 按声明顺序入队。
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @submitted_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @completed_signal,
          payload: &__MODULE__.signal_payload/2,
          skip_unless: &__MODULE__.confirmed?/2}
@@ -158,12 +158,12 @@ defmodule Cgc2046.Events.Enrollment do
       # confirm 审批通过：先发 approved，再发 completed（生命周期终态）——
       # 失败路径（CAS 拒绝）不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @approved_signal, payload: &__MODULE__.approval_payload/2}
       )
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @completed_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -179,7 +179,7 @@ defmodule Cgc2046.Events.Enrollment do
       end)
 
       change(
-        {Cgc2046.Events.SignalEmitter,
+        {Cgc2046.Changes.SignalEmitter,
          type: @rejected_signal, payload: &__MODULE__.approval_payload/2}
       )
     end
