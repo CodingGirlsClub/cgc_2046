@@ -1,9 +1,11 @@
 defmodule Cgc2046.Events.EnrollmentTest do
   use Cgc2046.DataCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Workers.SignalPublishWorker
 
   describe "create_enrollment" do
     test "open 活动立即 confirmed，并原子占用一个名额" do
@@ -182,20 +184,36 @@ defmodule Cgc2046.Events.EnrollmentTest do
       event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
       learner = Fixtures.register_user("enrollment-signal-request")
 
-      subscribe_signals(["enrollment.submitted", "enrollment.completed"])
-
       assert {:ok, pending} = create_enrollment(event, learner)
       assert pending.status == :pending
 
-      assert_receive {:signal, "enrollment.submitted", submitted}, 1_000
-      assert submitted["status"] == "pending"
-      assert submitted["enrollment_id"] == pending.id
-      assert submitted["enrollment_policy"] == "request"
-      assert submitted["event_id"] == event.id
-      assert submitted["course_id"] == nil
-      assert submitted["workspace_id"] == workspace.id
-      assert submitted["user_id"] == learner.id
-      refute_receive {:signal, "enrollment.completed", _}, 500
+      # 事务内 outbox：信号经 SignalPublishWorker job 入队（plan 2026-08-14-003 Q6），
+      # 幂等键与 workspace_id 由 SignalEmitter 注入
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.submitted",
+          "tenant" => workspace.id,
+          "data" => %{
+            "status" => "pending",
+            "enrollment_id" => pending.id,
+            "enrollment_policy" => "request",
+            "event_id" => event.id,
+            "course_id" => nil,
+            "workspace_id" => workspace.id,
+            "user_id" => learner.id,
+            "idempotency_key" => "enrollment.submitted:" <> pending.id
+          }
+        }
+      )
+
+      refute_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.completed",
+          "data" => %{"enrollment_id" => pending.id}
+        }
+      )
     end
 
     test "open 策略 create 自动确认：submitted 与 completed 各一条（AE5）" do
@@ -204,22 +222,35 @@ defmodule Cgc2046.Events.EnrollmentTest do
       event = EventFixtures.create_event(workspace, admin, %{capacity: 10})
       learner = Fixtures.register_user("enrollment-signal-open")
 
-      subscribe_signals(["enrollment.submitted", "enrollment.completed"])
-
       assert {:ok, enrollment} = create_enrollment(event, learner)
       assert enrollment.status == :confirmed
 
-      assert_receive {:signal, "enrollment.submitted", submitted}, 1_000
-      assert submitted["status"] == "confirmed"
-      assert submitted["enrollment_id"] == enrollment.id
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.submitted",
+          "data" => %{"status" => "confirmed", "enrollment_id" => enrollment.id}
+        }
+      )
 
-      assert_receive {:signal, "enrollment.completed", completed}, 1_000
-      assert completed["status"] == "confirmed"
-      assert completed["idempotency_key"] == "enrollment.completed:" <> enrollment.id
-      assert completed["enrollment_policy"] == "open"
-      assert completed["event_id"] == event.id
-      assert completed["workspace_id"] == workspace.id
-      assert completed["user_id"] == learner.id
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.completed",
+          "data" => %{
+            "status" => "confirmed",
+            "idempotency_key" => "enrollment.completed:" <> enrollment.id,
+            "enrollment_policy" => "open",
+            "event_id" => event.id,
+            "workspace_id" => workspace.id,
+            "user_id" => learner.id
+          }
+        }
+      )
+
+      # 各一条（本报名 submitted + completed 精确计数）
+      assert count_enqueued("enrollment.submitted", enrollment.id) == 1
+      assert count_enqueued("enrollment.completed", enrollment.id) == 1
     end
 
     test "course 目标 create：payload 带 course_id、event_id 为 nil、policy 正确" do
@@ -228,15 +259,21 @@ defmodule Cgc2046.Events.EnrollmentTest do
       course = EventFixtures.create_course(workspace, admin, %{enrollment_policy: :request})
       learner = Fixtures.register_user("enrollment-signal-course")
 
-      subscribe_signals(["enrollment.submitted"])
-
       assert {:ok, pending} = create_enrollment(course, learner)
       assert pending.status == :pending
 
-      assert_receive {:signal, "enrollment.submitted", submitted}, 1_000
-      assert submitted["course_id"] == course.id
-      assert submitted["event_id"] == nil
-      assert submitted["enrollment_policy"] == "request"
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.submitted",
+          "data" => %{
+            "enrollment_id" => pending.id,
+            "course_id" => course.id,
+            "event_id" => nil,
+            "enrollment_policy" => "request"
+          }
+        }
+      )
     end
 
     test "invite_only 有效邀请码 create 自动确认并发 completed" do
@@ -255,14 +292,19 @@ defmodule Cgc2046.Events.EnrollmentTest do
 
       learner = Fixtures.register_user("enrollment-signal-invite")
 
-      subscribe_signals(["enrollment.completed"])
-
       assert {:ok, enrollment} = create_enrollment(event, learner, %{invite_code: "CAMPUS_B"})
       assert enrollment.status == :confirmed
 
-      assert_receive {:signal, "enrollment.completed", completed}, 1_000
-      assert completed["idempotency_key"] == "enrollment.completed:" <> enrollment.id
-      assert completed["enrollment_id"] == enrollment.id
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.completed",
+          "data" => %{
+            "idempotency_key" => "enrollment.completed:" <> enrollment.id,
+            "enrollment_id" => enrollment.id
+          }
+        }
+      )
     end
 
     test "重复 confirm 只发一次 completed（AE4）" do
@@ -272,17 +314,29 @@ defmodule Cgc2046.Events.EnrollmentTest do
       learner = Fixtures.register_user("enrollment-signal-reconfirm")
       {:ok, pending} = create_enrollment(event, learner)
 
-      subscribe_signals(["enrollment.completed", "enrollment.approved"])
-
       assert {:ok, _confirmed} = confirm(pending, admin)
-      assert_receive {:signal, "enrollment.completed", completed}, 1_000
-      assert completed["idempotency_key"] == "enrollment.completed:" <> pending.id
-      assert_receive {:signal, "enrollment.approved", approved}, 1_000
-      assert approved["enrollment_id"] == pending.id
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.completed",
+          "data" => %{"idempotency_key" => "enrollment.completed:" <> pending.id}
+        }
+      )
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.approved",
+          "data" => %{"enrollment_id" => pending.id}
+        }
+      )
 
       assert {:error, _} = confirm(pending, admin)
-      refute_receive {:signal, "enrollment.completed", _}, 500
-      refute_receive {:signal, "enrollment.approved", _}, 500
+
+      # 失败的 confirm 不到 after_action：completed/approved 各仍只有一条 job
+      assert count_enqueued("enrollment.completed", pending.id) == 1
+      assert count_enqueued("enrollment.approved", pending.id) == 1
     end
 
     test "reject 不发出 completed" do
@@ -292,37 +346,61 @@ defmodule Cgc2046.Events.EnrollmentTest do
       learner = Fixtures.register_user("enrollment-signal-reject")
       {:ok, pending} = create_enrollment(event, learner)
 
-      subscribe_signals(["enrollment.completed"])
-
       assert {:ok, _rejected} =
                pending
                |> Ash.Changeset.for_update(:reject_enrollment, %{rejection_reason: "材料不完整"})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
-      refute_receive {:signal, "enrollment.completed", _}, 500
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.rejected",
+          "data" => %{"enrollment_id" => pending.id}
+        }
+      )
+
+      refute_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "enrollment.completed",
+          "data" => %{"enrollment_id" => pending.id}
+        }
+      )
     end
 
-    test "发布失败（bus 报错）→ action 仍成功且错误被记录（KTD4）" do
+    test "bus 宕机不影响 action：job 与报名同事务入队（事务性 outbox 解耦发布失败）" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin, %{capacity: 10})
       learner = Fixtures.register_user("enrollment-signal-publish-fail")
 
       # 经 supervisor terminate_child 终止 bus：子进程从监督树移除，不会自动重启，
-      # 发布确定性失败（对比 GenServer.stop：permanent 子进程会被重启，与事务内工作竞态）。
+      # 投递通道确定性不可用（对比 GenServer.stop：permanent 子进程会被重启，与事务内工作竞态）。
       # 测试后恢复。
       bus_id = Cgc2046.Workflows.JidoAdapter.bus_name()
       assert :ok = Supervisor.terminate_child(Cgc2046.Supervisor, bus_id)
 
       try do
-        log =
-          ExUnit.CaptureLog.capture_log(fn ->
-            assert {:ok, enrollment} = create_enrollment(event, learner)
-            assert enrollment.status == :confirmed
-          end)
+        # KTD4 语义升级（plan 2026-08-14-003 Q6）：发布失败不再发生在 action 内——
+        # job 事务内入队与投递解耦，bus 宕机时报名照常成功，投递由 Oban 重试兜底
+        assert {:ok, enrollment} = create_enrollment(event, learner)
+        assert enrollment.status == :confirmed
 
-        assert log =~ "failed to publish enrollment.submitted"
-        assert log =~ "failed to publish enrollment.completed"
+        assert_enqueued(
+          worker: SignalPublishWorker,
+          args: %{
+            "signal_type" => "enrollment.submitted",
+            "data" => %{"enrollment_id" => enrollment.id}
+          }
+        )
+
+        assert_enqueued(
+          worker: SignalPublishWorker,
+          args: %{
+            "signal_type" => "enrollment.completed",
+            "data" => %{"idempotency_key" => "enrollment.completed:" <> enrollment.id}
+          }
+        )
       after
         # 恢复 bus（后续测试依赖信号总线）
         assert {:ok, _pid} = Supervisor.restart_child(Cgc2046.Supervisor, bus_id)
@@ -356,17 +434,16 @@ defmodule Cgc2046.Events.EnrollmentTest do
     end
   end
 
-  defp subscribe_signals(patterns) do
-    parent = self()
-
-    Enum.each(patterns, fn pattern ->
-      assert {:ok, _sub_id} =
-               Cgc2046.Workflows.JidoAdapter.subscribe(
-                 pattern,
-                 fn signal -> send(parent, {:signal, signal.type, signal.data}) end,
-                 nil
-               )
-    end)
+  # 按 (signal_type, enrollment_id) 计数：并发类测试（enrollment_concurrency_test
+  # 等 unboxed 真实提交）会在套件级残留 SignalPublishWorker 行，断言必须锚定
+  # 本测试自己的记录，不受套件内既有 job 影响。
+  defp count_enqueued(signal_type, enrollment_id) do
+    [worker: SignalPublishWorker]
+    |> all_enqueued()
+    |> Enum.count(
+      &(&1.args["signal_type"] == signal_type &&
+          get_in(&1.args, ["data", "enrollment_id"]) == enrollment_id)
+    )
   end
 
   defp create_enrollment(target, user, attrs \\ %{}) do

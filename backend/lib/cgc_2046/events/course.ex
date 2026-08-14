@@ -8,7 +8,8 @@ defmodule Cgc2046.Events.Course do
 
   ## 教研实例化（#39）
 
-  `launch` action：draft → open，发 `course.launched` 信号（经 JidoAdapter 信号总线），
+  `launch` action：draft → open，发 `course.launched` 信号（SignalEmitter 事务内
+  outbox 入队，SignalPublishWorker 经 JidoAdapter 总线异步投递），
   `Cgc2046.Workflows.ResearchInstantiator` 订阅该信号创建教研 WorkflowRun。
 
   ## 多租户
@@ -24,8 +25,6 @@ defmodule Cgc2046.Events.Course do
     domain: Cgc2046.Api
 
   alias Cgc2046.Repo
-  alias Cgc2046.Workers.SignalPublishWorker
-  alias Cgc2046.Workflows.JidoAdapter
 
   require Logger
 
@@ -289,10 +288,9 @@ defmodule Cgc2046.Events.Course do
     end
 
     # draft → open：发布课程，发 course.launched 信号（教研实例化入口）。
-    # 信号经 JidoAdapter 总线异步投递，ResearchInstantiator 订阅后创建教研 run。
-    # #1 TOCTOU：publish 必须在事务提交后（after_transaction）执行——change 回调
-    # 在 for_update 阶段（事务开始前）运行，此时订阅方读到未提交的 draft 状态，
-    # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。
+    # 信号经 SignalEmitter 事务内 outbox 入队，SignalPublishWorker 提交后异步
+    # 投递——订阅方读到的必是已提交 open 状态（#1 TOCTOU 由 outbox 结构性解决，
+    # 不再有 for_update 阶段发布读未提交 draft 的窗口）。
     update :launch do
       description("发布课程：draft → open，发 course.launched 信号")
       require_atomic?(false)
@@ -324,51 +322,22 @@ defmodule Cgc2046.Events.Course do
         end)
       end)
 
-      # 事务提交成功后发布信号（提交失败不发布——订阅方不会读到孤儿信号）。
-      # 发布失败无法回滚事务，记 error 日志（best-effort，与 ResearchInstantiator
-      # 异步路径的容错语义一致）。
       change(
-        after_transaction(fn changeset, result, _context ->
-          case result do
-            {:ok, _record} ->
-              tenant = changeset.tenant
-              id = Ash.Changeset.get_data(changeset, :id)
-              title = Ash.Changeset.get_data(changeset, :title)
-              requirements = Ash.Changeset.get_data(changeset, :research_requirements) || %{}
+        {Cgc2046.Events.SignalEmitter,
+         type: "course.launched", payload: &__MODULE__.launched_payload/2}
+      )
 
-              # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
-              # 明细经 GraphQL readiness 查询暴露后台。
-              record = elem(result, 1)
-
-              case Cgc2046.Events.Readiness.evaluate(record) do
-                %{ready: true} ->
-                  :ok
-
-                %{items: items} ->
-                  missing = Enum.map_join(items, ", ", & &1.label)
-                  Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
-              end
-
-              case JidoAdapter.publish(
-                     "course.launched",
-                     %{
-                       "course_id" => id,
-                       "title" => title,
-                       "research_requirements" => requirements
-                     },
-                     tenant
-                   ) do
-                :ok ->
-                  result
-
-                {:error, reason} ->
-                  Logger.error("course.launched publish failed for #{id}: #{inspect(reason)}")
-                  result
-              end
-
-            _ ->
-              result
+      # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
+      # 明细经 GraphQL readiness 查询暴露后台。
+      change(
+        after_transaction(fn _changeset, result, _context ->
+          with {:ok, record} <- result,
+               %{items: items} <- Cgc2046.Events.Readiness.evaluate(record) do
+            missing = Enum.map_join(items, ", ", & &1.label)
+            Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
           end
+
+          result
         end)
       )
     end
@@ -408,24 +377,11 @@ defmodule Cgc2046.Events.Course do
         end)
       end)
 
-      # 事务内 outbox：ended 发布经 SignalPublishWorker 统一投递。after_action
-      # 在数据层成功后、事务提交前执行（Ash 文档：错误会回滚整个事务）——
-      # job 与课程终态同事务提交；入队失败 → 事务回滚，close/cancel 整体失败
-      # 可安全重试（幂等）。CAS 失败路径不会到达 after_action，不产生孤儿 job。
-      change(fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn cs, record ->
-          id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
-          title = Ash.Changeset.get_data(cs, :title)
-
-          SignalPublishWorker.enqueue_in_transaction(
-            "course.ended",
-            %{"course_id" => id, "title" => title},
-            cs.tenant
-          )
-
-          {:ok, record}
-        end)
-      end)
+      # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
+      # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
+      change(
+        {Cgc2046.Events.SignalEmitter, type: "course.ended", payload: &__MODULE__.ended_payload/2}
+      )
     end
 
     # open → cancelled：取消课程。同样发 course.ended（D4：closed/cancelled 即 ended）。
@@ -458,20 +414,11 @@ defmodule Cgc2046.Events.Course do
         end)
       end)
 
-      change(fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn cs, record ->
-          id = Ecto.UUID.cast!(Ash.Changeset.get_data(cs, :id))
-          title = Ash.Changeset.get_data(cs, :title)
-
-          SignalPublishWorker.enqueue_in_transaction(
-            "course.ended",
-            %{"course_id" => id, "title" => title},
-            cs.tenant
-          )
-
-          {:ok, record}
-        end)
-      end)
+      # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
+      # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
+      change(
+        {Cgc2046.Events.SignalEmitter, type: "course.ended", payload: &__MODULE__.ended_payload/2}
+      )
     end
 
     defaults([:read])
@@ -494,6 +441,20 @@ defmodule Cgc2046.Events.Course do
       get_by([:slug])
     end
   end
+
+  # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
+  # idempotency_key / workspace_id 由 emitter 统一注入，plan 2026-08-14-003 Q12）──
+
+  def launched_payload(_changeset, course) do
+    %{
+      "course_id" => course.id,
+      "title" => course.title,
+      "research_requirements" => course.research_requirements || %{}
+    }
+  end
+
+  def ended_payload(_changeset, course),
+    do: %{"course_id" => course.id, "title" => course.title}
 
   # DB 级 compare-and-set：条件 UPDATE 原子抢占状态迁移（enrollment.expire 同款
   # 纪律）。num_rows=0 → 并发竞态（cron 与手动双拍），拒绝而非双成功双发布。

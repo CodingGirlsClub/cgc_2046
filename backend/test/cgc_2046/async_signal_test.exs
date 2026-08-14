@@ -5,9 +5,10 @@ defmodule Cgc2046.AsyncSignalTest do
   分层（与 repo 既有纪律对齐——research_run_reaper_test 直接调 handle_signal，
   「信号总线异步投递在 POC 已验证」）：
 
-  1. **真实总线异步投递**：Enrollment after_transaction 发布 → 内存信号总线 →
-     测试进程的订阅转发进程（JidoAdapter.subscribe 的 forwarder）→ 测试进程邮箱。
-     转发只收发消息、不做 DB（跨进程零竞争）。
+  1. **真实总线异步投递**：Enrollment after_action 事务内入队 SignalPublishWorker
+     job（plan 2026-08-14-003 Q6）→ 测试同步 perform_job 驱动真实 worker 发布 →
+     内存信号总线 → 测试进程的订阅转发进程（JidoAdapter.subscribe 的 forwarder）
+     → 测试进程邮箱。转发只收发消息、不做 DB（跨进程零竞争）。
   2. **真实订阅方处理**：测试进程对投递到的信号执行同一个
      NotificationSubscriber.handle_signal/1（claim-first 幂等 + Oban 入队全路径）。
      测试进程是 sandbox owner，DB 副作用确定性执行，不受应用级进程与共享连接
@@ -30,7 +31,7 @@ defmodule Cgc2046.AsyncSignalTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.NotificationSubscriber
   alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency}
-  alias Cgc2046.Workers.NotificationWorker
+  alias Cgc2046.Workers.{NotificationWorker, SignalPublishWorker}
 
   require Ash.Query
 
@@ -79,6 +80,9 @@ defmodule Cgc2046.AsyncSignalTest do
       {:ok, enrollment} = create_enrollment(event, learner)
       assert enrollment.status == :pending
 
+      # 生产侧：信号已随报名事务入队 SignalPublishWorker job；同步执行驱动真实发布
+      perform_enqueued_signal("enrollment.submitted", enrollment.id)
+
       # 异步最终一致：等真实总线投递 submitted 信号并执行真实订阅方处理，
       # 再断言 Owner/Admin 待审批通知任务。
       handle_producer_signal(
@@ -113,6 +117,8 @@ defmodule Cgc2046.AsyncSignalTest do
       # 审批通过 → completed → 学员本人报名成功任务（含活动标题）
       {:ok, _} = confirm(enrollment, admin)
 
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
+
       handle_producer_signal(
         "enrollment.completed",
         enrollment.id,
@@ -145,6 +151,9 @@ defmodule Cgc2046.AsyncSignalTest do
 
       {:ok, enrollment} = create_enrollment(event, learner)
       assert enrollment.status == :confirmed
+
+      perform_enqueued_signal("enrollment.submitted", enrollment.id)
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
 
       # open 策略：submitted（跳过，无待审批语义）与 completed 均已处理
       handle_producer_signal(
@@ -187,6 +196,8 @@ defmodule Cgc2046.AsyncSignalTest do
 
       {:ok, enrollment} = create_enrollment(event, learner)
 
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
+
       # 原始 completed 信号消费完成（claim + 任务入队）
       handle_producer_signal(
         "enrollment.completed",
@@ -227,6 +238,8 @@ defmodule Cgc2046.AsyncSignalTest do
       insert_identity(learner.id, "signal-direct-learner-openid")
 
       {:ok, enrollment} = create_enrollment(event, learner)
+
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
 
       # 等原始 completed 信号消费完成（任务入队 = 已处理完该次投递），
       # 再清除其效果（测试布置），让两次直接投喂从零开始——避免与在途投递竞争。
@@ -269,7 +282,22 @@ defmodule Cgc2046.AsyncSignalTest do
     end
   end
 
-  # 生产者事务内发布的信号：等真实总线投递 → 执行真实订阅方处理（结果应为 :ok）；
+  # 生产侧信号经 SignalPublishWorker 事务内 outbox 入队（plan 2026-08-14-003 Q6）；
+  # manual 测试模式下同步执行该 job，驱动 worker → 真实总线投递全链路。
+  # 锚定 enrollment_id——套件内并发类测试真实提交的残留 job 不影响匹配。
+  defp perform_enqueued_signal(signal_type, enrollment_id) do
+    [job] =
+      [worker: SignalPublishWorker]
+      |> all_enqueued()
+      |> Enum.filter(
+        &(&1.args["signal_type"] == signal_type &&
+            get_in(&1.args, ["data", "enrollment_id"]) == enrollment_id)
+      )
+
+    perform_job(SignalPublishWorker, job.args)
+  end
+
+  # 生产者事务内入队、经 worker 发布的信号：等真实总线投递 → 执行真实订阅方处理（结果应为 :ok）；
   # 窗口内未投递（:timeout）→ 按同一 payload 真实重投再等（至少一次语义的恢复
   # 路径，同 SignalPublishWorker 重试）。
   defp handle_producer_signal(
@@ -315,7 +343,8 @@ defmodule Cgc2046.AsyncSignalTest do
     |> Ash.update(tenant: enrollment.workspace_id, actor: actor)
   end
 
-  # 与生产者 after_transaction 发布的 payload 形状一致
+  # 与生产者 SignalEmitter 入队的 payload 形状一致（idempotency_key / workspace_id
+  # 由 emitter 注入，plan 2026-08-14-003 Q12）
   defp submitted_payload(enrollment, event) do
     %{
       "enrollment_id" => enrollment.id,
@@ -324,7 +353,8 @@ defmodule Cgc2046.AsyncSignalTest do
       "status" => to_string(enrollment.status),
       "event_id" => event.id,
       "course_id" => nil,
-      "enrollment_policy" => "request"
+      "enrollment_policy" => "request",
+      "idempotency_key" => "enrollment.submitted:" <> enrollment.id
     }
   end
 
