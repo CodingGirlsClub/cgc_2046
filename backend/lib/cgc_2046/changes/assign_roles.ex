@@ -63,7 +63,7 @@ defmodule Cgc2046.Changes.AssignRoles do
           # 使 owner_count 读（validate_grant_scope）与 after_action 写同锁同事务。
           # 注意：Ash 的 require_atomic?(false) 保证 before_action 在 Repo.transaction 内执行，
           # 因此后续 validate_grant_scope 中的 role_names/owner_count 读取与锁在同一连接。
-          Repo.acquire_workspace_lock!(workspace_id)
+          Repo.acquire_lock!(workspace_id)
 
           # grant scope 校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
           # 与 destroy 守卫共用同一实现）。

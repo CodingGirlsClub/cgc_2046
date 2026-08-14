@@ -163,7 +163,9 @@ defmodule Cgc2046.MiniprogramCode do
 
   defp lock_code_generation(invitation_id, platform) do
     key = "#{invitation_id}:#{platform}"
-    {:ok, _} = Cgc2046.Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
+    # PR-I D1：hashtextextended($1, 0) 键域与 workspace 锁分离，显式传 hash 选项
+    # （误换 hashtext 会碰撞/漂移）；新增 lock_timeout 5s + 友好错误映射（D5）。
+    Cgc2046.Repo.acquire_lock!(key, hash: :hashtextextended)
     :ok
   end
 
