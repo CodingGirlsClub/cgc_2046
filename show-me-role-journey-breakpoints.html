@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CGC 角色旅程断点地图</title>
+<style>
+  :root {
+    --canvas: #08090a; --card: #0f1011; --view: #121314; --divider: #23252a;
+    --ink: #f7f8f8; --ink-2: #d0d6e0; --ink-3: #8a8f98;
+    --accent: #5e6ad2; --accent-strong: #aab3ff;
+    --red: #eb5757; --amber: #f2a33c; --green: #10b981; --violet: #8b5cf6;
+    --line: rgba(255,255,255,.08); --soft: rgba(255,255,255,.05);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--canvas); color: var(--ink-2);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.55; padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { color: var(--ink); font-size: 26px; font-weight: 600; letter-spacing: -.5px; }
+  .sub { color: var(--ink-3); margin-top: 6px; }
+  .sub b { color: var(--ink-2); font-weight: 590; }
+  h2 { color: var(--ink); font-size: 16px; font-weight: 590; margin: 44px 0 14px; display: flex; align-items: center; gap: 8px; }
+  h2 .n { color: var(--ink-3); font-size: 12px; font-weight: 500; background: var(--soft); border: 1px solid var(--line); border-radius: 99px; padding: 1px 9px; }
+
+  /* ---- 角色全景 ---- */
+  .layer { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+  .layer h3 { color: var(--ink); font-size: 12.5px; font-weight: 590; margin-bottom: 10px; }
+  .layer h3 span { color: var(--ink-3); font-weight: 400; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-flex; align-items: baseline; gap: 7px; border: 1px solid var(--line); background: var(--view); border-radius: 8px; padding: 5px 11px; }
+  .chip b { color: var(--ink); font-weight: 590; font-size: 13px; }
+  .chip span { color: var(--ink-3); font-size: 12px; }
+  .chip.admin { border-color: rgba(139,92,246,.45); }
+  .chip.member { border-color: rgba(94,106,210,.45); }
+  .chip.outer { border-color: rgba(242,163,60,.4); }
+  .fact { margin-top: 16px; border-left: 2px solid var(--accent); background: var(--view); border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 13px; color: var(--ink-2); }
+  .fact b { color: var(--accent-strong); }
+
+  /* ---- 旅程地图 ---- */
+  .journey { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 13px 16px; margin-bottom: 10px; }
+  .j-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .j-head b { color: var(--ink); font-size: 13.5px; font-weight: 590; }
+  .j-head .who { font-size: 12px; color: var(--ink-3); }
+  .stages { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; row-gap: 8px; }
+  .stage { border: 1px solid var(--line); background: var(--view); border-radius: 8px; padding: 6px 11px; font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .stage .t { color: var(--ink-3); font-size: 11px; }
+  .stage.ok { border-color: rgba(16,185,129,.35); }
+  .stage.ok::before { content: "✓ "; color: var(--green); }
+  .stage.brk { border-color: rgba(235,87,87,.6); background: rgba(235,87,87,.07); }
+  .stage.brk::before { content: "⛔ "; }
+  .stage.brk .t { color: #f0a5a5; }
+  .stage.warn { border-color: rgba(242,163,60,.55); background: rgba(242,163,60,.06); }
+  .stage.warn::before { content: "⚠ "; }
+  .stage.warn .t { color: #edc58a; }
+  .stage.dep { border-style: dashed; border-color: rgba(139,92,246,.5); color: var(--ink-3); }
+  .arrow { align-self: center; color: var(--ink-3); font-size: 12px; }
+  .badge { display: inline-block; font-size: 10.5px; font-weight: 600; border-radius: 5px; padding: 0 5px; margin-left: 5px; vertical-align: 1px; }
+  .badge.a { background: rgba(235,87,87,.16); color: #f29b9b; }
+  .badge.b { background: rgba(242,163,60,.16); color: #edc58a; }
+  .badge.c { background: rgba(139,92,246,.18); color: #b8a6f7; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 14px 0 4px; font-size: 12px; color: var(--ink-3); }
+  .legend i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+  /* ---- 问题分级 ---- */
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+  .pcol { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 14px 16px; }
+  .pcol h3 { font-size: 13px; font-weight: 590; margin-bottom: 10px; }
+  .pcol.a h3 { color: #f29b9b; } .pcol.b h3 { color: #edc58a; } .pcol.c h3 { color: #b8a6f7; }
+  .pcol ul { list-style: none; }
+  .pcol li { padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .pcol li:first-child { border-top: 0; }
+  .pid { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; font-weight: 600; margin-right: 6px; }
+  .pcol.a .pid { color: var(--red); } .pcol.b .pid { color: var(--amber); } .pcol.c .pid { color: var(--violet); }
+
+  /* ---- 优先级 ---- */
+  .prio { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+  .pcard { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 14px 16px; }
+  .pcard h3 { color: var(--ink); font-size: 13px; font-weight: 590; margin-bottom: 4px; }
+  .pcard .why { color: var(--ink-3); font-size: 12px; margin-bottom: 10px; }
+  .pcard ol { padding-left: 18px; }
+  .pcard li { font-size: 12.5px; padding: 4px 0; }
+  .fix { color: var(--green); font-weight: 600; margin-right: 5px; }
+
+  .decide { border: 1px solid rgba(94,106,210,.5); background: linear-gradient(180deg, rgba(94,106,210,.10), rgba(94,106,210,.03)), var(--card); border-radius: 10px; padding: 16px 18px; margin-top: 10px; }
+  .decide h3 { color: var(--accent-strong); font-size: 13.5px; font-weight: 590; margin-bottom: 8px; }
+  .decide ol { padding-left: 18px; }
+  .decide li { font-size: 12.5px; padding: 3px 0; }
+  footer { margin-top: 40px; color: var(--ink-3); font-size: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>CGC 平台 · 角色旅程断点地图</h1>
+  <div class="sub">11 类角色 · 10 条旅程 · 14 处不合理 ｜ 核心结论：<b>架构层扎实，断点集中在「非成员参与者」的平台侧体验与 BYO 入口可发现性</b>——而这恰是产品区别于普通社区平台的核心卖点</div>
+
+  <h2>角色全景 <span class="n">3 层 + 访客</span></h2>
+  <div class="layer">
+    <h3>平台级 <span>· 全局标记，非租户角色</span></h3>
+    <div class="chips">
+      <span class="chip admin"><b>Platform Admin</b><span>建/审批工作台 · 指定 Owner · 审计</span></span>
+    </div>
+  </div>
+  <div class="layer">
+    <h3>租户成员 · 静态六枚举 <span>· RBAC 载体，多角色权限取并集</span></h3>
+    <div class="chips">
+      <span class="chip member"><b>Owner</b><span>全权 · WS 级赞助仅 Owner</span></span>
+      <span class="chip member"><b>Admin</b><span>管成员 · Event 级赞助</span></span>
+      <span class="chip member"><b>Tutor</b><span>教研大纲/复盘 · 答疑</span></span>
+      <span class="chip member"><b>Volunteer</b><span>招募物料 · 可发邀请</span></span>
+      <span class="chip member"><b>Learner</b><span>学习步骤（成员形态）</span></span>
+      <span class="chip member"><b>Member</b><span>兜底 · UI 不展示</span></span>
+    </div>
+    <div class="fact">权限矩阵 7 项能力中，<b>owner = admin 全量，tutor / volunteer / learner / member 四角色完全同权</b>——差异实际全靠 StepRole（workflow 步骤授权）与前端硬编码表达</div>
+  </div>
+  <div class="layer">
+    <h3>非成员参与者 <span>· 事件级关系，报名 ≠ 成员（D-A4）</span></h3>
+    <div class="chips">
+      <span class="chip outer"><b>Learner</b><span>Enrollment · 学习 run</span></span>
+      <span class="chip outer"><b>Sponsor</b><span>Sponsorship · 两级赞助</span></span>
+      <span class="chip outer"><b>Speaker</b><span>token 邀请 · 分享完即止</span></span>
+      <span class="chip outer"><b>Visitor</b><span>匿名浏览公开页</span></span>
+    </div>
+  </div>
+
+  <h2>旅程地图 <span class="n">⛔ = 断点(A) · ⚠ = 错位(B) · 虚线紫 = 依赖 BYO 连接(J-C)</span></h2>
+
+  <div class="journey">
+    <div class="j-head"><b>J-A 访客 → 注册</b><span class="who">Visitor</span></div>
+    <div class="stages">
+      <span class="stage ok">浏览公开活动/课程<span class="t">仅 open+public</span></span><span class="arrow">→</span>
+      <span class="stage ok">注册 / 手机号登录<span class="t">web email · 小程序一键</span></span><span class="arrow">→</span>
+      <span class="stage ok">自动加入 2046<span class="t">member 角色</span></span><span class="arrow">→</span>
+      <span class="stage brk">账号找回<span class="t">无找回密码 · 无邮箱验证</span><span class="badge a">A5</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-B 加入工作台</b><span class="who">任意登录用户 → 成员</span></div>
+    <div class="stages">
+      <span class="stage ok">/join 三策略分流<span class="t">open · request · invite</span></span><span class="arrow">→</span>
+      <span class="stage warn">自动入座角色不一致<span class="t">open 加入=learner · 注册进 2046=member，能力却同权</span><span class="badge b">B2</span></span><span class="arrow">→</span>
+      <span class="stage ok">审批 / 邀请 / 小程序扫码<span class="t">三通道齐全</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-C BYO 连接</b><span class="who">所有要在 OpenClacky 干活的人 · 一次性</span></div>
+    <div class="stages">
+      <span class="stage warn">找到入口<span class="t">藏于 设置→集成→Agents→OpenClacky 三层深处，宿主是与活动无关的 2046</span><span class="badge b">B1</span></span><span class="arrow">→</span>
+      <span class="stage ok">三步引导 + 签发 token<span class="t">绑用户不绑工作台</span></span><span class="arrow">→</span>
+      <span class="stage dep">成为 J-E / J-F / J-H / Volunteer 邀请的前置依赖<span class="t">命门：平台一切实际工作都在 OpenClacky</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-D 工作台运营</b><span class="who">Owner / Admin</span></div>
+    <div class="stages">
+      <span class="stage ok">建活动/课程<span class="t">draft→launch→close/cancel</span></span><span class="arrow">→</span>
+      <span class="stage warn">invite_only 报名不可自助运营<span class="t">InviteBatch 后端完整，但 GraphQL 未暴露、两端零 UI</span><span class="badge a">A1</span></span><span class="arrow">→</span>
+      <span class="stage ok">报名/加入/赞助审批 · 履约核销<span class="t">/approvals + 详情页</span></span><span class="arrow">→</span>
+      <span class="stage warn">结果无通知触达<span class="t">web 无站内信/邮件，靠对方刷新</span><span class="badge a">A4</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-E 教研协作</b><span class="who">Tutor / Volunteer</span></div>
+    <div class="stages">
+      <span class="stage ok">活动发布自动实例化教研 run<span class="t">event.launched 信号</span></span><span class="arrow">→</span>
+      <span class="stage dep">在自己 OpenClacky 执行步骤<span class="t">save_step_output · 前置 = J-C</span></span><span class="arrow">→</span>
+      <span class="stage brk">助手不知道该怎么干<span class="t">Agent/Skill 资源零实现，get_agent_instruction 缺失，任务指令模式断链</span><span class="badge c">C1</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-F 学员事件旅程</b><span class="who">Learner（非成员）· 核心外部旅程</span></div>
+    <div class="stages">
+      <span class="stage ok">公开页报名<span class="t">open 即确认 · request 待审 · invite 凭批次码</span></span><span class="arrow">→</span>
+      <span class="stage brk">查看我的报名 / 取消<span class="t">web 无「我的报名」页；取消按钮两端皆无（后端 cancel 已实现）</span><span class="badge a">A2</span></span><span class="arrow">→</span>
+      <span class="stage dep">OpenClacky 学习 run 逐步执行<span class="t">自动种 run · 前置 = J-C</span></span><span class="arrow">→</span>
+      <span class="stage brk">平台侧看不到学习进度<span class="t">非成员进不了工作台页 · 小程序明确不做 · 只能问自己的助手</span><span class="badge a">A3</span></span><span class="arrow">→</span>
+      <span class="stage warn">答疑分支待 v1<span class="t">提问→Tutor 介入链路未实现</span><span class="badge c">C2</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-G 赞助</b><span class="who">Sponsor（非成员）</span></div>
+    <div class="stages">
+      <span class="stage ok">公开页提交意向<span class="t">两级：Event 级 + WS 级</span></span><span class="arrow">→</span>
+      <span class="stage brk">提交后即黑洞<span class="t">后端 sponsor 可读，但所有赞助页都在工作台设置内（需成员），Sponsor 无处看状态与履约</span><span class="badge a">A3</span></span><span class="arrow">→</span>
+      <span class="stage ok">Owner/Admin 审批 · 核销<span class="t">对方旅程完整</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-H 嘉宾分享</b><span class="who">Speaker（非成员）</span></div>
+    <div class="stages">
+      <span class="stage ok">token 链接着陆 · 登录 · 接受/婉拒<span class="t">双校验完整</span></span><span class="arrow">→</span>
+      <span class="stage dep">OpenClacky 交材料<span class="t">save_materials · 前置 = J-C</span></span><span class="arrow">→</span>
+      <span class="stage ok">完成即关系结束<span class="t">speaker.completed</span></span>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="j-head"><b>J-I 平台治理</b><span class="who">Platform Admin</span></div>
+    <div class="stages">
+      <span class="stage ok">/admin 六页<span class="t">工作台 · 用户 · 申请 · 审计</span></span><span class="arrow">→</span>
+      <span class="stage warn">进不了业务工作台<span class="t">后端 policy 放行跨租户读，前端 WorkspaceShell 挡住 · 事件/工作流详情不可看</span><span class="badge b">B5</span></span><span class="arrow">→</span>
+      <span class="stage warn">2046 草稿全平台可见<span class="t">全员自动成 2046 成员 + 成员可见 draft → 未发布活动对所有人可见</span><span class="badge b">B4</span></span>
+    </div>
+  </div>
+
+  <h2>问题分级 <span class="n">14 项</span></h2>
+  <div class="cols">
+    <div class="pcol a">
+      <h3>A 级 · 旅程断点（5）</h3>
+      <ul>
+        <li><span class="pid">A1</span>invite_only 批次码无创建入口，策略产品上不可用</li>
+        <li><span class="pid">A2</span>web 无「我的报名」；取消报名两端无 UI</li>
+        <li><span class="pid">A3</span>Sponsor 提交意向后无状态查看；学员无进度页</li>
+        <li><span class="pid">A4</span>web 零通知触达（无站内信/邮件）</li>
+        <li><span class="pid">A5</span>无找回密码、无邮箱验证</li>
+      </ul>
+    </div>
+    <div class="pcol b">
+      <h3>B 级 · 错位与口径不一（6）</h3>
+      <ul>
+        <li><span class="pid">B1</span>BYO 入口三层深、宿主工作台语义错位</li>
+        <li><span class="pid">B2</span>入座角色：注册=member vs open=learner</li>
+        <li><span class="pid">B3</span>Volunteer 邀请仅存在于 MCP 通道，三端口径不一</li>
+        <li><span class="pid">B4</span>2046 双重身份 → 草稿全员可见</li>
+        <li><span class="pid">B5</span>平台管理员治理读被前端封死</li>
+        <li><span class="pid">B6</span>权限映射页四行同权，展示有误导</li>
+      </ul>
+    </div>
+    <div class="pcol c">
+      <h3>C 级 · 规划断链（3）</h3>
+      <ul>
+        <li><span class="pid">C1</span>Agent/Skill 零实现，任务指令模式断链</li>
+        <li><span class="pid">C2</span>答疑分支（get_learner_history 等）待 v1</li>
+        <li><span class="pid">C3</span>占位页与过时文案（/admin/openclacky 等）</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>改进建议 <span class="n">P1 → P3</span></h2>
+  <div class="prio">
+    <div class="pcard">
+      <h3>P1 补断点</h3>
+      <div class="why">小成本高收益，尽快</div>
+      <ol>
+        <li><span class="fix">★</span>用户级「我的参与」页：我的报名（含取消）+ 我的赞助 + 学习进度——一页解决 A2/A3</li>
+        <li>InviteBatch 管理面板，或 v1 裁掉 invite_only 选项</li>
+        <li>通知最小版：状态自助查询 + 角标；站内信列二期</li>
+      </ol>
+    </div>
+    <div class="pcard">
+      <h3>P2 修错位</h3>
+      <div class="why">对齐语义与入口</div>
+      <ol>
+        <li><span class="fix">★</span>BYO 入口提级为用户级页面（/settings/connections）+ 概览页引导卡——根治 B1</li>
+        <li>Workspace.join 入座 learner → member，统一词汇</li>
+        <li>draft 收紧为管理角色可见（评估筹备协作影响）</li>
+        <li>平台管理员只读放行业务工作台</li>
+      </ol>
+    </div>
+    <div class="pcard">
+      <h3>P3 断链（走 roadmap）</h3>
+      <div class="why">大工程，按既定规划排期</div>
+      <ol>
+        <li>Agent 指令最小版：workflows 页逐步展示「给助手的指令」文本，后续接 get_agent_instruction</li>
+        <li>找回密码 + 邮箱验证（依赖邮件服务，随 ICP 合规一起排期）</li>
+        <li>答疑分支 · 站内通知中心</li>
+      </ol>
+    </div>
+  </div>
+  <div class="decide">
+    <h3>待拍板的 5 个决策点</h3>
+    <ol>
+      <li>「我的参与」页范围：最简版（报名+取消）还是完整版（+赞助+学习进度）？</li>
+      <li>invite_only：补批次码 UI，还是 v1 裁剪该策略？</li>
+      <li>自动入座统一为 member 是否接受（不迁移存量）？</li>
+      <li>2046 草稿可见性：收紧 draft 读权限 / 大厅约定 / 接受现状？</li>
+      <li>平台管理员要不要进业务工作台只读（复用页面 vs 只在 /admin 治理）？</li>
+    </ol>
+  </div>
+
+  <footer>依据：CONTEXT.md · docs/01-定稿设计（领域模型/用户旅程/五个 workflow 详设）· web 全量路由与 GraphQL 操作面 · backend 31 资源与 RBAC · 小程序 API 面 · 断点均经代码验证（2026-08-15）</footer>
+</div>
+</body>
+</html>
