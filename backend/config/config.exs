@@ -110,7 +110,8 @@ config :cgc_2046, Oban,
        {"*/5 * * * *", Cgc2046.Workers.ApprovalExpiryWorker},
        {"*/5 * * * *", Cgc2046.Workers.EventLifecycleWorker},
        {"*/5 * * * *", Cgc2046.Workers.LearningProgressWorker},
-       {"17 * * * *", Cgc2046.Workers.ApprovalReminderWorker}
+       {"17 * * * *", Cgc2046.Workers.ApprovalReminderWorker},
+       {"*/10 * * * *", Cgc2046.Workers.ReconciliationScanWorker}
      ]}
   ]
 

@@ -19,6 +19,7 @@ const ADMIN_NAV = [
 	{ href: "/admin/users", label: "用户" },
 	{ href: "/admin/applications", label: "申请审批" },
 	{ href: "/admin/audit", label: "审计" },
+	{ href: "/admin/reconciliation", label: "对账" },
 	{ href: "/admin/openclacky", label: "OpenClacky" },
 ];
 

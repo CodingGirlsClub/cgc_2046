@@ -32,6 +32,9 @@ defmodule Cgc2046.Api do
     resource(Cgc2046.Workflows.SignalLog)
     resource(Cgc2046.Workflows.SignalIdempotency)
 
+    # 对账扫描（E-10 #125：平台级孤儿报告，/admin 对账页）
+    resource(Cgc2046.Reconciliation.Finding)
+
     # 教研实例化实体（#39 阶段 6：Event/Course launch → 教研 workflow run）
     resource(Cgc2046.Events.Event)
     resource(Cgc2046.Events.Course)
