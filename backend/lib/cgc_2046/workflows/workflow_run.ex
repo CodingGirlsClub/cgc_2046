@@ -46,6 +46,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
+  require Ash.Query
+
   alias Cgc2046.Workflows.{
     CheckpointLifecycle,
     Engine,
@@ -724,5 +726,89 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       :finished_at,
       :inserted_at
     ])
+  end
+
+  # --- 建 run 唯一入口（PR-F：find_or_create_and_start 内化 ordering invariant） ------
+
+  @doc """
+  建 run 唯一入口：非终态去重 + create→start 顺序内化（漏 start = 永久 pending run
+  的 ordering leak 从 interface 根除）。三个 instantiator（research/learning/speaker）
+  不再各自手写两步五参舞蹈。
+
+  - `key`：去重键（写入 `input_snapshot["key"]`）。非 nil → 按 definition + key 查
+    非终态 run（`pending/running/waiting`，终态列表与 research/learning 既有
+    existing_run 逐字一致），命中返回 `{:ok, run, :existing}`；未命中 → 创建并启动。
+    nil → 不去重，直接创建并启动（speaker 供：邀请唯一性由调用侧
+    `ensure_no_active_invitation` 保证，key 字段仍随 input 写入）。
+  - `start_action`：`:start_run`（默认；research/speaker，pending → 执行闭环）｜
+    `:start`（learning：协议而非 DAG，纯状态流转 pending → running，不经 Engine）。
+  - `actor`：透传（默认 nil = `authorize?: false` 无 actor，与既有 instantiator 一致）。
+
+  纯顺序函数：create（`authorize?: false` + `tenant: workspace_id`，走既有 `:create`
+  action 的 definition 归属/tenant/版本校验）→ 紧接 start（同一函数体内）。
+  **不引入任何事务语义**——speaker 在 SpeakerInvitation before_action 事务内调用
+  （D4 红线），事务边界由调用方控制；失败原样上抛。
+  """
+  @spec find_or_create_and_start(String.t(), WorkflowDefinition.t(), map(), keyword()) ::
+          {:ok, __MODULE__.t(), :existing | :created} | {:error, term()}
+  def find_or_create_and_start(workspace_id, definition, input, opts \\ []) do
+    key = opts[:key]
+    start_action = opts[:start_action] || :start_run
+
+    case key do
+      nil ->
+        create_and_start(workspace_id, definition, input, start_action, opts)
+
+      key ->
+        case existing_run(workspace_id, definition.id, key) do
+          {:ok, nil} ->
+            create_and_start(workspace_id, definition, input, start_action, opts, key)
+
+          {:ok, run} ->
+            {:ok, run, :existing}
+
+          {:error, error} ->
+            {:error, error}
+        end
+    end
+  end
+
+  # 非终态去重（终态列表与 research/learning 既有 existing_run 逐字一致）：同一
+  # definition + instance key 已有 pending/running/waiting run → 命中；终态后可重新
+  # 实例化（succeeded/failed/cancelled/expired 不在判定内）。
+  defp existing_run(workspace_id, definition_id, key) do
+    __MODULE__
+    |> Ash.Query.filter(
+      definition_id == ^definition_id and
+        status in [:pending, :running, :waiting] and
+        input_snapshot["key"] == ^key
+    )
+    |> Ash.read_one(tenant: workspace_id, authorize?: false)
+  end
+
+  # create → 紧接 start（同一函数体内，漏 start 不再可能；失败原样上抛）。
+  # key 非 nil 时把去重键写入 input_snapshot（与 research/learning 既有
+  # Map.put(input, "key", key) 语义一致）；key nil 时 input 原样落库（speaker 的
+  # key 字段随 input 自带）。
+  defp create_and_start(workspace_id, definition, input, start_action, opts, key \\ nil) do
+    actor = opts[:actor]
+    input_snapshot = if is_nil(key), do: input, else: Map.put(input, "key", key)
+
+    attrs = %{
+      definition_id: definition.id,
+      definition_version: definition.version,
+      input_snapshot: input_snapshot
+    }
+
+    with {:ok, run} <-
+           __MODULE__
+           |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
+           |> Ash.create(tenant: workspace_id, authorize?: false, actor: actor),
+         {:ok, started} <-
+           run
+           |> Ash.Changeset.for_update(start_action, %{}, tenant: workspace_id, authorize?: false)
+           |> Ash.update(tenant: workspace_id, authorize?: false, actor: actor) do
+      {:ok, started, :created}
+    end
   end
 end
