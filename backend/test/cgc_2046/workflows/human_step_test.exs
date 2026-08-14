@@ -297,6 +297,60 @@ defmodule Cgc2046.Workflows.HumanStepTest do
       assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
     end
 
+    test "complete 删除 checkpoint（PR-G：waiting → succeeded 终态后无消费方，Transition 内建清理）" do
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published, %{})
+
+      {:ok, waiting} =
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert waiting.status == :waiting
+      # checkpoint 存在
+      assert {:ok, _} = JidoAdapter.thaw(run.id, run.partition_id)
+
+      assert {:ok, completed} =
+               waiting
+               |> Ash.Changeset.for_update(:complete, %{}, actor: admin)
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert completed.status == :succeeded
+
+      # succeeded 后 checkpoint 已清理
+      assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
+    end
+
+    test "fail 删除 checkpoint（PR-G：waiting → failed 终态后无消费方，此前由 speaker 外部补偿兜底）" do
+      admin = Fixtures.platform_admin("hstep-admin")
+      workspace = Fixtures.create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published, %{})
+
+      {:ok, waiting} =
+        run
+        |> Ash.Changeset.for_update(:start_run, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert waiting.status == :waiting
+      # checkpoint 存在
+      assert {:ok, _} = JidoAdapter.thaw(run.id, run.partition_id)
+
+      assert {:ok, failed} =
+               waiting
+               |> Ash.Changeset.for_update(:fail, %{}, actor: admin)
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert failed.status == :failed
+
+      # failed 后 checkpoint 已清理
+      assert {:error, :not_found} = JidoAdapter.thaw(run.id, run.partition_id)
+    end
+
     test "resume_signal 错误信号保持 waiting，checkpoint 保留" do
       admin = Fixtures.platform_admin("hstep-admin")
       workspace = Fixtures.create_workspace(admin)
