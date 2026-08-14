@@ -18,7 +18,7 @@ defmodule Cgc2046.Events.PendingApprovals do
   require Ash.Query
 
   alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role, User, Workspace}
-  alias Cgc2046.Events.{Course, Enrollment, Event, Sponsorship}
+  alias Cgc2046.Events.{Enrollment, Sponsorship}
 
   @spec list(term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list(actor, opts \\ []) do
@@ -239,22 +239,14 @@ defmodule Cgc2046.Events.PendingApprovals do
     by_workspace = Enum.group_by(rows, & &1.workspace_id)
 
     Enum.reduce(by_workspace, %{}, fn {workspace_id, ws_rows}, acc ->
-      event_ids = ws_rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1)
-      course_ids = ws_rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1)
+      ids_by_kind = %{
+        event: ws_rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1),
+        course: ws_rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1)
+      }
 
-      acc
-      |> Map.merge(titles_for(Event, event_ids, workspace_id))
-      |> Map.merge(titles_for(Course, course_ids, workspace_id))
+      # 批量读取唯一真源 = Offering（per-kind per-tenant 批量，消 N+1 形状不变）
+      Map.merge(acc, Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id))
     end)
-  end
-
-  defp titles_for(_resource, [], _workspace_id), do: %{}
-
-  defp titles_for(resource, ids, workspace_id) do
-    resource
-    |> Ash.Query.filter(id in ^ids)
-    |> Ash.read!(tenant: workspace_id, authorize?: false)
-    |> Map.new(fn offering -> {offering.id, offering.title} end)
   end
 
   defp context_title(%{kind: "join_request"}, _titles, workspace_name), do: workspace_name

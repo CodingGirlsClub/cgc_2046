@@ -26,8 +26,6 @@ defmodule Cgc2046.NotificationSubscriber do
 
   require Logger
 
-  alias Cgc2046.Events.{Course, Event}
-
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
 
@@ -127,21 +125,12 @@ defmodule Cgc2046.NotificationSubscriber do
   # 任务身份锚用生产者注入的幂等键（SignalEmitter 保证存在，骨架 claim 前置门控）。
   defp producer_key(data), do: Map.fetch!(data, "idempotency_key")
 
-  defp target_title(%{"event_id" => id}) when is_binary(id) and id != "" do
-    case Ash.get(Event, id, authorize?: false) do
-      {:ok, %Event{title: title}} -> {:ok, title}
-      {:ok, nil} -> {:error, :event_not_found}
-      {:error, reason} -> {:error, reason}
+  # 标题解析唯一真源 = Offering 读取面（fetch_by_signal_payload 按 event_id/course_id
+  # 分派；错误坍缩 :not_found——原 :event_not_found/:course_not_found/:target_not_found
+  # 仅进日志无消费方，D6 审计）。
+  defp target_title(data) do
+    with {:ok, offering} <- Cgc2046.Events.Offering.fetch_by_signal_payload(data) do
+      {:ok, Cgc2046.Events.Offering.title(offering)}
     end
   end
-
-  defp target_title(%{"course_id" => id}) when is_binary(id) and id != "" do
-    case Ash.get(Course, id, authorize?: false) do
-      {:ok, %Course{title: title}} -> {:ok, title}
-      {:ok, nil} -> {:error, :course_not_found}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp target_title(_data), do: {:error, :target_not_found}
 end

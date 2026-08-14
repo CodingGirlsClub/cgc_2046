@@ -1782,10 +1782,13 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+  # offeringReadiness 目标可能是 Event 或 Course（原 event 优先、失败回退 course）。
+  # 读取唯一真源 = Offering；**必须显式 authorize?: true**（D2 风险：Offering 默认
+  # authorize?: false 会绕过 read policy，actor 感知读取退化为全量可见）。
   defp fetch_offering_by_id(id, actor) do
-    case Ash.get(Cgc2046.Events.Event, id, actor: actor) do
+    case Cgc2046.Events.Offering.fetch(:event, id, actor: actor, authorize?: true) do
       {:ok, entity} -> {:ok, entity}
-      {:error, _} -> Ash.get(Cgc2046.Events.Course, id, actor: actor)
+      {:error, _} -> Cgc2046.Events.Offering.fetch(:course, id, actor: actor, authorize?: true)
     end
   end
 end

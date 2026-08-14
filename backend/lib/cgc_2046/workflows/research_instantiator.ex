@@ -27,7 +27,6 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.{Course, Event}
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   # --- 公开 API --------------------------------------------------------------
@@ -162,20 +161,10 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
     {:error, {:definition_not_research_published, type, status}}
   end
 
-  # 异步路径：按 entity_id 反查实体（PK 全局唯一，global?(true) 下可不带 tenant）。
-  defp fetch_entity(:event, entity_id) do
-    case Ash.get(Event, entity_id, authorize?: false) do
-      {:ok, entity} -> {:ok, entity}
-      {:error, _} -> {:error, :event_not_found}
-    end
-  end
-
-  defp fetch_entity(:course, entity_id) do
-    case Ash.get(Course, entity_id, authorize?: false) do
-      {:ok, entity} -> {:ok, entity}
-      {:error, _} -> {:error, :course_not_found}
-    end
-  end
+  # 异步路径：按 entity_id 反查 offering（PK 全局唯一，global?(true) 下可不带 tenant）。
+  # 读取唯一真源 = Offering；错误坍缩 :not_found（原 :event_not_found/:course_not_found
+  # 仅进日志无消费方，D6 审计）。
+  defp fetch_entity(kind, entity_id), do: Cgc2046.Events.Offering.fetch(kind, entity_id)
 
   # 孤儿 run 防护：信号先于 launch 事务提交发布（change 回调在事务内，提交失败
   # 时事件仍为 draft 但信号已发），异步路径必须校验实体已 launch 才实例化。

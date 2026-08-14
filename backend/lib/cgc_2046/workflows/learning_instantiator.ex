@@ -26,7 +26,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.{Course, Enrollment, Event}
+  alias Cgc2046.Events.Enrollment
   alias Cgc2046.Workflows.{SignalSubscriber, WorkflowDefinition, WorkflowRun}
 
   @completed_signal "enrollment.completed"
@@ -89,7 +89,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
         "user_id" => enrollment.user_id,
         "event_id" => enrollment.event_id,
         "course_id" => enrollment.course_id,
-        "title" => entity_title(entity)
+        "title" => Cgc2046.Events.Offering.title(entity)
       }
 
       case launch(entity.workspace_id, defn.id, input) do
@@ -151,25 +151,16 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   defp ensure_confirmed(%Enrollment{status: status}),
     do: {:error, {:enrollment_not_confirmed, status}}
 
-  # 反查 entity 拿 workspace_id + title（设计 §3 校验链；信号 payload 无 title）。
-  defp fetch_entity(%Enrollment{event_id: event_id}) when is_binary(event_id) do
-    case Ash.get(Event, event_id, authorize?: false) do
-      {:ok, %Event{} = event} -> {:ok, event}
-      _ -> {:error, :entity_not_found}
-    end
-  end
+  # 反查 offering 拿 workspace_id + title（设计 §3 校验链；信号 payload 无 title）。
+  # 读取唯一真源 = Offering（按 enrollment 的 event_id/course_id 分派；错误坍缩
+  # :not_found——原 :entity_not_found 仅进日志无消费方，D6 审计）。
+  defp fetch_entity(%Enrollment{event_id: event_id}) when is_binary(event_id),
+    do: Cgc2046.Events.Offering.fetch(:event, event_id)
 
-  defp fetch_entity(%Enrollment{course_id: course_id}) when is_binary(course_id) do
-    case Ash.get(Course, course_id, authorize?: false) do
-      {:ok, %Course{} = course} -> {:ok, course}
-      _ -> {:error, :entity_not_found}
-    end
-  end
+  defp fetch_entity(%Enrollment{course_id: course_id}) when is_binary(course_id),
+    do: Cgc2046.Events.Offering.fetch(:course, course_id)
 
-  defp fetch_entity(%Enrollment{}), do: {:error, :entity_not_found}
-
-  defp entity_title(%Event{title: title}), do: title
-  defp entity_title(%Course{title: title}), do: title
+  defp fetch_entity(%Enrollment{}), do: {:error, :not_found}
 
   defp fetch_definition(workspace_id, definition_id) do
     case Ash.get(WorkflowDefinition, definition_id, tenant: workspace_id, authorize?: false) do
