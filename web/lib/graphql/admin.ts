@@ -332,6 +332,75 @@ export const LIST_ADMIN_ACTION_LOGS: TypedDocumentNode<
   }
 `;
 
+/** E-10 #125 对账扫描发现（rule/entityType 为后端 atom 枚举的字符串形态） */
+export interface AdminReconciliationFinding {
+	id: string;
+	rule: string;
+	entityType: string;
+	entityId: string;
+	workspaceId?: string | null;
+	firstSeenAt: string;
+	lastSeenAt: string;
+	insertedAt: string;
+}
+
+export const RECONCILIATION_FINDINGS: TypedDocumentNode<
+	{ reconciliationFindings: AdminReconciliationFinding[] },
+	{
+		rule?: string | null;
+		entityType?: string | null;
+		workspaceId?: string | null;
+		first?: number;
+		after?: string;
+	} & AdminListArgs
+> = gql`
+  query ReconciliationFindings(
+    $rule: String
+    $entityType: String
+    $workspaceId: ID
+    $first: Int
+    $after: String
+  ) {
+    reconciliationFindings(
+      rule: $rule
+      entityType: $entityType
+      workspaceId: $workspaceId
+      first: $first
+      after: $after
+    ) {
+      id
+      rule
+      entityType
+      entityId
+      workspaceId
+      firstSeenAt
+      lastSeenAt
+      insertedAt
+    }
+  }
+`;
+
+/** 对账规则枚举 → 中文标签（值 = 后端 rule atom 字符串；未知值回退原串） */
+export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
+	confirmed_enrollment_without_run: "报名无学习 run",
+	pending_without_deadline: "待审批无截止期限",
+	active_sponsorship_signal_dead: "赞助激活信号死信",
+	open_entity_without_research_definition: "开放实体无教研定义",
+	nonterminal_research_run_for_closed_entity: "已结束实体仍有进行中教研",
+	dead_letter_job: "信号族死信",
+};
+
+/** 对账实体类型 → 中文标签 */
+export const RECONCILIATION_ENTITY_LABEL: Record<string, string> = {
+	enrollment: "报名",
+	sponsorship: "赞助",
+	join_request: "加入申请",
+	workspace_application: "工作台申请",
+	event: "活动",
+	course: "课程",
+	oban_job: "Oban Job",
+};
+
 /** approveWorkspaceApplication 的 result 子集（审批后状态） */
 export interface ApproveApplicationResultData {
 	result: { id: string; status: AdminApplicationStatus } | null;

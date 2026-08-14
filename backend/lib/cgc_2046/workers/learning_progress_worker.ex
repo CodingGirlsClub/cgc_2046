@@ -18,11 +18,14 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
      收件人 7 天内至多一条）。收件人守卫：反查 Enrollment 仍 `confirmed` 才提醒。
      不自动 cancel——停滞是可见性事件，干预由人/学员侧决定。
 
-  对账接口（E-10，规则随本实现登记，设计 §6 / D8 纪律）：
+  对账接口（E-10 #125 规则编号体系；本 worker 不消费 Finding，只对齐语义）：
   - 规则①：confirmed enrollment 无 learning run（本 worker 不消费；由
-    LearningInstantiator 的 warning 日志 + 报名/run 两表可扫支撑）。
-  - 规则②：learning run running 且 facts 停滞 > 7 天（即本 worker 停滞扫描的
-    同一判定，E-10 可直接复用 `stagnant_cutoff/0` 语义）。
+    LearningInstantiator 的 warning 日志 + 报名/run 两表可扫支撑，E-10
+    ReconciliationScanWorker 落地）。
+  - **停滞扫描（facts 停滞 > 7 天，即本 worker 停滞提醒的同一判定）不在 E-10
+    v1 规则内**——E-10 六条孤儿规则只覆盖「链路断连」（无 run / 无 deadline /
+    死信 / 无定义 / 残余 run），停滞是可见性事件而非孤儿，属未来扩展，不占
+    #125 规则编号。
 
   单记录处理失败记 warning 不中断整拍（领域 action 状态守卫幂等，并发终态变化
   属预期竞态）；整拍本身幂等（完成判定看 facts 存在性，提醒靠 args-unique 去重）。

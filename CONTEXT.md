@@ -377,6 +377,14 @@
 - **扫尾 specs**：ApprovalExpiryWorker 六份过期扫描由 `@expiry_specs` 声明式规格驱动（`{resource, status, deadline: {:column, atom} | :derived, tenant}`）——列实体保持 SQL 下推过滤，WorkflowRun 走 `:derived`（load definition + 内存判断，**绝不可并入纯 SQL 分支**，否则 timeout nil 的 run 会被误扫）；每记录转换仍走各资源 `:expire` 领域 action（D-A6）。
 - **架构位置**：横切读取面（root 单文件，NotificationFanout 同款先例）；消费方 = ApprovalExpiryWorker / ApprovalReminderWorker（窗口大小 48h 仍为 ARW 私有常量）与四资源创建期（Enrollment 客户端可传覆盖 / Sponsorship 服务端固定的创建纪律差异另行决策）。
 
+### 对账扫描（Reconciliation Scan）
+
+- **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125；plan `docs/plans/2026-08-15-011-e10-reconciliation-scan.md` D1-D10 全锁定）。`ReconciliationScanWorker` 每 10 分钟扫六规则 → 落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。
+- **六规则**：① confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ open 且 research_enabled 的 Event/Course 但工作台无 published 教研定义（research_enabled=false 合法不命中）｜⑤ closed/cancelled Event/Course 仍有非终态 research run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ 信号族死信（SignalPublishWorker / NotificationWorker 的 discarded job）。
+- **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。
+- **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
+- **架构位置**：`Cgc2046.Reconciliation.Finding`（Api domain 全局资源）+ `Cgc2046.Workers.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
+
 ### 工具 = 形状 原则（见 §3）
 
 ---
