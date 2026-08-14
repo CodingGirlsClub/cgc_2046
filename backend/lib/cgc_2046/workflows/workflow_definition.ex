@@ -103,11 +103,13 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       description: "执行拓扑（步骤顺序/依赖），声明式数据；Step 字段独立存于 Step 资源"
     )
 
-    # F7 方案 A：审批超时（领域模型定稿 ER §5.2，默认 7 天 = 604800 秒，nil = 无超时）
+    # F7 方案 A：审批超时。实际语义：nil = 永不超时；非 nil = 人工步骤审批超时秒数
+    # （不设默认值——创建期不写即 nil，永不超时）。deadline 派生唯一真源 =
+    # Cgc2046.ApprovalDeadline（updated_at + approval_timeout）。
     attribute(:approval_timeout, :integer,
       public?: true,
       writable?: true,
-      description: "人工步骤审批超时秒数（默认 7 天 604800，nil = 无超时）"
+      description: "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
     )
 
     create_timestamp(:inserted_at)

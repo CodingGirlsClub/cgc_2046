@@ -27,8 +27,6 @@ defmodule Cgc2046.Events.Sponsorship do
   alias Cgc2046.Repo
   alias Cgc2046.Events.SponsorshipTier
 
-  @default_approval_timeout_days 7
-
   @submitted_signal "sponsorship.submitted"
   @approved_signal "sponsorship.approved"
   @rejected_signal "sponsorship.rejected"
@@ -312,8 +310,10 @@ defmodule Cgc2046.Events.Sponsorship do
          {:ok, tier} <- resolve_tier(tier_id, target),
          :ok <- uniqueness_precheck(level, target_kind, target_id, sponsor_id) do
       # F7 审批超时由服务端固定生成（评审 NEEDS_CHANGES 修复：不开放客户端
-      # 自设 deadline，防止绕过过期 SLA / 48h 提醒）
-      deadline = DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
+      # 自设 deadline，防止绕过过期 SLA / 48h 提醒）；默认期限单点 =
+      # ApprovalDeadline.default_timeout_days()。
+      deadline =
+        DateTime.add(DateTime.utc_now(), Cgc2046.ApprovalDeadline.default_timeout_days(), :day)
 
       changeset =
         changeset

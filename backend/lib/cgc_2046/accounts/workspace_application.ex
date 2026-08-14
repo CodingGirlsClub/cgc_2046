@@ -24,8 +24,6 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
-  @default_approval_timeout_days 7
-
   attributes do
     uuid_primary_key(:id)
 
@@ -160,7 +158,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       change(
         set_attribute(
           :approval_deadline,
-          DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
+          DateTime.add(DateTime.utc_now(), Cgc2046.ApprovalDeadline.default_timeout_days(), :day)
         )
       )
     end
