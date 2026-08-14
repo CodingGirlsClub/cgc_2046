@@ -60,9 +60,7 @@ defmodule Cgc2046.NotificationSubscriber do
   end
 
   # approved / rejected → 报名学员本人，逐平台身份入队（#3）。
-  defp handle_approval_result(
-         %{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload
-       ) do
+  defp handle_approval_result(%{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload) do
     Cgc2046.NotificationFanout.deliver(
       {user_id, Cgc2046.NotificationFanout.identities(user_id)},
       "approval_result",
