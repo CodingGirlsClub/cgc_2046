@@ -232,18 +232,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # 不接受任何属性（/check SC2-005：继承 default_accept 可改 input_snapshot/definition_version）
       accept([])
       change(optimistic_lock(:version))
-
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          :pending ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :running)
-            |> Ash.Changeset.force_change_attribute(:started_at, DateTime.utc_now())
-
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot start from status=#{status}")
-        end
-      end)
+      change({Cgc2046.Changes.Transition, from: [:pending], to: :running})
+      change(set_attribute(:started_at, &DateTime.utc_now/0))
     end
 
     # pending → running/succeeded/waiting/failed：一步启动 + 执行闭环（阶段 4 #37）。
@@ -254,13 +244,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       require_atomic?(false)
       accept([])
       change(optimistic_lock(:version))
+      change({Cgc2046.Changes.Transition, from: [:pending], to: :running})
 
+      # 执行闭环只在 Transition 守卫通过（源状态匹配）时运行——非 pending 时
+      # Transition 已 add_error，此处 no-op 不调引擎（原内联守卫的语义）。
       change(fn changeset, _context ->
         case Ash.Changeset.get_data(changeset, :status) do
           :pending ->
             run_started =
               changeset
-              |> Ash.Changeset.force_change_attribute(:status, :running)
               |> Ash.Changeset.force_change_attribute(:started_at, DateTime.utc_now())
 
             case start_run_execute(run_started) do
@@ -281,8 +273,8 @@ defmodule Cgc2046.Workflows.WorkflowRun do
                 |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
             end
 
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot start_run from status=#{status}")
+          _ ->
+            changeset
         end
       end)
     end
@@ -294,15 +286,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          :running ->
-            Ash.Changeset.force_change_attribute(changeset, :status, :waiting)
-
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot wait from status=#{status}")
-        end
-      end)
+      change({Cgc2046.Changes.Transition, from: [:running], to: :waiting})
     end
 
     # waiting → running：信号放行后恢复执行
@@ -312,15 +296,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          :waiting ->
-            Ash.Changeset.force_change_attribute(changeset, :status, :running)
-
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot resume from status=#{status}")
-        end
-      end)
+      change({Cgc2046.Changes.Transition, from: [:waiting], to: :running})
     end
 
     # waiting → running/succeeded/failed：信号放行 + 恢复执行闭环（阶段 4 #37）。
@@ -332,13 +308,14 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       argument(:payload, :map, default: %{})
       change(optimistic_lock(:version))
 
+      change({Cgc2046.Changes.Transition, from: [:waiting], to: :running})
+
+      # 执行闭环只在 Transition 守卫通过（源状态匹配）时运行——非 waiting 时
+      # Transition 已 add_error，此处 no-op 不走授权/Engine（原内联守卫的语义）。
       change(fn changeset, _context ->
         case Ash.Changeset.get_data(changeset, :status) do
-          :waiting ->
-            resume_signal_execute(changeset)
-
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot resume_signal from status=#{status}")
+          :waiting -> resume_signal_execute(changeset)
+          _ -> changeset
         end
       end)
     end
@@ -350,17 +327,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       change(optimistic_lock(:version))
       accept([:facts])
 
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          status when status in [:running, :waiting] ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :succeeded)
-            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+      # PR-G：checkpoint 清理从隐藏 invariant 变结构保证（D3）——complete 可自
+      # waiting 达终态，终态后 checkpoint 无消费方（ADR-0002），须清理（此前缺失，
+      # 由 speaker 外部补偿兜着，PR-G D4 收编后补偿删除）。
+      change(
+        {Cgc2046.Changes.Transition,
+         from: [:running, :waiting], to: :succeeded, cleanup_checkpoint: true}
+      )
 
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot complete from status=#{status}")
-        end
-      end)
+      change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
 
     # running/waiting → failed：执行失败
@@ -370,17 +345,14 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          status when status in [:running, :waiting] ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :failed)
-            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
+      # PR-G D4：fail 补 cleanup_checkpoint（此前由 speaker_invitation.ex 外部补偿
+      # 清理；Transition 内建后补偿删除，fail 路径 checkpoint 清理由本 action 承担）。
+      change(
+        {Cgc2046.Changes.Transition,
+         from: [:running, :waiting], to: :failed, cleanup_checkpoint: true}
+      )
 
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot fail from status=#{status}")
-        end
-      end)
+      change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
 
     # pending/running/waiting → cancelled：人工取消
@@ -390,36 +362,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          status when status in [:pending, :running, :waiting] ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :cancelled)
-            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
-            |> Ash.Changeset.put_context(:delete_checkpoint, true)
-
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot cancel from status=#{status}")
-        end
-      end)
-
-      # #16：waiting → cancelled 时删除 jido_checkpoints（不删则 checkpoint 行永久残留）；
-      # 失败记日志不阻塞状态流转（策略单源在 CheckpointLifecycle，候选 #2）。
+      # #16：waiting → cancelled 时删除 jido_checkpoints（不删则 checkpoint 行永久残留）。
+      # cleanup_checkpoint: true 内建 after_transaction 清理（Transition D3 收编原
+      # 逐字拷贝；失败记日志不阻塞，策略单源在 CheckpointLifecycle，候选 #2）。
       change(
-        after_transaction(fn changeset, result, _context ->
-          if changeset.context[:delete_checkpoint] do
-            case result do
-              {:ok, _record} ->
-                cleanup_checkpoint(changeset, :cancelled)
-
-              _ ->
-                :ok
-            end
-          end
-
-          result
-        end)
+        {Cgc2046.Changes.Transition,
+         from: [:pending, :running, :waiting], to: :cancelled, cleanup_checkpoint: true}
       )
+
+      change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
 
     # pending/waiting → expired：超时（阶段 4 deadline 唤醒路径）
@@ -429,35 +380,13 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_data(changeset, :status) do
-          status when status in [:pending, :waiting] ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:status, :expired)
-            |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
-            |> Ash.Changeset.put_context(:delete_checkpoint, true)
-
-          status ->
-            Ash.Changeset.add_error(changeset, "cannot expire from status=#{status}")
-        end
-      end)
-
       # #16：waiting → expired 时删除 jido_checkpoints（同 cancel 的 checkpoint 清理）。
       change(
-        after_transaction(fn changeset, result, _context ->
-          if changeset.context[:delete_checkpoint] do
-            case result do
-              {:ok, _record} ->
-                cleanup_checkpoint(changeset, :expired)
-
-              _ ->
-                :ok
-            end
-          end
-
-          result
-        end)
+        {Cgc2046.Changes.Transition,
+         from: [:pending, :waiting], to: :expired, cleanup_checkpoint: true}
       )
+
+      change(set_attribute(:finished_at, &DateTime.utc_now/0))
     end
 
     defaults([:read])
@@ -698,19 +627,6 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       {:ok, _log} -> :ok
       {:error, _} -> {:error, :signal_log_failed}
     end
-  end
-
-  # cancel/expire 终态清理 checkpoint（提交后执行，失败记日志不阻塞状态流转）。
-  # 策略单源在 CheckpointLifecycle（候选 #2），本 helper 只做 changeset → 参数提取。
-  defp cleanup_checkpoint(changeset, status) do
-    run_id = Ash.Changeset.get_data(changeset, :id)
-    partition = Ash.Changeset.get_data(changeset, :partition_id)
-
-    if is_binary(run_id) and is_binary(partition) do
-      :ok = CheckpointLifecycle.on_status(status, run_id, partition, nil)
-    end
-
-    :ok
   end
 
   admin do
