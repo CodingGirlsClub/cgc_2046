@@ -339,6 +339,12 @@
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow。
 
+### Offering（供给物读取面）
+
+- **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Events.Offering`（2026-08-15 读取面收敛，架构评审候选④；plan `docs/plans/2026-08-15-009-offering-read-seam.md` D1-D7 全锁定）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
+- **命名空间区分**：kind 原子 `:event` 与 Sponsorship `level: :event`（赞助级别）**撞名但无语义关系**——前者是读取分派键，后者是业务分类字段，勿混用。
+- **架构位置**：读取面 seam（events/ 目录）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ ResearchInstantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
+
 ### Enrollment（报名 / 事件级参与者）
 
 - **定义**：Event/Course 的**事件级参与者记录**，归**活动 context**（D-A4）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单 + 全免费（Learner Q3）。
