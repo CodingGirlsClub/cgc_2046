@@ -508,16 +508,21 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
+    # 切片 D：MCP save_step_output 的 facts 写入对成员放开（StepRole 细粒度授权
+    # 已在工具层经 StepAuthorization.authorize_signal/4 判定，本层只做成员门槛）。
+    # E-7 #122：学习 run 加「报名学员本人」分支（学员是非成员——授权来自 Enrollment
+    # 记录本身，设计 §4.1；SimpleCheck 从 changeset.data 判定，见模块 moduledoc）。
+    # 注意：bypass 必须位于通用 create/update policy **之前**——Ash 按序评估，
+    # 通用 policy 先失败则后续 bypass 不再被求值。
+    bypass action(:update_facts_for_mcp) do
+      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Policies.ActorIsEnrolledLearner)
+    end
+
     # 写操作：Owner/Admin（多角色并集）或平台管理员
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
-    end
-
-    # 切片 D：MCP save_step_output 的 facts 写入对成员放开（StepRole 细粒度授权
-    # 已在工具层经 StepAuthorization.authorize_signal/4 判定，本层只做成员门槛）
-    bypass action(:update_facts_for_mcp) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end

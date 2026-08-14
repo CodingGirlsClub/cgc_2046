@@ -18,8 +18,10 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
+  alias Cgc2046.Events.Enrollment
   alias Cgc2046.Workflows.Step
   alias Cgc2046.Workflows.StepRole
+  alias Cgc2046.Workflows.WorkflowRun
 
   require Ash.Query
 
@@ -100,6 +102,55 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
   def error_message(:authorization_unavailable, step_key),
     do: "authorization check failed for step #{step_key}"
+
+  @doc """
+  「报名学员本人」判定（E-7 #122，设计 §4.1）：actor 是 learning run 锚定
+  Enrollment 的学员（`status = :confirmed` 且 `user_id = actor.id`）。
+
+  用于 save_step_output 工具层兜底：`authorize_signal/4` 因 StepRole 配置
+  不命中而拒绝时，学习 run 仍放行学员本人（协议必然推论——学习执行在
+  学员侧 BYO，学员必须能写自己的进度账本）。
+
+  判定链：run 定义 `type = :learning` → `run.input_snapshot["enrollment_id"]`
+  → Enrollment `status = :confirmed` 且 `user_id = actor.id`。
+  任何读取失败 fail-closed（false）。
+  """
+  @spec enrolled_learner?(term(), String.t(), WorkflowRun.t()) :: boolean()
+  def enrolled_learner?(%{id: actor_id}, workspace_id, %WorkflowRun{} = run)
+      when is_binary(workspace_id) do
+    with {:ok, _defn} <- learning_definition?(run, workspace_id),
+         enrollment_id when is_binary(enrollment_id) <- enrollment_id_of(run),
+         {:ok, enrollment} <- fetch_enrollment(enrollment_id) do
+      enrollment.status == :confirmed and enrollment.user_id == actor_id
+    else
+      _ -> false
+    end
+  end
+
+  def enrolled_learner?(_actor, _workspace_id, _run), do: false
+
+  # run 定义须为 learning 类型（research/teaching run 不走学员豁免）
+  defp learning_definition?(%WorkflowRun{definition_id: definition_id}, workspace_id) do
+    case Ash.get(Cgc2046.Workflows.WorkflowDefinition, definition_id,
+           tenant: workspace_id,
+           authorize?: false
+         ) do
+      {:ok, %{type: :learning} = defn} -> {:ok, defn}
+      _ -> :error
+    end
+  end
+
+  defp enrollment_id_of(%WorkflowRun{input_snapshot: snapshot}) when is_map(snapshot),
+    do: Map.get(snapshot, "enrollment_id")
+
+  defp enrollment_id_of(_), do: nil
+
+  defp fetch_enrollment(enrollment_id) do
+    case Ash.get(Enrollment, enrollment_id, authorize?: false) do
+      {:ok, enrollment} -> {:ok, enrollment}
+      {:error, _} -> :error
+    end
+  end
 
   # 查 Step 行（definition_id + step_key）→ step_roles → role.name 原子列表。
   # Step 行不存在 → {:ok, []}（未配置授权 = 不限制）。
