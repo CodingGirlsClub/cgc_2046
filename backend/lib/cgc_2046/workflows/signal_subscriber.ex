@@ -64,6 +64,12 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   @idempotency_strategies [:claim_first, :claim_in_handle, :claim_after_effects, :state_based]
 
+  # D7（E-10 #125）：信号投递 telemetry——与 NotificationFanout 的
+  # `[:cgc2046, :notification_fanout, :deliver]` 事件族同构（measurements %{count}，
+  # metadata status/type/detail）；死信可见性由 E-10 对账规则⑥（oban_jobs discarded
+  # 7 天窗口）承担，不扩 Oban discard 插件。
+  @telemetry_event [:cgc2046, :signal, :deliver]
+
   @callback handle(String.t(), map()) :: :ok | {:error, term()}
 
   # --- 投递入口（生产 forwarder 与测试同码） -----------------------------------
@@ -101,7 +107,14 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   @doc false
   # forwarder 回调入口（JidoAdapter.subscribe 的 fun）；与 deliver/2 同码。
+  # 投递结果统一 emit `[:cgc2046, :signal, :deliver]` telemetry（D7）。
   def run(module, type, data) do
+    result = do_run(module, type, data)
+    emit(module, type, result)
+    result
+  end
+
+  defp do_run(module, type, data) do
     case module.__signal_subscriber_config__().idempotency do
       strategy when strategy in [:state_based, :claim_in_handle] ->
         module.handle(type, data)
@@ -137,6 +150,24 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
       Logger.error("#{inspect(module)} handling #{type} crashed: #{Exception.message(error)}")
 
       {:error, {:crashed, Exception.message(error)}}
+  end
+
+  # D7：metadata status/detail 同 NotificationFanout `[:cgc2046, :notification_fanout,
+  # :deliver]` 事件族同构；type 为信号类型、subscriber 为消费方短名（路由/归因用）。
+  defp emit(module, type, result) do
+    {status, detail} =
+      case result do
+        :ok -> {:ok, nil}
+        :duplicate -> {:duplicate, nil}
+        {:error, reason} -> {:error, reason}
+      end
+
+    :telemetry.execute(@telemetry_event, %{count: 1}, %{
+      status: status,
+      type: type,
+      detail: detail,
+      subscriber: module |> Module.split() |> List.last()
+    })
   end
 
   defp consumer_key(module, type, data) do

@@ -5,6 +5,7 @@ import type {
   AdminApplicationStatus,
   AdminListArgs,
   AdminPendingOperation,
+  AdminReconciliationFinding,
   AdminSignalLog,
   AdminToolCallLog,
   AdminUser,
@@ -27,6 +28,7 @@ import {
   LIST_WORKSPACES,
   MY_WORKSPACE_APPLICATIONS,
   PROMOTE_USER,
+  RECONCILIATION_FINDINGS,
   REJECT_WORKSPACE_APPLICATION,
   type CreateWorkspaceApplicationInput,
   type CreateWorkspaceApplicationResultData,
@@ -241,6 +243,30 @@ export async function fetchAdminActionLogs(
       insertedBefore: filters?.insertedBefore ?? null,
     },
     "listAdminActionLogs",
+    opts,
+  );
+}
+
+/** E-10 #125 对账扫描过滤条件（空值 = 不过滤；rule/entityType 为枚举串） */
+export interface ReconciliationFilters {
+  rule?: string;
+  entityType?: string;
+  workspaceId?: string;
+}
+
+/** 平台管理员：对账扫描发现（E-10 #125；rule/entityType/workspace 过滤） */
+export async function fetchReconciliationFindings(
+  filters?: ReconciliationFilters,
+  opts?: AdminListArgs,
+): Promise<AdminReconciliationFinding[]> {
+  return adminList(
+    RECONCILIATION_FINDINGS,
+    {
+      rule: filters?.rule ?? null,
+      entityType: filters?.entityType ?? null,
+      workspaceId: filters?.workspaceId ?? null,
+    },
+    "reconciliationFindings",
     opts,
   );
 }

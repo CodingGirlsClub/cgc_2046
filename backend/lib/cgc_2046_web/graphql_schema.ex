@@ -316,6 +316,29 @@ defmodule Cgc2046Web.GraphqlSchema do
       )
     end
 
+    @desc "平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after）"
+    field :reconciliation_findings, non_null(list_of(non_null(:admin_reconciliation_finding))) do
+      arg(:rule, :string)
+      arg(:entity_type, :string)
+      arg(:workspace_id, :id)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(
+        admin_list(
+          Cgc2046.Reconciliation.Finding,
+          fn q, args ->
+            q
+            # atom 约束字段精确过滤（非枚举值静默忽略，同 maybe_status_filter 语义）
+            |> maybe_status_filter(args[:rule], :rule)
+            |> maybe_status_filter(args[:entity_type], :entity_type)
+            |> maybe_real_workspace_filter(args[:workspace_id])
+          end,
+          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Api)
+        )
+      )
+    end
+
     # S1（advisor02）：listWorkflowRuns 不手写——WorkflowRun 资源已自动暴露同名 query
     # （list_workflow_runs: filter/sort/first/before/after，前端 web/lib/graphql/workflow.ts
     # 在用），platform_admin read policy 已解锁（Phase 2）。自动版 filter.workspaceId.eq
@@ -1521,6 +1544,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:target_type, non_null(:string))
     field(:target_id, non_null(:id))
     field(:result, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  # E-10 #125：对账扫描发现（rule/entity_type 为 atom 枚举的字符串形态；detail
+  # v1 不暴露——对账页列只到 规则/实体/ID/workspace/首次/最近发现）
+  object :admin_reconciliation_finding do
+    field(:id, non_null(:id))
+    field(:rule, non_null(:string))
+    field(:entity_type, non_null(:string))
+    field(:entity_id, non_null(:string))
+    field(:workspace_id, :id)
+    field(:first_seen_at, non_null(:datetime))
+    field(:last_seen_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
   end
 

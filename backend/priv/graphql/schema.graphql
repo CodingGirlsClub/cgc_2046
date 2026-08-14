@@ -4112,6 +4112,9 @@ type RootQueryType {
   "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
   listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
 
+  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
+  reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -4717,6 +4720,17 @@ type AdminActionLog {
   targetType: String!
   targetId: ID!
   result: String!
+  insertedAt: DateTime!
+}
+
+type AdminReconciliationFinding {
+  id: ID!
+  rule: String!
+  entityType: String!
+  entityId: String!
+  workspaceId: ID
+  firstSeenAt: DateTime!
+  lastSeenAt: DateTime!
   insertedAt: DateTime!
 }
 
