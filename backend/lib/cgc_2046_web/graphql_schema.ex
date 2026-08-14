@@ -21,25 +21,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
     field :permission_matrix, :permission_matrix_payload do
       resolve(fn _, _, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, "unauthorized"}
+        with_actor(context, fn _actor ->
+          roles =
+            Cgc2046.Rbac.matrix()
+            |> Enum.map(fn row ->
+              %{
+                name: to_string(row.role),
+                abilities:
+                  Enum.map(row.abilities, fn {name, allowed} ->
+                    %{name: to_string(name), allowed: allowed}
+                  end)
+              }
+            end)
 
-          _actor ->
-            roles =
-              Cgc2046.Rbac.matrix()
-              |> Enum.map(fn row ->
-                %{
-                  name: to_string(row.role),
-                  abilities:
-                    Enum.map(row.abilities, fn {name, allowed} ->
-                      %{name: to_string(name), allowed: allowed}
-                    end)
-                }
-              end)
-
-            {:ok, %{roles: roles}}
-        end
+          {:ok, %{roles: roles}}
+        end)
       end)
     end
 
@@ -47,21 +43,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:id, non_null(:id))
 
       resolve(fn _, %{id: id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, "unauthorized"}
-
-          actor ->
-            resolve_readiness(id, actor)
-        end
+        with_actor(context, fn actor ->
+          resolve_readiness(id, actor)
+        end)
       end)
     end
 
     @desc "当前登录用户个人资料（#68 Profile API，需登录）：id/email/displayName/isPlatformAdmin + memberNumber/joinedAt（ADR-0004 收窄为全局身份）"
     field :me, :user do
       resolve(fn _, _, %{context: context} ->
-        case context[:actor] do
-          nil ->
+        with_actor(
+          context,
+          fn actor ->
+            load_profile(actor, actor, context, nil)
+          end,
+          on_nil: fn _ctx ->
             # #13 Finding A：token 签名有效但 user 加载失败（DB 故障 / 撤销）时
             # AuthPlug.load_actor 已标记 cgc_auth_uncertain。返回 auth_uncertain
             # 让前端保持登录态重试，而非误踢已登录用户。
@@ -70,10 +66,8 @@ defmodule Cgc2046Web.GraphqlSchema do
             else
               {:error, unauthorized_error()}
             end
-
-          actor ->
-            load_profile(actor, actor, context, nil)
-        end
+          end
+        )
       end)
     end
 
@@ -82,16 +76,12 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:workspace_id, non_null(:id))
 
       resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            Cgc2046.Accounts.WorkspaceProfile
-            |> Ash.Query.for_read(:read)
-            |> Ash.Query.filter(user_id == ^actor.id)
-            |> Ash.read_one(tenant: workspace_id, actor: actor)
-        end
+        with_actor(context, fn actor ->
+          Cgc2046.Accounts.WorkspaceProfile
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.filter(user_id == ^actor.id)
+          |> Ash.read_one(tenant: workspace_id, actor: actor)
+        end)
       end)
     end
 
@@ -100,30 +90,22 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:workspace_id, non_null(:id))
 
       resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            Ash.read(Cgc2046.Accounts.PortfolioItem,
-              action: :my_portfolio,
-              tenant: workspace_id,
-              actor: actor
-            )
-        end
+        with_actor(context, fn actor ->
+          Ash.read(Cgc2046.Accounts.PortfolioItem,
+            action: :my_portfolio,
+            tenant: workspace_id,
+            actor: actor
+          )
+        end)
       end)
     end
 
     @desc "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
     field :my_mcp_tokens, list_of(:mcp_token) do
       resolve(fn _, _, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            Cgc2046.Mcp.Token.list_for(actor)
-        end
+        with_actor(context, fn actor ->
+          Cgc2046.Mcp.Token.list_for(actor)
+        end)
       end)
     end
 
@@ -132,15 +114,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:include_expired, :boolean)
 
       resolve(fn _, args, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            Cgc2046.Events.PendingApprovals.list(actor,
-              include_expired: args[:include_expired] || false
-            )
-        end
+        with_actor(context, fn actor ->
+          Cgc2046.Events.PendingApprovals.list(actor,
+            include_expired: args[:include_expired] || false
+          )
+        end)
       end)
     end
 
@@ -168,25 +146,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:event_id, non_null(:id))
 
       resolve(fn _, %{event_id: event_id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Cgc2046.Events.SpeakerInvitations.list_for_event(event_id, actor) do
+            {:ok, invitations} ->
+              {:ok, invitations}
 
-          actor ->
-            case Cgc2046.Events.SpeakerInvitations.list_for_event(event_id, actor) do
-              {:ok, invitations} ->
-                {:ok, invitations}
+            {:error, :forbidden} ->
+              {:error, [message: "forbidden", code: "forbidden"]}
 
-              {:error, :forbidden} ->
-                {:error, [message: "forbidden", code: "forbidden"]}
+            {:error, :event_not_found} ->
+              {:error, [message: "event not found", code: "not_found"]}
 
-              {:error, :event_not_found} ->
-                {:error, [message: "event not found", code: "not_found"]}
-
-              {:error, reason} ->
-                {:error, [message: inspect(reason), code: "invalid"]}
-            end
-        end
+            {:error, reason} ->
+              {:error, [message: inspect(reason), code: "invalid"]}
+          end
+        end)
       end)
     end
 
@@ -242,17 +216,13 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
     field :my_workspace_applications, non_null(list_of(non_null(:admin_workspace_application))) do
       resolve(fn _, _, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            Cgc2046.Accounts.WorkspaceApplication
-            |> Ash.Query.for_read(:read)
-            |> Ash.Query.filter(applicant_id == ^actor.id)
-            |> Ash.read(actor: actor)
-            |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
-        end
+        with_actor(context, fn actor ->
+          Cgc2046.Accounts.WorkspaceApplication
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.filter(applicant_id == ^actor.id)
+          |> Ash.read(actor: actor)
+          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+        end)
       end)
     end
 
@@ -555,28 +525,24 @@ defmodule Cgc2046Web.GraphqlSchema do
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:workspace_id])
 
       resolve(fn _, %{workspace_id: workspace_id, platform: platform}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Cgc2046.MiniprogramCode.generate(workspace_id, actor, platform) do
+            {:ok, result} ->
+              {:ok, result}
 
-          actor ->
-            case Cgc2046.MiniprogramCode.generate(workspace_id, actor, platform) do
-              {:ok, result} ->
-                {:ok, result}
+            {:error, :forbidden} ->
+              {:error, message: "Forbidden", code: "forbidden"}
 
-              {:error, :forbidden} ->
-                {:error, message: "Forbidden", code: "forbidden"}
+            {:error, :invalid_platform} ->
+              {:error, message: "Invalid platform", code: "invalid_platform"}
 
-              {:error, :invalid_platform} ->
-                {:error, message: "Invalid platform", code: "invalid_platform"}
+            {:error, :daily_quota_exhausted} ->
+              {:error, message: "Daily quota exhausted", code: "daily_quota_exhausted"}
 
-              {:error, :daily_quota_exhausted} ->
-                {:error, message: "Daily quota exhausted", code: "daily_quota_exhausted"}
-
-              {:error, _} ->
-                {:error, message: "Code generation failed", code: "code_generation_failed"}
-            end
-        end
+            {:error, _} ->
+              {:error, message: "Code generation failed", code: "code_generation_failed"}
+          end
+        end)
       end)
     end
 
@@ -637,47 +603,40 @@ defmodule Cgc2046Web.GraphqlSchema do
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:input, :token])
 
       resolve(fn _, %{id: id, input: %{token: token}}, %{context: context} ->
-        cond do
-          is_nil(context[:actor]) ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          # #96：AshGraphql update mutation 的 read-before-write 用 :read action 加载记录
+          # （read policy 下推成 inviter_id == actor.id），受邀者被拒成 not_found，到不了
+          # accept action。这里改为 id + token_hash 双因子定位 + authorize?: false 加载：
+          # 两个条件都匹配才放行（token 是凭证，与 validateInvitation 信息面一致），
+          # 不匹配返回 not_found，不泄露邀请存在性。accept action 的
+          # authorize_if(actor_present()) 与 before_action token 复验仍完整生效。
+          # token_credential_fetch 以 extra_filter: [id: id] 保留双因子，nil 塌缩为
+          # :invalid_token，由调用方映射回 accept_not_found_errors（not_found 语义）。
+          with {:ok, invitation} <-
+                 token_credential_fetch(Cgc2046.Accounts.Invitation, token, id: id),
+               {:ok, accepted} <-
+                 invitation
+                 |> Ash.Changeset.for_update(:accept, %{token: token})
+                 |> Ash.update(actor: actor) do
+            {:ok, %{result: accepted, errors: []}}
+          else
+            {:error, :invalid_token} ->
+              {:ok, %{result: nil, errors: accept_not_found_errors(context, id)}}
 
-          true ->
-            actor = context[:actor]
-            token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
-
-            # #96：AshGraphql update mutation 的 read-before-write 用 :read action 加载记录
-            # （read policy 下推成 inviter_id == actor.id），受邀者被拒成 not_found，到不了
-            # accept action。这里改为 id + token_hash 双因子定位 + authorize?: false 加载：
-            # 两个条件都匹配才放行（token 是凭证，与 validateInvitation 信息面一致），
-            # 不匹配返回 not_found，不泄露邀请存在性。accept action 的
-            # authorize_if(actor_present()) 与 before_action token 复验仍完整生效。
-            with {:ok, invitation} when not is_nil(invitation) <-
-                   Cgc2046.Accounts.Invitation
-                   |> Ash.Query.do_filter(id: id, token_hash: token_hash)
-                   |> Ash.read_one(authorize?: false),
-                 {:ok, accepted} <-
-                   invitation
-                   |> Ash.Changeset.for_update(:accept, %{token: token})
-                   |> Ash.update(actor: actor) do
-              {:ok, %{result: accepted, errors: []}}
-            else
-              {:ok, nil} ->
-                {:ok, %{result: nil, errors: accept_not_found_errors(context, id)}}
-
-              {:error, error} ->
-                {:ok,
-                 %{
-                   result: nil,
-                   errors:
-                     to_ash_graphql_errors(
-                       error,
-                       context,
-                       :accept,
-                       Cgc2046.Accounts.Invitation
-                     )
-                 }}
-            end
-        end
+            {:error, error} ->
+              {:ok,
+               %{
+                 result: nil,
+                 errors:
+                   to_ash_graphql_errors(
+                     error,
+                     context,
+                     :accept,
+                     Cgc2046.Accounts.Invitation
+                   )
+               }}
+          end
+        end)
       end)
     end
 
@@ -689,22 +648,18 @@ defmodule Cgc2046Web.GraphqlSchema do
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
 
       resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Cgc2046.NotificationConsent.grant(actor.id, platform, template_key) do
+            {:ok, remaining} ->
+              {:ok, remaining}
 
-          actor ->
-            case Cgc2046.NotificationConsent.grant(actor.id, platform, template_key) do
-              {:ok, remaining} ->
-                {:ok, remaining}
+            {:error, :invalid_platform} ->
+              {:error, message: "Invalid platform", code: "invalid_platform"}
 
-              {:error, :invalid_platform} ->
-                {:error, message: "Invalid platform", code: "invalid_platform"}
-
-              {:error, _} ->
-                {:error, message: "Consent grant failed", code: "consent_grant_failed"}
-            end
-        end
+            {:error, _} ->
+              {:error, message: "Consent grant failed", code: "consent_grant_failed"}
+          end
+        end)
       end)
     end
 
@@ -725,23 +680,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:display_name, non_null(:string))
 
       resolve(fn _, %{display_name: display_name}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Ash.update(actor, %{display_name: display_name},
+                 action: :update_display_name,
+                 actor: actor
+               ) do
+            {:ok, user} ->
+              # member_number/joined_at 为计算属性，返回前需显式加载
+              load_profile(user, actor, context, :update_display_name)
 
-          actor ->
-            case Ash.update(actor, %{display_name: display_name},
-                   action: :update_display_name,
-                   actor: actor
-                 ) do
-              {:ok, user} ->
-                # member_number/joined_at 为计算属性，返回前需显式加载
-                load_profile(user, actor, context, :update_display_name)
-
-              {:error, error} ->
-                {:error, to_ash_graphql_errors(error, context, :update_display_name)}
-            end
-        end
+            {:error, error} ->
+              {:error, to_ash_graphql_errors(error, context, :update_display_name)}
+          end
+        end)
       end)
     end
 
@@ -751,35 +702,16 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:input, non_null(:update_workspace_profile_input))
 
       resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            case Cgc2046.Accounts.WorkspaceProfile
-                 |> Ash.Query.for_read(:read)
-                 |> Ash.Query.filter(user_id == ^actor.id)
-                 |> Ash.read_one(tenant: workspace_id, actor: actor) do
-              {:ok, nil} ->
-                {:error,
-                 message: "Workspace profile not found or not accessible",
-                 code: "workspace_profile_not_found"}
-
-              {:ok, profile} ->
-                profile
-                |> Ash.Changeset.for_update(:update_profile, map_input(input))
-                |> Ash.update(tenant: workspace_id, actor: actor)
-
-              {:error, error} ->
-                {:error,
-                 to_ash_graphql_errors(
-                   error,
-                   context,
-                   :update_workspace_profile,
-                   Cgc2046.Accounts.WorkspaceProfile
-                 )}
-            end
-        end
+        with_actor(context, fn actor ->
+          scoped_update(
+            actor,
+            Cgc2046.Accounts.WorkspaceProfile,
+            workspace_id,
+            :update_profile,
+            map_input(input),
+            context
+          )
+        end)
       end)
     end
 
@@ -789,37 +721,16 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:input, non_null(:set_workspace_theme_input))
 
       resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            case Cgc2046.Accounts.WorkspaceProfile
-                 |> Ash.Query.for_read(:read)
-                 |> Ash.Query.filter(user_id == ^actor.id)
-                 |> Ash.read_one(tenant: workspace_id, actor: actor) do
-              {:ok, nil} ->
-                {:error,
-                 message: "Workspace profile not found or not accessible",
-                 code: "workspace_profile_not_found"}
-
-              {:ok, profile} ->
-                profile
-                |> Ash.Changeset.for_update(:set_ui_theme, %{
-                  ui_theme_preference: input.ui_theme_preference
-                })
-                |> Ash.update(tenant: workspace_id, actor: actor)
-
-              {:error, error} ->
-                {:error,
-                 to_ash_graphql_errors(
-                   error,
-                   context,
-                   :set_workspace_theme,
-                   Cgc2046.Accounts.WorkspaceProfile
-                 )}
-            end
-        end
+        with_actor(context, fn actor ->
+          scoped_update(
+            actor,
+            Cgc2046.Accounts.WorkspaceProfile,
+            workspace_id,
+            :set_ui_theme,
+            %{ui_theme_preference: input.ui_theme_preference},
+            context
+          )
+        end)
       end)
     end
 
@@ -829,17 +740,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:input, non_null(:create_portfolio_item_input))
 
       resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          attrs = map_input(input, [:title, :description, :url, :icon])
 
-          actor ->
-            attrs = map_input(input, [:title, :description, :url, :icon])
-
-            Cgc2046.Accounts.PortfolioItem
-            |> Ash.Changeset.for_create(:create, attrs)
-            |> Ash.create(tenant: workspace_id, actor: actor)
-        end
+          Cgc2046.Accounts.PortfolioItem
+          |> Ash.Changeset.for_create(:create, attrs)
+          |> Ash.create(tenant: workspace_id, actor: actor)
+        end)
       end)
     end
 
@@ -850,21 +757,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:input, non_null(:update_portfolio_item_input))
 
       resolve(fn _, %{id: id, workspace_id: workspace_id, input: input}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          attrs = map_input(input, [:title, :description, :url, :icon])
 
-          actor ->
-            attrs = map_input(input, [:title, :description, :url, :icon])
-
-            with {:ok, item} <-
-                   Cgc2046.Accounts.PortfolioItem
-                   |> Ash.get(id, tenant: workspace_id, actor: actor) do
-              item
-              |> Ash.Changeset.for_update(:update, attrs)
-              |> Ash.update(tenant: workspace_id, actor: actor)
-            end
-        end
+          with {:ok, item} <-
+                 Cgc2046.Accounts.PortfolioItem
+                 |> Ash.get(id, tenant: workspace_id, actor: actor) do
+            item
+            |> Ash.Changeset.for_update(:update, attrs)
+            |> Ash.update(tenant: workspace_id, actor: actor)
+          end
+        end)
       end)
     end
 
@@ -874,20 +777,16 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:workspace_id, non_null(:id))
 
       resolve(fn _, %{id: id, workspace_id: workspace_id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
-
-          actor ->
-            with {:ok, item} <-
-                   Cgc2046.Accounts.PortfolioItem
-                   |> Ash.get(id, tenant: workspace_id, actor: actor) do
-              case Ash.destroy(item, tenant: workspace_id, actor: actor) do
-                :ok -> {:ok, item}
-                {:error, error} -> {:error, error}
-              end
+        with_actor(context, fn actor ->
+          with {:ok, item} <-
+                 Cgc2046.Accounts.PortfolioItem
+                 |> Ash.get(id, tenant: workspace_id, actor: actor) do
+            case Ash.destroy(item, tenant: workspace_id, actor: actor) do
+              :ok -> {:ok, item}
+              {:error, error} -> {:error, error}
             end
-        end
+          end
+        end)
       end)
     end
 
@@ -896,25 +795,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:name, non_null(:string))
 
       resolve(fn _, %{name: name}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Cgc2046.Mcp.Token.issue(name, actor) do
+            {:ok, token, plain} ->
+              {:ok, %{result: token, plain_token: plain, errors: []}}
 
-          actor ->
-            case Cgc2046.Mcp.Token.issue(name, actor) do
-              {:ok, token, plain} ->
-                {:ok, %{result: token, plain_token: plain, errors: []}}
-
-              {:error, error} ->
-                {:ok,
-                 %{
-                   result: nil,
-                   plain_token: nil,
-                   errors:
-                     to_ash_graphql_errors(error, context, :issue, Cgc2046.Mcp.Token, Cgc2046.Mcp)
-                 }}
-            end
-        end
+            {:error, error} ->
+              {:ok,
+               %{
+                 result: nil,
+                 plain_token: nil,
+                 errors:
+                   to_ash_graphql_errors(error, context, :issue, Cgc2046.Mcp.Token, Cgc2046.Mcp)
+               }}
+          end
+        end)
       end)
     end
 
@@ -923,37 +818,33 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:id, non_null(:id))
 
       resolve(fn _, %{id: id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Cgc2046.Mcp.Token.revoke(id, actor) do
+            {:ok, revoked} ->
+              {:ok, revoked}
 
-          actor ->
-            case Cgc2046.Mcp.Token.revoke(id, actor) do
-              {:ok, revoked} ->
-                {:ok, revoked}
+            {:error, :not_found} ->
+              # NotFound（他人 token / 不存在 id）统一塌缩，不泄露存在性。
+              # 与 invalid 分支同经 AshGraphql 序列化（message/code/fields 齐备），
+              # 恢复 AshGraphql 原行为的 error 结构（message "could not be found"、
+              # fields ["id"]）。
+              {:error,
+               to_ash_graphql_errors(
+                 Ash.Error.Query.NotFound.exception(
+                   primary_key: %{id: id},
+                   resource: Cgc2046.Mcp.Token
+                 ),
+                 context,
+                 :revoke,
+                 Cgc2046.Mcp.Token,
+                 Cgc2046.Mcp
+               )}
 
-              {:error, :not_found} ->
-                # NotFound（他人 token / 不存在 id）统一塌缩，不泄露存在性。
-                # 与 invalid 分支同经 AshGraphql 序列化（message/code/fields 齐备），
-                # 恢复 AshGraphql 原行为的 error 结构（message "could not be found"、
-                # fields ["id"]）。
-                {:error,
-                 to_ash_graphql_errors(
-                   Ash.Error.Query.NotFound.exception(
-                     primary_key: %{id: id},
-                     resource: Cgc2046.Mcp.Token
-                   ),
-                   context,
-                   :revoke,
-                   Cgc2046.Mcp.Token,
-                   Cgc2046.Mcp
-                 )}
-
-              {:error, {:invalid, error}} ->
-                {:error,
-                 to_ash_graphql_errors(error, context, :revoke, Cgc2046.Mcp.Token, Cgc2046.Mcp)}
-            end
-        end
+            {:error, {:invalid, error}} ->
+              {:error,
+               to_ash_graphql_errors(error, context, :revoke, Cgc2046.Mcp.Token, Cgc2046.Mcp)}
+          end
+        end)
       end)
     end
 
@@ -1036,26 +927,22 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:materials, non_null(:json_string))
 
       resolve(fn _, %{invitation_id: id, materials: materials}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
+            {:ok, invitation} when not is_nil(invitation) ->
+              invitation
+              |> Ash.Changeset.for_update(:save_materials, %{materials: materials},
+                actor: actor,
+                tenant: invitation.workspace_id
+              )
+              |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+              |> speaker_invitation_action_result(context, :save_materials)
 
-          actor ->
-            case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
-              {:ok, invitation} when not is_nil(invitation) ->
-                invitation
-                |> Ash.Changeset.for_update(:save_materials, %{materials: materials},
-                  actor: actor,
-                  tenant: invitation.workspace_id
-                )
-                |> Ash.update(tenant: invitation.workspace_id, actor: actor)
-                |> speaker_invitation_action_result(context, :save_materials)
-
-              _ ->
-                {:ok,
-                 %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
-            end
-        end
+            _ ->
+              {:ok,
+               %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
+          end
+        end)
       end)
     end
 
@@ -1064,26 +951,22 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:id, non_null(:id))
 
       resolve(fn _, %{id: id}, %{context: context} ->
-        case context[:actor] do
-          nil ->
-            {:error, unauthorized_error()}
+        with_actor(context, fn actor ->
+          case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
+            {:ok, invitation} when not is_nil(invitation) ->
+              invitation
+              |> Ash.Changeset.for_update(:complete_speaking, %{},
+                actor: actor,
+                tenant: invitation.workspace_id
+              )
+              |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+              |> speaker_invitation_action_result(context, :complete_speaking)
 
-          actor ->
-            case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
-              {:ok, invitation} when not is_nil(invitation) ->
-                invitation
-                |> Ash.Changeset.for_update(:complete_speaking, %{},
-                  actor: actor,
-                  tenant: invitation.workspace_id
-                )
-                |> Ash.update(tenant: invitation.workspace_id, actor: actor)
-                |> speaker_invitation_action_result(context, :complete_speaking)
-
-              _ ->
-                {:ok,
-                 %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
-            end
-        end
+            _ ->
+              {:ok,
+               %{result: nil, errors: [%{message: "invitation not found", code: "not_found"}]}}
+          end
+        end)
       end)
     end
 
@@ -1402,8 +1285,8 @@ defmodule Cgc2046Web.GraphqlSchema do
   # （统一错误，不防枚举）。无效 token 与已用/过期同形返回 payload errors。
   defp decide_speaker_invitation(%{context: context}, token, action) do
     with %{actor: actor} when not is_nil(actor) <- context,
-         {:ok, hash} <- speaker_token_hash(token),
-         {:ok, invitation} when not is_nil(invitation) <- fetch_speaker_invitation(hash) do
+         {:ok, invitation} <-
+           token_credential_fetch(Cgc2046.Events.SpeakerInvitation, token) do
       invitation
       |> Ash.Changeset.for_update(action, %{token: token},
         actor: actor,
@@ -1429,17 +1312,31 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  defp speaker_token_hash(token) when is_binary(token) and token != "" do
-    {:ok, Cgc2046.Events.SpeakerInvitation.hash_token(token)}
+  # 持 token 资源定位组合子（PR-E D4）：token 即凭据——sha256(hex lower) 哈希 →
+  # token_hash 精确匹配 → read_one(authorize?: false)（不走 read policy）。
+  # token 空/非 binary 或未命中任何记录 → {:error, :invalid_token}（nil 塌缩，不泄露
+  # 存在性）；真实读错误原样上抛（流① accept_invitation 需区分 invalid_token 与
+  # real error）。extra_filter 追加双因子（accept_invitation 的 [id: id]）。
+  # 消费方：accept_invitation（流①）/ decide_speaker_invitation（流②）。
+  defp token_credential_fetch(resource, token, extra_filter \\ :none) do
+    with {:ok, hash} <- credential_hash(token) do
+      filters = if extra_filter == :none, do: [], else: extra_filter
+
+      resource
+      |> Ash.Query.do_filter(filters ++ [token_hash: hash])
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, nil} -> {:error, :invalid_token}
+        result -> result
+      end
+    end
   end
 
-  defp speaker_token_hash(_), do: {:error, :invalid_token}
-
-  defp fetch_speaker_invitation(hash) do
-    Cgc2046.Events.SpeakerInvitation
-    |> Ash.Query.filter(token_hash == ^hash)
-    |> Ash.read_one(authorize?: false)
+  defp credential_hash(token) when is_binary(token) and token != "" do
+    {:ok, :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)}
   end
+
+  defp credential_hash(_), do: {:error, :invalid_token}
 
   # SpeakerInvitation action 结果 → payload（result + errors 两段式，同 sign_up 错误协议）
   defp speaker_invitation_action_result({:ok, invitation}, _context, _action) do
@@ -1503,6 +1400,32 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       {:error, error} ->
         {:error, to_ash_graphql_errors(error, context, action)}
+    end
+  end
+
+  # owner 域 read-first update 组合子（PR-E D5）：filter(user_id == ^actor.id) +
+  # read_one(tenant:, actor:) → {:ok, nil} 分支错误单点（workspace_profile_not_found）
+  # → for_update(action, attrs) → Ash.update(tenant:, actor:)。错误路径经
+  # to_ash_graphql_errors 显式透传 resource（message/code/fields 逐字保留）。
+  # 消费方：update_workspace_profile(:update_profile, map_input 全量) /
+  # set_workspace_theme(:set_ui_theme, 单字段)。
+  defp scoped_update(actor, resource, tenant_id, action, attrs, context) do
+    case resource
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(user_id == ^actor.id)
+         |> Ash.read_one(tenant: tenant_id, actor: actor) do
+      {:ok, nil} ->
+        {:error,
+         message: "Workspace profile not found or not accessible",
+         code: "workspace_profile_not_found"}
+
+      {:ok, profile} ->
+        profile
+        |> Ash.Changeset.for_update(action, attrs)
+        |> Ash.update(tenant: tenant_id, actor: actor)
+
+      {:error, error} ->
+        {:error, to_ash_graphql_errors(error, context, action, resource)}
     end
   end
 
@@ -1611,6 +1534,18 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   # ── Platform Admin Dashboard Phase 5：resolver helpers ─────────────────
+
+  # actor 门控组合子（PR-E）：nil → unauthorized_error()（on_nil 可覆盖——唯一消费方
+  # me 的 auth_uncertain 分支），ok → fun.(actor)。19 处 case context[:actor] 标准门
+  # 收敛于此，错误契约单点（未登录统一 unauthorized message/code）。
+  defp with_actor(context, fun, opts \\ []) do
+    on_nil = Keyword.get(opts, :on_nil, fn _context -> {:error, unauthorized_error()} end)
+
+    case context[:actor] do
+      nil -> on_nil.(context)
+      actor -> fun.(actor)
+    end
+  end
 
   # admin 门控：非 platform_admin → forbidden（与 Phase 1 PlatformAdminPlug 同语义）。
   # 未登录 → unauthorized。通过后执行 fun(actor)。
