@@ -23,6 +23,12 @@ defmodule Cgc2046.Mcp.Wrapper do
   # 不需要 workspace 成员资格的内置工具（确认流承载 tool，鉴权在 Confirmation 内做）
   @workspace_optional ~w(confirm_operation cancel_operation)
 
+  # 成员资格检查**下沉**到工具自身授权的工具（E-7 #122）：save_step_output 对
+  # learning run 放行「报名学员本人」（非成员，授权来自 Enrollment 记录本身，
+  # 设计 §4.1）——成员门槛若在 Wrapper 层拦截，学员永远到不了工具层判定。
+  # 下沉不等于放开：工具内仍有 StepAuthorization 判定 + 资源层 Ash policy 双重门禁。
+  @membership_deferred ~w(save_step_output)
+
   @type result ::
           {:ok, map() | String.t()}
           | {:error, String.t()}
@@ -64,13 +70,19 @@ defmodule Cgc2046.Mcp.Wrapper do
   end
 
   defp check_membership(tool_name, actor, workspace_id) do
-    if workspace_optional?(tool_name) do
-      :ok
-    else
-      case MembershipContext.membership_of(actor, workspace_id) do
-        nil -> {:error, "forbidden: not a member of workspace #{workspace_id}"}
-        _membership -> :ok
-      end
+    cond do
+      workspace_optional?(tool_name) ->
+        :ok
+
+      tool_name in @membership_deferred ->
+        # 成员门槛由工具层授权判定替代（见 @membership_deferred 注释）
+        :ok
+
+      true ->
+        case MembershipContext.membership_of(actor, workspace_id) do
+          nil -> {:error, "forbidden: not a member of workspace #{workspace_id}"}
+          _membership -> :ok
+        end
     end
   end
 

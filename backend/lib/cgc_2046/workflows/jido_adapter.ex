@@ -698,6 +698,39 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     )
   end
 
+  @doc """
+  订阅信号（异步消费，转发进程与调用者**崩溃隔离**）。
+
+  与 `subscribe/3` 的差异：`subscribe/3` 的转发进程 `spawn_link` 到调用者，
+  转发进程崩溃会连带订阅者 GenServer 一起死——测试沙箱下异步 DB 访问
+  常收到连接代理的 `:shutdown` 退出（`rescue` 拦不住退出信号），连锁
+  重启会耗尽监督树预算拖垮整棵树。本变体用 `spawn` + `monitor`：
+  转发进程死亡时调用者收 `{:DOWN, ref, :process, pid, reason}`，自行决定
+  重建订阅（E-7 #122 LearningInstantiator 的用法见该模块）。
+
+  返回 `{:ok, subscription_id, monitor_ref}` 或 `{:error, reason}`。
+  """
+  @spec subscribe_detached(String.t(), (Jido.Signal.t() -> any()), term()) ::
+          {:ok, term(), reference()} | {:error, term()}
+  def subscribe_detached(pattern, fun, _partition)
+      when is_binary(pattern) and is_function(fun, 1) do
+    subscriber = spawn(fn -> forward_loop(fun) end)
+    monitor_ref = Process.monitor(subscriber)
+
+    case Jido.Signal.Bus.subscribe(@bus_name, pattern,
+           dispatch: {:pid, target: subscriber, delivery_mode: :async}
+         ) do
+      {:ok, subscription_id} ->
+        {:ok, subscription_id, monitor_ref}
+
+      {:error, reason} ->
+        # 订阅失败：回收无信号来源的转发进程，避免泄漏
+        Process.demonitor(monitor_ref, [:flush])
+        Process.exit(subscriber, :kill)
+        {:error, reason}
+    end
+  end
+
   defp forward_loop(fun) do
     receive do
       {:signal, signal} ->

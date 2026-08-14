@@ -9,6 +9,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.NotificationService
+  alias Cgc2046.Workflows.WorkflowRun
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -82,6 +83,19 @@ defmodule Cgc2046.Workers.NotificationWorker do
 
       _ ->
         true
+    end
+  end
+
+  # 学习停滞提醒发送时重查（E-7 #122）：仅当 learning run 仍 running 才投递
+  # （扫描到执行之间 run 可能已完成/取消）。
+  defp stale_reminder?(%{
+         "template_key" => "learning_stagnation",
+         "data" => %{"run_id" => id}
+       })
+       when is_binary(id) do
+    case Ash.get(WorkflowRun, id, authorize?: false) do
+      {:ok, %{status: :running}} -> false
+      _ -> true
     end
   end
 

@@ -24,7 +24,7 @@ defmodule Cgc2046.NotificationSubscriber do
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
   alias Cgc2046.Events.{Course, Event}
-  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency}
+  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, WorkflowRun}
   alias Cgc2046.Workers.NotificationWorker
 
   @patterns [
@@ -81,6 +81,43 @@ defmodule Cgc2046.NotificationSubscriber do
   rescue
     error ->
       Logger.warning("approval reminder enqueue failed: #{Exception.message(error)}")
+      :ok
+  end
+
+  @doc """
+  E-7 #122 学习 run 停滞提醒入队（D6-③；LearningProgressWorker 调用）。
+
+  收件人 = 报名学员本人的全部平台身份（逐身份入队，同用户多身份不折叠）。
+  返回 `:ok`（至少入队一条）或 `:no_identity`（无平台身份，无可入队）。
+  NotificationWorker 7 天 args-unique（args 含 run_id）保证同一 run 同一
+  收件人 7 天内至多一条；发送时 `stale_reminder?` 重查 run 仍 running 才投递。
+  """
+  def enqueue_learning_stagnation_jobs(user_id, %WorkflowRun{} = run) do
+    identities = identities_for_user(user_id)
+
+    if identities == [] do
+      :no_identity
+    else
+      Enum.each(identities, fn identity ->
+        insert_notification(
+          identity,
+          user_id,
+          "learning_stagnation",
+          %{
+            "enrollment_id" => run.input_snapshot["enrollment_id"],
+            "run_id" => run.id,
+            "title" => run.input_snapshot["title"]
+          },
+          %{"run_id" => run.id},
+          @reminder_unique
+        )
+      end)
+
+      :ok
+    end
+  rescue
+    error ->
+      Logger.warning("learning stagnation reminder enqueue failed: #{Exception.message(error)}")
       :ok
   end
 
