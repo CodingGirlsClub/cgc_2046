@@ -13,9 +13,11 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
   """
 
   use Cgc2046Web.ConnCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
+  alias Cgc2046.Workers.SignalPublishWorker
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.ResearchInstantiator
@@ -76,6 +78,21 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       )
 
     Ash.get!(Event, event.id, authorize?: false)
+  end
+
+  # 生产侧信号经 SignalPublishWorker 事务内 outbox 入队（plan 2026-08-14-003 Q6）；
+  # manual 测试模式下同步执行该 job，驱动 worker → 真实总线投递全链路。
+  # 锚定 event_id——套件内并发类测试真实提交的残留 job 不影响匹配。
+  defp perform_enqueued_signal(signal_type, event_id) do
+    [job] =
+      [worker: SignalPublishWorker]
+      |> all_enqueued()
+      |> Enum.filter(
+        &(&1.args["signal_type"] == signal_type &&
+            get_in(&1.args, ["data", "event_id"]) == event_id)
+      )
+
+    perform_job(SignalPublishWorker, job.args)
   end
 
   # 教研定义：uppercase → (manual approval) → append_exclamation
@@ -319,6 +336,18 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert launched.status == :open
 
+      # 事务内 outbox（plan 2026-08-14-003 Q6）：job 与 open 终态同事务入队；
+      # 同步执行 job 驱动 worker → 真实总线投递全链路
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{
+          "signal_type" => "event.launched",
+          "data" => %{"event_id" => event.id, "title" => event.title}
+        }
+      )
+
+      assert :ok = perform_enqueued_signal("event.launched", event.id)
+
       assert_receive {:launched, %{"event_id" => event_id, "title" => title}}, 1_000
       assert event_id == event.id
       assert title == event.title
@@ -358,8 +387,14 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       # 构建 changeset——buggy 代码在 change 回调（for_update 阶段，事务开始前）
       # 发布信号，订阅方读到未提交的 draft 状态，ensure_launched 守卫静默丢弃
-      # 实例化（#1 TOCTOU）。修复后：for_update 阶段不得发布信号。
+      # 实例化（#1 TOCTOU）。修复后（SignalEmitter 事务内 outbox）：for_update
+      # 阶段既不得发布也不得入队。
       changeset = Ash.Changeset.for_update(event, :launch, %{}, actor: admin)
+
+      refute_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "event.launched", "data" => %{"event_id" => event.id}}
+      )
 
       # 2s 窗口：buggy 代码在 for_update 发布 → 订阅方转发 → refute 失败（红）
       refute_receive {:launched, _}, 2_000
@@ -367,7 +402,15 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       {:ok, launched} = Ash.update(changeset, tenant: workspace.id, actor: admin)
       assert launched.status == :open
 
-      # 提交后信号到达（订阅方此时读到已提交的 open 状态，实例化不被丢弃）
+      # 提交后 job 已入队；执行后信号到达（订阅方此时读到已提交的 open 状态，
+      # 实例化不被丢弃）
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "event.launched", "data" => %{"event_id" => event.id}}
+      )
+
+      assert :ok = perform_enqueued_signal("event.launched", event.id)
+
       assert_receive {:launched, %{"event_id" => event_id, "title" => title}}, 1_000
       assert event_id == event.id
       assert title == event.title
