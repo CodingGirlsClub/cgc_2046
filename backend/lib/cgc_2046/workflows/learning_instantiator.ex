@@ -8,8 +8,9 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
   - **实例 key**：`"enrollment_<enrollment_id>"`（一个报名 = 一个 learning run；
     expired 后重提 → 新 enrollment → 新 key）。
-  - **幂等两层**：① claim-first（订阅骨架持有，键 = 消费者作用域）；②
-    find_or_create 非终态 run（`ResearchInstantiator` 同款，终态后可重新实例化）。
+  - **幂等两层**：① claim-in-handle（校验链通过后、launch 前经骨架 `claim/3`
+    登记，键 = 消费者作用域——校验不过不烧 claim，重投仍可推进）；② find_or_create
+    非终态 run（`ResearchInstantiator` 同款，终态后可重新实例化）。
   - **定义获取**：租户内已 published 的 `type=learning` 定义（多个取最新，
     version desc + inserted_at desc）。无 published 定义 → warning skip 供对账
     （E-10 规则：confirmed enrollment 无 learning run）。
@@ -20,13 +21,15 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["enrollment.completed"],
-    idempotency: :claim_first
+    idempotency: :claim_in_handle
 
   require Ash.Query
   require Logger
 
   alias Cgc2046.Events.{Course, Enrollment, Event}
-  alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
+  alias Cgc2046.Workflows.{SignalSubscriber, WorkflowDefinition, WorkflowRun}
+
+  @completed_signal "enrollment.completed"
 
   # --- 公开 API --------------------------------------------------------------
 
@@ -53,8 +56,8 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   # --- 信号处理 ----------------------------------------------------------------
 
   @impl Cgc2046.Workflows.SignalSubscriber
-  def handle(_type, %{"enrollment_id" => enrollment_id}) when is_binary(enrollment_id) do
-    instantiate(enrollment_id)
+  def handle(_type, %{"enrollment_id" => enrollment_id} = data) when is_binary(enrollment_id) do
+    instantiate(enrollment_id, data)
   end
 
   def handle(_type, data) do
@@ -65,13 +68,15 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
   # 校验链（设计 §3）：enrollment 存在且 status=confirmed（孤儿防护）→ 反查
   # entity（Event/Course）拿 workspace_id + title → 取该租户已 published 的学习
-  # 定义 → find_or_create run。任一环节失败返回 `:ok`（best-effort，不抛错；
-  # 失败可见性交给对账扫描 E-10）。
-  defp instantiate(enrollment_id) do
+  # 定义 → claim（骨架助手，校验链后——无定义/读失败不烧 claim，重投仍可推进）→
+  # find_or_create run。任一环节失败返回 `:ok`（best-effort，不抛错；失败可见性
+  # 交给对账扫描 E-10）。
+  defp instantiate(enrollment_id, data) do
     with {:ok, %Enrollment{} = enrollment} <- fetch_enrollment(enrollment_id),
          :ok <- ensure_confirmed(enrollment),
          {:ok, entity} <- fetch_entity(enrollment),
-         {:ok, %WorkflowDefinition{} = defn} <- fetch_learning_definition(entity.workspace_id) do
+         {:ok, %WorkflowDefinition{} = defn} <- fetch_learning_definition(entity.workspace_id),
+         {:ok, _claim_key} <- SignalSubscriber.claim(__MODULE__, @completed_signal, data) do
       input = %{
         "enrollment_id" => enrollment.id,
         "user_id" => enrollment.user_id,
@@ -106,6 +111,11 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
           "LearningInstantiator skipped instantiation for enrollment #{enrollment_id}: :learning_definition_not_found"
         )
 
+        :ok
+
+      # 幂等键已登记（重复投递）→ 跳过，不重复实例化（归一化为 :ok，同旧
+      # instantiate_from_signal/2 语义）。
+      :duplicate ->
         :ok
 
       other ->

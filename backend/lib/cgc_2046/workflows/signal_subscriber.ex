@@ -20,16 +20,19 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   - `patterns`：订阅的信号类型列表（必填、非空字符串列表；生成 `patterns/0`
     供测试断言接线）。
-  - `idempotency`：幂等策略枚举（必填），三策略语义如下。缺 `handle/2`
+  - `idempotency`：幂等策略枚举（必填），四策略语义如下。缺 `handle/2`
     回调在编译期告警（behaviour 检查）。
 
-  ## 幂等三策略（Q2：如实映射六订阅方现状语义）
+  ## 幂等四策略（Q2 如实映射六订阅方现状语义；PR-B 评审 P1 增补第四值）
 
-  - `:claim_first`：副作用前先 claim（NotificationSubscriber / SpeakerSubscriber
-    / LearningInstantiator）。首投 claim 成功 → 执行 `handle/2`；重复投递
-    `{:error, :already_claimed}` → 返回 `:duplicate` 跳过执行。claim 成功后
-    执行失败不回滚 claim（副作用均可达重投/对账路径，失败可见性靠 error
-    日志与 E-10 对账扫描）。
+  - `:claim_first`：副作用前先 claim（NotificationSubscriber / SpeakerSubscriber）。
+    首投 claim 成功 → 执行 `handle/2`；重复投递 `{:error, :already_claimed}` →
+    返回 `:duplicate` 跳过执行。claim 成功后执行失败不回滚 claim（副作用均可
+    达重投/对账路径，失败可见性靠 error 日志与 E-10 对账扫描）。
+  - `:claim_in_handle`：claim 时机由模块在 `handle/2` 内自决——业务校验链通过后、
+    副作用前调 `claim/3`（LearningInstantiator）。校验不过（如无已发布学习定义、
+    瞬时读失败）不烧 claim，重投仍可推进；重复投递由模块自行归一化（LI 归一为
+    `:ok`，同其旧 `instantiate_from_signal/2` 语义）。消费键派生仍由本骨架唯一持有。
   - `:claim_after_effects`：全部副作用成功（`handle/2` 返回 `:ok`）才 claim
     （SponsorshipEndedSubscriber / ResearchRunReaper）；`{:error, reason}` 不落
     claim、只记 error 日志不 crash forwarder——重投（SignalPublishWorker 重试
@@ -59,7 +62,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   alias Cgc2046.Workflows.SignalIdempotency
 
-  @idempotency_strategies [:claim_first, :claim_after_effects, :state_based]
+  @idempotency_strategies [:claim_first, :claim_in_handle, :claim_after_effects, :state_based]
 
   @callback handle(String.t(), map()) :: :ok | {:error, term()}
 
@@ -78,19 +81,36 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     run(module, type, data)
   end
 
+  @doc """
+  消费键 claim 助手（`:claim_in_handle` 策略模块在业务校验链通过后、副作用前
+  调用）。键派生与缺失契约违约的丢弃逻辑由本骨架唯一持有。
+
+  返回 `{:ok, full_key}`（首次登记）| `:duplicate`（同键已消费，调用方按需
+  归一化）| `{:error, :missing_idempotency_key}`（payload 缺幂等键，丢弃）。
+  """
+  @spec claim(module(), String.t(), map()) ::
+          {:ok, String.t()} | :duplicate | {:error, :missing_idempotency_key}
+  def claim(module, type, data) do
+    with {:ok, key} <- consumer_key(module, type, data) do
+      case SignalIdempotency.claim(type, key, data["workspace_id"]) do
+        :ok -> {:ok, key}
+        {:error, :already_claimed} -> :duplicate
+      end
+    end
+  end
+
   @doc false
   # forwarder 回调入口（JidoAdapter.subscribe 的 fun）；与 deliver/2 同码。
   def run(module, type, data) do
     case module.__signal_subscriber_config__().idempotency do
-      :state_based ->
+      strategy when strategy in [:state_based, :claim_in_handle] ->
         module.handle(type, data)
 
       :claim_first ->
-        with {:ok, key} <- consumer_key(module, type, data) do
-          case SignalIdempotency.claim(type, key, data["workspace_id"]) do
-            :ok -> module.handle(type, data)
-            {:error, :already_claimed} -> :duplicate
-          end
+        case claim(module, type, data) do
+          {:ok, _key} -> module.handle(type, data)
+          :duplicate -> :duplicate
+          {:error, _reason} = error -> error
         end
 
       :claim_after_effects ->
