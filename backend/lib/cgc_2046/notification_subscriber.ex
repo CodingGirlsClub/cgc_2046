@@ -29,6 +29,8 @@ defmodule Cgc2046.NotificationSubscriber do
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
 
+  # claim-first：claim 后即 at-most-once——Oban 入队失败则通知永久丢失（重投被 claim
+  # 拦截），由 E-10 对账扫描 best-effort 兜底（#134-③）。
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(@submitted_signal, data), do: handle_submitted(data)
   def handle(@completed_signal, data), do: handle_completed(data)
