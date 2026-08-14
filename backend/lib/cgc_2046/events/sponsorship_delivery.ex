@@ -119,7 +119,7 @@ defmodule Cgc2046.Events.SponsorshipDelivery do
     WHERE id = $3 AND fulfilled_at IS NULL
     """
 
-    case Repo.query(sql, [now, proof_note, uuid!(changeset.data.id)]) do
+    case Repo.query(sql, [now, proof_note, Repo.uuid!(changeset.data.id)]) do
       {:ok, %{num_rows: 1}} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:fulfilled_at, now)
@@ -143,8 +143,6 @@ defmodule Cgc2046.Events.SponsorshipDelivery do
   defp domain_error_message(:already_fulfilled), do: "delivery has already been fulfilled"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
-
-  defp uuid!(value), do: Ecto.UUID.dump!(value)
 
   admin do
     resource_group(:events)

@@ -489,7 +489,7 @@ defmodule Cgc2046.Events.Event do
     id = Ash.Changeset.get_data(changeset, :id)
     from_status = Ash.Changeset.get_data(changeset, :status)
 
-    case Repo.query(sql, [to_string(to_status), Ecto.UUID.dump!(id), to_string(from_status)]) do
+    case Repo.query(sql, [to_string(to_status), Repo.uuid!(id), to_string(from_status)]) do
       {:ok, %{num_rows: 1}} ->
         :ok
 

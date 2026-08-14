@@ -30,7 +30,9 @@ defmodule Cgc2046.NotificationConsent do
     RETURNING remaining_uses
     """
 
-    count_result(Cgc2046.Repo.query(sql, [uuid!(user_id), to_string(platform), template_key]))
+    count_result(
+      Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(user_id), to_string(platform), template_key])
+    )
   end
 
   def take(user_id, platform, template_key) when platform in @platforms do
@@ -42,7 +44,7 @@ defmodule Cgc2046.NotificationConsent do
     RETURNING remaining_uses
     """
 
-    case Cgc2046.Repo.query(sql, [uuid!(user_id), to_string(platform), template_key]) do
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(user_id), to_string(platform), template_key]) do
       {:ok, %{rows: [[remaining]]}} -> {:ok, remaining}
       {:ok, %{num_rows: 0}} -> {:error, :consent_exhausted}
       {:error, reason} -> {:error, {:database, reason}}
@@ -55,7 +57,7 @@ defmodule Cgc2046.NotificationConsent do
     WHERE user_id = $1 AND platform = $2 AND template_key = $3
     """
 
-    case Cgc2046.Repo.query(sql, [uuid!(user_id), to_string(platform), template_key]) do
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(user_id), to_string(platform), template_key]) do
       {:ok, %{rows: [[remaining]]}} -> {:ok, remaining}
       {:ok, %{rows: []}} -> {:ok, 0}
       {:error, reason} -> {:error, {:database, reason}}
@@ -70,7 +72,9 @@ defmodule Cgc2046.NotificationConsent do
     RETURNING remaining_uses
     """
 
-    count_result(Cgc2046.Repo.query(sql, [uuid!(user_id), to_string(platform), template_key]))
+    count_result(
+      Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(user_id), to_string(platform), template_key])
+    )
   end
 
   defp count_result({:ok, %{rows: [[remaining]]}}), do: {:ok, remaining}
@@ -89,6 +93,4 @@ defmodule Cgc2046.NotificationConsent do
       _ -> false
     end
   end
-
-  defp uuid!(value), do: Ecto.UUID.dump!(value)
 end

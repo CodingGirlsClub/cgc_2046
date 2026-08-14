@@ -350,7 +350,7 @@ defmodule Cgc2046.Events.Enrollment do
       AND approval_deadline IS NOT NULL AND approval_deadline < $1
     """
 
-    case Cgc2046.Repo.query(sql, [now, uuid!(changeset.data.id)]) do
+    case Cgc2046.Repo.query(sql, [now, Cgc2046.Repo.uuid!(changeset.data.id)]) do
       {:ok, %{num_rows: 1}} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :expired)
@@ -400,7 +400,7 @@ defmodule Cgc2046.Events.Enrollment do
     FOR SHARE
     """
 
-    case Cgc2046.Repo.query(sql, [uuid!(id)]) do
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
       {:ok, %{rows: [[workspace_id, policy]]}} ->
         case Map.get(@enrollment_policy_atoms, policy) do
           nil ->
@@ -444,7 +444,9 @@ defmodule Cgc2046.Events.Enrollment do
   defp target_policy(kind, id) do
     table = target_table(kind)
 
-    case Cgc2046.Repo.query("SELECT enrollment_policy FROM #{table} WHERE id = $1", [uuid!(id)]) do
+    case Cgc2046.Repo.query("SELECT enrollment_policy FROM #{table} WHERE id = $1", [
+           Cgc2046.Repo.uuid!(id)
+         ]) do
       {:ok, %{rows: [[policy]]}} ->
         case Map.get(@enrollment_policy_atoms, policy) do
           nil -> {:error, {:unknown_policy, policy}}
@@ -471,7 +473,7 @@ defmodule Cgc2046.Events.Enrollment do
     RETURNING confirmed_count
     """
 
-    case Cgc2046.Repo.query(sql, [uuid!(id)]) do
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
       {:ok, %{rows: [[sequence]]}} -> {:ok, sequence}
       {:ok, %{rows: []}} -> {:error, :capacity_full_or_registration_closed}
       {:error, reason} -> {:error, {:database, reason}}
@@ -490,7 +492,11 @@ defmodule Cgc2046.Events.Enrollment do
     RETURNING id
     """
 
-    case Cgc2046.Repo.query(sql, [uuid!(workspace_id), uuid!(target_id), invite_code]) do
+    case Cgc2046.Repo.query(sql, [
+           Cgc2046.Repo.uuid!(workspace_id),
+           Cgc2046.Repo.uuid!(target_id),
+           invite_code
+         ]) do
       {:ok, %{rows: [[id]]}} -> {:ok, Ecto.UUID.load!(id)}
       {:ok, %{rows: []}} -> {:error, :invite_quota_unavailable}
       {:error, reason} -> {:error, {:database, reason}}
@@ -507,10 +513,10 @@ defmodule Cgc2046.Events.Enrollment do
 
     case Cgc2046.Repo.query(sql, [
            to_string(status),
-           uuid!(actor_id),
+           Cgc2046.Repo.uuid!(actor_id),
            now,
            rejection_reason,
-           uuid!(id)
+           Cgc2046.Repo.uuid!(id)
          ]) do
       {:ok, %{num_rows: count}} -> {:ok, count}
       {:error, reason} -> {:error, {:database, reason}}
@@ -525,7 +531,7 @@ defmodule Cgc2046.Events.Enrollment do
     RETURNING capacity_seq, event_id, course_id
     """
 
-    case Cgc2046.Repo.query(sql, [now, uuid!(id)]) do
+    case Cgc2046.Repo.query(sql, [now, Cgc2046.Repo.uuid!(id)]) do
       {:ok, %{rows: [[nil, _event_id, _course_id]]}} ->
         {:ok, nil}
 
@@ -553,7 +559,7 @@ defmodule Cgc2046.Events.Enrollment do
 
     case Cgc2046.Repo.query(
            "UPDATE #{table} SET confirmed_count = confirmed_count - 1 WHERE id = $1 AND confirmed_count > 0",
-           [uuid!(target_id)]
+           [Cgc2046.Repo.uuid!(target_id)]
          ) do
       {:ok, %{num_rows: 1}} -> :ok
       {:ok, %{num_rows: 0}} -> {:error, :capacity_counter_invalid}
@@ -629,8 +635,6 @@ defmodule Cgc2046.Events.Enrollment do
       "status" => to_string(enrollment.status)
     }
   end
-
-  defp uuid!(value), do: Ecto.UUID.dump!(value)
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）

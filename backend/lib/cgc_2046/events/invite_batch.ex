@@ -156,10 +156,10 @@ defmodule Cgc2046.Events.InviteBatch do
       end
 
     if table do
-      tenant_id = Ecto.UUID.dump!(changeset.tenant)
+      tenant_id = Cgc2046.Repo.uuid!(changeset.tenant)
 
       case Cgc2046.Repo.query("SELECT workspace_id FROM #{table} WHERE id = $1", [
-             Ecto.UUID.dump!(id)
+             Cgc2046.Repo.uuid!(id)
            ]) do
         {:ok, %{rows: [[workspace_id]]}} when workspace_id == tenant_id ->
           changeset

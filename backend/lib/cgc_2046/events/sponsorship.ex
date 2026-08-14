@@ -363,7 +363,7 @@ defmodule Cgc2046.Events.Sponsorship do
            "SELECT workspace_id FROM events WHERE id = $1 AND sponsorship_enabled = TRUE " <>
              "AND visibility = 'public' " <>
              "AND (sponsorship_deadline IS NULL OR sponsorship_deadline > NOW()) FOR SHARE",
-           [uuid!(id)]
+           [Repo.uuid!(id)]
          ) do
       {:ok, %{rows: [[workspace_id]]}} ->
         {:ok, %{workspace_id: Ecto.UUID.load!(workspace_id), tiers: load_tiers(:event, id)}}
@@ -380,7 +380,7 @@ defmodule Cgc2046.Events.Sponsorship do
     case Repo.query(
            "SELECT id FROM workspaces WHERE id = $1 AND sponsorship_enabled = TRUE " <>
              "AND (sponsorship_deadline IS NULL OR sponsorship_deadline > NOW()) FOR SHARE",
-           [uuid!(id)]
+           [Repo.uuid!(id)]
          ) do
       {:ok, %{rows: [[workspace_id]]}} ->
         {:ok, %{workspace_id: Ecto.UUID.load!(workspace_id), tiers: load_tiers(:workspace, id)}}
@@ -395,14 +395,14 @@ defmodule Cgc2046.Events.Sponsorship do
 
   defp load_tiers(:event, id) do
     {:ok, %{rows: [[tiers]]}} =
-      Repo.query("SELECT sponsorship_tiers FROM events WHERE id = $1", [uuid!(id)])
+      Repo.query("SELECT sponsorship_tiers FROM events WHERE id = $1", [Repo.uuid!(id)])
 
     tiers
   end
 
   defp load_tiers(:workspace, id) do
     {:ok, %{rows: [[tiers]]}} =
-      Repo.query("SELECT sponsorship_tiers FROM workspaces WHERE id = $1", [uuid!(id)])
+      Repo.query("SELECT sponsorship_tiers FROM workspaces WHERE id = $1", [Repo.uuid!(id)])
 
     tiers
   end
@@ -419,7 +419,7 @@ defmodule Cgc2046.Events.Sponsorship do
     LIMIT 1
     """
 
-    case Repo.query(sql, [to_string(level), uuid!(target_id), uuid!(sponsor_id)]) do
+    case Repo.query(sql, [to_string(level), Repo.uuid!(target_id), Repo.uuid!(sponsor_id)]) do
       {:ok, %{rows: []}} -> :ok
       {:ok, %{rows: [[1]]}} -> {:error, :already_sponsoring}
       {:error, reason} -> {:error, {:database, reason}}
@@ -447,14 +447,16 @@ defmodule Cgc2046.Events.Sponsorship do
       # 赢家提交后以新快照重跑守卫 → num_rows=0 → exclusive_slot_taken。
       if exclusive? do
         slot_key = "sponsorship_slot:#{target_kind}:#{target_id}:#{tier_id}"
-        {:ok, _} = Repo.query("SELECT pg_advisory_xact_lock(hashtext($1))", [slot_key])
+        # PR-I D5：内联锁收进 Repo.acquire_lock!（默认 hashtext 键域不变）；新增
+        # lock_timeout 5s + 死锁/超时友好错误映射（此前死锁裸抛 Postgres 错误）。
+        Repo.acquire_lock!(slot_key)
       end
 
       sql = approval_claim_sql(target_kind, exclusive?)
 
       params =
-        [uuid!(actor.id), now, uuid!(changeset.data.id), uuid!(target_id)] ++
-          if(exclusive?, do: [to_string(target_kind), uuid!(tier_id)], else: [])
+        [Repo.uuid!(actor.id), now, Repo.uuid!(changeset.data.id), Repo.uuid!(target_id)] ++
+          if(exclusive?, do: [to_string(target_kind), Repo.uuid!(tier_id)], else: [])
 
       case Repo.query(sql, params) do
         {:ok, %{num_rows: 1}} ->
@@ -513,7 +515,7 @@ defmodule Cgc2046.Events.Sponsorship do
 
   # num_rows=0 时的冲突判定：读回状态区分「已处理」「已过期」「独占位被占」「目标关闭」。
   defp approval_conflict(record, now) do
-    case Repo.query("SELECT status FROM sponsorships WHERE id = $1", [uuid!(record.id)]) do
+    case Repo.query("SELECT status FROM sponsorships WHERE id = $1", [Repo.uuid!(record.id)]) do
       {:ok, %{rows: [[status]]}} ->
         cond do
           status != "pending" -> :already_processed
@@ -556,7 +558,12 @@ defmodule Cgc2046.Events.Sponsorship do
              AND tier_id = $3 AND status = 'active' AND id <> $4
            LIMIT 1
            """,
-           [to_string(record.level), uuid!(target_id), uuid!(record.tier_id), uuid!(record.id)]
+           [
+             to_string(record.level),
+             Repo.uuid!(target_id),
+             Repo.uuid!(record.tier_id),
+             Repo.uuid!(record.id)
+           ]
          ) do
       {:ok, %{rows: [[1]]}} -> true
       {:ok, %{rows: []}} -> false
@@ -577,9 +584,9 @@ defmodule Cgc2046.Events.Sponsorship do
       |> SponsorshipTier.benefits()
       |> Enum.map(fn benefit ->
         %{
-          id: Ecto.UUID.dump!(Ecto.UUID.generate()),
-          workspace_id: uuid!(workspace_id),
-          sponsorship_id: uuid!(sponsorship_id),
+          id: Repo.uuid!(Ecto.UUID.generate()),
+          workspace_id: Repo.uuid!(workspace_id),
+          sponsorship_id: Repo.uuid!(sponsorship_id),
           benefit: benefit,
           due_date: nil,
           fulfilled_at: nil,
@@ -622,7 +629,7 @@ defmodule Cgc2046.Events.Sponsorship do
       AND (approval_deadline IS NULL OR approval_deadline > $2)
     """
 
-    case Repo.query(sql, [uuid!(actor.id), now, reason, uuid!(changeset.data.id)]) do
+    case Repo.query(sql, [Repo.uuid!(actor.id), now, reason, Repo.uuid!(changeset.data.id)]) do
       {:ok, %{num_rows: 1}} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :rejected)
@@ -640,7 +647,7 @@ defmodule Cgc2046.Events.Sponsorship do
   end
 
   defp reject_conflict(record, now) do
-    case Repo.query("SELECT status FROM sponsorships WHERE id = $1", [uuid!(record.id)]) do
+    case Repo.query("SELECT status FROM sponsorships WHERE id = $1", [Repo.uuid!(record.id)]) do
       {:ok, %{rows: [[status]]}} ->
         cond do
           status != "pending" -> :already_processed
@@ -665,7 +672,7 @@ defmodule Cgc2046.Events.Sponsorship do
       AND approval_deadline IS NOT NULL AND approval_deadline < $1
     """
 
-    case Repo.query(sql, [now, uuid!(changeset.data.id)]) do
+    case Repo.query(sql, [now, Repo.uuid!(changeset.data.id)]) do
       {:ok, %{num_rows: 1}} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :expired)
@@ -690,7 +697,7 @@ defmodule Cgc2046.Events.Sponsorship do
     WHERE id = $2 AND level = 'event' AND status = 'active'
     """
 
-    case Repo.query(sql, [now, uuid!(changeset.data.id)]) do
+    case Repo.query(sql, [now, Repo.uuid!(changeset.data.id)]) do
       {:ok, %{num_rows: 1}} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :ended)
@@ -789,8 +796,6 @@ defmodule Cgc2046.Events.Sponsorship do
 
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
-
-  defp uuid!(value), do: Ecto.UUID.dump!(value)
 
   admin do
     resource_group(:events)

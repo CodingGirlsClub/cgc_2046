@@ -575,7 +575,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       AND (expires_at IS NULL OR expires_at > $2)
     """
 
-    query_count(sql, [uuid!(actor.id), now, uuid!(changeset.data.id), token_hash])
+    query_count(sql, [Repo.uuid!(actor.id), now, Repo.uuid!(changeset.data.id), token_hash])
   end
 
   defp claim_decision(changeset, :declined, _actor, now, token_hash) do
@@ -586,7 +586,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       AND (expires_at IS NULL OR expires_at > $1)
     """
 
-    query_count(sql, [now, uuid!(changeset.data.id), token_hash])
+    query_count(sql, [now, Repo.uuid!(changeset.data.id), token_hash])
   end
 
   defp force_decision_fields(changeset, :accepted, actor, now) do
@@ -680,7 +680,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     WHERE id = $2 AND status = 'accepted'
     """
 
-    query_count(sql, [now, uuid!(changeset.data.id)])
+    query_count(sql, [now, Repo.uuid!(changeset.data.id)])
   end
 
   # --- run 镜像同步（提交后 best-effort；失败记日志不阻塞业务状态——邀请行
@@ -832,8 +832,6 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp domain_error_message({:workflow_run_failed, _reason}), do: "failed to start workflow run"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
-
-  defp uuid!(value), do: Ecto.UUID.dump!(value)
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（敏感/超大字段不列出）

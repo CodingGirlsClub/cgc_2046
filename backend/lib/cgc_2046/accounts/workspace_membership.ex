@@ -103,7 +103,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
           # 在 Repo.transaction 内执行锁获取和角色读取，确保同一连接：
           # pg_advisory_xact_lock 是事务级锁，若 role_names 的 Ash.read 走不同连接
           # 则锁不保护读。显式事务保证连接一致。
-          Cgc2046.Repo.acquire_workspace_lock!(workspace_id)
+          Cgc2046.Repo.acquire_lock!(workspace_id)
 
           # actor 从 before_action 回调参数 c 取（commit 阶段，actor 已注入）；
           # 外层 cs 是 change 注册时的快照，此时 actor 可能尚未注入。
