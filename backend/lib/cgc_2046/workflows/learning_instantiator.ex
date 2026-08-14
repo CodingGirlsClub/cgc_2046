@@ -48,7 +48,14 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
       when is_binary(workspace_id) and is_binary(definition_id) and is_map(input) do
     with {:ok, defn} <- fetch_definition(workspace_id, definition_id),
          :ok <- ensure_learning_definition(defn),
-         {:ok, run} <- find_or_create_run(workspace_id, defn, input) do
+         :ok <- ensure_create_guards(input),
+         {:ok, run, _status} <-
+           WorkflowRun.find_or_create_and_start(workspace_id, defn, input,
+             key: instance_key(input),
+             # 学习 run 无平台侧执行步骤：纯 :start（pending → running），不经
+             # :start_run 的 Engine.run（设计 §5——协议而非 DAG）。
+             start_action: :start
+           ) do
       {:ok, run}
     end
   end
@@ -187,59 +194,21 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
     |> Ash.read_first(tenant: workspace_id, authorize?: false)
   end
 
-  # 幂等（设计 §2 层②）：同一 definition + instance key 已有非终态 run → 返回已有 run。
-  defp find_or_create_run(workspace_id, defn, input) do
-    key = instance_key(input)
-
-    case existing_run(workspace_id, defn.id, key) do
-      {:ok, %WorkflowRun{} = run} ->
-        {:ok, run}
-
-      {:ok, nil} ->
-        create_and_start_run(workspace_id, defn, input, key)
+  # ensure_confirmed 与 INSERT 之间的窗口内报名可能转 cancelled（取消联动属 E-2
+  # 范围）——创建前重读 enrollment 二次校验（对齐 research BLOCKING 3 修复）；
+  # 残余极小窗口由对账扫描（E-10）兜底。前置守卫留调用侧（PR-F D5）——统一入口
+  # 只内化 create→start 顺序与非终态去重。
+  defp ensure_create_guards(input) do
+    with {:ok, %Enrollment{} = enrollment} <- fetch_enrollment(input_enrollment_id(input)),
+         :ok <- ensure_confirmed(enrollment) do
+      :ok
     end
   end
 
+  # instance key 派生（"enrollment_#{enrollment_id}"；input 自带 key 时原样使用）。
   defp instance_key(input) do
     Map.get(input, "key") || Map.get(input, :key) ||
       "enrollment_#{Map.get(input, "enrollment_id") || Map.get(input, :enrollment_id)}"
-  end
-
-  defp existing_run(workspace_id, definition_id, key) do
-    WorkflowRun
-    |> Ash.Query.filter(
-      definition_id == ^definition_id and
-        status in [:pending, :running, :waiting] and
-        input_snapshot["key"] == ^key
-    )
-    |> Ash.read_one(tenant: workspace_id, authorize?: false)
-  end
-
-  defp create_and_start_run(workspace_id, defn, input, key) do
-    # ensure_confirmed 与 INSERT 之间的窗口内报名可能转 cancelled（取消联动属 E-2
-    # 范围）——创建前重读 enrollment 二次校验（对齐 research BLOCKING 3 修复）；
-    # 残余极小窗口由对账扫描（E-10）兜底。
-    with {:ok, %Enrollment{} = enrollment} <- fetch_enrollment(input_enrollment_id(input)),
-         :ok <- ensure_confirmed(enrollment) do
-      attrs = %{
-        definition_id: defn.id,
-        definition_version: defn.version,
-        input_snapshot: Map.put(input, "key", key)
-      }
-
-      # 学习 run 无平台侧执行步骤：纯 :start（pending → running），不经 :start_run
-      # 的 Engine.run（设计 §5——协议而非 DAG）。
-      with {:ok, run} <-
-             WorkflowRun
-             |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
-             |> Ash.create(tenant: workspace_id, authorize?: false),
-           {:ok, started} <-
-             run
-             |> Ash.Changeset.for_update(:start, %{}, tenant: workspace_id, authorize?: false)
-             |> Ash.update(tenant: workspace_id, authorize?: false) do
-        {:ok, started}
-      end
-    end
   end
 
   defp input_enrollment_id(input) do
