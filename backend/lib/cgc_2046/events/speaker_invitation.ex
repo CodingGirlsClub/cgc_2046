@@ -727,16 +727,10 @@ defmodule Cgc2046.Events.SpeakerInvitation do
         case run
              |> Ash.Changeset.for_update(:fail, %{}, tenant: run.workspace_id, authorize?: false)
              |> Ash.update(tenant: run.workspace_id, authorize?: false) do
+          # PR-G D4：:fail 的 checkpoint 清理已由 Transition cleanup_checkpoint: true
+          # 内建（after_transaction，宽松），外部补偿删除（幂等冗余，clean cutover）。
           {:ok, _} ->
-            # :fail 不清理 checkpoint（与 resume_signal 的 failed 路径一致由
-            # CheckpointLifecycle 收口；宽松清理，失败记日志不阻塞）
-            :ok =
-              Cgc2046.Workflows.CheckpointLifecycle.on_status(
-                :failed,
-                run.id,
-                run.partition_id,
-                nil
-              )
+            :ok
 
           {:error, reason} ->
             Logger.error(
