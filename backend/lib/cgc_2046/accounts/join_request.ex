@@ -15,16 +15,14 @@ defmodule Cgc2046.Accounts.JoinRequest do
   - `approval_deadline`：审批截止时间（默认 7 天，决策 3）
   - `expired_at`：过期时间
 
-  决策 3：approval_timeout 本期硬编码 7 天常量（@default_approval_timeout_days），
-  引擎接入后改读 WorkflowDefinition。
+  决策 3：approval_timeout 默认 7 天由 ApprovalDeadline.default_timeout_days() 单点
+  提供（不再各资源自带常量），引擎接入后改读 WorkflowDefinition。
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
-
-  @default_approval_timeout_days 7
 
   attributes do
     uuid_primary_key(:id)
@@ -147,7 +145,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
       change(
         set_attribute(
           :approval_deadline,
-          DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
+          DateTime.add(DateTime.utc_now(), Cgc2046.ApprovalDeadline.default_timeout_days(), :day)
         )
       )
 

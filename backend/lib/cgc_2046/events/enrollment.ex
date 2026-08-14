@@ -16,8 +16,6 @@ defmodule Cgc2046.Events.Enrollment do
 
   require Logger
 
-  @default_approval_timeout_days 7
-
   @submitted_signal "enrollment.submitted"
   @approved_signal "enrollment.approved"
   @rejected_signal "enrollment.rejected"
@@ -275,7 +273,7 @@ defmodule Cgc2046.Events.Enrollment do
   defp prepare_policy(changeset, _kind, _target_id, %{enrollment_policy: :request}, tenant) do
     deadline =
       Ash.Changeset.get_attribute(changeset, :approval_deadline) ||
-        DateTime.add(DateTime.utc_now(), @default_approval_timeout_days, :day)
+        DateTime.add(DateTime.utc_now(), Cgc2046.ApprovalDeadline.default_timeout_days(), :day)
 
     {:ok, %{workspace_id: tenant, status: :pending, approval_deadline: deadline}}
   end

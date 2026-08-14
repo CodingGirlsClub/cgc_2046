@@ -37,6 +37,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   require Ash.Query
   require Logger
 
+  alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Workflows.SignalLog
@@ -71,8 +72,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Ash.Query.load(definition: [:approval_timeout])
     |> Ash.read!(authorize?: false)
     |> Enum.reduce(0, fn run, acc ->
-      with deadline when not is_nil(deadline) <- approval_deadline(run),
-           true <- in_window?(deadline, now, window_end),
+      with deadline when not is_nil(deadline) <- ApprovalDeadline.derive(run),
+           true <- ApprovalDeadline.in_window?(deadline, now, window_end),
            :remind <- maybe_log_run_reminder(run, deadline) do
         acc + 1
       else
@@ -151,19 +152,6 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
       end)
     end)
     |> Enum.sum()
-  end
-
-  defp approval_deadline(run) do
-    case run.definition.approval_timeout do
-      nil -> nil
-      timeout -> DateTime.add(run.updated_at, timeout, :second)
-    end
-  end
-
-  # 窗口语义 (now, now+48h]：已过期的不提醒（expiry worker 负责转 expired），
-  # 超 48h 的留给后续拍。
-  defp in_window?(deadline, now, window_end) do
-    DateTime.compare(deadline, now) == :gt and DateTime.compare(deadline, window_end) != :gt
   end
 
   defp maybe_log_run_reminder(run, deadline) do

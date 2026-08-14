@@ -364,6 +364,13 @@
 - **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
 - **架构位置**：NotificationSubscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；NotificationSubscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 NotificationService 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
 
+### 审批期限（Approval Deadline）
+
+- **定义**：审批截止时间的派生语义唯一真源 = `Cgc2046.ApprovalDeadline`（2026-08-14 审批期限深化，架构评审候选②；plan `docs/plans/2026-08-14-005-approval-deadline-deepening.md` D1-D8 全锁定）。interface：`derive/1`（列实体读 `approval_deadline` 列；Invitation 读 `expires_at` 列；WorkflowRun = `updated_at + definition.approval_timeout` 内存派生，调用方需先 load definition）｜`overdue?/2`（deadline 严格过点 `< now`）｜`in_window?/3`（提醒窗口 `(now, window_end]` 半开区间）｜`default_timeout_days/0`（四资源创建期默认期限 7 天的唯一来源）。
+- **nil 语义（单点）**：`derive/1` 返回 nil = **永不过期**——不参与过期扫描（`overdue?` 恒 false），也不进入提醒窗口。WorkflowRun 的 `definition.approval_timeout = nil`（F7 方案 A）即此语义；列实体 deadline 列为空同此。
+- **扫尾 specs**：ApprovalExpiryWorker 六份过期扫描由 `@expiry_specs` 声明式规格驱动（`{resource, status, deadline: {:column, atom} | :derived, tenant}`）——列实体保持 SQL 下推过滤，WorkflowRun 走 `:derived`（load definition + 内存判断，**绝不可并入纯 SQL 分支**，否则 timeout nil 的 run 会被误扫）；每记录转换仍走各资源 `:expire` 领域 action（D-A6）。
+- **架构位置**：横切读取面（root 单文件，NotificationFanout 同款先例）；消费方 = ApprovalExpiryWorker / ApprovalReminderWorker（窗口大小 48h 仍为 ARW 私有常量）与四资源创建期（Enrollment 客户端可传覆盖 / Sponsorship 服务端固定的创建纪律差异另行决策）。
+
 ### 工具 = 形状 原则（见 §3）
 
 ---
