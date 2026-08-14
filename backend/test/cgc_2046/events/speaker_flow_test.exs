@@ -561,13 +561,15 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
         "idempotency_key" => "speaker.accepted:" <> invitation.id
       }
 
-      assert :ok = SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
+      assert :ok =
+               SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
 
       assert_enqueued(worker: NotificationWorker, args: %{"template_key" => "speaker_accepted"})
       assert claim_rows("speaker.accepted") == 1
 
       # 同信号重复投递 → 幂等跳过（不再新增通知与 claim）
-      assert :duplicate = SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
+      assert :duplicate =
+               SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
 
       accepted_jobs =
         all_enqueued(worker: NotificationWorker)
@@ -605,7 +607,11 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
         "idempotency_key" => "speaker.completed:" <> invitation.id
       }
 
-      assert :ok = SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.completed", data: data})
+      assert :ok =
+               SignalSubscriber.deliver(SpeakerSubscriber, %{
+                 type: "speaker.completed",
+                 data: data
+               })
 
       completed_jobs =
         all_enqueued(worker: NotificationWorker)

@@ -58,7 +58,11 @@ defmodule Cgc2046.SpeakerSubscriber do
   # 通知 workspace Owner/Admin（管理角色判定与 NotificationSubscriber 同款）
   defp notify_workspace_managers(data, template_key) do
     invitation_id = Map.fetch!(data, "speaker_invitation_id")
-    job_meta = %{"speaker_invitation_id" => invitation_id, "idempotency_key" => producer_key(data)}
+
+    job_meta = %{
+      "speaker_invitation_id" => invitation_id,
+      "idempotency_key" => producer_key(data)
+    }
 
     with {:ok, title} <- event_title(data) do
       data
