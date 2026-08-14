@@ -6,34 +6,29 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   每个 Event/Course 实例化一个教研 workflow 实例，instance key 为
   `"event_\#{id}"` / `"course_\#{id}"`。
 
-  ## 幂等
+  ## 幂等（state_based，骨架不写 claim）
 
   同一 Event/Course 已有非终态 run（pending/running/waiting）→ 返回已有 run，
   不重复创建。终态 run（succeeded/failed/cancelled/expired）后可重新实例化。
 
   ## 信号订阅（生产路径）
 
-  本模块同时是 GenServer：Application 启动时订阅 `event.launched` /
-  `course.launched` 信号，收到信号 → 解析实体/教研定义 → 调 `launch/4`。
-  测试直接调 `launch/4`（同步，不依赖异步信号投递——信号总线异步投递在 POC
-  已验证，测试不覆盖异步路径）。
+  订阅 `event.launched` / `course.launched` 信号，收到信号 → 解析实体/教研
+  定义 → 调 `launch/4`。订阅骨架（订阅生命周期 / DOWN 重订阅 / rescue 壳）由
+  `Cgc2046.Workflows.SignalSubscriber` 统一持有。
 
   异步路径是 best-effort：信号不含租户，需按 entity_id 反查实体拿 workspace_id，
-  再取该租户已 published 的教研定义（多个时取最新）。任一环节失败只记日志，
-  不崩溃订阅进程（try/rescue 兜底——测试沙箱下异步 DB 查询会 raise，不能
-  让订阅进程因此退出）。
+  再取该租户已 published 的教研定义（多个时取最新）。任一环节失败只记日志。
   """
+  use Cgc2046.Workflows.SignalSubscriber,
+    patterns: ["event.launched", "course.launched"],
+    idempotency: :state_based
 
-  use GenServer
-
+  require Ash.Query
   require Logger
 
   alias Cgc2046.Events.{Course, Event}
-  alias Cgc2046.Workflows.{JidoAdapter, WorkflowDefinition, WorkflowRun}
-
-  require Ash.Query
-
-  @signal_patterns ["event.launched", "course.launched"]
+  alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   # --- 公开 API --------------------------------------------------------------
 
@@ -62,64 +57,29 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
     end
   end
 
-  # --- GenServer（生产信号订阅） ----------------------------------------------
-
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  @impl true
-  def init(_opts) do
-    # 订阅 event/course launch 信号（异步投递，收到信号 → launch/4）。
-    # 订阅失败不阻塞启动（信号总线在 Application children 中先于本模块启动）。
-    Enum.each(@signal_patterns, fn pattern ->
-      case JidoAdapter.subscribe(pattern, &handle_signal/1, nil) do
-        {:ok, _sub_id} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("ResearchInstantiator subscribe #{pattern} failed: #{inspect(reason)}")
-      end
-    end)
-
-    {:ok, %{}}
-  end
+  # --- 信号处理 ----------------------------------------------------------------
 
   # 信号 → 解析实体/教研定义 → launch/4。signal.data 形态（Event/Course launch
   # action 发布）：%{"event_id" => id, "title" => ..., "research_requirements" => ...}
-  # 或 %{"course_id" => id, ...}。订阅回调在 JidoAdapter.subscribe 转发的独立进程
-  # 中执行（非 GenServer 进程），rescue 兜底防订阅进程崩溃（测试沙箱下异步 DB
-  # 访问会 raise）。
-  defp handle_signal(signal) do
-    data = Map.get(signal, :data) || %{}
-
-    case {Map.get(data, "event_id"), Map.get(data, "course_id")} do
-      {event_id, _} when is_binary(event_id) ->
-        instantiate_from_signal(event_id, :event, data)
-
-      {_, course_id} when is_binary(course_id) ->
-        instantiate_from_signal(course_id, :course, data)
-
-      _ ->
-        Logger.warning("ResearchInstantiator received signal without entity id: #{inspect(data)}")
-    end
-
-    :ok
-  rescue
-    e ->
-      Logger.warning("ResearchInstantiator signal handling failed: #{Exception.message(e)}")
-      :ok
+  # 或 %{"course_id" => id, ...}。
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def handle(_type, %{"event_id" => event_id} = data) when is_binary(event_id) do
+    instantiate(event_id, :event, data)
   end
 
-  @doc """
-  异步信号实例化入口（生产路径：GenServer 订阅回调 → 本函数；测试直接调用）。
+  def handle(_type, %{"course_id" => course_id} = data) when is_binary(course_id) do
+    instantiate(course_id, :course, data)
+  end
 
-  按 entity_id 反查实体 → 校验实体已 launch（status == :open，孤儿 run 防护：
-  信号先于事务提交发布时，draft 实体不得实例化）→ 取该租户已 published 的教研
-  定义 → `launch/4`。任一环节失败返回 `:ok`（best-effort，不抛错）。
-  """
-  @spec instantiate_from_signal(String.t(), atom(), map()) :: :ok
-  def instantiate_from_signal(entity_id, entity_type, data) do
+  def handle(_type, data) do
+    Logger.warning("ResearchInstantiator received signal without entity id: #{inspect(data)}")
+    :ok
+  end
+
+  # 按 entity_id 反查实体 → 校验实体已 launch（status == :open，孤儿 run 防护：
+  # 信号先于事务提交发布时，draft 实体不得实例化）→ 取该租户已 published 的教研
+  # 定义 → `launch/4`。任一环节失败返回 `:ok`（best-effort，不抛错）。
+  defp instantiate(entity_id, entity_type, data) do
     with {:ok, entity} <- fetch_entity(entity_type, entity_id),
          :ok <- ensure_launched(entity),
          :ok <- ensure_research_enabled(entity),

@@ -7,82 +7,34 @@ defmodule Cgc2046.SpeakerSubscriber do
   - speaker.accepted → 邀请所属 workspace 的 Owner/Admin（Speaker 已接受）
   - speaker.completed → Owner/Admin（分享完成）+ Speaker 本人（材料已归档）
 
-  幂等（复用 PR #121 SignalIdempotency.claim/3，develop 已合入）：订阅方执行
-  任何副作用前先 claim——accepted 按派生键 "speaker.accepted:<invitation_id>"，
-  completed 优先取生产者携带的 idempotency_key（"speaker.completed:<id>"，
-  邀请设计 §4.3）；同 (signal_type, idempotency_key) 已消费 → 跳过。入队侧
-  NotificationWorker 7 天全 args unique，重复入队被折叠。
+  订阅骨架与 claim-first 幂等语义由 `Cgc2046.Workflows.SignalSubscriber` 统一
+  持有（语义事实见其 moduledoc）；入队侧 NotificationWorker 7 天全 args
+  unique，重复入队被折叠。
   """
 
-  use GenServer
+  use Cgc2046.Workflows.SignalSubscriber,
+    patterns: ["speaker.accepted", "speaker.completed"],
+    idempotency: :claim_first
 
   require Ash.Query
   require Logger
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
   alias Cgc2046.Events.Event
-  alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency}
   alias Cgc2046.Workers.NotificationWorker
-
-  @patterns ["speaker.accepted", "speaker.completed"]
 
   @accepted_signal "speaker.accepted"
   @completed_signal "speaker.completed"
 
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-
-  @impl true
-  def init(_opts) do
-    Enum.each(@patterns, fn pattern ->
-      case JidoAdapter.subscribe(pattern, &handle_signal/1, nil) do
-        {:ok, _subscription} -> :ok
-        {:error, reason} -> Logger.warning("speaker subscribe failed: #{inspect(reason)}")
-      end
-    end)
-
-    {:ok, %{}}
-  end
-
-  @doc """
-  信号总线回调：按 signal.type 分流到对应通知路径。
-
-  回调运行在 JidoAdapter 转发的独立进程中（spawn_link），rescue 兜底防订阅
-  进程崩溃。重复投递（同幂等键已 claim）返回 :duplicate 并跳过。
-  """
-  def handle_signal(signal) do
-    data = Map.get(signal, :data) || %{}
-
-    case Map.get(signal, :type) do
-      @accepted_signal -> handle_accepted(data)
-      @completed_signal -> handle_completed(data)
-      _ -> :ok
-    end
-  rescue
-    error ->
-      Logger.warning("speaker signal handling failed: #{Exception.message(error)}")
-      :ok
-  end
-
-  # 副作用前幂等登记：首次 claim 返回 {:ok, key}；同 (signal_type, idempotency_key)
-  # 已消费返回 :duplicate（调用方跳过）。key 优先取生产者携带的 idempotency_key
-  # （completed），否则按 "<signal_type>:<invitation_id>" 派生（accepted）。
-  defp claim(signal_type, data) do
-    key =
-      Map.get(data, "idempotency_key") ||
-        "#{signal_type}:#{Map.get(data, "speaker_invitation_id")}"
-
-    case SignalIdempotency.claim(signal_type, key, Map.get(data, "workspace_id")) do
-      :ok -> {:ok, key}
-      {:error, :already_claimed} -> :duplicate
-    end
-  end
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def handle(@accepted_signal, data), do: handle_accepted(data)
+  def handle(@completed_signal, data), do: handle_completed(data)
+  def handle(_type, _data), do: :ok
 
   defp handle_accepted(data) do
     case Map.get(data, "speaker_invitation_id") do
       id when is_binary(id) ->
-        with {:ok, key} <- claim(@accepted_signal, data) do
-          notify_workspace_managers(data, "speaker_accepted", key)
-        end
+        notify_workspace_managers(data, "speaker_accepted")
 
       _ ->
         :ok
@@ -92,20 +44,21 @@ defmodule Cgc2046.SpeakerSubscriber do
   defp handle_completed(data) do
     case Map.get(data, "speaker_invitation_id") do
       id when is_binary(id) ->
-        with {:ok, key} <- claim(@completed_signal, data) do
-          notify_workspace_managers(data, "speaker_completed", key)
-          notify_speaker(data, key)
-        end
+        notify_workspace_managers(data, "speaker_completed")
+        notify_speaker(data)
 
       _ ->
         :ok
     end
   end
 
+  # 任务身份锚用生产者注入的幂等键（SignalEmitter 保证存在，骨架 claim 前置门控）。
+  defp producer_key(data), do: Map.fetch!(data, "idempotency_key")
+
   # 通知 workspace Owner/Admin（管理角色判定与 NotificationSubscriber 同款）
-  defp notify_workspace_managers(data, template_key, key) do
+  defp notify_workspace_managers(data, template_key) do
     invitation_id = Map.fetch!(data, "speaker_invitation_id")
-    job_meta = %{"speaker_invitation_id" => invitation_id, "idempotency_key" => key}
+    job_meta = %{"speaker_invitation_id" => invitation_id, "idempotency_key" => producer_key(data)}
 
     with {:ok, title} <- event_title(data) do
       data
@@ -135,8 +88,8 @@ defmodule Cgc2046.SpeakerSubscriber do
   end
 
   # 通知 Speaker 本人（材料已归档；speaker_user_id 在 accepted 时绑定）
-  defp notify_speaker(data, key) do
-    invitation_id = Map.fetch!(data, "speaker_invitation_id")
+  defp notify_speaker(data) do
+    invitation_id = Map.get(data, "speaker_invitation_id")
 
     case Map.get(data, "speaker_user_id") do
       user_id when is_binary(user_id) ->
@@ -148,7 +101,7 @@ defmodule Cgc2046.SpeakerSubscriber do
             user_id,
             "speaker_completed",
             %{"speaker_invitation_id" => invitation_id},
-            %{"speaker_invitation_id" => invitation_id, "idempotency_key" => key}
+            %{"speaker_invitation_id" => invitation_id, "idempotency_key" => producer_key(data)}
           )
         end)
 

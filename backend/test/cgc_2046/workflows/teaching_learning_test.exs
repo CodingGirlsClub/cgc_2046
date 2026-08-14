@@ -21,6 +21,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Workflows.ResearchInstantiator
+  alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
 
@@ -322,12 +323,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       # 订阅 event.launched 信号（验证 launch action 发布）
       parent = self()
 
-      assert {:ok, _sub_id} =
-               Cgc2046.Workflows.JidoAdapter.subscribe(
-                 "event.launched",
-                 fn signal -> send(parent, {:launched, signal.data}) end,
-                 nil
-               )
+      assert {:ok, _sub_id, _monitor_ref} =
+               Cgc2046.Workflows.JidoAdapter.subscribe("event.launched", fn _type, data ->
+                 send(parent, {:launched, data})
+               end)
 
       {:ok, launched} =
         event
@@ -378,12 +377,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       parent = self()
 
-      assert {:ok, _sub_id} =
-               Cgc2046.Workflows.JidoAdapter.subscribe(
-                 "event.launched",
-                 fn signal -> send(parent, {:launched, signal.data}) end,
-                 nil
-               )
+      assert {:ok, _sub_id, _monitor_ref} =
+               Cgc2046.Workflows.JidoAdapter.subscribe("event.launched", fn _type, data ->
+                 send(parent, {:launched, data})
+               end)
 
       # 构建 changeset——buggy 代码在 change 回调（for_update 阶段，事务开始前）
       # 发布信号，订阅方读到未提交的 draft 状态，ensure_launched 守卫静默丢弃
@@ -465,11 +462,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       # 白盒驱动异步路径（apply 私有函数；测试进程在沙箱内可查 DB，而真实订阅
       # 进程不在沙箱——异步投递本身不测，见计划假设）。draft 实体 → 守卫拦截。
       assert :ok =
-               apply(ResearchInstantiator, :instantiate_from_signal, [
-                 event.id,
-                 :event,
-                 %{"event_id" => event.id, "title" => event.title}
-               ])
+               SignalSubscriber.deliver(ResearchInstantiator, %{
+                 type: "event.launched",
+                 data: %{"event_id" => event.id, "title" => event.title}
+               })
 
       runs =
         WorkflowRun
@@ -497,11 +493,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               apply(ResearchInstantiator, :instantiate_from_signal, [
-                 event.id,
-                 :event,
-                 %{"event_id" => event.id, "title" => event.title}
-               ])
+               SignalSubscriber.deliver(ResearchInstantiator, %{
+                 type: "event.launched",
+                 data: %{"event_id" => event.id, "title" => event.title}
+               })
 
       runs =
         WorkflowRun
@@ -526,11 +521,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               apply(ResearchInstantiator, :instantiate_from_signal, [
-                 event.id,
-                 :event,
-                 %{"event_id" => event.id, "title" => event.title}
-               ])
+               SignalSubscriber.deliver(ResearchInstantiator, %{
+                 type: "event.launched",
+                 data: %{"event_id" => event.id, "title" => event.title}
+               })
 
       runs =
         WorkflowRun
@@ -555,11 +549,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               apply(ResearchInstantiator, :instantiate_from_signal, [
-                 event.id,
-                 :event,
-                 %{"event_id" => event.id, "title" => event.title}
-               ])
+               SignalSubscriber.deliver(ResearchInstantiator, %{
+                 type: "event.launched",
+                 data: %{"event_id" => event.id, "title" => event.title}
+               })
 
       # 实体 workflow_run_id 已回写（非 nil 且指向真实 run）
       updated =
@@ -590,11 +583,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       # 工作台无任何 published 教研定义 → fetch_research_definition 返回 nil，
       # 不得 nil-deref raise，也不得创建 run（best-effort 跳过）。
       assert :ok =
-               apply(ResearchInstantiator, :instantiate_from_signal, [
-                 launched.id,
-                 :event,
-                 %{"event_id" => launched.id, "title" => launched.title}
-               ])
+               SignalSubscriber.deliver(ResearchInstantiator, %{
+                 type: "event.launched",
+                 data: %{"event_id" => launched.id, "title" => launched.title}
+               })
 
       runs =
         WorkflowRun
@@ -631,11 +623,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               apply(ResearchInstantiator, :instantiate_from_signal, [
-                 event.id,
-                 :event,
-                 %{"event_id" => event.id, "title" => event.title}
-               ])
+               SignalSubscriber.deliver(ResearchInstantiator, %{
+                 type: "event.launched",
+                 data: %{"event_id" => event.id, "title" => event.title}
+               })
 
       runs =
         WorkflowRun
