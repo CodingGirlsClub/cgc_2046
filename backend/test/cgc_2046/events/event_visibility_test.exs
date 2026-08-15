@@ -1,9 +1,10 @@
 defmodule Cgc2046.Events.EventVisibilityTest do
   @moduledoc """
-  E-11 #127 可见性轴测试：读策略（D9 条件式）+ 匿名白名单 + 切换。
+  E-11 #127 可见性轴测试：读策略（D9 条件式 + 016 draft 收紧）+ 匿名白名单 + 切换。
 
   - 匿名（actor=nil）仅可读 `open + visibility=public`
-  - 成员/平台管理员可读全部；非成员登录用户视同匿名
+  - 普通成员可读非 draft；Owner/Admin 与平台管理员可读全部生命周期
+  - 非成员登录用户视同匿名
   - visibility 可随时双向切换（含 open 后，用户拍板）
   - D2 白名单：匿名读时 capacity/confirmed_count 为 %Ash.ForbiddenField{}
 
@@ -79,24 +80,24 @@ defmodule Cgc2046.Events.EventVisibilityTest do
                reload(Course, workspace_course.id)
     end
 
-    test "成员读全部 status/visibility；非成员登录用户视同匿名" do
-      admin = Fixtures.platform_admin()
-      workspace = Fixtures.create_workspace(admin)
-      member = Fixtures.register_user("vis-member")
-      Fixtures.add_member(workspace, member)
+    test "成员不可读 draft，Owner 可读 draft；非成员登录用户视同匿名" do
+      %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
       outsider = Fixtures.register_user("vis-outsider")
 
-      workspace_event = EventFixtures.create_event(workspace, admin, %{visibility: :workspace})
+      workspace_event = EventFixtures.create_event(workspace, owner, %{visibility: :workspace})
 
       draft =
         Event
         |> Ash.Changeset.for_create(:create, %{title: "Draft 2", enrollment_policy: :open},
           tenant: workspace.id
         )
-        |> Ash.create!(tenant: workspace.id, actor: admin)
+        |> Ash.create!(tenant: workspace.id, actor: owner)
 
       assert {:ok, _} = reload(Event, workspace_event.id, member, workspace.id)
-      assert {:ok, _} = reload(Event, draft.id, member, workspace.id)
+      assert {:ok, _} = reload(Event, draft.id, owner, workspace.id)
+
+      assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
+               reload(Event, draft.id, member, workspace.id)
 
       assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
                reload(Event, workspace_event.id, outsider, workspace.id)
@@ -151,5 +152,101 @@ defmodule Cgc2046.Events.EventVisibilityTest do
       assert member_view.capacity == 5
       assert member_view.confirmed_count == 0
     end
+  end
+
+  describe "draft 读收紧（Owner/Admin + 角色组合 + 跨租户）" do
+    test "纯 Admin 可读 draft；平台管理员 bypass 仍可读 draft" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      admin = Fixtures.register_user("vis-ws-admin")
+      Fixtures.add_member(workspace, admin, [:admin])
+      platform = Fixtures.platform_admin("vis-platform")
+
+      draft = create_draft(workspace, owner, Event, "Admin Draft")
+
+      assert {:ok, _} = reload(Event, draft.id, admin, workspace.id)
+      assert {:ok, _} = reload(Event, draft.id, platform, workspace.id)
+    end
+
+    test "成员角色单角色与两两组合读 draft 均 NotFound" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      draft = create_draft(workspace, owner, Event, "Role Matrix Draft")
+
+      for roles <- member_role_combos() do
+        actor = Fixtures.register_user("vis-role-#{Enum.join(roles, "-")}")
+        Fixtures.add_member(workspace, actor, roles)
+
+        assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
+                 reload(Event, draft.id, actor, workspace.id)
+      end
+    end
+
+    test "跨租户：A 台 Owner 读 B 台 draft NotFound" do
+      a = Fixtures.workspace_with_member()
+      b = Fixtures.workspace_with_member()
+      Fixtures.add_member(b.workspace, a.owner, [:member])
+
+      draft_b = create_draft(b.workspace, b.owner, Event, "B Draft")
+
+      assert {:ok, _} = reload(Event, draft_b.id, b.owner, b.workspace.id)
+
+      assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
+               reload(Event, draft_b.id, a.owner, b.workspace.id)
+    end
+
+    test "成员可读非 draft 的 open/closed/cancelled × visibility 组合" do
+      %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+
+      public_open = EventFixtures.create_event(workspace, owner, %{visibility: :public})
+      workspace_open = EventFixtures.create_event(workspace, owner, %{visibility: :workspace})
+
+      closed = EventFixtures.create_event(workspace, owner)
+
+      {:ok, closed} =
+        closed
+        |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+        |> Ash.update(tenant: workspace.id, actor: owner)
+
+      cancelled = EventFixtures.create_event(workspace, owner)
+
+      {:ok, cancelled} =
+        cancelled
+        |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace.id, actor: owner)
+        |> Ash.update(tenant: workspace.id, actor: owner)
+
+      assert {:ok, _} = reload(Event, public_open.id, member, workspace.id)
+      assert {:ok, _} = reload(Event, workspace_open.id, member, workspace.id)
+      assert {:ok, _} = reload(Event, closed.id, member, workspace.id)
+      assert {:ok, _} = reload(Event, cancelled.id, member, workspace.id)
+    end
+
+    test "成员按 slug 读 draft Event NotFound" do
+      %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+      draft = create_draft(workspace, owner, Event, "Slug Draft")
+
+      assert {:ok, nil} =
+               Event
+               |> Ash.Query.for_read(:get_by_slug, %{slug: draft.slug})
+               |> Ash.read_one(actor: member, tenant: workspace.id)
+    end
+  end
+
+  defp create_draft(workspace, actor, resource, title) do
+    resource
+    |> Ash.Changeset.for_create(:create, %{title: title, enrollment_policy: :open},
+      tenant: workspace.id
+    )
+    |> Ash.create!(tenant: workspace.id, actor: actor)
+  end
+
+  defp member_role_combos do
+    singles = [[:member], [:tutor], [:volunteer], [:learner]]
+
+    pairs =
+      for a <- [:member, :tutor, :volunteer, :learner],
+          b <- [:member, :tutor, :volunteer, :learner],
+          a < b,
+          do: [a, b]
+
+    singles ++ pairs
   end
 end
