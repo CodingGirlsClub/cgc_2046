@@ -272,8 +272,10 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
            } =
              build_conn() |> graphql_post(complete_query, speaker_token)
 
-    # M2 完成 → run 镜像 succeeded（materials 门控放行）
-    assert Ash.get!(WorkflowRun, run.id, authorize?: false).status == :succeeded
+    # M2 完成 → run 镜像 succeeded（materials 门控放行，且保留材料 facts）
+    completed_run = Ash.get!(WorkflowRun, run.id, authorize?: false)
+    assert completed_run.status == :succeeded
+    assert completed_run.facts["materials"] == materials
   end
 
   test "saveSpeakerMaterials：无关用户 forbidden", %{
