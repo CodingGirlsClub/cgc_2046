@@ -42,6 +42,7 @@ import {
 import WorkspaceShell from "@/components/workspace-shell";
 import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
+import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
 import { parseSponsorshipTiers, submitEnrollment } from "@/lib/public-offerings";
@@ -676,6 +677,15 @@ export function OfferingDetailPage({
 									<p className="mt-3 text-[13px] text-ink-3">{saveMessage}</p>
 								) : null}
 							</div>
+						) : null}
+
+						{manage && offering.enrollmentPolicy === "invite_only" ? (
+							<InviteBatchPanel
+								kind={kind}
+								offeringId={offering.id}
+								offeringStatus={offering.status}
+								workspaceId={offering.workspaceId ?? ws?.id ?? ""}
+							/>
 						) : null}
 
 						{kind === "event" ? (
