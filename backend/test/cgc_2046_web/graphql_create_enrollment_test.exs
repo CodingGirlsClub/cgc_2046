@@ -2,6 +2,7 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
   use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.InviteBatch
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
@@ -82,6 +83,54 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
     assert result["status"] == "confirmed"
     assert result["inviteBatchId"] == batch.id
     assert Ash.get!(InviteBatch, batch.id, authorize?: false).remaining_quota == 0
+  end
+
+  describe "G1 visibility 校验（E-5 #50 安全洞修复）" do
+    test "非成员对 workspace-only 活动报名 → 拒绝（not_found 语义，不泄露存在性）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{visibility: :workspace})
+      outsider = Fixtures.register_user("gql-enroll-vis-outside")
+
+      response = graphql(create_mutation(event, outsider), sign_in_token(outsider))
+
+      assert %{"data" => %{"createEnrollment" => %{"result" => nil, "errors" => errors}}} =
+               response
+
+      assert Enum.map_join(errors, " ", & &1["message"]) =~ "not open or registration"
+      # 未落库（不泄露目标存在性）
+      assert Ash.read!(Enrollment, authorize?: false) == []
+    end
+
+    test "非成员对 public 活动报名 → 正常（visibility 不影响 public 报名）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{visibility: :public})
+      outsider = Fixtures.register_user("gql-enroll-vis-outside-pub")
+
+      response = graphql(create_mutation(event, outsider), sign_in_token(outsider))
+
+      assert %{"data" => %{"createEnrollment" => %{"result" => result, "errors" => []}}} =
+               response
+
+      assert result["status"] == "confirmed"
+    end
+
+    test "成员对 workspace-only 活动报名 → 正常（成员路径 D2）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{visibility: :workspace})
+      member = Fixtures.register_user("gql-enroll-vis-member")
+      Fixtures.add_member(workspace, member)
+
+      response = graphql(create_mutation(event, member), sign_in_token(member))
+
+      assert %{"data" => %{"createEnrollment" => %{"result" => result, "errors" => []}}} =
+               response
+
+      assert result["status"] == "confirmed"
+      assert result["workspaceId"] == workspace.id
+    end
   end
 
   defp create_mutation(event, user, extra \\ []) do
