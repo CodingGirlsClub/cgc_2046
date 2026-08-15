@@ -39,6 +39,16 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
       assert_same_not_found(draft_res, missing_res, "getEventBySlug")
     end
 
+    test "member getCourseBySlug draft → 与不存在 slug 同形 null" do
+      %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+      draft = create_draft(Course, workspace, owner, "GQL Course Slug Draft")
+      token = sign_in_token(member)
+
+      draft_res = graphql(get_course_by_slug_query(draft.slug), token)
+      missing_res = graphql(get_course_by_slug_query("no-such-course-slug"), token)
+      assert_same_not_found(draft_res, missing_res, "getCourseBySlug")
+    end
+
     test "listEvents/listCourses count 对 member 不计 draft" do
       %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
       _draft_event = create_draft(Event, workspace, owner, "Hidden Event Draft")
@@ -92,23 +102,37 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
   end
 
   describe "global list sentinel" do
-    test "member 无 filter 全局 list 不返回跨租户/非成员 draft，open+public 除外" do
+    test "member 无 filter 全局 list 不返回跨租户/非成员 draft，且 count 不泄露" do
       a = Fixtures.workspace_with_member()
       b = Fixtures.workspace_with_member()
 
-      hidden_draft = create_draft(Event, a.workspace, a.owner, "A Hidden Draft")
-      foreign_draft = create_draft(Event, b.workspace, b.owner, "B Hidden Draft")
-      visible_open = EventFixtures.create_event(a.workspace, a.owner, %{title: "A Open"})
+      hidden_event_draft = create_draft(Event, a.workspace, a.owner, "A Hidden Event Draft")
+      foreign_event_draft = create_draft(Event, b.workspace, b.owner, "B Hidden Event Draft")
 
-      public_open =
+      visible_event_open =
+        EventFixtures.create_event(a.workspace, a.owner, %{title: "A Open Event"})
+
+      public_event_open =
         EventFixtures.create_event(b.workspace, b.owner, %{
-          title: "B Public Open",
+          title: "B Public Open Event",
+          visibility: :public
+        })
+
+      hidden_course_draft = create_draft(Course, a.workspace, a.owner, "A Hidden Course Draft")
+      foreign_course_draft = create_draft(Course, b.workspace, b.owner, "B Hidden Course Draft")
+
+      visible_course_open =
+        EventFixtures.create_course(a.workspace, a.owner, %{title: "A Open Course"})
+
+      public_course_open =
+        EventFixtures.create_course(b.workspace, b.owner, %{
+          title: "B Public Open Course",
           visibility: :public
         })
 
       token = sign_in_token(a.member)
 
-      res =
+      events =
         graphql(
           """
           query {
@@ -121,11 +145,36 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
           token
         )
 
-      ids = Enum.map(res["data"]["listEvents"]["results"], & &1["id"])
-      assert visible_open.id in ids
-      assert public_open.id in ids
-      refute hidden_draft.id in ids
-      refute foreign_draft.id in ids
+      event_results = events["data"]["listEvents"]["results"]
+      event_ids = Enum.map(event_results, & &1["id"])
+
+      assert visible_event_open.id in event_ids
+      assert public_event_open.id in event_ids
+      refute hidden_event_draft.id in event_ids
+      refute foreign_event_draft.id in event_ids
+      assert events["data"]["listEvents"]["count"] == length(event_results)
+
+      courses =
+        graphql(
+          """
+          query {
+            listCourses {
+              count
+              results { id title status }
+            }
+          }
+          """,
+          token
+        )
+
+      course_results = courses["data"]["listCourses"]["results"]
+      course_ids = Enum.map(course_results, & &1["id"])
+
+      assert visible_course_open.id in course_ids
+      assert public_course_open.id in course_ids
+      refute hidden_course_draft.id in course_ids
+      refute foreign_course_draft.id in course_ids
+      assert courses["data"]["listCourses"]["count"] == length(course_results)
     end
   end
 
@@ -262,6 +311,14 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
     """
     query {
       getEventBySlug(slug: "#{slug}") { id slug }
+    }
+    """
+  end
+
+  defp get_course_by_slug_query(slug) do
+    """
+    query {
+      getCourseBySlug(slug: "#{slug}") { id slug }
     }
     """
   end
