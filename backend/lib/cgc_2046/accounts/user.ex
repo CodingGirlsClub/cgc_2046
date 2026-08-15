@@ -251,6 +251,42 @@ defmodule Cgc2046.Accounts.User do
     end
   end
 
+  changes do
+    # KTD5 偏差（RISK：见 writer03 report）：`log_out_everywhere` 的
+    # `apply_on_password_change?` 依赖 where `Changing(hashed_password, touching?: true)`，
+    # 而该条件在 changeset 构建期求值；自动生成的 `password_reset_with_password` 经
+    # HashPasswordChange 的 before_action 才写入 hashed_password → 条件恒不满足，
+    # 内置挂接在重置流程不触发；且其 bulk_update 缺 primary read action 直接抛错。
+    # 此处以资源级 change 在重置 action 的 after_action 内直调同一生成 action
+    # `revoke_all_stored_for_subject`（KTD5 指定的机制，非手写 revoke 循环），
+    # 失败冒泡 → 改密事务整体回滚（fail-closed，同 KTD5 语义）。
+    change(
+      fn changeset, context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, record ->
+          subject = AshAuthentication.user_to_subject(record)
+
+          Cgc2046.Accounts.Token
+          |> Ash.Query.new()
+          |> Ash.Query.set_context(%{private: %{ash_authentication?: true}})
+          |> Ash.Query.for_read(:stored_for_subject, %{subject: subject})
+          |> Ash.bulk_update(:revoke_all_stored_for_subject, %{subject: subject},
+            strategy: [:atomic, :atomic_batches, :stream],
+            context: %{private: %{ash_authentication?: true}},
+            return_errors?: true,
+            stop_on_error?: true,
+            tenant: context.tenant
+          )
+          |> case do
+            %{status: :success} -> {:ok, record}
+            %{errors: errors} -> {:error, errors}
+          end
+        end)
+      end,
+      on: [:update],
+      where: [{Ash.Resource.Validation.ActionIs, action: :password_reset_with_password}]
+    )
+  end
+
   authentication do
     tokens do
       enabled?(true)
@@ -269,10 +305,21 @@ defmodule Cgc2046.Accounts.User do
       password :password do
         identity_field(:email)
         confirmation_required?(false)
+
+        resettable do
+          sender(Cgc2046.Accounts.SendPasswordResetEmail)
+          token_lifetime({24, :hours})
+        end
       end
 
       miniprogram do
         identity_resource(Cgc2046.Accounts.UserIdentity)
+      end
+    end
+
+    add_ons do
+      log_out_everywhere do
+        apply_on_password_change?(true)
       end
     end
   end
@@ -303,6 +350,14 @@ defmodule Cgc2046.Accounts.User do
     end
 
     bypass action(:sign_in_with_password) do
+      authorize_if(always())
+    end
+
+    bypass action(:request_password_reset_with_password) do
+      authorize_if(always())
+    end
+
+    bypass action(:password_reset_with_password) do
       authorize_if(always())
     end
 

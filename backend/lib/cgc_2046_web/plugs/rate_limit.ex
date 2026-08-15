@@ -22,7 +22,14 @@ defmodule Cgc2046Web.Plugs.RateLimit do
   def table, do: @table
 
   @doc false
-  def check(key), do: check_rate(key)
+  def check(key, opts \\ []), do: check_rate(key, opts)
+
+  @doc false
+  def build_key(prefix, value, opts \\ []) when is_binary(prefix) do
+    normalized = normalize_value(value, opts[:normalize])
+    hashed = :crypto.hash(:sha256, to_string(normalized)) |> Base.encode16(case: :lower)
+    "#{prefix}:#{hashed}"
+  end
 
   defp max_attempts,
     do:
@@ -49,9 +56,9 @@ defmodule Cgc2046Web.Plugs.RateLimit do
 
   @doc false
   def call(resolution, opts) do
-    key = build_key(resolution, opts[:key_path] || [])
+    key = build_middleware_key(resolution, opts[:key_path] || [], opts)
 
-    case check(key) do
+    case check(key, opts) do
       :ok ->
         resolution
 
@@ -65,7 +72,7 @@ defmodule Cgc2046Web.Plugs.RateLimit do
 
   # ── 内部 ─────────────────────────────────────────────────────────
 
-  defp build_key(resolution, key_path) do
+  defp build_middleware_key(resolution, key_path, opts) do
     remote_ip =
       case resolution.context do
         %{conn: %{remote_ip: ip}} -> ip |> :inet.ntoa() |> to_string()
@@ -80,21 +87,22 @@ defmodule Cgc2046Web.Plugs.RateLimit do
         end
       end)
 
-    # ponytail: field_value 可能是明文凭证（invitation token），hash 后再作 ETS key，
-    # 防止 ETS 被 observer/remote_console inspect 时泄漏明文 token。
-    # SHA256 确定性 → 同 token 永远 hash 到同一 key，限流聚合语义不变。
-    hashed =
-      :crypto.hash(:sha256, to_string(field_value)) |> Base.encode16(case: :lower)
-
-    "rate:#{remote_ip}:#{hashed}"
+    build_key("rate:#{remote_ip}", field_value, opts)
   end
 
-  defp check_rate(key) do
+  defp normalize_value(value, normalizer) when is_function(normalizer, 1),
+    do: normalizer.(value)
+
+  defp normalize_value(value, _normalizer), do: value
+
+  defp check_rate(key, opts) do
     now = System.system_time(:second)
+    window_seconds = Keyword.get(opts, :window_seconds, @window_seconds)
+    max_attempts = Keyword.get(opts, :max_attempts, max_attempts())
 
     case :ets.lookup(@table, key) do
-      [{^key, count, window_start}] when now - window_start < @window_seconds ->
-        if count >= max_attempts() do
+      [{^key, count, window_start}] when now - window_start < window_seconds ->
+        if count >= max_attempts do
           :error
         else
           # ponytail: update_counter/4 带默认值，防 lookup 与 update 间的竞态
