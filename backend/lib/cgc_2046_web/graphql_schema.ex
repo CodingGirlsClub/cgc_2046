@@ -109,7 +109,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
+    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
     field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
       arg(:include_expired, :boolean)
 
@@ -118,6 +118,18 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Events.PendingApprovals.list(actor,
             include_expired: args[:include_expired] || false
           )
+        end)
+      end)
+    end
+
+    @desc "当前用户作为 Owner/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 /approvals 展示含过期行存在有意差异）"
+    field :pending_approvals_count, non_null(:integer) do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Events.PendingApprovals.count_pending(actor) do
+            {:ok, count} -> {:ok, count}
+            {:error, reason} -> {:error, reason}
+          end
         end)
       end)
     end

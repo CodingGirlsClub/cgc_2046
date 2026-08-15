@@ -95,6 +95,8 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     assert join_row["contextTitle"] == "Summary WS"
   end
 
+  # /approvals 展示含 status=expired 行。角标计数不含过期 pending（KTD8），
+  # 对侧：graphql_pending_approvals_count_test.exs。
   test "include_expired=true 附带已过期行（只读，排在 pending 后）" do
     platform_admin = Fixtures.platform_admin("expired-platform")
     owner = Fixtures.register_user("expired-owner")

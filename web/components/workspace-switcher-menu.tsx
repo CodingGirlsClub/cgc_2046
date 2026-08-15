@@ -13,10 +13,14 @@
 
 import { useState, useRef, useLayoutEffect } from "react";
 import Link from "next/link";
+import { useQuery } from "@apollo/client/react";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import ThemeToggle from "@/components/theme-toggle";
 import { Icon } from "@/components/icons";
 import { canSeeByKey } from "@/components/workspace-nav";
+import { useAuthed } from "@/lib/use-authed";
+import { client } from "@/lib/apollo-client";
+import { PENDING_APPROVALS_COUNT } from "@/lib/graphql/approvals";
 import type { CurrentProfile } from "@/lib/profile";
 import type { WorkspaceListItem } from "@/lib/workspaces";
 
@@ -52,6 +56,13 @@ export default function WorkspaceSwitcherMenu({
 	signOutError = null,
 	signingOut = false,
 }: WorkspaceSwitcherMenuProps) {
+	const { authed } = useAuthed();
+	const { data } = useQuery(PENDING_APPROVALS_COUNT, {
+		skip: !authed,
+		fetchPolicy: "no-cache",
+		client,
+	});
+	const pendingCount = data?.pendingApprovalsCount;
 	// 二级（Switch workspace）展开态；由菜单内 state 管理（Linear 式子菜单）
 	const [submenuOpen, setSubmenuOpen] = useState(false);
 	// 一级菜单容器 ref：二级用 fixed 定位（避开一级 overflow 裁剪）
@@ -198,9 +209,19 @@ export default function WorkspaceSwitcherMenu({
 						href="/approvals"
 						className="ws-shell-brand-menu__item"
 						role="menuitem"
+						aria-label={
+							typeof pendingCount === "number" && pendingCount > 0
+								? `审批中心，${pendingCount} 项待办`
+								: "审批中心"
+						}
 						onClick={onNavigate}
 					>
 						<span className="ws-shell-brand-menu__name">审批中心</span>
+						{typeof pendingCount === "number" && pendingCount > 0 && (
+							<span className="l-badge l-badge-pending" aria-hidden="true">
+								{pendingCount > 99 ? "99+" : pendingCount}
+							</span>
+						)}
 					</Link>
 					<Link
 						href="/participations"
