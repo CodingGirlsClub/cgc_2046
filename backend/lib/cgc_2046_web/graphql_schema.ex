@@ -122,6 +122,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
+    field :my_learning_runs, non_null(list_of(non_null(:my_learning_run))) do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, &resolve_my_learning_runs/1)
+      end)
+    end
+
     # ── SpeakerInvitation（E-4 #49）──
 
     @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请"
@@ -1169,6 +1176,36 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:amount, :integer)
   end
 
+  object :enrollment do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:event_id, :id)
+    field(:course_id, :id)
+    field(:user_id, non_null(:id))
+    field(:workflow_run_id, :id)
+    field(:invite_batch_id, :id)
+    field(:status, non_null(:string))
+    field(:capacity_seq, :integer)
+    field(:approved_by, :id)
+    field(:approved_at, :datetime)
+    field(:rejection_reason, :string)
+    field(:approval_deadline, :datetime)
+    field(:expired_at, :datetime)
+    field(:cancelled_at, :datetime)
+    field(:inserted_at, non_null(:datetime))
+    field(:target_title, :string)
+  end
+
+  object :my_learning_run do
+    field(:run_id, non_null(:id))
+    field(:enrollment_id, non_null(:id))
+    field(:target_title, :string)
+    field(:status, non_null(:string))
+    field(:completed_manual_steps, non_null(:integer))
+    field(:total_manual_steps, non_null(:integer))
+    field(:current_step_title, :string)
+  end
+
   object :miniprogram_code_result do
     field(:invitation_id, non_null(:id))
     field(:platform, non_null(:string))
@@ -1719,6 +1756,110 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:last_seen_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
   end
+
+  defp resolve_my_learning_runs(actor) do
+    case read_confirmed_enrollments(actor) do
+      {:ok, enrollments} ->
+        rows =
+          Enum.flat_map(enrollments, fn enrollment ->
+            enrollment
+            |> read_learning_runs()
+            |> Enum.map(&project_learning_run(&1, enrollment, actor))
+            |> Enum.reject(&is_nil/1)
+          end)
+
+        {:ok, rows}
+
+      {:error, _reason} ->
+        {:ok, []}
+    end
+  end
+
+  defp read_confirmed_enrollments(actor) do
+    Cgc2046.Events.Enrollment
+    |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
+    |> Ash.Query.filter(status == :confirmed)
+    |> Ash.Query.load(:target_title)
+    |> Ash.Query.limit(250)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, %{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp read_learning_runs(enrollment) do
+    Cgc2046.Workflows.WorkflowRun
+    |> Ash.Query.filter(input_snapshot["enrollment_id"] == ^enrollment.id)
+    |> Ash.read(tenant: enrollment.workspace_id, authorize?: false)
+    |> case do
+      {:ok, runs} ->
+        Enum.flat_map(runs, fn run ->
+          if run.workspace_id != enrollment.workspace_id do
+            []
+          else
+            case Ash.load(
+                   run,
+                   [definition: [:type, :node_def, steps: [:step_key, :title]]],
+                   tenant: run.workspace_id,
+                   authorize?: false
+                 ) do
+              {:ok, loaded_run} -> [loaded_run]
+              {:error, _reason} -> []
+            end
+          end
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp project_learning_run(run, enrollment, actor) do
+    definition = Map.get(run, :definition)
+
+    cond do
+      enrollment.user_id != actor.id ->
+        nil
+
+      not anchored_to_enrollment?(run, enrollment) ->
+        nil
+
+      run.workspace_id != enrollment.workspace_id ->
+        nil
+
+      not learning_definition?(definition) ->
+        nil
+
+      true ->
+        steps = if is_list(definition.steps), do: definition.steps, else: []
+
+        target_title =
+          if is_binary(enrollment.target_title), do: enrollment.target_title, else: nil
+
+        Cgc2046.Workflows.LearningProgress.project(
+          run.id,
+          enrollment.id,
+          target_title,
+          run.status,
+          definition.node_def,
+          steps,
+          run.facts
+        )
+    end
+  end
+
+  defp anchored_to_enrollment?(%{input_snapshot: input}, %{id: enrollment_id})
+       when is_map(input) do
+    Map.get(input, "enrollment_id") == enrollment_id or
+      Map.get(input, :enrollment_id) == enrollment_id
+  end
+
+  defp anchored_to_enrollment?(_run, _enrollment), do: false
+
+  defp learning_definition?(%{type: type}) when type in [:learning, "learning"], do: true
+  defp learning_definition?(_definition), do: false
 
   # id / is_platform_admin 可空：update 失败时承载错误 payload（errors 非空、业务字段为 nil），
   # 与 admin 面其它 mutation 的 payload 式错误通道一致。

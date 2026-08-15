@@ -53,6 +53,7 @@
     "@tarojs/plugin-platform-weapp": "4.2.1",
     "@tarojs/plugin-platform-xhs": "1.2.2",
     "@tarojs/webpack5-runner": "4.2.1",
+    "@types/node": "26.2.0",
     "@types/react": "^18.3.12",
     "babel-preset-taro": "4.2.1",
     "miniprogram-automator": "0.12.1",
