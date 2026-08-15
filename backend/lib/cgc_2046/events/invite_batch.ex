@@ -55,7 +55,7 @@ defmodule Cgc2046.Events.InviteBatch do
 
     attribute(:remark, :string, public?: true, writable?: true)
 
-    create_timestamp(:inserted_at)
+    create_timestamp(:inserted_at, public?: true)
     update_timestamp(:updated_at)
   end
 
@@ -88,7 +88,7 @@ defmodule Cgc2046.Events.InviteBatch do
 
         changeset
         |> validate_target(event_id, course_id)
-        |> Ash.Changeset.force_change_attribute(:workspace_id, changeset.tenant)
+        |> derive_target_tenant(event_id, course_id)
         |> Ash.Changeset.force_change_attribute(:remaining_quota, quota)
       end)
 
@@ -98,8 +98,14 @@ defmodule Cgc2046.Events.InviteBatch do
     end
 
     update :disable do
+      require_atomic?(false)
       accept([])
-      change(set_attribute(:status, :disabled))
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          Ash.Changeset.force_change_attribute(cs, :status, :disabled)
+        end)
+      end)
     end
   end
 
@@ -144,6 +150,52 @@ defmodule Cgc2046.Events.InviteBatch do
     end
   end
 
+  defp derive_target_tenant(changeset, event_id, course_id) do
+    case target_workspace_id(event_id, course_id) do
+      {:ok, target_workspace_id} ->
+        tenant = changeset.tenant || target_workspace_id
+
+        changeset
+        |> Ash.Changeset.set_tenant(tenant)
+        |> Ash.Changeset.force_change_attribute(:workspace_id, tenant)
+
+      {:error, :not_found} ->
+        Ash.Changeset.add_error(changeset,
+          field: :event_id,
+          message: "target does not belong to tenant"
+        )
+
+      {:error, _reason} ->
+        Ash.Changeset.add_error(changeset,
+          field: :event_id,
+          message: "target does not belong to tenant"
+        )
+
+      :skip ->
+        changeset
+    end
+  end
+
+  defp target_workspace_id(event_id, nil) when is_binary(event_id) do
+    lookup_target_workspace("events", event_id)
+  end
+
+  defp target_workspace_id(nil, course_id) when is_binary(course_id) do
+    lookup_target_workspace("courses", course_id)
+  end
+
+  defp target_workspace_id(_event_id, _course_id), do: :skip
+
+  defp lookup_target_workspace(table, id) do
+    case Cgc2046.Repo.query("SELECT workspace_id FROM #{table} WHERE id = $1", [
+           Cgc2046.Repo.uuid!(id)
+         ]) do
+      {:ok, %{rows: [[workspace_id]]}} -> {:ok, Ecto.UUID.load!(workspace_id)}
+      {:ok, %{rows: []}} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp validate_target_tenant(changeset) do
     {table, id} =
       case {
@@ -155,7 +207,7 @@ defmodule Cgc2046.Events.InviteBatch do
         _ -> {nil, nil}
       end
 
-    if table do
+    if table && changeset.tenant do
       tenant_id = Cgc2046.Repo.uuid!(changeset.tenant)
 
       case Cgc2046.Repo.query("SELECT workspace_id FROM #{table} WHERE id = $1", [

@@ -1157,6 +1157,7 @@ enum InviteBatchSortField {
   EXPIRES_AT
   STATUS
   REMARK
+  INSERTED_AT
 }
 
 "A keyset page of :invite_batch"
@@ -1172,6 +1173,19 @@ type KeysetPageOfInviteBatch {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input InviteBatchFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
 }
 
 input InviteBatchFilterRemark {
@@ -1328,6 +1342,7 @@ input InviteBatchFilterInput {
   expiresAt: InviteBatchFilterExpiresAt
   status: InviteBatchFilterStatus
   remark: InviteBatchFilterRemark
+  insertedAt: InviteBatchFilterInsertedAt
 }
 
 input InviteBatchSortInput {
@@ -1346,6 +1361,7 @@ type InviteBatch {
   expiresAt: DateTime
   status: String!
   remark: String
+  insertedAt: DateTime!
 }
 
 "The result of the :cancel_course mutation"
