@@ -36,6 +36,20 @@ export interface SignInResultData {
   isPlatformAdmin: boolean;
 }
 
+export interface RequestPasswordResetResult {
+  sent: boolean;
+}
+
+export interface ResetPasswordResult {
+  ok: boolean;
+}
+
+export interface PasswordResetGraphqlError {
+  message?: string;
+  code?: string;
+  fields?: string[];
+}
+
 /* ---------------- 真实 mutation ---------------- */
 
 export const SIGN_UP: TypedDocumentNode<
@@ -70,6 +84,28 @@ export const SIGN_IN: TypedDocumentNode<
   }
 `;
 
+export const REQUEST_PASSWORD_RESET: TypedDocumentNode<
+  { requestPasswordReset: RequestPasswordResetResult | null },
+  { email: string }
+> = gql`
+  mutation RequestPasswordReset($email: String!) {
+    requestPasswordReset(email: $email) {
+      sent
+    }
+  }
+`;
+
+export const RESET_PASSWORD: TypedDocumentNode<
+  { resetPassword: ResetPasswordResult | null },
+  { resetToken: string; password: string }
+> = gql`
+  mutation ResetPassword($resetToken: String!, $password: String!) {
+    resetPassword(resetToken: $resetToken, password: $password) {
+      ok
+    }
+  }
+`;
+
 /* ---------------- 错误提取（两端结构不对称，统一转成前端可读 message） ---------------- */
 
 /**
@@ -79,6 +115,7 @@ export const SIGN_IN: TypedDocumentNode<
 export function signUpErrorMessage(
   data: { signUp: SignUpResultData } | null | undefined,
 ): string | null {
+
   const errors = data?.signUp?.errors;
   if (data?.signUp?.result || !errors || errors.length === 0) return null;
   return errors[0]?.message ?? "注册失败，请稍后重试";
@@ -114,6 +151,47 @@ export function signInErrorMessage(e: unknown): string | null {
     if (err.message) return err.message;
   }
   return null;
+}
+/**
+ * 从 Apollo v4/v3 的 top-level GraphQL error 提取 code、fields 和 message。
+ * 后端 AshGraphql 错误在不同 Apollo 版本中可能把扩展字段放在顶层或
+ * `extensions`，找回密码页面只依赖这三个稳定语义。
+ */
+export function graphqlErrorDetails(e: unknown): PasswordResetGraphqlError | null {
+  if (!e || typeof e !== "object") return null;
+
+  const err = e as {
+    errors?: unknown[];
+    graphQLErrors?: unknown[];
+  };
+  const first = Array.isArray(err.errors)
+    ? err.errors[0]
+    : Array.isArray(err.graphQLErrors)
+      ? err.graphQLErrors[0]
+      : null;
+
+  if (!first || typeof first !== "object") return null;
+
+  const raw = first as {
+    message?: unknown;
+    code?: unknown;
+    fields?: unknown;
+    extensions?: { code?: unknown; fields?: unknown };
+  };
+  const fields = raw.fields ?? raw.extensions?.fields;
+
+  return {
+    message: typeof raw.message === "string" ? raw.message : undefined,
+    code:
+      typeof raw.code === "string"
+        ? raw.code
+        : typeof raw.extensions?.code === "string"
+          ? raw.extensions.code
+          : undefined,
+    fields: Array.isArray(fields)
+      ? fields.filter((field): field is string => typeof field === "string")
+      : undefined,
+  };
 }
 
 /**

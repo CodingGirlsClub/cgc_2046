@@ -44,6 +44,29 @@ config :cgc_2046,
        |> String.split(",", trim: true)
        |> Enum.map(&String.trim/1)
 
+# Password reset links are built from this runtime-configured origin. Dev/test
+# keep a localhost default; production must use HTTPS so reset tokens never
+# travel over a clear-text link.
+web_base_url =
+  if config_env() == :prod do
+    System.get_env("WEB_BASE_URL") ||
+      raise """
+      environment variable WEB_BASE_URL is missing.
+      Set it to the public HTTPS web origin, e.g. "https://app.example.com".
+      """
+  else
+    System.get_env("WEB_BASE_URL", "http://localhost:3000")
+  end
+
+if config_env() == :prod and URI.parse(web_base_url).scheme != "https" do
+  raise """
+  WEB_BASE_URL must use https in production.
+  Set it to the public HTTPS web origin, e.g. "https://app.example.com".
+  """
+end
+
+config :cgc_2046, :web_base_url, web_base_url
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -147,6 +170,44 @@ if config_env() == :prod do
       "speaker_completed" => System.fetch_env!("XHS_MP_TEMPLATE_SPEAKER_COMPLETED")
     }
   }
+
+  # SendCloud is the production mail transport. Keep every required value in
+  # runtime configuration so a release cannot start with a partially configured
+  # reset-mail path.
+  sendcloud_api_user =
+    System.get_env("SENDCLOUD_API_USER") ||
+      raise """
+      environment variable SENDCLOUD_API_USER is missing.
+      Set it to the SendCloud API user for regular mail sending.
+      """
+
+  sendcloud_api_key =
+    System.get_env("SENDCLOUD_API_KEY") ||
+      raise """
+      environment variable SENDCLOUD_API_KEY is missing.
+      Set it to the SendCloud API key for regular mail sending.
+      """
+
+  sendcloud_from =
+    System.get_env("SENDCLOUD_FROM") ||
+      raise """
+      environment variable SENDCLOUD_FROM is missing.
+      Set it to the verified SendCloud sender address.
+      """
+
+  sendcloud_from_name =
+    System.get_env("SENDCLOUD_FROM_NAME") ||
+      raise """
+      environment variable SENDCLOUD_FROM_NAME is missing.
+      Set it to the display name for password reset emails.
+      """
+
+  config :cgc_2046, Cgc2046.Mailer,
+    adapter: Cgc2046.SwooshAdapters.SendCloud,
+    api_user: sendcloud_api_user,
+    api_key: sendcloud_api_key,
+    from: sendcloud_from,
+    from_name: sendcloud_from_name
 
   # ## SSL Support
   #
