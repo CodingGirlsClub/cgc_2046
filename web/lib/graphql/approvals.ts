@@ -57,6 +57,16 @@ export const MY_PENDING_APPROVALS: TypedDocumentNode<
 	}
 `;
 
+export const PENDING_APPROVALS_COUNT: TypedDocumentNode<
+	{ pendingApprovalsCount: number },
+	Record<string, never>
+> = gql`
+	query PendingApprovalsCount {
+		pendingApprovalsCount
+	}
+`;
+
+
 export interface EnrollmentApprovalResult {
 	id: string;
 	status: string;
