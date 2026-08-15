@@ -193,6 +193,9 @@ export default function PublicOfferingDetailPage({ kind }: { kind: OfferingKind 
 										{submitState.kind === "confirmed" ? "✓ 报名成功" : "✓ 申请已提交"}
 									</p>
 									<p className="mt-1 text-[13px] text-ink-3">{submitState.message}</p>
+									<Link href="/participations" className="mt-3 inline-block text-[13px] text-accent hover:underline">
+										在「我的参与」查看报名状态
+									</Link>
 								</div>
 							) : (
 								<div className="grid gap-3">

@@ -29,6 +29,7 @@ vi.mock('../src/api/operations', () => ({
   EventDetailQueryDocument: 'EVENT_DETAIL',
   CourseDetailQueryDocument: 'COURSE_DETAIL',
   MyEnrollmentsQueryDocument: 'MY_ENROLLMENTS',
+  CancelEnrollmentMutationDocument: 'CANCEL_ENROLLMENT',
   CreateEnrollmentMutationDocument: 'CREATE_ENROLLMENT',
   ConfirmEnrollmentMutationDocument: 'CONFIRM_ENROLLMENT',
   RejectEnrollmentMutationDocument: 'REJECT_ENROLLMENT',
@@ -140,5 +141,33 @@ describe('getSession 匿名边界', () => {
     expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
     expect(mocks.clearAccountState).toHaveBeenCalledWith()
     expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
+  })
+})
+
+describe('cancel enrollment', () => {
+  it('成功取消报名并传递 enrollment ID', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      cancelEnrollment: {
+        result: { id: 'enr-1', status: 'cancelled' },
+        errors: []
+      }
+    })
+    const api = new RealMiniProgramApi()
+
+    await api.cancelEnrollment('enr-1')
+
+    expect(mocks.graphqlRequest).toHaveBeenCalledWith('CANCEL_ENROLLMENT', { id: 'enr-1' })
+  })
+
+  it('already_processed 错误视为幂等成功', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      cancelEnrollment: {
+        result: null,
+        errors: [{ code: 'already_processed', message: '已处理' }]
+      }
+    })
+    const api = new RealMiniProgramApi()
+
+    await expect(api.cancelEnrollment('enr-1')).resolves.toBeUndefined()
   })
 })

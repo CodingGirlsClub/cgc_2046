@@ -202,6 +202,14 @@ export default function WorkspaceSwitcherMenu({
 					>
 						<span className="ws-shell-brand-menu__name">审批中心</span>
 					</Link>
+					<Link
+						href="/participations"
+						className="ws-shell-brand-menu__item"
+						role="menuitem"
+						onClick={onNavigate}
+					>
+						<span className="ws-shell-brand-menu__name">我的参与</span>
+					</Link>
 					<ThemeToggle variant="menuitem" workspaceId={currentWorkspaceId} />
 				</div>
 			)}

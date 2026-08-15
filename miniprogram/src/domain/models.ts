@@ -107,6 +107,7 @@ export interface MiniProgramApi {
   signIn(payload: PlatformPhonePayload): Promise<SessionSnapshot>
   signOut(): Promise<void>
   getEnrollments(): Promise<EnrollmentSummary[]>
+  cancelEnrollment(id: string): Promise<void>
   createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary>
   approvePending(approval: ApprovalSummary): Promise<void>
   rejectPending(approval: ApprovalSummary, reason?: string): Promise<void>
