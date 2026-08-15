@@ -329,10 +329,9 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   end
 
   policies do
-    # 创建：Owner/Admin（对齐 Event 管理写动作）或平台管理员
+    # 创建：Owner/Admin（对齐 Event 管理写动作）
     policy action(:create_invitation) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 决策：token 即凭据（token 持有者自助操作，拍板 #1 必须登录），

@@ -172,6 +172,35 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     assert Enum.any?(errors, &(&1["code"] in ["forbidden", "unauthorized", "not_found"]))
   end
 
+  test "PlatformAdmin 本人不能取消自己的报名" do
+    admin = Fixtures.platform_admin("my-enrollments-platform-admin")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    enrollment =
+      Enrollment
+      |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: admin.id})
+      |> Ash.create!(tenant: workspace.id, actor: admin, authorize?: false)
+
+    response =
+      graphql(
+        """
+        mutation {
+          cancelEnrollment(id: "#{enrollment.id}") {
+            result { id status }
+            errors { code message }
+          }
+        }
+        """,
+        sign_in_token(admin)
+      )
+
+    assert %{"data" => %{"cancelEnrollment" => %{"result" => nil, "errors" => errors}}} =
+             response
+
+    assert Enum.any?(errors, &(&1["code"] in ["forbidden", "unauthorized"]))
+  end
+
   test "Enrollment output type does not expose submission payload" do
     response =
       graphql(

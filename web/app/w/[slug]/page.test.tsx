@@ -58,6 +58,9 @@ const { fetchCurrentProfile } = vi.hoisted(() => ({
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
 }));
+const { fetchWorkspaceBySlug } = vi.hoisted(() => ({
+	fetchWorkspaceBySlug: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
 	useRouter: () => ({ push, replace }),
@@ -85,6 +88,10 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 		fetchMyWorkspaces,
 	};
 });
+vi.mock("@/lib/requests", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return { ...mod, fetchWorkspaceBySlug };
+});
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -101,6 +108,7 @@ beforeEach(() => {
 	});
 	// #018：clearSession 返回 { ok } 契约；失败用例单独覆盖
 	clearSession.mockResolvedValue({ ok: true });
+	fetchWorkspaceBySlug.mockReset();
 });
 
 afterEach(cleanup);
@@ -143,6 +151,33 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(back).toHaveAttribute("href", "/");
 		expect(screen.queryByText(/建设中/)).not.toBeInTheDocument();
 		expect(TEST_WORKSPACES.length).toBeGreaterThan(0); // 引用 fixture 防 tree-shake
+	});
+
+	it("非成员 PlatformAdmin：fallback 到 workspace 并渲染只读审计页", async () => {
+		params.value = { slug: "audit-ws" };
+		fetchMyWorkspaces.mockResolvedValue([]);
+		fetchCurrentProfile.mockResolvedValue({
+			id: "u-admin",
+			email: "admin@example.com",
+			displayName: "Platform Admin",
+			isPlatformAdmin: true,
+		});
+		fetchWorkspaceBySlug.mockResolvedValue({
+			id: "ws-audit",
+			slug: "audit-ws",
+			name: "审计工作台",
+			joinPolicy: "invite_only",
+			sponsorshipEnabled: false,
+		});
+		render(<WorkspacePage />);
+
+		const main = await content();
+
+		expect(main.getByRole("heading", { name: "工作区概览" })).toBeInTheDocument();
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"平台管理员 · 只读审计视图",
+		);
+		expect(fetchWorkspaceBySlug).toHaveBeenCalledWith("audit-ws");
 	});
 
 	it("真实模式（#70 QA P1）：fetchMyWorkspaces 返回真实 ws（不在 mock），详情页按真实数据渲染", async () => {

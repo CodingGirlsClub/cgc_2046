@@ -213,8 +213,9 @@ export async function joinWorkspace(
 }
 
 /**
- * 按 slug 获取工作台（join 页专用，不复用 useWorkspaceBySlug）。
- * 后端 get_workspace query 对 open/request 策略允许已认证用户读取。
+ * 按 slug 获取工作台（join 页与 WorkspaceShell 的 PlatformAdmin fallback 共用）。
+ * 后端 get_workspace query 对 open/request 策略允许已认证用户读取，
+ * invite_only 额外允许 PlatformAdmin 读取。
  */
 export async function fetchWorkspaceBySlug(
 	slug: string,

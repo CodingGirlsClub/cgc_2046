@@ -40,7 +40,8 @@ export interface WorkspaceListItem {
 	myAbilities?: string[];
 	/** 当前用户在该工作台的成员资格 ID（#64 meWorkspaces 的 myMembershipId；非成员为 null） */
 	myMembershipId?: string | null;
-	/** 展示附加字段 */
+	/** 非成员 PlatformAdmin 通过 slug fallback 进入的只读审计工作台 */
+	readOnlyVisitor?: boolean;
 	description?: string;
 	memberCount?: number;
 	unreadCount?: number;

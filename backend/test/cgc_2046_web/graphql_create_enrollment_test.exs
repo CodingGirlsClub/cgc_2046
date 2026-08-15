@@ -133,6 +133,19 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
     end
   end
 
+  test "PlatformAdmin 本人不能经 HTTP createEnrollment 报名" do
+    admin = Fixtures.platform_admin("gql-enroll-platform-admin")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :open})
+
+    response = graphql(create_mutation(event, admin), sign_in_token(admin))
+
+    assert %{"data" => %{"createEnrollment" => %{"result" => nil, "errors" => errors}}} =
+             response
+
+    assert Enum.any?(errors, &(&1["message"] == "forbidden"))
+  end
+
   defp create_mutation(event, user, extra \\ []) do
     invite_code_input =
       case Keyword.get(extra, :invite_code) do

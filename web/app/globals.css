@@ -367,6 +367,14 @@
     color: var(--ink-3);
     font-size: 13px;
   }
+  .ws-shell-readonly-banner {
+    padding: 9px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--soft-2);
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 20px;
+  }
 
   .ws-shell-sidebar {
     display: flex;

@@ -255,6 +255,7 @@ defmodule Cgc2046.Events.Enrollment do
 
   policies do
     policy action(:create_enrollment) do
+      forbid_if(Cgc2046.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end
 
@@ -264,6 +265,7 @@ defmodule Cgc2046.Events.Enrollment do
     end
 
     policy action(:cancel) do
+      forbid_if(Cgc2046.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end
 

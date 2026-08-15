@@ -134,4 +134,28 @@ describe("OfferingDetailPage 错误态", () => {
 		expect(await screen.findByText("加载失败")).toBeInTheDocument();
 		expect(screen.queryByText(/Cannot query field/)).not.toBeInTheDocument();
 	});
+	it("只读 PlatformAdmin 访客不显示报名写入口", async () => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: { ...WORKSPACE, readOnlyVisitor: true },
+			readOnlyVisitor: true,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce({
+			id: "event-open",
+			title: "公开活动",
+			status: "open",
+			visibility: "workspace",
+			enrollmentPolicy: "open",
+			registrationDeadline: null,
+			capacity: null,
+			confirmedCount: 0,
+		});
+
+		render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
+
+		expect(await screen.findByRole("heading", { name: "公开活动" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
+	});
 });
