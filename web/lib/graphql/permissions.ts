@@ -7,7 +7,7 @@ import type { TypedDocumentNode } from "@apollo/client";
  * 与后端工程师确认的契约（backend/priv/graphql/schema.graphql）：
  * - permissionMatrix（需登录，匿名返回 unauthorized）：
  *     query { permissionMatrix { roles { name abilities { name allowed } } } }
- *   返回六角色 × 六能力矩阵。abilities 为通用 [{name, allowed}] 列表
+ *   返回五角色 × 能力矩阵。abilities 为通用 [{name, allowed}] 列表
  *   （#1 收敛：不再固定六个字段，新增能力自动透传；能力词汇唯一真源在后端
  *   Rbac.abilities_list/0，契约工件 backend/priv/rbac_contract.json 做守卫）。
  * - myAbilities 已退役（#1）：能力列表随 meWorkspaces.myAbilities 下发，
@@ -49,7 +49,7 @@ export interface PermissionMatrixPayload {
 
 /* ---------------- 真实 query ---------------- */
 
-/** #66 permissionMatrix：六角色 × 六能力矩阵（需登录；#1 abilities 为通用列表） */
+/** #66 permissionMatrix：五角色 × 能力矩阵（需登录；#1 abilities 为通用列表） */
 export const PERMISSION_MATRIX: TypedDocumentNode<
 	{ permissionMatrix: PermissionMatrixPayload },
 	Record<string, never>

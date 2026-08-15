@@ -8,9 +8,9 @@ defmodule Cgc2046.Repo.Migrations.CreateWorkspaceProfiles do
   3. 回填：每个 user 的全局 profile 字段复制到其所有 membership 的 workspace；
      portfolio_items 按 user 的所有 membership 复制成 N 条（各带对应 workspace_id）
   4. 幂等创建默认 workspace `2046`（slug=`2046`、join_policy=`open`、sponsorship_enabled=false），
-     seed 六角色；owner 成员资格归属首个平台管理员（无则跳过）
-  5. 回填：存量无 membership 用户 → admit 到 2046（member 角色）+ 建 WorkspaceProfile
-
+     seed 当时的六角色（含现已退役的 member）；owner 成员资格归属首个平台管理员（无则跳过）
+  5. 回填：存量无 membership 用户 → admit 到 2046（当时 member 角色）+ 建 WorkspaceProfile
+     （plan 017 起新入座改为无标签；本历史迁移 SQL 保持原样）
   幂等：表/列存在守卫 + ON CONFLICT DO NOTHING（重复执行安全，沿用现有迁移风格）。
 
   down 可逆性声明：`add_not_null_portfolio_workspace_id` 会删除「无 membership 的
@@ -23,7 +23,7 @@ defmodule Cgc2046.Repo.Migrations.CreateWorkspaceProfiles do
 
   # 与 WorkspaceProfile 资源 identity 对齐的索引名
   @wsp_unique_index "wsp_unique_ws_user_idx"
-  # 六角色模板（与 Role.role_descriptions/0 对齐；本迁移为历史迁移，不引用运行时模块）
+  # 历史六角色模板（含现已退役的 member）。本迁移为历史迁移，不引用运行时模块。
   @design_roles [
     {"owner", "所有者：工作台管理与权限分配"},
     {"admin", "管理员：工作台日常管理与内容维护"},

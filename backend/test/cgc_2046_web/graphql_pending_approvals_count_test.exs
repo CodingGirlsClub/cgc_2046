@@ -64,7 +64,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
     member = Fixtures.register_user("pending-count-member")
     applicant = Fixtures.register_user("pending-count-member-applicant")
     workspace = Fixtures.create_workspace(platform_admin)
-    Fixtures.add_member(workspace, member, [:member])
+    Fixtures.add_member(workspace, member)
     event = EventFixtures.create_event(workspace, platform_admin, %{enrollment_policy: :request})
     _enrollment = create_pending_enrollment(event, applicant)
 

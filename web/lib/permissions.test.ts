@@ -39,14 +39,13 @@ const MEMBER_ABILITIES = {
 const backendRows: RbacPermissionMatrixRow[] = [
 	{ name: "owner", abilities: grants(MANAGER_ABILITIES) },
 	{ name: "admin", abilities: grants(MANAGER_ABILITIES) },
-	{ name: "member", abilities: grants(MEMBER_ABILITIES) },
 	{ name: "tutor", abilities: grants(MEMBER_ABILITIES) },
 	{ name: "volunteer", abilities: grants(MEMBER_ABILITIES) },
 	{ name: "learner", abilities: grants(MEMBER_ABILITIES) },
 ];
 
-describe("mapPermissionMatrixRows（后端六角色矩阵 → 五角色展示矩阵，#1 通用列表）", () => {
-	it("总是返回五个设计角色，member 行隐藏，能力完整透传", () => {
+describe("mapPermissionMatrixRows（后端五角色矩阵 → 展示矩阵，#1 通用列表）", () => {
+	it("总是返回五个设计角色，能力完整透传", () => {
 		const rows = mapPermissionMatrixRows(backendRows);
 		expect(rows).toHaveLength(5);
 		expect(rows.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
@@ -79,8 +78,7 @@ describe("mapPermissionMatrixRows（后端六角色矩阵 → 五角色展示矩
 				create_workspace: false,
 			},
 		);
-		// member 行不参与展示（隐藏而非映射）
-		expect(rows.find((row) => row.role === "member")).toBeUndefined();
+		expect(rows.map((row) => row.role)).not.toContain("member");
 	});
 
 	it("未知角色被过滤，缺失角色不伪造（仅渲染后端返回的行）", () => {
@@ -99,7 +97,7 @@ describe("mapPermissionMatrixRows（后端六角色矩阵 → 五角色展示矩
 		expect(rows).toHaveLength(2);
 	});
 
-	it("后端仅返回 member 行时：隐藏（#1 无 member→learner 回退语义）", () => {
+	it("后端仅返回未知角色时被过滤", () => {
 		const rows = mapPermissionMatrixRows([
 			{ name: "member", abilities: grants(MEMBER_ABILITIES) },
 		]);

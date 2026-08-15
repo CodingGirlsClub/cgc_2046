@@ -87,7 +87,7 @@ defmodule Cgc2046Web.GraphqlAcceptInvitationTest do
       admin = Fixtures.platform_admin("gql-accept-platform")
       workspace = Fixtures.create_workspace(admin)
       acceptor = Fixtures.register_user("gql-accept-acceptor")
-      invitation = create_invitation(workspace, admin, preauthorized_role_names: [:member])
+      invitation = create_invitation(workspace, admin, preauthorized_role_names: [:learner])
       authed = sign_in_token(acceptor.email)
 
       res = accept_invitation(authed, invitation.id, plain_token(invitation))
@@ -97,7 +97,7 @@ defmodule Cgc2046Web.GraphqlAcceptInvitationTest do
 
       membership = membership_of(workspace.id, acceptor.id)
       loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
-      assert Enum.map(loaded.roles, & &1.name) == [:member]
+      assert Enum.map(loaded.roles, & &1.name) == [:learner]
     end
 
     test "inviter（已是成员）接受自己邀请 → 到达业务逻辑「你已是该工作台成员」" do
@@ -159,7 +159,7 @@ defmodule Cgc2046Web.GraphqlAcceptInvitationTest do
       admin = Fixtures.platform_admin("gql-accept-member-platform")
       workspace = Fixtures.create_workspace(admin)
       acceptor = Fixtures.register_user("gql-accept-member-acceptor")
-      Fixtures.add_member(workspace, acceptor, [:member])
+      Fixtures.add_member(workspace, acceptor)
       invitation = create_invitation(workspace, admin)
       authed = sign_in_token(acceptor.email)
 

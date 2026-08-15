@@ -264,12 +264,12 @@ describe("approveJoinRequest", () => {
 		gcMock.mockReset();
 	});
 
-	it("提交 ApproveJoinRequest mutation（默认 roleNames=[member]）", async () => {
+	it("提交 ApproveJoinRequest mutation（默认 roleNames=[]）", async () => {
 		mutateMock.mockImplementation(({ mutation, variables }) => {
 			expect(mutation).toBe(APPROVE_JOIN_REQUEST);
 			expect(variables).toEqual({
 				id: "jr_1",
-				input: { roleNames: ["member"] },
+				input: { roleNames: [] },
 			});
 			return Promise.resolve({
 				data: {
@@ -294,7 +294,7 @@ describe("approveJoinRequest", () => {
 		mutateMock.mockImplementation(({ variables }) => {
 			expect(variables).toEqual({
 				id: "jr_1",
-				input: { roleNames: ["member", "tutor"] },
+				input: { roleNames: ["learner", "tutor"] },
 			});
 			return Promise.resolve({
 				data: {
@@ -306,7 +306,7 @@ describe("approveJoinRequest", () => {
 			} as never);
 		});
 
-		await approveJoinRequest("jr_1", ["member", "tutor"]);
+		await approveJoinRequest("jr_1", ["learner", "tutor"]);
 	});
 
 	it("成功后 evict joinRequests/workspaceMembers 并 gc（审批后列表与成员页同步）", async () => {

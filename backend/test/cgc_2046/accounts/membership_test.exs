@@ -32,7 +32,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert [%Cgc2046.Accounts.Role{name: :owner}] = roles
     end
 
-    test "roles are seeded per workspace (owner/admin/member/tutor/volunteer/learner)" do
+    test "roles are seeded per workspace (owner/admin/tutor/volunteer/learner)" do
       admin = Fixtures.platform_admin("member-admin")
       workspace = Fixtures.create_workspace(admin)
 
@@ -42,7 +42,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
         |> Ash.read!(tenant: workspace.id, actor: admin)
 
       assert Enum.map(roles, & &1.name) |> Enum.sort() ==
-               [:admin, :learner, :member, :owner, :tutor, :volunteer]
+               [:admin, :learner, :owner, :tutor, :volunteer]
     end
   end
 
@@ -59,27 +59,27 @@ defmodule Cgc2046.Accounts.MembershipTest do
 
       assert {:ok, updated} =
                membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: [:admin, :member]})
+               |> Ash.Changeset.for_update(:assign_roles, %{role_names: [:admin, :tutor]})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
-      assert load_role_names(updated) == [:admin, :member]
+      assert load_role_names(updated) == [:admin, :tutor]
     end
 
     test "assigning again replaces the whole role set", %{admin: admin, workspace: workspace} do
       user = Fixtures.register_user("member-normal")
-      membership = Fixtures.add_member(workspace, user, [:admin, :member])
+      membership = Fixtures.add_member(workspace, user, [:admin, :tutor])
 
       assert {:ok, updated} =
                membership
-               |> Ash.Changeset.for_update(:assign_roles, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:assign_roles, %{role_names: [:learner]})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
-      assert load_role_names(updated) == [:member]
+      assert load_role_names(updated) == [:learner]
     end
 
     test "empty role_names clears all roles", %{admin: admin, workspace: workspace} do
       user = Fixtures.register_user("member-normal")
-      membership = Fixtures.add_member(workspace, user, [:admin, :member])
+      membership = Fixtures.add_member(workspace, user, [:admin, :tutor])
 
       assert {:ok, updated} =
                membership
@@ -119,7 +119,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
 
     test "plain member cannot assign roles", %{workspace: workspace} do
       user = Fixtures.register_user("member-normal")
-      membership = Fixtures.add_member(workspace, user, [:member])
+      membership = Fixtures.add_member(workspace, user)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                membership
@@ -150,7 +150,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
         Fixtures.create_workspace(admin, %{slug: "tenant-b-#{System.unique_integer([:positive])}"})
 
       user = Fixtures.register_user("member-normal")
-      Fixtures.add_member(ws_a, user, [:member])
+      Fixtures.add_member(ws_a, user)
 
       # ws_b 里查不到 ws_a 的成员（ws_b 只应有 admin 自己的 owner membership）
       assert {:ok, ws_b_members} =
@@ -172,7 +172,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
         Fixtures.create_workspace(admin, %{slug: "me-b-#{System.unique_integer([:positive])}"})
 
       user = Fixtures.register_user("member-normal")
-      Fixtures.add_member(ws_a, user, [:member])
+      Fixtures.add_member(ws_a, user)
 
       assert {:ok, mine} =
                Workspace
@@ -191,7 +191,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
         Fixtures.create_workspace(admin, %{slug: "roles-me-#{System.unique_integer([:positive])}"})
 
       user = Fixtures.register_user("member-normal")
-      Fixtures.add_member(workspace, user, [:member])
+      Fixtures.add_member(workspace, user)
 
       assert {:ok, [fetched]} =
                Workspace
@@ -199,7 +199,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
                |> Ash.read(actor: user)
 
       loaded = Ash.load!(fetched, :my_role_names, actor: user)
-      assert loaded.my_role_names == ["member"]
+      assert loaded.my_role_names == []
 
       outsider = Fixtures.register_user("outsider2")
 
@@ -219,7 +219,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
         Fixtures.create_workspace(admin, %{slug: "me-mem-#{System.unique_integer([:positive])}"})
 
       user = Fixtures.register_user("member-normal")
-      membership = Fixtures.add_member(workspace, user, [:member])
+      membership = Fixtures.add_member(workspace, user)
 
       assert {:ok, [fetched]} =
                Workspace

@@ -68,7 +68,7 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
     platform_admin = Fixtures.platform_admin("gql-code-deny-platform")
     member = Fixtures.register_user("gql-code-member")
     workspace = Fixtures.create_workspace(platform_admin)
-    Fixtures.add_member(workspace, member, [:member])
+    Fixtures.add_member(workspace, member)
 
     generate = """
     mutation {

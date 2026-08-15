@@ -13,22 +13,22 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
-      membership = Fixtures.add_member(workspace, member, [:member])
+      membership = Fixtures.add_member(workspace, member, [:learner])
 
       fetched = MembershipContext.membership_of(member, workspace.id)
       assert fetched.id == membership.id
-      assert Enum.map(fetched.roles, & &1.name) == [:member]
-      assert MembershipContext.role_names(member, workspace.id) == [:member]
+      assert Enum.map(fetched.roles, & &1.name) == [:learner]
+      assert MembershipContext.role_names(member, workspace.id) == [:learner]
     end
 
     test "多角色并集按 roles 加载顺序返回" do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
-      Fixtures.add_member(workspace, member, [:member, :tutor])
+      Fixtures.add_member(workspace, member, [:learner, :tutor])
 
       roles = MembershipContext.role_names(member, workspace.id)
-      assert Enum.sort(roles) == [:member, :tutor]
+      assert Enum.sort(roles) == [:learner, :tutor]
     end
 
     test "actor 只需 :id 字段（assign_roles grant scope 契约：%{id: user_id} map）" do
@@ -57,9 +57,9 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       workspace_b = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
 
-      Fixtures.add_member(workspace_a, member, [:member])
+      Fixtures.add_member(workspace_a, member)
 
-      assert MembershipContext.role_names(member, workspace_a.id) == [:member]
+      assert MembershipContext.role_names(member, workspace_a.id) == []
       assert MembershipContext.role_names(member, workspace_b.id) == []
     end
   end
@@ -71,14 +71,14 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       workspace_b = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
 
-      Fixtures.add_member(workspace_a, member, [:member])
+      Fixtures.add_member(workspace_a, member)
       Fixtures.add_member(workspace_b, member, [:tutor])
 
       memberships = MembershipContext.memberships_of_actor(member)
       assert length(memberships) == 2
 
       by_workspace = Map.new(memberships, &{&1.workspace_id, &1})
-      assert Enum.map(by_workspace[workspace_a.id].roles, & &1.name) == [:member]
+      assert Enum.map(by_workspace[workspace_a.id].roles, & &1.name) == []
       assert Enum.map(by_workspace[workspace_b.id].roles, & &1.name) == [:tutor]
     end
 
@@ -92,7 +92,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
     test "1 owner + 1 普通成员 → 1" do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
-      Fixtures.add_member(workspace, Fixtures.register_user("mc-member"), [:member])
+      Fixtures.add_member(workspace, Fixtures.register_user("mc-member"))
 
       assert MembershipContext.owner_count(workspace.id) == 1
     end
@@ -101,10 +101,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
 
-      # 一人持 owner + member 两角色，仍只算 1 次；
+      # 一人持 owner + learner 两角色，仍只算 1 次；
       # admin（创建者）+ multi + 新 owner = 3
       multi = Fixtures.register_user("mc-multi")
-      Fixtures.add_member(workspace, multi, [:owner, :member])
+      Fixtures.add_member(workspace, multi, [:owner, :learner])
       Fixtures.add_member(workspace, Fixtures.register_user("mc-owner"), [:owner])
 
       assert MembershipContext.owner_count(workspace.id) == 3
@@ -162,7 +162,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
-      membership = Fixtures.add_member(workspace, member, [:member])
+      membership = Fixtures.add_member(workspace, member)
 
       %{admin: admin, workspace: workspace, member: member, membership: membership}
     end
@@ -347,7 +347,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       assert {:error, error} =
                MembershipContext.admit_member(member.id, workspace.id, [:tutor],
@@ -363,7 +363,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("mc-member")
-      existing = Fixtures.add_member(workspace, member, [:member])
+      existing = Fixtures.add_member(workspace, member)
 
       assert {:ok, membership} =
                MembershipContext.admit_member(member.id, workspace.id, [:learner],
@@ -381,14 +381,14 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
 
       # 先用 admit_member 建一条（模拟并发下另一请求已插入）
       assert {:ok, _} =
-               MembershipContext.admit_member(member.id, workspace.id, [:member],
+               MembershipContext.admit_member(member.id, workspace.id, [],
                  on_conflict: :business_error
                )
 
       # 第二次同 user+workspace：existing 守卫已拦——此测试验证守卫正常工作
       # （并发竞态的 DB unique 兜底由 unique_membership_conflict? 钉测覆盖，此处不重复）
       assert {:error, error} =
-               MembershipContext.admit_member(member.id, workspace.id, [:member],
+               MembershipContext.admit_member(member.id, workspace.id, [],
                  on_conflict: :business_error
                )
 
@@ -403,7 +403,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       member = Fixtures.register_user("mc-member")
 
       assert {:error, error} =
-               MembershipContext.admit_member(member.id, "not-a-uuid", [:member],
+               MembershipContext.admit_member(member.id, "not-a-uuid", [],
                  on_conflict: :business_error
                )
 
@@ -456,7 +456,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
   end
 
   describe "admit_to_default_workspace (ADR-0004 默认 workspace 2046)" do
-    test "新用户入座 2046 为 member 并建 WorkspaceProfile" do
+    test "新用户入座 2046 为无标签成员并建 WorkspaceProfile" do
       user = Fixtures.register_user("mc-user")
 
       assert {:ok, _membership} = MembershipContext.admit_to_default_workspace(user.id)
@@ -467,10 +467,10 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
                |> Ash.Query.for_read(:get_by_slug, %{slug: "2046"})
                |> Ash.read_one(authorize?: false)
 
-      # 已是 member（roles 含 member）
+      # 已是成员（默认无标签）
       membership = MembershipContext.membership_of(user, ws.id)
       refute is_nil(membership)
-      assert Enum.map(membership.roles, & &1.name) == [:member]
+      assert membership.roles == []
 
       # WorkspaceProfile 已建（默认 only_me / dark）
       assert {:ok, [profile]} =

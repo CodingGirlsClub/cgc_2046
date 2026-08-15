@@ -125,7 +125,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
     end
 
-    test "authenticated user gets the 6-role × 6-ability matrix (G1)" do
+    test "authenticated user gets the 5-role × 6-ability matrix (G1)" do
       admin = Fixtures.platform_admin("gql-rbac-admin")
       token = sign_in_token(admin.email, @password)
 
@@ -146,10 +146,10 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       res = graphql_post(build_conn(), query, token)
 
       assert %{"data" => %{"permissionMatrix" => %{"roles" => roles}}} = res
-      assert length(roles) == 6
+      assert length(roles) == 5
 
       assert Enum.map(roles, & &1["name"]) ==
-               ["owner", "admin", "member", "tutor", "volunteer", "learner"]
+               ["owner", "admin", "tutor", "volunteer", "learner"]
 
       by_name =
         Map.new(
@@ -167,7 +167,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
         assert abilities["create_workspace"] == false
       end
 
-      for role <- ["member", "tutor", "volunteer", "learner"] do
+      for role <- ["tutor", "volunteer", "learner"] do
         abilities = by_name[role]
         assert abilities["view_workspace"] == true
         assert abilities["access_invite_only"] == true
@@ -418,7 +418,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
 
       # owner 经 GraphQL approve——这是 get-by-id 预读 + policy 的真实 HTTP 路径
       res =
-        graphql_post(build_conn(), approve_join_request_query(jr_id, [:member]), owner_token)
+        graphql_post(build_conn(), approve_join_request_query(jr_id, []), owner_token)
 
       assert %{
                "data" => %{
@@ -427,10 +427,10 @@ defmodule Cgc2046Web.GraphqlRbacTest do
              } =
                res
 
-      # membership 已建，applicant 持 member 角色
+      # membership 已建，applicant 无标签
       membership = find_membership(workspace, applicant)
       assert membership != nil
-      assert :member in load_role_names(membership)
+      assert load_role_names(membership) == []
     end
   end
 

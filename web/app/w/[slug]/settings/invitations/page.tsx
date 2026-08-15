@@ -18,6 +18,7 @@ import {
 	fetchInvitations,
 	createInvitation,
 	revokeInvitation,
+	invitationRoleLabel,
 } from "@/lib/invitations";
 import type { InvitationItem } from "@/lib/invitations";
 import {
@@ -309,7 +310,7 @@ export default function InvitationsPage() {
 												<div className="invitation-card__roles">
 													{inv.preauthorizedRoleNames.map((role) => (
 														<span className="workspace-role-chip" key={role}>
-															{role}
+															{invitationRoleLabel(role)}
 														</span>
 													))}
 												</div>

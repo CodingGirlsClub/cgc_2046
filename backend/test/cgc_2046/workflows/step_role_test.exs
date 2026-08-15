@@ -303,7 +303,7 @@ defmodule Cgc2046.Workflows.StepRoleTest do
       admin = Fixtures.platform_admin("srole")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("srole-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       # 不建 Step/StepRole 行（human_step_test 同款路径）
       {:ok, defn} = create_definition(workspace, admin, %{node_def: gated_node_def()})

@@ -74,7 +74,7 @@ defmodule Cgc2046.Workflows.StepAuthorizationTest do
       admin = Fixtures.platform_admin("stepauth")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("stepauth-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       assert :ok =
                StepAuthorization.authorize_signal(
@@ -89,7 +89,7 @@ defmodule Cgc2046.Workflows.StepAuthorizationTest do
       admin = Fixtures.platform_admin("stepauth")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("stepauth-member2")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       {:ok, defn} = create_definition(workspace, admin)
       {:ok, _step} = create_step(workspace, admin, defn)
@@ -104,8 +104,8 @@ defmodule Cgc2046.Workflows.StepAuthorizationTest do
 
       member_a = Fixtures.register_user("stepauth-ma")
       member_b = Fixtures.register_user("stepauth-mb")
-      Fixtures.add_member(ws_a, member_a, [:member])
-      Fixtures.add_member(ws_b, member_b, [:member])
+      Fixtures.add_member(ws_a, member_a)
+      Fixtures.add_member(ws_b, member_b)
 
       # A：approval 仅授权 :owner
       {:ok, defn} = create_definition(ws_a, admin)

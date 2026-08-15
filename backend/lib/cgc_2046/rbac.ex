@@ -29,7 +29,7 @@ defmodule Cgc2046.Rbac do
     仍按实际 membership 判定——此拒绝是双面契约的能力面，契约真源见
     `Cgc2046.Policies.PlatformAdmin` moduledoc（#66 P2 方向①，#64「平台管理员非成员 canAccess=false」）
   - actor 为 `nil`（匿名）→ 一律 `false`
-  - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：六角色均为 false）
+  - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：五角色均为 false）
 
   与各资源 Ash policies 的关系：资源自身由 `policies do ... end` 强制（如 workspace
   读取、workspace_membership 管理）；policy 面与能力面的分工（双面契约）见
@@ -71,8 +71,8 @@ defmodule Cgc2046.Rbac do
 
   语义（与 `roles_can?/2` + 平台管理员豁免一致）：
   - `create_workspace`：仅平台管理员（不出现在角色矩阵，与 matrix 一致）
-  - `view_workspace` / `access_invite_only`：平台管理员或成员（成员身份由调用方判定；
-    角色列表为空时按成员语义仍具备 view/access）
+  - `view_workspace` / `access_invite_only`：平台管理员或任意 membership（成员基准能力，
+    不再经 member 角色判定；角色列表为空时仍具备 view/access）
   - `update_join_policy`：平台管理员豁免或管理角色类（`Role.manage_role?/1`，#78）
   - 管理类能力（list_members / manage_members / assign_roles）：管理角色类
   - 其余：false
@@ -101,12 +101,12 @@ defmodule Cgc2046.Rbac do
   end
 
   @doc """
-  角色 → 能力矩阵（六角色 × 六能力，G1 扩展）。
+  角色 → 能力矩阵（五角色 × 七能力）。
 
-  与前端 #67 `MOCK_PERMISSION_MATRIX` 对齐：
-  - owner/admin：view_workspace / access_invite_only / list_members / manage_members / assign_roles 全 true
-  - member/tutor/volunteer/learner：仅 view_workspace / access_invite_only
-  - create_workspace：平台管理员专属，六角色均 false
+  与前端权限映射页对齐：
+  - owner/admin：view_workspace / access_invite_only / list_members / manage_members / assign_roles / update_join_policy 全 true
+  - tutor/volunteer/learner：仅 view_workspace / access_invite_only（与无标签成员基准等价）
+  - create_workspace：平台管理员专属，五角色均 false
 
   矩阵由 `roles_can?/2` 逐能力派生（#4 单源收敛，消除静态矩阵双源），
   角色枚举从 Role.role_names/0 单源派生（G2 收敛），顺序与 role.ex @role_names 一致。

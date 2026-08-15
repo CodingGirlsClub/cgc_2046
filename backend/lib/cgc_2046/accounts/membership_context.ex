@@ -57,7 +57,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.Accounts.WorkspaceProfile
 
-  # 默认社区 workspace（ADR-0004 §3.5）：新用户注册自动加入（member 角色）
+  # 默认社区 workspace（ADR-0004 §3.5）：新用户注册自动加入（无差异标签）
   @default_workspace_slug "2046"
 
   @doc """
@@ -298,7 +298,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   把新注册用户入座到默认社区 workspace `2046`（ADR-0004 §3.5）。
 
   注册流程在 GraphQL signUp 创建 User 后调用：查默认 workspace(幂等)→
-  admit_member(member 角色, 幂等)→ 建该 user 在 2046 的 WorkspaceProfile
+  admit_member(空角色, 幂等)→ 建该 user 在 2046 的 WorkspaceProfile
   （复制全局 profile 字段, 默认 visibility=only_me）。保证"注册即有 workspace
   上下文"可编辑 per-workspace 档案。
 
@@ -314,7 +314,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   def admit_to_default_workspace(user_id) do
     with {:ok, workspace} <- find_default_workspace(),
          {:ok, membership} <-
-           admit_member(user_id, workspace.id, [:member], on_conflict: :idempotent) do
+           admit_member(user_id, workspace.id, [], on_conflict: :idempotent) do
       # 建 WorkspaceProfile（create action 默认 visibility=only_me / theme=dark / skills=[]；
       # 冲突 = 已有档案，跳过）。失败不阻断入座（档案可后续 lazy 建）。
       WorkspaceProfile

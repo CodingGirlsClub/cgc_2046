@@ -22,7 +22,7 @@
 4. **PortfolioItem 加租户维度**：补 `workspace_id` + multitenancy，纠正"全库唯一无租户维度业务资源"。
 5. **User 收窄为全局身份**：保留 email/display_name/is_platform_admin/member_number/joined_at；移除 avatar_url/location/about/skills/visibility/ui_theme_preference（Phase 5 删除表列，遵 AGENTS.md 不保留向后兼容）。
 6. **visibility=:workspace 语义收窄**：从"同任一工作区成员可读"（shared_workspace_ids）改为"目标 workspace 成员可读"（该 WorkspaceProfile 所属 workspace 的成员）。
-7. **默认 workspace "2046"**：迁移幂等创建 slug=`2046`、join_policy=`open` 的默认社区 workspace（seed 六角色）；新用户注册自动加入（member 角色），存量无 membership 用户回填加入。保证"注册即可用"、全局入口有兜底归属。
+7. **默认 workspace "2046"**：迁移幂等创建 slug=`2046`、join_policy=`open` 的默认社区 workspace（当时 seed 六角色）；新用户注册自动加入（当时 member 角色），存量无 membership 用户回填加入。保证"注册即可用"、全局入口有兜底归属。**已被 ADR-0006 取代：注册入 2046 改为无标签 membership，`member` 角色退役。**
 8. **全局入口下线**：`/settings/account/profile` 删除，访问 redirect 到 `/w/2046/settings/account/profile`；`profileHref()` 无 slug fallback 到 2046。
 
 ### 拒绝的替代

@@ -8,9 +8,9 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
   允许跨租户读取），再按 workspace_id 分组，避免 N+1（#2 成员资格读取收敛）。
 
   my_abilities（#1 能力接口收敛）：由共享纯函数 Rbac.abilities_for/2 派生（含非成员分支）：
-  成员路径从已加载的角色并集派生；非成员分支
+  成员路径从已加载的角色并集派生；空标签 membership 仍具备成员基准能力
+  （view_workspace / access_invite_only，与旧 member 角色等价）。非成员分支
   （actor 不在该工作台）平台管理员豁免 view/access/create_workspace、其余为 []。
-  返回能力名字符串列表，顺序同 Rbac.abilities_list/0。
   双面契约（policy 面放行 vs 能力面拒绝）真源见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
   """
   use Ash.Resource.Calculation

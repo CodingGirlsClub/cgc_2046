@@ -27,7 +27,7 @@
 
 ## F4/F5 工作台与审批
 
-- [ ] Visitor 或没有任何 workspace membership 的用户看不到「工作台」；任意 workspace 成员（含 learner）可见自己的 workspace。
+- [ ] Visitor 或没有任何 workspace membership 的用户看不到「工作台」；任意 workspace 成员（含无标签成员 / learner）可见自己的 workspace。
 - [ ] 只有具备 `manage_members` ability 的成员看到跨 workspace 待办；按 deadline 升序，24 小时内项为红色。
 - [ ] 点击报名/加入待办的通过与拒绝，列表即时刷新；普通成员直接进入页面仍 fail-closed。
 - [ ] 「订阅提醒」只在用户点击后弹微信授权，不在页面加载时自动弹窗。

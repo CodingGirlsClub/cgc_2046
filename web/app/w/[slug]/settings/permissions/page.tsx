@@ -38,7 +38,7 @@ function roleLabel(role: MembershipRoleName) {
 }
 
 function roleBadgeClass(role: MembershipRoleName) {
-	return ROLE_BADGE_CLASS[role] ?? "l-badge l-badge-member";
+	return ROLE_BADGE_CLASS[role] ?? "l-badge";
 }
 
 function PermissionCell({
@@ -282,18 +282,34 @@ export default function WorkspacePermissionsPage() {
 				)}
 
 				<section className="permissions-notices" aria-label="权限规则说明">
-					<NoticeCard
-						icon="users"
-						tone="green"
-						title="多角色取并集"
-						detail="任一角色允许，即可执行"
-					/>
-					<NoticeCard
-						icon="shield"
-						tone="cyan"
-						title="租户边界优先"
-						detail="跨 Workspace 一律拒绝"
-					/>
+					<article
+						className="permissions-notice permissions-notice--green"
+						data-testid="permissions-baseline-row"
+					>
+						<span className="permissions-notice__icon">
+							<Icon name="users" size={23} />
+						</span>
+						<div>
+							<strong>成员</strong>
+							<span>
+								成员资格本身即拥有基准能力 view_workspace + access_invite_only
+							</span>
+						</div>
+					</article>
+					<article
+						className="permissions-notice permissions-notice--cyan"
+						data-testid="permissions-diff-tags-row"
+					>
+						<span className="permissions-notice__icon">
+							<Icon name="shield" size={23} />
+						</span>
+						<div>
+							<strong>差异标签</strong>
+							<span>
+								tutor·volunteer·learner 当前能力等同，用于工作流步骤授权与分工
+							</span>
+						</div>
+					</article>
 					<NoticeCard
 						icon="owner"
 						tone="blue"

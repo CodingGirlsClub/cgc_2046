@@ -5,12 +5,13 @@ defmodule Cgc2046.RbacTest do
   alias Cgc2046.Rbac
 
   describe "matrix/0" do
-    test "matches the contract artifact (6 roles, G1)" do
+    test "matches the contract artifact (5 roles, G1)" do
       matrix = Rbac.matrix()
 
-      assert length(matrix) == 6
+      assert length(matrix) == 5
       # 角色枚举断言引用单源（G2 收敛），避免测试与 Role.role_names/0 漂移
       assert Enum.map(matrix, & &1.role) == Role.role_names()
+      refute :member in Role.role_names()
 
       for row <- matrix, row.role in Role.manage_roles() do
         assert row.abilities.view_workspace == true
@@ -22,7 +23,7 @@ defmodule Cgc2046.RbacTest do
         assert row.abilities.create_workspace == false
       end
 
-      for role <- [:member, :tutor, :volunteer, :learner] do
+      for role <- [:tutor, :volunteer, :learner] do
         row = Enum.find(matrix, &(&1.role == role))
         assert row.abilities.view_workspace == true
         assert row.abilities.access_invite_only == true
@@ -50,13 +51,13 @@ defmodule Cgc2046.RbacTest do
       end
 
       # 成员级角色：仅 view/access
-      for role <- [:member, :tutor, :volunteer, :learner] do
+      for role <- [:tutor, :volunteer, :learner] do
         assert Rbac.abilities_for([role], false) == [:view_workspace, :access_invite_only]
       end
     end
 
     test "multi-role union takes precedence over single roles" do
-      assert Rbac.abilities_for([:member, :admin], false) == [
+      assert Rbac.abilities_for([:tutor, :admin], false) == [
                :view_workspace,
                :access_invite_only,
                :list_members,

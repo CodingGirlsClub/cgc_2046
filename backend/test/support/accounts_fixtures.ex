@@ -71,7 +71,7 @@ defmodule Cgc2046.AccountsFixtures do
     )
   end
 
-  def add_member(workspace, user, role_names \\ [:member]) do
+  def add_member(workspace, user, role_names \\ []) do
     {:ok, membership} =
       MembershipContext.admit_member(user.id, workspace.id, role_names, on_conflict: :idempotent)
 
@@ -80,7 +80,7 @@ defmodule Cgc2046.AccountsFixtures do
 
   @doc """
   支配模式组合：owner 注册并持有 workspace（Owner 成员），member 注册并以
-  `member_roles` 入座。返回 `%{owner:, workspace:, member:, membership:}`。
+  `member_roles` 入座（默认无差异标签）。返回 `%{owner:, workspace:, member:, membership:}`。
 
   Workspace create policy 仅 platform admin 可建：此处以 `authorize?: false`
   建工作台（布置旁路，与 add_member/3 同），owner 作为 actor 由 Workspace
@@ -98,7 +98,7 @@ defmodule Cgc2046.AccountsFixtures do
       |> Ash.create!(actor: owner, authorize?: false)
 
     member = register_user("member")
-    membership = add_member(workspace, member, Keyword.get(opts, :member_roles, [:member]))
+    membership = add_member(workspace, member, Keyword.get(opts, :member_roles, []))
 
     %{owner: owner, workspace: workspace, member: member, membership: membership}
   end

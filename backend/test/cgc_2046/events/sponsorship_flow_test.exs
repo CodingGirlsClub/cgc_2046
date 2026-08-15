@@ -328,7 +328,7 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin, %{sponsorship_tiers: [@standard_tier]})
       member = Fixtures.register_user("fulfill-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       event = EventFixtures.create_event(workspace, admin, %{sponsorship_tiers: [@standard_tier]})
       sponsor = Fixtures.register_user("fulfill-sponsor")
@@ -515,7 +515,7 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
     test "非 Owner/Admin 不能配 tiers（Event 与 Workspace 均拒绝）" do
       {owner, workspace} = workspace_with_owner()
       member = Fixtures.register_user("tiers-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       event = EventFixtures.create_event(workspace, owner)
 

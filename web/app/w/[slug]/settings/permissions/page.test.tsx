@@ -209,9 +209,19 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(
 			within(workspaceNav).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings/members");
-		expect(screen.getByText("多角色取并集")).toBeInTheDocument();
-		expect(screen.getByText("租户边界优先")).toBeInTheDocument();
-		expect(screen.getByText("Owner 专门指派")).toBeInTheDocument();
+		expect(screen.getByTestId("permissions-baseline-row")).toHaveTextContent(
+			"成员",
+		);
+		expect(screen.getByTestId("permissions-baseline-row")).toHaveTextContent(
+			"成员资格本身即拥有",
+		);
+		expect(screen.getByTestId("permissions-diff-tags-row")).toHaveTextContent(
+			"差异标签",
+		);
+		expect(screen.getByTestId("permissions-diff-tags-row")).toHaveTextContent(
+			"tutor·volunteer·learner",
+		);
+		expect(screen.queryByText("多角色取并集")).not.toBeInTheDocument();
 	});
 
 	it("展示五个设计角色和七项能力", async () => {
@@ -225,6 +235,12 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 				screen.getByText(role, { selector: ".permissions-role-header" }),
 			).toBeInTheDocument();
 		}
+		expect(
+			screen.queryByText("Member", { selector: ".permissions-role-header" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("cell-member-view_workspace"),
+		).not.toBeInTheDocument();
 		for (const ability of PERMISSION_ABILITIES) {
 			expect(
 				screen.getByTestId(`permission-row-${ability.id}`),
@@ -342,8 +358,8 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 				name: "BE 验证权限工作区",
 				joinPolicy: "request",
 				sponsorshipEnabled: true,
-				myRoleNames: ["admin", "member"],
-				roles: ["admin", "member"],
+				myRoleNames: ["admin"],
+				roles: ["admin"],
 				membershipStatus: "active",
 			},
 		]);

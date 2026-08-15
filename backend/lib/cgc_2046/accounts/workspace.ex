@@ -8,7 +8,7 @@ defmodule Cgc2046.Accounts.Workspace do
   - `sponsorship_enabled`：是否开放赞助入口，默认开
 
   权限（#62 + #64，Leader 已拍板）：
-  - 创建：仅平台管理员；创建时自动 seed 角色（owner/admin/member/tutor/volunteer/learner）并建立 Owner 成员资格（#64 + G1）
+  - 创建：仅平台管理员；创建时自动 seed 差异标签（owner/admin/tutor/volunteer/learner）并建立 Owner 成员资格（#64 + plan 017）
   - 读取：open/request 工作台对已认证用户可定向查询；invite_only 仅成员/管理员/平台管理员可读（非成员返回 null/forbidden，不可发现）
   - 更新：Owner/Admin（多角色并集）或平台管理员可改（#78：放开 join_policy 修改，
     对应能力 `:update_join_policy`，见 Rbac 能力表）
@@ -183,7 +183,7 @@ defmodule Cgc2046.Accounts.Workspace do
         after_action(fn changeset, workspace, _context ->
           tenant = workspace.id
 
-          # 角色模板从 Role 模块单源取（role_descriptions/0），避免重复六角色字面量（G2 收敛）。
+          # 角色模板从 Role 模块单源取（role_descriptions/0），避免重复五角色字面量（G2 收敛）。
           # reduce_while + Ash.create（非 bang）：任一角色创建失败短路返回 {:error, ...}，
           # 走 ash_graphql to_errors → 结构化错误；after_action 在父 create 事务内，
           # 返回 {:error, _} 会 rollback 整个 workspace 创建，不留孤儿。
@@ -351,7 +351,7 @@ defmodule Cgc2046.Accounts.Workspace do
     # GraphQL 层暴露为 mutation（joinWorkspace），符合"mutation 改状态"的语义。
     # 旧实现挂在 read :join 上暴露成 query，违反 GraphQL query 无副作用约定。
     action :join, :struct do
-      description("直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色")
+      description("直接加入公开工作台（join_policy==:open）→ 建无标签 Membership")
 
       constraints(instance_of: __MODULE__)
 
@@ -391,13 +391,12 @@ defmodule Cgc2046.Accounts.Workspace do
                     # 区别于 join_request approve 把重复审批当业务错误。真 DB 故障上抛。
                     # ponytail: generic action :join 默认 transaction?: false（action/action.ex:20），
                     # 两次写不在同一事务——MembershipRole 创建失败时 Membership 已 commit，
-                    # 留孤儿 membership。已从 raise-500 改为结构化错误，但孤儿未消除；
-                    # learner 新 membership 不命中 unique 冲突，仅 DB 连接断等极端情况触发，概率极低。
+                    # 留孤儿 membership。空角色入座不建 MembershipRole，仅 DB 故障极端情况触发。
                     # 若需强一致，给 action :join 加 transaction?: true（ash_postgres 支持跨资源事务）。
                     case Cgc2046.Accounts.MembershipContext.admit_member(
                            actor.id,
                            workspace_id,
-                           [:learner],
+                           [],
                            on_conflict: :idempotent
                          ) do
                       {:ok, _membership} -> {:ok, workspace}
@@ -498,7 +497,7 @@ defmodule Cgc2046.Accounts.Workspace do
 
       # join 为 generic action，用 action 暴露成 mutation（写操作语义）
       action(:join_workspace, :join,
-        description: "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
+        description: "直接加入公开工作台（join_policy==:open）→ 建无标签 Membership"
       )
     end
   end

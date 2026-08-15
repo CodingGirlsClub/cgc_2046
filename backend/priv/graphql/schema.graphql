@@ -3566,7 +3566,7 @@ input RoleFilterInput {
   "所属工作台（租户）ID"
   workspaceId: RoleFilterWorkspaceId
 
-  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
+  "角色名：owner \/ admin \/ tutor \/ volunteer \/ learner"
   name: RoleFilterName
 
   "角色说明"
@@ -3584,7 +3584,7 @@ type Role {
   "所属工作台（租户）ID"
   workspaceId: ID!
 
-  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
+  "角色名：owner \/ admin \/ tutor \/ volunteer \/ learner"
   name: String!
 
   "角色说明"
@@ -4070,7 +4070,7 @@ type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
 
-  "角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
+  "角色权限矩阵（#66 Rbac）：五角色 × 七能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
   permissionMatrix: PermissionMatrixPayload
 
   offeringReadiness(id: ID!): OfferingReadinessPayload
@@ -4474,7 +4474,7 @@ type AbilityGrant {
 }
 
 type PermissionMatrixRow {
-  "角色名：owner \/ admin \/ member \/ tutor \/ volunteer \/ learner"
+  "角色名：owner \/ admin \/ tutor \/ volunteer \/ learner"
   name: String!
 
   abilities: [AbilityGrant!]!
@@ -4926,7 +4926,7 @@ type RootMutationType {
   "重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请"
   reassignWorkspaceOwner(id: ID!, input: ReassignWorkspaceOwnerInput): ReassignWorkspaceOwnerResult!
 
-  "直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色"
+  "直接加入公开工作台（join_policy==:open）→ 建无标签 Membership"
   joinWorkspace(input: JoinWorkspaceInput!): Workspace!
 
   "分配成员角色（多角色并集，仅 Owner\/Admin）"
@@ -4935,7 +4935,7 @@ type RootMutationType {
   "提交加入申请"
   createJoinRequest(input: CreateJoinRequestInput!): CreateJoinRequestResult!
 
-  "审批通过加入申请（Owner\/Admin，自动建 Membership + MembershipRole）"
+  "审批通过加入申请（Owner\/Admin，自动建 Membership（默认无标签角色））"
   approveJoinRequest(id: ID!, input: ApproveJoinRequestInput): ApproveJoinRequestResult!
 
   "拒绝加入申请（Owner\/Admin）"

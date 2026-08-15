@@ -9,7 +9,7 @@ export function roleLabel(role: MembershipRoleName) {
 }
 
 export function roleBadgeClass(role: MembershipRoleName) {
-  return ROLE_BADGE_CLASS[role] ?? "l-badge l-badge-member";
+  return ROLE_BADGE_CLASS[role] ?? "l-badge";
 }
 
 export function RoleChips({

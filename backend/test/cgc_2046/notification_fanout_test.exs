@@ -43,7 +43,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       member =
         Fixtures.register_user("fanout-empty-member-#{System.unique_integer([:positive])}")
 
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
       insert_identity(member.id, :wechat, "fanout-empty-member-openid")
 
       assert NotificationFanout.managers(workspace.id) == %{}
@@ -290,7 +290,7 @@ defmodule Cgc2046.NotificationFanoutTest do
     member =
       Fixtures.register_user("fanout-roles-member-#{System.unique_integer([:positive])}")
 
-    Fixtures.add_member(workspace, member, [:member])
+    Fixtures.add_member(workspace, member)
 
     %{owner: owner, admin: admin, member: member, workspace: workspace}
   end

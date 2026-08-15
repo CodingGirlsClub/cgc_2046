@@ -198,7 +198,7 @@ describe("lib/profile 真实分支（ADR-0004 me 收窄 + workspaceProfile）", 
 								name: "真实工作台二",
 								joinPolicy: "request",
 								sponsorshipEnabled: true,
-								myRoleNames: ["admin", "member"],
+								myRoleNames: ["admin"],
 								myMembershipId: "wm_2",
 								canAccess: true,
 							},
@@ -226,7 +226,7 @@ describe("lib/profile 真实分支（ADR-0004 me 收窄 + workspaceProfile）", 
 			workspaceSlug: "real-ws",
 			myRoleNames: ["owner"],
 		});
-		expect(roles[1].myRoleNames).toEqual(["admin", "member"]);
+		expect(roles[1].myRoleNames).toEqual(["admin"]);
 		expect(roles[2].workspaceId).toBe("ws_real_3");
 	});
 

@@ -69,8 +69,8 @@ const MEMBER_WORKSPACES = [
 		name: "CGC 上海分社",
 		joinPolicy: "open" as const,
 		sponsorshipEnabled: true,
-		myRoleNames: ["member"],
-		roles: ["member"],
+		myRoleNames: [],
+		roles: [],
 		myAbilities: ["view_workspace", "access_invite_only"],
 		membershipStatus: "active" as const,
 	},
@@ -148,7 +148,7 @@ describe("/w/[slug]/settings/requests 审批页", () => {
 		expect(rejectButtons).toHaveLength(2);
 	});
 
-	it("点击通过打开弹窗，选角色后确认", async () => {
+	it("点击通过打开弹窗，默认无标签后确认", async () => {
 		render(<RequestsPage />);
 
 		const approveButtons = await screen.findAllByRole("button", {
@@ -160,14 +160,15 @@ describe("/w/[slug]/settings/requests 审批页", () => {
 		expect(
 			await screen.findByRole("heading", { name: "审批通过" }),
 		).toBeInTheDocument();
-		// 默认 member 已选中
-		const memberCheckbox = screen.getByRole("checkbox", { name: "member" });
-		expect(memberCheckbox).toBeChecked();
+		expect(screen.queryByRole("checkbox", { name: "member" })).not.toBeInTheDocument();
+		for (const role of ["tutor", "volunteer", "learner"]) {
+			expect(screen.getByRole("checkbox", { name: role })).not.toBeChecked();
+		}
 
-		// 确认通过
+		// 确认通过（默认无标签）
 		fireEvent.click(screen.getByRole("button", { name: "确认通过" }));
 		await waitFor(() => {
-			expect(approveJoinRequest).toHaveBeenCalledWith("jr_1", ["member"]);
+			expect(approveJoinRequest).toHaveBeenCalledWith("jr_1", []);
 		});
 	});
 

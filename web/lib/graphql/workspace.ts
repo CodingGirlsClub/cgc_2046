@@ -20,10 +20,10 @@ import type { MutationResult } from "./shared";
 export type JoinPolicy = "open" | "request" | "invite_only";
 
 /**
- * 六角色枚举唯一真源（Shotgun Surgery 修复，2026-08-02）。
+ * 五角色差异标签枚举唯一真源。
  *
- * 加第 7 个角色只改这里；其它文件一律 import ROLE_NAMES / MembershipRoleName，
- * 不得重复六角色完整字面量数组。
+ * 入座默认无标签；owner/admin 为管理角色，tutor/volunteer/learner 为差异标签。
+ * 加新标签只改这里；其它文件一律 import ROLE_NAMES / MembershipRoleName。
  */
 export const ROLE_NAMES = [
 	"owner",
@@ -31,7 +31,6 @@ export const ROLE_NAMES = [
 	"tutor",
 	"volunteer",
 	"learner",
-	"member",
 ] as const;
 
 /**
@@ -391,7 +390,7 @@ export const JOIN_POLICY_HINT: Record<JoinPolicy, string> = {
 
 /* ---------------- 成员角色（#64）展示辅助 ---------------- */
 
-/** 成员角色全集（引用 ROLE_NAMES 单源，与共享 ROLE_LABEL 六角色一致） */
+/** 成员角色全集（引用 ROLE_NAMES 单源，五角色差异标签） */
 export const MEMBERSHIP_ROLES: MembershipRoleName[] = [...ROLE_NAMES];
 
 export const ROLE_LABEL: Record<MembershipRoleName, string> = {
@@ -400,7 +399,6 @@ export const ROLE_LABEL: Record<MembershipRoleName, string> = {
 	tutor: "Tutor",
 	volunteer: "Volunteer",
 	learner: "Learner",
-	member: "Member",
 };
 
 export const ROLE_LABEL_ZH: Record<MembershipRoleName, string> = {
@@ -409,7 +407,6 @@ export const ROLE_LABEL_ZH: Record<MembershipRoleName, string> = {
 	tutor: "教练",
 	volunteer: "志愿者",
 	learner: "学员",
-	member: "成员",
 };
 
 /** 角色徽章样式（Linear 风格双主题，配合 globals.css 的 l-badge-* 类） */
@@ -419,5 +416,4 @@ export const ROLE_BADGE_CLASS: Record<MembershipRoleName, string> = {
 	tutor: "l-badge l-badge-tutor",
 	volunteer: "l-badge l-badge-volunteer",
 	learner: "l-badge l-badge-learner",
-	member: "l-badge l-badge-member",
 };

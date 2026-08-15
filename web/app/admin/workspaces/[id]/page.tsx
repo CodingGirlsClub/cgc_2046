@@ -18,6 +18,8 @@ import { gql } from "@apollo/client";
 import { client } from "@/lib/apollo-client";
 import {
 	JOIN_POLICY_LABEL,
+	ROLE_BADGE_CLASS,
+	type MembershipRoleName,
 	type Workspace,
 } from "@/lib/graphql/workspace";
 import { fetchWorkspaceMembers, type WorkspaceMember } from "@/lib/workspaces";
@@ -380,13 +382,23 @@ export default function AdminWorkspaceDetailPage() {
 										)}
 									</td>
 									<td>
-										<span className="admin-badge-row">
-											{m.roles.map((r) => (
-												<span key={r} className="l-badge l-badge-member">
-													{r}
-												</span>
-											))}
-										</span>
+										{m.roles.length === 0 ? (
+											<span className="members-empty-role">暂无角色</span>
+										) : (
+											<span className="admin-badge-row">
+												{m.roles.map((r) => (
+													<span
+														key={r}
+														className={
+															ROLE_BADGE_CLASS[r as MembershipRoleName] ??
+															"l-badge"
+														}
+													>
+														{r}
+													</span>
+												))}
+											</span>
+										)}
 									</td>
 								</tr>
 							))}

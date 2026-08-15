@@ -211,7 +211,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       change(
         after_action(fn changeset, application, _context ->
           # 创建 workspace：authorize?: false + 无 actor → Workspace.create after_action
-          # 仅 seed 六角色、不建 Owner membership（actor nil 分支），Owner 由下方
+          # 仅 seed 五角色差异标签、不建 Owner membership（actor nil 分支），Owner 由下方
           # admit_member 指定给申请人——applicant 为唯一 Owner（验收标准）。
           # slug 冲突 / 角色 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
           # UPDATE 一并回滚，application 保持 pending，不留孤儿 workspace）。

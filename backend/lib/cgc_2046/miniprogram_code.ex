@@ -106,7 +106,7 @@ defmodule Cgc2046.MiniprogramCode do
     expires_at =
       Keyword.get(opts, :expires_at, DateTime.add(DateTime.utc_now(), @default_expiry_days, :day))
 
-    role_names = Keyword.get(opts, :preauthorized_role_names, [:member])
+    role_names = Keyword.get(opts, :preauthorized_role_names, [])
 
     Invitation
     |> Ash.Changeset.for_create(:create, %{

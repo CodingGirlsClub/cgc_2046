@@ -9,8 +9,8 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
       admin = Fixtures.platform_admin("br-admin")
       ws_a = Fixtures.create_workspace(admin)
       ws_b = Fixtures.create_workspace(admin)
-      Fixtures.add_member(ws_a, Fixtures.register_user("br-user"), [:member])
-      Fixtures.add_member(ws_a, Fixtures.register_user("br-user"), [:member])
+      Fixtures.add_member(ws_a, Fixtures.register_user("br-user"))
+      Fixtures.add_member(ws_a, Fixtures.register_user("br-user"))
       Fixtures.add_member(ws_b, Fixtures.register_user("br-user"), [:admin])
 
       # 创建者自动是成员：ws_a = admin + 2，ws_b = admin + 1
@@ -81,7 +81,7 @@ defmodule Cgc2046.Accounts.BypassReadsTest do
       admin = Fixtures.platform_admin("br-admin")
       workspace = Fixtures.create_workspace(admin)
       Fixtures.add_member(workspace, Fixtures.register_user("br-user"), [:admin])
-      Fixtures.add_member(workspace, Fixtures.register_user("br-user"), [:member])
+      Fixtures.add_member(workspace, Fixtures.register_user("br-user"))
 
       # admin（owner）+ 2 非 owner = 1
       assert BypassReads.owner_count(workspace.id) == 1

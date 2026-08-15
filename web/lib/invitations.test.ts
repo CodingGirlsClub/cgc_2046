@@ -36,7 +36,7 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 			tokenHash: "hash_abc",
 			inviterId: "admin_1",
 			targetEmail: "user@test.com",
-			preauthorizedRoleNames: ["member"],
+			preauthorizedRoleNames: ["learner"],
 			expiresAt: "2026-08-20T03:00:00Z",
 			status: "active",
 		});
@@ -47,7 +47,7 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 			plainToken: null,
 			inviterId: "admin_1",
 			targetEmail: "user@test.com",
-			preauthorizedRoleNames: ["member"],
+			preauthorizedRoleNames: ["learner"],
 			expiresAt: "2026-08-20T03:00:00Z",
 			status: "active",
 			acceptedBy: null,
@@ -56,6 +56,19 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 			workspaceSlug: null,
 			workspaceJoinPolicy: null,
 		});
+	});
+
+	it("存量 member 预授权映射为成员（无标签）", () => {
+		const item = mapInvitation({
+			id: "inv_legacy",
+			workspaceId: "ws_1",
+			tokenHash: "hash_legacy",
+			inviterId: "admin_1",
+			preauthorizedRoleNames: ["member"],
+			status: "active",
+		});
+
+		expect(item.preauthorizedRoleNames).toEqual(["成员（无标签）"]);
 	});
 
 	it("used 状态映射（含接受人/时间）", () => {
@@ -243,7 +256,7 @@ describe("createInvitation", () => {
 					workspaceId: "ws_1",
 					inviterId: "admin_1",
 					targetEmail: "user@test.com",
-					preauthorizedRoleNames: ["member"],
+					preauthorizedRoleNames: ["learner"],
 				},
 			});
 			return Promise.resolve({
@@ -253,7 +266,7 @@ describe("createInvitation", () => {
 							id: "inv_new",
 							workspaceId: "ws_1",
 							targetEmail: "user@test.com",
-							preauthorizedRoleNames: ["member"],
+							preauthorizedRoleNames: ["learner"],
 							status: "active",
 						},
 						metadata: { plainToken: "token_new" },
@@ -267,7 +280,7 @@ describe("createInvitation", () => {
 			workspaceId: "ws_1",
 			inviterId: "admin_1",
 			targetEmail: "user@test.com",
-			preauthorizedRoleNames: ["member"],
+			preauthorizedRoleNames: ["learner"],
 		});
 		expect(item.id).toBe("inv_new");
 		expect(item.status).toBe("active");

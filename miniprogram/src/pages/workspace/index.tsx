@@ -10,7 +10,7 @@ import { requestPlatformSubscription } from '@/platform'
 import styles from './index.module.css'
 
 const roleText: Record<string, string> = {
-  owner: 'Owner', admin: 'Admin', member: '成员', tutor: 'Tutor', volunteer: '志愿者', learner: 'Learner'
+  owner: 'Owner', admin: 'Admin', tutor: 'Tutor', volunteer: '志愿者', learner: 'Learner'
 }
 
 export default function WorkspacePage() {

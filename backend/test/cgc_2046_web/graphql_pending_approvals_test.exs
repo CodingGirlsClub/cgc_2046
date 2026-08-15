@@ -156,7 +156,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     outsider = Fixtures.register_user("pending-outsider")
     applicant = Fixtures.register_user("pending-deny-applicant")
     workspace = Fixtures.create_workspace(platform_admin)
-    Fixtures.add_member(workspace, member, [:member])
+    Fixtures.add_member(workspace, member)
     _pending = create_join_request(workspace, applicant)
 
     assert %{"data" => %{"myPendingApprovals" => []}} =
