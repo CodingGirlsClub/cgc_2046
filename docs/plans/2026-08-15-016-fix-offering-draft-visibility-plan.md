@@ -93,8 +93,7 @@ Deferred to Follow-Up Work：
   - `event_visibility_test.exs` L82-103「成员读全部」断言反转为 NotFound（`{:error, %{errors: [%Ash.Error.Query.NotFound{}]}}` 形状）；模块 describe 文案同步（成员不再读全部）。
   - 新建 `course_visibility_test.exs` 同构覆盖（**现有 Course anonymous 断言保留/迁移进来**，非从零写）。
   - 表驱动角色组合：member/tutor/volunteer/learner 单角色与两两组合读 draft 均 NotFound；owner/admin 单独命中。
-  - 跨租户 sentinel：A 台 owner/admin + B 台 member 探 B 台 draft → NotFound。
-  - GraphQL HTTP 层：member `event(id)` / `course(id)` / `getEventBySlug` draft → null + not_found；`listEvents/listCourses { count }` member 不计 draft（count 侧信道钉住）。
+  - GraphQL HTTP 层：member `event(id)` / `course(id)` / `getEventBySlug` draft → null + not_found；**错误同形 sentinel**：member 对 draft id 与随机不存在 id 的顶层错误 code/message 完全同形（FilterCheck 语义是过滤→NotFound；若误写为 Forbidden 类错误即红，防差异泄露）；`listEvents/listCourses { count }` member 不计 draft（count 侧信道钉住）。
   - `speakerInvitationCard`：有效 token 对 draft event 仍返回（例外钉住）；无效 token 不可达。`list_for_event` 对 member+存在 draft event 与随机不存在 id **统一 not_found**（消除枚举 oracle，resolver 映射改一行 + 差异测试）。
   - sponsorship：draft public event `createSponsorship` → sponsorship_not_open（KTD5 收紧的回归）。
   - **Global list sentinel**：`listEvents/listCourses` filter 参数可选，攻击者可省略 workspaceId 做全局列表——member token 无 filter 全局 list 只返回其所属工作台的非 draft（不返回任何跨租户/非成员 draft，open+public 除外）；FilterCheck 关联错写在此面最易泄露。
@@ -102,7 +101,7 @@ Deferred to Follow-Up Work：
 - KTD4. web 概览页（`web/app/w/[slug]/page.tsx`）：删过时注释；活动卡子标题去 jargon，改为**中性措辞**（如「浏览工作台活动与报名信息」——全员卡不含「管理」字样，Owner/Admin 的管理能力在列表页/按钮表达，不在全员卡）；新增课程入口卡——复用既有内联 Link 卡结构（icon 圆框 + 标题 + 子标题 + arrow，同 `grid gap-4 sm:grid-cols-2` 网格），指向 `/w/[slug]/courses`，无角色门控；`page.test.tsx` 既有 events 卡断言保持。
 - KTD5. 文案与注释同步（扩面清单）：web——`offering-pages.tsx` 页头（约 L173）与文件头注释（L6）、`web/lib/events.ts:35` 注释、`web/lib/graphql/events.ts:13` 注释；backend——`event.ex` policy 注释（成员行描述，约 L510）、`course.ex` 同（约 L475）、`event_visibility_test.exs` 模块 describe。**sponsorship raw SQL 收紧**：`sponsorship.ex:361-377` eligible_target SQL 的 WHERE 补 `AND status = 'open'`（与 `sponsorship_enabled` 并列），消除 draft 创建成功 oracle。
 - KTD6. 零迁移、零前端查询改动：存量 draft 不需处理（收紧只影响读路径）；web `LIST_EVENTS`/`LIST_COURSES` 本就无 status filter，后端过滤后成员列表自动少 draft 行；`rbac_contract.json` 七项能力（含 create_workspace）与 Event/Course 读 policy 无耦合（已核实；**无 offering read ability 为刻意设计**——offering 可见性由资源 policy 表达而非能力矩阵，跨端一致性由 KTD3 GraphQL 断言 + U3 e2e 兜住），无需再生成。Governs R3, R8（cross-cutting constraint，无独立 R）。
-- KTD7. **详情页错误态补齐**（评审证伪「自动错误态」）：`OfferingDetailPage` 当前 `offering === null` 只渲染永久 skeleton（`offering-pages.tsx:462-468`），后端 NotFound → GraphQL null 不会进 error state。修法：fetchOffering 返回 null 时渲染「该活动/课程不可访问或不存在」错误态（对齐 `public-offering-detail.tsx:123-143` 既有文案与结构），区分 not-found 与网络错误可后置（v1 统一不可访问文案）；page/component 测试断言错误态文本。
+- KTD7. **详情页错误态补齐**（评审证伪「自动错误态」）：`OfferingDetailPage` 当前 `offering === null` 只渲染永久 skeleton（`offering-pages.tsx:462-468`），后端 NotFound → GraphQL null 不会进 error state。修法：fetchOffering 返回 null 时渲染「该活动/课程不可访问或不存在」错误态（对齐 `public-offering-detail.tsx:123-143` 既有文案与结构），区分 not-found 与网络错误可后置（v1 统一不可访问文案）；error 分支不把 raw GraphQL error message 直接渲染给用户（现 `offering-pages.tsx:186-188,262-272` 直显 e.message，统一为友好文案）；page/component 测试断言错误态文本。
 
 ### High-Level Technical Design
 
