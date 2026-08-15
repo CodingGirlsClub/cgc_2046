@@ -5,7 +5,7 @@
  *
  * #63 占位页已被本页取代：接入 WorkspaceShell（壳负责未认证重定向、侧栏、
  * 退出登录与「工作区不可访问」态），页面退化为壳内纯内容 —— Hero / 信息卡
- * 网格 / 管理入口 / 后续切片占位条。
+ * 网格 / 管理入口。
  *
  * 数据：只消费真实数据（useWorkspaceBySlug → fetchMyWorkspaces 唯一路径，
  * #1 mock 双轨已删除，2026-08-02 决策）；未解析完成时渲染骨架，绝不渲染
@@ -175,7 +175,24 @@ export default function WorkspacePage() {
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm font-medium text-ink">活动</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										创建与管理活动：草稿、发布、报名与结束（切片 E）
+										浏览工作台活动与报名信息
+									</span>
+								</span>
+								<span className="flex-none text-ink-3">
+									<Icon name="arrow" />
+								</span>
+							</Link>
+							<Link
+								href={`/w/${slug}/courses`}
+								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
+							>
+								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
+									<Icon name="book" />
+								</span>
+								<span className="min-w-0 flex-1">
+									<span className="block text-sm font-medium text-ink">课程</span>
+									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
+										浏览工作台课程与报名信息
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">

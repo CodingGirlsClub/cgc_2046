@@ -32,7 +32,7 @@ import { client } from "./apollo-client";
 /**
  * E-11 #127 活动/课程数据源（唯一真实路径 = GraphQL，同 workspaces.ts 纪律）。
  *
- * - fetchWorkspaceOfferings：成员读本工作台全部活动/课程（含 draft/closed）；
+ * - fetchWorkspaceOfferings：成员读本工作台非 draft 活动/课程；Owner/Admin 含 draft；
  * - create/update/transition：Owner/Admin 管理动作（后端 policy 兜底）；
  * - 状态机前置守卫在页面前端做乐观判定，后端返回 errors 时以 error 态呈现。
  */

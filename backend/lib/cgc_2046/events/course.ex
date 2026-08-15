@@ -472,10 +472,10 @@ defmodule Cgc2046.Events.Course do
   end
 
   policies do
-    # 读取（D9 修订）：成员/平台管理员可读全部；匿名（无 actor）仅可读
-    # open + visibility=public（公开发现面，D2 白名单由 field_policies 收窄）。
+    # 读取：成员可读非 draft；Owner/Admin 与平台管理员可读全部；
+    # 匿名仅可读 open + visibility=public（公开发现面，D2 白名单由 field_policies 收窄）。
     policy action_type(:read) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Policies.ActorReadsOffering)
       authorize_if(Cgc2046.Policies.PlatformAdmin)
       authorize_if(expr(status == :open and visibility == :public))
     end
