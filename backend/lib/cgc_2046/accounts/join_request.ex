@@ -160,7 +160,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
       require_atomic?(false)
 
       argument(:role_names, {:array, :atom},
-        default: [:member],
+        default: [],
         constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 

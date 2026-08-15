@@ -66,7 +66,7 @@ defmodule Cgc2046.Events.CourseVisibilityTest do
     test "跨租户：A 台 Owner 读 B 台 draft NotFound" do
       a = Fixtures.workspace_with_member()
       b = Fixtures.workspace_with_member()
-      Fixtures.add_member(b.workspace, a.owner, [:member])
+      Fixtures.add_member(b.workspace, a.owner)
 
       draft_b = create_draft(b.workspace, b.owner, "Course B Draft")
 
@@ -122,11 +122,11 @@ defmodule Cgc2046.Events.CourseVisibilityTest do
   end
 
   defp member_role_combos do
-    singles = [[:member], [:tutor], [:volunteer], [:learner]]
+    singles = [[], [:tutor], [:volunteer], [:learner]]
 
     pairs =
-      for a <- [:member, :tutor, :volunteer, :learner],
-          b <- [:member, :tutor, :volunteer, :learner],
+      for a <- [:tutor, :volunteer, :learner],
+          b <- [:tutor, :volunteer, :learner],
           a < b,
           do: [a, b]
 

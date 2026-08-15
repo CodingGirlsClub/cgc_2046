@@ -182,7 +182,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
   end
 
   describe "approve join request" do
-    test "owner can approve and creates membership with roles" do
+    test "owner can approve and creates unlabeled membership" do
       admin = Fixtures.platform_admin("jr-admin")
       workspace = Fixtures.create_workspace(admin)
       applicant = Fixtures.register_user("jr-applicant")
@@ -190,7 +190,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:ok, approved} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert approved.status == :approved
@@ -213,9 +213,9 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       membership = Enum.find(memberships, &(&1.user_id == applicant.id))
       assert membership != nil
 
-      # MembershipRole should exist
+      # Membership exists without labels
       loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
-      assert Enum.any?(loaded.roles, &(&1.name == :member))
+      assert loaded.roles == []
     end
 
     test "admin can approve join request" do
@@ -229,7 +229,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:ok, approved} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin_member)
 
       assert approved.status == :approved
@@ -243,7 +243,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:ok, approved} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:admin, :member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: [:admin, :tutor]})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert approved.status == :approved
@@ -257,7 +257,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       membership = Enum.find(memberships, &(&1.user_id == applicant.id))
       loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
       role_names = Enum.map(loaded.roles, & &1.name) |> Enum.sort()
-      assert role_names == [:admin, :member]
+      assert role_names == [:admin, :tutor]
     end
 
     test "plain member cannot approve join request" do
@@ -271,7 +271,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:error, %Ash.Error.Forbidden{}} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: member)
     end
 
@@ -285,7 +285,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:error, %Ash.Error.Forbidden{}} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: outsider)
     end
 
@@ -299,7 +299,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       # join_request 仍为 pending（after_action 抛错回滚，未进 approved 终态）
@@ -503,7 +503,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                approved
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
@@ -519,7 +519,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                rejected
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
@@ -543,7 +543,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       # approve 的原子条件 UPDATE WHERE 含 approval_deadline > now，过期不命中 → 0 rows → 报错
       assert {:error, %Ash.Error.Invalid{}} =
                jr
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       reloaded = Ash.get!(JoinRequest, jr.id, authorize?: false)
@@ -591,7 +591,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
 
       assert {:ok, approved} =
                jr1
-               |> Ash.Changeset.for_update(:approve, %{role_names: [:member]})
+               |> Ash.Changeset.for_update(:approve, %{role_names: []})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert approved.status == :approved

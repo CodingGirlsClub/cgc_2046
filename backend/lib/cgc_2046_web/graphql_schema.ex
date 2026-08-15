@@ -421,7 +421,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:ok, user} ->
               token = user.__metadata__[:token]
 
-              # ADR-0004 §3.5：新用户自动加入默认社区 workspace 2046（member 角色）
+              # ADR-0004 §3.5：新用户自动加入默认社区 workspace 2046（无差异标签）
               # + 建 per-workspace 档案。失败降级不阻断注册（2046 是保障而非硬依赖）。
               # 故意宽捕 rescue：入座失败不应让注册 500（user 已建，2046 是兜底），
               # 包括编程错误也一律降级为 warning 日志——后续排查依赖该日志，不静默吞掉。
@@ -1142,7 +1142,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   object :permission_matrix_row do
     field(:name, non_null(:string),
-      description: "角色名：owner / admin / member / tutor / volunteer / learner"
+      description: "角色名：owner / admin / tutor / volunteer / learner"
     )
 
     field(:abilities, non_null(list_of(non_null(:ability_grant))))

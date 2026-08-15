@@ -95,7 +95,7 @@ defmodule Cgc2046.MiniprogramCodeTest do
       workspace_id: workspace.id,
       inviter_id: actor.id,
       expires_at: DateTime.add(DateTime.utc_now(), 7, :day),
-      preauthorized_role_names: [:member]
+      preauthorized_role_names: []
     })
     |> Ash.create!(actor: actor)
   end

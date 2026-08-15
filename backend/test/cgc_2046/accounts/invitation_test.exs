@@ -52,14 +52,14 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       invitation =
         create_invitation(workspace, admin, %{
-          preauthorized_role_names: [:member],
+          preauthorized_role_names: [:learner],
           expires_at: DateTime.add(DateTime.utc_now(), 7, :day)
         })
 
       assert invitation.status == :active
       assert invitation.workspace_id == workspace.id
       assert invitation.inviter_id == admin.id
-      assert invitation.preauthorized_role_names == [:member]
+      assert invitation.preauthorized_role_names == [:learner]
       assert invitation.expires_at != nil
       assert invitation.token_hash != nil
       # 明文 token 仅存在于 create action 返回的 metadata，不落库
@@ -74,7 +74,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       invitation =
         create_invitation(workspace, admin_member, %{
-          preauthorized_role_names: [:member]
+          preauthorized_role_names: [:learner]
         })
 
       assert invitation.status == :active
@@ -332,7 +332,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       invitation =
         create_invitation(workspace, admin, %{
-          preauthorized_role_names: [:member]
+          preauthorized_role_names: [:learner]
         })
 
       acceptor = Fixtures.register_user("inv-accept")
@@ -359,7 +359,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       # Verify role was assigned
       loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
-      assert Enum.any?(loaded.roles, &(&1.name == :member))
+      assert Enum.any?(loaded.roles, &(&1.name == :learner))
     end
 
     test "accept without preauthorized roles creates membership without roles" do
@@ -399,7 +399,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       invitation =
         create_invitation(workspace, admin, %{
-          preauthorized_role_names: [:admin, :member]
+          preauthorized_role_names: [:admin, :tutor]
         })
 
       acceptor = Fixtures.register_user("inv-accept-multi")
@@ -422,7 +422,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
       membership = Enum.find(memberships, &(&1.user_id == acceptor.id))
       loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
       role_names = Enum.map(loaded.roles, & &1.name) |> Enum.sort()
-      assert role_names == [:admin, :member]
+      assert role_names == [:admin, :tutor]
     end
 
     test "cannot accept expired invitation" do
@@ -506,7 +506,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
     test "cannot accept when already a member of this workspace" do
       admin = Fixtures.platform_admin("inv-admin")
       workspace = Fixtures.create_workspace(admin)
-      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
+      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:learner]})
 
       acceptor = Fixtures.register_user("inv-accept-already-member")
       # 受邀人已是该工作台成员
@@ -530,7 +530,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
     test "concurrent accept by same user returns business error, not 500" do
       admin = Fixtures.platform_admin("inv-admin")
       workspace = Fixtures.create_workspace(admin)
-      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
+      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:learner]})
 
       acceptor = Fixtures.register_user("inv-accept-concurrent")
       token = invitation.__metadata__[:plain_token]
@@ -644,7 +644,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
     test "cannot revoke an already used invitation" do
       admin = Fixtures.platform_admin("inv-admin")
       workspace = Fixtures.create_workspace(admin)
-      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:member]})
+      invitation = create_invitation(workspace, admin, %{preauthorized_role_names: [:learner]})
 
       acceptor = Fixtures.register_user("inv-revoke-used")
 
