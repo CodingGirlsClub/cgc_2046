@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { render } from "@/test-utils";
-import { OfferingDetailPage, OfferingsListPage } from "./offering-pages";
+import {
+	OfferingDetailPage,
+	OfferingsListPage,
+	OfferingNewPage,
+} from "./offering-pages";
 
 const mocks = vi.hoisted(() => ({
+	createOffering: vi.fn(),
 	fetchOffering: vi.fn(),
 	fetchMyEnrollment: vi.fn(),
 	fetchPendingCount: vi.fn(),
@@ -14,12 +19,14 @@ const mocks = vi.hoisted(() => ({
 	useWorkspaceBySlug: vi.fn(),
 }));
 
+const routerMocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+
 vi.mock("@/lib/events", () => ({
 	allowedTransitions: (status: string) =>
 		status === "draft" ? ["launch"] : status === "open" ? ["close", "cancel"] : [],
 	canManageEvents: (roleNames: string[] = []) =>
 		roleNames.some((role) => role === "owner" || role === "admin"),
-	createOffering: vi.fn(),
+	createOffering: mocks.createOffering,
 	fetchMyEnrollment: mocks.fetchMyEnrollment,
 	fetchOffering: mocks.fetchOffering,
 	fetchPendingCount: mocks.fetchPendingCount,
@@ -73,7 +80,7 @@ vi.mock("next/link", () => ({
 
 vi.mock("next/navigation", () => ({
 	usePathname: () => "/w/demo/events",
-	useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+	useRouter: () => routerMocks,
 }));
 
 const WORKSPACE = {
@@ -84,6 +91,38 @@ const WORKSPACE = {
 	sponsorshipEnabled: false,
 	myRoleNames: [],
 };
+
+const OWNER_WORKSPACE = { ...WORKSPACE, myRoleNames: ["owner"] };
+
+function offeringRow(overrides: Record<string, unknown> = {}) {
+	return {
+		id: "offering-1",
+		workspaceId: "workspace-1",
+		title: "测试活动",
+		slug: null,
+		status: "draft",
+		visibility: "public",
+		enrollmentPolicy: "open",
+		capacity: null,
+		confirmedCount: 0,
+		registrationDeadline: null,
+		...overrides,
+	};
+}
+
+/** manage（Owner）视角渲染详情页，返回 heading 就绪 promise */
+function renderManageDetail(kind: "event" | "course", row: Record<string, unknown>) {
+	mocks.useWorkspaceBySlug.mockReturnValue({
+		ws: OWNER_WORKSPACE,
+		readOnlyVisitor: false,
+		loading: false,
+		error: null,
+		retry: vi.fn(),
+	});
+	mocks.fetchOffering.mockResolvedValueOnce(row);
+	render(<OfferingDetailPage slug="demo" id={String(row.id)} kind={kind} />);
+	return screen.findByRole("heading", { name: String(row.title) });
+}
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -225,5 +264,369 @@ describe("OfferingDetailPage 错误态", () => {
 		render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
 
 		expect(await screen.findByRole("button", { name: "报名" })).toBeInTheDocument();
+	});
+});
+
+describe("OfferingNewPage 新建调用链", () => {
+	it.each([
+		["event", "活动", "/w/demo/events/"],
+		["course", "课程", "/w/demo/courses/"],
+	] as const)(
+		"%s 填表提交 → createOffering 变量正确 → 跳转详情路由",
+		async (kind, label, base) => {
+			mocks.useWorkspaceBySlug.mockReturnValue({
+				ws: OWNER_WORKSPACE,
+				readOnlyVisitor: false,
+				loading: false,
+				error: null,
+				retry: vi.fn(),
+			});
+			mocks.createOffering.mockResolvedValueOnce({
+				result: {
+					id: "offering-1",
+					title: "春季训练营",
+					status: "draft",
+					visibility: "workspace",
+					enrollmentPolicy: "request",
+					capacity: 20,
+					confirmedCount: 0,
+					registrationDeadline: null,
+				},
+				errors: [],
+			});
+
+			render(<OfferingNewPage slug="demo" kind={kind} />);
+
+			fireEvent.change(await screen.findByLabelText(/标题/), {
+				target: { value: "春季训练营" },
+			});
+			fireEvent.change(screen.getByLabelText("报名策略"), {
+				target: { value: "request" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "仅工作台可见" }));
+			fireEvent.change(screen.getByLabelText(/名额上限/), {
+				target: { value: "20" },
+			});
+			fireEvent.change(screen.getByLabelText(/报名截止/), {
+				target: { value: "2026-12-31T23:59" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: `创建${label}` }));
+
+			await waitFor(() =>
+				expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", kind, {
+					title: "春季训练营",
+					enrollmentPolicy: "request",
+					visibility: "workspace",
+					capacity: 20,
+					registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+				}),
+			);
+			expect(routerMocks.push).toHaveBeenCalledWith(`${base}offering-1`);
+		},
+	);
+
+	it.each(["event", "course"] as const)("%s 非管理成员渲染拦回且不调用 createOffering", async (kind) => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+
+		render(<OfferingNewPage slug="demo" kind={kind} />);
+
+		expect(await screen.findByText(/仅 Owner\/Admin 可创建/)).toBeInTheDocument();
+		expect(mocks.createOffering).not.toHaveBeenCalled();
+		expect(routerMocks.push).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["event", "活动"],
+		["course", "课程"],
+	] as const)("%s 创建失败：错误展示且 busy 复位、不跳转", async (kind, label) => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: OWNER_WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.createOffering.mockRejectedValueOnce(new Error("创建失败"));
+
+		render(<OfferingNewPage slug="demo" kind={kind} />);
+
+		fireEvent.change(await screen.findByLabelText(/标题/), {
+			target: { value: "春季训练营" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: `创建${label}` }));
+
+		expect(await screen.findByText("创建失败")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: `创建${label}` })).not.toBeDisabled();
+		expect(routerMocks.push).not.toHaveBeenCalled();
+	});
+});
+
+describe("OfferingDetailPage 保存元数据调用链", () => {
+	it.each(["event", "course"] as const)(
+		"%s 改元数据 → updateOffering 变量正确 → 表单复位",
+		async (kind) => {
+			mocks.updateOffering.mockResolvedValueOnce({
+				result: {
+					id: "offering-1",
+					title: "新标题",
+					status: "draft",
+					visibility: "public",
+					enrollmentPolicy: "request",
+					capacity: 20,
+					registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+				},
+				errors: [],
+			});
+
+			await renderManageDetail(kind, offeringRow({}));
+
+			fireEvent.change(screen.getByLabelText("标题"), {
+				target: { value: "新标题" },
+			});
+			fireEvent.change(screen.getByLabelText("报名策略"), {
+				target: { value: "request" },
+			});
+			fireEvent.change(screen.getByLabelText(/名额上限/), {
+				target: { value: "20" },
+			});
+			fireEvent.change(screen.getByLabelText(/报名截止/), {
+				target: { value: "2026-12-31T23:59" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+			await waitFor(() =>
+				expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", kind, {
+					title: "新标题",
+					enrollmentPolicy: "request",
+					capacity: 20,
+					registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+				}),
+			);
+			// 成功：局部状态更新（标题）＋表单复位（metaDraft → null）
+			expect(await screen.findByRole("heading", { name: "新标题" })).toBeInTheDocument();
+			expect(screen.getByText("已保存")).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "保存元数据" })).not.toBeDisabled();
+		},
+	);
+
+	it.each(["event", "course"] as const)(
+		"%s 名额非法 → 映射文案，不透传 GraphQL 原文",
+		async (kind) => {
+			mocks.updateOffering.mockResolvedValueOnce({
+				result: null,
+				errors: [
+					{
+						message: "Input is invalid",
+						short_message: "capacity must be greater than or equal to 1",
+					},
+				],
+			});
+
+			await renderManageDetail(kind, offeringRow({}));
+
+			fireEvent.change(screen.getByLabelText(/名额上限/), {
+				target: { value: "0" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+			expect(
+				await screen.findByText("保存失败：名额上限需大于等于 1。"),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/Input is invalid/)).not.toBeInTheDocument();
+			expect(screen.queryByText(/capacity must/)).not.toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "保存元数据" })).not.toBeDisabled();
+		},
+	);
+
+	it("未知错误（网络异常）走兜底文案，不透传原始 message", async () => {
+		mocks.updateOffering.mockRejectedValueOnce(new Error("Network request failed"));
+
+		await renderManageDetail("event", offeringRow({}));
+
+		fireEvent.change(screen.getByLabelText("标题"), { target: { value: "x" } });
+		fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+		expect(await screen.findByText("保存失败，请重试")).toBeInTheDocument();
+		expect(screen.queryByText(/Network request failed/)).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "保存元数据" })).not.toBeDisabled();
+	});
+});
+
+describe("OfferingDetailPage 可见性双向切换（D9）", () => {
+	it.each([
+		["workspace", "公开可见", "public"],
+		["public", "仅工作台可见", "workspace"],
+	] as const)(
+		"open 状态 %s → %s：updateOffering 仅 visibility 变量",
+		async (from, targetLabel, next) => {
+			mocks.updateOffering.mockResolvedValueOnce({
+				result: {
+					id: "offering-1",
+					title: "测试活动",
+					status: "open",
+					visibility: next,
+					enrollmentPolicy: "open",
+					capacity: null,
+					registrationDeadline: null,
+				},
+				errors: [],
+			});
+
+			await renderManageDetail("event", offeringRow({ status: "open", visibility: from }));
+
+			fireEvent.click(screen.getByRole("button", { name: targetLabel }));
+
+			await waitFor(() =>
+				expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "event", {
+					visibility: next,
+				}),
+			);
+			// 保存成功后目标按钮成为当前可见性（disabled 选中态）
+			expect(screen.getByRole("button", { name: targetLabel })).toBeDisabled();
+		},
+	);
+});
+
+describe("OfferingDetailPage 生命周期调用链", () => {
+	it.each(["event", "course"] as const)("%s draft → launch：直达无确认 → open 状态更新", async (kind) => {
+		mocks.transitionOffering.mockResolvedValueOnce({
+			result: { id: "offering-1", status: "open" },
+			errors: [],
+		});
+
+		await renderManageDetail(kind, offeringRow({}));
+
+		fireEvent.click(screen.getByRole("button", { name: "发布（开放报名）" }));
+
+		await waitFor(() =>
+			expect(mocks.transitionOffering).toHaveBeenCalledWith("offering-1", kind, "launch"),
+		);
+		// launch 无确认条（确认按钮角色不出现）
+		expect(screen.queryByRole("button", { name: /^确认/ })).not.toBeInTheDocument();
+		// 局部状态更新：徽章 open，按钮切换为 close/cancel
+		expect(await screen.findByText("open")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "结束" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument();
+	});
+
+	it.each(["event", "course"] as const)(
+		"%s open → close：确认条 → 二次确认 → closed 终态无按钮",
+		async (kind) => {
+			mocks.transitionOffering.mockResolvedValueOnce({
+				result: { id: "offering-1", status: "closed" },
+				errors: [],
+			});
+
+			await renderManageDetail(kind, offeringRow({ status: "open" }));
+
+			fireEvent.click(screen.getByRole("button", { name: "结束" }));
+			// 一次点击只出确认条，不执行 mutation
+			expect(mocks.transitionOffering).not.toHaveBeenCalled();
+			expect(screen.getByText(/确认结束该/)).toBeInTheDocument();
+
+			fireEvent.click(screen.getByRole("button", { name: "确认结束" }));
+
+			await waitFor(() =>
+				expect(mocks.transitionOffering).toHaveBeenCalledWith("offering-1", kind, "close"),
+			);
+			expect(await screen.findByText("closed")).toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "结束" })).not.toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+			expect(screen.queryByText(/确认结束该/)).not.toBeInTheDocument();
+			expect(screen.getByText(/终态/)).toBeInTheDocument();
+		},
+	);
+
+	it.each(["event", "course"] as const)(
+		"%s open → cancel：确认条 → 二次确认 → cancelled 终态无按钮",
+		async (kind) => {
+			mocks.transitionOffering.mockResolvedValueOnce({
+				result: { id: "offering-1", status: "cancelled" },
+				errors: [],
+			});
+
+			await renderManageDetail(kind, offeringRow({ status: "open" }));
+
+			fireEvent.click(screen.getByRole("button", { name: "取消" }));
+			expect(mocks.transitionOffering).not.toHaveBeenCalled();
+			expect(screen.getByText(/确认取消该/)).toBeInTheDocument();
+
+			fireEvent.click(screen.getByRole("button", { name: "确认取消" }));
+
+			await waitFor(() =>
+				expect(mocks.transitionOffering).toHaveBeenCalledWith("offering-1", kind, "cancel"),
+			);
+			expect(await screen.findByText("cancelled")).toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "结束" })).not.toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+			expect(screen.getByText(/终态/)).toBeInTheDocument();
+		},
+	);
+
+	it("确认条可返回：不执行 mutation，恢复原按钮", async () => {
+		await renderManageDetail("event", offeringRow({ status: "open" }));
+
+		fireEvent.click(screen.getByRole("button", { name: "结束" }));
+		fireEvent.click(screen.getByRole("button", { name: "返回" }));
+
+		expect(mocks.transitionOffering).not.toHaveBeenCalled();
+		expect(screen.queryByText(/确认结束/)).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "结束" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument();
+	});
+
+	it.each(["event", "course"] as const)(
+		"%s transition 失败：映射文案 + busy 复位 + 确认条保留可重试",
+		async (kind) => {
+			mocks.transitionOffering.mockResolvedValueOnce({
+				result: null,
+				errors: [
+					{ message: "close failed: status changed concurrently, retry on fresh read" },
+				],
+			});
+
+			await renderManageDetail(kind, offeringRow({ status: "open" }));
+
+			fireEvent.click(screen.getByRole("button", { name: "结束" }));
+			fireEvent.click(screen.getByRole("button", { name: "确认结束" }));
+
+			expect(
+				await screen.findByText("操作失败：状态已被其他操作变更，请刷新后重试。"),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/status changed concurrently/)).not.toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "确认结束" })).not.toBeDisabled();
+		},
+	);
+});
+
+describe("OfferingDetailPage fetchPendingCount 权限门控", () => {
+	it("manage 视角发起 fetchPendingCount", async () => {
+		await renderManageDetail("event", offeringRow({}));
+
+		await waitFor(() =>
+			expect(mocks.fetchPendingCount).toHaveBeenCalledWith("offering-1", "event"),
+		);
+	});
+
+	it("普通成员不发 fetchPendingCount", async () => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce(offeringRow({}));
+
+		render(<OfferingDetailPage slug="demo" id="offering-1" kind="event" />);
+
+		await screen.findByRole("heading", { name: "测试活动" });
+		expect(mocks.fetchPendingCount).not.toHaveBeenCalled();
 	});
 });

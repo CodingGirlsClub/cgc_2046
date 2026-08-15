@@ -55,6 +55,29 @@ const TRANSITION_LABEL: Record<EventTransition, string> = {
 	cancel: "取消",
 };
 
+/**
+ * 保存/操作失败文案映射（U2 #127）：AshGraphql 自动 mutation 的 errors[0].message
+ * 多为 "Input is invalid"（字段级文案在 short_message）——已知后端模式映射为可读文案，
+ * 未知一律走兜底，不透传 GraphQL 原文。
+ */
+function friendlyOfferingError(
+	error: { message?: string | null; short_message?: string | null } | null | undefined,
+	fallback: string,
+): string {
+	const raw = [error?.message, error?.short_message].filter(Boolean).join("\n");
+	if (!raw) return fallback;
+	if (/greater than or equal to 1/.test(raw)) {
+		return "保存失败：名额上限需大于等于 1。";
+	}
+	if (/cannot (launch|close|cancel) from status=/.test(raw)) {
+		return "操作失败：状态已变更，请刷新后重试。";
+	}
+	if (/failed: status changed concurrently/.test(raw)) {
+		return "操作失败：状态已被其他操作变更，请刷新后重试。";
+	}
+	return fallback;
+}
+
 function toLocalInput(datetime: string | null): string {
 	if (!datetime) return "";
 	const d = new Date(datetime);
@@ -240,6 +263,8 @@ export function OfferingDetailPage({
 	const [saveBusy, setSaveBusy] = useState(false);
 	const [saveMessage, setSaveMessage] = useState<string | null>(null);
 	const [busyTransition, setBusyTransition] = useState<EventTransition | null>(null);
+	// close/cancel 不可逆（终态 v1 不可恢复）：二次点击确认（U2 #127）；launch 可逆性高不加
+	const [confirmingTransition, setConfirmingTransition] = useState<EventTransition | null>(null);
 	const [pendingState, setPendingState] = useState<{
 		id: string;
 		status: "loading" | "ok" | "error";
@@ -299,9 +324,15 @@ export function OfferingDetailPage({
 		};
 	}, [id, kind, userId]);
 
-	// pending 报名数（报名数据视图：request 策略待审批）
+	const stale = state.id !== id;
+	const offering = stale ? null : state.row;
+	const loadError = stale ? null : state.error;
+	const manage = ws ? canManageEvents(ws.myRoleNames) : false;
+
+	// pending 报名数（报名数据视图：request 策略待审批；仅管理视角发起，
+	// 普通成员/匿名不发请求——U2 #127）
 	useEffect(() => {
-		if (!id) return;
+		if (!id || !manage) return;
 		let cancelled = false;
 
 		fetchPendingCount(id, kind)
@@ -316,12 +347,7 @@ export function OfferingDetailPage({
 		return () => {
 			cancelled = true;
 		};
-	}, [id, kind]);
-
-	const stale = state.id !== id;
-	const offering = stale ? null : state.row;
-	const loadError = stale ? null : state.error;
-	const manage = ws ? canManageEvents(ws.myRoleNames) : false;
+	}, [id, kind, manage]);
 	const transitions = offering ? allowedTransitions(offering.status) : [];
 	const label = OFFERING_LABEL[kind];
 	const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
@@ -353,10 +379,15 @@ export function OfferingDetailPage({
 				});
 				setSaveMessage("已保存");
 			} else {
-				setSaveMessage(res.errors[0]?.message ?? "保存失败");
+				setSaveMessage(friendlyOfferingError(res.errors[0], "保存失败，请重试"));
 			}
 		} catch (e: unknown) {
-			setSaveMessage(e instanceof Error ? e.message : "保存失败");
+			setSaveMessage(
+				friendlyOfferingError(
+					e instanceof Error ? { message: e.message } : null,
+					"保存失败，请重试",
+				),
+			);
 		} finally {
 			setSaveBusy(false);
 		}
@@ -388,10 +419,15 @@ export function OfferingDetailPage({
 				setMetaDraft(null);
 				setSaveMessage("已保存");
 			} else {
-				setSaveMessage(res.errors[0]?.message ?? "保存失败");
+				setSaveMessage(friendlyOfferingError(res.errors[0], "保存失败，请重试"));
 			}
 		} catch (e: unknown) {
-			setSaveMessage(e instanceof Error ? e.message : "保存失败");
+			setSaveMessage(
+				friendlyOfferingError(
+					e instanceof Error ? { message: e.message } : null,
+					"保存失败，请重试",
+				),
+			);
 		} finally {
 			setSaveBusy(false);
 		}
@@ -405,10 +441,15 @@ export function OfferingDetailPage({
 			if (res.result) {
 				setState({ id: offering.id, row: { ...offering, status: res.result.status }, error: null });
 			} else {
-				setSaveMessage(res.errors[0]?.message ?? "操作失败");
+				setSaveMessage(friendlyOfferingError(res.errors[0], "操作失败，请重试"));
 			}
 		} catch (e: unknown) {
-			setSaveMessage(e instanceof Error ? e.message : "操作失败");
+			setSaveMessage(
+				friendlyOfferingError(
+					e instanceof Error ? { message: e.message } : null,
+					"操作失败，请重试",
+				),
+			);
 		} finally {
 			setBusyTransition(null);
 		}
@@ -666,17 +707,54 @@ export function OfferingDetailPage({
 								</div>
 
 								<div className="mt-5 flex flex-wrap gap-2">
-									{transitions.map((t) => (
-										<button
-											key={t}
-											type="button"
-											disabled={busyTransition !== null}
-											onClick={() => void runTransition(t)}
-											className="rounded-large border border-line bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line-strong disabled:opacity-50"
-										>
-											{busyTransition === t ? "处理中…" : TRANSITION_LABEL[t]}
-										</button>
-									))}
+									{transitions.map((t) =>
+										confirmingTransition === t ? (
+											<div
+												key={t}
+												className="w-full rounded-large border border-line bg-soft-2 p-3"
+											>
+												<p className="text-[13px] text-ink-3" aria-live="polite">
+													{t === "close"
+														? `确认结束该${label}？报名入口将关闭，终态不可恢复。`
+														: `确认取消该${label}？报名入口将关闭，终态不可恢复。`}
+												</p>
+												<div className="mt-2 flex gap-2">
+													<button
+														type="button"
+														disabled={busyTransition !== null}
+														onClick={() => void runTransition(t)}
+														className="rounded-large border border-danger px-3 py-1.5 text-[13px] text-danger disabled:opacity-50"
+													>
+														{busyTransition === t ? "处理中…" : `确认${TRANSITION_LABEL[t]}`}
+													</button>
+													<button
+														type="button"
+														disabled={busyTransition !== null}
+														onClick={() => setConfirmingTransition(null)}
+														className="rounded-large border border-line px-3 py-1.5 text-[13px] text-ink-3 disabled:opacity-50"
+													>
+														返回
+													</button>
+												</div>
+											</div>
+										) : (
+											<button
+												key={t}
+												type="button"
+												disabled={busyTransition !== null}
+												onClick={() => {
+													if (t === "close" || t === "cancel") {
+														setConfirmingTransition(t);
+													} else {
+														void runTransition(t);
+													}
+												}}
+												className="rounded-large border border-line bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line-strong disabled:opacity-50"
+											>
+												{busyTransition === t ? "处理中…" : TRANSITION_LABEL[t]}
+											</button>
+										),
+									)}
 									{transitions.length === 0 ? (
 										<span className="text-[13px] text-ink-3">
 											终态{label}无可执行的生命周期操作（v1 终态不可逆）。
