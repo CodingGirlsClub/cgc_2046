@@ -19,7 +19,7 @@ defmodule Cgc2046.SpeakerSubscriber do
 
   require Logger
 
-  alias Cgc2046.Events.Event
+  alias Cgc2046.Events.Offering
 
   @accepted_signal "speaker.accepted"
   @completed_signal "speaker.completed"
@@ -108,13 +108,12 @@ defmodule Cgc2046.SpeakerSubscriber do
       :ok
   end
 
-  defp event_title(%{"event_id" => id}) when is_binary(id) and id != "" do
-    case Ash.get(Event, id, authorize?: false) do
-      {:ok, %Event{title: title}} -> {:ok, title}
-      {:ok, nil} -> {:error, :event_not_found}
-      {:error, reason} -> {:error, reason}
+  # 标题解析唯一真源 = Offering 读取面（fetch_by_signal_payload 按 event_id 分派，
+  # {:ok, nil}/未命中/错误统一坍缩 {:error, :not_found}——仅进日志无消费方；
+  # 同 notification_subscriber.target_title 形状，Offering 第六消费方）。
+  defp event_title(data) do
+    with {:ok, offering} <- Offering.fetch_by_signal_payload(data) do
+      {:ok, Offering.title(offering)}
     end
   end
-
-  defp event_title(_data), do: {:error, :event_not_found}
 end

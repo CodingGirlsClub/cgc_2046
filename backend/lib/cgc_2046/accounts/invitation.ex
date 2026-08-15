@@ -437,7 +437,7 @@ defmodule Cgc2046.Accounts.Invitation do
                 WHERE id = $3 AND status = 'active'
                   AND (expires_at IS NULL OR expires_at > $1)
                 """,
-                [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id)]
+                [now, Cgc2046.Repo.uuid!(actor.id), Cgc2046.Repo.uuid!(cs.data.id)]
               )
 
             if res.num_rows == 1 do
@@ -494,7 +494,7 @@ defmodule Cgc2046.Accounts.Invitation do
                   AND (i.expires_at IS NULL OR i.expires_at > $1)
                   AND c.expires_at > $1
                 """,
-                [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id), scene]
+                [now, Cgc2046.Repo.uuid!(actor.id), Cgc2046.Repo.uuid!(cs.data.id), scene]
               )
 
             if result.num_rows == 1 do

@@ -383,6 +383,7 @@
 - **六规则**：① confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ open 且 research_enabled 的 Event/Course 但工作台无 published 教研定义（research_enabled=false 合法不命中）｜⑤ closed/cancelled Event/Course 仍有非终态 research run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ 信号族死信（SignalPublishWorker / NotificationWorker 的 discarded job）。
 - **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
+- **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
 - **架构位置**：`Cgc2046.Reconciliation.Finding`（Api domain 全局资源）+ `Cgc2046.Workers.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
 
 ### 工具 = 形状 原则（见 §3）
