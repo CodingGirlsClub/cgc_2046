@@ -569,7 +569,9 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         signal = Map.put(payload, "signal_type", signal_type)
 
         case Engine.resume(run_id, partition, signal) do
-          {:ok, facts, workflow} ->
+          {:ok, engine_facts, workflow} ->
+            facts = merge_persisted_facts(changeset, engine_facts)
+
             # 终态删除 checkpoint（宽松：失败记日志不阻塞；策略单源在 CheckpointLifecycle）
             :ok = CheckpointLifecycle.on_status(:succeeded, run_id, partition, workflow)
 
@@ -578,7 +580,9 @@ defmodule Cgc2046.Workflows.WorkflowRun do
             |> Ash.Changeset.force_change_attribute(:facts, facts)
             |> Ash.Changeset.force_change_attribute(:finished_at, DateTime.utc_now())
 
-          {:waiting, facts, workflow} ->
+          {:waiting, engine_facts, workflow} ->
+            facts = merge_persisted_facts(changeset, engine_facts)
+
             # 续传 hibernate（严格：失败 → failed。行为变化点：原 `:ok =` raise
             # 崩溃 → 受控失败，与 start_run 路径 #2 语义一致）。
             case CheckpointLifecycle.on_status(:waiting, run_id, partition, workflow) do
@@ -611,6 +615,12 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       {:error, _} ->
         Ash.Changeset.add_error(changeset, "failed to record signal log")
     end
+  end
+
+  # Engine.resume thaws an older checkpoint; persisted facts win over stale engine facts.
+  defp merge_persisted_facts(changeset, engine_facts) do
+    persisted_facts = Ash.Changeset.get_data(changeset, :facts) || %{}
+    Map.merge(engine_facts, persisted_facts)
   end
 
   defp write_signal_log(tenant, run_id, signal_type, payload, actor_id) do
