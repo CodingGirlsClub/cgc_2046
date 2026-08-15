@@ -122,6 +122,18 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前用户作为 Owner/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 /approvals 展示含过期行存在有意差异）"
+    field :pending_approvals_count, non_null(:integer) do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Events.PendingApprovals.count_pending(actor) do
+            {:ok, count} -> {:ok, count}
+            {:error, reason} -> {:error, reason}
+          end
+        end)
+      end)
+    end
+
     @desc "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
     field :my_learning_runs, non_null(list_of(non_null(:my_learning_run))) do
       resolve(fn _, _, %{context: context} ->

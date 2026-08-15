@@ -36,6 +36,29 @@ defmodule Cgc2046.Events.PendingApprovals do
     end
   end
 
+  @spec count_pending(term()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def count_pending(actor) do
+    now = DateTime.utc_now()
+
+    Enum.reduce_while(managed_workspace_ids(actor), {:ok, 0}, fn workspace_id, {:ok, total} ->
+      with {:ok, enrollment_count} <- count_pending(Enrollment, workspace_id, actor, now),
+           {:ok, join_request_count} <- count_pending(JoinRequest, workspace_id, actor, now),
+           {:ok, sponsorship_count} <- count_pending(Sponsorship, workspace_id, actor, now) do
+        {:cont, {:ok, total + enrollment_count + join_request_count + sponsorship_count}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp count_pending(resource, workspace_id, actor, now) do
+    resource
+    |> Ash.Query.filter(
+      status == :pending and (is_nil(approval_deadline) or approval_deadline > ^now)
+    )
+    |> Ash.count(tenant: workspace_id, actor: actor)
+  end
+
   defp managed_workspace_ids(actor) do
     actor
     |> MembershipContext.memberships_of_actor()
