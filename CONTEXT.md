@@ -347,8 +347,23 @@
 
 ### Enrollment（报名 / 事件级参与者）
 
-- **定义**：Event/Course 的**事件级参与者记录**，归**活动 context**（D-A4）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单 + 全免费（Learner Q3）。
+- **定义**：Event/Course 的**事件级参与者记录**，归**活动 context**（D-A4）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单；免费是默认（Event/Course 不配置定价），收费路径经 Order 缴费（2026-08-15 缴费 grilling 拍板，取代 Learner Q3「全免费」约束）。
 - **架构位置**：活动 context 资源；与 WorkspaceMembership（长期成员）两类关系并存。
+
+### PriceTier（价格档位）
+
+- **定义**：收费 Event/Course 的嵌入式定价配置（`pricing_enabled: true` 时的 `price_tiers` 字段），形状：id / name / amount_cents / available_until。金额下限 **1 分，无 0 元档**（免费场景 = `pricing_enabled: false` 整场免费，或管理员免缴个例）；`available_until` 到期档位报名时自动隐藏。下单即快照（tier_snapshot + amount_cents），改价/删档不追溯已生成订单。
+- **架构位置**：Event/Course 属性（先例：`sponsorship_tiers` 嵌入式无独立表）；与 SponsorshipTier 刻意成对但语义对立——本词条是真实收款金额，后者仅登记意向（见 §9）。
+
+### Order（缴费订单，租户资源）
+
+- **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunded`（cancelled / expired 为终态；退款异步经 `refunding` 中间态）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；订单过期后渠道侧迟到扣款自动原路退回。
+- **架构位置**：Enrollment（payment_pending 态）与支付渠道之间；回调链 = raw body 验签 → webhook 事件表幂等 → Oban 异步落账 → 回查渠道确认（不信 payload 快照）。退款发起方 = Workspace Owner/Admin（Event closed 后单笔仍可退，cancelled 批量退）；平台 Admin 持退款兜底权（统一商户号的资金主体，ADR-0007）。
+
+### 管理员免缴（Fee Waiver）
+
+- **定义**：Owner/Admin 将 `payment_pending` 报名直接置 `confirmed` 的特权操作，跳过支付、不建订单；个案级免费入口（志愿者/组织者参会），审计照走。区别于 `pricing_enabled: false`（整场免费）与 0 元档（不存在，PriceTier 金额下限 1 分）。
+- **架构位置**：Enrollment 特权 action；与审批（confirm_enrollment）同权限面，资金语义不同（免缴 = 平台让渡，无资金动作）。
 
 ### Sponsorship（赞助，两级）
 
@@ -384,6 +399,7 @@
 - **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
 - **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
+- **缴费对账（预留）**：Order 落地后扩规⑦——夜间拉渠道账单（微信/支付宝对账单 API）核对 paid 订单（渠道侧无对应交易 / 金额不符 / 我方 pending 超期未清），差异同落 `Finding`（ADR-0007，webhook 丢失的长尾兜底）。
 - **架构位置**：`Cgc2046.Reconciliation.Finding`（Api domain 全局资源）+ `Cgc2046.Workers.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
 
 ### 工具 = 形状 原则（见 §3）
@@ -401,7 +417,7 @@
 | Skill vs Agent | Skill 是预设工作流（SKILL.md）；Agent 是带人格/面板/技能绑定的助手；工作区 Skill 经本地同步进 `~/.clacky/skills/` |
 | `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是本地同步技能的命名前缀 |
 | 确认流 vs 直接执行 | 高风险管理工具必须 pending → request_user_feedback → confirm 才落库；低风险工具（create_agent/create_workflow）直接执行 |
-| Workspace 成员 vs Event 参与者 | 成员 = WorkspaceMembership（长期，带角色，可进工作台）；参与者 = Enrollment（事件级，报名产生，不自动成为成员） |
+| PriceTier vs SponsorshipTier | PriceTier 是真实收款定价（收款即发生）；SponsorshipTier 是赞助意向档位（v1 仅登记不收款，amount_suggestion） |
 | WorkflowDefinition vs WorkflowRun | 蓝图（Runic.Workflow DAG + 版本）vs 执行实例（pending→running→waiting→succeeded/failed/cancelled，归属 partition） |
 | 同步写 vs 异步 Signal | 业务核心状态主写入口走同步 Ash Action（强一致，8）；衍生副作用/通知走 Signal 异步最终一致（2） |
 
