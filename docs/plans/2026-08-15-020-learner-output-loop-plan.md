@@ -1,84 +1,83 @@
-# Plan 020 · Learner 产出闭环（组1：#149 + #150 + #92 + #93）
+# Plan 020 · Workspace Agents 页与产出闭环（修订版：原地 + Agents 页）
 
-- 日期：2026-08-15
+- 日期：2026-08-15（修订：用户三轮讨论后重写，替代同名初版）
 - 状态：待评审
-- 决策依据：双 scout 取证（Scout020a/020b）；用户拍板组1 为 019 后首轨
+- 决策依据：Scout020a/020b 取证 + 用户拍板（2026-08-15）：
+  - **D-20a** 多宿主：「Agent 连接」是一等概念，OpenClacky/opencode/omp 平级为宿主选项，未来可扩展（Claude Code/Cursor 等）；
+  - **D-20b** token 原地不动：MCP token 管理留在 `设置 → 集成 → Agents`（结构零搬迁，B1 靠入口提级解决）;
+  - **D-20c** 学 Linear（linear.app/<ws>/agent 模式）+ 借鉴 codex-trajectory（隐私分级、事件账本、时间轴）：新增 workspace 级 `/w/[slug]/agents` 工作面。
 - 关闭目标：#149（B1）、#150（C1 最小版）、#92、#93
-- 非目标：Agent/Skill 资源与真实 `get_agent_instruction`（#150 明示 roadmap，本 plan 只做「平台操作引导」最小版并留接口语义）；#83 Hub 重构（边界互斥，不碰概览 hero/管理卡结构）
+- 非目标：Agent/Skill 资源与 `get_agent_instruction` 真实现（roadmap）；#83 Hub 重构；token 页/集成四 tab 的任何搬迁。
 
-## 1. 问题
+## 1. 分层模型（讨论结论固化）
 
-J-F 学员旅程「连接 → 有指令 → 去执行 → 看产出」四环全断：
-1. **连接入口三层深**：`/w/[slug]/settings → 集成 → Agents → OpenClacky`（`integrations-agents-tabs.tsx:4-35`），无用户级页面；OpenClacky 页是内联三步卡（`openclacky/page.tsx:25-118`）不可复用。
-2. **指令缺失**：`/workflows` 页只渲染 run status/facts（`workflows/page.tsx:62-90`）；GraphQL 无 definition/Step 查询面；`get_agent_instruction` 代码零命中（`mcp/server.ex:4-37` 工具表无）。
-3. **无 CTA**：waiting 步骤旁无「在 OpenClacky 中执行」入口（#92 原文验收）；依赖 #39 已解除（PR #91 合并）。
-4. **产物裸渲染**：FactsTree 递归原始 map（`workflows/page.tsx:22-60`），无 schema 契约——`output_schema` 字段、读取面、渲染器三件全缺（#93）。
+| 层 | 归属 | 载体 | 内容 |
+|---|---|---|---|
+| 连接凭据 | 用户级数据，workspace 设置内管理（现状保留） | `设置→集成→Agents`（MCP/OpenClacky/opencode/omp 四 tab） | token 签发/撤销、各宿主接入引导 |
+| Agent 工作面 | workspace 级 | **新页 `/w/[slug]/agents`** | 本工作台 agent 活动流、waiting 步骤交接 CTA、未连接引导 |
+
+依据：token 校验只返回 user（`token.ex:274-295`），工具调用每次显式传 workspace_id（`wrapper.ex:38`）——凭据跨工作台复用，干活上下文在 workspace 语境，两层各自归位。
 
 ## 2. 已验证事实（scout，file:line 以 HEAD 为准）
 
-- MCP token 数据层完整可复用：`web/lib/graphql/mcp-token.ts:18-88`（myMcpTokens/create/revoke）、`web/lib/mcp.ts:19-70`；后端 `mcp/token.ex:31-297`（user-scoped、hash-only、一次性明文、上限 10）。
-- 全局 settings 仅剩旧 profile 兜底重定向（`web/app/settings/account/profile/page.tsx:6-20`）——`/settings/connections` 落点干净。
-- 概览页卡位：`web/app/w/[slug]/page.tsx:79-199`（info/管理/Workflow·活动·课程三卡组），无 BYO 卡。
-- Step 字段全集：`step.ex:38-113`——`step_key/title/type/action/agent_id/sub_definition_id/input_schema`，**无 instruction/output_schema**；node_def 仅拓扑（`workflow_definition.ex:5-13`，`jido_adapter.ex:68-109` 只读 id/type/action/next/condition）。
-- run 持有 `definition_id + version`；`myLearningRuns` 内部加载 node_def/steps 但只投影进度（`graphql_schema.ex:1769-1870`）——读取面有内部先例可循。
-- facts 按 step_key 聚合（`workflow_run.ex:94-105`）；`save_step_output` 浅合并不校验（`save_step_output.ex:42-100`）——#93 保持写入语义不变，只加展示契约。
-- 平台侧无 OpenClacky URL/连接状态记录（`mcp_tokens` 表无 URL 列，`20260808120000_create_mcp_tables.exs:8-20`）；连接状态只在本地扩展可读（`openclacky-ext/.../mcp_config.rb:154-169`）——**不做假的连接状态展示**。
+- 活动流数据源已存在：`ToolCallLog`（`tool_call_log.ex:20-68`：user_id/tool/params-redact/result_status/error/latency/pending_id/时间戳；Redact 已滤敏感键）。**读面现状 platform_admin 专属**（moduledoc R10/R12 + policies），workspace 成员视角需新增查询。
+- `mcp/page.tsx` token 管理交互完备（59-335），不动。
+- 现有 OpenClacky 引导页 `openclacky/page.tsx:25-118` 三步卡（用户级一次性动作，零 workspace 特定内容）——Agents 页的「未连接」引导直接链到该 tab，不复制内容。
+- waiting 步骤/CTA/schema 缺口同初版取证：`workflows/page.tsx` 只渲染 status/facts；Step 无 instruction/output_schema；GraphQL 无 steps 读取面（Scout020b 全量证据沿用）。
+- codex-trajectory 借鉴（调研 2026-08-15）：隐私默认摘要级（事件名/时间/状态/受限摘要，全量需显式 detailLevel）；事件账本→时间轴 UI；`schemaVersion` 版本化输出；容错未知事件。MIT，仅借鉴设计不引代码。
 
 ## 3. High-Level Technical Design
 
-### U1 BYO 入口提级（#149）
-1. 新路由 `web/app/settings/connections/page.tsx`：用户级「连接与令牌」页——MCP token 管理（复用 `mcp.ts` 数据层 + mcp 页的列表/签发/一次性明文/撤销交互，抽共享组件或复用页面块）+ OpenClacky 三步引导（从 workspace 页抽 `OpenclackyGuide` 共享组件，两处消费）。
-2. 全局入口：品牌菜单（`workspace-switcher-menu.tsx:103-116`）加「连接与令牌」项；旧全局 settings 兜底重定向页旁挂入口。
-3. 概览引导卡：`/w/[slug]` 卡组加「在 OpenClacky 中工作」卡（Link 到 `/settings/connections`），文案不声称连接已验证。
-4. workspace 三层链保留（不删），页面顶部互链。
-5. 导航/路由守卫：`/settings/connections` 需登录（复用 AdminGuard 模式的 authed 检查）。
+### U1 入口提级（B1，#149）
+1. workspace 侧边栏一级入口「Agents」→ `/w/[slug]/agents`（`workspace-nav.ts` + shell 导航）。
+2. 品牌菜单（`workspace-switcher-menu.tsx:103-116`）加「Agents」项（当前 workspace 的 agents 页）。
+3. 概览卡组（`/w/[slug]/page.tsx:149-199`）加「Agents 与助手协作」引导卡，链 agents 页。
+4. 集成四 tab 原地不动；agents 页内「连接管理」链接指向 MCP tab（`/w/[slug]/settings/integrations/agents/mcp`）。
 
-### U2 步骤引导读取面 + workflows 页升级（#150 最小版）
-1. 后端：`listWorkflowRuns`/`getWorkflowRun` 扩展返回 `definition { type }` + `steps { stepKey title type }`（按 run 绑定 version 读取，不读最新 definition）；或独立 `workflowRunSteps(runId)` 查询——writer 按 SDL 面最小代价选型。授权复用 WorkflowRun 读 policy（成员可读，draft visibility 语义同 016）。
-2. 前端：RunCard 增加步骤条（title/type 序列 + 当前待办高亮——由 facts 已有 step_key 推导已完成集）；waiting/manual 待办步骤旁渲染**平台操作引导**文本：「请在 OpenClacky 中完成「<title>」，通过 MCP save_step_output 写回」。明确标注为平台引导，不伪装 Agent 指令。
-3. `get_agent_instruction` 接口语义预留注释（Agent 资源存在后接 MCP 工具），本期不实现。
+### U2 `/w/[slug]/agents` 工作面页（D-20c）
+1. **活动流区**：新增成员可读 GraphQL 查询 `myWorkspaceToolCalls(workspaceId, first: 50)`——按 `params.workspace_id == ^workspace_id and user_id == ^actor.id` 过滤 ToolCallLog（**仅本人调用**，非全工作台流水——隐私默认最小面，对齐 codex-trajectory 摘要级理念）；返回摘要字段（tool/status/latency/inserted_at/error 摘要），**不返回 params**（即便已 redact，摘要级不展示参数）；policy：workspace 成员 + 仅本人。
+2. **待办交接区**：本工作台 learning run 的 waiting/manual 待办步骤列表（复用 U3 步骤读取面），每项配**上下文交接按钮**——复制到剪贴板的交接文本：`workspace: <slug>(<id>) / run: <id> / step: <key> / 工具提示：用 save_step_output 写回该 step`（workspace_id 是助手调工具必需参数，交接文本把它直接送到用户手里）；多宿主文案「粘贴给你的 OpenClacky / opencode / omp 助手」。
+3. **连接引导区**：无 active token 时展示（`fetchMyMcpTokens` 已可判断）；链 MCP tab 签发 + OpenClacky tab 三步引导；不重复引导内容。
+4. 布局：活动流时间轴（codex-trajectory 形态：竖列事件卡，status 色点 + 耗时）+ 待办置顶。
 
-### U3 OpenClackyCta（#92）
-1. 新组件 `web/components/openclacky-cta.tsx`：waiting/manual 待办旁渲染，主链接 → `/w/[slug]/settings/integrations/agents/openclacky`（保持 workspace 引导页为执行向落点），副链接 → `/settings/connections`。
-2. 双主题用现有 CSS 变量；无执行控件（形态 X 不变：不在网站发起 workflow/调用 Agent/提交产出）。
-3. research 类型 run 不显示 CTA（U2.1 definition.type 已下发，前端过滤）。
+### U3 步骤引导读取面 + workflows 页升级（#150 最小版 + #92）
+1. 后端：`listWorkflowRuns`/`getWorkflowRun` 扩展 `definition { type }` + `steps { stepKey title type outputSchema }`（按 run 绑定 version 读，不读最新 definition）；授权复用 WorkflowRun 读 policy。
+2. 前端 workflows 页：RunCard 加步骤条（facts 已有 step_key 推导完成集，待办高亮）；waiting/manual 旁平台引导文本 + CTA。
+3. CTA（#92 修订版）：主动作 = 上下文交接复制（同 U2.2 文本，组件复用）；副链接「去 Agents 页」（工作面聚合）与「连接设置」（集成 tab）。多宿主文案；research 类型 run 不显示 CTA。
+4. `get_agent_instruction` 接口语义留注释，不实现。
 
 ### U4 产物 schema 渲染（#93）
-1. 契约：`node_def.steps[].output_schema`（字段：name/type/label/optional，宽松校验，旧 node_def 无字段全兼容——JidoAdapter unknown extras ignored 已证安全 `jido_adapter.ex:89-109`）。
-2. 读取面：U2 的 steps 查询一并返回 `output_schema`（run 绑定版本）。
-3. 前端 `SchemaOutputList`：按 schema 顺序渲染 label/type/value；可选缺失隐藏；schema 缺失/非法/未知字段回退现有 FactsTree。React 文本节点渲染，无 dangerouslySetInnerHTML。
-4. 写入路径不动：`save_step_output` 保持原始 map 浅合并。
+同初版：`node_def.steps[].output_schema`（name/type/label/optional，宽松校验兼容旧数据）→ steps 读取面带出 → 前端 `SchemaOutputList`（顺序/标签/类型渲染，可选缺失隐藏，schema 缺失回退 FactsTree）；`save_step_output` 写入语义零变化；React 文本节点，无 dangerouslySetInnerHTML。
 
 ### U5 测试 + e2e
-- 后端：读取面授权测试（成员可读/跨租户拒/版本绑定——历史 run 用旧版 steps）；SDL 重生成。
-- web：connections 页（token 交互复用测试模式）、步骤条/引导文本/CTA 条件（waiting 显示·终态不显示·research 过滤）、SchemaOutputList（有序/缺失回退/可选隐藏）单测。
-- e2e（结构断言）：登录 → `/settings/connections` 可达且三步引导在 → 概览卡链接正确 → learning run 卡显示当前步骤引导 + CTA → 带假 schema 的 run 按 schema 渲染。
+- 后端：`myWorkspaceToolCalls` 三测（本人可见/他人不可见/非成员拒 + params 不在返回形状）；steps 读取面（成员可读/跨租户拒/版本绑定）；SDL 重生成。
+- web：agents 页三区渲染与条件（有/无 token、有/无待办）、交接复制文本内容断言、CTA 条件（waiting·learning only）、SchemaOutputList 回退矩阵。
+- e2e（结构断言）：侧边栏/品牌菜单/概览卡入口 → agents 页可达 → 交接按钮 clipboard 文本含 workspace id → workflows run 卡步骤条 + CTA → schema 渲染与回退。
 
 ## 4. 风险
 
 | 风险 | 预案 |
 |---|---|
-| definition version 漂移（历史 run 读错版本步骤） | 读取面强制按 run.version 过滤 definition 快照；测试钉住 |
-| 通用引导文本被误解为 Agent 指令 | UI 标注「平台操作引导」；CONTEXT.md 记录语义边界 |
-| facts 与 schema 不一致导致渲染崩 | 全路径回退 FactsTree；未知字段安全降级；属性测试（乱序/深层/空） |
-| mcp token 一次性明文在两处页面的交互漂移 | 抽共享组件单一实现 |
-| 概览卡与 #83 未来 Hub 重构冲突 | 卡片独立组件化，只追加不重构现有卡组 |
+| ToolCallLog 无 workspace_id 列，params 过滤走 jsonb 查询性能 | 量级小 + `first: 50` + inserted_at desc；若慢加 GIN 表达式索引（writer 用 EXPLAIN 判定，慢才加） |
+| 隐私边界：活动流暴露他人调用 | U2.1 锁定仅本人；测试钉住 |
+| definition version 漂移 | 读取面按 run.version；测试钉住 |
+| CTA 交接文本被当 Agent 指令 | 文案标注「平台操作引导」；CONTEXT.md 记录语义 |
+| agents 页与 #83 Hub 重构未来重叠 | 页面独立组件，入口卡只追加 |
 
 ## 5. 验收标准
 
-1. `/settings/connections` 用户级可达：token 管理 + OpenClacky 引导 + 双向互链；品牌菜单与概览卡入口在。
-2. `/workflows` run 卡：步骤序列 + 当前待办高亮 + 平台引导文本 + CTA（waiting/manual only，learning only）。
-3. 带 `output_schema` 的 steps 按 schema 渲染；缺失回退 FactsTree；`save_step_output` 语义零变化。
-4. backend ×2 seeds + `cgc2046.gen_rbac_contract --check` + SDL 同步 + web 全套全绿；e2e 五组结构断言过。
-5. #149/#150/#92/#93 关闭评论各自注明落地范围与 roadmap 边界（Agent 指令真源留接口语义）。
+1. 三个一级入口（侧边栏/品牌菜单/概览卡）可达 agents 页；集成四 tab 零变化。
+2. agents 页：本人活动流（无 params）、待办交接（文本含 workspace id/run/step）、未连接引导三区正确渲染。
+3. workflows 页：步骤条 + 平台引导 + 多宿主 CTA；schema 渲染与 FactsTree 回退。
+4. #149/#150/#92/#93 关闭评论注明落地范围与多宿主抽象。
+5. backend ×2 seeds + 契约 check + SDL 同步 + web 全套绿；e2e 过。
 
 ## 6. 实施顺序
 
-U1（入口）→ U2（读取面+步骤条）→ U3（CTA）→ U4（schema）→ U5 → 自查 → commit 不 push → `/tmp/cgc_2046-writer20-report.md`。
+U1 → U2 → U3 → U4 → U5 → 自查 → commit 不 push → `/tmp/cgc_2046-writer20-report.md`。
 
 ## 7. Assumptions（writer 验证，冲突即停）
 
-1. `listWorkflowRuns` 扩展字段不破坏既有消费方（`workflows/page.tsx` 唯一消费 + `myLearningRuns` 独立投影）。
-2. node_def map 字段扩展无需迁移（jsonb）。
-3. OpenClacky 引导页内容可抽共享组件（现为内联卡片，无外部状态依赖）。
-4. `/settings/connections` 无 workspace 上下文，token 数据层 user-scoped 无需 workspaceId——已核实（`mcp/token.ex` user_id 归属）。
+1. ToolCallLog params 内 workspace_id 键名稳定（wrapper 落库格式）——writer 读 wrapper.ex 确认键名后定过滤表达式。
+2. `myWorkspaceToolCalls` 新查询不与 admin 审计面（/admin/audit）冲突——那是 platform_admin 全量视角，本查询是本人 workspace 视角，policy 分开。
+3. node_def jsonb 扩展无迁移；clipboard API 在 web 端可用（HTTPS/localhost）。
