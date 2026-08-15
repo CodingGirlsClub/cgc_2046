@@ -4467,6 +4467,14 @@ type SignInResult {
   isPlatformAdmin: Boolean!
 }
 
+type RequestPasswordResetResult {
+  sent: Boolean!
+}
+
+type ResetPasswordResult {
+  ok: Boolean!
+}
+
 type SignInWithPlatformResult {
   id: ID!
   email: String
@@ -4747,6 +4755,12 @@ type RootMutationType {
 
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload
+
+  "请求发送密码重置邮件（无论邮箱是否存在都返回统一成功结果）"
+  requestPasswordReset(email: String!): RequestPasswordResetResult
+
+  "使用一次性密码重置 token 设置新密码"
+  resetPassword(resetToken: String!, password: String!): ResetPasswordResult
 
   "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
   signInWithPlatform(platform: String!, code: String!, encryptedData: String!, iv: String!): SignInWithPlatformResult

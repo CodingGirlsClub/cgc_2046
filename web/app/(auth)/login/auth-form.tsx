@@ -32,7 +32,7 @@ function EyeIcon({ visible }: { visible: boolean }) {
   );
 }
 
-function PasswordField({
+export function PasswordField({
   id,
   placeholder,
   value,
@@ -40,6 +40,8 @@ function PasswordField({
   visible,
   onToggle,
   autoComplete,
+  ariaDescribedBy,
+  ariaInvalid = false,
 }: {
   id: string;
   placeholder: string;
@@ -48,6 +50,8 @@ function PasswordField({
   visible: boolean;
   onToggle: () => void;
   autoComplete: string;
+  ariaDescribedBy?: string;
+  ariaInvalid?: boolean;
 }) {
   return (
     <div className="auth-input-wrap">
@@ -60,6 +64,8 @@ function PasswordField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         required
         minLength={8}
       />
@@ -85,7 +91,7 @@ function passwordStrength(password: string) {
   return score;
 }
 
-function PasswordStrength({ password }: { password: string }) {
+export function PasswordStrength({ password }: { password: string }) {
   const score = passwordStrength(password);
   const label = score === 3 ? "强" : score === 2 ? "中" : score === 1 ? "弱" : "";
   const tone = score === 3 ? "strong" : score === 2 ? "medium" : "weak";
@@ -196,9 +202,9 @@ export default function AuthForm({
           <div className="auth-field__label-row">
             <label className="auth-field__label" htmlFor="auth-password">密码</label>
             {!isRegister && (
-              <button type="button" className="auth-inline-link">
+              <Link href="/forgot-password" className="auth-inline-link">
                 忘记密码？
-              </button>
+              </Link>
             )}
           </div>
           <PasswordField

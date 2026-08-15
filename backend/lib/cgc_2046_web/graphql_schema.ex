@@ -487,6 +487,74 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "请求发送密码重置邮件（无论邮箱是否存在都返回统一成功结果）"
+    field :request_password_reset, :request_password_reset_result do
+      arg(:email, non_null(:string))
+
+      middleware(
+        Cgc2046Web.Plugs.RateLimit,
+        key_path: [:email],
+        normalize: &normalize_email/1
+      )
+
+      resolve(fn _, %{email: email}, %{context: context} ->
+        email = normalize_email(email)
+
+        case check_password_reset_request_limits(context, email) do
+          :ok ->
+            strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
+
+            _ =
+              AshAuthentication.Strategy.action(
+                strategy,
+                :reset_request,
+                %{"email" => email}
+              )
+
+            {:ok, %{sent: true}}
+
+          :error ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+        end
+      end)
+    end
+
+    @desc "使用一次性密码重置 token 设置新密码"
+    field :reset_password, :reset_password_result do
+      arg(:reset_token, non_null(:string))
+      arg(:password, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:reset_token])
+
+      resolve(fn _, %{reset_token: reset_token, password: password}, %{context: context} ->
+        params = %{
+          "reset_token" => reset_token,
+          "password" => password
+        }
+
+        strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
+
+        try do
+          case AshAuthentication.Strategy.action(strategy, :reset, params) do
+            {:ok, _user} ->
+              {:ok, %{ok: true}}
+
+            {:error, error} ->
+              classify_password_reset_error(error, context)
+
+            other ->
+              report_password_reset_failure(other)
+          end
+        rescue
+          error ->
+            report_password_reset_failure(error)
+        catch
+          kind, reason ->
+            report_password_reset_failure({kind, reason})
+        end
+      end)
+    end
+
     @desc "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
     field :sign_in_with_platform, :sign_in_with_platform_result do
       arg(:platform, non_null(:string))
@@ -1130,6 +1198,14 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:is_platform_admin, non_null(:boolean))
   end
 
+  object :request_password_reset_result do
+    field(:sent, non_null(:boolean))
+  end
+
+  object :reset_password_result do
+    field(:ok, non_null(:boolean))
+  end
+
   # 小程序手机号用户无邮箱 → email 可空（与 users.email 放宽一致）
   object :sign_in_with_platform_result do
     field(:id, non_null(:id))
@@ -1286,6 +1362,90 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
+
+  defp normalize_email(email) do
+    email
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp check_password_reset_request_limits(context, email) do
+    email_key = Cgc2046Web.Plugs.RateLimit.build_key("rate:password-reset:email", email)
+
+    ip_key =
+      Cgc2046Web.Plugs.RateLimit.build_key(
+        "rate:password-reset:ip",
+        remote_ip(context)
+      )
+
+    with :ok <-
+           Cgc2046Web.Plugs.RateLimit.check(
+             email_key,
+             window_seconds: 3_600
+           ),
+         :ok <-
+           Cgc2046Web.Plugs.RateLimit.check(
+             ip_key,
+             window_seconds: 3_600,
+             max_attempts: 20
+           ) do
+      :ok
+    end
+  end
+
+  defp remote_ip(%{conn: %{remote_ip: ip}}), do: ip |> :inet.ntoa() |> to_string()
+  defp remote_ip(_context), do: "unknown"
+
+  @doc false
+  def password_reset_failure_telemetry(reason) do
+    if revoke_failure?(reason) do
+      {[:cgc2046, :password_reset, :revoke], :revoke_failed}
+    else
+      {[:cgc2046, :password_reset, :reset], :reset_failed}
+    end
+  end
+
+  defp revoke_failure?(%Cgc2046.Accounts.PasswordResetRevocationError{}), do: true
+
+  defp revoke_failure?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &revoke_failure?/1)
+  end
+
+  defp revoke_failure?(%{value: value}), do: revoke_failure?(value)
+  defp revoke_failure?(%{error: error}), do: revoke_failure?(error)
+  defp revoke_failure?(%{reason: reason}), do: revoke_failure?(reason)
+
+  defp revoke_failure?(list) when is_list(list) do
+    Enum.any?(list, &revoke_failure?/1)
+  end
+
+  defp revoke_failure?(_reason), do: false
+
+  defp classify_password_reset_error(error, _context)
+       when is_struct(error, AshAuthentication.Errors.InvalidToken) do
+    {:error, message: "链接无效或已过期", code: "invalid_reset_token"}
+  end
+
+  defp classify_password_reset_error(%Ash.Error.Invalid{} = error, context) do
+    {:error, to_ash_graphql_errors(error, context, :password_reset_with_password)}
+  end
+
+  defp classify_password_reset_error(error, _context), do: report_password_reset_failure(error)
+
+  defp report_password_reset_failure(reason) do
+    {telemetry_event, reason_category} = password_reset_failure_telemetry(reason)
+
+    Logger.warning("password reset failed reason=#{reason_category}")
+
+    :telemetry.execute(
+      telemetry_event,
+      %{count: 1},
+      %{reason: reason_category, email: nil}
+    )
+
+    {:error, message: "密码重置失败，请稍后重试", code: "password_reset_failed"}
+  end
 
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
