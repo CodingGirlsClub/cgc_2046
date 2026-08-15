@@ -21,6 +21,8 @@ import {
 	LIST_COURSE_ENROLLMENTS,
 	LIST_EVENTS,
 	LIST_EVENT_ENROLLMENTS,
+	MY_COURSE_ENROLLMENT,
+	MY_EVENT_ENROLLMENT,
 	UPDATE_COURSE,
 	UPDATE_EVENT,
 } from "./graphql/events";
@@ -230,4 +232,28 @@ export async function fetchPendingCount(id: string, kind: OfferingKind): Promise
 		variables: { courseId: id },
 	});
 	return data?.enrollments?.count ?? 0;
+}
+
+/**
+ * 当前用户对目标活动/课程是否已有报名（E-5 #50 G3 工作台详情页报名入口防重）。
+ * 读策略仅本人可见 → 返回即已报名；查询失败返回 false（入口不显示，不误报已报名）。
+ */
+export async function fetchMyEnrollment(
+	id: string,
+	kind: OfferingKind,
+	userId: string,
+): Promise<boolean> {
+	if (kind === "event") {
+		const { data } = await client.query({
+			query: MY_EVENT_ENROLLMENT,
+			variables: { eventId: id, userId },
+		});
+		return (data?.enrollments?.results?.length ?? 0) > 0;
+	}
+
+	const { data } = await client.query({
+		query: MY_COURSE_ENROLLMENT,
+		variables: { courseId: id, userId },
+	});
+	return (data?.enrollments?.results?.length ?? 0) > 0;
 }

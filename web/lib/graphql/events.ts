@@ -505,3 +505,32 @@ export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
 		}
 	}
 `;
+
+/* ---------------- 我的报名（工作台详情页入口防重，E-5 #50 G3） ---------------- */
+
+/** 当前用户对目标活动的既有报名（读策略仅本人可见 → 返回即已报名） */
+export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
+	{ enrollments: { results: Array<{ id: string }> } },
+	{ eventId: string; userId: string }
+> = gql`
+	query MyEventEnrollment($eventId: ID!, $userId: ID!) {
+		enrollments(filter: { eventId: { eq: $eventId }, userId: { eq: $userId } }) {
+			results {
+				id
+			}
+		}
+	}
+`;
+
+export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
+	{ enrollments: { results: Array<{ id: string }> } },
+	{ courseId: string; userId: string }
+> = gql`
+	query MyCourseEnrollment($courseId: ID!, $userId: ID!) {
+		enrollments(filter: { courseId: { eq: $courseId }, userId: { eq: $userId } }) {
+			results {
+				id
+			}
+		}
+	}
+`;

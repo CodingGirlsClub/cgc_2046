@@ -5,10 +5,9 @@ defmodule Cgc2046.Events.Readiness do
   清单 v1（D3 定稿）：
   1. `registration_deadline` 已设（null 合法 = 不设截止，仅提示）；
   2. published research 定义存在（无则教研 run 不会实例化，
-     research_instantiator 静默跳过——对账规则④同源）。
-
-  sponsorship 配置项 v1 不评估：`sponsorship_enabled` 字段尚未落库
-  （总纲:90 规划，随 E-3 补上后追加清单项）。
+     research_instantiator 静默跳过——对账规则④同源）；
+  3. `sponsorship_tiers_configured`：event 的 `sponsorship_enabled=true` 时
+     sponsorship_tiers 非空已配（E-3 落库后追加，D3）；course 无赞助概念恒 pass。
 
   语义：清单非 ready 不阻塞 launch（D3 警告放行），仅记 warning 日志 +
   经 GraphQL 查询向后台暴露。
@@ -31,6 +30,11 @@ defmodule Cgc2046.Events.Readiness do
         key: "research_definition",
         label: "已发布教研 workflow 定义",
         ok: research_definition_published?(entity.workspace_id)
+      },
+      %{
+        key: "sponsorship_tiers_configured",
+        label: "赞助档位已配置",
+        ok: sponsorship_tiers_configured?(entity)
       }
     ]
 
@@ -50,6 +54,18 @@ defmodule Cgc2046.Events.Readiness do
     end
 
     result
+  end
+
+  # 赞助档位就绪判定（D3）：event 的 sponsorship_enabled=true 时 tiers 非空才算
+  # 配好（打开赞助入口却无档位 = 未就绪）；enabled=false 或 course（无
+  # sponsorship_enabled 字段，Map.get 恒 nil）恒 pass。fail-open：读不到字段即视为
+  # 无此维度（course），与「未评估」语义一致。
+  defp sponsorship_tiers_configured?(entity) do
+    case Map.get(entity, :sponsorship_enabled) do
+      nil -> true
+      false -> true
+      true -> not is_nil(entity.sponsorship_tiers) and entity.sponsorship_tiers != []
+    end
   end
 
   # 已发布教研定义（多个取任意即可，实例化取最新）——查询失败视为未就绪

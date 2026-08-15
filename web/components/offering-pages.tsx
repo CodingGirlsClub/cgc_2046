@@ -17,6 +17,7 @@ import {
 	allowedTransitions,
 	canManageEvents,
 	createOffering,
+	fetchMyEnrollment,
 	fetchOffering,
 	fetchPendingCount,
 	fetchWorkspaceOfferings,
@@ -43,7 +44,8 @@ import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
-import { parseSponsorshipTiers } from "@/lib/public-offerings";
+import { parseSponsorshipTiers, submitEnrollment } from "@/lib/public-offerings";
+import { useAuthed } from "@/lib/use-authed";
 
 const TRANSITION_LABEL: Record<EventTransition, string> = {
 	launch: "发布（开放报名）",
@@ -230,6 +232,7 @@ export function OfferingDetailPage({
 	kind: OfferingKind;
 }) {
 	const { ws } = useWorkspaceBySlugWrapper(slug);
+	const { userId } = useAuthed();
 	const [state, setState] = useState<OfferingState>({ id: "", row: null, error: null });
 	const [metaDraft, setMetaDraft] = useState<MetaDraft | null>(null);
 	const [saveBusy, setSaveBusy] = useState(false);
@@ -240,6 +243,17 @@ export function OfferingDetailPage({
 		status: "loading" | "ok" | "error";
 		value: number;
 	}>({ id: "", status: "loading", value: 0 });
+	// E-5 #50 G3：工作台详情页报名入口（活动 open + 本人无既有报名才显示）
+	const [enrollState, setEnrollState] = useState<{
+		id: string;
+		hasExisting: boolean;
+		status: "loading" | "ok" | "error";
+	}>({ id: "", hasExisting: false, status: "loading" });
+	const [enrollBusy, setEnrollBusy] = useState(false);
+	const [submitState, setSubmitState] = useState<{
+		kind: "idle" | "confirmed" | "pending" | "error";
+		message: string | null;
+	}>({ kind: "idle", message: null });
 
 	useEffect(() => {
 		if (!id) return;
@@ -263,6 +277,25 @@ export function OfferingDetailPage({
 			cancelled = true;
 		};
 	}, [id, kind]);
+
+	// 我的既有报名（防重复报名；读策略仅本人可见）
+	useEffect(() => {
+		if (!id || !userId) return;
+		let cancelled = false;
+
+		fetchMyEnrollment(id, kind, userId)
+			.then((hasExisting) => {
+				if (!cancelled) setEnrollState({ id, hasExisting, status: "ok" });
+			})
+			.catch(() => {
+				// 失败 ≠ 已报名：入口不显示（不误报），错误态不阻塞页面其余部分
+				if (!cancelled) setEnrollState({ id, hasExisting: false, status: "error" });
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [id, kind, userId]);
 
 	// pending 报名数（报名数据视图：request 策略待审批）
 	useEffect(() => {
@@ -376,6 +409,40 @@ export function OfferingDetailPage({
 			setSaveMessage(e instanceof Error ? e.message : "操作失败");
 		} finally {
 			setBusyTransition(null);
+		}
+	}
+
+	// E-5 #50 G3：报名入口显示条件 = 活动 open + 当前用户无既有报名（query 就绪且
+	// 未报）。复用 submitEnrollment（createEnrollment mutation，鉴权后端管）。
+	async function submitForMe() {
+		if (!offering || !userId) return;
+		setEnrollBusy(true);
+		setSubmitState({ kind: "idle", message: null });
+		try {
+			const res = await submitEnrollment({
+				eventId: kind === "event" ? offering.id : undefined,
+				courseId: kind === "course" ? offering.id : undefined,
+				userId,
+			});
+			if (res.result) {
+				const pending = res.result.status === "pending";
+				setSubmitState({
+					kind: pending ? "pending" : "confirmed",
+					message: pending ? "申请已提交，等待审批" : "报名成功",
+				});
+			} else {
+				setSubmitState({
+					kind: "error",
+					message: res.errors[0]?.message ?? "提交失败",
+				});
+			}
+		} catch (e: unknown) {
+			setSubmitState({
+				kind: "error",
+				message: e instanceof Error ? e.message : "提交失败",
+			});
+		} finally {
+			setEnrollBusy(false);
 		}
 	}
 
@@ -516,6 +583,48 @@ export function OfferingDetailPage({
 								</div>
 							) : null}
 						</div>
+
+						{/* E-5 #50 G3：工作台详情页报名入口（open + 本人无既有报名；复用
+						    submitEnrollment，鉴权后端管） */}
+						{offering.status === "open" &&
+						userId !== null &&
+						enrollState.id === id &&
+						enrollState.status === "ok" ? (
+							<div className="mt-4 rounded-large border border-line bg-card p-6">
+								<h2 className="text-sm font-medium text-ink">报名</h2>
+								<div className="mt-3 text-sm">
+									{submitState.kind === "confirmed" || submitState.kind === "pending" ? (
+										<p role="status" className="text-ink">
+											{submitState.kind === "confirmed" ? "✓ 报名成功" : "✓ 申请已提交"}
+											{submitState.message ? `（${submitState.message}）` : ""}
+										</p>
+									) : enrollState.hasExisting ? (
+										<p className="text-[13px] text-ink-3">你已报名该{label}。</p>
+									) : (
+										<div className="grid gap-3">
+											{submitState.kind === "error" ? (
+												<p className="text-[13px] text-ink-3" role="alert">
+													{submitState.message}
+												</p>
+											) : null}
+											{offering.enrollmentPolicy === "request" ? (
+												<p className="text-[13px] text-ink-3">
+													提交后需 Owner/Admin 审批，通过后确认名额。
+												</p>
+											) : null}
+											<button
+												type="button"
+												disabled={enrollBusy}
+												onClick={() => void submitForMe()}
+												className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
+											>
+												{enrollBusy ? "提交中…" : "报名"}
+											</button>
+										</div>
+									)}
+								</div>
+							</div>
+						) : null}
 
 						{manage ? (
 							<div className="mt-4 rounded-large border border-line bg-card p-6">
