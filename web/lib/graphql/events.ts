@@ -10,7 +10,7 @@ import type { MutationResult } from "./shared";
  * - 列表查询走 keyset 分页（KeysetPageOfEvent.results，filter 参数包裹）；
  * - 状态机：draft → open → closed/cancelled（终态不可逆，v1）；
  * - visibility 轴（D9）：public | workspace，可随时双向切换（含 open 后）；
- * - 读策略：匿名仅可读 open+public；成员可读本工作台全部；
+ * - 读策略：匿名仅可读 open+public；成员可读本工作台非 draft；Owner/Admin 含 draft；
  * - 白名单（D2 denylist 式）：capacity/confirmedCount/workspaceId 等敏感字段
  *   对非成员为 null（field policy 筛除）；
  * - 写操作：Owner/Admin（后端 policy 兜底）；create 需 workspaceId 入参。
