@@ -102,9 +102,13 @@ export default function WorkspaceShell({
 	const { authed, confirmed } = useAuthed();
 	// requireWs=false（profile）时 slug 传 ""：hook 空 slug 不解析（见 hook 文档），
 	// 侧栏上下文块只展示 slug，不出现「不可访问」态
-	const { ws, loading, error: wsError, retry } = useWorkspaceBySlug(
-		requireWs ? slug : "",
-	);
+	const {
+		ws,
+		readOnlyVisitor,
+		loading,
+		error: wsError,
+		retry,
+	} = useWorkspaceBySlug(requireWs ? slug : "");
 
 	// 工作区切换 dropdown（issue #83：ws-shell-brand ⌄ 可切换已加入的工作区）
 	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
@@ -368,7 +372,14 @@ export default function WorkspaceShell({
 				)}
 			</aside>
 
-			<main className="ws-shell-main">{children}</main>
+			<main className="ws-shell-main">
+				{readOnlyVisitor && (
+					<div className="ws-shell-readonly-banner" role="status">
+						平台管理员 · 只读审计视图
+					</div>
+				)}
+				{children}
+			</main>
 		</div>
 	);
 }
