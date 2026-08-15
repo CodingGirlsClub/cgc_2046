@@ -261,7 +261,6 @@ defmodule Cgc2046.Events.Enrollment do
 
     policy action([:confirm_enrollment, :reject_enrollment]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     policy action(:cancel) do

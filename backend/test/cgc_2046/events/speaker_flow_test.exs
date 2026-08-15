@@ -224,6 +224,10 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
 
     test "过期 token → 统一错误", %{event: event} do
       admin = Fixtures.platform_admin("spk-expired-card")
+      # #49 收窄后 create_invitation 仅 Owner/Admin：本测试关注 token 过期错误，
+      # 布置时给 admin 挂 Owner 成员资格（issue 需管理角色，过期判定在 action 内）
+      workspace = Ash.get!(Cgc2046.Accounts.Workspace, event.workspace_id, authorize?: false)
+      Fixtures.add_member(workspace, admin, [:owner])
 
       {:ok, _invitation, expired_token} =
         SpeakerInvitation.issue(

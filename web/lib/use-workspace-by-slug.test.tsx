@@ -64,7 +64,7 @@ describe("useWorkspaceBySlug (#017 Bug B：网络失败 ≠ 无权限)", () => {
 		expect(result.current.loading).toBe(false);
 		expect(result.current.error).toBeNull();
 	});
-	it("PlatformAdmin 非成员：meWorkspaces miss 后按 slug fallback，并标记只读访客", async () => {
+	it("PlatformAdmin 非成员：meWorkspaces miss 后按 slug fallback，并保留只读数据字段", async () => {
 		fetchMyWorkspaces.mockResolvedValue([]);
 		fetchCurrentProfile.mockResolvedValue({ isPlatformAdmin: true });
 		fetchWorkspaceBySlug.mockResolvedValue({
@@ -72,13 +72,17 @@ describe("useWorkspaceBySlug (#017 Bug B：网络失败 ≠ 无权限)", () => {
 			slug: "audit-ws",
 			name: "审计工作台",
 			joinPolicy: "invite_only",
-			sponsorshipEnabled: false,
+			sponsorshipEnabled: true,
+			sponsorshipTiers: ['{"name":"金牌","amount":1000}'],
+			memberCount: 42,
 		});
 
 		const { result } = renderHook(() => useWorkspaceBySlug("audit-ws"));
 
 		await act(async () => {});
 		expect(result.current.ws?.name).toBe("审计工作台");
+		expect(result.current.ws?.memberCount).toBe(42);
+		expect(result.current.ws?.sponsorshipTiers).toEqual(['{"name":"金牌","amount":1000}']);
 		expect(result.current.ws?.readOnlyVisitor).toBe(true);
 		expect(result.current.readOnlyVisitor).toBe(true);
 		expect(result.current.loading).toBe(false);

@@ -158,4 +158,72 @@ describe("OfferingDetailPage 错误态", () => {
 		expect(await screen.findByRole("heading", { name: "公开活动" })).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
 	});
+
+	it("fallback 未解析（loading）时不闪现报名 CTA，resolve 为只读后仍不渲染", async () => {
+		// rerender 会重跑 fetchOffering effect（deps 相同但组件树重渲染），
+		// 用持久实现避免 once 队列耗尽后返回 undefined（不写脆弱 timer）。
+		mocks.fetchOffering.mockImplementation(() =>
+			Promise.resolve({
+				id: "event-open",
+				title: "公开活动",
+				status: "open",
+				visibility: "workspace",
+				enrollmentPolicy: "open",
+				registrationDeadline: null,
+				capacity: null,
+				confirmedCount: 0,
+			}),
+		);
+		// 顺序模拟：第一次渲染时 workspace fallback 仍在 loading（offering 先 settle），
+		// rerender 后 fallback resolve 为只读访客 —— 两个窗口都不得出现报名按钮。
+		mocks.useWorkspaceBySlug
+			.mockReturnValueOnce({
+				ws: undefined,
+				readOnlyVisitor: false,
+				loading: true,
+				error: null,
+				retry: vi.fn(),
+			})
+			.mockReturnValueOnce({
+				ws: { ...WORKSPACE, readOnlyVisitor: true },
+				readOnlyVisitor: true,
+				loading: false,
+				error: null,
+				retry: vi.fn(),
+			});
+
+		const { rerender } = render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
+
+		// offering 已加载而 hook 仍在 loading：CTA 不得闪现
+		expect(await screen.findByRole("heading", { name: "公开活动" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
+
+		// fallback settle：仍不渲染
+		rerender(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
+		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
+	});
+
+	it("普通成员路径：workspace resolve 后仍显示报名入口（门控不误伤成员）", async () => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce({
+			id: "event-open",
+			title: "公开活动",
+			status: "open",
+			visibility: "workspace",
+			enrollmentPolicy: "open",
+			registrationDeadline: null,
+			capacity: null,
+			confirmedCount: 0,
+		});
+
+		render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
+
+		expect(await screen.findByRole("button", { name: "报名" })).toBeInTheDocument();
+	});
 });

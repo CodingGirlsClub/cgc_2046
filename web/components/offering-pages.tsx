@@ -233,7 +233,7 @@ export function OfferingDetailPage({
 	id: string;
 	kind: OfferingKind;
 }) {
-	const { ws, readOnlyVisitor } = useWorkspaceBySlugWrapper(slug);
+	const { ws, readOnlyVisitor, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
 	const { userId } = useAuthed();
 	const [state, setState] = useState<OfferingState>({ id: "", row: null, error: null });
 	const [metaDraft, setMetaDraft] = useState<MetaDraft | null>(null);
@@ -595,7 +595,9 @@ export function OfferingDetailPage({
 
 						{/* E-5 #50 G3：工作台详情页报名入口（open + 本人无既有报名；复用
 						    submitEnrollment，鉴权后端管） */}
-						{!readOnlyVisitor &&
+						{!wsLoading &&
+						ws &&
+						!readOnlyVisitor &&
 						offering.status === "open" &&
 						userId !== null &&
 						enrollState.id === id &&

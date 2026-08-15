@@ -25,6 +25,8 @@ describe("workspace GraphQL 契约（对齐 #62 schema）", () => {
 		expect(doc).toContain("name");
 		expect(doc).toContain("joinPolicy");
 		expect(doc).toContain("sponsorshipEnabled");
+		expect(doc).toContain("sponsorshipTiers");
+		expect(doc).toContain("memberCount");
 	});
 
 	it("GET_WORKSPACE_BY_ID：id 参数", () => {

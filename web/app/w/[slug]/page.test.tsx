@@ -167,7 +167,9 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 			slug: "audit-ws",
 			name: "审计工作台",
 			joinPolicy: "invite_only",
-			sponsorshipEnabled: false,
+			sponsorshipEnabled: true,
+			sponsorshipTiers: ['{"name":"金牌","amount":1000}'],
+			memberCount: 42,
 		});
 		render(<WorkspacePage />);
 
@@ -177,9 +179,11 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(screen.getByRole("status")).toHaveTextContent(
 			"平台管理员 · 只读审计视图",
 		);
+		expect(main.getByTestId("workspace-member-count")).toHaveTextContent("42 位成员");
+		expect(main.getByText("已开放赞助")).toBeInTheDocument();
 		expect(fetchWorkspaceBySlug).toHaveBeenCalledWith("audit-ws");
-	});
 
+	});
 	it("真实模式（#70 QA P1）：fetchMyWorkspaces 返回真实 ws（不在 mock），详情页按真实数据渲染", async () => {
 		fetchMyWorkspaces.mockResolvedValue([
 			{

@@ -146,6 +146,120 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
     assert Enum.any?(errors, &(&1["message"] == "forbidden"))
   end
 
+  test "PlatformAdmin 非成员不能确认或拒绝报名，Owner 路径仍可用" do
+    admin = Fixtures.platform_admin("gql-enroll-approval-admin")
+    workspace = Fixtures.create_workspace(admin)
+
+    event =
+      EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request, capacity: 10})
+
+    confirm_id = create_pending_enrollment(event, "gql-enroll-approval-confirm-owner")
+    reject_id = create_pending_enrollment(event, "gql-enroll-approval-reject-owner")
+    forbidden_confirm_id = create_pending_enrollment(event, "gql-enroll-approval-confirm-admin")
+    forbidden_reject_id = create_pending_enrollment(event, "gql-enroll-approval-reject-admin")
+    owner_token = sign_in_token(admin)
+
+    assert %{
+             "data" => %{
+               "confirmEnrollment" => %{
+                 "result" => %{"id" => ^confirm_id, "status" => "confirmed"},
+                 "errors" => []
+               }
+             }
+           } =
+             graphql(
+               """
+               mutation {
+                 confirmEnrollment(id: "#{confirm_id}") {
+                   result { id status }
+                   errors { message }
+                 }
+               }
+               """,
+               owner_token
+             )
+
+    assert %{
+             "data" => %{
+               "rejectEnrollment" => %{
+                 "result" => %{"id" => ^reject_id, "status" => "rejected"},
+                 "errors" => []
+               }
+             }
+           } =
+             graphql(
+               """
+               mutation {
+                 rejectEnrollment(id: "#{reject_id}", input: { rejectionReason: "不符合条件" }) {
+                   result { id status }
+                   errors { message }
+                 }
+               }
+               """,
+               owner_token
+             )
+
+    Fixtures.remove_membership(workspace, admin)
+    admin_token = sign_in_token(admin)
+
+    assert %{
+             "data" => %{
+               "confirmEnrollment" => %{"result" => nil, "errors" => confirm_errors}
+             }
+           } =
+             graphql(
+               """
+               mutation {
+                 confirmEnrollment(id: "#{forbidden_confirm_id}") {
+                   result { id status }
+                   errors { message }
+                 }
+               }
+               """,
+               admin_token
+             )
+
+    assert Enum.any?(confirm_errors, &(&1["message"] =~ "forbidden"))
+
+    assert %{
+             "data" => %{
+               "rejectEnrollment" => %{"result" => nil, "errors" => reject_errors}
+             }
+           } =
+             graphql(
+               """
+               mutation {
+                 rejectEnrollment(
+                   id: "#{forbidden_reject_id}"
+                   input: { rejectionReason: "不符合条件" }
+                 ) {
+                   result { id status }
+                   errors { message }
+                 }
+               }
+               """,
+               admin_token
+             )
+
+    assert Enum.any?(reject_errors, &(&1["message"] =~ "forbidden"))
+  end
+
+  defp create_pending_enrollment(event, prefix) do
+    learner = Fixtures.register_user(prefix)
+
+    assert %{
+             "data" => %{
+               "createEnrollment" => %{
+                 "result" => %{"id" => id, "status" => "pending"},
+                 "errors" => []
+               }
+             }
+           } =
+             graphql(create_mutation(event, learner), sign_in_token(learner))
+
+    id
+  end
+
   defp create_mutation(event, user, extra \\ []) do
     invite_code_input =
       case Keyword.get(extra, :invite_code) do
