@@ -275,6 +275,8 @@ export const GET_WORKSPACE: TypedDocumentNode<
       name
       joinPolicy
       sponsorshipEnabled
+      sponsorshipTiers
+      memberCount
     }
   }
 `;

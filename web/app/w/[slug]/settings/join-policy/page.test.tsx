@@ -55,6 +55,9 @@ vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 const { params } = vi.hoisted(() => ({
 	params: { value: { slug: "cgc-academy" } },
 }));
+const { fetchCurrentProfile } = vi.hoisted(() => ({
+	fetchCurrentProfile: vi.fn(),
+}));
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
 }));
@@ -62,6 +65,9 @@ const { updateWorkspaceJoinPolicy } = vi.hoisted(() => ({
 	updateWorkspaceJoinPolicy: vi.fn(),
 }));
 
+const { fetchWorkspaceBySlug } = vi.hoisted(() => ({
+	fetchWorkspaceBySlug: vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	useParams: () => params.value,
@@ -79,6 +85,15 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 	const mod = (await importOriginal()) as Record<string, unknown>;
 	return { ...mod, fetchMyWorkspaces, updateWorkspaceJoinPolicy };
 });
+vi.mock("@/lib/profile", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return { ...mod, fetchCurrentProfile };
+});
+
+vi.mock("@/lib/requests", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return { ...mod, fetchWorkspaceBySlug };
+});
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -86,6 +101,8 @@ beforeEach(() => {
 	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	params.value = { slug: "cgc-academy" };
 	fetchMyWorkspaces.mockResolvedValue(TEST_WORKSPACES);
+	fetchCurrentProfile.mockResolvedValue({ isPlatformAdmin: false });
+	fetchWorkspaceBySlug.mockReset();
 	updateWorkspaceJoinPolicy.mockResolvedValue({ joinPolicy: "invite_only" });
 });
 
@@ -206,6 +223,28 @@ describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 
 		const alert = await screen.findByRole("alert");
 		expect(alert).toHaveTextContent("forbidden");
+	});
+
+	it("PlatformAdmin 只读访客：展示策略但禁用保存", async () => {
+		params.value = { slug: "audit-ws" };
+		fetchMyWorkspaces.mockResolvedValue([]);
+		fetchCurrentProfile.mockResolvedValue({ isPlatformAdmin: true });
+		fetchWorkspaceBySlug.mockResolvedValue({
+			id: "ws-audit",
+			slug: "audit-ws",
+			name: "审计工作台",
+			joinPolicy: "request",
+			sponsorshipEnabled: false,
+		});
+
+		render(<SettingsPage />);
+
+		expect(
+			await screen.findByTestId("settings-readonly-note"),
+		).toHaveTextContent("平台管理员只读审计视图");
+		expect(screen.getByRole("radio", { name: "公开" })).toBeDisabled();
+		expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled();
+		expect(updateWorkspaceJoinPolicy).not.toHaveBeenCalled();
 	});
 
 	it("非管理员（无 update_join_policy）：radio 禁用 + 只读提示 + 保存禁用", async () => {

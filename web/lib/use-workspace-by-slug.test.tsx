@@ -5,14 +5,18 @@ import { useWorkspaceBySlug } from "./use-workspace-by-slug";
 /**
  * useWorkspaceBySlug（#017 Bug B：网络失败 ≠ 无权限）单测。
  *
- * 本 hook 只消费 fetchMyWorkspaces 真实数据；#017 之前 .catch 把一切失败
- * 等同「slug 不在我的列表」（误报「工作区不可访问」），现在保留 error 通道 +
- * retry 出口。测试覆盖：首帧 loading、匹配/不匹配、slug 变化 stale、
- * 空 slug skip、reject → error、retry 重拉并清 error。
+ * 覆盖成员主路径、平台管理员非成员 fallback、普通用户未知 slug、
+ * 首帧 loading、slug 变化 stale、空 slug skip、reject → error、retry 重拉。
  */
 
 const { fetchMyWorkspaces } = vi.hoisted(() => ({
 	fetchMyWorkspaces: vi.fn(),
+}));
+const { fetchCurrentProfile } = vi.hoisted(() => ({
+	fetchCurrentProfile: vi.fn(),
+}));
+const { fetchWorkspaceBySlug } = vi.hoisted(() => ({
+	fetchWorkspaceBySlug: vi.fn(),
 }));
 
 vi.mock("@/lib/workspaces", async (importOriginal) => {
@@ -20,8 +24,21 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 	return { ...mod, fetchMyWorkspaces };
 });
 
+vi.mock("@/lib/profile", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return { ...mod, fetchCurrentProfile };
+});
+
+vi.mock("@/lib/requests", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return { ...mod, fetchWorkspaceBySlug };
+});
+
 beforeEach(() => {
 	fetchMyWorkspaces.mockReset();
+	fetchCurrentProfile.mockReset();
+	fetchWorkspaceBySlug.mockReset();
+	fetchCurrentProfile.mockResolvedValue({ isPlatformAdmin: false });
 });
 
 describe("useWorkspaceBySlug (#017 Bug B：网络失败 ≠ 无权限)", () => {
@@ -46,6 +63,42 @@ describe("useWorkspaceBySlug (#017 Bug B：网络失败 ≠ 无权限)", () => {
 		expect(result.current.ws?.slug).toBe("cgc-academy");
 		expect(result.current.loading).toBe(false);
 		expect(result.current.error).toBeNull();
+	});
+	it("PlatformAdmin 非成员：meWorkspaces miss 后按 slug fallback，并保留只读数据字段", async () => {
+		fetchMyWorkspaces.mockResolvedValue([]);
+		fetchCurrentProfile.mockResolvedValue({ isPlatformAdmin: true });
+		fetchWorkspaceBySlug.mockResolvedValue({
+			id: "ws_admin_audit",
+			slug: "audit-ws",
+			name: "审计工作台",
+			joinPolicy: "invite_only",
+			sponsorshipEnabled: true,
+			sponsorshipTiers: ['{"name":"金牌","amount":1000}'],
+			memberCount: 42,
+		});
+
+		const { result } = renderHook(() => useWorkspaceBySlug("audit-ws"));
+
+		await act(async () => {});
+		expect(result.current.ws?.name).toBe("审计工作台");
+		expect(result.current.ws?.memberCount).toBe(42);
+		expect(result.current.ws?.sponsorshipTiers).toEqual(['{"name":"金牌","amount":1000}']);
+		expect(result.current.ws?.readOnlyVisitor).toBe(true);
+		expect(result.current.readOnlyVisitor).toBe(true);
+		expect(result.current.loading).toBe(false);
+	});
+
+	it("普通用户未知 slug：不 fallback，保持不可访问结果", async () => {
+		fetchMyWorkspaces.mockResolvedValue([]);
+		fetchCurrentProfile.mockResolvedValue({ isPlatformAdmin: false });
+
+		const { result } = renderHook(() => useWorkspaceBySlug("unknown-ws"));
+
+		await act(async () => {});
+		expect(result.current.ws).toBeUndefined();
+		expect(result.current.readOnlyVisitor).toBe(false);
+		expect(fetchWorkspaceBySlug).not.toHaveBeenCalled();
+		expect(result.current.loading).toBe(false);
 	});
 
 	it("slug 变化：回到 loading（stale 派生），解析后换到新工作区", async () => {
@@ -77,6 +130,7 @@ describe("useWorkspaceBySlug (#017 Bug B：网络失败 ≠ 无权限)", () => {
 		expect(fetchMyWorkspaces).not.toHaveBeenCalled();
 		expect(result.current).toEqual({
 			ws: undefined,
+			readOnlyVisitor: false,
 			loading: false,
 			error: null,
 			retry: expect.any(Function),

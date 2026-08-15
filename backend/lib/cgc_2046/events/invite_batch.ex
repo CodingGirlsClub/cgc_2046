@@ -122,7 +122,6 @@ defmodule Cgc2046.Events.InviteBatch do
 
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

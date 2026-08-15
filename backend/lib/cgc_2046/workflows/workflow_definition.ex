@@ -277,10 +277,9 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
-    # 写操作：Owner/Admin（多角色并集）或平台管理员
+    # 写操作：Owner/Admin（多角色并集）
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
   end
 

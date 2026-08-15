@@ -313,6 +313,112 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     assert Enum.any?(errors, &(&1["message"] =~ "forbidden"))
   end
 
+  test "非成员 PlatformAdmin 不能保存或完成 SpeakerInvitation", %{
+    admin: admin,
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    speaker = Fixtures.register_user_with_email("gql-speaker-platform-admin@example.com")
+    speaker_token = sign_in_token(speaker.email)
+    invitation_id = create_and_accept(workspace, event, owner_token, speaker_token, speaker.email)
+
+    Fixtures.remove_membership(workspace, admin)
+    admin_token = sign_in_token(admin.email)
+
+    save_query = """
+    mutation {
+      saveSpeakerMaterials(
+        invitationId: "#{invitation_id}",
+        materials: #{Jason.encode!(Jason.encode!(%{"title" => "平台管理员材料"}))}
+      ) {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "saveSpeakerMaterials" => %{"result" => nil, "errors" => save_errors}
+             }
+           } =
+             build_conn() |> graphql_post(save_query, admin_token)
+
+    assert Enum.any?(save_errors, &(&1["message"] =~ "forbidden"))
+
+    complete_query = """
+    mutation {
+      completeSpeakerInvitation(id: "#{invitation_id}") {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "completeSpeakerInvitation" => %{"result" => nil, "errors" => complete_errors}
+             }
+           } =
+             build_conn() |> graphql_post(complete_query, admin_token)
+
+    assert Enum.any?(complete_errors, &(&1["message"] =~ "forbidden"))
+  end
+
+  test "Owner（非 PlatformAdmin）save/complete 兜底路径仍可用", %{
+    workspace: workspace,
+    event: event
+  } do
+    owner = Fixtures.register_user("gql-spk-owner-admin")
+    Fixtures.add_member(workspace, owner, [:owner])
+    owner_token = sign_in_token(owner.email)
+
+    speaker = Fixtures.register_user_with_email("gql-speaker-owner-bypass@example.com")
+    speaker_token = sign_in_token(speaker.email)
+
+    invitation_id =
+      create_and_accept(workspace, event, owner_token, speaker_token, speaker.email)
+
+    save_query = """
+    mutation {
+      saveSpeakerMaterials(
+        invitationId: "#{invitation_id}",
+        materials: #{Jason.encode!(Jason.encode!(%{"title" => "Owner 兜底材料"}))}
+      ) {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "saveSpeakerMaterials" => %{"result" => %{"status" => "accepted"}, "errors" => []}
+             }
+           } =
+             build_conn() |> graphql_post(save_query, owner_token)
+
+    complete_query = """
+    mutation {
+      completeSpeakerInvitation(id: "#{invitation_id}") {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "completeSpeakerInvitation" => %{
+                 "result" => %{"status" => "completed"},
+                 "errors" => []
+               }
+             }
+           } =
+             build_conn() |> graphql_post(complete_query, owner_token)
+  end
+
   test "非 Owner/Admin 不能 create/list（payload/top-level 错误协议）", %{
     workspace: workspace,
     event: event

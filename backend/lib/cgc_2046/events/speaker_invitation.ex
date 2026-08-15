@@ -329,10 +329,9 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   end
 
   policies do
-    # 创建：Owner/Admin（对齐 Event 管理写动作）或平台管理员
+    # 创建：Owner/Admin（对齐 Event 管理写动作）
     policy action(:create_invitation) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 决策：token 即凭据（token 持有者自助操作，拍板 #1 必须登录），
@@ -343,11 +342,10 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       authorize_if(actor_present())
     end
 
-    # 材料产出/完成：被邀请人本人自助，Owner/Admin 与平台管理员兜底
+    # 材料产出/完成：被邀请人本人自助，Owner/Admin 管理
     policy action([:save_materials, :complete_speaking]) do
       authorize_if(expr(speaker_user_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 读取：仅 Owner/Admin 或平台管理员（Speaker 走 token 公开卡片查询，不读列表）

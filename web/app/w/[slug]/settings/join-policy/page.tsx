@@ -36,8 +36,13 @@ const JOIN_POLICIES: JoinPolicy[] = ["open", "request", "invite_only"];
 export default function WorkspaceSettingsPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
-	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
-	const canUpdate = currentUserCanUpdateJoinPolicy(ws);
+	const {
+		ws,
+		readOnlyVisitor,
+		loading: wsLoading,
+	} = useWorkspaceBySlug(slug);
+	const canUpdate =
+		!readOnlyVisitor && currentUserCanUpdateJoinPolicy(ws);
 
 	// 草稿策略：以 wsId 键控的派生状态（对齐 useWorkspaceBySlug 派生模式，
 	// 避免 effect 内同步 setState；跨 slug 切换时旧草稿自动失效不串台）
@@ -185,7 +190,9 @@ export default function WorkspaceSettingsPage() {
 								className="settings-note"
 								data-testid="settings-readonly-note"
 							>
-								仅 Owner / Admin 可修改加入策略；当前为只读展示。
+								{readOnlyVisitor
+									? "平台管理员只读审计视图，无法修改加入策略。"
+									: "仅 Owner / Admin 可修改加入策略；当前为只读展示。"}
 							</div>
 						)}
 

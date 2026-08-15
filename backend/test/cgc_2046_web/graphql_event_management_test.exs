@@ -161,6 +161,21 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
     assert errors != []
   end
 
+  test "非成员 PlatformAdmin 不能 createEvent（只读审计）" do
+    admin = Fixtures.platform_admin("gql-event-readonly-admin")
+    workspace = Fixtures.create_workspace(admin)
+    Fixtures.remove_membership(workspace, admin)
+
+    response =
+      graphql(
+        create_event_mutation(workspace.id, %{title: "只读越权创建", enrollment_policy: :open}),
+        sign_in_token(admin)
+      )
+
+    assert %{"data" => %{"createEvent" => %{"result" => nil, "errors" => errors}}} = response
+    assert errors != []
+  end
+
   defp sign_in_token(user) do
     mutation = """
     mutation {

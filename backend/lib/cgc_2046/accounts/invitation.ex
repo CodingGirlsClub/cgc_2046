@@ -529,23 +529,20 @@ defmodule Cgc2046.Accounts.Invitation do
 
   policies do
     # :create 限工作台成员（Owner/Admin/Volunteer），且 inviter_id 必须是 actor 本人；
-    # platform_admin（Phase 4 D1）可创建 pending-owner 邀请（非成员，预授权 [:owner]）。
-    # forbid_unless 是守卫语义（不满足即拒绝），不同于 authorize_if 的 OR 短路放行——
-    # 若用 authorize_if 加 inviter_id 校验，Volunteer 会被其后的 Volunteer check 放行，
-    # inviter_id 校验形同虚设。预授权角色约束由 change 校验。
+    # pending-owner 邀请由专用 check 放行：仅平台管理员 + 预授权 owner。
     policy action(:create) do
       forbid_unless(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(Cgc2046.Policies.WorkspaceActorIsVolunteer)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdminOwnerInvite)
     end
 
-    # :revoke 限邀请人本人或 Owner/Admin；#114 加 platform_admin bypass
-    # （pending-owner 期间无工作台 Owner/Admin，取消邀请须任意平台管理员可达）
+    # :revoke 限邀请人本人或 Owner/Admin；
+    # pending-owner 期间无工作台 Owner/Admin，取消邀请由同一专用 check 放行。
     policy action(:revoke) do
       authorize_if(expr(inviter_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdminOwnerInvite)
     end
 
     # :validate 持 token 即可（不要求成员）
