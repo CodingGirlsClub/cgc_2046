@@ -1,3 +1,9 @@
+defmodule Cgc2046.Accounts.PasswordResetRevocationError do
+  use Splode.Error, fields: [:reason], class: :unknown
+
+  def message(_error), do: "password reset session revocation failed"
+end
+
 defmodule Cgc2046.Accounts.User do
   @moduledoc """
   全局用户资源（ADR-0004 收窄为全局身份）。
@@ -263,22 +269,34 @@ defmodule Cgc2046.Accounts.User do
     change(
       fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, record ->
-          subject = AshAuthentication.user_to_subject(record)
+          try do
+            subject = AshAuthentication.user_to_subject(record)
 
-          Cgc2046.Accounts.Token
-          |> Ash.Query.new()
-          |> Ash.Query.set_context(%{private: %{ash_authentication?: true}})
-          |> Ash.Query.for_read(:stored_for_subject, %{subject: subject})
-          |> Ash.bulk_update(:revoke_all_stored_for_subject, %{subject: subject},
-            strategy: [:atomic, :atomic_batches, :stream],
-            context: %{private: %{ash_authentication?: true}},
-            return_errors?: true,
-            stop_on_error?: true,
-            tenant: context.tenant
-          )
-          |> case do
-            %{status: :success} -> {:ok, record}
-            %{errors: errors} -> {:error, errors}
+            Cgc2046.Accounts.Token
+            |> Ash.Query.new()
+            |> Ash.Query.set_context(%{private: %{ash_authentication?: true}})
+            |> Ash.Query.for_read(:stored_for_subject, %{subject: subject})
+            |> Ash.bulk_update(:revoke_all_stored_for_subject, %{subject: subject},
+              strategy: [:atomic, :atomic_batches, :stream],
+              context: %{private: %{ash_authentication?: true}},
+              return_errors?: true,
+              stop_on_error?: true,
+              tenant: context.tenant
+            )
+            |> case do
+              %{status: :success} ->
+                {:ok, record}
+
+              %{errors: errors} ->
+                {:error, Cgc2046.Accounts.PasswordResetRevocationError.exception(reason: errors)}
+            end
+          rescue
+            error ->
+              {:error, Cgc2046.Accounts.PasswordResetRevocationError.exception(reason: error)}
+          catch
+            kind, reason ->
+              {:error,
+               Cgc2046.Accounts.PasswordResetRevocationError.exception(reason: {kind, reason})}
           end
         end)
       end,

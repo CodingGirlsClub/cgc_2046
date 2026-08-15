@@ -23,6 +23,31 @@ defmodule Cgc2046Web.GraphqlPasswordResetTest do
     :ok
   end
 
+  describe "password reset failure telemetry classification" do
+    test "only explicit revocation failures use revoke telemetry" do
+      revoke_marker =
+        Cgc2046.Accounts.PasswordResetRevocationError.exception(reason: [:injected])
+
+      wrapped_revoke_marker = Ash.Error.to_error_class(revoke_marker)
+
+      assert {@revoke_telemetry_event, :revoke_failed} =
+               Cgc2046Web.GraphqlSchema.password_reset_failure_telemetry(revoke_marker)
+
+      assert {@revoke_telemetry_event, :revoke_failed} =
+               Cgc2046Web.GraphqlSchema.password_reset_failure_telemetry(wrapped_revoke_marker)
+
+      for reason <- [
+            :unexpected_result,
+            {:error, :unexpected},
+            RuntimeError.exception("reset crashed"),
+            {:throw, :reset_threw}
+          ] do
+        assert {[:cgc2046, :password_reset, :reset], :reset_failed} =
+                 Cgc2046Web.GraphqlSchema.password_reset_failure_telemetry(reason)
+      end
+    end
+  end
+
   describe "requestPasswordReset mutation" do
     test "existing user: returns sent: true and delivers the reset email asynchronously" do
       user = Fixtures.register_user_with_email("gql-pwd-reset-existing@example.com")

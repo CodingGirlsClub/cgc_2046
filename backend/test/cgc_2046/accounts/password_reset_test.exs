@@ -68,6 +68,48 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
              })
   end
 
+  test "resource reset is fail-closed when revocation fails and can be retried" do
+    user = Fixtures.register_user("password-reset-revoke-resource")
+    token = reset_token(user)
+    new_password = "resource-reset-password"
+
+    install_revoke_failure_trigger()
+
+    try do
+      assert {:error, _reason} =
+               Strategy.action(strategy(), :reset, reset_params(token, new_password))
+
+      assert {:ok, _signed_in} =
+               Strategy.action(strategy(), :sign_in, %{
+                 "email" => to_string(user.email),
+                 "password" => Fixtures.password()
+               })
+
+      assert {:error, _wrong_password} =
+               Strategy.action(strategy(), :sign_in, %{
+                 "email" => to_string(user.email),
+                 "password" => new_password
+               })
+    after
+      remove_revoke_failure_trigger()
+    end
+
+    assert {:ok, _updated} =
+             Strategy.action(strategy(), :reset, reset_params(token, new_password))
+
+    assert {:ok, _signed_in} =
+             Strategy.action(strategy(), :sign_in, %{
+               "email" => to_string(user.email),
+               "password" => new_password
+             })
+
+    assert {:error, _old_password} =
+             Strategy.action(strategy(), :sign_in, %{
+               "email" => to_string(user.email),
+               "password" => Fixtures.password()
+             })
+  end
+
   test "a reset token is one-time and weak passwords do not consume it" do
     user = Fixtures.register_user("password-reset-token")
     token = reset_token(user)
@@ -120,5 +162,33 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
       "reset_token" => token,
       "password" => password
     }
+  end
+
+  defp install_revoke_failure_trigger do
+    remove_revoke_failure_trigger()
+
+    Cgc2046.Repo.query!("""
+    CREATE FUNCTION cgc_pwd_reset_resource_inject_fail() RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION 'injected resource revoke failure';
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Cgc2046.Repo.query!("""
+    CREATE TRIGGER cgc_pwd_reset_resource_inject_fail_trg
+    BEFORE UPDATE ON tokens
+    FOR EACH ROW EXECUTE FUNCTION cgc_pwd_reset_resource_inject_fail()
+    """)
+  end
+
+  defp remove_revoke_failure_trigger do
+    Cgc2046.Repo.query!("""
+    DROP TRIGGER IF EXISTS cgc_pwd_reset_resource_inject_fail_trg ON tokens
+    """)
+
+    Cgc2046.Repo.query!("""
+    DROP FUNCTION IF EXISTS cgc_pwd_reset_resource_inject_fail()
+    """)
   end
 end

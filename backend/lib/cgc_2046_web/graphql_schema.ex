@@ -1397,6 +1397,31 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp remote_ip(%{conn: %{remote_ip: ip}}), do: ip |> :inet.ntoa() |> to_string()
   defp remote_ip(_context), do: "unknown"
 
+  @doc false
+  def password_reset_failure_telemetry(reason) do
+    if revoke_failure?(reason) do
+      {[:cgc2046, :password_reset, :revoke], :revoke_failed}
+    else
+      {[:cgc2046, :password_reset, :reset], :reset_failed}
+    end
+  end
+
+  defp revoke_failure?(%Cgc2046.Accounts.PasswordResetRevocationError{}), do: true
+
+  defp revoke_failure?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &revoke_failure?/1)
+  end
+
+  defp revoke_failure?(%{value: value}), do: revoke_failure?(value)
+  defp revoke_failure?(%{error: error}), do: revoke_failure?(error)
+  defp revoke_failure?(%{reason: reason}), do: revoke_failure?(reason)
+
+  defp revoke_failure?(list) when is_list(list) do
+    Enum.any?(list, &revoke_failure?/1)
+  end
+
+  defp revoke_failure?(_reason), do: false
+
   defp classify_password_reset_error(error, _context)
        when is_struct(error, AshAuthentication.Errors.InvalidToken) do
     {:error, message: "链接无效或已过期", code: "invalid_reset_token"}
@@ -1409,17 +1434,12 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp classify_password_reset_error(error, _context), do: report_password_reset_failure(error)
 
   defp report_password_reset_failure(reason) do
-    reason_category =
-      case reason do
-        reason when is_atom(reason) -> reason
-        {:error, _} -> :revoke_failed
-        _ -> :revoke_failed
-      end
+    {telemetry_event, reason_category} = password_reset_failure_telemetry(reason)
 
     Logger.warning("password reset failed reason=#{reason_category}")
 
     :telemetry.execute(
-      [:cgc2046, :password_reset, :revoke],
+      telemetry_event,
       %{count: 1},
       %{reason: reason_category, email: nil}
     )
