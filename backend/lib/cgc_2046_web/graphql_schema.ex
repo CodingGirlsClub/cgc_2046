@@ -109,7 +109,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
+    @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
     field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
       arg(:include_expired, :boolean)
 

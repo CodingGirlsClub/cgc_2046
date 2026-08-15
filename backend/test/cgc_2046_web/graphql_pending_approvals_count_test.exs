@@ -6,6 +6,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
   alias Cgc2046.Events.{Enrollment, Sponsorship}
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
+  # 角标计数口径 ≠ /approvals 展示口径（KTD8）。对侧：graphql_pending_approvals_test.exs。
   @query "query { pendingApprovalsCount }"
   @tier %{
     "id" => "9d2f7c80-0000-4000-8000-0000000000ab",
@@ -41,6 +42,8 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
              graphql(@query, sign_in_token(owner))
   end
 
+  # KTD8：deadline 已过但 status 仍 pending 不计。/approvals 列表仍会展示这类行
+  # （graphql_pending_approvals_test.exs 的 pending 区按 status=pending）。
   test "过期但仍 pending 的行不计入" do
     platform_admin = Fixtures.platform_admin("pending-count-expired-platform")
     owner = Fixtures.register_user("pending-count-expired-owner")

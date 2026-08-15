@@ -13,6 +13,12 @@ defmodule Cgc2046.Events.PendingApprovals do
 
   `include_expired: true` 时附带 expired 行（审批页「已过期」区，只读展示，
   不可通过/拒绝——重提是申请者侧动作，过期后唯一索引已放行重新报名/申请）。
+
+  `count_pending/1` 是角标轻量路径：复用同一 owner/admin 工作台收窄，对三类资源
+  `Ash.count`，不物化行、不走 `list/2` / enrich。口径是可操作 pending（KTD8：
+  `approval_deadline <= now` 不计，nil 视为未过期），与 `/approvals` 展示含过期
+  行有意不同——见 `graphql_pending_approvals_count_test.exs` 与
+  `graphql_pending_approvals_test.exs` 互引。
   """
 
   require Ash.Query
@@ -37,6 +43,8 @@ defmodule Cgc2046.Events.PendingApprovals do
   end
 
   @spec count_pending(term()) :: {:ok, non_neg_integer()} | {:error, term()}
+  # KTD8：角标只计可操作 pending。`/approvals` 的 myPendingApprovals(includeExpired)
+  # 仍展示过期行（见 graphql_pending_approvals_test.exs）；两边不要顺手统一。
   def count_pending(actor) do
     now = DateTime.utc_now()
 

@@ -4087,7 +4087,7 @@ type RootQueryType {
   "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
   myMcpTokens: [McpToken]
 
-  "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
+  "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
   myPendingApprovals(includeExpired: Boolean): [PendingApproval!]!
 
   "当前用户作为 Owner\/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 \/approvals 展示含过期行存在有意差异）"
