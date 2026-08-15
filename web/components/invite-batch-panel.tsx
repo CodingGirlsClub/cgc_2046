@@ -587,7 +587,7 @@ export default function InviteBatchPanel({
 
 										{confirming ? (
 											<div className="w-full rounded-large border border-line bg-soft-2 p-3">
-												<p className="text-[13px] text-ink-3">确认禁用？该邀请码的剩余配额将作废。</p>
+												<p className="text-[13px] text-ink-3">确认禁用？该邀请码的剩余配额将立即作废，不可恢复。</p>
 												<div className="mt-2 flex gap-2">
 													<button
 														type="button"

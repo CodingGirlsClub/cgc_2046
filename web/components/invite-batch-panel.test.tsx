@@ -167,6 +167,7 @@ describe("InviteBatchPanel 列表", () => {
 		expect(screen.getAllByText("已过期")).toHaveLength(1);
 		expect(screen.getAllByText("已用尽")).toHaveLength(1);
 		expect(screen.getAllByRole("button", { name: "复制邀请码" })).toHaveLength(4);
+		expect(screen.getAllByRole("button", { name: /禁用/ })).toHaveLength(2);
 		expect(screen.getAllByText(/已使用\s*1\s*\/\s*4\s*人/)).toHaveLength(3);
 	});
 	it("加载更多携带 workspace/offering filter、first=50 和 endKeyset 游标并追加", async () => {
@@ -285,7 +286,7 @@ describe("InviteBatchPanel 禁用与复制", () => {
 		renderPanel();
 		await screen.findByText("ACTIVE1234");
 		fireEvent.click(screen.getByRole("button", { name: "禁用" }));
-		expect(screen.getByText(/配额将作废/)).toBeInTheDocument();
+		expect(screen.getByText("确认禁用？该邀请码的剩余配额将立即作废，不可恢复。")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "确认禁用" }));
 		await waitFor(() => expect(disableMutate).toHaveBeenCalledWith({ variables: { id: "batch-active" } }));
 		expect(screen.getByRole("button", { name: "提交中…" })).toBeDisabled();
