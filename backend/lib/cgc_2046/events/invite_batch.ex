@@ -98,8 +98,14 @@ defmodule Cgc2046.Events.InviteBatch do
     end
 
     update :disable do
+      require_atomic?(false)
       accept([])
-      change(set_attribute(:status, :disabled))
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          Ash.Changeset.force_change_attribute(cs, :status, :disabled)
+        end)
+      end)
     end
   end
 
