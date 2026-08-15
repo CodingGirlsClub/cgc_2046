@@ -252,9 +252,10 @@ defmodule Cgc2046.Events.Enrollment do
   defp prepare_create(changeset) do
     event_id = Ash.Changeset.get_attribute(changeset, :event_id)
     course_id = Ash.Changeset.get_attribute(changeset, :course_id)
+    actor = changeset.context[:private][:actor]
 
     with {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
-         {:ok, target} <- eligible_target(target_kind, target_id),
+         {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant) do
       changeset =
@@ -389,18 +390,32 @@ defmodule Cgc2046.Events.Enrollment do
 
   defp target_from_record(_), do: {:error, :exactly_one_target_required}
 
-  defp eligible_target(kind, id) do
+  defp eligible_target(kind, id, actor) do
     table = target_table(kind)
+    actor_id = if actor, do: Cgc2046.Repo.uuid!(actor.id), else: nil
 
+    # G1（E-5 #50 安全洞修复）：公开报名只对 `open + visibility=public` 活动；
+    # workspace-only 活动仅目标 workspace 成员可报（成员路径 D2，工作台详情页
+    # 入口走同一 createEnrollment）。非成员/匿名对 workspace-only 报名 → 本函数
+    # 返回 :target_not_open_or_registration_closed（not_found 语义，与匿名读一致，
+    # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
     sql = """
     SELECT workspace_id, enrollment_policy
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > NOW())
+      AND (
+        visibility = 'public'
+        OR EXISTS (
+          SELECT 1 FROM workspace_memberships wm
+          WHERE wm.workspace_id = #{table}.workspace_id
+            AND wm.user_id = $2
+        )
+      )
     FOR SHARE
     """
 
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id), actor_id]) do
       {:ok, %{rows: [[workspace_id, policy]]}} ->
         case Map.get(@enrollment_policy_atoms, policy) do
           nil ->

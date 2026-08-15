@@ -125,7 +125,15 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
 
     # registration_deadline 默认已设（fixture 7 天后）；research 定义未建 → ready=false
     assert is_boolean(ready)
-    assert length(items) == 2
+
+    # G2：清单三项（registration_deadline / research_definition / sponsorship_tiers_configured）
+    assert length(items) == 3
+
+    assert Enum.map(items, & &1["key"]) == [
+             "registration_deadline",
+             "research_definition",
+             "sponsorship_tiers_configured"
+           ]
 
     # 匿名拒绝
     anon =
