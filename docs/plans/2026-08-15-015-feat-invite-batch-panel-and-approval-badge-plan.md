@@ -77,7 +77,7 @@ Deferred to Follow-Up Work:
 ### Key Technical Decisions
 
 - KTD1. 批次码面板落位 Event/Course 管理详情页内（`offering-pages.tsx` 的 `OfferingDetailPage` 管理视图区块），不落 settings 子域。理由：InviteBatch 是 per-Event/Course 资源（`exactly one of event_id/course_id` 约束），与活动报名策略同上下文；settings 子域是 per-workspace 语义（members/requests/invitations），放错层级。面板区块顺序固定：生命周期区块之后、赞助管理（SponsorshipManagement）之前；Event 与 Course 用同一组件同一标题「报名批次码」。
-- KTD2. 后端两处小修（评审证伪「零改动」后的最小集）：(a) `create_invite_batch` 的 tenant 缺口——GraphQL pipeline 不注入 tenant（`graphql_create_enrollment_test.exs` 注释记录的 #104 同款事实），`invite_batch.ex` 的 `force_change_attribute(:workspace_id, changeset.tenant)` 在 GraphQL 路径拿到 nil。修法：create action 内从 event_id/course_id 服务端派生 workspace_id 并回填 tenant（#104 createEnrollment 的既有派生模式），`validate_target_tenant` 保持原语义。(b) `inserted_at` 未公开——SDL 的 `InviteBatch` type 无 `insertedAt`（Ash timestamp 默认非 public），改 `create_timestamp(:inserted_at, public?: true)` 后再生成 SDL。两修均在 `backend/lib/cgc_2046/events/invite_batch.ex`，policy 不动。
+- KTD2. 后端三处小修（评审与实施中证伪「零改动」后的最小集）：(a) `create_invite_batch` 的 tenant 缺口——GraphQL pipeline 不注入 tenant（`graphql_create_enrollment_test.exs` 注释记录的 #104 同款事实），`invite_batch.ex` 的 `force_change_attribute(:workspace_id, changeset.tenant)` 在 GraphQL 路径拿到 nil。修法：create action 内从 event_id/course_id 服务端派生 workspace_id 并回填 tenant（#104 createEnrollment 的既有派生模式），`validate_target_tenant` 保持原语义。(b) `inserted_at` 未公开——SDL 的 `InviteBatch` type 无 `insertedAt`（Ash timestamp 默认非 public），改 `create_timestamp(:inserted_at, public?: true)` 后再生成 SDL。(c) `update :disable` 补 `require_atomic?(false)`——AshGraphQL 1.10 update mutation 走 `Ash.bulk_update`，纯 `set_attribute` action 被原子升级后 changeset 为 `OriginalDataNotAvailable`，`WorkspaceActorIsOwnerOrAdmin` 的 `get_attribute` 抛 ArgumentError（writer15 实测 disableInviteBatch 恒败）；仓库全部其余 update action（confirm_enrollment / approve / launch 等 30+ 处）均带该行的惯例对齐。三修均在 `backend/lib/cgc_2046/events/invite_batch.ex`，policy module 零改动。
 - KTD3. 面板组件独立成 `web/components/invite-batch-panel.tsx`（与 `speaker-invitation-panel.tsx` 同粒度），由 `OfferingDetailPage` 在管理视图按 `enrollmentPolicy === "invite_only"` 且 `manage`（既有 `canManageEvents(ws.myRoleNames)`，仅 owner/admin）条件渲染；不把面板逻辑内联进 `offering-pages.tsx`（该文件已 28KB）。平台管理员不扩前端门控（Key Decisions 3）。
 - KTD4. 待办角标数据面：`PendingApprovals` 模块新增 `count_pending/1` 轻量计数函数——复用 `managed_workspace_ids(actor)` 收窄（Owner/Admin 唯一真源不动），对 Enrollment / JoinRequest / Sponsorship 三类资源直接做过滤后的计数查询（`Ash.count/3` 或等价），不物化全行、不执行 enrich（list 的摘要装配与多次 read 不进计数路径）。`graphql_schema.ex` 追加 `pendingApprovalsCount: Int!` 根 query（`with_actor` 门），resolver 对 `{:ok, n}` 与 `{:error, reason}` 双分支透传。不复用 `myPendingApprovals` 全列表在前端数行数。
 - KTD5. 角标挂点与缓存语义：`web/components/workspace-switcher-menu.tsx`「审批」菜单项右侧数字角标（>99 显示 99+）；query 显式 `fetchPolicy: "no-cache"`（Apollo InMemoryCache 默认 cache-first 会在菜单卸载重挂后复用旧值，直接违背 R5/U4 的「重开菜单即最新」），`skip: !authed`。复用 `l-badge l-badge-pending` 既有样式。工作台侧边栏不加——审批控制台是用户级页，入口唯一挂品牌菜单，避免双源。
@@ -118,6 +118,8 @@ flowchart TB
 - 已验证：`invite_code` 唯一 identity 为全局（`identity(:unique_invite_code, [:invite_code])`，无 tenant scope）——跨活动不可复用同一码，表单须注明并提供生成辅助。
 - 已验证：`web/lib/clipboard.ts` 存在（含 false 返回约定的复制工具），复制交互复用之。
 - 已验证：Apollo client 为裸 `InMemoryCache`（无 defaultOptions），cache-first 默认成立——KTD5 no-cache 必要。
+- 已验证（writer15 实施发现）：`inviteBatches` list 经 GraphQL（global 资源、无 tenant 注入）时，`MembershipContext.resolve_workspace_id(query)` 只能从 filter 提取 `workspaceId`——仅带 eventId/courseId filter 时 Owner/Admin 分支解析不出工作台被拒（PlatformAdmin 分支可过）。修法：web LIST 合约 filter 携带 `workspaceId`（面板上下文已有 ws id），后端零改动。
+- 已验证（writer15 实施发现）：`disableInviteBatch` 失败根因见 KTD2(c)——`OriginalDataNotAvailable{reason: :atomic_query_update}`，补 `require_atomic?(false)` 即恢复 changeset.data 路径。
 - 已验证：`globals.css` 无 `l-badge-active/disabled` 变体；现有族为 owner/admin/tutor/volunteer/learner/member/pending/success/danger/muted——状态映射用 `l-badge-success`（active）/ `l-badge-muted`（disabled / 已过期 / 已用尽）。
 - plan 014（`/participations`）与本 plan 的唯一文件交集是 `workspace-switcher-menu.tsx` 的 Account 子菜单邻域（014 加 `/participations` 入口、本 plan 动 `/approvals` 项加角标），Git 行级自动合并不保证语义正确——U3 以「plan 014 已合并」为前置（见 U3 Dependencies）。
 
@@ -137,7 +139,7 @@ flowchart TB
 - **Requirements**: R1, R2, R3, R6
 - **Dependencies**: 无
 - **Files**:
-  - `backend/lib/cgc_2046/events/invite_batch.ex`（KTD2 两修：create 内 event/course → workspace_id 派生回填 tenant；`create_timestamp(:inserted_at, public?: true)`）
+  - `backend/lib/cgc_2046/events/invite_batch.ex`（KTD2 三修：create 内 event/course → workspace_id 派生回填 tenant；`create_timestamp(:inserted_at, public?: true)`；`update :disable` 补 `require_atomic?(false)`）
   - `backend/priv/graphql/schema.graphql`（生成物随 mix 任务更新，含 InviteBatch.insertedAt）
   - `backend/test/cgc_2046_web/graphql_invite_batch_test.exs`（新建：GraphQL create/list/disable 经真实 HTTP 入口，含跨租户拒绝）
   - `web/lib/graphql/invite-batch.ts`（新建：list query + create/disable mutation 合约，TypedDocumentNode）
@@ -146,8 +148,8 @@ flowchart TB
   - `web/components/invite-batch-panel.test.tsx`（新建）
   - `web/components/offering-pages.tsx`（管理视图条件渲染挂点，位置见 KTD1）
 - **Approach**:
-  1. 后端：invite_batch.ex create action 先按 event_id/course_id 查目标行取 workspace_id，派生回填 `changeset.tenant` 与 `workspace_id`（#104 createEnrollment 派生模式），再走既有 `validate_target_tenant` / quota 初始化；`inserted_at` 公开。SDL 再生成。后端测试：Owner/Admin 经 HTTP mutation 创建成功（tenant 正确落库）；跨租户 event_id 拒绝；平台管理员直调放行（policy 现状回归）；invite_code 全局唯一冲突错误。
-  2. web 合约：`LIST_INVITE_BATCHES`（filter eventId/courseId 包装 + `first: 50` + after 游标，字段 id/inviteCode/quota/remainingQuota/status/expiresAt/remark/insertedAt + endKeyset）、`CREATE_INVITE_BATCH`（eventId|courseId 恰一 + inviteCode + quota + expiresAt? + remark?，result/errors 形状同既有 mutation）、`DISABLE_INVITE_BATCH`（id，result/errors）。
+  1. 后端：invite_batch.ex create action 先按 event_id/course_id 查目标行取 workspace_id，派生回填 `changeset.tenant` 与 `workspace_id`（#104 createEnrollment 派生模式），再走既有 `validate_target_tenant` / quota 初始化；`inserted_at` 公开；`update :disable` 补 `require_atomic?(false)`（KTD2c）。SDL 再生成。后端测试：Owner/Admin 经 HTTP mutation 创建成功（tenant 正确落库）；跨租户 event_id 拒绝；平台管理员直调放行（policy 现状回归）；invite_code 全局唯一冲突错误；disable 成功。
+  2. web 合约：`LIST_INVITE_BATCHES`（filter workspaceId + eventId/courseId + `first: 50` + after 游标，字段 id/inviteCode/quota/remainingQuota/status/expiresAt/remark/insertedAt + endKeyset；workspaceId 为 policy 解析工作台的必需 filter，见 Assumptions）、`CREATE_INVITE_BATCH`（eventId|courseId 恰一 + inviteCode + quota + expiresAt? + remark?，result/errors 形状同既有 mutation）、`DISABLE_INVITE_BATCH`（id，result/errors）。
   3. 组件 props：`kind: OfferingKind` / `offeringId: string` / `offeringStatus: string`；内部 useQuery + useMutation，创建/禁用成功后 refetch 列表；活动非 open 时表单禁用并提示「活动当前状态不可创建批次码」。
   4. 列表交互状态（完整契约）：初始 loading 骨架/文案；加载 error 显示错误条 +「重试」按钮（不误显空态）；空态文案；kind/offeringId 切换时数据 stale 处理（沿用 `speaker-invitation-panel.tsx` 的 loading/ok/error 结构）。行状态派生优先级：disabled > expired（active 且 `expiresAt < now`）> exhausted（active 且 `remainingQuota == 0`，显示「已用尽」）> active；徽章映射 `l-badge-success`（active）/ `l-badge-muted`（disabled、已过期、已用尽）。行动作：active 且未过期显示禁用按钮（exhausted 同样可禁用——终止该码）。
   5. 禁用状态机：点击展开 inline 确认（文案含配额作废提示）→ 确认后该行锁定（提交中禁止重复点击）→ 成功 refetch；失败保留 active 态 + 行级错误 + 重试；取消确认不发请求。
