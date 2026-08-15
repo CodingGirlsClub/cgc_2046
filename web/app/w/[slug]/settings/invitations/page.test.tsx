@@ -40,6 +40,8 @@ vi.mock("@/lib/invitations", () => ({
 	fetchInvitations,
 	createInvitation,
 	revokeInvitation,
+	invitationRoleLabel: (role: string) =>
+		role === "member" ? "成员（无标签）" : role,
 }));
 
 const ADMIN_WORKSPACES = [
@@ -105,7 +107,7 @@ const TEST_INVITATIONS = [
 		tokenHash: "hash_ghi",
 		inviterId: "admin_1",
 		targetEmail: "user3@test.com",
-		preauthorizedRoleNames: ["tutor"],
+		preauthorizedRoleNames: ["member"],
 		expiresAt: "2026-08-15T03:00:00Z",
 		status: "revoked" as const,
 	},
@@ -153,6 +155,13 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 
 		expect(await screen.findByText("user1@test.com")).toBeInTheDocument();
 		expect(screen.getByText("user3@test.com")).toBeInTheDocument();
+	});
+
+	it("历史 member 预授权显示为成员（无标签）", async () => {
+		render(<InvitationsPage />);
+
+		expect(await screen.findByText("成员（无标签）")).toBeInTheDocument();
+		expect(screen.queryByText("member")).not.toBeInTheDocument();
 	});
 
 	it("邀请列表显示状态标签", async () => {

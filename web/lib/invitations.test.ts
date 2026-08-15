@@ -58,6 +58,19 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 		});
 	});
 
+	it("存量 member 预授权映射为成员（无标签）", () => {
+		const item = mapInvitation({
+			id: "inv_legacy",
+			workspaceId: "ws_1",
+			tokenHash: "hash_legacy",
+			inviterId: "admin_1",
+			preauthorizedRoleNames: ["member"],
+			status: "active",
+		});
+
+		expect(item.preauthorizedRoleNames).toEqual(["成员（无标签）"]);
+	});
+
 	it("used 状态映射（含接受人/时间）", () => {
 		const item = mapInvitation({
 			id: "inv_2",

@@ -42,6 +42,8 @@ vi.mock("@/lib/requests", () => ({
 vi.mock("@/lib/invitations", () => ({
 	validateInvitation,
 	acceptInvitation,
+	invitationRoleLabel: (role: string) =>
+		role === "member" ? "成员（无标签）" : role,
 }));
 
 beforeEach(() => {
@@ -220,7 +222,7 @@ describe("/join 统一加入入口页", () => {
 			workspaceName: "受邀工作台",
 			workspaceSlug: "invite-ws",
 			workspaceJoinPolicy: "invite_only",
-			preauthorizedRoleNames: [],
+			preauthorizedRoleNames: ["member"],
 		});
 
 		render(<JoinPage />);
@@ -228,6 +230,8 @@ describe("/join 统一加入入口页", () => {
 		expect(
 			await screen.findByRole("heading", { name: "受邀工作台" }),
 		).toBeInTheDocument();
+		expect(screen.getByText("成员（无标签）")).toBeInTheDocument();
+		expect(screen.queryByText("member")).not.toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "确认加入" }),
 		).toBeInTheDocument();
