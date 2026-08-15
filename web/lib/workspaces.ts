@@ -74,7 +74,7 @@ export interface WorkspaceMember {
 
 /**
  * 将后端 workspaceMembers 返回的 roles { id name } 对象数组映射为角色名并集。
- * 未知角色名（如 teacher）会被过滤；内置角色与旧 member 均保留（展示词汇，ROLE_NAMES 单源）。
+ * 未知角色名会被过滤；只认 ROLE_NAMES 五角色差异标签。
  */
 export function mapRoleObjectsToNames(
 	roles: WorkspaceMembershipRole[] | null | undefined,

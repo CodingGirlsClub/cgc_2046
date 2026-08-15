@@ -17,9 +17,8 @@ import { client } from "./apollo-client";
  * 列表，前端不再显式挑选六个字段 —— 新增能力自动透传。
  *
  * 矩阵以五个默认角色展示：Owner / Admin / Tutor / Volunteer / Learner。
- * 后端返回六角色（含 member），member 行仅作展示隐藏（成员资格仍可持有，
- * 徽章/筛选继续显示 member）；不做任何语义推断与回退（#1：member→learner
- * 优先级逻辑已删除，真实模式只渲染后端返回行）。
+ * 基准行 = 任意 membership（无标签成员能力 view_workspace + access_invite_only）；
+ * tutor/volunteer/learner 是差异标签，当前能力等同，用于工作流步骤授权与分工。
  *
  * 静态展示词汇（PERMISSION_ABILITIES 标签键 / PERMISSION_ROLE_ORDER）由契约测试
  * permissions.contract.test.ts 对照后端 rbac_contract.json 守卫同步。
@@ -41,12 +40,10 @@ export interface PermissionMatrixRow {
 }
 
 /**
- * 设计稿固定的默认角色顺序（五角色，不含 member）。
- * 由 ROLE_NAMES 单源过滤派生，避免重复六角色字面量；member 仅作兼容输入，不出现在正式矩阵。
+ * 设计稿固定的默认角色顺序（五角色差异标签）。
+ * 由 ROLE_NAMES 单源派生；无独立 member 行——基准能力属于成员资格本身。
  */
-export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = ROLE_NAMES.filter(
-	(role) => role !== "member",
-);
+export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = [...ROLE_NAMES];
 
 export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 	{
@@ -90,15 +87,15 @@ export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 const ROLE_NOTES: Partial<Record<MembershipRoleName, string>> = {
 	owner: "全部 Workspace 管理能力；Owner 变更走专门指派。",
 	admin: "可管理成员并行内分配非 Owner 角色。",
-	tutor: "可查看成员与 Profile，参与教研协作。",
-	volunteer: "可查看成员与 Profile，参与被授权的协作任务。",
-	learner: "可查看成员与 Profile，编辑自己的 Profile。",
+	tutor: "成员基准 + 差异标签（当前能力等同，用于工作流步骤授权与分工）",
+	volunteer: "成员基准 + 差异标签（当前能力等同，用于工作流步骤授权与分工）",
+	learner: "成员基准 + 差异标签（当前能力等同，用于工作流步骤授权与分工）",
 };
 
 /**
- * 将后端 permissionMatrix（六角色 × 六能力，abilities 通用列表）映射为
- * 五角色展示矩阵：按设计稿角色顺序取行，member 行隐藏，缺行不伪造。
- * 不做语义推断（#1：无 member→learner 回退、无字段挑选 —— 能力透传后端返回值）。
+ * 将后端 permissionMatrix 映射为五角色展示矩阵：按 ROLE_NAMES 顺序取行，
+ * 未知角色被过滤，缺行不伪造。
+ * 不做语义推断（#1：无字段挑选 —— 能力透传后端返回值）。
  */
 export function mapPermissionMatrixRows(
 	rows: RbacPermissionMatrixRow[] | null | undefined,

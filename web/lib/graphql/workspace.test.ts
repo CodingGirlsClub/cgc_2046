@@ -96,21 +96,29 @@ describe("#64/#65 成员角色契约", () => {
 		expect(doc).toContain("endKeyset");
 	});
 
-	it("角色模型：旧 member 与 Slice A 默认角色标签齐全（六角色）", () => {
-		// 断言引用 ROLE_NAMES 单源，不重复六角色字面量
+	it("角色模型：五角色差异标签齐全，无 member 标签", () => {
+		// 断言引用 ROLE_NAMES 单源，不重复五角色字面量
 		expect(MEMBERSHIP_ROLES).toEqual([...ROLE_NAMES]);
+		expect(ROLE_NAMES).toEqual([
+			"owner",
+			"admin",
+			"tutor",
+			"volunteer",
+			"learner",
+		]);
+		expect(ROLE_NAMES).not.toContain("member");
 		expect(ROLE_LABEL.owner).toBe("Owner");
 		expect(ROLE_LABEL.admin).toBe("Admin");
 		expect(ROLE_LABEL.tutor).toBe("Tutor");
 		expect(ROLE_LABEL.volunteer).toBe("Volunteer");
 		expect(ROLE_LABEL.learner).toBe("Learner");
-		expect(ROLE_LABEL.member).toBe("Member");
 		expect(ROLE_LABEL_ZH.owner).toBe("所有者");
 		expect(ROLE_LABEL_ZH.admin).toBe("管理员");
 		expect(ROLE_LABEL_ZH.tutor).toBe("教练");
 		expect(ROLE_LABEL_ZH.volunteer).toBe("志愿者");
 		expect(ROLE_LABEL_ZH.learner).toBe("学员");
-		expect(ROLE_LABEL_ZH.member).toBe("成员");
+		expect("member" in ROLE_LABEL).toBe(false);
+		expect("member" in ROLE_LABEL_ZH).toBe(false);
 	});
 
 	it("ME_WORKSPACES：携带 myRoleNames/myMembershipId/canAccess/myAbilities/memberCount（#1 能力接口字段）", () => {

@@ -76,8 +76,8 @@
 
 ### WorkspaceMembership（成员关系，租户资源）
 
-- **定义**：1 条/人/租户的成员记录（user_id + workspace_id + 加入时间 + 邀请人）。
-- **架构位置**：成员身份的事实来源；授权链第 2 步"定位身份"读它。
+- **定义**：1 条/人/租户的成员记录（user_id + workspace_id + 加入时间 + 邀请人）。**成员资格本身即成员身份**；无差异标签的普通成员只有 membership、无 MembershipRole。
+- **架构位置**：成员身份的事实来源；授权链第 2 步"定位身份"读它。成员基准能力（`view_workspace` / `access_invite_only`）由任意 membership 授予，不再经 `member` 角色判定。
 
 ### MembershipRole（成员角色关联，租户资源）
 
@@ -95,7 +95,7 @@
 
 ### Role（角色，租户资源）
 
-- **定义**：租户内角色实体，权限挂在角色上。**当前为静态六枚举**（2026-08-02 拍板，见总纲角色扩展注记）：owner / admin / member / tutor / volunteer / learner；member 为默认兜底成员角色，UI 角色分配/展示模板为五角色（不含 member，只作兼容输入）。「自定义角色」为未来能力：触发条件 = 真实工作区角色差异化需求（预计 workflow 定制场景，F 切片之后），届时增量落地 permissionMatrix 租户查询 + Role 能力配置，登记于 GitHub backlog。
+- **定义**：租户内**差异标签**实体，权限挂在角色上。**当前为静态五枚举**（plan 017 / ADR-0006，退役 `member`）：owner / admin / tutor / volunteer / learner。成员资格 = 存在 `WorkspaceMembership`；Role 只表达差异（管理、教学、志愿、学员）。`learner` 仍有真实语义（学习 run 的 StepRole / enrolled_learner）。「自定义角色」为未来能力（#71）：触发条件 = 真实工作区角色差异化需求，届时增量落地 permissionMatrix 租户查询 + Role 能力配置。
 - **架构位置**：RBAC 核心；Step/Agent 上存 `role_id` 引用。
 
 ### 平台管理员（Platform Admin）
@@ -146,8 +146,8 @@
 
 ### 能力接口（Capability Interface）
 
-- **定义**：平台向消费端（Web UI 与未来 MCP 工具）暴露的权限判定契约：`permissionMatrix`（角色→能力矩阵，abilities 为通用 `[{name, allowed}]` 列表）、`myAbilities`（当前用户在目标工作台的能力并集，随 `meWorkspaces` 下发）、角色名仅作展示词汇（徽章/筛选/标签）。消费端**不复写权限语义**：不做角色名→能力推断、不维护本地矩阵副本；能力/角色词汇唯一真源在后端 `Role`/`Rbac` 单源，经 `backend/priv/rbac_contract.json` 契约工件做跨语言 golden-file 守卫（`mix cgc2046.gen_rbac_contract` 再生成）。
-- **架构位置**：2026-08-02 契约收敛决策（原 #67 权限矩阵的跨语言 seam 深化）：Web UI 判定全部消费后端下发能力数据；新增角色/能力只改后端单源与前端展示标签（`ROLE_NAMES`/`PERMISSION_ABILITIES`），任何一边漏同步 = CI 红灯；与 ADR-0001「UI 与 MCP 走同一套授权链」一致，为 MCP 工具接入预留同一判定入口。
+- **定义**：平台向消费端（Web UI 与未来 MCP 工具）暴露的权限判定契约：`permissionMatrix`（差异标签→能力矩阵，abilities 为通用 `[{name, allowed}]` 列表）、`myAbilities`（当前用户在目标工作台的能力并集，随 `meWorkspaces` 下发；任意 membership 即有成员基准 `view_workspace`/`access_invite_only`）、角色名仅作差异标签展示词汇（徽章/筛选）。消费端**不复写权限语义**：不做角色名→能力推断、不维护本地矩阵副本；能力/角色词汇唯一真源在后端 `Role`/`Rbac` 单源，经 `backend/priv/rbac_contract.json` 契约工件做跨语言 golden-file 守卫（`mix cgc2046.gen_rbac_contract` 再生成）。
+- **架构位置**：2026-08-02 契约收敛 + 2026-08-15 plan 017 / ADR-0006（member 退役）：Web UI 判定全部消费后端下发能力数据；新增角色/能力只改后端单源与前端展示标签（`ROLE_NAMES`/`PERMISSION_ABILITIES`），任何一边漏同步 = CI 红灯；权限映射页按「成员基准 + 差异标签」展示，无 member 独立行。
 
 ### 审计记录（Audit Record）
 
@@ -331,7 +331,7 @@
 
 - **定义**：头像、简介、技能标签（含 Portfolio 作品展示）per-workspace（ADR-0004，2026-08-08 落地）；`display_name`/`email` 为全局身份字段（不属于 Profile）。主题偏好（ui_theme_preference）同挂 per-workspace。
 - **架构位置**：租户资源（WorkspaceProfile，workspace_id + user_id 唯一）；PortfolioItem 同属租户维度（加 workspace_id）。visibility=:workspace 语义 = **目标 workspace 成员可读**（收窄自"任一 workspace"）。
-- **默认归属**：默认 workspace "2046"（slug=`2046`，open 策略）——新用户注册自动加入（member 角色），保证注册即有 profile 编辑上下文；全局 `/settings/account/profile` 入口已下线，redirect 到 `/w/2046/settings/account/profile`。
+- **默认归属**：默认 workspace "2046"（slug=`2046`，open 策略）——新用户注册自动加入（无差异标签 membership），保证注册即有 profile 编辑上下文；全局 `/settings/account/profile` 入口已下线，redirect 到 `/w/2046/settings/account/profile`。
 - 二期需要聚合展示时再拆。
 
 ### Event / Course（活动 / 线上课程）

@@ -4,7 +4,7 @@
  * B-3 审批页 /w/[slug]/settings/requests。
  *
  * pending 列表（申请人/申请时间/审批倒计时 ApprovalChip <48h 脉冲高亮/留言）
- * + 通过（选角色，默认 member）/ 拒绝（填原因，可选）/ 已过期入口（显示 expired_at，不可审批）。
+ * + 通过（选角色，默认无标签）/ 拒绝（填原因，可选）/ 已过期入口（显示 expired_at，不可审批）。
  * 复用 WorkspaceShell + 能力门控 manage_members。
  */
 
@@ -43,9 +43,7 @@ export default function RequestsPage() {
 	const [approveTarget, setApproveTarget] = useState<JoinRequestItem | null>(
 		null,
 	);
-	const [approveRoles, setApproveRoles] = useState<MembershipRoleName[]>([
-		"member",
-	]);
+	const [approveRoles, setApproveRoles] = useState<MembershipRoleName[]>([]);
 	const [rejectTarget, setRejectTarget] = useState<JoinRequestItem | null>(
 		null,
 	);
@@ -265,7 +263,6 @@ export default function RequestsPage() {
 									type="button"
 									className="join-button join-button--primary"
 									onClick={handleApprove}
-									disabled={approveRoles.length === 0}
 								>
 									确认通过
 								</button>

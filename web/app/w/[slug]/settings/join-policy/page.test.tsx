@@ -36,8 +36,8 @@ const TEST_WORKSPACES = [
 		name: "CGC 上海分社",
 		joinPolicy: "open" as const,
 		sponsorshipEnabled: true,
-		myRoleNames: ["member"],
-		roles: ["member"],
+		myRoleNames: [],
+		roles: [],
 		// 普通成员：无 update_join_policy（#78 门控：只读）
 		myAbilities: ["view_workspace", "access_invite_only"],
 		membershipStatus: "active" as const,

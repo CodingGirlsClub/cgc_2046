@@ -1779,7 +1779,7 @@ export type PermissionMatrixPayload = {
 
 export type PermissionMatrixRow = {
   abilities: Array<AbilityGrant>;
-  /** 角色名：owner / admin / member / tutor / volunteer / learner */
+  /** 角色名：owner / admin / tutor / volunteer / learner */
   name: Scalars['String']['output'];
 };
 
@@ -1865,7 +1865,7 @@ export type Role = {
   /** 角色说明 */
   description?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
-  /** 角色名：owner / admin / member / tutor / volunteer / learner */
+  /** 角色名：owner / admin / tutor / volunteer / learner */
   name: Scalars['String']['output'];
   /** 所属工作台（租户）ID */
   workspaceId: Scalars['ID']['output'];
@@ -1907,7 +1907,7 @@ export type RoleFilterInput = {
   /** 角色说明 */
   description?: InputMaybe<RoleFilterDescription>;
   id?: InputMaybe<RoleFilterId>;
-  /** 角色名：owner / admin / member / tutor / volunteer / learner */
+  /** 角色名：owner / admin / tutor / volunteer / learner */
   name?: InputMaybe<RoleFilterName>;
   not?: InputMaybe<Array<RoleFilterInput>>;
   or?: InputMaybe<Array<RoleFilterInput>>;
@@ -1991,7 +1991,7 @@ export type RootMutationType = {
   generateMiniProgramCode?: Maybe<MiniprogramCodeResult>;
   /** 记录一次小程序订阅消息授权并增加一个可用次数 */
   grantMiniProgramNotificationConsent?: Maybe<Scalars['Int']['output']>;
-  /** 直接加入公开工作台（join_policy==:open）→ 建 Membership + learner 角色 */
+  /** 直接加入公开工作台（join_policy==:open）→ 建无标签 Membership */
   joinWorkspace: Workspace;
   /** 平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调） */
   promoteUser?: Maybe<AdminUserPayload>;

@@ -82,7 +82,7 @@ const WORKSPACE = {
 	name: "测试工作台",
 	joinPolicy: "open" as const,
 	sponsorshipEnabled: false,
-	myRoleNames: ["member" as const],
+	myRoleNames: [],
 };
 
 beforeEach(() => {

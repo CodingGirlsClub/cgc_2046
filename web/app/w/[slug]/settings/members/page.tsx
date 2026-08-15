@@ -9,8 +9,8 @@
  * 页面不绕过 assignRoles 契约。
  *
  * U2：Owner 不能在此页行内授予或编辑；Owner 行只展示「专门指派」锁定入口。
- * 行内编辑选项来自 Slice A 的默认角色模板（admin/tutor/volunteer/learner），
- * 同时兼容旧 API 返回的 member 角色展示。
+ * 行内编辑选项来自默认角色模板（admin/tutor/volunteer/learner）。
+ * 空标签显示「暂无角色」。
  *
  * #10：keyset 分页累积 + 后端搜索/角色下推 + 加载更多按钮。
  */
@@ -38,9 +38,9 @@ import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
 
 /**
- * 行内分配控件按设计只呈现 Admin/Tutor/Volunteer/Learner（不含 owner，
- * 不含兼容输入的 member）。五行模板单源在 lib/permissions 的 PERMISSION_ROLE_ORDER
- * （由 ROLE_NAMES 过滤派生），此处直接复用，不再本地重复过滤。
+ * 行内分配控件按设计只呈现 Admin/Tutor/Volunteer/Learner（不含 owner）。
+ * 五行模板单源在 lib/permissions 的 PERMISSION_ROLE_ORDER
+ * （由 ROLE_NAMES 派生），此处直接复用，不再本地重复过滤。
  */
 const INLINE_ROLE_OPTIONS = PERMISSION_ROLE_ORDER.filter(
 	(role): role is Exclude<MembershipRoleName, "owner"> => role !== "owner",

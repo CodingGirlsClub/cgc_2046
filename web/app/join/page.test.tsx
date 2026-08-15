@@ -220,7 +220,7 @@ describe("/join 统一加入入口页", () => {
 			workspaceName: "受邀工作台",
 			workspaceSlug: "invite-ws",
 			workspaceJoinPolicy: "invite_only",
-			preauthorizedRoleNames: ["member"],
+			preauthorizedRoleNames: [],
 		});
 
 		render(<JoinPage />);
