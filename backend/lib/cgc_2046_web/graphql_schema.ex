@@ -170,10 +170,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:ok, invitations} ->
               {:ok, invitations}
 
-            {:error, :forbidden} ->
-              {:error, [message: "forbidden", code: "forbidden"]}
-
-            {:error, :event_not_found} ->
+            {:error, reason} when reason in [:forbidden, :event_not_found] ->
               {:error, [message: "event not found", code: "not_found"]}
 
             {:error, reason} ->

@@ -3,7 +3,7 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Sponsorship, SponsorshipDelivery}
+  alias Cgc2046.Events.{Event, Sponsorship, SponsorshipDelivery}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workers.SignalPublishWorker
@@ -98,6 +98,29 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
                )
 
       assert Exception.message(error) =~ "tier does not exist"
+    end
+
+    test "draft public event 拒绝（不泄露存在性）" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+
+      draft =
+        Event
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            title: "Draft Public Sponsor",
+            enrollment_policy: :open,
+            visibility: :public,
+            sponsorship_enabled: true
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create!(tenant: workspace.id, actor: owner)
+
+      sponsor = Fixtures.register_user("sponsor-draft")
+
+      assert {:error, error} = create_sponsorship(%{level: :event, event_id: draft.id}, sponsor)
+      assert Exception.message(error) =~ "does not accept sponsorships"
     end
 
     test "event 级必须 event_id；workspace 级必须 target_workspace_id（GraphQL 入口）" do

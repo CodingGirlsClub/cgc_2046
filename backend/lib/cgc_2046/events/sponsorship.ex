@@ -430,7 +430,7 @@ defmodule Cgc2046.Events.Sponsorship do
     # 私发邀请赞助二期再解耦）
     case Repo.query(
            "SELECT workspace_id FROM events WHERE id = $1 AND sponsorship_enabled = TRUE " <>
-             "AND visibility = 'public' " <>
+             "AND visibility = 'public' AND status = 'open' " <>
              "AND (sponsorship_deadline IS NULL OR sponsorship_deadline > NOW()) FOR SHARE",
            [Repo.uuid!(id)]
          ) do

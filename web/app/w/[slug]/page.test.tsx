@@ -282,15 +282,35 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
 	});
 
-	it("Workflow 产出与活动为真实链接卡（切片 C/E 已落地，plan 016 替换过期占位卡）", async () => {
+	it("Workflow 产出、活动与课程为真实链接卡（切片 C/E 已落地，plan 016 替换过期占位卡）", async () => {
 		render(<WorkspacePage />);
 		const main = await content();
 		const link = main.getByRole("link", { name: /Workflow 产出/ });
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/workflows");
-		// 报名/赞助占位卡已由活动入口卡取代（E-11 #127）
 		const eventsLink = main.getByRole("link", { name: /活动/ });
 		expect(eventsLink).toHaveAttribute("href", "/w/cgc-academy/events");
+		const coursesLink = main.getByRole("link", { name: /课程/ });
+		expect(coursesLink).toHaveAttribute("href", "/w/cgc-academy/courses");
 		expect(main.queryByText("报名 / 赞助")).not.toBeInTheDocument();
+		expect(main.queryByText(/切片 E|即将开放|草稿/)).not.toBeInTheDocument();
+		expect(eventsLink).toHaveTextContent("活动");
+		expect(eventsLink).toHaveTextContent("报名");
+		expect(eventsLink.textContent).not.toMatch(/管理/);
+	});
+
+	it("member 视角同样渲染活动与课程入口卡且无 jargon", async () => {
+		params.value = { slug: "cgc-shanghai" };
+		render(<WorkspacePage />);
+		const main = await content();
+		expect(main.getByRole("link", { name: /活动/ })).toHaveAttribute(
+			"href",
+			"/w/cgc-shanghai/events",
+		);
+		expect(main.getByRole("link", { name: /课程/ })).toHaveAttribute(
+			"href",
+			"/w/cgc-shanghai/courses",
+		);
+		expect(main.queryByText(/切片 E|即将开放|草稿/)).not.toBeInTheDocument();
 	});
 
 	it("canAssign=false：成员与角色入口显示只读门控文案", async () => {

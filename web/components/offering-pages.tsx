@@ -3,7 +3,8 @@
 /**
  * E-11 #127 活动/课程共享页面组件（kind 参数化；events 与 courses 薄壳复用）。
  *
- * - 成员可见：本工作台全部 offering（draft/open/closed/cancelled 全生命周期）；
+ * - 成员可见：本工作台非 draft offering（open/closed/cancelled）；
+ *   Owner/Admin 可见全部生命周期（含 draft）；
  * - Owner/Admin 可操作：新建、元数据编辑（含 visibility 双向切换，D9）、
  *   launch/close/cancel（allowedTransitions 乐观门控，后端复验）；
  * - 数据唯一真实路径：fetchWorkspaceOfferings/fetchOffering（GraphQL）；
@@ -171,7 +172,7 @@ export function OfferingsListPage({ slug, kind }: { slug: string; kind: Offering
 				<header className="ws-page-heading">
 					<div>
 						<h1>{label}</h1>
-						<p>本工作台的全部{label}：草稿、开放报名与已结束</p>
+						<p>浏览本工作台的{label}与报名信息</p>
 					</div>
 					{manage && ws ? (
 						<Link
@@ -186,7 +187,7 @@ export function OfferingsListPage({ slug, kind }: { slug: string; kind: Offering
 
 				{loadError ? (
 					<div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
-						加载失败：{loadError}
+						加载失败
 					</div>
 				) : wsLoading || rows === null ? (
 					<div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
@@ -264,12 +265,12 @@ export function OfferingDetailPage({
 			.then((row) => {
 				if (!cancelled) setState({ id, row, error: null });
 			})
-			.catch((e: unknown) => {
+			.catch(() => {
 				if (!cancelled) {
 					setState({
 						id,
 						row: null,
-						error: e instanceof Error ? e.message : "加载失败",
+						error: "加载失败",
 					});
 				}
 			});
@@ -462,7 +463,14 @@ export function OfferingDetailPage({
 
 				{loadError ? (
 					<div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
-						加载失败：{loadError}
+						加载失败
+					</div>
+				) : offering === null && !stale ? (
+					<div className="join-card text-center">
+						<h1 className="text-lg font-medium">该{label}不可访问或不存在</h1>
+						<p className="mt-2 text-sm text-ink-3">
+							仅工作台内部可见，或已结束。请登录后从工作台内访问。
+						</p>
 					</div>
 				) : offering === null ? (
 					<div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />

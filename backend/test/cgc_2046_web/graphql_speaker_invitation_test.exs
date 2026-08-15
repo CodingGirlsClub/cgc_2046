@@ -9,7 +9,7 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
   - accept/declineSpeakerInvitation：登录决策 + token 一次性（复用失效）
   - saveSpeakerMaterials：Speaker 本人存材料（落 run facts）→ complete 可达；
     无关用户 forbidden
-  - speakerInvitations(eventId)：Owner 列表；普通成员 forbidden
+  - speakerInvitations(eventId)：Owner 列表；普通成员 not_found（与不存在 id 同形）
 
   行为断言主路径在 speaker_flow_test.exs（Ash 层），本测试只证明 GraphQL
   手写 resolver 的接线与错误协议。
@@ -354,10 +354,11 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     }
     """
 
-    assert %{"data" => nil, "errors" => [%{"message" => message}]} =
+    assert %{"data" => nil, "errors" => [%{"message" => message, "code" => code}]} =
              build_conn() |> graphql_post(list_query, member_token)
 
-    assert message =~ "forbidden"
+    assert message == "event not found"
+    assert code == "not_found"
   end
 
   # 布置：Owner 创建定向邀请（speakerEmail = 已登录 speaker 邮箱）→ speaker accept，

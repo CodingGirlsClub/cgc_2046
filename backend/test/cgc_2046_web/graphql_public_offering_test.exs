@@ -4,7 +4,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
   - 匿名对 `open + public` → 返回详情（公开发现面）
   - 匿名/非成员登录对 workspace-only / 非 open → null（404 语义，不泄露存在性）
-  - 成员登录对 workspace-only → 返回（读策略成员可读全部）
+  - 成员登录对 workspace-only → 返回（成员可读非 draft）
   """
 
   use Cgc2046Web.ConnCase, async: false
@@ -98,7 +98,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       assert %{"data" => %{"getEventBySlug" => nil}} = anon(event_query(event.slug))
     end
 
-    test "成员登录对 workspace-only 活动 → 返回（成员读全部）" do
+    test "成员登录对 workspace-only 活动 → 返回（成员可读非 draft）" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin, %{visibility: :workspace})
