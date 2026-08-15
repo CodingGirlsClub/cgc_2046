@@ -33,7 +33,7 @@ defmodule Cgc2046.Accounts.BypassReads do
 
   两处查询均用 `case` 匹配：DB 失败（PG 重启、连接池耗尽等）记录日志并返回
   安全默认值（`%{}` / `0`），避免热路径 500。非法 UUID 输入在
-  `Ecto.UUID.dump!/1` 阶段即抛 ArgumentError（编程错误，不吞掉）。
+  `Repo.uuid!/1` 阶段即抛 ArgumentError（编程错误，不吞掉）。
   """
 
   alias Cgc2046.Repo
@@ -48,7 +48,7 @@ defmodule Cgc2046.Accounts.BypassReads do
   """
   @spec member_count([String.t()]) :: %{String.t() => non_neg_integer}
   def member_count(workspace_ids) do
-    ids = Enum.map(workspace_ids, &Ecto.UUID.dump!/1)
+    ids = Enum.map(workspace_ids, &Repo.uuid!/1)
 
     case Ecto.Adapters.SQL.query(
            Repo,
@@ -86,7 +86,7 @@ defmodule Cgc2046.Accounts.BypassReads do
            JOIN roles r ON r.id = mr.role_id
            WHERE wm.workspace_id = $1 AND r.name = 'owner'
            """,
-           [Ecto.UUID.dump!(workspace_id)]
+           [Repo.uuid!(workspace_id)]
          ) do
       {:ok, result} ->
         case result.rows do

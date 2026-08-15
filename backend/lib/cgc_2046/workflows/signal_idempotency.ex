@@ -84,8 +84,8 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   @spec claim(String.t(), String.t(), String.t() | nil) :: :ok | {:error, :already_claimed}
   def claim(signal_type, idempotency_key, workspace_id \\ nil) do
     row = %{
-      id: Ecto.UUID.dump!(Ecto.UUID.generate()),
-      workspace_id: workspace_id && Ecto.UUID.dump!(workspace_id),
+      id: Repo.uuid!(Ecto.UUID.generate()),
+      workspace_id: workspace_id && Repo.uuid!(workspace_id),
       signal_type: signal_type,
       idempotency_key: idempotency_key,
       inserted_at: DateTime.utc_now()

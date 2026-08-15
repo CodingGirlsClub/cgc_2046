@@ -24,6 +24,10 @@ defmodule Cgc2046.Reconciliation.Finding do
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
      Pruner 7 天窗口内判定，moduledoc 见 worker）
 
+  规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
+  Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
+  已消解）——窗口语义，非 bug。
+
   ## 平台管理面
 
   全局资源（无 tenant，workspace_id 仅信息列）；read 仅 PlatformAdmin

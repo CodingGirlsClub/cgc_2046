@@ -190,7 +190,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
               WHERE id = $3 AND status = 'pending'
                 AND (approval_deadline IS NULL OR approval_deadline > $1)
               """,
-              [now, Ecto.UUID.dump!(actor.id), Ecto.UUID.dump!(cs.data.id)]
+              [now, Cgc2046.Repo.uuid!(actor.id), Cgc2046.Repo.uuid!(cs.data.id)]
             )
 
           if res.num_rows == 1 do

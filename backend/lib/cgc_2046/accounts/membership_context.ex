@@ -109,7 +109,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   返回目标工作台当前持有 owner 角色的成员数（按 membership 去重，一人多角色只算 1 次）。
 
   委托 BypassReads.owner_count/1（raw COUNT，不经 membership read policy）。
-  DB 失败返回 0（保守安全方向：门控阻断而非误放行）；非法 id 由 `Ecto.UUID.dump!/1` 抛出。
+  DB 失败返回 0（保守安全方向：门控阻断而非误放行）；非法 id 由 `Repo.uuid!/1` 抛出。
   """
   @spec owner_count(String.t()) :: non_neg_integer
   def owner_count(workspace_id), do: BypassReads.owner_count(workspace_id)

@@ -218,7 +218,7 @@ defmodule Cgc2046.Accounts.User do
                 WHERE id = $1 AND is_platform_admin = true
                   AND (SELECT count(*) FROM users WHERE is_platform_admin = true) > 1
                 """,
-                [Ecto.UUID.dump!(user.id)]
+                [Cgc2046.Repo.uuid!(user.id)]
               )
 
             if res.num_rows == 1 do
