@@ -109,7 +109,7 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         courseId
         userId
         status
-        submissionPayload
+        targetTitle
         approvalDeadline
         rejectionReason
         approvedAt
@@ -156,12 +156,33 @@ export const CreateEnrollmentMutationDocument = /* GraphQL */ `
         courseId
         userId
         status
-        submissionPayload
         approvalDeadline
       }
       errors {
         message
         fields
+      }
+    }
+  }
+`
+
+export const CancelEnrollmentMutationDocument = /* GraphQL */ `
+  mutation CancelEnrollment($id: ID!) {
+    cancelEnrollment(id: $id) {
+      result {
+        id
+        workspaceId
+        eventId
+        courseId
+        userId
+        status
+        approvalDeadline
+        rejectionReason
+        cancelledAt
+      }
+      errors {
+        message
+        code
       }
     }
   }

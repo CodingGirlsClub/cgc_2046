@@ -22,6 +22,7 @@ export default function MyEnrollmentsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [now, setNow] = useState(Date.now)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -54,6 +55,25 @@ export default function MyEnrollmentsPage() {
     }
   }
 
+  const cancelEnrollment = async (item: EnrollmentSummary) => {
+    const modal = await Taro.showModal({
+      title: '取消报名',
+      content: '取消后名额将即时释放，此操作不可恢复。'
+    })
+    if (!modal.confirm) return
+
+    setCancellingId(item.id)
+    try {
+      await api.cancelEnrollment(item.id)
+      await load()
+      Taro.showToast({ title: '已取消报名', icon: 'success' })
+    } catch (reason) {
+      Taro.showToast({ title: reason instanceof Error ? reason.message : '取消报名失败', icon: 'none' })
+    } finally {
+      setCancellingId(null)
+    }
+  }
+
   return (
     <View className={styles.page}>
       <View className={styles.header}>
@@ -81,6 +101,16 @@ export default function MyEnrollmentsPage() {
                 <Text className={styles.countdownLabel}>审批剩余</Text>
                 <Text className={styles.countdownValue}>{remainingLabel(item.approvalDeadline, now)}</Text>
               </View>
+            )}
+            {(item.status === 'pending' || item.status === 'confirmed') && (
+              <Button
+                className={styles.textButton}
+                size='mini'
+                disabled={cancellingId === item.id}
+                onClick={() => void cancelEnrollment(item)}
+              >
+                {cancellingId === item.id ? '取消中…' : '取消报名'}
+              </Button>
             )}
             {item.status === 'confirmed' && (
               <Button className={styles.textButton} size='mini' onClick={subscribeReminder}>订阅活动提醒</Button>

@@ -775,6 +775,8 @@ type Sponsorship {
     "The number of records to skip."
     offset: Int
   ): [SponsorshipDelivery!]!
+
+  targetTitle: String
 }
 
 "The result of the :cancel_enrollment mutation"
@@ -844,6 +846,7 @@ enum EnrollmentSortField {
   APPROVAL_DEADLINE
   EXPIRED_AT
   CANCELLED_AT
+  INSERTED_AT
 }
 
 "A keyset page of :enrollment"
@@ -859,6 +862,19 @@ type KeysetPageOfEnrollment {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input EnrollmentFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
 }
 
 input EnrollmentFilterCancelledAt {
@@ -1094,30 +1110,12 @@ input EnrollmentFilterInput {
   approvalDeadline: EnrollmentFilterApprovalDeadline
   expiredAt: EnrollmentFilterExpiredAt
   cancelledAt: EnrollmentFilterCancelledAt
+  insertedAt: EnrollmentFilterInsertedAt
 }
 
 input EnrollmentSortInput {
   order: SortOrder
   field: EnrollmentSortField!
-}
-
-type Enrollment {
-  id: ID!
-  workspaceId: ID!
-  eventId: ID
-  courseId: ID
-  userId: ID!
-  workflowRunId: ID
-  inviteBatchId: ID
-  status: String!
-  submissionPayload: JsonString!
-  capacitySeq: Int
-  approvedBy: ID
-  approvedAt: DateTime
-  rejectionReason: String
-  approvalDeadline: DateTime
-  expiredAt: DateTime
-  cancelledAt: DateTime
 }
 
 "The result of the :disable_invite_batch mutation"
@@ -4076,6 +4074,9 @@ type RootQueryType {
   "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
   myPendingApprovals(includeExpired: Boolean): [PendingApproval!]!
 
+  "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
+  myLearningRuns: [MyLearningRun!]!
+
   "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
   speakerInvitationCard(token: String!): SpeakerInvitationCard
 
@@ -4376,7 +4377,49 @@ type RootQueryType {
     last: Int
   ): KeysetPageOfEnrollment
 
+  "当前用户跨工作台的报名记录"
+  myEnrollments(
+    "How to sort the records in the response"
+    sort: [EnrollmentSortInput]
+
+    "A filter to limit the results"
+    filter: EnrollmentFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfEnrollment
+
   sponsorships(
+    "How to sort the records in the response"
+    sort: [SponsorshipSortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfSponsorship
+
+  "当前用户跨工作台的赞助意向"
+  mySponsorships(
     "How to sort the records in the response"
     sort: [SponsorshipSortInput]
 
@@ -4451,6 +4494,36 @@ type PendingApproval {
   contactEmail: String
   tierName: String
   amount: Int
+}
+
+type Enrollment {
+  id: ID!
+  workspaceId: ID!
+  eventId: ID
+  courseId: ID
+  userId: ID!
+  workflowRunId: ID
+  inviteBatchId: ID
+  status: String!
+  capacitySeq: Int
+  approvedBy: ID
+  approvedAt: DateTime
+  rejectionReason: String
+  approvalDeadline: DateTime
+  expiredAt: DateTime
+  cancelledAt: DateTime
+  insertedAt: DateTime!
+  targetTitle: String
+}
+
+type MyLearningRun {
+  runId: ID!
+  enrollmentId: ID!
+  targetTitle: String
+  status: String!
+  completedManualSteps: Int!
+  totalManualSteps: Int!
+  currentStepTitle: String
 }
 
 type MiniprogramCodeResult {

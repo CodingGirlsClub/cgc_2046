@@ -25,7 +25,10 @@ defmodule Cgc2046.Events.Sponsorship do
     domain: Cgc2046.Api
 
   alias Cgc2046.Repo
+
   alias Cgc2046.Events.SponsorshipTier
+  alias Cgc2046.Accounts.Workspace
+  require Ash.Query
 
   @submitted_signal "sponsorship.submitted"
   @approved_signal "sponsorship.approved"
@@ -122,6 +125,60 @@ defmodule Cgc2046.Events.Sponsorship do
     global?(true)
   end
 
+  calculations do
+    calculate(:target_title, :string,
+      public?: true,
+      load: [:workspace_id, :event_id, :level],
+      calculation: fn sponsorships, _opts ->
+        titles =
+          sponsorships
+          |> Enum.group_by(& &1.workspace_id)
+          |> Enum.reduce(%{}, fn {workspace_id, rows}, acc ->
+            ids =
+              rows
+              |> Enum.map(& &1.event_id)
+              |> Enum.reject(&is_nil/1)
+              |> Enum.uniq()
+
+            ids_by_kind = if ids == [], do: %{}, else: %{event: ids}
+
+            Map.merge(
+              acc,
+              Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
+            )
+          end)
+
+        workspace_names =
+          sponsorships
+          |> Enum.map(& &1.workspace_id)
+          |> Enum.uniq()
+          |> case do
+            [] ->
+              %{}
+
+            workspace_ids ->
+              Workspace
+              |> Ash.Query.filter(id in ^workspace_ids)
+              |> Ash.read!(authorize?: false)
+              |> Map.new(&{&1.id, &1.name})
+          end
+
+        Enum.map(sponsorships, fn sponsorship ->
+          case {sponsorship.level, sponsorship.event_id} do
+            {level, _event_id} when level in [:workspace, "workspace"] ->
+              Map.get(workspace_names, sponsorship.workspace_id, "工作台")
+
+            {_level, event_id} when is_binary(event_id) ->
+              Map.get(titles, event_id, "赞助目标")
+
+            _ ->
+              "赞助目标"
+          end
+        end)
+      end
+    )
+  end
+
   relationships do
     belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
     belongs_to(:event, Cgc2046.Events.Event, define_attribute?: false)
@@ -156,6 +213,12 @@ defmodule Cgc2046.Events.Sponsorship do
 
   actions do
     defaults([:read])
+
+    read :my_sponsorships do
+      description("当前用户跨工作台的赞助意向")
+      filter(expr(sponsor_user_id == ^actor(:id)))
+      pagination(keyset?: true)
+    end
 
     create :create_sponsorship do
       description("提交赞助意向：校验后创建 pending（不生效权益，等审批）")
@@ -267,7 +330,12 @@ defmodule Cgc2046.Events.Sponsorship do
       authorize_if(expr(sponsor_user_id == ^actor(:id)))
     end
 
+    policy action(:my_sponsorships) do
+      authorize_if(expr(sponsor_user_id == ^actor(:id)))
+    end
+
     # 拍板 #4：Event 级 = 目标工作台 Owner/Admin；Workspace 级 = 仅 Owner
+
     # （长期承诺加严；平台 Admin 备案二期，不参与审批）。
     policy action([:approve_sponsorship, :reject_sponsorship]) do
       authorize_if(Cgc2046.Policies.SponsorshipApprover)
@@ -285,6 +353,7 @@ defmodule Cgc2046.Events.Sponsorship do
 
     queries do
       list(:sponsorships, :read)
+      list(:my_sponsorships, :my_sponsorships)
       read_one(:get_sponsorship, :get_by_id)
     end
 

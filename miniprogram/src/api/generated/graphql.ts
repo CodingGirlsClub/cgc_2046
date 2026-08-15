@@ -53,7 +53,7 @@ export type MyEnrollmentsQueryVariables = Exact<{
 }>;
 
 
-export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, submissionPayload: string, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null }> | null } | null };
+export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null }> | null } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
@@ -75,7 +75,14 @@ export type CreateEnrollmentMutationVariables = Exact<{
 }>;
 
 
-export type CreateEnrollmentMutation = { createEnrollment: { result: { id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, submissionPayload: string, approvalDeadline: string | null } | null, errors: Array<{ message: string | null, fields: Array<string> | null }> } };
+export type CreateEnrollmentMutation = { createEnrollment: { result: { id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, approvalDeadline: string | null } | null, errors: Array<{ message: string | null, fields: Array<string> | null }> } };
+
+export type CancelEnrollmentMutationVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type CancelEnrollmentMutation = { cancelEnrollment: { result: { id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, approvalDeadline: string | null, rejectionReason: string | null, cancelledAt: string | null } | null, errors: Array<{ message: string | null, code: string | null }> } };
 
 export type ConfirmEnrollmentMutationVariables = Exact<{
   id: string | number;

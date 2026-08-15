@@ -3,6 +3,8 @@ import type {
   AdmitMemberByTokenMutationVariables,
   ApproveJoinRequestMutation,
   ApproveJoinRequestMutationVariables,
+  CancelEnrollmentMutation,
+  CancelEnrollmentMutationVariables,
   CatalogQuery,
   CatalogQueryVariables,
   ConfirmEnrollmentMutation,
@@ -34,6 +36,7 @@ import { getAuthToken, graphqlRequest, isAuthenticationError, setAuthToken } fro
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
+  CancelEnrollmentMutationDocument,
   CatalogQueryDocument,
   ConfirmEnrollmentMutationDocument,
   CourseDetailQueryDocument,
@@ -94,13 +97,6 @@ function mutationError(errors: Array<{ message?: string | null }>): never {
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
 
-function readPayload(raw: string): Record<string, unknown> {
-  try {
-    return JSON.parse(raw) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-}
 
 export class RealMiniProgramApi implements MiniProgramApi {
   async getCatalog(): Promise<CatalogItem[]> {
@@ -224,21 +220,28 @@ export class RealMiniProgramApi implements MiniProgramApi {
       MyEnrollmentsQueryDocument,
       { userId: session.user.id, first: 100 }
     )
-    return (data.enrollments?.results ?? []).map((enrollment) => {
-      const payload = readPayload(enrollment.submissionPayload)
-      return {
-        id: enrollment.id,
-        workspaceId: enrollment.workspaceId,
-        targetId: enrollment.eventId ?? enrollment.courseId ?? '',
-        kind: enrollment.eventId ? 'event' : 'course',
-        title: typeof payload.targetTitle === 'string' ? payload.targetTitle : '报名项目',
-        status: parseEnrollmentStatus(enrollment.status),
-        approvalDeadline: enrollment.approvalDeadline,
-        rejectionReason: enrollment.rejectionReason
-      }
-    })
+    return (data.enrollments?.results ?? []).map((enrollment) => ({
+      id: enrollment.id,
+      workspaceId: enrollment.workspaceId,
+      targetId: enrollment.eventId ?? enrollment.courseId ?? '',
+      kind: enrollment.eventId ? 'event' : 'course',
+      title: enrollment.targetTitle ?? '报名项目',
+      status: parseEnrollmentStatus(enrollment.status),
+      approvalDeadline: enrollment.approvalDeadline,
+      rejectionReason: enrollment.rejectionReason
+    }))
   }
-
+  async cancelEnrollment(id: string): Promise<void> {
+    const data = await graphqlRequest<CancelEnrollmentMutation, CancelEnrollmentMutationVariables>(
+      CancelEnrollmentMutationDocument,
+      { id }
+    )
+    if (data.cancelEnrollment.result) return
+    if (data.cancelEnrollment.errors.some(({ code, message }) =>
+      code === 'already_processed' || message?.includes('already been processed')
+    )) return
+    mutationError(data.cancelEnrollment.errors)
+  }
   async createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary> {
     const session = await this.getSession()
     if (!session.user) throw new Error('请先登录')

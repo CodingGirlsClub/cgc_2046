@@ -153,6 +153,16 @@ function responseFor(document: string, variables: object): unknown {
     }
     return { createEnrollment: { result: enrollment, errors: [] } }
   }
+  if (document.includes('mutation CancelEnrollment')) {
+    if (enrollment) {
+      enrollment = {
+        ...enrollment,
+        status: 'cancelled',
+        cancelledAt: new Date().toISOString()
+      }
+    }
+    return { cancelEnrollment: { result: enrollment, errors: [] } }
+  }
   if (document.includes('mutation ConfirmEnrollment')) {
     if (enrollment) {
       enrollment = { ...enrollment, status: 'confirmed', approvalDeadline: null, approvedAt: new Date().toISOString() }

@@ -53,9 +53,12 @@ function EmptyHubState() {
 			<div className="join-card">
 				<h1>你还没有加入任何工作区</h1>
 				<p>加入一个工作区，开始与团队协作。</p>
-				<div>
+				<div className="flex flex-wrap gap-2">
 					<Link href="/join" className="join-button join-button--primary">
 						发现 / 申请加入工作区
+					</Link>
+					<Link href="/participations" className="join-button">
+						我的参与
 					</Link>
 				</div>
 			</div>

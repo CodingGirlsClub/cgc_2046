@@ -73,7 +73,7 @@ defmodule Cgc2046.Events.Enrollment do
     attribute(:expired_at, :utc_datetime, public?: true, writable?: false)
     attribute(:cancelled_at, :utc_datetime, public?: true, writable?: false)
 
-    create_timestamp(:inserted_at)
+    create_timestamp(:inserted_at, public?: true)
     update_timestamp(:updated_at)
   end
 
@@ -81,6 +81,40 @@ defmodule Cgc2046.Events.Enrollment do
     strategy(:attribute)
     attribute(:workspace_id)
     global?(true)
+  end
+
+  calculations do
+    calculate(:target_title, :string,
+      public?: true,
+      load: [:submission_payload, :workspace_id, :event_id, :course_id],
+      calculation: fn enrollments, _opts ->
+        fallback_rows =
+          Enum.reject(enrollments, &is_binary(snapshot_target_title(&1)))
+
+        titles =
+          fallback_rows
+          |> Enum.group_by(& &1.workspace_id)
+          |> Enum.reduce(%{}, fn {workspace_id, rows}, acc ->
+            ids_by_kind =
+              %{
+                event: rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1) |> Enum.uniq(),
+                course: rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+              }
+              |> Enum.reject(fn {_kind, ids} -> ids == [] end)
+              |> Map.new()
+
+            Map.merge(
+              acc,
+              Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
+            )
+          end)
+
+        Enum.map(enrollments, fn enrollment ->
+          snapshot_target_title(enrollment) ||
+            target_title_from_offerings(enrollment, titles)
+        end)
+      end
+    )
   end
 
   relationships do
@@ -109,6 +143,12 @@ defmodule Cgc2046.Events.Enrollment do
 
   actions do
     defaults([:read])
+
+    read :my_enrollments do
+      description("当前用户跨工作台的报名记录")
+      filter(expr(user_id == ^actor(:id)))
+      pagination(keyset?: true, default_limit: 250)
+    end
 
     create :create_enrollment do
       description("创建报名；open/invite_only 立即占位，request 等待审批")
@@ -227,6 +267,10 @@ defmodule Cgc2046.Events.Enrollment do
       authorize_if(expr(user_id == ^actor(:id)))
     end
 
+    policy action(:my_enrollments) do
+      authorize_if(expr(user_id == ^actor(:id)))
+    end
+
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
@@ -235,10 +279,32 @@ defmodule Cgc2046.Events.Enrollment do
   end
 
   graphql do
+    generate_object?(false)
     type(:enrollment)
+
+    sortable_fields([
+      :id,
+      :workspace_id,
+      :event_id,
+      :course_id,
+      :user_id,
+      :workflow_run_id,
+      :invite_batch_id,
+      :status,
+      :submission_payload,
+      :capacity_seq,
+      :approved_by,
+      :approved_at,
+      :rejection_reason,
+      :approval_deadline,
+      :expired_at,
+      :cancelled_at,
+      :inserted_at
+    ])
 
     queries do
       list(:enrollments, :read)
+      list(:my_enrollments, :my_enrollments)
     end
 
     mutations do
@@ -248,6 +314,23 @@ defmodule Cgc2046.Events.Enrollment do
       update(:cancel_enrollment, :cancel)
     end
   end
+
+  defp snapshot_target_title(%{submission_payload: payload}) when is_map(payload) do
+    case Map.get(payload, "targetTitle") || Map.get(payload, :targetTitle) do
+      title when is_binary(title) and title != "" -> title
+      _ -> nil
+    end
+  end
+
+  defp snapshot_target_title(_enrollment), do: nil
+
+  defp target_title_from_offerings(%{event_id: id}, titles) when is_binary(id),
+    do: Map.get(titles, id, "报名项目")
+
+  defp target_title_from_offerings(%{course_id: id}, titles) when is_binary(id),
+    do: Map.get(titles, id, "报名项目")
+
+  defp target_title_from_offerings(_enrollment, _titles), do: "报名项目"
 
   defp prepare_create(changeset) do
     event_id = Ash.Changeset.get_attribute(changeset, :event_id)
