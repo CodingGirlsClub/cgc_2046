@@ -297,14 +297,13 @@ export async function deletePortfolioItem(
   invalidatePortfolioCache();
 }
 
-/** 角色权重（P1-3：Profile 绑定 Workspace 上下文的确定性排序依据，纯展示启发式） */
+/** 角色权重（P1-3：无标签=0/基准；learner=2 照旧，纯展示启发式） */
 const ROLE_WEIGHT: Record<MembershipRoleName, number> = {
   owner: 6,
   admin: 5,
   tutor: 4,
   volunteer: 3,
   learner: 2,
-  member: 1,
 };
 
 /** 取角色并集里的最高权重（无角色为 0） */
@@ -319,7 +318,7 @@ function workspaceRoleWeight(roles: MembershipRoleName[]): number {
  *
  * P1-3（确定性排序规则）：
  * 1. membershipStatus === "active"（已加入）优先于 pending/invited；
- * 2. 再按角色权重降序：owner(6) > admin(5) > tutor(4) > volunteer(3) > learner(2) > member(1)；
+ * 2. 再按角色权重降序：owner(6) > admin(5) > tutor(4) > volunteer(3) > learner(2)；无标签=0；
  * 3. Array.prototype.sort 稳定，权重相同时保持后端返回顺序。
  */
 export async function fetchProfileRoleSummary(): Promise<ProfileRoleSummary[]> {

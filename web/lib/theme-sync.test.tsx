@@ -66,7 +66,7 @@ function wsMocks(workspaces: Array<{ slug: string; id: string }>) {
 						name: w.slug,
 						joinPolicy: "open",
 						sponsorshipEnabled: true,
-						myRoleNames: ["member"],
+						myRoleNames: [],
 						myMembershipId: "wm_1",
 						canAccess: true,
 					})),

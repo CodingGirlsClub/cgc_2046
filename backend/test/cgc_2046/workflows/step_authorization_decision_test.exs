@@ -9,32 +9,32 @@ defmodule Cgc2046.Workflows.StepAuthorizationDecisionTest do
     test "owner/admin 豁免：step 仅授权其他角色时仍放行" do
       assert :ok = StepAuthorization.authorize_roles([:owner], {:ok, [:volunteer]})
       assert :ok = StepAuthorization.authorize_roles([:admin], {:ok, [:volunteer]})
-      assert :ok = StepAuthorization.authorize_roles([:member, :owner], {:ok, [:volunteer]})
+      assert :ok = StepAuthorization.authorize_roles([:learner, :owner], {:ok, [:volunteer]})
     end
 
     test "多角色并集命中放行" do
       assert :ok =
                StepAuthorization.authorize_roles(
-                 [:member, :volunteer],
+                 [:learner, :volunteer],
                  {:ok, [:owner, :volunteer]}
                )
     end
 
     test "并集未命中拒绝" do
       assert {:error, :unauthorized} =
-               StepAuthorization.authorize_roles([:member], {:ok, [:owner]})
+               StepAuthorization.authorize_roles([:learner], {:ok, [:owner]})
 
       assert {:error, :unauthorized} = StepAuthorization.authorize_roles([], {:ok, [:owner]})
     end
 
     test "未配置（{:ok, []}）不限制" do
-      assert :ok = StepAuthorization.authorize_roles([:member], {:ok, []})
+      assert :ok = StepAuthorization.authorize_roles([:learner], {:ok, []})
       assert :ok = StepAuthorization.authorize_roles([], {:ok, []})
     end
 
     test "配置读取失败 fail-closed：{:error, _} → :authorization_unavailable" do
       assert {:error, :authorization_unavailable} =
-               StepAuthorization.authorize_roles([:member], {:error, :db_read_failed})
+               StepAuthorization.authorize_roles([:learner], {:error, :db_read_failed})
 
       assert {:error, :authorization_unavailable} =
                StepAuthorization.authorize_roles([], {:error, %RuntimeError{message: "boom"}})

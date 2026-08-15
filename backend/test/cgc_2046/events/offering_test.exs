@@ -64,7 +64,7 @@ defmodule Cgc2046.Events.OfferingTest do
       event = EventFixtures.create_event(workspace, admin, %{visibility: :workspace})
 
       member = Fixtures.register_user("offering-actor-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
       assert {:ok, _} = Offering.fetch(:event, event.id, actor: member, authorize?: true)
 
       # 非成员 + visibility=workspace → read policy 拒绝 → 坍缩 :not_found

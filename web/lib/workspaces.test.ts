@@ -23,10 +23,10 @@ describe("mapRoleObjectsToNames（后端 roles{id,name} → 角色名并集）",
 		expect(
 			mapRoleObjectsToNames([
 				{ id: "r1", name: "owner" },
-				{ id: "r2", name: "member" },
+				{ id: "r2", name: "learner" },
 				{ id: "r3", name: "tutor" },
 			]),
-		).toEqual(["owner", "member", "tutor"]);
+		).toEqual(["owner", "learner", "tutor"]);
 	});
 
 	it("未知角色名被过滤，但保留设计稿默认角色", () => {
@@ -56,7 +56,7 @@ describe("mapWorkspaceMembers（后端分页对象 count/results → 前端成�
 					userId: "u_1",
 					roles: [
 						{ id: "r1", name: "admin" },
-						{ id: "r2", name: "member" },
+						{ id: "r2", name: "learner" },
 					],
 				},
 			],
@@ -68,7 +68,7 @@ describe("mapWorkspaceMembers（后端分页对象 count/results → 前端成�
 			userId: "u_1",
 			email: "u_1", // 后端未返回 email 时以 userId 兜底
 			displayName: undefined,
-			roles: ["admin", "member"],
+			roles: ["admin", "learner"],
 		});
 	});
 
@@ -125,12 +125,12 @@ describe("mapAssignRolesResult（#65 review：保存后回填非空）", () => {
 			userId: "u_0202",
 			roles: [
 				{ id: "r1", name: "admin" },
-				{ id: "r2", name: "member" },
+				{ id: "r2", name: "learner" },
 			],
 		});
 		expect(member.membershipId).toBe("wm_0202");
 		expect(member.userId).toBe("u_0202");
-		expect(member.roles).toEqual(["admin", "member"]); // 保存后 UI 徽章不再显示 []
+		expect(member.roles).toEqual(["admin", "learner"]); // 保存后 UI 徽章不再显示 []
 		expect(member.email).toBe("u_0202"); // 后端无 email，userId 兜底
 	});
 
@@ -150,7 +150,7 @@ describe("mapMembershipStatus（#70 QA P2：真实分支 membershipStatus 映射
 			mapMembershipStatus({
 				canAccess: true,
 				myMembershipId: "m1",
-				myRoleNames: ["member"],
+				myRoleNames: [],
 			}),
 		).toBe("active");
 		expect(
@@ -221,7 +221,7 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
 							name: "真实工作区 A",
 							joinPolicy: "open",
 							sponsorshipEnabled: true,
-							myRoleNames: ["owner", "member"],
+							myRoleNames: ["owner"],
 							myMembershipId: "wm_1",
 							canAccess: true,
 							memberCount: 12,
@@ -232,7 +232,7 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
 							name: "真实工作区 B",
 							joinPolicy: "request",
 							sponsorshipEnabled: true,
-							myRoleNames: ["member"],
+							myRoleNames: [],
 							myMembershipId: "wm_2",
 							canAccess: true,
 							memberCount: 5,
@@ -250,8 +250,8 @@ describe("fetchMyWorkspaces 真实分支（#70 QA P2：补 membershipStatus）",
 			name: "真实工作区 A",
 			joinPolicy: "open",
 			sponsorshipEnabled: true,
-			myRoleNames: ["owner", "member"],
-			roles: ["owner", "member"],
+			myRoleNames: ["owner"],
+			roles: ["owner"],
 			membershipStatus: "active", // #70：真实分支补 status，首页统计不再失真
 			memberCount: 12, // P1：meWorkspaces 计算字段透传
 		});
@@ -325,7 +325,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 								id: "wm_1",
 								workspaceId: "ws_1",
 								userId: "u_1",
-								roles: [{ id: "r1", name: "member" }],
+								roles: [{ id: "r1", name: "learner" }],
 							},
 							{
 								id: "wm_2",
@@ -432,7 +432,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 								{ userDisplayName: { ilike: "%test%" } },
 							],
 						},
-						{ roles: { name: { eq: "member" } } },
+						{ roles: { name: { eq: "learner" } } },
 					],
 				},
 				first: 50,
@@ -450,7 +450,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 
 		const page = await fetchWorkspaceMembers("ws_1", {
 			search: "test",
-			role: "member",
+			role: "learner",
 		});
 		expect(page.members).toHaveLength(0);
 		expect(page.endKeyset).toBeNull();
@@ -472,7 +472,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 								id: "wm_1",
 								workspaceId: "ws_1",
 								userId: "u_1",
-								roles: [{ id: "r1", name: "member" }],
+								roles: [],
 							},
 							{
 								id: "wm_2",
@@ -500,7 +500,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 						id: `wm_${i}`,
 						workspaceId: "ws_1",
 						userId: `u_${i}`,
-						roles: [{ id: "r1", name: "member" }],
+						roles: [],
 					})),
 					endKeyset: "keyset_50",
 				},
@@ -522,7 +522,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 						id: `wm_${i}`,
 						workspaceId: "ws_1",
 						userId: `u_${i}`,
-						roles: [{ id: "r1", name: "member" }],
+						roles: [],
 					})),
 					endKeyset: "keyset_30", // 非 null（末条 keyset），但 count=30=已加载 → 无更多
 				},
@@ -547,7 +547,7 @@ describe("fetchWorkspaceMembers（#10：分页 + 搜索 + 角色过滤）", () =
 								id: "wm_next",
 								workspaceId: "ws_1",
 								userId: "u_next",
-								roles: [{ id: "r1", name: "member" }],
+								roles: [],
 							},
 						],
 						endKeyset: "keyset_next",

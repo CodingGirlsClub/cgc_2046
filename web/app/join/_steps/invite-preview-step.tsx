@@ -1,4 +1,4 @@
-import type { InvitationItem } from "@/lib/invitations";
+import { invitationRoleLabel, type InvitationItem } from "@/lib/invitations";
 
 interface InvitePreviewStepProps {
   invitation: InvitationItem;
@@ -22,7 +22,7 @@ export function InvitePreviewStep({
               <span>预授权角色：</span>
               {invitation.preauthorizedRoleNames.map((role) => (
                 <span className="workspace-role-chip" key={role}>
-                  {role}
+                  {invitationRoleLabel(role)}
                 </span>
               ))}
             </div>

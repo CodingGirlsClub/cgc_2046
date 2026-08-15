@@ -165,7 +165,7 @@ describe("OfferingDetailPage InviteBatchPanel 挂点", () => {
 	);
 
 	it("非 manage 用户即使 invite_only 也不渲染批次码面板", async () => {
-		await renderDetail("invite_only", ["member"]);
+		await renderDetail("invite_only", []);
 
 		expect(screen.queryByTestId("invite-batch-panel")).not.toBeInTheDocument();
 	});

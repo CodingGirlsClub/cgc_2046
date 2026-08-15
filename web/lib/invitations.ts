@@ -46,6 +46,10 @@ export interface InvitationPage {
 	count: number;
 }
 
+export function invitationRoleLabel(role: string): string {
+	return role === "member" ? "成员（无标签）" : role;
+}
+
 /**
  * 将后端 Invitation 映射为前端 InvitationItem。
  */
@@ -57,7 +61,8 @@ export function mapInvitation(inv: Invitation): InvitationItem {
 		plainToken: null,
 		inviterId: inv.inviterId,
 		targetEmail: inv.targetEmail ?? null,
-		preauthorizedRoleNames: inv.preauthorizedRoleNames ?? null,
+		preauthorizedRoleNames:
+			inv.preauthorizedRoleNames?.map(invitationRoleLabel) ?? null,
 		expiresAt: inv.expiresAt ?? null,
 		status: inv.effectiveStatus ?? inv.status,
 		acceptedBy: inv.acceptedBy ?? null,

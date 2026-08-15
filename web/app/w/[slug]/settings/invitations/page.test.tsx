@@ -40,6 +40,8 @@ vi.mock("@/lib/invitations", () => ({
 	fetchInvitations,
 	createInvitation,
 	revokeInvitation,
+	invitationRoleLabel: (role: string) =>
+		role === "member" ? "成员（无标签）" : role,
 }));
 
 const ADMIN_WORKSPACES = [
@@ -69,8 +71,8 @@ const MEMBER_WORKSPACES = [
 		name: "CGC 上海分社",
 		joinPolicy: "open" as const,
 		sponsorshipEnabled: true,
-		myRoleNames: ["member"],
-		roles: ["member"],
+		myRoleNames: [],
+		roles: [],
 		myAbilities: ["view_workspace", "access_invite_only"],
 		membershipStatus: "active" as const,
 	},
@@ -83,7 +85,7 @@ const TEST_INVITATIONS = [
 		tokenHash: "hash_abc",
 		inviterId: "admin_1",
 		targetEmail: "user1@test.com",
-		preauthorizedRoleNames: ["member"],
+		preauthorizedRoleNames: ["learner"],
 		expiresAt: "2026-08-20T03:00:00Z",
 		status: "active" as const,
 	},
@@ -105,7 +107,7 @@ const TEST_INVITATIONS = [
 		tokenHash: "hash_ghi",
 		inviterId: "admin_1",
 		targetEmail: "user3@test.com",
-		preauthorizedRoleNames: ["tutor"],
+		preauthorizedRoleNames: ["member"],
 		expiresAt: "2026-08-15T03:00:00Z",
 		status: "revoked" as const,
 	},
@@ -153,6 +155,13 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 
 		expect(await screen.findByText("user1@test.com")).toBeInTheDocument();
 		expect(screen.getByText("user3@test.com")).toBeInTheDocument();
+	});
+
+	it("历史 member 预授权显示为成员（无标签）", async () => {
+		render(<InvitationsPage />);
+
+		expect(await screen.findByText("成员（无标签）")).toBeInTheDocument();
+		expect(screen.queryByText("member")).not.toBeInTheDocument();
 	});
 
 	it("邀请列表显示状态标签", async () => {
@@ -207,8 +216,8 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 		fireEvent.change(emailInput, { target: { value: "newuser@test.com" } });
 
 		// 选择角色
-		const memberCheckbox = screen.getByRole("checkbox", { name: "member" });
-		fireEvent.click(memberCheckbox);
+		const learnerCheckbox = screen.getByRole("checkbox", { name: "learner" });
+		fireEvent.click(learnerCheckbox);
 
 		// 提交（表单中的创建按钮）
 		const submitButtons = screen.getAllByRole("button", { name: "创建邀请" });
@@ -220,7 +229,7 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 				workspaceId: "ws_02",
 				inviterId: "admin_1",
 				targetEmail: "newuser@test.com",
-				preauthorizedRoleNames: ["member"],
+				preauthorizedRoleNames: ["learner"],
 				expiresAt: null,
 			});
 		});

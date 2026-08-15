@@ -141,7 +141,7 @@ export async function approveJoinRequest(
 		mutation: APPROVE_JOIN_REQUEST,
 		variables: {
 			id,
-			input: { roleNames: roleNames ?? ["member"] },
+			input: { roleNames: roleNames ?? [] },
 		},
 	});
 	const result = data?.approveJoinRequest?.result;

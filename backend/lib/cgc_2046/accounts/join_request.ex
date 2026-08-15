@@ -4,7 +4,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
 
   领域模型（docs/01-定稿设计/领域模型定稿.md ER §INVITATION/JOIN_REQUEST）：
   JoinRequest 是租户资源（workspace_id），表示用户申请加入工作台的请求。
-  审批流程：pending → approved（建 Membership + MembershipRole）/ rejected / expired。
+  审批流程：pending → approved（建 Membership（默认无标签角色））/ rejected / expired。
 
   字段：
   - `status`：pending | approved | rejected | expired
@@ -156,11 +156,11 @@ defmodule Cgc2046.Accounts.JoinRequest do
     end
 
     update :approve do
-      description("审批通过加入申请（Owner/Admin，自动建 Membership + MembershipRole）")
+      description("审批通过加入申请（Owner/Admin，自动建 Membership（默认无标签角色））")
       require_atomic?(false)
 
       argument(:role_names, {:array, :atom},
-        default: [:member],
+        default: [],
         constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 
@@ -316,7 +316,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
       create(:create_join_request, :create, description: "提交加入申请")
 
       update(:approve_join_request, :approve,
-        description: "审批通过加入申请（Owner/Admin，自动建 Membership + MembershipRole）"
+        description: "审批通过加入申请（Owner/Admin，自动建 Membership（默认无标签角色））"
       )
 
       update(:reject_join_request, :reject, description: "拒绝加入申请（Owner/Admin）")

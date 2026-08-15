@@ -288,7 +288,7 @@ export default function AgentsMcpPage() {
 											className={`l-badge ${
 												token.status === "active"
 													? "l-badge-volunteer"
-													: "l-badge-member"
+													: "l-badge-danger"
 											}`}
 										>
 											{token.status === "active" ? "有效" : "已撤销"}

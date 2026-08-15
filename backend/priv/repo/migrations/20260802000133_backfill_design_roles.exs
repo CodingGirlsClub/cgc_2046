@@ -18,7 +18,7 @@ defmodule Cgc2046.Repo.Migrations.BackfillDesignRoles do
 
   ## 单源提示（G2 收敛）
 
-  角色枚举唯一真源是 `Cgc2046.Accounts.Role.role_names/0`（六角色 owner/admin/member/tutor/volunteer/learner）。
+  角色枚举唯一真源是 `Cgc2046.Accounts.Role.role_names/0`（现为五角色 owner/admin/tutor/volunteer/learner；`:member` 已退役）。
   本迁移为**历史迁移**，仅含 G1 新增的设计角色子集（tutor/volunteer/learner），
   保持不动以免破坏已执行的迁移历史；新增/修改角色请一律改 Role 模块。
   """

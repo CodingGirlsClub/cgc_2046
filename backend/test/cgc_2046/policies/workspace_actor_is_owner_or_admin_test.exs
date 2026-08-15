@@ -15,7 +15,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdminTest do
     test "owner + changeset（assign_roles update，tenant）→ 通过" do
       admin = Fixtures.platform_admin("pol-admin")
       workspace = Fixtures.create_workspace(admin)
-      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"), [:member])
+      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"))
 
       changeset =
         Ash.Changeset.for_update(membership, :assign_roles, %{role_names: []},
@@ -28,7 +28,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdminTest do
     test "owner + changeset（无 tenant，从 changeset.data 取）→ 通过" do
       admin = Fixtures.platform_admin("pol-admin")
       workspace = Fixtures.create_workspace(admin)
-      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"), [:member])
+      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"))
 
       changeset = Ash.Changeset.for_update(membership, :assign_roles, %{role_names: []})
       assert WorkspaceActorIsOwnerOrAdmin.match?(admin, %{changeset: changeset}, [])
@@ -48,7 +48,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdminTest do
       admin = Fixtures.platform_admin("pol-admin")
       workspace = Fixtures.create_workspace(admin)
       member = Fixtures.register_user("pol-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       query = Ash.Query.filter(WorkspaceMembership, workspace_id == ^workspace.id)
       refute WorkspaceActorIsOwnerOrAdmin.match?(member, %{query: query}, [])
@@ -60,7 +60,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdminTest do
       outsider = Fixtures.register_user("pol-outsider")
 
       # 用 outsider 自己作 actor，context 里是目标工作台的 changeset
-      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"), [:member])
+      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"))
 
       changeset =
         Ash.Changeset.for_update(membership, :assign_roles, %{role_names: []},
@@ -73,7 +73,7 @@ defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdminTest do
     test "get-by-id context（id-only filter 回查）→ 通过" do
       admin = Fixtures.platform_admin("pol-admin")
       workspace = Fixtures.create_workspace(admin)
-      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"), [:member])
+      membership = Fixtures.add_member(workspace, Fixtures.register_user("pol-user"))
 
       query = Ash.Query.filter(WorkspaceMembership, id == ^membership.id)
       assert WorkspaceActorIsOwnerOrAdmin.match?(admin, %{query: query}, [])

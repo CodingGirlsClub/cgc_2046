@@ -56,7 +56,7 @@ const membersShape = {
 			userId: "u2",
 			email: "bob@example.com",
 			displayName: "Bob",
-			roles: ["member"],
+			roles: [],
 		},
 	],
 	endKeyset: null,
@@ -71,7 +71,7 @@ const membersNoOwner = {
 			userId: "u2",
 			email: "bob@example.com",
 			displayName: "Bob",
-			roles: ["member"],
+			roles: [],
 		},
 	],
 	endKeyset: null,
@@ -123,6 +123,7 @@ describe("/admin/workspaces/[id] 工作台详情", () => {
 		expect(screen.getByText(/cgc-academy/)).toBeInTheDocument();
 		expect(screen.getByText("Alice")).toBeInTheDocument();
 		expect(screen.getByText("Bob")).toBeInTheDocument();
+		expect(screen.getByText("暂无角色")).toBeInTheDocument();
 	});
 
 	it("有 Owner 成员时不显示任何 Owner 状态提示（即使有 active Owner 邀请）", async () => {

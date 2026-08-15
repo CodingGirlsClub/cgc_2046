@@ -590,7 +590,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         |> Ash.create(actor: admin)
 
       member = Fixtures.register_user("invite-member")
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       assert {:ok, fetched} =
                Workspace
@@ -647,7 +647,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       for i <- 1..2 do
         user = Fixtures.register_user("mc-user-#{i}")
 
-        Fixtures.add_member(workspace, user, [:member])
+        Fixtures.add_member(workspace, user)
       end
 
       fetched =
@@ -674,7 +674,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       member = Fixtures.register_user("mc-invite-m")
 
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       outsider = Fixtures.register_user("mc-invite-o")
 
@@ -732,7 +732,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       member = Fixtures.register_user("abil-m")
 
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       fetched =
         Ash.get!(Workspace, workspace.id,
@@ -837,7 +837,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         |> Ash.Changeset.for_update(:update_display_name, %{display_name: "Calc Member"})
         |> Ash.update(actor: member)
 
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       require Ash.Query
 
@@ -887,8 +887,8 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       member_b = Fixtures.register_user("mbr-neg-b")
 
-      Fixtures.add_member(workspace, member_a, [:member])
-      Fixtures.add_member(workspace, member_b, [:member])
+      Fixtures.add_member(workspace, member_a)
+      Fixtures.add_member(workspace, member_b)
 
       require Ash.Query
 
@@ -994,7 +994,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         |> Ash.Changeset.for_create(:create, %{slug: "member-policy-ws", name: "Member Policy"})
         |> Ash.create(actor: admin)
 
-      Fixtures.add_member(workspace, member, [:member])
+      Fixtures.add_member(workspace, member)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                workspace
@@ -1022,7 +1022,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   end
 
   describe "join workspace (G13)" do
-    test "open workspace: user can join and gets learner role" do
+    test "open workspace: user can join and gets unlabeled membership" do
       admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
@@ -1052,9 +1052,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
       membership = Enum.find(memberships, &(&1.user_id == user.id))
       assert membership != nil
 
-      # Verify learner role was assigned
+      # Verify unlabeled membership (no MembershipRole)
       loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
-      assert Enum.any?(loaded.roles, &(&1.name == :learner))
+      assert loaded.roles == []
     end
 
     test "request workspace: join action returns error" do
@@ -1223,7 +1223,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
 
     # 回归 P1：并发 join 同一用户到同一 workspace，DB unique 约束兜底，
-    # 两个请求都应成功返回（幂等），DB 最终只一条 membership + learner 角色。
+    # 两个请求都应成功返回（幂等），DB 最终只一条无标签 membership。
     test "open workspace: concurrent join by same user is idempotent, no 500" do
       admin = Fixtures.platform_admin("ws-admin")
 
@@ -1263,9 +1263,9 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
 
       assert length(memberships) == 1
 
-      # 且该 membership 有 learner 角色（无孤儿）
+      # 且该 membership 无标签（无 MembershipRole）
       loaded = Ash.load!(hd(memberships), :roles, tenant: workspace.id, authorize?: false)
-      assert Enum.any?(loaded.roles, &(&1.name == :learner))
+      assert loaded.roles == []
     end
   end
 
