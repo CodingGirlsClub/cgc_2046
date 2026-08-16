@@ -326,7 +326,10 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		const main = await content();
 		const link = main.getByRole("link", { name: /Workflow 产出/ });
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/workflows");
-		const eventsLink = main.getByRole("link", { name: /活动/ });
+		const agentsLink = main.getByRole("link", { name: /Agents 与助手协作/ });
+		expect(agentsLink).toHaveAttribute("href", "/w/cgc-academy/agents");
+		// plan 020 U1 新增 Agents 卡后 /活动/ 会同时命中「查看助手活动…」——锚定卡片名前缀
+		const eventsLink = main.getByRole("link", { name: /^活动/ });
 		expect(eventsLink).toHaveAttribute("href", "/w/cgc-academy/events");
 		const coursesLink = main.getByRole("link", { name: /课程/ });
 		expect(coursesLink).toHaveAttribute("href", "/w/cgc-academy/courses");
@@ -341,7 +344,7 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		params.value = { slug: "cgc-shanghai" };
 		render(<WorkspacePage />);
 		const main = await content();
-		expect(main.getByRole("link", { name: /活动/ })).toHaveAttribute(
+		expect(main.getByRole("link", { name: /^活动/ })).toHaveAttribute(
 			"href",
 			"/w/cgc-shanghai/events",
 		);
@@ -374,6 +377,9 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(
 			within(menu).getByRole("menuitem", { name: "Settings" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings/account/preferences");
+		expect(
+			within(menu).getByRole("menuitem", { name: "Agents" }),
+		).toHaveAttribute("href", "/w/cgc-academy/agents");
 		expect(
 			within(menu).getByRole("menuitem", { name: "邀请管理" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings/invitations");

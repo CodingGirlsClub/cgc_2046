@@ -87,6 +87,14 @@ describe("WorkspaceSwitcherMenu（plan 016：邀请管理链接按 manage_member
 		);
 	});
 
+	it("plan 020 U1：一级菜单渲染 Agents 项（当前 workspace agents 页）", () => {
+		renderMenu([]);
+		expect(screen.getByRole("menuitem", { name: "Agents" })).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/agents",
+		);
+	});
+
 	it("有 manage_members：渲染邀请管理链接", () => {
 		renderMenu(["manage_members"]);
 		expect(screen.getByRole("menuitem", { name: "邀请管理" })).toHaveAttribute(

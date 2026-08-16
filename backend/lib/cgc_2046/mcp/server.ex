@@ -4,6 +4,8 @@ defmodule Cgc2046.Mcp.Server do
 
   工具集（D7 子集，切片 D 最小闭环）：
   - 读：get_workspace_context / list_members / get_workflow / get_step_output
+    （get_agent_instruction：D10 任务指令模式，拉取 Agent 定义 prompt/skills/授权；
+    plan 020 只留接口语义，不实现——roadmap）
   - 写：save_step_output
   - 管理（确认流 two-tool，D-D3）：create_invitation
   - 内置：confirm_operation / cancel_operation

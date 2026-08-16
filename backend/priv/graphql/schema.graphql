@@ -2499,6 +2499,8 @@ input WorkflowRunFilterInput {
 
   "结束时间（终态 action 写入）"
   finishedAt: WorkflowRunFilterFinishedAt
+
+  definition: WorkflowDefinitionFilterInput
 }
 
 input WorkflowRunSortInput {
@@ -2538,6 +2540,195 @@ type WorkflowRun {
 
   "结束时间（终态 action 写入）"
   finishedAt: DateTime
+
+  definition: WorkflowDefinition!
+
+  "run 绑定版本的步骤定义（step_key\/title\/type\/output_schema，plan 020）"
+  steps: [JsonString!]
+}
+
+input WorkflowDefinitionFilterApprovalTimeout {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input WorkflowDefinitionFilterNodeDef {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input WorkflowDefinitionFilterInputSchema {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input WorkflowDefinitionFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input WorkflowDefinitionFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input WorkflowDefinitionFilterType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input WorkflowDefinitionFilterName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkflowDefinitionFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkflowDefinitionFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input WorkflowDefinitionFilterInput {
+  and: [WorkflowDefinitionFilterInput!]
+
+  or: [WorkflowDefinitionFilterInput!]
+
+  not: [WorkflowDefinitionFilterInput!]
+
+  id: WorkflowDefinitionFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: WorkflowDefinitionFilterWorkspaceId
+
+  "蓝图名称（租户内可读）"
+  name: WorkflowDefinitionFilterName
+
+  "workflow 类型：platform_ops 平台运营 \/ learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ research 教研"
+  type: WorkflowDefinitionFilterType
+
+  "版本号，单调递增；new_version 出 v+1（#34）"
+  version: WorkflowDefinitionFilterVersion
+
+  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
+  status: WorkflowDefinitionFilterStatus
+
+  "workflow 输入参数 schema"
+  inputSchema: WorkflowDefinitionFilterInputSchema
+
+  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
+  nodeDef: WorkflowDefinitionFilterNodeDef
+
+  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
+  approvalTimeout: WorkflowDefinitionFilterApprovalTimeout
+}
+
+type WorkflowDefinition {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "蓝图名称（租户内可读）"
+  name: String!
+
+  "workflow 类型：platform_ops 平台运营 \/ learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ research 教研"
+  type: String!
+
+  "版本号，单调递增；new_version 出 v+1（#34）"
+  version: Int!
+
+  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
+  status: String!
+
+  "workflow 输入参数 schema"
+  inputSchema: JsonString
+
+  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
+  nodeDef: JsonString
+
+  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
+  approvalTimeout: Int
 }
 
 enum SortOrder {
@@ -4096,6 +4287,9 @@ type RootQueryType {
   "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
   myLearningRuns: [MyLearningRun!]!
 
+  "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
+  myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
+
   "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
   speakerInvitationCard(token: String!): SpeakerInvitationCard
 
@@ -4543,6 +4737,15 @@ type MyLearningRun {
   completedManualSteps: Int!
   totalManualSteps: Int!
   currentStepTitle: String
+}
+
+type WorkspaceToolCall {
+  id: ID!
+  tool: String!
+  status: String!
+  latencyMs: Int
+  insertedAt: DateTime!
+  errorMessage: String
 }
 
 type MiniprogramCodeResult {

@@ -16,12 +16,25 @@ import {
  * 映射时 JSON.parse 为对象，解析失败/为空时兜底 {}。
  */
 
+/** 步骤读取面条目（plan 020 U3：后端 steps JsonString 解析；output_schema 缺失为 null） */
+export interface WorkflowRunStep {
+	stepKey: string;
+	title: string;
+	type: string;
+	/** output_schema 宽松形状（数组字段列表 / 单字段描述符 / 映射；不可解析为 null） */
+	outputSchema: unknown;
+}
+
 export interface WorkflowRunItem {
 	id: string;
 	status: WorkflowRunStatus;
 	definitionId: string;
+	/** run 绑定版本的 definition 类型（learning/research/...；读取失败为 null） */
+	definitionType: string | null;
 	/** 执行产物 facts（JsonString 解析后的对象；无产物为空对象） */
 	facts: Record<string, unknown>;
+	/** 步骤读取面（版本绑定；无/解析失败为空数组） */
+	steps: WorkflowRunStep[];
 	startedAt: string | null;
 	finishedAt: string | null;
 }
@@ -54,13 +67,42 @@ function timeoutSignal(): AbortSignal {
 	return controller.signal;
 }
 
-/** 后端 WorkflowRun → 前端展示项（facts 解析为对象） */
+/** JsonString 数组 → 步骤条目（每项 JSON 编码 {step_key,title,type,output_schema}；宽松解析） */
+export function parseSteps(raw: string[] | null | undefined): WorkflowRunStep[] {
+	if (!Array.isArray(raw)) return [];
+	const steps: WorkflowRunStep[] = [];
+	for (const item of raw) {
+		try {
+			const parsed: unknown = JSON.parse(item);
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+			const obj = parsed as Record<string, unknown>;
+			const stepKey = obj.step_key;
+			if (typeof stepKey !== "string") continue;
+			steps.push({
+				stepKey,
+				title: typeof obj.title === "string" ? obj.title : stepKey,
+				type: typeof obj.type === "string" ? obj.type : "",
+				outputSchema:
+					obj.output_schema && typeof obj.output_schema === "object"
+						? (obj.output_schema as Record<string, unknown>)
+						: null,
+			});
+		} catch {
+			// 单条非法 JSON 跳过（宽松兼容），不拖垮整批
+		}
+	}
+	return steps;
+}
+
+/** 后端 WorkflowRun → 前端展示项（facts/steps 解析为对象） */
 export function mapWorkflowRun(r: WorkflowRun): WorkflowRunItem {
 	return {
 		id: r.id,
 		status: r.status,
 		definitionId: r.definitionId,
+		definitionType: r.definition?.type ?? null,
 		facts: parseJsonString(r.facts),
+		steps: parseSteps(r.steps),
 		startedAt: r.startedAt,
 		finishedAt: r.finishedAt,
 	};
