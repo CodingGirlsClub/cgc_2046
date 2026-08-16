@@ -24,29 +24,34 @@ export type Visibility = "public" | "workspace";
 
 /** 活动/课程共享字段（后端两个资源同构） */
 export interface OfferingItem {
-	id: string;
-	workspaceId: string | null;
-	title: string;
-	/** 公开 URL 段（E-4 Speaker 邀请链接原料；成员可见） */
-	slug: string | null;
-	status: EventStatus;
-	visibility: Visibility;
-	enrollmentPolicy: EnrollmentPolicy;
-	/** 报名名额上限；null = 不限（非成员读到 null，D2 白名单） */
-	capacity: number | null;
-	/** 已确认名额数（非成员读到 null，D2 白名单） */
-	confirmedCount: number | null;
-	registrationDeadline: string | null;
-	/** 是否开放赞助入口（仅 event；E-3 #48） */
-	sponsorshipEnabled?: boolean;
-	/** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
-	sponsorshipTiers?: string[] | null;
-	/** 是否收费（默认免费；收费报名须选档并支付，R4 免费路径零变化） */
-	pricingEnabled?: boolean | null;
-	/** 可售价格档位（JsonString 数组，后端已过滤过期档，R2） */
-	availablePriceTiers?: string[] | null;
-	/** 赞助意向截止（仅 event） */
-	sponsorshipDeadline?: string | null;
+  id: string;
+  workspaceId: string | null;
+  title: string;
+  /** 公开 URL 段（E-4 Speaker 邀请链接原料；成员可见） */
+  slug: string | null;
+  status: EventStatus;
+  visibility: Visibility;
+  enrollmentPolicy: EnrollmentPolicy;
+  /** 报名名额上限；null = 不限（非成员读到 null，D2 白名单） */
+  capacity: number | null;
+  /** 已确认名额数（非成员读到 null，D2 白名单） */
+  confirmedCount: number | null;
+  registrationDeadline: string | null;
+  /** 教研需求(自由文本;仅 course、成员可见;U8/R12) */
+  researchRequirements?: string | null;
+  /** 教研 run 引用(仅 course;U8 教研状态露出) */
+  workflowRunId?: string | null;
+  workflowRun?: { id: string; status: string } | null;
+  /** 是否收费（默认免费；收费报名须选档并支付，R4 免费路径零变化） */
+  pricingEnabled?: boolean | null;
+  /** 可售价格档位（JsonString 数组，后端已过滤过期档，R2）；解析见 lib/payment.parsePriceTiers */
+  availablePriceTiers?: string[] | null;
+  /** 是否开放赞助入口（仅 event；E-3 #48） */
+  sponsorshipEnabled?: boolean;
+  /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
+  sponsorshipTiers?: string[] | null;
+  /** 赞助意向截止（仅 event） */
+  sponsorshipDeadline?: string | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -57,494 +62,571 @@ export type OfferingMutationResult = MutationResult<OfferingItem>;
 /* ---------------- 展示词表（单源；页面一律 import，不重复字面量） ---------------- */
 
 export const EVENT_STATUS_LABEL: Record<EventStatus, string> = {
-	draft: "草稿",
-	open: "开放报名",
-	closed: "已结束",
-	cancelled: "已取消",
+  draft: "草稿",
+  open: "开放报名",
+  closed: "已结束",
+  cancelled: "已取消",
 };
 
-export const EVENT_STATUS_TONE: Record<EventStatus, "neutral" | "positive" | "negative"> = {
-	draft: "neutral",
-	open: "positive",
-	closed: "neutral",
-	cancelled: "negative",
+export const EVENT_STATUS_TONE: Record<
+  EventStatus,
+  "neutral" | "positive" | "negative"
+> = {
+  draft: "neutral",
+  open: "positive",
+  closed: "neutral",
+  cancelled: "negative",
 };
 
 export const VISIBILITY_LABEL: Record<Visibility, string> = {
-	public: "公开可见",
-	workspace: "仅工作台可见",
+  public: "公开可见",
+  workspace: "仅工作台可见",
 };
 
 export const ENROLLMENT_POLICY_LABEL: Record<EnrollmentPolicy, string> = {
-	open: "直接报名",
-	request: "申请审批",
-	invite_only: "邀请码报名",
+  open: "直接报名",
+  request: "申请审批",
+  invite_only: "邀请码报名",
 };
 
 export const OFFERING_LABEL: Record<OfferingKind, string> = {
-	event: "活动",
-	course: "课程",
+  event: "活动",
+  course: "课程",
 };
 
-export const EVENT_STATUSES: EventStatus[] = ["draft", "open", "closed", "cancelled"];
+export const EVENT_STATUSES: EventStatus[] = [
+  "draft",
+  "open",
+  "closed",
+  "cancelled",
+];
 export const VISIBILITIES: Visibility[] = ["public", "workspace"];
-export const ENROLLMENT_POLICIES: EnrollmentPolicy[] = ["open", "request", "invite_only"];
+export const ENROLLMENT_POLICIES: EnrollmentPolicy[] = [
+  "open",
+  "request",
+  "invite_only",
+];
 
 /* ---------------- Queries ---------------- */
 
 export const LIST_EVENTS: TypedDocumentNode<
-	{ listEvents: { results: OfferingItem[] } },
-	{ workspaceId: string }
+  { listEvents: { results: OfferingItem[] } },
+  { workspaceId: string }
 > = gql`
-	query ListEvents($workspaceId: ID!) {
-		listEvents(filter: { workspaceId: { eq: $workspaceId } }) {
-			results {
-				id
-				workspaceId
-				title
-				status
-				visibility
-				enrollmentPolicy
-				capacity
-				confirmedCount
-				registrationDeadline
-			}
-		}
-	}
+  query ListEvents($workspaceId: ID!) {
+    listEvents(filter: { workspaceId: { eq: $workspaceId } }) {
+      results {
+        id
+        workspaceId
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        confirmedCount
+        registrationDeadline
+      }
+    }
+  }
 `;
 
 export const LIST_COURSES: TypedDocumentNode<
-	{ listCourses: { results: OfferingItem[] } },
-	{ workspaceId: string }
+  { listCourses: { results: OfferingItem[] } },
+  { workspaceId: string }
 > = gql`
-	query ListCourses($workspaceId: ID!) {
-		listCourses(filter: { workspaceId: { eq: $workspaceId } }) {
-			results {
-				id
-				workspaceId
-				title
-				status
-				visibility
-				enrollmentPolicy
-				capacity
-				confirmedCount
-				registrationDeadline
-			}
-		}
-	}
+  query ListCourses($workspaceId: ID!) {
+    listCourses(filter: { workspaceId: { eq: $workspaceId } }) {
+      results {
+        id
+        workspaceId
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        confirmedCount
+        registrationDeadline
+      }
+    }
+  }
 `;
 
-export const GET_EVENT: TypedDocumentNode<{ getEvent: OfferingItem }, { id: string }> = gql`
-	query GetEvent($id: ID!) {
-		getEvent(id: $id) {
-			id
-			workspaceId
-			title
-			slug
-			status
-			visibility
-			enrollmentPolicy
-			capacity
-			confirmedCount
-			registrationDeadline
-			sponsorshipEnabled
-			sponsorshipTiers
-			sponsorshipDeadline
-			pricingEnabled
-			availablePriceTiers
-		}
-	}
+export const GET_EVENT: TypedDocumentNode<
+  { getEvent: OfferingItem },
+  { id: string }
+> = gql`
+  query GetEvent($id: ID!) {
+    getEvent(id: $id) {
+      id
+      workspaceId
+      title
+      slug
+      status
+      visibility
+      enrollmentPolicy
+      capacity
+      confirmedCount
+      registrationDeadline
+      sponsorshipEnabled
+      sponsorshipTiers
+      sponsorshipDeadline
+      pricingEnabled
+      availablePriceTiers
+    }
+  }
 `;
 
-export const GET_COURSE: TypedDocumentNode<{ getCourse: OfferingItem }, { id: string }> = gql`
-	query GetCourse($id: ID!) {
-		getCourse(id: $id) {
-			id
-			workspaceId
-			title
-			status
-			visibility
-			enrollmentPolicy
-			capacity
-			confirmedCount
-			registrationDeadline
-		}
-	}
+export const GET_COURSE: TypedDocumentNode<
+  {
+    getCourse: OfferingItem & {
+      workflowRun: { id: string; status: string } | null;
+    };
+  },
+  { id: string }
+> = gql`
+  query GetCourse($id: ID!) {
+    getCourse(id: $id) {
+      id
+      workspaceId
+      title
+      status
+      visibility
+      enrollmentPolicy
+      capacity
+      confirmedCount
+      registrationDeadline
+      researchRequirements
+      workflowRunId
+      workflowRun {
+        id
+        status
+      }
+      pricingEnabled
+      availablePriceTiers
+    }
+  }
 `;
 
 /* ---------------- Mutations ---------------- */
 
 export const CREATE_EVENT: TypedDocumentNode<
-	{ createEvent: OfferingMutationResult },
-	{ input: Record<string, unknown> }
+  { createEvent: OfferingMutationResult },
+  { input: Record<string, unknown> }
 > = gql`
-	mutation CreateEvent($input: CreateEventInput!) {
-		createEvent(input: $input) {
-			result {
-				id
-				workspaceId
-				title
-				status
-				visibility
-				enrollmentPolicy
-				capacity
-				confirmedCount
-				registrationDeadline
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CreateEvent($input: CreateEventInput!) {
+    createEvent(input: $input) {
+      result {
+        id
+        workspaceId
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        confirmedCount
+        registrationDeadline
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const CREATE_COURSE: TypedDocumentNode<
-	{ createCourse: OfferingMutationResult },
-	{ input: Record<string, unknown> }
+  { createCourse: OfferingMutationResult },
+  { input: Record<string, unknown> }
 > = gql`
-	mutation CreateCourse($input: CreateCourseInput!) {
-		createCourse(input: $input) {
-			result {
-				id
-				workspaceId
-				title
-				status
-				visibility
-				enrollmentPolicy
-				capacity
-				confirmedCount
-				registrationDeadline
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CreateCourse($input: CreateCourseInput!) {
+    createCourse(input: $input) {
+      result {
+        id
+        workspaceId
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        confirmedCount
+        registrationDeadline
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const UPDATE_EVENT: TypedDocumentNode<
-	{ updateEvent: OfferingMutationResult },
-	{ id: string; input: Record<string, unknown> }
+  { updateEvent: OfferingMutationResult },
+  { id: string; input: Record<string, unknown> }
 > = gql`
-	mutation UpdateEvent($id: ID!, $input: UpdateEventInput!) {
-		updateEvent(id: $id, input: $input) {
-			result {
-				id
-				title
-				status
-				visibility
-				enrollmentPolicy
-				capacity
-				registrationDeadline
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation UpdateEvent($id: ID!, $input: UpdateEventInput!) {
+    updateEvent(id: $id, input: $input) {
+      result {
+        id
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        registrationDeadline
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const UPDATE_COURSE: TypedDocumentNode<
-	{ updateCourse: OfferingMutationResult },
-	{ id: string; input: Record<string, unknown> }
+  { updateCourse: OfferingMutationResult },
+  { id: string; input: Record<string, unknown> }
 > = gql`
-	mutation UpdateCourse($id: ID!, $input: UpdateCourseInput!) {
-		updateCourse(id: $id, input: $input) {
-			result {
-				id
-				title
-				status
-				visibility
-				enrollmentPolicy
-				capacity
-				registrationDeadline
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation UpdateCourse($id: ID!, $input: UpdateCourseInput!) {
+    updateCourse(id: $id, input: $input) {
+      result {
+        id
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        registrationDeadline
+        researchRequirements
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const LAUNCH_EVENT: TypedDocumentNode<
-	{ launchEvent: OfferingMutationResult },
-	{ id: string }
+  { launchEvent: OfferingMutationResult },
+  { id: string }
 > = gql`
-	mutation LaunchEvent($id: ID!) {
-		launchEvent(id: $id) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation LaunchEvent($id: ID!) {
+    launchEvent(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const LAUNCH_COURSE: TypedDocumentNode<
-	{ launchCourse: OfferingMutationResult },
-	{ id: string }
+  { launchCourse: OfferingMutationResult },
+  { id: string }
 > = gql`
-	mutation LaunchCourse($id: ID!) {
-		launchCourse(id: $id) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation LaunchCourse($id: ID!) {
+    launchCourse(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const CLOSE_EVENT: TypedDocumentNode<
-	{ closeEvent: OfferingMutationResult },
-	{ id: string }
+  { closeEvent: OfferingMutationResult },
+  { id: string }
 > = gql`
-	mutation CloseEvent($id: ID!) {
-		closeEvent(id: $id) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CloseEvent($id: ID!) {
+    closeEvent(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const CLOSE_COURSE: TypedDocumentNode<
-	{ closeCourse: OfferingMutationResult },
-	{ id: string }
+  { closeCourse: OfferingMutationResult },
+  { id: string }
 > = gql`
-	mutation CloseCourse($id: ID!) {
-		closeCourse(id: $id) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CloseCourse($id: ID!) {
+    closeCourse(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const CANCEL_EVENT: TypedDocumentNode<
-	{ cancelEvent: OfferingMutationResult },
-	{ id: string }
+  { cancelEvent: OfferingMutationResult },
+  { id: string }
 > = gql`
-	mutation CancelEvent($id: ID!) {
-		cancelEvent(id: $id) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CancelEvent($id: ID!) {
+    cancelEvent(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 export const CANCEL_COURSE: TypedDocumentNode<
-	{ cancelCourse: OfferingMutationResult },
-	{ id: string }
+  { cancelCourse: OfferingMutationResult },
+  { id: string }
 > = gql`
-	mutation CancelCourse($id: ID!) {
-		cancelCourse(id: $id) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CancelCourse($id: ID!) {
+    cancelCourse(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
-
 
 /* ---------------- 公开面（E-5 #50：匿名白名单字段查询，不含 D2 敏感字段） ---------------- */
 
 /** 公开活动/课程条目（匿名可读白名单：id/title/status/visibility/enrollmentPolicy/registrationDeadline） */
 export interface PublicOfferingItem {
-	id: string;
-	slug: string;
-	title: string;
-	description: string | null;
-	status: EventStatus;
-	visibility: Visibility;
-	enrollmentPolicy: EnrollmentPolicy;
-	registrationDeadline: string | null;
-	/** 是否开放赞助入口（仅 event 有；E-3 #48） */
-	sponsorshipEnabled?: boolean;
-	/** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
-	sponsorshipTiers?: string[] | null;
-	/** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
-	pricingEnabled?: boolean | null;
-	/** 可售价格档位（JsonString 数组，后端已过滤过期档，R2）；解析见 lib/payment.parsePriceTiers */
-	availablePriceTiers?: string[] | null;
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  status: EventStatus;
+  visibility: Visibility;
+  enrollmentPolicy: EnrollmentPolicy;
+  registrationDeadline: string | null;
+  /** 是否开放赞助入口（仅 event 有；E-3 #48） */
+  sponsorshipEnabled?: boolean;
+  /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
+  sponsorshipTiers?: string[] | null;
 }
 
-export const PUBLIC_LIST_EVENTS: TypedDocumentNode<
-	{ listEvents: { results: PublicOfferingItem[] } }
-> = gql`
-	query PublicListEvents {
-		listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
-			results {
-				id
-				slug
-				title
-				description
-				status
-				visibility
-				enrollmentPolicy
-				registrationDeadline
-			}
-		}
-	}
+export const PUBLIC_LIST_EVENTS: TypedDocumentNode<{
+  listEvents: { results: PublicOfferingItem[] };
+}> = gql`
+  query PublicListEvents {
+    listEvents(
+      filter: { status: { eq: "open" }, visibility: { eq: "public" } }
+    ) {
+      results {
+        id
+        slug
+        title
+        description
+        status
+        visibility
+        enrollmentPolicy
+        registrationDeadline
+      }
+    }
+  }
 `;
 
-export const PUBLIC_LIST_COURSES: TypedDocumentNode<
-	{ listCourses: { results: PublicOfferingItem[] } }
-> = gql`
-	query PublicListCourses {
-		listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
-			results {
-				id
-				slug
-				title
-				description
-				status
-				visibility
-				enrollmentPolicy
-				registrationDeadline
-			}
-		}
-	}
+export const PUBLIC_LIST_COURSES: TypedDocumentNode<{
+  listCourses: { results: PublicOfferingItem[] };
+}> = gql`
+  query PublicListCourses {
+    listCourses(
+      filter: { status: { eq: "open" }, visibility: { eq: "public" } }
+    ) {
+      results {
+        id
+        slug
+        title
+        description
+        status
+        visibility
+        enrollmentPolicy
+        registrationDeadline
+      }
+    }
+  }
 `;
 
 export const PUBLIC_GET_EVENT: TypedDocumentNode<
-	{ getEventBySlug: PublicOfferingItem | null },
-	{ slug: string }
+  { getEventBySlug: PublicOfferingItem | null },
+  { slug: string }
 > = gql`
-	query PublicGetEvent($slug: String!) {
-		getEventBySlug(slug: $slug) {
-			id
-			slug
-			title
-			description
-			status
-			visibility
-			enrollmentPolicy
-			registrationDeadline
-			sponsorshipEnabled
-			sponsorshipTiers
-			pricingEnabled
-			availablePriceTiers
-		}
-	}
+  query PublicGetEvent($slug: String!) {
+    getEventBySlug(slug: $slug) {
+      id
+      slug
+      title
+      description
+      status
+      visibility
+      enrollmentPolicy
+      registrationDeadline
+      sponsorshipEnabled
+      sponsorshipTiers
+      pricingEnabled
+      availablePriceTiers
+    }
+  }
 `;
 
 export const PUBLIC_GET_COURSE: TypedDocumentNode<
-	{ getCourseBySlug: PublicOfferingItem | null },
-	{ slug: string }
+  { getCourseBySlug: PublicOfferingItem | null },
+  { slug: string }
 > = gql`
-	query PublicGetCourse($slug: String!) {
-		getCourseBySlug(slug: $slug) {
-			id
-			slug
-			title
-			description
-			status
-			visibility
-			enrollmentPolicy
-			registrationDeadline
-			pricingEnabled
-			availablePriceTiers
-		}
-	}
+  query PublicGetCourse($slug: String!) {
+    getCourseBySlug(slug: $slug) {
+      id
+      slug
+      title
+      description
+      status
+      visibility
+      enrollmentPolicy
+      registrationDeadline
+      pricingEnabled
+      availablePriceTiers
+    }
+  }
 `;
 
 /* ---------------- 报名（E-5 #50：createEnrollment 既有 mutation） ---------------- */
 
 export type EnrollmentSubmissionResult = MutationResult<{
-	id: string;
-	status: string;
+  id: string;
+  status: string;
 }>;
 
 export const CREATE_ENROLLMENT: TypedDocumentNode<
-	{ createEnrollment: EnrollmentSubmissionResult },
-	{ input: Record<string, unknown> }
+  { createEnrollment: EnrollmentSubmissionResult },
+  { input: Record<string, unknown> }
 > = gql`
-	mutation CreateEnrollment($input: CreateEnrollmentInput!) {
-		createEnrollment(input: $input) {
-			result {
-				id
-				status
-			}
-			errors {
-				message
-			}
-		}
-	}
+  mutation CreateEnrollment($input: CreateEnrollmentInput!) {
+    createEnrollment(input: $input) {
+      result {
+        id
+        status
+      }
+      errors {
+        message
+      }
+    }
+  }
 `;
 
 /* ---------------- Enrollment 计数（详情页报名数据视图） ---------------- */
 
 /** pending 报名数（request 策略待审批） */
 export const LIST_EVENT_ENROLLMENTS: TypedDocumentNode<
-	{ enrollments: { count: number } },
-	{ eventId: string }
+  { enrollments: { count: number } },
+  { eventId: string }
 > = gql`
-	query ListEventEnrollments($eventId: ID!) {
-		enrollments(filter: { eventId: { eq: $eventId }, status: { eq: "pending" } }) {
-			count
-		}
-	}
+  query ListEventEnrollments($eventId: ID!) {
+    enrollments(
+      filter: { eventId: { eq: $eventId }, status: { eq: "pending" } }
+    ) {
+      count
+    }
+  }
 `;
 
 export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
-	{ enrollments: { count: number } },
-	{ courseId: string }
+  { enrollments: { count: number } },
+  { courseId: string }
 > = gql`
-	query ListCourseEnrollments($courseId: ID!) {
-		enrollments(filter: { courseId: { eq: $courseId }, status: { eq: "pending" } }) {
-			count
-		}
-	}
+  query ListCourseEnrollments($courseId: ID!) {
+    enrollments(
+      filter: { courseId: { eq: $courseId }, status: { eq: "pending" } }
+    ) {
+      count
+    }
+  }
 `;
 
 /* ---------------- 我的报名（工作台详情页入口防重，E-5 #50 G3） ---------------- */
 
 /** 当前用户对目标活动的既有报名（读策略仅本人可见 → 返回即已报名） */
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
-	{ enrollments: { results: Array<{ id: string }> } },
-	{ eventId: string; userId: string }
+  { enrollments: { results: Array<{ id: string }> } },
+  { eventId: string; userId: string }
 > = gql`
-	query MyEventEnrollment($eventId: ID!, $userId: ID!) {
-		enrollments(filter: { eventId: { eq: $eventId }, userId: { eq: $userId } }) {
-			results {
-				id
-			}
-		}
-	}
+  query MyEventEnrollment($eventId: ID!, $userId: ID!) {
+    enrollments(
+      filter: { eventId: { eq: $eventId }, userId: { eq: $userId } }
+    ) {
+      results {
+        id
+      }
+    }
+  }
 `;
 
 export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
-	{ enrollments: { results: Array<{ id: string }> } },
-	{ courseId: string; userId: string }
+  { enrollments: { results: Array<{ id: string }> } },
+  { courseId: string; userId: string }
 > = gql`
-	query MyCourseEnrollment($courseId: ID!, $userId: ID!) {
-		enrollments(filter: { courseId: { eq: $courseId }, userId: { eq: $userId } }) {
-			results {
-				id
-			}
-		}
-	}
+  query MyCourseEnrollment($courseId: ID!, $userId: ID!) {
+    enrollments(
+      filter: { courseId: { eq: $courseId }, userId: { eq: $userId } }
+    ) {
+      results {
+        id
+      }
+    }
+  }
+`;
+
+/* ---------------- 课程地图(U8/R10:公开详情页,goal-only 无 checklist) ---------------- */
+
+export interface CourseMapIssue {
+  key: string;
+  id: string;
+  title: string;
+  kind: string;
+  goal: string | null;
+}
+
+export interface CourseMap {
+  courseId: string;
+  title: string;
+  slug: string;
+  goals: string[];
+  issues: CourseMapIssue[];
+}
+
+export const COURSE_MAP: TypedDocumentNode<
+  { courseMap: CourseMap | null },
+  { slug: string }
+> = gql`
+  query CourseMap($slug: String!) {
+    courseMap(slug: $slug) {
+      courseId
+      title
+      slug
+      goals
+      issues {
+        key
+        id
+        title
+        kind
+        goal
+      }
+    }
+  }
 `;
