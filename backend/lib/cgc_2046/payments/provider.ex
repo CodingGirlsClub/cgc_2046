@@ -54,6 +54,10 @@ defmodule Cgc2046.Payments.Provider do
   `config :cgc_2046, :payments_providers` 注入 Fake（test.exs 已注入）。
   """
   @spec for(provider_atom()) :: module()
+
+  @doc "渠道原子（:wechat | :alipay）→ adapter 模块（回调入口消费）。"
+  @spec for_channel(channel()) :: module()
+  def for_channel(channel), do: channel_adapter(channel)
   def for(:wechat_jsapi), do: channel_adapter(:wechat)
   def for(:wechat_native), do: channel_adapter(:wechat)
   def for(:alipay_page), do: channel_adapter(:alipay)

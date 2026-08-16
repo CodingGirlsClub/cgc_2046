@@ -100,9 +100,11 @@ config :cgc_2046, :miniprogram_templates, %{
 #   reminder 每小时（48h 窗口下小时级粒度足够，窗口内幂等去重兜底）。
 # - Pruner：oban_jobs 保留 7 天，防表无限膨胀。
 # 测试环境在 test.exs 以 testing: :manual 覆盖（Oban 自动禁用 queues/plugins/cron）。
+# payments 队列（缴费闭环 U6/U7）：回调落账 + 退款——资金链路独立于维护/通知，
+# 并发 10 防回调尖峰堆积（每 job = 一次渠道查单 + 少量 CAS）。
 config :cgc_2046, Oban,
   repo: Cgc2046.Repo,
-  queues: [maintenance: 5, notifications: 10],
+  queues: [maintenance: 5, notifications: 10, payments: 10],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     {Oban.Plugins.Cron,
