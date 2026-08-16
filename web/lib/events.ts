@@ -72,6 +72,10 @@ export type OfferingUpdateInput = {
 	registrationDeadline?: string | null;
 	/** 赞助档位配置（每项 JSON.stringify 后作为 JsonString 提交；E-3 #48，仅 event） */
 	sponsorshipTiers?: string[];
+	/** 是否收费（U2-R1 定价面；收费报名须选档并完成支付，R4） */
+	pricingEnabled?: boolean;
+	/** 价格档位配置（每项 JSON.stringify 后作为 JsonString 提交；PriceTier 形状） */
+	priceTiers?: string[];
 };
 
 /** 状态机动作（详情页按钮） */
