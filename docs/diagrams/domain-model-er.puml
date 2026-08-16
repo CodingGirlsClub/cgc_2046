@@ -2,9 +2,11 @@
 ' ============================================================
 ' L1 - 领域模型 ER 图（Domain Model ER）
 ' 事实来源（代码锚点）：backend/lib/cgc_2046/global_api.ex · api.ex · mcp.ex
-'   资源注册清单及各资源模块（漂移复核：DRIFT-EVIDENCE/L1-domain-model.md §1）
+'   · payments.ex:22,24（Order/WebhookEvent）· api.ex:35,38
+'   （ResearchOutput/LearningRecord）及各资源模块
+'   （漂移复核：DRIFT-EVIDENCE/L1-domain-model.md §1）
 ' 说明：全局资源（User/Identity/Token/Workspace/WorkspaceApplication/
-'   AdminActionLog/Reconciliation.Finding）不按租户隔离；
+'   AdminActionLog/Reconciliation.Finding/Payments.WebhookEvent）不按租户隔离；
 '   其余实体按租户隔离（tenant_id / partition = Workspace）。
 ' ============================================================
 title CGC 平台领域模型 ER（L1）
@@ -240,13 +242,16 @@ entity "Event" as EVENT {
     status : draft|open|closed|cancelled
     sponsorship_enabled : boolean
     sponsorship_deadline : datetime
+    pricing_enabled : boolean
+    price_tiers : json (内嵌档位)
     sponsorship_tiers : json (内嵌档位)
 }
 entity "Course" as COURSE {
     * id : uuid <<PK>>
     --
     title : string
-    workflow_run_id : uuid <<FK>>
+    pricing_enabled : boolean
+    price_tiers : json (内嵌档位)
     enrollment_policy / capacity
     registration_deadline / status
 }
@@ -256,7 +261,7 @@ entity "Enrollment" as ENROLLMENT {
     event_id / course_id : uuid <<FK>> (二选一)
     user_id : uuid <<FK>>
     run_id : uuid <<FK>>
-    status : pending|confirmed|rejected|cancelled|expired
+    status : pending|payment_pending|confirmed|rejected|expired|cancelled
     invite_batch_id : uuid <<FK>>
     approved_by / approved_at
     rejection_reason
@@ -308,6 +313,57 @@ entity "SpeakerInvitation" as SPEAKERINV {
     workflow_run_id : uuid <<FK>>
 }
 
+' ---------- 支付（payments.ex；Order 租户隔离，WebhookEvent 全局） ----------
+entity "Payments.Order" as PORDER {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>
+    enrollment_id : uuid <<FK>>
+    provider : wechat_jsapi|wechat_native|alipay_page|alipay_wap
+    out_trade_no : string <<UK>>
+    transaction_id : string
+    amount_cents : integer
+    tier_snapshot : json (下单档位快照)
+    status : pending|paid|refunding|refunded
+            |refund_failed|cancelled|expired
+    expire_at / refunded_at / cancel_reason
+}
+entity "Payments.WebhookEvent" as WEBHOOK {
+    * id : uuid <<PK>>
+    --
+    provider : wechat|alipay
+    event_id : string
+    payload : json
+    status : received|processed
+    UK (provider, event_id)
+}
+
+' ---------- 课程 issue 学习闭环（api.ex:35,38） ----------
+entity "Learning.LearningRecord" as LEARNREC {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>
+    course_id : uuid <<FK>>
+    user_id : uuid <<FK>>（无 Ash 关系，授权/审计锚）
+    issue_id / item_id : string（宽存，无内容外键）
+    done : boolean
+    evidence : string
+    recorded_at : datetime
+    enrollment_id / run_id : uuid（审计列，不参与唯一性）
+    UK (course_id, user_id, issue_id, item_id) 全局
+}
+entity "Workflows.ResearchOutput" as RSOUT {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>
+    key : string（course_<id>，指向 Course 弱引用）
+    kind : issues（materials/archive 后置）
+    data : json (course content 活文档)
+    submitted_by : uuid
+    workflow_run_id : uuid <<FK>>（审计列）
+    UK (key, kind) 全局
+}
+
 ' ---------- 关系 ----------
 USER ||--o{ IDENTITY : 认证身份
 USER ||--o{ TOKEN : 登录令牌
@@ -349,18 +405,51 @@ EVENT ||--o{ SPEAKERINV : 邀请演讲者
 EVENT ||--o{ INVITEBATCH : 邀请批次
 COURSE ||--o{ INVITEBATCH : 邀请批次
 INVITEBATCH ||--o{ ENROLLMENT : 批次扣减
+ENROLLMENT ||--o{ PORDER : 缴费订单
+COURSE ||--o{ LEARNREC : 学习记忆
+USER ||--o{ LEARNREC : 持有记忆（user_id 无 Ash 关系）
+WFRUN ||--o{ RSOUT : 教研产出
 
 note bottom of WFRUN
   WORKFLOW_RUN.partition_id = workspace_id
   （每个 Workspace = 一个 Jido partition，D-A5）
   唯一索引要点：
   - Enrollment: (event_id,user_id) / (course_id,user_id)
-    部分唯一（status ∈ pending/confirmed）
+    部分唯一（status ∈ pending/payment_pending/confirmed）
   - Sponsorship: (level, target_id, sponsor_user_id) 部分唯一
   - SpeakerInvitation.token_hash 一次性
   - SignalIdempotency: (signal_type, idempotency_key)
   - 赞助档位 = Event/Workspace.sponsorship_tiers 内嵌 json，
-    Sponsorship.tier_id 指向内嵌档位 id（无独立表）
+    Sponsorship.tier_id 指向内嵌档位 id（无独立表）；
+    收费档位 = Event/Course.price_tiers 内嵌 json 同款
+    （PriceTier 纯函数模块，无独立表）
+end note
+
+note bottom of PORDER
+  R11「同一 enrollment 至多一笔非终态订单」：
+  enrollment_id 部分唯一（WHERE status IN
+  pending/paid/refunding/refund_failed）；
+  Order.tier_snapshot = 下单时档位快照（R3 改价不追溯）
+end note
+
+note right of WEBHOOK
+  渠道回调幂等去重（R21）：内部资源，
+  无租户列、无外键——(provider, event_id)
+  唯一索引挡渠道重复投递；
+  received → processed 随落账 worker 落地
+end note
+
+note bottom of LEARNREC
+  挂人不挂报名（Q1）：记忆锚 = (course_id, user_id)，
+  enrollment_id/run_id 仅审计；issue_id/item_id 宽存
+  字符串无内容外键（id 稳定纪律 KTD4）；
+  退款重报记忆不清零（AE1），账本不删
+end note
+
+note bottom of RSOUT
+  课程内容唯一持久层（活文档）：(key,kind) 全局
+  唯一，upsert 更新不产生版本流；key = course_<id>
+  单源约定（research_output.ex course_key/1）
 end note
 
 @enduml

@@ -174,12 +174,15 @@
 | R5 | 四组 POC 词汇悬空 | 图旧（POC 当产品） | 移除/标注 | ✅ 4 张 L3 图清理；F8 在 REVIEW-FINDINGS 更正关闭 |
 | R6 | WorkflowRun :expired + F2 已闭环 | 图旧 | 更新 | ✅ 7 态 + EXPIRED 转移；F2/F7/F1/F12 关闭 |
 | R7 | 枚举族漂移 | 图旧 | 更新 | ✅ entity-state-machines / confirm-flow / L1 两图对齐码枚举 |
-| R8 | F4 支付状态未预留 | 悬空（v1 有意） | 基准外 | ⏸ feat/payment-loop 合入后回写图 |
+| R8 | F4 支付状态未预留 | 悬空（v1 有意） | 基准外 | ✅ 已回写（2026-08-17）：payments 闭环合入 develop（#181/#184/#187）——Enrollment 6 态含 payment_pending、Order 7 态、webhook 面、Provider 三 adapter；图侧同步见分支 docs/diagram-sync-payment-course。注：支付落在 **Enrollment**（缴费闭环 plan 024），F4 原设想插在 Sponsorship 状态机—— sponsorship 仍 v1 不收款 |
 | R9 | D12 绝对化表述 | 图旧（弱） | 更新 | ✅ architecture-overview 加例外清单 |
 | R10 | 邮件 fire-and-forget + claim_first 至多一次 | 质量属性风险 | 上线前裁决 | ⏸ 未裁决（运维文档 §3） |
 
-超出裁决表的两处顺带修正（均有 L1 底稿依据）：L0 两图业务资源清单删 ResearchOutput；
 ER 图 PendingOperation/ToolCallLog 枚举与字段名同步。
+
+> **2026-08-17 增量对账**（基准 develop@7c8cadb，payments #181/#184/#187 + course-issue #183/#186 合入后）：
+> 新增漂移已同步——Enrollment 6 态（+payment_pending，F4 兑现）、payments 域（Order/WebhookEvent/PriceTier）、
+> LearningRecord、MCP 工具 8→12、webhook 第五 API 面；同步分支 docs/diagram-sync-payment-course。
 
 ### 7.2 还账清单（图侧，低成本）
 

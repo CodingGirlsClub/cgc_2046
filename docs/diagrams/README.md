@@ -69,6 +69,10 @@
 > - **Redis 幂等承载未实现**：`key-routing-isolation.puml` 声称「幂等三层承载 Postgres/Redis」，但 config 无 Redix、`signal_idempotency` 落 Postgres——Redis 仅文档备选；
 > - **无生产部署**：`deployment-view` 如实呈现「无 vercel/fly/docker 配置」现状，与原图隐含的部署预期存在差距；
 > - **信号架构演进**：实际实现是 Phoenix PubSub 进程内总线 + Oban 重投 + 六订阅方幂等四策略（PR-B 深化），比原 L3 图（signal 直接 feed 引擎）更丰富。
+> **2026-08-17 增量同步**（基准 develop@7c8cadb：payments #181/#184/#187 + course-issue #183/#186 合入）：
+> 10 张图更新——payments 全域（Order/WebhookEvent/Provider 三 adapter/webhook 第五面/5 worker/七订阅方）、
+> Enrollment 6 态（payment_pending，F4 兑现且落报名侧）、course-issue 闭环（LearningRecord/ResearchOutput 活文档/
+> MCP 工具 8→12/LearnerAuthorization）。详见 DRIFT-REPORT §7.1 R8 与 REVIEW-FINDINGS F4。
 
 ## 三、图索引
 
@@ -76,31 +80,31 @@
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
-| `system-context.puml` | ✅ | 系统上下文：CGC 平台与外部角色/系统（用户、OpenClacky、连接器、支付/邮件等）的边界 | 总纲 §1 系统边界 |
+| `system-context.puml` | ✅ | 系统上下文：CGC 平台与外部角色/系统（用户、OpenClacky、微信支付/支付宝缴费渠道、SendCloud 邮件等）的边界 | 总纲 §1 + 2026-08-17 支付渠道 |
 | `architecture-overview.puml` | ✅ | 分层架构总览：接入层（Web/Agent/OpenClacky）→ 编排层（Jido Workflow）→ 领域层 → 引擎层，Signal 门控机制 | 总纲 §2 分层架构 |
-| `container-topology.puml` | ✅ 新 | 容器拓扑：web/miniprogram/backend（GraphQL+MCP+引擎+Oban+邮件）/Postgres + 用户侧 openclacky-ext；按 codebase 现状绘制 | codebase 顶层 + config.exs + router.ex |
+| `container-topology.puml` | ✅ 新 | 容器拓扑：web/miniprogram/backend（GraphQL+MCP+引擎+Oban 三队列+邮件+payments 域+webhook 入口）/Postgres + 用户侧 openclacky-ext + 微信/支付宝外部系统 | codebase 顶层 + config.exs + router.ex |
 | `deployment-view.puml` | ✅ 新 | 部署视图：GitHub CI + 开发机拓扑 + 生产目标（如实呈现「无部署信号」现状 + SendCloud 五值注入契约与 fail-fast） | docs/运维/邮件与CD环境注入.md |
-| `api-contracts.puml` | ✅ 新 | 接口契约：四面（GraphQL / MCP 8 工具 / AshAdmin /ops / dev mailbox）× 凭证 × 审计 | router.ex + schema.graphql + Mcp.Server |
+| `api-contracts.puml` | ✅ 新 | 接口契约：五个面（GraphQL Q50/M63 / MCP 12 工具 / AshAdmin /ops / dev mailbox / **payments webhook 渠道回调·无 actor 验签**）× 凭证 × 审计 | router.ex + schema.graphql + Mcp.Server |
 
 ### L1 — 领域模型（3 张）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
-| `domain-model-er.puml` | ✅ | 领域模型 ER：全局资源（User/Identity/Token/Workspace 不按租户隔离）与租户内实体（Event/Course/Enrollment/Sponsorship/Invitation 等）及关系、唯一约束 | 领域模型定稿 §5.2 ER 关系 |
-| `domain-model-class.puml` | ✅ | 领域模型类图：核心聚合根（Event/Course/WorkflowDefinition/WorkflowRun/SignalFact 等）、关键枚举与状态 | 领域模型定稿 §5 类模型 |
-| `signal-event-catalog.puml` | ✅ 新 | 信号目录：17 种类型 × 生产者（SignalEmitter）× 六订阅方 × 幂等四策略 × claim 表（Postgres）；按 codebase 现状绘制 | signal_emitter/signals_subscriber/六订阅方模块 |
+| `domain-model-er.puml` | ✅ | 领域模型 ER：全局资源（User/Workspace/…+WebhookEvent）与租户内实体（+payments 区 Order、learning 区 LearningRecord/ResearchOutput）及关系、唯一约束 | 领域模型定稿 §5.2 + payments/learning 模块 |
+| `domain-model-class.puml` | ✅ | 领域模型类图：核心聚合根（+Order/ResearchOutput/LearningRecord context）、关键枚举（Enrollment 6 态/Order 7 态） | 领域模型定稿 §5 + payments/learning 模块 |
+| `signal-event-catalog.puml` | ✅ 新 | 信号目录：18 种类型（+order.paid）× 生产者 × **七订阅方**（+EventCancelRefundWorker）× 幂等四策略；payments 状态迁移不走总线（webhook+worker 直推） | signal_emitter/signals_subscriber/订阅方模块 |
 
 ### L2 — 业务工作流（7 张；2026-08-16 漂移对账重绘）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
-| `workflow-enrollment.puml` | ✅ 重绘 | 报名（实体自序贯，R1）：Ash action 状态机 + 信号 outbox + 条件 UPDATE 原子扣名额；二期引擎化预留 workflow_run_id | enrollment.ex + DRIFT-REPORT §5.3 |
-| `workflow-sponsorship.puml` | ✅ 重绘 | 赞助（实体自序贯，R1）：approve 条件 UPDATE + SponsorshipDelivery 履约物化；v1 不收款（F4 二期） | sponsorship.ex + DRIFT-REPORT §5.3 |
+| `workflow-enrollment.puml` | ✅ 重绘 | 报名（实体自序贯 + **缴费闭环**）：免费/收费分叉（payment_pending）、Order→渠道支付→webhook 落账→settlement 确认、waive_payment 免缴、过期三联动、退款族 worker | enrollment.ex + payments/order.ex + workers |
+| `workflow-sponsorship.puml` | ✅ 重绘 | 赞助（实体自序贯，R1）：approve 条件 UPDATE + SponsorshipDelivery 履约物化；**仍不收款**（缴费闭环落报名侧，见 F4 闭环注） | sponsorship.ex + DRIFT-REPORT §5.3 |
 | `workflow-invitation.puml` | ✅ | 邀请 workflow：逐人 token 一次性邀请，接受/婉拒双分支（图=码一致，未改） | 邀请workflow详细设计 §4/§5 |
 | `workflow-research.puml` | ✅ | 教研 workflow：三段式模板，D-A2 定义一次多实例（图=码一致，未改） | 教研workflow详细设计 §4/§5 |
-| `workflow-learning.puml` | ✅ 新 | 学习 workflow（第三种形态，R4）：协议流转绕 Engine——enrollment.completed → LearningInstantiator → 学员 BYO agent 经 MCP 写 facts → 停滞提醒 | learning_instantiator.ex + DRIFT-REPORT §5.3 |
+| `workflow-learning.puml` | ✅ 新 | 学习 workflow（第三种形态）+ **course-issue 闭环**：issue 级 LearningRecord 读写四工具、LearnerAuthorization 三层授权、all_issues_done? 完成判定、ResearchOutput 活文档 | learning_record.ex + mcp/tools + research_output.ex |
 | `workflow-run-state.puml` | ✅ 重绘 | WorkflowRun 状态机 7 态（+expired）；WAITING→EXPIRED 由 ApprovalExpiryWorker 驱动（F2 闭环） | workflow_run.ex + approval_expiry_worker.ex |
-| `entity-state-machines.puml` | ✅ 重绘 | 业务实体状态机（按码枚举修正：Enrollment 5 态 / Sponsorship 5 态 / SPI 4 态 / InviteBatch 2 态） | 各资源 status attribute |
+| `entity-state-machines.puml` | ✅ 重绘 | 业务实体状态机：Enrollment 6 态（+payment_pending 缴费路径）、**Order 7 态**（新，退款/批量退款分支）、Sponsorship 5 态、SPI 4 态、InviteBatch 2 态；ResearchOutput=活文档单态 | 各资源 status attribute |
 
 ### L3 — 引擎与横切机制（6 张）
 
@@ -123,7 +127,7 @@
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `key-routing-isolation.puml` | ✅ | 幂等三层与路由隔离：request_id + 业务唯一索引 + signal idempotency_key，承载 Postgres/Redis | 报名/赞助详细设计 §6.4 + POC-2 |
-| `auth-tenant-isolation.puml` | ✅ 新 | 横切概念：四种凭证模型（JWT/MCP token/邀请 token/批次码）、全局 vs 租户资源、四条审计链路（ToolCallLog/Redact/AdminActionLog/SignalLog） | mcp/token.ex + policies + D5/D6/D9/D12/D13 |
+| `auth-tenant-isolation.puml` | ✅ 新 | 横切概念：四种凭证模型 + **第五面 payments webhook（无 actor 渠道验签）**、全局 vs 租户资源（+Order/WebhookEvent/LearningRecord）、审计链路（+AdminActionLog waive/退款留痕、order.paid） | mcp/token.ex + policies + webhook controller + D5/D6/D9/D12/D13 |
 
 ### L4 — 用户旅程（1 张）
 

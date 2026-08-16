@@ -4,9 +4,11 @@
 ' 事实来源（代码锚点）：backend/lib/cgc_2046_web/graphql_schema.ex（signInWithPlatform）
 '   · accounts/strategies/miniprogram.ex · miniprogram/{code,notification_consent}.ex
 '   · swoosh_adapters/send_cloud.ex（漂移复核：DRIFT-EVIDENCE/L3-engine-l0.md §7）
+'   · payments/{order,webhook_event,provider}.ex + providers/{wechat_pay,alipay,fake}.ex
+'     （报名缴费渠道边界）· cgc_2046_web/router.ex（/api/payments/webhooks/:provider 回调面）
 ' 展示 CGC 平台与外部参与者/系统的边界：人（角色）与系统
 ' （用户侧 OpenClacky 与小程序客户端、网站侧 MCP server / 引擎 / 业务
-'   资源、外部邮件系统 SendCloud）。
+'   资源、外部邮件系统 SendCloud、外部缴费渠道微信支付/支付宝）。
 ' ============================================================
 title CGC 平台系统上下文（L0）
 skinparam backgroundColor white
@@ -38,12 +40,13 @@ rectangle "用户侧\n（BYO，用户自带）" as USERSIDE #E8F0FE {
 rectangle "CGC 平台网站\n（业务中枢）" as SITE {
     rectangle "MCP server\nanubis_mcp" as MCP
     rectangle "Workflow 引擎\n（Jido 生态）\nWorkflowDefinition / WorkflowRun / Step" as ENGINE
-    rectangle "业务资源（Ash）\nUser/Workspace/Role/Event/Course\nEnrollment/Sponsorship/SpeakerInvitation\nInviteBatch（教研产出 = WorkflowRun.facts）" as BIZ
+    rectangle "业务资源（Ash）\nUser/Workspace/Role/Event/Course\nEnrollment/Sponsorship/SpeakerInvitation\nInviteBatch（教研产出 = WorkflowRun.facts）\nPayments：Order（缴费单）/ WebhookEvent" as BIZ
 }
 
 rectangle "小程序客户端\n（微信 / 抖音 / 小红书）" as MP #E8F0FE
 rectangle "SendCloud\n（邮件 API）" as SENDCLOUD #FFF7E6
-
+rectangle "微信支付\n（WeChat Pay，报名缴费渠道）" as WECHAT #FFF7E6
+rectangle "支付宝\n（Alipay，报名缴费渠道）" as ALIPAY #FFF7E6
 V -down-> SITE : 公开浏览\n报名时注册/登录
 L -down-> SITE : 报名、查询流程状态
 T -down-> SITE : 教研产出展示、现场辅导
@@ -65,6 +68,12 @@ WEB -down-> BIZ : 页面表单/查询
 MP -down-> SITE : 后端 GraphQL /api
 SITE ..> MP : 订阅消息通知回流\n（NotificationConsent 授权 + 扇出）
 SITE -down-> SENDCLOUD : 邮件外发\n（Swoosh 自定义 adapter）
+L ..down-> WECHAT : 报名缴费在渠道内完成\n（JSAPI / Native 扫码）
+L ..down-> ALIPAY : 报名缴费在渠道内完成\n（page / wap 跳转）
+SITE -down-> WECHAT : 缴费下单/查单/退款/对账\n（Provider adapter 外呼）
+SITE -down-> ALIPAY : 缴费下单/查单/退款/对账\n（Provider adapter 外呼）
+WECHAT ..> SITE : 支付/退款结果回调\n（/api/payments/webhooks/wechat）
+ALIPAY ..> SITE : 支付/退款结果回调\n（/api/payments/webhooks/alipay）
 note bottom of SITE
   形态 X（D4）：网站无对话页 / 无执行页——聊天与 Agent 执行全在用户
   自己的 OpenClacky，经 MCP 调用网站；网站只做业务中枢与产出/审计展示。
