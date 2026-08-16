@@ -1209,11 +1209,18 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:target_title, :string)
   end
 
+  # U4(#180):issue 级进度(doneIssues/totalIssues/currentIssueTitle);旧
+  # manual-steps 字段删除,U7 做正式 GraphQL 面切换(本批禁区,此处仅保
+  # myLearningRuns 编译与运行可用——resolver 已切 LearningProgress.project/6)
   object :my_learning_run do
     field(:run_id, non_null(:id))
     field(:enrollment_id, non_null(:id))
     field(:target_title, :string)
     field(:status, non_null(:string))
+    field(:done_issues, non_null(:integer))
+    field(:total_issues, non_null(:integer))
+    field(:current_issue_id, :string)
+    field(:current_issue_title, :string)
     field(:completed_manual_steps, non_null(:integer))
     field(:total_manual_steps, non_null(:integer))
     field(:current_step_title, :string)
@@ -1927,21 +1934,102 @@ defmodule Cgc2046Web.GraphqlSchema do
         nil
 
       true ->
-        steps = if is_list(definition.steps), do: definition.steps, else: []
-
         target_title =
           if is_binary(enrollment.target_title), do: enrollment.target_title, else: nil
+
+        # U4(#180):投影数据源切 course content + learning_records;旧
+        # manual-steps 口径的字段切换(completedManualSteps → doneIssues 等)
+        # 在 U7 GraphQL 面统一替换(本批禁区,此处仅接新 project 签名保编译,
+        # resolver 组装 records/content 的完整切换随 U7)。
+        {content, records} = learning_projection_sources(run, enrollment)
 
         Cgc2046.Workflows.LearningProgress.project(
           run.id,
           enrollment.id,
           target_title,
           run.status,
-          definition.node_def,
-          steps,
-          run.facts
+          content,
+          records
         )
+        # U4 过渡:旧 manual-steps 字段派生保留(U7 删)——issue 级为权威口径,
+        # manual-steps 从 definition/steps 派生避免 non-null 字段炸查询
+        |> Map.merge(manual_steps_compat(run, definition))
     end
+  end
+
+  # 旧字段兼容派生:按 definition.node_def 的 manual step 数与 run.facts 命中数;
+  # currentStepTitle 取 Step 行标题(既有口径,U7 删除)
+  defp manual_steps_compat(run, definition) do
+    manual_keys =
+      case definition && Map.get(definition, :node_def) do
+        %{"steps" => steps} when is_list(steps) ->
+          Enum.flat_map(steps, fn
+            %{"type" => "manual", "id" => id} when is_binary(id) -> [id]
+            _ -> []
+          end)
+
+        _ ->
+          []
+      end
+
+    facts = if is_map(run.facts), do: run.facts, else: %{}
+
+    titles =
+      definition
+      |> case do
+        %{steps: steps} when is_list(steps) ->
+          Map.new(steps, fn step ->
+            {Map.get(step, :step_key), Map.get(step, :title)}
+          end)
+
+        _ ->
+          %{}
+      end
+
+    current =
+      Enum.find(manual_keys, &(not Map.has_key?(facts, &1)))
+      |> case do
+        nil -> nil
+        key -> Map.get(titles, key)
+      end
+
+    %{
+      completed_manual_steps: Enum.count(manual_keys, &Map.has_key?(facts, &1)),
+      total_manual_steps: length(manual_keys),
+      current_step_title: current
+    }
+  end
+
+  # U4 过渡:内容与记录按 (course, user) 组装(无内容课程 → nil → 投影 0/n)
+  defp learning_projection_sources(run, enrollment) do
+    course_id = enrollment.course_id
+
+    content =
+      if is_binary(course_id) do
+        Cgc2046.Workflows.ResearchOutput
+        |> Ash.Query.filter(
+          key == ^Cgc2046.Workflows.ResearchOutput.course_key(course_id) and kind == :issues
+        )
+        |> Ash.Query.limit(1)
+        |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
+        |> case do
+          {:ok, output} -> output && output.data
+          _ -> nil
+        end
+      else
+        nil
+      end
+
+    records =
+      if is_binary(course_id) and is_binary(enrollment.user_id) do
+        Cgc2046.Learning.LearningRecord
+        |> Ash.Query.filter(course_id == ^course_id and user_id == ^enrollment.user_id)
+        |> Ash.read!(authorize?: false, tenant: run.workspace_id)
+      else
+        []
+      end
+
+    {content, records}
   end
 
   defp anchored_to_enrollment?(%{input_snapshot: input}, %{id: enrollment_id})

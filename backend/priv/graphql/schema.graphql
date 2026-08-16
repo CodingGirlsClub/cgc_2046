@@ -5163,6 +5163,10 @@ type MyLearningRun {
   enrollmentId: ID!
   targetTitle: String
   status: String!
+  doneIssues: Int!
+  totalIssues: Int!
+  currentIssueId: String
+  currentIssueTitle: String
   completedManualSteps: Int!
   totalManualSteps: Int!
   currentStepTitle: String
