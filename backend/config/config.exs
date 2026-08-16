@@ -71,7 +71,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "enrollment_completed" => "dev-wechat-enrollment-completed",
     "speaker_accepted" => "dev-wechat-speaker-accepted",
     "speaker_completed" => "dev-wechat-speaker-completed",
-    "learning_stagnation" => "dev-wechat-learning-stagnation"
+    "learning_stagnation" => "dev-wechat-learning-stagnation",
+    # 缴费闭环三模板（U10/KTD8 定稿）
+    "payment_succeeded" => "dev-wechat-payment-succeeded",
+    "refund_succeeded" => "dev-wechat-refund-succeeded",
+    "refund_failed" => "dev-wechat-refund-failed"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
@@ -80,7 +84,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "enrollment_completed" => "dev-tt-enrollment-completed",
     "speaker_accepted" => "dev-tt-speaker-accepted",
     "speaker_completed" => "dev-tt-speaker-completed",
-    "learning_stagnation" => "dev-tt-learning-stagnation"
+    "learning_stagnation" => "dev-tt-learning-stagnation",
+    # 缴费闭环三模板（U10/KTD8 定稿）
+    "payment_succeeded" => "dev-tt-payment-succeeded",
+    "refund_succeeded" => "dev-tt-refund-succeeded",
+    "refund_failed" => "dev-tt-refund-failed"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
@@ -89,7 +97,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "enrollment_completed" => "dev-xhs-enrollment-completed",
     "speaker_accepted" => "dev-xhs-speaker-accepted",
     "speaker_completed" => "dev-xhs-speaker-completed",
-    "learning_stagnation" => "dev-xhs-learning-stagnation"
+    "learning_stagnation" => "dev-xhs-learning-stagnation",
+    # 缴费闭环三模板（U10/KTD8 定稿）
+    "payment_succeeded" => "dev-xhs-payment-succeeded",
+    "refund_succeeded" => "dev-xhs-refund-succeeded",
+    "refund_failed" => "dev-xhs-refund-failed"
   }
 }
 
