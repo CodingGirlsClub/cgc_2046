@@ -71,7 +71,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "enrollment_completed" => "dev-wechat-enrollment-completed",
     "speaker_accepted" => "dev-wechat-speaker-accepted",
     "speaker_completed" => "dev-wechat-speaker-completed",
-    "learning_stagnation" => "dev-wechat-learning-stagnation"
+    "learning_stagnation" => "dev-wechat-learning-stagnation",
+    # 缴费闭环三模板（U10/KTD8 定稿）
+    "payment_succeeded" => "dev-wechat-payment-succeeded",
+    "refund_succeeded" => "dev-wechat-refund-succeeded",
+    "refund_failed" => "dev-wechat-refund-failed"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
@@ -80,7 +84,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "enrollment_completed" => "dev-tt-enrollment-completed",
     "speaker_accepted" => "dev-tt-speaker-accepted",
     "speaker_completed" => "dev-tt-speaker-completed",
-    "learning_stagnation" => "dev-tt-learning-stagnation"
+    "learning_stagnation" => "dev-tt-learning-stagnation",
+    # 缴费闭环三模板（U10/KTD8 定稿）
+    "payment_succeeded" => "dev-tt-payment-succeeded",
+    "refund_succeeded" => "dev-tt-refund-succeeded",
+    "refund_failed" => "dev-tt-refund-failed"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
@@ -89,7 +97,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "enrollment_completed" => "dev-xhs-enrollment-completed",
     "speaker_accepted" => "dev-xhs-speaker-accepted",
     "speaker_completed" => "dev-xhs-speaker-completed",
-    "learning_stagnation" => "dev-xhs-learning-stagnation"
+    "learning_stagnation" => "dev-xhs-learning-stagnation",
+    # 缴费闭环三模板（U10/KTD8 定稿）
+    "payment_succeeded" => "dev-xhs-payment-succeeded",
+    "refund_succeeded" => "dev-xhs-refund-succeeded",
+    "refund_failed" => "dev-xhs-refund-failed"
   }
 }
 
@@ -117,7 +129,10 @@ config :cgc_2046, Oban,
        {"*/10 * * * *", Cgc2046.Workers.ReconciliationScanWorker},
        # 缴费闭环 U8（R8/F2）：订单 2h 限时窗，分钟级扫描把超时未付订单
        # + 报名 + 名额一体释放（迟 1 分钟的占位泄漏可接受，KTD5）。
-       {"*/1 * * * *", Cgc2046.Workers.PaymentExpiryWorker}
+       {"*/1 * * * *", Cgc2046.Workers.PaymentExpiryWorker},
+       # 缴费闭环 U13 对账规⑦（R23/KTD11）：T+1 账单（昨日）夜间核对，
+       # 03:23 避整点渠道尖峰；拉取失败告警不阻塞。
+       {"23 3 * * *", Cgc2046.Workers.PaymentReconciliationWorker}
      ]}
   ]
 

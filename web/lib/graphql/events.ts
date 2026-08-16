@@ -42,6 +42,10 @@ export interface OfferingItem {
   /** 教研 run 引用(仅 course;U8 教研状态露出) */
   workflowRunId?: string | null;
   workflowRun?: { id: string; status: string } | null;
+  /** 是否收费（默认免费；收费报名须选档并支付，R4 免费路径零变化） */
+  pricingEnabled?: boolean | null;
+  /** 可售价格档位（JsonString 数组，后端已过滤过期档，R2）；解析见 lib/payment.parsePriceTiers */
+  availablePriceTiers?: string[] | null;
   /** 是否开放赞助入口（仅 event；E-3 #48） */
   sponsorshipEnabled?: boolean;
   /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
@@ -166,6 +170,8 @@ export const GET_EVENT: TypedDocumentNode<
       sponsorshipEnabled
       sponsorshipTiers
       sponsorshipDeadline
+      pricingEnabled
+      availablePriceTiers
     }
   }
 `;
@@ -195,6 +201,8 @@ export const GET_COURSE: TypedDocumentNode<
         id
         status
       }
+      pricingEnabled
+      availablePriceTiers
     }
   }
 `;
@@ -472,6 +480,8 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       registrationDeadline
       sponsorshipEnabled
       sponsorshipTiers
+      pricingEnabled
+      availablePriceTiers
     }
   }
 `;
@@ -490,6 +500,8 @@ export const PUBLIC_GET_COURSE: TypedDocumentNode<
       visibility
       enrollmentPolicy
       registrationDeadline
+      pricingEnabled
+      availablePriceTiers
     }
   }
 `;

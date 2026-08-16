@@ -177,6 +177,33 @@ defmodule Cgc2046.Events.PriceTierTest do
     end)
   end
 
+  describe "availablePriceTiers 计算字段 load 依赖（PR#184 收尾 E2E 回归）" do
+    test "GraphQL 单独请求 availablePriceTiers 不空（依赖列 price_tiers 自动补载）" do
+      admin = Cgc2046.AccountsFixtures.platform_admin("tier-load-admin")
+      workspace = Cgc2046.AccountsFixtures.create_workspace(admin)
+      Cgc2046.AccountsFixtures.add_member(workspace, admin, [:owner])
+
+      {:ok, event} =
+        create_event(%{workspace: workspace, admin: admin}, %{
+          pricing_enabled: true,
+          price_tiers: [tier()]
+        })
+
+      # GraphQL 等价路径：Query 只 load 计算字段（ash_graphql 不 select 未请求列）
+      require Ash.Query
+
+      [row] =
+        Event
+        |> Ash.Query.filter(id == ^event.id)
+        |> Ash.Query.load(:available_price_tiers)
+        |> Ash.Query.select([:id])
+        |> Ash.read!(authorize?: false)
+
+      # 修复前：price_tiers 未 select → NotLoaded → available_tiers 误判 []
+      assert length(row.available_price_tiers || []) == 1
+    end
+  end
+
   defp create_event(ctx, attrs) do
     Event
     |> Ash.Changeset.for_create(:create, Map.put(attrs, :title, "收费活动"), tenant: ctx.workspace.id)

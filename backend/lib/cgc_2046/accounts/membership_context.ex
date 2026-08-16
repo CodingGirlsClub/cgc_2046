@@ -182,7 +182,24 @@ defmodule Cgc2046.Accounts.MembershipContext do
       workspace_id_by_id_filter(query.filter, query.resource)
   end
 
+  # generic action 面（U10 stats 查询）：subject 是 ActionInput（query/changeset
+  # 均 nil，policy check 的 authorizer 携带 :action_input 键）。workspace_id 只认
+  # 两个稳定来源：tenant（属性多租户显式设定）或显式同名 argument——不猜。
+  def resolve_workspace_id(%{action_input: %Ash.ActionInput{} = input}) do
+    case input.tenant do
+      nil -> workspace_id_argument(input.arguments)
+      tenant -> tenant
+    end
+  end
+
   def resolve_workspace_id(_), do: nil
+
+  defp workspace_id_argument(arguments) do
+    case arguments[:workspace_id] do
+      workspace_id when is_binary(workspace_id) -> workspace_id
+      _ -> nil
+    end
+  end
 
   # update/bulk 场景 changeset.data 可能为 nil，先保护再取
   # create 场景 workspace_id 可能尚未从 argument 写入 attribute（policy 在 change 前执行），

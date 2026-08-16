@@ -243,6 +243,21 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert MembershipContext.resolve_workspace_id(%{changeset: changeset}) == workspace.id
     end
 
+    test "场景5 action_input：generic action 的 tenant 或显式 workspace_id argument（U10 stats）" do
+      base = Ash.ActionInput.for_action(Cgc2046.Payments.Order, :workspace_payment_stats, %{})
+
+      # 无 tenant 无 argument → nil
+      assert MembershipContext.resolve_workspace_id(%{action_input: base}) == nil
+
+      # 显式 workspace_id argument
+      with_argument = Ash.ActionInput.set_argument(base, :workspace_id, "ws-uuid-1")
+      assert MembershipContext.resolve_workspace_id(%{action_input: with_argument}) == "ws-uuid-1"
+
+      # tenant 优先（属性多租户显式设定）
+      with_tenant = %{with_argument | tenant: "ws-uuid-2"}
+      assert MembershipContext.resolve_workspace_id(%{action_input: with_tenant}) == "ws-uuid-2"
+    end
+
     test "未知 context 返回 nil" do
       assert MembershipContext.resolve_workspace_id(%{data: %{}}) == nil
       assert MembershipContext.resolve_workspace_id(%{}) == nil

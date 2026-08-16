@@ -12,3 +12,27 @@
 .textarea { min-height: 180rpx; }
 .error { display: block; margin-top: 20rpx; padding: 18rpx; color: #b42318; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
 .primaryButton { margin-top: 28rpx; color: #fff; background: #5e6ad2; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
+
+.tierOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx;
+  border: 2rpx solid var(--color-line, #e5e5e5);
+  border-radius: 16rpx;
+  margin-top: 12rpx;
+}
+.tierActive {
+  border-color: #07c160;
+  background: rgba(7, 193, 96, 0.06);
+}
+.tierName {
+  color: #101828;
+  font-size: 27rpx;
+  font-weight: 550;
+}
+.tierPrice {
+  color: #07c160;
+  font-size: 27rpx;
+  font-weight: 600;
+}
