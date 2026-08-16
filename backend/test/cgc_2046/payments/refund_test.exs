@@ -225,6 +225,68 @@ defmodule Cgc2046.Payments.RefundTest do
     after
       Fake.reset!()
     end
+
+    test "F1 支付宝同步退款：查单仅报支付态也能收敛（TRADE_SUCCESS 归一产物）", ctx do
+      admin = Fixtures.platform_admin()
+      setup = paid_setup(ctx, admin, capacity: 1, provider: :alipay_page)
+
+      {:ok, _} =
+        setup.order
+        |> Ash.Changeset.for_update(:refund, %{})
+        |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      # 真实形状（不经 Fake 直喂 :refunded 终态）：alipay.trade.query 的
+      # trade_status 无退款终态枚举——退款后查单仍是 TRADE_SUCCESS 归一产物
+      # :paid。收敛唯一可能路径 = Alipay.refund 的 {:ok, :completed}（同步语义）。
+      Fake.script!(
+        fetch_transaction:
+          {:ok, %{status: :paid, amount_cents: 19_900, transaction_id: "txn-trade-success"}},
+        refund: {:ok, :completed}
+      )
+
+      assert :ok = perform_job(PaymentRefundWorker, %{"order_id" => setup.order.id})
+
+      assert reload_order(setup.order).status == :refunded
+      assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :cancelled
+      assert event_count(setup.event) == 0
+    after
+      Fake.reset!()
+    end
+
+    test "F-B 退款收尾断裂自愈：refunded 落库后 cancel 失败 → 重试补取消", ctx do
+      admin = Fixtures.platform_admin()
+      setup = paid_setup(ctx, admin, capacity: 1)
+
+      # 模拟 finalize 第一步落库后、报名取消前崩溃：订单已 refunded，报名仍
+      # confirmed 占位（两事务间窗口）
+      {:ok, refunding} =
+        setup.order
+        |> Ash.Changeset.for_update(:start_refund, %{})
+        |> Ash.update(tenant: setup.workspace.id, authorize?: false)
+
+      {:ok, _} =
+        refunding
+        |> Ash.Changeset.for_update(:refund_succeeded, %{})
+        |> Ash.update(tenant: setup.workspace.id, authorize?: false)
+
+      assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :confirmed
+
+      # 注入取消失败：容量计数置 0 → release_capacity :capacity_counter_invalid
+      set_event_count(setup.event, 0)
+
+      assert {:error, {:cancel_failed, _}} =
+               perform_job(PaymentRefundWorker, %{"order_id" => setup.order.id})
+
+      # 未被吞错跳过：报名保持占位，等重试收敛（拒绝「钱已退、坑还占」）
+      assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :confirmed
+
+      # 解除注入 → Oban 重试经 :refunded 状态门补取消 + 名额回落
+      set_event_count(setup.event, 1)
+
+      assert :ok = perform_job(PaymentRefundWorker, %{"order_id" => setup.order.id})
+      assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :cancelled
+      assert event_count(setup.event) == 0
+    end
   end
 
   describe "Event cancelled 批量（EventCancelRefundWorker）" do
@@ -320,7 +382,10 @@ defmodule Cgc2046.Payments.RefundTest do
     insert_identity(learner.id, :wechat, "refund-learner-" <> uniq())
     insert_identity(admin.id, :wechat, "refund-admin-" <> uniq())
 
-    order = create_paid_order(workspace, enrollment)
+    order =
+      create_paid_order(workspace, enrollment,
+        provider: Keyword.get(opts, :provider, :wechat_native)
+      )
 
     %{workspace: workspace, event: event, learner: learner, enrollment: enrollment, order: order}
   end
@@ -419,7 +484,7 @@ defmodule Cgc2046.Payments.RefundTest do
       Order
       |> Ash.Changeset.for_create(:create, %{
         enrollment_id: enrollment.id,
-        provider: :wechat_native,
+        provider: Keyword.get(opts, :provider, :wechat_native),
         out_trade_no: "oto-" <> Ecto.UUID.generate(),
         amount_cents: 19_900,
         tier_snapshot: %{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900},
@@ -430,8 +495,8 @@ defmodule Cgc2046.Payments.RefundTest do
     order
   end
 
-  defp create_paid_order(workspace, enrollment) do
-    order = create_pending_order(workspace, enrollment)
+  defp create_paid_order(workspace, enrollment, opts \\ []) do
+    order = create_pending_order(workspace, enrollment, opts)
 
     {:ok, paid} =
       order
@@ -448,6 +513,16 @@ defmodule Cgc2046.Payments.RefundTest do
 
   defp event_count(event) do
     Ash.get!(Event, event.id, authorize?: false).confirmed_count
+  end
+
+  defp set_event_count(event, count) do
+    {:ok, _} =
+      Cgc2046.Repo.query("UPDATE events SET confirmed_count = $1 WHERE id = $2", [
+        count,
+        Ecto.UUID.dump!(event.id)
+      ])
+
+    :ok
   end
 
   defp reload_order(order) do

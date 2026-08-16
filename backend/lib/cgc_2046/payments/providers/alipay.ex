@@ -116,12 +116,18 @@ defmodule Cgc2046.Payments.Providers.Alipay do
       }
 
       case Trade.refund(Client, body) do
-        {:ok, %Tesla.Env{status: 200, body: %{"refund_status" => _}}} ->
-          :ok
+        # 同步接口（KTD17）：200 受理即资金处理完成。refund_status 终态信号
+        # 在响应内消费（成功值收敛 completed；其余非空值按拒绝上报——宁拒勿假，
+        # 误报可经 retry_refund 重入，假成功则静默卡死）。
+        {:ok, %Tesla.Env{status: 200, body: %{"refund_status" => "REFUND_SUCCESS"}}} ->
+          {:ok, :completed}
 
+        {:ok, %Tesla.Env{status: 200, body: %{"refund_status" => _other}}} ->
+          {:error, :channel_refund_failed}
+
+        # v3 退款 200 且无 refund_status 字段即成功（同步语义，无失败信号）
         {:ok, %Tesla.Env{status: 200}} ->
-          # v3 退款受理 200 且无失败字段即受理成功（同步语义）
-          :ok
+          {:ok, :completed}
 
         {:ok, %Tesla.Env{}} ->
           {:error, :channel_refund_failed}

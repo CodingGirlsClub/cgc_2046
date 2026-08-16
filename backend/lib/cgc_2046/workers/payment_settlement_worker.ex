@@ -32,6 +32,8 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
   require Ash.Query
   require Logger
 
+  alias Cgc2046.Accounts.AdminActionLog
+  alias Cgc2046.Events.Enrollment
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Workers.PaymentRefundWorker
@@ -92,7 +94,9 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
     end
   end
 
-  # 报名 CAS（KTD12）：成功 → 通知收尾；失败（免缴先落/过期取消）→ 自动退款
+  # 报名侧 CAS（KTD12）：成功 → 通知收尾；失败不信任错误形状（F-I：CAS
+  # num_rows=0 与 DB 瞬断在 Ash error 面不可靠区分），一律 reload 报名真状态
+  # 裁决（F-A/F-I 统一入口）。
   defp confirm_enrollment(event, paid_order) do
     enrollment = enrollment_of(paid_order)
 
@@ -103,18 +107,19 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
         notify_payment_succeeded(paid_order, enrollment)
         mark_processed(event)
 
-      {:error, _already_processed} ->
-        enqueue_auto_refund(paid_order)
-        mark_processed(event)
+      {:error, _cas_or_db} ->
+        reconcile_enrollment(event, paid_order)
     end
   end
 
-  # 订单 CAS 失败分支：paid = 重放幂等；expired = 迟到扣款（AE2）自动退款；
-  # 其余终态不应发生（cancelled 单在报名取消时已作废）——记告警由对账兜底。
+  # 订单 CAS 失败分支：expired = 迟到扣款（AE2）自动退款；其余终态不应发生
+  # （cancelled 单在报名取消时已作废）——记告警由对账兜底。
   defp handle_late_settlement(event, order) do
     case reload_order(order).status do
       :paid ->
-        mark_processed(event)
+        # F-A：订单已 paid 但报名侧可能未推进（两事务间崩溃的半落账）——与
+        # confirm_enrollment 失败分支共用报名真状态裁决。
+        reconcile_enrollment(event, order)
 
       :expired ->
         enqueue_auto_refund(order)
@@ -123,6 +128,74 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
       other ->
         Logger.error("settlement: unexpected order status #{other} for #{order.id}")
         mark_processed(event)
+    end
+  end
+
+  # F-A/F-I 报名真状态裁决（唯一真理 = reload 后的 enrollments 行）：
+  # - payment_pending：settle_paid 未执行（半落账/DB 回包丢失）→ 补落账收敛；
+  #   补执行再失败（DB 仍故障）→ {:error, reason} 上抛走 Oban 重试，
+  #   绝不误触自动退款（F-I）；
+  # - confirmed + 免缴留痕（AdminActionLog waive_payment）：免缴竞态（AE3）→
+  #   收款无对应有效占位 → 自动退款；
+  # - confirmed 无留痕：settle_paid 自己写的（完整重放/UPDATE 已提交回包丢失）
+  #   → 幂等无操作，通知 unique 幂等补发（防 notify 前崩溃丢通知）；
+  # - expired/cancelled/rejected：迟到/取消 → 自动退款（KTD12 不变量）；
+  # - reload 失败（DB）→ {:error, reason} 上抛重试。
+  defp reconcile_enrollment(event, order) do
+    case Ash.get(Enrollment, order.enrollment_id, authorize?: false) do
+      {:ok, %{status: :payment_pending} = enrollment} ->
+        enrollment
+        |> Ash.Changeset.for_update(:settle_paid, %{})
+        |> Ash.update(tenant: order.workspace_id, authorize?: false)
+        |> case do
+          {:ok, confirmed} ->
+            notify_payment_succeeded(order, confirmed)
+            mark_processed(event)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:ok, %{status: :confirmed} = enrollment} ->
+        case waived?(enrollment) do
+          {:ok, true} ->
+            enqueue_auto_refund(order)
+            mark_processed(event)
+
+          {:ok, false} ->
+            notify_payment_succeeded(order, enrollment)
+            mark_processed(event)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:ok, %{status: status}} when status in [:expired, :cancelled, :rejected] ->
+        enqueue_auto_refund(order)
+        mark_processed(event)
+
+      {:ok, %{status: other}} ->
+        Logger.error("settlement: unexpected enrollment status #{other} for order #{order.id}")
+
+        {:error, {:unexpected_enrollment_status, other}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # 免缴判定（F-A 区分线索）：waive_payment action 的 LogAdminAction 与状态
+  # confirmed 同事务留痕（fail-closed，log 失败整个免缴回滚），存在性精确 ⇔
+  # 免缴先落。approved_by 不可用作线索——审批制收费的 prepare_confirm 在
+  # pending→payment_pending 时也写 approved_by（enrollment.ex:498）。
+  defp waived?(enrollment) do
+    AdminActionLog
+    |> Ash.Query.filter(action == :waive_payment and target_id == ^enrollment.id)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, reason} -> {:error, reason}
     end
   end
 

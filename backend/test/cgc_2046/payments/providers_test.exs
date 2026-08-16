@@ -36,7 +36,14 @@ defmodule Cgc2046.Payments.ProvidersTest do
       assert is_integer(amount) and amount >= 0
       assert is_binary(txn_id)
 
+      # 默认 = 支付宝同步完成语义;:ok = 微信异步受理(F1 契约扩展)
+      assert {:ok, :completed} = Fake.refund(order)
+
+      Fake.script!(refund: :ok)
       assert :ok = Fake.refund(order)
+      Fake.script!(refund: {:error, :channel_rejected})
+      assert {:error, :channel_rejected} = Fake.refund(order)
+      Fake.reset!()
       assert {:ok, event} = Fake.verify_webhook(~s({"id":"evt-1"}), %{})
       assert is_map(event)
       assert {:ok, rows} = Fake.fetch_statement(~D[2026-08-15])

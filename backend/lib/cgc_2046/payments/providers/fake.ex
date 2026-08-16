@@ -36,7 +36,7 @@ defmodule Cgc2046.Payments.Providers.Fake do
   @impl Cgc2046.Payments.Provider
   def refund(_order) do
     case scripted(:refund) do
-      nil -> :ok
+      nil -> {:ok, :completed}
       result -> result
     end
   end
@@ -63,7 +63,7 @@ defmodule Cgc2046.Payments.Providers.Fake do
     end
   end
 
-  @doc "覆盖指定回调返回：script!(refund: {:error, :channel_rejected})"
+  @doc "覆盖指定回调返回：script!(refund: {:error, :channel_rejected}；:ok = 微信异步受理)"
   def script!(overrides) when is_list(overrides) do
     Enum.each(overrides, fn {callback, result} ->
       Process.put({__MODULE__, callback}, result)
