@@ -20,17 +20,17 @@ defmodule Cgc2046.Repo.Migrations.DropStepAgentIdAndPlatformOps do
 
     # R3：清 platform_ops 数据（无人认领；steps 经 FK 先行）
     execute """
-    DELETE FROM workflow_steps
-    WHERE definition_id IN (
-      SELECT id FROM workflow_definitions WHERE type = 'platform_ops'
-    )
-    """,
-    ""
+            DELETE FROM workflow_steps
+            WHERE definition_id IN (
+              SELECT id FROM workflow_definitions WHERE type = 'platform_ops'
+            )
+            """,
+            ""
 
     execute """
-    DELETE FROM workflow_definitions WHERE type = 'platform_ops'
-    """,
-    ""
+            DELETE FROM workflow_definitions WHERE type = 'platform_ops'
+            """,
+            ""
   end
 
   def down do
