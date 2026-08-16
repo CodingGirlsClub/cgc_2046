@@ -104,12 +104,17 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
 		expect(push).toHaveBeenCalledWith("/");
 	});
 
-	it("注册失败（重复邮箱）：展示 result.errors[0].message，不跳转", async () => {
+	it("注册失败（#86 防枚举：重复邮箱与未知错误同形）：展示友好文案，不跳转", async () => {
 		signUpMock.mockResolvedValue({
 			data: {
 				signUp: {
 					result: null,
-					errors: [{ message: "has already been taken" }],
+					errors: [
+						{
+							message: "Registration failed. Please check your input and try again.",
+							code: "registration_failed",
+						},
+					],
 					metadata: null,
 				},
 			},
@@ -117,7 +122,7 @@ describe("useAuthSubmit（#61 登录/注册提交）", () => {
 		const { result } = renderHook(() => useAuthSubmit());
 		await act(() => result.current.onSubmit(registerPayload));
 		await waitFor(() =>
-			expect(result.current.error).toBe("has already been taken"),
+			expect(result.current.error).toBe("注册失败，请检查信息后重试"),
 		);
 		expect(push).not.toHaveBeenCalled();
 	});

@@ -42,14 +42,29 @@ describe("signUpErrorMessage（signUp 失败走 result.errors）", () => {
 		expect(signUpErrorMessage(undefined)).toBeNull();
 	});
 
-	it("失败时返回首条 message（如重复邮箱）", () => {
+	it("registration_failed（#86 防枚举，重复邮箱与未知错误同形）映射为友好文案", () => {
 		const fail: { signUp: SignUpResultData } = {
 			signUp: {
 				result: null,
-				errors: [{ message: "has already been taken", code: "unique" }],
+				errors: [
+					{
+						message: "Registration failed. Please check your input and try again.",
+						code: "registration_failed",
+					},
+				],
 			},
 		};
-		expect(signUpErrorMessage(fail)).toBe("has already been taken");
+		expect(signUpErrorMessage(fail)).toBe("注册失败，请检查信息后重试");
+	});
+
+	it("非 registration_failed 的 message 直透（如邮箱格式错误，仍可指导用户）", () => {
+		const fail: { signUp: SignUpResultData } = {
+			signUp: {
+				result: null,
+				errors: [{ message: "must match the format ...", code: "invalid" }],
+			},
+		};
+		expect(signUpErrorMessage(fail)).toBe("must match the format ...");
 	});
 
 	it("errors 为空数组时返回 null（视为成功）", () => {

@@ -37,7 +37,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     mutation {
       signUp(input: { email: "#{email}", password: "#{password}" }) {
         result { id email isPlatformAdmin }
-        errors { message }
+        errors { message code fields }
       }
     }
     """
@@ -58,26 +58,41 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       assert_auth_cookie_written(conn)
     end
 
-    test "returns a validation error for a duplicate email" do
+    test "returns a generic error for a duplicate email (#86 anti-enumeration)" do
       conn = build_conn()
 
-      assert %{"data" => %{"signUp" => %{"result" => %{"id" => _id}}}} =
-               graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
+      # 成功响应：result/errors 两段式
+      ok_res = graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
+      assert %{"data" => %{"signUp" => %{"result" => %{"id" => _id}, "errors" => []}}} = ok_res
 
       res = graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
 
-      assert %{"data" => %{"signUp" => %{"errors" => errors}}} = res
-      assert Enum.any?(errors, &(&1["message"] =~ "already been taken"))
+      # 顶层 shape 与成功响应一致（result/errors 两键结构不变），失败仅体现在值上
+      assert %{"data" => %{"signUp" => %{"result" => nil, "errors" => errors}}} = res
+
+      # #86：重复邮箱失败与未知错误失败同码同形——generic message + registration_failed。
+      # 响应不泄露「该邮箱已存在」：无 taken 文案、无 fields 指向 email。
+      assert [
+               %{
+                 "message" => "Registration failed. Please check your input and try again.",
+                 "code" => "registration_failed",
+                 "fields" => nil
+               }
+             ] = errors
     end
 
-    test "rejects an invalid email format" do
+    test "rejects an invalid email format (structured, no existence leak)" do
       conn = build_conn()
 
       res = graphql_post(conn, sign_up_query("not-an-email", @password)) |> graphql_response()
 
       assert %{"data" => %{"signUp" => %{"result" => result, "errors" => errors}}} = res
       assert is_nil(result)
+
+      # 格式错误保持结构化（message 可指导用户修正输入），且不含存在性信号：
+      # 格式非法的邮箱不可能入库，此响应与邮箱是否已注册无关。
       assert Enum.any?(errors, &(&1["message"] =~ "email"))
+      assert Enum.all?(errors, &(not (&1["message"] =~ "taken")))
     end
   end
 
