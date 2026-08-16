@@ -466,42 +466,28 @@ defmodule Cgc2046Web.GraphqlSchema do
                }}
 
             {:error, %Ash.Error.Invalid{} = error} ->
-              # AshGraphql.Error protocol 映射（message/code/fields），与
-              # update_profile / set_ui_theme 同源（to_ash_graphql_errors）——前端可按
-              # code/fields 分流（如唯一性冲突 → invalid_attribute + fields: [:email]）。
-              {:ok,
-               %{
-                 result: nil,
-                 errors: to_ash_graphql_errors(error, context, :register_with_password),
-                 __token__: nil
-               }}
+              # #86 防邮箱枚举：「邮箱已存在」的 has already been taken + fields: [:email]
+              # 是可枚举信号。unique_email 冲突时返回与未知错误分支同码同形的
+              # registration_failed（重复邮箱失败与其它失败不可区分）；非唯一性
+              # 校验错误（格式/密码等）仍走 AshGraphql.Error 结构化透传——格式非法
+              # 邮箱不可能入库，其错误不泄露存在性，且 message 可指导用户修正输入。
+              if unique_email_conflict?(error) do
+                {:ok, registration_failed_payload()}
+              else
+                {:ok,
+                 %{
+                   result: nil,
+                   errors: to_ash_graphql_errors(error, context, :register_with_password),
+                   __token__: nil
+                 }}
+              end
 
             {:error, _error} ->
-              {:ok,
-               %{
-                 result: nil,
-                 errors: [
-                   %{
-                     message: "Registration failed. Please check your input and try again.",
-                     code: "registration_failed"
-                   }
-                 ],
-                 __token__: nil
-               }}
+              {:ok, registration_failed_payload()}
           end
         rescue
           _ ->
-            {:ok,
-             %{
-               result: nil,
-               errors: [
-                 %{
-                   message: "Registration failed. Please check your input and try again.",
-                   code: "registration_failed"
-                 }
-               ],
-               __token__: nil
-             }}
+            {:ok, registration_failed_payload()}
         end
       end)
 
@@ -1535,6 +1521,38 @@ defmodule Cgc2046Web.GraphqlSchema do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+  end
+
+  # #86 防邮箱枚举：sign_up 的 unique_email 冲突识别。ash_postgres 把
+  # users_unique_email_index（identity :unique_email）的 PG unique violation 转成
+  # Ash.Error.Invalid{errors: [InvalidAttribute{field: :email, private_vars: [constraint_type: :unique]}]}。
+  # 判法同 MembershipContext.unique_membership_conflict?/1（constraint_type 区分
+  # 「唯一冲突」与「DB 故障」），此处再限定 field: :email——仅抹平「该邮箱已存在」
+  # 这一可枚举信号，格式/密码等校验错误不受影响。
+  defp unique_email_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{field: :email, private_vars: private_vars} ->
+        Keyword.get(private_vars || [], :constraint_type) == :unique
+
+      _ ->
+        false
+    end)
+  end
+
+  # sign_up 通用失败 payload：重复邮箱（unique 冲突）、未知错误、rescue 三处同形
+  # ——result nil + errors[{message generic, code: "registration_failed"}]，无 fields，
+  # 使「邮箱已存在」与其它注册失败不可区分。
+  defp registration_failed_payload do
+    %{
+      result: nil,
+      errors: [
+        %{
+          message: "Registration failed. Please check your input and try again.",
+          code: "registration_failed"
+        }
+      ],
+      __token__: nil
+    }
   end
 
   # SpeakerInvitation 决策（accept/decline）：token 即凭据——按 token_hash 定位邀请

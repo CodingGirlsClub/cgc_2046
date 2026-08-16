@@ -109,8 +109,10 @@ export const RESET_PASSWORD: TypedDocumentNode<
 /* ---------------- 错误提取（两端结构不对称，统一转成前端可读 message） ---------------- */
 
 /**
- * signUp 失败：mutation 不抛错，result 为 null、errors 数组含 message
- * （如 "has already been taken"）。返回首条 message；成功则返回 null。
+ * signUp 失败：mutation 不抛错，result 为 null、errors 数组含 message。
+ * #86 防邮箱枚举：后端对「邮箱已存在」返回通用 registration_failed（不区分
+ * 重复邮箱与未知错误），此处映射为友好文案；非 registration_failed 的 message
+ * （如邮箱格式错误）仍直透以指导用户。成功则返回 null。
  */
 export function signUpErrorMessage(
   data: { signUp: SignUpResultData } | null | undefined,
@@ -118,7 +120,9 @@ export function signUpErrorMessage(
 
   const errors = data?.signUp?.errors;
   if (data?.signUp?.result || !errors || errors.length === 0) return null;
-  return errors[0]?.message ?? "注册失败，请稍后重试";
+  const first = errors[0];
+  if (first?.code === "registration_failed") return "注册失败，请检查信息后重试";
+  return first?.message ?? "注册失败，请稍后重试";
 }
 
 /**
