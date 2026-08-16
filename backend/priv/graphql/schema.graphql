@@ -1770,6 +1770,8 @@ input CourseFilterInput {
 
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: CourseFilterPricingEnabled
+
+  workflowRun: WorkflowRunFilterInput
 }
 
 input CourseSortInput {
@@ -1821,6 +1823,8 @@ type Course {
 
   "价格档位配置（PriceTier 形状，见 price_tier.ex）"
   priceTiers: [JsonString!]!
+
+  workflowRun: WorkflowRun
 
   availablePriceTiers: [JsonString!]
 }

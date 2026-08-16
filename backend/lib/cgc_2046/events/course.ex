@@ -222,10 +222,14 @@ defmodule Cgc2046.Events.Course do
       allow_nil?: false
     )
 
+    # U8(#180/R12):public? 暴露关系字段供管理页教研状态露出(workflowRunId
+    # 只有引用 id,run 状态需关系行;读门禁沿用 course read policy + run 侧
+    # member policy)
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun,
       source_attribute: :workflow_run_id,
       destination_attribute: :id,
-      allow_nil?: true
+      allow_nil?: true,
+      public?: true
     )
   end
 
@@ -585,6 +589,8 @@ defmodule Cgc2046.Events.Course do
 
   graphql do
     type(:course)
+    # U8/R12:教研状态露出(run 状态行)
+    relationships([:workflow_run])
 
     queries do
       list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")
