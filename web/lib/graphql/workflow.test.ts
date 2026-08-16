@@ -28,6 +28,9 @@ describe("#40 workflow GraphQL 契约（对齐 schema.graphql 实测）", () => 
 		expect(doc).toContain("version");
 		expect(doc).toContain("startedAt");
 		expect(doc).toContain("finishedAt");
+		expect(doc).toContain("definition {");
+		expect(doc).toContain("type");
+		expect(doc).toContain("steps");
 		expect(doc).toContain("startKeyset");
 		expect(doc).toContain("endKeyset");
 	});
@@ -38,6 +41,8 @@ describe("#40 workflow GraphQL 契约（对齐 schema.graphql 实测）", () => 
 		expect(doc).toContain("getWorkflowRun(id: $id)");
 		expect(doc).toContain("status");
 		expect(doc).toContain("facts");
+		expect(doc).toContain("definition {");
+		expect(doc).toContain("steps");
 	});
 
 	it("WORKFLOW_RUN_STATUS_LABEL：七态中文 label 齐全", () => {

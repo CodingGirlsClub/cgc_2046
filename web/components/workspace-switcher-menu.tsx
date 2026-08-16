@@ -104,6 +104,16 @@ export default function WorkspaceSwitcherMenu({
 				<span className="ws-shell-brand-menu__name">Settings</span>
 			</Link>
 
+			{/* plan 020 U1：品牌菜单 Agents 项（当前 workspace 的 agents 工作面） */}
+			<Link
+				href={`/w/${currentSlug}/agents`}
+				className="ws-shell-brand-menu__item"
+				role="menuitem"
+				onClick={onNavigate}
+			>
+				<span className="ws-shell-brand-menu__name">Agents</span>
+			</Link>
+
 			<div className="ws-shell-brand-menu__divider" />
 
 			<Link

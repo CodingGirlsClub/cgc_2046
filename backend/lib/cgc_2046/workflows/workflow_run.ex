@@ -135,6 +135,19 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     update_timestamp(:updated_at)
   end
 
+  calculations do
+    # plan 020 U3/U4（#150 最小版 + #93）：run 步骤读取面（合并 Step 行 + node_def
+    # output_schema，按 run 绑定的 definition 版本读，不读最新定义；授权复用
+    # WorkflowRun 读 policy）。形状：%{step_key, title, type, output_schema} 列表。
+    calculate(
+      :steps,
+      {:array, :map},
+      {Cgc2046.Workflows.RunSteps, []},
+      public?: true,
+      description: "run 绑定版本的步骤定义（step_key/title/type/output_schema，plan 020）"
+    )
+  end
+
   multitenancy do
     strategy(:attribute)
     attribute(:workspace_id)
@@ -142,10 +155,14 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   end
 
   relationships do
+    # public?: true（plan 020 U3）：run 绑定的定义版本行（D-A2 版本快照——definition_id
+    # 即版本行 id，new_version 出新行不改旧行），GraphQL 经 definition { type } 读取。
+    # 授权复用 WorkflowRun 读 policy（ActorIsWorkspaceMemberVia path [:definition, :workspace]）。
     belongs_to(:definition, Cgc2046.Workflows.WorkflowDefinition,
       source_attribute: :definition_id,
       destination_attribute: :id,
-      allow_nil?: false
+      allow_nil?: false,
+      public?: true
     )
   end
 
@@ -457,6 +474,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   graphql do
     type(:workflow_run)
+    relationships([:definition])
 
     queries do
       list(:list_workflow_runs, :read, description: "工作台的 workflow run 列表（#40 展示页）")

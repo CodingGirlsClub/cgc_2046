@@ -828,6 +828,75 @@
   .workflows-empty p { color: var(--ink-2); font-size: 14px; font-weight: 510; line-height: 20px; }
   .workflows-empty span { color: var(--ink-3); font-size: 13px; line-height: 20px; }
 
+  /* ---------- plan 020 U2/U3：Agents 工作面 + workflows 步骤条/CTA/schema 渲染 ---------- */
+  .agents-grid { display: grid; gap: 16px; margin-top: 30px; }
+  .agents-card { padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--card); }
+  .agents-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .agents-section-head h2 { color: var(--ink); font-size: 15px; font-weight: 510; line-height: 22px; }
+  .agents-section-hint { color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .agents-todos-none, .agents-activity-none { margin-top: 12px; color: var(--ink-3); font-size: 13px; line-height: 20px; }
+  .agents-todos-list { display: grid; gap: 8px; margin-top: 14px; padding: 0; list-style: none; }
+  .agents-todo { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--line-input); }
+  .agents-todo__info { display: grid; gap: 3px; min-width: 0; }
+  .agents-todo__title { color: var(--ink-2); font-size: 13px; font-weight: 510; line-height: 20px; }
+  .agents-todo__meta { color: var(--ink-3); font-size: 11px; line-height: 16px; font-family: var(--font-mono); }
+  .agents-multihost-hint { margin-top: 10px; color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .agents-copy-button { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-small); background: var(--view); color: var(--ink-2); font-size: 12px; line-height: 18px; cursor: pointer; white-space: nowrap; transition: border-color 120ms ease, color 120ms ease; }
+  .agents-copy-button:hover { border-color: var(--accent); color: var(--accent); }
+  .agents-copy-button[data-state='copied'] { border-color: color-mix(in srgb, var(--status-green) 45%, var(--line)); color: var(--status-green); }
+  .agents-copy-button[data-state='failed'] { border-color: color-mix(in srgb, var(--status-red) 45%, var(--line)); color: var(--status-red); }
+
+  /* 活动流时间轴（codex-trajectory 形态：竖列事件卡 + status 色点） */
+  .agents-activity-timeline { display: grid; gap: 0; margin-top: 14px; padding: 0; list-style: none; }
+  .agents-activity-item { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .agents-activity-item:last-child { border-bottom: 0; }
+  .agents-activity-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--line-strong); }
+  .agents-activity-dot--ok { background: var(--status-green); }
+  .agents-activity-dot--error { background: var(--status-red); }
+  .agents-activity-dot--pending { background: var(--status-amber, #d97706); }
+  .agents-activity-dot--muted { background: var(--line-strong); }
+  .agents-activity__body { min-width: 0; }
+  .agents-activity__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .agents-activity__tool { color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; line-height: 18px; word-break: break-all; }
+  .agents-activity__status { padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink-3); font-size: 11px; line-height: 17px; }
+  .agents-activity__meta { display: flex; gap: 10px; margin-top: 2px; color: var(--ink-3); font-size: 11px; line-height: 16px; font-family: var(--font-mono); }
+  .agents-activity__error { margin-top: 4px; color: var(--status-red); font-size: 12px; line-height: 18px; word-break: break-all; }
+
+  /* 连接引导区 */
+  .agents-connect-desc { margin-top: 8px; color: var(--ink-3); font-size: 13px; line-height: 20px; }
+  .agents-connect-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  /* workflows 步骤条（U3） */
+  .workflows-run__type { color: var(--ink-3); font-size: 12px; line-height: 18px; font-family: var(--font-mono); }
+  .workflows-steps { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; }
+  .workflows-step { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 12px; line-height: 18px; }
+  .workflows-step__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+  .workflows-step--done .workflows-step__dot { background: var(--status-green); }
+  .workflows-step--pending { border-color: color-mix(in srgb, var(--status-amber, #d97706) 45%, var(--line)); }
+  .workflows-step--pending .workflows-step__dot { background: var(--status-amber, #d97706); }
+  .workflows-step__title { color: var(--ink-2); }
+  .workflows-step__tag { padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--status-amber, #d97706) 14%, transparent); color: var(--status-amber, #b45309); font-size: 11px; line-height: 17px; }
+
+  /* workflows CTA（U3.3；learning·active only） */
+  .workflows-cta { padding: 13px 15px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: var(--radius-medium); background: color-mix(in srgb, var(--accent) 6%, var(--card)); }
+  .workflows-cta__lead { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 20px; }
+  .workflows-cta__steps { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+  .workflows-cta__step { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .workflows-cta__step-title { color: var(--ink-2); font-size: 13px; font-weight: 510; line-height: 20px; }
+  .workflows-cta__links { display: flex; gap: 8px; margin-top: 10px; color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .workflows-cta__links a { color: var(--accent); text-decoration: none; }
+  .workflows-cta__links a:hover { text-decoration: underline; }
+
+  /* 步骤产物（U4）：schema 驱动行 + FactsTree 回退共用容器 */
+  .workflows-step-output { display: grid; gap: 6px; }
+  .workflows-step-output + .workflows-step-output { margin-top: 12px; }
+  .workflows-step-output__title { color: var(--ink-3); font-size: 12px; font-weight: 510; line-height: 18px; }
+  .schema-output-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .schema-output-row { display: grid; grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+  .schema-output-row--extra { margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+  .schema-output-label { color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .schema-output-value { min-width: 0; color: var(--ink-2); font-size: 13px; line-height: 20px; }
+
   /* ---------- 工作区设置页（#78）：加入策略三态切换 ---------- */
   .settings-loading { display: grid; gap: 14px; margin-top: 30px; }
   .settings-skeleton { height: 64px; border-radius: var(--radius-medium); background: var(--line-soft); animation: members-pulse 1.2s ease-in-out infinite alternate; }
