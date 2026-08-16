@@ -70,19 +70,55 @@ export function OrderStatusBadge({ status }: { status: string }) {
 	);
 }
 
-export function StatsCards({ stats }: { stats: PaymentStats | null }) {
+/**
+ * U2-R3：stats 加载失败呈现错误态（「统计加载失败 · 重试」），不再伪装 ¥0.00。
+ * U1-R1：第四分量「退款失败待处理」（refund_failed 总额，非 0 时红色强调）。
+ */
+export function StatsCards({
+	stats,
+	statsError,
+	onRetryStats,
+}: {
+	stats: PaymentStats | null;
+	statsError: boolean;
+	onRetryStats: () => void;
+}) {
+	if (statsError) {
+		return (
+			<div
+				className="rounded-large border border-line bg-card p-4 text-sm text-ink-3"
+				data-testid="stats-error"
+			>
+				统计加载失败 ·{" "}
+				<button type="button" className="underline" onClick={onRetryStats} data-testid="stats-retry">
+					重试
+				</button>
+			</div>
+		);
+	}
+
 	const cards = [
-		{ label: "已收", cents: stats?.collectedCents ?? 0, testid: "stats-collected" },
-		{ label: "待收", cents: stats?.pendingCents ?? 0, testid: "stats-pending" },
-		{ label: "已退", cents: stats?.refundedCents ?? 0, testid: "stats-refunded" },
+		{ label: "已收", cents: stats?.collectedCents ?? 0, testid: "stats-collected", danger: false },
+		{ label: "待收", cents: stats?.pendingCents ?? 0, testid: "stats-pending", danger: false },
+		{ label: "已退", cents: stats?.refundedCents ?? 0, testid: "stats-refunded", danger: false },
+		{
+			label: "退款失败待处理",
+			cents: stats?.refundFailedCents ?? 0,
+			testid: "stats-refund-failed",
+			danger: true,
+		},
 	];
 
 	return (
-		<div className="grid gap-3 sm:grid-cols-3">
+		<div className="grid gap-3 sm:grid-cols-4">
 			{cards.map((c) => (
 				<div key={c.label} className="rounded-large border border-line bg-card p-4" data-testid={c.testid}>
 					<p className="text-[13px] text-ink-3">{c.label}</p>
-					<p className="mt-1 text-lg font-medium text-ink">¥{formatAmount(c.cents)}</p>
+					<p
+						className={`mt-1 text-lg font-medium ${c.danger && c.cents > 0 ? "text-red-300" : "text-ink"}`}
+					>
+						¥{formatAmount(c.cents)}
+					</p>
 				</div>
 			))}
 		</div>
@@ -152,6 +188,7 @@ export default function PaymentsManagement({
 	const [statusFilter, setStatusFilter] = useState("");
 	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);
+	const [statsError, setStatsError] = useState(false);
 	const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
 	const [busy, setBusy] = useState(false);
 	const [refundTarget, setRefundTarget] = useState<Order | null>(null);
@@ -175,6 +212,7 @@ export default function PaymentsManagement({
 	}
 
 	async function loadStats() {
+		setStatsError(false);
 		try {
 			const { data } = await client.query({
 				query: WORKSPACE_PAYMENT_STATS,
@@ -183,6 +221,7 @@ export default function PaymentsManagement({
 			setStats(parsePaymentStats(data?.workspacePaymentStats));
 		} catch {
 			setStats(null);
+			setStatsError(true);
 		}
 	}
 
@@ -240,7 +279,7 @@ export default function PaymentsManagement({
 
 	return (
 		<div className="grid gap-4">
-			<StatsCards stats={stats} />
+			<StatsCards stats={stats} statsError={statsError} onRetryStats={() => void loadStats()} />
 
 			<div className="rounded-large border border-line bg-card p-4">
 				<div className="flex flex-wrap items-center justify-between gap-3">

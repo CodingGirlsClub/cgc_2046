@@ -126,6 +126,8 @@ export interface PaymentStats {
 	collectedCents: number;
 	pendingCents: number;
 	refundedCents: number;
+	/** 退款失败待处理（U1-R1；旧负载缺键时 = 0） */
+	refundFailedCents: number;
 }
 
 export function parsePaymentStats(raw: string | null | undefined): PaymentStats | null {
@@ -151,10 +153,17 @@ export function parsePaymentStats(raw: string | null | undefined): PaymentStats 
 	const collected = toInt(o.collected_cents);
 	const pending = toInt(o.pending_cents);
 	const refunded = toInt(o.refunded_cents);
+	// U1-R1 前向后向：旧三键负载的 refund_failed_cents 缺省 0
+	const refundFailed = toInt(o.refund_failed_cents) ?? 0;
 
 	if (collected === null || pending === null || refunded === null) return null;
 
-	return { collectedCents: collected, pendingCents: pending, refundedCents: refunded };
+	return {
+		collectedCents: collected,
+		pendingCents: pending,
+		refundedCents: refunded,
+		refundFailedCents: refundFailed,
+	};
 }
 
 /* ---------------- 价格档位（R1/R2：JsonString 数组） ---------------- */

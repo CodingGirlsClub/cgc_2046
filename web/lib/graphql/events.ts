@@ -46,6 +46,8 @@ export interface OfferingItem {
   pricingEnabled?: boolean | null;
   /** 可售价格档位（JsonString 数组，后端已过滤过期档，R2）；解析见 lib/payment.parsePriceTiers */
   availablePriceTiers?: string[] | null;
+  /** 档位原始配置（JsonString 数组含过期档；U2-R1 定价编辑面数据源） */
+  priceTiers?: string[] | null;
   /** 是否开放赞助入口（仅 event；E-3 #48） */
   sponsorshipEnabled?: boolean;
   /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
@@ -125,6 +127,8 @@ export const LIST_EVENTS: TypedDocumentNode<
         capacity
         confirmedCount
         registrationDeadline
+        pricingEnabled
+        priceTiers
       }
     }
   }
@@ -146,6 +150,8 @@ export const LIST_COURSES: TypedDocumentNode<
         capacity
         confirmedCount
         registrationDeadline
+        pricingEnabled
+        priceTiers
       }
     }
   }

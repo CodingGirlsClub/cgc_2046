@@ -26,6 +26,7 @@ export type NavSection =
 	| "settings-requests"
 	| "settings-invitations"
 	| "settings-sponsorship"
+	| "settings-pricing"
 	| "settings-payments"
 	| "settings-account-profile"
 	| "settings-account-preferences"

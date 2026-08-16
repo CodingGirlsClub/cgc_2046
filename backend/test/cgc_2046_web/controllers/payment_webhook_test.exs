@@ -17,7 +17,7 @@ defmodule Cgc2046Web.PaymentWebhookTest do
   alias Cgc2046.Workers.PaymentSettlementWorker
 
   describe "POST /api/payments/webhooks/:provider" do
-    test "合法回调：200 + 事件落库 + 落账 job 入队（args 带 webhook_event_id + provider）" do
+    test "合法回调：200 + 事件落库 + 落账 job 入队（args 只带 webhook_event_id）" do
       body = ~s({"id":"evt-1","event_type":"TRANSACTION.SUCCESS","out_trade_no":"oto-1"})
 
       conn = post_wechat(body)
@@ -29,7 +29,7 @@ defmodule Cgc2046Web.PaymentWebhookTest do
 
       assert_enqueued(
         worker: PaymentSettlementWorker,
-        args: %{"webhook_event_id" => fetch_event_id("evt-1"), "provider" => "wechat"}
+        args: %{"webhook_event_id" => fetch_event_id("evt-1")}
       )
     end
 
@@ -41,7 +41,8 @@ defmodule Cgc2046Web.PaymentWebhookTest do
 
       assert [%{event_id: "evt-replay"}] = Ash.read!(WebhookEvent, authorize?: false)
       assert [job] = all_enqueued(worker: PaymentSettlementWorker)
-      assert get_in(job.args, ["provider"]) == "wechat"
+      # F-E:args 只带 webhook_event_id(渠道已持久化于 webhook_event.provider)
+      assert Map.keys(job.args) == ["webhook_event_id"]
     end
 
     test "错签：400 + 零落库零入队 + telemetry" do
