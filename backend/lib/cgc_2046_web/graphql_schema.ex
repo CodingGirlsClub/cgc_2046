@@ -1881,8 +1881,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
-  # U7(#180/R10):公开课程地图。可见性复用 course 读 policy(get_by_slug 同款
-  # seam):匿名仅 open+public;成员可读非 draft;越权/不存在 → {:ok, nil}。
+  # U7(#180/R10):公开课程地图。可见性硬编码 open+public(resolver 显式判定,
+  # 匿名面);成员视角走管理页/工作台课程列表,不经本查询;其余 → {:ok, nil}。
   # goal-only 投影(object :course_map_issue 无 checklist 字段)。
   defp resolve_course_map(slug) do
     case Cgc2046.Events.Course
