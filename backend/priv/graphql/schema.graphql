@@ -5278,7 +5278,7 @@ type RootMutationType {
   "Owner\/Admin 拒绝 pending 报名"
   rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
 
-  "报名人取消报名；confirmed 报名释放名额"
+  "报名人取消报名；confirmed\/payment_pending 报名释放名额"
   cancelEnrollment(id: ID!): CancelEnrollmentResult!
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"

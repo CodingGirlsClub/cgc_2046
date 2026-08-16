@@ -434,6 +434,200 @@ defmodule Cgc2046.Events.EnrollmentTest do
     end
   end
 
+  describe "收费报名：payment_pending 插桩（U3，KTD6）" do
+    test "open 收费：占位后进 payment_pending（不 confirmed），completed 信号不发（R5/AE5）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{capacity: 1} |> Map.merge(paid_attrs()))
+
+      learner = Fixtures.register_user("enrollment-paid-open")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :payment_pending
+      assert enrollment.capacity_seq == 1
+      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+
+      # submitted 发（报名动作发生），completed 不发（未真正确认，KTD6-6）
+      assert count_enqueued("enrollment.submitted", enrollment.id) == 1
+      assert count_enqueued("enrollment.completed", enrollment.id) == 0
+    end
+
+    test "免费 open 隔离对照：现状 confirmed + completed 不变（R4/AE5）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{capacity: 1})
+      learner = Fixtures.register_user("enrollment-free-open")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :confirmed
+      assert count_enqueued("enrollment.completed", enrollment.id) == 1
+    end
+
+    test "request 收费：报名仍 pending 不占位；审批通过 → 占位 + payment_pending（R10）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          %{
+            capacity: 1,
+            enrollment_policy: :request
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("enrollment-paid-request")
+
+      assert {:ok, pending} = create_enrollment(event, learner)
+      assert pending.status == :pending
+      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+
+      assert {:ok, payment_pending} = confirm(pending, admin)
+      assert payment_pending.status == :payment_pending
+      assert payment_pending.capacity_seq == 1
+      assert payment_pending.approved_by == admin.id
+      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+
+      # approved 发，completed 不发（支付未完成）
+      assert count_enqueued("enrollment.approved", pending.id) == 1
+      assert count_enqueued("enrollment.completed", pending.id) == 0
+    end
+
+    test "invite_only 收费：校验邀请码 + 扣配额 + 占位 + payment_pending（R10）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          %{
+            enrollment_policy: :invite_only
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      batch =
+        InviteBatch
+        |> Ash.Changeset.for_create(:create, %{
+          event_id: event.id,
+          invite_code: "PAID_INVITE",
+          quota: 1
+        })
+        |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      learner = Fixtures.register_user("enrollment-paid-invite")
+
+      assert {:ok, enrollment} =
+               create_enrollment(event, learner, %{invite_code: "PAID_INVITE"})
+
+      assert enrollment.status == :payment_pending
+      assert enrollment.capacity_seq == 1
+      assert enrollment.invite_batch_id == batch.id
+    end
+
+    test "payment_pending 期间不可重复报名（唯一索引扩列）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("enrollment-paid-dup")
+
+      assert {:ok, _} = create_enrollment(event, learner)
+      assert {:error, _} = create_enrollment(event, learner)
+    end
+
+    test "cancel payment_pending：名额释放 + 可重新报名（R12）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{capacity: 1} |> Map.merge(paid_attrs()))
+
+      learner = Fixtures.register_user("enrollment-paid-cancel")
+
+      {:ok, enrollment} = create_enrollment(event, learner)
+
+      assert {:ok, cancelled} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: workspace.id, actor: learner)
+
+      assert cancelled.status == :cancelled
+      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+
+      # 释放后可重新报名（计数回落再占位，重新拿回 1 号位）
+      assert {:ok, re} = create_enrollment(event, learner)
+      assert re.status == :payment_pending
+      assert re.capacity_seq == 1
+    end
+  end
+
+  describe "waive_payment 免缴（R18，AE3 免缴半）" do
+    setup do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("waive-learner")
+      {:ok, enrollment} = create_enrollment(event, learner)
+
+      %{
+        admin: admin,
+        workspace: workspace,
+        event: event,
+        learner: learner,
+        enrollment: enrollment
+      }
+    end
+
+    test "Owner/Admin 免缴：payment_pending → confirmed + completed 信号 + 审计行", ctx do
+      assert {:ok, waived} = waive(ctx.enrollment, ctx.admin)
+      assert waived.status == :confirmed
+      assert waived.approved_by == ctx.admin.id
+      assert count_enqueued("enrollment.completed", ctx.enrollment.id) == 1
+
+      assert [%{action: :waive_payment, target_type: :enrollment}] =
+               Cgc2046.Repo.all(
+                 from(log in Cgc2046.Accounts.AdminActionLog,
+                   where: log.target_id == ^ctx.enrollment.id
+                 )
+               )
+    end
+
+    test "普通成员无权免缴（403 语义）；PlatformAdmin 可兜底", ctx do
+      member = Fixtures.register_user("waive-member")
+      Fixtures.add_member(ctx.workspace, member)
+
+      assert {:error, error} = waive(ctx.enrollment, member)
+      assert Exception.message(error) =~ "forbidden"
+
+      platform_admin = Fixtures.platform_admin("waive-platform")
+      assert {:ok, _} = waive(ctx.enrollment, platform_admin)
+    end
+
+    test "状态守卫：pending / confirmed 态免缴被拒", ctx do
+      # 已免缴（confirmed）再免缴 → 拒
+      {:ok, waived} = waive(ctx.enrollment, ctx.admin)
+      assert {:error, _} = waive(waived, ctx.admin)
+
+      # 免费报名（confirmed）不走免缴
+      free_event = EventFixtures.create_event(ctx.workspace, ctx.admin)
+      learner2 = Fixtures.register_user("waive-free")
+      {:ok, free} = create_enrollment(free_event, learner2)
+      assert {:error, _} = waive(free, ctx.admin)
+
+      # request pending 未占位 → 无免缴语义
+      request_event =
+        EventFixtures.create_event(ctx.workspace, ctx.admin, %{enrollment_policy: :request})
+
+      {:ok, request_pending} = create_enrollment(request_event, learner2)
+      assert {:error, _} = waive(request_pending, ctx.admin)
+    end
+  end
+
   # 按 (signal_type, enrollment_id) 计数：并发类测试（enrollment_concurrency_test
   # 等 unboxed 真实提交）会在套件级残留 SignalPublishWorker 行，断言必须锚定
   # 本测试自己的记录，不受套件内既有 job 影响。
@@ -460,6 +654,23 @@ defmodule Cgc2046.Events.EnrollmentTest do
     enrollment
     |> Ash.Changeset.for_update(:confirm_enrollment, %{})
     |> Ash.update(tenant: enrollment.workspace_id, actor: actor)
+  end
+
+  defp waive(enrollment, actor) do
+    enrollment
+    |> Ash.Changeset.for_update(:waive_payment, %{})
+    |> Ash.update(tenant: enrollment.workspace_id, actor: actor)
+  end
+
+  # 收费活动布置（U2 字段）：两档可售价位
+  defp paid_attrs do
+    %{
+      pricing_enabled: true,
+      price_tiers: [
+        %{"id" => Ecto.UUID.generate(), "name" => "早鸟", "amount_cents" => 9900},
+        %{"id" => Ecto.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}
+      ]
+    }
   end
 
   defp enrollment_count(event_id) do

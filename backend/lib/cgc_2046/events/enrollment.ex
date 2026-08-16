@@ -55,7 +55,9 @@ defmodule Cgc2046.Events.Enrollment do
       default: :pending,
       public?: true,
       writable?: false,
-      constraints: [one_of: [:pending, :confirmed, :rejected, :expired, :cancelled]]
+      constraints: [
+        one_of: [:pending, :payment_pending, :confirmed, :rejected, :expired, :cancelled]
+      ]
     )
 
     attribute(:submission_payload, :map,
@@ -133,11 +135,11 @@ defmodule Cgc2046.Events.Enrollment do
 
   identities do
     identity :unique_event_user, [:event_id, :user_id] do
-      where(expr(not is_nil(event_id) and status in [:pending, :confirmed]))
+      where(expr(not is_nil(event_id) and status in [:pending, :payment_pending, :confirmed]))
     end
 
     identity :unique_course_user, [:course_id, :user_id] do
-      where(expr(not is_nil(course_id) and status in [:pending, :confirmed]))
+      where(expr(not is_nil(course_id) and status in [:pending, :payment_pending, :confirmed]))
     end
   end
 
@@ -194,7 +196,9 @@ defmodule Cgc2046.Events.Enrollment do
       end)
 
       # confirm 审批通过：先发 approved，再发 completed（生命周期终态）——
-      # 失败路径（CAS 拒绝）不到 after_action，不产生孤儿 job。
+      # 失败路径（CAS 拒绝）不到 after_action，不产生孤儿 job。收费目标审批后
+      # 落 payment_pending 而非 confirmed，completed 不发（KTD6-6：真正 confirmed
+      # 才发，支付落账/免缴时补发）。
       change(
         {Cgc2046.Changes.SignalEmitter,
          type: @approved_signal, payload: &__MODULE__.approval_payload/2}
@@ -202,7 +206,9 @@ defmodule Cgc2046.Events.Enrollment do
 
       change(
         {Cgc2046.Changes.SignalEmitter,
-         type: @completed_signal, payload: &__MODULE__.signal_payload/2}
+         type: @completed_signal,
+         payload: &__MODULE__.signal_payload/2,
+         skip_unless: &__MODULE__.confirmed?/2}
       )
     end
 
@@ -233,13 +239,37 @@ defmodule Cgc2046.Events.Enrollment do
     end
 
     update :cancel do
-      description("报名人取消报名；confirmed 报名释放名额")
+      description("报名人取消报名；confirmed/payment_pending 报名释放名额")
       require_atomic?(false)
       accept([])
 
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_cancel/1)
       end)
+    end
+
+    update :waive_payment do
+      description("Owner/Admin/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18）")
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_waive/1)
+      end)
+
+      # 免缴即真正 confirmed：补发 completed（支付落账路径在回调 worker 同款补发）
+      change(
+        {Cgc2046.Changes.SignalEmitter,
+         type: @completed_signal, payload: &__MODULE__.signal_payload/2}
+      )
+
+      change(
+        {Cgc2046.Changes.LogAdminAction,
+         action: :waive_payment,
+         target_type: :enrollment,
+         metadata: &__MODULE__.waive_log_metadata/2}
+      )
     end
   end
 
@@ -248,8 +278,10 @@ defmodule Cgc2046.Events.Enrollment do
     repo(Cgc2046.Repo)
 
     identity_wheres_to_sql(
-      unique_event_user: "event_id IS NOT NULL AND status IN ('pending', 'confirmed')",
-      unique_course_user: "course_id IS NOT NULL AND status IN ('pending', 'confirmed')"
+      unique_event_user:
+        "event_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')",
+      unique_course_user:
+        "course_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')"
     )
   end
 
@@ -261,6 +293,11 @@ defmodule Cgc2046.Events.Enrollment do
 
     policy action([:confirm_enrollment, :reject_enrollment]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+    end
+
+    policy action(:waive_payment) do
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     policy action(:cancel) do
@@ -363,13 +400,22 @@ defmodule Cgc2046.Events.Enrollment do
     {:ok, %{workspace_id: tenant, status: :pending, approval_deadline: deadline}}
   end
 
-  defp prepare_policy(_changeset, kind, target_id, %{enrollment_policy: :open}, tenant) do
+  # 收费目标：open/invite_only 占位后进 payment_pending（支付完成才 confirmed，
+  # ADR-0007 占位→限时支付）；免费目标直接 confirmed（R4 现状不变）。
+  # request 无论收费与否都先 pending（审批通过后 prepare_confirm 分叉）。
+  defp prepare_policy(_changeset, kind, target_id, %{enrollment_policy: :open} = target, tenant) do
     with {:ok, sequence} <- reserve_capacity(kind, target_id) do
-      {:ok, %{workspace_id: tenant, status: :confirmed, capacity_seq: sequence}}
+      {:ok, %{workspace_id: tenant, status: auto_confirm_status(target), capacity_seq: sequence}}
     end
   end
 
-  defp prepare_policy(changeset, kind, target_id, %{enrollment_policy: :invite_only}, tenant) do
+  defp prepare_policy(
+         changeset,
+         kind,
+         target_id,
+         %{enrollment_policy: :invite_only} = target,
+         tenant
+       ) do
     invite_code = Ash.Changeset.get_argument(changeset, :invite_code)
 
     with true <- (is_binary(invite_code) and invite_code != "") || {:error, :invite_code_required},
@@ -378,12 +424,15 @@ defmodule Cgc2046.Events.Enrollment do
       {:ok,
        %{
          workspace_id: tenant,
-         status: :confirmed,
+         status: auto_confirm_status(target),
          capacity_seq: sequence,
          invite_batch_id: batch_id
        }}
     end
   end
+
+  defp auto_confirm_status(%{pricing_enabled: true}), do: :payment_pending
+  defp auto_confirm_status(_target), do: :confirmed
 
   defp prepare_confirm(changeset) do
     now = DateTime.utc_now()
@@ -391,9 +440,10 @@ defmodule Cgc2046.Events.Enrollment do
 
     with {:ok, kind, target_id} <- target_from_record(changeset.data),
          {:ok, sequence} <- reserve_capacity(kind, target_id),
-         {:ok, 1} <- claim_pending(changeset.data.id, :confirmed, actor.id, now, nil) do
+         {:ok, target_status} <- confirm_target_status(kind, target_id),
+         {:ok, 1} <- claim_pending(changeset.data.id, target_status, actor.id, now, nil) do
       changeset
-      |> Ash.Changeset.force_change_attribute(:status, :confirmed)
+      |> Ash.Changeset.force_change_attribute(:status, target_status)
       |> Ash.Changeset.force_change_attribute(:capacity_seq, sequence)
       |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
       |> Ash.Changeset.force_change_attribute(:approved_at, now)
@@ -401,6 +451,25 @@ defmodule Cgc2046.Events.Enrollment do
     else
       {:ok, 0} -> add_domain_error(changeset, :already_processed)
       {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  # 审批通过后的落点（KTD6-3）：收费目标占位后进 payment_pending（支付完成才
+  # confirmed，由回调 worker 推进）；免费目标直接 confirmed（R4 现状不变）。
+  defp confirm_target_status(kind, target_id) do
+    table = target_table(kind)
+
+    case Cgc2046.Repo.query("SELECT pricing_enabled FROM #{table} WHERE id = $1", [
+           Cgc2046.Repo.uuid!(target_id)
+         ]) do
+      {:ok, %{rows: [[pricing_enabled]]}} ->
+        {:ok, if(pricing_enabled, do: :payment_pending, else: :confirmed)}
+
+      {:ok, %{rows: []}} ->
+        {:error, :target_not_open_or_registration_closed}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
     end
   end
 
@@ -462,6 +531,27 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
+  # 免缴（R18）：CAS payment_pending → confirmed。名额已在报名/审批占位时扣减，
+  # 此处只做状态迁移；审计走 LogAdminAction。
+  defp prepare_waive(changeset) do
+    now = DateTime.utc_now()
+    actor = changeset.context[:private][:actor]
+
+    case claim_waive(changeset.data.id, actor.id, now) do
+      {:ok, 1} ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(:status, :confirmed)
+        |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
+        |> Ash.Changeset.force_change_attribute(:approved_at, now)
+
+      {:ok, 0} ->
+        add_domain_error(changeset, :not_payment_pending)
+
+      {:error, reason} ->
+        add_domain_error(changeset, {:database, reason})
+    end
+  end
+
   defp exactly_one_target(event_id, nil) when is_binary(event_id), do: {:ok, :event, event_id}
   defp exactly_one_target(nil, course_id) when is_binary(course_id), do: {:ok, :course, course_id}
   defp exactly_one_target(_, _), do: {:error, :exactly_one_target_required}
@@ -484,7 +574,7 @@ defmodule Cgc2046.Events.Enrollment do
     # 返回 :target_not_open_or_registration_closed（not_found 语义，与匿名读一致，
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
     sql = """
-    SELECT workspace_id, enrollment_policy
+    SELECT workspace_id, enrollment_policy, pricing_enabled
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > NOW())
@@ -500,7 +590,7 @@ defmodule Cgc2046.Events.Enrollment do
     """
 
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id), actor_id]) do
-      {:ok, %{rows: [[workspace_id, policy]]}} ->
+      {:ok, %{rows: [[workspace_id, policy, pricing_enabled]]}} ->
         case Map.get(@enrollment_policy_atoms, policy) do
           nil ->
             {:error, {:unknown_enrollment_policy, policy}}
@@ -509,7 +599,8 @@ defmodule Cgc2046.Events.Enrollment do
             {:ok,
              %{
                workspace_id: Ecto.UUID.load!(workspace_id),
-               enrollment_policy: enrollment_policy
+               enrollment_policy: enrollment_policy,
+               pricing_enabled: pricing_enabled
              }}
         end
 
@@ -622,11 +713,29 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
+  defp claim_waive(id, actor_id, now) do
+    sql = """
+    UPDATE enrollments
+    SET status = 'confirmed', approved_by = $1, approved_at = $2, rejection_reason = NULL
+    WHERE id = $3 AND status = 'payment_pending'
+    """
+
+    case Cgc2046.Repo.query(sql, [
+           Cgc2046.Repo.uuid!(actor_id),
+           now,
+           Cgc2046.Repo.uuid!(id)
+         ]) do
+      {:ok, %{num_rows: count}} -> {:ok, count}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
   defp claim_cancellable(id, now) do
+    # payment_pending 与 confirmed 同为已占位窗口——取消必须释放名额（KTD6-4）
     sql = """
     UPDATE enrollments
     SET status = 'cancelled', cancelled_at = $1
-    WHERE id = $2 AND status IN ('pending', 'confirmed')
+    WHERE id = $2 AND status IN ('pending', 'payment_pending', 'confirmed')
     RETURNING capacity_seq, event_id, course_id
     """
 
@@ -699,6 +808,9 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_message(:not_expired_pending),
     do: "enrollment is not an expired pending record"
 
+  defp domain_error_message(:not_payment_pending),
+    do: "enrollment is not awaiting payment"
+
   defp domain_error_message(:capacity_counter_invalid), do: "capacity counter is invalid"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
@@ -723,6 +835,15 @@ defmodule Cgc2046.Events.Enrollment do
 
   # approved / rejected 只带基础键（区别于 submitted/completed 的全量形状）。
   def approval_payload(_changeset, enrollment), do: base_enrollment_payload(enrollment)
+
+  # 免缴审计 metadata（LogAdminAction 契约：public 远程捕获）
+  def waive_log_metadata(_changeset, enrollment) do
+    %{
+      "event_id" => enrollment.event_id,
+      "course_id" => enrollment.course_id,
+      "user_id" => enrollment.user_id
+    }
+  end
 
   # SignalEmitter skip_unless 谓词：create 仅自动确认（confirmed）时发 completed。
   def confirmed?(_changeset, enrollment), do: enrollment.status == :confirmed
