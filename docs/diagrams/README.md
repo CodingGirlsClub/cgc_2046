@@ -5,8 +5,10 @@
 > 每张图头部注释均标注了对应的事实来源章节，修订文档时请同步更新图。
 >
 > **2026-08 修订（分类体系升级）**：按社区最佳实践（C4 model / arc42 / 4+1 视图 / 事件驱动架构文档实践）
-> 对标原 L0–L4 分类，补齐缺失类别（见「二、分类体系与业界实践对照」）。本轮只建分类骨架，
-> ⏳ 待补图暂不绘制；骨架用途是后续「codebase ↔ 图」**架构漂移对照**的基准框架。
+> 对标原 L0–L4 分类，补齐缺失类别（见「二、分类体系与业界实践对照」）。
+> **五张待补图已全部绘制**（container-topology / deployment-view / api-contracts /
+> signal-event-catalog / auth-tenant-isolation，均以 codebase 现状为事实来源）；
+> 该体系作为后续「codebase ↔ 图」**架构漂移对照**的基准框架。
 
 ## 一、怎么打开 / 渲染这些图
 
@@ -33,57 +35,60 @@
 | 业界类别 | 出处 | 本项目对应 | 状态 |
 |---|---|---|---|
 | 系统上下文 | C4 L1 / arc42 §3 | L0 `system-context` | ✅ |
-| 容器（运行时单元）拓扑 | C4 L2 / arc42 §5 | L0 `container-topology` | ⏳ 待补 |
+| 容器（运行时单元）拓扑 | C4 L2 / arc42 §5 | L0 `container-topology` | ✅ |
 | 逻辑分层 / 构建块 | arc42 §5 | L0 `architecture-overview` | ✅ |
-| 部署视图 | C4 Deployment / 4+1 Physical / arc42 §8 | L0 `deployment-view` | ⏳ 待补 |
-| 接口契约 | arc42 §3.2 | L0 `api-contracts` | ⏳ 待补 |
+| 部署视图 | C4 Deployment / 4+1 Physical / arc42 §8 | L0 `deployment-view` | ✅ |
+| 接口契约 | arc42 §3.2 | L0 `api-contracts` | ✅ |
 | 领域模型（结构） | 4+1 Logical / C4 L4 | L1 `domain-model-er` / `domain-model-class` | ✅ |
-| 领域事件 / 消息目录 | 事件驱动文档实践（EventCatalog 等） | L1 `signal-event-catalog` | ⏳ 待补 |
+| 领域事件 / 消息目录 | 事件驱动文档实践（EventCatalog 等） | L1 `signal-event-catalog` | ✅ |
 | 业务流程 / 场景 | 4+1 Scenarios / arc42 §6 | L2 `workflow-*` | ✅ |
 | 状态机 | UML 行为图 | L2 `workflow-run-state` / `entity-state-machines` | ✅ |
 | 运行时交互（时序） | C4 Dynamic / arc42 §6 | L3.2 `confirm-flow` / `hibernate-thaw` | ✅ 已有实例 |
-| 横切概念 | arc42 §7 | L3.3 `key-routing-isolation`（幂等）✅；鉴权 / 租户隔离 / 审计 ⏳ | ◐ 部分 |
+| 横切概念 | arc42 §7 | L3.3 `key-routing-isolation`（幂等）+ `auth-tenant-isolation`（凭证/租户/审计） | ✅ |
 | 用户旅程 | 4+1 Scenarios（用户视角） | L4 `user-journeys` | ✅ |
 | 决策记录 | arc42 §9 | `docs/adr/` + `docs/03-决策记录/`（文字资产，不图形化） | ✅ |
 | 风险 / 质量 | arc42 §10 / §11 | `REVIEW-FINDINGS.md` + 开放问题决策清单（文字资产） | ✅ |
 | 组织级全景 | C4 System Landscape | 不适用（单产品单团队） | — |
 | 组件级 | C4 L3 Component | 由 L3 机制图承担，当前项目规模不单列 | — |
 
-**本次补齐的缺失类别**（5 张待补图 + 1 个显式化子类），及各自要回答的问题：
+**已补齐的缺失类别**（5 张新图 + 1 个显式化子类），绘制时的事实来源与回答的问题：
 
-| 待补项 | 类别出处 | 回答的问题 | 事实来源候选 |
+| 图 | 类别出处 | 回答的问题 | 实际事实来源 |
 |---|---|---|---|
-| `container-topology.puml` | C4 Container | 平台由哪些**运行时单元**组成（backend / web / miniprogram / openclacky-ext / Postgres / Redis+Oban / 邮件、支付等外部依赖），各自职责、技术选型、相互协议 | codebase 顶层结构 + 运维文档 |
-| `deployment-view.puml` | C4 Deployment / 4+1 Physical | 各单元部署在哪个节点与环境（prod / staging / dev），CD 流水线与配置注入 | `docs/运维/邮件与CD环境注入.md` |
-| `api-contracts.puml` | arc42 §3.2 | 平台对外暴露哪些 API 面：GraphQL 面与 MCP 工具面（工具清单、确认流）、各面凭证与鉴权差异（cookie JWT vs Bearer token） | `backend/priv/graphql/schema.graphql` + `Cgc2046.Mcp.Server` |
-| `signal-event-catalog.puml` | 事件驱动文档实践 | signal 全目录：类型、生产者、消费者、幂等键、驱动哪个 workflow step | 各 workflow 详细设计 §4 + codebase signal 定义 |
-| `auth-tenant-isolation.puml` | arc42 §7 横切概念 | 凭证模型全景（网站 JWT / MCP 连接 token / 邀请 token / 批次码）、多租户隔离边界、审计日志（ToolCallLog / AdminActionLog） | 领域模型定稿 + D6 / D13 决策 |
+| `container-topology.puml` | C4 Container | 平台由哪些**运行时单元**组成，各自职责、技术选型、相互协议 | 仓库顶层结构 + config.exs（Oban PG-backed）+ router.ex 挂载 + next.config.ts |
+| `deployment-view.puml` | C4 Deployment / 4+1 Physical | 各单元部署在哪个节点与环境，CD 流水线与配置注入 | `docs/运维/邮件与CD环境注入.md`（含「无部署信号」现状 + prod 注入契约）+ ci.yml |
+| `api-contracts.puml` | arc42 §3.2 | 四个 API 面：GraphQL（Query 36 / Mutation 60+ 字段）、MCP 8 工具、AshAdmin /ops、dev /dev/mailbox；各面凭证差异 | router.ex + schema.graphql + `Cgc2046.Mcp.Server` |
+| `signal-event-catalog.puml` | 事件驱动文档实践 | signal 全目录：17 种类型 × 生产者 × 六订阅方 × 幂等四策略 | `signal_emitter.ex` / `signal_subscriber.ex` / 六订阅方模块 / `signal_idempotency.ex` |
+| `auth-tenant-isolation.puml` | arc42 §7 横切概念 | 四种凭证模型、全局/租户资源边界、四条审计链路 | `mcp/token.ex` / `tool_call_log.ex` / `policies/actor_is_enrolled_learner.ex` + D5/D6/D9/D12/D13 |
 | L3.2 子类显式化 | C4 Dynamic / arc42 §6 | 每个关键场景一张时序图；已有确认流、挂起唤醒两例，报名全程 / 支付 / 邀请接受等场景按需增补 | 各详细设计 §5 |
 
-> **已知漂移信号**（对照 codebase 顶层即得，先记录、后处理）：
-> `miniprogram/` 与 `openclacky-ext/` 两个顶层运行时单元在现有 L0 图中无任何对应；
-> MCP 工具面（anubis_mcp streamable HTTP，D6 / D7）在 `architecture-overview` 中未见独立呈现。
-> 这正是 `container-topology` / `api-contracts` 两类的价值所在——补图时一并裁决。
+> **漂移信号裁决记录**（原三例，本轮补图时处理）：
+> - `miniprogram/` 与 `openclacky-ext/` 顶层单元 → 已入 `container-topology`（小程序多端 + 扩展属用户侧交付物，均非原 L0 设计图的覆盖范围）；
+> - MCP 工具面未见独立呈现 → 已入 `container-topology`（/mcp 容器）+ `api-contracts`（面 2，8 工具全清单）。
+> 新增漂移发现（来自本轮 codebase 取证，待下一步架构对照时处理）：
+> - **Redis 幂等承载未实现**：`key-routing-isolation.puml` 声称「幂等三层承载 Postgres/Redis」，但 config 无 Redix、`signal_idempotency` 落 Postgres——Redis 仅文档备选；
+> - **无生产部署**：`deployment-view` 如实呈现「无 vercel/fly/docker 配置」现状，与原图隐含的部署预期存在差距；
+> - **信号架构演进**：实际实现是 Phoenix PubSub 进程内总线 + Oban 重投 + 六订阅方幂等四策略（PR-B 深化），比原 L3 图（signal 直接 feed 引擎）更丰富。
 
 ## 三、图索引
 
-### L0 — 系统全景与边界（2 ✅ + 3 ⏳）
+### L0 — 系统全景与边界（5 张）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `system-context.puml` | ✅ | 系统上下文：CGC 平台与外部角色/系统（用户、OpenClacky、连接器、支付/邮件等）的边界 | 总纲 §1 系统边界 |
 | `architecture-overview.puml` | ✅ | 分层架构总览：接入层（Web/Agent/OpenClacky）→ 编排层（Jido Workflow）→ 领域层 → 引擎层，Signal 门控机制 | 总纲 §2 分层架构 |
-| `container-topology.puml` | ⏳ 待补 | 容器拓扑：运行时单元全景（见「二」待补表） | 待定（codebase 顶层 + 运维文档） |
-| `deployment-view.puml` | ⏳ 待补 | 部署视图：单元 × 节点 × 环境映射（见「二」待补表） | 待定（docs/运维/） |
-| `api-contracts.puml` | ⏳ 待补 | 接口契约：GraphQL 面与 MCP 工具面（见「二」待补表） | 待定（schema.graphql + Mcp.Server） |
+| `container-topology.puml` | ✅ 新 | 容器拓扑：web/miniprogram/backend（GraphQL+MCP+引擎+Oban+邮件）/Postgres + 用户侧 openclacky-ext；按 codebase 现状绘制 | codebase 顶层 + config.exs + router.ex |
+| `deployment-view.puml` | ✅ 新 | 部署视图：GitHub CI + 开发机拓扑 + 生产目标（如实呈现「无部署信号」现状 + SendCloud 五值注入契约与 fail-fast） | docs/运维/邮件与CD环境注入.md |
+| `api-contracts.puml` | ✅ 新 | 接口契约：四面（GraphQL / MCP 8 工具 / AshAdmin /ops / dev mailbox）× 凭证 × 审计 | router.ex + schema.graphql + Mcp.Server |
 
-### L1 — 领域模型（2 ✅ + 1 ⏳）
+### L1 — 领域模型（3 张）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `domain-model-er.puml` | ✅ | 领域模型 ER：全局资源（User/Identity/Token/Workspace 不按租户隔离）与租户内实体（Event/Course/Enrollment/Sponsorship/Invitation 等）及关系、唯一约束 | 领域模型定稿 §5.2 ER 关系 |
 | `domain-model-class.puml` | ✅ | 领域模型类图：核心聚合根（Event/Course/WorkflowDefinition/WorkflowRun/SignalFact 等）、关键枚举与状态 | 领域模型定稿 §5 类模型 |
-| `signal-event-catalog.puml` | ⏳ 待补 | 领域事件/信号目录：类型、生产者、消费者、幂等键、驱动的 step（见「二」待补表） | 待定（详细设计 §4 + codebase） |
+| `signal-event-catalog.puml` | ✅ 新 | 信号目录：17 种类型 × 生产者（SignalEmitter）× 六订阅方 × 幂等四策略 × claim 表（Postgres）；按 codebase 现状绘制 | signal_emitter/signals_subscriber/六订阅方模块 |
 
 ### L2 — 业务工作流（6 张）
 
@@ -96,7 +101,7 @@
 | `workflow-run-state.puml` | ✅ | WorkflowRun 状态机：pending→running→waiting→succeeded/failed/cancelled，waiting 挂起与 Signal 恢复 | 总纲 §3.2 + 引擎验证 POC-2 |
 | `entity-state-machines.puml` | ✅ | 业务实体状态机汇总：Enrollment/Sponsorship/SpeakerInvitation/WorkflowDefinition/InviteBatch/ResearchOutput | 各详细设计 §5.2 |
 
-### L3 — 引擎与横切机制（5 ✅ + 1 ⏳）
+### L3 — 引擎与横切机制（6 张）
 
 **3.1 引擎机制**
 
@@ -117,7 +122,7 @@
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `key-routing-isolation.puml` | ✅ | 幂等三层与路由隔离：request_id + 业务唯一索引 + signal idempotency_key，承载 Postgres/Redis | 报名/赞助详细设计 §6.4 + POC-2 |
-| `auth-tenant-isolation.puml` | ⏳ 待补 | 凭证模型全景、多租户隔离、审计日志（见「二」待补表） | 待定（领域模型定稿 + D6/D13） |
+| `auth-tenant-isolation.puml` | ✅ 新 | 横切概念：四种凭证模型（JWT/MCP token/邀请 token/批次码）、全局 vs 租户资源、四条审计链路（ToolCallLog/Redact/AdminActionLog/SignalLog） | mcp/token.ex + policies + D5/D6/D9/D12/D13 |
 
 ### L4 — 用户旅程（1 张）
 
@@ -130,5 +135,5 @@
 - 每张图头部注释里的 `事实来源` 行是**唯一事实锚点**；改文档先看图，改图先查文档。
 - L2/L3 图中标注的 `（二期）` / `（待 v1 补测试）` 等标记，对应 `docs/03-决策记录/开放问题决策清单.md` 与 `docs/04-引擎验证/poc-验证报告.md` 中的未决/遗留项。
 - 画图过程中发现的文档矛盾、缺口与建议，见同目录 [REVIEW-FINDINGS.md](./REVIEW-FINDINGS.md)。
-- **架构漂移对照（本分类体系的用途）**：按层拿 codebase 对照——L0 对照顶层运行时单元与部署配置、L1 对照 Ash 资源与 signal 定义、L2/L3 对照 workflow 与机制实现，识别「代码走向 vs 设计原图」的偏离；⏳ 待补图补齐前，对照发现先以「已知漂移信号」形式记录（见「二」）。
+- **架构漂移对照（本分类体系的用途）**：按层拿 codebase 对照——L0 对照顶层运行时单元与部署配置、L1 对照 Ash 资源与 signal 定义、L2/L3 对照 workflow 与机制实现，识别「代码走向 vs 设计原图」的偏离；首批漂移裁决与新发现见「二」的「漂移信号裁决记录」。
 - **体系外文字资产**（与本目录互为引用，不图形化）：架构决策 `docs/adr/` 与 `docs/03-决策记录/`；风险与遗留 `REVIEW-FINDINGS.md`；领域术语 `CONTEXT.md`。

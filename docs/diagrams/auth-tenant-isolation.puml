@@ -1,0 +1,90 @@
+@startuml auth-tenant-isolation
+' ============================================================
+' L3.3 - 横切概念：凭证 / 多租户隔离 / 审计（arc42 §7）
+' 事实来源：backend/lib/cgc_2046/mcp/token.ex（MCP Bearer：SHA256、
+' 绑用户不绑工作区、revoked_at 保留审计行）、
+' backend/lib/cgc_2046/mcp/tool_call_log.ex（全局表，params JSONB
+' 含 workspace_id 便于聚合）、backend/lib/cgc_2046/accounts/（JWT/
+' Identity）、backend/lib/cgc_2046/policies/actor_is_enrolled_learner.ex
+' （E-7 学习 run 双分支）、backend/lib/cgc_2046/mcp/wrapper.ex
+' （workspace_id 必填 + membership 门槛）、D5/D6/D9/D12/D13 决策、
+' domain-model-er.puml（全局资源 vs 租户内资源）。
+' 本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' ============================================================
+title 横切概念：凭证模型 / 多租户隔离 / 审计链路（L3.3）
+
+skinparam backgroundColor white
+skinparam rectangle {
+    BackgroundColor #F0FDE8
+    BorderColor #2E7D32
+}
+skinparam database {
+    BackgroundColor #FFF3E0
+    BorderColor #E65100
+}
+skinparam arrow {
+    Color #455A64
+}
+
+rectangle "凭证模型（四种，互不通用）" as CREDS #E8F0FE {
+    rectangle "网站会话 JWT\nAshAuthentication\nhttpOnly cookie\n────\nweb/ + miniprogram/ 登录态" as C_JWT
+    rectangle "MCP 连接 token\nBearer，库中只存\nSHA256 hash\n────\n绑用户不绑工作区（D13）\n明文仅签发时返回一次\n撤销 = revoked_at 留审计行" as C_MCP
+    rectangle "邀请 token\nSpeakerInvitation\n逐人一次性\ntoken_hash 校验\naccept/decline 后失效" as C_INV
+    rectangle "批次码 + 小程序码\nInviteBatch 共享码\n（quota + 有效期）\ngenerateMiniProgramCode\n（signInWithPlatform）" as C_BATCH
+}
+
+rectangle "多租户隔离（Ash multitenancy：attribute workspace_id）" as TENANT #F0FDE8 {
+    rectangle "全局资源（不落租户）\nUser / Identity / Token\nWorkspace 本体\nMcp.Token / ToolCallLog\nAdminActionLog" as G_RES
+    rectangle "租户内资源（scoped）\nEvent / Course / Offering\nEnrollment / Sponsorship\nSpeakerInvitation / InviteBatch\nWorkflowDefinition / WorkflowRun\n/ Step / SignalLog / SignalFact" as T_RES
+    rectangle "判定规则\n────\nGraphQL：actor 会话 + policy\nMCP：每调用 workspace_id 参数\n（D12，Wrapper 必填校验）\n权限判定按场景取关系：\n· 执行 Step → 成员角色\n· 活动报名 → Enrollment" as RULES
+}
+
+rectangle "审计链路" as AUDIT #FFFDE7 {
+    rectangle "Mcp.ToolCallLog\n每次 MCP 工具调用一行：\n谁/工具/参数（redact 后）/\n状态/耗时/关联 pending_id\n────\n全局表（无 workspace_id 列），\nparams JSONB 内含键、按其过滤\n聚合（D5）；服务端自动生成（D9）" as A_TOOL
+    rectangle "Mcp.Redact\n敏感键值 → [REDACTED]\n（落库前过滤，D-D8）" as A_REDACT
+    rectangle "AdminActionLog\n管理员操作审计\n（/ops + GraphQL 管理面）" as A_ADMIN
+    rectangle "SignalLog\nrun 级信号投递审计\n（每投递一行）" as A_SIG
+}
+
+database "Postgres\n（唯一持久层；\n租户过滤 = 查询层\n强制 where workspace_id）" as PG
+
+C_JWT --> RULES
+C_MCP --> RULES
+C_INV --> RULES
+C_BATCH --> RULES
+RULES --> G_RES
+RULES --> T_RES
+T_RES --> PG
+A_TOOL --> PG
+A_ADMIN --> PG
+A_SIG --> PG
+A_REDACT ..> A_TOOL : 前置过滤
+
+note right of C_MCP
+  两种 token 不可互换：
+  JWT 走 cookie（浏览器），
+  连接 token 走 Authorization
+  header（/mcp 端点独立
+  McpAuthPlug 验证）。
+  他人 token 一律 not_found
+  （不泄露存在性）。
+end note
+
+note bottom of RULES
+  学习 run 特例（E-7 #122）：
+  学员是**非成员**（报名 ≠ 成员，
+  D-A4），MCP save_step_output
+  的 bypass 双分支：
+  · workspace 成员（经 definition）
+  · enrolled learner 本人
+  （Enrollment 记录授权）
+  规则本体在 StepAuthorization，
+  工具层与资源层共用同一实现。
+end note
+
+note right of A_TOOL
+  最小暴露面（plan 020 U2.1）：
+  本人活动流只回摘要级字段
+  （无 params——即便已 redact）。
+end note
+@enduml

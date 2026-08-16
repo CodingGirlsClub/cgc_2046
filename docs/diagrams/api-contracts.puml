@@ -1,0 +1,79 @@
+@startuml api-contracts
+' ============================================================
+' L0 - 接口契约图（arc42 §3.2）
+' 事实来源：backend/lib/cgc_2046_web/router.ex（scope 挂载）、
+' backend/priv/graphql/schema.graphql（RootQueryType 36 字段 /
+' RootMutationType 60+ 字段）、backend/lib/cgc_2046/mcp/server.ex
+' （8 工具）、backend/lib/cgc_2046/mcp/token.ex（Bearer/SHA256）、
+' docs/diagrams 既有图 confirm-flow.puml（two-tool 确认流）。
+' 本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' ============================================================
+title CGC 平台对外接口契约（四个面，L0）
+
+skinparam backgroundColor white
+skinparam rectangle {
+    BackgroundColor #F0FDE8
+    BorderColor #2E7D32
+}
+skinparam actor {
+    BackgroundColor #E8F0FE
+    BorderColor #1A73E8
+}
+skinparam arrow {
+    Color #455A64
+}
+
+actor "浏览器\n（web/）" as Browser
+actor "小程序\n（miniprogram/）" as MP
+actor "OpenClacky\n（经扩展配置）" as OC
+actor "平台管理员\n（浏览器）" as PA
+actor "开发者\n（本机）" as DEV
+
+rectangle "CGC-2046 backend（Phoenix）" as BE #F0FDE8 {
+
+    rectangle "面 1：GraphQL /api/graphql\nAbsinthe + AshGraphql\n────\n凭证：httpOnly cookie JWT\n（AshAuthentication）\n────\n审计：SignalLog / AdminActionLog" as GQL {
+        rectangle "Query（36 字段，按域）\n· me / workspace* / portfolio\n· enrollment / sponsorship\n· speakerInvitation*\n· listSignalLogs / ToolCallLogs\n（管理员审计面）\n· reconciliationFindings" as Q
+        rectangle "Mutation（60+ 字段，按域）\n· auth：signIn/signUp/\n  requestPasswordReset/\n  signInWithPlatform\n· workspace 成员治理\n· event/course 生命周期\n· enrollment/sponsorship 审批\n· speakerInvitation 全流程\n· mcpToken 签发/撤销" as M
+    }
+
+    rectangle "面 2：MCP /mcp\nanubis_mcp streamable HTTP\n────\n凭证：Bearer 连接 token\n（SHA256 落库，D13；\n绑用户不绑工作区）\n────\n审计：每次调用 ToolCallLog\n（params redact 后，D9）" as MCP {
+        rectangle "读（4）\nget_workspace_context\nlist_members\nget_workflow\nget_step_output" as MT_R
+        rectangle "写（1）\nsave_step_output\n（facts 浅合并，终态拒绝）" as MT_W
+        rectangle "管理（1，two-tool 确认流）\ncreate_invitation →\nneeds_confirmation{pending_id}" as MT_A
+        rectangle "确认流（2）\nconfirm_operation\ncancel_operation\n（PendingOperation TTL）" as MT_C
+    }
+
+    rectangle "面 3：/ops\nAshAdmin\n────\n凭证：admin_browser session\n（平台管理员）" as OPS
+    rectangle "面 4：/dev/mailbox\nSwoosh MailboxPreview\n────\n仅 dev 环境（router dev_routes）" as MBX
+}
+
+Browser --> GQL
+MP --> GQL : signInWithPlatform +\ngenerateMiniProgramCode +\ngrantMiniProgramNotificationConsent
+OC --> MCP
+PA --> OPS
+DEV --> MBX
+
+note right of MCP
+  每工具调用经 Wrapper：
+  workspace_id 必填（D12）
+  + membership 鉴权
+  + ToolCallLog 审计。
+  McpProtocolCompatPlug 先于
+  鉴权 shim 旧版
+  MCP-Protocol-Version header
+  （OpenClacky ≤1.5.6 兼容）。
+end note
+
+note bottom of MT_A
+  高风险工具 two-tool 模式（D-D3）：
+  调用不落业务库，返回 pending_id；
+  用户确认后 confirm_operation
+  才执行。TTL 过期自动失效。
+end note
+
+note bottom of GQL
+  /api/playground 仅 dev 挂载
+  （next.config.ts rewrite 限定
+  NODE_ENV != production）。
+end note
+@enduml
