@@ -60,14 +60,6 @@ defmodule Cgc2046.Events.Course do
       description: "公开展示文案（可空；null 由展示层按空串呈现）"
     )
 
-    attribute(:research_enabled, :boolean,
-      allow_nil?: false,
-      default: true,
-      public?: true,
-      writable?: true,
-      description: "是否启用教研 workflow"
-    )
-
     attribute(:research_requirements, :map,
       default: %{},
       public?: true,
@@ -189,7 +181,6 @@ defmodule Cgc2046.Events.Course do
   actions do
     default_accept([
       :title,
-      :research_enabled,
       :research_requirements,
       :enrollment_policy,
       :capacity,
@@ -206,7 +197,6 @@ defmodule Cgc2046.Events.Course do
 
       accept([
         :title,
-        :research_enabled,
         :research_requirements,
         :enrollment_policy,
         :capacity,
@@ -283,7 +273,6 @@ defmodule Cgc2046.Events.Course do
 
       accept([
         :title,
-        :research_enabled,
         :research_requirements,
         :enrollment_policy,
         :capacity,
@@ -524,7 +513,7 @@ defmodule Cgc2046.Events.Course do
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
-  # research_enabled / research_requirements / workflow_run_id / capacity /
+  # research_requirements / workflow_run_id / capacity /
   # confirmed_count，匿名被筛除。
   field_policies do
     field_policy :* do
@@ -533,7 +522,6 @@ defmodule Cgc2046.Events.Course do
 
     field_policy [
       :workspace_id,
-      :research_enabled,
       :research_requirements,
       :workflow_run_id,
       :capacity,
