@@ -68,9 +68,11 @@ vi.mock("@/components/icons", () => ({
 	Icon: () => null,
 }));
 
+const { submitEnrollment } = vi.hoisted(() => ({ submitEnrollment: vi.fn() }));
+
 vi.mock("@/lib/public-offerings", () => ({
 	parseSponsorshipTiers: () => [],
-	submitEnrollment: vi.fn(),
+	submitEnrollment,
 }));
 
 vi.mock("next/link", () => ({
@@ -264,6 +266,86 @@ describe("OfferingDetailPage 错误态", () => {
 		render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
 
 		expect(await screen.findByRole("button", { name: "报名" })).toBeInTheDocument();
+	});
+
+	it("免费活动（pricingEnabled 缺省）：不渲染档位选择器（R4 零变化）", async () => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce({
+			id: "event-free",
+			title: "免费活动",
+			status: "open",
+			visibility: "workspace",
+			enrollmentPolicy: "open",
+			registrationDeadline: null,
+			capacity: null,
+			confirmedCount: 0,
+		});
+
+		render(<OfferingDetailPage slug="demo" id="event-free" kind="event" />);
+
+		expect(await screen.findByRole("button", { name: "报名" })).toBeInTheDocument();
+		expect(screen.queryByTestId("price-tier-picker")).not.toBeInTheDocument();
+	});
+
+	it("收费活动：渲染可售档位 + 未选档提交被拒 + 选档后 tierId 随报名提交", async () => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce({
+			id: "event-paid",
+			title: "收费活动",
+			status: "open",
+			visibility: "workspace",
+			enrollmentPolicy: "open",
+			registrationDeadline: null,
+			capacity: null,
+			confirmedCount: 0,
+			pricingEnabled: true,
+			availablePriceTiers: [
+				JSON.stringify({ id: "tier-1", name: "早鸟", amount_cents: 9900 }),
+				JSON.stringify({ id: "tier-2", name: "标准", amount_cents: 19900 }),
+			],
+		});
+
+		submitEnrollment.mockResolvedValueOnce({
+			result: { id: "enr-1", status: "payment_pending" },
+			errors: [],
+		});
+
+		render(<OfferingDetailPage slug="demo" id="event-paid" kind="event" />);
+
+		// 档位渲染（价格格式化）
+		const picker = await screen.findByTestId("price-tier-picker");
+		expect(picker).toBeInTheDocument();
+		expect(screen.getByText("¥99.00")).toBeInTheDocument();
+		expect(screen.getByText("¥199.00")).toBeInTheDocument();
+
+		// 未选档 → 前端拒绝，不触 mutation
+		fireEvent.click(screen.getByRole("button", { name: "报名" }));
+		expect(await screen.findByRole("alert")).toHaveTextContent("请先选择价格档位");
+		expect(submitEnrollment).not.toHaveBeenCalled();
+
+		// 选档（radio）→ 提交携带 tierId；payment_pending 态出「去支付」入口
+		fireEvent.click(screen.getByTestId("price-tier-tier-2"));
+		fireEvent.click(screen.getByRole("button", { name: "报名" }));
+
+		await waitFor(() => expect(submitEnrollment).toHaveBeenCalledTimes(1));
+		expect(submitEnrollment).toHaveBeenCalledWith(
+			expect.objectContaining({ tierId: "tier-2", eventId: "event-paid" }),
+		);
+
+		const payLink = await screen.findByRole("link", { name: "去支付" });
+		expect(payLink).toHaveAttribute("href", "/orders/new?enrollmentId=enr-1");
 	});
 });
 
