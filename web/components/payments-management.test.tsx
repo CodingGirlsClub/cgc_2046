@@ -27,13 +27,14 @@ function ordersPayload(results: unknown[]) {
 	return { data: { workspaceOrders: { results, count: results.length } } };
 }
 
-function statsPayload(collected: number, pending: number, refunded: number) {
+function statsPayload(collected: number, pending: number, refunded: number, refundFailed = 0) {
 	return {
 		data: {
 			workspacePaymentStats: JSON.stringify({
 				collected_cents: collected,
 				pending_cents: pending,
 				refunded_cents: refunded,
+				refund_failed_cents: refundFailed,
 			}),
 		},
 	};
@@ -56,18 +57,38 @@ describe("OrderStatusBadge / StatsCards（U11 管理面）", () => {
 		expect(container.firstElementChild?.className).toContain("red");
 	});
 
-	it("统计卡三分量（JsonString 解析产物）；null 时全 0", () => {
+	it("统计卡四分量（含退款失败待处理）；null 时全 0，失败额非 0 红色强调", () => {
 		const { rerender } = render(
 			<StatsCards
-				stats={{ collectedCents: 59700, pendingCents: 19900, refundedCents: 19900 }}
+				stats={{
+					collectedCents: 59700,
+					pendingCents: 19900,
+					refundedCents: 19900,
+					refundFailedCents: 9900,
+				}}
+				statsError={false}
+				onRetryStats={() => undefined}
 			/>,
 		);
 		expect(screen.getByTestId("stats-collected")).toHaveTextContent("¥597.00");
 		expect(screen.getByTestId("stats-pending")).toHaveTextContent("¥199.00");
 		expect(screen.getByTestId("stats-refunded")).toHaveTextContent("¥199.00");
+		expect(screen.getByTestId("stats-refund-failed")).toHaveTextContent("¥99.00");
+		// 失败额非 0：danger 强调类
+		expect(screen.getByTestId("stats-refund-failed").querySelector("p:last-child")).toHaveClass("text-red-300");
 
-		rerender(<StatsCards stats={null} />);
+		rerender(<StatsCards stats={null} statsError={false} onRetryStats={() => undefined} />);
 		expect(screen.getByTestId("stats-collected")).toHaveTextContent("¥0.00");
+		expect(screen.getByTestId("stats-refund-failed")).toHaveTextContent("¥0.00");
+	});
+
+	it("U2-R3：stats 加载失败 → 错误态 + 重试（不再伪装 ¥0.00）", () => {
+		const retry = vi.fn();
+		render(<StatsCards stats={null} statsError onRetryStats={retry} />);
+		expect(screen.getByTestId("stats-error")).toHaveTextContent("统计加载失败");
+		expect(screen.queryByTestId("stats-collected")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByTestId("stats-retry"));
+		expect(retry).toHaveBeenCalledTimes(1);
 	});
 });
 

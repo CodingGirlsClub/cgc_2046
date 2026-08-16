@@ -13,6 +13,14 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
   - expired / cancelled / refunding / refund_failed / refunded / confirmed 无
     paid 单（免缴）→ 跳过（Assumptions 批量矩阵）。
 
+  治理（advisory 清偿）：
+
+  - **F-D 分页**：报名按 keyset 游标分批拉取（`id > cursor` + limit @batch_size），
+    不再全量 load——大活动内存峰值与首响延迟受控；
+  - **F-J 审计**：批量动作落 `AdminActionLog`（action = :event_cancel_batch_refund，
+    actor_id = nil 系统语义同 CLI 先例；每 event 一行，metadata 带取消/退款计数
+    与 order id 列表）。
+
   幂等 `:state_based`：全部转换 CAS 守卫（start_refund 只吃 paid、cancel 只吃
   非终态），信号重投/订阅方重启重复执行零多余效果。
   """
@@ -24,6 +32,7 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
   require Ash.Query
   require Logger
 
+  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Events.{Enrollment, Event}
   alias Cgc2046.Payments.Order
   alias Cgc2046.Workers.PaymentRefundWorker
@@ -52,25 +61,88 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
 
   def handle(_type, _data), do: :ok
 
+  # F-D：keyset 游标分页拉取（不全量 load）。排序键 = id（uuid 稳定全序）。
   defp refund_event_enrollments(event_id, workspace_id) do
-    Enrollment
-    |> Ash.Query.filter(event_id == ^event_id)
-    |> Ash.read!(authorize?: false)
-    |> Enum.chunk_every(@batch_size)
-    |> Enum.each(fn batch -> process_batch(batch, workspace_id) end)
+    counts =
+      stream_event_enrollments(event_id)
+      |> Enum.chunk_every(@batch_size)
+      |> Enum.map(fn batch -> process_batch(batch, workspace_id) end)
+      |> Enum.reduce(%{cancelled: 0, refunded: 0, skipped: 0}, &merge_counts/2)
+
+    log_batch_audit(event_id, counts)
 
     :ok
   end
 
-  # 逐笔隔离：单笔失败只记 warning，不阻塞其余（部分失败可重投/单笔 retry 收敛）
-  defp process_batch(batch, workspace_id) do
-    Enum.each(batch, fn enrollment ->
-      case enrollment.status do
-        :payment_pending -> cancel_enrollment(enrollment, workspace_id)
-        :confirmed -> refund_paid_order(enrollment, workspace_id)
-        _skipped -> :ok
+  defp stream_event_enrollments(event_id) do
+    Stream.unfold("", fn cursor ->
+      batch =
+        Enrollment
+        |> Ash.Query.filter(event_id == ^event_id)
+        |> Ash.Query.sort(id: :asc)
+        |> then(fn q ->
+          if cursor == "" do
+            q
+          else
+            Ash.Query.filter(q, id > ^cursor)
+          end
+        end)
+        |> Ash.Query.limit(@batch_size)
+        |> Ash.read!(authorize?: false)
+
+      case batch do
+        [] -> nil
+        rows -> {rows, List.last(rows).id}
       end
     end)
+    |> Stream.flat_map(& &1)
+  end
+
+  defp merge_counts(a, b) do
+    Map.merge(a, b, fn _k, x, y -> x + y end)
+  end
+
+  # 逐笔隔离：单笔失败只记 warning，不阻塞其余（部分失败可重投/单笔 retry 收敛）
+  defp process_batch(batch, workspace_id) do
+    Enum.reduce(batch, %{cancelled: 0, refunded: 0, skipped: 0}, fn enrollment, acc ->
+      case enrollment.status do
+        :payment_pending ->
+          case cancel_enrollment(enrollment, workspace_id) do
+            :ok -> Map.update!(acc, :cancelled, &(&1 + 1))
+            :skip -> Map.update!(acc, :skipped, &(&1 + 1))
+          end
+
+        :confirmed ->
+          n = refund_paid_order(enrollment, workspace_id)
+          Map.update!(acc, :refunded, &(&1 + n))
+
+        _skipped ->
+          Map.update!(acc, :skipped, &(&1 + 1))
+      end
+    end)
+  end
+
+  # F-J：批量退款审计留痕（系统动作，actor_id = nil 同 CLI 语义；每 event 一行）
+  defp log_batch_audit(event_id, counts) do
+    case AdminActionLog.log(%{
+           actor_id: nil,
+           action: :event_cancel_batch_refund,
+           target_type: :event,
+           target_id: event_id,
+           metadata: %{
+             "cancelled_enrollments" => counts.cancelled,
+             "refunded_orders" => counts.refunded,
+             "skipped" => counts.skipped
+           }
+         }) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "event cancel refund: audit log failed for event #{event_id}: #{inspect(reason)}"
+        )
+    end
   end
 
   defp cancel_enrollment(enrollment, workspace_id) do
@@ -81,14 +153,20 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
       {:ok, _} -> :ok
       {:error, reason} -> log_skip("enrollment", enrollment.id, reason)
     end
+    # log_skip 返回 :skip(计数口径)
+    |> then(fn
+      :ok -> :ok
+      _ -> :skip
+    end)
   end
 
-  # confirmed 报名的 paid 单逐笔退款；无 paid 单（免缴 confirmed）自然跳过
+  # confirmed 报名的 paid 单逐笔退款；无 paid 单（免缴 confirmed）自然跳过。
+  # 返回成功入队数（F-J 审计计数）。
   defp refund_paid_order(enrollment, workspace_id) do
     Order
     |> Ash.Query.filter(enrollment_id == ^enrollment.id and status == :paid)
     |> Ash.read!(authorize?: false)
-    |> Enum.each(fn order ->
+    |> Enum.reduce(0, fn order, acc ->
       order
       |> Ash.Changeset.for_update(:start_refund, %{})
       |> Ash.update(tenant: workspace_id, authorize?: false)
@@ -98,10 +176,11 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
           |> PaymentRefundWorker.new()
           |> Oban.insert!()
 
-          :ok
+          acc + 1
 
         {:error, reason} ->
           log_skip("order", order.id, reason)
+          acc
       end
     end)
   end
