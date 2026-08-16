@@ -95,16 +95,27 @@ describe("U11 payment 纯逻辑", () => {
 	});
 
 	describe("统计解析（U10 决策 3：JsonString snake_case int 键）", () => {
-		it("合法负载 → camelCase 三分量", () => {
+		it("合法负载 → camelCase 四分量(含 refundFailedCents)", () => {
+			expect(
+				parsePaymentStats(
+					'{"collected_cents":59700,"pending_cents":19900,"refunded_cents":19900,"refund_failed_cents":9900}',
+				),
+			).toEqual({
+				collectedCents: 59700,
+				pendingCents: 19900,
+				refundedCents: 19900,
+				refundFailedCents: 9900,
+			});
+			// 旧三键负载(前向后向):refund_failed 缺省 0
 			expect(
 				parsePaymentStats('{"collected_cents":59700,"pending_cents":19900,"refunded_cents":19900}'),
-			).toEqual({ collectedCents: 59700, pendingCents: 19900, refundedCents: 19900 });
+			).toEqual({ collectedCents: 59700, pendingCents: 19900, refundedCents: 19900, refundFailedCents: 0 });
 		});
 
 		it("字符串数值/坏负载/空值 → 容错", () => {
 			expect(
 				parsePaymentStats('{"collected_cents":"59700","pending_cents":0,"refunded_cents":0}'),
-			).toEqual({ collectedCents: 59700, pendingCents: 0, refundedCents: 0 });
+			).toEqual({ collectedCents: 59700, pendingCents: 0, refundedCents: 0, refundFailedCents: 0 });
 			expect(parsePaymentStats("{broken")).toBeNull();
 			expect(parsePaymentStats(null)).toBeNull();
 			expect(parsePaymentStats('{"collected_cents":1}')).toBeNull();
