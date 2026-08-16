@@ -196,6 +196,15 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "和导师学这一节"
     assert_includes VIEW, "clipboard.writeText"
     assert_includes VIEW, "八步循环"
+    # H2/H3:指令用 course_title + issue.key(非内部 id 原文/goals 拼接)
+    assert_includes VIEW, "content.course_title"
+    assert_includes VIEW, "issue.key"
+    refute_includes VIEW, "goals.join"
+  end
+
+  def test_issue_rows_render_key
+    # H2:issue 行渲染展示层 key 短码
+    assert_includes VIEW, "cgc-issue-key"
   end
 
   def test_not_connected_guidance_view

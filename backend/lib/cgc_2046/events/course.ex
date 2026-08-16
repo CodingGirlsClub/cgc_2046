@@ -159,21 +159,11 @@ defmodule Cgc2046.Events.Course do
         Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
       end
     )
-
-    # U7(#180/R10):课程地图公开投影的**数据源**——issue_map GraphQL 投影在
-    # graphql_schema(courseMap 查询,Ash map 字段无子字段选择面);此处只保留
-    # goal-only 行列表构造(goal 一行 + key/title/kind;**不含 checklist**)。
-    calculate(:issue_map_rows, {:array, :map},
-      public?: false,
-      calculation: fn records, _opts ->
-        Enum.map(records, fn course ->
-          Cgc2046.Events.Course.issue_map_rows(course)
-        end)
-      end
-    )
   end
 
-  # 地图行(goal-only,R10):key 派生(KTD6)= slug 短码 + 卡集内 1 起序号
+  # 地图行(goal-only,R10):key 派生(KTD6)= slug 短码 + 卡集内 1 起序号。
+  # 唯一消费方 = graphql_schema resolve_course_map(G3:calculate 包装已删,
+  # 无 GraphQL/Ash 面需要,留纯函数直调)
   @doc false
   def issue_map_rows(%__MODULE__{} = course) do
     content = course_content(course)
