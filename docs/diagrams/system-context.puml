@@ -1,9 +1,12 @@
 @startuml system-context
 ' ============================================================
 ' L0 - 系统上下文图（System Context）
-' 事实来源：docs/00-CGC平台设计总纲.md、docs/01-定稿设计/用户旅程与Web功能清单.md
+' 事实来源（代码锚点）：backend/lib/cgc_2046_web/graphql_schema.ex（signInWithPlatform）
+'   · accounts/strategies/miniprogram.ex · miniprogram/{code,notification_consent}.ex
+'   · swoosh_adapters/send_cloud.ex（漂移复核：DRIFT-EVIDENCE/L3-engine-l0.md §7）
 ' 展示 CGC 平台与外部参与者/系统的边界：人（角色）与系统
-' （用户侧 OpenClacky、网站侧 MCP server / 引擎 / 业务资源）。
+' （用户侧 OpenClacky 与小程序客户端、网站侧 MCP server / 引擎 / 业务
+'   资源、外部邮件系统 SendCloud）。
 ' ============================================================
 title CGC 平台系统上下文（L0）
 skinparam backgroundColor white
@@ -35,9 +38,11 @@ rectangle "用户侧\n（BYO，用户自带）" as USERSIDE #E8F0FE {
 rectangle "CGC 平台网站\n（业务中枢）" as SITE {
     rectangle "MCP server\nanubis_mcp" as MCP
     rectangle "Workflow 引擎\n（Jido 生态）\nWorkflowDefinition / WorkflowRun / Step" as ENGINE
-    rectangle "业务资源（Ash）\nUser/Workspace/Role/Event/Course\nEnrollment/Sponsorship/SpeakerInvitation\nInviteBatch/ResearchOutput" as BIZ
-    rectangle "网站页面\n（形态 X：无对话/执行页）\n工作台 / 报名页 / 审批页 / 审计页" as WEB
+    rectangle "业务资源（Ash）\nUser/Workspace/Role/Event/Course\nEnrollment/Sponsorship/SpeakerInvitation\nInviteBatch（教研产出 = WorkflowRun.facts）" as BIZ
 }
+
+rectangle "小程序客户端\n（微信 / 抖音 / 小红书）" as MP #E8F0FE
+rectangle "SendCloud\n（邮件 API）" as SENDCLOUD #FFF7E6
 
 V -down-> SITE : 公开浏览\n报名时注册/登录
 L -down-> SITE : 报名、查询流程状态
@@ -48,18 +53,18 @@ S -down-> SITE : 发起赞助（Event/Workspace 级）
 Sp -down-> SITE : 打开邀请链接、接受/拒绝、产出材料
 PA -down-> SITE : 创建 Workspace、指定 Owner
 
-V -right-> OC : 自带 OpenClacky（注册后进入 Learner）
-L -right-> OC : 全链路学习执行
-T -right-> OC : 教研 Agent 执行
-Sp -right-> OC : 分享材料产出
-O -right-> OC : 运营 Agent 执行
+L ..down-> MP : 小程序一键登录\n（signInWithPlatform）
+S ..down-> MP : 接收订阅消息通知
 
-OC -down-> MCP : B 通道（唯一对外通道）\nMCP JSON-RPC over HTTP/SSE
+OC -down-> MCP : B 通道（Agent 侧唯一对外通道）\nMCP JSON-RPC over HTTP/SSE
 MCP -down-> ENGINE : Signal 放行 / 读产物
 ENGINE -down-> BIZ : 同步调 Ash Action（8 成）\n异步 Signal（2 成）
 MCP ..down-> WEB : 业务操作（读/写/审批信号）
 WEB -down-> BIZ : 页面表单/查询
 
+MP -down-> SITE : 后端 GraphQL /api
+SITE ..> MP : 订阅消息通知回流\n（NotificationConsent 授权 + 扇出）
+SITE -down-> SENDCLOUD : 邮件外发\n（Swoosh 自定义 adapter）
 note bottom of SITE
   形态 X（D4）：网站无对话页 / 无执行页——聊天与 Agent 执行全在用户
   自己的 OpenClacky，经 MCP 调用网站；网站只做业务中枢与产出/审计展示。

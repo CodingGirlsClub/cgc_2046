@@ -1,7 +1,9 @@
 @startuml architecture-overview
 ' ============================================================
 ' L0 - 架构总览图（Architecture Overview）
-' 事实来源：docs/00-CGC平台设计总纲.md §2.2 架构分层图
+' 事实来源（代码锚点）：backend/lib/cgc_2046/workflows/workflow_definition.ex
+'   · workflows/workflow_run.ex · workflows/signal_log.ex · mcp/wrapper.ex
+'   （漂移复核：docs/diagrams/DRIFT-EVIDENCE/L3-engine-l0.md §6）
 ' 一句话架构：网站 = 业务中枢 + MCP server；用户自带 OpenClacky
 '   做 Agent 执行（BYO）；业务编排由网站侧 Jido workflow 引擎做
 '   确定性编排（workflow-first）。
@@ -21,19 +23,19 @@ package "网站（业务中枢 + MCP server + workflow 引擎）" #F0FDE8 {
     package "业务资源（Ash，tenant_id 隔离）" #FFF7E6 {
         component "User / Workspace / Role" as U
         component "Event / Course" as E
-        component "Enrollment / Sponsorship\nSpeakerInvitation / InviteBatch\nResearchOutput" as ENR
+        component "Enrollment / Sponsorship\nSpeakerInvitation / InviteBatch\n（教研产出 = WorkflowRun.facts）" as ENR
     }
 
     package "Workflow 引擎（Jido 生态）" #FDE8F0 {
-        component "WorkflowDefinition\nplatform_ops | learning | enrollment\nsponsorship | speaker_invitation | research" as DEF
-        component "WorkflowRun\npending→running→waiting\n→succeeded/failed/cancelled" as RUN
+        component "WorkflowDefinition\ntype 5 枚举：learning | research | speaker_invitation 实存\nenrollment | sponsorship 预留（实体自序贯）" as DEF
+        component "WorkflowRun\npending→running→waiting→\nsucceeded/failed/cancelled/expired" as RUN
         component "Step 四分类\n自动 / 人工 / 门控 / 子 workflow" as STEP
         component "partition = Workspace" as PART
-        component "Thread journal 审计" as TJ
+        component "SignalLog 审计（ADR-0003）" as SIGLOG
         DEF -down-> RUN : 实例化
         RUN -down-> STEP : 包含
         RUN ..right-> PART : 归属
-        RUN ..right-> TJ : 审计
+        RUN ..right-> SIGLOG : 审计
     }
 
     component "MCP server（anubis_mcp）\n读 / 写 / 管理类 + 确认流" as MCP
@@ -51,7 +53,8 @@ RUN ..down-> ENR : "异步 Signal（2 成）"
 note bottom of RUN
   **依赖方向恒为 workflow → 业务 Action 接口**
   （D-A1/草案 B）；业务 context 反向只发 Signal、不调引擎。
-  MCP 作用域（D12）：所有工具必填 workspace_id，无状态、每调用鉴权 + 审计。
+  MCP 作用域（D12）：工具必填 workspace_id（例外：confirm/cancel_operation
+  免验；save_step_output 授权下沉 Enrollment），无状态、每调用鉴权 + 审计。
   租户模型（D-A5）：一个 Workspace = 一个 Jido partition；
   共享表 + tenant_id（Ash attribute 多租户），不走 schema-per-tenant。
 end note

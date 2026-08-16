@@ -74,12 +74,8 @@ defmodule Cgc2046.Workflows.Step do
       description: "经 StepHandlerRegistry 注册的模块名（auto/gate）；manual 可空"
     )
 
-    # 人工步骤使用的 Agent（领域模型定稿 ER §5.2）
-    attribute(:agent_id, :uuid,
-      public?: true,
-      writable?: true,
-      description: "人工步骤使用的 Agent ID（manual 类型，其余可空）"
-    )
+    # R2 裁决（2026-08-16）：agent_id 删除——形态 X（BYO，ADR-0001）下平台不建模
+    # Agent 实体，原列为无拍板的悬空引用（DRIFT-REPORT L1-1/R2）。
 
     # 子 workflow 指向另一 WorkflowDefinition（type=sub_workflow）
     attribute(:sub_definition_id, :uuid,
@@ -125,7 +121,6 @@ defmodule Cgc2046.Workflows.Step do
       :title,
       :type,
       :action,
-      :agent_id,
       :sub_definition_id,
       :input_schema
     ])

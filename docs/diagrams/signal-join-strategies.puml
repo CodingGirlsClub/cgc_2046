@@ -1,59 +1,61 @@
 @startuml signal-join-strategies
 ' ============================================================
-' L3 - 双信号 join 策略（Workflow 原生 / 审批两段式规避 / fan-in 修复）
-' 事实来源：docs/04-引擎验证/poc-验证报告.md §3.2/§3.3/§3.4 + 报名设计 §3.2
-' 定性：v1 主路径 = Workflow 层原生 join 能力（runic 直接驱动，
-'   POC §3.2 PASS）；审批两段式仅为 Agent 策略层缺陷（ran_nodes
-'   过滤，POC §3.3）未修复前的临时规避手段；根治方案 = 修复
-'   handle_apply_result ran_nodes 缺陷或采用官方 Coordinator fan-in。
-' 应用：报名 request 策略 / 赞助 workflow（同构）。
+' L3 - 双信号 join 策略（Workflow 层主路径 / Agent 层 join 永久绕开）
+' 事实来源（代码锚点，2026-08-16 对账）：
+'   backend/lib/cgc_2046/workflows/jido_adapter.ex:10-32
+'     （moduledoc：主路径 react_until_satisfied，F1 死锁绕开）
+'   backend/lib/cgc_2046/workflows/run_agent.ex:2-8
+'     （RunAgent 退化为纯 checkpoint 载体，无 Agent 生命周期/策略/信号路由）
+'   backend/test/cgc_2046/workflows/human_step_test.exs:437-440
+'     （「多信号分批 feed（F1 死锁回归防护）」describe）
+'   backend/test/cgc_2046/workflows/jido_adapter_test.exs:305-317
+'     （多信号序列）
+' 定性：v1 主路径 = Workflow 层原生 join（react_until_satisfied；
+'   manual 步骤编译为 signal_cond → signal_step → join → merge 门控子图）；
+'   产品决策 = 永久绕开 Agent 策略层 join，F1 缺陷不再修复。
+' 应用：教研 workflow（多人工信号顺序 join，run 内门控放行）。
+'   注：报名/赞助已裁为实体自序贯（R1，2026-08-16）——Ash 状态机 +
+'   信号 outbox，不经 WorkflowRun 引擎；对照见下方注记。
 ' ============================================================
-title 双信号 join 策略（L3）— Workflow 原生路径 / 审批两段式规避 / fan-in 修复
+title 双信号 join 策略（L3）— Workflow 原生路径 / Agent 层 join 永久绕开
 skinparam backgroundColor white
 
 ' ---------------- 问题：Agent 层 join 死锁 ----------------
-' ---------------- 规避方案：审批两段式时序 ----------------
-    participant "Learner / Sponsor" as L
-    participant "网站表单/后台审批页" as W
+' ---------------- 应用形态：教研 run 多人工信号顺序 join ----------------
+    participant "Tutor（教研者）" as T
+    participant "信号总线（PubSub）" as BUS
     participant "WorkflowRun（引擎）" as R
     participant "业务 DB" as DB
 
-note over L,DB
-  **问题（POC §3.3，100% 双向证明）**：
-  同一 workflow 内用 join 等两个以上异步信号在 Agent 层死锁——
-  feed1 后 join 进入 ran_nodes（视为"已执行"）；feed2 时 join 已满足
-  却被 ran_nodes 过滤 → create/notify 永不执行。
+    note over T,DB
+  **引擎内 join 的现实应用 = 教研（research）**：
+  D-A2 模板实例化（event.launched → find_or_create_and_start），
+  多个人工步骤（大纲确认 / 物料产出 / 现场答疑…）经
+  signal_cond → signal_step → join → merge 门控子图逐段放行。
 end note
 
-note over L,DB
-  **F1 修复已定位（2026-08-01）**：jido_runic handle_apply_result
-  ran_nodes 过滤缺陷——waiting 占位不应记 ran_nodes；修复 POC 已
-  验证 PASS；Agent 层标准写法采用官方 Coordinator fan-in
-  （orchestration guide 先例）。
+    T->>BUS: 人工动作信号（workflow.<step_key>）
+    BUS->>R: 订阅方投递（feed_signal）
+    R->>R: 门控按 signal_type 匹配 → join 判定
+    R->>DB: 步骤产出写 facts（save_step_output / handler）
+    R->>R: 下一段 manual 步骤停住（waiting，可 hibernate）
+    R->>R: 全部 join 满足 → run succeeded
+
+    note over T,DB
+  **报名 / 赞助（对照，R1 裁决）**：实体自序贯——
+  Ash action 状态机（prepare_policy / claim_pending CAS /
+  reserve_capacity 条件 UPDATE）+ SignalEmitter 事务内 outbox，
+  不经 WorkflowRun 引擎（enrollment.ex:363-418,563-667）。
+  workflow_run_id 为二期引擎化预留列（sponsorship.ex:226）。
 end note
-
-    Note over L,DB: 第一段：报名段 / 赞助段（Registration/Intent 段）
-    L->>W: 提交表单（enrollment.submitted / sponsorship.intent）
-    W->>R: 发信号 → SignalMatch 放行
-    R->>R: validate → persist_pending
-    R->>DB: 同步创建 Enrollment/Sponsorship（status=pending）
-    R->>R: 停住（waiting，不再等任何信号；可 hibernate）
-
-    Note over L,DB: 第二段：审批段（Approval 段，独立分支）
-    W->>R: 审批信号（enrollment.approved / sponsorship.approved）
-    R->>DB: approval_gate 读回 pending 记录校验
-    DB-->>R: pending 数据（仍 pending / 目标有效 / 审批人有权限）
-    R->>DB: confirm/activate（pending→confirmed/active 原子扣名额或生效）
-    R->>R: 发异步 Signal（enrollment.completed / sponsorship.active）
-    R->>R: run succeeded
 
 note bottom
   **与真实业务一致**：实体存 DB，审批是更新实体状态
   （pending→confirmed/rejected），不是重放报名/赞助流程；
   审批段可独立重试/补发，互不阻塞。
-  **Workflow 层（runic 直接驱动）**：join 模式可用（POC §3.2 PASS，
-  进程内多信号 feed）；v1 主路径可走 Workflow 层。适配层必须内置
-  「多信号分批 feed」集成测试防回归。
+  **Workflow 层（runic 直接驱动）**：join 模式可用
+  （react_until_satisfied，进程内多信号 feed）；多信号分批 feed
+  回归测试已内置（human_step_test.exs F1 防回归 + jido_adapter_test 多信号序列）。
 end note
 
 @enduml

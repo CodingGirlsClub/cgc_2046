@@ -1,0 +1,106 @@
+@startuml signal-event-catalog
+' ============================================================
+' L1 - 信号 / 事件目录图（事件驱动文档实践：EventCatalog 类）
+' 事实来源：backend/lib/cgc_2046/changes/signal_emitter.ex（生产者统一
+' 注入 idempotency_key="<type>:<record_id>"）、
+' backend/lib/cgc_2046/workflows/signal_subscriber.ex（订阅骨架：
+' 幂等四策略 + 消费键 = payload键:消费者短名 + DOWN 重订阅）、
+' 六订阅方模块 patterns（notification_subscriber / speaker_subscriber /
+' learning_instantiator / research_instantiator / research_run_reaper /
+' events/sponsorship_ended_subscriber）、
+' backend/lib/cgc_2046/workflows/{signal_idempotency,engine}.ex、
+' backend/lib/cgc_2046/workers/signal_publish_worker.ex。
+' 本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' ============================================================
+title CGC 平台信号目录：生产 → 总线 → 订阅（L1）
+
+skinparam backgroundColor white
+skinparam rectangle {
+    BackgroundColor #F0FDE8
+    BorderColor #2E7D32
+}
+skinparam queue {
+    BackgroundColor #FFF3E0
+    BorderColor #E65100
+}
+skinparam arrow {
+    Color #455A64
+}
+
+rectangle "生产方（SignalEmitter change 挂状态转换）" as PRODUCERS #E8F0FE {
+    rectangle "Enrollment\n状态机" as P_ENR
+    rectangle "Sponsorship\n状态机" as P_SPO
+    rectangle "SpeakerInvitation\n状态机" as P_SPK
+    rectangle "Event / Course\n生命周期" as P_EVT
+    rectangle "人工审批动作" as P_HUM
+    rectangle "引擎 run 完成" as P_ENG
+}
+
+rectangle "总线（backend 进程内）\nPhoenix PubSub Cgc2046.PubSub\n+ JidoAdapter forwarder（spawn，DOWN 自动重订阅）" as BUS #F0FDE8
+
+queue "Oban：SignalPublishWorker\n（重投；claim 策略消化重复）" as RETRY
+
+rectangle "订阅方（use SignalSubscriber 骨架）" as SUBS #FFFDE7 {
+    rectangle "NotificationSubscriber\n[claim_first]\nenrollment.approved/rejected\n/submitted/completed → 邮件" as S_NOTIF
+    rectangle "SpeakerSubscriber\n[claim_first]\nspeaker.accepted/completed\n→ 演讲者邮件" as S_SPK
+    rectangle "LearningInstantiator\n[claim_in_handle]\nenrollment.completed\n→ 创建学习 run" as S_LI
+    rectangle "ResearchInstantiator\n[state_based]\nevent/course.launched\n→ find_or_create 教研 run" as S_RI
+    rectangle "ResearchRunReaper\n[claim_after_effects]\nevent/course.ended\n→ 教研 run 收割" as S_RR
+    rectangle "SponsorshipEndedSubscriber\n[claim_after_effects]\nevent.ended\n→ 赞助权益结束" as S_SE
+    rectangle "引擎 run feed\nworkflow.approval\n→ thaw + feed_signal\n恢复 waiting run" as S_FEED
+}
+
+database "Postgres\nsignal_idempotency\n（claim 表，唯一索引\n(signal_type,\nidempotency_key)）\nSignalLog（每投递一行，\nrun 级审计）" as PG
+
+P_ENR --> BUS : enrollment.\nsubmitted/approved\n/rejected/completed
+P_SPO --> BUS : sponsorship.\nsubmitted/approved\n/rejected/active
+P_SPK --> BUS : speaker.\naccepted/declined\n/completed
+P_EVT --> BUS : event/course.\nlaunched/ended
+P_HUM --> S_FEED : workflow.approval\n（直接 feed，不走 PubSub）
+P_ENG --> BUS : workflow.run.completed
+
+BUS --> S_NOTIF
+BUS --> S_SPK
+BUS --> S_LI
+BUS --> S_RI
+BUS --> S_RR
+BUS --> S_SE
+BUS --> RETRY
+RETRY --> BUS : 重投
+
+S_NOTIF --> PG : claim
+S_SPK --> PG : claim
+S_LI --> PG : claim
+S_RR --> PG : claim
+S_SE --> PG : claim
+
+note right of BUS
+  生产契约：SignalEmitter 统一注入
+  payload["idempotency_key"]
+  = "<type>:<record_id>"；
+  缺键 = 契约违约 → 订阅方记
+  error 并丢弃（不执行副作用）。
+  消费键 = 生产键 + ":" + 消费者
+  短名（多订阅方各自独立去重）。
+end note
+
+note bottom of SUBS
+  幂等四策略（骨架唯一权威定义）：
+  · claim_first——副作用前 claim；claim 后失败不回滚
+    （NotificationSubscriber / SpeakerSubscriber）
+  · claim_in_handle——校验通过、副作用前自决 claim
+    （LearningInstantiator）
+  · claim_after_effects——副作用全成才 claim；失败不落
+    claim 可重投（ResearchRunReaper / SponsorshipEndedSubscriber）
+  · state_based——不写 claim，业务状态守卫
+    （ResearchInstantiator find_or_create）
+end note
+
+note right of PG
+  无订阅方的信号（目录完整性）：
+  · speaker.declined —— 无异步消费方
+  · sponsorship.* —— 只落 SignalLog/
+    run feed，无 PubSub 订阅方
+  · workflow.run.completed —— 引擎侧记录
+end note
+@enduml
