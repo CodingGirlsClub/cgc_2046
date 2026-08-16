@@ -4349,6 +4349,15 @@ type User {
   joinedAt: DateTime
 }
 
+"The result of the :refund_order mutation"
+type RefundOrderResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
 "The result of the :cancel_order mutation"
 type CancelOrderResult {
   "The successful result of the mutation"
@@ -5548,6 +5557,9 @@ type RootMutationType {
 
   "报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）"
   cancelOrder(id: ID!): CancelOrderResult!
+
+  "管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）"
+  refundOrder(id: ID!): RefundOrderResult!
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!

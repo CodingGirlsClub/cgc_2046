@@ -28,6 +28,9 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.ResearchRunReaper,
       # 赞助关系级联（E-3 #48：订阅 event.ended → Event 级 active Sponsorship 转 ended）
       Cgc2046.Events.SponsorshipEndedSubscriber,
+      # Event cancelled 批量退款（缴费闭环 U9：订阅 event.ended，回查 cancelled
+      # 才批量退——paid 逐笔退款 / payment_pending 取消释放）。
+      Cgc2046.Workers.EventCancelRefundWorker,
       # 学习 workflow 实例化（E-7 #122：订阅 enrollment.completed → 幂等种 learning run）
       Cgc2046.Workflows.LearningInstantiator,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。

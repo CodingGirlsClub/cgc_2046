@@ -276,13 +276,51 @@ defmodule Cgc2046.Payments.Order do
     end
 
     update :retry_refund do
-      description("重试退款：refund_failed → refunding")
+      description("管理员重试退款：refund_failed → refunding 重入退款链（R17）")
       require_atomic?(false)
       accept([])
 
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_retry_refund/1)
       end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, refunding ->
+          enqueue_refund_job(refunding)
+        end)
+      end)
+
+      change(
+        {Cgc2046.Changes.LogAdminAction,
+         action: :order_refund_retry,
+         target_type: :order,
+         metadata: &__MODULE__.refund_log_metadata/2}
+      )
+    end
+
+    # 管理员单笔退款（R15）：paid → refunding + 入队渠道退款。closed 后单笔仍可
+    # （不校验 Event status，plan U9-4）；expired 迟到退款走内部 start_refund
+    # （U7 自动退款链），不经本 action。
+    update :refund do
+      description("管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）")
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_refund/1)
+      end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, refunding ->
+          enqueue_refund_job(refunding)
+        end)
+      end)
+
+      change(
+        {Cgc2046.Changes.LogAdminAction,
+         action: :order_refund, target_type: :order, metadata: &__MODULE__.refund_log_metadata/2}
+      )
     end
   end
 
@@ -307,6 +345,13 @@ defmodule Cgc2046.Payments.Order do
     policy action_type(:read) do
       authorize_if(expr(enrollment.user_id == ^actor(:id)))
     end
+
+    # 管理员单笔退款/重试（R15/R19）：Workspace Owner/Admin；PlatformAdmin
+    # 持退款兜底权（资金主体）。
+    policy action([:refund, :retry_refund]) do
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
   end
 
   graphql do
@@ -321,6 +366,7 @@ defmodule Cgc2046.Payments.Order do
       create(:create_order, :create_for_enrollment)
       create(:replace_provider, :replace_provider)
       update(:cancel_order, :cancel_pending)
+      update(:refund_order, :refund)
     end
   end
 
@@ -772,6 +818,34 @@ defmodule Cgc2046.Payments.Order do
       {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :refunding)
       {:error, changeset} -> changeset
     end
+  end
+
+  # 管理员单笔退款（R15）：CAS paid → refunding。closed 后仍可（无 Event
+  # status 校验）；非 paid（含 expired 自动退款路径）被状态守卫拒绝。
+  defp prepare_refund(changeset) do
+    case claim(changeset, [:paid], "status = 'refunding'") do
+      {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :refunding)
+      {:error, changeset} -> changeset
+    end
+  end
+
+  # 渠道退款 job 同事务入队（SignalEmitter outbox 同款纪律）：CAS 成功才有
+  # after_action，失败路径不产生孤儿 job。
+  defp enqueue_refund_job(order) do
+    %{"order_id" => order.id}
+    |> Cgc2046.Workers.PaymentRefundWorker.new()
+    |> Oban.insert!()
+
+    {:ok, order}
+  end
+
+  def refund_log_metadata(_changeset, order) do
+    %{
+      "order_id" => order.id,
+      "enrollment_id" => order.enrollment_id,
+      "amount_cents" => order.amount_cents,
+      "provider" => to_string(order.provider)
+    }
   end
 
   # 条件 UPDATE CAS：WHERE 带 id + 源状态守卫。命中（num_rows=1）→ 返回
