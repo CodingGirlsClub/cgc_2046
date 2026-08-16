@@ -163,21 +163,23 @@
 
 ## 7. 行动建议（⑥层结果）
 
-### 7.1 裁决表（建议 Leader 拍板）
+### 7.1 裁决表（2026-08-16 已裁决并执行，commit 见 git log）
 
+| # | 事项 | 判定 | 裁决 | 执行状态 |
+|---|---|---|---|---|
+| R1 | enrollment/sponsorship 实体自序贯 vs 图画成引擎编排 | 图旧（有拍板：sponsorship.ex:226） | 改图 | ✅ 两图重画为「实体状态机 + 信号」，保留二期引擎化注记 |
+| R2 | `Step.agent_id` 悬空引用（Agent 族无表） | 腐蚀倾向 | **删列**（用户拍板） | ✅ step.ex 删属性 + migration 20260816200000 + 测试绿 |
+| R3 | platform_ops 类型枚举无驱动 | 悬空 | **删枚举**（用户拍板） | ✅ @type_values 5 值 + migration 清数据 + 测试改 5 值含拒绝旧值 |
+| R4 | learning 绕 Engine（协议非 DAG） | 图漏 | 补图 | ✅ 新增 `workflow-learning.puml`（第三种形态完整呈现） |
+| R5 | 四组 POC 词汇悬空 | 图旧（POC 当产品） | 移除/标注 | ✅ 4 张 L3 图清理；F8 在 REVIEW-FINDINGS 更正关闭 |
+| R6 | WorkflowRun :expired + F2 已闭环 | 图旧 | 更新 | ✅ 7 态 + EXPIRED 转移；F2/F7/F1/F12 关闭 |
+| R7 | 枚举族漂移 | 图旧 | 更新 | ✅ entity-state-machines / confirm-flow / L1 两图对齐码枚举 |
+| R8 | F4 支付状态未预留 | 悬空（v1 有意） | 基准外 | ⏸ feat/payment-loop 合入后回写图 |
+| R9 | D12 绝对化表述 | 图旧（弱） | 更新 | ✅ architecture-overview 加例外清单 |
+| R10 | 邮件 fire-and-forget + claim_first 至多一次 | 质量属性风险 | 上线前裁决 | ⏸ 未裁决（运维文档 §3） |
 
-| # | 事项 | 判定 | 建议裁决 |
-|---|---|---|---|
-| R1 | enrollment/sponsorship 实体自序贯 vs 图画成引擎编排 | 图旧（有拍板：sponsorship.ex:226） | 改 `workflow-enrollment/sponsorship.puml` 为「实体状态机 + 信号」形态；保留「二期引擎化」插桩注记 |
-| R2 | `Step.agent_id` 悬空引用（Agent 族无表） | 腐蚀倾向（唯一无拍板痕迹的项） | 拍板：删列（BYO 形态 Agent 在用户侧，倾向删）or 建 Agent 资源 |
-| R3 | platform_ops 类型枚举无驱动 | 悬空 | 删枚举 or 标注 roadmap |
-| R4 | learning 绕 Engine（协议非 DAG） | 图漏（良性演进） | L2 补 learning 一图（协议驱动的第三种 workflow 形态：引擎编排 / 实体自序贯 / 协议流转） |
-| R5 | 四组 POC 词汇（InstanceManager/SignalMatch/Coordinator/auto_approve）悬空 | 图旧（POC 当产品） | 从 4 张 L3 图移除或加「POC 探索，产品未采用」标注；F8 的 auto_approve 在 REVIEW-FINDINGS 同步更正 |
-| R6 | WorkflowRun :expired + F2 已闭环 | 图旧 | 更新 `workflow-run-state.puml`（7 态 + ApprovalExpiryWorker 路径）；REVIEW-FINDINGS F2 关闭 |
-| R7 | 枚举族漂移（:expired 族 / cancelled / ToolCallLog） | 图旧 | 更新 `entity-state-machines.puml`、`confirm-flow.puml` |
-| R8 | F4 支付状态未预留 | 悬空（v1 范围内有意） | `feat/payment-loop` 分支进行中；合入后回写图（基准外，本报告不判） |
-| R9 | D12 绝对化表述（workspace_id 必填） | 图旧（弱） | 更新为「必填 + 例外清单（confirm/cancel、save_step_output）」 |
-| R10 | 邮件 fire-and-forget + claim_first 至多一次 | 质量属性风险（非漂移） | 上线前裁决：持久化队列 or 接受丢失面（运维文档 §3 已列） |
+超出裁决表的两处顺带修正（均有 L1 底稿依据）：L0 两图业务资源清单删 ResearchOutput；
+ER 图 PendingOperation/ToolCallLog 枚举与字段名同步。
 
 ### 7.2 还账清单（图侧，低成本）
 

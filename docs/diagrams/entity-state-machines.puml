@@ -1,58 +1,58 @@
 @startuml entity-state-machines
 ' ============================================================
-' L2 - 业务实体状态机汇总
-' 事实来源：docs/00-CGC平台设计总纲.md §3.2 + docs/01-定稿设计/
-'   报名workflow详细设计.md §5.2 / 赞助 §5.2 / 邀请 §5.2 / 教研 §5.2
+' L2 - 业务实体状态机汇总（按码现状 @status_values 修正）
+' 事实来源：backend/lib/cgc_2046/events/enrollment.ex:53-58 ·
+'   events/sponsorship.ex:79-84 · events/speaker_invitation.ex:38,127-128 ·
+'   events/invite_batch.ex:48-54（+ enrollment.ex:582-603 条件 UPDATE 扣配额）·
+'   workflows/workflow_definition.ex:48（@status_values）·
+'   workers/approval_expiry_worker.ex:63-99（pending 过期扫描面）
 ' ============================================================
-title 业务实体状态机汇总（L2）
+title 业务实体状态机汇总（L2，按码现状）
 skinparam backgroundColor white
 skinparam state {
     BackgroundColor #F0FDE8
     BorderColor #2E7D32
 }
 
-' ---------------- Enrollment ---------------- 
+' ---------------- Enrollment（enrollment.ex:53-58） ---------------- 
 state "Enrollment（报名）" as ENR {
-    [*] --> draft : 表单开始(可选暂存)
-    draft --> submitted : 提交 enrollment.submitted
-    submitted --> confirmed : open/invite_only S7 创建成功
-    submitted --> pending : request 策略 进入审批
-    pending --> rejected : 审批拒绝(A4)
-    pending --> confirmed : 审批通过(A3 扣名额)
-    submitted --> cancelled : 截止/超时
-    pending --> cancelled : 截止/超时
-    confirmed --> cancelled : 用户取消/报名截止
+    [*] --> pending : create_enrollment\n（request 策略：不占名额 + approval_deadline）
+    [*] --> confirmed : create_enrollment\n（open：reserve_capacity；\ninvite_only：+ 扣批次配额）
+    pending --> confirmed : confirm_enrollment\nclaim_pending CAS + 原子扣名额
+    pending --> rejected : reject_enrollment\n（记 rejection_reason）
+    pending --> expired : ApprovalExpiryWorker 扫描\n（approval_deadline 过点）
+    pending --> cancelled : cancel（本人取消）
+    confirmed --> cancelled : cancel\n（release_capacity 释放名额）
 }
 
-' ---------------- Sponsorship ---------------- 
+' ---------------- Sponsorship（sponsorship.ex:79-84） ---------------- 
 state "Sponsorship（赞助）" as SPS {
-    [*] --> pending : 意向提交 persist_sponsorship
-    pending --> active : 审批通过 activate_sponsorship\n（权益生效）
-    pending --> rejected : 审批拒绝
-    active --> ended : Event 结束/终止/续期结束
+    [*] --> pending : create_sponsorship\n（意向提交）
+    pending --> active : approve_sponsorship\n（同事务物化 SponsorshipDelivery）
+    pending --> rejected : reject_sponsorship
+    pending --> expired : F7 过期\n（≠ rejected，可重提，重提走新行）
+    active --> ended : event.ended →\nSponsorshipEndedSubscriber（Event 级）
 }
 
-' ---------------- SpeakerInvitation ---------------- 
+' ---------------- SpeakerInvitation（speaker_invitation.ex:38） ---------------- 
 state "SpeakerInvitation（演讲邀请）" as SPI {
-    [*] --> invited : Owner 创建 create_invitation
-    invited --> accepted : 接受 accept_invitation\ntoken 失效
-    invited --> declined : 婉拒 decline_invitation
-    invited --> expired : 过期未决策(可选)
-    accepted --> completed : 材料产出完成 complete_speaking
+    [*] --> invited : create_invitation\n（Owner 后台，事务内起 run）
+    invited --> accepted : accept_invitation\ntoken 一次性失效
+    invited --> declined : decline_invitation\n（run 终态 failed）
+    accepted --> completed : complete_speaking\n（run succeeded）
 }
 
-' ---------------- WorkflowDefinition ---------------- 
+' ---------------- WorkflowDefinition（workflow_definition.ex:48） ---------------- 
 state "WorkflowDefinition（流程定义）" as WFD {
     [*] --> draft : 创建
     draft --> published : 发布（可实例化 run）
     published --> archived : 归档（改定义不影响已开始 run）
 }
 
-' ---------------- InviteBatch ---------------- 
+' ---------------- InviteBatch（invite_batch.ex:48-54） ---------------- 
 state "InviteBatch（邀请批次）" as IVB {
     [*] --> active : 后台创建
-    active --> disabled : 停用（S6 校验失败）
-    active --> exhausted : 配额用尽 remaining_quota=0\n（或到有效期）
+    active --> disabled : 停用（运营下架）
 }
 
 ' ---------------- ResearchOutput ---------------- 
@@ -63,17 +63,29 @@ state "ResearchOutput（教研产出）" as RSO {
 }
 
 note bottom of ENR
-  **与 WorkflowRun 状态对应**：
-  - draft/submitted → run pending/running（S1 waiting）
-  - pending → run waiting（报名段停住，等审批段）
-  - confirmed → run succeeded（A3/A5 后）
-  - rejected/cancelled → run failed/cancelled（终态）
-  v1 主路径：submitted → confirmed（open 策略），run succeeded。
+  **码现状（enrollment.ex:53-58）**：状态集
+  [pending / confirmed / rejected / expired / cancelled]——
+  无 draft/submitted（创建即 pending/confirmed）。
+  v1 实体自序贯：不建 WorkflowRun（workflow_run_id 预留二期，
+  enrollment.ex:50）。
+end note
+
+note bottom of SPI
+  **码现状（speaker_invitation.ex:38）**：
+  [invited / accepted / declined / completed]——无 expired 态；
+  expires_at 仅作 token 校验谓词，不落状态（:127-128）。
+end note
+
+note bottom of IVB
+  **码现状（invite_batch.ex:48-54）**：[active / disabled]——
+  无 exhausted 态；配额尽 = remaining_quota=0 的条件 UPDATE
+  扣减失败（enrollment.ex:582-603），非状态迁移。
 end note
 
 note bottom of SPS
-  **v1 主路径**：pending → active（审批通过），run succeeded。
-  收款/支付 = 二期：状态机需插 payment_pending → paid（在 active 前）。
+  **v1 主路径**：pending → active（审批通过）。
+  收款/支付 = 二期（F4）：状态机需插 payment_pending → paid；
+  v1 全库无支付状态（amount 仅登记）。
 end note
 
 @enduml

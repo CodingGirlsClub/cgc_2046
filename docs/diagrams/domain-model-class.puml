@@ -1,10 +1,12 @@
 @startuml domain-model-class
 ' ============================================================
 ' L1 - 领域模型类图（Domain Model Class）
-' 事实来源：docs/01-定稿设计/领域模型定稿.md §5.1 资源清单 + §4 引擎 context
-' 按 context 分层：全局 / 身份租户 / 引擎 / Agent-MCP / 业务；
-' 突出四件套业务 workflow 的核心聚合（Enrollment、Sponsorship、
-' SpeakerInvitation、ResearchOutput）与引擎（WorkflowDefinition/Run/Step）。
+' 事实来源（代码锚点）：backend/lib/cgc_2046 资源注册清单
+'   （global_api.ex / api.ex / mcp.ex）及各资源模块
+'   （漂移复核：DRIFT-EVIDENCE/L1-domain-model.md §2）
+' 按 context 分层：全局 / 身份租户 / 引擎 / MCP / 业务；
+' 突出业务 workflow 核心聚合（Enrollment、Sponsorship、
+' SpeakerInvitation；教研产出 = WorkflowRun.facts）与引擎（Definition/Run/Step）。
 ' ============================================================
 title CGC 平台领域模型类图（L1）
 skinparam backgroundColor white
@@ -21,7 +23,7 @@ package "全局 context" #E8F0FE {
         + slug: string (唯一)
         + join_policy: open|request|invite_only
         + sponsorship_enabled: boolean
-    }
+        + sponsorship_tiers: json（内嵌档位）
 }
 
 package "身份/租户 context" #F3E8FD {
@@ -37,38 +39,35 @@ package "身份/租户 context" #F3E8FD {
 
 package "引擎 context" #FDE8F0 {
     class WorkflowDefinition {
-        + type: platform_ops|learning|enrollment
-                |sponsorship|speaker_invitation|research
-        + version: string
+        + type: learning|research|speaker_invitation
+                |enrollment|sponsorship（预留）
+        + version: integer
         + input_schema: json
         + node_def: Runic.Workflow
         + status: draft|published|archived
     }
     class WorkflowRun {
-        + status: pending|running|waiting
+        + status: pending|running|waiting|expired
                   |succeeded|failed|cancelled
         + input_snapshot: json
         + facts: json
         + partition_id: uuid  (= workspace_id)
     }
     class Step {
-        + type: auto|manual|gate|subworkflow
-        + agent_id / sub_definition_id
+        + type: auto|manual|gate|sub_workflow
+        + sub_definition_id
     }
     class StepRole
     class SignalLog
 }
 
-package "Agent / MCP context" #FEF9C3 {
-    class Agent {
-        + type: personal|public
-        + allowed_roles
-        + openclacky_profile / model / skills
+package "MCP context" #FEF9C3 {
+    class PendingOperation {
+        + status: pending|confirmed|cancelled
     }
-    class AgentRole
-    class AgentRun
-    class PendingOperation
-    class ToolCallLog
+    class ToolCallLog {
+        + result_status: ok|error|needs_confirmation|forbidden
+    }
 }
 
 package "业务 context" #F0FDE8 {
@@ -76,15 +75,14 @@ package "业务 context" #F0FDE8 {
         + enrollment_policy / capacity
         + registration_deadline / status
         + sponsorship_enabled / sponsorship_deadline
-        + materials_review_required
+        + sponsorship_tiers: json（内嵌档位）
     }
     class Course {
         + enrollment_policy / capacity
         + registration_deadline / status
-        + materials_review_required
     }
     class Enrollment {
-        + status: pending|confirmed|rejected|cancelled
+        + status: pending|confirmed|rejected|cancelled|expired
         + invite_batch_id
         + approved_by / approved_at / rejection_reason
     }
@@ -95,24 +93,14 @@ package "业务 context" #F0FDE8 {
     }
     class Sponsorship {
         + level: event|workspace
-        + tier_id / tier_name
-        + status: pending|active|rejected|ended
+        + tier_id（内嵌档位 id）/ tier_name
+        + status: pending|active|rejected|ended|expired
         + approved_by / approved_at
-    }
-    class SponsorshipTier {
-        + name / amount_suggestion
-        + benefits: list
-        + limit (二期)
     }
     class SpeakerInvitation {
         + token_hash (一次性)
         + status: invited|accepted|declined|completed
         + speaker_user_id (接受后绑定)
-    }
-    class ResearchOutput {
-        + key: event_#|course_#
-        + kind: outline|materials|archive
-        + status: drafted|ready|archived
     }
 }
 
@@ -128,24 +116,19 @@ WorkflowDefinition "1" -- "0..*" Step : 分解节点
 WorkflowDefinition "1" -- "0..*" WorkflowRun : 实例化
 WorkflowRun "1" -- "0..*" SignalLog : 信号日志
 Step "1" -- "0..*" StepRole : 执行角色
-Step "0..1" -- "1" Agent : 人工步骤使用
 
 Workspace "1" -- "0..*" Event : 举办活动
 Workspace "1" -- "0..*" Course : 开设课程
-Workspace "1" -- "0..*" SponsorshipTier : 配置档位
 Event "1" -- "0..*" Enrollment : 报名
 Course "1" -- "0..*" Enrollment : 报名
 Event "1" -- "0..*" InviteBatch : 邀请批次
 InviteBatch "1" -- "0..*" Enrollment : 批次扣减
 Event "1" -- "0..*" Sponsorship : Event 级赞助
 Event "1" -- "0..*" SpeakerInvitation : 邀请演讲者
-Event "1" -- "0..*" ResearchOutput : 教研产出
-Course "1" -- "0..*" ResearchOutput : 教研产出
 
 WorkflowRun "1" -- "0..*" Enrollment : 创建报名
 WorkflowRun "1" -- "0..*" Sponsorship : 创建赞助
 WorkflowRun "1" -- "0..*" SpeakerInvitation : 创建邀请
-WorkflowRun "1" -- "0..*" ResearchOutput : 创建教研产出
 
 note bottom of Enrollment
   两类关系互不替代（领域模型定稿 §2.1）：
