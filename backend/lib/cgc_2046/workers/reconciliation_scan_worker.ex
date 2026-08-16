@@ -2,10 +2,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   @moduledoc """
   对账扫描 worker（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D2）。
 
-  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫六条孤儿规则 →
+  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫七条孤儿规则 →
   落 `reconciliation_findings`（`Cgc2046.Reconciliation.Finding`）。
 
-  ## 六规则（rule 枚举见 Finding moduledoc）
+  ## 七规则（rule 枚举见 Finding moduledoc）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot->>'enrollment_id'` join
@@ -25,6 +25,11 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker）。
      **Pruner 7 天窗口内判定**：oban_jobs 超出 Pruner max_age（7 天）的 discarded
      历史行不报告——死信告警只覆盖可排查窗口，历史已过期行交给 Pruner 清理。
+  7. `:learning_run_stalled` — learning run 停滞（E-9 #122 补差）：
+     `status=running ∧ definition.type=learning ∧ updated_at 严格早于 cutoff`
+     （7 天无 facts 更新）。阈值与 LearningProgressWorker 停滞提醒（D6-③）同源
+     ——`LearningProgress.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
+     分工：提醒归 LPW，对账可见归本规则（/admin 对账页 findings 列表）。
 
   ## 刷新语义（D2）
 
@@ -57,6 +62,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
+  alias Cgc2046.Workflows.LearningProgress
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -91,7 +97,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
     :ok
   end
 
-  # 六规则分派表（运行时求值：scan_ruleN 为私有函数，编译期前向引用不可行）
+  # 七规则分派表（运行时求值：scan_ruleN 为私有函数，编译期前向引用不可行）
   defp rules do
     [
       {:confirmed_enrollment_without_run, fn -> scan_rule1() end},
@@ -99,7 +105,8 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
       {:active_sponsorship_signal_dead, fn -> scan_rule3() end},
       {:open_entity_without_research_definition, fn -> scan_rule4() end},
       {:nonterminal_research_run_for_closed_entity, fn -> scan_rule5() end},
-      {:dead_letter_job, fn -> scan_rule6() end}
+      {:dead_letter_job, fn -> scan_rule6() end},
+      {:learning_run_stalled, fn -> scan_rule7() end}
     ]
   end
 
@@ -415,4 +422,37 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   end
 
   defp last_error(_errors), do: nil
+
+  # ── 规7：learning run 停滞（7 天无 facts 更新，与 LPW 提醒同源判定）-----------
+
+  # 判定与 LearningProgressWorker 停滞提醒（D6-③）同一口径：running 且
+  # updated_at 严格早于 cutoff（running 态下 facts 写入是唯一更新路径，
+  # updated_at 即 facts 更新代理）；阈值单点定义在 LearningProgress，只引用。
+  defp scan_rule7 do
+    cutoff = LearningProgress.stagnant_cutoff()
+
+    WorkflowRun
+    |> Ash.Query.filter(status == :running and definition.type == :learning)
+    |> Ash.read!(authorize?: false)
+    |> Enum.filter(fn run ->
+      is_struct(run.updated_at, DateTime) and DateTime.compare(run.updated_at, cutoff) == :lt
+    end)
+    |> Enum.map(&stagnation_candidate/1)
+  end
+
+  defp stagnation_candidate(run) do
+    input = run.input_snapshot || %{}
+    enrollment_id = Map.get(input, "enrollment_id") || Map.get(input, :enrollment_id)
+
+    %{
+      entity_type: :workflow_run,
+      entity_id: run.id,
+      workspace_id: run.workspace_id,
+      detail: %{
+        enrollment_id: enrollment_id,
+        title: Map.get(input, "title") || Map.get(input, :title),
+        last_update_at: DateTime.to_iso8601(run.updated_at)
+      }
+    }
+  end
 end

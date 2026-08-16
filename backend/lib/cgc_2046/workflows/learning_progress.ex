@@ -5,7 +5,27 @@ defmodule Cgc2046.Workflows.LearningProgress do
   执行拓扑来自 `WorkflowDefinition.node_def`；步骤标题来自独立的 `Step` 资源。
   两者只通过 `node_def.steps[].id == step.step_key` 关联，facts 只按 step key
   判断是否已完成。
+
+  另承载学习 run 停滞口径（E-9 #122 补差同源常量）：`stagnant_cutoff/1` 同时是
+  `LearningProgressWorker` 停滞提醒（D6-③）与 E-10 对账规则⑦
+  `learning_run_stalled` 的判定基准——两消费方只引用，不各自定义阈值。
   """
+
+  # 停滞阈值（天，D6-③）：LearningProgressWorker 提醒与 ReconciliationScanWorker
+  # 规则⑦同源——修改只在此一处。
+  @stagnation_threshold_days 7
+
+  @doc "学习 run 停滞阈值（天；D6-③ 口径，提醒与对账规则⑦同源）"
+  def stagnation_threshold_days, do: @stagnation_threshold_days
+
+  @doc """
+  停滞判定 cutoff：`updated_at` 早于 cutoff（严格小于，7 天）视为停滞。
+  与 LearningProgressWorker 停滞提醒（D6-③）同一判定；E-10 对账规则⑦复用。
+  """
+  @spec stagnant_cutoff(DateTime.t()) :: DateTime.t()
+  def stagnant_cutoff(now \\ DateTime.utc_now()) do
+    DateTime.add(now, -@stagnation_threshold_days, :day)
+  end
 
   @type step :: %{optional(:step_key | String.t()) => term()}
 

@@ -23,6 +23,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
   alias Cgc2046.Workers.NotificationWorker
   alias Cgc2046.Workers.ReconciliationScanWorker
   alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.LearningProgress
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -460,6 +461,125 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     end
   end
 
+  # ── 规7：learning run 停滞（> 7d 无 facts 更新，与 LPW 提醒同源判定）---------
+
+  describe "规7 learning run 停滞" do
+    test "running learning run 停滞 > 7 天 → 命中；消解（run 转终态）→ 空" do
+      admin = Fixtures.platform_admin("rc7-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learning_defn = create_published_definition(workspace, admin, :learning)
+      learner = Fixtures.register_user("rc7-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      enrollment = create_confirmed_enrollment(event, workspace, learner)
+      run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
+      force_run_status(run, "running")
+      backdate_run(run, LearningProgress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:learning_run_stalled)
+      assert finding.entity_type == :workflow_run
+      assert finding.entity_id == run.id
+      assert finding.workspace_id == workspace.id
+      assert finding.detail["enrollment_id"] == enrollment.id
+
+      # 消解：停滞 run 转终态（学员侧推进 / 人工干预）→ 下一拍删除
+      force_run_status(run, "succeeded")
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:learning_run_stalled)
+    end
+
+    test "活跃 run（updated_at 近）→ 不命中" do
+      admin = Fixtures.platform_admin("rc7-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learning_defn = create_published_definition(workspace, admin, :learning)
+      learner = Fixtures.register_user("rc7-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      enrollment = create_confirmed_enrollment(event, workspace, learner)
+      run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
+      force_run_status(run, "running")
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:learning_run_stalled)
+    end
+
+    test "7 天边界两侧：未满 7 天不命中，超过 7 天命中（严格 :lt 口径）" do
+      admin = Fixtures.platform_admin("rc7-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learning_defn = create_published_definition(workspace, admin, :learning)
+      event = EventFixtures.create_event(workspace, admin)
+
+      # 测试与扫描各算一次 cutoff（亚秒偏差）——用 ±60s 裕度做确定性两侧断言
+      cutoff = LearningProgress.stagnant_cutoff()
+
+      # cutoff + 60s：7 天差 1 分钟，未满 7 天 → 不命中
+      learner_a = Fixtures.register_user("rc7-learner-a")
+      enrollment_a = create_confirmed_enrollment(event, workspace, learner_a)
+      run_a = create_learning_run(workspace, admin, learning_defn, enrollment_a.id)
+      force_run_status(run_a, "running")
+      backdate_run(run_a, DateTime.add(cutoff, 60, :second))
+
+      # cutoff - 60s：7 天零 1 分钟 → 命中
+      learner_b = Fixtures.register_user("rc7-learner-b")
+      enrollment_b = create_confirmed_enrollment(event, workspace, learner_b)
+      run_b = create_learning_run(workspace, admin, learning_defn, enrollment_b.id)
+      force_run_status(run_b, "running")
+      backdate_run(run_b, DateTime.add(cutoff, -60, :second))
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:learning_run_stalled)
+      assert finding.entity_id == run_b.id
+    end
+
+    test "非 running（pending/succeeded）→ 不命中" do
+      admin = Fixtures.platform_admin("rc7-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learning_defn = create_published_definition(workspace, admin, :learning)
+      learner = Fixtures.register_user("rc7-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      enrollment = create_confirmed_enrollment(event, workspace, learner)
+      run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
+      # 默认 pending（未 start）；再补一个 succeeded
+      backdate_run(run, LearningProgress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+      done = create_learning_run(workspace, admin, learning_defn, enrollment.id)
+      force_run_status(done, "succeeded")
+      backdate_run(done, LearningProgress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:learning_run_stalled)
+    end
+
+    test "重复扫描幂等：同 run 未消解 finding 不重复建，保 first_seen_at" do
+      admin = Fixtures.platform_admin("rc7-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learning_defn = create_published_definition(workspace, admin, :learning)
+      learner = Fixtures.register_user("rc7-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      enrollment = create_confirmed_enrollment(event, workspace, learner)
+      run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
+      force_run_status(run, "running")
+      backdate_run(run, LearningProgress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [finding] = findings(:learning_run_stalled)
+      first_seen = finding.first_seen_at
+
+      # 回拨 last_seen_at → 第二拍 upsert 只推 last_seen_at（claim 语义不重复建）
+      Repo.query!(
+        "UPDATE reconciliation_findings SET last_seen_at = NOW() - INTERVAL '1 day' WHERE id = $1",
+        [Ecto.UUID.dump!(finding.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [again] = findings(:learning_run_stalled)
+      assert again.first_seen_at == first_seen
+      assert DateTime.compare(again.last_seen_at, first_seen) == :gt
+    end
+  end
+
   # ── 刷新语义（D2）与空报告 ----------------------------------------------------
 
   describe "刷新语义" do
@@ -553,5 +673,13 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
              |> Ash.create(actor: user)
 
     application
+  end
+
+  # 回拨 updated_at（布置而非被测对象；SQL 直写绕开 Ash update_timestamp）
+  defp backdate_run(run, timestamp) do
+    Repo.query!("UPDATE workflow_runs SET updated_at = $1 WHERE id = $2", [
+      timestamp,
+      Ecto.UUID.dump!(run.id)
+    ])
   end
 end
