@@ -5,12 +5,14 @@
 ' 注入 idempotency_key="<type>:<record_id>"）、
 ' backend/lib/cgc_2046/workflows/signal_subscriber.ex（订阅骨架：
 ' 幂等四策略 + 消费键 = payload键:消费者短名 + DOWN 重订阅）、
-' 六订阅方模块 patterns（notification_subscriber / speaker_subscriber /
+' 七订阅方模块 patterns（notification_subscriber / speaker_subscriber /
 ' learning_instantiator / research_instantiator / research_run_reaper /
-' events/sponsorship_ended_subscriber）、
+' events/sponsorship_ended_subscriber / workers/event_cancel_refund_worker）、
 ' backend/lib/cgc_2046/workflows/{signal_idempotency,engine}.ex、
-' backend/lib/cgc_2046/workers/signal_publish_worker.ex。
-' 本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' backend/lib/cgc_2046/workers/signal_publish_worker.ex ·
+' payments/order.ex:248-263（order.paid 唯一支付信号）·
+' events/enrollment.ex:257-299（completed 补发面扩二）。
+' 本图按 codebase 现状绘制（2026-08，develop 7c8cadb）。
 ' ============================================================
 title CGC 平台信号目录：生产 → 总线 → 订阅（L1）
 
@@ -32,6 +34,7 @@ rectangle "生产方（SignalEmitter change 挂状态转换）" as PRODUCERS #E8
     rectangle "Sponsorship\n状态机" as P_SPO
     rectangle "SpeakerInvitation\n状态机" as P_SPK
     rectangle "Event / Course\n生命周期" as P_EVT
+    rectangle "Payments.Order\n（mark_paid）" as P_ORD
     rectangle "人工审批动作" as P_HUM
     rectangle "引擎 run 完成" as P_ENG
 }
@@ -47,15 +50,17 @@ rectangle "订阅方（use SignalSubscriber 骨架）" as SUBS #FFFDE7 {
     rectangle "ResearchInstantiator\n[state_based]\nevent/course.launched\n→ find_or_create 教研 run" as S_RI
     rectangle "ResearchRunReaper\n[claim_after_effects]\nevent/course.ended\n→ 教研 run 收割" as S_RR
     rectangle "SponsorshipEndedSubscriber\n[claim_after_effects]\nevent.ended\n→ 赞助权益结束" as S_SE
+    rectangle "EventCancelRefundWorker\n[state_based]\nevent.ended → 回查 cancelled\n→ 批量退款入队" as S_ECR
     rectangle "引擎 run feed\nworkflow.approval\n→ thaw + feed_signal\n恢复 waiting run" as S_FEED
 }
 
 database "Postgres\nsignal_idempotency\n（claim 表，唯一索引\n(signal_type,\nidempotency_key)）\nSignalLog（每投递一行，\nrun 级审计）" as PG
 
-P_ENR --> BUS : enrollment.\nsubmitted/approved\n/rejected/completed
+P_ENR --> BUS : enrollment.\nsubmitted/approved\n/rejected/completed\n（completed 另经 settle_paid/\nwaive_payment 补发，KTD6-6）
 P_SPO --> BUS : sponsorship.\nsubmitted/approved\n/rejected/active
 P_SPK --> BUS : speaker.\naccepted/declined\n/completed
 P_EVT --> BUS : event/course.\nlaunched/ended
+P_ORD --> BUS : order.paid\n（落账 worker 驱动\nmark_paid 挂点，R7）
 P_HUM --> S_FEED : workflow.approval\n（直接 feed，不走 PubSub）
 P_ENG --> BUS : workflow.run.completed
 
@@ -65,6 +70,7 @@ BUS --> S_LI
 BUS --> S_RI
 BUS --> S_RR
 BUS --> S_SE
+BUS --> S_ECR
 BUS --> RETRY
 RETRY --> BUS : 重投
 
@@ -73,6 +79,7 @@ S_SPK --> PG : claim
 S_LI --> PG : claim
 S_RR --> PG : claim
 S_SE --> PG : claim
+S_ECR --> PG : 不 claim\n（CAS 状态守卫）
 
 note right of BUS
   生产契约：SignalEmitter 统一注入
@@ -84,6 +91,15 @@ note right of BUS
   短名（多订阅方各自独立去重）。
 end note
 
+note bottom of PRODUCERS
+  **payments 域不走信号总线驱动状态**（#172）：
+  资金落账/退款/过期全由 webhook 回调 +
+  Oban worker（settlement / expiry /
+  refund / event_cancel_refund）直推，
+  KTD12「落账 worker 是资金唯一路径」；
+  唯一信号 order.paid 仅落 SignalLog 审计。
+end note
+
 note bottom of SUBS
   幂等四策略（骨架唯一权威定义）：
   · claim_first——副作用前 claim；claim 后失败不回滚
@@ -93,7 +109,8 @@ note bottom of SUBS
   · claim_after_effects——副作用全成才 claim；失败不落
     claim 可重投（ResearchRunReaper / SponsorshipEndedSubscriber）
   · state_based——不写 claim，业务状态守卫
-    （ResearchInstantiator find_or_create）
+    （ResearchInstantiator find_or_create /
+    EventCancelRefundWorker 回查 cancelled + CAS）
 end note
 
 note right of PG
@@ -102,5 +119,7 @@ note right of PG
   · sponsorship.* —— 只落 SignalLog/
     run feed，无 PubSub 订阅方
   · workflow.run.completed —— 引擎侧记录
+  · order.paid —— payments 审计信号
+    （R7，无消费方；重投不触发副作用）
 end note
 @enduml

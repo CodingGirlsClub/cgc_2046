@@ -1,15 +1,19 @@
 @startuml api-contracts
 ' ============================================================
 ' L0 - 接口契约图（arc42 §3.2）
-' 事实来源：backend/lib/cgc_2046_web/router.ex（scope 挂载）、
-' backend/priv/graphql/schema.graphql（RootQueryType 36 字段 /
-' RootMutationType 60+ 字段）、backend/lib/cgc_2046/mcp/server.ex
-' （8 工具）、backend/lib/cgc_2046/mcp/token.ex（Bearer/SHA256）、
+' 事实来源：backend/lib/cgc_2046_web/router.ex（scope 挂载：/api/graphql、
+' /mcp、/ops、/dev/mailbox、/api/payments/webhooks/:provider :50-60）、
+' backend/priv/graphql/schema.graphql（RootQueryType 50 字段 /
+' RootMutationType 63 字段，payments 根字段 Q4+M5）、
+' backend/lib/cgc_2046/mcp/server.ex（12 工具）、
+' backend/lib/cgc_2046/mcp/token.ex（Bearer/SHA256）、
+' backend/lib/cgc_2046_web/controllers/payment_webhook_controller.ex +
+' payments/webhook_event.ex（R21 幂等去重）+ endpoint.ex
+' （CachingBodyReader raw body 缓存 :49-56）、
 ' docs/diagrams 既有图 confirm-flow.puml（two-tool 确认流）。
-' 本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' 本图按 codebase 现状绘制（2026-08，develop 7c8cadb）。
 ' ============================================================
-title CGC 平台对外接口契约（四个面，L0）
-
+title CGC 平台对外接口契约（五个面，L0）
 skinparam backgroundColor white
 skinparam rectangle {
     BackgroundColor #F0FDE8
@@ -32,8 +36,8 @@ actor "开发者\n（本机）" as DEV
 rectangle "CGC-2046 backend（Phoenix）" as BE #F0FDE8 {
 
     rectangle "面 1：GraphQL /api/graphql\nAbsinthe + AshGraphql\n────\n凭证：httpOnly cookie JWT\n（AshAuthentication）\n────\n审计：SignalLog / AdminActionLog" as GQL {
-        rectangle "Query（36 字段，按域）\n· me / workspace* / portfolio\n· enrollment / sponsorship\n· speakerInvitation*\n· listSignalLogs / ToolCallLogs\n（管理员审计面）\n· reconciliationFindings" as Q
-        rectangle "Mutation（60+ 字段，按域）\n· auth：signIn/signUp/\n  requestPasswordReset/\n  signInWithPlatform\n· workspace 成员治理\n· event/course 生命周期\n· enrollment/sponsorship 审批\n· speakerInvitation 全流程\n· mcpToken 签发/撤销" as M
+        rectangle "Query（50 字段，按域）\n· me / workspace* / portfolio\n· enrollment / sponsorship\n· payments：myOrders / orderStatus\n  / workspaceOrders /\n  workspacePaymentStats（统计）\n· speakerInvitation*\n· listSignalLogs / ToolCallLogs\n（管理员审计面）\n· reconciliationFindings" as Q
+        rectangle "Mutation（63 字段，按域）\n· auth：signIn/signUp/\n  requestPasswordReset/\n  signInWithPlatform\n· workspace 成员治理\n· event/course 生命周期\n· enrollment/sponsorship 审批\n· payments：createOrder /\n  replaceProvider / cancelOrder /\n  refundOrder / waivePayment\n· speakerInvitation 全流程\n· mcpToken 签发/撤销" as M
     }
 
     rectangle "面 2：MCP /mcp\nanubis_mcp streamable HTTP\n────\n凭证：Bearer 连接 token\n（SHA256 落库，D13；\n绑用户不绑工作区）\n────\n审计：每次调用 ToolCallLog\n（params redact 后，D9）" as MCP {
@@ -41,17 +45,22 @@ rectangle "CGC-2046 backend（Phoenix）" as BE #F0FDE8 {
         rectangle "写（1）\nsave_step_output\n（facts 浅合并，终态拒绝）" as MT_W
         rectangle "管理（1，two-tool 确认流）\ncreate_invitation →\nneeds_confirmation{pending_id}" as MT_A
         rectangle "确认流（2）\nconfirm_operation\ncancel_operation\n（PendingOperation TTL）" as MT_C
+        rectangle "课程学习（4，#180）\nget_course_content（读）\nget_learning_records（读，恒本人）\nsave_learning_records\n（写，学员记忆）\nsave_course_content\n（写，教研侧唯一入口）\n（不走两段确认）" as MT_L
     }
 
+    rectangle "面 5：渠道回调\n/api/payments/webhooks/:provider\nPaymentWebhookController\n────\n凭证：无 actor——鉴权即\n渠道验签（adapter verify_webhook：\n微信 v3 签名 / 支付宝 RSA2；\nraw body 经 CachingBodyReader\n原文缓存）\n────\n幂等（R21）：WebhookEvent\n(provider, event_id) 唯一索引\n去重，重复投递按成功回执\n────\n应答：微信 200 code:SUCCESS /\n支付宝 200 success；\n验签失败 400 + telemetry\n────\n副作用：落库 + 同事务入队\n落账 job（Oban payments 队列）" as WH
     rectangle "面 3：/ops\nAshAdmin\n────\n凭证：admin_browser session\n（平台管理员）" as OPS
     rectangle "面 4：/dev/mailbox\nSwoosh MailboxPreview\n────\n仅 dev 环境（router dev_routes）" as MBX
 }
+
+actor "支付渠道\n（微信支付 / 支付宝）" as CHNL
 
 Browser --> GQL
 MP --> GQL : signInWithPlatform +\ngenerateMiniProgramCode +\ngrantMiniProgramNotificationConsent
 OC --> MCP
 PA --> OPS
 DEV --> MBX
+CHNL --> WH : POST 异步回调\n（渠道侧按频率策略重试）
 
 note right of MCP
   每工具调用经 Wrapper：
@@ -69,6 +78,23 @@ note bottom of MT_A
   调用不落业务库，返回 pending_id；
   用户确认后 confirm_operation
   才执行。TTL 过期自动失效。
+end note
+note bottom of MT_L
+  课程学习工具授权
+  （KTD2 三层）：学员侧
+  = 成员 ∪ 本人 confirmed
+  enrollment ∪ 已有记录
+  （授权锚 user_id）；
+  save_course_content =
+  tutor ∪ owner/admin。
+end note
+
+note right of WH
+  WebhookEvent 为内部资源：
+  不暴露 GraphQL/Admin，
+  落账 worker 消费后标记
+  received → processed；
+  内部资源永无用户面。
 end note
 
 note bottom of GQL

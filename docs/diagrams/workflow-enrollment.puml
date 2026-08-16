@@ -1,65 +1,160 @@
 @startuml workflow-enrollment
 ' ============================================================
 ' L2 - 报名 Workflow（v1：实体状态机 + 信号，不建 WorkflowRun）
-' 事实来源：backend/lib/cgc_2046/events/enrollment.ex:153-223,312-315,
-'   336-425,563-623,727-728 · backend/lib/cgc_2046/changes/signal_emitter.ex:44-63 ·
-'   backend/lib/cgc_2046/workers/approval_expiry_worker.ex:63-70,182-188
-' 说明：v1 拍板实体自序贯（ADR-0005）——创建/审批全部在 Ash action
+' 事实来源：backend/lib/cgc_2046/events/enrollment.ex:155-193,
+'   196-235,247-299,431-433,462-463,467-489,507-516,585-588,
+'   600-605,619-633,802-807 · events/price_tier.ex:3-13,91-100 ·
+'   changes/signal_emitter.ex:44-63 · payments/order.ex:9-25,
+'   110-112,187-235,248-263,276-295,343-363 · payments/provider.ex:20-30,
+'   42-53 · cgc_2046_web/controllers/payment_webhook_controller.ex:1-11,48-50 ·
+'   cgc_2046_web/router.ex:56-60 · workers/approval_expiry_worker.ex:63-70,
+'   182-188 · workers/payment_settlement_worker.ex:3-24,65-95,143-194 ·
+'   workers/payment_expiry_worker.ex:3-19,37-39 ·
+'   workers/payment_refund_worker.ex:3-32,112-137,154-179 ·
+'   workers/event_cancel_refund_worker.ex:3-30,45-59
+' 说明：v1 拍板实体自序贯（ADR-0005）——创建/审批/缴费全部在 Ash action
 '   事务内条件 UPDATE 直接落状态，无 DAG、无 run。
+'   缴费段（ADR-0007 座位保留）：收费目标（pricing_enabled）占位后落
+'   payment_pending，支付落账 / 管理员免缴才 confirmed；退款 = 取消报名。
 '   二期引擎化蓝图：workflow_run_id 预留列（enrollment.ex:50，
 '   同构 sponsorship.ex:226-227）。
 ' ============================================================
-title 报名 Workflow（L2）— 实体状态机 + 信号（v1 不建 run）
+title 报名 Workflow（L2）— 实体状态机 + 信号 + 缴费闭环（v1 不建 run）
 skinparam backgroundColor white
 
 participant "用户（学员）" as USER
 participant "GraphQL API" as GQL
 participant "Enrollment Ash action\n（事务内条件 UPDATE）" as ACT
 participant "SignalEmitter\n（事务内 Oban outbox）" as SIG
-participant "Owner/Admin\n（审批人）" as ADMIN
+participant "Owner/Admin\n（审批人/免缴/退款）" as ADMIN
+participant "Payments.Order\n（座位保留型限时订单）" as ORD
+participant "支付渠道 adapter\n（WechatPay / Alipay）" as PAY
+participant "PaymentWebhookController\n（渠道回调入口）" as WH
+participant "PaymentSettlementWorker\n（落账 Oban job）" as SET
 participant "ApprovalExpiryWorker\n（Oban cron */5min）" as EXP
+participant "PaymentExpiryWorker\n（Oban cron 每分钟）" as PEXP
+participant "PaymentRefundWorker\n（退款渠道调用 job）" as RFW
+participant "EventCancelRefundWorker\n（event.ended 订阅方）" as ECR
 
 == 创建（createEnrollment） ==
-USER ->> GQL: createEnrollment（表单提交）
-GQL ->> ACT: create_enrollment（enrollment.ex:153-185）
-alt enrollment_policy = open
-    ACT ->> ACT: prepare_policy → reserve_capacity\n条件 UPDATE（:563-579，event open + 未截止 + 有余量）\n→ status=confirmed + capacity_seq
-else (invite_only)
-    ACT ->> ACT: consume_invite_quota 条件 UPDATE\n（批次 active + remaining_quota>0，:582-603）\n+ reserve_capacity\n→ status=confirmed + invite_batch_id
+USER ->> GQL: createEnrollment（表单提交；\n收费目标必带 tier_id）
+GQL ->> ACT: create_enrollment（enrollment.ex:155-193）
+alt enrollment_policy = open / invite_only
+    ACT ->> ACT: reserve_capacity / consume_invite_quota\n条件 UPDATE（:563-603）→ 占位
+    alt 免费目标（pricing_enabled=false，R4 现状不变）
+        ACT ->> ACT: → status=confirmed
+    else 收费目标（pricing_enabled=true）
+        ACT ->> ACT: put_tier_selection：tier_id 必填且\n当前可售，快照入 submission_payload\n（:467-489）→ status=payment_pending\n（auto_confirm_status :462-463）
+    end
 else (request)
     ACT ->> ACT: → status=pending（不占名额）\n+ approval_deadline（:358-364）
 end
 ACT ->> SIG: after_action（与实体落库同事务提交）
-SIG ->> SIG: 入队 SignalPublishWorker\n（投递失败走 Oban 重试；幂等键 type:id）
-note over SIG
-  任何策略都发 enrollment.submitted；
-  open/invite_only 自动确认（confirmed）再发
-  enrollment.completed（skip_unless confirmed?，:171-184）。
+SIG ->> SIG: 发 enrollment.submitted；\n真正 confirmed 才补发 completed\n（skip_unless confirmed?，KTD6-6）
+note over ACT
+  payment_pending 与 confirmed 同为已占位
+  窗口（KTD6-4）：占位即扣名额，取消/过期
+  须释放。唯一键 unique_event/course_user
+  含 payment_pending（:138,142）——同窗去重。
 end note
 
 == 审批（仅 request：confirmEnrollment / rejectEnrollment） ==
-alt confirmEnrollment（通过）
-    ADMIN ->> GQL: confirmEnrollment
-    GQL ->> ACT: confirm_enrollment（:187-207）
-    ACT ->> ACT: reserve_capacity 原子扣名额\n+ claim_pending CAS（:605-623）\nWHERE status='pending' AND deadline 未过\n→ confirmed（0 行 = already_processed）
-    ACT ->> SIG: 发 enrollment.approved\n+ enrollment.completed
-else (rejectEnrollment 拒绝)
-    ADMIN ->> GQL: rejectEnrollment
-    GQL ->> ACT: reject_enrollment（:209-223）
-    ACT ->> ACT: claim_pending CAS → rejected\n（记 rejection_reason；0 行 = already_processed）
-    ACT ->> SIG: 发 enrollment.rejected
-end
+ADMIN ->> GQL: confirmEnrollment
+GQL ->> ACT: confirm_enrollment（:196-219）
+ACT ->> ACT: reserve_capacity 原子扣名额\n+ claim_pending CAS（:605-623）\n免费目标 → confirmed；收费目标 →\npayment_pending（confirm_target_status\n:507-516）
+ACT ->> SIG: 发 enrollment.approved；\n收费先落 payment_pending 不发 completed\n（KTD6-6，落账/免缴时补发）
+note over ACT
+  rejectEnrollment 同现状：claim_pending CAS
+  → rejected + 发 enrollment.rejected（:221-235）。
+end note
 
-== 过期（ApprovalExpiryWorker） ==
-EXP ->> ACT: 扫 pending 且 approval_deadline 过点\n（@expiry_specs SQL 下推过滤，deadline 列 nil 永不扫中）
-ACT ->> ACT: :expire → status=expired\n（状态守卫幂等；单条失败记 warning 不中断整拍）
-note over EXP
-  Oban cron */5min；unique 窗 300s 防并发双拍。
+== 缴费（收费目标：payment_pending → confirmed） ==
+USER ->> GQL: createOrder（create_for_enrollment）
+GQL ->> ORD: 本人 payment_pending 校验 +\ntier 快照（R5/R13）→ pending 订单\n（默认 2 小时 expire_at，order.ex:187-212）
+ORD ->> PAY: Provider.create_payment（渠道下单）
+PAY -->> USER: 支付凭据（jsapi 调起参数 /\n二维码 code_url / 跳转 URL）
+USER ->> PAY: 渠道支付（微信 / 支付宝）
+PAY ->> WH: 支付回调（POST\n/api/payments/webhooks/:provider）
+WH ->> WH: 验签 + 资源解密（verify_webhook）\nWebhookEvent (provider, event_id)\n唯一索引幂等（R21）
+WH ->> SET: 同事务入队落账 job，快速 200 应答\n（args 只带 webhook_event_id）
+SET ->> PAY: fetch_transaction 回查渠道\n（不信回调 payload，R7）
+SET ->> SET: 金额校验（R20：渠道总额 ≠\n订单 amount_cents 不落账，记 Finding）
+SET ->> ORD: mark_paid CAS（pending→paid，\n回填 transaction_id，order.ex:248-263）
+SET ->> ACT: settle_paid CAS\n（payment_pending→confirmed，:600-605）
+ACT ->> SIG: 补发 enrollment.completed\n（KTD6-6，落账路径同款）
+SET ->> SET: 支付成功通知（R22）+\nwebhook 事件标 processed
+alt 报名 CAS 失败（迟到 AE2 / 免缴竞态 AE3）
+    SET ->> ORD: reload 报名真状态裁决（F-A/F-I）→\nstart_refund + 入队 RFW\n（收款但无对应占位 → 退款，KTD12）
+end
+note over ORD
+  R11：同一 enrollment 至多一笔非终态订单
+  （部分唯一索引 status IN
+  pending/paid/refunding/refund_failed，
+  order.ex:110-112）；换渠道 = 旧 pending 单
+  cancelled + 新单（replace_provider）。
+end note
+
+== 免缴（waivePayment：个案免费唯一入口 R18） ==
+ADMIN ->> GQL: waivePayment（Owner/Admin /\n平台管理员，:324-327）
+GQL ->> ACT: waive_payment（:257-279）
+ACT ->> ACT: claim_waive CAS\n（payment_pending→confirmed，:802-807）\n名额已在占位时扣减，此处只迁状态
+ACT ->> SIG: 补发 enrollment.completed
+note over ACT
+  与 LogAdminAction 同事务留痕（fail-closed）：
+  留痕是落账 worker 区分「免缴竞态退款」的
+  判定线索（AE3，settlement :196-208）。
+end note
+
+== 过期（限时面：审批 deadline / 支付 expire_at） ==
+EXP ->> ACT: 扫 pending 且 approval_deadline 过点\n（@expiry_specs SQL 下推；单条失败不中断）
+ACT ->> ACT: :expire → status=expired\n（状态守卫幂等）
+PEXP ->> ORD: 扫 pending 且 expire_at 过点\n（cron 每分钟，unique 60s 防双拍）
+ORD ->> ORD: :expire 同事务三联动（R8/F2）：\n订单 CAS expired → 报名 CAS\npayment_pending→expired（:846-870）→\n名额回落（confirmed_count-1）
+note over PEXP
+  过期后渠道侧迟到扣款：落账 worker 的
+  自动退款链处理（AE2，KTD12）。
+end note
+
+== 取消（报名人主动，R12） ==
+USER ->> GQL: cancelEnrollment（confirmed/\npayment_pending 窗口）
+GQL ->> ACT: :cancel CAS → cancelled + 名额释放\n（:819-826）+ 同事务作废其 pending 订单\n（void_pending_orders :585-588）
+note over ACT
+  「无占位却有未付单」脏窗口由同事务作废消除；
+  cancelled 终态放行部分唯一索引 → 可重新报名。
+end note
+
+== 退款（退款 = 取消报名，ADR-0007） ==
+alt 管理员单笔（refundOrder / retryRefund，R15/R17）
+    ADMIN ->> GQL: refundOrder / retryRefund
+    GQL ->> ORD: :refund（paid→refunding）/\n:retry_refund（refund_failed→refunding）\nCAS + 同事务入队 RFW + AdminActionLog\n（order.ex:317-363）
+else 活动取消批量（EventCancelRefundWorker）
+    SIG ->> ECR: event.ended 信号（回查\nEvent.status=cancelled 才批量，closed 不退）
+    ECR ->> ORD: confirmed 报名的 paid 单逐笔\n:start_refund + 入队 RFW\n（keyset 分页批 50，部分失败不阻塞）
+    ECR ->> ACT: payment_pending 报名 :cancel\n（免缴 confirmed 无 paid 单自然跳过）
+    ECR ->> ECR: 批量审计 AdminActionLog\n（actor_id=nil 系统语义，每 event 一行）
+end
+RFW ->> PAY: 渠道退款（查单优先：渠道已\nrefunded 直接收尾，不重复调渠道）
+RFW ->> ORD: refund_succeeded CAS\n（refunding→refunded，落 refunded_at）
+RFW ->> ACT: 报名 :cancel（cancelled + 名额释放 +\n作废残留 pending 订单，F-B 重入自愈）
+RFW ->> RFW: 双方通知（报名人 + 发起人/\n管理者超集，R22）
+note over RFW
+  退款终态收尾三步非原子：CAS refunded →
+  报名取消 → 通知。任一步后崩溃由 Oban
+  重入经 :refunded 状态门补齐（F-B）。
+  渠道拒绝 → mark_refund_failed，管理员
+  retry_refund 重入（R17）。
 end note
 
 note right of ACT
   **v1 形态（ADR-0005 实体自序贯）**：状态迁移全部是
   事务内条件 UPDATE（CAS），无 WorkflowRun / DAG。
+  **Order 状态机（order.ex:9-13）**：pending
+  →mark_paid→ paid →start_refund→ refunding
+  →refund_succeeded→ refunded；pending
+  →cancel→ cancelled / →expire→ expired
+  （expired 迟到支付 →start_refund 自动退款）；
+  refunding →mark_refund_failed→ refund_failed
+  →retry_refund→ refunding。
   **二期引擎化蓝图**：workflow_run_id 预留列
   （enrollment.ex:50，同构 sponsorship.ex:226-227），
   届时本图才 DAG 化。
