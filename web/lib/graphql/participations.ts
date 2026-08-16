@@ -51,9 +51,12 @@ export interface MyLearningRun {
 	enrollmentId: string;
 	targetTitle: string | null;
 	status: LearningRunStatus;
-	completedManualSteps: number;
-	totalManualSteps: number;
-	currentStepTitle: string | null;
+	doneIssues: number;
+	totalIssues: number;
+	currentIssueId: string | null;
+	currentIssueTitle: string | null;
+	currentIssueKey: string | null;
+	courseId: string | null;
 }
 
 export type ParticipationPageVariables = {
@@ -126,9 +129,11 @@ export const MY_LEARNING_RUNS: TypedDocumentNode<
 			enrollmentId
 			targetTitle
 			status
-			completedManualSteps
-			totalManualSteps
-			currentStepTitle
+			doneIssues
+			totalIssues
+			currentIssueTitle
+			currentIssueKey
+			courseId
 		}
 	}
 `;

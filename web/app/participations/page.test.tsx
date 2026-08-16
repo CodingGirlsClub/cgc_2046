@@ -61,9 +61,12 @@ const LEARNING_RUN = {
 	enrollmentId: "enr-1",
 	targetTitle: "教研分享会",
 	status: "waiting",
-	completedManualSteps: 1,
-	totalManualSteps: 2,
-	currentStepTitle: "提交复盘",
+	doneIssues: 1,
+	totalIssues: 3,
+	currentIssueId: "py-02",
+	currentIssueTitle: "变量与数据",
+	currentIssueKey: "PYTH-02",
+	courseId: "course-1",
 };
 
 function mockQuery({
@@ -143,9 +146,9 @@ describe("/participations 我的参与", () => {
 		expect(screen.getByText("公众号推文")).toBeInTheDocument();
 		expect(screen.getByText(/待履约/)).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "学习进度" })).toBeInTheDocument();
-		expect(screen.getByText("学习进度：1/2 步")).toBeInTheDocument();
+		expect(screen.getByText("学习进度：1/3 节")).toBeInTheDocument();
 		expect(screen.getByText("等待中")).toBeInTheDocument();
-		expect(screen.getByText("当前步骤：提交复盘")).toBeInTheDocument();
+		expect(screen.getByText("当前：PYTH-02 变量与数据")).toBeInTheDocument();
 	});
 
 	it("未登录跳转登录页", () => {

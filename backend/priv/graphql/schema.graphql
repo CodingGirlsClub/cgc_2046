@@ -4659,6 +4659,12 @@ type RootQueryType {
   "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
   myLearningRuns: [MyLearningRun!]!
 
+  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
+  courseMap(slug: String!): CourseMap
+
+  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
+  courseLearningDetail(courseId: ID!): CourseLearningDetail
+
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
@@ -5141,9 +5147,71 @@ type MyLearningRun {
   totalIssues: Int!
   currentIssueId: String
   currentIssueTitle: String
-  completedManualSteps: Int!
-  totalManualSteps: Int!
-  currentStepTitle: String
+  currentIssueKey: String
+  courseId: ID
+}
+
+type CourseLearningDetail {
+  courseId: ID!
+  title: String!
+  slug: String
+  goals: [String!]!
+  issues: [LearningIssue!]!
+  progress: LearningProgress
+}
+
+type LearningIssue {
+  key: String!
+  id: String!
+  title: String!
+  kind: String!
+  status: String!
+  story: IssueStory
+}
+
+type IssueStory {
+  asA: String
+  given: [String!]!
+  goal: String
+  materials: [IssueMaterial!]!
+  checklist: [IssueChecklistItem!]!
+}
+
+type IssueMaterial {
+  title: String
+  ref: String
+}
+
+type CourseMap {
+  courseId: ID!
+  title: String!
+  slug: String!
+  goals: [String!]!
+  issues: [CourseMapIssue!]!
+}
+
+type CourseMapIssue {
+  key: String!
+  id: String!
+  title: String!
+  kind: String!
+  goal: String
+}
+
+type IssueChecklistItem {
+  id: String!
+  text: String!
+  done: Boolean!
+  evidence: String
+  recordedAt: DateTime
+}
+
+type LearningProgress {
+  doneIssues: Int!
+  totalIssues: Int!
+  currentIssueId: String
+  currentIssueTitle: String
+  currentIssueKey: String
 }
 
 type WorkspaceToolCall {
