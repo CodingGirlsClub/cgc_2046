@@ -1,0 +1,362 @@
+<!--
+  架构深化评审报告（improve-codebase-architecture skill 产出，2026-08-16）。
+  依赖 Tailwind / Mermaid CDN——GitHub 网页预览不执行脚本，
+  请 clone 后用本地浏览器打开。候选跟踪见关联 issue（A–G）。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CGC-2046 架构深化评审 — 2026-08-16</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'neutral', themeVariables: { fontSize: '13px' } });
+</script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .badge-strong { background:#059669; }
+  .badge-explore { background:#2563eb; }
+  .badge-spec { background:#9333ea; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .chip { font-size:11px; padding:1px 8px; border-radius:9999px; }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+<!-- ═══════════ HEADER ═══════════ -->
+<header class="bg-slate-900 text-white">
+  <div class="max-w-6xl mx-auto px-8 py-10">
+    <div class="text-sm text-slate-400 mono">improve-codebase-architecture · deep module review</div>
+    <h1 class="text-3xl font-bold mt-2">CGC-2046 架构深化评审</h1>
+    <p class="mt-3 text-slate-300 max-w-3xl">基准 <span class="mono text-white">develop@72c5924</span> ｜ 热点加权：approvals 过期重提（plan 021）、learner output loop（plan 020）、offerings 公开面 ｜ 词汇：module / interface / depth / seam / locality / leverage，deletion test</p>
+    <div class="mt-4 flex flex-wrap gap-2 text-xs">
+      <span class="chip bg-emerald-600 text-white">ADR-0005 合规：不引擎化</span>
+      <span class="chip bg-blue-600 text-white">ADR-0003 对齐：能力外置</span>
+      <span class="chip bg-slate-600 text-white">无候选与 ADR 冲突</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ 总览 ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 py-8">
+  <h2 class="text-xl font-bold mb-4">候选总览</h2>
+  <div class="overflow-x-auto bg-white rounded-xl shadow-sm">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500 text-left">
+        <tr><th class="px-4 py-3">#</th><th class="px-4 py-3">候选（域词汇）</th><th class="px-4 py-3">摩擦本质</th><th class="px-4 py-3">Deletion test</th><th class="px-4 py-3">强度</th></tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <tr><td class="px-4 py-3 mono">A</td><td class="px-4 py-3 font-medium">原子 claim 条件 UPDATE 家族收编</td><td class="px-4 py-3">同一并发原语 ~14 份内联拷贝 × 7 资源，三套守卫约定并存</td><td class="px-4 py-3 text-red-600 font-medium">失败——复杂度随新 intake 资源线性扩散</td><td><span class="chip badge-strong text-white">Strong</span></td></tr>
+        <tr><td class="px-4 py-3 mono">B</td><td class="px-4 py-3 font-medium">审批窗口谓词端口化（ApprovalDeadline）</td><td class="px-4 py-3">overdue?/in_window? 以 4 种载体出现 ≥12 处，NotificationWorker 已 inline 绕过真源</td><td class="px-4 py-3 text-amber-600 font-medium">半深——派生收敛有效，谓词面失败</td><td><span class="chip badge-strong text-white">Strong</span></td></tr>
+        <tr><td class="px-4 py-3 mono">F</td><td class="px-4 py-3 font-medium">赞助两级审批人：读写面不一致 <span class="chip bg-red-100 text-red-700 ml-1">潜伏 bug</span></td><td class="px-4 py-3">admin 待办清单列得出 workspace 级赞助，SponsorshipApprover 拒绝审批——看得到点不动</td><td class="px-4 py-3 text-red-600 font-medium">规则两份陈述，无单一 approver 面</td><td><span class="chip badge-strong text-white">Strong</span></td></tr>
+        <tr><td class="px-4 py-3 mono">C</td><td class="px-4 py-3 font-medium">save_step_output 鉴权立场 locality</td><td class="px-4 py-3">组合规则两份 + Wrapper 例外清单在工具模块之外</td><td class="px-4 py-3 text-red-600 font-medium">最差形态：删清单无编译/测试信号 → 学员静默 403</td><td><span class="chip badge-explore text-white">Worth exploring</span></td></tr>
+        <tr><td class="px-4 py-3 mono">D</td><td class="px-4 py-3 font-medium">通知类型契约 registry 化</td><td class="px-4 py-3">发一封通知跨 5 module + stringly 契约（template_key ↔ data 键 ↔ unique 语义）</td><td class="px-4 py-3 text-amber-600">Fanout 是真深模块；「通知类型」无载体</td><td><span class="chip badge-explore text-white">Worth exploring</span></td></tr>
+        <tr><td class="px-4 py-3 mono">E</td><td class="px-4 py-3 font-medium">learning run ↔ enrollment 锚定单源</td><td class="px-4 py-3">enrollment_id_of/fetch_enrollment 三份 Elixir 拷贝，错误原子各自发明</td><td class="px-4 py-3 text-amber-600">抽掉后三拷贝回流，纯赚</td><td><span class="chip badge-explore text-white">Worth exploring</span></td></tr>
+        <tr><td class="px-4 py-3 mono">G</td><td class="px-4 py-3 font-medium">SignalSubscriber claim_in_handle 结构化</td><td class="px-4 py-3">四幂等策略骨架验证为<b>健康</b>；仅 claim_in_handle 时机靠文档纪律</td><td class="px-4 py-3 text-emerald-600">主体通过——骨架是真深模块</td><td><span class="chip badge-spec text-white">Speculative</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════ 候选 A ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-10">
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-xl font-bold">A · 原子 claim 条件 UPDATE 家族收编 <span class="text-slate-400 text-base font-normal mono">ApprovalClaim</span></h2>
+      <span class="chip badge-strong text-white font-bold">Strong</span>
+    </div>
+    <div class="px-6 py-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-2">Files（7 个资源 module 内联 ~14 份）</h3>
+        <ul class="text-sm space-y-1 mono text-slate-600">
+          <li>accounts/join_request.ex:175-213 · workspace_application.ex:180-208 <span class="text-red-500">（逐字同构）</span></li>
+          <li>accounts/invitation.ex:424-465,477-520 · user.ex:213-241</li>
+          <li>events/enrollment.ex:388-450,606-633 · sponsorship.ex:503-780 <span class="text-emerald-600">（含读回消歧，最完整）</span></li>
+          <li>events/speaker_invitation.ex:528-590,647-680</li>
+          <li>对照：changes/transition.ex（第三套守卫约定，仅 workflow_run 用）</li>
+        </ul>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Problem</h3>
+        <p class="text-sm leading-relaxed">「在 Ash action 事务内原子抢占一行」是同一个 interface 想法，却<b>没有任何 module 承载</b>——每个资源各自内联 ~25 行裸 SQL + <span class="mono">num_rows</span> 判读 + 错误分支。守卫约定三套并存（裸 SQL claim / validate_pending_status 快照守卫两份逐字拷贝 / 声明式 Transition），错误 taxonomy 三套（字符串 / InvalidAttribute exception / 错误原子）。num_rows=0 的消歧（already_processed vs deadline_passed vs exclusive_slot_taken）只有 sponsorship 实现了读回版本。</p>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Solution</h3>
+        <p class="text-sm leading-relaxed">抽一个深 module <span class="mono bg-slate-100 px-1 rounded">Cgc2046.Changes.ApprovalClaim</span>：条件 UPDATE 构造器（表 + set 映射 + status 守卫 + deadline 守卫，列名知识复用 ApprovalDeadline.derive/1）+ num_rows 判读 + 统一错误 taxonomy + 可选读回消歧。资源 action 退化为：一行 claim + after_action 效果（admit_member、建 workspace、物化 SponsorshipDelivery）。</p>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Benefits</h3>
+        <ul class="text-sm space-y-1 list-disc pl-4">
+          <li><b>Locality</b>：TOCTOU 语义修一处 = 修 7 个资源；下一个 intake 资源（invite batch 运营面在热点上）不再产第 15 份拷贝</li>
+          <li><b>测试面</b>：并发抢占的表驱动契约测试 1 套，替代 N 套资源级 suite 各自重复验证</li>
+          <li><b>ADR-0005 合规</b>：实体仍自序贯，只收编原语，不引擎化</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-2">Before — 14 份拷贝散布（mass diagram）</h3>
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div class="grid grid-cols-4 gap-2 text-center text-[10px] mono">
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">join_request<br>approve</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">workspace_app<br>approve</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">invitation<br>accept</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">invitation<br>mp-accept</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">user<br>demote</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">enrollment<br>confirm</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">enrollment<br>reject</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">enrollment<br>expire</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">enrollment<br>cancel</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">sponsorship<br>approve</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">sponsorship<br>reject</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">sponsorship<br>expire+end</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">speaker_inv<br>decide ×2</div>
+            <div class="bg-red-200 border border-red-400 rounded p-1.5">speaker_inv<br>complete</div>
+          </div>
+          <div class="text-[11px] text-red-700 mt-3 text-center">每块 ≈25 行 SQL + 判读 + 错误分支 ｜ 三套守卫约定 ｜ 三套错误 taxonomy ｜ 消歧仅 sponsorship 有</div>
+        </div>
+        <div class="text-center text-2xl my-1">↓ deepening ↓</div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-2">After — 1 个深 module + 7 个薄 action</h3>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <div class="flex items-center gap-3">
+            <div class="bg-emerald-500 text-white rounded-lg p-4 font-bold text-sm flex-none w-44 text-center">ApprovalClaim<br><span class="text-[10px] font-normal">小 interface：<br>claim/4 + 判读 + 错误</span></div>
+            <div class="border-l-4 border-emerald-300 pl-3 text-xs text-slate-600 flex-1">
+              深实现：SQL 构造 ｜ deadline 列守卫（←ApprovalDeadline）<br>num_rows 消歧（already / deadline / slot）<br>统一错误 taxonomy ｜ 读回消歧（sponsorship 范本）
+            </div>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5 mt-3 text-center text-[10px] mono text-slate-500">
+            <div class="bg-white border rounded p-1">join_request<br>→ after_action</div>
+            <div class="bg-white border rounded p-1">enrollment<br>→ 效果+信号</div>
+            <div class="bg-white border rounded p-1">sponsorship<br>→ 物化 delivery</div>
+            <div class="bg-white border rounded p-1">…7 资源<br>各 1-2 行调用</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 候选 B ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-10">
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-xl font-bold">B · 审批窗口谓词端口化 <span class="text-slate-400 text-base font-normal mono">ApprovalDeadline</span></h2>
+      <span class="chip badge-strong text-white font-bold">Strong</span>
+    </div>
+    <div class="px-6 py-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-2">Files</h3>
+        <ul class="text-sm space-y-1 mono text-slate-600">
+          <li>approval_deadline.ex:62-127 <span class="text-emerald-600">（真源：derive / overdue? / in_window?）</span></li>
+          <li>裸 SQL 端口 ×10+：join_request:190 · enrollment:434,609 · sponsorship:574,697,740 …</li>
+          <li>Ash expr 端口：approval_reminder_worker.ex:67-70（in_window? 重编码）</li>
+          <li class="text-red-600">inline 绕过：notification_worker.ex:47-78 两处逐字重实现 overdue?，不调真源</li>
+        </ul>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Problem</h3>
+        <p class="text-sm leading-relaxed">「pending 且窗口未过」这一谓词以 4 种载体出现 ≥12 处。ApprovalDeadline 自称唯一真源，但只有派生面收敛了——<b>谓词面 module 有 interface 无 leverage</b>：NotificationWorker 已经绕过它 inline 重实现。窗口边界语义一旦调整（严格性 / nil 语义），需要找到全部 4 种载体——E-10 对账与过期扫描的口径漂移风险正源于此。</p>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Solution</h3>
+        <p class="text-sm leading-relaxed">ApprovalDeadline 增加端口面：Elixir 调用方（NotificationWorker / ReminderWorker）直接用 <span class="mono">overdue?/2</span> 消 inline；SQL 守卫片段由候选 A 的 ApprovalClaim 统一产出（列名知识 ← derive/1 既有事实）。@expiry_specs 与 48h 窗口常量维持 D7 拍板原位，不 re-open。</p>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Benefits</h3>
+        <ul class="text-sm space-y-1 list-disc pl-4">
+          <li>与 A 协同：claim SQL 的守卫即谓词端口，一次深化两处收敛</li>
+          <li>对账 / 过期 / 提醒三方口径结构性对齐（E-10 漂移风险消除）</li>
+          <li>测试面：谓词语义 1 套属性测试替代 12 处各自验证</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-3">同一谓词、四种载体（before）→ 单源多端口（after）</h3>
+        <div class="mermaid">
+flowchart TB
+  subgraph S0["Before — 谓词 4 载体 ×12+ 处"]
+    direction LR
+    P1["Elixir 真源<br/>approval_deadline.ex"]
+    P2["裸 SQL ×10+<br/>deadline IS NULL OR gt now"]
+    P3["Ash expr 重编码<br/>reminder_worker:67"]
+    P4["inline 重实现<br/>notification_worker:47-78"]
+    P1 -. "已开始绕过" .- P4
+  end
+  subgraph S1["After — ApprovalDeadline 端口面"]
+    direction LR
+    A1(("ApprovalDeadline<br/>derive + overdue? + in_window?"))
+    A2["Elixir 调用方<br/>直接调用"]
+    A3["ApprovalClaim<br/>SQL 守卫片段"]
+    A4["Worker 与对账<br/>经端口"]
+    A1 --> A2
+    A1 --> A3
+    A1 --> A4
+  end
+        </div>
+        <div class="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+          <b>Deletion test（半深）</b>：删 ApprovalDeadline 本体 → 派生复杂度回流两 worker + 四资源（派生面收敛有效）；删 overdue? → 调用方本就各自内联（谓词面失败）。深化 = 补齐谓词端口。
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 候选 F ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-10">
+  <div class="bg-white rounded-2xl shadow-sm border-2 border-red-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-bold">F · 赞助两级审批人：读写面不一致</h2>
+        <div class="text-xs text-red-600 font-medium mt-1">⚠ 潜伏 bug：admin 的待办清单列出 workspace 级 pending 赞助，但 SponsorshipApprover 拒绝 admin 审批——看得到、点不动</div>
+      </div>
+      <span class="chip badge-strong text-white font-bold">Strong</span>
+    </div>
+    <div class="px-6 py-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-2">Files</h3>
+        <ul class="text-sm space-y-1 mono text-slate-600">
+          <li>policies/sponsorship_approver.ex:26-43 <span class="text-emerald-600">（写面：Event 级=manage / Workspace 级=仅 Owner）</span></li>
+          <li>workers/approval_reminder_worker.ex:119-125（提醒收件人：同规则第二份陈述）</li>
+          <li>events/pending_approvals.ex:72-88 <span class="text-red-600">（读面：managed_workspace_ids 无 level 区分）</span></li>
+        </ul>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Problem</h3>
+        <p class="text-sm leading-relaxed">「谁是审批人」这条规则有三份陈述，且读面与写面<b>实际不一致</b>：admin 在待办清单看到 workspace 级赞助 pending（读面按 manage_role? 收窄、无 level 过滤），点审批被 policy 拒绝（写面仅 Owner）。规则有真源（SponsorshipApprover）但 interface 只覆盖 policy 判定，没覆盖「列待办」和「提醒收件人」两个消费面。</p>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Solution</h3>
+        <p class="text-sm leading-relaxed">SponsorshipApprover 暴露 <span class="mono bg-slate-100 px-1 rounded">approver_roles(level)</span> 唯一读取面：提醒选择器与 PendingApprovals 行级过滤都消费它；待办清单只展示 actor 实际可决策的行。修 bug + 收敛三份陈述一步到位。</p>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Benefits</h3>
+        <ul class="text-sm space-y-1 list-disc pl-4">
+          <li>Locality：两级规则一处改动，三个消费面同步</li>
+          <li>测试面：approver_roles 表驱动测试 + 一个「admin 看不到点不动的行」回归测试</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-3">读写面 diff（admin 视角，workspace 级赞助 pending）</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div class="text-xs font-bold text-red-700 mb-2">读面 · PendingApprovals</div>
+            <div class="text-sm">managed_workspace_ids 按 <span class="mono">manage_role?</span> 收窄<br>→ admin <b>看到</b> workspace 级 pending 赞助 ✅ 展示</div>
+            <div class="mt-3 text-xs text-red-600">无 level 区分过滤</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-300 rounded-xl p-4">
+            <div class="text-xs font-bold text-slate-700 mb-2">写面 · SponsorshipApprover</div>
+            <div class="text-sm">workspace 级 = 仅 Owner<br>→ admin <b>点不动</b> ❌ 拒绝</div>
+            <div class="mt-3 text-xs text-slate-500">policy 是真源，但 interface 没覆盖读面</div>
+          </div>
+        </div>
+        <div class="text-center text-2xl my-1">↓</div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm">
+          <b>After</b>：SponsorshipApprover.approver_roles(level) 唯一规则面 → 待办行级过滤 / 提醒收件人 / policy 判定三处消费，admin 只看到自己点得动的行
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 候选 C ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-10">
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-xl font-bold">C · save_step_output 鉴权立场 locality</h2>
+      <span class="chip badge-explore text-white font-bold">Worth exploring</span>
+    </div>
+    <div class="px-6 py-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-2">Files（learner output loop 主路径，plan 020 热点）</h3>
+        <ul class="text-sm space-y-1 mono text-slate-600">
+          <li>workflows/workflow_run.ex:454-467（bypass：member OR ActorIsEnrolledLearner）</li>
+          <li>mcp/tools/save_step_output.ex:76-93（工具层 authorize：同规则第二份陈述）</li>
+          <li>mcp/wrapper.ex:16-27 <span class="text-red-600">（@membership_deferred 例外清单——声明在工具模块之外）</span></li>
+          <li>policies/actor_is_enrolled_learner.ex:41-50（谓词委托 StepAuthorization——<b>已单源，好</b>）</li>
+        </ul>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Problem</h3>
+        <p class="text-sm leading-relaxed">谓词本体单一实现，但组合规则「member OR 学习 run 报名学员本人」在资源 policy 与工具 authorize 各写一遍；更糟的是 Wrapper 的 <span class="mono">@membership_deferred</span> 把「本工具豁免成员门槛」的声明放在了工具模块之外——<b>locality 破坏</b>：新写一个非成员可用的工具，必须知道去 wrapper.ex 改清单。</p>
+        <div class="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-800">
+          <b>Deletion test（最差形态）</b>：删掉 @membership_deferred 中的条目——无编译错误、无测试直接对应，save_step_output 静默退回 member-only，<b>学员全部 403</b>。删除后复杂度不扩散，但正确性崩。
+        </div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mt-4 mb-2">Solution</h3>
+        <p class="text-sm leading-relaxed">鉴权立场声明下沉到工具模块自身（Anubis component 侧 opts，如 <span class="mono">membership_gate: :deferred</span>），Wrapper 反射工具声明消费；或彻底单源化到资源 policy，工具层只做 404 形态处理。</p>
+      </div>
+      <div>
+        <h3 class="font-semibold text-slate-500 text-xs uppercase tracking-wide mb-3">「学员能写自己进度」一条不变量的三处分布</h3>
+        <div class="mermaid">
+flowchart TB
+  subgraph S2["Before — 立场声明在模块之外"]
+    W["wrapper.ex<br/>@membership_deferred 例外清单"]:::bad
+    T["tools/save_step_output.ex<br/>authorize 组合规则第二份"]:::warn
+    R["workflow_run.ex bypass<br/>member OR enrolled_learner"]:::warn
+    S3["StepAuthorization.enrolled_learner?<br/>谓词单源"]:::good
+    W -. "门控" .-> T
+    S3 --> R
+    S3 --> T
+  end
+  subgraph S4["After — 立场随工具走"]
+    T2["tools/save_step_output.ex<br/>membership_gate: :deferred<br/>自带立场"]:::good
+    W2["wrapper.ex<br/>反射工具声明"]:::good
+    R2["workflow_run.ex policy<br/>唯一组合规则"]:::good
+    T2 --> W2
+  end
+  classDef bad fill:#fecaca,stroke:#dc2626
+  classDef warn fill:#fde68a,stroke:#d97706
+  classDef good fill:#a7f3d0,stroke:#059669
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 候选 D + E ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-10 grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-lg font-bold">D · 通知类型契约 registry 化</h2>
+      <span class="chip badge-explore text-white font-bold">Worth exploring</span>
+    </div>
+    <div class="px-6 py-4 text-sm">
+      <p class="mono text-xs text-slate-500 mb-2">notification_subscriber → fanout → worker → service → miniprogram/client</p>
+      <p class="leading-relaxed">发一封通知要跨 <b>5 个 module</b> + 一个不成文契约（template_key ↔ data 键集 ↔ job_meta ↔ unique 语义）。stale 重查谓词按资源手写（且重实现 overdue?，见候选 B）。新增一种提醒（join_request 目前就没有）= 改 4 处。</p>
+      <p class="mt-3 leading-relaxed"><b>Solution</b>：通知类型声明为数据——registry 条目（template_key + payload builder + stale 谓词 + unique 窗口），NotificationWorker 退化为解释器；stale 谓词接 ApprovalDeadline.overdue?（吃 B 的红利）。</p>
+      <p class="mt-3 leading-relaxed"><b>Deletion test</b>：NotificationFanout 本体通过（真深模块，不动）；「通知类型」无载体——Worker 的 stale 子句删除则静默发过期提醒。</p>
+    </div>
+  </div>
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-lg font-bold">E · learning run ↔ enrollment 锚定单源</h2>
+      <span class="chip badge-explore text-white font-bold">Worth exploring</span>
+    </div>
+    <div class="px-6 py-4 text-sm">
+      <p class="mono text-xs text-slate-500 mb-2">step_authorization:114-151 · learning_instantiator:140-146 · learning_progress_worker:183-193</p>
+      <p class="leading-relaxed">「learning run 锚定到哪条 Enrollment」的概念在 Elixir 里有<b>三份私有拷贝</b>（enrollment_id_of / fetch_enrollment，string/atom 双键处理重复，错误原子各自发明：:error / :enrollment_read_failed / :enrollment_not_found），另有 SQL 与 GraphQL 各一份表达（可接受）。</p>
+      <p class="mt-3 leading-relaxed"><b>Solution</b>：Enrollment 侧或 WorkflowRun 侧出 <span class="mono">anchor/1</span> 唯一读取面，三拷贝回流。<b>Deletion test：纯赚</b>。处于 plan 020 热点路径上。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 候选 G ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-10">
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-lg font-bold">G · SignalSubscriber：验证为健康（不建议重构主体）</h2>
+      <span class="chip badge-spec text-white font-bold">Speculative</span>
+    </div>
+    <div class="px-6 py-4 text-sm">
+      <p class="leading-relaxed">四幂等策略骨架通过 deletion test：删掉则 claim 键派生 / rescue 壳 / telemetry / DOWN 重订阅复杂度扩散到 6 个订阅方——<b>真深模块</b>。测试面已良好（signal_subscriber_test 四策略 + fixtures）。唯一结构性弱点：<span class="mono">claim_in_handle</span> 策略（LearningInstantiator）要求模块在 handle 内自行调 claim——骨架无法结构性保证时机，忘调则静默退化为 state_based。<b>小深化方向</b>：handle 接收 claim-once 闭包，或拆 before_claim / effects 两回调，把时机约束从 moduledoc 纪律变成结构。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ TOP RECOMMENDATION ═══════════ -->
+<section class="max-w-6xl mx-auto px-8 pb-16">
+  <div class="bg-slate-900 text-white rounded-2xl p-8">
+    <div class="text-emerald-400 text-xs font-bold uppercase tracking-widest mb-2">Top recommendation</div>
+    <h2 class="text-2xl font-bold">先做 A + B（一个 PR 内协同）：ApprovalClaim 收编原子抢占原语，ApprovalDeadline 补齐谓词端口</h2>
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <div class="bg-slate-800 rounded-xl p-4">
+        <div class="font-bold text-emerald-400 mb-1">最大 locality 收益</div>
+        14 份拷贝 × 7 资源收成 1 个深 module；下一个 intake 资源（invite batch 热点）直接消费而不是再抄。claim SQL 的 deadline 守卫片段就是 B 的谓词端口——一次深化、两处收敛。
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <div class="font-bold text-emerald-400 mb-1">测试面收益最大</div>
+        TOCTOU 并发抢占从 N 套资源级 suite 收成 1 张表驱动契约；谓词语义 1 套属性测试替代 12 处。E-10 对账与过期扫描口径结构性对齐。
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <div class="font-bold text-emerald-400 mb-1">零 ADR 摩擦</div>
+        实体仍自序贯（ADR-0005 合规）、不引擎化；能力外置为 change 原语（ADR-0003 方向一致）。sponsorship.ex 的读回消歧就是现成范本。
+      </div>
+    </div>
+    <p class="mt-4 text-slate-300 text-sm">F 是潜伏 bug 且体量小，可以随手先行（approver_roles 一处 + 行级过滤）；C 风险形态最差（静默 403）但改动面小，适合在下次动 plan 020 区域时顺手做；D/E 排后；G 只在下次动 signal_subscriber 时考虑。</p>
+  </div>
+</section>
+
+<footer class="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
+  improve-codebase-architecture · 基准 develop@72c5924 · 取证：ArchFrictionScout（文件路径级证据）· 2026-08-16
+</footer>
+
+</body>
+</html>
