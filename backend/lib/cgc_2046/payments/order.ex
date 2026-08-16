@@ -363,7 +363,8 @@ defmodule Cgc2046.Payments.Order do
     end
 
     # R24 收款统计（generic action）：已收 = paid 总额；待收 = pending 且未过
-    # expire_at（过期单由 U8 扫描释放，不计待收）；已退 = refunded 总额。金额分。
+    # expire_at（过期单由 U8 扫描释放，不计待收）；已退 = refunded 总额；
+    # 退款失败待处理 = refund_failed 总额（U1-R1 可观测，提示管理员重试）。金额分。
     # 授权经 policy（OwnerOrAdmin 从 ActionInput 提取 workspace_id，
     # MembershipContext 场景5），SQL 只算数不涉权。
     action :workspace_payment_stats, :map do
@@ -374,7 +375,8 @@ defmodule Cgc2046.Payments.Order do
         fields: [
           collected_cents: [type: :integer, allow_nil?: false],
           pending_cents: [type: :integer, allow_nil?: false],
-          refunded_cents: [type: :integer, allow_nil?: false]
+          refunded_cents: [type: :integer, allow_nil?: false],
+          refund_failed_cents: [type: :integer, allow_nil?: false]
         ]
       )
 
@@ -383,18 +385,20 @@ defmodule Cgc2046.Payments.Order do
         SELECT
           COALESCE(SUM(amount_cents) FILTER (WHERE status = 'paid'), 0),
           COALESCE(SUM(amount_cents) FILTER (WHERE status = 'pending' AND expire_at > NOW()), 0),
-          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'refunded'), 0)
+          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'refunded'), 0),
+          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'refund_failed'), 0)
         FROM payments_orders
         WHERE workspace_id = $1
         """
 
         case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(input.arguments.workspace_id)]) do
-          {:ok, %{rows: [[collected, pending, refunded]]}} ->
+          {:ok, %{rows: [[collected, pending, refunded, refund_failed]]}} ->
             {:ok,
              %{
                collected_cents: collected || 0,
                pending_cents: pending || 0,
-               refunded_cents: refunded || 0
+               refunded_cents: refunded || 0,
+               refund_failed_cents: refund_failed || 0
              }}
 
           {:error, reason} ->

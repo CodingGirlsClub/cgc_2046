@@ -305,10 +305,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
           existing
       end
 
-    perform_job(PaymentSettlementWorker, %{
-      "webhook_event_id" => event.id,
-      "provider" => "wechat"
-    })
+    perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
   end
 
   defp event_for(order) do

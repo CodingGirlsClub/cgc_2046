@@ -76,6 +76,8 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
       assert stats["collected_cents"] == 3 * 19_900
       assert stats["pending_cents"] == 19_900
       assert stats["refunded_cents"] == 19_900
+      # U1-R1 第四分量：无 refund_failed 单时为 0
+      assert stats["refund_failed_cents"] == 0
 
       # 普通成员不可读统计
       member = Fixtures.register_user("stats-member")

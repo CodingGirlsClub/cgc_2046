@@ -129,14 +129,22 @@ export default function MyEnrollmentsPage() {
                 <Text className={styles.paymentHint} data-testid={`payment-hint-${item.id}`}>
                   缴费状态：{PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付
                 </Text>
-                <Button
-                  className={styles.payButton}
-                  size='mini'
-                  data-testid={`pay-entry-${item.id}`}
-                  onClick={() => Taro.navigateTo({ url: `/pages/order-pay/index?enrollmentId=${item.id}` })}
-                >
-                  去支付
-                </Button>
+                {/* U3-R1:JSAPI 调起是 weapp 专属能力——裁剪端(tt/xhs)隐藏去支付
+                    按钮,引导网页端完成(零导流文案合规,渠道事实说明)。 */}
+                {process.env.TARO_ENV === 'weapp' ? (
+                  <Button
+                    className={styles.payButton}
+                    size='mini'
+                    data-testid={`pay-entry-${item.id}`}
+                    onClick={() => Taro.navigateTo({ url: `/pages/order-pay/index?enrollmentId=${item.id}` })}
+                  >
+                    去支付
+                  </Button>
+                ) : (
+                  <Text className={styles.paymentHint}>
+                    请在网页端完成支付（本端暂不支持支付调起）。
+                  </Text>
+                )}
               </>
             )}
             {(item.status === 'pending' || item.status === 'confirmed') && (

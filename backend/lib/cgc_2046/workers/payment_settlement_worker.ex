@@ -40,9 +40,8 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
   alias Cgc2046.Workers.PaymentRefundWorker
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"webhook_event_id" => event_id, "provider" => provider}}) do
+  def perform(%Oban.Job{args: %{"webhook_event_id" => event_id}}) do
     event = Ash.get!(WebhookEvent, event_id, authorize?: false)
-    _ = provider
 
     with {:ok, out_trade_no} <- fetch_out_trade_no(event),
          {:ok, order} <- fetch_order(out_trade_no) do
@@ -124,6 +123,15 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
 
       :expired ->
         enqueue_auto_refund(order)
+        mark_processed(event)
+
+      # F-C:重复投递到已进退款链的订单是预期路径(迟到回调撞上已发起的退款/
+      # 已完成退款),降 info;真 unexpected(如 cancelled 单又有款)保持 error。
+      status when status in [:refunding, :refunded] ->
+        Logger.info(
+          "settlement: order #{order.id} already in refund flow (#{status}), delivery skipped"
+        )
+
         mark_processed(event)
 
       other ->

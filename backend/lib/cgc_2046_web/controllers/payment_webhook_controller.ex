@@ -63,7 +63,7 @@ defmodule Cgc2046Web.PaymentWebhookController do
         case Ash.create(changeset, authorize?: false) do
           {:ok, webhook_event} ->
             webhook_event.id
-            |> settlement_job(provider)
+            |> settlement_job()
             |> Oban.insert!()
 
             :enqueued
@@ -103,10 +103,9 @@ defmodule Cgc2046Web.PaymentWebhookController do
     end
   end
 
-  defp settlement_job(webhook_event_id, provider) do
+  defp settlement_job(webhook_event_id) do
     PaymentSettlementWorker.new(%{
-      "webhook_event_id" => webhook_event_id,
-      "provider" => provider
+      "webhook_event_id" => webhook_event_id
     })
   end
 
