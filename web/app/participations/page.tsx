@@ -212,7 +212,10 @@ export default function ParticipationsPage() {
 	);
 
 	const activeEnrollments = enrollmentRows.filter(
-		(row) => row.status === "pending" || row.status === "confirmed",
+		(row) =>
+			row.status === "pending" ||
+			row.status === "payment_pending" ||
+			row.status === "confirmed",
 	);
 	const endedEnrollments = enrollmentRows.filter(
 		(row) => row.status === "rejected" || row.status === "expired" || row.status === "cancelled",

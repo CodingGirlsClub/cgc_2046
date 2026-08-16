@@ -150,6 +150,8 @@ export const GET_EVENT: TypedDocumentNode<{ getEvent: OfferingItem }, { id: stri
 			sponsorshipEnabled
 			sponsorshipTiers
 			sponsorshipDeadline
+			pricingEnabled
+			availablePriceTiers
 		}
 	}
 `;
