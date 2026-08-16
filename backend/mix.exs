@@ -66,7 +66,14 @@ defmodule Cgc2046.MixProject do
       {:simple_sat, "~> 0.1"},
       {:anubis_mcp, "~> 2.0"},
       {:cors_plug, "~> 3.0"},
-      {:oban, "~> 2.20"}
+      {:oban, "~> 2.20"},
+      # 缴费闭环 U4：渠道边界 adapter（ADR-0007 平台统一商户号）。两 SDK 均
+      # Apache-2.0（license gate 过）；wechat 引入 tesla/finch，与既有 req 并存。
+      # saxy/x509：wechat 支付 APIv3 平台证书解析/验签（MIT/BSD-3，SDK optional deps）。
+      {:wechat, "~> 0.19.0", hex: :wechat_sdk},
+      {:alipay, "~> 0.2.1", hex: :alipay_sdk},
+      {:saxy, "~> 1.6"},
+      {:x509, "~> 0.9"}
     ]
   end
 
