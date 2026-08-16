@@ -49,7 +49,10 @@ defmodule Cgc2046Web.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # 缴费闭环 U6（KTD4）：渠道回调验签需要 raw body 原文（缓存到
+    # conn.private[:raw_body]，解析行为零变化）
+    body_reader: {Cgc2046Web.Plugs.CachingBodyReader, :read_body, []}
   )
 
   plug(Plug.MethodOverride)

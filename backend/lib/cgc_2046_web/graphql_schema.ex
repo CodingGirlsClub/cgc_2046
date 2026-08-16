@@ -6,7 +6,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   require Ash.Expr
 
   use AshGraphql,
-    domains: [Cgc2046.Api, Cgc2046.GlobalApi],
+    domains: [Cgc2046.Api, Cgc2046.GlobalApi, Cgc2046.Payments],
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true
 

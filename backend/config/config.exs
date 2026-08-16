@@ -9,7 +9,7 @@ import Config
 
 config :cgc_2046,
   ecto_repos: [Cgc2046.Repo],
-  ash_domains: [Cgc2046.Api, Cgc2046.GlobalApi, Cgc2046.Mcp],
+  ash_domains: [Cgc2046.Api, Cgc2046.GlobalApi, Cgc2046.Mcp, Cgc2046.Payments],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
 config :cgc_2046, AshPostgres,
@@ -100,9 +100,11 @@ config :cgc_2046, :miniprogram_templates, %{
 #   reminder 每小时（48h 窗口下小时级粒度足够，窗口内幂等去重兜底）。
 # - Pruner：oban_jobs 保留 7 天，防表无限膨胀。
 # 测试环境在 test.exs 以 testing: :manual 覆盖（Oban 自动禁用 queues/plugins/cron）。
+# payments 队列（缴费闭环 U6/U7）：回调落账 + 退款——资金链路独立于维护/通知，
+# 并发 10 防回调尖峰堆积（每 job = 一次渠道查单 + 少量 CAS）。
 config :cgc_2046, Oban,
   repo: Cgc2046.Repo,
-  queues: [maintenance: 5, notifications: 10],
+  queues: [maintenance: 5, notifications: 10, payments: 10],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     {Oban.Plugins.Cron,
@@ -111,7 +113,10 @@ config :cgc_2046, Oban,
        {"*/5 * * * *", Cgc2046.Workers.EventLifecycleWorker},
        {"*/5 * * * *", Cgc2046.Workers.LearningProgressWorker},
        {"17 * * * *", Cgc2046.Workers.ApprovalReminderWorker},
-       {"*/10 * * * *", Cgc2046.Workers.ReconciliationScanWorker}
+       {"*/10 * * * *", Cgc2046.Workers.ReconciliationScanWorker},
+       # 缴费闭环 U8（R8/F2）：订单 2h 限时窗，分钟级扫描把超时未付订单
+       # + 报名 + 名额一体释放（迟 1 分钟的占位泄漏可接受，KTD5）。
+       {"*/1 * * * *", Cgc2046.Workers.PaymentExpiryWorker}
      ]}
   ]
 

@@ -48,3 +48,10 @@ config :cgc_2046, Oban, testing: :manual
 # 小程序平台 HTTP 客户端走 Req.Test stub（测试进程按名注册；未 stub 的请求直接失败，
 # 保证测试绝不发真实外网请求）。Req.Test ownership 沿 $callers 解析，Task 并发可用。
 config :cgc_2046, :miniprogram_req_plug, {Req.Test, Cgc2046.MiniprogramClientStub}
+
+# 缴费闭环 U4（KTD3）：测试全量注入 FakeProvider——渠道密钥零依赖，
+# 绝不发真实外网请求（微信沙箱不可靠 #172，以 mock 为主）。
+config :cgc_2046, :payments_providers, %{
+  wechat: Cgc2046.Payments.Providers.Fake,
+  alipay: Cgc2046.Payments.Providers.Fake
+}

@@ -67,3 +67,22 @@ config :phoenix, :plug_init_mode, :runtime
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# 缴费闭环 U4（KTD7）：dev 占位密钥——真实密钥经环境变量注入（可本地联调，
+# 不进 git）。渠道调用只在密钥就位时发生，缺席时 adapter 明确拒绝。
+config :cgc_2046,
+  wechat_pay: [
+    mch_id: System.get_env("WECHAT_PAY_MCH_ID"),
+    appid: System.get_env("WECHAT_PAY_APPID"),
+    api_v3_key: System.get_env("WECHAT_PAY_API_V3_KEY"),
+    client_serial_no: System.get_env("WECHAT_PAY_CLIENT_SERIAL_NO"),
+    client_private_key: System.get_env("WECHAT_PAY_CLIENT_PRIVATE_KEY"),
+    webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL") || "http://localhost:4000"
+  ],
+  alipay_pay: [
+    app_id: System.get_env("ALIPAY_APP_ID"),
+    private_key: System.get_env("ALIPAY_PRIVATE_KEY"),
+    public_key: System.get_env("ALIPAY_PUBLIC_KEY"),
+    webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL") || "http://localhost:4000",
+    return_url: System.get_env("ALIPAY_RETURN_URL")
+  ]
