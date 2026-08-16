@@ -25,7 +25,7 @@ defmodule Cgc2046.Events.Course do
     domain: Cgc2046.Api
 
   alias Cgc2046.Repo
-
+  require Ash.Query
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
   @visibility_values [:public, :workspace]
@@ -58,14 +58,6 @@ defmodule Cgc2046.Events.Course do
       public?: true,
       writable?: true,
       description: "公开展示文案（可空；null 由展示层按空串呈现）"
-    )
-
-    attribute(:research_enabled, :boolean,
-      allow_nil?: false,
-      default: true,
-      public?: true,
-      writable?: true,
-      description: "是否启用教研 workflow"
     )
 
     attribute(:research_requirements, :map,
@@ -164,7 +156,58 @@ defmodule Cgc2046.Events.Course do
         Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
       end
     )
+
+    # U7(#180/R10):课程地图公开投影的**数据源**——issue_map GraphQL 投影在
+    # graphql_schema(courseMap 查询,Ash map 字段无子字段选择面);此处只保留
+    # goal-only 行列表构造(goal 一行 + key/title/kind;**不含 checklist**)。
+    calculate(:issue_map_rows, {:array, :map},
+      public?: false,
+      calculation: fn records, _opts ->
+        Enum.map(records, fn course ->
+          Cgc2046.Events.Course.issue_map_rows(course)
+        end)
+      end
+    )
   end
+
+  # 地图行(goal-only,R10):key 派生(KTD6)= slug 短码 + 卡集内 1 起序号
+  @doc false
+  def issue_map_rows(%__MODULE__{} = course) do
+    content = course_content(course)
+
+    content
+    |> Cgc2046.Workflows.CourseContent.issues()
+    |> Enum.with_index(1)
+    |> Enum.map(fn {issue, idx} ->
+      %{
+        key: Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx),
+        id: issue["id"],
+        title: issue["title"],
+        kind: issue["kind"],
+        goal: issue["story"]["goal"]
+      }
+    end)
+  end
+
+  # U7:课程内容读取(公开地图与学员详情共用源);authorize?: false——门禁在
+  # 调用面(course 读 policy / 学习详情工具层授权),内容本体无独立敏感面
+  # (goal-only 投影由调用方负责;本函数返回全量 content,不外泄 checklist 的
+  # 责任在投影层)。
+  def course_content(%__MODULE__{id: id, workspace_id: workspace_id})
+      when is_binary(id) and is_binary(workspace_id) do
+    Cgc2046.Workflows.ResearchOutput
+    |> Ash.Query.filter(
+      key == ^Cgc2046.Workflows.ResearchOutput.course_key(id) and kind == :issues
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+    |> case do
+      {:ok, output} -> output && output.data
+      _ -> nil
+    end
+  end
+
+  def course_content(_course), do: nil
 
   multitenancy do
     strategy(:attribute)
@@ -179,17 +222,20 @@ defmodule Cgc2046.Events.Course do
       allow_nil?: false
     )
 
+    # U8(#180/R12):public? 暴露关系字段供管理页教研状态露出(workflowRunId
+    # 只有引用 id,run 状态需关系行;读门禁沿用 course read policy + run 侧
+    # member policy)
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun,
       source_attribute: :workflow_run_id,
       destination_attribute: :id,
-      allow_nil?: true
+      allow_nil?: true,
+      public?: true
     )
   end
 
   actions do
     default_accept([
       :title,
-      :research_enabled,
       :research_requirements,
       :enrollment_policy,
       :capacity,
@@ -206,7 +252,6 @@ defmodule Cgc2046.Events.Course do
 
       accept([
         :title,
-        :research_enabled,
         :research_requirements,
         :enrollment_policy,
         :capacity,
@@ -283,7 +328,6 @@ defmodule Cgc2046.Events.Course do
 
       accept([
         :title,
-        :research_enabled,
         :research_requirements,
         :enrollment_policy,
         :capacity,
@@ -524,7 +568,7 @@ defmodule Cgc2046.Events.Course do
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
-  # research_enabled / research_requirements / workflow_run_id / capacity /
+  # research_requirements / workflow_run_id / capacity /
   # confirmed_count，匿名被筛除。
   field_policies do
     field_policy :* do
@@ -533,7 +577,6 @@ defmodule Cgc2046.Events.Course do
 
     field_policy [
       :workspace_id,
-      :research_enabled,
       :research_requirements,
       :workflow_run_id,
       :capacity,
@@ -546,6 +589,8 @@ defmodule Cgc2046.Events.Course do
 
   graphql do
     type(:course)
+    # U8/R12:教研状态露出(run 状态行)
+    relationships([:workflow_run])
 
     queries do
       list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")

@@ -141,6 +141,26 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist"
+    field :course_map, :course_map do
+      arg(:slug, non_null(:string))
+
+      resolve(fn _, args, _ ->
+        resolve_course_map(args[:slug])
+      end)
+    end
+
+    @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
+    field :course_learning_detail, :course_learning_detail do
+      arg(:course_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          resolve_course_learning_detail(actor, args[:course_id])
+        end)
+      end)
+    end
+
     @desc "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
     field :my_workspace_tool_calls, non_null(list_of(non_null(:workspace_tool_call))) do
       arg(:workspace_id, non_null(:id))
@@ -1209,17 +1229,90 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:target_title, :string)
   end
 
+  # U7(#180/KD8):issue 级进度,旧 manual-steps 字段(completedManualSteps/
+  # totalManualSteps/currentStepTitle)与 manual_steps_compat 派生已删——
+  # 直接替换不留兼容层(AGENTS.md);currentIssueId 供抽屉/扩展联动。
   object :my_learning_run do
     field(:run_id, non_null(:id))
     field(:enrollment_id, non_null(:id))
     field(:target_title, :string)
     field(:status, non_null(:string))
-    field(:completed_manual_steps, non_null(:integer))
-    field(:total_manual_steps, non_null(:integer))
-    field(:current_step_title, :string)
+    field(:done_issues, non_null(:integer))
+    field(:total_issues, non_null(:integer))
+    field(:current_issue_id, :string)
+    field(:current_issue_title, :string)
+    field(:current_issue_key, :string)
+    field(:course_id, :id)
   end
 
-  # plan 020 U2.1：本人 MCP 工具调用活动流摘要（无 params——隐私最小面，即便已 redact）
+  # U7(#180/R11):学员视角课程学习详情(抽屉数据)。issues 含三态 + checklist
+  # 逐条(与本人记录合成:evidence 摘要 + 时间)——与公开地图(issue_map,
+  # goal-only)不同面,本查询仅登录 actor 本人可见(恒 actor,无他人视角)。
+  object :course_learning_detail do
+    field(:course_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:slug, :string)
+    field(:goals, non_null(list_of(non_null(:string))))
+    field(:issues, non_null(list_of(non_null(:learning_issue))))
+    field(:progress, :learning_progress)
+  end
+
+  object :learning_issue do
+    field(:key, non_null(:string))
+    field(:id, non_null(:string))
+    field(:title, non_null(:string))
+    field(:kind, non_null(:string))
+    field(:status, non_null(:string))
+    field(:story, :issue_story)
+  end
+
+  object :issue_story do
+    field(:as_a, :string)
+    field(:given, non_null(list_of(non_null(:string))))
+    field(:goal, :string)
+    field(:materials, non_null(list_of(non_null(:issue_material))))
+    field(:checklist, non_null(list_of(non_null(:issue_checklist_item))))
+  end
+
+  object :issue_material do
+    field(:title, :string)
+    field(:ref, :string)
+  end
+
+  # U7(#180/R10):公开课程地图行(goal-only,无 checklist 字段——object 面
+  # 即契约:想露 checklist 必须改此 object,评审可见)。
+  object :course_map do
+    field(:course_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:slug, non_null(:string))
+    field(:goals, non_null(list_of(non_null(:string))))
+    field(:issues, non_null(list_of(non_null(:course_map_issue))))
+  end
+
+  object :course_map_issue do
+    field(:key, non_null(:string))
+    field(:id, non_null(:string))
+    field(:title, non_null(:string))
+    field(:kind, non_null(:string))
+    field(:goal, :string)
+  end
+
+  object :issue_checklist_item do
+    field(:id, non_null(:string))
+    field(:text, non_null(:string))
+    field(:done, non_null(:boolean))
+    field(:evidence, :string)
+    field(:recorded_at, :datetime)
+  end
+
+  object :learning_progress do
+    field(:done_issues, non_null(:integer))
+    field(:total_issues, non_null(:integer))
+    field(:current_issue_id, :string)
+    field(:current_issue_title, :string)
+    field(:current_issue_key, :string)
+  end
+
   object :workspace_tool_call do
     field(:id, non_null(:id))
     field(:tool, non_null(:string))
@@ -1788,6 +1881,37 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
+  # U7(#180/R10):公开课程地图。可见性复用 course 读 policy(get_by_slug 同款
+  # seam):匿名仅 open+public;成员可读非 draft;越权/不存在 → {:ok, nil}。
+  # goal-only 投影(object :course_map_issue 无 checklist 字段)。
+  defp resolve_course_map(slug) do
+    case Cgc2046.Events.Course
+         |> Ash.Query.for_read(:get_by_slug, %{slug: slug})
+         |> Ash.read_one(authorize?: false) do
+      {:ok, %{} = course} ->
+        if course.status == :open and course.visibility == :public do
+          {:ok, build_course_map(course)}
+        else
+          {:ok, nil}
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp build_course_map(course) do
+    content = Cgc2046.Events.Course.course_content(course)
+
+    %{
+      course_id: course.id,
+      title: course.title,
+      slug: course.slug,
+      goals: content["goals"] || [],
+      issues: Cgc2046.Events.Course.issue_map_rows(course)
+    }
+  end
+
   # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI；metadata v1 不暴露，落 DB 备用）
   object :admin_action_log do
     field(:id, non_null(:id))
@@ -1810,6 +1934,130 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:first_seen_at, non_null(:datetime))
     field(:last_seen_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
+  end
+
+  # U7(#180/R11):学员视角课程学习详情(抽屉数据)。恒 actor——授权 = 学员侧
+  # 三层(成员 ∪ confirmed enrollment ∪ 记忆持有者,LearnerAuthorization 同源);
+  # 无他人视角可构造(查询无 user_id 参数)。无权限/无课程 → {:ok, nil}
+  # (404 语义,不泄露存在性)。
+  defp resolve_course_learning_detail(actor, course_id) do
+    with %{} = course <-
+           fetch_course_for_detail(course_id),
+         :ok <-
+           Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
+             actor,
+             course.workspace_id,
+             course.id
+           ) do
+      content = Cgc2046.Events.Course.course_content(course)
+      records = fetch_actor_records(course, actor)
+      {:ok, build_course_learning_detail(course, content, records)}
+    else
+      _ -> {:ok, nil}
+    end
+  end
+
+  defp fetch_course_for_detail(course_id) do
+    Cgc2046.Events.Course
+    |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %{} = course} -> course
+      _ -> nil
+    end
+  end
+
+  defp fetch_actor_records(course, actor) do
+    Cgc2046.Learning.LearningRecord
+    |> Ash.Query.filter(course_id == ^course.id and user_id == ^actor.id)
+    |> Ash.read!(authorize?: false, tenant: course.workspace_id)
+  end
+
+  # 抽屉形状:course 元信息 + goals + issues(story 全文 + checklist 逐条与
+  # 本人记录合成:done/evidence/recorded_at)+ 汇总 progress(同 myLearningRuns
+  # 投影单源 LearningProgress)。
+  defp build_course_learning_detail(course, content, records) do
+    issues = Cgc2046.Workflows.CourseContent.issues(content)
+    done_items = done_record_index(records)
+
+    learning_issues =
+      issues
+      |> Enum.with_index(1)
+      |> Enum.map(fn {issue, idx} ->
+        checklist_items = Cgc2046.Workflows.CourseContent.checklist_item_ids(issue)
+
+        done_count =
+          Enum.count(checklist_items, &Map.has_key?(done_items, {issue["id"], &1}))
+
+        status =
+          cond do
+            checklist_items != [] and done_count == length(checklist_items) -> "done"
+            done_count > 0 -> "in_progress"
+            true -> "todo"
+          end
+
+        %{
+          key: Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx),
+          id: issue["id"],
+          title: issue["title"],
+          kind: issue["kind"],
+          status: status,
+          story: issue_story(issue, done_items)
+        }
+      end)
+
+    progress = Cgc2046.Workflows.LearningProgress.project_issues(content, records)
+
+    current_issue_key =
+      with issue_id when is_binary(issue_id) <- progress.current_issue_id,
+           idx when is_integer(idx) <-
+             Enum.find_index(issues, &(&1["id"] == progress.current_issue_id)) do
+        Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx + 1)
+      else
+        _ -> nil
+      end
+
+    %{
+      course_id: course.id,
+      title: course.title,
+      slug: course.slug,
+      goals: content["goals"] || [],
+      issues: learning_issues,
+      progress: Map.put(progress, :current_issue_key, current_issue_key)
+    }
+  end
+
+  # (issue_id, item_id) → done record 索引(仅 done 行;三态与 checklist 合成单源)
+  defp done_record_index(records) do
+    records
+    |> Enum.filter(& &1.done)
+    |> Map.new(fn record -> {{record.issue_id, record.item_id}, record} end)
+  end
+
+  defp issue_story(issue, done_index) do
+    story = issue["story"] || %{}
+
+    checklist =
+      (story["checklist"] || [])
+      |> Enum.map(fn item ->
+        record = Map.get(done_index, {issue["id"], item["id"]})
+
+        %{
+          id: item["id"],
+          text: item["text"],
+          done: not is_nil(record),
+          evidence: record && record.evidence,
+          recorded_at: record && record.recorded_at
+        }
+      end)
+
+    %{
+      as_a: story["as_a"],
+      given: List.wrap(story["given"]),
+      goal: story["goal"],
+      materials: List.wrap(story["materials"]),
+      checklist: checklist
+    }
   end
 
   # plan 020 U2.1：本人 MCP 工具调用活动流。
@@ -1927,20 +2175,80 @@ defmodule Cgc2046Web.GraphqlSchema do
         nil
 
       true ->
-        steps = if is_list(definition.steps), do: definition.steps, else: []
-
         target_title =
           if is_binary(enrollment.target_title), do: enrollment.target_title, else: nil
+
+        # U7(#180):issue 级权威投影(course content + learning_records);
+        # manual_steps_compat/旧字段派生已删(KD8),issue key 展示层派生(KTD6)
+        {content, records, course} = learning_projection_sources(run, enrollment)
 
         Cgc2046.Workflows.LearningProgress.project(
           run.id,
           enrollment.id,
           target_title,
           run.status,
-          definition.node_def,
-          steps,
-          run.facts
+          content,
+          records
         )
+        |> Map.put(:course_id, enrollment.course_id)
+        |> Map.put(:current_issue_key, current_issue_key(course, content, records))
+    end
+  end
+
+  # U7:内容/记录/课程按 (course, user) 组装(无内容课程 → nil → 投影 0/n)。
+  # course 供 issue key 派生(slug 短码);一次往返,抽屉数据同源。
+  defp learning_projection_sources(run, enrollment) do
+    course_id = enrollment.course_id
+
+    if is_binary(course_id) do
+      content =
+        Cgc2046.Workflows.ResearchOutput
+        |> Ash.Query.filter(
+          key == ^Cgc2046.Workflows.ResearchOutput.course_key(course_id) and kind == :issues
+        )
+        |> Ash.Query.limit(1)
+        |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
+        |> case do
+          {:ok, output} -> output && output.data
+          _ -> nil
+        end
+
+      records =
+        if is_binary(enrollment.user_id) do
+          Cgc2046.Learning.LearningRecord
+          |> Ash.Query.filter(course_id == ^course_id and user_id == ^enrollment.user_id)
+          |> Ash.read!(authorize?: false, tenant: run.workspace_id)
+        else
+          []
+        end
+
+      course =
+        Cgc2046.Events.Course
+        |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+        |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
+        |> case do
+          {:ok, nil} -> nil
+          {:ok, course} -> course
+          _ -> nil
+        end
+
+      {content, records, course}
+    else
+      {nil, [], nil}
+    end
+  end
+
+  # issue key 展示层派生(KTD6):当前 issue 在卡集中的 1 起序号 + 课程 slug 短码。
+  # current_issue_id 由 records 视角派生(全 Done → nil → key nil)
+  defp current_issue_key(course, content, records) do
+    issues = Cgc2046.Workflows.CourseContent.issues(content)
+
+    with %{current_issue_id: issue_id} when is_binary(issue_id) <-
+           Cgc2046.Workflows.LearningProgress.project_issues(content, records),
+         idx when is_integer(idx) <- Enum.find_index(issues, &(&1["id"] == issue_id)) do
+      Cgc2046.Workflows.LearningProgress.issue_key(course && course.slug, idx + 1)
+    else
+      _ -> nil
     end
   end
 

@@ -19,7 +19,7 @@ defmodule Cgc2046.Events.Offering do
   - `fetch/3`：`fetch(kind, id, opts \\ [])` → `{:ok, entity} | {:error, :not_found}`。
     kind ∈ `:event | :course`；opts `authorize?: false`（默认）/ `actor:`（graphql
     场景，全库唯一 actor 感知读取）/ `tenant:`。返回**完整 entity**（research 需
-    status/research_enabled，graphql 需完整 struct 供 Readiness）。
+    status graphql 需完整 struct 供 Readiness;research 门控 U6 起 event-only)。
   - `fetch_by_signal_payload/1`：按 payload 键 `event_id`/`course_id` 分派（消灭
     各处手写键探测）。
   - `fetch_titles_by_ids/2`：批量（`%{kind => [ids]}` + tenant → `%{id => title}`），

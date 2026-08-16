@@ -27,7 +27,12 @@ defmodule Cgc2046.Mcp.Wrapper do
   # learning run 放行「报名学员本人」（非成员，授权来自 Enrollment 记录本身，
   # 设计 §4.1）——成员门槛若在 Wrapper 层拦截，学员永远到不了工具层判定。
   # 下沉不等于放开：工具内仍有 StepAuthorization 判定 + 资源层 Ash policy 双重门禁。
-  @membership_deferred ~w(save_step_output)
+  #
+  # 课程 issue 学习闭环（切片 H U3，#180）学员侧三工具：学员是事件级参与者、
+  # 非工作区成员（KTD2）。授权在工具层锚 user_id：本人 confirmed enrollment
+  # 或记忆持有者（get_course_content 另放行 workspace 成员——tutor/教研编辑
+  # 需要读）。工具内判定 + 资源层 policy 双重门禁，同 save_step_output 纪律。
+  @membership_deferred ~w(save_step_output get_course_content get_learning_records save_learning_records)
 
   @type result ::
           {:ok, map() | String.t()}

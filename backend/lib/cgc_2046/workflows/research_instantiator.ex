@@ -85,7 +85,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   defp instantiate(entity_id, entity_type, data) do
     with {:ok, entity} <- fetch_entity(entity_type, entity_id),
          :ok <- ensure_launched(entity),
-         :ok <- ensure_research_enabled(entity),
+         :ok <- ensure_research_enabled(entity_type, entity),
          {:ok, %WorkflowDefinition{} = defn} <- fetch_research_definition(entity.workspace_id) do
       input =
         case entity_type do
@@ -171,12 +171,15 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   defp ensure_launched(%{status: :open}), do: :ok
   defp ensure_launched(%{status: status}), do: {:error, {:entity_not_launched, status}}
 
-  # #6：教研开关门控——research_enabled=false 的活动/课程不实例化教研 run
-  # （领域模型 §5.2：是否启用教研 workflow）。默认 true，仅显式关闭才拦截。
-  defp ensure_research_enabled(%{research_enabled: true}), do: :ok
+  # #6 + U6(#180/R14):教研开关门控退化为 **event-only**——Course 删列后
+  # 恒走教研实例化(issue 卡是课程内容本体);Event 保留退出通道
+  # (research_enabled = 「这场活动不使用教研链路」,轻聚会场景)。
+  defp ensure_research_enabled(:event, %{research_enabled: true}), do: :ok
 
-  defp ensure_research_enabled(%{research_enabled: false}),
+  defp ensure_research_enabled(:event, %{research_enabled: false}),
     do: {:error, :research_disabled}
+
+  defp ensure_research_enabled(:course, _course), do: :ok
 
   # #14：run 创建成功后回写实体 workflow_run_id（产物引用链）。
   # 失败只记日志不阻塞——引用可对账补写（best-effort，同 launch 容错语义）。

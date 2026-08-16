@@ -406,6 +406,9 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
 					enrollmentPolicy: "request",
 					capacity: 20,
 					registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+					...(kind === "course"
+						? { researchRequirements: JSON.stringify({ note: "" }) }
+						: {}),
 				}),
 			);
 			// 成功：局部状态更新（标题）＋表单复位（metaDraft → null）

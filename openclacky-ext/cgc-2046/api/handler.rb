@@ -13,6 +13,7 @@
 require "json"
 require "fileutils"
 require_relative "mcp_config"
+require_relative "course_routes"
 
 class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
@@ -94,5 +95,53 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 端点骨架（D11 留位）：全量/增量同步在后续切片交付。
   post "/skills/sync" do
     error!("skills sync ships in a later slice", status: 501)
+  end
+
+  # ── U9 课程学习面板数据面(纯读透传;写操作发生在 session) ──────────────
+  # workspace_id 为必填 query(平台 D12 无状态作用域);面板侧经配置记忆。
+
+  # GET /api/ext/cgc-2046/courses?workspace_id=...
+  # 我的课程列表:透传 MCP get_learning_records(本人全部课程记录,面板按
+  # course_id 分组推导课程列表)。
+  get "/courses" do
+    outcome = course_tool("get_learning_records", {})
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/courses/:course_id/content?workspace_id=...
+  # 课程内容(issue 卡集):透传 MCP get_course_content。
+  get "/courses/:course_id/content" do
+    outcome = course_tool("get_course_content", { "course_id" => route_params_value("course_id") })
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/courses/:course_id/records?workspace_id=...
+  # 本人该课程学习记录:透传 MCP get_learning_records(course_id 过滤)。
+  get "/courses/:course_id/records" do
+    outcome = course_tool("get_learning_records", { "course_id" => route_params_value("course_id") })
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  private
+
+  # 路由/查询参数读取(宿主把 route params 与 query 合并注入 @params;
+  # 测试 allocate 路径同构注入)
+  def route_params_value(key)
+    p = @params
+    return "" unless p.is_a?(Hash)
+    v = p[key] || p[key.to_s]
+    v.to_s
+  end
+
+  # 组装 workspace_id(query 必填)+ 透传;缺参 → 400 引导
+  def course_tool(tool_name, extra)
+    workspace_id = route_params_value("workspace_id").to_s
+    return { status: 400, body: { error: "workspace_id is required" } } if workspace_id.empty?
+
+    Cgc2046CourseRoutes.call_course_tool(
+      self,
+      tool_name,
+      extra.merge("workspace_id" => workspace_id)
+    )
   end
 end

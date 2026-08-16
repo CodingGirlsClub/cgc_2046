@@ -112,6 +112,7 @@ config :cgc_2046, Oban,
        {"*/5 * * * *", Cgc2046.Workers.ApprovalExpiryWorker},
        {"*/5 * * * *", Cgc2046.Workers.EventLifecycleWorker},
        {"*/5 * * * *", Cgc2046.Workers.LearningProgressWorker},
+       {"*/5 * * * *", Cgc2046.Workers.ResearchProgressWorker},
        {"17 * * * *", Cgc2046.Workers.ApprovalReminderWorker},
        {"*/10 * * * *", Cgc2046.Workers.ReconciliationScanWorker},
        # 缴费闭环 U8（R8/F2）：订单 2h 限时窗，分钟级扫描把超时未付订单

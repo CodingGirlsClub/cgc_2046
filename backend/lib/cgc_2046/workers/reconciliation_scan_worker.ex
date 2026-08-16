@@ -17,8 +17,8 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   3. `:active_sponsorship_signal_dead` — active 赞助的 `sponsorship.active` 发布 job
      处于 discarded（PR-A 后同事务必入队，死信 = 信号从未发布 = 信号链断连；
      SignalLog 只记入向 ADR-0003，原「无 signal_log」不可实现）
-  4. `:open_entity_without_research_definition` — open 且 research_enabled 的
-     Event/Course 其工作台无 published 教研定义（research_enabled=false 合法不命中）
+  4. `:open_entity_without_research_definition` — open 实体其工作台无 published
+     教研定义（U6:course 无条件;event 保留 research_enabled=false 合法不命中）
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定；
      ResearchInstantiator 二次校验与 INSERT 竞态 / reaper cancel 失败残余窗口兜底）
@@ -278,7 +278,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
     end
   end
 
-  # ── 规4：open 且 research_enabled 但工作台无 published 教研定义 --------------
+  # ── 规4:open 实体无 published 教研定义(U6:course 无条件,event-only 门控)──
 
   defp scan_rule4 do
     research_workspace_ids =
@@ -287,8 +287,11 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
       |> Ash.read!(authorize?: false)
       |> MapSet.new(fn definition -> definition.workspace_id end)
 
-    open_research_enabled(Event)
-    |> Kernel.++(open_research_enabled(Course))
+    # U6(#180/R14):Course 删 research_enabled 后无条件命中(open 课程无
+    # published 定义 = 真孤儿);Event 保留开关过滤(research_enabled=false
+    # 合法不命中,退出通道)。
+    open_entities(Event)
+    |> Kernel.++(open_unconditional(Course))
     |> Enum.reject(fn entity ->
       MapSet.member?(research_workspace_ids, entity.workspace_id)
     end)
@@ -304,9 +307,15 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
     end)
   end
 
-  defp open_research_enabled(resource) do
+  defp open_entities(resource) do
     resource
     |> Ash.Query.filter(status == :open and research_enabled)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp open_unconditional(resource) do
+    resource
+    |> Ash.Query.filter(status == :open)
     |> Ash.read!(authorize?: false)
   end
 

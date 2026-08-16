@@ -23,6 +23,14 @@ contributes:
       description_zh: CGC-2046 平台连接状态
       view: panels/workspace/view.js
       order: 8
+    # U9(plan 001/#180 R15):课程学习面板(纯视图,数据走 loopback MCP 透传)
+    - id: cgc-2046-course
+      title: CGC Course
+      title_zh: CGC 课程学习
+      description: CGC-2046 course learning (issues view and session launch)
+      description_zh: CGC-2046 课程学习(学习单元视图与会话唤起)
+      view: panels/cgc-course/view.js
+      order: 9
   agents:
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md

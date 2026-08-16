@@ -61,7 +61,8 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:delete, "/connect"]
     assert_includes routes, [:get, "/status"]
     assert_includes routes, [:post, "/skills/sync"]
-    assert_equal 4, Cgc2046Ext.routes.size
+    # U9 课程面板数据面新增三路由(纯读透传)
+    assert_equal 7, Cgc2046Ext.routes.size
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
