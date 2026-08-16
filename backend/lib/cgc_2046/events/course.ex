@@ -132,8 +132,38 @@ defmodule Cgc2046.Events.Course do
       description: "报名截止时间；nil 表示不设截止"
     )
 
+    attribute(:pricing_enabled, :boolean,
+      allow_nil?: false,
+      default: false,
+      public?: true,
+      writable?: true,
+      description: "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+    )
+
+    attribute(:price_tiers, {:array, :map},
+      allow_nil?: false,
+      default: [],
+      public?: true,
+      writable?: true,
+      description: "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
+  end
+
+  validations do
+    validate({Cgc2046.Events.PriceTiersValidation, []})
+  end
+
+  calculations do
+    # R2 报名面：只暴露未过 available_until 的档位（过滤逻辑在 PriceTier）
+    calculate(:available_price_tiers, {:array, :map},
+      public?: true,
+      calculation: fn records, _opts ->
+        Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
+      end
+    )
   end
 
   multitenancy do
@@ -166,7 +196,9 @@ defmodule Cgc2046.Events.Course do
       :registration_deadline,
       :visibility,
       :slug,
-      :description
+      :description,
+      :pricing_enabled,
+      :price_tiers
     ])
 
     create :create do
@@ -181,7 +213,9 @@ defmodule Cgc2046.Events.Course do
         :registration_deadline,
         :visibility,
         :slug,
-        :description
+        :description,
+        :pricing_enabled,
+        :price_tiers
       ])
 
       # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
@@ -256,7 +290,9 @@ defmodule Cgc2046.Events.Course do
         :registration_deadline,
         :visibility,
         :slug,
-        :description
+        :description,
+        :pricing_enabled,
+        :price_tiers
       ])
 
       # 强制非原子执行（同 event.ex :update 注释——GraphQL bulk_update 原子

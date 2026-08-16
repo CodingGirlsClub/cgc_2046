@@ -1427,6 +1427,12 @@ input UpdateCourseInput {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
 }
 
 "The result of the :create_course mutation"
@@ -1466,6 +1472,12 @@ input CreateCourseInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+
   "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
   workspaceId: ID
 }
@@ -1485,6 +1497,7 @@ enum CourseSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  PRICING_ENABLED
 }
 
 "A keyset page of :course"
@@ -1500,6 +1513,19 @@ type KeysetPageOfCourse {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input CourseFilterPricingEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
 }
 
 input CourseFilterRegistrationDeadline {
@@ -1746,6 +1772,9 @@ input CourseFilterInput {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: CourseFilterRegistrationDeadline
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: CourseFilterPricingEnabled
 }
 
 input CourseSortInput {
@@ -1794,6 +1823,14 @@ type Course {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean!
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]!
+
+  availablePriceTiers: [JsonString!]
 }
 
 "The result of the :cancel_event mutation"
@@ -1868,6 +1905,12 @@ input UpdateEventInput {
 
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
 }
 
 "The result of the :create_event mutation"
@@ -1916,6 +1959,12 @@ input CreateEventInput {
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: DateTime
 
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+
   "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
   workspaceId: ID
 }
@@ -1937,6 +1986,7 @@ enum EventSortField {
   REGISTRATION_DEADLINE
   SPONSORSHIP_ENABLED
   SPONSORSHIP_DEADLINE
+  PRICING_ENABLED
 }
 
 "A keyset page of :event"
@@ -1952,6 +2002,19 @@ type KeysetPageOfEvent {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input EventFilterPricingEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
 }
 
 input EventFilterSponsorshipDeadline {
@@ -2230,6 +2293,9 @@ input EventFilterInput {
 
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: EventFilterSponsorshipDeadline
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: EventFilterPricingEnabled
 }
 
 input EventSortInput {
@@ -2287,6 +2353,14 @@ type Event {
 
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean!
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]!
+
+  availablePriceTiers: [JsonString!]
 }
 
 enum WorkflowRunSortField {
