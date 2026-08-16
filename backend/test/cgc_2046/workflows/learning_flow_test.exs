@@ -365,40 +365,28 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
     end
   end
 
-  describe "完成判定（验收 3）" do
-    test "末个 manual step 已写 → worker 置 succeeded；未写 → 仍 running" do
+  describe "完成判定（验收 3；U4 升级：全 issue Done）" do
+    test "事件型 run（无 course content）不判完成；末步 facts 不再触发" do
       admin = Fixtures.platform_admin("lf-complete")
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin, %{})
       finisher = Fixtures.register_user("lf-complete-finisher")
       {:ok, enrollment_done} = enroll(event, finisher)
-      learner = Fixtures.register_user("lf-complete-learner")
-      {:ok, enrollment_open} = enroll(event, learner)
       published = create_learning_definition(workspace, admin)
 
       instantiate(enrollment_done)
       run_done = await_run(published.id, "enrollment_#{enrollment_done.id}")
-      instantiate(enrollment_open)
-      run_open = await_run(published.id, "enrollment_#{enrollment_open.id}")
 
-      # finisher 写末步（产出即工件）；learner 只写非末步
+      # 旧口径:写末步 facts 即完成;U4 起事件型 run 无课程内容 → 不判完成
       save_output(finisher, workspace, run_done, @final_step, %{"essay" => "毕业总结"})
-      save_output(learner, workspace, run_open, "module_reading", %{"notes" => "在读"})
 
       assert :ok = perform_job(LearningProgressWorker, %{})
-
-      reloaded_done = fetch_run(run_done.id, workspace.id)
-      assert reloaded_done.status == :succeeded
-      refute is_nil(reloaded_done.finished_at)
-
-      reloaded_open = fetch_run(run_open.id, workspace.id)
-      assert reloaded_open.status == :running
-
-      # 终态保护：succeeded 后末步再写被拒（save_step_output 不改状态，单一职责）
-      assert {:error, %Anubis.MCP.Error{}, _frame} =
-               save_output(finisher, workspace, run_done, "module_reading", %{"notes" => "补"})
+      assert fetch_run(run_done.id, workspace.id).status == :running
     end
   end
+
+  # 终态保护（save_step_output 不改状态，单一职责）随 U4 迁至
+  # course_tools_test 场景 5(run succeeded 后 save_learning_records 仍可写)。
 
   describe "停滞升级（验收 4）" do
     test "running 且 7 天无写入 → 提醒任务入队；新 run 不提醒；不自动 cancel" do

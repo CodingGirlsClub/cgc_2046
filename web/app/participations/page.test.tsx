@@ -7,13 +7,17 @@ import { MY_ENROLLMENTS, MY_LEARNING_RUNS, MY_SPONSORSHIPS } from "@/lib/graphql
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
 }));
-const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
 const { useQuery } = vi.hoisted(() => ({ useQuery: vi.fn() }));
 const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+
+const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
+const tabState: { tab: string | null } = vi.hoisted(() => ({ tab: null }));
 
 vi.mock("next/navigation", () => ({
 	useRouter: () => router,
 	usePathname: () => "/participations",
+	// U8 tab 状态由 URL ?tab= 承载;用例按需切 tab(默认学习 tab)
+	useSearchParams: () => new URLSearchParams(tabState.tab ? `tab=${tabState.tab}` : ""),
 }));
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("@apollo/client/react", () => ({ useQuery }));
@@ -61,9 +65,12 @@ const LEARNING_RUN = {
 	enrollmentId: "enr-1",
 	targetTitle: "教研分享会",
 	status: "waiting",
-	completedManualSteps: 1,
-	totalManualSteps: 2,
-	currentStepTitle: "提交复盘",
+	doneIssues: 1,
+	totalIssues: 3,
+	currentIssueId: "py-02",
+	currentIssueTitle: "变量与数据",
+	currentIssueKey: "PYTH-02",
+	courseId: "course-1",
 };
 
 function mockQuery({
@@ -129,29 +136,49 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("/participations 我的参与", () => {
-	it("渲染报名、赞助交付与学习进度三段数据", () => {
+	it("渲染报名、赞助交付与学习进度三段数据（U8 三 tab 分面）", () => {
 		mockQuery();
-		render(<ParticipationsPage />);
 
+		// 报名 tab
+		tabState.tab = "enrollments";
+		render(<ParticipationsPage />);
 		expect(screen.getByRole("heading", { name: "我的参与" })).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "我的报名" })).toBeInTheDocument();
 		expect(screen.getByText("等待审批")).toBeInTheDocument();
 		expect(screen.getByText("已取消")).toBeInTheDocument();
+		cleanup();
+
+		// 赞助 tab
+		tabState.tab = "sponsorships";
+		render(<ParticipationsPage />);
 		expect(screen.getByRole("heading", { name: "我的赞助" })).toBeInTheDocument();
 		expect(screen.getByText("主会场 Logo 展示")).toBeInTheDocument();
 		expect(screen.getByText("已完成")).toBeInTheDocument();
 		expect(screen.getByText("公众号推文")).toBeInTheDocument();
 		expect(screen.getByText(/待履约/)).toBeInTheDocument();
-		expect(screen.getByRole("heading", { name: "学习进度" })).toBeInTheDocument();
-		expect(screen.getByText("学习进度：1/2 步")).toBeInTheDocument();
+		cleanup();
+
+		// 学习 tab（默认）
+		tabState.tab = null;
+		render(<ParticipationsPage />);
+		expect(screen.getByRole("heading", { name: "我的学习" })).toBeInTheDocument();
+		// 行内进度:doneIssues/totalIssues 与静态文案同 span(textContent 匹配)
+		expect(
+			screen.getByText((_, el) => el?.textContent === "学习进度：1/3 节"),
+		).toBeInTheDocument();
 		expect(screen.getByText("等待中")).toBeInTheDocument();
-		expect(screen.getByText("当前步骤：提交复盘")).toBeInTheDocument();
+		expect(screen.getByText("PYTH-02")).toBeInTheDocument();
+		expect(screen.getByText("变量与数据")).toBeInTheDocument();
 	});
 
 	it("未登录跳转登录页", () => {
 		useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });
 		mockQuery({ enrollments: [], sponsorships: [], learningRuns: [] });
+		{
+		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
+		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
+	}
 
 		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fparticipations");
 	});
@@ -166,7 +193,11 @@ describe("/participations 我的参与", () => {
 				},
 			},
 		});
+		{
+		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
+		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
+	}
 
 		fireEvent.click(screen.getByRole("button", { name: "取消报名" }));
 		expect(screen.getByRole("group", { name: "确认取消报名" })).toHaveTextContent(
@@ -193,7 +224,11 @@ describe("/participations 我的参与", () => {
 				},
 			},
 		});
+		{
+		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
+		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
+	}
 
 		fireEvent.click(screen.getByRole("button", { name: "取消报名" }));
 		fireEvent.click(screen.getByRole("button", { name: "确认取消报名" }));
@@ -208,13 +243,31 @@ describe("/participations 我的参与", () => {
 			enrollmentPage: { count: 2, endKeyset: "enrollment-next" },
 			sponsorshipPage: { count: 2, endKeyset: "sponsorship-next" },
 		});
+		{
+		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
+		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
+	}
 
-		expect(screen.getAllByRole("button", { name: "加载更多" })).toHaveLength(2);
-		fireEvent.click(screen.getAllByRole("button", { name: "加载更多" })[0]);
+		// U8 tab 制:报名与赞助分屏,各屏一个「加载更多」
+		const moreButtons = screen.getAllByRole("button", { name: "加载更多" });
+		expect(moreButtons).toHaveLength(1);
+		fireEvent.click(moreButtons[0]);
 		await waitFor(() => expect(states.enrollments.fetchMore).toHaveBeenCalledOnce());
 		expect(states.enrollments.fetchMore).toHaveBeenCalledWith(
 			expect.objectContaining({ variables: { first: 20, after: "enrollment-next" } }),
+		);
+		cleanup();
+
+		// 赞助 tab 同语义(keyset 透传)
+		tabState.tab = "sponsorships";
+		render(<ParticipationsPage />);
+		const sponsorshipMore = screen.getAllByRole("button", { name: "加载更多" });
+		expect(sponsorshipMore).toHaveLength(1);
+		fireEvent.click(sponsorshipMore[0]);
+		await waitFor(() => expect(states.sponsorships.fetchMore).toHaveBeenCalledOnce());
+		expect(states.sponsorships.fetchMore).toHaveBeenCalledWith(
+			expect.objectContaining({ variables: { first: 20, after: "sponsorship-next" } }),
 		);
 	});
 });

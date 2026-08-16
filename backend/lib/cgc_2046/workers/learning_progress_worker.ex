@@ -1,16 +1,16 @@
 defmodule Cgc2046.Workers.LearningProgressWorker do
   @moduledoc """
-  学习 workflow 进度扫描（E-7 #122；设计 docs/01-定稿设计/学习workflow详细设计.md §4.3/§4.4）。
+  学习 workflow 进度扫描（E-7 #122;完成判定升级:切片 H U4, #180）。
 
   Oban cron 每 5 分钟一拍（`config.exs` crontab；ApprovalExpiryWorker 同款模式），
   扫 `type=learning` 且 `status=running` 的 run，做两件事：
 
-  1. **完成判定（D6-② discharge）**：run 绑定定义版本的 `node_def["steps"]` 中
-     末个 manual step 的 `facts[step_key]` 已存在 → 调既有 `:complete` action 置
-     `succeeded`（产出即工件——facts 全量即学习产物）。`save_step_output`
-     保持不改状态（单一职责、终态保护不变），完成检测由本 worker 承担，
-     代价是至多一个 cron 周期的延迟——BYO 协议下平台本不编排，可接受。
-     定义无 manual step → 永不触发完成（skip，不报错）。
+  1. **完成判定（U4,全 issue Done）**：run 锚定 enrollment 对应课程的
+     course content（ResearchOutput kind=:issues）+ 该 user 学习记录，
+     全部 issue 的 checklist 条目均有 done 记录 → 调既有 `:complete` action
+     置 `succeeded`（完成语义从「走完了」升级为「学会了」，#180 US25）。
+     无内容课程（无 ResearchOutput）不判完成（skip，不报错）；run 终态
+     不重扫（查询限定 running）。
 
   2. **停滞升级（D6-③）**：`running` 且 facts 无新增 > 7 天（`updated_at` 代理——
      running 态下 facts 写入是唯一更新路径）→ 经 NotificationWorker 入队提醒
@@ -29,7 +29,7 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     可见（/admin 对账页 findings 列表）。
 
   单记录处理失败记 warning 不中断整拍（领域 action 状态守卫幂等，并发终态变化
-  属预期竞态）；整拍本身幂等（完成判定看 facts 存在性，提醒靠 args-unique 去重）。
+  属预期竞态）；整拍本身幂等（完成判定看记录存在性，提醒靠 args-unique 去重）。
   """
 
   use Oban.Worker,
@@ -77,9 +77,13 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     end)
   end
 
+  # U4(#180):完成条件 = 全部 issue Done(数据源 = course content
+  # ResearchOutput + 该 user 学习记录;无内容课程不判完成,KTD3)。
   defp maybe_complete(%WorkflowRun{} = run) do
-    with step_key when is_binary(step_key) <- last_manual_step_key(run.definition),
-         true <- Map.has_key?(run.facts || %{}, step_key) do
+    with enrollment when is_map(enrollment) <- fetch_enrollment_or_nil(run),
+         {:ok, content} <- fetch_course_content(run.workspace_id, enrollment),
+         {:ok, records} <- fetch_records(run.workspace_id, enrollment),
+         true <- LearningProgress.all_issues_done?(content, records) do
       complete_run(run)
     else
       _ -> :skipped
@@ -105,23 +109,46 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     end
   end
 
-  # 末个 manual step（设计 §4.3）：node_def["steps"] 数组顺序即拓扑序
-  # （jido_adapter #34 契约），取最后一个 type=="manual" 的 "id"。
-  # node_def 形态不符契约 → nil（skip，不报错）。
-  defp last_manual_step_key(%{node_def: %{"steps" => steps}}) when is_list(steps) do
-    steps
-    |> Enum.filter(fn
-      %{"type" => "manual", "id" => id} when is_binary(id) -> true
-      _ -> false
-    end)
-    |> List.last()
-    |> case do
-      %{"id" => id} -> id
-      nil -> nil
+  # course_id 缺失的 run(事件型 enrollment)无课程内容可判——skip
+  defp fetch_enrollment_or_nil(%WorkflowRun{} = run) do
+    case enrollment_id_of(run) do
+      enrollment_id when is_binary(enrollment_id) ->
+        case fetch_enrollment(enrollment_id) do
+          {:ok, enrollment} -> enrollment
+          {:error, _} -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 
-  defp last_manual_step_key(_definition), do: nil
+  # 无内容课程(无 ResearchOutput)→ {:ok, nil} → all_issues_done? false(skip)
+  defp fetch_course_content(workspace_id, %{course_id: course_id})
+       when is_binary(course_id) do
+    Cgc2046.Workflows.ResearchOutput
+    |> Ash.Query.filter(
+      key == ^Cgc2046.Workflows.ResearchOutput.course_key(course_id) and kind == :issues
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+    |> case do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, output} -> {:ok, output.data}
+      {:error, _} -> {:error, :content_read_failed}
+    end
+  end
+
+  defp fetch_course_content(_workspace_id, _enrollment), do: {:ok, nil}
+
+  defp fetch_records(workspace_id, %{course_id: course_id, user_id: user_id})
+       when is_binary(course_id) and is_binary(user_id) do
+    Cgc2046.Learning.LearningRecord
+    |> Ash.Query.filter(course_id == ^course_id and user_id == ^user_id)
+    |> Ash.read(authorize?: false, tenant: workspace_id)
+  end
+
+  defp fetch_records(_workspace_id, _enrollment), do: {:ok, []}
 
   # --- 停滞升级（D6-③） -------------------------------------------------------
 

@@ -17,5 +17,15 @@ const httpLink = createHttpLink(httpLinkOptions);
 
 export const client = new ApolloClient({
 	link: httpLink,
-	cache: new InMemoryCache(),
+	cache: new InMemoryCache({
+		typePolicies: {
+			// U8(#180):issue 的 checklist item id 只在 issue 内唯一(R2 id 纪律,
+			// 如两张卡各有 "c1")——Apollo 默认按 __typename:id 规范化会跨 issue
+			// 撞车串数据(E2E 实证:issue2 复用了 issue1 的 c1 缓存对象)。
+			// 内嵌列表禁用规范化键,按属主 issue 逐次取响应。
+			IssueChecklistItem: { keyFields: false },
+			// materials 同理:朴素参考列表,issue 内语义、无全局唯一 id
+			IssueMaterial: { keyFields: false },
+		},
+	}),
 });

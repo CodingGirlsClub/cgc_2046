@@ -1,88 +1,182 @@
 defmodule Cgc2046.Workflows.LearningProgressTest do
+  @moduledoc """
+  LearningProgress issue 级投影测试(切片 H U4, #180)。
+
+  - project/project_issues:doneIssues/totalIssues/currentIssueTitle(+id)派生
+  - 三态口径:Todo(无记录)/ In Progress(部分)/ Done(全部)
+  - issue key 派生(KTD6 形状)
+  - all_issues_done?:完成判定纯函数(worker 消费)
+  """
   use ExUnit.Case, async: true
 
   alias Cgc2046.Workflows.LearningProgress
 
-  test "按 node_def 顺序统计 manual steps，并用 Step 标题定位当前步骤" do
-    node_def = %{
-      "steps" => [
-        %{"id" => "intro", "type" => "auto"},
-        %{"id" => "outline", "type" => "manual"},
-        %{"id" => "review", "type" => "manual"}
+  defp content_fixture do
+    %{
+      "goals" => ["能写程序"],
+      "issues" => [
+        %{
+          "id" => "py-first",
+          "kind" => "handwork",
+          "title" => "第一个程序",
+          "story" => %{
+            "checklist" => [
+              %{"id" => "c1", "text" => "能运行"},
+              %{"id" => "c2", "text" => "能讲懂"}
+            ]
+          }
+        },
+        %{
+          "id" => "py-vars",
+          "kind" => "thoughtwork",
+          "title" => "变量与数据",
+          "story" => %{
+            "checklist" => [%{"id" => "c1", "text" => "能解释绑定"}]
+          }
+        }
       ]
     }
-
-    steps = [
-      %{step_key: "review", title: "复盘作业"},
-      %{step_key: "outline", title: "设计大纲"}
-    ]
-
-    assert LearningProgress.project(
-             "run-1",
-             "enrollment-1",
-             "学习活动",
-             :waiting,
-             node_def,
-             steps,
-             %{}
-           ) == %{
-             run_id: "run-1",
-             enrollment_id: "enrollment-1",
-             target_title: "学习活动",
-             status: "waiting",
-             completed_manual_steps: 0,
-             total_manual_steps: 2,
-             current_step_title: "设计大纲"
-           }
   end
 
-  test "facts 乱序时按 manual key 计数，succeeded 可与 n-1/n 口径并存" do
-    node_def = %{
-      "steps" => [
-        %{"id" => "first", "type" => "manual"},
-        %{"id" => "auto", "type" => "auto"},
-        %{"id" => "last", "type" => "manual"}
+  defp record(issue_id, item_id, done) do
+    %{issue_id: issue_id, item_id: item_id, done: done}
+  end
+
+  describe "issue 级投影" do
+    test "无记录 → Todo 全量,currentIssue = 首张" do
+      assert LearningProgress.project_issues(content_fixture(), []) == %{
+               done_issues: 0,
+               total_issues: 2,
+               current_issue_id: "py-first",
+               current_issue_title: "第一个程序"
+             }
+    end
+
+    test "部分 done → In Progress,当前 issue 仍是首张" do
+      records = [record("py-first", "c1", true)]
+
+      assert LearningProgress.project_issues(content_fixture(), records) == %{
+               done_issues: 0,
+               total_issues: 2,
+               current_issue_id: "py-first",
+               current_issue_title: "第一个程序"
+             }
+    end
+
+    test "首张全 done → done=1,当前 issue 切到第二张" do
+      records = [
+        record("py-first", "c1", true),
+        record("py-first", "c2", true)
       ]
-    }
 
-    assert LearningProgress.project(
-             "run-2",
-             "enrollment-2",
-             nil,
-             :succeeded,
-             node_def,
-             [%{step_key: "first", title: "第一步"}, %{step_key: "last", title: "最后一步"}],
-             %{"last" => %{"answer" => "ok"}}
-           ) == %{
-             run_id: "run-2",
-             enrollment_id: "enrollment-2",
-             target_title: nil,
-             status: "succeeded",
-             completed_manual_steps: 1,
-             total_manual_steps: 2,
-             current_step_title: "第一步"
-           }
+      assert LearningProgress.project_issues(content_fixture(), records) == %{
+               done_issues: 1,
+               total_issues: 2,
+               current_issue_id: "py-vars",
+               current_issue_title: "变量与数据"
+             }
+    end
+
+    test "全部 issue Done → currentIssue nil(课程 Done 态)" do
+      records = [
+        record("py-first", "c1", true),
+        record("py-first", "c2", true),
+        record("py-vars", "c1", true)
+      ]
+
+      assert LearningProgress.project_issues(content_fixture(), records) == %{
+               done_issues: 2,
+               total_issues: 2,
+               current_issue_id: nil,
+               current_issue_title: nil
+             }
+    end
+
+    test "run 级 project:run 元信息 + issue 投影合并" do
+      records = [record("py-first", "c1", true)]
+
+      assert LearningProgress.project(
+               "run-1",
+               "enrollment-1",
+               "Python 入门",
+               :running,
+               content_fixture(),
+               records
+             ) == %{
+               run_id: "run-1",
+               enrollment_id: "enrollment-1",
+               target_title: "Python 入门",
+               status: "running",
+               done_issues: 0,
+               total_issues: 2,
+               current_issue_id: "py-first",
+               current_issue_title: "第一个程序"
+             }
+    end
+
+    test "无内容/畸形内容安全返回 0/n(currentIssue nil)" do
+      for content <- [nil, %{}, %{"issues" => []}, "garbage"] do
+        assert LearningProgress.project_issues(content, [
+                 record("any", "any", true)
+               ]) == %{
+                 done_issues: 0,
+                 total_issues: 0,
+                 current_issue_id: nil,
+                 current_issue_title: nil
+               }
+      end
+    end
+
+    test "宽存记录(内容外 issue/item)不参与投影" do
+      records = [
+        record("ghost-issue", "c9", true),
+        record("py-first", "ghost-item", true)
+      ]
+
+      projection = LearningProgress.project_issues(content_fixture(), records)
+      assert projection.done_issues == 0
+      assert projection.current_issue_id == "py-first"
+    end
   end
 
-  test "空 facts、无效 node_def 与缺失 Step 标题安全返回" do
-    assert LearningProgress.project("run-3", "enrollment-3", "课程", "running", %{}, [], nil) == %{
-             run_id: "run-3",
-             enrollment_id: "enrollment-3",
-             target_title: "课程",
-             status: "running",
-             completed_manual_steps: 0,
-             total_manual_steps: 0,
-             current_step_title: nil
-           }
+  describe "issue key 派生(KTD6)" do
+    test "slug 短码大写 + 序号补零两位" do
+      assert LearningProgress.issue_key("python-intro", 1) == "PYTH-01"
+      assert LearningProgress.issue_key("python-intro", 2) == "PYTH-02"
+      assert LearningProgress.issue_key("py", 12) == "PY-12"
+    end
 
-    assert LearningProgress.project(
-             "run-4",
-             "enrollment-4",
-             "课程",
-             :running,
-             %{"steps" => [%{"id" => "missing", "type" => "manual"}]},
-             [],
-             %{}
-           ).current_step_title == nil
+    test "无 slug / 纯符号 slug → C 前缀;非法序号 → 空串" do
+      assert LearningProgress.issue_key(nil, 3) == "C-03"
+      assert LearningProgress.issue_key("中文课", 3) == "C-03"
+      assert LearningProgress.issue_key("py", 0) == ""
+    end
+  end
+
+  describe "完成判定纯函数" do
+    test "all_issues_done?:全部条目 done 才 true" do
+      content = content_fixture()
+
+      refute LearningProgress.all_issues_done?(content, [])
+      refute LearningProgress.all_issues_done?(content, [record("py-first", "c1", true)])
+
+      assert LearningProgress.all_issues_done?(content, [
+               record("py-first", "c1", true),
+               record("py-first", "c2", true),
+               record("py-vars", "c1", true)
+             ])
+
+      # done=false 的记录不算完成
+      refute LearningProgress.all_issues_done?(content, [
+               record("py-first", "c1", true),
+               record("py-first", "c2", false),
+               record("py-vars", "c1", true)
+             ])
+    end
+
+    test "无内容课程恒 false(不判完成)" do
+      refute LearningProgress.all_issues_done?(nil, [])
+      refute LearningProgress.all_issues_done?(%{"issues" => []}, [])
+    end
   end
 end

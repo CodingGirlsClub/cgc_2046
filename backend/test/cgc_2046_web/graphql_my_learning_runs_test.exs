@@ -6,7 +6,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.{Step, WorkflowDefinition, WorkflowRun}
 
-  test "confirmed 学员可读自己的 run，waiting 当前步骤与 succeeded 完成度正确" do
+  test "confirmed 学员可读自己的 run，issue 级进度口径(U7)" do
     owner = Fixtures.platform_admin("my-learning-owner")
     workspace = Fixtures.create_workspace(owner)
     learner = Fixtures.register_user("my-learning-learner")
@@ -57,15 +57,16 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
     assert waiting["enrollmentId"] == enrollment.id
     assert waiting["targetTitle"] == "快照标题"
     assert waiting["status"] == "waiting"
-    assert waiting["completedManualSteps"] == 0
-    assert waiting["totalManualSteps"] == 2
-    assert waiting["currentStepTitle"] == "outline 标题"
+    # U7(KD8):issue 级口径。事件型 enrollment(无 course content)→ 0/0
+    assert waiting["doneIssues"] == 0
+    assert waiting["totalIssues"] == 0
+    assert waiting["currentIssueTitle"] == nil
 
     succeeded = Enum.find(rows, &(&1["runId"] == succeeded_run.id))
     assert succeeded["status"] == "succeeded"
-    assert succeeded["completedManualSteps"] == 2
-    assert succeeded["totalManualSteps"] == 2
-    assert succeeded["currentStepTitle"] == nil
+    assert succeeded["doneIssues"] == 0
+    assert succeeded["totalIssues"] == 0
+    assert succeeded["currentIssueTitle"] == nil
   end
 
   test "无 confirmed enrollment 的用户返回空列表，未登录被拒" do
@@ -191,9 +192,9 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
         enrollmentId
         targetTitle
         status
-        completedManualSteps
-        totalManualSteps
-        currentStepTitle
+        doneIssues
+        totalIssues
+        currentIssueTitle
       }
     }
     """
