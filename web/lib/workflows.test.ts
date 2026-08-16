@@ -5,7 +5,12 @@ vi.mock("./apollo-client", () => ({
 }));
 
 import { client } from "./apollo-client";
-import { fetchWorkflowRuns, mapWorkflowRun, parseJsonString } from "./workflows";
+import {
+	fetchWorkflowRuns,
+	mapWorkflowRun,
+	parseJsonString,
+	parseSteps,
+} from "./workflows";
 
 describe("parseJsonString（JsonString → 对象）", () => {
 	it("合法 JSON 对象解析", () => {
@@ -31,6 +36,43 @@ describe("parseJsonString（JsonString → 对象）", () => {
 	});
 });
 
+describe("parseSteps（plan 020 U3：steps JsonString 数组 → 步骤条目）", () => {
+	it("正常解析：step_key/title/type/output_schema", () => {
+		const steps = parseSteps([
+			'{"step_key":"module_reading","title":"阅读模块","type":"manual","output_schema":{"name":"reading","type":"string","label":"阅读产出","optional":false}}',
+			'{"step_key":"final_reflection","title":"结课反思","type":"manual","output_schema":null}',
+		]);
+
+		expect(steps).toEqual([
+			{
+				stepKey: "module_reading",
+				title: "阅读模块",
+				type: "manual",
+				outputSchema: {
+					name: "reading",
+					type: "string",
+					label: "阅读产出",
+					optional: false,
+				},
+			},
+			{ stepKey: "final_reflection", title: "结课反思", type: "manual", outputSchema: null },
+		]);
+	});
+
+	it("宽松兼容：null/undefined/非数组 → []；单条非法/缺 step_key 跳过；title 缺省回退 step_key", () => {
+		expect(parseSteps(null)).toEqual([]);
+		expect(parseSteps(undefined)).toEqual([]);
+		expect(parseSteps("nope" as unknown as string[])).toEqual([]);
+		expect(parseSteps(["not-json", '{"step_key":"a","title":"A","type":"manual"}', "[]"])).toEqual([
+			{ stepKey: "a", title: "A", type: "manual", outputSchema: null },
+		]);
+		expect(parseSteps(['{"title":"无key"}'])).toEqual([]);
+		expect(parseSteps(['{"step_key":"b"}'])).toEqual([
+			{ stepKey: "b", title: "b", type: "", outputSchema: null },
+		]);
+	});
+});
+
 describe("mapWorkflowRun（后端 WorkflowRun → 前端展示项）", () => {
 	it("facts JsonString 解析为对象，status/startedAt 直传", () => {
 		const item = mapWorkflowRun({
@@ -45,11 +87,19 @@ describe("mapWorkflowRun（后端 WorkflowRun → 前端展示项）", () => {
 			version: 3,
 			startedAt: "2026-08-06T10:00:00Z",
 			finishedAt: "2026-08-06T10:00:05Z",
+			definition: { type: "research" },
+			steps: [
+				'{"step_key":"uppercase","title":"大写","type":"auto","output_schema":null}',
+			],
 		});
 
 		expect(item.id).toBe("run_1");
 		expect(item.status).toBe("succeeded");
 		expect(item.definitionId).toBe("def_1");
+		expect(item.definitionType).toBe("research");
+		expect(item.steps).toEqual([
+			{ stepKey: "uppercase", title: "大写", type: "auto", outputSchema: null },
+		]);
 		expect(item.facts).toEqual({ uppercase: { text: "HI" } });
 		expect(item.startedAt).toBe("2026-08-06T10:00:00Z");
 		expect(item.finishedAt).toBe("2026-08-06T10:00:05Z");
@@ -68,8 +118,12 @@ describe("mapWorkflowRun（后端 WorkflowRun → 前端展示项）", () => {
 			version: 0,
 			startedAt: null,
 			finishedAt: null,
+			definition: null,
+			steps: null,
 		});
 
+		expect(item.definitionType).toBeNull();
+		expect(item.steps).toEqual([]);
 		expect(item.facts).toEqual({});
 		expect(item.startedAt).toBeNull();
 	});

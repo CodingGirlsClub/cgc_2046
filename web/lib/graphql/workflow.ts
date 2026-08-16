@@ -42,6 +42,10 @@ export interface WorkflowRun {
 	version: number;
 	startedAt: string | null;
 	finishedAt: string | null;
+	/** plan 020 U3：run 绑定版本的 definition（版本快照，非最新定义） */
+	definition: { type: string } | null;
+	/** plan 020 U3：JsonString 数组——每项 JSON 编码步骤摘要 {step_key,title,type,output_schema} */
+	steps: string[] | null;
 }
 
 /** listWorkflowRuns 分页对象（KeysetPageOfWorkflowRun 实测形态） */
@@ -89,6 +93,10 @@ export const LIST_WORKFLOW_RUNS: TypedDocumentNode<
 				version
 				startedAt
 				finishedAt
+				definition {
+					type
+				}
+				steps
 			}
 			startKeyset
 			endKeyset
@@ -114,6 +122,10 @@ export const GET_WORKFLOW_RUN: TypedDocumentNode<
 			version
 			startedAt
 			finishedAt
+			definition {
+				type
+			}
+			steps
 		}
 	}
 `;

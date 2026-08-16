@@ -16,6 +16,7 @@ import type { IconName } from "@/components/icons";
 /** 侧栏激活态 section 名（由 pathname 派生，见 workspace-shell.tsx navSection） */
 export type NavSection =
 	| "overview"
+	| "agents"
 	| "workflows"
 	| "events"
 	| "courses"
@@ -47,6 +48,15 @@ export interface NavDestination {
 }
 
 export const SETTINGS_NAV: NavDestination[] = [
+	{
+		key: "agents",
+		label: "Agents",
+		href: (s) => `/w/${s}/agents`,
+		group: "workspace",
+		active: "agents",
+		icon: "activity",
+		settingsTab: false,
+	},
 	{
 		key: "events",
 		label: "活动",

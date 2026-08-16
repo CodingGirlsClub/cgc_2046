@@ -42,6 +42,8 @@ import {
 
 function navSection(pathname: string, slug: string): NavSection {
 	if (pathname === `/w/${slug}`) return "overview";
+	// plan 020 U1：/w/[slug]/agents 工作面一级入口（须在 settings 前缀判定之前）
+	if (pathname.startsWith(`/w/${slug}/agents`)) return "agents";
 	if (pathname.startsWith(`/w/${slug}/workflows`)) return "workflows";
 	if (
 		pathname.startsWith(`/w/${slug}/events`) ||
@@ -342,6 +344,15 @@ export default function WorkspaceShell({
 							>
 								<Icon name="grid" />
 								<span>概览</span>
+							</Link>
+							{/* plan 020 U1：Agents 工作面一级入口（workspace 侧边栏） */}
+							<Link
+								href={`/w/${slug}/agents`}
+								className={`ws-shell-item ${active === "agents" ? "ws-shell-item--selected" : ""}`}
+								aria-current={active === "agents" ? "page" : undefined}
+							>
+								<Icon name="activity" />
+								<span>Agents</span>
 							</Link>
 							<Link
 								href={`/w/${slug}/workflows`}

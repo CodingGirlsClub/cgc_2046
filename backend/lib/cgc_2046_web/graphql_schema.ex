@@ -141,6 +141,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
+    field :my_workspace_tool_calls, non_null(list_of(non_null(:workspace_tool_call))) do
+      arg(:workspace_id, non_null(:id))
+      arg(:first, :integer)
+
+      resolve(fn _, args, %{context: context} ->
+        # args 只含调用方提供的键（first 可缺省）——不能用固定键 pattern match
+        with_actor(context, fn actor ->
+          resolve_my_workspace_tool_calls(actor, args[:workspace_id], args[:first] || 50)
+        end)
+      end)
+    end
+
     # ── SpeakerInvitation（E-4 #49）──
 
     @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请"
@@ -1215,6 +1228,16 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:current_step_title, :string)
   end
 
+  # plan 020 U2.1：本人 MCP 工具调用活动流摘要（无 params——隐私最小面，即便已 redact）
+  object :workspace_tool_call do
+    field(:id, non_null(:id))
+    field(:tool, non_null(:string))
+    field(:status, non_null(:string))
+    field(:latency_ms, :integer)
+    field(:inserted_at, non_null(:datetime))
+    field(:error_message, :string)
+  end
+
   object :miniprogram_code_result do
     field(:invitation_id, non_null(:id))
     field(:platform, non_null(:string))
@@ -1764,6 +1787,45 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:first_seen_at, non_null(:datetime))
     field(:last_seen_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
+  end
+
+  # plan 020 U2.1：本人 MCP 工具调用活动流。
+  # policy（显式判定，与 Wrapper 成员门槛同源）：workspace 成员 + 仅本人。
+  # 过滤：params JSONB 内 workspace_id（键名 params["workspace_id"]，Wrapper 落库
+  # 格式，assumption 1）+ user_id == actor.id；排序 inserted_at desc + id desc。
+  # 非成员统一 forbidden；读取经 authorize?: false 直读（ToolCallLog 读 policy 仍
+  # platform_admin 专属，本查询按成员+本人独立门控，params 摘要级不返回）。
+  defp resolve_my_workspace_tool_calls(actor, workspace_id, first) do
+    if Cgc2046.Accounts.MembershipContext.membership_of(actor, workspace_id) do
+      ws_id = to_string(workspace_id)
+
+      query =
+        Cgc2046.Mcp.ToolCallLog
+        |> Ash.Query.filter(user_id == ^actor.id)
+        |> Ash.Query.filter(fragment("params->>'workspace_id' = ?", ^ws_id))
+        |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+        |> Ash.Query.limit(first)
+
+      case Ash.read(query, authorize?: false) do
+        {:ok, logs} ->
+          {:ok,
+           Enum.map(logs, fn log ->
+             %{
+               id: log.id,
+               tool: log.tool,
+               status: to_string(log.result_status),
+               latency_ms: log.latency_ms,
+               inserted_at: log.inserted_at,
+               error_message: log.error_message
+             }
+           end)}
+
+        {:error, error} ->
+          {:error, to_ash_graphql_errors(error, %{}, :read, Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)}
+      end
+    else
+      {:error, [message: "forbidden", code: "forbidden"]}
+    end
   end
 
   defp resolve_my_learning_runs(actor) do
