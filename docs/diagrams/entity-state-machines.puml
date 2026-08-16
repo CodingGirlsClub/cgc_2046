@@ -1,11 +1,15 @@
 @startuml entity-state-machines
 ' ============================================================
 ' L2 - 业务实体状态机汇总（按码现状 @status_values 修正）
-' 事实来源：backend/lib/cgc_2046/events/enrollment.ex:53-58 ·
+' 事实来源：backend/lib/cgc_2046/events/enrollment.ex:53-61 ·
+'   payments/order.ex:78-86（7 态）·
 '   events/sponsorship.ex:79-84 · events/speaker_invitation.ex:38,127-128 ·
 '   events/invite_batch.ex:48-54（+ enrollment.ex:582-603 条件 UPDATE 扣配额）·
 '   workflows/workflow_definition.ex:48（@status_values）·
-'   workers/approval_expiry_worker.ex:63-99（pending 过期扫描面）
+'   workflows/research_output.ex:30（kind 单值，无 status 属性）·
+'   workers/approval_expiry_worker.ex:63-99（pending 过期扫描面）·
+'   workers/payment_settlement_worker.ex:85-99 / payment_expiry_worker.ex:80-84 /
+'   payment_refund_worker.ex:113-147 / event_cancel_refund_worker.ex:163-186（订单迁移触发面）
 ' ============================================================
 title 业务实体状态机汇总（L2，按码现状）
 skinparam backgroundColor white
@@ -14,7 +18,7 @@ skinparam state {
     BorderColor #2E7D32
 }
 
-' ---------------- Enrollment（enrollment.ex:53-58） ---------------- 
+' ---------------- Enrollment（enrollment.ex:53-61） ----------------
 state "Enrollment（报名）" as ENR {
     [*] --> pending : create_enrollment\n（request 策略：不占名额 + approval_deadline）
     [*] --> confirmed : create_enrollment\n（open：reserve_capacity；\ninvite_only：+ 扣批次配额）
@@ -32,13 +36,13 @@ state "Enrollment（报名）" as ENR {
     confirmed --> cancelled : 退款联动\n（refund_succeeded 收尾）
 }
 
-' ---------------- Order(缴费订单,2026-08-15 ADR-0007) ----------------
+' ---------------- Order(缴费订单,payments/order.ex:78-86;ADR-0007) ----------------
 state "Order（缴费订单）" as ORD {
     [*] --> pending : 下单(占位已发生,2h 限时窗)
     pending --> paid : 回调+回查+CAS 落账(transaction_id 回填)
     pending --> cancelled : 换渠道/用户取消/批量作废
     pending --> expired : 超时扫描 CAS(U8 三联动)
-    paid --> refunding : 管理员退款(closed 后仍可)
+    paid --> refunding : 管理员退款 / 活动取消批量退款\n（closed 后仍可，U9-4/F-J）
     expired --> refunding : 迟到扣款自动退款(AE2)
     refunding --> refunded : 渠道回调/同步/查单兜底
     refunding --> refund_failed : 渠道拒绝
@@ -83,15 +87,22 @@ state "InviteBatch（邀请批次）" as IVB {
     active --> disabled : 停用（运营下架）
 }
 
-' ---------------- ResearchOutput ---------------- 
+' ---------------- ResearchOutput（research_output.ex，活文档无状态机） ----------------
 state "ResearchOutput（教研产出）" as RSO {
-    [*] --> drafted : save_outline / save_materials
-    drafted --> ready : 物料保存完成\n（审核通过/免审核）
-    ready --> archived : 归档 archive_materials
+    [*] --> issues : upsert_content\n（(key,kind) 活文档 upsert，无版本流）
 }
+note bottom of RSO
+  **码现状（research_output.ex:30,49-55,107-115）**：
+  无 status 属性——kind ∈ [issues] 单值
+  （materials/archive 设计保留、实现后置）；
+  (key,kind) 全局唯一，upsert_content 按键更新
+  data 与审计列，不产生版本流（id 稳定纪律 KTD4）。
+  原图 drafted/ready/archived 三态系设计稿状态，
+  码从未实现（本轮图码对账更正）。
+end note
 
 note bottom of ENR
-  **码现状（enrollment.ex:53-58）**：状态集
+  **码现状（enrollment.ex:53-61）**：状态集
   [pending / payment_pending / confirmed / rejected / expired / cancelled]——
   无 draft/submitted（创建即 pending/payment_pending/confirmed）。
   v1 实体自序贯：不建 WorkflowRun（workflow_run_id 预留二期，
@@ -114,8 +125,9 @@ end note
 
 note bottom of SPS
   **v1 主路径**：pending → active（审批通过）。
-  收款/支付 = 二期（F4）：状态机需插 payment_pending → paid；
-  v1 全库无支付状态（amount 仅登记）。
+  赞助侧 v1 不收款（amount 仅登记）；F4 预留的
+  收款态未插 Sponsorship——缴费闭环落在报名侧
+  （Enrollment 6 态 + Order，ADR-0007，2026-08 落地）。
 end note
 
 @enduml

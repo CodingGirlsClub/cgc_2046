@@ -6,10 +6,16 @@
 ' backend/lib/cgc_2046/mcp/tool_call_log.ex（全局表，params JSONB
 ' 含 workspace_id 便于聚合）、backend/lib/cgc_2046/accounts/（JWT/
 ' Identity）、backend/lib/cgc_2046/policies/actor_is_enrolled_learner.ex
-' （E-7 学习 run 双分支）、backend/lib/cgc_2046/mcp/wrapper.ex
-' （workspace_id 必填 + membership 门槛）、D5/D6/D9/D12/D13 决策、
+' （E-7 学习 run 双分支）、backend/lib/cgc_2046/mcp/wrapper.ex:26-35
+' （workspace_id 必填 + membership 门槛 + @membership_deferred 扩四）、
+' mcp/tools/learner_authorization.ex:3-14（course 级三层授权）·
+' workflows/step_authorization.ex:118-130（enrolled_learner?，run 级）·
+' payments/provider.ex:50-51（verify_webhook 验签）·
+' payments/webhook_event.ex（回调幂等去重 R21）·
+' cgc_2046_web/router.ex:52-60 + controllers/payment_webhook_controller.ex
+' :1-11（回调入口无 actor，#172 seam）·D5/D6/D9/D12/D13 决策、
 ' domain-model-er.puml（全局资源 vs 租户内资源）。
-' 本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' 本图按 codebase 现状绘制（2026-08，develop 7c8cadb）。
 ' ============================================================
 title 横切概念：凭证模型 / 多租户隔离 / 审计链路（L3.3）
 
@@ -26,7 +32,7 @@ skinparam arrow {
     Color #455A64
 }
 
-rectangle "凭证模型（四种，互不通用）" as CREDS #E8F0FE {
+rectangle "凭证模型（四种用户凭证，互不通用）" as CREDS #E8F0FE {
     rectangle "网站会话 JWT\nAshAuthentication\nhttpOnly cookie\n────\nweb/ + miniprogram/ 登录态" as C_JWT
     rectangle "MCP 连接 token\nBearer，库中只存\nSHA256 hash\n────\n绑用户不绑工作区（D13）\n明文仅签发时返回一次\n撤销 = revoked_at 留审计行" as C_MCP
     rectangle "邀请 token\nSpeakerInvitation\n逐人一次性\ntoken_hash 校验\naccept/decline 后失效" as C_INV
@@ -35,15 +41,19 @@ rectangle "凭证模型（四种，互不通用）" as CREDS #E8F0FE {
 
 rectangle "多租户隔离（Ash multitenancy：attribute workspace_id）" as TENANT #F0FDE8 {
     rectangle "全局资源（不落租户）\nUser / Identity / Token\nWorkspace 本体\nMcp.Token / ToolCallLog\nAdminActionLog" as G_RES
-    rectangle "租户内资源（scoped）\nEvent / Course / Offering\nEnrollment / Sponsorship\nSpeakerInvitation / InviteBatch\nWorkflowDefinition / WorkflowRun\n/ Step / SignalLog / SignalFact" as T_RES
-    rectangle "判定规则\n────\nGraphQL：actor 会话 + policy\nMCP：每调用 workspace_id 参数\n（D12，Wrapper 必填校验）\n权限判定按场景取关系：\n· 执行 Step → 成员角色\n· 活动报名 → Enrollment" as RULES
+    rectangle "租户内资源（scoped）\nEvent / Course / Offering\nEnrollment / Sponsorship\nSpeakerInvitation / InviteBatch\nOrder / WebhookEvent（payments）\nLearningRecord（learning）\nWorkflowDefinition / WorkflowRun\n/ Step / SignalLog / SignalFact\n────\nOrder / LearningRecord 为\nglobal?(true) + workspace_id：\nworker 跨租户按 PK 直读" as T_RES
+    rectangle "判定规则\n────\nGraphQL：actor 会话 + policy\nMCP：每调用 workspace_id 参数\n（D12，Wrapper 必填校验）\n权限判定按场景取关系：\n· 执行 Step → 成员角色\n· 活动报名 → Enrollment\n· 课程学习 → 成员 ∪ 报名 ∪\n  记忆持有者（KTD2）" as RULES
 }
 
 rectangle "审计链路" as AUDIT #FFFDE7 {
     rectangle "Mcp.ToolCallLog\n每次 MCP 工具调用一行：\n谁/工具/参数（redact 后）/\n状态/耗时/关联 pending_id\n────\n全局表（无 workspace_id 列），\nparams JSONB 内含键、按其过滤\n聚合（D5）；服务端自动生成（D9）" as A_TOOL
     rectangle "Mcp.Redact\n敏感键值 → [REDACTED]\n（落库前过滤，D-D8）" as A_REDACT
-    rectangle "AdminActionLog\n管理员操作审计\n（/ops + GraphQL 管理面）" as A_ADMIN
-    rectangle "SignalLog\nrun 级信号投递审计\n（每投递一行）" as A_SIG
+    rectangle "AdminActionLog\n管理员操作审计\n（/ops + GraphQL 管理面）\n────\n扩 payments/learning 面：\nwaive_payment / order_refund /\norder_refund_retry；批量退款\nactor_id=nil 系统语义（F-J）" as A_ADMIN
+    rectangle "SignalLog\nrun 级信号投递审计\n（每投递一行；order.paid\n审计信号落此）" as A_SIG
+}
+
+rectangle "渠道回调鉴权（第五面：payments webhook，无 actor）" as WH #FCE4EC {
+    rectangle "入口：POST\n/api/payments/webhooks/:provider\n独立 pipeline（router.ex:56-60），\n不过 GraphQL\n────\n鉴权语义 = 渠道验签（#172 seam）：\nProvider.verify_webhook\n（签名校验 + 资源解密，R21 入口段）\n────\n幂等：WebhookEvent\n(provider, event_id) 唯一索引——\n重复投递按成功回执，业务只变一次\n────\n验签失败 400 + telemetry；\n应答体按渠道：微信 code:SUCCESS /\n支付宝 success 纯文本 ack" as WH_IN
 }
 
 database "Postgres\n（唯一持久层；\n租户过滤 = 查询层\n强制 where workspace_id）" as PG
@@ -59,6 +69,7 @@ A_TOOL --> PG
 A_ADMIN --> PG
 A_SIG --> PG
 A_REDACT ..> A_TOOL : 前置过滤
+WH_IN --> PG : WebhookEvent 落库\n+ 同事务入队落账 job
 
 note right of C_MCP
   两种 token 不可互换：
@@ -71,15 +82,23 @@ note right of C_MCP
 end note
 
 note bottom of RULES
-  学习 run 特例（E-7 #122）：
-  学员是**非成员**（报名 ≠ 成员，
-  D-A4），MCP save_step_output
-  的 bypass 双分支：
-  · workspace 成员（经 definition）
-  · enrolled learner 本人
-  （Enrollment 记录授权）
-  规则本体在 StepAuthorization，
-  工具层与资源层共用同一实现。
+  学员非成员双面（D-A4：报名 ≠ 成员）：
+  · run 级（E-7 #122）：save_step_output
+    放行 enrolled learner 本人——
+    StepAuthorization.enrolled_learner?
+    锚 run 的 enrollment_id
+    （step_authorization.ex:118-130）
+  · course 级（#180 KTD2）：MCP 非成员
+    工具族 @membership_deferred 扩四
+    （wrapper.ex:26-35）——save_step_output +
+    get_course_content / get_learning_records /
+    save_learning_records；统一学员授权 =
+    LearnerAuthorization 三层：成员 ∪ 本人
+    confirmed enrollment（enrolled_learner?
+    的 course 级变体）∪ 记忆持有者。
+    save_course_content 不在下沉名单
+    （tutor ∪ owner/admin 成员门槛）。
+    工具层判定 + 资源层 Ash policy 双重门禁。
 end note
 
 note right of A_TOOL

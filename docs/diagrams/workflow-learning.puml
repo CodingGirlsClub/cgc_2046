@@ -1,25 +1,35 @@
 @startuml workflow-learning
 ' ============================================================
 ' L2 - 学习 Workflow（type=learning）— 协议流转，绕 Engine
-' 事实来源：backend/lib/cgc_2046/workflows/learning_instantiator.ex:22-24,66-74,
-'   199-203 · workflows/workflow_run.ex:415-419,674-698（find_or_create_and_start：
-'   start_action :start 纯状态流转非 DAG）· mcp/wrapper.ex:26-30 +
-'   mcp/tools/save_step_output.ex（学员 BYO 写 facts）·
-'   workflows/learning_progress.ex:9-28 · workers/learning_progress_worker.ex:1-40
+' 事实来源：backend/lib/cgc_2046/workflows/learning_instantiator.ex:22-24,
+'   66-74,199-203 · workflows/workflow_run.ex:415-419,674-698（find_or_create_
+'   and_start：start_action :start 纯状态流转非 DAG）· workflows/course_content.ex:3-26
+'   （issue 卡集形状契约，KTD4 id 稳定纪律）· workflows/learning_progress.ex:3-15,
+'   114-119（issue 级投影 + 全 issue Done 判定）· learning/learning_record.ex:1-18,
+'   128-161,201-205（学员 issue 级记忆账本）· mcp/wrapper.ex:26-35（@membership_
+'   deferred 扩四）· mcp/tools/{get_course_content,get_learning_records,save_
+'   learning_records,save_course_content}.ex · mcp/tools/learner_authorization.ex:3-14
+'   · workers/learning_progress_worker.ex:3-19 · workers/research_progress_worker.ex:3-19
 ' 说明：第三种 workflow 形态——算法在学员自带（BYO）agent，
-'   平台只持协议状态（run 状态 + facts 账本），不经 Engine 执行 DAG。
+'   平台只持协议状态（run 状态 + 记忆账本），不经 Engine 执行 DAG。
+'   course-issue 闭环（#180）：教研定义 issue 卡集（CourseContent），
+'   学员按 issue 记学习账（LearningRecord），完成 = 全部 issue Done。
 ' ============================================================
-title 学习 Workflow（L2）— 协议流转（学员 BYO agent，平台只持协议状态）
+title 学习 Workflow（L2）— 协议流转（学员 BYO agent，平台只持协议状态 + 记忆账本）
 skinparam backgroundColor white
 
 participant "报名确认事务\n（SignalEmitter outbox）" as ENR
 participant "LearningInstantiator\n（订阅 enrollment.completed）" as INST
 participant "WorkflowRun\n（find_or_create_and_start）" as RUN
+participant "教研 agent\n（经 MCP，workspace 成员）" as RAGENT
+participant "ResearchOutput\n（kind=:issues,\nkey=course_<id>）" as CNT
+participant "ResearchProgressWorker\n（Oban cron */5min）" as RPW
 participant "学员 BYO agent\n（经 MCP）" as AGENT
+participant "LearningRecord\n（学员 issue 级记忆账本）" as REC
 participant "LearningProgressWorker\n（Oban cron */5min）" as WORK
 
 == 实例化（enrollment.completed） ==
-ENR ->> INST: 投递 enrollment.completed\n（payload 含 enrollment_id）
+ENR ->> INST: 投递 enrollment.completed\n（payload 含 enrollment_id；\n收费报名经落账/免缴补发，KTD6-6）
 INST ->> INST: 校验链：enrollment 存在且 confirmed\n（孤儿防护）→ Offering 反查 workspace\n→ 该租户已 published 学习定义
 note over INST
   幂等：claim_in_handle（订阅骨架）+
@@ -31,30 +41,62 @@ end note
 INST ->> RUN: find_or_create_and_start\n（start_action: :start）
 RUN ->> RUN: pending → running 纯状态流转\n（协议而非 DAG，不经 Engine——\nworkflow_run.ex:684-685）
 
-== 学习过程（协议执行在学员侧） ==
-loop 学员按协议自定节奏推进
-    AGENT ->> RUN: MCP save_step_output\n（run_id + step_key + output）
-    RUN ->> RUN: 浅合并 facts（update_facts_for_mcp）\n不改 run 状态；终态 run 拒绝写入
+== 教研产出（course-issue 卡集 = 学习的分母） ==
+RAGENT ->> CNT: MCP save_course_content\n（教研侧唯一写入口，R1；\n授权 tutor ∪ owner/admin，R6）
+CNT ->> CNT: CourseContent 形状校验（goals +\nissues；issue id 卡集内唯一、\nchecklist item id issue 内唯一，R2）\n→ ResearchOutput upsert 活文档\n（run 终态后仍可更新，Q8）
+CNT ->> RUN: run 非终态时 facts["issues"]\n浅合并镜像（KTD1；镜像失败不阻塞，\n终态 run 不动）
+RPW ->> CNT: 扫 type=research 非终态 run，\n见内容存在 → :complete → succeeded\n（内容提交即完成，Q7）
+note over CNT
+  issue 卡形状：id / kind（thoughtwork 对话 |
+  handwork 产物）/ title / story（as_a·given·
+  goal·materials·checklist）。id 稳定纪律
+  （KTD4）：发布后不改不删——内容编辑不
+  破坏进行中学员；LearningRecord 宽存引用。
+end note
+
+== 学习过程（issue 级协议执行在学员侧） ==
+loop 学员按 issue 自定节奏推进（八步循环）
+    AGENT ->> CNT: MCP get_course_content\n（issue 卡集 + 展示层 key，\nslug 短码-序号派生）
+    AGENT ->> REC: MCP save_learning_records\n（issue_id + checklist 条目\ndone / evidence；审计列自动补\nenrollment_id + run_id，AE3）
+    REC ->> REC: 同键 upsert 最新为准：\n(course_id,user_id,issue_id,item_id)\n全局唯一键（all_tenants?）
+    AGENT ->> REC: MCP get_learning_records\n（恒锚本人 user_id；缺省 =\n本人全部课程 → 推导在学列表）
 end
+note over REC
+  记忆挂人不挂报名（Q1）：退款重报不清零
+  （AE1）；issue 三态 Todo / In Progress /
+  Done 由记录派生——状态是投影不是手柄
+  （LearningProgress.project_issues）。
+  拒写保读（R5）：course close/cancel 后
+  账本封笔（行不动），读全保留——记忆持有
+  者授权即读半边。
+end note
 note over AGENT
-  授权：学员本人（非成员）放行——membership 检查
-  下沉到工具层（wrapper.ex:26-30 +
-  StepAuthorization + Ash policy 双重门禁）。
+  授权（KTD2 三层，LearnerAuthorization
+  统一）：workspace 成员（tutor/教研编辑）∪
+  本人 confirmed enrollment ∪ 本人已有记忆
+  （记忆持有者）。成员门槛在 Wrapper
+  @membership_deferred 名单（扩四：
+  save_step_output + 三课程学习工具）下沉
+  工具层（wrapper.ex:26-35），资源层 Ash
+  policy 双重门禁（E-7 同款纪律）。
 end note
 
 == 完成与停滞（平台不编排，只观察） ==
-WORK ->> RUN: 完成判定（D6-②）：末个 manual step 的\nfacts[step_key] 已存在 → :complete → succeeded\n（定义无 manual step 则永不触发）
-WORK ->> AGENT: 停滞提醒（D6-③）：running 且 facts\n无新增 > 7 天（LearningProgress.\nstagnant_cutoff 同源口径）
+WORK ->> REC: 完成判定（U4 升级 D6-②）：\ncourse content（分母）+ 该 user 学习记录\n（分子），全部 issue 的 checklist 条目均有\ndone 记录 → all_issues_done?
+WORK ->> RUN: 满足 → :complete → succeeded\n（完成语义「走完了」→「学会了」，#180 US25；\n无内容课程不判完成 KTD3；\n事件型 run 无 course_id 不判）
+WORK ->> AGENT: 停滞提醒（D6-③）：running 且\nupdated_at 无新增 > 7 天\n（LearningProgress.stagnant_cutoff 同源口径）
 note over WORK
   停滞是可见性事件：只提醒不自动 cancel，
-  干预由人/学员侧决定；7 天 args-unique 去重。
+  干预由人/学员侧决定；7 天 args-unique 去重；
+  反查 Enrollment 仍 confirmed 才提醒。
 end note
 
 note right of RUN
   **第三种 workflow 形态（对比 research/speaker 走 Engine DAG）**：
   learning 刻意绕过 Engine——学习算法在学员 BYO agent，
-  平台只持协议状态（run 状态 + facts 账本）。
-  save_step_output 不改状态，完成检测由 worker 承担
+  平台只持协议状态（run 状态 + 记忆账本）。
+  run facts 仍可经 save_step_output 浅合并（不改状态）；
+  issue 级完成检测由 worker 按 LearningRecord 判定
   （至多一个 cron 周期延迟）——BYO 协议下平台本不编排。
 end note
 
