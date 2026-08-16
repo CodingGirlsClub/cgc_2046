@@ -149,9 +149,16 @@ defmodule Cgc2046.Learning.LearningRecord do
     # upsert_record 语义,任一失败整批返回错误(调用方决定部分重试面;工具层
     # 一次性事务无并发扣减场景,plan U2 Approach 明示无需裸 SQL 配套)。
     create :upsert_records do
-      description("批量写入学习记录(逐条 upsert;任一失败即停,已写行不回滚沙箱外语义)")
+      description("批量写入学习记录(逐条 upsert;任一失败即停,整批随事务回滚)")
 
       accept([])
+
+      # 占位行自身也走 upsert(F2 同键二次写路径):不带则占位 insert 撞
+      # 唯一索引(course_id has already been taken)。占位行取首条记录字段,
+      # 同键命中即更新——与 after_action 首条 upsert 结果一致,行数不增。
+      upsert?(true)
+      upsert_identity(:unique_key)
+      upsert_fields([:done, :evidence, :recorded_at, :enrollment_id, :run_id])
 
       argument(:records, {:array, :map},
         allow_nil?: false,

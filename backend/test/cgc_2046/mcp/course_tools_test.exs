@@ -344,6 +344,115 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
     end
   end
 
+  describe "跨租户越权(F1 回归:A 成员 + B course_id 两写工具均拒)" do
+    test "save_course_content / save_learning_records 均报 course not found" do
+      admin_b = Fixtures.platform_admin("ct-xtenant-b")
+      workspace_b = Fixtures.create_workspace(admin_b)
+      course_b = EventFixtures.create_course(workspace_b, admin_b, %{title: "B 租户课程"})
+
+      # A 租户:tutor 成员(对 A 有完整写权限)
+      admin_a = Fixtures.platform_admin("ct-xtenant-a")
+      workspace_a = Fixtures.create_workspace(admin_a)
+      tutor_a = Fixtures.register_user("ct-xtenant-a-tutor")
+      Fixtures.add_member(workspace_a, tutor_a, [:tutor])
+
+      # A tutor 用 workspace_id=A + B 课程 id:fetch_course 按 tenant 过滤读不到
+      # → course not found(不泄露跨租户存在性)
+      assert {:error, %Anubis.MCP.Error{message: msg1}, _} =
+               SaveCourseContent.execute(
+                 %{
+                   "workspace_id" => workspace_a.id,
+                   "course_id" => course_b.id,
+                   "content" => content_fixture()
+                 },
+                 frame_for(tutor_a)
+               )
+
+      assert msg1 =~ "course not found"
+
+      assert {:error, %Anubis.MCP.Error{message: msg2}, _} =
+               SaveLearningRecords.execute(
+                 %{
+                   "workspace_id" => workspace_a.id,
+                   "course_id" => course_b.id,
+                   "issue_id" => "py-first-program",
+                   "records" => [%{"item_id" => "c1", "done" => true, "evidence" => "越权"}]
+                 },
+                 frame_for(tutor_a)
+               )
+
+      assert msg2 =~ "course not found"
+
+      # B 租户内容与记录面未被 A 触碰(零行落地)
+      assert Cgc2046.Learning.LearningRecord
+             |> Ash.Query.filter(course_id == ^course_b.id)
+             |> Ash.read!(authorize?: false) == []
+
+      assert Cgc2046.Workflows.ResearchOutput
+             |> Ash.Query.filter(key == ^"course_#{course_b.id}")
+             |> Ash.read!(authorize?: false) == []
+    end
+  end
+
+  describe "done 标志(F2 回归:false 不被吞)" do
+    test "done: false 直接写入成功" do
+      admin = Fixtures.platform_admin("ct-f2-false")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+      learner = Fixtures.register_user("ct-f2-false-learner")
+      enroll(course, learner)
+
+      assert {:reply, _, _} =
+               SaveLearningRecords.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "issue_id" => "py-first-program",
+                   "records" => [%{"item_id" => "c1", "done" => false, "evidence" => "复盘中"}]
+                 },
+                 frame_for(learner)
+               )
+
+      assert [row] =
+               Cgc2046.Learning.LearningRecord
+               |> Ash.Query.filter(course_id == ^course.id and user_id == ^learner.id)
+               |> Ash.read!(authorize?: false)
+
+      assert row.done == false
+    end
+
+    test "upsert 翻转:true → false(最新为准,不吞 false)" do
+      admin = Fixtures.platform_admin("ct-f2-flip")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+      learner = Fixtures.register_user("ct-f2-flip-learner")
+      enroll(course, learner)
+
+      # 先写 true
+      assert {:reply, _, _} = save_records(learner, workspace, course)
+
+      # 同键翻回 false(撤销/显式未完成)
+      assert {:reply, _, _} =
+               SaveLearningRecords.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "issue_id" => "py-first-program",
+                   "records" => [%{"item_id" => "c1", "done" => false, "evidence" => "撤销"}]
+                 },
+                 frame_for(learner)
+               )
+
+      assert [row] =
+               Cgc2046.Learning.LearningRecord
+               |> Ash.Query.filter(course_id == ^course.id and user_id == ^learner.id)
+               |> Ash.read!(authorize?: false)
+
+      assert row.done == false
+      assert row.evidence == "撤销"
+    end
+  end
+
   describe "场景 6:get_learning_records 视角" do
     test "缺省 course_id 返回本人多课程;带 course_id 过滤" do
       admin = Fixtures.platform_admin("ct-multi")

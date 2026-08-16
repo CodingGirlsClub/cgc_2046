@@ -35,7 +35,7 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
         content = params["content"] || params[:content]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(course_id),
+             {:ok, course} <- fetch_course(workspace_id, course_id),
              {:ok, output} <- save_output(actor, workspace_id, course, content) do
           mirror_to_run(course, content)
           {:ok, %{course_id: course_id, key: output.key, status: "saved"}}
@@ -57,11 +57,13 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
     end
   end
 
-  # 读取 authorize?: false(授权在工具层;ensure 只读 workflow_run_id/status)
-  defp fetch_course(course_id) do
+  # 读取 authorize?: false(授权在工具层;ensure 只读 workflow_run_id/status)。
+  # tenant: workspace_id 收紧课程归属(F1):Course 为 global?(true) 租户资源,
+  # 不带 tenant 会全表读——A 租户成员可用 B 租户 course_id 越权占位课程内容
+  defp fetch_course(workspace_id, course_id) do
     case Cgc2046.Events.Course
          |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
       {:ok, nil} -> {:error, "course not found: #{course_id}"}
       {:ok, course} -> {:ok, course}
       {:error, _} -> {:error, "failed to load course"}

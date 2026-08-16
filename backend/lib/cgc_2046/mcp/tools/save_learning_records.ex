@@ -40,7 +40,7 @@ defmodule Cgc2046.Mcp.Tools.SaveLearningRecords do
         records = params["records"] || params[:records] || []
 
         with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
-             {:ok, course} <- fetch_course(course_id),
+             {:ok, course} <- fetch_course(workspace_id, course_id),
              :ok <- ensure_writable_status(course),
              {:ok, entries} <- normalize_records(issue_id, records),
              {:ok, saved} <- persist(workspace_id, actor, course, issue_id, entries) do
@@ -51,11 +51,13 @@ defmodule Cgc2046.Mcp.Tools.SaveLearningRecords do
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
   end
 
-  # 课程读取 authorize?: false(授权已在工具层;学员非成员,读 policy 不放行)
-  defp fetch_course(course_id) do
+  # 课程读取 authorize?: false(授权在工具层;学员非成员,读 policy 不放行)。
+  # tenant: workspace_id 收紧课程归属(F1):不带 tenant 会全表读——A 租户
+  # 成员可用 B 租户 course_id 越权写 B 课的学习记录
+  defp fetch_course(workspace_id, course_id) do
     case Cgc2046.Events.Course
          |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
       {:ok, nil} -> {:error, "course not found: #{course_id}"}
       {:ok, course} -> {:ok, course}
       {:error, _} -> {:error, "failed to load course"}
@@ -91,7 +93,7 @@ defmodule Cgc2046.Mcp.Tools.SaveLearningRecords do
 
   defp normalize_entry(raw, issue_id) when is_map(raw) do
     item_id = raw["item_id"] || raw[:item_id]
-    done = raw["done"] || raw[:done]
+    done = Map.get(raw, "done", Map.get(raw, :done))
     evidence = raw["evidence"] || raw[:evidence]
 
     cond do
