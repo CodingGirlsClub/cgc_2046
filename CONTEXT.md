@@ -235,6 +235,7 @@
 - **定义**：网站经 MCP server 暴露的全部工具，分三类（D7）：
   - **读**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `get_learner_history` / `get_agent_instruction`（拉取 Agent 定义，D10）
   - **写**：`save_step_output` / `reply_learner_question`
+  - **v1 课程学习闭环新增（2026-08-16 设计，未实现）**：读 `get_course_content` / `get_learning_records`（course_id 可选，并入原 `get_learner_history` 语义）；写 `save_learning_records` / `save_course_content`（教研侧）——工具面 8 → 12
   - **管理类**（进 MCP，RBAC 兜底）：低风险直做 `create_agent` / `create_workflow` 等；高风险走确认流 `approve_join_request` / `assign_role` / `create_invitation` / `update_join_policy` / 删除类
 - **架构位置**：B 通道能力面；所有工具必填 `workspace_id`，每次调用鉴权 + 审计。
 
@@ -337,13 +338,33 @@
 ### Event / Course（活动 / 线上课程）
 
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
-- **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow。
+- **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
+
+### research_enabled（教研开关，Event-only）
+
+- **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.research_enabled` 列已删除——对账规则④对 Course 无条件（open 且无 published 教研定义 = 孤儿），Readiness 教研项对 Course 无条件检查。
+- **架构位置**：Event 属性；`ResearchInstantiator.ensure_research_enabled` 门控为 event-only 分支（按 key 前缀分叉）；对账规则④仅 Event 侧保留 research_enabled 过滤。Event 侧 UI 暴露留待真实需求。
 
 ### Offering（供给物读取面）
 
 - **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Events.Offering`（2026-08-15 读取面收敛，架构评审候选④；plan `docs/plans/2026-08-15-009-offering-read-seam.md` D1-D7 全锁定）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
 - **命名空间区分**：kind 原子 `:event` 与 Sponsorship `level: :event`（赞助级别）**撞名但无语义关系**——前者是读取分派键，后者是业务分类字段，勿混用。
 - **架构位置**：读取面 seam（events/ 目录）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ ResearchInstantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
+
+### Issue（学习议题，课程内容原子单元）
+
+- **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 与 checklist item id 发布后不改不删，内容编辑保 id（学习记录永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储）。状态 **Todo / In Progress / Done**（Linear 同款）由学习记录派生——投影非手柄，不提供手动切换。
+- **架构位置**：存储于 ResearchOutput(`kind=:issues`)；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。取代词汇：section / story 卡 / acceptance / learning_objectives（2026-08-16 课程 issue 学习闭环设计）。
+
+### checklist（检查单）
+
+- **定义**：issue 内可自验条目清单（`{id, text}`，无测试题形态）；handwork 条目指向可检查产物。学习 agent 判定规则：**条目指向产物时必须实际运行/读取产物再判 done，不采信口头完成**；对话类条目经问答自验（checklist 复盘）。
+- **架构位置**：issue story 字段组；学习记录按 item_id 追踪。
+
+### 学习记录（LearningRecord，个人记忆库）
+
+- **定义**：一条 checklist 条目的完成记录（done + evidence 摘要 + recorded_at）。**唯一键 `(course_id, user_id, issue_id, item_id)`，upsert 最新为准——记忆挂人不挂报名**（跨 enrollment 延续，退款重报不清零；enrollment_id/run_id 为审计列）。课程 close/cancel 后拒写保读（账本不删）。**记忆在平台、算法在 agent**：平台只存结构与做进度投影（全 issue Done → learning run succeeded），自适应教学决策（八步循环）全在学员 agent，经学习 Agent 指令分发（D10）。导出预留：未来用户可下载个人记忆（用户数据权利）。
+- **架构位置**：learning_records 表；MCP `get_learning_records`（course_id 可选，缺省 = 本人全部课程记录）/ `save_learning_records`。
 
 ### Enrollment（报名 / 事件级参与者）
 
@@ -395,7 +416,7 @@
 ### 对账扫描（Reconciliation Scan）
 
 - **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125；plan `docs/plans/2026-08-15-011-e10-reconciliation-scan.md` D1-D10 全锁定）。`ReconciliationScanWorker` 每 10 分钟扫六规则 → 落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。
-- **六规则**：① confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ open 且 research_enabled 的 Event/Course 但工作台无 published 教研定义（research_enabled=false 合法不命中）｜⑤ closed/cancelled Event/Course 仍有非终态 research run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ 信号族死信（SignalPublishWorker / NotificationWorker 的 discarded job）。
+- **六规则**：① confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ open 但工作台无 published 教研定义——Course 无条件命中（research_enabled 已删列，2026-08-16 Q12）、Event 仅 research_enabled=true 命中（false = 轻聚会合法不命中）｜⑤ closed/cancelled Event/Course 仍有非终态 research run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ 信号族死信（SignalPublishWorker / NotificationWorker 的 discarded job）。
 - **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
 - **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
