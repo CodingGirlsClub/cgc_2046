@@ -129,7 +129,10 @@ config :cgc_2046, Oban,
        {"*/10 * * * *", Cgc2046.Workers.ReconciliationScanWorker},
        # 缴费闭环 U8（R8/F2）：订单 2h 限时窗，分钟级扫描把超时未付订单
        # + 报名 + 名额一体释放（迟 1 分钟的占位泄漏可接受，KTD5）。
-       {"*/1 * * * *", Cgc2046.Workers.PaymentExpiryWorker}
+       {"*/1 * * * *", Cgc2046.Workers.PaymentExpiryWorker},
+       # 缴费闭环 U13 对账规⑦（R23/KTD11）：T+1 账单（昨日）夜间核对，
+       # 03:23 避整点渠道尖峰；拉取失败告警不阻塞。
+       {"23 3 * * *", Cgc2046.Workers.PaymentReconciliationWorker}
      ]}
   ]
 

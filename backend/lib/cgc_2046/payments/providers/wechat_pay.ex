@@ -127,7 +127,7 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
       with {:ok, %Tesla.Env{status: 200, body: %{"download_url" => url}}} <-
              post(Bill.trade_bill(client, Calendar.strftime(date, "%Y-%m-%d"))),
            {:ok, %Tesla.Env{status: 200, body: csv}} <- post(Bill.download_bill(client, url)) do
-        {:ok, parse_csv(csv)}
+        {:ok, parse_statement_csv(csv)}
       else
         {:ok, %Tesla.Env{status: 400}} -> {:error, :bill_not_ready}
         {:ok, %Tesla.Env{}} -> {:error, :bill_fetch_failed}
@@ -241,10 +241,15 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
     Map.new(map, fn {k, v} -> {to_string(k), v} end)
   end
 
-  # 微信账单 CSV：首行表头，后续行按表头 zip 成 map（规⑦ 差异比对的行形状）
-  defp parse_csv(csv) when is_binary(csv) do
+  @doc """
+  微信账单 CSV → 行 map 列表（规⑦ 差异比对行形状）。
+
+  公开面：U13 对账 worker 与样例文件测试共用（无账单权限环境以
+  test/fixtures/statement_samples 驱动，fetch_statement 不必真调渠道）。
+  """
+  def parse_statement_csv(csv) when is_binary(csv) do
     lines = String.split(csv, "\n", trim: true)
-    # 汇总行（最后）以总计开头，非数据行
+    # 汇总两行非数据行：文本行以「总」开头，数值行按表头字段数过滤
     data_lines = Enum.reject(lines, &String.starts_with?(&1, "总"))
 
     case data_lines do
@@ -252,15 +257,28 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
         []
 
       [header | rows] ->
-        keys = header |> String.split("`", trim: true) |> Enum.map(&String.trim_trailing(&1, "`"))
+        # 分隔符 = 反引号+冒号；空值 = 反引号包裹的空串（官方格式）。段内
+        # trim 反引号，空段保留（zip 长度对齐）。
+        keys = split_backtick_row(header)
+        width = length(keys)
 
-        Enum.map(rows, fn row ->
+        rows
+        |> Enum.map(&split_backtick_row/1)
+        |> Enum.filter(&(length(&1) == width))
+        |> Enum.map(fn segs ->
           keys
-          |> Enum.zip(row |> String.split("`", trim: true))
+          |> Enum.zip(segs)
           |> Map.new()
         end)
     end
   end
 
-  defp parse_csv(_), do: []
+  def parse_statement_csv(_), do: []
+
+  defp split_backtick_row(line) do
+    line
+    |> String.trim("\r")
+    |> String.split("`:")
+    |> Enum.map(&String.trim(&1, "`"))
+  end
 end
