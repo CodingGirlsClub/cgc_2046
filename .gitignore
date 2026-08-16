@@ -22,3 +22,4 @@ openclacky-ext/dist/
 
 # pnpm store（web 工作区的全局硬链接缓存，不入库）
 .pnpm-store/
+.worktrees
