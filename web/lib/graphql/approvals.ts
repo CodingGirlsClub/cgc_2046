@@ -22,6 +22,9 @@ export interface PendingApprovalItem {
 	requesterName?: string | null;
 	workspaceName?: string | null;
 	contextTitle?: string | null;
+	/** E-9 #123 expired 重提链接落点（workspace_slug 全 kind；event_slug 仅 sponsorship event 级） */
+	workspaceSlug?: string | null;
+	eventSlug?: string | null;
 	/** E-3 #48 sponsorship 行（其他 kind 为 null） */
 	level?: string | null;
 	companyName?: string | null;
@@ -48,6 +51,8 @@ export const MY_PENDING_APPROVALS: TypedDocumentNode<
 			requesterName
 			workspaceName
 			contextTitle
+			workspaceSlug
+			eventSlug
 			level
 			companyName
 			contactEmail

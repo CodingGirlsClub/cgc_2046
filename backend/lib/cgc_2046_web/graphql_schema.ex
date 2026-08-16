@@ -1190,6 +1190,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:workspace_name, :string)
     field(:context_title, :string)
 
+    # E-9 #123 expired 重提链接落点字段（workspace_slug 全 kind；event_slug
+    # 仅 sponsorship event 级行非空，可空供给物无 slug）
+    field(:workspace_slug, :string)
+    field(:event_slug, :string)
+
     # E-3 #48 sponsorship 行（其他 kind 为 null）
     field(:level, :string)
     field(:company_name, :string)

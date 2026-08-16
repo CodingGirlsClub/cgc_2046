@@ -22,10 +22,11 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   - 规则①：confirmed enrollment 无 learning run（本 worker 不消费；由
     LearningInstantiator 的 warning 日志 + 报名/run 两表可扫支撑，E-10
     ReconciliationScanWorker 落地）。
-  - **停滞扫描（facts 停滞 > 7 天，即本 worker 停滞提醒的同一判定）不在 E-10
-    v1 规则内**——E-10 六条孤儿规则只覆盖「链路断连」（无 run / 无 deadline /
-    死信 / 无定义 / 残余 run），停滞是可见性事件而非孤儿，属未来扩展，不占
-    #125 规则编号。
+  - 规则⑦：`learning_run_stalled`（E-9 #122 补差）——停滞判定与本 worker 提醒
+    同一口径（`updated_at` 严格早于 cutoff），阈值同源
+    `LearningProgress.stagnant_cutoff/1`（本 worker 与对账扫描只引用，不各自
+    定义）；分工：本 worker 负责提醒学员，ReconciliationScanWorker 负责对账
+    可见（/admin 对账页 findings 列表）。
 
   单记录处理失败记 warning 不中断整拍（领域 action 状态守卫幂等，并发终态变化
   属预期竞态）；整拍本身幂等（完成判定看 facts 存在性，提醒靠 args-unique 去重）。
@@ -42,9 +43,7 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   require Logger
 
   alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Workflows.WorkflowRun
-
-  @stagnation_threshold_days 7
+  alias Cgc2046.Workflows.{LearningProgress, WorkflowRun}
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -61,9 +60,9 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     :ok
   end
 
-  @doc "停滞阈值（7 天，D6-③）；对账规则②复用同一语义。"
+  @doc "停滞阈值 cutoff（7 天，D6-③）；同源 `LearningProgress.stagnant_cutoff/1`（对账规则⑦复用同一语义）。"
   def stagnant_cutoff(now \\ DateTime.utc_now()) do
-    DateTime.add(now, -@stagnation_threshold_days, :day)
+    LearningProgress.stagnant_cutoff(now)
   end
 
   # --- 完成判定（D6-②） -------------------------------------------------------

@@ -388,6 +388,7 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	open_entity_without_research_definition: "开放实体无教研定义",
 	nonterminal_research_run_for_closed_entity: "已结束实体仍有进行中教研",
 	dead_letter_job: "信号族死信",
+	learning_run_stalled: "学习 run 停滞",
 };
 
 /** 对账实体类型 → 中文标签 */
@@ -399,6 +400,7 @@ export const RECONCILIATION_ENTITY_LABEL: Record<string, string> = {
 	event: "活动",
 	course: "课程",
 	oban_job: "Oban Job",
+	workflow_run: "Workflow Run",
 };
 
 /** approveWorkspaceApplication 的 result 子集（审批后状态） */

@@ -10,6 +10,9 @@ defmodule Cgc2046.Events.PendingApprovals do
   approval_deadline}`。requester/context 摘要（display_name、Event/Course 标题、
   Workspace 名称）在聚合后批量装配（内部读，`authorize?: false`——行可见性已由
   上方 owner/admin 收窄 + policy 查询保证，摘要只是同权限范围内的展示字段）。
+  另携带 `workspace_slug`（全 kind）与 `event_slug`（sponsorship event 级）——
+  E-9 #123 expired 重提链接的落点字段（`/join?workspace=`、`/events/<slug>`、
+  `/w/<slug>`；Event slug 可空，前端按缺失降级）。
 
   `include_expired: true` 时附带 expired 行（审批页「已过期」区，只读展示，
   不可通过/拒绝——重提是申请者侧动作，过期后唯一索引已放行重新报名/申请）。
@@ -156,9 +159,11 @@ defmodule Cgc2046.Events.PendingApprovals do
       id: enrollment.id,
       kind: "enrollment",
       workspace_id: enrollment.workspace_id,
+      workspace_slug: nil,
       user_id: enrollment.user_id,
       event_id: enrollment.event_id,
       course_id: enrollment.course_id,
+      event_slug: nil,
       status: to_string(enrollment.status),
       approval_deadline: enrollment.approval_deadline,
       expired_at: enrollment.expired_at,
@@ -173,9 +178,11 @@ defmodule Cgc2046.Events.PendingApprovals do
       id: join_request.id,
       kind: "join_request",
       workspace_id: join_request.workspace_id,
+      workspace_slug: nil,
       user_id: join_request.user_id,
       event_id: nil,
       course_id: nil,
+      event_slug: nil,
       status: to_string(join_request.status),
       approval_deadline: join_request.approval_deadline,
       expired_at: join_request.expired_at,
@@ -192,9 +199,11 @@ defmodule Cgc2046.Events.PendingApprovals do
       id: sponsorship.id,
       kind: "sponsorship",
       workspace_id: sponsorship.workspace_id,
+      workspace_slug: nil,
       user_id: sponsorship.sponsor_user_id,
       event_id: sponsorship.event_id,
       course_id: nil,
+      event_slug: nil,
       level: to_string(sponsorship.level),
       status: to_string(sponsorship.status),
       approval_deadline: sponsorship.approval_deadline,
@@ -222,17 +231,20 @@ defmodule Cgc2046.Events.PendingApprovals do
 
   defp enrich(rows) do
     user_names = load_user_names(rows)
-    workspace_names = load_workspace_names(rows)
+    workspace_infos = load_workspace_infos(rows)
     titles = load_offering_titles(rows)
+    slugs = load_offering_slugs(rows)
 
     Enum.map(rows, fn row ->
-      workspace_name = Map.get(workspace_names, row.workspace_id)
+      workspace_info = Map.get(workspace_infos, row.workspace_id)
 
       %{
         row
         | requester_name: requester_name(row, user_names),
-          workspace_name: workspace_name,
-          context_title: context_title(row, titles, workspace_name)
+          workspace_name: Map.get(workspace_info, :name),
+          workspace_slug: Map.get(workspace_info, :slug),
+          event_slug: Map.get(slugs, row.event_id),
+          context_title: context_title(row, titles, Map.get(workspace_info, :name))
       }
     end)
   end
@@ -257,13 +269,15 @@ defmodule Cgc2046.Events.PendingApprovals do
     |> Map.new(fn user -> {user.id, user.display_name || to_string(user.email)} end)
   end
 
-  defp load_workspace_names(rows) do
+  defp load_workspace_infos(rows) do
     ids = rows |> Enum.map(& &1.workspace_id) |> Enum.uniq()
 
     Workspace
     |> Ash.Query.filter(id in ^ids)
     |> Ash.read!(authorize?: false)
-    |> Map.new(fn workspace -> {workspace.id, workspace.name} end)
+    |> Map.new(fn workspace ->
+      {workspace.id, %{name: workspace.name, slug: workspace.slug}}
+    end)
   end
 
   defp load_offering_titles(rows) do
@@ -277,6 +291,21 @@ defmodule Cgc2046.Events.PendingApprovals do
 
       # 批量读取唯一真源 = Offering（per-kind per-tenant 批量，消 N+1 形状不变）
       Map.merge(acc, Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id))
+    end)
+  end
+
+  # expired 重提链接的 event slug 落点（enrollment 行也装载，前端仅 sponsorship 消费；
+  # 无 slug 的供给物不出现在结果 → Map.get 得 nil，前端降级）。
+  defp load_offering_slugs(rows) do
+    by_workspace = Enum.group_by(rows, & &1.workspace_id)
+
+    Enum.reduce(by_workspace, %{}, fn {workspace_id, ws_rows}, acc ->
+      ids_by_kind = %{
+        event: ws_rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1),
+        course: ws_rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1)
+      }
+
+      Map.merge(acc, Cgc2046.Events.Offering.fetch_slugs_by_ids(ids_by_kind, workspace_id))
     end)
   end
 

@@ -2,11 +2,11 @@ defmodule Cgc2046.Reconciliation.Finding do
   @moduledoc """
   对账扫描发现（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D1）。
 
-  平台级孤儿报告：`Cgc2046.Workers.ReconciliationScanWorker` 每 10 分钟扫六条规则，
+  平台级孤儿报告：`Cgc2046.Workers.ReconciliationScanWorker` 每 10 分钟扫七条规则，
   命中落本表。**刷新语义**（D2）：命中 upsert（保 first_seen_at、刷新 last_seen_at），
   本次未命中删除——「无孤儿 → 空报告」由结构保证。
 
-  ## 六规则（rule 枚举）
+  ## 七规则（rule 枚举）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot` join `workflow_definitions.type=learning`，
@@ -23,6 +23,9 @@ defmodule Cgc2046.Reconciliation.Finding do
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
      Pruner 7 天窗口内判定，moduledoc 见 worker）
+  7. `:learning_run_stalled` — learning run 停滞（`status=running` 且 `updated_at`
+     严格早于 `LearningProgress.stagnant_cutoff/1`，即 7 天无 facts 更新；
+     与 LearningProgressWorker 停滞提醒（D6-③）同源判定，阈值只在一处定义）
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -46,7 +49,8 @@ defmodule Cgc2046.Reconciliation.Finding do
     :active_sponsorship_signal_dead,
     :open_entity_without_research_definition,
     :nonterminal_research_run_for_closed_entity,
-    :dead_letter_job
+    :dead_letter_job,
+    :learning_run_stalled
   ]
 
   @entity_type_values [
@@ -56,7 +60,8 @@ defmodule Cgc2046.Reconciliation.Finding do
     :workspace_application,
     :event,
     :course,
-    :oban_job
+    :oban_job,
+    :workflow_run
   ]
 
   attributes do
@@ -66,7 +71,7 @@ defmodule Cgc2046.Reconciliation.Finding do
       allow_nil?: false,
       public?: true,
       constraints: [one_of: @rule_values],
-      description: "对账规则枚举（六条）"
+      description: "对账规则枚举（七条）"
     )
 
     attribute(:entity_type, :atom,

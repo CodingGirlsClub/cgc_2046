@@ -24,6 +24,8 @@ defmodule Cgc2046.Events.Offering do
     各处手写键探测）。
   - `fetch_titles_by_ids/2`：批量（`%{kind => [ids]}` + tenant → `%{id => title}`），
     保持 per-kind per-tenant 的 Ash.read 批量形状（消 N+1 不退化）。
+  - `fetch_slugs_by_ids/2`：同形状批量取 slug（`%{id => slug}`，E-9 #123 审批页
+    expired 重提链接按目标活动公开页 `/events/<slug>` 落点）。
   - 投影便利：`kind/1`、`title/1`、`workspace_id/1`（entity → 值）。
   """
 
@@ -69,7 +71,20 @@ defmodule Cgc2046.Events.Offering do
           %{String.t() => String.t()}
   def fetch_titles_by_ids(ids_by_kind, tenant) do
     Enum.reduce(ids_by_kind, %{}, fn {kind, ids}, acc ->
-      Map.merge(acc, titles_for(resource_for(kind), ids, tenant))
+      Map.merge(acc, field_values_for(resource_for(kind), ids, tenant, :title))
+    end)
+  end
+
+  @doc """
+  批量取 slug：`%{event: [ids], course: [ids]}` + tenant → `%{id => slug}`。
+  与 `fetch_titles_by_ids/2` 同形状（per-kind per-tenant 批量读，消 N+1）；
+  未配置 slug 的供给物不在结果中出现（调用方按缺失降级）。
+  """
+  @spec fetch_slugs_by_ids(%{optional(:event | :course) => [String.t()]}, String.t()) ::
+          %{String.t() => String.t()}
+  def fetch_slugs_by_ids(ids_by_kind, tenant) do
+    Enum.reduce(ids_by_kind, %{}, fn {kind, ids}, acc ->
+      Map.merge(acc, field_values_for(resource_for(kind), ids, tenant, :slug))
     end)
   end
 
@@ -91,12 +106,17 @@ defmodule Cgc2046.Events.Offering do
   defp resource_for(:event), do: Event
   defp resource_for(:course), do: Course
 
-  defp titles_for(_resource, [], _tenant), do: %{}
+  defp field_values_for(_resource, [], _tenant, _field), do: %{}
 
-  defp titles_for(resource, ids, tenant) do
+  defp field_values_for(resource, ids, tenant, field) do
     resource
     |> Ash.Query.filter(id in ^ids)
     |> Ash.read!(tenant: tenant, authorize?: false)
-    |> Map.new(fn offering -> {offering.id, offering.title} end)
+    |> Enum.reduce(%{}, fn offering, acc ->
+      case Map.get(offering, field) do
+        nil -> acc
+        value -> Map.put(acc, offering.id, value)
+      end
+    end)
   end
 end

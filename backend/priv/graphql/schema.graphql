@@ -4702,6 +4702,8 @@ type PendingApproval {
   requesterName: String
   workspaceName: String
   contextTitle: String
+  workspaceSlug: String
+  eventSlug: String
   level: String
   companyName: String
   contactEmail: String

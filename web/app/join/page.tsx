@@ -51,11 +51,14 @@ function JoinPageInner() {
   const { authed, confirmed, userId } = useAuthed();
 
   const token = searchParams?.get("token") ?? null;
+  // E-9 #123：审批页 expired join_request 行的重提链接 /join?workspace=<slug>——
+  // 参数预填 slug 并在确认登录后自动查找（token 参数流程优先，互不干扰）
+  const workspaceParam = searchParams?.get("workspace") ?? null;
 
   const [step, setStep] = useState<JoinStep>(
     token ? "invite-token-input" : "input-slug",
   );
-  const [slug, setSlug] = useState("");
+  const [slug, setSlug] = useState(workspaceParam ?? "");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +127,15 @@ function JoinPageInner() {
       setLoading(false);
     }
   }, [slug]);
+
+  // E-9 #123：?workspace=<slug> 参数自动查找（ref 守卫只触发一次；用户手动编辑
+  // slug 不重触发；token 流程存在时不自动查找）
+  const autoLookupDone = useRef(false);
+  useEffect(() => {
+    if (token || !workspaceParam || autoLookupDone.current || !authed) return;
+    autoLookupDone.current = true;
+    handleLookup();
+  }, [token, workspaceParam, authed, handleLookup]);
 
   /** open 直接加入 */
   const handleJoinOpen = useCallback(async () => {

@@ -146,9 +146,34 @@ describe("E-8 #123 审批控制台", () => {
 		render(<ApprovalsPage />);
 
 		expect(screen.getByText("已过期")).toBeInTheDocument();
-		expect(screen.getByText(/申请者可重新提交/)).toBeInTheDocument();
+		expect(screen.getByText(/审批超时的申请不可再通过或拒绝/)).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
 		expect(screen.getByText("暂无待审批项。")).toBeInTheDocument();
+	});
+
+	it("E-9 deadline 时序边界：pending 行 deadline 已过 → 无通过/拒绝按钮", () => {
+		mockQuery([
+			{
+				...PENDING_ENROLLMENT,
+				approvalDeadline: new Date(Date.now() - 60 * 1000).toISOString(),
+			},
+		]);
+		render(<ApprovalsPage />);
+
+		// ApprovalExpiryWorker 落库前短窗口：按钮按行级 deadline 守卫不渲染
+		expect(screen.queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
+		expect(screen.getByText("审批已超时，等待系统更新状态。")).toBeInTheDocument();
+		// chip 与按钮同源判定：deadline 已过 → chip 显示「已过期」
+		expect(screen.getByText("已过期")).toBeInTheDocument();
+	});
+
+	it("E-9 deadline 时序边界：pending 行 deadline 未过 → 正常渲染操作按钮", () => {
+		mockQuery([PENDING_ENROLLMENT]);
+		render(<ApprovalsPage />);
+
+		expect(screen.getByRole("button", { name: "通过" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument();
 	});
 
 	it("未登录 → 跳 /login?next=/approvals", () => {
@@ -252,6 +277,93 @@ describe("E-3 #48 sponsorship kind dispatch", () => {
 		await waitFor(() =>
 			expect(screen.getByRole("alert")).toHaveTextContent("forbidden"),
 		);
+	});
+});
+
+const EXPIRED_LINK_COPY = "已过期 · 申请者可重新提交";
+
+describe("E-9 #123 expired 重提链接", () => {
+	it("enrollment → /participations（014 我的报名页）", () => {
+		mockQuery([EXPIRED_ROW]);
+		render(<ApprovalsPage />);
+
+		expect(screen.getByRole("link", { name: EXPIRED_LINK_COPY })).toHaveAttribute(
+			"href",
+			"/participations",
+		);
+	});
+
+	it("join_request → /join?workspace=<slug>", () => {
+		mockQuery([
+			{
+				...PENDING_JOIN,
+				id: "jr-old",
+				status: "expired",
+				expiredAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+				workspaceSlug: "cgc-academy",
+			},
+		]);
+		render(<ApprovalsPage />);
+
+		expect(screen.getByRole("link", { name: EXPIRED_LINK_COPY })).toHaveAttribute(
+			"href",
+			"/join?workspace=cgc-academy",
+		);
+	});
+
+	it("sponsorship event 级 → 目标活动公开页 /events/<slug>", () => {
+		mockQuery([
+			{
+				...PENDING_SPONSORSHIP,
+				id: "sp-old",
+				status: "expired",
+				expiredAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+				eventSlug: "meetup-2026",
+			},
+		]);
+		render(<ApprovalsPage />);
+
+		expect(screen.getByRole("link", { name: EXPIRED_LINK_COPY })).toHaveAttribute(
+			"href",
+			"/events/meetup-2026",
+		);
+	});
+
+	it("sponsorship workspace 级 → /w/<slug> 并注明无公开赞助入口", () => {
+		mockQuery([
+			{
+				...PENDING_SPONSORSHIP,
+				id: "sp-ws-old",
+				level: "workspace",
+				eventId: null,
+				status: "expired",
+				expiredAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+				workspaceSlug: "cgc-academy",
+			},
+		]);
+		render(<ApprovalsPage />);
+
+		expect(screen.getByRole("link", { name: EXPIRED_LINK_COPY })).toHaveAttribute(
+			"href",
+			"/w/cgc-academy",
+		);
+		expect(screen.getByText(/该工作台无公开赞助入口/)).toBeInTheDocument();
+	});
+
+	it("slug 缺失（历史行）→ 降级纯文本不渲染链接", () => {
+		mockQuery([
+			{
+				...PENDING_JOIN,
+				id: "jr-noslug",
+				status: "expired",
+				expiredAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+				workspaceSlug: null,
+			},
+		]);
+		render(<ApprovalsPage />);
+
+		expect(screen.queryByRole("link", { name: EXPIRED_LINK_COPY })).not.toBeInTheDocument();
+		expect(screen.getByText(EXPIRED_LINK_COPY)).toBeInTheDocument();
 	});
 });
 

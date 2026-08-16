@@ -212,8 +212,7 @@ describe("/join 统一加入入口页", () => {
 	it("?token=xxx 参数优先走邀请流程", async () => {
 		searchParams.get.mockImplementation((key: string) =>
 			key === "token" ? "valid_token" : null,
-		);
-		validateInvitation.mockResolvedValue({
+		);		validateInvitation.mockResolvedValue({
 			id: "inv_1",
 			workspaceId: "ws_1",
 			tokenHash: "hash",
@@ -262,5 +261,52 @@ describe("/join 统一加入入口页", () => {
 		expect(
 			await screen.findByText(/工作区「no-such-ws」不存在/),
 		).toBeInTheDocument();
+	});
+
+	it("?workspace=<slug> 参数预填并自动查找（E-9 expired join_request 重提链接落点）", async () => {
+		searchParams.get.mockImplementation((key: string) =>
+			key === "workspace" ? "auto-ws" : null,
+		);
+		fetchWorkspaceBySlug.mockResolvedValue({
+			id: "ws_auto",
+			slug: "auto-ws",
+			name: "自动工作台",
+			joinPolicy: "open",
+			sponsorshipEnabled: true,
+		});
+
+		render(<JoinPage />);
+
+		expect(
+			await screen.findByRole("heading", { name: "自动工作台" }),
+		).toBeInTheDocument();
+		expect(fetchWorkspaceBySlug).toHaveBeenCalledWith("auto-ws");
+		expect(
+			screen.getByRole("button", { name: "直接加入" }),
+		).toBeInTheDocument();
+	});
+
+	it("?workspace= 与 ?token= 并存 → token 流程优先，不自动查找", async () => {
+		searchParams.get.mockImplementation((key: string) =>
+			key === "token" ? "valid_token" : key === "workspace" ? "auto-ws" : null,
+		);
+		validateInvitation.mockResolvedValue({
+			id: "inv_ws",
+			workspaceId: "ws_1",
+			tokenHash: "hash",
+			inviterId: "admin_1",
+			status: "active",
+			workspaceName: "受邀工作台",
+			workspaceSlug: "invite-ws",
+			workspaceJoinPolicy: "invite_only",
+			preauthorizedRoleNames: ["member"],
+		});
+
+		render(<JoinPage />);
+
+		expect(
+			await screen.findByRole("heading", { name: "受邀工作台" }),
+		).toBeInTheDocument();
+		expect(fetchWorkspaceBySlug).not.toHaveBeenCalled();
 	});
 });
