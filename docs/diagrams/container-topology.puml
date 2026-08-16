@@ -2,12 +2,16 @@
 ' ============================================================
 ' L0 - 容器拓扑图（C4 Container）
 ' 事实来源：仓库顶层结构（backend/ web/ miniprogram/ openclacky-ext/）、
-' backend/config/config.exs（Oban PG-backed）、backend/lib/cgc_2046_web/router.ex
-' （/api/graphql、/mcp、/ops、dev /dev/mailbox）、web/next.config.ts（rewrite）、
+' backend/config/config.exs（Oban PG-backed + payments 队列与 cron :115-137）、
+' backend/lib/cgc_2046_web/router.ex（/api/graphql、/mcp、/ops、dev /dev/mailbox、
+' /api/payments/webhooks/:provider :50-60）、backend/lib/cgc_2046/payments/
+' （order.ex 7 态 CAS 状态机 + webhook_event.ex R21 幂等 + provider.ex behaviour
+' → providers/{wechat_pay,alipay,fake}）、backend/lib/cgc_2046_web/controllers/
+' payment_webhook_controller.ex（验签→落库→同事务入队）、web/next.config.ts（rewrite）、
 ' docs/运维/邮件与CD环境注入.md（SendCloud）、
 ' backend/lib/cgc_2046/workflows/signal_idempotency.ex（claim 落 Postgres）。
 ' 说明：Redis 仅为幂等层文档备选承载，config 无 Redix 配置——当前唯一
-' 持久层为 Postgres。本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' 持久层为 Postgres。本图按 codebase 现状绘制（2026-08，develop 7c8cadb）。
 ' ============================================================
 title CGC 平台容器拓扑（C4 Container，L0）
 
@@ -46,8 +50,10 @@ rectangle "CGC-2046 平台（仓库交付物）" as PLATFORM #F0FDE8 {
         rectangle "GraphQL API\nAbsinthe @ /api/graphql\n（+ /api/playground dev）" as GQL
         rectangle "MCP Server\nanubis_mcp streamable HTTP\n@ /mcp（Bearer）" as MCP
         rectangle "AshAdmin @ /ops\n（admin_browser）" as OPS
-        rectangle "Workflow 引擎\nJido + run/checkpoint\n+ SignalEmitter/六订阅方\n（Phoenix PubSub 进程内总线）" as ENGINE
-        rectangle "Oban Workers\n（PG-backed，无独立队列服务）\nsignal_publish / approval_reminder\n/ reconciliation_scan…" as OBR
+        rectangle "渠道回调入口\nPaymentWebhookController\nPOST /api/payments/webhooks/:provider\n（无 actor，验签即鉴权）" as WBHK
+        rectangle "Workflow 引擎\nJido + run/checkpoint\n+ SignalEmitter/七订阅方\n（Phoenix PubSub 进程内总线）" as ENGINE
+        rectangle "Payments 域\nOrder（payments_orders）\n7 态 CAS 状态机 + WebhookEvent\n（回调去重，均不外露）；\nProvider behaviour → adapter\nWechatPay / Alipay / Fake" as PAY
+        rectangle "Oban Workers\n（PG-backed，无独立队列服务；\n队列 maintenance / notifications /\npayments）\nsignal_publish / approval_reminder\n/ reconciliation_scan…\n+ payment_expiry / refund /\nsettlement / reconciliation\n（另：event_cancel_refund\n订阅 event.ended 回查 cancelled\n批量退款）" as OBR
         rectangle "Swoosh 邮件\nSendCloud adapter（prod）\nTest adapter + /dev/mailbox\n（test/dev）" as MAIL
     }
 
@@ -55,6 +61,9 @@ rectangle "CGC-2046 平台（仓库交付物）" as PLATFORM #F0FDE8 {
 }
 
 cloud "SendCloud\napi.sendcloud.net" as SENDCLOUD #FFFDE7
+
+cloud "微信支付 WeChat Pay\napi.mch.weixin.qq.com（v3）" as WECHATPAY #FFFDE7
+cloud "支付宝 Alipay\nopenapi.alipay.com" as ALIPAY #FFFDE7
 
 Browser --> WEB : HTTPS（页面）
 MP --> MINI : 宿主渲染
@@ -72,12 +81,32 @@ ENGINE --> OBR : 入队 / 重投
 MAIL --> SENDCLOUD : Req POST\n（prod only）
 GQL --> MAIL : 业务邮件触发
 
+GQL --> PAY : 下单/查单/退款/统计\n（payment GraphQL 面）
+PAY --> PG
+WBHK --> PAY : 验签 → WebhookEvent\n幂等落库（R21）
+WBHK --> OBR : 同事务入队落账 job\n（settlement，快速 200）
+PAY --> WECHATPAY : 渠道外呼\n下单/查单/退款/对账
+PAY --> ALIPAY : 渠道外呼\n下单/查单/退款/对账
+WECHATPAY --> WBHK : 支付/退款回调\n（重复投递重试）
+ALIPAY --> WBHK : 支付/退款回调\n（重复投递重试）
+
 note right of PG
   唯一持久层。幂等三层之一
   （signal claim）落
   signal_idempotency 表，
   Postgres 唯一索引兜底。
   Redis 仅文档备选，未接线。
+end note
+
+note right of WBHK
+  全新对外面：无 actor，
+  鉴权 = 渠道验签（微信 v3
+  签名 / 支付宝 RSA2）；raw
+  body 原文经 endpoint
+  CachingBodyReader 缓存；
+  幂等 = (provider, event_id)
+  唯一索引，重复投递按
+  成功回执。
 end note
 
 note bottom of USERSIDE

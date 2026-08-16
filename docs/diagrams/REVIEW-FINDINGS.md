@@ -43,14 +43,15 @@
 - **建议方向**：已按设计落图，无分歧；实现时把"幂等键存储"列为显式依赖（Postgres/Redis），
   并在代码评审清单中禁止 ETS 承载。
 
-## F4 🟢 赞助 v1 不收款，状态机需二期插 payment_pending → paid
+## F4 ✅ 已闭环（2026-08-17 缴费闭环落地；落点与原设想不同）
 
-- **图**：`entity-state-machines.puml`、`workflow-sponsorship.puml`、`domain-model-er.puml`
-- **问题描述**：v1 只做意向 + 审批 + 权益生效，amount 仅登记、不收款；但 Sponsorship 状态机
-  当前是 pending→active→ended，**没有预留收款态**。二期加支付时若直接改状态机会影响已运行 run。
-- **涉及文档**：赞助workflow详细设计.md §5.2/§6；开放问题决策清单.md
-- **建议方向**：v1 起就在状态机模型里**预先声明**二期插桩点（pending→payment_pending→paid→active，
-  插在 active 之前），定义快照机制保证已启动 run 不受影响；tier.limit 同理标注二期。
+- **图**：`entity-state-machines.puml`、`workflow-enrollment.puml`、`domain-model-er.puml`（已同步）
+- **原问题**：Sponsorship v1 不收款、状态机未预留收款态；建议二期在赞助侧插 payment_pending→paid。
+- **实际落地**（plan 024 缴费闭环，#181/#184/#187）：支付落在 **Enrollment 侧**——Enrollment 6 态含
+  `payment_pending`（有价档报名 → Order → 渠道支付 → webhook 落账 → settlement worker 驱动 confirmed；
+  `waive_payment` 免缴分支）；独立 payments 域（Order 7 态 + WebhookEvent + Provider wechat/alipay/fake 三
+  adapter + 5 个 worker）。**Sponsorship 仍 v1 不收款**——若二期赞助缴费，复用 payments 域与 Enrollment
+  同构模式，而非在赞助状态机内插桩。
 
 ## F5 🟢 凭据模型差异：invite_only 共享批次码 vs 逐人 token
 
@@ -129,12 +130,12 @@
 
 ---
 
-## 汇总统计（2026-08-16 漂移对账后更新）
+## 汇总统计（2026-08-17 增量对账后更新）
 
-- ✅ 已闭环：4（F1 join 永久绕开+回归测试、F2 deadline 唤醒、F7 approval_timeout 落地、F12 与 F1 同源）
+- ✅ 已闭环：5（F1 join 永久绕开+回归测试、F2 deadline 唤醒、F4 缴费闭环落地（Enrollment 侧）、F7 approval_timeout 落地、F12 与 F1 同源）
 - ⚪ 更正关闭：1（F8 auto_approve 从未实现）
 - 🟡 仍开放：1（F11 tier.limit 二期并发扣减）
-- 🟢 已确认/仅记录：6（F3、F4、F5、F6、F9、F10）
+- 🟢 已确认/仅记录：5（F3、F5、F6、F9、F10）
 
-**2026-08-16 漂移对账**：完整对照见 [DRIFT-REPORT.md](./DRIFT-REPORT.md)；本文件所列图已全部
-按 codebase 现状重绘（R1–R10 裁决执行）。剩余动作：F11 随二期 tier.limit 实现。
+**漂移对账**：完整对照见 [DRIFT-REPORT.md](./DRIFT-REPORT.md)；2026-08-16 全量对账（R1–R10 裁决执行）+
+2026-08-17 增量（payments #181/#184/#187、course-issue #183/#186 合入后同步）。剩余动作：F11 随二期实现。

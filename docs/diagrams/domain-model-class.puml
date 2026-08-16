@@ -2,11 +2,12 @@
 ' ============================================================
 ' L1 - 领域模型类图（Domain Model Class）
 ' 事实来源（代码锚点）：backend/lib/cgc_2046 资源注册清单
-'   （global_api.ex / api.ex / mcp.ex）及各资源模块
+'   （global_api.ex / api.ex / mcp.ex / payments.ex:22,24）及各资源模块
 '   （漂移复核：DRIFT-EVIDENCE/L1-domain-model.md §2）
-' 按 context 分层：全局 / 身份租户 / 引擎 / MCP / 业务；
+' 按 context 分层：全局 / 身份租户 / 引擎 / MCP / 业务 / 支付 / 学习教研；
 ' 突出业务 workflow 核心聚合（Enrollment、Sponsorship、
-' SpeakerInvitation；教研产出 = WorkflowRun.facts）与引擎（Definition/Run/Step）。
+' SpeakerInvitation、Order）与引擎（Definition/Run/Step）；
+' 教研产出 = ResearchOutput 活文档（#180）+ WorkflowRun.facts 镜像。
 ' ============================================================
 title CGC 平台领域模型类图（L1）
 skinparam backgroundColor white
@@ -76,13 +77,16 @@ package "业务 context" #F0FDE8 {
         + registration_deadline / status
         + sponsorship_enabled / sponsorship_deadline
         + sponsorship_tiers: json（内嵌档位）
+        + pricing_enabled / price_tiers: json（内嵌档位）
     }
     class Course {
         + enrollment_policy / capacity
         + registration_deadline / status
+        + pricing_enabled / price_tiers: json（内嵌档位）
     }
     class Enrollment {
-        + status: pending|confirmed|rejected|cancelled|expired
+        + status: pending|payment_pending|confirmed
+                  |rejected|expired|cancelled
         + invite_batch_id
         + approved_by / approved_at / rejection_reason
     }
@@ -101,6 +105,40 @@ package "业务 context" #F0FDE8 {
         + token_hash (一次性)
         + status: invited|accepted|declined|completed
         + speaker_user_id (接受后绑定)
+    }
+}
+
+package "支付 context" #FFE9EC {
+    class Order {
+        + provider: wechat_jsapi|wechat_native
+                  |alipay_page|alipay_wap
+        + status: pending|paid|refunding|refunded
+                  |refund_failed|cancelled|expired
+        + out_trade_no (唯一) / transaction_id
+        + amount_cents / tier_snapshot: json（下单档位快照）
+        + expire_at（座位保留限时窗，默认 2h）
+    }
+    class WebhookEvent {
+        + provider: wechat|alipay
+        + event_id / payload: json
+        + status: received|processed
+        UK (provider, event_id) 渠道幂等去重
+    }
+}
+
+package "学习/教研闭环 context" #ECFDF5 {
+    class ResearchOutput {
+        + key: string（course_<id>）/ kind: issues
+        + data: json（course content 活文档）
+        + submitted_by / workflow_run_id（审计）
+        UK (key, kind) 全局唯一
+    }
+    class LearningRecord {
+        + issue_id / item_id: string（宽存，无内容外键）
+        + done: boolean（三态投影唯一事实源）
+        + evidence / recorded_at
+        + enrollment_id / run_id（审计列）
+        UK (course_id, user_id, issue_id, item_id)
     }
 }
 
@@ -129,6 +167,30 @@ Event "1" -- "0..*" SpeakerInvitation : 邀请演讲者
 WorkflowRun "1" -- "0..*" Enrollment : 创建报名
 WorkflowRun "1" -- "0..*" Sponsorship : 创建赞助
 WorkflowRun "1" -- "0..*" SpeakerInvitation : 创建邀请
+
+Enrollment "1" -- "0..*" Order : 缴费订单
+Course "1" -- "0..*" LearningRecord : 学习记忆
+User "1" -- "0..*" LearningRecord : 持有记忆（user_id 无 Ash 关系）
+WorkflowRun "1" -- "0..*" ResearchOutput : 教研产出（审计列镜像）
+
+note bottom of Order
+  R11：同一 Enrollment 至多一笔非终态订单
+  （enrollment_id 部分唯一 WHERE status IN
+  pending/paid/refunding/refund_failed）；
+  退款 = 取消报名（ADR-0007）。
+end note
+
+note bottom of WebhookEvent
+  内部资源：无租户列、无外键、永不暴露
+  GraphQL/Admin；(provider, event_id) 唯一索引
+  挡渠道重复投递（R21）。
+end note
+
+note bottom of LearningRecord
+  挂人不挂报名（Q1）：记忆锚 = (course_id, user_id)；
+  issue 三态（Todo/In Progress/Done）由记录派生，
+  状态是投影不是手柄；退款重报记忆不清零（AE1）。
+end note
 
 note bottom of Enrollment
   两类关系互不替代（领域模型定稿 §2.1）：
