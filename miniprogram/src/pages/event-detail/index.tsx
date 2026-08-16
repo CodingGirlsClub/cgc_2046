@@ -4,6 +4,7 @@ import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
+import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
@@ -89,9 +90,26 @@ export default function EventDetailPage() {
           ))}
         </View>
 
+        {item.pricingEnabled && (
+          <View className={styles.block} data-testid='price-tiers'>
+            <Text className={styles.blockTitle}>价格档位</Text>
+            {item.priceTiers.length === 0 ? (
+              <Text className={styles.value}>当前无可售档位，请联系组织者。</Text>
+            ) : item.priceTiers.map((tier) => (
+              <View key={tier.id} className={styles.row} data-testid={`price-tier-${tier.id}`}>
+                <Text className={styles.label}>{tier.name}</Text>
+                <Text className={styles.value}>¥{formatAmount(tier.amountCents)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         <View className={styles.policyBlock}>
           <Text className={styles.policyTitle}>报名说明</Text>
           <Text className={styles.policyText}>{policyText[item.enrollmentPolicy]}</Text>
+          {item.pricingEnabled && (
+            <Text className={styles.policyText}>收费活动：提交报名后请在限定时间内完成支付。</Text>
+          )}
           {item.registrationDeadline && (
             <Text className={styles.deadline}>截止：{new Date(item.registrationDeadline).toLocaleString()}</Text>
           )}

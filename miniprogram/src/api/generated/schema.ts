@@ -64,6 +64,17 @@ export type AdminPendingOperation = {
   userId: Scalars['ID']['output'];
 };
 
+export type AdminReconciliationFinding = {
+  entityId: Scalars['String']['output'];
+  entityType: Scalars['String']['output'];
+  firstSeenAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  lastSeenAt: Scalars['DateTime']['output'];
+  rule: Scalars['String']['output'];
+  workspaceId?: Maybe<Scalars['ID']['output']>;
+};
+
 export type AdminSignalLog = {
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
@@ -134,6 +145,14 @@ export type ApproveJoinRequestResult = {
   result?: Maybe<JoinRequest>;
 };
 
+/** The result of the :approve_sponsorship mutation */
+export type ApproveSponsorshipResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Sponsorship>;
+};
+
 /** The result of the :approve_workspace_application mutation */
 export type ApproveWorkspaceApplicationResult = {
   /** Any errors generated, if the mutation failed */
@@ -154,12 +173,52 @@ export type AssignRolesResult = {
   result?: Maybe<WorkspaceMembership>;
 };
 
+/** The result of the :cancel_course mutation */
+export type CancelCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Course>;
+};
+
 /** The result of the :cancel_enrollment mutation */
 export type CancelEnrollmentResult = {
   /** Any errors generated, if the mutation failed */
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<Enrollment>;
+};
+
+/** The result of the :cancel_event mutation */
+export type CancelEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Event>;
+};
+
+/** The result of the :cancel_order mutation */
+export type CancelOrderResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Order>;
+};
+
+/** The result of the :close_course mutation */
+export type CloseCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Course>;
+};
+
+/** The result of the :close_event mutation */
+export type CloseEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Event>;
 };
 
 /** The result of the :confirm_enrollment mutation */
@@ -171,23 +230,34 @@ export type ConfirmEnrollmentResult = {
 };
 
 export type Course = {
+  availablePriceTiers?: Maybe<Array<Scalars['JsonString']['output']>>;
   /** 报名名额上限；nil 表示不限 */
   capacity?: Maybe<Scalars['Int']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: Maybe<Scalars['String']['output']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy: Scalars['String']['output'];
   id: Scalars['ID']['output'];
+  /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
+  priceTiers: Array<Scalars['JsonString']['output']>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled: Scalars['Boolean']['output'];
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
   /** 是否启用教研 workflow */
   researchEnabled: Scalars['Boolean']['output'];
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
   researchRequirements?: Maybe<Scalars['JsonString']['output']>;
+  /** 公开 URL 段（/courses/[slug]，全局唯一） */
+  slug?: Maybe<Scalars['String']['output']>;
   /** 课程状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status: Scalars['String']['output'];
   /** 课程标题 */
   title: Scalars['String']['output'];
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility: Scalars['String']['output'];
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: Maybe<Scalars['ID']['output']>;
   /** 所属工作台（租户）ID */
@@ -218,6 +288,24 @@ export type CourseFilterConfirmedCount = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type CourseFilterDescription = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CourseFilterEnrollmentPolicy = {
@@ -252,25 +340,46 @@ export type CourseFilterInput = {
   capacity?: InputMaybe<CourseFilterCapacity>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount?: InputMaybe<CourseFilterConfirmedCount>;
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: InputMaybe<CourseFilterDescription>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<CourseFilterEnrollmentPolicy>;
   id?: InputMaybe<CourseFilterId>;
   not?: InputMaybe<Array<CourseFilterInput>>;
   or?: InputMaybe<Array<CourseFilterInput>>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled?: InputMaybe<CourseFilterPricingEnabled>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<CourseFilterRegistrationDeadline>;
   /** 是否启用教研 workflow */
   researchEnabled?: InputMaybe<CourseFilterResearchEnabled>;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
   researchRequirements?: InputMaybe<CourseFilterResearchRequirements>;
+  /** 公开 URL 段（/courses/[slug]，全局唯一） */
+  slug?: InputMaybe<CourseFilterSlug>;
   /** 课程状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status?: InputMaybe<CourseFilterStatus>;
   /** 课程标题 */
   title?: InputMaybe<CourseFilterTitle>;
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility?: InputMaybe<CourseFilterVisibility>;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: InputMaybe<CourseFilterWorkflowRunId>;
   /** 所属工作台（租户）ID */
   workspaceId?: InputMaybe<CourseFilterWorkspaceId>;
+};
+
+export type CourseFilterPricingEnabled = {
+  eq?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  notEq?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type CourseFilterRegistrationDeadline = {
@@ -312,6 +421,24 @@ export type CourseFilterResearchRequirements = {
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
+export type CourseFilterSlug = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type CourseFilterStatus = {
   eq?: InputMaybe<Scalars['String']['input']>;
   greaterThan?: InputMaybe<Scalars['String']['input']>;
@@ -343,6 +470,19 @@ export type CourseFilterTitle = {
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type CourseFilterVisibility = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type CourseFilterWorkflowRunId = {
   eq?: InputMaybe<Scalars['ID']['input']>;
   greaterThan?: InputMaybe<Scalars['ID']['input']>;
@@ -372,13 +512,17 @@ export type CourseFilterWorkspaceId = {
 export type CourseSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
+  | 'DESCRIPTION'
   | 'ENROLLMENT_POLICY'
   | 'ID'
+  | 'PRICING_ENABLED'
   | 'REGISTRATION_DEADLINE'
   | 'RESEARCH_ENABLED'
   | 'RESEARCH_REQUIREMENTS'
+  | 'SLUG'
   | 'STATUS'
   | 'TITLE'
+  | 'VISIBILITY'
   | 'WORKFLOW_RUN_ID'
   | 'WORKSPACE_ID';
 
@@ -387,12 +531,49 @@ export type CourseSortInput = {
   order?: InputMaybe<SortOrder>;
 };
 
+export type CreateCourseInput = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** 报名策略：open / request / invite_only */
+  enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
+  /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
+  priceTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 报名截止时间；nil 表示不设截止 */
+  registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  /** 是否启用教研 workflow */
+  researchEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
+  /** 公开 URL 段（/courses/[slug]，全局唯一） */
+  slug?: InputMaybe<Scalars['String']['input']>;
+  /** 课程标题 */
+  title: Scalars['String']['input'];
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility?: InputMaybe<Scalars['String']['input']>;
+  /** 目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略） */
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+/** The result of the :create_course mutation */
+export type CreateCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Course>;
+};
+
 export type CreateEnrollmentInput = {
   approvalDeadline?: InputMaybe<Scalars['DateTime']['input']>;
   courseId?: InputMaybe<Scalars['ID']['input']>;
   eventId?: InputMaybe<Scalars['ID']['input']>;
   inviteCode?: InputMaybe<Scalars['String']['input']>;
   submissionPayload?: InputMaybe<Scalars['JsonString']['input']>;
+  /** 价格档位 ID（收费活动报名时必填） */
+  tierId?: InputMaybe<Scalars['String']['input']>;
   userId: Scalars['ID']['input'];
   workflowRunId?: InputMaybe<Scalars['ID']['input']>;
 };
@@ -403,6 +584,47 @@ export type CreateEnrollmentResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<Enrollment>;
+};
+
+export type CreateEventInput = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** 报名策略：open / request / invite_only */
+  enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
+  /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
+  priceTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 报名截止时间；nil 表示不设截止 */
+  registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  /** 是否启用教研 workflow */
+  researchEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
+  /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
+  slug?: InputMaybe<Scalars['String']['input']>;
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  /** 是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②） */
+  sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
+  sponsorshipTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 活动标题 */
+  title: Scalars['String']['input'];
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility?: InputMaybe<Scalars['String']['input']>;
+  /** 目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略） */
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+/** The result of the :create_event mutation */
+export type CreateEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Event>;
 };
 
 export type CreateInvitationInput = {
@@ -475,12 +697,81 @@ export type CreateMcpTokenPayload = {
   result?: Maybe<McpToken>;
 };
 
+export type CreateOrderInput = {
+  /** 目标报名（须为本人 payment_pending 报名） */
+  enrollmentId: Scalars['ID']['input'];
+  /** 支付渠道 */
+  provider: Scalars['String']['input'];
+};
+
+export type CreateOrderMetadata = {
+  /** 渠道支付凭据（jsapi 调起参数 / 二维码链接 / 跳转 URL） */
+  credential?: Maybe<Scalars['JsonString']['output']>;
+};
+
+/** The result of the :create_order mutation */
+export type CreateOrderResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** Metadata produced by the mutation */
+  metadata?: Maybe<CreateOrderMetadata>;
+  /** The successful result of the mutation */
+  result?: Maybe<Order>;
+};
+
 export type CreatePortfolioItemInput = {
   description?: InputMaybe<Scalars['String']['input']>;
   icon?: InputMaybe<Scalars['String']['input']>;
   /** createPortfolioItem 输入：title 必填，description/url/icon 可选 */
   title: Scalars['String']['input'];
   url?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateSpeakerInvitationInput = {
+  eventId: Scalars['ID']['input'];
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  note?: InputMaybe<Scalars['String']['input']>;
+  scheduledAt?: InputMaybe<Scalars['DateTime']['input']>;
+  speakerEmail?: InputMaybe<Scalars['String']['input']>;
+  speakerName: Scalars['String']['input'];
+  topic?: InputMaybe<Scalars['String']['input']>;
+  /** createSpeakerInvitation 输入：workspaceId + eventId + speakerName 必填，其余可选 */
+  workspaceId: Scalars['ID']['input'];
+};
+
+export type CreateSpeakerInvitationPayload = {
+  errors: Array<MutationError>;
+  plainToken?: Maybe<Scalars['String']['output']>;
+  /** createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次 */
+  result?: Maybe<SpeakerInvitation>;
+};
+
+export type CreateSponsorshipInput = {
+  /** 意向金额（元，v1 仅登记不收款；可空） */
+  amount?: InputMaybe<Scalars['Int']['input']>;
+  /** 赞助方公司/展示名 */
+  companyName: Scalars['String']['input'];
+  /** 联系邮箱（必填） */
+  contactEmail: Scalars['String']['input'];
+  contactPhone?: InputMaybe<Scalars['String']['input']>;
+  eventId?: InputMaybe<Scalars['ID']['input']>;
+  /** 赞助级别：event 单场 / workspace 长期 */
+  level: Scalars['String']['input'];
+  /** 备注/合作意向 */
+  message?: InputMaybe<Scalars['String']['input']>;
+  /** 赞助方（全局账号，非成员） */
+  sponsorUserId: Scalars['ID']['input'];
+  targetWorkspaceId?: InputMaybe<Scalars['ID']['input']>;
+  /** 意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选） */
+  tierId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+/** The result of the :create_sponsorship mutation */
+export type CreateSponsorshipResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Sponsorship>;
 };
 
 export type CreateWorkspaceApplicationInput = {
@@ -513,8 +804,12 @@ export type CreateWorkspaceInput = {
   ownerUserId?: InputMaybe<Scalars['ID']['input']>;
   /** 工作台唯一标识（小写字母/数字/连字符，创建者提供） */
   slug: Scalars['String']['input'];
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: InputMaybe<Scalars['DateTime']['input']>;
   /** 是否开放赞助入口（默认开） */
   sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
+  sponsorshipTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
 };
 
 export type CreateWorkspaceMetadata = {
@@ -550,10 +845,11 @@ export type Enrollment = {
   eventId?: Maybe<Scalars['ID']['output']>;
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
   inviteBatchId?: Maybe<Scalars['ID']['output']>;
   rejectionReason?: Maybe<Scalars['String']['output']>;
   status: Scalars['String']['output'];
-  submissionPayload: Scalars['JsonString']['output'];
+  targetTitle?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
   workflowRunId?: Maybe<Scalars['ID']['output']>;
   workspaceId: Scalars['ID']['output'];
@@ -687,6 +983,7 @@ export type EnrollmentFilterInput = {
   eventId?: InputMaybe<EnrollmentFilterEventId>;
   expiredAt?: InputMaybe<EnrollmentFilterExpiredAt>;
   id?: InputMaybe<EnrollmentFilterId>;
+  insertedAt?: InputMaybe<EnrollmentFilterInsertedAt>;
   inviteBatchId?: InputMaybe<EnrollmentFilterInviteBatchId>;
   not?: InputMaybe<Array<EnrollmentFilterInput>>;
   or?: InputMaybe<Array<EnrollmentFilterInput>>;
@@ -696,6 +993,19 @@ export type EnrollmentFilterInput = {
   userId?: InputMaybe<EnrollmentFilterUserId>;
   workflowRunId?: InputMaybe<EnrollmentFilterWorkflowRunId>;
   workspaceId?: InputMaybe<EnrollmentFilterWorkspaceId>;
+};
+
+export type EnrollmentFilterInsertedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<Scalars['DateTime']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterInviteBatchId = {
@@ -804,6 +1114,7 @@ export type EnrollmentSortField =
   | 'EVENT_ID'
   | 'EXPIRED_AT'
   | 'ID'
+  | 'INSERTED_AT'
   | 'INVITE_BATCH_ID'
   | 'REJECTION_REASON'
   | 'STATUS'
@@ -818,23 +1129,40 @@ export type EnrollmentSortInput = {
 };
 
 export type Event = {
+  availablePriceTiers?: Maybe<Array<Scalars['JsonString']['output']>>;
   /** 报名名额上限；nil 表示不限 */
   capacity?: Maybe<Scalars['Int']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: Maybe<Scalars['String']['output']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy: Scalars['String']['output'];
   id: Scalars['ID']['output'];
+  /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
+  priceTiers: Array<Scalars['JsonString']['output']>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled: Scalars['Boolean']['output'];
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
   /** 是否启用教研 workflow */
   researchEnabled: Scalars['Boolean']['output'];
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
   researchRequirements?: Maybe<Scalars['JsonString']['output']>;
+  /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
+  slug?: Maybe<Scalars['String']['output']>;
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: Maybe<Scalars['DateTime']['output']>;
+  /** 是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②） */
+  sponsorshipEnabled: Scalars['Boolean']['output'];
+  /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
+  sponsorshipTiers: Array<Scalars['JsonString']['output']>;
   /** 活动状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status: Scalars['String']['output'];
   /** 活动标题 */
   title: Scalars['String']['output'];
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility: Scalars['String']['output'];
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: Maybe<Scalars['ID']['output']>;
   /** 所属工作台（租户）ID */
@@ -865,6 +1193,24 @@ export type EventFilterConfirmedCount = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type EventFilterDescription = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EventFilterEnrollmentPolicy = {
@@ -899,25 +1245,50 @@ export type EventFilterInput = {
   capacity?: InputMaybe<EventFilterCapacity>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount?: InputMaybe<EventFilterConfirmedCount>;
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: InputMaybe<EventFilterDescription>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<EventFilterEnrollmentPolicy>;
   id?: InputMaybe<EventFilterId>;
   not?: InputMaybe<Array<EventFilterInput>>;
   or?: InputMaybe<Array<EventFilterInput>>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled?: InputMaybe<EventFilterPricingEnabled>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<EventFilterRegistrationDeadline>;
   /** 是否启用教研 workflow */
   researchEnabled?: InputMaybe<EventFilterResearchEnabled>;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
   researchRequirements?: InputMaybe<EventFilterResearchRequirements>;
+  /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
+  slug?: InputMaybe<EventFilterSlug>;
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: InputMaybe<EventFilterSponsorshipDeadline>;
+  /** 是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②） */
+  sponsorshipEnabled?: InputMaybe<EventFilterSponsorshipEnabled>;
   /** 活动状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status?: InputMaybe<EventFilterStatus>;
   /** 活动标题 */
   title?: InputMaybe<EventFilterTitle>;
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility?: InputMaybe<EventFilterVisibility>;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: InputMaybe<EventFilterWorkflowRunId>;
   /** 所属工作台（租户）ID */
   workspaceId?: InputMaybe<EventFilterWorkspaceId>;
+};
+
+export type EventFilterPricingEnabled = {
+  eq?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  notEq?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type EventFilterRegistrationDeadline = {
@@ -959,6 +1330,50 @@ export type EventFilterResearchRequirements = {
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
+export type EventFilterSlug = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type EventFilterSponsorshipDeadline = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type EventFilterSponsorshipEnabled = {
+  eq?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  notEq?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
 export type EventFilterStatus = {
   eq?: InputMaybe<Scalars['String']['input']>;
   greaterThan?: InputMaybe<Scalars['String']['input']>;
@@ -990,6 +1405,19 @@ export type EventFilterTitle = {
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type EventFilterVisibility = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type EventFilterWorkflowRunId = {
   eq?: InputMaybe<Scalars['ID']['input']>;
   greaterThan?: InputMaybe<Scalars['ID']['input']>;
@@ -1019,19 +1447,37 @@ export type EventFilterWorkspaceId = {
 export type EventSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
+  | 'DESCRIPTION'
   | 'ENROLLMENT_POLICY'
   | 'ID'
+  | 'PRICING_ENABLED'
   | 'REGISTRATION_DEADLINE'
   | 'RESEARCH_ENABLED'
   | 'RESEARCH_REQUIREMENTS'
+  | 'SLUG'
+  | 'SPONSORSHIP_DEADLINE'
+  | 'SPONSORSHIP_ENABLED'
   | 'STATUS'
   | 'TITLE'
+  | 'VISIBILITY'
   | 'WORKFLOW_RUN_ID'
   | 'WORKSPACE_ID';
 
 export type EventSortInput = {
   field: EventSortField;
   order?: InputMaybe<SortOrder>;
+};
+
+export type FulfillDeliveryInput = {
+  proofNote: Scalars['String']['input'];
+};
+
+/** The result of the :fulfill_delivery mutation */
+export type FulfillDeliveryResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<SponsorshipDelivery>;
 };
 
 export type Invitation = {
@@ -1231,6 +1677,7 @@ export type InviteBatch = {
   eventId?: Maybe<Scalars['ID']['output']>;
   expiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
   inviteCode: Scalars['String']['output'];
   quota: Scalars['Int']['output'];
   remainingQuota: Scalars['Int']['output'];
@@ -1297,6 +1744,7 @@ export type InviteBatchFilterInput = {
   eventId?: InputMaybe<InviteBatchFilterEventId>;
   expiresAt?: InputMaybe<InviteBatchFilterExpiresAt>;
   id?: InputMaybe<InviteBatchFilterId>;
+  insertedAt?: InputMaybe<InviteBatchFilterInsertedAt>;
   inviteCode?: InputMaybe<InviteBatchFilterInviteCode>;
   not?: InputMaybe<Array<InviteBatchFilterInput>>;
   or?: InputMaybe<Array<InviteBatchFilterInput>>;
@@ -1305,6 +1753,19 @@ export type InviteBatchFilterInput = {
   remark?: InputMaybe<InviteBatchFilterRemark>;
   status?: InputMaybe<InviteBatchFilterStatus>;
   workspaceId?: InputMaybe<InviteBatchFilterWorkspaceId>;
+};
+
+export type InviteBatchFilterInsertedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<Scalars['DateTime']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type InviteBatchFilterInviteCode = {
@@ -1400,6 +1861,7 @@ export type InviteBatchSortField =
   | 'EVENT_ID'
   | 'EXPIRES_AT'
   | 'ID'
+  | 'INSERTED_AT'
   | 'INVITE_CODE'
   | 'QUOTA'
   | 'REMAINING_QUOTA'
@@ -1693,6 +2155,30 @@ export type KeysetPageOfJoinRequest = {
   startKeyset?: Maybe<Scalars['String']['output']>;
 };
 
+/** A keyset page of :order */
+export type KeysetPageOfOrder = {
+  /** Total count on all pages */
+  count?: Maybe<Scalars['Int']['output']>;
+  /** The last keyset in the results */
+  endKeyset?: Maybe<Scalars['String']['output']>;
+  /** The records contained in the page */
+  results?: Maybe<Array<Order>>;
+  /** The first keyset in the results */
+  startKeyset?: Maybe<Scalars['String']['output']>;
+};
+
+/** A keyset page of :sponsorship */
+export type KeysetPageOfSponsorship = {
+  /** Total count on all pages */
+  count?: Maybe<Scalars['Int']['output']>;
+  /** The last keyset in the results */
+  endKeyset?: Maybe<Scalars['String']['output']>;
+  /** The records contained in the page */
+  results?: Maybe<Array<Sponsorship>>;
+  /** The first keyset in the results */
+  startKeyset?: Maybe<Scalars['String']['output']>;
+};
+
 /** A keyset page of :workflow_run */
 export type KeysetPageOfWorkflowRun = {
   /** Total count on all pages */
@@ -1729,6 +2215,22 @@ export type KeysetPageOfWorkspaceMembership = {
   startKeyset?: Maybe<Scalars['String']['output']>;
 };
 
+/** The result of the :launch_course mutation */
+export type LaunchCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Course>;
+};
+
+/** The result of the :launch_event mutation */
+export type LaunchEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Event>;
+};
+
 export type McpToken = {
   /** MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面） */
   id: Scalars['ID']['output'];
@@ -1762,15 +2264,334 @@ export type MutationError = {
   vars?: Maybe<Scalars['Json']['output']>;
 };
 
+export type MyLearningRun = {
+  completedManualSteps: Scalars['Int']['output'];
+  currentStepTitle?: Maybe<Scalars['String']['output']>;
+  enrollmentId: Scalars['ID']['output'];
+  runId: Scalars['ID']['output'];
+  status: Scalars['String']['output'];
+  targetTitle?: Maybe<Scalars['String']['output']>;
+  totalManualSteps: Scalars['Int']['output'];
+};
+
+export type OfferingReadinessItem = {
+  key: Scalars['String']['output'];
+  label: Scalars['String']['output'];
+  ok: Scalars['Boolean']['output'];
+};
+
+export type OfferingReadinessPayload = {
+  items: Array<OfferingReadinessItem>;
+  ready: Scalars['Boolean']['output'];
+};
+
+export type Order = {
+  amountCents: Scalars['Int']['output'];
+  cancelReason?: Maybe<Scalars['String']['output']>;
+  enrollmentId: Scalars['ID']['output'];
+  /** 关联报名当前状态 */
+  enrollmentStatus?: Maybe<Scalars['String']['output']>;
+  expireAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  /** 报名人邮箱（管理面识别付款人） */
+  learnerEmail?: Maybe<Scalars['String']['output']>;
+  outTradeNo: Scalars['String']['output'];
+  provider: Scalars['String']['output'];
+  refundedAt?: Maybe<Scalars['DateTime']['output']>;
+  status: Scalars['String']['output'];
+  /** 下单时档位快照名（R3 改价不追溯） */
+  tierName?: Maybe<Scalars['String']['output']>;
+  tierSnapshot: Scalars['JsonString']['output'];
+  transactionId?: Maybe<Scalars['String']['output']>;
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type OrderFilterAmountCents = {
+  eq?: InputMaybe<Scalars['Int']['input']>;
+  greaterThan?: InputMaybe<Scalars['Int']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  in?: InputMaybe<Array<Scalars['Int']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  lessThan?: InputMaybe<Scalars['Int']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  notEq?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type OrderFilterCancelReason = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterEnrollmentId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type OrderFilterEnrollmentStatus = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterExpireAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<Scalars['DateTime']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type OrderFilterId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type OrderFilterInput = {
+  amountCents?: InputMaybe<OrderFilterAmountCents>;
+  and?: InputMaybe<Array<OrderFilterInput>>;
+  cancelReason?: InputMaybe<OrderFilterCancelReason>;
+  enrollmentId?: InputMaybe<OrderFilterEnrollmentId>;
+  /** 关联报名当前状态 */
+  enrollmentStatus?: InputMaybe<OrderFilterEnrollmentStatus>;
+  expireAt?: InputMaybe<OrderFilterExpireAt>;
+  id?: InputMaybe<OrderFilterId>;
+  /** 报名人邮箱（管理面识别付款人） */
+  learnerEmail?: InputMaybe<OrderFilterLearnerEmail>;
+  not?: InputMaybe<Array<OrderFilterInput>>;
+  or?: InputMaybe<Array<OrderFilterInput>>;
+  outTradeNo?: InputMaybe<OrderFilterOutTradeNo>;
+  provider?: InputMaybe<OrderFilterProvider>;
+  refundedAt?: InputMaybe<OrderFilterRefundedAt>;
+  status?: InputMaybe<OrderFilterStatus>;
+  /** 下单时档位快照名（R3 改价不追溯） */
+  tierName?: InputMaybe<OrderFilterTierName>;
+  tierSnapshot?: InputMaybe<OrderFilterTierSnapshot>;
+  transactionId?: InputMaybe<OrderFilterTransactionId>;
+  workspaceId?: InputMaybe<OrderFilterWorkspaceId>;
+};
+
+export type OrderFilterLearnerEmail = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterOutTradeNo = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterProvider = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterRefundedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type OrderFilterStatus = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterTierName = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterTierSnapshot = {
+  eq?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  in?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  notEq?: InputMaybe<Scalars['JsonString']['input']>;
+};
+
+export type OrderFilterTransactionId = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterWorkspaceId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type OrderSortField =
+  | 'AMOUNT_CENTS'
+  | 'CANCEL_REASON'
+  | 'ENROLLMENT_ID'
+  | 'ENROLLMENT_STATUS'
+  | 'EXPIRE_AT'
+  | 'ID'
+  | 'LEARNER_EMAIL'
+  | 'OUT_TRADE_NO'
+  | 'PROVIDER'
+  | 'REFUNDED_AT'
+  | 'STATUS'
+  | 'TIER_NAME'
+  | 'TIER_SNAPSHOT'
+  | 'TRANSACTION_ID'
+  | 'WORKSPACE_ID';
+
+export type OrderSortInput = {
+  field: OrderSortField;
+  order?: InputMaybe<SortOrder>;
+};
+
 export type PendingApproval = {
+  amount?: Maybe<Scalars['Int']['output']>;
   approvalDeadline?: Maybe<Scalars['DateTime']['output']>;
+  companyName?: Maybe<Scalars['String']['output']>;
+  contactEmail?: Maybe<Scalars['String']['output']>;
+  contextTitle?: Maybe<Scalars['String']['output']>;
   courseId?: Maybe<Scalars['ID']['output']>;
   eventId?: Maybe<Scalars['ID']['output']>;
+  eventSlug?: Maybe<Scalars['String']['output']>;
+  expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   kind: Scalars['String']['output'];
+  level?: Maybe<Scalars['String']['output']>;
+  requesterName?: Maybe<Scalars['String']['output']>;
   status: Scalars['String']['output'];
+  tierName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
   workspaceId: Scalars['ID']['output'];
+  workspaceName?: Maybe<Scalars['String']['output']>;
+  workspaceSlug?: Maybe<Scalars['String']['output']>;
 };
 
 export type PermissionMatrixPayload = {
@@ -1815,6 +2636,14 @@ export type ReassignWorkspaceOwnerResult = {
   result?: Maybe<Workspace>;
 };
 
+/** The result of the :refund_order mutation */
+export type RefundOrderResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Order>;
+};
+
 export type RejectEnrollmentInput = {
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
 };
@@ -1840,6 +2669,18 @@ export type RejectJoinRequestResult = {
   result?: Maybe<JoinRequest>;
 };
 
+export type RejectSponsorshipInput = {
+  rejectionReason?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** The result of the :reject_sponsorship mutation */
+export type RejectSponsorshipResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Sponsorship>;
+};
+
 export type RejectWorkspaceApplicationInput = {
   /** 拒绝原因 */
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
@@ -1851,6 +2692,35 @@ export type RejectWorkspaceApplicationResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<WorkspaceApplication>;
+};
+
+export type ReplaceProviderInput = {
+  /** 待替换的旧订单（本人 pending 单） */
+  orderId: Scalars['ID']['input'];
+  provider: Scalars['String']['input'];
+};
+
+export type ReplaceProviderMetadata = {
+  /** 新渠道支付凭据 */
+  credential?: Maybe<Scalars['JsonString']['output']>;
+};
+
+/** The result of the :replace_provider mutation */
+export type ReplaceProviderResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** Metadata produced by the mutation */
+  metadata?: Maybe<ReplaceProviderMetadata>;
+  /** The successful result of the mutation */
+  result?: Maybe<Order>;
+};
+
+export type RequestPasswordResetResult = {
+  sent: Scalars['Boolean']['output'];
+};
+
+export type ResetPasswordResult = {
+  ok: Scalars['Boolean']['output'];
 };
 
 /** The result of the :revoke_invitation mutation */
@@ -1955,20 +2825,40 @@ export type RoleSortInput = {
 export type RootMutationType = {
   /** 接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载） */
   acceptInvitation?: Maybe<AcceptInvitationResult>;
+  /** Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效） */
+  acceptSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** 使用一次性小程序 scene 接受工作台邀请 */
   admitMemberByToken?: Maybe<Invitation>;
-  /** 审批通过加入申请（Owner/Admin，自动建 Membership + MembershipRole） */
+  /** 审批通过加入申请（Owner/Admin，自动建 Membership（默认无标签角色）） */
   approveJoinRequest: ApproveJoinRequestResult;
+  /** 审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery） */
+  approveSponsorship: ApproveSponsorshipResult;
   /** 审批通过创建工作台申请（platform_admin，自动创建 workspace + applicant 为 Owner） */
   approveWorkspaceApplication: ApproveWorkspaceApplicationResult;
   /** 分配成员角色（多角色并集，仅 Owner/Admin） */
   assignRoles: AssignRolesResult;
-  /** 报名人取消报名；confirmed 报名释放名额 */
+  /** 取消课程：open → cancelled，发 course.ended 信号 */
+  cancelCourse: CancelCourseResult;
+  /** 报名人取消报名；confirmed/payment_pending 报名释放名额 */
   cancelEnrollment: CancelEnrollmentResult;
+  /** 取消活动：open → cancelled，发 event.ended 信号 */
+  cancelEvent: CancelEventResult;
+  /** 报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12） */
+  cancelOrder: CancelOrderResult;
+  /** 结束课程：open → closed，发 course.ended 信号 */
+  closeCourse: CloseCourseResult;
+  /** 结束活动：open → closed，发 event.ended 信号 */
+  closeEvent: CloseEventResult;
+  /** 材料产出后完成邀请（Speaker 本人自助或 Owner/Admin 兜底；accepted → completed） */
+  completeSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** Owner/Admin 确认 pending 报名并原子占用名额 */
   confirmEnrollment: ConfirmEnrollmentResult;
+  /** 创建课程（默认 status=draft） */
+  createCourse: CreateCourseResult;
   /** 创建报名；open/invite_only 立即占位，request 等待审批 */
   createEnrollment: CreateEnrollmentResult;
+  /** 创建活动（默认 status=draft） */
+  createEvent: CreateEventResult;
   /** 创建邀请（Owner/Admin/Volunteer） */
   createInvitation: CreateInvitationResult;
   createInviteBatch: CreateInviteBatchResult;
@@ -1976,37 +2866,63 @@ export type RootMutationType = {
   createJoinRequest: CreateJoinRequestResult;
   /** 签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash） */
   createMcpToken?: Maybe<CreateMcpTokenPayload>;
+  /** 报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5/R6/R13） */
+  createOrder: CreateOrderResult;
   /** 在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造） */
   createPortfolioItem?: Maybe<PortfolioItem>;
+  /** Owner/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希） */
+  createSpeakerInvitation?: Maybe<CreateSpeakerInvitationPayload>;
+  /** 提交赞助意向：校验后创建 pending（不生效权益，等审批） */
+  createSponsorship: CreateSponsorshipResult;
   /** 创建工作台（仅平台管理员） */
   createWorkspace: CreateWorkspaceResult;
   /** 提交创建工作台申请 */
   createWorkspaceApplication: CreateWorkspaceApplicationResult;
+  /** Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效） */
+  declineSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** 删除某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   deletePortfolioItem?: Maybe<PortfolioItem>;
   /** 平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫） */
   demoteUser?: Maybe<AdminUserPayload>;
   disableInviteBatch: DisableInviteBatchResult;
+  /** 后台核销交付行（fulfilled_at + proof_note；Owner/Admin） */
+  fulfillDelivery: FulfillDeliveryResult;
   /** Owner/Admin 创建一次性工作台邀请小程序码 */
   generateMiniProgramCode?: Maybe<MiniprogramCodeResult>;
   /** 记录一次小程序订阅消息授权并增加一个可用次数 */
   grantMiniProgramNotificationConsent?: Maybe<Scalars['Int']['output']>;
   /** 直接加入公开工作台（join_policy==:open）→ 建无标签 Membership */
   joinWorkspace: Workspace;
+  /** 发布课程：draft → open，发 course.launched 信号 */
+  launchCourse: LaunchCourseResult;
+  /** 发布活动：draft → open，发 event.launched 信号 */
+  launchEvent: LaunchEventResult;
   /** 平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调） */
   promoteUser?: Maybe<AdminUserPayload>;
   /** 重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请 */
   reassignWorkspaceOwner: ReassignWorkspaceOwnerResult;
+  /** 管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007） */
+  refundOrder: RefundOrderResult;
   /** Owner/Admin 拒绝 pending 报名 */
   rejectEnrollment: RejectEnrollmentResult;
   /** 拒绝加入申请（Owner/Admin） */
   rejectJoinRequest: RejectJoinRequestResult;
+  /** 审批拒绝：pending → rejected，rejection_reason 落审计字段 */
+  rejectSponsorship: RejectSponsorshipResult;
   /** 拒绝创建工作台申请（platform_admin） */
   rejectWorkspaceApplication: RejectWorkspaceApplicationResult;
+  /** 换渠道：旧 pending 单 cancelled + 新单（新 out_trade_no），R11 */
+  replaceProvider: ReplaceProviderResult;
+  /** 请求发送密码重置邮件（无论邮箱是否存在都返回统一成功结果） */
+  requestPasswordReset?: Maybe<RequestPasswordResetResult>;
+  /** 使用一次性密码重置 token 设置新密码 */
+  resetPassword?: Maybe<ResetPasswordResult>;
   /** 撤销邀请（邀请人本人或 Owner/Admin 或平台管理员） */
   revokeInvitation: RevokeInvitationResult;
   /** 撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性） */
   revokeMcpToken?: Maybe<McpToken>;
+  /** Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner/Admin 兜底；materials 为 JSON 字符串） */
+  saveSpeakerMaterials?: Maybe<SpeakerInvitationActionPayload>;
   /** 设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace） */
   setWorkspaceTheme?: Maybe<WorkspaceProfile>;
   /** 使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token） */
@@ -2017,20 +2933,31 @@ export type RootMutationType = {
   signOut?: Maybe<Scalars['String']['output']>;
   /** 注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录） */
   signUp?: Maybe<SignUpPayload>;
+  /** 编辑课程元数据（Owner/Admin） */
+  updateCourse: UpdateCourseResult;
   /** 更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段） */
   updateDisplayName?: Maybe<User>;
+  /** 编辑活动元数据（Owner/Admin） */
+  updateEvent: UpdateEventResult;
   /** 更新某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   updatePortfolioItem?: Maybe<PortfolioItem>;
   /** 更新工作台（Owner/Admin 或平台管理员） */
   updateWorkspace: UpdateWorkspaceResult;
   /** 更新当前用户在某工作台的资料（ADR-0004 per-workspace） */
   updateWorkspaceProfile?: Maybe<WorkspaceProfile>;
+  /** Owner/Admin/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18） */
+  waivePayment: WaivePaymentResult;
 };
 
 
 export type RootMutationTypeAcceptInvitationArgs = {
   id: Scalars['ID']['input'];
   input: AcceptInvitationInput;
+};
+
+
+export type RootMutationTypeAcceptSpeakerInvitationArgs = {
+  token: Scalars['String']['input'];
 };
 
 
@@ -2045,6 +2972,11 @@ export type RootMutationTypeApproveJoinRequestArgs = {
 };
 
 
+export type RootMutationTypeApproveSponsorshipArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeApproveWorkspaceApplicationArgs = {
   id: Scalars['ID']['input'];
 };
@@ -2056,7 +2988,37 @@ export type RootMutationTypeAssignRolesArgs = {
 };
 
 
+export type RootMutationTypeCancelCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeCancelEnrollmentArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCancelEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCancelOrderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCloseCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCloseEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCompleteSpeakerInvitationArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -2066,8 +3028,18 @@ export type RootMutationTypeConfirmEnrollmentArgs = {
 };
 
 
+export type RootMutationTypeCreateCourseArgs = {
+  input: CreateCourseInput;
+};
+
+
 export type RootMutationTypeCreateEnrollmentArgs = {
   input: CreateEnrollmentInput;
+};
+
+
+export type RootMutationTypeCreateEventArgs = {
+  input: CreateEventInput;
 };
 
 
@@ -2091,9 +3063,24 @@ export type RootMutationTypeCreateMcpTokenArgs = {
 };
 
 
+export type RootMutationTypeCreateOrderArgs = {
+  input: CreateOrderInput;
+};
+
+
 export type RootMutationTypeCreatePortfolioItemArgs = {
   input: CreatePortfolioItemInput;
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCreateSpeakerInvitationArgs = {
+  input: CreateSpeakerInvitationInput;
+};
+
+
+export type RootMutationTypeCreateSponsorshipArgs = {
+  input: CreateSponsorshipInput;
 };
 
 
@@ -2104,6 +3091,11 @@ export type RootMutationTypeCreateWorkspaceArgs = {
 
 export type RootMutationTypeCreateWorkspaceApplicationArgs = {
   input: CreateWorkspaceApplicationInput;
+};
+
+
+export type RootMutationTypeDeclineSpeakerInvitationArgs = {
+  token: Scalars['String']['input'];
 };
 
 
@@ -2120,6 +3112,12 @@ export type RootMutationTypeDemoteUserArgs = {
 
 export type RootMutationTypeDisableInviteBatchArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFulfillDeliveryArgs = {
+  id: Scalars['ID']['input'];
+  input: FulfillDeliveryInput;
 };
 
 
@@ -2140,6 +3138,16 @@ export type RootMutationTypeJoinWorkspaceArgs = {
 };
 
 
+export type RootMutationTypeLaunchCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeLaunchEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypePromoteUserArgs = {
   id: Scalars['ID']['input'];
 };
@@ -2148,6 +3156,11 @@ export type RootMutationTypePromoteUserArgs = {
 export type RootMutationTypeReassignWorkspaceOwnerArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<ReassignWorkspaceOwnerInput>;
+};
+
+
+export type RootMutationTypeRefundOrderArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -2163,9 +3176,31 @@ export type RootMutationTypeRejectJoinRequestArgs = {
 };
 
 
+export type RootMutationTypeRejectSponsorshipArgs = {
+  id: Scalars['ID']['input'];
+  input?: InputMaybe<RejectSponsorshipInput>;
+};
+
+
 export type RootMutationTypeRejectWorkspaceApplicationArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<RejectWorkspaceApplicationInput>;
+};
+
+
+export type RootMutationTypeReplaceProviderArgs = {
+  input: ReplaceProviderInput;
+};
+
+
+export type RootMutationTypeRequestPasswordResetArgs = {
+  email: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeResetPasswordArgs = {
+  password: Scalars['String']['input'];
+  resetToken: Scalars['String']['input'];
 };
 
 
@@ -2176,6 +3211,12 @@ export type RootMutationTypeRevokeInvitationArgs = {
 
 export type RootMutationTypeRevokeMcpTokenArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeSaveSpeakerMaterialsArgs = {
+  invitationId: Scalars['ID']['input'];
+  materials: Scalars['JsonString']['input'];
 };
 
 
@@ -2204,8 +3245,20 @@ export type RootMutationTypeSignUpArgs = {
 };
 
 
+export type RootMutationTypeUpdateCourseArgs = {
+  id: Scalars['ID']['input'];
+  input?: InputMaybe<UpdateCourseInput>;
+};
+
+
 export type RootMutationTypeUpdateDisplayNameArgs = {
   displayName: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeUpdateEventArgs = {
+  id: Scalars['ID']['input'];
+  input?: InputMaybe<UpdateEventInput>;
 };
 
 
@@ -2227,12 +3280,22 @@ export type RootMutationTypeUpdateWorkspaceProfileArgs = {
   workspaceId: Scalars['ID']['input'];
 };
 
+
+export type RootMutationTypeWaivePaymentArgs = {
+  id: Scalars['ID']['input'];
+};
+
 export type RootQueryType = {
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 按 id 获取课程（#40） */
   getCourse?: Maybe<Course>;
+  /** 按 slug 获取（E-5 公开宿主页） */
+  getCourseBySlug?: Maybe<Course>;
   /** 按 id 获取活动（#40） */
   getEvent?: Maybe<Event>;
+  /** 按 slug 获取（E-5 公开宿主页） */
+  getEventBySlug?: Maybe<Event>;
+  getSponsorship?: Maybe<Sponsorship>;
   /** 按 id 获取 workflow run 详情（#40） */
   getWorkflowRun?: Maybe<WorkflowRun>;
   /** 按 slug 获取工作台（需登录） */
@@ -2268,24 +3331,50 @@ export type RootQueryType = {
   me?: Maybe<User>;
   /** 当前用户可进入的工作台列表（成员资格 + 创建者） */
   meWorkspaces: Array<Workspace>;
+  /** 当前用户跨工作台的报名记录 */
+  myEnrollments?: Maybe<KeysetPageOfEnrollment>;
+  /** 当前用户 confirmed 报名对应的学习 run 进度（非成员可读） */
+  myLearningRuns: Array<MyLearningRun>;
   /** 当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人） */
   myMcpTokens?: Maybe<Array<Maybe<McpToken>>>;
-  /** 当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest） */
+  /** 当前用户订单列表（R14） */
+  myOrders?: Maybe<KeysetPageOfOrder>;
+  /** 当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123） */
   myPendingApprovals: Array<PendingApproval>;
+  /** 当前用户跨工作台的赞助意向 */
+  mySponsorships?: Maybe<KeysetPageOfSponsorship>;
   /** 当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请） */
   myWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace） */
   myWorkspacePortfolio?: Maybe<Array<Maybe<PortfolioItem>>>;
-  /** 角色权限矩阵（#66 Rbac）：六角色 × 六能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */
+  /** 当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回） */
+  myWorkspaceToolCalls: Array<WorkspaceToolCall>;
+  offeringReadiness?: Maybe<OfferingReadinessPayload>;
+  /** 订单状态轮询（2s×30s 轻量面，R14） */
+  orderStatus?: Maybe<Order>;
+  /** 当前用户作为 Owner/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 /approvals 展示含过期行存在有意差异） */
+  pendingApprovalsCount: Scalars['Int']['output'];
+  /** 角色权限矩阵（#66 Rbac）：五角色 × 七能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */
   permissionMatrix?: Maybe<PermissionMatrixPayload>;
   /** Placeholder query until the first resource is added */
   ping?: Maybe<Scalars['String']['output']>;
+  /** 平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after） */
+  reconciliationFindings: Array<AdminReconciliationFinding>;
+  /** 邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请 */
+  speakerInvitationCard?: Maybe<SpeakerInvitationCard>;
+  /** 某 Event 的 Speaker 邀请列表（仅 Owner/Admin 或平台管理员，read policy 兜底） */
+  speakerInvitations: Array<SpeakerInvitation>;
+  sponsorships?: Maybe<KeysetPageOfSponsorship>;
   /** 校验邀请 token，返回邀请信息 + 工作台预览 */
   validateInvitation?: Maybe<Invitation>;
   /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
   workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
   workspaceMembers?: Maybe<KeysetPageOfWorkspaceMembership>;
+  /** 工作台订单列表（R24 管理面） */
+  workspaceOrders?: Maybe<KeysetPageOfOrder>;
+  /** 工作台收款统计（R24）：已收/待收/已退，金额一律分 */
+  workspacePaymentStats: Scalars['JsonString']['output'];
   /** 当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权） */
   workspaceProfile?: Maybe<WorkspaceProfile>;
 };
@@ -2307,8 +3396,26 @@ export type RootQueryTypeGetCourseArgs = {
 };
 
 
+export type RootQueryTypeGetCourseBySlugArgs = {
+  filter?: InputMaybe<CourseFilterInput>;
+  slug: Scalars['String']['input'];
+};
+
+
 export type RootQueryTypeGetEventArgs = {
   filter?: InputMaybe<EventFilterInput>;
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeGetEventBySlugArgs = {
+  filter?: InputMaybe<EventFilterInput>;
+  slug: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeGetSponsorshipArgs = {
+  filter?: InputMaybe<SponsorshipFilterInput>;
   id: Scalars['ID']['input'];
 };
 
@@ -2457,8 +3564,89 @@ export type RootQueryTypeMeWorkspacesArgs = {
 };
 
 
+export type RootQueryTypeMyEnrollmentsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  filter?: InputMaybe<EnrollmentFilterInput>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<EnrollmentSortInput>>>;
+};
+
+
+export type RootQueryTypeMyOrdersArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  filter?: InputMaybe<OrderFilterInput>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<OrderSortInput>>>;
+};
+
+
+export type RootQueryTypeMyPendingApprovalsArgs = {
+  includeExpired?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type RootQueryTypeMySponsorshipsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  filter?: InputMaybe<SponsorshipFilterInput>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<SponsorshipSortInput>>>;
+};
+
+
 export type RootQueryTypeMyWorkspacePortfolioArgs = {
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeMyWorkspaceToolCallsArgs = {
+  first?: InputMaybe<Scalars['Int']['input']>;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeOfferingReadinessArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeOrderStatusArgs = {
+  filter?: InputMaybe<OrderFilterInput>;
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeReconciliationFindingsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  entityType?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  rule?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type RootQueryTypeSpeakerInvitationCardArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeSpeakerInvitationsArgs = {
+  eventId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeSponsorshipsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  filter?: InputMaybe<SponsorshipFilterInput>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<SponsorshipSortInput>>>;
 };
 
 
@@ -2485,6 +3673,22 @@ export type RootQueryTypeWorkspaceMembersArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<Array<InputMaybe<WorkspaceMembershipSortInput>>>;
+};
+
+
+export type RootQueryTypeWorkspaceOrdersArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  filter?: InputMaybe<OrderFilterInput>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<OrderSortInput>>>;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeWorkspacePaymentStatsArgs = {
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -2533,6 +3737,703 @@ export type SortOrder =
   | 'DESC_NULLS_FIRST'
   | 'DESC_NULLS_LAST';
 
+export type SpeakerInvitation = {
+  acceptedAt?: Maybe<Scalars['DateTime']['output']>;
+  acceptedBy?: Maybe<Scalars['ID']['output']>;
+  completedAt?: Maybe<Scalars['DateTime']['output']>;
+  declinedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 目标活动（Event）ID */
+  eventId: Scalars['ID']['output'];
+  /** token 有效期（可空 = 不设过期） */
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  /** 发起人（Owner/Admin） */
+  invitedBy: Scalars['ID']['output'];
+  /** 备注（可选） */
+  note?: Maybe<Scalars['String']['output']>;
+  /** 分享时间（可选） */
+  scheduledAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 被邀请人邮箱（可空 = 手动转发链接） */
+  speakerEmail?: Maybe<Scalars['String']['output']>;
+  /** 被邀请人姓名 */
+  speakerName: Scalars['String']['output'];
+  /** 接受后绑定的全局账号（拍板 #1：Speaker 必须全局账号，不成为成员） */
+  speakerUserId?: Maybe<Scalars['ID']['output']>;
+  /** 状态机：invited / accepted / declined / completed */
+  status: Scalars['String']['output'];
+  /** 分享主题（可选） */
+  topic?: Maybe<Scalars['String']['output']>;
+  /** 来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例） */
+  workflowRunId?: Maybe<Scalars['ID']['output']>;
+  /** 所属工作台（租户）ID（= Event 的 workspace_id） */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type SpeakerInvitationActionPayload = {
+  errors: Array<MutationError>;
+  /** accept/decline/saveSpeakerMaterials/completeSpeakerInvitation 返回：result + errors 两段式 */
+  result?: Maybe<SpeakerInvitation>;
+};
+
+export type SpeakerInvitationCard = {
+  event: SpeakerInvitationCardEvent;
+  scheduledAt?: Maybe<Scalars['DateTime']['output']>;
+  /** token 公开卡片：邀请主题/时间 + Event 公开信息（D2 白名单，不泄露其它邀请） */
+  status: Scalars['String']['output'];
+  topic?: Maybe<Scalars['String']['output']>;
+};
+
+export type SpeakerInvitationCardEvent = {
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  slug?: Maybe<Scalars['String']['output']>;
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
+export type Sponsorship = {
+  /** 意向金额（元，v1 仅登记不收款；可空） */
+  amount?: Maybe<Scalars['Int']['output']>;
+  approvalDeadline?: Maybe<Scalars['DateTime']['output']>;
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['ID']['output']>;
+  /** 赞助方公司/展示名 */
+  companyName: Scalars['String']['output'];
+  /** 联系邮箱（必填） */
+  contactEmail: Scalars['String']['output'];
+  contactPhone?: Maybe<Scalars['String']['output']>;
+  deliveries: Array<SponsorshipDelivery>;
+  endedAt?: Maybe<Scalars['DateTime']['output']>;
+  eventId?: Maybe<Scalars['ID']['output']>;
+  expiredAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  /** 赞助级别：event 单场 / workspace 长期 */
+  level: Scalars['String']['output'];
+  /** 备注/合作意向 */
+  message?: Maybe<Scalars['String']['output']>;
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  /** 赞助方（全局账号，非成员） */
+  sponsorUserId: Scalars['ID']['output'];
+  startedAt?: Maybe<Scalars['DateTime']['output']>;
+  status: Scalars['String']['output'];
+  targetTitle?: Maybe<Scalars['String']['output']>;
+  /** 意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选） */
+  tierId?: Maybe<Scalars['ID']['output']>;
+  /** 档位展示名冗余（审批/展示用） */
+  tierName?: Maybe<Scalars['String']['output']>;
+  workflowRunId?: Maybe<Scalars['ID']['output']>;
+  /** 所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台 */
+  workspaceId: Scalars['ID']['output'];
+};
+
+
+export type SponsorshipDeliveriesArgs = {
+  filter?: InputMaybe<SponsorshipDeliveryFilterInput>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<Array<InputMaybe<SponsorshipDeliverySortInput>>>;
+};
+
+export type SponsorshipDelivery = {
+  /** 权益项名（物化自 tier.benefits） */
+  benefit: Scalars['String']['output'];
+  dueDate?: Maybe<Scalars['DateTime']['output']>;
+  /** 独占位标记（随档位复制） */
+  exclusive: Scalars['Boolean']['output'];
+  fulfilledAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  proofNote?: Maybe<Scalars['String']['output']>;
+  sponsorshipId: Scalars['ID']['output'];
+  /** 所属工作台（物化时从 Sponsorship 复制，租户） */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type SponsorshipDeliveryFilterBenefit = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipDeliveryFilterDueDate = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipDeliveryFilterExclusive = {
+  eq?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  notEq?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type SponsorshipDeliveryFilterFulfilledAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipDeliveryFilterId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipDeliveryFilterInput = {
+  and?: InputMaybe<Array<SponsorshipDeliveryFilterInput>>;
+  /** 权益项名（物化自 tier.benefits） */
+  benefit?: InputMaybe<SponsorshipDeliveryFilterBenefit>;
+  dueDate?: InputMaybe<SponsorshipDeliveryFilterDueDate>;
+  /** 独占位标记（随档位复制） */
+  exclusive?: InputMaybe<SponsorshipDeliveryFilterExclusive>;
+  fulfilledAt?: InputMaybe<SponsorshipDeliveryFilterFulfilledAt>;
+  id?: InputMaybe<SponsorshipDeliveryFilterId>;
+  not?: InputMaybe<Array<SponsorshipDeliveryFilterInput>>;
+  or?: InputMaybe<Array<SponsorshipDeliveryFilterInput>>;
+  proofNote?: InputMaybe<SponsorshipDeliveryFilterProofNote>;
+  sponsorshipId?: InputMaybe<SponsorshipDeliveryFilterSponsorshipId>;
+  /** 所属工作台（物化时从 Sponsorship 复制，租户） */
+  workspaceId?: InputMaybe<SponsorshipDeliveryFilterWorkspaceId>;
+};
+
+export type SponsorshipDeliveryFilterProofNote = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipDeliveryFilterSponsorshipId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipDeliveryFilterWorkspaceId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipDeliverySortField =
+  | 'BENEFIT'
+  | 'DUE_DATE'
+  | 'EXCLUSIVE'
+  | 'FULFILLED_AT'
+  | 'ID'
+  | 'PROOF_NOTE'
+  | 'SPONSORSHIP_ID'
+  | 'WORKSPACE_ID';
+
+export type SponsorshipDeliverySortInput = {
+  field: SponsorshipDeliverySortField;
+  order?: InputMaybe<SortOrder>;
+};
+
+export type SponsorshipFilterAmount = {
+  eq?: InputMaybe<Scalars['Int']['input']>;
+  greaterThan?: InputMaybe<Scalars['Int']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['Int']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  lessThan?: InputMaybe<Scalars['Int']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  notEq?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type SponsorshipFilterApprovalDeadline = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipFilterApprovedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipFilterApprovedBy = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipFilterCompanyName = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterContactEmail = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterContactPhone = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterEndedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipFilterEventId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipFilterExpiredAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipFilterId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipFilterInput = {
+  /** 意向金额（元，v1 仅登记不收款；可空） */
+  amount?: InputMaybe<SponsorshipFilterAmount>;
+  and?: InputMaybe<Array<SponsorshipFilterInput>>;
+  approvalDeadline?: InputMaybe<SponsorshipFilterApprovalDeadline>;
+  approvedAt?: InputMaybe<SponsorshipFilterApprovedAt>;
+  approvedBy?: InputMaybe<SponsorshipFilterApprovedBy>;
+  /** 赞助方公司/展示名 */
+  companyName?: InputMaybe<SponsorshipFilterCompanyName>;
+  /** 联系邮箱（必填） */
+  contactEmail?: InputMaybe<SponsorshipFilterContactEmail>;
+  contactPhone?: InputMaybe<SponsorshipFilterContactPhone>;
+  deliveries?: InputMaybe<SponsorshipDeliveryFilterInput>;
+  endedAt?: InputMaybe<SponsorshipFilterEndedAt>;
+  eventId?: InputMaybe<SponsorshipFilterEventId>;
+  expiredAt?: InputMaybe<SponsorshipFilterExpiredAt>;
+  id?: InputMaybe<SponsorshipFilterId>;
+  /** 赞助级别：event 单场 / workspace 长期 */
+  level?: InputMaybe<SponsorshipFilterLevel>;
+  /** 备注/合作意向 */
+  message?: InputMaybe<SponsorshipFilterMessage>;
+  not?: InputMaybe<Array<SponsorshipFilterInput>>;
+  or?: InputMaybe<Array<SponsorshipFilterInput>>;
+  rejectionReason?: InputMaybe<SponsorshipFilterRejectionReason>;
+  /** 赞助方（全局账号，非成员） */
+  sponsorUserId?: InputMaybe<SponsorshipFilterSponsorUserId>;
+  startedAt?: InputMaybe<SponsorshipFilterStartedAt>;
+  status?: InputMaybe<SponsorshipFilterStatus>;
+  /** 意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选） */
+  tierId?: InputMaybe<SponsorshipFilterTierId>;
+  /** 档位展示名冗余（审批/展示用） */
+  tierName?: InputMaybe<SponsorshipFilterTierName>;
+  workflowRunId?: InputMaybe<SponsorshipFilterWorkflowRunId>;
+  /** 所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台 */
+  workspaceId?: InputMaybe<SponsorshipFilterWorkspaceId>;
+};
+
+export type SponsorshipFilterLevel = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterMessage = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterRejectionReason = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterSponsorUserId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipFilterStartedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type SponsorshipFilterStatus = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterTierId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipFilterTierName = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SponsorshipFilterWorkflowRunId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipFilterWorkspaceId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type SponsorshipSortField =
+  | 'AMOUNT'
+  | 'APPROVAL_DEADLINE'
+  | 'APPROVED_AT'
+  | 'APPROVED_BY'
+  | 'COMPANY_NAME'
+  | 'CONTACT_EMAIL'
+  | 'CONTACT_PHONE'
+  | 'ENDED_AT'
+  | 'EVENT_ID'
+  | 'EXPIRED_AT'
+  | 'ID'
+  | 'LEVEL'
+  | 'MESSAGE'
+  | 'REJECTION_REASON'
+  | 'SPONSOR_USER_ID'
+  | 'STARTED_AT'
+  | 'STATUS'
+  | 'TIER_ID'
+  | 'TIER_NAME'
+  | 'WORKFLOW_RUN_ID'
+  | 'WORKSPACE_ID';
+
+export type SponsorshipSortInput = {
+  field: SponsorshipSortField;
+  order?: InputMaybe<SortOrder>;
+};
+
+export type UpdateCourseInput = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** 报名策略：open / request / invite_only */
+  enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
+  /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
+  priceTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 报名截止时间；nil 表示不设截止 */
+  registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  /** 是否启用教研 workflow */
+  researchEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
+  /** 公开 URL 段（/courses/[slug]，全局唯一） */
+  slug?: InputMaybe<Scalars['String']['input']>;
+  /** 课程标题 */
+  title?: InputMaybe<Scalars['String']['input']>;
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** The result of the :update_course mutation */
+export type UpdateCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Course>;
+};
+
+export type UpdateEventInput = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 公开展示文案（可空；null 由展示层按空串呈现） */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** 报名策略：open / request / invite_only */
+  enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
+  /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
+  priceTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
+  pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 报名截止时间；nil 表示不设截止 */
+  registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  /** 是否启用教研 workflow */
+  researchEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
+  /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
+  slug?: InputMaybe<Scalars['String']['input']>;
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  /** 是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②） */
+  sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
+  sponsorshipTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 活动标题 */
+  title?: InputMaybe<Scalars['String']['input']>;
+  /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
+  visibility?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** The result of the :update_event mutation */
+export type UpdateEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Event>;
+};
+
 export type UpdatePortfolioItemInput = {
   description?: InputMaybe<Scalars['String']['input']>;
   icon?: InputMaybe<Scalars['String']['input']>;
@@ -2548,8 +4449,12 @@ export type UpdateWorkspaceInput = {
   name?: InputMaybe<Scalars['String']['input']>;
   /** 工作台唯一标识（小写字母/数字/连字符，创建者提供） */
   slug?: InputMaybe<Scalars['String']['input']>;
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: InputMaybe<Scalars['DateTime']['input']>;
   /** 是否开放赞助入口（默认开） */
   sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
+  sponsorshipTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
 };
 
 export type UpdateWorkspaceProfileInput = {
@@ -2583,7 +4488,181 @@ export type User = {
   memberNumber?: Maybe<Scalars['String']['output']>;
 };
 
+/** The result of the :waive_payment mutation */
+export type WaivePaymentResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Enrollment>;
+};
+
+export type WorkflowDefinition = {
+  /** 人工步骤审批超时秒数；nil = 永不超时（不设默认值） */
+  approvalTimeout?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  /** workflow 输入参数 schema */
+  inputSchema?: Maybe<Scalars['JsonString']['output']>;
+  /** 蓝图名称（租户内可读） */
+  name: Scalars['String']['output'];
+  /** 执行拓扑（步骤顺序/依赖），声明式数据；Step 字段独立存于 Step 资源 */
+  nodeDef?: Maybe<Scalars['JsonString']['output']>;
+  /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
+  status: Scalars['String']['output'];
+  /** workflow 类型：platform_ops 平台运营 / learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研 */
+  type: Scalars['String']['output'];
+  /** 版本号，单调递增；new_version 出 v+1（#34） */
+  version: Scalars['Int']['output'];
+  /** 所属工作台（租户）ID */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type WorkflowDefinitionFilterApprovalTimeout = {
+  eq?: InputMaybe<Scalars['Int']['input']>;
+  greaterThan?: InputMaybe<Scalars['Int']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['Int']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  lessThan?: InputMaybe<Scalars['Int']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  notEq?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type WorkflowDefinitionFilterId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type WorkflowDefinitionFilterInput = {
+  and?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
+  /** 人工步骤审批超时秒数；nil = 永不超时（不设默认值） */
+  approvalTimeout?: InputMaybe<WorkflowDefinitionFilterApprovalTimeout>;
+  id?: InputMaybe<WorkflowDefinitionFilterId>;
+  /** workflow 输入参数 schema */
+  inputSchema?: InputMaybe<WorkflowDefinitionFilterInputSchema>;
+  /** 蓝图名称（租户内可读） */
+  name?: InputMaybe<WorkflowDefinitionFilterName>;
+  /** 执行拓扑（步骤顺序/依赖），声明式数据；Step 字段独立存于 Step 资源 */
+  nodeDef?: InputMaybe<WorkflowDefinitionFilterNodeDef>;
+  not?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
+  or?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
+  /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
+  status?: InputMaybe<WorkflowDefinitionFilterStatus>;
+  /** workflow 类型：platform_ops 平台运营 / learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研 */
+  type?: InputMaybe<WorkflowDefinitionFilterType>;
+  /** 版本号，单调递增；new_version 出 v+1（#34） */
+  version?: InputMaybe<WorkflowDefinitionFilterVersion>;
+  /** 所属工作台（租户）ID */
+  workspaceId?: InputMaybe<WorkflowDefinitionFilterWorkspaceId>;
+};
+
+export type WorkflowDefinitionFilterInputSchema = {
+  eq?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  notEq?: InputMaybe<Scalars['JsonString']['input']>;
+};
+
+export type WorkflowDefinitionFilterName = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkflowDefinitionFilterNodeDef = {
+  eq?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  notEq?: InputMaybe<Scalars['JsonString']['input']>;
+};
+
+export type WorkflowDefinitionFilterStatus = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkflowDefinitionFilterType = {
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkflowDefinitionFilterVersion = {
+  eq?: InputMaybe<Scalars['Int']['input']>;
+  greaterThan?: InputMaybe<Scalars['Int']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  in?: InputMaybe<Array<Scalars['Int']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
+  lessThan?: InputMaybe<Scalars['Int']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
+  notEq?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type WorkflowDefinitionFilterWorkspaceId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type WorkflowRun = {
+  definition: WorkflowDefinition;
   /** 绑定的 WorkflowDefinition ID */
   definitionId: Scalars['ID']['output'];
   /** 绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动） */
@@ -2601,6 +4680,8 @@ export type WorkflowRun = {
   startedAt?: Maybe<Scalars['DateTime']['output']>;
   /** 执行状态机：pending/running/waiting/succeeded/failed/cancelled/expired */
   status: Scalars['String']['output'];
+  /** run 绑定版本的步骤定义（step_key/title/type/output_schema，plan 020） */
+  steps?: Maybe<Array<Scalars['JsonString']['output']>>;
   /** 乐观锁版本号，每次状态流转 +1 */
   version: Scalars['Int']['output'];
   /** 所属工作台（租户）ID */
@@ -2674,6 +4755,7 @@ export type WorkflowRunFilterId = {
 
 export type WorkflowRunFilterInput = {
   and?: InputMaybe<Array<WorkflowRunFilterInput>>;
+  definition?: InputMaybe<WorkflowDefinitionFilterInput>;
   /** 绑定的 WorkflowDefinition ID */
   definitionId?: InputMaybe<WorkflowRunFilterDefinitionId>;
   /** 绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动） */
@@ -2813,8 +4895,12 @@ export type Workspace = {
   name: Scalars['String']['output'];
   /** 工作台唯一标识（小写字母/数字/连字符，创建者提供） */
   slug: Scalars['String']['output'];
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: Maybe<Scalars['DateTime']['output']>;
   /** 是否开放赞助入口（默认开） */
   sponsorshipEnabled: Scalars['Boolean']['output'];
+  /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
+  sponsorshipTiers: Array<Scalars['JsonString']['output']>;
 };
 
 export type WorkspaceApplication = {
@@ -3109,6 +5195,8 @@ export type WorkspaceFilterInput = {
   or?: InputMaybe<Array<WorkspaceFilterInput>>;
   /** 工作台唯一标识（小写字母/数字/连字符，创建者提供） */
   slug?: InputMaybe<WorkspaceFilterSlug>;
+  /** 赞助意向截止；nil 表示长期开放 */
+  sponsorshipDeadline?: InputMaybe<WorkspaceFilterSponsorshipDeadline>;
   /** 是否开放赞助入口（默认开） */
   sponsorshipEnabled?: InputMaybe<WorkspaceFilterSponsorshipEnabled>;
 };
@@ -3160,6 +5248,19 @@ export type WorkspaceFilterSlug = {
   notEq?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WorkspaceFilterSponsorshipDeadline = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceFilterSponsorshipEnabled = {
@@ -3335,9 +5436,19 @@ export type WorkspaceSortField =
   | 'JOIN_POLICY'
   | 'NAME'
   | 'SLUG'
+  | 'SPONSORSHIP_DEADLINE'
   | 'SPONSORSHIP_ENABLED';
 
 export type WorkspaceSortInput = {
   field: WorkspaceSortField;
   order?: InputMaybe<SortOrder>;
+};
+
+export type WorkspaceToolCall = {
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  status: Scalars['String']['output'];
+  tool: Scalars['String']['output'];
 };

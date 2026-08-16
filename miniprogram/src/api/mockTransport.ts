@@ -29,7 +29,9 @@ const records = [
     enrollmentPolicy: 'request',
     capacity: 30,
     confirmedCount: 18,
-    registrationDeadline: new Date(Date.now() + 72 * 3_600_000).toISOString()
+    registrationDeadline: new Date(Date.now() + 72 * 3_600_000).toISOString(),
+    pricingEnabled: false,
+    availablePriceTiers: []
   },
   {
     id: 'event-open',
@@ -41,7 +43,9 @@ const records = [
     enrollmentPolicy: 'open',
     capacity: 80,
     confirmedCount: 31,
-    registrationDeadline: null
+    registrationDeadline: null,
+    pricingEnabled: false,
+    availablePriceTiers: []
   }
 ]
 
@@ -55,7 +59,18 @@ const course = {
   enrollmentPolicy: 'invite_only',
   capacity: null,
   confirmedCount: 12,
-  registrationDeadline: null
+  registrationDeadline: null,
+  pricingEnabled: false,
+  availablePriceTiers: []
+}
+
+interface MockOrder {
+  id: string
+  enrollmentId: string
+  status: string
+  amountCents: number
+  expireAt: string
+  transactionId: string | null
 }
 
 interface MockEnrollment {
@@ -75,6 +90,13 @@ interface MockEnrollment {
 
 let loggedIn = false
 let enrollment: MockEnrollment | null = null
+let order: MockOrder | null = null
+let orderStatusOverride: string | null = null
+
+/** e2e 钩子:测试脚本推进订单态(支付完成模拟) */
+export function __setOrderStatus(status: string | null): void {
+  orderStatusOverride = status
+}
 
 function variablesRecord(variables: object): Record<string, unknown> {
   return variables as Record<string, unknown>
@@ -134,7 +156,9 @@ function responseFor(document: string, variables: object): unknown {
     const input = values.input as Record<string, unknown>
     const eventId = typeof input.eventId === 'string' ? input.eventId : null
     const courseId = typeof input.courseId === 'string' ? input.courseId : null
-    const status = eventId === 'event-1' ? 'pending' : 'confirmed'
+    // 收费路径(tierId 在场)→ payment_pending(R5:占位后待支付)
+    const paid = typeof input.tierId === 'string' && input.tierId
+    const status = paid ? 'payment_pending' : eventId === 'event-1' ? 'pending' : 'confirmed'
     enrollment = {
       id: 'enrollment-1',
       workspaceId: workspace.id,
@@ -200,6 +224,46 @@ function responseFor(document: string, variables: object): unknown {
         expiresAt: new Date(Date.now() + 24 * 3_600_000).toISOString()
       }
     }
+  }
+  if (document.includes('mutation CreateOrder')) {
+    // e2e 边界(#172):止于订单生成 + JSAPI 凭据返回,不模拟支付完成
+    order = {
+      id: 'order-1',
+      enrollmentId: String((values.input as Record<string, unknown>).enrollmentId ?? ''),
+      status: 'pending',
+      amountCents: 19900,
+      expireAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+      transactionId: null
+    }
+    return {
+      createOrder: {
+        result: order,
+        errors: [],
+        metadata: {
+          credential: JSON.stringify({
+            type: 'jsapi',
+            pay_params: {
+              appId: 'wx-mock',
+              timeStamp: String(Math.floor(Date.now() / 1000)),
+              nonceStr: 'mock-nonce',
+              package: 'prepay_id=mock123',
+              signType: 'RSA',
+              paySign: 'mock-sign'
+            }
+          })
+        }
+      }
+    }
+  }
+  if (document.includes('query OrderStatus')) {
+    return {
+      orderStatus: order
+        ? { ...order, status: orderStatusOverride ?? order.status }
+        : null
+    }
+  }
+  if (document.includes('query MyOrders')) {
+    return { myOrders: { results: loggedIn && order ? [order] : [] } }
   }
   if (document.includes('mutation AdmitMemberByToken')) {
     return {
