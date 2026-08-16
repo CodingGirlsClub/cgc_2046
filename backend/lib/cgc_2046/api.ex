@@ -31,6 +31,8 @@ defmodule Cgc2046.Api do
     resource(Cgc2046.Workflows.WorkflowRun)
     resource(Cgc2046.Workflows.SignalLog)
     resource(Cgc2046.Workflows.SignalIdempotency)
+    # 课程 issue 学习闭环(切片 H U1,#180):课程内容本体持久层
+    resource(Cgc2046.Workflows.ResearchOutput)
 
     # 对账扫描（E-10 #125：平台级孤儿报告，/admin 对账页）
     resource(Cgc2046.Reconciliation.Finding)
