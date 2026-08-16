@@ -137,3 +137,4 @@
 - 画图过程中发现的文档矛盾、缺口与建议，见同目录 [REVIEW-FINDINGS.md](./REVIEW-FINDINGS.md)。
 - **架构漂移对照（本分类体系的用途）**：按层拿 codebase 对照——L0 对照顶层运行时单元与部署配置、L1 对照 Ash 资源与 signal 定义、L2/L3 对照 workflow 与机制实现，识别「代码走向 vs 设计原图」的偏离；首批漂移裁决与新发现见「二」的「漂移信号裁决记录」。
 - **体系外文字资产**（与本目录互为引用，不图形化）：架构决策 `docs/adr/` 与 `docs/03-决策记录/`；风险与遗留 `REVIEW-FINDINGS.md`；领域术语 `CONTEXT.md`。
+- **漂移对照报告**：完整对照结果（四态判定 + 裁决表 + 防漂移流程）见 [DRIFT-REPORT.md](./DRIFT-REPORT.md)；三份取证底稿在 [DRIFT-EVIDENCE/](./DRIFT-EVIDENCE/)（L1 领域模型 / L2 工作流 / L3 引擎机制+L0 复核，文件路径级证据）。
