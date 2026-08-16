@@ -7,6 +7,10 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
   授权(KTD2):workspace 成员(tutor/教研编辑)∪ 本人 confirmed enrollment
   ∪ 本人已有记忆(记忆持有者)。
+
+  响应(advisory H2/H3,KTD6「Web 与扩展共用形状约定」):`course_title` +
+  逐 issue 注入展示层 `key`(slug 短码-序号派生,单源
+  `LearningProgress.issue_key/2`)——面板与 agent 无需自算或退用内部 id。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -27,17 +31,42 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
         course_id = params["course_id"] || params[:course_id]
 
         with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
+             {:ok, course} <- fetch_course(workspace_id, course_id),
              {:ok, content} <- fetch_content(workspace_id, course_id) do
+          issues =
+            (content["issues"] || [])
+            |> Enum.with_index(1)
+            |> Enum.map(fn {issue, idx} ->
+              Map.put(
+                issue,
+                "key",
+                Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx)
+              )
+            end)
+
           {:ok,
            %{
              course_id: course_id,
+             course_title: course.title,
              goals: content["goals"] || [],
-             issues: content["issues"] || []
+             issues: issues
            }}
         end
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
+  end
+
+  # 课程元数据(title/slug,key 派生原料);授权已在工具层发生,
+  # authorize?: false 直读(save_learning_records fetch_course 同款纪律)
+  defp fetch_course(workspace_id, course_id) do
+    case Cgc2046.Events.Course
+         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
+      {:ok, nil} -> {:error, "course not found: #{course_id}"}
+      {:ok, course} -> {:ok, course}
+      {:error, _} -> {:error, "failed to load course"}
+    end
   end
 
   # 读取带 actor:资源层 read policy(成员/平台管理员)放行成员;学员(非成员)

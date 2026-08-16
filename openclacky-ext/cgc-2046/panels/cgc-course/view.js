@@ -119,10 +119,14 @@
     }
   }
 
+  // H2/H3:课程名走 course_title、issue 走展示层 key(后端 get_course_content
+  // 已注入,不再用内部 id 原文/goals 拼接)
   function learningPrompt(issue) {
-    const title = (state.selected && state.selected.content.goals && state.selected.content.goals.join(" / ")) || "本课程";
+    const content = (state.selected && state.selected.content) || {};
+    const title = content.course_title || "本课程";
+    const issueLabel = issue.key ? issue.key + "「" + (issue.title || "") + "」" : (issue.title || issue.id || "");
     return [
-      "请和我一起学习课程《" + title + "》的 " + (issue.id || "") + "「" + (issue.title || "") + "」。",
+      "请和我一起学习课程《" + title + "》的 " + issueLabel + "。",
       "学习目标:" + (((issue.story || {}).goal) || "(见课程内容)"),
       "请按学习 Agent 指令的八步循环开始:先读取我的学习记录与课程内容,从当前进度接续教学。"
     ].join("\n");
@@ -255,6 +259,7 @@
         '<div class="cgc-issue-row' + (state.currentIssue === issue.id ? " cgc-issue-active" : "") + '"' +
           ' data-testid="panel-issue-row" data-issue="' + escapeHtml(issue.id) + '">' +
           statusIcon(st) +
+          (issue.key ? '<span class="cgc-issue-key">' + escapeHtml(issue.key) + '</span>' : "") +
           '<span class="task-name">' + escapeHtml(issue.title || issue.id) + '</span>' +
           '<span class="cgc-kind">' + escapeHtml(issue.kind || "") + '</span>' +
         '</div>'
@@ -342,6 +347,7 @@
       ".cgc-issue-row:hover,.cgc-issue-row.cgc-issue-active{background:rgba(127,127,127,.12)}" +
       ".cgc-st{width:18px;text-align:center}" +
       ".cgc-st-done{color:#34d399}.cgc-st-progress{color:#fbbf24}.cgc-st-todo{color:#9ca3af}" +
+      ".cgc-issue-key{font-family:ui-monospace,monospace;font-size:11px;color:#9ca3af}" +
       ".cgc-kind{margin-left:auto;font-size:11px;border:1px solid var(--border,#444);border-radius:999px;padding:1px 8px;color:#9ca3af}" +
       ".cgc-issue-card{margin-top:10px}" +
       ".cgc-issue-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}" +

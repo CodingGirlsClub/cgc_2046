@@ -6,7 +6,6 @@ import LearningTab, {
 	learningSessionPrompt,
 } from "@/components/learning/learning-tab";
 import {
-	COURSE_LEARNING_DETAIL,
 	type CourseLearningDetail,
 	type MyLearningRun,
 } from "@/lib/graphql/participations";

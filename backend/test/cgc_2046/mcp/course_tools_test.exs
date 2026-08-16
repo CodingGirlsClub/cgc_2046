@@ -105,10 +105,20 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
       assert {:reply, _, _} = save_content(tutor, workspace, course)
 
       assert {:reply, _, _} =
+               content_reply =
                GetCourseContent.execute(
                  %{"workspace_id" => workspace.id, "course_id" => course.id},
                  frame_for(learner)
                )
+
+      # H2/H3:响应带课程名 + 逐 issue 展示层 key(slug 短码-序号)
+      content_payload = decode(content_reply)
+      assert content_payload["course_title"] == "课程"
+
+      assert [first_issue] = content_payload["issues"]
+      assert %{"key" => key} = first_issue
+      # fixtures slug 为随机码("c-xxxx");断言形状:非空短码 + "-01" 序号
+      assert key =~ ~r/\A[A-Z0-9]{1,4}-01\z/
 
       assert {:reply, _, _} = save_records(learner, workspace, course)
 
