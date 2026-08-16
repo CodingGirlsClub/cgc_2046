@@ -166,6 +166,12 @@ defmodule Cgc2046.Events.Enrollment do
 
       argument(:invite_code, :string, allow_nil?: true)
 
+      # KTD9：收费目标必填（put_tier_selection 校验并存入 submission_payload）
+      argument(:tier_id, :string,
+        allow_nil?: true,
+        description: "价格档位 ID（收费活动报名时必填）"
+      )
+
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_create/1)
       end)
@@ -350,6 +356,7 @@ defmodule Cgc2046.Events.Enrollment do
       update(:confirm_enrollment, :confirm_enrollment)
       update(:reject_enrollment, :reject_enrollment)
       update(:cancel_enrollment, :cancel)
+      update(:waive_payment, :waive_payment)
     end
   end
 
@@ -378,7 +385,8 @@ defmodule Cgc2046.Events.Enrollment do
     with {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
          {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
-         {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant) do
+         {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
+         {:ok, attrs} <- put_tier_selection(changeset, target, attrs) do
       changeset =
         Enum.reduce(attrs, changeset, fn {key, value}, cs ->
           Ash.Changeset.force_change_attribute(cs, key, value)
@@ -433,6 +441,28 @@ defmodule Cgc2046.Events.Enrollment do
 
   defp auto_confirm_status(%{pricing_enabled: true}), do: :payment_pending
   defp auto_confirm_status(_target), do: :confirmed
+
+  # 收费报名的档位选择（KTD9/R2）：tier_id 必填且当前可售，存 submission_payload
+  # 供下单链快照（U5 resolve_tier）；免费目标忽略 tier_id（R4）。
+  defp put_tier_selection(changeset, %{pricing_enabled: true, price_tiers: tiers}, attrs) do
+    tier_id = Ash.Changeset.get_argument(changeset, :tier_id)
+
+    with true <- (is_binary(tier_id) and tier_id != "") || {:error, :tier_id_required},
+         {:ok, tier} <- Cgc2046.Events.PriceTier.find(tiers, tier_id),
+         true <-
+           Cgc2046.Events.PriceTier.available?(tier, DateTime.utc_now()) ||
+             {:error, :tier_not_available} do
+      payload =
+        changeset
+        |> Ash.Changeset.get_attribute(:submission_payload)
+        |> Kernel.||(%{})
+        |> Map.put("tier_id", tier_id)
+
+      {:ok, Map.put(attrs, :submission_payload, payload)}
+    end
+  end
+
+  defp put_tier_selection(_changeset, _target, attrs), do: {:ok, attrs}
 
   defp prepare_confirm(changeset) do
     now = DateTime.utc_now()
@@ -574,7 +604,7 @@ defmodule Cgc2046.Events.Enrollment do
     # 返回 :target_not_open_or_registration_closed（not_found 语义，与匿名读一致，
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
     sql = """
-    SELECT workspace_id, enrollment_policy, pricing_enabled
+    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > NOW())
@@ -590,7 +620,7 @@ defmodule Cgc2046.Events.Enrollment do
     """
 
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id), actor_id]) do
-      {:ok, %{rows: [[workspace_id, policy, pricing_enabled]]}} ->
+      {:ok, %{rows: [[workspace_id, policy, pricing_enabled, price_tiers]]}} ->
         case Map.get(@enrollment_policy_atoms, policy) do
           nil ->
             {:error, {:unknown_enrollment_policy, policy}}
@@ -600,7 +630,8 @@ defmodule Cgc2046.Events.Enrollment do
              %{
                workspace_id: Ecto.UUID.load!(workspace_id),
                enrollment_policy: enrollment_policy,
-               pricing_enabled: pricing_enabled
+               pricing_enabled: pricing_enabled,
+               price_tiers: price_tiers || []
              }}
         end
 
@@ -800,6 +831,11 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_message(:capacity_full_or_registration_closed), do: "capacity is full"
   defp domain_error_message(:invite_code_required), do: "invite code is required"
   defp domain_error_message(:invite_quota_unavailable), do: "invite quota is unavailable"
+  defp domain_error_message(:tier_id_required), do: "a price tier is required for paid enrollment"
+
+  defp domain_error_message(:tier_not_available),
+    do: "selected price tier is not available"
+
   defp domain_error_message(:already_processed), do: "enrollment has already been processed"
 
   defp domain_error_message({:unknown_enrollment_policy, _policy}),

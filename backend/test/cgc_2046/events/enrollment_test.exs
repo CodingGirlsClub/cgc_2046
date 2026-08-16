@@ -1,4 +1,6 @@
 defmodule Cgc2046.Events.EnrollmentTest do
+  @paid_tier_id "33333333-3333-3333-3333-333333333333"
+
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
@@ -444,7 +446,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
 
       learner = Fixtures.register_user("enrollment-paid-open")
 
-      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
       assert enrollment.status == :payment_pending
       assert enrollment.capacity_seq == 1
       assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
@@ -482,7 +484,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
 
       learner = Fixtures.register_user("enrollment-paid-request")
 
-      assert {:ok, pending} = create_enrollment(event, learner)
+      assert {:ok, pending} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
       assert pending.status == :pending
       assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
 
@@ -523,7 +525,10 @@ defmodule Cgc2046.Events.EnrollmentTest do
       learner = Fixtures.register_user("enrollment-paid-invite")
 
       assert {:ok, enrollment} =
-               create_enrollment(event, learner, %{invite_code: "PAID_INVITE"})
+               create_enrollment(event, learner, %{
+                 invite_code: "PAID_INVITE",
+                 tier_id: @paid_tier_id
+               })
 
       assert enrollment.status == :payment_pending
       assert enrollment.capacity_seq == 1
@@ -536,8 +541,8 @@ defmodule Cgc2046.Events.EnrollmentTest do
       event = EventFixtures.create_event(workspace, admin, paid_attrs())
       learner = Fixtures.register_user("enrollment-paid-dup")
 
-      assert {:ok, _} = create_enrollment(event, learner)
-      assert {:error, _} = create_enrollment(event, learner)
+      assert {:ok, _} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      assert {:error, _} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
     end
 
     test "cancel payment_pending：名额释放 + 可重新报名（R12）" do
@@ -549,7 +554,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
 
       learner = Fixtures.register_user("enrollment-paid-cancel")
 
-      {:ok, enrollment} = create_enrollment(event, learner)
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
 
       assert {:ok, cancelled} =
                enrollment
@@ -560,7 +565,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
       assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
 
       # 释放后可重新报名（计数回落再占位，重新拿回 1 号位）
-      assert {:ok, re} = create_enrollment(event, learner)
+      assert {:ok, re} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
       assert re.status == :payment_pending
       assert re.capacity_seq == 1
     end
@@ -572,7 +577,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin, paid_attrs())
       learner = Fixtures.register_user("waive-learner")
-      {:ok, enrollment} = create_enrollment(event, learner)
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
 
       %{
         admin: admin,
@@ -662,12 +667,12 @@ defmodule Cgc2046.Events.EnrollmentTest do
     |> Ash.update(tenant: enrollment.workspace_id, actor: actor)
   end
 
-  # 收费活动布置（U2 字段）：两档可售价位
+  # 收费活动布置（U2 字段）：两档可售价位（首档固定 id，KTD9 收费报名必带 tierId）
   defp paid_attrs do
     %{
       pricing_enabled: true,
       price_tiers: [
-        %{"id" => Ecto.UUID.generate(), "name" => "早鸟", "amount_cents" => 9900},
+        %{"id" => @paid_tier_id, "name" => "早鸟", "amount_cents" => 9900},
         %{"id" => Ecto.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}
       ]
     }

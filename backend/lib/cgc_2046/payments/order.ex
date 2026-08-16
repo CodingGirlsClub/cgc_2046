@@ -27,6 +27,7 @@ defmodule Cgc2046.Payments.Order do
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Payments
 
@@ -114,6 +115,17 @@ defmodule Cgc2046.Payments.Order do
   actions do
     defaults([:read])
 
+    read :my_orders do
+      description("当前用户（报名者本人）的订单列表（R14 支付面）")
+      filter(expr(enrollment.user_id == ^actor(:id)))
+      pagination(keyset?: true, default_limit: 50)
+    end
+
+    read :get_by_id do
+      description("按 id 取订单（轮询轻量面，仅本人可见）")
+      get_by([:id])
+    end
+
     create :create do
       description("创建 pending 订单；U1 骨架从 enrollment 派生租户，定价/占位随 U2/U3 落地")
 
@@ -128,6 +140,69 @@ defmodule Cgc2046.Payments.Order do
 
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_create/1)
+      end)
+    end
+
+    # ── U5 下单链路（KTD9 GraphQL 契约）────────────────────────────────────
+
+    create :create_for_enrollment do
+      description("报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5/R6/R13）")
+
+      accept([])
+
+      argument(:enrollment_id, :uuid,
+        allow_nil?: false,
+        description: "目标报名（须为本人 payment_pending 报名）"
+      )
+
+      argument(:provider, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap]],
+        description: "支付渠道"
+      )
+
+      metadata :credential, :map do
+        description("渠道支付凭据（jsapi 调起参数 / 二维码链接 / 跳转 URL）")
+      end
+
+      change(fn changeset, _context ->
+        changeset
+        |> Ash.Changeset.before_action(&prepare_create_for_enrollment/1)
+        |> attach_credential()
+      end)
+    end
+
+    create :replace_provider do
+      description("换渠道：旧 pending 单 cancelled + 新单（新 out_trade_no），R11")
+
+      accept([])
+
+      argument(:order_id, :uuid, allow_nil?: false, description: "待替换的旧订单（本人 pending 单）")
+
+      argument(:provider, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap]]
+      )
+
+      metadata :credential, :map do
+        description("新渠道支付凭据")
+      end
+
+      change(fn changeset, _context ->
+        changeset
+        |> Ash.Changeset.before_action(&prepare_replace_provider/1)
+        |> attach_credential()
+      end)
+    end
+
+    update :cancel_pending do
+      description("报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）")
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_cancel_pending/1)
       end)
     end
 
@@ -214,11 +289,31 @@ defmodule Cgc2046.Payments.Order do
   end
 
   policies do
-    # U1 骨架占位：全部动作走内部路径（worker/域服务 authorize?: false 调用），
-    # GraphQL/Admin 尚未暴露。占位策略要求 actor 在场（拒匿名）；面向用户的
-    # 正式授权（学员本人 / Owner/Admin / 平台管理员）随 U5/U9 暴露时细化。
-    policy always() do
+    # 下单/换渠道/取消：actor 在场（匿名拒绝），本人校验经 prepare 内
+    # enrollment.user_id 比对完成（跨资源归属，policy expr 无法在 create 上表达）。
+    policy action([:create_for_enrollment, :replace_provider, :cancel_pending]) do
       authorize_if(actor_present())
+    end
+
+    # 读面（my_orders / orderStatus）：仅报名者本人（关系下推过滤）；
+    # 管理面（U10）另立 workspace 查询 action。
+    policy action_type(:read) do
+      authorize_if(expr(enrollment.user_id == ^actor(:id)))
+    end
+  end
+
+  graphql do
+    type(:order)
+
+    queries do
+      list(:my_orders, :my_orders, description: "当前用户订单列表（R14）")
+      read_one(:order_status, :get_by_id, description: "订单状态轮询（2s×30s 轻量面，R14）")
+    end
+
+    mutations do
+      create(:create_order, :create_for_enrollment)
+      create(:replace_provider, :replace_provider)
+      update(:cancel_order, :cancel_pending)
     end
   end
 
@@ -247,11 +342,298 @@ defmodule Cgc2046.Payments.Order do
 
   defp enrollment_workspace(_id), do: {:error, :enrollment_required}
 
+  # 渠道凭据 → 记录 metadata（AshGraphql mutation payload 的 credential 字段）
+  defp attach_credential(changeset) do
+    Ash.Changeset.after_action(changeset, fn cs, record ->
+      case cs.context[:payment_credential] do
+        nil -> {:ok, record}
+        credential -> {:ok, Ash.Resource.set_metadata(record, %{credential: credential})}
+      end
+    end)
+  end
+
   # GraphQL 入口不注入 tenant（nil 时从 enrollment 派生）；显式传错 tenant 仍拒绝
   # （防跨 workspace 越权，报名同款）
   defp resolve_tenant(nil, workspace_id), do: {:ok, workspace_id}
   defp resolve_tenant(tenant, tenant), do: {:ok, tenant}
   defp resolve_tenant(_, _), do: {:error, :target_tenant_mismatch}
+
+  # ── U5 下单链路 ────────────────────────────────────────────────────────────
+
+  # 下单前校验链：本人 payment_pending 报名 → 目标定价 → 档位快照 → 截止时间 →
+  # 渠道下单（同事务，失败整单回滚：无凭据无订单）。档位取 Event/Course 当前配置
+  # （R3：下单时快照，改价/删档不追溯已生成订单；档位在下单前被删/过期则拒绝）。
+  defp prepare_create_for_enrollment(changeset) do
+    actor = changeset.context[:private][:actor]
+    enrollment_id = Ash.Changeset.get_argument(changeset, :enrollment_id)
+    provider = Ash.Changeset.get_argument(changeset, :provider)
+
+    with {:ok, enrollment} <- load_enrollment(enrollment_id),
+         :ok <- enrollee_only(enrollment, actor),
+         :ok <- payment_pending_only(enrollment),
+         {:ok, target} <- load_target(enrollment),
+         {:ok, tier} <- resolve_tier(enrollment, target),
+         {:ok, expire_at} <- order_expire_at(target),
+         {:ok, credential} <- channel_create_payment(provider, enrollment, tier) do
+      changeset
+      |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
+      |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
+      |> Ash.Changeset.force_change_attribute(:provider, provider)
+      |> Ash.Changeset.force_change_attribute(:out_trade_no, generate_out_trade_no())
+      |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
+      |> Ash.Changeset.force_change_attribute(:tier_snapshot, tier)
+      |> Ash.Changeset.force_change_attribute(:expire_at, expire_at)
+      |> Ash.Changeset.put_context(:payment_credential, credential)
+    else
+      {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  # 换渠道（R11）：旧单 CAS pending→cancelled（cancel_reason=provider_switch）后
+  # 走同一下单链（新 out_trade_no + 新凭据 + 新截止窗）。并发双换由旧单 CAS
+  # num_rows=0 裁决（第二笔被拒），部分唯一索引兜底。
+  defp prepare_replace_provider(changeset) do
+    actor = changeset.context[:private][:actor]
+    order_id = Ash.Changeset.get_argument(changeset, :order_id)
+    provider = Ash.Changeset.get_argument(changeset, :provider)
+
+    with {:ok, old_order} <- load_order(order_id),
+         {:ok, enrollment} <- load_enrollment(old_order.enrollment_id),
+         :ok <- enrollee_only(enrollment, actor),
+         {:ok, target} <- load_target(enrollment),
+         {:ok, tier} <- resolve_tier(enrollment, target),
+         {:ok, expire_at} <- order_expire_at(target),
+         {:ok, credential} <- channel_create_payment(provider, enrollment, tier),
+         :ok <- cancel_old_order(order_id) do
+      changeset
+      |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
+      |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
+      |> Ash.Changeset.force_change_attribute(:provider, provider)
+      |> Ash.Changeset.force_change_attribute(:out_trade_no, generate_out_trade_no())
+      |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
+      |> Ash.Changeset.force_change_attribute(:tier_snapshot, tier)
+      |> Ash.Changeset.force_change_attribute(:expire_at, expire_at)
+      |> Ash.Changeset.put_context(:payment_credential, credential)
+    else
+      {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  # 用户取消 pending 单（R12）：本人校验 + CAS；报名保持 payment_pending。
+  defp prepare_cancel_pending(changeset) do
+    actor = changeset.context[:private][:actor]
+
+    with {:ok, enrollment} <- load_enrollment(changeset.data.enrollment_id),
+         :ok <- enrollee_only(enrollment, actor) do
+      case claim(changeset, [:pending], "status = 'cancelled', cancel_reason = $1", [
+             "user_cancelled"
+           ]) do
+        {:ok, changeset} ->
+          changeset
+          |> Ash.Changeset.force_change_attribute(:status, :cancelled)
+          |> Ash.Changeset.force_change_attribute(:cancel_reason, "user_cancelled")
+
+        {:error, changeset} ->
+          changeset
+      end
+    else
+      {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  defp load_enrollment(id) when is_binary(id) do
+    sql = """
+    SELECT id, workspace_id, user_id, status, event_id, course_id, submission_payload
+    FROM enrollments WHERE id = $1
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
+      {:ok, %{rows: [[id, ws, user_id, status, event_id, course_id, payload]]}} ->
+        {:ok,
+         %{
+           id: Ecto.UUID.load!(id),
+           workspace_id: Ecto.UUID.load!(ws),
+           user_id: Ecto.UUID.load!(user_id),
+           status: status_to_atom(status),
+           event_id: event_id && Ecto.UUID.load!(event_id),
+           course_id: course_id && Ecto.UUID.load!(course_id),
+           submission_payload: payload || %{}
+         }}
+
+      {:ok, %{rows: []}} ->
+        {:error, :enrollment_not_found}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  defp load_enrollment(_id), do: {:error, :enrollment_required}
+
+  defp load_order(id) when is_binary(id) do
+    sql = """
+    SELECT id, enrollment_id, provider, status, amount_cents
+    FROM payments_orders WHERE id = $1
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
+      {:ok, %{rows: [[id, enrollment_id, _provider, status, amount_cents]]}} ->
+        {:ok,
+         %{
+           id: Ecto.UUID.load!(id),
+           enrollment_id: Ecto.UUID.load!(enrollment_id),
+           status: status_to_atom(status),
+           amount_cents: amount_cents
+         }}
+
+      {:ok, %{rows: []}} ->
+        {:error, :order_not_found}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  defp load_order(_id), do: {:error, :order_required}
+
+  # 报名人本人（不泄露存在性：他人一律 :enrollment_not_found）
+  defp enrollee_only(%{user_id: user_id}, %{id: actor_id}) when user_id == actor_id, do: :ok
+  defp enrollee_only(_enrollment, _actor), do: {:error, :enrollment_not_found}
+
+  defp payment_pending_only(%{status: :payment_pending}), do: :ok
+
+  defp payment_pending_only(%{status: :confirmed}),
+    do: {:error, :not_payment_pending}
+
+  defp payment_pending_only(%{status: :pending}),
+    do: {:error, :not_payment_pending}
+
+  defp payment_pending_only(_enrollment), do: {:error, :not_payment_pending}
+
+  # 目标定价面（Event/Course 二选一，同 enrollment 目标规则）
+  defp load_target(%{event_id: event_id}) when is_binary(event_id),
+    do: load_target_row("events", event_id)
+
+  defp load_target(%{course_id: course_id}) when is_binary(course_id),
+    do: load_target_row("courses", course_id)
+
+  defp load_target(_enrollment), do: {:error, :enrollment_required}
+
+  defp load_target_row(table, id) do
+    case Cgc2046.Repo.query(
+           "SELECT pricing_enabled, price_tiers, registration_deadline FROM #{table} WHERE id = $1",
+           [Cgc2046.Repo.uuid!(id)]
+         ) do
+      {:ok, %{rows: [[pricing_enabled, price_tiers, deadline]]}} ->
+        {:ok,
+         %{
+           pricing_enabled: pricing_enabled,
+           price_tiers: price_tiers || [],
+           registration_deadline: deadline
+         }}
+
+      {:ok, %{rows: []}} ->
+        {:error, :target_not_found}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  # 档位解析：报名时选的 tier_id → 当前配置中的档位（改价后下单按现价快照）
+  defp resolve_tier(enrollment, target) do
+    tier_id = enrollment.submission_payload["tier_id"]
+
+    with {:ok, tier} <- Cgc2046.Events.PriceTier.find(target.price_tiers, tier_id),
+         true <-
+           Cgc2046.Events.PriceTier.available?(tier, DateTime.utc_now()) ||
+             {:error, :tier_not_available} do
+      {:ok, tier}
+    end
+  end
+
+  # R6：订单截止 = min(下单 + 2h, registration_deadline)；deadline 已过 → 拒绝下单
+  @order_window_seconds 2 * 3600
+
+  defp order_expire_at(%{registration_deadline: nil}) do
+    {:ok, DateTime.add(DateTime.utc_now(), @order_window_seconds)}
+  end
+
+  # 裸 SQL 读出的 deadline 是 NaiveDateTime（无时区解码），先归一为 UTC
+  defp order_expire_at(%{registration_deadline: %NaiveDateTime{} = naive}) do
+    order_expire_at(%{registration_deadline: DateTime.from_naive!(naive, "Etc/UTC")})
+  end
+
+  defp order_expire_at(%{registration_deadline: deadline}) do
+    default = DateTime.add(DateTime.utc_now(), @order_window_seconds)
+
+    cond do
+      DateTime.compare(deadline, DateTime.utc_now()) != :gt ->
+        {:error, :registration_closed}
+
+      DateTime.compare(deadline, default) == :lt ->
+        {:ok, deadline}
+
+      true ->
+        {:ok, default}
+    end
+  end
+
+  # 渠道下单（事务内；失败回滚 = 无凭据无订单）。JSAPI 需要报名者的微信 openid
+  # （小程序 identity，下单参数由本处提供，KTD3）。
+  defp channel_create_payment(provider, enrollment, tier) do
+    ctx =
+      if provider == :wechat_jsapi do
+        with {:ok, openid} <- wechat_openid(enrollment.user_id), do: {:ok, %{openid: openid}}
+      else
+        {:ok, %{}}
+      end
+
+    with {:ok, ctx} <- ctx do
+      order_shape = %{
+        provider: provider,
+        out_trade_no: generate_out_trade_no(),
+        amount_cents: tier["amount_cents"],
+        tier_snapshot: tier
+      }
+
+      Cgc2046.Payments.Provider.for(provider).create_payment(order_shape, ctx)
+    end
+  end
+
+  defp wechat_openid(user_id) do
+    case Cgc2046.Repo.query(
+           "SELECT uid FROM user_identities WHERE user_id = $1 AND provider = 'wechat' LIMIT 1",
+           [Cgc2046.Repo.uuid!(user_id)]
+         ) do
+      {:ok, %{rows: [[uid]]}} -> {:ok, uid}
+      {:ok, %{rows: []}} -> {:error, :openid_required}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
+  # 旧单 CAS：pending → cancelled（并发双换第二笔 num_rows=0 拒绝）
+  defp cancel_old_order(order_id) do
+    sql = """
+    UPDATE payments_orders
+    SET status = 'cancelled', cancel_reason = 'provider_switch', updated_at = NOW()
+    WHERE id = $1 AND status = 'pending'
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(order_id)]) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, %{num_rows: 0}} -> {:error, :already_processed}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
+  # 平台侧全局唯一商户单号（R6）
+  defp generate_out_trade_no do
+    "CGC" <> String.replace(Ecto.UUID.generate(), "-", "")
+  end
+
+  defp status_to_atom(status) when is_binary(status), do: String.to_existing_atom(status)
+  defp status_to_atom(status) when is_atom(status), do: status
 
   # ── 状态迁移（DB 级 CAS：条件 UPDATE + num_rows 守卫）────────────────────
 
