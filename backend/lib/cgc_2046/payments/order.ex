@@ -235,7 +235,8 @@ defmodule Cgc2046.Payments.Order do
     end
 
     update :expire do
-      description("内部扫描把过期 pending 单转 expired（expire_at 过点由调用方判定）")
+      description("内部扫描把过期 pending 单转 expired（expire_at 过点由调用方判定），同事务联动报名过期 + 名额释放（R8/F2）")
+
       require_atomic?(false)
       accept([])
 
@@ -686,8 +687,55 @@ defmodule Cgc2046.Payments.Order do
 
   defp prepare_expire(changeset) do
     case claim(changeset, [:pending], "status = 'expired'") do
-      {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :expired)
-      {:error, changeset} -> changeset
+      {:ok, changeset} ->
+        case expire_enrollment(changeset.data.enrollment_id) do
+          :ok -> Ash.Changeset.force_change_attribute(changeset, :status, :expired)
+          {:error, reason} -> add_domain_error(changeset, {:database, reason})
+        end
+
+      {:error, changeset} ->
+        changeset
+    end
+  end
+
+  # 报名侧联动（同事务）：CAS payment_pending→expired + 名额回落。num_rows=0 =
+  # 报名已流转（免缴 confirmed / 已取消）——订单过期照常，无名额可释，迟到
+  # 收款由落账 worker 自动退款链兜底（KTD12 不变量）。计数/DB 失败 → {:error,_}
+  # 整体回滚（含订单 CAS），扫描下拍重试。
+  defp expire_enrollment(enrollment_id) do
+    sql = """
+    UPDATE enrollments
+    SET status = 'expired', expired_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND status = 'payment_pending'
+    RETURNING event_id, course_id
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(enrollment_id)]) do
+      {:ok, %{rows: [[event_id, nil]]}} when not is_nil(event_id) ->
+        decrement_confirmed_count("events", Ecto.UUID.load!(event_id))
+
+      {:ok, %{rows: [[nil, course_id]]}} when not is_nil(course_id) ->
+        decrement_confirmed_count("courses", Ecto.UUID.load!(course_id))
+
+      {:ok, %{rows: []}} ->
+        :ok
+
+      {:ok, _unexpected} ->
+        {:error, :enrollment_target_shape}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp decrement_confirmed_count(table, target_id) do
+    case Cgc2046.Repo.query(
+           "UPDATE #{table} SET confirmed_count = confirmed_count - 1 WHERE id = $1 AND confirmed_count > 0",
+           [Cgc2046.Repo.uuid!(target_id)]
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, %{num_rows: 0}} -> {:error, :capacity_counter_invalid}
+      {:error, reason} -> {:error, reason}
     end
   end
 
