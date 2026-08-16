@@ -277,6 +277,26 @@ defmodule Cgc2046.Events.Enrollment do
          metadata: &__MODULE__.waive_log_metadata/2}
       )
     end
+
+    # 落账 worker 驱动（U7，KTD12）：支付回调落账后 payment_pending → confirmed。
+    # CAS 失败分支（免缴先落/已过期取消）由 worker 按「收款但无对应占位 → 退款」
+    # 不变量处理，不在本 action 内。
+    update :settle_paid do
+      description("支付落账：payment_pending → confirmed（内部，落账 worker 调用）")
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_settle_paid/1)
+      end)
+
+      # 真正 confirmed 才发 completed（KTD6-6；与免缴路径同款补发）
+      change(
+        {Cgc2046.Changes.SignalEmitter,
+         type: @completed_signal, payload: &__MODULE__.signal_payload/2}
+      )
+    end
   end
 
   postgres do
@@ -552,12 +572,47 @@ defmodule Cgc2046.Events.Enrollment do
     now = DateTime.utc_now()
 
     with {:ok, capacity_target} <- claim_cancellable(changeset.data.id, now),
-         :ok <- release_capacity(capacity_target) do
+         :ok <- release_capacity(capacity_target),
+         {:ok, _voided} <- void_pending_orders(changeset.data.id) do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, :cancelled)
       |> Ash.Changeset.force_change_attribute(:cancelled_at, now)
     else
       {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  # R12：取消 payment_pending 报名同时作废其 pending 订单（同一事务——报名取消
+  # 而订单仍 pending 会造成「无占位却有未付单」的脏窗口）。cancelled 是终态，
+  # 部分唯一索引放行后续新报名的新订单。
+  defp void_pending_orders(enrollment_id) do
+    case Cgc2046.Repo.query(
+           "UPDATE payments_orders SET status = 'cancelled', cancel_reason = 'enrollment_cancelled', updated_at = NOW() WHERE enrollment_id = $1 AND status = 'pending'",
+           [Cgc2046.Repo.uuid!(enrollment_id)]
+         ) do
+      {:ok, %{num_rows: count}} -> {:ok, count}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
+  # 支付落账（U7，KTD12）：CAS payment_pending → confirmed（免缴/过期/取消竞态
+  # 由 num_rows=0 上抛给 worker 走自动退款分支）。
+  defp prepare_settle_paid(changeset) do
+    sql = """
+    UPDATE enrollments
+    SET status = 'confirmed', updated_at = NOW()
+    WHERE id = $1 AND status = 'payment_pending'
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(changeset.data.id)]) do
+      {:ok, %{num_rows: 1}} ->
+        Ash.Changeset.force_change_attribute(changeset, :status, :confirmed)
+
+      {:ok, %{num_rows: 0}} ->
+        add_domain_error(changeset, :already_processed)
+
+      {:error, reason} ->
+        add_domain_error(changeset, {:database, reason})
     end
   end
 

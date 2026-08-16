@@ -215,6 +215,12 @@ defmodule Cgc2046.Payments.Order do
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_mark_paid/1)
       end)
+
+      # R7：支付成功信号（落账 worker 驱动，CAS 成功才入队）
+      change(
+        {Cgc2046.Changes.SignalEmitter,
+         type: "order.paid", payload: &__MODULE__.paid_signal_payload/2}
+      )
     end
 
     update :cancel do
@@ -634,6 +640,17 @@ defmodule Cgc2046.Payments.Order do
 
   defp status_to_atom(status) when is_binary(status), do: String.to_existing_atom(status)
   defp status_to_atom(status) when is_atom(status), do: status
+
+  # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map）─────────
+
+  def paid_signal_payload(_changeset, order) do
+    %{
+      "order_id" => order.id,
+      "enrollment_id" => order.enrollment_id,
+      "amount_cents" => order.amount_cents,
+      "provider" => to_string(order.provider)
+    }
+  end
 
   # ── 状态迁移（DB 级 CAS：条件 UPDATE + num_rows 守卫）────────────────────
 

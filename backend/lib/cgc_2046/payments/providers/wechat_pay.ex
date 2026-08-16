@@ -45,7 +45,10 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
             {:ok,
              %{
                "type" => "jsapi",
-               "pay_params" => stringify_keys(Transactions.request_payment_args(client, config[:appid], prepay_id))
+               "pay_params" =>
+                 stringify_keys(
+                   Transactions.request_payment_args(client, config[:appid], prepay_id)
+                 )
              }}
           end
 

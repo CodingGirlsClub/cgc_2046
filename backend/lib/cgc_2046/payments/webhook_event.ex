@@ -52,6 +52,18 @@ defmodule Cgc2046.Payments.WebhookEvent do
       description("落库一条渠道回调；重复 (provider, event_id) 由唯一索引拒绝")
       accept([:provider, :event_id, :payload])
     end
+
+    # 落账 worker 消费后标记（received → processed）；幂等重放经唯一索引去重，
+    # 不依赖 status 判定。
+    update :mark_processed do
+      description("落账 worker 消费完成标记")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.force_change_attribute(changeset, :status, :processed)
+      end)
+    end
   end
 
   postgres do
