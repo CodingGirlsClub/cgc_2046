@@ -1,0 +1,61 @@
+@startuml workflow-learning
+' ============================================================
+' L2 - 学习 Workflow（type=learning）— 协议流转，绕 Engine
+' 事实来源：backend/lib/cgc_2046/workflows/learning_instantiator.ex:22-24,66-74,
+'   199-203 · workflows/workflow_run.ex:415-419,674-698（find_or_create_and_start：
+'   start_action :start 纯状态流转非 DAG）· mcp/wrapper.ex:26-30 +
+'   mcp/tools/save_step_output.ex（学员 BYO 写 facts）·
+'   workflows/learning_progress.ex:9-28 · workers/learning_progress_worker.ex:1-40
+' 说明：第三种 workflow 形态——算法在学员自带（BYO）agent，
+'   平台只持协议状态（run 状态 + facts 账本），不经 Engine 执行 DAG。
+' ============================================================
+title 学习 Workflow（L2）— 协议流转（学员 BYO agent，平台只持协议状态）
+skinparam backgroundColor white
+
+participant "报名确认事务\n（SignalEmitter outbox）" as ENR
+participant "LearningInstantiator\n（订阅 enrollment.completed）" as INST
+participant "WorkflowRun\n（find_or_create_and_start）" as RUN
+participant "学员 BYO agent\n（经 MCP）" as AGENT
+participant "LearningProgressWorker\n（Oban cron */5min）" as WORK
+
+== 实例化（enrollment.completed） ==
+ENR ->> INST: 投递 enrollment.completed\n（payload 含 enrollment_id）
+INST ->> INST: 校验链：enrollment 存在且 confirmed\n（孤儿防护）→ Offering 反查 workspace\n→ 该租户已 published 学习定义
+note over INST
+  幂等：claim_in_handle（订阅骨架）+
+  key = enrollment_<id> 非终态去重
+  （learning_instantiator.ex:22-24,199-203）。
+  任一环节失败返回 :ok（best-effort），
+  失败可见性交给 E-10 对账扫描。
+end note
+INST ->> RUN: find_or_create_and_start\n（start_action: :start）
+RUN ->> RUN: pending → running 纯状态流转\n（协议而非 DAG，不经 Engine——\nworkflow_run.ex:684-685）
+
+== 学习过程（协议执行在学员侧） ==
+loop 学员按协议自定节奏推进
+    AGENT ->> RUN: MCP save_step_output\n（run_id + step_key + output）
+    RUN ->> RUN: 浅合并 facts（update_facts_for_mcp）\n不改 run 状态；终态 run 拒绝写入
+end
+note over AGENT
+  授权：学员本人（非成员）放行——membership 检查
+  下沉到工具层（wrapper.ex:26-30 +
+  StepAuthorization + Ash policy 双重门禁）。
+end note
+
+== 完成与停滞（平台不编排，只观察） ==
+WORK ->> RUN: 完成判定（D6-②）：末个 manual step 的\nfacts[step_key] 已存在 → :complete → succeeded\n（定义无 manual step 则永不触发）
+WORK ->> AGENT: 停滞提醒（D6-③）：running 且 facts\n无新增 > 7 天（LearningProgress.\nstagnant_cutoff 同源口径）
+note over WORK
+  停滞是可见性事件：只提醒不自动 cancel，
+  干预由人/学员侧决定；7 天 args-unique 去重。
+end note
+
+note right of RUN
+  **第三种 workflow 形态（对比 research/speaker 走 Engine DAG）**：
+  learning 刻意绕过 Engine——学习算法在学员 BYO agent，
+  平台只持协议状态（run 状态 + facts 账本）。
+  save_step_output 不改状态，完成检测由 worker 承担
+  （至多一个 cron 周期延迟）——BYO 协议下平台本不编排。
+end note
+
+@enduml

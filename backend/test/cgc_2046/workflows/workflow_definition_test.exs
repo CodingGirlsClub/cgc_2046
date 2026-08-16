@@ -225,13 +225,12 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
   end
 
-  describe "type enum (全 6 个)" do
-    test "accepts all 6 type values" do
+  describe "type enum (全 5 个，R3 删 platform_ops)" do
+    test "accepts all 5 type values" do
       admin = Fixtures.platform_admin("wfdef")
       workspace = Fixtures.create_workspace(admin)
 
       for t <- [
-            :platform_ops,
             :learning,
             :enrollment,
             :sponsorship,
@@ -243,11 +242,18 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
       end
     end
 
+    test "rejects removed platform_ops (R3) and invalid types" do
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
+
+      assert {:error, _} = create_definition(workspace, admin, %{name: "wf-ops", type: :platform_ops})
+    end
+
     test "rejects invalid type" do
       admin = Fixtures.platform_admin("wfdef")
       workspace = Fixtures.create_workspace(admin)
 
-      assert {:error, _} = create_definition(workspace, admin, %{type: :invalid_type})
+      assert {:error, _} = create_definition(workspace, admin, %{name: "wf-bad", type: :nope})
     end
   end
 

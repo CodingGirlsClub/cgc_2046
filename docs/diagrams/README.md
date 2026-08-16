@@ -90,16 +90,17 @@
 | `domain-model-class.puml` | ✅ | 领域模型类图：核心聚合根（Event/Course/WorkflowDefinition/WorkflowRun/SignalFact 等）、关键枚举与状态 | 领域模型定稿 §5 类模型 |
 | `signal-event-catalog.puml` | ✅ 新 | 信号目录：17 种类型 × 生产者（SignalEmitter）× 六订阅方 × 幂等四策略 × claim 表（Postgres）；按 codebase 现状绘制 | signal_emitter/signals_subscriber/六订阅方模块 |
 
-### L2 — 业务工作流（6 张）
+### L2 — 业务工作流（7 张；2026-08-16 漂移对账重绘）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
-| `workflow-enrollment.puml` | ✅ | 报名 workflow：三段式（申请段 S0–S6、确认段 S7–S9、收尾段 S10–S12），open/invite_only 分支，request 策略走审批 | 报名workflow详细设计 §4/§5 |
-| `workflow-sponsorship.puml` | ✅ | 赞助 workflow：两级赞助（Event/Course 级），审批两段式同构，审批与权益激活 | 赞助workflow详细设计 §4/§5 |
-| `workflow-invitation.puml` | ✅ | 邀请 workflow：逐人 token 一次性邀请，接受/婉拒双分支，S7 校验批次 | 邀请workflow详细设计 §4/§5 |
-| `workflow-research.puml` | ✅ | 教研 workflow：三段式模板（教研产出段 S0–S6、现场辅导段 S7–S9 循环、收尾段 S10–S12），D-A2 定义一次多实例 | 教研workflow详细设计 §4/§5 |
-| `workflow-run-state.puml` | ✅ | WorkflowRun 状态机：pending→running→waiting→succeeded/failed/cancelled，waiting 挂起与 Signal 恢复 | 总纲 §3.2 + 引擎验证 POC-2 |
-| `entity-state-machines.puml` | ✅ | 业务实体状态机汇总：Enrollment/Sponsorship/SpeakerInvitation/WorkflowDefinition/InviteBatch/ResearchOutput | 各详细设计 §5.2 |
+| `workflow-enrollment.puml` | ✅ 重绘 | 报名（实体自序贯，R1）：Ash action 状态机 + 信号 outbox + 条件 UPDATE 原子扣名额；二期引擎化预留 workflow_run_id | enrollment.ex + DRIFT-REPORT §5.3 |
+| `workflow-sponsorship.puml` | ✅ 重绘 | 赞助（实体自序贯，R1）：approve 条件 UPDATE + SponsorshipDelivery 履约物化；v1 不收款（F4 二期） | sponsorship.ex + DRIFT-REPORT §5.3 |
+| `workflow-invitation.puml` | ✅ | 邀请 workflow：逐人 token 一次性邀请，接受/婉拒双分支（图=码一致，未改） | 邀请workflow详细设计 §4/§5 |
+| `workflow-research.puml` | ✅ | 教研 workflow：三段式模板，D-A2 定义一次多实例（图=码一致，未改） | 教研workflow详细设计 §4/§5 |
+| `workflow-learning.puml` | ✅ 新 | 学习 workflow（第三种形态，R4）：协议流转绕 Engine——enrollment.completed → LearningInstantiator → 学员 BYO agent 经 MCP 写 facts → 停滞提醒 | learning_instantiator.ex + DRIFT-REPORT §5.3 |
+| `workflow-run-state.puml` | ✅ 重绘 | WorkflowRun 状态机 7 态（+expired）；WAITING→EXPIRED 由 ApprovalExpiryWorker 驱动（F2 闭环） | workflow_run.ex + approval_expiry_worker.ex |
+| `entity-state-machines.puml` | ✅ 重绘 | 业务实体状态机（按码枚举修正：Enrollment 5 态 / Sponsorship 5 态 / SPI 4 态 / InviteBatch 2 态） | 各资源 status attribute |
 
 ### L3 — 引擎与横切机制（6 张）
 
