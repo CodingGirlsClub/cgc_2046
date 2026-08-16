@@ -58,11 +58,14 @@ class CourseRoutesTest < Minitest::Test
 
   FakeReq = Struct.new(:body, :query)
 
-  def build(registry:, query: {})
+  # 宿主真实形态(openclacky-1.5.9 dispatcher,smoke01 #1 实证):
+  #   @params = route pattern captures(symbol key,如 :course_id)
+  #   GET query 在 req.query(WEBrick),不进 @params
+  # params 默认 {} = 无 route capture 的 /courses 路径真实形态。
+  def build(registry:, query: {}, params: {})
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(nil, query))
-    # 宿主真实路径把 route params + query 合并注入 @params;测试同构
-    inst.instance_variable_set(:@params, query)
+    inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
   end
@@ -144,12 +147,44 @@ class CourseRoutesTest < Minitest::Test
     assert_equal 503, halt.status
   end
 
-  # ---- workspace_id 必填(D12 透传前置) ----
+  # ---- route_params_value 三层兜底(smoke01 #1 回归)----
+  # 真实宿主:GET query 不进 @params,workspace_id 只在 req.query → 必须仍 200
+  def test_workspace_id_via_query_when_params_empty
+    registry = FakeRegistry.new
 
+    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }, params: {}))
+
+    assert_equal 200, halt.status
+    assert_equal [["cgc-2046", "get_learning_records", { "workspace_id" => WS }]], registry.calls
+  end
+
+  # 真实宿主 dispatcher 注入 symbol key route captures(:course_id)
+  def test_course_id_via_symbol_route_capture
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/courses/:course_id/content",
+                  build(registry: registry, query: { "workspace_id" => WS }, params: { course_id: COURSE }))
+
+    assert_equal 200, halt.status
+    assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
+  end
+
+  # string key @params(测试 allocate 同构注入的历史形态)仍兼容
+  def test_course_id_via_string_params
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/courses/:course_id/records",
+                  build(registry: registry, query: { "workspace_id" => WS }, params: { "course_id" => COURSE }))
+
+    assert_equal 200, halt.status
+    assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
+  end
+
+  # params 与 query 双空 → 400 引导(workspace_id 必填)
   def test_missing_workspace_id_400
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: {}))
+    halt = invoke(:get, "/courses", build(registry: registry, query: {}, params: {}))
 
     assert_equal 400, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
@@ -188,6 +223,17 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "story.materials"
     assert_includes VIEW, 'data-testid="panel-check-item"'
     assert_includes VIEW, "data-done"
+  end
+
+  def test_not_connected_guidance_view
+    assert_includes VIEW, 'data-testid="panel-not-connected"'
+    assert_includes VIEW, "503"
+  end
+
+  def test_not_connected_retry_entry
+    # smoke01 #2:引导视图显式重试入口(loadCourses 重探 loopback)
+    assert_includes VIEW, 'data-testid="panel-retry"'
+    assert_includes VIEW, "#cgc-retry"
   end
 
   def test_session_launch_cta_and_prompt

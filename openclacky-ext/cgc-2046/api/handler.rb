@@ -124,12 +124,15 @@ class Cgc2046Ext < Clacky::ApiExtension
 
   private
 
-  # 路由/查询参数读取(宿主把 route params 与 query 合并注入 @params;
-  # 测试 allocate 路径同构注入)
+  # 路由/查询参数读取:三层兜底——
+  #   1. @params:宿主 dispatcher 注入的 route captures(symbol key,:course_id)
+  #   2. @params string key(测试 allocate 路径同构注入)
+  #   3. query:GET query string(ApiExtension#query → req.query)
+  # 冒烟发现(smoke01):真实宿主 GET query 不进 @params,必须走 query。
   def route_params_value(key)
     p = @params
-    return "" unless p.is_a?(Hash)
-    v = p[key] || p[key.to_s]
+    v = p.is_a?(Hash) ? (p[key] || p[key.to_sym] || p[key.to_s]) : nil
+    v = query[key] if v.nil? || v.to_s.empty?
     v.to_s
   end
 

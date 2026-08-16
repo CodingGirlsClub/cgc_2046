@@ -195,8 +195,14 @@
       '<div class="cgc-banner" data-testid="panel-not-connected">' +
         '<b>CGC-2046 未连接。</b>' + escapeHtml(state.error.message || "") +
         '<div class="cgc-banner-hint">请先在 CGC-2046 连接面板完成连接(生成 token 并连接),再使用课程学习面板。</div>' +
+      '</div>' +
+      // smoke01 #2:显式重试入口——loadCourses 清 error 后重探 loopback,
+      // 成功进课程列表、仍 503 则回到本引导视图(不再需要整页刷新恢复)。
+      '<div class="cgc-actions">' +
+        '<button id="cgc-retry" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-retry">重试</button>' +
       '</div>'
     );
+    currentContainer.querySelector("#cgc-retry").addEventListener("click", function () { loadCourses(); });
   }
 
   function renderCourseList() {
