@@ -34,6 +34,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
 
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Payments.NotificationTemplates, as: Templates
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Workers.PaymentRefundWorker
@@ -218,20 +219,16 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
     end
   end
 
-  # ── 通知（R22：支付成功 → 报名人；模板接线 U10 定稿）───────────────────
+  # ── 通知（R22：支付成功 → 报名人；契约 = Payments.NotificationTemplates）──
 
   defp notify_payment_succeeded(order, enrollment) do
     recipients = {enrollment.user_id, Cgc2046.NotificationFanout.identities(enrollment.user_id)}
 
     Cgc2046.NotificationFanout.deliver(
       recipients,
-      "payment_succeeded",
-      %{
-        "order_id" => order.id,
-        "enrollment_id" => order.enrollment_id,
-        "amount_cents" => order.amount_cents
-      },
-      %{"idempotency_key" => "payment_succeeded:" <> order.id}
+      Templates.payment_succeeded(),
+      Templates.payment_data(order),
+      %{"idempotency_key" => Templates.payment_succeeded() <> ":" <> order.id}
     )
   end
 

@@ -6,11 +6,13 @@ import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { remainingLabel } from '@/domain/format'
 import type { EnrollmentStatus, EnrollmentSummary } from '@/domain/models'
+import { PAYMENT_STATUS_LABEL } from '@/domain/payment'
 import { requestPlatformSubscription } from '@/platform'
 import styles from './index.module.css'
 
 const statusText: Record<EnrollmentStatus, string> = {
   pending: '等待审批',
+  payment_pending: '待支付',
   confirmed: '已通过',
   rejected: '已拒绝',
   expired: '审批超时',
@@ -24,11 +26,23 @@ export default function MyEnrollmentsPage() {
   const [now, setNow] = useState(Date.now)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
 
+  const [paymentByEnrollment, setPaymentByEnrollment] = useState<Record<string, string>>({})
+
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setItems(await api.getEnrollments())
+      const [enrollments, orders] = await Promise.all([api.getEnrollments(), api.getMyOrders()])
+      // 缴费态(R16)：confirmed 报名挂最新订单状态展示 paid/refunded;
+      // payment_pending 由报名状态自身表达。
+      const byEnrollment: Record<string, string> = {}
+      for (const order of orders) {
+        if (order.status === 'paid' || order.status === 'refunded' || order.status === 'refunding') {
+          byEnrollment[order.enrollmentId] = order.status
+        }
+      }
+      setPaymentByEnrollment(byEnrollment)
+      setItems(enrollments)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '报名记录加载失败')
     } finally {
@@ -58,7 +72,10 @@ export default function MyEnrollmentsPage() {
   const cancelEnrollment = async (item: EnrollmentSummary) => {
     const modal = await Taro.showModal({
       title: '取消报名',
-      content: '取消后名额将即时释放，此操作不可恢复。'
+      content:
+        item.status === 'payment_pending'
+          ? '取消后将释放名额并作废待支付订单，此操作不可恢复。'
+          : '取消后名额将即时释放，此操作不可恢复。'
     })
     if (!modal.confirm) return
 
@@ -96,11 +113,31 @@ export default function MyEnrollmentsPage() {
               <Text className={`${styles.status} ${styles[item.status]}`}>{statusText[item.status]}</Text>
             </View>
             <Text className={styles.cardTitle}>{item.title}</Text>
+            {item.status === 'confirmed' && paymentByEnrollment[item.id] && (
+              <Text className={styles.paymentStatus} data-testid={`payment-status-${item.id}`}>
+                缴费状态：{PAYMENT_STATUS_LABEL[paymentByEnrollment[item.id]] ?? paymentByEnrollment[item.id]}
+              </Text>
+            )}
             {item.status === 'pending' && (
               <View className={styles.countdown}>
                 <Text className={styles.countdownLabel}>审批剩余</Text>
                 <Text className={styles.countdownValue}>{remainingLabel(item.approvalDeadline, now)}</Text>
               </View>
+            )}
+            {item.status === 'payment_pending' && (
+              <>
+                <Text className={styles.paymentHint} data-testid={`payment-hint-${item.id}`}>
+                  缴费状态：{PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付
+                </Text>
+                <Button
+                  className={styles.payButton}
+                  size='mini'
+                  data-testid={`pay-entry-${item.id}`}
+                  onClick={() => Taro.navigateTo({ url: `/pages/order-pay/index?enrollmentId=${item.id}` })}
+                >
+                  去支付
+                </Button>
+              </>
             )}
             {(item.status === 'pending' || item.status === 'confirmed') && (
               <Button
@@ -113,7 +150,9 @@ export default function MyEnrollmentsPage() {
               </Button>
             )}
             {item.status === 'confirmed' && (
-              <Button className={styles.textButton} size='mini' onClick={subscribeReminder}>订阅活动提醒</Button>
+              <>
+                <Button className={styles.textButton} size='mini' onClick={subscribeReminder}>订阅活动提醒</Button>
+              </>
             )}
             {(item.status === 'rejected' || item.status === 'expired') && (
               <Button

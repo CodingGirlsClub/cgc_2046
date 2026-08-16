@@ -151,7 +151,11 @@ if config_env() == :prod do
       "enrollment_submitted" => System.fetch_env!("WECHAT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.fetch_env!("WECHAT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
       "speaker_accepted" => System.fetch_env!("WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.fetch_env!("WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED")
+      "speaker_completed" => System.fetch_env!("WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      # 缴费闭环三模板（U10/KTD8 定稿）
+      "payment_succeeded" => System.fetch_env!("WECHAT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.fetch_env!("WECHAT_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.fetch_env!("WECHAT_MP_TEMPLATE_REFUND_FAILED")
     },
     tt: %{
       "approval_result" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -159,7 +163,11 @@ if config_env() == :prod do
       "enrollment_submitted" => System.fetch_env!("TT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.fetch_env!("TT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
       "speaker_accepted" => System.fetch_env!("TT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.fetch_env!("TT_MP_TEMPLATE_SPEAKER_COMPLETED")
+      "speaker_completed" => System.fetch_env!("TT_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      # 缴费闭环三模板（U10/KTD8 定稿）
+      "payment_succeeded" => System.fetch_env!("TT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.fetch_env!("TT_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.fetch_env!("TT_MP_TEMPLATE_REFUND_FAILED")
     },
     xhs: %{
       "approval_result" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -167,7 +175,11 @@ if config_env() == :prod do
       "enrollment_submitted" => System.fetch_env!("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.fetch_env!("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
       "speaker_accepted" => System.fetch_env!("XHS_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.fetch_env!("XHS_MP_TEMPLATE_SPEAKER_COMPLETED")
+      "speaker_completed" => System.fetch_env!("XHS_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      # 缴费闭环三模板（U10/KTD8 定稿）
+      "payment_succeeded" => System.fetch_env!("XHS_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.fetch_env!("XHS_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.fetch_env!("XHS_MP_TEMPLATE_REFUND_FAILED")
     }
   }
 

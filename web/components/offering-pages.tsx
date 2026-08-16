@@ -46,6 +46,7 @@ import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
+import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import {
   parseSponsorshipTiers,
   submitEnrollment,
@@ -352,8 +353,10 @@ export function OfferingDetailPage({
   }>({ id: "", hasExisting: false, status: "loading" });
   const [enrollBusy, setEnrollBusy] = useState(false);
   const [submitState, setSubmitState] = useState<{
-    kind: "idle" | "confirmed" | "pending" | "error";
+    kind: "idle" | "confirmed" | "pending" | "payment_pending" | "error";
     message: string | null;
+    /** payment_pending 态的去支付入口目标（R5 报名 id） */
+    enrollmentId?: string | null;
   }>({ kind: "idle", message: null });
 
   useEffect(() => {
@@ -401,6 +404,10 @@ export function OfferingDetailPage({
 
   const stale = state.id !== id;
   const offering = stale ? null : state.row;
+
+  // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
+  const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
+  const [tierId, setTierId] = useState<string | null>(null);
   const loadError = stale ? null : state.error;
   const manage = ws ? canManageEvents(ws.myRoleNames) : false;
 
@@ -556,6 +563,11 @@ export function OfferingDetailPage({
   // 未报）。复用 submitEnrollment（createEnrollment mutation，鉴权后端管）。
   async function submitForMe() {
     if (!offering || !userId) return;
+    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）
+    if (offering.pricingEnabled && !tierId) {
+      setSubmitState({ kind: "error", message: "请先选择价格档位" });
+      return;
+    }
     setEnrollBusy(true);
     setSubmitState({ kind: "idle", message: null });
     try {
@@ -563,13 +575,24 @@ export function OfferingDetailPage({
         eventId: kind === "event" ? offering.id : undefined,
         courseId: kind === "course" ? offering.id : undefined,
         userId,
+        tierId,
       });
       if (res.result) {
-        const pending = res.result.status === "pending";
-        setSubmitState({
-          kind: pending ? "pending" : "confirmed",
-          message: pending ? "申请已提交，等待审批" : "报名成功",
-        });
+        const status = res.result.status;
+        if (status === "payment_pending") {
+          setSubmitState({
+            kind: "payment_pending",
+            message: "名额已保留，请在限定时间内完成支付",
+            enrollmentId: res.result.id,
+          });
+        } else if (status === "pending") {
+          setSubmitState({
+            kind: "pending",
+            message: "申请已提交，等待审批",
+          });
+        } else {
+          setSubmitState({ kind: "confirmed", message: "报名成功" });
+        }
       } else {
         setSubmitState({
           kind: "error",
@@ -814,13 +837,26 @@ export function OfferingDetailPage({
                 <h2 className="text-sm font-medium text-ink">报名</h2>
                 <div className="mt-3 text-sm">
                   {submitState.kind === "confirmed" ||
-                  submitState.kind === "pending" ? (
-                    <p role="status" className="text-ink">
-                      {submitState.kind === "confirmed"
-                        ? "✓ 报名成功"
-                        : "✓ 申请已提交"}
-                      {submitState.message ? `（${submitState.message}）` : ""}
-                    </p>
+                  submitState.kind === "pending" ||
+                  submitState.kind === "payment_pending" ? (
+                    <div role="status" className="grid gap-2">
+                      <p className="text-ink">
+                        {submitState.kind === "confirmed"
+                          ? "✓ 报名成功"
+                          : submitState.kind === "payment_pending"
+                            ? "⏳ 待支付"
+                            : "✓ 申请已提交"}
+                        {submitState.message ? `（${submitState.message}）` : ""}
+                      </p>
+                      {submitState.kind === "payment_pending" && submitState.enrollmentId ? (
+                        <Link
+                          href={`/orders/new?enrollmentId=${submitState.enrollmentId}`}
+                          className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
+                        >
+                          去支付
+                        </Link>
+                      ) : null}
+                    </div>
                   ) : enrollState.hasExisting ? (
                     <p className="text-[13px] text-ink-3">
                       你已报名该{label}。
@@ -836,6 +872,40 @@ export function OfferingDetailPage({
                         <p className="text-[13px] text-ink-3">
                           提交后需 Owner/Admin 审批，通过后确认名额。
                         </p>
+                      ) : null}
+                      {offering.pricingEnabled ? (
+                        <fieldset className="grid gap-2" data-testid="price-tier-picker">
+                          <legend className="text-[13px] text-ink-3">选择价格档位</legend>
+                          {priceTiers.length === 0 ? (
+                            <p className="text-[13px] text-ink-3">
+                              当前无可售档位，请联系组织者。
+                            </p>
+                          ) : (
+                            priceTiers.map((tier) => (
+                              <label
+                                key={tier.id}
+                                className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
+                                  tierId === tier.id
+                                    ? "border-line-strong bg-soft-2 text-ink"
+                                    : "border-line bg-card text-ink-2"
+                                }`}
+                                data-testid={`price-tier-${tier.id}`}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="price-tier"
+                                    value={tier.id}
+                                    checked={tierId === tier.id}
+                                    onChange={() => setTierId(tier.id)}
+                                  />
+                                  {tier.name}
+                                </span>
+                                <span className="font-medium">¥{formatAmount(tier.amountCents)}</span>
+                              </label>
+                            ))
+                          )}
+                        </fieldset>
                       ) : null}
                       <button
                         type="button"

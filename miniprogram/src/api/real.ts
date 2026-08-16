@@ -9,6 +9,8 @@ import type {
   CatalogQueryVariables,
   ConfirmEnrollmentMutation,
   ConfirmEnrollmentMutationVariables,
+  CreateOrderMutation,
+  CreateOrderMutationVariables,
   CourseDetailQuery,
   CourseDetailQueryVariables,
   CreateEnrollmentMutation,
@@ -21,6 +23,10 @@ import type {
   GrantConsentMutationVariables,
   MyEnrollmentsQuery,
   MyEnrollmentsQueryVariables,
+  MyOrdersQuery,
+  MyOrdersQueryVariables,
+  OrderStatusQuery,
+  OrderStatusQueryVariables,
   RejectEnrollmentMutation,
   RejectEnrollmentMutationVariables,
   RejectJoinRequestMutation,
@@ -37,6 +43,9 @@ import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
   CancelEnrollmentMutationDocument,
+  CreateOrderMutationDocument,
+  MyOrdersQueryDocument,
+  OrderStatusQueryDocument,
   CatalogQueryDocument,
   ConfirmEnrollmentMutationDocument,
   CourseDetailQueryDocument,
@@ -52,6 +61,8 @@ import {
   SignInWithPlatformMutationDocument
 } from './operations'
 import { parseEnrollmentPolicy, parseEnrollmentStatus, schemaFieldsFromJson } from '@/domain/format'
+import { parsePriceTiers } from '@/domain/payment'
+import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
 import type {
   AdmitResult,
   ApprovalSummary,
@@ -89,8 +100,19 @@ function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
     capacity: record.capacity,
     confirmedCount: record.confirmedCount,
     registrationDeadline: record.registrationDeadline,
-    schemaFields: schemaFieldsFromJson(record.researchRequirements)
+    schemaFields: schemaFieldsFromJson(record.researchRequirements),
+    pricingEnabled: record.pricingEnabled === true,
+    priceTiers: parsePriceTiers(record.availablePriceTiers)
   }
+}
+
+function parseOrderStatus(value: string): OrderStatus {
+  if (
+    value === 'pending' || value === 'paid' || value === 'refunding' ||
+    value === 'refunded' || value === 'refund_failed' || value === 'cancelled' ||
+    value === 'expired'
+  ) return value
+  throw new Error(`服务端返回未知订单状态：${value}`)
 }
 
 function mutationError(errors: Array<{ message?: string | null }>): never {
@@ -346,5 +368,65 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   async getNotifications(): Promise<NotificationItem[]> {
     return readLocalNotifications()
+  }
+
+  async createOrder(enrollmentId: string): Promise<CreatedOrder> {
+    const data = await graphqlRequest<CreateOrderMutation, CreateOrderMutationVariables>(
+      CreateOrderMutationDocument,
+      { input: { enrollmentId, provider: 'wechat_jsapi' } }
+    )
+    const result = data.createOrder.result
+    if (!result) mutationError(data.createOrder.errors)
+    return {
+      order: {
+        id: result.id,
+        enrollmentId: result.enrollmentId,
+        status: parseOrderStatus(result.status),
+        amountCents: result.amountCents,
+        expireAt: result.expireAt,
+        transactionId: null
+      },
+      credential: data.createOrder.metadata?.credential ?? null
+    }
+  }
+
+  async getOrderStatus(orderId: string): Promise<OrderSummary> {
+    const data = await graphqlRequest<OrderStatusQuery, OrderStatusQueryVariables>(
+      OrderStatusQueryDocument,
+      { id: orderId }
+    )
+    if (!data.orderStatus) throw new Error('订单不存在或不可访问')
+    return {
+      id: data.orderStatus.id,
+      enrollmentId: '',
+      status: parseOrderStatus(data.orderStatus.status),
+      amountCents: data.orderStatus.amountCents,
+      expireAt: data.orderStatus.expireAt,
+      transactionId: data.orderStatus.transactionId
+    }
+  }
+
+  async getMyOrders(): Promise<OrderSummary[]> {
+    const session = await this.getSession()
+    if (!session.user) return []
+    const data = await graphqlRequest<MyOrdersQuery, MyOrdersQueryVariables>(
+      MyOrdersQueryDocument,
+      {}
+    )
+    const rank: Record<string, number> = {
+      pending: 0, paid: 1, refunding: 2, refund_failed: 3,
+      refunded: 4, cancelled: 5, expired: 6
+    }
+    return (data.myOrders?.results ?? [])
+      .map((order) => ({
+        id: order.id,
+        enrollmentId: order.enrollmentId,
+        status: parseOrderStatus(order.status),
+        amountCents: order.amountCents,
+        expireAt: order.expireAt,
+        transactionId: null
+      }))
+      // 非终态优先(一 enrollment 至多一非终态单,U1 不变量),终态单按同序稳定输出
+      .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))
   }
 }

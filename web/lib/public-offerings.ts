@@ -52,6 +52,8 @@ export async function submitEnrollment(input: {
 	courseId?: string;
 	userId: string;
 	inviteCode?: string | null;
+	/** 收费目标必选档（R5：报名选档 → 占位 → payment_pending） */
+	tierId?: string | null;
 }): Promise<EnrollmentSubmissionResult> {
 	const { data } = await client.mutate({
 		mutation: CREATE_ENROLLMENT,

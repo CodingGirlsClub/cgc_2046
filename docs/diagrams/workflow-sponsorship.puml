@@ -59,6 +59,8 @@ note right of ACT
   payment_pending → paid）。
   **二期引擎化蓝图**：workflow_run_id 预留列
   （sponsorship.ex:65,226-227），v1 实体自序贯不创建 run。
+  （核对 2026-08-15 缴费闭环：Sponsorship 本体仍不收款，语义不变；
+  缴费闭环走 Enrollment → Order 路径，见 entity-state-machines.puml ORD。）
 end note
 
 @enduml

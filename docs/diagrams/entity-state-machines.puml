@@ -23,7 +23,35 @@ state "Enrollment（报名）" as ENR {
     pending --> expired : ApprovalExpiryWorker 扫描\n（approval_deadline 过点）
     pending --> cancelled : cancel（本人取消）
     confirmed --> cancelled : cancel\n（release_capacity 释放名额）
+    ' ---- 缴费闭环(2026-08-15 ADR-0007):免费路径行为零变化 ----
+    [*] --> payment_pending : create_enrollment\n（收费目标：占名额 + 2h 支付窗）
+    pending --> payment_pending : confirm_enrollment\n（收费：占位此时发生）
+    payment_pending --> confirmed : 支付落账 settle_paid / 免缴 waive_payment
+    payment_pending --> expired : PaymentExpiryWorker 三联动\n（订单+报名过期+名额释放）
+    payment_pending --> cancelled : cancel\n（释放名额 + 作废 pending 单）
+    confirmed --> cancelled : 退款联动\n（refund_succeeded 收尾）
 }
+
+' ---------------- Order(缴费订单,2026-08-15 ADR-0007) ----------------
+state "Order（缴费订单）" as ORD {
+    [*] --> pending : 下单(占位已发生,2h 限时窗)
+    pending --> paid : 回调+回查+CAS 落账(transaction_id 回填)
+    pending --> cancelled : 换渠道/用户取消/批量作废
+    pending --> expired : 超时扫描 CAS(U8 三联动)
+    paid --> refunding : 管理员退款(closed 后仍可)
+    expired --> refunding : 迟到扣款自动退款(AE2)
+    refunding --> refunded : 渠道回调/同步/查单兜底
+    refunding --> refund_failed : 渠道拒绝
+    refund_failed --> refunding : retry_refund 重入
+}
+note bottom of ORD
+  **联动不变量（ADR-0007）**：
+  - pending → paid：Enrollment payment_pending → confirmed（CAS）
+  - pending → expired：Enrollment payment_pending → expired + 名额释放（同事务三联动）
+  - → refunded：Enrollment → cancelled + 名额释放（退款即取消）
+  - expired 单迟到收款 → 自动原路退款（收款无对应占位不变量）
+  **至多一个非终态订单**：partial unique index（enrollment_id WHERE status IN pending/paid/refunding/refund_failed）。
+end note
 
 ' ---------------- Sponsorship（sponsorship.ex:79-84） ---------------- 
 state "Sponsorship（赞助）" as SPS {
@@ -64,10 +92,12 @@ state "ResearchOutput（教研产出）" as RSO {
 
 note bottom of ENR
   **码现状（enrollment.ex:53-58）**：状态集
-  [pending / confirmed / rejected / expired / cancelled]——
-  无 draft/submitted（创建即 pending/confirmed）。
+  [pending / payment_pending / confirmed / rejected / expired / cancelled]——
+  无 draft/submitted（创建即 pending/payment_pending/confirmed）。
   v1 实体自序贯：不建 WorkflowRun（workflow_run_id 预留二期，
   enrollment.ex:50）。
+  **收费主路径（ADR-0007）**：payment_pending → confirmed
+  （支付落账 settle_paid / 免缴 waive_payment）；超时经订单三联动落 expired。
 end note
 
 note bottom of SPI

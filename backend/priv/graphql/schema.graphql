@@ -4407,6 +4407,9 @@ enum OrderSortField {
   EXPIRE_AT
   REFUNDED_AT
   CANCEL_REASON
+  TIER_NAME
+  ENROLLMENT_STATUS
+  LEARNER_EMAIL
 }
 
 "A keyset page of :order"
@@ -4422,6 +4425,55 @@ type KeysetPageOfOrder {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input OrderFilterLearnerEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterEnrollmentStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input OrderFilterTierName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
 }
 
 input OrderFilterCancelReason {
@@ -4597,20 +4649,43 @@ input OrderFilterId {
 
 input OrderFilterInput {
   and: [OrderFilterInput!]
+
   or: [OrderFilterInput!]
+
   not: [OrderFilterInput!]
+
   id: OrderFilterId
+
   workspaceId: OrderFilterWorkspaceId
+
   enrollmentId: OrderFilterEnrollmentId
+
   provider: OrderFilterProvider
+
   outTradeNo: OrderFilterOutTradeNo
+
   transactionId: OrderFilterTransactionId
+
   amountCents: OrderFilterAmountCents
+
   tierSnapshot: OrderFilterTierSnapshot
+
   status: OrderFilterStatus
+
   expireAt: OrderFilterExpireAt
+
   refundedAt: OrderFilterRefundedAt
+
   cancelReason: OrderFilterCancelReason
+
+  "下单时档位快照名（R3 改价不追溯）"
+  tierName: OrderFilterTierName
+
+  "关联报名当前状态"
+  enrollmentStatus: OrderFilterEnrollmentStatus
+
+  "报名人邮箱（管理面识别付款人）"
+  learnerEmail: OrderFilterLearnerEmail
 }
 
 input OrderSortInput {
@@ -4620,17 +4695,37 @@ input OrderSortInput {
 
 type Order {
   id: ID!
+
   workspaceId: ID!
+
   enrollmentId: ID!
+
   provider: String!
+
   outTradeNo: String!
+
   transactionId: String
+
   amountCents: Int!
+
   tierSnapshot: JsonString!
+
   status: String!
+
   expireAt: DateTime!
+
   refundedAt: DateTime
+
   cancelReason: String
+
+  "下单时档位快照名（R3 改价不追溯）"
+  tierName: String
+
+  "关联报名当前状态"
+  enrollmentStatus: String
+
+  "报名人邮箱（管理面识别付款人）"
+  learnerEmail: String
 }
 
 type RootQueryType {
@@ -4739,6 +4834,32 @@ type RootQueryType {
 
     id: ID!
   ): Order
+
+  "工作台订单列表（R24 管理面）"
+  workspaceOrders(
+    "How to sort the records in the response"
+    sort: [OrderSortInput]
+
+    "A filter to limit the results"
+    filter: OrderFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+
+    workspaceId: ID!
+  ): KeysetPageOfOrder
+
+  "工作台收款统计（R24）：已收\/待收\/已退，金额一律分"
+  workspacePaymentStats(workspaceId: ID!): JsonString!
 
   "按 slug 获取工作台（需登录）"
   getWorkspace(

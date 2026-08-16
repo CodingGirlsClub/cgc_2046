@@ -8,8 +8,17 @@ export type CreateEnrollmentInput = {
   eventId?: string | number | null | undefined;
   inviteCode?: string | null | undefined;
   submissionPayload?: string | null | undefined;
+  /** 价格档位 ID（收费活动报名时必填） */
+  tierId?: string | null | undefined;
   userId: string | number;
   workflowRunId?: string | number | null | undefined;
+};
+
+export type CreateOrderInput = {
+  /** 目标报名（须为本人 payment_pending 报名） */
+  enrollmentId: string | number;
+  /** 支付渠道 */
+  provider: string;
 };
 
 export type RejectEnrollmentInput = {
@@ -26,21 +35,21 @@ export type CatalogQueryVariables = Exact<{
 }>;
 
 
-export type CatalogQuery = { listEvents: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> | null } | null, listCourses: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> | null } | null };
+export type CatalogQuery = { listEvents: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null }> | null } | null, listCourses: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null }> | null } | null };
 
 export type EventDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type CourseDetailQuery = { getCourse: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null } | null };
+export type CourseDetailQuery = { getCourse: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null } | null };
 
 export type SessionQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -136,3 +145,22 @@ export type AdmitMemberByTokenMutationVariables = Exact<{
 
 
 export type AdmitMemberByTokenMutation = { admitMemberByToken: { id: string, workspaceId: string, workspaceName: string | null, status: string, acceptedAt: string | null } | null };
+
+export type CreateOrderMutationVariables = Exact<{
+  input: CreateOrderInput;
+}>;
+
+
+export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string } | null, errors: Array<{ message: string | null }>, metadata: { credential: string | null } | null } };
+
+export type OrderStatusQueryVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type OrderStatusQuery = { orderStatus: { id: string, status: string, transactionId: string | null, amountCents: number, expireAt: string } | null };
+
+export type MyOrdersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MyOrdersQuery = { myOrders: { results: Array<{ id: string, enrollmentId: string, provider: string, status: string, amountCents: number, expireAt: string }> | null } | null };

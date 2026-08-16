@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
+import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
 export default function RegisterFormPage() {
@@ -16,6 +17,7 @@ export default function RegisterFormPage() {
   const [email, setEmail] = useState('')
   const [reason, setReason] = useState('')
   const [inviteCode, setInviteCode] = useState('')
+  const [tierId, setTierId] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -52,6 +54,10 @@ export default function RegisterFormPage() {
       Taro.showToast({ title: '请输入批次码', icon: 'none' })
       return
     }
+    if (target.pricingEnabled && !tierId) {
+      Taro.showToast({ title: '请选择价格档位', icon: 'none' })
+      return
+    }
 
     setSubmitting(true)
     setError('')
@@ -61,9 +67,15 @@ export default function RegisterFormPage() {
         name: name.trim(),
         email: email.trim(),
         reason: reason.trim(),
-        inviteCode: inviteCode.trim() || undefined
+        inviteCode: inviteCode.trim() || undefined,
+        tierId: target.pricingEnabled ? tierId : undefined
       })
       Taro.setStorageSync(STORAGE_KEYS.lastEnrollment, enrollment)
+      if (enrollment.status === 'payment_pending') {
+        // 收费报名：占位完成即进支付页(R5：2h 限时窗)
+        await Taro.redirectTo({ url: `/pages/order-pay/index?enrollmentId=${enrollment.id}` })
+        return
+      }
       await Taro.redirectTo({ url: `/pages/enrollment-result/index?id=${enrollment.id}` })
     } catch (reasonValue) {
       setError(reasonValue instanceof Error ? reasonValue.message : '提交失败，请重试')
@@ -91,6 +103,25 @@ export default function RegisterFormPage() {
       <View className={styles.form}>
         <Text className={styles.formTitle} data-testid='register-title'>报名信息</Text>
         <Text className={styles.formHint}>信息仅用于本次报名与审批。</Text>
+
+        {target.pricingEnabled && (
+          <View className={styles.field} data-testid='tier-field'>
+            <Text className={styles.label}>价格档位</Text>
+            {target.priceTiers.length === 0 ? (
+              <Text className={styles.formHint}>当前无可售档位，请联系组织者。</Text>
+            ) : target.priceTiers.map((tier) => (
+              <View
+                key={tier.id}
+                className={`${styles.tierOption} ${tierId === tier.id ? styles.tierActive : ''}`}
+                data-testid={`tier-option-${tier.id}`}
+                onClick={() => setTierId(tier.id)}
+              >
+                <Text className={styles.tierName}>{tier.name}</Text>
+                <Text className={styles.tierPrice}>¥{formatAmount(tier.amountCents)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {target.enrollmentPolicy === 'invite_only' && (
           <View className={styles.field}>

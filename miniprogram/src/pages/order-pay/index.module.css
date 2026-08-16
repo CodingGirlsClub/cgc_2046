@@ -1,0 +1,20 @@
+.page { min-height: 100vh; }
+.scroll { height: 100vh; box-sizing: border-box; }
+.header { padding: 48rpx 32rpx 34rpx; background: #fff; }
+.eyebrow { display: block; color: #5e6ad2; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
+.title { display: block; margin-top: 10rpx; font-size: 48rpx; font-weight: 700; }
+.amount { display: block; margin-top: 12rpx; color: #07c160; font-size: 56rpx; font-weight: 700; }
+.countdown { display: block; margin-top: 14rpx; color: #b54708; font-size: 24rpx; }
+.card { margin: 24rpx 28rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; }
+.cardTitle { display: block; font-size: 31rpx; font-weight: 600; }
+.cardHint { display: block; margin-top: 10rpx; color: #98a2b3; font-size: 24rpx; }
+.primaryButton {
+  margin-top: 30rpx;
+  color: #fff;
+  background: #07c160;
+  border-radius: 24rpx;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+.textButton { margin: 22rpx 0 0; color: #5e6ad2; background: #eff0ff; border-radius: 24rpx; font-size: 22rpx; }
+.pollingHint { display: block; margin: 0 28rpx; color: #98a2b3; font-size: 22rpx; }

@@ -3,7 +3,7 @@ import type { TypedDocumentNode } from "@apollo/client";
 import type { MutationResult } from "./shared";
 
 export type EnrollmentStatus =
-  "pending" | "confirmed" | "rejected" | "expired" | "cancelled";
+  "pending" | "payment_pending" | "confirmed" | "rejected" | "expired" | "cancelled";
 export type SponsorshipStatus =
   "pending" | "active" | "rejected" | "expired" | "ended";
 export type LearningRunStatus = "running" | "waiting" | "succeeded" | "failed";
@@ -165,6 +165,7 @@ export const CANCEL_ENROLLMENT: TypedDocumentNode<
 
 export const ENROLLMENT_STATUS_LABEL: Record<EnrollmentStatus, string> = {
   pending: "等待审批",
+  payment_pending: "待支付",
   confirmed: "已确认",
   rejected: "已拒绝",
   expired: "审批超时",

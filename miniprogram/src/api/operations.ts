@@ -12,6 +12,8 @@ export const CatalogQueryDocument = /* GraphQL */ `
         capacity
         confirmedCount
         registrationDeadline
+        pricingEnabled
+        availablePriceTiers
       }
     }
     listCourses(first: $first, filter: { status: { eq: "open" } }) {
@@ -26,6 +28,8 @@ export const CatalogQueryDocument = /* GraphQL */ `
         capacity
         confirmedCount
         registrationDeadline
+        pricingEnabled
+        availablePriceTiers
       }
     }
   }
@@ -44,6 +48,8 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       capacity
       confirmedCount
       registrationDeadline
+      pricingEnabled
+      availablePriceTiers
     }
   }
 `
@@ -61,6 +67,8 @@ export const CourseDetailQueryDocument = /* GraphQL */ `
       capacity
       confirmedCount
       registrationDeadline
+      pricingEnabled
+      availablePriceTiers
     }
   }
 `
@@ -250,6 +258,55 @@ export const AdmitMemberByTokenMutationDocument = /* GraphQL */ `
       workspaceName
       status
       acceptedAt
+    }
+  }
+`
+
+export const CreateOrderMutationDocument = /* GraphQL */ `
+  mutation CreateOrder($input: CreateOrderInput!) {
+    createOrder(input: $input) {
+      result {
+        id
+        enrollmentId
+        provider
+        outTradeNo
+        amountCents
+        status
+        expireAt
+      }
+      errors {
+        message
+      }
+      metadata {
+        credential
+      }
+    }
+  }
+`
+
+export const OrderStatusQueryDocument = /* GraphQL */ `
+  query OrderStatus($id: ID!) {
+    orderStatus(id: $id) {
+      id
+      status
+      transactionId
+      amountCents
+      expireAt
+    }
+  }
+`
+
+export const MyOrdersQueryDocument = /* GraphQL */ `
+  query MyOrders {
+    myOrders {
+      results {
+        id
+        enrollmentId
+        provider
+        status
+        amountCents
+        expireAt
+      }
     }
   }
 `

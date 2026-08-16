@@ -163,7 +163,7 @@ defmodule Cgc2046.Payments.Providers.Alipay do
         {:ok, %Tesla.Env{status: 200, body: %{"bill_download_url" => url}}} ->
           case Client.get(url) do
             {:ok, %Tesla.Env{status: 200, body: csv}} when is_binary(csv) ->
-              {:ok, parse_csv(csv)}
+              {:ok, parse_statement_csv(csv)}
 
             _ ->
               {:error, :bill_fetch_failed}
@@ -244,8 +244,13 @@ defmodule Cgc2046.Payments.Providers.Alipay do
     |> Map.new()
   end
 
-  # 支付宝账单 CSV/明细：表头行 + 数据行，逗号分隔（规⑦ 行形状）
-  defp parse_csv(csv) do
+  @doc """
+  支付宝账单 CSV/明细 → 行 map 列表（规⑦ 差异比对行形状）。
+
+  公开面：U13 对账 worker 与样例文件测试共用（样例文件驱动，语义同
+  WechatPay.parse_statement_csv/1）。
+  """
+  def parse_statement_csv(csv) do
     lines = String.split(csv, "\n", trim: true)
 
     case Enum.reject(lines, &String.starts_with?(&1, "#")) do
@@ -253,11 +258,11 @@ defmodule Cgc2046.Payments.Providers.Alipay do
         []
 
       [header | rows] ->
-        keys = String.split(String.trim_trailing(header, "\r"), ",", trim: true)
+        keys = String.split(String.trim_trailing(header, "\r"), ",")
 
         Enum.map(rows, fn row ->
           keys
-          |> Enum.zip(String.split(String.trim_trailing(row, "\r"), ",", trim: true))
+          |> Enum.zip(String.split(String.trim_trailing(row, "\r"), ","))
           |> Map.new()
         end)
     end

@@ -112,6 +112,34 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
+  # 管理列表信息面（R24/U10）：tier 快照名 + 报名人/报名态（enrollment 信息
+  # 以计算字段下钻——Enrollment 无 GraphQL 类型（generate_object? false），
+  # 不能走关系字段暴露）。
+  calculations do
+    calculate :tier_name, :string do
+      public?(true)
+      description("下单时档位快照名（R3 改价不追溯）")
+      calculation(expr(tier_snapshot["name"]))
+    end
+
+    calculate :enrollment_status, :atom do
+      public?(true)
+      description("关联报名当前状态")
+
+      constraints(
+        one_of: [:pending, :payment_pending, :confirmed, :rejected, :expired, :cancelled]
+      )
+
+      calculation(expr(enrollment.status))
+    end
+
+    calculate :learner_email, :string do
+      public?(true)
+      description("报名人邮箱（管理面识别付款人）")
+      calculation(expr(enrollment.user.email))
+    end
+  end
+
   actions do
     defaults([:read])
 
@@ -124,6 +152,17 @@ defmodule Cgc2046.Payments.Order do
     read :get_by_id do
       description("按 id 取订单（轮询轻量面，仅本人可见）")
       get_by([:id])
+    end
+
+    # R24 管理列表：workspace 订单全量（Owner/Admin 本租户 + PlatformAdmin 跨租户
+    # 只读）。workspace_id 走显式 argument + action filter（for_read 时即并入
+    # query.filter，OwnerOrAdmin policy 经 resolve_workspace_id 从 filter 提取）。
+    read :workspace_orders do
+      description("工作台订单列表（R24 管理面；金额/状态/档位/报名人信息）")
+      argument(:workspace_id, :uuid, allow_nil?: false, public?: true)
+      filter(expr(workspace_id == ^arg(:workspace_id)))
+      prepare(build(sort: [inserted_at: :desc]))
+      pagination(keyset?: true, default_limit: 50)
     end
 
     create :create do
@@ -285,8 +324,8 @@ defmodule Cgc2046.Payments.Order do
       end)
 
       change(fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _cs, refunding ->
-          enqueue_refund_job(refunding)
+        Ash.Changeset.after_action(changeset, fn cs, refunding ->
+          enqueue_refund_job(cs, refunding)
         end)
       end)
 
@@ -312,8 +351,8 @@ defmodule Cgc2046.Payments.Order do
       end)
 
       change(fn changeset, _context ->
-        Ash.Changeset.after_action(changeset, fn _cs, refunding ->
-          enqueue_refund_job(refunding)
+        Ash.Changeset.after_action(changeset, fn cs, refunding ->
+          enqueue_refund_job(cs, refunding)
         end)
       end)
 
@@ -321,6 +360,47 @@ defmodule Cgc2046.Payments.Order do
         {Cgc2046.Changes.LogAdminAction,
          action: :order_refund, target_type: :order, metadata: &__MODULE__.refund_log_metadata/2}
       )
+    end
+
+    # R24 收款统计（generic action）：已收 = paid 总额；待收 = pending 且未过
+    # expire_at（过期单由 U8 扫描释放，不计待收）；已退 = refunded 总额。金额分。
+    # 授权经 policy（OwnerOrAdmin 从 ActionInput 提取 workspace_id，
+    # MembershipContext 场景5），SQL 只算数不涉权。
+    action :workspace_payment_stats, :map do
+      description("工作台收款统计（R24）：已收/待收/已退，金额一律分")
+      argument(:workspace_id, :uuid, allow_nil?: false, public?: true)
+
+      constraints(
+        fields: [
+          collected_cents: [type: :integer, allow_nil?: false],
+          pending_cents: [type: :integer, allow_nil?: false],
+          refunded_cents: [type: :integer, allow_nil?: false]
+        ]
+      )
+
+      run(fn input, _ctx ->
+        sql = """
+        SELECT
+          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'paid'), 0),
+          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'pending' AND expire_at > NOW()), 0),
+          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'refunded'), 0)
+        FROM payments_orders
+        WHERE workspace_id = $1
+        """
+
+        case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(input.arguments.workspace_id)]) do
+          {:ok, %{rows: [[collected, pending, refunded]]}} ->
+            {:ok,
+             %{
+               collected_cents: collected || 0,
+               pending_cents: pending || 0,
+               refunded_cents: refunded || 0
+             }}
+
+          {:error, reason} ->
+            {:error, {:database, reason}}
+        end
+      end)
     end
   end
 
@@ -334,16 +414,36 @@ defmodule Cgc2046.Payments.Order do
   end
 
   policies do
-    # 下单/换渠道/取消：actor 在场（匿名拒绝），本人校验经 prepare 内
-    # enrollment.user_id 比对完成（跨资源归属，policy expr 无法在 create 上表达）。
-    policy action([:create_for_enrollment, :replace_provider, :cancel_pending]) do
-      authorize_if(actor_present())
+    # 学员读面（my_orders / orderStatus 轮询）：仅报名者本人（关系下推过滤）。
+    # 管理读面（workspace_orders / stats）另立 policy——学员 action 不给管理面
+    # 走 expr 过滤的空列表语义，成员调用管理查询是真 403。
+    policy action([:my_orders, :get_by_id]) do
+      authorize_if(expr(enrollment.user_id == ^actor(:id)))
     end
 
-    # 读面（my_orders / orderStatus）：仅报名者本人（关系下推过滤）；
-    # 管理面（U10）另立 workspace 查询 action。
-    policy action_type(:read) do
+    # 默认 :read(refundOrder 等 update mutation 的 ash_graphql 预读走此 action):
+    # 学员本人（expr 下推）+ Owner/Admin / PlatformAdmin 管理可见（R19/R24）。
+    # 学员专用面仍是 my_orders / get_by_id 专用 action，互不影响。
+    policy action(:read) do
       authorize_if(expr(enrollment.user_id == ^actor(:id)))
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
+
+    # 管理列表（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
+    # workspace_id 经 action filter 并入 query.filter，OwnerOrAdmin 从 filter
+    # 提取（MembershipContext query 场景）。
+    policy action(:workspace_orders) do
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
+
+    # 收款统计（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
+    # generic action 的 subject 是 ActionInput——OwnerOrAdmin 经
+    # MembershipContext.resolve_workspace_id 场景5 提取 workspace_id。
+    policy action(:workspace_payment_stats) do
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
     end
 
     # 管理员单笔退款/重试（R15/R19）：Workspace Owner/Admin；PlatformAdmin
@@ -351,6 +451,12 @@ defmodule Cgc2046.Payments.Order do
     policy action([:refund, :retry_refund]) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
+
+    # 下单/换渠道/取消：actor 在场（匿名拒绝），本人校验经 prepare 内
+    # enrollment.user_id 比对完成（跨资源归属，policy expr 无法在 create 上表达）。
+    policy action([:create_for_enrollment, :replace_provider, :cancel_pending]) do
+      authorize_if(actor_present())
     end
   end
 
@@ -360,6 +466,8 @@ defmodule Cgc2046.Payments.Order do
     queries do
       list(:my_orders, :my_orders, description: "当前用户订单列表（R14）")
       read_one(:order_status, :get_by_id, description: "订单状态轮询（2s×30s 轻量面，R14）")
+      list(:workspace_orders, :workspace_orders, description: "工作台订单列表（R24 管理面）")
+      action(:workspace_payment_stats, :workspace_payment_stats)
     end
 
     mutations do
@@ -830,9 +938,19 @@ defmodule Cgc2046.Payments.Order do
   end
 
   # 渠道退款 job 同事务入队（SignalEmitter outbox 同款纪律）：CAS 成功才有
-  # after_action，失败路径不产生孤儿 job。
-  defp enqueue_refund_job(order) do
-    %{"order_id" => order.id}
+  # after_action，失败路径不产生孤儿 job。R22 发起人精确归属：单笔管理员退款/
+  # 重试的 mutation actor 随 job 下传（initiator_user_id），worker 通知收件人
+  # 精确到「报名人 + 发起管理员」；自动退款/批量入队无 actor → 管理者超集。
+  defp enqueue_refund_job(changeset, order) do
+    actor = get_in(changeset.context, [:private, :actor])
+
+    args =
+      %{order_id: order.id}
+      |> then(fn args ->
+        if actor, do: Map.put(args, :initiator_user_id, actor.id), else: args
+      end)
+
+    args
     |> Cgc2046.Workers.PaymentRefundWorker.new()
     |> Oban.insert!()
 

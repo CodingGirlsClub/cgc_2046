@@ -41,19 +41,21 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
 
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Payments.{Order, Provider}
+  alias Cgc2046.Payments.NotificationTemplates, as: Templates
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"order_id" => order_id}}) do
+  def perform(%Oban.Job{args: %{"order_id" => order_id} = args}) do
     order = Ash.get!(Order, order_id, authorize?: false)
+    initiator = Map.get(args, "initiator_user_id")
 
     case order.status do
       :refunding ->
-        drive_refund(order)
+        drive_refund(order, initiator)
 
       :refunded ->
         # F-B：退款终态已落但收尾（报名取消/通知）可能因两事务间崩溃而未完成
         # ——幂等补齐，直至报名离开占位态。
-        ensure_refund_completed(order)
+        ensure_refund_completed(order, initiator)
 
       _terminal ->
         :ok
@@ -64,15 +66,15 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
 
   # ── 退款主链 ─────────────────────────────────────────────────────────────
 
-  defp drive_refund(order) do
+  defp drive_refund(order, initiator) do
     provider = Provider.for(order.provider)
 
     case provider.fetch_transaction(order.out_trade_no) do
       {:ok, %{status: :refunded}} ->
-        finalize(order)
+        finalize(order, initiator)
 
       {:ok, _not_final} ->
-        request_channel_refund(order, provider)
+        request_channel_refund(order, provider, initiator)
 
       {:error, reason} ->
         # 查单失败：Oban 重试语义（max_attempts 5）
@@ -80,24 +82,24 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
     end
   end
 
-  defp request_channel_refund(order, provider) do
+  defp request_channel_refund(order, provider, initiator) do
     case provider.refund(order) do
       {:ok, :completed} ->
         # 支付宝同步完成（KTD17 adapter 吸收）：直接收尾，免查单免重试。
-        finalize(order)
+        finalize(order, initiator)
 
       :ok ->
         # 微信异步受理：受理即查一次（覆盖受理即完成的快路径）；未终态交
         # 重试窗查单兜底（重入从 drive_refund 顶部查单开始）。
         case provider.fetch_transaction(order.out_trade_no) do
-          {:ok, %{status: :refunded}} -> finalize(order)
+          {:ok, %{status: :refunded}} -> finalize(order, initiator)
           {:ok, _pending_channel} -> {:error, :refund_pending}
           {:error, reason} -> {:error, reason}
         end
 
       {:error, :channel_refund_failed} ->
         # 渠道明确拒绝（adapter 归一）：终态 refund_failed，可 retry_refund 重入
-        fail_refund(order, :channel_refund_failed)
+        fail_refund(order, :channel_refund_failed, initiator)
 
       {:error, reason} ->
         # 传输/配置类瞬时错误：不落终态，Oban 重试（max_attempts 5）
@@ -107,26 +109,26 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
 
   # ── 终态收尾 ─────────────────────────────────────────────────────────────
 
-  defp finalize(order) do
+  defp finalize(order, initiator) do
     case order
          |> Ash.Changeset.for_update(:refund_succeeded, %{})
          |> Ash.update(tenant: order.workspace_id, authorize?: false) do
       {:ok, refunded} ->
-        ensure_refund_completed(refunded)
+        ensure_refund_completed(refunded, initiator)
 
       {:error, _already_refunded} ->
         # CAS 失败 = 已 refunded（重放/上轮完成/DB 回包丢失但已提交）——统一走
         # 收尾自愈（报名真状态裁决），与 :refunded 状态门同一条路径。
-        ensure_refund_completed(order)
+        ensure_refund_completed(order, initiator)
     end
   end
 
   # F-B 收尾保障：退款终态（本回合落定或上轮已落）后确保报名取消 + 通知完成；
   # 取消失败上抛走 Oban 重试，经 :refunded 状态门重入本路径收敛。
-  defp ensure_refund_completed(order) do
+  defp ensure_refund_completed(order, initiator) do
     case cancel_enrollment(order) do
       :ok ->
-        notify_refund(order, "refund_succeeded")
+        notify_refund(order, Templates.refund_succeeded(), initiator)
         :ok
 
       {:error, reason} ->
@@ -134,14 +136,14 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
     end
   end
 
-  defp fail_refund(order, reason) do
+  defp fail_refund(order, reason, initiator) do
     Logger.error("refund: order #{order.id} channel rejected: #{inspect(reason)}")
 
     case order
          |> Ash.Changeset.for_update(:mark_refund_failed, %{})
          |> Ash.update(tenant: order.workspace_id, authorize?: false) do
       {:ok, failed} ->
-        notify_refund(failed, "refund_failed")
+        notify_refund(failed, Templates.refund_failed(), initiator)
         :ok
 
       {:error, _already_migrated} ->
@@ -195,24 +197,39 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
     end
   end
 
-  # ── 通知（R22：退款结果 → 报名人 + 管理者；模板渲染 U10 定稿）──────────
+  # ── 通知（R22：退款结果 → 报名人 + 发起人/管理者；契约 = NotificationTemplates）──
 
-  defp notify_refund(order, template_key) do
+  # R22 发起人精确归属（U10 定稿）：单笔管理员退款/重试经 job args 携带
+  # initiator_user_id（mutation actor）——收件人精确到「报名人 + 发起管理员」；
+  # 自动退款/批量（U7/E-C 入队）无 actor → 报名人 + workspace 管理者超集。
+  defp notify_refund(order, template_key, initiator_user_id)
+       when is_binary(initiator_user_id) do
+    enrollment = Ash.get!(Enrollment, order.enrollment_id, authorize?: false)
+
+    recipients =
+      %{enrollment.user_id => Cgc2046.NotificationFanout.identities(enrollment.user_id)}
+      |> Map.merge(%{
+        initiator_user_id => Cgc2046.NotificationFanout.identities(initiator_user_id)
+      })
+
+    deliver_refund(recipients, order, template_key)
+  end
+
+  defp notify_refund(order, template_key, _no_initiator) do
     enrollment = Ash.get!(Enrollment, order.enrollment_id, authorize?: false)
 
     recipients =
       %{enrollment.user_id => Cgc2046.NotificationFanout.identities(enrollment.user_id)}
       |> Map.merge(Cgc2046.NotificationFanout.managers(order.workspace_id))
 
+    deliver_refund(recipients, order, template_key)
+  end
+
+  defp deliver_refund(recipients, order, template_key) do
     Cgc2046.NotificationFanout.deliver(
       recipients,
       template_key,
-      %{
-        "order_id" => order.id,
-        "enrollment_id" => order.enrollment_id,
-        "amount_cents" => order.amount_cents,
-        "provider" => to_string(order.provider)
-      },
+      Templates.payment_data(order),
       %{"idempotency_key" => template_key <> ":" <> order.id}
     )
   end

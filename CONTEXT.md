@@ -378,7 +378,7 @@
 
 ### Order（缴费订单，租户资源）
 
-- **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunded`（cancelled / expired 为终态；退款异步经 `refunding` 中间态）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；订单过期后渠道侧迟到扣款自动原路退回。
+- **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunding → refunded`（`refunding → refund_failed` 渠道拒绝，`refund_failed → refunding` 经 retry_refund 重入；cancelled / expired 为终态）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；订单过期后渠道侧迟到扣款自动原路退回。
 - **架构位置**：Enrollment（payment_pending 态）与支付渠道之间；回调链 = raw body 验签 → webhook 事件表幂等 → Oban 异步落账 → 回查渠道确认（不信 payload 快照）。退款发起方 = Workspace Owner/Admin（Event closed 后单笔仍可退，cancelled 批量退）；平台 Admin 持退款兜底权（统一商户号的资金主体，ADR-0007）。
 
 ### 管理员免缴（Fee Waiver）

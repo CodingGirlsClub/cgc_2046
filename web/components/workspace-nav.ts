@@ -26,6 +26,7 @@ export type NavSection =
 	| "settings-requests"
 	| "settings-invitations"
 	| "settings-sponsorship"
+	| "settings-payments"
 	| "settings-account-profile"
 	| "settings-account-preferences"
 	| "settings-integrations-agents"
@@ -116,6 +117,16 @@ export const SETTINGS_NAV: NavDestination[] = [
 		href: (s) => `/w/${s}/settings/sponsorship`,
 		group: "workspace",
 		active: "settings-sponsorship",
+		icon: "community",
+		settingsTab: true,
+	},
+	{
+		key: "payments",
+		label: "缴费管理",
+		href: (s) => `/w/${s}/settings/payments`,
+		ability: "manage_members",
+		group: "workspace",
+		active: "settings-payments",
 		icon: "community",
 		settingsTab: true,
 	},

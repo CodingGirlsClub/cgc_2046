@@ -182,9 +182,12 @@ defmodule Cgc2046.Events.Event do
   end
 
   calculations do
-    # R2 报名面：只暴露未过 available_until 的档位（过滤逻辑在 PriceTier）
+    # R2 报名面：只暴露未过 available_until 的档位（过滤逻辑在 PriceTier）。
+    # load: GraphQL 单独请求本计算字段时 ash_graphql 不自动 select 依赖列,
+    # price_tiers 落 NotLoaded → available_tiers 误判空(load 依赖声明后由 Ash 补载)。
     calculate(:available_price_tiers, {:array, :map},
       public?: true,
+      load: [:price_tiers],
       calculation: fn records, _opts ->
         Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
       end

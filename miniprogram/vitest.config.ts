@@ -16,7 +16,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/api-client.test.ts', 'tests/account-state.test.ts', 'tests/real-auth.test.ts'],
+    include: ['tests/api-client.test.ts', 'tests/account-state.test.ts', 'tests/real-auth.test.ts', 'tests/enrollment-payment-status.test.ts'],
     clearMocks: true,
     restoreMocks: true
   }

@@ -19,3 +19,7 @@
 .textButton { margin: 22rpx 0 0; color: #5e6ad2; background: #eff0ff; border-radius: 24rpx; font-size: 22rpx; }
 .reason { display: block; margin-top: 14rpx; color: #667085; font-size: 22rpx; }
 .platformTip { position: fixed; left: 0; right: 0; bottom: 108rpx; padding: 12rpx; color: #667085; background: #fff; text-align: center; font-size: 21rpx; }
+.payment_pending { color: #b54708; background: #fffaeb; }
+.paymentHint { display: block; margin-top: 14rpx; color: #b54708; font-size: 22rpx; }
+.paymentStatus { display: block; margin-top: 12rpx; color: #475467; font-size: 22rpx; }
+.payButton { margin: 18rpx 0 0; color: #fff; background: #07c160; border-radius: 24rpx; font-size: 22rpx; }

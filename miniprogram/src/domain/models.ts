@@ -1,5 +1,19 @@
 export type ContentKind = 'event' | 'course'
-export type EnrollmentStatus = 'pending' | 'confirmed' | 'rejected' | 'expired' | 'cancelled'
+export type EnrollmentStatus =
+  | 'pending'
+  | 'payment_pending'
+  | 'confirmed'
+  | 'rejected'
+  | 'expired'
+  | 'cancelled'
+export type OrderStatus =
+  | 'pending'
+  | 'paid'
+  | 'refunding'
+  | 'refunded'
+  | 'refund_failed'
+  | 'cancelled'
+  | 'expired'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
 export interface SchemaField {
@@ -19,6 +33,17 @@ export interface CatalogItem {
   confirmedCount: number
   registrationDeadline: string | null
   schemaFields: SchemaField[]
+  /** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
+  pricingEnabled: boolean
+  /** 可售价格档位（后端已过滤过期档，R2；空数组 = 无可售档） */
+  priceTiers: PriceTier[]
+}
+
+/** 价格档位（display 层消费形状；解析见 domain/payment.parsePriceTiers） */
+export interface PriceTier {
+  id: string
+  name: string
+  amountCents: number
 }
 
 export interface UserSummary {
@@ -70,6 +95,8 @@ export interface EnrollmentForm {
   email: string
   reason: string
   inviteCode?: string
+  /** 收费目标必选档（R5：报名选档 → 占位 → payment_pending） */
+  tierId?: string
 }
 
 export interface NotificationItem {
@@ -100,6 +127,22 @@ export interface PlatformPhonePayload {
   iv?: string
 }
 
+/** 订单（U12 学员面：order-pay 页 + my-enrollments 缴费态） */
+export interface OrderSummary {
+  id: string
+  enrollmentId: string
+  status: OrderStatus
+  amountCents: number
+  expireAt: string
+  transactionId: string | null
+}
+
+/** createOrder 产物：订单 + JSAPI 凭据（原样透传给 mapPaymentCredential） */
+export interface CreatedOrder {
+  order: OrderSummary
+  credential: string | null
+}
+
 export interface MiniProgramApi {
   getCatalog(): Promise<CatalogItem[]>
   getContent(kind: ContentKind, id: string): Promise<CatalogItem>
@@ -109,6 +152,12 @@ export interface MiniProgramApi {
   getEnrollments(): Promise<EnrollmentSummary[]>
   cancelEnrollment(id: string): Promise<void>
   createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary>
+  /** U12：JSAPI 下单（provider 固定 wechat_jsapi，R13） */
+  createOrder(enrollmentId: string): Promise<CreatedOrder>
+  /** U12：订单状态轮询（R14 轻量面） */
+  getOrderStatus(orderId: string): Promise<OrderSummary>
+  /** U12：我的订单（缴费态展示数据源） */
+  getMyOrders(): Promise<OrderSummary[]>
   approvePending(approval: ApprovalSummary): Promise<void>
   rejectPending(approval: ApprovalSummary, reason?: string): Promise<void>
   grantConsent(scenario: SubscriptionScenario): Promise<number>
