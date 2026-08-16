@@ -9,7 +9,7 @@
 
 ---
 
-## F1 🔴 Agent 策略层 join 双信号死锁 —— 审批两段式规避（v1 主路径 Workflow 层原生）
+## F1 ✅ 已闭环（2026-08-16 漂移对账：决策升级为「永久绕开」）
 
 - **图**：`signal-join-strategies.puml`、`workflow-enrollment.puml`、`workflow-sponsorship.puml`
 - **问题描述**：同一 workflow 内用 join 等待两个以上异步信号，在 Agent 策略（auto）下会死锁——
@@ -20,14 +20,18 @@
 - **建议方向**：v1 主路径固定走 Workflow 层（runic 直接驱动，join 模式可用，POC §3.2 PASS）；
   适配层必须内置"多信号分批 feed"集成测试防回归。若二期仍需 Agent 策略，需向 jido 上游报 ran_nodes 缺陷或自定义 join。
 
-## F2 🟡 hibernate/thaw 未覆盖 deadline 到点唤醒 → cancel 路径
+## F2 ✅ 已闭环（2026-08-16 漂移对账关闭；落地形态与原建议不同）
 
-- **图**：`hibernate-thaw.puml`、`workflow-run-state.puml`
-- **问题描述**：POC-2 G1 A1–A5 全 PASS 覆盖了"waiting 挂起 → 信号到达 thaw → 恢复执行"，但
-  **"挂起期间 deadline 到点自动唤醒并 cancel"未验证**。报名截止/审批超时都依赖该路径。
-- **涉及文档**：poc-验证报告.md G1；报名workflow详细设计.md §3.4
-- **建议方向**：v1 补集成测试：恢复时检查 deadline → Emit cancel（或 Schedule Directive），
-  断言 waiting 超时后 run 转 cancelled、截止后 submitted 信号不再放行。
+- **图**：`hibernate-thaw.puml`、`workflow-run-state.puml`（两图已按码现状更新）
+- **原问题**：POC-2 G1 覆盖了"waiting 挂起 → 信号到达 thaw → 恢复执行"，但
+  "挂起期间 deadline 到点自动唤醒并 cancel"未验证。
+- **实际落地**：`ApprovalExpiryWorker`（Oban cron */5min）扫 `WorkflowRun status=waiting` +
+  `ApprovalDeadline.overdue?`（deadline = updated_at + definition.approval_timeout，nil = 永不）
+  → `:expire`（pending/waiting → **expired**，非原建议的 cancelled；含 checkpoint 清理）。
+  集成测试即"POC-2 G1 补测"（approval_expiry_worker_test.exs）。
+- **涉及文档**：DRIFT-REPORT §5.4 L3-3.5 / §5.3 L2-4；approval_expiry_worker.ex:63-99
+- **遗留**：Enrollment/Sponsorship 实体的 pending→expired 扫描同 worker 承担（六资源规格），
+  本条按 run 级唤醒语义关闭。
 
 ## F3 🟢 幂等键承载：勿用 action 进程 ETS
 
@@ -66,22 +70,27 @@
 - **涉及文档**：邀请workflow详细设计.md §4；开放问题决策清单.md 拍板 #4
 - **建议方向**：已确认；保留 speaker.accepted 触发扩展点即可。
 
-## F7 🟡 审批超时语义未拍板：默认无超时自动拒绝
+## F7 ✅ 已闭环（2026-08-16 漂移对账：approval_timeout 已落地）
 
-- **图**：`workflow-run-state.puml`、`entity-state-machines.puml`
+- **图**：`workflow-run-state.puml`、`entity-state-machines.puml`（已按码现状更新）
 - **问题描述**：审批（报名 pending / 赞助 pending）的**超时策略未定死**：设计默认"无超时自动拒绝
   （人为决策）"，"可选 N 天自动过期"标注为可选。这影响 hibernate 挂起时长与运维 SLA。
 - **涉及文档**：报名workflow详细设计.md §3.4；赞助workflow详细设计.md §3.4
-- **建议方向**：v1 拍板默认值（建议 7 天自动过期 + 过期前提醒），并在 WorkflowDefinition 上暴露
-  approval_timeout 参数；若采用"无超时"，需保证 run 长期 waiting 不影响系统资源（依赖 F2 的 hibernate）。
+- **实际落地**：`WorkflowDefinition.approval_timeout` 参数已实现（workflow_definition.ex:107-112）；
+  ApprovalDeadline 唯一真源 + ApprovalExpiryWorker（*/5min）+ 实体/run 双侧 expired 态 +
+  ApprovalReminderWorker 48h 提醒（workers/approval_reminder_worker.ex）。nil = 永不超时的
+  语义与"人为决策"场景并存。
+- **处置**：闭环；DRIFT-REPORT §5.3 L2-4 / §5.4。
 
-## F8 🟡 auto_approve 模式 10s 倒计时自动决策存在风险
+## F8 ⚪ 更正（2026-08-16 漂移对账：描述了不存在的机制）
 
-- **图**：`confirm-flow.puml`
-- **问题描述**：高风险工具（assign_role / create_invitation / 审批类）确认流的 auto_approve 模式
-  是 10s 倒计时自动决策——倒计时内无人工介入即自动通过，存在误放行风险。
-- **涉及文档**：总纲 D8 确认流；用户旅程与Web功能清单.md
-- **建议方向**：v1 默认关或仅限白名单工具；二期可加冷却期（同工具短时间重复调用不再 auto_approve）。
+- **图**：`confirm-flow.puml`（已按码现状更正）
+- **原记录**：高风险工具确认流的 auto_approve 模式是 10s 倒计时自动决策，存在误放行风险。
+- **对账结论**：**auto_approve 在码中从未实现**（全库 grep 零命中，既未实现也未配置）——
+  本条系把设计讨论当作已实现风险记录。实际确认流只有 two-tool 模式
+  （create_invitation → confirm_operation / cancel_operation），高风险面即一个工具。
+- **处置**：风险不存在，关闭；若未来引入 auto_approve，按原建议（默认关/白名单）重新评估。
+- **证据**：DRIFT-REPORT §5.4 confirm-flow 行；grep backend `auto_approve|10s|countdown` 零命中。
 
 ## F9 🟢 形态 X：网站无对话页/执行页，靠 OpenClacky + MCP
 
@@ -110,7 +119,7 @@
 - **建议方向**：二期实现 tier.limit 时复用报名 A3 的原子扣减模式（唯一索引 + 条件更新），
   现在先在设计中预留"额度扣减"动作接口。
 
-## F12 🟢 教研多人工信号顺序等待：Workflow 层可、Agent 层需拆段
+## F12 ✅ 已闭环（与 F1 同源：Workflow 层顺序 join + 多信号回归测试已内置）
 
 - **图**：`workflow-research.puml`、`template-parameterization.puml`
 - **问题描述**：教研流程含多个顺序人工信号（大纲确认、物料、答疑等）。Workflow 层顺序 join 已证
@@ -120,11 +129,12 @@
 
 ---
 
-## 汇总统计
+## 汇总统计（2026-08-16 漂移对账后更新）
 
-- 🔴 阻断级：1（F1）
-- 🟡 建议 v1 内处理：4（F2、F7、F8、F11）
-- 🟢 已确认/仅记录：7（F3、F4、F5、F6、F9、F10、F12）
+- ✅ 已闭环：4（F1 join 永久绕开+回归测试、F2 deadline 唤醒、F7 approval_timeout 落地、F12 与 F1 同源）
+- ⚪ 更正关闭：1（F8 auto_approve 从未实现）
+- 🟡 仍开放：1（F11 tier.limit 二期并发扣减）
+- 🟢 已确认/仅记录：6（F3、F4、F5、F6、F9、F10）
 
-**建议动作**：F1/F7 需 Leader 或领域建模工程师在 `docs/03-决策记录/开放问题决策清单.md` 中拍板；
-F2/F8/F11 进入 v1 集成测试与实现清单。
+**2026-08-16 漂移对账**：完整对照见 [DRIFT-REPORT.md](./DRIFT-REPORT.md)；本文件所列图已全部
+按 codebase 现状重绘（R1–R10 裁决执行）。剩余动作：F11 随二期 tier.limit 实现。

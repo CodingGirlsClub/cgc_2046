@@ -1,59 +1,82 @@
 @startuml key-routing-isolation
 ' ============================================================
 ' L3 - 实例 key 路由与隔离（教研多实例 + partition）
-' 事实来源：docs/01-定稿设计/教研workflow详细设计.md §2.3/§3.1
-'   + poc-验证报告.md §9.7（verify_8 D-A2c/D-A2d）
-' 机制：InstanceManager keyed singleton（key = event_# / course_#）；
-'   信号 subject = key，SignalMatch 按 key 前缀路由到对应实例 run；
-'   实例级进程隔离 + 产出按 key 落点；partition = 更粗租户维度。
+' 事实来源（代码锚点，2026-08-16 对账）：
+'   backend/lib/cgc_2046/workflows/research_instantiator.ex:16-57,229
+'     （订阅 event.launched/course.launched → find_or_create_and_start；
+'       instance_key/1 派生 "event_#{id}" / "course_#{id}"）
+'   backend/lib/cgc_2046/workflows/workflow_run.ex:695-739
+'     （existing_run 幂等查重：definition_id + 非终态 + input_snapshot["key"]）
+'   backend/lib/cgc_2046/workflows/jido_adapter.ex:577-602,622-640
+'     （feed_signal 门控按 signal_type = workflow.<step_key> 匹配；
+'       partition_key(run_id, partition)）
+'   backend/lib/cgc_2046/workflows/research_run_reaper.ex:15-52
+'     （订阅 event.ended/course.ended → WorkflowRun :cancel）
+'   backend/lib/cgc_2046/workflows/signal_idempotency.ex:18-19
+'     （Postgres 唯一索引 (signal_type, idempotency_key)；Redis 仅备选）
+' 机制：实例 = WorkflowRun DB 行（无常驻进程，每请求执行）；
+'   instance key（event_# / course_#）存 input_snapshot["key"] JSON；
+'   路由 = 信号订阅方按 payload event_id/course_id 解析 → DB 查 run，
+'   run 内门控按 signal_type 匹配；隔离 = 租户 workspace_id + DB 行；
+'   partition = 实体所属 Workspace。
 ' ============================================================
 title 实例 key 路由与隔离（L3）— 教研定义一次多实例
 skinparam backgroundColor white
 
 rectangle "WorkflowDefinition（模板：research）" as TEMPLATE #FDE8F0
 
-package "InstanceManager（keyed singleton）" #E8F0FE {
-    rectangle "实例 A：AgentServer\nkey = course_1" as INST1
-    rectangle "实例 B：AgentServer\nkey = course_2" as INST2
-    rectangle "实例 C：AgentServer\nkey = event_3" as INST3
+package "实例 = WorkflowRun DB 行（key 存 input_snapshot）" #E8F0FE {
+    rectangle "run A（workspace 租户行）\nkey = course_1" as INST1
+    rectangle "run B（workspace 租户行）\nkey = course_2" as INST2
+    rectangle "run C（workspace 租户行）\nkey = event_3" as INST3
 }
 
-package "信号路由（SignalMatch 按 key 前缀）" #F0FDE8 {
-    rectangle "research.outline.submitted\nsubject = course_1" as SIG1
-    rectangle "research.question\nsubject = course_2" as SIG2
-    rectangle "research.materials.submitted\nsubject = event_3" as SIG3
+package "信号路由（订阅方解析 payload → DB 查 run）" #F0FDE8 {
+    rectangle "总线信号 payload\ncourse_id = 1" as SIG1
+    rectangle "总线信号 payload\ncourse_id = 2" as SIG2
+    rectangle "总线信号 payload\nevent_id = 3" as SIG3
 }
 
 package "业务表落点（按 key 隔离）" #FFF7E6 {
-    rectangle "ResearchOutput\nkey = course_1" as OUT1
-    rectangle "ResearchOutput\nkey = course_2" as OUT2
-    rectangle "ResearchOutput\nkey = event_3" as OUT3
+    rectangle "ResearchOutput\ncourse_id = 1" as OUT1
+    rectangle "ResearchOutput\ncourse_id = 2" as OUT2
+    rectangle "ResearchOutput\nevent_id = 3" as OUT3
 }
 
-TEMPLATE -down-> INST1 : build/0 模板实例化（全新不可变 Workflow）
-TEMPLATE -down-> INST2 : build/0 模板实例化
-TEMPLATE -down-> INST3 : build/0 模板实例化
+TEMPLATE -down-> INST1 : find_or_create_and_start\n（existing_run 幂等查重）
+TEMPLATE -down-> INST2 : find_or_create_and_start
+TEMPLATE -down-> INST3 : find_or_create_and_start
 
-SIG1 -right-> INST1 : 路由到 key 匹配实例
-SIG2 -right-> INST2 : 路由到 key 匹配实例
-SIG3 -right-> INST3 : 路由到 key 匹配实例
+SIG1 -right-> INST1 : 订阅方解析 → DB 查 key 匹配 run\n门控按 signal_type 匹配
+SIG2 -right-> INST2 : 订阅方解析 → DB 查 key 匹配 run
+SIG3 -right-> INST3 : 订阅方解析 → DB 查 key 匹配 run
 
 INST1 -down-> OUT1 : 产出写业务表（course_id 落点）
 INST2 -down-> OUT2 : 产出写业务表（course_id 落点）
 INST3 -down-> OUT3 : 产出写业务表（event_id 落点）
 
 note bottom
-  **隔离边界（verify_8 D-A2c 实证）**：隔离 = AgentServer 进程 +
-  strategy state；feed course_1 后其 status=:success 而 course_2 仍
-  :idle（互不污染）；产出按 course_id 写业务表行。
-  **partition 的关系**：partition 是更粗的租户级隔离维度（registry
-  key = {partition, key}，verify_5 已证）；二者可叠加——
-  partition = Course/Event 所属 Workspace（D-A5）。
-  **参数化（D-A2b）**：run input（signal data → fact → ActionNode
-  params merge）注入，Action schema 声明 course_id/event_id 必填，
-  无占位符替换机制。
-  **生命周期（D-A2d）**：event.launched → get 实例化（幂等）；
-  idle 超时 hibernate；event.ended → stop（再次 get 重新实例化）。
+  **实例与隔离（码现状）**：实例 = WorkflowRun DB 行 + 租户
+  workspace_id（Ash multitenancy）；无常驻进程——每次执行 thaw
+  重建（RunAgent 仅是 checkpoint 载体）。原 POC 形态
+  InstanceManager keyed singleton / SignalMatch 前缀路由 /
+  {partition,key} registry 产品未采用。
+  **路由（码现状）**：key 只活在 input_snapshot["key"] JSON；
+  订阅方按 payload event_id/course_id 解析 → DB 查询定位 run；
+  run 内信号门控按 signal_type（workflow.<step_key>）匹配。
+  **幂等承载**：Postgres signal_idempotency 表，唯一索引
+  (signal_type, idempotency_key) claim 兜底；Redis 仅备选未接线。
+  Plug.RequestId 只做日志关联，非幂等层。
+  **partition**：Jido.partition_key(run_id, partition)，partition =
+  实体所属 Workspace（每 workspace 一个 Jido partition，租户级
+  粗粒度隔离，叠加于 run 行隔离之上）。
+  **参数化**：run input（fact → params merge）注入
+  course_id/event_id，Action schema 必填，无占位符替换机制。
+  **生命周期**：event.launched → find_or_create（existing_run 幂等
+  查重：definition_id + 非终态 + key；终态后可重建）→ waiting 即
+  hibernate（CheckpointLifecycle，无 idle 超时）→ event.ended →
+  ResearchRunReaper → WorkflowRun :cancel（含 checkpoint 清理，
+  限 type=research）。
 end note
 
 @enduml

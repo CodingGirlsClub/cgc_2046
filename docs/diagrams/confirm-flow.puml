@@ -1,9 +1,19 @@
 @startuml confirm-flow
 ' ============================================================
 ' L3 - MCP 高风险工具确认流（D8）
-' 事实来源：docs/01-定稿设计/领域模型定稿.md §7.2 + 用户旅程 §J-审批
-' 语义：高风险工具（审批/授权/邀请/策略/删除类）一律走确认流，
-'   网站永远不偷偷执行（无 confirm 不落库）。
+' 事实来源（代码锚点，2026-08-16 对账）：
+'   backend/lib/cgc_2046/mcp/pending_operation.ex:9-18,52
+'     （状态机 one_of [:pending, :confirmed, :cancelled]；
+'       @default_ttl_seconds 600；expired 读时派生）
+'   backend/lib/cgc_2046/mcp/pending_operation/effective_status.ex
+'     （pending 且 expires_at < now → "expired"，不落库）
+'   backend/lib/cgc_2046/mcp/confirmation.ex:59-72,143-147
+'     （confirm 校验本人 + pending + 未过期；唯一执行器子句
+'       execute("create_invitation") + fallback 拒绝）
+'   backend/lib/cgc_2046/mcp/tools/create_invitation.ex:5-7
+'   backend/lib/cgc_2046/mcp/wrapper.ex（ToolCallLog 审计）
+' 语义：高风险工具（当前唯一执行器 = create_invitation）一律走
+'   确认流，网站永远不偷偷执行（无 confirm 不落库）。
 ' 注意：业务审批（报名/赞助/教研材料）走网站后台审批页，不复用本确认流。
 ' ============================================================
 title MCP 高风险工具确认流（L3）— D8
@@ -14,31 +24,37 @@ skinparam backgroundColor white
     participant "网站（MCP server）" as W
     participant "业务库" as DB
 
-    A->>W: 调高风险工具（如 assign_role / create_invitation）
-    W->>W: 建 PendingOperation（pending，不落业务库）
+    A->>W: 调高风险工具（create_invitation —— 唯一确认流执行器）
+    W->>W: 建 PendingOperation（status=pending，不落业务库；TTL 600s）
     W-->>A: needs_confirmation {id, 摘要}
     A->>U: request_user_feedback（确认写入? / 继续讨论?）
     alt 用户点「确认写入」
         U-->>A: 确认写入
-        A->>W: confirm(id)
-        W->>DB: 落业务库 + 审计（ToolCallLog + PendingOperation→confirmed）
-        W-->>A: ok
+        A->>W: confirm_operation(id)
+        W->>W: confirm 校验：本人 + pending + 未过期
+        W->>DB: 分派 create_invitation 落库 + 审计（ToolCallLog）
+        W->>W: PendingOperation → confirmed
+        W-->>A: ok（含业务结果）
     else 用户点「继续讨论」
         U-->>A: 继续讨论
         A->>W: （不调 confirm）
-        W->>W: PendingOperation 保持 pending\n（可再次 confirm 或超时清理）
+        W->>W: PendingOperation 保持 pending；超过 TTL 600s 后\n读时派生 "expired"（不落库，无清理 job）
     else 用户明确取消/关闭
         U-->>A: 取消/关闭
-        W->>W: PendingOperation → rejected\n工具返回取消
+        A->>W: cancel_operation(id)
+        W->>W: PendingOperation → cancelled（无 rejected 态）\n工具返回取消
     end
 
 note bottom
   **要点**：
   - 网站永远不偷偷执行：无 confirm 不落库（D8）
+  - 状态机（码现状）：pending → confirmed | cancelled；过期不是
+    落库状态——读时派生 "expired"（TTL 600s，不落库、无清理
+    job）；confirm 校验「本人 + pending + 未过期」
   - 低风险工具（读 / 创建类）不走确认流，直接执行
-  - 已知风险：auto_approve 模式 10s 倒计时自动决策
-    （二期可加冷却期）
-  - PendingOperation 过期清理 + confirm 幂等/过期处理：编码阶段细化
+  - 高风险面（码现状）：唯一执行器 = create_invitation，确认闭环
+    由 confirm_operation / cancel_operation 两工具承担；F8 原设计
+    auto_approve 未采用（码中无 auto_approve / 倒计时）
   - **业务审批（报名/赞助/教研材料）= 网站后台审批页**，
     非 MCP 管理类、不复用本确认流（用户拍板 2026-08-01）
 end note

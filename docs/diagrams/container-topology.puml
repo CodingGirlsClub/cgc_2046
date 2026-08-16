@@ -1,0 +1,89 @@
+@startuml container-topology
+' ============================================================
+' L0 - 容器拓扑图（C4 Container）
+' 事实来源：仓库顶层结构（backend/ web/ miniprogram/ openclacky-ext/）、
+' backend/config/config.exs（Oban PG-backed）、backend/lib/cgc_2046_web/router.ex
+' （/api/graphql、/mcp、/ops、dev /dev/mailbox）、web/next.config.ts（rewrite）、
+' docs/运维/邮件与CD环境注入.md（SendCloud）、
+' backend/lib/cgc_2046/workflows/signal_idempotency.ex（claim 落 Postgres）。
+' 说明：Redis 仅为幂等层文档备选承载，config 无 Redix 配置——当前唯一
+' 持久层为 Postgres。本图按 codebase 现状绘制（2026-08，develop 72c5924）。
+' ============================================================
+title CGC 平台容器拓扑（C4 Container，L0）
+
+skinparam backgroundColor white
+skinparam rectangle {
+    BackgroundColor #F0FDE8
+    BorderColor #2E7D32
+}
+skinparam database {
+    BackgroundColor #FFF3E0
+    BorderColor #E65100
+}
+skinparam arrow {
+    Color #455A64
+}
+
+actor "用户\n浏览器" as Browser
+actor "微信 / 抖音 /\n小红书客户端" as MP
+actor "OpenClacky\n（用户本机 Agent）" as OC
+
+rectangle "用户侧（BYO，非平台交付物）" as USERSIDE #E8F0FE {
+    rectangle "openclacky-ext/cgc-2046\n（OpenClacky 扩展）\n· connect API 原子写 ~/.clacky/mcp.json\n· panel / agent / skill / hooks" as EXT
+}
+
+rectangle "CGC-2046 平台（仓库交付物）" as PLATFORM #F0FDE8 {
+
+    rectangle "web/\nNext.js 16 + React 19\n+ Apollo Client" as WEB {
+        rectangle "/api/graphql rewrite\n→ backend（同源代理）" as REWRITE
+    }
+
+    rectangle "miniprogram/\nTaro 4 + React 18\n多端：weapp / tt / xhs" as MINI {
+        rectangle "graphql-codegen\n（check:graphql 防漂移）" as CODEGEN
+    }
+
+    rectangle "backend/\nPhoenix + Ash 3" as BE {
+        rectangle "GraphQL API\nAbsinthe @ /api/graphql\n（+ /api/playground dev）" as GQL
+        rectangle "MCP Server\nanubis_mcp streamable HTTP\n@ /mcp（Bearer）" as MCP
+        rectangle "AshAdmin @ /ops\n（admin_browser）" as OPS
+        rectangle "Workflow 引擎\nJido + run/checkpoint\n+ SignalEmitter/六订阅方\n（Phoenix PubSub 进程内总线）" as ENGINE
+        rectangle "Oban Workers\n（PG-backed，无独立队列服务）\nsignal_publish / approval_reminder\n/ reconciliation_scan…" as OBR
+        rectangle "Swoosh 邮件\nSendCloud adapter（prod）\nTest adapter + /dev/mailbox\n（test/dev）" as MAIL
+    }
+
+    database "PostgreSQL\n业务表（Ash multitenancy）\n+ Oban jobs + signal_idempotency\n+ workflow checkpoints" as PG
+}
+
+cloud "SendCloud\napi.sendcloud.net" as SENDCLOUD #FFFDE7
+
+Browser --> WEB : HTTPS（页面）
+MP --> MINI : 宿主渲染
+WEB --> GQL : GraphQL（cookie JWT\nAshAuthentication）
+MINI --> GQL : GraphQL（signInWithPlatform\n+ mini program code）
+OC --> EXT : 本机进程内
+EXT ..> MCP : 配置 MCP URL + token\n（mcp.json 注入后由\nOpenClacky MCP client 连接）
+OC --> MCP : streamable HTTP\nAuthorization: Bearer
+GQL --> ENGINE
+MCP --> ENGINE
+OPS --> PG
+ENGINE --> PG
+OBR --> PG
+ENGINE --> OBR : 入队 / 重投
+MAIL --> SENDCLOUD : Req POST\n（prod only）
+GQL --> MAIL : 业务邮件触发
+
+note right of PG
+  唯一持久层。幂等三层之一
+  （signal claim）落
+  signal_idempotency 表，
+  Postgres 唯一索引兜底。
+  Redis 仅文档备选，未接线。
+end note
+
+note bottom of USERSIDE
+  openclacky-ext 属用户侧扩展
+  （OpenClacky ≥1.3.7），不是
+  平台运行时容器；平台经 MCP
+  工具面与其协作（D6 形态 X）。
+end note
+@enduml

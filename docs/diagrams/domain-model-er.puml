@@ -1,8 +1,10 @@
 @startuml domain-model-er
 ' ============================================================
 ' L1 - 领域模型 ER 图（Domain Model ER）
-' 事实来源：docs/01-定稿设计/领域模型定稿.md §5.2 ER 关系
-' 说明：全局资源（User/Identity/Token/Workspace）不按租户隔离；
+' 事实来源（代码锚点）：backend/lib/cgc_2046/global_api.ex · api.ex · mcp.ex
+'   资源注册清单及各资源模块（漂移复核：DRIFT-EVIDENCE/L1-domain-model.md §1）
+' 说明：全局资源（User/Identity/Token/Workspace/WorkspaceApplication/
+'   AdminActionLog/Reconciliation.Finding）不按租户隔离；
 '   其余实体按租户隔离（tenant_id / partition = Workspace）。
 ' ============================================================
 title CGC 平台领域模型 ER（L1）
@@ -38,6 +40,7 @@ entity "Workspace" as WORKSPACE {
     name : string
     join_policy : open|request|invite_only
     sponsorship_enabled : boolean
+    sponsorship_tiers : json (内嵌档位)
 }
 
 ' ---------- 身份/租户 ----------
@@ -72,14 +75,62 @@ entity "Invitation" as INVITATION {
     inviter_id : uuid <<FK>>
     workspace_id : uuid <<FK>>
     target_email : string
-    status : active|used|revoked
+    status : active|used|revoked|expired
 }
 entity "JoinRequest" as JOINREQUEST {
     * id : uuid <<PK>>
     --
     user_id : uuid <<FK>>
     workspace_id : uuid <<FK>>
-    status : pending|approved|rejected
+    status : pending|approved|rejected|expired
+}
+
+entity "WorkspaceApplication" as WSAPP {
+    * id : uuid <<PK>>
+    --
+    applicant_id : uuid <<FK>>
+    name / slug / purpose
+    status : pending|approved|rejected|expired
+    approved_by / approved_at
+    rejected_by / rejected_at / approval_deadline
+}
+entity "AdminActionLog" as ADMINLOG {
+    * id : uuid <<PK>>
+    --
+    actor_id : uuid  (nil = 系统/CLI)
+    action : workspace_create|application_approve|…
+    target_type : workspace|workspace_application|user
+    target_id : uuid
+    result : success|failure
+}
+entity "PortfolioItem" as PORTFOLIO {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+    workspace_id : uuid <<FK>>
+    title / description / url
+    icon : document|book|guide
+}
+
+' ---------- 小程序 ----------
+entity "MiniprogramCode" as MPCODE {
+    * id : uuid <<PK>>
+    --
+    invitation_id : uuid <<FK>>
+    platform : wechat|tt|xhs
+    scene : string <<UK>>
+    code : binary
+    expires_at : datetime
+    UK (invitation_id, platform)
+}
+entity "NotificationConsent" as MPCONSENT {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+    platform : wechat|tt|xhs
+    template_key : string
+    remaining_uses : integer
+    UK (user_id, platform, template_key)
 }
 
 ' ---------- 引擎 context ----------
@@ -87,9 +138,9 @@ entity "WorkflowDefinition" as WFDEF {
     * id : uuid <<PK>>
     --
     name : string
-    type : platform_ops|learning|enrollment
-          |sponsorship|speaker_invitation|research
-    version : string
+    type : learning|research|speaker_invitation
+          |enrollment|sponsorship (预留)
+    version : integer
     input_schema : json
     node_def : Runic.Workflow
     status : draft|published|archived
@@ -98,10 +149,10 @@ entity "WorkflowRun" as WFRUN {
     * id : uuid <<PK>>
     --
     definition_id : uuid <<FK>>
-    status : pending|running|waiting
+    status : pending|running|waiting|expired
             |succeeded|failed|cancelled
     input_snapshot : json
-    facts : json
+    facts : json  (教研产出按 step_key 聚合)
     partition_id : uuid  (= workspace_id)
     started_at / finished_at
 }
@@ -109,9 +160,8 @@ entity "Step" as STEP {
     * id : uuid <<PK>>
     --
     definition_id : uuid <<FK>>
-    type : auto|manual|gate|subworkflow
+    type : auto|manual|gate|sub_workflow
     title : string
-    agent_id : uuid <<FK>>
     sub_definition_id : uuid <<FK>>
 }
 entity "StepRole" as STEPROLE {
@@ -130,30 +180,24 @@ entity "SignalLog" as SIGNALLOG {
     received_at : datetime
 }
 
-' ---------- Agent / MCP ----------
-entity "Agent" as AGENT {
+entity "SignalIdempotency" as SIGIDEM {
     * id : uuid <<PK>>
     --
-    type : personal|public
-    owner_id : uuid <<FK>>
-    openclacky_profile : string
-    model / system_prompt / skills
+    signal_type : string
+    idempotency_key : string
+    workspace_id : uuid  (观测可空)
+    UK (signal_type, idempotency_key)
 }
-entity "AgentRole" as AGENTROLE {
+entity "Reconciliation.Finding" as FINDING {
     * id : uuid <<PK>>
     --
-    agent_id : uuid <<FK>>
-    role_id : uuid <<FK>>
+    rule : string  (七规则)
+    entity_type / entity_id
+    first_seen_at / last_seen_at
+    UK (rule, entity_type, entity_id)
 }
-entity "AgentRun" as AGENTRUN {
-    * id : uuid <<PK>>
-    --
-    agent_id : uuid <<FK>>
-    step_id : uuid <<FK>>
-    operator_id : uuid <<FK>>
-    summary : string
-    status : pending|running|succeeded|failed
-}
+
+' ---------- MCP ----------
 entity "PendingOperation" as PENDING {
     * id : uuid <<PK>>
     --
@@ -161,7 +205,7 @@ entity "PendingOperation" as PENDING {
     tool : string
     params : json
     summary : string
-    status : pending|confirmed|rejected|cancelled
+    status : pending|confirmed|cancelled
     expires_at : datetime
 }
 entity "ToolCallLog" as TOOLCALL {
@@ -170,8 +214,17 @@ entity "ToolCallLog" as TOOLCALL {
     actor_id : uuid <<FK>>
     tool : string
     params / result : json
-    confirm_id : uuid <<FK>>
-    status : ok|denied|pending|confirmed|rejected
+    pending_operation_id : uuid <<FK>>
+    result_status : ok|error|needs_confirmation|forbidden
+}
+
+entity "McpToken" as MCPTOKEN {
+    * id : uuid <<PK>>
+    --
+    user_id : uuid <<FK>>
+    token_hash : string <<UK>>
+    name : string
+    last_used_at / revoked_at
 }
 
 ' ---------- 业务 ----------
@@ -187,7 +240,7 @@ entity "Event" as EVENT {
     status : draft|open|closed|cancelled
     sponsorship_enabled : boolean
     sponsorship_deadline : datetime
-    materials_review_required : boolean
+    sponsorship_tiers : json (内嵌档位)
 }
 entity "Course" as COURSE {
     * id : uuid <<PK>>
@@ -196,7 +249,6 @@ entity "Course" as COURSE {
     workflow_run_id : uuid <<FK>>
     enrollment_policy / capacity
     registration_deadline / status
-    materials_review_required : boolean
 }
 entity "Enrollment" as ENROLLMENT {
     * id : uuid <<PK>>
@@ -204,7 +256,7 @@ entity "Enrollment" as ENROLLMENT {
     event_id / course_id : uuid <<FK>> (二选一)
     user_id : uuid <<FK>>
     run_id : uuid <<FK>>
-    status : pending|confirmed|rejected|cancelled
+    status : pending|confirmed|rejected|cancelled|expired
     invite_batch_id : uuid <<FK>>
     approved_by / approved_at
     rejection_reason
@@ -226,22 +278,21 @@ entity "Sponsorship" as SPONSORSHIP {
     level : event|workspace
     event_id / workspace_id : uuid <<FK>>
     sponsor_user_id : uuid <<FK>>
-    tier_id : uuid <<FK>>
+    tier_id : uuid  (内嵌档位 id)
     tier_name : string
-    status : pending|active|rejected|ended
+    status : pending|active|rejected|ended|expired
     amount / company_name / contact_email / contact_phone
     approved_by / approved_at / rejection_reason
     workflow_run_id : uuid <<FK>>
 }
-entity "SponsorshipTier" as TIER {
+entity "SponsorshipDelivery" as DELIVERY {
     * id : uuid <<PK>>
     --
-    workspace_id : uuid <<FK>>
-    name : string
-    amount_suggestion : decimal
-    benefits : list
-    limit : integer  (null = 不限, 二期)
-    enabled : boolean
+    sponsorship_id : uuid <<FK>>
+    benefit : string
+    due_date / fulfilled_at
+    proof_note : string
+    exclusive : boolean
 }
 entity "SpeakerInvitation" as SPEAKERINV {
     * id : uuid <<PK>>
@@ -256,17 +307,6 @@ entity "SpeakerInvitation" as SPEAKERINV {
     expires_at : datetime
     workflow_run_id : uuid <<FK>>
 }
-entity "ResearchOutput" as RESEARCHOUT {
-    * id : uuid <<PK>>
-    --
-    key : event_#|course_#
-    event_id / course_id : uuid <<FK>> (二选一)
-    kind : outline|materials|archive
-    status : drafted|ready|archived
-    workflow_run_id : uuid <<FK>>
-    submitted_by : uuid <<FK>>
-    reviewed_by / reviewed_at (仅启用审核)
-}
 
 ' ---------- 关系 ----------
 USER ||--o{ IDENTITY : 认证身份
@@ -276,43 +316,38 @@ USER ||--o{ JOINREQUEST : 提交申请
 USER ||--o{ ENROLLMENT : 报名
 USER ||--o{ SPEAKERINV : 受邀演讲
 USER ||--o{ SPONSORSHIP : 赞助
+USER ||--o{ WSAPP : 申请建台
+USER ||--o{ PORTFOLIO : 作品集
+USER ||--o{ MCPTOKEN : MCP 连接 token
+USER ||--o{ MPCONSENT : 订阅授权
 WORKSPACE ||--o{ WM : 包含成员
 WORKSPACE ||--o{ ROLE : 定义角色
 WORKSPACE ||--o{ WFDEF : 承载流程
-WORKSPACE ||--o{ AGENT : 承载 Agent
 WORKSPACE ||--o{ INVITATION : 发出邀请
+INVITATION ||--o{ MPCODE : 小程序码
 WORKSPACE ||--o{ JOINREQUEST : 收到申请
 WORKSPACE ||--o{ PENDING : 确认流
 WORKSPACE ||--o{ TOOLCALL : 工具调用审计
 WORKSPACE ||--o{ EVENT : 举办活动
 WORKSPACE ||--o{ COURSE : 开设课程
 WORKSPACE ||--o{ SPONSORSHIP : 赞助关系
-WORKSPACE ||--o{ TIER : 配置档位
-TIER ||--o{ SPONSORSHIP : tier_id 关联
 WM ||--o{ MR : 拥有角色
 ROLE ||--o{ MR : 被授予
 WM ||--o| PROFILE : 公开资料
 WFDEF ||--o{ STEP : 分解节点
 WFDEF ||--o{ WFRUN : 实例化
 WFRUN ||--o{ SIGNALLOG : 信号日志
-STEP }o--|| AGENT : 使用(人工步骤)
 STEP ||--o{ STEPROLE : 执行角色
 ROLE ||--o{ STEPROLE : 授权执行
-AGENT ||--o{ AGENTROLE : 独立使用授权
-ROLE ||--o{ AGENTROLE : 授权使用
-AGENT ||--o{ AGENTRUN : 执行记录
-STEP ||--o{ AGENTRUN : 按 Step 聚合
 TOOLCALL }o--o| PENDING : 确认关联
 WFRUN ||--o{ ENROLLMENT : 创建报名
 EVENT ||--o{ ENROLLMENT : 报名
 COURSE ||--o{ ENROLLMENT : 报名
 EVENT ||--o{ SPONSORSHIP : Event 级赞助
+SPONSORSHIP ||--o{ DELIVERY : 履约账本
 EVENT ||--o{ SPEAKERINV : 邀请演讲者
 EVENT ||--o{ INVITEBATCH : 邀请批次
-EVENT ||--o{ RESEARCHOUT : 教研产出
 COURSE ||--o{ INVITEBATCH : 邀请批次
-COURSE ||--o{ RESEARCHOUT : 教研产出
-WFRUN ||--o{ RESEARCHOUT : 创建教研产出
 INVITEBATCH ||--o{ ENROLLMENT : 批次扣减
 
 note bottom of WFRUN
@@ -320,9 +355,12 @@ note bottom of WFRUN
   （每个 Workspace = 一个 Jido partition，D-A5）
   唯一索引要点：
   - Enrollment: (event_id,user_id) / (course_id,user_id)
-  - Sponsorship: (level, target_id, sponsor_user_id)
-  - ResearchOutput: (key, kind)
+    部分唯一（status ∈ pending/confirmed）
+  - Sponsorship: (level, target_id, sponsor_user_id) 部分唯一
   - SpeakerInvitation.token_hash 一次性
+  - SignalIdempotency: (signal_type, idempotency_key)
+  - 赞助档位 = Event/Workspace.sponsorship_tiers 内嵌 json，
+    Sponsorship.tier_id 指向内嵌档位 id（无独立表）
 end note
 
 @enduml

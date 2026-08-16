@@ -7,7 +7,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
 
   ## ADR-0003 纪律
 
-  - **蓝图是数据不是代码**：node_def 只存执行拓扑（步骤顺序/依赖），Step 字段（type/agent_id/
+  - **蓝图是数据不是代码**：node_def 只存执行拓扑（步骤顺序/依赖），Step 字段（type/action/
     sub_definition_id）独立存于 Step 资源。运行时由引擎读取驱动执行，改定义不改代码。
   - **核心是协议不是框架**：本资源只描述「做什么步骤、什么顺序、什么类型」，不内建审批/MCP/审计
     逻辑——这些通过 Step 的 action（指向经 StepHandlerRegistry 注册的模块）外置。
@@ -36,9 +36,9 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
-  # WorkflowDefinition.type 全 6 枚举（领域模型定稿 ER §5.2 权威源）
+  # WorkflowDefinition.type 全 5 枚举（R3 裁决 2026-08-16：删 platform_ops——零驱动的死枚举；
+  # enrollment/sponsorship 为实体自序贯预留，learning/research/speaker_invitation 有 instantiator）
   @type_values [
-    :platform_ops,
     :learning,
     :enrollment,
     :sponsorship,
@@ -70,7 +70,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       writable?: true,
       constraints: [one_of: @type_values],
       description:
-        "workflow 类型：platform_ops 平台运营 / learning 学习 / enrollment 报名 / " <>
+        "workflow 类型：learning 学习 / enrollment 报名 / " <>
           "sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研"
     )
 
@@ -317,7 +317,6 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       title: source_step.title,
       type: source_step.type,
       action: source_step.action,
-      agent_id: source_step.agent_id,
       sub_definition_id: source_step.sub_definition_id,
       input_schema: source_step.input_schema
     }

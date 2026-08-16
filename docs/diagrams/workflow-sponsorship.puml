@@ -1,51 +1,64 @@
 @startuml workflow-sponsorship
 ' ============================================================
-' L2 - 赞助 Workflow DAG（type=sponsorship）
-' 事实来源：docs/01-定稿设计/赞助workflow详细设计.md v1.1 §2.1/§2.2
-' 说明：与报名 request 策略同构（审批两段式）；两级赞助 =
-'   Event 级（单场）+ Workspace 级（长期）；v1 只做意向+审批+权益
-'   生效，不收款（§3.3 资金边界）。
+' L2 - 赞助 Workflow（v1：实体状态机 + 信号，不建 WorkflowRun）
+' 事实来源：backend/lib/cgc_2046/events/sponsorship.ex:33-36,223-291,503-583,
+'   643-660,689-716,732-781 · events/sponsorship_ended_subscriber.ex:12-14 ·
+'   workers/approval_expiry_worker.ex:78-84,190-195
+' 说明：与报名同构（实体自序贯 + SignalEmitter outbox）。
+'   二期引擎化蓝图：workflow_run_id 预留列（sponsorship.ex:65,226-227）。
+'   v1 不收款——无 payment 状态，amount 仅登记；支付/开票 = 二期
+'   （F4：状态机插 payment_pending → paid）。
 ' ============================================================
-title 赞助 Workflow（L2）— 审批两段式
+title 赞助 Workflow（L2）— 实体状态机 + 信号（v1 不建 run）
 skinparam backgroundColor white
 
-' ---------------- 赞助段（Intent 段，Event 级与 Workspace 级共用） ----------------
-partition "赞助段（Intent 段，Event 级与 Workspace 级共用）" #E8F0FE {
-    start
-    :S1 人工步骤：赞助意向提交\nSignalMatch: sponsorship.intent\nStepRole: anyone（公开入口，未登录先注册全局账号）;
-    :S2 自动步骤：输入校验 validate_intent\n（level 必填 / 联系方式必填 /\nsponsorship_enabled = true / 唯一性预检）;
-    if (S3 门控/分支：赞助级别) then (event)
-        :S4 自动步骤：Event 校验 check_event\n（Event 存在 / enabled / 未过 sponsorship_deadline）;
-    else (workspace)
-        :S5 自动步骤：Workspace 校验 check_workspace\n（Workspace 存在 / enabled）;
-    endif
-    :P1 自动步骤：持久化 pending\npersist_sponsorship\n（同步创建 Sponsorship= pending，权益不生效\n唯一索引 (level, target_id, sponsor_user_id)）;
-    :停住：waiting 等审批信号\n（等审批段，hibernate）;
-    stop
-}
+participant "赞助方\n（全局账号）" as SPONSOR
+participant "GraphQL API" as GQL
+participant "Sponsorship Ash action\n（事务内条件 UPDATE）" as ACT
+participant "SignalEmitter\n（事务内 Oban outbox）" as SIG
+participant "审批人\n（Event 级 Owner/Admin，Workspace 级仅 Owner）" as ADMIN
+participant "ApprovalExpiryWorker\n（Oban cron */5min）" as EXP
+participant "SponsorshipEndedSubscriber\n（订阅 event.ended）" as ENDSUB
 
-' ---------------- 审批段（Approval 段，两级共用，参数化审批目标） ----------------
-partition "审批段（Approval 段，两级共用）" #F0FDE8 {
-    start
-    :A1 人工信号门控\nSignalMatch: sponsorship.approved / .rejected\n（网站后台审批页：赞助管理 → pending 列表\nEvent 级 = Owner/Admin；Workspace 级 = 仅 Owner）;
-    if (审批结果) then (approved)
-        :A2 自动步骤：approval_gate\n读回 DB pending Sponsorship 校验\n（仍 pending / 目标有效 / 审批人有权限）;
-        :A3 自动步骤：activate_sponsorship\npending→active 权益生效\n（v1 不限额；tier.limit 二期）\n记 approved_by / approved_at;
-        :A5 自动步骤：发异步 Signal\nsponsorship.active\n（权益展示更新 / 通知 / 财务登记 v1 可选）;
-        stop
-    else (rejected)
-        :A4 自动步骤：reject_sponsorship\npending→rejected，run 终态 failed;
-        stop
-    endif
-}
+== 提交意向（createSponsorship） ==
+SPONSOR ->> GQL: createSponsorship（公开入口，未登录先注册全局账号）
+GQL ->> ACT: create_sponsorship（:223-253）
+ACT ->> ACT: 校验（level 必填 / 联系方式必填 /\nsponsorship_enabled / 唯一性）\n→ status=pending（权益不生效）+ approval_deadline
+ACT ->> SIG: after_action（与实体落库同事务提交）
+SIG ->> SIG: 发 sponsorship.submitted
 
-note right
-  **与报名审批段的差异**：报名 A3 = pending→confirmed 扣名额（并发约束）；
-  赞助 A3 = pending→active 生效权益（无并发扣减；幂等点在"同一 sponsor
-  不重复生效"）。两级赞助流程差异仅审批目标与权限范围不同（用 level
-  参数化审批目标，不拆两个 workflow）。
-  **v1 资金边界**：只做意向 + 审批 + 权益生效，不收款（amount 仅登记）；
-  支付/开票 = 二期（状态机插 payment_pending → paid）。
+== 审批（approveSponsorship / rejectSponsorship） ==
+alt approveSponsorship（通过）
+    ADMIN ->> GQL: approveSponsorship
+    GQL ->> ACT: approve_sponsorship（:255-274）
+    ACT ->> ACT: 条件 UPDATE（:524-546,552-583）\nstatus='pending' 未过期 + 目标开放\n+ 独占档位 NOT EXISTS 双重预定拒绝\n→ status=active + approved_by/at
+    ACT ->> ACT: 同事务 materialize_deliveries\n（:643-660，从 tier.benefits 物化\nSponsorshipDelivery 履约行）\n欠交付 = fulfilled_at 为空自然可见
+    ACT ->> SIG: 发 sponsorship.approved\n+ sponsorship.active
+else (rejectSponsorship 拒绝)
+    ADMIN ->> GQL: rejectSponsorship
+    GQL ->> ACT: reject_sponsorship（:689-716）
+    ACT ->> ACT: 条件 UPDATE → rejected\n（0 行区分 already_processed /\napproval_deadline_passed）
+    ACT ->> SIG: 发 sponsorship.rejected
+end
+
+== 过期（F7：expired ≠ rejected，可重提） ==
+EXP ->> ACT: 扫 pending 且 approval_deadline 过点\n（@expiry_specs SQL 下推过滤）
+ACT ->> ACT: :expire → status=expired\n（可重提，重提走新行）
+
+== 结束（event.ended 级联） ==
+ENDSUB ->> ACT: event.ended → 该 Event 全部 active\nEvent 级 :end → ended\n（Workspace 级长期赞助不受影响）
+note over ENDSUB
+  claim_after_effects 幂等：全部副作用成功才 claim，
+  失败不 claim 等重投（SignalSubscriber 统一骨架）。
+end note
+
+note right of ACT
+  **v1 资金边界（F4）**：只做意向 + 审批 + 权益生效，不收款
+  （amount 仅登记，sponsorship.ex:87-91）；全库无
+  payment 状态。支付/开票 = 二期（状态机插
+  payment_pending → paid）。
+  **二期引擎化蓝图**：workflow_run_id 预留列
+  （sponsorship.ex:65,226-227），v1 实体自序贯不创建 run。
 end note
 
 @enduml
