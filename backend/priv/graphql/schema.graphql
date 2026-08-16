@@ -779,6 +779,15 @@ type Sponsorship {
   targetTitle: String
 }
 
+"The result of the :waive_payment mutation"
+type WaivePaymentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
 "The result of the :cancel_enrollment mutation"
 type CancelEnrollmentResult {
   "The successful result of the mutation"
@@ -821,12 +830,21 @@ type CreateEnrollmentResult {
 
 input CreateEnrollmentInput {
   eventId: ID
+
   courseId: ID
+
   userId: ID!
+
   workflowRunId: ID
+
   submissionPayload: JsonString
+
   approvalDeadline: DateTime
+
   inviteCode: String
+
+  "价格档位 ID（收费活动报名时必填）"
+  tierId: String
 }
 
 enum EnrollmentSortField {
@@ -1427,6 +1445,12 @@ input UpdateCourseInput {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
 }
 
 "The result of the :create_course mutation"
@@ -1466,6 +1490,12 @@ input CreateCourseInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+
   "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
   workspaceId: ID
 }
@@ -1485,6 +1515,7 @@ enum CourseSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  PRICING_ENABLED
 }
 
 "A keyset page of :course"
@@ -1500,6 +1531,19 @@ type KeysetPageOfCourse {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input CourseFilterPricingEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
 }
 
 input CourseFilterRegistrationDeadline {
@@ -1746,6 +1790,9 @@ input CourseFilterInput {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: CourseFilterRegistrationDeadline
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: CourseFilterPricingEnabled
 }
 
 input CourseSortInput {
@@ -1794,6 +1841,14 @@ type Course {
 
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean!
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]!
+
+  availablePriceTiers: [JsonString!]
 }
 
 "The result of the :cancel_event mutation"
@@ -1868,6 +1923,12 @@ input UpdateEventInput {
 
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
 }
 
 "The result of the :create_event mutation"
@@ -1916,6 +1977,12 @@ input CreateEventInput {
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: DateTime
 
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+
   "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
   workspaceId: ID
 }
@@ -1937,6 +2004,7 @@ enum EventSortField {
   REGISTRATION_DEADLINE
   SPONSORSHIP_ENABLED
   SPONSORSHIP_DEADLINE
+  PRICING_ENABLED
 }
 
 "A keyset page of :event"
@@ -1952,6 +2020,19 @@ type KeysetPageOfEvent {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input EventFilterPricingEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
 }
 
 input EventFilterSponsorshipDeadline {
@@ -2230,6 +2311,9 @@ input EventFilterInput {
 
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: EventFilterSponsorshipDeadline
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: EventFilterPricingEnabled
 }
 
 input EventSortInput {
@@ -2287,6 +2371,14 @@ type Event {
 
   "赞助意向截止；nil 表示长期开放"
   sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean!
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]!
+
+  availablePriceTiers: [JsonString!]
 }
 
 enum WorkflowRunSortField {
@@ -4257,6 +4349,312 @@ type User {
   joinedAt: DateTime
 }
 
+"The result of the :refund_order mutation"
+type RefundOrderResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :cancel_order mutation"
+type CancelOrderResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+type ReplaceProviderMetadata {
+  "新渠道支付凭据"
+  credential: JsonString
+}
+
+"The result of the :replace_provider mutation"
+type ReplaceProviderResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+
+  "Metadata produced by the mutation"
+  metadata: ReplaceProviderMetadata
+}
+
+input ReplaceProviderInput {
+  "待替换的旧订单（本人 pending 单）"
+  orderId: ID!
+
+  provider: String!
+}
+
+type CreateOrderMetadata {
+  "渠道支付凭据（jsapi 调起参数 \/ 二维码链接 \/ 跳转 URL）"
+  credential: JsonString
+}
+
+"The result of the :create_order mutation"
+type CreateOrderResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+
+  "Metadata produced by the mutation"
+  metadata: CreateOrderMetadata
+}
+
+input CreateOrderInput {
+  "目标报名（须为本人 payment_pending 报名）"
+  enrollmentId: ID!
+
+  "支付渠道"
+  provider: String!
+}
+
+enum OrderSortField {
+  ID
+  WORKSPACE_ID
+  ENROLLMENT_ID
+  PROVIDER
+  OUT_TRADE_NO
+  TRANSACTION_ID
+  AMOUNT_CENTS
+  TIER_SNAPSHOT
+  STATUS
+  EXPIRE_AT
+  REFUNDED_AT
+  CANCEL_REASON
+}
+
+"A keyset page of :order"
+type KeysetPageOfOrder {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Order!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input OrderFilterCancelReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterRefundedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input OrderFilterExpireAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+}
+
+input OrderFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input OrderFilterTierSnapshot {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString!]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+}
+
+input OrderFilterAmountCents {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+}
+
+input OrderFilterTransactionId {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterOutTradeNo {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterProvider {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+}
+
+input OrderFilterEnrollmentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input OrderFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input OrderFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+}
+
+input OrderFilterInput {
+  and: [OrderFilterInput!]
+  or: [OrderFilterInput!]
+  not: [OrderFilterInput!]
+  id: OrderFilterId
+  workspaceId: OrderFilterWorkspaceId
+  enrollmentId: OrderFilterEnrollmentId
+  provider: OrderFilterProvider
+  outTradeNo: OrderFilterOutTradeNo
+  transactionId: OrderFilterTransactionId
+  amountCents: OrderFilterAmountCents
+  tierSnapshot: OrderFilterTierSnapshot
+  status: OrderFilterStatus
+  expireAt: OrderFilterExpireAt
+  refundedAt: OrderFilterRefundedAt
+  cancelReason: OrderFilterCancelReason
+}
+
+input OrderSortInput {
+  order: SortOrder
+  field: OrderSortField!
+}
+
+type Order {
+  id: ID!
+  workspaceId: ID!
+  enrollmentId: ID!
+  provider: String!
+  outTradeNo: String!
+  transactionId: String
+  amountCents: Int!
+  tierSnapshot: JsonString!
+  status: String!
+  expireAt: DateTime!
+  refundedAt: DateTime
+  cancelReason: String
+}
+
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
@@ -4328,6 +4726,35 @@ type RootQueryType {
 
   "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
   reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "当前用户订单列表（R14）"
+  myOrders(
+    "How to sort the records in the response"
+    sort: [OrderSortInput]
+
+    "A filter to limit the results"
+    filter: OrderFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfOrder
+
+  "订单状态轮询（2s×30s 轻量面，R14）"
+  orderStatus(
+    "A filter to limit the results"
+    filter: OrderFilterInput
+
+    id: ID!
+  ): Order
 
   "按 slug 获取工作台（需登录）"
   getWorkspace(
@@ -5122,6 +5549,18 @@ type RootMutationType {
   "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
   demoteUser(id: ID!): AdminUserPayload
 
+  "报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5\/R6\/R13）"
+  createOrder(input: CreateOrderInput!): CreateOrderResult!
+
+  "换渠道：旧 pending 单 cancelled + 新单（新 out_trade_no），R11"
+  replaceProvider(input: ReplaceProviderInput!): ReplaceProviderResult!
+
+  "报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）"
+  cancelOrder(id: ID!): CancelOrderResult!
+
+  "管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）"
+  refundOrder(id: ID!): RefundOrderResult!
+
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
 
@@ -5204,8 +5643,11 @@ type RootMutationType {
   "Owner\/Admin 拒绝 pending 报名"
   rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
 
-  "报名人取消报名；confirmed 报名释放名额"
+  "报名人取消报名；confirmed\/payment_pending 报名释放名额"
   cancelEnrollment(id: ID!): CancelEnrollmentResult!
+
+  "Owner\/Admin\/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18）"
+  waivePayment(id: ID!): WaivePaymentResult!
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

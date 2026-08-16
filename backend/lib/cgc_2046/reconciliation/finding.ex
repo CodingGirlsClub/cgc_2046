@@ -50,7 +50,10 @@ defmodule Cgc2046.Reconciliation.Finding do
     :open_entity_without_research_definition,
     :nonterminal_research_run_for_closed_entity,
     :dead_letter_job,
-    :learning_run_stalled
+    :learning_run_stalled,
+    # 缴费闭环（U7 落账前置兜底 / U13 规⑦）
+    :payment_amount_mismatch,
+    :payment_recon
   ]
 
   @entity_type_values [
@@ -61,7 +64,8 @@ defmodule Cgc2046.Reconciliation.Finding do
     :event,
     :course,
     :oban_job,
-    :workflow_run
+    :workflow_run,
+    :payment_order
   ]
 
   attributes do

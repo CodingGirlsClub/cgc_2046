@@ -41,7 +41,11 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :admin_promote,
           :admin_demote,
           :owner_reassign,
-          :owner_invitation_cancel
+          :owner_invitation_cancel,
+          :waive_payment,
+          # 缴费闭环 U9：退款治理动作（R15）
+          :order_refund,
+          :order_refund_retry
         ]
       ],
       description: "治理动作类型"
@@ -50,7 +54,9 @@ defmodule Cgc2046.Accounts.AdminActionLog do
     attribute(:target_type, :atom,
       allow_nil?: false,
       public?: true,
-      constraints: [one_of: [:workspace, :workspace_application, :user]],
+      constraints: [
+        one_of: [:workspace, :workspace_application, :user, :enrollment, :order]
+      ],
       description: "目标资源类型"
     )
 

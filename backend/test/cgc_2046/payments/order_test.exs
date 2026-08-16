@@ -1,0 +1,291 @@
+defmodule Cgc2046.Payments.OrderTest do
+  @moduledoc """
+  支付闭环 U1：Order 状态机骨架 + 库级不变量（R11 唯一活跃订单部分索引 /
+  R21 WebhookEvent 幂等去重）。
+
+  全部动作以 authorize?: false 走内部路径（worker/域服务语义）；面向用户的
+  policy 随 U5/U9 暴露时细化。
+  """
+
+  use Cgc2046.DataCase, async: false
+
+  alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Payments.{Order, WebhookEvent}
+
+  describe "状态机：合法迁移" do
+    test "mark_paid：pending → paid，落 transaction_id" do
+      order = order_fixture()
+
+      assert {:ok, paid} = transition(order, :mark_paid, %{transaction_id: "wx-txn-001"})
+      assert paid.status == :paid
+      assert paid.transaction_id == "wx-txn-001"
+    end
+
+    test "cancel：pending → cancelled，落 cancel_reason" do
+      order = order_fixture()
+
+      assert {:ok, cancelled} =
+               transition(order, :cancel, %{cancel_reason: "用户切换支付方式"})
+
+      assert cancelled.status == :cancelled
+      assert cancelled.cancel_reason == "用户切换支付方式"
+    end
+
+    test "expire：pending → expired" do
+      order = order_fixture()
+
+      assert {:ok, expired} = transition(order, :expire)
+      assert expired.status == :expired
+    end
+
+    test "start_refund + refund_succeeded：paid → refunding → refunded，落 refunded_at" do
+      order = paid_order()
+
+      assert {:ok, refunding} = transition(order, :start_refund)
+      assert refunding.status == :refunding
+
+      assert {:ok, refunded} = transition(refunding, :refund_succeeded)
+      assert refunded.status == :refunded
+      refute is_nil(refunded.refunded_at)
+    end
+
+    test "迟到支付自动退款路径（ADR-0007）：expired → refunding → refunded" do
+      order = expired_order()
+
+      assert {:ok, refunding} = transition(order, :start_refund)
+      assert refunding.status == :refunding
+
+      assert {:ok, refunded} = transition(refunding, :refund_succeeded)
+      assert refunded.status == :refunded
+    end
+
+    test "退款失败重试环：refunding → refund_failed →（retry_refund）refunding" do
+      order = refund_failed_order()
+
+      assert {:ok, retrying} = transition(order, :retry_refund)
+      assert retrying.status == :refunding
+
+      assert {:ok, refunded} = transition(retrying, :refund_succeeded)
+      assert refunded.status == :refunded
+    end
+  end
+
+  describe "状态机：非法迁移（DB CAS 拒绝，状态不变）" do
+    test "pending → refunded（refund_succeeded 直跳）拒绝" do
+      order = order_fixture()
+
+      assert {:error, error} = transition(order, :refund_succeeded)
+      assert Exception.message(error) =~ "already been processed"
+      assert reload(order).status == :pending
+    end
+
+    test "paid → cancelled 拒绝（已支付必须走退款）" do
+      order = paid_order()
+
+      assert {:error, error} = transition(order, :cancel, %{cancel_reason: "batch void"})
+      assert Exception.message(error) =~ "already been processed"
+      assert reload(order).status == :paid
+    end
+
+    test "refund_failed → refunded（refund_succeeded 直跳）拒绝" do
+      order = refund_failed_order()
+
+      assert {:error, _} = transition(order, :refund_succeeded)
+      assert reload(order).status == :refund_failed
+    end
+
+    test "expired → cancelled 拒绝（过期单只可进退款或另建新单）" do
+      order = expired_order()
+
+      assert {:error, _} = transition(order, :cancel, %{cancel_reason: "batch void"})
+      assert reload(order).status == :expired
+    end
+
+    test "refunded 终态拒绝一切后续动作" do
+      refunded = refunded_order()
+
+      assert {:error, _} = transition(refunded, :mark_paid, %{transaction_id: "wx-txn-again"})
+      assert {:error, _} = transition(refunded, :cancel, %{cancel_reason: "again"})
+      assert {:error, _} = transition(refunded, :expire)
+      assert {:error, _} = transition(refunded, :start_refund)
+      assert {:error, _} = transition(refunded, :refund_succeeded)
+      assert {:error, _} = transition(refunded, :retry_refund)
+
+      assert reload(refunded).status == :refunded
+    end
+
+    test "cancelled 终态同样拒绝后续动作" do
+      {:ok, cancelled} = transition(order_fixture(), :cancel, %{cancel_reason: "provider switch"})
+
+      assert {:error, _} = transition(cancelled, :mark_paid, %{transaction_id: "wx-txn-again"})
+      assert {:error, _} = transition(cancelled, :expire)
+      assert {:error, _} = transition(cancelled, :start_refund)
+
+      assert reload(cancelled).status == :cancelled
+    end
+  end
+
+  describe "R11：同一 enrollment 至多一笔非终态订单（部分唯一索引）" do
+    test "并存两笔 pending 被拒绝，首笔不受影响" do
+      enrollment = enrollment_fixture()
+      assert {:ok, _first} = create_order(enrollment)
+
+      assert {:error, error} = create_order(enrollment)
+      assert unique_violation?(error, :enrollment_id)
+      assert order_count(enrollment.id) == 1
+    end
+
+    test "cancelled 终态放行新订单（部分索引边界：索引只锁非终态窗口）" do
+      enrollment = enrollment_fixture()
+      {:ok, first} = create_order(enrollment)
+      assert {:ok, _cancelled} = transition(first, :cancel, %{cancel_reason: "provider switch"})
+
+      assert {:ok, second} = create_order(enrollment)
+      assert second.status == :pending
+      assert order_count(enrollment.id) == 2
+    end
+
+    test "expired 单进入 refunding 与既有新 pending 互斥（索引同时守卫 CAS 迁移路径）" do
+      enrollment = enrollment_fixture()
+      {:ok, old} = create_order(enrollment)
+      assert {:ok, expired} = transition(old, :expire)
+
+      # expired 不在索引窗口内 → 允许另建新单
+      assert {:ok, _fresh} = create_order(enrollment)
+
+      # 旧单此时进退款会让同一 enrollment 出现两笔非终态 → 唯一索引拒绝
+      assert {:error, _} = transition(expired, :start_refund)
+      assert reload(expired).status == :expired
+    end
+  end
+
+  describe "R21：WebhookEvent (provider, event_id) 幂等去重" do
+    test "重复 (provider, event_id) 插入被拒；不同 provider 同 event_id 可并存" do
+      assert {:ok, _} = create_webhook_event(:wechat, "evt-dup-1")
+
+      assert {:error, error} = create_webhook_event(:wechat, "evt-dup-1")
+      assert unique_violation?(error)
+
+      assert {:ok, _} = create_webhook_event(:alipay, "evt-dup-1")
+      assert webhook_event_count() == 2
+    end
+  end
+
+  # ── 布置与断言帮手 ─────────────────────────────────────────────────────────
+
+  defp enrollment_fixture do
+    admin = Fixtures.platform_admin("payments-admin")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+    learner = Fixtures.register_user("payments-learner")
+
+    {:ok, enrollment} = create_enrollment(event, learner)
+    enrollment
+  end
+
+  defp create_enrollment(event, user) do
+    Enrollment
+    |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
+    |> Ash.create(tenant: event.workspace_id, actor: user)
+  end
+
+  defp order_fixture do
+    {:ok, order} = enrollment_fixture() |> create_order()
+    order
+  end
+
+  defp create_order(enrollment, attrs \\ %{}) do
+    attrs =
+      Map.merge(
+        %{
+          enrollment_id: enrollment.id,
+          provider: :wechat_jsapi,
+          out_trade_no: "CGC" <> String.replace(Ecto.UUID.generate(), "-", ""),
+          amount_cents: 19_900,
+          expire_at: DateTime.add(DateTime.utc_now(), 2, :hour)
+        },
+        attrs
+      )
+
+    Order
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(tenant: enrollment.workspace_id, authorize?: false)
+  end
+
+  defp paid_order do
+    transition!(order_fixture(), :mark_paid, %{transaction_id: "wx-txn-fixture"})
+  end
+
+  defp expired_order, do: transition!(order_fixture(), :expire)
+
+  defp refund_failed_order do
+    order_fixture()
+    |> transition!(:mark_paid, %{transaction_id: "wx-txn-fixture"})
+    |> transition!(:start_refund)
+    |> transition!(:mark_refund_failed)
+  end
+
+  defp refunded_order do
+    order_fixture()
+    |> transition!(:mark_paid, %{transaction_id: "wx-txn-fixture"})
+    |> transition!(:start_refund)
+    |> transition!(:refund_succeeded)
+  end
+
+  defp transition(order, action, args \\ %{}) do
+    order
+    |> Ash.Changeset.for_update(action, args)
+    |> Ash.update(tenant: order.workspace_id, authorize?: false)
+  end
+
+  defp transition!(order, action, args \\ %{}) do
+    {:ok, updated} = transition(order, action, args)
+    updated
+  end
+
+  defp create_webhook_event(provider, event_id) do
+    WebhookEvent
+    |> Ash.Changeset.for_create(:create, %{
+      provider: provider,
+      event_id: event_id,
+      payload: %{"raw" => "callback payload"}
+    })
+    |> Ash.create(authorize?: false)
+  end
+
+  defp reload(order) do
+    Ash.get!(Order, order.id, tenant: order.workspace_id, authorize?: false)
+  end
+
+  defp order_count(enrollment_id) do
+    %{rows: [[count]]} =
+      Repo.query!("SELECT count(*) FROM payments_orders WHERE enrollment_id = $1", [
+        Repo.uuid!(enrollment_id)
+      ])
+
+    count
+  end
+
+  defp webhook_event_count do
+    %{rows: [[count]]} = Repo.query!("SELECT count(*) FROM payments_webhook_events", [])
+    count
+  end
+
+  # ash_postgres 把 PG unique violation 映射为带 constraint_type: :unique 的
+  # Ash 错误（单列 identity → InvalidAttribute{field: ...}；复合 identity 走
+  # 其它形状，故 field 可选）。
+  defp unique_violation?(%Ash.Error.Invalid{errors: errors}, field \\ nil) do
+    Enum.any?(errors, fn
+      %{field: f, private_vars: vars} when field in [nil, f] ->
+        Keyword.get(vars || [], :constraint_type) == :unique
+
+      %{private_vars: vars} when is_nil(field) ->
+        Keyword.get(vars || [], :constraint_type) == :unique
+
+      _ ->
+        false
+    end)
+  end
+end

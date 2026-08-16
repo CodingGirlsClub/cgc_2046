@@ -258,4 +258,24 @@ if config_env() == :prod do
   #     config :swoosh, :api_client, Swoosh.ApiClient.Req
   #
   # See https://swoosh.hexdocs.pm/Swoosh.html#module-installation for details.
+
+  # 缴费闭环 U4（KTD7）：渠道密钥同 SendCloud 模式——环境变量注入，不进 git。
+  # 与 SendCloud 不同处：真实小额验收上线前，密钥允许缺席（adapter 返回
+  # :provider_not_configured，boot 不崩），验收后补齐环境变量即启用。
+  config :cgc_2046,
+    wechat_pay: [
+      mch_id: System.get_env("WECHAT_PAY_MCH_ID"),
+      appid: System.get_env("WECHAT_PAY_APPID"),
+      api_v3_key: System.get_env("WECHAT_PAY_API_V3_KEY"),
+      client_serial_no: System.get_env("WECHAT_PAY_CLIENT_SERIAL_NO"),
+      client_private_key: System.get_env("WECHAT_PAY_CLIENT_PRIVATE_KEY"),
+      webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL")
+    ],
+    alipay_pay: [
+      app_id: System.get_env("ALIPAY_APP_ID"),
+      private_key: System.get_env("ALIPAY_PRIVATE_KEY"),
+      public_key: System.get_env("ALIPAY_PUBLIC_KEY"),
+      webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL"),
+      return_url: System.get_env("ALIPAY_RETURN_URL")
+    ]
 end

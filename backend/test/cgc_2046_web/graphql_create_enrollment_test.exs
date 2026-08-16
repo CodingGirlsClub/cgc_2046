@@ -260,6 +260,32 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
     id
   end
 
+  # ── 收费报名（U3）：HTTP 面进入 payment_pending ──────────────────────────────
+
+  test "收费 open 活动：HTTP mutation 占位后进 payment_pending（R5）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    tier_id = Ecto.UUID.generate()
+
+    event =
+      EventFixtures.create_event(workspace, admin, %{
+        capacity: 1,
+        pricing_enabled: true,
+        price_tiers: [%{"id" => tier_id, "name" => "标准", "amount_cents" => 19_900}]
+      })
+
+    learner = Fixtures.register_user("gql-enroll-paid")
+
+    response = graphql(create_mutation(event, learner, tier_id: tier_id), sign_in_token(learner))
+
+    assert %{"data" => %{"createEnrollment" => %{"result" => result, "errors" => []}}} =
+             response
+
+    assert result["status"] == "payment_pending"
+    assert result["capacitySeq"] == 1
+    assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+  end
+
   defp create_mutation(event, user, extra \\ []) do
     invite_code_input =
       case Keyword.get(extra, :invite_code) do
@@ -267,9 +293,15 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
         code -> ", inviteCode: \"#{code}\""
       end
 
+    tier_id_input =
+      case Keyword.get(extra, :tier_id) do
+        nil -> ""
+        tier_id -> ", tierId: \"#{tier_id}\""
+      end
+
     """
     mutation {
-      createEnrollment(input: {eventId: "#{event.id}", userId: "#{user.id}"#{invite_code_input}}) {
+      createEnrollment(input: {eventId: "#{event.id}", userId: "#{user.id}"#{invite_code_input}#{tier_id_input}}) {
         result { id status capacitySeq workspaceId inviteBatchId approvalDeadline }
         errors { message }
       }

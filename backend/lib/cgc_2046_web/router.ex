@@ -47,6 +47,18 @@ defmodule Cgc2046Web.Router do
     forward("/", Anubis.Server.Transport.StreamableHTTP.Plug, server: Cgc2046.Mcp.Server)
   end
 
+  # 渠道回调（缴费闭环 U6，KTD4）：不过 :graphql（无 actor），鉴权 = 渠道验签；
+  # raw body 验签依赖 endpoint 全局 body_reader 缓存（CachingBodyReader）。
+  pipeline :webhooks do
+    plug(:accepts, ["json"])
+  end
+
+  scope "/api/payments/webhooks", Cgc2046Web do
+    pipe_through(:webhooks)
+
+    post("/:provider", PaymentWebhookController, :handle)
+  end
+
   scope "/api", Cgc2046Web do
     pipe_through([:api, :graphql])
 
