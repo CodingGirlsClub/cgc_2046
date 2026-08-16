@@ -1,0 +1,74 @@
+@startuml deployment-view
+' ============================================================
+' L0 - 部署视图（C4 Deployment / 4+1 Physical / arc42 §8）
+' 事实来源：docs/运维/邮件与CD环境注入.md（五值注入契约 + CI 边界 +
+' 「当前仓库无部署信号（无 vercel/fly/docker 配置）」现状声明）、
+' .github/workflows/ci.yml、backend/config/{config,dev,test,runtime}.exs、
+' web/next.config.ts（BACKEND_URL）。
+' 本图如实呈现「未部署」现状 + prod 就绪契约；未来 deploy 骨架以
+' 虚线标注（运维文档 §2 模板）。
+' ============================================================
+title CGC 平台部署视图（现状：无生产部署，CD 契约就绪）
+
+skinparam backgroundColor white
+skinparam rectangle {
+    BackgroundColor #F0FDE8
+    BorderColor #2E7D32
+}
+skinparam database {
+    BackgroundColor #FFF3E0
+    BorderColor #E65100
+}
+skinparam node {
+    BackgroundColor #E8F0FE
+    BorderColor #1A73E8
+}
+skinparam arrow {
+    Color #455A64
+}
+
+node "GitHub\n（代码托管 + CI/CD）" as GH {
+    rectangle "repo\ncgc_2046\n（backend/web/\nminiprogram/\nopenclacky-ext）" as REPO
+    rectangle "Actions: ci.yml\n· backend MIX_ENV=test\n· gitleaks（fail-closed）\n· web / miniprogram check:ci\n────\n不注入任何 SENDCLOUD_*" as CI
+    rectangle "Environments:\nproduction\n（未来 deploy 用；\nSecrets/Variables 挂此）" as ENV #FFFDE7
+    REPO --> CI : push / PR
+}
+
+node "开发机（dev / test）" as DEVBOX {
+    rectangle "backend :4000\nmix phx.server\n（dev）" as BEDEV
+    rectangle "web :3000\nnext dev\n（rewrite → :4000）" as WEBDEV
+    rectangle "Postgres\n（本地实例）" as PGDEV
+    rectangle "Swoosh Test adapter\n+ /dev/mailbox 预览\n（不触 SendCloud）" as MAILDEV
+    WEBDEV --> BEDEV
+    BEDEV --> PGDEV
+    BEDEV --> MAILDEV
+}
+
+cloud "SendCloud\napi.sendcloud.net" as SENDCLOUD #FFFDE7
+
+rectangle "生产部署目标\n（未确定；无 vercel/fly/docker 配置）" as PROD #FFFDE7 {
+    rectangle "backend release\nMIX_ENV=prod mix release\n────\nruntime.exs fail-fast：\n缺任一必填值启动即 raise\n· WEB_BASE_URL（强制 HTTPS）\n· SENDCLOUD_API_USER/API_KEY\n  （Secrets）\n· SENDCLOUD_FROM/FROM_NAME\n  （Variables）" as BEPROD
+    database "Postgres\n（唯一持久层：业务表\n+ Oban jobs\n+ signal_idempotency\n+ checkpoints）" as PGPROD
+    BEPROD --> PGPROD
+    BEPROD --> SENDCLOUD : Req POST\n/apiv2/mail/send
+}
+
+CI ..> PROD : 未来 deploy workflow\n（environment: production，\n运维文档 §2 骨架，未接线）
+
+note right of PROD
+  已知风险（运维文档 §3）：
+  密码重置邮件 Task.start
+  fire-and-forget——失败不重试、
+  不告警、无持久化队列。
+  上线前需裁决是否接
+  持久化队列/重试。
+end note
+
+note bottom of ENV
+  硬约束：密钥只进 Secrets，
+  绝不进 Variables（vars 明文
+  出现在 runner 环境与审计日志）。
+  真实创建推迟到部署目标确定
+  （当前无消费方，建了是死配置）。
+end note
+@enduml
