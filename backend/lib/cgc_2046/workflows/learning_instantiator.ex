@@ -79,7 +79,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   # find_or_create run。任一环节失败返回 `:ok`（best-effort，不抛错；失败可见性
   # 交给对账扫描 E-10）。
   defp instantiate(enrollment_id, data) do
-    with {:ok, %Enrollment{} = enrollment} <- fetch_enrollment(enrollment_id),
+    with {:ok, %Enrollment{} = enrollment} <- Enrollment.anchor(data),
          :ok <- ensure_confirmed(enrollment),
          {:ok, entity} <- fetch_entity(enrollment),
          {:ok, %WorkflowDefinition{} = defn} <- fetch_learning_definition(entity.workspace_id),
@@ -137,15 +137,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   # --- 私有实现 --------------------------------------------------------------
 
   # 孤儿防护：信号先于报名事务提交发布时，enrollment 可能不存在或未 confirmed。
-  # Enrollment 是 global?(true) 租户资源，PK 全局唯一，可不带 tenant 读。
-  defp fetch_enrollment(enrollment_id) do
-    case Ash.get(Enrollment, enrollment_id, authorize?: false) do
-      {:ok, %Enrollment{} = enrollment} -> {:ok, enrollment}
-      {:ok, nil} -> {:error, :enrollment_not_found}
-      {:error, _} -> {:error, :enrollment_not_found}
-    end
-  end
-
+  # 读取委托 Enrollment.anchor/1（锚定单源，架构深化 E）。
   defp ensure_confirmed(%Enrollment{status: :confirmed}), do: :ok
 
   defp ensure_confirmed(%Enrollment{status: status}),
@@ -188,21 +180,26 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   # ensure_confirmed 与 INSERT 之间的窗口内报名可能转 cancelled（取消联动属 E-2
   # 范围）——创建前重读 enrollment 二次校验（对齐 research BLOCKING 3 修复）；
   # 残余极小窗口由对账扫描（E-10）兜底。前置守卫留调用侧（PR-F D5）——统一入口
-  # 只内化 create→start 顺序与非终态去重。
+  # 只内化 create→start 顺序与非终态去重。读取委托 Enrollment.anchor/1（锚定
+  # 单源，架构深化 E）。
   defp ensure_create_guards(input) do
-    with {:ok, %Enrollment{} = enrollment} <- fetch_enrollment(input_enrollment_id(input)),
+    with {:ok, %Enrollment{} = enrollment} <- Enrollment.anchor(input),
          :ok <- ensure_confirmed(enrollment) do
       :ok
     end
   end
 
   # instance key 派生（"enrollment_#{enrollment_id}"；input 自带 key 时原样使用）。
+  # 双键提取委托 Enrollment.anchored_id/1（单源，架构深化 E）。
   defp instance_key(input) do
     Map.get(input, "key") || Map.get(input, :key) ||
-      "enrollment_#{Map.get(input, "enrollment_id") || Map.get(input, :enrollment_id)}"
+      "enrollment_#{input_enrollment_id(input)}"
   end
 
   defp input_enrollment_id(input) do
-    Map.get(input, "enrollment_id") || Map.get(input, :enrollment_id)
+    case Enrollment.anchored_id(input) do
+      {:ok, enrollment_id} -> enrollment_id
+      {:error, :no_enrollment_anchor} -> nil
+    end
   end
 end

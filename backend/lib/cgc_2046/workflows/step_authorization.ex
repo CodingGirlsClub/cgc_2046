@@ -111,16 +111,15 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   不命中而拒绝时，学习 run 仍放行学员本人（协议必然推论——学习执行在
   学员侧 BYO，学员必须能写自己的进度账本）。
 
-  判定链：run 定义 `type = :learning` → `run.input_snapshot["enrollment_id"]`
-  → Enrollment `status = :confirmed` 且 `user_id = actor.id`。
-  任何读取失败 fail-closed（false）。
+  判定链：run 定义 `type = :learning` → `Enrollment.anchor(run.input_snapshot)`
+  （锚定单源，架构深化 E）→ Enrollment `status = :confirmed` 且
+  `user_id = actor.id`。任何读取失败 fail-closed（false）。
   """
   @spec enrolled_learner?(term(), String.t(), WorkflowRun.t()) :: boolean()
   def enrolled_learner?(%{id: actor_id}, workspace_id, %WorkflowRun{} = run)
       when is_binary(workspace_id) do
     with {:ok, _defn} <- learning_definition?(run, workspace_id),
-         enrollment_id when is_binary(enrollment_id) <- enrollment_id_of(run),
-         {:ok, enrollment} <- fetch_enrollment(enrollment_id) do
+         {:ok, %Enrollment{} = enrollment} <- Enrollment.anchor(run.input_snapshot) do
       enrollment.status == :confirmed and enrollment.user_id == actor_id
     else
       _ -> false
@@ -137,18 +136,6 @@ defmodule Cgc2046.Workflows.StepAuthorization do
          ) do
       {:ok, %{type: :learning} = defn} -> {:ok, defn}
       _ -> :error
-    end
-  end
-
-  defp enrollment_id_of(%WorkflowRun{input_snapshot: snapshot}) when is_map(snapshot),
-    do: Map.get(snapshot, "enrollment_id")
-
-  defp enrollment_id_of(_), do: nil
-
-  defp fetch_enrollment(enrollment_id) do
-    case Ash.get(Enrollment, enrollment_id, authorize?: false) do
-      {:ok, enrollment} -> {:ok, enrollment}
-      {:error, _} -> :error
     end
   end
 
