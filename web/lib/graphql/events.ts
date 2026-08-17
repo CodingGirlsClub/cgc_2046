@@ -422,6 +422,10 @@ export interface PublicOfferingItem {
   visibility: Visibility;
   enrollmentPolicy: EnrollmentPolicy;
   registrationDeadline: string | null;
+  /** 是否收费（公开报名面收费项须选档；R4 免费零变化） */
+  pricingEnabled?: boolean | null;
+  /** 可售价格档位（JsonString 数组，后端已过滤过期档，R2；解析见 lib/payment.parsePriceTiers） */
+  availablePriceTiers?: string[] | null;
   /** 是否开放赞助入口（仅 event 有；E-3 #48） */
   sponsorshipEnabled?: boolean;
   /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */

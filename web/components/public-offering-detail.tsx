@@ -30,6 +30,7 @@ import {
 } from "@/lib/graphql/events";
 import EventStatusTag from "@/components/event-status-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
+import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import { formatDeadline } from "@/lib/events";
 
 interface DetailState {
@@ -55,10 +56,13 @@ export default function PublicOfferingDetailPage({
   });
   const [inviteCode, setInviteCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tierId, setTierId] = useState<string | null>(null);
   const [submitState, setSubmitState] = useState<{
-    kind: "idle" | "confirmed" | "pending" | "error";
+    kind: "idle" | "confirmed" | "pending" | "payment_pending" | "error";
     message: string | null;
-  }>({ kind: "idle", message: null });
+    /** payment_pending 态的去支付入口目标（R5 报名 id） */
+    enrollmentId: string | null;
+  }>({ kind: "idle", message: null, enrollmentId: null });
 
   useEffect(() => {
     if (!slug) return;
@@ -99,34 +103,69 @@ export default function PublicOfferingDetailPage({
     offering.sponsorshipEnabled === true &&
     sponsorshipTiers.length > 0;
 
+  // 收费目标：可售档位（R2 后端 availablePriceTiers 已过滤过期档，公开报名面
+  // 只展示未过期档）与所选档（R5 报名须选档，e2e #3）
+  const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   async function submit() {
     if (!offering || !authed || !userId) return;
+    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）；全过期档
+    // 由 priceTiers.length === 0 的表单分支挡住，此处防御重复
+    if (offering.pricingEnabled && !tierId) {
+      setSubmitState({
+        kind: "error",
+        message: "请先选择价格档位",
+        enrollmentId: null,
+      });
+      return;
+    }
     setBusy(true);
-    setSubmitState({ kind: "idle", message: null });
+    setSubmitState({ kind: "idle", message: null, enrollmentId: null });
     try {
       const res = await submitEnrollment({
         eventId: kind === "event" ? offering.id : undefined,
         courseId: kind === "course" ? offering.id : undefined,
         userId,
         inviteCode: inviteCode === "" ? null : inviteCode,
+        tierId,
       });
       if (res.result) {
-        const pending = res.result.status === "pending";
-        setSubmitState({
-          kind: pending ? "pending" : "confirmed",
-          message: pending ? "申请已提交，等待审批" : "报名成功",
-        });
-        if (!pending) router.refresh();
+        const status = res.result.status;
+        if (status === "payment_pending") {
+          setSubmitState({
+            kind: "payment_pending",
+            message: "名额已保留，请在限定时间内完成支付",
+            enrollmentId: res.result.id,
+          });
+        } else if (status === "pending") {
+          setSubmitState({
+            kind: "pending",
+            message: "申请已提交，等待审批",
+            enrollmentId: null,
+          });
+        } else {
+          setSubmitState({
+            kind: "confirmed",
+            message: "报名成功",
+            enrollmentId: null,
+          });
+          router.refresh();
+        }
       } else {
-        setSubmitState({
-          kind: "error",
-          message: res.errors[0]?.message ?? "提交失败",
-        });
+        // :tier_id_required / :tier_not_available 等 AshGraphql 字段级错误
+        // 映射为可读文案；未知错误走兜底，不透传 GraphQL 原文
+        const raw = res.errors[0]?.message ?? "提交失败";
+        const message = /price tier is required/.test(raw)
+          ? "该报名为收费项，请先选择价格档位。"
+          : /tier is not available/.test(raw)
+            ? "所选档位已过期或不可用，请重新选择。"
+            : raw;
+        setSubmitState({ kind: "error", message, enrollmentId: null });
       }
     } catch (e: unknown) {
       setSubmitState({
         kind: "error",
         message: e instanceof Error ? e.message : "提交失败",
+        enrollmentId: null,
       });
     } finally {
       setBusy(false);
@@ -200,22 +239,35 @@ export default function PublicOfferingDetailPage({
                   </p>
                 </div>
               ) : submitState.kind === "confirmed" ||
-                submitState.kind === "pending" ? (
+                submitState.kind === "pending" ||
+                submitState.kind === "payment_pending" ? (
                 <div className="text-sm" role="status">
                   <p className="font-medium">
                     {submitState.kind === "confirmed"
                       ? "✓ 报名成功"
-                      : "✓ 申请已提交"}
+                      : submitState.kind === "payment_pending"
+                        ? "⏳ 待支付（名额已保留）"
+                        : "✓ 申请已提交"}
                   </p>
                   <p className="mt-1 text-[13px] text-ink-3">
                     {submitState.message}
                   </p>
-                  <Link
-                    href="/participations"
-                    className="mt-3 inline-block text-[13px] text-accent hover:underline"
-                  >
-                    在「我的参与」查看报名状态
-                  </Link>
+                  {submitState.kind === "payment_pending" &&
+                  submitState.enrollmentId ? (
+                    <Link
+                      href={`/orders/new?enrollmentId=${submitState.enrollmentId}`}
+                      className="join-button join-button--primary mt-3 inline-block"
+                    >
+                      去支付
+                    </Link>
+                  ) : (
+                    <Link
+                      href="/participations"
+                      className="mt-3 inline-block text-[13px] text-accent hover:underline"
+                    >
+                      在「我的参与」查看报名状态
+                    </Link>
+                  )}
                 </div>
               ) : (
                 <div className="grid gap-3">
@@ -230,6 +282,40 @@ export default function PublicOfferingDetailPage({
                         className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
                       />
                     </label>
+                  ) : null}
+                  {offering.pricingEnabled ? (
+                    <fieldset className="grid gap-2" data-testid="price-tier-picker">
+                      <legend className="text-[13px] text-ink-3">选择价格档位</legend>
+                      {priceTiers.length === 0 ? (
+                        <p className="text-[13px] text-ink-3" data-testid="no-available-tier">
+                          当前无可售档位，请联系组织者。
+                        </p>
+                      ) : (
+                        priceTiers.map((tier) => (
+                          <label
+                            key={tier.id}
+                            className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
+                              tierId === tier.id
+                                ? "border-line-strong bg-soft-2 text-ink"
+                                : "border-line bg-card text-ink-2"
+                            }`}
+                            data-testid={`price-tier-${tier.id}`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name="price-tier"
+                                value={tier.id}
+                                checked={tierId === tier.id}
+                                onChange={() => setTierId(tier.id)}
+                              />
+                              {tier.name}
+                            </span>
+                            <span className="font-medium">¥{formatAmount(tier.amountCents)}</span>
+                          </label>
+                        ))
+                      )}
+                    </fieldset>
                   ) : null}
                   {offering.enrollmentPolicy === "request" ? (
                     <p className="text-[13px] text-ink-3">
