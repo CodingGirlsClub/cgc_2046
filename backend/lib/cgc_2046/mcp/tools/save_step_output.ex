@@ -21,7 +21,7 @@ defmodule Cgc2046.Mcp.Tools.SaveStepOutput do
   终态保护：run 处于 cancelled/failed/succeeded 等终态时拒绝写入（返回 error），
   避免伪造状态流转——终态写入需求待切片 E workflow 演进再定。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Workflows.StepAuthorization

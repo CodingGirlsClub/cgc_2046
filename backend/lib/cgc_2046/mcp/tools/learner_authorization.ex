@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   @moduledoc """
   课程学习工具的授权判定(切片 H U3, #180;KTD2)。
 
-  三层授权的工具层(Wrapper `@membership_deferred` 名单之后):
+  三层授权的工具层(工具 `meta: %{membership: :deferred}` 声明、Wrapper 派生门控之后):
 
   - workspace 成员(tutor/教研编辑/管理面);
   - 本人 confirmed enrollment(事件级参与者,非成员);
