@@ -50,7 +50,9 @@ defmodule Cgc2046.Payments.Order do
       allow_nil?: false,
       public?: true,
       writable?: true,
-      constraints: [one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap]]
+      constraints: [
+        one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap, :alipay_qr]
+      ]
     )
 
     attribute(:out_trade_no, :string,
@@ -196,7 +198,9 @@ defmodule Cgc2046.Payments.Order do
 
       argument(:provider, :atom,
         allow_nil?: false,
-        constraints: [one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap]],
+        constraints: [
+          one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap, :alipay_qr]
+        ],
         description: "支付渠道"
       )
 
@@ -220,7 +224,9 @@ defmodule Cgc2046.Payments.Order do
 
       argument(:provider, :atom,
         allow_nil?: false,
-        constraints: [one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap]]
+        constraints: [
+          one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap, :alipay_qr]
+        ]
       )
 
       metadata :credential, :map do
@@ -536,18 +542,23 @@ defmodule Cgc2046.Payments.Order do
     enrollment_id = Ash.Changeset.get_argument(changeset, :enrollment_id)
     provider = Ash.Changeset.get_argument(changeset, :provider)
 
+    # out_trade_no 单点生成：先定号再传渠道与落库——两处分别生成会导致
+    # 「渠道单号 ≠ 库内单号」（真实验收实证：支付回调按渠道单号查库必 404，
+    # 形成渠道有我无孤儿单）。故先生成，channel_create_payment 与 force_change 共用。
+    out_trade_no = generate_out_trade_no()
+
     with {:ok, enrollment} <- load_enrollment(enrollment_id),
          :ok <- enrollee_only(enrollment, actor),
          :ok <- payment_pending_only(enrollment),
          {:ok, target} <- load_target(enrollment),
          {:ok, tier} <- resolve_tier(enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
-         {:ok, credential} <- channel_create_payment(provider, enrollment, tier) do
+         {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no) do
       changeset
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
       |> Ash.Changeset.force_change_attribute(:provider, provider)
-      |> Ash.Changeset.force_change_attribute(:out_trade_no, generate_out_trade_no())
+      |> Ash.Changeset.force_change_attribute(:out_trade_no, out_trade_no)
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
       |> Ash.Changeset.force_change_attribute(:tier_snapshot, tier)
       |> Ash.Changeset.force_change_attribute(:expire_at, expire_at)
@@ -565,19 +576,21 @@ defmodule Cgc2046.Payments.Order do
     order_id = Ash.Changeset.get_argument(changeset, :order_id)
     provider = Ash.Changeset.get_argument(changeset, :provider)
 
+    out_trade_no = generate_out_trade_no()
+
     with {:ok, old_order} <- load_order(order_id),
          {:ok, enrollment} <- load_enrollment(old_order.enrollment_id),
          :ok <- enrollee_only(enrollment, actor),
          {:ok, target} <- load_target(enrollment),
          {:ok, tier} <- resolve_tier(enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
-         {:ok, credential} <- channel_create_payment(provider, enrollment, tier),
+         {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no),
          :ok <- cancel_old_order(order_id) do
       changeset
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
       |> Ash.Changeset.force_change_attribute(:provider, provider)
-      |> Ash.Changeset.force_change_attribute(:out_trade_no, generate_out_trade_no())
+      |> Ash.Changeset.force_change_attribute(:out_trade_no, out_trade_no)
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
       |> Ash.Changeset.force_change_attribute(:tier_snapshot, tier)
       |> Ash.Changeset.force_change_attribute(:expire_at, expire_at)
@@ -749,7 +762,7 @@ defmodule Cgc2046.Payments.Order do
 
   # 渠道下单（事务内；失败回滚 = 无凭据无订单）。JSAPI 需要报名者的微信 openid
   # （小程序 identity，下单参数由本处提供，KTD3）。
-  defp channel_create_payment(provider, enrollment, tier) do
+  defp channel_create_payment(provider, enrollment, tier, out_trade_no) do
     ctx =
       if provider == :wechat_jsapi do
         with {:ok, openid} <- wechat_openid(enrollment.user_id), do: {:ok, %{openid: openid}}
@@ -760,7 +773,7 @@ defmodule Cgc2046.Payments.Order do
     with {:ok, ctx} <- ctx do
       order_shape = %{
         provider: provider,
-        out_trade_no: generate_out_trade_no(),
+        out_trade_no: out_trade_no,
         amount_cents: tier["amount_cents"],
         tier_snapshot: tier
       }
