@@ -105,6 +105,30 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
              graphql(@query, sign_in_token(owner_b))
   end
 
+  # 拍板 #4 读面行级过滤（count 路径同规则）：admin（非 owner）的 workspace 级
+  # 赞助不计入角标；owner 两级都计。
+  test "Sponsorship count 行级过滤：admin 排除 workspace 级、owner 两级都计" do
+    platform_admin = Fixtures.platform_admin("sponsor-count-level-platform")
+    owner = Fixtures.register_user("sponsor-count-level-owner")
+    admin = Fixtures.register_user("sponsor-count-level-admin")
+    sponsor = Fixtures.register_user("sponsor-count-level-sponsor")
+    ws_sponsor = Fixtures.register_user("sponsor-count-level-ws-sponsor")
+
+    workspace = Fixtures.create_workspace(platform_admin, %{sponsorship_tiers: [@tier]})
+    Fixtures.add_member(workspace, owner, [:owner])
+    Fixtures.add_member(workspace, admin, [:admin])
+    event = EventFixtures.create_event(workspace, platform_admin, %{sponsorship_tiers: [@tier]})
+
+    _event_sponsorship = create_pending_sponsorship(event, sponsor)
+    _ws_sponsorship = create_workspace_sponsorship(workspace, ws_sponsor)
+
+    assert %{"data" => %{"pendingApprovalsCount" => 2}} =
+             graphql(@query, sign_in_token(owner))
+
+    assert %{"data" => %{"pendingApprovalsCount" => 1}} =
+             graphql(@query, sign_in_token(admin))
+  end
+
   defp create_pending_enrollment(event, user) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
@@ -129,6 +153,20 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
       contact_email: sponsor.email
     })
     |> Ash.create!(tenant: event.workspace_id, actor: sponsor)
+  end
+
+  defp create_workspace_sponsorship(workspace, sponsor) do
+    Sponsorship
+    |> Ash.Changeset.for_create(:create_sponsorship, %{
+      level: :workspace,
+      target_workspace_id: workspace.id,
+      sponsor_user_id: sponsor.id,
+      tier_id: @tier["id"],
+      amount: 10_000,
+      company_name: "长期赞助方",
+      contact_email: sponsor.email
+    })
+    |> Ash.create!(tenant: workspace.id, actor: sponsor)
   end
 
   defp set_deadline(table, id, deadline) do
