@@ -567,14 +567,21 @@ export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
 
 /* ---------------- 我的报名（工作台详情页入口防重，E-5 #50 G3） ---------------- */
 
-/** 当前用户对目标活动的既有报名（读策略仅本人可见 → 返回即已报名） */
+/**
+ * 当前用户对目标的活跃报名（e2e #2：终态 cancelled/expired/rejected 不算
+ * 「已报名」，否则取消后 UI 无法再报名）。读策略仅本人可见 → 返回即已报名。
+ */
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
   { enrollments: { results: Array<{ id: string }> } },
   { eventId: string; userId: string }
 > = gql`
   query MyEventEnrollment($eventId: ID!, $userId: ID!) {
     enrollments(
-      filter: { eventId: { eq: $eventId }, userId: { eq: $userId } }
+      filter: {
+        eventId: { eq: $eventId }
+        userId: { eq: $userId }
+        status: { in: ["pending", "payment_pending", "confirmed"] }
+      }
     ) {
       results {
         id
@@ -589,7 +596,11 @@ export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
 > = gql`
   query MyCourseEnrollment($courseId: ID!, $userId: ID!) {
     enrollments(
-      filter: { courseId: { eq: $courseId }, userId: { eq: $userId } }
+      filter: {
+        courseId: { eq: $courseId }
+        userId: { eq: $userId }
+        status: { in: ["pending", "payment_pending", "confirmed"] }
+      }
     ) {
       results {
         id
