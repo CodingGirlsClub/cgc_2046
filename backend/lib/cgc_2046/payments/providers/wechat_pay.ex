@@ -149,7 +149,15 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
   # SDK 官方动态入口 build_client/2 + persistent_term 缓存（配置指纹变更重建）。
   defp fetch_client do
     if configured?() do
-      {:ok, build_cached_client()}
+      try do
+        {:ok, build_cached_client()}
+      rescue
+        # SDK build_client 是宏展开（check_api_key 等编译期校验吃不到运行时
+        # 「未配置」语义），半配置（如缺 api_secret_key）在此 raise——真实小额
+        # 验收实证：wechat 全空配置下默认渠道下单即崩 something_went_wrong。
+        # 与 alipay 同语义降级 provider_not_configured。
+        _ -> {:error, :provider_not_configured}
+      end
     else
       {:error, :provider_not_configured}
     end
