@@ -24,6 +24,8 @@ defmodule Cgc2046.Accounts.JoinRequest do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
+  alias Cgc2046.ApprovalClaim
+
   attributes do
     uuid_primary_key(:id)
 
@@ -177,35 +179,42 @@ defmodule Cgc2046.Accounts.JoinRequest do
           actor = cs.context[:private][:actor]
           now = DateTime.utc_now()
 
-          # ponytail: 裸 SQL 条件 UPDATE 是最短可行根因修复；approved_at/approved_by
-          # 同写以让 Ash 返回记录正确（force_change_attribute 触发的二次 UPDATE 幂等，
-          # 同事务行锁已持有，无额外阻塞）。升级路径：Ash 原生 atomic update + custom change
-          # 若未来需跨 data layer 复用。
-          {:ok, res} =
-            Ecto.Adapters.SQL.query(
-              Cgc2046.Repo,
-              """
-              UPDATE join_requests
-              SET status = 'approved', approved_at = $1, approved_by = $2
-              WHERE id = $3 AND status = 'pending'
-                AND (approval_deadline IS NULL OR approval_deadline > $1)
-              """,
-              [now, Cgc2046.Repo.uuid!(actor.id), Cgc2046.Repo.uuid!(cs.data.id)]
-            )
+          # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：条件 UPDATE
+          # 把'读到 pending 且未过期才置 approved'下推成 DB 原子动作（TOCTOU 根因修复，
+          # 对齐 Invitation.accept 范式）。WHERE 同时检查 status='pending' 与
+          # approval_deadline 未过期（deadline 守卫 = ApprovalDeadline.not_expired?/2
+          # 的 SQL 端口）——approval_deadline 的 lazy 过期只在 read 时计算，approve 用
+          # changeset 快照不重读，必须在此原子守卫。0 行命中=已终态/已过期/被并发
+          # approve，统一报'该申请已被处理'；DB 错误经 {:error, {:database, _}} 崩溃
+          # （保持原裸 SQL MatchError 同级的失败语义，错误映射留资源层 D3）。
+          # 事务内执行：after_action 建 membership 失败时 status=approved 一并回滚。
+          # force_change_attribute 触发的二次 UPDATE 幂等（同事务行锁已持有）。
+          case ApprovalClaim.claim(cs.data,
+                 table: :join_requests,
+                 from: [:pending],
+                 set: [
+                   status: "approved",
+                   approved_at: {:arg, :now},
+                   approved_by: {:arg, :actor_id}
+                 ],
+                 deadline: {:approval_deadline, :future},
+                 now: now,
+                 actor_id: Cgc2046.Repo.uuid!(actor.id)
+               ) do
+            {:ok, _returned} ->
+              cs
+              |> Ash.Changeset.force_change_attribute(:status, :approved)
+              |> Ash.Changeset.force_change_attribute(:approved_at, now)
+              |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
 
-          if res.num_rows == 1 do
-            cs
-            |> Ash.Changeset.force_change_attribute(:status, :approved)
-            |> Ash.Changeset.force_change_attribute(:approved_at, now)
-            |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
-          else
-            cs
-            |> Ash.Changeset.add_error(
-              Ash.Error.Changes.InvalidAttribute.exception(
-                field: :status,
-                message: "该申请已被处理"
+            {:error, :not_claimed} ->
+              cs
+              |> Ash.Changeset.add_error(
+                Ash.Error.Changes.InvalidAttribute.exception(
+                  field: :status,
+                  message: "该申请已被处理"
+                )
               )
-            )
           end
         end)
       end)

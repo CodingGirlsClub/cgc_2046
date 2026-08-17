@@ -28,6 +28,8 @@ defmodule Cgc2046.Accounts.Invitation do
 
   require Ash.Query
 
+  alias Cgc2046.ApprovalClaim
+
   attributes do
     uuid_primary_key(:id)
 
@@ -424,35 +426,41 @@ defmodule Cgc2046.Accounts.Invitation do
             actor = cs.context[:private][:actor]
             now = DateTime.utc_now()
 
-            # ponytail: 裸 SQL 条件 UPDATE 是最短可行根因修复；accepted_at/accepted_by
-            # 同写以让 Ash 返回记录正确（force_change_attribute 触发的二次 UPDATE 幂等，
-            # 同事务行锁已持有，无额外阻塞）。升级路径：Ash 原生 atomic update + custom change
-            # 若未来需跨 data layer 复用。
-            {:ok, res} =
-              Ecto.Adapters.SQL.query(
-                Cgc2046.Repo,
-                """
-                UPDATE invitations
-                SET status = 'used', accepted_at = $1, accepted_by = $2
-                WHERE id = $3 AND status = 'active'
-                  AND (expires_at IS NULL OR expires_at > $1)
-                """,
-                [now, Cgc2046.Repo.uuid!(actor.id), Cgc2046.Repo.uuid!(cs.data.id)]
-              )
+            # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：token 复验 +
+            # 条件 UPDATE 合成一步（root-cause fix for #13 TOCTOU）。token 校验先于状态
+            # （Elixir 预检留调用方，防枚举）；条件 UPDATE 把'读到 active 才置 used'下推成
+            # DB 原子动作——行锁序列化并发 accept，0 行命中=已被并发 claim 或已处终结态
+            # （used/revoked/expired），统一报 already used；expires_at 守卫 =
+            # ApprovalDeadline.not_expired?/2 的 SQL 端口。DB 错误经 {:error, {:database, _}}
+            # 崩溃（保持原裸 SQL MatchError 同级的失败语义，错误映射留资源层 D3）。
+            # 事务内执行：after_action 建 membership 失败时 status 置 used 一起回滚。
+            # force_change_attribute 触发的二次 UPDATE 幂等（同事务行锁已持有）。
+            case ApprovalClaim.claim(cs.data,
+                   table: :invitations,
+                   from: [:active],
+                   set: [
+                     status: "used",
+                     accepted_at: {:arg, :now},
+                     accepted_by: {:arg, :actor_id}
+                   ],
+                   deadline: {:expires_at, :future},
+                   now: now,
+                   actor_id: Cgc2046.Repo.uuid!(actor.id)
+                 ) do
+              {:ok, _returned} ->
+                cs
+                |> Ash.Changeset.force_change_attribute(:status, :used)
+                |> Ash.Changeset.force_change_attribute(:accepted_at, now)
+                |> Ash.Changeset.force_change_attribute(:accepted_by, actor.id)
 
-            if res.num_rows == 1 do
-              cs
-              |> Ash.Changeset.force_change_attribute(:status, :used)
-              |> Ash.Changeset.force_change_attribute(:accepted_at, now)
-              |> Ash.Changeset.force_change_attribute(:accepted_by, actor.id)
-            else
-              cs
-              |> Ash.Changeset.add_error(
-                Ash.Error.Changes.InvalidAttribute.exception(
-                  field: :status,
-                  message: "Invitation has already been used"
+              {:error, :not_claimed} ->
+                cs
+                |> Ash.Changeset.add_error(
+                  Ash.Error.Changes.InvalidAttribute.exception(
+                    field: :status,
+                    message: "Invitation has already been used"
+                  )
                 )
-              )
             end
           end
         end)

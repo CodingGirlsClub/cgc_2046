@@ -29,6 +29,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
+  alias Cgc2046.ApprovalClaim
   alias Cgc2046.Repo
   alias Cgc2046.Workflows.{SpeakerInvitationInstantiator, WorkflowRun}
 
@@ -565,26 +566,50 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp valid_token(_), do: {:error, :invalid_or_expired_token}
 
   defp claim_decision(changeset, :accepted, actor, now, token_hash) do
-    sql = """
-    UPDATE speaker_invitations
-    SET status = 'accepted', speaker_user_id = $1, accepted_by = $1,
-        accepted_at = $2, updated_at = NOW()
-    WHERE id = $3 AND status = 'invited' AND token_hash = $4
-      AND (expires_at IS NULL OR expires_at > $2)
-    """
-
-    query_count(sql, [Repo.uuid!(actor.id), now, Repo.uuid!(changeset.data.id), token_hash])
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：token_hash 复验经
+    # extra_where（SQL 复验——accept 是 token+账号双重校验的一部分，与 decline 的
+    # token-only 不对称保持）；expires_at 守卫 = ApprovalDeadline.not_expired?/2 的
+    # SQL 端口。返回 {:ok, count} / {:error, {:database, reason}}，错误映射由调用方
+    # （decide）承担（D3）。
+    case ApprovalClaim.claim(changeset.data,
+           table: :speaker_invitations,
+           from: [:invited],
+           set: [
+             status: "accepted",
+             speaker_user_id: {:arg, :actor_id},
+             accepted_by: {:arg, :actor_id},
+             accepted_at: {:arg, :now},
+             updated_at: {:sql, "NOW()"}
+           ],
+           deadline: {:expires_at, :future},
+           extra_where: {"token_hash = $1", [token_hash]},
+           actor_id: Repo.uuid!(actor.id),
+           now: now
+         ) do
+      {:ok, _returned} -> {:ok, 1}
+      {:error, :not_claimed} -> {:ok, 0}
+      {:error, {:database, _} = reason} -> {:error, reason}
+    end
   end
 
   defp claim_decision(changeset, :declined, _actor, now, token_hash) do
-    sql = """
-    UPDATE speaker_invitations
-    SET status = 'declined', declined_at = $1, updated_at = NOW()
-    WHERE id = $2 AND status = 'invited' AND token_hash = $3
-      AND (expires_at IS NULL OR expires_at > $1)
-    """
-
-    query_count(sql, [now, Repo.uuid!(changeset.data.id), token_hash])
+    # 同上收编；decline 只写 declined_at（不落 speaker_user_id，token-only 语义）。
+    case ApprovalClaim.claim(changeset.data,
+           table: :speaker_invitations,
+           from: [:invited],
+           set: [
+             status: "declined",
+             declined_at: {:arg, :now},
+             updated_at: {:sql, "NOW()"}
+           ],
+           deadline: {:expires_at, :future},
+           extra_where: {"token_hash = $1", [token_hash]},
+           now: now
+         ) do
+      {:ok, _returned} -> {:ok, 1}
+      {:error, :not_claimed} -> {:ok, 0}
+      {:error, {:database, _} = reason} -> {:error, reason}
+    end
   end
 
   defp force_decision_fields(changeset, :accepted, actor, now) do
@@ -672,13 +697,21 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp ensure_materials_produced(_), do: {:error, :materials_required}
 
   defp claim_complete(changeset, now) do
-    sql = """
-    UPDATE speaker_invitations
-    SET status = 'completed', completed_at = $1, updated_at = NOW()
-    WHERE id = $2 AND status = 'accepted'
-    """
-
-    query_count(sql, [now, Repo.uuid!(changeset.data.id)])
+    # 最简锚点（plan 2026-08-17-001 D4）：accepted → completed，无 deadline/extra_where。
+    case ApprovalClaim.claim(changeset.data,
+           table: :speaker_invitations,
+           from: [:accepted],
+           set: [
+             status: "completed",
+             completed_at: {:arg, :now},
+             updated_at: {:sql, "NOW()"}
+           ],
+           now: now
+         ) do
+      {:ok, _returned} -> {:ok, 1}
+      {:error, :not_claimed} -> {:ok, 0}
+      {:error, {:database, _} = reason} -> {:error, reason}
+    end
   end
 
   # --- run 镜像同步（提交后 best-effort；失败记日志不阻塞业务状态——邀请行
@@ -793,13 +826,6 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   end
 
   defp normalize_email(_), do: nil
-
-  defp query_count(sql, params) do
-    case Repo.query(sql, params) do
-      {:ok, %{num_rows: count}} -> {:ok, count}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
 
   defp add_domain_error(changeset, reason) do
     Ash.Changeset.add_error(changeset,
