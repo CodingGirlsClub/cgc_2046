@@ -178,7 +178,12 @@ describe("抽屉开合与字段(plan U8 场景 2)", () => {
 	it("CTA 复制学习指令(Rsk3 降级路径)", async () => {
 		useQuery.mockReturnValue({ data: { courseLearningDetail: DETAIL }, loading: false, error: undefined });
 		const writeText = vi.fn().mockResolvedValue(undefined);
-		Object.assign(navigator, { clipboard: { writeText } });
+		// happy-dom 的 navigator.clipboard 是 getter-only，Object.assign 不可写——
+		// 用 defineProperty 替换（jsdom 下同样有效）
+		Object.defineProperty(navigator, "clipboard", {
+			value: { writeText },
+			configurable: true,
+		});
 
 		render(<LearningTab runs={[RUN_PARTIAL]} />);
 		fireEvent.click(screen.getByTestId("learning-run-row"));
