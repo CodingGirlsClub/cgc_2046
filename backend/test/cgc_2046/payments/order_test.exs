@@ -59,6 +59,19 @@ defmodule Cgc2046.Payments.OrderTest do
 
       assert {:ok, refunded} = transition(refunding, :refund_succeeded)
       assert refunded.status == :refunded
+      refute is_nil(refunded.refunded_at)
+    end
+
+    test "迟到支付自动退款路径（e2e #1）：cancelled → refunding → refunded" do
+      # 免缴/报名取消作废的单，本地作废不关渠道单——QR 仍可被支付，
+      # 迟到收款必须能进退款链（AE2 语义）
+      {:ok, cancelled} = transition(order_fixture(), :cancel, %{cancel_reason: "waived"})
+
+      assert {:ok, refunding} = transition(cancelled, :start_refund)
+      assert refunding.status == :refunding
+
+      assert {:ok, refunded} = transition(refunding, :refund_succeeded)
+      assert refunded.status == :refunded
     end
 
     test "退款失败重试环：refunding → refund_failed →（retry_refund）refunding" do
@@ -116,12 +129,11 @@ defmodule Cgc2046.Payments.OrderTest do
       assert reload(refunded).status == :refunded
     end
 
-    test "cancelled 终态同样拒绝后续动作" do
+    test "cancelled 终态拒绝支付/过期动作（start_refund 除外——迟到收款退款路径）" do
       {:ok, cancelled} = transition(order_fixture(), :cancel, %{cancel_reason: "provider switch"})
 
       assert {:error, _} = transition(cancelled, :mark_paid, %{transaction_id: "wx-txn-again"})
       assert {:error, _} = transition(cancelled, :expire)
-      assert {:error, _} = transition(cancelled, :start_refund)
 
       assert reload(cancelled).status == :cancelled
     end

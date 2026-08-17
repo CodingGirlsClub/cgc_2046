@@ -573,7 +573,7 @@ defmodule Cgc2046.Events.Enrollment do
 
     with {:ok, capacity_target} <- claim_cancellable(changeset.data.id, now),
          :ok <- release_capacity(capacity_target),
-         {:ok, _voided} <- void_pending_orders(changeset.data.id) do
+         {:ok, _voided} <- void_pending_orders(changeset.data.id, "enrollment_cancelled") do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, :cancelled)
       |> Ash.Changeset.force_change_attribute(:cancelled_at, now)
@@ -582,13 +582,15 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  # R12：取消 payment_pending 报名同时作废其 pending 订单（同一事务——报名取消
-  # 而订单仍 pending 会造成「无占位却有未付单」的脏窗口）。cancelled 是终态，
-  # 部分唯一索引放行后续新报名的新订单。
-  defp void_pending_orders(enrollment_id) do
+  # R12/e2e #1：取消/免缴在离开占位态的同一事务内作废报名关联 pending 订单
+  # （报名已流转而订单仍 pending = 「无占位却有未付单」脏窗口：待收统计失真，
+  # 且本地作废不关渠道单、QR 仍可被支付——迟到收款由落账 worker 走作废单
+  # 自动退款分支兜底，AE2 语义）。cancelled 是终态，部分唯一索引放行后续
+  # 新报名的新订单。
+  defp void_pending_orders(enrollment_id, cancel_reason) do
     case Cgc2046.Repo.query(
-           "UPDATE payments_orders SET status = 'cancelled', cancel_reason = 'enrollment_cancelled', updated_at = NOW() WHERE enrollment_id = $1 AND status = 'pending'",
-           [Cgc2046.Repo.uuid!(enrollment_id)]
+           "UPDATE payments_orders SET status = 'cancelled', cancel_reason = $2, updated_at = NOW() WHERE enrollment_id = $1 AND status = 'pending'",
+           [Cgc2046.Repo.uuid!(enrollment_id), cancel_reason]
          ) do
       {:ok, %{num_rows: count}} -> {:ok, count}
       {:error, reason} -> {:error, {:database, reason}}
@@ -616,19 +618,22 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  # 免缴（R18）：CAS payment_pending → confirmed。名额已在报名/审批占位时扣减，
-  # 此处只做状态迁移；审计走 LogAdminAction。
+  # 免缴（R18）：CAS payment_pending → confirmed + 同事务作废 pending 订单
+  # （e2e #1：免缴后订单仍 pending 会继续计入待收统计，且本地作废不关渠道
+  # 单、QR 仍可被支付——迟到收款由落账 worker 的作废单自动退款分支兜底，
+  # AE2 语义）。名额已在报名/审批占位时扣减，此处只做状态迁移；审计走
+  # LogAdminAction。
   defp prepare_waive(changeset) do
     now = DateTime.utc_now()
     actor = changeset.context[:private][:actor]
 
-    case claim_waive(changeset.data.id, actor.id, now) do
-      {:ok, 1} ->
-        changeset
-        |> Ash.Changeset.force_change_attribute(:status, :confirmed)
-        |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
-        |> Ash.Changeset.force_change_attribute(:approved_at, now)
-
+    with {:ok, 1} <- claim_waive(changeset.data.id, actor.id, now),
+         {:ok, _voided} <- void_pending_orders(changeset.data.id, "waived") do
+      changeset
+      |> Ash.Changeset.force_change_attribute(:status, :confirmed)
+      |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
+      |> Ash.Changeset.force_change_attribute(:approved_at, now)
+    else
       {:ok, 0} ->
         add_domain_error(changeset, :not_payment_pending)
 
