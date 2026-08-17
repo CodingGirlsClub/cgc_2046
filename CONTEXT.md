@@ -418,8 +418,15 @@
 
 ### 通知分发面（Notification Fanout）
 
-- **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
+- **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`，未显式传参时按 template_key 查 `NotificationWorker.type/1` 的 unique 预设（缺省 `:default`，2026-08-18 架构深化候选 D D3）——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
 - **架构位置**：NotificationSubscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；NotificationSubscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 NotificationService 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
+
+### 通知类型（Notification Types）
+
+- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Workers.NotificationWorker` 的 `@notification_types` 表（2026-08-18 架构深化候选 D，plan `docs/plans/2026-08-18-005-notification-type-registry.md` D1-D8 全锁定；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**，D7 测试锚定）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`unique`（NotificationFanout.deliver 缺省 unique 预设 `:default` \| `:reminder_7d`）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。
+- **stale 语义（表驱动单解释器，D2）**：提醒类类型发送时重查——approval_reminder 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；learning_stagnation 走 WorkflowRun `status == :running`。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
+- **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；NotificationFanout 主体 / NotificationService / Miniprogram.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
+- **架构位置**：横切契约面（root Worker 单文件，AEW `@expiry_specs` 同款先例）；消费方 = NotificationFanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/workers/notification_worker_test.exs`，D7）。
 
 ### 审批期限（Approval Deadline）
 
