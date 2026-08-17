@@ -6,6 +6,16 @@ defmodule Cgc2046.Events.Enrollment do
   占位，InviteBatch 配额通过 `remaining_quota > 0` 条件 UPDATE 扣减，报名本身
   由两个部分唯一索引防重复。所有写都位于 Ash action 事务内，后续步骤失败会回滚
   已执行的计数更新。
+
+  ## learning 锚定（唯一真源，架构深化 E；plan 2026-08-17-004）
+
+  「learning run 锚定到哪条 Enrollment」的唯一读取面 = `anchor/1`（+ 双键提取
+  `anchored_id/1`）。三消费方（Workflows→Events 依赖方向）：
+  `StepAuthorization.enrolled_learner?` / `LearningInstantiator` /
+  `LearningProgressWorker`，各私有拷贝已收编于此。双键超集语义：string 键优先、
+  atom 键兜底——可达输入全为 string 键（input_snapshot 经 JSONB 持久化；唯一
+  写入方 LI 以 string 键构造 input），atom 分支仅激活于不可达的 in-memory 输入
+  （安全方向，fail-closed 不放松）。
   """
 
   use Ash.Resource,
@@ -379,6 +389,58 @@ defmodule Cgc2046.Events.Enrollment do
       update(:reject_enrollment, :reject_enrollment)
       update(:cancel_enrollment, :cancel)
       update(:waive_payment, :waive_payment)
+    end
+  end
+
+  # ── learning 锚定（架构深化 E；plan 2026-08-17-004 D1）──────────────────
+
+  @doc """
+  learning run 锚定 Enrollment 的唯一读取真源：从 `map | binary` 提取锚点并
+  读取 Enrollment。
+
+  - 入参 `map`：`run.input_snapshot` / 信号 payload——经 `anchored_id/1` 双键
+    提取（string 键优先）；`binary`：enrollment_id 直通；`nil`：视为无锚
+    （防御 `input_snapshot` 可空，fail-closed 不放松）。
+  - 无锚 → `{:error, :no_enrollment_anchor}`
+  - 有锚但读取失败/不存在 → `{:error, :enrollment_read_failed}`（避开 payments
+    域同名 `:enrollment_not_found`，D3）
+  - 成功 → `{:ok, %Enrollment{}}`
+
+  三消费方坍缩语义各自保持（SA fail-closed→false / LPW→nil·:skipped /
+  LI→warning+:ok）。Enrollment 是 `global?(true)` 租户资源，PK 全局唯一，
+  可不带 tenant 读。
+  """
+  @spec anchor(map() | binary() | nil) ::
+          {:ok, Enrollment.t()} | {:error, :no_enrollment_anchor | :enrollment_read_failed}
+  def anchor(input) do
+    with {:ok, enrollment_id} <- anchored_id(input) do
+      case Ash.get(__MODULE__, enrollment_id, authorize?: false) do
+        {:ok, %__MODULE__{} = enrollment} -> {:ok, enrollment}
+        {:ok, nil} -> {:error, :enrollment_read_failed}
+        {:error, _} -> {:error, :enrollment_read_failed}
+      end
+    end
+  end
+
+  @doc """
+  从 `map | binary | nil` 提取 learning run 锚定 enrollment_id（双键超集：
+  string 键优先，`Map.get(m, "enrollment_id") || Map.get(m, :enrollment_id)`；
+  binary 直通；nil 无锚）。
+
+  可达输入全为 string 键（input_snapshot 经 JSONB 持久化；唯一写入方 LI 以
+  string 键构造 input）——atom 键分支仅激活于不可达的 in-memory 输入，属安全
+  方向（fail-closed 不放松）。供 `instance_key`/`input_enrollment_id` 等复用。
+  """
+  @spec anchored_id(map() | binary() | nil) ::
+          {:ok, String.t()} | {:error, :no_enrollment_anchor}
+  def anchored_id(input) when is_binary(input), do: {:ok, input}
+
+  def anchored_id(nil), do: {:error, :no_enrollment_anchor}
+
+  def anchored_id(input) when is_map(input) do
+    case Map.get(input, "enrollment_id") || Map.get(input, :enrollment_id) do
+      enrollment_id when is_binary(enrollment_id) -> {:ok, enrollment_id}
+      _ -> {:error, :no_enrollment_anchor}
     end
   end
 

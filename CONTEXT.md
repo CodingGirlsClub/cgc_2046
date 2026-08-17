@@ -372,6 +372,15 @@
 - **定义**：Event/Course 的**事件级参与者记录**，归**活动 context**（D-A4）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单；免费是默认（Event/Course 不配置定价），收费路径经 Order 缴费（2026-08-15 缴费 grilling 拍板，取代 Learner Q3「全免费」约束）。
 - **架构位置**：活动 context 资源；与 WorkspaceMembership（长期成员）两类关系并存。
 
+### learning 锚定（Enrollment Anchor）
+
+- **定义**：「learning run 锚定到哪条 Enrollment」的**唯一读取真源** = `Cgc2046.Events.Enrollment.anchor/1`（+ 双键提取 `anchored_id/1`；2026-08-17 架构深化 E，plan `docs/plans/2026-08-17-004-learning-anchor-claim-guard.md` D1-D8 全锁定）。三消费方（Workflows→Events 依赖方向）：`StepAuthorization.enrolled_learner?`（fail-closed→false）/ `LearningInstantiator`（instantiate + ensure_create_guards + instance_key/input_enrollment_id，warning+:ok）/ `LearningProgressWorker`（fetch_enrollment_or_nil→nil / remind_stagnant→:skipped）——三份私有拷贝已收编于此，删则复杂度回散三处。
+- **双键超集语义**：string 键优先、atom 键兜底（`Map.get(m, "enrollment_id") || Map.get(m, :enrollment_id)`）——可达输入全为 string 键（input_snapshot 经 JSONB 持久化；唯一写入方 LI 以 string 键构造 input），atom 分支仅激活于不可达的 in-memory 输入（安全方向，fail-closed 不放松）。
+- **双错误语义**：无锚 → `:no_enrollment_anchor`（含 nil 防御 input_snapshot 可空）；有锚读取失败/不存在 → `:enrollment_read_failed`（避开 payments 域同名 `:enrollment_not_found`，防跨域误读）。错误原子零外部消费，仅进日志与 with 通配符。
+- **边界不收**：reconciliation_scan_worker ×2、graphql ×2（anchored_to_enrollment? SQL filter / 展示投影）、ActorIsEnrolledLearner（委托非拷贝）、payments 域。
+- **配套（G）**：SignalSubscriber 骨架把 `:claim_in_handle` 策略结构化为**双回调**——`before_claim/2`（校验链 → `{:ok, ctx}` | `:skip` | `{:error,_}`）+ `effects/3`（副作用），claim 时机由骨架持有（before_claim 后、effects 前），不再依赖模块自调；`:skip`/`{:error,_}` 不烧 claim 归一化 `:ok`（重投仍可推进），重复投递 `:duplicate` → `:ok`（不重复执行 effects），声明策略但未实现双回调 → `raise ArgumentError`。历史 post-hoc 检测方案因无法区分「校验不过合法 skip」与「忘调 claim」被证伪，弃用。
+- **架构位置**：事件 context 资源（events/）读取面；依赖方向 Workflows→Events，三消费方坍缩语义各自保持。
+
 ### PriceTier（价格档位）
 
 - **定义**：收费 Event/Course 的嵌入式定价配置（`pricing_enabled: true` 时的 `price_tiers` 字段），形状：id / name / amount_cents / available_until。金额下限 **1 分，无 0 元档**（免费场景 = `pricing_enabled: false` 整场免费，或管理员免缴个例）；`available_until` 到期档位报名时自动隐藏。下单即快照（tier_snapshot + amount_cents），改价/删档不追溯已生成订单。
