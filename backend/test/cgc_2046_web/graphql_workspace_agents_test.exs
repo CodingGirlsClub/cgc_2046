@@ -12,7 +12,7 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
   端到端解析走 ConnCase /api/graphql（完整 AshGraphQL pipeline + read policy）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.ToolCallLog

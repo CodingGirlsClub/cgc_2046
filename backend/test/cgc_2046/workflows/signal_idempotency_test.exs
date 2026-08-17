@@ -1,5 +1,5 @@
 defmodule Cgc2046.Workflows.SignalIdempotencyTest do
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   require Ash.Query
 

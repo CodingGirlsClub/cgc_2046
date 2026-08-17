@@ -1,5 +1,5 @@
 defmodule Cgc2046Web.GraphqlInviteBatchTest do
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.InviteBatch

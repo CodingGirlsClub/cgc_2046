@@ -5,7 +5,7 @@ defmodule Cgc2046.Workers.EventLifecycleWorkerTest do
   deadline 回填走裸 SQL（布置而非被测对象，同 EventsFixtures.force_open 惯例）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

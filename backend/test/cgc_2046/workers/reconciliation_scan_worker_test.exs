@@ -7,7 +7,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
   规3/6 的 oban_jobs discarded 状态用 SQL 直写（approval_reminder_worker_test 先例）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   require Ash.Query

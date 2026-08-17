@@ -1,7 +1,7 @@
 defmodule Cgc2046.Events.EnrollmentTest do
   @paid_tier_id "33333333-3333-3333-3333-333333333333"
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

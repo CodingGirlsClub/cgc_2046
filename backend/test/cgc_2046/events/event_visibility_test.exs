@@ -12,7 +12,7 @@ defmodule Cgc2046.Events.EventVisibilityTest do
   NotFound（公开语义：不存在优于无权）。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Course, Event}

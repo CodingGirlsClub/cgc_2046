@@ -34,9 +34,17 @@ config :logger, level: :warning
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 
+# bcrypt cost 调低至 1：测试中数百次用户 fixture 经 AshAuthentication 真实哈希，
+# 默认 cost 12 每次约 200ms（本机实测 212.5ms vs 0.9ms，235×），是串行段最大单一耗时。
+config :bcrypt_elixir, :log_rounds, 1
+
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Ash 数据变更未触发对应通知时默认打 warning——测试大量走裸变更路径，
+# 属预期噪音（Ash 官方提供的静默开关），刷屏掩盖真实失败信息
+config :ash, :missed_notifications, :ignore
 
 # Disable rate limiting in test (ETS table is shared across async tests)
 config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999

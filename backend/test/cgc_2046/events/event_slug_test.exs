@@ -3,7 +3,7 @@ defmodule Cgc2046.Events.EventSlugTest do
   E-5 #50 slug 约束：自动生成、单段格式校验、显式合法 slug 保留（Event/Course 双覆盖）。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Course, Event}

@@ -6,7 +6,7 @@ defmodule Cgc2046.Workflows.CheckpointLifecycleTest do
   失败契约（写严格 / 清宽松，fake adapter 注入）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Workflows.CheckpointLifecycle
   alias Cgc2046.Workflows.CheckpointLifecycleTest.{FakeDeleteFail, FakeHibernateFail}

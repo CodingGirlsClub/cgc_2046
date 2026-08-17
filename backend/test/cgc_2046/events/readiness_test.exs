@@ -8,7 +8,7 @@ defmodule Cgc2046.Events.ReadinessTest do
   - course 无赞助维度（无 sponsorship_enabled 字段）→ 恒 pass
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Readiness

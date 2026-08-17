@@ -7,7 +7,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
   - 成员登录对 workspace-only → 返回（成员可读非 draft）
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures

@@ -1,5 +1,5 @@
 defmodule Cgc2046.Workflows.StepRoleTest do
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.Role
   alias Cgc2046.AccountsFixtures, as: Fixtures

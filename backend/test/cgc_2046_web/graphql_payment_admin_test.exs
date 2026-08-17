@@ -10,7 +10,7 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     （R22 精确归属，非发起的其他管理者不收）；退款失败 → 同两人。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

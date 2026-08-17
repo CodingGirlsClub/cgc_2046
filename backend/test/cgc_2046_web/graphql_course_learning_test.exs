@@ -8,7 +8,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
   - 学习详情:本人有/无记录两形状;越权(他人视角)不可构造(恒 actor)
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures

@@ -4,7 +4,7 @@ defmodule Cgc2046.Events.OfferingTest do
   authorize 选项 / fetch_by_signal_payload 键分派 / 批量形状。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Offering

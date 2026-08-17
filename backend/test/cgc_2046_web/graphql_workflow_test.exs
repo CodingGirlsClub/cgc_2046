@@ -12,7 +12,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
   这是 #40 查询面的唯一真实解析证明（schema 重生成只证明编译，不证明解析）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Events.{Course, Event}
 

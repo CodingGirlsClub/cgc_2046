@@ -1,5 +1,5 @@
 defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.AccountsFixtures, as: Fixtures
