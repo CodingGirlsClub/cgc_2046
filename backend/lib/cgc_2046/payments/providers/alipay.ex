@@ -44,13 +44,36 @@ defmodule Cgc2046.Payments.Providers.Alipay do
 
     defp decode_pem(nil), do: nil
 
+    # 裸 base64 自适应：PKCS#1/PKCS#8 私钥或 SPKI 公钥——分别包对应 PEM 头，
+    # 交给 :public_key.pem_decode 按标准 ASN.1 处理（避免手写 DER 解析）。
     defp decode_pem(pem) when is_binary(pem) do
-      if String.contains?(pem, "BEGIN") do
-        :public_key.pem_decode(pem) |> List.first() |> :public_key.pem_entry_decode()
-      else
-        :public_key.der_decode(:RSAPrivateKey, Base.decode64!(pem))
+      cond do
+        String.contains?(pem, "BEGIN") ->
+          :public_key.pem_decode(pem) |> List.first() |> :public_key.pem_entry_decode()
+
+        true ->
+          b64 = pem |> String.split(~r/\s+/) |> Enum.join()
+          decode_b64_as_pem(b64, ["RSA PRIVATE KEY", "PRIVATE KEY", "PUBLIC KEY"])
       end
     end
+
+    defp decode_b64_as_pem(b64, [label | rest]) do
+      wrapped = "-----BEGIN #{label}-----\n#{b64}\n-----END #{label}-----\n"
+
+      case :public_key.pem_decode(wrapped) do
+        [entry] ->
+          try do
+            :public_key.pem_entry_decode(entry)
+          rescue
+            _ -> decode_b64_as_pem(b64, rest)
+          end
+
+        _ ->
+          decode_b64_as_pem(b64, rest)
+      end
+    end
+
+    defp decode_b64_as_pem(_b64, []), do: raise(ArgumentError, message: "unrecognized key format")
   end
 
   @impl Cgc2046.Payments.Provider
