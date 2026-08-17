@@ -38,7 +38,7 @@ defmodule Cgc2046.Payments.Providers.Alipay do
       decode_pem(config()[:public_key])
     end
 
-    def sandbox?, do: false
+    def sandbox?, do: !!config()[:sandbox]
 
     defp config, do: Application.get_env(:cgc_2046, :alipay_pay, [])
 

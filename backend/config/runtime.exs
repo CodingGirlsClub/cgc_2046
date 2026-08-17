@@ -288,6 +288,7 @@ if config_env() == :prod do
       private_key: System.get_env("ALIPAY_PRIVATE_KEY"),
       public_key: System.get_env("ALIPAY_PUBLIC_KEY"),
       webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL"),
-      return_url: System.get_env("ALIPAY_RETURN_URL")
+      return_url: System.get_env("ALIPAY_RETURN_URL"),
+      sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
     ]
 end
