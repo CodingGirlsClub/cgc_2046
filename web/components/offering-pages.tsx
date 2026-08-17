@@ -12,7 +12,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   allowedTransitions,
@@ -53,6 +53,7 @@ import {
   submitEnrollment,
 } from "@/lib/public-offerings";
 import { useAuthed } from "@/lib/use-authed";
+import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
 
 const TRANSITION_LABEL: Record<EventTransition, string> = {
   launch: "发布（开放报名）",
@@ -362,6 +363,13 @@ export function OfferingDetailPage({
     /** payment_pending 态的去支付入口目标（R5 报名 id） */
     enrollmentId?: string | null;
   }>({ kind: "idle", message: null });
+  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭
+  const [checkout, setCheckout] = useState<{
+    enrollmentId: string;
+    amountCents: number | null;
+    tierName: string | null;
+    title: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -393,8 +401,7 @@ export function OfferingDetailPage({
 
     fetchMyEnrollment(id, kind, userId)
       .then((enrollment) => {
-        if (!cancelled)
-          setEnrollState({ id, enrollment, status: "ok" });
+        if (!cancelled) setEnrollState({ id, enrollment, status: "ok" });
       })
       .catch(() => {
         // 失败 ≠ 已报名：入口不显示（不误报），错误态不阻塞页面其余部分
@@ -407,12 +414,35 @@ export function OfferingDetailPage({
     };
   }, [id, kind, userId]);
 
+  // 支付成功后就地刷新报名态（模态框 onPaid → payment_pending → confirmed）
+  const refetchEnrollment = useCallback(async () => {
+    if (!id || !userId) return;
+    try {
+      const enrollment = await fetchMyEnrollment(id, kind, userId);
+      setEnrollState({ id, enrollment, status: "ok" });
+    } catch {
+      // 刷新失败保持现态；手动刷新页面仍可恢复
+    }
+  }, [id, kind, userId]);
+
   const stale = state.id !== id;
   const offering = stale ? null : state.row;
 
   // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const [tierId, setTierId] = useState<string | null>(null);
+  const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
+  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），复访承接可不带
+  function openCheckoutFor(enrollmentId: string) {
+    const tier = priceTiers.find((t) => t.id === tierId) ?? null;
+    setCheckout({
+      enrollmentId,
+      amountCents: tier?.amountCents ?? null,
+      tierName: tier?.name ?? null,
+      title: offering?.title ?? "",
+    });
+  }
+
   const loadError = stale ? null : state.error;
   const manage = ws ? canManageEvents(ws.myRoleNames) : false;
 
@@ -590,6 +620,8 @@ export function OfferingDetailPage({
             message: "名额已保留，请在限定时间内完成支付",
             enrollmentId: res.result.id,
           });
+          // 桌面：报名占位成功即弹收银模态框（不整页跳转）
+          openCheckoutFor(res.result.id);
         } else if (status === "pending") {
           setSubmitState({
             kind: "pending",
@@ -601,10 +633,7 @@ export function OfferingDetailPage({
       } else {
         setSubmitState({
           kind: "error",
-          message: translatePaymentError(
-            res.errors[0]?.message,
-            "提交失败",
-          ),
+          message: translatePaymentError(res.errors[0]?.message, "提交失败"),
         });
       }
     } catch (e: unknown) {
@@ -857,15 +886,22 @@ export function OfferingDetailPage({
                           : submitState.kind === "payment_pending"
                             ? "⏳ 待支付"
                             : "✓ 申请已提交"}
-                        {submitState.message ? `（${submitState.message}）` : ""}
+                        {submitState.message
+                          ? `（${submitState.message}）`
+                          : ""}
                       </p>
-                      {submitState.kind === "payment_pending" && submitState.enrollmentId ? (
-                        <Link
-                          href={`/orders/new?enrollmentId=${submitState.enrollmentId}`}
+                      {submitState.kind === "payment_pending" &&
+                      submitState.enrollmentId ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openCheckoutFor(submitState.enrollmentId!)
+                          }
                           className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
+                          data-testid="enrollment-continue-pay"
                         >
-                          去支付
-                        </Link>
+                          继续支付
+                        </button>
                       ) : null}
                     </div>
                   ) : enrollState.enrollment?.status === "payment_pending" ? (
@@ -877,13 +913,16 @@ export function OfferingDetailPage({
                       <p className="text-ink">
                         ⏳ 名额已保留，请在限定时间内完成支付
                       </p>
-                      <Link
-                        href={`/orders/new?enrollmentId=${enrollState.enrollment.id}`}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openCheckoutFor(enrollState.enrollment!.id)
+                        }
                         data-testid="enrollment-pending-pay"
                         className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
                       >
-                        去支付
-                      </Link>
+                        继续支付
+                      </button>
                     </div>
                   ) : enrollState.enrollment?.status === "pending" ? (
                     <p className="text-[13px] text-ink-3">
@@ -906,8 +945,13 @@ export function OfferingDetailPage({
                         </p>
                       ) : null}
                       {offering.pricingEnabled ? (
-                        <fieldset className="grid gap-2" data-testid="price-tier-picker">
-                          <legend className="text-[13px] text-ink-3">选择价格档位</legend>
+                        <fieldset
+                          className="grid gap-2"
+                          data-testid="price-tier-picker"
+                        >
+                          <legend className="text-[13px] text-ink-3">
+                            选择价格档位
+                          </legend>
                           {priceTiers.length === 0 ? (
                             <p className="text-[13px] text-ink-3">
                               当前无可售档位，请联系组织者。
@@ -933,7 +977,9 @@ export function OfferingDetailPage({
                                   />
                                   {tier.name}
                                 </span>
-                                <span className="font-medium">¥{formatAmount(tier.amountCents)}</span>
+                                <span className="font-medium">
+                                  ¥{formatAmount(tier.amountCents)}
+                                </span>
                               </label>
                             ))
                           )}
@@ -945,7 +991,11 @@ export function OfferingDetailPage({
                         onClick={() => void submitForMe()}
                         className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
                       >
-                        {enrollBusy ? "提交中…" : "报名"}
+                        {enrollBusy
+                          ? "提交中…"
+                          : offering.pricingEnabled && paidTier
+                            ? `报名并支付 ¥${formatAmount(paidTier.amountCents)}`
+                            : "报名"}
                       </button>
                     </div>
                   )}
@@ -1107,6 +1157,18 @@ export function OfferingDetailPage({
             ) : null}
           </>
         )}
+
+        {/* 批①桌面：收费报名的就地收银模态框（支付成功 onPaid 就地刷新报名态） */}
+        {checkout ? (
+          <PaymentCheckoutDialog
+            enrollmentId={checkout.enrollmentId}
+            amountCents={checkout.amountCents}
+            tierName={checkout.tierName}
+            title={checkout.title}
+            onClose={() => setCheckout(null)}
+            onPaid={() => void refetchEnrollment()}
+          />
+        ) : null}
       </div>
     </WorkspaceShell>
   );
