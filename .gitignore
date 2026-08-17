@@ -23,3 +23,6 @@ openclacky-ext/dist/
 # pnpm store（web 工作区的全局硬链接缓存，不入库）
 .pnpm-store/
 .worktrees
+
+# direnv 机制文件入库（.env 真实值仍忽略）；用户全局 ignore 常忽略 .envrc，此处显式豁免
+!backend/.envrc
