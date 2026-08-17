@@ -268,6 +268,40 @@ describe("OfferingDetailPage 错误态", () => {
 		expect(await screen.findByRole("button", { name: "报名" })).toBeInTheDocument();
 	});
 
+	it("终态报名不挡再报名：fetchMyEnrollment=false（查询已滤终态）→ 渲染报名按钮（e2e #2）", async () => {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce({
+			id: "event-cancelled-enr",
+			title: "已取消报名活动",
+			status: "open",
+			visibility: "workspace",
+			enrollmentPolicy: "open",
+			registrationDeadline: null,
+			capacity: null,
+			confirmedCount: 0,
+		});
+		// 后端存在 cancelled 终态行，但活跃态过滤后查询返回空 → hasExisting=false
+		mocks.fetchMyEnrollment.mockResolvedValueOnce(false);
+
+		render(<OfferingDetailPage slug="demo" id="event-cancelled-enr" kind="event" />);
+
+		expect(await screen.findByRole("button", { name: "报名" })).toBeInTheDocument();
+		expect(screen.queryByText(/你已报名该活动/)).not.toBeInTheDocument();
+		await waitFor(() =>
+			expect(mocks.fetchMyEnrollment).toHaveBeenCalledWith(
+				"event-cancelled-enr",
+				"event",
+				"user-1",
+			),
+		);
+	});
+
 	it("免费活动（pricingEnabled 缺省）：不渲染档位选择器（R4 零变化）", async () => {
 		mocks.useWorkspaceBySlug.mockReturnValue({
 			ws: WORKSPACE,

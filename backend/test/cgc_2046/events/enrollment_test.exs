@@ -7,6 +7,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Payments.Order
   alias Cgc2046.Workers.SignalPublishWorker
 
   describe "create_enrollment" do
@@ -602,6 +603,20 @@ defmodule Cgc2046.Events.EnrollmentTest do
                )
     end
 
+    test "免缴同事务作废 pending 订单：cancelled + cancel_reason=waived + 待收回落（e2e #1）", ctx do
+      order = create_pending_order(ctx.enrollment)
+      assert pending_cents(ctx.workspace.id) == 9_900
+
+      assert {:ok, waived} = waive(ctx.enrollment, ctx.admin)
+      assert waived.status == :confirmed
+
+      reloaded = Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false)
+      assert reloaded.status == :cancelled
+      assert reloaded.cancel_reason == "waived"
+      # R24 待收只计 pending 未过期单——作废后回落
+      assert pending_cents(ctx.workspace.id) == 0
+    end
+
     test "普通成员无权免缴（403 语义）；PlatformAdmin 可兜底", ctx do
       member = Fixtures.register_user("waive-member")
       Fixtures.add_member(ctx.workspace, member)
@@ -665,6 +680,39 @@ defmodule Cgc2046.Events.EnrollmentTest do
     enrollment
     |> Ash.Changeset.for_update(:waive_payment, %{})
     |> Ash.update(tenant: enrollment.workspace_id, actor: actor)
+  end
+
+  # 免缴作废回归布置：为 payment_pending 报名挂一笔 pending 订单
+  # （形状同 payment_settlement_worker_test 布置，渠道凭据字段由 provider 层测试覆盖）
+  defp create_pending_order(enrollment) do
+    {:ok, order} =
+      Order
+      |> Ash.Changeset.for_create(:create, %{
+        enrollment_id: enrollment.id,
+        provider: :wechat_native,
+        out_trade_no: "oto-" <> Ecto.UUID.generate(),
+        amount_cents: 9_900,
+        tier_snapshot: %{"id" => @paid_tier_id, "name" => "早鸟", "amount_cents" => 9_900},
+        expire_at: DateTime.add(DateTime.utc_now(), 2, :hour)
+      })
+      |> Ash.create(tenant: enrollment.workspace_id, authorize?: false)
+
+    order
+  end
+
+  # R24 待收分量的 SQL 镜像（pending 且未过期）
+  defp pending_cents(workspace_id) do
+    %{rows: [[cents]]} =
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        """
+        SELECT COALESCE(SUM(amount_cents) FILTER (WHERE status = 'pending' AND expire_at > NOW()), 0)
+        FROM payments_orders WHERE workspace_id = $1
+        """,
+        [Ecto.UUID.dump!(workspace_id)]
+      )
+
+    Decimal.to_integer(cents)
   end
 
   # 收费活动布置（U2 字段）：两档可售价位（首档固定 id，KTD9 收费报名必带 tierId）

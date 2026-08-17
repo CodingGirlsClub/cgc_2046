@@ -17,6 +17,8 @@ import {
 	CLOSE_EVENT,
 	CANCEL_EVENT,
 	LIST_EVENT_ENROLLMENTS,
+	MY_EVENT_ENROLLMENT,
+	MY_COURSE_ENROLLMENT,
 } from "./events";
 import { allowedTransitions } from "../events";
 
@@ -53,6 +55,20 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 		const doc = print(LIST_EVENT_ENROLLMENTS);
 		expect(doc).toContain('enrollments(filter: { eventId: { eq: $eventId }, status: { eq: "pending" } })');
 		expect(doc).toContain("count");
+	});
+
+	it("MY_EVENT/COURSE_ENROLLMENT：活跃态过滤（终态不挡再报名，e2e #2）", () => {
+		const eventDoc = print(MY_EVENT_ENROLLMENT);
+		expect(eventDoc).toContain("query MyEventEnrollment($eventId: ID!, $userId: ID!)");
+		expect(eventDoc).toContain(
+			'status: { in: ["pending", "payment_pending", "confirmed"] }',
+		);
+
+		const courseDoc = print(MY_COURSE_ENROLLMENT);
+		expect(courseDoc).toContain("query MyCourseEnrollment($courseId: ID!, $userId: ID!)");
+		expect(courseDoc).toContain(
+			'status: { in: ["pending", "payment_pending", "confirmed"] }',
+		);
 	});
 });
 
