@@ -29,6 +29,7 @@ import { useAuthed } from "@/lib/use-authed";
 import {
 	POLL_TOTAL_MS,
 	PROVIDER_LABEL,
+	WEB_ENABLED_PROVIDERS,
 	countdownText,
 	dispatchCredential,
 	formatAmount,
@@ -36,6 +37,7 @@ import {
 	type CredentialDispatch,
 	type OrderPollStatus,
 } from "@/lib/payment";
+import { translatePaymentError } from "@/lib/payment-errors";
 
 const COUNTDOWN_TICK_MS = 500;
 
@@ -50,10 +52,10 @@ function readSessionCredential(orderId: string): unknown {
 	}
 }
 
-/** 换渠道候选（web 面三渠道，排除当前） */
+/** 换渠道候选：WEB_ENABLED_PROVIDERS 单源派生（与下单页灰置口径一致），
+ *  排除当前渠道；当前渠道不在签约集（旧单）时返回全量签约候选 */
 function switchCandidates(current: string): PaymentProvider[] {
-	const all: PaymentProvider[] = ["wechat_native", "alipay_page", "alipay_wap"];
-	return all.filter((p) => p !== current);
+	return WEB_ENABLED_PROVIDERS.filter((p) => p !== current);
 }
 
 export default function OrderDetailPage() {
@@ -137,6 +139,15 @@ export default function OrderDetailPage() {
 
 	// 二维码展示位（非 qr 凭据时为 null，走占位/其他分派）
 	const qrDataUrl = dispatch.mode === "qr" ? generatedQr : null;
+	// 渠道化扫码引导（P1 文案）：alipay_qr 与 wechat_native 同走 qr_code 凭据，
+	// 文案按 provider 区分，避免支付宝渠道错误引导「使用微信扫码」。
+	const isAlipayQr = order?.provider === "alipay_qr";
+	// P2 刷新凭据丢失：sessionStorage 读后即焚，刷新后 credential=null；
+	// 订单 pending 时提示换渠道恢复（换渠道按钮高亮 primary 引导）。
+	const credentialLost =
+		dispatch.mode === "unsupported" &&
+		credential === null &&
+		status === "pending";
 
 	// 手动态（R14 超窗/用户暂停）：pollElapsed 超 30s 派生，无需 effect 写 state
 	const windowExpired = pollElapsed >= POLL_TOTAL_MS;
@@ -180,10 +191,22 @@ export default function OrderDetailPage() {
 				setPollElapsed(0);
 				setManualMode(false);
 			} else {
-				setSwitchError(payload?.errors[0]?.message ?? "切换渠道失败，请重试");
+				// replaceProvider 错误面：order has already been processed（并发双换）、
+				// :provider_not_configured（未签约渠道）——经翻译层，不透传原文/裸原子
+				setSwitchError(
+					translatePaymentError(
+						payload?.errors[0]?.message,
+						"切换渠道失败，请重试",
+					),
+				);
 			}
 		} catch (e) {
-			setSwitchError(e instanceof Error ? e.message : "切换渠道失败，请重试");
+			setSwitchError(
+				translatePaymentError(
+					e instanceof Error ? e.message : null,
+					"切换渠道失败，请重试",
+				),
+			);
 		} finally {
 			setSwitching(false);
 		}
@@ -289,7 +312,7 @@ export default function OrderDetailPage() {
 										// eslint-disable-next-line @next/next/no-img-element
 										<img
 											src={qrDataUrl}
-											alt="微信支付二维码"
+											alt={isAlipayQr ? "支付宝支付二维码" : "微信支付二维码"}
 											width={220}
 											height={220}
 											data-testid="order-qr"
@@ -300,7 +323,11 @@ export default function OrderDetailPage() {
 											二维码生成中…
 										</div>
 									)}
-									<p className="text-[13px] text-ink-3">使用微信扫码完成支付</p>
+									<p className="text-[13px] text-ink-3">
+										{isAlipayQr
+											? "使用支付宝扫一扫完成支付"
+											: "使用微信扫码完成支付"}
+									</p>
 								</div>
 							) : dispatch.mode === "redirect" ? (
 								<div className="grid gap-2">
@@ -318,12 +345,21 @@ export default function OrderDetailPage() {
 									</p>
 								</div>
 							) : (
-								<p className="text-sm text-ink-3" data-testid="order-credential-unsupported">
-									{dispatch.reason}
-									{dispatch.mode === "unsupported" && credential === null
-										? "（如刚下单请刷新页面）"
-										: ""}
-								</p>
+								<div
+									className="grid gap-2"
+									data-testid="order-credential-unsupported"
+								>
+									<p className="text-sm text-ink-3">
+										{credentialLost
+											? "支付凭据已失效，请更换支付方式重新获取。"
+											: dispatch.reason}
+									</p>
+									{credentialLost ? (
+										<p className="text-[13px] text-ink-3">
+											点击下方「更换支付方式」即可重新发起支付，无需重新报名。
+										</p>
+									) : null}
+								</div>
 							)}
 						</div>
 					) : null}
@@ -338,7 +374,11 @@ export default function OrderDetailPage() {
 										type="button"
 										disabled={switching}
 										onClick={() => void switchProvider(p)}
-										className="rounded-large border border-line bg-card px-3 py-1.5 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
+										className={
+											credentialLost
+												? "join-button join-button--primary"
+												: "rounded-large border border-line bg-card px-3 py-1.5 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
+										}
 										data-testid={`switch-${p}`}
 									>
 										{PROVIDER_LABEL[p]}

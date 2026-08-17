@@ -47,6 +47,7 @@ import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
+import { translatePaymentError } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
   submitEnrollment,
@@ -345,12 +346,15 @@ export function OfferingDetailPage({
     status: "loading" | "ok" | "error";
     value: number;
   }>({ id: "", status: "loading", value: 0 });
-  // E-5 #50 G3：工作台详情页报名入口（活动 open + 本人无既有报名才显示）
+  // E-5 #50 G3：工作台详情页报名入口（活动 open + 本人无既有报名才显示）。
+  // 支付接续：fetchMyEnrollment 回活跃报名行（id+status），渲染分四态——
+  // payment_pending → 待支付卡（去支付入口）；pending → 审批中；confirmed →
+  // 已报名；无行 → 报名表单。
   const [enrollState, setEnrollState] = useState<{
     id: string;
-    hasExisting: boolean;
+    enrollment: { id: string; status: string } | null;
     status: "loading" | "ok" | "error";
-  }>({ id: "", hasExisting: false, status: "loading" });
+  }>({ id: "", enrollment: null, status: "loading" });
   const [enrollBusy, setEnrollBusy] = useState(false);
   const [submitState, setSubmitState] = useState<{
     kind: "idle" | "confirmed" | "pending" | "payment_pending" | "error";
@@ -388,13 +392,14 @@ export function OfferingDetailPage({
     let cancelled = false;
 
     fetchMyEnrollment(id, kind, userId)
-      .then((hasExisting) => {
-        if (!cancelled) setEnrollState({ id, hasExisting, status: "ok" });
+      .then((enrollment) => {
+        if (!cancelled)
+          setEnrollState({ id, enrollment, status: "ok" });
       })
       .catch(() => {
         // 失败 ≠ 已报名：入口不显示（不误报），错误态不阻塞页面其余部分
         if (!cancelled)
-          setEnrollState({ id, hasExisting: false, status: "error" });
+          setEnrollState({ id, enrollment: null, status: "error" });
       });
 
     return () => {
@@ -596,13 +601,19 @@ export function OfferingDetailPage({
       } else {
         setSubmitState({
           kind: "error",
-          message: res.errors[0]?.message ?? "提交失败",
+          message: translatePaymentError(
+            res.errors[0]?.message,
+            "提交失败",
+          ),
         });
       }
     } catch (e: unknown) {
       setSubmitState({
         kind: "error",
-        message: e instanceof Error ? e.message : "提交失败",
+        message: translatePaymentError(
+          e instanceof Error ? e.message : null,
+          "提交失败",
+        ),
       });
     } finally {
       setEnrollBusy(false);
@@ -857,7 +868,28 @@ export function OfferingDetailPage({
                         </Link>
                       ) : null}
                     </div>
-                  ) : enrollState.hasExisting ? (
+                  ) : enrollState.enrollment?.status === "payment_pending" ? (
+                    <div
+                      className="grid gap-2"
+                      role="status"
+                      data-testid="enrollment-pending-card"
+                    >
+                      <p className="text-ink">
+                        ⏳ 名额已保留，请在限定时间内完成支付
+                      </p>
+                      <Link
+                        href={`/orders/new?enrollmentId=${enrollState.enrollment.id}`}
+                        data-testid="enrollment-pending-pay"
+                        className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
+                      >
+                        去支付
+                      </Link>
+                    </div>
+                  ) : enrollState.enrollment?.status === "pending" ? (
+                    <p className="text-[13px] text-ink-3">
+                      你已报名该{label}，申请审批中，通过后确认名额。
+                    </p>
+                  ) : enrollState.enrollment ? (
                     <p className="text-[13px] text-ink-3">
                       你已报名该{label}。
                     </p>

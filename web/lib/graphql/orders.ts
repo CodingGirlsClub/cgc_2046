@@ -140,6 +140,26 @@ export const MY_ORDERS: TypedDocumentNode<
 	}
 `;
 
+/**
+ * 某报名下是否已有进行中订单（/orders/new 进页守卫：payment_pending 且已有
+ * pending 订单 → 直接跳已有订单页，避免重复下单撞后端 not_payment_pending）。
+ */
+export const MY_PENDING_ORDERS: TypedDocumentNode<
+	{ myOrders: { results: Array<{ id: string }> } },
+	{ enrollmentId: string }
+> = gql`
+	query MyPendingOrders($enrollmentId: ID!) {
+		myOrders(
+			filter: { enrollmentId: { eq: $enrollmentId }, status: { eq: "pending" } }
+			first: 1
+		) {
+			results {
+				id
+			}
+		}
+	}
+`;
+
 /* ---------------- 管理面（R24/R15/R18） ---------------- */
 
 export interface AdminOrderFilter {

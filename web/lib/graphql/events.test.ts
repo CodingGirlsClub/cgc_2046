@@ -19,6 +19,7 @@ import {
 	LIST_EVENT_ENROLLMENTS,
 	MY_EVENT_ENROLLMENT,
 	MY_COURSE_ENROLLMENT,
+	MY_ENROLLMENT,
 } from "./events";
 import { allowedTransitions } from "../events";
 
@@ -57,18 +58,27 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 		expect(doc).toContain("count");
 	});
 
-	it("MY_EVENT/COURSE_ENROLLMENT：活跃态过滤（终态不挡再报名，e2e #2）", () => {
+	it("MY_EVENT/COURSE_ENROLLMENT：活跃态过滤（终态不挡再报名，e2e #2）+ status 透传", () => {
 		const eventDoc = print(MY_EVENT_ENROLLMENT);
 		expect(eventDoc).toContain("query MyEventEnrollment($eventId: ID!, $userId: ID!)");
 		expect(eventDoc).toContain(
 			'status: { in: ["pending", "payment_pending", "confirmed"] }',
 		);
+		expect(eventDoc).toContain("results {\n      id\n      status\n    }");
 
 		const courseDoc = print(MY_COURSE_ENROLLMENT);
 		expect(courseDoc).toContain("query MyCourseEnrollment($courseId: ID!, $userId: ID!)");
 		expect(courseDoc).toContain(
 			'status: { in: ["pending", "payment_pending", "confirmed"] }',
 		);
+		expect(courseDoc).toContain("results {\n      id\n      status\n    }");
+	});
+
+	it("MY_ENROLLMENT：按 id 读本人报名（/orders/new 守卫）", () => {
+		const doc = print(MY_ENROLLMENT);
+		expect(doc).toContain("query MyEnrollment($id: ID!)");
+		expect(doc).toContain("myEnrollments(filter: { id: { eq: $id } })");
+		expect(doc).toContain("results {\n      id\n      status\n    }");
 	});
 });
 

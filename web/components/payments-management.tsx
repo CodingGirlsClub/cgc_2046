@@ -32,6 +32,7 @@ import {
 	parsePaymentStats,
 	type PaymentStats,
 } from "@/lib/payment";
+import { translatePaymentError } from "@/lib/payment-errors";
 
 const REFUND_CONFIRMATION =
 	"将原路全额退款，报名同时取消并释放名额，此操作不可恢复。";
@@ -248,10 +249,20 @@ export default function PaymentsManagement({
 				setRefundTarget(null);
 				await Promise.all([load(statusFilter), loadStats()]);
 			} else {
-				setActionError(data?.refundOrder?.errors?.[0]?.message ?? "退款发起失败");
+				setActionError(
+					translatePaymentError(
+						data?.refundOrder?.errors?.[0]?.message,
+						"退款发起失败",
+					),
+				);
 			}
 		} catch (e) {
-			setActionError(e instanceof Error ? e.message : "退款发起失败");
+			setActionError(
+				translatePaymentError(
+					e instanceof Error ? e.message : null,
+					"退款发起失败",
+				),
+			);
 		} finally {
 			setBusy(false);
 		}
@@ -268,10 +279,20 @@ export default function PaymentsManagement({
 			if (data?.waivePayment?.result) {
 				await Promise.all([load(statusFilter), loadStats()]);
 			} else {
-				setActionError(data?.waivePayment?.errors?.[0]?.message ?? "免缴失败");
+				setActionError(
+					translatePaymentError(
+						data?.waivePayment?.errors?.[0]?.message,
+						"免缴失败",
+					),
+				);
 			}
 		} catch (e) {
-			setActionError(e instanceof Error ? e.message : "免缴失败");
+			setActionError(
+				translatePaymentError(
+					e instanceof Error ? e.message : null,
+					"免缴失败",
+				),
+			);
 		} finally {
 			setBusy(false);
 		}
