@@ -84,5 +84,7 @@ config :cgc_2046,
     private_key: System.get_env("ALIPAY_PRIVATE_KEY"),
     public_key: System.get_env("ALIPAY_PUBLIC_KEY"),
     webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL") || "http://localhost:4000",
-    return_url: System.get_env("ALIPAY_RETURN_URL")
+    return_url: System.get_env("ALIPAY_RETURN_URL"),
+    # 沙箱联调开关（host 切 openapi-sandbox.dl.alipaydev.com；生产保持缺省 false）
+    sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
   ]
