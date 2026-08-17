@@ -11,7 +11,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
   - 免缴竞态（AE3 免缴先落）：已 confirmed → paid 落账 + 自动退款链。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

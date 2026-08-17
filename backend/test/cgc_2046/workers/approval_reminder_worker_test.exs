@@ -10,7 +10,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
      SignalLog（signal_type="workflow.approval_reminder"）作为提醒事实记录。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

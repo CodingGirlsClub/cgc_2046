@@ -7,7 +7,7 @@ defmodule Cgc2046.Workflows.StepTest do
   next 引用完整性。
   """
 
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Cgc2046.Workflows.{Engine, JidoAdapter, StepHandlerRegistry, TestActions}
 

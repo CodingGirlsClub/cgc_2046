@@ -16,7 +16,7 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
   frame 注入）。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Anubis.Server.Frame

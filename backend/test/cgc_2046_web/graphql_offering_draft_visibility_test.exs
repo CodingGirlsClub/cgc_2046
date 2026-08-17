@@ -5,7 +5,7 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
   以及无 workspaceId 的全局 list sentinel。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Course, Event, SpeakerInvitation}

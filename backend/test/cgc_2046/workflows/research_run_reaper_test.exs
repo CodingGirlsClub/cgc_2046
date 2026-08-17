@@ -8,7 +8,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
   （input_snapshot["key"] = "event_\#{id}"）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures

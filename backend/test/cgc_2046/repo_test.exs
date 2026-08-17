@@ -9,7 +9,7 @@ defmodule Cgc2046.RepoTest do
   语义天然满足；锁在测试事务回滚时自动释放。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.Repo
 

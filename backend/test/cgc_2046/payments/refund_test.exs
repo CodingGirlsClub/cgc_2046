@@ -12,7 +12,7 @@ defmodule Cgc2046.Payments.RefundTest do
   - 查单兜底：回调丢失（受理未终态）→ 重试经查单收敛 refunded。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

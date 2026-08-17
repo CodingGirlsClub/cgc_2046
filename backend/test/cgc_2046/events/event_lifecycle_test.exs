@@ -7,7 +7,7 @@ defmodule Cgc2046.Events.EventLifecycleTest do
   本测试断言 close/cancel 后 job 已入队；订阅方行为由 ResearchRunReaper 测试覆盖。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

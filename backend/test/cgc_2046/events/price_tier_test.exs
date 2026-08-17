@@ -7,7 +7,7 @@ defmodule Cgc2046.Events.PriceTierTest do
   - R4 回归：免费活动（默认 pricing_enabled=false）字段默认值 + 空档位通过校验。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.{Course, Event, PriceTier}

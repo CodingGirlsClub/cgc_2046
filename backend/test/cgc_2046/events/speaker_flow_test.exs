@@ -16,7 +16,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
   关键断言是行为（状态转换、token 一次性、唯一性拒绝），不是 mock。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   require Ash.Query

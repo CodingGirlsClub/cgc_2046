@@ -38,8 +38,16 @@ defmodule Cgc2046.Mcp.TokenRaceTest do
     first_revoked_at = revoked.revoked_at
     assert first_revoked_at
 
-    # 用撤销前签发的陈旧 struct 再撤一次（双标签页/重试携带旧数据）
-    Process.sleep(1100)
+    # 用撤销前签发的陈旧 struct 再撤一次（双标签页/重试携带旧数据）。
+    # 断言要求 revoked_at 有时间区分度（若守卫失效，重撤会改写为 now()）——
+    # 原版 Process.sleep(1100) 跨秒等待太贵；直接回拨 DB 值 1 小时，
+    # 区分度更大且零等待（守卫正常时 filter 拦截，revoked_at 保持回拨值）。
+    backdated = DateTime.add(first_revoked_at, -3600, :second)
+
+    Repo.update_all(
+      from(t in "mcp_tokens", where: t.id == type(^stale.id, Ecto.UUID)),
+      set: [revoked_at: backdated]
+    )
 
     assert {:error, _} =
              stale
@@ -47,7 +55,7 @@ defmodule Cgc2046.Mcp.TokenRaceTest do
              |> Ash.update()
 
     reloaded = Ash.get!(Token, stale.id, authorize?: false)
-    assert reloaded.revoked_at == first_revoked_at
+    assert reloaded.revoked_at == backdated
   end
 
   test "8 路并发撤销（各自独立 get，resolver 同路径）：恰好一个成功" do

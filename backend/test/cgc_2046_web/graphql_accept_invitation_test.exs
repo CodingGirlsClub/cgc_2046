@@ -1,6 +1,6 @@
 defmodule Cgc2046Web.GraphqlAcceptInvitationTest do
-  # async: false —— 与 GraphqlInvitationRateLimitTest 共享全局 RateLimit ETS 表，
-  # acceptInvitation 的限流 key（input.token）相同，避免计数互相污染。
+  # async: false —— RateLimit 测试（graphql_invitation_rate_limit_test 等）会
+  # put_env 全局 max_attempts，并发窗口内本文件的 acceptInvitation 请求可能被误限流。
   use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.Accounts.Invitation

@@ -21,7 +21,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
   WorkflowRun 既有 `:expire` 领域 action（不发明第二条状态转换路径，D-A6）。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.Accounts.JoinRequest

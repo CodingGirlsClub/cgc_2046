@@ -10,7 +10,7 @@ defmodule Cgc2046.Changes.SignalEmitterTest do
   - 入队失败（Oban insert raise）→ 事务回滚，终态不落库（Q6 事务性 outbox）
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

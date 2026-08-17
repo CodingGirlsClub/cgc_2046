@@ -8,7 +8,7 @@ defmodule Cgc2046Web.PaymentWebhookTest do
   - 未知 provider：404。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   use Oban.Testing, repo: Cgc2046.Repo
 

@@ -8,7 +8,7 @@ defmodule Cgc2046.ApprovalClaimTest do
   边界 / 二次抢占 0 行 / SQL 守卫 ≡ ApprovalDeadline 谓词对偶（D8）/ 参数校验。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.ApprovalClaim

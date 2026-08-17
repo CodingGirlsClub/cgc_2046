@@ -7,7 +7,7 @@ defmodule Cgc2046.Events.EnrollmentAnchorTest do
   无锚 / nil 防御）、anchor/1 无锚与读取失败坍缩 + 落库集成（存在 / 不存在）。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures

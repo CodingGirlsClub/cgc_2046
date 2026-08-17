@@ -1,5 +1,5 @@
 defmodule Cgc2046.Workflows.StepHandlerRegistryTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions

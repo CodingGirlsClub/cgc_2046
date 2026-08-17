@@ -7,7 +7,7 @@ defmodule Cgc2046.Payments.OrderTest do
   policy 随 U5/U9 暴露时细化。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Enrollment

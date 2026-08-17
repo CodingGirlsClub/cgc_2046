@@ -3,7 +3,7 @@ defmodule Cgc2046.Events.CourseVisibilityTest do
   Course 读策略同构覆盖：匿名白名单 + draft 收紧 + 角色组合 + 跨租户。
   """
 
-  use Cgc2046.DataCase, async: false
+  use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Course

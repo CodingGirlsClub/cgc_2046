@@ -63,7 +63,9 @@ defmodule Cgc2046.MixProject do
       {:jido, "~> 2.3"},
       {:jido_runic, "~> 1.0"},
       {:ash_jido, "~> 1.0"},
-      {:simple_sat, "~> 0.1"},
+      # SAT solver：Ash 策略授权求解用 NIF 版 PicoSAT（crux 优先选 Picosat），
+      # 替代纯 Elixir 的 simple_sat——199 条 policy 的测试段 CPU 显著下降
+      {:picosat_elixir, "~> 0.2"},
       {:anubis_mcp, "~> 2.0"},
       {:cors_plug, "~> 3.0"},
       {:oban, "~> 2.20"},

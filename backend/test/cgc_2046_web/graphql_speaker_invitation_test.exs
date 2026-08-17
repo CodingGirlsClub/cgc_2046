@@ -15,7 +15,7 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
   手写 resolver 的接线与错误协议。
   """
 
-  use Cgc2046Web.ConnCase, async: false
+  use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
