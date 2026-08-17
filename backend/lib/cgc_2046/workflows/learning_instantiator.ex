@@ -27,9 +27,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   require Logger
 
   alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Workflows.{SignalSubscriber, WorkflowDefinition, WorkflowRun}
-
-  @completed_signal "enrollment.completed"
+  alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   # --- 公开 API --------------------------------------------------------------
 
@@ -60,74 +58,73 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
     end
   end
 
-  # --- 信号处理 ----------------------------------------------------------------
+  # --- 信号处理（claim_in_handle 双回调，架构深化 G 方向②）------------------
 
+  # before_claim：校验链（设计 §3）——enrollment 存在且 status=confirmed（孤儿
+  # 防护）→ 反查 entity（Event/Course）拿 workspace_id + title → 取该租户已
+  # published 的学习定义。校验通过 → `{:ok, ctx}`（骨架随后 claim + effects）；
+  # 失败 → `:skip` / `{:error, reason}`（不烧 claim，重投仍可推进；best-effort
+  # 语义由骨架归一化为 :ok）。claim 由骨架持有，本模块不再自调；校验失败日志
+  # 文案保留（G 红线）。
   @impl Cgc2046.Workflows.SignalSubscriber
-  def handle(_type, %{"enrollment_id" => enrollment_id} = data) when is_binary(enrollment_id) do
-    instantiate(enrollment_id, data)
-  end
-
-  def handle(_type, data) do
-    Logger.warning("LearningInstantiator received signal without enrollment id: #{inspect(data)}")
-
-    :ok
-  end
-
-  # 校验链（设计 §3）：enrollment 存在且 status=confirmed（孤儿防护）→ 反查
-  # entity（Event/Course）拿 workspace_id + title → 取该租户已 published 的学习
-  # 定义 → claim（骨架助手，校验链后——无定义/读失败不烧 claim，重投仍可推进）→
-  # find_or_create run。任一环节失败返回 `:ok`（best-effort，不抛错；失败可见性
-  # 交给对账扫描 E-10）。
-  defp instantiate(enrollment_id, data) do
+  def before_claim(_type, %{"enrollment_id" => enrollment_id} = data)
+      when is_binary(enrollment_id) do
     with {:ok, %Enrollment{} = enrollment} <- Enrollment.anchor(data),
          :ok <- ensure_confirmed(enrollment),
          {:ok, entity} <- fetch_entity(enrollment),
-         {:ok, %WorkflowDefinition{} = defn} <- fetch_learning_definition(entity.workspace_id),
-         {:ok, _claim_key} <- SignalSubscriber.claim(__MODULE__, @completed_signal, data) do
-      input = %{
-        "enrollment_id" => enrollment.id,
-        "user_id" => enrollment.user_id,
-        "event_id" => enrollment.event_id,
-        "course_id" => enrollment.course_id,
-        "title" => Cgc2046.Events.Offering.title(entity)
-      }
-
-      case launch(entity.workspace_id, defn.id, input) do
-        {:ok, %WorkflowRun{}} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.error(
-            "LearningInstantiator launch failed for enrollment #{enrollment_id}: #{inspect(reason)}"
-          )
-
-          :ok
-      end
+         {:ok, %WorkflowDefinition{} = defn} <- fetch_learning_definition(entity.workspace_id) do
+      {:ok,
+       %{
+         enrollment: enrollment,
+         entity: entity,
+         defn: defn,
+         workspace_id: entity.workspace_id
+       }}
     else
       {:error, reason} ->
         Logger.warning(
           "LearningInstantiator skipped instantiation for enrollment #{enrollment_id}: #{inspect(reason)}"
         )
 
-        :ok
+        {:error, reason}
 
-      # 无已 published 学习定义（read_first 返回 nil）是合法场景，走 skipped 而非 unexpected
-      # （同 research_instantiator.ex 模式；供 E-10 对账）。
+      # 无已 published 学习定义（read_first 返回 nil）是合法场景，走 skipped 而非
+      # unexpected（同 research_instantiator.ex 模式；供 E-10 对账）。
       {:ok, nil} ->
         Logger.warning(
           "LearningInstantiator skipped instantiation for enrollment #{enrollment_id}: :learning_definition_not_found"
         )
 
+        :skip
+    end
+  end
+
+  def before_claim(_type, data) do
+    Logger.warning("LearningInstantiator received signal without enrollment id: #{inspect(data)}")
+
+    :skip
+  end
+
+  # effects：校验链通过 + 骨架 claim 后执行——find_or_create run（幂等第二层，
+  # 同一 definition + instance key 已有非终态 run → 返回已有 run）。best-effort：
+  # launch 失败记 error 并归一化为 :ok（失败可见性靠 error 日志与 E-10 对账扫描）。
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def effects(_type, _data, ctx) do
+    input = %{
+      "enrollment_id" => ctx.enrollment.id,
+      "user_id" => ctx.enrollment.user_id,
+      "event_id" => ctx.enrollment.event_id,
+      "course_id" => ctx.enrollment.course_id,
+      "title" => Cgc2046.Events.Offering.title(ctx.entity)
+    }
+
+    case launch(ctx.workspace_id, ctx.defn.id, input) do
+      {:ok, %WorkflowRun{}} ->
         :ok
 
-      # 幂等键已登记（重复投递）→ 跳过，不重复实例化（归一化为 :ok，同旧
-      # instantiate_from_signal/2 语义）。
-      :duplicate ->
-        :ok
-
-      other ->
-        Logger.warning(
-          "LearningInstantiator unexpected instantiation result for enrollment #{enrollment_id}: #{inspect(other)}"
+      {:error, reason} ->
+        Logger.error(
+          "LearningInstantiator launch failed for enrollment #{ctx.enrollment.id}: #{inspect(reason)}"
         )
 
         :ok

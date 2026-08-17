@@ -1,7 +1,8 @@
 defmodule Cgc2046.Workflows.SignalSubscriberFixtures.ClaimInHandle do
   @moduledoc """
-  claim_in_handle 策略测试订阅方（LI 语义缩影）：校验不过不烧 claim；
-  校验通过才经骨架 claim/3 登记；重复投递归一化为 :ok。
+  claim_in_handle 策略测试订阅方（双回调形态，LI 语义缩影）：before_claim 校验
+  （skip 注入）+ 骨架 claim + effects。重复投递由骨架归一化为 :ok（不重复执行
+  effects）。
   """
 
   use Cgc2046.Workflows.SignalSubscriber,
@@ -11,20 +12,19 @@ defmodule Cgc2046.Workflows.SignalSubscriberFixtures.ClaimInHandle do
   @impl Cgc2046.Workflows.SignalSubscriber
 
   # 校验不过（类比「无已发布学习定义 / 瞬时读失败」）：跳过，不 claim
-  def handle(_type, %{"skip" => true} = data) do
+  def before_claim(_type, %{"skip" => true} = data) do
     send(data["test_pid"], {:skipped, data["n"]})
-    :ok
+    :skip
   end
 
-  def handle(_type, data) do
-    case Cgc2046.Workflows.SignalSubscriber.claim(__MODULE__, "fixture.claim_in_handle", data) do
-      {:ok, _key} ->
-        send(data["test_pid"], {:claimed, data["n"]})
-        :ok
+  def before_claim(_type, data) do
+    send(data["test_pid"], {:claimed, data["n"]})
+    {:ok, data}
+  end
 
-      :duplicate ->
-        send(data["test_pid"], {:duplicate, data["n"]})
-        :ok
-    end
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def effects(_type, data, _ctx) do
+    send(data["test_pid"], {:effects, data["n"]})
+    :ok
   end
 end
