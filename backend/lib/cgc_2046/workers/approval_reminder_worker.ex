@@ -107,8 +107,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
             "enrollment_id" => enrollment.id,
             "approval_deadline" => DateTime.to_iso8601(enrollment.approval_deadline)
           },
-          %{"enrollment_id" => enrollment.id},
-          :reminder_7d
+          %{"enrollment_id" => enrollment.id}
         )
 
         acc + recipient_count(recipients)
@@ -155,8 +154,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
             "sponsorship_id" => sponsorship.id,
             "approval_deadline" => DateTime.to_iso8601(sponsorship.approval_deadline)
           },
-          %{"sponsorship_id" => sponsorship.id},
-          :reminder_7d
+          %{"sponsorship_id" => sponsorship.id}
         )
 
         acc + recipient_count(recipients)

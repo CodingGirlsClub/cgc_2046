@@ -1,23 +1,22 @@
 defmodule Cgc2046.Payments.NotificationTemplates do
   @moduledoc """
-  缴费闭环三通知模板契约定稿（U10/KTD8/R22）。
+  缴费闭环三通知模板（U10/KTD8/R22）。
 
-  模板键（config `:cgc_2046, :miniprogram_templates` 三平台 registry 已配，
-  prod 模板 ID 经 runtime.exs 环境变量注入）：
+  模板键、data/job_meta 键集与 unique 预设的**唯一真源** =
+  `Cgc2046.Workers.NotificationWorker` 通知类型 registry（`type/1` / `types/0`；
+  见 CONTEXT.md「通知类型（Notification Types）」词条）——本 module 不再重复
+  声明键集契约（2026-08-18 架构深化候选 D，D6 单点化）。
 
-  - `payment_succeeded` —— 支付成功 → 报名人（R22）；
-  - `refund_succeeded` —— 退款成功 → 报名人 + 发起管理员（R22 精确归属见
-    PaymentRefundWorker：单笔管理员退款经 job args `initiator_user_id` 精确到
-    发起人；自动退款/Event cancelled 批量无发起人，收件人取 workspace 管理者
-    超集）；
+  用途（R22，生产方视角）：
+
+  - `payment_succeeded` —— 支付成功 → 报名人；
+  - `refund_succeeded` —— 退款成功 → 报名人 + 发起管理员（单笔管理员退款经
+    PaymentRefundWorker job args `initiator_user_id` 精确到发起人；自动退款 /
+    Event cancelled 批量无发起人，收件人取 workspace 管理者超集）；
   - `refund_failed` —— 退款失败 → 同上两人。
 
-  data 契约（全 string 值——订阅消息渠道 data 值须为字符串；金额以元展示，
-  两位小数，R20 存储侧仍一律分）：
-
-      order_id / enrollment_id / amount（"199.00"）/ provider
-
-  unique 预设定稿：`:default`（NotificationWorker 自身 7 天全 args unique）；
+  payload 值构建（构建点不收敛 D4）：`payment_data/1` 全 string 值（订阅消息
+  渠道 data 值须为字符串）；金额以元展示、两位小数（R20 存储侧仍一律分）；
   幂等键在 job_meta `idempotency_key`（`<template_key>:<order_id>`），worker
   重入/崩溃重试补发天然去重。
   """

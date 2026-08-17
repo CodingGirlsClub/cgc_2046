@@ -190,8 +190,7 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
           "run_id" => run.id,
           "title" => run.input_snapshot["title"]
         },
-        %{"run_id" => run.id},
-        :reminder_7d
+        %{"run_id" => run.id}
       )
 
       :reminded

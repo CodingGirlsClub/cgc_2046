@@ -34,6 +34,12 @@ defmodule Cgc2046.NotificationFanout do
     收编，唯一真源）——discarded/cancelled 释放名额（失败后下拍可重建），
     completed/在途仍阻塞重复（#7）。
 
+  未显式传 unique（缺省）时按 `template_key` 查 `NotificationWorker.type/1` 的
+  unique 预设（2026-08-18 架构深化候选 D，D3）：approval_reminder /
+  learning_stagnation 由通知类型 registry 声明 `:reminder_7d`，其余类型
+  `:default`；type nil（未知键）→ `:default`。显式传参（`:default` |
+  `:reminder_7d`）仍兼容。
+
   ## 错误内化（Q6）
 
   入队失败 rescue 不崩、必 Logger.warning + telemetry（`status: :error`）后返回
@@ -99,7 +105,8 @@ defmodule Cgc2046.NotificationFanout do
   - `template_key` / `data`：通知模板与模板数据（写入 job args）；
   - `job_meta`：与 `user_id` / `identity_uid` / `platform` / `template_key` /
     `data` 合并为最终 args（幂等键等由调用方放入 `job_meta`）；
-  - `unique`：命名预设（见 moduledoc），默认 `:default`。
+  - `unique`：命名预设（见 moduledoc）；缺省 nil 时按 `template_key` 查
+    `NotificationWorker.type/1` 的 unique 预设（默认 `:default`）。
 
   返回 `:ok`（成功或 rescue 内化后）；成功/失败均发 telemetry。
   """
@@ -108,9 +115,11 @@ defmodule Cgc2046.NotificationFanout do
           String.t(),
           map(),
           map(),
-          :default | :reminder_7d
+          :default | :reminder_7d | nil
         ) :: :ok
-  def deliver(recipients, template_key, data, job_meta, unique \\ :default) do
+  def deliver(recipients, template_key, data, job_meta, unique \\ nil) do
+    unique = unique || unique_for(template_key)
+
     count =
       recipients
       |> normalize_recipients()
@@ -136,6 +145,15 @@ defmodule Cgc2046.NotificationFanout do
   defp normalize_recipients({user_id, identities})
        when is_binary(user_id) and is_list(identities),
        do: %{user_id => identities}
+
+  # unique 缺省查表（D3）：按 template_key 读 NotificationWorker.type/1 的 unique
+  # 预设；type nil 或无 unique 字段 → :default。显式传参不走此分支（签名兼容）。
+  defp unique_for(template_key) do
+    case NotificationWorker.type(template_key) do
+      %{unique: preset} when preset in [:default, :reminder_7d] -> preset
+      _ -> :default
+    end
+  end
 
   # role_filter 收窄收件人：`:manage` 走 Role.manage_roles/0 唯一真源，
   # `{:roles, roles}` 显式窄集（赞助 Workspace 级 = 仅 Owner，拍板 #4）。
