@@ -101,6 +101,56 @@ defmodule Cgc2046.ApprovalDeadlineTest do
     end
   end
 
+  describe "not_expired?/2 放行谓词（与 overdue?/2 不对称对偶）" do
+    test "deadline 未到 → true" do
+      now = DateTime.utc_now()
+      record = %{approval_deadline: DateTime.add(now, 1, :second)}
+
+      assert ApprovalDeadline.not_expired?(record, now)
+    end
+
+    test "deadline == now → false（严格大于，恰在 now 不放行）" do
+      now = DateTime.utc_now()
+      record = %{approval_deadline: now}
+
+      refute ApprovalDeadline.not_expired?(record, now)
+    end
+
+    test "deadline 已严格过点 → false" do
+      now = DateTime.utc_now()
+      record = %{approval_deadline: DateTime.add(now, -1, :second)}
+
+      refute ApprovalDeadline.not_expired?(record, now)
+    end
+
+    test "derive nil（永不过期）→ true（放行）" do
+      now = DateTime.utc_now()
+      assert ApprovalDeadline.not_expired?(%{approval_deadline: nil}, now)
+    end
+
+    test "与 overdue?/2 不对称对偶：nil 侧相反、==now 双双 false、严格侧互补" do
+      now = DateTime.utc_now()
+
+      # nil：not_expired? true / overdue? false（nil 侧相反）
+      assert ApprovalDeadline.not_expired?(%{approval_deadline: nil}, now)
+      refute ApprovalDeadline.overdue?(%{approval_deadline: nil}, now)
+
+      # ==now：双双 false（严格比较，不放行也不扫中）
+      refute ApprovalDeadline.not_expired?(%{approval_deadline: now}, now)
+      refute ApprovalDeadline.overdue?(%{approval_deadline: now}, now)
+
+      # >now：not_expired? true / overdue? false
+      future = DateTime.add(now, 1, :second)
+      assert ApprovalDeadline.not_expired?(%{approval_deadline: future}, now)
+      refute ApprovalDeadline.overdue?(%{approval_deadline: future}, now)
+
+      # <now：not_expired? false / overdue? true
+      past = DateTime.add(now, -1, :second)
+      refute ApprovalDeadline.not_expired?(%{approval_deadline: past}, now)
+      assert ApprovalDeadline.overdue?(%{approval_deadline: past}, now)
+    end
+  end
+
   describe "in_window?/3 半开区间 (now, window_end]" do
     test "deadline 落在窗口内 → true" do
       now = DateTime.utc_now()
