@@ -16,6 +16,8 @@ defmodule Cgc2046.Events.Enrollment do
 
   require Logger
 
+  alias Cgc2046.ApprovalClaim
+
   @submitted_signal "enrollment.submitted"
   @approved_signal "enrollment.approved"
   @rejected_signal "enrollment.rejected"
@@ -547,24 +549,26 @@ defmodule Cgc2046.Events.Enrollment do
   defp prepare_expire(changeset) do
     now = DateTime.utc_now()
 
-    sql = """
-    UPDATE enrollments
-    SET status = 'expired', expired_at = $1
-    WHERE id = $2 AND status = 'pending'
-      AND approval_deadline IS NOT NULL AND approval_deadline < $1
-    """
-
-    case Cgc2046.Repo.query(sql, [now, Cgc2046.Repo.uuid!(changeset.data.id)]) do
-      {:ok, %{num_rows: 1}} ->
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：:passed 方向守卫
+    # （approval_deadline IS NOT NULL AND < now）= ApprovalDeadline.overdue?/2 的
+    # SQL 端口。0 行 = 已非 pending 或未过点，报 :not_expired_pending。
+    case ApprovalClaim.claim(%{id: changeset.data.id},
+           table: :enrollments,
+           from: [:pending],
+           set: [status: "expired", expired_at: {:arg, :now}],
+           deadline: {:approval_deadline, :passed},
+           now: now
+         ) do
+      {:ok, _returned} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :expired)
         |> Ash.Changeset.force_change_attribute(:expired_at, now)
 
-      {:ok, %{num_rows: 0}} ->
+      {:error, :not_claimed} ->
         add_domain_error(changeset, :not_expired_pending)
 
-      {:error, reason} ->
-        add_domain_error(changeset, {:database, reason})
+      {:error, {:database, _} = reason} ->
+        add_domain_error(changeset, reason)
     end
   end
 
@@ -785,69 +789,84 @@ defmodule Cgc2046.Events.Enrollment do
   end
 
   defp claim_pending(id, status, actor_id, now, rejection_reason) do
-    sql = """
-    UPDATE enrollments
-    SET status = $1, approved_by = $2, approved_at = $3, rejection_reason = $4
-    WHERE id = $5 AND status = 'pending'
-      AND (approval_deadline IS NULL OR approval_deadline > $3)
-    """
-
-    case Cgc2046.Repo.query(sql, [
-           to_string(status),
-           Cgc2046.Repo.uuid!(actor_id),
-           now,
-           rejection_reason,
-           Cgc2046.Repo.uuid!(id)
-         ]) do
-      {:ok, %{num_rows: count}} -> {:ok, count}
-      {:error, reason} -> {:error, {:database, reason}}
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：confirm/reject
+    # 共用 pending 状态窗口条件 UPDATE；approval_deadline 守卫 = not_expired?/2 的
+    # SQL 端口。返回 {:ok, count} / {:error, {:database, reason}}，错误映射由调用方
+    # （prepare_confirm/prepare_reject）承担（D3）。
+    case ApprovalClaim.claim(%{id: id},
+           table: :enrollments,
+           from: [:pending],
+           set: [
+             status: {:arg, :status},
+             approved_by: {:arg, :actor_id},
+             approved_at: {:arg, :now},
+             rejection_reason: {:arg, :rejection_reason}
+           ],
+           deadline: {:approval_deadline, :future},
+           status: to_string(status),
+           actor_id: Cgc2046.Repo.uuid!(actor_id),
+           now: now,
+           rejection_reason: rejection_reason
+         ) do
+      {:ok, _returned} -> {:ok, 1}
+      {:error, :not_claimed} -> {:ok, 0}
+      {:error, {:database, _} = reason} -> {:error, reason}
     end
   end
 
   defp claim_waive(id, actor_id, now) do
-    sql = """
-    UPDATE enrollments
-    SET status = 'confirmed', approved_by = $1, approved_at = $2, rejection_reason = NULL
-    WHERE id = $3 AND status = 'payment_pending'
-    """
-
-    case Cgc2046.Repo.query(sql, [
-           Cgc2046.Repo.uuid!(actor_id),
-           now,
-           Cgc2046.Repo.uuid!(id)
-         ]) do
-      {:ok, %{num_rows: count}} -> {:ok, count}
-      {:error, reason} -> {:error, {:database, reason}}
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：payment_pending →
+    # confirmed 免缴 CAS。返回 {:ok, count} / {:error, {:database, reason}}，错误映射由
+    # 调用方（prepare_waive）承担（D3）。
+    case ApprovalClaim.claim(%{id: id},
+           table: :enrollments,
+           from: [:payment_pending],
+           set: [
+             status: "confirmed",
+             approved_by: {:arg, :actor_id},
+             approved_at: {:arg, :now},
+             rejection_reason: nil
+           ],
+           actor_id: Cgc2046.Repo.uuid!(actor_id),
+           now: now
+         ) do
+      {:ok, _returned} -> {:ok, 1}
+      {:error, :not_claimed} -> {:ok, 0}
+      {:error, {:database, _} = reason} -> {:error, reason}
     end
   end
 
   defp claim_cancellable(id, now) do
-    # payment_pending 与 confirmed 同为已占位窗口——取消必须释放名额（KTD6-4）
-    sql = """
-    UPDATE enrollments
-    SET status = 'cancelled', cancelled_at = $1
-    WHERE id = $2 AND status IN ('pending', 'payment_pending', 'confirmed')
-    RETURNING capacity_seq, event_id, course_id
-    """
-
-    case Cgc2046.Repo.query(sql, [now, Cgc2046.Repo.uuid!(id)]) do
-      {:ok, %{rows: [[nil, _event_id, _course_id]]}} ->
+    # payment_pending 与 confirmed 同为已占位窗口——取消必须释放名额（KTD6-4）。
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：多状态 IN +
+    # RETURNING 回读 capacity_seq/event_id/course_id（0 行 → :not_claimed →
+    # :already_processed；返回值的容量目标分派留调用方，D3）。
+    case ApprovalClaim.claim(%{id: id},
+           table: :enrollments,
+           from: [:pending, :payment_pending, :confirmed],
+           set: [status: "cancelled", cancelled_at: {:arg, :now}],
+           returning: [:capacity_seq, :event_id, :course_id],
+           now: now
+         ) do
+      {:ok, %{capacity_seq: nil, event_id: _event_id, course_id: _course_id}} ->
         {:ok, nil}
 
-      {:ok, %{rows: [[_capacity_seq, event_id, nil]]}} when not is_nil(event_id) ->
+      {:ok, %{capacity_seq: _capacity_seq, event_id: event_id, course_id: nil}}
+      when not is_nil(event_id) ->
         {:ok, {:event, Ecto.UUID.load!(event_id)}}
 
-      {:ok, %{rows: [[_capacity_seq, nil, course_id]]}} when not is_nil(course_id) ->
+      {:ok, %{capacity_seq: _capacity_seq, event_id: nil, course_id: course_id}}
+      when not is_nil(course_id) ->
         {:ok, {:course, Ecto.UUID.load!(course_id)}}
-
-      {:ok, %{rows: []}} ->
-        {:error, :already_processed}
 
       {:ok, _unexpected} ->
         {:error, :capacity_counter_invalid}
 
-      {:error, reason} ->
-        {:error, {:database, reason}}
+      {:error, :not_claimed} ->
+        {:error, :already_processed}
+
+      {:error, {:database, _} = reason} ->
+        {:error, reason}
     end
   end
 

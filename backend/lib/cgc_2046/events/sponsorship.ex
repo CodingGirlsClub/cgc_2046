@@ -24,6 +24,7 @@ defmodule Cgc2046.Events.Sponsorship do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
+  alias Cgc2046.ApprovalClaim
   alias Cgc2046.Repo
 
   alias Cgc2046.Events.SponsorshipTier
@@ -514,6 +515,7 @@ defmodule Cgc2046.Events.Sponsorship do
       # READ COMMITTED 下 NOT EXISTS 子查询看不到未提交的赢家 → 双重预定逃逸。
       # 事务级 advisory lock 按 (target, tier) 键串行化独占档位激活：后到者在
       # 赢家提交后以新快照重跑守卫 → num_rows=0 → exclusive_slot_taken。
+      # 锁在 claim 前由调用方取得（锁序 lock→claim，plan 2026-08-17-001 D6）。
       if exclusive? do
         slot_key = "sponsorship_slot:#{target_kind}:#{target_id}:#{tier_id}"
         # PR-I D5：内联锁收进 Repo.acquire_lock!（默认 hashtext 键域不变）；新增
@@ -521,14 +523,34 @@ defmodule Cgc2046.Events.Sponsorship do
         Repo.acquire_lock!(slot_key)
       end
 
-      sql = approval_claim_sql(target_kind, exclusive?)
-
-      params =
-        [Repo.uuid!(actor.id), now, Repo.uuid!(changeset.data.id), Repo.uuid!(target_id)] ++
-          if(exclusive?, do: [to_string(target_kind), Repo.uuid!(tier_id)], else: [])
-
-      case Repo.query(sql, params) do
-        {:ok, %{num_rows: 1}} ->
+      # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4/D6）：状态守卫 +
+      # approval_deadline 守卫（= not_expired?/2 SQL 端口）+ 目标仍开放 EXISTS + 独占位
+      # NOT EXISTS（经 extra_where 传入，占位符由 claim 统一重编号，42P18 纪律单点化）。
+      # num_rows=0 的冲突判定（读回消歧 approval_conflict）留本资源（D3）。
+      case ApprovalClaim.claim(changeset.data,
+             table: :sponsorships,
+             from: [:pending],
+             set: [
+               status: "active",
+               approved_by: {:arg, :actor_id},
+               approved_at: {:arg, :now},
+               started_at: {:arg, :now},
+               updated_at: {:sql, "NOW()"}
+             ],
+             deadline: {:approval_deadline, :future},
+             extra_where:
+               approval_extra_where(
+                 target_kind,
+                 target_id,
+                 changeset.data.id,
+                 tier_id,
+                 exclusive?,
+                 now
+               ),
+             actor_id: Repo.uuid!(actor.id),
+             now: now
+           ) do
+        {:ok, _returned} ->
           _delivery_count =
             materialize_deliveries(changeset.data.id, changeset.data.workspace_id, tier)
 
@@ -538,48 +560,51 @@ defmodule Cgc2046.Events.Sponsorship do
           |> Ash.Changeset.force_change_attribute(:approved_at, now)
           |> Ash.Changeset.force_change_attribute(:started_at, now)
 
-        {:ok, %{num_rows: 0}} ->
+        {:error, :not_claimed} ->
           add_domain_error(changeset, approval_conflict(changeset.data, now))
 
-        {:error, reason} ->
-          add_domain_error(changeset, {:database, reason})
+        {:error, {:database, _} = reason} ->
+          add_domain_error(changeset, reason)
       end
     else
       {:error, reason} -> add_domain_error(changeset, reason)
     end
   end
 
-  # 条件 UPDATE：状态守卫（pending 未过期）+ 目标仍开放 + 独占位 NOT EXISTS。
+  # 条件 UPDATE 的附加守卫（extra_where 片段）：目标仍开放 + 独占位 NOT EXISTS。
   # 复用报名名额扣减的原子 UPDATE ... WHERE 模式——独占位双重预定在 DB 层拒绝。
-  # 占位符按变体连续编号（$1 approver / $2 now / $3 id / $4 target_id；
-  # 独占变体追加 $5 level / $6 tier_id），避免未引用参数触发 42P18。
-  defp approval_claim_sql(target_kind, exclusive?) do
+  # 片段占位符从 $1 起内部编号（$1 target_id / $2 now / $3 id / $4 level / $5 tier_id），
+  # ApprovalClaim 统一重编号到全语句连续编号（消灭现手工连续编号，42P18 纪律单点化）。
+  defp approval_extra_where(target_kind, target_id, record_id, tier_id, exclusive?, now) do
     exclusive_guard =
       if exclusive? do
         """
         AND NOT EXISTS (
           SELECT 1 FROM sponsorships s2
           WHERE s2.status = 'active' AND s2.id <> $3
-            AND s2.level = $5 AND s2.tier_id = $6
-            AND #{target_column(target_kind)} = $4
+            AND s2.level = $4 AND s2.tier_id = $5
+            AND #{target_column(target_kind)} = $1
         )
         """
       else
         ""
       end
 
-    """
-    UPDATE sponsorships
-    SET status = 'active', approved_by = $1, approved_at = $2, started_at = $2, updated_at = NOW()
-    WHERE id = $3 AND status = 'pending'
-      AND (approval_deadline IS NULL OR approval_deadline > $2)
-      AND EXISTS (
-        SELECT 1 FROM #{target_table(target_kind)} t
-        WHERE t.id = $4 AND t.sponsorship_enabled = TRUE
-          AND (t.sponsorship_deadline IS NULL OR t.sponsorship_deadline > $2)
-      )
-    #{exclusive_guard}
-    """
+    params =
+      [Repo.uuid!(target_id), now] ++
+        if(exclusive?,
+          do: [Repo.uuid!(record_id), to_string(target_kind), Repo.uuid!(tier_id)],
+          else: []
+        )
+
+    {"""
+     EXISTS (
+       SELECT 1 FROM #{target_table(target_kind)} t
+       WHERE t.id = $1 AND t.sponsorship_enabled = TRUE
+         AND (t.sponsorship_deadline IS NULL OR t.sponsorship_deadline > $2)
+     )
+     #{exclusive_guard}
+     """, params}
   end
 
   # num_rows=0 时的冲突判定：读回状态区分「已处理」「已过期」「独占位被占」「目标关闭」。
@@ -691,27 +716,37 @@ defmodule Cgc2046.Events.Sponsorship do
     actor = changeset.context[:private][:actor]
     reason = Ash.Changeset.get_argument(changeset, :rejection_reason)
 
-    sql = """
-    UPDATE sponsorships
-    SET status = 'rejected', approved_by = $1, approved_at = $2, rejection_reason = $3, updated_at = NOW()
-    WHERE id = $4 AND status = 'pending'
-      AND (approval_deadline IS NULL OR approval_deadline > $2)
-    """
-
-    case Repo.query(sql, [Repo.uuid!(actor.id), now, reason, Repo.uuid!(changeset.data.id)]) do
-      {:ok, %{num_rows: 1}} ->
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：pending → rejected，
+    # approval_deadline 守卫 = not_expired?/2 SQL 端口。num_rows=0 冲突判定（读回消歧
+    # reject_conflict）留本资源（D3）。
+    case ApprovalClaim.claim(changeset.data,
+           table: :sponsorships,
+           from: [:pending],
+           set: [
+             status: "rejected",
+             approved_by: {:arg, :actor_id},
+             approved_at: {:arg, :now},
+             rejection_reason: {:arg, :rejection_reason},
+             updated_at: {:sql, "NOW()"}
+           ],
+           deadline: {:approval_deadline, :future},
+           actor_id: Repo.uuid!(actor.id),
+           now: now,
+           rejection_reason: reason
+         ) do
+      {:ok, _returned} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :rejected)
         |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
         |> Ash.Changeset.force_change_attribute(:approved_at, now)
         |> Ash.Changeset.force_change_attribute(:rejection_reason, reason)
 
-      {:ok, %{num_rows: 0}} ->
+      {:error, :not_claimed} ->
         # 区分「已处理」与「审批超时」（expiry worker 未拍时误报修复，评审 A4）
         add_domain_error(changeset, reject_conflict(changeset.data, now))
 
-      {:error, reason} ->
-        add_domain_error(changeset, {:database, reason})
+      {:error, {:database, _} = reason} ->
+        add_domain_error(changeset, reason)
     end
   end
 
@@ -734,24 +769,29 @@ defmodule Cgc2046.Events.Sponsorship do
   defp prepare_expire(changeset) do
     now = DateTime.utc_now()
 
-    sql = """
-    UPDATE sponsorships
-    SET status = 'expired', expired_at = $1, updated_at = NOW()
-    WHERE id = $2 AND status = 'pending'
-      AND approval_deadline IS NOT NULL AND approval_deadline < $1
-    """
-
-    case Repo.query(sql, [now, Repo.uuid!(changeset.data.id)]) do
-      {:ok, %{num_rows: 1}} ->
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：:passed 方向守卫
+    # （approval_deadline IS NOT NULL AND < now）= ApprovalDeadline.overdue?/2 SQL 端口。
+    case ApprovalClaim.claim(changeset.data,
+           table: :sponsorships,
+           from: [:pending],
+           set: [
+             status: "expired",
+             expired_at: {:arg, :now},
+             updated_at: {:sql, "NOW()"}
+           ],
+           deadline: {:approval_deadline, :passed},
+           now: now
+         ) do
+      {:ok, _returned} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :expired)
         |> Ash.Changeset.force_change_attribute(:expired_at, now)
 
-      {:ok, %{num_rows: 0}} ->
+      {:error, :not_claimed} ->
         add_domain_error(changeset, :not_expired_pending)
 
-      {:error, reason} ->
-        add_domain_error(changeset, {:database, reason})
+      {:error, {:database, _} = reason} ->
+        add_domain_error(changeset, reason)
     end
   end
 
@@ -760,23 +800,29 @@ defmodule Cgc2046.Events.Sponsorship do
   defp prepare_end(changeset) do
     now = DateTime.utc_now()
 
-    sql = """
-    UPDATE sponsorships
-    SET status = 'ended', ended_at = $1, updated_at = NOW()
-    WHERE id = $2 AND level = 'event' AND status = 'active'
-    """
-
-    case Repo.query(sql, [now, Repo.uuid!(changeset.data.id)]) do
-      {:ok, %{num_rows: 1}} ->
+    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：level 守卫经
+    # extra_where（event.ended 只结束 Event 级，Workspace 级不受影响）。
+    case ApprovalClaim.claim(changeset.data,
+           table: :sponsorships,
+           from: [:active],
+           set: [
+             status: "ended",
+             ended_at: {:arg, :now},
+             updated_at: {:sql, "NOW()"}
+           ],
+           extra_where: {"level = $1", ["event"]},
+           now: now
+         ) do
+      {:ok, _returned} ->
         changeset
         |> Ash.Changeset.force_change_attribute(:status, :ended)
         |> Ash.Changeset.force_change_attribute(:ended_at, now)
 
-      {:ok, %{num_rows: 0}} ->
+      {:error, :not_claimed} ->
         add_domain_error(changeset, :not_active_event_sponsorship)
 
-      {:error, reason} ->
-        add_domain_error(changeset, {:database, reason})
+      {:error, {:database, _} = reason} ->
+        add_domain_error(changeset, reason)
     end
   end
 

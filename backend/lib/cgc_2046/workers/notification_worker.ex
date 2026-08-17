@@ -6,6 +6,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
     max_attempts: 3,
     unique: [period: 604_800, fields: [:worker, :args], states: :all]
 
+  alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.NotificationService
@@ -50,18 +51,17 @@ defmodule Cgc2046.Workers.NotificationWorker do
   end
 
   # 提醒发送时重查（扫描到执行之间，过期/审批可能已改变状态）：
-  # 仅当报名仍 pending 且 deadline 未过时投递；其余情况静默跳过。
+  # 仅当报名仍 pending 且 deadline 未过时投递；其余情况静默跳过。deadline 放行谓词
+  # 统一走 ApprovalDeadline.not_expired?/2（nil 永不过期=投递；==now 不放行=跳过；
+  # 与 overdue?/2 不对称对偶，不可代用）。
   defp stale_reminder?(%{
          "template_key" => "approval_reminder",
          "data" => %{"enrollment_id" => id}
        })
        when is_binary(id) do
     case Ash.get(Enrollment, id, authorize?: false) do
-      {:ok, %{status: :pending, approval_deadline: nil}} ->
-        false
-
-      {:ok, %{status: :pending, approval_deadline: deadline}} ->
-        DateTime.compare(deadline, DateTime.utc_now()) != :gt
+      {:ok, %{status: :pending} = record} ->
+        not ApprovalDeadline.not_expired?(record, DateTime.utc_now())
 
       _ ->
         true
@@ -75,11 +75,8 @@ defmodule Cgc2046.Workers.NotificationWorker do
        })
        when is_binary(id) do
     case Ash.get(Sponsorship, id, authorize?: false) do
-      {:ok, %{status: :pending, approval_deadline: nil}} ->
-        false
-
-      {:ok, %{status: :pending, approval_deadline: deadline}} ->
-        DateTime.compare(deadline, DateTime.utc_now()) != :gt
+      {:ok, %{status: :pending} = record} ->
+        not ApprovalDeadline.not_expired?(record, DateTime.utc_now())
 
       _ ->
         true

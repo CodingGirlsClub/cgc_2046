@@ -25,7 +25,11 @@ defmodule Cgc2046.ApprovalDeadline do
     （邀请过期，非审批，由本模块统一读列不引入第二个派生公式）；WorkflowRun =
     `updated_at + definition.approval_timeout` 内存派生（调用方需先
     `Ash.Query.load(definition: [:approval_timeout])`，load 路径保持）；
-  - `overdue?/2`：deadline 已严格过点（`< now`，deadline == now 不算过期）；
+  - `not_expired?/2`：**放行谓词**（deadline 严格 `> now`，==now 不放行；nil 恒 true）
+    ——claim 守卫与投递守卫用；
+  - `overdue?/2`：**扫中谓词**（deadline 已严格过点 `< now`，==now 不算过期）——
+    过期扫描用；与 `not_expired?/2` 是**不对称对偶**（nil 侧相反：not_expired?
+    nil→true / overdue? nil→false；==now 侧双双 false），不可互相代用；
   - `in_window?/3`：半开区间 `(now, window_end]`（左开右闭，与收敛前
     ApprovalReminderWorker 窗口谓词一致）；
   - `default_timeout_days/0`：四资源创建期默认审批期限的唯一来源。
@@ -78,6 +82,23 @@ defmodule Cgc2046.ApprovalDeadline do
     case derive(record) do
       nil -> false
       deadline -> DateTime.compare(deadline, now) == :lt
+    end
+  end
+
+  @doc """
+  审批期限是否未过（**放行谓词**：`deadline > now` 严格大于，deadline == now 不放行）。
+
+  `derive/1` 返回 nil（永不过期）时恒 true。
+
+  与 `overdue?/2` 是**不对称对偶**（见 moduledoc）：nil 侧相反（not_expired?
+  nil→true / overdue? nil→false）、==now 侧双双 false——`not_expired?` 是放行谓词
+  （claim 守卫 / 投递守卫），`overdue?` 是扫中谓词（过期扫描），不可互相代用。
+  """
+  @spec not_expired?(map(), DateTime.t()) :: boolean()
+  def not_expired?(record, now) do
+    case derive(record) do
+      nil -> true
+      deadline -> DateTime.compare(deadline, now) == :gt
     end
   end
 
