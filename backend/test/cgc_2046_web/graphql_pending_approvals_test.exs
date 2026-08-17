@@ -4,6 +4,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Events.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   @query """
@@ -166,6 +167,88 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
              graphql(@query, sign_in_token(outsider))
   end
 
+  # 拍板 #4 读面行级过滤：Sponsorship 行按 approver_roles/1 反查 allowed_levels——
+  # admin（非 owner）无 workspace 级行（看得到点不动的行不进入待办读面）；
+  # owner 两级都见；event 级 admin/owner 都有。
+  test "Sponsorship 读面行级过滤：admin 无 workspace 级行 / owner 有 / event 级两者都有" do
+    platform_admin = Fixtures.platform_admin("sponsor-level-platform")
+    owner = Fixtures.register_user("sponsor-level-owner")
+    admin = Fixtures.register_user("sponsor-level-admin")
+    sponsor = Fixtures.register_user("sponsor-level-sponsor")
+    ws_sponsor = Fixtures.register_user("sponsor-level-ws-sponsor")
+    workspace = Fixtures.create_workspace(platform_admin)
+    Fixtures.add_member(workspace, owner, [:owner])
+    Fixtures.add_member(workspace, admin, [:admin])
+    event = EventFixtures.create_event(workspace, platform_admin)
+
+    _event_pending = create_pending_sponsorship(event, sponsor)
+    _ws_pending = create_workspace_sponsorship(workspace, ws_sponsor)
+
+    query = """
+    query {
+      myPendingApprovals { id kind level eventId }
+    }
+    """
+
+    sponsorship_levels = fn rows ->
+      rows
+      |> Enum.filter(&(&1["kind"] == "sponsorship"))
+      |> Enum.map(& &1["level"])
+      |> Enum.sort()
+    end
+
+    assert %{"data" => %{"myPendingApprovals" => owner_rows}} =
+             graphql(query, sign_in_token(owner))
+
+    assert sponsorship_levels.(owner_rows) == ["event", "workspace"]
+
+    assert %{"data" => %{"myPendingApprovals" => admin_rows}} =
+             graphql(query, sign_in_token(admin))
+
+    assert sponsorship_levels.(admin_rows) == ["event"]
+    assert length(admin_rows) == 1
+  end
+
+  # advisor02 FINDINGS #1（三方收敛）：expired 展示区同规则过滤——admin（非 owner）
+  # 不可见 workspace 级「已过期」赞助行（pending/expired/count 三路径同构），
+  # owner 可见（includeExpired 只读展示）。
+  test "Sponsorship expired 读面行级过滤：admin 不可见 workspace 级 expired 行 / owner 可见" do
+    platform_admin = Fixtures.platform_admin("sponsor-expired-level-platform")
+    owner = Fixtures.register_user("sponsor-expired-level-owner")
+    admin = Fixtures.register_user("sponsor-expired-level-admin")
+    ws_sponsor = Fixtures.register_user("sponsor-expired-level-ws-sponsor")
+    workspace = Fixtures.create_workspace(platform_admin)
+    Fixtures.add_member(workspace, owner, [:owner])
+    Fixtures.add_member(workspace, admin, [:admin])
+
+    ws_pending = create_workspace_sponsorship(workspace, ws_sponsor)
+    set_status("sponsorships", ws_pending.id, "expired")
+
+    query = """
+    query {
+      myPendingApprovals(includeExpired: true) { id kind level status }
+    }
+    """
+
+    sponsorship_levels = fn rows ->
+      rows
+      |> Enum.filter(&(&1["kind"] == "sponsorship"))
+      |> Enum.map(& &1["level"])
+      |> Enum.sort()
+    end
+
+    assert %{"data" => %{"myPendingApprovals" => owner_rows}} =
+             graphql(query, sign_in_token(owner))
+
+    assert sponsorship_levels.(owner_rows) == ["workspace"]
+    assert length(owner_rows) == 1
+
+    assert %{"data" => %{"myPendingApprovals" => admin_rows}} =
+             graphql(query, sign_in_token(admin))
+
+    assert admin_rows == []
+  end
+
   defp create_pending_enrollment(event, user) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
@@ -176,6 +259,30 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
     JoinRequest
     |> Ash.Changeset.for_create(:create, %{workspace_id: workspace.id, user_id: user.id})
     |> Ash.create!(actor: user)
+  end
+
+  defp create_pending_sponsorship(event, sponsor) do
+    Sponsorship
+    |> Ash.Changeset.for_create(:create_sponsorship, %{
+      level: :event,
+      event_id: event.id,
+      sponsor_user_id: sponsor.id,
+      company_name: "事件赞助方",
+      contact_email: sponsor.email
+    })
+    |> Ash.create!(tenant: event.workspace_id, actor: sponsor)
+  end
+
+  defp create_workspace_sponsorship(workspace, sponsor) do
+    Sponsorship
+    |> Ash.Changeset.for_create(:create_sponsorship, %{
+      level: :workspace,
+      target_workspace_id: workspace.id,
+      sponsor_user_id: sponsor.id,
+      company_name: "长期赞助方",
+      contact_email: sponsor.email
+    })
+    |> Ash.create!(tenant: workspace.id, actor: sponsor)
   end
 
   defp set_status(table, id, status, expired_at \\ nil) do

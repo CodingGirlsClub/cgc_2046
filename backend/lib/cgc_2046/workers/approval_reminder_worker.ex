@@ -40,6 +40,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Policies.SponsorshipApprover
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -117,7 +118,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   end
 
   # E-3 #48 F7：赞助 48h 提醒。Event 级通知 Owner/Admin；Workspace 级仅 Owner
-  # （拍板 #4，`:manage` 窄集语义经 NotificationFanout 选择器收敛）。入队 args
+  # （拍板 #4，规则唯一真源 `SponsorshipApprover.approver_roles/1`——两套收件人
+  # 选择器按 `{:roles, approver_roles(level)}` 派生，与写面/读面同源）。入队 args
   # 含 sponsorship_id + deadline（NotificationWorker 7 天 args-unique 保证同一
   # 赞助同一收件人不重复）。
   defp remind_pending_sponsorships(now, window_end) do
@@ -126,16 +128,25 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
       status == :pending and not is_nil(approval_deadline) and approval_deadline > ^now and
         approval_deadline <= ^window_end
     )
-    |> Ash.Query.select([:id, :workspace_id, :event_id, :approval_deadline])
+    |> Ash.Query.select([:id, :workspace_id, :event_id, :level, :approval_deadline])
     |> Ash.read!(authorize?: false)
     |> Enum.group_by(& &1.workspace_id)
     |> Enum.map(fn {workspace_id, sponsorships} ->
-      recipients = Cgc2046.NotificationFanout.managers(workspace_id)
-      owner_recipients = Cgc2046.NotificationFanout.managers(workspace_id, {:roles, [:owner]})
+      event_recipients =
+        Cgc2046.NotificationFanout.managers(
+          workspace_id,
+          {:roles, SponsorshipApprover.approver_roles(:event)}
+        )
+
+      workspace_recipients =
+        Cgc2046.NotificationFanout.managers(
+          workspace_id,
+          {:roles, SponsorshipApprover.approver_roles(:workspace)}
+        )
 
       Enum.reduce(sponsorships, 0, fn sponsorship, acc ->
         recipients =
-          if is_nil(sponsorship.event_id), do: owner_recipients, else: recipients
+          if sponsorship.level == :workspace, do: workspace_recipients, else: event_recipients
 
         Cgc2046.NotificationFanout.deliver(
           recipients,

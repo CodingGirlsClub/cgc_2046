@@ -391,6 +391,11 @@
 - **定义**：**两级赞助** = Event 级（单场活动）+ Workspace 级（长期）（D-A3）。赞助方以账号身份参与赞助 workflow（意向 → Owner/Admin 审批 → 权益生效），**不必成为成员**。
 - **架构位置**：活动/Workspace 资源；权益生效经异步 Signal。
 
+### 赞助审批人（Sponsorship Approver Roles）
+
+- **定义**：「谁是赞助审批人」规则（拍板 #4）的唯一真源 = `Cgc2046.Policies.SponsorshipApprover.approver_roles/1`（2026-08-17 架构深化候选 F，plan `docs/plans/2026-08-17-002-sponsorship-approver-roles.md` D1-D8 全锁定）：`approver_roles(:event) -> Role.manage_roles()`（owner/admin，角色清单变更自动跟随）｜`approver_roles(:workspace) -> [:owner]`（长期承诺加严；平台 Admin 备案二期，不参与审批）。**三消费面只改此处即全链路跟随**：写面 `match?/3`（approve/reject policy，委托 `Enum.any?(roles, &(&1 in approver_roles(level)))`）｜提醒面 `ApprovalReminderWorker` 每工作台两套收件人选择器按 `{:roles, approver_roles(level)}` 派生（收件人零变化，测试钉死）｜读面 `PendingApprovals` 按角色集反查 `allowed_levels` 做 Sponsorship 行级过滤（`level in ^allowed_levels` 下推到 pending/expired/count 三路径——admin 无 workspace 级行，与写面 policy 一致，看得到点不动的行不进待办读面）。
+- **架构位置**：横切判定面（policy 模块内纯函数薄壳，规则归属地不另起第二真源）；消费方 = sponsorship approve/reject policy / ApprovalReminderWorker / PendingApprovals；`is_nil(event_id)` 不变量本体不动（仅 ARW 不再作分派依据）。
+
 ### SpeakerInvitation（分享嘉宾邀请）
 
 - **定义**：**Event 级邀请**（D-A3）：Owner 创建 → 邀请 workflow（接受/拒绝 → 分享材料产出 → 结束）；分享完**关系结束**，不成为成员。

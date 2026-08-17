@@ -6,6 +6,12 @@ defmodule Cgc2046.Events.PendingApprovals do
   Enrollment/JoinRequest 的真实 read action 与 policy 查询 pending 记录。这样普通
   成员和非成员在查询层即得到空集，不在 resolver 读取全量后做响应过滤。
 
+  赞助（Sponsorship）读面再按 level 行级细分：每个工作台的角色集经
+  `SponsorshipApprover.approver_roles/1` 反查可审批的 level 集（`level in
+  ^allowed_levels` 下推到 pending / expired / count 三路径）——admin 无
+  workspace 级行（拍板 #4，与写面 policy 一致：admin 看到即点不动的行不出现在
+  待办读面）。
+
   行形状（E-8 #123 决策 D7）：`{kind, id, requester 摘要, context 摘要,
   approval_deadline}`。requester/context 摘要（display_name、Event/Course 标题、
   Workspace 名称）在聚合后批量装配（内部读，`authorize?: false`——行可见性已由
@@ -28,14 +34,15 @@ defmodule Cgc2046.Events.PendingApprovals do
 
   alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role, User, Workspace}
   alias Cgc2046.Events.{Enrollment, Sponsorship}
+  alias Cgc2046.Policies.SponsorshipApprover
 
   @spec list(term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list(actor, opts \\ []) do
     include_expired = Keyword.get(opts, :include_expired, false)
-    workspace_ids = managed_workspace_ids(actor)
+    managed_workspaces = managed_workspace_ids(actor)
 
-    with {:ok, pending} <- collect_pending(workspace_ids, actor),
-         {:ok, expired} <- collect_expired(workspace_ids, actor, include_expired) do
+    with {:ok, pending} <- collect_pending(managed_workspaces, actor),
+         {:ok, expired} <- collect_expired(managed_workspaces, actor, include_expired) do
       rows =
         (Enum.sort_by(pending, &sort_key/1) ++
            Enum.sort_by(expired, &expired_key/1, {:desc, DateTime}))
@@ -51,10 +58,14 @@ defmodule Cgc2046.Events.PendingApprovals do
   def count_pending(actor) do
     now = DateTime.utc_now()
 
-    Enum.reduce_while(managed_workspace_ids(actor), {:ok, 0}, fn workspace_id, {:ok, total} ->
-      with {:ok, enrollment_count} <- count_pending(Enrollment, workspace_id, actor, now),
-           {:ok, join_request_count} <- count_pending(JoinRequest, workspace_id, actor, now),
-           {:ok, sponsorship_count} <- count_pending(Sponsorship, workspace_id, actor, now) do
+    Enum.reduce_while(managed_workspace_ids(actor), {:ok, 0}, fn {workspace_id, allowed_levels},
+                                                                 {:ok, total} ->
+      with {:ok, enrollment_count} <-
+             count_pending(Enrollment, workspace_id, actor, now, allowed_levels),
+           {:ok, join_request_count} <-
+             count_pending(JoinRequest, workspace_id, actor, now, allowed_levels),
+           {:ok, sponsorship_count} <-
+             count_pending(Sponsorship, workspace_id, actor, now, allowed_levels) do
         {:cont, {:ok, total + enrollment_count + join_request_count + sponsorship_count}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -62,7 +73,8 @@ defmodule Cgc2046.Events.PendingApprovals do
     end)
   end
 
-  defp count_pending(resource, workspace_id, actor, now) do
+  defp count_pending(resource, workspace_id, actor, now, _allowed_levels)
+       when resource in [Enrollment, JoinRequest] do
     resource
     |> Ash.Query.filter(
       status == :pending and (is_nil(approval_deadline) or approval_deadline > ^now)
@@ -70,6 +82,21 @@ defmodule Cgc2046.Events.PendingApprovals do
     |> Ash.count(tenant: workspace_id, actor: actor)
   end
 
+  # Sponsorship 按 level 行级过滤（拍板 #4：角色集经 approver_roles/1 反查
+  # allowed_levels；count 保持 SQL 聚合不物化行）。
+  defp count_pending(Sponsorship, workspace_id, actor, now, allowed_levels) do
+    Sponsorship
+    |> Ash.Query.filter(
+      status == :pending and (is_nil(approval_deadline) or approval_deadline > ^now) and
+        level in ^allowed_levels
+    )
+    |> Ash.count(tenant: workspace_id, actor: actor)
+  end
+
+  # 管理角色成员的工作台 → `{workspace_id, allowed_levels}`（allowed_levels =
+  # 该角色集能审批的赞助级别集，经 `SponsorshipApprover.approver_roles/1` 反查）。
+  # `memberships_of_actor/1` 已 load roles，无 N+1；同一 workspace 多条 membership
+  # 罕见，以任一管理 membership 的角色集为准（与原 uniq 保序首个行为一致）。
   defp managed_workspace_ids(actor) do
     actor
     |> MembershipContext.memberships_of_actor()
@@ -78,15 +105,26 @@ defmodule Cgc2046.Events.PendingApprovals do
       |> Enum.map(& &1.name)
       |> Enum.any?(&Role.manage_role?/1)
     end)
-    |> Enum.map(& &1.workspace_id)
-    |> Enum.uniq()
+    |> Enum.map(fn membership ->
+      roles = Enum.map(membership.roles, & &1.name)
+      {membership.workspace_id, allowed_levels(roles)}
+    end)
+    |> Enum.uniq_by(&elem(&1, 0))
   end
 
-  defp collect_pending(workspace_ids, actor) do
-    Enum.reduce_while(workspace_ids, {:ok, []}, fn workspace_id, {:ok, acc} ->
+  defp allowed_levels(roles) do
+    [:event, :workspace]
+    |> Enum.filter(fn level ->
+      Enum.any?(roles, &(&1 in SponsorshipApprover.approver_roles(level)))
+    end)
+  end
+
+  defp collect_pending(managed_workspaces, actor) do
+    Enum.reduce_while(managed_workspaces, {:ok, []}, fn {workspace_id, allowed_levels},
+                                                        {:ok, acc} ->
       with {:ok, enrollments} <- pending_enrollments(workspace_id, actor),
            {:ok, join_requests} <- pending_join_requests(workspace_id, actor),
-           {:ok, sponsorships} <- pending_sponsorships(workspace_id, actor) do
+           {:ok, sponsorships} <- pending_sponsorships(workspace_id, actor, allowed_levels) do
         items =
           Enum.map(enrollments, &from_enrollment(&1, :pending)) ++
             Enum.map(join_requests, &from_join_request(&1, :pending)) ++
@@ -99,13 +137,14 @@ defmodule Cgc2046.Events.PendingApprovals do
     end)
   end
 
-  defp collect_expired(_workspace_ids, _actor, false), do: {:ok, []}
+  defp collect_expired(_managed_workspaces, _actor, false), do: {:ok, []}
 
-  defp collect_expired(workspace_ids, actor, true) do
-    Enum.reduce_while(workspace_ids, {:ok, []}, fn workspace_id, {:ok, acc} ->
+  defp collect_expired(managed_workspaces, actor, true) do
+    Enum.reduce_while(managed_workspaces, {:ok, []}, fn {workspace_id, allowed_levels},
+                                                        {:ok, acc} ->
       with {:ok, enrollments} <- expired_enrollments(workspace_id, actor),
            {:ok, join_requests} <- expired_join_requests(workspace_id, actor),
-           {:ok, sponsorships} <- expired_sponsorships(workspace_id, actor) do
+           {:ok, sponsorships} <- expired_sponsorships(workspace_id, actor, allowed_levels) do
         items =
           Enum.map(enrollments, &from_enrollment(&1, :expired)) ++
             Enum.map(join_requests, &from_join_request(&1, :expired)) ++
@@ -142,15 +181,17 @@ defmodule Cgc2046.Events.PendingApprovals do
     |> Ash.read(tenant: workspace_id, actor: actor)
   end
 
-  defp pending_sponsorships(workspace_id, actor) do
+  # Sponsorship 行级过滤（拍板 #4）：allowed_levels 由该工作台角色集经
+  # approver_roles/1 反查，admin 无 workspace 级行（与写面 policy 一致）。
+  defp pending_sponsorships(workspace_id, actor, allowed_levels) do
     Sponsorship
-    |> Ash.Query.filter(status == :pending)
+    |> Ash.Query.filter(status == :pending and level in ^allowed_levels)
     |> Ash.read(tenant: workspace_id, actor: actor)
   end
 
-  defp expired_sponsorships(workspace_id, actor) do
+  defp expired_sponsorships(workspace_id, actor, allowed_levels) do
     Sponsorship
-    |> Ash.Query.filter(status == :expired)
+    |> Ash.Query.filter(status == :expired and level in ^allowed_levels)
     |> Ash.read(tenant: workspace_id, actor: actor)
   end
 
