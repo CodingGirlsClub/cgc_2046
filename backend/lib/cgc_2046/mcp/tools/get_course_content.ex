@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   逐 issue 注入展示层 `key`(slug 短码-序号派生,单源
   `LearningProgress.issue_key/2`)——面板与 agent 无需自算或退用内部 id。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
   alias Cgc2046.Mcp.Tools.LearnerAuthorization
   alias Cgc2046.Mcp.Wrapper

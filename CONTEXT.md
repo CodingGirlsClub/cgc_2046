@@ -23,6 +23,7 @@
 ### MCP server（模型上下文协议服务端）
 
 - **定义**：网站暴露的、供用户 OpenClacky 调用的协议端点。技术选型 **anubis_mcp**（Elixir/Phoenix，活跃维护）。全平台**只暴露一个** MCP server（D6）。
+- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
 - **架构位置**：B 通道主干（见下）。网站能力以"工具"形态暴露给 Agent。
 
 ### B 通道（网站 MCP server 通道）—— 主干
@@ -112,7 +113,7 @@
 
 ### workspace_id 作用域（Workspace Scope）
 
-- **定义**：无状态的租户作用域。**所有 MCP 工具必填 `workspace_id`**，每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **定义**：无状态的租户作用域。**除 `meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation）外，所有 MCP 工具必填 `workspace_id`**，每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
 ### 当前工作区（Current Workspace，对话上下文概念）
@@ -237,7 +238,7 @@
   - **写**：`save_step_output` / `reply_learner_question`
   - **v1 课程学习闭环新增（2026-08-16 设计，未实现）**：读 `get_course_content` / `get_learning_records`（course_id 可选，并入原 `get_learner_history` 语义）；写 `save_learning_records` / `save_course_content`（教研侧）——工具面 8 → 12
   - **管理类**（进 MCP，RBAC 兜底）：低风险直做 `create_agent` / `create_workflow` 等；高风险走确认流 `approve_join_request` / `assign_role` / `create_invitation` / `update_join_policy` / 删除类
-- **架构位置**：B 通道能力面；所有工具必填 `workspace_id`，每次调用鉴权 + 审计。
+- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。
 
 ### 确认流（Confirmation Flow）
 

@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.SaveLearningRecords do
 
   records 每条形状:`%{issue_id, item_id, done, evidence}`。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.Learning.LearningRecord

@@ -8,8 +8,8 @@ defmodule Cgc2046.Mcp.Server do
   - 管理(确认流 two-tool,D-D3):create_invitation
   - 内置:confirm_operation / cancel_operation
   - 课程学习(切片 H U3,#180):get_course_content / get_learning_records /
-    save_learning_records / save_course_content(学员侧三工具进 Wrapper
-    `@membership_deferred` 名单,授权锚 user_id,见各工具 moduledoc)
+    save_learning_records / save_course_content(学员侧三工具带 `meta: %{membership: :deferred}`
+    声明,授权锚 user_id,见各工具 moduledoc)
 
   （get_agent_instruction：D10 任务指令模式，拉取 Agent 定义 prompt/skills/授权；
   plan 020 只留接口语义，不实现——roadmap）
