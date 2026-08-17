@@ -31,7 +31,8 @@ import {
 import EventStatusTag from "@/components/event-status-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
-import { formatDeadline } from "@/lib/events";
+import { translatePaymentError } from "@/lib/payment-errors";
+import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
 
 interface DetailState {
   id: string;
@@ -63,6 +64,15 @@ export default function PublicOfferingDetailPage({
     /** payment_pending 态的去支付入口目标（R5 报名 id） */
     enrollmentId: string | null;
   }>({ kind: "idle", message: null, enrollmentId: null });
+  // 支付接续：登录态下查已有活跃报名（公开页报名需登录），分叉渲染——
+  // payment_pending → 待支付卡；confirmed/pending → 已报名；无 → 报名表单。
+  const [myEnroll, setMyEnroll] = useState<{
+    id: string;
+    status: string;
+  } | null>(null);
+  // 已完成的报名查询对应的 offering id（派生 enrollChecked，避免 effect 内
+  // 同步 setState——eslint react-hooks/set-state-in-effect）
+  const [enrollForId, setEnrollForId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
@@ -90,8 +100,32 @@ export default function PublicOfferingDetailPage({
   const stale = state.id !== slug;
   const offering = stale ? null : state.row;
   const loadError = stale ? null : state.error;
+  const enrollChecked = offering !== null && enrollForId === offering.id;
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
+
+  // 我的活跃报名（登录后才查；offering.id 就绪后发起）。失败按「未报名」
+  // 处理（入口照常显示，不误报已报名）。
+  useEffect(() => {
+    if (!authed || !userId || !offering?.id) return;
+    let cancelled = false;
+
+    fetchMyEnrollment(offering.id, kind, userId)
+      .then((enrollment) => {
+        if (cancelled) return;
+        setMyEnroll(enrollment);
+        setEnrollForId(offering.id);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMyEnroll(null);
+        setEnrollForId(offering.id);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authed, userId, offering?.id, kind]);
 
   // E-3 #48 赞助入口（仅 event；enabled + tiers 已配才显示，对齐 E-5 readiness ②）
   const sponsorshipTiers = offering
@@ -151,20 +185,24 @@ export default function PublicOfferingDetailPage({
           router.refresh();
         }
       } else {
-        // :tier_id_required / :tier_not_available 等 AshGraphql 字段级错误
-        // 映射为可读文案；未知错误走兜底，不透传 GraphQL 原文
-        const raw = res.errors[0]?.message ?? "提交失败";
-        const message = /price tier is required/.test(raw)
-          ? "该报名为收费项，请先选择价格档位。"
-          : /tier is not available/.test(raw)
-            ? "所选档位已过期或不可用，请重新选择。"
-            : raw;
-        setSubmitState({ kind: "error", message, enrollmentId: null });
+        // :tier_id_required / :tier_not_available / unique 冲突等 AshGraphql
+        // 错误经翻译层映射为可读文案；未知错误走兜底，不透传 GraphQL 原文
+        setSubmitState({
+          kind: "error",
+          message: translatePaymentError(
+            res.errors[0]?.message,
+            "提交失败",
+          ),
+          enrollmentId: null,
+        });
       }
     } catch (e: unknown) {
       setSubmitState({
         kind: "error",
-        message: e instanceof Error ? e.message : "提交失败",
+        message: translatePaymentError(
+          e instanceof Error ? e.message : null,
+          "提交失败",
+        ),
         enrollmentId: null,
       });
     } finally {
@@ -268,6 +306,48 @@ export default function PublicOfferingDetailPage({
                       在「我的参与」查看报名状态
                     </Link>
                   )}
+                </div>
+              ) : myEnroll?.status === "payment_pending" ? (
+                <div
+                  className="text-sm"
+                  role="status"
+                  data-testid="public-enrollment-pending-card"
+                >
+                  <p className="font-medium">
+                    ⏳ 名额已保留，请在限定时间内完成支付
+                  </p>
+                  <Link
+                    href={`/orders/new?enrollmentId=${myEnroll.id}`}
+                    className="join-button join-button--primary mt-3 inline-block"
+                  >
+                    去支付
+                  </Link>
+                </div>
+              ) : myEnroll?.status === "pending" ? (
+                <div className="text-sm" role="status">
+                  <p className="font-medium">
+                    你已报名该{label}，申请审批中，通过后确认名额。
+                  </p>
+                  <Link
+                    href="/participations"
+                    className="mt-3 inline-block text-[13px] text-accent hover:underline"
+                  >
+                    在「我的参与」查看报名状态
+                  </Link>
+                </div>
+              ) : myEnroll ? (
+                <div className="text-sm" role="status">
+                  <p className="font-medium">你已报名该{label}。</p>
+                  <Link
+                    href="/participations"
+                    className="mt-3 inline-block text-[13px] text-accent hover:underline"
+                  >
+                    在「我的参与」查看报名状态
+                  </Link>
+                </div>
+              ) : !enrollChecked ? (
+                <div className="text-sm text-ink-3">
+                  正在确认你的报名状态…
                 </div>
               ) : (
                 <div className="grid gap-3">

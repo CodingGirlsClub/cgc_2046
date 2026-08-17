@@ -128,7 +128,7 @@ function renderManageDetail(kind: "event" | "course", row: Record<string, unknow
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	mocks.fetchMyEnrollment.mockResolvedValue(false);
+	mocks.fetchMyEnrollment.mockResolvedValue(null);
 	mocks.fetchPendingCount.mockResolvedValue(0);
 	mocks.fetchWorkspaceOfferings.mockResolvedValue([]);
 	mocks.transitionOffering.mockResolvedValue({ result: null, errors: [] });
@@ -286,8 +286,8 @@ describe("OfferingDetailPage 错误态", () => {
 			capacity: null,
 			confirmedCount: 0,
 		});
-		// 后端存在 cancelled 终态行，但活跃态过滤后查询返回空 → hasExisting=false
-		mocks.fetchMyEnrollment.mockResolvedValueOnce(false);
+		// 后端存在 cancelled 终态行，但活跃态过滤后查询返回空 → 无活跃报名
+		mocks.fetchMyEnrollment.mockResolvedValueOnce(null);
 
 		render(<OfferingDetailPage slug="demo" id="event-cancelled-enr" kind="event" />);
 
@@ -380,6 +380,71 @@ describe("OfferingDetailPage 错误态", () => {
 
 		const payLink = await screen.findByRole("link", { name: "去支付" });
 		expect(payLink).toHaveAttribute("href", "/orders/new?enrollmentId=enr-1");
+	});
+});
+
+describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
+	function renderOpen() {
+		mocks.useWorkspaceBySlug.mockReturnValue({
+			ws: WORKSPACE,
+			readOnlyVisitor: false,
+			loading: false,
+			error: null,
+			retry: vi.fn(),
+		});
+		mocks.fetchOffering.mockResolvedValueOnce({
+			id: "event-open",
+			title: "开放活动",
+			status: "open",
+			visibility: "workspace",
+			enrollmentPolicy: "open",
+			registrationDeadline: null,
+			capacity: null,
+			confirmedCount: 0,
+		});
+		render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
+	}
+
+	it("payment_pending 既有报名 → 待支付卡（名额已保留 + 去支付入口），不渲染报名表单", async () => {
+		mocks.fetchMyEnrollment.mockResolvedValueOnce({
+			id: "enr-pending",
+			status: "payment_pending",
+		});
+
+		renderOpen();
+
+		expect(await screen.findByTestId("enrollment-pending-card")).toBeInTheDocument();
+		expect(screen.getByText(/名额已保留/)).toBeInTheDocument();
+		const payLink = screen.getByRole("link", { name: "去支付" });
+		expect(payLink).toHaveAttribute(
+			"href",
+			"/orders/new?enrollmentId=enr-pending",
+		);
+		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
+	});
+
+	it("confirmed 既有报名 → 你已报名，不渲染报名表单", async () => {
+		mocks.fetchMyEnrollment.mockResolvedValueOnce({
+			id: "enr-confirmed",
+			status: "confirmed",
+		});
+
+		renderOpen();
+
+		expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
+	});
+
+	it("pending 既有报名 → 审批中文案，不渲染报名表单", async () => {
+		mocks.fetchMyEnrollment.mockResolvedValueOnce({
+			id: "enr-pending-req",
+			status: "pending",
+		});
+
+		renderOpen();
+
+		expect(await screen.findByText(/申请审批中/)).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "报名" })).not.toBeInTheDocument();
 	});
 });
 

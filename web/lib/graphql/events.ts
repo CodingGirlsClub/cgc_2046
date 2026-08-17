@@ -574,9 +574,15 @@ export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
 /**
  * 当前用户对目标的活跃报名（e2e #2：终态 cancelled/expired/rejected 不算
  * 「已报名」，否则取消后 UI 无法再报名）。读策略仅本人可见 → 返回即已报名。
+ * status 透传（支付接续：payment_pending 分叉「待支付」卡片，见 offering-pages）。
  */
+export interface MyEnrollmentRow {
+  id: string;
+  status: string;
+}
+
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
-  { enrollments: { results: Array<{ id: string }> } },
+  { enrollments: { results: MyEnrollmentRow[] } },
   { eventId: string; userId: string }
 > = gql`
   query MyEventEnrollment($eventId: ID!, $userId: ID!) {
@@ -589,13 +595,14 @@ export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
     ) {
       results {
         id
+        status
       }
     }
   }
 `;
 
 export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
-  { enrollments: { results: Array<{ id: string }> } },
+  { enrollments: { results: MyEnrollmentRow[] } },
   { courseId: string; userId: string }
 > = gql`
   query MyCourseEnrollment($courseId: ID!, $userId: ID!) {
@@ -608,6 +615,25 @@ export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
     ) {
       results {
         id
+        status
+      }
+    }
+  }
+`;
+
+/**
+ * 按 id 读本人报名（/orders/new 进页守卫：校验报名是否为 payment_pending；
+ * 读策略仅本人可见，他人/不存在 → 空 results）。
+ */
+export const MY_ENROLLMENT: TypedDocumentNode<
+  { myEnrollments: { results: MyEnrollmentRow[] } },
+  { id: string }
+> = gql`
+  query MyEnrollment($id: ID!) {
+    myEnrollments(filter: { id: { eq: $id } }) {
+      results {
+        id
+        status
       }
     }
   }
