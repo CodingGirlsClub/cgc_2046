@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.CancelOperation do
   @moduledoc """
   确认流内置工具（D-D3）：取消 pending 操作（仅本人、pending）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, meta: %{workspace_id: :optional}
 
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper

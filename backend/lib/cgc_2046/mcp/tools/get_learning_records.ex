@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.Tools.GetLearningRecords do
   授权(KTD2):course_id 给定时 = 成员 ∪ 学员 ∪ 记忆持有者;缺省时仅成员
   (非成员无锚点;学员带 course_id 逐课程访问)。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
   alias Cgc2046.Learning.LearningRecord
   alias Cgc2046.Mcp.Tools.LearnerAuthorization

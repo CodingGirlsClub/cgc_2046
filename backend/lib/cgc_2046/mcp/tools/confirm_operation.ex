@@ -3,9 +3,10 @@ defmodule Cgc2046.Mcp.Tools.ConfirmOperation do
   确认流内置工具（D-D3）：确认并执行 pending 操作。
 
   仅本人、pending 且未过期可确认；确认后调注册执行器落库 + 审计。
-  本工具不要求 workspace 成员资格（pending 归属校验即授权，见 Wrapper @workspace_optional）。
+  本工具不要求 workspace 成员资格（pending 归属校验即授权；
+  `meta: %{workspace_id: :optional}` 声明豁免，Wrapper 派生门控读取）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, meta: %{workspace_id: :optional}
 
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper

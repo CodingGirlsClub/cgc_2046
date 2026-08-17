@@ -5,34 +5,33 @@ defmodule Cgc2046.Mcp.Wrapper do
   每个 tool 的 `execute/2` 入口都经 `run/3`：
 
   1. 从 frame.assigns 取 actor（McpAuthPlug 注入 `:current_user`）
-  2. 校验必填 `workspace_id`（D12 无状态作用域；可豁免的工具见 @workspace_optional）
-  3. membership 鉴权：非成员直接 Forbidden（不经业务 action，快速拒绝）
+  2. 校验必填 `workspace_id`（D12 无状态作用域；`meta: %{workspace_id: :optional}` 的工具豁免）
+  3. membership 鉴权：非成员直接 Forbidden（不经业务 action，快速拒绝）；
+     `meta: %{membership: :deferred}` 的工具由工具层授权判定替代
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
   5. 落 ToolCallLog 审计（ok / error / forbidden；失败不阻塞响应，记 Logger）
+
+  鉴权立场随工具走（架构深化 C）：豁免声明 = 各工具模块 `use
+  Anubis.Server.Component` 的 `meta:` opt，本模块经
+  `Cgc2046.Mcp.Server.__components__(:tool)` 派生 name→meta 映射并缓存
+  （`:persistent_term` + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具
+  = member-only + workspace_id 必填（fail-closed 默认）**——新工具漏声明
+  不会静默放行。
 
   确认流工具（D-D3 two-tool）不在此处理 `needs_confirmation`——由
   `Cgc2046.Mcp.Confirmation.request/4` 先行拦截，本模块只负责审计与鉴权。
   """
 
+  alias Anubis.Server.Component.Tool
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Mcp.Redact
   alias Cgc2046.Mcp.ToolCallLog
 
   require Logger
 
-  # 不需要 workspace 成员资格的内置工具（确认流承载 tool，鉴权在 Confirmation 内做）
-  @workspace_optional ~w(confirm_operation cancel_operation)
-
-  # 成员资格检查**下沉**到工具自身授权的工具（E-7 #122）：save_step_output 对
-  # learning run 放行「报名学员本人」（非成员，授权来自 Enrollment 记录本身，
-  # 设计 §4.1）——成员门槛若在 Wrapper 层拦截，学员永远到不了工具层判定。
-  # 下沉不等于放开：工具内仍有 StepAuthorization 判定 + 资源层 Ash policy 双重门禁。
-  #
-  # 课程 issue 学习闭环（切片 H U3，#180）学员侧三工具：学员是事件级参与者、
-  # 非工作区成员（KTD2）。授权在工具层锚 user_id：本人 confirmed enrollment
-  # 或记忆持有者（get_course_content 另放行 workspace 成员——tutor/教研编辑
-  # 需要读）。工具内判定 + 资源层 policy 双重门禁，同 save_step_output 纪律。
-  @membership_deferred ~w(save_step_output get_course_content get_learning_records save_learning_records)
+  # 派生门控映射的 persistent_term 键；缓存值 = {%{md5: server_md5}, name → meta map}。
+  # Server 模块重编译（开发热重载 / 测试重新编译）后 md5 变化即重建，杜绝陈旧缓存。
+  @gate_map_key {__MODULE__, :tool_gate_map}
 
   @type result ::
           {:ok, map() | String.t()}
@@ -60,14 +59,47 @@ defmodule Cgc2046.Mcp.Wrapper do
     result
   end
 
-  @doc false
-  def workspace_optional?(tool_name), do: tool_name in @workspace_optional
+  # ---- 派生门控（架构深化 C：立场随工具走）----
+
+  # `Server.__components__(:tool)` 每次调用经 parse_components 重建 Tool struct
+  # + schema + 闭包，非零开销；缓存到 persistent_term，键值带 Server 模块 md5
+  # 指纹——模块重编译后 md5 变化即重建，防陈旧。
+  defp tool_gate_map do
+    case :persistent_term.get(@gate_map_key, nil) do
+      {%{md5: md5}, map} ->
+        if md5 == server_md5(), do: map, else: rebuild_gate_map()
+
+      _ ->
+        rebuild_gate_map()
+    end
+  end
+
+  defp rebuild_gate_map do
+    # md5 须先于 __components__ 读取（advisor F1）：若两步间 Server 被重编译，
+    # 错向存储 {旧 md5, 新 map} 会被下次 md5 检查发现并自愈；反向（新 md5 +
+    # 旧 map）则被误判新鲜，缓存永久陈旧不可自愈。
+    md5 = server_md5()
+
+    map =
+      Cgc2046.Mcp.Server.__components__(:tool)
+      |> Map.new(fn %Tool{name: name, meta: meta} -> {name, meta} end)
+
+    :persistent_term.put(@gate_map_key, {%{md5: md5}, map})
+    map
+  end
+
+  defp server_md5, do: Cgc2046.Mcp.Server.__info__(:md5)
+
+  defp meta_for(tool_name), do: Map.get(tool_gate_map(), tool_name)
+
+  defp workspace_id_optional?(tool_name),
+    do: match?(%{workspace_id: :optional}, meta_for(tool_name))
 
   defp check_actor(nil), do: {:error, "unauthenticated: valid MCP connection token required"}
   defp check_actor(_actor), do: :ok
 
   defp check_workspace_id(tool_name, workspace_id) do
-    if workspace_optional?(tool_name) or is_binary(workspace_id) do
+    if workspace_id_optional?(tool_name) or is_binary(workspace_id) do
       :ok
     else
       {:error, "forbidden: workspace_id is required for tool #{tool_name} (D12 stateless scope)"}
@@ -75,15 +107,18 @@ defmodule Cgc2046.Mcp.Wrapper do
   end
 
   defp check_membership(tool_name, actor, workspace_id) do
-    cond do
-      workspace_optional?(tool_name) ->
+    case meta_for(tool_name) do
+      # 确认流承载工具：鉴权在 Confirmation 内做（pending 归属校验即授权）
+      %{workspace_id: :optional} ->
         :ok
 
-      tool_name in @membership_deferred ->
-        # 成员门槛由工具层授权判定替代（见 @membership_deferred 注释）
+      # 成员门槛由工具层授权判定替代（save_step_output 学员 / 课程三学员侧工具；
+      # 见各工具 moduledoc——工具内判定 + 资源层 policy 双重门禁）
+      %{membership: :deferred} ->
         :ok
 
-      true ->
+      # 默认 fail-closed：member-only + workspace_id 必填
+      _ ->
         case MembershipContext.membership_of(actor, workspace_id) do
           nil -> {:error, "forbidden: not a member of workspace #{workspace_id}"}
           _membership -> :ok
