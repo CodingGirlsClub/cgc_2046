@@ -242,24 +242,27 @@ export async function fetchPendingCount(id: string, kind: OfferingKind): Promise
  * 当前用户对目标活动/课程是否有活跃报名（E-5 #50 G3 工作台详情页报名入口防重；
  * e2e #2：查询带活跃态过滤 status in [pending, payment_pending, confirmed]，
  * cancelled/expired/rejected 终态行不算「已报名」，取消后可再报名）。
- * 读策略仅本人可见 → 返回即已报名；查询失败返回 false（入口不显示，不误报已报名）。
+ *
+ * 返回活跃报名行（id + status，供 payment_pending 分叉「待支付」卡片与
+ * confirmed「已报名」）；无活跃报名 → null；查询失败返回 null（入口不显示，
+ * 不误报已报名）。
  */
 export async function fetchMyEnrollment(
 	id: string,
 	kind: OfferingKind,
 	userId: string,
-): Promise<boolean> {
+): Promise<{ id: string; status: string } | null> {
 	if (kind === "event") {
 		const { data } = await client.query({
 			query: MY_EVENT_ENROLLMENT,
 			variables: { eventId: id, userId },
 		});
-		return (data?.enrollments?.results?.length ?? 0) > 0;
+		return data?.enrollments?.results?.[0] ?? null;
 	}
 
 	const { data } = await client.query({
 		query: MY_COURSE_ENROLLMENT,
 		variables: { courseId: id, userId },
 	});
-	return (data?.enrollments?.results?.length ?? 0) > 0;
+	return data?.enrollments?.results?.[0] ?? null;
 }

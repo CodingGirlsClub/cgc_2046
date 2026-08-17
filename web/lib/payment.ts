@@ -8,6 +8,7 @@
  * - workspacePaymentStats 返回 JsonString（U10 决策 3：三个 snake_case int 键），
  * 此处统一解析为 camelCase。
  */
+import type { PaymentProvider } from "./graphql/orders";
 
 /* ---------------- 轮询（R14：2s×30s，成功即停） ---------------- */
 
@@ -208,12 +209,22 @@ export function formatAmount(cents: number): string {
 	return (cents / 100).toFixed(2);
 }
 
+/**
+ * web 端已签约可下单渠道（单源：下单页渠道列表 enabled 判定与订单页换渠道
+ * 候选共用）。签约新渠道后在此增删；alipay_page/alipay_wap 未签约暂缺。
+ */
+export const WEB_ENABLED_PROVIDERS: readonly PaymentProvider[] = [
+	"wechat_native",
+	"alipay_qr",
+];
+
 /** 支付渠道展示名（详情/列表/订单页共用单源） */
 export const PROVIDER_LABEL: Record<string, string> = {
 	wechat_jsapi: "微信（小程序）",
 	wechat_native: "微信扫码",
 	alipay_page: "支付宝（电脑）",
 	alipay_wap: "支付宝（手机）",
+	alipay_qr: "支付宝扫码",
 };
 
 /** 订单状态徽章词表（participations/订单页/管理列表共用单源） */

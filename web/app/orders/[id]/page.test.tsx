@@ -92,6 +92,34 @@ describe("/orders/[id] 订单页（U11：倒计时/凭据/轮询编排）", () =
 		const qr = await screen.findByTestId("order-qr");
 		expect(qr).toHaveAttribute("src", "data:image/png;base64,qr");
 		expect(QRCodeStub.toDataURL).toHaveBeenCalledWith("weixin://wxpay/x", expect.anything());
+		expect(screen.getByText("使用微信扫码完成支付")).toBeInTheDocument();
+	});
+
+	it("二维码凭据（alipay_qr）：按渠道文案「使用支付宝扫一扫完成支付」", async () => {
+		client.query.mockResolvedValue({
+			data: orderPayload({ provider: "alipay_qr" }),
+		});
+		sessionStorage.setItem(
+			"order-credential:o1",
+			JSON.stringify({ type: "qr_code", code_url: "https://qr.alipay.com/x" }),
+		);
+
+		render(<OrderDetailPage />);
+
+		await screen.findByTestId("order-qr");
+		expect(screen.getByText("使用支付宝扫一扫完成支付")).toBeInTheDocument();
+		expect(screen.queryByText("使用微信扫码完成支付")).not.toBeInTheDocument();
+	});
+
+	it("刷新后凭据丢失（credential=null + pending）→ 失效提示 + 换渠道按钮 primary", async () => {
+		client.query.mockResolvedValue({ data: orderPayload() });
+
+		render(<OrderDetailPage />);
+
+		const unsupported = await screen.findByTestId("order-credential-unsupported");
+		expect(unsupported).toHaveTextContent("支付凭据已失效，请更换支付方式重新获取。");
+		const switchBtn = screen.getByTestId("switch-alipay_qr");
+		expect(switchBtn).toHaveClass("join-button--primary");
 	});
 
 	it("跳转凭据（alipay）：渲染前往支付宝按钮（链接指向凭据 url）", async () => {
@@ -149,13 +177,51 @@ describe("/orders/[id] 订单页（U11：倒计时/凭据/轮询编排）", () =
 			},
 		});
 
-		fireEvent.click(screen.getByTestId("switch-alipay_page"));
+		fireEvent.click(screen.getByTestId("switch-alipay_qr"));
 
 		await waitFor(() =>
 			expect(screen.getByTestId("order-redirect")).toHaveAttribute(
 				"href",
 				"https://pay.alipay.com/y",
 			),
+		);
+	});
+	it("换渠道候选单源派生：未签约渠道不在候选，签约集内排除当前", async () => {
+		client.query.mockResolvedValue({ data: orderPayload() });
+
+		render(<OrderDetailPage />);
+
+		await screen.findByTestId("order-detail");
+		// wechat_native 单 → 候选只有 alipay_qr；未签约 alipay_page/wap 不在
+		expect(screen.getByTestId("switch-alipay_qr")).toBeInTheDocument();
+		expect(screen.queryByTestId("switch-alipay_page")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("switch-alipay_wap")).not.toBeInTheDocument();
+	});
+
+	it("换渠道错误经翻译层：provider_not_configured 裸原子 → 人话", async () => {
+		client.query.mockResolvedValue({ data: orderPayload() });
+		sessionStorage.setItem(
+			"order-credential:o1",
+			JSON.stringify({ type: "qr_code", code_url: "weixin://wxpay/x" }),
+		);
+
+		render(<OrderDetailPage />);
+		await screen.findByTestId("order-qr");
+
+		client.mutate.mockResolvedValue({
+			data: {
+				replaceProvider: {
+					result: null,
+					errors: [{ message: "provider_not_configured" }],
+					metadata: null,
+				},
+			},
+		});
+
+		fireEvent.click(screen.getByTestId("switch-alipay_qr"));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"该支付渠道暂未开通，请选择其他方式。",
 		);
 	});
 });

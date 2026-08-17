@@ -8,6 +8,15 @@ const mocks = vi.hoisted(() => ({
 	submitEnrollment: vi.fn(),
 }));
 
+const eventsMocks = vi.hoisted(() => ({
+	fetchMyEnrollment: vi.fn(),
+}));
+
+vi.mock("@/lib/events", () => ({
+	fetchMyEnrollment: eventsMocks.fetchMyEnrollment,
+	formatDeadline: () => "不设截止",
+}));
+
 vi.mock("@/lib/public-offerings", () => ({
 	fetchPublicOffering: mocks.fetchPublicOffering,
 	parseSponsorshipTiers: () => [],
@@ -55,6 +64,7 @@ const PAID_OFFERING = {
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.fetchPublicOffering.mockResolvedValue(PAID_OFFERING);
+	eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
 });
 
 afterEach(cleanup);
@@ -140,5 +150,52 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
 		expect(await screen.findByRole("alert")).toHaveTextContent(
 			"该报名为收费项，请先选择价格档位。",
 		);
+	});
+});
+
+describe("公开详情页报名状态分叉（支付接续）", () => {
+	function renderOpen() {
+		mocks.fetchPublicOffering.mockResolvedValue({
+			...PAID_OFFERING,
+			pricingEnabled: false,
+			availablePriceTiers: null,
+		});
+		render(<PublicOfferingDetailPage kind="event" />);
+	}
+
+	it("登录态已有 payment_pending 报名 → 待支付卡（去支付入口），不渲染报名表单", async () => {
+		eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+			id: "enr-pending",
+			status: "payment_pending",
+		});
+
+		renderOpen();
+
+		expect(
+			await screen.findByTestId("public-enrollment-pending-card"),
+		).toBeInTheDocument();
+		expect(screen.getByText(/名额已保留/)).toBeInTheDocument();
+		const payLink = screen.getByRole("link", { name: "去支付" });
+		expect(payLink).toHaveAttribute(
+			"href",
+			"/orders/new?enrollmentId=enr-pending",
+		);
+		expect(
+			screen.queryByRole("button", { name: "提交报名" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("登录态已有 confirmed 报名 → 你已报名，不渲染报名表单", async () => {
+		eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+			id: "enr-confirmed",
+			status: "confirmed",
+		});
+
+		renderOpen();
+
+		expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "提交报名" }),
+		).not.toBeInTheDocument();
 	});
 });
