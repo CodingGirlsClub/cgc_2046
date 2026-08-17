@@ -216,13 +216,17 @@ export default function InvitationsPage() {
 									disabled={formSubmitting}
 								/>
 							</label>
-							<label className="join-field">
+							{/* 多选组不可用 label 嵌套包裹（W3C：label 不得嵌套；组用容器元素）。
+							    外层曾是 label——happy-dom 按 label activation 会把 click 转发给组内
+							    首个 input 造成双 toggle，也暴露了嵌套语义本身的问题。 */}
+							<div className="join-field">
 								<span>预授权角色（可选，多选）</span>
 								<div className="invitation-role-select">
 									{GRANTABLE_ROLE_NAMES.map((role) => (
 										<label key={role} className="invitation-role-option">
 											<input
 												type="checkbox"
+												aria-label={`${role} 角色`}
 												checked={formRoles.includes(role)}
 												onChange={() => {
 													setFormRoles((prev) =>
@@ -237,7 +241,7 @@ export default function InvitationsPage() {
 										</label>
 									))}
 								</div>
-							</label>
+							</div>
 							<label className="join-field">
 								<span>过期时间（可选）</span>
 								<input

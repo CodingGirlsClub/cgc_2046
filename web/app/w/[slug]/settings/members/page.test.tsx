@@ -177,6 +177,9 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	// happy-dom 未实现 window.confirm（undefined），vi.spyOn 会抛
+	// "can only spy on a function"；挂基础 stub，各测试再按需 spyOn 覆盖
+	window.confirm = () => false;
 	isAuthenticated.mockReturnValue(true);
 	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	params.value = { slug: "cgc-academy" };

@@ -216,7 +216,9 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 		fireEvent.change(emailInput, { target: { value: "newuser@test.com" } });
 
 		// 选择角色
-		const learnerCheckbox = screen.getByRole("checkbox", { name: "learner" });
+		const learnerCheckbox = screen.getByRole("checkbox", {
+			name: "learner 角色",
+		});
 		fireEvent.click(learnerCheckbox);
 
 		// 提交（表单中的创建按钮）
