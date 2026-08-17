@@ -37,7 +37,7 @@ defmodule Cgc2046.Payments.Provider do
           required(:transaction_id) => String.t()
         }
   @type channel :: :wechat | :alipay
-  @type provider_atom :: :wechat_jsapi | :wechat_native | :alipay_page | :alipay_wap
+  @type provider_atom :: :wechat_jsapi | :wechat_native | :alipay_page | :alipay_wap | :alipay_qr
 
   @callback create_payment(order, ctx :: %{optional(:openid) => String.t()}) ::
               {:ok, credential} | {:error, term()}
@@ -61,6 +61,7 @@ defmodule Cgc2046.Payments.Provider do
   def for(:wechat_native), do: channel_adapter(:wechat)
   def for(:alipay_page), do: channel_adapter(:alipay)
   def for(:alipay_wap), do: channel_adapter(:alipay)
+  def for(:alipay_qr), do: channel_adapter(:alipay)
 
   @doc "渠道原子（:wechat | :alipay）→ adapter 模块（回调入口消费）。"
   @spec for_channel(channel()) :: module()
