@@ -24,6 +24,7 @@ const WEB_PROVIDERS: { value: PaymentProvider; hint: string }[] = [
 	{ value: "wechat_native", hint: "微信扫码支付" },
 	{ value: "alipay_page", hint: "支付宝·电脑网页支付" },
 	{ value: "alipay_wap", hint: "支付宝·手机网页支付" },
+	{ value: "alipay_qr", hint: "支付宝·扫码支付" },
 ];
 
 function NewOrderForm() {

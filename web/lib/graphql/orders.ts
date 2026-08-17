@@ -18,7 +18,7 @@ import type { MutationResult } from "./shared";
 
 /* ---------------- 类型 ---------------- */
 
-export type PaymentProvider = "wechat_jsapi" | "wechat_native" | "alipay_page" | "alipay_wap";
+export type PaymentProvider = "wechat_jsapi" | "wechat_native" | "alipay_page" | "alipay_wap" | "alipay_qr";
 
 export type OrderStatus =
 	| "pending"

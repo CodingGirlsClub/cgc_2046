@@ -53,7 +53,14 @@ defmodule Cgc2046.Payments.Providers.Alipay do
 
         true ->
           b64 = pem |> String.split(~r/\s+/) |> Enum.join()
-          decode_b64_as_pem(b64, ["RSA PRIVATE KEY", "PRIVATE KEY", "PUBLIC KEY"])
+          # 公钥(SPKI)优先:私钥 bytes 误包 PUBLIC KEY 头会解出错模数(实测踩坑),
+          # 且本 adapter 公私钥来源固定(公钥=SPKI,私钥=PKCS#1/8),按钥型分派最稳
+          labels =
+            if byte_size(b64) < 500,
+              do: ["PUBLIC KEY", "RSA PRIVATE KEY", "PRIVATE KEY"],
+              else: ["RSA PRIVATE KEY", "PRIVATE KEY", "PUBLIC KEY"]
+
+          decode_b64_as_pem(b64, labels)
       end
     end
 
@@ -81,20 +88,15 @@ defmodule Cgc2046.Payments.Providers.Alipay do
     with {:ok, _} <- ensure_configured() do
       endpoint = payment_endpoint(order.provider)
 
-      body = %{
-        out_trade_no: order.out_trade_no,
-        total_amount: yuan(order.amount_cents),
-        subject: payment_subject(order),
-        notify_url: notify_url(),
-        return_url: config()[:return_url]
-      }
+      body =
+        %{out_trade_no: order.out_trade_no, total_amount: yuan(order.amount_cents)}
+        |> Map.put(:subject, payment_subject(order))
+        |> Map.put(:notify_url, notify_url())
+        |> maybe_put_return_url(order.provider)
 
       case Client.post(endpoint, body) do
         {:ok, %Tesla.Env{status: 200, body: resp}} ->
-          case payment_url(resp) do
-            nil -> {:error, :channel_payment_url_missing}
-            url -> {:ok, %{"type" => "redirect", "url" => url}}
-          end
+          credential(order.provider, resp)
 
         {:ok, %Tesla.Env{}} ->
           {:error, :channel_create_failed}
@@ -103,6 +105,22 @@ defmodule Cgc2046.Payments.Providers.Alipay do
           error
       end
     end
+  end
+
+  # 当面付二维码（已签约产品）：qr_code 链接即凭据；page/wap 跳转型。
+  defp credential(:alipay_qr, %{"qr_code" => qr}) when is_binary(qr),
+    do: {:ok, %{"type" => "qr_code", "code_url" => qr}}
+
+  defp credential(_provider, resp) do
+    case payment_url(resp) do
+      nil -> {:error, :channel_payment_url_missing}
+      url -> {:ok, %{"type" => "redirect", "url" => url}}
+    end
+  end
+
+  defp maybe_put_return_url(body, provider) do
+    # precreate 无 return_url 概念（扫码即付，无浏览器回跳）
+    if provider == :alipay_qr, do: body, else: Map.put(body, :return_url, config()[:return_url])
   end
 
   @impl Cgc2046.Payments.Provider
@@ -228,6 +246,8 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   # 字段名以真实联调为准，adapter 隔离该差异——KTD3）
   defp payment_endpoint(:alipay_page), do: "/v3/alipay/trade/page/pay"
   defp payment_endpoint(:alipay_wap), do: "/v3/alipay/trade/wap/pay"
+  # 当面付（本应用唯一已签约产品，真实验收实证 2026-08-17）
+  defp payment_endpoint(:alipay_qr), do: "/v3/alipay/trade/precreate"
 
   defp payment_url(resp) when is_map(resp) do
     resp["payment_url"] || resp["payUrl"] || resp["qrCode"] || resp["redirect_url"]
