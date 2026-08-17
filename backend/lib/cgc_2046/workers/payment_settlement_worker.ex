@@ -112,8 +112,10 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
     end
   end
 
-  # 订单 CAS 失败分支：expired = 迟到扣款（AE2）自动退款；其余终态不应发生
-  # （cancelled 单在报名取消时已作废）——记告警由对账兜底。
+  # 订单 CAS 失败分支：expired/cancelled = 迟到扣款命中已作废单（AE2）→
+  # 自动退款。cancelled 为过期前被免缴/报名取消/换渠道作废的单——本地作废
+  # 不关渠道单，QR 仍可被支付，收款无有效占位必须原路退回（KTD12 不变量）；
+  # 其余终态不应发生——记告警由对账兜底。
   defp handle_late_settlement(event, order) do
     case reload_order(order).status do
       :paid ->
@@ -121,12 +123,12 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
         # confirm_enrollment 失败分支共用报名真状态裁决。
         reconcile_enrollment(event, order)
 
-      :expired ->
+      status when status in [:expired, :cancelled] ->
         enqueue_auto_refund(order)
         mark_processed(event)
 
       # F-C:重复投递到已进退款链的订单是预期路径(迟到回调撞上已发起的退款/
-      # 已完成退款),降 info;真 unexpected(如 cancelled 单又有款)保持 error。
+      # 已完成退款),降 info;真 unexpected(如 refund_failed 单又有款)保持 error。
       status when status in [:refunding, :refunded] ->
         Logger.info(
           "settlement: order #{order.id} already in refund flow (#{status}), delivery skipped"

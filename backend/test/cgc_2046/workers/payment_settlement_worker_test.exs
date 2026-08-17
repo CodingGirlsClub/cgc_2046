@@ -150,7 +150,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
       assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status == :expired
     end
 
-    test "免缴竞态（AE3 免缴先落）：confirmed 报名 → paid 落账 + 自动退款链", ctx do
+    test "免缴竞态（AE3 免缴先落）：confirmed 报名 + 订单作废 → 迟到收款走作废单自动退款链（e2e #1）", ctx do
       order = pending_order(ctx)
       admin = Fixtures.platform_admin("settle-waive-admin")
 
@@ -159,6 +159,10 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
         |> Ash.Changeset.for_update(:waive_payment, %{})
         |> Ash.update(tenant: order.workspace_id, actor: admin)
 
+      # e2e #1：免缴同事务作废 pending 单（本地作废不关渠道单，QR 仍可被支付）
+      voided = reload_order(order)
+      assert voided.status == :cancelled
+      assert voided.cancel_reason == "waived"
       stub_channel_paid(order)
 
       assert :ok = perform_settlement(order)

@@ -285,7 +285,10 @@ defmodule Cgc2046.Payments.Order do
     end
 
     update :start_refund do
-      description("发起退款：paid/expired → refunding（expired 为迟到支付自动退款路径）")
+      description(
+        "发起退款：paid/expired/cancelled → refunding（expired/cancelled 为迟到支付自动退款路径，本地作废不关渠道单）"
+      )
+
       require_atomic?(false)
       accept([])
 
@@ -898,7 +901,7 @@ defmodule Cgc2046.Payments.Order do
   end
 
   defp prepare_start_refund(changeset) do
-    case claim(changeset, [:paid, :expired], "status = 'refunding'") do
+    case claim(changeset, [:paid, :expired, :cancelled], "status = 'refunding'") do
       {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :refunding)
       {:error, changeset} -> changeset
     end
