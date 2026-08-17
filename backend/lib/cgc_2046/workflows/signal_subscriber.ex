@@ -20,8 +20,10 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   - `patterns`：订阅的信号类型列表（必填、非空字符串列表；生成 `patterns/0`
     供测试断言接线）。
-  - `idempotency`：幂等策略枚举（必填），四策略语义如下。缺 `handle/2`
-    回调在编译期告警（behaviour 检查）。
+  - `idempotency`：幂等策略枚举（必填），四策略语义如下。`handle/2`、
+    `before_claim/2`、`effects/3` 均为 `@optional_callbacks`（编译期不告警缺
+    实现）：非 claim_in_handle 策略实现 `handle/2`，claim_in_handle 实现
+    `before_claim/2` + `effects/3`（缺双回调在投递时 `raise ArgumentError`）。
 
   ## 幂等四策略（Q2 如实映射六订阅方现状语义；PR-B 评审 P1 增补第四值）
 
@@ -29,10 +31,15 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     首投 claim 成功 → 执行 `handle/2`；重复投递 `{:error, :already_claimed}` →
     返回 `:duplicate` 跳过执行。claim 成功后执行失败不回滚 claim（副作用均可
     达重投/对账路径，失败可见性靠 error 日志与 E-10 对账扫描）。
-  - `:claim_in_handle`：claim 时机由模块在 `handle/2` 内自决——业务校验链通过后、
-    副作用前调 `claim/3`（LearningInstantiator）。校验不过（如无已发布学习定义、
-    瞬时读失败）不烧 claim，重投仍可推进；重复投递由模块自行归一化（LI 归一为
-    `:ok`，同其旧 `instantiate_from_signal/2` 语义）。消费键派生仍由本骨架唯一持有。
+  - `:claim_in_handle`：**双回调结构**（架构深化 G 方向②）——模块实现
+    `before_claim/2`（校验链）+ `effects/3`（副作用），claim 时机由骨架持有：
+    `before_claim` 返回 `{:ok, ctx}` → 骨架 claim → `effects(type, data, ctx)`；
+    返回 `:skip` / `{:error, _}` → 不烧 claim、归一化 `:ok`（best-effort，重投
+    仍可推进；warning 由 before_claim 内保留文案承担，骨架不重复记日志；缺
+    idempotency_key 同样归一化不上抛）；claim 重复投递 `:duplicate`
+    → `:ok`（不重复执行 effects）。声明该策略但未实现双回调 → `raise ArgumentError`。
+    消费键派生仍由本骨架唯一持有。历史 post-hoc 检测方案（B 版）因无法区分
+    「校验不过合法 skip」与「忘调 claim」被证伪，弃用。
   - `:claim_after_effects`：全部副作用成功（`handle/2` 返回 `:ok`）才 claim
     （SponsorshipEndedSubscriber / ResearchRunReaper）；`{:error, reason}` 不落
     claim、只记 error 日志不 crash forwarder——重投（SignalPublishWorker 重试
@@ -71,6 +78,16 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   @telemetry_event [:cgc2046, :signal, :deliver]
 
   @callback handle(String.t(), map()) :: :ok | {:error, term()}
+
+  # claim_in_handle 双回调（架构深化 G，方向②）：before_claim 校验链（通过返回
+  # ctx 供 effects 消费；:skip / {:error, _} 不烧 claim）+ effects 副作用。claim
+  # 时机由骨架持有（before_claim 后、effects 前），不再依赖模块自调。
+  @callback before_claim(String.t(), map()) ::
+              {:ok, term()} | :skip | {:error, term()}
+
+  @callback effects(String.t(), map(), term()) :: :ok | {:error, term()}
+
+  @optional_callbacks handle: 2, before_claim: 2, effects: 3
 
   # --- 投递入口（生产 forwarder 与测试同码） -----------------------------------
 
@@ -116,7 +133,10 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   defp do_run(module, type, data) do
     case module.__signal_subscriber_config__().idempotency do
-      strategy when strategy in [:state_based, :claim_in_handle] ->
+      :claim_in_handle ->
+        run_claim_in_handle(module, type, data)
+
+      :state_based ->
         module.handle(type, data)
 
       :claim_first ->
@@ -146,6 +166,11 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
         end
     end
   rescue
+    # 编程错误（如声明 claim_in_handle 未实现双回调）向上抛，交 forwarder/监督树
+    # 处理；其余运行时异常照旧捕获归一化为 {:error, {:crashed, _}}。
+    error in ArgumentError ->
+      reraise error, __STACKTRACE__
+
     error ->
       Logger.error("#{inspect(module)} handling #{type} crashed: #{Exception.message(error)}")
 
@@ -187,6 +212,54 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   defp consumer_suffix(module) do
     module |> Module.split() |> List.last() |> Macro.underscore()
+  end
+
+  # G（2026-08-17-004，方向②）：claim_in_handle 双回调执行。before_claim 校验
+  # 通过 → 骨架 claim → effects；:skip / {:error, _} → 不烧 claim、归一化 :ok
+  # （warning 由 before_claim 内保留文案承担，骨架不重复记日志）；claim
+  # :duplicate → :ok（不重复执行 effects）。缺 idempotency_key（claim 返回
+  # {:error, _}）归一化为 :ok 不上抛——consumer_key 已在该路径记违约日志。
+  # 声明策略但未实现双回调 = 编程错误，raise ArgumentError。
+  defp run_claim_in_handle(module, type, data) do
+    unless function_exported?(module, :before_claim, 2) and
+             function_exported?(module, :effects, 3) do
+      raise ArgumentError,
+            "#{inspect(module)} declares idempotency: :claim_in_handle but does not " <>
+              "implement before_claim/2 and effects/3"
+    end
+
+    case module.before_claim(type, data) do
+      {:ok, ctx} ->
+        case claim(module, type, data) do
+          {:ok, _key} ->
+            case module.effects(type, data, ctx) do
+              :ok ->
+                :ok
+
+              {:error, reason} = error ->
+                Logger.error(
+                  "#{inspect(module)} claim_in_handle effects failed for #{type}: #{inspect(reason)}"
+                )
+
+                error
+            end
+
+          :duplicate ->
+            :ok
+
+          {:error, _reason} ->
+            :ok
+        end
+
+      :skip ->
+        # 校验不过/无定义等合法 skip：不烧 claim、归一化 :ok（重投仍可推进）。
+        # 详细 warning 由 before_claim 内保留文案承担——骨架不重复记日志
+        # （G 方向②，避免每次合法 skip 双重噪声）。
+        :ok
+
+      {:error, _reason} ->
+        :ok
+    end
   end
 
   # --- use 注入 -----------------------------------------------------------------

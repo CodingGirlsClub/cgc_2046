@@ -109,17 +109,12 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     end
   end
 
-  # course_id 缺失的 run(事件型 enrollment)无课程内容可判——skip
+  # course_id 缺失的 run(事件型 enrollment)无课程内容可判——skip。
+  # 读取委托 Enrollment.anchor/1（锚定单源，架构深化 E），错误坍缩 nil。
   defp fetch_enrollment_or_nil(%WorkflowRun{} = run) do
-    case enrollment_id_of(run) do
-      enrollment_id when is_binary(enrollment_id) ->
-        case fetch_enrollment(enrollment_id) do
-          {:ok, enrollment} -> enrollment
-          {:error, _} -> nil
-        end
-
-      _ ->
-        nil
+    case Enrollment.anchor(run.input_snapshot) do
+      {:ok, enrollment} -> enrollment
+      {:error, _} -> nil
     end
   end
 
@@ -168,8 +163,8 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   end
 
   defp remind_stagnant(%WorkflowRun{} = run) do
-    with enrollment_id when is_binary(enrollment_id) <- enrollment_id_of(run),
-         {:ok, %Enrollment{status: :confirmed} = enrollment} <- fetch_enrollment(enrollment_id) do
+    with {:ok, %Enrollment{status: :confirmed} = enrollment} <-
+           Enrollment.anchor(run.input_snapshot) do
       remind_stagnant_for(run, enrollment)
     else
       _ -> :skipped
@@ -205,20 +200,6 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     error ->
       Logger.warning("learning stagnation reminder enqueue failed: #{Exception.message(error)}")
       :reminded
-  end
-
-  defp enrollment_id_of(%WorkflowRun{input_snapshot: input}) when is_map(input) do
-    Map.get(input, "enrollment_id") || Map.get(input, :enrollment_id)
-  end
-
-  defp enrollment_id_of(_run), do: nil
-
-  # Enrollment 是 global?(true) 租户资源，PK 全局唯一，可不带 tenant 读。
-  defp fetch_enrollment(enrollment_id) do
-    case Ash.get(Enrollment, enrollment_id, authorize?: false) do
-      {:ok, enrollment} -> {:ok, enrollment}
-      {:error, _} -> {:error, :enrollment_read_failed}
-    end
   end
 
   # --- 共用查询 ----------------------------------------------------------------

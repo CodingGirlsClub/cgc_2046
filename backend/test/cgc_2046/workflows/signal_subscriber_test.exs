@@ -20,6 +20,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     ClaimAfter,
     ClaimFirst,
     ClaimInHandle,
+    ClaimInHandleIncomplete,
     Crash,
     Resubscribe,
     StateBased
@@ -50,8 +51,8 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     end
   end
 
-  describe "claim_in_handle：校验链后才 claim（LI 语义；PR-B 评审 P1 修正）" do
-    test "校验不过不烧 claim（重投仍可推进）；校验通过才 claim；重复投递归一化 :ok" do
+  describe "claim_in_handle：双回调结构化（before_claim 校验 + 骨架 claim + effects；G 方向②）" do
+    test "校验不过不烧 claim；校验通过才 claim + effects；重复投递不重复执行 effects" do
       # 校验跳过（类比无已发布学习定义 / 瞬时读失败）：不写 claim 行
       assert :ok =
                SignalSubscriber.deliver(ClaimInHandle, %{
@@ -67,7 +68,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       assert_receive {:skipped, 1}
       assert claim_keys("fixture.claim_in_handle") == []
 
-      # 校验通过：claim + 执行
+      # 校验通过：骨架 claim + effects 执行
       assert :ok =
                SignalSubscriber.deliver(ClaimInHandle, %{
                  type: "fixture.claim_in_handle",
@@ -75,17 +76,31 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
                })
 
       assert_receive {:claimed, 2}
+      assert_receive {:effects, 2}
       assert claim_keys("fixture.claim_in_handle") == ["fixture:cih-1:claim_in_handle"]
 
-      # 重复投递：claim 拦截、不重复执行，模块归一化为 :ok（LI 旧语义）
+      # 重复投递：骨架 claim 拦截、不重复执行 effects，归一化为 :ok（LI 旧语义）
       assert :ok =
                SignalSubscriber.deliver(ClaimInHandle, %{
                  type: "fixture.claim_in_handle",
                  data: %{"test_pid" => self(), "n" => 3, "idempotency_key" => "fixture:cih-1"}
                })
 
-      assert_receive {:duplicate, 3}
+      assert_receive {:claimed, 3}
+      refute_receive {:effects, 3}
       assert claim_keys("fixture.claim_in_handle") == ["fixture:cih-1:claim_in_handle"]
+    end
+
+    test "声明 claim_in_handle 但未实现双回调 → raise ArgumentError（编程错误不静默降级）" do
+      assert_raise ArgumentError, ~r/before_claim\/2 and effects\/3/, fn ->
+        SignalSubscriber.deliver(ClaimInHandleIncomplete, %{
+          type: "fixture.claim_in_handle_incomplete",
+          data: %{"test_pid" => self(), "n" => 1, "idempotency_key" => "fixture:cihi-1"}
+        })
+      end
+
+      refute_receive {:handled, _}
+      assert claim_keys("fixture.claim_in_handle_incomplete") == []
     end
   end
 
