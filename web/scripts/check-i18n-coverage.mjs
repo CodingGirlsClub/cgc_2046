@@ -97,11 +97,11 @@ function isWhitelisted(node, parent, file) {
 		) {
 			return true;
 		}
-		// 函数签名默认参数兜底（step-handoff-copy buildHandoffText toolHint / 按钮 label 默认值；
-		// 生产路径调用方总是传 t()，默认值仅供纯函数/测试直调）
+		// 函数签名默认参数兜底（step-handoff-copy buildHandoffText toolHint 默认值；
+		// 生产路径调用方总是传 t()，默认值仅供纯函数/测试直调；label 已走 t("copy")）
 		if (
 			file.includes("components/step-handoff-copy.tsx") &&
-			(text === "工具提示：用 save_step_output 写回该 step" || text === "复制交接文本")
+			text === "工具提示：用 save_step_output 写回该 step"
 		) {
 			return true;
 		}

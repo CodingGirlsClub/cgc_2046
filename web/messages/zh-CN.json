@@ -1338,7 +1338,7 @@
 		"noApplications": "暂无申请。",
 		"createdTitle": "工作台已创建",
 		"createdDesc": "工作台 <strong>{slug}</strong> 创建成功。",
-		"ownerInviteNote": "Owner 邀请已生成（仅显示一次）",
+		"ownerInviteNote": "新 Owner 邀请已生成（仅显示一次）",
 		"backToList": "返回工作台列表",
 		"createTitle": "创建工作台",
 		"fieldName": "名称",
@@ -1649,7 +1649,8 @@
 	"stepHandoff": {
 		"toolHint": "工具提示：用 save_step_output 写回该 step",
 		"copied": "已复制",
-		"failed": "复制失败"
+		"failed": "复制失败",
+		"copy": "复制交接文本"
 	},
 	"themeToggle": {
 		"toggleLight": "切换为浅色主题",

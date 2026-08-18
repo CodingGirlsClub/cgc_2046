@@ -1649,7 +1649,8 @@
 	"stepHandoff": {
 		"toolHint": "Tool hint: write back to this step with save_step_output",
 		"copied": "Copied",
-		"failed": "Copy failed"
+		"failed": "Copy failed",
+		"copy": "Copy handoff text"
 	},
 	"themeToggle": {
 		"toggleLight": "Switch to light theme",

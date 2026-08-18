@@ -32,7 +32,7 @@ export function buildHandoffText(
 }
 
 interface StepHandoffCopyProps extends HandoffTextInput {
-	/** 按钮文案（默认「复制交接文本」） */
+	/** 按钮文案；缺省用 i18n stepHandoff.copy */
 	label?: string;
 	className?: string;
 }
@@ -43,11 +43,12 @@ export default function StepHandoffCopy({
 	workspaceId,
 	runId,
 	stepKey,
-	label = "复制交接文本",
+	label,
 	className = "",
 }: StepHandoffCopyProps) {
 	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 	const t = useTranslations("stepHandoff");
+	const buttonLabel = label ?? t("copy");
 	const text = buildHandoffText(
 		{ workspaceSlug, workspaceId, runId, stepKey },
 		t("toolHint"),
@@ -68,7 +69,7 @@ export default function StepHandoffCopy({
 			data-handoff={text}
 			onClick={handleCopy}
 		>
-			{state === "copied" ? t("copied") : state === "failed" ? t("failed") : label}
+			{state === "copied" ? t("copied") : state === "failed" ? t("failed") : buttonLabel}
 		</button>
 	);
 }
