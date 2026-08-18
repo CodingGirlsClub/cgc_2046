@@ -4,6 +4,7 @@ import Taro from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { EnrollmentSummary, SubscriptionScenario } from '@/domain/models'
+import { enrollmentResultCopy } from '@/domain/payment'
 import { requestPlatformSubscription } from '@/platform'
 import { STORAGE_KEYS } from '@/state/storage'
 import styles from './index.module.css'
@@ -16,6 +17,8 @@ export default function EnrollmentResultPage() {
   if (!enrollment) return <PageState kind='empty' message='没有找到刚刚提交的报名' />
 
   const pending = enrollment.status === 'pending'
+  const paymentPending = enrollment.status === 'payment_pending'
+  const copy = enrollmentResultCopy(enrollment.status, process.env.TARO_ENV === 'weapp')
   const scenario: SubscriptionScenario = pending ? 'approval_result' : 'event_reminder'
 
   const subscribe = async () => {
@@ -37,25 +40,27 @@ export default function EnrollmentResultPage() {
 
   return (
     <View className={styles.page}>
-      <View className={`${styles.statusMark} ${pending ? styles.pending : styles.confirmed}`}>
-        {pending ? '…' : '✓'}
+      <View className={`${styles.statusMark} ${pending || paymentPending ? styles.pending : styles.confirmed}`}>
+        {pending ? '…' : paymentPending ? '¥' : '✓'}
       </View>
       <Text className={styles.title} data-testid='enrollment-result'>
-        {pending ? '等待审批' : '报名成功'}
+        {copy.title}
       </Text>
-      <Text className={styles.subtitle}>
-        {pending ? '组织者会在审批截止前处理，你可以在「我的报名」查看倒计时。' : '名额已经确认，记得按时参加。'}
-      </Text>
+      <Text className={styles.subtitle}>{copy.subtitle}</Text>
 
       <View className={styles.card}>
         <Text className={styles.cardLabel}>报名项目</Text>
         <Text className={styles.cardTitle}>{enrollment.title}</Text>
-        <Text className={styles.cardMeta}>{pending ? '审批结果通知' : '活动开始提醒'}需要你主动授权一次</Text>
+        {!paymentPending && (
+          <Text className={styles.cardMeta}>{pending ? '审批结果通知' : '活动开始提醒'}需要你主动授权一次</Text>
+        )}
       </View>
 
-      <Button className={styles.subscribeButton} data-testid='subscribe-result' loading={submitting} onClick={subscribe}>
-        {pending ? '订阅审批结果通知' : '订阅活动提醒'}
-      </Button>
+      {!paymentPending && (
+        <Button className={styles.subscribeButton} data-testid='subscribe-result' loading={submitting} onClick={subscribe}>
+          {pending ? '订阅审批结果通知' : '订阅活动提醒'}
+        </Button>
+      )}
       {subscriptionState && <Text className={styles.subscriptionState} data-testid='subscription-state'>{subscriptionState}</Text>}
 
       <Button className={styles.secondaryButton} onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>

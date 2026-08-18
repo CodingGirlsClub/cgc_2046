@@ -4,13 +4,16 @@ import {
   ORDER_STATUS_LABEL,
   PAYMENT_STATUS_LABEL,
   countdownText,
+  enrollmentResultCopy,
   formatAmount,
   mapPaymentCredential,
   nextPollTick,
   parsePriceTiers,
+  paymentLandingUrl,
   POLL_INTERVAL_MS,
   POLL_TOTAL_MS
 } from '../src/domain/payment.ts'
+import { parseEnrollmentStatus } from '../src/domain/format.ts'
 
 const jsapiCredential = JSON.stringify({
   type: 'jsapi',
@@ -122,4 +125,40 @@ test('金额分→元两位小数；订单/缴费状态词表覆盖 plan R16 状
   assert.equal(PAYMENT_STATUS_LABEL.payment_pending, '待支付')
   assert.equal(PAYMENT_STATUS_LABEL.paid, '已支付')
   assert.equal(PAYMENT_STATUS_LABEL.refunded, '已退款')
+})
+
+test('报名状态解析：payment_pending 是合法白名单值，不抛错（plan 006 回归钉）', () => {
+  assert.equal(parseEnrollmentStatus('payment_pending'), 'payment_pending')
+  // 既有白名单值不回归
+  assert.equal(parseEnrollmentStatus('pending'), 'pending')
+  assert.equal(parseEnrollmentStatus('confirmed'), 'confirmed')
+  // 未知值仍 fail-closed
+  assert.throws(() => parseEnrollmentStatus('bogus'), /未知报名状态/)
+})
+
+test('收费报名落地页：weapp 进支付页，裁剪端回结果页（plan 006 平台守卫）', () => {
+  assert.equal(
+    paymentLandingUrl('enr-1', true),
+    '/pages/order-pay/index?enrollmentId=enr-1'
+  )
+  assert.equal(
+    paymentLandingUrl('enr-1', false),
+    '/pages/enrollment-result/index?id=enr-1'
+  )
+})
+
+test('报名结果页文案：payment_pending 待支付 + 裁剪端网页端支付引导（plan 006 F1b）', () => {
+  // 裁剪端（tt/xhs）：无小程序内支付，附网页端引导
+  assert.deepEqual(enrollmentResultCopy('payment_pending', false), {
+    title: '待支付 · 名额已保留，请尽快完成支付',
+    subtitle: '请在网页端完成支付（本端暂不支持支付调起）。'
+  })
+  // weapp 兜底：无网页端引导文案
+  assert.deepEqual(enrollmentResultCopy('payment_pending', true), {
+    title: '待支付 · 名额已保留，请尽快完成支付',
+    subtitle: '名额已保留，请尽快完成支付。'
+  })
+  // 既有 pending/confirmed 文案不回归
+  assert.equal(enrollmentResultCopy('pending', false).title, '等待审批')
+  assert.equal(enrollmentResultCopy('confirmed', false).title, '报名成功')
 })

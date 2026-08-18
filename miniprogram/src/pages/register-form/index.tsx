@@ -5,7 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
-import { formatAmount } from '@/domain/payment'
+import { formatAmount, paymentLandingUrl } from '@/domain/payment'
 import styles from './index.module.css'
 
 export default function RegisterFormPage() {
@@ -72,8 +72,11 @@ export default function RegisterFormPage() {
       })
       Taro.setStorageSync(STORAGE_KEYS.lastEnrollment, enrollment)
       if (enrollment.status === 'payment_pending') {
-        // 收费报名：占位完成即进支付页(R5：2h 限时窗)
-        await Taro.redirectTo({ url: `/pages/order-pay/index?enrollmentId=${enrollment.id}` })
+        // 收费报名：weapp 占位完成即进支付页(R5：2h 限时窗)；
+        // 裁剪端无小程序内支付，回结果页引导网页端支付（同 my-enrollments 守卫语义）。
+        await Taro.redirectTo({
+          url: paymentLandingUrl(enrollment.id, process.env.TARO_ENV === 'weapp')
+        })
         return
       }
       await Taro.redirectTo({ url: `/pages/enrollment-result/index?id=${enrollment.id}` })
