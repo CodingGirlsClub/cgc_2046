@@ -76,6 +76,45 @@ defmodule Cgc2046.Mcp.ToolCallLogTest do
     assert log.error_message == "not a workspace member"
   end
 
+  test "client_name / session_id 归因维度可落库（#228）" do
+    user = Fixtures.register_user("log-6")
+
+    assert {:ok, log} =
+             ToolCallLog
+             |> Ash.Changeset.for_create(
+               :log,
+               %{
+                 user_id: user.id,
+                 tool: "get_workspace_context",
+                 params: %{},
+                 result_status: :ok,
+                 client_name: "omp",
+                 session_id: "sess-228"
+               },
+               authorize?: false
+             )
+             |> Ash.create()
+
+    assert log.client_name == "omp"
+    assert log.session_id == "sess-228"
+  end
+
+  test "client_name / session_id 缺省为 nil（历史行 / 取不到的调用）" do
+    user = Fixtures.register_user("log-7")
+
+    assert {:ok, log} =
+             ToolCallLog
+             |> Ash.Changeset.for_create(
+               :log,
+               %{user_id: user.id, tool: "x", params: %{}, result_status: :ok},
+               authorize?: false
+             )
+             |> Ash.create()
+
+    assert is_nil(log.client_name)
+    assert is_nil(log.session_id)
+  end
+
   test "非法 result_status 被拒绝" do
     user = Fixtures.register_user("log-4")
 
