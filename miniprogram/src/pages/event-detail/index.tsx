@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
-import Taro, { useRouter } from '@tarojs/taro'
+import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
@@ -49,6 +49,11 @@ export default function EventDetailPage() {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '暂时无法报名', icon: 'none' })
     }
   }
+
+  useShareAppMessage(() => ({
+    title: item?.title,
+    path: `/pages/event-detail/index?id=${id}&kind=${kind}`
+  }))
 
   if (loading) return <PageState kind='loading' />
   if (error) return <PageState kind='error' message={error} onRetry={load} />
