@@ -1,6 +1,6 @@
 # ICP 备案材料清单（小程序 v1 上架前置）
 
-> 状态：**材料清单**（交 human 按清单准备；备案为 human 决策项，plan §9）
+> 状态：**材料清单**（交 human 按清单准备；备案为 human 决策项）
 > 前置：微信/抖音/小红书均要求非个人主体；小红书须专业号。
 
 ## 一、主体资质
@@ -24,8 +24,10 @@
 - [ ] HTTPS 证书（API 域名）
 - [ ] 各平台 appid/secret（微信 / 抖音 / 小红书）
 - [ ] 微信手机号快速验证组件开通（非个人主体，¥0.03/次，每小程序 1000 次免费额度）
-- [ ] 微信订阅消息模板 ID ×3（approval_result / approval_reminder / event_reminder，plan §9 Q3）
-- [ ] 抖音订阅消息模板 ID ×2（approval_result / event_reminder，裁剪端）
+- [ ] 微信订阅消息模板 ID ×10（approval_result / approval_reminder / enrollment_submitted / enrollment_completed / speaker_accepted / speaker_completed / learning_stagnation / payment_succeeded / refund_succeeded / refund_failed）——与 `backend/config/runtime.exs` 的 `WECHAT_MP_TEMPLATE_*` 逐一对应，prod 对全部 10 键 `fetch_env!`，缺任一即启动失败；缴费三模板（payment/refund）出处 `docs/plans/2026-08-15-024-feat-payment-loop-plan.md`
+- [ ] 抖音订阅消息模板 ID ×10（键集与微信完全相同，见上行 10 键）——对应 `TT_MP_TEMPLATE_*`，同样 10 键 `fetch_env!` 缺一即启动失败
+- [ ] 小红书订阅消息模板 ID ×10（键集与微信完全相同，见上行 10 键）——对应 `XHS_MP_TEMPLATE_*`，同样 10 键 `fetch_env!` 缺一即启动失败
+- [ ] 前端订阅场景 event_reminder（微信/抖音）：模板 ID 经构建期 env 注入（`CGC_WECHAT_TEMPLATE_EVENT_REMINDER` / `CGC_TT_TEMPLATE_EVENT_REMINDER`，见 `miniprogram/.env.example`）——前端订阅场景专用，后端 config 无此键、grantConsent 返回 :template_not_configured（已知跨面漂移，`docs/plans/2026-08-18-005` D5 已拍板仅记录）
 
 ## 四、合规材料（配合本批隐私指引草案）
 
@@ -34,7 +36,7 @@
 - [ ] 个人信息处理规则（PIPL 要求）
 - [ ] 若涉及未成年人（社区学习场景）——儿童个人信息保护规则（视类目要求）
 
-## 五、备案流程时间窗（plan §9 已调研）
+## 五、备案流程时间窗（已调研）
 
 - 微信：平台初审 1–2 工作日 + 省管局 1–20 工作日（典型 5–12 天，复杂约 30 天）
 - 抖音 / 小红书：同 ICP 备案框架；小红书要求专业号且同一主体最多 2 个小程序
