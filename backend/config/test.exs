@@ -57,6 +57,14 @@ config :cgc_2046, Oban, testing: :manual
 # 保证测试绝不发真实外网请求）。Req.Test ownership 沿 $callers 解析，Task 并发可用。
 config :cgc_2046, :miniprogram_req_plug, {Req.Test, Cgc2046.MiniprogramClientStub}
 
+# 微信 SDK client 不注册全局 Refresher/TokenChecker（跨用例泄漏）；
+# wechat 分支 token 由测试直接种 WeChat.Storage.Cache，SDK 请求走 Tesla.Mock。
+config :cgc_2046, :wechat_client_autostart, false
+
+# 微信 SDK 请求层走 Tesla.Mock（WechatRequester 的 adapter 编译期注入；
+# SDK 自带 test 分支在宿主构建不生效——见 wechat_client.ex 模块注释）。
+config :cgc_2046, :wechat_tesla_adapter, Tesla.Mock
+
 # 缴费闭环 U4（KTD3）：测试全量注入 FakeProvider——渠道密钥零依赖，
 # 绝不发真实外网请求（微信沙箱不可靠 #172，以 mock 为主）。
 config :cgc_2046, :payments_providers, %{
