@@ -492,6 +492,102 @@ defmodule Cgc2046.Miniprogram.Client do
     do: {:error, :phone_code_unsupported}
 
   @doc """
+  自由文本内容安全检查（v1 wechat-only，plan 2026-08-18-009 D-1；msgSecCheck v2 契约，
+  advisor09 F1）。
+
+  报名 reason 提交链路同步拦截：wechat 经宿主 WechatRequester 直发 v2
+  `POST /wxa/msg_sec_check`（SDK `Security.msg_check/2` 为 v1 已废弃——body 无
+  version/openid，v2 契约不可达），body `%{content, version: 2, scene: 2, openid}`，
+  access_token 由 SDK client 管理（`client.get_access_token/0`）。请求体含 content
+  明文，经宿主 WechatRequester 出网（debug:false 既有红线）。tt/xhs 显式
+  pass-through（各自平台审核独立，Phase 4 接入，零外呼）。
+
+  语义（plan D-2 + v2）：
+  - `{:ok, :passed}`：v2 `result.suggest == "pass"`
+  - `{:ok, :skipped}`：infra 故障 fail-open（errcode 非 0 含 47001/61010/45009 /
+    网络错误 / 非 200 / wechat 未配置）——平台瞬时故障不阻断报名，已记 telemetry
+    `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，**不含 content 明文**）
+  - `{:ok, :unchecked}`：tt/xhs pass-through（零外呼）
+  - `{:error, :content_rejected}`：`result.suggest` 为 `"risky"`/`"review"`——
+    违规内容 fail-closed（提交被拒）
+
+  content ≤2500 字节由调用方（Enrollment.check_content 服务端校验）保证，本函数
+  不再 clamp。幂等：纯读检查，重试安全。
+  """
+  @spec content_check(platform, String.t(), String.t()) ::
+          {:ok, :passed | :skipped | :unchecked} | {:error, :content_rejected}
+  def content_check(:wechat, content, openid)
+      when is_binary(content) and is_binary(openid) do
+    case WechatClient.fetch() do
+      {:ok, client} ->
+        body = %{content: content, version: 2, scene: 2, openid: openid}
+
+        classify_msg_check(
+          client.post("/wxa/msg_sec_check", body,
+            query: [access_token: client.get_access_token()]
+          )
+        )
+
+      {:error, reason} ->
+        emit_content_check_skipped(reason)
+        {:ok, :skipped}
+    end
+  end
+
+  def content_check(platform, _content, _openid) when platform in [:tt, :xhs] do
+    {:ok, :unchecked}
+  end
+
+  # v2 判定：errcode 0 + result.suggest "pass" → 放行；"risky"/"review" →
+  # fail-closed 拒绝；其余（errcode 非 0 / 非 200 / 网络 / 无法解析）一律
+  # fail-open 放行 + telemetry 计数。
+  defp classify_msg_check(
+         {:ok,
+          %Tesla.Env{status: 200, body: %{"errcode" => 0, "result" => %{"suggest" => "pass"}}}}
+       ),
+       do: {:ok, :passed}
+
+  defp classify_msg_check(
+         {:ok,
+          %Tesla.Env{
+            status: 200,
+            body: %{"errcode" => 0, "result" => %{"suggest" => suggest}}
+          }}
+       )
+       when suggest in ["risky", "review"],
+       do: {:error, :content_rejected}
+
+  defp classify_msg_check(other) do
+    emit_content_check_skipped(other)
+    {:ok, :skipped}
+  end
+
+  # reason 类别原子（无 content 明文，红线：明文不进日志/telemetry/错误消息）
+  defp emit_content_check_skipped({:ok, %Tesla.Env{status: 200, body: %{"errcode" => 45_009}}}),
+    do: emit_skipped(:rate_limited)
+
+  defp emit_content_check_skipped({:ok, %Tesla.Env{status: 200, body: %{"errcode" => _}}}),
+    do: emit_skipped(:unknown_errcode)
+
+  defp emit_content_check_skipped({:ok, %Tesla.Env{status: _status}}),
+    do: emit_skipped(:http_status)
+
+  defp emit_content_check_skipped({:error, _}), do: emit_skipped(:network)
+
+  defp emit_content_check_skipped(:wechat_not_configured),
+    do: emit_skipped(:wechat_not_configured)
+
+  defp emit_content_check_skipped(_), do: emit_skipped(:unknown)
+
+  defp emit_skipped(reason) do
+    :telemetry.execute(
+      [:cgc_2046, :content_check, :skipped],
+      %{count: 1},
+      %{reason: reason}
+    )
+  end
+
+  @doc """
   用 session_key 解密 getPhoneNumber 加密数据，返回归一化手机号（`+区号号码`）。
 
   算法与三平台官方规范一致：Base64(session_key) 为密钥的 AES-128-CBC + PKCS7。

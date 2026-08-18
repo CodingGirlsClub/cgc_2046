@@ -27,6 +27,10 @@ defmodule Cgc2046.Events.Enrollment do
   require Logger
 
   alias Cgc2046.ApprovalClaim
+  alias Cgc2046.Miniprogram.Client
+
+  # reason 内容安全平台判定白名单（替代 String.to_atom，杜绝未知字符串造原子）
+  @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
 
   @submitted_signal "enrollment.submitted"
   @approved_signal "enrollment.approved"
@@ -472,7 +476,10 @@ defmodule Cgc2046.Events.Enrollment do
     course_id = Ash.Changeset.get_attribute(changeset, :course_id)
     actor = changeset.context[:private][:actor]
 
-    with {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
+    # 内容检查在 with 链首位（advisor09 F2）：msgSecCheck 外呼在
+    # eligible_target 的 FOR SHARE 行锁获取之前执行，外呼不持锁。
+    with :ok <- check_content(changeset, actor),
+         {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
          {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
@@ -487,6 +494,84 @@ defmodule Cgc2046.Events.Enrollment do
       Ash.Changeset.put_context(changeset, :enrollment_policy, target.enrollment_policy)
     else
       {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  # ── 内容安全（plan 2026-08-18-009 P2 + advisor09 F1-F3）────────────
+
+  # submission_payload.reason 自由文本过内容安全检查。外呼在 with 链首位执行
+  # （目标校验 / FOR SHARE 行锁获取之前，F2：外呼不持锁）。
+  # - reason 缺失 → 放行（无可查内容）
+  # - reason 存在但非 binary / 超 2500 字节 / 无效 UTF-8 → 拒绝（F3：检查产物 =
+  #   落库产物，服务端前置校验，禁止静默截断）
+  # - 违规（v2 result.suggest risky/review）→ {:error, :content_rejected}
+  #   （fail-closed，内容不落库）
+  # - infra 故障 → fail-open 放行（Client.content_check 内部已记 telemetry）
+  # - 无 wechat identity（tt/xhs 单平台 / web 无 identity）→ pass-through 零外呼
+  defp check_content(changeset, actor) do
+    payload = Ash.Changeset.get_attribute(changeset, :submission_payload) || %{}
+    reason = Map.get(payload, "reason") || Map.get(payload, :reason)
+
+    cond do
+      is_nil(reason) ->
+        :ok
+
+      not valid_reason?(reason) ->
+        {:error, :content_rejected}
+
+      true ->
+        check_content_with_identity(actor, reason)
+    end
+  end
+
+  defp valid_reason?(reason) when is_binary(reason),
+    do: byte_size(reason) <= 2500 and String.valid?(reason)
+
+  defp valid_reason?(_), do: false
+
+  # msgSecCheck v2 需要 openid——从 user_identities 取 wechat uid
+  # （order.ex:794 同款 SQL 先例；platform 判定查询复用，一次取 provider+uid）。
+  # 有 wechat openid → wechat 检查；无 wechat identity（tt/xhs 单平台 / web 无
+  # identity）/ 查询失败 → 放行（pass-through 语义，RISKS 记录——v2 无法在无
+  # openid 下执行检查，与 tt/xhs 零外呼语义等价）。
+  defp check_content_with_identity(actor, reason) do
+    case actor_identities(actor) do
+      {:ok, identities} ->
+        case Map.get(identities, :wechat) do
+          nil -> :ok
+          openid -> run_wechat_check(reason, openid)
+        end
+
+      :error ->
+        :ok
+    end
+  end
+
+  defp run_wechat_check(reason, openid) do
+    case Client.content_check(:wechat, reason, openid) do
+      {:ok, _} -> :ok
+      {:error, :content_rejected} -> {:error, :content_rejected}
+    end
+  end
+
+  defp actor_identities(nil), do: {:ok, %{}}
+
+  defp actor_identities(actor) do
+    case Cgc2046.Repo.query(
+           "SELECT DISTINCT provider, uid FROM user_identities WHERE user_id = $1",
+           [Cgc2046.Repo.uuid!(actor.id)]
+         ) do
+      {:ok, %{rows: rows}} ->
+        identities =
+          rows
+          |> Enum.map(fn [provider, uid] -> {@content_check_platforms[provider], uid} end)
+          |> Enum.reject(fn {provider, _uid} -> is_nil(provider) end)
+          |> Map.new()
+
+        {:ok, identities}
+
+      {:error, _} ->
+        :error
     end
   end
 
@@ -1018,6 +1103,10 @@ defmodule Cgc2046.Events.Enrollment do
 
   defp domain_error_message(:duplicate_active),
     do: "an active enrollment already exists for this target"
+
+  # 通用文案，不含 reason 明文（红线：违规内容不进错误消息）
+  defp domain_error_message(:content_rejected),
+    do: "submission content was rejected by content safety check"
 
   defp domain_error_message({:unknown_enrollment_policy, _policy}),
     do: "target has an unknown enrollment policy"

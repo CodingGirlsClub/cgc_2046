@@ -35,6 +35,8 @@ const COPY: Record<string, string> = {
   // 收费档位
   enrollment_tier_id_required: '该报名为收费项，请先选择价格档位。',
   enrollment_tier_not_available: '所选档位已过期或不可用，请重新选择。',
+  // 报名 reason 内容安全检查拒绝（plan 009；无平台字样，零导流）
+  enrollment_content_rejected: '提交内容未通过安全检查，请修改后重试。',
   // 入参缺 enrollmentId
   order_enrollment_required: '缺少报名信息，请重新发起报名。'
 }
