@@ -65,6 +65,14 @@ vi.mock("next/navigation", () => ({
 	useParams: () => ({ slug: "cgc-camp" }),
 	usePathname: () => "/w/cgc-camp/settings/account/profile",
 	useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+	// redirect/permanentRedirect 供 next-intl createNavigation 顶层 import（i18n Phase 1）
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
+}));
+
+// i18n Phase 1：语言小节自身在 language-switcher.test.tsx 以真实 provider 覆盖
+vi.mock("@/components/profile-locale-select", () => ({
+	ProfileLocaleSelect: () => null,
 }));
 
 const ME = {

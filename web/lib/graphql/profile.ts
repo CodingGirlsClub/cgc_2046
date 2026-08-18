@@ -27,6 +27,8 @@ export interface MeUser {
   email: string;
   /** 展示名（全局身份字段，可编辑） */
   displayName?: string | null;
+  /** 界面语言偏好（i18n Phase 1；zh-CN | en，未设置为 null） */
+  locale?: string | null;
   /** 平台管理员（createWorkspace 等平台级能力依据） */
   isPlatformAdmin: boolean;
   /** 平台级成员编号（只读，格式 CGC-XXXXXX） */
@@ -74,6 +76,7 @@ export const ME_PROFILE: TypedDocumentNode<
       id
       email
       displayName
+      locale
       isPlatformAdmin
       memberNumber
       joinedAt
@@ -114,6 +117,19 @@ export const UPDATE_DISPLAY_NAME: TypedDocumentNode<
       isPlatformAdmin
       memberNumber
       joinedAt
+    }
+  }
+`;
+
+/** 更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人） */
+export const UPDATE_MY_LOCALE: TypedDocumentNode<
+  { updateMyLocale: MeUser | null },
+  { locale: string }
+> = gql`
+  mutation UpdateMyLocale($locale: String!) {
+    updateMyLocale(locale: $locale) {
+      id
+      locale
     }
   }
 `;

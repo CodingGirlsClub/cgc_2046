@@ -11,15 +11,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run",
+    "test": "pnpm check:i18n && vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "check:licenses": "node scripts/check-licenses.mjs"
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "check:i18n": "node scripts/check-i18n-keys.mjs"
   },
   "dependencies": {
     "@apollo/client": "^4.2.9",
     "graphql": "^17.0.2",
     "next": "16.3.0",
+    "next-intl": "^4.13.7",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"

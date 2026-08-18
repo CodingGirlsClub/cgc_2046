@@ -1,0 +1,33 @@
+{
+	"language": {
+		"label": "语言",
+		"zhCN": "中文",
+		"en": "English"
+	},
+	"settings": {
+		"languageLabel": "语言",
+		"languageDescription": "界面语言偏好，登录后跨设备同步。",
+		"languageSaved": "语言已更新"
+	},
+	"metadata": {
+		"title": "CGC 2046",
+		"description": "Coding Girls Club（程序媛汇）：从 2016 到 2046，陪一代女性走进编程的公益编程社群。"
+	},
+	"errors": {
+		"enrollment_duplicate_active": "你已有待支付订单，请关闭后重新打开继续支付。",
+		"enrollment_not_payment_pending": "报名状态已变化（已支付或已取消），请重新报名或查看我的报名。",
+		"order_not_payment_pending": "报名状态已变化（已支付或已取消），请重新报名或查看我的报名。",
+		"order_enrollment_not_found": "报名不存在或已被处理，请查看我的报名。",
+		"order_duplicate_active": "你已有待支付订单，请关闭后重新打开继续支付。",
+		"enrollment_already_processed": "该报名已处理完成，请查看我的报名。",
+		"order_already_processed": "该订单已处理，请刷新查看状态。",
+		"order_provider_not_configured": "该支付渠道暂未开通，请选择其他方式。",
+		"enrollment_capacity_full_or_registration_closed": "名额已满，报名已截止。",
+		"enrollment_target_not_open_or_registration_closed": "报名已截止或活动未开放。",
+		"enrollment_invite_code_required": "该报名需要邀请码，请输入后提交。",
+		"enrollment_invite_quota_unavailable": "邀请名额已用完，请联系组织者。",
+		"enrollment_tier_id_required": "该报名为收费项，请先选择价格档位。",
+		"enrollment_tier_not_available": "所选档位已过期或不可用，请重新选择。",
+		"order_enrollment_required": "缺少报名信息，请重新发起报名。"
+	}
+}

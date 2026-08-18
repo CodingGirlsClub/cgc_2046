@@ -1,0 +1,33 @@
+{
+	"language": {
+		"label": "Language",
+		"zhCN": "中文",
+		"en": "English"
+	},
+	"settings": {
+		"languageLabel": "Language",
+		"languageDescription": "Preferred interface language, synced across devices when signed in.",
+		"languageSaved": "Language updated"
+	},
+	"metadata": {
+		"title": "CGC 2046",
+		"description": "Coding Girls Club: a nonprofit coding community walking women into tech, from 2016 to 2046."
+	},
+	"errors": {
+		"enrollment_duplicate_active": "You already have a pending order. Close it and reopen to continue payment.",
+		"enrollment_not_payment_pending": "Your enrollment status has changed (paid or cancelled). Please enroll again or check My Enrollments.",
+		"order_not_payment_pending": "Your enrollment status has changed (paid or cancelled). Please enroll again or check My Enrollments.",
+		"order_enrollment_not_found": "Enrollment not found or already processed. Please check My Enrollments.",
+		"order_duplicate_active": "You already have a pending order. Close it and reopen to continue payment.",
+		"enrollment_already_processed": "This enrollment is already processed. Please check My Enrollments.",
+		"order_already_processed": "This order has been processed. Refresh to see the latest status.",
+		"order_provider_not_configured": "This payment channel is not available yet. Please choose another method.",
+		"enrollment_capacity_full_or_registration_closed": "Capacity is full and registration is closed.",
+		"enrollment_target_not_open_or_registration_closed": "Registration is closed or the activity is not open.",
+		"enrollment_invite_code_required": "This enrollment requires an invite code. Enter it and submit.",
+		"enrollment_invite_quota_unavailable": "The invite quota is used up. Please contact the organizer.",
+		"enrollment_tier_id_required": "This is a paid enrollment. Please select a pricing tier first.",
+		"enrollment_tier_not_available": "The selected tier is expired or unavailable. Please choose again.",
+		"order_enrollment_required": "Missing enrollment info. Please start the enrollment again."
+	}
+}

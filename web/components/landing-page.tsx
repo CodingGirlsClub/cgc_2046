@@ -13,6 +13,7 @@
  *   合作伙伴为精选科技类 8 家的历史同行者口径，不暗示当前仍在合作。
  */
 
+import LanguageSwitcher from "@/components/language-switcher";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { fetchPublicOfferings } from "@/lib/public-offerings";
@@ -400,7 +401,10 @@ export default function LandingPage() {
 			</section>
 
 			<footer className="mt-16 border-t border-line pt-6 text-[13px] text-ink-3">
-				<p>Coding Girls Club · 程序媛汇 — 2016 → 2046</p>
+				<div className="flex items-center justify-between gap-4">
+					<p>Coding Girls Club · 程序媛汇 — 2016 → 2046</p>
+					<LanguageSwitcher />
+				</div>
 			</footer>
 		</main>
 	);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveNextTarget } from "../../app/(auth)/login/use-auth-submit";
+import { resolveNextTarget } from "../../app/[locale]/(auth)/login/use-auth-submit";
 
 describe("resolveNextTarget（登录后跳转同源校验）", () => {
 	const origin = "http://localhost:3000";
