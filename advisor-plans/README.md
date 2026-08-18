@@ -16,7 +16,7 @@
 | [008](./008-miniprogram-wechat-sdk-adoption.md) | Miniprogram.Client wechat 分支接 SDK：token 缓存/重试/自愈 + 落页修正 + errcode 保真 | P1 | M | — | DONE（PR #220 merged；宿主 WechatRequester 适配，零外呼红线结构性成立） |
 | [009](./009-phonecode-login-contract.md) | getPhoneNumber 新契约（phoneCode）：微信侧 SDK 直取手机号 | P1 | M | 008 | DONE（PR #224 merged；advisor F1 修 tt/xhs 平台 gate；部署纪律：后端先于前端） |
 | [010](./010-docs-realignment.md) | 文档三修：ICP 模板数对齐 8 键、总纲 §7.3 支付下架、平台矩阵替代文档 | P2 | S | — | DONE（PR #207 merged；ICP 实为 9 键/端 + learning_stagnation 漂移如实记录，P2 后续项「通知配置面漂移收敛」待立） |
-| [011](./011-share-url-scheme-spike.md) | 【Spike】微信原生分享 + URL Scheme 深链契约与配额核实 | P2 | M | 008 | TODO |
+| [011](./011-share-url-scheme-spike.md) | 【Spike】微信原生分享 + URL Scheme 深链契约与配额核实 | P2 | M | 008 | DONE（PR #229 merged；D1-D5 拍板全选 A；SDK「1 年」过时修正为官方 30 天上限；U4 主体 scheme 权限为上线前 D 级必查项；正式实现计划待启动） |
 
 状态值：`TODO`、`IN PROGRESS`、`DONE`、`BLOCKED（附一行原因）`、
 `REJECTED（附一行理由）`。
