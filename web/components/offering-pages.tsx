@@ -633,7 +633,7 @@ export function OfferingDetailPage({
       } else {
         setSubmitState({
           kind: "error",
-          message: translatePaymentError(res.errors[0]?.message, "提交失败"),
+          message: translatePaymentError(res.errors[0]?.code, "提交失败"),
         });
       }
     } catch (e: unknown) {

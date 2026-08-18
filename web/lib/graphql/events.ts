@@ -233,6 +233,7 @@ export const CREATE_EVENT: TypedDocumentNode<
         registrationDeadline
       }
       errors {
+        code
         message
       }
     }
@@ -257,6 +258,7 @@ export const CREATE_COURSE: TypedDocumentNode<
         registrationDeadline
       }
       errors {
+        code
         message
       }
     }
@@ -279,6 +281,7 @@ export const UPDATE_EVENT: TypedDocumentNode<
         registrationDeadline
       }
       errors {
+        code
         message
       }
     }
@@ -302,6 +305,7 @@ export const UPDATE_COURSE: TypedDocumentNode<
         researchRequirements
       }
       errors {
+        code
         message
       }
     }
@@ -319,6 +323,7 @@ export const LAUNCH_EVENT: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -336,6 +341,7 @@ export const LAUNCH_COURSE: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -353,6 +359,7 @@ export const CLOSE_EVENT: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -370,6 +377,7 @@ export const CLOSE_COURSE: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -387,6 +395,7 @@ export const CANCEL_EVENT: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -404,6 +413,7 @@ export const CANCEL_COURSE: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -534,6 +544,7 @@ export const CREATE_ENROLLMENT: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }

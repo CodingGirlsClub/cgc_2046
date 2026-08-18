@@ -220,7 +220,9 @@ describe("/participations 我的参与", () => {
 			data: {
 				cancelEnrollment: {
 					result: null,
-					errors: [{ code: "already_processed", message: "already processed" }],
+					errors: [
+						{ code: "enrollment_already_processed", message: "already processed" },
+					],
 				},
 			},
 		});

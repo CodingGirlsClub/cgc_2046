@@ -129,7 +129,7 @@ function NewOrderForm() {
 			}
 			setError(
 				translatePaymentError(
-					payload?.errors[0]?.message ?? null,
+					payload?.errors[0]?.code ?? null,
 					"下单失败，请稍后重试",
 				),
 			);

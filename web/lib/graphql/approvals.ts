@@ -93,6 +93,7 @@ export const CONFIRM_ENROLLMENT: TypedDocumentNode<
 				status
 			}
 			errors {
+				code
 				message
 			}
 		}
@@ -110,6 +111,7 @@ export const REJECT_ENROLLMENT: TypedDocumentNode<
 				status
 			}
 			errors {
+				code
 				message
 			}
 		}

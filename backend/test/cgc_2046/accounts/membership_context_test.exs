@@ -370,7 +370,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
                  error_message: "你已是该工作台成员"
                )
 
-      assert %Ash.Error.Changes.InvalidAttribute{} = error
+      assert %Cgc2046.Errors.BusinessError{code: "membership_already_exists"} = error
       assert error.message == "你已是该工作台成员"
     end
 
@@ -407,7 +407,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
                  on_conflict: :business_error
                )
 
-      assert %Ash.Error.Changes.InvalidAttribute{} = error
+      assert %Cgc2046.Errors.BusinessError{code: "membership_already_exists"} = error
     end
 
     test "existing 守卫读失败：返结构化错误而非 raise（#14 fail-closed 原则）" do
@@ -423,7 +423,8 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
                )
 
       # 转成结构化业务错误（membership_check_error），可走 ash_graphql to_errors
-      assert %Ash.Error.Changes.InvalidAttribute{message: "成员资格检查失败"} = error
+      assert %Cgc2046.Errors.BusinessError{code: "membership_check_failed", message: "成员资格检查失败"} =
+               error
     end
 
     test "existing 守卫读失败：idempotent 模式同样返结构化错误而非 raise" do
@@ -435,7 +436,7 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
                  on_conflict: :idempotent
                )
 
-      assert %Ash.Error.Changes.InvalidAttribute{} = error
+      assert %Cgc2046.Errors.BusinessError{code: "membership_check_failed"} = error
     end
 
     test "空角色列表：建 Membership 不建 MembershipRole（决策 6）" do

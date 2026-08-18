@@ -251,7 +251,7 @@ export default function PaymentsManagement({
 			} else {
 				setActionError(
 					translatePaymentError(
-						data?.refundOrder?.errors?.[0]?.message,
+						data?.refundOrder?.errors?.[0]?.code,
 						"退款发起失败",
 					),
 				);
@@ -281,7 +281,7 @@ export default function PaymentsManagement({
 			} else {
 				setActionError(
 					translatePaymentError(
-						data?.waivePayment?.errors?.[0]?.message,
+						data?.waivePayment?.errors?.[0]?.code,
 						"免缴失败",
 					),
 				);

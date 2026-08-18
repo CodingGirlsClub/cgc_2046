@@ -134,15 +134,30 @@ defmodule Cgc2046.Events.SponsorshipDelivery do
   end
 
   defp add_domain_error(changeset, reason) do
-    Ash.Changeset.add_error(changeset,
-      field: :fulfilled_at,
-      message: domain_error_message(reason)
+    Ash.Changeset.add_error(
+      changeset,
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(reason),
+        code: domain_error_code(reason),
+        fields: [:fulfilled_at]
+      )
     )
   end
 
   defp domain_error_message(:already_fulfilled), do: "delivery has already been fulfilled"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
+
+  defp domain_error_code({:database, _reason}), do: "database_error"
+  defp domain_error_code(:already_fulfilled), do: "sponsorship_delivery_already_fulfilled"
+
+  defp domain_error_code(reason) when is_atom(reason),
+    do: "sponsorship_delivery_" <> Atom.to_string(reason)
+
+  defp domain_error_code({kind, _}) when is_atom(kind),
+    do: "sponsorship_delivery_" <> Atom.to_string(kind)
+
+  defp domain_error_code(_), do: "sponsorship_delivery_unknown"
 
   admin do
     resource_group(:events)

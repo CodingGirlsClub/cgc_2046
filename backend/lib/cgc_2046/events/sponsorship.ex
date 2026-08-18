@@ -869,9 +869,13 @@ defmodule Cgc2046.Events.Sponsorship do
   # ── 错误文案 ───────────────────────────────────────────────────────────────
 
   defp add_domain_error(changeset, reason) do
-    Ash.Changeset.add_error(changeset,
-      field: :status,
-      message: domain_error_message(reason)
+    Ash.Changeset.add_error(
+      changeset,
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(reason),
+        code: domain_error_code(reason),
+        fields: [:status]
+      )
     )
   end
 
@@ -914,6 +918,38 @@ defmodule Cgc2046.Events.Sponsorship do
 
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
+
+  defp domain_error_code({:database, _reason}), do: "database_error"
+  defp domain_error_code(:event_id_required), do: "sponsorship_event_id_required"
+  defp domain_error_code(:target_workspace_required), do: "sponsorship_target_workspace_required"
+  defp domain_error_code(:level_required), do: "sponsorship_level_required"
+  defp domain_error_code(:unknown_level), do: "sponsorship_unknown_level"
+  defp domain_error_code(:sponsorship_not_open), do: "sponsorship_sponsorship_not_open"
+  defp domain_error_code(:target_tenant_mismatch), do: "sponsorship_target_tenant_mismatch"
+  defp domain_error_code(:tier_not_found), do: "sponsorship_tier_not_found"
+  defp domain_error_code(:already_sponsoring), do: "sponsorship_already_sponsoring"
+  defp domain_error_code(:already_processed), do: "sponsorship_already_processed"
+
+  defp domain_error_code(:approval_deadline_passed),
+    do: "sponsorship_approval_deadline_passed"
+
+  defp domain_error_code(:exclusive_slot_taken), do: "sponsorship_exclusive_slot_taken"
+  defp domain_error_code(:target_sponsorship_closed), do: "sponsorship_target_sponsorship_closed"
+  defp domain_error_code(:not_expired_pending), do: "sponsorship_not_expired_pending"
+
+  defp domain_error_code(:not_active_event_sponsorship),
+    do: "sponsorship_not_active_event_sponsorship"
+
+  defp domain_error_code(:exactly_one_target_required),
+    do: "sponsorship_exactly_one_target_required"
+
+  defp domain_error_code(reason) when is_atom(reason),
+    do: "sponsorship_" <> Atom.to_string(reason)
+
+  defp domain_error_code({kind, _}) when is_atom(kind),
+    do: "sponsorship_" <> Atom.to_string(kind)
+
+  defp domain_error_code(_), do: "sponsorship_unknown"
 
   admin do
     resource_group(:events)

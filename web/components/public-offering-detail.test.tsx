@@ -142,8 +142,8 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
       result: null,
       errors: [
         {
+          code: "enrollment_tier_id_required",
           message: "a price tier is required for paid enrollment",
-          short_message: "a price tier is required for paid enrollment",
         },
       ],
     });

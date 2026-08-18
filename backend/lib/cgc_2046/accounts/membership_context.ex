@@ -502,16 +502,21 @@ defmodule Cgc2046.Accounts.MembershipContext do
   end
 
   defp already_member_error(message) do
-    Ash.Error.Changes.InvalidAttribute.exception(field: :user_id, message: message)
+    Cgc2046.Errors.BusinessError.exception(
+      message: message,
+      code: "membership_already_exists",
+      fields: [:user_id]
+    )
   end
 
   # existing 守卫 / 幂等回查的 DB 读失败：fail-closed 结构化错误。
   # 既不吞成 nil 继续建 membership（静默数据丢失），也不 raise 把错误变成 500
   # （#14 原则：结构化错误走 ash_graphql to_errors）。
   defp membership_check_error do
-    Ash.Error.Changes.InvalidAttribute.exception(
-      field: :user_id,
-      message: "成员资格检查失败"
+    Cgc2046.Errors.BusinessError.exception(
+      message: "成员资格检查失败",
+      code: "membership_check_failed",
+      fields: [:user_id]
     )
   end
 
