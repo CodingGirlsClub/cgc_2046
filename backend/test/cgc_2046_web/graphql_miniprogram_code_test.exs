@@ -8,15 +8,19 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
       conn = Plug.Conn.fetch_query_params(conn)
 
       case {conn.host, conn.request_path} do
-        {"api.weixin.qq.com", "/cgi-bin/token"} ->
-          Req.Test.json(conn, %{"access_token" => "wechat-code-token", "expires_in" => 7200})
-
-        {"api.weixin.qq.com", "/wxa/getwxacodeunlimit"} ->
-          Plug.Conn.send_resp(conn, 200, <<137, 80, 78, 71, 9, 9, 9>>)
-
         other ->
           raise "unexpected request: #{inspect(other)}"
       end
+    end)
+
+    # wechat 码已迁 SDK client（宿主 WechatRequester + Tesla.Mock，token 走 SDK ETS）
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/wxa/getwxacodeunlimit" <> _} ->
+        %Tesla.Env{
+          status: 200,
+          body: <<137, 80, 78, 71, 9, 9, 9>>,
+          headers: [{"content-type", "image/jpeg"}]
+        }
     end)
 
     :ok
