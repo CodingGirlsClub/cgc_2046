@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { NextIntlClientProvider } from "next-intl";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import zhCN from "../messages/zh-CN.json";
 import en from "../messages/en.json";
+import { render } from "@/test-utils";
 import { ProfileLocaleSelect } from "./profile-locale-select";
 
 /* 语言小节（设置页）：select 变化即 cookie + updateMyLocale + 导航，
@@ -23,11 +23,7 @@ vi.mock("@/lib/profile", () => ({
 }));
 
 function renderSelect(locale: "zh-CN" | "en" = "zh-CN") {
-	return render(
-		<NextIntlClientProvider locale={locale} messages={locale === "en" ? en : zhCN}>
-			<ProfileLocaleSelect />
-		</NextIntlClientProvider>,
-	);
+	return render(<ProfileLocaleSelect />, { locale });
 }
 
 function readCookie(name: string): string | undefined {
