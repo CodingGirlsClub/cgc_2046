@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { gql } from "@apollo/client";
 import { client } from "@/lib/apollo-client";
 import {
@@ -56,6 +57,7 @@ function formatLocalDate(iso: string): string {
 }
 
 export default function AdminWorkspaceDetailPage() {
+	const t = useTranslations("admin");
 	const params = useParams<{ id: string }>();
 	const workspaceId = params.id;
 
@@ -128,7 +130,7 @@ export default function AdminWorkspaceDetailPage() {
 			await revokeInvitation(ownerInvitation.id);
 			await load();
 		} catch {
-			setActionError("取消邀请失败，请稍后重试");
+			setActionError(t("cancelInviteFailed"));
 		} finally {
 			setRevoking(false);
 		}
@@ -169,21 +171,21 @@ export default function AdminWorkspaceDetailPage() {
 				}
 				await load();
 			} else {
-				setActionError("重指派 Owner 失败");
+				setActionError(t("reassignFailed"));
 			}
 		} catch {
-			setActionError("网络错误，请稍后重试");
+			setActionError(t("networkError"));
 		} finally {
 			setSubmitting(false);
 		}
 	};
 
 	if (loading) {
-		return <p className="admin-muted">加载中…</p>;
+		return <p className="admin-muted">{t("loading")}</p>;
 	}
 
 	if (error || !workspace) {
-		return <p className="admin-alert admin-alert--error">加载失败，工作台不存在或无权查看。</p>;
+		return <p className="admin-alert admin-alert--error">{t("workspaceNotFound")}</p>;
 	}
 
 	const hasOwner = (members ?? []).some((m) => m.roles.includes("owner"));
@@ -200,13 +202,13 @@ export default function AdminWorkspaceDetailPage() {
 			</div>
 
 			{ownerSeated && (
-				<p className="admin-alert admin-alert--plain">新 Owner 已入座。</p>
+				<p className="admin-alert admin-alert--plain">{t("ownerSeated")}</p>
 			)}
 
 			{inviteToken && (
 				<div className="admin-alert admin-alert--warn admin-result-back">
 					<div>
-						<p>新 Owner 邀请已生成（仅显示一次）</p>
+						<p>{t("ownerInviteNote")}</p>
 						<code className="l-codeblock">{inviteToken}</code>
 					</div>
 				</div>
@@ -217,11 +219,13 @@ export default function AdminWorkspaceDetailPage() {
 					{ownerInvitation ? (
 						<div className="admin-alert admin-alert--warn">
 							<span>
-								待指定 Owner（邀请待接受
-								{ownerInvitation.expiresAt
-									? `，有效期至 ${formatLocalDate(ownerInvitation.expiresAt)}`
-									: ""}
-								）
+								{t("pendingOwner", {
+									extra: ownerInvitation.expiresAt
+										? t("validUntil", {
+												date: formatLocalDate(ownerInvitation.expiresAt),
+											})
+										: "",
+								})}
 							</span>
 							<button
 								type="button"
@@ -229,19 +233,19 @@ export default function AdminWorkspaceDetailPage() {
 								disabled={revoking}
 								className="l-btn-outline"
 							>
-								{revoking ? "取消中…" : "取消邀请"}
+								{revoking ? t("revoking") : t("cancelInvite")}
 							</button>
 						</div>
 					) : (
 						<p className="admin-alert admin-alert--warn">
-							Owner 未就位（无有效邀请）
+							{t("ownerNotSeated")}
 						</p>
 					)}
 
-					<h2 className="admin-section-title">重指派 Owner</h2>
+					<h2 className="admin-section-title">{t("reassignTitle")}</h2>
 					<div className="admin-form">
 						<fieldset className="admin-field">
-							<legend className="admin-field__label">Owner 指定</legend>
+							<legend className="admin-field__label">{t("ownerAssign")}</legend>
 							<div className="admin-radio-row">
 								<label className="admin-radio">
 									<input
@@ -250,7 +254,7 @@ export default function AdminWorkspaceDetailPage() {
 										checked={ownerMode === "existing"}
 										onChange={() => setOwnerMode("existing")}
 									/>
-									选择已有用户
+									{t("chooseExisting")}
 								</label>
 								<label className="admin-radio">
 									<input
@@ -259,7 +263,7 @@ export default function AdminWorkspaceDetailPage() {
 										checked={ownerMode === "invite"}
 										onChange={() => setOwnerMode("invite")}
 									/>
-									邀请新用户
+									{t("inviteNew")}
 								</label>
 							</div>
 
@@ -270,7 +274,7 @@ export default function AdminWorkspaceDetailPage() {
 											<input
 												value={userSearch}
 												onChange={(e) => setUserSearch(e.target.value)}
-												placeholder="搜索用户（email / 显示名）"
+												placeholder={t("searchUserPlaceholder")}
 												className="l-input"
 											/>
 											<button
@@ -278,13 +282,13 @@ export default function AdminWorkspaceDetailPage() {
 												onClick={handleSearchUser}
 												className="l-btn-outline"
 											>
-												搜索
+												{t("search")}
 											</button>
 										</div>
 									)}
-									{searching && <p className="admin-muted">搜索中…</p>}
+									{searching && <p className="admin-muted">{t("searching")}</p>}
 									{userResults && userResults.length === 0 && (
-										<p className="admin-muted">未找到匹配用户。</p>
+										<p className="admin-muted">{t("noUserMatch")}</p>
 									)}
 									{userResults && userResults.length > 0 && (
 										<ul className="admin-pick-list">
@@ -306,15 +310,16 @@ export default function AdminWorkspaceDetailPage() {
 									)}
 									{selectedUser && (
 										<p className="admin-muted">
-											已选 Owner：
-											{selectedUser.displayName || selectedUser.email}
+											{t("selectedOwner", {
+												user: selectedUser.displayName || selectedUser.email || "",
+											})}
 											{" · "}
 											<button
 												type="button"
 												onClick={() => setSelectedUser(null)}
 												className="admin-link"
 											>
-												更换
+												{t("change")}
 											</button>
 										</p>
 									)}
@@ -325,7 +330,7 @@ export default function AdminWorkspaceDetailPage() {
 										htmlFor="reassign-owner-email"
 										className="admin-field__label"
 									>
-										邀请邮箱
+										{t("inviteEmail")}
 									</label>
 									<input
 										id="reassign-owner-email"
@@ -353,21 +358,23 @@ export default function AdminWorkspaceDetailPage() {
 								}
 								className="l-btn-primary"
 							>
-								重指派 Owner
+								{t("reassignButton")}
 							</button>
 						</div>
 					</div>
 				</>
 			)}
 
-			<h2 className="admin-section-title">成员（{members?.length ?? 0}）</h2>
+			<h2 className="admin-section-title">
+				{t("membersTitle", { count: members?.length ?? 0 })}
+			</h2>
 			{members && members.length > 0 ? (
 				<div className="admin-card admin-table-wrap">
 					<table className="admin-table">
 						<thead>
 							<tr>
-								<th>成员</th>
-								<th>角色</th>
+								<th>{t("thMember")}</th>
+								<th>{t("thRole")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -383,7 +390,7 @@ export default function AdminWorkspaceDetailPage() {
 									</td>
 									<td>
 										{m.roles.length === 0 ? (
-											<span className="members-empty-role">暂无角色</span>
+											<span className="members-empty-role">{t("noRoles")}</span>
 										) : (
 											<span className="admin-badge-row">
 												{m.roles.map((r) => (
@@ -406,7 +413,7 @@ export default function AdminWorkspaceDetailPage() {
 					</table>
 				</div>
 			) : (
-				<p className="admin-empty">暂无成员。</p>
+				<p className="admin-empty">{t("noMembers")}</p>
 			)}
 		</section>
 	);

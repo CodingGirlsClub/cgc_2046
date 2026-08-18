@@ -6,6 +6,7 @@
  * 通过后自动创建 workspace（后端）；拒绝原因对申请人可见（R7a）。
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
 	approveApplication,
 	fetchApplications,
@@ -27,6 +28,7 @@ function handlerShortId(app: AdminWorkspaceApplication): string {
 }
 
 export default function AdminApplicationsPage() {
+	const t = useTranslations("admin");
 	const [applications, setApplications] = useState<AdminWorkspaceApplication[] | null>(null);
 	const [status, setStatus] = useState<"pending" | "all">("pending");
 	const [loading, setLoading] = useState(false);
@@ -74,10 +76,10 @@ export default function AdminApplicationsPage() {
 				// 成功：刷新列表（pending 过滤下该条消失）
 				await load(status);
 			} else {
-				setActionError(res.errors[0]?.message ?? "审批失败");
+				setActionError(res.errors[0]?.message ?? t("approveFailed"));
 			}
 		} catch {
-			setActionError("审批失败，请稍后重试");
+			setActionError(t("approveFailedRetry"));
 		} finally {
 			setBusyId(null);
 		}
@@ -94,10 +96,10 @@ export default function AdminApplicationsPage() {
 				setRejectReason("");
 				await load(status);
 			} else {
-				setActionError(res.errors[0]?.message ?? "拒绝失败");
+				setActionError(res.errors[0]?.message ?? t("rejectFailed"));
 			}
 		} catch {
-			setActionError("拒绝失败，请稍后重试");
+			setActionError(t("rejectFailedRetry"));
 		} finally {
 			setBusyId(null);
 		}
@@ -106,7 +108,7 @@ export default function AdminApplicationsPage() {
 	return (
 		<section>
 			<div className="admin-page__head">
-				<h1>申请审批</h1>
+				<h1>{t("navApplications")}</h1>
 				<div className="admin-tabs">
 					<button
 						type="button"
@@ -114,7 +116,7 @@ export default function AdminApplicationsPage() {
 						onClick={() => handleTabChange("pending")}
 						className={`admin-tabs__tab ${status === "pending" ? "admin-tabs__tab--selected" : ""}`}
 					>
-						待审批
+						{t("tabPending")}
 					</button>
 					<button
 						type="button"
@@ -122,17 +124,17 @@ export default function AdminApplicationsPage() {
 						onClick={() => handleTabChange("all")}
 						className={`admin-tabs__tab ${status === "all" ? "admin-tabs__tab--selected" : ""}`}
 					>
-						全部
+						{t("tabAll")}
 					</button>
 				</div>
 			</div>
 
-			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
+			{error && <p className="admin-alert admin-alert--error">{t("loadFailed")}</p>}
 			{actionError && <p className="admin-alert admin-alert--error">{actionError}</p>}
-			{loading && <p className="admin-muted">加载中…</p>}
+			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && applications && applications.length === 0 && (
-				<p className="admin-empty">暂无申请。</p>
+				<p className="admin-empty">{t("noApplications")}</p>
 			)}
 
 			{!loading && !error && applications && applications.length > 0 && (
@@ -140,13 +142,13 @@ export default function AdminApplicationsPage() {
 					<table className="admin-table">
 						<thead>
 							<tr>
-								<th>工作台</th>
-								<th>slug</th>
-								<th>用途</th>
-								<th>状态</th>
-								<th>处理人</th>
-								<th>申请时间</th>
-								<th className="admin-table__actions">操作</th>
+								<th>{t("thWorkspace")}</th>
+								<th>{t("thSlug")}</th>
+								<th>{t("thPurpose")}</th>
+								<th>{t("thStatus")}</th>
+								<th>{t("thHandler")}</th>
+								<th>{t("thAppliedAt")}</th>
+								<th className="admin-table__actions">{t("thActions")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -161,7 +163,7 @@ export default function AdminApplicationsPage() {
 										</span>
 										{app.rejectionReason && (
 											<span className="admin-table__sub">
-												原因：{app.rejectionReason}
+												{t("reasonPrefix", { reason: app.rejectionReason })}
 											</span>
 										)}
 									</td>
@@ -178,15 +180,15 @@ export default function AdminApplicationsPage() {
 													disabled={busyId === app.id}
 													className="l-btn-outline"
 												>
-													通过
+													{t("approve")}
 												</button>
 												{rejectingId === app.id ? (
 													<span className="admin-inline-form">
 														<input
 															value={rejectReason}
 															onChange={(e) => setRejectReason(e.target.value)}
-															placeholder="拒绝原因"
-															aria-label="拒绝原因"
+															placeholder={t("rejectReasonPlaceholder")}
+															aria-label={t("rejectReasonAria")}
 															className="l-input"
 														/>
 														<button
@@ -195,7 +197,7 @@ export default function AdminApplicationsPage() {
 															disabled={busyId === app.id}
 															className="l-btn-danger"
 														>
-															确认拒绝
+															{t("confirmReject")}
 														</button>
 														<button
 															type="button"
@@ -205,7 +207,7 @@ export default function AdminApplicationsPage() {
 															}}
 															className="l-btn-ghost"
 														>
-															取消
+															{t("cancel")}
 														</button>
 													</span>
 												) : (
@@ -215,7 +217,7 @@ export default function AdminApplicationsPage() {
 														disabled={busyId === app.id}
 														className="l-btn-outline l-btn-outline--danger"
 													>
-														拒绝
+														{t("reject")}
 													</button>
 												)}
 											</>

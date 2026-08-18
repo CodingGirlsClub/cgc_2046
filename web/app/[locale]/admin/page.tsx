@@ -7,10 +7,12 @@
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { fetchApplications, fetchUsers, fetchWorkspaces } from "@/lib/admin";
 import { Icon } from "@/components/icons";
 
 export default function AdminHomePage() {
+	const t = useTranslations("admin");
 	const [counts, setCounts] = useState<{
 		workspaces: number | null;
 		users: number | null;
@@ -44,43 +46,43 @@ export default function AdminHomePage() {
 		value: number | null;
 		href: string;
 	}> = [
-		{ label: "工作台总数", value: counts.workspaces, href: "/admin/workspaces" },
-		{ label: "用户总数", value: counts.users, href: "/admin/users" },
-		{ label: "待审批申请数", value: counts.applications, href: "/admin/applications" },
+		{ label: "statWorkspaces", value: counts.workspaces, href: "/admin/workspaces" },
+		{ label: "statUsers", value: counts.users, href: "/admin/users" },
+		{ label: "statApplications", value: counts.applications, href: "/admin/applications" },
 	];
 
 	const links: Array<{ label: string; href: string }> = [
-		{ label: "工作台管理", href: "/admin/workspaces" },
-		{ label: "用户管理", href: "/admin/users" },
-		{ label: "申请审批", href: "/admin/applications" },
-		{ label: "审计", href: "/admin/audit" },
-		{ label: "OpenClacky", href: "/admin/openclacky" },
+		{ label: "linkWorkspaces", href: "/admin/workspaces" },
+		{ label: "linkUsers", href: "/admin/users" },
+		{ label: "linkApplications", href: "/admin/applications" },
+		{ label: "linkAudit", href: "/admin/audit" },
+		{ label: "linkOpenclacky", href: "/admin/openclacky" },
 	];
 
 	return (
 		<section>
 			<div className="admin-page__head">
 				<div>
-					<h1>平台管理概览</h1>
-					<p className="admin-page__desc">平台管理员仪表盘。</p>
+					<h1>{t("overviewTitle")}</h1>
+					<p className="admin-page__desc">{t("overviewDesc")}</p>
 				</div>
 			</div>
 
 			<div className="admin-stats">
 				{stats.map((s) => (
 					<Link key={s.label} href={s.href} className="admin-card admin-stat">
-						<span aria-label={s.label} className="admin-stat__value">
+						<span aria-label={t(s.label)} className="admin-stat__value">
 							{s.value ?? "—"}
 						</span>
-						<span className="admin-stat__label">{s.label}</span>
+						<span className="admin-stat__label">{t(s.label)}</span>
 					</Link>
 				))}
 			</div>
 
-			<nav aria-label="平台管理入口" className="admin-card admin-links">
+			<nav aria-label={t("entriesAria")} className="admin-card admin-links">
 				{links.map((l) => (
 					<Link key={l.href} href={l.href} className="admin-links__item">
-						<span>{l.label}</span>
+						<span>{t(l.label)}</span>
 						<Icon name="arrow" size={14} />
 					</Link>
 				))}
