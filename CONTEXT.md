@@ -373,6 +373,14 @@
 - **定义**：Event/Course 的**事件级参与者记录**，归**活动 context**（D-A4）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单；免费是默认（Event/Course 不配置定价），收费路径经 Order 缴费（2026-08-15 缴费 grilling 拍板，取代 Learner Q3「全免费」约束）。
 - **架构位置**：活动 context 资源；与 WorkspaceMembership（长期成员）两类关系并存。
 
+### 内容安全检查（Content Safety Check）
+
+- **定义**：报名 reason 自由文本的同步内容安全拦截（plan `docs/plans/2026-08-18-009-ugc-content-safety-plan.md`，issue #230）。提交时 reason 经微信 msgSecCheck（`Cgc2046.Miniprogram.Client.content_check/2`）同步检查——**违规内容拒绝提交且不落库**（BusinessError code `enrollment_content_rejected`）；平台瞬时故障（限流 45009 / 网络错误 / 非 200 / 未知 errcode）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含 reason 明文）。
+- **范围**：v1 wechat-only——tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入）；检查字段仅 `submission_payload.reason`；content 2500 字节 clamp（回退到完整 UTF-8 字符边界）。
+- **平台判定**：create 时 actor 无 platform（platform claim 在 JWT，User struct 不带），取 `user_identities` 平台——恰为单一 tt/xhs 跳过检查；其余（wechat / 多平台 / 无记录 / 查询失败 / actor nil）默认 wechat 检查（安全方向）。
+- **红线**：reason 明文不进日志 / telemetry / BusinessError message；msg_check 请求走宿主 WechatRequester（debug: false 既有）。
+- **架构位置**：`Client.content_check/2`（miniprogram facade，错误分类 + clamp 单点）+ `Enrollment :create_enrollment` 的 before_action（事务前，无并发面）；前端文案在 `miniprogram/src/domain/error-copy.ts`（`enrollment_content_rejected`）。
+
 ### learning 锚定（Enrollment Anchor）
 
 - **定义**：「learning run 锚定到哪条 Enrollment」的**唯一读取真源** = `Cgc2046.Events.Enrollment.anchor/1`（+ 双键提取 `anchored_id/1`；2026-08-17 架构深化 E，plan `docs/plans/2026-08-17-004-learning-anchor-claim-guard.md` D1-D8 全锁定）。三消费方（Workflows→Events 依赖方向）：`StepAuthorization.enrolled_learner?`（fail-closed→false）/ `LearningInstantiator`（instantiate + ensure_create_guards + instance_key/input_enrollment_id，warning+:ok）/ `LearningProgressWorker`（fetch_enrollment_or_nil→nil / remind_stagnant→:skipped）——三份私有拷贝已收编于此，删则复杂度回散三处。

@@ -24,6 +24,7 @@ test('每个 code 映射非空文案', () => {
     'enrollment_invite_quota_unavailable',
     'enrollment_tier_id_required',
     'enrollment_tier_not_available',
+    'enrollment_content_rejected',
     'order_enrollment_required'
   ]
   for (const code of knownCodes) {
