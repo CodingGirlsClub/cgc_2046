@@ -12,9 +12,11 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   """
   use Cgc2046.DataCase, async: true
 
+  alias Anubis.Server.Context
   alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.Server
+  alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
 
   # 精确名单（与 server.ex 注册的 12 工具一一对应）
@@ -151,6 +153,47 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
                  "get_course_content",
                  fn _, _, _ -> {:ok, %{called: true}} end
                )
+    end
+  end
+
+  describe "归因维度落库（#228：client_name / session_id 随审计行）" do
+    test "frame.context 有 clientInfo / session_id → 审计行带两维度" do
+      admin = Fixtures.platform_admin("mcp-attr-a")
+      workspace = Fixtures.create_workspace(admin)
+
+      frame = %Frame{
+        Frame.new(current_user: admin)
+        | context: %Context{
+            session_id: "sess-228",
+            client_info: %{"name" => "omp", "version" => "9.9"}
+          }
+      }
+
+      assert {:ok, _} =
+               Wrapper.run(frame, %{"workspace_id" => workspace.id}, "ghost_tool", fn _, _, _ ->
+                 {:ok, %{}}
+               end)
+
+      [log] = Ash.read!(ToolCallLog, authorize?: false)
+      assert log.client_name == "omp"
+      assert log.session_id == "sess-228"
+    end
+
+    test "frame.context 缺 clientInfo / session_id → 审计行落 nil 不炸" do
+      admin = Fixtures.platform_admin("mcp-attr-b")
+      workspace = Fixtures.create_workspace(admin)
+
+      assert {:ok, _} =
+               Wrapper.run(
+                 frame_for(admin),
+                 %{"workspace_id" => workspace.id},
+                 "ghost_tool",
+                 fn _, _, _ -> {:ok, %{}} end
+               )
+
+      [log] = Ash.read!(ToolCallLog, authorize?: false)
+      assert is_nil(log.client_name)
+      assert is_nil(log.session_id)
     end
   end
 end

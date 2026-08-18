@@ -9,7 +9,8 @@ defmodule Cgc2046.Mcp.Wrapper do
   3. membership 鉴权：非成员直接 Forbidden（不经业务 action，快速拒绝）；
      `meta: %{membership: :deferred}` 的工具由工具层授权判定替代
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
-  5. 落 ToolCallLog 审计（ok / error / forbidden；失败不阻塞响应，记 Logger）
+  5. 落 ToolCallLog 审计（ok / error / forbidden；带 client_name / session_id 归因维度
+     （#228），取不到时落 nil；失败不阻塞响应，记 Logger）
 
   鉴权立场随工具走（架构深化 C）：豁免声明 = 各工具模块 `use
   Anubis.Server.Component` 的 `meta:` opt，本模块经
@@ -54,7 +55,14 @@ defmodule Cgc2046.Mcp.Wrapper do
         fun.(actor, workspace_id, params)
       end
 
-    log_call(actor, tool_name, params, result, System.monotonic_time(:millisecond) - started)
+    log_call(
+      frame,
+      actor,
+      tool_name,
+      params,
+      result,
+      System.monotonic_time(:millisecond) - started
+    )
 
     result
   end
@@ -127,9 +135,9 @@ defmodule Cgc2046.Mcp.Wrapper do
   end
 
   # 审计落库失败不阻塞工具响应（审计可用性 < 工具可用性），但记 error 日志留痕
-  defp log_call(nil, _tool, _params, _result, _latency), do: :ok
+  defp log_call(_frame, nil, _tool, _params, _result, _latency), do: :ok
 
-  defp log_call(actor, tool_name, params, result, latency_ms) do
+  defp log_call(frame, actor, tool_name, params, result, latency_ms) do
     {status, error_message, pending_id} = classify(result)
 
     ToolCallLog
@@ -142,7 +150,9 @@ defmodule Cgc2046.Mcp.Wrapper do
         result_status: status,
         error_message: error_message && String.slice(error_message, 0, 500),
         latency_ms: latency_ms,
-        pending_operation_id: pending_id
+        pending_operation_id: pending_id,
+        client_name: client_name(frame),
+        session_id: mcp_session_id(frame)
       },
       authorize?: false
     )
@@ -156,6 +166,20 @@ defmodule Cgc2046.Mcp.Wrapper do
         :ok
     end
   end
+
+  # ---- 归因维度取值（#228）----
+  # frame.context 由 anubis Session 每次回调前重建（只读）：
+  # - client_info 来自 initialize 的 clientInfo（JSON 解码，string keys）
+  # - session_id 来自会话标识（HTTP = Mcp-Session-Id；stdio 恒为 "stdio"）
+  # pattern match 兜底：任何形状取不到即落 nil，审计主路径不因缺维度失败
+
+  defp client_name(%{context: %{client_info: %{"name" => name}}}) when is_binary(name), do: name
+  defp client_name(_frame), do: nil
+
+  defp mcp_session_id(%{context: %{session_id: session_id}}) when is_binary(session_id),
+    do: session_id
+
+  defp mcp_session_id(_frame), do: nil
 
   defp classify({:ok, _}), do: {:ok, nil, nil}
   defp classify({:error, msg}) when is_binary(msg), do: classify_error(msg)
