@@ -1,3 +1,5 @@
+import type { EnrollmentStatus } from './models'
+
 /**
  * 缴费闭环小程序端纯逻辑（plan 024 U12/KTD10）。
  *
@@ -174,6 +176,38 @@ export const PAYMENT_STATUS_LABEL: Record<string, string> = {
   paid: '已支付',
   refunding: '退款中',
   refunded: '已退款'
+}
+
+// 收费报名提交后的落地页：weapp 进支付页（weapp 用户不经此函数到结果页）；
+// 裁剪端（tt/xhs）无小程序内支付，回结果页——结果页渲染 payment_pending 待支付
+// 分支（裁剪端附网页端支付引导）；weapp 落到结果页时该分支亦作兜底。
+export function paymentLandingUrl(enrollmentId: string, isWeapp: boolean): string {
+  if (isWeapp) return `/pages/order-pay/index?enrollmentId=${enrollmentId}`
+  return `/pages/enrollment-result/index?id=${enrollmentId}`
+}
+
+/** 报名结果页文案（enrollment-result 状态→文案映射；payment_pending 含裁剪端网页端支付引导） */
+export interface EnrollmentResultCopy {
+  title: string
+  subtitle: string
+}
+
+export function enrollmentResultCopy(status: EnrollmentStatus, isWeapp: boolean): EnrollmentResultCopy {
+  if (status === 'pending') {
+    return {
+      title: '等待审批',
+      subtitle: '组织者会在审批截止前处理，你可以在「我的报名」查看倒计时。'
+    }
+  }
+  if (status === 'payment_pending') {
+    return {
+      title: `${PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付`,
+      subtitle: isWeapp
+        ? '名额已保留，请尽快完成支付。'
+        : '请在网页端完成支付（本端暂不支持支付调起）。'
+    }
+  }
+  return { title: '报名成功', subtitle: '名额已经确认，记得按时参加。' }
 }
 
 function parseJson(raw: string): unknown {
