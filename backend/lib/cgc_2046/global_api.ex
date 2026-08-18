@@ -50,5 +50,7 @@ defmodule Cgc2046.GlobalApi do
     resource(Cgc2046.Accounts.AdminActionLog)
     resource(Cgc2046.Miniprogram.Code)
     resource(Cgc2046.Miniprogram.NotificationConsent)
+    # plan 011 P1：微信 URL Scheme 分享链接缓存（全局资源，UK target+platform）
+    resource(Cgc2046.Miniprogram.ShareScheme)
   end
 end

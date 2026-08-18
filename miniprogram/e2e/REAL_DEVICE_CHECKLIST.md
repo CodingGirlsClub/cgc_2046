@@ -54,3 +54,10 @@
 - [ ] 本机通知记录能看到本地授权与审批操作记录（后端尚无通知 feed query，F9 通知中心待契约补齐）。
 - [ ] 全页面没有聊天输入框、对话历史、Agent 选择/交互、Workflow 执行/编辑入口。
 - [ ] 「去 OpenClacky」仅展示安装和连接器指引，不承载任何执行能力。
+
+## 011 分享与 URL Scheme
+
+- [ ] **U4（D 级阻断，上线前必查）**：官方后台确认本小程序主体的 URL Scheme 权限；用现有 appid 实调一次 generatescheme 验证可生成（若判无权限，scheme 全链路不可用）。
+- [ ] 聊天卡片分享：event-detail 右上角转发 → 卡片 title 正确（活动标题；加载中/缺失时兜底「CGC · 精选活动」，无平台字样）；好友点击卡片进入对应详情页（course 分享 kind=course 正确加载）。
+- [ ] scheme 冷启动：外部渠道链接（iOS Safari 打开 weixin://dl/business 链接）→ 冷启动直达 event-detail 详情页（需线上正式版——scheme 只能生成已发布页面）。
+- [ ] scheme 热启动：小程序已打开（停在非详情页）→ 点 scheme 链接回前台 → 跳转 event-detail；已在 event-detail 时点链接 → 不重复跳转/不打断当前详情；带 scene 的进入仍走 join 链路（scene 优先）。

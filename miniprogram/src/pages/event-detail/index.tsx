@@ -51,7 +51,7 @@ export default function EventDetailPage() {
   }
 
   useShareAppMessage(() => ({
-    title: item?.title,
+    title: item?.title ?? 'CGC · 精选活动',
     path: `/pages/event-detail/index?id=${id}&kind=${kind}`
   }))
 

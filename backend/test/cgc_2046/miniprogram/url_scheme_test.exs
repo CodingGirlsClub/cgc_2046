@@ -3,7 +3,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
 
   alias Cgc2046.Miniprogram.UrlScheme
 
-  describe "create_event_link/3" do
+  describe "create_link/3" do
     test "成功：返回 openlink，且请求体携带 jump_wxa 与到期失效参数（SDK 覆盖验证）" do
       test_pid = self()
 
@@ -16,7 +16,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
       expires_at = DateTime.add(DateTime.utc_now(), 7, :day)
 
       assert {:ok, "weixin://dl/business/?t=TEST"} =
-               UrlScheme.create_event_link("event-123", "event", expires_at)
+               UrlScheme.create_link("event-123", "event", expires_at)
 
       assert_receive {:scheme_request,
                       %{
@@ -41,7 +41,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
       end)
 
       assert {:ok, "weixin://dl/business/?t=PERM"} =
-               UrlScheme.create_event_link("event-456", "course")
+               UrlScheme.create_link("event-456", "course")
 
       assert_receive {:scheme_request, body}
       assert body["jump_wxa"]["query"] == "id=event-456&kind=course"
@@ -58,7 +58,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
       end)
 
       assert {:error, {:platform_rejected, 44990, "reach max api second frequence limit"}} =
-               UrlScheme.create_event_link("event-789", "course")
+               UrlScheme.create_link("event-789", "course")
     end
 
     test "非 200 或异常响应归为 scheme_failed" do
@@ -67,7 +67,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
           %Tesla.Env{status: 500, body: "boom"}
       end)
 
-      assert {:error, {:scheme_failed, _}} = UrlScheme.create_event_link("event-abc", "event")
+      assert {:error, {:scheme_failed, _}} = UrlScheme.create_link("event-abc", "event")
     end
   end
 end
