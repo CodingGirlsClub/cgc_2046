@@ -27,28 +27,25 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
-  # 投递路径 stub wechat 平台（token + subscribe/send 两步，Client 信封）。
-  # 跳过路径不触达 HTTP（stale 重查拦在 deliver 之前），stub 仅兜底防误发真实请求。
+  # 投递路径 stub wechat 平台（SDK client + Tesla.Mock；token 由 SDK ETS 管理）。
+  # 跳过路径不触达 HTTP（stale 重查拦在 deliver 之前），mock 仅兜底防误发真实请求。
   setup do
     test_pid = self()
+
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/cgi-bin/message/subscribe/send" <> _} = env ->
+        send(test_pid, {:notification, :wechat, Jason.decode!(env.body)})
+        Tesla.Mock.json(%{"errcode" => 0})
+    end)
 
     Req.Test.stub(Cgc2046.MiniprogramClientStub, fn conn ->
       conn = Plug.Conn.fetch_query_params(conn)
 
       case {conn.method, conn.host, conn.request_path} do
-        {"GET", "api.weixin.qq.com", "/cgi-bin/token"} ->
-          Req.Test.json(conn, %{"access_token" => "wx-token"})
-
-        {"POST", "api.weixin.qq.com", "/cgi-bin/message/subscribe/send"} ->
-          send(test_pid, {:notification, :wechat, body!(conn)})
-          Req.Test.json(conn, %{"errcode" => 0})
-
         other ->
           raise "unexpected notification request: #{inspect(other)}"
       end
     end)
-
-    :ok
   end
 
   describe "通知类型 registry 契约" do

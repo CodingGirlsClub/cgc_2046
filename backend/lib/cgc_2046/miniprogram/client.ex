@@ -14,6 +14,7 @@ defmodule Cgc2046.Miniprogram.Client do
   测试注入：`:cgc_2046, :miniprogram_req_plug` 配置 Req plug（test 环境为
   `{Req.Test, Cgc2046.MiniprogramClientStub}`），未配置时走真实 HTTP。
   """
+  alias Cgc2046.Miniprogram.WechatClient
 
   @type platform :: :wechat | :tt | :xhs
   @type session :: %{openid: String.t(), unionid: String.t() | nil, session_key: String.t()}
@@ -41,6 +42,17 @@ defmodule Cgc2046.Miniprogram.Client do
   @platforms Map.keys(@endpoints)
   def platforms, do: @platforms
 
+  # 落页契约：页面必须存在于 miniprogram/src/app.config.ts。
+  # 订阅消息：weapp 有「我的」（profile，本机通知中心）；裁剪端无 profile，
+  # 落「我的报名」（三端都注册的 tab 页）。小程序码：join 三端都注册且消费 scene
+  # （miniprogram/src/app.tsx useLaunch → pendingScene → join）。
+  @notification_page %{
+    wechat: "pages/profile/index",
+    tt: "pages/my-enrollments/index",
+    xhs: "pages/my-enrollments/index"
+  }
+  @code_page "pages/join/index"
+
   @doc """
   平台登录凭证换会话。
 
@@ -60,11 +72,18 @@ defmodule Cgc2046.Miniprogram.Client do
   @doc "生成平台小程序码；返回平台响应中的原始图片字节。"
   @spec generate_code(platform, String.t()) :: {:ok, binary()} | {:error, term()}
   def generate_code(platform, scene) when platform in @platforms and is_binary(scene) do
-    config = platform_config!(platform)
+    case platform do
+      # wechat 走 SDK client：token 由 SDK 内部缓存/刷新，不现取现用
+      :wechat ->
+        request_code(:wechat, scene)
 
-    with {:ok, access_token} <- fetch_api_access_token(platform, config),
-         {:ok, image} <- request_code(platform, config, access_token, scene) do
-      {:ok, image}
+      _ ->
+        config = platform_config!(platform)
+
+        with {:ok, access_token} <- fetch_api_access_token(platform, config),
+             {:ok, image} <- request_code(platform, config, access_token, scene) do
+          {:ok, image}
+        end
     end
   end
 
@@ -74,24 +93,27 @@ defmodule Cgc2046.Miniprogram.Client do
   def send_notification(platform, openid, template_id, data)
       when platform in @platforms and is_binary(openid) and is_binary(template_id) and
              is_map(data) do
-    config = platform_config!(platform)
+    case platform do
+      # wechat 走 SDK client：token 由 SDK 内部缓存/刷新，不现取现用
+      :wechat ->
+        request_notification(:wechat, openid, template_id, data)
 
-    with {:ok, access_token} <- fetch_api_access_token(platform, config) do
-      request_notification(platform, access_token, openid, template_id, data)
+      _ ->
+        config = platform_config!(platform)
+
+        with {:ok, access_token} <- fetch_api_access_token(platform, config) do
+          request_notification(platform, access_token, openid, template_id, data)
+        end
     end
   end
 
-  defp request_notification(:wechat, token, openid, template_id, data) do
-    "https://api.weixin.qq.com"
-    |> req()
-    |> Req.post(
-      url: "/cgi-bin/message/subscribe/send",
-      params: [access_token: token],
-      json: %{touser: openid, template_id: template_id, page: "pages/mine/index", data: data}
-    )
-    |> case do
-      {:ok, %Req.Response{status: 200, body: %{"errcode" => 0}}} -> :ok
-      response -> parse_platform_failure(response)
+  defp request_notification(:wechat, openid, template_id, data) do
+    with {:ok, client} <- WechatClient.fetch() do
+      client
+      |> WeChat.MiniProgram.SubscribeMessage.send(openid, template_id, data, %{
+        page: @notification_page.wechat
+      })
+      |> parse_wechat_envelope()
     end
   end
 
@@ -104,8 +126,7 @@ defmodule Cgc2046.Miniprogram.Client do
       json: %{
         open_id: openid,
         msg_id: template_id,
-        page: "pages/mine/index",
-        notify_type: [1, 2],
+        page: @notification_page.tt,
         data: data
       }
     )
@@ -121,22 +142,12 @@ defmodule Cgc2046.Miniprogram.Client do
     |> Req.post(
       url: platform_config!(:xhs).notification_path,
       headers: [{"access-token", token}],
-      json: %{open_id: openid, template_id: template_id, page: "pages/mine/index", data: data}
+      json: %{open_id: openid, template_id: template_id, page: @notification_page.xhs, data: data}
     )
     |> case do
       {:ok, %Req.Response{status: 200, body: %{"code" => 0}}} -> :ok
       response -> parse_platform_failure(response)
     end
-  end
-
-  defp fetch_api_access_token(:wechat, config) do
-    "https://api.weixin.qq.com"
-    |> req()
-    |> Req.get(
-      url: "/cgi-bin/token",
-      params: [grant_type: "client_credential", appid: config.appid, secret: config.secret]
-    )
-    |> parse_access_token(:wechat)
   end
 
   defp fetch_api_access_token(:tt, config) do
@@ -158,13 +169,6 @@ defmodule Cgc2046.Miniprogram.Client do
   end
 
   defp parse_access_token(
-         {:ok, %Req.Response{status: 200, body: %{"access_token" => token}}},
-         :wechat
-       )
-       when is_binary(token),
-       do: {:ok, token}
-
-  defp parse_access_token(
          {:ok, %Req.Response{status: 200, body: %{"data" => %{"access_token" => token}}}},
          :tt
        )
@@ -177,15 +181,15 @@ defmodule Cgc2046.Miniprogram.Client do
   defp parse_access_token({:error, _}, _), do: {:error, :platform_unreachable}
   defp parse_access_token(_, _), do: {:error, :platform_bad_response}
 
-  defp request_code(:wechat, _config, token, scene) do
-    "https://api.weixin.qq.com"
-    |> req()
-    |> Req.post(
-      url: "/wxa/getwxacodeunlimit",
-      params: [access_token: token],
-      json: %{scene: scene, page: "pages/invite/index", check_path: false}
-    )
-    |> parse_binary_image()
+  defp request_code(:wechat, scene) do
+    with {:ok, client} <- WechatClient.fetch() do
+      client
+      |> WeChat.MiniProgram.Code.create_code_unlimited(scene, %{
+        page: @code_page,
+        check_path: false
+      })
+      |> parse_wechat_image()
+    end
   end
 
   defp request_code(:tt, config, token, scene) do
@@ -197,8 +201,7 @@ defmodule Cgc2046.Miniprogram.Client do
       json: %{
         app_name: "douyin",
         appid: config.appid,
-        path: "pages/invite/index?scene=#{scene}",
-        width: 430
+        path: "#{@code_page}?scene=#{scene}"
       }
     )
     |> case do
@@ -220,7 +223,7 @@ defmodule Cgc2046.Miniprogram.Client do
     |> Req.post(
       url: platform_config!(:xhs).qrcode_path,
       headers: [{"access-token", token}],
-      json: %{scene: scene, page: "pages/invite/index"}
+      json: %{scene: scene, page: @code_page}
     )
     |> case do
       {:ok, %Req.Response{status: 200, body: %{"code" => 0, "data" => data}}}
@@ -232,10 +235,33 @@ defmodule Cgc2046.Miniprogram.Client do
     end
   end
 
-  defp parse_binary_image({:ok, %Req.Response{status: 200, body: body}}) when is_binary(body),
+  # SDK 信封：成功 {:ok, %Tesla.Env{status: 200, body: %{"errcode" => 0}}}；
+  # 业务失败 200 + %{"errcode" => code, "errmsg" => msg}——errcode 保真出栈。
+  defp parse_wechat_envelope({:ok, %Tesla.Env{status: 200, body: %{"errcode" => 0}}}), do: :ok
+
+  defp parse_wechat_envelope(
+         {:ok, %Tesla.Env{status: 200, body: %{"errcode" => code, "errmsg" => msg}}}
+       )
+       when is_integer(code),
+       do: {:error, {:platform_rejected, code, msg}}
+
+  defp parse_wechat_envelope({:ok, %Tesla.Env{status: status}}),
+    do: {:error, {:platform_http_status, status}}
+
+  defp parse_wechat_envelope({:error, _}), do: {:error, :platform_unreachable}
+  defp parse_wechat_envelope(_), do: {:error, :platform_bad_response}
+
+  # 成功 body 为图片二进制；错误 body 为 JSON map（Tesla.Middleware.JSON 已解码）。
+  defp parse_wechat_image({:ok, %Tesla.Env{status: 200, body: body}}) when is_binary(body),
     do: {:ok, body}
 
-  defp parse_binary_image(response), do: parse_platform_failure(response)
+  defp parse_wechat_image(
+         {:ok, %Tesla.Env{status: 200, body: %{"errcode" => code, "errmsg" => msg}}}
+       )
+       when is_integer(code),
+       do: {:error, {:platform_rejected, code, msg}}
+
+  defp parse_wechat_image(response), do: parse_wechat_envelope(response)
 
   defp decode_image_field("data:image" <> _ = data_uri) do
     case String.split(data_uri, ",", parts: 2) do
@@ -252,6 +278,26 @@ defmodule Cgc2046.Miniprogram.Client do
   end
 
   defp decode_image_field(_), do: {:error, :platform_bad_response}
+
+  # 200 + JSON 错误体（Req 已解码为 map）——先提 errcode/err_no/code，再谈 HTTP 状态。
+  # 避免微信 43101（拒收）/抖音小红书同构错误被压平成 {:platform_http_status, 200}。
+  defp parse_platform_failure(
+         {:ok, %Req.Response{status: 200, body: %{"errcode" => code, "errmsg" => msg}}}
+       )
+       when is_integer(code) and code != 0,
+       do: {:error, {:platform_rejected, code, msg}}
+
+  defp parse_platform_failure(
+         {:ok, %Req.Response{status: 200, body: %{"err_no" => code, "err_msg" => msg}}}
+       )
+       when is_integer(code) and code != 0,
+       do: {:error, {:platform_rejected, code, msg || ""}}
+
+  defp parse_platform_failure(
+         {:ok, %Req.Response{status: 200, body: %{"code" => code, "msg" => msg}}}
+       )
+       when is_integer(code) and code != 0,
+       do: {:error, {:platform_rejected, code, msg || ""}}
 
   defp parse_platform_failure({:ok, %Req.Response{status: status}}),
     do: {:error, {:platform_http_status, status}}
