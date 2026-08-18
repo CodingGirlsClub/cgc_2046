@@ -75,6 +75,7 @@ config :cgc_2046,
     mch_id: System.get_env("WECHAT_PAY_MCH_ID"),
     appid: System.get_env("WECHAT_PAY_APPID"),
     api_v3_key: System.get_env("WECHAT_PAY_API_V3_KEY"),
+    api_secret_v2_key: System.get_env("WECHAT_PAY_API_V2_KEY"),
     client_serial_no: System.get_env("WECHAT_PAY_CLIENT_SERIAL_NO"),
     client_private_key: System.get_env("WECHAT_PAY_CLIENT_PRIVATE_KEY"),
     webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL") || "http://localhost:4000"
