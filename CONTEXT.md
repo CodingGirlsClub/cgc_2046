@@ -145,7 +145,7 @@
 ### 工具 = 形状、租户 = 过滤器、每次工具调用 = 审计记录（Tool-Shape Principle）
 
 - **定义**：MCP 工具只定义"能做什么"（形状）；同一个工具对所有人形状相同，能访问哪些数据由租户/角色过滤决定；每一次工具调用都必须落审计。
-- **架构位置**：D6 总原则，贯穿 MCP 工具集、workspace_id 作用域与 AgentRun 审计。
+- **架构位置**：D6 总原则，贯穿 MCP 工具集、workspace_id 作用域与 ToolCallLog 审计。
 
 ### 能力接口（Capability Interface）
 
@@ -155,7 +155,7 @@
 ### 审计记录（Audit Record）
 
 - **定义**：每次 MCP 工具调用（谁/工具/参数/结果/确认/时间）的结构化记录；"无确认不落库"的写操作在确认后落库并审计。
-- **架构位置**：AgentRun 的数据基础（见 §5）；二期可接 `ash_paper_trail` 增强。
+- **架构位置**：MCP 审计的**事件账本与唯一原始记录**——AgentRun 家族的一切聚合视图都是它的投影（见 §4 AgentRun 词条）。二期可接 `ash_paper_trail` 增强。
 
 ### partition（租户分区）
 
@@ -165,7 +165,7 @@
 ### Thread journal（线程日志审计）
 
 - **定义**：Jido Storage 的 append-only 日志（审计/事件日志）+ Checkpoint（状态快照，断点恢复）+ Introspection（`provenance_chain` 溯源链 / `execution_summary`）。**审计 context 的数据源**（D-A5），不另造轮子。
-- **架构位置**：workflow 引擎的持久化与审计底座；与网站侧 ToolCallLog/AgentRun 审计互补。
+- **架构位置**：workflow 引擎的持久化与审计底座；与网站侧 ToolCallLog 审计互补。
 
 ---
 
@@ -190,7 +190,7 @@
   2. **人工步骤**（SignalMatch 门控等待外部信号，如报名表单提交、审批）
   3. **门控/分支**
   4. **子 workflow**（嵌套 DAG）
-- **架构位置**：租户资源；顺序解锁（Step 1 完成才能执行 Step 2）；AgentRun 按 Step 聚合；授权语义与旧 Workflow/Step 模型一致。
+- **架构位置**：租户资源；顺序解锁（Step 1 完成才能执行 Step 2）；授权语义与旧 Workflow/Step 模型一致。
 
 ### Jido 生态（Jido Ecosystem）
 
@@ -217,10 +217,11 @@
 - **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
 - **架构位置**：替代"运行时下发文件"（热加载未验证、工程风险高）与"纯静态打包"（不支持动态公共 Agent）两条路。
 
-### AgentRun（领域操作聚合记录，租户资源）
+### AgentRun（领域操作聚合记录，实体不建）
 
-- **定义**：按 Step 聚合的"一次干活"记录——操作序列摘要、关联 Step、操作者。网站根据每次 MCP 工具调用**自动生成**，不做用户侧上报（上报不可靠/可篡改、连接器扩展工作量大）（D9）。
-- **架构位置**：审计流产出物；用户侧 OpenClacky 对话/token 等执行详情**不进** AgentRun。v1 就做。
+- **定义**：按"一次干活"聚合操作序列的概念（D9：操作摘要、关联对象、操作者，网站自动生成、不做用户侧上报）。**实体不落地（#211 裁决 2/3，2026-08-18）**：原设计的聚合锚先后被架构演进移除——Agent 实体不建模（形态 X / BYO，R2 已删 `Step.agent_id`）、主链路不再经过 Step（学习/教研锚 user × course，切片 H），"按 Step 聚合"的实体形态已失效。
+- **架构位置**：审计义务由 **ToolCallLog 事件账本**承担（D9 的自动记录/防抵赖已兑现）；AgentRun 语义 = ToolCallLog 之上的**投影**，可从流水回填重建，不建写模型。结果账本按 context 就位：LearningRecord（学习）/ ResearchOutput（教研）/ WorkflowRun.facts（Step 链路产物）。
+- **重启条件**：Agent 资源落地（roadmap：plan 020，`get_agent_instruction` 切库）或多宿主（OpenClacky / OMP / OpenCode / DSH）会话归因需求成真 → 从 ToolCallLog 投影重建；**前置 = 流水补 `client_name` / `session_id` 归因维度**（模型可重算、流水维度不记则历史不可回填，#228）。
 
 ---
 
@@ -230,8 +231,6 @@
 
 - **定义**：两种形态——**个人 Agent**（角色分身，仅本人可见可用）与**公共 Agent**（Workspace 级，按 Workflow 协作）。在 BYO 架构下，Agent 只是授权与配置登记：`type / allowed_roles / owner` + OpenClacky 配置引用（`openclacky_profile / model / system_prompt / skills`）（D2）。**不包含执行逻辑**——执行发生在用户本地 OpenClacky。
 - **架构位置**：资源实体 + 网站侧定义存储；经 `get_agent_instruction` 供 CGC 助手消费。
-
-### AgentRun 资源（见 §4）
 
 ### MCP 工具集（MCP Tool Set）
 
@@ -415,7 +414,7 @@
 
 ### AuditLog（审计日志，二期）
 
-- **定义**：敏感操作留痕的全局日志（二期接 `ash_paper_trail`）；一期以 AgentRun + 每次工具调用审计记录覆盖。
+- **定义**：敏感操作留痕的全局日志（二期接 `ash_paper_trail`）；一期以 ToolCallLog 每次工具调用审计记录覆盖。
 - **架构位置**：二期基础设施。
 
 ### 通知分发面（Notification Fanout）
@@ -465,7 +464,7 @@
 | --- | --- |
 | 登录 Token vs 连接 token | 登录 Token：网站 UI 的 httpOnly cookie（JWT）；连接 token：MCP `Authorization: Bearer` 头，绑用户不绑工作区 |
 | A 通道 vs B 通道 | A 通道（网站派活）已删除；B 通道（网站 MCP server）是唯一主干 |
-| Agent vs AgentRun | Agent 是授权/配置登记（不含执行）；AgentRun 是网站按 MCP 工具调用自动聚合的领域操作记录 |
+| Agent vs AgentRun | Agent 是授权/配置登记（不含执行，实体系 roadmap）；AgentRun 是 ToolCallLog 的聚合投影概念（实体不建，随 Agent 落地重启） |
 | 个人 Agent vs 公共 Agent | 个人 = 角色分身仅本人可见；公共 = Workspace 级按 Workflow 协作 |
 | Skill vs Agent | Skill 是预设工作流（SKILL.md）；Agent 是带人格/面板/技能绑定的助手；工作区 Skill 经本地同步进 `~/.clacky/skills/` |
 | `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是本地同步技能的命名前缀 |
@@ -478,7 +477,6 @@
 
 - ~~Invitation 撤销流程（revoked 状态 + 到期清理）~~ ✅ 已实现（slice-B）
 - ~~JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）~~ ✅ 已定稿：审批方指定（slice-B 决策 2）
-- AgentRun 的 token 用量字段（tokens_in/tokens_out）为计费留底
 - 确认流 auto_approve 模式的冷却期（二期）
 - 平台管理员建 Workspace 的审计留痕
 - 人工步骤超时/取消语义（workflow `waiting` 状态：如报名截止后取消 run）
