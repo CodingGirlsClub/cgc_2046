@@ -86,6 +86,42 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
     test "未知 template_key → type/1 返回 nil" do
       assert NotificationWorker.type("no_such_template") == nil
     end
+
+    test "runtime.exs prod 键集 ↔ config/registry 键集一致（D7 锚定扩展）" do
+      # test env 不执行 runtime.exs 的 :prod 块（config_env() == :prod 分支），无法读
+      # runtime config 值；静态解析源码提取 *_MP_TEMPLATE_* env 键名做三面锚定，
+      # 防 runtime 漏配（#231 learning_stagnation prod 静默失败回归锚）。
+      runtime_keys =
+        "config/runtime.exs"
+        |> Path.expand(Path.join([__DIR__, "..", "..", ".."]))
+        |> File.read!()
+        |> then(
+          &Regex.scan(~r/System\.fetch_env!\("(?:WECHAT|TT|XHS)_MP_TEMPLATE_([A-Z_]+)"\)/, &1)
+        )
+        |> Enum.map(fn [_, suffix] -> Macro.underscore(suffix) end)
+        |> MapSet.new()
+        |> MapSet.to_list()
+        |> Enum.sort()
+
+      config_keys =
+        :cgc_2046
+        |> Application.get_env(:miniprogram_templates, %{})
+        |> Map.values()
+        |> Enum.flat_map(&Map.keys/1)
+        |> MapSet.new()
+        |> MapSet.to_list()
+        |> Enum.sort()
+
+      registry_keys =
+        NotificationWorker.types()
+        |> Enum.map(& &1.template_key)
+        |> MapSet.new()
+        |> MapSet.to_list()
+        |> Enum.sort()
+
+      assert runtime_keys == config_keys
+      assert runtime_keys == registry_keys
+    end
   end
 
   describe "stale 重查：approval_reminder × enrollment_id（表条目 {Enrollment, :pending, :not_expired}）" do

@@ -9,7 +9,7 @@
 - [ ] 小红书：执行 `pnpm build:xhs` 后，开发者工具导入 `dist/xhs/`；不要使用微信 `project.config.json`。
 - [ ] 手机与开发机可访问 4001（或将 `CGC_GRAPHQL_ENDPOINT` 设为已配置合法域名的测试后端）
 - [ ] 后端已配置抖音/小红书 appid/secret；平台后台把 GraphQL 域名加入 request 合法域名
-- [ ] 抖音订阅消息模板 ID 配 `CGC_TT_TEMPLATE_APPROVAL_RESULT` / `CGC_TT_TEMPLATE_EVENT_REMINDER`；小红书走服务通知，无需模板 ID
+- [ ] 抖音订阅消息模板 ID 配 `CGC_TT_TEMPLATE_APPROVAL_RESULT` / `CGC_TT_TEMPLATE_EVENT_REMINDER`；小红书走服务通知——前端无授权弹窗，**无需前端模板 ID**；但后端服务通知仍需配置 `XHS_MP_TEMPLATE_*`（10 键，`fetch_env!` 缺一 boot 失败）
 
 ## 裁剪 IA（构建证据：dist/tt、dist/xhs 的 app.json）
 
