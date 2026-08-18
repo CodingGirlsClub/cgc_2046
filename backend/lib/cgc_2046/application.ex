@@ -45,6 +45,10 @@ defmodule Cgc2046.Application do
       # anubis 默认按 :phoenix, :serve_endpoints 探测，test 环境为 false 会导致
       # persistent_term 缺失、Plug 无法工作；本 server 永远经 Phoenix forward 提供。
       {Cgc2046.Mcp.Server, transport: {:streamable_http, start: true}},
+      # WechatPay 动态 client 宿主（plan 007 B1：SDK client = Refresher.Pay 平台
+      # 证书加载/12h 轮换 + per-client 命名 Finch 池；首次真实调用按配置指纹挂载，
+      # 未配置时恒空）。
+      {DynamicSupervisor, name: Cgc2046.Payments.ClientSup},
       # 0C：Oban（审批超时扫描 + 48h 提醒 cron；需在 Repo 之后启动）
       {Oban, Application.fetch_env!(:cgc_2046, Oban)},
       # Start to serve requests, typically the last entry
