@@ -56,6 +56,8 @@ vi.mock("@/components/sponsorship-intent-form", () => ({
   default: () => null,
 }));
 vi.mock("next/navigation", () => ({
+  redirect: vi.fn(),
+  permanentRedirect: vi.fn(),
   useParams: () => ({ slug: "paid-event" }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => "/events/paid-event",
