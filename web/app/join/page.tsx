@@ -75,7 +75,7 @@ function JoinPageInner() {
       return;
     }
     if (inv.status !== "active") {
-      setError(`邀请已${INVITATION_STATUS_LABEL[inv.status]}`);
+      setError(`邀请${INVITATION_STATUS_LABEL[inv.status]}`);
       setInvitation(inv);
       setStep("invite-invalid");
       return;

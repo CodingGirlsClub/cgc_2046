@@ -247,6 +247,28 @@ describe("/join 统一加入入口页", () => {
 		expect(await screen.findByText("邀请无效")).toBeInTheDocument();
 	});
 
+	it("邀请已撤销 → 错误文案无重复「已」字（回归：曾显示「邀请已已撤销」）", async () => {
+		searchParams.get.mockImplementation((key: string) =>
+			key === "token" ? "revoked_token" : null,
+		);
+		validateInvitation.mockResolvedValue({
+			id: "inv_revoked",
+			workspaceId: "ws_1",
+			tokenHash: "hash",
+			inviterId: "admin_1",
+			status: "revoked",
+			workspaceName: "受邀工作台",
+			workspaceSlug: "invite-ws",
+			workspaceJoinPolicy: "invite_only",
+			preauthorizedRoleNames: [],
+		});
+
+		render(<JoinPage />);
+
+		expect(await screen.findByText("邀请已撤销")).toBeInTheDocument();
+		expect(document.body.textContent).not.toContain("已已");
+	});
+
 	it("工作台不存在 → 显示错误", async () => {
 		fetchWorkspaceBySlug.mockResolvedValue(null);
 
