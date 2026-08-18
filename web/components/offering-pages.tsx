@@ -14,6 +14,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   allowedTransitions,
   canManageEvents,
@@ -56,9 +57,9 @@ import { useAuthed } from "@/lib/use-authed";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
 
 const TRANSITION_LABEL: Record<EventTransition, string> = {
-  launch: "发布（开放报名）",
-  close: "结束",
-  cancel: "取消",
+  launch: "transitionLaunch",
+  close: "transitionClose",
+  cancel: "transitionCancel",
 };
 
 /**
@@ -76,13 +77,13 @@ function friendlyOfferingError(
   const raw = [error?.message, error?.short_message].filter(Boolean).join("\n");
   if (!raw) return fallback;
   if (/greater than or equal to 1/.test(raw)) {
-    return "保存失败：名额上限需大于等于 1。";
+    return "saveCapacityError";
   }
   if (/cannot (launch|close|cancel) from status=/.test(raw)) {
-    return "操作失败：状态已变更，请刷新后重试。";
+    return "saveStateError";
   }
   if (/failed: status changed concurrently/.test(raw)) {
-    return "操作失败：状态已被其他操作变更，请刷新后重试。";
+    return "saveConcurrentError";
   }
   return fallback;
 }
@@ -133,6 +134,7 @@ function OfferingRow({
   slug: string;
   kind: OfferingKind;
 }) {
+  const t = useTranslations("offerings");
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
   return (
     <Link
@@ -151,7 +153,11 @@ function OfferingRow({
           <span>·</span>
           <span>{VISIBILITY_LABEL[offering.visibility]}</span>
           <span>·</span>
-          <span>截止 {formatDeadline(offering.registrationDeadline)}</span>
+          <span>
+            {t("deadlineLabel", {
+              deadline: formatDeadline(offering.registrationDeadline),
+            })}
+          </span>
         </span>
       </span>
       <span className="flex-none text-ink-3">
@@ -168,6 +174,8 @@ export function OfferingsListPage({
   slug: string;
   kind: OfferingKind;
 }) {
+  const t = useTranslations("offerings");
+  const tCommon = useTranslations("common");
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
   const [state, setState] = useState<OfferingsState>({
     wsId: "",
@@ -189,7 +197,7 @@ export function OfferingsListPage({
           setState({
             wsId: ws.id,
             rows: null,
-            error: e instanceof Error ? e.message : "加载失败",
+            error: e instanceof Error ? e.message : t("loadFailed"),
           });
         }
       });
@@ -197,7 +205,7 @@ export function OfferingsListPage({
     return () => {
       cancelled = true;
     };
-  }, [ws, kind]);
+  }, [ws, kind, t]);
 
   const stale = ws ? state.wsId !== ws.id : false;
   const rows = stale ? null : state.rows;
@@ -209,8 +217,11 @@ export function OfferingsListPage({
   return (
     <WorkspaceShell slug={slug}>
       <div className="ws-page-main__inner">
-        <div className="ws-page-breadcrumb" aria-label="页面路径">
-          <Link href="/">工作台</Link>
+        <div
+          className="ws-page-breadcrumb"
+          aria-label={tCommon("breadcrumbAria")}
+        >
+          <Link href="/">{t("breadcrumbHome")}</Link>
           <span>›</span>
           <Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
           <span>›</span>
@@ -220,7 +231,7 @@ export function OfferingsListPage({
         <header className="ws-page-heading">
           <div>
             <h1>{label}</h1>
-            <p>浏览本工作台的{label}与报名信息</p>
+            <p>{t("subtitle", { label })}</p>
           </div>
           {manage && ws ? (
             <Link
@@ -228,23 +239,21 @@ export function OfferingsListPage({
               className="inline-flex items-center gap-2 rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink"
             >
               <Icon name="plus" />
-              新建{label}
+              {t("createNew", { label })}
             </Link>
           ) : null}
         </header>
 
         {loadError ? (
           <div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
-            加载失败
+            {t("loadFailed")}
           </div>
         ) : wsLoading || rows === null ? (
           <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
         ) : rows.length === 0 ? (
           <div className="rounded-large border border-dashed border-line bg-card p-10 text-center text-sm text-ink-3">
-            还没有{label}。
-            {manage
-              ? `点击右上角「新建${label}」创建第一个。`
-              : "等待 Owner 创建。"}
+            {t("empty", { label })}
+            {manage ? t("emptyCreateHint", { label }) : t("emptyWaitHint")}
           </div>
         ) : (
           <div className="grid gap-3">
@@ -288,13 +297,13 @@ function buildResearchJson(text: string): string {
 
 /** 教研 run 状态展示词(U8 教研状态露出) */
 const RESEARCH_RUN_STATUS_LABEL: Record<string, string> = {
-  pending: "待启动",
-  running: "教研中",
-  waiting: "教研中(等待产出)",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  expired: "已过期",
+  pending: "runStatusPending",
+  running: "runStatusRunning",
+  waiting: "runStatusWaiting",
+  succeeded: "runStatusSucceeded",
+  failed: "runStatusFailed",
+  cancelled: "runStatusCancelled",
+  expired: "runStatusExpired",
 };
 
 interface OfferingState {
@@ -322,6 +331,8 @@ export function OfferingDetailPage({
   id: string;
   kind: OfferingKind;
 }) {
+  const t = useTranslations("offerings");
+  const tCommon = useTranslations("common");
   const {
     ws,
     readOnlyVisitor,
@@ -385,7 +396,7 @@ export function OfferingDetailPage({
           setState({
             id,
             row: null,
-            error: "加载失败",
+            error: t("loadFailed"),
           });
         }
       });
@@ -393,7 +404,7 @@ export function OfferingDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [id, kind]);
+  }, [id, kind, t]);
 
   // 我的既有报名（防重复报名；读策略仅本人可见）
   useEffect(() => {
@@ -465,7 +476,7 @@ export function OfferingDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [id, kind, manage]);
+  }, [id, kind, manage, t]);
   const transitions = offering ? allowedTransitions(offering.status) : [];
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
@@ -499,17 +510,19 @@ export function OfferingDetailPage({
           row: { ...offering, visibility: res.result.visibility },
           error: null,
         });
-        setSaveMessage("已保存");
+        setSaveMessage(t("saved"));
       } else {
         setSaveMessage(
-          friendlyOfferingError(res.errors[0], "保存失败，请重试"),
+          t(friendlyOfferingError(res.errors[0], "saveFailedRetry")),
         );
       }
     } catch (e: unknown) {
       setSaveMessage(
-        friendlyOfferingError(
-          e instanceof Error ? { message: e.message } : null,
-          "保存失败，请重试",
+        t(
+          friendlyOfferingError(
+            e instanceof Error ? { message: e.message } : null,
+            "saveFailedRetry",
+          ),
         ),
       );
     } finally {
@@ -549,17 +562,19 @@ export function OfferingDetailPage({
           error: null,
         });
         setMetaDraft(null);
-        setSaveMessage("已保存");
+        setSaveMessage(t("saved"));
       } else {
         setSaveMessage(
-          friendlyOfferingError(res.errors[0], "保存失败，请重试"),
+          t(friendlyOfferingError(res.errors[0], "saveFailedRetry")),
         );
       }
     } catch (e: unknown) {
       setSaveMessage(
-        friendlyOfferingError(
-          e instanceof Error ? { message: e.message } : null,
-          "保存失败，请重试",
+        t(
+          friendlyOfferingError(
+            e instanceof Error ? { message: e.message } : null,
+            "saveFailedRetry",
+          ),
         ),
       );
     } finally {
@@ -567,11 +582,11 @@ export function OfferingDetailPage({
     }
   }
 
-  async function runTransition(t: EventTransition) {
+  async function runTransition(tr: EventTransition) {
     if (!offering) return;
-    setBusyTransition(t);
+    setBusyTransition(tr);
     try {
-      const res = await transitionOffering(offering.id, kind, t);
+      const res = await transitionOffering(offering.id, kind, tr);
       if (res.result) {
         setState({
           id: offering.id,
@@ -580,14 +595,16 @@ export function OfferingDetailPage({
         });
       } else {
         setSaveMessage(
-          friendlyOfferingError(res.errors[0], "操作失败，请重试"),
+          t(friendlyOfferingError(res.errors[0], "actionFailedRetry")),
         );
       }
     } catch (e: unknown) {
       setSaveMessage(
-        friendlyOfferingError(
-          e instanceof Error ? { message: e.message } : null,
-          "操作失败，请重试",
+        t(
+          friendlyOfferingError(
+            e instanceof Error ? { message: e.message } : null,
+            "actionFailedRetry",
+          ),
         ),
       );
     } finally {
@@ -601,7 +618,7 @@ export function OfferingDetailPage({
     if (!offering || !userId) return;
     // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）
     if (offering.pricingEnabled && !tierId) {
-      setSubmitState({ kind: "error", message: "请先选择价格档位" });
+      setSubmitState({ kind: "error", message: t("pickTierFirst") });
       return;
     }
     setEnrollBusy(true);
@@ -618,7 +635,7 @@ export function OfferingDetailPage({
         if (status === "payment_pending") {
           setSubmitState({
             kind: "payment_pending",
-            message: "名额已保留，请在限定时间内完成支付",
+            message: t("slotReservedMsg"),
             enrollmentId: res.result.id,
           });
           // 桌面：报名占位成功即弹收银模态框（不整页跳转）
@@ -626,15 +643,15 @@ export function OfferingDetailPage({
         } else if (status === "pending") {
           setSubmitState({
             kind: "pending",
-            message: "申请已提交，等待审批",
+            message: t("pendingMsg"),
           });
         } else {
-          setSubmitState({ kind: "confirmed", message: "报名成功" });
+          setSubmitState({ kind: "confirmed", message: t("enrolledMsg") });
         }
       } else {
         setSubmitState({
           kind: "error",
-          message: translatePaymentError(res.errors[0]?.code, "提交失败"),
+          message: translatePaymentError(res.errors[0]?.code, t("submitFailed")),
         });
       }
     } catch (e: unknown) {
@@ -642,7 +659,7 @@ export function OfferingDetailPage({
         kind: "error",
         message: translatePaymentError(
           e instanceof Error ? e.message : null,
-          "提交失败",
+          t("submitFailed"),
         ),
       });
     } finally {
@@ -653,26 +670,29 @@ export function OfferingDetailPage({
   return (
     <WorkspaceShell slug={slug}>
       <div className="ws-page-main__inner">
-        <div className="ws-page-breadcrumb" aria-label="页面路径">
-          <Link href="/">工作台</Link>
+        <div
+          className="ws-page-breadcrumb"
+          aria-label={tCommon("breadcrumbAria")}
+        >
+          <Link href="/">{t("breadcrumbHome")}</Link>
           <span>›</span>
           <Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
           <span>›</span>
           <Link href={base}>{label}</Link>
           <span>›</span>
-          <strong>{offering?.title ?? "详情"}</strong>
+          <strong>{offering?.title ?? t("detailFallback")}</strong>
         </div>
 
         {loadError ? (
           <div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
-            加载失败
+            {t("loadFailed")}
           </div>
         ) : offering === null && !stale ? (
           <div className="join-card text-center">
-            <h1 className="text-lg font-medium">该{label}不可访问或不存在</h1>
-            <p className="mt-2 text-sm text-ink-3">
-              仅工作台内部可见，或已结束。请登录后从工作台内访问。
-            </p>
+            <h1 className="text-lg font-medium">
+              {t("notAccessible", { label })}
+            </h1>
+            <p className="mt-2 text-sm text-ink-3">{t("notAccessibleDesc")}</p>
           </div>
         ) : offering === null ? (
           <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
@@ -692,26 +712,33 @@ export function OfferingDetailPage({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-large border border-line bg-card p-6">
-                <h2 className="text-sm font-medium text-ink">基本信息</h2>
+                <h2 className="text-sm font-medium text-ink">
+                  {t("basicInfo")}
+                </h2>
                 <div className="mt-4 grid gap-4">
-                  <Field label="报名策略">
+                  <Field label={t("fieldPolicy")}>
                     {ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]}
                   </Field>
-                  <Field label="报名截止">
+                  <Field label={t("fieldDeadline")}>
                     {formatDeadline(offering.registrationDeadline)}
                   </Field>
-                  <Field label="名额">
+                  <Field label={t("fieldCapacity")}>
                     {offering.capacity === null
-                      ? `不限（已确认 ${offering.confirmedCount ?? 0}）`
-                      : `${offering.confirmedCount ?? 0} / ${offering.capacity}`}
+                      ? t("capacityUnlimited", {
+                          count: offering.confirmedCount ?? 0,
+                        })
+                      : t("capacityCount", {
+                          confirmed: offering.confirmedCount ?? 0,
+                          capacity: offering.capacity,
+                        })}
                   </Field>
                   {manage ? (
-                    <Field label="待审批报名">
+                    <Field label={t("fieldPending")}>
                       {pendingState.id !== id ||
                       pendingState.status === "loading"
                         ? "—"
                         : pendingState.status === "error"
-                          ? "加载失败"
+                          ? t("loadFailed")
                           : pendingState.value}
                     </Field>
                   ) : null}
@@ -723,32 +750,38 @@ export function OfferingDetailPage({
                   className="rounded-large border border-line bg-card p-6"
                   data-testid="research-status"
                 >
-                  <h2 className="text-sm font-medium text-ink">教研</h2>
+                  <h2 className="text-sm font-medium text-ink">
+                    {t("researchTitle")}
+                  </h2>
                   <dl className="mt-3 grid gap-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <dt className="text-ink-3">教研 run 状态:</dt>
+                      <dt className="text-ink-3">{t("runStatusLabel")}</dt>
                       <dd
                         className="text-ink"
                         data-testid="research-run-status"
                       >
                         {offering.workflowRun?.status
-                          ? (RESEARCH_RUN_STATUS_LABEL[
-                              offering.workflowRun.status
-                            ] ?? offering.workflowRun.status)
+                          ? (t(
+                              RESEARCH_RUN_STATUS_LABEL[
+                                offering.workflowRun.status
+                              ],
+                            ) ?? offering.workflowRun.status)
                           : offering.workflowRunId
-                            ? "已关联"
-                            : "未实例化"}
+                            ? t("linked")
+                            : t("notInstantiated")}
                       </dd>
                     </div>
                     <div className="flex items-center gap-2">
-                      <dt className="text-ink-3">课程内容完成度:</dt>
+                      <dt className="text-ink-3">
+                        {t("contentCompletion")}
+                      </dt>
                       <dd
                         className="text-ink"
                         data-testid="research-content-status"
                       >
                         {offering.workflowRun?.status === "succeeded"
-                          ? "issue 卡已提交"
-                          : "待教研产出"}
+                          ? t("issueSubmitted")
+                          : t("awaitResearch")}
                       </dd>
                     </div>
                   </dl>
@@ -757,11 +790,15 @@ export function OfferingDetailPage({
 
               {manage && activeDraft ? (
                 <div className="rounded-large border border-line bg-card p-6">
-                  <h2 className="text-sm font-medium text-ink">编辑元数据</h2>
+                  <h2 className="text-sm font-medium text-ink">
+                    {t("editMeta")}
+                  </h2>
 
                   <div className="mt-4 grid gap-3">
                     <label className="block">
-                      <span className="block text-[13px] text-ink-3">标题</span>
+                      <span className="block text-[13px] text-ink-3">
+                        {t("fieldTitle")}
+                      </span>
                       <input
                         value={activeDraft.title}
                         onChange={(e) =>
@@ -776,7 +813,7 @@ export function OfferingDetailPage({
 
                     <label className="block">
                       <span className="block text-[13px] text-ink-3">
-                        报名策略
+                        {t("fieldPolicy")}
                       </span>
                       <select
                         value={activeDraft.enrollmentPolicy}
@@ -799,7 +836,7 @@ export function OfferingDetailPage({
 
                     <label className="block">
                       <span className="block text-[13px] text-ink-3">
-                        名额上限（留空 = 不限）
+                        {t("capacityHint")}
                       </span>
                       <input
                         type="number"
@@ -817,7 +854,7 @@ export function OfferingDetailPage({
 
                     <label className="block">
                       <span className="block text-[13px] text-ink-3">
-                        报名截止（留空 = 不设截止）
+                        {t("deadlineHint")}
                       </span>
                       <input
                         type="datetime-local"
@@ -834,7 +871,7 @@ export function OfferingDetailPage({
                     {kind === "course" ? (
                       <label className="block">
                         <span className="block text-[13px] text-ink-3">
-                          教研需求（自由文本，教研 Agent 起草 issue 卡的输入）
+                          {t("researchNeed")}
                         </span>
                         <textarea
                           data-testid="research-requirements-input"
@@ -847,7 +884,7 @@ export function OfferingDetailPage({
                             })
                           }
                           className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
-                          placeholder="目标学员、课时、想覆盖的主题…"
+                          placeholder={t("researchPlaceholder")}
                         />
                       </label>
                     ) : null}
@@ -858,7 +895,7 @@ export function OfferingDetailPage({
                       onClick={() => void saveMeta()}
                       className="mt-1 rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
                     >
-                      {saveBusy ? "保存中…" : "保存元数据"}
+                      {saveBusy ? t("savingMeta") : t("saveMeta")}
                     </button>
                   </div>
                 </div>
@@ -875,7 +912,9 @@ export function OfferingDetailPage({
             enrollState.id === id &&
             enrollState.status === "ok" ? (
               <div className="mt-4 rounded-large border border-line bg-card p-6">
-                <h2 className="text-sm font-medium text-ink">报名</h2>
+                <h2 className="text-sm font-medium text-ink">
+                  {t("enrollTitle")}
+                </h2>
                 <div className="mt-3 text-sm">
                   {submitState.kind === "confirmed" ||
                   submitState.kind === "pending" ||
@@ -883,10 +922,10 @@ export function OfferingDetailPage({
                     <div role="status" className="grid gap-2">
                       <p className="text-ink">
                         {submitState.kind === "confirmed"
-                          ? "✓ 报名成功"
+                          ? t("enrolledConfirm")
                           : submitState.kind === "payment_pending"
-                            ? "⏳ 待支付"
-                            : "✓ 申请已提交"}
+                            ? t("pendingPay")
+                            : t("submitted")}
                         {submitState.message
                           ? `（${submitState.message}）`
                           : ""}
@@ -901,7 +940,7 @@ export function OfferingDetailPage({
                           className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
                           data-testid="enrollment-continue-pay"
                         >
-                          继续支付
+                          {t("continuePay")}
                         </button>
                       ) : null}
                     </div>
@@ -911,9 +950,7 @@ export function OfferingDetailPage({
                       role="status"
                       data-testid="enrollment-pending-card"
                     >
-                      <p className="text-ink">
-                        ⏳ 名额已保留，请在限定时间内完成支付
-                      </p>
+                      <p className="text-ink">{t("slotReserved")}</p>
                       <button
                         type="button"
                         onClick={() =>
@@ -922,16 +959,16 @@ export function OfferingDetailPage({
                         data-testid="enrollment-pending-pay"
                         className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
                       >
-                        继续支付
+                        {t("continuePay")}
                       </button>
                     </div>
                   ) : enrollState.enrollment?.status === "pending" ? (
                     <p className="text-[13px] text-ink-3">
-                      你已报名该{label}，申请审批中，通过后确认名额。
+                      {t("pendingApproval", { label })}
                     </p>
                   ) : enrollState.enrollment ? (
                     <p className="text-[13px] text-ink-3">
-                      你已报名该{label}。
+                      {t("enrolled", { label })}
                     </p>
                   ) : (
                     <div className="grid gap-3">
@@ -942,7 +979,7 @@ export function OfferingDetailPage({
                       ) : null}
                       {offering.enrollmentPolicy === "request" ? (
                         <p className="text-[13px] text-ink-3">
-                          提交后需 Owner/Admin 审批，通过后确认名额。
+                          {t("requestHint")}
                         </p>
                       ) : null}
                       {offering.pricingEnabled ? (
@@ -951,11 +988,11 @@ export function OfferingDetailPage({
                           data-testid="price-tier-picker"
                         >
                           <legend className="text-[13px] text-ink-3">
-                            选择价格档位
+                            {t("chooseTier")}
                           </legend>
                           {priceTiers.length === 0 ? (
                             <p className="text-[13px] text-ink-3">
-                              当前无可售档位，请联系组织者。
+                              {t("noTier")}
                             </p>
                           ) : (
                             priceTiers.map((tier) => (
@@ -993,10 +1030,12 @@ export function OfferingDetailPage({
                         className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
                       >
                         {enrollBusy
-                          ? "提交中…"
+                          ? t("submitting")
                           : offering.pricingEnabled && paidTier
-                            ? `报名并支付 ¥${formatAmount(paidTier.amountCents)}`
-                            : "报名"}
+                            ? t("submitWithPay", {
+                                amount: formatAmount(paidTier.amountCents),
+                              })
+                            : t("submit")}
                       </button>
                     </div>
                   )}
@@ -1006,11 +1045,13 @@ export function OfferingDetailPage({
 
             {manage ? (
               <div className="mt-4 rounded-large border border-line bg-card p-6">
-                <h2 className="text-sm font-medium text-ink">生命周期</h2>
+                <h2 className="text-sm font-medium text-ink">
+                  {t("lifecycle")}
+                </h2>
 
                 <div className="mt-3">
                   <span className="block text-[13px] text-ink-3">
-                    可见性（可随时切换，公开页立即生效）
+                    {t("visibilityHint")}
                   </span>
                   <div className="mt-2 flex gap-2">
                     {VISIBILITIES.map((v) => (
@@ -1032,30 +1073,32 @@ export function OfferingDetailPage({
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-2">
-                  {transitions.map((t) =>
-                    confirmingTransition === t ? (
+                  {transitions.map((tr) =>
+                    confirmingTransition === tr ? (
                       <div
-                        key={t}
+                        key={tr}
                         className="w-full rounded-large border border-line bg-soft-2 p-3"
                       >
                         <p
                           className="text-[13px] text-ink-3"
                           aria-live="polite"
                         >
-                          {t === "close"
-                            ? `确认结束该${label}？报名入口将关闭，终态不可恢复。`
-                            : `确认取消该${label}？报名入口将关闭，终态不可恢复。`}
+                          {tr === "close"
+                            ? t("transitionConfirmClose", { label })
+                            : t("transitionConfirmCancel", { label })}
                         </p>
                         <div className="mt-2 flex gap-2">
                           <button
                             type="button"
                             disabled={busyTransition !== null}
-                            onClick={() => void runTransition(t)}
+                            onClick={() => void runTransition(tr)}
                             className="rounded-large border border-danger px-3 py-1.5 text-[13px] text-danger disabled:opacity-50"
                           >
-                            {busyTransition === t
-                              ? "处理中…"
-                              : `确认${TRANSITION_LABEL[t]}`}
+                            {busyTransition === tr
+                              ? t("processing")
+                              : t("transitionConfirm", {
+                                  transition: t(TRANSITION_LABEL[tr]),
+                                })}
                           </button>
                           <button
                             type="button"
@@ -1063,31 +1106,33 @@ export function OfferingDetailPage({
                             onClick={() => setConfirmingTransition(null)}
                             className="rounded-large border border-line px-3 py-1.5 text-[13px] text-ink-3 disabled:opacity-50"
                           >
-                            返回
+                            {t("back")}
                           </button>
                         </div>
                       </div>
                     ) : (
                       <button
-                        key={t}
+                        key={tr}
                         type="button"
                         disabled={busyTransition !== null}
                         onClick={() => {
-                          if (t === "close" || t === "cancel") {
-                            setConfirmingTransition(t);
+                          if (tr === "close" || tr === "cancel") {
+                            setConfirmingTransition(tr);
                           } else {
-                            void runTransition(t);
+                            void runTransition(tr);
                           }
                         }}
                         className="rounded-large border border-line bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line-strong disabled:opacity-50"
                       >
-                        {busyTransition === t ? "处理中…" : TRANSITION_LABEL[t]}
+                        {busyTransition === tr
+                          ? t("processing")
+                          : t(TRANSITION_LABEL[tr])}
                       </button>
                     ),
                   )}
                   {transitions.length === 0 ? (
                     <span className="text-[13px] text-ink-3">
-                      终态{label}无可执行的生命周期操作（v1 终态不可逆）。
+                      {t("terminalNote", { label })}
                     </span>
                   ) : null}
                 </div>
@@ -1135,11 +1180,11 @@ export function OfferingDetailPage({
                         });
                         return true;
                       }
-                      setSaveMessage(res.errors[0]?.message ?? "保存失败");
+                      setSaveMessage(res.errors[0]?.message ?? t("saveFail"));
                       return false;
                     } catch (e: unknown) {
                       setSaveMessage(
-                        e instanceof Error ? e.message : "保存失败",
+                        e instanceof Error ? e.message : t("saveFail"),
                       );
                       return false;
                     }
@@ -1184,6 +1229,8 @@ export function OfferingNewPage({
   slug: string;
   kind: OfferingKind;
 }) {
+  const t = useTranslations("offerings");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
 
@@ -1217,10 +1264,10 @@ export function OfferingNewPage({
       if (res.result) {
         router.push(`${base}/${res.result.id}`);
       } else {
-        setError(res.errors[0]?.message ?? "创建失败");
+        setError(res.errors[0]?.message ?? t("createFailed"));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "创建失败");
+      setError(e instanceof Error ? e.message : t("createFailed"));
     } finally {
       setBusy(false);
     }
@@ -1241,9 +1288,9 @@ export function OfferingNewPage({
       <WorkspaceShell slug={slug}>
         <div className="ws-page-main__inner">
           <div className="rounded-large border border-line bg-card p-10 text-center text-sm text-ink-3">
-            仅 Owner/Admin 可创建{label}。
+            {t("ownerOnly", { label })}
             <Link href={base} className="ml-2 text-accent">
-              返回{label}列表
+              {t("backToList", { label })}
             </Link>
           </div>
         </div>
@@ -1254,27 +1301,32 @@ export function OfferingNewPage({
   return (
     <WorkspaceShell slug={slug}>
       <div className="ws-page-main__inner">
-        <div className="ws-page-breadcrumb" aria-label="页面路径">
-          <Link href="/">工作台</Link>
+        <div
+          className="ws-page-breadcrumb"
+          aria-label={tCommon("breadcrumbAria")}
+        >
+          <Link href="/">{t("breadcrumbHome")}</Link>
           <span>›</span>
           <Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
           <span>›</span>
           <Link href={base}>{label}</Link>
           <span>›</span>
-          <strong>新建{label}</strong>
+          <strong>{t("createTitle", { label })}</strong>
         </div>
 
         <header className="ws-page-heading">
           <div>
-            <h1>新建{label}</h1>
-            <p>创建后为草稿，发布后进入开放报名</p>
+            <h1>{t("createTitle", { label })}</h1>
+            <p>{t("createSubtitle")}</p>
           </div>
         </header>
 
         <div className="max-w-xl rounded-large border border-line bg-card p-6">
           <div className="grid gap-4">
             <label className="block">
-              <span className="block text-[13px] text-ink-3">标题（必填）</span>
+              <span className="block text-[13px] text-ink-3">
+                {t("titleRequired")}
+              </span>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -1283,7 +1335,9 @@ export function OfferingNewPage({
             </label>
 
             <label className="block">
-              <span className="block text-[13px] text-ink-3">报名策略</span>
+              <span className="block text-[13px] text-ink-3">
+                {t("fieldPolicy")}
+              </span>
               <select
                 value={enrollmentPolicy}
                 onChange={(e) =>
@@ -1300,7 +1354,9 @@ export function OfferingNewPage({
             </label>
 
             <div>
-              <span className="block text-[13px] text-ink-3">可见性</span>
+              <span className="block text-[13px] text-ink-3">
+                {t("visibility")}
+              </span>
               <div className="mt-2 flex gap-2">
                 {VISIBILITIES.map((v) => (
                   <button
@@ -1321,7 +1377,7 @@ export function OfferingNewPage({
 
             <label className="block">
               <span className="block text-[13px] text-ink-3">
-                名额上限（留空 = 不限）
+                {t("capacityHint")}
               </span>
               <input
                 type="number"
@@ -1334,7 +1390,7 @@ export function OfferingNewPage({
 
             <label className="block">
               <span className="block text-[13px] text-ink-3">
-                报名截止（留空 = 不设截止）
+                {t("deadlineHint")}
               </span>
               <input
                 type="datetime-local"
@@ -1352,7 +1408,7 @@ export function OfferingNewPage({
               onClick={() => void submit()}
               className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
             >
-              {busy ? "创建中…" : `创建${label}`}
+              {busy ? t("creating") : t("create", { label })}
             </button>
           </div>
         </div>

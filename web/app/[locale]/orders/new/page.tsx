@@ -16,6 +16,7 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import { client } from "@/lib/apollo-client";
 import {
@@ -35,10 +36,10 @@ import { usePaymentErrorTranslator } from "@/lib/payment-errors";
  * 签约后在 WEB_ENABLED_PROVIDERS 增删即可，见 plan 024 R13 续）。
  */
 const WEB_PROVIDERS: { value: PaymentProvider; hint: string }[] = [
-	{ value: "wechat_native", hint: "微信扫码支付" },
-	{ value: "alipay_page", hint: "支付宝·电脑网页支付" },
-	{ value: "alipay_wap", hint: "支付宝·手机网页支付" },
-	{ value: "alipay_qr", hint: "支付宝·扫码支付" },
+	{ value: "wechat_native", hint: "providerWechat" },
+	{ value: "alipay_page", hint: "providerAlipayPage" },
+	{ value: "alipay_wap", hint: "providerAlipayWap" },
+	{ value: "alipay_qr", hint: "providerAlipayQr" },
 ];
 
 type GuardState =
@@ -53,6 +54,7 @@ function NewOrderForm() {
 	const enrollmentId = search.get("enrollmentId") ?? "";
 	const { authed, confirmed } = useAuthed();
 	const translatePaymentError = usePaymentErrorTranslator();
+	const t = useTranslations("orders");
 
 	const [provider, setProvider] = useState<PaymentProvider>("wechat_native");
 	const [busy, setBusy] = useState(false);
@@ -75,7 +77,7 @@ function NewOrderForm() {
 					if (!cancelled)
 						setGuard({
 							kind: "blocked",
-							message: "该报名已取消或已支付，请重新报名或查看我的报名。",
+							message: t("blockedMessage"),
 						});
 					return;
 				}
@@ -99,7 +101,7 @@ function NewOrderForm() {
 		return () => {
 			cancelled = true;
 		};
-	}, [enrollmentId, authed, confirmed, router]);
+	}, [enrollmentId, authed, confirmed, router, t]);
 
 	// 已有 pending 订单 → 直接跳订单页（不重复下单）
 	useEffect(() => {
@@ -131,14 +133,14 @@ function NewOrderForm() {
 			setError(
 				translatePaymentError(
 					payload?.errors[0]?.code ?? null,
-					"下单失败，请稍后重试",
+					t("orderFailed"),
 				),
 			);
 		} catch (e) {
 			setError(
 				translatePaymentError(
 					e instanceof Error ? e.message : null,
-					"下单失败，请稍后重试",
+					t("orderFailed"),
 				),
 			);
 		} finally {
@@ -149,8 +151,8 @@ function NewOrderForm() {
 	if (!authed || !confirmed) {
 		return (
 			<div className="join-card text-center">
-				<h1 className="text-lg font-medium">请先登录</h1>
-				<p className="mt-2 text-sm text-ink-3">支付前需要登录以确认报名归属。</p>
+				<h1 className="text-lg font-medium">{t("newLoginTitle")}</h1>
+				<p className="mt-2 text-sm text-ink-3">{t("newLoginDesc")}</p>
 			</div>
 		);
 	}
@@ -158,9 +160,9 @@ function NewOrderForm() {
 	if (!enrollmentId) {
 		return (
 			<div className="join-card text-center">
-				<h1 className="text-lg font-medium">缺少报名信息</h1>
+				<h1 className="text-lg font-medium">{t("missingEnrollTitle")}</h1>
 				<p className="mt-2 text-sm text-ink-3">
-					请从<Link href="/participations" className="underline">我的报名</Link>进入待支付报名。
+					{t("missingEnrollDesc1")}<Link href="/participations" className="underline">{t("myEnrollments")}</Link>{t("missingEnrollDesc2")}
 				</p>
 			</div>
 		);
@@ -169,7 +171,7 @@ function NewOrderForm() {
 	if (guard.kind === "blocked") {
 		return (
 			<div className="join-card text-center" data-testid="order-guard-blocked">
-				<h1 className="text-lg font-medium">无法继续支付</h1>
+				<h1 className="text-lg font-medium">{t("blockedTitle")}</h1>
 				<p className="mt-2 text-sm text-ink-3">{guard.message}</p>
 				<div className="mt-5 flex flex-wrap items-center justify-center gap-3">
 					<Link
@@ -177,7 +179,7 @@ function NewOrderForm() {
 						className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
 						data-testid="order-guard-to-participations"
 					>
-						查看我的报名
+						{t("myEnrollments")}
 					</Link>
 				</div>
 			</div>
@@ -201,13 +203,13 @@ function NewOrderForm() {
 
 	return (
 		<div className="join-card" data-testid="order-new">
-			<h1 className="text-lg font-medium">选择支付方式</h1>
+			<h1 className="text-lg font-medium">{t("chooseProvider")}</h1>
 			<p className="mt-1 text-sm text-ink-3">
-				报名名额已保留，订单有效期 2 小时（以订单页倒计时为准）。
+				{t("chooseProviderDesc")}
 			</p>
 
 			<fieldset className="mt-5 grid gap-2" data-testid="provider-picker">
-				<legend className="text-[13px] text-ink-3">支付渠道</legend>
+				<legend className="text-[13px] text-ink-3">{t("providerField")}</legend>
 				{WEB_PROVIDERS.map((p) => {
 					const disabled = !WEB_ENABLED_PROVIDERS.includes(p.value);
 					return (
@@ -232,11 +234,11 @@ function NewOrderForm() {
 							/>
 							<span>
 								{PROVIDER_LABEL[p.value]}
-								<span className="ml-2 text-[13px] text-ink-3">{p.hint}</span>
+								<span className="ml-2 text-[13px] text-ink-3">{t(p.hint)}</span>
 							</span>
 							{disabled ? (
 								<span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
-									未开通
+									{t("notOpen")}
 								</span>
 							) : null}
 						</label>
@@ -258,10 +260,10 @@ function NewOrderForm() {
 					className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
 					data-testid="create-order"
 				>
-					{busy ? "下单中…" : "去支付"}
+					{busy ? t("ordering") : t("goPay")}
 				</button>
 				<Link href="/participations" className="text-sm text-ink-3 underline">
-					返回我的报名
+					{t("backToEnrollments")}
 				</Link>
 			</div>
 		</div>

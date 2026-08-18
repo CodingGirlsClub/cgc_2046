@@ -16,6 +16,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useParams, useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { client } from "@/lib/apollo-client";
@@ -56,6 +57,7 @@ export default function OrderDetailPage() {
   const orderId = params?.id ?? "";
   const { authed, confirmed } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
+  const t = useTranslations("orders");
 
   const [order, setOrder] = useState<Order | null>(null);
   // 下单页交接凭据（sessionStorage 读后即焚；lazy init 避免 effect 内 setState）
@@ -187,7 +189,7 @@ export default function OrderDetailPage() {
         setSwitchError(
           translatePaymentError(
             payload?.errors[0]?.code,
-            "切换渠道失败，请重试",
+            t("switchFailed"),
           ),
         );
       }
@@ -195,7 +197,7 @@ export default function OrderDetailPage() {
       setSwitchError(
         translatePaymentError(
           e instanceof Error ? e.message : null,
-          "切换渠道失败，请重试",
+          t("switchFailed"),
         ),
       );
     } finally {
@@ -207,15 +209,15 @@ export default function OrderDetailPage() {
     return (
       <main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10">
         <div className="join-card text-center">
-          <h1 className="text-lg font-medium">请先登录</h1>
-          <p className="mt-2 text-sm text-ink-3">订单信息仅报名人本人可见。</p>
+          <h1 className="text-lg font-medium">{t("loginTitle")}</h1>
+          <p className="mt-2 text-sm text-ink-3">{t("loginDesc")}</p>
         </div>
       </main>
     );
   }
 
   const remain = countdownText(nowMs, order?.expireAt);
-  const expired = remain === "已过期";
+  const expired = remain === t("countdownExpired");
   const paid = status === "paid";
 
   return (
@@ -227,13 +229,13 @@ export default function OrderDetailPage() {
         <div className="h-48 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
       ) : loadState === "error" || !order ? (
         <div className="join-card text-center">
-          <h1 className="text-lg font-medium">订单不可访问</h1>
+          <h1 className="text-lg font-medium">{t("notFoundTitle")}</h1>
           <p className="mt-2 text-sm text-ink-3">
-            订单不存在或不是你的订单。可从
+            {t("notFoundDesc1")}
             <Link href="/participations" className="underline">
-              我的报名
+              {t("myEnrollments")}
             </Link>
-            重新进入。
+            {t("notFoundDesc2")}
           </p>
         </div>
       ) : (
@@ -242,7 +244,7 @@ export default function OrderDetailPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h1 className="text-lg font-medium">
-                  {paid ? "支付成功" : expired ? "订单已过期" : "等待支付"}
+                  {paid ? t("statusPaid") : expired ? t("statusExpired") : t("statusPending")}
                 </h1>
                 <p className="mt-1 text-sm text-ink-3">
                   {PROVIDER_LABEL[order.provider] ?? order.provider} · ¥
@@ -257,20 +259,20 @@ export default function OrderDetailPage() {
                     : "border-amber-400/40 text-amber-300"
                 }`}
               >
-                {paid ? "已支付" : remain}
+                {paid ? t("paidBadge") : remain}
               </span>
             </div>
 
             {paid ? (
               <div className="mt-4 grid gap-2 text-sm">
                 <p role="status" data-testid="order-paid">
-                  ✓ 支付完成，报名已确认。
+                  {t("paidConfirm")}
                 </p>
                 <Link
                   href="/participations"
                   className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
                 >
-                  查看我的报名
+                  {t("viewEnrollments")}
                 </Link>
               </div>
             ) : expired ? (
@@ -278,19 +280,19 @@ export default function OrderDetailPage() {
                 className="mt-4 text-sm text-ink-3"
                 data-testid="order-expired-note"
               >
-                订单超时未支付，名额已释放。可重新报名后再下单。
+                {t("expiredNote")}
               </p>
             ) : manual ? (
               <div className="mt-4 grid gap-2" data-testid="order-manual-mode">
                 <p className="text-[13px] text-ink-3">
-                  自动刷新已暂停（30 秒）。完成支付后请手动刷新确认。
+                  {t("refreshPaused")}
                 </p>
                 <button
                   type="button"
                   onClick={poll.reset}
                   className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
                 >
-                  刷新状态
+                  {t("refreshStatus")}
                 </button>
               </div>
             ) : (
@@ -298,7 +300,7 @@ export default function OrderDetailPage() {
                 className="mt-4 text-[13px] text-ink-3"
                 data-testid="order-polling"
               >
-                正在确认支付状态…（每 2 秒自动刷新）
+                {t("checkingPayment")}
               </p>
             )}
           </div>
@@ -311,7 +313,7 @@ export default function OrderDetailPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={qrDataUrl}
-                      alt={isAlipayQr ? "支付宝支付二维码" : "微信支付二维码"}
+                      alt={isAlipayQr ? t("alipayQrAlt") : t("wechatQrAlt")}
                       width={220}
                       height={220}
                       data-testid="order-qr"
@@ -319,13 +321,13 @@ export default function OrderDetailPage() {
                     />
                   ) : (
                     <div className="grid h-[220px] w-[220px] place-items-center rounded-large border border-line bg-soft-2 text-xs text-ink-3">
-                      二维码生成中…
+                      {t("qrGenerating")}
                     </div>
                   )}
                   <p className="text-[13px] text-ink-3">
                     {isAlipayQr
-                      ? "使用支付宝扫一扫完成支付"
-                      : "使用微信扫码完成支付"}
+                      ? t("scanAlipay")
+                      : t("scanWechat")}
                   </p>
                 </div>
               ) : dispatch.mode === "redirect" ? (
@@ -337,10 +339,10 @@ export default function OrderDetailPage() {
                     className="rounded-large border border-line-strong bg-card px-4 py-2 text-center text-sm font-medium text-ink hover:border-line"
                     data-testid="order-redirect"
                   >
-                    前往支付宝支付
+                    {t("goAlipay")}
                   </a>
                   <p className="text-[13px] text-ink-3">
-                    新窗口完成支付后回到本页，状态将自动确认。
+                    {t("newWindowNote")}
                   </p>
                 </div>
               ) : (
@@ -350,12 +352,12 @@ export default function OrderDetailPage() {
                 >
                   <p className="text-sm text-ink-3">
                     {credentialLost
-                      ? "支付凭据已失效，请更换支付方式重新获取。"
+                      ? t("credentialLost")
                       : dispatch.reason}
                   </p>
                   {credentialLost ? (
                     <p className="text-[13px] text-ink-3">
-                      点击下方「更换支付方式」即可重新发起支付，无需重新报名。
+                      {t("switchHint")}
                     </p>
                   ) : null}
                 </div>
@@ -365,7 +367,7 @@ export default function OrderDetailPage() {
 
           {!paid && !expired ? (
             <div className="join-card" data-testid="order-switch">
-              <h2 className="text-sm font-medium text-ink">更换支付方式</h2>
+              <h2 className="text-sm font-medium text-ink">{t("switchTitle")}</h2>
               <div className="mt-3 flex flex-wrap gap-2">
                 {switchCandidates(order.provider).map((p) => (
                   <button

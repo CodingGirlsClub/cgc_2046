@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import QRCode from "qrcode";
 import { client } from "@/lib/apollo-client";
 import {
@@ -86,6 +87,7 @@ export default function PaymentCheckoutDialog({
   title = null,
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
+  const t = useTranslations("checkout");
   const [phase, setPhase] = useState<Phase>("checking");
   const [order, setOrder] = useState<CheckoutOrder | null>(null);
   const [credential, setCredential] = useState<unknown>(null);
@@ -164,7 +166,7 @@ export default function PaymentCheckoutDialog({
           setError(
             translatePaymentError(
               payload?.errors[0]?.code,
-              "下单失败，请重试",
+              t("orderFailed"),
             ),
           );
         }
@@ -173,14 +175,14 @@ export default function PaymentCheckoutDialog({
         setError(
           translatePaymentError(
             e instanceof Error ? e.message : null,
-            "下单失败，请重试",
+            t("orderFailed"),
           ),
         );
       } finally {
         setBusy(false);
       }
     },
-    [enrollmentId, translatePaymentError],
+    [enrollmentId, t, translatePaymentError],
   );
 
   // 开框初始化（一次）：复用活单 or 初始下单
@@ -239,7 +241,7 @@ export default function PaymentCheckoutDialog({
           setError(
             translatePaymentError(
               payload?.errors[0]?.code,
-              "切换渠道失败，请重试",
+              t("switchFailed"),
             ),
           );
         }
@@ -247,14 +249,14 @@ export default function PaymentCheckoutDialog({
         setError(
           translatePaymentError(
             e instanceof Error ? e.message : null,
-            "切换渠道失败，请重试",
+            t("switchFailed"),
           ),
         );
       } finally {
         setBusy(false);
       }
     },
-    [order, busy, provider, poll, translatePaymentError],
+    [order, busy, provider, poll, t, translatePaymentError],
   );
 
   // 支付成功：✓ 报名已确认 → 1.5s 自动关框（onPaid 先行，报名区就地刷新）
@@ -294,7 +296,7 @@ export default function PaymentCheckoutDialog({
 
   const qrDataUrl = dispatch.mode === "qr" ? generatedQr : null;
   const remain = countdownText(nowMs, order?.expireAt);
-  const expired = remain === "已过期" && !paid;
+  const expired = remain === t("countdownExpired") && !paid;
   // 复用活单但凭据丢失（sessionStorage 焚毁/跨 tab 下单）：换渠道恢复引导
   // （订单页同款口径：非当前渠道按钮 primary 高亮）
   const credentialLost =
@@ -340,7 +342,7 @@ export default function PaymentCheckoutDialog({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="扫码支付"
+        aria-label={t("dialogAria")}
         tabIndex={-1}
         className="modal-content"
         data-testid="checkout-dialog"
@@ -348,9 +350,9 @@ export default function PaymentCheckoutDialog({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2>扫码支付</h2>
+            <h2>{t("title")}</h2>
             <p className="mt-1 text-[13px] leading-5 text-ink-3">
-              {[title, tierName].filter(Boolean).join(" · ") || "报名订单"}
+              {[title, tierName].filter(Boolean).join(" · ") || t("orderFallback")}
               {amountCents != null ? (
                 <span className="ml-2 font-medium text-ink">
                   ¥{formatAmount(amountCents)}
@@ -373,7 +375,7 @@ export default function PaymentCheckoutDialog({
             ) : null}
             <button
               type="button"
-              aria-label="关闭"
+              aria-label={t("closeAria")}
               data-testid="checkout-close"
               onClick={onClose}
               className="rounded-large border border-line px-2 py-1 text-sm text-ink-3 hover:border-line-strong hover:text-ink"
@@ -392,8 +394,8 @@ export default function PaymentCheckoutDialog({
             <span className="grid h-12 w-12 place-items-center rounded-full border border-line-strong text-lg text-ink">
               ✓
             </span>
-            <p className="text-sm font-medium text-ink">支付完成，报名已确认</p>
-            <p className="text-[13px] text-ink-3">即将自动关闭…</p>
+            <p className="text-sm font-medium text-ink">{t("paidTitle")}</p>
+            <p className="text-[13px] text-ink-3">{t("autoClose")}</p>
           </div>
         ) : phase === "checking" ? (
           <div
@@ -404,7 +406,7 @@ export default function PaymentCheckoutDialog({
           <>
             {/* 渠道选择（签约单源派生；选中态禁点，busy 防重） */}
             <div>
-              <span className="block text-[13px] text-ink-3">支付渠道</span>
+              <span className="block text-[13px] text-ink-3">{t("providerField")}</span>
               <div
                 className="mt-2 grid grid-cols-2 gap-2"
                 data-testid="checkout-providers"
@@ -451,8 +453,8 @@ export default function PaymentCheckoutDialog({
                         src={qrDataUrl}
                         alt={
                           provider === "alipay_qr"
-                            ? "支付宝支付二维码"
-                            : "微信支付二维码"
+                            ? t("alipayQrAlt")
+                            : t("wechatQrAlt")
                         }
                         width={200}
                         height={200}
@@ -461,13 +463,13 @@ export default function PaymentCheckoutDialog({
                       />
                     ) : (
                       <div className="grid h-[200px] w-[200px] place-items-center rounded-large border border-line bg-card text-xs text-ink-3">
-                        二维码生成中…
+                        {t("qrGenerating")}
                       </div>
                     )}
                     <p className="text-[13px] text-ink-3">
                       {provider === "alipay_qr"
-                        ? "使用支付宝扫一扫完成支付"
-                        : "使用微信扫码完成支付"}
+                        ? t("scanAlipay")
+                        : t("scanWechat")}
                     </p>
                   </>
                 ) : dispatch.mode === "redirect" ? (
@@ -479,10 +481,10 @@ export default function PaymentCheckoutDialog({
                       className="join-button join-button--primary"
                       data-testid="checkout-redirect"
                     >
-                      前往支付宝支付
+                      {t("goAlipay")}
                     </a>
                     <p className="text-[13px] text-ink-3">
-                      新窗口完成支付后回到本页，状态将自动确认。
+                      {t("newWindowNote")}
                     </p>
                   </div>
                 ) : (
@@ -491,7 +493,7 @@ export default function PaymentCheckoutDialog({
                     data-testid="checkout-credential-unsupported"
                   >
                     {credentialLost
-                      ? "支付凭据已失效，请点击其他支付方式重新获取（无需重新报名）。"
+                      ? t("credentialLost")
                       : dispatch.reason}
                   </p>
                 )}
@@ -512,19 +514,19 @@ export default function PaymentCheckoutDialog({
                 className="text-[13px] text-ink-3"
                 data-testid="checkout-expired-note"
               >
-                订单超时未支付，名额已释放。关闭后可重新报名。
+                {t("expiredNote")}
               </p>
             ) : poll.manual ? (
               <div className="grid gap-2" data-testid="checkout-manual">
                 <p className="text-[13px] text-ink-3">
-                  自动确认已暂停（30 秒）。完成支付后请刷新状态。
+                  {t("refreshPaused")}
                 </p>
                 <button
                   type="button"
                   onClick={poll.reset}
                   className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
                 >
-                  刷新状态
+                  {t("refreshStatus")}
                 </button>
               </div>
             ) : order !== null ? (
@@ -532,13 +534,12 @@ export default function PaymentCheckoutDialog({
                 className="text-[13px] text-ink-3"
                 data-testid="checkout-polling"
               >
-                正在确认支付状态…（每 2 秒自动刷新）
+                {t("checkingPayment")}
               </p>
             ) : null}
 
             <p className="text-[12px] leading-5 text-ink-3">
-              订单 2
-              小时内有效，关闭本窗口不取消订单，可从「继续支付」重新进入。
+              {t("orderValidHint")}
             </p>
           </>
         )}
