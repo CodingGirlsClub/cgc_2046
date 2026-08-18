@@ -30,7 +30,7 @@
 
 | 决策 | 拍板 | 本计划落地 |
 |---|---|---|
-| D1-A 到期失效 | `expire_time = min(活动结束 + 缓冲, 30 天)` | 生成服务层 clamp（缓冲 7 天；官方 85401 上限 30 天） |
+| D1-A 到期失效 | `expire_time = min(活动结束 + 缓冲, 30 天)` | 生成服务层 clamp（缓冲 7 天；官方 85401 上限 30 天）。**实施口径修正（writer07 决策回传，owner 拍板 2026-08-18）**：Event/Course 实际均无 endsAt 字段（plan current-state 有误），两 kind 统一以 `registration_deadline` 为 clamp 代理 = `min(registration_deadline + 7d, now + 30d)`，nil → now+30d |
 | D2-A 同 event 复用 | 按 Code upsert 先例 | 新 Ash 资源 `ShareScheme`，UK (target_kind, target_id, platform)，未过期命中即复用、过期重生成覆盖 |
 | D5-A 内部触发 | 无 GraphQL 面 | 订阅 `event.launched`/`course.launched` → Oban 异步预生成（决策 D-1 请批准） |
 | 分享卡片 | spike 已挂 | P4 仅补 title 兜底文案 |
