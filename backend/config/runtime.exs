@@ -279,6 +279,9 @@ if config_env() == :prod do
       mch_id: System.get_env("WECHAT_PAY_MCH_ID"),
       appid: System.get_env("WECHAT_PAY_APPID"),
       api_v3_key: System.get_env("WECHAT_PAY_API_V3_KEY"),
+      # SDK build_client 硬性必需键（plan 007）：与 v3 key 同为可选语义——缺席则
+      # adapter 门禁短路 provider_not_configured，boot 不崩。
+      api_secret_v2_key: System.get_env("WECHAT_PAY_API_V2_KEY"),
       client_serial_no: System.get_env("WECHAT_PAY_CLIENT_SERIAL_NO"),
       client_private_key: System.get_env("WECHAT_PAY_CLIENT_PRIVATE_KEY"),
       webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL")
