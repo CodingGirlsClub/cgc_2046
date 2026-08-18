@@ -190,6 +190,18 @@ defmodule Cgc2046.Workers.NotificationWorker do
   @spec types() :: [map()]
   def types, do: @notification_types
 
+  # 同 template_key 多行（approval_reminder 两面）unique 必一致——type/1 取首行
+  # 供 Fanout 查表，若同键配不同 unique 会静默取错窗口（advisor D-adv2 守卫，
+  # 模块体编译期即断言，配置错误在编译时立刻暴露而非静默漂移）。
+  if Enum.any?(
+       @notification_types
+       |> Enum.group_by(& &1.template_key)
+       |> Map.values(),
+       fn rows -> rows |> Enum.map(& &1.unique) |> Enum.uniq() |> length() > 1 end
+     ) do
+    raise "notification_types registry: 同 template_key 行 unique 不一致（type/1 首行语义会静默取错窗口）"
+  end
+
   # --- stale 重查（表驱动单解释器，D2） ---------------------------------------
 
   # 提醒发送时重查（扫描到执行之间，过期/审批可能已改变状态）：@notification_types

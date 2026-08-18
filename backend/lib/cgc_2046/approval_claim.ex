@@ -27,7 +27,9 @@ defmodule Cgc2046.ApprovalClaim do
     approved_at/accepted_at/expired_at 同参，==now 双向都拒绝）；无 `{:arg, :now}`
     却配 deadline 为编程错误；
   - `extra_where:` `nil | {sql_fragment, params}`——片段占位符从 `$1` 起内部编号，
-    claim 统一重编号到全语句连续编号（消灭现手工连续编号，sponsorship 42P18 纪律单点化）；
+    claim 统一重编号到全语句连续编号（消灭现手工连续编号，sponsorship 42P18 纪律
+    单点化）。**约束：片段内所有 `$数字` 必须是占位符**——重编号 regex 会 shift
+    一切 `$N` 形态文本，含字面 `$100` 的片段会被误改（当前无此形态，防未来误用）；
   - `returning:` 列原子列表（默认 `[]`），成功返回对应列值 map（DB 原始值，调用方自行 load）。
 
   占位符全语句连续编号：SET 值 → extra_where 参数 → id（固定最后一个参数，order.ex

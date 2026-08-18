@@ -141,6 +141,21 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
                )
     end
 
+    test "workspace 级创建强制清空 event_id（写入面收紧——客户端传 event_id 也不落脏行）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      sponsor = Fixtures.register_user("sponsor-force-nil")
+
+      assert {:ok, sponsorship} =
+               create_sponsorship(
+                 %{level: :workspace, target_workspace_id: workspace.id, event_id: event.id},
+                 sponsor
+               )
+
+      assert is_nil(sponsorship.event_id)
+    end
+
     test "同一 sponsor 同一目标未终态不重复（唯一索引 + 预检）" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
