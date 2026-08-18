@@ -15,6 +15,10 @@ const COPY: Record<string, string> = {
   enrollment_duplicate_active: '你已有待支付订单，请关闭后重新打开继续支付。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）
   enrollment_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
+  // createOrder 对 stale enrollment（已支付/取消/过期，F2）
+  order_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
+  // 已有活跃订单再下单（unique_active_order 部分索引冲突，含并发，F1）
+  order_duplicate_active: '你已有待支付订单，请关闭后重新打开继续支付。',
   // 报名不存在 / 他人报名（不泄露存在性）
   order_enrollment_not_found: '报名不存在或已被处理，请查看我的报名。',
   // 已处理过的报名/订单（幂等保护）

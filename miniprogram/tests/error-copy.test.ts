@@ -11,6 +11,8 @@ test('每个 code 映射非空文案', () => {
   // 与 web/lib/payment-errors.ts 同表同文案（互指注释见模块头）
   const knownCodes = [
     'enrollment_duplicate_active',
+    'order_duplicate_active',
+    'order_not_payment_pending',
     'enrollment_not_payment_pending',
     'order_enrollment_not_found',
     'enrollment_already_processed',

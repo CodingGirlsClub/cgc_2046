@@ -5,6 +5,8 @@ describe("translatePaymentError（支付/报名错误翻译层，code 精确匹�
   it.each([
     // [后端业务 code，期望人话]
     ["enrollment_duplicate_active", "你已有待支付订单，请关闭后重新打开继续支付。"],
+    ["order_duplicate_active", "你已有待支付订单，请关闭后重新打开继续支付。"],
+    ["order_not_payment_pending", "报名状态已变化（已支付或已取消），请重新报名或查看我的报名。"],
     [
       "enrollment_not_payment_pending",
       "报名状态已变化（已支付或已取消），请重新报名或查看我的报名。",

@@ -407,7 +407,7 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
         createOrder: {
           result: null,
           errors: [
-            { code: "enrollment_not_payment_pending", message: "not pending" },
+            { code: "order_not_payment_pending", message: "not pending" },
           ],
           metadata: null,
         },

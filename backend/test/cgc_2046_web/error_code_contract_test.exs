@@ -65,6 +65,24 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
              "已处理订单再操作 code 应为 order_already_processed，实际 #{inspect(error)}"
     end
 
+    test "createOrder 对已有活跃订单的报名再下单 → order_duplicate_active（F1）" do
+      %{learner: learner, enrollment_id: enrollment_id} = paid_enrollment()
+      token = sign_in_token(learner)
+
+      # 第一笔 pending 单占据 unique_active_order 部分索引
+      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => _}}}} =
+               graphql(order_mutation(enrollment_id), token)
+
+      # 再下单：无显式预检查，唯一防线 DB 索引 → error_handler 转 code
+      assert %{"data" => %{"createOrder" => %{"result" => nil, "errors" => [error | _]}}} =
+               graphql(order_mutation(enrollment_id), token)
+
+      assert error["code"] == "order_duplicate_active",
+             "已有活跃订单再下单 code 应为 order_duplicate_active，实际 #{inspect(error)}"
+
+      assert error["message"] == "an active order already exists for this enrollment"
+    end
+
     test "createOrder 对已确认报名下单 → order_not_payment_pending" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
@@ -134,6 +152,8 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
         "order_target_tenant_mismatch",
         "order_already_processed",
         "order_provider_not_configured",
+        "order_not_payment_pending",
+        "order_duplicate_active",
         # speaker_invitation（speaker_invitation.ex）
         "speaker_invitation_duplicate_invitation",
         "speaker_invitation_invalid_or_expired_token",

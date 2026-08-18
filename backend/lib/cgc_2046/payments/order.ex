@@ -204,6 +204,10 @@ defmodule Cgc2046.Payments.Order do
         description: "支付渠道"
       )
 
+      # unique_active_order 部分索引冲突（已有活跃订单 / 并发下单）转业务错误
+      # order_duplicate_active（enrollment.ex create_enrollment 同款纪律，F1）
+      error_handler({__MODULE__, :handle_create_error, []})
+
       metadata :credential, :map do
         description("渠道支付凭据（jsapi 调起参数 / 二维码链接 / 跳转 URL）")
       end
@@ -228,6 +232,10 @@ defmodule Cgc2046.Payments.Order do
           one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap, :alipay_qr]
         ]
       )
+
+      # 同 create_for_enrollment：换渠道新单撞 unique_active_order（并发双换）
+      # 转 order_duplicate_active（F1）
+      error_handler({__MODULE__, :handle_create_error, []})
 
       metadata :credential, :map do
         description("新渠道支付凭据")
@@ -1019,6 +1027,31 @@ defmodule Cgc2046.Payments.Order do
     )
   end
 
+  # create_for_enrollment / replace_provider 唯一约束冲突（已有活跃订单 / 并发
+  # 下单）转业务错误。非 unique 错误原样返回（error_handler 返回值即入列的错误）。
+  def handle_create_error(_changeset, error) do
+    if unique_conflict?(error) do
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(:duplicate_active),
+        code: domain_error_code(:duplicate_active)
+      )
+    else
+      error
+    end
+  end
+
+  # 同 membership_context.unique_membership_conflict?/1 判法：仅
+  # constraint_type: :unique 命中（DB 断连等真实故障不含该键，原样上抛）。
+  defp unique_conflict?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_conflict?/1)
+  end
+
+  defp unique_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
+    Keyword.get(private_vars || [], :constraint_type) == :unique
+  end
+
+  defp unique_conflict?(_), do: false
+
   defp domain_error_message(:enrollment_required), do: "enrollment_id is required"
   defp domain_error_message(:enrollment_not_found), do: "enrollment does not exist"
 
@@ -1027,6 +1060,13 @@ defmodule Cgc2046.Payments.Order do
 
   defp domain_error_message(:already_processed), do: "order has already been processed"
   defp domain_error_message(:provider_not_configured), do: "payment provider is not configured"
+
+  defp domain_error_message(:not_payment_pending),
+    do: "enrollment is not awaiting payment"
+
+  defp domain_error_message(:duplicate_active),
+    do: "an active order already exists for this enrollment"
+
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
 
@@ -1036,6 +1076,8 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_code(:target_tenant_mismatch), do: "order_target_tenant_mismatch"
   defp domain_error_code(:already_processed), do: "order_already_processed"
   defp domain_error_code(:provider_not_configured), do: "order_provider_not_configured"
+  defp domain_error_code(:not_payment_pending), do: "order_not_payment_pending"
+  defp domain_error_code(:duplicate_active), do: "order_duplicate_active"
 
   defp domain_error_code(reason) when is_atom(reason), do: "order_" <> Atom.to_string(reason)
   defp domain_error_code({kind, _}) when is_atom(kind), do: "order_" <> Atom.to_string(kind)
