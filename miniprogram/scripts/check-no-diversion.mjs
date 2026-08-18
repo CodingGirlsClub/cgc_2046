@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 零导流合规检查（§2 合规红线）：抖音/小红书裁剪端产物不得含跨端引导字样。
+ * 零导流合规检查（合规红线，裁剪原则见 docs/01-定稿设计/小程序多端平台矩阵.md）：抖音/小红书裁剪端产物不得含跨端引导字样。
  *
  * 对 dist/tt、dist/xhs 各调用一次 scanArtifactTree；任一目录缺失、无文本产物、
  * 读取失败或有 hit 都整体 exit 1。规则与解码策略见 diversion-policy.mjs。
