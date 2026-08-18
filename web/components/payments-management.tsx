@@ -32,7 +32,7 @@ import {
 	parsePaymentStats,
 	type PaymentStats,
 } from "@/lib/payment";
-import { translatePaymentError } from "@/lib/payment-errors";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 
 const REFUND_CONFIRMATION =
 	"将原路全额退款，报名同时取消并释放名额，此操作不可恢复。";
@@ -186,6 +186,7 @@ export default function PaymentsManagement({
 	workspaceId: string;
 	manage: boolean;
 }) {
+	const translatePaymentError = usePaymentErrorTranslator();
 	const [statusFilter, setStatusFilter] = useState("");
 	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);

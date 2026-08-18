@@ -35,7 +35,7 @@ import {
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
-import { translatePaymentError } from "@/lib/payment-errors";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   discardOrderCredential,
   readOrderCredential,
@@ -55,6 +55,7 @@ export default function OrderDetailPage() {
   const router = useRouter();
   const orderId = params?.id ?? "";
   const { authed, confirmed } = useAuthed();
+  const translatePaymentError = usePaymentErrorTranslator();
 
   const [order, setOrder] = useState<Order | null>(null);
   // 下单页交接凭据（sessionStorage 读后即焚；lazy init 避免 effect 内 setState）

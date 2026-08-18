@@ -82,6 +82,13 @@ defmodule Cgc2046.Accounts.User do
       description: "显示名（全局身份字段；可为 null，前端以 email 前缀兜底）"
     )
 
+    attribute(:locale, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "用户界面语言偏好（i18n Phase 1，BCP47 对外命名：zh-CN | en；null = 未设置，协商链回退）"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -174,6 +181,16 @@ defmodule Cgc2046.Accounts.User do
             end
         end
       end)
+    end
+
+    update :update_locale do
+      description("更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）")
+
+      require_atomic?(false)
+
+      accept([:locale])
+
+      validate(one_of(:locale, ["zh-CN", "en"]))
     end
 
     update :set_platform_admin do
@@ -395,6 +412,11 @@ defmodule Cgc2046.Accounts.User do
 
     # 更新全局显示名：仅本人（SimpleCheck，strict 阶段可判定）
     policy action(:update_display_name) do
+      authorize_if(Cgc2046.Policies.OwnUser)
+    end
+
+    # 更新界面语言偏好：仅本人（i18n Phase 1）
+    policy action(:update_locale) do
       authorize_if(Cgc2046.Policies.OwnUser)
     end
 

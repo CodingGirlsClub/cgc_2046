@@ -31,7 +31,7 @@ import {
 import EventStatusTag from "@/components/event-status-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
-import { translatePaymentError } from "@/lib/payment-errors";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
 
@@ -50,6 +50,7 @@ export default function PublicOfferingDetailPage({
   const slug = params?.slug ?? "";
   const router = useRouter();
   const { authed, userId } = useAuthed();
+  const translatePaymentError = usePaymentErrorTranslator();
 
   const [state, setState] = useState<DetailState>({
     id: "",

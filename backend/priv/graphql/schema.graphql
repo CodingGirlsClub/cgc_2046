@@ -4320,6 +4320,9 @@ type User {
   "显示名（全局身份字段；可为 null，前端以 email 前缀兜底）"
   displayName: String
 
+  "用户界面语言偏好（i18n Phase 1，BCP47 对外命名：zh-CN | en；null = 未设置，协商链回退）"
+  locale: String
+
   "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
   memberNumber: String
 
@@ -5677,6 +5680,9 @@ type RootMutationType {
 
   "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
   updateDisplayName(displayName: String!): User
+
+  "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
+  updateMyLocale(locale: String!): User
 
   "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
   updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile

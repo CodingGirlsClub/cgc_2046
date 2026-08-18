@@ -824,6 +824,26 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
+    field :update_my_locale, :user do
+      arg(:locale, non_null(:string))
+
+      resolve(fn _, %{locale: locale}, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Ash.update(actor, %{locale: locale},
+                 action: :update_locale,
+                 actor: actor
+               ) do
+            {:ok, user} ->
+              load_profile(user, actor, context, :update_locale)
+
+            {:error, error} ->
+              {:error, to_ash_graphql_errors(error, context, :update_locale)}
+          end
+        end)
+      end)
+    end
+
     @desc "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
     field :update_workspace_profile, :workspace_profile do
       arg(:workspace_id, non_null(:id))

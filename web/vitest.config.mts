@@ -9,10 +9,17 @@ export default defineConfig({
     environment: "happy-dom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // next-intl client navigation 以裸说明符 import "next/navigation"；
+    // inline 让 vite 接管其解析，配合下方 resolve.alias 指向项目内 next 入口
+    server: { deps: { inline: ["next-intl"] } },
   },
   resolve: {
     alias: {
       "@": import.meta.dirname,
+      // next-intl client navigation 以裸说明符 import "next/navigation"，
+      // vitest 无 Next 编译上下文时解析失败 → 固定映射到项目 next 的绝对入口
+      "next/navigation": new URL("./node_modules/next/navigation.js", import.meta.url)
+        .pathname,
     },
   },
 });

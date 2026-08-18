@@ -22,8 +22,17 @@ vi.mock("@/lib/public-offerings", () => ({
 }));
 
 // ThemeProvider 依赖 usePathname 解析 workspace slug（ADR-0004）
+// redirect/permanentRedirect 供 next-intl createNavigation 顶层 import（i18n Phase 1）
 vi.mock("next/navigation", () => ({
 	usePathname: () => "/",
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
+}));
+
+// i18n Phase 1：切换器自身在 language-switcher.test.tsx 以真实 provider 覆盖；
+// 此处关注 landing 内容，mock 掉避免测试环境无 NextIntlClientProvider
+vi.mock("@/components/language-switcher", () => ({
+	default: () => null,
 }));
 
 const EVENT_FIXTURE = {

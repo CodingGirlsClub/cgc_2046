@@ -8,6 +8,7 @@ import type {
 import {
   ME_PROFILE,
   UPDATE_DISPLAY_NAME,
+  UPDATE_MY_LOCALE,
   UPDATE_WORKSPACE_PROFILE,
   WORKSPACE_PROFILE,
 } from "./graphql/profile";
@@ -63,6 +64,8 @@ export interface CurrentProfile {
   email: string;
   /** 展示名（全局身份字段，可编辑） */
   displayName?: string | null;
+  /** 界面语言偏好（i18n Phase 1；zh-CN | en，未设置为 null） */
+  locale?: string | null;
   /** 平台管理员 */
   isPlatformAdmin: boolean;
   /** 平台级成员编号（只读） */
@@ -142,6 +145,7 @@ function mapMeToProfile(me: MeUser | null): CurrentProfile {
       id: "",
       email: "",
       displayName: null,
+      locale: null,
       isPlatformAdmin: false,
     };
   }
@@ -149,6 +153,7 @@ function mapMeToProfile(me: MeUser | null): CurrentProfile {
     id: me.id,
     email: me.email,
     displayName: me.displayName ?? null,
+    locale: me.locale ?? null,
     isPlatformAdmin: me.isPlatformAdmin,
     memberNumber: me.memberNumber ?? null,
     joinedAt: me.joinedAt ?? null,
@@ -215,6 +220,17 @@ export async function updateDisplayName(
     variables: { displayName },
   });
   return mapMeToProfile(data?.updateDisplayName ?? null);
+}
+
+/**
+ * 更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en）。
+ * 静默持久化：由语言切换器调用，UI 即时反馈不依赖本结果。
+ */
+export async function updateMyLocale(locale: string): Promise<void> {
+  await client.mutate({
+    mutation: UPDATE_MY_LOCALE,
+    variables: { locale },
+  });
 }
 
 /* ---------------- Portfolio 数据源（ADR-0004 per-workspace） ---------------- */

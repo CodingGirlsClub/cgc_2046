@@ -37,7 +37,7 @@ import {
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
-import { translatePaymentError } from "@/lib/payment-errors";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   readOrderCredential,
   storeOrderCredential,
@@ -85,6 +85,7 @@ export default function PaymentCheckoutDialog({
   tierName = null,
   title = null,
 }: PaymentCheckoutDialogProps) {
+  const translatePaymentError = usePaymentErrorTranslator();
   const [phase, setPhase] = useState<Phase>("checking");
   const [order, setOrder] = useState<CheckoutOrder | null>(null);
   const [credential, setCredential] = useState<unknown>(null);
@@ -179,7 +180,7 @@ export default function PaymentCheckoutDialog({
         setBusy(false);
       }
     },
-    [enrollmentId],
+    [enrollmentId, translatePaymentError],
   );
 
   // 开框初始化（一次）：复用活单 or 初始下单
@@ -253,7 +254,7 @@ export default function PaymentCheckoutDialog({
         setBusy(false);
       }
     },
-    [order, busy, provider, poll],
+    [order, busy, provider, poll, translatePaymentError],
   );
 
   // 支付成功：✓ 报名已确认 → 1.5s 自动关框（onPaid 先行，报名区就地刷新）
