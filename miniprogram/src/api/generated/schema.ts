@@ -3282,8 +3282,9 @@ export type RootMutationTypeSignInArgs = {
 
 export type RootMutationTypeSignInWithPlatformArgs = {
   code: Scalars['String']['input'];
-  encryptedData: Scalars['String']['input'];
-  iv: Scalars['String']['input'];
+  encryptedData?: InputMaybe<Scalars['String']['input']>;
+  iv?: InputMaybe<Scalars['String']['input']>;
+  phoneCode?: InputMaybe<Scalars['String']['input']>;
   platform: Scalars['String']['input'];
 };
 

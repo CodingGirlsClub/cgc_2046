@@ -5658,7 +5658,7 @@ type RootMutationType {
   resetPassword(resetToken: String!, password: String!): ResetPasswordResult
 
   "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
-  signInWithPlatform(platform: String!, code: String!, encryptedData: String!, iv: String!): SignInWithPlatformResult
+  signInWithPlatform(platform: String!, code: String!, phoneCode: String, encryptedData: String, iv: String): SignInWithPlatformResult
 
   "Owner\/Admin 创建一次性工作台邀请小程序码"
   generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult

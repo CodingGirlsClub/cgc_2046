@@ -466,6 +466,32 @@ defmodule Cgc2046.Miniprogram.Client do
   defp parse_session(_platform, _body), do: {:error, :code2session_bad_response}
 
   @doc """
+  phoneCode → 手机号（getPhoneNumber 新契约，仅 wechat）。
+
+  SDK：POST /wxa/business/getuserphonenumber；成功 body phone_info 含
+  purePhoneNumber/phoneNumber + countryCode——归一化为与 decrypt_phone 相同的
+  `+区号号码` 形（phone-keyed find-or-create 的确定性前提，见 decrypt_phone 注释）。
+  tt/xhs 无等价 API → {:error, :phone_code_unsupported}。
+  """
+  @spec fetch_phone_by_code(platform, String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def fetch_phone_by_code(:wechat, openid, phone_code)
+      when is_binary(openid) and is_binary(phone_code) do
+    with {:ok, client} <- WechatClient.fetch(),
+         {:ok, %Tesla.Env{status: 200, body: %{"errcode" => 0, "phone_info" => info}}} <-
+           WeChat.MiniProgram.UserInfo.get_phone_number(client, openid, phone_code),
+         local when is_binary(local) <- info["purePhoneNumber"] || info["phoneNumber"],
+         phone when is_binary(phone) <- normalize_phone(local, info["countryCode"]) do
+      {:ok, phone}
+    else
+      _ -> {:error, :phone_fetch_failed}
+    end
+  end
+
+  def fetch_phone_by_code(_platform, _openid, _phone_code),
+    do: {:error, :phone_code_unsupported}
+
+  @doc """
   用 session_key 解密 getPhoneNumber 加密数据，返回归一化手机号（`+区号号码`）。
 
   算法与三平台官方规范一致：Base64(session_key) 为密钥的 AES-128-CBC + PKCS7。

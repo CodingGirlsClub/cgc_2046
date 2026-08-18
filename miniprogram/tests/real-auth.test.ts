@@ -110,6 +110,51 @@ describe('sign-in 两阶段事务', () => {
   })
 })
 
+describe('signIn phoneCode 新契约变量形状', () => {
+  it('phoneCode 在场（weapp 新契约）→ variables 含 phoneCode 且不含 encryptedData/iv', async () => {
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) => {
+      if (doc === 'SIGN_IN_MUTATION') return Promise.resolve({})
+      if (doc === 'SESSION_QUERY') return Promise.resolve(sessionData())
+      return Promise.resolve({})
+    })
+    const api = new RealMiniProgramApi()
+    await api.signIn({ loginCode: 'c', code: 'pc-1' })
+
+    const [, variables] = mocks.graphqlRequest.mock.calls.find(
+      (call: unknown[]) => call[0] === 'SIGN_IN_MUTATION'
+    ) as [string, Record<string, unknown>]
+    expect(variables.phoneCode).toBe('pc-1')
+    expect('encryptedData' in variables).toBe(true)
+    expect(variables.encryptedData).toBeNull()
+    expect(variables.iv).toBeNull()
+  })
+
+  it('phoneCode 缺 + encryptedData/iv 齐（legacy）→ variables 不带 phoneCode 键值', async () => {
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) => {
+      if (doc === 'SIGN_IN_MUTATION') return Promise.resolve({})
+      if (doc === 'SESSION_QUERY') return Promise.resolve(sessionData())
+      return Promise.resolve({})
+    })
+    const api = new RealMiniProgramApi()
+    await api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })
+
+    const [, variables] = mocks.graphqlRequest.mock.calls.find(
+      (call: unknown[]) => call[0] === 'SIGN_IN_MUTATION'
+    ) as [string, Record<string, unknown>]
+    expect(variables.phoneCode).toBeUndefined()
+    expect(variables.encryptedData).toBe('e')
+    expect(variables.iv).toBe('i')
+  })
+
+  it('phoneCode 与 legacy 都缺 → 参数不完整直接拒绝（不发起 mutation）', async () => {
+    const api = new RealMiniProgramApi()
+    await expect(api.signIn({ loginCode: 'c' })).rejects.toThrow('平台登录参数不完整')
+    expect(mocks.graphqlRequest).not.toHaveBeenCalled()
+  })
+})
+
 describe('sign-out 事务', () => {
   it('GraphQL sign-out reject → finally 仍清 token/Workspace/账号状态与 pending scene', async () => {
     mocks.getAuthToken.mockReturnValue('old-token')

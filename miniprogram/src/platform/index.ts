@@ -29,6 +29,15 @@ export async function preparePlatformLogin(
 
   // Taro.login 跨平台转发：weapp→wx.login / tt→tt.login / xhs→xhs.login（runtime 动态映射）
   const login = await Taro.login()
+  // weapp 新契约优先：getPhoneNumber 回调给动态 code（phoneCode）→ 服务端
+  // 经 getuserphonenumber 直取，不要求 encryptedData/iv（也不该再触碰 session_key）
+  const isWeapp = process.env.TARO_ENV === 'weapp'
+  if (isWeapp && phonePayload.code) {
+    if (!login.code) {
+      throw new Error('登录凭证获取失败，请重试')
+    }
+    return { ...phonePayload, loginCode: login.code }
+  }
   const encryptedData = phonePayload.encryptedData
   const iv = phonePayload.iv
   if (!login.code || !encryptedData || !iv) {
