@@ -1,4 +1,4 @@
-// 裁剪端（抖音/小红书）：2 Tab 漏斗——发现/我的报名 + 流程页，无管理/协作功能（§2 平台矩阵）
+// 裁剪端（抖音/小红书）：2 Tab 漏斗——发现/我的报名 + 流程页，无管理/协作功能（docs/01-定稿设计/小程序多端平台矩阵.md）
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
 const cutPages = [

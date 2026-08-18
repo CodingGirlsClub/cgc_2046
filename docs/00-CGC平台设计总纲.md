@@ -226,7 +226,9 @@ flowchart TB
 
 ### 7.3 二期清单
 
-支付（赞助 #2：状态机插 payment_pending → paid）、批量邀请候选池（邀请 #3：复用 InviteBatch quota 机制）、Workspace 级讲师/长期嘉宾（邀请 #5：成员/合作关系建模）、tier 限量（赞助 #1：启用 tier.limit 校验）、平台 Admin 备案（赞助 #4）、通用审计聚合/导出（ash_paper_trail）、确认流 auto_approve 冷却期。
+（支付已于 2026-08-15 升为 v1 可选路径，见 ADR-0007 与 docs/plans/2026-08-15-024；赞助收款仍在二期，见 §4.2）
+
+批量邀请候选池（邀请 #3：复用 InviteBatch quota 机制）、Workspace 级讲师/长期嘉宾（邀请 #5：成员/合作关系建模）、tier 限量（赞助 #1：启用 tier.limit 校验）、平台 Admin 备案（赞助 #4）、通用审计聚合/导出（ash_paper_trail）、确认流 auto_approve 冷却期。
 
 ---
 
