@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useTheme } from "@/lib/theme-provider";
 import { client } from "@/lib/apollo-client";
 import { SET_WORKSPACE_THEME } from "@/lib/graphql/profile";
@@ -23,6 +24,7 @@ export default function ThemeToggle({
 	workspaceId?: string;
 }) {
 	const { theme, setTheme } = useTheme();
+	const t = useTranslations("themeToggle");
 
 	function handleToggle() {
 		const next = theme === "dark" ? "light" : "dark";
@@ -50,10 +52,10 @@ export default function ThemeToggle({
 				className="ws-shell-brand-menu__item"
 				role="menuitem"
 				onClick={handleToggle}
-				aria-label={`切换为${isDark ? "浅色" : "深色"}主题`}
+				aria-label={isDark ? t("toggleLight") : t("toggleDark")}
 			>
 				<span className="ws-shell-brand-menu__name">
-					{isDark ? "浅色主题" : "深色主题"}
+					{isDark ? t("lightTheme") : t("darkTheme")}
 				</span>
 			</button>
 		);
@@ -64,11 +66,11 @@ export default function ThemeToggle({
 			type="button"
 			className="ws-shell-theme"
 			onClick={handleToggle}
-			aria-label={`切换为${isDark ? "浅色" : "深色"}主题`}
-			title={`当前主题：${isDark ? "深色" : "浅色"}`}
+			aria-label={isDark ? t("toggleLight") : t("toggleDark")}
+			title={isDark ? t("currentDark") : t("currentLight")}
 		>
 			<span aria-hidden>{isDark ? "☀" : "☾"}</span>
-			<span>{isDark ? "浅色" : "深色"}</span>
+			<span>{isDark ? t("light") : t("dark")}</span>
 		</button>
 	);
 }

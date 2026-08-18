@@ -131,6 +131,7 @@ export function ProfileSettingsForm({
   initialPortfolio: ProfilePortfolioItem[];
 }) {
   const t = useTranslations("workspaceAccount");
+  const labelsT = useTranslations();
   const [draft, setDraft] = useState<ProfileDraft>(() => ({
     name: profile.displayName ?? "",
     location: wsProfile?.location ?? "",
@@ -350,7 +351,7 @@ export function ProfileSettingsForm({
                 Object.keys(VISIBILITY_OPTION_LABEL) as ProfileVisibility[]
               ).map((value) => (
                 <option key={value} value={value}>
-                  {VISIBILITY_OPTION_LABEL[value]}
+                  {labelsT(VISIBILITY_OPTION_LABEL[value])}
                 </option>
               ))}
             </select>
@@ -446,7 +447,7 @@ export function ProfileSettingsForm({
         </div>
       )}
       <footer className="profile-settings-form__footer">
-        <span>{VISIBILITY_FOOTER_TEXT[draft.visibility]}</span>
+        <span>{labelsT(VISIBILITY_FOOTER_TEXT[draft.visibility])}</span>
         <button
           type="button"
           className="l-btn l-btn-primary"

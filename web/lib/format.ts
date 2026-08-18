@@ -6,12 +6,21 @@
  * 兼容 mock / 旧数据的 "2024 年 3 月" 中文格式。
  */
 
-/** 把 ISO/日期字符串格式化为 "YYYY 年 M 月"；无法解析时原样返回。 */
-export function formatJoinedDate(value?: string | null): string {
+/** 把 ISO/日期字符串格式化为「年/月」：zh-CN → "2026 年 8 月"（与既有展示逐字节一致）；其它 locale 用 Intl。无法解析时原样返回。 */
+export function formatJoinedDate(
+  value?: string | null,
+  locale: string = "zh-CN",
+): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
+  if (locale === "zh-CN") {
+    return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
+  }
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+  }).format(date);
 }
 
 /** 把 ISO/日期字符串格式化为 "YYYY-MM-DD HH:mm"（本地时区）；空值 "—"，无法解析原样返回。 */

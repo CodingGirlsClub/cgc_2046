@@ -55,6 +55,7 @@ function NewOrderForm() {
 	const { authed, confirmed } = useAuthed();
 	const translatePaymentError = usePaymentErrorTranslator();
 	const t = useTranslations("orders");
+	const labelsT = useTranslations();
 
 	const [provider, setProvider] = useState<PaymentProvider>("wechat_native");
 	const [busy, setBusy] = useState(false);
@@ -233,7 +234,7 @@ function NewOrderForm() {
 								onChange={() => setProvider(p.value)}
 							/>
 							<span>
-								{PROVIDER_LABEL[p.value]}
+								{labelsT(PROVIDER_LABEL[p.value])}
 								<span className="ml-2 text-[13px] text-ink-3">{t(p.hint)}</span>
 							</span>
 							{disabled ? (

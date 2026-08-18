@@ -48,48 +48,47 @@ export const PERMISSION_ROLE_ORDER: MembershipRoleName[] = [...ROLE_NAMES];
 export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 	{
 		id: "view_workspace",
-		label: "查看工作台",
-		description: "查看当前 Workspace 的概览与基本信息。",
+		label: "permissions.ability.view_workspace.label",
+		description: "permissions.ability.view_workspace.description",
 	},
 	{
 		id: "access_invite_only",
-		label: "访问仅邀请",
-		description: "访问 invite_only 加入策略的 Workspace。",
+		label: "permissions.ability.access_invite_only.label",
+		description: "permissions.ability.access_invite_only.description",
 	},
 	{
 		id: "list_members",
-		label: "查看成员列表",
-		description: "查看当前 Workspace 的成员列表与成员角色并集。",
+		label: "permissions.ability.list_members.label",
+		description: "permissions.ability.list_members.description",
 	},
 	{
 		id: "manage_members",
-		label: "管理成员",
-		description: "添加、移除或管理当前 Workspace 的成员关系。",
+		label: "permissions.ability.manage_members.label",
+		description: "permissions.ability.manage_members.description",
 	},
 	{
 		id: "assign_roles",
-		label: "分配角色",
-		description: "在成员页调整 Owner 之外的角色；Owner 走专门指派流程。",
+		label: "permissions.ability.assign_roles.label",
+		description: "permissions.ability.assign_roles.description",
 	},
 	{
 		id: "update_join_policy",
-		label: "修改加入策略",
-		description:
-			"切换当前 Workspace 的加入方式（开放加入 / 申请制 / 邀请制）。",
+		label: "permissions.ability.update_join_policy.label",
+		description: "permissions.ability.update_join_policy.description",
 	},
 	{
 		id: "create_workspace",
-		label: "创建工作台",
-		description: "创建新的 Workspace（平台级能力，不随角色在矩阵中授予）。",
+		label: "permissions.ability.create_workspace.label",
+		description: "permissions.ability.create_workspace.description",
 	},
 ];
 
 const ROLE_NOTES: Partial<Record<MembershipRoleName, string>> = {
-	owner: "全部 Workspace 管理能力；Owner 变更走专门指派。",
-	admin: "可管理成员并行内分配非 Owner 角色。",
-	tutor: "成员基准 + 差异标签（当前能力等同，用于工作流步骤授权与分工）",
-	volunteer: "成员基准 + 差异标签（当前能力等同，用于工作流步骤授权与分工）",
-	learner: "成员基准 + 差异标签（当前能力等同，用于工作流步骤授权与分工）",
+	owner: "permissions.roleNote.owner",
+	admin: "permissions.roleNote.admin",
+	tutor: "permissions.roleNote.tutor",
+	volunteer: "permissions.roleNote.volunteer",
+	learner: "permissions.roleNote.learner",
 };
 
 /**

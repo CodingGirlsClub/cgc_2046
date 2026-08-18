@@ -88,13 +88,14 @@ export function StatusTag({
 
 export function RoleChips({ roles }: { roles: string[] }) {
 	const t = useTranslations("workspace");
+	const labelsT = useTranslations();
 	if (roles.length === 0)
 		return <span className="workspace-empty-value">{t("noRoles")}</span>;
 	return (
 		<span className="workspace-role-chips">
 			{roles.map((role) => (
 				<span className="workspace-role-chip" key={role}>
-					{role}
+					{labelsT(role)}
 				</span>
 			))}
 		</span>

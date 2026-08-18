@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import { formatJoinedDate } from "@/lib/format";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
@@ -61,12 +61,13 @@ function avatarLetter(member: WorkspaceMember) {
 	return Array.from(memberName(member).trim())[0]?.toUpperCase() ?? "?";
 }
 
-function memberJoinedAt(member: WorkspaceMember) {
-	return formatJoinedDate(member.joinedAt);
+function memberJoinedAt(member: WorkspaceMember, locale: string) {
+	return formatJoinedDate(member.joinedAt, locale);
 }
 
 function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {
 	const t = useTranslations("workspaceMembers");
+	const labelsT = useTranslations();
 	if (roles.length === 0) {
 		return <span className="members-empty-role">{t("noRoles")}</span>;
 	}
@@ -79,7 +80,7 @@ function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {
 					className={ROLE_BADGE_CLASS[role]}
 					data-testid="role-badge"
 				>
-					{roleLabel(role)}
+					{labelsT(roleLabel(role))}
 				</span>
 			))}
 		</div>
@@ -104,6 +105,7 @@ function RoleEditor({
 	onSave,
 }: RoleEditorProps) {
 	const t = useTranslations("workspaceMembers");
+	const labelsT = useTranslations();
 	return (
 		<div className="members-role-editor" data-testid="role-editor">
 			<div className="members-role-editor__heading">{t("editHeading")}</div>
@@ -114,9 +116,9 @@ function RoleEditor({
 							type="checkbox"
 							checked={roles.includes(role)}
 							onChange={() => onToggle(role)}
-							aria-label={t("roleAria", { role: roleLabel(role) })}
+							aria-label={t("roleAria", { role: labelsT(roleLabel(role)) })}
 						/>
-						<span>{roleLabel(role)}</span>
+						<span>{labelsT(roleLabel(role))}</span>
 					</label>
 				))}
 			</div>
@@ -146,8 +148,10 @@ function RoleEditor({
 }
 
 export default function WorkspaceMembersPage() {
+	const locale = useLocale();
 	const t = useTranslations("workspaceMembers");
 	const commonT = useTranslations("common");
+	const labelsT = useTranslations();
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
@@ -448,7 +452,7 @@ export default function WorkspaceMembersPage() {
 							<option value="all">{t("allRoles")}</option>
 							{roleFilterOptions.map((role) => (
 								<option key={role} value={role}>
-									{roleLabel(role)}
+									{labelsT(roleLabel(role))}
 								</option>
 							))}
 						</select>
@@ -576,7 +580,7 @@ export default function WorkspaceMembersPage() {
 													</td>
 													<td>
 														<span className="members-date">
-															{memberJoinedAt(member)}
+															{memberJoinedAt(member, locale)}
 														</span>
 													</td>
 													<td>
@@ -653,8 +657,9 @@ export default function WorkspaceMembersPage() {
 					{canAssign && (
 						<span>
 							{t("yourRoles")}
-							{(ws?.myRoleNames ?? []).map(roleLabel).join(" + ") ||
-								t("noRoleValue")}
+							{(ws?.myRoleNames ?? [])
+								.map((role) => labelsT(roleLabel(role)))
+								.join(" + ") || t("noRoleValue")}
 						</span>
 					)}
 				</footer>

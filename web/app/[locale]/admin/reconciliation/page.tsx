@@ -21,6 +21,7 @@ const RULE_OPTIONS = Object.entries(RECONCILIATION_RULE_LABEL);
 
 export default function AdminReconciliationPage() {
 	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [rows, setRows] = useState<AdminReconciliationFinding[] | null>(null);
 	const [rule, setRule] = useState("");
 	const [workspaceId, setWorkspaceId] = useState("");
@@ -74,7 +75,7 @@ export default function AdminReconciliationPage() {
 					<option value="">{t("allRules")}</option>
 					{RULE_OPTIONS.map(([value, label]) => (
 						<option key={value} value={value}>
-							{label}
+							{labelsT(label)}
 						</option>
 					))}
 				</select>
@@ -114,9 +115,11 @@ export default function AdminReconciliationPage() {
 						<tbody>
 							{rows.map((row) => (
 								<tr key={row.id}>
-									<td>{RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule}</td>
+									<td>{labelsT(RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule)}</td>
 									<td>
-										{RECONCILIATION_ENTITY_LABEL[row.entityType] ?? row.entityType}
+										{labelsT(
+											RECONCILIATION_ENTITY_LABEL[row.entityType] ?? row.entityType,
+										)}
 									</td>
 									<td className="l-mono">{row.entityId}</td>
 									<td className="l-mono">{row.workspaceId ?? "—"}</td>

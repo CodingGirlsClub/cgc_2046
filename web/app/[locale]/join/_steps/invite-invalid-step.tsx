@@ -16,6 +16,7 @@ export function InviteInvalidStep({
   onRetry,
 }: InviteInvalidStepProps) {
   const t = useTranslations("join");
+  const labelsT = useTranslations();
   return (
     <div className="join-status-card join-status-card--error">
       <Icon name="lock" />
@@ -24,7 +25,7 @@ export function InviteInvalidStep({
       {invitation && invitation.status !== "active" && (
         <p className="join-status-detail">
           {t("inviteInvalidStatus", {
-            status: INVITATION_STATUS_LABEL[invitation.status],
+            status: labelsT(INVITATION_STATUS_LABEL[invitation.status]),
           })}
         </p>
       )}

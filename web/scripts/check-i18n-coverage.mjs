@@ -61,7 +61,7 @@ function templateTextFragments(node) {
  * 判定节点是否命中白名单。
  * 返回 true = 放行（不报告）；false = 残留需报告。
  */
-function isWhitelisted(node, parent) {
+function isWhitelisted(node, parent, file) {
 	// console.xxx("...") 参数
 	if (
 		parent &&
@@ -86,7 +86,30 @@ function isWhitelisted(node, parent) {
 		const text = node.text;
 		// URL：整体为 URL 或以协议开头的串（含中文路径/query 视为合法残留）
 		if (/^https?:\/\//.test(text.trim())) return true;
-		// 协议头在模板头部（如 `https://...${x}`）由 templateTextFragments 兜底，这里不误杀
+		// 语言选择器的 locale 显示名（语言本地名，永不翻译）
+		if (text === "中文" || text === "English") {
+			if (parent && ts.isPropertyAssignment(parent)) return true;
+		}
+		// zh-CN 日期格式模板（lib/format.ts formatJoinedDate：` 年 `/` 月 ` 是本地化格式字符，非 UI 文案）
+		if (
+			file.includes("lib/format.ts") &&
+			(text === " 年 " || text === " 月" || text === "年" || text === "月")
+		) {
+			return true;
+		}
+		// 函数签名默认参数兜底（step-handoff-copy buildHandoffText toolHint / 按钮 label 默认值；
+		// 生产路径调用方总是传 t()，默认值仅供纯函数/测试直调）
+		if (
+			file.includes("components/step-handoff-copy.tsx") &&
+			(text === "工具提示：用 save_step_output 写回该 step" || text === "复制交接文本")
+		) {
+			return true;
+		}
+	}
+	// TemplateExpression：format.ts 的 `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`
+	if (ts.isTemplateExpression(node) && file.includes("lib/format.ts")) {
+		const frags = templateTextFragments(node).filter(Boolean);
+		if (frags.length > 0 && frags.every((f) => f === " 年 " || f === " 月")) return true;
 	}
 	return false;
 }
@@ -115,10 +138,10 @@ function scanFile(file) {
 			(ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
 			CJK.test(node.text)
 		) {
-			if (!isWhitelisted(node, parent)) report(node, node.text);
+			if (!isWhitelisted(node, parent, file)) report(node, node.text);
 		} else if (ts.isTemplateExpression(node)) {
 			const frags = templateTextFragments(node);
-			if (frags.length > 0 && !isWhitelisted(node, parent)) {
+			if (frags.length > 0 && !isWhitelisted(node, parent, file)) {
 				report(node, frags.join("…"));
 			}
 		} else if (ts.isJsxText(node)) {

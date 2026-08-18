@@ -53,6 +53,8 @@ export default function PublicOfferingDetailPage({
   const { authed, userId } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("offeringDetail");
+  const tCommon = useTranslations("common");
+  const labelsT = useTranslations();
 
   const [state, setState] = useState<DetailState>({
     id: "",
@@ -253,7 +255,7 @@ export default function PublicOfferingDetailPage({
           </Link>
           {" › "}
           <Link href={listHref} className="hover:text-ink">
-            {label}
+            {labelsT(label)}
           </Link>
           {" › "}
           <strong>{offering?.title ?? t("detailFallback")}</strong>
@@ -268,7 +270,7 @@ export default function PublicOfferingDetailPage({
         <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
       ) : offering === null ? (
         <div className="join-card text-center">
-          <h1 className="text-lg font-medium">{t("notAccessibleTitle", { label })}</h1>
+          <h1 className="text-lg font-medium">{t("notAccessibleTitle", { label: labelsT(label) })}</h1>
           <p className="mt-2 text-sm text-ink-3">
             {t("notAccessibleDesc")}
           </p>
@@ -279,19 +281,22 @@ export default function PublicOfferingDetailPage({
             <p className="flex items-center gap-2">
               <EventStatusTag status={offering.status} />
               <span className="text-[13px] text-ink-3">
-                {VISIBILITY_LABEL[offering.visibility]}
+                {labelsT(VISIBILITY_LABEL[offering.visibility])}
               </span>
             </p>
             <h1 className="mt-3 text-2xl font-semibold">{offering.title}</h1>
             <div className="mt-4 grid gap-2 text-sm text-ink-3">
               <span>
                 {t("policyLabel", {
-                  policy: ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy],
+                  policy: labelsT(ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]),
                 })}
               </span>
               <span>
                 {t("deadlineLabel", {
-                  deadline: formatDeadline(offering.registrationDeadline),
+                  deadline: formatDeadline(
+                    offering.registrationDeadline,
+                    tCommon("noDeadline"),
+                  ),
                 })}
               </span>
               {offering.description ? (
@@ -368,7 +373,7 @@ export default function PublicOfferingDetailPage({
               ) : myEnroll?.status === "pending" ? (
                 <div className="text-sm" role="status">
                   <p className="font-medium">
-                    {t("pendingApproval", { label })}
+                    {t("pendingApproval", { label: labelsT(label) })}
                   </p>
                   <Link
                     href="/participations"
@@ -379,7 +384,7 @@ export default function PublicOfferingDetailPage({
                 </div>
               ) : myEnroll ? (
                 <div className="text-sm" role="status">
-                  <p className="font-medium">{t("enrolled", { label })}</p>
+                  <p className="font-medium">{t("enrolled", { label: labelsT(label) })}</p>
                   <Link
                     href="/participations"
                     className="mt-3 inline-block text-[13px] text-accent hover:underline"

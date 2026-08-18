@@ -21,12 +21,13 @@ export function RoleChips({
   className?: string;
 }) {
   const t = useTranslations("workspace");
+  const labelsT = useTranslations();
   return (
     <div className={`profile-role-chips ${className}`}>
       {roles.length > 0 ? (
         roles.map((role) => (
           <span key={role} className={roleBadgeClass(role)}>
-            {roleLabel(role)}
+            {labelsT(roleLabel(role))}
           </span>
         ))
       ) : (

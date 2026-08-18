@@ -39,6 +39,7 @@ export default function WorkspaceSettingsPage() {
 	const slug = params?.slug ?? "";
 	const t = useTranslations("workspaceJoinPolicy");
 	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const {
 		ws,
 		readOnlyVisitor,
@@ -152,7 +153,7 @@ export default function WorkspaceSettingsPage() {
 							<span
 								className={`workspace-policy workspace-policy--${effective}`}
 							>
-								{effective ? JOIN_POLICY_LABEL[effective] : ""}
+								{effective ? labelsT(JOIN_POLICY_LABEL[effective]) : ""}
 							</span>
 						</div>
 
@@ -181,13 +182,13 @@ export default function WorkspaceSettingsPage() {
 											setDraftState({ wsId: ws.id, policy });
 											setSaveState(null);
 										}}
-										aria-label={JOIN_POLICY_LABEL[policy]}
+										aria-label={labelsT(JOIN_POLICY_LABEL[policy])}
 									/>
 									<span className="settings-policy-option__label">
-										{JOIN_POLICY_LABEL[policy]}
+										{labelsT(JOIN_POLICY_LABEL[policy])}
 									</span>
 									<span className="settings-policy-option__hint">
-										{JOIN_POLICY_HINT[policy]}
+										{labelsT(JOIN_POLICY_HINT[policy])}
 									</span>
 								</label>
 							))}

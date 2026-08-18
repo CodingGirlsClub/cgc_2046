@@ -42,11 +42,17 @@ export function canManageEvents(roleNames: string[] = []): boolean {
 	return roleNames.some((r) => (MANAGE_ROLE_NAMES as readonly string[]).includes(r));
 }
 
-/** 截止时间展示（中文本地化；null/非法值 → 不设截止） */
-export function formatDeadline(deadline: string | null): string {
-	if (!deadline) return "不设截止";
+/**
+ * 截止时间展示（null/非法值 → undecidedLabel，由调用方传翻译文案）。
+ * 日期格式随 locale 由 toLocaleString 派生。
+ */
+export function formatDeadline(
+	deadline: string | null,
+	undecidedLabel: string,
+): string {
+	if (!deadline) return undecidedLabel;
 	const d = new Date(deadline);
-	if (Number.isNaN(d.getTime())) return "不设截止";
+	if (Number.isNaN(d.getTime())) return undecidedLabel;
 	return d.toLocaleString("zh-CN", {
 		year: "numeric",
 		month: "2-digit",
@@ -184,7 +190,7 @@ export async function createOffering(
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
-		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [{ message: "无响应" }] }
+		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [{ message: "errors.noResponse" }] }
 	);
 }
 
@@ -200,7 +206,7 @@ export async function updateOffering(
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
-		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [{ message: "无响应" }] }
+		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [{ message: "errors.noResponse" }] }
 	);
 }
 
@@ -217,7 +223,7 @@ export async function transitionOffering(
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
 		result[MUTATION_FIELDS[kind][transition]] ??
-		{ result: null, errors: [{ message: "无响应" }] }
+		{ result: null, errors: [{ message: "errors.noResponse" }] }
 	);
 }
 

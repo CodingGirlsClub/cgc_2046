@@ -17,6 +17,7 @@ type OwnerMode = "existing" | "invite";
 
 export default function AdminWorkspacesCreatePage() {
 	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
 	const [joinPolicy, setJoinPolicy] = useState<JoinPolicy>("request");
@@ -144,7 +145,7 @@ export default function AdminWorkspacesCreatePage() {
 					>
 						{(Object.keys(JOIN_POLICY_LABEL) as JoinPolicy[]).map((p) => (
 							<option key={p} value={p}>
-								{JOIN_POLICY_LABEL[p]}
+								{labelsT(JOIN_POLICY_LABEL[p])}
 							</option>
 						))}
 					</select>

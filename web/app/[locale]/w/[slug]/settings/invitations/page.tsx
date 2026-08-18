@@ -37,6 +37,7 @@ import { Icon } from "@/components/icons";
 export default function InvitationsPage() {
 	const t = useTranslations("workspaceInvitations");
 	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
@@ -318,7 +319,7 @@ export default function InvitationsPage() {
 												<div className="invitation-card__roles">
 													{inv.preauthorizedRoleNames.map((role) => (
 														<span className="workspace-role-chip" key={role}>
-															{invitationRoleLabel(role)}
+															{invitationRoleLabel(role, labelsT("labels.memberNoLabel"))}
 														</span>
 													))}
 												</div>
@@ -327,7 +328,7 @@ export default function InvitationsPage() {
 									<span
 										className={`invitation-status ${INVITATION_STATUS_CLASS[inv.status]}`}
 									>
-										{INVITATION_STATUS_LABEL[inv.status]}
+										{labelsT(INVITATION_STATUS_LABEL[inv.status])}
 									</span>
 								</div>
 								{inv.expiresAt && (

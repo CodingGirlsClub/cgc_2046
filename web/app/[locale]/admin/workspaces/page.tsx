@@ -16,6 +16,7 @@ const PAGE_SIZE = 50;
 
 export default function AdminWorkspacesPage() {
 	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [workspaces, setWorkspaces] = useState<AdminWorkspace[] | null>(null);
 	const [search, setSearch] = useState("");
 	const [offset, setOffset] = useState(0);
@@ -123,7 +124,7 @@ export default function AdminWorkspacesPage() {
 										</Link>
 									</td>
 									<td>{ws.slug}</td>
-									<td>{JOIN_POLICY_LABEL[ws.joinPolicy]}</td>
+									<td>{labelsT(JOIN_POLICY_LABEL[ws.joinPolicy])}</td>
 									<td className="admin-table__num">{ws.memberCount}</td>
 									<td>
 										{new Date(ws.insertedAt).toLocaleDateString("zh-CN")}

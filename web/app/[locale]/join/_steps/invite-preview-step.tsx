@@ -13,6 +13,7 @@ export function InvitePreviewStep({
   onAccept,
 }: InvitePreviewStepProps) {
   const t = useTranslations("join");
+  const labelsT = useTranslations();
   return (
     <div className="join-workspace-preview">
       <div className="join-workspace-info">
@@ -24,7 +25,7 @@ export function InvitePreviewStep({
               <span>{t("preauthorizedRoles")}</span>
               {invitation.preauthorizedRoleNames.map((role) => (
                 <span className="workspace-role-chip" key={role}>
-                  {invitationRoleLabel(role)}
+                  {invitationRoleLabel(role, labelsT("labels.memberNoLabel"))}
                 </span>
               ))}
             </div>

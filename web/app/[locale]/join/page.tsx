@@ -50,6 +50,7 @@ type JoinStep =
 function JoinPageInner() {
   const searchParams = useSearchParams();
   const t = useTranslations("join");
+  const labelsT = useTranslations();
   const { authed, confirmed, userId } = useAuthed();
 
   const token = searchParams?.get("token") ?? null;
@@ -77,14 +78,14 @@ function JoinPageInner() {
       return;
     }
     if (inv.status !== "active") {
-      setError(t("inviteStatus", { status: INVITATION_STATUS_LABEL[inv.status] }));
+      setError(t("inviteStatus", { status: labelsT(INVITATION_STATUS_LABEL[inv.status]) }));
       setInvitation(inv);
       setStep("invite-invalid");
       return;
     }
     setInvitation(inv);
     setStep("invite-preview");
-  }, [t]);
+  }, [t, labelsT]);
 
   // token 参数存在时自动校验
   useEffect(() => {

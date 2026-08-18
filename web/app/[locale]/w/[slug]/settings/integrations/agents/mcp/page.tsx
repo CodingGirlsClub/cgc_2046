@@ -29,6 +29,7 @@ import { Icon } from "@/components/icons";
 export default function AgentsMcpPage() {
 	const t = useTranslations("workspaceMcp");
 	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
@@ -66,7 +67,7 @@ export default function AgentsMcpPage() {
 			})
 			.catch((e) => {
 				if (!cancelled)
-					setError(e instanceof Error ? e.message : t("loadFailed"));
+					setError(e instanceof Error ? labelsT(e.message) : t("loadFailed"));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -74,7 +75,7 @@ export default function AgentsMcpPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [ws, t]);
+	}, [ws, t, labelsT]);
 
 	const loadTokens = useCallback(async () => {
 		setLoading(true);
@@ -82,11 +83,11 @@ export default function AgentsMcpPage() {
 		try {
 			setTokens(await fetchMyMcpTokens());
 		} catch (e) {
-			setError(e instanceof Error ? e.message : t("loadFailed"));
+			setError(e instanceof Error ? labelsT(e.message) : t("loadFailed"));
 		} finally {
 			setLoading(false);
 		}
-	}, [t]);
+	}, [t, labelsT]);
 
 	const handleIssue = useCallback(async () => {
 		const name = formName.trim();
@@ -101,11 +102,11 @@ export default function AgentsMcpPage() {
 			setShowForm(false);
 			setFormName("");
 		} catch (e) {
-			setFormError(e instanceof Error ? e.message : t("issueFailed"));
+			setFormError(e instanceof Error ? labelsT(e.message) : t("issueFailed"));
 		} finally {
 			setFormSubmitting(false);
 		}
-	}, [formName, t]);
+	}, [formName, t, labelsT]);
 
 	const handleRevoke = useCallback(async (id: string) => {
 		setRevokingId(id);
@@ -113,12 +114,12 @@ export default function AgentsMcpPage() {
 			const revoked = await revokeMcpToken(id);
 			setTokens((prev) => prev.map((t) => (t.id === id ? revoked : t)));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : t("revokeFailed"));
+			setError(e instanceof Error ? labelsT(e.message) : t("revokeFailed"));
 		} finally {
 			setRevokingId(null);
 			setConfirmRevokeId(null);
 		}
-	}, [t]);
+	}, [t, labelsT]);
 
 	return (
 		<WorkspaceShell slug={slug}>

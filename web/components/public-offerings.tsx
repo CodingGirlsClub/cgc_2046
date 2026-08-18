@@ -30,6 +30,8 @@ interface PageState {
 
 function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: OfferingKind }) {
 	const t = useTranslations("publicOfferings");
+	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const base = kind === "event" ? "/events" : "/courses";
 	return (
 		<Link
@@ -42,8 +44,8 @@ function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: Offering
 					<EventStatusTag status={item.status} />
 				</span>
 				<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-					{ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy]} ·{" "}
-					{t("deadline", { deadline: formatDeadline(item.registrationDeadline) })}
+					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}
+					{t("deadline", { deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")) })}
 				</span>
 			</span>
 			<span className="flex-none text-ink-3">›</span>
@@ -53,6 +55,7 @@ function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: Offering
 
 export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	const t = useTranslations("publicOfferings");
+	const labelsT = useTranslations();
 	const [state, setState] = useState<PageState>({ kind, rows: null, error: null });
 
 	useEffect(() => {
@@ -92,16 +95,16 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 						{t("breadcrumbHome")}
 					</Link>
 					{" › "}
-					<strong>{label}</strong>
+					<strong>{labelsT(label)}</strong>
 				</p>
 				<h1 className="mt-2 text-2xl font-semibold">
-					{t("publicTitle", { label })}
+					{t("publicTitle", { label: labelsT(label) })}
 				</h1>
 				<p className="mt-1 text-sm text-ink-3">
-					{t("publicDesc", { label })}
+					{t("publicDesc", { label: labelsT(label) })}
 				</p>
 				<Link href={otherHref} className="mt-2 inline-block text-sm text-accent">
-					{t("viewOther", { label: OFFERING_LABEL[otherKind] })} ›
+					{t("viewOther", { label: labelsT(OFFERING_LABEL[otherKind]) })} ›
 				</Link>
 			</header>
 
@@ -113,7 +116,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 				<div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
 			) : rows.length === 0 ? (
 				<div className="join-card text-center text-sm text-ink-3">
-					{t("empty", { label })}
+					{t("empty", { label: labelsT(label) })}
 				</div>
 			) : (
 				<div className="grid gap-3">

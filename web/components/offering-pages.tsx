@@ -135,6 +135,8 @@ function OfferingRow({
   kind: OfferingKind;
 }) {
   const t = useTranslations("offerings");
+  const tCommon = useTranslations("common");
+  const labelsT = useTranslations();
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
   return (
     <Link
@@ -149,13 +151,16 @@ function OfferingRow({
           <EventStatusTag status={offering.status} />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-5 text-ink-3">
-          <span>{ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]}</span>
+          <span>{labelsT(ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy])}</span>
           <span>·</span>
-          <span>{VISIBILITY_LABEL[offering.visibility]}</span>
+          <span>{labelsT(VISIBILITY_LABEL[offering.visibility])}</span>
           <span>·</span>
           <span>
             {t("deadlineLabel", {
-              deadline: formatDeadline(offering.registrationDeadline),
+              deadline: formatDeadline(
+                offering.registrationDeadline,
+                tCommon("noDeadline"),
+              ),
             })}
           </span>
         </span>
@@ -176,6 +181,7 @@ export function OfferingsListPage({
 }) {
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
+  const labelsT = useTranslations();
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
   const [state, setState] = useState<OfferingsState>({
     wsId: "",
@@ -225,13 +231,13 @@ export function OfferingsListPage({
           <span>›</span>
           <Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
           <span>›</span>
-          <strong>{label}</strong>
+          <strong>{labelsT(label)}</strong>
         </div>
 
         <header className="ws-page-heading">
           <div>
-            <h1>{label}</h1>
-            <p>{t("subtitle", { label })}</p>
+            <h1>{labelsT(label)}</h1>
+            <p>{t("subtitle", { label: labelsT(label) })}</p>
           </div>
           {manage && ws ? (
             <Link
@@ -239,7 +245,7 @@ export function OfferingsListPage({
               className="inline-flex items-center gap-2 rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink"
             >
               <Icon name="plus" />
-              {t("createNew", { label })}
+              {t("createNew", { label: labelsT(label) })}
             </Link>
           ) : null}
         </header>
@@ -252,8 +258,8 @@ export function OfferingsListPage({
           <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
         ) : rows.length === 0 ? (
           <div className="rounded-large border border-dashed border-line bg-card p-10 text-center text-sm text-ink-3">
-            {t("empty", { label })}
-            {manage ? t("emptyCreateHint", { label }) : t("emptyWaitHint")}
+            {t("empty", { label: labelsT(label) })}
+            {manage ? t("emptyCreateHint", { label: labelsT(label) }) : t("emptyWaitHint")}
           </div>
         ) : (
           <div className="grid gap-3">
@@ -333,6 +339,7 @@ export function OfferingDetailPage({
 }) {
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
+  const labelsT = useTranslations();
   const {
     ws,
     readOnlyVisitor,
@@ -678,7 +685,7 @@ export function OfferingDetailPage({
           <span>›</span>
           <Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
           <span>›</span>
-          <Link href={base}>{label}</Link>
+          <Link href={base}>{labelsT(label)}</Link>
           <span>›</span>
           <strong>{offering?.title ?? t("detailFallback")}</strong>
         </div>
@@ -690,7 +697,7 @@ export function OfferingDetailPage({
         ) : offering === null && !stale ? (
           <div className="join-card text-center">
             <h1 className="text-lg font-medium">
-              {t("notAccessible", { label })}
+              {t("notAccessible", { label: labelsT(label) })}
             </h1>
             <p className="mt-2 text-sm text-ink-3">{t("notAccessibleDesc")}</p>
           </div>
@@ -704,7 +711,7 @@ export function OfferingDetailPage({
                 <p className="flex items-center gap-2">
                   <EventStatusTag status={offering.status} />
                   <span className="text-ink-3">
-                    {VISIBILITY_LABEL[offering.visibility]}
+                    {labelsT(VISIBILITY_LABEL[offering.visibility])}
                   </span>
                 </p>
               </div>
@@ -717,10 +724,13 @@ export function OfferingDetailPage({
                 </h2>
                 <div className="mt-4 grid gap-4">
                   <Field label={t("fieldPolicy")}>
-                    {ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]}
+                    {labelsT(ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy])}
                   </Field>
                   <Field label={t("fieldDeadline")}>
-                    {formatDeadline(offering.registrationDeadline)}
+                    {formatDeadline(
+                      offering.registrationDeadline,
+                      tCommon("noDeadline"),
+                    )}
                   </Field>
                   <Field label={t("fieldCapacity")}>
                     {offering.capacity === null
@@ -828,7 +838,7 @@ export function OfferingDetailPage({
                       >
                         {ENROLLMENT_POLICIES.map((p) => (
                           <option key={p} value={p}>
-                            {ENROLLMENT_POLICY_LABEL[p]}
+                            {labelsT(ENROLLMENT_POLICY_LABEL[p])}
                           </option>
                         ))}
                       </select>
@@ -964,11 +974,11 @@ export function OfferingDetailPage({
                     </div>
                   ) : enrollState.enrollment?.status === "pending" ? (
                     <p className="text-[13px] text-ink-3">
-                      {t("pendingApproval", { label })}
+                      {t("pendingApproval", { label: labelsT(label) })}
                     </p>
                   ) : enrollState.enrollment ? (
                     <p className="text-[13px] text-ink-3">
-                      {t("enrolled", { label })}
+                      {t("enrolled", { label: labelsT(label) })}
                     </p>
                   ) : (
                     <div className="grid gap-3">
@@ -1066,7 +1076,7 @@ export function OfferingDetailPage({
                             : "border-line text-ink-3 hover:border-line-strong"
                         }`}
                       >
-                        {VISIBILITY_LABEL[v]}
+                        {labelsT(VISIBILITY_LABEL[v])}
                       </button>
                     ))}
                   </div>
@@ -1084,8 +1094,8 @@ export function OfferingDetailPage({
                           aria-live="polite"
                         >
                           {tr === "close"
-                            ? t("transitionConfirmClose", { label })
-                            : t("transitionConfirmCancel", { label })}
+                            ? t("transitionConfirmClose", { label: labelsT(label) })
+                            : t("transitionConfirmCancel", { label: labelsT(label) })}
                         </p>
                         <div className="mt-2 flex gap-2">
                           <button
@@ -1132,7 +1142,7 @@ export function OfferingDetailPage({
                   )}
                   {transitions.length === 0 ? (
                     <span className="text-[13px] text-ink-3">
-                      {t("terminalNote", { label })}
+                      {t("terminalNote", { label: labelsT(label) })}
                     </span>
                   ) : null}
                 </div>
@@ -1231,6 +1241,7 @@ export function OfferingNewPage({
 }) {
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
+  const labelsT = useTranslations();
   const router = useRouter();
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
 
@@ -1288,9 +1299,9 @@ export function OfferingNewPage({
       <WorkspaceShell slug={slug}>
         <div className="ws-page-main__inner">
           <div className="rounded-large border border-line bg-card p-10 text-center text-sm text-ink-3">
-            {t("ownerOnly", { label })}
+            {t("ownerOnly", { label: labelsT(label) })}
             <Link href={base} className="ml-2 text-accent">
-              {t("backToList", { label })}
+              {t("backToList", { label: labelsT(label) })}
             </Link>
           </div>
         </div>
@@ -1309,14 +1320,14 @@ export function OfferingNewPage({
           <span>›</span>
           <Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
           <span>›</span>
-          <Link href={base}>{label}</Link>
+          <Link href={base}>{labelsT(label)}</Link>
           <span>›</span>
-          <strong>{t("createTitle", { label })}</strong>
+          <strong>{t("createTitle", { label: labelsT(label) })}</strong>
         </div>
 
         <header className="ws-page-heading">
           <div>
-            <h1>{t("createTitle", { label })}</h1>
+            <h1>{t("createTitle", { label: labelsT(label) })}</h1>
             <p>{t("createSubtitle")}</p>
           </div>
         </header>
@@ -1347,7 +1358,7 @@ export function OfferingNewPage({
               >
                 {ENROLLMENT_POLICIES.map((p) => (
                   <option key={p} value={p}>
-                    {ENROLLMENT_POLICY_LABEL[p]}
+                    {labelsT(ENROLLMENT_POLICY_LABEL[p])}
                   </option>
                 ))}
               </select>
@@ -1369,7 +1380,7 @@ export function OfferingNewPage({
                         : "border-line text-ink-3 hover:border-line-strong"
                     }`}
                   >
-                    {VISIBILITY_LABEL[v]}
+                    {labelsT(VISIBILITY_LABEL[v])}
                   </button>
                 ))}
               </div>
@@ -1408,7 +1419,7 @@ export function OfferingNewPage({
               onClick={() => void submit()}
               className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
             >
-              {busy ? t("creating") : t("create", { label })}
+              {busy ? t("creating") : t("create", { label: labelsT(label) })}
             </button>
           </div>
         </div>

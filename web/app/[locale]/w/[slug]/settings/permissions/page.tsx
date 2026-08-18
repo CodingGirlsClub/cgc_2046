@@ -50,13 +50,14 @@ function PermissionCell({
 	ability: PermissionAbility;
 }) {
 	const t = useTranslations("workspacePermissions");
+	const labelsT = useTranslations();
 	const allowed = row.abilities[ability];
 	return (
 		<td
 			className={`permissions-matrix__cell ${allowed ? "permissions-matrix__cell--allowed" : "permissions-matrix__cell--denied"}`}
 			data-testid={`cell-${row.role}-${ability}`}
 			aria-label={t("cellAria", {
-				role: roleLabel(row.role),
+				role: labelsT(roleLabel(row.role)),
 				ability,
 				state: allowed ? t("allowed") : t("denied"),
 			})}
@@ -99,6 +100,7 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 		rowsByRole.get(role),
 	).filter((row): row is PermissionMatrixRow => Boolean(row));
 	const t = useTranslations("workspacePermissions");
+	const labelsT = useTranslations();
 
 	return (
 		<section className="permissions-matrix-card" aria-label={t("matrixTitle")}>
@@ -114,7 +116,7 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 							{PERMISSION_ROLE_ORDER.map((role) => (
 								<th key={role} scope="col">
 									<span className="permissions-role-header">
-										{roleLabel(role)}
+										{labelsT(roleLabel(role))}
 									</span>
 								</th>
 							))}
@@ -128,7 +130,7 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 									data-testid={`permission-row-${ability.id}`}
 								>
 									<th scope="row" className="permissions-ability-label">
-										<strong>{ability.label}</strong>
+										<strong>{labelsT(ability.label)}</strong>
 										{ability.id === "assign_roles" && (
 											<small>
 												<Icon name="info" size={14} />
@@ -161,6 +163,7 @@ function ExampleCard({
 	myRoles: MembershipRoleName[];
 }) {
 	const t = useTranslations("workspacePermissions");
+	const labelsT = useTranslations();
 	return (
 		<aside
 			className="permissions-example-card"
@@ -176,7 +179,7 @@ function ExampleCard({
 						{myRoles.length > 0 ? (
 							myRoles.map((role) => (
 								<span key={role} className={roleBadgeClass(role)}>
-									{roleLabel(role)}
+									{labelsT(roleLabel(role))}
 								</span>
 							))
 						) : (
@@ -200,7 +203,7 @@ function ExampleCard({
 							>
 								{allowed ? "○" : "⊘"}
 							</span>
-							<span>{ability.label}</span>
+							<span>{labelsT(ability.label)}</span>
 							<strong
 								className={
 									allowed

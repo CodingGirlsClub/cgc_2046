@@ -26,6 +26,7 @@ export function WorkspacePreviewStep({
 }: WorkspacePreviewStepProps) {
   const [message, setMessage] = useState("");
   const t = useTranslations("join");
+  const labelsT = useTranslations();
 
   return (
     <div className="join-workspace-preview">
@@ -35,10 +36,10 @@ export function WorkspacePreviewStep({
         <span
           className={`workspace-policy workspace-policy--${workspace.joinPolicy}`}
         >
-          {JOIN_POLICY_LABEL[workspace.joinPolicy]}
+          {labelsT(JOIN_POLICY_LABEL[workspace.joinPolicy])}
         </span>
         <p className="join-policy-hint">
-          {JOIN_POLICY_HINT[workspace.joinPolicy]}
+          {labelsT(JOIN_POLICY_HINT[workspace.joinPolicy])}
         </p>
       </div>
 

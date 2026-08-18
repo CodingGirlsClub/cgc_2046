@@ -88,6 +88,7 @@ function RunCard({
 	workspaceId: string;
 }) {
 	const t = useTranslations("workspaceWorkflows");
+	const labelsT = useTranslations();
 	const statusLabel = WORKFLOW_RUN_STATUS_LABEL[run.status] ?? run.status;
 	const hasFacts = Object.keys(run.facts).length > 0;
 	const pending = pendingManualSteps(run);
@@ -105,7 +106,7 @@ function RunCard({
 						className={`workflows-status workflows-status--${run.status}`}
 						data-testid="workflow-run-status"
 					>
-						{statusLabel}
+						{labelsT(statusLabel)}
 					</span>
 					{run.definitionType && (
 						<span className="workflows-run__type">{run.definitionType}</span>

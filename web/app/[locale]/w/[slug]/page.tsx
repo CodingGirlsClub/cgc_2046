@@ -33,6 +33,7 @@ export default function WorkspacePage() {
 	const slug = params?.slug ?? "";
 	const t = useTranslations("workspaceOverview");
 	const bcT = useTranslations("common");
+	const labelsT = useTranslations();
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
 	return (
@@ -73,9 +74,9 @@ export default function WorkspacePage() {
 								<strong
 									className={`workspace-policy workspace-policy--${ws.joinPolicy}`}
 								>
-									{JOIN_POLICY_LABEL[ws.joinPolicy]}
+									{labelsT(JOIN_POLICY_LABEL[ws.joinPolicy])}
 								</strong>
-								<p>{JOIN_POLICY_HINT[ws.joinPolicy]}</p>
+								<p>{labelsT(JOIN_POLICY_HINT[ws.joinPolicy])}</p>
 							</div>
 						</div>
 
@@ -83,9 +84,9 @@ export default function WorkspacePage() {
 						<div className="workspace-info-grid">
 							<InfoCard icon="community" title={t("joinMethod")}>
 								<strong className="workspace-info-card__value">
-									{JOIN_POLICY_LABEL[ws.joinPolicy]}
+									{labelsT(JOIN_POLICY_LABEL[ws.joinPolicy])}
 								</strong>
-								<p>{JOIN_POLICY_HINT[ws.joinPolicy]}</p>
+								<p>{labelsT(JOIN_POLICY_HINT[ws.joinPolicy])}</p>
 							</InfoCard>
 							<InfoCard icon="role" title={t("myRoles")}>
 								<RoleChips roles={getWorkspaceRoles(ws)} />

@@ -18,6 +18,7 @@ import { useAuthed } from "@/lib/use-authed";
 
 export default function ApplyPage() {
 	const t = useTranslations("apply");
+	const labelsT = useTranslations();
 	const { authed, confirmed, userId } = useAuthed();
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
@@ -178,7 +179,7 @@ export default function ApplyPage() {
 								<div className="flex items-center justify-between">
 									<span className="font-medium">{app.name}</span>
 									<span className={APPLICATION_STATUS_CLASS[app.status]}>
-										{APPLICATION_STATUS_LABEL[app.status]}
+										{labelsT(APPLICATION_STATUS_LABEL[app.status])}
 									</span>
 								</div>
 								<div className="text-xs text-neutral-500 mt-1">{app.slug}</div>

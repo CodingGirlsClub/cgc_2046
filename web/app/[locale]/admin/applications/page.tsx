@@ -29,6 +29,7 @@ function handlerShortId(app: AdminWorkspaceApplication): string {
 
 export default function AdminApplicationsPage() {
 	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [applications, setApplications] = useState<AdminWorkspaceApplication[] | null>(null);
 	const [status, setStatus] = useState<"pending" | "all">("pending");
 	const [loading, setLoading] = useState(false);
@@ -159,7 +160,7 @@ export default function AdminApplicationsPage() {
 									<td>{app.purpose}</td>
 									<td>
 										<span className={APPLICATION_STATUS_CLASS[app.status]}>
-											{APPLICATION_STATUS_LABEL[app.status]}
+											{labelsT(APPLICATION_STATUS_LABEL[app.status])}
 										</span>
 										{app.rejectionReason && (
 											<span className="admin-table__sub">

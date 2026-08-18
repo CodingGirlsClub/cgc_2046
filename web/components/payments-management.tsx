@@ -46,6 +46,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {
+	const labelsT = useTranslations();
 	return (
 		<span
 			data-testid={`order-badge-${status}`}
@@ -53,7 +54,7 @@ export function OrderStatusBadge({ status }: { status: string }) {
 				STATUS_BADGE_CLASS[status] ?? "border-line text-ink-3"
 			}`}
 		>
-			{ORDER_STATUS_LABEL[status] ?? status}
+			{labelsT(ORDER_STATUS_LABEL[status] ?? status)}
 		</span>
 	);
 }
@@ -124,6 +125,7 @@ interface OrderRowActions {
 
 function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowActions) {
 	const t = useTranslations("payments");
+	const labelsT = useTranslations();
 	const canRefund = manage && order.status === "paid";
 	const canWaive = manage && order.enrollmentStatus === "payment_pending";
 
@@ -133,7 +135,7 @@ function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowAct
 			<td className="px-3 py-2 text-[13px] text-ink-2">{order.tierName ?? "—"}</td>
 			<td className="px-3 py-2 text-[13px] text-ink-2">¥{formatAmount(order.amountCents)}</td>
 			<td className="px-3 py-2 text-[13px] text-ink-3">
-				{PROVIDER_LABEL[order.provider] ?? order.provider}
+				{labelsT(PROVIDER_LABEL[order.provider] ?? order.provider)}
 			</td>
 			<td className="px-3 py-2">
 				<OrderStatusBadge status={order.status} />
@@ -177,15 +179,16 @@ export default function PaymentsManagement({
 }) {
 	const translatePaymentError = usePaymentErrorTranslator();
 	const t = useTranslations("payments");
+	const labelsT = useTranslations();
 	const statusFilters = [
 		{ value: "", label: t("filterAll") },
-		{ value: "pending", label: ORDER_STATUS_LABEL.pending },
-		{ value: "paid", label: ORDER_STATUS_LABEL.paid },
-		{ value: "refunding", label: ORDER_STATUS_LABEL.refunding },
-		{ value: "refunded", label: ORDER_STATUS_LABEL.refunded },
-		{ value: "refund_failed", label: ORDER_STATUS_LABEL.refund_failed },
-		{ value: "cancelled", label: ORDER_STATUS_LABEL.cancelled },
-		{ value: "expired", label: ORDER_STATUS_LABEL.expired },
+		{ value: "pending", label: labelsT(ORDER_STATUS_LABEL.pending) },
+		{ value: "paid", label: labelsT(ORDER_STATUS_LABEL.paid) },
+		{ value: "refunding", label: labelsT(ORDER_STATUS_LABEL.refunding) },
+		{ value: "refunded", label: labelsT(ORDER_STATUS_LABEL.refunded) },
+		{ value: "refund_failed", label: labelsT(ORDER_STATUS_LABEL.refund_failed) },
+		{ value: "cancelled", label: labelsT(ORDER_STATUS_LABEL.cancelled) },
+		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
 	];
 	const [statusFilter, setStatusFilter] = useState("");
 	const [orders, setOrders] = useState<Order[]>([]);

@@ -58,7 +58,7 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 		});
 	});
 
-	it("存量 member 预授权映射为成员（无标签）", () => {
+	it("存量 member 预授权原样保留（展示标签在渲染层经 invitationRoleLabel 翻译）", () => {
 		const item = mapInvitation({
 			id: "inv_legacy",
 			workspaceId: "ws_1",
@@ -68,7 +68,7 @@ describe("mapInvitation（后端 Invitation → 前端 InvitationItem）", () =>
 			status: "active",
 		});
 
-		expect(item.preauthorizedRoleNames).toEqual(["成员（无标签）"]);
+		expect(item.preauthorizedRoleNames).toEqual(["member"]);
 	});
 
 	it("used 状态映射（含接受人/时间）", () => {

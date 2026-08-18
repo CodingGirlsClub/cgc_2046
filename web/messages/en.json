@@ -27,7 +27,15 @@
 		"enrollment_invite_quota_unavailable": "The invite quota is used up. Please contact the organizer.",
 		"enrollment_tier_id_required": "This is a paid enrollment. Please select a pricing tier first.",
 		"enrollment_tier_not_available": "The selected tier is expired or unavailable. Please choose again.",
-		"order_enrollment_required": "Missing enrollment info. Please start the enrollment again."
+		"order_enrollment_required": "Missing enrollment info. Please start the enrollment again.",
+		"noResponse": "No response",
+		"submitApplicationFailed": "Failed to submit application",
+		"approveRequestFailed": "Failed to approve request",
+		"rejectRequestFailed": "Failed to reject request",
+		"createWorkspaceFailed": "Failed to create workspace",
+		"reassignOwnerFailed": "Failed to reassign Owner",
+		"issueMcpTokenFailed": "Failed to issue, please try again later",
+		"revokeMcpTokenFailed": "Failed to revoke, please try again later"
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -235,6 +243,59 @@
 		"emptyDesc": "Join a workspace to start collaborating with your team.",
 		"discover": "Discover / apply to join a workspace",
 		"myParticipations": "My participations"
+	},
+	"inviteBatch": {
+		"statusActive": "Active",
+		"statusDisabled": "Disabled",
+		"statusExpired": "Expired",
+		"statusExhausted": "Used up",
+		"noExpiry": "No expiry",
+		"invalidTime": "Invalid time",
+		"createErrorTaken": "This invite code is already in use; invite codes are unique across the platform, please choose another.",
+		"createErrorFallback": "Failed to create. Please review and retry.",
+		"disableErrorFallback": "Failed to disable. Please retry.",
+		"listRefreshFailed": "Failed to refresh the list",
+		"pageLoadFailed": "Failed to load page",
+		"loadMoreError": "Failed to load more. Please retry.",
+		"errorCodeRequired": "Please enter an invite code",
+		"errorCodeInvalid": "Invite codes may only contain letters, numbers, underscores, or hyphens (up to 64 characters)",
+		"errorQuotaMin": "Quota must be at least 1",
+		"errorExpiryPast": "Expiry time must be later than now",
+		"createSuccess": "Batch code created",
+		"title": "Batch code management",
+		"desc": "Create reusable sign-up invite codes for this {label} and disable issued batch codes at any time.",
+		"inviteCode": "Invite code",
+		"generate": "Generate",
+		"inviteCodeHelp": "Invite codes are unique across the platform and cannot be reused across events; they can still be edited after generation.",
+		"quota": "Quota",
+		"quotaHelp": "Maximum number of people who can sign up per invite code.",
+		"expiresAt": "Expiry time (optional)",
+		"expiresAtHelp": "Enter in your local timezone; converted to UTC on submit.",
+		"remark": "Remark (optional)",
+		"remarkHelp": "Usage note visible to admins.",
+		"cannotCreate": "Batch codes cannot be created in the current status",
+		"creating": "Creating…",
+		"create": "Create batch code",
+		"listTitle": "Batch code list",
+		"listError": "Failed to load batch codes: {message}",
+		"retrying": "Retrying…",
+		"retry": "Retry",
+		"loadingAria": "Loading batch codes",
+		"loading": "Loading…",
+		"empty": "No batch codes yet",
+		"usedCount": "{used}/{total} used",
+		"remarkValue": "Remark: {remark}",
+		"copyAria": "Copy invite code",
+		"copied": "Copied",
+		"copyManual": "Please copy the invite code manually",
+		"copy": "Copy",
+		"disable": "Disable",
+		"disableConfirm": "Disable this batch? Its remaining quota will be immediately voided and cannot be recovered.",
+		"submitting": "Submitting…",
+		"disableRetry": "Retry disable",
+		"confirmDisable": "Confirm disable",
+		"cancel": "Cancel",
+		"loadMore": "Load more"
 	},
 	"publicOfferings": {
 		"loadFailed": "Failed to load",
@@ -808,7 +869,9 @@
 	},
 	"common": {
 		"breadcrumbAria": "Breadcrumb",
-		"loadingAria": "Loading"
+		"loadingAria": "Loading",
+		"noDeadline": "No deadline",
+		"redirectingToDefaultProfile": "Redirecting to your default workspace profile…"
 	},
 	"participations": {
 		"cancelConfirm": "Cancelling releases the slot immediately. This cannot be undone.",
@@ -1334,5 +1397,268 @@
 		"noOrphans": "No orphans found.",
 		"openclackyDesc": "OpenClacky is the enterprise edition of Coding Girls Club's AI collaboration platform, built for deep team research collaboration. It runs on a separate server (oc.codingirlsclub.com) with its own authentication — platform accounts don't affect OpenClacky.",
 		"goOpenclacky": "Go to OpenClacky (oc.codingirlsclub.com)"
+	},
+	"permissions": {
+		"ability": {
+			"view_workspace": {
+				"label": "View workspace",
+				"description": "View the current Workspace overview and basic info."
+			},
+			"access_invite_only": {
+				"label": "Access invite-only",
+				"description": "Access Workspaces whose join policy is invite_only."
+			},
+			"list_members": {
+				"label": "View member list",
+				"description": "View the current Workspace's member list and the union of member roles."
+			},
+			"manage_members": {
+				"label": "Manage members",
+				"description": "Add, remove, or manage membership in the current Workspace."
+			},
+			"assign_roles": {
+				"label": "Assign roles",
+				"description": "Adjust roles other than Owner on the members page; Owner changes use a dedicated handoff flow."
+			},
+			"update_join_policy": {
+				"label": "Change join policy",
+				"description": "Switch the current Workspace's join mode (open / by request / invite-only)."
+			},
+			"create_workspace": {
+				"label": "Create workspace",
+				"description": "Create a new Workspace (platform-level ability, not granted per role in the matrix)."
+			}
+		},
+		"roleNote": {
+			"owner": "Full Workspace management abilities; Owner changes use a dedicated handoff flow.",
+			"admin": "Manage members and assign non-Owner roles within the workspace.",
+			"tutor": "Member baseline + differential tag (currently equivalent abilities, used for workflow step authorization and division of labor)",
+			"volunteer": "Member baseline + differential tag (currently equivalent abilities, used for workflow step authorization and division of labor)",
+			"learner": "Member baseline + differential tag (currently equivalent abilities, used for workflow step authorization and division of labor)"
+		}
+	},
+	"labels": {
+		"eventStatus": {
+			"draft": "Draft",
+			"open": "Open",
+			"closed": "Closed",
+			"cancelled": "Cancelled"
+		},
+		"visibility": {
+			"public": "Public",
+			"workspace": "Workspace only"
+		},
+		"enrollmentPolicy": {
+			"open": "Open enrollment",
+			"request": "By request",
+			"invite_only": "Invite only"
+		},
+		"offeringKind": {
+			"event": "Event",
+			"course": "Course"
+		},
+		"joinPolicy": {
+			"open": "Open",
+			"request": "By request",
+			"invite_only": "Invite only"
+		},
+		"joinPolicyHint": {
+			"open": "Open, join directly",
+			"request": "Open, approval required",
+			"invite_only": "Private, invite only"
+		},
+		"role": {
+			"owner": "Owner",
+			"admin": "Admin",
+			"tutor": "Tutor",
+			"volunteer": "Volunteer",
+			"learner": "Learner"
+		},
+		"roleZh": {
+			"owner": "Owner",
+			"admin": "Admin",
+			"tutor": "Coach",
+			"volunteer": "Volunteer",
+			"learner": "Learner"
+		},
+		"enrollmentStatus": {
+			"pending": "Pending approval",
+			"payment_pending": "Payment pending",
+			"confirmed": "Confirmed",
+			"rejected": "Rejected",
+			"expired": "Approval expired",
+			"cancelled": "Cancelled"
+		},
+		"sponsorshipStatus": {
+			"pending": "Pending approval",
+			"active": "Active",
+			"rejected": "Rejected",
+			"expired": "Expired",
+			"ended": "Ended"
+		},
+		"learningRunStatus": {
+			"running": "In progress",
+			"waiting": "Waiting",
+			"succeeded": "Completed",
+			"failed": "Failed"
+		},
+		"workflowStatus": {
+			"pending": "Pending",
+			"running": "Running",
+			"waiting": "Awaiting approval",
+			"succeeded": "Completed",
+			"failed": "Failed",
+			"cancelled": "Cancelled",
+			"expired": "Expired"
+		},
+		"joinRequestStatus": {
+			"pending": "Pending approval",
+			"approved": "Approved",
+			"rejected": "Rejected",
+			"expired": "Expired"
+		},
+		"speakerStatus": {
+			"invited": "Invited",
+			"accepted": "Accepted",
+			"declined": "Declined",
+			"completed": "Completed"
+		},
+		"invitationStatus": {
+			"active": "Active",
+			"used": "Used",
+			"revoked": "Revoked",
+			"expired": "Expired"
+		},
+		"reconRule": {
+			"confirmed_enrollment_without_run": "Enrollment without a learning run",
+			"pending_without_deadline": "Pending without deadline",
+			"active_sponsorship_signal_dead": "Active sponsorship, dead signal",
+			"open_entity_without_research_definition": "Open entity without research definition",
+			"nonterminal_research_run_for_closed_entity": "Closed entity with active research run",
+			"dead_letter_job": "Dead letter job",
+			"learning_run_stalled": "Learning run stalled"
+		},
+		"reconEntity": {
+			"enrollment": "Enrollment",
+			"sponsorship": "Sponsorship",
+			"join_request": "Join request",
+			"workspace_application": "Workspace application",
+			"event": "Event",
+			"course": "Course"
+		},
+		"applicationStatus": {
+			"pending": "Pending",
+			"approved": "Approved",
+			"rejected": "Rejected",
+			"expired": "Expired"
+		},
+		"visibilityFull": {
+			"public": "Public",
+			"workspace": "Workspace",
+			"only_me": "Only me"
+		},
+		"visibilityOption": {
+			"public": "Public (visible to all signed-in users)",
+			"workspace": "Workspace (visible to same-workspace users)",
+			"only_me": "Only me"
+		},
+		"visibilityFooter": {
+			"public": "Your profile is public to all signed-in users.",
+			"workspace": "Your profile is visible within the workspace.",
+			"only_me": "Your profile is visible only to you."
+		},
+		"provider": {
+			"wechat_jsapi": "WeChat (mini program)",
+			"wechat_native": "WeChat scan",
+			"alipay_page": "Alipay (desktop)",
+			"alipay_wap": "Alipay (mobile)",
+			"alipay_qr": "Alipay scan"
+		},
+		"orderStatus": {
+			"pending": "Pending payment",
+			"paid": "Paid",
+			"refunding": "Refunding",
+			"refunded": "Refunded",
+			"refund_failed": "Refund failed",
+			"cancelled": "Cancelled",
+			"expired": "Expired"
+		},
+		"credentialReason": {
+			"invalid": "Invalid credential",
+			"missing": "Missing credential",
+			"unknown": "Unknown credential type",
+			"wechat_jsapi": "Pay in the WeChat mini program for a faster checkout"
+		},
+		"memberNoLabel": "Member (no label)",
+		"profile": {
+			"nameUnset": "Display name not set",
+			"locationUnset": "Not set",
+			"aboutUnset": "No bio"
+		}
+	},
+	"learning": {
+		"tabLearning": "Learning",
+		"tabEnrollments": "Enrollments",
+		"tabSponsorships": "Sponsorships",
+		"navAria": "My participations sections",
+		"agentPrompt1": "Please study {title} with me — issue {key} “{issue}”.",
+		"agentGoal": "Goal:{goal}",
+		"agentGoalFallback": "(see course content)",
+		"agentPrompt2": "Follow the learning Agent's eight-step loop: first read my learning records and the course content, then continue from the current progress.",
+		"empty": "No courses in progress. Enroll and confirm a course and your progress will show here.",
+		"unnamedCourse": "Unnamed course",
+		"processing": "Processing",
+		"learningInProgress": "Learning in progress",
+		"progressLabel": "Progress: {done}/{total} sections",
+		"copyPrompt": "Copy the following instructions to your OpenClacky session:",
+		"dialogAria": "Learning details",
+		"loading": "Loading…",
+		"detailTitle": "Learning details",
+		"doneLabel": "sections done",
+		"currentLabel": " · current {key}",
+		"close": "Close",
+		"loadError": "Failed to load learning details. Please refresh and retry.",
+		"doneCountLabel": "{done}/{total} done",
+		"goalLabel": "Goal:",
+		"givenLabel": "Prerequisites:{given}",
+		"materialLabel": "Material: {title}",
+		"evidenceLabel": "Evidence: {evidence}",
+		"copiedInstruction": "Instructions copied",
+		"tutorThisSection": "Study this section with a tutor",
+		"copyHint1": "Copy the learning instructions, then paste them into your OpenClacky",
+		"copyHint2": "session to start this section; learning records sync back automatically. Not connected? See",
+		"integrationSettings": "Integration settings",
+		"issueStatusTodo": "Not started",
+		"issueStatusInProgress": "In progress",
+		"issueStatusDone": "Done",
+		"issueKindThoughtwork": "Think",
+		"issueKindHandwork": "Build",
+		"courseMapTitle": "Course map",
+		"courseMapGoalDesc": "After completing all units, you'll be able to:{goals}"
+	},
+	"profileAvatar": {
+		"typeError": "Only {types} formats are supported",
+		"sizeError": "File size cannot exceed {max}MB",
+		"readError": "Failed to read the file. Please try again.",
+		"avatarAlt": "Avatar of {name}",
+		"changeAvatar": "Change avatar"
+	},
+	"schemaOutput": {
+		"otherLabel": "Other"
+	},
+	"stepHandoff": {
+		"toolHint": "Tool hint: write back to this step with save_step_output",
+		"copied": "Copied",
+		"failed": "Copy failed"
+	},
+	"themeToggle": {
+		"toggleLight": "Switch to light theme",
+		"toggleDark": "Switch to dark theme",
+		"lightTheme": "Light theme",
+		"darkTheme": "Dark theme",
+		"currentLight": "Current theme: light",
+		"currentDark": "Current theme: dark",
+		"light": "Light",
+		"dark": "Dark"
 	}
 }

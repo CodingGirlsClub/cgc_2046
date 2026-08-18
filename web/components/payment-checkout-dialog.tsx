@@ -30,6 +30,7 @@ import {
   type PaymentProvider,
 } from "@/lib/graphql/orders";
 import {
+  CREDENTIAL_REASON_LABEL,
   PROVIDER_LABEL,
   WEB_ENABLED_PROVIDERS,
   countdownText,
@@ -88,6 +89,7 @@ export default function PaymentCheckoutDialog({
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("checkout");
+  const labelsT = useTranslations();
   const [phase, setPhase] = useState<Phase>("checking");
   const [order, setOrder] = useState<CheckoutOrder | null>(null);
   const [credential, setCredential] = useState<unknown>(null);
@@ -295,7 +297,7 @@ export default function PaymentCheckoutDialog({
   }, [dispatch]);
 
   const qrDataUrl = dispatch.mode === "qr" ? generatedQr : null;
-  const remain = countdownText(nowMs, order?.expireAt);
+  const remain = countdownText(nowMs, order?.expireAt, t("countdownExpired"));
   const expired = remain === t("countdownExpired") && !paid;
   // 复用活单但凭据丢失（sessionStorage 焚毁/跨 tab 下单）：换渠道恢复引导
   // （订单页同款口径：非当前渠道按钮 primary 高亮）
@@ -432,7 +434,7 @@ export default function PaymentCheckoutDialog({
                             : "flex items-center justify-center rounded-large border border-line bg-card px-3 py-3 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
                       }
                     >
-                      {PROVIDER_LABEL[p]}
+                      {labelsT(PROVIDER_LABEL[p])}
                     </button>
                   );
                 })}
@@ -494,7 +496,7 @@ export default function PaymentCheckoutDialog({
                   >
                     {credentialLost
                       ? t("credentialLost")
-                      : dispatch.reason}
+                      : labelsT(CREDENTIAL_REASON_LABEL[dispatch.reason])}
                   </p>
                 )}
               </div>

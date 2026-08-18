@@ -96,8 +96,8 @@ describe("events 展示词表", () => {
 			"open",
 			"request",
 		]);
-		expect(OFFERING_LABEL.event).toBe("活动");
-		expect(OFFERING_LABEL.course).toBe("课程");
+		expect(OFFERING_LABEL.event).toBe("labels.offeringKind.event");
+		expect(OFFERING_LABEL.course).toBe("labels.offeringKind.course");
 	});
 });
 

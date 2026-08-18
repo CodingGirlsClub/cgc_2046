@@ -28,6 +28,7 @@ import {
 } from "@/lib/graphql/orders";
 import { useAuthed } from "@/lib/use-authed";
 import {
+  CREDENTIAL_REASON_LABEL,
   PROVIDER_LABEL,
   WEB_ENABLED_PROVIDERS,
   countdownText,
@@ -58,6 +59,7 @@ export default function OrderDetailPage() {
   const { authed, confirmed } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("orders");
+  const labelsT = useTranslations();
 
   const [order, setOrder] = useState<Order | null>(null);
   // 下单页交接凭据（sessionStorage 读后即焚；lazy init 避免 effect 内 setState）
@@ -216,7 +218,7 @@ export default function OrderDetailPage() {
     );
   }
 
-  const remain = countdownText(nowMs, order?.expireAt);
+  const remain = countdownText(nowMs, order?.expireAt, t("countdownExpired"));
   const expired = remain === t("countdownExpired");
   const paid = status === "paid";
 
@@ -247,7 +249,7 @@ export default function OrderDetailPage() {
                   {paid ? t("statusPaid") : expired ? t("statusExpired") : t("statusPending")}
                 </h1>
                 <p className="mt-1 text-sm text-ink-3">
-                  {PROVIDER_LABEL[order.provider] ?? order.provider} · ¥
+                  {PROVIDER_LABEL[order.provider] ? labelsT(PROVIDER_LABEL[order.provider]) : order.provider} · ¥
                   {formatAmount(order.amountCents)}
                 </p>
               </div>
@@ -353,7 +355,7 @@ export default function OrderDetailPage() {
                   <p className="text-sm text-ink-3">
                     {credentialLost
                       ? t("credentialLost")
-                      : dispatch.reason}
+                      : labelsT(CREDENTIAL_REASON_LABEL[dispatch.reason])}
                   </p>
                   {credentialLost ? (
                     <p className="text-[13px] text-ink-3">
@@ -382,7 +384,7 @@ export default function OrderDetailPage() {
                     }
                     data-testid={`switch-${p}`}
                   >
-                    {PROVIDER_LABEL[p]}
+                    {labelsT(PROVIDER_LABEL[p])}
                   </button>
                 ))}
               </div>

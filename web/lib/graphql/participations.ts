@@ -164,27 +164,27 @@ export const CANCEL_ENROLLMENT: TypedDocumentNode<
 `;
 
 export const ENROLLMENT_STATUS_LABEL: Record<EnrollmentStatus, string> = {
-  pending: "等待审批",
-  payment_pending: "待支付",
-  confirmed: "已确认",
-  rejected: "已拒绝",
-  expired: "审批超时",
-  cancelled: "已取消",
+  pending: "labels.enrollmentStatus.pending",
+  payment_pending: "labels.enrollmentStatus.payment_pending",
+  confirmed: "labels.enrollmentStatus.confirmed",
+  rejected: "labels.enrollmentStatus.rejected",
+  expired: "labels.enrollmentStatus.expired",
+  cancelled: "labels.enrollmentStatus.cancelled",
 };
 
 export const SPONSORSHIP_STATUS_LABEL: Record<SponsorshipStatus, string> = {
-  pending: "审批中",
-  active: "生效中",
-  rejected: "已拒绝",
-  expired: "已过期",
-  ended: "已结束",
+  pending: "labels.sponsorshipStatus.pending",
+  active: "labels.sponsorshipStatus.active",
+  rejected: "labels.sponsorshipStatus.rejected",
+  expired: "labels.sponsorshipStatus.expired",
+  ended: "labels.sponsorshipStatus.ended",
 };
 
 export const LEARNING_RUN_STATUS_LABEL: Record<LearningRunStatus, string> = {
-  running: "进行中",
-  waiting: "等待中",
-  succeeded: "已完成",
-  failed: "已失败",
+  running: "labels.learningRunStatus.running",
+  waiting: "labels.learningRunStatus.waiting",
+  succeeded: "labels.learningRunStatus.succeeded",
+  failed: "labels.learningRunStatus.failed",
 };
 
 /* ---------------- 课程学习详情(U8/R11:学习 tab 抽屉数据,恒本人视角) ---------------- */

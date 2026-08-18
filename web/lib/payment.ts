@@ -74,10 +74,24 @@ export function pollTickCount(): number {
 
 /* ---------------- 凭据分派（R13） ---------------- */
 
+export type UnsupportedCredentialReason =
+	| "invalid"
+	| "missing"
+	| "unknown"
+	| "wechat_jsapi";
+
 export type CredentialDispatch =
 	| { mode: "qr"; url: string }
 	| { mode: "redirect"; url: string }
-	| { mode: "unsupported"; reason: string };
+	| { mode: "unsupported"; reason: UnsupportedCredentialReason };
+
+/** 不支持的凭据 reason → labels 词表 key（调用方经根 useTranslations 消费） */
+export const CREDENTIAL_REASON_LABEL: Record<UnsupportedCredentialReason, string> = {
+	invalid: "labels.credentialReason.invalid",
+	missing: "labels.credentialReason.missing",
+	unknown: "labels.credentialReason.unknown",
+	wechat_jsapi: "labels.credentialReason.wechat_jsapi",
+};
 
 /**
  * createOrder/replaceProvider metadata.credential（JsonString → 对象）分派：
@@ -92,12 +106,12 @@ export function dispatchCredential(
 		try {
 			return dispatchCredential(JSON.parse(credential));
 		} catch {
-			return { mode: "unsupported", reason: "credential 无效" };
+			return { mode: "unsupported", reason: "invalid" };
 		}
 	}
 
 	if (typeof credential !== "object" || credential === null) {
-		return { mode: "unsupported", reason: "credential 缺失" };
+		return { mode: "unsupported", reason: "missing" };
 	}
 
 	const c = credential as Record<string, unknown>;
@@ -112,13 +126,10 @@ export function dispatchCredential(
 	}
 
 	if (type === "jsapi") {
-		return {
-			mode: "unsupported",
-			reason: "微信小程序内支付更快捷，请在小程序中完成支付",
-		};
+		return { mode: "unsupported", reason: "wechat_jsapi" };
 	}
 
-	return { mode: "unsupported", reason: "未知凭据类型" };
+	return { mode: "unsupported", reason: "unknown" };
 }
 
 /* ---------------- 统计解析（U10 决策 3：JsonString snake_case int 键） ---------------- */
@@ -220,34 +231,35 @@ export const WEB_ENABLED_PROVIDERS: readonly PaymentProvider[] = [
 
 /** 支付渠道展示名（详情/列表/订单页共用单源） */
 export const PROVIDER_LABEL: Record<string, string> = {
-	wechat_jsapi: "微信（小程序）",
-	wechat_native: "微信扫码",
-	alipay_page: "支付宝（电脑）",
-	alipay_wap: "支付宝（手机）",
-	alipay_qr: "支付宝扫码",
+	wechat_jsapi: "labels.provider.wechat_jsapi",
+	wechat_native: "labels.provider.wechat_native",
+	alipay_page: "labels.provider.alipay_page",
+	alipay_wap: "labels.provider.alipay_wap",
+	alipay_qr: "labels.provider.alipay_qr",
 };
 
 /** 订单状态徽章词表（participations/订单页/管理列表共用单源） */
 export const ORDER_STATUS_LABEL: Record<string, string> = {
-	pending: "待支付",
-	paid: "已支付",
-	refunding: "退款中",
-	refunded: "已退款",
-	refund_failed: "退款失败",
-	cancelled: "已取消",
-	expired: "已过期",
+	pending: "labels.orderStatus.pending",
+	paid: "labels.orderStatus.paid",
+	refunding: "labels.orderStatus.refunding",
+	refunded: "labels.orderStatus.refunded",
+	refund_failed: "labels.orderStatus.refund_failed",
+	cancelled: "labels.orderStatus.cancelled",
+	expired: "labels.orderStatus.expired",
 };
 
-/** 倒计时文案：expire_at − now；已过期为 "已过期" */
+/** 倒计时文案：expire_at − now；过期文案由调用方传翻译（expiredLabel） */
 export function countdownText(
 	nowMs: number,
 	expireAt: string | null | undefined,
+	expiredLabel: string,
 ): string {
 	if (!expireAt) return "—";
 	const end = new Date(expireAt).getTime();
 	if (Number.isNaN(end)) return "—";
 	const remain = end - nowMs;
-	if (remain <= 0) return "已过期";
+	if (remain <= 0) return expiredLabel;
 	const totalSec = Math.floor(remain / 1000);
 	const mm = Math.floor(totalSec / 60);
 	const ss = totalSec % 60;

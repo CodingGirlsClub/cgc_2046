@@ -58,6 +58,7 @@ function formatLocalDate(iso: string): string {
 
 export default function AdminWorkspaceDetailPage() {
 	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const params = useParams<{ id: string }>();
 	const workspaceId = params.id;
 
@@ -196,7 +197,7 @@ export default function AdminWorkspaceDetailPage() {
 				<div>
 					<h1>{workspace.name}</h1>
 					<p className="admin-page__desc">
-						{workspace.slug} · {JOIN_POLICY_LABEL[workspace.joinPolicy]}
+						{workspace.slug} · {labelsT(JOIN_POLICY_LABEL[workspace.joinPolicy])}
 					</p>
 				</div>
 			</div>

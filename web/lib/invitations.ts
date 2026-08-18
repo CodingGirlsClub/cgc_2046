@@ -46,8 +46,12 @@ export interface InvitationPage {
 	count: number;
 }
 
-export function invitationRoleLabel(role: string): string {
-	return role === "member" ? "成员（无标签）" : role;
+/** 预授权角色展示名：member 兜底标签由调用方传翻译（memberFallbackLabel），其余原样。 */
+export function invitationRoleLabel(
+	role: string,
+	memberFallbackLabel: string,
+): string {
+	return role === "member" ? memberFallbackLabel : role;
 }
 
 /**
@@ -61,8 +65,7 @@ export function mapInvitation(inv: Invitation): InvitationItem {
 		plainToken: null,
 		inviterId: inv.inviterId,
 		targetEmail: inv.targetEmail ?? null,
-		preauthorizedRoleNames:
-			inv.preauthorizedRoleNames?.map(invitationRoleLabel) ?? null,
+		preauthorizedRoleNames: inv.preauthorizedRoleNames ?? null,
 		expiresAt: inv.expiresAt ?? null,
 		status: inv.effectiveStatus ?? inv.status,
 		acceptedBy: inv.acceptedBy ?? null,

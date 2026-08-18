@@ -1,12 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
+import zhCN from "@/messages/zh-CN.json";
 import PermissionsPage from "./page";
 import {
 	PERMISSION_ABILITIES,
 	PERMISSION_ROLE_ORDER,
 	type PermissionMatrixRow,
 } from "@/lib/permissions";
+
+/** 解析 messages 点号路径（next-intl key → zh-CN 渲染文本，与 test-utils 默认 locale 一致） */
+function resolveMessage(key: string): string {
+	const value = key.split(".").reduce<unknown>(
+		(acc, part) =>
+			acc && typeof acc === "object"
+				? (acc as Record<string, unknown>)[part]
+				: undefined,
+		zhCN,
+	);
+	return typeof value === "string" ? value : key;
+}
 
 /** 测试本地矩阵 fixture（#1 mock 已删除；形状 = mapPermissionMatrixRows 输出） */
 const TEST_MATRIX: PermissionMatrixRow[] = [
@@ -246,7 +259,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 				screen.getByTestId(`permission-row-${ability.id}`),
 			).toBeInTheDocument();
 			expect(
-				screen.getByText(ability.label, {
+				screen.getByText(resolveMessage(ability.label), {
 					selector: ".permissions-ability-label strong",
 				}),
 			).toBeInTheDocument();

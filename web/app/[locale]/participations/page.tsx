@@ -76,6 +76,7 @@ function EnrollmentCard({
   onKeep: () => void;
 }) {
   const t = useTranslations("participations");
+  const labelsT = useTranslations();
   const canCancel =
     row.status === "pending" ||
     row.status === "payment_pending" ||
@@ -96,7 +97,7 @@ function EnrollmentCard({
           </p>
         </div>
         <span className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-ink-2">
-          {ENROLLMENT_STATUS_LABEL[row.status]}
+          {labelsT(ENROLLMENT_STATUS_LABEL[row.status])}
         </span>
       </div>
 
@@ -178,6 +179,7 @@ function EnrollmentCard({
 
 function SponsorshipCard({ row }: { row: ParticipationSponsorship }) {
   const t = useTranslations("participations");
+  const labelsT = useTranslations();
   return (
     <article
       className="rounded-large border border-line bg-card p-4"
@@ -194,7 +196,7 @@ function SponsorshipCard({ row }: { row: ParticipationSponsorship }) {
           </p>
         </div>
         <span className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-ink-2">
-          {SPONSORSHIP_STATUS_LABEL[row.status]}
+          {labelsT(SPONSORSHIP_STATUS_LABEL[row.status])}
         </span>
       </div>
       {row.amount != null ? (

@@ -276,11 +276,12 @@ export default function SpeakerInvitationPanel({
 
 function SpeakerStatusTag({ status }: { status: SpeakerInvitationStatus }) {
 	const tone = SPEAKER_INVITATION_STATUS_TONE[status];
+	const labelsT = useTranslations();
 	return (
 		<span
 			className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[12px] leading-4 ${STATUS_TONE_CLASS[tone]}`}
 		>
-			{SPEAKER_INVITATION_STATUS_LABEL[status]}
+			{labelsT(SPEAKER_INVITATION_STATUS_LABEL[status])}
 		</span>
 	);
 }

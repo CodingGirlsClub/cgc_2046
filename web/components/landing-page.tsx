@@ -33,6 +33,8 @@ function OfferingCard({
 	kind: OfferingKind;
 }) {
 	const t = useTranslations("landing");
+	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const base = kind === "event" ? "/events" : "/courses";
 	return (
 		<Link
@@ -45,8 +47,8 @@ function OfferingCard({
 					<EventStatusTag status={item.status} />
 				</span>
 				<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-					{ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy]} ·{" "}
-					{t("sections.deadline", { deadline: formatDeadline(item.registrationDeadline) })}
+					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}
+					{t("sections.deadline", { deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")) })}
 				</span>
 			</span>
 			<span className="flex-none text-ink-3">›</span>
