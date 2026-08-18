@@ -47,7 +47,7 @@ import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
-import { translatePaymentError } from "@/lib/payment-errors";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
   submitEnrollment,
@@ -328,6 +328,7 @@ export function OfferingDetailPage({
     loading: wsLoading,
   } = useWorkspaceBySlugWrapper(slug);
   const { userId } = useAuthed();
+  const translatePaymentError = usePaymentErrorTranslator();
   const [state, setState] = useState<OfferingState>({
     id: "",
     row: null,
