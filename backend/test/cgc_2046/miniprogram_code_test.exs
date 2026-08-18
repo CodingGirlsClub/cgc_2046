@@ -13,15 +13,6 @@ defmodule Cgc2046.MiniprogramCodeTest do
       conn = Plug.Conn.fetch_query_params(conn)
 
       case {conn.host, conn.request_path} do
-        {"api.weixin.qq.com", "/cgi-bin/token"} ->
-          Req.Test.json(conn, %{"access_token" => "wechat-code-token", "expires_in" => 7200})
-
-        {"api.weixin.qq.com", "/wxa/getwxacodeunlimit"} ->
-          {:ok, raw, conn} = Plug.Conn.read_body(conn)
-          body = Jason.decode!(raw)
-          send(test_pid, {:code_request, body["scene"]})
-          Plug.Conn.send_resp(conn, 200, <<137, 80, 78, 71, 1, 2, 3>>)
-
         {"open.douyin.com", "/oauth/client_token/"} ->
           Req.Test.json(conn, %{"data" => %{"access_token" => "tt-code-token"}})
 
@@ -45,6 +36,19 @@ defmodule Cgc2046.MiniprogramCodeTest do
       end
     end)
 
+    # wechat 码走 SDK client（宿主 WechatRequester + Tesla.Mock）；
+    # mock fun 内回传请求体，断言 page/check_path/scene 由用例完成。
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/wxa/getwxacodeunlimit" <> _} = env ->
+        send(test_pid, {:code_request, Jason.decode!(env.body)})
+
+        %Tesla.Env{
+          status: 200,
+          body: <<137, 80, 78, 71, 1, 2, 3>>,
+          headers: [{"content-type", "image/jpeg"}]
+        }
+    end)
+
     :ok
   end
 
@@ -56,7 +60,7 @@ defmodule Cgc2046.MiniprogramCodeTest do
     assert {:ok, first} = MiniprogramCode.generate_for_invitation(invitation, :wechat)
     assert first.scene =~ ~r/^[A-Za-z0-9_]{1,32}$/
     assert first.code == <<137, 80, 78, 71, 1, 2, 3>>
-    assert_receive {:code_request, scene}
+    assert_receive {:code_request, %{"scene" => scene}}
     assert scene == first.scene
 
     assert {:ok, second} = MiniprogramCode.generate_for_invitation(invitation, :wechat)
@@ -87,6 +91,21 @@ defmodule Cgc2046.MiniprogramCodeTest do
     assert {:ok, <<137, 80, 78, 71, 1, 2, 3>>} = Client.generate_code(:wechat, "SCENE_1")
     assert {:ok, "tt-code"} = Client.generate_code(:tt, "SCENE_2")
     assert {:ok, "xhs-code"} = Client.generate_code(:xhs, "SCENE_3")
+
+    # 落页契约（本计划修正项）：码统一落 join（三端注册且消费 scene）；
+    # check_path=false——page 为前端裁剪路径，无需微信侧校验线上版本。
+    assert_receive {:code_request,
+                    %{"scene" => "SCENE_1", "page" => "pages/join/index", "check_path" => false}}
+  end
+
+  test "wechat 41030 页面无效：errcode 保真出栈" do
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/wxa/getwxacodeunlimit" <> _} ->
+        Tesla.Mock.json(%{"errcode" => 41030, "errmsg" => "invalid page"})
+    end)
+
+    assert {:error, {:platform_rejected, 41030, "invalid page"}} =
+             Client.generate_code(:wechat, "SCENE_41030")
   end
 
   defp create_invitation(workspace, actor) do
