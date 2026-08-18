@@ -212,7 +212,7 @@ describe("/orders/[id] 订单页（U11：倒计时/凭据/轮询编排）", () =
 			data: {
 				replaceProvider: {
 					result: null,
-					errors: [{ message: "provider_not_configured" }],
+					errors: [{ code: "order_provider_not_configured" }],
 					metadata: null,
 				},
 			},

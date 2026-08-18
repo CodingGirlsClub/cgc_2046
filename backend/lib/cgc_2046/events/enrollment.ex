@@ -184,6 +184,12 @@ defmodule Cgc2046.Events.Enrollment do
         description: "价格档位 ID（收费活动报名时必填）"
       )
 
+      # 唯一约束（unique_event_user / unique_course_user）冲突转
+      # BusinessError（code enrollment_duplicate_active）——error_handler 在
+      # changeset 错误入列时介入（含 ash_postgres DB 层约束错误，见
+      # membership_context.unique_membership_conflict?/1 同款判法）。
+      error_handler({__MODULE__, :handle_create_error, []})
+
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_create/1)
       end)
@@ -955,12 +961,43 @@ defmodule Cgc2046.Events.Enrollment do
   defp target_table(:event), do: "events"
   defp target_table(:course), do: "courses"
 
+  # ── 错误构造（i18n Phase 0：BusinessError 携带稳定 code，前端按 code 查文案）──
+
   defp add_domain_error(changeset, reason) do
-    Ash.Changeset.add_error(changeset,
-      field: :status,
-      message: domain_error_message(reason)
+    Ash.Changeset.add_error(
+      changeset,
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(reason),
+        code: domain_error_code(reason),
+        fields: [:status]
+      )
     )
   end
+
+  # create_enrollment 唯一约束冲突（并发重复 / 已有活跃报名）转业务错误。
+  # 非 unique 错误原样返回（error_handler 返回值即入列的错误）。
+  def handle_create_error(_changeset, error) do
+    if unique_conflict?(error) do
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(:duplicate_active),
+        code: domain_error_code(:duplicate_active)
+      )
+    else
+      error
+    end
+  end
+
+  # 同 membership_context.unique_membership_conflict?/1 判法：仅
+  # constraint_type: :unique 命中（DB 断连等真实故障不含该键，原样上抛）。
+  defp unique_conflict?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_conflict?/1)
+  end
+
+  defp unique_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
+    Keyword.get(private_vars || [], :constraint_type) == :unique
+  end
+
+  defp unique_conflict?(_), do: false
 
   defp domain_error_message(:exactly_one_target_required),
     do: "exactly one of event_id/course_id is required"
@@ -979,6 +1016,9 @@ defmodule Cgc2046.Events.Enrollment do
 
   defp domain_error_message(:already_processed), do: "enrollment has already been processed"
 
+  defp domain_error_message(:duplicate_active),
+    do: "an active enrollment already exists for this target"
+
   defp domain_error_message({:unknown_enrollment_policy, _policy}),
     do: "target has an unknown enrollment policy"
 
@@ -991,6 +1031,41 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_message(:capacity_counter_invalid), do: "capacity counter is invalid"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
+
+  defp domain_error_code({:database, _reason}), do: "database_error"
+
+  defp domain_error_code(:exactly_one_target_required),
+    do: "enrollment_exactly_one_target_required"
+
+  defp domain_error_code(:target_not_open_or_registration_closed),
+    do: "enrollment_target_not_open_or_registration_closed"
+
+  defp domain_error_code(:target_tenant_mismatch), do: "enrollment_target_tenant_mismatch"
+
+  defp domain_error_code(:capacity_full_or_registration_closed),
+    do: "enrollment_capacity_full_or_registration_closed"
+
+  defp domain_error_code(:invite_code_required), do: "enrollment_invite_code_required"
+  defp domain_error_code(:invite_quota_unavailable), do: "enrollment_invite_quota_unavailable"
+  defp domain_error_code(:tier_id_required), do: "enrollment_tier_id_required"
+  defp domain_error_code(:tier_not_available), do: "enrollment_tier_not_available"
+  defp domain_error_code(:already_processed), do: "enrollment_already_processed"
+  defp domain_error_code(:duplicate_active), do: "enrollment_duplicate_active"
+
+  defp domain_error_code({:unknown_enrollment_policy, _policy}),
+    do: "enrollment_unknown_enrollment_policy"
+
+  defp domain_error_code(:not_expired_pending), do: "enrollment_not_expired_pending"
+  defp domain_error_code(:not_payment_pending), do: "enrollment_not_payment_pending"
+  defp domain_error_code(:capacity_counter_invalid), do: "enrollment_capacity_counter_invalid"
+
+  defp domain_error_code(reason) when is_atom(reason),
+    do: "enrollment_" <> Atom.to_string(reason)
+
+  defp domain_error_code({kind, _}) when is_atom(kind),
+    do: "enrollment_" <> Atom.to_string(kind)
+
+  defp domain_error_code(_), do: "enrollment_unknown"
 
   # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
   # idempotency_key / workspace_id 由 emitter 统一注入，plan 2026-08-14-003 Q12）──

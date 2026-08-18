@@ -170,6 +170,7 @@ export const CreateEnrollmentMutationDocument = /* GraphQL */ `
       }
       errors {
         message
+        code
         fields
       }
     }
@@ -278,6 +279,7 @@ export const CreateOrderMutationDocument = /* GraphQL */ `
       }
       errors {
         message
+        code
       }
       metadata {
         credential

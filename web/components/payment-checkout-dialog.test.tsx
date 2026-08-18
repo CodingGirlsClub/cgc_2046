@@ -292,7 +292,7 @@ describe("payment-checkout-dialog 换渠道", () => {
         data: {
           replaceProvider: {
             result: null,
-            errors: [{ message: "provider_not_configured" }],
+            errors: [{ code: "order_provider_not_configured" }],
             metadata: null,
           },
         },
@@ -406,7 +406,9 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
       data: {
         createOrder: {
           result: null,
-          errors: [{ message: "enrollment is not awaiting payment" }],
+          errors: [
+            { code: "order_not_payment_pending", message: "not pending" },
+          ],
           metadata: null,
         },
       },

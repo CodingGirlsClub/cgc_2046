@@ -162,7 +162,7 @@ export default function PaymentCheckoutDialog({
           setPhase("error");
           setError(
             translatePaymentError(
-              payload?.errors[0]?.message,
+              payload?.errors[0]?.code,
               "下单失败，请重试",
             ),
           );
@@ -237,7 +237,7 @@ export default function PaymentCheckoutDialog({
         } else {
           setError(
             translatePaymentError(
-              payload?.errors[0]?.message,
+              payload?.errors[0]?.code,
               "切换渠道失败，请重试",
             ),
           );
