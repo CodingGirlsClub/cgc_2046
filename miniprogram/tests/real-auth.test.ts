@@ -163,7 +163,7 @@ describe('cancel enrollment', () => {
     mocks.graphqlRequest.mockResolvedValue({
       cancelEnrollment: {
         result: null,
-        errors: [{ code: 'already_processed', message: '已处理' }]
+        errors: [{ code: 'enrollment_already_processed', message: '已处理' }]
       }
     })
     const api = new RealMiniProgramApi()

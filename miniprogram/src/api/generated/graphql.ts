@@ -84,7 +84,7 @@ export type CreateEnrollmentMutationVariables = Exact<{
 }>;
 
 
-export type CreateEnrollmentMutation = { createEnrollment: { result: { id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, approvalDeadline: string | null } | null, errors: Array<{ message: string | null, fields: Array<string> | null }> } };
+export type CreateEnrollmentMutation = { createEnrollment: { result: { id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, approvalDeadline: string | null } | null, errors: Array<{ message: string | null, code: string | null, fields: Array<string> | null }> } };
 
 export type CancelEnrollmentMutationVariables = Exact<{
   id: string | number;
@@ -151,7 +151,7 @@ export type CreateOrderMutationVariables = Exact<{
 }>;
 
 
-export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string } | null, errors: Array<{ message: string | null }>, metadata: { credential: string | null } | null } };
+export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string } | null, errors: Array<{ message: string | null, code: string | null }>, metadata: { credential: string | null } | null } };
 
 export type OrderStatusQueryVariables = Exact<{
   id: string | number;

@@ -61,6 +61,7 @@ import {
   SignInWithPlatformMutationDocument
 } from './operations'
 import { parseEnrollmentPolicy, parseEnrollmentStatus, schemaFieldsFromJson } from '@/domain/format'
+import { errorCopy } from '@/domain/error-copy'
 import { parsePriceTiers } from '@/domain/payment'
 import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
 import type {
@@ -115,7 +116,10 @@ function parseOrderStatus(value: string): OrderStatus {
   throw new Error(`服务端返回未知订单状态：${value}`)
 }
 
-function mutationError(errors: Array<{ message?: string | null }>): never {
+function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
+  // code 命中 → 中文文案；未命中 join message（通用兜底，拿不到 code 的场景用）
+  const copy = errors.map(({ code }) => errorCopy(code)).find(Boolean)
+  if (copy) throw new Error(copy)
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
 
@@ -259,8 +263,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id }
     )
     if (data.cancelEnrollment.result) return
-    if (data.cancelEnrollment.errors.some(({ code, message }) =>
-      code === 'already_processed' || message?.includes('already been processed')
+    if (data.cancelEnrollment.errors.some(({ code }) =>
+      code === 'enrollment_already_processed'
     )) return
     mutationError(data.cancelEnrollment.errors)
   }
