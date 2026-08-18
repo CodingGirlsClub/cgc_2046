@@ -375,11 +375,11 @@
 
 ### 内容安全检查（Content Safety Check）
 
-- **定义**：报名 reason 自由文本的同步内容安全拦截（plan `docs/plans/2026-08-18-009-ugc-content-safety-plan.md`，issue #230）。提交时 reason 经微信 msgSecCheck（`Cgc2046.Miniprogram.Client.content_check/2`）同步检查——**违规内容拒绝提交且不落库**（BusinessError code `enrollment_content_rejected`）；平台瞬时故障（限流 45009 / 网络错误 / 非 200 / 未知 errcode）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含 reason 明文）。
-- **范围**：v1 wechat-only——tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入）；检查字段仅 `submission_payload.reason`；content 2500 字节 clamp（回退到完整 UTF-8 字符边界）。
-- **平台判定**：create 时 actor 无 platform（platform claim 在 JWT，User struct 不带），取 `user_identities` 平台——恰为单一 tt/xhs 跳过检查；其余（wechat / 多平台 / 无记录 / 查询失败 / actor nil）默认 wechat 检查（安全方向）。
+- **定义**：报名 reason 自由文本的同步内容安全拦截（plan `docs/plans/2026-08-18-009-ugc-content-safety-plan.md`，issue #230；advisor09 F1-F3 修订）。提交时 reason 经微信 **msgSecCheck v2**（`Cgc2046.Miniprogram.Client.content_check/3`，宿主 WechatRequester 直发 `POST /wxa/msg_sec_check`，body `%{content, version: 2, scene: 2, openid}`——SDK `Security.msg_check/2` 为 v1 已废弃）同步检查——**违规内容拒绝提交且不落库**（`result.suggest` 为 `risky`/`review` → BusinessError code `enrollment_content_rejected`）；平台瞬时故障（errcode 非 0 含 45009/47001/61010 / 网络错误 / 非 200）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含 reason 明文）。
+- **范围**：v1 wechat-only——tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入）；检查字段仅 `submission_payload.reason`；reason **服务端前置校验**（F3：必须 binary 且 ≤2500 字节合法 UTF-8，违者直接拒绝——检查产物 = 落库产物，无静默截断）。
+- **平台判定**：create 时 actor 无 platform（platform claim 在 JWT，User struct 不带），取 `user_identities` 的 wechat uid 作 openid（order.ex 同款 SQL）——有 wechat identity → wechat 检查；无 wechat identity（tt/xhs 单平台 / web 无 identity）/ 查询失败 → pass-through 放行。
 - **红线**：reason 明文不进日志 / telemetry / BusinessError message；msg_check 请求走宿主 WechatRequester（debug: false 既有）。
-- **架构位置**：`Client.content_check/2`（miniprogram facade，错误分类 + clamp 单点）+ `Enrollment :create_enrollment` 的 before_action（事务前，无并发面）；前端文案在 `miniprogram/src/domain/error-copy.ts`（`enrollment_content_rejected`）。
+- **架构位置**：`Client.content_check/3`（miniprogram facade，v2 错误分类单点）+ `Enrollment :create_enrollment` 的 before_action **首位**（F2：外呼移至目标校验 / FOR SHARE 行锁获取之前，外呼不持锁）；前端文案在 `miniprogram/src/domain/error-copy.ts`（`enrollment_content_rejected`）。
 
 ### learning 锚定（Enrollment Anchor）
 

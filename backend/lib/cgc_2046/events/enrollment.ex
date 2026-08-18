@@ -476,12 +476,14 @@ defmodule Cgc2046.Events.Enrollment do
     course_id = Ash.Changeset.get_attribute(changeset, :course_id)
     actor = changeset.context[:private][:actor]
 
-    with {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
+    # 内容检查在 with 链首位（advisor09 F2）：msgSecCheck 外呼在
+    # eligible_target 的 FOR SHARE 行锁获取之前执行，外呼不持锁。
+    with :ok <- check_content(changeset, actor),
+         {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
          {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
-         {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
-         :ok <- check_content(changeset, actor) do
+         {:ok, attrs} <- put_tier_selection(changeset, target, attrs) do
       changeset =
         Enum.reduce(attrs, changeset, fn {key, value}, cs ->
           Ash.Changeset.force_change_attribute(cs, key, value)
@@ -495,58 +497,78 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  # ── 内容安全（plan 2026-08-18-009 P2：reason 提交链路同步拦截）────────────
+  # ── 内容安全（plan 2026-08-18-009 P2 + advisor09 F1-F3）────────────
 
-  # submission_payload.reason 自由文本过内容安全检查（事务前、目标校验后）：
-  # - 违规（87014）→ {:error, :content_rejected}（fail-closed，内容不落库）
+  # submission_payload.reason 自由文本过内容安全检查。外呼在 with 链首位执行
+  # （目标校验 / FOR SHARE 行锁获取之前，F2：外呼不持锁）。
+  # - reason 缺失 → 放行（无可查内容）
+  # - reason 存在但非 binary / 超 2500 字节 / 无效 UTF-8 → 拒绝（F3：检查产物 =
+  #   落库产物，服务端前置校验，禁止静默截断）
+  # - 违规（v2 result.suggest risky/review）→ {:error, :content_rejected}
+  #   （fail-closed，内容不落库）
   # - infra 故障 → fail-open 放行（Client.content_check 内部已记 telemetry）
-  # - tt/xhs 单平台 actor → 跳过检查（pass-through 语义等价，零外呼）
-  # - 无 reason / 非 binary → 直接放行（无可查内容）
+  # - 无 wechat identity（tt/xhs 单平台 / web 无 identity）→ pass-through 零外呼
   defp check_content(changeset, actor) do
     payload = Ash.Changeset.get_attribute(changeset, :submission_payload) || %{}
     reason = Map.get(payload, "reason") || Map.get(payload, :reason)
 
-    if is_binary(reason) and reason != "" do
-      case resolve_content_platform(actor) do
-        :unchecked ->
-          :ok
+    cond do
+      is_nil(reason) ->
+        :ok
 
-        platform ->
-          case Client.content_check(platform, reason) do
-            {:ok, _} -> :ok
-            {:error, {:content_rejected, _}} -> {:error, :content_rejected}
-          end
-      end
-    else
-      :ok
+      not valid_reason?(reason) ->
+        {:error, :content_rejected}
+
+      true ->
+        check_content_with_identity(actor, reason)
     end
   end
 
-  # create 时 actor 无 platform（platform claim 在 JWT，User struct 不带；writer
-  # 2026-08-18 核实）——取 user_identities 平台判定：恰为单一 tt/xhs → 跳过；
-  # 其余（wechat / 多平台 / 无记录 / 查询失败 / actor nil）→ wechat 检查
-  # （安全方向；tt/xhs 本就 pass-through，语义等价）。
-  defp resolve_content_platform(actor) do
-    case actor_platforms(actor) do
-      {:ok, [platform]} when platform in [:tt, :xhs] -> :unchecked
-      _ -> :wechat
+  defp valid_reason?(reason) when is_binary(reason),
+    do: byte_size(reason) <= 2500 and String.valid?(reason)
+
+  defp valid_reason?(_), do: false
+
+  # msgSecCheck v2 需要 openid——从 user_identities 取 wechat uid
+  # （order.ex:794 同款 SQL 先例；platform 判定查询复用，一次取 provider+uid）。
+  # 有 wechat openid → wechat 检查；无 wechat identity（tt/xhs 单平台 / web 无
+  # identity）/ 查询失败 → 放行（pass-through 语义，RISKS 记录——v2 无法在无
+  # openid 下执行检查，与 tt/xhs 零外呼语义等价）。
+  defp check_content_with_identity(actor, reason) do
+    case actor_identities(actor) do
+      {:ok, identities} ->
+        case Map.get(identities, :wechat) do
+          nil -> :ok
+          openid -> run_wechat_check(reason, openid)
+        end
+
+      :error ->
+        :ok
     end
   end
 
-  defp actor_platforms(nil), do: {:ok, []}
+  defp run_wechat_check(reason, openid) do
+    case Client.content_check(:wechat, reason, openid) do
+      {:ok, _} -> :ok
+      {:error, :content_rejected} -> {:error, :content_rejected}
+    end
+  end
 
-  defp actor_platforms(actor) do
+  defp actor_identities(nil), do: {:ok, %{}}
+
+  defp actor_identities(actor) do
     case Cgc2046.Repo.query(
-           "SELECT DISTINCT provider FROM user_identities WHERE user_id = $1",
+           "SELECT DISTINCT provider, uid FROM user_identities WHERE user_id = $1",
            [Cgc2046.Repo.uuid!(actor.id)]
          ) do
       {:ok, %{rows: rows}} ->
-        platforms =
+        identities =
           rows
-          |> Enum.map(fn [provider] -> @content_check_platforms[provider] end)
-          |> Enum.reject(&is_nil/1)
+          |> Enum.map(fn [provider, uid] -> {@content_check_platforms[provider], uid} end)
+          |> Enum.reject(fn {provider, _uid} -> is_nil(provider) end)
+          |> Map.new()
 
-        {:ok, platforms}
+        {:ok, identities}
 
       {:error, _} ->
         :error
