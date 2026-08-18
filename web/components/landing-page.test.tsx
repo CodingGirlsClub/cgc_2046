@@ -77,7 +77,9 @@ describe("公开 Landing 页", () => {
 			screen.getByRole("heading", { name: "合作伙伴" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "下一个十年，从这里开始" }),
+			screen.getByRole("heading", {
+				name: "种一棵树最好的时机，是十年前；其次，是现在！",
+			}),
 		).toBeInTheDocument();
 	});
 
@@ -125,7 +127,9 @@ describe("公开 Landing 页", () => {
 			screen.getByText(/Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥/),
 		).toBeInTheDocument();
 
-		expect(screen.getByText(/74% 的女孩对 STEM 有强烈兴趣/)).toBeInTheDocument();
+		expect(
+			screen.getByText(/程序媛汇创立于 2016 年/),
+		).toBeInTheDocument();
 		expect(
 			screen.getByText(/以帮助女性数字赋能为使命，以平凡的姿态做不平凡的事情/),
 		).toBeInTheDocument();
@@ -138,17 +142,12 @@ describe("公开 Landing 页", () => {
 		expect(screen.getByText(/4000\+ 名学员/)).toBeInTheDocument();
 	});
 
-	it("页尾：GitHub 开源教程链接", () => {
+	it("页尾：不再显示 GitHub 开源教程链接", () => {
 		render(<LandingPage />);
 
-		const ghLink = screen.getByRole("link", {
-			name: /工作坊教程在 GitHub 开源/,
-		});
-		expect(ghLink).toHaveAttribute(
-			"href",
-			"https://github.com/CodingGirlsClub",
-		);
-		expect(ghLink).toHaveAttribute("target", "_blank");
+		expect(
+			screen.queryByRole("link", { name: /工作坊教程在 GitHub 开源/ }),
+		).not.toBeInTheDocument();
 	});
 
 	it("报道与认可：论文（ICSE CHASE 2021 链接）、媒体 6 条（5 条有链接）、机构荣誉", () => {
@@ -211,7 +210,7 @@ describe("公开 Landing 页", () => {
 		expect(screen.getByText(/#科技遇见她#/)).toBeInTheDocument();
 	});
 
-	it("合作伙伴：PDF 权威版精选 8 家（历史同行者口径，无 WorldQuant）", () => {
+	it("合作伙伴：精选 5 家居中（历史同行者口径，无 WorldQuant/个推/掘金/freeCodeCamp）", () => {
 		render(<LandingPage />);
 
 		for (const partner of [
@@ -220,14 +219,16 @@ describe("公开 Landing 页", () => {
 			"GitHub",
 			"ByteDance",
 			"FreeWheel",
-			"个推",
-			"掘金",
-			"freeCodeCamp",
 		]) {
 			expect(screen.getByText(partner)).toBeInTheDocument();
 		}
-		expect(screen.queryByText("WorldQuant")).not.toBeInTheDocument();
+		for (const removed of ["个推", "掘金", "freeCodeCamp", "WorldQuant"]) {
+			expect(screen.queryByText(removed)).not.toBeInTheDocument();
+		}
 		expect(screen.getByText(/曾经的同行者/)).toBeInTheDocument();
+		expect(screen.getByText("合作伙伴").closest("section")?.querySelector("ul")).toHaveClass(
+			"justify-center",
+		);
 	});
 
 	it("公开 API 加载失败：降级为入口链接，整页其余区块不受影响", async () => {
