@@ -11,13 +11,11 @@
 
 ## 第二批：执行顺序与状态（2026-08-18）
 
-| Plan | 标题 | Priority | Effort | Depends on | Status |
-|---|---|---|---|---|---|
-| [006](./006-fix-frontend-payment-path.md) | 前端收费链路两修：payment_pending 解析 + 裁剪端支付跳转守卫 | P1 | S | — | TODO |
-| [007](./007-wechat-pay-client-startup.md) | 微信支付真实链路可用：SDK client 启动（证书+Finch）+ webhook_base_url 门禁 + adapter 直接测试 | P1 | M | — | TODO |
-| [008](./008-miniprogram-wechat-sdk-adoption.md) | Miniprogram.Client wechat 分支接 SDK：token 缓存/重试/自愈 + 落页修正 + errcode 保真 | P1 | M | — | TODO |
-| [009](./009-phonecode-login-contract.md) | getPhoneNumber 新契约（phoneCode）：微信侧 SDK 直取手机号 | P1 | M | 008 | TODO |
-| [010](./010-docs-realignment.md) | 文档三修：ICP 模板数对齐 8 键、总纲 §7.3 支付下架、平台矩阵替代文档 | P2 | S | — | TODO |
+| [006](./006-fix-frontend-payment-path.md) | 前端收费链路两修：payment_pending 解析 + 裁剪端支付跳转守卫 | P1 | S | — | DONE（PR #204 merged；advisor F1b 扩 scope 修 enrollment-result 待支付分支） |
+| [007](./007-wechat-pay-client-startup.md) | 微信支付真实链路可用：SDK client 启动（证书+Finch）+ webhook_base_url 门禁 + adapter 直接测试 | P1 | M | — | DONE（PR #221 merged；决策回传补 SDK 硬性 api_secret_v2_key，运维需配 WECHAT_PAY_API_V2_KEY） |
+| [008](./008-miniprogram-wechat-sdk-adoption.md) | Miniprogram.Client wechat 分支接 SDK：token 缓存/重试/自愈 + 落页修正 + errcode 保真 | P1 | M | — | DONE（PR #220 merged；宿主 WechatRequester 适配，零外呼红线结构性成立） |
+| [009](./009-phonecode-login-contract.md) | getPhoneNumber 新契约（phoneCode）：微信侧 SDK 直取手机号 | P1 | M | 008 | DONE（PR #224 merged；advisor F1 修 tt/xhs 平台 gate；部署纪律：后端先于前端） |
+| [010](./010-docs-realignment.md) | 文档三修：ICP 模板数对齐 8 键、总纲 §7.3 支付下架、平台矩阵替代文档 | P2 | S | — | DONE（PR #207 merged；ICP 实为 9 键/端 + learning_stagnation 漂移如实记录，P2 后续项「通知配置面漂移收敛」待立） |
 | [011](./011-share-url-scheme-spike.md) | 【Spike】微信原生分享 + URL Scheme 深链契约与配额核实 | P2 | M | 008 | TODO |
 
 状态值：`TODO`、`IN PROGRESS`、`DONE`、`BLOCKED（附一行原因）`、
