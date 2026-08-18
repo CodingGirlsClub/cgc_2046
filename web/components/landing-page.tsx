@@ -79,16 +79,13 @@ const HONORS: string[] = [
 	"支持联合国开发计划署与联合国妇女署 #科技遇见她# 一小时编程挑战",
 ];
 
-/** 合作伙伴：PDF logo 墙精选科技类 8 家（历史同行者口径，不暗示当前仍在合作） */
+/** 合作伙伴：PDF logo 墙精选科技类 5 家（历史同行者口径，不暗示当前仍在合作） */
 const PARTNERS: string[] = [
 	"UNDP",
 	"ThoughtWorks",
 	"GitHub",
 	"ByteDance",
 	"FreeWheel",
-	"个推",
-	"掘金",
-	"freeCodeCamp",
 ];
 
 /* ---------------- 活动/课程卡片（与 /events、/courses 发现页同款） ---------------- */
@@ -251,8 +248,7 @@ export default function LandingPage() {
 					Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥。
 				</p>
 				<p className="l-p mt-6 max-w-2xl text-ink-2">
-					74% 的女孩对 STEM 有强烈兴趣，仅 0.04% 的女性以计算机科学为专业——
-					我们想改变这个落差。程序媛汇创立于 2016 年，
+					程序媛汇创立于 2016 年，
 					是一个帮助女性进入并留在科技领域的公益编程社群。2046 是我们给自己定的期限：
 					把这件事认真做满三十年——一年一年地做，从一堂课、一次活动、
 					一个可以互相求助的同伴开始。
@@ -367,7 +363,7 @@ export default function LandingPage() {
 				<p className="mt-2 text-sm text-ink-3">
 					曾经的同行者——感谢他们与我们并肩走过一程。
 				</p>
-				<ul className="mt-6 flex flex-wrap gap-3">
+				<ul className="mt-6 flex flex-wrap justify-center gap-3">
 					{PARTNERS.map((partner) => (
 						<li
 							key={partner}
@@ -385,12 +381,8 @@ export default function LandingPage() {
 				className="mt-20 rounded-large border border-line bg-card px-6 py-12 text-center"
 			>
 				<h2 id="landing-cta-heading" className="l-h2">
-					下一个十年，从这里开始
+					种一棵树最好的时机，是十年前；其次，是现在！
 				</h2>
-				<p className="l-p mx-auto mt-3 max-w-xl text-ink-3">
-					无论你刚开始写第一行代码，还是已经在行业里走了很远——
-					这里都有一群同路的人。
-				</p>
 				<div className="mt-8 flex items-center justify-center gap-3">
 					<Link
 						href="/register"
@@ -409,16 +401,6 @@ export default function LandingPage() {
 
 			<footer className="mt-16 border-t border-line pt-6 text-[13px] text-ink-3">
 				<p>Coding Girls Club · 程序媛汇 — 2016 → 2046</p>
-				<p className="mt-2">
-					<a
-						href="https://github.com/CodingGirlsClub"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-accent hover:text-accent-mention"
-					>
-						工作坊教程在 GitHub 开源 ›
-					</a>
-				</p>
 			</footer>
 		</main>
 	);
