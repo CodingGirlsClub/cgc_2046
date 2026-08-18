@@ -60,6 +60,6 @@ export function parseEnrollmentPolicy(value: string): CatalogItem['enrollmentPol
 }
 
 export function parseEnrollmentStatus(value: string): EnrollmentStatus {
-  if (value === 'pending' || value === 'confirmed' || value === 'rejected' || value === 'expired' || value === 'cancelled') return value
+  if (value === 'pending' || value === 'payment_pending' || value === 'confirmed' || value === 'rejected' || value === 'expired' || value === 'cancelled') return value
   throw new Error(`服务端返回未知报名状态：${value}`)
 }

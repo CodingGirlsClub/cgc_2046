@@ -8,9 +8,11 @@ import {
   mapPaymentCredential,
   nextPollTick,
   parsePriceTiers,
+  paymentLandingUrl,
   POLL_INTERVAL_MS,
   POLL_TOTAL_MS
 } from '../src/domain/payment.ts'
+import { parseEnrollmentStatus } from '../src/domain/format.ts'
 
 const jsapiCredential = JSON.stringify({
   type: 'jsapi',
@@ -122,4 +124,24 @@ test('金额分→元两位小数；订单/缴费状态词表覆盖 plan R16 状
   assert.equal(PAYMENT_STATUS_LABEL.payment_pending, '待支付')
   assert.equal(PAYMENT_STATUS_LABEL.paid, '已支付')
   assert.equal(PAYMENT_STATUS_LABEL.refunded, '已退款')
+})
+
+test('报名状态解析：payment_pending 是合法白名单值，不抛错（plan 006 回归钉）', () => {
+  assert.equal(parseEnrollmentStatus('payment_pending'), 'payment_pending')
+  // 既有白名单值不回归
+  assert.equal(parseEnrollmentStatus('pending'), 'pending')
+  assert.equal(parseEnrollmentStatus('confirmed'), 'confirmed')
+  // 未知值仍 fail-closed
+  assert.throws(() => parseEnrollmentStatus('bogus'), /未知报名状态/)
+})
+
+test('收费报名落地页：weapp 进支付页，裁剪端回结果页（plan 006 平台守卫）', () => {
+  assert.equal(
+    paymentLandingUrl('enr-1', true),
+    '/pages/order-pay/index?enrollmentId=enr-1'
+  )
+  assert.equal(
+    paymentLandingUrl('enr-1', false),
+    '/pages/enrollment-result/index?id=enr-1'
+  )
 })
