@@ -134,5 +134,257 @@
 			"errorShortPassword": "密码至少需要 8 个字符",
 			"errorPasswordMismatch": "两次输入的密码不一致"
 		}
+	},
+	"landing": {
+		"nav": {
+			"events": "活动",
+			"courses": "课程",
+			"login": "登录",
+			"join": "加入我们"
+		},
+		"hero": {
+			"tagline": "从 2016 到 2046，陪一代女性走进编程",
+			"title": "一桥飞架南北，天堑变通途",
+			"subtitle": "Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥。",
+			"description": "程序媛汇创立于 2016 年，是一个帮助女性进入并留在科技领域的公益编程社群。2046 是我们给自己定的期限：把这件事认真做满三十年——一年一年地做，从一堂课、一次活动、一个可以互相求助的同伴开始。",
+			"quote": "「以帮助女性数字赋能为使命，以平凡的姿态做不平凡的事情。」",
+			"quoteAuthor": "—— 创始人 文洋",
+			"stats": "截至 2021 年，我们走过 10 个城市、办了 50+ 场线下工作坊、走进 17 所高校，陪伴 4000+ 名学员、与 1000+ 位教练同行。",
+			"join": "加入我们",
+			"browseEvents": "看看正在进行的活动"
+		},
+		"sections": {
+			"eventsTitle": "最新活动",
+			"eventsDesc": "面向所有人开放报名的社区活动。",
+			"coursesTitle": "精选课程",
+			"coursesDesc": "零基础友好、长期陪伴的课程与成长营。",
+			"viewAll": "查看全部 ›",
+			"errorHint": "暂时无法加载，",
+			"errorAction": "直接前往列表页查看 ›",
+			"emptyHint": "暂无开放报名的条目，",
+			"emptyAction": "去列表页看看 ›",
+			"deadline": "截止 {deadline}"
+		},
+		"media": {
+			"title": "报道与认可",
+			"description": "一路上被记录、被研究、被认可的片段。",
+			"honorsTitle": "机构荣誉"
+		},
+		"honors": [
+			"2018 年入选联合国开发计划署「科技与慈善」项目案例集",
+			"2019 年共青团中央「全国青年社会组织伙伴计划」获奖项目",
+			"支持联合国开发计划署与联合国妇女署 #科技遇见她# 一小时编程挑战"
+		],
+		"paper": {
+			"venue": "与卡耐基梅隆大学学者合作 · ICSE CHASE 2021 · IEEE 出版"
+		},
+		"partners": {
+			"title": "合作伙伴",
+			"description": "曾经的同行者——感谢他们与我们并肩走过一程。"
+		},
+		"cta": {
+			"title": "种一棵树最好的时机，是十年前；其次，是现在！",
+			"register": "注册账号",
+			"login": "已有账号，去登录"
+		},
+		"footer": {
+			"tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046"
+		},
+		"mediaReports": [
+			{
+				"outlet": "环球时报",
+				"title": "Ladies Who Code",
+				"url": "http://www.globaltimes.cn/content/954372.shtml"
+			},
+			{
+				"outlet": "中国日报",
+				"title": "Helping women to break social programming",
+				"url": "http://www.chinadaily.com.cn/china/2017-01/13/content_27943815.htm"
+			},
+			{
+				"outlet": "中国日报",
+				"title": "Looking to crack the unwritten code",
+				"url": "http://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm"
+			},
+			{
+				"outlet": "CCTV / CGTN",
+				"title": "Chinese women take on computer programming",
+				"url": "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html"
+			},
+			{
+				"outlet": "36氪",
+				"title": "性别教育，反行业歧视，志愿者社群：那些正在为女性权益行动的人",
+				"url": "https://m.36kr.com/p/1129142659517446"
+			},
+			{
+				"outlet": "果壳网",
+				"title": "自学编程的故事与未来",
+				"url": null
+			}
+		],
+		"paperTitle": "Approaches to Diversifying the Programmer Community — The Case of the Girls Coding Day"
+	},
+	"home": {
+		"confirming": "正在确认登录状态…",
+		"loadingWorkspaces": "加载工作区…",
+		"entering": "进入工作区…",
+		"loadFailedTitle": "工作区加载失败",
+		"loadFailedDesc": "暂时无法获取你的工作区列表，请稍后重试。",
+		"retry": "重试",
+		"emptyTitle": "你还没有加入任何工作区",
+		"emptyDesc": "加入一个工作区，开始与团队协作。",
+		"discover": "发现 / 申请加入工作区",
+		"myParticipations": "我的参与"
+	},
+	"publicOfferings": {
+		"loadFailed": "加载失败",
+		"breadcrumbHome": "工作台",
+		"publicTitle": "公开{label}",
+		"publicDesc": "面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。",
+		"viewOther": "查看{label} ›",
+		"empty": "暂无公开{label}。",
+		"deadline": "截止 {deadline}"
+	},
+	"offeringDetail": {
+		"loadFailed": "加载失败",
+		"breadcrumbHome": "工作台",
+		"detailFallback": "详情",
+		"notAccessibleTitle": "该{label}不可访问",
+		"notAccessibleDesc": "仅工作台内部可见，或已结束。请登录后从工作台内访问。",
+		"policyLabel": "报名策略：{policy}",
+		"deadlineLabel": "报名截止：{deadline}",
+		"loginToEnroll": "登录后报名",
+		"enrollFreeHint": "报名免费，登录或注册后提交（J-Visitor → J-Learner）。",
+		"enrolledConfirm": "✓ 报名成功",
+		"pendingPay": "⏳ 待支付（名额已保留）",
+		"submitted": "✓ 申请已提交",
+		"continuePay": "继续支付",
+		"viewInParticipations": "在「我的参与」查看报名状态",
+		"slotReserved": "⏳ 名额已保留，请在限定时间内完成支付",
+		"pendingApproval": "你已报名该{label}，申请审批中，通过后确认名额。",
+		"enrolled": "你已报名该{label}。",
+		"checkingEnroll": "正在确认你的报名状态…",
+		"inviteCode": "邀请码（必填）",
+		"chooseTier": "选择价格档位",
+		"noTierAvailable": "当前无可售档位，请联系组织者。",
+		"requestApprovalHint": "提交后需 Owner/Admin 审批，通过后确认名额。",
+		"submitting": "提交中…",
+		"submitWithPay": "报名并支付 ¥{amount}",
+		"submit": "提交报名",
+		"sponsorTitle": "赞助本场",
+		"sponsorDesc": "提交赞助意向，审批通过后权益生效（意向登记，不收款）。",
+		"exclusive": "独占位",
+		"suggestAmount": "建议金额 ¥{amount}",
+		"benefits": "权益：{benefits}",
+		"loginToSponsor": "登录后赞助",
+		"sponsorLoginHint": "赞助需登录全局账号（不自动成为工作台成员）。",
+		"submitFailed": "提交失败",
+		"pickTierFirst": "请先选择价格档位",
+		"slotReservedMsg": "名额已保留，请在限定时间内完成支付",
+		"pendingMsg": "申请已提交，等待审批",
+		"enrolledMsg": "报名成功"
+	},
+	"apply": {
+		"loading": "加载中…",
+		"title": "申请创建工作台",
+		"loginFirst": "请先",
+		"login": "登录",
+		"loginAfter": "后提交申请。",
+		"intro": "填写你希望创建的工作台信息，提交后由平台管理员审批。审批通过后你将作为该工作台的 Owner。",
+		"nameLabel": "工作台名称",
+		"namePlaceholder": "工作台名称（如：研究协作空间）",
+		"slugLabel": "slug（唯一标识，小写字母/数字/连字符）",
+		"slugPlaceholder": "slug（如：research-collab）",
+		"purposeLabel": "用途",
+		"purposePlaceholder": "申请用途（如：团队研究协作）",
+		"submitFailed": "提交失败，请稍后重试",
+		"submitSuccess": "提交成功！你的申请已进入待审批状态。",
+		"submit": "提交申请",
+		"myAppsLabel": "我的申请",
+		"listFailed": "申请列表加载失败。",
+		"noApps": "暂无申请。",
+		"rejectionReason": "拒绝原因：{reason}"
+	},
+	"join": {
+		"breadcrumbHome": "工作台",
+		"title": "加入工作区",
+		"loginFirst": "请先登录后再加入工作区。",
+		"goLogin": "去登录",
+		"confirming": "正在确认登录状态…",
+		"loading": "加载中…",
+		"notFound": "工作区「{slug}」不存在",
+		"lookupFailed": "查询失败",
+		"joinFailed": "加入失败",
+		"submitFailed": "提交失败",
+		"invalidInvite": "邀请链接无效或已失效",
+		"inviteStatus": "邀请{status}",
+		"validateFailed": "校验失败",
+		"acceptFailed": "接受邀请失败",
+		"requestSubmittedTitle": "申请已提交",
+		"requestSubmittedDesc": "你的加入申请已提交，请等待 Owner / Admin 审批。",
+		"requestPending": "申请审批中",
+		"joinSuccessTitle": "加入成功",
+		"joinSuccessDesc": "你已成功加入该工作区。",
+		"joinSuccessInviteDesc": "你已通过邀请加入该工作区。",
+		"backToHome": "返回工作台",
+		"inviteInvalidTitle": "邀请无效",
+		"inviteInvalidStatus": "状态：{status}",
+		"reenter": "重新输入",
+		"joinErrorTitle": "加入失败",
+		"retry": "重试",
+		"unknownWorkspace": "未知工作区",
+		"preauthorizedRoles": "预授权角色：",
+		"noPreauthNote": "此邀请未预授权角色，加入后需 Owner 分配角色。",
+		"accepting": "接受中…",
+		"confirmJoin": "确认加入",
+		"inviteTitle": "使用邀请链接加入",
+		"inviteHint": "输入邀请链接中的 token 或完整链接",
+		"invitePlaceholder": "输入邀请 token 或粘贴完整链接",
+		"inviteAria": "邀请 token",
+		"validating": "校验中…",
+		"validate": "校验",
+		"back": "← 返回",
+		"slugHint": "输入工作区标识（slug）查找并加入",
+		"slugPlaceholder": "输入工作区 slug，如 cgc-shanghai",
+		"slugAria": "工作区 slug",
+		"querying": "查询中…",
+		"lookup": "查找",
+		"requestMsgLabel": "申请留言（可选）",
+		"requestMsgPlaceholder": "简单介绍一下自己…",
+		"submitting": "提交中…",
+		"submitRequest": "提交申请",
+		"inviteOnlyNotice": "该工作区为邀请制，需要有效邀请链接才能加入。",
+		"haveInvite": "我有邀请链接",
+		"searchOther": "← 查找其他工作区",
+		"joining": "加入中…",
+		"joinDirect": "直接加入"
+	},
+	"speakerInvite": {
+		"breadcrumbHome": "工作台",
+		"breadcrumbEvents": "活动",
+		"title": "嘉宾邀请",
+		"invalidTitle": "邀请链接无效或已失效",
+		"invalidDesc": "链接可能已过期、已被使用，或并非有效的嘉宾邀请。请联系活动主办方确认。",
+		"browseEvents": "浏览公开活动",
+		"invited": "你被邀请为以下活动的分享嘉宾",
+		"topic": "分享主题：",
+		"topicEmpty": "未填",
+		"time": "分享时间：",
+		"undecided": "未定",
+		"accepted": "✓ 已接受邀请",
+		"acceptedDesc": "期待你的分享！产出分享材料后，本次邀请将标记完成。",
+		"backToEvent": "返回活动页",
+		"declined": "已婉拒邀请",
+		"declinedDesc": "已告知主办方。如情况有变，请联系主办方重新发送邀请。",
+		"loginToAccept": "登录后接受邀请",
+		"noAccount": "无账号？",
+		"registerAccount": "注册一个全局账号",
+		"loginHint": "（接受邀请需要登录，账号不会加入该工作台）。",
+		"processing": "处理中…",
+		"accept": "接受邀请",
+		"decline": "婉拒",
+		"decisionHint": "接受后请产出分享材料；婉拒即结束，链接一次性生效。",
+		"actionFailed": "操作失败，邀请链接可能已失效",
+		"actionFailedShort": "操作失败"
 	}
 }

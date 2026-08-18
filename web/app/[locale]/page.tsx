@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import { fetchMyWorkspaces, type WorkspaceListItem } from "@/lib/workspaces";
 import { getWorkspaceStatus } from "@/components/workspace-ui";
@@ -28,18 +29,19 @@ function FullPageSpinner({ text }: { text: string }) {
 }
 
 function FullPageRetry({ onRetry }: { onRetry: () => void }) {
+	const t = useTranslations("home");
 	return (
 		<main className="ws-shell-loading">
 			<div className="join-card" role="alert">
-				<h1>工作区加载失败</h1>
-				<p>暂时无法获取你的工作区列表，请稍后重试。</p>
+				<h1>{t("loadFailedTitle")}</h1>
+				<p>{t("loadFailedDesc")}</p>
 				<div>
 					<button
 						type="button"
 						className="join-button join-button--primary"
 						onClick={onRetry}
 					>
-						重试
+						{t("retry")}
 					</button>
 				</div>
 			</div>
@@ -48,17 +50,18 @@ function FullPageRetry({ onRetry }: { onRetry: () => void }) {
 }
 
 function EmptyHubState() {
+	const t = useTranslations("home");
 	return (
 		<main className="ws-shell-loading">
 			<div className="join-card">
-				<h1>你还没有加入任何工作区</h1>
-				<p>加入一个工作区，开始与团队协作。</p>
+				<h1>{t("emptyTitle")}</h1>
+				<p>{t("emptyDesc")}</p>
 				<div className="flex flex-wrap gap-2">
 					<Link href="/join" className="join-button join-button--primary">
-						发现 / 申请加入工作区
+						{t("discover")}
 					</Link>
 					<Link href="/participations" className="join-button">
-						我的参与
+						{t("myParticipations")}
 					</Link>
 				</div>
 			</div>
@@ -68,6 +71,7 @@ function EmptyHubState() {
 
 export default function HomePage() {
 	const router = useRouter();
+	const t = useTranslations("home");
 	const { authed, confirmed } = useAuthed();
 	const [workspaces, setWorkspaces] = useState<WorkspaceListItem[] | null>(null);
 	const [loadError, setLoadError] = useState(false);
@@ -114,13 +118,13 @@ export default function HomePage() {
 		if (target) router.replace(`/w/${target.slug}`);
 	}, [target, router]);
 
-	if (!confirmed) return <FullPageSpinner text="正在确认登录状态…" />;
+	if (!confirmed) return <FullPageSpinner text={t("confirming")} />;
 	// 未登录 → 公开 Landing；confirmed 前只渲染 spinner，避免闪烁分发器内容
 	if (!authed) return <LandingPage />;
 	if (loadError) return <FullPageRetry onRetry={retryLoad} />;
-	if (workspaces === null) return <FullPageSpinner text="加载工作区…" />;
+	if (workspaces === null) return <FullPageSpinner text={t("loadingWorkspaces")} />;
 	// replace 不进历史：浏览器后退不卡在分发器；重定向期间渲染 spinner 防闪
-	if (target) return <FullPageSpinner text="进入工作区…" />;
+	if (target) return <FullPageSpinner text={t("entering")} />;
 
 	return <EmptyHubState />;
 }

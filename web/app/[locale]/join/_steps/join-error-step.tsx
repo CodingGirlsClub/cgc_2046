@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
 
 interface JoinErrorStepProps {
@@ -7,10 +8,11 @@ interface JoinErrorStepProps {
 }
 
 export function JoinErrorStep({ error, onRetry }: JoinErrorStepProps) {
+  const t = useTranslations("join");
   return (
     <div className="join-status-card join-status-card--error">
       <Icon name="lock" />
-      <h2>加入失败</h2>
+      <h2>{t("joinErrorTitle")}</h2>
       <p>{error}</p>
       <div className="join-actions">
         <button
@@ -18,10 +20,10 @@ export function JoinErrorStep({ error, onRetry }: JoinErrorStepProps) {
           className="join-button join-button--outline"
           onClick={onRetry}
         >
-          重试
+          {t("retry")}
         </button>
         <Link href="/" className="join-button join-button--ghost">
-          返回工作台
+          {t("backToHome")}
         </Link>
       </div>
     </div>

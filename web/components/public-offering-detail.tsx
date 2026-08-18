@@ -15,6 +15,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchPublicOffering,
@@ -51,6 +52,7 @@ export default function PublicOfferingDetailPage({
   const router = useRouter();
   const { authed, userId } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
+  const t = useTranslations("offeringDetail");
 
   const [state, setState] = useState<DetailState>({
     id: "",
@@ -96,7 +98,7 @@ export default function PublicOfferingDetailPage({
           setState({
             id: slug,
             row: null,
-            error: e instanceof Error ? e.message : "加载失败",
+            error: e instanceof Error ? e.message : t("loadFailed"),
           });
         }
       });
@@ -104,7 +106,7 @@ export default function PublicOfferingDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [slug, kind]);
+  }, [slug, kind, t]);
 
   const stale = state.id !== slug;
   const offering = stale ? null : state.row;
@@ -180,7 +182,7 @@ export default function PublicOfferingDetailPage({
     if (offering.pricingEnabled && !tierId) {
       setSubmitState({
         kind: "error",
-        message: "请先选择价格档位",
+        message: t("pickTierFirst"),
         enrollmentId: null,
       });
       return;
@@ -200,7 +202,7 @@ export default function PublicOfferingDetailPage({
         if (status === "payment_pending") {
           setSubmitState({
             kind: "payment_pending",
-            message: "名额已保留，请在限定时间内完成支付",
+            message: t("slotReservedMsg"),
             enrollmentId: res.result.id,
           });
           // 桌面：报名占位成功即弹收银模态框（不整页跳转）
@@ -208,13 +210,13 @@ export default function PublicOfferingDetailPage({
         } else if (status === "pending") {
           setSubmitState({
             kind: "pending",
-            message: "申请已提交，等待审批",
+            message: t("pendingMsg"),
             enrollmentId: null,
           });
         } else {
           setSubmitState({
             kind: "confirmed",
-            message: "报名成功",
+            message: t("enrolledMsg"),
             enrollmentId: null,
           });
           router.refresh();
@@ -224,7 +226,7 @@ export default function PublicOfferingDetailPage({
         // 错误经翻译层映射为可读文案；未知错误走兜底，不透传 GraphQL 原文
         setSubmitState({
           kind: "error",
-          message: translatePaymentError(res.errors[0]?.code, "提交失败"),
+          message: translatePaymentError(res.errors[0]?.code, t("submitFailed")),
           enrollmentId: null,
         });
       }
@@ -233,7 +235,7 @@ export default function PublicOfferingDetailPage({
         kind: "error",
         message: translatePaymentError(
           e instanceof Error ? e.message : null,
-          "提交失败",
+          t("submitFailed"),
         ),
         enrollmentId: null,
       });
@@ -247,28 +249,28 @@ export default function PublicOfferingDetailPage({
       <header className="mb-6">
         <p className="text-[13px] text-ink-3">
           <Link href="/" className="hover:text-ink">
-            工作台
+            {t("breadcrumbHome")}
           </Link>
           {" › "}
           <Link href={listHref} className="hover:text-ink">
             {label}
           </Link>
           {" › "}
-          <strong>{offering?.title ?? "详情"}</strong>
+          <strong>{offering?.title ?? t("detailFallback")}</strong>
         </p>
       </header>
 
       {loadError ? (
         <div className="join-card" role="alert">
-          加载失败：{loadError}
+          {t("loadFailed")}：{loadError}
         </div>
       ) : stale ? (
         <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
       ) : offering === null ? (
         <div className="join-card text-center">
-          <h1 className="text-lg font-medium">该{label}不可访问</h1>
+          <h1 className="text-lg font-medium">{t("notAccessibleTitle", { label })}</h1>
           <p className="mt-2 text-sm text-ink-3">
-            仅工作台内部可见，或已结束。请登录后从工作台内访问。
+            {t("notAccessibleDesc")}
           </p>
         </div>
       ) : (
@@ -283,10 +285,14 @@ export default function PublicOfferingDetailPage({
             <h1 className="mt-3 text-2xl font-semibold">{offering.title}</h1>
             <div className="mt-4 grid gap-2 text-sm text-ink-3">
               <span>
-                报名策略：{ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]}
+                {t("policyLabel", {
+                  policy: ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy],
+                })}
               </span>
               <span>
-                报名截止：{formatDeadline(offering.registrationDeadline)}
+                {t("deadlineLabel", {
+                  deadline: formatDeadline(offering.registrationDeadline),
+                })}
               </span>
               {offering.description ? (
                 <p className="mt-3 whitespace-pre-wrap text-sm text-ink-3">
@@ -302,10 +308,10 @@ export default function PublicOfferingDetailPage({
                     href={`/login?next=${encodeURIComponent(`/${kind === "event" ? "events" : "courses"}/${offering.slug}`)}`}
                     className="join-button join-button--primary inline-block"
                   >
-                    登录后报名
+                    {t("loginToEnroll")}
                   </Link>
                   <p className="mt-2 text-[13px] text-ink-3">
-                    报名免费，登录或注册后提交（J-Visitor → J-Learner）。
+                    {t("enrollFreeHint")}
                   </p>
                 </div>
               ) : submitState.kind === "confirmed" ||
@@ -314,10 +320,10 @@ export default function PublicOfferingDetailPage({
                 <div className="text-sm" role="status">
                   <p className="font-medium">
                     {submitState.kind === "confirmed"
-                      ? "✓ 报名成功"
+                      ? t("enrolledConfirm")
                       : submitState.kind === "payment_pending"
-                        ? "⏳ 待支付（名额已保留）"
-                        : "✓ 申请已提交"}
+                        ? t("pendingPay")
+                        : t("submitted")}
                   </p>
                   <p className="mt-1 text-[13px] text-ink-3">
                     {submitState.message}
@@ -330,14 +336,14 @@ export default function PublicOfferingDetailPage({
                       className="join-button join-button--primary mt-3 inline-block"
                       data-testid="public-enrollment-continue-pay"
                     >
-                      继续支付
+                      {t("continuePay")}
                     </button>
                   ) : (
                     <Link
                       href="/participations"
                       className="mt-3 inline-block text-[13px] text-accent hover:underline"
                     >
-                      在「我的参与」查看报名状态
+                      {t("viewInParticipations")}
                     </Link>
                   )}
                 </div>
@@ -348,7 +354,7 @@ export default function PublicOfferingDetailPage({
                   data-testid="public-enrollment-pending-card"
                 >
                   <p className="font-medium">
-                    ⏳ 名额已保留，请在限定时间内完成支付
+                    {t("slotReserved")}
                   </p>
                   <button
                     type="button"
@@ -356,39 +362,39 @@ export default function PublicOfferingDetailPage({
                     className="join-button join-button--primary mt-3 inline-block"
                     data-testid="public-enrollment-pending-pay"
                   >
-                    继续支付
+                    {t("continuePay")}
                   </button>
                 </div>
               ) : myEnroll?.status === "pending" ? (
                 <div className="text-sm" role="status">
                   <p className="font-medium">
-                    你已报名该{label}，申请审批中，通过后确认名额。
+                    {t("pendingApproval", { label })}
                   </p>
                   <Link
                     href="/participations"
                     className="mt-3 inline-block text-[13px] text-accent hover:underline"
                   >
-                    在「我的参与」查看报名状态
+                    {t("viewInParticipations")}
                   </Link>
                 </div>
               ) : myEnroll ? (
                 <div className="text-sm" role="status">
-                  <p className="font-medium">你已报名该{label}。</p>
+                  <p className="font-medium">{t("enrolled", { label })}</p>
                   <Link
                     href="/participations"
                     className="mt-3 inline-block text-[13px] text-accent hover:underline"
                   >
-                    在「我的参与」查看报名状态
+                    {t("viewInParticipations")}
                   </Link>
                 </div>
               ) : !enrollChecked ? (
-                <div className="text-sm text-ink-3">正在确认你的报名状态…</div>
+                <div className="text-sm text-ink-3">{t("checkingEnroll")}</div>
               ) : (
                 <div className="grid gap-3">
                   {offering.enrollmentPolicy === "invite_only" ? (
                     <label className="block">
                       <span className="block text-[13px] text-ink-3">
-                        邀请码（必填）
+                        {t("inviteCode")}
                       </span>
                       <input
                         value={inviteCode}
@@ -403,14 +409,14 @@ export default function PublicOfferingDetailPage({
                       data-testid="price-tier-picker"
                     >
                       <legend className="text-[13px] text-ink-3">
-                        选择价格档位
+                        {t("chooseTier")}
                       </legend>
                       {priceTiers.length === 0 ? (
                         <p
                           className="text-[13px] text-ink-3"
                           data-testid="no-available-tier"
                         >
-                          当前无可售档位，请联系组织者。
+                          {t("noTierAvailable")}
                         </p>
                       ) : (
                         priceTiers.map((tier) => (
@@ -443,7 +449,7 @@ export default function PublicOfferingDetailPage({
                   ) : null}
                   {offering.enrollmentPolicy === "request" ? (
                     <p className="text-[13px] text-ink-3">
-                      提交后需 Owner/Admin 审批，通过后确认名额。
+                      {t("requestApprovalHint")}
                     </p>
                   ) : null}
                   {submitState.kind === "error" ? (
@@ -458,10 +464,12 @@ export default function PublicOfferingDetailPage({
                     className="join-button join-button--primary justify-self-start"
                   >
                     {busy
-                      ? "提交中…"
+                      ? t("submitting")
                       : offering.pricingEnabled && paidTier
-                        ? `报名并支付 ¥${formatAmount(paidTier.amountCents)}`
-                        : "提交报名"}
+                        ? t("submitWithPay", {
+                            amount: formatAmount(paidTier.amountCents),
+                          })
+                        : t("submit")}
                   </button>
                 </div>
               )}
@@ -474,9 +482,9 @@ export default function PublicOfferingDetailPage({
 
           {sponsorshipOpen ? (
             <div className="join-card !p-8">
-              <h2 className="text-lg font-semibold">赞助本场</h2>
+              <h2 className="text-lg font-semibold">{t("sponsorTitle")}</h2>
               <p className="mt-1 text-[13px] text-ink-3">
-                提交赞助意向，审批通过后权益生效（意向登记，不收款）。
+                {t("sponsorDesc")}
               </p>
               <div className="mt-4 grid gap-2">
                 {sponsorshipTiers.map((tier) => (
@@ -488,18 +496,18 @@ export default function PublicOfferingDetailPage({
                       {tier.name}
                       {tier.exclusive ? (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
-                          独占位
+                          {t("exclusive")}
                         </span>
                       ) : null}
                     </p>
                     {tier.amountSuggestion ? (
                       <p className="mt-0.5 text-[13px] text-ink-3">
-                        建议金额 ¥{tier.amountSuggestion}
+                        {t("suggestAmount", { amount: tier.amountSuggestion })}
                       </p>
                     ) : null}
                     {tier.benefits.length > 0 ? (
                       <p className="mt-0.5 text-[13px] text-ink-3">
-                        权益：{tier.benefits.join(" / ")}
+                        {t("benefits", { benefits: tier.benefits.join(" / ") })}
                       </p>
                     ) : null}
                   </div>
@@ -512,10 +520,10 @@ export default function PublicOfferingDetailPage({
                       href={`/login?next=${encodeURIComponent(`/events/${offering.slug}`)}`}
                       className="join-button join-button--primary inline-block"
                     >
-                      登录后赞助
+                      {t("loginToSponsor")}
                     </Link>
                     <p className="mt-2 text-[13px] text-ink-3">
-                      赞助需登录全局账号（不自动成为工作台成员）。
+                      {t("sponsorLoginHint")}
                     </p>
                   </div>
                 ) : userId ? (

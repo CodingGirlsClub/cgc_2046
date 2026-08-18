@@ -3,7 +3,6 @@ import {
 	renderHook as rtlRenderHook,
 } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import type { AbstractIntlMessages } from "next-intl";
 import zhCN from "./messages/zh-CN.json";
 import en from "./messages/en.json";
 import ThemeProvider from "@/lib/theme-provider";
@@ -22,10 +21,13 @@ export type RenderOptions = {
 	/** 界面 locale；默认 "zh-CN"。en 场景显式传入 "en"。 */
 	locale?: "zh-CN" | "en";
 	/** 自定义 messages；缺省按 locale 取 messages/{locale}.json。 */
-	messages?: AbstractIntlMessages;
+	messages?: Record<string, unknown>;
 };
 
-const MESSAGES: Record<"zh-CN" | "en", AbstractIntlMessages> = { "zh-CN": zhCN, en };
+const MESSAGES: Record<"zh-CN" | "en", Record<string, unknown>> = {
+	"zh-CN": zhCN,
+	en,
+};
 
 /**
  * RTL wrapper（供 render 的 rerender 保留 provider 树）。
@@ -33,11 +35,15 @@ const MESSAGES: Record<"zh-CN" | "en", AbstractIntlMessages> = { "zh-CN": zhCN, 
 function providersWrapper(options?: RenderOptions) {
 	const locale: "zh-CN" | "en" = options?.locale ?? "zh-CN";
 	const messages = options?.messages ?? MESSAGES[locale];
-	return ({ children }: { children: React.ReactNode }) => (
-		<NextIntlClientProvider locale={locale} messages={messages}>
-			<ThemeProvider>{children}</ThemeProvider>
-		</NextIntlClientProvider>
-	);
+	function Providers({ children }: { children: React.ReactNode }) {
+		return (
+			<NextIntlClientProvider locale={locale} messages={messages}>
+				<ThemeProvider>{children}</ThemeProvider>
+			</NextIntlClientProvider>
+		);
+	}
+	Providers.displayName = "I18nThemeProviders";
+	return Providers;
 }
 
 export function render(ui: React.ReactElement, options?: RenderOptions) {

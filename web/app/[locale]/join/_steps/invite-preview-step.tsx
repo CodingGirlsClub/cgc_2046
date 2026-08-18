@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import { invitationRoleLabel, type InvitationItem } from "@/lib/invitations";
 
 interface InvitePreviewStepProps {
@@ -11,15 +12,16 @@ export function InvitePreviewStep({
   loading,
   onAccept,
 }: InvitePreviewStepProps) {
+  const t = useTranslations("join");
   return (
     <div className="join-workspace-preview">
       <div className="join-workspace-info">
-        <h2>{invitation.workspaceName ?? "未知工作区"}</h2>
+        <h2>{invitation.workspaceName ?? t("unknownWorkspace")}</h2>
         {invitation.workspaceSlug && <code>{invitation.workspaceSlug}</code>}
         {invitation.preauthorizedRoleNames &&
           invitation.preauthorizedRoleNames.length > 0 && (
             <div className="join-preauthorized-roles">
-              <span>预授权角色：</span>
+              <span>{t("preauthorizedRoles")}</span>
               {invitation.preauthorizedRoleNames.map((role) => (
                 <span className="workspace-role-chip" key={role}>
                   {invitationRoleLabel(role)}
@@ -29,9 +31,7 @@ export function InvitePreviewStep({
           )}
         {(!invitation.preauthorizedRoleNames ||
           invitation.preauthorizedRoleNames.length === 0) && (
-          <p className="join-note">
-            此邀请未预授权角色，加入后需 Owner 分配角色。
-          </p>
+          <p className="join-note">{t("noPreauthNote")}</p>
         )}
       </div>
       <div className="join-action-area">
@@ -41,7 +41,7 @@ export function InvitePreviewStep({
           onClick={onAccept}
           disabled={loading}
         >
-          {loading ? "接受中…" : "确认加入"}
+          {loading ? t("accepting") : t("confirmJoin")}
         </button>
       </div>
     </div>

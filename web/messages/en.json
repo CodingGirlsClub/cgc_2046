@@ -134,5 +134,257 @@
 			"errorShortPassword": "Password must be at least 8 characters",
 			"errorPasswordMismatch": "The two passwords do not match"
 		}
+	},
+	"landing": {
+		"nav": {
+			"events": "Events",
+			"courses": "Courses",
+			"login": "Sign in",
+			"join": "Join us"
+		},
+		"hero": {
+			"tagline": "From 2016 to 2046, walking a generation of women into programming",
+			"title": "Building a bridge across the divide",
+			"subtitle": "Coding Girls Club · 程序媛汇 — building a bridge between women and programming.",
+			"description": "Founded in 2016, 程序媛汇 (Coding Girls Club) is a nonprofit coding community helping women enter and stay in tech. 2046 is the deadline we set for ourselves: thirty years of doing this properly — year after year, starting with a class, an event, a peer to turn to for help.",
+			"quote": "“Our mission is digital empowerment for women, and we pursue it with humble persistence.”",
+			"quoteAuthor": "— Wen Yang, Founder",
+			"stats": "By 2021, we had reached 10 cities, run 50+ offline workshops, visited 17 universities, and accompanied 4000+ learners alongside 1000+ coaches.",
+			"join": "Join us",
+			"browseEvents": "Browse upcoming events"
+		},
+		"sections": {
+			"eventsTitle": "Latest events",
+			"eventsDesc": "Community events open to everyone.",
+			"coursesTitle": "Featured courses",
+			"coursesDesc": "Beginner-friendly courses and long-term cohorts.",
+			"viewAll": "View all ›",
+			"errorHint": "Couldn't load right now.",
+			"errorAction": "Go to the list instead ›",
+			"emptyHint": "No open enrollments right now.",
+			"emptyAction": "Browse the list ›",
+			"deadline": "Closes {deadline}"
+		},
+		"media": {
+			"title": "Press & recognition",
+			"description": "Moments recorded, studied, and recognized along the way.",
+			"honorsTitle": "Honors"
+		},
+		"honors": [
+			"Selected for the UNDP “Tech for Good” project casebook (2018)",
+			"Awarded in the CYLC National Youth Social Organizations Partnership Program (2019)",
+			"Supported the UNDP & UN Women #科技遇见她# one-hour coding challenge"
+		],
+		"paper": {
+			"venue": "With Carnegie Mellon University researchers · ICSE CHASE 2021 · IEEE"
+		},
+		"partners": {
+			"title": "Partners",
+			"description": "Those who walked alongside us — thank you for the journey."
+		},
+		"cta": {
+			"title": "The best time to plant a tree was ten years ago; the second-best time is now!",
+			"register": "Create account",
+			"login": "Have an account? Sign in"
+		},
+		"footer": {
+			"tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046"
+		},
+		"mediaReports": [
+			{
+				"outlet": "Global Times",
+				"title": "Ladies Who Code",
+				"url": "http://www.globaltimes.cn/content/954372.shtml"
+			},
+			{
+				"outlet": "China Daily",
+				"title": "Helping women to break social programming",
+				"url": "http://www.chinadaily.com.cn/china/2017-01/13/content_27943815.htm"
+			},
+			{
+				"outlet": "China Daily",
+				"title": "Looking to crack the unwritten code",
+				"url": "http://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm"
+			},
+			{
+				"outlet": "CCTV / CGTN",
+				"title": "Chinese women take on computer programming",
+				"url": "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html"
+			},
+			{
+				"outlet": "36Kr",
+				"title": "Gender education, anti-industry discrimination, volunteer communities: people acting for women's rights",
+				"url": "https://m.36kr.com/p/1129142659517446"
+			},
+			{
+				"outlet": "Guokr",
+				"title": "Stories of self-taught programming and the future",
+				"url": null
+			}
+		],
+		"paperTitle": "Approaches to Diversifying the Programmer Community — The Case of the Girls Coding Day"
+	},
+	"home": {
+		"confirming": "Confirming sign-in status…",
+		"loadingWorkspaces": "Loading workspaces…",
+		"entering": "Entering workspace…",
+		"loadFailedTitle": "Failed to load workspaces",
+		"loadFailedDesc": "We couldn't fetch your workspace list. Please try again later.",
+		"retry": "Retry",
+		"emptyTitle": "You haven't joined any workspaces yet",
+		"emptyDesc": "Join a workspace to start collaborating with your team.",
+		"discover": "Discover / apply to join a workspace",
+		"myParticipations": "My participations"
+	},
+	"publicOfferings": {
+		"loadFailed": "Failed to load",
+		"breadcrumbHome": "Workspaces",
+		"publicTitle": "Public {label}",
+		"publicDesc": "{label} open to everyone; join a workspace for more internal ones.",
+		"viewOther": "View {label} ›",
+		"empty": "No public {label} right now.",
+		"deadline": "Closes {deadline}"
+	},
+	"offeringDetail": {
+		"loadFailed": "Failed to load",
+		"breadcrumbHome": "Workspaces",
+		"detailFallback": "Details",
+		"notAccessibleTitle": "This {label} is not accessible",
+		"notAccessibleDesc": "It is only visible inside a workspace, or it has ended. Sign in and access it from your workspace.",
+		"policyLabel": "Enrollment: {policy}",
+		"deadlineLabel": "Enrollment closes: {deadline}",
+		"loginToEnroll": "Sign in to enroll",
+		"enrollFreeHint": "Enrollment is free. Sign in or create an account to submit (J-Visitor → J-Learner).",
+		"enrolledConfirm": "✓ Enrolled",
+		"pendingPay": "⏳ Payment pending (slot reserved)",
+		"submitted": "✓ Application submitted",
+		"continuePay": "Continue to pay",
+		"viewInParticipations": "Check status in My Participations",
+		"slotReserved": "⏳ Slot reserved — complete payment within the time limit",
+		"pendingApproval": "You've enrolled in this {label}. Your application is pending approval.",
+		"enrolled": "You're enrolled in this {label}.",
+		"checkingEnroll": "Checking your enrollment status…",
+		"inviteCode": "Invite code (required)",
+		"chooseTier": "Choose a pricing tier",
+		"noTierAvailable": "No tiers available right now. Please contact the organizer.",
+		"requestApprovalHint": "Owner/Admin approval is required; your spot is confirmed once approved.",
+		"submitting": "Submitting…",
+		"submitWithPay": "Enroll and pay ¥{amount}",
+		"submit": "Submit enrollment",
+		"sponsorTitle": "Sponsor this event",
+		"sponsorDesc": "Submit a sponsorship intent; benefits take effect after approval (intent only, no payment).",
+		"exclusive": "Exclusive",
+		"suggestAmount": "Suggested amount ¥{amount}",
+		"benefits": "Benefits: {benefits}",
+		"loginToSponsor": "Sign in to sponsor",
+		"sponsorLoginHint": "Sponsorship requires a global account (it won't auto-join the workspace).",
+		"submitFailed": "Submission failed",
+		"pickTierFirst": "Please choose a pricing tier first",
+		"slotReservedMsg": "Slot reserved — complete payment within the time limit",
+		"pendingMsg": "Application submitted, awaiting approval",
+		"enrolledMsg": "Enrollment successful"
+	},
+	"apply": {
+		"loading": "Loading…",
+		"title": "Apply to create a workspace",
+		"loginFirst": "Please",
+		"login": "sign in",
+		"loginAfter": "before submitting.",
+		"intro": "Tell us about the workspace you'd like to create. A platform admin will review your application; once approved, you'll become the Owner.",
+		"nameLabel": "Workspace name",
+		"namePlaceholder": "Workspace name (e.g. Research Hub)",
+		"slugLabel": "slug (unique id — lowercase letters, numbers, hyphens)",
+		"slugPlaceholder": "slug (e.g. research-collab)",
+		"purposeLabel": "Purpose",
+		"purposePlaceholder": "What will this workspace be used for?",
+		"submitFailed": "Submission failed. Please try again later.",
+		"submitSuccess": "Submitted! Your application is now pending approval.",
+		"submit": "Submit application",
+		"myAppsLabel": "My applications",
+		"listFailed": "Failed to load your applications.",
+		"noApps": "No applications yet.",
+		"rejectionReason": "Reason: {reason}"
+	},
+	"join": {
+		"breadcrumbHome": "Workspaces",
+		"title": "Join a workspace",
+		"loginFirst": "Please sign in before joining a workspace.",
+		"goLogin": "Sign in",
+		"confirming": "Confirming sign-in status…",
+		"loading": "Loading…",
+		"notFound": "Workspace “{slug}” not found",
+		"lookupFailed": "Lookup failed",
+		"joinFailed": "Failed to join",
+		"submitFailed": "Submission failed",
+		"invalidInvite": "This invite link is invalid or has expired",
+		"inviteStatus": "Invite is {status}",
+		"validateFailed": "Validation failed",
+		"acceptFailed": "Failed to accept the invitation",
+		"requestSubmittedTitle": "Application submitted",
+		"requestSubmittedDesc": "Your application has been submitted. Please wait for Owner/Admin approval.",
+		"requestPending": "Pending approval",
+		"joinSuccessTitle": "Joined!",
+		"joinSuccessDesc": "You've successfully joined this workspace.",
+		"joinSuccessInviteDesc": "You've joined this workspace via invitation.",
+		"backToHome": "Back to workspaces",
+		"inviteInvalidTitle": "Invalid invitation",
+		"inviteInvalidStatus": "Status: {status}",
+		"reenter": "Enter again",
+		"joinErrorTitle": "Failed to join",
+		"retry": "Retry",
+		"unknownWorkspace": "Unknown workspace",
+		"preauthorizedRoles": "Pre-authorized roles: ",
+		"noPreauthNote": "This invitation doesn't pre-authorize roles; the Owner will assign them after you join.",
+		"accepting": "Accepting…",
+		"confirmJoin": "Confirm join",
+		"inviteTitle": "Join via invite link",
+		"inviteHint": "Enter the token from your invite link, or paste the full link",
+		"invitePlaceholder": "Enter invite token or paste the full link",
+		"inviteAria": "Invite token",
+		"validating": "Validating…",
+		"validate": "Validate",
+		"back": "← Back",
+		"slugHint": "Enter a workspace slug to find and join",
+		"slugPlaceholder": "Enter a workspace slug, e.g. cgc-shanghai",
+		"slugAria": "Workspace slug",
+		"querying": "Searching…",
+		"lookup": "Find",
+		"requestMsgLabel": "Message (optional)",
+		"requestMsgPlaceholder": "Briefly introduce yourself…",
+		"submitting": "Submitting…",
+		"submitRequest": "Submit application",
+		"inviteOnlyNotice": "This workspace is invite-only. You need a valid invite link to join.",
+		"haveInvite": "I have an invite link",
+		"searchOther": "← Find another workspace",
+		"joining": "Joining…",
+		"joinDirect": "Join now"
+	},
+	"speakerInvite": {
+		"breadcrumbHome": "Workspaces",
+		"breadcrumbEvents": "Events",
+		"title": "Speaker invitation",
+		"invalidTitle": "This invite link is invalid or has expired",
+		"invalidDesc": "The link may have expired, been used, or isn't a valid speaker invitation. Please contact the event organizer.",
+		"browseEvents": "Browse public events",
+		"invited": "You're invited to speak at this event",
+		"topic": "Topic: ",
+		"topicEmpty": "Not set",
+		"time": "Time: ",
+		"undecided": "To be announced",
+		"accepted": "✓ Invitation accepted",
+		"acceptedDesc": "Looking forward to your talk! Once you share the materials, this invitation will be marked complete.",
+		"backToEvent": "Back to event",
+		"declined": "Invitation declined",
+		"declinedDesc": "The organizer has been notified. If plans change, ask them to send a new invitation.",
+		"loginToAccept": "Sign in to accept",
+		"noAccount": "No account?",
+		"registerAccount": "Create a global account",
+		"loginHint": "(Accepting requires sign-in; the account won't join the workspace).",
+		"processing": "Processing…",
+		"accept": "Accept",
+		"decline": "Decline",
+		"decisionHint": "After accepting, please prepare the talk materials; declining ends here — the link works once.",
+		"actionFailed": "Action failed. The invite link may have expired.",
+		"actionFailedShort": "Action failed"
 	}
 }
