@@ -828,9 +828,13 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp normalize_email(_), do: nil
 
   defp add_domain_error(changeset, reason) do
-    Ash.Changeset.add_error(changeset,
-      field: :status,
-      message: domain_error_message(reason)
+    Ash.Changeset.add_error(
+      changeset,
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(reason),
+        code: domain_error_code(reason),
+        fields: [:status]
+      )
     )
   end
 
@@ -856,6 +860,38 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp domain_error_message({:workflow_run_failed, _reason}), do: "failed to start workflow run"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
+
+  defp domain_error_code({:database, _reason}), do: "database_error"
+  defp domain_error_code(:duplicate_invitation), do: "speaker_invitation_duplicate_invitation"
+
+  defp domain_error_code(:invalid_or_expired_token),
+    do: "speaker_invitation_invalid_or_expired_token"
+
+  defp domain_error_code(:forbidden), do: "speaker_invitation_forbidden"
+  defp domain_error_code(:event_not_found), do: "speaker_invitation_event_not_found"
+  defp domain_error_code(:event_not_open), do: "speaker_invitation_event_not_open"
+  defp domain_error_code(:target_tenant_mismatch), do: "speaker_invitation_target_tenant_mismatch"
+  defp domain_error_code(:speaker_name_required), do: "speaker_invitation_speaker_name_required"
+
+  defp domain_error_code(:invitation_id_unavailable),
+    do: "speaker_invitation_invitation_id_unavailable"
+
+  defp domain_error_code(:materials_required), do: "speaker_invitation_materials_required"
+  defp domain_error_code(:not_accepted), do: "speaker_invitation_not_accepted"
+  defp domain_error_code(:workflow_run_not_found), do: "speaker_invitation_workflow_run_not_found"
+  defp domain_error_code(:materials_save_failed), do: "speaker_invitation_materials_save_failed"
+  defp domain_error_code(:invitation_not_found), do: "speaker_invitation_invitation_not_found"
+
+  defp domain_error_code({:workflow_run_failed, _reason}),
+    do: "speaker_invitation_workflow_run_failed"
+
+  defp domain_error_code(reason) when is_atom(reason),
+    do: "speaker_invitation_" <> Atom.to_string(reason)
+
+  defp domain_error_code({kind, _}) when is_atom(kind),
+    do: "speaker_invitation_" <> Atom.to_string(kind)
+
+  defp domain_error_code(_), do: "speaker_invitation_unknown"
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（敏感/超大字段不列出）

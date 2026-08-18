@@ -1006,12 +1006,16 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
-  # ── 错误文案 ───────────────────────────────────────────────────────────────
+  # ── 错误文案（i18n Phase 0：BusinessError 携带稳定 code，前端按 code 查文案）──
 
   defp add_domain_error(changeset, reason) do
-    Ash.Changeset.add_error(changeset,
-      field: :status,
-      message: domain_error_message(reason)
+    Ash.Changeset.add_error(
+      changeset,
+      Cgc2046.Errors.BusinessError.exception(
+        message: domain_error_message(reason),
+        code: domain_error_code(reason),
+        fields: [:status]
+      )
     )
   end
 
@@ -1022,6 +1026,18 @@ defmodule Cgc2046.Payments.Order do
     do: "enrollment does not belong to tenant"
 
   defp domain_error_message(:already_processed), do: "order has already been processed"
+  defp domain_error_message(:provider_not_configured), do: "payment provider is not configured"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
+
+  defp domain_error_code({:database, _reason}), do: "database_error"
+  defp domain_error_code(:enrollment_required), do: "order_enrollment_required"
+  defp domain_error_code(:enrollment_not_found), do: "order_enrollment_not_found"
+  defp domain_error_code(:target_tenant_mismatch), do: "order_target_tenant_mismatch"
+  defp domain_error_code(:already_processed), do: "order_already_processed"
+  defp domain_error_code(:provider_not_configured), do: "order_provider_not_configured"
+
+  defp domain_error_code(reason) when is_atom(reason), do: "order_" <> Atom.to_string(reason)
+  defp domain_error_code({kind, _}) when is_atom(kind), do: "order_" <> Atom.to_string(kind)
+  defp domain_error_code(_), do: "order_unknown"
 end
