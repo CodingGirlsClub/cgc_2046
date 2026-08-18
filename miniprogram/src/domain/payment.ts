@@ -176,6 +176,13 @@ export const PAYMENT_STATUS_LABEL: Record<string, string> = {
   refunded: '已退款'
 }
 
+// 收费报名提交后的落地页：weapp 进支付页；裁剪端（tt/xhs）无小程序内支付，
+// 回结果页（结果页已渲染 payment_pending 状态与网页端支付引导文案）。
+export function paymentLandingUrl(enrollmentId: string, isWeapp: boolean): string {
+  if (isWeapp) return `/pages/order-pay/index?enrollmentId=${enrollmentId}`
+  return `/pages/enrollment-result/index?id=${enrollmentId}`
+}
+
 function parseJson(raw: string): unknown {
   try {
     return JSON.parse(raw)
