@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import { formatJoinedDate } from "@/lib/format";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
@@ -65,8 +66,9 @@ function memberJoinedAt(member: WorkspaceMember) {
 }
 
 function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {
+	const t = useTranslations("workspaceMembers");
 	if (roles.length === 0) {
-		return <span className="members-empty-role">暂无角色</span>;
+		return <span className="members-empty-role">{t("noRoles")}</span>;
 	}
 
 	return (
@@ -101,9 +103,10 @@ function RoleEditor({
 	onCancel,
 	onSave,
 }: RoleEditorProps) {
+	const t = useTranslations("workspaceMembers");
 	return (
 		<div className="members-role-editor" data-testid="role-editor">
-			<div className="members-role-editor__heading">选择角色（不含 Owner）</div>
+			<div className="members-role-editor__heading">{t("editHeading")}</div>
 			<div className="members-role-editor__options">
 				{INLINE_ROLE_OPTIONS.map((role) => (
 					<label key={role} className="members-role-option">
@@ -111,7 +114,7 @@ function RoleEditor({
 							type="checkbox"
 							checked={roles.includes(role)}
 							onChange={() => onToggle(role)}
-							aria-label={`${roleLabel(role)} 角色`}
+							aria-label={t("roleAria", { role: roleLabel(role) })}
 						/>
 						<span>{roleLabel(role)}</span>
 					</label>
@@ -126,7 +129,7 @@ function RoleEditor({
 						onClick={onCancel}
 						disabled={saving}
 					>
-						取消
+						{t("cancel")}
 					</button>
 					<button
 						type="button"
@@ -134,7 +137,7 @@ function RoleEditor({
 						onClick={onSave}
 						disabled={saving}
 					>
-						{saving ? "保存中…" : "保存角色"}
+						{saving ? t("saving") : t("saveRoles")}
 					</button>
 				</div>
 			</div>
@@ -143,6 +146,8 @@ function RoleEditor({
 }
 
 export default function WorkspaceMembersPage() {
+	const t = useTranslations("workspaceMembers");
+	const commonT = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
@@ -231,14 +236,14 @@ export default function WorkspaceMembersPage() {
 				setLoadedFetchKey(key);
 				setEditingId(null);
 				setErrorMsg(
-					error instanceof Error ? error.message : "加载成员失败",
+					error instanceof Error ? error.message : t("loadFailed"),
 				);
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, wsId, debouncedSearch, roleFilter, fetchKey]);
+	}, [authed, confirmed, wsId, debouncedSearch, roleFilter, fetchKey, t]);
 
 	const currentMembers = membersWorkspaceId === wsId ? members : null;
 
@@ -306,9 +311,7 @@ export default function WorkspaceMembersPage() {
 			member.membershipId === ws.myMembershipId;
 		const hadAdmin = member.roles.includes("admin");
 		if (isSelf && hadAdmin && !roleNames.includes("admin")) {
-			const ok = window.confirm(
-				"移除你自己的 Admin 角色将立即失去该 Workspace 的管理权限，确认继续？",
-			);
+			const ok = window.confirm(t("removeAdminConfirm"));
 			if (!ok) return;
 		}
 		setSavingId(member.membershipId);
@@ -332,7 +335,7 @@ export default function WorkspaceMembersPage() {
 			setEditingId(null);
 		} catch (error: unknown) {
 			setErrorMsg(
-				error instanceof Error ? error.message : "保存角色失败",
+				error instanceof Error ? error.message : t("saveFailed"),
 			);
 		} finally {
 			setSavingId(null);
@@ -361,7 +364,7 @@ export default function WorkspaceMembersPage() {
 		} catch (error: unknown) {
 			if (requestKey !== loadedFetchKeyRef.current) return;
 			setErrorMsg(
-				error instanceof Error ? error.message : "加载更多成员失败",
+				error instanceof Error ? error.message : t("loadMoreFailed"),
 			);
 		} finally {
 			setLoadingMore(false);
@@ -371,20 +374,25 @@ export default function WorkspaceMembersPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div
+					className="ws-page-breadcrumb"
+					aria-label={commonT("breadcrumbAria")}
+				>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>成员与角色</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>成员与角色</h1>
-						<p>管理工作区成员与角色分配</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -396,20 +404,20 @@ export default function WorkspaceMembersPage() {
 					/>
 				)}
 
-				<section className="members-notice" aria-label="角色并集说明">
+				<section
+					className="members-notice"
+					aria-label={t("noticeAria")}
+				>
 					<div className="members-notice__icon">
 						<Icon name="info" size={22} />
 					</div>
 					<div>
-						<strong>多角色权限取并集</strong>
-						<p>
-							同一成员拥有多个角色时，能力按角色权限并集合并。Owner
-							不可在此处行内授予。
-						</p>
+						<strong>{t("unionNoticeTitle")}</strong>
+						<p>{t("unionNoticeDesc")}</p>
 					</div>
 					<div className="members-notice__tenant">
 						<Icon name="shield" size={22} />
-						<span>租户数据仅在当前 Workspace 内可见</span>
+						<span>{t("tenantNotice")}</span>
 					</div>
 				</section>
 
@@ -419,14 +427,14 @@ export default function WorkspaceMembersPage() {
 					</div>
 				)}
 
-				<section className="members-toolbar" aria-label="成员筛选">
+				<section className="members-toolbar" aria-label={t("filterAria")}>
 					<label className="members-search">
 						<Icon name="search" size={20} />
 						<input
 							value={search}
 							onChange={(event) => setSearch(event.target.value)}
-							placeholder="搜索姓名或邮箱"
-							aria-label="搜索姓名或邮箱"
+							placeholder={t("searchPlaceholder")}
+							aria-label={t("searchAria")}
 						/>
 					</label>
 					<label className="members-filter">
@@ -435,9 +443,9 @@ export default function WorkspaceMembersPage() {
 							onChange={(event) =>
 								setRoleFilter(event.target.value as RoleFilter)
 							}
-							aria-label="筛选角色"
+							aria-label={t("filterRoleAria")}
 						>
-							<option value="all">全部角色</option>
+							<option value="all">{t("allRoles")}</option>
 							{roleFilterOptions.map((role) => (
 								<option key={role} value={role}>
 									{roleLabel(role)}
@@ -447,11 +455,11 @@ export default function WorkspaceMembersPage() {
 						<Icon name="chevron" size={17} />
 					</label>
 					<span className="members-count" data-testid="members-count">
-						共 {totalMemberCount} 位成员
+						{t("memberCount", { count: totalMemberCount })}
 						{isLimitedMemberView
-							? `（当前仅显示你有权查看的 ${visibleMemberCount} 位）`
+							? t("limitedView", { count: visibleMemberCount })
 							: hasMore
-								? ` · 已加载 ${members.length}`
+								? t("loadedCount", { count: members.length })
 								: ""}
 					</span>
 				</section>
@@ -459,17 +467,20 @@ export default function WorkspaceMembersPage() {
 				{isLimitedMemberView && (
 					<section
 						className="members-visibility-note"
-						aria-label="成员可见范围说明"
+						aria-label={t("visibilityAria")}
 						data-testid="members-visibility-note"
 					>
 						<Icon name="info" size={16} />
 						<span>
-							仅显示你有权查看的成员（工作区共 {totalMemberCount} 位成员）
+							{t("visibilityNote", { count: totalMemberCount })}
 						</span>
 					</section>
 				)}
 
-				<section className="members-table-shell" aria-label="成员列表">
+				<section
+					className="members-table-shell"
+					aria-label={t("listAria")}
+				>
 					{wsLoading || pageLoading ? (
 						<div
 							className="members-table-loading"
@@ -485,16 +496,16 @@ export default function WorkspaceMembersPage() {
 								<table className="members-table">
 									<thead>
 										<tr>
-											<th>成员</th>
-											<th>账号</th>
-											<th>角色并集</th>
+											<th>{t("thMember")}</th>
+											<th>{t("thAccount")}</th>
+											<th>{t("thRoles")}</th>
 											<th>
 												<span className="members-th-with-icon">
 													<Icon name="calendar" size={16} />
-													加入时间
+													{t("thJoinedAt")}
 												</span>
 											</th>
-											<th>操作</th>
+											<th>{t("thActions")}</th>
 										</tr>
 									</thead>
 									<tbody>
@@ -574,10 +585,10 @@ export default function WorkspaceMembersPage() {
 																type="button"
 																className="members-table-action members-table-action--locked"
 																disabled
-																title="Owner 角色只能通过专门指派流程变更"
+																title={t("ownerTitle")}
 															>
 																<Icon name="lock" size={17} />
-																专门指派
+																{t("ownerSpecialAssign")}
 															</button>
 														) : canAssign ? (
 															<button
@@ -591,12 +602,12 @@ export default function WorkspaceMembersPage() {
 																}
 															>
 																{isEditing
-																	? "收起编辑"
-																	: "编辑角色"}
+																	? t("collapseEdit")
+																	: t("editRoles")}
 															</button>
 														) : (
 															<span className="members-readonly-action">
-																仅查看
+																{t("readonlyView")}
 															</span>
 														)}
 													</td>
@@ -615,7 +626,7 @@ export default function WorkspaceMembersPage() {
 										onClick={loadMore}
 										disabled={loadingMore}
 									>
-										{loadingMore ? "加载中…" : "加载更多"}
+										{loadingMore ? t("loadingMore") : t("loadMore")}
 									</button>
 								</div>
 							)}
@@ -625,24 +636,25 @@ export default function WorkspaceMembersPage() {
 							<Icon name="users" size={28} />
 							<strong>
 								{debouncedSearch.trim()
-									? "没有匹配的成员"
-									: "暂无成员"}
+									? t("noMatch")
+									: t("noMembers")}
 							</strong>
 							<p>
 								{debouncedSearch.trim()
-									? "调整搜索词或角色筛选后重试。"
-									: "当前 Workspace 还没有可展示的成员。"}
+									? t("noMatchHint")
+									: t("noMembersHint")}
 							</p>
 						</div>
 					)}
 				</section>
 
 				<footer className="members-page-footer">
-					<span>成员角色按 Workspace 隔离；权限按所有角色并集合并。</span>
+					<span>{t("footer")}</span>
 					{canAssign && (
 						<span>
-							你当前的角色：
-							{(ws?.myRoleNames ?? []).map(roleLabel).join(" + ") || "无"}
+							{t("yourRoles")}
+							{(ws?.myRoleNames ?? []).map(roleLabel).join(" + ") ||
+								t("noRoleValue")}
 						</span>
 					)}
 				</footer>

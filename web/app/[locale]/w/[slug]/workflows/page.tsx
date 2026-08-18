@@ -17,6 +17,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import WorkspaceShell from "@/components/workspace-shell";
 import { InfoCard } from "@/components/workspace-ui";
 import { Icon } from "@/components/icons";
@@ -41,6 +42,7 @@ function pendingManualSteps(run: WorkflowRunItem): WorkflowRunStep[] {
 
 /** 步骤条：facts 推导完成集，待办高亮 */
 function StepsBar({ run }: { run: WorkflowRunItem }) {
+	const t = useTranslations("workspaceWorkflows");
 	if (run.steps.length === 0) return null;
 	return (
 		<ul className="workflows-steps" data-testid="workflow-run-steps">
@@ -54,7 +56,7 @@ function StepsBar({ run }: { run: WorkflowRunItem }) {
 					>
 						<span className="workflows-step__dot" aria-hidden="true" />
 						<span className="workflows-step__title">{step.title || step.stepKey}</span>
-						{!done && <span className="workflows-step__tag">待办</span>}
+						{!done && <span className="workflows-step__tag">{t("todoTag")}</span>}
 					</li>
 				);
 			})}
@@ -85,6 +87,7 @@ function RunCard({
 	slug: string;
 	workspaceId: string;
 }) {
+	const t = useTranslations("workspaceWorkflows");
 	const statusLabel = WORKFLOW_RUN_STATUS_LABEL[run.status] ?? run.status;
 	const hasFacts = Object.keys(run.facts).length > 0;
 	const pending = pendingManualSteps(run);
@@ -95,7 +98,7 @@ function RunCard({
 	const hasExtraFacts = Object.keys(extraFacts).length > 0;
 
 	return (
-		<InfoCard icon="activity" title={`教研产出 #${run.id.slice(0, 8)}`}>
+		<InfoCard icon="activity" title={t("runTitle", { id: run.id.slice(0, 8) })}>
 			<div className="workflows-run" data-testid="workflow-run">
 				<div className="workflows-run__meta">
 					<span
@@ -109,7 +112,7 @@ function RunCard({
 					)}
 					{run.startedAt && (
 						<span className="workflows-run__time">
-							开始于 {new Date(run.startedAt).toLocaleString("zh-CN")}
+							{t("startedAt", { time: new Date(run.startedAt).toLocaleString("zh-CN") })}
 						</span>
 					)}
 				</div>
@@ -120,7 +123,7 @@ function RunCard({
 				{pending.length > 0 && (
 					<div className="workflows-cta" data-testid="workflow-run-cta">
 						<p className="workflows-cta__lead">
-							以下步骤等待助手产出——复制交接文本，粘贴给你的 OpenClacky / opencode / omp 助手。
+							{t("ctaLead")}
 						</p>
 						<ul className="workflows-cta__steps">
 							{pending.map((step) => (
@@ -138,10 +141,10 @@ function RunCard({
 							))}
 						</ul>
 						<div className="workflows-cta__links">
-							<Link href={`/w/${slug}/agents`}>去 Agents 页</Link>
+							<Link href={`/w/${slug}/agents`}>{t("goAgents")}</Link>
 							<span aria-hidden="true">·</span>
 							<Link href={`/w/${slug}/settings/integrations/agents/mcp`}>
-								连接设置
+								{t("connectSettings")}
 							</Link>
 						</div>
 					</div>
@@ -155,7 +158,7 @@ function RunCard({
 						{hasExtraFacts && <FactsTree data={extraFacts} />}
 					</div>
 				) : (
-					<p className="workflows-run__empty">暂无执行产物</p>
+					<p className="workflows-run__empty">{t("emptyOutput")}</p>
 				)}
 			</div>
 		</InfoCard>
@@ -163,6 +166,8 @@ function RunCard({
 }
 
 export default function WorkspaceWorkflowsPage() {
+	const t = useTranslations("workspaceWorkflows");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { authed, confirmed } = useAuthed();
@@ -194,7 +199,7 @@ export default function WorkspaceWorkflowsPage() {
 				if (cancelled) return;
 				setRuns([]);
 				setRunsWorkspaceId(wsId);
-				setErrorMsg(error instanceof Error ? error.message : "加载教研产出失败");
+				setErrorMsg(error instanceof Error ? error.message : t("loadFailed"));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -203,7 +208,7 @@ export default function WorkspaceWorkflowsPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, wsId]);
+	}, [authed, confirmed, wsId, t]);
 
 	// 数据归属守卫：wsId 变化（或尚未解析）时旧 runs 不渲染
 	const currentRuns = runsWorkspaceId === wsId ? runs : null;
@@ -214,18 +219,18 @@ export default function WorkspaceWorkflowsPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<strong>教研产出</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>教研产出</h1>
-						<p>查看该工作台的教研 workflow 执行结果</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -237,13 +242,13 @@ export default function WorkspaceWorkflowsPage() {
 
 				{wsLoading || loading || currentRuns === null ? (
 					<div className="workflows-loading" data-testid="workflows-loading">
-						加载中…
+						{t("loading")}
 					</div>
 				) : currentError ? null : currentRuns.length === 0 ? (
 					<section className="workflows-empty" data-testid="workflows-empty">
 						<Icon name="book" size={28} />
-						<p>暂无教研产出</p>
-						<span>教研 workflow 执行完成后，产物会显示在这里</span>
+						<p>{t("empty")}</p>
+						<span>{t("emptyDesc")}</span>
 					</section>
 				) : (
 					<div className="workflows-list" data-testid="workflows-list">

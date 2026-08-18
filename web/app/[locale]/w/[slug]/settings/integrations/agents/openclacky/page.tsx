@@ -11,6 +11,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
@@ -20,24 +21,28 @@ export default function AgentsOpenclackyPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws } = useWorkspaceBySlug(slug);
+	const t = useTranslations("agentConnect");
+	const tCommon = useTranslations("common");
 
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>OpenClacky</strong>
+					<strong>{t("titleOpenclacky")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>OpenClacky</h1>
-						<p>按步骤把 Agent 接入 CGC-2046 平台。</p>
+						<h1>{t("titleOpenclacky")}</h1>
+						<p>{t("subtitleOpenclacky")}</p>
 					</div>
 				</header>
 
@@ -45,7 +50,7 @@ export default function AgentsOpenclackyPage() {
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
 					<div className="connect-step-card">
-						<h2>① 安装 OpenClacky</h2>
+						<h2>{t("step1Openclacky")}</h2>
 						<iframe
 							src="https://www.openclacky.com/claw/cgc?embed=1"
 							width="100%"
@@ -53,14 +58,14 @@ export default function AgentsOpenclackyPage() {
 							style={{ border: "none", borderRadius: 12 }}
 							allow="clipboard-write"
 							loading="lazy"
-							title="下载 OpenClacky"
+							title={t("downloadTitle")}
 						/>
 					</div>
 
 					<div className="connect-step-card">
-						<h2>② 安装 CGC-2046 连接器扩展</h2>
+						<h2>{t("step2Openclacky")}</h2>
 						<p className="connect-step-card__desc">
-							在 OpenClacky 扩展市场中搜索安装：
+							{t("extensionSearchHint")}
 						</p>
 						<ol
 							style={{
@@ -75,33 +80,36 @@ export default function AgentsOpenclackyPage() {
 							}}
 						>
 							<li style={{ lineHeight: "20px" }}>
-								打开{" "}
-								<a
-									href="http://localhost:7070/#extensions"
-									target="_blank"
-									rel="noreferrer"
-								>
-									http://localhost:7070/#extensions
-								</a>
+								{t.rich("openMarket", {
+									link: (chunks) => (
+										<a
+											href="http://localhost:7070/#extensions"
+											target="_blank"
+											rel="noreferrer"
+										>
+											{chunks}
+										</a>
+									),
+								})}
 							</li>
 							<li style={{ lineHeight: "20px" }}>
-								搜索 <code>CGC-2046</code>
+								{t.rich("searchExtension", {
+									code: (chunks) => <code>{chunks}</code>,
+								})}
 							</li>
 							<li style={{ lineHeight: "20px" }}>
-								点击扩展卡片 → 安装
+								{t("installExtension")}
 							</li>
 						</ol>
 						<p className="connect-step-card__desc">
-							安装完成后，侧边栏会出现「CGC-2046」面板，会话列表里会出现「CGC-2046 助手」。
+							{t("installedPanel")}
 						</p>
 					</div>
 
 					<div className="connect-step-card">
-						<h2>③ 生成连接 token</h2>
+						<h2>{t("step3Openclacky")}</h2>
 						<p className="connect-step-card__desc">
-							在 MCP 页签发一个连接 token（绑用户不绑工作区）。
-							生成后复制到剪贴板，在 OpenClacky 的 CGC 助手会话中完成接入——
-							助手会安全读取剪贴板，token 不会进入对话记录。
+							{t("generateTokenDesc")}
 						</p>
 						<div className="connect-step-card__actions">
 							<Link
@@ -109,7 +117,7 @@ export default function AgentsOpenclackyPage() {
 								className="join-button join-button--primary"
 							>
 								<Icon name="plus" />
-								生成 token
+								{t("generateToken")}
 							</Link>
 						</div>
 					</div>

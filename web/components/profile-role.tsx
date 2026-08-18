@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import {
   ROLE_BADGE_CLASS,
   ROLE_LABEL,
@@ -19,6 +20,7 @@ export function RoleChips({
   roles: MembershipRoleName[];
   className?: string;
 }) {
+  const t = useTranslations("workspace");
   return (
     <div className={`profile-role-chips ${className}`}>
       {roles.length > 0 ? (
@@ -28,7 +30,7 @@ export function RoleChips({
           </span>
         ))
       ) : (
-        <span className="profile-role-empty">未分配角色</span>
+        <span className="profile-role-empty">{t("roleEmpty")}</span>
       )}
     </div>
   );

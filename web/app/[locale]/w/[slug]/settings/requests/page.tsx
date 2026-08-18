@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	fetchJoinRequests,
@@ -30,6 +31,8 @@ import { ApprovalChip } from "@/components/approval-chip";
 export default function RequestsPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
+	const t = useTranslations("workspaceRequests");
+	const tCommon = useTranslations("common");
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 	const canManage = ws?.myAbilities?.includes("manage_members") ?? false;
 
@@ -58,11 +61,11 @@ export default function RequestsPage() {
 			const page = await fetchJoinRequests(ws.id, { status: "pending" });
 			setRequests(page.items);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "加载失败");
+			setError(e instanceof Error ? e.message : t("loadFailed"));
 		} finally {
 			setLoading(false);
 		}
-	}, [ws]);
+	}, [ws, t]);
 
 	// 首次加载：ws 就绪后触发一次数据加载
 	useEffect(() => {
@@ -80,7 +83,8 @@ export default function RequestsPage() {
 				if (!cancelled) setRequests(page.items);
 			})
 			.catch((e) => {
-				if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
+				if (!cancelled)
+					setError(e instanceof Error ? e.message : t("loadFailed"));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -88,7 +92,7 @@ export default function RequestsPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [ws, canManage]);
+	}, [ws, canManage, t]);
 
 	/** 审批通过 */
 	const handleApprove = useCallback(async () => {
@@ -99,11 +103,11 @@ export default function RequestsPage() {
 			setRequests((prev) => prev.filter((r) => r.id !== approveTarget.id));
 			setApproveTarget(null);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "审批失败");
+			setError(e instanceof Error ? e.message : t("approveFailed"));
 		} finally {
 			setActionLoading(null);
 		}
-	}, [approveTarget, approveRoles]);
+	}, [approveTarget, approveRoles, t]);
 
 	/** 拒绝 */
 	const handleReject = useCallback(async () => {
@@ -115,11 +119,11 @@ export default function RequestsPage() {
 			setRejectTarget(null);
 			setRejectReason("");
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "拒绝失败");
+			setError(e instanceof Error ? e.message : t("rejectFailed"));
 		} finally {
 			setActionLoading(null);
 		}
-	}, [rejectTarget, rejectReason]);
+	}, [rejectTarget, rejectReason, t]);
 
 	/** 可选的审批角色（单一来源 GRANTABLE_ROLE_NAMES = ROLE_NAMES − 管理角色，契约守卫） */
 	const approvableRoles = GRANTABLE_ROLE_NAMES;
@@ -127,20 +131,25 @@ export default function RequestsPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div
+					className="ws-page-breadcrumb"
+					aria-label={tCommon("breadcrumbAria")}
+				>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>加入审批</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>加入审批</h1>
-						<p>审批待处理的加入申请</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -153,20 +162,24 @@ export default function RequestsPage() {
 				)}
 
 				{wsLoading && (
-					<div className="settings-loading" aria-label="加载中">
+					<div
+						className="settings-loading"
+						aria-label={t("loadingAria")}
+					>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
 					</div>
 				)}
 
 				{!canManage && !wsLoading && (
-					<div className="settings-note">
-						仅具备管理成员能力的用户可查看加入审批。
-					</div>
+					<div className="settings-note">{t("manageNote")}</div>
 				)}
 
 				{canManage && loading && (
-					<div className="settings-loading" aria-label="加载中">
+					<div
+						className="settings-loading"
+						aria-label={t("loadingAria")}
+					>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
 						<div className="settings-skeleton" />
@@ -181,7 +194,7 @@ export default function RequestsPage() {
 							className="join-button join-button--outline"
 							onClick={loadRequests}
 						>
-							重试
+							{t("retry")}
 						</button>
 					</div>
 				)}
@@ -189,7 +202,7 @@ export default function RequestsPage() {
 				{canManage && !loading && !error && requests.length === 0 && (
 					<div className="settings-empty">
 						<Icon name="check" />
-						<p>暂无待处理的加入申请</p>
+						<p>{t("empty")}</p>
 					</div>
 				)}
 
@@ -218,7 +231,7 @@ export default function RequestsPage() {
 										onClick={() => setApproveTarget(req)}
 										disabled={actionLoading === req.id}
 									>
-										通过
+										{t("approve")}
 									</button>
 									<button
 										type="button"
@@ -226,7 +239,7 @@ export default function RequestsPage() {
 										onClick={() => setRejectTarget(req)}
 										disabled={actionLoading === req.id}
 									>
-										拒绝
+										{t("reject")}
 									</button>
 								</div>
 							</div>
@@ -238,8 +251,8 @@ export default function RequestsPage() {
 				{approveTarget && (
 					<div className="modal-overlay" onClick={() => setApproveTarget(null)}>
 						<div className="modal-content" onClick={(e) => e.stopPropagation()}>
-							<h2>审批通过</h2>
-							<p>为申请人分配角色</p>
+							<h2>{t("approveModalTitle")}</h2>
+							<p>{t("approveModalDesc")}</p>
 							<div className="modal-role-select">
 								{approvableRoles.map((role) => (
 									<label key={role} className="modal-role-option">
@@ -264,14 +277,14 @@ export default function RequestsPage() {
 									className="join-button join-button--primary"
 									onClick={handleApprove}
 								>
-									确认通过
+									{t("confirmApprove")}
 								</button>
 								<button
 									type="button"
 									className="join-button join-button--ghost"
 									onClick={() => setApproveTarget(null)}
 								>
-									取消
+									{t("cancel")}
 								</button>
 							</div>
 						</div>
@@ -282,12 +295,12 @@ export default function RequestsPage() {
 				{rejectTarget && (
 					<div className="modal-overlay" onClick={() => setRejectTarget(null)}>
 						<div className="modal-content" onClick={(e) => e.stopPropagation()}>
-							<h2>拒绝申请</h2>
+							<h2>{t("rejectModalTitle")}</h2>
 							<label className="join-field">
-								<span>拒绝原因（可选）</span>
+								<span>{t("rejectReasonLabel")}</span>
 								<textarea
 									className="join-textarea"
-									placeholder="填写拒绝原因…"
+									placeholder={t("rejectReasonPlaceholder")}
 									value={rejectReason}
 									onChange={(e) => setRejectReason(e.target.value)}
 									rows={3}
@@ -299,7 +312,7 @@ export default function RequestsPage() {
 									className="join-button join-button--danger"
 									onClick={handleReject}
 								>
-									确认拒绝
+									{t("confirmReject")}
 								</button>
 								<button
 									type="button"
@@ -309,7 +322,7 @@ export default function RequestsPage() {
 										setRejectReason("");
 									}}
 								>
-									取消
+									{t("cancel")}
 								</button>
 							</div>
 						</div>

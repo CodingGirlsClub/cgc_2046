@@ -10,12 +10,15 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import MembersTabs from "@/components/members-tabs";
 import PaymentsManagement from "@/components/payments-management";
 
 export default function WorkspacePaymentsPage() {
+	const t = useTranslations("workspacePages");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, readOnlyVisitor } = useWorkspaceBySlug(slug);
@@ -26,12 +29,12 @@ export default function WorkspacePaymentsPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<strong>缴费管理</strong>
+					<strong>{t("payments")}</strong>
 				</div>
 				{ws ? <MembersTabs slug={slug} current="payments" abilities={ws.myAbilities ?? []} /> : null}
 

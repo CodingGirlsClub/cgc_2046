@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { useAuthed } from "@/lib/use-authed";
 import {
@@ -34,6 +35,8 @@ import MembersTabs from "@/components/members-tabs";
 import { Icon } from "@/components/icons";
 
 export default function InvitationsPage() {
+	const t = useTranslations("workspaceInvitations");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
@@ -71,7 +74,8 @@ export default function InvitationsPage() {
 				if (!cancelled) setInvitations(page.items);
 			})
 			.catch((e) => {
-				if (!cancelled) setError(e instanceof Error ? e.message : "加载失败");
+				if (!cancelled)
+					setError(e instanceof Error ? e.message : t("loadFailed"));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -79,7 +83,7 @@ export default function InvitationsPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [ws, canManage]);
+	}, [ws, canManage, t]);
 
 	/** 加载邀请列表 */
 	const loadInvitations = useCallback(async () => {
@@ -90,11 +94,11 @@ export default function InvitationsPage() {
 			const page = await fetchInvitations(ws.id);
 			setInvitations(page.items);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "加载失败");
+			setError(e instanceof Error ? e.message : t("loadFailed"));
 		} finally {
 			setLoading(false);
 		}
-	}, [ws]);
+	}, [ws, t]);
 
 	/** 创建邀请 */
 	const handleCreate = useCallback(async () => {
@@ -115,11 +119,11 @@ export default function InvitationsPage() {
 			setFormRoles([]);
 			setFormExpiresAt("");
 		} catch (e) {
-			setFormError(e instanceof Error ? e.message : "创建失败");
+			setFormError(e instanceof Error ? e.message : t("createFailed"));
 		} finally {
 			setFormSubmitting(false);
 		}
-	}, [ws, userId, formTargetEmail, formRoles, formExpiresAt]);
+	}, [ws, userId, formTargetEmail, formRoles, formExpiresAt, t]);
 
 	/** 撤销邀请 */
 	const handleRevoke = useCallback(async (id: string) => {
@@ -132,11 +136,11 @@ export default function InvitationsPage() {
 				),
 			);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "撤销失败");
+			setError(e instanceof Error ? e.message : t("revokeFailed"));
 		} finally {
 			setActionLoading(null);
 		}
-	}, []);
+	}, [t]);
 
 	/** 复制邀请链接（仅创建时返回明文 token 的邀请可复制；历史邀请 token 不落库，无法重新复制） */
 	const handleCopyLink = useCallback((inv: InvitationItem) => {
@@ -152,20 +156,22 @@ export default function InvitationsPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>邀请管理</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>邀请管理</h1>
-						<p>创建和管理加入邀请</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 					{canManage && (
 						<button
@@ -174,7 +180,7 @@ export default function InvitationsPage() {
 							onClick={() => setShowForm(true)}
 						>
 							<Icon name="plus" />
-							创建邀请
+							{t("createInvite")}
 						</button>
 					)}
 				</header>
@@ -188,25 +194,23 @@ export default function InvitationsPage() {
 				)}
 
 				{wsLoading && (
-					<div className="settings-loading" aria-label="加载中">
+					<div className="settings-loading" aria-label={t("loadingAria")}>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
 					</div>
 				)}
 
 				{!canManage && !wsLoading && (
-					<div className="settings-note">
-						仅具备管理成员能力的用户可管理邀请。
-					</div>
+					<div className="settings-note">{t("manageNote")}</div>
 				)}
 
 				{/* 创建表单 */}
 				{showForm && canManage && (
 					<div className="invitation-form-card">
-						<h2>创建新邀请</h2>
+						<h2>{t("createHeading")}</h2>
 						<div className="invitation-form">
 							<label className="join-field">
-								<span>目标邮箱（可选，空=公开链接）</span>
+								<span>{t("targetEmail")}</span>
 								<input
 									type="email"
 									className="join-input"
@@ -220,13 +224,13 @@ export default function InvitationsPage() {
 							    外层曾是 label——happy-dom 按 label activation 会把 click 转发给组内
 							    首个 input 造成双 toggle，也暴露了嵌套语义本身的问题。 */}
 							<div className="join-field">
-								<span>预授权角色（可选，多选）</span>
+								<span>{t("preauthRoles")}</span>
 								<div className="invitation-role-select">
 									{GRANTABLE_ROLE_NAMES.map((role) => (
 										<label key={role} className="invitation-role-option">
 											<input
 												type="checkbox"
-												aria-label={`${role} 角色`}
+												aria-label={t("roleAria", { role })}
 												checked={formRoles.includes(role)}
 												onChange={() => {
 													setFormRoles((prev) =>
@@ -243,7 +247,7 @@ export default function InvitationsPage() {
 								</div>
 							</div>
 							<label className="join-field">
-								<span>过期时间（可选）</span>
+								<span>{t("expiresAt")}</span>
 								<input
 									type="datetime-local"
 									className="join-input"
@@ -264,7 +268,7 @@ export default function InvitationsPage() {
 									onClick={handleCreate}
 									disabled={formSubmitting}
 								>
-									{formSubmitting ? "创建中…" : "创建邀请"}
+									{formSubmitting ? t("creating") : t("create")}
 								</button>
 								<button
 									type="button"
@@ -275,7 +279,7 @@ export default function InvitationsPage() {
 									}}
 									disabled={formSubmitting}
 								>
-									取消
+									{t("cancel")}
 								</button>
 							</div>
 						</div>
@@ -290,7 +294,7 @@ export default function InvitationsPage() {
 							className="join-button join-button--outline"
 							onClick={loadInvitations}
 						>
-							重试
+							{t("retry")}
 						</button>
 					</div>
 				)}
@@ -298,7 +302,7 @@ export default function InvitationsPage() {
 				{canManage && !loading && !error && invitations.length === 0 && (
 					<div className="settings-empty">
 						<Icon name="invite" />
-						<p>暂无邀请记录</p>
+						<p>{t("empty")}</p>
 					</div>
 				)}
 
@@ -308,7 +312,7 @@ export default function InvitationsPage() {
 							<div className="invitation-card" key={inv.id}>
 								<div className="invitation-card__header">
 									<div className="invitation-card__info">
-										<strong>{inv.targetEmail ?? "公开链接"}</strong>
+										<strong>{inv.targetEmail ?? t("publicLink")}</strong>
 										{inv.preauthorizedRoleNames &&
 											inv.preauthorizedRoleNames.length > 0 && (
 												<div className="invitation-card__roles">
@@ -328,7 +332,9 @@ export default function InvitationsPage() {
 								</div>
 								{inv.expiresAt && (
 									<p className="invitation-card__expires">
-										过期时间：{new Date(inv.expiresAt).toLocaleString()}
+										{t("expiresLabel", {
+											time: new Date(inv.expiresAt).toLocaleString(),
+										})}
 									</p>
 								)}
 								<div className="invitation-card__actions">
@@ -341,11 +347,11 @@ export default function InvitationsPage() {
 												disabled={!inv.plainToken}
 												title={
 													inv.plainToken
-														? "复制邀请链接"
-														: "令牌仅创建时可见，无法重新复制"
+														? t("copyInviteLink")
+														: t("tokenOnce")
 												}
 											>
-												{copiedId === inv.id ? "已复制" : "复制链接"}
+												{copiedId === inv.id ? t("copied") : t("copyLink")}
 											</button>
 											<button
 												type="button"
@@ -353,7 +359,7 @@ export default function InvitationsPage() {
 												onClick={() => handleRevoke(inv.id)}
 												disabled={actionLoading === inv.id}
 											>
-												{actionLoading === inv.id ? "撤销中…" : "撤销"}
+												{actionLoading === inv.id ? t("revoking") : t("revoke")}
 											</button>
 										</>
 									)}

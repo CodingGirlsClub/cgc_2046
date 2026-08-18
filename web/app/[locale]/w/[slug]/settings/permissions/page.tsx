@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
@@ -48,12 +49,17 @@ function PermissionCell({
 	row: PermissionMatrixRow;
 	ability: PermissionAbility;
 }) {
+	const t = useTranslations("workspacePermissions");
 	const allowed = row.abilities[ability];
 	return (
 		<td
 			className={`permissions-matrix__cell ${allowed ? "permissions-matrix__cell--allowed" : "permissions-matrix__cell--denied"}`}
 			data-testid={`cell-${row.role}-${ability}`}
-			aria-label={`${roleLabel(row.role)} ${ability}：${allowed ? "允许" : "拒绝"}`}
+			aria-label={t("cellAria", {
+				role: roleLabel(row.role),
+				ability,
+				state: allowed ? t("allowed") : t("denied"),
+			})}
 		>
 			{allowed ? "✓" : "—"}
 		</td>
@@ -92,18 +98,19 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 	const orderedRows = PERMISSION_ROLE_ORDER.map((role) =>
 		rowsByRole.get(role),
 	).filter((row): row is PermissionMatrixRow => Boolean(row));
+	const t = useTranslations("workspacePermissions");
 
 	return (
-		<section className="permissions-matrix-card" aria-label="权限矩阵">
+		<section className="permissions-matrix-card" aria-label={t("matrixTitle")}>
 			<header className="permissions-card-heading">
-				<h2>权限矩阵</h2>
-				<span>Role → capability</span>
+				<h2>{t("matrixTitle")}</h2>
+				<span>{t("matrixSubtitle")}</span>
 			</header>
 			<div className="permissions-matrix-scroll">
 				<table className="permissions-matrix">
 					<thead>
 						<tr>
-							<th scope="col">能力</th>
+							<th scope="col">{t("thAbility")}</th>
 							{PERMISSION_ROLE_ORDER.map((role) => (
 								<th key={role} scope="col">
 									<span className="permissions-role-header">
@@ -125,7 +132,7 @@ function MatrixCard({ matrix }: { matrix: PermissionMatrixRow[] }) {
 										{ability.id === "assign_roles" && (
 											<small>
 												<Icon name="info" size={14} />
-												不含 Owner 角色授予
+												{t("noOwnerInline")}
 											</small>
 										)}
 									</th>
@@ -153,17 +160,18 @@ function ExampleCard({
 	myAbilities: string[];
 	myRoles: MembershipRoleName[];
 }) {
+	const t = useTranslations("workspacePermissions");
 	return (
 		<aside
 			className="permissions-example-card"
-			aria-label="我的能力"
+			aria-label={t("myAbilitiesTitle")}
 			data-testid="permission-example"
 		>
-			<h2>我的能力</h2>
+			<h2>{t("myAbilitiesTitle")}</h2>
 			<div className="permissions-example__person">
-				<span className="permissions-example__avatar">我</span>
+				<span className="permissions-example__avatar">{t("me")}</span>
 				<div>
-					<strong>当前角色</strong>
+					<strong>{t("currentRoles")}</strong>
 					<div className="permissions-example__roles">
 						{myRoles.length > 0 ? (
 							myRoles.map((role) => (
@@ -173,7 +181,7 @@ function ExampleCard({
 							))
 						) : (
 							<span className="permissions-example__no-roles">
-								暂无角色
+								{t("noRoles")}
 							</span>
 						)}
 					</div>
@@ -181,7 +189,7 @@ function ExampleCard({
 			</div>
 
 			<div className="permissions-example__divider" />
-			<h3>我的能力（后端下发）</h3>
+			<h3>{t("abilitiesLabel")}</h3>
 			<ul className="permissions-example__abilities">
 				{PERMISSION_ABILITIES.map((ability) => {
 					const allowed = myAbilities.includes(ability.id);
@@ -200,13 +208,13 @@ function ExampleCard({
 										: "permissions-result--denied"
 								}
 							>
-								{allowed ? "允许" : "拒绝"}
+								{allowed ? t("allowed") : t("denied")}
 							</strong>
 						</li>
 					);
 				})}
 			</ul>
-			<p>能力来自后端 ws.myAbilities 下发（权威真源，前端不自算）</p>
+			<p>{t("abilitiesHint")}</p>
 		</aside>
 	);
 }
@@ -214,6 +222,8 @@ function ExampleCard({
 export default function WorkspacePermissionsPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
+	const t = useTranslations("workspacePermissions");
+	const tCommon = useTranslations("common");
 	// 数据 effect 的认证守卫（壳管渲染/重定向；页面管「未认证不拉数据」）
 	const { authed, confirmed } = useAuthed();
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
@@ -242,34 +252,39 @@ export default function WorkspacePermissionsPage() {
 				setMatrix([]);
 				setMatrixWorkspaceId(wsId);
 				setErrorMsg(
-					error instanceof Error ? error.message : "加载权限映射失败",
+					error instanceof Error ? error.message : t("loadFailed"),
 				);
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, wsId]);
+	}, [authed, confirmed, wsId, t]);
 
 	const currentMatrix = matrixWorkspaceId === wsId ? matrix : null;
 
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div
+					className="ws-page-breadcrumb"
+					aria-label={tCommon("breadcrumbAria")}
+				>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>权限映射</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>权限映射</h1>
-						<p>查看角色到能力的映射与 can? 判定</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -281,7 +296,10 @@ export default function WorkspacePermissionsPage() {
 					/>
 				)}
 
-				<section className="permissions-notices" aria-label="权限规则说明">
+				<section
+					className="permissions-notices"
+					aria-label={t("rulesAria")}
+				>
 					<article
 						className="permissions-notice permissions-notice--green"
 						data-testid="permissions-baseline-row"
@@ -290,10 +308,8 @@ export default function WorkspacePermissionsPage() {
 							<Icon name="users" size={23} />
 						</span>
 						<div>
-							<strong>成员</strong>
-							<span>
-								成员资格本身即拥有基准能力 view_workspace + access_invite_only
-							</span>
+							<strong>{t("memberNoticeTitle")}</strong>
+							<span>{t("memberNoticeDesc")}</span>
 						</div>
 					</article>
 					<article
@@ -304,17 +320,15 @@ export default function WorkspacePermissionsPage() {
 							<Icon name="shield" size={23} />
 						</span>
 						<div>
-							<strong>差异标签</strong>
-							<span>
-								tutor·volunteer·learner 当前能力等同，用于工作流步骤授权与分工
-							</span>
+							<strong>{t("diffNoticeTitle")}</strong>
+							<span>{t("diffNoticeDesc")}</span>
 						</div>
 					</article>
 					<NoticeCard
 						icon="owner"
 						tone="blue"
-						title="Owner 专门指派"
-						detail="不可通过行内角色编辑授予"
+						title={t("ownerTitle")}
+						detail={t("ownerDetail")}
 					/>
 				</section>
 
@@ -340,15 +354,13 @@ export default function WorkspacePermissionsPage() {
 				) : (
 					<div className="permissions-empty-table">
 						<Icon name="shield" size={30} />
-						<strong>暂无权限映射</strong>
-						<p>当前 Workspace 还没有可展示的角色能力矩阵。</p>
+						<strong>{t("emptyTitle")}</strong>
+						<p>{t("emptyDesc")}</p>
 					</div>
 				)}
 
 				<footer className="permissions-footer">
-					<span>
-						角色权限按当前 Workspace 隔离；跨 Workspace 资源默认拒绝。
-					</span>
+					<span>{t("footer")}</span>
 				</footer>
 			</div>
 		</WorkspaceShell>

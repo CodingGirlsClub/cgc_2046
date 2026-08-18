@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
@@ -29,6 +30,8 @@ import {
 } from "@/lib/profile";
 
 export default function WorkspaceAccountProfilePage() {
+  const t = useTranslations("workspaceAccount");
+  const tCommon = useTranslations("common");
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
   const { authed, confirmed } = useAuthed();
@@ -63,7 +66,7 @@ export default function WorkspaceAccountProfilePage() {
       })
       .catch((error: unknown) => {
         if (!cancelled)
-          setErrorMsg(error instanceof Error ? error.message : "加载资料失败");
+          setErrorMsg(error instanceof Error ? error.message : t("loadFailed"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -71,13 +74,13 @@ export default function WorkspaceAccountProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [authed, confirmed, workspaceId]);
+  }, [authed, confirmed, workspaceId, t]);
 
   if (loading) {
     return (
       <WorkspaceShell slug={slug}>
         <div className="ws-page-main__inner">
-          <div className="settings-loading" aria-label="加载中">
+          <div className="settings-loading" aria-label={tCommon("loadingAria")}>
             <div className="settings-skeleton settings-skeleton--title" />
             <div className="settings-skeleton" />
             <div className="settings-skeleton" />
@@ -92,7 +95,7 @@ export default function WorkspaceAccountProfilePage() {
       <WorkspaceShell slug={slug}>
         <div className="ws-page-main__inner">
           <div className="members-error" role="alert">
-            {errorMsg || "无法加载个人资料"}
+            {errorMsg || t("unableLoad")}
           </div>
         </div>
       </WorkspaceShell>
@@ -105,20 +108,20 @@ export default function WorkspaceAccountProfilePage() {
   return (
     <WorkspaceShell slug={slug}>
       <div className="ws-page-main__inner">
-        <div className="ws-page-breadcrumb" aria-label="页面路径">
-          <Link href="/">工作台</Link>
+        <div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+          <Link href="/">{t("breadcrumbHome")}</Link>
           <span>›</span>
           <Link href={`/w/${slug}`}>{summary?.workspaceName ?? slug}</Link>
           <span>›</span>
-          <Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+          <Link href={`/w/${slug}/settings/join-policy`}>{t("breadcrumbSettings")}</Link>
           <span>›</span>
-          <strong>个人资料</strong>
+          <strong>{t("breadcrumbTitle")}</strong>
         </div>
 
         <header className="ws-page-heading">
           <div>
-            <h1>个人资料</h1>
-            <p>管理你在该工作区的展示信息与可见范围</p>
+            <h1>{t("title")}</h1>
+            <p>{t("subtitle")}</p>
           </div>
         </header>
 

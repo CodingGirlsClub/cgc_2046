@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	fetchMyMcpTokens,
@@ -26,6 +27,8 @@ import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
 import { Icon } from "@/components/icons";
 
 export default function AgentsMcpPage() {
+	const t = useTranslations("workspaceMcp");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
@@ -63,7 +66,7 @@ export default function AgentsMcpPage() {
 			})
 			.catch((e) => {
 				if (!cancelled)
-					setError(e instanceof Error ? e.message : "加载失败");
+					setError(e instanceof Error ? e.message : t("loadFailed"));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -71,7 +74,7 @@ export default function AgentsMcpPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [ws]);
+	}, [ws, t]);
 
 	const loadTokens = useCallback(async () => {
 		setLoading(true);
@@ -79,11 +82,11 @@ export default function AgentsMcpPage() {
 		try {
 			setTokens(await fetchMyMcpTokens());
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "加载失败");
+			setError(e instanceof Error ? e.message : t("loadFailed"));
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [t]);
 
 	const handleIssue = useCallback(async () => {
 		const name = formName.trim();
@@ -98,11 +101,11 @@ export default function AgentsMcpPage() {
 			setShowForm(false);
 			setFormName("");
 		} catch (e) {
-			setFormError(e instanceof Error ? e.message : "签发失败");
+			setFormError(e instanceof Error ? e.message : t("issueFailed"));
 		} finally {
 			setFormSubmitting(false);
 		}
-	}, [formName]);
+	}, [formName, t]);
 
 	const handleRevoke = useCallback(async (id: string) => {
 		setRevokingId(id);
@@ -110,30 +113,32 @@ export default function AgentsMcpPage() {
 			const revoked = await revokeMcpToken(id);
 			setTokens((prev) => prev.map((t) => (t.id === id ? revoked : t)));
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "撤销失败");
+			setError(e instanceof Error ? e.message : t("revokeFailed"));
 		} finally {
 			setRevokingId(null);
 			setConfirmRevokeId(null);
 		}
-	}, []);
+	}, [t]);
 
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>MCP</strong>
+					<strong>{t("title")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>MCP</h1>
-						<p>管理 Agent 连接平台的连接 token。</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -146,7 +151,7 @@ export default function AgentsMcpPage() {
 						onClick={() => setShowForm(true)}
 					>
 						<Icon name="plus" />
-						签发新 token
+						{t("issueNew")}
 					</button>
 				</div>
 
@@ -154,8 +159,7 @@ export default function AgentsMcpPage() {
 				{freshToken && (
 					<div className="mcp-token-once" role="status">
 						<p>
-							<strong>{freshToken.name}</strong> 的连接 token
-							只显示这一次，请立即复制保存：
+							{t("freshTokenNote", { name: freshToken.name })}
 						</p>
 						<div className="mcp-token-once__row">
 							<code>{freshToken.plainToken}</code>
@@ -174,19 +178,19 @@ export default function AgentsMcpPage() {
 									});
 								}}
 							>
-								{copiedFresh ? "已复制" : "复制"}
+								{copiedFresh ? t("copied") : t("copy")}
 							</button>
 							<button
 								type="button"
 								className="join-button join-button--ghost"
 								onClick={() => setFreshToken(null)}
 							>
-								我已保存
+								{t("savedConfirm")}
 							</button>
 						</div>
 						{copyFreshFailed && (
 							<p className="mcp-copy-error" role="alert">
-								复制失败，请手动选择上方 token 文本复制。
+								{t("copyFailed")}
 							</p>
 						)}
 					</div>
@@ -195,14 +199,14 @@ export default function AgentsMcpPage() {
 				{/* 签发表单 */}
 				{showForm && (
 					<div className="invitation-form-card">
-						<h2>签发新连接 token</h2>
+						<h2>{t("issueHeading")}</h2>
 						<div className="invitation-form">
 							<label className="join-field">
-								<span>备注名称（标识设备或客户端）</span>
+								<span>{t("nameLabel")}</span>
 								<input
 									type="text"
 									className="join-input"
-									placeholder="如：我的 Mac"
+									placeholder={t("namePlaceholder")}
 									value={formName}
 									onChange={(e) => setFormName(e.target.value)}
 									disabled={formSubmitting}
@@ -220,7 +224,7 @@ export default function AgentsMcpPage() {
 									onClick={handleIssue}
 									disabled={formSubmitting || !formName.trim()}
 								>
-									{formSubmitting ? "签发中…" : "签发"}
+									{formSubmitting ? t("issuing") : t("issue")}
 								</button>
 								<button
 									type="button"
@@ -231,7 +235,7 @@ export default function AgentsMcpPage() {
 									}}
 									disabled={formSubmitting}
 								>
-									取消
+									{t("cancel")}
 								</button>
 							</div>
 						</div>
@@ -239,7 +243,7 @@ export default function AgentsMcpPage() {
 				)}
 
 				{(wsLoading || loading) && (
-					<div className="settings-loading" aria-label="加载中">
+					<div className="settings-loading" aria-label={t("loadingAria")}>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
 					</div>
@@ -253,7 +257,7 @@ export default function AgentsMcpPage() {
 							className="join-button join-button--outline"
 							onClick={loadTokens}
 						>
-							重试
+							{t("retry")}
 						</button>
 					</div>
 				)}
@@ -261,12 +265,12 @@ export default function AgentsMcpPage() {
 				{!loading && !error && tokens.length === 0 && (
 					<div className="settings-empty">
 						<Icon name="invite" />
-						<p>还没有连接 token</p>
+						<p>{t("empty")}</p>
 						<Link
 							href={`/w/${slug}/settings/integrations/agents/openclacky`}
 							className="join-button join-button--outline"
 						>
-							查看接入指引 →
+							{t("viewGuide")}
 						</Link>
 					</div>
 				)}
@@ -279,8 +283,10 @@ export default function AgentsMcpPage() {
 									<div className="invitation-card__info">
 										<strong>{token.name}</strong>
 										<div className="invitation-card__expires">
-											签发于 {formatDateTime(token.insertedAt)} · 最近使用{" "}
-											{formatDateTime(token.lastUsedAt)}
+											{t("issuedAt", {
+												time: formatDateTime(token.insertedAt),
+												used: formatDateTime(token.lastUsedAt),
+											})}
 										</div>
 									</div>
 									<div className="invitation-card__actions">
@@ -291,7 +297,7 @@ export default function AgentsMcpPage() {
 													: "l-badge-danger"
 											}`}
 										>
-											{token.status === "active" ? "有效" : "已撤销"}
+											{token.status === "active" ? t("active") : t("revoked")}
 										</span>
 										{token.status === "active" &&
 											(confirmRevokeId === token.id ? (
@@ -303,8 +309,8 @@ export default function AgentsMcpPage() {
 														onClick={() => handleRevoke(token.id)}
 													>
 														{revokingId === token.id
-															? "撤销中…"
-															: "确认撤销"}
+															? t("revoking")
+															: t("confirmRevoke")}
 													</button>
 													<button
 														type="button"
@@ -312,7 +318,7 @@ export default function AgentsMcpPage() {
 														disabled={revokingId === token.id}
 														onClick={() => setConfirmRevokeId(null)}
 													>
-														取消
+														{t("cancel")}
 													</button>
 												</>
 											) : (
@@ -321,7 +327,7 @@ export default function AgentsMcpPage() {
 													className="join-button join-button--outline"
 													onClick={() => setConfirmRevokeId(token.id)}
 												>
-													撤销
+													{t("revoke")}
 												</button>
 											))}
 									</div>
