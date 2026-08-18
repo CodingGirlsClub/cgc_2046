@@ -492,6 +492,102 @@ defmodule Cgc2046.Miniprogram.Client do
     do: {:error, :phone_code_unsupported}
 
   @doc """
+  自由文本内容安全检查（v1 wechat-only，plan 2026-08-18-009 D-1）。
+
+  报名 reason 提交链路同步拦截：wechat 走 SDK `Security.msg_check/2`
+  （请求体含 content 明文，经宿主 WechatRequester 出网，debug:false 既有红线），
+  tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入，零外呼）。
+
+  语义（plan D-2）：
+  - `{:ok, :passed}`：msgSecCheck 通过（errcode 0）
+  - `{:ok, :skipped}`：infra 故障 fail-open（限流 45009 / 网络错误 / 非 200 /
+    未知 errcode / wechat 未配置）——平台瞬时故障不阻断报名，已记 telemetry
+    `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，**不含 content 明文**）
+  - `{:ok, :unchecked}`：tt/xhs pass-through（零外呼）
+  - `{:error, {:content_rejected, 87014}}`：违规内容 fail-closed（提交被拒）
+
+  content 超过 2500 字节时截断后再检查（官方 msgSecCheck 上限；reason ≤300 字
+  天然满足，防御性 clamp）。幂等：纯读检查，重试安全。
+  """
+  @spec content_check(platform, String.t()) ::
+          {:ok, :passed | :skipped | :unchecked} | {:error, {:content_rejected, 87014}}
+  def content_check(:wechat, content) when is_binary(content) do
+    case WechatClient.fetch() do
+      {:ok, client} ->
+        classify_msg_check(
+          WeChat.MiniProgram.Security.msg_check(client, truncate_content(content))
+        )
+
+      {:error, reason} ->
+        emit_content_check_skipped(reason)
+        {:ok, :skipped}
+    end
+  end
+
+  def content_check(platform, content) when platform in [:tt, :xhs] and is_binary(content) do
+    {:ok, :unchecked}
+  end
+
+  # 违规（87014）fail-closed；其余（含 45009 限流 / 未知 errcode / 非 200 /
+  # 网络错误 / 无法解析）一律 fail-open 放行 + telemetry 计数。
+  defp classify_msg_check({:ok, %Tesla.Env{status: 200, body: %{"errcode" => 0}}}),
+    do: {:ok, :passed}
+
+  defp classify_msg_check({:ok, %Tesla.Env{status: 200, body: %{"errcode" => 87014}}}),
+    do: {:error, {:content_rejected, 87014}}
+
+  defp classify_msg_check(other) do
+    emit_content_check_skipped(other)
+    {:ok, :skipped}
+  end
+
+  # reason 类别原子（无 content 明文，红线：明文不进日志/telemetry/错误消息）
+  defp emit_content_check_skipped({:ok, %Tesla.Env{status: 200, body: %{"errcode" => 45_009}}}),
+    do: emit_skipped(:rate_limited)
+
+  defp emit_content_check_skipped({:ok, %Tesla.Env{status: 200, body: %{"errcode" => _}}}),
+    do: emit_skipped(:unknown_errcode)
+
+  defp emit_content_check_skipped({:ok, %Tesla.Env{status: _status}}),
+    do: emit_skipped(:http_status)
+
+  defp emit_content_check_skipped({:error, _}), do: emit_skipped(:network)
+
+  defp emit_content_check_skipped(:wechat_not_configured),
+    do: emit_skipped(:wechat_not_configured)
+
+  defp emit_content_check_skipped(_), do: emit_skipped(:unknown)
+
+  defp emit_skipped(reason) do
+    :telemetry.execute(
+      [:cgc_2046, :content_check, :skipped],
+      %{count: 1},
+      %{reason: reason}
+    )
+  end
+
+  # 官方 msgSecCheck content 上限 2500 字节（超长报错防御，reason 天然满足）。
+  # 裸 binary_part 可能截在 UTF-8 字符中间产生无效字节序列（Jason encode 失败），
+  # 故回退到最后一个完整字符边界。
+  defp truncate_content(content) when byte_size(content) > 2500 do
+    content
+    |> binary_part(0, 2500)
+    |> utf8_valid_prefix()
+  end
+
+  defp truncate_content(content), do: content
+
+  defp utf8_valid_prefix(bin) do
+    case :unicode.characters_to_binary(bin) do
+      # 截断落在字符中间：characters_to_binary 返回 {:incomplete, 完整前缀, 残缺后缀}；
+      # 字节序列本身非法（多字节截半）时为 {:error, 完整前缀, 剩余}。两者都取完整前缀。
+      {:error, valid_prefix, _rest} -> valid_prefix
+      {:incomplete, valid_prefix, _rest} -> valid_prefix
+      valid -> valid
+    end
+  end
+
+  @doc """
   用 session_key 解密 getPhoneNumber 加密数据，返回归一化手机号（`+区号号码`）。
 
   算法与三平台官方规范一致：Base64(session_key) 为密钥的 AES-128-CBC + PKCS7。

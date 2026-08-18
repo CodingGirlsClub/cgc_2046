@@ -4,7 +4,9 @@ defmodule Cgc2046.Events.EnrollmentTest do
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
+  alias Cgc2046.Accounts.UserIdentity
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Events.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
@@ -645,6 +647,98 @@ defmodule Cgc2046.Events.EnrollmentTest do
 
       {:ok, request_pending} = create_enrollment(request_event, learner2)
       assert {:error, _} = waive(request_pending, ctx.admin)
+    end
+  end
+
+  describe "内容安全检查（plan 2026-08-18-009 P2：reason 提交链路同步拦截）" do
+    @msg_check_url "https://api.weixin.qq.com/wxa/msg_sec_check"
+
+    test "违规 reason：create 拒绝且报名不落库（Repo 计数断言）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("content-check-violation")
+
+      Tesla.Mock.mock(fn
+        %{method: :post, url: @msg_check_url <> _} ->
+          Tesla.Mock.json(%{"errcode" => 87014, "errmsg" => "risky content"})
+      end)
+
+      assert {:error, %Ash.Error.Invalid{errors: [error | _]}} =
+               create_enrollment(event, learner, %{
+                 submission_payload: %{"reason" => "某违规内容样例"}
+               })
+
+      assert %BusinessError{code: "enrollment_content_rejected"} = error
+      refute Exception.message(error) =~ "某违规内容样例"
+      assert enrollment_count(event.id) == 0
+    end
+
+    test "正常 reason：通过检查并成功创建（回归）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("content-check-pass")
+
+      Tesla.Mock.mock(fn
+        %{method: :post, url: @msg_check_url <> _} = env ->
+          send(self(), {:msg_check_request, Jason.decode!(env.body)})
+          Tesla.Mock.json(%{"errcode" => 0})
+      end)
+
+      assert {:ok, enrollment} =
+               create_enrollment(event, learner, %{
+                 submission_payload: %{"reason" => "很期待参加"}
+               })
+
+      assert enrollment.status == :confirmed
+      assert_receive {:msg_check_request, %{"content" => "很期待参加"}}
+    end
+
+    test "tt 单平台 actor：跳过检查零外呼（未 mock 直接创建成功 = 结构性证明）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("content-check-tt")
+      attach_identity(learner, :tt)
+
+      # 不 mock msgSecCheck：若实现误发请求，Tesla.Mock 无匹配即 raise——零外呼证明。
+      assert {:ok, enrollment} =
+               create_enrollment(event, learner, %{
+                 submission_payload: %{"reason" => "tt 平台内容不检查"}
+               })
+
+      assert enrollment.status == :confirmed
+      refute_receive {:msg_check_request, _}
+    end
+
+    test "infra 故障 fail-open（D-2）：平台抖动不阻断报名，正常创建" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("content-check-failopen")
+
+      Tesla.Mock.mock(fn
+        %{method: :post, url: @msg_check_url <> _} ->
+          {:error, :timeout}
+      end)
+
+      assert {:ok, enrollment} =
+               create_enrollment(event, learner, %{
+                 submission_payload: %{"reason" => "平台瞬时故障也放行"}
+               })
+
+      assert enrollment.status == :confirmed
+    end
+
+    defp attach_identity(user, provider) do
+      UserIdentity
+      |> Ash.Changeset.for_create(:upsert, %{
+        provider: provider,
+        uid: "openid-" <> Ecto.UUID.generate(),
+        user_id: user.id
+      })
+      |> Ash.create!(authorize?: false)
     end
   end
 

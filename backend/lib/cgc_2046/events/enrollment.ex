@@ -27,6 +27,10 @@ defmodule Cgc2046.Events.Enrollment do
   require Logger
 
   alias Cgc2046.ApprovalClaim
+  alias Cgc2046.Miniprogram.Client
+
+  # reason 内容安全平台判定白名单（替代 String.to_atom，杜绝未知字符串造原子）
+  @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
 
   @submitted_signal "enrollment.submitted"
   @approved_signal "enrollment.approved"
@@ -476,7 +480,8 @@ defmodule Cgc2046.Events.Enrollment do
          {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
-         {:ok, attrs} <- put_tier_selection(changeset, target, attrs) do
+         {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
+         :ok <- check_content(changeset, actor) do
       changeset =
         Enum.reduce(attrs, changeset, fn {key, value}, cs ->
           Ash.Changeset.force_change_attribute(cs, key, value)
@@ -487,6 +492,64 @@ defmodule Cgc2046.Events.Enrollment do
       Ash.Changeset.put_context(changeset, :enrollment_policy, target.enrollment_policy)
     else
       {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  # ── 内容安全（plan 2026-08-18-009 P2：reason 提交链路同步拦截）────────────
+
+  # submission_payload.reason 自由文本过内容安全检查（事务前、目标校验后）：
+  # - 违规（87014）→ {:error, :content_rejected}（fail-closed，内容不落库）
+  # - infra 故障 → fail-open 放行（Client.content_check 内部已记 telemetry）
+  # - tt/xhs 单平台 actor → 跳过检查（pass-through 语义等价，零外呼）
+  # - 无 reason / 非 binary → 直接放行（无可查内容）
+  defp check_content(changeset, actor) do
+    payload = Ash.Changeset.get_attribute(changeset, :submission_payload) || %{}
+    reason = Map.get(payload, "reason") || Map.get(payload, :reason)
+
+    if is_binary(reason) and reason != "" do
+      case resolve_content_platform(actor) do
+        :unchecked ->
+          :ok
+
+        platform ->
+          case Client.content_check(platform, reason) do
+            {:ok, _} -> :ok
+            {:error, {:content_rejected, _}} -> {:error, :content_rejected}
+          end
+      end
+    else
+      :ok
+    end
+  end
+
+  # create 时 actor 无 platform（platform claim 在 JWT，User struct 不带；writer
+  # 2026-08-18 核实）——取 user_identities 平台判定：恰为单一 tt/xhs → 跳过；
+  # 其余（wechat / 多平台 / 无记录 / 查询失败 / actor nil）→ wechat 检查
+  # （安全方向；tt/xhs 本就 pass-through，语义等价）。
+  defp resolve_content_platform(actor) do
+    case actor_platforms(actor) do
+      {:ok, [platform]} when platform in [:tt, :xhs] -> :unchecked
+      _ -> :wechat
+    end
+  end
+
+  defp actor_platforms(nil), do: {:ok, []}
+
+  defp actor_platforms(actor) do
+    case Cgc2046.Repo.query(
+           "SELECT DISTINCT provider FROM user_identities WHERE user_id = $1",
+           [Cgc2046.Repo.uuid!(actor.id)]
+         ) do
+      {:ok, %{rows: rows}} ->
+        platforms =
+          rows
+          |> Enum.map(fn [provider] -> @content_check_platforms[provider] end)
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, platforms}
+
+      {:error, _} ->
+        :error
     end
   end
 
@@ -1018,6 +1081,10 @@ defmodule Cgc2046.Events.Enrollment do
 
   defp domain_error_message(:duplicate_active),
     do: "an active enrollment already exists for this target"
+
+  # 通用文案，不含 reason 明文（红线：违规内容不进错误消息）
+  defp domain_error_message(:content_rejected),
+    do: "submission content was rejected by content safety check"
 
   defp domain_error_message({:unknown_enrollment_policy, _policy}),
     do: "target has an unknown enrollment policy"
