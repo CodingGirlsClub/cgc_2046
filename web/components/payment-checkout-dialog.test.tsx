@@ -341,11 +341,13 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
 
     const paid = await screen.findByTestId("checkout-paid");
     expect(paid).toHaveTextContent("支付完成，报名已确认");
-    expect(onPaid).toHaveBeenCalledTimes(1);
+    // React 18 passive effect 异步调度：paid 态 DOM 渲染与 onPaid effect 执行
+    // 之间可被事件循环拆开（CI 慢机器上曾撞进窗口），waitFor 消除时序敏感
+    await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1));
 
     // 1.5s 后自动关闭
     await vi.advanceTimersByTimeAsync(1600);
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("Esc / 关闭按钮 / 点击遮罩 → onClose（订单保留不撤）", async () => {
