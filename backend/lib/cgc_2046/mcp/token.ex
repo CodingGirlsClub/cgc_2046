@@ -108,22 +108,28 @@ defmodule Cgc2046.Mcp.Token do
       change(fn changeset, _context ->
         actor_id = Ash.Changeset.get_attribute(changeset, :user_id)
 
-        active_count =
-          __MODULE__
-          |> Ash.Query.filter(user_id == ^actor_id and is_nil(revoked_at))
-          |> Ash.count!(authorize?: false)
-
-        if active_count >= @max_active_tokens_per_user do
-          Ash.Changeset.add_error(
-            changeset,
-            Ash.Error.Changes.InvalidAttribute.exception(
-              field: :name,
-              message:
-                "active connection token limit reached (#{@max_active_tokens_per_user}); revoke an unused token first"
-            )
-          )
-        else
+        # 未认证 actor（user_id 未落，policy 层将拒绝）：跳过计数查询，
+        # 避免 user_id == nil 进 filter 的运行期 warning（#223 advisory A2）
+        if is_nil(actor_id) do
           changeset
+        else
+          active_count =
+            __MODULE__
+            |> Ash.Query.filter(user_id == ^actor_id and is_nil(revoked_at))
+            |> Ash.count!(authorize?: false)
+
+          if active_count >= @max_active_tokens_per_user do
+            Ash.Changeset.add_error(
+              changeset,
+              Ash.Error.Changes.InvalidAttribute.exception(
+                field: :name,
+                message:
+                  "active connection token limit reached (#{@max_active_tokens_per_user}); revoke an unused token first"
+              )
+            )
+          else
+            changeset
+          end
         end
       end)
 
