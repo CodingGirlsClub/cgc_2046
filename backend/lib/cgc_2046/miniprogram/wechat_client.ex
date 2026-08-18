@@ -28,7 +28,9 @@ defmodule Cgc2046.Miniprogram.WechatRequester do
       {Tesla.Middleware.BaseUrl, "https://api.weixin.qq.com"},
       {Tesla.Middleware.Retry, @retry_options},
       {Tesla.Middleware.JSON, decode_content_types: ["text/plain"]},
-      Tesla.Middleware.Logger
+      # debug:false——请求/响应 body 不进 debug 日志（getuserphonenumber 的
+      # phoneCode/openid 为敏感值，红线同 session_key 不进日志；advisor09 F2）
+      {Tesla.Middleware.Logger, debug: false}
     ]
   end
 
