@@ -61,6 +61,17 @@ defmodule Cgc2046.Payments.WechatPayTest do
     after
       Application.delete_env(:cgc_2046, :wechat_pay)
     end
+
+    test "空串归一（advisor07）：七键全为 \"\" 等价未配置，门禁短路而非深处崩溃" do
+      empty = base_config() |> Keyword.keys() |> Map.new(&{&1, ""})
+      Application.put_env(:cgc_2046, :wechat_pay, empty)
+      order = order()
+
+      assert {:error, :provider_not_configured} = WechatPay.create_payment(order, %{openid: "oX"})
+      assert is_nil(WechatPay.current_client())
+    after
+      Application.delete_env(:cgc_2046, :wechat_pay)
+    end
   end
 
   describe "verify_webhook 回环（RSA-SHA256 验签 + AES-256-GCM 资源解密）" do
@@ -99,6 +110,36 @@ defmodule Cgc2046.Payments.WechatPayTest do
 
       # 缓存命中：同配置二次获取返回同一模块（不重复 build/start）
       assert WechatPay.current_client() == client
+    end
+  end
+
+  describe "缓存悬挂自愈（advisor07 F1：persistent_term 命中但 Supervisor 已死）" do
+    setup :with_started_client
+
+    test "杀掉 client Supervisor 后再取：重建并恢复 Finch 池与证书", ctx do
+      client = ctx.client
+      # 现状健康：缓存命中且进程存活
+      assert WechatPay.current_client() == client
+      assert is_pid(Process.whereis(:"#{client}.Supervisor"))
+
+      # 制造悬挂：经 ClientSup terminate child（一次性摘除、无重启语义——等价
+      # ClientSup 重启/发布重载清空动态 child 的生产故障形态；直接 kill 挂起名
+      # 会被 one_for_one 自动拉起，复现不了悬挂）。persistent_term 缓存仍在。
+      refresher = Process.whereis(:"#{client}.Refresher")
+      :ok = DynamicSupervisor.terminate_child(Cgc2046.Payments.ClientSup, child_pid(client))
+      refute is_pid(Process.whereis(:"#{client}.Supervisor"))
+      assert not is_nil(:persistent_term.get({WechatPay, :erlang.phash2(ctx.config)}, nil))
+
+      # 自愈：命中缓存但存活校验失败 → 重建模块 + 重新挂 ClientSup
+      healed = WechatPay.current_client()
+      assert is_atom(healed)
+      assert is_pid(Process.whereis(:"#{healed}.Supervisor"))
+      finch = Process.whereis(:"#{healed}.Finch")
+      assert is_pid(finch) and Process.alive?(finch)
+      # Refresher restore 路径重新种证书（零外呼）
+      assert not is_nil(Certificates.get_cert(healed, @platform_serial))
+      # 旧 Refresher 进程确已死亡（新挂的是新进程）
+      assert Process.whereis(:"#{healed}.Refresher") != refresher
     end
   end
 
@@ -221,6 +262,16 @@ defmodule Cgc2046.Payments.WechatPayTest do
   defp merchant_pem do
     priv = :public_key.generate_key({:rsa, 2048, 65_537})
     :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, priv)])
+  end
+
+  # ClientSup 下按模块名找该 client 的动态 child pid（child id 恒 :undefined）
+  defp child_pid(module) do
+    {_id, pid, _type, _mods} =
+      Cgc2046.Payments.ClientSup
+      |> DynamicSupervisor.which_children()
+      |> Enum.find(fn {_id, _pid, _type, mods} -> mods == [module] end)
+
+    pid
   end
 
   defp order do

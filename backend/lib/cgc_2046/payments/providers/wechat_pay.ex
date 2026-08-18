@@ -19,6 +19,7 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
   @behaviour Cgc2046.Payments.Provider
 
   alias WeChat.Pay.{Bill, Certificates, Crypto, Refund, Transactions}
+  require Logger
 
   @config_key :wechat_pay
 
@@ -140,12 +141,28 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
 
   defp config, do: Application.get_env(:cgc_2046, @config_key, [])
 
+  # 七键齐才可用。空串 = 未配置（runtime env 注入缺值常得 ""）——is_binary and
+  # != "" 归一，避免空串穿透门禁后在 build_client/notify_url 深处崩溃。
+  # api_secret_v2_key：SDK build_client 硬性必需键（缺它 check_api_key 直接 raise）；
+  # webhook_base_url：B3——漏配回调域名曾致 notify_url 的 Path.join(nil) 500。
   defp configured? do
-    # api_secret_v2_key：SDK build_client 硬性必需键（缺它 check_api_key 直接 raise）；
-    # webhook_base_url：B3——漏配回调域名曾致 notify_url 的 Path.join(nil) 500。
-    config()[:mch_id] && config()[:appid] && config()[:api_v3_key] &&
-      config()[:client_serial_no] && config()[:client_private_key] &&
-      config()[:api_secret_v2_key] && config()[:webhook_base_url]
+    config = config()
+
+    [
+      :mch_id,
+      :appid,
+      :api_v3_key,
+      :client_serial_no,
+      :client_private_key,
+      :api_secret_v2_key,
+      :webhook_base_url
+    ]
+    |> Enum.all?(&configured_key?(config, &1))
+  end
+
+  defp configured_key?(config, key) do
+    value = config[key]
+    is_binary(value) and value != ""
   end
 
   @doc false
@@ -175,7 +192,7 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
   defp build_cached_client do
     fingerprint = :erlang.phash2(config())
 
-    case :persistent_term.get({__MODULE__, fingerprint}, nil) do
+    case cached_client(fingerprint) do
       nil ->
         shutdown_stale_client(fingerprint)
         client_module = Module.concat(__MODULE__, "Client#{fingerprint}")
@@ -202,6 +219,22 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
     end
   end
 
+  # 缓存命中校验（advisor07 F1）：persistent_term 里的模块可能悬挂——ClientSup
+  # 重启/发布重载会清空动态 child，但 persistent_term 保留旧模块名；命中分支
+  # 直接返回则支付断流且零日志（Refresher/Finch 池已死，证书 nil、外呼 noproc）。
+  # 挂起名 "#{module}.Supervisor" 存活才信任缓存；死亡即视为 miss 走重建
+  # （Process.whereis 语义：:restarting 态返回 pid 但启动未完成——交给
+  # start_client_supervisor 的 already_started 幂等分支兜住）。
+  defp cached_client(fingerprint) do
+    case :persistent_term.get({__MODULE__, fingerprint}, nil) do
+      nil ->
+        nil
+
+      module ->
+        if Process.whereis(:"#{module}.Supervisor"), do: module, else: nil
+    end
+  end
+
   defp notify_url do
     config()[:webhook_base_url] |> Path.join("/api/payments/webhooks/wechat")
   end
@@ -215,8 +248,21 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
   # （fetch_client rescue → provider_not_configured）。
   defp start_client_supervisor(module) do
     case DynamicSupervisor.start_child(Cgc2046.Payments.ClientSup, {module, []}) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_started, _pid}} ->
+        :ok
+
+      {:error, reason} ->
+        # advisor07 F2：启动失败不再静默——记录 module 与 reason 形状（不含密钥
+        # 材料），错误语义保持既有降级（raise → fetch_client rescue →
+        # provider_not_configured）。
+        Logger.error(
+          "WechatPay client supervisor start failed, module: #{inspect(module)}, reason: #{inspect(reason)}"
+        )
+
+        raise "wechat pay client start failed: #{inspect(reason)}"
     end
   end
 
