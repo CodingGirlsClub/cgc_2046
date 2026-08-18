@@ -1,27 +1,76 @@
 # 小程序改进审计与实施方案
 
-由 `improve` 技能于 2026-08-09 生成。审计对象是分支
-`feature/wechat_mp` 在 merge-base `cf880204` 之后新增的 `miniprogram/`
-全部内容、`.github/workflows/ci.yml` 的 `miniprogram` job，以及
-`docs/合规上架/`；方案基于 commit `f1fd4aa`。
+由 `improve` 技能维护。两批审计共用本索引：
+
+- **第一批（2026-08-09，commit `f1fd4aa`）**：001-005，全部 DONE——历史记录见文末。
+- **第二批（2026-08-18，commit `048c9f8`，deep 审计）**：调研已安装依赖 `wechat_sdk`
+  0.19.0 的功能面，对照微信小程序栈（backend 集成 + miniprogram 前端）产出 006-011。
 
 执行者应按下表顺序读取对应方案，严格遵守每份方案的 STOP 条件，并在完成后更新状态。
-`plans/` 已被仓库 SOP 占用，因此本批只使用 `advisor-plans/`。
+`plans/`（仓库根）已被仓库 SOP 占用，因此本目录（`advisor-plans/`）是唯一方案目录。
 
-## 审计边界与验证基线
+## 第二批：执行顺序与状态（2026-08-18）
 
-- 本次是 standard、只读审计；没有修改任何源码、配置、锁文件或构建产物。
-- 审计开始和结束时，工作树中唯一既有改动均为
-  `miniprogram/project.config.json` 的本地项目标识配置；其值未写入任何 finding 或方案。
-- 只读验证通过：`pnpm typecheck`、`pnpm test:unit`（当前 5 条）、
-  `pnpm check:licenses`、对既有 `dist/tt`/`dist/xhs` 执行的
-  `pnpm check:diversion`，以及 `tsc --noEmit --strict true`。
-- `pnpm audit --prod --audit-level high` 返回 12 个告警；全树审计返回 35 个告警。
-  这些结果需要 reachability/upstream 分析，不能等同于小程序运行时可利用。
-- 未审计 backend/web 的既有实现、真实平台凭据、开发者工具运行时、真机网络和平台后台配置；
-  真实后端与全自动 E2E 的外部阻塞已由 GitHub issue #99 跟踪。
+| Plan | 标题 | Priority | Effort | Depends on | Status |
+|---|---|---|---|---|---|
+| [006](./006-fix-frontend-payment-path.md) | 前端收费链路两修：payment_pending 解析 + 裁剪端支付跳转守卫 | P1 | S | — | TODO |
+| [007](./007-wechat-pay-client-startup.md) | 微信支付真实链路可用：SDK client 启动（证书+Finch）+ webhook_base_url 门禁 + adapter 直接测试 | P1 | M | — | TODO |
+| [008](./008-miniprogram-wechat-sdk-adoption.md) | Miniprogram.Client wechat 分支接 SDK：token 缓存/重试/自愈 + 落页修正 + errcode 保真 | P1 | M | — | TODO |
+| [009](./009-phonecode-login-contract.md) | getPhoneNumber 新契约（phoneCode）：微信侧 SDK 直取手机号 | P1 | M | 008 | TODO |
+| [010](./010-docs-realignment.md) | 文档三修：ICP 模板数对齐 8 键、总纲 §7.3 支付下架、平台矩阵替代文档 | P2 | S | — | TODO |
+| [011](./011-share-url-scheme-spike.md) | 【Spike】微信原生分享 + URL Scheme 深链契约与配额核实 | P2 | M | 008 | TODO |
 
-## 执行顺序与状态
+状态值：`TODO`、`IN PROGRESS`、`DONE`、`BLOCKED（附一行原因）`、
+`REJECTED（附一行理由）`。
+
+### 依赖与并行说明
+
+- 006 / 007 / 010 相互独立，可三路并行。
+- 008 是 009 与 011 的前置（两者复用其 `WechatClient` SDK 宿主）；008 与 007 并行安全
+  （不同文件族，唯一交叠是都参照 wechat_pay.ex 的 persistent_term 指纹缓存 pattern）。
+- 007 建议先跑 Step 1 特征化测试（红）再动生产代码——它同时是 008/009 的测试模式先例。
+
+## 第二批：Vetted findings（全部经 advisor 亲自复核源码）
+
+| ID | 类别 | Finding 与证据 | 影响 | Effort | 修复风险 | 置信度 | 方案 |
+|---|---|---|---|---|---|---|---|
+| F-24-01 | correctness | WechatPay 只 `build_client`（Module.create，pay.ex:144-161）从不 `start_client`——`Refresher.Pay.make_sure_certs`（仅 Supervisor init 调用）与命名 Finch 池（`:"#{client}.Finch"`）都不存在：`Certificates.get_cert` 恒 nil（验签恒败）、首次外呼 noproc exit；`application.ex` children 无任何 SDK 进程。 | 真实密钥环境下单/退款/回调验签/对账全链路不可用；「真实小额验收」里程碑必失败 | M | MED | HIGH | 007 |
+| F-24-02 | correctness | `parseEnrollmentStatus` 白名单缺 `payment_pending`（miniprogram/src/domain/format.ts:62-65），而 real.ts:251/295 用它解析服务端返回。 | 付费报名提交后前端抛「未知状态」显示提交失败（服务端已占位）；「我的报名」列表同崩 | S | LOW | HIGH | 006 |
+| F-24-03 | correctness | register-form 无平台守卫 redirectTo order-pay（register-form/index.tsx:74-76）；该页仅 weapp fullPages 注册；同入口 my-enrollments:132-142 已有正确守卫先例。 | 裁剪端（tt/xhs）付费报名跳转失败、用户卡死 | S | LOW | HIGH | 006 |
+| F-24-04 | correctness | 订阅消息 page 硬编码 `pages/mine/index`（backend client.ex:90/107/124）、小程序码 page 硬编码 `pages/invite/index`（client.ex:186/200/223）——两页面在三端 app.config.ts 均不存在（实际为 profile/join）。 | 三端通知点击与扫码入口全部「页面不存在」 | S | MED | HIGH | 008 |
+| F-24-05 | correctness/可观测 | 微信 200+JSON 错误体被压平：`parse_binary_image` 只认 binary body（client.ex:235-238），JSON 错误体落入 `parse_platform_failure` → `{:error, {:platform_http_status, 200}}`，errcode（43101/41030/45009 等）全丢；三个 send/token 分支同模式。 | 平台真实失败不可诊断（HTTP 200 被当错误码） | S | LOW | HIGH | 008 |
+| F-24-06 | correctness | `notify_url` 对 nil `webhook_base_url` 做 `Path.join` 崩溃（wechat_pay.ex:192-194）；`configured?`（:143-146）五键不含它，prod runtime.exs:277-290 该键无默认值。 | prod 半配置首单/退款 500（FunctionClauseError 而非清晰拒绝） | S | LOW | HIGH | 007 |
+| F-24-07 | tests | WechatPay adapter 零直接测试：test.exs:61-65 全量注入 Fake，`Provider.for(:wechat_*)` 永不解析到真实 adapter；providers_test.exs:69-100 测的是 SDK 原语非本项目编排。 | F-24-01/06 所在层 0 覆盖 | M | LOW | HIGH | 007 |
+| F-24-08 | tech-debt | wechat 分支 token 现取现用无缓存（client.ex:132-140）+ `retry: false`（:513）+ 无 40001 自愈；SDK 的 Refresher（30min 预刷+60s 重试）/TokenChecker（5min 探测）/ETS/Retry×3 全部闲置（`config :wechat` 零配置）。 | 每次推送/出码多耗一次 token 配额；token 失效即全线失败；网关抖动零重试窗口 | S-M | LOW | HIGH | 008 |
+| F-24-09 | correctness/migration | phoneCode 契约缺失：前端 `event.detail.code` 死字段（platform/index.ts:38-41 硬性要求 encryptedData/iv；operations.ts:131-141 无 phoneCode 变量），后端 action 两参数 `allow_nil?: false`（strategies/miniprogram.ex:101-114）；真机清单 N1 已挂账。SDK `UserInfo.get_phone_number/3`（user_info.ex:130）可免 session_key 直取。 | 现代基础库真机登录必挂（新用户无法登录） | M | MED | HIGH | 009 |
+| F-24-10 | docs/ops | ① ICP 清单写微信模板 ×3（ICP备案材料清单.md:27-28），config 实际 8 键且 runtime.exs 全量 `fetch_env!`（config.exs:66-104）——按清单备料上线即 boot 失败；② 总纲 §7.3 仍列支付为二期（00-CGC平台设计总纲.md:227-229），ADR-0007 已定为 v1；③ 实施计划文档消失，隐私草案:4/app.config.ts/ci.yml/checklist 的「§2」引用悬空。 | 上线准备踩坑；决策依据丢失 | S | LOW | HIGH | 010 |
+| F-24-11 | correctness | `workspaceName` 硬编码「公开工作台」（real.ts:97），Catalog 查询未选该字段。 | 多公开工作台时发现页 Club 同名塌缩 | S | LOW | HIGH | —（未排期） |
+
+## 第二批：Direction 选项（不与缺陷排序）
+
+| ID | 方向 | 证据与收益 | Effort | 风险/取舍 | 置信度 | 方案 |
+|---|---|---|---|---|---|---|
+| D-24-A | 微信原生分享 + URL Scheme | 分享 API 全仓零使用（grep 核实）；SDK `UrlScheme.create_scheme/3` 现成；scene 链路已过真机验收（app.tsx→join）；承接第一批 D03。微信生态获客最高杠杆面。 | M（spike） | scheme 有配额/有效期约束；裁剪端零导流红线；分享 scene ≠ 邀请 scene 不能复用消费逻辑 | HIGH | 011 |
+| D-24-B | 通知 feed query + 落点统一 | checklist 挂账「后端尚无通知 feed（F9）」；profile 已有本机通知 UI；完成后订阅消息落点有权威落页（与 F-24-04 联动）。 | M-L | 后端通知持久化是新面；需产品定保留期 | HIGH | —（未排期） |
+| D-24-C | 内容安全 msgSecCheck | SDK `Security.msg_check` 现成；报名表单强制收集自由文本 reason 且无审核通道——小程序上架对 UGC 有合规要求。 | M | 需先定哪些字段入审、失败处置、平台各自接口差异 | MED | —（未排期） |
+| D-24-D | V2 视频号 / V3 企业微信 | 仅 user_identity.ex:7 unionid 注释预留；SDK WeChat.Work 全家桶同库可用。 | — | 未立项；企微与「网站=管理中枢」边界需 product 拍板 | MED | —（仅信号） |
+
+## 第二批：Findings considered and rejected
+
+- 「登录页『保存 7 天登录状态』文案与实现不符」：服务端 JWT TTL 在仓库内不可证伪
+  （strategies/config 均无显式 TTL 值），无法断言文案错误——纯文案 nit，不立 plan。
+- 「webhook 验签缺时间戳新鲜度窗」：SDK 自家 `Pay.EventHandler` 同样不做窗口检查
+  （event_handler.ex:141-150 亲核，无时间比较）；controller 的 (provider, event_id)
+  唯一索引已把重放折为幂等重复。降为可选加固，不单独立项。
+- 「复用 SDK Pay.EventHandler plug 替换手写 verify_webhook」：与 Provider behaviour
+  seam + controller 幂等落库/Oban 同事务架构相抵（KTD3/KTD4 既定设计），by-design 不迁。
+- 「code2session 迁 SDK」：现有 Req 实现带三平台信封归一与完备测试，SDK 只覆盖 wechat
+  且 code2session 不依赖 access_token——迁移收益为零，保持现状。
+- 「sdk refresher 对 tt/xhs 的推广」：SDK 不覆盖 tt/xhs，抽象共享层属过度设计。
+- 手机号明文+sensitive 存储、通知本地存储、裁剪端零导流、v1 无 UI 组件库：第一批已定
+  settled/rejected，不再重议。
+
+## 第一批（2026-08-09）：执行顺序与状态（历史，全部收口）
 
 | Plan | 标题 | Priority | Effort | Depends on | Status |
 |---|---|---|---|---|---|
@@ -31,64 +80,8 @@
 | [004](./004-establish-api-contract-tests.md) | 建立 API/认证边界自动化测试 | P1 | M | 001, 002 | DONE |
 | [005](./005-make-auth-state-atomic.md) | 让认证状态提交原子化并隔离账号本地数据 | P1 | M | 004 | DONE |
 
-状态值：`TODO`、`IN PROGRESS`、`DONE`、`BLOCKED（附一行原因）`、
-`REJECTED（附一行理由）`。
-
-## Vetted findings
-
-“杠杆”综合影响、工作量、修复风险与置信度。Direction 项单列在后面，不与缺陷排序。
-
-| ID | 类别 | Finding 与证据 | 影响 | Effort | 修复风险 | 置信度 | 杠杆 | 方案 |
-|---|---|---|---|---|---|---|---|---|
-| F01 | security / deps | 持续规则要求白名单并对未列项先决策：`docs/开源合规/依赖引入规则.md:13-20,49-53`；许可证脚本却只有 blacklist，任意非空未知声明会通过：`miniprogram/scripts/check-licenses.mjs:20-28,53-70,121-128`；CI 把它当硬门：`.github/workflows/ci.yml:97`。 | `UNLICENSED`、无效 SPDX 或未获准许可证可得到绿色合规结论。 | M | MED | HIGH | 极高 | 001 |
-| F02 | correctness / compliance | Unicode 解码调用不存在的 JS 方法，缺目录或零文件也成功，且只扫 JS：`miniprogram/scripts/check-no-diversion.mjs:17-30,35-50`；CI 信任该结果：`.github/workflows/ci.yml:103-105`。 | 转义禁词或非 JS 产物可绕过零导流红线，门禁产生 false green。 | S | MED | HIGH | 极高 | 002 |
-| F03 | security | 401 只清 token/Workspace 状态，通知和最近报名是全局 key，退出也不清邀请 scene：`miniprogram/src/api/client.ts:41-49`、`miniprogram/src/api/real.ts:72,103-110,201-211`、`miniprogram/src/app.tsx:7-12`、`miniprogram/src/pages/join/index.tsx:10-33`。 | 换号或 token 失效后可能读取前一账号的本地通知，下一账号还可能消费遗留邀请凭据。 | M | MED | HIGH | 极高 | 005 |
-| F04 | correctness / security | 登录 cookie 在 HTTP/GraphQL/data 校验前落盘，随后 session hydration 失败也不回滚：`miniprogram/src/api/client.ts:91-113`、`miniprogram/src/api/real.ts:183-199`、`miniprogram/src/pages/login/index.tsx:18-32`。 | UI 可显示登录失败，但设备已切换 token；携 cookie 的普通 GraphQL 错误还会把失败响应的 token 持久化。 | M | MED | HIGH | 高 | 005 |
-| F05 | correctness | 邀请 scene 只在 `useLaunch` 处理，没有前台恢复入口：`miniprogram/src/app.tsx:2,7-13`；真机合同未限定必须冷启动：`miniprogram/e2e/REAL_DEVICE_CHECKLIST.md:42-47`。 | 小程序驻留后台时再次扫码可能不保存 scene、不进入确认页。 | S | MED | HIGH | 高 | — |
-| F06 | security / correctness | 审批查询不含申请人/目标展示字段，mapper 丢弃 `userId`，UI 一律写“新的报名申请”，未知 kind 会落入加入审批：`miniprogram/src/api/operations.ts:89-98`、`miniprogram/src/api/real.ts:159-167,288-305`、`miniprogram/src/pages/workspace/index.tsx:115-126`。 | 审批人无法区分同工作台多条申请，且可能把授予 Workspace 访问权误当报名确认。 | M | MED | HIGH | 高 | — |
-| F07 | correctness | 提交后把报名写入单例 storage 并携带 route id，但结果页完全忽略 id：`miniprogram/src/pages/register-form/index.tsx:66-67`、`miniprogram/src/pages/enrollment-result/index.tsx:11-16`。 | 直接打开或回退到旧结果 URL 时可展示另一条、已过期的报名收据。 | S | LOW | HIGH | 高 | — |
-| F08 | performance | 报名链路重复拉取宽 `Session`；“我的报名”串行 Session→列表，发现页每次显示并发重拉：`miniprogram/src/pages/event-detail/index.tsx:37-46`、`miniprogram/src/pages/register-form/index.tsx:23-41`、`miniprogram/src/api/real.ts:138-180,214-255`、`miniprogram/src/pages/discover/index.tsx:23-37`。 | 移动网络下增加详情到 mutation 的固定往返和首屏等待，并反复传输未消费字段。 | M | MED | HIGH | 高 | — |
-| F09 | tests | 现有唯一 unit 文件只覆盖纯格式化；cookie、401、GraphQL errors、空 data 等均无测试，Node strip-types 还无法导入参数属性：`miniprogram/tests/domain.test.ts:3-43`、`miniprogram/src/api/client.ts:21-113`、`miniprogram/package.json:18`。 | 认证/请求失败合同回归时，当前 unit 与 mock E2E 仍可全绿。 | M | LOW | HIGH | 极高（基础设施） | 004 |
-| F10 | tests | E2E 只有微信 mock happy path，CI 不跑交互；三端条件分支仅靠编译与人工清单：`miniprogram/e2e/journey.e2e.mjs:44-82`、`miniprogram/src/app.config.ts:1-52`、`miniprogram/src/platform/index.ts:17-57`、`.github/workflows/ci.yml:98-104`。 | 表单错误、订阅拒绝、邀请恢复、平台裁剪等分支可在 PR 中静默破坏。 | M | LOW | HIGH | 高 | — |
-| F11 | tech-debt / DX | codegen 覆盖两个受跟踪文件，但 CI 生成后不检查 diff：`miniprogram/codegen.yml:3-18`、`miniprogram/package.json:13,19`、`.github/workflows/ci.yml:94-102`。 | 提交中的 generated 类型可以过期，而 CI 用临时重生成结果通过。 | S | LOW | HIGH | 高 | — |
-| F12 | dependencies | `graphql-request` 仅被 type-import，`react-dom` 无消费方，却都是 runtime dependency：`miniprogram/package.json:38-41`、`miniprogram/src/api/client.ts:2`、`miniprogram/src/api/mockTransport.ts:1`。 | 扩大安装、许可证和升级表面，并误导维护者理解真实传输层。 | S | LOW | HIGH | 中 | — |
-| F13 | dependencies / security | Taro 4.2.1 固定引入 `swiper@11.1.15`：`miniprogram/pnpm-lock.yaml:8363-8374`；锁文件还保留弃用构建链：`miniprogram/pnpm-lock.yaml:2885-2887,3660-3673,3930-3932`。 | 审计报告生产树 1 个 critical、全树 3 critical/11 high；但当前上游最新版仍受影响且小程序运行时 reachability 未证实。 | L | HIGH | MED | 中（先调查） | — |
-| F14 | correctness / DX | 仓库缺少 Taro 抖音专用 `project.tt.json`，清单却让抖音工具替换微信配置；私有配置 ignore 规则还错误地匹配目录：`miniprogram/e2e/DOUYIN_REDNOTE_CHECKLIST.md:5-10`、`miniprogram/project.config.json:2,14`、`miniprogram/.gitignore:7`。 | 抖音工具会打开微信产物，且本机项目标识容易污染受跟踪配置。 | S | MED | HIGH | 极高 | 003 |
-| F15 | DX / correctness | 缺发布 endpoint 时无条件回落 localhost，模板与 E2E mock 也没有 release gate：`miniprogram/config/index.ts:4-5,23-46`、`miniprogram/.env.example:1-14`、`miniprogram/package.json:7-9`。 | 可成功上传指向 localhost 或启用 mock/缺模板的“发布”包。 | S | MED | HIGH | 高 | — |
-| F16 | DX | 本地 `check:ci` 只做 codegen/typecheck/微信构建，真实 CI 还做许可证、单测、三端构建与导流门禁；Node/pnpm 也只在 workflow 固定：`miniprogram/package.json:1-20`、`.github/workflows/ci.yml:85-104`。 | 本地命令成功不代表 PR gate 成功，Node 漂移还会改变实验性 TS runner 行为。 | S | LOW | HIGH | 高 | — |
-| F17 | docs / security | 隐私草案只列手机号与登录凭据，实际强制收集并持久化姓名、邮箱、自由文本原因：`docs/合规上架/隐私指引草案.md:7-18`、`miniprogram/src/pages/register-form/index.tsx:93,102-108`、`miniprogram/src/api/real.ts:239-246`。 | 上架披露与真实数据流不一致，尤其遗漏自由文本用途、可见范围与保留规则。 | S | LOW | HIGH | 高 | — |
-| F18 | docs | ICP 清单中的主体限制、价格、平台数量与审核时窗没有官方来源、核验日期或 owner：`docs/合规上架/ICP备案材料清单.md:3-5,13-29,37-46`。 | 平台政策变化后无法追溯结论，可能按过期资料准备预算和排期。 | S | LOW | HIGH | 中 | — |
-
-## Direction 选项（不与缺陷排序）
-
-| ID | 方向 | 证据与收益 | Effort | 风险/取舍 | 置信度 |
-|---|---|---|---|---|---|
-| D01 | 完成隐私页、客服/申诉与账号生命周期 | 草案明确仍缺正式隐私政策和申诉渠道，当前登录页只有不可打开的同意文案：`docs/合规上架/隐私指引草案.md:32-46`、`miniprogram/src/pages/login/index.tsx:62-65`。先交付可读隐私页与客服入口；注销需另做 Workspace owner 交接和留存设计。 | L（隐私页本身 S） | HIGH；不能把退出登录包装成注销。 | HIGH |
-| D02 | 建立最小、第一方、无手机号的报名漏斗度量 | 详情→登录→报名→结果→订阅已有稳定事件边界：`miniprogram/src/pages/event-detail/index.tsx:37-50,101-104`、`miniprogram/src/pages/login/index.tsx:14-35`、`miniprogram/src/pages/enrollment-result/index.tsx:21-35`。可据此比较三端摩擦点。 | M | MED；埋点本身要过隐私和许可证门，不先加第三方 SDK。 | HIGH |
-| D03 | 在微信端增加原生分享入口 | 活动详情已具备公开内容与报名 CTA，启动链路已能接 scene：`miniprogram/src/pages/event-detail/index.tsx:56-105`、`miniprogram/src/app.tsx:7-12`。先做微信活动卡片/深链，裁剪端只采用各自平台原生挂载。 | M | MED；严守抖音/小红书零跨端导流，不抽象成伪统一分享 API。 | HIGH |
-| D04 | 设计活动签到而不是复用 Workspace 邀请凭据 | 已有扫码 UI 和一次性 scene 消费链路：`miniprogram/src/pages/profile/index.tsx:73-79`、`miniprogram/src/pages/join/index.tsx:27-45`。可把 Enrollment 延伸到真实到场。 | L | HIGH；需专属凭据、权限、幂等、弱网与审计，不能复用 Workspace scene。 | HIGH |
-
-## 依赖说明
-
-- 001 必须先由 human 决定现有 `pako@1.0.11` 的 `MIT AND Zlib` 声明如何落入持续规则；
-  未裁定前不得偷偷加例外，也不得声称许可证门禁已经修好。
-- 002 与 003 可独立执行，也可在 001 等待期间并行。
-- 004 会新增 MIT 的 Vitest，但其全传递树必须由完成后的 001 验证；它也复用 002 纳入
-  `test:unit` 的 fixture 文件，因此依赖 001、002。
-- 005 依赖 004 提供可隔离的 Taro/API fault-injection 测试；先锁定合同，再改认证提交时机。
-
-## Findings considered and rejected
-
-- D4 “零对话/执行 UI”、裁剪端零导流、v1 不引入 UI 组件库均为明确产品红线，不是 finding。
-- 真机 cookie 提取、`getPhoneNumber code` backend 契约、本地通知中心、
-  `workspaceName = "公开工作台"`、手机号明文存储均按用户给出的已知限制/已决风险接受；
-  F03 只讨论跨账号隔离，不否定“通知本地存储”的决策。
-- Workspace “批次码”与 Event/Course `InviteBatch` 语义存在计划文本冲突；当前 checklist 已明确没有独立
-  Workspace batch mutation。本批不把报名批次码误接到 `admitMemberByToken`，产品若坚持该能力应先设计
-  `WorkspaceInvitationBatch`。
-- `check-graphql.mjs` 遇到非预期 HTTP 仍给 warning，是它“只校验契约结构、不证明连通性”的显式边界，未报 bug。
-- `ApprovalSummary.kind` 对未来第三种 kind 的 fallthrough 已并入 F06；当前后端只承诺 Enrollment/JoinRequest，
-  没有把假设中的 Sponsorship 当成当前生产故障。
-- 依赖 audit 告警没有直接生成升级方案：当前 Taro/automator 最新可用版本未解除主要链路，且未证明
-  `swiper` 浏览器实现进入小程序产物；禁止用 overrides 盲压传递版本。
-- 真实后端与全自动 E2E 的凭据、HTTPS、平台后台前置由 issue #99 跟踪，不在本批重复规划。
+第一批的完整 findings 表（F01-F18）、direction 选项（D01-D04）、依赖说明与
+considered-and-rejected 记录见 git 历史（本文件 2026-08-09 版本）；其中仍未修复且
+未被第二批覆盖的项：F05（scene 前台恢复）、F06（审批摘要字段）、F10（三端分支测试）、
+F11（codegen diff 门禁）、F12（死依赖）、F15（release gate）、F16（check:ci 漂移）、
+F17（隐私披露 vs 实际收集）、F18（ICP 无来源条目）——后续审计先查此清单防重报。
