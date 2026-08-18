@@ -67,7 +67,9 @@ defmodule Cgc2046Web.Router do
       Absinthe.Plug,
       [
         schema: Module.concat(["Cgc2046Web.GraphqlSchema"]),
-        before_send: {Cgc2046Web.Plugs.AuthCookiePlug, :before_send}
+        before_send: {Cgc2046Web.Plugs.AuthCookiePlug, :before_send},
+        # VULN-001（#81）：非 dev 拒绝 __schema/__type introspection
+        pipeline: {Cgc2046Web.Plug.GraphqlIntrospectionGuard, :pipeline}
       ],
       alias: false
     )

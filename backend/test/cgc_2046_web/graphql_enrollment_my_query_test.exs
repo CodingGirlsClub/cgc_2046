@@ -202,18 +202,12 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
   end
 
   test "Enrollment output type does not expose submission payload" do
-    response =
-      graphql(
-        """
-        query {
-          __type(name: "Enrollment") { fields { name } }
-        }
-        """,
-        nil
-      )
+    # #81：test env 已关闭 introspection（VULN-001），契约检查改走 schema 内部结构，
+    # 不依赖 __type 查询——与 prod 行为一致。
+    type = Absinthe.Schema.lookup_type(Cgc2046Web.GraphqlSchema, "Enrollment")
+    field_names = type.fields |> Map.keys() |> Enum.map(&to_string/1)
 
-    assert %{"data" => %{"__type" => %{"fields" => fields}}} = response
-    refute Enum.any?(fields, &(&1["name"] == "submissionPayload"))
+    refute "submissionPayload" in field_names
   end
 
   defp create_enrollment(workspace, user, attrs) do
