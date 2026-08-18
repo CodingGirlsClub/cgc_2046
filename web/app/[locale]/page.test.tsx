@@ -31,6 +31,14 @@ vi.mock("next/navigation", () => ({
 	useRouter: () => ({ replace, push }),
 	// ThemeProvider 依赖 usePathname 解析 workspace slug（ADR-0004）
 	usePathname: () => "/",
+	// redirect/permanentRedirect 供 next-intl createNavigation 顶层 import（i18n Phase 1）
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
+}));
+
+// i18n Phase 1：切换器自身在 language-switcher.test.tsx 以真实 provider 覆盖
+vi.mock("@/components/language-switcher", () => ({
+	default: () => null,
 }));
 
 vi.mock("@/lib/use-authed", () => ({

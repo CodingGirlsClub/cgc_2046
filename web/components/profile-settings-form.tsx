@@ -35,6 +35,7 @@ import {
   VISIBILITY_OPTION_LABEL,
 } from "@/lib/profile";
 import type { MembershipRoleName } from "@/lib/graphql/workspace";
+import { ProfileLocaleSelect } from "./profile-locale-select";
 import type { ProfileVisibility } from "@/lib/graphql/profile";
 import { Avatar } from "./profile-avatar";
 import { RoleChips } from "./profile-role";
@@ -360,6 +361,8 @@ export function ProfileSettingsForm({
             <span className="profile-form-label">成员编号</span>
             <input value={memberNumber} readOnly disabled={saving} />
           </label>
+          <div className="profile-edit-divider" />
+          <ProfileLocaleSelect />
         </section>
       </aside>
 

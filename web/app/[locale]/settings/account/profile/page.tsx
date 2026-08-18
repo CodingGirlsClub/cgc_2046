@@ -6,10 +6,11 @@
  * profile 为 per-workspace 资源（WorkspaceProfile），不再有全局个人资料页。
  * 本页作为旧入口兜底：访问时重定向到默认社区 workspace 2046 的个人资料页
  * （新用户注册自动加入 2046，保证可访问）。
+ * i18n Phase 1：经 next-intl router 跳转，保持当前 locale 前缀。
  */
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { DEFAULT_WORKSPACE_SLUG } from "@/lib/profile";
 
 export default function AccountProfilePageRedirect() {

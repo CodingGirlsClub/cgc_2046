@@ -3,6 +3,7 @@
 import { useId } from "react";
 import AuthForm, { type AuthMode } from "./login/auth-form";
 import { useAuthSubmit } from "./login/use-auth-submit";
+import LanguageSwitcher from "@/components/language-switcher";
 
 function BrandMark() {
   return (
@@ -103,6 +104,9 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
       </aside>
 
       <main className="auth-form-panel">
+        <div className="flex justify-end">
+          <LanguageSwitcher />
+        </div>
         <AuthHelpLink />
         <section className="auth-form-card" aria-labelledby="auth-page-title">
           <div className="auth-form-heading">

@@ -14,6 +14,19 @@ const mocks = vi.hoisted(() => ({
 	useWorkspaceBySlug: vi.fn(),
 }));
 
+// i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
+// NextIntlClientProvider，mock 同语义的 zh-CN translator（真实迁移语义在
+// lib/payment-errors.test.tsx 以 provider 覆盖）
+vi.mock("@/lib/payment-errors", async () => {
+	const messages = (await import("../messages/zh-CN.json")).default;
+	const errors = messages.errors as Record<string, string>;
+	const translate = (code: string | null | undefined, fallback: string): string =>
+		!code ? fallback : (errors[code] ?? fallback);
+	return {
+		// 稳定引用：组件 useCallback 依赖它，逐渲染新建会破坏轮询/守卫时序
+		usePaymentErrorTranslator: () => translate,
+	};
+});
 vi.mock("@/lib/events", () => ({
 	allowedTransitions: (status: string) =>
 		status === "draft" ? ["launch"] : status === "open" ? ["close", "cancel"] : [],

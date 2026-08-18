@@ -26,7 +26,7 @@ import {
 import { MY_ENROLLMENT } from "@/lib/graphql/events";
 import { useAuthed } from "@/lib/use-authed";
 import { PROVIDER_LABEL, WEB_ENABLED_PROVIDERS } from "@/lib/payment";
-import { translatePaymentError } from "@/lib/payment-errors";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 
 /**
  * web 端可下单渠道展示列表（wechat_jsapi 是小程序专属凭据，不在 web 面提供）。
@@ -52,6 +52,7 @@ function NewOrderForm() {
 	const search = useSearchParams();
 	const enrollmentId = search.get("enrollmentId") ?? "";
 	const { authed, confirmed } = useAuthed();
+	const translatePaymentError = usePaymentErrorTranslator();
 
 	const [provider, setProvider] = useState<PaymentProvider>("wechat_native");
 	const [busy, setBusy] = useState(false);
