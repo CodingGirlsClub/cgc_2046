@@ -28,5 +28,111 @@
 		"enrollment_tier_id_required": "This is a paid enrollment. Please select a pricing tier first.",
 		"enrollment_tier_not_available": "The selected tier is expired or unavailable. Please choose again.",
 		"order_enrollment_required": "Missing enrollment info. Please start the enrollment again."
+	},
+	"auth": {
+		"helpCenter": "Help Center",
+		"brandPanelLabel": "About CGC 2046",
+		"brandCopy": {
+			"registerTitle": "One account, connected to multiple workspaces",
+			"loginTitle": "Connect with the community, and with your creativity"
+		},
+		"benefitsLabel": "Why create an account",
+		"benefits": {
+			"identityTitle": "One identity",
+			"identityDesc": "Use the same account and password to securely access CGC and every feature.",
+			"workspacesTitle": "Multiple workspaces",
+			"workspacesDesc": "One account can join multiple workspaces — switch freely and collaborate efficiently.",
+			"profileTitle": "Profile travels with you",
+			"profileDesc": "Your settings and preferences sync with your account, seamlessly across workspaces."
+		},
+		"heading": {
+			"register": "Create account",
+			"login": "Sign in"
+		},
+		"field": {
+			"email": "Email",
+			"password": "Password",
+			"confirmPassword": "Confirm password",
+			"newPassword": "New password",
+			"confirmNewPassword": "Confirm new password"
+		},
+		"placeholder": {
+			"passwordMin": "At least 8 characters",
+			"confirmPassword": "Enter password again"
+		},
+		"passwordToggle": {
+			"hide": "Hide password",
+			"show": "Show password"
+		},
+		"passwordStrength": {
+			"label": "Password strength: {label}",
+			"notSet": "Password strength not set",
+			"strong": "Strong",
+			"medium": "Medium",
+			"weak": "Weak"
+		},
+		"forgotPassword": "Forgot password?",
+		"error": {
+			"shortPassword": "Password must be at least 8 characters",
+			"passwordMismatch": "The two passwords do not match"
+		},
+		"errors": {
+			"loginFailed": "Sign-in failed. Check your email and password.",
+			"registerFailedDuplicate": "Registration failed. Please check your input and try again.",
+			"registerFailedRetry": "Registration failed. Please try again later.",
+			"networkFailed": "Network error. Please try again later."
+		},
+		"submit": {
+			"processing": "Processing…",
+			"registerAndContinue": "Create account and continue",
+			"loginAndEnter": "Sign in and enter workspace"
+		},
+		"submitNoteMock": "（mock）Submitted — the production flow signs in via the signIn / signUp mutation and writes the token to the <code>cgc_token</code> cookie.",
+		"switch": {
+			"haveAccount": "Already have an account?",
+			"noAccount": "No account yet?",
+			"returnLogin": "Back to sign in",
+			"createAccount": "Create account"
+		},
+		"terms": {
+			"registerAction": "Registering",
+			"loginAction": "Signing in",
+			"agreePrefix": " means you agree to the ",
+			"serviceTerms": "Terms of Service",
+			"and": " and the ",
+			"privacyPolicy": "Privacy Policy"
+		},
+		"forgot": {
+			"title": "Reset password",
+			"fieldEmail": "Registered email",
+			"hint": "We will send a one-time password reset link to your email.",
+			"submit": "Send reset email",
+			"sending": "Sending…",
+			"sentP1": "If this email is registered, a reset link has been sent. Check your inbox.",
+			"sentP2": "Didn't receive it? Check spam, or request again later.",
+			"backToLogin": "Back to sign in",
+			"errorSendFailed": "Failed to send the reset email. Please try again later.",
+			"errorRateLimited": "Too many requests. Please try again later."
+		},
+		"reset": {
+			"titleSuccess": "Password reset",
+			"titleForm": "Set a new password",
+			"checking": "Checking the reset link…",
+			"invalidP1": "This link is invalid or has expired.",
+			"invalidP2": "Request a new password reset email, or return to sign in.",
+			"resend": "Resend reset email",
+			"backToLogin": "Back to sign in",
+			"successP1": "Your password has been updated. For security, you have been signed out on all devices (including the mini program).",
+			"goLogin": "Sign in",
+			"fieldNewPassword": "New password",
+			"fieldConfirmNewPassword": "Confirm new password",
+			"submitSave": "Save new password",
+			"saving": "Saving…",
+			"errorFailed": "Failed to reset the password. Please try again later.",
+			"errorInvalidPassword": "This password does not meet the requirements.",
+			"errorRateLimited": "Too many requests. Please try again later.",
+			"errorShortPassword": "Password must be at least 8 characters",
+			"errorPasswordMismatch": "The two passwords do not match"
+		}
 	}
 }

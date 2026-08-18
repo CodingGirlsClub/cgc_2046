@@ -27,18 +27,21 @@ export type RenderOptions = {
 
 const MESSAGES: Record<"zh-CN" | "en", AbstractIntlMessages> = { "zh-CN": zhCN, en };
 
-function withProviders(ui: React.ReactElement, options?: RenderOptions) {
+/**
+ * RTL wrapper（供 render 的 rerender 保留 provider 树）。
+ */
+function providersWrapper(options?: RenderOptions) {
 	const locale: "zh-CN" | "en" = options?.locale ?? "zh-CN";
 	const messages = options?.messages ?? MESSAGES[locale];
-	return (
+	return ({ children }: { children: React.ReactNode }) => (
 		<NextIntlClientProvider locale={locale} messages={messages}>
-			<ThemeProvider>{ui}</ThemeProvider>
+			<ThemeProvider>{children}</ThemeProvider>
 		</NextIntlClientProvider>
 	);
 }
 
 export function render(ui: React.ReactElement, options?: RenderOptions) {
-	return rtlRender(withProviders(ui, options));
+	return rtlRender(ui, { wrapper: providersWrapper(options) });
 }
 
 export function renderHook<Result, Props>(
@@ -50,7 +53,6 @@ export function renderHook<Result, Props>(
 	const { initialProps, ...providerOptions } = options ?? {};
 	return rtlRenderHook(hook, {
 		initialProps,
-		wrapper: ({ children }) =>
-			withProviders(<>{children}</>, providerOptions),
+		wrapper: providersWrapper(providerOptions),
 	});
 }

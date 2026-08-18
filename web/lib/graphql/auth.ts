@@ -111,18 +111,28 @@ export const RESET_PASSWORD: TypedDocumentNode<
 /**
  * signUp 失败：mutation 不抛错，result 为 null、errors 数组含 message。
  * #86 防邮箱枚举：后端对「邮箱已存在」返回通用 registration_failed（不区分
- * 重复邮箱与未知错误），此处映射为友好文案；非 registration_failed 的 message
- * （如邮箱格式错误）仍直透以指导用户。成功则返回 null。
+ * 重复邮箱与未知错误）。本函数只提取结构化错误数据（code + message），
+ * 前端文案映射由调用方（hook 层 useTranslations）完成——i18n Phase 2 起
+ * lib 层不再内嵌中文。成功 / 无错误返回 null。
+ */
+export function signUpError(
+  data: { signUp: SignUpResultData } | null | undefined,
+): { code: string | null; message: string | null } | null {
+  const errors = data?.signUp?.errors;
+  if (data?.signUp?.result || !errors || errors.length === 0) return null;
+  const first = errors[0];
+  return { code: first?.code ?? null, message: first?.message ?? null };
+}
+
+/**
+ * 从 signUp 失败结果提取首条 message（直透后端文案，如邮箱格式错误）；
+ * 与旧 signUpErrorMessage 语义对齐，供需要直透 message 的调用方使用。
  */
 export function signUpErrorMessage(
   data: { signUp: SignUpResultData } | null | undefined,
 ): string | null {
-
-  const errors = data?.signUp?.errors;
-  if (data?.signUp?.result || !errors || errors.length === 0) return null;
-  const first = errors[0];
-  if (first?.code === "registration_failed") return "注册失败，请检查信息后重试";
-  return first?.message ?? "注册失败，请稍后重试";
+  const err = signUpError(data);
+  return err?.message ?? null;
 }
 
 /**

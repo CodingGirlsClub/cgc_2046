@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@apollo/client/react";
+import { useTranslations } from "next-intl";
 import {
   graphqlErrorDetails,
   RESET_PASSWORD,
@@ -15,6 +16,8 @@ import {
 type ResetView = "loading" | "form" | "success" | "invalid";
 
 export default function ResetPasswordPage() {
+  const t = useTranslations("auth.reset");
+  const authT = useTranslations("auth");
   const [resetPassword, { loading }] = useMutation(RESET_PASSWORD);
   const [view, setView] = useState<ResetView>("loading");
   const [token, setToken] = useState<string | null>(null);
@@ -55,12 +58,12 @@ export default function ResetPasswordPage() {
     setPasswordError(null);
 
     if (password.length < 8) {
-      setPasswordError("密码至少需要 8 个字符");
+      setPasswordError(t("errorShortPassword"));
       return;
     }
 
     if (password !== confirmPassword) {
-      setPasswordError("两次输入的密码不一致");
+      setPasswordError(t("errorPasswordMismatch"));
       return;
     }
 
@@ -77,7 +80,7 @@ export default function ResetPasswordPage() {
       if (data?.resetPassword?.ok) {
         setView("success");
       } else {
-        setError("密码重置失败，请稍后重试");
+        setError(t("errorFailed"));
       }
     } catch (reason) {
       const details = graphqlErrorDetails(reason);
@@ -88,14 +91,14 @@ export default function ResetPasswordPage() {
       }
 
       if (details?.fields?.includes("password")) {
-        setPasswordError(details.message ?? "密码不符合要求");
+        setPasswordError(details.message ?? t("errorInvalidPassword"));
         return;
       }
 
       setError(
         details?.code === "rate_limited"
-          ? "请求过于频繁，请稍后再试"
-          : "密码重置失败，请稍后重试",
+          ? t("errorRateLimited")
+          : t("errorFailed"),
       );
     }
   };
@@ -106,12 +109,12 @@ export default function ResetPasswordPage() {
       <section className="auth-form-panel">
         <div className="auth-form-card">
           <div className="auth-form-heading">
-            <h2>{view === "success" ? "密码已重置" : "设置新密码"}</h2>
+            <h2>{view === "success" ? t("titleSuccess") : t("titleForm")}</h2>
           </div>
 
           {view === "loading" && (
             <div className="auth-submit-note" role="status" aria-live="polite">
-              正在检查重置链接…
+              {t("checking")}
             </div>
           )}
 
@@ -123,15 +126,15 @@ export default function ResetPasswordPage() {
               tabIndex={-1}
               aria-live="polite"
             >
-              <p>链接无效或已过期。</p>
-              <p>请重新申请密码重置邮件，或返回登录。</p>
+              <p>{t("invalidP1")}</p>
+              <p>{t("invalidP2")}</p>
               <p className="auth-switch">
                 <Link className="auth-switch__action auth-inline-link" href="/forgot-password">
-                  重新发送重置邮件
+                  {t("resend")}
                 </Link>
                 <span aria-hidden="true"> · </span>
                 <Link className="auth-switch__action auth-inline-link" href="/login">
-                  返回登录
+                  {t("backToLogin")}
                 </Link>
               </p>
             </div>
@@ -145,10 +148,10 @@ export default function ResetPasswordPage() {
               tabIndex={-1}
               aria-live="polite"
             >
-              <p>密码已更新。为安全起见，你已在所有设备（含小程序）退出登录。</p>
+              <p>{t("successP1")}</p>
               <p className="auth-switch">
                 <Link className="auth-switch__action auth-inline-link" href="/login">
-                  去登录
+                  {t("goLogin")}
                 </Link>
               </p>
             </div>
@@ -171,11 +174,11 @@ export default function ResetPasswordPage() {
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
                 <div className="auth-field">
                   <label className="auth-field__label" htmlFor="reset-password">
-                    新密码
+                    {t("fieldNewPassword")}
                   </label>
                   <PasswordField
                     id="reset-password"
-                    placeholder="至少 8 个字符"
+                    placeholder={authT("placeholder.passwordMin")}
                     value={password}
                     onChange={(value) => {
                       setPassword(value);
@@ -192,11 +195,11 @@ export default function ResetPasswordPage() {
 
                 <div className="auth-field">
                   <label className="auth-field__label" htmlFor="reset-confirm-password">
-                    确认新密码
+                    {t("fieldConfirmNewPassword")}
                   </label>
                   <PasswordField
                     id="reset-confirm-password"
-                    placeholder="再次输入密码"
+                    placeholder={authT("placeholder.confirmPassword")}
                     value={confirmPassword}
                     onChange={(value) => {
                       setConfirmPassword(value);
@@ -227,7 +230,7 @@ export default function ResetPasswordPage() {
                   disabled={loading}
                   aria-busy={loading}
                 >
-                  {loading ? "保存中…" : "保存新密码"}
+                  {loading ? t("saving") : t("submitSave")}
                 </button>
               </form>
             </div>

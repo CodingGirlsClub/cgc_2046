@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { useTranslations } from "next-intl";
 import AuthForm, { type AuthMode } from "./login/auth-form";
 import { useAuthSubmit } from "./login/use-auth-submit";
 import LanguageSwitcher from "@/components/language-switcher";
@@ -44,6 +45,7 @@ function FeatureIcon({ kind }: { kind: "identity" | "workspaces" | "profile" }) 
 
 function AuthHelpLink() {
   const helpId = useId();
+  const t = useTranslations("auth");
 
   return (
     <a
@@ -52,33 +54,35 @@ function AuthHelpLink() {
       onClick={(event) => event.preventDefault()}
     >
       <span className="auth-help__icon" aria-hidden="true">?</span>
-      帮助中心
+      {t("helpCenter")}
     </a>
   );
 }
 
 function RegisterBenefits() {
+  const t = useTranslations("auth");
+
   return (
-    <div className="auth-benefits" aria-label="注册账号的好处">
+    <div className="auth-benefits" aria-label={t("benefitsLabel")}>
       <div className="auth-benefit">
         <FeatureIcon kind="identity" />
         <div>
-          <h2>统一身份</h2>
-          <p>使用同一账号与密码，安全访问 CGC 平台及所有功能。</p>
+          <h2>{t("benefits.identityTitle")}</h2>
+          <p>{t("benefits.identityDesc")}</p>
         </div>
       </div>
       <div className="auth-benefit">
         <FeatureIcon kind="workspaces" />
         <div>
-          <h2>多工作区</h2>
-          <p>一个账号可加入多个 Workspace，灵活切换，高效协作。</p>
+          <h2>{t("benefits.workspacesTitle")}</h2>
+          <p>{t("benefits.workspacesDesc")}</p>
         </div>
       </div>
       <div className="auth-benefit">
         <FeatureIcon kind="profile" />
         <div>
-          <h2>资料随行</h2>
-          <p>你的设置与偏好随账号同步，在不同工作区中无缝延续。</p>
+          <h2>{t("benefits.profileTitle")}</h2>
+          <p>{t("benefits.profileDesc")}</p>
         </div>
       </div>
     </div>
@@ -88,17 +92,18 @@ function RegisterBenefits() {
 export default function AuthShell({ mode }: { mode: AuthMode }) {
   const { onSubmit, busy, error } = useAuthSubmit();
   const isRegister = mode === "register";
+  const t = useTranslations("auth");
 
   return (
     <div className={`auth-page ${isRegister ? "auth-page--register" : "auth-page--login"}`}>
-      <aside className="auth-brand-panel" aria-label="CGC 平台介绍">
+      <aside className="auth-brand-panel" aria-label={t("brandPanelLabel")}>
         <div className="auth-brand-lockup">
           <BrandMark />
           <span>CGC 2046</span>
         </div>
 
         <div className="auth-brand-copy">
-          <h1>{isRegister ? "一个账号，连接多个工作区" : "连接社区，也连接你的创造力"}</h1>
+          <h1>{isRegister ? t("brandCopy.registerTitle") : t("brandCopy.loginTitle")}</h1>
           {isRegister && <RegisterBenefits />}
         </div>
       </aside>
@@ -110,7 +115,7 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
         <AuthHelpLink />
         <section className="auth-form-card" aria-labelledby="auth-page-title">
           <div className="auth-form-heading">
-            <h2 id="auth-page-title">{isRegister ? "创建账号" : "登录"}</h2>
+            <h2 id="auth-page-title">{isRegister ? t("heading.register") : t("heading.login")}</h2>
           </div>
           <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
         </section>

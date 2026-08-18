@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 
 export type AuthMode = "login" | "register";
 
@@ -53,6 +54,7 @@ export function PasswordField({
   ariaDescribedBy?: string;
   ariaInvalid?: boolean;
 }) {
+  const t = useTranslations("auth");
   return (
     <div className="auth-input-wrap">
       <input
@@ -73,7 +75,7 @@ export function PasswordField({
         type="button"
         className="auth-password-toggle"
         onClick={onToggle}
-        aria-label={visible ? "隐藏密码" : "显示密码"}
+        aria-label={visible ? t("passwordToggle.hide") : t("passwordToggle.show")}
       >
         <EyeIcon visible={visible} />
       </button>
@@ -92,12 +94,23 @@ function passwordStrength(password: string) {
 }
 
 export function PasswordStrength({ password }: { password: string }) {
+  const t = useTranslations("auth");
   const score = passwordStrength(password);
-  const label = score === 3 ? "强" : score === 2 ? "中" : score === 1 ? "弱" : "";
+  const label =
+    score === 3
+      ? t("passwordStrength.strong")
+      : score === 2
+        ? t("passwordStrength.medium")
+        : score === 1
+          ? t("passwordStrength.weak")
+          : "";
   const tone = score === 3 ? "strong" : score === 2 ? "medium" : "weak";
 
   return (
-    <div className="auth-password-strength" aria-label={label ? `密码强度：${label}` : "密码强度未设置"}>
+    <div
+      className="auth-password-strength"
+      aria-label={label ? t("passwordStrength.label", { label }) : t("passwordStrength.notSet")}
+    >
       <div className="auth-password-strength__bars" aria-hidden="true">
         {[1, 2, 3].map((level) => (
           <span
@@ -107,7 +120,7 @@ export function PasswordStrength({ password }: { password: string }) {
         ))}
       </div>
       <div className="auth-password-strength__labels" aria-hidden="true">
-        {["弱", "中", "强"].map((item) => (
+        {[t("passwordStrength.weak"), t("passwordStrength.medium"), t("passwordStrength.strong")].map((item) => (
           <span key={item} className={item === label ? "auth-password-strength__label--active" : undefined}>
             {item}
           </span>
@@ -139,6 +152,7 @@ export default function AuthForm({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const isRegister = mode === "register";
+  const t = useTranslations("auth");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -146,11 +160,11 @@ export default function AuthForm({
     setFormError(null);
 
     if (isRegister && password.length < 8) {
-      setFormError("密码至少需要 8 个字符");
+      setFormError(t("error.shortPassword"));
       return;
     }
     if (isRegister && password !== confirmPassword) {
-      setFormError("两次输入的密码不一致");
+      setFormError(t("error.passwordMismatch"));
       return;
     }
 
@@ -161,7 +175,7 @@ export default function AuthForm({
     }
   };
 
-  const switchLabel = isRegister ? "返回登录" : "创建账号";
+  const switchLabel = isRegister ? t("switch.returnLogin") : t("switch.createAccount");
   // 切换登录/注册保留 next（报名页引导链路不回丢）
   const searchParams = useSearchParams();
   const nextRaw = searchParams?.get("next") ?? null;
@@ -180,7 +194,7 @@ export default function AuthForm({
         )}
 
         <div className="auth-field">
-          <label className="auth-field__label" htmlFor="auth-email">邮箱</label>
+          <label className="auth-field__label" htmlFor="auth-email">{t("field.email")}</label>
           <input
             id="auth-email"
             name="email"
@@ -200,16 +214,16 @@ export default function AuthForm({
 
         <div className="auth-field">
           <div className="auth-field__label-row">
-            <label className="auth-field__label" htmlFor="auth-password">密码</label>
+            <label className="auth-field__label" htmlFor="auth-password">{t("field.password")}</label>
             {!isRegister && (
               <Link href="/forgot-password" className="auth-inline-link">
-                忘记密码？
+                {t("forgotPassword")}
               </Link>
             )}
           </div>
           <PasswordField
             id="auth-password"
-            placeholder={isRegister ? "至少 8 个字符" : ""}
+            placeholder={isRegister ? t("placeholder.passwordMin") : ""}
             value={password}
             onChange={(value) => {
               setPassword(value);
@@ -224,10 +238,10 @@ export default function AuthForm({
 
         {isRegister && (
           <div className="auth-field">
-            <label className="auth-field__label" htmlFor="auth-confirm-password">确认密码</label>
+            <label className="auth-field__label" htmlFor="auth-confirm-password">{t("field.confirmPassword")}</label>
             <PasswordField
               id="auth-confirm-password"
-              placeholder="再次输入密码"
+              placeholder={t("placeholder.confirmPassword")}
               value={confirmPassword}
               onChange={(value) => {
                 setConfirmPassword(value);
@@ -241,18 +255,24 @@ export default function AuthForm({
         )}
 
         <button type="submit" className="auth-submit" disabled={busy} aria-busy={busy}>
-          {busy ? "处理中…" : isRegister ? "创建账号并继续" : "登录并进入工作台"}
+          {busy
+            ? t("submit.processing")
+            : isRegister
+              ? t("submit.registerAndContinue")
+              : t("submit.loginAndEnter")}
         </button>
       </form>
 
       {submitted && !onSubmit && (
         <div className="auth-submit-note">
-          （mock）提交成功——正式版经 signIn / signUp mutation 登录，token 写入 <code>cgc_token</code> cookie。
+          {t.rich("submitNoteMock", {
+            code: (chunks) => <code>{chunks}</code>,
+          })}
         </div>
       )}
 
       <p className="auth-switch">
-        {isRegister ? "已经有账号？" : "还没有账号？"}{" "}
+        {isRegister ? t("switch.haveAccount") : t("switch.noAccount")}{" "}
         {setMode ? (
           <button
             type="button"
@@ -269,10 +289,10 @@ export default function AuthForm({
       </p>
 
       <p className="auth-terms">
-        {isRegister ? "注册" : "登录"}即表示你同意
-        <a href="#terms" onClick={(event) => event.preventDefault()}>服务条款</a>
-        与
-        <a href="#privacy" onClick={(event) => event.preventDefault()}>隐私政策</a>
+        {isRegister ? t("terms.registerAction") : t("terms.loginAction")}{t("terms.agreePrefix")}
+        <a href="#terms" onClick={(event) => event.preventDefault()}>{t("terms.serviceTerms")}</a>
+        {t("terms.and")}
+        <a href="#privacy" onClick={(event) => event.preventDefault()}>{t("terms.privacyPolicy")}</a>
       </p>
     </div>
   );

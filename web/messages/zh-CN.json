@@ -28,5 +28,111 @@
 		"enrollment_tier_id_required": "该报名为收费项，请先选择价格档位。",
 		"enrollment_tier_not_available": "所选档位已过期或不可用，请重新选择。",
 		"order_enrollment_required": "缺少报名信息，请重新发起报名。"
+	},
+	"auth": {
+		"helpCenter": "帮助中心",
+		"brandPanelLabel": "CGC 平台介绍",
+		"brandCopy": {
+			"registerTitle": "一个账号，连接多个工作区",
+			"loginTitle": "连接社区，也连接你的创造力"
+		},
+		"benefitsLabel": "注册账号的好处",
+		"benefits": {
+			"identityTitle": "统一身份",
+			"identityDesc": "使用同一账号与密码，安全访问 CGC 平台及所有功能。",
+			"workspacesTitle": "多工作区",
+			"workspacesDesc": "一个账号可加入多个 Workspace，灵活切换，高效协作。",
+			"profileTitle": "资料随行",
+			"profileDesc": "你的设置与偏好随账号同步，在不同工作区中无缝延续。"
+		},
+		"heading": {
+			"register": "创建账号",
+			"login": "登录"
+		},
+		"field": {
+			"email": "邮箱",
+			"password": "密码",
+			"confirmPassword": "确认密码",
+			"newPassword": "新密码",
+			"confirmNewPassword": "确认新密码"
+		},
+		"placeholder": {
+			"passwordMin": "至少 8 个字符",
+			"confirmPassword": "再次输入密码"
+		},
+		"passwordToggle": {
+			"hide": "隐藏密码",
+			"show": "显示密码"
+		},
+		"passwordStrength": {
+			"label": "密码强度：{label}",
+			"notSet": "密码强度未设置",
+			"strong": "强",
+			"medium": "中",
+			"weak": "弱"
+		},
+		"forgotPassword": "忘记密码？",
+		"error": {
+			"shortPassword": "密码至少需要 8 个字符",
+			"passwordMismatch": "两次输入的密码不一致"
+		},
+		"submit": {
+			"processing": "处理中…",
+			"registerAndContinue": "创建账号并继续",
+			"loginAndEnter": "登录并进入工作台"
+		},
+		"submitNoteMock": "（mock）提交成功——正式版经 signIn / signUp mutation 登录，token 写入 <code>cgc_token</code> cookie。",
+		"switch": {
+			"haveAccount": "已经有账号？",
+			"noAccount": "还没有账号？",
+			"returnLogin": "返回登录",
+			"createAccount": "创建账号"
+		},
+		"errors": {
+			"loginFailed": "登录失败，请检查邮箱与密码",
+			"registerFailedDuplicate": "注册失败，请检查信息后重试",
+			"registerFailedRetry": "注册失败，请稍后重试",
+			"networkFailed": "网络异常，请稍后重试"
+		},
+		"terms": {
+			"registerAction": "注册",
+			"loginAction": "登录",
+			"agreePrefix": "即表示你同意",
+			"serviceTerms": "服务条款",
+			"and": "与",
+			"privacyPolicy": "隐私政策"
+		},
+		"forgot": {
+			"title": "找回密码",
+			"fieldEmail": "注册邮箱",
+			"hint": "我们会向邮箱发送一次性密码重置链接。",
+			"submit": "发送重置邮件",
+			"sending": "发送中…",
+			"sentP1": "如果该邮箱已注册，重置链接已发送，请检查收件箱。",
+			"sentP2": "如果没有收到邮件，请检查垃圾邮件，或稍后重新申请。",
+			"backToLogin": "返回登录",
+			"errorSendFailed": "发送重置邮件失败，请稍后重试",
+			"errorRateLimited": "请求过于频繁，请稍后再试"
+		},
+		"reset": {
+			"titleSuccess": "密码已重置",
+			"titleForm": "设置新密码",
+			"checking": "正在检查重置链接…",
+			"invalidP1": "链接无效或已过期。",
+			"invalidP2": "请重新申请密码重置邮件，或返回登录。",
+			"resend": "重新发送重置邮件",
+			"backToLogin": "返回登录",
+			"successP1": "密码已更新。为安全起见，你已在所有设备（含小程序）退出登录。",
+			"goLogin": "去登录",
+			"fieldNewPassword": "新密码",
+			"fieldConfirmNewPassword": "确认新密码",
+			"submitSave": "保存新密码",
+			"saving": "保存中…",
+			"errorFailed": "密码重置失败，请稍后重试",
+			"errorInvalidPassword": "密码不符合要求",
+			"errorRateLimited": "请求过于频繁，请稍后再试",
+			"errorShortPassword": "密码至少需要 8 个字符",
+			"errorPasswordMismatch": "两次输入的密码不一致"
+		}
 	}
 }
