@@ -4,6 +4,7 @@ import {
   ORDER_STATUS_LABEL,
   PAYMENT_STATUS_LABEL,
   countdownText,
+  enrollmentResultCopy,
   formatAmount,
   mapPaymentCredential,
   nextPollTick,
@@ -144,4 +145,20 @@ test('收费报名落地页：weapp 进支付页，裁剪端回结果页（plan 
     paymentLandingUrl('enr-1', false),
     '/pages/enrollment-result/index?id=enr-1'
   )
+})
+
+test('报名结果页文案：payment_pending 待支付 + 裁剪端网页端支付引导（plan 006 F1b）', () => {
+  // 裁剪端（tt/xhs）：无小程序内支付，附网页端引导
+  assert.deepEqual(enrollmentResultCopy('payment_pending', false), {
+    title: '待支付 · 名额已保留，请尽快完成支付',
+    subtitle: '请在网页端完成支付（本端暂不支持支付调起）。'
+  })
+  // weapp 兜底：无网页端引导文案
+  assert.deepEqual(enrollmentResultCopy('payment_pending', true), {
+    title: '待支付 · 名额已保留，请尽快完成支付',
+    subtitle: '名额已保留，请尽快完成支付。'
+  })
+  // 既有 pending/confirmed 文案不回归
+  assert.equal(enrollmentResultCopy('pending', false).title, '等待审批')
+  assert.equal(enrollmentResultCopy('confirmed', false).title, '报名成功')
 })
