@@ -141,8 +141,17 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
   defp config, do: Application.get_env(:cgc_2046, @config_key, [])
 
   defp configured? do
+    # api_secret_v2_key：SDK build_client 硬性必需键（缺它 check_api_key 直接 raise）；
+    # webhook_base_url：B3——漏配回调域名曾致 notify_url 的 Path.join(nil) 500。
     config()[:mch_id] && config()[:appid] && config()[:api_v3_key] &&
-      config()[:client_serial_no] && config()[:client_private_key]
+      config()[:client_serial_no] && config()[:client_private_key] &&
+      config()[:api_secret_v2_key] && config()[:webhook_base_url]
+  end
+
+  @doc false
+  # 测试 seam：当前配置指纹对应的 client 模块（未配置时为 nil）。
+  def current_client do
+    if configured?(), do: build_cached_client(), else: nil
   end
 
   # 运行时 client：WeChat.Pay 宏在编译期固化密钥（与 KTD7 runtime 注入冲突），
@@ -168,16 +177,20 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
 
     case :persistent_term.get({__MODULE__, fingerprint}, nil) do
       nil ->
+        shutdown_stale_client(fingerprint)
         client_module = Module.concat(__MODULE__, "Client#{fingerprint}")
 
         case WeChat.Pay.build_client(client_module,
                mch_id: config()[:mch_id],
                api_secret_key: config()[:api_v3_key],
+               api_secret_v2_key: config()[:api_secret_v2_key],
                client_serial_no: config()[:client_serial_no],
                client_key: {:binary, config()[:client_private_key]}
              ) do
           {:ok, module} ->
+            :ok = start_client_supervisor(module)
             :persistent_term.put({__MODULE__, fingerprint}, module)
+            :persistent_term.put({__MODULE__, :current_fingerprint}, fingerprint)
             module
 
           {:error, reason} ->
@@ -191,6 +204,50 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
 
   defp notify_url do
     config()[:webhook_base_url] |> Path.join("/api/payments/webhooks/wechat")
+  end
+
+  # SDK 标准启动路径：use WeChat.Pay 的模块即 Supervisor，start_link 拉起
+  # Refresher.Pay（平台证书加载/12h 轮换进 :persistent_term——不启动则
+  # get_cert 恒 nil、验签恒 :error）与 per-client 命名 Finch 池
+  # （："#{client_module}.Finch"，Requester.Pay 外呼依赖；不启动则首次外呼
+  # noproc）。幂等：重复 start_child 对已运行同名 Supervisor 返回
+  # {:error, {:already_started, _pid}} → 视为成功；其余错误向上抛
+  # （fetch_client rescue → provider_not_configured）。
+  defp start_client_supervisor(module) do
+    case DynamicSupervisor.start_child(Cgc2046.Payments.ClientSup, {module, []}) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+  end
+
+  # 指纹变更（配置热更）：旧 client 的 Refresher/Finch 池先摘再建，防池泄漏
+  # （persistent_term 无遍历，put 时顺记 :current_fingerprint 作索引）。
+  # 注：WeChat.Pay.shutdown_client 按 child id 摘（普通 Supervisor 语义），对
+  # DynamicSupervisor 不适用（其 child id 恒 :undefined）——按模块名匹配
+  # which_children 后用原生 terminate_child/delete_child。
+  defp shutdown_stale_client(fingerprint) do
+    case :persistent_term.get({__MODULE__, :current_fingerprint}, nil) do
+      old when old != fingerprint ->
+        if module = :persistent_term.get({__MODULE__, old}, nil) do
+          terminate_client_child(module)
+          :persistent_term.erase({__MODULE__, old})
+        end
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp terminate_client_child(module) do
+    Cgc2046.Payments.ClientSup
+    |> DynamicSupervisor.which_children()
+    |> Enum.filter(fn {_id, _pid, _type, mods} -> mods == [module] end)
+    |> Enum.each(fn {_id, pid, _type, _mods} ->
+      # DynamicSupervisor 无 delete_child——terminate 即自动摘除
+      DynamicSupervisor.terminate_child(Cgc2046.Payments.ClientSup, pid)
+    end)
   end
 
   defp payment_description(order) do
