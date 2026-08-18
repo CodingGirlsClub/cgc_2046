@@ -311,6 +311,97 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
   end
 
+  describe "updateMyLocale mutation (i18n Phase 1)" do
+    test "updates locale and returns it on the user type" do
+      user = Fixtures.register_user("gql-locale-user")
+      token = sign_in_token(user.email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateMyLocale(locale: "en") {
+              id
+              locale
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"updateMyLocale" => %{"locale" => "en"}}} = res
+    end
+
+    test "rejects an unsupported locale with a field error" do
+      user = Fixtures.register_user("gql-locale-user-2")
+      token = sign_in_token(user.email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateMyLocale(locale: "fr") {
+              id
+              locale
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"updateMyLocale" => nil}, "errors" => errors} = res
+
+      assert Enum.any?(errors, fn e ->
+               e["code"] == "invalid_attribute" && e["fields"] == ["locale"]
+             end)
+    end
+
+    test "requires authentication" do
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateMyLocale(locale: "en") {
+              id
+            }
+          }
+          """
+        )
+
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
+    end
+
+    test "me query exposes locale" do
+      user = Fixtures.register_user("gql-locale-user-3")
+      token = sign_in_token(user.email, @password)
+
+      res = graphql_post(build_conn(), "{ me { locale } }", token)
+      assert %{"data" => %{"me" => %{"locale" => nil}}} = res
+
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            updateMyLocale(locale: "en") {
+              locale
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"updateMyLocale" => %{"locale" => "en"}}} = res
+
+      res = graphql_post(build_conn(), "{ me { locale } }", token)
+      assert %{"data" => %{"me" => %{"locale" => "en"}}} = res
+    end
+  end
+
   describe "setWorkspaceTheme mutation (ADR-0004 per-workspace theme)" do
     test "sets theme in a workspace" do
       admin = Fixtures.platform_admin("gql-profile-admin")

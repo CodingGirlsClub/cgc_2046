@@ -45,7 +45,8 @@ defmodule Cgc2046.Accounts.UserTest do
                  :id,
                  :email,
                  :is_platform_admin,
-                 :display_name
+                 :display_name,
+                 :locale
                ]
     end
 
@@ -179,6 +180,57 @@ defmodule Cgc2046.Accounts.UserTest do
       assert {:ok, claims, User} = AshAuthentication.Jwt.verify(token, User)
       assert claims["sub"] == "user?id=#{user.id}"
       assert claims["purpose"] == "user"
+    end
+  end
+
+  describe "update_locale (i18n Phase 1)" do
+    defp register(email) do
+      strategy = password_strategy()
+
+      {:ok, user} =
+        AshAuthentication.Strategy.action(strategy, :register, %{
+          email: email,
+          password: @password
+        })
+
+      user
+    end
+
+    test "writes a valid locale for the owner" do
+      user = register("locale-owner@example.com")
+
+      assert {:ok, updated} =
+               user
+               |> Ash.Changeset.for_update(:update_locale, %{locale: "en"}, actor: user)
+               |> Ash.update(actor: user)
+
+      assert updated.locale == "en"
+
+      assert {:ok, updated} =
+               updated
+               |> Ash.Changeset.for_update(:update_locale, %{locale: "zh-CN"}, actor: user)
+               |> Ash.update(actor: user)
+
+      assert updated.locale == "zh-CN"
+    end
+
+    test "rejects an unsupported locale value" do
+      user = register("locale-invalid@example.com")
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               user
+               |> Ash.Changeset.for_update(:update_locale, %{locale: "fr"}, actor: user)
+               |> Ash.update(actor: user)
+    end
+
+    test "forbids updating another user's locale (policy: OwnUser)" do
+      user = register("locale-target@example.com")
+      other = register("locale-other@example.com")
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               user
+               |> Ash.Changeset.for_update(:update_locale, %{locale: "en"}, actor: other)
+               |> Ash.update(actor: other)
     end
   end
 end
