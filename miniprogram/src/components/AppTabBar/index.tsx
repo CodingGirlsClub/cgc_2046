@@ -16,7 +16,7 @@ const baseTabs = [
 const workspaceTab = { key: 'workspace' as const, text: '工作台', icon: '◇', path: '/pages/workspace/index' }
 const profileTab = { key: 'profile' as const, text: '我的', icon: '○', path: '/pages/profile/index' }
 
-// 裁剪端（抖音/小红书）：固定 2 Tab 漏斗，无工作台/我的（§2 平台矩阵）
+// 裁剪端（抖音/小红书）：固定 2 Tab 漏斗，无工作台/我的（docs/01-定稿设计/小程序多端平台矩阵.md）
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
 export function AppTabBar({ selected }: Props) {
