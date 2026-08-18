@@ -392,12 +392,15 @@ defmodule Cgc2046.Events.Sponsorship do
         |> Ash.Changeset.force_change_attribute(:approval_deadline, deadline)
         |> Ash.Changeset.force_change_attribute(:tier_name, tier && tier["name"])
 
-      # Event 级落 event_id；Workspace 级目标即 tenant，event_id 恒空
+      # Event 级落 event_id；Workspace 级目标即 tenant，event_id 恒空——
+      # 无论客户端传什么，workspace 级强制清空（写入面收紧，防脏行：
+      # level=:workspace + event_id≠nil 会让锚定/展示面读到误导数据，
+      # 且会触发 sponsorships_level_target_consistency CHECK 以 500 形态炸出）。
       changeset =
         if target_kind == :event do
           Ash.Changeset.force_change_attribute(changeset, :event_id, target_id)
         else
-          changeset
+          Ash.Changeset.force_change_attribute(changeset, :event_id, nil)
         end
 
       changeset
