@@ -114,6 +114,7 @@
 ### workspace_id 作用域（Workspace Scope）
 
 - **定义**：无状态的租户作用域。**除 `meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation）外，所有 MCP 工具必填 `workspace_id`**，每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
 ### 当前工作区（Current Workspace，对话上下文概念）

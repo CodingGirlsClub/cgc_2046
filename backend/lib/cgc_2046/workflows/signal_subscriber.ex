@@ -93,7 +93,9 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   @doc """
   同步投递一条信号给订阅方模块（`%{type: type, data: data}`，与 JidoAdapter
-  解包后的形状一致）。按模块声明的幂等策略执行 claim 时机并调用 `handle/2`。
+  解包后的形状一致）。按模块声明的幂等策略执行 claim 时机：claim_first /
+  claim_after_effects / state_based 调用 `handle/2`；claim_in_handle 调用
+  `before_claim/2` + `effects/3` 双回调（claim 由骨架持有）。
 
   返回 `:ok` / `:duplicate`（claim_first 重复投递）/ `{:error, reason}`（副作用
   失败、缺消费键或 rescue 捕获——forwarder 忽略返回值，不 crash）。
@@ -105,11 +107,13 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   end
 
   @doc """
-  消费键 claim 助手（`:claim_in_handle` 策略模块在业务校验链通过后、副作用前
-  调用）。键派生与缺失契约违约的丢弃逻辑由本骨架唯一持有。
+  消费键 claim 助手（**骨架内部使用**：claim_first 分支与 claim_in_handle 的
+  run_claim_in_handle 调用；订阅方不再自调——双回调结构化后 claim 时机由
+  骨架持有）。键派生与缺失契约违约的丢弃逻辑由本骨架唯一持有。
 
-  返回 `{:ok, full_key}`（首次登记）| `:duplicate`（同键已消费，调用方按需
-  归一化）| `{:error, :missing_idempotency_key}`（payload 缺幂等键，丢弃）。
+  返回 `{:ok, full_key}`（首次登记）| `:duplicate`（同键已消费，骨架归一化
+  为跳过 effects）| `{:error, :missing_idempotency_key}`（payload 缺幂等键，
+  归一化 :ok 丢弃）。
   """
   @spec claim(module(), String.t(), map()) ::
           {:ok, String.t()} | :duplicate | {:error, :missing_idempotency_key}
