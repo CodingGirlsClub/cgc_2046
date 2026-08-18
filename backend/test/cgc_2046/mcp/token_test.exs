@@ -140,6 +140,80 @@ defmodule Cgc2046.Mcp.TokenTest do
     end
   end
 
+  describe "滚动过期（#222：连续 90 天未使用即失效）" do
+    # 直改库回拨时间（绕过 Ash action；先例：pending_operation_test.exs「已过期」用例）。
+    # 属性精度不同：last_used_at 是 :utc_datetime（秒，微秒须空），inserted_at 是 usec。
+    defp backdate(token, fields) do
+      changes =
+        Map.new(fields, fn
+          {:last_used_at, days} ->
+            {:last_used_at,
+             DateTime.utc_now() |> DateTime.add(days, :day) |> DateTime.truncate(:second)}
+
+          {field, days} ->
+            {field, DateTime.add(DateTime.utc_now(), days, :day)}
+        end)
+
+      token |> change(changes) |> Repo.update!()
+    end
+
+    test "新签发 token（inserted_at ≈ now，从未使用）→ validate_token 通过" do
+      user = Fixtures.register_user("mcp-token-idle-fresh")
+
+      {:ok, token} =
+        Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
+
+      assert {:ok, found} = Token.validate_token(token.__metadata__[:plain_token])
+      assert found.id == user.id
+    end
+
+    test "从未使用，inserted_at 回拨 -91 天 → :error" do
+      user = Fixtures.register_user("mcp-token-idle-91")
+
+      {:ok, token} =
+        Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
+
+      backdate(token, inserted_at: -91)
+      assert :error = Token.validate_token(token.__metadata__[:plain_token])
+    end
+
+    test "边界：inserted_at 恰 -90 天 → :error（距今 >= 90 天即失效）" do
+      user = Fixtures.register_user("mcp-token-idle-90")
+
+      {:ok, token} =
+        Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
+
+      backdate(token, inserted_at: -90)
+      assert :error = Token.validate_token(token.__metadata__[:plain_token])
+    end
+
+    test "活动重置窗口：inserted_at -100 天 + last_used_at -1 天 → 通过（锚点取 last_used_at）" do
+      user = Fixtures.register_user("mcp-token-idle-anchor")
+
+      {:ok, token} =
+        Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
+
+      backdate(token, inserted_at: -100, last_used_at: -1)
+
+      assert {:ok, found} = Token.validate_token(token.__metadata__[:plain_token])
+      assert found.id == user.id
+    end
+
+    test "过期行未被动过：revoked_at 仍 nil 且不 touch last_used_at（过期 ≠ 撤销）" do
+      user = Fixtures.register_user("mcp-token-idle-audit")
+
+      {:ok, token} =
+        Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
+
+      backdate(token, inserted_at: -91)
+      assert :error = Token.validate_token(token.__metadata__[:plain_token])
+
+      reloaded = Ash.get!(Token, token.id, authorize?: false)
+      assert is_nil(reloaded.revoked_at)
+      assert is_nil(reloaded.last_used_at)
+    end
+  end
+
   describe "revoke（撤销）" do
     test "本人可撤销自己的 token" do
       user = Fixtures.register_user("mcp-token-6")

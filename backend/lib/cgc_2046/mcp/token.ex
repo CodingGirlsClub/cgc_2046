@@ -11,12 +11,16 @@ defmodule Cgc2046.Mcp.Token do
   - 库中只存 SHA256 `token_hash`，不落明文（复刻 Invitation token_hash 模式）
   - 明文仅 `:issue` 创建时经 `metadata.plain_token` 一次性返回
   - 撤销 = 置 `revoked_at`（保留审计行，不删记录）
+  - 连续 90 天未使用即失效（滚动过期 `@idle_expiry_days`，#222；正常使用不断，
+    过期为惰性判定，行保留原样不置 `revoked_at`）
 
   每用户可同时持有多个 token（D-D4 定稿：撤销粒度按 token），
   active 上限 10 个（`@max_active_tokens_per_user`，防无限铸造；已撤销不计）。
   """
   # 每用户 active token 上限（review 修复：无速率限制中间件可适配按用户计数，故在资源层守卫）
   @max_active_tokens_per_user 10
+  # 滚动过期窗口（#222）：连续 90 天未使用即失效；正常使用不断，无需重签
+  @idle_expiry_days 90
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
@@ -266,7 +270,7 @@ defmodule Cgc2046.Mcp.Token do
   end
 
   @doc """
-  按明文 token 校验并返回所属 user；无效/已撤销返回 `:error`。
+  按明文 token 校验并返回所属 user；无效/已撤销/连续闲置过期的 token 返回 `:error`。
 
   MCP 鉴权前置路径：token 本身即凭证，故绕 policy 查询（authorize?: false）。
   校验通过后异步触碰 `last_used_at`（失败不影响主路径）。
@@ -282,11 +286,15 @@ defmodule Cgc2046.Mcp.Token do
         :error
 
       {:ok, token} ->
-        touch_last_used(token)
+        if idle_expired?(token) do
+          :error
+        else
+          touch_last_used(token)
 
-        case Ash.get(Cgc2046.Accounts.User, token.user_id, authorize?: false) do
-          {:ok, user} -> {:ok, user}
-          _ -> :error
+          case Ash.get(Cgc2046.Accounts.User, token.user_id, authorize?: false) do
+            {:ok, user} -> {:ok, user}
+            _ -> :error
+          end
         end
 
       _ ->
@@ -295,6 +303,14 @@ defmodule Cgc2046.Mcp.Token do
   end
 
   def validate_token(_), do: :error
+
+  # 滚动过期（#222）：连续 @idle_expiry_days 天未使用即失效，锚点取 last_used_at
+  # （从未使用回退 inserted_at）。过期为派生状态，惰性判定不写 revoked_at（那是
+  # 用户撤销动作的审计语义）；与无效/撤销统一塌缩 :error，不泄露存在性。
+  defp idle_expired?(token) do
+    anchor = token.last_used_at || token.inserted_at
+    DateTime.diff(DateTime.utc_now(), anchor, :day) >= @idle_expiry_days
+  end
 
   # 触碰失败（并发撤销等）不影响鉴权主路径
   defp touch_last_used(token) do
