@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getAuthToken: vi.fn(),
@@ -111,7 +111,12 @@ describe('sign-in 两阶段事务', () => {
 })
 
 describe('signIn phoneCode 新契约变量形状', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('phoneCode 在场（weapp 新契约）→ variables 含 phoneCode 且不含 encryptedData/iv', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
     mocks.getAuthToken.mockReturnValue('new-token')
     mocks.graphqlRequest.mockImplementation((doc: string) => {
       if (doc === 'SIGN_IN_MUTATION') return Promise.resolve({})
@@ -128,6 +133,33 @@ describe('signIn phoneCode 新契约变量形状', () => {
     expect('encryptedData' in variables).toBe(true)
     expect(variables.encryptedData).toBeNull()
     expect(variables.iv).toBeNull()
+  })
+
+  it('非 weapp：code 与 encryptedData/iv 并存（抖音 ≥3.51.0 回调形状）→ code 不进 phoneCode 语义，走 legacy（advisor09 F1）', async () => {
+    // TARO_ENV 未 stub → 非 weapp：gate 关闭，回调里的 code 字段被剥离出契约
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) => {
+      if (doc === 'SIGN_IN_MUTATION') return Promise.resolve({})
+      if (doc === 'SESSION_QUERY') return Promise.resolve(sessionData())
+      return Promise.resolve({})
+    })
+    const api = new RealMiniProgramApi()
+    await api.signIn({ loginCode: 'c', code: 'tt-callback-code', encryptedData: 'e', iv: 'i' })
+
+    const [, variables] = mocks.graphqlRequest.mock.calls.find(
+      (call: unknown[]) => call[0] === 'SIGN_IN_MUTATION'
+    ) as [string, Record<string, unknown>]
+    expect(variables.phoneCode).toBeUndefined()
+    expect(variables.encryptedData).toBe('e')
+    expect(variables.iv).toBe('i')
+  })
+
+  it('非 weapp：只给 code（无 legacy 字段）→ 参数不完整拒绝，不发起 mutation', async () => {
+    const api = new RealMiniProgramApi()
+    await expect(api.signIn({ loginCode: 'c', code: 'tt-only-code' })).rejects.toThrow(
+      '平台登录参数不完整'
+    )
+    expect(mocks.graphqlRequest).not.toHaveBeenCalled()
   })
 
   it('phoneCode 缺 + encryptedData/iv 齐（legacy）→ variables 不带 phoneCode 键值', async () => {
