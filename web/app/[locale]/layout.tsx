@@ -8,6 +8,10 @@ import { getTranslations } from "next-intl/server";
 import ApolloWrapper from "@/app/apollo-provider";
 import ThemeProvider from "@/lib/theme-provider";
 import ThemeSync from "@/lib/theme-sync";
+import {
+	appendUserLocaleParam,
+	stripLocalePrefix,
+} from "@/i18n/user-locale";
 import { LOCALE_COOKIE, routing } from "@/i18n/routing";
 import "../globals.css";
 
@@ -47,11 +51,15 @@ export async function generateMetadata({
  * User.locale 一次性对齐（L0 决策 5 协商链：URL > User.locale > cookie > …）。
  *
  * proxy 无法读 DB（边缘运行时），此处服务端补齐：无 cgc_locale cookie 且带登录
- * token 时查 me.locale，与当前渲染 locale 不同则 redirect 到对应前缀 URL。
- * 对齐一次后 cookie 主导（切换器会写 cgc_locale），后续导航不再查询。
- * 查询失败静默降级为正常渲染，不阻塞页面。
+ * token 时查 me.locale。无论与当前 locale 差异与否都 redirect 一次，目标带
+ * `?_ul=<locale>` 一次性标记——proxy 检测该参数即固化 cgc_locale（Set-Cookie），
+ * 之后本函数因 cookie 存在早退：
+ * - 差异（F0）：对齐到目标 locale 前缀；_ul 让 proxy 注入 cookie 断开
+ *   「middleware 按 Accept-Language 再弹回」的 307 死循环；
+ * - 一致（F2b）：同路径带 _ul 一跳，换 cookie 永久收敛（否则每次导航都查 me）。
+ * me 查询失败静默降级为正常渲染（1500ms 超时，不阻塞页面）。
  */
-async function alignUserLocale(currentLocale: string): Promise<void> {
+async function alignUserLocale(): Promise<void> {
 	const cookieStore = await cookies();
 	if (cookieStore.get(LOCALE_COOKIE)) return;
 	const token = cookieStore.get("cgc_token")?.value;
@@ -64,15 +72,18 @@ async function alignUserLocale(currentLocale: string): Promise<void> {
 			headers: { "content-type": "application/json", cookie: `cgc_token=${token}` },
 			body: JSON.stringify({ query: "{ me { locale } }" }),
 			cache: "no-store",
+			signal: AbortSignal.timeout(1500),
 		});
 		const json = (await res.json()) as { data?: { me?: { locale?: string | null } } };
 		const userLocale = json?.data?.me?.locale;
-		if (!userLocale || userLocale === currentLocale) return;
+		if (!userLocale || !hasLocale(routing.locales, userLocale)) return;
 
-		// x-pathname 是重写前的用户可见路径（/en 前缀可能存在），redirect 目标按目标 locale 规范化
+		// x-pathname 是重写前的用户可见路径（含 query；/en 前缀可能存在）
 		const raw = (await headers()).get("x-pathname") ?? "/";
-		const stripped = raw === "/en" ? "/" : raw.replace(/^\/en(?=\/)/, "");
-		redirect(userLocale === "en" ? (stripped === "/" ? "/en" : `/en${stripped}`) : stripped);
+		const stripped = stripLocalePrefix(raw);
+		const target =
+			userLocale === "en" ? (stripped === "/" ? "/en" : `/en${stripped}`) : stripped;
+		redirect(appendUserLocaleParam(target, userLocale));
 	} catch (error) {
 		// redirect() 以 NEXT_REDIRECT 抛出，必须原样上抛；其余错误静默降级
 		if (error && typeof error === "object" && "digest" in error) throw error;
@@ -86,7 +97,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
 	}
 
 	await connection();
-	await alignUserLocale(locale);
+	await alignUserLocale();
 
 	return (
 		<html

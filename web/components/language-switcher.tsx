@@ -41,8 +41,12 @@ export default function LanguageSwitcher({ className = "" }: { className?: strin
 				// 静默：cookie 与 UI 已切换，DB 持久化失败下次切换重试
 			});
 		}
-
-		router.replace(pathname, { locale: next });
+		// F4：next-intl usePathname 不含 query（login?next= 等引导链路会丢）。
+		// 取 window 原始 search/hash（事件回调内可用；不重序列化，next=/bar
+		// 不被编码成 next=%2Fbar——与 proxy x-pathname 同一保真决策）
+		const search = typeof window === "undefined" ? "" : window.location.search;
+		const hash = typeof window === "undefined" ? "" : window.location.hash;
+		router.replace(`${pathname}${search}${hash}`, { locale: next });
 	}
 
 	return (

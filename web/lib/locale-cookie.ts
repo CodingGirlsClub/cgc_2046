@@ -10,5 +10,7 @@ import { LOCALE_COOKIE, type Locale } from "@/i18n/routing";
 
 export function writeLocaleCookie(locale: Locale): void {
 	if (typeof document === "undefined") return;
-	document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=31536000; samesite=lax`;
+	// secure 仅生产（dev 是 http://localhost，secure cookie 会被浏览器拒收）
+	const secure = process.env.NODE_ENV === "production" ? "; secure" : "";
+	document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=31536000; samesite=lax${secure}`;
 }

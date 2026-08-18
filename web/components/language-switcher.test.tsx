@@ -12,13 +12,12 @@ import LanguageSwitcher from "./language-switcher";
  */
 
 const replaceMock = vi.fn();
+const useAuthedMock = vi.fn();
 
 vi.mock("@/i18n/navigation", () => ({
-	usePathname: () => "/",
+	usePathname: () => "/login",
 	useRouter: () => ({ replace: replaceMock }),
 }));
-
-const useAuthedMock = vi.fn();
 
 vi.mock("@/lib/use-authed", () => ({
 	useAuthed: () => useAuthedMock(),
@@ -37,6 +36,11 @@ function renderSwitcher(locale = "zh-CN") {
 		</NextIntlClientProvider>,
 	);
 }
+
+beforeEach(() => {
+	// F4：组件读 window.location 原始 search/hash 拼回 query
+	window.location.href = "http://localhost:3100/login?next=/orders/new";
+});
 
 function readCookie(name: string): string | undefined {
 	const entry = document.cookie
@@ -75,7 +79,7 @@ describe("LanguageSwitcher（i18n Phase 1 D3）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "English" }));
 
 		expect(readCookie("cgc_locale")).toBe("en");
-		expect(replaceMock).toHaveBeenCalledWith("/", { locale: "en" });
+		expect(replaceMock).toHaveBeenCalledWith("/login?next=/orders/new", { locale: "en" });
 		expect(updateMyLocaleMock).not.toHaveBeenCalled();
 	});
 
@@ -87,7 +91,7 @@ describe("LanguageSwitcher（i18n Phase 1 D3）", () => {
 
 		expect(readCookie("cgc_locale")).toBe("en");
 		expect(updateMyLocaleMock).toHaveBeenCalledWith("en");
-		expect(replaceMock).toHaveBeenCalledWith("/", { locale: "en" });
+		expect(replaceMock).toHaveBeenCalledWith("/login?next=/orders/new", { locale: "en" });
 	});
 
 	it("mutation 失败不阻塞导航（fire-and-forget）", async () => {
@@ -98,7 +102,7 @@ describe("LanguageSwitcher（i18n Phase 1 D3）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "English" }));
 
 		await waitFor(() => {
-			expect(replaceMock).toHaveBeenCalledWith("/", { locale: "en" });
+			expect(replaceMock).toHaveBeenCalledWith("/login?next=/orders/new", { locale: "en" });
 		});
 		expect(readCookie("cgc_locale")).toBe("en");
 	});

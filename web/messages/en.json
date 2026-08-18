@@ -6,8 +6,7 @@
 	},
 	"settings": {
 		"languageLabel": "Language",
-		"languageDescription": "Preferred interface language, synced across devices when signed in.",
-		"languageSaved": "Language updated"
+		"languageDescription": "Preferred interface language, synced across devices when signed in."
 	},
 	"metadata": {
 		"title": "CGC 2046",

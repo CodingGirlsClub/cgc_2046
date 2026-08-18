@@ -28,7 +28,11 @@ export function ProfileLocaleSelect() {
 		void updateMyLocale(target).catch(() => {
 			// 静默：cookie 与 UI 已切换，DB 持久化失败下次切换重试
 		});
-		router.replace(pathname, { locale: target });
+		// F4：取 window 原始 search/hash 拼回 query（不重序列化，与 proxy
+		// x-pathname 同一保真决策）
+		const search = typeof window === "undefined" ? "" : window.location.search;
+		const hash = typeof window === "undefined" ? "" : window.location.hash;
+		router.replace(`${pathname}${search}${hash}`, { locale: target });
 	}
 
 	return (

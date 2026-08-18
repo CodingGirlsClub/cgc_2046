@@ -6,8 +6,7 @@
 	},
 	"settings": {
 		"languageLabel": "语言",
-		"languageDescription": "界面语言偏好，登录后跨设备同步。",
-		"languageSaved": "语言已更新"
+		"languageDescription": "界面语言偏好，登录后跨设备同步。"
 	},
 	"metadata": {
 		"title": "CGC 2046",

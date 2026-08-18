@@ -75,6 +75,20 @@ describe("ProfileLocaleSelect（i18n Phase 1 D3 设置页语言小节）", () =>
 		);
 	});
 
+	it("F4：当前 URL 带 query 时切换语言保留 query（原始串不重序列化）", () => {
+		window.location.href = "http://localhost:3100/w/2046/settings/account/profile?tab=lang&next=/w/x";
+		renderSelect("zh-CN");
+
+		fireEvent.change(screen.getByTestId("profile-locale-input"), {
+			target: { value: "en" },
+		});
+
+		expect(replaceMock).toHaveBeenCalledWith(
+			"/w/2046/settings/account/profile?tab=lang&next=/w/x",
+			{ locale: "en" },
+		);
+	});
+
 	it("英文 locale 下文案与选中值同步", () => {
 		renderSelect("en");
 
