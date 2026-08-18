@@ -132,12 +132,14 @@ export const SignInWithPlatformMutationDocument = /* GraphQL */ `
   mutation SignInWithPlatform(
     $platform: String!
     $code: String!
-    $encryptedData: String!
-    $iv: String!
+    $phoneCode: String
+    $encryptedData: String
+    $iv: String
   ) {
     signInWithPlatform(
       platform: $platform
       code: $code
+      phoneCode: $phoneCode
       encryptedData: $encryptedData
       iv: $iv
     ) {

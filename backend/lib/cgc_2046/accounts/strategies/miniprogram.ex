@@ -99,18 +99,25 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram do
         description: "wx.login / tt.login / xhs.login 返回的临时登录凭证"
       ),
       Transformer.build_entity!(Resource.Dsl, [:actions, :read], :argument,
+        name: :phone_code,
+        type: :string,
+        allow_nil?: true,
+        sensitive?: true,
+        description: "getPhoneNumber 动态 code（新契约；wechat 平台）"
+      ),
+      Transformer.build_entity!(Resource.Dsl, [:actions, :read], :argument,
         name: :encrypted_data,
         type: :string,
-        allow_nil?: false,
+        allow_nil?: true,
         sensitive?: true,
-        description: "getPhoneNumber 加密数据"
+        description: "getPhoneNumber 加密数据（legacy 契约）"
       ),
       Transformer.build_entity!(Resource.Dsl, [:actions, :read], :argument,
         name: :iv,
         type: :string,
-        allow_nil?: false,
+        allow_nil?: true,
         sensitive?: true,
-        description: "getPhoneNumber 加密初始向量"
+        description: "getPhoneNumber 加密初始向量（legacy 契约）"
       )
     ]
 

@@ -21,7 +21,7 @@ defmodule Cgc2046.Accounts.User do
   登录 token 经 httpOnly cookie 交付 #60 路径 B，响应体不含 token）：
   - mutation `signUp(input: {email, password})` → `SignUpPayload { result, errors }`（错误走 AshGraphql.Error 映射）
   - mutation `signIn(email:, password:)` → `SignInResult { id, email, isPlatformAdmin }`
-  - mutation `signInWithPlatform(platform:, code:, encryptedData:, iv:)` → `SignInWithPlatformResult { id, email, isPlatformAdmin }`
+  - mutation `signInWithPlatform(platform:, code:, phoneCode:, encryptedData:, iv:)` → `SignInWithPlatformResult { id, email, isPlatformAdmin }`（phoneCode 新契约优先，后两者 legacy 可空）
   - query `me` → `User`（全局身份：id/email/displayName/isPlatformAdmin/memberNumber/joinedAt）
 
   phone 字段 `public?: false` + `sensitive?: true`：不进 GraphQL、不进日志 inspect

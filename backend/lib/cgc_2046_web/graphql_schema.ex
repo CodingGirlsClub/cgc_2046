@@ -594,22 +594,24 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :sign_in_with_platform, :sign_in_with_platform_result do
       arg(:platform, non_null(:string))
       arg(:code, non_null(:string))
-      arg(:encrypted_data, non_null(:string))
-      arg(:iv, non_null(:string))
+      arg(:phone_code, :string)
+      arg(:encrypted_data, :string)
+      arg(:iv, :string)
 
       # getPhoneNumber 计费防刷：复用既有 RateLimit（按 IP+platform 计，5 次/15 分钟）
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
 
-      resolve(fn _,
-                 %{platform: platform, code: code, encrypted_data: encrypted_data, iv: iv},
-                 _ ->
+      resolve(fn _, %{platform: platform, code: code} = args, _ ->
+        # phone_code/encrypted_data/iv 可空（phone_code 或 encrypted_data+iv 二选一，
+        # 由 SignInPreparation.fetch_phone 校验组合）；缺键时 Map.get 得 nil 透传。
         query =
           Cgc2046.Accounts.User
           |> Ash.Query.for_read(:sign_in_with_miniprogram, %{
             platform: platform,
             code: code,
-            encrypted_data: encrypted_data,
-            iv: iv
+            phone_code: Map.get(args, :phone_code),
+            encrypted_data: Map.get(args, :encrypted_data),
+            iv: Map.get(args, :iv)
           })
 
         try do

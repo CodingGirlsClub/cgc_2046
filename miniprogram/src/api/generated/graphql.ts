@@ -67,8 +67,9 @@ export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, w
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
   code: string;
-  encryptedData: string;
-  iv: string;
+  phoneCode?: string | null | undefined;
+  encryptedData?: string | null | undefined;
+  iv?: string | null | undefined;
 }>;
 
 
