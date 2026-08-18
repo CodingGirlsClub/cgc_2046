@@ -22,7 +22,7 @@
  *   收窄侧栏 `.ws-shell-page--editing`）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";

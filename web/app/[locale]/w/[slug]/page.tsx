@@ -12,7 +12,7 @@
  * 假数据。未知 slug 的「工作区不可访问」由壳 requireWs 渲染，页面不处理。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";

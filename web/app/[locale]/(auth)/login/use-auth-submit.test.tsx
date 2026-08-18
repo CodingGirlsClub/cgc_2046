@@ -17,6 +17,8 @@ vi.mock("@/lib/apollo-client", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => ({ push }),
 	usePathname: () => "/login",
 }));

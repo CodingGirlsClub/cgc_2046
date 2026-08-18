@@ -12,7 +12,7 @@
  */
 
 import { useState, useRef, useLayoutEffect } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { useQuery } from "@apollo/client/react";
 import { WorkspaceAvatar } from "@/components/workspace-ui";

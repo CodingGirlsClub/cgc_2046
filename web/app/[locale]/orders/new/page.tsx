@@ -14,7 +14,7 @@
  * 2h 限时，R6）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";

@@ -7,7 +7,7 @@
  * tab 列表（SettingsTabDef[]），传入本组件渲染统一的 ws-tabs 栏。
  * 门控：tab.ability 缺失 = 恒显；否则需 abilities 包含该能力。
  */
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { canSee } from "./workspace-nav";
 

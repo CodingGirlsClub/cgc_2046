@@ -7,7 +7,7 @@
  *   pending-owner 邀请，返回 ownerInvitationToken 仅展示一次）
  */
 import { useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { createWorkspaceWithOwner, fetchUsers } from "@/lib/admin";
 import type { AdminUser } from "@/lib/graphql/admin";

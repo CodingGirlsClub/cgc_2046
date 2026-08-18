@@ -8,7 +8,7 @@
  * CTA 走 Rsk3 降级路径:复制学习任务指令文本,引导粘贴到 OpenClacky 会话。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { createTranslator, useTranslations } from "next-intl";
 import zhCN from "@/messages/zh-CN.json";

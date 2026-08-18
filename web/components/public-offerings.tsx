@@ -8,7 +8,7 @@
  * - 数据唯一真实路径：fetchPublicOfferings（GraphQL 匿名查询）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import {

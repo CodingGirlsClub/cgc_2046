@@ -8,7 +8,7 @@
  *
  * 样式：admin-* 组件类（globals.css），Linear token 双主题自适应（#113 样式收敛）。
  */
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import AdminGuard from "@/components/admin-guard";

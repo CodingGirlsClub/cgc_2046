@@ -10,7 +10,7 @@
  * - 已决策后展示终态（accepted 提示材料产出后完成 / declined 提示已婉拒）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";

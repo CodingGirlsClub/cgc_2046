@@ -12,7 +12,7 @@
  *   - invite_only：邀请码输入（可空则后端报 invite_code_required）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";

@@ -5,7 +5,7 @@
  * 简单统计（工作台 / 用户 / 待审批申请）+ 子页入口。
  * 统计加载失败不阻塞页面（显示 —）。
  */
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { fetchApplications, fetchUsers, fetchWorkspaces } from "@/lib/admin";

@@ -13,6 +13,8 @@ const { fetchWorkspaces, fetchUsers, fetchApplications } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	// ThemeProvider 依赖 usePathname
 	usePathname: () => "/admin",

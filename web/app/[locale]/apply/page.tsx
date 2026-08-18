@@ -6,7 +6,7 @@
  * 提交后展示自己的申请列表（状态 + 拒绝原因，R7a）。
  */
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { createApplication, fetchMyApplications } from "@/lib/admin";
 import {

@@ -10,7 +10,7 @@
  *   无任何工作区 → 渲染极简全屏空态，引导去 /join 发现/申请。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";

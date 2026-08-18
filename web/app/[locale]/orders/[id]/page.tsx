@@ -14,7 +14,7 @@
  * 组件测试面：倒计时渲染/过期态与轮询编排断言（见 page.test.tsx）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useParams, useRouter } from "next/navigation";

@@ -23,6 +23,8 @@ vi.mock("@/lib/payment-errors", async () => {
 vi.mock("@/lib/apollo-client", () => ({ client }));
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useSearchParams: () => new URLSearchParams("enrollmentId=enr-1"),
 	useRouter: () => routerMocks,
 	usePathname: () => "/orders/new",

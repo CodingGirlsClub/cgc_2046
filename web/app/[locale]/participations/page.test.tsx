@@ -14,6 +14,8 @@ const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
 const tabState: { tab: string | null } = vi.hoisted(() => ({ tab: null }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	usePathname: () => "/participations",
 	// U8 tab 状态由 URL ?tab= 承载;用例按需切 tab(默认学习 tab)

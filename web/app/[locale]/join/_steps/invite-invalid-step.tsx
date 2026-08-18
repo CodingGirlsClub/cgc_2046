@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
 import { INVITATION_STATUS_LABEL } from "@/lib/graphql/invitation";

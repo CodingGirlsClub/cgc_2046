@@ -11,7 +11,7 @@
  *   加载/草稿状态按 wsId/id 键控派生，effect 内不做同步 setState。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";

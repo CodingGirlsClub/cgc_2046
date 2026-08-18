@@ -10,7 +10,7 @@
  *   （Workspace 级审批仍仅 Owner——审批动作在 /approvals 控制台，不在本页）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";

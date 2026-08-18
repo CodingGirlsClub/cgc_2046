@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@apollo/client/react";
 import { useTranslations } from "next-intl";

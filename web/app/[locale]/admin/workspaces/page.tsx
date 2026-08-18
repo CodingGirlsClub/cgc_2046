@@ -5,7 +5,7 @@
  * 分页 + 搜索（name/slug）+ 状态/Owner/成员数/创建日期。
  * 后端 listWorkspaces 返回裸数组，分页用 offset（after）。
  */
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { fetchWorkspaces } from "@/lib/admin";
