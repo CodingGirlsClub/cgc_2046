@@ -185,7 +185,7 @@ export default function OrderDetailPage() {
         // :provider_not_configured（未签约渠道）——经翻译层，不透传原文/裸原子
         setSwitchError(
           translatePaymentError(
-            payload?.errors[0]?.message,
+            payload?.errors[0]?.code,
             "切换渠道失败，请重试",
           ),
         );

@@ -155,6 +155,7 @@ export const CREATE_SPONSORSHIP: TypedDocumentNode<
 				tierName
 			}
 			errors {
+				code
 				message
 			}
 		}
@@ -172,6 +173,7 @@ export const APPROVE_SPONSORSHIP: TypedDocumentNode<
 				status
 			}
 			errors {
+				code
 				message
 			}
 		}
@@ -189,6 +191,7 @@ export const REJECT_SPONSORSHIP: TypedDocumentNode<
 				status
 			}
 			errors {
+				code
 				message
 			}
 		}
@@ -207,6 +210,7 @@ export const FULFILL_DELIVERY: TypedDocumentNode<
 				proofNote
 			}
 			errors {
+				code
 				message
 			}
 		}

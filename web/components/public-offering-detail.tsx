@@ -223,7 +223,7 @@ export default function PublicOfferingDetailPage({
         // 错误经翻译层映射为可读文案；未知错误走兜底，不透传 GraphQL 原文
         setSubmitState({
           kind: "error",
-          message: translatePaymentError(res.errors[0]?.message, "提交失败"),
+          message: translatePaymentError(res.errors[0]?.code, "提交失败"),
           enrollmentId: null,
         });
       }

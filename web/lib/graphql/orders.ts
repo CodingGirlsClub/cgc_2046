@@ -49,7 +49,7 @@ export interface Order {
 
 export interface CreateOrderPayload {
   result: Order | null;
-  errors: { message: string }[];
+  errors: { message: string; code?: string | null }[];
   metadata: { credential: string | null } | null;
 }
 
@@ -73,6 +73,7 @@ export const CREATE_ORDER: TypedDocumentNode<
         expireAt
       }
       errors {
+        code
         message
       }
       metadata {
@@ -98,6 +99,7 @@ export const REPLACE_PROVIDER: TypedDocumentNode<
         expireAt
       }
       errors {
+        code
         message
       }
       metadata {
@@ -227,6 +229,7 @@ export const REFUND_ORDER: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }
@@ -245,6 +248,7 @@ export const WAIVE_PAYMENT: TypedDocumentNode<
         status
       }
       errors {
+        code
         message
       }
     }

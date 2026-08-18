@@ -358,9 +358,7 @@ export default function ParticipationsPage() {
       });
       const payload = response.data?.cancelEnrollment;
       const alreadyProcessed = payload?.errors?.some(
-        (error) =>
-          error.code === "already_processed" ||
-          error.message?.includes("already processed"),
+        (error) => error.code === "enrollment_already_processed",
       );
       if (!payload?.result && !alreadyProcessed) {
         throw new Error(
