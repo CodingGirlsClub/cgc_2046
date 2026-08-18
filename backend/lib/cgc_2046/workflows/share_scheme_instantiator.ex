@@ -7,8 +7,9 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiator do
   ——微信外呼不进信号同步路径（发布事务不等平台 API）。
 
   幂等两层：本订阅方 claim_first（同信号重投不重复入队）；worker 执行
-  fetch_or_generate 天然幂等（未过期命中复用零外呼）。claim 后入队失败
-  通知面同 NotificationSubscriber 的 at-most-once 取舍（E-10 对账兜底）。
+  fetch_or_generate 天然幂等（未过期命中复用零外呼）。claim 后入队失败/
+  重试耗尽时该目标预生成缺失，由渠道消费侧 lazy fetch_or_generate 重建
+  （at-most-once 取舍同 NotificationSubscriber）。
   """
 
   use Cgc2046.Workflows.SignalSubscriber,
