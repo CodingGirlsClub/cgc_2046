@@ -5,8 +5,9 @@
  * 分页 + 搜索（name/slug）+ 状态/Owner/成员数/创建日期。
  * 后端 listWorkspaces 返回裸数组，分页用 offset（after）。
  */
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { fetchWorkspaces } from "@/lib/admin";
 import type { AdminWorkspace } from "@/lib/graphql/admin";
 import { JOIN_POLICY_LABEL } from "@/lib/graphql/workspace";
@@ -14,6 +15,8 @@ import { JOIN_POLICY_LABEL } from "@/lib/graphql/workspace";
 const PAGE_SIZE = 50;
 
 export default function AdminWorkspacesPage() {
+	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [workspaces, setWorkspaces] = useState<AdminWorkspace[] | null>(null);
 	const [search, setSearch] = useState("");
 	const [offset, setOffset] = useState(0);
@@ -63,12 +66,12 @@ export default function AdminWorkspacesPage() {
 	return (
 		<section>
 			<div className="admin-page__head">
-				<h1>工作台</h1>
+				<h1>{t("navWorkspaces")}</h1>
 				<Link
 					href="/admin/workspaces/create"
 					className="l-btn-primary"
 				>
-					创建工作台
+					{t("createWorkspace")}
 				</Link>
 			</div>
 
@@ -77,8 +80,8 @@ export default function AdminWorkspacesPage() {
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-					placeholder="搜索工作台（name / slug）"
-					aria-label="搜索工作台"
+					placeholder={t("searchWorkspacePlaceholder")}
+					aria-label={t("searchWorkspaceAria")}
 					className="l-input"
 				/>
 				<button
@@ -86,15 +89,15 @@ export default function AdminWorkspacesPage() {
 					onClick={handleSearch}
 					className="l-btn-outline"
 				>
-					搜索
+					{t("search")}
 				</button>
 			</div>
 
-			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
-			{loading && <p className="admin-muted">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">{t("loadFailed")}</p>}
+			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && workspaces && workspaces.length === 0 && (
-				<p className="admin-empty">暂无工作台。</p>
+				<p className="admin-empty">{t("noWorkspaces")}</p>
 			)}
 
 			{!loading && !error && workspaces && workspaces.length > 0 && (
@@ -102,11 +105,11 @@ export default function AdminWorkspacesPage() {
 					<table className="admin-table">
 						<thead>
 							<tr>
-								<th>名称</th>
-								<th>slug</th>
-								<th>加入策略</th>
-								<th className="admin-table__num">成员数</th>
-								<th>创建时间</th>
+								<th>{t("thName")}</th>
+								<th>{t("thSlug")}</th>
+								<th>{t("thJoinPolicy")}</th>
+								<th className="admin-table__num">{t("thMemberCount")}</th>
+								<th>{t("thCreatedAt")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -121,7 +124,7 @@ export default function AdminWorkspacesPage() {
 										</Link>
 									</td>
 									<td>{ws.slug}</td>
-									<td>{JOIN_POLICY_LABEL[ws.joinPolicy]}</td>
+									<td>{labelsT(JOIN_POLICY_LABEL[ws.joinPolicy])}</td>
 									<td className="admin-table__num">{ws.memberCount}</td>
 									<td>
 										{new Date(ws.insertedAt).toLocaleDateString("zh-CN")}
@@ -140,7 +143,7 @@ export default function AdminWorkspacesPage() {
 					disabled={offset === 0 || loading}
 					className="l-btn-outline"
 				>
-					上一页
+					{t("prevPage")}
 				</button>
 				<button
 					type="button"
@@ -148,7 +151,7 @@ export default function AdminWorkspacesPage() {
 					disabled={loading}
 					className="l-btn-outline"
 				>
-					下一页
+					{t("nextPage")}
 				</button>
 			</div>
 		</section>

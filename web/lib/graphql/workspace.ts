@@ -379,15 +379,15 @@ export const UPDATE_WORKSPACE: TypedDocumentNode<
 /* ---------------- join_policy 展示辅助 ---------------- */
 
 export const JOIN_POLICY_LABEL: Record<JoinPolicy, string> = {
-	open: "公开",
-	request: "申请审批",
-	invite_only: "仅邀请",
+	open: "labels.joinPolicy.open",
+	request: "labels.joinPolicy.request",
+	invite_only: "labels.joinPolicy.invite_only",
 };
 
 export const JOIN_POLICY_HINT: Record<JoinPolicy, string> = {
-	open: "公开直接加入",
-	request: "公开申请审批",
-	invite_only: "私密仅邀请",
+	open: "labels.joinPolicyHint.open",
+	request: "labels.joinPolicyHint.request",
+	invite_only: "labels.joinPolicyHint.invite_only",
 };
 
 /* ---------------- 成员角色（#64）展示辅助 ---------------- */
@@ -396,19 +396,19 @@ export const JOIN_POLICY_HINT: Record<JoinPolicy, string> = {
 export const MEMBERSHIP_ROLES: MembershipRoleName[] = [...ROLE_NAMES];
 
 export const ROLE_LABEL: Record<MembershipRoleName, string> = {
-	owner: "Owner",
-	admin: "Admin",
-	tutor: "Tutor",
-	volunteer: "Volunteer",
-	learner: "Learner",
+	owner: "labels.role.owner",
+	admin: "labels.role.admin",
+	tutor: "labels.role.tutor",
+	volunteer: "labels.role.volunteer",
+	learner: "labels.role.learner",
 };
 
 export const ROLE_LABEL_ZH: Record<MembershipRoleName, string> = {
-	owner: "所有者",
-	admin: "管理员",
-	tutor: "教练",
-	volunteer: "志愿者",
-	learner: "学员",
+	owner: "labels.roleZh.owner",
+	admin: "labels.roleZh.admin",
+	tutor: "labels.roleZh.tutor",
+	volunteer: "labels.roleZh.volunteer",
+	learner: "labels.roleZh.learner",
 };
 
 /** 角色徽章样式（Linear 风格双主题，配合 globals.css 的 l-badge-* 类） */

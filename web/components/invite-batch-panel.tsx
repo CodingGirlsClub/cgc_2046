@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
+import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import { OFFERING_LABEL, type OfferingKind } from "@/lib/graphql/events";
 import {
@@ -34,6 +35,8 @@ type ListState = {
 	endKeyset: string | null;
 };
 
+type InviteBatchTranslate = ReturnType<typeof useTranslations<"inviteBatch">>;
+
 const EMPTY_DRAFT: InviteBatchDraft = {
 	inviteCode: "",
 	quota: "1",
@@ -42,10 +45,10 @@ const EMPTY_DRAFT: InviteBatchDraft = {
 };
 
 const DISPLAY_STATUS_LABEL: Record<InviteBatchDisplayStatus, string> = {
-	active: "有效",
-	disabled: "已禁用",
-	expired: "已过期",
-	exhausted: "已用尽",
+	active: "statusActive",
+	disabled: "statusDisabled",
+	expired: "statusExpired",
+	exhausted: "statusExhausted",
 };
 
 const DISPLAY_STATUS_CLASS: Record<InviteBatchDisplayStatus, string> = {
@@ -85,10 +88,10 @@ function fromLocalDateTimeInput(value: string): string | null {
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function formatDateTime(value: string | null): string {
-	if (!value) return "不设过期时间";
+function formatDateTime(t: InviteBatchTranslate, value: string | null): string {
+	if (!value) return t("noExpiry");
 	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "时间无效";
+	if (Number.isNaN(date.getTime())) return t("invalidTime");
 	return date.toLocaleString("zh-CN", {
 		year: "numeric",
 		month: "2-digit",
@@ -113,18 +116,18 @@ function generateInviteCode(length = 10): string {
 	}).join("");
 }
 
-function friendlyCreateError(message: string | null | undefined): string {
+function friendlyCreateError(t: InviteBatchTranslate, message: string | null | undefined): string {
 	if (
 		message &&
 		/(already been taken|already exists|unique|invite[_ ]?code|邀请码)/i.test(message)
 	) {
-		return "邀请码已被使用；邀请码全平台唯一，请换一个。";
+		return t("createErrorTaken");
 	}
-	return message || "创建失败，请检查后重试";
+	return message || t("createErrorFallback");
 }
 
-function friendlyDisableError(message: string | null | undefined): string {
-	return message || "禁用失败，请重试";
+function friendlyDisableError(t: InviteBatchTranslate, message: string | null | undefined): string {
+	return message || t("disableErrorFallback");
 }
 
 function createFilter(kind: OfferingKind, offeringId: string, workspaceId: string): InviteBatchFilter {
@@ -202,12 +205,14 @@ export default function InviteBatchPanel({
 	const listError = stale ? null : error;
 	const items = stale ? [] : listState.items;
 	const canCreate = offeringStatus === "open";
-	const label = OFFERING_LABEL[kind];
+	const t = useTranslations("inviteBatch");
+	const labelsT = useTranslations();
+	const label = labelsT(OFFERING_LABEL[kind]);
 
 	async function reloadFirstPage() {
 		const response = await refetch({ filter, first: PAGE_SIZE, after: null });
 		const page = response.data?.inviteBatches;
-		if (!page) throw new Error("列表刷新失败");
+		if (!page) throw new Error(t("listRefreshFailed"));
 		appliedQueryKey.current = listKey;
 		setListState({
 			key: listKey,
@@ -239,14 +244,14 @@ export default function InviteBatchPanel({
 				after: listState.endKeyset,
 			});
 			const page = response.data?.inviteBatches;
-			if (!page) throw new Error("分页加载失败");
+			if (!page) throw new Error(t("pageLoadFailed"));
 			setListState((previous) => ({
 				...previous,
 				items: [...previous.items, ...(page.results ?? [])],
 				endKeyset: page.endKeyset ?? null,
 			}));
 		} catch (caught: unknown) {
-			setLoadMoreError(caught instanceof Error ? caught.message : "加载更多失败，请重试");
+			setLoadMoreError(caught instanceof Error ? caught.message : t("loadMoreError"));
 		} finally {
 			setLoadingMore(false);
 		}
@@ -265,15 +270,15 @@ export default function InviteBatchPanel({
 		const quota = Number(draft.quota);
 
 		if (!inviteCode) {
-			next.inviteCode = "请输入邀请码";
+			next.inviteCode = t("errorCodeRequired");
 		} else if (!/^[A-Za-z0-9_-]{1,64}$/.test(inviteCode)) {
-			next.inviteCode = "邀请码只能包含字母、数字、下划线或连字符（最多 64 位）";
+			next.inviteCode = t("errorCodeInvalid");
 		}
-		if (!Number.isInteger(quota) || quota < 1) next.quota = "配额至少为 1";
+		if (!Number.isInteger(quota) || quota < 1) next.quota = t("errorQuotaMin");
 		if (draft.expiresAt) {
 			const expiresAt = new Date(draft.expiresAt).getTime();
 			if (Number.isNaN(expiresAt) || expiresAt <= Date.now()) {
-				next.expiresAt = "过期时间必须晚于当前时间";
+				next.expiresAt = t("errorExpiryPast");
 			}
 		}
 		return next;
@@ -301,15 +306,15 @@ export default function InviteBatchPanel({
 			const response = await createInviteBatch({ variables: { input } });
 			const result = response.data?.createInviteBatch;
 			if (!result?.result) {
-				setFormError(friendlyCreateError(result?.errors?.[0]?.message));
+				setFormError(friendlyCreateError(t, result?.errors?.[0]?.message));
 				return;
 			}
 			setDraft(EMPTY_DRAFT);
 			setFieldErrors({});
-			setFormMessage("批次码已创建");
+			setFormMessage(t("createSuccess"));
 			await reloadFirstPage();
 		} catch (caught: unknown) {
-			setFormError(friendlyCreateError(caught instanceof Error ? caught.message : null));
+			setFormError(friendlyCreateError(t, caught instanceof Error ? caught.message : null));
 		}
 	}
 
@@ -327,7 +332,7 @@ export default function InviteBatchPanel({
 			if (!result?.result) {
 				setDisableErrors((previous) => ({
 					...previous,
-					[id]: friendlyDisableError(result?.errors?.[0]?.message),
+					[id]: friendlyDisableError(t, result?.errors?.[0]?.message),
 				}));
 				return;
 			}
@@ -336,7 +341,7 @@ export default function InviteBatchPanel({
 		} catch (caught: unknown) {
 			setDisableErrors((previous) => ({
 				...previous,
-				[id]: friendlyDisableError(caught instanceof Error ? caught.message : null),
+				[id]: friendlyDisableError(t, caught instanceof Error ? caught.message : null),
 			}));
 		} finally {
 			setDisableBusyId(null);
@@ -360,16 +365,14 @@ export default function InviteBatchPanel({
 
 	return (
 		<section className="mt-4 rounded-large border border-line bg-card p-6">
-			<h2 className="text-sm font-medium text-ink">批次码管理</h2>
-			<p className="mt-1 text-[13px] text-ink-3">
-				为该{label}创建可重复使用的报名邀请码，并随时禁用已发出的批次码。
-			</p>
+			<h2 className="text-sm font-medium text-ink">{t("title")}</h2>
+			<p className="mt-1 text-[13px] text-ink-3">{t("desc", { label })}</p>
 
 			<form className="mt-4 grid gap-3" onSubmit={submit} noValidate>
 				<div className="grid gap-3 sm:grid-cols-2">
 					<div>
 						<label htmlFor="invite-batch-invite-code" className="block text-[13px] text-ink-3">
-							邀请码
+							{t("inviteCode")}
 						</label>
 						<div className="mt-1 flex gap-2">
 							<input
@@ -387,11 +390,11 @@ export default function InviteBatchPanel({
 								disabled={!canCreate || creating}
 								className="rounded-large border border-line-strong bg-card px-3 py-2 text-sm text-ink hover:border-line disabled:opacity-50"
 							>
-								生成
+								{t("generate")}
 							</button>
 						</div>
 						<p id="invite-batch-invite-code-help" className="mt-1 text-[12px] text-ink-3">
-							邀请码全平台唯一，跨活动不可复用；生成后仍可编辑。
+							{t("inviteCodeHelp")}
 						</p>
 						{fieldErrors.inviteCode ? (
 							<p className="mt-1 text-[12px] text-danger" role="alert">
@@ -402,7 +405,7 @@ export default function InviteBatchPanel({
 
 					<div>
 						<label htmlFor="invite-batch-quota" className="block text-[13px] text-ink-3">
-							配额
+							{t("quota")}
 						</label>
 						<input
 							id="invite-batch-quota"
@@ -417,7 +420,7 @@ export default function InviteBatchPanel({
 							className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
 						/>
 						<p id="invite-batch-quota-help" className="mt-1 text-[12px] text-ink-3">
-							每个邀请码最多可报名人数。
+							{t("quotaHelp")}
 						</p>
 						{fieldErrors.quota ? (
 							<p className="mt-1 text-[12px] text-danger" role="alert">
@@ -428,7 +431,7 @@ export default function InviteBatchPanel({
 
 					<div>
 						<label htmlFor="invite-batch-expires-at" className="block text-[13px] text-ink-3">
-							过期时间（可选）
+							{t("expiresAt")}
 						</label>
 						<input
 							id="invite-batch-expires-at"
@@ -442,7 +445,7 @@ export default function InviteBatchPanel({
 							className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
 						/>
 						<p id="invite-batch-expires-at-help" className="mt-1 text-[12px] text-ink-3">
-							按本地时区填写，提交时转换为 UTC。
+							{t("expiresAtHelp")}
 						</p>
 						{fieldErrors.expiresAt ? (
 							<p className="mt-1 text-[12px] text-danger" role="alert">
@@ -453,7 +456,7 @@ export default function InviteBatchPanel({
 
 					<div>
 						<label htmlFor="invite-batch-remark" className="block text-[13px] text-ink-3">
-							备注（可选）
+							{t("remark")}
 						</label>
 						<input
 							id="invite-batch-remark"
@@ -464,14 +467,14 @@ export default function InviteBatchPanel({
 							className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
 						/>
 						<p id="invite-batch-remark-help" className="mt-1 text-[12px] text-ink-3">
-							给管理者看的用途说明。
+							{t("remarkHelp")}
 						</p>
 					</div>
 				</div>
 
 				{!canCreate ? (
 					<p className="text-[13px] text-ink-3" role="status">
-						活动当前状态不可创建批次码
+						{t("cannotCreate")}
 					</p>
 				) : null}
 				{formError ? (
@@ -487,7 +490,7 @@ export default function InviteBatchPanel({
 						disabled={!canCreate || creating}
 						className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
 					>
-						{creating ? "创建中…" : "创建批次码"}
+						{creating ? t("creating") : t("create")}
 					</button>
 					{formMessage ? (
 						<span className="text-[13px] text-ink-3" role="status">
@@ -498,11 +501,11 @@ export default function InviteBatchPanel({
 			</form>
 
 			<div className="mt-6">
-				<h3 className="text-[13px] font-medium text-ink">批次码列表</h3>
+				<h3 className="text-[13px] font-medium text-ink">{t("listTitle")}</h3>
 				{listError ? (
 					<div className="mt-2 rounded-large border border-line bg-soft-2 p-3">
 						<p className="text-[13px] text-danger" role="alert">
-							加载批次码失败：{listError.message}
+							{t("listError", { message: listError.message })}
 						</p>
 						<button
 							type="button"
@@ -510,16 +513,16 @@ export default function InviteBatchPanel({
 							onClick={() => void retryList()}
 							className="mt-2 rounded-large border border-line-strong bg-card px-3 py-1.5 text-[13px] text-ink disabled:opacity-50"
 						>
-							{retrying ? "重试中…" : "重试"}
+							{retrying ? t("retrying") : t("retry")}
 						</button>
 					</div>
 				) : stale || (loading && items.length === 0) ? (
-					<div className="mt-2 grid gap-2" aria-label="批次码加载中" aria-busy="true">
+					<div className="mt-2 grid gap-2" aria-label={t("loadingAria")} aria-busy="true">
 						<div className="h-12 animate-pulse rounded-large bg-soft-2" />
-						<p className="text-[13px] text-ink-3">加载中…</p>
+						<p className="text-[13px] text-ink-3">{t("loading")}</p>
 					</div>
 				) : items.length === 0 ? (
-					<p className="mt-2 text-[13px] text-ink-3">暂无批次码</p>
+					<p className="mt-2 text-[13px] text-ink-3">{t("empty")}</p>
 				) : (
 					<>
 						<ul className="mt-2 divide-y divide-line rounded-large border border-line">
@@ -535,16 +538,21 @@ export default function InviteBatchPanel({
 											<div className="flex flex-wrap items-center gap-2">
 												<code className="select-text text-sm font-medium text-ink">{item.inviteCode}</code>
 												<span className={inviteBatchBadgeClass(status)}>
-													{DISPLAY_STATUS_LABEL[status]}
+													{t(DISPLAY_STATUS_LABEL[status])}
 												</span>
 											</div>
 											<p className="mt-1 text-[13px] text-ink-3">
-												已使用 {item.quota - item.remainingQuota}/{item.quota} 人
+												{t("usedCount", {
+													used: item.quota - item.remainingQuota,
+													total: item.quota,
+												})}
 												<span className="mx-1.5">·</span>
-												{formatDateTime(item.expiresAt)}
+												{formatDateTime(t, item.expiresAt)}
 											</p>
 											{item.remark ? (
-												<p className="mt-0.5 truncate text-[12px] text-ink-3">备注：{item.remark}</p>
+												<p className="mt-0.5 truncate text-[12px] text-ink-3">
+													{t("remarkValue", { remark: item.remark })}
+												</p>
 											) : null}
 											{disableErrors[item.id] ? (
 												<p className="mt-1 text-[12px] text-danger" role="alert">
@@ -557,14 +565,14 @@ export default function InviteBatchPanel({
 											<button
 												type="button"
 												onClick={() => void copyInviteCode(item)}
-												aria-label="复制邀请码"
+												aria-label={t("copyAria")}
 												className="rounded-full border border-line px-2.5 py-1 text-[12px] text-ink-3 hover:border-line-strong"
 											>
 												{copyState === "success"
-													? "已复制"
+													? t("copied")
 													: copyState === "error"
-														? "请手动复制邀请码"
-														: "复制"}
+														? t("copyManual")
+														: t("copy")}
 											</button>
 											{canDisable && !confirming ? (
 												<button
@@ -580,14 +588,14 @@ export default function InviteBatchPanel({
 													}}
 													className="rounded-full border border-line px-2.5 py-1 text-[12px] text-ink-3 hover:border-line-strong disabled:opacity-50"
 												>
-													禁用
+													{t("disable")}
 												</button>
 											) : null}
 										</div>
 
 										{confirming ? (
 											<div className="w-full rounded-large border border-line bg-soft-2 p-3">
-												<p className="text-[13px] text-ink-3">确认禁用？该邀请码的剩余配额将立即作废，不可恢复。</p>
+												<p className="text-[13px] text-ink-3">{t("disableConfirm")}</p>
 												<div className="mt-2 flex gap-2">
 													<button
 														type="button"
@@ -595,7 +603,7 @@ export default function InviteBatchPanel({
 														onClick={() => void submitDisable(item.id)}
 														className="rounded-large border border-danger px-3 py-1.5 text-[13px] text-danger disabled:opacity-50"
 													>
-														{busy ? "提交中…" : disableErrors[item.id] ? "重试禁用" : "确认禁用"}
+														{busy ? t("submitting") : disableErrors[item.id] ? t("disableRetry") : t("confirmDisable")}
 													</button>
 													<button
 														type="button"
@@ -610,7 +618,7 @@ export default function InviteBatchPanel({
 														}}
 														className="rounded-large border border-line px-3 py-1.5 text-[13px] text-ink-3 disabled:opacity-50"
 													>
-														取消
+														{t("cancel")}
 													</button>
 												</div>
 											</div>
@@ -631,7 +639,7 @@ export default function InviteBatchPanel({
 								onClick={() => void loadMore()}
 								className="mt-3 rounded-large border border-line-strong bg-card px-3 py-1.5 text-[13px] text-ink disabled:opacity-50"
 							>
-								{loadingMore ? "加载中…" : "加载更多"}
+								{loadingMore ? t("loading") : t("loadMore")}
 							</button>
 						) : null}
 					</>

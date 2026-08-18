@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
+import { fireEvent, cleanup } from "@testing-library/react";
+import { render } from "@/test-utils";
 import { Avatar } from "./profile-avatar";
 
 /**

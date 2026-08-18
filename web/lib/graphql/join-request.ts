@@ -211,8 +211,8 @@ export const REJECT_JOIN_REQUEST: TypedDocumentNode<
 /* ---------------- 状态展示辅助 ---------------- */
 
 export const JOIN_REQUEST_STATUS_LABEL: Record<JoinRequestStatus, string> = {
-  pending: "申请审批中",
-  approved: "已通过",
-  rejected: "已拒绝",
-  expired: "已过期",
+  pending: "labels.joinRequestStatus.pending",
+  approved: "labels.joinRequestStatus.approved",
+  rejected: "labels.joinRequestStatus.rejected",
+  expired: "labels.joinRequestStatus.expired",
 };

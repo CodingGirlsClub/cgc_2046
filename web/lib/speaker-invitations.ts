@@ -53,7 +53,7 @@ export async function createSpeakerInvitation(
 
 	return (
 		data?.createSpeakerInvitation ??
-		({ result: null, plainToken: null, errors: [{ message: "无响应" }] } as CreateSpeakerInvitationResult)
+		({ result: null, plainToken: null, errors: [{ message: "errors.noResponse" }] } as CreateSpeakerInvitationResult)
 	);
 }
 
@@ -65,7 +65,7 @@ export async function acceptSpeakerInvitation(
 		variables: { token },
 	});
 
-	return data?.acceptSpeakerInvitation ?? { result: null, errors: [{ message: "无响应" }] };
+	return data?.acceptSpeakerInvitation ?? { result: null, errors: [{ message: "errors.noResponse" }] };
 }
 
 export async function declineSpeakerInvitation(
@@ -76,5 +76,5 @@ export async function declineSpeakerInvitation(
 		variables: { token },
 	});
 
-	return data?.declineSpeakerInvitation ?? { result: null, errors: [{ message: "无响应" }] };
+	return data?.declineSpeakerInvitation ?? { result: null, errors: [{ message: "errors.noResponse" }] };
 }

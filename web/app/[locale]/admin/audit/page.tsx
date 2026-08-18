@@ -10,6 +10,7 @@
  * - AdminActionLog（治理操作）：平台级日志，无 workspace/状态维度，仅时间范围生效
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
 	fetchAdminActionLogs,
 	fetchPendingOperations,
@@ -78,6 +79,8 @@ interface AuditRow {
 	/** ISO 时间串；未开始（如 WorkflowRun.startedAt 为 null）→ 渲染 "—" */
 	time: string | null;
 	identity: string;
+	/** identity 为 admin messages key（治理操作 action 名），渲染时需 t() */
+	identityKey?: boolean;
 	/** 副标识（仅 PendingOperation 的 summary） */
 	summary?: string | null;
 	status: string;
@@ -120,15 +123,15 @@ function signalLogToRow(log: AdminSignalLog): AuditRow {
 	};
 }
 
-/** 治理操作 action 枚举 → 中文名（未知枚举值回退原串） */
+/** 治理操作 action 枚举 → admin messages key（未知枚举值回退原串） */
 const ACTION_LABEL: Record<string, string> = {
-	workspace_create: "创建工作台",
-	application_approve: "审批通过",
-	application_reject: "审批拒绝",
-	admin_promote: "提升管理员",
-	admin_demote: "降级管理员",
-	owner_reassign: "重指派 Owner",
-	owner_invitation_cancel: "取消 Owner 邀请",
+	workspace_create: "actionWorkspaceCreate",
+	application_approve: "actionApplicationApprove",
+	application_reject: "actionApplicationReject",
+	admin_promote: "actionAdminPromote",
+	admin_demote: "actionAdminDemote",
+	owner_reassign: "actionOwnerReassign",
+	owner_invitation_cancel: "actionOwnerInvitationCancel",
 };
 
 function adminActionToRow(log: AdminActionLog): AuditRow {
@@ -136,20 +139,22 @@ function adminActionToRow(log: AdminActionLog): AuditRow {
 		id: log.id,
 		time: log.insertedAt,
 		identity: ACTION_LABEL[log.action] ?? log.action,
+		identityKey: true,
 		summary: log.targetId.slice(0, 8),
 		status: log.result,
 	};
 }
 
 const TABS: Array<{ id: AuditTab; label: string }> = [
-	{ id: "tool", label: "工具调用" },
-	{ id: "pending", label: "待确认操作" },
-	{ id: "workflow", label: "工作流运行" },
-	{ id: "signal", label: "信号日志" },
-	{ id: "action", label: "治理操作" },
+	{ id: "tool", label: "tabTool" },
+	{ id: "pending", label: "tabPendingActions" },
+	{ id: "workflow", label: "tabWorkflow" },
+	{ id: "signal", label: "tabSignal" },
+	{ id: "action", label: "tabAction" },
 ];
 
 export default function AdminAuditPage() {
+	const t = useTranslations("admin");
 	const [tab, setTab] = useState<AuditTab>("tool");
 	const [workspaceId, setWorkspaceId] = useState("");
 	const [status, setStatus] = useState("");
@@ -231,20 +236,20 @@ export default function AdminAuditPage() {
 	return (
 		<section>
 			<div className="admin-page__head">
-				<h1>审计</h1>
+				<h1>{t("auditTitle")}</h1>
 			</div>
 
 			<div className="admin-toolbar">
 				<div className="admin-tabs">
-					{TABS.map((t) => (
+					{TABS.map((tabDef) => (
 						<button
-							key={t.id}
+							key={tabDef.id}
 							type="button"
-							aria-pressed={tab === t.id}
-							onClick={() => handleTabChange(t.id)}
-							className={`admin-tabs__tab ${tab === t.id ? "admin-tabs__tab--selected" : ""}`}
+							aria-pressed={tab === tabDef.id}
+							onClick={() => handleTabChange(tabDef.id)}
+							className={`admin-tabs__tab ${tab === tabDef.id ? "admin-tabs__tab--selected" : ""}`}
 						>
-							{t.label}
+							{t(tabDef.label)}
 						</button>
 					))}
 				</div>
@@ -254,18 +259,18 @@ export default function AdminAuditPage() {
 						value={signalType}
 						onChange={(e) => setSignalType(e.target.value)}
 						onKeyDown={(e) => e.key === "Enter" && handleFilter()}
-						placeholder="信号类型（如 workflow.approval）"
-						aria-label="信号类型过滤"
+						placeholder={t("signalPlaceholder")}
+						aria-label={t("signalAria")}
 						className="l-input"
 					/>
 				) : tab !== "action" ? (
 					<select
 						value={status}
 						onChange={(e) => setStatus(e.target.value)}
-						aria-label="状态过滤"
+						aria-label={t("statusAria")}
 						className="l-input"
 					>
-						<option value="">全部状态</option>
+						<option value="">{t("allStatuses")}</option>
 						{STATUS_OPTIONS[tab].map((s) => (
 							<option key={s} value={s}>
 								{s}
@@ -277,22 +282,22 @@ export default function AdminAuditPage() {
 					type="datetime-local"
 					value={insertedAfter}
 					onChange={(e) => setInsertedAfter(e.target.value)}
-					aria-label="起始时间"
+					aria-label={t("startAria")}
 					className="l-input"
 				/>
 				<input
 					type="datetime-local"
 					value={insertedBefore}
 					onChange={(e) => setInsertedBefore(e.target.value)}
-					aria-label="截止时间"
+					aria-label={t("endAria")}
 					className="l-input"
 				/>
 				<input
 					value={workspaceId}
 					onChange={(e) => setWorkspaceId(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleFilter()}
-					placeholder="workspace 过滤（ID）"
-					aria-label="workspace 过滤"
+					placeholder={t("workspaceFilterPlaceholder")}
+					aria-label={t("workspaceFilterAria")}
 					className="l-input"
 				/>
 				<button
@@ -300,15 +305,15 @@ export default function AdminAuditPage() {
 					onClick={handleFilter}
 					className="l-btn-outline"
 				>
-					过滤
+					{t("filter")}
 				</button>
 			</div>
 
-			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
-			{loading && <p className="admin-muted">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">{t("loadFailed")}</p>}
+			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && rows && rows.length === 0 && (
-				<p className="admin-empty">暂无记录。</p>
+				<p className="admin-empty">{t("empty")}</p>
 			)}
 
 			{!loading && !error && rows && rows.length > 0 && (
@@ -316,9 +321,9 @@ export default function AdminAuditPage() {
 					<table className="admin-table">
 						<thead>
 							<tr>
-								<th>时间</th>
-								<th>标识</th>
-								<th>状态</th>
+								<th>{t("thTime")}</th>
+								<th>{t("thId")}</th>
+								<th>{t("thStatus")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -330,7 +335,9 @@ export default function AdminAuditPage() {
 											: "—"}
 									</td>
 									<td>
-										<span className="l-mono">{row.identity}</span>
+										<span className="l-mono">
+											{row.identityKey ? t(row.identity) : row.identity}
+										</span>
 										{row.summary && (
 											<span className="admin-table__sub">{row.summary}</span>
 										)}

@@ -10,8 +10,9 @@
  *   （Workspace 级审批仍仅 Owner——审批动作在 /approvals 控制台，不在本页）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { canManageEvents } from "@/lib/events";
 import { parseSponsorshipTiers } from "@/lib/public-offerings";
@@ -21,6 +22,8 @@ import MembersTabs from "@/components/members-tabs";
 import SponsorshipManagement from "@/components/sponsorship-management";
 
 export default function WorkspaceSponsorshipPage() {
+	const t = useTranslations("workspacePages");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws } = useWorkspaceBySlug(slug);
@@ -29,12 +32,12 @@ export default function WorkspaceSponsorshipPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<strong>赞助管理</strong>
+					<strong>{t("sponsorship")}</strong>
 				</div>
 				{ws && (
 					<MembersTabs

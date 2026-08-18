@@ -154,7 +154,7 @@ export async function createApplication(
   return (
     data?.createWorkspaceApplication ?? {
       result: null,
-      errors: [{ message: "提交申请失败", code: "no_data" }],
+      errors: [{ message: "errors.submitApplicationFailed", code: "no_data" }],
     }
   );
 }
@@ -283,7 +283,7 @@ export async function approveApplication(
   return (
     data?.approveWorkspaceApplication ?? {
       result: null,
-      errors: [{ message: "审批请求失败", code: "no_data" }],
+      errors: [{ message: "errors.approveRequestFailed", code: "no_data" }],
     }
   );
 }
@@ -301,7 +301,7 @@ export async function rejectApplication(
   return (
     data?.rejectWorkspaceApplication ?? {
       result: null,
-      errors: [{ message: "拒绝请求失败", code: "no_data" }],
+      errors: [{ message: "errors.rejectRequestFailed", code: "no_data" }],
     }
   );
 }
@@ -341,7 +341,7 @@ export async function createWorkspaceWithOwner(
   return (
     data?.createWorkspace ?? {
       result: null,
-      errors: [{ message: "创建工作台失败", code: "no_data" }],
+      errors: [{ message: "errors.createWorkspaceFailed", code: "no_data" }],
     }
   );
 }
@@ -366,7 +366,7 @@ export async function reassignWorkspaceOwner(
   return (
     data?.reassignWorkspaceOwner ?? {
       result: null,
-      errors: [{ message: "重指派 Owner 失败", code: "no_data" }],
+      errors: [{ message: "errors.reassignOwnerFailed", code: "no_data" }],
     }
   );
 }

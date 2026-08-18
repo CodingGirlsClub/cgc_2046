@@ -382,23 +382,23 @@ export const RECONCILIATION_FINDINGS: TypedDocumentNode<
 
 /** 对账规则枚举 → 中文标签（值 = 后端 rule atom 字符串；未知值回退原串） */
 export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
-	confirmed_enrollment_without_run: "报名无学习 run",
-	pending_without_deadline: "待审批无截止期限",
-	active_sponsorship_signal_dead: "赞助激活信号死信",
-	open_entity_without_research_definition: "开放实体无教研定义",
-	nonterminal_research_run_for_closed_entity: "已结束实体仍有进行中教研",
-	dead_letter_job: "信号族死信",
-	learning_run_stalled: "学习 run 停滞",
+	confirmed_enrollment_without_run: "labels.reconRule.confirmed_enrollment_without_run",
+	pending_without_deadline: "labels.reconRule.pending_without_deadline",
+	active_sponsorship_signal_dead: "labels.reconRule.active_sponsorship_signal_dead",
+	open_entity_without_research_definition: "labels.reconRule.open_entity_without_research_definition",
+	nonterminal_research_run_for_closed_entity: "labels.reconRule.nonterminal_research_run_for_closed_entity",
+	dead_letter_job: "labels.reconRule.dead_letter_job",
+	learning_run_stalled: "labels.reconRule.learning_run_stalled",
 };
 
 /** 对账实体类型 → 中文标签 */
 export const RECONCILIATION_ENTITY_LABEL: Record<string, string> = {
-	enrollment: "报名",
-	sponsorship: "赞助",
-	join_request: "加入申请",
-	workspace_application: "工作台申请",
-	event: "活动",
-	course: "课程",
+	enrollment: "labels.reconEntity.enrollment",
+	sponsorship: "labels.reconEntity.sponsorship",
+	join_request: "labels.reconEntity.join_request",
+	workspace_application: "labels.reconEntity.workspace_application",
+	event: "labels.reconEntity.event",
+	course: "labels.reconEntity.course",
 	oban_job: "Oban Job",
 	workflow_run: "Workflow Run",
 };
@@ -529,10 +529,10 @@ export const DEMOTE_USER: TypedDocumentNode<
 /* ---------------- 展示辅助 ---------------- */
 
 export const APPLICATION_STATUS_LABEL: Record<AdminApplicationStatus, string> = {
-	pending: "待审批",
-	approved: "已通过",
-	rejected: "已拒绝",
-	expired: "已过期",
+	pending: "labels.applicationStatus.pending",
+	approved: "labels.applicationStatus.approved",
+	rejected: "labels.applicationStatus.rejected",
+	expired: "labels.applicationStatus.expired",
 };
 
 export const APPLICATION_STATUS_CLASS: Record<AdminApplicationStatus, string> = {

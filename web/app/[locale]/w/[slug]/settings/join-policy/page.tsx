@@ -16,8 +16,9 @@
  */
 
 import { useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	currentUserCanUpdateJoinPolicy,
@@ -36,6 +37,9 @@ const JOIN_POLICIES: JoinPolicy[] = ["open", "request", "invite_only"];
 export default function WorkspaceSettingsPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
+	const t = useTranslations("workspaceJoinPolicy");
+	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const {
 		ws,
 		readOnlyVisitor,
@@ -84,12 +88,12 @@ export default function WorkspaceSettingsPage() {
 			const updated = await updateWorkspaceJoinPolicy(ws.id, effective);
 			setDraftState({ wsId: ws.id, policy: updated.joinPolicy });
 			setSavedPolicyState({ wsId: ws.id, policy: updated.joinPolicy });
-			setSaveState({ wsId: ws.id, kind: "saved", text: "加入策略已更新" });
+			setSaveState({ wsId: ws.id, kind: "saved", text: t("saved") });
 		} catch (error) {
 			setSaveState({
 				wsId: ws.id,
 				kind: "error",
-				text: error instanceof Error ? error.message : "保存失败，请稍后重试",
+				text: error instanceof Error ? error.message : t("saveFailed"),
 			});
 		} finally {
 			setSaving(false);
@@ -99,20 +103,25 @@ export default function WorkspaceSettingsPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div
+					className="ws-page-breadcrumb"
+					aria-label={tCommon("breadcrumbAria")}
+				>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>加入策略</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>加入策略</h1>
-						<p>决定谁能加入这个 Workspace</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -128,23 +137,23 @@ export default function WorkspaceSettingsPage() {
 					<div
 						className="settings-loading"
 						data-testid="settings-loading"
-						aria-label="加载中"
+						aria-label={t("loadingAria")}
 					>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
 						<div className="settings-skeleton" />
 					</div>
 				) : (
-					<section className="settings-policy-card" aria-label="加入策略">
+					<section className="settings-policy-card" aria-label={t("title")}>
 						<div className="settings-policy-card__header">
 							<div>
-								<strong>加入策略</strong>
-								<p>决定谁能加入这个 Workspace</p>
+								<strong>{t("title")}</strong>
+								<p>{t("subtitle")}</p>
 							</div>
 							<span
 								className={`workspace-policy workspace-policy--${effective}`}
 							>
-								{effective ? JOIN_POLICY_LABEL[effective] : ""}
+								{effective ? labelsT(JOIN_POLICY_LABEL[effective]) : ""}
 							</span>
 						</div>
 
@@ -153,7 +162,7 @@ export default function WorkspaceSettingsPage() {
 							disabled={!canUpdate || saving}
 						>
 							<legend className="settings-policy-options__legend">
-								选择加入方式
+								{t("choosePolicy")}
 							</legend>
 							{JOIN_POLICIES.map((policy) => (
 								<label
@@ -173,13 +182,13 @@ export default function WorkspaceSettingsPage() {
 											setDraftState({ wsId: ws.id, policy });
 											setSaveState(null);
 										}}
-										aria-label={JOIN_POLICY_LABEL[policy]}
+										aria-label={labelsT(JOIN_POLICY_LABEL[policy])}
 									/>
 									<span className="settings-policy-option__label">
-										{JOIN_POLICY_LABEL[policy]}
+										{labelsT(JOIN_POLICY_LABEL[policy])}
 									</span>
 									<span className="settings-policy-option__hint">
-										{JOIN_POLICY_HINT[policy]}
+										{labelsT(JOIN_POLICY_HINT[policy])}
 									</span>
 								</label>
 							))}
@@ -191,8 +200,8 @@ export default function WorkspaceSettingsPage() {
 								data-testid="settings-readonly-note"
 							>
 								{readOnlyVisitor
-									? "平台管理员只读审计视图，无法修改加入策略。"
-									: "仅 Owner / Admin 可修改加入策略；当前为只读展示。"}
+									? t("readonlyAdmin")
+									: t("readonlyOwner")}
 							</div>
 						)}
 
@@ -219,7 +228,7 @@ export default function WorkspaceSettingsPage() {
 									effective === lastPersisted
 								}
 							>
-								{saving ? "保存中…" : "保存更改"}
+								{saving ? t("saving") : t("saveChanges")}
 							</button>
 						</div>
 					</section>

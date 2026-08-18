@@ -8,7 +8,7 @@
  * 数据经 fetchCurrentProfile（mock 先行，后端 #68 定稿后自动切真实）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { fetchCurrentProfile, profileHref, type CurrentProfile } from "@/lib/profile";
 

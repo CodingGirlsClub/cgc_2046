@@ -3,7 +3,7 @@ import { print } from "graphql";
 import {
 	SIGN_IN,
 	SIGN_UP,
-	signUpErrorMessage,
+	signUpError,
 	signInErrorMessage,
 	type SignUpResultData,
 } from "./auth";
@@ -29,7 +29,7 @@ describe("signUp/signIn mutation 文档（对齐 #60 路径 B：httpOnly cookie�
 	});
 });
 
-describe("signUpErrorMessage（signUp 失败走 result.errors）", () => {
+describe("signUpError（signUp 失败走 result.errors，结构化错误数据）", () => {
 	const ok: { signUp: SignUpResultData } = {
 		signUp: {
 			result: { id: "u1", email: "a@b.c", isPlatformAdmin: false },
@@ -38,11 +38,11 @@ describe("signUpErrorMessage（signUp 失败走 result.errors）", () => {
 	};
 
 	it("成功时返回 null", () => {
-		expect(signUpErrorMessage(ok)).toBeNull();
-		expect(signUpErrorMessage(undefined)).toBeNull();
+		expect(signUpError(ok)).toBeNull();
+		expect(signUpError(undefined)).toBeNull();
 	});
 
-	it("registration_failed（#86 防枚举，重复邮箱与未知错误同形）映射为友好文案", () => {
+	it("registration_failed（#86 防枚举，重复邮箱与未知错误同形）提取 code 与 message", () => {
 		const fail: { signUp: SignUpResultData } = {
 			signUp: {
 				result: null,
@@ -54,7 +54,10 @@ describe("signUpErrorMessage（signUp 失败走 result.errors）", () => {
 				],
 			},
 		};
-		expect(signUpErrorMessage(fail)).toBe("注册失败，请检查信息后重试");
+		expect(signUpError(fail)).toEqual({
+			code: "registration_failed",
+			message: "Registration failed. Please check your input and try again.",
+		});
 	});
 
 	it("非 registration_failed 的 message 直透（如邮箱格式错误，仍可指导用户）", () => {
@@ -64,14 +67,17 @@ describe("signUpErrorMessage（signUp 失败走 result.errors）", () => {
 				errors: [{ message: "must match the format ...", code: "invalid" }],
 			},
 		};
-		expect(signUpErrorMessage(fail)).toBe("must match the format ...");
+		expect(signUpError(fail)).toEqual({
+			code: "invalid",
+			message: "must match the format ...",
+		});
 	});
 
 	it("errors 为空数组时返回 null（视为成功）", () => {
 		const empty: { signUp: SignUpResultData } = {
 			signUp: { result: null, errors: [] },
 		};
-		expect(signUpErrorMessage(empty)).toBeNull();
+		expect(signUpError(empty)).toBeNull();
 	});
 });
 

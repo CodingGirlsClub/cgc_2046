@@ -1,7 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { NextIntlClientProvider } from "next-intl";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import zhCN from "../messages/zh-CN.json";
+import { render } from "@/test-utils";
 import LanguageSwitcher from "./language-switcher";
 
 /* 切换器依赖（mock 边界）：
@@ -29,12 +28,8 @@ vi.mock("@/lib/profile", () => ({
 	updateMyLocale: (...args: unknown[]) => updateMyLocaleMock(...args),
 }));
 
-function renderSwitcher(locale = "zh-CN") {
-	return render(
-		<NextIntlClientProvider locale={locale} messages={zhCN}>
-			<LanguageSwitcher />
-		</NextIntlClientProvider>,
-	);
+function renderSwitcher(locale: "zh-CN" | "en" = "zh-CN") {
+	return render(<LanguageSwitcher />, { locale });
 }
 
 beforeEach(() => {

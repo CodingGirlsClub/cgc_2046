@@ -234,10 +234,10 @@ export const ACCEPT_INVITATION: TypedDocumentNode<
 /* ---------------- 状态展示辅助 ---------------- */
 
 export const INVITATION_STATUS_LABEL: Record<InvitationStatus, string> = {
-  active: "有效",
-  used: "已使用",
-  revoked: "已撤销",
-  expired: "已过期",
+  active: "labels.invitationStatus.active",
+  used: "labels.invitationStatus.used",
+  revoked: "labels.invitationStatus.revoked",
+  expired: "labels.invitationStatus.expired",
 };
 
 export const INVITATION_STATUS_CLASS: Record<InvitationStatus, string> = {

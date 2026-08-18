@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 
 export interface HandoffTextInput {
@@ -19,18 +20,19 @@ export interface HandoffTextInput {
 	stepKey: string;
 }
 
-/** 交接文本（导出供测试断言内容） */
-export function buildHandoffText({
-	workspaceSlug,
-	workspaceId,
-	runId,
-	stepKey,
-}: HandoffTextInput): string {
-	return `workspace: ${workspaceSlug}(${workspaceId}) / run: ${runId} / step: ${stepKey} / 工具提示：用 save_step_output 写回该 step`;
+/**
+ * 交接文本（导出供测试断言内容；toolHint 由组件注入 t("toolHint")，
+ * 缺省保留中文原文兜底——纯函数调用场景（测试）不受 i18n provider 约束）。
+ */
+export function buildHandoffText(
+	{ workspaceSlug, workspaceId, runId, stepKey }: HandoffTextInput,
+	toolHint = "工具提示：用 save_step_output 写回该 step",
+): string {
+	return `workspace: ${workspaceSlug}(${workspaceId}) / run: ${runId} / step: ${stepKey} / ${toolHint}`;
 }
 
 interface StepHandoffCopyProps extends HandoffTextInput {
-	/** 按钮文案（默认「复制交接文本」） */
+	/** 按钮文案；缺省用 i18n stepHandoff.copy */
 	label?: string;
 	className?: string;
 }
@@ -41,11 +43,16 @@ export default function StepHandoffCopy({
 	workspaceId,
 	runId,
 	stepKey,
-	label = "复制交接文本",
+	label,
 	className = "",
 }: StepHandoffCopyProps) {
 	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-	const text = buildHandoffText({ workspaceSlug, workspaceId, runId, stepKey });
+	const t = useTranslations("stepHandoff");
+	const buttonLabel = label ?? t("copy");
+	const text = buildHandoffText(
+		{ workspaceSlug, workspaceId, runId, stepKey },
+		t("toolHint"),
+	);
 
 	async function handleCopy() {
 		const ok = await copyText(text);
@@ -62,7 +69,7 @@ export default function StepHandoffCopy({
 			data-handoff={text}
 			onClick={handleCopy}
 		>
-			{state === "copied" ? "已复制" : state === "failed" ? "复制失败" : label}
+			{state === "copied" ? t("copied") : state === "failed" ? t("failed") : buttonLabel}
 		</button>
 	);
 }

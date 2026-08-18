@@ -73,10 +73,10 @@ export interface SpeakerInvitationCard {
 /* ---------------- 展示词表（单源） ---------------- */
 
 export const SPEAKER_INVITATION_STATUS_LABEL: Record<SpeakerInvitationStatus, string> = {
-	invited: "待接受",
-	accepted: "已接受",
-	declined: "已婉拒",
-	completed: "已完成",
+	invited: "labels.speakerStatus.invited",
+	accepted: "labels.speakerStatus.accepted",
+	declined: "labels.speakerStatus.declined",
+	completed: "labels.speakerStatus.completed",
 };
 
 export const SPEAKER_INVITATION_STATUS_TONE: Record<

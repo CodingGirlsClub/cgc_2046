@@ -41,9 +41,25 @@ export async function generateMetadata({
 }: LayoutProps): Promise<Metadata> {
 	const { locale } = await params;
 	const t = await getTranslations({ locale, namespace: "metadata" });
+	const base =
+		process.env.NEXT_PUBLIC_WEB_BASE_URL ??
+		process.env.NEXT_PUBLIC_SITE_URL ??
+		"http://localhost:3000";
+	// hreflang alternates（D3）：zh-CN 无前缀 / en /en 前缀；canonical 为当前 locale 页。
+	// 具体路径由子页自行覆盖（此处仅兜底根路径）；en 的 zh-CN 备用指向无前缀 URL。
+	const pathname = "/";
+	const zhUrl = `${base}${pathname}`;
+	const enUrl = `${base}/en${pathname}`;
 	return {
 		title: t("title"),
 		description: t("description"),
+		alternates: {
+			canonical: locale === "en" ? enUrl : zhUrl,
+			languages: {
+				"zh-CN": zhUrl,
+				en: enUrl,
+			},
+		},
 	};
 }
 

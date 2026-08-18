@@ -13,12 +13,14 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { fetchCurrentProfile } from "@/lib/profile";
 
 type GuardState = "loading" | "allowed" | "denied";
 
 export default function AdminGuard({ children }: { children: ReactNode }) {
 	const router = useRouter();
+	const t = useTranslations("admin");
 	const [state, setState] = useState<GuardState>("loading");
 
 	useEffect(() => {
@@ -46,7 +48,7 @@ export default function AdminGuard({ children }: { children: ReactNode }) {
 	if (state !== "allowed") {
 		return (
 			<div className="admin-guard-loading">
-				正在确认权限…
+				{t("confirming")}
 			</div>
 		);
 	}

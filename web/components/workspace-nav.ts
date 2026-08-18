@@ -35,7 +35,8 @@ export type NavSection =
 
 export interface NavDestination {
 	key: string;
-	label: string;
+	/** workspaceNav messages key 名（渲染方 useTranslations("workspaceNav") 翻译） */
+	labelKey: string;
 	href: (slug: string) => string;
 	/** 需要的能力；缺省 = 恒显 */
 	ability?: string;
@@ -52,7 +53,7 @@ export interface NavDestination {
 export const SETTINGS_NAV: NavDestination[] = [
 	{
 		key: "agents",
-		label: "Agents",
+		labelKey: "agents",
 		href: (s) => `/w/${s}/agents`,
 		group: "workspace",
 		active: "agents",
@@ -61,7 +62,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "events",
-		label: "活动",
+		labelKey: "events",
 		href: (s) => `/w/${s}/events`,
 		group: "workspace",
 		active: "events",
@@ -70,7 +71,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "courses",
-		label: "课程",
+		labelKey: "courses",
 		href: (s) => `/w/${s}/courses`,
 		group: "workspace",
 		active: "courses",
@@ -79,7 +80,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "members",
-		label: "成员与角色",
+		labelKey: "members",
 		href: (s) => `/w/${s}/settings/members`,
 		ability: "list_members",
 		group: "workspace",
@@ -88,7 +89,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "permissions",
-		label: "权限映射",
+		labelKey: "permissions",
 		href: (s) => `/w/${s}/settings/permissions`,
 		ability: "list_members",
 		group: "workspace",
@@ -97,7 +98,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "policy",
-		label: "加入策略",
+		labelKey: "policy",
 		href: (s) => `/w/${s}/settings/join-policy`,
 		group: "workspace",
 		active: "settings-join-policy",
@@ -105,7 +106,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "requests",
-		label: "加入审批",
+		labelKey: "requests",
 		href: (s) => `/w/${s}/settings/requests`,
 		ability: "manage_members",
 		group: "workspace",
@@ -114,7 +115,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "sponsorship",
-		label: "赞助管理",
+		labelKey: "sponsorship",
 		href: (s) => `/w/${s}/settings/sponsorship`,
 		group: "workspace",
 		active: "settings-sponsorship",
@@ -123,7 +124,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "payments",
-		label: "缴费管理",
+		labelKey: "payments",
 		href: (s) => `/w/${s}/settings/payments`,
 		ability: "manage_members",
 		group: "workspace",
@@ -133,7 +134,7 @@ export const SETTINGS_NAV: NavDestination[] = [
 	},
 	{
 		key: "invitations",
-		label: "邀请管理",
+		labelKey: "invitations",
 		href: (s) => `/w/${s}/settings/invitations`,
 		ability: "manage_members",
 		group: "workspace",

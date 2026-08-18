@@ -8,6 +8,7 @@
  * 图标一律使用共享 Icon 集（components/icons.tsx），禁止页面内手抄 SVG。
  */
 
+import { useTranslations } from "next-intl";
 import { Icon, type IconName } from "@/components/icons";
 import { ROLE_LABEL } from "@/lib/graphql/workspace";
 import type { WorkspaceListItem } from "@/lib/workspaces";
@@ -16,26 +17,12 @@ export type WorkspaceStatus = "active" | "pending" | "invited";
 
 export const STATUS_META: Record<
 	WorkspaceStatus,
-	{ label: string; className: string }
+	{ labelKey: string; className: string }
 > = {
-	active: { label: "Active", className: "workspace-status--active" },
-	pending: { label: "申请审批中", className: "workspace-status--pending" },
-	invited: { label: "待凭据加入", className: "workspace-status--invited" },
+	active: { labelKey: "status.active", className: "workspace-status--active" },
+	pending: { labelKey: "status.pending", className: "workspace-status--pending" },
+	invited: { labelKey: "status.invited", className: "workspace-status--invited" },
 };
-
-export const POLICY_META = {
-	open: { label: "开放加入", shortLabel: "公开", hint: "任何人都可直接加入" },
-	request: {
-		label: "申请制",
-		shortLabel: "申请审批",
-		hint: "提交申请后由 Owner / Admin 审批",
-	},
-	invite_only: {
-		label: "邀请制",
-		shortLabel: "仅邀请",
-		hint: "凭邀请链接或批次码加入",
-	},
-} as const;
 
 export function getWorkspaceStatus(ws: WorkspaceListItem): WorkspaceStatus {
 	if (ws.membershipStatus) return ws.membershipStatus;
@@ -89,23 +76,26 @@ export function StatusTag({
 	status: WorkspaceStatus;
 	lowercase?: boolean;
 }) {
+	const t = useTranslations("workspace");
 	const meta = STATUS_META[status];
 	return (
 		<span className={`workspace-status ${meta.className}`}>
 			<span className="workspace-status__dot" />
-			{lowercase ? status : meta.label}
+			{lowercase ? status : t(meta.labelKey)}
 		</span>
 	);
 }
 
 export function RoleChips({ roles }: { roles: string[] }) {
+	const t = useTranslations("workspace");
+	const labelsT = useTranslations();
 	if (roles.length === 0)
-		return <span className="workspace-empty-value">暂无角色</span>;
+		return <span className="workspace-empty-value">{t("noRoles")}</span>;
 	return (
 		<span className="workspace-role-chips">
 			{roles.map((role) => (
 				<span className="workspace-role-chip" key={role}>
-					{role}
+					{labelsT(role)}
 				</span>
 			))}
 		</span>

@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@apollo/client/react";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { useAuthed } from "@/lib/use-authed";
 import LearningTab, {
@@ -23,7 +24,6 @@ import {
 } from "@/lib/graphql/participations";
 
 const PAGE_SIZE = 20;
-const CANCEL_CONFIRMATION = "取消后名额将即时释放，此操作不可恢复。";
 
 function mergeKeysetPage<T extends { id: string }>(
   previous: KeysetPage<T>,
@@ -75,6 +75,8 @@ function EnrollmentCard({
   onConfirmCancel: () => void;
   onKeep: () => void;
 }) {
+  const t = useTranslations("participations");
+  const labelsT = useTranslations();
   const canCancel =
     row.status === "pending" ||
     row.status === "payment_pending" ||
@@ -87,15 +89,15 @@ function EnrollmentCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-medium text-ink">
-            {row.targetTitle ?? "报名项目"}
+            {row.targetTitle ?? t("enrollmentFallback")}
           </h3>
           <p className="mt-1 text-xs text-ink-3">
-            {row.eventId ? "活动" : "课程"} · 报名于{" "}
-            {formatDateTime(row.insertedAt)}
+            {row.eventId ? t("kindEvent") : t("kindCourse")} ·{" "}
+            {t("enrolledAt", { time: formatDateTime(row.insertedAt) })}
           </p>
         </div>
         <span className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-ink-2">
-          {ENROLLMENT_STATUS_LABEL[row.status]}
+          {labelsT(ENROLLMENT_STATUS_LABEL[row.status])}
         </span>
       </div>
 
@@ -106,29 +108,29 @@ function EnrollmentCard({
             className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
             data-testid={`pay-entry-${row.id}`}
           >
-            去支付
+            {t("goPay")}
           </Link>
-          <span className="text-[13px] text-ink-3">名额已保留，请在限定时间内完成支付</span>
+          <span className="text-[13px] text-ink-3">{t("slotReserved")}</span>
         </div>
       ) : null}
       {row.status === "pending" && row.approvalDeadline ? (
         <p className="mt-3 text-sm text-amber-300">
-          审批截止：{formatDateTime(row.approvalDeadline)}
+          {t("approvalDeadline", { time: formatDateTime(row.approvalDeadline) })}
         </p>
       ) : null}
       {row.rejectionReason ? (
         <p className="mt-3 text-sm text-red-300">
-          拒绝原因：{row.rejectionReason}
+          {t("rejectionReason", { reason: row.rejectionReason })}
         </p>
       ) : null}
       {row.status === "expired" && row.expiredAt ? (
         <p className="mt-3 text-sm text-ink-3">
-          过期于 {formatDateTime(row.expiredAt)}
+          {t("expiredAt", { time: formatDateTime(row.expiredAt) })}
         </p>
       ) : null}
       {row.status === "cancelled" && row.cancelledAt ? (
         <p className="mt-3 text-sm text-ink-3">
-          取消于 {formatDateTime(row.cancelledAt)}
+          {t("cancelledAt", { time: formatDateTime(row.cancelledAt) })}
         </p>
       ) : null}
 
@@ -138,9 +140,9 @@ function EnrollmentCard({
             <div
               className="rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
               role="group"
-              aria-label="确认取消报名"
+              aria-label={t("cancelGroupAria")}
             >
-              <p className="text-sm text-amber-200">{CANCEL_CONFIRMATION}</p>
+              <p className="text-sm text-amber-200">{t("cancelConfirm")}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -148,7 +150,7 @@ function EnrollmentCard({
                   disabled={busy}
                   onClick={onConfirmCancel}
                 >
-                  {busy ? "取消中…" : "确认取消报名"}
+                  {busy ? t("cancelling") : t("confirmCancel")}
                 </button>
                 <button
                   type="button"
@@ -156,7 +158,7 @@ function EnrollmentCard({
                   disabled={busy}
                   onClick={onKeep}
                 >
-                  保留报名
+                  {t("keepEnrollment")}
                 </button>
               </div>
             </div>
@@ -166,7 +168,7 @@ function EnrollmentCard({
               className="join-button"
               onClick={onRequestCancel}
             >
-              取消报名
+              {t("cancelEnrollment")}
             </button>
           )}
         </div>
@@ -176,6 +178,8 @@ function EnrollmentCard({
 }
 
 function SponsorshipCard({ row }: { row: ParticipationSponsorship }) {
+  const t = useTranslations("participations");
+  const labelsT = useTranslations();
   return (
     <article
       className="rounded-large border border-line bg-card p-4"
@@ -184,38 +188,42 @@ function SponsorshipCard({ row }: { row: ParticipationSponsorship }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-medium text-ink">
-            {row.targetTitle ?? "赞助目标"}
+            {row.targetTitle ?? t("sponsorshipFallback")}
           </h3>
           <p className="mt-1 text-xs text-ink-3">
-            {row.level === "workspace" ? "工作台赞助" : "活动赞助"}
+            {row.level === "workspace" ? t("sponsorshipWorkspace") : t("sponsorshipEvent")}
             {row.tierName ? ` · ${row.tierName}` : ""}
           </p>
         </div>
         <span className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-ink-2">
-          {SPONSORSHIP_STATUS_LABEL[row.status]}
+          {labelsT(SPONSORSHIP_STATUS_LABEL[row.status])}
         </span>
       </div>
       {row.amount != null ? (
-        <p className="mt-3 text-sm text-ink-2">意向金额：¥{row.amount}</p>
+        <p className="mt-3 text-sm text-ink-2">
+          {t("intentAmount", { amount: row.amount })}
+        </p>
       ) : null}
       {row.approvedAt ? (
         <p className="mt-2 text-xs text-ink-3">
-          生效于 {formatDateTime(row.approvedAt)}
+          {t("approvedAt", { time: formatDateTime(row.approvedAt) })}
         </p>
       ) : null}
       {row.rejectionReason ? (
         <p className="mt-2 text-sm text-red-300">
-          拒绝原因：{row.rejectionReason}
+          {t("rejectionReason", { reason: row.rejectionReason })}
         </p>
       ) : null}
       {row.endedAt ? (
         <p className="mt-2 text-xs text-ink-3">
-          结束于 {formatDateTime(row.endedAt)}
+          {t("endedAt", { time: formatDateTime(row.endedAt) })}
         </p>
       ) : null}
       {row.deliveries.length > 0 ? (
         <div className="mt-4 border-t border-line pt-3">
-          <h4 className="text-sm font-medium text-ink-2">交付履约</h4>
+          <h4 className="text-sm font-medium text-ink-2">
+            {t("deliveryTitle")}
+          </h4>
           <ul className="mt-2 grid gap-2">
             {row.deliveries.map((delivery) => (
               <li
@@ -229,8 +237,12 @@ function SponsorshipCard({ row }: { row: ParticipationSponsorship }) {
                   }
                 >
                   {delivery.fulfilledAt
-                    ? "已完成"
-                    : `待履约${delivery.dueDate ? ` · ${formatDateTime(delivery.dueDate)}` : ""}`}
+                    ? t("deliveryDone")
+                    : t("deliveryPending", {
+                        time: delivery.dueDate
+                          ? ` · ${formatDateTime(delivery.dueDate)}`
+                          : "",
+                      })}
                 </span>
               </li>
             ))}
@@ -243,6 +255,7 @@ function SponsorshipCard({ row }: { row: ParticipationSponsorship }) {
 
 export default function ParticipationsPage() {
   const router = useRouter();
+  const t = useTranslations("participations");
   const { authed, confirmed } = useAuthed();
   const enrollmentQuery = useQuery(MY_ENROLLMENTS, {
     variables: { first: PAGE_SIZE },
@@ -314,7 +327,7 @@ export default function ParticipationsPage() {
         },
       });
     } catch {
-      setActionError("报名记录加载失败，请稍后重试。");
+      setActionError(t("loadEnrollFailed"));
     } finally {
       setEnrollmentLoadingMore(false);
     }
@@ -342,7 +355,7 @@ export default function ParticipationsPage() {
         },
       });
     } catch {
-      setActionError("赞助记录加载失败，请稍后重试。");
+      setActionError(t("loadSponsorFailed"));
     } finally {
       setSponsorshipLoadingMore(false);
     }
@@ -362,15 +375,13 @@ export default function ParticipationsPage() {
       );
       if (!payload?.result && !alreadyProcessed) {
         throw new Error(
-          payload?.errors?.[0]?.message ?? "取消报名失败，请稍后重试。",
+          payload?.errors?.[0]?.message ?? t("cancelFailed"),
         );
       }
       await enrollmentQuery.refetch();
       setConfirmingId(null);
     } catch (error: unknown) {
-      setActionError(
-        error instanceof Error ? error.message : "取消报名失败，请稍后重试。",
-      );
+      setActionError(error instanceof Error ? error.message : t("cancelFailed"));
     } finally {
       setCancellingId(null);
     }
@@ -390,7 +401,7 @@ export default function ParticipationsPage() {
   if (!confirmed) {
     return (
       <main className="ws-shell-loading">
-        <span>正在确认登录状态…</span>
+        <span>{t("confirming")}</span>
       </main>
     );
   }
@@ -404,12 +415,12 @@ export default function ParticipationsPage() {
       <header className="mb-6">
         <p className="text-[13px] text-ink-3">
           <Link href="/" className="hover:text-ink">
-            工作台
+            {t("breadcrumbHome")}
           </Link>{" "}
-          › 我的参与
+          › {t("title")}
         </p>
-        <h1 className="mt-3 text-3xl font-semibold text-ink">我的参与</h1>
-        <p className="mt-2 text-sm text-ink-3">学习进度、报名与赞助意向。</p>
+        <h1 className="mt-3 text-3xl font-semibold text-ink">{t("title")}</h1>
+        <p className="mt-2 text-sm text-ink-3">{t("subtitle")}</p>
       </header>
 
       <ParticipationsTabs tab={tab} />
@@ -432,34 +443,36 @@ export default function ParticipationsPage() {
                   id="participations-enrollments"
                   className="text-xl font-semibold text-ink"
                 >
-                  我的报名
+                  {t("enrollmentsTitle")}
                 </h2>
                 <p className="mt-1 text-sm text-ink-3">
-                  报名状态与名额变更会同步到这里。
+                  {t("enrollmentsDesc")}
                 </p>
               </div>
               <Link
                 href="/events"
                 className="text-sm text-accent hover:underline"
               >
-                发现活动
+                {t("discoverEvents")}
               </Link>
             </div>
             {enrollmentQuery.loading && !enrollmentPage ? (
-              <p className="mt-5 text-sm text-ink-3">加载中…</p>
+              <p className="mt-5 text-sm text-ink-3">{t("loading")}</p>
             ) : null}
             {enrollmentQuery.error ? (
               <div className="mt-5">
-                <ErrorNotice>报名记录加载失败，请刷新重试。</ErrorNotice>
+                <ErrorNotice>{t("enrollLoadError")}</ErrorNotice>
               </div>
             ) : null}
             {!enrollmentQuery.loading && !enrollmentQuery.error ? (
               <div className="mt-5 grid gap-5">
                 <div>
-                  <h3 className="text-sm font-medium text-ink-2">进行中</h3>
+                  <h3 className="text-sm font-medium text-ink-2">
+                    {t("activeSection")}
+                  </h3>
                   {activeEnrollments.length === 0 ? (
                     <p className="mt-2 text-sm text-ink-3">
-                      暂无进行中的报名。
+                      {t("noActive")}
                     </p>
                   ) : (
                     <div className="mt-2 grid gap-3">
@@ -478,10 +491,12 @@ export default function ParticipationsPage() {
                   )}
                 </div>
                 <div>
-                  <h3 className="text-sm font-medium text-ink-2">已结束</h3>
+                  <h3 className="text-sm font-medium text-ink-2">
+                    {t("endedSection")}
+                  </h3>
                   {endedEnrollments.length === 0 ? (
                     <p className="mt-2 text-sm text-ink-3">
-                      暂无已结束的报名。
+                      {t("noEnded")}
                     </p>
                   ) : (
                     <div className="mt-2 grid gap-3">
@@ -506,7 +521,7 @@ export default function ParticipationsPage() {
                     disabled={enrollmentLoadingMore}
                     onClick={() => void loadMoreEnrollments()}
                   >
-                    {enrollmentLoadingMore ? "加载中…" : "加载更多"}
+                    {enrollmentLoadingMore ? t("loading") : t("loadMore")}
                   </button>
                 ) : null}
               </div>
@@ -523,22 +538,24 @@ export default function ParticipationsPage() {
               id="participations-sponsorships"
               className="text-xl font-semibold text-ink"
             >
-              我的赞助
+              {t("sponsorshipsTitle")}
             </h2>
             <p className="mt-1 text-sm text-ink-3">
-              赞助意向状态与交付履约记录。
+              {t("sponsorshipsDesc")}
             </p>
             {sponsorshipQuery.loading && !sponsorshipPage ? (
-              <p className="mt-5 text-sm text-ink-3">加载中…</p>
+              <p className="mt-5 text-sm text-ink-3">{t("loading")}</p>
             ) : null}
             {sponsorshipQuery.error ? (
               <div className="mt-5">
-                <ErrorNotice>赞助记录加载失败，请刷新重试。</ErrorNotice>
+                <ErrorNotice>{t("sponsorLoadError")}</ErrorNotice>
               </div>
             ) : null}
             {!sponsorshipQuery.loading && !sponsorshipQuery.error ? (
               sponsorshipRows.length === 0 ? (
-                <p className="mt-5 text-sm text-ink-3">暂无赞助意向。</p>
+                <p className="mt-5 text-sm text-ink-3">
+                  {t("noSponsorships")}
+                </p>
               ) : (
                 <div className="mt-5 grid gap-3">
                   {sponsorshipRows.map((row) => (
@@ -551,7 +568,7 @@ export default function ParticipationsPage() {
                       disabled={sponsorshipLoadingMore}
                       onClick={() => void loadMoreSponsorships()}
                     >
-                      {sponsorshipLoadingMore ? "加载中…" : "加载更多"}
+                      {sponsorshipLoadingMore ? t("loading") : t("loadMore")}
                     </button>
                   ) : null}
                 </div>
@@ -571,19 +588,19 @@ export default function ParticipationsPage() {
                   id="participations-learning"
                   className="text-xl font-semibold text-ink"
                 >
-                  我的学习
+                  {t("learningTitle")}
                 </h2>
                 <p className="mt-1 text-sm text-ink-3">
-                  按课程查看学习进度,点击展开 issue 详情。
+                  {t("learningDesc")}
                 </p>
               </div>
             </div>
             {learningQuery.loading ? (
-              <p className="mt-5 text-sm text-ink-3">加载中…</p>
+              <p className="mt-5 text-sm text-ink-3">{t("loading")}</p>
             ) : null}
             {learningQuery.error ? (
               <div className="mt-5">
-                <ErrorNotice>学习进度加载失败,请刷新重试。</ErrorNotice>
+                <ErrorNotice>{t("learningLoadError")}</ErrorNotice>
               </div>
             ) : null}
             {!learningQuery.loading && !learningQuery.error ? (

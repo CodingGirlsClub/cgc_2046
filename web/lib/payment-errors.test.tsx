@@ -1,17 +1,12 @@
-import { cleanup, renderHook } from "@testing-library/react";
-import { NextIntlClientProvider } from "next-intl";
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import zhCN from "../messages/zh-CN.json";
+import { renderHook } from "@/test-utils";
 import { usePaymentErrorTranslator } from "./payment-errors";
 
-/** hook 需在 NextIntlClientProvider 内渲染（errors namespace 来自 messages） */
+/** hook 需在 NextIntlClientProvider 内渲染（errors namespace 来自 zh-CN messages） */
 function setup() {
 	const { result } = renderHook(() => usePaymentErrorTranslator(), {
-		wrapper: ({ children }) => (
-			<NextIntlClientProvider locale="zh-CN" messages={zhCN}>
-				{children}
-			</NextIntlClientProvider>
-		),
+		locale: "zh-CN",
 	});
 	return result.current;
 }

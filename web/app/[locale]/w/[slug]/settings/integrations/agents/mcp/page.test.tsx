@@ -18,6 +18,8 @@ const { issueMcpToken } = vi.hoisted(() => ({ issueMcpToken: vi.fn() }));
 const { revokeMcpToken } = vi.hoisted(() => ({ revokeMcpToken: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	useParams: () => params.value,
 	usePathname: () =>

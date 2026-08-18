@@ -420,23 +420,23 @@ export interface ProfileDraft {
 
 /** 资料可见范围三档（2026-08-02 对齐：public / workspace / only_me） */
 export const VISIBILITY_LABEL: Record<ProfileVisibility, string> = {
-  public: "全站公开",
-  workspace: "工作区公开",
-  only_me: "仅自己可见",
+  public: "labels.visibilityFull.public",
+  workspace: "labels.visibilityFull.workspace",
+  only_me: "labels.visibilityFull.only_me",
 };
 
 /** 编辑态 select 选项文案（带括号说明） */
 export const VISIBILITY_OPTION_LABEL: Record<ProfileVisibility, string> = {
-  public: "全站公开（所有登录用户可见）",
-  workspace: "工作区公开（同工作区登录用户可见）",
-  only_me: "仅自己可见",
+  public: "labels.visibilityOption.public",
+  workspace: "labels.visibilityOption.workspace",
+  only_me: "labels.visibilityOption.only_me",
 };
 
 /** 底部可见范围说明文案 */
 export const VISIBILITY_FOOTER_TEXT: Record<ProfileVisibility, string> = {
-  public: "资料对全站公开（所有登录用户可见）。",
-  workspace: "资料在同工作区公开（同工作区登录用户可见）。",
-  only_me: "资料仅自己可见。",
+  public: "labels.visibilityFooter.public",
+  workspace: "labels.visibilityFooter.workspace",
+  only_me: "labels.visibilityFooter.only_me",
 };
 
 /**
@@ -453,9 +453,9 @@ export function getProfileContent(
   const summary = pickRoleSummary(summaries, wsSlug);
   const roles = summary?.myRoleNames ?? [];
   return {
-    name: me.displayName?.trim() || "未设置展示名",
-    location: wsProfile?.location || "未设置",
-    about: wsProfile?.about || "暂无简介",
+    name: me.displayName?.trim() || "labels.profile.nameUnset",
+    location: wsProfile?.location || "labels.profile.locationUnset",
+    about: wsProfile?.about || "labels.profile.aboutUnset",
     skills: wsProfile?.skills?.length ? [...wsProfile.skills] : [],
     joinedAt: formatJoinedDate(me.joinedAt),
     visibility: wsProfile?.visibility ?? "only_me",
@@ -468,12 +468,12 @@ export function getProfileContent(
   };
 }
 
-/** 由查看态视图模型反向构造编辑草稿（空态文案还原为空串）。 */
+/** 由查看态视图模型反向构造编辑草稿（空态占位 key 还原为空串）。 */
 export function toDraft(content: ProfileContent): ProfileDraft {
   return {
-    name: content.name === "未设置展示名" ? "" : content.name,
-    location: content.location === "未设置" ? "" : content.location,
-    about: content.about === "暂无简介" ? "" : content.about,
+    name: content.name === "labels.profile.nameUnset" ? "" : content.name,
+    location: content.location === "labels.profile.locationUnset" ? "" : content.location,
+    about: content.about === "labels.profile.aboutUnset" ? "" : content.about,
     skills: [...content.skills],
     visibility: content.visibility,
     portfolio: content.portfolio.map((item) => ({ ...item })),

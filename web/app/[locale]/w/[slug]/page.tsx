@@ -12,8 +12,9 @@
  * 假数据。未知 slug 的「工作区不可访问」由壳 requireWs 渲染，页面不处理。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { currentUserCanAssignRoles } from "@/lib/workspaces";
 import { JOIN_POLICY_HINT, JOIN_POLICY_LABEL } from "@/lib/graphql/workspace";
@@ -30,23 +31,26 @@ import {
 export default function WorkspacePage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
+	const t = useTranslations("workspaceOverview");
+	const bcT = useTranslations("common");
+	const labelsT = useTranslations();
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={bcT("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<strong>概览</strong>
+					<strong>{t("breadcrumbOverview")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>工作区概览</h1>
-						<p>工作区的入口信息与常用管理入口</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -66,36 +70,36 @@ export default function WorkspacePage() {
 								</div>
 							</div>
 							<div className="workspace-detail-hero__policy">
-								<span>加入方式</span>
+								<span>{t("joinMethod")}</span>
 								<strong
 									className={`workspace-policy workspace-policy--${ws.joinPolicy}`}
 								>
-									{JOIN_POLICY_LABEL[ws.joinPolicy]}
+									{labelsT(JOIN_POLICY_LABEL[ws.joinPolicy])}
 								</strong>
-								<p>{JOIN_POLICY_HINT[ws.joinPolicy]}</p>
+								<p>{labelsT(JOIN_POLICY_HINT[ws.joinPolicy])}</p>
 							</div>
 						</div>
 
 						{/* 信息卡网格：加入方式 / 我的角色 / 社区规模 */}
 						<div className="workspace-info-grid">
-							<InfoCard icon="community" title="加入方式">
+							<InfoCard icon="community" title={t("joinMethod")}>
 								<strong className="workspace-info-card__value">
-									{JOIN_POLICY_LABEL[ws.joinPolicy]}
+									{labelsT(JOIN_POLICY_LABEL[ws.joinPolicy])}
 								</strong>
-								<p>{JOIN_POLICY_HINT[ws.joinPolicy]}</p>
+								<p>{labelsT(JOIN_POLICY_HINT[ws.joinPolicy])}</p>
 							</InfoCard>
-							<InfoCard icon="role" title="我的角色">
+							<InfoCard icon="role" title={t("myRoles")}>
 								<RoleChips roles={getWorkspaceRoles(ws)} />
-								<p>权限按当前角色并集计算</p>
+								<p>{t("rolesHint")}</p>
 							</InfoCard>
-							<InfoCard icon="members" title="社区规模">
+							<InfoCard icon="members" title={t("community")}>
 								<strong
 									className="workspace-info-card__value"
 									data-testid="workspace-member-count"
 								>
-									{ws.memberCount != null ? `${ws.memberCount} 位成员` : "—"}
+									{ws.memberCount != null ? t("memberCount", { count: ws.memberCount }) : "—"}
 								</strong>
-								<p>{ws.sponsorshipEnabled ? "已开放赞助" : "暂未开放赞助"}</p>
+								<p>{ws.sponsorshipEnabled ? t("sponsorshipOpen") : t("sponsorshipClosed")}</p>
 							</InfoCard>
 						</div>
 
@@ -110,12 +114,12 @@ export default function WorkspacePage() {
 								</span>
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm font-medium text-ink">
-										成员与角色
+										{t("membersAndRoles")}
 									</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
 										{currentUserCanAssignRoles(ws)
-											? "管理成员列表与角色分配"
-											: "查看成员列表与自己的角色"}
+											? t("membersManage")
+											: t("membersView")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">
@@ -131,10 +135,10 @@ export default function WorkspacePage() {
 								</span>
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm font-medium text-ink">
-										权限映射
+										{t("permissionMapping")}
 									</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										查看角色 → 能力矩阵
+										{t("permissionMappingDesc")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">
@@ -156,10 +160,10 @@ export default function WorkspacePage() {
 								</span>
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm font-medium text-ink">
-										Agents 与助手协作
+										{t("agentsTitle")}
 									</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										查看助手活动与待办交接
+										{t("agentsDesc")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">
@@ -175,10 +179,10 @@ export default function WorkspacePage() {
 								</span>
 								<span className="min-w-0 flex-1">
 									<span className="block text-sm font-medium text-ink">
-										Workflow 产出
+										{t("workflowTitle")}
 									</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										查看教研产出与工作流结果
+										{t("workflowDesc")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">
@@ -193,9 +197,9 @@ export default function WorkspacePage() {
 									<Icon name="book" />
 								</span>
 								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink">活动</span>
+									<span className="block text-sm font-medium text-ink">{t("eventsTitle")}</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										浏览工作台活动与报名信息
+										{t("eventsDesc")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">
@@ -210,9 +214,9 @@ export default function WorkspacePage() {
 									<Icon name="book" />
 								</span>
 								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink">课程</span>
+									<span className="block text-sm font-medium text-ink">{t("coursesTitle")}</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										浏览工作台课程与报名信息
+										{t("coursesDesc")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">

@@ -7,13 +7,16 @@
  * "Interface theme" 设置项，我们以同样的设置行呈现 ThemeToggle。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import ThemeToggle from "@/components/theme-toggle";
 
 export default function WorkspaceAccountPreferencesPage() {
+	const t = useTranslations("workspacePreferences");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, loading } = useWorkspaceBySlug(slug);
@@ -21,20 +24,20 @@ export default function WorkspaceAccountPreferencesPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>{t("breadcrumbSettings")}</Link>
 					<span>›</span>
-					<strong>Preferences</strong>
+					<strong>{t("breadcrumbTitle")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>Preferences</h1>
-						<p>管理你的界面偏好</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -42,7 +45,7 @@ export default function WorkspaceAccountPreferencesPage() {
 					<div
 						className="settings-loading"
 						data-testid="settings-loading"
-						aria-label="加载中"
+						aria-label={t("loadingAria")}
 					>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
@@ -51,8 +54,8 @@ export default function WorkspaceAccountPreferencesPage() {
 					<section className="settings-policy-card" aria-label="Preferences">
 						<div className="settings-policy-card__header">
 							<div>
-								<strong>界面主题</strong>
-								<p>选择深色或浅色主题，跨设备同步</p>
+								<strong>{t("themeLabel")}</strong>
+								<p>{t("themeDesc")}</p>
 							</div>
 						</div>
 						<div className="settings-preference-row">

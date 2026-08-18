@@ -6,6 +6,7 @@
  * promote/demote：demote 自己需确认弹窗；最后一个 admin 由后端原子拒绝（显示错误）。
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { demoteUser, fetchUsers, promoteUser } from "@/lib/admin";
 import type { AdminUser } from "@/lib/graphql/admin";
 import { useAuthed } from "@/lib/use-authed";
@@ -14,6 +15,7 @@ const PAGE_SIZE = 50;
 
 export default function AdminUsersPage() {
 	const { userId } = useAuthed();
+	const t = useTranslations("admin");
 	const [users, setUsers] = useState<AdminUser[] | null>(null);
 	const [search, setSearch] = useState("");
 	const [offset, setOffset] = useState(0);
@@ -71,13 +73,13 @@ export default function AdminUsersPage() {
 		try {
 			const payload = await action(id);
 			if (payload?.errors?.length) {
-				setActionError(payload.errors[0].message ?? "操作失败");
+				setActionError(payload.errors[0].message ?? t("operationFailed"));
 			} else {
 				// 成功后重新拉取，刷新 is_platform_admin 状态
 				await load(search, offset);
 			}
 		} catch {
-			setActionError("操作失败，请稍后重试");
+			setActionError(t("operationFailedRetry"));
 		} finally {
 			setBusyId(null);
 		}
@@ -106,7 +108,7 @@ export default function AdminUsersPage() {
 	return (
 		<section>
 			<div className="admin-page__head">
-				<h1>用户</h1>
+				<h1>{t("usersTitle")}</h1>
 			</div>
 
 			<div className="admin-toolbar">
@@ -114,8 +116,8 @@ export default function AdminUsersPage() {
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-					placeholder="搜索用户（email / 显示名）"
-					aria-label="搜索用户"
+					placeholder={t("searchUserPlaceholder")}
+					aria-label={t("searchUserAria")}
 					className="l-input"
 				/>
 				<button
@@ -123,16 +125,16 @@ export default function AdminUsersPage() {
 					onClick={handleSearch}
 					className="l-btn-outline"
 				>
-					搜索
+					{t("search")}
 				</button>
 			</div>
 
-			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
+			{error && <p className="admin-alert admin-alert--error">{t("loadFailed")}</p>}
 			{actionError && <p className="admin-alert admin-alert--error">{actionError}</p>}
-			{loading && <p className="admin-muted">加载中…</p>}
+			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && users && users.length === 0 && (
-				<p className="admin-empty">暂无用户。</p>
+				<p className="admin-empty">{t("noUsers")}</p>
 			)}
 
 			{!loading && !error && users && users.length > 0 && (
@@ -140,11 +142,11 @@ export default function AdminUsersPage() {
 					<table className="admin-table">
 						<thead>
 							<tr>
-								<th>用户</th>
-								<th>平台管理员</th>
-								<th className="admin-table__num">成员概要</th>
-								<th>加入时间</th>
-								<th className="admin-table__actions">操作</th>
+								<th>{t("thUser")}</th>
+								<th>{t("thPlatformAdmin")}</th>
+								<th className="admin-table__num">{t("thMembershipSummary")}</th>
+								<th>{t("thJoinedAt")}</th>
+								<th className="admin-table__actions">{t("thActions")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -152,7 +154,7 @@ export default function AdminUsersPage() {
 								<tr key={user.id}>
 									<td>
 										<span className="admin-table__primary">
-											{user.displayName || user.email || "（未命名）"}
+											{user.displayName || user.email || t("unnamed")}
 										</span>
 										{user.email && user.displayName && (
 											<span className="admin-table__sub">{user.email}</span>
@@ -160,13 +162,13 @@ export default function AdminUsersPage() {
 									</td>
 									<td>
 										{user.isPlatformAdmin ? (
-											<span className="l-badge l-badge-admin">管理员</span>
+											<span className="l-badge l-badge-admin">{t("adminBadge")}</span>
 										) : (
-											<span className="l-badge l-badge-muted">普通用户</span>
+											<span className="l-badge l-badge-muted">{t("regularBadge")}</span>
 										)}
 									</td>
 									<td className="admin-table__num">
-										{user.workspaceMembershipCount ?? 0} 个成员
+										{t("memberCountValue", { count: user.workspaceMembershipCount ?? 0 })}
 									</td>
 									<td>
 										{new Date(user.insertedAt).toLocaleDateString("zh-CN")}
@@ -179,7 +181,7 @@ export default function AdminUsersPage() {
 												disabled={busyId === user.id}
 												className="l-btn-outline l-btn-outline--danger"
 											>
-												降级
+												{t("demote")}
 											</button>
 										) : (
 											<button
@@ -188,7 +190,7 @@ export default function AdminUsersPage() {
 												disabled={busyId === user.id}
 												className="l-btn-outline"
 											>
-												提升
+												{t("promote")}
 											</button>
 										)}
 									</td>
@@ -206,7 +208,7 @@ export default function AdminUsersPage() {
 					disabled={offset === 0 || loading}
 					className="l-btn-outline"
 				>
-					上一页
+					{t("prevPage")}
 				</button>
 				<button
 					type="button"
@@ -214,21 +216,22 @@ export default function AdminUsersPage() {
 					disabled={loading}
 					className="l-btn-outline"
 				>
-					下一页
+					{t("nextPage")}
 				</button>
 			</div>
 
 			{confirmDemote && (
 				<div
 					role="dialog"
-					aria-label="确认降级"
+					aria-label={t("demoteDialogAria")}
 					className="admin-modal-overlay"
 				>
 					<div className="admin-modal">
-						<h2>确认降级</h2>
+						<h2>{t("demoteTitle")}</h2>
 						<p>
-							你将降级自己（{confirmDemote.email || confirmDemote.displayName || "当前用户"}）的
-							平台管理员权限。请确认。
+							{t("demoteSelfDesc", {
+								user: confirmDemote.email || confirmDemote.displayName || t("currentUser"),
+							})}
 						</p>
 						<div className="admin-modal__actions">
 							<button
@@ -236,14 +239,14 @@ export default function AdminUsersPage() {
 								onClick={() => setConfirmDemote(null)}
 								className="l-btn-outline"
 							>
-								取消
+								{t("cancel")}
 							</button>
 							<button
 								type="button"
 								onClick={handleConfirmDemote}
 								className="l-btn-danger"
 							>
-								确认
+								{t("confirm")}
 							</button>
 						</div>
 					</div>

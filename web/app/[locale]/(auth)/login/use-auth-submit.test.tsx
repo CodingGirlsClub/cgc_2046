@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
+import { renderHook } from "@/test-utils";
 import { useAuthSubmit } from "./use-auth-submit";
 import type { AuthSubmitPayload } from "./auth-form";
 
@@ -16,7 +17,10 @@ vi.mock("@/lib/apollo-client", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => ({ push }),
+	usePathname: () => "/login",
 }));
 
 vi.mock("@apollo/client/react", async (importOriginal) => {

@@ -12,7 +12,8 @@
  */
 
 import { useState, useRef, useLayoutEffect } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { useQuery } from "@apollo/client/react";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import ThemeToggle from "@/components/theme-toggle";
@@ -56,6 +57,7 @@ export default function WorkspaceSwitcherMenu({
 	signOutError = null,
 	signingOut = false,
 }: WorkspaceSwitcherMenuProps) {
+	const t = useTranslations("workspace.switcher");
 	const { authed } = useAuthed();
 	const { data } = useQuery(PENDING_APPROVALS_COUNT, {
 		skip: !authed,
@@ -101,7 +103,7 @@ export default function WorkspaceSwitcherMenu({
 				role="menuitem"
 				onClick={onNavigate}
 			>
-				<span className="ws-shell-brand-menu__name">Settings</span>
+				<span className="ws-shell-brand-menu__name">{t("settings")}</span>
 			</Link>
 
 			{/* plan 020 U1：品牌菜单 Agents 项（当前 workspace 的 agents 工作面） */}
@@ -111,7 +113,7 @@ export default function WorkspaceSwitcherMenu({
 				role="menuitem"
 				onClick={onNavigate}
 			>
-				<span className="ws-shell-brand-menu__name">Agents</span>
+				<span className="ws-shell-brand-menu__name">{t("agents")}</span>
 			</Link>
 
 			<div className="ws-shell-brand-menu__divider" />
@@ -122,7 +124,7 @@ export default function WorkspaceSwitcherMenu({
 				role="menuitem"
 				onClick={onNavigate}
 			>
-				<span className="ws-shell-brand-menu__name">MCP</span>
+				<span className="ws-shell-brand-menu__name">{t("mcp")}</span>
 			</Link>
 			{canSeeByKey("invitations", abilities) && (
 				<Link
@@ -131,7 +133,7 @@ export default function WorkspaceSwitcherMenu({
 					role="menuitem"
 					onClick={onNavigate}
 				>
-					<span className="ws-shell-brand-menu__name">邀请管理</span>
+					<span className="ws-shell-brand-menu__name">{t("invitations")}</span>
 				</Link>
 			)}
 
@@ -146,7 +148,7 @@ export default function WorkspaceSwitcherMenu({
 				onMouseEnter={() => setSubmenuOpen(true)}
 				onClick={() => setSubmenuOpen(true)}
 			>
-				<span className="ws-shell-brand-menu__name">Switch workspace</span>
+				<span className="ws-shell-brand-menu__name">{t("switchWorkspace")}</span>
 				<Icon name="chevron" size={14} className="ws-shell-brand-menu__arrow" />
 			</button>
 
@@ -160,7 +162,7 @@ export default function WorkspaceSwitcherMenu({
 				disabled={signingOut}
 			>
 				<span className="ws-shell-brand-menu__name">
-					{signingOut ? "退出中…" : "退出登录"}
+					{signingOut ? t("signingOut") : t("signOut")}
 				</span>
 			</button>
 
@@ -206,14 +208,14 @@ export default function WorkspaceSwitcherMenu({
 
 					<div className="ws-shell-brand-menu__divider" />
 
-					<div className="ws-shell-brand-menu__group">Account</div>
+					<div className="ws-shell-brand-menu__group">{t("account")}</div>
 					<Link
 						href="/join"
 						className="ws-shell-brand-menu__item"
 						role="menuitem"
 						onClick={onNavigate}
 					>
-						<span className="ws-shell-brand-menu__name">发现 / 加入工作区</span>
+						<span className="ws-shell-brand-menu__name">{t("discover")}</span>
 					</Link>
 					<Link
 						href="/approvals"
@@ -221,12 +223,12 @@ export default function WorkspaceSwitcherMenu({
 						role="menuitem"
 						aria-label={
 							typeof pendingCount === "number" && pendingCount > 0
-								? `审批中心，${pendingCount} 项待办`
-								: "审批中心"
+								? t("approvalsWithCount", { count: pendingCount })
+								: t("approvals")
 						}
 						onClick={onNavigate}
 					>
-						<span className="ws-shell-brand-menu__name">审批中心</span>
+						<span className="ws-shell-brand-menu__name">{t("approvals")}</span>
 						{typeof pendingCount === "number" && pendingCount > 0 && (
 							<span className="l-badge l-badge-pending" aria-hidden="true">
 								{pendingCount > 99 ? "99+" : pendingCount}
@@ -239,7 +241,7 @@ export default function WorkspaceSwitcherMenu({
 						role="menuitem"
 						onClick={onNavigate}
 					>
-						<span className="ws-shell-brand-menu__name">我的参与</span>
+						<span className="ws-shell-brand-menu__name">{t("myParticipations")}</span>
 					</Link>
 					<ThemeToggle variant="menuitem" workspaceId={currentWorkspaceId} />
 				</div>

@@ -69,6 +69,8 @@ const { fetchWorkspaceBySlug } = vi.hoisted(() => ({
 	fetchWorkspaceBySlug: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	useParams: () => params.value,
 	// 壳导航激活态由 pathname 派生：加入策略页 pathname = /w/${slug}/settings/join-policy

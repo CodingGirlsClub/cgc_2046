@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import {
 	REFUND_ORDER,
@@ -34,20 +35,6 @@ import {
 } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 
-const REFUND_CONFIRMATION =
-	"将原路全额退款，报名同时取消并释放名额，此操作不可恢复。";
-
-const STATUS_FILTERS: { value: string; label: string }[] = [
-	{ value: "", label: "全部状态" },
-	{ value: "pending", label: ORDER_STATUS_LABEL.pending },
-	{ value: "paid", label: ORDER_STATUS_LABEL.paid },
-	{ value: "refunding", label: ORDER_STATUS_LABEL.refunding },
-	{ value: "refunded", label: ORDER_STATUS_LABEL.refunded },
-	{ value: "refund_failed", label: ORDER_STATUS_LABEL.refund_failed },
-	{ value: "cancelled", label: ORDER_STATUS_LABEL.cancelled },
-	{ value: "expired", label: ORDER_STATUS_LABEL.expired },
-];
-
 const STATUS_BADGE_CLASS: Record<string, string> = {
 	pending: "border-amber-400/40 text-amber-300",
 	paid: "border-emerald-400/40 text-emerald-300",
@@ -59,6 +46,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {
+	const labelsT = useTranslations();
 	return (
 		<span
 			data-testid={`order-badge-${status}`}
@@ -66,7 +54,7 @@ export function OrderStatusBadge({ status }: { status: string }) {
 				STATUS_BADGE_CLASS[status] ?? "border-line text-ink-3"
 			}`}
 		>
-			{ORDER_STATUS_LABEL[status] ?? status}
+			{labelsT(ORDER_STATUS_LABEL[status] ?? status)}
 		</span>
 	);
 }
@@ -84,26 +72,27 @@ export function StatsCards({
 	statsError: boolean;
 	onRetryStats: () => void;
 }) {
+	const t = useTranslations("payments");
 	if (statsError) {
 		return (
 			<div
 				className="rounded-large border border-line bg-card p-4 text-sm text-ink-3"
 				data-testid="stats-error"
 			>
-				统计加载失败 ·{" "}
+				{t("statsLoadFailed")}{" "}
 				<button type="button" className="underline" onClick={onRetryStats} data-testid="stats-retry">
-					重试
+					{t("retry")}
 				</button>
 			</div>
 		);
 	}
 
 	const cards = [
-		{ label: "已收", cents: stats?.collectedCents ?? 0, testid: "stats-collected", danger: false },
-		{ label: "待收", cents: stats?.pendingCents ?? 0, testid: "stats-pending", danger: false },
-		{ label: "已退", cents: stats?.refundedCents ?? 0, testid: "stats-refunded", danger: false },
+		{ label: t("statCollected"), cents: stats?.collectedCents ?? 0, testid: "stats-collected", danger: false },
+		{ label: t("statPending"), cents: stats?.pendingCents ?? 0, testid: "stats-pending", danger: false },
+		{ label: t("statRefunded"), cents: stats?.refundedCents ?? 0, testid: "stats-refunded", danger: false },
 		{
-			label: "退款失败待处理",
+			label: t("statRefundFailed"),
 			cents: stats?.refundFailedCents ?? 0,
 			testid: "stats-refund-failed",
 			danger: true,
@@ -135,6 +124,8 @@ interface OrderRowActions {
 }
 
 function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowActions) {
+	const t = useTranslations("payments");
+	const labelsT = useTranslations();
 	const canRefund = manage && order.status === "paid";
 	const canWaive = manage && order.enrollmentStatus === "payment_pending";
 
@@ -144,7 +135,7 @@ function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowAct
 			<td className="px-3 py-2 text-[13px] text-ink-2">{order.tierName ?? "—"}</td>
 			<td className="px-3 py-2 text-[13px] text-ink-2">¥{formatAmount(order.amountCents)}</td>
 			<td className="px-3 py-2 text-[13px] text-ink-3">
-				{PROVIDER_LABEL[order.provider] ?? order.provider}
+				{labelsT(PROVIDER_LABEL[order.provider] ?? order.provider)}
 			</td>
 			<td className="px-3 py-2">
 				<OrderStatusBadge status={order.status} />
@@ -159,7 +150,7 @@ function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowAct
 							className="rounded-large border border-red-400/40 px-3 py-1 text-xs text-red-300 hover:border-red-400/70 disabled:opacity-50"
 							data-testid={`refund-${order.id}`}
 						>
-							退款
+							{t("refund")}
 						</button>
 					) : null}
 					{canWaive ? (
@@ -170,7 +161,7 @@ function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowAct
 							className="rounded-large border border-line-strong px-3 py-1 text-xs text-ink-2 hover:border-line disabled:opacity-50"
 							data-testid={`waive-${order.id}`}
 						>
-							免缴
+							{t("waive")}
 						</button>
 					) : null}
 				</div>
@@ -187,6 +178,18 @@ export default function PaymentsManagement({
 	manage: boolean;
 }) {
 	const translatePaymentError = usePaymentErrorTranslator();
+	const t = useTranslations("payments");
+	const labelsT = useTranslations();
+	const statusFilters = [
+		{ value: "", label: t("filterAll") },
+		{ value: "pending", label: labelsT(ORDER_STATUS_LABEL.pending) },
+		{ value: "paid", label: labelsT(ORDER_STATUS_LABEL.paid) },
+		{ value: "refunding", label: labelsT(ORDER_STATUS_LABEL.refunding) },
+		{ value: "refunded", label: labelsT(ORDER_STATUS_LABEL.refunded) },
+		{ value: "refund_failed", label: labelsT(ORDER_STATUS_LABEL.refund_failed) },
+		{ value: "cancelled", label: labelsT(ORDER_STATUS_LABEL.cancelled) },
+		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
+	];
 	const [statusFilter, setStatusFilter] = useState("");
 	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);
@@ -253,7 +256,7 @@ export default function PaymentsManagement({
 				setActionError(
 					translatePaymentError(
 						data?.refundOrder?.errors?.[0]?.code,
-						"退款发起失败",
+						t("refundFailed"),
 					),
 				);
 			}
@@ -261,7 +264,7 @@ export default function PaymentsManagement({
 			setActionError(
 				translatePaymentError(
 					e instanceof Error ? e.message : null,
-					"退款发起失败",
+					t("refundFailed"),
 				),
 			);
 		} finally {
@@ -283,7 +286,7 @@ export default function PaymentsManagement({
 				setActionError(
 					translatePaymentError(
 						data?.waivePayment?.errors?.[0]?.code,
-						"免缴失败",
+						t("waiveFailed"),
 					),
 				);
 			}
@@ -291,7 +294,7 @@ export default function PaymentsManagement({
 			setActionError(
 				translatePaymentError(
 					e instanceof Error ? e.message : null,
-					"免缴失败",
+					t("waiveFailed"),
 				),
 			);
 		} finally {
@@ -305,9 +308,9 @@ export default function PaymentsManagement({
 
 			<div className="rounded-large border border-line bg-card p-4">
 				<div className="flex flex-wrap items-center justify-between gap-3">
-					<h2 className="text-sm font-medium text-ink">订单列表</h2>
+					<h2 className="text-sm font-medium text-ink">{t("listTitle")}</h2>
 					<label className="flex items-center gap-2 text-[13px] text-ink-3">
-						状态筛选
+						{t("filterLabel")}
 						<select
 							value={statusFilter}
 							onChange={(e) => {
@@ -317,7 +320,7 @@ export default function PaymentsManagement({
 							className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
 							data-testid="status-filter"
 						>
-							{STATUS_FILTERS.map((f) => (
+							{statusFilters.map((f) => (
 								<option key={f.value} value={f.value}>
 									{f.label}
 								</option>
@@ -336,10 +339,10 @@ export default function PaymentsManagement({
 					<div
 						className="mt-3 rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
 						role="group"
-						aria-label="确认退款"
+						aria-label={t("confirmRefund")}
 					>
 						<p className="text-sm text-amber-200">
-							{REFUND_CONFIRMATION}（¥{formatAmount(refundTarget.amountCents)}）
+							{t("refundConfirm")}（¥{formatAmount(refundTarget.amountCents)}）
 						</p>
 						<div className="mt-3 flex flex-wrap gap-2">
 							<button
@@ -349,7 +352,7 @@ export default function PaymentsManagement({
 								onClick={() => void confirmRefund()}
 								data-testid="refund-confirm"
 							>
-								{busy ? "退款中…" : "确认退款"}
+								{busy ? t("refundBusy") : t("confirmRefund")}
 							</button>
 							<button
 								type="button"
@@ -358,7 +361,7 @@ export default function PaymentsManagement({
 								onClick={() => setRefundTarget(null)}
 								data-testid="refund-cancel"
 							>
-								保留订单
+								{t("refundCancel")}
 							</button>
 						</div>
 					</div>
@@ -368,30 +371,30 @@ export default function PaymentsManagement({
 					<div className="mt-3 h-16 animate-pulse rounded-large bg-soft-2" />
 				) : loadState === "error" ? (
 					<p className="mt-3 text-sm text-ink-3" role="alert">
-						订单加载失败，
+						{t("loadFailed")}
 						<button
 							type="button"
 							className="underline"
 							onClick={() => void load(statusFilter)}
 						>
-							重试
+							{t("retry")}
 						</button>
 					</p>
 				) : orders.length === 0 ? (
 					<p className="mt-3 text-sm text-ink-3" data-testid="orders-empty">
-						暂无订单。
+						{t("emptyOrders")}
 					</p>
 				) : (
 					<div className="mt-3 overflow-x-auto">
 						<table className="w-full min-w-[720px] text-left text-sm">
 							<thead>
 								<tr className="text-[13px] text-ink-3">
-									<th className="px-3 py-2 font-normal">报名人</th>
-									<th className="px-3 py-2 font-normal">档位</th>
-									<th className="px-3 py-2 font-normal">金额</th>
-									<th className="px-3 py-2 font-normal">渠道</th>
-									<th className="px-3 py-2 font-normal">状态</th>
-									<th className="px-3 py-2 font-normal">操作</th>
+									<th className="px-3 py-2 font-normal">{t("thEnrollee")}</th>
+									<th className="px-3 py-2 font-normal">{t("thTier")}</th>
+									<th className="px-3 py-2 font-normal">{t("thAmount")}</th>
+									<th className="px-3 py-2 font-normal">{t("thChannel")}</th>
+									<th className="px-3 py-2 font-normal">{t("thStatus")}</th>
+									<th className="px-3 py-2 font-normal">{t("thActions")}</th>
 								</tr>
 							</thead>
 							<tbody>

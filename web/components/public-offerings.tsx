@@ -8,8 +8,9 @@
  * - 数据唯一真实路径：fetchPublicOfferings（GraphQL 匿名查询）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
 	fetchPublicOfferings,
 } from "@/lib/public-offerings";
@@ -28,6 +29,9 @@ interface PageState {
 }
 
 function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: OfferingKind }) {
+	const t = useTranslations("publicOfferings");
+	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const base = kind === "event" ? "/events" : "/courses";
 	return (
 		<Link
@@ -40,8 +44,8 @@ function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: Offering
 					<EventStatusTag status={item.status} />
 				</span>
 				<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-					{ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy]} · 截止{" "}
-					{formatDeadline(item.registrationDeadline)}
+					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}
+					{t("deadline", { deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")) })}
 				</span>
 			</span>
 			<span className="flex-none text-ink-3">›</span>
@@ -50,6 +54,8 @@ function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: Offering
 }
 
 export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
+	const t = useTranslations("publicOfferings");
+	const labelsT = useTranslations();
 	const [state, setState] = useState<PageState>({ kind, rows: null, error: null });
 
 	useEffect(() => {
@@ -64,7 +70,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 					setState({
 						kind,
 						rows: null,
-						error: e instanceof Error ? e.message : "加载失败",
+						error: e instanceof Error ? e.message : t("loadFailed"),
 					});
 				}
 			});
@@ -72,7 +78,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [kind]);
+	}, [kind, t]);
 
 	const stale = state.kind !== kind;
 	const rows = stale ? null : state.rows;
@@ -86,29 +92,31 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 			<header className="mb-6">
 				<p className="text-[13px] text-ink-3">
 					<Link href="/" className="hover:text-ink">
-						工作台
+						{t("breadcrumbHome")}
 					</Link>
 					{" › "}
-					<strong>{label}</strong>
+					<strong>{labelsT(label)}</strong>
 				</p>
-				<h1 className="mt-2 text-2xl font-semibold">公开{label}</h1>
+				<h1 className="mt-2 text-2xl font-semibold">
+					{t("publicTitle", { label: labelsT(label) })}
+				</h1>
 				<p className="mt-1 text-sm text-ink-3">
-					面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。
+					{t("publicDesc", { label: labelsT(label) })}
 				</p>
 				<Link href={otherHref} className="mt-2 inline-block text-sm text-accent">
-					查看{OFFERING_LABEL[otherKind]} ›
+					{t("viewOther", { label: labelsT(OFFERING_LABEL[otherKind]) })} ›
 				</Link>
 			</header>
 
 			{loadError ? (
 				<div className="join-card" role="alert">
-					加载失败：{loadError}
+					{t("loadFailed")}：{loadError}
 				</div>
 			) : rows === null ? (
 				<div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
 			) : rows.length === 0 ? (
 				<div className="join-card text-center text-sm text-ink-3">
-					暂无公开{label}。
+					{t("empty", { label: labelsT(label) })}
 				</div>
 			) : (
 				<div className="grid gap-3">

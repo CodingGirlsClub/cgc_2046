@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import type { EventStatus } from "@/lib/graphql/events";
 import { EVENT_STATUS_LABEL, EVENT_STATUS_TONE } from "@/lib/graphql/events";
 
@@ -13,12 +14,13 @@ const TONE_CLASS: Record<"neutral" | "positive" | "negative", string> = {
 };
 
 export default function EventStatusTag({ status }: { status: EventStatus }) {
+	const t = useTranslations();
 	const tone = EVENT_STATUS_TONE[status];
 	return (
 		<span
 			className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[12px] leading-4 ${TONE_CLASS[tone]}`}
 		>
-			{EVENT_STATUS_LABEL[status]}
+			{t(EVENT_STATUS_LABEL[status])}
 		</span>
 	);
 }

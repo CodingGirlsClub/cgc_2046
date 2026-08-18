@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { render } from "@/test-utils";
 import StepHandoffCopy, { buildHandoffText } from "./step-handoff-copy";
 
 const { copyText } = vi.hoisted(() => ({ copyText: vi.fn() }));

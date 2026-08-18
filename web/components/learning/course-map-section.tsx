@@ -10,11 +10,13 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { COURSE_MAP, type CourseMap } from "@/lib/graphql/events";
 import { IssueKindChip } from "@/components/learning/issue-bits";
 
 export default function CourseMapSection({ slug }: { slug: string }) {
+  const t = useTranslations("learning");
   const [map, setMap] = useState<CourseMap | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -49,10 +51,10 @@ export default function CourseMapSection({ slug }: { slug: string }) {
       data-testid="course-map"
     >
       <h2 id="course-map-heading" className="text-lg font-semibold">
-        课程地图
+        {t("courseMapTitle")}
       </h2>
       <p className="mt-1 text-[13px] text-ink-3">
-        完成全部学习单元后,你将具备:{map.goals.join(" / ")}
+        {t("courseMapGoalDesc", { goals: map.goals.join(" / ") })}
       </p>
       <ul className="mt-4 divide-y divide-line" data-testid="course-map-issues">
         {map.issues.map((issue) => (

@@ -45,13 +45,13 @@ describe("#40 workflow GraphQL 契约（对齐 schema.graphql 实测）", () => 
 		expect(doc).toContain("steps");
 	});
 
-	it("WORKFLOW_RUN_STATUS_LABEL：七态中文 label 齐全", () => {
-		expect(WORKFLOW_RUN_STATUS_LABEL.pending).toBe("待执行");
-		expect(WORKFLOW_RUN_STATUS_LABEL.running).toBe("执行中");
-		expect(WORKFLOW_RUN_STATUS_LABEL.waiting).toBe("待审批");
-		expect(WORKFLOW_RUN_STATUS_LABEL.succeeded).toBe("已完成");
-		expect(WORKFLOW_RUN_STATUS_LABEL.failed).toBe("失败");
-		expect(WORKFLOW_RUN_STATUS_LABEL.cancelled).toBe("已取消");
-		expect(WORKFLOW_RUN_STATUS_LABEL.expired).toBe("已过期");
+	it("WORKFLOW_RUN_STATUS_LABEL：七态 key 名齐全", () => {
+		expect(WORKFLOW_RUN_STATUS_LABEL.pending).toBe("labels.workflowStatus.pending");
+		expect(WORKFLOW_RUN_STATUS_LABEL.running).toBe("labels.workflowStatus.running");
+		expect(WORKFLOW_RUN_STATUS_LABEL.waiting).toBe("labels.workflowStatus.waiting");
+		expect(WORKFLOW_RUN_STATUS_LABEL.succeeded).toBe("labels.workflowStatus.succeeded");
+		expect(WORKFLOW_RUN_STATUS_LABEL.failed).toBe("labels.workflowStatus.failed");
+		expect(WORKFLOW_RUN_STATUS_LABEL.cancelled).toBe("labels.workflowStatus.cancelled");
+		expect(WORKFLOW_RUN_STATUS_LABEL.expired).toBe("labels.workflowStatus.expired");
 	});
 });

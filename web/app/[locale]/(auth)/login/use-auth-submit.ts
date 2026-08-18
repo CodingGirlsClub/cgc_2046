@@ -3,12 +3,13 @@
 import { useCallback, useState } from "react";
 import { useMutation } from "@apollo/client/react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import {
 	SIGN_IN,
 	SIGN_UP,
+	signUpError,
 	signInErrorMessage,
-	signUpErrorMessage,
 } from "@/lib/graphql/auth";
 import type { AuthSubmitPayload } from "./auth-form";
 
@@ -48,6 +49,7 @@ export interface UseAuthSubmitResult {
  */
 export function useAuthSubmit(): UseAuthSubmitResult {
 	const router = useRouter();
+	const t = useTranslations("auth.errors");
 	const searchParams = new URLSearchParams(
 		typeof window !== "undefined" ? window.location.search : "",
 	);
@@ -79,7 +81,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						router.push(next);
 						return;
 					}
-					setError("登录失败，请检查邮箱与密码");
+					setError(t("loginFailed"));
 				} else {
 					const { data } = await doSignUp({
 						variables: {
@@ -95,13 +97,20 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						router.push(next);
 						return;
 					}
-					setError(signUpErrorMessage(data) ?? "注册失败，请稍后重试");
+					// #86 防枚举：registration_failed（重复邮箱与未知错误同形）→ 通用文案；
+					// 其它错误直透后端 message（如邮箱格式错误，仍可指导用户）；无 message 走兜底。
+					const signUpErr = signUpError(data);
+					setError(
+						signUpErr?.code === "registration_failed"
+							? t("registerFailedDuplicate")
+							: (signUpErr?.message ?? t("registerFailedRetry")),
+					);
 				}
 			} catch (e) {
-				setError(signInErrorMessage(e) ?? "网络异常，请稍后重试");
+				setError(signInErrorMessage(e) ?? t("networkFailed"));
 			}
 		},
-		[doSignIn, doSignUp, router, next],
+		[doSignIn, doSignUp, router, next, t],
 	);
 
 	return { onSubmit, busy: signInState.loading || signUpState.loading, error };

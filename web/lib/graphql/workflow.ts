@@ -134,11 +134,11 @@ export const GET_WORKFLOW_RUN: TypedDocumentNode<
 
 /** WorkflowRun status 中文 label（对齐后端 @status_values 七态） */
 export const WORKFLOW_RUN_STATUS_LABEL: Record<WorkflowRunStatus, string> = {
-	pending: "待执行",
-	running: "执行中",
-	waiting: "待审批",
-	succeeded: "已完成",
-	failed: "失败",
-	cancelled: "已取消",
-	expired: "已过期",
+	pending: "labels.workflowStatus.pending",
+	running: "labels.workflowStatus.running",
+	waiting: "labels.workflowStatus.waiting",
+	succeeded: "labels.workflowStatus.succeeded",
+	failed: "labels.workflowStatus.failed",
+	cancelled: "labels.workflowStatus.cancelled",
+	expired: "labels.workflowStatus.expired",
 };

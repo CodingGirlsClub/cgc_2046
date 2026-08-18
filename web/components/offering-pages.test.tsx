@@ -100,6 +100,8 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
   usePathname: () => "/w/demo/events",
   useRouter: () => routerMocks,
 }));
@@ -249,6 +251,8 @@ describe("OfferingDetailPage 错误态", () => {
     );
     // 顺序模拟：第一次渲染时 workspace fallback 仍在 loading（offering 先 settle），
     // rerender 后 fallback resolve 为只读访客 —— 两个窗口都不得出现报名按钮。
+    // 注：rerender 后组件实例复用（wrapper 保留 provider 树），后续渲染可能多于一次，
+    // 故 readOnly 分支用持久 mockReturnValue（恒为只读，语义一致）。
     mocks.useWorkspaceBySlug
       .mockReturnValueOnce({
         ws: undefined,
@@ -257,7 +261,7 @@ describe("OfferingDetailPage 错误态", () => {
         error: null,
         retry: vi.fn(),
       })
-      .mockReturnValueOnce({
+      .mockReturnValue({
         ws: { ...WORKSPACE, readOnlyVisitor: true },
         readOnlyVisitor: true,
         loading: false,

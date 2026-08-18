@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { screen, fireEvent, cleanup } from "@testing-library/react";
+import { render } from "@/test-utils";
 import AuthForm, { type AuthSubmitPayload } from "./auth-form";
 
 afterEach(cleanup);

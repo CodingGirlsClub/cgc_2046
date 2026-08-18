@@ -11,6 +11,8 @@ const { fetchWorkspaces } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	usePathname: () => "/admin/workspaces",
 }));

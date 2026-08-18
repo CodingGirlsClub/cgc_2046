@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import {
 	createSpeakerInvitation,
@@ -52,10 +53,10 @@ function fromLocalInput(value: string): string | null {
 	return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-function formatScheduledAt(datetime: string | null): string {
-	if (!datetime) return "未定";
+function formatScheduledAt(datetime: string | null, undecidedLabel: string): string {
+	if (!datetime) return undecidedLabel;
 	const d = new Date(datetime);
-	if (Number.isNaN(d.getTime())) return "未定";
+	if (Number.isNaN(d.getTime())) return undecidedLabel;
 	return d.toLocaleString("zh-CN", {
 		year: "numeric",
 		month: "2-digit",
@@ -74,6 +75,7 @@ export default function SpeakerInvitationPanel({
 	eventSlug: string | null;
 	workspaceId: string;
 }) {
+	const t = useTranslations("speakerInvitePanel");
 	const [draft, setDraft] = useState<InviteDraft>(EMPTY_DRAFT);
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
@@ -135,12 +137,12 @@ export default function SpeakerInvitationPanel({
 				setTokenByInvitation((prev) => ({ ...prev, [res.result!.id]: res.plainToken! }));
 				setDraft(EMPTY_DRAFT);
 				setListState({ id: eventId, status: "ok" });
-				setMessage("已创建邀请，链接见下方列表（明文 token 仅此一次，请立即复制）");
+				setMessage(t("created"));
 			} else {
-				setMessage(res.errors[0]?.message ?? "创建失败");
+				setMessage(res.errors[0]?.message ?? t("createFailed"));
 			}
 		} catch (e: unknown) {
-			setMessage(e instanceof Error ? e.message : "创建失败");
+			setMessage(e instanceof Error ? e.message : t("createFailed"));
 		} finally {
 			setBusy(false);
 		}
@@ -154,25 +156,25 @@ export default function SpeakerInvitationPanel({
 
 	return (
 		<div className="mt-4 rounded-large border border-line bg-card p-6">
-			<h2 className="text-sm font-medium text-ink">邀请 Speaker</h2>
+			<h2 className="text-sm font-medium text-ink">{t("title")}</h2>
 			<p className="mt-1 text-[13px] text-ink-3">
-				逐人定向邀请：嘉宾收到专属链接后可接受或婉拒；接受后产出分享材料即完成。
+				{t("desc")}
 			</p>
 
 			<div className="mt-4 grid gap-3 sm:grid-cols-2">
 				<label className="block">
-					<span className="block text-[13px] text-ink-3">嘉宾姓名 *</span>
+					<span className="block text-[13px] text-ink-3">{t("speakerName")}</span>
 					<input
 						value={draft.speakerName}
 						onChange={setField("speakerName")}
-						placeholder="如：张三"
+						placeholder={t("speakerNamePlaceholder")}
 						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
 					/>
 				</label>
 
 				<label className="block">
 					<span className="block text-[13px] text-ink-3">
-						嘉宾邮箱（留空 = 手动转发链接）
+						{t("speakerEmail")}
 					</span>
 					<input
 						type="email"
@@ -184,17 +186,17 @@ export default function SpeakerInvitationPanel({
 				</label>
 
 				<label className="block">
-					<span className="block text-[13px] text-ink-3">分享主题</span>
+					<span className="block text-[13px] text-ink-3">{t("topic")}</span>
 					<input
 						value={draft.topic}
 						onChange={setField("topic")}
-						placeholder="如：Elixir 实战"
+						placeholder={t("topicPlaceholder")}
 						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
 					/>
 				</label>
 
 				<label className="block">
-					<span className="block text-[13px] text-ink-3">分享时间（留空 = 未定）</span>
+					<span className="block text-[13px] text-ink-3">{t("scheduledAt")}</span>
 					<input
 						type="datetime-local"
 						value={draft.scheduledAt}
@@ -204,7 +206,7 @@ export default function SpeakerInvitationPanel({
 				</label>
 
 				<label className="block sm:col-span-2">
-					<span className="block text-[13px] text-ink-3">备注</span>
+					<span className="block text-[13px] text-ink-3">{t("notes")}</span>
 					<textarea
 						value={draft.note}
 						onChange={setField("note")}
@@ -221,19 +223,19 @@ export default function SpeakerInvitationPanel({
 					onClick={() => void submit()}
 					className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
 				>
-					{busy ? "创建中…" : "创建邀请"}
+					{busy ? t("creating") : t("create")}
 				</button>
 				{message ? <span className="text-[13px] text-ink-3">{message}</span> : null}
 			</div>
 
 			<div className="mt-5">
-				<h3 className="text-[13px] font-medium text-ink">邀请列表</h3>
+				<h3 className="text-[13px] font-medium text-ink">{t("listTitle")}</h3>
 				{loadError ? (
-					<p className="mt-2 text-[13px] text-ink-3">加载失败，请刷新重试</p>
+					<p className="mt-2 text-[13px] text-ink-3">{t("loadFailed")}</p>
 				) : stale || listState.status === "loading" ? (
-					<p className="mt-2 text-[13px] text-ink-3">加载中…</p>
+					<p className="mt-2 text-[13px] text-ink-3">{t("loading")}</p>
 				) : items.length === 0 ? (
-					<p className="mt-2 text-[13px] text-ink-3">暂无邀请</p>
+					<p className="mt-2 text-[13px] text-ink-3">{t("empty")}</p>
 				) : (
 					<ul className="mt-2 divide-y divide-line rounded-large border border-line">
 						{items.map((item) => {
@@ -253,9 +255,9 @@ export default function SpeakerInvitationPanel({
 											) : null}
 										</p>
 										<p className="mt-0.5 truncate text-[13px] text-ink-3">
-											{item.topic ? `主题：${item.topic}` : "未填主题"}
+											{item.topic ? t("topicLabel", { topic: item.topic }) : t("noTopic")}
 											<span className="mx-1.5">·</span>
-											{formatScheduledAt(item.scheduledAt)}
+											{formatScheduledAt(item.scheduledAt, t("undecided"))}
 										</p>
 									</div>
 									<SpeakerStatusTag status={item.status} />
@@ -274,16 +276,18 @@ export default function SpeakerInvitationPanel({
 
 function SpeakerStatusTag({ status }: { status: SpeakerInvitationStatus }) {
 	const tone = SPEAKER_INVITATION_STATUS_TONE[status];
+	const labelsT = useTranslations();
 	return (
 		<span
 			className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[12px] leading-4 ${STATUS_TONE_CLASS[tone]}`}
 		>
-			{SPEAKER_INVITATION_STATUS_LABEL[status]}
+			{labelsT(SPEAKER_INVITATION_STATUS_LABEL[status])}
 		</span>
 	);
 }
 
 function CopyInviteLink({ token, href }: { token: string; href: string | null }) {
+	const t = useTranslations("speakerInvitePanel");
 	const [copied, setCopied] = useState(false);
 
 	async function copy() {
@@ -305,7 +309,7 @@ function CopyInviteLink({ token, href }: { token: string; href: string | null })
 				className="max-w-[220px] truncate text-[13px] text-accent hover:underline"
 				title={href}
 			>
-				邀请链接
+				{t("inviteLink")}
 			</Link>
 			<button
 				type="button"
@@ -313,7 +317,7 @@ function CopyInviteLink({ token, href }: { token: string; href: string | null })
 				className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[12px] text-ink-3 hover:border-line-strong"
 			>
 				<Icon name="invite" className="h-3.5 w-3.5" />
-				{copied ? "已复制" : "复制"}
+				{copied ? t("copied") : t("copy")}
 			</button>
 		</span>
 	);

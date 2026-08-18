@@ -27,6 +27,8 @@ vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("@/lib/apollo-client", () => ({ client }));
 vi.mock("qrcode", () => ({ default: QRCodeStub }));
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useParams,
 	// Link（next/link）内部依赖 usePathname；提供 no-op mock
 	usePathname: () => "/orders/o1",

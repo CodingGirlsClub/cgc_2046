@@ -7,7 +7,8 @@
  *   pending-owner 邀请，返回 ownerInvitationToken 仅展示一次）
  */
 import { useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { createWorkspaceWithOwner, fetchUsers } from "@/lib/admin";
 import type { AdminUser } from "@/lib/graphql/admin";
 import { JOIN_POLICY_LABEL, type JoinPolicy } from "@/lib/graphql/workspace";
@@ -15,6 +16,8 @@ import { JOIN_POLICY_LABEL, type JoinPolicy } from "@/lib/graphql/workspace";
 type OwnerMode = "existing" | "invite";
 
 export default function AdminWorkspacesCreatePage() {
+	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
 	const [joinPolicy, setJoinPolicy] = useState<JoinPolicy>("request");
@@ -60,10 +63,10 @@ export default function AdminWorkspacesCreatePage() {
 				setCreatedSlug(result.result.slug);
 				setInviteToken(result.metadata?.ownerInvitationToken ?? null);
 			} else {
-				setError("创建工作台失败");
+				setError(t("createFailed"));
 			}
 		} catch {
-			setError("网络错误，请稍后重试");
+			setError(t("networkError"));
 		} finally {
 			setSubmitting(false);
 		}
@@ -73,22 +76,25 @@ export default function AdminWorkspacesCreatePage() {
 		return (
 			<section>
 				<div className="admin-page__head">
-					<h1>工作台已创建</h1>
+					<h1>{t("createdTitle")}</h1>
 				</div>
 				<p className="admin-muted">
-					工作台 <strong>{createdSlug}</strong> 创建成功。
+					{t.rich("createdDesc", {
+						slug: createdSlug,
+						strong: (chunks) => <strong>{chunks}</strong>,
+					})}
 				</p>
 				{inviteToken && (
 					<div className="admin-alert admin-alert--warn admin-result-back">
 						<div>
-							<p>Owner 邀请已生成（仅显示一次）</p>
+							<p>{t("ownerInviteNote")}</p>
 							<code className="l-codeblock">{inviteToken}</code>
 						</div>
 					</div>
 				)}
 				<p className="admin-result-back">
 					<Link href="/admin/workspaces" className="admin-link">
-						返回工作台列表
+						{t("backToList")}
 					</Link>
 				</p>
 			</section>
@@ -98,13 +104,13 @@ export default function AdminWorkspacesCreatePage() {
 	return (
 		<section>
 			<div className="admin-page__head">
-				<h1>创建工作台</h1>
+				<h1>{t("createTitle")}</h1>
 			</div>
 
 			<div className="admin-form">
 				<div className="admin-field">
 					<label htmlFor="ws-name" className="admin-field__label">
-						名称
+						{t("fieldName")}
 					</label>
 					<input
 						id="ws-name"
@@ -122,14 +128,14 @@ export default function AdminWorkspacesCreatePage() {
 						id="ws-slug"
 						value={slug}
 						onChange={(e) => setSlug(e.target.value)}
-						placeholder="小写字母/数字/连字符"
+						placeholder={t("fieldSlugPlaceholder")}
 						className="l-input"
 					/>
 				</div>
 
 				<div className="admin-field">
 					<label htmlFor="ws-join-policy" className="admin-field__label">
-						加入策略
+						{t("fieldJoinPolicy")}
 					</label>
 					<select
 						id="ws-join-policy"
@@ -139,14 +145,14 @@ export default function AdminWorkspacesCreatePage() {
 					>
 						{(Object.keys(JOIN_POLICY_LABEL) as JoinPolicy[]).map((p) => (
 							<option key={p} value={p}>
-								{JOIN_POLICY_LABEL[p]}
+								{labelsT(JOIN_POLICY_LABEL[p])}
 							</option>
 						))}
 					</select>
 				</div>
 
 				<fieldset className="admin-field">
-					<legend className="admin-field__label">Owner 指定</legend>
+					<legend className="admin-field__label">{t("ownerAssign")}</legend>
 					<div className="admin-radio-row">
 						<label className="admin-radio">
 							<input
@@ -155,7 +161,7 @@ export default function AdminWorkspacesCreatePage() {
 								checked={ownerMode === "existing"}
 								onChange={() => setOwnerMode("existing")}
 							/>
-							选择已有用户
+							{t("chooseExisting")}
 						</label>
 						<label className="admin-radio">
 							<input
@@ -164,7 +170,7 @@ export default function AdminWorkspacesCreatePage() {
 								checked={ownerMode === "invite"}
 								onChange={() => setOwnerMode("invite")}
 							/>
-							邀请新用户
+							{t("inviteNew")}
 						</label>
 					</div>
 
@@ -175,7 +181,7 @@ export default function AdminWorkspacesCreatePage() {
 									<input
 										value={userSearch}
 										onChange={(e) => setUserSearch(e.target.value)}
-										placeholder="搜索用户（email / 显示名）"
+										placeholder={t("searchUserPlaceholder")}
 										className="l-input"
 									/>
 									<button
@@ -183,13 +189,13 @@ export default function AdminWorkspacesCreatePage() {
 										onClick={handleSearchUser}
 										className="l-btn-outline"
 									>
-										搜索
+										{t("search")}
 									</button>
 								</div>
 							)}
-							{searching && <p className="admin-muted">搜索中…</p>}
+							{searching && <p className="admin-muted">{t("searching")}</p>}
 							{userResults && userResults.length === 0 && (
-								<p className="admin-muted">未找到匹配用户。</p>
+								<p className="admin-muted">{t("noUserMatch")}</p>
 							)}
 							{userResults && userResults.length > 0 && (
 								<ul className="admin-pick-list">
@@ -211,14 +217,16 @@ export default function AdminWorkspacesCreatePage() {
 							)}
 							{selectedUser && (
 								<p className="admin-muted">
-									已选 Owner：{selectedUser.displayName || selectedUser.email}
+									{t("selectedOwner", {
+										user: selectedUser.displayName || selectedUser.email || "",
+									})}
 									{" · "}
 									<button
 										type="button"
 										onClick={() => setSelectedUser(null)}
 										className="admin-link"
 									>
-										更换
+										{t("change")}
 									</button>
 								</p>
 							)}
@@ -226,7 +234,7 @@ export default function AdminWorkspacesCreatePage() {
 					) : (
 						<div className="admin-field">
 							<label htmlFor="ws-owner-email" className="admin-field__label">
-								邀请邮箱
+								{t("inviteEmail")}
 							</label>
 							<input
 								id="ws-owner-email"
@@ -249,7 +257,7 @@ export default function AdminWorkspacesCreatePage() {
 						disabled={submitting || !name || !slug}
 						className="l-btn-primary"
 					>
-						创建工作台
+						{t("createTitle")}
 					</button>
 				</div>
 			</div>
