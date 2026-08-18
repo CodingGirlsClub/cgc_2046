@@ -15,8 +15,9 @@
  */
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchWorkspaceBySlug,
@@ -48,6 +49,8 @@ type JoinStep =
 
 function JoinPageInner() {
   const searchParams = useSearchParams();
+  const t = useTranslations("join");
+  const labelsT = useTranslations();
   const { authed, confirmed, userId } = useAuthed();
 
   const token = searchParams?.get("token") ?? null;
@@ -70,19 +73,19 @@ function JoinPageInner() {
   // useEffect 自动校验与 handleValidateToken 手动校验共用（避免两处重复分支）。
   const routeInvitation = useCallback((inv: InvitationItem | null) => {
     if (!inv) {
-      setError("邀请链接无效或已失效");
+      setError(t("invalidInvite"));
       setStep("invite-invalid");
       return;
     }
     if (inv.status !== "active") {
-      setError(`邀请${INVITATION_STATUS_LABEL[inv.status]}`);
+      setError(t("inviteStatus", { status: labelsT(INVITATION_STATUS_LABEL[inv.status]) }));
       setInvitation(inv);
       setStep("invite-invalid");
       return;
     }
     setInvitation(inv);
     setStep("invite-preview");
-  }, []);
+  }, [t, labelsT]);
 
   // token 参数存在时自动校验
   useEffect(() => {
@@ -96,7 +99,7 @@ function JoinPageInner() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "校验失败");
+          setError(e instanceof Error ? e.message : t("validateFailed"));
           setStep("invite-invalid");
         }
       })
@@ -106,7 +109,7 @@ function JoinPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, authed, routeInvitation]);
+  }, [token, authed, routeInvitation, t]);
 
   /** 按 slug 查找工作区 */
   const handleLookup = useCallback(async () => {
@@ -116,17 +119,17 @@ function JoinPageInner() {
     try {
       const ws = await fetchWorkspaceBySlug(slug.trim());
       if (!ws) {
-        setError(`工作区「${slug}」不存在`);
+        setError(t("notFound", { slug }));
         return;
       }
       setWorkspace(ws);
       setStep("workspace-preview");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "查询失败");
+      setError(e instanceof Error ? e.message : t("lookupFailed"));
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, t]);
 
   // E-9 #123：?workspace=<slug> 参数自动查找（ref 守卫只触发一次；用户手动编辑
   // slug 不重触发；token 流程存在时不自动查找）
@@ -146,12 +149,12 @@ function JoinPageInner() {
       await joinWorkspace(workspace.id);
       setStep("join-success");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "加入失败");
+      setError(e instanceof Error ? e.message : t("joinFailed"));
       setStep("join-error");
     } finally {
       setLoading(false);
     }
-  }, [workspace]);
+  }, [workspace, t]);
 
   /** request 提交申请 */
   const handleSubmitRequest = useCallback(
@@ -163,12 +166,12 @@ function JoinPageInner() {
         await createJoinRequest(workspace.id, userId, message || null);
         setStep("request-submitted");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "提交失败");
+        setError(e instanceof Error ? e.message : t("submitFailed"));
       } finally {
         setLoading(false);
       }
     },
-    [workspace, authed, userId],
+    [workspace, authed, userId, t],
   );
 
   /** 校验邀请 token */
@@ -180,12 +183,12 @@ function JoinPageInner() {
       const inv = await validateInvitation(inviteToken.trim());
       routeInvitation(inv);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "校验失败");
+      setError(e instanceof Error ? e.message : t("validateFailed"));
       setStep("invite-invalid");
     } finally {
       setLoading(false);
     }
-  }, [inviteToken, routeInvitation]);
+  }, [inviteToken, routeInvitation, t]);
 
   /** 接受邀请（须透传 validate 时拿到的明文 token，后端复验持 token） */
   const handleAcceptInvitation = useCallback(async () => {
@@ -196,17 +199,17 @@ function JoinPageInner() {
       await acceptInvitation(invitation.id, inviteToken.trim());
       setStep("invite-accepted");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "接受邀请失败");
+      setError(e instanceof Error ? e.message : t("acceptFailed"));
     } finally {
       setLoading(false);
     }
-  }, [invitation, inviteToken]);
+  }, [invitation, inviteToken, t]);
 
   if (!confirmed) {
     return (
       <main className="ws-shell-loading">
         <div className="join-card">
-          <div className="join-loading">正在确认登录状态…</div>
+          <div className="join-loading">{t("confirming")}</div>
         </div>
       </main>
     );
@@ -216,10 +219,10 @@ function JoinPageInner() {
     return (
       <main className="ws-shell-loading">
         <div className="join-card">
-          <h1>加入工作区</h1>
-          <p>请先登录后再加入工作区。</p>
+          <h1>{t("title")}</h1>
+          <p>{t("loginFirst")}</p>
           <Link href="/login" className="join-button join-button--primary">
-            去登录
+            {t("goLogin")}
           </Link>
         </div>
       </main>
@@ -231,9 +234,9 @@ function JoinPageInner() {
       <div className="join-card">
         {/* 面包屑 */}
         <div className="join-breadcrumb">
-            <Link href="/">工作台</Link>
+            <Link href="/">{t("breadcrumbHome")}</Link>
             <span>›</span>
-            <strong>加入工作区</strong>
+            <strong>{t("title")}</strong>
           </div>
 
           {/* 输入 slug */}
@@ -262,17 +265,17 @@ function JoinPageInner() {
           {step === "request-submitted" && (
             <div className="join-status-card">
               <Icon name="request" />
-              <h2>申请已提交</h2>
-              <p>你的加入申请已提交，请等待 Owner / Admin 审批。</p>
+              <h2>{t("requestSubmittedTitle")}</h2>
+              <p>{t("requestSubmittedDesc")}</p>
               <div className="join-status-meta">
                 <span className="workspace-status workspace-status--pending">
                   <span className="workspace-status__dot" />
-                  申请审批中
+                  {t("requestPending")}
                 </span>
               </div>
               <div className="join-actions">
                 <Link href="/" className="join-button join-button--primary">
-                  返回工作台
+                  {t("backToHome")}
                 </Link>
               </div>
             </div>
@@ -282,11 +285,11 @@ function JoinPageInner() {
           {step === "join-success" && (
             <div className="join-status-card">
               <Icon name="check" />
-              <h2>加入成功</h2>
-              <p>你已成功加入该工作区。</p>
+              <h2>{t("joinSuccessTitle")}</h2>
+              <p>{t("joinSuccessDesc")}</p>
               <div className="join-actions">
                 <Link href="/" className="join-button join-button--primary">
-                  返回工作台
+                  {t("backToHome")}
                 </Link>
               </div>
             </div>
@@ -316,11 +319,11 @@ function JoinPageInner() {
           {step === "invite-accepted" && (
             <div className="join-status-card">
               <Icon name="check" />
-              <h2>加入成功</h2>
-              <p>你已通过邀请加入该工作区。</p>
+              <h2>{t("joinSuccessTitle")}</h2>
+              <p>{t("joinSuccessInviteDesc")}</p>
               <div className="join-actions">
                 <Link href="/" className="join-button join-button--primary">
-                  返回工作台
+                  {t("backToHome")}
                 </Link>
               </div>
             </div>
@@ -358,12 +361,13 @@ function JoinPageInner() {
 }
 
 export default function JoinPage() {
+  const t = useTranslations("join");
   return (
     <Suspense
       fallback={
         <main className="ws-shell-loading">
           <div className="join-card">
-            <div className="join-loading">加载中…</div>
+            <div className="join-loading">{t("loading")}</div>
           </div>
         </main>
       }

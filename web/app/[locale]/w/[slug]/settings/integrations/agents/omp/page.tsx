@@ -8,8 +8,9 @@
  * Bearer ${CGC_TOKEN}），token 从 MCP 页签发。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
@@ -28,24 +29,28 @@ export default function AgentsOmpPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws } = useWorkspaceBySlug(slug);
+	const t = useTranslations("agentConnect");
+	const tCommon = useTranslations("common");
 
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<Link href={`/w/${slug}/settings/join-policy`}>设置</Link>
+					<Link href={`/w/${slug}/settings/join-policy`}>
+						{t("breadcrumbSettings")}
+					</Link>
 					<span>›</span>
-					<strong>OMP</strong>
+					<strong>{t("titleOmp")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>OMP</h1>
-						<p>omp 客户端接入 CGC-2046 平台。</p>
+						<h1>{t("titleOmp")}</h1>
+						<p>{t("subtitleOmp")}</p>
 					</div>
 				</header>
 
@@ -53,24 +58,28 @@ export default function AgentsOmpPage() {
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
 					<div className="connect-step-card">
-						<h2>1. 获取 token</h2>
+						<h2>{t("step1Title")}</h2>
 						<p className="connect-step-card__desc">
-							在{" "}
-							<Link
-								href={`/w/${slug}/settings/integrations/agents/mcp`}
-								className="connect-step-card__link"
-							>
-								MCP 页
-							</Link>{" "}
-							签发一个连接 token（绑用户不绑工作区），复制到剪贴板（明文只显示一次）。
+							{t.rich("step1Desc", {
+								link: (chunks) => (
+									<Link
+										href={`/w/${slug}/settings/integrations/agents/mcp`}
+										className="connect-step-card__link"
+									>
+										{chunks}
+									</Link>
+								),
+							})}
 						</p>
 					</div>
 
 					<div className="connect-step-card">
-						<h2>2. 写入 .mcp.json</h2>
+						<h2>{t("step2Title", { file: ".mcp.json" })}</h2>
 						<p className="connect-step-card__desc">
-							在项目根目录的 <code>.mcp.json</code>（或{" "}
-							<code>~/.clacky/mcp.json</code>）中加入以下配置：
+							{t.rich("step2DescRoot", {
+								code: (chunks) => <code>{chunks}</code>,
+								code2: (chunks) => <code>{chunks}</code>,
+							})}
 						</p>
 						<pre
 							style={{
@@ -86,25 +95,32 @@ export default function AgentsOmpPage() {
 							<code>{OMP_CONFIG}</code>
 						</pre>
 						<p className="connect-step-card__desc">
-							<code>&lt;MCP_URL&gt;</code> 替换为平台 MCP 地址（开发联调默认{" "}
-							<code>http://localhost:4102/mcp</code>，与连接器扩展{" "}
-							<code>ext.yml</code> <code>config.mcp_url</code> 一致；生产以平台公布为准）。
+							{t.rich("urlNote", {
+								code: (chunks) => <code>{chunks}</code>,
+								code2: (chunks) => <code>{chunks}</code>,
+								code3: (chunks) => <code>{chunks}</code>,
+								code4: (chunks) => <code>{chunks}</code>,
+							})}
 						</p>
 					</div>
 
 					<div className="connect-step-card">
-						<h2>3. 配置 token</h2>
+						<h2>{t("step3Title")}</h2>
 						<p className="connect-step-card__desc">
-							omp 支持环境变量插值：设置 <code>CGC_TOKEN</code> 环境变量后可直接使用；
-							也可把 <code>{"${CGC_TOKEN}"}</code> 替换为实际 token。
+							{"omp "}
+							{t.rich("step3DescEnv", {
+								code: (chunks) => <code>{chunks}</code>,
+								placeholder: "${CGC_TOKEN}",
+							})}
 						</p>
 					</div>
 
 					<div className="connect-step-card">
-						<h2>注意事项</h2>
+						<h2>{t("notesTitle")}</h2>
 						<p className="connect-step-card__desc">
-							已有其它 MCP server 条目时，把 <code>cgc-2046</code> 条目合并进现有配置，
-							勿整体覆盖。token 绑用户不绑工作区，加入新工作区无需重新配置。
+							{t.rich("notesDesc", {
+								code: (chunks) => <code>{chunks}</code>,
+							})}
 						</p>
 					</div>
 				</div>

@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslations } from "next-intl";
 import type { ProfileContent } from "@/lib/profile";
 import {
   AVATAR_ALLOWED_TYPES,
@@ -27,6 +28,7 @@ export function Avatar({
   /** 上传校验/读取失败回调（#018：表单接到 errorMsg 展示） */
   onError?: (msg: string) => void;
 }) {
+  const t = useTranslations("profileAvatar");
   const inputRef = useRef<HTMLInputElement>(null);
   const letter = (content.name || "?").slice(0, 1).toUpperCase();
 
@@ -36,12 +38,14 @@ export function Avatar({
 
     if (!AVATAR_ALLOWED_TYPES.includes(file.type as AvatarMimeType)) {
       onError?.(
-        `仅支持 ${AVATAR_ALLOWED_TYPES.map((t) => AVATAR_TYPE_LABEL[t]).join("、")} 格式`,
+        t("typeError", {
+          types: AVATAR_ALLOWED_TYPES.map((type) => AVATAR_TYPE_LABEL[type]).join("、"),
+        }),
       );
       return;
     }
     if (file.size > AVATAR_MAX_BYTES) {
-      onError?.(`文件大小不能超过 ${AVATAR_MAX_MB}MB`);
+      onError?.(t("sizeError", { max: AVATAR_MAX_MB }));
       return;
     }
 
@@ -50,7 +54,7 @@ export function Avatar({
       if (typeof reader.result === "string") onFile(reader.result);
     };
     reader.onerror = () => {
-      onError?.("文件读取失败，请重试");
+      onError?.(t("readError"));
     };
     reader.readAsDataURL(file);
   }
@@ -63,7 +67,7 @@ export function Avatar({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={content.avatarUrl}
-          alt={`${content.name} 的头像`}
+          alt={t("avatarAlt", { name: content.name })}
           className="profile-avatar"
         />
       ) : (
@@ -85,7 +89,7 @@ export function Avatar({
             className="profile-change-avatar"
             onClick={() => inputRef.current?.click()}
           >
-            更换头像
+            {t("changeAvatar")}
           </button>
         </>
       )}

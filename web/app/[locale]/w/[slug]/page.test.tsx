@@ -63,6 +63,8 @@ const { fetchWorkspaceBySlug } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => ({ push, replace }),
 	useParams: () => params.value,
 	// 壳导航激活态由 pathname 派生：概览页 pathname 精确等于 /w/${slug}

@@ -82,15 +82,15 @@ describe("U11 payment 纯逻辑", () => {
 		const expireAt = "2026-08-16T12:00:00Z";
 
 		it("剩余时间渲染为 mm:ss", () => {
-			expect(countdownText(Date.parse("2026-08-16T11:59:30Z"), expireAt)).toBe("00:30");
-			expect(countdownText(Date.parse("2026-08-16T11:41:05Z"), expireAt)).toBe("18:55");
+			expect(countdownText(Date.parse("2026-08-16T11:59:30Z"), expireAt, "已过期")).toBe("00:30");
+			expect(countdownText(Date.parse("2026-08-16T11:41:05Z"), expireAt, "已过期")).toBe("18:55");
 		});
 
 		it("已过期/无效值", () => {
-			expect(countdownText(Date.parse("2026-08-16T12:00:01Z"), expireAt)).toBe("已过期");
-			expect(countdownText(Date.parse("2026-08-16T12:00:00Z"), expireAt)).toBe("已过期");
-			expect(countdownText(0, null)).toBe("—");
-			expect(countdownText(0, "not-a-date")).toBe("—");
+			expect(countdownText(Date.parse("2026-08-16T12:00:01Z"), expireAt, "已过期")).toBe("已过期");
+			expect(countdownText(Date.parse("2026-08-16T12:00:00Z"), expireAt, "已过期")).toBe("已过期");
+			expect(countdownText(0, null, "已过期")).toBe("—");
+			expect(countdownText(0, "not-a-date", "已过期")).toBe("—");
 		});
 	});
 

@@ -15,6 +15,7 @@
  */
 
 import { useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
 import {
   AVATAR_ALLOWED_TYPES,
@@ -51,6 +52,7 @@ function EditPortfolioRow({
   onRemove: () => void;
   disabled: boolean;
 }) {
+  const t = useTranslations("workspaceAccount");
   return (
     <div
       className="profile-edit-portfolio-row"
@@ -60,7 +62,7 @@ function EditPortfolioRow({
         <Icon name="grip" size={19} />
       </span>
       <label>
-        <span>作品标题</span>
+        <span>{t("portfolioTitleLabel")}</span>
         <input
           value={item.title}
           disabled={disabled}
@@ -68,7 +70,7 @@ function EditPortfolioRow({
         />
       </label>
       <label>
-        <span>作品简介</span>
+        <span>{t("portfolioDescLabel")}</span>
         <input
           value={item.description}
           disabled={disabled}
@@ -78,7 +80,7 @@ function EditPortfolioRow({
         />
       </label>
       <label>
-        <span>作品链接</span>
+        <span>{t("portfolioLinkLabel")}</span>
         <input
           value={item.url ?? ""}
           disabled={disabled}
@@ -86,24 +88,24 @@ function EditPortfolioRow({
         />
       </label>
       <label>
-        <span>图标类型</span>
+        <span>{t("portfolioIconLabel")}</span>
         <select
           value={item.icon ?? "document"}
           disabled={disabled}
-          aria-label="作品图标类型"
+          aria-label={t("portfolioIconAria")}
           onChange={(event) =>
             onChange({ ...item, icon: event.target.value as PortfolioIcon })
           }
         >
-          <option value="document">文档</option>
-          <option value="book">书籍</option>
-          <option value="guide">指南</option>
+          <option value="document">{t("optionDocument")}</option>
+          <option value="book">{t("optionBook")}</option>
+          <option value="guide">{t("optionGuide")}</option>
         </select>
       </label>
       <button
         type="button"
         className="profile-remove-portfolio"
-        aria-label={`删除作品：${item.title || "未命名作品"}`}
+        aria-label={t("deletePortfolioAria", { title: item.title || t("untitled") })}
         disabled={disabled}
         onClick={onRemove}
       >
@@ -128,6 +130,8 @@ export function ProfileSettingsForm({
   memberNumber: string;
   initialPortfolio: ProfilePortfolioItem[];
 }) {
+  const t = useTranslations("workspaceAccount");
+  const labelsT = useTranslations();
   const [draft, setDraft] = useState<ProfileDraft>(() => ({
     name: profile.displayName ?? "",
     location: wsProfile?.location ?? "",
@@ -148,7 +152,7 @@ export function ProfileSettingsForm({
     : draft.portfolio.slice(0, 2);
 
   function addSkill() {
-    const skill = window.prompt("添加技能标签");
+    const skill = window.prompt(t("addSkillPrompt"));
     if (!skill?.trim() || draft.skills.includes(skill.trim())) return;
     setDraft({ ...draft, skills: [...draft.skills, skill.trim()] });
   }
@@ -193,7 +197,7 @@ export function ProfileSettingsForm({
   async function handleSave() {
     const name = draft.name.trim();
     if (!name) {
-      setErrorMsg("姓名不能为空");
+      setErrorMsg(t("nameRequired"));
       return;
     }
     setSaving(true);
@@ -211,9 +215,9 @@ export function ProfileSettingsForm({
         visibility: draft.visibility,
       });
       await syncPortfolioChanges(lastSyncedRef.current, draft.portfolio);
-      setSavedMsg("资料已保存");
+      setSavedMsg(t("saved"));
     } catch (error: unknown) {
-      setErrorMsg(error instanceof Error ? error.message : "保存失败");
+      setErrorMsg(error instanceof Error ? error.message : t("saveFailed"));
     } finally {
       // 无论成败，与服务器 reconcile——部分 create 已落库时，重试不会把它们当新增重复创建
       try {
@@ -234,9 +238,9 @@ export function ProfileSettingsForm({
         className="profile-edit-basic profile-card"
         data-testid="edit-basic-card"
       >
-        <h2>基本资料</h2>
+        <h2>{t("basicInfo")}</h2>
         <div className="profile-edit-avatar-block">
-          <span className="profile-form-label">头像</span>
+          <span className="profile-form-label">{t("avatar")}</span>
           <div className="profile-edit-avatar-row">
             <Avatar
               content={{ name: draft.name || "?", avatarUrl: draft.avatarUrl }}
@@ -245,14 +249,13 @@ export function ProfileSettingsForm({
               onError={(msg) => setErrorMsg(msg)}
             />
             <p>
-              支持 {AVATAR_ALLOWED_TYPES.map((t) => AVATAR_TYPE_LABEL[t]).join("、")}
-              ，文件大小不超过 {AVATAR_MAX_MB}MB。
+              {t("avatarHint", { types: AVATAR_ALLOWED_TYPES.map((type) => AVATAR_TYPE_LABEL[type]).join("、"), max: AVATAR_MAX_MB })}
             </p>
           </div>
         </div>
         <div className="profile-edit-form-grid">
           <label>
-            <span className="profile-form-label">姓名（全局）</span>
+            <span className="profile-form-label">{t("nameLabel")}</span>
             <input
               data-testid="profile-name-input"
               value={draft.name}
@@ -263,11 +266,11 @@ export function ProfileSettingsForm({
             />
           </label>
           <label>
-            <span className="profile-form-label">邮箱</span>
+            <span className="profile-form-label">{t("emailLabel")}</span>
             <input value={profile.email} readOnly disabled={saving} data-testid="profile-email-input" />
           </label>
           <label>
-            <span className="profile-form-label">所在地</span>
+            <span className="profile-form-label">{t("locationLabel")}</span>
             <input
               data-testid="profile-location-input"
               value={draft.location}
@@ -279,7 +282,7 @@ export function ProfileSettingsForm({
           </label>
         </div>
         <label className="profile-edit-about">
-          <span className="profile-form-label">个人简介</span>
+          <span className="profile-form-label">{t("aboutLabel")}</span>
           <textarea
             data-testid="profile-about-input"
             maxLength={240}
@@ -292,14 +295,14 @@ export function ProfileSettingsForm({
           <span className="profile-char-count">{draft.about.length} / 240</span>
         </label>
         <div className="profile-edit-skills">
-          <span className="profile-form-label">技能标签</span>
+          <span className="profile-form-label">{t("skillsLabel")}</span>
           <div className="profile-edit-skill-box">
             {draft.skills.map((skill) => (
               <span key={skill}>
                 {skill}
                 <button
                   type="button"
-                  aria-label={`删除标签 ${skill}`}
+                  aria-label={t("deleteSkillAria", { skill })}
                   disabled={saving}
                   onClick={() =>
                     setDraft({
@@ -319,7 +322,7 @@ export function ProfileSettingsForm({
               onClick={addSkill}
             >
               <Icon name="plus" size={16} />
-              添加标签
+              {t("addSkill")}
             </button>
           </div>
         </div>
@@ -330,9 +333,9 @@ export function ProfileSettingsForm({
           className="profile-card profile-edit-readonly"
           data-testid="edit-visibility-card"
         >
-          <h2>可见范围</h2>
+          <h2>{t("visibilityTitle")}</h2>
           <label className="profile-visibility-options">
-            <span className="profile-form-label">资料可见范围</span>
+            <span className="profile-form-label">{t("visibilityLabel")}</span>
             <select
               data-testid="profile-visibility-input"
               value={draft.visibility}
@@ -348,17 +351,17 @@ export function ProfileSettingsForm({
                 Object.keys(VISIBILITY_OPTION_LABEL) as ProfileVisibility[]
               ).map((value) => (
                 <option key={value} value={value}>
-                  {VISIBILITY_OPTION_LABEL[value]}
+                  {labelsT(VISIBILITY_OPTION_LABEL[value])}
                 </option>
               ))}
             </select>
           </label>
           <div className="profile-edit-divider" />
-          <h2>工作区身份</h2>
-          <p>角色由 Owner / Admin 管理，此处不可编辑</p>
+          <h2>{t("identityTitle")}</h2>
+          <p>{t("identityHint")}</p>
           <RoleChips roles={roles} />
           <label>
-            <span className="profile-form-label">成员编号</span>
+            <span className="profile-form-label">{t("memberNumber")}</span>
             <input value={memberNumber} readOnly disabled={saving} />
           </label>
           <div className="profile-edit-divider" />
@@ -370,7 +373,7 @@ export function ProfileSettingsForm({
         className="profile-card profile-edit-portfolio"
         data-testid="edit-portfolio-card"
       >
-        <h2>作品集</h2>
+        <h2>{t("portfolioTitle")}</h2>
         <div className="profile-edit-portfolio-list">
           {visiblePortfolio.map((item) => (
             <EditPortfolioRow
@@ -403,7 +406,7 @@ export function ProfileSettingsForm({
             disabled={saving}
             onClick={() => setShowAllPortfolio(true)}
           >
-            展开其余 {draft.portfolio.length - 2} 个作品
+            {t("expandRest", { count: draft.portfolio.length - 2 })}
           </button>
         )}
         <button
@@ -428,7 +431,7 @@ export function ProfileSettingsForm({
           }
         >
           <Icon name="plus" size={18} />
-          添加作品
+          {t("addPortfolio")}
         </button>
       </section>
 
@@ -444,14 +447,14 @@ export function ProfileSettingsForm({
         </div>
       )}
       <footer className="profile-settings-form__footer">
-        <span>{VISIBILITY_FOOTER_TEXT[draft.visibility]}</span>
+        <span>{labelsT(VISIBILITY_FOOTER_TEXT[draft.visibility])}</span>
         <button
           type="button"
           className="l-btn l-btn-primary"
           onClick={handleSave}
           disabled={saving}
         >
-          {saving ? "保存中…" : "保存更改"}
+          {saving ? t("saving") : t("saveChanges")}
         </button>
       </footer>
     </div>

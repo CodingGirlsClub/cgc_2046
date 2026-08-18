@@ -13,6 +13,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useQuery } from "@apollo/client/react";
 import { client } from "@/lib/apollo-client";
 import {
@@ -76,6 +77,7 @@ export default function SponsorshipManagement({
 	manage,
 	onSaveTiers,
 }: SponsorshipManagementProps) {
+	const t = useTranslations("sponsorship");
 	const [drafts, setDrafts] = useState<TierDraft[]>(tiers.map(toDraft));
 	const [draftDirty, setDraftDirty] = useState(false);
 	const [saving, setSaving] = useState(false);
@@ -117,17 +119,17 @@ export default function SponsorshipManagement({
 			.map(fromDraft)
 			.filter((t): t is SponsorshipTierConfig => t !== null);
 		if (parsed.length !== drafts.length) {
-			setSaveMessage("档位名不能为空");
+			setSaveMessage(t("tierNameRequired"));
 			return;
 		}
 		setSaving(true);
 		setSaveMessage(null);
 		try {
 			const ok = await onSaveTiers(parsed);
-			setSaveMessage(ok ? "档位已保存" : "保存失败");
+			setSaveMessage(ok ? t("tiersSaved") : t("saveFailed"));
 			setDraftDirty(!ok);
 		} catch (e: unknown) {
-			setSaveMessage(e instanceof Error ? e.message : "保存失败");
+			setSaveMessage(e instanceof Error ? e.message : t("saveFailed"));
 		} finally {
 			setSaving(false);
 		}
@@ -136,7 +138,7 @@ export default function SponsorshipManagement({
 	async function fulfill(deliveryId: string) {
 		const note = (proofInputs[deliveryId] ?? "").trim();
 		if (note === "") {
-			setActionError("核销需填写 proof_note（履约凭证说明）");
+			setActionError(t("fulfillNoteRequired"));
 			return;
 		}
 		setFulfilling(deliveryId);
@@ -151,11 +153,11 @@ export default function SponsorshipManagement({
 				await refetch();
 			} else {
 				setActionError(
-					d?.fulfillDelivery?.errors?.[0]?.message ?? "核销失败，请稍后重试",
+					d?.fulfillDelivery?.errors?.[0]?.message ?? t("fulfillFailed"),
 				);
 			}
 		} catch (e: unknown) {
-			setActionError(e instanceof Error ? e.message : "核销失败，请稍后重试");
+			setActionError(e instanceof Error ? e.message : t("fulfillFailed"));
 		} finally {
 			setFulfilling(null);
 		}
@@ -163,11 +165,11 @@ export default function SponsorshipManagement({
 
 	return (
 		<section className="join-card !p-6">
-			<h2 className="text-base font-semibold">赞助管理</h2>
+			<h2 className="text-base font-semibold">{t("title")}</h2>
 
 			{/* 档位配置 */}
 			<div className="mt-3 border-t border-line pt-4">
-				<h3 className="text-sm font-medium">赞助档位</h3>
+				<h3 className="text-sm font-medium">{t("tiersTitle")}</h3>
 				{manage ? (
 					<div className="mt-2 grid gap-2">
 						{drafts.map((draft, i) => (
@@ -178,15 +180,15 @@ export default function SponsorshipManagement({
 								<input
 									value={draft.name}
 									onChange={(e) => updateDraft(i, { name: e.target.value })}
-									placeholder="档位名"
-									aria-label="档位名"
+									placeholder={t("tierNamePlaceholder")}
+									aria-label={t("tierNameAria")}
 									className="rounded-large border border-line bg-white px-3 py-1.5 text-sm"
 								/>
 								<input
 									value={draft.amount}
 									onChange={(e) => updateDraft(i, { amount: e.target.value })}
-									placeholder="建议金额（元）"
-									aria-label="建议金额"
+									placeholder={t("amountPlaceholder")}
+									aria-label={t("amountAria")}
 									type="number"
 									min={0}
 									className="rounded-large border border-line bg-white px-3 py-1.5 text-sm"
@@ -194,8 +196,8 @@ export default function SponsorshipManagement({
 								<input
 									value={draft.benefits}
 									onChange={(e) => updateDraft(i, { benefits: e.target.value })}
-									placeholder="权益项（顿号分隔）"
-									aria-label="权益项"
+									placeholder={t("benefitsPlaceholder")}
+									aria-label={t("benefitsAria")}
 									className="rounded-large border border-line bg-white px-3 py-1.5 text-sm"
 								/>
 								<label className="flex items-center gap-1.5 text-[13px] text-ink-3">
@@ -204,7 +206,7 @@ export default function SponsorshipManagement({
 										checked={draft.exclusive}
 										onChange={(e) => updateDraft(i, { exclusive: e.target.checked })}
 									/>
-									独占位
+									{t("exclusive")}
 								</label>
 								<button
 									type="button"
@@ -214,7 +216,7 @@ export default function SponsorshipManagement({
 										setDraftDirty(true);
 									}}
 								>
-									删除
+									{t("delete")}
 								</button>
 							</div>
 						))}
@@ -230,7 +232,7 @@ export default function SponsorshipManagement({
 									setDraftDirty(true);
 								}}
 							>
-								新增档位
+								{t("addTier")}
 							</button>
 							<button
 								type="button"
@@ -238,7 +240,7 @@ export default function SponsorshipManagement({
 								disabled={saving || !draftDirty}
 								onClick={() => void saveTiers()}
 							>
-								{saving ? "保存中…" : "保存档位"}
+								{saving ? t("saving") : t("saveTiers")}
 							</button>
 						</div>
 						{saveMessage ? <p className="text-[13px] text-ink-3">{saveMessage}</p> : null}
@@ -248,10 +250,10 @@ export default function SponsorshipManagement({
 						{tiers.map((tier) => (
 							<div key={tier.id} className="rounded-large border border-line bg-soft-2 p-3 text-sm">
 								<span className="font-medium">{tier.name}</span>
-								{tier.exclusive ? <span className="ml-2 text-[12px] text-amber-700">独占位</span> : null}
+								{tier.exclusive ? <span className="ml-2 text-[12px] text-amber-700">{t("exclusive")}</span> : null}
 								{tier.benefits.length > 0 ? (
 									<p className="mt-0.5 text-[13px] text-ink-3">
-										权益：{tier.benefits.join(" / ")}
+										{t("benefitsLabel", { benefits: tier.benefits.join(" / ") })}
 									</p>
 								) : null}
 							</div>
@@ -262,14 +264,14 @@ export default function SponsorshipManagement({
 
 			{/* 赞助列表 + 履约账本 */}
 			<div className="mt-4 border-t border-line pt-4">
-				<h3 className="text-sm font-medium">赞助与履约账本</h3>
+				<h3 className="text-sm font-medium">{t("ledgerTitle")}</h3>
 				{actionError ? (
 					<p className="mt-2 text-[13px] text-ink-3" role="alert">
 						{actionError}
 					</p>
 				) : null}
 				{sponsorships.length === 0 ? (
-					<p className="mt-2 text-[13px] text-ink-3">暂无赞助意向。</p>
+					<p className="mt-2 text-[13px] text-ink-3">{t("noSponsorships")}</p>
 				) : (
 					<div className="mt-2 grid gap-2">
 						{sponsorships.map((sponsorship) => (
@@ -292,12 +294,14 @@ export default function SponsorshipManagement({
 													: "bg-soft-3 text-ink-3")
 										}
 									>
-										{statusLabel(sponsorship.status)}
+										{t(statusLabel(sponsorship.status))}
 									</span>
 								</div>
 								<p className="mt-1 text-[13px] text-ink-3">
-									账本：{sponsorship.deliveries.filter((d) => d.fulfilledAt).length}/
-									{sponsorship.deliveries.length} 项已核销
+									{t("ledgerCount", {
+										done: sponsorship.deliveries.filter((d) => d.fulfilledAt).length,
+										total: sponsorship.deliveries.length,
+									})}
 								</p>
 								{sponsorship.deliveries.length > 0 ? (
 									<ul className="mt-2 grid gap-1.5">
@@ -308,11 +312,11 @@ export default function SponsorshipManagement({
 											>
 												<span className={delivery.fulfilledAt ? "text-ink-3" : ""}>
 													{delivery.fulfilledAt ? "✓" : "○"} {delivery.benefit}
-													{delivery.exclusive ? "（独占）" : ""}
+													{delivery.exclusive ? t("deliveryExclusive") : ""}
 												</span>
 												{delivery.fulfilledAt ? (
 													<span className="ml-auto text-ink-3">
-														已核销：{delivery.proofNote ?? "—"}
+														{t("fulfilledNote", { note: delivery.proofNote ?? "—" })}
 													</span>
 												) : manage ? (
 													<span className="ml-auto flex gap-2">
@@ -324,8 +328,8 @@ export default function SponsorshipManagement({
 																	[delivery.id]: e.target.value,
 																}))
 															}
-															placeholder="proof_note（履约凭证）"
-															aria-label="核销凭证"
+															placeholder={t("proofPlaceholder")}
+															aria-label={t("proofAria")}
 															className="rounded-large border border-line px-2 py-1 text-[12px]"
 														/>
 														<button
@@ -334,11 +338,11 @@ export default function SponsorshipManagement({
 															disabled={fulfilling === delivery.id}
 															onClick={() => void fulfill(delivery.id)}
 														>
-															{fulfilling === delivery.id ? "核销中…" : "核销"}
+															{fulfilling === delivery.id ? t("fulfilling") : t("fulfill")}
 														</button>
 													</span>
 												) : (
-													<span className="ml-auto text-ink-3">未核销</span>
+													<span className="ml-auto text-ink-3">{t("notFulfilled")}</span>
 												)}
 											</li>
 										))}

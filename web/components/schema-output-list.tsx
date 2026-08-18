@@ -14,6 +14,7 @@
  * React 文本节点渲染，无 dangerouslySetInnerHTML。
  */
 
+import { useTranslations } from "next-intl";
 import FactsTree from "@/components/facts-tree";
 
 export interface OutputSchemaField {
@@ -83,6 +84,7 @@ export default function SchemaOutputList({
 	output: unknown;
 	schema: unknown;
 }) {
+	const t = useTranslations("schemaOutput");
 	const fields = parseOutputSchema(schema);
 
 	// 回退：schema 缺失/不可解析 → 通用递归渲染（现状 FactsTree）
@@ -115,7 +117,7 @@ export default function SchemaOutputList({
 			))}
 			{extraEntries.length > 0 && (
 				<li className="schema-output-row schema-output-row--extra">
-					<span className="schema-output-label">其他</span>
+					<span className="schema-output-label">{t("otherLabel")}</span>
 					<span className="schema-output-value">
 						<FactsTree data={Object.fromEntries(extraEntries)} />
 					</span>

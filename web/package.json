@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "check:licenses": "node scripts/check-licenses.mjs",
-    "check:i18n": "node scripts/check-i18n-keys.mjs"
+    "check:i18n": "node scripts/check-i18n-keys.mjs && node scripts/check-i18n-coverage.mjs",
+    "check:i18n-coverage": "node scripts/check-i18n-coverage.mjs"
   },
   "dependencies": {
     "@apollo/client": "^4.2.9",

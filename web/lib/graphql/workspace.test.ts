@@ -50,12 +50,12 @@ describe("workspace GraphQL 契约（对齐 #62 schema）", () => {
 
 describe("join_policy 展示辅助", () => {
 	it("三态标签齐全", () => {
-		expect(JOIN_POLICY_LABEL.open).toBe("公开");
-		expect(JOIN_POLICY_LABEL.request).toBe("申请审批");
-		expect(JOIN_POLICY_LABEL.invite_only).toBe("仅邀请");
-		expect(JOIN_POLICY_HINT.open).toBe("公开直接加入");
-		expect(JOIN_POLICY_HINT.request).toBe("公开申请审批");
-		expect(JOIN_POLICY_HINT.invite_only).toBe("私密仅邀请");
+		expect(JOIN_POLICY_LABEL.open).toBe("labels.joinPolicy.open");
+		expect(JOIN_POLICY_LABEL.request).toBe("labels.joinPolicy.request");
+		expect(JOIN_POLICY_LABEL.invite_only).toBe("labels.joinPolicy.invite_only");
+		expect(JOIN_POLICY_HINT.open).toBe("labels.joinPolicyHint.open");
+		expect(JOIN_POLICY_HINT.request).toBe("labels.joinPolicyHint.request");
+		expect(JOIN_POLICY_HINT.invite_only).toBe("labels.joinPolicyHint.invite_only");
 	});
 });
 
@@ -109,16 +109,16 @@ describe("#64/#65 成员角色契约", () => {
 			"learner",
 		]);
 		expect(ROLE_NAMES).not.toContain("member");
-		expect(ROLE_LABEL.owner).toBe("Owner");
-		expect(ROLE_LABEL.admin).toBe("Admin");
-		expect(ROLE_LABEL.tutor).toBe("Tutor");
-		expect(ROLE_LABEL.volunteer).toBe("Volunteer");
-		expect(ROLE_LABEL.learner).toBe("Learner");
-		expect(ROLE_LABEL_ZH.owner).toBe("所有者");
-		expect(ROLE_LABEL_ZH.admin).toBe("管理员");
-		expect(ROLE_LABEL_ZH.tutor).toBe("教练");
-		expect(ROLE_LABEL_ZH.volunteer).toBe("志愿者");
-		expect(ROLE_LABEL_ZH.learner).toBe("学员");
+		expect(ROLE_LABEL.owner).toBe("labels.role.owner");
+		expect(ROLE_LABEL.admin).toBe("labels.role.admin");
+		expect(ROLE_LABEL.tutor).toBe("labels.role.tutor");
+		expect(ROLE_LABEL.volunteer).toBe("labels.role.volunteer");
+		expect(ROLE_LABEL.learner).toBe("labels.role.learner");
+		expect(ROLE_LABEL_ZH.owner).toBe("labels.roleZh.owner");
+		expect(ROLE_LABEL_ZH.admin).toBe("labels.roleZh.admin");
+		expect(ROLE_LABEL_ZH.tutor).toBe("labels.roleZh.tutor");
+		expect(ROLE_LABEL_ZH.volunteer).toBe("labels.roleZh.volunteer");
+		expect(ROLE_LABEL_ZH.learner).toBe("labels.roleZh.learner");
 		expect("member" in ROLE_LABEL).toBe(false);
 		expect("member" in ROLE_LABEL_ZH).toBe(false);
 	});

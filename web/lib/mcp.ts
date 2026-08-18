@@ -52,8 +52,7 @@ export async function issueMcpToken(
 	});
 	const payload = data?.createMcpToken;
 	if (!payload?.result || !payload.plainToken) {
-		const msg = payload?.errors?.[0]?.message ?? "签发失败，请稍后重试";
-		throw new Error(msg);
+		throw new Error("errors.issueMcpTokenFailed");
 	}
 	return { token: mapMcpToken(payload.result), plainToken: payload.plainToken };
 }
@@ -66,7 +65,7 @@ export async function revokeMcpToken(id: string): Promise<McpTokenItem> {
 	});
 	const result = data?.revokeMcpToken;
 	if (!result) {
-		throw new Error("撤销失败，请稍后重试");
+		throw new Error("errors.revokeMcpTokenFailed");
 	}
 	return mapMcpToken(result);
 }

@@ -8,8 +8,10 @@
  * CTA 走 Rsk3 降级路径:复制学习任务指令文本,引导粘贴到 OpenClacky 会话。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
+import { createTranslator, useTranslations } from "next-intl";
+import zhCN from "@/messages/zh-CN.json";
 import { useQuery } from "@apollo/client/react";
 import {
   COURSE_LEARNING_DETAIL,
@@ -27,59 +29,73 @@ import {
 type Tab = "learning" | "enrollments" | "sponsorships";
 
 export function ParticipationsTabs({ tab }: { tab: Tab }) {
+  const t = useTranslations("learning");
   const tabs: Array<{ key: Tab; label: string; href: string }> = [
-    { key: "learning", label: "学习", href: "/participations" },
+    { key: "learning", label: t("tabLearning"), href: "/participations" },
     {
       key: "enrollments",
-      label: "报名",
+      label: t("tabEnrollments"),
       href: "/participations?tab=enrollments",
     },
     {
       key: "sponsorships",
-      label: "赞助",
+      label: t("tabSponsorships"),
       href: "/participations?tab=sponsorships",
     },
   ];
 
   return (
     <nav
-      aria-label="我的参与分区"
+      aria-label={t("navAria")}
       className="flex gap-1 border-b border-line"
       data-testid="participations-tabs"
     >
-      {tabs.map((t) => (
+      {tabs.map((tabItem) => (
         <Link
-          key={t.key}
-          href={t.href}
-          data-testid={`tab-${t.key}`}
-          aria-current={t.key === tab ? "page" : undefined}
+          key={tabItem.key}
+          href={tabItem.href}
+          data-testid={`tab-${tabItem.key}`}
+          aria-current={tabItem.key === tab ? "page" : undefined}
           className={
             "-mb-px border-b-2 px-4 py-2 text-sm " +
-            (t.key === tab
+            (tabItem.key === tab
               ? "border-accent font-medium text-ink"
               : "border-transparent text-ink-3 hover:text-ink")
           }
         >
-          {t.label}
+          {tabItem.label}
         </Link>
       ))}
     </nav>
   );
 }
 
-/** 学习任务指令文本(Rsk3 降级:复制后粘贴到 OpenClacky 会话) */
+/** 学习任务指令文本(Rsk3 降级:复制后粘贴到 OpenClacky 会话)。
+ * 组件内传 useTranslations("learning") 的 t;无 provider 的纯函数直调(测试)用
+ * zh-CN 源文案的降级 translator,与硬编码原文一致。 */
+type LearningTranslate = ReturnType<typeof useTranslations<"learning">>;
+
+const fallbackLearningT = createTranslator({
+  locale: "zh-CN",
+  messages: zhCN,
+  namespace: "learning",
+}) as LearningTranslate;
+
 export function learningSessionPrompt(
   detail: CourseLearningDetail,
   issue: LearningIssue,
+  t: LearningTranslate = fallbackLearningT,
 ): string {
   return [
-    `请和我一起学习课程《${detail.title}》的 ${issue.key}「${issue.title}」。`,
-    `学习目标:${issue.story.goal ?? "(见课程内容)"}`,
-    "请按学习 Agent 指令的八步循环开始:先读取我的学习记录与课程内容,从当前进度接续教学。",
+    t("agentPrompt1", { title: detail.title, key: issue.key, issue: issue.title }),
+    t("agentGoal", { goal: issue.story.goal ?? t("agentGoalFallback") }),
+    t("agentPrompt2"),
   ].join("\n");
 }
 
 export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
+  const t = useTranslations("learning");
+  const tRoot = useTranslations();
   // 按课程分组(courseId 为空的事件型 run 归「其他学习」组);组序 = runs 顺序
   const groups: Array<{ courseId: string | null; runs: MyLearningRun[] }> = [];
   const groupIndex: Record<string, number> = {};
@@ -99,7 +115,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
   if (runs.length === 0) {
     return (
       <p className="mt-5 text-sm text-ink-3" data-testid="learning-empty">
-        暂无在学课程。报名课程并确认后,这里会显示学习进度。
+        {t("empty")}
       </p>
     );
   }
@@ -108,7 +124,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
     <div className="mt-5 grid gap-5" data-testid="learning-groups">
       {groups.map((group) => {
         const primary = group.runs[0];
-        const title = primary.targetTitle ?? "未命名课程";
+        const title = primary.targetTitle ?? t("unnamedCourse");
 
         return (
           <section key={group.courseId ?? "_none"} data-testid="learning-group">
@@ -116,7 +132,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
               <h3 className="text-sm font-medium text-ink-2">{title}</h3>
               {primary.status ? (
                 <span className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-ink-2">
-                  {LEARNING_RUN_STATUS_LABEL[primary.status] ?? "处理中"}
+                  {tRoot(LEARNING_RUN_STATUS_LABEL[primary.status]) ?? t("processing")}
                 </span>
               ) : null}
             </div>
@@ -152,6 +168,7 @@ function LearningRunRow({
   run: MyLearningRun;
   onOpenDrawer: (courseId: string) => void;
 }) {
+  const t = useTranslations("learning");
   // 行级进度 = run 的 doneIssues/totalIssues(投影单源);点行开抽屉看逐条
   const status: IssueStatus =
     run.totalIssues > 0 && run.doneIssues === run.totalIssues
@@ -177,11 +194,11 @@ function LearningRunRow({
               {run.currentIssueKey}
             </span>
           ) : null}
-          {run.currentIssueTitle ?? "学习进行中"}
+          {run.currentIssueTitle ?? t("learningInProgress")}
         </span>
         {run.totalIssues > 0 ? (
           <span className="mt-0.5 block text-[13px] text-ink-3">
-            学习进度：{run.doneIssues}/{run.totalIssues} 节
+            {t("progressLabel", { done: run.doneIssues, total: run.totalIssues })}
           </span>
         ) : null}
       </span>
@@ -202,6 +219,8 @@ function IssueDrawer({
   });
   const detail = data?.courseLearningDetail ?? null;
 
+  const t = useTranslations("learning");
+
   const [openIssueId, setOpenIssueId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -215,14 +234,14 @@ function IssueDrawer({
 
   async function copyPrompt(issue: LearningIssue) {
     if (!detail) return;
-    const text = learningSessionPrompt(detail, issue);
+    const text = learningSessionPrompt(detail, issue, t);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // 剪贴板不可用(权限/非安全上下文)——降级为 window.prompt 展示文本
-      window.prompt("复制以下指令到 OpenClacky 会话:", text);
+      window.prompt(t("copyPrompt"), text);
     }
   }
 
@@ -236,21 +255,21 @@ function IssueDrawer({
     >
       <aside
         role="dialog"
-        aria-label="学习详情"
+        aria-label={t("dialogAria")}
         data-testid="issue-drawer"
         className="h-full w-full max-w-xl overflow-y-auto bg-view p-6 shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-ink">
-              {loading ? "加载中…" : (detail?.title ?? "学习详情")}
+              {loading ? t("loading") : (detail?.title ?? t("detailTitle"))}
             </h3>
             {detail ? (
               <p className="mt-1 text-[13px] text-ink-3">
                 {detail.progress.doneIssues}/{detail.progress.totalIssues}{" "}
-                节已完成
+                {t("doneLabel")}
                 {detail.progress.currentIssueKey
-                  ? ` · 当前 ${detail.progress.currentIssueKey}`
+                  ? t("currentLabel", { key: detail.progress.currentIssueKey })
                   : ""}
               </p>
             ) : null}
@@ -260,13 +279,13 @@ function IssueDrawer({
             onClick={onClose}
             className="rounded-large border border-line px-3 py-1.5 text-sm text-ink-2 hover:bg-soft-2"
           >
-            关闭
+            {t("close")}
           </button>
         </div>
 
         {error ? (
           <p className="mt-6 text-sm text-ink-3" role="alert">
-            学习详情加载失败,请刷新重试。
+            {t("loadError")}
           </p>
         ) : null}
 
@@ -303,7 +322,7 @@ function IssueDrawer({
                         <IssueKindChip kind={issue.kind} />
                       </span>
                       <span className="mt-0.5 block text-[13px] text-ink-3">
-                        {doneCount}/{total} 条达成
+                        {t("doneCountLabel", { done: doneCount, total })}
                       </span>
                     </span>
                   </button>
@@ -315,20 +334,22 @@ function IssueDrawer({
                     >
                       {issue.story.goal ? (
                         <p className="text-sm text-ink-2">
-                          <strong>目标:</strong>
+                          <strong>{t("goalLabel")}</strong>
                           {issue.story.goal}
                         </p>
                       ) : null}
                       {issue.story.given.length > 0 ? (
                         <p className="mt-1 text-[13px] text-ink-3">
-                          先修:{issue.story.given.join(" / ")}
+                          {t("givenLabel", {
+                            given: issue.story.given.join(" / "),
+                          })}
                         </p>
                       ) : null}
                       {issue.story.materials.length > 0 ? (
                         <ul className="mt-2 grid gap-1 text-[13px] text-ink-3">
                           {issue.story.materials.map((m, i) => (
                             <li key={i}>
-                              材料：{m.title}
+                              {t("materialLabel", { title: m.title ?? "" })}
                               {m.ref ? `(${m.ref})` : ""}
                             </li>
                           ))}
@@ -363,7 +384,7 @@ function IssueDrawer({
                               </span>
                               {item.done && item.evidence ? (
                                 <span className="mt-0.5 block text-[12px] text-ink-3">
-                                  证据：{item.evidence}
+                                  {t("evidenceLabel", { evidence: item.evidence })}
                                 </span>
                               ) : null}
                             </span>
@@ -378,16 +399,16 @@ function IssueDrawer({
                           onClick={() => void copyPrompt(issue)}
                           className="join-button join-button--primary"
                         >
-                          {copied ? "已复制指令" : "和导师学这一节"}
+                          {copied ? t("copiedInstruction") : t("tutorThisSection")}
                         </button>
                         <p className="mt-2 text-[12px] text-ink-3">
-                          复制学习指令后,粘贴到 OpenClacky
-                          会话开始本节学习;学习记录会自动写回。 尚未接入?见
+                          {t("copyHint1")}
+                          {t("copyHint2")}
                           <Link
                             href="/settings/integrations"
                             className="text-accent hover:underline"
                           >
-                            集成设置
+                            {t("integrationSettings")}
                           </Link>
                           。
                         </p>

@@ -1,13 +1,64 @@
-import { render as rtlRender } from "@testing-library/react";
+import {
+	render as rtlRender,
+	renderHook as rtlRenderHook,
+} from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
+import zhCN from "./messages/zh-CN.json";
+import en from "./messages/en.json";
 import ThemeProvider from "@/lib/theme-provider";
 
 /**
- * 测试专用 render：自动包裹 ThemeProvider。
+ * 测试专用 render / renderHook：自动包裹 NextIntlClientProvider + ThemeProvider。
  *
- * 背景：WorkspaceShell footer 的 ThemeToggle（U3）依赖 useTheme，故渲染含 shell 的页面
- * 时需 ThemeProvider context。本 helper 让页面测试一处接入、无需逐个 render 调用包裹。
- * 其余 RTL 工具（screen / fireEvent / waitFor 等）仍从 @testing-library/react 直接 import。
+ * - NextIntlClientProvider 默认注入 zh-CN messages（i18n Phase 2 起组件抽取 useTranslations，
+ *   测试断言文案不变——zh-CN 为 source，渲染结果与硬编码原文一致）。
+ * - locale="en" 或传入自定义 messages 可覆盖（语言切换器 / 设置页语言下拉等 en 场景测试）。
+ * - ThemeProvider 保留（WorkspaceShell footer 的 ThemeToggle（U3）依赖 useTheme context）。
+ * - 其余 RTL 工具（screen / fireEvent / waitFor 等）仍从 @testing-library/react 直接 import。
  */
-export function render(ui: React.ReactElement) {
-  return rtlRender(<ThemeProvider>{ui}</ThemeProvider>);
+
+export type RenderOptions = {
+	/** 界面 locale；默认 "zh-CN"。en 场景显式传入 "en"。 */
+	locale?: "zh-CN" | "en";
+	/** 自定义 messages；缺省按 locale 取 messages/{locale}.json。 */
+	messages?: Record<string, unknown>;
+};
+
+const MESSAGES: Record<"zh-CN" | "en", Record<string, unknown>> = {
+	"zh-CN": zhCN,
+	en,
+};
+
+/**
+ * RTL wrapper（供 render 的 rerender 保留 provider 树）。
+ */
+function providersWrapper(options?: RenderOptions) {
+	const locale: "zh-CN" | "en" = options?.locale ?? "zh-CN";
+	const messages = options?.messages ?? MESSAGES[locale];
+	function Providers({ children }: { children: React.ReactNode }) {
+		return (
+			<NextIntlClientProvider locale={locale} messages={messages}>
+				<ThemeProvider>{children}</ThemeProvider>
+			</NextIntlClientProvider>
+		);
+	}
+	Providers.displayName = "I18nThemeProviders";
+	return Providers;
+}
+
+export function render(ui: React.ReactElement, options?: RenderOptions) {
+	return rtlRender(ui, { wrapper: providersWrapper(options) });
+}
+
+export function renderHook<Result, Props>(
+	hook: (props: Props) => Result,
+	options?: RenderOptions & {
+		initialProps?: Props;
+	},
+) {
+	const { initialProps, ...providerOptions } = options ?? {};
+	return rtlRenderHook(hook, {
+		initialProps,
+		wrapper: providersWrapper(providerOptions),
+	});
 }

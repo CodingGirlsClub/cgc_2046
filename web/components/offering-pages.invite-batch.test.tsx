@@ -106,6 +106,8 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	usePathname: () => "/w/demo/events/event-1",
 	useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));

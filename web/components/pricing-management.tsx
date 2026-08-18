@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import {
 	LIST_COURSES,
@@ -35,9 +36,6 @@ interface TierDraft {
 	/** yyyy-mm-dd 可空 */
 	availableUntil: string;
 }
-
-const TIER_VALIDATION =
-	"档位金额需 ≥ 0.01 元（无 0 元档），且启用收费时至少配置一个有效档位。";
 
 function toDraft(raw: string[] | null | undefined): TierDraft[] {
 	if (!Array.isArray(raw)) return [];
@@ -89,6 +87,7 @@ export default function PricingManagement({
 	workspaceId: string;
 	manage: boolean;
 }) {
+	const t = useTranslations("pricing");
 	const [offerings, setOfferings] = useState<Array<OfferingItem & { kind: OfferingKind }>>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [drafts, setDrafts] = useState<TierDraft[]>([]);
@@ -179,7 +178,7 @@ export default function PricingManagement({
 	async function save() {
 		if (!selected || saving) return;
 		if (invalidCount > 0 || enableBlocked) {
-			setSaveError(TIER_VALIDATION);
+			setSaveError(t("validation"));
 			return;
 		}
 		setSaving(true);
@@ -195,10 +194,10 @@ export default function PricingManagement({
 				setTimeout(() => setSavedFlash(false), 2000);
 				await load(selected.id);
 			} else {
-				setSaveError(res.errors[0]?.message ?? "保存失败，请重试");
+				setSaveError(res.errors[0]?.message ?? t("saveFailedRetry"));
 			}
 		} catch (e) {
-			setSaveError(e instanceof Error ? e.message : "保存失败，请重试");
+			setSaveError(e instanceof Error ? e.message : t("saveFailedRetry"));
 		} finally {
 			setSaving(false);
 		}
@@ -211,9 +210,9 @@ export default function PricingManagement({
 	if (loadState === "error") {
 		return (
 			<div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
-				定价配置加载失败，
+				{t("loadFailed")}
 				<button type="button" className="underline" onClick={() => void load(null)}>
-					重试
+					{t("retry")}
 				</button>
 			</div>
 		);
@@ -222,7 +221,7 @@ export default function PricingManagement({
 	if (offerings.length === 0) {
 		return (
 			<div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
-				本工作台还没有活动或课程，先创建后再配置定价。
+				{t("noOfferings")}
 			</div>
 		);
 	}
@@ -231,7 +230,7 @@ export default function PricingManagement({
 		<div className="grid gap-4" data-testid="pricing-management">
 			{/* 目标选择 */}
 			<div className="rounded-large border border-line bg-card p-4">
-				<h2 className="text-sm font-medium text-ink">选择活动 / 课程</h2>
+				<h2 className="text-sm font-medium text-ink">{t("chooseTarget")}</h2>
 				<div className="mt-3 flex flex-wrap gap-2">
 					{offerings.map((o) => (
 						<button
@@ -246,7 +245,7 @@ export default function PricingManagement({
 							onClick={() => selectOffering(o.id)}
 						>
 							{o.title}
-							{o.pricingEnabled ? " · 收费" : ""}
+							{o.pricingEnabled ? t("paidSuffix") : ""}
 						</button>
 					))}
 				</div>
@@ -256,7 +255,7 @@ export default function PricingManagement({
 				<div className="rounded-large border border-line bg-card p-4" data-testid="pricing-editor">
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<h2 className="text-sm font-medium text-ink">
-							定价配置 · {selected.title}
+							{t("configTitle", { title: selected.title })}
 						</h2>
 						<label
 							className={`flex items-center gap-2 text-sm text-ink-2 ${manage ? "cursor-pointer" : ""}`}
@@ -271,19 +270,19 @@ export default function PricingManagement({
 								}}
 								data-testid="pricing-toggle"
 							/>
-							启用收费
+							{t("enablePaid")}
 						</label>
 					</div>
 
 					<p className="mt-2 text-[13px] text-ink-3">
-						收费报名须选档并完成支付；免费活动报名路径零变化（R4）。
+						{t("enablePaidHint")}
 					</p>
 
 					{/* 档位编辑（免费态也可预配，保存时后端校验配对） */}
 					<div className="mt-4 grid gap-2" data-testid="tier-editor">
 						{drafts.length === 0 ? (
 							<p className="text-sm text-ink-3" data-testid="tier-empty">
-								未配置档位{pricingEnabled ? "——启用收费前至少添加一档" : ""}。
+								{t("noTiers", { extra: pricingEnabled ? t("noTiersPaidExtra") : "" })}
 							</p>
 						) : (
 							drafts.map((d) => (
@@ -294,7 +293,7 @@ export default function PricingManagement({
 								>
 									<input
 										className="w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
-										placeholder="档位名（如 标准票）"
+										placeholder={t("tierNamePlaceholder")}
 										value={d.name}
 										disabled={!manage}
 										onChange={(e) => patchTier(d.id, { name: e.target.value })}
@@ -302,7 +301,7 @@ export default function PricingManagement({
 									/>
 									<input
 										className="w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
-										placeholder="金额(元)"
+										placeholder={t("tierAmountPlaceholder")}
 										inputMode="decimal"
 										value={d.amount}
 										disabled={!manage}
@@ -326,7 +325,7 @@ export default function PricingManagement({
 											onClick={() => removeTier(d.id)}
 											data-testid={`tier-remove-${d.id}`}
 										>
-											删除
+											{t("delete")}
 										</button>
 									)}
 								</div>
@@ -337,12 +336,12 @@ export default function PricingManagement({
 					{/* 校验提示（同步后端 PriceTiersValidation 语义） */}
 					{invalidCount > 0 && (
 						<p role="alert" className="mt-2 text-[13px] text-red-300" data-testid="tier-invalid">
-							{TIER_VALIDATION}
+							{t("validation")}
 						</p>
 					)}
 					{enableBlocked && invalidCount === 0 && (
 						<p role="alert" className="mt-2 text-[13px] text-red-300" data-testid="tier-blocked">
-							启用收费前至少配置一个有效档位。
+							{t("tierBlocked")}
 						</p>
 					)}
 
@@ -355,7 +354,7 @@ export default function PricingManagement({
 								disabled={saving}
 								data-testid="tier-add"
 							>
-								添加档位
+								{t("addTier")}
 							</button>
 							<button
 								type="button"
@@ -364,11 +363,11 @@ export default function PricingManagement({
 								disabled={saving || !dirty}
 								data-testid="pricing-save"
 							>
-								{saving ? "保存中…" : "保存定价配置"}
+								{saving ? t("saving") : t("saveConfig")}
 							</button>
 							{savedFlash && (
 								<span role="status" className="text-sm text-emerald-300" data-testid="pricing-saved">
-									✓ 已保存
+									{t("saved")}
 								</span>
 							)}
 						</div>
@@ -383,7 +382,7 @@ export default function PricingManagement({
 					{/* 只读预览（保存后快照回显） */}
 					{!dirty && validTiers.length > 0 && (
 						<p className="mt-3 text-[13px] text-ink-3" data-testid="tier-preview">
-							当前档位：
+							{t("currentTiers")}
 							{validTiers
 								.map(
 									(t) =>

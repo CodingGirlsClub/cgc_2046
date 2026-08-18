@@ -1,3 +1,5 @@
+import { useTranslations } from "next-intl";
+
 interface InviteTokenInputStepProps {
   inviteToken: string;
   setInviteToken: (value: string) => void;
@@ -13,24 +15,25 @@ export function InviteTokenInputStep({
   onValidate,
   onBack,
 }: InviteTokenInputStepProps) {
+  const t = useTranslations("join");
   return (
     <>
-      <h1>使用邀请链接加入</h1>
-      <p>输入邀请链接中的 token 或完整链接</p>
+      <h1>{t("inviteTitle")}</h1>
+      <p>{t("inviteHint")}</p>
       <div className="join-input-row">
         <input
           type="text"
           className="join-input"
-          placeholder="输入邀请 token 或粘贴完整链接"
+          placeholder={t("invitePlaceholder")}
           value={inviteToken}
           onChange={(e) => {
             // 自动提取 token：如果粘贴的是完整 URL，提取 token 参数
             const val = e.target.value;
             try {
               const url = new URL(val);
-              const t = url.searchParams.get("token");
-              if (t) {
-                setInviteToken(t);
+              const tkn = url.searchParams.get("token");
+              if (tkn) {
+                setInviteToken(tkn);
                 return;
               }
             } catch {
@@ -40,7 +43,7 @@ export function InviteTokenInputStep({
           }}
           onKeyDown={(e) => e.key === "Enter" && onValidate()}
           disabled={loading}
-          aria-label="邀请 token"
+          aria-label={t("inviteAria")}
         />
         <button
           type="button"
@@ -48,7 +51,7 @@ export function InviteTokenInputStep({
           onClick={onValidate}
           disabled={loading || !inviteToken.trim()}
         >
-          {loading ? "校验中…" : "校验"}
+          {loading ? t("validating") : t("validate")}
         </button>
       </div>
       <button
@@ -56,7 +59,7 @@ export function InviteTokenInputStep({
         className="join-button join-button--ghost"
         onClick={onBack}
       >
-        ← 返回
+        {t("back")}
       </button>
     </>
   );

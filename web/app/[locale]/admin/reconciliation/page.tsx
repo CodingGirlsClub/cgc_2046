@@ -6,6 +6,7 @@
  * 列：规则 / 实体 / ID / workspace / 首次发现 / 最近发现；规则枚举中文标签。
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { fetchReconciliationFindings } from "@/lib/admin";
 import {
 	RECONCILIATION_ENTITY_LABEL,
@@ -19,6 +20,8 @@ const PAGE_SIZE = 50;
 const RULE_OPTIONS = Object.entries(RECONCILIATION_RULE_LABEL);
 
 export default function AdminReconciliationPage() {
+	const t = useTranslations("admin");
+	const labelsT = useTranslations();
 	const [rows, setRows] = useState<AdminReconciliationFinding[] | null>(null);
 	const [rule, setRule] = useState("");
 	const [workspaceId, setWorkspaceId] = useState("");
@@ -59,20 +62,20 @@ export default function AdminReconciliationPage() {
 	return (
 		<section>
 			<div className="admin-page__head">
-				<h1>对账</h1>
+				<h1>{t("reconTitle")}</h1>
 			</div>
 
 			<div className="admin-toolbar">
 				<select
 					value={rule}
 					onChange={(e) => setRule(e.target.value)}
-					aria-label="规则过滤"
+					aria-label={t("ruleAria")}
 					className="l-input"
 				>
-					<option value="">全部规则</option>
+					<option value="">{t("allRules")}</option>
 					{RULE_OPTIONS.map(([value, label]) => (
 						<option key={value} value={value}>
-							{label}
+							{labelsT(label)}
 						</option>
 					))}
 				</select>
@@ -80,20 +83,20 @@ export default function AdminReconciliationPage() {
 					value={workspaceId}
 					onChange={(e) => setWorkspaceId(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && handleFilter()}
-					placeholder="workspace 过滤（ID）"
-					aria-label="workspace 过滤"
+					placeholder={t("workspaceFilterPlaceholder")}
+					aria-label={t("workspaceFilterAria")}
 					className="l-input"
 				/>
 				<button type="button" onClick={handleFilter} className="l-btn-outline">
-					过滤
+					{t("filter")}
 				</button>
 			</div>
 
-			{error && <p className="admin-alert admin-alert--error">加载失败，请稍后重试。</p>}
-			{loading && <p className="admin-muted">加载中…</p>}
+			{error && <p className="admin-alert admin-alert--error">{t("loadFailed")}</p>}
+			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && rows && rows.length === 0 && (
-				<p className="admin-empty">暂无孤儿发现。</p>
+				<p className="admin-empty">{t("noOrphans")}</p>
 			)}
 
 			{!loading && !error && rows && rows.length > 0 && (
@@ -101,20 +104,22 @@ export default function AdminReconciliationPage() {
 					<table className="admin-table">
 						<thead>
 							<tr>
-								<th>规则</th>
-								<th>实体</th>
-								<th>ID</th>
+								<th>{t("thRule")}</th>
+								<th>{t("thEntity")}</th>
+								<th>{t("thId")}</th>
 								<th>workspace</th>
-								<th>首次发现</th>
-								<th>最近发现</th>
+								<th>{t("thFirstSeen")}</th>
+								<th>{t("thLastSeen")}</th>
 							</tr>
 						</thead>
 						<tbody>
 							{rows.map((row) => (
 								<tr key={row.id}>
-									<td>{RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule}</td>
+									<td>{labelsT(RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule)}</td>
 									<td>
-										{RECONCILIATION_ENTITY_LABEL[row.entityType] ?? row.entityType}
+										{labelsT(
+											RECONCILIATION_ENTITY_LABEL[row.entityType] ?? row.entityType,
+										)}
 									</td>
 									<td className="l-mono">{row.entityId}</td>
 									<td className="l-mono">{row.workspaceId ?? "—"}</td>

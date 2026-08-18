@@ -1,14 +1,16 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@apollo/client/react";
+import { useTranslations } from "next-intl";
 import {
   graphqlErrorDetails,
   REQUEST_PASSWORD_RESET,
 } from "@/lib/graphql/auth";
 
 export default function ForgotPasswordPage() {
+  const t = useTranslations("auth.forgot");
   const [requestPasswordReset, { loading }] = useMutation(REQUEST_PASSWORD_RESET);
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -31,14 +33,14 @@ export default function ForgotPasswordPage() {
       if (data?.requestPasswordReset?.sent) {
         setSubmitted(true);
       } else {
-        setError("发送重置邮件失败，请稍后重试");
+        setError(t("errorSendFailed"));
       }
     } catch (reason) {
       const details = graphqlErrorDetails(reason);
       setError(
         details?.code === "rate_limited"
-          ? "请求过于频繁，请稍后再试"
-          : "发送重置邮件失败，请稍后重试",
+          ? t("errorRateLimited")
+          : t("errorSendFailed"),
       );
     }
   };
@@ -48,7 +50,7 @@ export default function ForgotPasswordPage() {
       <section className="auth-form-panel">
         <div className="auth-form-card">
           <div className="auth-form-heading">
-            <h2>找回密码</h2>
+            <h2>{t("title")}</h2>
           </div>
 
           {submitted ? (
@@ -59,10 +61,10 @@ export default function ForgotPasswordPage() {
               tabIndex={-1}
               aria-live="polite"
             >
-              <p>如果该邮箱已注册，重置链接已发送，请检查收件箱。</p>
-              <p>如果没有收到邮件，请检查垃圾邮件，或稍后重新申请。</p>
+              <p>{t("sentP1")}</p>
+              <p>{t("sentP2")}</p>
               <Link className="auth-inline-link" href="/login">
-                返回登录
+                {t("backToLogin")}
               </Link>
             </div>
           ) : (
@@ -82,7 +84,7 @@ export default function ForgotPasswordPage() {
               <form className="auth-form" onSubmit={handleSubmit} noValidate>
                 <div className="auth-field">
                   <label className="auth-field__label" htmlFor="forgot-email">
-                    注册邮箱
+                    {t("fieldEmail")}
                   </label>
                   <input
                     id="forgot-email"
@@ -100,7 +102,7 @@ export default function ForgotPasswordPage() {
                     required
                   />
                   <span className="auth-field__hint">
-                    我们会向邮箱发送一次性密码重置链接。
+                    {t("hint")}
                   </span>
                 </div>
 
@@ -110,13 +112,13 @@ export default function ForgotPasswordPage() {
                   disabled={loading}
                   aria-busy={loading}
                 >
-                  {loading ? "发送中…" : "发送重置邮件"}
+                  {loading ? t("sending") : t("submit")}
                 </button>
               </form>
 
               <p className="auth-switch">
                 <Link className="auth-switch__action auth-inline-link" href="/login">
-                  返回登录
+                  {t("backToLogin")}
                 </Link>
               </p>
             </div>

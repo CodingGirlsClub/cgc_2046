@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { render } from "@/test-utils";
 import ForgotPasswordPage from "./page";
 
 const { requestMock, mutationState } = vi.hoisted(() => ({

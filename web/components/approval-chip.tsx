@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 
 /**
  * 审批倒计时 chip（原型验证结论 #4：琥珀/青色脉冲 + <48h 高亮）。
  * 供 B-3 加入申请审批页与 E-8 全局审批控制台共用。
  */
 export function ApprovalChip({ deadline }: { deadline: string | null }) {
+	const t = useTranslations("approvals");
 	const [now, setNow] = useState(() => Date.now());
 
 	useEffect(() => {
@@ -28,19 +30,26 @@ export function ApprovalChip({ deadline }: { deadline: string | null }) {
 
 	if (!timeLeft) return null;
 	if (timeLeft.expired) {
-		return <span className="approval-chip approval-chip--expired">已过期</span>;
+		return (
+			<span className="approval-chip approval-chip--expired">
+				{t("chipExpired")}
+			</span>
+		);
 	}
 
 	const urgent = timeLeft.hours < 48;
 	return (
 		<span
 			className={`approval-chip ${urgent ? "approval-chip--urgent" : ""}`}
-			title={`审批剩余：${timeLeft.hours} 小时 ${timeLeft.minutes} 分钟`}
+			title={t("chipRemaining", {
+				hours: timeLeft.hours,
+				minutes: timeLeft.minutes,
+			})}
 		>
 			{urgent && <span className="approval-chip__pulse" aria-hidden="true" />}
 			{timeLeft.hours > 0
-				? `剩余 ${timeLeft.hours}h`
-				: `剩余 ${timeLeft.minutes}m`}
+				? t("chipHours", { hours: timeLeft.hours })
+				: t("chipMinutes", { minutes: timeLeft.minutes })}
 		</span>
 	);
 }

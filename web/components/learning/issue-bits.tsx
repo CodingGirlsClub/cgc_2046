@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 /**
  * 学习 issue 三态图标与 kind 标签(U8,R7/R11)。
  *
@@ -9,24 +11,27 @@
 
 export type IssueStatus = "todo" | "in_progress" | "done";
 
+/** 值 = learning messages key 名(渲染方 useTranslations("learning") 翻译) */
 export const ISSUE_STATUS_LABEL: Record<IssueStatus, string> = {
-  todo: "未开始",
-  in_progress: "进行中",
-  done: "已达成",
+  todo: "issueStatusTodo",
+  in_progress: "issueStatusInProgress",
+  done: "issueStatusDone",
 };
 
+/** 值 = learning messages key 名(渲染方 useTranslations("learning") 翻译) */
 export const ISSUE_KIND_LABEL: Record<string, string> = {
-  thoughtwork: "思考",
-  handwork: "动手",
+  thoughtwork: "issueKindThoughtwork",
+  handwork: "issueKindHandwork",
 };
 
 /** 三态图标:Todo 空心圆 / In Progress 半填充 / Done 实心勾(Linear 同款语汇) */
 export function IssueStatusIcon({ status }: { status: IssueStatus }) {
+  const t = useTranslations("learning");
   if (status === "done") {
     return (
       <svg
         data-testid="issue-status-done"
-        aria-label={ISSUE_STATUS_LABEL.done}
+        aria-label={t(ISSUE_STATUS_LABEL.done)}
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -49,7 +54,7 @@ export function IssueStatusIcon({ status }: { status: IssueStatus }) {
     return (
       <svg
         data-testid="issue-status-in_progress"
-        aria-label={ISSUE_STATUS_LABEL.in_progress}
+        aria-label={t(ISSUE_STATUS_LABEL.in_progress)}
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -71,7 +76,7 @@ export function IssueStatusIcon({ status }: { status: IssueStatus }) {
   return (
     <svg
       data-testid="issue-status-todo"
-      aria-label={ISSUE_STATUS_LABEL.todo}
+      aria-label={t(ISSUE_STATUS_LABEL.todo)}
       width="14"
       height="14"
       viewBox="0 0 16 16"
@@ -91,7 +96,8 @@ export function IssueStatusIcon({ status }: { status: IssueStatus }) {
 
 /** kind 标签 chip(thoughtwork/handwork;未知 kind 灰显原文) */
 export function IssueKindChip({ kind }: { kind: string }) {
-  const label = ISSUE_KIND_LABEL[kind] ?? kind;
+  const t = useTranslations("learning");
+  const label = ISSUE_KIND_LABEL[kind] ? t(ISSUE_KIND_LABEL[kind]) : kind;
   return (
     <span
       data-testid={`issue-kind-${kind}`}

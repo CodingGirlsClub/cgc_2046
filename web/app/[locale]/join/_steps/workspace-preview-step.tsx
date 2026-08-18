@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
 import {
   JOIN_POLICY_LABEL,
@@ -24,6 +25,8 @@ export function WorkspacePreviewStep({
   onBack,
 }: WorkspacePreviewStepProps) {
   const [message, setMessage] = useState("");
+  const t = useTranslations("join");
+  const labelsT = useTranslations();
 
   return (
     <div className="join-workspace-preview">
@@ -33,10 +36,10 @@ export function WorkspacePreviewStep({
         <span
           className={`workspace-policy workspace-policy--${workspace.joinPolicy}`}
         >
-          {JOIN_POLICY_LABEL[workspace.joinPolicy]}
+          {labelsT(JOIN_POLICY_LABEL[workspace.joinPolicy])}
         </span>
         <p className="join-policy-hint">
-          {JOIN_POLICY_HINT[workspace.joinPolicy]}
+          {labelsT(JOIN_POLICY_HINT[workspace.joinPolicy])}
         </p>
       </div>
 
@@ -48,7 +51,7 @@ export function WorkspacePreviewStep({
             onClick={onJoinOpen}
             disabled={loading}
           >
-            {loading ? "加入中…" : "直接加入"}
+            {loading ? t("joining") : t("joinDirect")}
           </button>
         </div>
       )}
@@ -56,10 +59,10 @@ export function WorkspacePreviewStep({
       {workspace.joinPolicy === "request" && (
         <div className="join-action-area">
           <label className="join-field">
-            <span>申请留言（可选）</span>
+            <span>{t("requestMsgLabel")}</span>
             <textarea
               className="join-textarea"
-              placeholder="简单介绍一下自己…"
+              placeholder={t("requestMsgPlaceholder")}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               disabled={loading}
@@ -72,7 +75,7 @@ export function WorkspacePreviewStep({
             onClick={() => onSubmitRequest(message)}
             disabled={loading}
           >
-            {loading ? "提交中…" : "提交申请"}
+            {loading ? t("submitting") : t("submitRequest")}
           </button>
         </div>
       )}
@@ -81,14 +84,14 @@ export function WorkspacePreviewStep({
         <div className="join-action-area">
           <div className="join-invite-notice">
             <Icon name="lock" />
-            <span>该工作区为邀请制，需要有效邀请链接才能加入。</span>
+            <span>{t("inviteOnlyNotice")}</span>
           </div>
           <button
             type="button"
             className="join-button join-button--outline"
             onClick={onHaveInvite}
           >
-            我有邀请链接
+            {t("haveInvite")}
           </button>
         </div>
       )}
@@ -98,7 +101,7 @@ export function WorkspacePreviewStep({
         className="join-button join-button--ghost"
         onClick={onBack}
       >
-        ← 查找其他工作区
+        {t("searchOther")}
       </button>
     </div>
   );

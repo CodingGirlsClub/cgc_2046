@@ -17,8 +17,9 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import WorkspaceShell from "@/components/workspace-shell";
 import { Icon } from "@/components/icons";
 import StepHandoffCopy from "@/components/step-handoff-copy";
@@ -29,15 +30,15 @@ import { fetchMyMcpTokens, type McpTokenItem } from "@/lib/mcp";
 import { fetchMyWorkspaceToolCalls, type AgentActivityItem } from "@/lib/agents";
 
 /** 活动流状态展示元信息（色点 class + 中文 label） */
-const ACTIVITY_STATUS_META: Record<string, { className: string; label: string }> = {
-	ok: { className: "agents-activity-dot--ok", label: "成功" },
-	error: { className: "agents-activity-dot--error", label: "失败" },
-	needs_confirmation: { className: "agents-activity-dot--pending", label: "待确认" },
-	forbidden: { className: "agents-activity-dot--error", label: "被拒" },
+const ACTIVITY_STATUS_META: Record<string, { className: string; labelKey: string }> = {
+	ok: { className: "agents-activity-dot--ok", labelKey: "activityStatusOk" },
+	error: { className: "agents-activity-dot--error", labelKey: "activityStatusError" },
+	needs_confirmation: { className: "agents-activity-dot--pending", labelKey: "activityStatusPending" },
+	forbidden: { className: "agents-activity-dot--error", labelKey: "activityStatusForbidden" },
 };
 
 function activityMeta(status: string) {
-	return ACTIVITY_STATUS_META[status] ?? { className: "agents-activity-dot--muted", label: status };
+	return ACTIVITY_STATUS_META[status] ?? { className: "agents-activity-dot--muted", labelKey: status };
 }
 
 interface TodoItem {
@@ -81,14 +82,15 @@ function TodoSection({
 	slug: string;
 	workspaceId: string;
 }) {
+	const t = useTranslations("workspaceAgents");
 	if (todos.length === 0) {
 		return (
 			<section className="agents-card" data-testid="agents-todos-empty">
 				<div className="agents-section-head">
-					<h2>待办交接</h2>
-					<span className="agents-section-hint">本工作台学习 run 等待助手产出的步骤</span>
+					<h2>{t("todosTitle")}</h2>
+					<span className="agents-section-hint">{t("todosHint")}</span>
 				</div>
-				<p className="agents-todos-none">当前没有待办步骤 🎉</p>
+				<p className="agents-todos-none">{t("todosEmpty")}</p>
 			</section>
 		);
 	}
@@ -96,8 +98,8 @@ function TodoSection({
 	return (
 		<section className="agents-card" data-testid="agents-todos">
 			<div className="agents-section-head">
-				<h2>待办交接</h2>
-				<span className="agents-section-hint">把待办步骤交接给你的助手执行</span>
+				<h2>{t("todosTitle")}</h2>
+				<span className="agents-section-hint">{t("todosHandoffHint")}</span>
 			</div>
 			<ul className="agents-todos-list">
 				{todos.map(({ run, step }) => (
@@ -117,20 +119,21 @@ function TodoSection({
 					</li>
 				))}
 			</ul>
-			<p className="agents-multihost-hint">粘贴给你的 OpenClacky / opencode / omp 助手</p>
+			<p className="agents-multihost-hint">{t("multihostHint")}</p>
 		</section>
 	);
 }
 
 function ActivitySection({ items }: { items: AgentActivityItem[] }) {
+	const t = useTranslations("workspaceAgents");
 	if (items.length === 0) {
 		return (
 			<section className="agents-card" data-testid="agents-activity-empty">
 				<div className="agents-section-head">
-					<h2>活动流</h2>
-					<span className="agents-section-hint">本工作台内你自己的工具调用（隐私最小面）</span>
+					<h2>{t("activityTitle")}</h2>
+					<span className="agents-section-hint">{t("activityHint")}</span>
 				</div>
-				<p className="agents-activity-none">暂无活动——在 OpenClacky / opencode / omp 里调用平台工具后，记录会显示在这里。</p>
+				<p className="agents-activity-none">{t("activityEmpty")}</p>
 			</section>
 		);
 	}
@@ -138,8 +141,8 @@ function ActivitySection({ items }: { items: AgentActivityItem[] }) {
 	return (
 		<section className="agents-card" data-testid="agents-activity">
 			<div className="agents-section-head">
-				<h2>活动流</h2>
-				<span className="agents-section-hint">本工作台内你自己的工具调用（隐私最小面）</span>
+				<h2>{t("activityTitle")}</h2>
+				<span className="agents-section-hint">{t("activityHint")}</span>
 			</div>
 			<ul className="agents-activity-timeline">
 				{items.map((item) => {
@@ -150,7 +153,7 @@ function ActivitySection({ items }: { items: AgentActivityItem[] }) {
 							<div className="agents-activity__body">
 								<div className="agents-activity__row">
 									<code className="agents-activity__tool">{item.tool}</code>
-									<span className="agents-activity__status">{meta.label}</span>
+									<span className="agents-activity__status">{t(meta.labelKey)}</span>
 								</div>
 								<div className="agents-activity__meta">
 									<span>{formatActivityTime(item.insertedAt)}</span>
@@ -169,14 +172,15 @@ function ActivitySection({ items }: { items: AgentActivityItem[] }) {
 }
 
 function ConnectSection({ slug }: { slug: string }) {
+	const t = useTranslations("workspaceAgents");
 	return (
 		<section className="agents-card" data-testid="agents-connect">
 			<div className="agents-section-head">
-				<h2>连接助手</h2>
-				<span className="agents-section-hint">还没有可用的连接 token</span>
+				<h2>{t("connectTitle")}</h2>
+				<span className="agents-section-hint">{t("connectHint")}</span>
 			</div>
 			<p className="agents-connect-desc">
-				连接 OpenClacky / opencode / omp 后，助手才能在本工作台读取上下文、写回步骤产出。
+				{t("connectDesc")}
 			</p>
 			<div className="agents-connect-actions">
 				<Link
@@ -184,13 +188,13 @@ function ConnectSection({ slug }: { slug: string }) {
 					className="join-button join-button--primary"
 				>
 					<Icon name="plus" />
-					签发 token
+					{t("issueToken")}
 				</Link>
 				<Link
 					href={`/w/${slug}/settings/integrations/agents/openclacky`}
 					className="join-button"
 				>
-					OpenClacky 接入引导
+					{t("openclackyGuide")}
 				</Link>
 			</div>
 		</section>
@@ -198,6 +202,8 @@ function ConnectSection({ slug }: { slug: string }) {
 }
 
 export default function WorkspaceAgentsPage() {
+	const t = useTranslations("workspaceAgents");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { authed, confirmed } = useAuthed();
@@ -234,7 +240,7 @@ export default function WorkspaceAgentsPage() {
 			.catch((error: unknown) => {
 				if (cancelled) return;
 				setRunsWorkspaceId(wsId);
-				setErrorMsg(error instanceof Error ? error.message : "加载 Agents 工作面失败");
+				setErrorMsg(error instanceof Error ? error.message : t("loadFailed"));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -243,7 +249,7 @@ export default function WorkspaceAgentsPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [authed, confirmed, wsId]);
+	}, [authed, confirmed, wsId, t]);
 
 	const currentRuns = runsWorkspaceId === wsId ? runs : null;
 	const currentError = runsWorkspaceId === wsId ? errorMsg : null;
@@ -251,18 +257,18 @@ export default function WorkspaceAgentsPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<strong>Agents</strong>
+					<strong>{t("title")}</strong>
 				</div>
 
 				<header className="ws-page-heading">
 					<div>
-						<h1>Agents</h1>
-						<p>助手活动、待办交接与连接引导</p>
+						<h1>{t("title")}</h1>
+						<p>{t("subtitle")}</p>
 					</div>
 				</header>
 
@@ -274,7 +280,7 @@ export default function WorkspaceAgentsPage() {
 
 				{wsLoading || loading || currentRuns === null ? (
 					<div className="workflows-loading" data-testid="agents-loading">
-						加载中…
+						{t("loading")}
 					</div>
 				) : currentError ? null : wsId ? (
 					<div className="agents-grid" data-testid="agents-page">

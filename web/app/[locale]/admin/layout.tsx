@@ -8,25 +8,27 @@
  *
  * 样式：admin-* 组件类（globals.css），Linear token 双主题自适应（#113 样式收敛）。
  */
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import AdminGuard from "@/components/admin-guard";
 import { Icon } from "@/components/icons";
 
 const ADMIN_NAV = [
-	{ href: "/admin", label: "概览", exact: true },
-	{ href: "/admin/workspaces", label: "工作台" },
-	{ href: "/admin/users", label: "用户" },
-	{ href: "/admin/applications", label: "申请审批" },
-	{ href: "/admin/audit", label: "审计" },
-	{ href: "/admin/reconciliation", label: "对账" },
-	{ href: "/admin/openclacky", label: "OpenClacky" },
+	{ href: "/admin", label: "navOverview", exact: true },
+	{ href: "/admin/workspaces", label: "navWorkspaces" },
+	{ href: "/admin/users", label: "navUsers" },
+	{ href: "/admin/applications", label: "navApplications" },
+	{ href: "/admin/audit", label: "navAudit" },
+	{ href: "/admin/reconciliation", label: "navReconciliation" },
+	{ href: "/admin/openclacky", label: "navOpenclacky" },
 ];
 
 export default function AdminLayout({
 	children,
 }: Readonly<{ children: React.ReactNode }>) {
 	const pathname = usePathname();
+	const t = useTranslations("admin");
 
 	return (
 		<AdminGuard>
@@ -34,9 +36,9 @@ export default function AdminLayout({
 				<header className="admin-topbar">
 					<div className="admin-topbar__inner">
 						<Link href="/admin" className="admin-brand">
-							平台管理
+							{t("brand")}
 						</Link>
-						<nav aria-label="平台管理导航" className="admin-nav">
+						<nav aria-label={t("navAria")} className="admin-nav">
 							{ADMIN_NAV.map((item) => {
 								const selected = item.exact
 									? pathname === item.href
@@ -48,14 +50,14 @@ export default function AdminLayout({
 										className={`admin-nav__item ${selected ? "admin-nav__item--selected" : ""}`}
 										aria-current={selected ? "page" : undefined}
 									>
-										{item.label}
+										{t(item.label)}
 									</Link>
 								);
 							})}
 						</nav>
 						<Link href="/" className="admin-topbar__exit">
 							<Icon name="arrow-left" size={14} />
-							<span>返回工作台</span>
+							<span>{t("backToWorkspaces")}</span>
 						</Link>
 					</div>
 				</header>

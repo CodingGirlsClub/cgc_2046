@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
 import { INVITATION_STATUS_LABEL } from "@/lib/graphql/invitation";
 import type { InvitationItem } from "@/lib/invitations";
@@ -14,14 +15,18 @@ export function InviteInvalidStep({
   invitation,
   onRetry,
 }: InviteInvalidStepProps) {
+  const t = useTranslations("join");
+  const labelsT = useTranslations();
   return (
     <div className="join-status-card join-status-card--error">
       <Icon name="lock" />
-      <h2>邀请无效</h2>
+      <h2>{t("inviteInvalidTitle")}</h2>
       <p>{error}</p>
       {invitation && invitation.status !== "active" && (
         <p className="join-status-detail">
-          状态：{INVITATION_STATUS_LABEL[invitation.status]}
+          {t("inviteInvalidStatus", {
+            status: labelsT(INVITATION_STATUS_LABEL[invitation.status]),
+          })}
         </p>
       )}
       <div className="join-actions">
@@ -30,10 +35,10 @@ export function InviteInvalidStep({
           className="join-button join-button--outline"
           onClick={onRetry}
         >
-          重新输入
+          {t("reenter")}
         </button>
         <Link href="/" className="join-button join-button--ghost">
-          返回工作台
+          {t("backToHome")}
         </Link>
       </div>
     </div>

@@ -22,9 +22,10 @@
  *   收窄侧栏 `.ws-shell-page--editing`）。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { clearSession } from "@/lib/auth";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
@@ -101,6 +102,8 @@ export default function WorkspaceShell({
 }: WorkspaceShellProps) {
 	const pathname = usePathname();
 	const router = useRouter();
+	const t = useTranslations("workspace.shell");
+	const navT = useTranslations("workspaceNav");
 	const { authed, confirmed } = useAuthed();
 	// requireWs=false（profile）时 slug 传 ""：hook 空 slug 不解析（见 hook 文档），
 	// 侧栏上下文块只展示 slug，不出现「不可访问」态
@@ -173,7 +176,7 @@ export default function WorkspaceShell({
 		const result = await clearSession();
 		setSigningOut(false);
 		if (!result.ok) {
-			setSignOutError("退出登录失败，请重试");
+			setSignOutError(t("signOutFailed"));
 			return; // 不导航 —— 让用户看到错误并重试
 		}
 		router.push("/login");
@@ -182,7 +185,7 @@ export default function WorkspaceShell({
 	if (!authed) {
 		return (
 			<main className="ws-shell-loading">
-				<span>正在确认登录状态…</span>
+				<span>{t("confirming")}</span>
 			</main>
 		);
 	}
@@ -193,17 +196,17 @@ export default function WorkspaceShell({
 			return (
 				<main className="ws-shell-page">
 					<div className="ws-shell-empty-page">
-						<h1>加载失败</h1>
-						<p>工作区数据加载出错：{wsError.message}</p>
+						<h1>{t("loadFailed")}</h1>
+						<p>{t("loadError", { message: wsError.message })}</p>
 						<button
 							type="button"
 							className="join-button join-button--primary"
 							onClick={retry}
 						>
-							重试
+							{t("retry")}
 						</button>
 						<Link href="/" className="ws-shell-primary-link">
-							返回工作台
+							{t("backToHome")}
 						</Link>
 					</div>
 				</main>
@@ -212,10 +215,10 @@ export default function WorkspaceShell({
 		return (
 			<main className="ws-shell-page">
 				<div className="ws-shell-empty-page">
-					<h1>工作区不可访问</h1>
-					<p>工作区「{slug}」不存在或你没有访问权限。</p>
+					<h1>{t("notAccessible")}</h1>
+					<p>{t("notAccessibleDesc", { slug })}</p>
 					<Link href="/" className="ws-shell-primary-link">
-						返回工作台
+						{t("backToHome")}
 					</Link>
 				</div>
 			</main>
@@ -245,12 +248,12 @@ export default function WorkspaceShell({
 						className="ws-shell-brand"
 						aria-expanded={brandOpen}
 						aria-haspopup="menu"
-						aria-label={`${workspaceName ?? ws?.name ?? (slug || "工作区")} Workspace Menu`}
+						aria-label={`${workspaceName ?? ws?.name ?? (slug || t("workspaceFallback"))} Workspace Menu`}
 						onClick={() => setBrandOpen((v) => !v)}
 					>
 						{ws && <WorkspaceAvatar ws={ws} small />}
 						<span className="ws-shell-brand__name">
-							{workspaceName ?? ws?.name ?? (slug || "工作区")}
+							{workspaceName ?? ws?.name ?? (slug || t("workspaceFallback"))}
 						</span>
 						<Icon name="chevron" size={16} className="ws-shell-brand__chevron" />
 					</button>
@@ -276,10 +279,10 @@ export default function WorkspaceShell({
 							className="ws-shell-item ws-shell-item--back"
 						>
 							<Icon name="arrow-left" />
-							<span>Back to app</span>
+							<span>{t("backToApp")}</span>
 						</Link>
-						<div className="ws-shell-heading">Personal</div>
-						<nav className="ws-shell-nav" aria-label="Personal">
+						<div className="ws-shell-heading">{t("headingPersonal")}</div>
+						<nav className="ws-shell-nav" aria-label={t("headingPersonal")}>
 							<Link
 								href={`/w/${slug}/settings/account/preferences`}
 								className={`ws-shell-item ${active === "settings-account-preferences" ? "ws-shell-item--selected" : ""}`}
@@ -288,7 +291,7 @@ export default function WorkspaceShell({
 								}
 							>
 								<Icon name="settings" />
-								<span>Preferences</span>
+								<span>{t("headingPersonal")}</span>
 							</Link>
 							<Link
 								href={`/w/${slug}/settings/account/profile`}
@@ -298,11 +301,11 @@ export default function WorkspaceShell({
 								}
 							>
 								<Icon name="user" />
-								<span>个人资料</span>
+								<span>{t("profileLink")}</span>
 							</Link>
 						</nav>
-						<div className="ws-shell-heading">集成</div>
-						<nav className="ws-shell-nav" aria-label="集成">
+						<div className="ws-shell-heading">{t("headingIntegrations")}</div>
+						<nav className="ws-shell-nav" aria-label={t("headingIntegrations")}>
 							<Link
 								href={`/w/${slug}/settings/integrations/agents/mcp`}
 								className={`ws-shell-item ${active === "settings-integrations-agents" ? "ws-shell-item--selected" : ""}`}
@@ -311,11 +314,11 @@ export default function WorkspaceShell({
 								}
 							>
 								<Icon name="activity" />
-								<span>Agents</span>
+								<span>{t("integrationsLink")}</span>
 							</Link>
 						</nav>
-						<div className="ws-shell-heading">Workspace</div>
-						<nav className="ws-shell-nav" aria-label="Workspace">
+						<div className="ws-shell-heading">{t("headingWorkspace")}</div>
+						<nav className="ws-shell-nav" aria-label={t("headingWorkspace")}>
 							{workspaceNav.map((dest) => (
 								<Link
 									key={dest.key}
@@ -326,7 +329,7 @@ export default function WorkspaceShell({
 									}
 								>
 									<Icon name={dest.icon!} />
-									<span>{dest.label}</span>
+									<span>{navT(dest.labelKey)}</span>
 								</Link>
 							))}
 						</nav>
@@ -335,15 +338,15 @@ export default function WorkspaceShell({
 
 				{slug && !isSettings && (
 					<>
-						<div className="ws-shell-heading">工作区导航</div>
-						<nav className="ws-shell-nav" aria-label="工作区导航">
+						<div className="ws-shell-heading">{t("navGroup")}</div>
+						<nav className="ws-shell-nav" aria-label={t("navGroup")}>
 							<Link
 								href={`/w/${slug}`}
 								className={`ws-shell-item ${active === "overview" ? "ws-shell-item--selected" : ""}`}
 								aria-current={active === "overview" ? "page" : undefined}
 							>
 								<Icon name="grid" />
-								<span>概览</span>
+								<span>{t("navOverview")}</span>
 							</Link>
 							{/* plan 020 U1：Agents 工作面一级入口（workspace 侧边栏） */}
 							<Link
@@ -352,7 +355,7 @@ export default function WorkspaceShell({
 								aria-current={active === "agents" ? "page" : undefined}
 							>
 								<Icon name="activity" />
-								<span>Agents</span>
+								<span>{t("navAgents")}</span>
 							</Link>
 							<Link
 								href={`/w/${slug}/workflows`}
@@ -360,7 +363,7 @@ export default function WorkspaceShell({
 								aria-current={active === "workflows" ? "page" : undefined}
 							>
 								<Icon name="book" />
-								<span>教研产出</span>
+								<span>{t("navWorkflows")}</span>
 							</Link>
 							<Link
 								href={`/w/${slug}/events`}
@@ -368,7 +371,7 @@ export default function WorkspaceShell({
 								aria-current={active === "events" ? "page" : undefined}
 							>
 								<Icon name="book" />
-								<span>活动</span>
+								<span>{t("navEvents")}</span>
 							</Link>
 							<Link
 								href={`/w/${slug}/courses`}
@@ -376,7 +379,7 @@ export default function WorkspaceShell({
 								aria-current={active === "courses" ? "page" : undefined}
 							>
 								<Icon name="guide" />
-								<span>课程</span>
+								<span>{t("navCourses")}</span>
 							</Link>
 						</nav>
 					</>
@@ -386,7 +389,7 @@ export default function WorkspaceShell({
 			<main className="ws-shell-main">
 				{readOnlyVisitor && (
 					<div className="ws-shell-readonly-banner" role="status">
-						平台管理员 · 只读审计视图
+						{t("readonlyBanner")}
 					</div>
 				)}
 				{children}

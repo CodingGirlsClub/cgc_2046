@@ -18,6 +18,8 @@ const { declineSpeakerInvitation } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useParams,
 	// ThemeProvider 依赖 usePathname 解析 workspace slug（ADR-0004）
 	usePathname: () => "/events/demo-event/speaker-invite/tok_123",

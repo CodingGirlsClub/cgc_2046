@@ -23,6 +23,8 @@ const { client } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	useParams: () => params,
 	usePathname: () => `/admin/workspaces/${params.id}`,

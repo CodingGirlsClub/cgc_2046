@@ -64,10 +64,10 @@ export type OfferingMutationResult = MutationResult<OfferingItem>;
 /* ---------------- 展示词表（单源；页面一律 import，不重复字面量） ---------------- */
 
 export const EVENT_STATUS_LABEL: Record<EventStatus, string> = {
-  draft: "草稿",
-  open: "开放报名",
-  closed: "已结束",
-  cancelled: "已取消",
+  draft: "labels.eventStatus.draft",
+  open: "labels.eventStatus.open",
+  closed: "labels.eventStatus.closed",
+  cancelled: "labels.eventStatus.cancelled",
 };
 
 export const EVENT_STATUS_TONE: Record<
@@ -81,19 +81,19 @@ export const EVENT_STATUS_TONE: Record<
 };
 
 export const VISIBILITY_LABEL: Record<Visibility, string> = {
-  public: "公开可见",
-  workspace: "仅工作台可见",
+  public: "labels.visibility.public",
+  workspace: "labels.visibility.workspace",
 };
 
 export const ENROLLMENT_POLICY_LABEL: Record<EnrollmentPolicy, string> = {
-  open: "直接报名",
-  request: "申请审批",
-  invite_only: "邀请码报名",
+  open: "labels.enrollmentPolicy.open",
+  request: "labels.enrollmentPolicy.request",
+  invite_only: "labels.enrollmentPolicy.invite_only",
 };
 
 export const OFFERING_LABEL: Record<OfferingKind, string> = {
-  event: "活动",
-  course: "课程",
+  event: "labels.offeringKind.event",
+  course: "labels.offeringKind.course",
 };
 
 export const EVENT_STATUSES: EventStatus[] = [

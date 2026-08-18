@@ -10,10 +10,12 @@
  */
 
 import { useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { DEFAULT_WORKSPACE_SLUG } from "@/lib/profile";
 
 export default function AccountProfilePageRedirect() {
+	const t = useTranslations("common");
 	const router = useRouter();
 
 	useEffect(() => {
@@ -22,7 +24,7 @@ export default function AccountProfilePageRedirect() {
 
 	return (
 		<main className="ws-shell-loading">
-			<span>正在跳转到默认工作区个人资料…</span>
+			<span>{t("redirectingToDefaultProfile")}</span>
 		</main>
 	);
 }

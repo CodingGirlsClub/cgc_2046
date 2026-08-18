@@ -15,22 +15,22 @@ import SettingsTabs, { type SettingsTabDef } from "@/components/settings-tabs";
 const AGENTS_TABS: SettingsTabDef[] = [
 	{
 		key: "agents-mcp",
-		label: "MCP",
+		labelKey: "mcp",
 		href: (slug) => `/w/${slug}/settings/integrations/agents/mcp`,
 	},
 	{
 		key: "agents-openclacky",
-		label: "OpenClacky",
+		labelKey: "openclacky",
 		href: (slug) => `/w/${slug}/settings/integrations/agents/openclacky`,
 	},
 	{
 		key: "agents-opencode",
-		label: "opencode",
+		labelKey: "opencode",
 		href: (slug) => `/w/${slug}/settings/integrations/agents/opencode`,
 	},
 	{
 		key: "agents-omp",
-		label: "OMP",
+		labelKey: "omp",
 		href: (slug) => `/w/${slug}/settings/integrations/agents/omp`,
 	},
 ];

@@ -8,8 +8,9 @@
  * policy 兜底）。页面骨架与 settings/sponsorship 同款。
  */
 
-import Link from "next/link";
+import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { canManageEvents } from "@/lib/events";
 import WorkspaceShell from "@/components/workspace-shell";
@@ -17,6 +18,8 @@ import MembersTabs from "@/components/members-tabs";
 import PricingManagement from "@/components/pricing-management";
 
 export default function WorkspacePricingPage() {
+	const t = useTranslations("workspacePages");
+	const tCommon = useTranslations("common");
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws } = useWorkspaceBySlug(slug);
@@ -25,12 +28,12 @@ export default function WorkspacePricingPage() {
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
-				<div className="ws-page-breadcrumb" aria-label="页面路径">
-					<Link href="/">工作台</Link>
+				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
+					<Link href="/">{t("breadcrumbHome")}</Link>
 					<span>›</span>
 					<Link href={`/w/${slug}`}>{ws?.name ?? slug}</Link>
 					<span>›</span>
-					<strong>定价配置</strong>
+					<strong>{t("pricing")}</strong>
 				</div>
 				{ws ? <MembersTabs slug={slug} current="pricing" abilities={ws.myAbilities ?? []} /> : null}
 
