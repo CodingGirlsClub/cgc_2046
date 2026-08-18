@@ -70,6 +70,7 @@ defmodule Cgc2046Web.GraphqlSignInWithPlatformTest do
 
     res = json_response(conn, 200)
 
+    res = json_response(conn, 200)
     assert %{"data" => %{"signInWithPlatform" => payload}} = res
     assert is_binary(payload["id"])
     # 小程序手机号用户无邮箱 → email 为 null（users.email 已放宽可空）
@@ -103,6 +104,117 @@ defmodule Cgc2046Web.GraphqlSignInWithPlatformTest do
     assert me["id"] == id
     assert is_nil(me["email"])
     assert me["isPlatformAdmin"] == false
+  end
+
+  describe "phoneCode 新契约（getuserphonenumber）" do
+    defp phone_code_mutation(platform, code, phone_code) do
+      """
+      mutation {
+        signInWithPlatform(
+          platform: "#{platform}"
+          code: "#{code}"
+          phoneCode: "#{phone_code}"
+        ) {
+          id
+          email
+          isPlatformAdmin
+        }
+      }
+      """
+    end
+
+    defp stub_phone_code(phone \\ "13800001234", errcode \\ 0) do
+      Tesla.Mock.mock(fn
+        %{method: :post, url: "https://api.weixin.qq.com/wxa/business/getuserphonenumber" <> _} ->
+          Tesla.Mock.json(%{
+            "errcode" => errcode,
+            "phone_info" => %{"purePhoneNumber" => phone, "countryCode" => "86"}
+          })
+      end)
+    end
+
+    test "wechat + phoneCode 成功：SDK 直取手机号并锚定 +8613800001234" do
+      Fixtures.stub_code2session(%{
+        wechat:
+          Fixtures.code2session_body(:wechat, %{
+            openid: "w-gql-pc-1",
+            session_key: Fixtures.new_session_key()
+          })
+      })
+
+      stub_phone_code()
+
+      conn =
+        graphql_post(build_conn(), phone_code_mutation("wechat", "gql-pc-code-1", "pc-token-1"))
+
+      res = json_response(conn, 200)
+      assert %{"data" => %{"signInWithPlatform" => payload}} = res
+      assert is_binary(payload["id"])
+      assert is_nil(payload["email"])
+
+      # phone 锚定：purePhoneNumber+countryCode 归一化为 +8613800001234
+      # （phone-keyed find-or-create 的确定性前提；Repo 直读绕过 public?: false）
+      user = Cgc2046.Repo.get!(Cgc2046.Accounts.User, payload["id"])
+      assert user.phone == "+8613800001234"
+
+      cookie = assert_auth_cookie_written(conn)
+      {:ok, claims} = Jwt.peek(cookie.value)
+      assert claims["platform"] == "wechat"
+    end
+
+    test "SDK errcode 非零：authentication_failed + 不写 cookie" do
+      Fixtures.stub_code2session(%{
+        wechat:
+          Fixtures.code2session_body(:wechat, %{
+            openid: "w-gql-pc-2",
+            session_key: Fixtures.new_session_key()
+          })
+      })
+
+      stub_phone_code("13800001234", 40029)
+
+      conn =
+        graphql_post(build_conn(), phone_code_mutation("wechat", "gql-pc-code-2", "pc-token-2"))
+
+      res = json_response(conn, 200)
+
+      assert [%{"code" => "authentication_failed"}] = res["errors"]
+      assert conn.resp_cookies["cgc_token"] == nil
+    end
+
+    test "phone_code 缺且 encrypted_data/iv 缺：authentication_failed（组合校验 fail-closed）" do
+      Fixtures.stub_code2session(%{
+        wechat:
+          Fixtures.code2session_body(:wechat, %{
+            openid: "w-gql-pc-3",
+            session_key: Fixtures.new_session_key()
+          })
+      })
+
+      query = """
+      mutation {
+        signInWithPlatform(platform: "wechat", code: "gql-pc-code-3") {
+          id
+        }
+      }
+      """
+
+      conn = graphql_post(build_conn(), query)
+      assert [%{"code" => "authentication_failed"}] = json_response(conn, 200)["errors"]
+    end
+
+    test "tt 只给 phoneCode：authentication_failed（unsupported 组合 fail-closed）" do
+      Fixtures.stub_code2session(%{
+        tt:
+          Fixtures.code2session_body(:tt, %{
+            openid: "t-gql-pc-4",
+            session_key: Fixtures.new_session_key()
+          })
+      })
+
+      conn = graphql_post(build_conn(), phone_code_mutation("tt", "gql-pc-code-4", "pc-token-4"))
+      assert [%{"code" => "authentication_failed"}] = json_response(conn, 200)["errors"]
+    end
   end
 
   test "重登后旧 cookie 立即失效（重登吊销旧 jti 的端到端行为）" do
