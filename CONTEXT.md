@@ -109,6 +109,7 @@
 
 - **定义**：每用户一个的 MCP 认证凭证。**绑用户、不绑工作区**；可访问用户加入的多个 Workspace，具体租户由每次调用的目标资源（workspace_id）判定（D6/D13）。在网站「MCP」页生成。
 - **架构位置**：MCP server 的 `Authorization: Bearer <token>` 头；`mcp.json` 是它的单一配置点。**区别于网站登录 Token**：登录 Token 是 httpOnly cookie，只用于网站 UI。
+- **生命周期**：**滚动过期（#211 裁决，2026-08-18）**——连续 **90 天未使用即失效**（`last_used_at`/`inserted_at` 距今 ≥ 90d 时 `validate_token` 拒绝）；正常使用不断、无需重签。仅手动撤销 + 每用户 active 上限 10 枚；**无固定 TTL**（与 D-A7 零配置接入冲突：静默到期会让 agent 断连且引导链路长，泄漏窗口收敛与滚动过期相当）。参考实现 `Cgc2046.Mcp.Token`。
 - ⚠️ 注意：本术语**取代**更早调研文档（`docs/02-调研分析/OpenClacky扩展调研与实施计划.md` §3.4）中"token 绑 workspace_id"的旧设计——D13 定稿为绑用户不绑工作区。
 
 ### workspace_id 作用域（Workspace Scope）
