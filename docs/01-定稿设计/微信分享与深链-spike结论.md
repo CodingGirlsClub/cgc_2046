@@ -56,7 +56,7 @@
 ### 2.3 有效期（关键核实结果）
 
 - **临时（到期失效）scheme 最长有效期 = 30 天**（官方请求参数表「最长有效期为30天」+ 错误码 85401「time limit between 1min and 30days」）。
-- **SDK moduledoc 写「最长有效期为1年」是过时/错误的**：`backend/deps/wechat/lib/wechat/mini_program/url_scheme.ex` 的 `@type expire_time` 注释。SDK 透传不校验，**业务层必须自行按 30 天上限约束**——spike 原型的到期时间默认按「min(活动结束时间 + 缓冲, 30 天)」。
+- **SDK moduledoc 写「最长有效期为1年」是过时/错误的**：`backend/deps/wechat/lib/wechat/mini_program/url_scheme.ex` 的 `@type expire_time` 注释。SDK 透传不校验，**调用方必须保证 expires_at 距今 ≤30 天**；「min(活动结束 + 缓冲, 30 天)」策略见 §6 D1，在实现计划落地（spike 原型不实现 clamp）。
 - 永久 scheme：**上限 10 万条 / 小程序，不可自行删除**（超限只能官方渠道处理）。来源：微信开放社区官方回复帖（https://developers.weixin.qq.com/community/develop/doc/000aaed8250b304dd4ab77c3056400 等）。
 
 ### 2.4 is_expire / expire_type / expire_interval 语义与 SDK 覆盖
@@ -157,7 +157,7 @@
   - B：tt 跟进（需先核实 Taro 映射 / 直调 tt API）。
 - 拍板：**已拍板 A（2026-08-18，plan owner，v1 范围项，实现计划启动时产品可推翻）**。推翻成本指引：若改 B（tt 跟进）——先核实 Taro tt 分享 hook 映射（U5）或直调 tt API，各自平台原生挂载（D03）。
 
-### D5 GraphQL 面形态（技术默认项，spike 倾向）
+### D5 👑 GraphQL 面形态（v1 范围项）
 - **选项**：
   - A（推荐）：**不做 GraphQL mutation 面**——scheme 由后端内部触发（如报名成功 / 短信邮件发送时生成 link），不需要 owner 手动调用。先例：现有 `generateMiniProgramCode` mutation 是 owner 手动触发的管理面，与「活动分享深链由渠道自动带出」场景不同。
   - B：暴露 mutation（如 `generateEventShareLink(eventId)`），供未来管理后台或运营手动取链接。

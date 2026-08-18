@@ -3,7 +3,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
 
   alias Cgc2046.Miniprogram.UrlScheme
 
-  describe "create_event_link/2" do
+  describe "create_event_link/3" do
     test "成功：返回 openlink，且请求体携带 jump_wxa 与到期失效参数（SDK 覆盖验证）" do
       test_pid = self()
 
@@ -16,13 +16,13 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
       expires_at = DateTime.add(DateTime.utc_now(), 7, :day)
 
       assert {:ok, "weixin://dl/business/?t=TEST"} =
-               UrlScheme.create_event_link("event-123", expires_at)
+               UrlScheme.create_event_link("event-123", "event", expires_at)
 
       assert_receive {:scheme_request,
                       %{
                         "jump_wxa" => %{
                           "path" => "/pages/event-detail/index",
-                          "query" => "id=event-123"
+                          "query" => "id=event-123&kind=event"
                         },
                         "is_expire" => true,
                         "expire_time" => unix
@@ -31,7 +31,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
       assert DateTime.to_unix(expires_at) == unix
     end
 
-    test "成功：expires_at 为 nil 时走永久 scheme（不传 is_expire）" do
+    test "成功：expires_at 为 nil 时走永久 scheme（不传 is_expire），且 kind 透传" do
       test_pid = self()
 
       Tesla.Mock.mock(fn
@@ -40,10 +40,11 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
           Tesla.Mock.json(%{"openlink" => "weixin://dl/business/?t=PERM"})
       end)
 
-      assert {:ok, "weixin://dl/business/?t=PERM"} = UrlScheme.create_event_link("event-456")
+      assert {:ok, "weixin://dl/business/?t=PERM"} =
+               UrlScheme.create_event_link("event-456", "course")
 
       assert_receive {:scheme_request, body}
-      assert body["jump_wxa"]["query"] == "id=event-456"
+      assert body["jump_wxa"]["query"] == "id=event-456&kind=course"
       refute Map.has_key?(body, "is_expire")
     end
 
@@ -57,7 +58,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
       end)
 
       assert {:error, {:platform_rejected, 44990, "reach max api second frequence limit"}} =
-               UrlScheme.create_event_link("event-789")
+               UrlScheme.create_event_link("event-789", "course")
     end
 
     test "非 200 或异常响应归为 scheme_failed" do
@@ -66,7 +67,7 @@ defmodule Cgc2046.Miniprogram.UrlSchemeTest do
           %Tesla.Env{status: 500, body: "boom"}
       end)
 
-      assert {:error, {:scheme_failed, _}} = UrlScheme.create_event_link("event-abc")
+      assert {:error, {:scheme_failed, _}} = UrlScheme.create_event_link("event-abc", "event")
     end
   end
 end
