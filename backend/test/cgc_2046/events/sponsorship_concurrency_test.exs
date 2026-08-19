@@ -111,6 +111,13 @@ defmodule Cgc2046.Events.SponsorshipConcurrencyTest do
           Ecto.UUID.dump!(workspace_id)
         ])
 
+        # #242：workspace create 的 LogAdminAction 落 admin_action_logs（无 FK 不级联），
+        # unboxed 真实提交会累积；cleanup 必须显式清理，否则污染共享 DB 全局表。
+        Cgc2046.Repo.query!(
+          "DELETE FROM admin_action_logs WHERE target_type = 'workspace' AND target_id = $1",
+          [Ecto.UUID.dump!(workspace_id)]
+        )
+
         Cgc2046.Repo.query!(
           "DELETE FROM membership_roles WHERE membership_id IN " <>
             "(SELECT id FROM workspace_memberships WHERE workspace_id = $1)",

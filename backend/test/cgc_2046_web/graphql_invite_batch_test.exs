@@ -1,6 +1,8 @@
 defmodule Cgc2046Web.GraphqlInviteBatchTest do
   use Cgc2046Web.ConnCase, async: true
 
+  require Ash.Query
+
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.InviteBatch
   alias Cgc2046.EventsFixtures, as: EventFixtures
@@ -70,7 +72,11 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
              response
 
     assert errors != []
-    assert Ash.read!(InviteBatch, authorize?: false) == []
+
+    # #242：断言按本测试 event_id 隔离，避免共享表残留污染全局空断言
+    assert InviteBatch
+           |> Ash.Query.filter(event_id == ^event.id)
+           |> Ash.read!(authorize?: false) == []
   end
 
   test "invite_code 全局唯一冲突经 HTTP 返回错误" do
@@ -86,7 +92,14 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
              graphql(create_mutation(:course, course.id, "GLOBAL_CODE", 1), token)
 
     assert Enum.map_join(errors, " ", & &1["message"]) =~ "already been taken"
-    assert length(Ash.read!(InviteBatch, authorize?: false)) == 1
+
+    # #242：断言按本测试唯一 invite_code 隔离，避免共享表残留污染全局 count
+    assert length(
+             InviteBatch
+             |> Ash.Query.filter(invite_code == "GLOBAL_CODE")
+             |> Ash.read!(authorize?: false)
+           ) == 1
+
     assert first["inviteCode"] == "GLOBAL_CODE"
   end
 
