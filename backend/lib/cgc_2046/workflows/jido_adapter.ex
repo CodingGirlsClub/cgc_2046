@@ -690,11 +690,13 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   总线投递（spawn_link 变体的隐性清道夫语义，崩溃隔离后必须显式补回）。
 
   调用者持有返回的 monitor：转发进程死亡收 `{:DOWN, ref, :process, pid, reason}`
-  后自行重建订阅（`Cgc2046.Workflows.SignalSubscriber` 骨架统一持有）。
-  返回 `{:ok, subscription_id, monitor_ref}` 或 `{:error, reason}`。
+  后自行重建订阅（`Cgc2046.Workflows.SignalSubscriber` 骨架统一持有）。返回
+  `{:ok, subscription_id, monitor_ref, forwarder_pid}`——forwarder pid 供骨架在
+  bus 重启时显式回收旧转发进程（spawn 无 link，不回收则泄漏；#120），或
+  `{:error, reason}`（bus 未注册时为 `:not_found`）。
   """
   @spec subscribe(String.t(), (String.t(), map() -> any())) ::
-          {:ok, term(), reference()} | {:error, term()}
+          {:ok, term(), reference(), pid()} | {:error, term()}
   def subscribe(pattern, fun) when is_binary(pattern) and is_function(fun, 2) do
     caller = self()
     subscriber = spawn(fn -> forward_loop(fun, caller) end)
@@ -704,7 +706,7 @@ defmodule Cgc2046.Workflows.JidoAdapter do
            dispatch: {:pid, target: subscriber, delivery_mode: :async}
          ) do
       {:ok, subscription_id} ->
-        {:ok, subscription_id, monitor_ref}
+        {:ok, subscription_id, monitor_ref, subscriber}
 
       {:error, reason} ->
         # 订阅失败：回收无信号来源的转发进程，避免泄漏
@@ -713,6 +715,14 @@ defmodule Cgc2046.Workflows.JidoAdapter do
         {:error, reason}
     end
   end
+
+  @doc """
+  解析信号总线进程 pid（#120：订阅方骨架 monitor bus、bus 重启后重订阅用）。
+
+  返回 `{:ok, pid}` 或 `{:error, :not_found}`（bus 未注册——启动间隙或已死）。
+  """
+  @spec whereis_bus() :: {:ok, pid()} | {:error, :not_found}
+  def whereis_bus, do: Jido.Signal.Util.whereis(@bus_name)
 
   defp forward_loop(fun, caller) do
     caller_ref = Process.monitor(caller)

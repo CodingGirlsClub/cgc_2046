@@ -55,14 +55,26 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   各自独立去重。payload 缺 `idempotency_key` = 生产者契约违约：记 error 并丢弃
   （不执行副作用）。
 
-  ## 订阅生命周期（Q3 / D3）
+  ## 订阅生命周期（Q3 / D3 / #120）
 
   init 逐 pattern 订阅，任一失败即 `{:stop, reason}`（进程不启动，监督树
-  重启重试，不再 Logger.warning 后聋着活）。转发进程（JidoAdapter 内 spawn
-  的 forwarder）与订阅方进程崩溃隔离；其 DOWN 由骨架 monitor 捕获并自动
-  重建该 pattern 订阅（自 LearningInstantiator 上收，六方共享；重订阅失败
-  同样 {:stop, reason} 交监督树）。信号投递统一经 `run/3`——生产 forwarder
-  与测试（`deliver/2`）同码。
+  重启重试，不再 Logger.warning 后聋着活）；唯一例外是 bus 未注册
+  （`:not_found`）——顺序上 bus 先于全部订阅方启动，此为防御分支，走退避
+  重试而非 `{:stop}`。转发进程（JidoAdapter 内 spawn 的 forwarder）与订阅方
+  进程崩溃隔离；其 DOWN 由骨架 monitor 捕获并自动重建该 pattern 订阅
+  （自 LearningInstantiator 上收，六方共享；重订阅失败同样 {:stop, reason}
+  交监督树）。
+
+  **bus 重启重订阅（#120）**：订阅表存于 bus 进程内存（无 journal），bus 崩溃
+  重启后清空，而订阅方 monitor 的是 forwarder——bus 死不产生任何 DOWN。故
+  骨架 init 时额外 monitor bus pid，收到 bus DOWN 后：demonitor 并显式 kill
+  全部旧 forwarder（spawn 无 link，不回收则每次 bus 重启泄漏），再对全部
+  patterns 重订阅。重订阅时 bus 未回归（`:not_found`）不 `{:stop}`：指数退避
+  重试（100ms 起 ×2 封顶 5s），防 crash-loop 与重订阅风暴；重试 30 次仍无
+  bus 则放弃并 error 告警——订阅方保持存活可观测（重启窗口内已丢信号不
+  可恢复，兜底是 SignalIdempotency claim + E-10 对账扫描）。信号投递统一经
+  `run/3`——生产 forwarder 与测试（`deliver/2`）同码。
+
   """
 
   require Logger
@@ -288,6 +300,11 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
       @behaviour Cgc2046.Workflows.SignalSubscriber
 
+      # bus 退避重试参数（#120）：100ms 起 ×2 封顶 5s，30 次后放弃告警。
+      @bus_retry_base_ms 100
+      @bus_retry_cap_ms 5_000
+      @bus_max_retries 30
+
       @doc "当前订阅的信号类型列表（骨架 init 逐个订阅；测试断言接线用）。"
       def patterns, do: unquote(patterns)
 
@@ -300,10 +317,36 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
       @impl GenServer
       def init(_opts) do
-        case subscribe_all() do
-          {:ok, subscriptions} -> {:ok, %{subscriptions: subscriptions}}
-          {:error, reason} -> {:stop, reason}
+        case full_resubscribe(initial_state()) do
+          {:ok, state} ->
+            {:ok, state}
+
+          {:error, :bus_missing, state} ->
+            # 防御（#120）：bus 未注册——顺序上 bus 先于全部订阅方启动（child
+            # #6 vs #8-15），此为兜底。退避重试而非 {:stop}，防 init 竞态崩循环。
+            {:ok, schedule_bus_retry(state)}
+
+          {:error, reason, _state} ->
+            {:stop, reason}
         end
+      end
+
+      # bus DOWN（#120）：订阅表存于 bus 进程内存，随 bus 消亡；forwarder 却
+      # 活着（spawn 无 link）——没有 forwarder DOWN 可感知，故骨架自 monitor
+      # bus。回收全部旧 forwarder（防泄漏）后退避重订阅：bus 刚死，立即重订阅
+      # 大概率仍 :not_found，交给统一退避路径。
+      @impl GenServer
+      def handle_info({:DOWN, ref, :process, _pid, reason}, %{bus_monitor: ref} = state) do
+        Logger.warning(
+          "#{inspect(__MODULE__)} signal bus down: #{inspect(reason)}; " <>
+            "reclaiming forwarders and resubscribing on backoff"
+        )
+
+        {:noreply,
+         state
+         |> reclaim_forwarders()
+         |> Map.merge(%{bus_monitor: nil, bus_retries: 0})
+         |> schedule_bus_retry()}
       end
 
       @impl GenServer
@@ -315,9 +358,20 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
                 "resubscribing"
             )
 
-            case subscribe_pattern(pattern, subscriptions) do
-              {:ok, subscriptions} ->
-                {:noreply, %{state | subscriptions: subscriptions}}
+            state = %{
+              state
+              | subscriptions: subscriptions,
+                forwarders: Map.delete(state.forwarders, ref)
+            }
+
+            case subscribe_pattern(pattern, state) do
+              {:ok, state} ->
+                {:noreply, state}
+
+              {:error, :bus_missing} ->
+                # bus 恰好缺席（bus DOWN 尚在邮箱排队）：订阅表已随 bus 消亡，
+                # 全部 patterns 都需重建——转入统一 bus 退避路径，不 {:stop}。
+                {:noreply, state |> reclaim_forwarders() |> schedule_bus_retry()}
 
               {:error, reason} ->
                 Logger.error(
@@ -333,10 +387,56 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
         end
       end
 
+      # 退避重试到期（#120）：bus 回归则全量重订阅（先 whereis 探测，未回归时
+      # 不 spawn 空 forwarder）；subscriptions 非空 = 已恢复（杂散定时器），no-op
+      # 防重复订阅双投递。
+      @impl GenServer
+      def handle_info(:bus_resubscribe, %{subscriptions: %{}} = state) do
+        case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
+          {:ok, _pid} ->
+            case full_resubscribe(state) do
+              {:ok, state} -> {:noreply, state}
+              {:error, :bus_missing, state} -> {:noreply, schedule_bus_retry(state)}
+              {:error, reason, _state} -> {:stop, reason, state}
+            end
+
+          {:error, :not_found} ->
+            {:noreply, schedule_bus_retry(state)}
+        end
+      end
+
+      def handle_info(:bus_resubscribe, state), do: {:noreply, state}
+
       def handle_info(_other, state), do: {:noreply, state}
 
-      defp subscribe_all do
-        Enum.reduce_while(patterns(), {:ok, %{}}, fn pattern, {:ok, acc} ->
+      defp initial_state do
+        %{subscriptions: %{}, forwarders: %{}, bus_monitor: nil, bus_retries: 0}
+      end
+
+      # 完整重订阅（init / 退避重试共用）：订阅全部 patterns + monitor 新 bus pid
+      # （monitor 已死 pid 会立即收 DOWN，无竞态窗口）。失败路径先回收已建
+      # forwarder（幂等）再返回归一化错误；:bus_missing 与 :not_found 同走退避。
+      defp full_resubscribe(state) do
+        case subscribe_all(state) do
+          {:ok, state} ->
+            case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
+              {:ok, pid} ->
+                {:ok, %{state | bus_monitor: Process.monitor(pid), bus_retries: 0}}
+
+              {:error, :not_found} ->
+                {:error, :bus_missing, reclaim_forwarders(state)}
+            end
+
+          {:error, :bus_missing} ->
+            {:error, :bus_missing, reclaim_forwarders(state)}
+
+          {:error, reason} ->
+            {:error, reason, reclaim_forwarders(state)}
+        end
+      end
+
+      defp subscribe_all(state) do
+        Enum.reduce_while(patterns(), {:ok, state}, fn pattern, {:ok, acc} ->
           case subscribe_pattern(pattern, acc) do
             {:ok, acc} -> {:cont, {:ok, acc}}
             {:error, reason} -> {:halt, {:error, reason}}
@@ -345,16 +445,63 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
       end
 
       # 订阅失败返回 {:error, reason}：init 即停（Q3，监督树重启重试，不聋着活）。
-      defp subscribe_pattern(pattern, acc) do
+      # :not_found（bus 未注册）归一化为 :bus_missing，走退避路径（#120）。
+      defp subscribe_pattern(pattern, state) do
         case Cgc2046.Workflows.JidoAdapter.subscribe(pattern, fn type, data ->
                Cgc2046.Workflows.SignalSubscriber.run(__MODULE__, type, data)
              end) do
-          {:ok, _subscription_id, monitor_ref} ->
-            {:ok, Map.put(acc, monitor_ref, pattern)}
+          {:ok, _subscription_id, monitor_ref, forwarder_pid} ->
+            {:ok,
+             %{
+               state
+               | subscriptions: Map.put(state.subscriptions, monitor_ref, pattern),
+                 forwarders: Map.put(state.forwarders, monitor_ref, forwarder_pid)
+             }}
+
+          {:error, :not_found} ->
+            {:error, :bus_missing}
 
           {:error, reason} ->
             {:error, {:subscribe_failed, pattern, reason}}
         end
+      end
+
+      # 回收全部 forwarder（#120）：先 demonitor+flush 再 kill——防 kill 的 DOWN
+      # 入邮箱误触发 forwarder 重订阅分支；显式 kill 因 spawn 无 link 不杀则每次
+      # bus 重启泄漏一条 receive 进程。kill 已死进程是 no-op，幂等。
+      defp reclaim_forwarders(%{subscriptions: subscriptions, forwarders: forwarders} = state) do
+        Enum.each(subscriptions, fn {ref, _pattern} ->
+          Process.demonitor(ref, [:flush])
+
+          case Map.get(forwarders, ref) do
+            pid when is_pid(pid) -> Process.exit(pid, :kill)
+            nil -> :ok
+          end
+        end)
+
+        %{state | subscriptions: %{}, forwarders: %{}}
+      end
+
+      # bus 退避重试（#120）：指数退避 100ms 起 ×2 封顶 5s；30 次仍无 bus 则放弃
+      # 并 error 告警——订阅方保持存活可观测（重启窗口内丢的信号兜底是
+      # SignalIdempotency claim + E-10 对账），不 crash-loop、不重订阅风暴。
+      defp schedule_bus_retry(%{bus_retries: retries} = state) do
+        if retries >= @bus_max_retries do
+          Logger.error(
+            "#{inspect(__MODULE__)} bus resubscribe gave up after #{retries} retries " <>
+              "(bus not back); subscriber stays alive but deaf - check bus health; " <>
+              "SignalIdempotency claim + E-10 reconciliation is the backstop"
+          )
+
+          state
+        else
+          Process.send_after(self(), :bus_resubscribe, bus_retry_delay(retries))
+          %{state | bus_retries: retries + 1}
+        end
+      end
+
+      defp bus_retry_delay(n) do
+        min(@bus_retry_base_ms * Integer.pow(2, min(n, 6)), @bus_retry_cap_ms)
       end
     end
   end
