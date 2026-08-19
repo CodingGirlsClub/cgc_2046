@@ -6,10 +6,10 @@ import AuthForm, { type AuthSubmitPayload } from "./auth-form";
 afterEach(cleanup);
 
 describe("AuthForm (#61 登录与注册设计)", () => {
-  it("登录模式展示邮箱、密码和进入工作台的 CTA", () => {
+  it("登录模式展示手机号/邮箱、密码和进入工作台的 CTA", () => {
     render(<AuthForm mode="login" setMode={() => {}} />);
 
-    expect(screen.getByLabelText("邮箱")).toBeInTheDocument();
+    expect(screen.getByLabelText("手机号/邮箱地址")).toBeInTheDocument();
     expect(screen.getByLabelText("密码")).toBeInTheDocument();
     expect(screen.queryByLabelText("确认密码")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登录并进入工作台" })).toBeInTheDocument();
@@ -41,7 +41,7 @@ describe("AuthForm (#61 登录与注册设计)", () => {
 
   it("静态阶段（无 onSubmit）提交显示 mock 提示", () => {
     render(<AuthForm mode="login" setMode={() => {}} />);
-    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("手机号/邮箱地址"), { target: { value: "a@b.c" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     const form = screen.getByLabelText("密码").closest("form");
     expect(form).not.toBeNull();
@@ -60,7 +60,7 @@ describe("AuthForm (#61 登录与注册设计)", () => {
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     const payload = onSubmit.mock.calls[0][0] as AuthSubmitPayload;
-    expect(payload).toEqual({ mode: "register", email: "a@b.c", password: "password" });
+    expect(payload).toEqual({ mode: "register", login: "a@b.c", password: "password" });
   });
 
   it("注册时两次密码不一致不会提交", () => {

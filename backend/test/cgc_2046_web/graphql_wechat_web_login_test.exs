@@ -85,6 +85,20 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert state != state2
     end
 
+    test "next 透传：redirect_uri 携带 next 参数（state 无关 URL 透传）" do
+      res =
+        build_conn()
+        |> graphql_post("""
+        mutation { wechatLoginStart(next: "/orders/abc?from=enroll") { qrUrl } }
+        """)
+        |> json_response(200)
+
+      assert %{"data" => %{"wechatLoginStart" => %{"qrUrl" => url}}} = res
+
+      # redirect_uri 单层编码：%3Fnext%3D 即 ?next=，后跟单编码的 /orders/abc?from=enroll
+      assert url =~ "wechat-callback%3Fnext%3D%2Forders%2Fabc%3Ffrom%3Denroll"
+    end
+
     test "未配置门禁：wechat_login_unavailable" do
       Application.put_env(:cgc_2046, :wechat_web, appid: nil, secret: nil)
 

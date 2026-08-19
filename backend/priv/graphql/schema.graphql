@@ -5693,7 +5693,10 @@ type RootMutationType {
   signInWithPhoneCode(phone: String!, code: String!): SignInWithPhoneCodeResult
 
   "发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20\/15min 限流）"
-  wechatLoginStart: WechatLoginStartResult
+  wechatLoginStart(
+    "发起微信扫码登录(plan 002 U4);next 透传进 redirect_uri(callback 页同源校验后跳转)"
+    next: String
+  ): WechatLoginStartResult
 
   "微信扫码回调（plan 002 U4；IP 20\/15min 限流）：已绑定直登，未绑定返回绑定票据"
   signInWithWechat(code: String!, state: String!): SignInWithWechatResult

@@ -509,10 +509,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     @desc "发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流）"
     field :wechat_login_start, :wechat_login_start_result do
-      resolve(fn _, _, %{context: context} ->
+      @desc "发起微信扫码登录(plan 002 U4);next 透传进 redirect_uri(callback 页同源校验后跳转)"
+      arg(:next, :string)
+
+      resolve(fn _, args, %{context: context} ->
         if Cgc2046.OAuth.WechatWeb.configured?() do
           with :ok <- check_wechat_login_start_limits(context) do
-            start_wechat_login()
+            start_wechat_login(args[:next])
           else
             {:error, :rate_limited} ->
               {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
@@ -1891,9 +1894,20 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  defp start_wechat_login do
+  defp start_wechat_login(next) do
+    # next 由 state 无关的 URL 参数透传(plan 002):嵌入 redirect_uri,微信回调原样带回;
+    # 开放跳转防护在 callback 页 resolveNextTarget 同源校验,此处仅透传。
+    base = Application.fetch_env!(:cgc_2046, :web_base_url) <> "/login/wechat-callback"
+
     redirect_uri =
-      Application.fetch_env!(:cgc_2046, :web_base_url) <> "/login/wechat-callback"
+      case next do
+        value when is_binary(value) and value != "" ->
+          # 不预编码:qr_connect_url 的 encode_query 对整个 redirect_uri 统一编码一次
+          base <> "?next=" <> value
+
+        _ ->
+          base
+      end
 
     case Cgc2046.Accounts.WechatLoginTicket.issue() do
       {:ok, %{state: state, expires_at: expires_at}} ->

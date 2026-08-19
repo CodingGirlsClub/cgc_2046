@@ -11,7 +11,8 @@ export interface AuthSubmitPayload {
   mode: AuthMode;
   /** 保留为兼容字段；注册页当前只收集邮箱和密码。 */
   nickname?: string;
-  email: string;
+  /** 登录标识：登录模式下为手机号或邮箱（signIn login 入参）；注册模式下为邮箱。 */
+  login: string;
   password: string;
 }
 
@@ -145,7 +146,7 @@ export default function AuthForm({
   error?: string | null;
 }) {
   const [submitted, setSubmitted] = useState(false);
-  const [email, setEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -169,7 +170,7 @@ export default function AuthForm({
     }
 
     if (onSubmit) {
-      await onSubmit({ mode, email, password });
+      await onSubmit({ mode, login, password });
     } else {
       setSubmitted(true);
     }
@@ -194,16 +195,18 @@ export default function AuthForm({
         )}
 
         <div className="auth-field">
-          <label className="auth-field__label" htmlFor="auth-email">{t("field.email")}</label>
+          <label className="auth-field__label" htmlFor="auth-email">
+            {isRegister ? t("field.email") : t("field.login")}
+          </label>
           <input
             id="auth-email"
-            name="email"
+            name="login"
             className="auth-input"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
+            type={isRegister ? "email" : "text"}
+            placeholder={isRegister ? "you@example.com" : t("placeholder.login")}
+            value={login}
             onChange={(event) => {
-              setEmail(event.target.value);
+              setLogin(event.target.value);
               setFormError(null);
             }}
             autoComplete="email"
