@@ -16,7 +16,12 @@ defmodule Cgc2046.Payments.WechatPayTest do
   覆盖，CI 内不启动。
   """
 
-  use Cgc2046.DataCase, async: true
+  # 串行防跨用例污染（#246）：本文件触发 SDK 运行时动态模块编译
+  # （WeChat.Pay.build_client 翻转全局 Code.compiler_options(ignore_module_conflict)）
+  # + :current_fingerprint 全局键（cleanup 跨用例 terminate 仍在运行的 child）；
+  # async 并发会与 graphql_sign_in_with_platform/enrollment 的 miniprogram
+  # 动态编译互扰（与 client_test 同约束）。
+  use Cgc2046.DataCase, async: false
 
   alias Cgc2046.Payments.Providers.WechatPay
   alias WeChat.Pay.Certificates
