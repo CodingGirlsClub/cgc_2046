@@ -27,6 +27,8 @@ defmodule Cgc2046.GlobalApi do
     # Global resources (User / Workspace) are registered here as the domain model is agreed on.
     resource(Cgc2046.Accounts.User)
     resource(Cgc2046.Accounts.Token)
+    # plan 002 U3：手机验证码（内部资源，模块函数封装操作）
+    resource(Cgc2046.Accounts.PhoneVerificationCode)
     # Phase 1 身份基座：小程序平台身份绑定（provider/uid/unionid/user_id）
     resource(Cgc2046.Accounts.UserIdentity)
     resource(Cgc2046.Accounts.Workspace)

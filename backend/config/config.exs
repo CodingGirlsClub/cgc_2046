@@ -105,6 +105,16 @@ config :cgc_2046, :miniprogram_templates, %{
   }
 }
 
+# SendCloud SMS（plan 002 U3）：dev/test dummy；prod 由 runtime.exs 经环境变量
+# 注入（SENDCLOUD_SMS_USER/KEY/TEMPLATE_ID，缺则 raise）。未配置时 dev 发码
+# 走 Logger 出码（deliver_phone_code 分支）。
+config :cgc_2046,
+  sms_sendcloud: [
+    sms_user: "dev-sms-user",
+    sms_key: "dev-sms-key",
+    template_id: "dev-sms-template"
+  ]
+
 # 0C：Oban（PG-backed，跑在现有 Phoenix 应用内，无新服务）。
 # - maintenance 队列：审批超时扫描（expiry）+ 48h 提醒（reminder）共用，并发 5 足够
 #   （两者均为轻量查询 + 少量 Ash update）。
