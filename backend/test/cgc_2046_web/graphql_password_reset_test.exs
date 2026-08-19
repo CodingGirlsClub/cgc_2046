@@ -301,7 +301,7 @@ defmodule Cgc2046Web.GraphqlPasswordResetTest do
       build_conn(),
       """
       mutation {
-        signIn(email: "#{email}", password: "#{password}") {
+        signIn(login: "#{email}", password: "#{password}") {
           email
         }
       }

@@ -395,17 +395,38 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   mutation do
-    @desc "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
+    @desc "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
     field :sign_in, :sign_in_result do
-      arg(:email, non_null(:string))
+      arg(:login, non_null(:string))
       arg(:password, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:email])
+      middleware(Cgc2046Web.Plugs.RateLimit,
+        key_path: [:login],
+        normalize: &normalize_login/1
+      )
 
-      resolve(fn _, %{email: email, password: password}, _ ->
+      resolve(fn _, %{login: login, password: password}, _ ->
+        # 分流：含 @ → email；否则按手机号归一化（同号不同写法命中同一 User 与同一限流 key）
         query =
-          Cgc2046.Accounts.User
-          |> Ash.Query.for_read(:sign_in_with_password, %{email: email, password: password})
+          if String.contains?(login, "@") do
+            Cgc2046.Accounts.User
+            |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
+          else
+            case Cgc2046.Accounts.PhoneNumber.normalize(login) do
+              {:ok, phone} ->
+                Cgc2046.Accounts.User
+                |> Ash.Query.for_read(:sign_in_with_password_phone, %{
+                  phone: phone,
+                  password: password
+                })
+
+              {:error, :invalid} ->
+                # 非法手机号格式：直接走 email 分支让其产出既有的统一认证失败错误
+                # （防枚举语义不变，不新增格式错误出口）
+                Cgc2046.Accounts.User
+                |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
+            end
+          end
 
         try do
           case Ash.read(query) do
@@ -1566,6 +1587,22 @@ defmodule Cgc2046Web.GraphqlSchema do
              max_attempts: 20
            ) do
       :ok
+    end
+  end
+
+  # signIn 限流 key 归一化（plan 002 U2）：email → downcase（与 normalize_email 同）；
+  # 手机号 → PhoneNumber 规范形（"138…" 与 "+86138…" 同 key，防换写法绕过限流）；
+  # 非法输入原样保留（保持与认证失败路径一致的计数语义）。
+  defp normalize_login(login) do
+    login = to_string(login)
+
+    if String.contains?(login, "@") do
+      String.downcase(String.trim(login))
+    else
+      case Cgc2046.Accounts.PhoneNumber.normalize(login) do
+        {:ok, phone} -> phone
+        {:error, :invalid} -> login
+      end
     end
   end
 

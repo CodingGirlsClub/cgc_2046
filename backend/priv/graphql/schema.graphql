@@ -4314,6 +4314,9 @@ type User {
   "用户邮箱（全局唯一；小程序手机号用户为 null——Phase 1 起放宽可空）"
   email: String
 
+  "手机号（小程序\/验证码\/微信绑定登录的 User 锚，明文存储 v1 已评审接受；部分唯一索引 WHERE NOT NULL）"
+  phone: String
+
   "是否平台管理员（全局标记）"
   isPlatformAdmin: Boolean!
 
@@ -5648,8 +5651,8 @@ type AdminUserPayload {
 }
 
 type RootMutationType {
-  "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
-  signIn(email: String!, password: String!): SignInResult
+  "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
+  signIn(login: String!, password: String!): SignInResult
 
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload

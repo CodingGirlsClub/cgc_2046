@@ -34,7 +34,7 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
   defp sign_in_token(email, password) do
     query = """
     mutation {
-      signIn(email: "#{email}", password: "#{password}") {
+      signIn(login: "#{email}", password: "#{password}") {
         id
       }
     }

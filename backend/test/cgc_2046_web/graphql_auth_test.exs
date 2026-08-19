@@ -109,7 +109,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     test "signs in with correct credentials and returns the user (token in httpOnly cookie)" do
       query = """
       mutation {
-        signIn(email: "#{@email}", password: "#{@password}") {
+        signIn(login: "#{@email}", password: "#{@password}") {
           id
           email
           isPlatformAdmin
@@ -130,7 +130,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     test "returns an error for an invalid password" do
       query = """
       mutation {
-        signIn(email: "#{@email}", password: "wrong-password") {
+        signIn(login: "#{@email}", password: "wrong-password") {
           id
           email
         }
@@ -143,6 +143,74 @@ defmodule Cgc2046Web.GraphqlAuthTest do
 
       assert [%{"message" => "Invalid email or password", "code" => "authentication_failed"}] =
                errors
+    end
+  end
+
+  describe "signIn mutation · 手机号密码登录（plan 002 U2）" do
+    @phone "+8613800130000"
+    @phone_password "phone-login-secret-1"
+
+    setup do
+      # 经 password 策略注册 email 用户后，内部挂手机号（密码哈希复用注册哈希）
+      assert %{"data" => %{"signUp" => %{"result" => %{"id" => user_id}}}} =
+               graphql_post(
+                 build_conn(),
+                 sign_up_query("phone-owner@example.com", @phone_password)
+               )
+               |> graphql_response()
+
+      # 用原子 SQL 挂 phone（User 无 accept phone 的公开 action；登录路径只读 phone）
+      {:ok, res} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET phone = $1 WHERE id = $2",
+          [@phone, Cgc2046.Repo.uuid!(user_id)]
+        )
+
+      assert res.num_rows == 1
+      :ok
+    end
+
+    defp sign_in_phone_mutation(login, password) do
+      """
+      mutation {
+        signIn(login: "#{login}", password: "#{password}") {
+          id
+          email
+          isPlatformAdmin
+        }
+      }
+      """
+    end
+
+    test "归一化手机号 + 密码登录成功（+86138… 全格式同号）" do
+      for login <- ["+8613800130000", "13800130000", "+86 138-0013-0000"] do
+        conn = graphql_post(build_conn(), sign_in_phone_mutation(login, @phone_password))
+        assert %{"data" => %{"signIn" => sign_in}} = graphql_response(conn)
+        assert is_binary(sign_in["id"])
+        assert sign_in["email"] == "phone-owner@example.com"
+        assert_auth_cookie_written(conn)
+      end
+    end
+
+    test "手机号错误密码：统一 authentication_failed（防枚举）" do
+      conn = graphql_post(build_conn(), sign_in_phone_mutation("13800130000", "wrong"))
+      assert %{"data" => %{"signIn" => nil}, "errors" => errors} = graphql_response(conn)
+
+      assert [%{"message" => "Invalid email or password", "code" => "authentication_failed"}] =
+               errors
+    end
+
+    test "未注册手机号：统一 authentication_failed" do
+      conn = graphql_post(build_conn(), sign_in_phone_mutation("13900139000", @phone_password))
+      assert %{"data" => %{"signIn" => nil}, "errors" => errors} = graphql_response(conn)
+      assert [%{"code" => "authentication_failed"}] = errors
+    end
+
+    test "非法手机号格式（归一化失败）：走 email 分支统一失败，不新增格式错误出口" do
+      conn = graphql_post(build_conn(), sign_in_phone_mutation("not-a-phone!!", @phone_password))
+      assert %{"data" => %{"signIn" => nil}, "errors" => errors} = graphql_response(conn)
+      assert [%{"code" => "authentication_failed"}] = errors
     end
   end
 
