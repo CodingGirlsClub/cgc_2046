@@ -17,6 +17,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
 
   alias Cgc2046.Workflows.SignalSubscriberFixtures.{
     BadPattern,
+    BusRestart,
     ClaimAfter,
     ClaimFirst,
     ClaimInHandle,
@@ -233,6 +234,127 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     |> Enum.map(& &1.idempotency_key)
   end
 
+  describe "bus 重启重订阅（#120）" do
+    test "杂散 :bus_resubscribe（健康状态）→ 守卫 no-op：订阅 ref 集不变、publish 一次恰好一投（M1）" do
+      start_supervised!(BusRestart)
+
+      subscriber_pid = Process.whereis(BusRestart)
+      before_refs = Map.keys(:sys.get_state(subscriber_pid).subscriptions)
+      assert length(before_refs) == 2
+
+      # 杂散重订阅消息（运维 console 误发 / 竞态残留定时器）：健康订阅方须
+      # no-op——map 模式 %{subscriptions: %{}} 是子集匹配不构成空守卫（M1 实锤）
+      send(subscriber_pid, :bus_resubscribe)
+      Process.sleep(100)
+
+      after_refs = :sys.get_state(subscriber_pid).subscriptions |> Map.keys()
+      assert MapSet.new(after_refs) == MapSet.new(before_refs)
+
+      assert :ok =
+               JidoAdapter.publish("fixture.bus_restart", %{"test_pid" => self(), "n" => 1})
+
+      assert_receive {:handled, "fixture.bus_restart", 1}, 1_000
+      refute_receive {:handled, "fixture.bus_restart", 1}
+    end
+
+    test "bus :kill → permanent 自动重启 → 全量重订阅恢复投递 + 旧 forwarder 回收" do
+      start_supervised!(BusRestart)
+
+      subscriber_pid = Process.whereis(BusRestart)
+      %{forwarders: old_forwarders} = :sys.get_state(subscriber_pid)
+
+      assert :ok =
+               JidoAdapter.publish("fixture.bus_restart", %{"test_pid" => self(), "n" => 1})
+
+      assert_receive {:handled, "fixture.bus_restart", 1}, 1_000
+
+      # 真实 permanent 重启（#120 场景）：粗暴 kill → supervisor 自动拉起。
+      # 区别于 terminate_child（移除监督不自动重启，构不成「重启」）。
+      {:ok, bus_pid} = JidoAdapter.whereis_bus()
+      Process.exit(bus_pid, :kill)
+
+      # 重订阅是 DOWN → 回收 → 退避后异步完成：轮询 publish 直至送达
+      publish_bus_restart_until_handled(2)
+
+      # 订阅方存活；全部 patterns 重订阅；旧 forwarder 已被显式回收（不泄漏）
+      assert Process.alive?(subscriber_pid)
+      state = :sys.get_state(subscriber_pid)
+      assert length(Map.keys(state.subscriptions)) == 2
+      assert state.bus_monitor != nil
+
+      assert Enum.all?(Map.values(old_forwarders), fn forwarder ->
+               not Process.alive?(forwarder)
+             end)
+    end
+
+    test "bus 不回归窗口（terminate_child）→ 订阅方退避存活不 stop；回归后自动恢复" do
+      start_supervised!(BusRestart)
+
+      bus_id = JidoAdapter.bus_name()
+      assert :ok = Supervisor.terminate_child(Cgc2046.Supervisor, bus_id)
+
+      # DOWN 处理 + 首轮退避（100ms）走完后：订阅方存活、订阅表清空、bus 无 monitor
+      Process.sleep(300)
+
+      subscriber_pid = Process.whereis(BusRestart)
+      assert subscriber_pid != nil and Process.alive?(subscriber_pid)
+      state = :sys.get_state(subscriber_pid)
+      assert state.subscriptions == %{}
+      assert state.bus_monitor == nil
+      assert state.bus_retries > 0
+
+      # bus 回归 → 退避到期后自动恢复订阅与投递
+      assert {:ok, _pid} = Supervisor.restart_child(Cgc2046.Supervisor, bus_id)
+      publish_bus_restart_until_handled(1)
+      assert Process.alive?(subscriber_pid)
+    after
+      # 防御恢复（正常路径已恢复时返回 {:error, :running}，不视为失败）
+      _ = Supervisor.restart_child(Cgc2046.Supervisor, JidoAdapter.bus_name())
+    end
+
+    test "真实订阅方（NotificationSubscriber）：bus :kill 重启后投递恢复（真实双证）" do
+      # enrollment.submitted 非 request 策略 → handle 落 :ok 无副作用分支：
+      # 只经 claim（SignalIdempotency 写，shared sandbox 覆盖）+ telemetry 可观察
+      test_pid = self()
+
+      :telemetry.attach(
+        "bus-restart-ns",
+        [:cgc2046, :signal, :deliver],
+        fn _event, _measurements, meta, _config ->
+          if meta[:subscriber] == "NotificationSubscriber" do
+            send(test_pid, {:ns_delivered, meta.type})
+          end
+        end,
+        nil
+      )
+
+      {:ok, bus_pid} = JidoAdapter.whereis_bus()
+      Process.exit(bus_pid, :kill)
+
+      payload = %{
+        "enrollment_id" => Ecto.UUID.generate(),
+        "workspace_id" => Ecto.UUID.generate(),
+        "idempotency_key" => "bus-restart-ns:" <> Ecto.UUID.generate()
+      }
+
+      wait_until(fn ->
+        case JidoAdapter.publish("enrollment.submitted", payload) do
+          :ok ->
+            receive do
+              {:ns_delivered, "enrollment.submitted"} -> true
+            after
+              100 -> false
+            end
+
+          {:error, _reason} ->
+            false
+        end
+      end)
+    after
+      :telemetry.detach("bus-restart-ns")
+    end
+  end
+
   defp publish_until_handled(type, n, attempts \\ 20)
 
   defp publish_until_handled(_type, _n, 0),
@@ -245,6 +367,42 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       {:handled, ^n} -> :ok
     after
       200 -> publish_until_handled(type, n, attempts - 1)
+    end
+  end
+
+  defp publish_bus_restart_until_handled(n, attempts \\ 30)
+
+  defp publish_bus_restart_until_handled(_n, 0),
+    do: flunk("bus restart resubscribe never recovered delivery")
+
+  # bus 重启窗口内 publish 可能 {:error, :not_found}（supervisor 尚未拉起 bus）：
+  # 与 SignalPublishWorker Oban 重试同构，不视为失败，继续轮询。
+
+  defp publish_bus_restart_until_handled(n, attempts) do
+    case JidoAdapter.publish("fixture.bus_restart", %{"test_pid" => self(), "n" => n}) do
+      :ok ->
+        receive do
+          {:handled, "fixture.bus_restart", ^n} -> :ok
+        after
+          200 -> publish_bus_restart_until_handled(n, attempts - 1)
+        end
+
+      {:error, _reason} ->
+        Process.sleep(200)
+        publish_bus_restart_until_handled(n, attempts - 1)
+    end
+  end
+
+  defp wait_until(fun, attempts \\ 50)
+
+  defp wait_until(_fun, 0), do: flunk("condition never met within wait_until budget")
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(100)
+      wait_until(fun, attempts - 1)
     end
   end
 end
