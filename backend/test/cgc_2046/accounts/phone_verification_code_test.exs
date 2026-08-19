@@ -11,7 +11,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
 
   describe "issue/2" do
     test "生成 6 位数字码，落库 hash 而非明文" do
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
       assert String.match?(code, ~r/^\d{6}$/)
 
@@ -24,8 +24,8 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
     end
 
     test "发新码作废旧活跃码（同 phone+purpose）" do
-      {:ok, _code1} = PhoneVerificationCode.issue(@phone, :login)
-      {:ok, code2} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, _code1, _rid} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code2, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
       rows = fetch_all_active(@phone, :login)
       # 新码未消费；旧码已被置 consumed
@@ -34,8 +34,8 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
     end
 
     test "不同 purpose 互不作废" do
-      {:ok, _login_code} = PhoneVerificationCode.issue(@phone, :login)
-      {:ok, _bind_code} = PhoneVerificationCode.issue(@phone, :wechat_bind)
+      {:ok, _login_code, _rid} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, _bind_code, _rid} = PhoneVerificationCode.issue(@phone, :wechat_bind)
 
       assert Enum.count(fetch_all_active(@phone, :login)) == 1
       assert Enum.count(fetch_all_active(@phone, :wechat_bind)) == 1
@@ -44,7 +44,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
 
   describe "consume_valid/3" do
     test "正确码消费成功，码单次使用" do
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
       assert :ok = PhoneVerificationCode.consume_valid(@phone, code, :login)
 
@@ -54,7 +54,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
     end
 
     test "错码不消费但可用；3 次错码后失效" do
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
       wrong = if code == "000000", do: "111111", else: "000000"
 
       assert {:error, :invalid_code} = PhoneVerificationCode.consume_valid(@phone, wrong, :login)
@@ -64,7 +64,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
     end
 
     test "连续 3 次错码 → 码失效（正确码也不可用）" do
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
       wrong = if code == "000000", do: "111111", else: "000000"
 
       for _ <- 1..3,
@@ -75,7 +75,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
     end
 
     test "码过期（expires_at 之后）→ 不可用" do
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
       backdate_expiry(@phone, :login)
 
       assert {:error, :code_not_available} =
@@ -86,14 +86,14 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
       assert {:error, :code_not_available} =
                PhoneVerificationCode.consume_valid(@phone, "123456", :login)
 
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
       assert {:error, :code_not_available} =
                PhoneVerificationCode.consume_valid(@phone, code, :wechat_bind)
     end
 
     test "并发消费防重放：两进程同时用同码，至多一个成功" do
-      {:ok, code} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
       parent = self()
 

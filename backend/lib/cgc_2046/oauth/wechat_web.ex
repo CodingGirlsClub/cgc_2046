@@ -78,7 +78,7 @@ defmodule Cgc2046.OAuth.WechatWeb do
 
         {:ok,
          %Req.Response{status: 200, body: %{"access_token" => at, "openid" => openid} = body}} ->
-          {:ok, %{openid: openid, unionid: body["unionid"], access_token: at}}
+          {:ok, %{openid: openid, unionid: blank_to_nil(body["unionid"]), access_token: at}}
 
         {:ok, %Req.Response{status: status, body: body}} ->
           {:error, {:wechat_web_bad_response, status, body}}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@apollo/client/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -17,15 +17,36 @@ import { smsErrorMessage, useSmsLogin } from "../use-sms-login";
 /**
  * 微信扫码回调页(plan 002 U4/U5)。
  *
- * 微信跳转 /login/wechat-callback?code=&state=(&next= 由 qrconnect 透传):
+ * 微信跳转 /login/wechat-callback?code=&state=(&next= 由 qrconnect 透传)。
+ * 本页运行在 QR 面板 iframe 内（D2：微信自渲染扫码页）——登录成功后顶层
+ * 导航接管（同源可写 window.top），顶层离开登录页:
  * - signInWithWechat → SIGNED_IN:resetStore 后跳 next;
  * - NEEDS_BINDING:强制手机验证码绑定/建号(bindWechatWithPhone,WECHAT_BIND 验码);
  * - state 重放/过期/换票失败 → 错误文案 + 返回登录。
  * next 只从 URL 参数取(state 只防伪);resolveNextTarget 同源校验防开跳转。
  */
+// 登录成功导航：iframe 内（D2 QR 面板）时接管顶层（同源才可写，跨源兜底本窗口）
+function navigateAfterLogin(
+	router: { push: (path: string) => void },
+	nextRaw: string | null,
+) {
+	const path = resolveNextTarget(nextRaw, window.location.origin);
+	if (window.self !== window.top) {
+		try {
+			window.top!.location.assign(path);
+			return;
+		} catch {
+			// 跨源顶层（理论不可达，防御）：退回本窗口
+		}
+	}
+	router.push(path);
+}
+
 function WechatCallbackContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	// advisor02 A12：dev StrictMode 双跑防重（state 单次消费，二跑必败出假错误）
+	const startedRef = useRef(false);
 	const t = useTranslations("auth.wechatCallback");
 	const [bindTicket, setBindTicket] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -42,6 +63,8 @@ function WechatCallbackContent() {
 
 	useEffect(() => {
 		if (!oauthCode || !oauthState) return;
+		if (startedRef.current) return;
+		startedRef.current = true;
 
 		let cancelled = false;
 		const run = async () => {
@@ -53,12 +76,7 @@ function WechatCallbackContent() {
 				const result = data?.signInWithWechat;
 				if (result?.status === "SIGNED_IN") {
 					await client.resetStore();
-					router.push(
-						resolveNextTarget(
-							searchParams?.get("next") ?? null,
-							window.location.origin,
-						),
-					);
+					navigateAfterLogin(router, searchParams?.get("next") ?? null);
 					return;
 				}
 				if (result?.status === "NEEDS_BINDING" && result.bindTicket) {
@@ -87,12 +105,7 @@ function WechatCallbackContent() {
 			});
 			if (data?.bindWechatWithPhone?.id) {
 				await client.resetStore();
-				router.push(
-					resolveNextTarget(
-						searchParams?.get("next") ?? null,
-						window.location.origin,
-					),
-				);
+				navigateAfterLogin(router, searchParams?.get("next") ?? null);
 				return;
 			}
 			setBindError(t("bindFailed"));

@@ -207,19 +207,46 @@ defmodule Cgc2046.Accounts.WechatLoginTicket do
   end
 
   @doc """
-  读取 pending 票（signInWithWechat 验 state 用；不迁移状态——命中 identity
-  的迁移在 consume_now/2）。
+  读取 needs_binding 票（bindWechatWithPhone 验 ticket 用；不迁移状态——
+  消费在 consume_for_binding/1，验码成功后调用，M3 顺序要求）。
   """
-  @spec fetch_pending(String.t()) :: {:ok, map()} | {:error, :ticket_invalid}
-  def fetch_pending(state) do
+  @spec fetch_needs_binding(String.t()) :: {:ok, map()} | {:error, :ticket_invalid}
+  def fetch_needs_binding(state) do
     {:ok, %Postgrex.Result{rows: rows}} =
       Ecto.Adapters.SQL.query(
         Cgc2046.Repo,
         """
         SELECT id, state, expires_at FROM wechat_login_tickets
-        WHERE state = $1 AND status = 'pending' AND expires_at > now()
+        WHERE state = $1 AND status = 'needs_binding' AND expires_at > $2
         """,
-        [state]
+        [state, DateTime.utc_now() |> DateTime.truncate(:second)]
+      )
+
+    case rows do
+      [[id, state, expires_at]] ->
+        {:ok, %{id: id, state: state, expires_at: expires_at}}
+
+      _ ->
+        {:error, :ticket_invalid}
+    end
+  end
+
+  @doc """
+  读取 pending 票（signInWithWechat 验 state 用；不迁移状态——命中 identity
+  的迁移在 consume_now/1）。
+  """
+  @spec fetch_pending(String.t()) :: {:ok, map()} | {:error, :ticket_invalid}
+  def fetch_pending(state) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {:ok, %Postgrex.Result{rows: rows}} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        """
+        SELECT id, state, expires_at FROM wechat_login_tickets
+        WHERE state = $1 AND status = 'pending' AND expires_at > $2
+        """,
+        [state, now]
       )
 
     case rows do

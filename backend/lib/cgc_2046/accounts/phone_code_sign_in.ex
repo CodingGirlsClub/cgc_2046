@@ -27,8 +27,8 @@ defmodule Cgc2046.Accounts.PhoneCodeSignIn do
     with :ok <- PhoneVerificationCode.consume_valid(phone, code, :login),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
-         :ok <- SignInFlow.revoke_stored_tokens(user),
-         {:ok, user} <- SignInFlow.generate_token(user, nil, context) do
+         :ok <- SignInFlow.revoke_stored_tokens(user, :web),
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
       {:ok, user}
     else
       {:error, :invalid_code} -> {:error, :invalid_or_expired_code}

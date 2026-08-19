@@ -106,13 +106,16 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   @doc """
   生成 6 位数字码并落库；作废同 phone+purpose 全部活跃码（发新码作废旧码）。
 
-  返回明文码（供发送，不落库）。`:dev_sandbox` 模式（SMS 未配置的 dev）由
-  调用方 Logger 输出。
+  返回 `{:ok, code, send_request_id}`——明文码供发送（不落库），
+  send_request_id 是落库的渠道幂等键，供 deliver 上送（重试不重复发）。
+  `:dev_sandbox` 模式（SMS 未配置的 dev）由调用方 Logger 输出。
   """
-  @spec issue(String.t(), :login | :wechat_bind) :: {:ok, String.t()} | {:error, term()}
+  @spec issue(String.t(), :login | :wechat_bind) ::
+          {:ok, String.t(), String.t()} | {:error, term()}
   def issue(phone, purpose) when is_binary(phone) and purpose in [:login, :wechat_bind] do
     code = generate_code()
     now = DateTime.utc_now()
+    send_request_id = generate_request_id()
 
     row = %{
       id: Cgc2046.Repo.uuid!(Ecto.UUID.generate()),
@@ -122,7 +125,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
       expires_at: DateTime.add(now, @code_ttl_seconds, :second),
       attempts_left: @max_attempts,
       consumed_at: nil,
-      send_request_id: generate_request_id(),
+      send_request_id: send_request_id,
       inserted_at: now,
       updated_at: now
     }
@@ -130,7 +133,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
     case Cgc2046.Repo.insert_all("phone_verification_codes", [row]) do
       {1, _} ->
         invalidate_active(phone, purpose, row[:id])
-        {:ok, code}
+        {:ok, code, send_request_id}
 
       other ->
         {:error, {:code_insert_failed, other}}
@@ -232,14 +235,23 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   @spec code_ttl_seconds :: pos_integer()
   def code_ttl_seconds, do: @code_ttl_seconds
 
-  # 6 位数字码：crypto 强随机，均匀取模（10^6 无偏区间内）
+  # 6 位数字码：rejection sampling（2^24 mod 10^6 ≈ 6% 相对偏差区间外重采样，
+  # advisor02 A7——3 字节随机数均匀覆盖 [0, 16_777_216)，超出 16×10^6 的
+  # 尾部丢弃重采，保证无偏）
+  @code_space 1_000_000
+  @code_reject_below 16 * @code_space
+
   defp generate_code do
     n = :binary.decode_unsigned(:crypto.strong_rand_bytes(3))
 
-    n
-    |> rem(1_000_000)
-    |> Integer.to_string()
-    |> String.pad_leading(6, "0")
+    if n >= @code_reject_below do
+      generate_code()
+    else
+      n
+      |> rem(@code_space)
+      |> Integer.to_string()
+      |> String.pad_leading(6, "0")
+    end
   end
 
   defp hash_code(phone, code),

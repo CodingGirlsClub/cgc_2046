@@ -61,9 +61,9 @@ defmodule Cgc2046.Accounts.User do
     )
 
     # phone 需 public?: true —— password_phone 策略的 identity_field 校验强制
-    # （ash_authentication transformer validate_identity_field/2）。敏感面维持不变：
-    # GraphQL 出口由手写 resolver 控制（signIn 只吃 login 入参，不返回 phone），
-    # User 资源未接入 ash_graphql 字段自动生成（graphql do 仅 type(:user)）。
+    # （ash_authentication transformer validate_identity_field/2）。GraphQL 出口
+    # 已在 graphql 块 hide_fields([:phone]) 摘除（advisor02 M9）；手写 resolver
+    # 只吃 login 入参，不返回 phone。
     attribute(:phone, :string,
       allow_nil?: true,
       public?: true,
@@ -458,6 +458,11 @@ defmodule Cgc2046.Accounts.User do
 
   graphql do
     type(:user)
+
+    # advisor02 M9：password_phone 策略要求 phone public?: true，副作用是
+    # ash_graphql 自动把它带进 type User——违反「不新增 phone 查询出口」。
+    # 从 GraphQL 出口摘除（资源层仍 public 供策略校验）。
+    hide_fields([:phone])
   end
 
   admin do

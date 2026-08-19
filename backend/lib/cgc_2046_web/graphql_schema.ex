@@ -524,6 +524,18 @@ defmodule Cgc2046Web.GraphqlSchema do
           {:error, message: "WeChat login is unavailable", code: "wechat_login_unavailable"}
         end
       end)
+
+      # advisor02 M2：state 经 before_send 下发 httpOnly cgc_wechat_state cookie
+      # 绑定发起浏览器（WechatStatePlug 读回校验）
+      middleware(fn res, _ ->
+        case res.value do
+          %{state: state} when is_binary(state) ->
+            %{res | context: Map.put(res.context, :cgc_wechat_state_set, state)}
+
+          _ ->
+            res
+        end
+      end)
     end
 
     @desc "微信扫码回调（plan 002 U4；IP 20/15min 限流）：已绑定直登，未绑定返回绑定票据"
@@ -1770,10 +1782,12 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp check_phone_code_request_limits(context, phone) do
     ip = remote_ip(context)
 
+    phone_key = Cgc2046Web.Plugs.RateLimit.build_key("rate:phone-code:phone", phone)
+
     windows = [
-      {"rate:phone-code:phone:1m:#{phone}", 60, 1},
-      {"rate:phone-code:phone:1h:#{phone}", 3_600, 5},
-      {"rate:phone-code:phone:1d:#{phone}", 86_400, 20},
+      {"#{phone_key}:1m", 60, 1},
+      {"#{phone_key}:1h", 3_600, 5},
+      {"#{phone_key}:1d", 86_400, 20},
       {"rate:phone-code:ip:1d:#{ip}", 86_400, 30}
     ]
 
@@ -1791,7 +1805,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     ip = remote_ip(context)
 
     windows = [
-      {"rate:phone-code-verify:phone:#{phone}", 900, 5},
+      {Cgc2046Web.Plugs.RateLimit.build_key("rate:phone-code-verify:phone", phone), 900, 5},
       {"rate:phone-code-verify:ip:#{ip}", 900, 20}
     ]
 
@@ -1805,14 +1819,21 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   # 发码统一响应：SendCloud 失败外的所有分支 sent: true（防枚举）；
-  # SMS 未配置（dev）落库 + Logger 出码，sent: true 维持前端可测。
+  # deliver 失败冒泡为 sent:false + retryAfterSeconds（plan U3.4——M4 修复：
+  # 此前结果被丢弃恒 sent:true，用户看到已发送但短信不存在）。
   defp request_phone_code(phone, purpose) do
     purpose_atom = phone_code_purpose_atom(purpose)
 
     case Cgc2046.Accounts.PhoneVerificationCode.issue(phone, purpose_atom) do
-      {:ok, code} ->
-        deliver_phone_code(phone, code)
-        {:ok, %{sent: true, retry_after_seconds: 60}}
+      {:ok, code, send_request_id} ->
+        case deliver_phone_code(phone, code, send_request_id) do
+          :ok ->
+            {:ok, %{sent: true, retry_after_seconds: 60}}
+
+          {:error, reason} ->
+            Logger.warning("[request_phone_code] sms deliver failed: #{inspect(reason)}")
+            {:ok, %{sent: false, retry_after_seconds: 60}}
+        end
 
       {:error, reason} ->
         Logger.warning("[request_phone_code] issue failed: #{inspect(reason)}")
@@ -1826,26 +1847,18 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp phone_code_purpose_atom("login"), do: :login
   defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
 
-  defp deliver_phone_code(phone, code) do
+  defp deliver_phone_code(phone, code, send_request_id) do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
 
     if Cgc2046.Sms.SendCloud.configured?() do
       template_id = Keyword.fetch!(sms, :template_id)
-      request_id = Ecto.UUID.generate()
 
-      case Cgc2046.Sms.SendCloud.send_template_sms(
-             phone,
-             template_id,
-             %{"code" => code},
-             request_id
-           ) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("[request_phone_code] sms deliver failed: #{inspect(reason)}")
-          {:error, reason}
-      end
+      Cgc2046.Sms.SendCloud.send_template_sms(
+        phone,
+        template_id,
+        %{"code" => code},
+        send_request_id
+      )
     else
       # dev/test：SMS 凭证缺席，Logger 出码供本地联调（prod 启动时 raise，不可达）
       Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
@@ -1884,7 +1897,11 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp check_wechat_bind_limits(_context, phone) do
-    check_single_limit("rate:wechat-bind:phone:#{phone}", 900, 5)
+    check_single_limit(
+      Cgc2046Web.Plugs.RateLimit.build_key("rate:wechat-bind:phone", phone),
+      900,
+      5
+    )
   end
 
   defp check_single_limit(key, window, max) do

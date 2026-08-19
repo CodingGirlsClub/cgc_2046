@@ -64,15 +64,19 @@ defmodule Cgc2046.Accounts.SignInFlow do
   # ── 重登吊销旧 jti（白名单既有能力）─────────────────────────────────────
 
   @doc """
-  吊销该 subject 全部已存 token。返回 `:ok | {:error, term}`。
+  吊销该 subject 的已存 token（M8：按 platform 面过滤）。
+
+  - `platform` atom：只吊销同面 token。`:web` 面含无 platform claim 的
+    token（密码登录签发，advisor02 裁决归入 web 面）。
+  - `nil`：全量吊销（user.ex 密码重置路径沿用）。
   """
-  @spec revoke_stored_tokens(User.t()) :: :ok | {:error, term()}
-  def revoke_stored_tokens(user) do
+  @spec revoke_stored_tokens(User.t(), atom() | nil) :: :ok | {:error, term()}
+  def revoke_stored_tokens(user, platform \\ nil) do
     subject = AshAuthentication.user_to_subject(user)
 
     with {:ok, tokens} <-
            Token
-           |> Query.for_read(:stored_for_subject, %{subject: subject})
+           |> Query.for_read(:stored_for_subject, %{subject: subject, platform: platform})
            |> Ash.read(@internal_opts),
          :ok <- revoke_each(tokens, subject) do
       :ok
@@ -112,11 +116,39 @@ defmodule Cgc2046.Accounts.SignInFlow do
         |> maybe_put_platform(platform)
 
       case Jwt.token_for_user(user, extra_claims, Ash.Context.to_opts(context)) do
-        {:ok, token, _claims} -> {:ok, Ash.Resource.put_metadata(user, :token, token)}
-        :error -> {:error, :token_generation_failed}
+        {:ok, token, %{"jti" => jti}} ->
+          store_platform_extra_data(jti, platform)
+          {:ok, Ash.Resource.put_metadata(user, :token, token)}
+
+        {:ok, token, _claims} ->
+          {:ok, Ash.Resource.put_metadata(user, :token, token)}
+
+        :error ->
+          {:error, :token_generation_failed}
       end
     else
       {:ok, user}
+    end
+  end
+
+  # M8：ash_authentication store_token 只落 jti/subject/purpose，platform
+  # claim 不进 extra_data（3.31 实测）。签发成功后按 jti 补写 extra_data，
+  # 供 stored_for_subject 的 platform 面过滤。失败仅记日志不阻断——该 token
+  # 退化为 web 面语义，不影响登录本身。
+  defp store_platform_extra_data(_jti, nil), do: :ok
+
+  defp store_platform_extra_data(jti, platform) do
+    case Ecto.Adapters.SQL.query(
+           Cgc2046.Repo,
+           "UPDATE tokens SET extra_data = jsonb_build_object('platform', $2::text) WHERE jti = $1",
+           [jti, to_string(platform)]
+         ) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[sign_in_flow] store platform extra_data failed: #{inspect(reason)}")
+        :ok
     end
   end
 

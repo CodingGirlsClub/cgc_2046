@@ -26,7 +26,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
     end)
 
-    {:ok, state: start_login()}
+    {:ok, login: start_login()}
   end
 
   defp graphql_post(conn, query) do
@@ -38,20 +38,31 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
   # test.exs 注入了 wechat_web_req_plug stub；wechat_web 配置沿用 config.exs
   # dummy 值（configured? true），OAuth 请求全被 Req.Test 拦截。
   defp start_login do
-    res =
+    conn =
       build_conn()
       |> graphql_post("""
       mutation { wechatLoginStart { qrUrl state expiresInSeconds } }
       """)
-      |> json_response(200)
 
+    res = json_response(conn, 200)
     assert %{"data" => %{"wechatLoginStart" => start}} = res
     assert String.starts_with?(start["qrUrl"], "https://open.weixin.qq.com/connect/qrconnect")
     assert start["qrUrl"] =~ "state=" <> start["state"]
     assert start["qrUrl"] =~ "scope=snsapi_login"
     assert start["expiresInSeconds"] > 0
 
-    start["state"]
+    # M2：state 经 httpOnly cgc_wechat_state cookie 绑定发起浏览器
+    state_cookie = conn.resp_cookies["cgc_wechat_state"]
+    assert state_cookie != nil
+    assert state_cookie.http_only == true
+    assert state_cookie.value == start["state"]
+
+    {start["state"], state_cookie.value}
+  end
+
+  # M2：携带浏览器 state cookie 的回调/绑定请求
+  defp with_wechat_cookie(conn, state_cookie) do
+    put_req_cookie(conn, "cgc_wechat_state", state_cookie)
   end
 
   defp stub_code2session(openid, unionid \\ nil) do
@@ -80,8 +91,8 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
   end
 
   describe "wechatLoginStart" do
-    test "出码 URL + state + TTL（setup 已断言，此处补 state 唯一性）", %{state: state} do
-      state2 = start_login()
+    test "出码 URL + state + TTL（setup 已断言，此处补 state 唯一性）", %{login: {state, _sc}} do
+      {state2, _sc2} = start_login()
       assert state != state2
     end
 
@@ -129,11 +140,12 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
   end
 
   describe "signInWithWechat" do
-    test "未绑定：needs_binding + bindTicket（=state）", %{state: state} do
+    test "未绑定：needs_binding + bindTicket（=state）", %{login: {state, sc}} do
       stub_code2session("web-openid-new", "union-1")
 
       res =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post(sign_in_with_wechat_mutation("code-1", state))
         |> json_response(200)
 
@@ -147,16 +159,41 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert ticket == state
     end
 
-    test "state 重放拒绝：同一 state 第二次回调失败", %{state: state} do
+    test "state 重放拒绝：同一 state 第二次回调失败", %{login: {state, sc}} do
       stub_code2session("web-openid-replay", "union-2")
 
       build_conn()
+      |> with_wechat_cookie(sc)
       |> graphql_post(sign_in_with_wechat_mutation("code-1", state))
       |> json_response(200)
 
       res =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post(sign_in_with_wechat_mutation("code-1", state))
+        |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
+    end
+
+    test "M2 无浏览器 cookie：合法 state+code 也拒绝（钓鱼链接防护）", %{login: {state, _sc}} do
+      stub_code2session("web-openid-phish", nil)
+
+      res =
+        build_conn()
+        |> graphql_post(sign_in_with_wechat_mutation("code-phish", state))
+        |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
+    end
+
+    test "M2 cookie 不匹配（他浏览器 state）：拒绝", %{login: {state, _sc}} do
+      stub_code2session("web-openid-mismatch", nil)
+
+      res =
+        build_conn()
+        |> with_wechat_cookie(Ecto.UUID.generate())
+        |> graphql_post(sign_in_with_wechat_mutation("code-mm", state))
         |> json_response(200)
 
       assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
@@ -173,7 +210,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
     end
 
-    test "code 换 token 失败（errcode 非零）→ wechat_sign_in_failed", %{state: state} do
+    test "code 换 token 失败（errcode 非零）→ wechat_sign_in_failed", %{login: {state, sc}} do
       Req.Test.stub(@stub, fn
         %{path_info: ["sns", "oauth2", "access_token"]} = conn ->
           Req.Test.json(conn, %{"errcode" => 40_063, "errmsg" => "invalid code"})
@@ -184,6 +221,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
 
       res =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post(sign_in_with_wechat_mutation("bad-code", state))
         |> json_response(200)
 
@@ -192,23 +230,25 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
 
     test "绑定后直登：SIGNED_IN + httpOnly cookie（无 platform claim）" do
       # 先走 needs_binding 拿 ticket 并完成绑定
-      state = start_login()
+      {state, sc} = start_login()
       stub_code2session("web-openid-direct", "union-direct")
 
       # 先触发 needs_binding（ticket 迁移）再完成绑定
       res0 =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post(sign_in_with_wechat_mutation("code-0", state))
         |> json_response(200)
 
       assert %{"data" => %{"signInWithWechat" => %{"status" => "NEEDS_BINDING"}}} = res0
-      complete_binding(state)
+      complete_binding(state, sc)
 
       # 第二次扫码：同 openid 已有 identity → 直登
-      state2 = start_login()
+      {state2, sc2} = start_login()
 
       conn =
         build_conn()
+        |> with_wechat_cookie(sc2)
         |> graphql_post(sign_in_with_wechat_mutation("code-2", state2))
 
       res = json_response(conn, 200)
@@ -220,18 +260,20 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert cookie != nil and cookie.http_only == true
       {:ok, claims} = Jwt.peek(cookie.value)
       assert claims["purpose"] == "user"
-      assert is_nil(claims["platform"])
+      # M8：web 面 token 带 platform=web claim（吊销面过滤依据）
+      assert claims["platform"] == "web"
     end
 
     test "unionid 跨应用合并：已有小程序 wechat identity 同 unionid → 直登" do
       # 造一个小程序 identity 用户（内部路径）
       {:ok, mp_identity_user} = create_mp_user_with_unionid(@phone, "union-shared")
 
-      state = start_login()
+      {state, sc} = start_login()
       stub_code2session("web-openid-mp-merge", "union-shared")
 
       conn =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post(sign_in_with_wechat_mutation("code-3", state))
 
       res = json_response(conn, 200)
@@ -246,21 +288,23 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
 
   describe "bindWechatWithPhone" do
     test "绑定全流程：验码 → 建号 → identity 落库 → 消费 ticket → cookie" do
-      state = start_login()
+      {state, sc} = start_login()
       stub_code2session("web-openid-bind", "union-bind")
 
       # 先触发 needs_binding（ticket 迁移）
       res =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post(sign_in_with_wechat_mutation("code-b", state))
         |> json_response(200)
 
       assert %{"data" => %{"signInWithWechat" => %{"status" => "NEEDS_BINDING"}}} = res
 
-      {:ok, code} = issue_bind_code()
+      code = issue_bind_code()
 
       conn =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post("""
         mutation {
           bindWechatWithPhone(bindTicket: "#{state}", phone: "#{@phone_raw}", code: "#{code}") {
@@ -291,15 +335,17 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert identity.user_id == payload["id"]
     end
 
-    test "错码：invalid_or_expired_code", %{state: state} do
+    test "错码：invalid_or_expired_code + ticket 可重试（M3：验码失败不烧 ticket）", %{login: {state, sc}} do
       stub_code2session("web-openid-bad", nil)
 
       build_conn()
+      |> with_wechat_cookie(sc)
       |> graphql_post(sign_in_with_wechat_mutation("code-c", state))
       |> json_response(200)
 
       res =
         build_conn()
+        |> with_wechat_cookie(sc)
         |> graphql_post("""
         mutation {
           bindWechatWithPhone(bindTicket: "#{state}", phone: "#{@phone_raw}", code: "000000") {
@@ -311,11 +357,27 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
 
       assert %{"errors" => errors} = res
       assert Enum.any?(errors, &(&1["code"] == "invalid_or_expired_code"))
+
+      # M3：错码一次不烧 ticket——正确码重试仍可完成绑定
+      code = issue_bind_code()
+
+      res2 =
+        build_conn()
+        |> with_wechat_cookie(sc)
+        |> graphql_post("""
+        mutation {
+          bindWechatWithPhone(bindTicket: "#{state}", phone: "#{@phone_raw}", code: "#{code}") { id }
+        }
+        """)
+        |> json_response(200)
+
+      assert %{"data" => %{"bindWechatWithPhone" => %{"id" => _}}} = res2
     end
 
-    test "无效 ticket（不存在）：invalid_bind_ticket" do
+    test "无效 ticket（不存在）：invalid_bind_ticket（cookie 与 ticket 同值但 DB 无记录）" do
       res =
         build_conn()
+        |> with_wechat_cookie("bogus-ticket")
         |> graphql_post("""
         mutation {
           bindWechatWithPhone(bindTicket: "bogus-ticket", phone: "#{@phone_raw}", code: "123456") {
@@ -333,13 +395,15 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
   # ── helpers ─────────────────────────────────────────────────────────────
 
   defp issue_bind_code do
-    Cgc2046.Accounts.PhoneVerificationCode.issue(@phone, :wechat_bind)
+    {:ok, code, _rid} = Cgc2046.Accounts.PhoneVerificationCode.issue(@phone, :wechat_bind)
+    code
   end
 
-  defp complete_binding(state) do
-    {:ok, code} = issue_bind_code()
+  defp complete_binding(state, state_cookie) do
+    code = issue_bind_code()
 
     build_conn()
+    |> with_wechat_cookie(state_cookie)
     |> graphql_post("""
     mutation {
       bindWechatWithPhone(bindTicket: "#{state}", phone: "#{@phone_raw}", code: "#{code}") { id }

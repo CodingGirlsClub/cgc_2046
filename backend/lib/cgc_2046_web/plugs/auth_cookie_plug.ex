@@ -36,6 +36,14 @@ defmodule Cgc2046Web.Plugs.AuthCookiePlug do
   从 blueprint context 读取 token 或清除信号，写/清 httpOnly cookie。
   """
   def before_send(conn, %{execution: %{context: context}}) do
+    conn
+    |> write_token_cookie(context)
+    |> write_wechat_state_cookie(context)
+  end
+
+  def before_send(conn, _), do: conn
+
+  defp write_token_cookie(conn, context) do
     cond do
       context[:cgc_clear_token] ->
         delete_resp_cookie(conn, @cookie_key)
@@ -55,5 +63,20 @@ defmodule Cgc2046Web.Plugs.AuthCookiePlug do
     end
   end
 
-  def before_send(conn, _), do: conn
+  # advisor02 M2：wechatLoginStart 下发 state 绑定 cookie（10min 对齐 ticket TTL；
+  # Lax + httpOnly——顶层导航回调和同源 fetch 可带，跨站攻击页的 fetch 带不上）
+  defp write_wechat_state_cookie(conn, context) do
+    case context[:cgc_wechat_state_set] do
+      state when is_binary(state) ->
+        put_resp_cookie(conn, "cgc_wechat_state", state,
+          http_only: true,
+          secure: Application.get_env(:cgc_2046, :auth_cookie_secure, true),
+          same_site: "Lax",
+          max_age: 600
+        )
+
+      _ ->
+        conn
+    end
+  end
 end

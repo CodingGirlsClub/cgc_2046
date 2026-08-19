@@ -60,7 +60,7 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
   # stub 应答。为拿明文码，直接调 PhoneVerificationCode.issue 后手工验。）
   defp issue_and_get_code(phone, purpose \\ :login) do
     # 绕开 GraphQL 限流干扰，直接 issue 拿明文码
-    {:ok, code} = PhoneVerificationCode.issue(phone, purpose)
+    {:ok, code, _rid} = PhoneVerificationCode.issue(phone, purpose)
     code
   end
 
@@ -112,6 +112,19 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       assert %{"errors" => [%{"code" => "rate_limited"}]} = json_response(res2, 200)
     end
 
+    test "SendCloud 投递失败 → sent false（M4：不再吞错恒 true）" do
+      # 覆盖 setup 的成功 stub：本次请求返回 result:false
+      Req.Test.stub(@stub, fn conn ->
+        Req.Test.json(conn, %{"result" => false, "message" => "template rejected"})
+      end)
+
+      res = graphql_post(build_conn(), request_code_mutation("13800138003"))
+
+      assert %{
+               "data" => %{"requestPhoneCode" => %{"sent" => false, "retryAfterSeconds" => 60}}
+             } = json_response(res, 200)
+    end
+
     test "非法手机号 → invalid_phone" do
       res = graphql_post(build_conn(), request_code_mutation("not-a-phone")) |> json_response(200)
 
@@ -135,7 +148,8 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       assert cookie != nil and cookie.http_only == true
       {:ok, claims} = Jwt.peek(cookie.value)
       assert claims["purpose"] == "user"
-      assert claims["platform"] in [nil, "user"] or is_nil(claims["platform"])
+      # M8：web 面 token 带 platform=web claim
+      assert claims["platform"] == "web"
     end
 
     test "未归一化输入同号（138… vs +86138…）" do
@@ -194,6 +208,79 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       me_res = json_response(me_conn, 200)
       assert me_res["data"]["me"] == nil
       assert Enum.any?(me_res["errors"], &(&1["code"] in ["unauthorized", "auth_uncertain"]))
+    end
+
+    test "M8 跨端互踢隔离：web 登录不吊销小程序 token" do
+      # 小程序登录（内部路径，platform :wechat）
+      {:ok, mp_user} =
+        Cgc2046.Accounts.User
+        |> Ash.Changeset.for_create(:register_with_miniprogram, %{phone: @phone})
+        |> Ash.create(authorize?: false, context: %{private: %{ash_authentication?: true}})
+
+      {:ok, mp_signed} =
+        Cgc2046.Accounts.SignInFlow.generate_token(mp_user, :wechat, %{
+          private: %{ash_authentication?: true}
+        })
+
+      mp_token = mp_signed.__metadata__[:token]
+
+      # web SMS 登录（吊销 web 面）
+      code = issue_and_get_code(@phone)
+      graphql_post(build_conn(), sign_in_mutation(@phone_raw, code))
+
+      # 小程序 token 仍有效（me 可查）
+      me_conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", mp_token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "{ me { id } }"})
+
+      me_res = json_response(me_conn, 200)
+      assert me_res["data"]["me"] != nil
+      assert me_res["data"]["me"]["id"] == mp_user.id
+    end
+
+    test "M8 web 面内吊销：旧 web token（无 platform claim 的密码 token）被 web 登录吊销" do
+      # 密码路径 token（无 platform claim，M8 归入 web 面）
+      {:ok, user} =
+        Cgc2046.Accounts.User
+        |> Ash.Changeset.for_create(:register_with_password, %{
+          email: "m8-web-face@test.local",
+          password: "password12345"
+        })
+        |> Ash.create(authorize?: false, context: %{private: %{ash_authentication?: true}})
+
+      strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
+
+      {:ok, signed} =
+        AshAuthentication.Strategy.action(strategy, :sign_in, %{
+          "email" => "m8-web-face@test.local",
+          "password" => "password12345"
+        })
+
+      pw_token = signed.__metadata__[:token]
+
+      # 同一 user 绑 phone 后 web SMS 登录（find-or-create 命中同号用户）——
+      # 用同一手机号：先给该 user 设 phone
+      # 内部路径直接落 phone（资源无通用 update action）
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE users SET phone = $1 WHERE id = $2",
+        ["+8613800139393", Ecto.UUID.dump!(user.id)]
+      )
+
+      code = issue_and_get_code("+8613800139393")
+      graphql_post(build_conn(), sign_in_mutation("13800139393", code))
+
+      # 密码 token 已被 web 面吊销
+      me_conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", pw_token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "{ me { id } }"})
+
+      me_res = json_response(me_conn, 200)
+      assert me_res["data"]["me"] == nil
     end
   end
 end
