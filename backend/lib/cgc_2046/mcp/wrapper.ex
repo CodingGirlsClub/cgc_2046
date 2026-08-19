@@ -19,6 +19,20 @@ defmodule Cgc2046.Mcp.Wrapper do
   = member-only + workspace_id 必填（fail-closed 默认）**——新工具漏声明
   不会静默放行。
 
+  ## 双面契约（MCP membership 门 vs 平台管理员治理读，刻意不同答）
+
+  - **MCP 面（本模块默认门）**：member-only 门**不含 platform_admin 豁免**——
+    非成员平台管理员调 member-only 工具（list_members / get_workflow /
+    get_step_output 等）一律 Forbidden。MCP 是自动化 agent 代理面，取最小
+    授权：平台管理员的跨租户治理读走 GraphQL admin 查询，不经 agent 直连面。
+  - **policy / Rbac 面**：资源 read policy 放行 platform_admin 跨租户治理读取
+    （成员列表 / 审计 / 工作流，见 `Cgc2046.Policies.PlatformAdmin`
+    「双面契约」段与 `Cgc2046.Rbac.abilities_for/2`）。
+
+  修改任一面前先读对面——MCP 门若要放宽 admin 豁免，须与
+  `Policies.PlatformAdmin`、`Rbac.abilities_for/2`、CONTEXT.md「平台管理员」
+  一起裁决，不允许单面放宽。
+
   确认流工具（D-D3 two-tool）不在此处理 `needs_confirmation`——由
   `Cgc2046.Mcp.Confirmation.request/4` 先行拦截，本模块只负责审计与鉴权。
   """
