@@ -214,7 +214,7 @@
 
 ### 任务指令模式（Task-Instruction Pattern）
 
-- **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
+- **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`（**roadmap**：随 Agent 资源落地实现，#211 裁决 1/3；v1 载体 = `AgentInstructions` 模块常量）；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
 - **架构位置**：替代"运行时下发文件"（热加载未验证、工程风险高）与"纯静态打包"（不支持动态公共 Agent）两条路。
 
 ### AgentRun（领域操作聚合记录，实体不建）
@@ -230,25 +230,27 @@
 ### Agent（授权/配置登记，租户资源）
 
 - **定义**：两种形态——**个人 Agent**（角色分身，仅本人可见可用）与**公共 Agent**（Workspace 级，按 Workflow 协作）。在 BYO 架构下，Agent 只是授权与配置登记：`type / allowed_roles / owner` + OpenClacky 配置引用（`openclacky_profile / model / system_prompt / skills`）（D2）。**不包含执行逻辑**——执行发生在用户本地 OpenClacky。
-- **架构位置**：资源实体 + 网站侧定义存储；经 `get_agent_instruction` 供 CGC 助手消费。
+- **架构位置**：授权/配置登记概念，**实体未落地**（roadmap：plan 020，与 AgentRun 重启条件同钩子，#211 裁决 2/3）；v1 载体 = `Cgc2046.Workflows.AgentInstructions` 模块常量，`get_agent_instruction` 工具随实体落地（#211 裁决 1/3）。
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的全部工具，分三类（D7）：
-  - **读**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `get_learner_history` / `get_agent_instruction`（拉取 Agent 定义，D10）
-  - **写**：`save_step_output` / `reply_learner_question`
-  - **v1 课程学习闭环新增（2026-08-16 设计，未实现）**：读 `get_course_content` / `get_learning_records`（course_id 可选，并入原 `get_learner_history` 语义）；写 `save_learning_records` / `save_course_content`（教研侧）——工具面 8 → 12
-  - **管理类**（进 MCP，RBAC 兜底）：低风险直做 `create_agent` / `create_workflow` 等；高风险走确认流 `approve_join_request` / `assign_role` / `create_invitation` / `update_join_policy` / 删除类
-- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **12 个**（名单由 `wrapper_gate_test` 钉死）：
+  - **读 6**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）
+  - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
+  - **确认流 3**：`create_invitation`（two-tool 模式高风险写）+ 内置 `confirm_operation` / `cancel_operation`
+  - **已拍板待实现**：`approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」高频运营，agent-first 需求成立，#211 裁决 1/3）走确认流；配套读工具 `list_join_requests`（待批列表，对话闭环必需）
+  - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
+  - **已死亡（标注取代后除名）**：`reply_learner_question`（被 issue 卡 checklist 复盘 + `save_learning_records` 取代，切片 H）；`get_learner_history`（被 `get_learning_records` 取代）
+- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。`update_join_policy` / 删除类等低频管理操作维持 web 面（GraphQL + 设置页），真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开。
 
 ### 确认流（Confirmation Flow）
 
-- **定义**：高风险 MCP 工具的两阶段提交（D8，方案二原生 request_user_feedback）：
+- **定义**：高风险 MCP 工具的两阶段提交（D8；实现为 **two-tool 模式**，D-D3——目标客户端均不支持 elicitation）：
   1. Agent 调高风险工具 → 网站**不落库**，建 pending 记录 → 返回 `needs_confirmation: {id, 摘要}`
-  2. Agent 调内置 `request_user_feedback(question, options: ["确认写入", "继续讨论"])` → WebUI 弹可点击卡片，Agent 停下
-  3. 用户点选 → 文本回传 Agent → Agent 调 `confirm(id)` → 网站落库 + 审计
+  2. Agent 向用户展示摘要并征得同意（OpenClacky 语境经 `request_user_feedback` 原语弹卡片）
+  3. 用户同意 → Agent 调 `confirm_operation(id)` → 网站落库 + 审计；拒绝 → `cancel_operation(id)`（pending TTL 10 分钟）
   4. **网站永远不偷偷执行：无 confirm 不落库**
-- **架构位置**：管理类写操作的安全闸门；已知风险：auto_approve 模式 10s 倒计时自动决策（二期可加冷却期）。
+- **架构位置**：管理类写操作的安全闸门；已知风险：auto_approve 10s 倒计时自动决策（二期可加冷却期）。
 
 ### pending 记录（Pending Record）
 
@@ -267,8 +269,8 @@
 
 ### confirm（确认动作）
 
-- **定义**：确认流第 4 步——Agent 携带确认 id 调用 `confirm(id)`，网站才落库并审计。
-- **架构位置**：MCP 管理类工具族的配套动作；"无 confirm 不落库"的落点。
+- **定义**：确认流第 3 步——Agent 携带 pending id 调用内置工具 `confirm_operation(id)`，网站才落库并审计；拒绝则 `cancel_operation(id)`。
+- **架构位置**：确认流高风险工具族的配套动作；"无 confirm 不落库"的落点。
 
 ---
 
@@ -481,7 +483,7 @@
 | 个人 Agent vs 公共 Agent | 个人 = 角色分身仅本人可见；公共 = Workspace 级按 Workflow 协作 |
 | Skill vs Agent | Skill 是预设工作流（SKILL.md）；Agent 是带人格/面板/技能绑定的助手；工作区 Skill 经本地同步进 `~/.clacky/skills/` |
 | `cgc-2046` vs `cgc2046-<ws>-<skill>` | `cgc-2046` 是扩展 id / MCP 条目名；`cgc2046-<ws>-<skill>` 是本地同步技能的命名前缀 |
-| 确认流 vs 直接执行 | 高风险管理工具必须 pending → request_user_feedback → confirm 才落库；低风险工具（create_agent/create_workflow）直接执行 |
+| 确认流 vs 直接执行 | 高风险管理工具必须 pending → `confirm_operation` 才落库（two-tool 模式）；低风险写工具（save_* 族）直接执行 |
 | PriceTier vs SponsorshipTier | PriceTier 是真实收款定价（收款即发生）；SponsorshipTier 是赞助意向档位（v1 仅登记不收款，amount_suggestion） |
 | WorkflowDefinition vs WorkflowRun | 蓝图（Runic.Workflow DAG + 版本）vs 执行实例（pending→running→waiting→succeeded/failed/cancelled，归属 partition） |
 | 同步写 vs 异步 Signal | 业务核心状态主写入口走同步 Ash Action（强一致，8）；衍生副作用/通知走 Signal 异步最终一致（2） |
