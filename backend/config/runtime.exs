@@ -254,6 +254,15 @@ if config_env() == :prod do
       template_id: sendcloud_sms_template_id
     ]
 
+  # 微信网站应用扫码登录（plan 002 U4）：与 SendCloud 邮件不同——凭证可缺
+  # （wechat_pay 先例）：审核未过/未申请时整卡功能门禁 wechat_login_unavailable，
+  # 其余登录方式不受影响，boot 不崩。
+  config :cgc_2046,
+    wechat_web: [
+      appid: System.get_env("WECHAT_WEB_APPID"),
+      secret: System.get_env("WECHAT_WEB_SECRET")
+    ]
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

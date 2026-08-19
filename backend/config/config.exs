@@ -115,6 +115,15 @@ config :cgc_2046,
     template_id: "dev-sms-template"
   ]
 
+# 微信开放平台网站应用扫码登录（plan 002 U4）：dev/test dummy；prod 由
+# runtime.exs 注入（WECHAT_WEB_APPID/SECRET，可缺——缺则 wechatLoginStart
+# 返回 wechat_login_unavailable，其余登录方式不受影响）。
+config :cgc_2046,
+  wechat_web: [
+    appid: "dev-wechat-web-appid",
+    secret: "dev-wechat-web-secret"
+  ]
+
 # 0C：Oban（PG-backed，跑在现有 Phoenix 应用内，无新服务）。
 # - maintenance 队列：审批超时扫描（expiry）+ 48h 提醒（reminder）共用，并发 5 足够
 #   （两者均为轻量查询 + 少量 Ash update）。

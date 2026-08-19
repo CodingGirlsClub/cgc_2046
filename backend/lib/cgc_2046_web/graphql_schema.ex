@@ -507,6 +507,117 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流）"
+    field :wechat_login_start, :wechat_login_start_result do
+      resolve(fn _, _, %{context: context} ->
+        if Cgc2046.OAuth.WechatWeb.configured?() do
+          with :ok <- check_wechat_login_start_limits(context) do
+            start_wechat_login()
+          else
+            {:error, :rate_limited} ->
+              {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+          end
+        else
+          {:error, message: "WeChat login is unavailable", code: "wechat_login_unavailable"}
+        end
+      end)
+    end
+
+    @desc "微信扫码回调（plan 002 U4；IP 20/15min 限流）：已绑定直登，未绑定返回绑定票据"
+    field :sign_in_with_wechat, :sign_in_with_wechat_result do
+      arg(:code, non_null(:string))
+      arg(:state, non_null(:string))
+
+      resolve(fn _, %{code: code, state: state}, %{context: context} ->
+        with :ok <- check_wechat_callback_limits(context) do
+          case Cgc2046.Accounts.WechatWebSignIn.sign_in_with_wechat(state, code, context) do
+            {:ok, :signed_in, user} ->
+              {:ok,
+               %{
+                 status: :signed_in,
+                 bind_ticket: nil,
+                 __token__: user.__metadata__[:token]
+               }}
+
+            {:ok, :needs_binding, bind_ticket} ->
+              {:ok, %{status: :needs_binding, bind_ticket: bind_ticket}}
+
+            {:error, _reason} ->
+              # 防枚举：state/code/身份命中细节不外泄
+              {:error, message: "WeChat sign in failed", code: "wechat_sign_in_failed"}
+          end
+        else
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+        end
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
+    @desc "微信扫码绑定手机号完成登录（plan 002 U4；phone 5/15min 限流）"
+    field :bind_wechat_with_phone, :sign_in_with_phone_code_result do
+      arg(:bind_ticket, non_null(:string))
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      resolve(fn _,
+                 %{bind_ticket: bind_ticket, phone: raw_phone, code: code},
+                 %{context: context} ->
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+             :ok <- check_wechat_bind_limits(context, phone) do
+          case Cgc2046.Accounts.WechatWebSignIn.bind_wechat_with_phone(
+                 bind_ticket,
+                 phone,
+                 code,
+                 context
+               ) do
+            {:ok, user} ->
+              {:ok,
+               %{
+                 id: user.id,
+                 email: user.email,
+                 is_platform_admin: user.is_platform_admin,
+                 __token__: user.__metadata__[:token]
+               }}
+
+            {:error, :invalid_or_expired_code} ->
+              {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+            {:error, :invalid_bind_ticket} ->
+              {:error, message: "Invalid binding session", code: "invalid_bind_ticket"}
+
+            {:error, _reason} ->
+              {:error, message: "Binding failed", code: "wechat_bind_failed"}
+          end
+        else
+          {:error, :invalid} ->
+            {:error, message: "Invalid phone number", code: "invalid_phone"}
+
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+        end
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
     @desc "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
     field :sign_up, :sign_up_payload do
       arg(:input, non_null(:sign_up_input))
@@ -1374,6 +1485,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 即契约:想露 checklist 必须改此 object,评审可见)。
   object :course_map do
     field(:course_id, non_null(:id))
+
     field(:title, non_null(:string))
     field(:slug, non_null(:string))
     field(:goals, non_null(list_of(non_null(:string))))
@@ -1472,6 +1584,23 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:id, non_null(:id))
     field(:email, :string)
     field(:is_platform_admin, non_null(:boolean))
+  end
+
+  # 微信扫码登录（plan 002 U4）
+  object :wechat_login_start_result do
+    field(:qr_url, non_null(:string))
+    field(:state, non_null(:string))
+    field(:expires_in_seconds, non_null(:integer))
+  end
+
+  object :sign_in_with_wechat_result do
+    field(:status, non_null(:wechat_sign_in_status))
+    field(:bind_ticket, :string)
+  end
+
+  enum :wechat_sign_in_status do
+    value(:signed_in)
+    value(:needs_binding)
   end
 
   object :sign_up_payload do
@@ -1738,6 +1867,47 @@ defmodule Cgc2046Web.GraphqlSchema do
       {:error, reason} ->
         Logger.warning("[signInWithPhoneCode] failed: #{inspect(reason)}")
         {:error, message: "Sign in failed", code: "phone_code_sign_in_failed"}
+    end
+  end
+
+  # ── 微信扫码登录（plan 002 U4）─────────────────────────────────────────
+
+  defp check_wechat_login_start_limits(context) do
+    check_single_limit("rate:wechat-login-start:ip:#{remote_ip(context)}", 900, 20)
+  end
+
+  defp check_wechat_callback_limits(context) do
+    check_single_limit("rate:wechat-callback:ip:#{remote_ip(context)}", 900, 20)
+  end
+
+  defp check_wechat_bind_limits(_context, phone) do
+    check_single_limit("rate:wechat-bind:phone:#{phone}", 900, 5)
+  end
+
+  defp check_single_limit(key, window, max) do
+    case Cgc2046Web.Plugs.RateLimit.check(key, window_seconds: window, max_attempts: max) do
+      :ok -> :ok
+      :error -> {:error, :rate_limited}
+    end
+  end
+
+  defp start_wechat_login do
+    redirect_uri =
+      Application.fetch_env!(:cgc_2046, :web_base_url) <> "/login/wechat-callback"
+
+    case Cgc2046.Accounts.WechatLoginTicket.issue() do
+      {:ok, %{state: state, expires_at: expires_at}} ->
+        case Cgc2046.OAuth.WechatWeb.qr_connect_url(redirect_uri, state) do
+          url when is_binary(url) ->
+            expires_in = max(DateTime.diff(expires_at, DateTime.utc_now()), 0)
+            {:ok, %{qr_url: url, state: state, expires_in_seconds: expires_in}}
+
+          {:error, _reason} ->
+            {:error, message: "WeChat login is unavailable", code: "wechat_login_unavailable"}
+        end
+
+      {:error, _reason} ->
+        {:error, message: "WeChat login is unavailable", code: "wechat_login_unavailable"}
     end
   end
 
