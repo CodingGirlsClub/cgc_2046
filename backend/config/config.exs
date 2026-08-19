@@ -105,23 +105,25 @@ config :cgc_2046, :miniprogram_templates, %{
   }
 }
 
-# SendCloud SMS（plan 002 U3）：dev/test dummy；prod 由 runtime.exs 经环境变量
-# 注入（SENDCLOUD_SMS_USER/KEY/TEMPLATE_ID，缺则 raise）。未配置时 dev 发码
-# 走 Logger 出码（deliver_phone_code 分支）。
+# SendCloud SMS（plan 002 U3）：默认未配置（nil）。未配置时 dev 发码走 Logger
+# 出码（deliver_phone_code 分支），本地可测；prod 由 runtime.exs 经环境变量注入
+# （SENDCLOUD_SMS_USER/KEY/TEMPLATE_ID，缺则 raise）；test 在 test.exs 显式给
+# stub 值（Req.Test 拦截，configured? 走真实 deliver 分支）。
 config :cgc_2046,
   sms_sendcloud: [
-    sms_user: "dev-sms-user",
-    sms_key: "dev-sms-key",
-    template_id: "dev-sms-template"
+    sms_user: nil,
+    sms_key: nil,
+    template_id: nil
   ]
 
-# 微信开放平台网站应用扫码登录（plan 002 U4）：dev/test dummy；prod 由
-# runtime.exs 注入（WECHAT_WEB_APPID/SECRET，可缺——缺则 wechatLoginStart
-# 返回 wechat_login_unavailable，其余登录方式不受影响）。
+# 微信开放平台网站应用扫码登录（plan 002 U4）：默认未配置（nil）——
+# wechatLoginStart 门禁 wechat_login_unavailable，其余登录方式不受影响。
+# prod/dev 由 runtime.exs 读 WECHAT_WEB_APPID/SECRET（可选）；test 在 test.exs
+# 显式给 stub 值。
 config :cgc_2046,
   wechat_web: [
-    appid: "dev-wechat-web-appid",
-    secret: "dev-wechat-web-secret"
+    appid: nil,
+    secret: nil
   ]
 
 # 0C：Oban（PG-backed，跑在现有 Phoenix 应用内，无新服务）。

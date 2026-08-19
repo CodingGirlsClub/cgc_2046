@@ -51,7 +51,7 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
          :ok <- attach_identity(platform, session, user),
-         :ok <- SignInFlow.revoke_stored_tokens(user),
+         :ok <- SignInFlow.revoke_stored_tokens(user, platform),
          {:ok, user} <- SignInFlow.generate_token(user, platform, context) do
       {:ok, user}
     end

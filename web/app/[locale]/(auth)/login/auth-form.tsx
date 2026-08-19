@@ -209,7 +209,7 @@ export default function AuthForm({
               setLogin(event.target.value);
               setFormError(null);
             }}
-            autoComplete="email"
+            autoComplete={isRegister ? "email" : "username"}
             autoFocus
             required
           />

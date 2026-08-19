@@ -86,3 +86,10 @@ config :cgc_2046, :sms_req_plug, {Req.Test, Cgc2046.SmsSendCloudStub}
 
 # 微信网站应用扫码登录（plan 002 U4）：测试经 Req.Test stub 拦截
 config :cgc_2046, :wechat_web_req_plug, {Req.Test, Cgc2046.WechatWebStub}
+
+# 凭证为 test 值（config.exs 已改 nil，test 显式覆盖使 configured? 生效）
+config :cgc_2046,
+  wechat_web: [
+    appid: "test-wechat-web-appid",
+    secret: "test-wechat-web-secret"
+  ]

@@ -171,7 +171,9 @@
       "scanHint": "Scan with WeChat to sign in",
       "qrAlt": "WeChat sign-in QR code",
       "unavailable": "WeChat sign-in is not available yet. Please use another method.",
-      "loadFailed": "Failed to load the QR code. Please refresh and retry."
+      "loadFailed": "Failed to load the QR code. Please refresh and retry.",
+      "expired": "QR code expired",
+      "refresh": "Refresh QR code"
     },
     "wechatCallback": {
       "processing": "Completing WeChat sign-in…",

@@ -32,13 +32,14 @@ defmodule Cgc2046.Accounts.WechatWebSignIn do
           | {:error, term()}
   def sign_in_with_wechat(state, code, context)
       when is_binary(state) and is_binary(code) do
-    with {:ok, _ticket} <- WechatLoginTicket.fetch_pending(state),
+    with :ok <- check_browser_binding(state, context),
+         {:ok, _ticket} <- WechatLoginTicket.fetch_pending(state),
          {:ok, session} <- WechatWeb.code2access_token(code) do
       case find_user_by_wechat(session) do
         {:ok, %Cgc2046.Accounts.User{} = user} ->
           with :ok <- WechatLoginTicket.consume_now(state),
-               :ok <- SignInFlow.revoke_stored_tokens(user),
-               {:ok, user} <- SignInFlow.generate_token(user, nil, context) do
+               :ok <- SignInFlow.revoke_stored_tokens(user, :web),
+               {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
             {:ok, :signed_in, user}
           else
             {:error, reason} -> {:error, reason}
@@ -55,6 +56,16 @@ defmodule Cgc2046.Accounts.WechatWebSignIn do
       end
     else
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # M2：state 必须由发起浏览器持有（httpOnly cgc_wechat_state cookie）。
+  # 回调/绑定请求不携带或不匹配 → 统一 :browser_mismatch，resolver 层并入
+  # wechat_sign_in_failed 防枚举（钓鱼链接无法在受害者浏览器完成登录/绑定）。
+  defp check_browser_binding(state, context) do
+    case context[:wechat_browser_state] do
+      ^state -> :ok
+      _ -> {:error, :browser_mismatch}
     end
   end
 
@@ -98,17 +109,22 @@ defmodule Cgc2046.Accounts.WechatWebSignIn do
 
   # ── bindWechatWithPhone ────────────────────────────────────────────────
 
+  # M3 顺序（plan U4.4）：验 ticket（读不消费）→ 验码 → find-or-create →
+  # upsert identity → 消费 ticket → 签 JWT。验码失败时 ticket 仍在
+  # needs_binding，用户可重试（码允许 3 次尝试），不必重扫 QR。
   @spec bind_wechat_with_phone(String.t(), String.t(), String.t(), map()) ::
           {:ok, Cgc2046.Accounts.User.t()} | {:error, term()}
   def bind_wechat_with_phone(bind_ticket, phone, code, context)
       when is_binary(bind_ticket) and is_binary(phone) and is_binary(code) do
-    with {:ok, ticket} <- WechatLoginTicket.consume_for_binding(bind_ticket),
+    with :ok <- check_browser_binding(bind_ticket, context),
+         {:ok, _ticket} <- WechatLoginTicket.fetch_needs_binding(bind_ticket),
          :ok <- PhoneVerificationCode.consume_valid(phone, code, :wechat_bind),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
+         {:ok, ticket} <- WechatLoginTicket.consume_for_binding(bind_ticket),
          :ok <- upsert_identity(ticket, user),
-         :ok <- SignInFlow.revoke_stored_tokens(user),
-         {:ok, user} <- SignInFlow.generate_token(user, nil, context) do
+         :ok <- SignInFlow.revoke_stored_tokens(user, :web),
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
       {:ok, user}
     else
       {:error, :ticket_invalid} -> {:error, :invalid_bind_ticket}

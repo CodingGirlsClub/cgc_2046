@@ -337,3 +337,26 @@ if config_env() == :prod do
       sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
     ]
 end
+
+# SendCloud SMS / 微信扫码（plan 002）：dev 可选注入真凭证（.env / direnv）。
+# 缺省时降级：SMS 走 Logger 出码（本地可测），wechatLoginStart 返回
+# wechat_login_unavailable 门禁，其余登录方式不受影响。test 环境由 test.exs
+# 显式覆盖，不经此分支（测试进程无这些 env）。
+if config_env() == :dev do
+  if sms_user = System.get_env("SENDCLOUD_SMS_USER") do
+    config :cgc_2046,
+      sms_sendcloud: [
+        sms_user: sms_user,
+        sms_key: System.get_env("SENDCLOUD_SMS_KEY"),
+        template_id: System.get_env("SENDCLOUD_SMS_TEMPLATE_ID")
+      ]
+  end
+
+  if wechat_appid = System.get_env("WECHAT_WEB_APPID") do
+    config :cgc_2046,
+      wechat_web: [
+        appid: wechat_appid,
+        secret: System.get_env("WECHAT_WEB_SECRET")
+      ]
+  end
+end

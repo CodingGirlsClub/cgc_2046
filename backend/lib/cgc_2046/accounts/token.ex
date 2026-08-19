@@ -14,7 +14,7 @@ defmodule Cgc2046.Accounts.Token do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.GlobalApi
 
-  require Ash.Query
+  import Ash.Expr, only: [expr: 1]
 
   actions do
     read :stored_for_subject do
@@ -22,13 +22,48 @@ defmodule Cgc2046.Accounts.Token do
 
       argument(:subject, :string, allow_nil?: false, sensitive?: true)
 
+      # M8：吊销按 platform 面过滤。nil = 不过滤（全量，user.ex 密码重置用）；
+      # atom 经 extra_data->>'platform' 匹配（无 platform claim 的 token 归
+      # web 面，由调用方传 :web 并用 SQL 表达式覆盖，见 stored_for_platform_expr）。
+      argument(:platform, :atom, allow_nil?: true)
+
       prepare(fn query, _context ->
-        Ash.Query.filter(query,
-          subject: Ash.Query.get_argument(query, :subject),
-          purpose: "user"
-        )
+        platform = Ash.Query.get_argument(query, :platform)
+
+        query
+        |> filter_subject_and_purpose(Ash.Query.get_argument(query, :subject))
+        |> filter_by_platform(platform)
       end)
     end
+  end
+
+  require Ash.Query
+
+  defp filter_subject_and_purpose(query, subject) do
+    Ash.Query.filter(query, subject == ^subject and purpose == "user")
+  end
+
+  defp filter_by_platform(query, nil), do: query
+
+  # web 面 = extra_data 无 platform 键 OR = "web"（密码路径签发的 token 无
+  # platform claim，advisor02 M8 裁决归入 web 面）。小程序面 = 精确匹配。
+  defp filter_by_platform(query, :web) do
+    platform = "web"
+
+    Ash.Query.filter(
+      query,
+      expr(is_nil(fragment("extra_data->>'platform'"))) or
+        expr(fragment("extra_data->>'platform'") == ^platform)
+    )
+  end
+
+  defp filter_by_platform(query, platform) when is_atom(platform) do
+    value = to_string(platform)
+
+    Ash.Query.filter(
+      query,
+      expr(fragment("extra_data->>'platform'") == ^value)
+    )
   end
 
   postgres do
