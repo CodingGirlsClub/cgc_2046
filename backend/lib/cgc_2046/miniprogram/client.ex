@@ -481,7 +481,7 @@ defmodule Cgc2046.Miniprogram.Client do
          {:ok, %Tesla.Env{status: 200, body: %{"errcode" => 0, "phone_info" => info}}} <-
            WeChat.MiniProgram.UserInfo.get_phone_number(client, openid, phone_code),
          local when is_binary(local) <- info["purePhoneNumber"] || info["phoneNumber"],
-         phone when is_binary(phone) <- normalize_phone(local, info["countryCode"]) do
+         {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(local, info["countryCode"]) do
       {:ok, phone}
     else
       _ -> {:error, :phone_fetch_failed}
@@ -642,32 +642,17 @@ defmodule Cgc2046.Miniprogram.Client do
 
   defp verify_watermark(_platform, _payload), do: :ok
 
-  # 手机号归一化：local 号码 + countryCode → "+区号号码"；
-  # phoneNumber 已带区号（数字以 countryCode 开头）时不重复拼接。
-  #
-  # 全平台确定性（Q2 phone-keyed 归一的前提）：countryCode 缺失的负载无法确定
+  # 手机号归一化已抽单源 Cgc2046.Accounts.PhoneNumber（plan 002 D5）：
+  # 全平台确定性（Q2 phone-keyed 归一的前提）——countryCode 缺失的负载无法确定
   # 规范形（本地号还是已含区号不可知）——fail-closed 判登录失败，宁可拒绝也不冒
-  # 同一号码锚出两个 User（"+86138…" vs "138…"）的分裂风险。三平台文档均有
-  # countryCode 字段（微信已核实；tt/xhs 按同构负载假设，真凭据联调复核）。
+  # 同一号码锚出两个 User（"+86138…" vs "138…"）的分裂风险。
   defp extract_phone(payload) do
     local = payload["purePhoneNumber"] || payload["phoneNumber"]
     country_code = payload["countryCode"]
 
-    case normalize_phone(local, country_code) do
-      nil -> :error
-      phone -> {:ok, phone}
-    end
-  end
-
-  defp normalize_phone(raw, country_code) do
-    digits = raw && String.replace(to_string(raw), ~r/\D/, "")
-    cc = country_code && String.replace(to_string(country_code), ~r/\D/, "")
-
-    cond do
-      digits in [nil, ""] -> nil
-      cc in [nil, ""] -> nil
-      String.starts_with?(digits, cc) -> "+" <> digits
-      true -> "+" <> cc <> digits
+    case Cgc2046.Accounts.PhoneNumber.normalize(local, country_code) do
+      {:ok, phone} -> {:ok, phone}
+      {:error, :invalid} -> :error
     end
   end
 

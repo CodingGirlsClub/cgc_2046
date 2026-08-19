@@ -44,6 +44,9 @@ defmodule Cgc2046.Accounts.UserTest do
                [
                  :id,
                  :email,
+                 # phone public 化是 password_phone 策略 identity_field 校验强制
+                 # (plan 002 U2)；敏感出口仍由手写 GraphQL resolver 单点控制。
+                 :phone,
                  :is_platform_admin,
                  :display_name,
                  :locale
