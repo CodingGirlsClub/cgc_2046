@@ -19,10 +19,10 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
 
-  # 精确名单（与 server.ex 注册的 12 工具一一对应）
+  # 精确名单（与 server.ex 注册的 15 工具一一对应）
   @workspace_id_optional ~w(confirm_operation cancel_operation)
   @membership_deferred ~w(save_step_output get_course_content get_learning_records save_learning_records)
-  @member_only ~w(get_workspace_context list_members get_workflow get_step_output create_invitation save_course_content)
+  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content)
 
   defp frame_for(user), do: Frame.new(current_user: user)
 
@@ -68,7 +68,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "注册工具数 = 12 且名单完备（无未收录工具）" do
+    test "注册工具数 = 15 且名单完备（无未收录工具）" do
       meta_map = tool_meta_map()
 
       assert Map.keys(meta_map) |> Enum.sort() ==

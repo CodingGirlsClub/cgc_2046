@@ -144,6 +144,15 @@ defmodule Cgc2046.Mcp.Confirmation do
     Cgc2046.Mcp.Tools.CreateInvitation.execute_confirmed(actor, params)
   end
 
+  # 成员管理确认流（#240，工具面 12 → 15）
+  defp execute("approve_join_request", actor, params) do
+    Cgc2046.Mcp.Tools.ApproveJoinRequest.execute_confirmed(actor, params)
+  end
+
+  defp execute("assign_roles", actor, params) do
+    Cgc2046.Mcp.Tools.AssignRoles.execute_confirmed(actor, params)
+  end
+
   # fallback：防御性处理未知 tool（理论上 request 写入的 tool 名与分派覆盖一致，
   # 但数据异常时不泄露 params/actor 结构）
   defp execute(tool, _actor, _params) do
