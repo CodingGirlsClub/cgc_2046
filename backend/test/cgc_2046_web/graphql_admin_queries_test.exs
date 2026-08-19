@@ -795,11 +795,15 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
       now = DateTime.utc_now()
 
-      Ecto.Adapters.SQL.query!(
-        Cgc2046.Repo,
-        "UPDATE admin_action_logs SET inserted_at = $1 WHERE target_id = $2",
-        [DateTime.add(now, -3 * 86_400, :second), Ecto.UUID.dump!(workspace.id)]
-      )
+      backdate_result =
+        Ecto.Adapters.SQL.query!(
+          Cgc2046.Repo,
+          "UPDATE admin_action_logs SET inserted_at = $1 WHERE target_id = $2",
+          [DateTime.add(now, -3 * 86_400, :second), Ecto.UUID.dump!(workspace.id)]
+        )
+
+      # #242：UPDATE 必须恰命中本测试 workspace_create 一行（收口「backdate 未命中」假设）
+      assert backdate_result.num_rows == 1
 
       token = sign_in_token(admin.email, @password)
 
@@ -811,8 +815,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
           query {
             listAdminActionLogs(
               action: "workspace_create"
-              insertedAfter: "#{iso(DateTime.add(now, -4 * 86_400, :second))}"
-              insertedBefore: "#{iso(DateTime.add(now, -2 * 86_400, :second))}"
+              insertedAfter: "#{iso(DateTime.add(now, -3 * 86_400 - 60, :second))}"
+              insertedBefore: "#{iso(DateTime.add(now, -3 * 86_400 + 60, :second))}"
               first: 50
             ) { id targetId }
           }
