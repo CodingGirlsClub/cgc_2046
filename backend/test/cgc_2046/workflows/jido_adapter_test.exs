@@ -426,7 +426,7 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
     test "subscriber receives published signal (unpacked type + data, no struct leak)" do
       parent = self()
 
-      assert {:ok, _sub_id, _monitor_ref} =
+      assert {:ok, _sub_id, _monitor_ref, _forwarder_pid} =
                JidoAdapter.subscribe("workflow.run.*", fn type, data ->
                  send(parent, {:signal, type, data})
                end)

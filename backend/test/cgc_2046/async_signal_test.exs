@@ -51,7 +51,7 @@ defmodule Cgc2046.AsyncSignalTest do
     test_pid = self()
 
     for pattern <- NotificationSubscriber.patterns() do
-      assert {:ok, _sub_id, _monitor_ref} =
+      assert {:ok, _sub_id, _monitor_ref, _forwarder_pid} =
                JidoAdapter.subscribe(pattern, fn type, data ->
                  send(test_pid, {:bus_signal, %{type: type, data: data}})
                end)

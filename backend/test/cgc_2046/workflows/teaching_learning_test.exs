@@ -323,7 +323,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       # 订阅 event.launched 信号（验证 launch action 发布）
       parent = self()
 
-      assert {:ok, _sub_id, _monitor_ref} =
+      assert {:ok, _sub_id, _monitor_ref, _forwarder_pid} =
                Cgc2046.Workflows.JidoAdapter.subscribe("event.launched", fn _type, data ->
                  send(parent, {:launched, data})
                end)
@@ -377,7 +377,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       parent = self()
 
-      assert {:ok, _sub_id, _monitor_ref} =
+      assert {:ok, _sub_id, _monitor_ref, _forwarder_pid} =
                Cgc2046.Workflows.JidoAdapter.subscribe("event.launched", fn _type, data ->
                  send(parent, {:launched, data})
                end)
