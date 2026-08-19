@@ -42,4 +42,21 @@ defmodule Cgc2046.Workflows.SignalIdempotencyTest do
     assert row.signal_type == "speaker.completed"
     assert row.idempotency_key == "spk-1"
   end
+
+  describe "#209 fail-closed：read 仅 platform_admin" do
+    test "member 与 nil actor 读被拒（Forbidden）" do
+      member = Cgc2046.AccountsFixtures.register_user("sig-idem-fc")
+
+      assert {:error, %Ash.Error.Forbidden{}} = SignalIdempotency |> Ash.read(actor: member)
+      assert {:error, %Ash.Error.Forbidden{}} = SignalIdempotency |> Ash.read()
+    end
+
+    test "platform_admin 可读幂等登记（观测面放行）" do
+      admin = Cgc2046.AccountsFixtures.platform_admin("sig-idem-admin")
+      assert :ok = SignalIdempotency.claim("speaker.completed", "fc-1")
+
+      assert {:ok, rows} = SignalIdempotency |> Ash.read(actor: admin)
+      assert Enum.any?(rows, &(&1.idempotency_key == "fc-1"))
+    end
+  end
 end

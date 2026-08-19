@@ -17,10 +17,17 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
 
   去重以 Postgres 唯一索引 `(signal_type, idempotency_key)` 兜底，并发登记
   至多一行成功；`workspace_id` 仅作观测（可空），不影响唯一性。
+
+  ## 授权面（#209）
+
+  写入路径：`claim/3` 以 Repo.insert_all 原始 SQL 登记（唯一索引原子判定，
+  不经 Ash action）；读路径：仅 platform_admin（AshAdmin 观测面）；非 admin
+  default-deny（fail-closed）。
   """
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
   alias Cgc2046.Repo
@@ -69,6 +76,13 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   actions do
     default_accept([:workspace_id, :signal_type, :idempotency_key, :inserted_at])
     defaults([:read])
+  end
+
+  policies do
+    # platform_admin 可读幂等登记（AshAdmin 观测面）；非 admin default-deny（#209）
+    policy action_type(:read) do
+      authorize_if(Cgc2046.Policies.PlatformAdmin)
+    end
   end
 
   postgres do
