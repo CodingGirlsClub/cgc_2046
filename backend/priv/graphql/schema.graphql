@@ -5382,6 +5382,22 @@ type SignInWithPlatformResult {
   isPlatformAdmin: Boolean!
 }
 
+type RequestPhoneCodeResult {
+  sent: Boolean!
+  retryAfterSeconds: Int!
+}
+
+enum PhoneCodePurpose {
+  LOGIN
+  WECHAT_BIND
+}
+
+type SignInWithPhoneCodeResult {
+  id: ID!
+  email: String
+  isPlatformAdmin: Boolean!
+}
+
 type SignUpPayload {
   result: SignUpUser
   errors: [MutationError]
@@ -5653,6 +5669,12 @@ type AdminUserPayload {
 type RootMutationType {
   "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
   signIn(login: String!, password: String!): SignInResult
+
+  "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
+  requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
+
+  "手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付）"
+  signInWithPhoneCode(phone: String!, code: String!): SignInWithPhoneCodeResult
 
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload

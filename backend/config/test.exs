@@ -74,3 +74,12 @@ config :cgc_2046, :payments_providers, %{
   wechat: Cgc2046.Payments.Providers.Fake,
   alipay: Cgc2046.Payments.Providers.Fake
 }
+
+# SendCloud SMS（plan 002 U3）：测试经 Req.Test stub 拦截（未 stub 的请求直接
+# 失败，绝不发真实短信）；凭证为 test 值（configured? 生效走真实 deliver 分支）。
+config :cgc_2046, :sms_sendcloud,
+  sms_user: "test-sms-user",
+  sms_key: "test-sms-key",
+  template_id: "test-sms-template"
+
+config :cgc_2046, :sms_req_plug, {Req.Test, Cgc2046.SmsSendCloudStub}

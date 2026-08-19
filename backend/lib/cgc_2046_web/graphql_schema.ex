@@ -459,6 +459,54 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "请求发送手机验证码（plan 002 U3；限流 phone 1/60s + 5/1h + 20/1d、IP 30/1d）"
+    field :request_phone_code, :request_phone_code_result do
+      arg(:phone, non_null(:string))
+      arg(:purpose, non_null(:phone_code_purpose))
+
+      resolve(fn _, %{phone: raw_phone, purpose: purpose}, %{context: context} ->
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+             :ok <- check_phone_code_request_limits(context, phone) do
+          request_phone_code(phone, purpose)
+        else
+          {:error, :invalid} ->
+            {:error, message: "Invalid phone number", code: "invalid_phone"}
+
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+        end
+      end)
+    end
+
+    @desc "手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付）"
+    field :sign_in_with_phone_code, :sign_in_with_phone_code_result do
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+             :ok <- check_phone_code_verify_limits(context, phone) do
+          sign_in_with_phone_code(phone, code, context)
+        else
+          {:error, :invalid} ->
+            {:error, message: "Invalid phone number", code: "invalid_phone"}
+
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+        end
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
     @desc "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
     field :sign_up, :sign_up_payload do
       arg(:input, non_null(:sign_up_input))
@@ -1409,6 +1457,23 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:is_platform_admin, non_null(:boolean))
   end
 
+  # 手机验证码登录（plan 002 U3）：phone 用户 email 可空（同 platform result）
+  object :request_phone_code_result do
+    field(:sent, non_null(:boolean))
+    field(:retry_after_seconds, non_null(:integer))
+  end
+
+  enum :phone_code_purpose do
+    value(:login)
+    value(:wechat_bind)
+  end
+
+  object :sign_in_with_phone_code_result do
+    field(:id, non_null(:id))
+    field(:email, :string)
+    field(:is_platform_admin, non_null(:boolean))
+  end
+
   object :sign_up_payload do
     field(:result, :sign_up_user)
     field(:errors, list_of(:mutation_error))
@@ -1564,6 +1629,116 @@ defmodule Cgc2046Web.GraphqlSchema do
     |> to_string()
     |> String.trim()
     |> String.downcase()
+  end
+
+  # ── 手机验证码（plan 002 U3）───────────────────────────────────────────
+
+  # 发码四窗口限流（phone 1/60s + 5/1h + 20/1d，IP 30/1d）；固定窗口 ETS
+  # 同款（密码重置双限流先例），多实例连调。
+  defp check_phone_code_request_limits(context, phone) do
+    ip = remote_ip(context)
+
+    windows = [
+      {"rate:phone-code:phone:1m:#{phone}", 60, 1},
+      {"rate:phone-code:phone:1h:#{phone}", 3_600, 5},
+      {"rate:phone-code:phone:1d:#{phone}", 86_400, 20},
+      {"rate:phone-code:ip:1d:#{ip}", 86_400, 30}
+    ]
+
+    windows
+    |> Enum.reduce_while(:ok, fn {key, window, max}, :ok ->
+      case Cgc2046Web.Plugs.RateLimit.check(key, window_seconds: window, max_attempts: max) do
+        :ok -> {:cont, :ok}
+        :error -> {:halt, {:error, :rate_limited}}
+      end
+    end)
+  end
+
+  # 验码双限流（phone 5/15min，IP 20/15min）
+  defp check_phone_code_verify_limits(context, phone) do
+    ip = remote_ip(context)
+
+    windows = [
+      {"rate:phone-code-verify:phone:#{phone}", 900, 5},
+      {"rate:phone-code-verify:ip:#{ip}", 900, 20}
+    ]
+
+    windows
+    |> Enum.reduce_while(:ok, fn {key, window, max}, :ok ->
+      case Cgc2046Web.Plugs.RateLimit.check(key, window_seconds: window, max_attempts: max) do
+        :ok -> {:cont, :ok}
+        :error -> {:halt, {:error, :rate_limited}}
+      end
+    end)
+  end
+
+  # 发码统一响应：SendCloud 失败外的所有分支 sent: true（防枚举）；
+  # SMS 未配置（dev）落库 + Logger 出码，sent: true 维持前端可测。
+  defp request_phone_code(phone, purpose) do
+    purpose_atom = phone_code_purpose_atom(purpose)
+
+    case Cgc2046.Accounts.PhoneVerificationCode.issue(phone, purpose_atom) do
+      {:ok, code} ->
+        deliver_phone_code(phone, code)
+        {:ok, %{sent: true, retry_after_seconds: 60}}
+
+      {:error, reason} ->
+        Logger.warning("[request_phone_code] issue failed: #{inspect(reason)}")
+        {:error, message: "Failed to send verification code", code: "sms_send_failed"}
+    end
+  end
+
+  # Absinthe enum 内部值（"login"/"wechat_bind"）→ 资源原子
+  defp phone_code_purpose_atom(:login), do: :login
+  defp phone_code_purpose_atom(:wechat_bind), do: :wechat_bind
+  defp phone_code_purpose_atom("login"), do: :login
+  defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
+
+  defp deliver_phone_code(phone, code) do
+    sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
+
+    if Cgc2046.Sms.SendCloud.configured?() do
+      template_id = Keyword.fetch!(sms, :template_id)
+      request_id = Ecto.UUID.generate()
+
+      case Cgc2046.Sms.SendCloud.send_template_sms(
+             phone,
+             template_id,
+             %{"code" => code},
+             request_id
+           ) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("[request_phone_code] sms deliver failed: #{inspect(reason)}")
+          {:error, reason}
+      end
+    else
+      # dev/test：SMS 凭证缺席，Logger 出码供本地联调（prod 启动时 raise，不可达）
+      Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
+      :ok
+    end
+  end
+
+  defp sign_in_with_phone_code(phone, code, context) do
+    case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
+      {:ok, user} ->
+        {:ok,
+         %{
+           id: user.id,
+           email: user.email,
+           is_platform_admin: user.is_platform_admin,
+           __token__: user.__metadata__[:token]
+         }}
+
+      {:error, :invalid_or_expired_code} ->
+        {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+      {:error, reason} ->
+        Logger.warning("[signInWithPhoneCode] failed: #{inspect(reason)}")
+        {:error, message: "Sign in failed", code: "phone_code_sign_in_failed"}
+    end
   end
 
   defp check_password_reset_request_limits(context, email) do
