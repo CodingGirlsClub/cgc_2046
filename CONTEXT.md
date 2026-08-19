@@ -234,11 +234,10 @@
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **12 个**（名单由 `wrapper_gate_test` 钉死）：
-  - **读 6**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **15 个**（名单由 `wrapper_gate_test` 钉死）：
+  - **读 7**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
-  - **确认流 3**：`create_invitation`（two-tool 模式高风险写）+ 内置 `confirm_operation` / `cancel_operation`
-  - **已拍板待实现**：`approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」高频运营，agent-first 需求成立，#211 裁决 1/3）走确认流；配套读工具 `list_join_requests`（待批列表，对话闭环必需）
+  - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
   - **已死亡（标注取代后除名）**：`reply_learner_question`（被 issue 卡 checklist 复盘 + `save_learning_records` 取代，切片 H）；`get_learner_history`（被 `get_learning_records` 取代）
 - **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。`update_join_policy` / 删除类等低频管理操作维持 web 面（GraphQL + 设置页），真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开。
