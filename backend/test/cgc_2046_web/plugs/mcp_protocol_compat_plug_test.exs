@@ -12,7 +12,10 @@ defmodule Cgc2046Web.Plugs.McpProtocolCompatPlugTest do
   - 1999-01-01 → 仍 400 Unsupported（行为不变）
   - 无 header → 200（行为不变）
   """
-  use Cgc2046Web.ConnCase, async: true
+  # async: false —— 未认证集成用例走 401 失败路径，累计 McpAuthPlug 节流计数
+  # （全局 ETS 表），与 mcp_auth_rate_limit_test 的 put_env 低阈值窗口并发会
+  # 互相污染（同 graphql_accept_invitation_test 的处理）。
+  use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.Token

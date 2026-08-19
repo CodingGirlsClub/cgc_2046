@@ -5,7 +5,10 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
   - 有效 token → assign(:current_user, user)
   - 缺失/格式错误/无效/已撤销 → 401 + WWW-Authenticate
   """
-  use Cgc2046Web.ConnCase, async: true
+  # async: false —— 401 失败路径会累计 McpAuthPlug 节流计数（全局 ETS 表），
+  # 与 mcp_auth_rate_limit_test 的 put_env 低阈值窗口并发会互相污染（同
+  # graphql_accept_invitation_test 对 graphql_invitation_rate_limit_test 的处理）。
+  use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.Token
