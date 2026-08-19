@@ -62,19 +62,24 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   （`:not_found`）——顺序上 bus 先于全部订阅方启动，此为防御分支，走退避
   重试而非 `{:stop}`。转发进程（JidoAdapter 内 spawn 的 forwarder）与订阅方
   进程崩溃隔离；其 DOWN 由骨架 monitor 捕获并自动重建该 pattern 订阅
-  （自 LearningInstantiator 上收，六方共享；重订阅失败同样 {:stop, reason}
-  交监督树）。
+  （自 LearningInstantiator 上收，全部 8 订阅方共享；重订阅失败同样
+  {:stop, reason} 交监督树）。
 
   **bus 重启重订阅（#120）**：订阅表存于 bus 进程内存（无 journal），bus 崩溃
   重启后清空，而订阅方 monitor 的是 forwarder——bus 死不产生任何 DOWN。故
   骨架 init 时额外 monitor bus pid，收到 bus DOWN 后：demonitor 并显式 kill
   全部旧 forwarder（spawn 无 link，不回收则每次 bus 重启泄漏），再对全部
-  patterns 重订阅。重订阅时 bus 未回归（`:not_found`）不 `{:stop}`：指数退避
-  重试（100ms 起 ×2 封顶 5s），防 crash-loop 与重订阅风暴；重试 30 次仍无
-  bus 则放弃并 error 告警——订阅方保持存活可观测（重启窗口内已丢信号不
-  可恢复，兜底是 SignalIdempotency claim + E-10 对账扫描）。信号投递统一经
-  `run/3`——生产 forwarder 与测试（`deliver/2`）同码。
-
+  patterns 重订阅。重订阅的顺序是「先 whereis → 先 monitor pid → 按 pid
+  订阅 → 核对 whereis 仍 == pid」（advisor M2）：订阅行与 monitor 落在同一
+  bus incarnation，消灭「订阅落旧 bus、monitor 新 bus，旧 bus 死亡无感知」
+  的静默失聪；订阅在途 bus 被杀的 exit 被 catch 归一化，不炸订阅方。退避
+  重试（`:not_found` / 瞬错如 `:timeout`）一律不 `{:stop}`：指数退避 100ms
+  起 ×2 封顶 5s（防 crash-loop、重订阅风暴、one_for_one 共享强度预算耗尽），
+  重试 30 次仍无 bus 则放弃并 error 告警——订阅方保持存活可观测（重启窗口
+  内已丢信号不可恢复，兜底是 SignalIdempotency claim + E-10 对账扫描）；
+  已恢复订阅时杂散 `:bus_resubscribe` 消息是真 no-op（`map_size` guard，防
+  双订阅双投递）。信号投递统一经 `run/3`——生产 forwarder 与测试
+  （`deliver/2`）同码。
   """
 
   require Logger
@@ -371,7 +376,13 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
               {:error, :bus_missing} ->
                 # bus 恰好缺席（bus DOWN 尚在邮箱排队）：订阅表已随 bus 消亡，
                 # 全部 patterns 都需重建——转入统一 bus 退避路径，不 {:stop}。
-                {:noreply, state |> reclaim_forwarders() |> schedule_bus_retry()}
+                # 先 demonitor+flush 排队中的 bus DOWN（advisor A4）：防它稍后
+                # 再触发 bus DOWN 分支形成双定时链 / bus_retries 跨路径错乱。
+                {:noreply,
+                 state
+                 |> demonitor_bus_monitor()
+                 |> reclaim_forwarders()
+                 |> schedule_bus_retry()}
 
               {:error, reason} ->
                 Logger.error(
@@ -388,16 +399,31 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
       end
 
       # 退避重试到期（#120）：bus 回归则全量重订阅（先 whereis 探测，未回归时
-      # 不 spawn 空 forwarder）；subscriptions 非空 = 已恢复（杂散定时器），no-op
-      # 防重复订阅双投递。
+      # 不 spawn 空 forwarder）。subscriptions 非空 = 已恢复（杂散定时器）→ 真
+      # no-op 防重复订阅双投递——map 模式 %{subscriptions: %{}} 是子集匹配、
+      # 匹配任意 map，不构成空守卫（advisor M1），故用 map_size guard。
       @impl GenServer
-      def handle_info(:bus_resubscribe, %{subscriptions: %{}} = state) do
+      def handle_info(:bus_resubscribe, %{subscriptions: subscriptions} = state)
+          when map_size(subscriptions) == 0 do
         case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
           {:ok, _pid} ->
             case full_resubscribe(state) do
-              {:ok, state} -> {:noreply, state}
-              {:error, :bus_missing, state} -> {:noreply, schedule_bus_retry(state)}
-              {:error, reason, _state} -> {:stop, reason, state}
+              {:ok, state} ->
+                {:noreply, state}
+
+              {:error, :bus_missing, state} ->
+                {:noreply, schedule_bus_retry(state)}
+
+              # 瞬错（如 :timeout）同样退避不 {:stop}（advisor M3）：退避路径下
+              # {:stop} 计入 one_for_one 共享强度预算（3 次/5s），crash-loop 下
+              # 正是放大器——耗尽即根监督树停机。退避重试 / 30 次放弃告警均有界。
+              {:error, reason, state} ->
+                Logger.error(
+                  "#{inspect(__MODULE__)} bus resubscribe failed: #{inspect(reason)}; " <>
+                    "retrying on backoff"
+                )
+
+                {:noreply, schedule_bus_retry(state)}
             end
 
           {:error, :not_found} ->
@@ -413,31 +439,48 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
         %{subscriptions: %{}, forwarders: %{}, bus_monitor: nil, bus_retries: 0}
       end
 
-      # 完整重订阅（init / 退避重试共用）：订阅全部 patterns + monitor 新 bus pid
-      # （monitor 已死 pid 会立即收 DOWN，无竞态窗口）。失败路径先回收已建
-      # forwarder（幂等）再返回归一化错误；:bus_missing 与 :not_found 同走退避。
+      # 完整重订阅（init / 退避重试共用；advisor M2 顺序）：先 whereis → 先
+      # monitor pid → 再**按 pid** 订阅全部 patterns → 完成后核对 whereis 仍
+      # == pid。monitor 先行保证：订阅建立后该 incarnation 的任何死亡必产
+      # DOWN（消灭「订阅落 B1、monitor B2，B1 死亡无感知」的 #120 同款静默
+      # 失聪）；按 pid 订阅保证订阅行与 monitor 同 incarnation（按名字订阅会
+      # 在间隙遭遇替换）。末尾核对处理「订阅成功但 bus 随即被替换、DOWN 仍在
+      # 邮箱排队」的窗口：显式 demonitor+flush（顺带清掉该 DOWN）+ reclaim +
+      # 退避，不依赖邮箱排队延迟。失败路径先回收已建 forwarder（幂等）。
       defp full_resubscribe(state) do
-        case subscribe_all(state) do
-          {:ok, state} ->
-            case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
-              {:ok, pid} ->
-                {:ok, %{state | bus_monitor: Process.monitor(pid), bus_retries: 0}}
+        case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
+          {:ok, pid} ->
+            bus_monitor = Process.monitor(pid)
 
-              {:error, :not_found} ->
-                {:error, :bus_missing, reclaim_forwarders(state)}
+            case subscribe_all(state, pid) do
+              {:ok, state} ->
+                if bus_still_registered_as?(pid) do
+                  {:ok, %{state | bus_monitor: bus_monitor, bus_retries: 0}}
+                else
+                  Process.demonitor(bus_monitor, [:flush])
+                  {:error, :bus_missing, reclaim_forwarders(state)}
+                end
+
+              {:error, reason} ->
+                Process.demonitor(bus_monitor, [:flush])
+                {:error, reason, reclaim_forwarders(state)}
             end
 
-          {:error, :bus_missing} ->
-            {:error, :bus_missing, reclaim_forwarders(state)}
-
-          {:error, reason} ->
-            {:error, reason, reclaim_forwarders(state)}
+          {:error, :not_found} ->
+            {:error, :bus_missing, state}
         end
       end
 
-      defp subscribe_all(state) do
+      defp bus_still_registered_as?(pid) do
+        case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
+          {:ok, ^pid} -> true
+          _other -> false
+        end
+      end
+
+      defp subscribe_all(state, bus_pid) do
         Enum.reduce_while(patterns(), {:ok, state}, fn pattern, {:ok, acc} ->
-          case subscribe_pattern(pattern, acc) do
+          case subscribe_pattern(pattern, acc, bus_pid) do
             {:ok, acc} -> {:cont, {:ok, acc}}
             {:error, reason} -> {:halt, {:error, reason}}
           end
@@ -446,10 +489,24 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
       # 订阅失败返回 {:error, reason}：init 即停（Q3，监督树重启重试，不聋着活）。
       # :not_found（bus 未注册）归一化为 :bus_missing，走退避路径（#120）。
-      defp subscribe_pattern(pattern, state) do
-        case Cgc2046.Workflows.JidoAdapter.subscribe(pattern, fn type, data ->
-               Cgc2046.Workflows.SignalSubscriber.run(__MODULE__, type, data)
-             end) do
+      # GenServer.call 在途对端被 :kill → exit(:killed)：jido bus_call 只 catch
+      # noproc/timeout，会穿透炸掉订阅方进程——try/catch 归一化 :not_found
+      # （bus 确实没了），走退避不 {:stop}（advisor M3）。
+      defp subscribe_pattern(pattern, state, bus_pid \\ nil) do
+        result =
+          try do
+            Cgc2046.Workflows.JidoAdapter.subscribe(
+              pattern,
+              fn type, data ->
+                Cgc2046.Workflows.SignalSubscriber.run(__MODULE__, type, data)
+              end,
+              bus_pid
+            )
+          catch
+            :exit, _reason -> {:error, :not_found}
+          end
+
+        case result do
           {:ok, _subscription_id, monitor_ref, forwarder_pid} ->
             {:ok,
              %{
@@ -481,6 +538,16 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
         %{state | subscriptions: %{}, forwarders: %{}}
       end
+
+      # demonitor 现有 bus monitor 并置 nil（advisor A4）：forwarder-DOWN
+      # :bus_missing 路径转入统一退避前 flush 排队中的 bus DOWN，防双定时链。
+      # monitor 已触发（oneshot 自动解除）时 demonitor 是 no-op，幂等。
+      defp demonitor_bus_monitor(%{bus_monitor: ref} = state) when is_reference(ref) do
+        Process.demonitor(ref, [:flush])
+        %{state | bus_monitor: nil}
+      end
+
+      defp demonitor_bus_monitor(state), do: state
 
       # bus 退避重试（#120）：指数退避 100ms 起 ×2 封顶 5s；30 次仍无 bus 则放弃
       # 并 error 告警——订阅方保持存活可观测（重启窗口内丢的信号兜底是

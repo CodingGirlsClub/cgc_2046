@@ -235,6 +235,28 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
   end
 
   describe "bus 重启重订阅（#120）" do
+    test "杂散 :bus_resubscribe（健康状态）→ 守卫 no-op：订阅 ref 集不变、publish 一次恰好一投（M1）" do
+      start_supervised!(BusRestart)
+
+      subscriber_pid = Process.whereis(BusRestart)
+      before_refs = Map.keys(:sys.get_state(subscriber_pid).subscriptions)
+      assert length(before_refs) == 2
+
+      # 杂散重订阅消息（运维 console 误发 / 竞态残留定时器）：健康订阅方须
+      # no-op——map 模式 %{subscriptions: %{}} 是子集匹配不构成空守卫（M1 实锤）
+      send(subscriber_pid, :bus_resubscribe)
+      Process.sleep(100)
+
+      after_refs = :sys.get_state(subscriber_pid).subscriptions |> Map.keys()
+      assert MapSet.new(after_refs) == MapSet.new(before_refs)
+
+      assert :ok =
+               JidoAdapter.publish("fixture.bus_restart", %{"test_pid" => self(), "n" => 1})
+
+      assert_receive {:handled, "fixture.bus_restart", 1}, 1_000
+      refute_receive {:handled, "fixture.bus_restart", 1}
+    end
+
     test "bus :kill → permanent 自动重启 → 全量重订阅恢复投递 + 旧 forwarder 回收" do
       start_supervised!(BusRestart)
 

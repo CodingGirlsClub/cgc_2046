@@ -694,15 +694,25 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   `{:ok, subscription_id, monitor_ref, forwarder_pid}`——forwarder pid 供骨架在
   bus 重启时显式回收旧转发进程（spawn 无 link，不回收则泄漏；#120），或
   `{:error, reason}`（bus 未注册时为 `:not_found`）。
+
+  `bus_pid` 显式指定时按 pid 而非名字订阅（advisor M2）：订阅方骨架先
+  `whereis_bus` → `Process.monitor(pid)` → 按 pid 订阅，保证订阅行与 monitor
+  落在同一 bus incarnation——按名字订阅会在 subscribe → whereis 间隙遭遇
+  incarnation 替换（订阅落 B1、monitor B2 → B1 死亡无感知，静默失聪）。
   """
   @spec subscribe(String.t(), (String.t(), map() -> any())) ::
           {:ok, term(), reference(), pid()} | {:error, term()}
-  def subscribe(pattern, fun) when is_binary(pattern) and is_function(fun, 2) do
+  @spec subscribe(String.t(), (String.t(), map() -> any()), pid() | nil) ::
+          {:ok, term(), reference(), pid()} | {:error, term()}
+  def subscribe(pattern, fun, bus_pid \\ nil)
+      when is_binary(pattern) and is_function(fun, 2) and (is_pid(bus_pid) or is_nil(bus_pid)) do
     caller = self()
     subscriber = spawn(fn -> forward_loop(fun, caller) end)
     monitor_ref = Process.monitor(subscriber)
+    # 按名字（nil）或显式 pid 解析 bus（jido bus_call_target 对 pid 直通）
+    bus = if is_pid(bus_pid), do: bus_pid, else: @bus_name
 
-    case Jido.Signal.Bus.subscribe(@bus_name, pattern,
+    case Jido.Signal.Bus.subscribe(bus, pattern,
            dispatch: {:pid, target: subscriber, delivery_mode: :async}
          ) do
       {:ok, subscription_id} ->
