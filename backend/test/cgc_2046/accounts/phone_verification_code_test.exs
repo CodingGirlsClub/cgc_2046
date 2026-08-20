@@ -115,6 +115,10 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
       {:ok, _code_new, _rid} = PhoneVerificationCode.issue(@phone, :login)
       wrong = if code_old == "000000", do: "111111", else: "000000"
 
+      # 背靠背 issue 同秒平票：回拨旧码 inserted_at 1s，保证
+      # decrement_latest_attempt 的「最新码」排序确定（flake 根因）
+      backdate_inserted(@phone, :login)
+
       # 3 次错码 → 最新码 attempts 耗尽作废
       for _ <- 1..3,
           do: PhoneVerificationCode.consume_valid(@phone, wrong, :login)
@@ -168,6 +172,29 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
       )
 
     Enum.map(rows, fn [hash] -> %{code_hash: hash} end)
+  end
+
+  # 两码同秒 inserted_at 平票：把较早 issue 的行（非最新）回拨 1s，
+  # 使 ORDER BY inserted_at DESC 的「最新码」确定（#253 flake 修复）。
+  # 只回拨 id 最小（先插入）那一行——PG 无显式 rowid，用 ctid 保插入序。
+  defp backdate_inserted(phone, purpose) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        """
+        UPDATE phone_verification_codes
+        SET inserted_at = inserted_at - interval '1 second'
+        WHERE id = (
+          SELECT id FROM phone_verification_codes
+          WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL
+          ORDER BY inserted_at ASC, ctid ASC
+          LIMIT 1
+        )
+        """,
+        [phone, Atom.to_string(purpose)]
+      )
+
+    :ok
   end
 
   defp backdate_expiry(phone, purpose) do
