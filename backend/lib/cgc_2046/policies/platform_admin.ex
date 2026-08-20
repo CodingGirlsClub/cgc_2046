@@ -12,7 +12,7 @@ defmodule Cgc2046.Policies.PlatformAdmin do
     成员列表/审计/工作流等治理数据——成员列表放行是 load-bearing（实 bug
     `7f925b7`：缺它 admin 详情页成员列表为空 → 误报「Owner 未就位」）。
   - **能力面（Rbac abilities / myAbilities）**：工作台壳 affordance。
-    不给非成员平台管理员管理类 ability（list_members/manage_members/assign_roles，
+    不给非成员平台管理员管理类 ability（list_members/manage_members/assign_roles/manage_events，
     #66 P2 方向①）——治理读取 ≠ 在工作台壳里开管理入口。
 
   修改任一面前先读对面。能力面入口见 `Cgc2046.Rbac.abilities_for/2`。

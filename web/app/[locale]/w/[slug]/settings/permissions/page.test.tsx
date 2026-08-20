@@ -32,6 +32,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			manage_members: true,
 			assign_roles: true,
 			update_join_policy: true,
+			manage_events: true,
 			create_workspace: false,
 		},
 	},
@@ -44,6 +45,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			manage_members: true,
 			assign_roles: true,
 			update_join_policy: true,
+			manage_events: true,
 			create_workspace: false,
 		},
 	},
@@ -56,6 +58,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			manage_members: false,
 			assign_roles: false,
 			update_join_policy: false,
+			manage_events: false,
 			create_workspace: false,
 		},
 	},
@@ -68,6 +71,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			manage_members: false,
 			assign_roles: false,
 			update_join_policy: false,
+			manage_events: false,
 			create_workspace: false,
 		},
 	},
@@ -80,6 +84,7 @@ const TEST_MATRIX: PermissionMatrixRow[] = [
 			manage_members: false,
 			assign_roles: false,
 			update_join_policy: false,
+			manage_events: false,
 			create_workspace: false,
 		},
 	},
@@ -158,6 +163,7 @@ beforeEach(() => {
 				"manage_members",
 				"assign_roles",
 				"update_join_policy",
+				"manage_events",
 			],
 			membershipStatus: "active",
 		},
@@ -239,7 +245,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(screen.queryByText("多角色取并集")).not.toBeInTheDocument();
 	});
 
-	it("展示五个设计角色和七项能力", async () => {
+	it("展示五个设计角色和八项能力", async () => {
 		await renderReadyPage();
 
 		expect(
@@ -271,7 +277,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		);
 	});
 
-	it("矩阵语义对齐后端七能力：Owner/Admin 可管理，其他角色只读，create_workspace 平台级不授予", async () => {
+	it("矩阵语义对齐后端八能力：Owner/Admin 可管理，其他角色只读，create_workspace 平台级不授予", async () => {
 		await renderReadyPage();
 
 		expect(screen.getByTestId("cell-owner-manage_members")).toHaveTextContent(
@@ -337,13 +343,13 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		const statuses = within(example).getAllByTestId(
 			"permission-ability-status",
 		);
-		// admin 并集 → 六项管理能力允许，平台级 create_workspace 拒绝
-		expect(statuses).toHaveLength(7);
+		// admin 并集 → 七项管理能力允许，平台级 create_workspace 拒绝
+		expect(statuses).toHaveLength(8);
 		expect(
-			statuses.slice(0, 6).every((item) => item.textContent?.includes("允许")),
+			statuses.slice(0, 7).every((item) => item.textContent?.includes("允许")),
 		).toBe(true);
-		expect(statuses[6]).toHaveTextContent("创建工作台");
-		expect(statuses[6]).toHaveTextContent("拒绝");
+		expect(statuses[7]).toHaveTextContent("创建工作台");
+		expect(statuses[7]).toHaveTextContent("拒绝");
 	});
 
 	it("未知 slug 显示不可访问状态，不请求权限矩阵", async () => {
@@ -394,7 +400,7 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(fetchMatrix).not.toHaveBeenCalled();
 	});
 
-	it("矩阵 fixture 完整性：五角色 × 七能力，每个能力都有 boolean", () => {
+	it("矩阵 fixture 完整性：五角色 × 八能力，每个能力都有 boolean", () => {
 		expect(TEST_MATRIX).toHaveLength(5);
 		expect(TEST_MATRIX.map((row) => row.role)).toEqual(PERMISSION_ROLE_ORDER);
 		for (const row of TEST_MATRIX) {

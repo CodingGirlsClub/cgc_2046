@@ -4,7 +4,7 @@
  * 缴费闭环 follow-up U2-R1：定价配置页 /w/[slug]/settings/pricing。
  *
  * 收费 Event/Course 的 pricingEnabled 开关 + PriceTier 档位编辑
- * （PricingManagement 组件）；门控 = canManageEvents（Owner/Admin，后端
+ * （PricingManagement 组件）；门控 = canManageEvents（#215 manage_events 能力，后端
  * policy 兜底）。页面骨架与 settings/sponsorship 同款。
  */
 
@@ -23,7 +23,7 @@ export default function WorkspacePricingPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws } = useWorkspaceBySlug(slug);
-	const manage = canManageEvents(ws?.myRoleNames ?? []);
+	const manage = canManageEvents(ws?.myAbilities ?? []);
 
 	return (
 		<WorkspaceShell slug={slug}>

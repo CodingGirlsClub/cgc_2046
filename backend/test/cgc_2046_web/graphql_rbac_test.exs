@@ -125,7 +125,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
     end
 
-    test "authenticated user gets the 5-role × 6-ability matrix (G1)" do
+    test "authenticated user gets the 5-role × 8-ability matrix (G1)" do
       admin = Fixtures.platform_admin("gql-rbac-admin")
       token = sign_in_token(admin.email, @password)
 
@@ -165,6 +165,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
         assert abilities["manage_members"] == true
         assert abilities["assign_roles"] == true
         assert abilities["create_workspace"] == false
+        assert abilities["manage_events"] == true
       end
 
       for role <- ["tutor", "volunteer", "learner"] do
@@ -174,6 +175,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
         assert abilities["list_members"] == false
         assert abilities["manage_members"] == false
         assert abilities["assign_roles"] == false
+        assert abilities["manage_events"] == false
         assert abilities["create_workspace"] == false
       end
     end
@@ -191,7 +193,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       """
     end
 
-    test "owner (platform admin) gets all seven abilities" do
+    test "owner (platform admin) gets all eight abilities" do
       admin = Fixtures.platform_admin("gql-rbac-admin")
       token = sign_in_token(admin.email, @password)
 
@@ -211,6 +213,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
                "manage_members",
                "assign_roles",
                "update_join_policy",
+               "manage_events",
                "create_workspace"
              ]
     end

@@ -27,7 +27,7 @@ export default function WorkspaceSponsorshipPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws } = useWorkspaceBySlug(slug);
-	const manage = canManageEvents(ws?.myRoleNames ?? []);
+	const manage = canManageEvents(ws?.myAbilities ?? []);
 
 	return (
 		<WorkspaceShell slug={slug}>

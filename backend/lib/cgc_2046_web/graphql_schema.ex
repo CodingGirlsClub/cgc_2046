@@ -18,7 +18,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "角色权限矩阵（#66 Rbac）：五角色 × 七能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
+    @desc "角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表）"
     field :permission_matrix, :permission_matrix_payload do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn _actor ->
