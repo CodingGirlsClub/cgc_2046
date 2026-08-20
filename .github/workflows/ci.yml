@@ -49,11 +49,14 @@ jobs:
           otp-version: "29"
       - uses: actions/cache@v6
         with:
-          # deps+_build 缓存：compile 从零编 4m45s 降为增量；key 绑 mix.lock，
-          # 依赖变更自动失效，restore-keys 允许跨 PR 复用同前缀缓存
+          # deps+_build 缓存：compile 从零编 ~3.5min 降为增量；key 绑 mix.lock，
+          # 依赖变更自动失效，restore-keys 允许跨 PR 复用同前缀缓存。
+          # 注意：path 相对 repo 根解析（不受 defaults.run.working-directory
+          # 影响），必须带 backend/ 前缀——无此前缀时路径不存在，保存阶段
+          # Path Validation Error 静默跳过，cache 从未生效（2026-08-21 实证）
           path: |
-            deps
-            _build
+            backend/deps
+            backend/_build
           key: mix-1.20-otp29-test-${{ hashFiles('backend/mix.lock') }}
           restore-keys: |
             mix-1.20-otp29-test-
