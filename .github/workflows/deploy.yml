@@ -60,7 +60,7 @@ jobs:
           CORS_ORIGIN=${CORS_ORIGIN}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           SECRETS_EOF
-          ruby -e 'require "kamal"; h = Kamal::Secrets.new.to_h; puts "pw len: #{h["KAMAL_REGISTRY_PASSWORD"].to_s.length}"; puts "db len: #{h["DATABASE_URL"].to_s.length}"'
+          sed 's/=.*/=<len redacted>/' .kamal/secrets; ruby -e 'require "kamal"; h = Kamal::Secrets.new.to_h; puts "pw len: #{h["KAMAL_REGISTRY_PASSWORD"].to_s.length}"'
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
