@@ -71,11 +71,18 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   **bus 重启重订阅（#120）**：订阅表存于 bus 进程内存（无 journal），bus 崩溃
   重启后清空，而订阅方 monitor 的是 forwarder——bus 死不产生任何 DOWN。故
-  骨架 init 时额外 monitor bus pid，收到 bus DOWN 后：demonitor 并显式 kill
-  全部旧 forwarder（spawn 无 link，不回收则每次 bus 重启泄漏），再对全部
-  patterns 重订阅。重订阅的顺序是「先 whereis → 先 monitor pid → 按 pid
-  订阅 → 核对 whereis 仍 == pid」（advisor M2）：订阅行与 monitor 落在同一
-  bus incarnation，消灭「订阅落旧 bus、monitor 新 bus，旧 bus 死亡无感知」
+  骨架 init 时额外 monitor bus pid，收到 bus DOWN 后：demonitor 并对全部旧
+  forwarder 走 drain 回收（`JidoAdapter.drain_forwarders`——投递 `:reclaim`
+  等在途投递完成后自退，spawn 无 link 不回收则每次 bus 重启泄漏），再对全部
+  patterns 重订阅。**drain 语义（#245）**：claim 与 effects 必须在 forwarder
+  进程内同步执行——forwarder 在 `fun.()` 执行中收不到消息，`:reclaim` 落邮箱
+  仅在 fun 跑完后处理，kill 截断「claim 已烧、effects 未执行」的窗口因此闭合；
+  若未来 effects 异步化则前提失效，drain 降级为超时强杀（不劣化旧行为）。残余
+  窗口：fun 卡死超过 drain 超时（5s）仍被强杀截断——概率缩小非零，兜底是
+  SignalIdempotency claim + E-10 对账。drain 在旁路 waiter 异步完成，bus DOWN
+  恢复路径照旧立即退避重订阅。重订阅的顺序是「先 whereis → 先 monitor pid →
+  按 pid 订阅 → 核对 whereis 仍 == pid」（advisor M2）：订阅行与 monitor 落在
+  同一 bus incarnation，消灭「订阅落旧 bus、monitor 新 bus，旧 bus 死亡无感知」
   的静默失聪；订阅在途 bus 被杀的 exit 被 catch 归一化，不炸订阅方。退避
   重试（`:not_found` / 瞬错如 `:timeout`）一律不 `{:stop}`：指数退避 100ms
   起 ×2 封顶 5s（防 crash-loop、重订阅风暴、one_for_one 共享强度预算耗尽）。
@@ -591,18 +598,16 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
         end
       end
 
-      # 回收全部 forwarder（#120）：先 demonitor+flush 再 kill——防 kill 的 DOWN
-      # 入邮箱误触发 forwarder 重订阅分支；显式 kill 因 spawn 无 link 不杀则每次
-      # bus 重启泄漏一条 receive 进程。kill 已死进程是 no-op，幂等。
+      # 回收全部 forwarder（#120/#245）：先 demonitor+flush（防 forwarder 退出的
+      # DOWN 入邮箱误触发重订阅分支），再走 drain 协议——对每个 forwarder 投递
+      # :reclaim 并等在途投递（claim+effects 同步链）完成后自退，超时强杀兜底。
+      # drain 在旁路 waiter 异步完成，bus DOWN 恢复路径（退避重订阅）不被阻塞。
       defp reclaim_forwarders(%{subscriptions: subscriptions, forwarders: forwarders} = state) do
-        Enum.each(subscriptions, fn {ref, _pattern} ->
-          Process.demonitor(ref, [:flush])
+        Enum.each(subscriptions, fn {ref, _pattern} -> Process.demonitor(ref, [:flush]) end)
 
-          case Map.get(forwarders, ref) do
-            pid when is_pid(pid) -> Process.exit(pid, :kill)
-            nil -> :ok
-          end
-        end)
+        forwarders
+        |> Map.values()
+        |> Cgc2046.Workflows.JidoAdapter.drain_forwarders()
 
         %{state | subscriptions: %{}, forwarders: %{}}
       end
