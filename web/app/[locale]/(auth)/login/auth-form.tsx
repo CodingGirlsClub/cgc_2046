@@ -195,9 +195,6 @@ export default function AuthForm({
         )}
 
         <div className="auth-field">
-          <label className="auth-field__label" htmlFor="auth-email">
-            {isRegister ? t("field.email") : t("field.login")}
-          </label>
           <input
             id="auth-email"
             name="login"
@@ -216,17 +213,16 @@ export default function AuthForm({
         </div>
 
         <div className="auth-field">
-          <div className="auth-field__label-row">
-            <label className="auth-field__label" htmlFor="auth-password">{t("field.password")}</label>
-            {!isRegister && (
+          {!isRegister && (
+            <div className="auth-field__label-row">
               <Link href="/forgot-password" className="auth-inline-link">
                 {t("forgotPassword")}
               </Link>
-            )}
-          </div>
+            </div>
+          )}
           <PasswordField
             id="auth-password"
-            placeholder={isRegister ? t("placeholder.passwordMin") : ""}
+            placeholder={t("placeholder.password")}
             value={password}
             onChange={(value) => {
               setPassword(value);
@@ -241,7 +237,6 @@ export default function AuthForm({
 
         {isRegister && (
           <div className="auth-field">
-            <label className="auth-field__label" htmlFor="auth-confirm-password">{t("field.confirmPassword")}</label>
             <PasswordField
               id="auth-confirm-password"
               placeholder={t("placeholder.confirmPassword")}

@@ -58,9 +58,6 @@
       "login": "登录"
     },
     "field": {
-      "email": "邮箱",
-      "password": "密码",
-      "confirmPassword": "确认密码",
       "newPassword": "新密码",
       "confirmNewPassword": "确认新密码",
       "login": "手机号/邮箱地址"
@@ -68,7 +65,8 @@
     "placeholder": {
       "passwordMin": "至少 8 个字符",
       "confirmPassword": "再次输入密码",
-      "login": "手机号或邮箱"
+      "login": "手机号或邮箱",
+      "password": "请输入密码"
     },
     "passwordToggle": {
       "hide": "隐藏密码",

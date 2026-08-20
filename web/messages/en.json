@@ -58,9 +58,6 @@
       "login": "Sign in"
     },
     "field": {
-      "email": "Email",
-      "password": "Password",
-      "confirmPassword": "Confirm password",
       "newPassword": "New password",
       "confirmNewPassword": "Confirm new password",
       "login": "Phone number / Email"
@@ -68,7 +65,8 @@
     "placeholder": {
       "passwordMin": "At least 8 characters",
       "confirmPassword": "Enter password again",
-      "login": "Phone number or email"
+      "login": "Phone number or email",
+      "password": "Enter password"
     },
     "passwordToggle": {
       "hide": "Hide password",
