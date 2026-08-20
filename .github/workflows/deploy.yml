@@ -60,7 +60,7 @@ jobs:
           CORS_ORIGIN=${CORS_ORIGIN}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           SECRETS_EOF
-          echo "secrets file: $(wc -l < .kamal/secrets) lines"; sed -i "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|; s|<TCR_USERNAME>|\\"${{ vars.TCR_USERNAME }}\\"|" config/deploy.yml && ruby -e '$LOAD_PATH.unshift Gem.loaded_specs["kamal"].full_gem_path + "/lib"; require "kamal"; require "dotenv"; h = Kamal::Secrets.new.to_h; puts "KAMAL_REGISTRY_PASSWORD parsed len: #{h["KAMAL_REGISTRY_PASSWORD"].to_s.length}"; puts "DATABASE_URL parsed len: #{h["DATABASE_URL"].to_s.length}"'
+          ruby -e 'require "kamal"; h = Kamal::Secrets.new.to_h; puts "pw len: #{h["KAMAL_REGISTRY_PASSWORD"].to_s.length}"; puts "db len: #{h["DATABASE_URL"].to_s.length}"'
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
