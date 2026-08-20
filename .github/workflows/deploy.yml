@@ -58,7 +58,7 @@ jobs:
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
         run: |
           sed -i "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" config/deploy.yml
-          sed -i "s|<TCR_USERNAME>|\\"${{ vars.TCR_USERNAME }}\\"|" config/deploy.yml
+          sed -i "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" config/deploy.yml
           kamal deploy -c config/deploy.yml
 
       # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
@@ -69,7 +69,7 @@ jobs:
           NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
         run: |
           sed -i "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" config/deploy.yml
-          sed -i "s|<TCR_USERNAME>|\\"${{ vars.TCR_USERNAME }}\\"|" config/deploy.yml
+          sed -i "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" config/deploy.yml
           kamal deploy -c config/deploy.yml
 
       - name: Smoke check
