@@ -12,7 +12,7 @@ ssh:
 
 servers:
   web:
-    - 106.55.188.41
+    - <SERVER_HOST>
 
 proxy:
   host: codingirlsclub.com

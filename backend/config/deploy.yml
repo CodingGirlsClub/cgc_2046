@@ -9,7 +9,7 @@ image: codingirlsclub/cgc2046-backend
 
 servers:
   web:
-    - 106.55.188.41
+    - <SERVER_HOST>
 
 # 部署用户：deploy（sudo 免密 + docker 组；见 ~/.ssh/config cgc_production_server）
 ssh:
@@ -60,7 +60,7 @@ accessories:
   # Postgres 自托管容器（缺钱方案：与 app 同机，不归 Kamal 部署周期管）
   postgres:
     image: postgres:16
-    host: 106.55.188.41
+    host: <SERVER_HOST>
     env:
       clear:
         POSTGRES_DB: cgc_2046_prod
