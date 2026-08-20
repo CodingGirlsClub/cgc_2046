@@ -60,6 +60,7 @@ jobs:
           CORS_ORIGIN=${CORS_ORIGIN}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           SECRETS_EOF
+          echo "secrets file written: $(wc -l < .kamal/secrets) lines, registry_pw_len=$(grep ^KAMAL_REGISTRY_PASSWORD .kamal/secrets | cut -d= -f2 | wc -c)"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
