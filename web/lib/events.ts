@@ -26,7 +26,6 @@ import {
 	UPDATE_COURSE,
 	UPDATE_EVENT,
 } from "./graphql/events";
-import { MANAGE_ROLE_NAMES } from "./graphql/workspace";
 import { client } from "./apollo-client";
 
 /**
@@ -37,9 +36,9 @@ import { client } from "./apollo-client";
  * - 状态机前置守卫在页面前端做乐观判定，后端返回 errors 时以 error 态呈现。
  */
 
-/** 管理角色判定（列表/详情/新建页共用；后端 policy 兜底） */
-export function canManageEvents(roleNames: string[] = []): boolean {
-	return roleNames.some((r) => (MANAGE_ROLE_NAMES as readonly string[]).includes(r));
+/** 内容管理能力判定（列表/详情/新建/定价/赞助页共用；#215 manage_events，后端 policy 兜底） */
+export function canManageEvents(myAbilities: string[] = []): boolean {
+	return myAbilities.includes("manage_events");
 }
 
 /**

@@ -20,6 +20,7 @@ defmodule Cgc2046.RbacTest do
         assert row.abilities.manage_members == true
         assert row.abilities.assign_roles == true
         assert row.abilities.update_join_policy == true
+        assert row.abilities.manage_events == true
         assert row.abilities.create_workspace == false
       end
 
@@ -31,6 +32,7 @@ defmodule Cgc2046.RbacTest do
         assert row.abilities.manage_members == false
         assert row.abilities.assign_roles == false
         assert row.abilities.update_join_policy == false
+        assert row.abilities.manage_events == false
         assert row.abilities.create_workspace == false
       end
     end
@@ -46,7 +48,8 @@ defmodule Cgc2046.RbacTest do
                  :list_members,
                  :manage_members,
                  :assign_roles,
-                 :update_join_policy
+                 :update_join_policy,
+                 :manage_events
                ]
       end
 
@@ -63,7 +66,8 @@ defmodule Cgc2046.RbacTest do
                :list_members,
                :manage_members,
                :assign_roles,
-               :update_join_policy
+               :update_join_policy,
+               :manage_events
              ]
     end
 
@@ -76,7 +80,7 @@ defmodule Cgc2046.RbacTest do
                :create_workspace
              ]
 
-      # 成员平台管理员：全部七项
+      # 成员平台管理员：全部八项
       assert Rbac.abilities_for([:owner], true) == [
                :view_workspace,
                :access_invite_only,
@@ -84,6 +88,7 @@ defmodule Cgc2046.RbacTest do
                :manage_members,
                :assign_roles,
                :update_join_policy,
+               :manage_events,
                :create_workspace
              ]
 

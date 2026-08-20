@@ -1478,6 +1478,10 @@
         "label": "Change join policy",
         "description": "Switch the current Workspace's join mode (open / by request / invite-only)."
       },
+      "manage_events": {
+        "label": "Manage events",
+        "description": "Manage events, courses, pricing, and sponsorship content in the current Workspace."
+      },
       "create_workspace": {
         "label": "Create workspace",
         "description": "Create a new Workspace (platform-level ability, not granted per role in the matrix)."

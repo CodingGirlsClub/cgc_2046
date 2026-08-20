@@ -77,6 +77,11 @@ export const PERMISSION_ABILITIES: PermissionAbilityDef[] = [
 		description: "permissions.ability.update_join_policy.description",
 	},
 	{
+		id: "manage_events",
+		label: "permissions.ability.manage_events.label",
+		description: "permissions.ability.manage_events.description",
+	},
+	{
 		id: "create_workspace",
 		label: "permissions.ability.create_workspace.label",
 		description: "permissions.ability.create_workspace.description",

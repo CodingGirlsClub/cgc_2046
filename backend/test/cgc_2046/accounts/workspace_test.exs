@@ -690,7 +690,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   end
 
   describe "my_abilities calculation (#1 能力接口，与 Rbac.abilities_for/2 语义一致)" do
-    test "owner member gets all seven abilities (incl. create_workspace)" do
+    test "owner member gets all eight abilities (incl. create_workspace)" do
       admin = Fixtures.platform_admin("ws-admin")
 
       {:ok, workspace} =
@@ -715,6 +715,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
                "manage_members",
                "assign_roles",
                "update_join_policy",
+               "manage_events",
                "create_workspace"
              ]
     end

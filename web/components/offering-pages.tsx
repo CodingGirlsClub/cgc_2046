@@ -216,7 +216,7 @@ export function OfferingsListPage({
   const stale = ws ? state.wsId !== ws.id : false;
   const rows = stale ? null : state.rows;
   const loadError = stale ? null : state.error;
-  const manage = ws ? canManageEvents(ws.myRoleNames) : false;
+  const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
 
@@ -463,7 +463,7 @@ export function OfferingDetailPage({
   }
 
   const loadError = stale ? null : state.error;
-  const manage = ws ? canManageEvents(ws.myRoleNames) : false;
+  const manage = ws ? canManageEvents(ws.myAbilities) : false;
 
   // pending 报名数（报名数据视图：request 策略待审批；仅管理视角发起，
   // 普通成员/匿名不发请求——U2 #127）
@@ -1254,7 +1254,7 @@ export function OfferingNewPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const manage = ws ? canManageEvents(ws.myRoleNames) : false;
+  const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
 

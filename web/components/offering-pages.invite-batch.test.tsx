@@ -30,8 +30,8 @@ vi.mock("@/lib/payment-errors", async () => {
 vi.mock("@/lib/events", () => ({
 	allowedTransitions: (status: string) =>
 		status === "draft" ? ["launch"] : status === "open" ? ["close", "cancel"] : [],
-	canManageEvents: (roleNames: string[] = []) =>
-		roleNames.some((role) => role === "owner" || role === "admin"),
+	canManageEvents: (myAbilities: string[] = []) =>
+		myAbilities.includes("manage_events"),
 	createOffering: vi.fn(),
 	fetchMyEnrollment: mocks.fetchMyEnrollment,
 	fetchOffering: mocks.fetchOffering,
@@ -135,6 +135,7 @@ const WORKSPACE = {
 	joinPolicy: "open" as const,
 	sponsorshipEnabled: false,
 	myRoleNames: ["owner" as const],
+	myAbilities: ["manage_events"],
 };
 
 beforeEach(() => {
@@ -147,10 +148,13 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-async function renderDetail(policy: OfferingItem["enrollmentPolicy"], roles: string[]) {
+async function renderDetail(
+	policy: OfferingItem["enrollmentPolicy"],
+	abilities: string[],
+) {
 	mocks.fetchOffering.mockResolvedValueOnce({ ...OFFERING, enrollmentPolicy: policy });
 	mocks.useWorkspaceBySlug.mockReturnValue({
-		ws: { ...WORKSPACE, myRoleNames: roles },
+		ws: { ...WORKSPACE, myAbilities: abilities },
 		loading: false,
 		error: null,
 		retry: vi.fn(),
@@ -162,7 +166,7 @@ async function renderDetail(policy: OfferingItem["enrollmentPolicy"], roles: str
 
 describe("OfferingDetailPage InviteBatchPanel 挂点", () => {
 	it("manage + invite_only 时渲染批次码面板", async () => {
-		await renderDetail("invite_only", ["owner"]);
+		await renderDetail("invite_only", ["manage_events"]);
 
 		expect(screen.getByTestId("invite-batch-panel")).toHaveAttribute(
 			"data-workspace-id",
@@ -173,7 +177,7 @@ describe("OfferingDetailPage InviteBatchPanel 挂点", () => {
 	it.each(["open", "request"] as const)(
 		"manage + %s 策略时不渲染批次码面板",
 		async (policy) => {
-			await renderDetail(policy, ["owner"]);
+			await renderDetail(policy, ["manage_events"]);
 
 			expect(screen.queryByTestId("invite-batch-panel")).not.toBeInTheDocument();
 		},
