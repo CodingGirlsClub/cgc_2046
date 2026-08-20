@@ -143,10 +143,10 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
       </aside>
 
       <main className="auth-form-panel">
-        <div className="flex justify-end">
+        <div className="auth-topbar">
+          <AuthHelpLink />
           <LanguageSwitcher />
         </div>
-        <AuthHelpLink />
         <section className="auth-form-card" aria-labelledby="auth-page-title">
           <div className="auth-form-heading">
             <h2 id="auth-page-title">{isRegister ? t("heading.register") : t("heading.login")}</h2>
