@@ -228,7 +228,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
     end
 
-    test "绑定后直登：SIGNED_IN + httpOnly cookie（无 platform claim）" do
+    test "绑定后直登：SIGNED_IN + httpOnly cookie" do
       # 先走 needs_binding 拿 ticket 并完成绑定
       {state, sc} = start_login()
       stub_code2session("web-openid-direct", "union-direct")

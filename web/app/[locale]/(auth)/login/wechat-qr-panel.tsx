@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useMutation } from "@apollo/client/react";
 import { useTranslations } from "next-intl";
 import {
-	graphqlErrorDetails,
 	WECHAT_LOGIN_START,
 	type WechatLoginStartResult,
 } from "@/lib/graphql/auth";
@@ -58,13 +57,10 @@ export default function WechatQrPanel() {
 				setExpiresAt(Date.now() + res.expiresInSeconds * 1000);
 				setPhase("ready");
 				setNowMs(Date.now());
-			} catch (e) {
-				if (cancelled) return;
-				setPhase(
-					graphqlErrorDetails(e)?.code === "wechat_login_unavailable"
-						? "unavailable"
-						: "unavailable",
-				);
+			} catch {
+				// 出码失败统一按 unavailable 降级（advisor02 R2-3：原先三元
+				// 两侧同值；异常细分对用户可操作面无差异——都是换方式登录）
+				if (!cancelled) setPhase("unavailable");
 			}
 		};
 
