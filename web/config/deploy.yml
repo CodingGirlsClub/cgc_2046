@@ -31,8 +31,9 @@ registry:
 # NEXT_PUBLIC_* 构建时内联（#254）：经 builder args 传入 docker build，
 # 运行时注入对静态产物无效
 builder:
+  # 同 backend：--file 相对 CWD（CI working-directory=web）
   context: ".."
-  dockerfile: "../Dockerfile"
+  dockerfile: "Dockerfile"
   arch: amd64
   args:
     NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}

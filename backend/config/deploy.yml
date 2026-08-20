@@ -70,8 +70,8 @@ accessories:
 # SSH 私钥/registry 密码经 KAMAL_REGISTRY_PASSWORD 与 ssh key 配置注入，
 # 不落仓库。builder：x86 服务器在 CI x86 runner 上直接构建，无需 remote builder。
 builder:
-  # 构建上下文 = repo 根（Dockerfile COPY backend/…）；dockerfile 相对
-  # config 所在目录解析需回根：显式给路径
+  # CI working-directory=backend（CWD）；docker --file 相对 CWD 而非
+  # context；context=".."=repo根（Dockerfile COPY backend/… 需根上下文）
   context: ".."
-  dockerfile: "../Dockerfile"
+  dockerfile: "Dockerfile"
   arch: amd64
