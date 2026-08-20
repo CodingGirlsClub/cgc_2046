@@ -90,6 +90,36 @@ defmodule Cgc2046.Mcp.TokenTest do
                |> Ash.create()
     end
 
+    test "闲置过期 token 不占 active 上限：回拨一枚到恰 -90 天后仍可新签（#226）" do
+      user = Fixtures.register_user("mcp-token-cap-idle")
+
+      for i <- 1..10 do
+        assert {:ok, _} =
+                 Token
+                 |> Ash.Changeset.for_create(:issue, %{name: "t#{i}"}, actor: user)
+                 |> Ash.create()
+      end
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Token
+               |> Ash.Changeset.for_create(:issue, %{name: "over"}, actor: user)
+               |> Ash.create()
+
+      # 回拨一枚到恰 -90 天（同滚动过期边界锚 :180）：闲置过期不占位，
+      # SQL 谓词（锚点 > cutoff）与 idle_expired?/1（diff >= 90）互补对齐
+      first =
+        Token
+        |> Ash.Query.filter(user_id == ^user.id and name == "t1")
+        |> Ash.read_one!(actor: user)
+
+      backdate(first, inserted_at: -90)
+
+      assert {:ok, _} =
+               Token
+               |> Ash.Changeset.for_create(:issue, %{name: "after-idle-expiry"}, actor: user)
+               |> Ash.create()
+    end
+
     test "未认证 actor 不能签发" do
       assert {:error, %Ash.Error.Forbidden{}} =
                Token

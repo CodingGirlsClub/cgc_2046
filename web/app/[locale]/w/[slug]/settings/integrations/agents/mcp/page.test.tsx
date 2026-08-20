@@ -71,6 +71,15 @@ const TEST_TOKENS = [
 	},
 ];
 
+const IDLE_EXPIRED_TOKEN = {
+	id: "tok_idle",
+	name: "寒假前的电脑",
+	lastUsedAt: null,
+	revokedAt: null,
+	insertedAt: "2026-05-01T09:00:00Z",
+	status: "idle_expired" as const,
+};
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u_1" });
@@ -180,5 +189,22 @@ describe("/w/[slug]/settings/integrations/agents/mcp 集成 MCP 页", () => {
 		});
 		// 两个 token 都已是已撤销状态
 		expect((await screen.findAllByText("已撤销")).length).toBe(2);
+	});
+
+	it("idle_expired token：渲染闲置过期徽章（amber）且撤销按钮可用（#226）", async () => {
+		fetchMyMcpTokens.mockResolvedValue([IDLE_EXPIRED_TOKEN]);
+		render(<AgentsMcpPage />);
+
+		expect(await screen.findByText("寒假前的电脑")).toBeInTheDocument();
+		// amber 徽章 + 闲置过期文案
+		const badge = document.querySelector(".l-badge-pending");
+		expect(badge).not.toBeNull();
+		expect(badge).toHaveTextContent("闲置过期（90 天未使用）");
+		// 撤销门按 status !== "revoked"：idle_expired 仍可撤（清理死行）
+		const revokeButton = await screen.findByRole("button", { name: "撤销" });
+		fireEvent.click(revokeButton);
+		expect(
+			await screen.findByRole("button", { name: "确认撤销" }),
+		).toBeInTheDocument();
 	});
 });

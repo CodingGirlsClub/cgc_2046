@@ -15,7 +15,8 @@ defmodule Cgc2046.Mcp.Token do
     过期为惰性判定，行保留原样不置 `revoked_at`）
 
   每用户可同时持有多个 token（D-D4 定稿：撤销粒度按 token），
-  active 上限 10 个（`@max_active_tokens_per_user`，防无限铸造；已撤销不计）。
+  active 上限 10 个（`@max_active_tokens_per_user`，防无限铸造；active = 未撤销
+  且未闲置过期，二者均不计入上限）。
   """
   # 每用户 active token 上限（review 修复：无速率限制中间件可适配按用户计数，故在资源层守卫）
   @max_active_tokens_per_user 10
@@ -103,8 +104,8 @@ defmodule Cgc2046.Mcp.Token do
       end)
 
       # 每用户 active token 上限（防无限铸造：无 RateLimit 适配——其中间件按
-      # arguments 建 key，换备注名即绕过；有效治理是按用户计数）。已撤销不计。
-      # 须在 user_id 落 changeset 之后执行，故排在上一 change 之后。
+      # arguments 建 key，换备注名即绕过；有效治理是按用户计数）。active = 未撤销
+      # 且未闲置过期。须在 user_id 落 changeset 之后执行，故排在上一 change 之后。
       change(fn changeset, _context ->
         actor_id = Ash.Changeset.get_attribute(changeset, :user_id)
 
@@ -113,9 +114,19 @@ defmodule Cgc2046.Mcp.Token do
         if is_nil(actor_id) do
           changeset
         else
+          # 闲置过期不计入上限（#226：死行占位迫使用户手动撤销才能新签）。
+          # SQL 谓词与 idle_expired?/1 严格对齐：cutoff = now - @idle_expiry_days 天，
+          # 锚点（last_used_at，从未使用回退 inserted_at）> cutoff 才算 active——
+          # 恰 -90 天（锚点 == cutoff）被排除，同 Elixir 侧 DateTime.diff >= 90 判过期。
+          cutoff = DateTime.add(DateTime.utc_now(), -@idle_expiry_days, :day)
+
           active_count =
             __MODULE__
-            |> Ash.Query.filter(user_id == ^actor_id and is_nil(revoked_at))
+            |> Ash.Query.filter(
+              user_id == ^actor_id and is_nil(revoked_at) and
+                ((is_nil(last_used_at) and inserted_at > ^cutoff) or
+                   (not is_nil(last_used_at) and last_used_at > ^cutoff))
+            )
             |> Ash.count!(authorize?: false)
 
           if active_count >= @max_active_tokens_per_user do
@@ -124,7 +135,7 @@ defmodule Cgc2046.Mcp.Token do
               Ash.Error.Changes.InvalidAttribute.exception(
                 field: :name,
                 message:
-                  "active connection token limit reached (#{@max_active_tokens_per_user}); revoke an unused token first"
+                  "active connection token limit reached (#{@max_active_tokens_per_user}; active = unrevoked and not idle-expired); revoke an unused token first"
               )
             )
           else
@@ -317,6 +328,8 @@ defmodule Cgc2046.Mcp.Token do
     anchor = token.last_used_at || token.inserted_at
     DateTime.diff(DateTime.utc_now(), anchor, :day) >= @idle_expiry_days
   end
+
+  # issue 计数上限排除闲置过期（#226）：SQL 谓词须与本函数整天边界对齐（>= 90）。
 
   # 触碰失败（并发撤销等）不影响鉴权主路径
   defp touch_last_used(token) do

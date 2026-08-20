@@ -14,7 +14,7 @@ import {
 
 /* ---------------- Token 数据 ---------------- */
 
-export type McpTokenStatus = "active" | "revoked";
+export type McpTokenStatus = "active" | "idle_expired" | "revoked";
 
 export interface McpTokenItem {
 	id: string;
@@ -25,14 +25,26 @@ export interface McpTokenItem {
 	status: McpTokenStatus;
 }
 
+/**
+ * 闲置过期判定（#226，本地派生）：连续 90 天未使用即失效——与 backend
+ * `Cgc2046.Mcp.Token @idle_expiry_days`（token.ex:23）对齐，双侧改须同步。
+ * UTC 绝对毫秒差取整天数（>= 90），防本地时区日历计算 ±1 天漂移；
+ * 锚点 = lastUsedAt ?? insertedAt，与 backend idle_expired?/1 一致。
+ */
+const IDLE_EXPIRY_DAYS = 90;
+const DAY_MS = 86_400_000;
+
 export function mapMcpToken(t: McpToken): McpTokenItem {
+	const anchor = t.lastUsedAt ?? t.insertedAt;
+	const idleDays = Math.floor((Date.now() - new Date(anchor).getTime()) / DAY_MS);
+	const idleExpired = !t.revokedAt && idleDays >= IDLE_EXPIRY_DAYS;
 	return {
 		id: t.id,
 		name: t.name,
 		lastUsedAt: t.lastUsedAt ?? null,
 		revokedAt: t.revokedAt ?? null,
 		insertedAt: t.insertedAt,
-		status: t.revokedAt ? "revoked" : "active",
+		status: t.revokedAt ? "revoked" : idleExpired ? "idle_expired" : "active",
 	};
 }
 

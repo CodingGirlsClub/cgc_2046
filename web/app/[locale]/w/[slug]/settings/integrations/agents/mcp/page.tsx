@@ -295,12 +295,18 @@ export default function AgentsMcpPage() {
 											className={`l-badge ${
 												token.status === "active"
 													? "l-badge-volunteer"
-													: "l-badge-danger"
+													: token.status === "idle_expired"
+														? "l-badge-pending"
+														: "l-badge-danger"
 											}`}
 										>
-											{token.status === "active" ? t("active") : t("revoked")}
+											{token.status === "active"
+												? t("active")
+												: token.status === "idle_expired"
+													? t("idleExpired")
+													: t("revoked")}
 										</span>
-										{token.status === "active" &&
+										{token.status !== "revoked" &&
 											(confirmRevokeId === token.id ? (
 												<>
 													<button

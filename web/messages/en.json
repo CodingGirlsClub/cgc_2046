@@ -804,6 +804,7 @@
     "viewGuide": "View setup guide →",
     "issuedAt": "Issued {time} · Last used {used}",
     "active": "Active",
+    "idleExpired": "Idle expired (unused for 90 days)",
     "revoked": "Revoked",
     "revoking": "Revoking…",
     "confirmRevoke": "Confirm revoke",
