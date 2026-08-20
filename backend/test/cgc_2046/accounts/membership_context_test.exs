@@ -472,6 +472,21 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
   end
 
   describe "admit_to_default_workspace (ADR-0004 默认 workspace 2046)" do
+    # 2046 由 seeds.exs 提供（原迁移内藏种子已收编）；测试环境不跑 seeds，
+    # 此处幂等自建（同 research_progress_worker_test 模式）。
+    setup do
+      case Workspace
+           |> Ash.Changeset.for_create(
+             :create,
+             %{slug: "2046", name: "2046 社区", join_policy: :open, sponsorship_enabled: false},
+             authorize?: false
+           )
+           |> Ash.create(authorize?: false) do
+        {:ok, _ws} -> :ok
+        {:error, _} -> :ok
+      end
+    end
+
     test "新用户入座 2046 为无标签成员并建 WorkspaceProfile" do
       user = Fixtures.register_user("mc-user")
 
