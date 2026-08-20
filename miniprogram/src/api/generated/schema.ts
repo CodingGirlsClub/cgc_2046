@@ -2652,6 +2652,10 @@ export type PermissionMatrixRow = {
   name: Scalars['String']['output'];
 };
 
+export type PhoneCodePurpose =
+  | 'LOGIN'
+  | 'WECHAT_BIND';
+
 export type PortfolioItem = {
   description?: Maybe<Scalars['String']['output']>;
   icon: Scalars['String']['output'];
@@ -2764,6 +2768,11 @@ export type ReplaceProviderResult = {
 };
 
 export type RequestPasswordResetResult = {
+  sent: Scalars['Boolean']['output'];
+};
+
+export type RequestPhoneCodeResult = {
+  retryAfterSeconds: Scalars['Int']['output'];
   sent: Scalars['Boolean']['output'];
 };
 
@@ -2885,6 +2894,8 @@ export type RootMutationType = {
   approveWorkspaceApplication: ApproveWorkspaceApplicationResult;
   /** 分配成员角色（多角色并集，仅 Owner/Admin） */
   assignRoles: AssignRolesResult;
+  /** 微信扫码绑定手机号完成登录（plan 002 U4；phone 5/15min 限流） */
+  bindWechatWithPhone?: Maybe<SignInWithPhoneCodeResult>;
   /** 取消课程：open → cancelled，发 course.ended 信号 */
   cancelCourse: CancelCourseResult;
   /** 报名人取消报名；confirmed/payment_pending 报名释放名额 */
@@ -2963,6 +2974,8 @@ export type RootMutationType = {
   replaceProvider: ReplaceProviderResult;
   /** 请求发送密码重置邮件（无论邮箱是否存在都返回统一成功结果） */
   requestPasswordReset?: Maybe<RequestPasswordResetResult>;
+  /** 请求发送手机验证码（plan 002 U3；限流 phone 1/60s + 5/1h + 20/1d、IP 30/1d） */
+  requestPhoneCode?: Maybe<RequestPhoneCodeResult>;
   /** 使用一次性密码重置 token 设置新密码 */
   resetPassword?: Maybe<ResetPasswordResult>;
   /** 撤销邀请（邀请人本人或 Owner/Admin 或平台管理员） */
@@ -2973,10 +2986,14 @@ export type RootMutationType = {
   saveSpeakerMaterials?: Maybe<SpeakerInvitationActionPayload>;
   /** 设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace） */
   setWorkspaceTheme?: Maybe<WorkspaceProfile>;
-  /** 使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token） */
+  /** 账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付） */
   signIn?: Maybe<SignInResult>;
+  /** 手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付） */
+  signInWithPhoneCode?: Maybe<SignInWithPhoneCodeResult>;
   /** 小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付 */
   signInWithPlatform?: Maybe<SignInWithPlatformResult>;
+  /** 微信扫码回调（plan 002 U4；IP 20/15min 限流）：已绑定直登，未绑定返回绑定票据 */
+  signInWithWechat?: Maybe<SignInWithWechatResult>;
   /** 登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放） */
   signOut?: Maybe<Scalars['String']['output']>;
   /** 注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录） */
@@ -2987,6 +3004,8 @@ export type RootMutationType = {
   updateDisplayName?: Maybe<User>;
   /** 编辑活动元数据（Owner/Admin） */
   updateEvent: UpdateEventResult;
+  /** 更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人） */
+  updateMyLocale?: Maybe<User>;
   /** 更新某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   updatePortfolioItem?: Maybe<PortfolioItem>;
   /** 更新工作台（Owner/Admin 或平台管理员） */
@@ -2995,6 +3014,8 @@ export type RootMutationType = {
   updateWorkspaceProfile?: Maybe<WorkspaceProfile>;
   /** Owner/Admin/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18） */
   waivePayment: WaivePaymentResult;
+  /** 发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流） */
+  wechatLoginStart?: Maybe<WechatLoginStartResult>;
 };
 
 
@@ -3033,6 +3054,13 @@ export type RootMutationTypeApproveWorkspaceApplicationArgs = {
 export type RootMutationTypeAssignRolesArgs = {
   id: Scalars['ID']['input'];
   input: AssignRolesInput;
+};
+
+
+export type RootMutationTypeBindWechatWithPhoneArgs = {
+  bindTicket: Scalars['String']['input'];
+  code: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
 };
 
 
@@ -3246,6 +3274,12 @@ export type RootMutationTypeRequestPasswordResetArgs = {
 };
 
 
+export type RootMutationTypeRequestPhoneCodeArgs = {
+  phone: Scalars['String']['input'];
+  purpose: PhoneCodePurpose;
+};
+
+
 export type RootMutationTypeResetPasswordArgs = {
   password: Scalars['String']['input'];
   resetToken: Scalars['String']['input'];
@@ -3275,8 +3309,14 @@ export type RootMutationTypeSetWorkspaceThemeArgs = {
 
 
 export type RootMutationTypeSignInArgs = {
-  email: Scalars['String']['input'];
+  login: Scalars['String']['input'];
   password: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeSignInWithPhoneCodeArgs = {
+  code: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
 };
 
 
@@ -3286,6 +3326,12 @@ export type RootMutationTypeSignInWithPlatformArgs = {
   iv?: InputMaybe<Scalars['String']['input']>;
   phoneCode?: InputMaybe<Scalars['String']['input']>;
   platform: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeSignInWithWechatArgs = {
+  code: Scalars['String']['input'];
+  state: Scalars['String']['input'];
 };
 
 
@@ -3311,6 +3357,11 @@ export type RootMutationTypeUpdateEventArgs = {
 };
 
 
+export type RootMutationTypeUpdateMyLocaleArgs = {
+  locale: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeUpdatePortfolioItemArgs = {
   id: Scalars['ID']['input'];
   input: UpdatePortfolioItemInput;
@@ -3332,6 +3383,11 @@ export type RootMutationTypeUpdateWorkspaceProfileArgs = {
 
 export type RootMutationTypeWaivePaymentArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeWechatLoginStartArgs = {
+  next?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type RootQueryType = {
@@ -3407,7 +3463,7 @@ export type RootQueryType = {
   orderStatus?: Maybe<Order>;
   /** 当前用户作为 Owner/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 /approvals 展示含过期行存在有意差异） */
   pendingApprovalsCount: Scalars['Int']['output'];
-  /** 角色权限矩阵（#66 Rbac）：五角色 × 七能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */
+  /** 角色权限矩阵（#66 Rbac）：五角色 × 八能力，对齐前端权限表（需登录；#1 能力接口：abilities 为通用列表） */
   permissionMatrix?: Maybe<PermissionMatrixPayload>;
   /** Placeholder query until the first resource is added */
   ping?: Maybe<Scalars['String']['output']>;
@@ -3770,10 +3826,21 @@ export type SignInResult = {
   isPlatformAdmin: Scalars['Boolean']['output'];
 };
 
+export type SignInWithPhoneCodeResult = {
+  email?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isPlatformAdmin: Scalars['Boolean']['output'];
+};
+
 export type SignInWithPlatformResult = {
   email?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isPlatformAdmin: Scalars['Boolean']['output'];
+};
+
+export type SignInWithWechatResult = {
+  bindTicket?: Maybe<Scalars['String']['output']>;
+  status: WechatSignInStatus;
 };
 
 export type SignUpInput = {
@@ -4545,6 +4612,8 @@ export type User = {
   isPlatformAdmin: Scalars['Boolean']['output'];
   /** 注册（加入）时间 */
   joinedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 用户界面语言偏好（i18n Phase 1，BCP47 对外命名：zh-CN | en；null = 未设置，协商链回退） */
+  locale?: Maybe<Scalars['String']['output']>;
   /** 平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一） */
   memberNumber?: Maybe<Scalars['String']['output']>;
 };
@@ -4556,6 +4625,16 @@ export type WaivePaymentResult = {
   /** The successful result of the mutation */
   result?: Maybe<Enrollment>;
 };
+
+export type WechatLoginStartResult = {
+  expiresInSeconds: Scalars['Int']['output'];
+  qrUrl: Scalars['String']['output'];
+  state: Scalars['String']['output'];
+};
+
+export type WechatSignInStatus =
+  | 'NEEDS_BINDING'
+  | 'SIGNED_IN';
 
 export type WorkflowDefinition = {
   /** 人工步骤审批超时秒数；nil = 永不超时（不设默认值） */

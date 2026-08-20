@@ -85,7 +85,7 @@ describe("/w/[slug]/settings/integrations/agents/opencode 集成 opencode 页", 
 	it("渲染 MCP URL 与 token 替换说明", async () => {
 		render(<AgentsOpencodePage />);
 
-		expect(screen.getByText(/localhost:4102\/mcp/)).toBeInTheDocument();
+		expect(screen.getByText(/与连接器扩展/)).toBeInTheDocument();
 		expect(
 			screen.getByText(/opencode 支持环境变量插值/),
 		).toBeInTheDocument();

@@ -34,9 +34,7 @@ builder:
   # 同 backend：--file 相对 CWD（CI working-directory=web）
   context: ".."
   dockerfile: "Dockerfile"
-  cache:
-    type: gha
-    options: mode=max
+  # GHA buildx cache 已回滚（同 backend：mode=max 大层导出挂起风险，负优化）
   arch: amd64
   args:
     NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}

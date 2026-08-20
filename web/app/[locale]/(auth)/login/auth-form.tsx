@@ -141,11 +141,10 @@ export default function AuthForm({
   mode: AuthMode;
   /** 仅供旧的组件测试/嵌入方使用；正式认证页通过路由切换。 */
   setMode?: (mode: AuthMode) => void;
-  onSubmit?: (payload: AuthSubmitPayload) => Promise<void>;
+  onSubmit: (payload: AuthSubmitPayload) => Promise<void>;
   busy?: boolean;
   error?: string | null;
 }) {
-  const [submitted, setSubmitted] = useState(false);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -157,7 +156,6 @@ export default function AuthForm({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmitted(false);
     setFormError(null);
 
     if (isRegister && password.length < 8) {
@@ -169,11 +167,7 @@ export default function AuthForm({
       return;
     }
 
-    if (onSubmit) {
-      await onSubmit({ mode, login, password });
-    } else {
-      setSubmitted(true);
-    }
+    await onSubmit({ mode, login, password });
   };
 
   const displayError = formError ?? error;
@@ -275,15 +269,6 @@ export default function AuthForm({
           </Link>
         )}
       </p>
-
-      {submitted && !onSubmit && (
-        <div className="auth-submit-note">
-          {t.rich("submitNoteMock", {
-            code: (chunks) => <code>{chunks}</code>,
-          })}
-        </div>
-      )}
-
 
       <p className="auth-terms">
         {isRegister ? t("terms.registerAction") : t("terms.loginAction")}{t("terms.agreePrefix")}

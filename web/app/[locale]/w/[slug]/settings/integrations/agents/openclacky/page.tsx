@@ -80,17 +80,7 @@ export default function AgentsOpenclackyPage() {
 							}}
 						>
 							<li style={{ lineHeight: "20px" }}>
-								{t.rich("openMarket", {
-									link: (chunks) => (
-										<a
-											href="http://localhost:7070/#extensions"
-											target="_blank"
-											rel="noreferrer"
-										>
-											{chunks}
-										</a>
-									),
-								})}
+								{t("openMarket")}
 							</li>
 							<li style={{ lineHeight: "20px" }}>
 								{t.rich("searchExtension", {
