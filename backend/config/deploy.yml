@@ -74,4 +74,8 @@ builder:
   # context；context=".."=repo根（Dockerfile COPY backend/… 需根上下文）
   context: ".."
   dockerfile: "Dockerfile"
+  # GHA buildx cache：deps/build 层跨 run 缓存，Elixir 全量编译 20min → 增量
+  cache:
+    type: gha
+    options: mode=max
   arch: amd64
