@@ -29,4 +29,7 @@ USER app
 ENV HOME=/app PHX_SERVER=true
 # PORT 由 Kamal env 注入（默认 4000）；全部密钥运行时注入，绝不进镜像
 EXPOSE 4000
-CMD ["/app/bin/cgc_2046", "start"]
+# ENTRYPOINT 固定启动器：docker run IMAGE eval/migrate 等子命令直接分发，
+# 不会覆写丢失启动器（pre-deploy 钩子依赖此形态）
+ENTRYPOINT ["/app/bin/cgc_2046"]
+CMD ["start"]
