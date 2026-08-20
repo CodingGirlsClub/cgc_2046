@@ -886,6 +886,12 @@ defmodule Cgc2046Web.GraphqlSchema do
           true ->
             actor = context[:actor]
 
+            # #217 旁路读取（A 类·凭证即凭据）：一次性小程序 scene 码经
+            # code_for_scene 校验（scene + 未过期精确匹配）换得 invitation_id，
+            # Ash.get 直读定位（Invitation read policy 是 inviter/Owner-Admin
+            # 视角，受邀者被拒成 not_found 到不了 action）；随后 for_update 带
+            # actor 走 accept_miniprogram 的 actor_present 门禁，before_action
+            # scene 复验（已用/过期 → invalid_or_expired_scene）。
             with {:ok, code} <- Cgc2046.MiniprogramCode.code_for_scene(scene),
                  {:ok, invitation} <-
                    Ash.get(Cgc2046.Accounts.Invitation, code.invitation_id, authorize?: false),
@@ -1271,6 +1277,10 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{invitation_id: id, materials: materials}, %{context: context} ->
         with_actor(context, fn actor ->
+          # #217 旁路读取（B 类·action 层授权）：read policy 仅 Owner/Admin/
+          # PlatformAdmin 视角，Speaker 本人非成员读不到自己的邀请，故 get
+          # 直读定位；随后 for_update(:save_materials) 带 actor 走 action
+          # policy（speaker_user_id == actor.id 本人 或 Owner/Admin 兜底）。
           case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
             {:ok, invitation} when not is_nil(invitation) ->
               invitation
@@ -1295,6 +1305,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{id: id}, %{context: context} ->
         with_actor(context, fn actor ->
+          # #217 旁路读取（B 类·action 层授权）：同 save_speaker_materials——
+          # get 直读定位，for_update(:complete_speaking) 带 actor 走 action
+          # policy（Speaker 本人 或 Owner/Admin 兜底）。
           case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
             {:ok, invitation} when not is_nil(invitation) ->
               invitation
@@ -2392,6 +2405,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+  # #217 旁路读取（D 类·显式判定前置）：Course 直读定位，门禁由调用方
+  # resolve_course_learning_detail 的 LearnerAuthorization 三层判定
+  # （成员 ∪ confirmed enrollment ∪ 记忆持有者）承担，无权限 → nil。
   defp fetch_course_for_detail(course_id) do
     Cgc2046.Events.Course
     |> Ash.Query.for_read(:get_by_id, %{id: course_id})
@@ -2402,6 +2418,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+  # #217 旁路读取（D 类·本人锚）：filter user_id == actor.id 仅读本人学习
+  # 记录，且仅在 LearnerAuthorization 判定通过后到达。
   defp fetch_actor_records(course, actor) do
     Cgc2046.Learning.LearningRecord
     |> Ash.Query.filter(course_id == ^course.id and user_id == ^actor.id)
@@ -2566,6 +2584,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+  # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
+  # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
+  # workspace_id 一致性校验，project_learning_run 再校验
+  # enrollment.user_id == actor.id（双重本人锚）。
   defp read_learning_runs(enrollment) do
     Cgc2046.Workflows.WorkflowRun
     |> Ash.Query.filter(input_snapshot["enrollment_id"] == ^enrollment.id)
@@ -2576,6 +2598,8 @@ defmodule Cgc2046Web.GraphqlSchema do
           if run.workspace_id != enrollment.workspace_id do
             []
           else
+            # #217 旁路读取（D 类）：run 关系加载（definition 投影元数据），
+            # 本人锚同 read_learning_runs（enrollment.user_id == actor.id）。
             case Ash.load(
                    run,
                    [definition: [:type, :node_def, steps: [:step_key, :title]]],
@@ -2632,6 +2656,10 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # U7:内容/记录/课程按 (course, user) 组装(无内容课程 → nil → 投影 0/n)。
   # course 供 issue key 派生(slug 短码);一次往返,抽屉数据同源。
+  # #217 旁路读取（D 类·本人锚链）：本函数三处直读（ResearchOutput 内容 /
+  # LearningRecord 记录 / Course 元数据）由同一调用链守门——
+  # project_learning_run 已校验 enrollment.user_id == actor.id，records 再按
+  # user_id 过滤本人；无他人视角可构造。
   defp learning_projection_sources(run, enrollment) do
     course_id = enrollment.course_id
 
@@ -2648,6 +2676,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           _ -> nil
         end
 
+      # #217 旁路读取（D 类·本人锚）：user_id 过滤，锚链同函数头注释。
       records =
         if is_binary(enrollment.user_id) do
           Cgc2046.Learning.LearningRecord
@@ -2657,6 +2686,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           []
         end
 
+      # #217 旁路读取（D 类）：投影元数据，守门同函数头锚链。
       course =
         Cgc2046.Events.Course
         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
