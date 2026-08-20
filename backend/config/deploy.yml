@@ -1,0 +1,73 @@
+# Kamal: backend service（Elixir release 容器）
+# 运行方式（CI 或本地）：
+#   KAMAL_REGISTRY_PASSWORD=<TCR token> kamal deploy -c config/backend.yml
+# 镜像推腾讯云 TCR 个人版（同地域内网拉取）；env 从 GitHub production
+# environment 注入进程环境，secret 类绝不写死在此文件。
+
+service: cgc2046-backend
+image: codingirlsclub/cgc2046-backend
+
+servers:
+  web:
+    - 106.55.188.41
+
+# 部署用户：deploy（sudo 免密 + docker 组；见 ~/.ssh/config cgc_production_server）
+ssh:
+  user: deploy
+
+proxy:
+  host: api.codingirlsclub.com
+  # kamal-proxy 占 80/443，ACME 自动签发续期
+  app_port: 4000
+  healthcheck:
+    path: /healthz
+    interval: 5
+    timeout: 5
+
+registry:
+  server: <TCR_REGISTRY>
+  # username 经 CI sed 替换（GitHub vars TCR_USERNAME）；纯数字账号名
+  # 不硬编码进开源仓库
+  username: <TCR_USERNAME>
+  password: ${KAMAL_REGISTRY_PASSWORD}
+
+env:
+  clear:
+    PHX_HOST: api.codingirlsclub.com
+    PORT: "4000"
+    POOL_SIZE: "10"
+  secret:
+    - DATABASE_URL
+    - SECRET_KEY_BASE
+    - TOKEN_SIGNING_SECRET
+    - SENDCLOUD_API_USER
+    - SENDCLOUD_API_KEY
+    - SENDCLOUD_FROM
+    - SENDCLOUD_FROM_NAME
+    - SENDCLOUD_SMS_USER
+    - SENDCLOUD_SMS_KEY
+    - SENDCLOUD_SMS_TEMPLATE_ID
+    - WEB_BASE_URL
+    - CORS_ORIGIN
+
+# 数据库迁移在切流前完成（blue-green 新容器执行，旧容器不受影响）
+accessories:
+  # Postgres 自托管容器（缺钱方案：与 app 同机，不归 Kamal 部署周期管）
+  postgres:
+    image: postgres:16
+    host: 106.55.188.41
+    env:
+      clear:
+        POSTGRES_DB: cgc_2046_prod
+        POSTGRES_USER: cgc_2046
+      secret:
+        - POSTGRES_PASSWORD
+    volumes:
+      - /opt/cgc/postgres/data:/var/lib/postgresql/data
+    directories:
+      - /opt/cgc/postgres/data
+
+# SSH 私钥/registry 密码经 KAMAL_REGISTRY_PASSWORD 与 ssh key 配置注入，
+# 不落仓库。builder：x86 服务器在 CI x86 runner 上直接构建，无需 remote builder。
+builder:
+  arch: amd64
