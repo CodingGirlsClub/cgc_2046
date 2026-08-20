@@ -44,7 +44,9 @@ jobs:
       - name: Write .kamal/secrets (backend)
         working-directory: backend
         run: |
-          cat > .kamal/secrets <<'SECRETS_EOF'
+          # 不带引号的 heredoc：bash 展开 ${VAR} 写入真值——dotenv 读到的是
+          # 字面值，绕开 ${VAR} 引用链上 runner→服务器传参的任何环节
+          cat > .kamal/secrets <<SECRETS_EOF
           KAMAL_REGISTRY_PASSWORD=${KAMAL_REGISTRY_PASSWORD}
           DATABASE_URL=${DATABASE_URL}
           SECRET_KEY_BASE=${SECRET_KEY_BASE}
@@ -60,7 +62,6 @@ jobs:
           CORS_ORIGIN=${CORS_ORIGIN}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           SECRETS_EOF
-          sed 's/=.*/=<len redacted>/' .kamal/secrets; ruby -e 'require "kamal"; h = Kamal::Secrets.new.to_h; puts "pw len: #{h["KAMAL_REGISTRY_PASSWORD"].to_s.length}"'
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -107,7 +108,7 @@ jobs:
       - name: Write .kamal/secrets (web)
         working-directory: web
         run: |
-          cat > .kamal/secrets <<'SECRETS_EOF'
+          cat > .kamal/secrets <<SECRETS_EOF
           KAMAL_REGISTRY_PASSWORD=${KAMAL_REGISTRY_PASSWORD}
           NEXT_PUBLIC_WEB_BASE_URL=${NEXT_PUBLIC_WEB_BASE_URL}
           BACKEND_URL=${BACKEND_URL}
