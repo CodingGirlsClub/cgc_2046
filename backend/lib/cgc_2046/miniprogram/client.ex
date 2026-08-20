@@ -61,11 +61,11 @@ defmodule Cgc2046.Miniprogram.Client do
   """
   @spec code2session(platform, String.t()) :: {:ok, session} | {:error, term}
   def code2session(platform, code) when platform in @platforms and is_binary(code) do
-    config = platform_config!(platform)
-
-    case platform do
-      :xhs -> xhs_code2session(config, code)
-      _ -> single_call_code2session(platform, config, code)
+    with {:ok, config} <- platform_config(platform) do
+      case platform do
+        :xhs -> xhs_code2session(config, code)
+        _ -> single_call_code2session(platform, config, code)
+      end
     end
   end
 
@@ -78,9 +78,8 @@ defmodule Cgc2046.Miniprogram.Client do
         request_code(:wechat, scene)
 
       _ ->
-        config = platform_config!(platform)
-
-        with {:ok, access_token} <- fetch_api_access_token(platform, config),
+        with {:ok, config} <- platform_config(platform),
+             {:ok, access_token} <- fetch_api_access_token(platform, config),
              {:ok, image} <- request_code(platform, config, access_token, scene) do
           {:ok, image}
         end
@@ -99,10 +98,9 @@ defmodule Cgc2046.Miniprogram.Client do
         request_notification(:wechat, openid, template_id, data)
 
       _ ->
-        config = platform_config!(platform)
-
-        with {:ok, access_token} <- fetch_api_access_token(platform, config) do
-          request_notification(platform, access_token, openid, template_id, data)
+        with {:ok, config} <- platform_config(platform),
+             {:ok, access_token} <- fetch_api_access_token(platform, config) do
+          request_notification(platform, config, access_token, openid, template_id, data)
         end
     end
   end
@@ -117,7 +115,7 @@ defmodule Cgc2046.Miniprogram.Client do
     end
   end
 
-  defp request_notification(:tt, token, openid, template_id, data) do
+  defp request_notification(:tt, _config, token, openid, template_id, data) do
     "https://open.douyin.com"
     |> req()
     |> Req.post(
@@ -136,11 +134,11 @@ defmodule Cgc2046.Miniprogram.Client do
     end
   end
 
-  defp request_notification(:xhs, token, openid, template_id, data) do
+  defp request_notification(:xhs, %{notification_path: path}, token, openid, template_id, data) do
     "https://miniapp.xiaohongshu.com"
     |> req()
     |> Req.post(
-      url: platform_config!(:xhs).notification_path,
+      url: path,
       headers: [{"access-token", token}],
       json: %{open_id: openid, template_id: template_id, page: @notification_page.xhs, data: data}
     )
@@ -217,11 +215,11 @@ defmodule Cgc2046.Miniprogram.Client do
     end
   end
 
-  defp request_code(:xhs, _config, token, scene) do
+  defp request_code(:xhs, %{qrcode_path: path}, token, scene) do
     "https://miniapp.xiaohongshu.com"
     |> req()
     |> Req.post(
-      url: platform_config!(:xhs).qrcode_path,
+      url: path,
       headers: [{"access-token", token}],
       json: %{scene: scene, page: @code_page}
     )
@@ -592,21 +590,25 @@ defmodule Cgc2046.Miniprogram.Client do
 
   算法与三平台官方规范一致：Base64(session_key) 为密钥的 AES-128-CBC + PKCS7。
   带 watermark 的负载校验 appid 与本应用一致（防跨应用数据注入）。
-  所有失败统一 `{:error, :phone_decrypt_failed}`——不泄漏密文材料与内部细节。
+  解密失败统一 `{:error, :phone_decrypt_failed}`——不泄漏密文材料与内部细节；
+  平台凭证缺失短路为 `{:error, :platform_not_configured}`（issue #264）。
   """
   @spec decrypt_phone(platform, session, String.t(), String.t()) ::
-          {:ok, String.t()} | {:error, :phone_decrypt_failed}
+          {:ok, String.t()}
+          | {:error, :phone_decrypt_failed | :platform_not_configured}
   def decrypt_phone(platform, %{session_key: session_key}, encrypted_data, iv)
       when platform in @platforms do
-    with {:ok, key} <- decode64(session_key),
+    with {:ok, config} <- platform_config(platform),
+         {:ok, key} <- decode64(session_key),
          {:ok, iv_bytes} <- decode64(iv),
          {:ok, ciphertext} <- decode64(encrypted_data),
          {:ok, plaintext} <- aes_128_cbc_decrypt(key, iv_bytes, ciphertext),
          {:ok, payload} <- Jason.decode(plaintext),
-         :ok <- verify_watermark(platform, payload),
+         :ok <- verify_watermark(config, payload),
          {:ok, phone} <- extract_phone(payload) do
       {:ok, phone}
     else
+      {:error, :platform_not_configured} = error -> error
       _ -> {:error, :phone_decrypt_failed}
     end
   end
@@ -636,8 +638,8 @@ defmodule Cgc2046.Miniprogram.Client do
   defp aes_128_cbc_decrypt(_, _, _), do: :error
 
   # 微信负载带 watermark.appid；抖音/小红书负载无 watermark 时跳过校验
-  defp verify_watermark(platform, %{"watermark" => %{"appid" => appid}}) do
-    if appid == platform_config!(platform).appid, do: :ok, else: :error
+  defp verify_watermark(%{appid: appid}, %{"watermark" => %{"appid" => payload_appid}}) do
+    if payload_appid == appid, do: :ok, else: :error
   end
 
   defp verify_watermark(_platform, _payload), do: :ok
@@ -656,10 +658,32 @@ defmodule Cgc2046.Miniprogram.Client do
     end
   end
 
-  defp platform_config!(platform) do
-    :cgc_2046
-    |> Application.get_env(:miniprogram_platforms, %{})
-    |> Map.fetch!(platform)
+  # 平台凭证门禁（issue #264）：runtime.exs 缺 env 时键在值 nil，此处归一为
+  # {:error, :platform_not_configured} 干净短路（守卫语义同 wechat_pay
+  # configured_key?：is_binary and != ""，防空串穿透门禁后在深处崩溃；
+  # xhs 另需 qrcode_path/notification_path 两个 API 路径）。
+  @required_keys %{
+    wechat: [:appid, :secret],
+    tt: [:appid, :secret],
+    xhs: [:appid, :secret, :qrcode_path, :notification_path]
+  }
+
+  defp platform_config(platform) do
+    config =
+      :cgc_2046
+      |> Application.get_env(:miniprogram_platforms, %{})
+      |> Map.get(platform, %{})
+
+    if Enum.all?(@required_keys[platform], &configured_key?(config, &1)) do
+      {:ok, config}
+    else
+      {:error, :platform_not_configured}
+    end
+  end
+
+  defp configured_key?(config, key) do
+    value = Map.get(config, key)
+    is_binary(value) and value != ""
   end
 
   defp req(base_url) do

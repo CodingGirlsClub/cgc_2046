@@ -95,9 +95,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
         "config/runtime.exs"
         |> Path.expand(Path.join([__DIR__, "..", "..", ".."]))
         |> File.read!()
-        |> then(
-          &Regex.scan(~r/System\.fetch_env!\("(?:WECHAT|TT|XHS)_MP_TEMPLATE_([A-Z_]+)"\)/, &1)
-        )
+        |> then(&Regex.scan(~r/System\.get_env\("(?:WECHAT|TT|XHS)_MP_TEMPLATE_([A-Z_]+)"\)/, &1))
         |> Enum.map(fn [_, suffix] -> Macro.underscore(suffix) end)
         |> MapSet.new()
         |> MapSet.to_list()

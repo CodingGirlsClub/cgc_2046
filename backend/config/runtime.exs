@@ -123,66 +123,69 @@ if config_env() == :prod do
 
   config :cgc_2046, :token_signing_secret, token_signing_secret
 
-  # 小程序平台凭证（Phase 1）。prod 必须经环境变量提供，缺失即启动失败；
-  # 任何环境下都不把真实 appid/secret 提交进 git。
+  # 小程序平台凭证（Phase 1）。凭证可缺（issue #264：先部署 web、小程序后上）：
+  # 缺失时 boot 不崩，对应平台功能经 client 门禁返回 platform_not_configured，
+  # 上架时补 env 即热启用；任何环境下都不把真实 appid/secret 提交进 git。
   miniprogram_platforms = %{
     wechat: %{
-      appid: System.fetch_env!("WECHAT_MP_APPID"),
-      secret: System.fetch_env!("WECHAT_MP_SECRET")
+      appid: System.get_env("WECHAT_MP_APPID"),
+      secret: System.get_env("WECHAT_MP_SECRET")
     },
     tt: %{
-      appid: System.fetch_env!("TT_MP_APPID"),
-      secret: System.fetch_env!("TT_MP_SECRET")
+      appid: System.get_env("TT_MP_APPID"),
+      secret: System.get_env("TT_MP_SECRET")
     },
     xhs: %{
-      appid: System.fetch_env!("XHS_MP_APPID"),
-      secret: System.fetch_env!("XHS_MP_SECRET"),
-      qrcode_path: System.fetch_env!("XHS_MP_QRCODE_PATH"),
-      notification_path: System.fetch_env!("XHS_MP_NOTIFICATION_PATH")
+      appid: System.get_env("XHS_MP_APPID"),
+      secret: System.get_env("XHS_MP_SECRET"),
+      qrcode_path: System.get_env("XHS_MP_QRCODE_PATH"),
+      notification_path: System.get_env("XHS_MP_NOTIFICATION_PATH")
     }
   }
 
   config :cgc_2046, :miniprogram_platforms, miniprogram_platforms
 
+  # 订阅消息模板 ID 同策略：缺值时键保留（值 nil），由 NotificationService
+  # 的 template_id 门禁返回 template_not_configured，boot 不崩。
   config :cgc_2046, :miniprogram_templates, %{
     wechat: %{
-      "approval_result" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.fetch_env!("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER"),
-      "enrollment_submitted" => System.fetch_env!("WECHAT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
-      "enrollment_completed" => System.fetch_env!("WECHAT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
-      "speaker_accepted" => System.fetch_env!("WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.fetch_env!("WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED"),
-      "learning_stagnation" => System.fetch_env!("WECHAT_MP_TEMPLATE_LEARNING_STAGNATION"),
+      "approval_result" => System.get_env("WECHAT_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.get_env("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "enrollment_completed" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      "speaker_accepted" => System.get_env("WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
+      "speaker_completed" => System.get_env("WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      "learning_stagnation" => System.get_env("WECHAT_MP_TEMPLATE_LEARNING_STAGNATION"),
       # 缴费闭环三模板（U10/KTD8 定稿）
-      "payment_succeeded" => System.fetch_env!("WECHAT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
-      "refund_succeeded" => System.fetch_env!("WECHAT_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.fetch_env!("WECHAT_MP_TEMPLATE_REFUND_FAILED")
+      "payment_succeeded" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_FAILED")
     },
     tt: %{
-      "approval_result" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.fetch_env!("TT_MP_TEMPLATE_APPROVAL_REMINDER"),
-      "enrollment_submitted" => System.fetch_env!("TT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
-      "enrollment_completed" => System.fetch_env!("TT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
-      "speaker_accepted" => System.fetch_env!("TT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.fetch_env!("TT_MP_TEMPLATE_SPEAKER_COMPLETED"),
-      "learning_stagnation" => System.fetch_env!("TT_MP_TEMPLATE_LEARNING_STAGNATION"),
+      "approval_result" => System.get_env("TT_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.get_env("TT_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.get_env("TT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "enrollment_completed" => System.get_env("TT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      "speaker_accepted" => System.get_env("TT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
+      "speaker_completed" => System.get_env("TT_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      "learning_stagnation" => System.get_env("TT_MP_TEMPLATE_LEARNING_STAGNATION"),
       # 缴费闭环三模板（U10/KTD8 定稿）
-      "payment_succeeded" => System.fetch_env!("TT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
-      "refund_succeeded" => System.fetch_env!("TT_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.fetch_env!("TT_MP_TEMPLATE_REFUND_FAILED")
+      "payment_succeeded" => System.get_env("TT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.get_env("TT_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.get_env("TT_MP_TEMPLATE_REFUND_FAILED")
     },
     xhs: %{
-      "approval_result" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.fetch_env!("XHS_MP_TEMPLATE_APPROVAL_REMINDER"),
-      "enrollment_submitted" => System.fetch_env!("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
-      "enrollment_completed" => System.fetch_env!("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
-      "speaker_accepted" => System.fetch_env!("XHS_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.fetch_env!("XHS_MP_TEMPLATE_SPEAKER_COMPLETED"),
-      "learning_stagnation" => System.fetch_env!("XHS_MP_TEMPLATE_LEARNING_STAGNATION"),
+      "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "enrollment_completed" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      "speaker_accepted" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_ACCEPTED"),
+      "speaker_completed" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      "learning_stagnation" => System.get_env("XHS_MP_TEMPLATE_LEARNING_STAGNATION"),
       # 缴费闭环三模板（U10/KTD8 定稿）
-      "payment_succeeded" => System.fetch_env!("XHS_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
-      "refund_succeeded" => System.fetch_env!("XHS_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.fetch_env!("XHS_MP_TEMPLATE_REFUND_FAILED")
+      "payment_succeeded" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.get_env("XHS_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.get_env("XHS_MP_TEMPLATE_REFUND_FAILED")
     }
   }
 
