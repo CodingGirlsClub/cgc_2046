@@ -1,0 +1,21 @@
+# cgc_2046 backend deps 基础镜像（Elixir 依赖预编译层）
+#
+# 目的：把 mix deps.get + deps.compile 从每次部署的全量重来中摘出。
+# tag = sha256(backend/mix.lock) 前 16 位——mix.lock 不变则部署直接命中，
+# 变更时由 deploy workflow 自动重建推送，无人工维护。
+#
+# 为什么不走 buildx cache：mode=max 导出 GB 级中间层到 GHA cache 已实证
+# 挂起（run 32375926425）；registry cache 每次部署都要付导出成本。
+# 本方案把导出频率从「每次部署」降为「每次 mix.lock 变更」。
+#
+# 构建上下文必须是 repo 根目录（COPY backend/…）：
+#   docker build -f backend/Dockerfile.deps -t <registry>/codingirlsclub/cgc2046-backend-deps:<lock-hash> .
+#
+# 版本与主 Dockerfile / ci.yml 完全对齐：Elixir 1.20 / OTP 29
+FROM hexpm/elixir:1.20.0-erlang-29.0-debian-bookworm-20260610-slim
+WORKDIR /app
+RUN apt-get update -y && apt-get install -y --no-install-recommends git ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+COPY backend/mix.exs backend/mix.lock ./
+RUN mix local.hex --force && mix local.rebar --force \
+    && mix deps.get --only prod && mix deps.compile

@@ -1,18 +1,14 @@
 # cgc_2046 backend 生产镜像（Elixir release）
-# 版本与 .github/workflows/ci.yml 完全对齐：Elixir 1.20 / OTP 29
 # 构建上下文必须是 repo 根目录（COPY backend/…）：docker build -f backend/Dockerfile .
+#
+# deps 层外置为预构建基础镜像（backend/Dockerfile.deps，tag=mix.lock 哈希），
+# CI 经 --build-arg BACKEND_DEPS_IMAGE 注入；本地构建先自建 deps 镜像：
+#   docker build -f backend/Dockerfile.deps -t cgc2046-backend-deps:dev .
+#   docker build --build-arg BACKEND_DEPS_IMAGE=cgc2046-backend-deps:dev -f backend/Dockerfile .
+ARG BACKEND_DEPS_IMAGE
 
-# ── deps: 拉取并编译依赖（mix.lock 不变时此层全量缓存）──────────
-FROM hexpm/elixir:1.20.0-erlang-29.0-debian-bookworm-20260610-slim AS deps
-WORKDIR /app
-RUN apt-get update -y && apt-get install -y --no-install-recommends git ca-certificates build-essential \
-    && rm -rf /var/lib/apt/lists/*
-COPY backend/mix.exs backend/mix.lock ./
-RUN mix local.hex --force && mix local.rebar --force \
-    && mix deps.get --only prod && mix deps.compile
-
-# ── build: 编译 release（MIX_ENV=prod，无 dev/test 依赖）─────────
-FROM deps AS build
+# ── build: 在 deps 镜像（依赖已编译）之上编译 release（MIX_ENV=prod，无 dev/test 依赖）──
+FROM ${BACKEND_DEPS_IMAGE} AS build
 COPY backend/ .
 ENV MIX_ENV=prod
 RUN mix compile && mix release

@@ -92,8 +92,11 @@ builder:
   # context；context=".."=repo根（Dockerfile COPY backend/… 需根上下文）
   context: ".."
   dockerfile: "Dockerfile"
-  # GHA buildx cache 已回滚（2026-08-20 实证负优化）：mode=max 导出 Elixir
-  # _build/deps 大层时挂起（34min 零输出后 40min 超时，run 32375926425），
-  # 全量编译 ~20min 确定性完成优于缓存不确定性。若重试缓存：type=gha 不带
-  # mode=max（只缓存最终层）+ 先在 PR 验证导出耗时
   arch: amd64
+  args:
+    # deps 预编译基础镜像（Dockerfile.deps，tag=mix.lock 哈希），CI 算好经
+    # .kamal/secrets 注入。取代 buildx cache：mode=max 导出 GB 级中间层到
+    # GHA cache 已实证挂起（run 32375926425）；registry cache 每次部署都要
+    # 付导出成本。基础镜像把导出频率降为「每次 mix.lock 变更」一次。
+    # 数据勘误：无 cache 全量 deploy 实测 ~10min（非早前注释的 ~20min）
+    BACKEND_DEPS_IMAGE: ${BACKEND_DEPS_IMAGE}
