@@ -81,7 +81,7 @@ describe("/w/[slug]/settings/integrations/agents/omp 集成 OMP 页", () => {
 	it("渲染 MCP URL 与 token 替换说明", async () => {
 		render(<AgentsOmpPage />);
 
-		expect(screen.getByText(/localhost:4102\/mcp/)).toBeInTheDocument();
+		expect(screen.getByText(/与连接器扩展/)).toBeInTheDocument();
 		expect(
 			screen.getByText(/omp 支持环境变量插值/),
 		).toBeInTheDocument();

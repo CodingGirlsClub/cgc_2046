@@ -102,7 +102,6 @@
       "registerAndContinue": "创建账号并继续",
       "loginAndEnter": "登录并进入工作台"
     },
-    "submitNoteMock": "（mock）提交成功——正式版经 signIn / signUp mutation 登录，token 写入 <code>cgc_token</code> cookie。",
     "switch": {
       "returnLogin": "返回登录",
       "createAccount": "创建账号"
@@ -834,7 +833,7 @@
     "step3DescEnv": "支持环境变量插值：设置 <code>CGC_TOKEN</code> 环境变量后可直接使用；也可把 {placeholder} 替换为实际 token。",
     "notesTitle": "注意事项",
     "notesDesc": "已有其它 MCP server 条目时，把 <code>cgc-2046</code> 条目合并进现有配置，勿整体覆盖。token 绑用户不绑工作区，加入新工作区无需重新配置。",
-    "urlNote": "<code>&lt;MCP_URL&gt;</code> 替换为平台 MCP 地址（开发联调默认 <code2>http://localhost:4102/mcp</code2>，与连接器扩展 <code3>ext.yml</code3> <code4>config.mcp_url</code4> 一致；生产以平台公布为准）。",
+    "urlNote": "<code>&lt;MCP_URL&gt;</code> 替换为平台 MCP 地址（与连接器扩展 <code3>ext.yml</code3> <code4>config.mcp_url</code4> 一致；生产以平台公布为准）。",
     "titleOmp": "OMP",
     "titleOpencode": "opencode",
     "titleOpenclacky": "OpenClacky",
@@ -846,7 +845,7 @@
     "step3Openclacky": "③ 生成连接 token",
     "downloadTitle": "下载 OpenClacky",
     "extensionSearchHint": "在 OpenClacky 扩展市场中搜索安装：",
-    "openMarket": "打开 <link>http://localhost:7070/#extensions</link>",
+    "openMarket": "打开 OpenClacky 扩展市场",
     "searchExtension": "搜索 <code>CGC-2046</code>",
     "installExtension": "点击扩展卡片 → 安装",
     "installedPanel": "安装完成后，侧边栏会出现「CGC-2046」面板，会话列表里会出现「CGC-2046 助手」。",
