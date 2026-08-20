@@ -3,7 +3,7 @@
 # 构建上下文必须是 repo 根目录（COPY backend/…）：docker build -f backend/Dockerfile .
 
 # ── deps: 拉取并编译依赖（mix.lock 不变时此层全量缓存）──────────
-FROM hexpm/elixir:1.20.0-erlang-29.0-debian-bookworm-20250820-slim AS deps
+FROM hexpm/elixir:1.20.0-erlang-29.0-debian-bookworm-20260610-slim AS deps
 WORKDIR /app
 RUN apt-get update -y && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
