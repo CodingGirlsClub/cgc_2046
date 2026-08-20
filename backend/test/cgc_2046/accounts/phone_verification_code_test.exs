@@ -1,7 +1,8 @@
 defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
   @moduledoc """
-  PhoneVerificationCode 单测（plan 002 U3）：生命周期全边界——
-  发新码作废旧码、5min 过期、3 次错码失效、单次使用、并发消费防重放。
+  PhoneVerificationCode 单测（plan 002 U3 + #253 方案 A）：生命周期全
+  边界——新旧码并存、5min 过期、3 次错码失效（仅最新码）、单次使用、
+  并发消费防重放、任一命中作废全部。
   """
   use Cgc2046.DataCase, async: true
 
@@ -23,14 +24,14 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
       assert row.attempts_left == 3
     end
 
-    test "发新码作废旧活跃码（同 phone+purpose）" do
+    test "#253 方案 A：重发不作废旧码——两码并存且都活跃" do
       {:ok, _code1, _rid} = PhoneVerificationCode.issue(@phone, :login)
       {:ok, code2, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
       rows = fetch_all_active(@phone, :login)
-      # 新码未消费；旧码已被置 consumed
-      assert Enum.count(rows) == 1
-      assert rows |> hd() |> then(&(&1.code_hash == hash(@phone, code2)))
+      # 新旧码都在活跃集合
+      assert Enum.count(rows) == 2
+      assert Enum.any?(rows, &(&1.code_hash == hash(@phone, code2)))
     end
 
     test "不同 purpose 互不作废" do
@@ -92,6 +93,40 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
                PhoneVerificationCode.consume_valid(@phone, code, :wechat_bind)
     end
 
+    test "#253 A：重发后旧码仍可消费成功" do
+      {:ok, code1, _rid} = PhoneVerificationCode.issue(@phone, :login)
+      _ = PhoneVerificationCode.issue(@phone, :login)
+
+      assert :ok = PhoneVerificationCode.consume_valid(@phone, code1, :login)
+    end
+
+    test "#253 A：旧码消费成功后，新码再试 → code_not_available（全部作废）" do
+      {:ok, code1, _rid} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, code2, _rid} = PhoneVerificationCode.issue(@phone, :login)
+
+      assert :ok = PhoneVerificationCode.consume_valid(@phone, code1, :login)
+
+      assert {:error, :code_not_available} =
+               PhoneVerificationCode.consume_valid(@phone, code2, :login)
+    end
+
+    test "#253 A：错码 3 次仅作废最新码，旧码仍可用" do
+      {:ok, code_old, _rid} = PhoneVerificationCode.issue(@phone, :login)
+      {:ok, _code_new, _rid} = PhoneVerificationCode.issue(@phone, :login)
+      wrong = if code_old == "000000", do: "111111", else: "000000"
+
+      # 背靠背 issue 同秒平票：回拨旧码 inserted_at 1s，保证
+      # decrement_latest_attempt 的「最新码」排序确定（flake 根因）
+      backdate_inserted(@phone, :login)
+
+      # 3 次错码 → 最新码 attempts 耗尽作废
+      for _ <- 1..3,
+          do: PhoneVerificationCode.consume_valid(@phone, wrong, :login)
+
+      # 旧码不受错码递减影响，仍可成功
+      assert :ok = PhoneVerificationCode.consume_valid(@phone, code_old, :login)
+    end
+
     test "并发消费防重放：两进程同时用同码，至多一个成功" do
       {:ok, code, _rid} = PhoneVerificationCode.issue(@phone, :login)
 
@@ -137,6 +172,29 @@ defmodule Cgc2046.Accounts.PhoneVerificationCodeTest do
       )
 
     Enum.map(rows, fn [hash] -> %{code_hash: hash} end)
+  end
+
+  # 两码同秒 inserted_at 平票：把较早 issue 的行（非最新）回拨 1s，
+  # 使 ORDER BY inserted_at DESC 的「最新码」确定（#253 flake 修复）。
+  # 只回拨 id 最小（先插入）那一行——PG 无显式 rowid，用 ctid 保插入序。
+  defp backdate_inserted(phone, purpose) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        """
+        UPDATE phone_verification_codes
+        SET inserted_at = inserted_at - interval '1 second'
+        WHERE id = (
+          SELECT id FROM phone_verification_codes
+          WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL
+          ORDER BY inserted_at ASC, ctid ASC
+          LIMIT 1
+        )
+        """,
+        [phone, Atom.to_string(purpose)]
+      )
+
+    :ok
   end
 
   defp backdate_expiry(phone, purpose) do

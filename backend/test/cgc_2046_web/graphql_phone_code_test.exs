@@ -193,7 +193,7 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       conn1 = graphql_post(build_conn(), sign_in_mutation(@phone_raw, code1))
       old_token = conn1.resp_cookies["cgc_token"].value
 
-      # 发新码（作废旧码）再登录
+      # 发新码再登录（#253 A：新旧并存；此处消费 code2 成功作废全部）
       code2 = issue_and_get_code(@phone)
       graphql_post(build_conn(), sign_in_mutation(@phone_raw, code2))
 
