@@ -1,18 +1,35 @@
 defmodule Cgc2046.Accounts.BypassReads do
   @moduledoc """
-  旁路读取面（#3 原始 SQL 逃生舱收敛）：本模块是**唯一允许原始 SQL 的出口**。
+  旁路读取面（#3 逃生舱收敛起笔；#217 契约改写，2026-08-20）：本模块是
+  **聚合读逃生舱**——仅承接 `member_count/1` / `owner_count/1` 两处 GROUP BY
+  聚合直读，加上 `WorkspaceMembership` 平铺展示字段的契约归类。它**不是**
+  全库唯一允许原始 SQL 的出口——全库旁路与原始 SQL 的真实分布见下方中央契约段。
 
   ## 安全契约（成文，2026-08-02）
 
   - 主查询仍受 policy 门控：旁路读取只服务于**已经过 policy 的查询** ——
     能读到 workspace 行才有资格展示其成员数（首页社区规模 / 成员管理页）；
     能读 workspace_membership 行才有资格展示其平铺展示字段。
-  - 旁路仅限两类读取：**聚合**（`member_count/1`）与**平铺展示字段**（
-    `WorkspaceMembership.user_email` / `user_display_name` 的 LEFT JOIN 表达式）。
+  - 旁路仅限两类读取：**聚合**（`member_count/1` / `owner_count/1`）与
+    **平铺展示字段**（`WorkspaceMembership.user_email` / `user_display_name`
+    的 LEFT JOIN 表达式）。
     平铺字段为**契约归类**：实现仍是资源内 Ash 表达式（见 workspace_membership.ex），
     本模块不承接其代码，只承接其契约与 quirk 知识。不做整行 / 整表旁路。
-  - 新的旁路读路径**先查这里，不要发明第四个逃生舱**（如 JoinRequest 审批
+  - 新的旁路读路径**先查这里，不要发明新的逃生舱**（如 JoinRequest 审批
     展示申请人邮箱：沿用平铺字段模式）。
+
+  ## 全库旁路与原始 SQL 真实分布（中央契约，#217，2026-08-20）
+
+  本模块只占「聚合读逃生舱」一类，其余各归其主；开新旁路前先对号入座：
+
+  - **手写 resolver 旁路读取 14 处**（`Cgc2046Web.GraphqlSchema`；全为
+    Ash 直读、零原始 SQL）：按处门禁纪律——每处上方就近注释真实前置门禁
+    （凭证即凭据 / action 层授权 / 显式判定 / 本人锚），鉴权由调用方判定
+    语义负责，勿无注释新增。
+  - **原始 SQL 六类**（各归其主，非本模块管辖）：resource action 内部
+    （policy / 状态机守卫后的条件 SQL）35 处 · 认证域 helper（凭证 /
+    验证码 / 票据）13 处 · 通知 4 处 · worker 无 actor 3 处 · 基础设施
+    事务锁 2 处 · workflow 存储 / 幂等 2 处。
 
   ## 为什么不能走 Ash 正常路径（quirk 知识，唯一出处）
 
