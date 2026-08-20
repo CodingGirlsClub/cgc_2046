@@ -32,10 +32,10 @@ registry:
 # NEXT_PUBLIC_* 构建时内联（#254）：经 builder args 传入 docker build，
 # 运行时注入对静态产物无效
 builder:
-  # 同 backend：--file 相对 CWD（CI working-directory=web）
-  context: ".."
+  # web 的 Dockerfile COPY 全部相对 web/ 自身（无 backend/ 前缀），
+  # context 即当前目录；dockerfile 相对 CWD（CI working-directory=web）
+  context: "."
   dockerfile: "Dockerfile"
-  # GHA buildx cache 已回滚（同 backend：mode=max 大层导出挂起风险，负优化）
   arch: amd64
   args:
     NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}
