@@ -83,7 +83,7 @@ defmodule Cgc2046Web.GraphqlRbacTest do
     mutation {
       createJoinRequest(input: { workspaceId: "#{workspace_id}", userId: "#{user_id}" }) {
         result { id }
-        errors { message }
+        errors { message code }
       }
     }
     """
@@ -431,6 +431,51 @@ defmodule Cgc2046Web.GraphqlRbacTest do
       membership = find_membership(workspace, applicant)
       assert membership != nil
       assert load_role_names(membership) == []
+    end
+  end
+
+  describe "createJoinRequest join_policy 拒绝错误形态 (#206)" do
+    # 旧实现抛空 Forbidden（无 message/code），AshGraphql unwrap_errors 拍平后
+    # errors: []，前端无从得知被拒原因。修复后经 BusinessError 携带稳定 code。
+    test "invite_only 工作台 createJoinRequest 返回非空 message + 稳定 code" do
+      owner = Fixtures.platform_admin("gql-rbac-admin")
+      owner_token = sign_in_token(owner.email, @password)
+
+      slug = "gql-jr-invite-#{System.unique_integer([:positive])}"
+
+      res =
+        graphql_post(build_conn(), create_workspace_query(slug, "Invite Only WS"), owner_token)
+
+      assert %{"data" => %{"createWorkspace" => %{"result" => %{"id" => ws_id}}}} = res
+
+      workspace = Ash.get!(Workspace, ws_id, actor: owner, authorize?: false)
+
+      {:ok, _} =
+        workspace
+        |> Ash.Changeset.for_update(:update, %{join_policy: :invite_only}, actor: owner)
+        |> Ash.update(actor: owner)
+
+      applicant = Fixtures.register_user("gql-jr-invite-app")
+      applicant_token = sign_in_token(applicant.email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          create_join_request_query(ws_id, applicant.id),
+          applicant_token
+        )
+
+      assert %{
+               "data" => %{
+                 "createJoinRequest" => %{"result" => nil, "errors" => [error | _]}
+               }
+             } = res
+
+      assert error["code"] == "join_request_invite_only",
+             "invite_only 拒绝 code 应为 join_request_invite_only，实际 #{inspect(error)}"
+
+      assert is_binary(error["message"]) and error["message"] != "",
+             "invite_only 拒绝 message 应非空，实际 #{inspect(error)}"
     end
   end
 

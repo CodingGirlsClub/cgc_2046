@@ -190,6 +190,10 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
         # membership（membership_context.ex，决策 2026-08-18 Q1=A）
         "membership_already_exists",
         "membership_check_failed",
+        # join_request（validate_workspace_join_policy.ex，#206）
+        "join_request_invite_only",
+        "join_request_open",
+        "join_request_not_found",
         # {:database, _} 统一 code（六文件共用）
         "database_error"
       ]

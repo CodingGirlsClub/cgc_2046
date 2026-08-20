@@ -5,6 +5,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Errors.BusinessError
 
   defp create_join_request(workspace, user, attrs \\ %{}) do
     changes =
@@ -92,7 +93,7 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       workspace = Fixtures.create_workspace(admin, %{join_policy: :open})
       applicant = Fixtures.register_user("open-applicant")
 
-      assert {:error, %Ash.Error.Forbidden{}} =
+      assert {:error, %Ash.Error.Invalid{errors: [%BusinessError{code: "join_request_open"}]}} =
                JoinRequest
                |> Ash.Changeset.for_create(:create, %{
                  workspace_id: workspace.id,
@@ -106,7 +107,8 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       workspace = Fixtures.create_workspace(admin, %{join_policy: :invite_only})
       applicant = Fixtures.register_user("invite-applicant")
 
-      assert {:error, %Ash.Error.Forbidden{}} =
+      assert {:error,
+              %Ash.Error.Invalid{errors: [%BusinessError{code: "join_request_invite_only"}]}} =
                JoinRequest
                |> Ash.Changeset.for_create(:create, %{
                  workspace_id: workspace.id,
