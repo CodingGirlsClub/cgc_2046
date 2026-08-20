@@ -8,8 +8,8 @@ defmodule Cgc2046.Sms.SendCloud do
   swoosh_adapters/send_cloud.ex）。
 
   签名（官档 https://www.sendcloud.net/doc/sms/ §API 验证机制）：
-  参数（除 signature / smsKey）按 key 字典序拼 `k=v&…`，前后包 SMS_KEY，
-  SHA256 hex 小写。
+  参数（除 signature / smsKey）按 key 字典序拼 `k=v&…`，前后以 `&` 连接 SMS_KEY
+  （`KEY&param_str&KEY`），SHA256 hex 小写。
 
   配置（`config :cgc_2046, :sms_sendcloud`）：
 
@@ -40,12 +40,15 @@ defmodule Cgc2046.Sms.SendCloud do
     config = config()
 
     with {:ok, sms_user, sms_key} <- fetch_credentials(config) do
-      timestamp = DateTime.to_unix(DateTime.utc_now()) |> Integer.to_string()
+      # 官档 timestamp 为毫秒（SMSHook 示例均为 13 位）；秒级会被判
+      # "时间戳无效，与服务器时间超过60000毫秒"(461)。
+      timestamp = System.system_time(:millisecond) |> Integer.to_string()
 
       params = %{
         "smsUser" => sms_user,
         "templateId" => template_id,
-        "phone" => phone,
+        # 国内通道只收 11 位本机号；E.164(+86…) 会被判 "手机号格式错误"(482)。
+        "phone" => String.trim_leading(phone, "+86"),
         "vars" => Jason.encode!(vars),
         "timestamp" => timestamp,
         "sendRequestId" => send_request_id
@@ -99,7 +102,7 @@ defmodule Cgc2046.Sms.SendCloud do
       |> Enum.sort_by(fn {k, _v} -> k end)
       |> Enum.map_join("&", fn {k, v} -> "#{k}=#{v}" end)
 
-    :crypto.hash(:sha256, sms_key <> plain <> sms_key)
+    :crypto.hash(:sha256, sms_key <> "&" <> plain <> "&" <> sms_key)
     |> Base.encode16(case: :lower)
   end
 
