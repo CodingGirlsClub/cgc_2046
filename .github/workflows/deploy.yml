@@ -3,7 +3,7 @@
 #   1. Docker + Kamal 首次 boot（kamal setup 或手动 docker run kamal-proxy）
 #   2. GitHub production environment 补 4 个值：
 #      secrets: SERVER_SSH_KEY, KAMAL_REGISTRY_PASSWORD, DATABASE_URL
-#      vars:    TCR_REGISTRY, TCR_USERNAME
+#      vars:    TCR_REGISTRY, TCR_USERNAME, SERVER_HOST, SERVER_HOST_KEY
 # 环境注入契约：docs/运维/邮件与CD环境注入.md
 
 name: Deploy
@@ -36,7 +36,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           # 新装系统 host key 已换新；显式写入当前指纹，绕开 known_hosts
           # 哈希条目与 Net::SSH 的读取兼容问题
-          echo "106.55.188.41 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBAx2xWOcN6tGdOud+iQT+fBwH7CZMBPeqN5lTLOoi68" > ~/.ssh/known_hosts
+          echo "${{ vars.SERVER_HOST }} ssh-ed25519 ${{ vars.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
 
 
       # Kamal env.secret 从 .kamal/secrets（dotenv）解析而非进程 env——
@@ -98,6 +98,7 @@ jobs:
           # sed 到临时副本：工作区保持干净，避免 Kamal dirty tag
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
+              -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
           # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
           # 失败信息直指凭证链而非埋在 build 之后
@@ -126,6 +127,7 @@ jobs:
         run: |
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
+              -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
           kamal deploy -c config/deploy.ci.yml
 
