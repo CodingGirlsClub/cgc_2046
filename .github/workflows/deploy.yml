@@ -98,6 +98,9 @@ jobs:
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
+          # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
+          # 失败信息直指凭证链而非埋在 build 之后
+          kamal registry login -c config/deploy.ci.yml
           kamal deploy -c config/deploy.ci.yml
 
       # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
