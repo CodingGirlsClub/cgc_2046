@@ -35,7 +35,7 @@ topic: permissions-launch
 
 | 项 | 值 | 溯源 |
 |---|---|---|
-| MCP 工具数 | 15 | `backend/lib/cgc_2046/mcp/server.ex:25-42`（component 注册清单）；`wrapper_gate_test.exs:69-76` 断言恰 15 |
+| MCP 工具数 | 15 | `backend/lib/cgc_2046/mcp/server.ex:25-42`（component 注册清单）；`wrapper_gate_test.exs:71-76` 断言恰 15 |
 | 派生门控豁免工具 | 6（2 × workspace_id: :optional + 4 × membership: :deferred） | `backend/test/cgc_2046/mcp/wrapper_gate_test.exs:23-25` 精确名单 |
 | RBAC 能力数 | 8 | `backend/priv/rbac_contract.json:2-11`（abilities 列表） |
 | RBAC 角色数 | 5（owner/admin/tutor/volunteer/learner） | `backend/priv/rbac_contract.json:83-89` |
@@ -51,7 +51,7 @@ topic: permissions-launch
 - [ ] **E1 · MCP membership 门不认 platform_admin**。非成员平台管理员调用 member-only 工具（list_members / get_workflow 等）一律 Forbidden——MCP 是自动化 agent 代理面，取最小授权；跨租户治理读走 GraphQL admin 查询，不经 agent 直连面。双面契约（MCP 门 vs policy/Rbac 面）刻意向不同答案收敛，单面放宽被禁止。证据：`backend/lib/cgc_2046/mcp/wrapper.ex:22-34`（双面契约段）、`wrapper.ex:143-147`（member-only 默认门）。
 - [ ] **E2 · join_request_not_found 存在性探测 tradeoff**。`createJoinRequest` 对「工作台不存在 / open 直入 / invite_only 拒绝」三分支返回携带稳定 code 的 BusinessError（`join_request_open` / `join_request_invite_only` / `join_request_not_found`），换取 join 页可按 code 渲染 locale 文案；代价是 `not_found` 与其他 code 的区分可被用于工作台存在性探测。证据：PR #258（commit `6a8eb65`，Closes #206）；`backend/lib/cgc_2046/changes/validate_workspace_join_policy.ex`（三分支）。
 - [ ] **E3 · token 闲置过期为客户端本地派生展示**。web 端 `mapMcpToken` 用 90 天常量本地派生 `idle_expired` 徽章（`web/lib/mcp.ts`，注释互指 `token.ex:23`；UTC 绝对毫秒差防时区漂移）。90 天常量在后端 `token.ex` 与前端 `mcp.ts` 各持一份（注释互指但无编译期联动）；极端情况下客户端时钟偏差可致徽章与后端拒绝判定短暂不一致——仅展示层偏差，鉴权以后端 `validate_token` 为准。证据：PR #257（commit `b6999e1`，Closes #226）；`token.ex:117-138`（active 上限口径同步）。
-- [ ] **E4 · 连接 token 无固定 TTL（滚动过期）**。裁决理由：固定 TTL 与 D-A7 零配置接入冲突——静默到期会让 agent 断连且引导链路长，泄漏窗口收敛与滚动过期相当。仅手动撤销 + 每用户 active 上限 10 枚（闲置过期不计入上限）。证据：`token.ex:14-24`、`CONTEXT.md:112`（#222 / #211 裁决记录）；#222。
+- [ ] **E4 · 连接 token 无固定 TTL（滚动过期）**。裁决理由：固定 TTL 与 D-A7 零配置接入冲突——静默到期会让 agent 断连且引导链路长，泄漏窗口收敛与滚动过期相当。仅手动撤销 + 每用户 active 上限 10 枚（闲置过期不计入上限）。证据：`token.ex:14-24`、`CONTEXT.md:112`（#211 裁决记录）；#222。
 - [ ] **E5 · ToolCallLog 承担 MCP 审计，AgentRun 实体不落地**。#211 裁决 2/3：原 AgentRun 聚合锚（Agent 实体 / Step 主链路）先后被架构演进移除，审计义务由 ToolCallLog 事件账本承担（自动记录/防抵赖已兑现），AgentRun 语义 = ToolCallLog 之上的投影，可回填重建。审计落库失败不阻塞工具响应（审计可用性 < 工具可用性），记 error 日志留痕。证据：`CONTEXT.md:220-223`、`backend/lib/cgc_2046/mcp/wrapper.ex:151-182`（log_call）；#211。
 - [ ] **E6 · resolver 旁路读取 14 处（#217 改写后的真实分布）**。`bypass_reads.ex` 不再断言「唯一原始 SQL 出口」，改为中央契约：14 处 resolver 旁路读取按处门禁纪律注释 + 原始 SQL 六类分布归类。纯文档/注释改动，零行为变更。证据：PR #260（commit `fdc5d88`，Closes #217）；`backend/lib/cgc_2046/accounts/bypass_reads.ex`（moduledoc 中央契约段）、`backend/lib/cgc_2046_web/graphql_schema.ex`（14 处就近注释）。
 
@@ -76,13 +76,13 @@ topic: permissions-launch
   - `update_join_policy` / 删除类等低频管理操作：维持 web 面（GraphQL + 设置页）；真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开。
   - `create_agent` / `create_workflow` / `get_agent_instruction`：挂 Agent 资源 roadmap（上游实体/输入形状不存在，落地时机随 Agent 资源，与 AgentRun 重启条件同钩子）。
   - `reply_learner_question` / `get_learner_history`：已死亡除名（分别被 issue 卡 checklist 复盘 + `save_learning_records`、`get_learning_records` 取代）。
-  - 证据：`CONTEXT.md:237-243`（MCP 工具集词条，#211 裁决 1/3）。
+  - 证据：`CONTEXT.md:237-244`（MCP 工具集词条，#211 裁决 1/3）。
 
 - [ ] **确认流语义（two-tool 模式，D8 / D-D3）**：确认以下四点现状——
   1. **TTL 10 分钟**：pending 操作默认 10 分钟确认窗口，过期读时派生 expired（`pending_operation.ex:9-10,18`）。
   2. **并发恰一次**：DB 条件更新，并发双确认后者得友好错误 `Operation is not pending (concurrent confirmation won)`（`confirmation.ex:116-118`）。
-  3. **失败回滚**：effect 失败不留 confirmed-but-no-effect，回滚到 pending 可重试；pending 已过期则回滚后仍拒绝（`confirmation.ex:67-70`，MEDIUM-2/3）。
-  4. **auto_approve 未实现**：代码零实现（backend/web 全库无 auto_approve 符号），当前全部走人工 confirm；ADR-0001 保留该模式的设计风险记录（10s 倒计时自动决策，二期若实现需加冷却期）。证据：`docs/adr/0001-website-as-mcp-server-byo.md:48,89`、`CONTEXT.md:252,494`。
+  3. **失败回滚**：effect 失败不留 confirmed-but-no-effect，回滚到 pending 可重试；pending 已过期则回滚后仍拒绝（`confirmation.ex:68-72`，MEDIUM-2/3）。
+  4. **auto_approve 未实现**：代码零实现（backend/web 全库无 auto_approve 符号），当前全部走人工 confirm；ADR-0001 保留该模式的设计风险记录（10s 倒计时自动决策，二期若实现需加冷却期）。证据：`docs/adr/0001-website-as-mcp-server-byo.md:48,89`、`CONTEXT.md:252,495`。
   5. **无 confirm 不落库**：高风险工具调用先建 pending（业务不落库），用户确认后才执行 + 落库 + 审计（`pending_operation.ex:5-7`）。
 
 ---
@@ -101,10 +101,10 @@ topic: permissions-launch
 | 4 | get_step_output | —（默认） | member-only + workspace_id 必填 | 否 | server.ex:28 |
 | 5 | save_step_output | membership: :deferred | 工具层授权（学员判定）+ 资源层 policy 双重门禁 | 否 | server.ex:29；gate_test:24 |
 | 6 | create_invitation | —（默认） | member-only + workspace_id 必填 | **是**（two-tool） | server.ex:30 |
-| 7 | list_join_requests | —（默认） | member-only + workspace_id 必填 | 否 | server.ex:34（#240） |
-| 8 | approve_join_request | —（默认） | member-only + workspace_id 必填 | **是**（two-tool） | server.ex:35（#240） |
-| 9 | assign_roles | —（默认） | member-only + workspace_id 必填 | **是**（two-tool） | server.ex:36（#240） |
-| 10 | confirm_operation | workspace_id: :optional | 鉴权在 Confirmation 内（pending 归属校验即授权） | 内置承载 | server.ex:37；gate_test:23 |
+| 7 | list_join_requests | —（默认） | member-only + workspace_id 必填 | 否 | server.ex:33（#240） |
+| 8 | approve_join_request | —（默认） | member-only + workspace_id 必填 | **是**（two-tool） | server.ex:34（#240） |
+| 9 | assign_roles | —（默认） | member-only + workspace_id 必填 | **是**（two-tool） | server.ex:35（#240） |
+| 10 | confirm_operation | workspace_id: :optional | 鉴权在 Confirmation 内（pending 归属校验即授权） | 内置承载 | server.ex:36；gate_test:23 |
 | 11 | cancel_operation | workspace_id: :optional | 鉴权在 Confirmation 内（pending 归属校验即授权） | 内置承载 | server.ex:37；gate_test:23 |
 | 12 | get_course_content | membership: :deferred | 工具层授权（学员侧）+ 资源层 policy | 否 | server.ex:39（#180） |
 | 13 | get_learning_records | membership: :deferred | 工具层授权（学员侧）+ 资源层 policy | 否 | server.ex:40（#180） |
@@ -146,7 +146,7 @@ topic: permissions-launch
 | settings 侧栏 nav 门控 | members/permissions = `list_members`；requests/invitations = `manage_members`（单文件集中声明，多处硬编码已收敛） | `web/components/workspace-nav.ts:85-139` |
 | AdminGuard（/admin/*） | `isPlatformAdmin`（ME_PROFILE 独立查询；denied/未登录/失败保守 redirect，confirmed 前不渲染 children） | `web/components/admin-guard.tsx:1-33` |
 | 只读访客（PlatformAdmin fallback） | `meWorkspaces` miss + isPlatformAdmin 双条件 → `readOnlyVisitor`（myRoleNames/myAbilities 皆空 → manage 类面板天然隐藏）；写入口（报名/join-policy）显式隐藏 | `web/lib/use-workspace-by-slug.ts:98-101`；P018 |
-| 契约守卫 | `web/lib/permissions.contract.test.ts` 对 golden file 双向同步 | `web/lib/graphql/permissions.ts:12-14` |
+| 契约守卫 | `web/lib/permissions.contract.test.ts` 对 golden file 双向同步 | `web/lib/graphql/permissions.ts:12,22` |
 
 ---
 
