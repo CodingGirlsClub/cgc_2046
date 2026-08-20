@@ -20,14 +20,15 @@ defmodule Cgc2046.Sms.SendCloudTest do
         "sendRequestId" => "req-1"
       }
 
-      # 独立参考实现（与被测实现不同代码路径）：Enum.sort + join → 包 KEY → SHA256
+      # 独立参考实现（与被测实现不同代码路径）：Enum.sort + join → KEY&plain&KEY → SHA256
+      # （官档 §API 验证机制第 3 步：SMS_KEY + '&' + param_str + '&' + SMS_KEY）
       sorted_plain =
         params
         |> Enum.sort()
         |> Enum.map_join("&", fn {k, v} -> "#{k}=#{v}" end)
 
       expected =
-        :crypto.hash(:sha256, "KEY" <> sorted_plain <> "KEY") |> Base.encode16(case: :lower)
+        :crypto.hash(:sha256, "KEY&" <> sorted_plain <> "&KEY") |> Base.encode16(case: :lower)
 
       assert SendCloud.signature(params, "KEY") == expected
       assert String.length(expected) == 64
