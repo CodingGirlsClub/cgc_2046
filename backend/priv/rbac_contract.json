@@ -6,6 +6,7 @@
     "manage_members",
     "assign_roles",
     "update_join_policy",
+    "manage_events",
     "create_workspace"
   ],
   "manage_roles": [
@@ -19,6 +20,7 @@
         "assign_roles": true,
         "create_workspace": false,
         "list_members": true,
+        "manage_events": true,
         "manage_members": true,
         "update_join_policy": true,
         "view_workspace": true
@@ -31,6 +33,7 @@
         "assign_roles": true,
         "create_workspace": false,
         "list_members": true,
+        "manage_events": true,
         "manage_members": true,
         "update_join_policy": true,
         "view_workspace": true
@@ -43,6 +46,7 @@
         "assign_roles": false,
         "create_workspace": false,
         "list_members": false,
+        "manage_events": false,
         "manage_members": false,
         "update_join_policy": false,
         "view_workspace": true
@@ -55,6 +59,7 @@
         "assign_roles": false,
         "create_workspace": false,
         "list_members": false,
+        "manage_events": false,
         "manage_members": false,
         "update_join_policy": false,
         "view_workspace": true
@@ -67,6 +72,7 @@
         "assign_roles": false,
         "create_workspace": false,
         "list_members": false,
+        "manage_events": false,
         "manage_members": false,
         "update_join_policy": false,
         "view_workspace": true

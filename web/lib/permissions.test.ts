@@ -23,6 +23,7 @@ const MANAGER_ABILITIES = {
 	manage_members: true,
 	assign_roles: true,
 	update_join_policy: true,
+	manage_events: true,
 	create_workspace: false,
 };
 
@@ -33,6 +34,7 @@ const MEMBER_ABILITIES = {
 	manage_members: false,
 	assign_roles: false,
 	update_join_policy: false,
+	manage_events: false,
 	create_workspace: false,
 };
 
@@ -61,6 +63,7 @@ describe("mapPermissionMatrixRows（后端五角色矩阵 → 展示矩阵，#1 
 			manage_members: true,
 			assign_roles: true,
 			update_join_policy: true,
+			manage_events: true,
 			create_workspace: false,
 		});
 		expect(rows.find((row) => row.role === "admin")?.abilities).toMatchObject({
@@ -75,6 +78,7 @@ describe("mapPermissionMatrixRows（后端五角色矩阵 → 展示矩阵，#1 
 				list_members: false,
 				manage_members: false,
 				assign_roles: false,
+				manage_events: false,
 				create_workspace: false,
 			},
 		);

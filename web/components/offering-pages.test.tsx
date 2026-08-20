@@ -41,8 +41,8 @@ vi.mock("@/lib/events", () => ({
       : status === "open"
         ? ["close", "cancel"]
         : [],
-  canManageEvents: (roleNames: string[] = []) =>
-    roleNames.some((role) => role === "owner" || role === "admin"),
+  canManageEvents: (myAbilities: string[] = []) =>
+    myAbilities.includes("manage_events"),
   createOffering: mocks.createOffering,
   fetchMyEnrollment: mocks.fetchMyEnrollment,
   fetchOffering: mocks.fetchOffering,
@@ -113,9 +113,22 @@ const WORKSPACE = {
   joinPolicy: "open" as const,
   sponsorshipEnabled: false,
   myRoleNames: [],
+  myAbilities: [],
 };
 
-const OWNER_WORKSPACE = { ...WORKSPACE, myRoleNames: ["owner"] };
+const OWNER_WORKSPACE = {
+  ...WORKSPACE,
+  myRoleNames: ["owner"],
+  myAbilities: [
+    "view_workspace",
+    "access_invite_only",
+    "list_members",
+    "manage_members",
+    "assign_roles",
+    "update_join_policy",
+    "manage_events",
+  ],
+};
 
 function offeringRow(overrides: Record<string, unknown> = {}) {
   return {

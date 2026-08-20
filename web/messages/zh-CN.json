@@ -1478,6 +1478,10 @@
         "label": "修改加入策略",
         "description": "切换当前 Workspace 的加入方式（开放加入 / 申请制 / 邀请制）。"
       },
+      "manage_events": {
+        "label": "管理活动",
+        "description": "管理当前 Workspace 的活动、课程、收费与赞助内容。"
+      },
       "create_workspace": {
         "label": "创建工作台",
         "description": "创建新的 Workspace（平台级能力，不随角色在矩阵中授予）。"
