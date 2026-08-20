@@ -14,8 +14,10 @@ set -e
 CONFIG="${KAMAL_HOOK_CONFIG:-config/deploy.ci.yml}"
 REGISTRY=$(grep -E "^  server:" "$CONFIG" | head -1 | awk '{print $2}')
 IMAGE="$REGISTRY/codingirlsclub/cgc2046-backend:$KAMAL_VERSION"
-
 echo "pre-deploy: running migrations via $IMAGE"
+
+echo "pre-deploy: image bin listing:"
+docker run --rm --entrypoint ls "$IMAGE" -la /app/bin | head -8 || true
 docker run --rm \
   -e DATABASE_URL="$DATABASE_URL" \
   -e SECRET_KEY_BASE="$SECRET_KEY_BASE" \
