@@ -75,15 +75,13 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 		);
 	});
 
-	it("扩展市场路径：含 #extensions 链接与搜索关键词", async () => {
+	it("扩展市场路径：引导文案与搜索关键词（无开发地址链接）", async () => {
 		render(<AgentsOpenclackyPage />);
 
 		expect(screen.getByText(/扩展市场中搜索安装/)).toBeInTheDocument();
+		expect(screen.getByText("打开 OpenClacky 扩展市场")).toBeInTheDocument();
 		expect(screen.getByText("CGC-2046")).toBeInTheDocument();
-		const mktLink = screen.getByRole("link", {
-			name: "http://localhost:7070/#extensions",
-		});
-		expect(mktLink).toHaveAttribute("href", "http://localhost:7070/#extensions");
+		expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
 	});
 
 	it("生成 token 按钮指向 MCP 页", async () => {

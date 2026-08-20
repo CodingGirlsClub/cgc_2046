@@ -7,7 +7,7 @@ afterEach(cleanup);
 
 describe("AuthForm (#61 登录与注册设计)", () => {
   it("登录模式展示手机号/邮箱、密码和进入工作台的 CTA", () => {
-    render(<AuthForm mode="login" setMode={() => {}} />);
+    render(<AuthForm mode="login" setMode={() => {}} onSubmit={vi.fn()} />);
 
     expect(screen.getByPlaceholderText("手机号或邮箱")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("请输入密码")).toBeInTheDocument();
@@ -17,7 +17,7 @@ describe("AuthForm (#61 登录与注册设计)", () => {
   });
 
   it("注册模式展示确认密码和密码提示", () => {
-    render(<AuthForm mode="register" setMode={() => {}} />);
+    render(<AuthForm mode="register" setMode={() => {}} onSubmit={vi.fn()} />);
 
     expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("请输入密码")).toBeInTheDocument();
@@ -28,24 +28,14 @@ describe("AuthForm (#61 登录与注册设计)", () => {
 
   it("底部链接可在登录/注册间切换（触发 setMode）", () => {
     const setMode = vi.fn();
-    const { rerender } = render(<AuthForm mode="login" setMode={setMode} />);
+    const { rerender } = render(<AuthForm mode="login" setMode={setMode} onSubmit={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "创建账号" }));
     expect(setMode).toHaveBeenCalledWith("register");
 
-    rerender(<AuthForm mode="register" setMode={setMode} />);
+    rerender(<AuthForm mode="register" setMode={setMode} onSubmit={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "返回登录" }));
     expect(setMode).toHaveBeenCalledWith("login");
-  });
-
-  it("静态阶段（无 onSubmit）提交显示 mock 提示", () => {
-    render(<AuthForm mode="login" setMode={() => {}} />);
-    fireEvent.change(screen.getByPlaceholderText("手机号或邮箱"), { target: { value: "a@b.c" } });
-    fireEvent.change(screen.getByPlaceholderText("请输入密码"), { target: { value: "secret" } });
-    const form = screen.getByPlaceholderText("请输入密码").closest("form");
-    expect(form).not.toBeNull();
-    fireEvent.submit(form!);
-    expect(screen.getByText(/mock/)).toBeInTheDocument();
   });
 
   it("提供 onSubmit 时提交邮箱和密码，不再要求昵称", async () => {

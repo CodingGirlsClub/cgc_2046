@@ -25,3 +25,6 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 cgc_2046-*.tar
 
+
+# Kamal CI secrets（本地运行 kamal 时也用此文件，绝不提交）
+.kamal/secrets
