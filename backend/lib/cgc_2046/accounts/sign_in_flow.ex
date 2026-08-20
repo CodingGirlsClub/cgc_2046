@@ -132,7 +132,7 @@ defmodule Cgc2046.Accounts.SignInFlow do
   end
 
   # M8：ash_authentication store_token 只落 jti/subject/purpose，platform
-  # claim 不进 extra_data（3.31 实测）。签发成功后按 jti 补写 extra_data，
+  # claim 不进 extra_data（4.14.1 实测）。签发成功后按 jti 补写 extra_data，
   # 供 stored_for_subject 的 platform 面过滤。失败仅记日志不阻断——该 token
   # 退化为 web 面语义，不影响登录本身。
   defp store_platform_extra_data(_jti, nil), do: :ok

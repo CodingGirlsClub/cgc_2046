@@ -66,13 +66,15 @@ function WechatCallbackContent() {
 		if (startedRef.current) return;
 		startedRef.current = true;
 
-		let cancelled = false;
+		// 不设 cancelled 短路（advisor02 R2-1）：mutation 由 startedRef 保证
+		// 单发，dev StrictMode 首跑 cleanup 后唯一一次请求的成功回调若被
+		// cancelled 丢弃，页面会停在 processing。成功路径是顶层导航/表单
+		// 渲染，卸载后的 setState 无害。
 		const run = async () => {
 			try {
 				const { data } = await signInWithWechat({
 					variables: { code: oauthCode, state: oauthState },
 				});
-				if (cancelled) return;
 				const result = data?.signInWithWechat;
 				if (result?.status === "SIGNED_IN") {
 					await client.resetStore();
@@ -85,14 +87,11 @@ function WechatCallbackContent() {
 				}
 				setError(t("signInFailed"));
 			} catch {
-				if (!cancelled) setError(t("signInFailed"));
+				setError(t("signInFailed"));
 			}
 		};
 
 		run();
-		return () => {
-			cancelled = true;
-		};
 	}, [searchParams, oauthCode, oauthState, signInWithWechat, router, t]);
 
 	const handleBind = async (event: FormEvent<HTMLFormElement>) => {
