@@ -9,7 +9,11 @@ set -e
 # rollback 不带新版本，跳过迁移
 [ "$KAMAL_COMMAND" = "rollback" ] && exit 0
 
-IMAGE="$KAMAL_REPOSITORY:$KAMAL_VERSION"
+# KAMAL_REPOSITORY 不在 hook 注入集（官方 tags：version/service/hosts 等），
+# registry server 从 sed 后的 deploy config 现读；image 名在本仓库 config 固定
+CONFIG="${KAMAL_HOOK_CONFIG:-config/deploy.ci.yml}"
+REGISTRY=$(grep -E "^  server:" "$CONFIG" | head -1 | awk '{print $2}')
+IMAGE="$REGISTRY/codingirlsclub/cgc2046-backend:$KAMAL_VERSION"
 
 echo "pre-deploy: running migrations via $IMAGE"
 docker run --rm \
