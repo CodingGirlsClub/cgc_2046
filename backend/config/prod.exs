@@ -7,7 +7,8 @@ config :cgc_2046, Cgc2046Web.Endpoint,
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],
     exclude: [
-      # paths: ["/health"],
+      # Kamal healthcheck 走容器内 http，重定向 301 会超时判死
+      paths: ["/healthz"],
       hosts: ["localhost", "127.0.0.1"]
     ]
   ]
