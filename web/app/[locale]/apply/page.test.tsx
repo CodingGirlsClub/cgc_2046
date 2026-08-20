@@ -129,7 +129,10 @@ describe("/apply 申请创建工作台", () => {
 
 		render(<ApplyPage />);
 
-		// 提交后展示我的申请（含状态）
+		// 挂载时首次加载我的申请，列表出现状态徽章（l-badge 中的"待审批"）
+		expect(await screen.findAllByText("待审批")).not.toHaveLength(0);
+		expect(fetchMyApplications).toHaveBeenCalledTimes(1);
+
 		fireEvent.change(screen.getByPlaceholderText(/名称/), {
 			target: { value: "研究空间" },
 		});
@@ -141,7 +144,8 @@ describe("/apply 申请创建工作台", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: /提交/ }));
 
-		// 申请列表里出现状态徽章（l-badge 中的"待审批"）
-		expect(await screen.findAllByText("待审批")).not.toHaveLength(0);
+		// #205：提交成功后 loadMyApps 必须重新调用 fetchMyApplications（刷新列表），而非依赖缓存
+		await vi.waitFor(() => expect(fetchMyApplications).toHaveBeenCalledTimes(2));
+		expect(screen.getAllByText("待审批").length).toBeGreaterThan(0);
 	});
 });
