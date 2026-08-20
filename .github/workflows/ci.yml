@@ -4,11 +4,15 @@ on:
   push:
     branches: [develop, main]
   pull_request:
-    branches: [develop]
+    # 含 main：main 的 branch protection 要求 4 个 checks，PR→main 不跑 CI
+    # 则 checks 永远 pending、merge 只能 bypass——保护形同虚设
+    branches: [develop, main]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # push 场景用 ref（同分支新 push 取消旧 run）；PR 场景用 head_ref。
+  # 原来 fallback 到 run_id 等于每次 push 独立分组，旧 run 从不被取消
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
