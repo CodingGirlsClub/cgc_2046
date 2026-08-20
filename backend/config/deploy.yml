@@ -17,6 +17,8 @@ ssh:
 
 proxy:
   host: api.codingirlsclub.com
+  # Kamal 2.12 ssl 默认 false——必须显式开启（ACME 自动签发）
+  ssl: true
   # kamal-proxy 占 80/443，ACME 自动签发续期
   app_port: 4000
   healthcheck:

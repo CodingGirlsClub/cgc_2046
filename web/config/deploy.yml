@@ -16,6 +16,7 @@ servers:
 
 proxy:
   host: codingirlsclub.com
+  ssl: true
   # www 裸域跳主域：kamal-proxy 2.x 支持 host 列表或 redirect 配置，
   # 部署时按 kamal 版本核实（www 已有 A 记录，不跳也不影响功能）
   app_port: 3000
