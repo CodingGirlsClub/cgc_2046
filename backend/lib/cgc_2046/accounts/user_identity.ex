@@ -26,8 +26,8 @@ defmodule Cgc2046.Accounts.UserIdentity do
       allow_nil?: false,
       public?: true,
       writable?: true,
-      constraints: [one_of: [:wechat, :tt, :xhs]],
-      description: "小程序平台标识"
+      constraints: [one_of: [:wechat, :tt, :xhs, :wechat_web]],
+      description: "平台标识（:wechat/:tt/:xhs 小程序；:wechat_web 开放平台网站应用，plan 002 U4）"
     )
 
     attribute(:uid, :string,

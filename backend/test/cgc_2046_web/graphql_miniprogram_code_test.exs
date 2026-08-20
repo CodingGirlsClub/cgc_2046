@@ -157,7 +157,7 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
 
   defp sign_in_token(user) do
     mutation = """
-    mutation { signIn(email: "#{user.email}", password: "#{Fixtures.password()}") { id } }
+    mutation { signIn(login: "#{user.email}", password: "#{Fixtures.password()}") { id } }
     """
 
     conn =

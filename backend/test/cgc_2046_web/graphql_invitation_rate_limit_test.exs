@@ -34,7 +34,7 @@ defmodule Cgc2046Web.GraphqlInvitationRateLimitTest do
   defp sign_in_token(email) do
     query = """
     mutation {
-      signIn(email: "#{email}", password: "#{@password}") {
+      signIn(login: "#{email}", password: "#{@password}") {
         id
       }
     }

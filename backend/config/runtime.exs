@@ -224,6 +224,45 @@ if config_env() == :prod do
     from: sendcloud_from,
     from_name: sendcloud_from_name
 
+  # SendCloud SMS（plan 002 U3）：与邮件同款 prod 硬门禁——缺凭证不允许启动
+  # （发码路径是登录能力，半配置上线 = 静默坏登录）。
+  sendcloud_sms_user =
+    System.get_env("SENDCLOUD_SMS_USER") ||
+      raise """
+      environment variable SENDCLOUD_SMS_USER is missing.
+      Set it to the SendCloud SMS user (短信语音 → 发送授权).
+      """
+
+  sendcloud_sms_key =
+    System.get_env("SENDCLOUD_SMS_KEY") ||
+      raise """
+      environment variable SENDCLOUD_SMS_KEY is missing.
+      Set it to the SendCloud SMS key.
+      """
+
+  sendcloud_sms_template_id =
+    System.get_env("SENDCLOUD_SMS_TEMPLATE_ID") ||
+      raise """
+      environment variable SENDCLOUD_SMS_TEMPLATE_ID is missing.
+      Set it to the approved verification-code template id.
+      """
+
+  config :cgc_2046,
+    sms_sendcloud: [
+      sms_user: sendcloud_sms_user,
+      sms_key: sendcloud_sms_key,
+      template_id: sendcloud_sms_template_id
+    ]
+
+  # 微信网站应用扫码登录（plan 002 U4）：与 SendCloud 邮件不同——凭证可缺
+  # （wechat_pay 先例）：审核未过/未申请时整卡功能门禁 wechat_login_unavailable，
+  # 其余登录方式不受影响，boot 不崩。
+  config :cgc_2046,
+    wechat_web: [
+      appid: System.get_env("WECHAT_WEB_APPID"),
+      secret: System.get_env("WECHAT_WEB_SECRET")
+    ]
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key
@@ -297,4 +336,27 @@ if config_env() == :prod do
       return_url: System.get_env("ALIPAY_RETURN_URL"),
       sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
     ]
+end
+
+# SendCloud SMS / 微信扫码（plan 002）：dev 可选注入真凭证（.env / direnv）。
+# 缺省时降级：SMS 走 Logger 出码（本地可测），wechatLoginStart 返回
+# wechat_login_unavailable 门禁，其余登录方式不受影响。test 环境由 test.exs
+# 显式覆盖，不经此分支（测试进程无这些 env）。
+if config_env() == :dev do
+  if sms_user = System.get_env("SENDCLOUD_SMS_USER") do
+    config :cgc_2046,
+      sms_sendcloud: [
+        sms_user: sms_user,
+        sms_key: System.get_env("SENDCLOUD_SMS_KEY"),
+        template_id: System.get_env("SENDCLOUD_SMS_TEMPLATE_ID")
+      ]
+  end
+
+  if wechat_appid = System.get_env("WECHAT_WEB_APPID") do
+    config :cgc_2046,
+      wechat_web: [
+        appid: wechat_appid,
+        secret: System.get_env("WECHAT_WEB_SECRET")
+      ]
+  end
 end

@@ -1,10 +1,43 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 import AuthForm, { type AuthMode } from "./login/auth-form";
+import SmsForm from "./login/sms-form";
+import WechatQrPanel from "./login/wechat-qr-panel";
 import { useAuthSubmit } from "./login/use-auth-submit";
 import LanguageSwitcher from "@/components/language-switcher";
+
+/** 登录方式(plan 002 U5):密码(手机号/邮箱)/手机验证码/微信扫码。仅登录模式显示。 */
+type LoginMethod = "password" | "sms" | "wechat";
+
+function LoginMethodTabs({
+	method,
+	onChange,
+}: {
+	method: LoginMethod;
+	onChange: (method: LoginMethod) => void;
+}) {
+	const t = useTranslations("auth.tabs");
+	const methods: LoginMethod[] = ["password", "sms", "wechat"];
+
+	return (
+		<div className="auth-tabs" role="tablist" aria-label={t("label")}>
+			{methods.map((item) => (
+				<button
+					key={item}
+					type="button"
+					role="tab"
+					aria-selected={method === item}
+					className={`auth-tab ${method === item ? "auth-tab--active" : ""}`}
+					onClick={() => onChange(item)}
+				>
+					{t(item)}
+				</button>
+			))}
+		</div>
+	);
+}
 
 function BrandMark() {
   return (
@@ -92,6 +125,7 @@ function RegisterBenefits() {
 export default function AuthShell({ mode }: { mode: AuthMode }) {
   const { onSubmit, busy, error } = useAuthSubmit();
   const isRegister = mode === "register";
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>("password");
   const t = useTranslations("auth");
 
   return (
@@ -117,7 +151,18 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
           <div className="auth-form-heading">
             <h2 id="auth-page-title">{isRegister ? t("heading.register") : t("heading.login")}</h2>
           </div>
-          <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+          {isRegister ? (
+            <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+          ) : (
+            <>
+              <LoginMethodTabs method={loginMethod} onChange={setLoginMethod} />
+              {loginMethod === "password" && (
+                <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+              )}
+              {loginMethod === "sms" && <SmsForm />}
+              {loginMethod === "wechat" && <WechatQrPanel />}
+            </>
+          )}
         </section>
       </main>
     </div>
