@@ -3,7 +3,16 @@ import type { NextConfig } from "next";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
+// #213 AC1：生产构建缺 BACKEND_URL 时显式失败，防静默把 API 指向 localhost（容器内自打 404）
+const BACKEND_URL =
+	process.env.BACKEND_URL ??
+	(process.env.NODE_ENV === "production"
+		? (() => {
+				throw new Error(
+					"BACKEND_URL must be set when building for production (rewrites destination)",
+				);
+			})()
+		: "http://localhost:4000");
 
 const nextConfig: NextConfig = {
 	// standalone：Docker 镜像只打包运行时产物（web/Dockerfile 依赖此模式）
