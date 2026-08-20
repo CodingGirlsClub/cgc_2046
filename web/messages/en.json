@@ -12,6 +12,16 @@
     "title": "CGC 2046",
     "description": "Coding Girls Club: a nonprofit coding community walking women into tech, from 2016 to 2046."
   },
+  "legal": {
+    "terms": {
+      "title": "Terms of Service · 用户服务协议",
+      "description": "Terms of Service of the CGC Platform (effective 2026-09-01; the Chinese version prevails)."
+    },
+    "privacy": {
+      "title": "Privacy Policy · 隐私政策",
+      "description": "Privacy Policy and Personal Information Processing Rules of the CGC Platform (effective 2026-09-01; the Chinese version prevails)."
+    }
+  },
   "errors": {
     "enrollment_duplicate_active": "You already have a pending order. Close it and reopen to continue payment.",
     "enrollment_not_payment_pending": "Your enrollment status has changed (paid or cancelled). Please enroll again or check My Enrollments.",
@@ -249,7 +259,8 @@
       "login": "Have an account? Sign in"
     },
     "footer": {
-      "tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046"
+      "tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046",
+      "icp": "京ICP备16008426号-2"
     },
     "mediaReports": [
       {

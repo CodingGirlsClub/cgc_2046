@@ -12,6 +12,16 @@
     "title": "CGC 2046",
     "description": "Coding Girls Club（程序媛汇）：从 2016 到 2046，陪一代女性走进编程的公益编程社群。"
   },
+  "legal": {
+    "terms": {
+      "title": "用户服务协议",
+      "description": "CGC 平台用户服务协议（生效日期 2026-09-01，法律文本以中文版本为准）。"
+    },
+    "privacy": {
+      "title": "隐私政策",
+      "description": "CGC 平台隐私政策与个人信息处理规则（生效日期 2026-09-01，法律文本以中文版本为准）。"
+    }
+  },
   "errors": {
     "enrollment_duplicate_active": "你已有待支付订单，请关闭后重新打开继续支付。",
     "enrollment_not_payment_pending": "报名状态已变化（已支付或已取消），请重新报名或查看我的报名。",
@@ -249,7 +259,8 @@
       "login": "已有账号，去登录"
     },
     "footer": {
-      "tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046"
+      "tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046",
+      "icp": "京ICP备16008426号-2"
     },
     "mediaReports": [
       {
