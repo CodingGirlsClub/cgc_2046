@@ -734,6 +734,76 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   @spec whereis_bus() :: {:ok, pid()} | {:error, :not_found}
   def whereis_bus, do: Jido.Signal.Util.whereis(@bus_name)
 
+  @drain_default_timeout_ms 5_000
+
+  @doc """
+  drain 协议优雅回收 forwarder（#245）：spawn 一次性 waiter，对每个 pid
+  先 `Process.monitor` 再投递 `:reclaim`（顺序保证 pid 先死也能收 DOWN），
+  等全部 forwarder 处理完在途投递后自退；超时（默认 #{@drain_default_timeout_ms}ms，
+  可注入缩短供测试）仍未退者 `Process.exit(pid, :kill)` 强杀兜底。立即返回
+  waiter pid 不阻塞调用方——bus DOWN 恢复路径（重订阅退避）不被在途投递拖住。
+
+  截断窗口闭合的机制前提：claim 与 effects 在 forwarder 进程内**同步**执行
+  （`SignalSubscriber.do_run` 内联 claim→handle），forwarder 在 `fun.()`
+  执行中收不到消息——`:reclaim` 落邮箱仅在 fun 跑完、循环回到 `receive` 时
+  被处理，「处理 :reclaim 前」=「claim/effects 要么都完成要么都没开始」。
+  若未来 effects 异步化，此前提失效，drain 降级为超时强杀的旧 kill 行为
+  （不劣化现状）。
+
+  残余窗口：fun 卡死超过 `timeout` 仍被强杀截断——概率缩小非零，兜底仍是
+  SignalIdempotency claim + E-10 对账。
+  """
+  @spec drain_forwarders([pid()], pos_integer()) :: pid()
+  def drain_forwarders(pids, timeout \\ @drain_default_timeout_ms)
+      when is_list(pids) and is_integer(timeout) and timeout > 0 do
+    spawn(fn ->
+      pending =
+        Map.new(pids, fn pid ->
+          ref = Process.monitor(pid)
+          send(pid, :reclaim)
+          {ref, pid}
+        end)
+
+      deadline = System.monotonic_time(:millisecond) + timeout
+      await_drain(pending, deadline)
+    end)
+  end
+
+  # 等全部 forwarder 退出（自退或强杀后）：pending 空即收工；到 deadline 仍有
+  # 未退者（fun 卡死/消息被业务 receive 吞掉）强杀残余——kill 后 monitor 的
+  # DOWN 必然到达，转入无 deadline 收割，waiter 必退不泄漏。
+  defp await_drain(pending, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      Enum.each(pending, fn {_ref, pid} -> Process.exit(pid, :kill) end)
+      await_downs(pending)
+    else
+      receive do
+        {:DOWN, ref, :process, _pid, _reason} ->
+          case Map.pop(pending, ref) do
+            {nil, _} -> await_drain(pending, deadline)
+            {_pid, rest} -> if map_size(rest) == 0, do: :ok, else: await_drain(rest, deadline)
+          end
+      after
+        remaining ->
+          Enum.each(pending, fn {_ref, pid} -> Process.exit(pid, :kill) end)
+          await_downs(pending)
+      end
+    end
+  end
+
+  defp await_downs(pending) do
+    if map_size(pending) == 0 do
+      :ok
+    else
+      receive do
+        {:DOWN, ref, :process, _pid, _reason} ->
+          await_downs(Map.delete(pending, ref))
+      end
+    end
+  end
+
   defp forward_loop(fun, caller) do
     caller_ref = Process.monitor(caller)
 
@@ -744,6 +814,11 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     receive do
       # 订阅方进程已死：转发进程自退（残余总线路由指向死 pid，投递为 no-op）
       {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
+        :ok
+
+      # #245 drain：骨架回收时请求自退。fun 执行中本消息落邮箱，fun 跑完
+      # 回到 receive 才处理——在途投递（claim+effects 同步链）不被截断。
+      :reclaim ->
         :ok
 
       {:signal, signal} ->

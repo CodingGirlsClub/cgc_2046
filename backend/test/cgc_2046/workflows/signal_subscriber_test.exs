@@ -24,6 +24,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     ClaimInHandle,
     ClaimInHandleIncomplete,
     Crash,
+    DrainClaim,
     Resubscribe,
     StateBased
   }
@@ -353,6 +354,45 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       end)
     after
       :telemetry.detach("bus-restart-ns")
+    end
+  end
+
+  describe "bus 重启 drain：在途投递不被 kill 截断（#245）" do
+    test "claim 已烧、effects sleep 中 kill bus → drain 等完成，effects 恰一次落账" do
+      start_supervised!(DrainClaim)
+
+      assert :ok =
+               JidoAdapter.publish("fixture.drain_claim", %{
+                 "test_pid" => self(),
+                 "n" => 1,
+                 "idempotency_key" => "fixture:dc-1"
+               })
+
+      # 100ms 时点：claim_first 已落 claim、handle 处于 300ms sleep 中——
+      # 旧裸 kill 行为在此截断（effects 零落账 + claim 永久拦重投 = #245）
+      Process.sleep(100)
+
+      {:ok, bus_pid} = JidoAdapter.whereis_bus()
+      Process.exit(bus_pid, :kill)
+
+      # drain 等 sleep 完成（预算 2s 压 CI 慢机）：effects 恰一次落账
+      assert_receive {:handled, 1}, 2_000
+      refute_receive {:handled, 1}
+
+      # claim 行真实存在（修复非「kill 落在 claim 前」侥幸）且重投被幂等拦截
+      assert claim_keys("fixture.drain_claim") == ["fixture:dc-1:drain_claim"]
+
+      assert :duplicate =
+               SignalSubscriber.deliver(DrainClaim, %{
+                 type: "fixture.drain_claim",
+                 data: %{"test_pid" => self(), "n" => 2, "idempotency_key" => "fixture:dc-1"}
+               })
+
+      refute_receive {:handled, 2}
+      assert Process.alive?(Process.whereis(DrainClaim))
+    after
+      # kill bus 触发全部 app 订阅方走 bus DOWN 退避重订阅，等完成后才返回
+      wait_until(&app_subscribers_resubscribed?/0)
     end
   end
 

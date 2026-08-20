@@ -436,4 +436,36 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
       assert_receive {:signal, "workflow.run.completed", %{"run_id" => "r1"}}, 1_000
     end
   end
+
+  describe "drain_forwarders（#245）" do
+    test "空闲 forwarder：收 :reclaim 自退（:normal），waiter 快速收工不泄漏" do
+      {:ok, _sub_id, _monitor_ref, forwarder} =
+        JidoAdapter.subscribe("fixture.drain_idle", fn _type, _data -> :ok end)
+
+      forwarder_ref = Process.monitor(forwarder)
+      waiter = JidoAdapter.drain_forwarders([forwarder])
+      waiter_ref = Process.monitor(waiter)
+
+      assert_receive {:DOWN, ^forwarder_ref, :process, ^forwarder, :normal}, 2_000
+      assert_receive {:DOWN, ^waiter_ref, :process, ^waiter, _reason}, 2_000
+    end
+
+    test "fun 永久挂起（:reclaim 不匹配留在邮箱）：超时强杀 forwarder，waiter 必退" do
+      # 注入 200ms 超时压时序；fun 的 receive 只匹配永不到来的消息——forwarder
+      # 卡在 fun 里收不到 :reclaim，drain 只能强杀兜底（残余窗口行为取证）
+      {:ok, _sub_id, _monitor_ref, forwarder} =
+        JidoAdapter.subscribe("fixture.drain_timeout", fn _type, _data ->
+          receive(do: ({:never_coming, _} -> :ok))
+        end)
+
+      assert :ok = JidoAdapter.publish("fixture.drain_timeout", %{"n" => 1})
+
+      forwarder_ref = Process.monitor(forwarder)
+      waiter = JidoAdapter.drain_forwarders([forwarder], 200)
+      waiter_ref = Process.monitor(waiter)
+
+      assert_receive {:DOWN, ^forwarder_ref, :process, ^forwarder, :killed}, 2_000
+      assert_receive {:DOWN, ^waiter_ref, :process, ^waiter, _reason}, 2_000
+    end
+  end
 end
