@@ -1,0 +1,79 @@
+# CD：main 分支 → Kamal 构建双镜像推 TCR → 零停机部署
+# 前置（服务器初始化，一次性）：
+#   1. Docker + Kamal 首次 boot（kamal setup 或手动 docker run kamal-proxy）
+#   2. GitHub production environment 补 4 个值：
+#      secrets: SERVER_SSH_KEY, KAMAL_REGISTRY_PASSWORD, DATABASE_URL
+#      vars:    TCR_REGISTRY, TCR_USERNAME
+# 环境注入契约：docs/运维/邮件与CD环境注入.md
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - run: gem install kamal --no-document
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 106.55.188.41 >> ~/.ssh/known_hosts
+
+      # ── backend：build → push → migrate（pre-deploy）→ blue-green 切流 ──
+      - name: Deploy backend
+        working-directory: backend
+        env:
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          # Kamal env.secret 注入源：runner 进程环境
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY_BASE: ${{ secrets.SECRET_KEY_BASE }}
+          TOKEN_SIGNING_SECRET: ${{ secrets.TOKEN_SIGNING_SECRET }}
+          SENDCLOUD_API_USER: ${{ secrets.SENDCLOUD_API_USER }}
+          SENDCLOUD_API_KEY: ${{ secrets.SENDCLOUD_API_KEY }}
+          SENDCLOUD_FROM: ${{ vars.SENDCLOUD_FROM }}
+          SENDCLOUD_FROM_NAME: ${{ vars.SENDCLOUD_FROM_NAME }}
+          SENDCLOUD_SMS_USER: ${{ secrets.SENDCLOUD_SMS_USER }}
+          SENDCLOUD_SMS_KEY: ${{ secrets.SENDCLOUD_SMS_KEY }}
+          SENDCLOUD_SMS_TEMPLATE_ID: ${{ vars.SENDCLOUD_SMS_TEMPLATE_ID }}
+          WEB_BASE_URL: ${{ vars.WEB_BASE_URL }}
+          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+        run: |
+          sed -i "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" config/deploy.yml
+          sed -i "s|<TCR_USERNAME>|${{ vars.TCR_USERNAME }}|" config/deploy.yml
+          kamal deploy -c config/deploy.yml
+
+      # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
+      - name: Deploy web
+        working-directory: web
+        env:
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
+        run: |
+          sed -i "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" config/deploy.yml
+          sed -i "s|<TCR_USERNAME>|${{ vars.TCR_USERNAME }}|" config/deploy.yml
+          kamal deploy -c config/deploy.yml
+
+      - name: Smoke check
+        run: |
+          sleep 10
+          curl -fsS https://api.codingirlsclub.com/healthz
+          curl -fsSI https://codingirlsclub.com/ | head -1

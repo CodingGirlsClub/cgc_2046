@@ -1,0 +1,48 @@
+#!/bin/sh
+# Kamal pre-deploy 钩子：blue-green 切流前跑 DB 迁移。
+# 在 Kamal 运行机本地执行（CI runner）；KAMAL_VERSION + 全部 secrets 已注入 env
+# （kamal-2.12 cli/main.rb:35，时序 = build+push 之后、proxy/app boot 之前）。
+# 首次部署与常规部署同样安全：迁移先于新容器健康检查，失败即中止部署。
+
+set -e
+
+# rollback 不带新版本，跳过迁移
+[ "$KAMAL_COMMAND" = "rollback" ] && exit 0
+
+IMAGE="$KAMAL_REPOSITORY:$KAMAL_VERSION"
+
+echo "pre-deploy: running migrations via $IMAGE"
+docker run --rm \
+  -e DATABASE_URL="$DATABASE_URL" \
+  -e SECRET_KEY_BASE="$SECRET_KEY_BASE" \
+  -e TOKEN_SIGNING_SECRET="$TOKEN_SIGNING_SECRET" \
+  -e SENDCLOUD_API_USER="$SENDCLOUD_API_USER" \
+  -e SENDCLOUD_API_KEY="$SENDCLOUD_API_KEY" \
+  -e SENDCLOUD_FROM="$SENDCLOUD_FROM" \
+  -e SENDCLOUD_FROM_NAME="$SENDCLOUD_FROM_NAME" \
+  -e SENDCLOUD_SMS_USER="$SENDCLOUD_SMS_USER" \
+  -e SENDCLOUD_SMS_KEY="$SENDCLOUD_SMS_KEY" \
+  -e SENDCLOUD_SMS_TEMPLATE_ID="$SENDCLOUD_SMS_TEMPLATE_ID" \
+  -e WEB_BASE_URL="$WEB_BASE_URL" \
+  -e CORS_ORIGIN="$CORS_ORIGIN" \
+  -e PHX_HOST="$PHX_HOST" \
+  -e PHX_SERVER=true \
+  "$IMAGE" eval "Cgc2046.Release.migrate"
+
+echo "pre-deploy: seeding via $IMAGE"
+docker run --rm \
+  -e DATABASE_URL="$DATABASE_URL" \
+  -e SECRET_KEY_BASE="$SECRET_KEY_BASE" \
+  -e TOKEN_SIGNING_SECRET="$TOKEN_SIGNING_SECRET" \
+  -e SENDCLOUD_API_USER="$SENDCLOUD_API_USER" \
+  -e SENDCLOUD_API_KEY="$SENDCLOUD_API_KEY" \
+  -e SENDCLOUD_FROM="$SENDCLOUD_FROM" \
+  -e SENDCLOUD_FROM_NAME="$SENDCLOUD_FROM_NAME" \
+  -e SENDCLOUD_SMS_USER="$SENDCLOUD_SMS_USER" \
+  -e SENDCLOUD_SMS_KEY="$SENDCLOUD_SMS_KEY" \
+  -e SENDCLOUD_SMS_TEMPLATE_ID="$SENDCLOUD_SMS_TEMPLATE_ID" \
+  -e WEB_BASE_URL="$WEB_BASE_URL" \
+  -e CORS_ORIGIN="$CORS_ORIGIN" \
+  -e PHX_HOST="$PHX_HOST" \
+  -e PHX_SERVER=true \
+  "$IMAGE" eval "Cgc2046.Release.seed"

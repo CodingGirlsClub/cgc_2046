@@ -1,0 +1,36 @@
+# Kamal: web service（Next.js standalone 容器）
+# 与 backend.yml 分开部署（各自独立 blue-green）：
+#   KAMAL_REGISTRY_PASSWORD=<TCR token> kamal deploy -c config/deploy.yml
+# 注意与 backend 的差异：service 名不同（容器/proxy 角色隔离），
+# 不带 accessories（PG 只随 backend）。
+
+service: cgc2046-web
+image: codingirlsclub/cgc2046-web
+
+ssh:
+  user: deploy
+
+servers:
+  web:
+    - 106.55.188.41
+
+proxy:
+  host: codingirlsclub.com
+  # www 裸域跳主域：kamal-proxy 2.x 支持 host 列表或 redirect 配置，
+  # 部署时按 kamal 版本核实（www 已有 A 记录，不跳也不影响功能）
+  app_port: 3000
+  healthcheck:
+    path: /
+
+registry:
+  server: <TCR_REGISTRY>
+  # 同 backend：username 经 CI sed 替换，不硬编码
+  username: <TCR_USERNAME>
+  password: ${KAMAL_REGISTRY_PASSWORD}
+
+# NEXT_PUBLIC_* 构建时内联（#254）：经 builder args 传入 docker build，
+# 运行时注入对静态产物无效
+builder:
+  arch: amd64
+  args:
+    NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}
