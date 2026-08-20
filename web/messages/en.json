@@ -145,8 +145,7 @@
     "tabs": {
       "label": "Sign-in method",
       "password": "Password",
-      "sms": "SMS code",
-      "wechat": "WeChat QR"
+      "sms": "SMS code"
     },
     "sms": {
       "fieldPhone": "Phone number",
@@ -168,6 +167,7 @@
       "loading": "Loading QR code…",
       "scanHint": "Scan with WeChat to sign in",
       "qrAlt": "WeChat sign-in QR code",
+      "sideLabel": "WeChat QR sign-in",
       "unavailable": "WeChat sign-in is not available yet. Please use another method.",
       "expired": "QR code expired",
       "refresh": "Refresh QR code"
