@@ -28,6 +28,13 @@ const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCAN_DIRS = ["app", "components", "lib", "i18n"];
 const CJK = /[\u4e00-\u9fff]/;
 
+// 法务文本以中文为准（plan 2026-08-20-008 设计决策），locale 无关、不迁移 messages；
+// 内容同步义务：docs/合规上架/*.md ↔ 页面。
+const LEGAL_PAGE_EXEMPT = [
+	"app/[locale]/terms/page.tsx",
+	"app/[locale]/privacy/page.tsx",
+];
+
 /** 收集目录下所有 .ts/.tsx 源码（排除 *.test.*、*.d.ts） */
 function collectSourceFiles(dir) {
 	const out = [];
@@ -62,6 +69,8 @@ function templateTextFragments(node) {
  * 返回 true = 放行（不报告）；false = 残留需报告。
  */
 function isWhitelisted(node, parent, file) {
+	// 法务页整页豁免（LEGAL_PAGE_EXEMPT，见常量注释）
+	if (LEGAL_PAGE_EXEMPT.some((p) => file.includes(p))) return true;
 	// console.xxx("...") 参数
 	if (
 		parent &&
@@ -146,7 +155,7 @@ function scanFile(file) {
 			}
 		} else if (ts.isJsxText(node)) {
 			const text = node.text.trim();
-			if (CJK.test(text)) report(node, text);
+			if (CJK.test(text) && !isWhitelisted(node, parent, file)) report(node, text);
 		}
 		ts.forEachChild(node, visit);
 	};
