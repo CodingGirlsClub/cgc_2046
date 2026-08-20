@@ -287,9 +287,9 @@ export default function AuthForm({
 
       <p className="auth-terms">
         {isRegister ? t("terms.registerAction") : t("terms.loginAction")}{t("terms.agreePrefix")}
-        <a href="#terms" onClick={(event) => event.preventDefault()}>{t("terms.serviceTerms")}</a>
+        <Link href="/terms">{t("terms.serviceTerms")}</Link>
         {t("terms.and")}
-        <a href="#privacy" onClick={(event) => event.preventDefault()}>{t("terms.privacyPolicy")}</a>
+        <Link href="/privacy">{t("terms.privacyPolicy")}</Link>
       </p>
     </div>
   );

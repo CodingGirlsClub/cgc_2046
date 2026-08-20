@@ -355,6 +355,17 @@ export default function LandingPage() {
 					<p>{t("footer.tagline")}</p>
 					<LanguageSwitcher />
 				</div>
+				<p className="mt-3">
+					© CodingGirlsClub ｜{" "}
+					<a
+						href="https://beian.miit.gov.cn"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="hover:text-ink-2"
+					>
+						{t("footer.icp")}
+					</a>
+				</p>
 			</footer>
 		</main>
 	);
