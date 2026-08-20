@@ -97,7 +97,6 @@ export default function AgentsOmpPage() {
 						<p className="connect-step-card__desc">
 							{t.rich("urlNote", {
 								code: (chunks) => <code>{chunks}</code>,
-								code2: (chunks) => <code>{chunks}</code>,
 								code3: (chunks) => <code>{chunks}</code>,
 								code4: (chunks) => <code>{chunks}</code>,
 							})}

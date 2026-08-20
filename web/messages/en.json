@@ -108,7 +108,6 @@
       "registerAndContinue": "Create account and continue",
       "loginAndEnter": "Sign in and enter workspace"
     },
-    "submitNoteMock": "（mock）Submitted — the production flow signs in via the signIn / signUp mutation and writes the token to the <code>cgc_token</code> cookie.",
     "switch": {
       "returnLogin": "Back to sign in",
       "createAccount": "Create account"
@@ -834,7 +833,7 @@
     "step3DescEnv": "Environment variable interpolation is supported: set <code>CGC_TOKEN</code> and use it directly; or replace {placeholder} with the actual token.",
     "notesTitle": "Notes",
     "notesDesc": "If you already have other MCP server entries, merge the <code>cgc-2046</code> entry into the existing config — don't overwrite it. The token is bound to the user, not the workspace, so joining a new workspace needs no reconfiguration.",
-    "urlNote": "Replace <code>&lt;MCP_URL&gt;</code> with the platform MCP address (dev default <code2>http://localhost:4102/mcp</code2>, matching the connector extension <code3>ext.yml</code3> <code4>config.mcp_url</code4>; production follows the published address).",
+    "urlNote": "Replace <code>&lt;MCP_URL&gt;</code> with the platform MCP address (matching the connector extension <code3>ext.yml</code3> <code4>config.mcp_url</code4>; production follows the published address).",
     "titleOmp": "OMP",
     "titleOpencode": "opencode",
     "titleOpenclacky": "OpenClacky",
@@ -846,7 +845,7 @@
     "step3Openclacky": "③ Generate a connection token",
     "downloadTitle": "Download OpenClacky",
     "extensionSearchHint": "Search and install in the OpenClacky extension marketplace:",
-    "openMarket": "Open <link>http://localhost:7070/#extensions</link>",
+    "openMarket": "Open the OpenClacky extension marketplace",
     "searchExtension": "Search <code>CGC-2046</code>",
     "installExtension": "Click the extension card → Install",
     "installedPanel": "Once installed, a “CGC-2046” panel appears in the sidebar and a “CGC-2046 assistant” appears in your conversation list.",
