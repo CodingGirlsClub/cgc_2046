@@ -158,7 +158,11 @@ jobs:
           kamal deploy -c config/deploy.ci.yml
 
       - name: Smoke check
+        # --retry：ACME 首签窗口（Let's Encrypt 验证→证书就绪）内 TLS 握手
+        # 可能瞬时失败；retry-all-errors 覆盖 SSL 层错误（curl 默认不重试）
         run: |
           sleep 10
-          curl -fsS https://api.codingirlsclub.com/healthz
-          curl -fsSI https://codingirlsclub.com/ | head -1
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors \
+            https://api.codingirlsclub.com/healthz
+          curl -fsSI --retry 6 --retry-delay 5 --retry-all-errors \
+            https://codingirlsclub.com/ | head -1
