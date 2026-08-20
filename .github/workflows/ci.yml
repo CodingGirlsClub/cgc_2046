@@ -96,11 +96,17 @@ jobs:
       - run: pnpm audit --prod --audit-level high
       - run: pnpm test
         timeout-minutes: 10
+      # bb41dcc(#213 AC1) 起 build 缺 BACKEND_URL 显式失败；CI 构建验证传显式占位
+      # （构建期仅决定 rewrites destination，不请求后端）。CI 仅验证构建可过——
+      # 生产注入链尚不存在（#213 尾款），由独立 hotfix 补 deploy 三件套。
       - run: pnpm build
+        env:
+          BACKEND_URL: http://localhost:4000
 
   miniprogram:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 序列尾部新增 mock 构建冒烟（多一次 build:weapp），余量 20 → 25
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: miniprogram
@@ -117,18 +123,14 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: miniprogram/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      # 从 backend/priv/graphql/schema.graphql 重新生成 TS 类型，确保契约无漂移
-      - run: pnpm codegen
-      - run: pnpm typecheck
-      - run: pnpm check:licenses
-      - run: pnpm test:unit
-      # 三端编译（Phase 4 才裁剪，现在不能破）
-      - run: pnpm build:weapp
-      - run: pnpm build:tt
-      - run: pnpm build:xhs
-      # 零导流红线（裁剪原则见 docs/01-定稿设计/小程序多端平台矩阵.md）：裁剪端产物 escape-aware 禁词断言
-      - run: pnpm check:diversion
-        timeout-minutes: 15
+      # 命令序列单一真源收敛到 miniprogram/package.json 的 check:ci：
+      # codegen → git diff --exit-code（生成物漂移即红）→ typecheck → licenses
+      # → test:unit → 三端 build → check:diversion → build:weapp:mock（e2e mock 构建冒烟）。
+      # 本地 pnpm check:ci = CI，两处清单不可能漂移。全量 e2e 依赖微信开发者工具
+      # CLI（e2e/journey.e2e.mjs），CI 无法运行，故只落 mock 构建冒烟。
+      # check-graphql 不进 CI：脚本直连 dev 后端 introspection（localhost:4001），
+      # CI 无后端在跑；契约漂移已由 codegen+diff 门禁覆盖，故仅留 dev 手工。
+      - run: pnpm check:ci
 
   # CI 耗时实测（2026-08-14 run 31802814605）：backend job ≈10-11min，其中
   # compile 零缓存全量重编 4m45s + dev/test 双环境重复编译。上述缓存与
