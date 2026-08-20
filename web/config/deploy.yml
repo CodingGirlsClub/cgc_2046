@@ -26,7 +26,8 @@ registry:
   server: <TCR_REGISTRY>
   # 同 backend：username 经 CI sed 替换，不硬编码
   username: <TCR_USERNAME>
-  password: ${KAMAL_REGISTRY_PASSWORD}
+  password:
+    - KAMAL_REGISTRY_PASSWORD
 
 # NEXT_PUBLIC_* 构建时内联（#254）：经 builder args 传入 docker build，
 # 运行时注入对静态产物无效
