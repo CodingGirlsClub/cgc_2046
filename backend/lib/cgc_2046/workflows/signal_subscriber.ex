@@ -24,6 +24,10 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     `before_claim/2`、`effects/3` 均为 `@optional_callbacks`（编译期不告警缺
     实现）：非 claim_in_handle 策略实现 `handle/2`，claim_in_handle 实现
     `before_claim/2` + `effects/3`（缺双回调在投递时 `raise ArgumentError`）。
+  - `max_retries`：bus 退避重试上限（可选，默认 30）。达到后转低频无限探测
+    而非放弃（#244）。测试 fixture 注入小值使 give-up→探测→恢复秒级完成。
+  - `probe_interval_ms`：探测模式下两次 `:bus_resubscribe` 探测的间隔毫秒
+    （可选，默认 30_000）。
 
   ## 幂等四策略（Q2 如实映射六订阅方现状语义；PR-B 评审 P1 增补第四值）
 
@@ -74,12 +78,15 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   bus incarnation，消灭「订阅落旧 bus、monitor 新 bus，旧 bus 死亡无感知」
   的静默失聪；订阅在途 bus 被杀的 exit 被 catch 归一化，不炸订阅方。退避
   重试（`:not_found` / 瞬错如 `:timeout`）一律不 `{:stop}`：指数退避 100ms
-  起 ×2 封顶 5s（防 crash-loop、重订阅风暴、one_for_one 共享强度预算耗尽），
-  重试 30 次仍无 bus 则放弃并 error 告警——订阅方保持存活可观测（重启窗口
-  内已丢信号不可恢复，兜底是 SignalIdempotency claim + E-10 对账扫描）；
-  已恢复订阅时杂散 `:bus_resubscribe` 消息是真 no-op（`map_size` guard，防
-  双订阅双投递）。信号投递统一经 `run/3`——生产 forwarder 与测试
-  （`deliver/2`）同码。
+  起 ×2 封顶 5s（防 crash-loop、重订阅风暴、one_for_one 共享强度预算耗尽）。
+  退避耗尽（max_retries 次）不放弃——转低频无限探测（#244）：一次性 error
+  告警 + telemetry `:give_up` 后按 probe_interval 持续 `:bus_resubscribe`
+  探测（`bus_retries` 保持 max 不递增防刷屏）；bus 回归 → 全量重订阅成功 →
+  自动回到正常态并 telemetry `:recovered`（订阅方永不永久失聪，>2min outage
+  后 30s 内恢复）。重启窗口内已丢信号不可恢复，兜底是 SignalIdempotency
+  claim + E-10 对账扫描。已恢复订阅时杂散 `:bus_resubscribe` 消息是真
+  no-op（`map_size` guard，防双订阅双投递）。信号投递统一经 `run/3`——
+  生产 forwarder 与测试（`deliver/2`）同码。
   """
 
   require Logger
@@ -93,6 +100,12 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   # metadata status/type/detail）；死信可见性由 E-10 对账规则⑥（oban_jobs discarded
   # 7 天窗口）承担，不扩 Oban discard 插件。
   @telemetry_event [:cgc2046, :signal, :deliver]
+
+  # #244：bus 退避 give-up（进入探测模式）与探测恢复（bus 回归重订阅成功）的
+  # 一次性事件——give_up measurements %{retries}、recovered measurements %{count}，
+  # metadata subscriber 名，与既有 deliver 事件族同构。
+  @telemetry_give_up_event [:cgc2046, :signal_subscriber, :give_up]
+  @telemetry_recovered_event [:cgc2046, :signal_subscriber, :recovered]
 
   @callback handle(String.t(), map()) :: :ok | {:error, term()}
 
@@ -216,6 +229,23 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     })
   end
 
+  # #244：bus 退避 give-up / 探测恢复一次性事件（quote 注入代码经骨架函数 emit，
+  # 与 @telemetry_event 同构——属性单一持有于骨架模块，订阅方不重复声明）。
+  @doc false
+  def emit_give_up(module, retries) do
+    :telemetry.execute(@telemetry_give_up_event, %{retries: retries}, %{
+      subscriber: module |> Module.split() |> List.last()
+    })
+  end
+
+  @doc false
+  def emit_recovered(module) do
+    :telemetry.execute(@telemetry_recovered_event, %{count: 1}, %{
+      subscriber: module |> Module.split() |> List.last(),
+      was_probe: true
+    })
+  end
+
   defp consumer_key(module, type, data) do
     case data do
       %{"idempotency_key" => key} when is_binary(key) ->
@@ -289,6 +319,11 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     patterns = Keyword.fetch!(opts, :patterns)
     idempotency = Keyword.fetch!(opts, :idempotency)
 
+    # #244：退避参数可注入（仅测试 fixture 用毫秒级小值；生产默认不变）。
+    # max_retries 默认 30；probe_interval_ms 默认 30s——give-up 后转低频无限探测。
+    max_retries = Keyword.get(opts, :max_retries, 30)
+    probe_interval_ms = Keyword.get(opts, :probe_interval_ms, 30_000)
+
     unless patterns != [] and Enum.all?(patterns, &is_binary/1) do
       raise ArgumentError, "patterns 须为非空字符串列表：#{inspect(patterns)}"
     end
@@ -305,10 +340,12 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
       @behaviour Cgc2046.Workflows.SignalSubscriber
 
-      # bus 退避重试参数（#120）：100ms 起 ×2 封顶 5s，30 次后放弃告警。
+      # bus 退避重试参数（#120 / #244）：100ms 起 ×2 封顶 5s；max_retries 次仍
+      # 无 bus 则转低频无限探测（30s 间隔），不再放弃失聪。
       @bus_retry_base_ms 100
       @bus_retry_cap_ms 5_000
-      @bus_max_retries 30
+      @bus_max_retries unquote(max_retries)
+      @bus_probe_interval_ms unquote(probe_interval_ms)
 
       @doc "当前订阅的信号类型列表（骨架 init 逐个订阅；测试断言接线用）。"
       def patterns, do: unquote(patterns)
@@ -407,8 +444,15 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
           when map_size(subscriptions) == 0 do
         case Cgc2046.Workflows.JidoAdapter.whereis_bus() do
           {:ok, _pid} ->
+            # #244：探测模式下恢复（was_probing）→ 发 recovered 一次性事件
+            was_probing = state.bus_probing
+
             case full_resubscribe(state) do
               {:ok, state} ->
+                if was_probing do
+                  Cgc2046.Workflows.SignalSubscriber.emit_recovered(__MODULE__)
+                end
+
                 {:noreply, state}
 
               {:error, :bus_missing, state} ->
@@ -436,7 +480,13 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
       def handle_info(_other, state), do: {:noreply, state}
 
       defp initial_state do
-        %{subscriptions: %{}, forwarders: %{}, bus_monitor: nil, bus_retries: 0}
+        %{
+          subscriptions: %{},
+          forwarders: %{},
+          bus_monitor: nil,
+          bus_retries: 0,
+          bus_probing: false
+        }
       end
 
       # 完整重订阅（init / 退避重试共用；advisor M2 顺序）：先 whereis → 先
@@ -455,7 +505,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
             case subscribe_all(state, pid) do
               {:ok, state} ->
                 if bus_still_registered_as?(pid) do
-                  {:ok, %{state | bus_monitor: bus_monitor, bus_retries: 0}}
+                  {:ok, %{state | bus_monitor: bus_monitor, bus_retries: 0, bus_probing: false}}
                 else
                   Process.demonitor(bus_monitor, [:flush])
                   {:error, :bus_missing, reclaim_forwarders(state)}
@@ -549,18 +599,30 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
       defp demonitor_bus_monitor(state), do: state
 
-      # bus 退避重试（#120）：指数退避 100ms 起 ×2 封顶 5s；30 次仍无 bus 则放弃
-      # 并 error 告警——订阅方保持存活可观测（重启窗口内丢的信号兜底是
-      # SignalIdempotency claim + E-10 对账），不 crash-loop、不重订阅风暴。
+      # bus 退避重试（#120）：指数退避 100ms 起 ×2 封顶 5s；max_retries 次仍无
+      # bus 则转低频无限探测（#244）——不再放弃失聪：give_up 一次性告警 +
+      # telemetry 后按 probe_interval 持续探测（bus_retries 保持 max 不递增、
+      # bus_probing 置位，防日志/事件刷屏）；bus 回归由 :bus_resubscribe guard
+      # 分支全量重订阅自动恢复。不 crash-loop、不重订阅风暴。
       defp schedule_bus_retry(%{bus_retries: retries} = state) do
         if retries >= @bus_max_retries do
-          Logger.error(
-            "#{inspect(__MODULE__)} bus resubscribe gave up after #{retries} retries " <>
-              "(bus not back); subscriber stays alive but deaf - check bus health; " <>
-              "SignalIdempotency claim + E-10 reconciliation is the backstop"
-          )
+          if state.bus_probing do
+            # 探测往返：bus 仍缺，仅再调度一次低频探测，不重复告警/事件
+            Process.send_after(self(), :bus_resubscribe, @bus_probe_interval_ms)
+            state
+          else
+            Logger.error(
+              "#{inspect(__MODULE__)} bus resubscribe gave up after #{retries} retries " <>
+                "(bus not back); switching to low-frequency probing every " <>
+                "#{@bus_probe_interval_ms}ms - auto-recovery on bus return; " <>
+                "SignalIdempotency claim + E-10 reconciliation is the backstop"
+            )
 
-          state
+            Cgc2046.Workflows.SignalSubscriber.emit_give_up(__MODULE__, retries)
+
+            Process.send_after(self(), :bus_resubscribe, @bus_probe_interval_ms)
+            %{state | bus_probing: true}
+          end
         else
           Process.send_after(self(), :bus_resubscribe, bus_retry_delay(retries))
           %{state | bus_retries: retries + 1}
