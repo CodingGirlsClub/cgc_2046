@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberSmokeTest do
   @moduledoc """
   #134-① 应用级订阅方冒烟测试（随 E-10 #125 落地，D6）。
 
-  七应用级订阅方（监督树启动）的 init → subscribe 组合断言：
+  八应用级订阅方（监督树启动）的 init → subscribe 组合断言：
   - 进程存活（`Process.alive?`——订阅失败即停会暴露为进程不存在/死亡）；
   - `:sys.get_state/1` 的 `subscriptions` 非空；
   - 实际订阅 pattern 集与 `patterns/0`（use 骨架注入的声明集）一致。
@@ -20,11 +20,12 @@ defmodule Cgc2046.Workflows.SignalSubscriberSmokeTest do
     Cgc2046.Workflows.LearningInstantiator,
     Cgc2046.Workflows.ResearchInstantiator,
     Cgc2046.Workflows.ResearchRunReaper,
-    Cgc2046.Workflows.ShareSchemeInstantiator
+    Cgc2046.Workflows.ShareSchemeInstantiator,
+    Cgc2046.Workers.EventCancelRefundWorker
   ]
 
   describe "应用级订阅方 init → subscribe 冒烟（#134-①）" do
-    test "七订阅方进程存活且订阅集与 patterns/0 一致" do
+    test "八订阅方进程存活且订阅集与 patterns/0 一致" do
       Enum.each(@subscribers, fn module ->
         pid = Process.whereis(module)
         assert pid != nil, "#{inspect(module)} 未启动（订阅失败即停会被监督树暴露）"
