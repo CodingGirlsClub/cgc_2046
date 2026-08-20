@@ -145,8 +145,7 @@
     "tabs": {
       "label": "登录方式",
       "password": "密码登录",
-      "sms": "验证码登录",
-      "wechat": "微信扫码"
+      "sms": "验证码登录"
     },
     "sms": {
       "fieldPhone": "手机号",
@@ -168,6 +167,7 @@
       "loading": "正在加载二维码…",
       "scanHint": "打开微信扫一扫，扫码登录",
       "qrAlt": "微信登录二维码",
+      "sideLabel": "微信扫码登录",
       "unavailable": "微信扫码登录暂未开放，请使用其他方式登录",
       "expired": "二维码已过期",
       "refresh": "刷新二维码"

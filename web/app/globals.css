@@ -1515,6 +1515,11 @@ body {
     background: var(--card);
     box-shadow: var(--shadow-ring);
   }
+  /* DeepSeek 式登录布局：左表单 + 右微信扫码常驻 */
+  .auth-page--login .auth-form-card { width: min(100%, 780px); }
+  .auth-login-split { display: grid; grid-template-columns: minmax(0, 1fr) 324px; gap: clamp(24px, 4vw, 44px); align-items: start; }
+  .auth-login-split__side { background: var(--soft); border-radius: var(--radius-medium); padding: 18px 8px; }
+  .auth-login-split__side .auth-wechat-panel { padding: 0; }
 
   .auth-page--register .auth-form-card {
     width: min(100%, 680px);
@@ -1642,6 +1647,8 @@ body {
     .auth-form-panel { padding: 78px 16px 28px; }
     .auth-form-card { padding: 28px 22px; }
   .auth-topbar { top: 22px; right: 20px; }
+    .auth-login-split { grid-template-columns: 1fr; }
+    .auth-login-split__side { order: 2; }
   }
 
   /* ---------- Workspace select (#63): sidebar + detail / first-login grid ---------- */

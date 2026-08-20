@@ -8,8 +8,8 @@ import WechatQrPanel from "./login/wechat-qr-panel";
 import { useAuthSubmit } from "./login/use-auth-submit";
 import LanguageSwitcher from "@/components/language-switcher";
 
-/** 登录方式(plan 002 U5):密码(手机号/邮箱)/手机验证码/微信扫码。仅登录模式显示。 */
-type LoginMethod = "password" | "sms" | "wechat";
+/** 登录方式(plan 002 U5):密码(手机号/邮箱)/手机验证码。微信扫码常驻右栏，不占 tab。 */
+type LoginMethod = "password" | "sms";
 
 function LoginMethodTabs({
 	method,
@@ -19,7 +19,7 @@ function LoginMethodTabs({
 	onChange: (method: LoginMethod) => void;
 }) {
 	const t = useTranslations("auth.tabs");
-	const methods: LoginMethod[] = ["password", "sms", "wechat"];
+	const methods: LoginMethod[] = ["password", "sms"];
 
 	return (
 		<div className="auth-tabs" role="tablist" aria-label={t("label")}>
@@ -148,20 +148,29 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
           <LanguageSwitcher />
         </div>
         <section className="auth-form-card" aria-labelledby="auth-page-title">
-          <div className="auth-form-heading">
-            <h2 id="auth-page-title">{isRegister ? t("heading.register") : t("heading.login")}</h2>
-          </div>
           {isRegister ? (
-            <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
-          ) : (
             <>
-              <LoginMethodTabs method={loginMethod} onChange={setLoginMethod} />
-              {loginMethod === "password" && (
-                <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
-              )}
-              {loginMethod === "sms" && <SmsForm />}
-              {loginMethod === "wechat" && <WechatQrPanel />}
+              <div className="auth-form-heading">
+                <h2 id="auth-page-title">{t("heading.register")}</h2>
+              </div>
+              <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
             </>
+          ) : (
+            <div className="auth-login-split">
+              <div className="auth-login-split__main">
+                <div className="auth-form-heading">
+                  <h2 id="auth-page-title">{t("heading.login")}</h2>
+                </div>
+                <LoginMethodTabs method={loginMethod} onChange={setLoginMethod} />
+                {loginMethod === "password" && (
+                  <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+                )}
+                {loginMethod === "sms" && <SmsForm />}
+              </div>
+              <aside className="auth-login-split__side" aria-label={t("wechat.sideLabel")}>
+                <WechatQrPanel />
+              </aside>
+            </div>
           )}
         </section>
       </main>
