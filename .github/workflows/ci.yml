@@ -36,14 +36,14 @@ jobs:
       # format/rbac/license 检查均环境无关
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: erlef/setup-beam@v1
         with:
           # runic（jido_runic 底层）要求 Elixir ~> 1.18（1.17 无内置 JSON.Encoder，
           # runic 编译崩溃）；1.20 + OTP 29 与本地开发环境完全对齐，避免版本错位
           elixir-version: "1.20"
           otp-version: "29"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           # deps+_build 缓存：compile 从零编 4m45s 降为增量；key 绑 mix.lock，
           # 依赖变更自动失效，restore-keys 允许跨 PR 复用同前缀缓存
@@ -73,18 +73,18 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # pnpm/action-setup must run BEFORE setup-node so the `cache: pnpm`
       # resolver finds the pnpm binary. (Authorized adjustment per plan 006.)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.28.2  # 与 web/package.json 的 packageManager 对齐，消除版本漂移
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "pnpm"
           cache-dependency-path: web/pnpm-lock.yaml
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: web/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('web/pnpm-lock.yaml') }}-${{ hashFiles('web/**.[jt]s', 'web/**.[jt]sx') }}
@@ -111,13 +111,13 @@ jobs:
       run:
         working-directory: miniprogram
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # pnpm/action-setup must run BEFORE setup-node so the `cache: pnpm`
       # resolver finds the pnpm binary. (Same ordering as the web job.)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "pnpm"
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # 扫历史需要完整 git 对象
       - name: Gitleaks scan
