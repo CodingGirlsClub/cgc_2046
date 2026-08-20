@@ -6,6 +6,8 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
 
 const nextConfig: NextConfig = {
+	// standalone：Docker 镜像只打包运行时产物（web/Dockerfile 依赖此模式）
+	output: "standalone",
 	async rewrites() {
 		const rules = [
 			{
