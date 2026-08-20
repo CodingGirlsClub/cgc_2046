@@ -85,7 +85,7 @@ const PENDING_REQUESTS = [
 		userId: "u_new1",
 		status: "pending" as const,
 		message: "我想加入学习编程",
-		approvalDeadline: "2026-08-20T03:00:00Z",
+		approvalDeadline: new Date(Date.now() + 36e5).toISOString(),
 	},
 	{
 		id: "jr_2",
@@ -93,7 +93,7 @@ const PENDING_REQUESTS = [
 		userId: "u_new2",
 		status: "pending" as const,
 		message: null,
-		approvalDeadline: "2026-08-10T03:00:00Z",
+		approvalDeadline: new Date(Date.now() - 10 * 864e5).toISOString(),
 	},
 ];
 
