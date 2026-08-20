@@ -9,9 +9,9 @@ describe("AuthForm (#61 登录与注册设计)", () => {
   it("登录模式展示手机号/邮箱、密码和进入工作台的 CTA", () => {
     render(<AuthForm mode="login" setMode={() => {}} />);
 
-    expect(screen.getByLabelText("手机号/邮箱地址")).toBeInTheDocument();
-    expect(screen.getByLabelText("密码")).toBeInTheDocument();
-    expect(screen.queryByLabelText("确认密码")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("手机号或邮箱")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("请输入密码")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("再次输入密码")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登录并进入工作台" })).toBeInTheDocument();
     expect(screen.queryByText("昵称")).not.toBeInTheDocument();
   });
@@ -19,10 +19,9 @@ describe("AuthForm (#61 登录与注册设计)", () => {
   it("注册模式展示确认密码和密码提示", () => {
     render(<AuthForm mode="register" setMode={() => {}} />);
 
-    expect(screen.getByLabelText("邮箱")).toBeInTheDocument();
-    expect(screen.getByLabelText("密码")).toBeInTheDocument();
-    expect(screen.getByLabelText("确认密码")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("至少 8 个字符")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("请输入密码")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("再次输入密码")).toBeInTheDocument();
     expect(screen.getByLabelText("密码强度未设置")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建账号并继续" })).toBeInTheDocument();
   });
@@ -41,9 +40,9 @@ describe("AuthForm (#61 登录与注册设计)", () => {
 
   it("静态阶段（无 onSubmit）提交显示 mock 提示", () => {
     render(<AuthForm mode="login" setMode={() => {}} />);
-    fireEvent.change(screen.getByLabelText("手机号/邮箱地址"), { target: { value: "a@b.c" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
-    const form = screen.getByLabelText("密码").closest("form");
+    fireEvent.change(screen.getByPlaceholderText("手机号或邮箱"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByPlaceholderText("请输入密码"), { target: { value: "secret" } });
+    const form = screen.getByPlaceholderText("请输入密码").closest("form");
     expect(form).not.toBeNull();
     fireEvent.submit(form!);
     expect(screen.getByText(/mock/)).toBeInTheDocument();
@@ -53,9 +52,9 @@ describe("AuthForm (#61 登录与注册设计)", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<AuthForm mode="register" onSubmit={onSubmit} />);
 
-    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "a@b.c" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password" } });
-    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "password" } });
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByPlaceholderText("请输入密码"), { target: { value: "password" } });
+    fireEvent.change(screen.getByPlaceholderText("再次输入密码"), { target: { value: "password" } });
     fireEvent.click(screen.getByRole("button", { name: "创建账号并继续" }));
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -67,9 +66,9 @@ describe("AuthForm (#61 登录与注册设计)", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<AuthForm mode="register" onSubmit={onSubmit} />);
 
-    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "a@b.c" } });
-    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password" } });
-    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "different" } });
+    fireEvent.change(screen.getByPlaceholderText("you@example.com"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByPlaceholderText("请输入密码"), { target: { value: "password" } });
+    fireEvent.change(screen.getByPlaceholderText("再次输入密码"), { target: { value: "different" } });
     fireEvent.click(screen.getByRole("button", { name: "创建账号并继续" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("两次输入的密码不一致");
