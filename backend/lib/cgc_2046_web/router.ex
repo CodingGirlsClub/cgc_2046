@@ -42,6 +42,14 @@ defmodule Cgc2046Web.Router do
     plug(Cgc2046Web.Plugs.McpAuthPlug)
   end
 
+  # Kamal 零停机部署的健康检查（无鉴权、无 DB 依赖：DB 未就绪时
+  # 不应阻止容器就绪——Phoenix 起得来即视为可切流，DB 故障由监控告警）
+  scope "/healthz", Cgc2046Web do
+    pipe_through(:api)
+
+    get("/", HealthController, :show)
+  end
+
   scope "/mcp" do
     pipe_through(:mcp)
 
