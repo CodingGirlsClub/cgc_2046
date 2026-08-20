@@ -97,8 +97,6 @@
     },
     "submitNoteMock": "（mock）Submitted — the production flow signs in via the signIn / signUp mutation and writes the token to the <code>cgc_token</code> cookie.",
     "switch": {
-      "haveAccount": "Already have an account?",
-      "noAccount": "No account yet?",
       "returnLogin": "Back to sign in",
       "createAccount": "Create account"
     },

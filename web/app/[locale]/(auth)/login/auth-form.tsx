@@ -2,8 +2,8 @@
 
 import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 
 export type AuthMode = "login" | "register";
 
@@ -176,6 +176,7 @@ export default function AuthForm({
     }
   };
 
+  const displayError = formError ?? error;
   const switchLabel = isRegister ? t("switch.returnLogin") : t("switch.createAccount");
   // 切换登录/注册保留 next（报名页引导链路不回丢）
   const searchParams = useSearchParams();
@@ -183,7 +184,6 @@ export default function AuthForm({
   const switchHref =
     (isRegister ? "/login" : "/register") +
     (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
-  const displayError = formError ?? error;
 
   return (
     <div className="auth-form-body">
@@ -213,13 +213,6 @@ export default function AuthForm({
         </div>
 
         <div className="auth-field">
-          {!isRegister && (
-            <div className="auth-field__label-row">
-              <Link href="/forgot-password" className="auth-inline-link">
-                {t("forgotPassword")}
-              </Link>
-            </div>
-          )}
           <PasswordField
             id="auth-password"
             placeholder={t("placeholder.password")}
@@ -260,17 +253,14 @@ export default function AuthForm({
               : t("submit.loginAndEnter")}
         </button>
       </form>
-
-      {submitted && !onSubmit && (
-        <div className="auth-submit-note">
-          {t.rich("submitNoteMock", {
-            code: (chunks) => <code>{chunks}</code>,
-          })}
-        </div>
-      )}
-
       <p className="auth-switch">
-        {isRegister ? t("switch.haveAccount") : t("switch.noAccount")}{" "}
+        {!isRegister ? (
+          <Link href="/forgot-password" className="auth-inline-link auth-switch__action">
+            {t("forgotPassword")}
+          </Link>
+        ) : (
+          <span aria-hidden="true" />
+        )}
         {setMode ? (
           <button
             type="button"
@@ -285,6 +275,15 @@ export default function AuthForm({
           </Link>
         )}
       </p>
+
+      {submitted && !onSubmit && (
+        <div className="auth-submit-note">
+          {t.rich("submitNoteMock", {
+            code: (chunks) => <code>{chunks}</code>,
+          })}
+        </div>
+      )}
+
 
       <p className="auth-terms">
         {isRegister ? t("terms.registerAction") : t("terms.loginAction")}{t("terms.agreePrefix")}
