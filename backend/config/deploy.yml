@@ -54,6 +54,21 @@ env:
     - SENDCLOUD_SMS_TEMPLATE_ID
     - WEB_BASE_URL
     - CORS_ORIGIN
+    # 支付渠道（可选门禁：缺凭证时 provider_not_configured，boot 不崩）
+    - WECHAT_PAY_MCH_ID
+    - WECHAT_PAY_APPID
+    - WECHAT_PAY_API_V3_KEY
+    - WECHAT_PAY_API_V2_KEY
+    - WECHAT_PAY_CLIENT_SERIAL_NO
+    - WECHAT_PAY_CLIENT_PRIVATE_KEY
+    - PAYMENTS_WEBHOOK_BASE_URL
+    - ALIPAY_APP_ID
+    - ALIPAY_PRIVATE_KEY
+    - ALIPAY_PUBLIC_KEY
+    - ALIPAY_SANDBOX
+    # 微信扫码登录（可选门禁：缺省 wechat_login_unavailable）
+    - WECHAT_WEB_APPID
+    - WECHAT_WEB_SECRET
 
 # 数据库迁移在切流前完成（blue-green 新容器执行，旧容器不受影响）
 accessories:
