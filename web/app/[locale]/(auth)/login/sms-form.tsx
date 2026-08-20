@@ -1,5 +1,6 @@
 "use client";
 
+import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
 import { useSmsLogin } from "./use-sms-login";
@@ -12,6 +13,7 @@ import { useSmsLogin } from "./use-sms-login";
  */
 export default function SmsForm() {
 	const t = useTranslations("auth.sms");
+	const termsT = useTranslations("auth.terms");
 	const { sendCode, submit, countdown, sending, busy, error, setError } =
 		useSmsLogin();
 	const [phone, setPhone] = useState("");
@@ -39,6 +41,7 @@ export default function SmsForm() {
 	};
 
 	return (
+		<>
 		<form className="auth-form" onSubmit={handleSubmit} noValidate>
 			{error && (
 				<div role="alert" className="auth-alert">
@@ -101,5 +104,12 @@ export default function SmsForm() {
 				{busy ? t("signingIn") : t("submit")}
 			</button>
 		</form>
+		<p className="auth-terms">
+			{termsT("loginAction")}{termsT("agreePrefix")}
+			<Link href="/terms">{termsT("serviceTerms")}</Link>
+			{termsT("and")}
+			<Link href="/privacy">{termsT("privacyPolicy")}</Link>
+		</p>
+		</>
 	);
 }
