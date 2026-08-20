@@ -15,10 +15,14 @@ servers:
     - <SERVER_HOST>
 
 proxy:
-  host: codingirlsclub.com
+  # hosts 列表：裸域 + www 都由本服务响应（ACME 会给两个域名分别签证书）。
+  # SEO 去重靠页面 canonical（NEXT_PUBLIC_WEB_BASE_URL 指裸域，#254）。
+  # kamal-proxy 原生 --canonical-host 未被 Kamal 2.12 配置层暴露，
+  # 上游支持后再切真正的 301 收敛。
+  hosts:
+    - codingirlsclub.com
+    - www.codingirlsclub.com
   ssl: true
-  # www 裸域跳主域：kamal-proxy 2.x 支持 host 列表或 redirect 配置，
-  # 部署时按 kamal 版本核实（www 已有 A 记录，不跳也不影响功能）
   app_port: 3000
   healthcheck:
     path: /
