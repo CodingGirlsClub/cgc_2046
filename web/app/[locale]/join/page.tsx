@@ -23,6 +23,7 @@ import {
   fetchWorkspaceBySlug,
   joinWorkspace,
   createJoinRequest,
+  type JoinRequestError,
 } from "@/lib/requests";
 import type { Workspace } from "@/lib/graphql/workspace";
 import { validateInvitation, acceptInvitation } from "@/lib/invitations";
@@ -51,6 +52,7 @@ function JoinPageInner() {
   const searchParams = useSearchParams();
   const t = useTranslations("join");
   const labelsT = useTranslations();
+  const errorsT = useTranslations("errors");
   const { authed, confirmed, userId } = useAuthed();
 
   const token = searchParams?.get("token") ?? null;
@@ -166,12 +168,20 @@ function JoinPageInner() {
         await createJoinRequest(workspace.id, userId, message || null);
         setStep("request-submitted");
       } catch (e) {
-        setError(e instanceof Error ? e.message : t("submitFailed"));
+        // #206：BusinessError 稳定 code 优先查 i18n 表，未知 code 回退 message
+        const code = e instanceof Error ? (e as JoinRequestError).code : undefined;
+        setError(
+          code && errorsT.has(code)
+            ? errorsT(code)
+            : e instanceof Error
+              ? e.message
+              : t("submitFailed"),
+        );
       } finally {
         setLoading(false);
       }
     },
-    [workspace, authed, userId, t],
+    [workspace, authed, userId, t, errorsT],
   );
 
   /** 校验邀请 token */

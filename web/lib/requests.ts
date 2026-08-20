@@ -58,6 +58,14 @@ export function mapJoinRequest(jr: JoinRequest): JoinRequestItem {
 }
 
 /**
+ * createJoinRequest 拒绝错误（#206）：携带后端 BusinessError 稳定 code
+ * （如 join_request_invite_only），join 页据此查 messages errors namespace。
+ */
+export interface JoinRequestError extends Error {
+	code: string | null;
+}
+
+/**
  * 将后端分页对象映射为前端 JoinRequestPage。
  */
 export function mapJoinRequestPage(
@@ -122,10 +130,10 @@ export async function createJoinRequest(
 	});
 	const result = data?.createJoinRequest?.result;
 	if (!result) {
-		const msg =
-			data?.createJoinRequest?.errors?.[0]?.message ??
-			"createJoinRequest failed";
-		throw new Error(msg);
+		const first = data?.createJoinRequest?.errors?.[0];
+		const error = new Error(first?.message ?? "createJoinRequest failed") as JoinRequestError;
+		error.code = first?.code ?? null;
+		throw error;
 	}
 	return mapJoinRequest(result);
 }
