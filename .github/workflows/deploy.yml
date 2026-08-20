@@ -100,12 +100,6 @@ jobs:
           kamal deploy -c config/deploy.ci.yml
 
       # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
-      - name: Deploy web
-        working-directory: web
-        env:
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
-          NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
-          BACKEND_URL: ${{ vars.BACKEND_URL }}
       - name: Write .kamal/secrets (web)
         working-directory: web
         run: |
@@ -118,6 +112,9 @@ jobs:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
           BACKEND_URL: ${{ vars.BACKEND_URL }}
+
+      - name: Deploy web
+        working-directory: web
         run: |
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
