@@ -28,3 +28,6 @@ cgc_2046-*.tar
 
 # Kamal CI secrets（本地运行 kamal 时也用此文件，绝不提交）
 .kamal/secrets
+
+# CI 生成（sed 占位符替换产物）
+config/deploy.ci.yml
