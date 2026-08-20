@@ -81,7 +81,9 @@ async function alignUserLocale(): Promise<void> {
 	const token = cookieStore.get("cgc_token")?.value;
 	if (!token) return;
 
-	const backendUrl = process.env.BACKEND_URL ?? "http://localhost:4000";
+	// 运行时 BACKEND_URL 必须显式提供（#213：防静默 localhost；dev 由 .env/缺省注入）
+	const backendUrl = process.env.BACKEND_URL;
+	if (!backendUrl) throw new Error("BACKEND_URL must be set at runtime (alignUserLocale)");
 	try {
 		const res = await fetch(`${backendUrl}/api/graphql`, {
 			method: "POST",

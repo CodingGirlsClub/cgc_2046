@@ -16,8 +16,11 @@ RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # NEXT_PUBLIC_* 是构建时内联（#254）：build 前必须注入，运行时改无效
+# BACKEND_URL 同为构建期消费（rewrites destination，#213 AC1 fail-fast）：缺注入 build 即红
 ARG NEXT_PUBLIC_WEB_BASE_URL
 ENV NEXT_PUBLIC_WEB_BASE_URL=$NEXT_PUBLIC_WEB_BASE_URL
+ARG BACKEND_URL
+ENV BACKEND_URL=$BACKEND_URL
 RUN pnpm build
 
 # ── runtime: 仅 standalone server + static 产物 ───────────────

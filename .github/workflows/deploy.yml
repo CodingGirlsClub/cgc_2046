@@ -70,6 +70,7 @@ jobs:
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
         run: |
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
