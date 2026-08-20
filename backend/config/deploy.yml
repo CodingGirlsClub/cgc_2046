@@ -29,7 +29,10 @@ registry:
   # username 经 CI sed 替换（GitHub vars TCR_USERNAME）；纯数字账号名
   # 不硬编码进开源仓库
   username: <TCR_USERNAME>
-  password: ${KAMAL_REGISTRY_PASSWORD}
+  # 数组形式才走 secrets lookup（字符串会被远程 shell 展开为空——
+  # "password is empty" 的根因）；值从 .kamal/secrets 解析
+  password:
+    - KAMAL_REGISTRY_PASSWORD
 
 env:
   clear:
