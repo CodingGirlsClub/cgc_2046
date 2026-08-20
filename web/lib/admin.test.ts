@@ -150,13 +150,16 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 		expect(queryMock.mock.calls[0][0].fetchPolicy).toBe("network-only");
 	});
 
-	it("fetchMyApplications 不带变量，返回申请人自己的申请", async () => {
+	it("fetchMyApplications 不带变量、始终走网络（#205：network-only，避免提交后命中旧缓存），返回申请人自己的申请", async () => {
 		queryMock.mockResolvedValue({
 			data: { myWorkspaceApplications: [] },
 		} as never);
 
 		await fetchMyApplications();
 
+		// #205：提交后 loadMyApps 重新调用 fetchMyApplications，必须绕过 cache-first 命中旧缓存
+		expect(queryMock.mock.calls[0][0].fetchPolicy).toBe("network-only");
+		expect(queryMock.mock.calls[0][0].variables).toBeUndefined();
 		expect(opName(queryMock.mock.calls[0][0].query)).toBe("MyWorkspaceApplications");
 	});
 

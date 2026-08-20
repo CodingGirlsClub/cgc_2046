@@ -136,6 +136,8 @@ export async function fetchMyApplications(): Promise<
 > {
   const { data } = await client.query({
     query: MY_WORKSPACE_APPLICATIONS,
+    // #205：提交后 loadMyApps 必须绕过 cache-first 命中旧缓存（P3 同款）
+    fetchPolicy: "network-only",
   });
   return data?.myWorkspaceApplications ?? [];
 }
@@ -148,8 +150,6 @@ export async function createApplication(
   const { data } = await client.mutate({
     mutation: CREATE_WORKSPACE_APPLICATION,
     variables: { input },
-    // 提交成功后刷新「我的申请」列表（Apollo cache-first 不会自动失效）
-    refetchQueries: [{ query: MY_WORKSPACE_APPLICATIONS }],
   });
   return (
     data?.createWorkspaceApplication ?? {
