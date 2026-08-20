@@ -243,7 +243,7 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
   defp sign_in_token(user) do
     mutation = """
     mutation {
-      signIn(email: "#{user.email}", password: "#{Fixtures.password()}") { id }
+      signIn(login: "#{user.email}", password: "#{Fixtures.password()}") { id }
     }
     """
 

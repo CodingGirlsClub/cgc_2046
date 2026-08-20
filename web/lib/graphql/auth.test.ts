@@ -19,9 +19,9 @@ describe("signUp/signIn mutation 文档（对齐 #60 路径 B：httpOnly cookie�
 		expect(doc).not.toContain("metadata");
 	});
 
-	it("SIGN_IN 使用平铺 email/password 参数 + 平铺返回字段（无 token）", () => {
+	it("SIGN_IN 使用平铺 login/password 参数（手机号/邮箱单框）+ 平铺返回字段（无 token）", () => {
 		const doc = print(SIGN_IN);
-		expect(doc).toContain("signIn(email: $email, password: $password)");
+		expect(doc).toContain("signIn(login: $login, password: $password)");
 		expect(doc).toContain("id");
 		expect(doc).toContain("email");
 		expect(doc).toContain("isPlatformAdmin");

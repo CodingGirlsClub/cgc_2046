@@ -5379,6 +5379,38 @@ type SignInWithPlatformResult {
   isPlatformAdmin: Boolean!
 }
 
+type RequestPhoneCodeResult {
+  sent: Boolean!
+  retryAfterSeconds: Int!
+}
+
+enum PhoneCodePurpose {
+  LOGIN
+  WECHAT_BIND
+}
+
+type SignInWithPhoneCodeResult {
+  id: ID!
+  email: String
+  isPlatformAdmin: Boolean!
+}
+
+type WechatLoginStartResult {
+  qrUrl: String!
+  state: String!
+  expiresInSeconds: Int!
+}
+
+type SignInWithWechatResult {
+  status: WechatSignInStatus!
+  bindTicket: String
+}
+
+enum WechatSignInStatus {
+  SIGNED_IN
+  NEEDS_BINDING
+}
+
 type SignUpPayload {
   result: SignUpUser
   errors: [MutationError]
@@ -5648,8 +5680,26 @@ type AdminUserPayload {
 }
 
 type RootMutationType {
-  "使用邮箱密码登录（#60 路径 B：httpOnly cookie 交付 token）"
-  signIn(email: String!, password: String!): SignInResult
+  "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
+  signIn(login: String!, password: String!): SignInResult
+
+  "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
+  requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
+
+  "手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付）"
+  signInWithPhoneCode(phone: String!, code: String!): SignInWithPhoneCodeResult
+
+  "发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20\/15min 限流）"
+  wechatLoginStart(
+    "发起微信扫码登录(plan 002 U4);next 透传进 redirect_uri(callback 页同源校验后跳转)"
+    next: String
+  ): WechatLoginStartResult
+
+  "微信扫码回调（plan 002 U4；IP 20\/15min 限流）：已绑定直登，未绑定返回绑定票据"
+  signInWithWechat(code: String!, state: String!): SignInWithWechatResult
+
+  "微信扫码绑定手机号完成登录（plan 002 U4；phone 5\/15min 限流）"
+  bindWechatWithPhone(bindTicket: String!, phone: String!, code: String!): SignInWithPhoneCodeResult
 
   "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
   signUp(input: SignUpInput!): SignUpPayload

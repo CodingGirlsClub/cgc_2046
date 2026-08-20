@@ -73,10 +73,103 @@ export const SIGN_UP: TypedDocumentNode<
 
 export const SIGN_IN: TypedDocumentNode<
   { signIn: SignInResultData | null },
-  { email: string; password: string }
+  { login: string; password: string }
 > = gql`
-  mutation SignIn($email: String!, $password: String!) {
-    signIn(email: $email, password: $password) {
+  mutation SignIn($login: String!, $password: String!) {
+    signIn(login: $login, password: $password) {
+      id
+      email
+      isPlatformAdmin
+    }
+  }
+`;
+
+/* ---------------- 手机验证码登录（plan 002 U3/U5） ---------------- */
+
+export type PhoneCodePurpose = "LOGIN" | "WECHAT_BIND";
+
+export interface RequestPhoneCodeResult {
+  sent: boolean;
+  retryAfterSeconds: number;
+}
+
+export interface SignInWithPhoneCodeResultData {
+  id: string;
+  email: string | null;
+  isPlatformAdmin: boolean;
+}
+
+export const REQUEST_PHONE_CODE: TypedDocumentNode<
+  { requestPhoneCode: RequestPhoneCodeResult | null },
+  { phone: string; purpose: PhoneCodePurpose }
+> = gql`
+  mutation RequestPhoneCode($phone: String!, $purpose: PhoneCodePurpose!) {
+    requestPhoneCode(phone: $phone, purpose: $purpose) {
+      sent
+      retryAfterSeconds
+    }
+  }
+`;
+
+export const SIGN_IN_WITH_PHONE_CODE: TypedDocumentNode<
+  { signInWithPhoneCode: SignInWithPhoneCodeResultData | null },
+  { phone: string; code: string }
+> = gql`
+  mutation SignInWithPhoneCode($phone: String!, $code: String!) {
+    signInWithPhoneCode(phone: $phone, code: $code) {
+      id
+      email
+      isPlatformAdmin
+    }
+  }
+`;
+
+/* ---------------- 微信扫码登录（plan 002 U4/U5） ---------------- */
+
+export interface WechatLoginStartResult {
+  qrUrl: string;
+  state: string;
+  expiresInSeconds: number;
+}
+
+export type WechatSignInStatus = "SIGNED_IN" | "NEEDS_BINDING";
+
+export interface SignInWithWechatResultData {
+  status: WechatSignInStatus;
+  bindTicket: string | null;
+}
+
+export const WECHAT_LOGIN_START: TypedDocumentNode<
+  { wechatLoginStart: WechatLoginStartResult | null },
+  { next?: string | null }
+> = gql`
+  mutation WechatLoginStart($next: String) {
+    wechatLoginStart(next: $next) {
+      qrUrl
+      state
+      expiresInSeconds
+    }
+  }
+`;
+
+export const SIGN_IN_WITH_WECHAT: TypedDocumentNode<
+  { signInWithWechat: SignInWithWechatResultData | null },
+  { code: string; state: string }
+> = gql`
+  mutation SignInWithWechat($code: String!, $state: String!) {
+    signInWithWechat(code: $code, state: $state) {
+      status
+      bindTicket
+    }
+  }
+`;
+
+export const BIND_WECHAT_WITH_PHONE: TypedDocumentNode<
+  { bindWechatWithPhone: SignInWithPhoneCodeResultData | null },
+  { bindTicket: string; phone: string; code: string }
+> = gql`
+  mutation BindWechatWithPhone($bindTicket: String!, $phone: String!, $code: String!) {
+    bindWechatWithPhone(bindTicket: $bindTicket, phone: $phone, code: $code) {
       id
       email
       isPlatformAdmin

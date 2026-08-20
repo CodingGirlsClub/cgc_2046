@@ -20,12 +20,13 @@ defmodule Cgc2046.Accounts.User do
   GraphQL 暴露（手写于 `Cgc2046Web.GraphqlSchema`，非 ash_authentication 自动生成；
   登录 token 经 httpOnly cookie 交付 #60 路径 B，响应体不含 token）：
   - mutation `signUp(input: {email, password})` → `SignUpPayload { result, errors }`（错误走 AshGraphql.Error 映射）
-  - mutation `signIn(email:, password:)` → `SignInResult { id, email, isPlatformAdmin }`
+  - mutation `signIn(login:, password:)` → `SignInResult { id, email, isPlatformAdmin }`（login 含 @ 走 email，否则手机号归一化；plan 002 U2 起 email 入参改名 login）
   - mutation `signInWithPlatform(platform:, code:, phoneCode:, encryptedData:, iv:)` → `SignInWithPlatformResult { id, email, isPlatformAdmin }`（phoneCode 新契约优先，后两者 legacy 可空）
   - query `me` → `User`（全局身份：id/email/displayName/isPlatformAdmin/memberNumber/joinedAt）
 
-  phone 字段 `public?: false` + `sensitive?: true`：不进 GraphQL、不进日志 inspect
-  （v1 明文存储已评审接受；掩码 + 本人可见的 GraphQL 暴露留给后续阶段）。
+  phone 字段 `sensitive?: true`；public 化是 password_phone 策略的 identity_field
+  校验强制（见 attributes 块注释）——GraphQL 出口仍由手写 resolver 单点控制，
+  响应不含 phone（v1 明文存储已评审接受；掩码 + 本人可见留给后续阶段）。
 
   ADR-0004：profile 字段（avatar_url/location/about/skills/visibility/ui_theme_preference）
   已迁至 `WorkspaceProfile`（per-workspace）；本资源仅保留全局身份字段。
@@ -59,12 +60,16 @@ defmodule Cgc2046.Accounts.User do
       description: "密码哈希（不对外暴露，由 hash provider 写入；小程序用户为 null）"
     )
 
+    # phone 需 public?: true —— password_phone 策略的 identity_field 校验强制
+    # （ash_authentication transformer validate_identity_field/2）。GraphQL 出口
+    # 已在 graphql 块 hide_fields([:phone]) 摘除（advisor02 M9）；手写 resolver
+    # 只吃 login 入参，不返回 phone。
     attribute(:phone, :string,
       allow_nil?: true,
-      public?: false,
+      public?: true,
       sensitive?: true,
       writable?: true,
-      description: "手机号（小程序登录 User 锚，明文存储 v1 已评审接受；部分唯一索引 WHERE NOT NULL）"
+      description: "手机号（小程序/验证码/微信绑定登录的 User 锚，明文存储 v1 已评审接受；部分唯一索引 WHERE NOT NULL）"
     )
 
     attribute(:is_platform_admin, :boolean,
@@ -347,6 +352,15 @@ defmodule Cgc2046.Accounts.User do
         end
       end
 
+      # 手机号 + 密码登录（plan 002 U2）：与 email 策略共用 hashed_password，
+      # 仅消费 sign_in_with_password_phone；不开放 register_with_password_phone
+      # （GraphQL 不暴露，手机号建号只走验证码 / 微信绑定路径）。
+      password :password_phone do
+        identity_field(:phone)
+        confirmation_required?(false)
+        registration_enabled?(false)
+      end
+
       miniprogram do
         identity_resource(Cgc2046.Accounts.UserIdentity)
       end
@@ -385,6 +399,12 @@ defmodule Cgc2046.Accounts.User do
     end
 
     bypass action(:sign_in_with_password) do
+      authorize_if(always())
+    end
+
+    # 手机号密码登录同理（plan 002 U2；register_with_password_phone 未生成，
+    # registrations_enabled?(false)）。
+    bypass action(:sign_in_with_password_phone) do
       authorize_if(always())
     end
 
@@ -438,6 +458,11 @@ defmodule Cgc2046.Accounts.User do
 
   graphql do
     type(:user)
+
+    # advisor02 M9：password_phone 策略要求 phone public?: true，副作用是
+    # ash_graphql 自动把它带进 type User——违反「不新增 phone 查询出口」。
+    # 从 GraphQL 出口摘除（资源层仍 public 供策略校验）。
+    hide_fields([:phone])
   end
 
   admin do

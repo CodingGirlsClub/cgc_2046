@@ -39,7 +39,7 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
   defp sign_in_token(email) do
     query = """
     mutation {
-      signIn(email: "#{email}", password: "#{Fixtures.password()}") {
+      signIn(login: "#{email}", password: "#{Fixtures.password()}") {
         id
       }
     }

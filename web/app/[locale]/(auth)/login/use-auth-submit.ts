@@ -70,7 +70,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 			try {
 				if (payload.mode === "login") {
 					const { data } = await doSignIn({
-						variables: { email: payload.email, password: payload.password },
+						variables: { login: payload.login, password: payload.password },
 					});
 					if (data?.signIn?.id) {
 						// ponytail: 同 SPA 会话换用户时 refetch me/ME_PROFILE。
@@ -85,7 +85,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 				} else {
 					const { data } = await doSignUp({
 						variables: {
-							input: { email: payload.email, password: payload.password },
+							input: { email: payload.login, password: payload.password },
 						},
 					});
 					if (data?.signUp?.result) {
