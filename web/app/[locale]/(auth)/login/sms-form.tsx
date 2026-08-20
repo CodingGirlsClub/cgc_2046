@@ -47,9 +47,6 @@ export default function SmsForm() {
 			)}
 
 			<div className="auth-field">
-				<label className="auth-field__label" htmlFor="auth-sms-phone">
-					{t("fieldPhone")}
-				</label>
 				<input
 					id="auth-sms-phone"
 					name="phone"
@@ -68,9 +65,6 @@ export default function SmsForm() {
 			</div>
 
 			<div className="auth-field">
-				<label className="auth-field__label" htmlFor="auth-sms-code">
-					{t("fieldCode")}
-				</label>
 				<div className="auth-sms-code-row">
 					<input
 						id="auth-sms-code"
