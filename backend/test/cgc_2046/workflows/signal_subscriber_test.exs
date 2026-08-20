@@ -421,6 +421,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       publish_until_handled("fixture.bus_probe", 2)
     after
       _ = Supervisor.restart_child(Cgc2046.Supervisor, JidoAdapter.bus_name())
+      wait_until(&app_subscribers_resubscribed?/0)
     end
 
     test "bus 持续缺席：多次探测往返无重复 give_up、bus_retries 不递增" do
@@ -459,7 +460,42 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       assert state.bus_retries == 3
     after
       _ = Supervisor.restart_child(Cgc2046.Supervisor, JidoAdapter.bus_name())
+      wait_until(&app_subscribers_resubscribed?/0)
     end
+  end
+
+  # #244 B2：探测测试 after 恢复 bus 后须等待 8 个 app 级订阅方全部重订阅完成
+  # 再返回——terminate_child 期间它们与 fixture 一同进入退避链，restart_child
+  # 后订阅窗口（subscriptions == %{}）最长可达退避 cap 级；smoke 无重试断言
+  # map_size > 0（async: false 串行），seed 排到紧随即 flake。列表与 smoke
+  # @subscribers 同源，同步维护。超时（wait_until 5s 预算）flunk 暴露真问题。
+  defp app_subscribers_resubscribed? do
+    Enum.all?(
+      [
+        Cgc2046.NotificationSubscriber,
+        Cgc2046.SpeakerSubscriber,
+        Cgc2046.Events.SponsorshipEndedSubscriber,
+        Cgc2046.Workflows.LearningInstantiator,
+        Cgc2046.Workflows.ResearchInstantiator,
+        Cgc2046.Workflows.ResearchRunReaper,
+        Cgc2046.Workflows.ShareSchemeInstantiator,
+        Cgc2046.Workers.EventCancelRefundWorker
+      ],
+      fn module ->
+        case Process.whereis(module) do
+          nil ->
+            false
+
+          pid ->
+            # 重订阅进程在监督树 restart 竞态窗口可能瞬时不存活，rescue 归一化 false
+            try do
+              :sys.get_state(pid).subscriptions |> map_size() > 0
+            rescue
+              _ -> false
+            end
+        end
+      end
+    )
   end
 
   defp publish_until_handled(type, n, attempts \\ 20)

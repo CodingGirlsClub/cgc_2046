@@ -333,6 +333,18 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
             "idempotency 须为 #{inspect(@idempotency_strategies)} 之一：#{inspect(idempotency)}"
     end
 
+    # #244（B1）：退避参数编译期校验（与 patterns/idempotency 守卫同契约）——
+    # 非正整数会在 give-up 分支 raise（crash-loop 根监督树）或静默改变退避语义
+    # （max_retries 字符串 → 项序永假 → 永不 give-up 的失聪回退）；0 探测间隔
+    # 即热循环风暴。编译期失败，零运行时成本。
+    unless is_integer(max_retries) and max_retries > 0 do
+      raise ArgumentError, "max_retries 须为正整数：#{inspect(max_retries)}"
+    end
+
+    unless is_integer(probe_interval_ms) and probe_interval_ms > 0 do
+      raise ArgumentError, "probe_interval_ms 须为正整数毫秒：#{inspect(probe_interval_ms)}"
+    end
+
     quote do
       use GenServer
 
@@ -460,9 +472,15 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
               # 瞬错（如 :timeout）同样退避不 {:stop}（advisor M3）：退避路径下
               # {:stop} 计入 one_for_one 共享强度预算（3 次/5s），crash-loop 下
-              # 正是放大器——耗尽即根监督树停机。退避重试 / 30 次放弃告警均有界。
+              # 正是放大器——耗尽即根监督树停机。退避重试有界；max_retries 次
+              # 后转低频无限探测（#244，不再放弃）。探测态瞬错（bus 已注册但
+              # subscribe 持续失败）降 warning——30s 低频下每订阅方一行，不绕过
+              # 不刷屏设计，文案同正常退避态。
               {:error, reason, state} ->
-                Logger.error(
+                log_level = if state.bus_probing, do: :warning, else: :error
+
+                Logger.log(
+                  log_level,
                   "#{inspect(__MODULE__)} bus resubscribe failed: #{inspect(reason)}; " <>
                     "retrying on backoff"
                 )
