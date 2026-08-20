@@ -40,3 +40,4 @@ builder:
   arch: amd64
   args:
     NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}
+    BACKEND_URL: ${BACKEND_URL}
