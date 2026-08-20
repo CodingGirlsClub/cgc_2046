@@ -10,10 +10,10 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   - `consumed_at`：单次使用；原子消费（DB 单条 UPDATE，防并发重放）
   - `send_request_id`：SendCloud 幂等键（透传渠道）
 
-  生命周期：发新码作废同 phone+purpose 全部活跃码（`invalidate_active/2`）；
-  消费走 `consume_valid/3` 原子 UPDATE（WHERE consumed_at IS NULL AND
-  attempts_left > 0 AND expires_at > now()）。过期行懒清理（v1：消费失败即弃，
-  不再扫描全表）。
+  生命周期（#253 方案 A）：重发不作废旧码——新旧并存且都有效；消费走
+  `consume_valid/3`（任一活跃码 hash 命中 → 成功并作废全部活跃码；错码
+  仅对最新码递减 attempts，3 次错作废）。过期/耗尽行由 #252
+  LoginArtifactPrunerWorker 每小时清理（expires_at < now()-1d）。
 
   内部资源（#209 SignalIdempotency 惯例）：无 GraphQL 面、无 actor 面，
   模块函数封装全部操作，policy 默认拒绝仅 admin 可读。
@@ -104,7 +104,8 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   # ── 模块函数（内部操作面）──────────────────────────────────────────────
 
   @doc """
-  生成 6 位数字码并落库；作废同 phone+purpose 全部活跃码（发新码作废旧码）。
+  生成 6 位数字码并落库（#253 方案 A：重发不作废旧码——新旧并存，消费
+  语义见 `consume_valid/3`）。
 
   返回 `{:ok, code, send_request_id}`——明文码供发送（不落库），
   send_request_id 是落库的渠道幂等键，供 deliver 上送（重试不重复发）。
@@ -131,21 +132,22 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
     }
 
     case Cgc2046.Repo.insert_all("phone_verification_codes", [row]) do
-      {1, _} ->
-        invalidate_active(phone, purpose, row[:id])
-        {:ok, code, send_request_id}
-
-      other ->
-        {:error, {:code_insert_failed, other}}
+      {1, _} -> {:ok, code, send_request_id}
+      other -> {:error, {:code_insert_failed, other}}
     end
   end
 
   @doc """
-  原子消费：单条 UPDATE 校验 hash + 未消费 + 有余次 + 未过期，命中即
-  attempts_left-1 并置 consumed_at（+1 次错码扣次不消费，仍单条 UPDATE）。
+  原子消费（#253 方案 A：多码并存）。
 
-  返回 `:ok`（消费成功）/ `{:error, :invalid_code}`（错码，attempts-1）/
-  `{:error, :code_not_available}`（无可用码：不存在/过期/耗尽/已消费——
+  活跃码集合 = 同 phone+purpose 下未消费、未过期、attempts>0 的全部行。
+  集合内任一 code_hash 匹配 → 成功，并**作废全部活跃码**（含未匹配的，
+  单次登录会话语义）；无匹配 → 对**最新一码**递减 attempts（3 次错作废；
+  只扣最新——攻击者拿不到任何明文码，若对全部递减，攻击者的错尝试会
+  加速合法用户旧码死亡，与方案 A 目标相悖）。
+
+  返回 `:ok`（消费成功）/ `{:error, :invalid_code}`（错码，最新码 attempts-1）/
+  `{:error, :code_not_available}`（无活跃码：不存在/过期/耗尽/已消费——
   统一语义，防枚举）。
   """
   @spec consume_valid(String.t(), String.t(), :login | :wechat_bind) ::
@@ -155,17 +157,18 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     hash = hash_code(phone, code)
 
-    # 两步原子 UPDATE：
-    # 1) 命中正确 hash 且可用 → 消费（consumed_at 置 now）
-    # 2) 未命中（活跃码存在）→ 错码扣次（attempts-1，不消费）
-    case consume_match(phone, purpose, hash, now) do
-      {:rows, 1} -> :ok
-      {:rows, _} -> decrement_attempt(phone, purpose, now)
+    case consume_match_any(phone, purpose, hash, now) do
+      {:rows, 0} -> decrement_latest_attempt(phone, purpose, now)
+      {:rows, _} -> :ok
     end
   end
 
-  defp consume_match(phone, purpose, hash, now) do
-    {:ok, %Postgrex.Result{num_rows: rows}} =
+  # 任一活跃码 hash 命中 → 消费命中行 + 作废全部活跃行（含未命中——单次
+  # 会话语义）。两条 UPDATE 由调用方顺序执行：第一条消费命中行，第二条
+  # 清余下活跃行；并发双消费时第二条命中 0 行（已被第一条路径清空），
+  # 结果收敛一致（后到者 hash 不再匹配任何活跃码 → invalid/not_available）。
+  defp consume_match_any(phone, purpose, hash, now) do
+    {:ok, %Postgrex.Result{num_rows: matched}} =
       Ecto.Adapters.SQL.query(
         Cgc2046.Repo,
         """
@@ -183,10 +186,29 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
         [phone, Atom.to_string(purpose), hash, now]
       )
 
-    {:rows, rows}
+    if matched > 0 do
+      # 作废余下活跃码（登录已完成，全部失效）
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          """
+          UPDATE phone_verification_codes
+          SET consumed_at = $3, updated_at = $3
+          WHERE phone = $1
+            AND purpose = $2
+            AND consumed_at IS NULL
+            AND expires_at > $3
+          """,
+          [phone, Atom.to_string(purpose), now]
+        )
+    end
+
+    {:rows, matched}
   end
 
-  defp decrement_attempt(phone, purpose, now) do
+  # 错码扣次：仅最新活跃码（inserted_at 最大）——防爆破语义保持 3 次错作废，
+  # 且不把旧码一并烧掉（方案 A 目标：重发后旧码仍可用）。
+  defp decrement_latest_attempt(phone, purpose, now) do
     {:ok, %Postgrex.Result{num_rows: rows}} =
       Ecto.Adapters.SQL.query(
         Cgc2046.Repo,
@@ -194,41 +216,21 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
         UPDATE phone_verification_codes
         SET attempts_left = attempts_left - 1,
             updated_at = $3
-        WHERE phone = $1
-          AND purpose = $2
-          AND consumed_at IS NULL
-          AND expires_at > $3
-          AND attempts_left > 0
+        WHERE id = (
+          SELECT id FROM phone_verification_codes
+          WHERE phone = $1
+            AND purpose = $2
+            AND consumed_at IS NULL
+            AND expires_at > $3
+            AND attempts_left > 0
+          ORDER BY inserted_at DESC
+          LIMIT 1
+        )
         """,
         [phone, Atom.to_string(purpose), now]
       )
 
     if rows > 0, do: {:error, :invalid_code}, else: {:error, :code_not_available}
-  end
-
-  @doc """
-  作废同 phone+purpose 全部活跃码（除 `except_id`）——发新码时调用。
-  """
-  @spec invalidate_active(String.t(), :login | :wechat_bind, Ecto.UUID.t()) :: :ok
-  def invalidate_active(phone, purpose, except_id)
-      when is_binary(phone) and purpose in [:login, :wechat_bind] do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        """
-        UPDATE phone_verification_codes
-        SET consumed_at = $4, updated_at = $4
-        WHERE phone = $1
-          AND purpose = $2::text::phone_verification_purpose
-          AND consumed_at IS NULL
-          AND id <> $3::uuid
-        """,
-        [phone, Atom.to_string(purpose), except_id, now]
-      )
-
-    :ok
   end
 
   @doc false
