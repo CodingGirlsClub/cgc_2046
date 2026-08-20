@@ -110,6 +110,7 @@ jobs:
       - name: Write .kamal/secrets (web)
         working-directory: web
         run: |
+          mkdir -p .kamal
           cat > .kamal/secrets <<SECRETS_EOF
           KAMAL_REGISTRY_PASSWORD=${KAMAL_REGISTRY_PASSWORD}
           NEXT_PUBLIC_WEB_BASE_URL=${NEXT_PUBLIC_WEB_BASE_URL}
