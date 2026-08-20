@@ -61,6 +61,9 @@ jobs:
       # rbac/license 是项目内 mix task，需项目编译后才可执行
       - run: mix cgc2046.gen_rbac_contract --check
       - run: mix cgc2046.check_licenses
+      # snapshot 门禁：Ash resource 定义与 resource_snapshots 漂移即红
+      # （schema squash 后防止资源变更不带 snapshot 提交；纯文件比对，无需 DB）
+      - run: mix ash_postgres.generate_migrations --check
       - run: mix test
         timeout-minutes: 15
   web:
