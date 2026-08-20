@@ -1643,12 +1643,42 @@ body {
     .auth-brand-panel { display: flex; }
   }
 
+  /* 竖屏/窄窗口（<1280px）：左右分栏挤不下登录 split（主列 <300px），改纵向堆叠 */
+  @media (max-width: 1279px) {
+    .auth-page { flex-direction: column; overflow: visible; }
+    .auth-page--login .auth-form-card { width: min(100%, 560px); }
+    .auth-login-split { grid-template-columns: 1fr; }
+    .auth-login-split__side { order: 2; }
+  }
+
+  /* 平板竖屏区间：品牌区从侧栏收为顶部横幅（<768px 时整体隐藏，见下） */
+  @media (min-width: 768px) and (max-width: 1279px) {
+    .auth-brand-panel {
+      flex: none;
+      justify-content: flex-start;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      padding: 88px clamp(24px, 6vw, 64px) 44px;
+    }
+    /* 圆圈装饰移到右缘，避免压住横幅文案 */
+    .auth-brand-panel::before { top: -260px; right: -160px; left: auto; width: 420px; height: 420px; }
+    .auth-brand-panel::after { top: -120px; right: 40px; left: auto; width: 220px; height: 220px; }
+    .auth-page--login .auth-brand-lockup,
+    .auth-page--login .auth-brand-copy,
+    .auth-page--register .auth-brand-copy { position: static; transform: none; }
+    .auth-page--login .auth-brand-copy,
+    .auth-page--register .auth-brand-copy { margin: 18px 0 0; }
+    .auth-page--login .auth-brand-copy h1,
+    .auth-page--register .auth-brand-copy h1 { white-space: normal; }
+    /* 注册页的 benefits 列表在横幅模式下过长，窄屏不展示 */
+    .auth-page--register .auth-benefits { display: none; }
+    .auth-form-panel { padding-top: 40px; }
+  }
+
   @media (max-width: 767px) {
     .auth-form-panel { padding: 78px 16px 28px; }
     .auth-form-card { padding: 28px 22px; }
-  .auth-topbar { top: 22px; right: 20px; }
-    .auth-login-split { grid-template-columns: 1fr; }
-    .auth-login-split__side { order: 2; }
+    .auth-topbar { top: 22px; right: 20px; }
   }
 
   /* ---------- Workspace select (#63): sidebar + detail / first-login grid ---------- */
