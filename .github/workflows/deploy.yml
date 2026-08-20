@@ -20,7 +20,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 全量 deploy 实测 ~10min（deps 镜像命中后更快）；30min 足够余量，
+    # 挂死类故障比 90min 早一小时暴露
+    timeout-minutes: 30
     environment: production
     steps:
       - uses: actions/checkout@v7
@@ -129,6 +131,20 @@ jobs:
           # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
           # 失败信息直指凭证链而非埋在 build 之后
           kamal registry login -c config/deploy.ci.yml
+          # deps 基础镜像（Dockerfile.deps）：tag=mix.lock 哈希。命中则跳过
+          # deps 编译（部署提速大头）；缺失则构建推送（仅 mix.lock 变更时，
+          # 一次性 ~5min）。manifest inspect 依赖上面的 registry login
+          LOCK_HASH=$(sha256sum mix.lock | cut -c1-16)
+          DEPS_IMAGE="${{ vars.TCR_REGISTRY }}/codingirlsclub/cgc2046-backend-deps:${LOCK_HASH}"
+          if docker manifest inspect "$DEPS_IMAGE" > /dev/null 2>&1; then
+            echo "deps 镜像命中（mix.lock 未变）：$DEPS_IMAGE"
+          else
+            echo "deps 镜像缺失，构建并推送（mix.lock 变更后一次性）…"
+            docker build -f Dockerfile.deps -t "$DEPS_IMAGE" ..
+            docker push "$DEPS_IMAGE"
+          fi
+          # Kamal builder args 经 .kamal/secrets 解析（BACKEND_URL 先例）
+          echo "BACKEND_DEPS_IMAGE=${DEPS_IMAGE}" >> .kamal/secrets
           # PG accessory 幂等 boot（首部署不存在则创建，已运行则 no-op）
           kamal accessory boot postgres -c config/deploy.ci.yml || true
           kamal deploy -c config/deploy.ci.yml
