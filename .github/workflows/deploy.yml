@@ -102,6 +102,8 @@ jobs:
           # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
           # 失败信息直指凭证链而非埋在 build 之后
           kamal registry login -c config/deploy.ci.yml
+          # PG accessory 幂等 boot（首部署不存在则创建，已运行则 no-op）
+          kamal accessory boot postgres -c config/deploy.ci.yml || true
           kamal deploy -c config/deploy.ci.yml
 
       # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
