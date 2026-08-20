@@ -146,9 +146,19 @@ defmodule Cgc2046.Workers.NotificationWorker do
       :ok
     else
       case deliver(args, platform) do
-        :ok -> :ok
-        {:error, reason} when reason in [:consent_exhausted, :platform_identity_not_found] -> :ok
-        {:error, reason} -> {:error, inspect(reason)}
+        :ok ->
+          :ok
+
+        {:error, reason}
+        when reason in [
+               :consent_exhausted,
+               :platform_identity_not_found,
+               :platform_not_configured
+             ] ->
+          :ok
+
+        {:error, reason} ->
+          {:error, inspect(reason)}
       end
     end
   end
