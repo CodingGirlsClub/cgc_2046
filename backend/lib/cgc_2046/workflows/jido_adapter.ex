@@ -750,8 +750,9 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   若未来 effects 异步化，此前提失效，drain 降级为超时强杀的旧 kill 行为
   （不劣化现状）。
 
-  残余窗口：fun 卡死超过 `timeout` 仍被强杀截断——概率缩小非零，兜底仍是
-  SignalIdempotency claim + E-10 对账。
+  残余窗口：fun 卡死超过 `timeout` 仍被强杀截断；`:reclaim` 排在深 signal
+  backlog 后（逐条执行 fun 聚合耗时超 `timeout`）同样会被强杀——概率缩小
+  非零，兜底仍是 SignalIdempotency claim + E-10 对账。
   """
   @spec drain_forwarders([pid()], pos_integer()) :: pid()
   def drain_forwarders(pids, timeout \\ @drain_default_timeout_ms)
@@ -769,9 +770,12 @@ defmodule Cgc2046.Workflows.JidoAdapter do
     end)
   end
 
-  # 等全部 forwarder 退出（自退或强杀后）：pending 空即收工；到 deadline 仍有
-  # 未退者（fun 卡死/消息被业务 receive 吞掉）强杀残余——kill 后 monitor 的
-  # DOWN 必然到达，转入无 deadline 收割，waiter 必退不泄漏。
+  # 等全部 forwarder 退出（自退或强杀后）。入口快路：pending 空即收工
+  # （drain_forwarders([]) 时 waiter 不空躺 timeout）；到 deadline 仍有
+  # 未退者（fun 卡死/消息被业务 receive 吞掉/backlog 聚合超时）强杀残余——
+  # kill 后 monitor 的 DOWN 必然到达，转入无 deadline 收割，waiter 必退不泄漏。
+  defp await_drain(pending, _deadline) when map_size(pending) == 0, do: :ok
+
   defp await_drain(pending, deadline) do
     remaining = deadline - System.monotonic_time(:millisecond)
 

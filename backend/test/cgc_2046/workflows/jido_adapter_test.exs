@@ -467,5 +467,13 @@ defmodule Cgc2046.Workflows.JidoAdapterTest do
       assert_receive {:DOWN, ^forwarder_ref, :process, ^forwarder, :killed}, 2_000
       assert_receive {:DOWN, ^waiter_ref, :process, ^waiter, _reason}, 2_000
     end
+
+    test "空 pid 列表：waiter 立即收工，不空躺 timeout" do
+      waiter = JidoAdapter.drain_forwarders([])
+      ref = Process.monitor(waiter)
+
+      # 无 forwarder 可等：快路立即退出（2s 预算 < 默认 5s timeout——空躺即红）
+      assert_receive {:DOWN, ^ref, :process, ^waiter, _reason}, 2_000
+    end
   end
 end
