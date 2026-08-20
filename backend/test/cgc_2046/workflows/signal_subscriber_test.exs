@@ -17,6 +17,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
 
   alias Cgc2046.Workflows.SignalSubscriberFixtures.{
     BadPattern,
+    BusProbe,
     BusRestart,
     ClaimAfter,
     ClaimFirst,
@@ -352,6 +353,112 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       end)
     after
       :telemetry.detach("bus-restart-ns")
+    end
+  end
+
+  describe "bus 退避 give-up → 低频探测 → 恢复（#244）" do
+    # 注入小参数（BusProbe fixture：max_retries 3 / probe_interval 200ms）使
+    # give-up→探测→恢复全链秒级完成。telemetry handler 对齐 fanout 惯例：
+    # attach_many + unique handler_id + on_exit detach。
+    test "退避耗尽 give-up → 探测模式；bus 回归 → 自动恢复订阅与投递" do
+      test_pid = self()
+      handler_id = "bus-probe-#{System.unique_integer([:positive])}"
+
+      :ok =
+        :telemetry.attach_many(
+          handler_id,
+          [
+            [:cgc2046, :signal_subscriber, :give_up],
+            [:cgc2046, :signal_subscriber, :recovered]
+          ],
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:probe_telemetry, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      start_supervised!(BusProbe)
+
+      assert :ok = JidoAdapter.publish("fixture.bus_probe", %{"test_pid" => test_pid, "n" => 1})
+      assert_receive {:handled, 1}, 1_000
+
+      bus_id = JidoAdapter.bus_name()
+      assert :ok = Supervisor.terminate_child(Cgc2046.Supervisor, bus_id)
+
+      # 退避链 100+200+400ms 耗尽 → 一次性 give_up（retries == max == 3）
+      assert_receive(
+        {:probe_telemetry, [:cgc2046, :signal_subscriber, :give_up], %{retries: 3},
+         %{subscriber: "BusProbe"}},
+        2_000
+      )
+
+      # 探测往返（bus 仍缺）不重复 give_up
+      refute_receive {:probe_telemetry, [:cgc2046, :signal_subscriber, :give_up], _, _}, 300
+
+      subscriber_pid = Process.whereis(BusProbe)
+      state = :sys.get_state(subscriber_pid)
+      assert state.bus_probing == true
+      assert state.bus_retries == 3
+      assert state.subscriptions == %{}
+
+      # bus 回归 → 探测周期内自动恢复（recovered 恰一次）
+      assert {:ok, _pid} = Supervisor.restart_child(Cgc2046.Supervisor, bus_id)
+
+      assert_receive(
+        {:probe_telemetry, [:cgc2046, :signal_subscriber, :recovered], %{count: 1},
+         %{subscriber: "BusProbe", was_probe: true}},
+        2_000
+      )
+
+      state = :sys.get_state(subscriber_pid)
+      assert state.bus_probing == false
+      assert state.bus_retries == 0
+      assert length(Map.keys(state.subscriptions)) == 1
+
+      # 投递恢复
+      publish_until_handled("fixture.bus_probe", 2)
+    after
+      _ = Supervisor.restart_child(Cgc2046.Supervisor, JidoAdapter.bus_name())
+    end
+
+    test "bus 持续缺席：多次探测往返无重复 give_up、bus_retries 不递增" do
+      test_pid = self()
+      handler_id = "bus-probe-nostorm-#{System.unique_integer([:positive])}"
+
+      :ok =
+        :telemetry.attach_many(
+          handler_id,
+          [[:cgc2046, :signal_subscriber, :give_up]],
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:probe_telemetry, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      start_supervised!(BusProbe)
+      bus_id = JidoAdapter.bus_name()
+      assert :ok = Supervisor.terminate_child(Cgc2046.Supervisor, bus_id)
+
+      # 进入探测模式：恰一次 give_up
+      assert_receive {:probe_telemetry, [:cgc2046, :signal_subscriber, :give_up], %{retries: 3},
+                      _},
+                     2_000
+
+      subscriber_pid = Process.whereis(BusProbe)
+
+      # 跨多次探测往返（~5 × 200ms），bus 持续缺席：无重复 give_up 事件
+      Process.sleep(1_000)
+      refute_receive {:probe_telemetry, [:cgc2046, :signal_subscriber, :give_up], _, _}, 100
+
+      state = :sys.get_state(subscriber_pid)
+      assert state.bus_probing == true
+      assert state.bus_retries == 3
+    after
+      _ = Supervisor.restart_child(Cgc2046.Supervisor, JidoAdapter.bus_name())
     end
   end
 
