@@ -230,3 +230,43 @@ jobs:
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
           ./gitleaks detect --source . --log-opts="--all" --config=.gitleaks.toml --no-banner
+
+  # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64
+  # 镜像则就地构建推送——merge 进 main 时镜像必然已就位，deploy 端 45min+
+  # 现场重建（曾触发 timeout 击杀）与「mix.lock 变更后本地手动预推」的
+  # 人工步骤一并消失；CI runner 恒 x86_64，天然杜绝本地 Apple Silicon 漏
+  # --platform 推错架构的事故（run 32487795766 第二败）。deploy 端 fallback
+  # 构建保留（自愈兜底）。镜像命中时本 job ~30s。
+  # 凭证走 repo-level（production environment 的 branch policy 已限 main，
+  # develop job 挂不上；也不该挂——只需 registry 凭证，不该够到整组生产
+  # secrets）。不挂 gate：镜像存在性与 CI 去重无关。仅 push 事件跑：PR
+  # 事件不碰凭证（fork PR 本就无 secrets）。
+  deps-image:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ensure amd64 deps image
+        env:
+          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          TCR_REGISTRY: ${{ vars.TCR_REGISTRY }}
+          TCR_USERNAME: ${{ vars.TCR_USERNAME }}
+        run: |
+          echo "$KAMAL_REGISTRY_PASSWORD" | docker login "$TCR_REGISTRY" -u "$TCR_USERNAME" --password-stdin
+          # 架构校验与 deploy.yml 同款：错架构（本地误推 arm64）按缺失处理，
+          # 原生 amd64 重建覆盖推送即自愈
+          LOCK_HASH=$(sha256sum mix.lock | cut -c1-16)
+          DEPS_IMAGE="${TCR_REGISTRY}/codingirlsclub/cgc2046-backend-deps:${LOCK_HASH}"
+          DEPS_ARCH=$(docker manifest inspect -v "$DEPS_IMAGE" 2>/dev/null \
+            | grep -m1 '"architecture"' | grep -o 'amd64\|arm64' || true)
+          if [ "$DEPS_ARCH" = "amd64" ]; then
+            echo "deps 镜像已就位（amd64）：$DEPS_IMAGE"
+          else
+            echo "deps 镜像缺失或架构不符（got: ${DEPS_ARCH:-none}），构建并推送：$DEPS_IMAGE"
+            docker build -f Dockerfile.deps -t "$DEPS_IMAGE" ..
+            docker push "$DEPS_IMAGE"
+          fi
