@@ -40,10 +40,13 @@ backend 部署依赖预编译镜像（`backend/Dockerfile.deps`，tag = `sha256(
 **改 `mix.lock`（加/升依赖）后、部署前，本地预构建推送**（M3 Max 数分钟，CI 兜底分支只在忘记时触发）：
 
 ```bash
-TAG=$(sha256sum backend/mix.lock | cut -c1-16)
-docker build -f backend/Dockerfile.deps -t ccr.ccs.tencentyun.com/codingirlsclub/cgc2046-backend-deps:$TAG .
+TAG=$(shasum -a 256 backend/mix.lock | cut -c1-16)  # macOS 无 sha256sum；与 CI 的 sha256sum 前 16 位一致
+docker build --platform linux/amd64 -f backend/Dockerfile.deps \
+  -t ccr.ccs.tencentyun.com/codingirlsclub/cgc2046-backend-deps:$TAG .
 docker push ccr.ccs.tencentyun.com/codingirlsclub/cgc2046-backend-deps:$TAG
 ```
 
 原理：镜像 tag 只随 mix.lock 变——lock 不变永远命中；变更即新 tag，本地推完 CI 即命中。凭据用 TCR 个人版（`ccr.ccs.tencentyun.com`），`docker login` 一次即可。
+
+**`--platform linux/amd64` 不可省**：CI/生产是 x86，Apple Silicon 默认构建 arm64——CI 拉到错架构基础镜像会在 `RUN mix compile` 处 `exec format error` 直接败（run 32487795766 第二败实证，2026-08-22）。推完可验证：`docker manifest inspect <image> | grep architecture` 应为 amd64。
 
