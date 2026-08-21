@@ -36,6 +36,10 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # run list 需 actions:read；显式声明后不受 org 默认 token 权限收紧影响
+    permissions:
+      actions: read
+      contents: read
     outputs:
       backend: ${{ steps.detect.outputs.backend }}
       web: ${{ steps.detect.outputs.web }}
@@ -44,17 +48,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
         run: |
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "web=true" >> "$GITHUB_OUTPUT"
           [ "${{ github.event_name }}" = "push" ] || exit 0
-          # 分支首推 before 为全零 SHA 无从比对；main 禁 force-push，其余
-          # 情况 before 必为 sha 祖先，compare 结果可信
-          { [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; } || exit 0
+          # 基线 = 最后一次成功 Deploy run 的 headSha，而非 event.before：
+          # event.before 隐含「上次部署成功」假设——上次失败时，失败未上线
+          # 的区间会漏出 diff，部署被跳过 + smoke 照样绿 = 静默丢版本
+          # （32487795766 失败后的下一次 merge 即为实例）。从上次成功起算，
+          # 失败区间自动并入本次 diff，自愈；无成功记录（首次部署）→ 全部署。
+          # main 禁 force-push，基线必为 sha 祖先，compare 结果可信
+          BASE=$(gh run list -R "$REPO" --workflow=deploy.yml --branch=main \
+            --status=success --limit 1 --json headSha --jq '.[0].headSha // empty') || exit 0
+          [ -n "$BASE" ] || exit 0
           # rename 场景 filename 只有新路径，previous_filename 补旧路径
-          files=$(gh api "repos/$REPO/compare/${BEFORE}...${SHA}" \
+          files=$(gh api "repos/$REPO/compare/${BASE}...${SHA}" \
             --jq '.files[] | .filename, (.previous_filename // empty)') || exit 0
           # compare API 单次最多返回 300 files，达到即可能截断 → 全部署
           [ "$(wc -l <<<"$files")" -lt 300 ] || exit 0
