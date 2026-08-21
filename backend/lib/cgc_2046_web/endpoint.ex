@@ -16,6 +16,20 @@ defmodule Cgc2046Web.Endpoint do
     longpoll: [connect_info: [session: @session_options]]
   )
 
+  # /ops/* 经 kamal-proxy path 路由直达本容器（主域浏览器会话，方案 #A1）。
+  # LiveView WebSocket 必须落在同前缀下才能被同一条 path 规则覆盖；
+  # check_origin 显式含主域（默认从 endpoint url 推导出的是 api 子域）。
+  socket("/ops/live", Phoenix.LiveView.Socket,
+    websocket: [
+      check_origin: ["https://codingirlsclub.com"],
+      connect_info: [session: @session_options]
+    ],
+    longpoll: [
+      check_origin: ["https://codingirlsclub.com"],
+      connect_info: [session: @session_options]
+    ]
+  )
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),
