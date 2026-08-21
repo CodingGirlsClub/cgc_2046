@@ -94,9 +94,10 @@ builder:
   dockerfile: "Dockerfile"
   arch: amd64
   args:
-    # deps 预编译基础镜像（Dockerfile.deps，tag=mix.lock 哈希），CI 算好经
-    # .kamal/secrets 注入。取代 buildx cache：mode=max 导出 GB 级中间层到
-    # GHA cache 已实证挂起（run 32375926425）；registry cache 每次部署都要
-    # 付导出成本。基础镜像把导出频率降为「每次 mix.lock 变更」一次。
+    # deps 预编译基础镜像（Dockerfile.deps，tag=mix.lock 哈希）。CI sed 替换
+    # 占位符（TCR_REGISTRY 模式）——Kamal 对 builder args 的 ${VAR} 零插值
+    # （2026-08-21 本地实证），ERB 也读不到 .kamal/secrets。
+    # 取代 buildx cache：mode=max 导出 GB 级中间层到 GHA cache 已实证挂起
+    # （run 32375926425）。基础镜像把导出频率降为「每次 mix.lock 变更」一次。
     # 数据勘误：无 cache 全量 deploy 实测 ~10min（非早前注释的 ~20min）
-    BACKEND_DEPS_IMAGE: ${BACKEND_DEPS_IMAGE}
+    BACKEND_DEPS_IMAGE: <BACKEND_DEPS_IMAGE>
