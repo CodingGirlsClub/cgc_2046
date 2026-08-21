@@ -33,3 +33,17 @@ Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architect
 3. **视觉复核（兜底，仅感知层）**：截图交给视觉模型只查「无法数值断言」的主观项 —— 层级 / 对比度观感 / 留白协调 / 整体美感；同时截图作为给人看的证据。不要为每个页面都截图问模型；截图前先确认结构断言已全部通过。
 4. **登录态**：优先 `agent-browser connect <cdp-port>` 复用已登录浏览器；无法复用且确需登录时，先备份 `users.hashed_password`（psql `cgc_2046_dev`），临时重置密码完成验证后**必须恢复原哈希**。
 
+### Deploy deps 镜像节奏
+
+backend 部署依赖预编译镜像（`backend/Dockerfile.deps`，tag = `sha256(mix.lock)` 前 16 位）。CI 命中 TCR 即跳过全部依赖编译（部署 ~4min）；未命中在 2 核 runner 上重建可超 45min（timeout 已放宽至 90min 兜底，但别依赖它）。
+
+**改 `mix.lock`（加/升依赖）后、部署前，本地预构建推送**（M3 Max 数分钟，CI 兜底分支只在忘记时触发）：
+
+```bash
+TAG=$(sha256sum backend/mix.lock | cut -c1-16)
+docker build -f backend/Dockerfile.deps -t ccr.ccs.tencentyun.com/codingirlsclub/cgc2046-backend-deps:$TAG .
+docker push ccr.ccs.tencentyun.com/codingirlsclub/cgc2046-backend-deps:$TAG
+```
+
+原理：镜像 tag 只随 mix.lock 变——lock 不变永远命中；变更即新 tag，本地推完 CI 即命中。凭据用 TCR 个人版（`ccr.ccs.tencentyun.com`），`docker login` 一次即可。
+
