@@ -94,7 +94,7 @@ defmodule Cgc2046.Workflows.SignalLog do
       description("记录收到的外部信号")
       accept([:run_id, :signal_type, :payload, :actor_id])
 
-      change(set_attribute(:received_at, DateTime.utc_now()))
+      change(set_attribute(:received_at, &DateTime.utc_now/0))
 
       # workspace_id 由 tenant 强制（同 WorkflowRun.create 模式），不接受调用方传入
       change(fn changeset, _context ->
