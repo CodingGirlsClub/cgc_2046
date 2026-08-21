@@ -34,6 +34,12 @@ registry:
   password:
     - KAMAL_REGISTRY_PASSWORD
 
+# 运行时 env（#283）：Dockerfile 的 ENV 只在 build stage 生效（多阶段不跨
+# FROM），alignUserLocale 等服务端代码在运行时读 BACKEND_URL——必须此处注入
+env:
+  clear:
+    BACKEND_URL: <BACKEND_URL>
+
 # NEXT_PUBLIC_* 构建时内联（#254）：经 builder args 传入 docker build，
 # 运行时注入对静态产物无效
 builder:
