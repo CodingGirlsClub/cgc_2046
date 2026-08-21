@@ -20,14 +20,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 门禁前置:push 事件的 merge commit 去重。
+  # 判据:merge commit(2 parents) 且 tree == 第二父 tree(零漂移合并——
+  #       base 未动、无冲突解决) 且第二父 SHA 上 CI 四 job 最新结论全 success
+  #   → 该 merge 等价于刚跑绿的 PR head,跳过(run=false)。
+  # 直接 push(parents==1)、基线漂移(tree 不等)、squash merge、判断异常
+  #   → run=true。fail-closed 于质量门:宁可多跑,不漏跑。
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          [ "${{ github.event_name }}" = "push" ] || exit 0
+
+          info=$(gh api "repos/$REPO/commits/${{ github.sha }}") || exit 0
+          [ "$(jq '.parents | length' <<<"$info")" = "2" ] || exit 0
+
+          second=$(jq -r '.parents[1].sha' <<<"$info")
+          tree=$(jq -r '.commit.tree.sha' <<<"$info")
+          second_tree=$(gh api "repos/$REPO/commits/$second" --jq '.commit.tree.sha') || exit 0
+          [ "$tree" = "$second_tree" ] || exit 0
+
+          # 第二父(被合入分支 head)上四个 CI job 的最新结论必须全 success;
+          # 无记录时结论为空串≠success → 跑(fail-closed)
+          concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets")]
+                  | group_by(.name) | map(sort_by(.started_at) | last | .conclusion) | unique | join(",")') || exit 0
+          [ "$concls" = "success" ] || exit 0
+
+          echo "merge push 等价于已绿 PR head $second,跳过" >> "$GITHUB_STEP_SUMMARY"
+          echo "run=false" >> "$GITHUB_OUTPUT"
+
   backend:
-    # PR 去重：仅跳过「head 为本仓库 develop」的 PR（develop→main 发布 PR
-    # 复用 develop push 的同 SHA 结论,required checks 按 SHA 认领）;
-    # feature→develop、fork PR 没有 push run 可复用,照常跑
+    needs: gate
+    # 双重去重:gate 挡「等价于已绿 PR 的 merge push」;PR 侧仅跳过
+    # 「head 为本仓库 develop」的 PR(复用 develop push 的同 SHA 结论);
+    # feature→develop、fork PR 没有可复用结果,照常跑
     if: >
-      github.event_name == 'push' ||
-      github.head_ref != 'develop' ||
-      github.event.pull_request.head.repo.full_name != github.repository
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -85,11 +125,13 @@ jobs:
       - run: mix test
         timeout-minutes: 15
   web:
-    # PR 去重：同 backend job 的 if（仅 develop→main 发布 PR 跳过）
+    needs: gate
+    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
-      github.event_name == 'push' ||
-      github.head_ref != 'develop' ||
-      github.event.pull_request.head.repo.full_name != github.repository
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -127,11 +169,13 @@ jobs:
           BACKEND_URL: http://localhost:4000
 
   miniprogram:
-    # PR 去重：同 backend job 的 if（仅 develop→main 发布 PR 跳过）
+    needs: gate
+    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
-      github.event_name == 'push' ||
-      github.head_ref != 'develop' ||
-      github.event.pull_request.head.repo.full_name != github.repository
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
     # 序列尾部新增 mock 构建冒烟（多一次 build:weapp），余量 20 → 25
     timeout-minutes: 25
@@ -169,11 +213,13 @@ jobs:
   # 强制 GITLEAKS_LICENSE 商业许可；CLI 自取二进制，行为等价（检出即非零退出）。
   # 放行项仅 dev/test 静态 secret_key_base，见根目录 .gitleaks.toml。
   secrets:
-    # PR 去重：同 backend job 的 if（仅 develop→main 发布 PR 跳过）
+    needs: gate
+    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
-      github.event_name == 'push' ||
-      github.head_ref != 'develop' ||
-      github.event.pull_request.head.repo.full_name != github.repository
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
