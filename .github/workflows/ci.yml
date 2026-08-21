@@ -4,11 +4,15 @@ on:
   push:
     branches: [develop, main]
   pull_request:
-    branches: [develop]
+    # 含 main：main 的 branch protection 要求 4 个 checks，PR→main 不跑 CI
+    # 则 checks 永远 pending、merge 只能 bypass——保护形同虚设
+    branches: [develop, main]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  # push 场景用 ref（同分支新 push 取消旧 run）；PR 场景用 head_ref。
+  # 原来 fallback 到 run_id 等于每次 push 独立分组，旧 run 从不被取消
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,20 +40,23 @@ jobs:
       # format/rbac/license 检查均环境无关
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: erlef/setup-beam@v1
         with:
           # runic（jido_runic 底层）要求 Elixir ~> 1.18（1.17 无内置 JSON.Encoder，
           # runic 编译崩溃）；1.20 + OTP 29 与本地开发环境完全对齐，避免版本错位
           elixir-version: "1.20"
           otp-version: "29"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
-          # deps+_build 缓存：compile 从零编 4m45s 降为增量；key 绑 mix.lock，
-          # 依赖变更自动失效，restore-keys 允许跨 PR 复用同前缀缓存
+          # deps+_build 缓存：compile 从零编 ~3.5min 降为增量；key 绑 mix.lock，
+          # 依赖变更自动失效，restore-keys 允许跨 PR 复用同前缀缓存。
+          # 注意：path 相对 repo 根解析（不受 defaults.run.working-directory
+          # 影响），必须带 backend/ 前缀——无此前缀时路径不存在，保存阶段
+          # Path Validation Error 静默跳过，cache 从未生效（2026-08-21 实证）
           path: |
-            deps
-            _build
+            backend/deps
+            backend/_build
           key: mix-1.20-otp29-test-${{ hashFiles('backend/mix.lock') }}
           restore-keys: |
             mix-1.20-otp29-test-
@@ -73,18 +80,18 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # pnpm/action-setup must run BEFORE setup-node so the `cache: pnpm`
       # resolver finds the pnpm binary. (Authorized adjustment per plan 006.)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.28.2  # 与 web/package.json 的 packageManager 对齐，消除版本漂移
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "pnpm"
           cache-dependency-path: web/pnpm-lock.yaml
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: web/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('web/pnpm-lock.yaml') }}-${{ hashFiles('web/**.[jt]s', 'web/**.[jt]sx') }}
@@ -111,13 +118,13 @@ jobs:
       run:
         working-directory: miniprogram
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # pnpm/action-setup must run BEFORE setup-node so the `cache: pnpm`
       # resolver finds the pnpm binary. (Same ordering as the web job.)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "pnpm"
@@ -144,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # 扫历史需要完整 git 对象
       - name: Gitleaks scan

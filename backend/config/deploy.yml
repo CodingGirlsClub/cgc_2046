@@ -54,6 +54,21 @@ env:
     - SENDCLOUD_SMS_TEMPLATE_ID
     - WEB_BASE_URL
     - CORS_ORIGIN
+    # 支付渠道（可选门禁：缺凭证时 provider_not_configured，boot 不崩）
+    - WECHAT_PAY_MCH_ID
+    - WECHAT_PAY_APPID
+    - WECHAT_PAY_API_V3_KEY
+    - WECHAT_PAY_API_V2_KEY
+    - WECHAT_PAY_CLIENT_SERIAL_NO
+    - WECHAT_PAY_CLIENT_PRIVATE_KEY
+    - PAYMENTS_WEBHOOK_BASE_URL
+    - ALIPAY_APP_ID
+    - ALIPAY_PRIVATE_KEY
+    - ALIPAY_PUBLIC_KEY
+    - ALIPAY_SANDBOX
+    # 微信扫码登录（可选门禁：缺省 wechat_login_unavailable）
+    - WECHAT_WEB_APPID
+    - WECHAT_WEB_SECRET
 
 # 数据库迁移在切流前完成（blue-green 新容器执行，旧容器不受影响）
 accessories:
@@ -77,8 +92,11 @@ builder:
   # context；context=".."=repo根（Dockerfile COPY backend/… 需根上下文）
   context: ".."
   dockerfile: "Dockerfile"
-  # GHA buildx cache 已回滚（2026-08-20 实证负优化）：mode=max 导出 Elixir
-  # _build/deps 大层时挂起（34min 零输出后 40min 超时，run 32375926425），
-  # 全量编译 ~20min 确定性完成优于缓存不确定性。若重试缓存：type=gha 不带
-  # mode=max（只缓存最终层）+ 先在 PR 验证导出耗时
   arch: amd64
+  args:
+    # deps 预编译基础镜像（Dockerfile.deps，tag=mix.lock 哈希），CI 算好经
+    # .kamal/secrets 注入。取代 buildx cache：mode=max 导出 GB 级中间层到
+    # GHA cache 已实证挂起（run 32375926425）；registry cache 每次部署都要
+    # 付导出成本。基础镜像把导出频率降为「每次 mix.lock 变更」一次。
+    # 数据勘误：无 cache 全量 deploy 实测 ~10min（非早前注释的 ~20min）
+    BACKEND_DEPS_IMAGE: ${BACKEND_DEPS_IMAGE}
