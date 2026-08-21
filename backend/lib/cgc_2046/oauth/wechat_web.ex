@@ -42,9 +42,8 @@ defmodule Cgc2046.OAuth.WechatWeb do
         {"response_type", "code"},
         {"scope", "snsapi_login"},
         {"state", state},
-        # 官方 href 定制通道:微信服务端拉取该 CSS 注入扫码页,
-        # 用于把快捷登录态内容在 iframe 内垂直居中(web/public/wechat-qr.css)。
-        # urlsafe base64、无 padding;微信拉取失败/过滤时静默回退原布局。
+        # 官方 href 定制通道：微信服务端拉取该 CSS 注入扫码页，
+        # URI.encode_query/1 负责对完整 HTTPS URL 做查询参数编码。
         {"href", qr_href_param()}
       ]
 
@@ -56,8 +55,7 @@ defmodule Cgc2046.OAuth.WechatWeb do
   end
 
   defp qr_href_param do
-    css_url = Application.fetch_env!(:cgc_2046, :web_base_url) <> "/wechat-qr.css"
-    css_url |> Base.url_encode64() |> String.trim_trailing("=")
+    Application.fetch_env!(:cgc_2046, :web_base_url) <> "/wechat-qr.css"
   end
 
   @doc """

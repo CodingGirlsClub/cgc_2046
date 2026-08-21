@@ -96,7 +96,9 @@ defmodule Cgc2046Web.Router do
 
     ash_admin("/admin",
       on_mount: [Cgc2046Web.Live.PlatformAdminLiveAuth],
-      session: {Cgc2046Web.Live.PlatformAdminLiveAuth, :session_data, []}
+      session: {Cgc2046Web.Live.PlatformAdminLiveAuth, :session_data, []},
+      # WebSocket 走 /ops/live（endpoint 已挂）——与 path 路由前缀一致
+      live_socket_path: "/ops/live"
     )
   end
 

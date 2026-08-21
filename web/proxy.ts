@@ -168,7 +168,8 @@ export function proxy(request: NextRequest) {
 export const config = {
 	matcher: [
 		{
-			source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
+			// 仅页面进入 locale middleware；带点号的 public/_next 外部资源保持原始路径。
+			source: "/((?!api|_next|_vercel|.*\\..*).*)",
 			missing: [
 				{ type: "header", key: "next-router-prefetch" },
 				{ type: "header", key: "purpose", value: "prefetch" },

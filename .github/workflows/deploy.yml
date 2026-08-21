@@ -219,3 +219,8 @@ jobs:
             https://api.codingirlsclub.com/healthz
           curl -fsSI --retry 6 --retry-delay 5 --retry-all-errors \
             https://codingirlsclub.com/ | head -1
+          # /ops 经主域 path 路由直达 backend：未登录期待 403（PlatformAdminPlug）；
+          # 404 = 路由丢失到 web 前端（kamal-proxy path 规则失效，部署红线）
+          OPS=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-all-errors \
+            https://codingirlsclub.com/ops/admin)
+          [ "$OPS" = "403" ] || { echo "FAIL: /ops/admin => $OPS (expect 403)"; exit 1; }
