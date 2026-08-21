@@ -18,11 +18,12 @@ servers:
       - <SERVER_HOST>
     proxy:
       host: codingirlsclub.com
-      # TLS 由该 host 的根路径服务（cgc2046-web）终结——kamal-proxy 要求
-      # TLS 选项只能声明在根 path 服务上，子路径服务带 --tls 会被拒绝
-      # （"TLS settings must be specified on the root path service"）
+      # 显式 false 覆盖顶层 ssl: true（role merge 只覆盖出现的键，删除
+      # 键=继承）。kamal-proxy 要求 TLS 只配在根 path 服务（主域根服务
+      # = cgc2046-web，证书由它终结）；子路径服务带 --tls 会被拒：
+      # "TLS settings must be specified on the root path service"
+      ssl: false
       path_prefix: /ops
-      # 默认 strip 路径前缀——Phoenix 路由带 /ops，必须显式保留
       strip_path_prefix: false
       app_port: 4000
       healthcheck:
