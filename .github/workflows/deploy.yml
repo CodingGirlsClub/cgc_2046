@@ -141,13 +141,19 @@ jobs:
           kamal registry login -c config/deploy.ci.yml
           # deps 基础镜像（Dockerfile.deps）：tag=mix.lock 哈希。命中则跳过
           # deps 编译（部署提速大头）；缺失则构建推送（仅 mix.lock 变更时，
-          # 一次性 ~5min）。manifest inspect 依赖上面的 registry login
+          # 一次性 ~5min）。manifest inspect 依赖上面的 registry login。
+          # 命中必须校验架构=amd64：本地（Apple Silicon）预推漏 --platform
+          # 会留下 arm64 同名 tag，仅查存在会永久命中错镜像 → 主构建
+          # exec format error（run 32487795766 第二败实证）；错架构按
+          # 缺失处理，原生重建覆盖推送即自愈
           LOCK_HASH=$(sha256sum mix.lock | cut -c1-16)
           DEPS_IMAGE="${{ vars.TCR_REGISTRY }}/codingirlsclub/cgc2046-backend-deps:${LOCK_HASH}"
-          if docker manifest inspect "$DEPS_IMAGE" > /dev/null 2>&1; then
-            echo "deps 镜像命中（mix.lock 未变）：$DEPS_IMAGE"
+          DEPS_ARCH=$(docker manifest inspect -v "$DEPS_IMAGE" 2>/dev/null \
+            | grep -m1 '"architecture"' | grep -o 'amd64\|arm64' || true)
+          if [ "$DEPS_ARCH" = "amd64" ]; then
+            echo "deps 镜像命中（mix.lock 未变，amd64）：$DEPS_IMAGE"
           else
-            echo "deps 镜像缺失，构建并推送（mix.lock 变更后一次性）…"
+            echo "deps 镜像缺失或架构不符（got: ${DEPS_ARCH:-none}），构建并推送…"
             docker build -f Dockerfile.deps -t "$DEPS_IMAGE" ..
             docker push "$DEPS_IMAGE"
           fi
