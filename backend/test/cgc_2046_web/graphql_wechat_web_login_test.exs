@@ -65,17 +65,20 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     put_req_cookie(conn, "cgc_wechat_state", state_cookie)
   end
 
-  defp stub_code2session(openid, unionid \\ nil) do
+  defp stub_code2access_token(openid, unionid) do
     Req.Test.stub(@stub, fn
       %{path_info: ["sns", "oauth2", "access_token"]} = conn ->
-        Req.Test.json(conn, %{
-          "access_token" => "at-#{openid}",
-          "openid" => openid,
-          "unionid" => unionid
-        })
+        Req.Test.text(
+          conn,
+          Jason.encode!(%{
+            "access_token" => "at-#{openid}",
+            "openid" => openid,
+            "unionid" => unionid
+          })
+        )
 
       %{path_info: ["sns", "userinfo"]} = conn ->
-        Req.Test.json(conn, %{"openid" => openid, "nickname" => "wuser"})
+        Req.Test.text(conn, Jason.encode!(%{"openid" => openid, "nickname" => "wuser"}))
     end)
   end
 
@@ -141,7 +144,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
 
   describe "signInWithWechat" do
     test "未绑定：needs_binding + bindTicket（=state）", %{login: {state, sc}} do
-      stub_code2session("web-openid-new", "union-1")
+      stub_code2access_token("web-openid-new", "union-1")
 
       res =
         build_conn()
@@ -160,7 +163,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     end
 
     test "state 重放拒绝：同一 state 第二次回调失败", %{login: {state, sc}} do
-      stub_code2session("web-openid-replay", "union-2")
+      stub_code2access_token("web-openid-replay", "union-2")
 
       build_conn()
       |> with_wechat_cookie(sc)
@@ -177,7 +180,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     end
 
     test "M2 无浏览器 cookie：合法 state+code 也拒绝（钓鱼链接防护）", %{login: {state, _sc}} do
-      stub_code2session("web-openid-phish", nil)
+      stub_code2access_token("web-openid-phish", nil)
 
       res =
         build_conn()
@@ -188,7 +191,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     end
 
     test "M2 cookie 不匹配（他浏览器 state）：拒绝", %{login: {state, _sc}} do
-      stub_code2session("web-openid-mismatch", nil)
+      stub_code2access_token("web-openid-mismatch", nil)
 
       res =
         build_conn()
@@ -200,7 +203,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     end
 
     test "state 不存在：统一 wechat_sign_in_failed" do
-      stub_code2session("web-openid-x", nil)
+      stub_code2access_token("web-openid-x", nil)
 
       res =
         build_conn()
@@ -213,10 +216,13 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     test "code 换 token 失败（errcode 非零）→ wechat_sign_in_failed", %{login: {state, sc}} do
       Req.Test.stub(@stub, fn
         %{path_info: ["sns", "oauth2", "access_token"]} = conn ->
-          Req.Test.json(conn, %{"errcode" => 40_063, "errmsg" => "invalid code"})
+          Req.Test.text(
+            conn,
+            Jason.encode!(%{"errcode" => 40_063, "errmsg" => "invalid code"})
+          )
 
         %{path_info: ["sns", "userinfo"]} = conn ->
-          Req.Test.json(conn, %{"openid" => "x"})
+          Req.Test.text(conn, Jason.encode!(%{"openid" => "x"}))
       end)
 
       res =
@@ -228,10 +234,74 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
     end
 
+    test "微信异常响应日志只记分类，不泄漏 token/身份值", %{login: {state, sc}} do
+      sensitive_payload = %{
+        "access_token" => "fixture-access-token-sensitive",
+        "refresh_token" => "fixture-refresh-token-sensitive",
+        "unexpected_openid" => "fixture-openid-sensitive",
+        "unionid" => "fixture-unionid-sensitive"
+      }
+
+      Req.Test.stub(@stub, fn conn ->
+        Req.Test.text(
+          conn,
+          Jason.encode!(sensitive_payload)
+        )
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          res =
+            build_conn()
+            |> with_wechat_cookie(sc)
+            |> graphql_post(sign_in_with_wechat_mutation("malformed-code", state))
+            |> json_response(200)
+
+          assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
+        end)
+
+      assert log =~ "[wechat_web sign_in] failed: {:wechat_web_bad_response, 200}"
+      Enum.each(Map.values(sensitive_payload), &refute(log =~ &1))
+    end
+
+    test "微信 token 响应的必填字段必须是非空字符串" do
+      invalid_fields = [
+        {"access_token", nil},
+        {"access_token", %{}},
+        {"access_token", ""},
+        {"openid", nil},
+        {"openid", 123},
+        {"openid", "   "}
+      ]
+
+      Enum.each(invalid_fields, fn {field, invalid_value} ->
+        {state, sc} = start_login()
+
+        payload =
+          Map.put(
+            %{"access_token" => "valid-access-token", "openid" => "valid-openid"},
+            field,
+            invalid_value
+          )
+
+        Req.Test.stub(@stub, fn conn ->
+          Req.Test.text(conn, Jason.encode!(payload))
+        end)
+
+        res =
+          build_conn()
+          |> with_wechat_cookie(sc)
+          |> graphql_post(sign_in_with_wechat_mutation("malformed-field-code", state))
+          |> json_response(200)
+
+        assert %{"errors" => [%{"code" => "wechat_sign_in_failed"}]} = res
+      end)
+    end
+
     test "绑定后直登：SIGNED_IN + httpOnly cookie" do
       # 先走 needs_binding 拿 ticket 并完成绑定
       {state, sc} = start_login()
-      stub_code2session("web-openid-direct", "union-direct")
+      stub_code2access_token("web-openid-direct", "union-direct")
 
       # 先触发 needs_binding（ticket 迁移）再完成绑定
       res0 =
@@ -269,7 +339,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       {:ok, mp_identity_user} = create_mp_user_with_unionid(@phone, "union-shared")
 
       {state, sc} = start_login()
-      stub_code2session("web-openid-mp-merge", "union-shared")
+      stub_code2access_token("web-openid-mp-merge", "union-shared")
 
       conn =
         build_conn()
@@ -289,7 +359,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
   describe "bindWechatWithPhone" do
     test "绑定全流程：验码 → 建号 → identity 落库 → 消费 ticket → cookie" do
       {state, sc} = start_login()
-      stub_code2session("web-openid-bind", "union-bind")
+      stub_code2access_token("web-openid-bind", "union-bind")
 
       # 先触发 needs_binding（ticket 迁移）
       res =
@@ -336,7 +406,7 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     end
 
     test "错码：invalid_or_expired_code + ticket 可重试（M3：验码失败不烧 ticket）", %{login: {state, sc}} do
-      stub_code2session("web-openid-bad", nil)
+      stub_code2access_token("web-openid-bad", nil)
 
       build_conn()
       |> with_wechat_cookie(sc)
