@@ -5,6 +5,13 @@
 #      secrets: SERVER_SSH_KEY, KAMAL_REGISTRY_PASSWORD, DATABASE_URL
 #      vars:    TCR_REGISTRY, TCR_USERNAME, SERVER_HOST, SERVER_HOST_KEY
 # 环境注入契约：docs/运维/邮件与CD环境注入.md
+#
+# 质量门：main 禁直推 + required PR（4 checks strict）——进 main 的代码
+# 必然已过 CI，故 deploy 保持 push 触发即可，无需 workflow_run 二次等待。
+#
+# 拓扑：backend / web 两个 job 并行（共享 kamal-proxy 但操作各自 service，
+# 配置按 service 隔离）；smoke 在两者都成功后执行。公共 setup（checkout/
+# ruby/kamal/SSH）各 job 独立重复——GHA 不支持 YAML anchors，重复即显式。
 
 name: Deploy
 
@@ -18,10 +25,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  backend:
     runs-on: ubuntu-latest
-    # 全量 deploy 实测 ~10min（deps 镜像命中后更快）；30min 足够余量，
-    # 挂死类故障比 90min 早一小时暴露
+    # 全量 deploy 实测 ~10min（deps 镜像命中后 ~4min）；首次构建 deps 镜像
+    # 多 ~5-8min。挂死类故障快速暴露
     timeout-minutes: 30
     environment: production
     steps:
@@ -39,7 +46,6 @@ jobs:
           # 新装系统 host key 已换新；显式写入当前指纹，绕开 known_hosts
           # 哈希条目与 Net::SSH 的读取兼容问题
           echo "${{ vars.SERVER_HOST }} ssh-ed25519 ${{ vars.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
-
 
       # Kamal env.secret 从 .kamal/secrets（dotenv）解析而非进程 env——
       # CI 侧必须生成该文件（含 backend 全部 secret 注入源）
@@ -149,7 +155,26 @@ jobs:
           kamal accessory boot postgres -c config/deploy.ci.yml || true
           kamal deploy -c config/deploy.ci.yml
 
-      # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
+  # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
+  # 并行 job 独立 runner：registry login / SSH 不共享，必须各自执行
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - run: gem install kamal --no-document
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ vars.SERVER_HOST }} ssh-ed25519 ${{ vars.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
+
       - name: Write .kamal/secrets (web)
         working-directory: web
         run: |
@@ -171,8 +196,15 @@ jobs:
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
               -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
+          # 并行 job 独立 runner：docker login 状态不共享，必须显式 login
+          kamal registry login -c config/deploy.ci.yml
           kamal deploy -c config/deploy.ci.yml
 
+  smoke:
+    needs: [backend, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
       - name: Smoke check
         # --retry：ACME 首签窗口（Let's Encrypt 验证→证书就绪）内 TLS 握手
         # 可能瞬时失败；retry-all-errors 覆盖 SSL 层错误（curl 默认不重试）
