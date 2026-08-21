@@ -10,6 +10,25 @@ image: codingirlsclub/cgc2046-backend
 servers:
   web:
     - <SERVER_HOST>
+  # ops：同一镜像第二个容器，服务主域 /ops/*（浏览器会话唯一归属主域的
+  # 架构规则——AshAdmin 等 LiveView 面必须经主域到达，cookie 才随行）。
+  # 非 primary role 需显式 proxy map；不 strip prefix（Phoenix 路由本身带 /ops）
+  ops:
+    hosts:
+      - <SERVER_HOST>
+    proxy:
+      host: codingirlsclub.com
+      ssl: true
+      path_prefix: /ops
+      # kamal-proxy 默认 strip 路径前缀（gem 文档 proxy.yml:103-109）——
+      # Phoenix 路由本身带 /ops，必须显式保留，否则 /ops/admin 被剥成
+      # /admin → 404 → 冒烟断言红线
+      strip_path_prefix: false
+      app_port: 4000
+      healthcheck:
+        path: /healthz
+        interval: 5
+        timeout: 5
 
 # 部署用户：deploy（sudo 免密 + docker 组；见 ~/.ssh/config cgc_production_server）
 ssh:
