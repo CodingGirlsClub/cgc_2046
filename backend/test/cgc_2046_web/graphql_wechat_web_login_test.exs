@@ -49,6 +49,10 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
     assert String.starts_with?(start["qrUrl"], "https://open.weixin.qq.com/connect/qrconnect")
     assert start["qrUrl"] =~ "state=" <> start["state"]
     assert start["qrUrl"] =~ "scope=snsapi_login"
+
+    qr_params = start["qrUrl"] |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    assert qr_params["href"] == "http://localhost:3000/wechat-qr.css"
+
     assert start["expiresInSeconds"] > 0
 
     # M2：state 经 httpOnly cgc_wechat_state cookie 绑定发起浏览器
