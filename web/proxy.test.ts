@@ -75,4 +75,13 @@ describe("resolveProxyPlan（F0 _ul / F1 x-pathname / CSP-REG malformed）", () 
 		expect(planFor("/login").malformed).toBe(false);
 		expect(planFor("/w/café").malformed).toBe(false);
 	});
+
+	it("静态文件不进入 locale proxy matcher", async () => {
+		const { config } = await import("./proxy");
+		const source = (config.matcher[0] as { source: string }).source;
+		const matcher = new RegExp(`^${source}$`);
+
+		expect(matcher.test("/wechat-qr.css")).toBe(false);
+		expect(matcher.test("/login")).toBe(true);
+	});
 });

@@ -1,27 +1,22 @@
 /*
  * 微信扫码 iframe 定制样式——经 qrconnect 官方 href 参数注入微信托管页。
- * 背景:快捷登录态内容高 ~291px、二维码态 ~380px,均顶部对齐;
- * iframe 固定 400px 高(官方推荐 300×400),快捷登录态下方留白 ~104px。
- * 这里把内容容器改为垂直居中,双态视觉均平衡;居中后二维码态上下各留 ~10px,无裁切。
- * 注意:微信服务端会拉取并过滤此 CSS,仅部分选择器/属性生效;失效时静默回退原布局,无副作用。
+ * iframe 固定 400px 高(官方推荐 300×400)。微信当前嵌入页的实际可见
+ * 容器是 #tpl_for_iframe：快捷登录与二维码登录都在这里切换。
+ * 不要强制显示 .web_qrcode_area——它是快捷登录时隐藏的二维码态容器。
  */
 html,
 body {
 	height: 100%;
 }
 
-body {
+body.web_qrcode_type_page_embedded {
 	margin: 0;
+	padding: 0 !important;
 }
 
-.web_qrcode_area {
+#tpl_for_iframe.web_qrcode_panel_area {
+	min-height: 100vh !important;
 	display: flex !important;
 	align-items: center !important;
 	justify-content: center !important;
-	min-height: 100vh !important;
-}
-
-.web_qrcode_wrp {
-	display: block !important;
-	margin: 0 !important;
 }
