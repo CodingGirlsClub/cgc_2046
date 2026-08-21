@@ -27,11 +27,11 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    # 全量构建（无缓存）实测 25-31min：mix.lock 未变走 deps 镜像 ~4min，
-    # 但 runner 每次 VM 全新、registry 层缓存命中不稳定——30min 曾把
-    # job 杀死在 ops role 注册最后一步（GitHub 呈现为 run cancelled，
-    # 2026-08-21 三连误判「人为取消」）。45min 覆盖全量 + 余量。
-    timeout-minutes: 45
+    # mix.lock 变更（deps 镜像重建）时全量构建实测可达 45min+（run
+    # 32487795766 超 45min 被杀）。90min 覆盖：deps 重建 + 全量编译 +
+    # 双 role 部署 + 余量。30/45min 各杀过一次（cancelled 无日志，
+    # 极易误判人为取消——timeout 语义见 run 32453255873 复盘）。
+    timeout-minutes: 90
     environment: production
     steps:
       - uses: actions/checkout@v7
