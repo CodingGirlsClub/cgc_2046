@@ -1,0 +1,17 @@
+# pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
+# 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
+# 本地/CI 行为一致。
+auditConfig:
+  ignoreGhsas:
+    # swiper 原型污染（经 @tarojs/components 传递引入，audit --prod 的唯一
+    # critical）。豁免理由：weapp 端 Taro <Swiper> 映射微信原生组件，npm
+    # swiper 仅进 H5 产物；且利用需攻击者可控的参数合并，本项目配置全为
+    # 开发者写死，实际可利用性低。修复需跨大版本升 12.x（Taro 上游锁 11），
+    # 单独批次验证后移除本豁免。
+    - GHSA-hmx5-qpq5-p643
+onlyBuiltDependencies:
+  - "@parcel/watcher"
+  - "@swc/core"
+  - "@tarojs/binding"
+  - "@tarojs/cli"
+  - esbuild
