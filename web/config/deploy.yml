@@ -43,5 +43,8 @@ builder:
   dockerfile: "Dockerfile"
   arch: amd64
   args:
-    NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}
-    BACKEND_URL: ${BACKEND_URL}
+    # CI sed 替换占位符（TCR_REGISTRY 模式）——Kamal 对 builder args 的
+    # ${VAR} 零插值（2026-08-21 实证：runner shell 展开为空串骗过 next.config
+    # 的 ?? throw，生产 rewrites 自引用 404）。值来自 GitHub vars。
+    NEXT_PUBLIC_WEB_BASE_URL: <NEXT_PUBLIC_WEB_BASE_URL>
+    BACKEND_URL: <BACKEND_URL>

@@ -149,8 +149,9 @@ jobs:
             docker build -f Dockerfile.deps -t "$DEPS_IMAGE" ..
             docker push "$DEPS_IMAGE"
           fi
-          # Kamal builder args 经 .kamal/secrets 解析（BACKEND_URL 先例）
-          echo "BACKEND_DEPS_IMAGE=${DEPS_IMAGE}" >> .kamal/secrets
+          # builder args 走 sed 占位符（Kamal 对 ${VAR} 零插值，实证）
+          sed -i "s|<BACKEND_DEPS_IMAGE>|${DEPS_IMAGE}|" config/deploy.ci.yml
+          grep -q "codingirlsclub/cgc2046-backend-deps" config/deploy.ci.yml
           # PG accessory 幂等 boot（首部署不存在则创建，已运行则 no-op）
           kamal accessory boot postgres -c config/deploy.ci.yml || true
           kamal deploy -c config/deploy.ci.yml
@@ -179,23 +180,27 @@ jobs:
         working-directory: web
         run: |
           mkdir -p .kamal
+          # 只剩 registry 密码走 secrets lookup；NEXT_PUBLIC_* / BACKEND_URL
+          # 已由 builder args 经 sed 占位符直写 deploy.ci.yml（本文件不再消费）
           cat > .kamal/secrets <<SECRETS_EOF
           KAMAL_REGISTRY_PASSWORD=${KAMAL_REGISTRY_PASSWORD}
-          NEXT_PUBLIC_WEB_BASE_URL=${NEXT_PUBLIC_WEB_BASE_URL}
-          BACKEND_URL=${BACKEND_URL}
           SECRETS_EOF
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
-          NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
-          BACKEND_URL: ${{ vars.BACKEND_URL }}
 
       - name: Deploy web
         working-directory: web
         run: |
+          # builder args 与 registry/host 同走 sed 占位符（Kamal 对 ${VAR}
+          # 零插值）；values 含斜杠，sed 用 | 分隔符
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
               -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
+              -e "s|<NEXT_PUBLIC_WEB_BASE_URL>|${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}|" \
+              -e "s|<BACKEND_URL>|${{ vars.BACKEND_URL }}|" \
               config/deploy.yml > config/deploy.ci.yml
+          # 占位符必须全部替换——漏替换会把字面量 <...> 注入构建
+          ! grep -q "<BACKEND_URL>\|<NEXT_PUBLIC_WEB_BASE_URL>" config/deploy.ci.yml
           # 并行 job 独立 runner：docker login 状态不共享，必须显式 login
           kamal registry login -c config/deploy.ci.yml
           kamal deploy -c config/deploy.ci.yml
