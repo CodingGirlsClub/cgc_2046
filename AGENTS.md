@@ -33,3 +33,23 @@ Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architect
 3. **视觉复核（兜底，仅感知层）**：截图交给视觉模型只查「无法数值断言」的主观项 —— 层级 / 对比度观感 / 留白协调 / 整体美感；同时截图作为给人看的证据。不要为每个页面都截图问模型；截图前先确认结构断言已全部通过。
 4. **登录态**：优先 `agent-browser connect <cdp-port>` 复用已登录浏览器；无法复用且确需登录时，先备份 `users.hashed_password`（psql `cgc_2046_dev`），临时重置密码完成验证后**必须恢复原哈希**。
 
+### PR 合并与发布
+
+- **一律 merge commit**（repo 已禁 squash/rebase 合并，界面选不出别的）：CI gate 与 deploy 的去重判定依赖「双亲 merge commit + tree 等值」识别已验证代码——squash 会让每次合并都白跑一轮全量 CI。
+- **发布 = develop→main PR**。repo 已开 auto-merge，checks 全绿自动合并，merge 落 main 即触发 Deploy：
+
+  ```bash
+  gh pr create --base main --head develop --fill && gh pr merge --auto --merge
+  ```
+
+- feature→develop PR 同样用 `gh pr merge --auto --merge`（develop 与 main 同为 4 checks strict 保护）。
+- 紧急修复可直接 hotfix→main PR：head 非 develop 时 4 checks 在 PR 上重新跑，绿了即可合并部署，不必绕道 develop。
+
+### Deploy deps 镜像节奏
+
+backend 部署依赖预编译镜像（`backend/Dockerfile.deps`，tag = `sha256(mix.lock)` 前 16 位）。deploy 命中 TCR 即跳过全部依赖编译（部署 ~4min）；未命中在 2 核 runner 上重建可超 45min（deploy 端 fallback 兜底，90min timeout，别依赖它）。
+
+**mix.lock 变更后无需人工预推**：develop push 时 CI 的 `deps-image` job 检查 TCR，缺失或架构不符即构建推送——CI runner 恒 x86_64，天然 amd64，Apple Silicon 漏 `--platform` 推错架构的事故（run 32487795766 第二败）从源头消失。命中逻辑带架构校验，错架构按缺失处理自愈。
+
+唯一注意事项：**mix.lock 变更的 merge 别抢在 `deps-image` job 完成前合入 main**（job 绿了再合），否则 deploy 端 fallback 现场重建，白等 45min。
+
