@@ -558,10 +558,10 @@ defmodule Cgc2046Web.GraphqlSchema do
               {:ok, %{status: :needs_binding, bind_ticket: bind_ticket}}
 
             {:error, reason} ->
-              # 防枚举：state/code/身份命中细节不外泄(客户端)。
-              # 服务端日志记 reason(原子/元组,不含 code/token/身份值)——
-              # 生产扫码失败零日志不可定位,此为运营可观测性。
-              Logger.warning("[wechat_web sign_in] failed: #{inspect(reason)}")
+              # 防枚举：客户端只收统一错误；服务端只记白名单分类，原始
+              # code/token/身份值与下游 error struct 均不得进入日志。
+              summary = summarize_wechat_sign_in_failure(reason)
+              Logger.warning("[wechat_web sign_in] failed: #{inspect(summary)}")
 
               {:error, message: "WeChat sign in failed", code: "wechat_sign_in_failed"}
           end
@@ -1927,6 +1927,23 @@ defmodule Cgc2046Web.GraphqlSchema do
       :error -> {:error, :rate_limited}
     end
   end
+
+  defp summarize_wechat_sign_in_failure(reason) when is_atom(reason), do: reason
+
+  defp summarize_wechat_sign_in_failure({:wechat_web_code_rejected, errcode})
+       when is_integer(errcode),
+       do: {:wechat_web_code_rejected, errcode}
+
+  defp summarize_wechat_sign_in_failure({:wechat_web_bad_response, status})
+       when is_integer(status),
+       do: {:wechat_web_bad_response, status}
+
+  defp summarize_wechat_sign_in_failure({:wechat_web_network, _reason}),
+    do: :wechat_web_network
+
+  defp summarize_wechat_sign_in_failure({tag, _detail}) when is_atom(tag), do: tag
+  defp summarize_wechat_sign_in_failure({tag, _detail, _context}) when is_atom(tag), do: tag
+  defp summarize_wechat_sign_in_failure(_reason), do: :internal_error
 
   defp start_wechat_login(next) do
     # next 由 state 无关的 URL 参数透传(plan 002):嵌入 redirect_uri,微信回调原样带回;
