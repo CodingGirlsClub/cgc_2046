@@ -157,10 +157,12 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       change(set_attribute(:applicant_id, arg(:applicant_id)))
       change(set_attribute(:status, :pending))
 
+      # 捕获形态（0-arity fn，Ash 每次执行时求值）——传求值结果会被 DSL 宏
+      # 冻结成编译期常量（构建时刻+7天），构建 7 天后新申请生来即过期
       change(
         set_attribute(
           :approval_deadline,
-          DateTime.add(DateTime.utc_now(), Cgc2046.ApprovalDeadline.default_timeout_days(), :day)
+          &Cgc2046.ApprovalDeadline.default_deadline_from_now/0
         )
       )
     end
@@ -317,7 +319,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       end)
 
       change(set_attribute(:status, :expired))
-      change(set_attribute(:expired_at, DateTime.utc_now()))
+      change(set_attribute(:expired_at, &DateTime.utc_now/0))
     end
   end
 
