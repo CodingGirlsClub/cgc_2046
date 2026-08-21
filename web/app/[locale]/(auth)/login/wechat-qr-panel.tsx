@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useMutation } from "@apollo/client/react";
-import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import {
 	WECHAT_LOGIN_START,
@@ -22,7 +21,6 @@ import {
  */
 export default function WechatQrPanel() {
 	const t = useTranslations("auth.wechat");
-	const termsT = useTranslations("auth.terms");
 	const [start] = useMutation(WECHAT_LOGIN_START);
 	const [result, setResult] = useState<WechatLoginStartResult | null>(null);
 	const [phase, setPhase] = useState<"loading" | "ready" | "unavailable">("loading");
@@ -108,19 +106,17 @@ export default function WechatQrPanel() {
 	return (
 		<div className="auth-wechat-panel">
 			{/* key 随 reload 递增，刷新时强制重建 iframe 避免微信页缓存 */}
+			{/* sandbox 对齐微信官方 wxLogin.js 的姿势：allow-scripts 让微信页跑扫码/刷新逻辑，
+			    allow-top-navigation 是扫码确认后微信把顶层窗口 redirect 回 wechat-callback 的通道，
+			    allow-same-origin 给微信页同源存储/脚本报文（官方 SDK 同值）。 */}
 			<iframe
 				key={reload}
 				className="auth-wechat-qr-frame"
 				src={result.qrUrl}
+				sandbox="allow-scripts allow-top-navigation allow-same-origin"
 				title={t("qrAlt")}
 			/>
 			<p className="auth-wechat-hint">{t("scanHint")}</p>
-			<p className="auth-terms">
-				{termsT("loginAction")}{termsT("agreePrefix")}
-				<Link href="/terms">{termsT("serviceTerms")}</Link>
-				{termsT("and")}
-				<Link href="/privacy">{termsT("privacyPolicy")}</Link>
-			</p>
 		</div>
 	);
 }
