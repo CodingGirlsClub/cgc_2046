@@ -9,9 +9,11 @@
 # 质量门：main 禁直推 + required PR（4 checks strict）——进 main 的代码
 # 必然已过 CI，故 deploy 保持 push 触发即可，无需 workflow_run 二次等待。
 #
-# 拓扑：backend / web 两个 job 并行（共享 kamal-proxy 但操作各自 service，
-# 配置按 service 隔离）；smoke 在两者都成功后执行。公共 setup（checkout/
-# ruby/kamal/SSH）各 job 独立重复——GHA 不支持 YAML anchors，重复即显式。
+# 拓扑：changes 按变更 path 决定部署范围 → backend → web（串行，理由见
+# web job 注释）→ smoke 恒跑 → notify 失败报飞书。两个部署 job 共享
+# kamal-proxy 但操作各自 service，配置按 service 隔离。公共 setup
+# （checkout/ruby/kamal/SSH）各 job 独立重复——GHA 不支持 YAML anchors，
+# 重复即显式。
 
 name: Deploy
 
@@ -25,7 +27,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 变更检测：merge 进 main 的内容只影响谁就部署谁——docs/miniprogram-only
+  # 的 merge 不再空烧 8-15min 双部署（2026-08-21 单日 11 次部署的实测痛点）。
+  # 判据用 compare API（免 checkout 拉全史）；两个镜像的 COPY 范围已核实
+  # 均限定各自目录（backend/Dockerfile 只 COPY backend/），path 前缀判定
+  # 安全。任何异常与 workflow_dispatch → 全部署（fail-closed：宁可多部，
+  # 不可漏部）。
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      web: ${{ steps.detect.outputs.web }}
+    steps:
+      - id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "backend=true" >> "$GITHUB_OUTPUT"
+          echo "web=true" >> "$GITHUB_OUTPUT"
+          [ "${{ github.event_name }}" = "push" ] || exit 0
+          # 分支首推 before 为全零 SHA 无从比对；main 禁 force-push，其余
+          # 情况 before 必为 sha 祖先，compare 结果可信
+          { [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; } || exit 0
+          # rename 场景 filename 只有新路径，previous_filename 补旧路径
+          files=$(gh api "repos/$REPO/compare/${BEFORE}...${SHA}" \
+            --jq '.files[] | .filename, (.previous_filename // empty)') || exit 0
+          # compare API 单次最多返回 300 files，达到即可能截断 → 全部署
+          [ "$(wc -l <<<"$files")" -lt 300 ] || exit 0
+          backend=false; web=false
+          while IFS= read -r f; do
+            case "$f" in
+              backend/*) backend=true ;;
+              web/*)     web=true ;;
+            esac
+          done <<<"$files"
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "变更检测：backend=$backend web=$web" >> "$GITHUB_STEP_SUMMARY"
+
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     # mix.lock 变更（deps 镜像重建）时全量构建实测可达 45min+（run
     # 32487795766 超 45min 被杀）。90min 覆盖：deps 重建 + 全量编译 +
@@ -115,6 +161,9 @@ jobs:
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
       - name: Deploy backend
         working-directory: backend
+        # step 级超时结论是 failure，job 级是 cancelled（后者已两次被误判
+        # 为人为取消）——85 < job 90，超时恒先红在 step 上，job 级仅作兜底
+        timeout-minutes: 85
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           # Kamal env.secret 注入源：runner 进程环境
@@ -160,13 +209,22 @@ jobs:
           # builder args 走 sed 占位符（Kamal 对 ${VAR} 零插值，实证）
           sed -i "s|<BACKEND_DEPS_IMAGE>|${DEPS_IMAGE}|" config/deploy.ci.yml
           grep -q "codingirlsclub/cgc2046-backend-deps" config/deploy.ci.yml
-          # PG accessory 幂等 boot（首部署不存在则创建，已运行则 no-op）
-          kamal accessory boot postgres -c config/deploy.ci.yml || true
+          # PG accessory boot：已在运行时非零退出（预期，放行），但此前
+          # || true 静默吞掉一切——真故障会在 deploy 深处以难归因的方式
+          # 冒出。改为放行但打 warning 注解，日志留痕
+          kamal accessory boot postgres -c config/deploy.ci.yml \
+            || echo "::warning::postgres accessory boot 非零退出（已在运行则为预期，否则查看上方日志）"
           kamal deploy -c config/deploy.ci.yml
 
   # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
-  # 并行 job 独立 runner：registry login / SSH 不共享，必须各自执行
+  # 各 job 独立 runner：registry login / SSH 不共享，必须各自执行
   web:
+    # 串行于 backend：双组件变更时若新 web 依赖新 backend API，并行拓扑下
+    # web（实测 3-7min）必先于 backend（5-15min，deps 重建 45min+）上线，
+    # 窗口内新 web 打旧 backend。backend skipped 放行（backend-only 变更
+    # 对旧 web 的兼容由 API 向后兼容纪律保证）；failure/cancelled 不上新 web
+    needs: [changes, backend]
+    if: ${{ !cancelled() && needs.changes.outputs.web == 'true' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -198,6 +256,8 @@ jobs:
 
       - name: Deploy web
         working-directory: web
+        # 同 backend：step 级超时报 failure 而非 cancelled
+        timeout-minutes: 12
         run: |
           # builder args 与 registry/host 同走 sed 占位符（Kamal 对 ${VAR}
           # 零插值）；values 含斜杠，sed 用 | 分隔符
@@ -214,7 +274,10 @@ jobs:
           kamal deploy -c config/deploy.ci.yml
 
   smoke:
-    needs: [backend, web]
+    needs: [changes, backend, web]
+    # 生产健康检查与本次部署范围无关：deploy 无 failure/cancelled 即恒跑，
+    # 包括双 skip（docs-only merge）——顺带兜底「上次部署遗留的坏状态」
+    if: ${{ !cancelled() && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.web.result == 'success' || needs.web.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -232,3 +295,24 @@ jobs:
           OPS=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-all-errors \
             https://codingirlsclub.com/ops/admin)
           [ "$OPS" = "403" ] || { echo "FAIL: /ops/admin => $OPS (expect 403)"; exit 1; }
+
+  # 失败通知：链上任一 job failure 即报飞书（此前部署挂了只有盯 Actions 页
+  # 才知道，2026-08-21 单日 3 次 failure 均为事后发现）。webhook 走
+  # repo-level secret FEISHU_WEBHOOK_URL；消息恒含「部署」二字——飞书自
+  # 定义机器人安全设置的自定义关键词，不含关键词的消息会被拒收。
+  # cancelled（queue 替换/手动取消）不通知。
+  notify:
+    needs: [changes, backend, web, smoke]
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          WEBHOOK: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          # commit message 可含引号/换行——经 env 注入而非内插进脚本
+          TITLE: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TEXT=$(printf '生产部署失败 ❌ %s\n%s' "${TITLE%%$'\n'*}" "$RUN_URL")
+          jq -n --arg t "$TEXT" '{msg_type: "text", content: {text: $t}}' \
+            | curl -fsS -m 10 -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK"
