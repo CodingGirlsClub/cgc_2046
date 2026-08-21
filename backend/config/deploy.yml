@@ -18,11 +18,11 @@ servers:
       - <SERVER_HOST>
     proxy:
       host: codingirlsclub.com
-      ssl: true
+      # TLS 由该 host 的根路径服务（cgc2046-web）终结——kamal-proxy 要求
+      # TLS 选项只能声明在根 path 服务上，子路径服务带 --tls 会被拒绝
+      # （"TLS settings must be specified on the root path service"）
       path_prefix: /ops
-      # kamal-proxy 默认 strip 路径前缀（gem 文档 proxy.yml:103-109）——
-      # Phoenix 路由本身带 /ops，必须显式保留，否则 /ops/admin 被剥成
-      # /admin → 404 → 冒烟断言红线
+      # 默认 strip 路径前缀——Phoenix 路由带 /ops，必须显式保留
       strip_path_prefix: false
       app_port: 4000
       healthcheck:
