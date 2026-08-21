@@ -61,7 +61,7 @@ export function resolveProxyPlan(request: NextRequest): ProxyPlan {
 		`script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
 		`style-src 'self'${isDev ? " 'unsafe-inline'" : ` 'nonce-${nonce}'`}`,
 		"img-src 'self' data:",
-		`frame-src https://www.openclacky.com`,
+		`frame-src https://www.openclacky.com https://open.weixin.qq.com`,
 		"font-src 'self' data:",
 		"connect-src 'self'",
 		"frame-ancestors 'none'",
