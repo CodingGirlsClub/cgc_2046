@@ -80,17 +80,29 @@ defmodule Cgc2046.OAuth.WechatWeb do
                code: code,
                grant_type: "authorization_code"
              ]
-           ) do
-        {:ok, %Req.Response{status: 200, body: %{"errcode" => errcode}} = resp}
+           )
+           |> decode_json_response() do
+        {:ok, %Req.Response{status: 200, body: %{"errcode" => errcode}}}
         when is_integer(errcode) and errcode != 0 ->
-          {:error, {:wechat_web_code_rejected, errcode, resp.body["errmsg"]}}
+          {:error, {:wechat_web_code_rejected, errcode}}
 
         {:ok,
          %Req.Response{status: 200, body: %{"access_token" => at, "openid" => openid} = body}} ->
-          {:ok, %{openid: openid, unionid: blank_to_nil(body["unionid"]), access_token: at}}
+          case {blank_to_nil(at), blank_to_nil(openid)} do
+            {access_token, openid} when is_binary(access_token) and is_binary(openid) ->
+              {:ok,
+               %{
+                 openid: openid,
+                 unionid: blank_to_nil(body["unionid"]),
+                 access_token: access_token
+               }}
 
-        {:ok, %Req.Response{status: status, body: body}} ->
-          {:error, {:wechat_web_bad_response, status, body}}
+            _ ->
+              {:error, {:wechat_web_bad_response, 200}}
+          end
+
+        {:ok, %Req.Response{status: status}} ->
+          {:error, {:wechat_web_bad_response, status}}
 
         {:error, reason} ->
           {:error, {:wechat_web_network, reason}}
@@ -109,15 +121,16 @@ defmodule Cgc2046.OAuth.WechatWeb do
     case Req.get(req(@sns_base),
            url: "/userinfo",
            params: [access_token: access_token, openid: openid]
-         ) do
+         )
+         |> decode_json_response() do
       {:ok, %Req.Response{status: 200, body: %{"errcode" => 0} = body}} ->
         {:ok, %{nickname: body["nickname"]}}
 
       {:ok, %Req.Response{status: 200, body: %{"nickname" => nickname}}} ->
         {:ok, %{nickname: nickname}}
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, {:wechat_web_userinfo_failed, status, body}}
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:wechat_web_userinfo_failed, status}}
 
       {:error, reason} ->
         {:error, {:wechat_web_network, reason}}
@@ -132,6 +145,17 @@ defmodule Cgc2046.OAuth.WechatWeb do
       plug -> Req.new(Keyword.put(opts, :plug, plug))
     end
   end
+
+  # 微信 sns 接口实际以 text/plain 返回 JSON；Req 只按 Content-Type 自动解码。
+  # 在 HTTP 边界把 JSON object 规范化为 map，原始 token/身份响应不流入错误元组或日志。
+  defp decode_json_response({:ok, %Req.Response{body: body} = response}) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{} = decoded} -> {:ok, %{response | body: decoded}}
+      _ -> {:ok, response}
+    end
+  end
+
+  defp decode_json_response(result), do: result
 
   defp blank_to_nil(value) when is_binary(value),
     do: if(String.trim(value) == "", do: nil, else: value)
