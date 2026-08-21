@@ -557,8 +557,12 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:ok, :needs_binding, bind_ticket} ->
               {:ok, %{status: :needs_binding, bind_ticket: bind_ticket}}
 
-            {:error, _reason} ->
-              # 防枚举：state/code/身份命中细节不外泄
+            {:error, reason} ->
+              # 防枚举：state/code/身份命中细节不外泄(客户端)。
+              # 服务端日志记 reason(原子/元组,不含 code/token/身份值)——
+              # 生产扫码失败零日志不可定位,此为运营可观测性。
+              Logger.warning("[wechat_web sign_in] failed: #{inspect(reason)}")
+
               {:error, message: "WeChat sign in failed", code: "wechat_sign_in_failed"}
           end
         else
