@@ -27,9 +27,11 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    # 全量 deploy 实测 ~10min（deps 镜像命中后 ~4min）；首次构建 deps 镜像
-    # 多 ~5-8min。挂死类故障快速暴露
-    timeout-minutes: 30
+    # 全量构建（无缓存）实测 25-31min：mix.lock 未变走 deps 镜像 ~4min，
+    # 但 runner 每次 VM 全新、registry 层缓存命中不稳定——30min 曾把
+    # job 杀死在 ops role 注册最后一步（GitHub 呈现为 run cancelled，
+    # 2026-08-21 三连误判「人为取消」）。45min 覆盖全量 + 余量。
+    timeout-minutes: 45
     environment: production
     steps:
       - uses: actions/checkout@v7
