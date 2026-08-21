@@ -109,37 +109,30 @@ jobs:
       - name: Write .kamal/secrets (backend)
         working-directory: backend
         run: |
-          # 不带引号的 heredoc：bash 展开 ${VAR} 写入真值——dotenv 读到的是
-          # 字面值，绕开 ${VAR} 引用链上 runner→服务器传参的任何环节
-          cat > .kamal/secrets <<SECRETS_EOF
-          KAMAL_REGISTRY_PASSWORD=${KAMAL_REGISTRY_PASSWORD}
-          DATABASE_URL=${DATABASE_URL}
-          SECRET_KEY_BASE=${SECRET_KEY_BASE}
-          TOKEN_SIGNING_SECRET=${TOKEN_SIGNING_SECRET}
-          SENDCLOUD_API_USER=${SENDCLOUD_API_USER}
-          SENDCLOUD_API_KEY=${SENDCLOUD_API_KEY}
-          SENDCLOUD_FROM=${SENDCLOUD_FROM}
-          SENDCLOUD_FROM_NAME=${SENDCLOUD_FROM_NAME}
-          SENDCLOUD_SMS_USER=${SENDCLOUD_SMS_USER}
-          SENDCLOUD_SMS_KEY=${SENDCLOUD_SMS_KEY}
-          SENDCLOUD_SMS_TEMPLATE_ID=${SENDCLOUD_SMS_TEMPLATE_ID}
-          WEB_BASE_URL=${WEB_BASE_URL}
-          CORS_ORIGIN=${CORS_ORIGIN}
-          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-          WECHAT_PAY_MCH_ID=${WECHAT_PAY_MCH_ID}
-          WECHAT_PAY_APPID=${WECHAT_PAY_APPID}
-          WECHAT_PAY_API_V3_KEY=${WECHAT_PAY_API_V3_KEY}
-          WECHAT_PAY_API_V2_KEY=${WECHAT_PAY_API_V2_KEY}
-          WECHAT_PAY_CLIENT_SERIAL_NO=${WECHAT_PAY_CLIENT_SERIAL_NO}
-          WECHAT_PAY_CLIENT_PRIVATE_KEY=${WECHAT_PAY_CLIENT_PRIVATE_KEY}
-          PAYMENTS_WEBHOOK_BASE_URL=${PAYMENTS_WEBHOOK_BASE_URL}
-          ALIPAY_APP_ID=${ALIPAY_APP_ID}
-          ALIPAY_PRIVATE_KEY=${ALIPAY_PRIVATE_KEY}
-          ALIPAY_PUBLIC_KEY=${ALIPAY_PUBLIC_KEY}
-          ALIPAY_SANDBOX=${ALIPAY_SANDBOX}
-          WECHAT_WEB_APPID=${WECHAT_WEB_APPID}
-          WECHAT_WEB_SECRET=${WECHAT_WEB_SECRET}
-          SECRETS_EOF
+          # 值经 bash 间接展开写入字面量（与旧 heredoc 字节一致，含多行
+          # PEM）——dotenv 读到真值，绕开 ${VAR} 引用链上 runner→服务器
+          # 传参的任何环节。
+          # 名单与上方 env 块是仅有的两处登记，且互相校验：env 漏映射 →
+          # 本步非空断言红；名单漏名字 → kamal 侧 missing secret 红。
+          # 此前 GitHub 漏配时空串静默写进生产、运行时难归因爆炸；现在
+          # deploy 第一分钟红，且在 kamal deploy 之前——旧容器继续服务，
+          # 零生产影响。出现合法空值时再加显式白名单（fail-closed 顺序）
+          : > .kamal/secrets
+          missing=""
+          for v in \
+            KAMAL_REGISTRY_PASSWORD DATABASE_URL SECRET_KEY_BASE TOKEN_SIGNING_SECRET \
+            SENDCLOUD_API_USER SENDCLOUD_API_KEY SENDCLOUD_FROM SENDCLOUD_FROM_NAME \
+            SENDCLOUD_SMS_USER SENDCLOUD_SMS_KEY SENDCLOUD_SMS_TEMPLATE_ID \
+            WEB_BASE_URL CORS_ORIGIN POSTGRES_PASSWORD \
+            WECHAT_PAY_MCH_ID WECHAT_PAY_APPID WECHAT_PAY_API_V3_KEY \
+            WECHAT_PAY_API_V2_KEY WECHAT_PAY_CLIENT_SERIAL_NO WECHAT_PAY_CLIENT_PRIVATE_KEY \
+            PAYMENTS_WEBHOOK_BASE_URL ALIPAY_APP_ID ALIPAY_PRIVATE_KEY ALIPAY_PUBLIC_KEY \
+            ALIPAY_SANDBOX WECHAT_WEB_APPID WECHAT_WEB_SECRET; do
+            [ -n "${!v}" ] || { missing="$missing $v"; continue; }
+            printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
+          done
+          [ -z "$missing" ] || { echo "::error::GitHub 侧漏配（值为空）:$missing"; exit 1; }
+          echo "secrets 非空校验通过（27 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -173,21 +166,10 @@ jobs:
         # step 级超时结论是 failure，job 级是 cancelled（后者已两次被误判
         # 为人为取消）——85 < job 90，超时恒先红在 step 上，job 级仅作兜底
         timeout-minutes: 85
-        env:
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
-          # Kamal env.secret 注入源：runner 进程环境
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SECRET_KEY_BASE: ${{ secrets.SECRET_KEY_BASE }}
-          TOKEN_SIGNING_SECRET: ${{ secrets.TOKEN_SIGNING_SECRET }}
-          SENDCLOUD_API_USER: ${{ secrets.SENDCLOUD_API_USER }}
-          SENDCLOUD_API_KEY: ${{ secrets.SENDCLOUD_API_KEY }}
-          SENDCLOUD_FROM: ${{ vars.SENDCLOUD_FROM }}
-          SENDCLOUD_FROM_NAME: ${{ vars.SENDCLOUD_FROM_NAME }}
-          SENDCLOUD_SMS_USER: ${{ secrets.SENDCLOUD_SMS_USER }}
-          SENDCLOUD_SMS_KEY: ${{ secrets.SENDCLOUD_SMS_KEY }}
-          SENDCLOUD_SMS_TEMPLATE_ID: ${{ vars.SENDCLOUD_SMS_TEMPLATE_ID }}
-          WEB_BASE_URL: ${{ vars.WEB_BASE_URL }}
-          CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
+        # 无 env 块：Kamal 的全部 secret（registry.password/env.secret/
+        # accessory）都从 .kamal/secrets 文件解析，进程 env 无消费方——
+        # 此前这里的 env 子集是第三份重复登记，其注释（注入源=进程环境）
+        # 与 Write step 记载的事实相反，一并清除
         run: |
           # sed 到临时副本：工作区保持干净，避免 Kamal dirty tag
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
