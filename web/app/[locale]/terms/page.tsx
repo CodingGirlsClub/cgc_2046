@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { pageAlternates } from "@/lib/seo";
 
 /**
  * /terms 用户服务协议（静态法务页，#210 U1）。
@@ -19,6 +20,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 	return {
 		title: t("title"),
 		description: t("description"),
+		alternates: pageAlternates("/terms", locale),
 	};
 }
 
