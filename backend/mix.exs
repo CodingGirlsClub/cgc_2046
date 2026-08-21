@@ -75,7 +75,10 @@ defmodule Cgc2046.MixProject do
       {:wechat, "~> 0.19.0", hex: :wechat_sdk},
       {:alipay, "~> 0.2.1", hex: :alipay_sdk},
       {:saxy, "~> 1.6"},
-      {:x509, "~> 0.9"}
+      {:x509, "~> 0.9"},
+      # 代理链真实 client IP 解析（#278）：kamal-proxy/Next 两跳后
+      # conn.remote_ip 恒为代理容器 IP，per-IP 限流退化为全站共享桶
+      {:remote_ip, "~> 1.2"}
     ]
   end
 

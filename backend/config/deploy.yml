@@ -8,8 +8,17 @@ service: cgc2046-backend
 image: codingirlsclub/cgc2046-backend
 
 servers:
+  # web role 专属 proxy 块（#278）：forward_headers 必须写在这里而非顶层——
+  # 顶层键会经 deep_merge 流入 ops role（role 未显式设置的键继承顶层，
+  # strip/ssl 已各踩一次）。api 域流量多为直连（Bearer/webhook），XFF 由
+  # proxy append 真实 peer，RemoteIp 从右解析取第一个非信任 IP 即真实值。
   web:
-    - <SERVER_HOST>
+    hosts:
+      - <SERVER_HOST>
+    proxy:
+      # ssl:true 时 kamal-proxy 默认丢弃传入 XFF（gem docs proxy.yml:79-80）
+      # ——Next rewrite 第二跳带来的真实 client 会被静默重置，限流修复被抵消
+      forward_headers: true
   # ops：同一镜像第二个容器，服务主域 /ops/*（浏览器会话唯一归属主域的
   # 架构规则——AshAdmin 等 LiveView 面必须经主域到达，cookie 才随行）。
   # 非 primary role 需显式 proxy map；不 strip prefix（Phoenix 路由本身带 /ops）
@@ -23,6 +32,10 @@ servers:
       # = cgc2046-web，证书由它终结）；子路径服务带 --tls 会被拒：
       # "TLS settings must be specified on the root path service"
       ssl: false
+      # #278：ssl:false 时 kamal-proxy 默认反转为转发传入 XFF（gem docs
+      # proxy.yml:79-80）——ops 一跳直达浏览器，须显式关掉以保持重置语义
+      # （伪造 XFF 在入口即被丢弃，不进 Phoenix；web role 反之见上）
+      forward_headers: false
       path_prefix: /ops
       strip_path_prefix: false
       app_port: 4000

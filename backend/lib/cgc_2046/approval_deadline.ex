@@ -32,7 +32,12 @@ defmodule Cgc2046.ApprovalDeadline do
     nil→true / overdue? nil→false；==now 侧双双 false），不可互相代用；
   - `in_window?/3`：半开区间 `(now, window_end]`（左开右闭，与收敛前
     ApprovalReminderWorker 窗口谓词一致）；
-  - `default_timeout_days/0`：四资源创建期默认审批期限的唯一来源。
+  - `default_timeout_days/0`：四资源创建期默认审批期限的唯一来源；
+  - `default_deadline_from_now/0`：创建期默认截止时间（`now + 默认天数`）。
+    **必须以捕获形态传给 Ash DSL**（`&Cgc2046.ApprovalDeadline.default_deadline_from_now/0`）
+    ——直接传求值结果会被 DSL 宏冻结成编译期常量（= release 构建时刻 + 7 天），
+    构建 7 天后所有新记录生来即过期（2026-08-21 实证，见
+    test/cgc_2046/no_eager_dsl_timestamp_test.exs 源码门禁）。
 
   `ExpiryWorker` 扫描规格（@expiry_specs）与 `ReminderWorker` 窗口大小（48h）不在
   本模块——sweep 只有 AEW 一个调用方、窗口是 ARW 私有常量（D7）。
@@ -116,4 +121,16 @@ defmodule Cgc2046.ApprovalDeadline do
   @doc "创建期默认审批期限（天）。唯一真源，四资源创建设值统一改调本函数。"
   @spec default_timeout_days() :: non_neg_integer()
   def default_timeout_days, do: @default_timeout_days
+
+  @doc """
+  创建期默认审批截止时间（`DateTime.utc_now() + default_timeout_days()` 天）。
+
+  Ash DSL 里必须传捕获 `&Cgc2046.ApprovalDeadline.default_deadline_from_now/0`
+  （0-arity 函数由 Ash 在每次 action 执行时调用）；传 `default_deadline_from_now()`
+  求值结果会被 `set_attribute` 宏冻结为编译期常量——见 moduledoc。
+  """
+  @spec default_deadline_from_now() :: DateTime.t()
+  def default_deadline_from_now do
+    DateTime.add(DateTime.utc_now(), @default_timeout_days, :day)
+  end
 end
