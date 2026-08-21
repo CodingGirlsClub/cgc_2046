@@ -130,6 +130,10 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
 
   return (
     <div className={`auth-page ${isRegister ? "auth-page--register" : "auth-page--login"}`}>
+      <div className="auth-topbar">
+        <AuthHelpLink />
+        <LanguageSwitcher />
+      </div>
       <aside className="auth-brand-panel" aria-label={t("brandPanelLabel")}>
         <div className="auth-brand-lockup">
           <BrandMark />
@@ -143,10 +147,6 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
       </aside>
 
       <main className="auth-form-panel">
-        <div className="auth-topbar">
-          <AuthHelpLink />
-          <LanguageSwitcher />
-        </div>
         <section className="auth-form-card" aria-labelledby="auth-page-title">
           {isRegister ? (
             <>
