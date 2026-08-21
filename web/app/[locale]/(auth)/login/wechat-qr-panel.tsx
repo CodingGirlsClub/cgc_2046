@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useMutation } from "@apollo/client/react";
-import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import {
 	WECHAT_LOGIN_START,
@@ -22,7 +21,6 @@ import {
  */
 export default function WechatQrPanel() {
 	const t = useTranslations("auth.wechat");
-	const termsT = useTranslations("auth.terms");
 	const [start] = useMutation(WECHAT_LOGIN_START);
 	const [result, setResult] = useState<WechatLoginStartResult | null>(null);
 	const [phase, setPhase] = useState<"loading" | "ready" | "unavailable">("loading");
@@ -115,12 +113,6 @@ export default function WechatQrPanel() {
 				title={t("qrAlt")}
 			/>
 			<p className="auth-wechat-hint">{t("scanHint")}</p>
-			<p className="auth-terms">
-				{termsT("loginAction")}{termsT("agreePrefix")}
-				<Link href="/terms">{termsT("serviceTerms")}</Link>
-				{termsT("and")}
-				<Link href="/privacy">{termsT("privacyPolicy")}</Link>
-			</p>
 		</div>
 	);
 }
