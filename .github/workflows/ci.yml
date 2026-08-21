@@ -2,10 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [develop, main]
+    # 只跑 develop：merge 进 main 的内容已被 PR required checks(strict 模式)
+    # 验证过同一 tree，main push 再跑是纯冗余；bypass merge 的兜底由
+    # deploy smoke 承担
+    branches: [develop]
   pull_request:
-    # 含 main：main 的 branch protection 要求 4 个 checks，PR→main 不跑 CI
-    # 则 checks 永远 pending、merge 只能 bypass——保护形同虚设
+    # main 的 branch protection 要求 checks，PR→main 必须有来源。
+    # 具体取舍在各 job 的 if：develop→main 复用 push 结果跳过；
+    # feature→develop 与 fork PR 没有 push run 可复用，照常跑
     branches: [develop, main]
   workflow_dispatch:
 
@@ -17,6 +21,13 @@ concurrency:
 
 jobs:
   backend:
+    # PR 去重：仅跳过「head 为本仓库 develop」的 PR（develop→main 发布 PR
+    # 复用 develop push 的同 SHA 结论,required checks 按 SHA 认领）;
+    # feature→develop、fork PR 没有 push run 可复用,照常跑
+    if: >
+      github.event_name == 'push' ||
+      github.head_ref != 'develop' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -74,6 +85,11 @@ jobs:
       - run: mix test
         timeout-minutes: 15
   web:
+    # PR 去重：同 backend job 的 if（仅 develop→main 发布 PR 跳过）
+    if: >
+      github.event_name == 'push' ||
+      github.head_ref != 'develop' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -111,6 +127,11 @@ jobs:
           BACKEND_URL: http://localhost:4000
 
   miniprogram:
+    # PR 去重：同 backend job 的 if（仅 develop→main 发布 PR 跳过）
+    if: >
+      github.event_name == 'push' ||
+      github.head_ref != 'develop' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     # 序列尾部新增 mock 构建冒烟（多一次 build:weapp），余量 20 → 25
     timeout-minutes: 25
@@ -148,6 +169,11 @@ jobs:
   # 强制 GITLEAKS_LICENSE 商业许可；CLI 自取二进制，行为等价（检出即非零退出）。
   # 放行项仅 dev/test 静态 secret_key_base，见根目录 .gitleaks.toml。
   secrets:
+    # PR 去重：同 backend job 的 if（仅 develop→main 发布 PR 跳过）
+    if: >
+      github.event_name == 'push' ||
+      github.head_ref != 'develop' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
