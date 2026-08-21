@@ -20,6 +20,10 @@ servers:
       host: codingirlsclub.com
       ssl: true
       path_prefix: /ops
+      # kamal-proxy 默认 strip 路径前缀（gem 文档 proxy.yml:103-109）——
+      # Phoenix 路由本身带 /ops，必须显式保留，否则 /ops/admin 被剥成
+      # /admin → 404 → 冒烟断言红线
+      strip_path_prefix: false
       app_port: 4000
       healthcheck:
         path: /healthz
