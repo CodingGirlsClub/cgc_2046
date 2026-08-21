@@ -11,6 +11,18 @@ defmodule Cgc2046Web.Endpoint do
     same_site: "Lax"
   ]
 
+  # #278 代理信任集（编译期常量——plug 宏编译期求值，运行时函数不可见）：
+  # - PROD：kamal docker 网络 172.16.0.0/12（hairpin 实测对端=proxy 容器
+  #   172.18.0.3 / Next 容器 172.18.0.7）+ loopback（本机健康探针）
+  # - dev/test：proxies 空 + headers 空——peer 即真实 IP，XFF 完全不解析
+  if Mix.env() == :prod do
+    @trusted_proxies ["172.16.0.0/12", "127.0.0.1", "::1"]
+    @proxy_forward_headers ["x-forwarded-for"]
+  else
+    @trusted_proxies []
+    @proxy_forward_headers []
+  end
+
   socket("/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
@@ -53,6 +65,15 @@ defmodule Cgc2046Web.Endpoint do
   plug(Phoenix.LiveDashboard.RequestLogger,
     param_key: "request_logger",
     cookie_key: "request_logger"
+  )
+
+  # #278：代理链真实 client IP。生产链路 kamal-proxy（→Next rewrite→）→
+  # Phoenix，socket peer 恒为 172.18 网段代理（实测 2026-08-21）——不解析
+  # XFF 则 per-IP 限流全站共享一个桶。信任集见 trusted_proxies/0。
+  # dev/test 无代理（peer 即真实 IP），headers 为空 = no-op。
+  plug(RemoteIp,
+    headers: @proxy_forward_headers,
+    proxies: @trusted_proxies
   )
 
   plug(Plug.RequestId)
