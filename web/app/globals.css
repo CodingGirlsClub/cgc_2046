@@ -389,6 +389,22 @@
 
   .ws-shell-brand-wrap { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 
+  /* CGC 品牌行（侧栏最顶，回首页）；火焰尺寸由 unlayered 品牌块覆盖（层级优先） */
+  .ws-shell-cgc-brand {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    margin: 0 4px 10px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: 590;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
   .ws-shell-brand {
     display: flex;
     align-items: center;
@@ -2059,6 +2075,7 @@ body {
 .brand-lockup__mark { display: block; flex: none; width: 20px; height: 20px; }
 .brand-lockup__year { margin-left: 0.4em; color: var(--ink-3); font-weight: 480; }
 .auth-brand-lockup .brand-lockup__mark { width: 30px; height: 30px; }
+.ws-shell-cgc-brand .brand-lockup__mark { width: 16px; height: 16px; }
 .ld-footer__brand { color: var(--ink); font-size: 14px; font-weight: 590; }
 .ld-footer__brand .brand-lockup__mark { width: 18px; height: 18px; }
 .ld-nav__links { display: flex; align-items: center; gap: 20px; }
