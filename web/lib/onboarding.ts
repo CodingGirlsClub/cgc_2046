@@ -65,9 +65,14 @@ export function deriveOnboardingState(
 
 /* ---------------- fetchers ---------------- */
 
-/** 当前用户的 onboarding me 片段（id + 邀请拒绝时间戳）；未登录为 null */
+/** 当前用户的 onboarding me 片段（id + 邀请拒绝时间戳）；未登录为 null。
+    network-only——拒绝/签发后的门控同 session 内必须读真值（ freshness 敏感读取
+    惯例：lib/profile.ts、lib/admin.ts；与 fetchMyMcpTokens 对齐） */
 export async function fetchOnboardingMe(): Promise<OnboardingMe | null> {
-	const { data } = await client.query({ query: ME_ONBOARDING });
+	const { data } = await client.query({
+		query: ME_ONBOARDING,
+		fetchPolicy: "network-only",
+	});
 	return data?.me ?? null;
 }
 

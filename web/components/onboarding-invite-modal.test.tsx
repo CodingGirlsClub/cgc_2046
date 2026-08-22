@@ -41,13 +41,17 @@ describe("首公里邀请模态 OnboardingInviteModal（plan first-mile-onboardi
 		expect(document.activeElement).toBe(dialog);
 	});
 
-	it("「开始接入」→ /w/:slug/settings/integrations/agents（同常驻卡 CTA 目标）", () => {
-		render(<OnboardingInviteModal slug="cgc-academy" onClose={() => {}} />);
+	it("「开始接入」→ /w/:slug/settings/integrations/agents（同常驻卡 CTA 目标），并关框防 back 导航重弹（KTD4）", () => {
+		const onClose = vi.fn();
+		render(<OnboardingInviteModal slug="cgc-academy" onClose={onClose} />);
 
-		expect(screen.getByTestId("onboarding-invite-start")).toHaveAttribute(
+		const cta = screen.getByTestId("onboarding-invite-start");
+		expect(cta).toHaveAttribute(
 			"href",
 			"/w/cgc-academy/settings/integrations/agents",
 		);
+		fireEvent.click(cta);
+		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
 	it("「再看看」/ Esc / ✕ / 点遮罩：均只关闭（F3：下次登录再弹），内容区点击不关", () => {

@@ -189,7 +189,11 @@ describe("fetchOnboardingMe / dismissOnboardingInvitation（fetchers）", () => 
 		};
 		queryMock.mockResolvedValue({ data: { me } });
 		await expect(fetchOnboardingMe()).resolves.toEqual(me);
-		expect(queryMock).toHaveBeenCalledWith({ query: ME_ONBOARDING });
+		// network-only 钉住：拒绝态同 session 内不得读缓存旧值（隔壁 review HIGH）
+		expect(queryMock).toHaveBeenCalledWith({
+			query: ME_ONBOARDING,
+			fetchPolicy: "network-only",
+		});
 	});
 
 	it("me 为 null（未登录）→ null", async () => {
