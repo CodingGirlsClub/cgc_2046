@@ -4,7 +4,7 @@
  * 公开首页 Landing 页（M2 重构，2026-08；IA 定稿：行动优先，叙事殿后）。
  *
  * 信息架构（每屏只回答一个问题）：
- *   Hero（这是什么：slogan + 一句点题 + 单一主 CTA + 2016→2046 年份刻度条）
+ *   Hero（这是什么：kicker（年份+组织+使命一句）+ slogan 大标题 + 单一主 CTA + 2016→2046 年份刻度条）
  *   → 路径（加入之后会发生什么，三步）
  *   → 最新活动 / 精选课程（现在就能报什么；公开 API 各取前 3，失败降级为入口链接）
  *   → 信任带（为什么值得加入：大数字 + 论文 + 媒体索引 + 合作伙伴）
@@ -246,10 +246,7 @@ export default function LandingPage() {
 					<h1 id="landing-hero-heading" className="ld-display ld-rise" style={rise(1)}>
 						{t("hero.title")}
 					</h1>
-					<p className="ld-sub ld-rise" style={rise(2)}>
-						{t("hero.subtitle")}
-					</p>
-					<div className="ld-cta-row ld-rise" style={rise(3)}>
+					<div className="ld-cta-row ld-rise" style={rise(2)}>
 						<Link href="/register" className="join-button join-button--primary">
 							{t("hero.join")}
 						</Link>
@@ -257,7 +254,7 @@ export default function LandingPage() {
 							{t("hero.browseEvents")} →
 						</Link>
 					</div>
-					<div className="ld-rise" style={rise(4)}>
+					<div className="ld-rise" style={rise(3)}>
 						<YearStrip />
 					</div>
 				</div>

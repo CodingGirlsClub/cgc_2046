@@ -1407,6 +1407,7 @@ body {
     font-size: 19px;
     font-weight: 590;
     letter-spacing: -0.3px;
+    text-decoration: none;
   }
 
   .auth-brand-copy {
@@ -2103,7 +2104,6 @@ body {
 .ld-kicker__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.18); }
 .ld-display { margin: 22px 0 0; max-width: 14em; font-size: clamp(42px, 7vw, 84px); font-weight: 510; line-height: 1.12; text-wrap: balance; }
 .ld-display:lang(en) { line-height: 1.04; letter-spacing: -0.022em; } /* 负字距仅限拉丁；CJK 不收字距 */
-.ld-sub { margin: 24px 0 0; max-width: 640px; color: var(--ink-2); font-size: clamp(17px, 2vw, 20px); line-height: 1.7; text-wrap: pretty; }
 .ld-cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-top: 40px; }
 .ld-cta-row .join-button { min-height: 48px; padding: 0 24px; font-size: 15px; }
 .ld-cta-quiet { color: var(--ink-3); font-size: 14px; text-decoration: none; transition: color 120ms ease; }

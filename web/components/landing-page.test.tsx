@@ -92,13 +92,14 @@ describe("公开 Landing 页", () => {
 		).toBeInTheDocument();
 	});
 
-	it("Hero：kicker、点题句、单一主 CTA、年份刻度条", () => {
+	it("Hero：kicker（年份+组织+使命）、单一主 CTA、年份刻度条", () => {
 		render(<LandingPage />);
 
-		expect(screen.getByText("从 2016 到 2046")).toBeInTheDocument();
 		expect(
-			screen.getByText(/Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥/),
+			screen.getByText(/从 2016 到 2046，程序媛汇，在女性与编程之间架起一座桥梁/),
 		).toBeInTheDocument();
+		// 副题已并入 kicker（2026-08 设计反馈），页面不再有独立点题句
+		expect(screen.queryByText(/在女性与编程之间架一座桥/)).toBeNull();
 
 		// 年份刻度条：2016 / 2046 刻度 + 「我们在这里」当前位置标记
 		const strip = screen.getByRole("img", {
