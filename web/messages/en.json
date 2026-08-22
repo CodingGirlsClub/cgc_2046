@@ -12,6 +12,9 @@
     "title": "CGC 2046",
     "description": "Coding Girls Club: a nonprofit coding community walking women into tech, from 2016 to 2046."
   },
+  "brand": {
+    "name": "Coding Girls Club"
+  },
   "legal": {
     "terms": {
       "title": "Terms of Service · 用户服务协议",
@@ -214,15 +217,49 @@
       "join": "Join us"
     },
     "hero": {
-      "tagline": "From 2016 to 2046, walking a generation of women into programming",
+      "tagline": "From 2016 to 2046, Coding Girls Club builds a bridge between women and programming.",
       "title": "Building a bridge across the divide",
-      "subtitle": "Coding Girls Club · 程序媛汇 — building a bridge between women and programming.",
-      "description": "Founded in 2016, 程序媛汇 (Coding Girls Club) is a nonprofit coding community helping women enter and stay in tech. 2046 is the deadline we set for ourselves: thirty years of doing this properly — year after year, starting with a class, an event, a peer to turn to for help.",
+      "description": "Founded in 2016, 程序媛汇 (Coding Girls Club) is a social enterprise. In the beginning, we taught women to code and helped them enter and stay in tech; today, AI is redefining human society as a whole, and in this transformation, we want more women to master technological and AI capability for their own daily lives, work, and careers. 2046 is the deadline we set for ourselves: thirty years of doing this properly — year after year, starting with a class, an event, a peer to connect with.",
       "quote": "“Our mission is digital empowerment for women, and we pursue it with humble persistence.”",
       "quoteAuthor": "— Wen Yang, Founder",
-      "stats": "By 2021, we had reached 10 cities, run 50+ offline workshops, visited 17 universities, and accompanied 4000+ learners alongside 1000+ coaches.",
       "join": "Join us",
-      "browseEvents": "Browse upcoming events"
+      "browseEvents": "Browse upcoming events",
+      "timelineNow": "We are here",
+      "timelineAria": "Thirty-year progress from 2016 to 2046"
+    },
+    "stats": {
+      "items": [
+        { "value": "4000+", "label": "learners" },
+        { "value": "1000+", "label": "coaches" },
+        { "value": "50+", "label": "offline workshops" },
+        { "value": "17", "label": "universities" },
+        { "value": "10", "label": "cities" }
+      ]
+    },
+    "trust": {
+      "title": "Ten years, and counting"
+    },
+    "about": {
+      "title": "About us · the thirty-year promise"
+    },
+    "path": {
+      "title": "What happens after you join",
+      "description": "From your first line of code to a lasting skill and a daily habit.",
+      "steps": [
+        { "title": "Join a workshop", "description": "Start with one offline or online workshop — write your first line of code, no experience needed." },
+        { "title": "Take a course", "description": "Enroll in long-term courses and cohorts, moving forward at a steady pace with peers." },
+        { "title": "Stay in the community", "description": "Grow alongside thousands of peers who help each other, long after the workshop ends." }
+      ]
+    },
+    "journey": {
+      "entries": [
+        { "year": "2016", "text": "Coding Girls Club founded; the first coding workshop held." },
+        { "year": "2018", "text": "Selected for the UNDP “Tech for Good” project casebook." },
+        { "year": "2019", "text": "Awarded in the CYLC National Youth Social Organizations Partnership Program." },
+        { "year": "2021", "text": "Paper with Carnegie Mellon University researchers published at ICSE CHASE 2021 (IEEE)." },
+        { "year": "2046", "text": "The thirty-year promise fulfilled — we are on our way." }
+      ],
+      "note": "We also supported the UNDP & UN Women #科技遇见她# one-hour coding challenge."
     },
     "sections": {
       "eventsTitle": "Latest events",
@@ -236,21 +273,10 @@
       "emptyAction": "Browse the list ›",
       "deadline": "Closes {deadline}"
     },
-    "media": {
-      "title": "Press & recognition",
-      "description": "Moments recorded, studied, and recognized along the way.",
-      "honorsTitle": "Honors"
-    },
-    "honors": [
-      "Selected for the UNDP “Tech for Good” project casebook (2018)",
-      "Awarded in the CYLC National Youth Social Organizations Partnership Program (2019)",
-      "Supported the UNDP & UN Women #科技遇见她# one-hour coding challenge"
-    ],
     "paper": {
       "venue": "With Carnegie Mellon University researchers · ICSE CHASE 2021 · IEEE"
     },
     "partners": {
-      "title": "Partners",
       "description": "Those who walked alongside us — thank you for the journey."
     },
     "cta": {
