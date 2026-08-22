@@ -1872,7 +1872,8 @@ body {
 .join-input::placeholder { color: var(--ink-3); }
 .join-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.join-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 49px; padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius-medium); font-size: 14px; font-weight: 510; line-height: 20px; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.join-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 49px; padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius-medium); font-size: 14px; font-weight: 510; line-height: 20px; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease, transform 120ms ease; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.join-button:active { transform: scale(0.96); }
 .join-button svg { width: 18px; height: 18px; }
 .join-button--primary { background: var(--accent); color: #fff; }
 .join-button--primary:hover { background: var(--accent-mention); }
@@ -2028,3 +2029,229 @@ body {
 .approvals-expired { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .approvals-expired h2 { margin: 0; font-size: 16px; }
 .approvals-expired__hint { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* ============================================================
+   Landing（公开首页，M2 重构 2026-08）
+   固定深色门面：.ld-root 重声明暗色 token，html.light 下本页仍为深色
+   （Linear 原生介质；登录后的应用内页面保持双主题不变）。
+   设计签名：2016 → 2046 三十年时间线（Hero 年份刻度条 + journey 里程碑）
+   + 纪念碑式排印；零图像素材依赖，纯排印与几何。
+   动效：仅 Hero 入场 staggered reveal 与按压反馈；prefers-reduced-motion 全降级。
+   ============================================================ */
+
+.ld-root {
+  /* 深色 token 作用域覆盖（状态色两主题一致，无需重声明） */
+  --canvas: #08090a;
+  --frame: #090a0b;
+  --card: #0f1011;
+  --view: #121314;
+  --chat: #161718;
+  --divider: #23252a;
+  --ink: #f7f8f8;
+  --ink-2: #d0d6e0;
+  --ink-3: #8a8f98;
+  --accent: #5e6ad2;
+  --accent-mention: #6d78d5;
+  --accent-mentionbg: #232534;
+  --accent-strong: #aab3ff;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-soft: rgba(255, 255, 255, 0.04);
+  --line-input: rgba(255, 255, 255, 0.02);
+  --soft: rgba(255, 255, 255, 0.05);
+  --soft-2: rgba(255, 255, 255, 0.02);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  min-height: 100svh;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.ld-root a,
+.ld-root button { touch-action: manipulation; }
+
+.ld-container { width: min(100% - 40px, 1080px); margin-inline: auto; }
+
+/* ---------- 顶导 ---------- */
+.ld-nav { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--line-soft); background: var(--canvas); }
+.ld-nav__inner { display: flex; align-items: center; gap: 24px; height: 60px; }
+.ld-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); font-size: 15px; font-weight: 590; letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }
+.ld-brand__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px rgba(94, 106, 210, 0.9); }
+.ld-nav__links { display: flex; align-items: center; gap: 20px; }
+.ld-nav__links a { color: var(--ink-3); font-size: 14px; text-decoration: none; transition: color 120ms ease; }
+.ld-nav__login { color: var(--ink-2); font-size: 14px; text-decoration: none; transition: color 120ms ease; white-space: nowrap; }
+.ld-nav__right { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+.ld-nav__right .join-button { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.ld-nav__lang { white-space: nowrap; }
+
+/* ---------- Hero ---------- */
+.ld-hero { position: relative; overflow: clip; padding: 96px 0 72px; }
+.ld-hero::before { /* 单一 indigo 辉光：Linear 签名式暗色焦点（非渐变文字、非彩色阴影） */
+  content: "";
+  position: absolute;
+  top: -260px;
+  left: 50%;
+  width: 860px;
+  height: 520px;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(94, 106, 210, 0.26), transparent 72%);
+  pointer-events: none;
+}
+.ld-hero > * { position: relative; }
+.ld-kicker { display: inline-flex; align-items: center; gap: 10px; color: var(--accent-strong); font-size: 14px; font-weight: 510; }
+.ld-kicker__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.18); }
+.ld-display { margin: 22px 0 0; max-width: 14em; font-size: clamp(42px, 7vw, 84px); font-weight: 510; line-height: 1.12; text-wrap: balance; }
+.ld-display:lang(en) { line-height: 1.04; letter-spacing: -0.022em; } /* 负字距仅限拉丁；CJK 不收字距 */
+.ld-sub { margin: 24px 0 0; max-width: 640px; color: var(--ink-2); font-size: clamp(17px, 2vw, 20px); line-height: 1.7; text-wrap: pretty; }
+.ld-cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-top: 40px; }
+.ld-cta-row .join-button { min-height: 48px; padding: 0 24px; font-size: 15px; }
+.ld-cta-quiet { color: var(--ink-3); font-size: 14px; text-decoration: none; transition: color 120ms ease; }
+
+/* 年份刻度条：2016 ───●─── 2046（三十年进度可视化） */
+.ld-years { display: flex; align-items: center; gap: 16px; max-width: 720px; margin-top: 76px; padding-bottom: 26px; }
+.ld-years__tick { color: var(--ink-3); font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ld-years__rail { position: relative; flex: 1; height: 1px; background: var(--line-strong); }
+.ld-years__fill { position: absolute; inset: 0; background: var(--accent); transform-origin: left; }
+.ld-years__marker { position: absolute; top: 50%; transform: translate(-50%, -50%); }
+.ld-years__dot { display: block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px rgba(94, 106, 210, 0.18); }
+.ld-years__now { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+
+/* ---------- 通用区块 ---------- */
+.ld-section { padding: 88px 0; border-top: 1px solid var(--line-soft); }
+.ld-section--center { text-align: center; }
+.ld-section--center .ld-section__desc { margin-inline: auto; }
+.ld-section__head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
+.ld-section__title { margin: 0; font-size: clamp(24px, 3vw, 32px); font-weight: 510; line-height: 1.25; text-wrap: balance; }
+.ld-section__title:lang(en) { letter-spacing: -0.02em; }
+.ld-section__desc { margin: 10px 0 0; max-width: 560px; color: var(--ink-3); font-size: 15px; line-height: 1.7; }
+.ld-section__more { flex: none; color: var(--accent-strong); font-size: 14px; text-decoration: none; transition: color 120ms ease; }
+
+/* ---------- 数据带 ---------- */
+.ld-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; margin: 40px 0 0; padding: 0; list-style: none; }
+.ld-stat__value { font-size: clamp(28px, 3.4vw, 40px); font-weight: 510; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ld-stat__value:lang(en) { letter-spacing: -0.02em; }
+.ld-stat__label { margin-top: 8px; color: var(--ink-3); font-size: 13px; }
+.ld-stats__caption { margin: 28px 0 0; color: var(--ink-3); font-size: 13px; }
+
+/* ---------- 宣言（简介 + 创始人引语） ---------- */
+.ld-manifesto { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+.ld-manifesto__desc { margin: 0; max-width: 65ch; color: var(--ink-2); font-size: 17px; line-height: 1.8; text-wrap: pretty; }
+.ld-quote { margin: 0; padding: 0; border: 0; }
+.ld-quote p { margin: 0; color: var(--ink); font-size: clamp(19px, 2.2vw, 24px); font-weight: 400; line-height: 1.6; text-wrap: balance; }
+.ld-quote footer { margin-top: 14px; color: var(--ink-3); font-size: 13px; }
+
+/* ---------- 路径（加入后三步） ---------- */
+.ld-path { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin: 0; padding: 0; list-style: none; }
+.ld-step { border-top: 1px solid var(--line-strong); padding-top: 20px; }
+.ld-step__index { color: var(--accent-strong); font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ld-step__title { margin: 12px 0 0; font-size: 18px; font-weight: 590; }
+.ld-step__desc { margin: 10px 0 0; color: var(--ink-3); font-size: 14px; line-height: 1.7; }
+
+/* ---------- 活动/课程（行式列表，发丝分隔） ---------- */
+.ld-offers { display: grid; margin: 0; padding: 0; list-style: none; }
+.ld-offer-row { display: flex; align-items: center; gap: 16px; padding: 18px 4px; border-top: 1px solid var(--line-soft); color: inherit; text-decoration: none; transition: background-color 120ms ease; }
+.ld-offers > li:last-child .ld-offer-row { border-bottom: 1px solid var(--line-soft); }
+.ld-offer-row__main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 10px; }
+.ld-offer-row__title { overflow: hidden; color: var(--ink); font-size: 15px; font-weight: 510; text-overflow: ellipsis; white-space: nowrap; }
+.ld-offer-row__meta { flex: none; color: var(--ink-3); font-size: 13px; }
+.ld-offer-row__arrow { flex: none; color: var(--ink-3); transition: color 120ms ease, transform 120ms ease; }
+.ld-offer-fallback { margin: 0; color: var(--ink-3); font-size: 14px; }
+.ld-offer-fallback a { color: var(--accent-strong); }
+.ld-skeleton { height: 60px; border-radius: var(--radius-large); background: var(--soft-2); animation: ld-pulse 1.4s ease-in-out infinite; }
+.ld-skeleton + .ld-skeleton { margin-top: 10px; }
+@keyframes ld-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ---------- 里程碑时间线 ---------- */
+.ld-journey { margin: 0; padding: 0; list-style: none; }
+.ld-journey__entry { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--line-soft); }
+.ld-journey__entry:last-child { border-bottom: 1px solid var(--line-soft); }
+.ld-journey__year { color: var(--accent-strong); font-family: var(--font-mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.ld-journey__text { color: var(--ink-2); font-size: 15px; line-height: 1.7; }
+.ld-journey__note { margin: 20px 0 0; color: var(--ink-3); font-size: 13px; }
+
+/* ---------- 报道与认可（编辑式索引行） ---------- */
+.ld-paper { display: block; margin-bottom: 28px; padding: 20px 24px; border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--soft-2); text-decoration: none; transition: border-color 120ms ease; }
+.ld-paper--spaced { margin-top: 56px; }
+.ld-paper__title { display: block; color: var(--ink); font-size: 15px; font-weight: 510; line-height: 1.5; }
+.ld-paper__venue { display: block; margin-top: 6px; color: var(--ink-3); font-size: 13px; }
+.ld-press { margin: 0; padding: 0; list-style: none; }
+.ld-press__row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 16px; align-items: baseline; gap: 20px; padding: 16px 4px; border-top: 1px solid var(--line-soft); color: inherit; text-decoration: none; transition: background-color 120ms ease; }
+.ld-press > li:last-child .ld-press__row { border-bottom: 1px solid var(--line-soft); }
+.ld-press__outlet { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; }
+.ld-press__title { color: var(--ink); font-size: 15px; line-height: 1.5; }
+.ld-press__arrow { color: var(--ink-3); }
+
+/* ---------- 合作伙伴（安静的文字行） ---------- */
+.ld-partners { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 32px; margin: 36px 0 0; padding: 0; list-style: none; }
+.ld-partners li { color: var(--ink-3); font-size: 15px; font-weight: 510; }
+
+/* ---------- 底部 CTA ---------- */
+.ld-final { position: relative; overflow: clip; padding: 120px 0; border-top: 1px solid var(--line-soft); text-align: center; }
+.ld-final::before {
+  content: "";
+  position: absolute;
+  bottom: -300px;
+  left: 50%;
+  width: 760px;
+  height: 460px;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(94, 106, 210, 0.2), transparent 72%);
+  pointer-events: none;
+}
+.ld-final > * { position: relative; }
+.ld-final h2 { margin: 0 auto; max-width: 20em; font-size: clamp(26px, 4vw, 42px); font-weight: 510; line-height: 1.35; text-wrap: balance; }
+.ld-final .ld-cta-row { justify-content: center; }
+
+/* ---------- 信任带 / 关于我们（IA 定稿后的合并区块间距） ---------- */
+.ld-trust__partners { margin-top: 56px; text-align: center; }
+.ld-trust__partners-caption { margin: 0; color: var(--ink-3); font-size: 14px; }
+.ld-trust__partners .ld-partners { margin-top: 20px; }
+.ld-manifesto--spaced { margin-top: 40px; }
+.ld-about .ld-journey { margin-top: 56px; }
+
+/* ---------- Footer ---------- */
+.ld-footer { padding: 28px 0 40px; border-top: 1px solid var(--line-soft); color: var(--ink-3); font-size: 13px; }
+.ld-footer__inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.ld-footer p { margin: 0; }
+.ld-footer a { color: var(--ink-3); text-decoration: none; transition: color 120ms ease; }
+.ld-footer__lang { display: none; white-space: nowrap; }
+
+/* ---------- 入场 staggered reveal（一次性，低频，值得动） ---------- */
+.ld-rise { opacity: 0; animation: ld-rise 640ms cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: var(--d, 0ms); }
+@keyframes ld-rise {
+  from { opacity: 0; filter: blur(4px); transform: translateY(14px); }
+  to { opacity: 1; filter: none; transform: none; }
+}
+
+/* ---------- hover 仅指针设备（触屏不粘滞） ---------- */
+@media (hover: hover) {
+  .ld-nav__links a:hover, .ld-nav__login:hover, .ld-cta-quiet:hover { color: var(--ink); }
+  .ld-section__more:hover { color: var(--accent-mention); }
+  .ld-offer-row:hover { background: var(--soft-2); }
+  .ld-offer-row:hover .ld-offer-row__arrow { color: var(--accent-strong); transform: translateX(3px); }
+  .ld-paper:hover { border-color: var(--line-strong); }
+  .ld-press__row:hover { background: var(--soft-2); }
+  .ld-footer a:hover { color: var(--ink-2); }
+}
+
+/* ---------- 动效降级 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ld-rise { opacity: 1; animation: none; }
+  .ld-skeleton { animation: none; }
+  .ld-offer-row__arrow { transition: none; }
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 900px) {
+  .ld-manifesto { grid-template-columns: 1fr; gap: 28px; }
+  .ld-path { grid-template-columns: 1fr; gap: 24px; }
+  .ld-stats { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+  .ld-nav__links { display: none; }
+  .ld-nav__lang { display: none; }
+  .ld-footer__lang { display: inline-flex; }
+  .ld-hero { padding: 64px 0 56px; }
+  .ld-section { padding: 64px 0; }
+  .ld-stats { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .ld-press__row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .ld-press__arrow { display: none; }
+  .ld-final { padding: 80px 0; }
+}

@@ -1,21 +1,25 @@
 "use client";
 
 /**
- * 公开首页 Landing 页（M2）：未登录访客看到的第一屏。
+ * 公开首页 Landing 页（M2 重构，2026-08；IA 定稿：行动优先，叙事殿后）。
  *
- * - 叙事主线：Coding Girls Club（程序媛汇）2016 年创立，立志做到 2046 年（30 年），
- *   推动女性进入并留在科技领域；语气真诚朴素，不浮夸。
- * - 「最新活动 / 精选课程」复用公开 API（fetchPublicOfferings，匿名白名单查询），
- *   各取前 3 条；加载失败时降级为入口链接，不阻塞整页。
- * - 「报道与认可 / 合作伙伴」为静态文案，素材取自 2021 年版机构介绍 deck
- *   （docs/宣传素材/，M1 调研权威清单 + tower 拍板口径）：
- *   媒体报道前 4 条附原文链接、果壳网只列媒体+标题；
- *   合作伙伴为精选科技类 8 家的历史同行者口径，不暗示当前仍在合作。
+ * 信息架构（每屏只回答一个问题）：
+ *   Hero（这是什么：slogan + 一句点题 + 单一主 CTA + 2016→2046 年份刻度条）
+ *   → 路径（加入之后会发生什么，三步）
+ *   → 最新活动 / 精选课程（现在就能报什么；公开 API 各取前 3，失败降级为入口链接）
+ *   → 信任带（为什么值得加入：大数字 + 论文 + 媒体索引 + 合作伙伴）
+ *   → 关于我们（组织简介 + 创始人引语 + 2016→2046 里程碑时间线，历史叙事只讲一次）
+ *   → 底部 CTA → footer
+ *
+ * 设计：固定深色门面（.ld-root 重声明暗色 token，html.light 下本页仍为深色，
+ * 登录后的应用内页面保持双主题不变）。Linear 原生介质 + 纪念碑式排印，
+ * 零图像素材依赖，纯排印与几何。动效仅 Hero 入场 staggered reveal 与按钮
+ * 按压反馈；prefers-reduced-motion 在 CSS 侧全降级。
  */
 
 import LanguageSwitcher from "@/components/language-switcher";
 import { Link } from "@/i18n/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslations } from "next-intl";
 import { fetchPublicOfferings } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
@@ -23,9 +27,47 @@ import { ENROLLMENT_POLICY_LABEL } from "@/lib/graphql/events";
 import EventStatusTag from "@/components/event-status-tag";
 import { formatDeadline } from "@/lib/events";
 
-/* ---------------- 活动/课程卡片（与 /events、/courses 发现页同款） ---------------- */
+const FOUNDED_YEAR = 2016;
+const TARGET_YEAR = 2046;
 
-function OfferingCard({
+/** Hero 入场延迟阶梯（ms）：kicker → 标题 → 副题 → CTA → 年份刻度 */
+function rise(index: number): CSSProperties {
+	return { "--d": `${index * 90}ms` } as CSSProperties;
+}
+
+/* ---------------- 年份刻度条：2016 ───●─── 2046 ---------------- */
+
+function YearStrip() {
+	const t = useTranslations("landing");
+	const now = new Date().getFullYear();
+	const progress = Math.min(
+		1,
+		Math.max(0, (now - FOUNDED_YEAR) / (TARGET_YEAR - FOUNDED_YEAR)),
+	);
+	return (
+		<div className="ld-years" role="img" aria-label={t("hero.timelineAria")}>
+			<span className="ld-years__tick">{FOUNDED_YEAR}</span>
+			<span className="ld-years__rail" aria-hidden="true">
+				<span
+					className="ld-years__fill"
+					style={{ transform: `scaleX(${progress})` }}
+				/>
+				<span
+					className="ld-years__marker"
+					style={{ insetInlineStart: `${progress * 100}%` }}
+				>
+					<span className="ld-years__dot" />
+					<span className="ld-years__now">{t("hero.timelineNow")}</span>
+				</span>
+			</span>
+			<span className="ld-years__tick">{TARGET_YEAR}</span>
+		</div>
+	);
+}
+
+/* ---------------- 活动/课程行（与 /events、/courses 同数据源） ---------------- */
+
+function OfferingRow({
 	item,
 	kind,
 }: {
@@ -37,22 +79,26 @@ function OfferingCard({
 	const labelsT = useTranslations();
 	const base = kind === "event" ? "/events" : "/courses";
 	return (
-		<Link
-			href={`${base}/${item.slug}`}
-			className="join-card flex items-center gap-4 !p-6 !w-full"
-		>
-			<span className="min-w-0 flex-1">
-				<span className="flex items-center gap-2">
-					<span className="block truncate text-sm font-medium">{item.title}</span>
+		<li>
+			<Link href={`${base}/${item.slug}`} className="ld-offer-row">
+				<span className="ld-offer-row__main">
+					<span className="ld-offer-row__title">{item.title}</span>
 					<EventStatusTag status={item.status} />
 				</span>
-				<span className="mt-1 block text-[13px] leading-5 text-ink-3">
+				<span className="ld-offer-row__meta">
 					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}
-					{t("sections.deadline", { deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")) })}
+					{t("sections.deadline", {
+						deadline: formatDeadline(
+							item.registrationDeadline,
+							tCommon("noDeadline"),
+						),
+					})}
 				</span>
-			</span>
-			<span className="flex-none text-ink-3">›</span>
-		</Link>
+				<span className="ld-offer-row__arrow" aria-hidden="true">
+					→
+				</span>
+			</Link>
+		</li>
 	);
 }
 
@@ -78,44 +124,44 @@ function OfferingSection({
 }) {
 	const t = useTranslations("landing");
 	return (
-		<section aria-labelledby={`landing-${kind}-heading`} className="mt-16">
-			<div className="flex items-end justify-between gap-4">
-				<div>
-					<h2 id={`landing-${kind}-heading`} className="l-h2">
-						{title}
-					</h2>
-					<p className="mt-2 text-sm text-ink-3">{description}</p>
+		<section aria-labelledby={`landing-${kind}-heading`} className="ld-section">
+			<div className="ld-container">
+				<div className="ld-section__head">
+					<div>
+						<h2 id={`landing-${kind}-heading`} className="ld-section__title">
+							{title}
+						</h2>
+						<p className="ld-section__desc">{description}</p>
+					</div>
+					<Link href={href} className="ld-section__more">
+						{t("sections.viewAll")}
+					</Link>
 				</div>
-				<Link
-					href={href}
-					className="flex-none text-sm text-accent hover:text-accent-mention"
-				>
-					{t("sections.viewAll")}
-				</Link>
+				{state.status === "loading" ? (
+					// 3 块与真实行高等高的 skeleton：加载完成不再发生布局位移（CLS）
+					<div aria-hidden="true">
+						<div className="ld-skeleton" />
+						<div className="ld-skeleton" />
+						<div className="ld-skeleton" />
+					</div>
+				) : state.status === "error" ? (
+					<p className="ld-offer-fallback">
+						{t("sections.errorHint")}{" "}
+						<Link href={href}>{t("sections.errorAction")}</Link>
+					</p>
+				) : state.rows.length === 0 ? (
+					<p className="ld-offer-fallback">
+						{t("sections.emptyHint")}{" "}
+						<Link href={href}>{t("sections.emptyAction")}</Link>
+					</p>
+				) : (
+					<ul className="ld-offers">
+						{state.rows.map((item) => (
+							<OfferingRow key={item.id} item={item} kind={kind} />
+						))}
+					</ul>
+				)}
 			</div>
-			{state.status === "loading" ? (
-				<div className="mt-6 h-28 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
-			) : state.status === "error" ? (
-				<p className="mt-6 text-sm text-ink-3">
-					{t("sections.errorHint")}{" "}
-					<Link href={href} className="text-accent">
-						{t("sections.errorAction")}
-					</Link>
-				</p>
-			) : state.rows.length === 0 ? (
-				<p className="mt-6 text-sm text-ink-3">
-					{t("sections.emptyHint")}{" "}
-					<Link href={href} className="text-accent">
-						{t("sections.emptyAction")}
-					</Link>
-				</p>
-			) : (
-				<div className="mt-6 grid gap-3">
-					{state.rows.map((item) => (
-						<OfferingCard key={item.id} item={item} kind={kind} />
-					))}
-				</div>
-			)}
 		</section>
 	);
 }
@@ -124,12 +170,20 @@ function OfferingSection({
 
 export default function LandingPage() {
 	const t = useTranslations("landing");
+	const stats = t.raw("stats.items") as Array<{ value: string; label: string }>;
+	const steps = t.raw("path.steps") as Array<{
+		title: string;
+		description: string;
+	}>;
+	const milestones = t.raw("journey.entries") as Array<{
+		year: string;
+		text: string;
+	}>;
 	const mediaReports = t.raw("mediaReports") as Array<{
 		outlet: string;
 		title: string;
 		url: string | null;
 	}>;
-	const honors = t.raw("honors") as string[];
 	const partners = ["UNDP", "ThoughtWorks", "GitHub", "ByteDance", "FreeWheel"];
 	const paperUrl =
 		"https://www.computer.org/csdl/proceedings-article/chase/2021/140900a091/1tB7t8SZKcE";
@@ -158,78 +212,83 @@ export default function LandingPage() {
 	}, []);
 
 	return (
-		<main className="mx-auto w-full max-w-4xl px-4 pb-20">
-			{/* 顶部导航：品牌 + 公开入口 + 登录/注册 */}
-			<header className="flex items-center gap-6 py-6">
-				<span className="text-[15px] font-semibold tracking-tight">
-					CGC 2046
-				</span>
-				<nav className="flex items-center gap-4 text-sm text-ink-3">
-					<Link href="/events" className="hover:text-ink">
-						{t("nav.events")}
+		<main className="ld-root">
+			{/* 顶导：品牌 + 公开入口 + 语言切换 + 登录/注册 */}
+			<header className="ld-nav">
+				<div className="ld-container ld-nav__inner">
+					<Link href="/" className="ld-brand">
+						<span className="ld-brand__dot" aria-hidden="true" />
+						CGC 2046
 					</Link>
-					<Link href="/courses" className="hover:text-ink">
-						{t("nav.courses")}
-					</Link>
-				</nav>
-				<div className="ml-auto flex items-center gap-3">
-					<Link
-						href="/login"
-						className="text-sm text-ink-2 hover:text-ink"
-					>
-						{t("nav.login")}
-					</Link>
-					<Link
-						href="/register"
-						className="join-button join-button--primary !min-h-9"
-					>
-						{t("nav.join")}
-					</Link>
+					<nav className="ld-nav__links" aria-label={t("nav.events")}>
+						<Link href="/events">{t("nav.events")}</Link>
+						<Link href="/courses">{t("nav.courses")}</Link>
+					</nav>
+					<div className="ld-nav__right">
+						<LanguageSwitcher className="ld-nav__lang" />
+						<Link href="/login" className="ld-nav__login">
+							{t("nav.login")}
+						</Link>
+						<Link href="/register" className="join-button join-button--primary">
+							{t("nav.join")}
+						</Link>
+					</div>
 				</div>
 			</header>
 
-			{/* Hero：组织历史 slogan（桥）+ 30 年叙事主线 */}
-			<section aria-labelledby="landing-hero-heading" className="mt-16">
-				<p className="text-sm text-accent">
-					{t("hero.tagline")}
-				</p>
-				<h1
-					id="landing-hero-heading"
-					className="l-h1 mt-4 max-w-2xl"
-				>
-					{t("hero.title")}
-				</h1>
-				<p className="l-h3 mt-6 max-w-2xl">
-					{t("hero.subtitle")}
-				</p>
-				<p className="l-p mt-6 max-w-2xl text-ink-2">
-					{t("hero.description")}
-				</p>
-				<blockquote className="mt-6 max-w-2xl border-l-2 border-accent pl-4 text-sm text-ink-2">
-					{t("hero.quote")}
-					<span className="mt-1 block text-[13px] text-ink-3">
-						{t("hero.quoteAuthor")}
-					</span>
-				</blockquote>
-				<p className="mt-6 text-[13px] text-ink-3">
-					{t("hero.stats")}
-				</p>
-				<div className="mt-8 flex items-center gap-3">
-					<Link
-						href="/register"
-						className="join-button join-button--primary"
-					>
-						{t("hero.join")}
-					</Link>
-					<Link
-						href="/events"
-						className="join-button join-button--outline"
-					>
-						{t("hero.browseEvents")}
-					</Link>
+			{/* Hero：kicker + 纪念碑式大标题 + 单一主 CTA + 年份刻度条 */}
+			<section aria-labelledby="landing-hero-heading" className="ld-hero">
+				<div className="ld-container">
+					<p className="ld-kicker ld-rise" style={rise(0)}>
+						<span className="ld-kicker__dot" aria-hidden="true" />
+						{t("hero.tagline")}
+					</p>
+					<h1 id="landing-hero-heading" className="ld-display ld-rise" style={rise(1)}>
+						{t("hero.title")}
+					</h1>
+					<p className="ld-sub ld-rise" style={rise(2)}>
+						{t("hero.subtitle")}
+					</p>
+					<div className="ld-cta-row ld-rise" style={rise(3)}>
+						<Link href="/register" className="join-button join-button--primary">
+							{t("hero.join")}
+						</Link>
+						<Link href="/events" className="ld-cta-quiet">
+							{t("hero.browseEvents")} →
+						</Link>
+					</div>
+					<div className="ld-rise" style={rise(4)}>
+						<YearStrip />
+					</div>
 				</div>
 			</section>
 
+			{/* ① 路径：加入之后会发生什么（三步） */}
+			<section aria-labelledby="landing-path-heading" className="ld-section">
+				<div className="ld-container">
+					<div className="ld-section__head">
+						<div>
+							<h2 id="landing-path-heading" className="ld-section__title">
+								{t("path.title")}
+							</h2>
+							<p className="ld-section__desc">{t("path.description")}</p>
+						</div>
+					</div>
+					<ol className="ld-path">
+						{steps.map((step, i) => (
+							<li key={step.title} className="ld-step">
+								<span className="ld-step__index">
+									{String(i + 1).padStart(2, "0")}
+								</span>
+								<h3 className="ld-step__title">{step.title}</h3>
+								<p className="ld-step__desc">{step.description}</p>
+							</li>
+						))}
+					</ol>
+				</div>
+			</section>
+
+			{/* ② 行动闭环：现在就能报名的活动与课程 */}
 			<OfferingSection
 				kind="event"
 				title={t("sections.eventsTitle")}
@@ -246,126 +305,129 @@ export default function LandingPage() {
 				state={courses}
 			/>
 
-			{/* 报道与认可（静态文案，2021 deck 权威素材） */}
-			<section aria-labelledby="landing-media-heading" className="mt-16">
-				<h2 id="landing-media-heading" className="l-h2">
-					{t("media.title")}
-				</h2>
-				<p className="mt-2 text-sm text-ink-3">
-					{t("media.description")}
-				</p>
+			{/* ③ 信任带：大数字 + 论文 + 媒体索引 + 合作伙伴 */}
+			<section aria-labelledby="landing-trust-heading" className="ld-section">
+				<div className="ld-container">
+					<h2 id="landing-trust-heading" className="ld-section__title">
+						{t("trust.title")}
+					</h2>
+					<ul className="ld-stats">
+						{stats.map((s) => (
+							<li key={s.label}>
+								<div className="ld-stat__value">{s.value}</div>
+								<div className="ld-stat__label">{s.label}</div>
+							</li>
+						))}
+					</ul>
 
-				{/* 学术论文 */}
-				<a
-					href={paperUrl}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="join-card mt-6 block !w-full !gap-1 !p-6"
-				>
-					<span className="text-sm font-medium">{t("paperTitle")}</span>
-					<span className="text-[13px] text-ink-3">{t("paper.venue")}</span>
-				</a>
+					<a
+						href={paperUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="ld-paper ld-paper--spaced"
+					>
+						<span className="ld-paper__title">{t("paperTitle")}</span>
+						<span className="ld-paper__venue">{t("paper.venue")}</span>
+					</a>
 
-				{/* 媒体报道 */}
-				<ul className="mt-3 grid gap-3">
-					{mediaReports.map((report) => (
-						<li key={`${report.outlet}-${report.title}`}>
-							{report.url ? (
-								<a
-									href={report.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="join-card block !w-full !gap-1 !p-6"
-								>
-									<span className="text-sm font-medium">{report.title}</span>
-									<span className="text-[13px] text-ink-3">{report.outlet}</span>
-								</a>
-							) : (
-								<div className="join-card !w-full !gap-1 !p-6">
-									<span className="text-sm font-medium">{report.title}</span>
-									<span className="text-[13px] text-ink-3">{report.outlet}</span>
-								</div>
-							)}
-						</li>
-					))}
-				</ul>
+					<ul className="ld-press">
+						{mediaReports.map((report) => (
+							<li key={`${report.outlet}-${report.title}`}>
+								{report.url ? (
+									<a
+										href={report.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="ld-press__row"
+									>
+										<span className="ld-press__outlet">{report.outlet}</span>
+										<span className="ld-press__title">{report.title}</span>
+										<span className="ld-press__arrow" aria-hidden="true">
+											↗
+										</span>
+									</a>
+								) : (
+									<div className="ld-press__row">
+										<span className="ld-press__outlet">{report.outlet}</span>
+										<span className="ld-press__title">{report.title}</span>
+										<span />
+									</div>
+								)}
+							</li>
+						))}
+					</ul>
 
-				{/* 机构荣誉 */}
-				<ul className="mt-6 grid gap-2">
-					{honors.map((honor) => (
-						<li
-							key={honor}
-							className="flex items-center gap-2 text-[13px] text-ink-2"
-						>
-							<span className="text-accent" aria-hidden="true">
-								★
-							</span>
-							{honor}
-						</li>
-					))}
-				</ul>
+					<div className="ld-trust__partners">
+						<p className="ld-trust__partners-caption">
+							{t("partners.description")}
+						</p>
+						<ul className="ld-partners">
+							{partners.map((partner) => (
+								<li key={partner}>{partner}</li>
+							))}
+						</ul>
+					</div>
+				</div>
 			</section>
 
-			{/* 合作伙伴（静态文案，历史同行者口径） */}
-			<section aria-labelledby="landing-partners-heading" className="mt-16">
-				<h2 id="landing-partners-heading" className="l-h2">
-					{t("partners.title")}
-				</h2>
-				<p className="mt-2 text-sm text-ink-3">
-					{t("partners.description")}
-				</p>
-				<ul className="mt-6 flex flex-wrap justify-center gap-3">
-					{partners.map((partner) => (
-						<li
-							key={partner}
-							className="inline-flex items-center rounded-medium border border-line px-4 py-2 text-sm text-ink-2"
-						>
-							{partner}
-						</li>
-					))}
-				</ul>
+			{/* ④ 关于我们：组织简介 + 创始人引语 + 里程碑时间线（历史叙事只讲一次） */}
+			<section aria-labelledby="landing-about-heading" className="ld-section ld-about">
+				<div className="ld-container">
+					<h2 id="landing-about-heading" className="ld-section__title">
+						{t("about.title")}
+					</h2>
+					<div className="ld-manifesto ld-manifesto--spaced">
+						<p className="ld-manifesto__desc">{t("hero.description")}</p>
+						<blockquote className="ld-quote">
+							<p>{t("hero.quote")}</p>
+							<footer>{t("hero.quoteAuthor")}</footer>
+						</blockquote>
+					</div>
+					<ol className="ld-journey">
+						{milestones.map((m) => (
+							<li key={m.year} className="ld-journey__entry">
+								<span className="ld-journey__year">{m.year}</span>
+								<span className="ld-journey__text">{m.text}</span>
+							</li>
+						))}
+					</ol>
+					<p className="ld-journey__note">{t("journey.note")}</p>
+				</div>
 			</section>
 
 			{/* 底部 CTA */}
-			<section
-				aria-labelledby="landing-cta-heading"
-				className="mt-20 rounded-large border border-line bg-card px-6 py-12 text-center"
-			>
-				<h2 id="landing-cta-heading" className="l-h2">
-					{t("cta.title")}
-				</h2>
-				<div className="mt-8 flex items-center justify-center gap-3">
-					<Link
-						href="/register"
-						className="join-button join-button--primary"
-					>
-						{t("cta.register")}
-					</Link>
-					<Link
-						href="/login"
-						className="join-button join-button--outline"
-					>
-						{t("cta.login")}
-					</Link>
+			<section aria-labelledby="landing-cta-heading" className="ld-final">
+				<div className="ld-container">
+					<h2 id="landing-cta-heading">{t("cta.title")}</h2>
+					<div className="ld-cta-row">
+						<Link href="/register" className="join-button join-button--primary">
+							{t("cta.register")}
+						</Link>
+						<Link href="/login" className="ld-cta-quiet">
+							{t("cta.login")}
+						</Link>
+					</div>
 				</div>
 			</section>
 
-			<footer className="mt-16 border-t border-line pt-6 text-[13px] text-ink-3">
-				<div className="flex items-center justify-between gap-4">
+			<footer className="ld-footer">
+				<div className="ld-container ld-footer__inner">
 					<p>{t("footer.tagline")}</p>
-					<LanguageSwitcher />
+					{/* 语言切换在顶导常驻；窄屏顶导收起后由页尾接管（仅 ≤640px 显示） */}
+					<span className="ld-footer__lang">
+						<LanguageSwitcher />
+					</span>
+					<p>
+						© CodingGirlsClub ｜{" "}
+						<a
+							href="https://beian.miit.gov.cn"
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							{t("footer.icp")}
+						</a>
+					</p>
 				</div>
-				<p className="mt-3">
-					© CodingGirlsClub ｜{" "}
-					<a
-						href="https://beian.miit.gov.cn"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="hover:text-ink-2"
-					>
-						{t("footer.icp")}
-					</a>
-				</p>
 			</footer>
 		</main>
 	);
