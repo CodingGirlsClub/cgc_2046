@@ -18,6 +18,7 @@
  */
 
 import LanguageSwitcher from "@/components/language-switcher";
+import { BrandLockup } from "@/components/brand";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslations } from "next-intl";
@@ -217,8 +218,7 @@ export default function LandingPage() {
 			<header className="ld-nav">
 				<div className="ld-container ld-nav__inner">
 					<Link href="/" className="ld-brand">
-						<span className="ld-brand__dot" aria-hidden="true" />
-						CGC 2046
+						<BrandLockup />
 					</Link>
 					<nav className="ld-nav__links" aria-label={t("nav.events")}>
 						<Link href="/events">{t("nav.events")}</Link>
@@ -412,6 +412,7 @@ export default function LandingPage() {
 
 			<footer className="ld-footer">
 				<div className="ld-container ld-footer__inner">
+					<BrandLockup className="ld-footer__brand" />
 					<p>{t("footer.tagline")}</p>
 					{/* 语言切换在顶导常驻；窄屏顶导收起后由页尾接管（仅 ≤640px 显示） */}
 					<span className="ld-footer__lang">

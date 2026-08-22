@@ -7,6 +7,7 @@ import SmsForm from "./login/sms-form";
 import WechatQrPanel from "./login/wechat-qr-panel";
 import { useAuthSubmit } from "./login/use-auth-submit";
 import LanguageSwitcher from "@/components/language-switcher";
+import { BrandLockup } from "@/components/brand";
 
 /** 登录方式(plan 002 U5):密码(手机号/邮箱)/手机验证码。微信扫码常驻右栏，不占 tab。 */
 type LoginMethod = "password" | "sms";
@@ -37,16 +38,6 @@ function LoginMethodTabs({
 			))}
 		</div>
 	);
-}
-
-function BrandMark() {
-  return (
-    <span className="auth-brand-mark" aria-hidden="true">
-      <span className="auth-brand-mark__cell auth-brand-mark__cell--left" />
-      <span className="auth-brand-mark__cell auth-brand-mark__cell--right" />
-      <span className="auth-brand-mark__cell auth-brand-mark__cell--bottom" />
-    </span>
-  );
 }
 
 function FeatureIcon({ kind }: { kind: "identity" | "workspaces" | "profile" }) {
@@ -136,8 +127,7 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
       </div>
       <aside className="auth-brand-panel" aria-label={t("brandPanelLabel")}>
         <div className="auth-brand-lockup">
-          <BrandMark />
-          <span>CGC 2046</span>
+          <BrandLockup />
         </div>
 
         <div className="auth-brand-copy">

@@ -12,6 +12,9 @@
     "title": "CGC 2046",
     "description": "Coding Girls Club: a nonprofit coding community walking women into tech, from 2016 to 2046."
   },
+  "brand": {
+    "name": "Coding Girls Club"
+  },
   "legal": {
     "terms": {
       "title": "Terms of Service · 用户服务协议",

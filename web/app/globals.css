@@ -1393,26 +1393,6 @@ body {
     letter-spacing: -0.3px;
   }
 
-  .auth-brand-mark {
-    position: relative;
-    display: inline-block;
-    width: 34px;
-    height: 34px;
-    color: var(--accent);
-  }
-
-  .auth-brand-mark__cell {
-    position: absolute;
-    width: 15px;
-    height: 15px;
-    border: 2px solid currentColor;
-    transform: rotate(30deg) skew(-2deg, -2deg);
-  }
-
-  .auth-brand-mark__cell--left { top: 2px; left: 2px; }
-  .auth-brand-mark__cell--right { top: 2px; right: 2px; }
-  .auth-brand-mark__cell--bottom { bottom: 1px; left: 9px; }
-
   .auth-brand-copy {
     max-width: 530px;
     margin-top: auto;
@@ -2073,7 +2053,14 @@ body {
 .ld-nav { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--line-soft); background: var(--canvas); }
 .ld-nav__inner { display: flex; align-items: center; gap: 24px; height: 60px; }
 .ld-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); font-size: 15px; font-weight: 590; letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }
-.ld-brand__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px rgba(94, 106, 210, 0.9); }
+
+/* ---------- 品牌标识（官方火焰圆标 + 双语名，见 components/brand.tsx） ---------- */
+.brand-lockup { display: inline-flex; align-items: center; gap: 8px; line-height: 1; }
+.brand-lockup__mark { display: block; flex: none; width: 20px; height: 20px; }
+.brand-lockup__year { margin-left: 0.4em; color: var(--ink-3); font-weight: 480; }
+.auth-brand-lockup .brand-lockup__mark { width: 30px; height: 30px; }
+.ld-footer__brand { color: var(--ink); font-size: 14px; font-weight: 590; }
+.ld-footer__brand .brand-lockup__mark { width: 18px; height: 18px; }
 .ld-nav__links { display: flex; align-items: center; gap: 20px; }
 .ld-nav__links a { color: var(--ink-3); font-size: 14px; text-decoration: none; transition: color 120ms ease; }
 .ld-nav__login { color: var(--ink-2); font-size: 14px; text-decoration: none; transition: color 120ms ease; white-space: nowrap; }
