@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
 import ThemeProvider, { useTheme } from "./theme-provider";
 
 /**
@@ -15,6 +16,11 @@ import ThemeProvider, { useTheme } from "./theme-provider";
 const pathnameMock = vi.fn(() => "/w/cgc-camp/settings/account/preferences");
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameMock(),
+  // @/i18n/navigation（next-intl createNavigation）工厂在 import 期还需要这些导出
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useParams: () => ({}),
+  redirect: vi.fn(),
+  permanentRedirect: vi.fn(),
 }));
 
 // jsdom 环境不提供 localStorage，用 in-memory 实现替代
@@ -34,9 +40,18 @@ Object.defineProperty(window, "localStorage", {
   configurable: true,
 });
 
-const wrapper = ({ children }: { children: React.ReactNode }) => (
-  <ThemeProvider>{children}</ThemeProvider>
-);
+// i18n usePathname（2026-08-22 换源）需要 intl context；locale 可参数化（EN 用例）
+// 命名函数表达式：匿名箭头组件触发 react/display-name（CI lint error）
+const makeWrapper =
+  (locale: "zh-CN" | "en" = "zh-CN") =>
+    function ThemeTestWrapper({ children }: { children: React.ReactNode }) {
+      return (
+        <NextIntlClientProvider locale={locale}>
+          <ThemeProvider>{children}</ThemeProvider>
+        </NextIntlClientProvider>
+      );
+    };
+const wrapper = makeWrapper();
 
 /** flush queueMicrotask（挂载后偏好应用 effect） */
 async function flushMicrotasks() {
@@ -69,6 +84,17 @@ describe("ThemeProvider（hydration 一致性，ADR-0004 per-workspace）", () =
     localStorage.setItem("cgc_theme_cgc-camp", "light");
     const { result } = renderHook(() => useTheme(), { wrapper });
     await flushMicrotasks();
+    expect(result.current.theme).toBe("light");
+  });
+
+  it("EN（/en 前缀路径）同样解析出 workspace slug（2026-08-22 locale 回归钉测）", async () => {
+    pathnameMock.mockReturnValue("/en/w/cgc-camp/settings/account/preferences");
+    localStorage.setItem("cgc_theme_cgc-camp", "light");
+    const { result } = renderHook(() => useTheme(), {
+      wrapper: makeWrapper("en"),
+    });
+    await flushMicrotasks();
+    // 裸 usePathname 时代：^/w/ 匹配不到 → 退化读全局 key → dark（bug）
     expect(result.current.theme).toBe("light");
   });
 

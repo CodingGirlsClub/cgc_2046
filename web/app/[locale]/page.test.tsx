@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
-import HomePage from "./page";
+import HomePage from "./home-client";
 
 /**
  * 首页测试（M2：公开 Landing + 已登录分发器）。

@@ -249,18 +249,35 @@ describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 		expect(updateWorkspaceJoinPolicy).not.toHaveBeenCalled();
 	});
 
-	it("非管理员（无 update_join_policy）：radio 禁用 + 只读提示 + 保存禁用", async () => {
+	it("非管理员（无 update_join_policy）：页面级拦截，渲染「需要管理权限」空态（2026-08-22 决策）", async () => {
 		params.value = { slug: "cgc-shanghai" };
 		render(<SettingsPage />);
 
 		expect(
-			await screen.findByTestId("settings-readonly-note"),
-		).toHaveTextContent("仅 Owner / Admin 可修改加入策略");
-		expect(screen.getByRole("radio", { name: "公开" })).toBeDisabled();
-		expect(screen.getByRole("radio", { name: "申请审批" })).toBeDisabled();
-		expect(screen.getByRole("radio", { name: "仅邀请" })).toBeDisabled();
-		expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled();
+			await screen.findByTestId("shell-no-permission"),
+		).toHaveTextContent("此页面需要管理权限");
+		// 原只读降级 UI 不再对普通成员渲染（只读态保留给平台管理员审计访客）
+		expect(screen.queryByRole("radio", { name: "公开" })).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "保存更改" }),
+		).not.toBeInTheDocument();
 		expect(updateWorkspaceJoinPolicy).not.toHaveBeenCalled();
+		expect(screen.getByRole("link", { name: "返回概览" })).toHaveAttribute(
+			"href",
+			"/w/cgc-shanghai",
+		);
+		// 侧栏 Workspace 组同步门控：加入策略（update_join_policy）等管理项不渲染，
+		// 仅剩恒显的 Agents/活动/课程工作面入口
+		const workspaceNav = screen.getByRole("navigation", { name: "Workspace" });
+		expect(
+			within(workspaceNav).queryByRole("link", { name: "加入策略" }),
+		).not.toBeInTheDocument();
+		expect(
+			within(workspaceNav).queryByRole("link", { name: "成员与角色" }),
+		).not.toBeInTheDocument();
+		expect(
+			within(workspaceNav).getByRole("link", { name: "课程" }),
+		).toBeInTheDocument();
 	});
 
 	it("未知 slug：壳渲染「工作区不可访问」", async () => {

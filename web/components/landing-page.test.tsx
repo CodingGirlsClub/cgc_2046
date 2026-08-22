@@ -1,16 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import LandingPage from "./landing-page";
 
 /**
- * 公开 Landing 页测试（M2）。
+ * 公开 Landing 页测试（M2 重构，2026-08）。
  *
- * 结构：Hero（2016 → 2046 三十年叙事 + 创始人引语 + 截至 2021 数据带）、
- * 最新活动、精选课程、报道与认可（论文 + 媒体报道 + 机构荣誉）、
- * 合作伙伴、登录/注册 CTA。
- * 活动/课程数据复用公开 API（fetchPublicOfferings），各取前 3 条；
- * 加载失败降级为入口链接，不阻塞整页。
+ * 结构：顶导 → Hero（三十年叙事 + 单一主 CTA + 2016→2046 年份刻度条）→
+ * 数据带 stats → 宣言（简介 + 创始人引语）→ 路径 path（加入后三步）→
+ * 最新活动、精选课程（公开 API 各取前 3，失败降级为入口链接）→
+ * 里程碑 journey → 报道与认可（论文 + 媒体报道）→ 合作伙伴 → 底部 CTA → footer。
  */
 
 const { fetchPublicOfferings } = vi.hoisted(() => ({
@@ -65,13 +64,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("公开 Landing 页", () => {
-	it("渲染 Hero 叙事与各区块标题", async () => {
+	it("渲染 Hero 与各区块标题（IA：路径 → 活动/课程 → 信任带 → 关于我们）", () => {
 		render(<LandingPage />);
 
 		expect(
-			screen.getByRole("heading", {
-				name: "一桥飞架南北，天堑变通途",
-			}),
+			screen.getByRole("heading", { name: "一桥飞架南北，天堑变通途" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: "加入之后，会发生什么" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: "最新活动" }),
@@ -80,16 +80,84 @@ describe("公开 Landing 页", () => {
 			screen.getByRole("heading", { name: "精选课程" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "报道与认可" }),
+			screen.getByRole("heading", { name: "值得托付的十年" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "合作伙伴" }),
+			screen.getByRole("heading", { name: "关于我们 · 三十年之约" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", {
 				name: "种一棵树最好的时机，是十年前；其次，是现在！",
 			}),
 		).toBeInTheDocument();
+	});
+
+	it("Hero：kicker（年份+组织+使命）、单一主 CTA、年份刻度条", () => {
+		render(<LandingPage />);
+
+		expect(
+			screen.getByText(/从 2016 到 2046，程序媛汇，在女性与编程之间架起一座桥梁/),
+		).toBeInTheDocument();
+		// 副题已并入 kicker（2026-08 设计反馈），页面不再有独立点题句
+		expect(screen.queryByText(/在女性与编程之间架一座桥/)).toBeNull();
+
+		// 年份刻度条：2016 / 2046 刻度 + 「我们在这里」当前位置标记
+		const strip = screen.getByRole("img", {
+			name: "从 2016 到 2046 的三十年进度",
+		});
+		expect(strip).toBeInTheDocument();
+		expect(within(strip).getByText("2016")).toBeInTheDocument();
+		expect(within(strip).getByText("2046")).toBeInTheDocument();
+		expect(screen.getByText("我们在这里")).toBeInTheDocument();
+	});
+
+	it("宣言：组织简介与创始人引语", () => {
+		render(<LandingPage />);
+
+		expect(screen.getByText(/程序媛汇创立于 2016 年/)).toBeInTheDocument();
+		expect(
+			screen.getByText(/以帮助女性数字赋能为使命，以平凡的姿态做不平凡的事情/),
+		).toBeInTheDocument();
+		expect(screen.getByText(/创始人 文洋/)).toBeInTheDocument();
+	});
+
+	it("数据带：4000+ 学员等 5 个大数字", () => {
+		render(<LandingPage />);
+
+		expect(screen.getByText("4000+")).toBeInTheDocument();
+		expect(screen.getByText("1000+")).toBeInTheDocument();
+		expect(screen.getByText("50+")).toBeInTheDocument();
+		expect(screen.getByText("17")).toBeInTheDocument();
+		expect(screen.getByText("10")).toBeInTheDocument();
+		expect(screen.getByText("名学员")).toBeInTheDocument();
+		expect(screen.getByText("位教练")).toBeInTheDocument();
+	});
+
+	it("路径：加入后三步（工作坊 → 课程 → 社群）", () => {
+		render(<LandingPage />);
+
+		expect(screen.getByText("参加工作坊")).toBeInTheDocument();
+		expect(screen.getByText("系统学课程")).toBeInTheDocument();
+		expect(screen.getByText("留在社群里")).toBeInTheDocument();
+	});
+
+	it("里程碑：2016 创立到 2046 三十年之约，含无年份荣誉备注", () => {
+		render(<LandingPage />);
+
+		expect(
+			screen.getByText(/Coding Girls Club 创立，第一堂编程工作坊开课/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/入选联合国开发计划署「科技与慈善」项目案例集/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/获共青团中央「全国青年社会组织伙伴计划」奖项/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/卡耐基梅隆大学学者合作的论文发表于 ICSE CHASE 2021/),
+		).toBeInTheDocument();
+		expect(screen.getByText(/我们正在路上/)).toBeInTheDocument();
+		expect(screen.getByText(/#科技遇见她#/)).toBeInTheDocument();
 	});
 
 	it("登录/注册 CTA 指向 /login 与 /register", () => {
@@ -121,45 +189,7 @@ describe("公开 Landing 页", () => {
 		expect(courseLink).toHaveAttribute("href", "/courses/web-bootcamp");
 	});
 
-	it("Hero：历史 slogan 主标语、kicker、点题句（含中文名）、钩子、引语、数据带", () => {
-		render(<LandingPage />);
-
-		// 主标语为组织历史 slogan；「从 2016 到 2046」降级为 kicker 保留
-		expect(
-			screen.getByRole("heading", { name: "一桥飞架南北，天堑变通途" }),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText("从 2016 到 2046，陪一代女性走进编程"),
-		).toBeInTheDocument();
-		// 点题句：中英对照品牌名（中文名「程序媛汇」必须出现）
-		expect(
-			screen.getByText(/Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥/),
-		).toBeInTheDocument();
-
-		expect(
-			screen.getByText(/程序媛汇创立于 2016 年/),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(/以帮助女性数字赋能为使命，以平凡的姿态做不平凡的事情/),
-		).toBeInTheDocument();
-		expect(screen.getByText(/创始人 文洋/)).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				/截至 2021 年，我们走过 10 个城市、办了 50\+ 场线下工作坊/,
-			),
-		).toBeInTheDocument();
-		expect(screen.getByText(/4000\+ 名学员/)).toBeInTheDocument();
-	});
-
-	it("页尾：不再显示 GitHub 开源教程链接", () => {
-		render(<LandingPage />);
-
-		expect(
-			screen.queryByRole("link", { name: /工作坊教程在 GitHub 开源/ }),
-		).not.toBeInTheDocument();
-	});
-
-	it("报道与认可：论文（ICSE CHASE 2021 链接）、媒体 6 条（5 条有链接）、机构荣誉", () => {
+	it("报道与认可：论文（ICSE CHASE 2021 链接）、媒体 6 条（5 条有链接）", () => {
 		render(<LandingPage />);
 
 		// 论文：computer.org 权威链接
@@ -208,18 +238,9 @@ describe("公开 Landing 页", () => {
 		expect(
 			screen.queryByRole("link", { name: /自学编程的故事与未来/ }),
 		).not.toBeInTheDocument();
-
-		// 机构荣誉 3 条
-		expect(
-			screen.getByText(/2018 年入选联合国开发计划署「科技与慈善」项目案例集/),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(/2019 年共青团中央「全国青年社会组织伙伴计划」获奖项目/),
-		).toBeInTheDocument();
-		expect(screen.getByText(/#科技遇见她#/)).toBeInTheDocument();
 	});
 
-	it("合作伙伴：精选 5 家居中（历史同行者口径，无 WorldQuant/个推/掘金/freeCodeCamp）", () => {
+	it("合作伙伴：精选 5 家（历史同行者口径，无 WorldQuant/个推/掘金/freeCodeCamp）", () => {
 		render(<LandingPage />);
 
 		for (const partner of [
@@ -235,9 +256,6 @@ describe("公开 Landing 页", () => {
 			expect(screen.queryByText(removed)).not.toBeInTheDocument();
 		}
 		expect(screen.getByText(/曾经的同行者/)).toBeInTheDocument();
-		expect(screen.getByText("合作伙伴").closest("section")?.querySelector("ul")).toHaveClass(
-			"justify-center",
-		);
 	});
 
 	it("公开 API 加载失败：降级为入口链接，整页其余区块不受影响", async () => {
@@ -248,12 +266,10 @@ describe("公开 Landing 页", () => {
 		expect(await screen.findAllByText(/暂时无法加载/)).toHaveLength(2);
 		// Hero 与静态区块仍正常渲染
 		expect(
-			screen.getByRole("heading", {
-				name: "一桥飞架南北，天堑变通途",
-			}),
+			screen.getByRole("heading", { name: "一桥飞架南北，天堑变通途" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "报道与认可" }),
+			screen.getByRole("heading", { name: "值得托付的十年" }),
 		).toBeInTheDocument();
 	});
 });

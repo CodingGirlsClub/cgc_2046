@@ -12,6 +12,9 @@
     "title": "CGC 2046",
     "description": "Coding Girls Club（程序媛汇）：从 2016 到 2046，陪一代女性走进编程的公益编程社群。"
   },
+  "brand": {
+    "name": "程序媛汇"
+  },
   "legal": {
     "terms": {
       "title": "用户服务协议",
@@ -46,6 +49,7 @@
     "approveRequestFailed": "审批请求失败",
     "rejectRequestFailed": "拒绝请求失败",
     "createWorkspaceFailed": "创建工作台失败",
+    "database_error": "服务暂时不可用，请稍后重试。",
     "reassignOwnerFailed": "重指派 Owner 失败",
     "issueMcpTokenFailed": "签发失败，请稍后重试",
     "revokeMcpTokenFailed": "撤销失败，请稍后重试"
@@ -213,15 +217,49 @@
       "join": "加入我们"
     },
     "hero": {
-      "tagline": "从 2016 到 2046，陪一代女性走进编程",
+      "tagline": "从 2016 到 2046，程序媛汇，在女性与编程之间架起一座桥梁。",
       "title": "一桥飞架南北，天堑变通途",
-      "subtitle": "Coding Girls Club · 程序媛汇，在女性与编程之间架一座桥。",
-      "description": "程序媛汇创立于 2016 年，是一个帮助女性进入并留在科技领域的公益编程社群。2046 是我们给自己定的期限：把这件事认真做满三十年——一年一年地做，从一堂课、一次活动、一个可以互相求助的同伴开始。",
+      "description": "程序媛汇创立于 2016 年，是一家社会企业。起先，我们教女性写代码，帮助她们进入并留在科技领域；今天，AI 正在重新定义整个人类社会，在此变革之际，我们希望更多的女性掌握科技与 AI 的能力，用在自己的日常、工作与事业里。2046 是我们给自己定的期限：把这件事认真做满三十年——一年一年地做，从一堂课、一次活动、一个可以互相链接的同伴开始。",
       "quote": "「以帮助女性数字赋能为使命，以平凡的姿态做不平凡的事情。」",
       "quoteAuthor": "—— 创始人 文洋",
-      "stats": "截至 2021 年，我们走过 10 个城市、办了 50+ 场线下工作坊、走进 17 所高校，陪伴 4000+ 名学员、与 1000+ 位教练同行。",
       "join": "加入我们",
-      "browseEvents": "看看正在进行的活动"
+      "browseEvents": "看看正在进行的活动",
+      "timelineNow": "我们在这里",
+      "timelineAria": "从 2016 到 2046 的三十年进度"
+    },
+    "stats": {
+      "items": [
+        { "value": "4000+", "label": "名学员" },
+        { "value": "1000+", "label": "位教练" },
+        { "value": "50+", "label": "场线下工作坊" },
+        { "value": "17", "label": "所高校" },
+        { "value": "10", "label": "个城市" }
+      ]
+    },
+    "trust": {
+      "title": "值得托付的十年"
+    },
+    "about": {
+      "title": "关于我们 · 三十年之约"
+    },
+    "path": {
+      "title": "加入之后，会发生什么",
+      "description": "从第一次触碰代码，到把编程变成长期的能力与日常。",
+      "steps": [
+        { "title": "参加工作坊", "description": "从一次线下或线上工作坊开始，零基础也能写出自己的第一行代码。" },
+        { "title": "系统学课程", "description": "报名长期课程与成长营，与同伴同行，按节奏稳步前进。" },
+        { "title": "留在社群里", "description": "和几千名同伴互相求助、结对成长，让工作坊里的火花变成日常。" }
+      ]
+    },
+    "journey": {
+      "entries": [
+        { "year": "2016", "text": "Coding Girls Club 创立，第一堂编程工作坊开课。" },
+        { "year": "2018", "text": "入选联合国开发计划署「科技与慈善」项目案例集。" },
+        { "year": "2019", "text": "获共青团中央「全国青年社会组织伙伴计划」奖项。" },
+        { "year": "2021", "text": "与卡耐基梅隆大学学者合作的论文发表于 ICSE CHASE 2021（IEEE 出版）。" },
+        { "year": "2046", "text": "三十年之约抵达之日——我们正在路上。" }
+      ],
+      "note": "也曾支持联合国开发计划署与联合国妇女署 #科技遇见她# 一小时编程挑战。"
     },
     "sections": {
       "eventsTitle": "最新活动",
@@ -235,21 +273,10 @@
       "emptyAction": "去列表页看看 ›",
       "deadline": "截止 {deadline}"
     },
-    "media": {
-      "title": "报道与认可",
-      "description": "一路上被记录、被研究、被认可的片段。",
-      "honorsTitle": "机构荣誉"
-    },
-    "honors": [
-      "2018 年入选联合国开发计划署「科技与慈善」项目案例集",
-      "2019 年共青团中央「全国青年社会组织伙伴计划」获奖项目",
-      "支持联合国开发计划署与联合国妇女署 #科技遇见她# 一小时编程挑战"
-    ],
     "paper": {
       "venue": "与卡耐基梅隆大学学者合作 · ICSE CHASE 2021 · IEEE 出版"
     },
     "partners": {
-      "title": "合作伙伴",
       "description": "曾经的同行者——感谢他们与我们并肩走过一程。"
     },
     "cta": {
@@ -523,6 +550,9 @@
       "workspaceFallback": "工作区",
       "signOutFailed": "退出登录失败，请重试",
       "readonlyBanner": "平台管理员 · 只读审计视图",
+      "noPermissionTitle": "此页面需要管理权限",
+      "noPermissionDesc": "你当前的成员身份无权查看此页面，如需管理操作请联系工作区 Owner / Admin。",
+      "backToOverview": "返回概览",
       "navOverview": "概览",
       "navAgents": "Agents",
       "navWorkflows": "教研产出",
@@ -567,6 +597,7 @@
       "inviteOnlyHint": "凭邀请链接或批次码加入"
     },
     "noRoles": "暂无角色",
+    "memberRole": "成员",
     "roleEmpty": "未分配角色"
   },
   "workspaceOverview": {
@@ -583,7 +614,6 @@
     "sponsorshipClosed": "暂未开放赞助",
     "membersAndRoles": "成员与角色",
     "membersManage": "管理成员列表与角色分配",
-    "membersView": "查看成员列表与自己的角色",
     "permissionMapping": "权限映射",
     "permissionMappingDesc": "查看角色 → 能力矩阵",
     "agentsTitle": "Agents 与助手协作",
