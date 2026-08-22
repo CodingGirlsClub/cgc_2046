@@ -49,7 +49,8 @@ defmodule Cgc2046.Accounts.UserTest do
                  :phone,
                  :is_platform_admin,
                  :display_name,
-                 :locale
+                 :locale,
+                 :onboarding_invitation_dismissed_at
                ]
     end
 
@@ -233,6 +234,48 @@ defmodule Cgc2046.Accounts.UserTest do
       assert {:error, %Ash.Error.Forbidden{}} =
                user
                |> Ash.Changeset.for_update(:update_locale, %{locale: "en"}, actor: other)
+               |> Ash.update(actor: other)
+    end
+  end
+
+  describe "dismiss_onboarding_invitation (首公里 R2)" do
+    test "writes a dismissal timestamp for the owner" do
+      user = register("dismiss-owner@example.com")
+
+      assert user.onboarding_invitation_dismissed_at == nil
+
+      assert {:ok, updated} =
+               user
+               |> Ash.Changeset.for_update(:dismiss_onboarding_invitation, %{}, actor: user)
+               |> Ash.update(actor: user)
+
+      assert %DateTime{} = updated.onboarding_invitation_dismissed_at
+    end
+
+    test "is idempotent: repeat call succeeds and preserves the first timestamp" do
+      user = register("dismiss-idem@example.com")
+
+      assert {:ok, first} =
+               user
+               |> Ash.Changeset.for_update(:dismiss_onboarding_invitation, %{}, actor: user)
+               |> Ash.update(actor: user)
+
+      assert {:ok, second} =
+               first
+               |> Ash.Changeset.for_update(:dismiss_onboarding_invitation, %{}, actor: user)
+               |> Ash.update(actor: user)
+
+      assert second.onboarding_invitation_dismissed_at ==
+               first.onboarding_invitation_dismissed_at
+    end
+
+    test "forbids dismissing for another user (policy: OwnUser)" do
+      user = register("dismiss-target@example.com")
+      other = register("dismiss-other@example.com")
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               user
+               |> Ash.Changeset.for_update(:dismiss_onboarding_invitation, %{}, actor: other)
                |> Ash.update(actor: other)
     end
   end

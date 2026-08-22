@@ -1051,6 +1051,24 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人）"
+    field :dismiss_onboarding_invitation, :user do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Ash.update(actor, %{},
+                 action: :dismiss_onboarding_invitation,
+                 actor: actor
+               ) do
+            {:ok, user} ->
+              load_profile(user, actor, context, :dismiss_onboarding_invitation)
+
+            {:error, error} ->
+              {:error, to_ash_graphql_errors(error, context, :dismiss_onboarding_invitation)}
+          end
+        end)
+      end)
+    end
+
     @desc "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
     field :update_workspace_profile, :workspace_profile do
       arg(:workspace_id, non_null(:id))

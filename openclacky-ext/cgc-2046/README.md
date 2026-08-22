@@ -55,8 +55,8 @@ openclacky ext install openclacky-ext/dist/cgc-2046.zip
 
 ## 配置点
 
-- `ext.yml` 顶层 `config.mcp_url`：MCP server 地址，默认 `http://localhost:4102/mcp`（联调值；生产域名确定后只改这一处）。
-- `ext.yml` 顶层 `config.web_url`：CGC-2046 网站前端地址，默认 `http://localhost:3000`；面板「打开 CGC-2046 网站」用它，`status` 响应透传（未配置则面板隐藏该链接）。
+- `ext.yml` 顶层 `config.mcp_url`：MCP server 地址，默认生产值 `https://api.codingirlsclub.com/mcp`；本地联调优先用 connect 端点 body 的 `url` 字段覆盖（如 `http://localhost:4000/mcp`），全包唯一改 URL 的点。
+- `ext.yml` 顶层 `config.web_url`：CGC-2046 网站前端地址，默认生产值 `https://codingirlsclub.com`；面板「打开 CGC-2046 网站」用它，`status` 响应透传（未配置则面板隐藏该链接）；本地联调改本地副本。
 - connect 端点 body 也接受 `url` 字段临时覆盖。
 
 ## 卸载

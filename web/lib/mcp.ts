@@ -48,9 +48,12 @@ export function mapMcpToken(t: McpToken): McpTokenItem {
 	};
 }
 
-/** 当前用户的连接 token 列表（新→旧） */
+/** 当前用户的连接 token 列表（新→旧）；network-only——签发/撤销后不得读缓存旧列表 */
 export async function fetchMyMcpTokens(): Promise<McpTokenItem[]> {
-	const { data } = await client.query({ query: MY_MCP_TOKENS });
+	const { data } = await client.query({
+		query: MY_MCP_TOKENS,
+		fetchPolicy: "network-only",
+	});
 	return (data?.myMcpTokens ?? []).map(mapMcpToken);
 }
 

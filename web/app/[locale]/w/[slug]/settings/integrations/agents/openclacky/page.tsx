@@ -7,6 +7,9 @@
  * ① 安装 OpenClacky（官方下载页 iframe embed）
  * ② 安装 CGC-2046 连接器扩展（OpenClacky 扩展市场）
  * ③ 生成连接 token（跳转 MCP 页签发）
+ *
+ * 三张内容卡为共享组件（@/components/agent-connect-sections，
+ * 首公里向导复用同一内容源，per plan first-mile-onboarding R4）。
  */
 
 import { Link } from "@/i18n/navigation";
@@ -15,7 +18,11 @@ import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
-import { Icon } from "@/components/icons";
+import {
+	OpenclackyInstallCard,
+	OpenclackyExtensionCard,
+	OpenclackyTokenLinkCard,
+} from "@/components/agent-connect-sections";
 
 export default function AgentsOpenclackyPage() {
 	const params = useParams<{ slug: string }>();
@@ -49,68 +56,9 @@ export default function AgentsOpenclackyPage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-openclacky" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<div className="connect-step-card">
-						<h2>{t("step1Openclacky")}</h2>
-						<iframe
-							src="https://www.openclacky.com/claw/cgc?embed=1"
-							width="100%"
-							height={300}
-							style={{ border: "none", borderRadius: 12 }}
-							allow="clipboard-write"
-							loading="lazy"
-							title={t("downloadTitle")}
-						/>
-					</div>
-
-					<div className="connect-step-card">
-						<h2>{t("step2Openclacky")}</h2>
-						<p className="connect-step-card__desc">
-							{t("extensionSearchHint")}
-						</p>
-						<ol
-							style={{
-								margin: "0 0 0 18px",
-								padding: 0,
-								display: "grid",
-								gap: 6,
-								color: "var(--ink-3)",
-								fontSize: 13,
-								lineHeight: "20px",
-								listStyle: "decimal",
-							}}
-						>
-							<li style={{ lineHeight: "20px" }}>
-								{t("openMarket")}
-							</li>
-							<li style={{ lineHeight: "20px" }}>
-								{t.rich("searchExtension", {
-									code: (chunks) => <code>{chunks}</code>,
-								})}
-							</li>
-							<li style={{ lineHeight: "20px" }}>
-								{t("installExtension")}
-							</li>
-						</ol>
-						<p className="connect-step-card__desc">
-							{t("installedPanel")}
-						</p>
-					</div>
-
-					<div className="connect-step-card">
-						<h2>{t("step3Openclacky")}</h2>
-						<p className="connect-step-card__desc">
-							{t("generateTokenDesc")}
-						</p>
-						<div className="connect-step-card__actions">
-							<Link
-								href={`/w/${slug}/settings/integrations/agents/mcp`}
-								className="join-button join-button--primary"
-							>
-								<Icon name="plus" />
-								{t("generateToken")}
-							</Link>
-						</div>
-					</div>
+					<OpenclackyInstallCard stepNo="①" />
+					<OpenclackyExtensionCard stepNo="②" />
+					<OpenclackyTokenLinkCard slug={slug} stepNo="③" />
 				</div>
 			</div>
 		</WorkspaceShell>

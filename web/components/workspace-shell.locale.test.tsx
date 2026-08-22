@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, cleanup } from "@testing-library/react";
+import { screen, cleanup, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import WorkspaceShell from "./workspace-shell";
 
@@ -119,5 +119,26 @@ describe("WorkspaceShell 的 locale 前缀路径判定", () => {
 			.filter((l) => l.getAttribute("aria-current") === "page");
 		expect(current).toHaveLength(1);
 		expect(current[0].getAttribute("href")).toContain("/settings/join-policy");
+	});
+});
+
+describe("WorkspaceShell 设置侧栏 Agents 入口（P2 回归）", () => {
+	it("侧栏 Agents 链接指向区根（不带 /mcp 后缀），区根路径下激活态命中", async () => {
+		// 直达 /mcp 子页时，已接入用户全站无路可达区入口页（管理态与「重新查看引导」）
+		pathnameRef.value = "/w/cgc-academy/settings/integrations/agents";
+		render(
+			<WorkspaceShell slug="cgc-academy">
+				<div>content</div>
+			</WorkspaceShell>,
+		);
+
+		const nav = await screen.findByRole("navigation", { name: "集成" });
+		const link = within(nav).getByRole("link", { name: "Agents" });
+		expect(link).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/integrations/agents",
+		);
+		// navSection 的 startsWith 前缀匹配：区根与子页同样命中激活态
+		expect(link).toHaveAttribute("aria-current", "page");
 	});
 });

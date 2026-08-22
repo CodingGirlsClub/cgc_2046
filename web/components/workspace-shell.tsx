@@ -331,7 +331,7 @@ export default function WorkspaceShell({
 						<div className="ws-shell-heading">{t("headingIntegrations")}</div>
 						<nav className="ws-shell-nav" aria-label={t("headingIntegrations")}>
 							<Link
-								href={`/w/${slug}/settings/integrations/agents/mcp`}
+								href={`/w/${slug}/settings/integrations/agents`}
 								className={`ws-shell-item ${active === "settings-integrations-agents" ? "ws-shell-item--selected" : ""}`}
 								aria-current={
 									active === "settings-integrations-agents" ? "page" : undefined
