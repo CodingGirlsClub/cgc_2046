@@ -6,6 +6,9 @@
  * omp 客户端接入 CGC-2046 的手动配置说明：
  * 项目 .mcp.json 写入 cgc-2046 条目（mcpServers + type http +
  * Bearer ${CGC_TOKEN}），token 从 MCP 页签发。
+ *
+ * 内容卡为共享组件（@/components/agent-connect-sections，
+ * 首公里向导复用同一内容源，per plan first-mile-onboarding R4）。
  */
 
 import { Link } from "@/i18n/navigation";
@@ -14,16 +17,12 @@ import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import WorkspaceShell from "@/components/workspace-shell";
 import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
-
-const OMP_CONFIG = `{
-  "mcpServers": {
-    "cgc-2046": {
-      "type": "http",
-      "url": "<MCP_URL>",
-      "headers": { "Authorization": "Bearer \${CGC_TOKEN}" }
-    }
-  }
-}`;
+import {
+	TokenLinkStepCard,
+	WriteConfigStepCard,
+	ConfigureTokenStepCard,
+	ConfigNotesStepCard,
+} from "@/components/agent-connect-sections";
 
 export default function AgentsOmpPage() {
 	const params = useParams<{ slug: string }>();
@@ -57,71 +56,10 @@ export default function AgentsOmpPage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-omp" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<div className="connect-step-card">
-						<h2>{t("step1Title")}</h2>
-						<p className="connect-step-card__desc">
-							{t.rich("step1Desc", {
-								link: (chunks) => (
-									<Link
-										href={`/w/${slug}/settings/integrations/agents/mcp`}
-										className="connect-step-card__link"
-									>
-										{chunks}
-									</Link>
-								),
-							})}
-						</p>
-					</div>
-
-					<div className="connect-step-card">
-						<h2>{t("step2Title", { file: ".mcp.json" })}</h2>
-						<p className="connect-step-card__desc">
-							{t.rich("step2DescRoot", {
-								code: (chunks) => <code>{chunks}</code>,
-								code2: (chunks) => <code>{chunks}</code>,
-							})}
-						</p>
-						<pre
-							style={{
-								overflowX: "auto",
-								padding: "12px 14px",
-								borderRadius: "var(--radius-small)",
-								background: "var(--soft)",
-								margin: 0,
-								fontSize: 12.5,
-								lineHeight: "18px",
-							}}
-						>
-							<code>{OMP_CONFIG}</code>
-						</pre>
-						<p className="connect-step-card__desc">
-							{t.rich("urlNote", {
-								code: (chunks) => <code>{chunks}</code>,
-								code3: (chunks) => <code>{chunks}</code>,
-								code4: (chunks) => <code>{chunks}</code>,
-							})}
-						</p>
-					</div>
-
-					<div className="connect-step-card">
-						<h2>{t("step3Title")}</h2>
-						<p className="connect-step-card__desc">
-							{"omp "}
-							{t.rich("step3DescEnv", {
-								code: (chunks) => <code>{chunks}</code>,
-								placeholder: "${CGC_TOKEN}",
-							})}
-						</p>
-					</div>
-
-					<div className="connect-step-card">
-						<h2>{t("notesTitle")}</h2>
-						<p className="connect-step-card__desc">
-							{t.rich("notesDesc", {
-								code: (chunks) => <code>{chunks}</code>,
-							})}
-						</p>
-					</div>
+					<TokenLinkStepCard slug={slug} />
+					<WriteConfigStepCard variant="omp" />
+					<ConfigureTokenStepCard variant="omp" />
+					<ConfigNotesStepCard />
 				</div>
 			</div>
 		</WorkspaceShell>
