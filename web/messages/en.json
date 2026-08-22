@@ -594,6 +594,7 @@
       "inviteOnlyHint": "Join via invite link or batch code"
     },
     "noRoles": "No roles",
+    "memberRole": "Member",
     "roleEmpty": "No role assigned"
   },
   "workspaceOverview": {
@@ -610,7 +611,6 @@
     "sponsorshipClosed": "Sponsorship not open",
     "membersAndRoles": "Members & roles",
     "membersManage": "Manage member list and role assignment",
-    "membersView": "View member list and your roles",
     "permissionMapping": "Permission mapping",
     "permissionMappingDesc": "View role → capability matrix",
     "agentsTitle": "Agents & assistant collaboration",

@@ -16,12 +16,13 @@ import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
-import { currentUserCanAssignRoles } from "@/lib/workspaces";
 import { JOIN_POLICY_HINT, JOIN_POLICY_LABEL } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
 import { Icon } from "@/components/icons";
+import { canSeeByKey } from "@/components/workspace-nav";
 import {
 	getWorkspaceRoles,
+	getWorkspaceStatus,
 	InfoCard,
 	RoleChips,
 	StatusTag,
@@ -35,6 +36,14 @@ export default function WorkspacePage() {
 	const bcT = useTranslations("common");
 	const labelsT = useTranslations();
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
+
+	// 管理入口卡与侧栏/Tab 条同源门控（plan 016 SETTINGS_NAV 注册表）：
+	// 成员与角色 / 权限映射 = list_members，普通成员不渲染整卡
+	const abilities = ws?.myAbilities ?? [];
+	const showMembersCard = canSeeByKey("members", abilities);
+	const showPermissionsCard = canSeeByKey("permissions", abilities);
+	// 活跃成员空角色显示基准身份「成员」；待加入 / 只读审计访客保持「暂无角色」
+	const isActiveMember = ws ? getWorkspaceStatus(ws) === "active" : false;
 
 	return (
 		<WorkspaceShell slug={slug}>
@@ -66,7 +75,10 @@ export default function WorkspacePage() {
 								<p className="workspace-slug">{ws.slug}</p>
 								<div className="workspace-detail-hero__meta">
 									<StatusTag status="active" />
-									<RoleChips roles={getWorkspaceRoles(ws)} />
+									<RoleChips
+										roles={getWorkspaceRoles(ws)}
+										member={isActiveMember}
+									/>
 								</div>
 							</div>
 							<div className="workspace-detail-hero__policy">
@@ -89,7 +101,10 @@ export default function WorkspacePage() {
 								<p>{labelsT(JOIN_POLICY_HINT[ws.joinPolicy])}</p>
 							</InfoCard>
 							<InfoCard icon="role" title={t("myRoles")}>
-								<RoleChips roles={getWorkspaceRoles(ws)} />
+								<RoleChips
+									roles={getWorkspaceRoles(ws)}
+									member={isActiveMember}
+								/>
 								<p>{t("rolesHint")}</p>
 							</InfoCard>
 							<InfoCard icon="members" title={t("community")}>
@@ -103,49 +118,55 @@ export default function WorkspacePage() {
 							</InfoCard>
 						</div>
 
-						{/* 管理入口：成员与角色（canAssign 门控文案）/ 权限映射 */}
-						<div className="mt-6 grid gap-4 sm:grid-cols-2">
-							<Link
-								href={`/w/${slug}/settings/members`}
-								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
-							>
-								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
-									<Icon name="users" />
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink">
-										{t("membersAndRoles")}
-									</span>
-									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										{currentUserCanAssignRoles(ws)
-											? t("membersManage")
-											: t("membersView")}
-									</span>
-								</span>
-								<span className="flex-none text-ink-3">
-									<Icon name="arrow" />
-								</span>
-							</Link>
-							<Link
-								href={`/w/${slug}/settings/permissions`}
-								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
-							>
-								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
-									<Icon name="shield" />
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink">
-										{t("permissionMapping")}
-									</span>
-									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										{t("permissionMappingDesc")}
-									</span>
-								</span>
-								<span className="flex-none text-ink-3">
-									<Icon name="arrow" />
-								</span>
-							</Link>
-						</div>
+						{/* 管理入口：成员与角色 / 权限映射。
+						    整卡按能力门控（与侧栏同源 canSeeByKey，list_members），普通成员不渲染；
+						    可见即可管理（list_members 与 assign_roles 同属 Owner/Admin，矩阵同源） */}
+						{(showMembersCard || showPermissionsCard) && (
+							<div className="mt-6 grid gap-4 sm:grid-cols-2">
+								{showMembersCard && (
+									<Link
+										href={`/w/${slug}/settings/members`}
+										className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
+									>
+										<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
+											<Icon name="users" />
+										</span>
+										<span className="min-w-0 flex-1">
+											<span className="block text-sm font-medium text-ink">
+												{t("membersAndRoles")}
+											</span>
+											<span className="mt-1 block text-[13px] leading-5 text-ink-3">
+												{t("membersManage")}
+											</span>
+										</span>
+										<span className="flex-none text-ink-3">
+											<Icon name="arrow" />
+										</span>
+									</Link>
+								)}
+								{showPermissionsCard && (
+									<Link
+										href={`/w/${slug}/settings/permissions`}
+										className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
+									>
+										<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
+											<Icon name="shield" />
+										</span>
+										<span className="min-w-0 flex-1">
+											<span className="block text-sm font-medium text-ink">
+												{t("permissionMapping")}
+											</span>
+											<span className="mt-1 block text-[13px] leading-5 text-ink-3">
+												{t("permissionMappingDesc")}
+											</span>
+										</span>
+										<span className="flex-none text-ink-3">
+											<Icon name="arrow" />
+										</span>
+									</Link>
+								)}
+							</div>
+						)}
 
 						{/* 教研产出入口（切片 C 已落地，见 workflows 页；plan 016 替换过期占位卡）。
 						    报名/赞助（切片 E）仍为占位：视觉降级虚线边框 + 「即将开放」角标 */}
