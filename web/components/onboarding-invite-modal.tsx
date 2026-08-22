@@ -17,7 +17,7 @@
  *   失败不关框、内联错误 role="alert"（AE2）。
  */
 
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { dismissOnboardingInvitation } from "@/lib/onboarding";
@@ -57,6 +57,14 @@ export default function OnboardingInviteModal({
 		} finally {
 			setBusy(false);
 		}
+	}
+
+	function handleStart(event: MouseEvent<HTMLAnchorElement>) {
+		if (busy) {
+			event.preventDefault();
+			return;
+		}
+		onClose();
 	}
 
 	return (
@@ -123,7 +131,8 @@ export default function OnboardingInviteModal({
 						href={`/w/${slug}/settings/integrations/agents`}
 						className="join-button join-button--primary"
 						data-testid="onboarding-invite-start"
-						onClick={onClose}
+						aria-disabled={busy}
+						onClick={handleStart}
 					>
 						{t("inviteStart")}
 					</Link>
