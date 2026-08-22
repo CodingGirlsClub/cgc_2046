@@ -880,6 +880,7 @@
     "issueHeading": "Issue new connection token",
     "nameLabel": "Note (identify the device or client)",
     "namePlaceholder": "e.g. My Mac",
+    "namePlaceholderWithHost": "e.g. My MacBook · {host}",
     "issuing": "Issuing…",
     "issue": "Issue",
     "cancel": "Cancel",

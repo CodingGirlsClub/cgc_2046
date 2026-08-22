@@ -3,6 +3,7 @@
  * - 「已复制」2s 复位定时器（mcp-token-issue-panel.tsx:104），连续复制重置计时；
  * - 卸载时 clearTimeout 清理（:49-53，向导完成换树卸载本组件）；
  * - copyText 失败的 copyFreshFailed role=alert 分支（:124）。
+ * - hostName 命名建议 placeholder：向导传入已选宿主名，mcp 管理页不传保持通用。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -166,5 +167,21 @@ describe("McpTokenIssuePanel 明文复制", () => {
 		expect(
 			screen.getByRole("button", { name: "复制" }),
 		).toBeInTheDocument();
+	});
+});
+
+describe("McpTokenIssuePanel 备注命名建议", () => {
+	it("传入 hostName（向导）：placeholder 带出已选宿主名", () => {
+		render(<McpTokenIssuePanel hostName="OpenClacky" />);
+		fireEvent.click(screen.getByRole("button", { name: "签发新 token" }));
+		expect(
+			screen.getByPlaceholderText("如：我的 MacBook · OpenClacky"),
+		).toBeInTheDocument();
+	});
+
+	it("不传 hostName（mcp 管理页）：placeholder 保持通用文案", () => {
+		render(<McpTokenIssuePanel />);
+		fireEvent.click(screen.getByRole("button", { name: "签发新 token" }));
+		expect(screen.getByPlaceholderText("如：我的 Mac")).toBeInTheDocument();
 	});
 });

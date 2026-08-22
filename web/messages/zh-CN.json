@@ -880,6 +880,7 @@
     "issueHeading": "签发新连接 token",
     "nameLabel": "备注名称（标识设备或客户端）",
     "namePlaceholder": "如：我的 Mac",
+    "namePlaceholderWithHost": "如：我的 MacBook · {host}",
     "issuing": "签发中…",
     "issue": "签发",
     "cancel": "取消",
