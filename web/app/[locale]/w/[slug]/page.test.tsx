@@ -99,9 +99,6 @@ vi.mock("@/lib/requests", async (importOriginal) => {
 // KTD4 session 旗标 + dismiss mutation，全部 mock 以保证门控矩阵确定性
 const { useOnboardingState } = vi.hoisted(() => ({ useOnboardingState: vi.fn() }));
 const { markInviteShown } = vi.hoisted(() => ({ markInviteShown: vi.fn() }));
-const { hasInviteShownThisSession } = vi.hoisted(() => ({
-	hasInviteShownThisSession: vi.fn(),
-}));
 const { dismissOnboardingInvitation } = vi.hoisted(() => ({
 	dismissOnboardingInvitation: vi.fn(),
 }));
@@ -112,18 +109,19 @@ vi.mock("@/lib/onboarding", async (importOriginal) => {
 		...mod,
 		useOnboardingState,
 		markInviteShown,
-		hasInviteShownThisSession,
 		dismissOnboardingInvitation,
 	};
 });
 
-/** onboarding 就绪基线：未接入/未拒绝/未通联 */
+/** onboarding 就绪基线：未接入/未拒绝/未通联/本 session 未展示 */
 const ONBOARDING_BASE = {
 	dismissed: false,
 	hasActiveToken: false,
 	connected: false,
 	loading: false,
 	error: null,
+	userId: "u_0202",
+	inviteShownThisSession: false,
 };
 
 beforeEach(() => {
@@ -144,7 +142,6 @@ beforeEach(() => {
 	fetchWorkspaceBySlug.mockReset();
 	// onboarding 默认 loading（fail-closed）：既有用例零感知——不弹模态、不挂卡
 	useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE, loading: true });
-	hasInviteShownThisSession.mockReturnValue(false);
 	dismissOnboardingInvitation.mockResolvedValue(undefined);
 });
 
@@ -502,6 +499,36 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 
 		expect(await screen.findByRole("dialog")).toBeInTheDocument();
 		expect(markInviteShown).toHaveBeenCalledTimes(1);
+		// KTD4 旗标按 userId 命名空间写入（共享机器换账号不互相抑制）
+		expect(markInviteShown).toHaveBeenCalledWith("u_0202");
+	});
+
+	it("关闭路径：「再看看」→ 模态关闭，后续渲染不再复弹（onClose → inviteClosed）", async () => {
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		const { rerender } = render(<WorkspacePage />);
+
+		const dialog = await screen.findByRole("dialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "再看看" }));
+
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+		);
+		// 后续渲染保持关闭：inviteClosed 已置位，模态不因重渲染复弹
+		rerender(<WorkspacePage />);
+		await screen.findByRole("heading", { name: "工作区概览" });
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+	});
+
+	it("关闭路径：Esc 关闭模态（dialog keyDown 冒泡到 overlay 处理器）", async () => {
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		render(<WorkspacePage />);
+
+		const dialog = await screen.findByRole("dialog");
+		fireEvent.keyDown(dialog, { key: "Escape" });
+
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+		);
 	});
 
 	it("已接入成员（hasActiveToken && connected）：不弹不挂卡（AE5 后半 + DoD 已接入成员零变化）", async () => {
@@ -561,6 +588,35 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		).not.toBeInTheDocument();
 	});
 
+	it("isActiveMember 隔离：pending 成员（成员路径命中，readOnlyVisitor=false）不弹不挂卡", async () => {
+		// 只 false isActiveMember 这一个合取项：pending 成员走 fetchMyWorkspaces 正常
+		// 成员路径（readOnlyVisitor=false），排除与 readOnlyVisitor 同时 false 的掩盖
+		fetchMyWorkspaces.mockResolvedValue([
+			{
+				id: "ws_pending",
+				slug: "cgc-pending",
+				name: "待加入工作区",
+				joinPolicy: "request" as const,
+				sponsorshipEnabled: false,
+				myRoleNames: [],
+				roles: [],
+				myAbilities: ["view_workspace"],
+				membershipStatus: "pending" as const,
+				memberCount: 7,
+			},
+		]);
+		params.value = { slug: "cgc-pending" };
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("cgc-pending");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("onboarding-connect-card"),
+		).not.toBeInTheDocument();
+	});
+
 	it("onboarding 数据 error：不弹不挂卡（KTD5 fail-closed）", async () => {
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
@@ -590,8 +646,10 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 	});
 
 	it("本 session 已展示过：不再弹（KTD4 旗标），常驻卡仍在，markInviteShown 不再写", async () => {
-		hasInviteShownThisSession.mockReturnValue(true);
-		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			inviteShownThisSession: true,
+		});
 		render(<WorkspacePage />);
 
 		const main = await content();

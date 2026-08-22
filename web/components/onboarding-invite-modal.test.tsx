@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { render } from "@/test-utils";
 import OnboardingInviteModal from "./onboarding-invite-modal";
 
@@ -92,6 +93,39 @@ describe("首公里邀请模态 OnboardingInviteModal（plan first-mile-onboardi
 		expect(onClose).not.toHaveBeenCalled();
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
 		expect(screen.getByTestId("onboarding-invite-dismiss")).toBeEnabled();
+	});
+
+	it("dismiss 在飞时 Esc/遮罩/✕ 不关框；拒绝落地后内联 role=alert（busy-gated close，AE2）", async () => {
+		const dismiss = Promise.withResolvers<void>();
+		dismissOnboardingInvitation.mockImplementation(() => dismiss.promise);
+
+		// 壳组件由 onClose 真实卸载：验证 busy 闸门挡住「关框 = 卸载」的竞态
+		function Harness() {
+			const [open, setOpen] = useState(true);
+			return open ? (
+				<OnboardingInviteModal slug="cgc-academy" onClose={() => setOpen(false)} />
+			) : null;
+		}
+		render(<Harness />);
+
+		fireEvent.click(screen.getByTestId("onboarding-invite-dismiss"));
+		expect(screen.getByTestId("onboarding-invite-dismiss")).toBeDisabled();
+
+		// busy 在飞：Esc / 遮罩 / ✕ / 再看看 均不得关框
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		fireEvent.click(screen.getByTestId("onboarding-invite-overlay"));
+		fireEvent.click(screen.getByTestId("onboarding-invite-close"));
+		fireEvent.click(screen.getByTestId("onboarding-invite-later"));
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+		// 拒绝落地：框仍在，内联错误不被卸载吞掉
+		await act(async () => {
+			dismiss.reject(new Error("boom"));
+		});
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"操作失败，请稍后重试。",
+		);
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
 	});
 
 	it("Tab focus trap：末位 Tab 回首位，首位 Shift+Tab 回末位", () => {

@@ -28,7 +28,7 @@ vi.mock("./mcp", () => ({
 import {
 	deriveOnboardingState,
 	dismissOnboardingInvitation,
-	fetchOnboardingDismissal,
+	fetchOnboardingMe,
 	hasInviteShownThisSession,
 	markInviteShown,
 	useOnboardingState,
@@ -115,15 +115,27 @@ describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
 	});
 });
 
-describe("session 旗标（KTD4：cgc:onboarding-invite-shown）", () => {
+describe("session 旗标（KTD4：cgc:onboarding-invite-shown:{userId}）", () => {
 	beforeEach(() => {
 		sessionStorage.clear();
 	});
 
-	it("默认未展示；markInviteShown 后同 session 读取为真", () => {
-		expect(hasInviteShownThisSession()).toBe(false);
-		markInviteShown();
-		expect(hasInviteShownThisSession()).toBe(true);
+	it("默认未展示；markInviteShown 后同 session 同用户读取为真", () => {
+		expect(hasInviteShownThisSession("u1")).toBe(false);
+		markInviteShown("u1");
+		expect(hasInviteShownThisSession("u1")).toBe(true);
+	});
+
+	it("按 userId 命名空间：A 的已展示不抑制 B（共享机器同 tab 换账号）", () => {
+		markInviteShown("u_a");
+		expect(hasInviteShownThisSession("u_a")).toBe(true);
+		expect(hasInviteShownThisSession("u_b")).toBe(false);
+	});
+
+	it("userId 缺失：读落 false、写为 no-op（fail toward showing，不写全局旗标）", () => {
+		expect(hasInviteShownThisSession(null)).toBe(false);
+		markInviteShown(null);
+		expect(sessionStorage.length).toBe(0);
 	});
 
 	it("sessionStorage 抛错（隐私模式）：写不 throw、读为假", () => {
@@ -153,8 +165,8 @@ describe("session 旗标（KTD4：cgc:onboarding-invite-shown）", () => {
 			value: throwing,
 		});
 		try {
-			expect(() => markInviteShown()).not.toThrow();
-			expect(hasInviteShownThisSession()).toBe(false);
+			expect(() => markInviteShown("u1")).not.toThrow();
+			expect(hasInviteShownThisSession("u1")).toBe(false);
 		} finally {
 			Object.defineProperty(window, "sessionStorage", {
 				configurable: true,
@@ -164,32 +176,25 @@ describe("session 旗标（KTD4：cgc:onboarding-invite-shown）", () => {
 	});
 });
 
-describe("fetchOnboardingDismissal / dismissOnboardingInvitation（fetchers）", () => {
+describe("fetchOnboardingMe / dismissOnboardingInvitation（fetchers）", () => {
 	beforeEach(() => {
 		queryMock.mockReset();
 		mutateMock.mockReset();
 	});
 
-	it("me 返回拒绝时间戳 → 透传；查询用 ME_ONBOARDING", async () => {
-		queryMock.mockResolvedValue({
-			data: {
-				me: { id: "u1", onboardingInvitationDismissedAt: "2026-08-22T01:00:00Z" },
-			},
-		});
-		await expect(fetchOnboardingDismissal()).resolves.toBe(
-			"2026-08-22T01:00:00Z",
-		);
+	it("me 返回 onboarding 片段（id + 拒绝时间戳）→ 透传；查询用 ME_ONBOARDING", async () => {
+		const me = {
+			id: "u1",
+			onboardingInvitationDismissedAt: "2026-08-22T01:00:00Z",
+		};
+		queryMock.mockResolvedValue({ data: { me } });
+		await expect(fetchOnboardingMe()).resolves.toEqual(me);
 		expect(queryMock).toHaveBeenCalledWith({ query: ME_ONBOARDING });
 	});
 
-	it("me 为 null（未登录）或字段为 null → null", async () => {
+	it("me 为 null（未登录）→ null", async () => {
 		queryMock.mockResolvedValue({ data: { me: null } });
-		await expect(fetchOnboardingDismissal()).resolves.toBeNull();
-
-		queryMock.mockResolvedValue({
-			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
-		});
-		await expect(fetchOnboardingDismissal()).resolves.toBeNull();
+		await expect(fetchOnboardingMe()).resolves.toBeNull();
 	});
 
 	it("dismissOnboardingInvitation 调 DISMISS_ONBOARDING_INVITATION mutation", async () => {
@@ -212,13 +217,14 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 	beforeEach(() => {
 		queryMock.mockReset();
 		fetchMyMcpTokensMock.mockReset();
+		sessionStorage.clear();
 	});
 
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("初始 loading=true；两源就绪 → 派生态正确、error=null", async () => {
+	it("初始 loading=true；两源就绪 → 派生态正确、error=null、userId 透传", async () => {
 		queryMock.mockResolvedValue({
 			data: {
 				me: { id: "u1", onboardingInvitationDismissedAt: "2026-08-22T01:00:00Z" },
@@ -236,10 +242,36 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 			connected: false,
 			loading: false,
 			error: null,
+			userId: "u1",
+			inviteShownThisSession: false,
 		});
 	});
 
-	it("me 查询 reject → error 态（布尔全 false，loading=false）", async () => {
+	it("userId 就绪时快照 KTD4 旗标：本 session 该用户已展示 → inviteShownThisSession=true", async () => {
+		sessionStorage.setItem("cgc:onboarding-invite-shown:u1", "1");
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.userId).toBe("u1");
+		expect(result.current.inviteShownThisSession).toBe(true);
+	});
+
+	it("me 为 null（未登录）→ userId=null、旗标 false（fail toward showing）", async () => {
+		queryMock.mockResolvedValue({ data: { me: null } });
+		fetchMyMcpTokensMock.mockResolvedValue([]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.error).toBeNull();
+		expect(result.current.userId).toBeNull();
+		expect(result.current.inviteShownThisSession).toBe(false);
+	});
+
+	it("me 查询 reject → error 态（布尔全 false，loading=false，userId=null）", async () => {
 		queryMock.mockRejectedValue(new Error("network down"));
 		fetchMyMcpTokensMock.mockResolvedValue([
 			token({ status: "active", lastUsedAt: "2026-08-20T08:00:00Z" }),
@@ -252,6 +284,8 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 			dismissed: false,
 			hasActiveToken: false,
 			connected: false,
+			userId: null,
+			inviteShownThisSession: false,
 		});
 	});
 
@@ -266,6 +300,8 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 			dismissed: false,
 			hasActiveToken: false,
 			connected: false,
+			userId: null,
+			inviteShownThisSession: false,
 		});
 	});
 });
