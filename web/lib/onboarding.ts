@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { client } from "./apollo-client";
 import {
 	ME_ONBOARDING,
@@ -44,6 +44,9 @@ export interface OnboardingState extends DerivedOnboardingState {
 	/** 本 session 当前用户是否已展示过邀请模态（userId 就绪时一次性快照；
 	    userId 缺失为 false = 当作未展示，fail toward showing 由消费方门控兜底） */
 	inviteShownThisSession: boolean;
+	/** 原始 token 列表（新→旧；loading/error 为 []）——向导页 hasTokenHistory
+	    等存在性信号由此派生，消费方不得再行 fetch */
+	tokens: McpTokenItem[];
 }
 
 /**
@@ -91,6 +94,7 @@ const INITIAL_STATE: OnboardingState = {
 	error: null,
 	userId: null,
 	inviteShownThisSession: false,
+	tokens: [],
 };
 
 /**
@@ -99,9 +103,18 @@ const INITIAL_STATE: OnboardingState = {
  * 任一未完 loading=true；任一失败 error 非 null 且派生字段归零（fail-closed）。
  * userId 就绪（me 解析成功）时一次性快照 KTD4 session 旗标——挂载时 userId 未知，
  * 推迟到此处读才能保住「每 session 每用户最多弹一次」的跨刷新/跨重挂载语义。
+ * tokens 原始列表一并暴露（向导页 hasTokenHistory 复用，不得二次 fetch）。
+ * reload() 供消费方内联错误态的「重试」：nonce 递增触发两源重拉。
  */
-export function useOnboardingState(): OnboardingState {
+export function useOnboardingState(): OnboardingState & { reload: () => void } {
 	const [state, setState] = useState<OnboardingState>(INITIAL_STATE);
+	const [nonce, setNonce] = useState(0);
+	// 重试：loading 复位在事件回调里做（effect 体内同步 setState 违 react-hooks 规则），
+	// nonce 递增触发两源重拉
+	const reload = useCallback(() => {
+		setState((prev) => ({ ...prev, loading: true, error: null }));
+		setNonce((n) => n + 1);
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -120,6 +133,7 @@ export function useOnboardingState(): OnboardingState {
 					userId,
 					inviteShownThisSession:
 						userId != null && hasInviteShownThisSession(userId),
+					tokens,
 				});
 			})
 			.catch((err: unknown) => {
@@ -132,15 +146,16 @@ export function useOnboardingState(): OnboardingState {
 					error: err instanceof Error ? err : new Error(String(err)),
 					userId: null,
 					inviteShownThisSession: false,
+					tokens: [],
 				});
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [nonce]);
 
-	return state;
+	return { ...state, reload };
 }
 
 /* ---------------- session 旗标（KTD4） ---------------- */

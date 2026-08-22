@@ -56,9 +56,9 @@ export default function AgentsOmpPage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-omp" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<TokenLinkStepCard slug={slug} />
-					<WriteConfigStepCard variant="omp" />
-					<ConfigureTokenStepCard variant="omp" />
+					<TokenLinkStepCard slug={slug} stepNo="1." />
+					<WriteConfigStepCard variant="omp" stepNo="2." />
+					<ConfigureTokenStepCard variant="omp" stepNo="3." />
 					<ConfigNotesStepCard />
 				</div>
 			</div>

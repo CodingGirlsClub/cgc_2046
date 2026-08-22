@@ -10,7 +10,8 @@
  * - 有 active token（已接入成员）→ 管理态：IntegrationsAgentsTabs 现状内容 +
  *   四子页入口卡 +「已接入 ✓ · 重新查看引导」（只读回看，无签发面，R7）；
  * - useOnboardingState 消费契约（KTD5）：先判 loading/error——
- *   loading → 骨架占位；error → 静默回退管理态（该区今天的现状外观即安全回退）。
+ *   loading → 骨架占位；error → 回退管理态外观 + 内联 role="alert" 与重试
+ *   （plan Implementation Constraints：错误一律内联 alert，不静默吞）。
  *
  * 四个子页路由与外观不变（R9/KTD1：v1 不改名、无重定向义务）；
  * 该区不做能力门控，所有成员可用（R10）。
@@ -58,7 +59,7 @@ export default function AgentsIntegrationsPage() {
 	const state = useOnboardingState();
 	const [reviewing, setReviewing] = useState(false);
 
-	// KTD5：loading/error 优先求值；error 静默回退管理态
+	// KTD5：loading/error 优先求值；error 回退管理态外观但内联 alert + 重试（不静默吞）
 	const showWizard = !state.loading && !state.error && !state.hasActiveToken;
 
 	// 主体四态互斥：loading 骨架 / 向导态 / 只读回看 / 管理态（管理态无对应 tab，current 缺省）
@@ -71,7 +72,12 @@ export default function AgentsIntegrationsPage() {
 			</div>
 		);
 	} else if (showWizard) {
-		body = <OnboardingWizard slug={slug} />;
+		body = (
+			<OnboardingWizard
+				slug={slug}
+				hasTokenHistory={state.tokens.length > 0}
+			/>
+		);
 	} else if (reviewing) {
 		body = (
 			<>
@@ -97,7 +103,20 @@ export default function AgentsIntegrationsPage() {
 					</div>
 				</header>
 
-				<IntegrationsAgentsTabs slug={slug} abilities={[]} />
+				<IntegrationsAgentsTabs slug={slug} abilities={[]} current={null} />
+
+				{state.error && (
+					<div className="members-error" role="alert" style={{ marginTop: 16 }}>
+						{t("entryStateError")}
+						<button
+							type="button"
+							className="join-button join-button--outline"
+							onClick={state.reload}
+						>
+							{tMcp("retry")}
+						</button>
+					</div>
+				)}
 
 				{!state.error && (
 					<p style={{ marginTop: 16 }}>

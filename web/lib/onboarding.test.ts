@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, waitFor } from "@testing-library/react";
+import { act, cleanup, waitFor } from "@testing-library/react";
 import { renderHook } from "@/test-utils";
 
 /**
@@ -240,7 +240,7 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 		expect(result.current.loading).toBe(true);
 
 		await waitFor(() => expect(result.current.loading).toBe(false));
-		expect(result.current).toEqual({
+		expect(result.current).toMatchObject({
 			dismissed: true,
 			hasActiveToken: true,
 			connected: false,
@@ -249,6 +249,9 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 			userId: "u1",
 			inviteShownThisSession: false,
 		});
+		// tokens 原始列表透传（向导页 hasTokenHistory 由此派生，不二次 fetch）
+		expect(result.current.tokens).toHaveLength(1);
+		expect(typeof result.current.reload).toBe("function");
 	});
 
 	it("userId 就绪时快照 KTD4 旗标：本 session 该用户已展示 → inviteShownThisSession=true", async () => {
@@ -307,5 +310,26 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 			userId: null,
 			inviteShownThisSession: false,
 		});
+	});
+
+	it("reload 重试：error 态 → reload() → 两源重拉恢复（入口页内联 alert 的重试按钮）", async () => {
+		queryMock.mockRejectedValueOnce(new Error("network down"));
+		fetchMyMcpTokensMock.mockResolvedValue([]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		act(() => result.current.reload());
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current).toMatchObject({
+			error: null,
+			userId: "u1",
+			tokens: [],
+		});
+		expect(queryMock).toHaveBeenCalledTimes(2);
 	});
 });
