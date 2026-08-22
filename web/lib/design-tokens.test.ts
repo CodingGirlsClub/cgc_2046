@@ -89,13 +89,13 @@ describe("设计 token 守卫", () => {
   });
 
   it("C. dark 关键 golden 值未被改动", () => {
-    expect(darkTokens.get("accent")).toBe("#5e6ad2");
+    expect(darkTokens.get("accent")).toBe("#ea5504");
     expect(darkTokens.get("canvas")).toBe("#08090a");
     expect(darkTokens.get("line")).toBe("rgba(255, 255, 255, 0.08)");
   });
 
-  it("D. 品牌色 --accent 两主题一致（均 #5e6ad2）", () => {
-    expect(darkTokens.get("accent")).toBe("#5e6ad2");
-    expect(lightTokens.get("accent")).toBe("#5e6ad2");
+  it("D. 品牌色 --accent 两主题一致（均 #ea5504，CGC 品牌橙）", () => {
+    expect(darkTokens.get("accent")).toBe("#ea5504");
+    expect(lightTokens.get("accent")).toBe("#ea5504");
   });
 });
