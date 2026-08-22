@@ -95,6 +95,14 @@ describe("WorkspaceSwitcherMenu（plan 016：邀请管理链接按 manage_member
 		);
 	});
 
+	it("P2 回归：MCP 项指向 Agents 区根（直达 /mcp 会让已接入用户无路可达入口页）", () => {
+		renderMenu([]);
+		expect(screen.getByRole("menuitem", { name: "MCP" })).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/integrations/agents",
+		);
+	});
+
 	it("有 manage_members：渲染邀请管理链接", () => {
 		renderMenu(["manage_members"]);
 		expect(screen.getByRole("menuitem", { name: "邀请管理" })).toHaveAttribute(

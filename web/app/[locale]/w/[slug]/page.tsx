@@ -12,12 +12,16 @@
  * 假数据。未知 slug 的「工作区不可访问」由壳 requireWs 渲染，页面不处理。
  */
 
+import { useEffect, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
+import { markInviteShown, useOnboardingState } from "@/lib/onboarding";
 import { JOIN_POLICY_HINT, JOIN_POLICY_LABEL } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
+import OnboardingConnectCard from "@/components/onboarding-connect-card";
+import OnboardingInviteModal from "@/components/onboarding-invite-modal";
 import { Icon } from "@/components/icons";
 import { canSeeByKey } from "@/components/workspace-nav";
 import {
@@ -35,7 +39,12 @@ export default function WorkspacePage() {
 	const t = useTranslations("workspaceOverview");
 	const bcT = useTranslations("common");
 	const labelsT = useTranslations();
-	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
+	const { ws, loading: wsLoading, readOnlyVisitor } = useWorkspaceBySlug(slug);
+	const onboarding = useOnboardingState();
+	// KTD4 session 旗标（每 session 每用户最多自动弹一次，按 userId 命名空间）由
+	// useOnboardingState 在 userId 就绪时一次性快照（inviteShownThisSession）；
+	// 本挂载内被用户关闭（再看看/已拒绝/ Esc /遮罩）后 inviteClosed 置 true，不再重弹
+	const [inviteClosed, setInviteClosed] = useState(false);
 
 	// 管理入口卡与侧栏/Tab 条同源门控（plan 016 SETTINGS_NAV 注册表）：
 	// 成员与角色 / 权限映射 = list_members，普通成员不渲染整卡
@@ -44,6 +53,53 @@ export default function WorkspacePage() {
 	const showPermissionsCard = canSeeByKey("permissions", abilities);
 	// 活跃成员空角色显示基准身份「成员」；待加入 / 只读审计访客保持「暂无角色」
 	const isActiveMember = ws ? getWorkspaceStatus(ws) === "active" : false;
+
+	// 首公里 onboarding 触点门控（plan first-mile-onboarding U3，KTD5 fail-closed）：
+	// onboarding 数据未就绪（loading/error）/ 非 active 成员 / readOnlyVisitor → 不弹不挂卡
+	const onboardingReady = !onboarding.loading && !onboarding.error;
+	const onboardingEligible =
+		onboardingReady && isActiveMember && !readOnlyVisitor;
+
+	// 邀请模态：每次登录弹直到明确拒绝（session-settled）——全真才弹。
+	// 开态为派生态（react-hooks/set-state-in-effect：不在 effect 里同步 setState），
+	// effect 只做「展示即写 session 旗标」（KTD4）
+	const inviteOpen =
+		onboardingEligible &&
+		!onboarding.hasActiveToken &&
+		!onboarding.dismissed &&
+		!onboarding.inviteShownThisSession &&
+		!inviteClosed;
+	useEffect(() => {
+		// inviteOpen 为真时 onboarding 已就绪（onboardingReady），userId 必非 null
+		if (inviteOpen) markInviteShown(onboarding.userId);
+	}, [inviteOpen, onboarding.userId]);
+
+	// 等待首联态自动撤卡（P2）：宿主在外部完成首次 MCP 调用写入 lastUsedAt 后，
+	// 本页免整页刷新。主场景是用户切去终端配置宿主、首联完成、切回浏览器——
+	// 监听 window focus 与 visibilitychange（变 visible 时）；30s interval 兜底
+	// 分屏不切窗 / 宿主自动连接（回调内判 visible 才刷）。态退出（connected 置真
+	// 或不再 eligible）由 effect 清理拆除监听与 interval。
+	// 范围纪律：仅等待首联态挂监听——邀请态与已接入态不轮询。
+	const awaitingFirstConnect =
+		onboardingEligible && onboarding.hasActiveToken && !onboarding.connected;
+	const { refreshSilently } = onboarding;
+	useEffect(() => {
+		if (!awaitingFirstConnect) return;
+		const onFocus = () => refreshSilently();
+		const onVisible = () => {
+			if (document.visibilityState === "visible") refreshSilently();
+		};
+		window.addEventListener("focus", onFocus);
+		document.addEventListener("visibilitychange", onVisible);
+		const timer = setInterval(() => {
+			if (document.visibilityState === "visible") refreshSilently();
+		}, 30_000);
+		return () => {
+			window.removeEventListener("focus", onFocus);
+			document.removeEventListener("visibilitychange", onVisible);
+			clearInterval(timer);
+		};
+	}, [awaitingFirstConnect, refreshSilently]);
 
 	return (
 		<WorkspaceShell slug={slug}>
@@ -168,6 +224,18 @@ export default function WorkspacePage() {
 							</div>
 						)}
 
+						{/* 首公里常驻接入卡（R8）：未接入 → 邀请态；已签发未首联 → 等待提醒态；
+						    connected 后不挂；dismissed 不影响（R2 拒绝模态后的常驻入口） */}
+						{onboardingEligible &&
+							(!onboarding.hasActiveToken || !onboarding.connected) && (
+								<div className="mt-4">
+									<OnboardingConnectCard
+										slug={slug}
+										hasActiveToken={onboarding.hasActiveToken}
+									/>
+								</div>
+							)}
+
 						{/* 教研产出入口（切片 C 已落地，见 workflows 页；plan 016 替换过期占位卡）。
 						    报名/赞助（切片 E）仍为占位：视觉降级虚线边框 + 「即将开放」角标 */}
 						<div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -247,6 +315,14 @@ export default function WorkspacePage() {
 						</div>
 					</>
 				) : null}
+
+				{/* 首公里邀请模态（R1/R2）：弹出条件全真才弹，见上方 inviteOpen 派生 */}
+				{inviteOpen && (
+					<OnboardingInviteModal
+						slug={slug}
+						onClose={() => setInviteClosed(true)}
+					/>
+				)}
 			</div>
 		</WorkspaceShell>
 	);

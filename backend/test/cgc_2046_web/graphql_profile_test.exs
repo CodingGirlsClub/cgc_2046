@@ -402,6 +402,68 @@ defmodule Cgc2046Web.GraphqlProfileTest do
     end
   end
 
+  describe "dismissOnboardingInvitation mutation (首公里 R2)" do
+    test "persists dismissal timestamp and me exposes it" do
+      user = Fixtures.register_user("gql-dismiss-user")
+      token = sign_in_token(user.email, @password)
+
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            dismissOnboardingInvitation {
+              id
+              onboardingInvitationDismissedAt
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{
+               "data" => %{
+                 "dismissOnboardingInvitation" => %{
+                   "onboardingInvitationDismissedAt" => dismissed_at
+                 }
+               }
+             } = res
+
+      assert is_binary(dismissed_at)
+
+      # R2 数据面：拒绝状态持久化，重查 me 仍在（跨设备一致的服务端来源）
+      res =
+        graphql_post(
+          build_conn(),
+          "{ me { onboardingInvitationDismissedAt } }",
+          token
+        )
+
+      assert %{
+               "data" => %{
+                 "me" => %{"onboardingInvitationDismissedAt" => ^dismissed_at}
+               }
+             } = res
+    end
+
+    test "requires authentication" do
+      res =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            dismissOnboardingInvitation {
+              id
+            }
+          }
+          """
+        )
+
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ "unauthorized"))
+    end
+  end
+
   describe "setWorkspaceTheme mutation (ADR-0004 per-workspace theme)" do
     test "sets theme in a workspace" do
       admin = Fixtures.platform_admin("gql-profile-admin")

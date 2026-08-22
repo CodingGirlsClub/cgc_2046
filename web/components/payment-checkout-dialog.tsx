@@ -49,6 +49,7 @@ import {
   rememberPaymentProvider,
 } from "@/lib/last-payment-provider";
 import { useOrderPolling } from "@/lib/use-order-polling";
+import { useDialogA11y } from "./modal-a11y";
 
 const COUNTDOWN_TICK_MS = 500;
 const PAID_AUTO_CLOSE_MS = 1_500;
@@ -75,9 +76,6 @@ export interface PaymentCheckoutDialogProps {
   /** 活动标题（头部展示） */
   title?: string | null;
 }
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export default function PaymentCheckoutDialog({
   enrollmentId,
@@ -108,13 +106,9 @@ export default function PaymentCheckoutDialog({
     onCloseRef.current = onClose;
   });
 
-  const dialogRef = useRef<HTMLDivElement>(null);
+  // 模态 a11y 机制（开框聚焦 + Esc 关 + Tab focus trap）单源在 ./modal-a11y
+  const { dialogRef, handleKeyDown } = useDialogA11y(onClose);
   const orderId = order?.id ?? null;
-
-  // 开框聚焦对话框本体（Esc/Tab trap 的焦点锚点）
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
 
   // 状态轮询的拉取（R14；合并保 provider——ORDER_STATUS 不回该字段，整替会丢渠道选中态）。
   // 乱序守卫：闭包捕获请求时 orderId，响应回来时订单已被换渠道替换（prev.id 变了）
@@ -306,32 +300,6 @@ export default function PaymentCheckoutDialog({
     credential === null &&
     status === "pending";
   const amountCents = order?.amountCents ?? amountHintCents;
-
-  // Esc 关闭 + Tab focus trap（对话框内循环）
-  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onClose();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const el = dialogRef.current;
-    if (!el) return;
-    const focusables = Array.from(
-      el.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-    );
-    if (focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    const active = document.activeElement;
-    if (e.shiftKey && (active === first || active === el)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
 
   return (
     <div
