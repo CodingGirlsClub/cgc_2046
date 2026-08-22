@@ -72,7 +72,7 @@ export default function OnboardingInviteModal({
 				aria-modal="true"
 				aria-label={t("inviteAria")}
 				tabIndex={-1}
-				className="modal-content"
+				className="modal-content modal-content--wide"
 				data-testid="onboarding-invite-modal"
 				onClick={(e) => e.stopPropagation()}
 			>
