@@ -425,7 +425,20 @@
     "seedPhraseDesc": "Open your newly connected CGC assistant and send:",
     "seedPhraseText": "What can I do on 2046?",
     "doneGoOverview": "Go to overview",
-    "doneGoEvents": "Browse events"
+    "doneGoEvents": "Browse events",
+    "inviteAria": "Connect your agent",
+    "inviteTitle": "Connect your agent to 2046",
+    "inviteDesc": "Once you connect an agent host, your agent can use the platform for you — courses, events, and collaboration. It takes three steps.",
+    "inviteStart": "Get started",
+    "inviteLater": "Maybe later",
+    "inviteDismiss": "Not now — don't ask again",
+    "inviteDismissError": "Something went wrong. Please try again.",
+    "inviteCloseAria": "Close",
+    "cardInviteTitle": "Connect your agent",
+    "cardInviteDesc": "Three steps to connect an agent host, and your agent can take courses, browse events, and collaborate for you.",
+    "cardWaitingTitle": "Waiting for your agent's first connection",
+    "cardWaitingDesc": "The connection token is ready. Finish setup in your agent host and make the first call — this card disappears automatically.",
+    "cardWaitingCta": "View the guide"
   },
   "offeringDetail": {
     "loadFailed": "Failed to load",

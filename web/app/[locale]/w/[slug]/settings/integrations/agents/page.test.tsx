@@ -177,4 +177,25 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 			await screen.findByRole("button", { name: "重新查看引导" }),
 		).toBeInTheDocument();
 	});
+
+	it("AE6/R10：普通成员（myAbilities 仅成员基准、myRoleNames 空）向导态与管理态均可用", async () => {
+		// fixture WORKSPACES 已是普通成员（myAbilities 仅 view_workspace/access_invite_only，
+		// myRoleNames 空）——该区不做能力门控，两态都应正常渲染
+		const first = render(<AgentsIntegrationsPage />);
+		expect(
+			await screen.findByRole("heading", { name: "接入你的 Agent" }),
+		).toBeInTheDocument();
+		first.unmount();
+
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: true,
+			connected: true,
+		});
+		render(<AgentsIntegrationsPage />);
+		expect(
+			await screen.findByRole("navigation", { name: "工作区设置页签" }),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("agent-entry-cards")).toBeInTheDocument();
+	});
 });

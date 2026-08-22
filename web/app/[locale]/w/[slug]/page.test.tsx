@@ -95,6 +95,37 @@ vi.mock("@/lib/requests", async (importOriginal) => {
 	return { ...mod, fetchWorkspaceBySlug };
 });
 
+// 首公里 onboarding（plan first-mile-onboarding U3）：页面消费 useOnboardingState +
+// KTD4 session 旗标 + dismiss mutation，全部 mock 以保证门控矩阵确定性
+const { useOnboardingState } = vi.hoisted(() => ({ useOnboardingState: vi.fn() }));
+const { markInviteShown } = vi.hoisted(() => ({ markInviteShown: vi.fn() }));
+const { hasInviteShownThisSession } = vi.hoisted(() => ({
+	hasInviteShownThisSession: vi.fn(),
+}));
+const { dismissOnboardingInvitation } = vi.hoisted(() => ({
+	dismissOnboardingInvitation: vi.fn(),
+}));
+
+vi.mock("@/lib/onboarding", async (importOriginal) => {
+	const mod = (await importOriginal()) as Record<string, unknown>;
+	return {
+		...mod,
+		useOnboardingState,
+		markInviteShown,
+		hasInviteShownThisSession,
+		dismissOnboardingInvitation,
+	};
+});
+
+/** onboarding 就绪基线：未接入/未拒绝/未通联 */
+const ONBOARDING_BASE = {
+	dismissed: false,
+	hasActiveToken: false,
+	connected: false,
+	loading: false,
+	error: null,
+};
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	isAuthenticated.mockReturnValue(true);
@@ -111,6 +142,10 @@ beforeEach(() => {
 	// #018：clearSession 返回 { ok } 契约；失败用例单独覆盖
 	clearSession.mockResolvedValue({ ok: true });
 	fetchWorkspaceBySlug.mockReset();
+	// onboarding 默认 loading（fail-closed）：既有用例零感知——不弹模态、不挂卡
+	useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE, loading: true });
+	hasInviteShownThisSession.mockReturnValue(false);
+	dismissOnboardingInvitation.mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
@@ -450,5 +485,162 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		await waitFor(() => expect(clearSession).toHaveBeenCalledTimes(1));
 		expect(push).not.toHaveBeenCalled();
 		expect(await screen.findByText("退出登录失败，请重试")).toBeInTheDocument();
+	});
+});
+
+/**
+ * 首公里 onboarding 触点（plan 2026-08-22 first-mile-onboarding U3，R1/R2/R8，KTD4/KTD5）。
+ *
+ * F2（带目的地注册不被打断）由结构保证：邀请模态/常驻卡仅挂本概览页，
+ * 登录分发器（home-client.tsx / use-auth-submit.ts）零改动由 diff 保证，
+ * 此处锚定「模态确在概览页组件树内」。
+ */
+describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表", () => {
+	it("未接入 active 成员：模态弹出（展示即 markInviteShown，KTD4），F2 锚点——模态确在概览页", async () => {
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		render(<WorkspacePage />);
+
+		expect(await screen.findByRole("dialog")).toBeInTheDocument();
+		expect(markInviteShown).toHaveBeenCalledTimes(1);
+	});
+
+	it("已接入成员（hasActiveToken && connected）：不弹不挂卡（AE5 后半 + DoD 已接入成员零变化）", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: true,
+			connected: true,
+		});
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("cgc-academy");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("onboarding-connect-card"),
+		).not.toBeInTheDocument();
+	});
+
+	it("已拒绝（dismissed）：不弹，但常驻卡仍在（AE2/R2：dismissed 不影响卡）", async () => {
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE, dismissed: true });
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("cgc-academy");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(screen.getByTestId("onboarding-connect-card")).toHaveAttribute(
+			"data-variant",
+			"invite",
+		);
+	});
+
+	it("readOnlyVisitor（PlatformAdmin 审计视图）：不弹不挂卡", async () => {
+		params.value = { slug: "audit-ws" };
+		fetchMyWorkspaces.mockResolvedValue([]);
+		fetchCurrentProfile.mockResolvedValue({
+			id: "u-admin",
+			email: "admin@example.com",
+			displayName: "Platform Admin",
+			isPlatformAdmin: true,
+		});
+		fetchWorkspaceBySlug.mockResolvedValue({
+			id: "ws-audit",
+			slug: "audit-ws",
+			name: "审计工作台",
+			joinPolicy: "invite_only",
+			sponsorshipEnabled: true,
+			memberCount: 42,
+		});
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("audit-ws");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("onboarding-connect-card"),
+		).not.toBeInTheDocument();
+	});
+
+	it("onboarding 数据 error：不弹不挂卡（KTD5 fail-closed）", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			error: new Error("boom"),
+		});
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("cgc-academy");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("onboarding-connect-card"),
+		).not.toBeInTheDocument();
+	});
+
+	it("onboarding 数据 loading：不弹不挂卡（KTD5 fail-closed）", async () => {
+		// beforeEach 默认即 loading:true；显式重写一遍表意
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE, loading: true });
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("cgc-academy");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("onboarding-connect-card"),
+		).not.toBeInTheDocument();
+	});
+
+	it("本 session 已展示过：不再弹（KTD4 旗标），常驻卡仍在，markInviteShown 不再写", async () => {
+		hasInviteShownThisSession.mockReturnValue(true);
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE });
+		render(<WorkspacePage />);
+
+		const main = await content();
+		await main.findByText("cgc-academy");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(markInviteShown).not.toHaveBeenCalled();
+		expect(screen.getByTestId("onboarding-connect-card")).toBeInTheDocument();
+	});
+
+	it("卡真值表：未接入（!active && !connected）→ 邀请态，CTA 跳区入口页", async () => {
+		// dismissed:true 避免模态同屏干扰；dismissed 不影响卡（R2）
+		useOnboardingState.mockReturnValue({ ...ONBOARDING_BASE, dismissed: true });
+		render(<WorkspacePage />);
+
+		await content();
+		const card = screen.getByTestId("onboarding-connect-card");
+		expect(card).toHaveAttribute("data-variant", "invite");
+		expect(
+			within(card).getByTestId("onboarding-connect-card-cta"),
+		).toHaveAttribute("href", "/w/cgc-academy/settings/integrations/agents");
+	});
+
+	it("卡真值表：回归成员（token 全撤销/过期但历史 connected，R1）→ 仍呈邀请态", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			dismissed: true,
+			connected: true,
+		});
+		render(<WorkspacePage />);
+
+		await content();
+		expect(screen.getByTestId("onboarding-connect-card")).toHaveAttribute(
+			"data-variant",
+			"invite",
+		);
+	});
+
+	it("卡真值表：已签发未首联（active && !connected）→ 「等待你的 Agent 第一次连接」提醒态（AE5 前半）", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: true,
+			connected: false,
+		});
+		render(<WorkspacePage />);
+
+		await content();
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		const card = screen.getByTestId("onboarding-connect-card");
+		expect(card).toHaveAttribute("data-variant", "waiting");
+		expect(card).toHaveTextContent("等待你的 Agent 第一次连接");
 	});
 });
