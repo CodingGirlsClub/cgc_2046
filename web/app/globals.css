@@ -1933,6 +1933,8 @@ body {
 /* ---------- modal ---------- */
 .modal-overlay { position: fixed; inset: 0; z-index: 100; display: grid; align-items: center; justify-items: center; padding: 20px; background: color-mix(in srgb, #000 60%, transparent); }
 .modal-content { width: min(100%, 420px); display: grid; gap: 16px; padding: 24px; border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--card); box-shadow: var(--shadow-elevated); }
+/* 宽变体：三动作邀请模态等 420px 装不下的场景（结账单对话框仍用默认 420） */
+.modal-content--wide { width: min(100%, 560px); }
 .modal-content h2 { color: var(--ink); font-size: 18px; font-weight: 510; line-height: 25px; }
 .modal-content > p { color: var(--ink-3); font-size: 14px; line-height: 22px; }
 .modal-role-select { display: grid; gap: 8px; }
@@ -1988,7 +1990,7 @@ body {
 .connect-step-card__desc code { padding: 2px 6px; border-radius: var(--radius-micro); background: var(--soft); color: var(--ink); font-family: var(--font-mono); font-size: 12.5px; line-height: 18px; word-break: break-all; }
 .connect-step-card__desc a { color: var(--accent-strong); text-decoration: none; }
 .connect-step-card__desc a:hover { text-decoration: underline; }
-.connect-step-card__actions { display: flex; gap: 8px; justify-content: flex-end; }
+.connect-step-card__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 767px) {

@@ -26,6 +26,8 @@ describe("首公里邀请模态 OnboardingInviteModal（plan first-mile-onboardi
 
 		const dialog = screen.getByRole("dialog");
 		expect(dialog).toHaveAttribute("aria-modal", "true");
+		// 宽变体：三动作行在默认 420px 下溢出（按钮探出框体）
+		expect(dialog).toHaveClass("modal-content--wide");
 		expect(dialog).toHaveTextContent("把你的 Agent 接入 2046");
 		expect(dialog).toHaveTextContent(/学课程、查活动、参与协作/);
 		expect(
