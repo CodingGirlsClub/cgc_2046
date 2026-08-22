@@ -550,6 +550,9 @@
       "workspaceFallback": "Workspace",
       "signOutFailed": "Failed to sign out. Please try again.",
       "readonlyBanner": "Platform admin · read-only audit view",
+      "noPermissionTitle": "This page requires admin permissions",
+      "noPermissionDesc": "Your current membership can't view this page. Contact a workspace Owner / Admin for management tasks.",
+      "backToOverview": "Back to overview",
       "navOverview": "Overview",
       "navAgents": "Agents",
       "navWorkflows": "Research output",
@@ -594,6 +597,7 @@
       "inviteOnlyHint": "Join via invite link or batch code"
     },
     "noRoles": "No roles",
+    "memberRole": "Member",
     "roleEmpty": "No role assigned"
   },
   "workspaceOverview": {
@@ -610,7 +614,6 @@
     "sponsorshipClosed": "Sponsorship not open",
     "membersAndRoles": "Members & roles",
     "membersManage": "Manage member list and role assignment",
-    "membersView": "View member list and your roles",
     "permissionMapping": "Permission mapping",
     "permissionMappingDesc": "View role → capability matrix",
     "agentsTitle": "Agents & assistant collaboration",

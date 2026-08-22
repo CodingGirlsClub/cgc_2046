@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
+// usePathname 走 @/i18n/navigation（2026-08-22 诊断修复，同 theme-provider：
+// EN 下 ^/w/ 取不到 slug → 服务端 workspace 主题偏好不应用）。
+import { usePathname } from "@/i18n/navigation";
 import { useQuery } from "@apollo/client/react";
 import { useAuthed } from "@/lib/use-authed";
 import { useTheme } from "@/lib/theme-provider";

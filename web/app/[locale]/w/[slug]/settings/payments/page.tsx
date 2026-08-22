@@ -27,7 +27,7 @@ export default function WorkspacePaymentsPage() {
 	const manage = !readOnlyVisitor && (ws?.myAbilities ?? []).includes("manage_members");
 
 	return (
-		<WorkspaceShell slug={slug}>
+		<WorkspaceShell slug={slug} requireAbility="manage_members">
 			<div className="ws-page-main__inner">
 				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
 					<Link href="/">{t("breadcrumbHome")}</Link>

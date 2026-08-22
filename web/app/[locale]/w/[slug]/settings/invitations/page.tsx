@@ -155,7 +155,7 @@ export default function InvitationsPage() {
 	}, []);
 
 	return (
-		<WorkspaceShell slug={slug}>
+		<WorkspaceShell slug={slug} requireAbility="manage_members">
 			<div className="ws-page-main__inner">
 				<div className="ws-page-breadcrumb" aria-label={tCommon("breadcrumbAria")}>
 					<Link href="/">{t("breadcrumbHome")}</Link>

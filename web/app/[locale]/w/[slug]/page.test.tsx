@@ -211,11 +211,9 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(main.getAllByText("仅邀请").length).toBeGreaterThan(0);
 		expect(main.getByText("暂未开放赞助")).toBeInTheDocument();
 		expect(screen.queryByText(/建设中/)).not.toBeInTheDocument();
-		// 成员管理入口指向真实 slug（无 assign_roles 能力 → 只读门控文案）
-		const link = main.getByRole("link", {
-			name: /查看成员列表与自己的角色/,
-		});
-		expect(link).toHaveAttribute("href", "/w/qa70-real-ws-333/settings/members");
+		// 无 list_members 能力 → 管理入口卡整卡不渲染（与侧栏同源门控）
+		expect(main.queryByText("成员与角色")).not.toBeInTheDocument();
+		expect(main.queryByText("权限映射")).not.toBeInTheDocument();
 	});
 
 	it("P1：展示成员数量（meWorkspaces memberCount 计算字段）", async () => {
@@ -357,14 +355,26 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(main.queryByText(/切片 E|即将开放|草稿/)).not.toBeInTheDocument();
 	});
 
-	it("canAssign=false：成员与角色入口显示只读门控文案", async () => {
+	it("普通成员（无 list_members）：管理入口卡（成员与角色/权限映射）整卡不渲染", async () => {
 		params.value = { slug: "cgc-shanghai" };
 		render(<WorkspacePage />);
 		const main = await content();
-		expect(
-			await main.findByText("查看成员列表与自己的角色"),
-		).toBeInTheDocument();
-		expect(main.queryByText("管理成员列表与角色分配")).not.toBeInTheDocument();
+		// 先等成员视角内容就绪（Hero 渲染完成），再断言管理卡缺席
+		await main.findByText("cgc-shanghai");
+		expect(main.queryByText("成员与角色")).not.toBeInTheDocument();
+		expect(main.queryByText("权限映射")).not.toBeInTheDocument();
+		expect(main.queryByText(/查看成员列表与自己的角色/)).not.toBeInTheDocument();
+		// 成员可用入口不受影响
+		expect(main.getByRole("link", { name: /^活动/ })).toBeInTheDocument();
+	});
+
+	it("普通成员空角色标签：Hero 与信息卡显示基准身份「成员」而非「暂无角色」", async () => {
+		params.value = { slug: "cgc-shanghai" };
+		render(<WorkspacePage />);
+		const main = await content();
+		// Hero 与「我的角色」信息卡各一处
+		expect((await main.findAllByText("成员")).length).toBe(2);
+		expect(main.queryByText("暂无角色")).not.toBeInTheDocument();
 	});
 
 	it("品牌下拉菜单：一级操作项 + Switch workspace 展开二级工作区列表", async () => {
