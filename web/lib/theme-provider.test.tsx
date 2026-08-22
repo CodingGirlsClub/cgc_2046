@@ -41,13 +41,16 @@ Object.defineProperty(window, "localStorage", {
 });
 
 // i18n usePathname（2026-08-22 换源）需要 intl context；locale 可参数化（EN 用例）
+// 命名函数表达式：匿名箭头组件触发 react/display-name（CI lint error）
 const makeWrapper =
   (locale: "zh-CN" | "en" = "zh-CN") =>
-  ({ children }: { children: React.ReactNode }) => (
-    <NextIntlClientProvider locale={locale}>
-      <ThemeProvider>{children}</ThemeProvider>
-    </NextIntlClientProvider>
-  );
+    function ThemeTestWrapper({ children }: { children: React.ReactNode }) {
+      return (
+        <NextIntlClientProvider locale={locale}>
+          <ThemeProvider>{children}</ThemeProvider>
+        </NextIntlClientProvider>
+      );
+    };
 const wrapper = makeWrapper();
 
 /** flush queueMicrotask（挂载后偏好应用 effect） */
