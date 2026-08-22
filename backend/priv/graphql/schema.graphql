@@ -4791,6 +4791,9 @@ type User {
   "用户界面语言偏好（i18n Phase 1，BCP47 对外命名：zh-CN | en；null = 未设置，协商链回退）"
   locale: String
 
+  "首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致）"
+  onboardingInvitationDismissedAt: DateTime
+
   "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
   memberNumber: String
 
@@ -6246,6 +6249,9 @@ type RootMutationType {
 
   "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
   updateMyLocale(locale: String!): User
+
+  "拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人）"
+  dismissOnboardingInvitation: User
 
   "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
   updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile
