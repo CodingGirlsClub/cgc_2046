@@ -28,7 +28,8 @@ export default function SettingsTabs({
 }: {
 	slug: string;
 	tabs: SettingsTabDef[];
-	current: string;
+	/** 当前页对应 tab key；缺省 = 无选中 tab（区入口页等无对应 tab 的场景） */
+	current?: string;
 	abilities: string[];
 }) {
 	const navT = useTranslations("workspaceNav");

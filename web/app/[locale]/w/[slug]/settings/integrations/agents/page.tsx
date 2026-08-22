@@ -16,7 +16,7 @@
  * 该区不做能力门控，所有成员可用（R10）。
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -61,6 +61,88 @@ export default function AgentsIntegrationsPage() {
 	// KTD5：loading/error 优先求值；error 静默回退管理态
 	const showWizard = !state.loading && !state.error && !state.hasActiveToken;
 
+	// 主体四态互斥：loading 骨架 / 向导态 / 只读回看 / 管理态（管理态无对应 tab，current 缺省）
+	let body: ReactNode;
+	if (state.loading) {
+		body = (
+			<div className="settings-loading" aria-label={t("loadingAria")}>
+				<div className="settings-skeleton settings-skeleton--title" />
+				<div className="settings-skeleton" />
+			</div>
+		);
+	} else if (showWizard) {
+		body = <OnboardingWizard slug={slug} />;
+	} else if (reviewing) {
+		body = (
+			<>
+				<div className="settings-actions">
+					<button
+						type="button"
+						className="join-button join-button--ghost"
+						onClick={() => setReviewing(false)}
+					>
+						{t("reviewBack")}
+					</button>
+				</div>
+				<OnboardingWizard slug={slug} readOnly />
+			</>
+		);
+	} else {
+		body = (
+			<>
+				<header className="ws-page-heading">
+					<div>
+						<h1>{t("entryTitle")}</h1>
+						<p>{t("entrySubtitle")}</p>
+					</div>
+				</header>
+
+				<IntegrationsAgentsTabs slug={slug} abilities={[]} />
+
+				{!state.error && (
+					<p style={{ marginTop: 16 }}>
+						<span className="l-badge l-badge-volunteer">
+							{t("connectedBadge")}
+						</span>{" "}
+						<button
+							type="button"
+							className="join-button join-button--outline"
+							onClick={() => setReviewing(true)}
+						>
+							{t("reviewGuide")}
+						</button>
+					</p>
+				)}
+
+				<div
+					data-testid="agent-entry-cards"
+					style={{ display: "grid", gap: 16, marginTop: 16 }}
+				>
+					<EntryCard
+						href={`/w/${slug}/settings/integrations/agents/mcp`}
+						title={tMcp("title")}
+						desc={tMcp("subtitle")}
+					/>
+					<EntryCard
+						href={`/w/${slug}/settings/integrations/agents/openclacky`}
+						title={tConnect("titleOpenclacky")}
+						desc={tConnect("subtitleOpenclacky")}
+					/>
+					<EntryCard
+						href={`/w/${slug}/settings/integrations/agents/opencode`}
+						title={tConnect("titleOpencode")}
+						desc={tConnect("subtitleOpencode")}
+					/>
+					<EntryCard
+						href={`/w/${slug}/settings/integrations/agents/omp`}
+						title={tConnect("titleOmp")}
+						desc={tConnect("subtitleOmp")}
+					/>
+				</div>
+			</>
+		);
+	}
+
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">
@@ -76,83 +158,7 @@ export default function AgentsIntegrationsPage() {
 					<strong>{t("entryTitle")}</strong>
 				</div>
 
-				{state.loading ? (
-					<div className="settings-loading" aria-label={t("loadingAria")}>
-						<div className="settings-skeleton settings-skeleton--title" />
-						<div className="settings-skeleton" />
-					</div>
-				) : showWizard ? (
-					<OnboardingWizard slug={slug} />
-				) : reviewing ? (
-					<>
-						<div className="settings-actions">
-							<button
-								type="button"
-								className="join-button join-button--ghost"
-								onClick={() => setReviewing(false)}
-							>
-								{t("reviewBack")}
-							</button>
-						</div>
-						<OnboardingWizard slug={slug} readOnly />
-					</>
-				) : (
-					<>
-						<header className="ws-page-heading">
-							<div>
-								<h1>{t("entryTitle")}</h1>
-								<p>{t("entrySubtitle")}</p>
-							</div>
-						</header>
-
-						<IntegrationsAgentsTabs
-							slug={slug}
-							current="agents-entry"
-							abilities={[]}
-						/>
-
-						{!state.error && (
-							<p style={{ marginTop: 16 }}>
-								<span className="l-badge l-badge-volunteer">
-									{t("connectedBadge")}
-								</span>{" "}
-								<button
-									type="button"
-									className="join-button join-button--outline"
-									onClick={() => setReviewing(true)}
-								>
-									{t("reviewGuide")}
-								</button>
-							</p>
-						)}
-
-						<div
-							data-testid="agent-entry-cards"
-							style={{ display: "grid", gap: 16, marginTop: 16 }}
-						>
-							<EntryCard
-								href={`/w/${slug}/settings/integrations/agents/mcp`}
-								title={tMcp("title")}
-								desc={tMcp("subtitle")}
-							/>
-							<EntryCard
-								href={`/w/${slug}/settings/integrations/agents/openclacky`}
-								title={tConnect("titleOpenclacky")}
-								desc={tConnect("subtitleOpenclacky")}
-							/>
-							<EntryCard
-								href={`/w/${slug}/settings/integrations/agents/opencode`}
-								title={tConnect("titleOpencode")}
-								desc={tConnect("subtitleOpencode")}
-							/>
-							<EntryCard
-								href={`/w/${slug}/settings/integrations/agents/omp`}
-								title={tConnect("titleOmp")}
-								desc={tConnect("subtitleOmp")}
-							/>
-						</div>
-					</>
-				)}
+				{body}
 			</div>
 		</WorkspaceShell>
 	);

@@ -41,7 +41,8 @@ export default function IntegrationsAgentsTabs({
 	abilities,
 }: {
 	slug: string;
-	current: string;
+	/** 当前页对应 tab key；缺省 = 无选中 tab（区入口页） */
+	current?: string;
 	abilities: string[];
 }) {
 	return (
