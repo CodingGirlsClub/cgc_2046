@@ -207,7 +207,9 @@ defmodule Cgc2046Web.GraphqlSchema do
               {:error, [message: "event not found", code: "not_found"]}
 
             {:error, reason} ->
-              {:error, [message: inspect(reason), code: "invalid"]}
+              # 内部 reason 不透传客户端（#241 F9，SecurityReview 遗留）
+              Logger.warning("[speaker_invitations] list_for_event failed: #{inspect(reason)}")
+              {:error, [message: "invalid request", code: "invalid"]}
           end
         end)
       end)
