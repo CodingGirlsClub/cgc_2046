@@ -119,7 +119,7 @@ export default function WorkspaceSwitcherMenu({
 			<div className="ws-shell-brand-menu__divider" />
 
 			<Link
-				href={`/w/${currentSlug}/settings/integrations/agents/mcp`}
+				href={`/w/${currentSlug}/settings/integrations/agents`}
 				className="ws-shell-brand-menu__item"
 				role="menuitem"
 				onClick={onNavigate}
