@@ -65,7 +65,7 @@ execution: code
 
 **通联提醒**
 
-- R8. 概览页新增常驻接入卡：未接入成员恒可见（模态拒绝后仍在）；token 已生成但首次 MCP 调用未发生时呈「等待你的 agent 第一次连接」提醒态；首次调用发生后卡消失。
+- R8. 概览页新增常驻接入卡：未接入成员恒可见（模态拒绝后仍在）；token 已生成但首次 MCP 调用未发生时呈「等待你的 agent 第一次连接」提醒态；首次调用发生后卡消失（token 全部撤销或闲置过期的回归成员重新看到邀请态卡，per R1）。
 
 **边界与卫生**
 
@@ -125,7 +125,8 @@ stateDiagram-v2
 - AE2. **Covers R1, R2.** Given 未接入成员上次登录点了「再看看」，When 其下次登录进入概览，Then 模态再次弹出；Given 其点了「暂时不用，别再弹了」，Then 后续任何登录都不再弹，常驻卡仍可见。
 - AE3. **Covers R5.** Given 向导态第①步，When 选中 DSH，Then 展示「即将推出」说明且无法进入后续步骤；When 选中 OpenClacky（或 OMP/OpenCode），Then 可继续。
 - AE4. **Covers R6, R7.** Given 向导态第③步 token 生成成功，Then 进入完成态（种子话术卡 + 出口）；And 下次访问该区时呈现 Tab 管理态与「重新查看引导」入口。
-- AE5. **Covers R8.** Given token 已生成但无首次 MCP 调用，Then 常驻卡呈「等待你的 agent 第一次连接」态；Given 该用户任一 token 发生首次使用（lastUsedAt 非空），Then 常驻卡消失。
+- AE5. **Covers R8.** Given token 已生成但无首次 MCP 调用，Then 常驻卡呈「等待你的 agent 第一次连接」态；Given 有 active token 且任一 token 发生首次使用（lastUsedAt 非空），Then 常驻卡消失；Given token 全部撤销或闲置过期（即使曾通联），Then 卡以邀请态重新可见（per R1 回归成员规则）。
+<!-- preservation note: 初版 AE5 称「任一 token lastUsedAt 非空即卡消失」，与 R1 回归成员规则（无 active token 即视为未接入）矛盾；2026-08-22 产品方拍板采纳 R1 侧——卡消失条件 = hasActiveToken && connected，本条已按实现修订，实现与既有测试不变。 -->
 - AE6. **Covers R10.** Given myAbilities 仅成员基准的普通成员，When 访问该区，Then 向导态/管理态均正常可用。
 
 ### Success Criteria
@@ -263,7 +264,7 @@ backend: User.onboarding_invitation_dismissed_at（U1，仿 update_locale 链）
   - 模态仿 `payment-checkout-dialog.tsx`：`role="dialog"`、开框 `dialogRef.focus()`、Esc 关、Tab focus trap（`FOCUSABLE_SELECTOR`）、无 portal；触发 = 概览页 `useState<boolean>`。
   - 弹出条件（全真才弹）：`useOnboardingState` 就绪且无 error + `!hasActiveToken` + `!dismissed` + `!hasInviteShownThisSession()` + ws 为 active 成员（非 `readOnlyVisitor`）。展示即 `markInviteShown()`。
   - 三动作：「开始接入」→ 跳 `/w/:slug/settings/integrations/agents`；「再看看」→ 关闭；「暂时不用，别再弹了」→ `dismissOnboardingInvitation` mutation，失败不关框、内联错误 `role="alert"`。
-  - 常驻卡挂 `ws ? <>` 块内（现有卡网格旁）：`!connected` 即渲染——未接入呈邀请态（CTA 同模态主 CTA），已有 active token 但未通联呈「等待你的 agent 第一次连接」态；`connected` 后不渲染。dismissed 不影响卡（per R2）。
+  - 常驻卡挂 `ws ? <>` 块内（现有卡网格旁）：`!hasActiveToken || !connected` 即渲染——未接入（含 token 全撤销/闲置过期的回归成员，per R1）呈邀请态（CTA 同模态主 CTA），已有 active token 但未通联呈「等待你的 agent 第一次连接」态；`hasActiveToken && connected` 后不渲染。dismissed 不影响卡（per R2）。
 - **Test Scenarios:**
   - 门控矩阵（happy/edge）：未接入弹；已接入不弹；dismissed 不弹但卡在；`readOnlyVisitor` 不弹不挂卡；数据 error 不弹不挂卡；同 session 二次进页不弹。
   - 交互：三动作各自路由/关闭/mutation 调用；mutation 失败 → 框留 + 内联错误（AE2）。
