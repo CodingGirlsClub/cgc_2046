@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { render } from "@/test-utils";
 import WorkspacePage from "./page";
 
@@ -122,6 +122,8 @@ const ONBOARDING_BASE = {
 	error: null,
 	userId: "u_0202",
 	inviteShownThisSession: false,
+	// 等待首联态会挂 effect 调 refreshSilently；base 给空实现保 mock 拟真
+	refreshSilently: vi.fn(),
 };
 
 beforeEach(() => {
@@ -700,5 +702,83 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		const card = screen.getByTestId("onboarding-connect-card");
 		expect(card).toHaveAttribute("data-variant", "waiting");
 		expect(card).toHaveTextContent("等待你的 Agent 第一次连接");
+	});
+
+	it("等待首联态自动撤卡（P2）：window focus 触发静默刷新，connected 置真后卡消失", async () => {
+		const refreshSilently = vi.fn();
+		let connected = false;
+		useOnboardingState.mockImplementation(() => ({
+			...ONBOARDING_BASE,
+			hasActiveToken: true,
+			connected,
+			refreshSilently,
+		}));
+		const { rerender } = render(<WorkspacePage />);
+
+		const card = await screen.findByTestId("onboarding-connect-card");
+		expect(card).toHaveAttribute("data-variant", "waiting");
+
+		// 用户切回浏览器：focus 触发静默刷新
+		fireEvent.focus(window);
+		expect(refreshSilently).toHaveBeenCalledTimes(1);
+
+		// 刷新落地：服务端已写入 lastUsedAt → connected 翻真 → 卡免整页刷新消失
+		connected = true;
+		rerender(<WorkspacePage />);
+		await waitFor(() =>
+			expect(
+				screen.queryByTestId("onboarding-connect-card"),
+			).not.toBeInTheDocument(),
+		);
+	});
+
+	it("等待首联态（P2）：静默刷新失败（无新数据落地）→ 既有态保持、等待卡不消失", async () => {
+		const refreshSilently = vi.fn();
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: true,
+			connected: false,
+			refreshSilently,
+		});
+		render(<WorkspacePage />);
+
+		const card = await screen.findByTestId("onboarding-connect-card");
+		expect(card).toHaveAttribute("data-variant", "waiting");
+
+		// 失败轮次不翻状态（hook 保留上次成功快照，契约见 lib/onboarding 测试）
+		fireEvent.focus(window);
+		expect(refreshSilently).toHaveBeenCalledTimes(1);
+		expect(screen.getByTestId("onboarding-connect-card")).toHaveAttribute(
+			"data-variant",
+			"waiting",
+		);
+	});
+
+	it("等待首联态（P2）：30s interval 兜底触发静默刷新（分屏不切窗场景）", async () => {
+		const refreshSilently = vi.fn();
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: true,
+			connected: false,
+			refreshSilently,
+		});
+		// fake timers 必须先于 render 安装：effect 挂载时建的 interval 才受 fake 时钟管辖
+		vi.useFakeTimers();
+		try {
+			render(<WorkspacePage />);
+			// mock fetchers 走微任务落地，无定时器依赖
+			await act(async () => {});
+			expect(screen.getByTestId("onboarding-connect-card")).toHaveAttribute(
+				"data-variant",
+				"waiting",
+			);
+
+			vi.advanceTimersByTime(30_000);
+			expect(refreshSilently).toHaveBeenCalledTimes(1);
+			vi.advanceTimersByTime(30_000);
+			expect(refreshSilently).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
