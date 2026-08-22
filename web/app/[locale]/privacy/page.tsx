@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { pageAlternates } from "@/lib/seo";
 
 /**
  * /privacy 隐私政策 + 个人信息处理规则（静态法务页，#210 U1）。
@@ -22,6 +23,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 	return {
 		title: t("title"),
 		description: t("description"),
+		alternates: pageAlternates("/privacy", locale),
 	};
 }
 
