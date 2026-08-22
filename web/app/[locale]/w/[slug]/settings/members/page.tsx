@@ -376,7 +376,7 @@ export default function WorkspaceMembersPage() {
 	}
 
 	return (
-		<WorkspaceShell slug={slug}>
+		<WorkspaceShell slug={slug} requireAbility="list_members">
 			<div className="ws-page-main__inner">
 				<div
 					className="ws-page-breadcrumb"

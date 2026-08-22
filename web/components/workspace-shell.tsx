@@ -9,21 +9,30 @@
  *
  * 职责：
  * - 未认证壳：useAuthed 守卫 + 未登录重定向 /login（页面不再各自实现）；
- * - 侧栏（members 设计为基准，2026-08-02 ⑤ Q2 决策：壳单设计）：品牌、
- *   workspace 上下文块、工作区设置导航（激活态由 pathname 派生）、
- *   底部 ProfileEntry + 退出登录；
+ * - 侧栏（members 设计为基准，2026-08-02 ⑤ Q2 决策：壳单设计）：CGC 品牌行
+ *   （火焰标 + 双语名，链接回首页）、workspace 上下文切换块、工作区设置导航
+ *   （激活态由 pathname 派生）、底部 ProfileEntry + 退出登录；
  * - 工作区不可访问态（requireWs 时：slug 无法解析 → 整页「不可访问」）。
  *
  * 可选 props：
  * - `requireWs=false`：跳过 ws 解析与「不可访问」态 —— profile 页的
  *   workspace 上下文来自档案数据（content.workspaceSlug），且页面有自己
  *   的资料加载失败态，不能强制要求 ws 可解析；
+ * - `requireAbility`：管理类设置页的页面级守卫（2026-08-22 决策：这些页
+ *   对普通成员「能看见没有任何意义」）——ws 解析后 myAbilities 缺失该能力
+ *   时主区渲染「需要管理权限」空态替代 children；只读审计访客
+ *   （readOnlyVisitor PlatformAdmin）豁免，保留审计视图。数据权威拦截
+ *   仍在后端 Ash policy，此守卫只是 UX 层；
  * - `className`：附加到页面根节点（页面态布局钩子，如 profile 编辑态
  *   收窄侧栏 `.ws-shell-page--editing`）。
  */
 
-import { Link } from "@/i18n/navigation";
-import { usePathname, useRouter } from "next/navigation";
+// usePathname/useRouter 一律走 @/i18n/navigation（2026-08-22 诊断修复）：
+// 裸 next/navigation 的 usePathname 在 EN 下返回 /en/... 前缀路径，
+// isSettings / navSection 的 startsWith 判定恒 false（设置侧栏错渲染成
+// 工作区导航、激活态失效）；i18n 版返回去前缀内部路径，且 router.push
+// 目的地自动带当前 locale（登出跳 /login 不再丢 EN）。
+import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { clearSession } from "@/lib/auth";
@@ -34,6 +43,7 @@ import { writeLastWorkspace } from "@/lib/use-last-workspace";
 import { fetchCurrentProfile, type CurrentProfile } from "@/lib/profile";
 import { WorkspaceAvatar } from "@/components/workspace-ui";
 import WorkspaceSwitcherMenu from "@/components/workspace-switcher-menu";
+import { BrandLockup } from "@/components/brand";
 import { Icon } from "@/components/icons";
 import {
 	SETTINGS_NAV,
@@ -88,6 +98,8 @@ interface WorkspaceShellProps {
 	 * 无需走 useWorkspaceBySlug）。优先于 ws?.name 与 slug 显示。
 	 */
 	workspaceName?: string;
+	/** 管理页守卫：ws.myAbilities 需含此能力，否则主区渲染「需要管理权限」空态 */
+	requireAbility?: string;
 	/** 附加到页面根节点的类名（页面态布局钩子） */
 	className?: string;
 	children: React.ReactNode;
@@ -97,6 +109,7 @@ export default function WorkspaceShell({
 	slug,
 	requireWs = true,
 	workspaceName,
+	requireAbility,
 	className,
 	children,
 }: WorkspaceShellProps) {
@@ -239,9 +252,20 @@ export default function WorkspaceShell({
 		(d) => d.group === "workspace" && canSee(d, abilities),
 	);
 
+	// 管理页守卫：ws 解析完成后才判定（加载中让页面自己的骨架渲染，不闪空态）；
+	// 只读审计访客豁免（审计视图靠页面内 readOnlyVisitor 只读降级）
+	const abilityBlocked =
+		!!requireAbility &&
+		!!ws &&
+		!readOnlyVisitor &&
+		!abilities.includes(requireAbility);
+
 	return (
 		<div className={`ws-shell-page ${className ?? ""}`}>
 			<aside className="ws-shell-sidebar">
+				<Link href="/" className="ws-shell-cgc-brand">
+					<BrandLockup />
+				</Link>
 				<div className="ws-shell-brand-wrap" ref={brandRef}>
 					<button
 						type="button"
@@ -317,6 +341,7 @@ export default function WorkspaceShell({
 								<span>{t("integrationsLink")}</span>
 							</Link>
 						</nav>
+						{/* Workspace 组恒有 Agents/活动/课程无门控工作面入口，组不会为空 */}
 						<div className="ws-shell-heading">{t("headingWorkspace")}</div>
 						<nav className="ws-shell-nav" aria-label={t("headingWorkspace")}>
 							{workspaceNav.map((dest) => (
@@ -392,7 +417,17 @@ export default function WorkspaceShell({
 						{t("readonlyBanner")}
 					</div>
 				)}
-				{children}
+				{abilityBlocked ? (
+					<div className="ws-shell-empty-page" data-testid="shell-no-permission">
+						<h1>{t("noPermissionTitle")}</h1>
+						<p>{t("noPermissionDesc")}</p>
+						<Link href={`/w/${slug}`} className="ws-shell-primary-link">
+							{t("backToOverview")}
+						</Link>
+					</div>
+				) : (
+					children
+				)}
 			</main>
 		</div>
 	);

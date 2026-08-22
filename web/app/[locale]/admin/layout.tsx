@@ -8,8 +8,10 @@
  *
  * 样式：admin-* 组件类（globals.css），Linear token 双主题自适应（#113 样式收敛）。
  */
-import { Link } from "@/i18n/navigation";
-import { usePathname } from "next/navigation";
+// usePathname 走 @/i18n/navigation（2026-08-22 诊断修复）：裸 next/navigation
+// 版在 EN 下返回 /en/admin/...，与 ADMIN_NAV 不带前缀 href 的比较恒 false，
+// 激活态失效；i18n 版返回去前缀内部路径。
+import { Link, usePathname } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import AdminGuard from "@/components/admin-guard";
 import { Icon } from "@/components/icons";

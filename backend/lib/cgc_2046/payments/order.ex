@@ -1078,6 +1078,11 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_code(:provider_not_configured), do: "order_provider_not_configured"
   defp domain_error_code(:not_payment_pending), do: "order_not_payment_pending"
   defp domain_error_code(:duplicate_active), do: "order_duplicate_active"
+  # 已含资源语义的 load_*/openid 原子显式子句化（#241 F3）：兜底会拼出
+  # order_order_not_found 双前缀；openid_required 显式化以进契约工件
+  defp domain_error_code(:order_not_found), do: "order_not_found"
+  defp domain_error_code(:order_required), do: "order_required"
+  defp domain_error_code(:openid_required), do: "order_openid_required"
 
   defp domain_error_code(reason) when is_atom(reason), do: "order_" <> Atom.to_string(reason)
   defp domain_error_code({kind, _}) when is_atom(kind), do: "order_" <> Atom.to_string(kind)

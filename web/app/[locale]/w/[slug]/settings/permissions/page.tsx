@@ -267,7 +267,7 @@ export default function WorkspacePermissionsPage() {
 	const currentMatrix = matrixWorkspaceId === wsId ? matrix : null;
 
 	return (
-		<WorkspaceShell slug={slug}>
+		<WorkspaceShell slug={slug} requireAbility="list_members">
 			<div className="ws-page-main__inner">
 				<div
 					className="ws-page-breadcrumb"

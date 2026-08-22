@@ -51,4 +51,29 @@ describe("MembersTabs（plan 016 门控单源：消费 SETTINGS_NAV）", () => {
 			within(tabs).getByRole("link", { name: "加入审批" }),
 		).toHaveAttribute("aria-current", "page");
 	});
+
+	it("普通成员（无任何管理能力）：门控 tab 全部不渲染（2026-08-22 决策）", () => {
+		render(
+			<MembersTabs
+				slug="cgc-academy"
+				current="members"
+				abilities={["view_workspace", "access_invite_only"]}
+			/>,
+		);
+		const tabs = screen.getByRole("navigation", { name: "工作区设置页签" });
+		// 成员/权限 = list_members，加入策略 = update_join_policy，审批/邀请/缴费 = manage_members
+		for (const name of [
+			"成员与角色",
+			"权限映射",
+			"加入策略",
+			"加入审批",
+			"邀请管理",
+			"缴费管理",
+			"赞助管理",
+		]) {
+			expect(
+				within(tabs).queryByRole("link", { name }),
+			).not.toBeInTheDocument();
+		}
+	});
 });

@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
+import type { MutationError } from "./shared";
 
 /**
  * E-8 #123 审批控制台数据源：kind-agnostic `myPendingApprovals` 消费 +
@@ -79,7 +80,9 @@ export interface EnrollmentApprovalResult {
 
 export interface EnrollmentApprovalMutationPayload {
 	result?: EnrollmentApprovalResult | null;
-	errors?: { message: string }[] | null;
+	// 复用 shared.ts MutationError：gql 文档请求了 errors { code message }，
+	// 手写 { message } 会丢 code（#241 F6）
+	errors?: MutationError[] | null;
 }
 
 export const CONFIRM_ENROLLMENT: TypedDocumentNode<
