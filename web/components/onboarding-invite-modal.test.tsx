@@ -134,6 +134,33 @@ describe("首公里邀请模态 OnboardingInviteModal（plan first-mile-onboardi
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
 	});
 
+	it("dismiss 在飞时主 CTA 不关框也不导航；拒绝落地后仍显示内联错误（AE2）", async () => {
+		const dismiss = Promise.withResolvers<void>();
+		dismissOnboardingInvitation.mockImplementation(() => dismiss.promise);
+
+		function Harness() {
+			const [open, setOpen] = useState(true);
+			return open ? (
+				<OnboardingInviteModal slug="cgc-academy" onClose={() => setOpen(false)} />
+			) : null;
+		}
+		render(<Harness />);
+
+		fireEvent.click(screen.getByTestId("onboarding-invite-dismiss"));
+		const cta = screen.getByTestId("onboarding-invite-start");
+		fireEvent.click(cta);
+
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+		expect(cta).toHaveAttribute("aria-disabled", "true");
+
+		await act(async () => {
+			dismiss.reject(new Error("boom"));
+		});
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"操作失败，请稍后重试。",
+		);
+	});
+
 	it("Tab focus trap：末位 Tab 回首位，首位 Shift+Tab 回末位", () => {
 		render(<OnboardingInviteModal slug="cgc-academy" onClose={() => {}} />);
 
