@@ -3235,6 +3235,8 @@ export type RootMutationType = {
   /** 平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫） */
   demoteUser?: Maybe<AdminUserPayload>;
   disableInviteBatch: DisableInviteBatchResult;
+  /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
+  dismissOnboardingInvitation?: Maybe<User>;
   /** 后台核销交付行（fulfilled_at + proof_note；Owner/Admin） */
   fulfillDelivery: FulfillDeliveryResult;
   /** Owner/Admin 创建一次性工作台邀请小程序码 */
@@ -4994,6 +4996,8 @@ export type User = {
   locale?: Maybe<Scalars['String']['output']>;
   /** 平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一） */
   memberNumber?: Maybe<Scalars['String']['output']>;
+  /** 首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致） */
+  onboardingInvitationDismissedAt?: Maybe<Scalars['DateTime']['output']>;
 };
 
 /** The result of the :waive_payment mutation */
