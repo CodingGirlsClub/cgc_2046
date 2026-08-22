@@ -74,6 +74,33 @@ export default function WorkspacePage() {
 		if (inviteOpen) markInviteShown(onboarding.userId);
 	}, [inviteOpen, onboarding.userId]);
 
+	// 等待首联态自动撤卡（P2）：宿主在外部完成首次 MCP 调用写入 lastUsedAt 后，
+	// 本页免整页刷新。主场景是用户切去终端配置宿主、首联完成、切回浏览器——
+	// 监听 window focus 与 visibilitychange（变 visible 时）；30s interval 兜底
+	// 分屏不切窗 / 宿主自动连接（回调内判 visible 才刷）。态退出（connected 置真
+	// 或不再 eligible）由 effect 清理拆除监听与 interval。
+	// 范围纪律：仅等待首联态挂监听——邀请态与已接入态不轮询。
+	const awaitingFirstConnect =
+		onboardingEligible && onboarding.hasActiveToken && !onboarding.connected;
+	const { refreshSilently } = onboarding;
+	useEffect(() => {
+		if (!awaitingFirstConnect) return;
+		const onFocus = () => refreshSilently();
+		const onVisible = () => {
+			if (document.visibilityState === "visible") refreshSilently();
+		};
+		window.addEventListener("focus", onFocus);
+		document.addEventListener("visibilitychange", onVisible);
+		const timer = setInterval(() => {
+			if (document.visibilityState === "visible") refreshSilently();
+		}, 30_000);
+		return () => {
+			window.removeEventListener("focus", onFocus);
+			document.removeEventListener("visibilitychange", onVisible);
+			clearInterval(timer);
+		};
+	}, [awaitingFirstConnect, refreshSilently]);
+
 	return (
 		<WorkspaceShell slug={slug}>
 			<div className="ws-page-main__inner">

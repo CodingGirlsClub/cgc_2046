@@ -333,3 +333,90 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 		expect(queryMock).toHaveBeenCalledTimes(2);
 	});
 });
+
+describe("useOnboardingState refreshSilently（P2 等待首联态静默刷新）", () => {
+	beforeEach(() => {
+		queryMock.mockReset();
+		fetchMyMcpTokensMock.mockReset();
+		sessionStorage.clear();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("成功：拉取期间 loading 保持 false（卡不闪烁），新数据原地落地", async () => {
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([token({ status: "active" })]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.connected).toBe(false);
+
+		// 宿主完成首联：下一轮拉取 lastUsedAt 非空
+		fetchMyMcpTokensMock.mockResolvedValue([
+			token({ status: "active", lastUsedAt: "2026-08-22T20:00:00Z" }),
+		]);
+		act(() => result.current.refreshSilently());
+		// 静默轮次不置 loading（区别 reload）——拉取期间旧数据保持展示
+		expect(result.current.loading).toBe(false);
+
+		await waitFor(() => expect(result.current.connected).toBe(true));
+		expect(result.current.error).toBeNull();
+		expect(fetchMyMcpTokensMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("失败：保留上次成功快照（瞬时网络错误不经 fail-closed 撤卡），error 不置位", async () => {
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([token({ status: "active" })]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.hasActiveToken).toBe(true);
+
+		// 静默轮次两源之一拒绝
+		queryMock.mockRejectedValueOnce(new Error("flaky network"));
+		act(() => result.current.refreshSilently());
+		await waitFor(() => expect(queryMock).toHaveBeenCalledTimes(2));
+		// 等拒绝链 settle（catch 在微任务里跑完）再断言状态原样保持
+		await act(async () => {});
+
+		expect(result.current).toMatchObject({
+			dismissed: false,
+			hasActiveToken: true,
+			connected: false,
+			loading: false,
+			error: null,
+			userId: "u1",
+		});
+		expect(result.current.tokens).toHaveLength(1);
+	});
+
+	it("reload 复位静默标记：静默轮后再 reload，失败仍进 error 态（fail-closed 不被污染）", async () => {
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		// 先静默一轮（置位 silent 标记）
+		act(() => result.current.refreshSilently());
+		await waitFor(() => expect(queryMock).toHaveBeenCalledTimes(2));
+
+		// reload 必须复位静默标记：其失败照常 fail-closed
+		queryMock.mockRejectedValueOnce(new Error("network down"));
+		act(() => result.current.reload());
+		await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+		expect(result.current).toMatchObject({
+			hasActiveToken: false,
+			userId: null,
+			tokens: [],
+		});
+	});
+});

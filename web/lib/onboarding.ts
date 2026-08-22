@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { client } from "./apollo-client";
 import {
 	ME_ONBOARDING,
@@ -105,19 +105,34 @@ const INITIAL_STATE: OnboardingState = {
  * 推迟到此处读才能保住「每 session 每用户最多弹一次」的跨刷新/跨重挂载语义。
  * tokens 原始列表一并暴露（向导页 hasTokenHistory 复用，不得二次 fetch）。
  * reload() 供消费方内联错误态的「重试」：nonce 递增触发两源重拉。
+ * refreshSilently() 供等待首联态轮询（P2）：不置 loading（拉取期间旧数据保持
+ * 展示、卡不闪烁）；静默轮次失败保留上次成功快照（瞬时网络错误不能经
+ * fail-closed 把卡弄没），留待下一轮再试。
  */
-export function useOnboardingState(): OnboardingState & { reload: () => void } {
+export function useOnboardingState(): OnboardingState & {
+	reload: () => void;
+	refreshSilently: () => void;
+} {
 	const [state, setState] = useState<OnboardingState>(INITIAL_STATE);
 	const [nonce, setNonce] = useState(0);
+	// 本轮拉取是否为静默轮次（refreshSilently 置位、reload 复位，effect 内捕获快照）
+	const silentRef = useRef(false);
 	// 重试：loading 复位在事件回调里做（effect 体内同步 setState 违 react-hooks 规则），
 	// nonce 递增触发两源重拉
 	const reload = useCallback(() => {
+		silentRef.current = false;
 		setState((prev) => ({ ...prev, loading: true, error: null }));
+		setNonce((n) => n + 1);
+	}, []);
+	// 静默刷新（P2）：只递增 nonce、不置 loading——旧数据保持展示，卡不闪烁
+	const refreshSilently = useCallback(() => {
+		silentRef.current = true;
 		setNonce((n) => n + 1);
 	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
+		const silent = silentRef.current;
 
 		Promise.all([fetchOnboardingMe(), fetchMyMcpTokens()])
 			.then(([me, tokens]) => {
@@ -138,6 +153,9 @@ export function useOnboardingState(): OnboardingState & { reload: () => void } {
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
+				// 静默轮次失败：保留上次成功快照，留待下一轮（否则瞬时网络错误会经
+				// fail-closed 把等待首联卡整个弄没）
+				if (silent) return;
 				setState({
 					dismissed: false,
 					hasActiveToken: false,
@@ -155,7 +173,7 @@ export function useOnboardingState(): OnboardingState & { reload: () => void } {
 		};
 	}, [nonce]);
 
-	return { ...state, reload };
+	return { ...state, reload, refreshSilently };
 }
 
 /* ---------------- session 旗标（KTD4） ---------------- */
