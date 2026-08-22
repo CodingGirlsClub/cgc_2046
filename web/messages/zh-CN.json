@@ -926,7 +926,8 @@
     "installExtension": "点击扩展卡片 → 安装",
     "installedPanel": "安装完成后，侧边栏会出现「CGC-2046」面板，会话列表里会出现「CGC-2046 助手」。",
     "generateTokenDesc": "在 MCP 页签发一个连接 token（绑用户不绑工作区）。生成后复制到剪贴板，在 OpenClacky 的 CGC 助手会话中完成接入——助手会安全读取剪贴板，token 不会进入对话记录。",
-    "generateToken": "生成 token"
+    "generateToken": "生成 token",
+    "assistantConnectHint": "复制 token 后，回到 OpenClacky 打开「CGC-2046 助手」会话，告诉它你已复制——助手会安全读取剪贴板完成接入，token 不会进入对话记录。这一步执行前，你的 agent 还连不上平台。"
   },
   "workspaceAccount": {
     "loadFailed": "加载资料失败",

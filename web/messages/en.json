@@ -926,7 +926,8 @@
     "installExtension": "Click the extension card → Install",
     "installedPanel": "Once installed, a “CGC-2046” panel appears in the sidebar and a “CGC-2046 assistant” appears in your conversation list.",
     "generateTokenDesc": "Issue a connection token on the MCP page (bound to user, not workspace). Copy it to the clipboard and complete the connection in your OpenClacky CGC assistant session — the assistant reads the clipboard safely and the token never enters the conversation log.",
-    "generateToken": "Generate token"
+    "generateToken": "Generate token",
+    "assistantConnectHint": "After copying the token, go back to OpenClacky and open the “CGC-2046 assistant” conversation — tell it you've copied. The assistant reads the clipboard safely and completes the connection; the token never enters the conversation log. Until this step runs, your agent can't reach the platform yet."
   },
   "workspaceAccount": {
     "loadFailed": "Failed to load profile",

@@ -11,6 +11,8 @@
  * ③ 生成连接 token：内嵌 McpTokenIssuePanel（与 mcp 页同一签出面），
  *    「我已保存」确认即完成判定（两段式第一段，per Key Decision），进完成态
  *    （种子话术卡 + 出口：去概览 / 看活动）。完成态仅当次会话（组件 state）。
+ *    OpenClacky 路径附「回 CGC 助手完成接入」指引段（OpenclackyAssistantHint）——
+ *    缺它 token 只躺在剪贴板，无人触发扩展 /connect 写入 mcp.json，首联必失败。
  *
  * readOnly（管理态「重新查看引导」回看）：stepper 内容在，但无签发面——
  * ③ 只给 MCP 页链接（签发归 mcp tab）。
@@ -30,6 +32,7 @@ import { useTranslations } from "next-intl";
 import {
 	OpenclackyInstallCard,
 	OpenclackyExtensionCard,
+	OpenclackyAssistantHint,
 	WriteConfigStepCard,
 	ConfigureTokenStepCard,
 	ConfigNotesStepCard,
@@ -273,6 +276,9 @@ export default function OnboardingWizard({
 										hostName={hostName}
 									/>
 								)}
+								{/* OpenClacky 路径：签发只到剪贴板，须回 CGC 助手会话
+								    触发扩展 /connect 才真正写入 mcp.json（P1 补回） */}
+								{host === "openclacky" && <OpenclackyAssistantHint />}
 							</div>
 						</li>
 					</>

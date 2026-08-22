@@ -8,7 +8,8 @@
  * 原子页与向导不得各自复制出第二处内容源。
  *
  * 每个导出 = 一张 connect-step-card：
- * - OpenClacky：安装（iframe）/ 装扩展 / 生成 token 跳转卡（仅原子页用）
+ * - OpenClacky：安装（iframe）/ 装扩展 / 生成 token 跳转卡（仅原子页用）/
+ *   助手接入指引段（仅向导用；原子页该说明在 ③ 的 generateTokenDesc 里）
  * - OMP / opencode 手动配置：获取 token 跳转卡（仅原子页用）/ 写配置 / 配 token / 注意事项
  *
  * 步骤编号不在文案里：卡标题均为裸文案，编号由容器经 stepNo 供给——
@@ -105,6 +106,18 @@ export function OpenclackyTokenLinkCard({
 				</Link>
 			</div>
 		</div>
+	);
+}
+
+/** 回 CGC 助手完成接入指引（仅首公里向导用；原子页同段说明在 ③ 的
+    generateTokenDesc 里）。缺这段：token 只躺在剪贴板，无人触发扩展 /connect
+    写入 ~/.clacky/mcp.json，agent 首联必失败（review P1 补回） */
+export function OpenclackyAssistantHint() {
+	const t = useTranslations("agentConnect");
+	return (
+		<p className="connect-step-card__desc">
+			{t("assistantConnectHint")}
+		</p>
 	);
 }
 
