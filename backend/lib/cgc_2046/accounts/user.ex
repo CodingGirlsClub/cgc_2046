@@ -94,6 +94,13 @@ defmodule Cgc2046.Accounts.User do
       description: "用户界面语言偏好（i18n Phase 1，BCP47 对外命名：zh-CN | en；null = 未设置，协商链回退）"
     )
 
+    attribute(:onboarding_invitation_dismissed_at, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致）"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -196,6 +203,26 @@ defmodule Cgc2046.Accounts.User do
       accept([:locale])
 
       validate(one_of(:locale, ["zh-CN", "en"]))
+    end
+
+    update :dismiss_onboarding_invitation do
+      description("拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等——重复调用保留首次拒绝时间戳，仅本人）")
+
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        case changeset.data.onboarding_invitation_dismissed_at do
+          nil ->
+            Ash.Changeset.change_attribute(
+              changeset,
+              :onboarding_invitation_dismissed_at,
+              DateTime.utc_now()
+            )
+
+          _already_dismissed ->
+            changeset
+        end
+      end)
     end
 
     update :set_platform_admin do
@@ -437,6 +464,11 @@ defmodule Cgc2046.Accounts.User do
 
     # 更新界面语言偏好：仅本人（i18n Phase 1）
     policy action(:update_locale) do
+      authorize_if(Cgc2046.Policies.OwnUser)
+    end
+
+    # 拒绝首公里接入邀请：仅本人（R2 拒绝状态持久化、跨设备一致）
+    policy action(:dismiss_onboarding_invitation) do
       authorize_if(Cgc2046.Policies.OwnUser)
     end
 
