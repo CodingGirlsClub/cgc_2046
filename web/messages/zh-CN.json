@@ -425,7 +425,20 @@
     "seedPhraseDesc": "打开你刚接入的 CGC 助手，发送：",
     "seedPhraseText": "我在 2046 能做什么？",
     "doneGoOverview": "去概览",
-    "doneGoEvents": "看活动"
+    "doneGoEvents": "看活动",
+    "inviteAria": "接入你的 Agent",
+    "inviteTitle": "把你的 Agent 接入 2046",
+    "inviteDesc": "接入 Agent 宿主后，你的 Agent 可以代你调用平台能力——学课程、查活动、参与协作。三步即可完成接入。",
+    "inviteStart": "开始接入",
+    "inviteLater": "再看看",
+    "inviteDismiss": "暂时不用，别再弹了",
+    "inviteDismissError": "操作失败，请稍后重试。",
+    "inviteCloseAria": "关闭",
+    "cardInviteTitle": "接入你的 Agent",
+    "cardInviteDesc": "三步完成 Agent 宿主接入，让你的 Agent 代你学课程、查活动、参与协作。",
+    "cardWaitingTitle": "等待你的 Agent 第一次连接",
+    "cardWaitingDesc": "连接 token 已生成。在你的 Agent 宿主里完成配置并发起第一次调用后，这张卡会自动消失。",
+    "cardWaitingCta": "查看接入指引"
   },
   "offeringDetail": {
     "loadFailed": "加载失败",
