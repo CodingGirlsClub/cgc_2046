@@ -250,6 +250,15 @@ jobs:
         # 同 backend：step 级超时报 failure 而非 cancelled
         timeout-minutes: 12
         run: |
+          # vars 非空断言（#254，同 backend secrets 的 fail-closed 约定）：
+          # GitHub 漏配时 sed 注入空串仍能通过下方占位符检查——
+          # NEXT_PUBLIC_WEB_BASE_URL 为空会把全站 canonical/hreflang 构建期
+          # 静默焊死成回退值（NEXT_PUBLIC_* 内联进产物，运行时不可救）
+          missing=""
+          for v in TCR_REGISTRY TCR_USERNAME SERVER_HOST NEXT_PUBLIC_WEB_BASE_URL BACKEND_URL; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          [ -z "$missing" ] || { echo "::error::GitHub 侧 vars 漏配（值为空）:$missing"; exit 1; }
           # builder args 与 registry/host 同走 sed 占位符（Kamal 对 ${VAR}
           # 零插值）；values 含斜杠，sed 用 | 分隔符
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
@@ -263,6 +272,13 @@ jobs:
           # 并行 job 独立 runner：docker login 状态不共享，必须显式 login
           kamal registry login -c config/deploy.ci.yml
           kamal deploy -c config/deploy.ci.yml
+        env:
+          # 仅供上方非空断言的 ${!v} 间接引用；sed 仍走 ${{ }} 内联
+          TCR_REGISTRY: ${{ vars.TCR_REGISTRY }}
+          TCR_USERNAME: ${{ vars.TCR_USERNAME }}
+          SERVER_HOST: ${{ vars.SERVER_HOST }}
+          NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
 
   smoke:
     needs: [changes, backend, web]

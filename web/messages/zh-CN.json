@@ -49,6 +49,7 @@
     "approveRequestFailed": "审批请求失败",
     "rejectRequestFailed": "拒绝请求失败",
     "createWorkspaceFailed": "创建工作台失败",
+    "database_error": "服务暂时不可用，请稍后重试。",
     "reassignOwnerFailed": "重指派 Owner 失败",
     "issueMcpTokenFailed": "签发失败，请稍后重试",
     "revokeMcpTokenFailed": "撤销失败，请稍后重试"

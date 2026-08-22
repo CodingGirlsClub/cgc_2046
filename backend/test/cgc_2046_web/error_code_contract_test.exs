@@ -3,9 +3,10 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
   业务错误 code 契约钉测（i18n Phase 0，plan 2026-08-18-001）。
 
   GraphQL mutation 的业务错误（domain 主动构造）必须携带稳定 code
-  （`<resource>_<reason>` snake_case），前端（web/lib/payment-errors.ts、
-  miniprogram/src/domain/error-copy.ts）按 code 精确查中文文案——
-  本文件钉住三条主链路场景的 code 值 + 全量 code 命名规范。
+  （`<resource>_<reason>` snake_case），前端（web/messages/*.json 的
+  errors namespace、miniprogram/src/domain/error-copy.ts）按 code 精确查
+  中文文案——本文件钉住三条主链路场景的 code 值 + 全量 code 命名规范
+  （清单单源 priv/error_codes_contract.json，#241）。
   """
 
   use Cgc2046Web.ConnCase, async: true
@@ -129,74 +130,28 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
   end
 
   describe "code 命名规范" do
-    test "全部业务 code 匹配 <resource>_<reason> snake_case 规范" do
-      codes = [
-        # enrollment（enrollment.ex domain_error_code）
-        "enrollment_exactly_one_target_required",
-        "enrollment_target_not_open_or_registration_closed",
-        "enrollment_target_tenant_mismatch",
-        "enrollment_capacity_full_or_registration_closed",
-        "enrollment_invite_code_required",
-        "enrollment_invite_quota_unavailable",
-        "enrollment_tier_id_required",
-        "enrollment_tier_not_available",
-        "enrollment_already_processed",
-        "enrollment_unknown_enrollment_policy",
-        "enrollment_not_expired_pending",
-        "enrollment_not_payment_pending",
-        "enrollment_capacity_counter_invalid",
-        "enrollment_duplicate_active",
-        # order（order.ex）
-        "order_enrollment_required",
-        "order_enrollment_not_found",
-        "order_target_tenant_mismatch",
-        "order_already_processed",
-        "order_provider_not_configured",
-        "order_not_payment_pending",
-        "order_duplicate_active",
-        # speaker_invitation（speaker_invitation.ex）
-        "speaker_invitation_duplicate_invitation",
-        "speaker_invitation_invalid_or_expired_token",
-        "speaker_invitation_forbidden",
-        "speaker_invitation_event_not_found",
-        "speaker_invitation_event_not_open",
-        "speaker_invitation_target_tenant_mismatch",
-        "speaker_invitation_speaker_name_required",
-        "speaker_invitation_invitation_id_unavailable",
-        "speaker_invitation_materials_required",
-        "speaker_invitation_not_accepted",
-        "speaker_invitation_workflow_run_not_found",
-        "speaker_invitation_materials_save_failed",
-        "speaker_invitation_invitation_not_found",
-        "speaker_invitation_workflow_run_failed",
-        # sponsorship（sponsorship.ex）
-        "sponsorship_event_id_required",
-        "sponsorship_target_workspace_required",
-        "sponsorship_level_required",
-        "sponsorship_unknown_level",
-        "sponsorship_sponsorship_not_open",
-        "sponsorship_target_tenant_mismatch",
-        "sponsorship_tier_not_found",
-        "sponsorship_already_sponsoring",
-        "sponsorship_already_processed",
-        "sponsorship_approval_deadline_passed",
-        "sponsorship_exclusive_slot_taken",
-        "sponsorship_target_sponsorship_closed",
-        "sponsorship_not_expired_pending",
-        "sponsorship_not_active_event_sponsorship",
-        "sponsorship_exactly_one_target_required",
-        # sponsorship_delivery（sponsorship_delivery.ex）
-        "sponsorship_delivery_already_fulfilled",
-        # membership（membership_context.ex，决策 2026-08-18 Q1=A）
-        "membership_already_exists",
-        "membership_check_failed",
-        # join_request（validate_workspace_join_policy.ex，#206）
-        "join_request_invite_only",
-        "join_request_open",
-        "join_request_not_found",
-        # {:database, _} 统一 code（六文件共用）
-        "database_error"
-      ]
+    test "契约工件全部 code 匹配 <resource>_<reason> snake_case 规范" do
+      # 清单单源 = priv/error_codes_contract.json（#241 机械联动）：由
+      # mix cgc2046.gen_error_codes_contract 从 domain AST 生成，新鲜度由
+      # error_codes_contract_test.exs 守卫——本测试不再手工维护清单
+      %{"codes" => codes} =
+        Path.expand("../../priv/error_codes_contract.json", __DIR__)
+        |> File.read!()
+        |> Jason.decode!()
+
+      assert length(codes) >= 60, "契约工件异常缩水（仅 #{length(codes)} 条）"
+
+      # 锚定：前端文案表依赖的关键 code 必须始终存在（改名即红）
+      for anchor <- [
+            "database_error",
+            "enrollment_duplicate_active",
+            "enrollment_content_rejected",
+            "order_duplicate_active",
+            "order_not_found",
+            "join_request_invite_only"
+          ] do
+        assert anchor in codes, "锚定 code #{anchor} 从契约工件中消失"
+      end
 
       for code <- codes do
         assert Regex.match?(~r/^[a-z]+(_[a-z0-9]+)+$/, code),

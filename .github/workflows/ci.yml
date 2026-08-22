@@ -116,8 +116,10 @@ jobs:
       # （.formatter.exs 的 import_deps 依赖 deps 已拉取，故置于 deps.get 之后）
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
-      # rbac/license 是项目内 mix task，需项目编译后才可执行
+      # rbac/error-codes/license 是项目内 mix task，需项目编译后才可执行
       - run: mix cgc2046.gen_rbac_contract --check
+      # 错误码契约工件新鲜度（#241）：domain code 子句变更未再生成即红
+      - run: mix cgc2046.gen_error_codes_contract --check
       - run: mix cgc2046.check_licenses
       # snapshot 门禁：Ash resource 定义与 resource_snapshots 漂移即红
       # （schema squash 后防止资源变更不带 snapshot 提交；纯文件比对，无需 DB）
