@@ -114,7 +114,7 @@ const OMP_CONFIG = `{
   "mcpServers": {
     "cgc-2046": {
       "type": "http",
-      "url": "<MCP_URL>",
+      "url": "https://api.codingirlsclub.com/mcp",
       "headers": { "Authorization": "Bearer \${CGC_TOKEN}" }
     }
   }
@@ -124,7 +124,7 @@ const OPCODE_CONFIG = `{
   "mcp": {
     "cgc-2046": {
       "type": "remote",
-      "url": "<MCP_URL>",
+      "url": "https://api.codingirlsclub.com/mcp",
       "oauth": false,
       "headers": { "Authorization": "Bearer {env:CGC_TOKEN}" }
     }

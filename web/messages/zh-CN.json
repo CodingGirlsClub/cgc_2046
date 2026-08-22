@@ -909,7 +909,7 @@
     "step3DescEnv": "支持环境变量插值：设置 <code>CGC_TOKEN</code> 环境变量后可直接使用；也可把 {placeholder} 替换为实际 token。",
     "notesTitle": "注意事项",
     "notesDesc": "已有其它 MCP server 条目时，把 <code>cgc-2046</code> 条目合并进现有配置，勿整体覆盖。token 绑用户不绑工作区，加入新工作区无需重新配置。",
-    "urlNote": "<code>&lt;MCP_URL&gt;</code> 替换为平台 MCP 地址（与连接器扩展 <code3>ext.yml</code3> <code4>config.mcp_url</code4> 一致；生产以平台公布为准）。",
+    "urlNote": "已填平台生产 MCP 地址（与连接器扩展 <code3>ext.yml</code3> <code4>config.mcp_url</code4> 一致）；本地联调时替换为本地地址（如 <code>http://localhost:4000/mcp</code>）。",
     "titleOmp": "OMP",
     "titleOpencode": "opencode",
     "titleOpenclacky": "OpenClacky",
