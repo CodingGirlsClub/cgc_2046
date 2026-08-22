@@ -4,6 +4,7 @@ import {
 	ME_ONBOARDING,
 	DISMISS_ONBOARDING_INVITATION,
 } from "./graphql/onboarding";
+import type { OnboardingMe } from "./graphql/onboarding";
 import { fetchMyMcpTokens } from "./mcp";
 import type { McpTokenItem } from "./mcp";
 
@@ -14,7 +15,8 @@ import type { McpTokenItem } from "./mcp";
  *   经 me 查询读取、dismissOnboardingInvitation mutation 写入。
  * - KTD3：连接信号客户端派生，零新查询——token 复用 fetchMyMcpTokens()，
  *   hasActiveToken / connected 由 deriveOnboardingState 纯函数算出。
- * - KTD4：session 旗标 cgc:onboarding-invite-shown（每 session 最多自动弹一次），
+ * - KTD4：session 旗标 cgc:onboarding-invite-shown:{userId}（每 session 每用户最多
+ *   自动弹一次；按 userId 命名空间——共享机器同 tab 换账号不继承已展示态），
  *   sessionStorage 访问全 try/catch 静默降级（仿 lib/order-credential.ts）。
  * - KTD5：useOnboardingState 的 loading/error 对消费方 fail-closed——
  *   消费方（模态/常驻卡/向导页）必须先判 `loading || error` 再读布尔字段。
@@ -36,6 +38,12 @@ export interface OnboardingState extends DerivedOnboardingState {
 	loading: boolean;
 	/** 两源任一失败为非 null（fail-closed：消费方见此态不渲染模态/卡） */
 	error: Error | null;
+	/** 当前登录用户 id（me 查询解析后非 null；loading/error/未登录为 null）——
+	    KTD4 session 旗标的命名空间维度 */
+	userId: string | null;
+	/** 本 session 当前用户是否已展示过邀请模态（userId 就绪时一次性快照；
+	    userId 缺失为 false = 当作未展示，fail toward showing 由消费方门控兜底） */
+	inviteShownThisSession: boolean;
 }
 
 /**
@@ -57,10 +65,10 @@ export function deriveOnboardingState(
 
 /* ---------------- fetchers ---------------- */
 
-/** 当前用户的邀请拒绝时间戳；未登录/未拒绝为 null */
-export async function fetchOnboardingDismissal(): Promise<string | null> {
+/** 当前用户的 onboarding me 片段（id + 邀请拒绝时间戳）；未登录为 null */
+export async function fetchOnboardingMe(): Promise<OnboardingMe | null> {
 	const { data } = await client.query({ query: ME_ONBOARDING });
-	return data?.me?.onboardingInvitationDismissedAt ?? null;
+	return data?.me ?? null;
 }
 
 /** 拒绝首公里接入邀请（幂等，仅本人；失败抛错由调用方内联处理） */
@@ -76,12 +84,16 @@ const INITIAL_STATE: OnboardingState = {
 	connected: false,
 	loading: true,
 	error: null,
+	userId: null,
+	inviteShownThisSession: false,
 };
 
 /**
  * onboarding 状态单 hook（模态/常驻卡/向导页三消费方共用）。
- * 合并 me 查询（拒绝态）与 fetchMyMcpTokens()（连接信号）：
- * 任一未完 loading=true；任一失败 error 非 null 且布尔归零（fail-closed）。
+ * 合并 me 查询（id + 拒绝态）与 fetchMyMcpTokens()（连接信号）：
+ * 任一未完 loading=true；任一失败 error 非 null 且派生字段归零（fail-closed）。
+ * userId 就绪（me 解析成功）时一次性快照 KTD4 session 旗标——挂载时 userId 未知，
+ * 推迟到此处读才能保住「每 session 每用户最多弹一次」的跨刷新/跨重挂载语义。
  */
 export function useOnboardingState(): OnboardingState {
 	const [state, setState] = useState<OnboardingState>(INITIAL_STATE);
@@ -89,13 +101,20 @@ export function useOnboardingState(): OnboardingState {
 	useEffect(() => {
 		let cancelled = false;
 
-		Promise.all([fetchOnboardingDismissal(), fetchMyMcpTokens()])
-			.then(([dismissedAt, tokens]) => {
+		Promise.all([fetchOnboardingMe(), fetchMyMcpTokens()])
+			.then(([me, tokens]) => {
 				if (cancelled) return;
+				const userId = me?.id ?? null;
 				setState({
-					...deriveOnboardingState(tokens, dismissedAt),
+					...deriveOnboardingState(
+						tokens,
+						me?.onboardingInvitationDismissedAt ?? null,
+					),
 					loading: false,
 					error: null,
+					userId,
+					inviteShownThisSession:
+						userId != null && hasInviteShownThisSession(userId),
 				});
 			})
 			.catch((err: unknown) => {
@@ -106,6 +125,8 @@ export function useOnboardingState(): OnboardingState {
 					connected: false,
 					loading: false,
 					error: err instanceof Error ? err : new Error(String(err)),
+					userId: null,
+					inviteShownThisSession: false,
 				});
 			});
 
@@ -121,19 +142,32 @@ export function useOnboardingState(): OnboardingState {
 
 const INVITE_SHOWN_KEY = "cgc:onboarding-invite-shown";
 
-/** 标记本 session 已展示过邀请模态（隐私模式写失败静默：最坏多弹一次，绝不 throw） */
-export function markInviteShown(): void {
+/** 旗标按 userId 命名空间：共享机器同 tab 换账号（A→B）不继承已展示态 */
+function inviteShownKey(userId: string): string {
+	return `${INVITE_SHOWN_KEY}:${userId}`;
+}
+
+/**
+ * 标记本 session 已展示过邀请模态（隐私模式写失败静默：最坏多弹一次，绝不 throw）。
+ * userId 缺失时不写——无 user 维度的全局旗标会错误抑制同 tab 后续登录的账号。
+ */
+export function markInviteShown(userId: string | null): void {
+	if (!userId) return;
 	try {
-		sessionStorage.setItem(INVITE_SHOWN_KEY, "1");
+		sessionStorage.setItem(inviteShownKey(userId), "1");
 	} catch {
 		// ignore private-mode write errors
 	}
 }
 
-/** 本 session 是否已展示过邀请模态（读失败静默落 false = 当作未展示） */
-export function hasInviteShownThisSession(): boolean {
+/**
+ * 本 session 当前用户是否已展示过邀请模态（读失败静默落 false = 当作未展示）。
+ * userId 未就绪同为 false（fail toward showing；是否真弹由消费方 eligibility 门控兜底）。
+ */
+export function hasInviteShownThisSession(userId: string | null): boolean {
+	if (!userId) return false;
 	try {
-		return sessionStorage.getItem(INVITE_SHOWN_KEY) === "1";
+		return sessionStorage.getItem(inviteShownKey(userId)) === "1";
 	} catch {
 		return false;
 	}

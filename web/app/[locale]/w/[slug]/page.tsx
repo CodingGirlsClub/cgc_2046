@@ -17,11 +17,7 @@ import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
-import {
-	hasInviteShownThisSession,
-	markInviteShown,
-	useOnboardingState,
-} from "@/lib/onboarding";
+import { markInviteShown, useOnboardingState } from "@/lib/onboarding";
 import { JOIN_POLICY_HINT, JOIN_POLICY_LABEL } from "@/lib/graphql/workspace";
 import WorkspaceShell from "@/components/workspace-shell";
 import OnboardingConnectCard from "@/components/onboarding-connect-card";
@@ -45,9 +41,9 @@ export default function WorkspacePage() {
 	const labelsT = useTranslations();
 	const { ws, loading: wsLoading, readOnlyVisitor } = useWorkspaceBySlug(slug);
 	const onboarding = useOnboardingState();
-	// 挂载时快照 session 旗标（KTD4：每 session 最多自动弹一次）；
+	// KTD4 session 旗标（每 session 每用户最多自动弹一次，按 userId 命名空间）由
+	// useOnboardingState 在 userId 就绪时一次性快照（inviteShownThisSession）；
 	// 本挂载内被用户关闭（再看看/已拒绝/ Esc /遮罩）后 inviteClosed 置 true，不再重弹
-	const [shownBefore] = useState(() => hasInviteShownThisSession());
 	const [inviteClosed, setInviteClosed] = useState(false);
 
 	// 管理入口卡与侧栏/Tab 条同源门控（plan 016 SETTINGS_NAV 注册表）：
@@ -71,11 +67,12 @@ export default function WorkspacePage() {
 		onboardingEligible &&
 		!onboarding.hasActiveToken &&
 		!onboarding.dismissed &&
-		!shownBefore &&
+		!onboarding.inviteShownThisSession &&
 		!inviteClosed;
 	useEffect(() => {
-		if (inviteOpen) markInviteShown();
-	}, [inviteOpen]);
+		// inviteOpen 为真时 onboarding 已就绪（onboardingReady），userId 必非 null
+		if (inviteOpen) markInviteShown(onboarding.userId);
+	}, [inviteOpen, onboarding.userId]);
 
 	return (
 		<WorkspaceShell slug={slug}>
