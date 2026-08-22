@@ -101,7 +101,7 @@ export default function WorkspaceSettingsPage() {
 	}
 
 	return (
-		<WorkspaceShell slug={slug}>
+		<WorkspaceShell slug={slug} requireAbility="update_join_policy">
 			<div className="ws-page-main__inner">
 				<div
 					className="ws-page-breadcrumb"

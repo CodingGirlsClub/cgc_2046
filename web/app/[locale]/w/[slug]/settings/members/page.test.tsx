@@ -342,7 +342,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		expect(screen.getByText("没有匹配的成员")).toBeInTheDocument();
 	});
 
-	it("非 Owner/Admin 只能查看角色，没有编辑操作", async () => {
+	it("非 Owner/Admin（无 list_members）：页面级拦截，不渲染成员表", async () => {
 		params.value = { slug: "cgc-shanghai" };
 		fetchMembers.mockResolvedValue({
 			members: TEST_MEMBERS.ws_01,
@@ -350,16 +350,18 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 			count: 4,
 		});
 		render(<MembersPage />);
-		expect((await screen.findAllByText("仅查看")).length).toBeGreaterThan(0);
+		// 页面级拦截（2026-08-22 决策）：无 list_members 不再渲染成员表
+		expect(
+			await screen.findByTestId("shell-no-permission"),
+		).toHaveTextContent("此页面需要管理权限");
+		expect(screen.queryAllByTestId("member-row")).toHaveLength(0);
 		expect(
 			screen.queryByRole("button", { name: /编辑角色/ }),
 		).not.toBeInTheDocument();
-		expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-		expect(screen.getAllByTestId("member-row")).toHaveLength(4);
 		expect(assignRoles).not.toHaveBeenCalled();
 	});
 
-	it("P2-5：非 Owner/Admin 视角下，主计数用 memberCount 并标注可见范围", async () => {
+	it("learner 差异标签（无 list_members）：页面级拦截（取代原 P2-5 可见范围标注）", async () => {
 		// 模拟 QA 场景：工作区物理总人数 2（owner + learner），但 learner 经 read policy
 		// 只能看到自己 1 条 membership → memberCount=2 vs workspaceMembers=1。
 		params.value = { slug: "cgc-academy" };
@@ -384,20 +386,13 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		});
 		render(<MembersPage />);
 
-		// 先等成员列表落地再断言计数（findByTestId 只等元素出现，不等 fetch；
-		// 计数文本与成员行同一次 setState，行出现后文本必然正确）
-		await screen.findAllByTestId("member-row");
-		expect(screen.getByTestId("members-count")).toHaveTextContent(
-			"共 2 位成员（当前仅显示你有权查看的 1 位）",
-		);
-		expect(screen.getByTestId("members-visibility-note")).toHaveTextContent(
-			"仅显示你有权查看的成员（工作区共 2 位成员）",
-		);
-		expect(screen.getAllByTestId("member-row")).toHaveLength(1);
-		// 非 Owner/Admin 不提供行内编辑入口
+		// 页面级拦截（2026-08-22 决策）取代 P2-5 可见范围标注：learner
+		// （差异标签，无 list_members）与普通成员同样不再进入成员表
 		expect(
-			screen.queryByRole("button", { name: /编辑角色/ }),
-		).not.toBeInTheDocument();
+			await screen.findByTestId("shell-no-permission"),
+		).toHaveTextContent("此页面需要管理权限");
+		expect(screen.queryAllByTestId("member-row")).toHaveLength(0);
+		expect(screen.queryByTestId("members-count")).not.toBeInTheDocument();
 	});
 
 	it("P2-5：Owner/Admin 视角 memberCount 与可见列表一致时不加标注", async () => {
@@ -596,7 +591,7 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		);
 	});
 
-	it("真实 Workspace 的普通成员视角不显示编辑按钮", async () => {
+	it("真实 Workspace 普通成员（fixture 无 myAbilities 字段）：页面级拦截", async () => {
 		fetchMyWorkspaces.mockResolvedValue([
 			{
 				id: "ws_real_m",
@@ -624,13 +619,16 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		});
 
 		render(<MembersPage />);
+		// fixture 不带 myAbilities 字段（undefined）：同样判定为无能力 → 拦截，不崩溃
 		expect(
 			(await screen.findAllByText("DBG5 成员工作区")).length,
 		).toBeGreaterThan(0);
 		expect(
+			await screen.findByTestId("shell-no-permission"),
+		).toBeInTheDocument();
+		expect(
 			screen.queryByRole("button", { name: /编辑角色/ }),
 		).not.toBeInTheDocument();
-		expect((await screen.findAllByText("仅查看")).length).toBeGreaterThan(0);
 	});
 
 	it("P1 平铺字段：真实分支返回 userEmail/userDisplayName/joinedAt → 成员表展示平铺数据", async () => {
