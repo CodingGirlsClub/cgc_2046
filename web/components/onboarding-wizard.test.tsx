@@ -100,6 +100,20 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		expect(pre).toHaveTextContent("{env:CGC_TOKEN}");
 	});
 
+	it("OpenClacky 路径 ③ 附「回 CGC 助手完成接入」指引；切 OMP 后消失（P1）", async () => {
+		render(<OnboardingWizard slug="cgc-academy" />);
+
+		// 缺这段：token 只躺在剪贴板，无人触发扩展 /connect 写入 mcp.json，首联必失败
+		expect(
+			await screen.findByText(/回到 OpenClacky 打开「CGC-2046 助手」会话/),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("radio", { name: /OMP/ }));
+		expect(
+			screen.queryByText(/回到 OpenClacky 打开「CGC-2046 助手」会话/),
+		).not.toBeInTheDocument();
+	});
+
 	it("签发成功 → 明文一次性展示 → 「我已保存」→ 完成态（种子话术卡 + 两出口）（AE4 前半）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
@@ -191,6 +205,10 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			"href",
 			"/w/cgc-academy/settings/integrations/agents/mcp",
 		);
+		// 回看态仍附 OpenClacky 接入指引（指引不是签发面）
+		expect(
+			screen.getByText(/回到 OpenClacky 打开「CGC-2046 助手」会话/),
+		).toBeInTheDocument();
 		// 回看态不显示管理态入口（即使调用方误传 hasTokenHistory）
 		expect(
 			screen.queryByRole("link", { name: /MCP 页管理/ }),
