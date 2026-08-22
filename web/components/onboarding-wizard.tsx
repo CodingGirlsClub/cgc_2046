@@ -5,7 +5,9 @@
  *
  * 结构：开场（欢迎 + 为什么接入）+ 纵向 stepper 三步，无硬门、进度不落库：
  * ① 选宿主：OpenClacky（默认推荐）/ OMP / opencode 单选 + DSH「即将推出」占位卡
- *    （选中 DSH 只展示说明，②③ 不展开，AE3）；
+ *    （选中 DSH 只展示说明，②③ 以 hidden 隐藏而非卸载——③ 签发面的一次性明文
+ *    与在途签发请求是组件内 state，卸载会让服务端已签发 token 的明文永久丢失，
+ *    AE3/P2）；
  * ② 安装与配置：内容按宿主映射共享内容卡（@/components/agent-connect-sections，
  *    与原子页同一内容源，per R4）；
  * ③ 生成连接 token：内嵌 McpTokenIssuePanel（与 mcp 页同一签出面），
@@ -23,7 +25,7 @@
  *
  * stepper 当前步（aria-current + 左侧品牌色条）：①②无完成信号可追踪
  * （宿主默认已选、安装为自助阅读），唯一可判定「待办」的动作步是 ③ 签发；
- * 选中 DSH 时 ②③ 不展开，当前步停在 ①。
+ * 选中 DSH 时 ②③ hidden 隐藏（不卸载），当前步停在 ①，隐藏项不带 aria-current。
  */
 
 import { useState } from "react";
@@ -58,7 +60,7 @@ export default function OnboardingWizard({
 	const [host, setHost] = useState<WizardHost>("openclacky");
 	const [completed, setCompleted] = useState(false);
 
-	// stepper 当前步：选中 DSH（②③ 不展开）停在 ①；其余情况 ③ 是唯一
+	// stepper 当前步：选中 DSH（②③ hidden 隐藏）停在 ①；其余情况 ③ 是唯一
 	// 带完成信号的动作步（签发 + 「我已保存」），①② 为自助阅读。
 	// 高亮 = 左侧品牌色条；card 步（①）自带内边距，只描边不补 padding
 	// 显式 number 标注：阻止 TS 在 host!=="dsh" 分支内把 currentStep 收窄成 3
@@ -131,7 +133,8 @@ export default function OnboardingWizard({
 			desc: t("hostDshDesc"),
 		},
 	];
-	// ③ 签发面备注命名建议随已选宿主（host==="dsh" 时签发面不渲染，hostName 不会被消费）
+	// ③ 签发面备注命名建议随已选宿主；host==="dsh" 时签发面 hidden 隐藏但仍在渲染
+	// （不卸载，保住一次性明文与在途请求），hostName 只影响不可见的 placeholder，无害
 	const hostName = HOST_CARDS.find((h) => h.key === host)?.name;
 
 	return (
@@ -216,73 +219,74 @@ export default function OnboardingWizard({
 					)}
 				</li>
 
-				{host !== "dsh" && (
-					<>
-						<li
-							data-testid="onboarding-step-2"
-							aria-current={currentStep === 2 ? "step" : undefined}
-							style={stepStyle(2)}
-						>
-							<h2>{t("stepInstall")}</h2>
-							<div style={{ display: "grid", gap: 16, marginTop: 8 }}>
-								{host === "openclacky" && (
-									<>
-										<OpenclackyInstallCard />
-										<OpenclackyExtensionCard />
-									</>
-								)}
-								{host === "omp" && (
-									<>
-										<WriteConfigStepCard variant="omp" />
-										<ConfigureTokenStepCard variant="omp" />
-										<ConfigNotesStepCard />
-									</>
-								)}
-								{host === "opencode" && (
-									<>
-										<WriteConfigStepCard variant="opencode" />
-										<ConfigureTokenStepCard variant="opencode" />
-										<ConfigNotesStepCard />
-									</>
-								)}
-							</div>
-						</li>
+				{/* ②③ 始终渲染、DSH 时仅 hidden 隐藏（不卸载）：③ 签发面的一次性明文
+				    与在途签发请求是组件内 state，卸载会让服务端已签发 token 的明文
+				    永久丢失（P2）；li 内联样式不含 display，hidden 的 display:none 生效 */}
+				<li
+					data-testid="onboarding-step-2"
+					hidden={host === "dsh"}
+					aria-current={currentStep === 2 ? "step" : undefined}
+					style={stepStyle(2)}
+				>
+					<h2>{t("stepInstall")}</h2>
+					<div style={{ display: "grid", gap: 16, marginTop: 8 }}>
+						{host === "openclacky" && (
+							<>
+								<OpenclackyInstallCard />
+								<OpenclackyExtensionCard />
+							</>
+						)}
+						{host === "omp" && (
+							<>
+								<WriteConfigStepCard variant="omp" />
+								<ConfigureTokenStepCard variant="omp" />
+								<ConfigNotesStepCard />
+							</>
+						)}
+						{host === "opencode" && (
+							<>
+								<WriteConfigStepCard variant="opencode" />
+								<ConfigureTokenStepCard variant="opencode" />
+								<ConfigNotesStepCard />
+							</>
+						)}
+					</div>
+				</li>
 
-						<li
-							data-testid="onboarding-step-3"
-							aria-current={currentStep === 3 ? "step" : undefined}
-							style={stepStyle(3)}
-						>
-							<h2>{t("stepIssue")}</h2>
-							<div style={{ marginTop: 8 }}>
-								{readOnly ? (
-									<div className="connect-step-card">
-										<p className="connect-step-card__desc">
-											{t.rich("reviewIssueHint", {
-												link: (chunks) => (
-													<Link
-														href={`/w/${slug}/settings/integrations/agents/mcp`}
-														className="connect-step-card__link"
-													>
-														{chunks}
-													</Link>
-												),
-											})}
-										</p>
-									</div>
-								) : (
-									<McpTokenIssuePanel
-										onSaved={() => setCompleted(true)}
-										hostName={hostName}
-									/>
-								)}
-								{/* OpenClacky 路径：签发只到剪贴板，须回 CGC 助手会话
-								    触发扩展 /connect 才真正写入 mcp.json（P1 补回） */}
-								{host === "openclacky" && <OpenclackyAssistantHint />}
+				<li
+					data-testid="onboarding-step-3"
+					hidden={host === "dsh"}
+					aria-current={currentStep === 3 ? "step" : undefined}
+					style={stepStyle(3)}
+				>
+					<h2>{t("stepIssue")}</h2>
+					<div style={{ marginTop: 8 }}>
+						{readOnly ? (
+							<div className="connect-step-card">
+								<p className="connect-step-card__desc">
+									{t.rich("reviewIssueHint", {
+										link: (chunks) => (
+											<Link
+												href={`/w/${slug}/settings/integrations/agents/mcp`}
+												className="connect-step-card__link"
+											>
+												{chunks}
+											</Link>
+										),
+									})}
+								</p>
 							</div>
-						</li>
-					</>
-				)}
+						) : (
+							<McpTokenIssuePanel
+								onSaved={() => setCompleted(true)}
+								hostName={hostName}
+							/>
+						)}
+						{/* OpenClacky 路径：签发只到剪贴板，须回 CGC 助手会话
+						    触发扩展 /connect 才真正写入 mcp.json（P1 补回） */}
+						{host === "openclacky" && <OpenclackyAssistantHint />}
+					</div>
+				</li>
 			</ol>
 
 			{!readOnly && hasTokenHistory && (
