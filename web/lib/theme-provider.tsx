@@ -8,7 +8,10 @@ import {
   useMemo,
   useState,
 } from "react";
-import { usePathname } from "next/navigation";
+// usePathname 走 @/i18n/navigation（2026-08-22 诊断修复）：裸版在 EN 下返回
+// /en/w/...，workspaceSlugFromPath 的 ^/w/ 匹配不到 slug → per-workspace
+// 主题 key 退化为全局 key；i18n 版返回去前缀内部路径。
+import { usePathname } from "@/i18n/navigation";
 
 export type ThemeMode = "dark" | "light";
 

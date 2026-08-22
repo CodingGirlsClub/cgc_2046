@@ -27,8 +27,12 @@
  *   收窄侧栏 `.ws-shell-page--editing`）。
  */
 
-import { Link } from "@/i18n/navigation";
-import { usePathname, useRouter } from "next/navigation";
+// usePathname/useRouter 一律走 @/i18n/navigation（2026-08-22 诊断修复）：
+// 裸 next/navigation 的 usePathname 在 EN 下返回 /en/... 前缀路径，
+// isSettings / navSection 的 startsWith 判定恒 false（设置侧栏错渲染成
+// 工作区导航、激活态失效）；i18n 版返回去前缀内部路径，且 router.push
+// 目的地自动带当前 locale（登出跳 /login 不再丢 EN）。
+import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { clearSession } from "@/lib/auth";
