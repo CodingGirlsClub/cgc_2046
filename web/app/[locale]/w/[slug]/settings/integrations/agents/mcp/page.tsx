@@ -5,7 +5,8 @@
  *
  * 管理 MCP 连接 token（客户端调 /mcp 的 Bearer 凭证，绑用户不绑工作区，D13）：
  * - token 列表（名称/签发时间/最近使用/状态）+ 签发 + 两步确认撤销
- * - 签发成功展示一次性明文（D-D4：库中只存 hash，离开此页不可找回）
+ * - 签发行（表单 + 一次性明文，D-D4：库中只存 hash，离开此页不可找回）
+ *   为共享组件 McpTokenIssuePanel（首公里向导复用同一签出面）
  * - 空状态提示引导到 OpenClacky 页（接入引导）
  */
 
@@ -16,14 +17,13 @@ import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	fetchMyMcpTokens,
-	issueMcpToken,
 	revokeMcpToken,
 	type McpTokenItem,
 } from "@/lib/mcp";
 import { formatDateTime } from "@/lib/format";
-import { copyText } from "@/lib/clipboard";
 import WorkspaceShell from "@/components/workspace-shell";
 import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
+import McpTokenIssuePanel from "@/components/mcp-token-issue-panel";
 import { Icon } from "@/components/icons";
 
 export default function AgentsMcpPage() {
@@ -38,20 +38,6 @@ export default function AgentsMcpPage() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const loadedRef = useRef(false);
-
-	// 签发表单
-	const [showForm, setShowForm] = useState(false);
-	const [formName, setFormName] = useState("");
-	const [formSubmitting, setFormSubmitting] = useState(false);
-	const [formError, setFormError] = useState<string | null>(null);
-
-	// 一次性明文（仅签发成功瞬间存在）
-	const [freshToken, setFreshToken] = useState<{
-		name: string;
-		plainToken: string;
-	} | null>(null);
-	const [copiedFresh, setCopiedFresh] = useState(false);
-	const [copyFreshFailed, setCopyFreshFailed] = useState(false);
 
 	// 撤销两步确认
 	const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
@@ -88,25 +74,6 @@ export default function AgentsMcpPage() {
 			setLoading(false);
 		}
 	}, [t, labelsT]);
-
-	const handleIssue = useCallback(async () => {
-		const name = formName.trim();
-		if (!name) return;
-		setFormSubmitting(true);
-		setFormError(null);
-		try {
-			const { token, plainToken } = await issueMcpToken(name);
-			setTokens((prev) => [token, ...prev]);
-			setFreshToken({ name, plainToken });
-			setCopiedFresh(false);
-			setShowForm(false);
-			setFormName("");
-		} catch (e) {
-			setFormError(e instanceof Error ? labelsT(e.message) : t("issueFailed"));
-		} finally {
-			setFormSubmitting(false);
-		}
-	}, [formName, t, labelsT]);
 
 	const handleRevoke = useCallback(async (id: string) => {
 		setRevokingId(id);
@@ -145,103 +112,9 @@ export default function AgentsMcpPage() {
 
 				<IntegrationsAgentsTabs slug={slug} current="agents-mcp" abilities={[]} />
 
-				<div className="settings-actions">
-					<button
-						type="button"
-						className="join-button join-button--primary"
-						onClick={() => setShowForm(true)}
-					>
-						<Icon name="plus" />
-						{t("issueNew")}
-					</button>
-				</div>
-
-				{/* 一次性明文展示（仅签发成功瞬间） */}
-				{freshToken && (
-					<div className="mcp-token-once" role="status">
-						<p>
-							{t("freshTokenNote", { name: freshToken.name })}
-						</p>
-						<div className="mcp-token-once__row">
-							<code>{freshToken.plainToken}</code>
-							<button
-								type="button"
-								className="join-button join-button--outline"
-								onClick={() => {
-									void copyText(freshToken.plainToken).then((ok) => {
-										if (ok) {
-											setCopiedFresh(true);
-											setCopyFreshFailed(false);
-											setTimeout(() => setCopiedFresh(false), 2000);
-										} else {
-											setCopyFreshFailed(true);
-										}
-									});
-								}}
-							>
-								{copiedFresh ? t("copied") : t("copy")}
-							</button>
-							<button
-								type="button"
-								className="join-button join-button--ghost"
-								onClick={() => setFreshToken(null)}
-							>
-								{t("savedConfirm")}
-							</button>
-						</div>
-						{copyFreshFailed && (
-							<p className="mcp-copy-error" role="alert">
-								{t("copyFailed")}
-							</p>
-						)}
-					</div>
-				)}
-
-				{/* 签发表单 */}
-				{showForm && (
-					<div className="invitation-form-card">
-						<h2>{t("issueHeading")}</h2>
-						<div className="invitation-form">
-							<label className="join-field">
-								<span>{t("nameLabel")}</span>
-								<input
-									type="text"
-									className="join-input"
-									placeholder={t("namePlaceholder")}
-									value={formName}
-									onChange={(e) => setFormName(e.target.value)}
-									disabled={formSubmitting}
-								/>
-							</label>
-							{formError && (
-								<div className="members-error" role="alert">
-									{formError}
-								</div>
-							)}
-							<div className="invitation-form-actions">
-								<button
-									type="button"
-									className="join-button join-button--primary"
-									onClick={handleIssue}
-									disabled={formSubmitting || !formName.trim()}
-								>
-									{formSubmitting ? t("issuing") : t("issue")}
-								</button>
-								<button
-									type="button"
-									className="join-button join-button--ghost"
-									onClick={() => {
-										setShowForm(false);
-										setFormError(null);
-									}}
-									disabled={formSubmitting}
-								>
-									{t("cancel")}
-								</button>
-							</div>
-						</div>
-					</div>
-				)}
+				<McpTokenIssuePanel
+					onIssued={(token) => setTokens((prev) => [token, ...prev])}
+				/>
 
 				{(wsLoading || loading) && (
 					<div className="settings-loading" aria-label={t("loadingAria")}>
