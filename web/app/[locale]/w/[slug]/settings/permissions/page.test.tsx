@@ -352,6 +352,35 @@ describe("/w/[slug]/permissions 权限映射页", () => {
 		expect(statuses[7]).toHaveTextContent("拒绝");
 	});
 
+	it("普通成员（无 list_members）：页面级拦截，不渲染矩阵（2026-08-22 决策）", async () => {
+		fetchMyWorkspaces.mockResolvedValue([
+			{
+				id: "ws_02",
+				slug: "cgc-academy",
+				name: "CGC 线上学院",
+				joinPolicy: "request",
+				sponsorshipEnabled: true,
+				myRoleNames: [],
+				roles: [],
+				myAbilities: ["view_workspace", "access_invite_only"],
+				membershipStatus: "active",
+			},
+		]);
+		render(<PermissionsPage />);
+
+		expect(
+			await screen.findByTestId("shell-no-permission"),
+		).toHaveTextContent("此页面需要管理权限");
+		expect(screen.queryByTestId("permission-example")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("cell-owner-view_workspace"),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole("link", { name: "返回概览" })).toHaveAttribute(
+			"href",
+			"/w/cgc-academy",
+		);
+	});
+
 	it("未知 slug 显示不可访问状态，不请求权限矩阵", async () => {
 		params.value = { slug: "no-such-ws" };
 		render(<PermissionsPage />);

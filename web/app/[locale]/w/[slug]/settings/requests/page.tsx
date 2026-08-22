@@ -129,7 +129,7 @@ export default function RequestsPage() {
 	const approvableRoles = GRANTABLE_ROLE_NAMES;
 
 	return (
-		<WorkspaceShell slug={slug}>
+		<WorkspaceShell slug={slug} requireAbility="manage_members">
 			<div className="ws-page-main__inner">
 				<div
 					className="ws-page-breadcrumb"

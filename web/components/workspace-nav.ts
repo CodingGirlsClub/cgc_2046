@@ -100,6 +100,8 @@ export const SETTINGS_NAV: NavDestination[] = [
 		key: "policy",
 		labelKey: "policy",
 		href: (s) => `/w/${s}/settings/join-policy`,
+		// 2026-08-22 决策：原恒显改门控 —— 加入策略页对普通成员无意义
+		ability: "update_join_policy",
 		group: "workspace",
 		active: "settings-join-policy",
 		icon: "settings",
@@ -117,6 +119,9 @@ export const SETTINGS_NAV: NavDestination[] = [
 		key: "sponsorship",
 		labelKey: "sponsorship",
 		href: (s) => `/w/${s}/settings/sponsorship`,
+		// 2026-08-22 决策：管理台对普通成员无意义（后端对其返回空列表），
+		// 与 pricing 同源 = manage_events（页面内 manage 标志一致）
+		ability: "manage_events",
 		group: "workspace",
 		active: "settings-sponsorship",
 		icon: "community",

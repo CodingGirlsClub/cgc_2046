@@ -118,14 +118,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("/w/[slug]/settings/requests 审批页", () => {
-	it("能力门控：无 manage_members 时显示提示不加载", async () => {
+	it("能力门控：无 manage_members 页面级拦截且不加载", async () => {
 		params.value = { slug: "cgc-shanghai" };
 		fetchMyWorkspaces.mockResolvedValue(MEMBER_WORKSPACES);
 		render(<RequestsPage />);
 
+		// 页面级拦截（2026-08-22 决策）：壳渲染「需要管理权限」空态替代页面内容
 		expect(
-			await screen.findByText("仅具备管理成员能力的用户可查看加入审批。"),
-		).toBeInTheDocument();
+			await screen.findByTestId("shell-no-permission"),
+		).toHaveTextContent("此页面需要管理权限");
 		expect(fetchJoinRequests).not.toHaveBeenCalled();
 	});
 

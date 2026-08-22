@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, waitFor, cleanup } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
 import { MockedProvider } from "@apollo/client/testing/react";
 import { ME_WORKSPACES } from "@/lib/graphql/workspace";
 import { WORKSPACE_PROFILE } from "@/lib/graphql/profile";
@@ -27,7 +28,19 @@ vi.mock("@/lib/theme-provider", () => ({ useTheme }));
 const pathnameMock = vi.fn(() => "/w/cgc-camp/settings/account/preferences");
 vi.mock("next/navigation", () => ({
 	usePathname: () => pathnameMock(),
+	// @/i18n/navigation（next-intl createNavigation）工厂在 import 期还需要这些导出
+	useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+	useParams: () => ({}),
+	redirect: vi.fn(),
+	permanentRedirect: vi.fn(),
 }));
+
+// i18n usePathname（2026-08-22 换源）需要 intl context；locale 可参数化（EN 用例）
+function renderIntl(ui: React.ReactElement, locale: "zh-CN" | "en" = "zh-CN") {
+	return render(
+		<NextIntlClientProvider locale={locale}>{ui}</NextIntlClientProvider>,
+	);
+}
 
 // jsdom 不提供 localStorage，用 in-memory 实现
 const store = new Map<string, string>();
@@ -48,6 +61,8 @@ Object.defineProperty(window, "localStorage", {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	// 每测重置 pathname（EN 回归用例会 mockReturnValue 覆盖，防泄漏到后续用例）
+	pathnameMock.mockReturnValue("/w/cgc-camp/settings/account/preferences");
 	store.clear();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true });
 	pathnameMock.mockReturnValue("/w/cgc-camp/settings/account/preferences");
@@ -106,7 +121,7 @@ describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
-		render(
+		renderIntl(
 			<MockedProvider
 				mocks={[
 					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
@@ -123,11 +138,34 @@ describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 		expect(setTheme).toHaveBeenCalledWith("light");
 	});
 
+	it("EN（/en 前缀路径）同样应用服务端 workspace 偏好（2026-08-22 locale 回归钉测）", async () => {
+		const setTheme = vi.fn();
+		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
+		pathnameMock.mockReturnValue("/en/w/cgc-camp/settings/account/preferences");
+
+		renderIntl(
+			<MockedProvider
+				mocks={[
+					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
+					...profileMocks("ws_1", "light"),
+				]}
+			>
+				<ThemeSync />
+			</MockedProvider>,
+			"en",
+		);
+
+		await waitFor(() => {
+			expect(setTheme).toHaveBeenCalledTimes(1);
+		});
+		expect(setTheme).toHaveBeenCalledWith("light");
+	});
+
 	it("无效偏好不应用", async () => {
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
-		render(
+		renderIntl(
 			<MockedProvider
 				mocks={[
 					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
@@ -152,7 +190,7 @@ describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
-		render(
+		renderIntl(
 			<MockedProvider
 				mocks={[
 					...wsMocks([{ slug: "cgc-camp", id: "ws_1" }]),
@@ -177,7 +215,7 @@ describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
 		// 首次渲染：cgc-camp → ws_1 → light
-		render(
+		renderIntl(
 			<MockedProvider
 				mocks={[
 					...wsMocks([
@@ -202,7 +240,7 @@ describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 		pathnameMock.mockReturnValue("/w/cgc-academy/settings/account/profile");
 		useTheme.mockReturnValue({ setTheme, theme: "light", toggleTheme: vi.fn() });
 
-		render(
+		renderIntl(
 			<MockedProvider
 				mocks={[
 					...wsMocks([
@@ -227,7 +265,7 @@ describe("ThemeSync（ADR-0004 按 workspace 应用服务端主题）", () => {
 		const setTheme = vi.fn();
 		useTheme.mockReturnValue({ setTheme, theme: "dark", toggleTheme: vi.fn() });
 
-		render(
+		renderIntl(
 			<MockedProvider mocks={[]}>
 				<ThemeSync />
 			</MockedProvider>,
