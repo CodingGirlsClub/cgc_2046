@@ -9,7 +9,9 @@
  * 复用 ./modal-a11y 的 useDialogA11y（与 payment-checkout-dialog 单源），无 portal。
  *
  * 三动作：
- * - 开始接入 → /w/:slug/settings/integrations/agents（区入口页，U4）；
+ * - 开始接入 → /w/:slug/settings/integrations/agents（区入口页，U4），同时 onClose
+ *   关框——App Router back 导航会恢复 React state，不关框 inviteClosed 留 false
+ *   会同 session 重弹（违 KTD4）；
  * - 再看看 → 关闭（下次登录再弹，F3）；
  * - 暂时不用，别再弹了 → dismissOnboardingInvitation（KTD2 服务端持久拒绝）；
  *   失败不关框、内联错误 role="alert"（AE2）。
@@ -121,6 +123,7 @@ export default function OnboardingInviteModal({
 						href={`/w/${slug}/settings/integrations/agents`}
 						className="join-button join-button--primary"
 						data-testid="onboarding-invite-start"
+						onClick={onClose}
 					>
 						{t("inviteStart")}
 					</Link>
