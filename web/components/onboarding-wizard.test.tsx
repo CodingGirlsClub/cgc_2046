@@ -56,7 +56,7 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		).toBeInTheDocument();
 	});
 
-	it("宿主门控：选中 DSH 呈「即将推出」说明且 ②③ 不展开（AE3）", async () => {
+	it("宿主门控：选中 DSH 呈「即将推出」说明且 ②③ hidden 隐藏（不卸载，AE3/P2）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
 		expect(
@@ -66,11 +66,39 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		fireEvent.click(await screen.findByRole("radio", { name: /DSH/ }));
 
 		expect(screen.getByText(/DSH 接入流程尚未开放/)).toBeInTheDocument();
-		// ②③ 不展开宿主内容
-		expect(screen.queryByTitle("下载 OpenClacky")).not.toBeInTheDocument();
+		// ②③ hidden 隐藏而非卸载：stepper 项仍在文档中但不可见（P2 保一次性明文）
+		expect(screen.getByTestId("onboarding-step-2")).not.toBeVisible();
+		expect(screen.getByTestId("onboarding-step-3")).not.toBeVisible();
+		// ③ 签发面不随 DSH 卸载：签发按钮仍在文档中（hidden: true 才查得到）
 		expect(
-			screen.queryByRole("button", { name: /签发新 token/ }),
-		).not.toBeInTheDocument();
+			screen.getByRole("button", { name: /签发新 token/, hidden: true }),
+		).not.toBeVisible();
+		// ② 宿主内容仍按 host 条件渲染：DSH 无宿主内容可展示
+		expect(screen.queryByTitle("下载 OpenClacky")).not.toBeInTheDocument();
+	});
+
+	it("回归（P2）：签发后切 DSH 再切回，一次性明文不丢（②③ hidden 隐藏而非卸载）", async () => {
+		render(<OnboardingWizard slug="cgc-academy" />);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: /签发新 token/ }),
+		);
+		fireEvent.change(
+			screen.getByPlaceholderText("如：我的 MacBook · OpenClacky"),
+			{ target: { value: "新设备" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "签发" }));
+
+		// 一次性明文已展示（服务端 token 已签发，用户尚未点「我已保存」）
+		expect(await screen.findByText("cgc_wizard_plain_token")).toBeVisible();
+
+		// 切 DSH：②③ hidden 隐藏——旧实现此处卸载面板，明文永久丢失
+		fireEvent.click(screen.getByRole("radio", { name: /DSH/ }));
+		expect(screen.getByText("cgc_wizard_plain_token")).not.toBeVisible();
+
+		// 切回 OpenClacky：组件未被卸载，明文仍可见
+		fireEvent.click(screen.getByRole("radio", { name: /OpenClacky/ }));
+		expect(screen.getByText("cgc_wizard_plain_token")).toBeVisible();
 	});
 
 	it("宿主映射：选中 OMP 后 ② 渲染 .mcp.json 配置（AE3）", async () => {
@@ -232,7 +260,11 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			"aria-current",
 			"step",
 		);
-		expect(screen.queryByTestId("onboarding-step-3")).not.toBeInTheDocument();
+		// DSH 态 ③ hidden 隐藏（不卸载，P2）且不带 aria-current（AE3 可见行为不变）
+		expect(screen.getByTestId("onboarding-step-3")).not.toBeVisible();
+		expect(screen.getByTestId("onboarding-step-3")).not.toHaveAttribute(
+			"aria-current",
+		);
 	});
 
 	it("向导内共享卡为裸标题（D：编号由 stepper 供给，无「② 内嵌 ①②」双重编号）", async () => {
