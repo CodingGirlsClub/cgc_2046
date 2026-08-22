@@ -51,34 +51,22 @@ MIX_ENV=prod mix release
 
 不 export 会在 release 启动时收到明确 raise 提示，属预期 fail-fast 行为。
 
-### 生产注入块模板（GitHub Actions）
+### 生产注入块（GitHub Actions）——已接线
 
-> **部署目标确定后启用**：以下片段仅供未来 production deploy/release workflow 参考，当前仓库无部署信号（无 vercel/fly/docker 配置），未接线到任何 workflow。
-
-```yaml
-# 未来 production deploy/release workflow 中的注入块（骨架）
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    environment: production          # 环境级 Secrets/Variables 在此作用域解析
-    env:
-      SENDCLOUD_API_USER: ${{ secrets.SENDCLOUD_API_USER }}
-      SENDCLOUD_API_KEY: ${{ secrets.SENDCLOUD_API_KEY }}
-      SENDCLOUD_FROM: ${{ vars.SENDCLOUD_FROM }}
-      SENDCLOUD_FROM_NAME: ${{ vars.SENDCLOUD_FROM_NAME }}
-      WEB_BASE_URL: ${{ vars.WEB_BASE_URL }}
-    steps:
-      # ... checkout / build / release 步骤（部署目标确定后补充）
-```
-
-`environment: production` 是**必需**的：它把 job 的 env 解析限定到 `production` 环境，Secrets/Variables 的创建与更新都挂在 GitHub repo 的 Environments 设置里，天然隔离且可审计。
+> **2026-08-22 更新**：`.github/workflows/deploy.yml` 已落地（#213），本节原「未来 workflow 骨架」退役，以真实实现为准：
+>
+> - **backend job**：`SENDCLOUD_API_USER/API_KEY`（secrets）与 `SENDCLOUD_FROM/FROM_NAME/SMS_*/WEB_BASE_URL`（vars）等 27 项经**非空断言**写入 `.kamal/secrets`——GitHub 漏配 = deploy 首分钟红，kamal deploy 未执行、旧容器继续服务。
+> - **web job**：`NEXT_PUBLIC_WEB_BASE_URL` / `BACKEND_URL`（vars）经 sed 注入 Kamal builder args（**构建期内联**进 Next 产物，运行时不可改），同款非空断言（#254）。`NEXT_PUBLIC_WEB_BASE_URL` 是全站 canonical/hreflang/sitemap 的基准 URL（消费方 `web/lib/seo.ts`），为空会把 SEO 面静默焊死成回退值——断言在 sed 之前挡住。
+> - 全部 Secrets/Variables 挂 GitHub repo **Environments → `production`**，作用域隔离且可审计。变量登记单源 = deploy.yml 的两处断言名单，本文档不再复制。
 
 ## 3. SendCloud 前置检查单（首次上线前）
 
-1. **apiUser 权限**：`SENDCLOUD_API_USER`/`SENDCLOUD_API_KEY` 必须是**普通发送**权限（非触发类），对应 `/apiv2/mail/send` 端点。
-2. **发信域认证**：`SENDCLOUD_FROM` 所在域已配置 SendCloud 发信域，DKIM + SPF 记录生效（否则投递率受挫 / 被拒）。
-3. **生产 WEB_BASE_URL 必须 HTTPS**：runtime.exs 已强制，运维侧确保域名有有效 TLS 证书，重置链接绝不经明文传输。
-4. **发送丢失风险（已知现状，不在本轨改）**：密码重置邮件经 `Task.start` fire-and-forget 发送，失败不重试、不告警、无持久化队列。生产上线前如需强投递保证，另行评估（如接入持久化队列/重试），当前不在本计划范围内修改。
+> 执行留档（#216）：逐项核对后勾选并署日期；第 1 项若 apiUser 不支持普通发送，升级为阻塞问题裁决（换套餐/换服务商）。
+
+- [ ] **apiUser 权限**：`SENDCLOUD_API_USER`/`SENDCLOUD_API_KEY` 必须是**普通发送**权限（非触发类），对应 `/apiv2/mail/send` 端点。
+- [ ] **发信域认证**：`SENDCLOUD_FROM` 所在域已配置 SendCloud 发信域，DKIM + SPF 记录生效（否则投递率受挫 / 被拒）。
+- [ ] **生产 WEB_BASE_URL 必须 HTTPS**：runtime.exs 已强制，运维侧确保域名有有效 TLS 证书，重置链接绝不经明文传输。
+- [ ] **发送丢失风险（已知现状，不在本轨改）**：密码重置邮件经 `Task.start` fire-and-forget 发送，失败不重试、不告警、无持久化队列。生产上线前如需强投递保证，另行评估（如接入持久化队列/重试），当前不在本计划范围内修改——**勾选 = 接受该现状上线**。
 
 ## 4. CI 边界
 
@@ -87,4 +75,4 @@ jobs:
 
 ## 5. 交付边界
 
-- 真实创建 GitHub Actions Secrets/Variables 推迟到**部署目标确定**时：当前无消费方（无 deploy workflow），创建了也是无引用的死配置。届时按本文档 §1 分类在 Environments → `production` 下创建，并按 §2 模板接线。
+- ~~真实创建 GitHub Actions Secrets/Variables 推迟到**部署目标确定**时~~ **已解除**（2026-08-22）：deploy workflow 已落地并消费全部值，生产在跑。新增变量的流程 = Environments → `production` 创建 + deploy.yml 断言名单登记（漏任一侧 deploy 首分钟红，见 §2）。
