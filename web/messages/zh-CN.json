@@ -594,6 +594,7 @@
       "inviteOnlyHint": "凭邀请链接或批次码加入"
     },
     "noRoles": "暂无角色",
+    "memberRole": "成员",
     "roleEmpty": "未分配角色"
   },
   "workspaceOverview": {
@@ -610,7 +611,6 @@
     "sponsorshipClosed": "暂未开放赞助",
     "membersAndRoles": "成员与角色",
     "membersManage": "管理成员列表与角色分配",
-    "membersView": "查看成员列表与自己的角色",
     "permissionMapping": "权限映射",
     "permissionMappingDesc": "查看角色 → 能力矩阵",
     "agentsTitle": "Agents 与助手协作",

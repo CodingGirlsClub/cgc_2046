@@ -86,11 +86,29 @@ export function StatusTag({
 	);
 }
 
-export function RoleChips({ roles }: { roles: string[] }) {
+export function RoleChips({
+	roles,
+	member = false,
+}: {
+	roles: string[];
+	/**
+	 * true = 查看者持有活跃成员资格：空角色显示基准身份「成员」chip
+	 * （RBAC 语义：tutor 等是差异标签，成员资格本身即基准能力）；
+	 * false（待加入 / 只读审计访客）保持「暂无角色」。
+	 */
+	member?: boolean;
+}) {
 	const t = useTranslations("workspace");
 	const labelsT = useTranslations();
-	if (roles.length === 0)
+	if (roles.length === 0) {
+		if (member)
+			return (
+				<span className="workspace-role-chips">
+					<span className="workspace-role-chip">{t("memberRole")}</span>
+				</span>
+			);
 		return <span className="workspace-empty-value">{t("noRoles")}</span>;
+	}
 	return (
 		<span className="workspace-role-chips">
 			{roles.map((role) => (
