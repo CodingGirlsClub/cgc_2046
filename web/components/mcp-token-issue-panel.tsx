@@ -11,7 +11,7 @@
  * 错误一律内联 role="alert"（members-error 模式），不引全局 toast。
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { issueMcpToken, type McpTokenItem } from "@/lib/mcp";
 import { copyText } from "@/lib/clipboard";
@@ -42,6 +42,15 @@ export default function McpTokenIssuePanel({
 	} | null>(null);
 	const [copiedFresh, setCopiedFresh] = useState(false);
 	const [copyFreshFailed, setCopyFreshFailed] = useState(false);
+
+	// 「已复制」2s 复位定时器：连续复制重置计时；卸载时清理
+	// （向导完成态会换树卸载本组件，旧版定时器会对已卸载组件 setState）
+	const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(() => {
+		return () => {
+			if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+		};
+	}, []);
 
 	const handleIssue = useCallback(async () => {
 		const name = formName.trim();
@@ -91,7 +100,8 @@ export default function McpTokenIssuePanel({
 									if (ok) {
 										setCopiedFresh(true);
 										setCopyFreshFailed(false);
-										setTimeout(() => setCopiedFresh(false), 2000);
+										if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+										copiedTimerRef.current = setTimeout(() => setCopiedFresh(false), 2000);
 									} else {
 										setCopyFreshFailed(true);
 									}
