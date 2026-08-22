@@ -41,8 +41,8 @@ export default function IntegrationsAgentsTabs({
 	abilities,
 }: {
 	slug: string;
-	/** 当前页对应 tab key；缺省 = 无选中 tab（区入口页） */
-	current?: string;
+	/** 当前页对应 tab key；null = 无选中 tab（区入口页）。必传（编译期防漏传） */
+	current: string | null;
 	abilities: string[];
 }) {
 	return (

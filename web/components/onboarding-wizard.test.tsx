@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import OnboardingWizard from "./onboarding-wizard";
 
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
 }));
-const { fetchMyMcpTokens } = vi.hoisted(() => ({ fetchMyMcpTokens: vi.fn() }));
 const { issueMcpToken } = vi.hoisted(() => ({ issueMcpToken: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
@@ -19,21 +18,11 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/mcp", async (importOriginal) => {
 	const mod = (await importOriginal()) as Record<string, unknown>;
-	return { ...mod, fetchMyMcpTokens, issueMcpToken };
+	return { ...mod, issueMcpToken };
 });
-
-const REVOKED_TOKEN = {
-	id: "tok_r",
-	name: "旧手机",
-	lastUsedAt: null,
-	revokedAt: "2026-08-05T12:00:00Z",
-	insertedAt: "2026-07-20T09:00:00Z",
-	status: "revoked" as const,
-};
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	fetchMyMcpTokens.mockResolvedValue([]);
 	issueMcpToken.mockResolvedValue({
 		token: {
 			id: "tok_new",
@@ -165,8 +154,8 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 	});
 
 	it("有 token 记录（含全撤销）的用户在向导态保留管理态入口（链 mcp tab）", async () => {
-		fetchMyMcpTokens.mockResolvedValue([REVOKED_TOKEN]);
-		render(<OnboardingWizard slug="cgc-academy" />);
+		// hasTokenHistory 由调用方从 useOnboardingState().tokens 派生传入（同一数据源）
+		render(<OnboardingWizard slug="cgc-academy" hasTokenHistory />);
 
 		const link = await screen.findByRole("link", { name: /MCP 页管理/ });
 		expect(link).toHaveAttribute(
@@ -179,9 +168,6 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		render(<OnboardingWizard slug="cgc-academy" />);
 
 		await screen.findByRole("radio", { name: /OpenClacky/ });
-		await waitFor(() => {
-			expect(fetchMyMcpTokens).toHaveBeenCalled();
-		});
 		expect(
 			screen.queryByRole("link", { name: /MCP 页管理/ }),
 		).not.toBeInTheDocument();
@@ -202,7 +188,42 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			"href",
 			"/w/cgc-academy/settings/integrations/agents/mcp",
 		);
-		// 回看态不拉 token 列表
-		expect(fetchMyMcpTokens).not.toHaveBeenCalled();
+		// 回看态不显示管理态入口（即使调用方误传 hasTokenHistory）
+		expect(
+			screen.queryByRole("link", { name: /MCP 页管理/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("stepper 当前步（C：选中态样式与 aria-current）：默认停在 ③ 签发；选中 DSH 停在 ①", async () => {
+		render(<OnboardingWizard slug="cgc-academy" />);
+
+		await screen.findByRole("radio", { name: /OpenClacky/ });
+		expect(screen.getByTestId("onboarding-step-3")).toHaveAttribute(
+			"aria-current",
+			"step",
+		);
+		expect(screen.getByTestId("onboarding-step-1")).not.toHaveAttribute(
+			"aria-current",
+		);
+
+		fireEvent.click(screen.getByRole("radio", { name: /DSH/ }));
+		expect(screen.getByTestId("onboarding-step-1")).toHaveAttribute(
+			"aria-current",
+			"step",
+		);
+		expect(screen.queryByTestId("onboarding-step-3")).not.toBeInTheDocument();
+	});
+
+	it("向导内共享卡为裸标题（D：编号由 stepper 供给，无「② 内嵌 ①②」双重编号）", async () => {
+		render(<OnboardingWizard slug="cgc-academy" />);
+
+		await screen.findByRole("radio", { name: /OpenClacky/ });
+		// 裸标题（原子页经 stepNo 传「①」前缀，向导不传）
+		expect(
+			screen.getByRole("heading", { name: "安装 OpenClacky" }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("heading", { name: /① 安装 OpenClacky/ }),
+		).not.toBeInTheDocument();
 	});
 });

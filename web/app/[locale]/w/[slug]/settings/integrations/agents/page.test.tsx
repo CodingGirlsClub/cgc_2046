@@ -63,6 +63,7 @@ const ONBOARDING_BASE = {
 	connected: false,
 	loading: false,
 	error: null,
+	tokens: [],
 };
 
 beforeEach(() => {
@@ -91,10 +92,12 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		).not.toBeInTheDocument();
 	});
 
-	it("error → 回退管理态（tabs + 四子页入口卡），无「重新查看引导」", async () => {
+	it("error → 回退管理态（tabs + 四子页入口卡），无「重新查看引导」；内联 role=alert + 重试（错误不静默吞）", async () => {
+		const reload = vi.fn();
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
 			error: new Error("errors.noResponse"),
+			reload,
 		});
 		render(<AgentsIntegrationsPage />);
 
@@ -109,6 +112,12 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		expect(
 			screen.queryByRole("button", { name: "重新查看引导" }),
 		).not.toBeInTheDocument();
+
+		// plan Implementation Constraints：错误一律内联 role=alert，附重试
+		const alert = screen.getByRole("alert");
+		expect(alert).toHaveTextContent("接入状态加载失败，请重试。");
+		fireEvent.click(within(alert).getByRole("button", { name: "重试" }));
+		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
 	it("无 active token → 向导态（AE3/AE4 入口）", async () => {

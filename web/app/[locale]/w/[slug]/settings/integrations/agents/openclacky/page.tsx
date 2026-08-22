@@ -56,9 +56,9 @@ export default function AgentsOpenclackyPage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-openclacky" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<OpenclackyInstallCard />
-					<OpenclackyExtensionCard />
-					<OpenclackyTokenLinkCard slug={slug} />
+					<OpenclackyInstallCard stepNo="①" />
+					<OpenclackyExtensionCard stepNo="②" />
+					<OpenclackyTokenLinkCard slug={slug} stepNo="③" />
 				</div>
 			</div>
 		</WorkspaceShell>

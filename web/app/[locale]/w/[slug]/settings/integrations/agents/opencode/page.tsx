@@ -56,9 +56,9 @@ export default function AgentsOpencodePage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-opencode" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<TokenLinkStepCard slug={slug} />
-					<WriteConfigStepCard variant="opencode" />
-					<ConfigureTokenStepCard variant="opencode" />
+					<TokenLinkStepCard slug={slug} stepNo="1." />
+					<WriteConfigStepCard variant="opencode" stepNo="2." />
+					<ConfigureTokenStepCard variant="opencode" stepNo="3." />
 					<ConfigNotesStepCard />
 				</div>
 			</div>

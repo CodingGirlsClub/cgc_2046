@@ -16,14 +16,17 @@
  * ③ 只给 MCP 页链接（签发归 mcp tab）。
  *
  * 有任何 token 记录（含全撤销/过期）的用户在向导态保留管理态入口（链 mcp tab）；
- * useOnboardingState 不暴露原始列表，这里另行 fetch 取存在性信号（失败静默，
- * 最坏入口不显示）。
+ * hasTokenHistory 由调用方从 useOnboardingState().tokens 派生传入（同一数据源，
+ * 本组件不再二次 fetch）。
+ *
+ * stepper 当前步（aria-current + 左侧品牌色条）：①②无完成信号可追踪
+ * （宿主默认已选、安装为自助阅读），唯一可判定「待办」的动作步是 ③ 签发；
+ * 选中 DSH 时 ②③ 不展开，当前步停在 ①。
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
-import { fetchMyMcpTokens } from "@/lib/mcp";
 import {
 	OpenclackyInstallCard,
 	OpenclackyExtensionCard,
@@ -38,31 +41,33 @@ type WizardHost = "openclacky" | "omp" | "opencode" | "dsh";
 export default function OnboardingWizard({
 	slug,
 	readOnly = false,
+	hasTokenHistory = false,
 }: {
 	slug: string;
 	/** 管理态回看：只读向导，无签发面 */
 	readOnly?: boolean;
+	/** 有任何 token 记录（含全撤销/过期）→ 向导态显示管理态入口；由调用方
+	    从 useOnboardingState().tokens 派生（同一数据源，不二次 fetch） */
+	hasTokenHistory?: boolean;
 }) {
 	const t = useTranslations("onboarding");
 	const tConnect = useTranslations("agentConnect");
 	const [host, setHost] = useState<WizardHost>("openclacky");
 	const [completed, setCompleted] = useState(false);
-	const [hasTokenHistory, setHasTokenHistory] = useState(false);
 
-	useEffect(() => {
-		if (readOnly) return;
-		let cancelled = false;
-		fetchMyMcpTokens()
-			.then((list) => {
-				if (!cancelled) setHasTokenHistory(list.length > 0);
-			})
-			.catch(() => {
-				// 静默降级：入口不显示而已
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [readOnly]);
+	// stepper 当前步：选中 DSH（②③ 不展开）停在 ①；其余情况 ③ 是唯一
+	// 带完成信号的动作步（签发 + 「我已保存」），①② 为自助阅读。
+	// 高亮 = 左侧品牌色条；card 步（①）自带内边距，只描边不补 padding
+	// 显式 number 标注：阻止 TS 在 host!=="dsh" 分支内把 currentStep 收窄成 3
+	// （② 永非当前步是今天的语义，类型上保留 2 的合法位）
+	const currentStep: number = host === "dsh" ? 1 : 3;
+	const stepStyle = (n: number, card = false) =>
+		currentStep === n
+			? {
+					borderLeft: "3px solid var(--brand)",
+					...(card ? {} : { paddingLeft: 13 }),
+				}
+			: {};
 
 	if (completed) {
 		return (
@@ -145,7 +150,12 @@ export default function OnboardingWizard({
 					gap: 16,
 				}}
 			>
-				<li className="connect-step-card">
+				<li
+					className="connect-step-card"
+					data-testid="onboarding-step-1"
+					aria-current={currentStep === 1 ? "step" : undefined}
+					style={stepStyle(1, true)}
+				>
 					<h2>{t("stepChooseHost")}</h2>
 					<div
 						role="radiogroup"
@@ -203,7 +213,11 @@ export default function OnboardingWizard({
 
 				{host !== "dsh" && (
 					<>
-						<li>
+						<li
+							data-testid="onboarding-step-2"
+							aria-current={currentStep === 2 ? "step" : undefined}
+							style={stepStyle(2)}
+						>
 							<h2>{t("stepInstall")}</h2>
 							<div style={{ display: "grid", gap: 16, marginTop: 8 }}>
 								{host === "openclacky" && (
@@ -229,7 +243,11 @@ export default function OnboardingWizard({
 							</div>
 						</li>
 
-						<li>
+						<li
+							data-testid="onboarding-step-3"
+							aria-current={currentStep === 3 ? "step" : undefined}
+							style={stepStyle(3)}
+						>
 							<h2>{t("stepIssue")}</h2>
 							<div style={{ marginTop: 8 }}>
 								{readOnly ? (
