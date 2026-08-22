@@ -909,7 +909,7 @@
     "step3DescEnv": "Environment variable interpolation is supported: set <code>CGC_TOKEN</code> and use it directly; or replace {placeholder} with the actual token.",
     "notesTitle": "Notes",
     "notesDesc": "If you already have other MCP server entries, merge the <code>cgc-2046</code> entry into the existing config — don't overwrite it. The token is bound to the user, not the workspace, so joining a new workspace needs no reconfiguration.",
-    "urlNote": "Replace <code>&lt;MCP_URL&gt;</code> with the platform MCP address (matching the connector extension <code3>ext.yml</code3> <code4>config.mcp_url</code4>; production follows the published address).",
+    "urlNote": "Pre-filled with the platform production MCP address (matching the connector extension <code3>ext.yml</code3> <code4>config.mcp_url</code4>); for local development, replace it with your local address (e.g. <code>http://localhost:4000/mcp</code>).",
     "titleOmp": "OMP",
     "titleOpencode": "opencode",
     "titleOpenclacky": "OpenClacky",
