@@ -8,6 +8,7 @@ import WechatQrPanel from "./login/wechat-qr-panel";
 import { useAuthSubmit } from "./login/use-auth-submit";
 import LanguageSwitcher from "@/components/language-switcher";
 import { BrandLockup } from "@/components/brand";
+import { Link } from "@/i18n/navigation";
 
 /** 登录方式(plan 002 U5):密码(手机号/邮箱)/手机验证码。微信扫码常驻右栏，不占 tab。 */
 type LoginMethod = "password" | "sms";
@@ -126,9 +127,9 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
         <LanguageSwitcher />
       </div>
       <aside className="auth-brand-panel" aria-label={t("brandPanelLabel")}>
-        <div className="auth-brand-lockup">
+        <Link href="/" className="auth-brand-lockup">
           <BrandLockup />
-        </div>
+        </Link>
 
         <div className="auth-brand-copy">
           <h1>{isRegister ? t("brandCopy.registerTitle") : t("brandCopy.loginTitle")}</h1>
