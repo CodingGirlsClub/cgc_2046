@@ -1148,6 +1148,9 @@ defmodule Cgc2046.Events.Enrollment do
   defp domain_error_code(:not_payment_pending), do: "enrollment_not_payment_pending"
   defp domain_error_code(:capacity_counter_invalid), do: "enrollment_capacity_counter_invalid"
 
+  # 显式子句化（#241）：原走兜底动态拼接，不进契约工件但 miniprogram 已配文案
+  defp domain_error_code(:content_rejected), do: "enrollment_content_rejected"
+
   defp domain_error_code(reason) when is_atom(reason),
     do: "enrollment_" <> Atom.to_string(reason)
 

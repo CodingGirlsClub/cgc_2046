@@ -46,6 +46,7 @@
     "approveRequestFailed": "Failed to approve request",
     "rejectRequestFailed": "Failed to reject request",
     "createWorkspaceFailed": "Failed to create workspace",
+    "database_error": "Service is temporarily unavailable. Please try again later.",
     "reassignOwnerFailed": "Failed to reassign Owner",
     "issueMcpTokenFailed": "Failed to issue, please try again later",
     "revokeMcpTokenFailed": "Failed to revoke, please try again later"
