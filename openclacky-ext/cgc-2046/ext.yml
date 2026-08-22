@@ -2,16 +2,18 @@
 # id 必须与目录名一致（openclacky ext pack 强制校验）
 id: cgc-2046
 name: CGC-2046
-version: "0.1.0"
+version: "0.2.0"
 origin: self
 # 与 repo 根 LICENSE 一致（GNU Affero General Public License v3）
 license: AGPL-3.0-only
 description: CGC-2046 平台连接器：写入 MCP 配置、提供工作台助手与连接引导
 
-# 生产域名未定前的联调默认值；全包唯一改 URL 的点
+# 生产默认值（面向分发，用户零配置即可连生产）；本地联调用 connect API 的
+# url 入参覆盖 mcp_url（如 http://localhost:4000/mcp），web_url 改本地副本。
+# 全包唯一改 URL 的点
 config:
-  mcp_url: "http://localhost:4102/mcp"
-  web_url: "http://localhost:3000"
+  mcp_url: "https://api.codingirlsclub.com/mcp"
+  web_url: "https://codingirlsclub.com"
 
 contributes:
   api: api/handler.rb
