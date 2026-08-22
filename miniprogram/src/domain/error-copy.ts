@@ -10,7 +10,9 @@
  * locale 消息文件时同步替换）。
  */
 
-const COPY: Record<string, string> = {
+export const COPY: Record<string, string> = {
+  // DB 故障统一 code（六文件共用；#241 F4）
+  database_error: '服务暂时不可用，请稍后重试。',
   // 重复活跃报名（唯一约束冲突，含并发）
   enrollment_duplicate_active: '你已有待支付订单，请关闭后重新打开继续支付。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）
