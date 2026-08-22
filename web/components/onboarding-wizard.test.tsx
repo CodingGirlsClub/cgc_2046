@@ -106,9 +106,12 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		fireEvent.click(
 			await screen.findByRole("button", { name: /签发新 token/ }),
 		);
-		fireEvent.change(screen.getByPlaceholderText("如：我的 Mac"), {
-			target: { value: "新设备" },
-		});
+		fireEvent.change(
+			screen.getByPlaceholderText("如：我的 MacBook · OpenClacky"),
+			{
+				target: { value: "新设备" },
+			},
+		);
 		fireEvent.click(screen.getByRole("button", { name: "签发" }));
 
 		// 一次性明文
@@ -138,10 +141,10 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		issueMcpToken.mockRejectedValue(new Error("errors.issueMcpTokenFailed"));
 		render(<OnboardingWizard slug="cgc-academy" />);
 
-		// 先切到 OMP，验证失败后选择不丢
+		// 先切到 OMP，验证失败后选择不丢（placeholder 命名建议跟随宿主）
 		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
 		fireEvent.click(screen.getByRole("button", { name: /签发新 token/ }));
-		fireEvent.change(screen.getByPlaceholderText("如：我的 Mac"), {
+		fireEvent.change(screen.getByPlaceholderText("如：我的 MacBook · OMP"), {
 			target: { value: "x" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "签发" }));

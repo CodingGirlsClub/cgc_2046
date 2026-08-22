@@ -128,6 +128,8 @@ export default function OnboardingWizard({
 			desc: t("hostDshDesc"),
 		},
 	];
+	// ③ 签发面备注命名建议随已选宿主（host==="dsh" 时签发面不渲染，hostName 不会被消费）
+	const hostName = HOST_CARDS.find((h) => h.key === host)?.name;
 
 	return (
 		<div>
@@ -266,7 +268,10 @@ export default function OnboardingWizard({
 										</p>
 									</div>
 								) : (
-									<McpTokenIssuePanel onSaved={() => setCompleted(true)} />
+									<McpTokenIssuePanel
+										onSaved={() => setCompleted(true)}
+										hostName={hostName}
+									/>
 								)}
 							</div>
 						</li>

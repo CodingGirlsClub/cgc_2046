@@ -20,11 +20,14 @@ import { Icon } from "@/components/icons";
 export default function McpTokenIssuePanel({
 	onIssued,
 	onSaved,
+	hostName,
 }: {
 	/** 签发成功回调（列表侧插入新 token 用；明文横幅由本组件自闭环） */
 	onIssued?: (token: McpTokenItem) => void;
 	/** 「我已保存」确认回调（向导完成判定用；横幅总会关闭） */
 	onSaved?: () => void;
+	/** 已选宿主显示名（向导传入）：备注 placeholder 给出「设备 · 宿主」命名建议 */
+	hostName?: string;
 }) {
 	const t = useTranslations("workspaceMcp");
 	const labelsT = useTranslations();
@@ -139,7 +142,11 @@ export default function McpTokenIssuePanel({
 							<input
 								type="text"
 								className="join-input"
-								placeholder={t("namePlaceholder")}
+								placeholder={
+									hostName
+										? t("namePlaceholderWithHost", { host: hostName })
+										: t("namePlaceholder")
+								}
 								value={formName}
 								onChange={(e) => setFormName(e.target.value)}
 								disabled={formSubmitting}
