@@ -270,8 +270,7 @@
       "errorHint": "Couldn't load right now.",
       "errorAction": "Go to the list instead ›",
       "emptyHint": "No open enrollments right now.",
-      "emptyAction": "Browse the list ›",
-      "deadline": "Closes {deadline}"
+      "emptyAction": "Browse the list ›"
     },
     "paper": {
       "venue": "With Carnegie Mellon University researchers · ICSE CHASE 2021 · IEEE"

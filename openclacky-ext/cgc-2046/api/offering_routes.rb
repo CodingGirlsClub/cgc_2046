@@ -9,12 +9,10 @@
 # 分野:course_tool 在 handler 层注入必填校验,这里直连 registry)。
 #
 # 管道(connected_registry / normalize_mcp_result / 503·502·500 错误分层)
-# 复用 Cgc2046CourseRoutes.call_tool,仅 503 引导文案与 500 前缀指向发现面板。
+# 委托 Cgc2046CourseRoutes.call_tool,仅 503 引导文案与 500 前缀指向发现面板。
 #
 # 安全红线:token 只存在于 mcp.json(由 connect 端点管理);本模块不读
 # token、不把凭证写进响应或日志。
-
-require "json"
 
 module Cgc2046OfferingRoutes
   NOT_CONNECTED = {
@@ -27,15 +25,7 @@ module Cgc2046OfferingRoutes
   # MCP 公开浏览工具 → loopback JSON 形状:{ ok: true, tool: ..., result: ... }
   # 错误分层同 course_routes:未连接 503 / 上游 McpError 502 / 意外 500。
   def call_offering_tool(handler, tool_name, arguments)
-    registry = Cgc2046CourseRoutes.connected_registry(handler)
-    return { status: 503, body: NOT_CONNECTED } unless registry
-
-    result = registry.call_tool(Cgc2046CourseRoutes::SERVER_NAME, tool_name, arguments)
-    { status: 200,
-      body: { ok: true, tool: tool_name, result: Cgc2046CourseRoutes.normalize_mcp_result(result) } }
-  rescue Clacky::Mcp::Client::McpError => e
-    { status: 502, body: { error: "MCP call failed: #{e.message}" } }
-  rescue StandardError => e
-    { status: 500, body: { error: "offering route failed: #{e.message}" } }
+    Cgc2046CourseRoutes.call_tool(handler, tool_name, arguments,
+                                  not_connected: NOT_CONNECTED, error_prefix: "offering route failed")
   end
 end
