@@ -276,6 +276,14 @@ class DiscoveryPanelViewTest < Minitest::Test
     refute_match(/method:\s*["'](?:POST|PUT|DELETE|PATCH)["']/, VIEW)
     refute_includes VIEW, "workspace_id"
   end
+
+  def test_sidebar_entry_mount
+    # W2:workspace 型面板的宿主入口合同 = sidebar.nav mount(ext.js),
+    # 照首面板先例;data-ext-workspace 供宿主路由高亮。
+    assert_includes VIEW, 'mount("sidebar.nav"'
+    assert_includes VIEW, "openWorkspace"
+    assert_includes VIEW, "extWorkspace"
+  end
 end
 
 # ---- 助手 prompt 与 onboarding 文案静态断言(KTD7/R13) ----
