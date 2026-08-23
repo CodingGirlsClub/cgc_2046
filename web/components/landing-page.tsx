@@ -25,7 +25,7 @@ import { useTranslations } from "next-intl";
 import { fetchPublicOfferings } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import { ENROLLMENT_POLICY_LABEL } from "@/lib/graphql/events";
-import EventStatusTag from "@/components/event-status-tag";
+import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
 import { formatDeadline } from "@/lib/events";
 
 const FOUNDED_YEAR = 2016;
@@ -84,7 +84,7 @@ function OfferingRow({
 			<Link href={`${base}/${item.slug}`} className="ld-offer-row">
 				<span className="ld-offer-row__main">
 					<span className="ld-offer-row__title">{item.title}</span>
-					<EventStatusTag status={item.status} />
+					<EnrollmentBadgeTag badge={item.enrollmentBadge} />
 				</span>
 				<span className="ld-offer-row__meta">
 					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}

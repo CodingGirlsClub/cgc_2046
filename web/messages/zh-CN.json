@@ -394,7 +394,8 @@
     "publicDesc": "面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。",
     "viewOther": "查看{label} ›",
     "empty": "暂无公开{label}。",
-    "deadline": "截止 {deadline}"
+    "deadline": "截止 {deadline}",
+    "startsAt": "开始 {time}"
   },
   "onboarding": {
     "entryTitle": "Agent 接入",
@@ -446,9 +447,14 @@
     "breadcrumbHome": "工作台",
     "detailFallback": "详情",
     "notAccessibleTitle": "该{label}不可访问",
-    "notAccessibleDesc": "仅工作台内部可见，或已结束。请登录后从工作台内访问。",
+    "notAccessibleDesc": "已结束或不公开访问。",
     "policyLabel": "报名策略：{policy}",
     "deadlineLabel": "报名截止：{deadline}",
+    "startsLabel": "开始时间：{time}",
+    "endsLabel": "结束时间：{time}",
+    "venueLabel": "地点：{venue}",
+    "pricingTitle": "价格档位",
+    "fullHint": "名额已满，不再接受新的报名。",
     "loginToEnroll": "登录后报名",
     "enrollFreeHint": "报名免费，登录或注册后提交（J-Visitor → J-Learner）。",
     "enrolledConfirm": "✓ 报名成功",
@@ -1012,6 +1018,9 @@
     "breadcrumbAria": "页面路径",
     "loadingAria": "加载中",
     "noDeadline": "不设截止",
+    "retry": "重试",
+    "timeTbd": "时间待定",
+    "venueTbd": "地点待定",
     "redirectingToDefaultProfile": "正在跳转到默认工作区个人资料…"
   },
   "participations": {

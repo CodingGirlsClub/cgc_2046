@@ -394,7 +394,8 @@
     "publicDesc": "{label} open to everyone; join a workspace for more internal ones.",
     "viewOther": "View {label} ›",
     "empty": "No public {label} right now.",
-    "deadline": "Closes {deadline}"
+    "deadline": "Closes {deadline}",
+    "startsAt": "Starts {time}"
   },
   "onboarding": {
     "entryTitle": "Agent integration",
@@ -446,9 +447,14 @@
     "breadcrumbHome": "Workspaces",
     "detailFallback": "Details",
     "notAccessibleTitle": "This {label} is not accessible",
-    "notAccessibleDesc": "It is only visible inside a workspace, or it has ended. Sign in and access it from your workspace.",
+    "notAccessibleDesc": "It has ended or is not publicly accessible.",
     "policyLabel": "Enrollment: {policy}",
     "deadlineLabel": "Enrollment closes: {deadline}",
+    "startsLabel": "Starts: {time}",
+    "endsLabel": "Ends: {time}",
+    "venueLabel": "Venue: {venue}",
+    "pricingTitle": "Pricing tiers",
+    "fullHint": "This offering is full and no longer accepts new enrollments.",
     "loginToEnroll": "Sign in to enroll",
     "enrollFreeHint": "Enrollment is free. Sign in or create an account to submit (J-Visitor → J-Learner).",
     "enrolledConfirm": "✓ Enrolled",
@@ -1012,6 +1018,9 @@
     "breadcrumbAria": "Breadcrumb",
     "loadingAria": "Loading",
     "noDeadline": "No deadline",
+    "retry": "Retry",
+    "timeTbd": "Time to be determined",
+    "venueTbd": "Venue to be determined",
     "redirectingToDefaultProfile": "Redirecting to your default workspace profile…"
   },
   "participations": {

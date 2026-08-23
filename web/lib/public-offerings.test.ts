@@ -8,7 +8,9 @@ import { client } from "./apollo-client";
 import {
 	fetchPublicOfferings,
 	fetchPublicOffering,
+	formatVenue,
 	parseSponsorshipTiers,
+	parseVenue,
 	submitEnrollment,
 } from "./public-offerings";
 
@@ -132,5 +134,38 @@ describe("parseSponsorshipTiers（E-3 #48 JsonString 数组解析）", () => {
 		expect(parseSponsorshipTiers(["not-json", JSON.stringify({ id: "x" })])).toEqual([]);
 		expect(parseSponsorshipTiers(null)).toEqual([]);
 		expect(parseSponsorshipTiers(undefined)).toEqual([]);
+	});
+});
+
+describe("parseVenue / formatVenue（R3 venue JsonString 展示兜底）", () => {
+	it("合法 venue 解析为四键 VenueInfo，formatVenue 跳过空段单行连接", () => {
+		const venue = parseVenue(
+			JSON.stringify({ country: "中国", province: "", city: "上海", district: "徐汇" }),
+		);
+
+		expect(venue).toEqual({
+			country: "中国",
+			province: "",
+			city: "上海",
+			district: "徐汇",
+		});
+		expect(formatVenue(venue)).toBe("中国 上海 徐汇");
+	});
+
+	it("null/非法 JSON/缺键 → null；formatVenue(null) → null（展示层兜底「地点待定」）", () => {
+		expect(parseVenue(null)).toBeNull();
+		expect(parseVenue(undefined)).toBeNull();
+		expect(parseVenue("not-json")).toBeNull();
+		expect(parseVenue(JSON.stringify({ country: "中国" }))).toBeNull();
+		expect(formatVenue(null)).toBeNull();
+	});
+
+	it("四段全空 → formatVenue 返回 null（不出现空白地点）", () => {
+		const venue = parseVenue(
+			JSON.stringify({ country: "", province: "", city: "", district: "" }),
+		);
+
+		expect(venue).not.toBeNull();
+		expect(formatVenue(venue)).toBeNull();
 	});
 });
