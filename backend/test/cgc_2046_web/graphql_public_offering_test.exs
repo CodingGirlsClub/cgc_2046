@@ -456,7 +456,9 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       _full_event = EventFixtures.set_confirmed_count(full_event, :events, 1)
 
       undated_event = EventFixtures.create_event(workspace, admin, %{title: "待定活动"})
-      soon_course = EventFixtures.create_course(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
+
+      soon_course =
+        EventFixtures.create_course(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
 
       caller = Fixtures.register_user("u3-parity-list-user")
 
