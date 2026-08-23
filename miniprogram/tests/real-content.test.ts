@@ -138,3 +138,27 @@ describe('getContent 新字段透传（mapContent）', () => {
     await expect(api.getContent('event', 'event-1')).rejects.toThrow(/未知报名标签/)
   })
 })
+
+describe('getCatalog 公开条目平铺（X2：无工作台身份投影）', () => {
+  it('两个来源的公开条目各自独立渲染（不按 workspace 折叠去重）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      listEvents: { results: [{ ...EVENT_RECORD }] },
+      listCourses: { results: [{ ...EVENT_RECORD, id: 'course-9', enrollmentBadge: 'enrolling' }] }
+    })
+    const api = new RealMiniProgramApi()
+    const items = await api.getCatalog()
+    expect(items).toHaveLength(2)
+    expect(items.map(({ id }) => id)).toEqual(['event-1', 'course-9'])
+  })
+
+  it('CatalogItem 无 workspaceName 字段（KD5 匿名口径，不引入工作台身份）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      listEvents: { results: [{ ...EVENT_RECORD }] },
+      listCourses: { results: [] }
+    })
+    const api = new RealMiniProgramApi()
+    const [item] = await api.getCatalog()
+    expect(item).not.toHaveProperty('workspaceName')
+    expect(item).not.toHaveProperty('workspaceId')
+  })
+})

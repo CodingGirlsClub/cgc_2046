@@ -97,7 +97,6 @@ function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
   return {
     id: record.id,
     kind,
-    workspaceName: '公开工作台',
     title: record.title,
     enrollmentPolicy: parseEnrollmentPolicy(record.enrollmentPolicy),
     registrationDeadline: record.registrationDeadline,
@@ -109,7 +108,6 @@ function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
     enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge)
   }
 }
-
 function parseOrderStatus(value: string): OrderStatus {
   if (
     value === 'pending' || value === 'paid' || value === 'refunding' ||

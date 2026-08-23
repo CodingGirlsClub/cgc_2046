@@ -143,9 +143,128 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
     end
   end
 
-  # ── U3（R10/R6/KTD1）：公开白名单扩展字段 ──
+  # X1（advisor02 第 3 轮）：小程序公开详情查询（getEvent/getCourse 按 id +
+  # filter 钉死 open+public）与 catalog 同构——非公开条目按不存在处理，
+  # 任何身份（匿名/外部成员/同工作台成员/管理员）都不可经该查询越权。
+  describe "X1 mini 详情匿名口径：getEvent(id, filter) 四姿态" do
+    defp mini_detail_query(id) do
+      """
+      query {
+        getEvent(id: "#{id}", filter: {status: {eq: "open"}, visibility: {eq: "public"}}) {
+          id title
+        }
+      }
+      """
+    end
 
-  @venue_beijing %{"country" => "中国", "province" => "北京市", "city" => "北京", "district" => "海淀区"}
+    setup do
+      admin = Fixtures.platform_admin("x1-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("x1-member")
+      Fixtures.add_member(workspace, member, [:learner])
+      outsider = Fixtures.register_user("x1-outsider")
+      other_admin = Fixtures.platform_admin("x1-other")
+      other_ws = Fixtures.create_workspace(other_admin)
+      outsider_member = Fixtures.register_user("x1-xmember")
+      Fixtures.add_member(other_ws, outsider_member, [:learner])
+
+      %{
+        admin: admin,
+        workspace: workspace,
+        member: member,
+        outsider: outsider,
+        outsider_member: outsider_member
+      }
+    end
+
+    test "open+public：四身份皆可见（口径即匿名白名单，身份不带来额外可见性）", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, %{title: "公开活动"})
+
+      for token <- [
+            nil,
+            sign_in_token(ctx.outsider_member),
+            sign_in_token(ctx.member),
+            sign_in_token(ctx.admin)
+          ] do
+        resp =
+          if token,
+            do: graphql(mini_detail_query(event.id), token),
+            else: anon(mini_detail_query(event.id))
+
+        assert %{"data" => %{"getEvent" => %{"id" => id}}} = resp
+        assert id == event.id
+      end
+    end
+
+    test "workspace-only：四身份经该查询均 null（成员语义不经公开详情口径泄露）", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, %{visibility: :workspace})
+
+      for token <- [
+            nil,
+            sign_in_token(ctx.outsider_member),
+            sign_in_token(ctx.member),
+            sign_in_token(ctx.admin)
+          ] do
+        resp =
+          if token,
+            do: graphql(mini_detail_query(event.id), token),
+            else: anon(mini_detail_query(event.id))
+
+        assert %{"data" => %{"getEvent" => nil}} = resp
+      end
+    end
+
+    test "closed：四身份均 null", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin)
+
+      {:ok, closed} =
+        event
+        |> Ash.Changeset.for_update(:close, %{}, tenant: ctx.workspace.id, actor: ctx.admin)
+        |> Ash.update(tenant: ctx.workspace.id, actor: ctx.admin)
+
+      for token <- [
+            nil,
+            sign_in_token(ctx.outsider_member),
+            sign_in_token(ctx.member),
+            sign_in_token(ctx.admin)
+          ] do
+        resp =
+          if token,
+            do: graphql(mini_detail_query(closed.id), token),
+            else: anon(mini_detail_query(closed.id))
+
+        assert %{"data" => %{"getEvent" => nil}} = resp
+      end
+    end
+
+    test "draft：四身份均 null", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin)
+
+      # draft 不可经 create action 建（status writable?: false）——直写库置位
+      # （fixture force_open 同款先例）
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE events SET status = 'draft' WHERE id = '#{event.id}'"
+        )
+
+      for token <- [
+            nil,
+            sign_in_token(ctx.outsider_member),
+            sign_in_token(ctx.member),
+            sign_in_token(ctx.admin)
+          ] do
+        resp =
+          if token,
+            do: graphql(mini_detail_query(event.id), token),
+            else: anon(mini_detail_query(event.id))
+
+        assert %{"data" => %{"getEvent" => nil}} = resp
+      end
+    end
+  end
+
+  # ── U3（R10/R6/KTD1）：公开白名单扩展字段 ──
 
   defp public_event_detail_query(slug) do
     """
