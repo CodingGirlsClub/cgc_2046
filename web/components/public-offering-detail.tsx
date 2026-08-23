@@ -590,7 +590,7 @@ export default function PublicOfferingDetailPage({
                     <p className="flex items-center gap-2 font-medium">
                       {tier.name}
                       {tier.exclusive ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
+                        <span className="ld-badge-exclusive rounded-full px-2 py-0.5 text-[11px]">
                           {t("exclusive")}
                         </span>
                       ) : null}

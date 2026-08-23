@@ -397,3 +397,28 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     expect(screen.queryByText(/请登录后从工作台内访问/)).toBeNull();
   });
 });
+
+describe("赞助档位独占位徽标（F6 暗色 token）", () => {
+  it("独占位徽标携带 ld-badge-exclusive；渲染输出无硬编码 amber 类", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      sponsorshipEnabled: true,
+      sponsorshipTiers: [
+        JSON.stringify({
+          id: "sp-1",
+          name: "独家赞助",
+          benefits: [],
+          exclusive: true,
+        }),
+      ],
+    });
+    const { container } = render(<PublicOfferingDetailPage kind="event" />);
+
+    const badge = await screen.findByText("独占位");
+    expect(badge).toHaveClass("ld-badge-exclusive");
+    // F6：语义 token 替换硬编码 Tailwind amber，渲染输出零命中
+    expect(container.innerHTML).not.toMatch(/bg-amber|text-amber/);
+  });
+});
