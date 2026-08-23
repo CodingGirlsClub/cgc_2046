@@ -12,23 +12,13 @@ const workspace = {
   memberCount: 128
 }
 
+// 公开发现面 mock 记录（F2）：字段 = 匿名白名单，与 operations.ts 查询一致
 const records = [
   {
     id: 'event-1',
-    workspaceId: workspace.id,
     title: 'Python 入门工作坊',
-    researchRequirements: JSON.stringify({
-      audience: '零基础学习者',
-      duration: '2 小时',
-      location: '北京 CGC 活动空间',
-      tutor: '林老师',
-      sections: ['环境准备', '语法基础', '动手练习']
-    }),
     status: 'open',
-    workflowRunId: null,
     enrollmentPolicy: 'request',
-    capacity: 30,
-    confirmedCount: 18,
     registrationDeadline: new Date(Date.now() + 72 * 3_600_000).toISOString(),
     pricingEnabled: false,
     availablePriceTiers: [],
@@ -39,14 +29,9 @@ const records = [
   },
   {
     id: 'event-open',
-    workspaceId: workspace.id,
     title: '周末开源分享会',
-    researchRequirements: JSON.stringify({ audience: '所有成员', format: '线下分享' }),
     status: 'open',
-    workflowRunId: null,
     enrollmentPolicy: 'open',
-    capacity: 80,
-    confirmedCount: 31,
     registrationDeadline: null,
     pricingEnabled: false,
     availablePriceTiers: [],
@@ -60,14 +45,9 @@ const records = [
 
 const course = {
   id: 'course-1',
-  workspaceId: workspace.id,
   title: '社区组织者成长课',
-  researchRequirements: JSON.stringify({ audience: '社区志愿者', duration: '4 周' }),
   status: 'open',
-  workflowRunId: null,
   enrollmentPolicy: 'invite_only',
-  capacity: null,
-  confirmedCount: 12,
   registrationDeadline: null,
   pricingEnabled: false,
   availablePriceTiers: [],

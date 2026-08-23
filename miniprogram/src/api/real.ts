@@ -60,7 +60,7 @@ import {
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument
 } from './operations'
-import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus, schemaFieldsFromJson } from '@/domain/format'
+import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
 import { parsePriceTiers } from '@/domain/payment'
 import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
@@ -97,14 +97,10 @@ function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
   return {
     id: record.id,
     kind,
-    workspaceId: record.workspaceId,
     workspaceName: '公开工作台',
     title: record.title,
     enrollmentPolicy: parseEnrollmentPolicy(record.enrollmentPolicy),
-    capacity: record.capacity,
-    confirmedCount: record.confirmedCount,
     registrationDeadline: record.registrationDeadline,
-    schemaFields: schemaFieldsFromJson(record.researchRequirements),
     pricingEnabled: record.pricingEnabled === true,
     priceTiers: parsePriceTiers(record.availablePriceTiers),
     startsAt: record.startsAt,
