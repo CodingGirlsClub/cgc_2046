@@ -253,13 +253,15 @@ export default function PublicOfferingDetailPage({
         }
       } else {
         // :tier_id_required / :tier_not_available / unique 冲突等 AshGraphql
-        // 错误经翻译层映射为可读文案；未知错误走兜底，不透传 GraphQL 原文
+        // 错误经翻译层映射为可读文案；未知错误走兜底，不透传 GraphQL 原文。
+        // busy 保持到 refetch 完成（X3）：报名失败瞬间名额可能已满，刷新
+        // 未落定前按钮不得重新可点，否则用户对旧 badge 再点再失败。
         setSubmitState({
           kind: "error",
           message: translatePaymentError(res.errors[0]?.code, t("submitFailed")),
           enrollmentId: null,
         });
-        void refetchOffering();
+        await refetchOffering();
       }
     } catch (e: unknown) {
       setSubmitState({
@@ -270,7 +272,7 @@ export default function PublicOfferingDetailPage({
         ),
         enrollmentId: null,
       });
-      void refetchOffering();
+      await refetchOffering();
     } finally {
       setBusy(false);
     }
