@@ -2,11 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   canManageMembers,
+  enrollmentBadgeText,
   isUrgent,
+  parseEnrollmentBadge,
   parseEnrollmentPolicy,
   parseEnrollmentStatus,
   remainingLabel,
-  schemaFieldsFromJson
+  scheduleText,
+  schemaFieldsFromJson,
+  venueText
 } from '../src/domain/format.ts'
 
 test('schema JSON 按 key-value 生成稳定展示字段', () => {
@@ -40,4 +44,41 @@ test('GraphQL 枚举值按领域合同 fail-closed', () => {
   assert.equal(parseEnrollmentStatus('expired'), 'expired')
   assert.throws(() => parseEnrollmentPolicy('legacy'), /未知报名策略/)
   assert.throws(() => parseEnrollmentStatus('legacy'), /未知报名状态/)
+})
+
+// ── U7（R15/R3/KTD1）：详情页新字段展示助手 ──
+
+test('时间展示：双全为区间，单值带方向，全空兜底「时间待定」（R3）', () => {
+  const start = '2026-08-25T06:00:00Z'
+  const end = '2026-08-26T10:00:00Z'
+  // 与详情页既有截止日期同款 toLocaleString 惯例；期望值用同一 API 现算，环境无关
+  const fmt = (iso: string) => new Date(iso).toLocaleString()
+  assert.equal(scheduleText(start, end), `${fmt(start)} - ${fmt(end)}`)
+  assert.equal(scheduleText(start, null), `${fmt(start)} 开始`)
+  assert.equal(scheduleText(null, end), `${fmt(end)} 结束`)
+  assert.equal(scheduleText(null, null), '时间待定')
+})
+
+test('venue JSON 解析：四键拼接；缺键/非法输入兜底 null（展示层显「地点待定」，R3）', () => {
+  assert.equal(
+    venueText('{"country":"中国","province":"北京市","city":"北京","district":"海淀区"}'),
+    '中国 北京市 北京 海淀区'
+  )
+  assert.equal(venueText('{"city":"上海","district":"杨浦区"}'), '上海 杨浦区')
+  assert.equal(venueText(null), null)
+  assert.equal(venueText(''), null)
+  assert.equal(venueText('not-json'), null)
+  assert.equal(venueText('["线上"]'), null)
+  assert.equal(venueText('{"country":1,"city":null}'), null)
+})
+
+test('报名标签 fail-closed，展示文案对齐 KTD1（报名中/即将开始/已满）', () => {
+  assert.equal(parseEnrollmentBadge('enrolling'), 'enrolling')
+  assert.equal(parseEnrollmentBadge('starting_soon'), 'starting_soon')
+  assert.equal(parseEnrollmentBadge('full'), 'full')
+  assert.throws(() => parseEnrollmentBadge('legacy'), /未知报名标签/)
+  assert.throws(() => parseEnrollmentBadge(null), /未知报名标签/)
+  assert.equal(enrollmentBadgeText.enrolling, '报名中')
+  assert.equal(enrollmentBadgeText.starting_soon, '即将开始')
+  assert.equal(enrollmentBadgeText.full, '已满')
 })

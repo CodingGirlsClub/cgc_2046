@@ -4,6 +4,7 @@ import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
+import { enrollmentBadgeText, scheduleText, venueText } from '@/domain/format'
 import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
@@ -70,8 +71,9 @@ export default function EventDetailPage() {
 
         <View className={styles.metrics}>
           <View className={styles.metric}>
-            <Text className={styles.metricValue}>{item.confirmedCount}</Text>
-            <Text className={styles.metricLabel}>已确认</Text>
+            {/* 公开面以派生标签替代原始计数（KTD1/D2：confirmedCount 对非成员不可读） */}
+            <Text className={styles.metricValue} data-testid='enrollment-badge'>{enrollmentBadgeText[item.enrollmentBadge]}</Text>
+            <Text className={styles.metricLabel}>报名状态</Text>
           </View>
           <View className={styles.metric}>
             <Text className={styles.metricValue}>{item.capacity ?? '∞'}</Text>
@@ -85,6 +87,16 @@ export default function EventDetailPage() {
 
         <View className={styles.block}>
           <Text className={styles.blockTitle}>活动信息</Text>
+          <View className={styles.row} data-testid='detail-schedule'>
+            <Text className={styles.label}>时间</Text>
+            <Text className={styles.value}>{scheduleText(item.startsAt, item.endsAt)}</Text>
+          </View>
+          {item.kind === 'event' && (
+            <View className={styles.row} data-testid='detail-venue'>
+              <Text className={styles.label}>地点</Text>
+              <Text className={styles.value}>{venueText(item.venue) ?? '地点待定'}</Text>
+            </View>
+          )}
           {item.schemaFields.length === 0 ? (
             <PageState kind='empty' message='组织者还没有补充详细信息' />
           ) : item.schemaFields.map((field) => (
