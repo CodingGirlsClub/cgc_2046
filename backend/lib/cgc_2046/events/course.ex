@@ -3,7 +3,8 @@ defmodule Cgc2046.Events.Course do
   课程资源（Slice C #39，阶段 6 教研实例化最小子集）。
 
   领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Course 与 Event 字段同构
-  （仅无场地/时间字段），教研字段一致。Phase 2 加入报名策略、容量与报名截止时间；
+  （线上课程，无 venue 场地字段；starts_at/ends_at 语义为开课/结课），教研字段一致。
+  Phase 2 加入报名策略、容量与报名截止时间；
   `confirmed_count` 由 Enrollment 的数据库条件 UPDATE 原子维护。
 
   ## 教研实例化（#39）
@@ -124,6 +125,20 @@ defmodule Cgc2046.Events.Course do
       description: "报名截止时间；nil 表示不设截止"
     )
 
+    attribute(:starts_at, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "开课时间；nil 表示未定（R1，Course 语义为开课/结课）"
+    )
+
+    attribute(:ends_at, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+    )
+
     attribute(:pricing_enabled, :boolean,
       allow_nil?: false,
       default: false,
@@ -146,6 +161,7 @@ defmodule Cgc2046.Events.Course do
 
   validations do
     validate({Cgc2046.Events.PriceTiersValidation, []})
+    validate({Cgc2046.Events.ScheduleValidation, []})
   end
 
   calculations do
@@ -157,6 +173,18 @@ defmodule Cgc2046.Events.Course do
       load: [:price_tiers],
       calculation: fn records, _opts ->
         Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
+      end
+    )
+
+    # R6/KTD1 公开派生标签：full > starting_soon > enrolling（逻辑在 EnrollmentBadge）。
+    # load 依赖声明同上；capacity/confirmed_count 本体仍留 field_policy denylist。
+    calculate(:enrollment_badge, :atom,
+      public?: true,
+      constraints: [one_of: [:enrolling, :starting_soon, :full]],
+      load: [:capacity, :confirmed_count, :starts_at, :registration_deadline],
+      calculation: fn records, _opts ->
+        now = DateTime.utc_now()
+        Enum.map(records, &Cgc2046.Events.EnrollmentBadge.badge(&1, now))
       end
     )
   end
@@ -233,6 +261,8 @@ defmodule Cgc2046.Events.Course do
       :enrollment_policy,
       :capacity,
       :registration_deadline,
+      :starts_at,
+      :ends_at,
       :visibility,
       :slug,
       :description,
@@ -249,6 +279,8 @@ defmodule Cgc2046.Events.Course do
         :enrollment_policy,
         :capacity,
         :registration_deadline,
+        :starts_at,
+        :ends_at,
         :visibility,
         :slug,
         :description,
@@ -325,6 +357,8 @@ defmodule Cgc2046.Events.Course do
         :enrollment_policy,
         :capacity,
         :registration_deadline,
+        :starts_at,
+        :ends_at,
         :visibility,
         :slug,
         :description,
