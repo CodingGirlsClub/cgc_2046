@@ -1614,6 +1614,12 @@ input UpdateCourseInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: Boolean
 
@@ -1655,6 +1661,12 @@ input CreateCourseInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: Boolean
 
@@ -1679,6 +1691,8 @@ enum CourseSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  STARTS_AT
+  ENDS_AT
   PRICING_ENABLED
 }
 
@@ -1711,6 +1725,38 @@ input CourseFilterPricingEnabled {
   rangeAdjacent: Boolean
   rangeContains: String
   rangeOverlaps: Boolean
+}
+
+input CourseFilterEndsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input CourseFilterStartsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
 }
 
 input CourseFilterRegistrationDeadline {
@@ -1981,6 +2027,12 @@ input CourseFilterInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: CourseFilterRegistrationDeadline
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: CourseFilterStartsAt
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: CourseFilterEndsAt
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: CourseFilterPricingEnabled
 
@@ -2031,6 +2083,12 @@ type Course {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: Boolean!
 
@@ -2040,6 +2098,8 @@ type Course {
   workflowRun: WorkflowRun
 
   availablePriceTiers: [JsonString!]
+
+  enrollmentBadge: String
 }
 
 "The result of the :cancel_event mutation"
@@ -2106,6 +2166,15 @@ input UpdateEventInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -2159,6 +2228,15 @@ input CreateEventInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -2193,6 +2271,9 @@ enum EventSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  STARTS_AT
+  ENDS_AT
+  VENUE
   SPONSORSHIP_ENABLED
   SPONSORSHIP_DEADLINE
   PRICING_ENABLED
@@ -2259,6 +2340,54 @@ input EventFilterSponsorshipEnabled {
   rangeAdjacent: Boolean
   rangeContains: String
   rangeOverlaps: Boolean
+}
+
+input EventFilterVenue {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input EventFilterEndsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EventFilterStartsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
 }
 
 input EventFilterRegistrationDeadline {
@@ -2548,6 +2677,15 @@ input EventFilterInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: EventFilterRegistrationDeadline
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: EventFilterStartsAt
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: EventFilterEndsAt
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: EventFilterVenue
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: EventFilterSponsorshipEnabled
 
@@ -2605,6 +2743,15 @@ type Event {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean!
 
@@ -2621,6 +2768,8 @@ type Event {
   priceTiers: [JsonString!]!
 
   availablePriceTiers: [JsonString!]
+
+  enrollmentBadge: String
 }
 
 enum WorkflowRunSortField {
