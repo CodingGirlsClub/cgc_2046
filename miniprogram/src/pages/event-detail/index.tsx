@@ -66,7 +66,6 @@ export default function EventDetailPage() {
         <View className={styles.header}>
           <Text className={styles.kind}>{item.kind === 'event' ? 'EVENT' : 'COURSE'}</Text>
           <Text className={styles.title} data-testid='detail-title'>{item.title}</Text>
-          <Text className={styles.club}>{item.workspaceName}</Text>
         </View>
 
         <View className={styles.metrics}>

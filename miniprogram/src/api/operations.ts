@@ -38,7 +38,7 @@ export const CatalogQueryDocument = /* GraphQL */ `
 
 export const EventDetailQueryDocument = /* GraphQL */ `
   query EventDetail($id: ID!) {
-    getEvent(id: $id) {
+    getEvent(id: $id, filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
       id
       title
       status
@@ -56,7 +56,7 @@ export const EventDetailQueryDocument = /* GraphQL */ `
 
 export const CourseDetailQueryDocument = /* GraphQL */ `
   query CourseDetail($id: ID!) {
-    getCourse(id: $id) {
+    getCourse(id: $id, filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
       id
       title
       status

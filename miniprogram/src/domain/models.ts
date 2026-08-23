@@ -21,7 +21,6 @@ export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'ev
 export interface CatalogItem {
   id: string
   kind: ContentKind
-  workspaceName: string
   title: string
   enrollmentPolicy: 'open' | 'request' | 'invite_only'
   registrationDeadline: string | null

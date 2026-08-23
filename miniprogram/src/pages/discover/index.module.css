@@ -16,13 +16,6 @@
 .sectionHeader { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18rpx; }
 .sectionTitle { font-size: 32rpx; font-weight: 650; }
 .sectionMeta { color: #98a2b3; font-size: 22rpx; }
-.clubRail { width: 100%; white-space: nowrap; }
-.clubRow { display: inline-flex; gap: 16rpx; }
-.clubCard { width: 248rpx; height: 174rpx; padding: 22rpx; display: inline-flex; flex-direction: column; box-sizing: border-box; background: #5e6ad2; color: #fff; border-radius: 22rpx; }
-.clubCard:nth-child(even) { background: #27316f; }
-.clubIndex { color: rgba(255,255,255,.65); font-size: 20rpx; }
-.clubName { margin-top: auto; overflow: hidden; text-overflow: ellipsis; font-size: 29rpx; font-weight: 600; }
-.clubCaption { margin-top: 4rpx; color: rgba(255,255,255,.7); font-size: 20rpx; }
 .contentCard { position: relative; margin-bottom: 18rpx; padding: 26rpx 64rpx 26rpx 26rpx; background: #fff; border: 1rpx solid #eaecf0; border-radius: 22rpx; }
 .cardTop { display: flex; align-items: center; gap: 14rpx; }
 .kind { display: block; color: #5e6ad2; font-size: 19rpx; font-weight: 700; letter-spacing: 2rpx; }
