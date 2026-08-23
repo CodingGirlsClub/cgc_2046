@@ -16,14 +16,16 @@ import { client } from "./apollo-client";
  *
  * - fetchPublicOfferings：匿名读 open+public 全部条目（发现页）；
  * - fetchPublicOffering：匿名按 id 读（宿主页；workspace/非 open 表现 NotFound）；
- * - submitEnrollment：登录后报名（后端 policy 校验 user_id == actor）。
+ * - submitEnrollment：登录后报名（后端 policy 校验 user_id == actor）；
+ * - 公开读一律 network-only（F4）：badge 由后端逐次派生，cache-first 会让
+ *   报名失败后的重拉吃缓存旧 badge（U4 重派生失效）；公开面量级小，代价可忽略。
  */
 
 export async function fetchPublicOfferings(
 	kind: OfferingKind,
 ): Promise<PublicOfferingItem[]> {
 	const query = kind === "event" ? PUBLIC_LIST_EVENTS : PUBLIC_LIST_COURSES;
-	const { data } = await client.query({ query });
+	const { data } = await client.query({ query, fetchPolicy: "network-only" });
 
 	const result = data as unknown as Record<
 		"listEvents" | "listCourses",
@@ -38,7 +40,11 @@ export async function fetchPublicOffering(
 	kind: OfferingKind,
 ): Promise<PublicOfferingItem | null> {
 	const query = kind === "event" ? PUBLIC_GET_EVENT : PUBLIC_GET_COURSE;
-	const { data } = await client.query({ query, variables: { slug } });
+	const { data } = await client.query({
+		query,
+		variables: { slug },
+		fetchPolicy: "network-only",
+	});
 
 	const result = data as unknown as Record<
 		"getEventBySlug" | "getCourseBySlug",

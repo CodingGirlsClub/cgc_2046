@@ -5,7 +5,7 @@ vi.mock("./apollo-client", () => ({
 }));
 
 import { client } from "./apollo-client";
-import { createOffering, updateOffering } from "./events";
+import { createOffering, formatDeadline, updateOffering } from "./events";
 import {
 	CREATE_COURSE,
 	CREATE_EVENT,
@@ -174,5 +174,35 @@ describe("updateOffering input 组装（部分更新语义：未传不落键）"
 		await updateOffering("off-1", "course", {
 			venue: { country: "", province: "", city: "", district: "" },
 		});
+	});
+});
+
+describe("formatDeadline locale（F7：/en 页面日期随 locale 派生）", () => {
+	const D = "2026-08-25T14:00:00+08:00";
+	const OPTS = {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+	} as const;
+
+	it("缺省 locale 保持 zh-CN（既有调用点行为不变）", () => {
+		// Node ICU 的具体形状随环境（本机 zh-CN → 2026/08/25 14:00），断言锚定
+		// 「缺省 = zh-CN 同参派生」而非固定字符串
+		expect(formatDeadline(D, "未定")).toBe(
+			new Date(D).toLocaleString("zh-CN", OPTS),
+		);
+	});
+
+	it("locale 透传：en → en 形状（如 08/25/2026, 02:00 PM），与缺省 zh-CN 输出不同", () => {
+		const en = formatDeadline(D, "TBD", "en");
+		expect(en).toBe(new Date(D).toLocaleString("en", OPTS));
+		expect(en).not.toBe(formatDeadline(D, "TBD"));
+	});
+
+	it("null/非法值 → undecidedLabel（与 locale 无关）", () => {
+		expect(formatDeadline(null, "未定", "en")).toBe("未定");
+		expect(formatDeadline("not-a-date", "未定", "en")).toBe("未定");
 	});
 });

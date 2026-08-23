@@ -20,7 +20,7 @@
 import { Link } from "@/i18n/navigation";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchPublicOffering,
@@ -61,6 +61,7 @@ export default function PublicOfferingDetailPage({
   const t = useTranslations("offeringDetail");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
+  const locale = useLocale();
 
   const [state, setState] = useState<DetailState>({
     id: "",
@@ -337,17 +338,26 @@ export default function PublicOfferingDetailPage({
                   deadline: formatDeadline(
                     offering.registrationDeadline,
                     tCommon("noDeadline"),
+                    locale,
                   ),
                 })}
               </span>
               <span>
                 {t("startsLabel", {
-                  time: formatDeadline(offering.startsAt ?? null, tCommon("timeTbd")),
+                  time: formatDeadline(
+                    offering.startsAt ?? null,
+                    tCommon("timeTbd"),
+                    locale,
+                  ),
                 })}
               </span>
               <span>
                 {t("endsLabel", {
-                  time: formatDeadline(offering.endsAt ?? null, tCommon("timeTbd")),
+                  time: formatDeadline(
+                    offering.endsAt ?? null,
+                    tCommon("timeTbd"),
+                    locale,
+                  ),
                 })}
               </span>
               {kind === "event" ? (
