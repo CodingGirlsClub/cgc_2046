@@ -54,11 +54,14 @@
     return isNaN(d.getTime()) ? "时间待定" : d.toLocaleString();
   }
 
-  // event 拼 city/district,空 venue 兑底「地点待定」(R3,与 web/小程序同一套文案);
-  // course 为线上,无位置槽(KD6)
+  // event 拼 city/district(先 trim,空白串不算值),空 venue 兑底「地点待定」
+  // (R3,与 web/小程序同一套文案);course 为线上,无位置槽(KD6)
   function placeLabel(item) {
     if (item.kind !== "event") return "";
-    const place = [item.city, item.district].filter(function (v) { return !!v; }).join(" ");
+    const place = [item.city, item.district]
+      .map(function (v) { return typeof v === "string" ? v.trim() : ""; })
+      .filter(Boolean)
+      .join(" ");
     return place || "地点待定";
   }
 

@@ -11,7 +11,7 @@
 # 运行(需项目 mise 环境):cd openclacky-ext/cgc-2046 && mise exec -- ruby test/offering_routes_test.rb
 
 require "minitest/autorun"
-require "json"
+require "open3"
 
 gem_spec = Gem::Specification.find_by_name("openclacky")
 require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
@@ -202,6 +202,39 @@ class OfferingRoutesTest < Minitest::Test
     assert_equal 500, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "offering route failed"
   end
+
+  # X5:发现面板路由参数名/工具名钉死到 backend 工具 schema——两侧漂移
+  #（改名/加必填参数）在本仓测试即红,不必等宿主 502 才发现。
+  def test_route_arguments_match_tool_schema
+    list_tool = File.read(
+      File.expand_path("../../../backend/lib/cgc_2046/mcp/tools/list_public_offerings.ex", __dir__)
+    )
+    # 路由下发的过滤参数名 = 工具 schema 的 field 名
+    route_keys = %w[kind city starts_after starts_before]
+    route_keys.each do |key|
+      assert_includes list_tool, "field(:#{key},",
+                      "路由参数 #{key} 在 list_public_offerings schema 中不存在(合同漂移)"
+    end
+    # 工具 schema 无额外必填 field(路由只带过滤参数;id 类必填属 get_public_offering)
+    required_fields = list_tool.scan(/field\((:\w+),\s*\{:required/).flatten
+    assert_empty required_fields, "list_public_offerings 出现必填字段 #{required_fields},路由侧未下发"
+
+    get_tool = File.read(
+      File.expand_path("../../../backend/lib/cgc_2046/mcp/tools/get_public_offering.ex", __dir__)
+    )
+    assert_includes get_tool, "field(:id, {:required, :string}",
+                    "get_public_offering 必填 id 漂移(路由 :id capture 对不上)"
+
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, '"list_public_offerings"'
+    assert_includes handler, '"get_public_offering"'
+    # server.ex 注册两工具(部署面 15→17 的增量);未注册时宿主 502 Tool not found
+    server_ex = File.read(
+      File.expand_path("../../../backend/lib/cgc_2046/mcp/server.ex", __dir__)
+    )
+    assert_includes server_ex, "Cgc2046.Mcp.Tools.ListPublicOfferings"
+    assert_includes server_ex, "Cgc2046.Mcp.Tools.GetPublicOffering"
+  end
 end
 
 # ---- 发现面板 view.js 结构静态断言(状态机与 AE5 的可测面;DOM 级留手动冒烟) ----
@@ -251,15 +284,34 @@ class DiscoveryPanelViewTest < Minitest::Test
     # KTD4:无 starts_at → 「时间待定」;KD6:event 拼 city/district,course 无位置槽
     assert_includes VIEW, "时间待定"
     assert_includes VIEW, 'item.kind !== "event"'
-    assert_includes VIEW, "item.city"
-    assert_includes VIEW, "item.district"
-    # R3:event 空 venue 兑底,与 web/小程序同一套文案:
-    # - city/district 全空(含 venue 整体缺)→ 「地点待定」,地点槽恒渲染(placeLabel 恒非空)
-    # - partial(仅 city)→ filter join 拼出非空,不落兑底
-    # - course → placeLabel 返回 "",渲染处条件跳过位置槽
+    # R3:event 空 venue 兑底,与 web/小程序同一套文案;X4:先 trim 再 filter/join
     assert_includes VIEW, "地点待定"
-    assert_includes VIEW, 'return place || "地点待定"'
-    assert_includes VIEW, '[item.city, item.district].filter(function (v) { return !!v; }).join(" ")'
+    assert_includes VIEW, ".trim()"
+    assert_includes VIEW, '.filter(Boolean)'
+  end
+
+  # X4:placeLabel 可执行断言——从 view.js 提取函数体,Node 求值五分支
+  #（空白 city/district、tab 值、partial、nil 值、course）。
+  def test_place_label_trim_five_branches
+    fn_src = VIEW[/function placeLabel\(item\) \{.*?\n  \}/m]
+    refute_nil fn_src, "view.js 中 placeLabel 函数体应可提取"
+
+    cases = [
+      [{ kind: "event", city: "   ", district: "   " }, "地点待定"],
+      [{ kind: "event", city: "\t", district: "北京" }, "北京"],
+      [{ kind: "event", city: "北京", district: nil }, "北京"],
+      [{ kind: "event", city: nil, district: nil }, "地点待定"],
+      [{ kind: "course", city: "北京", district: "海淀区" }, ""]
+    ]
+    script = fn_src + cases.each_with_index.map do |(item, _expect), i|
+      ";console.log(JSON.stringify(placeLabel(#{JSON.generate(item)})));"
+    end.join
+    out, status = Open3.capture2e("node", "-e", script)
+    assert status.success?, "node eval placeLabel 失败: #{out}"
+    actual = out.lines.map(&:strip).reject(&:empty?)
+    cases.each_with_index do |(_item, expected), i|
+      assert_equal expected, JSON.parse(actual[i]), "分支 #{i} (#{cases[i][0].inspect})"
+    end
   end
 
   def test_detail_link_to_web
