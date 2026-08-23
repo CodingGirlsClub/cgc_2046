@@ -32,6 +32,7 @@ import type {
   EnrollmentPolicy,
   OfferingItem,
   OfferingKind,
+  VenueInfo,
   Visibility,
 } from "@/lib/graphql/events";
 import {
@@ -79,6 +80,10 @@ function friendlyOfferingError(
   if (/greater than or equal to 1/.test(raw)) {
     return "saveCapacityError";
   }
+  // KTD6：ends_at 须严格晚于 starts_at（message-only，无 domain_error_code）
+  if (/ends_at must be after starts_at/.test(raw)) {
+    return "scheduleOrderError";
+  }
   if (/cannot (launch|close|cancel) from status=/.test(raw)) {
     return "saveStateError";
   }
@@ -100,6 +105,109 @@ function fromLocalInput(value: string): string | null {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/* ---------------- 时间与 venue 录入（U5/R14，KTD5/KTD6） ---------------- */
+
+/** venue 四键空草稿（全空 = 线上/未定，提交时由 lib 组装为 null） */
+const EMPTY_VENUE: VenueInfo = { country: "", province: "", city: "", district: "" };
+
+/** venue JsonString → 四键草稿（null/非法 → 全空，表单从空白起步） */
+function parseVenueDraft(json: string | null | undefined): VenueInfo {
+  if (!json) return { ...EMPTY_VENUE };
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...EMPTY_VENUE };
+    }
+    const rec = parsed as Record<string, unknown>;
+    return {
+      country: typeof rec.country === "string" ? rec.country : "",
+      province: typeof rec.province === "string" ? rec.province : "",
+      city: typeof rec.city === "string" ? rec.city : "",
+      district: typeof rec.district === "string" ? rec.district : "",
+    };
+  } catch {
+    return { ...EMPTY_VENUE };
+  }
+}
+
+/** venue all-or-none：任一填写但四键未齐（trim 后）→ true，表单就地拦截不提交 */
+function venueDraftIncomplete(venue: VenueInfo): boolean {
+  const filled = Object.values(venue).filter((v) => v.trim() !== "").length;
+  return filled > 0 && filled < 4;
+}
+
+/** 开始/结束时间录入（datetime-local，留空 = 未定；end>start 由后端复验，KTD6） */
+function ScheduleFields({
+  startsAt,
+  endsAt,
+  onStartsAtChange,
+  onEndsAtChange,
+}: {
+  startsAt: string;
+  endsAt: string;
+  onStartsAtChange: (value: string) => void;
+  onEndsAtChange: (value: string) => void;
+}) {
+  const t = useTranslations("offerings");
+  return (
+    <>
+      <label className="block">
+        <span className="block text-[13px] text-ink-3">{t("startsAtHint")}</span>
+        <input
+          type="datetime-local"
+          value={startsAt}
+          onChange={(e) => onStartsAtChange(e.target.value)}
+          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+        />
+      </label>
+      <label className="block">
+        <span className="block text-[13px] text-ink-3">{t("endsAtHint")}</span>
+        <input
+          type="datetime-local"
+          value={endsAt}
+          onChange={(e) => onEndsAtChange(e.target.value)}
+          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+        />
+      </label>
+    </>
+  );
+}
+
+const VENUE_FIELD_LABEL: Record<keyof VenueInfo, string> = {
+  country: "venueCountry",
+  province: "venueProvince",
+  city: "venueCity",
+  district: "venueDistrict",
+};
+
+/** 结构化 venue 四键录入（KTD5；仅 event；all-or-none 提交前拦截） */
+function VenueFields({
+  value,
+  onChange,
+}: {
+  value: VenueInfo;
+  onChange: (value: VenueInfo) => void;
+}) {
+  const t = useTranslations("offerings");
+  return (
+    <fieldset className="grid gap-3">
+      <legend className="text-[13px] text-ink-3">{t("venueSection")}</legend>
+      {(Object.keys(VENUE_FIELD_LABEL) as (keyof VenueInfo)[]).map((key) => (
+        <label className="block" key={key}>
+          <span className="block text-[13px] text-ink-3">
+            {t(VENUE_FIELD_LABEL[key])}
+          </span>
+          <input
+            value={value[key]}
+            onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+            className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          />
+        </label>
+      ))}
+    </fieldset>
+  );
 }
 
 function Field({
@@ -324,6 +432,11 @@ interface MetaDraft {
   enrollmentPolicy: EnrollmentPolicy;
   capacity: string;
   deadline: string;
+  /** 开始/结束时间（datetime-local input 值，"" = 未定；R1，course 语义为开课/结课） */
+  startsAt: string;
+  endsAt: string;
+  /** venue 四键草稿（仅 event 渲染与下发；全空 = 线上/未定） */
+  venue: VenueInfo;
   /** 教研需求自由文本(U8/R12,仅 course;原文透传 research_requirements) */
   researchRequirements: string;
 }
@@ -499,6 +612,9 @@ export function OfferingDetailPage({
             capacity:
               offering.capacity === null ? "" : String(offering.capacity),
             deadline: toLocalInput(offering.registrationDeadline),
+            startsAt: toLocalInput(offering.startsAt ?? null),
+            endsAt: toLocalInput(offering.endsAt ?? null),
+            venue: parseVenueDraft(offering.venue),
             researchRequirements: parseResearchText(
               offering.researchRequirements,
             ),
@@ -539,6 +655,11 @@ export function OfferingDetailPage({
 
   async function saveMeta() {
     if (!offering || !activeDraft) return;
+    // venue all-or-none：任一填写则四键须齐全，否则就地拦截不提交（KTD5）
+    if (kind === "event" && venueDraftIncomplete(activeDraft.venue)) {
+      setSaveMessage(t("venueIncomplete"));
+      return;
+    }
     setSaveBusy(true);
     setSaveMessage(null);
     try {
@@ -548,13 +669,15 @@ export function OfferingDetailPage({
         capacity:
           activeDraft.capacity === "" ? null : Number(activeDraft.capacity),
         registrationDeadline: fromLocalInput(activeDraft.deadline),
+        startsAt: fromLocalInput(activeDraft.startsAt),
+        endsAt: fromLocalInput(activeDraft.endsAt),
         ...(kind === "course"
           ? {
               researchRequirements: buildResearchJson(
                 activeDraft.researchRequirements,
               ),
             }
-          : {}),
+          : { venue: activeDraft.venue }),
       });
       if (res.result) {
         setState({
@@ -565,6 +688,9 @@ export function OfferingDetailPage({
             enrollmentPolicy: res.result.enrollmentPolicy,
             capacity: res.result.capacity,
             registrationDeadline: res.result.registrationDeadline,
+            startsAt: res.result.startsAt ?? null,
+            endsAt: res.result.endsAt ?? null,
+            ...(kind === "event" ? { venue: res.result.venue ?? null } : {}),
           },
           error: null,
         });
@@ -878,6 +1004,27 @@ export function OfferingDetailPage({
                         className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
                       />
                     </label>
+
+                    <ScheduleFields
+                      startsAt={activeDraft.startsAt}
+                      endsAt={activeDraft.endsAt}
+                      onStartsAtChange={(v) =>
+                        setMetaDraft({ ...activeDraft, startsAt: v })
+                      }
+                      onEndsAtChange={(v) =>
+                        setMetaDraft({ ...activeDraft, endsAt: v })
+                      }
+                    />
+
+                    {kind === "event" ? (
+                      <VenueFields
+                        value={activeDraft.venue}
+                        onChange={(v) =>
+                          setMetaDraft({ ...activeDraft, venue: v })
+                        }
+                      />
+                    ) : null}
+
                     {kind === "course" ? (
                       <label className="block">
                         <span className="block text-[13px] text-ink-3">
@@ -1251,6 +1398,10 @@ export function OfferingNewPage({
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [capacity, setCapacity] = useState("");
   const [deadline, setDeadline] = useState("");
+  // 开始/结束时间（datetime-local 原值；R1）与 venue 四键草稿（仅 event，KTD5）
+  const [startsAt, setStartsAt] = useState("");
+  const [endsAt, setEndsAt] = useState("");
+  const [venue, setVenue] = useState<VenueInfo>({ ...EMPTY_VENUE });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1260,6 +1411,11 @@ export function OfferingNewPage({
 
   async function submit() {
     if (!ws) return;
+    // venue all-or-none：任一填写则四键须齐全，否则就地拦截不提交（KTD5）
+    if (kind === "event" && venueDraftIncomplete(venue)) {
+      setError(t("venueIncomplete"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -1268,14 +1424,15 @@ export function OfferingNewPage({
         enrollmentPolicy,
         visibility,
         capacity: capacity === "" ? null : Number(capacity),
-        registrationDeadline: deadline
-          ? new Date(deadline).toISOString()
-          : null,
+        registrationDeadline: fromLocalInput(deadline),
+        startsAt: fromLocalInput(startsAt),
+        endsAt: fromLocalInput(endsAt),
+        ...(kind === "event" ? { venue } : {}),
       });
       if (res.result) {
         router.push(`${base}/${res.result.id}`);
       } else {
-        setError(res.errors[0]?.message ?? t("createFailed"));
+        setError(t(friendlyOfferingError(res.errors[0], "createFailed")));
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t("createFailed"));
@@ -1410,6 +1567,17 @@ export function OfferingNewPage({
                 className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
               />
             </label>
+
+            <ScheduleFields
+              startsAt={startsAt}
+              endsAt={endsAt}
+              onStartsAtChange={setStartsAt}
+              onEndsAtChange={setEndsAt}
+            />
+
+            {kind === "event" ? (
+              <VenueFields value={venue} onChange={setVenue} />
+            ) : null}
 
             {error ? <p className="text-[13px] text-ink-3">{error}</p> : null}
 

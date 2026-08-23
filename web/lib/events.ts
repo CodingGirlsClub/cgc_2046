@@ -4,6 +4,7 @@ import type {
 	OfferingKind,
 	OfferingMutationResult,
 	EventStatus,
+	VenueInfo,
 	Visibility,
 } from "./graphql/events";
 import {
@@ -67,6 +68,12 @@ export type OfferingDraftInput = {
 	visibility: Visibility;
 	capacity?: number | null;
 	registrationDeadline?: string | null;
+	/** 开始时间（UTC ISO；null = 未定；R1，course 语义为开课/结课） */
+	startsAt?: string | null;
+	/** 结束时间（UTC ISO；须晚于 startsAt，KTD6 后端复验；null = 未定） */
+	endsAt?: string | null;
+	/** 结构化 venue 四键草稿（仅 event；全空/null → 提交 null；缺键由表单 all-or-none 拦截，不下发） */
+	venue?: VenueInfo | null;
 };
 
 export type OfferingUpdateInput = {
@@ -75,6 +82,12 @@ export type OfferingUpdateInput = {
 	visibility?: Visibility;
 	capacity?: number | null;
 	registrationDeadline?: string | null;
+	/** 开始时间（UTC ISO；null = 清除/未定；未传 = 不落键保留既有值） */
+	startsAt?: string | null;
+	/** 结束时间（UTC ISO；同 startsAt 语义） */
+	endsAt?: string | null;
+	/** 结构化 venue 四键草稿（仅 event；全空/null → 清除；未传 = 不落键保留既有值） */
+	venue?: VenueInfo | null;
 	/** 赞助档位配置（每项 JSON.stringify 后作为 JsonString 提交；E-3 #48，仅 event） */
 	sponsorshipTiers?: string[];
 	/** 是否收费（U2-R1 定价面；收费报名须选档并完成支付，R4） */
@@ -82,6 +95,22 @@ export type OfferingUpdateInput = {
 	/** 价格档位配置（每项 JSON.stringify 后作为 JsonString 提交；PriceTier 形状） */
 	priceTiers?: string[];
 };
+
+/**
+ * venue 四键草稿 → JsonString（KTD5 形状校验后端兜底）；
+ * null/全空（trim 后）→ null。all-or-none 缺键拦截在表单层（不下发）。
+ */
+function venueDraftToJson(venue: VenueInfo | null | undefined): string | null {
+	if (!venue) return null;
+	const v = {
+		country: venue.country.trim(),
+		province: venue.province.trim(),
+		city: venue.city.trim(),
+		district: venue.district.trim(),
+	};
+	if (Object.values(v).every((s) => s === "")) return null;
+	return JSON.stringify(v);
+}
 
 /** 状态机动作（详情页按钮） */
 export type EventTransition = "launch" | "close" | "cancel";
@@ -183,6 +212,10 @@ export async function createOffering(
 				visibility: input.visibility,
 				capacity: input.capacity ?? null,
 				registrationDeadline: input.registrationDeadline ?? null,
+				startsAt: input.startsAt ?? null,
+				endsAt: input.endsAt ?? null,
+				// venue 仅 event 有槽（CreateCourseInput 无此字段，下发即 GraphQL 校验错误）
+				...(kind === "event" ? { venue: venueDraftToJson(input.venue) } : {}),
 			},
 		},
 	});
@@ -198,9 +231,20 @@ export async function updateOffering(
 	kind: OfferingKind,
 	input: OfferingUpdateInput,
 ): Promise<OfferingMutationResult> {
+	const { venue, ...rest } = input;
 	const { data } = await client.mutate({
 		mutation: MUTATION_BY_KIND[kind].update,
-		variables: { id, input },
+		variables: {
+			id,
+			input: {
+				...rest,
+				// venue 草稿 → JsonString（全空 → null 清除）；未传不落键保留既有值；
+				// course 无 venue 槽，误传剥离不下发
+				...(venue !== undefined && kind === "event"
+					? { venue: venueDraftToJson(venue) }
+					: {}),
+			},
+		},
 	});
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
