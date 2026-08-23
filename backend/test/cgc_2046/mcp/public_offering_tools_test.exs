@@ -501,16 +501,20 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     # 故障注入不 mock 内部：直改库把公开活动的 enrollment_policy 落为越枚举值
     # （text 列，绕过 Ash 校验），read_one 装载时 atom 枚举 cast 失败 = 真实读
     # 失败；断言在消息边界（execute 返回的用户可见 error message）。
+    # 注入值必须每跑随机生成：Ash 的 enum load 走 String.to_existing_atom——
+    # 固定字面量（如 "bogus"）会被套件里其它测试的同名 atom 字面量预热，
+    # 全量跑时 cast 反而成功（单文件跑才失败），注入就漂了。
     test "读取失败（DB 故障）报 failed to load 而非 not found" do
       admin = Fixtures.platform_admin("po-get-loadfail")
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin, %{title: "读失败活动"})
       outsider = Fixtures.register_user("po-get-loadfail-user")
+      bad_policy = "po-fault-#{System.unique_integer([:positive])}"
 
       assert {:ok, _} =
                Ecto.Adapters.SQL.query(
                  Cgc2046.Repo,
-                 "UPDATE events SET enrollment_policy = 'bogus' WHERE id = '#{event.id}'"
+                 "UPDATE events SET enrollment_policy = '#{bad_policy}' WHERE id = '#{event.id}'"
                )
 
       # kind 缺省：event 读取失败不得降级为「不存在」（若回退 course 查同一 id，
