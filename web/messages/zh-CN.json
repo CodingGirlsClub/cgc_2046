@@ -1598,6 +1598,11 @@
       "request": "申请审批",
       "invite_only": "邀请码报名"
     },
+    "enrollmentBadge": {
+      "enrolling": "报名中",
+      "starting_soon": "即将开始",
+      "full": "已满"
+    },
     "offeringKind": {
       "event": "活动",
       "course": "课程"

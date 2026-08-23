@@ -22,6 +22,21 @@ export type EventStatus = "draft" | "open" | "closed" | "cancelled";
 export type EnrollmentPolicy = "open" | "request" | "invite_only";
 export type Visibility = "public" | "workspace";
 
+/**
+ * 公开派生报名标签（R6/KTD1，后端 EnrollmentBadge 单源）：
+ * 优先级 full > starting_soon > enrolling；无 startsAt 永不 starting_soon。
+ * 公开面只暴露派生标签，不暴露 capacity/confirmedCount 原始计数。
+ */
+export type EnrollmentBadge = "enrolling" | "starting_soon" | "full";
+
+/** 结构化场地（venue JsonString JSON.parse 后形状，恰四键；仅 event 有 venue 槽，course 无位置概念） */
+export interface VenueInfo {
+  country: string;
+  province: string;
+  city: string;
+  district: string;
+}
+
 /** 活动/课程共享字段（后端两个资源同构） */
 export interface OfferingItem {
   id: string;
@@ -96,6 +111,12 @@ export const OFFERING_LABEL: Record<OfferingKind, string> = {
   course: "labels.offeringKind.course",
 };
 
+export const ENROLLMENT_BADGE_LABEL: Record<EnrollmentBadge, string> = {
+  enrolling: "labels.enrollmentBadge.enrolling",
+  starting_soon: "labels.enrollmentBadge.starting_soon",
+  full: "labels.enrollmentBadge.full",
+};
+
 export const EVENT_STATUSES: EventStatus[] = [
   "draft",
   "open",
@@ -107,6 +128,11 @@ export const ENROLLMENT_POLICIES: EnrollmentPolicy[] = [
   "open",
   "request",
   "invite_only",
+];
+export const ENROLLMENT_BADGES: EnrollmentBadge[] = [
+  "enrolling",
+  "starting_soon",
+  "full",
 ];
 
 /* ---------------- Queries ---------------- */
@@ -422,7 +448,7 @@ export const CANCEL_COURSE: TypedDocumentNode<
 
 /* ---------------- 公开面（E-5 #50：匿名白名单字段查询，不含 D2 敏感字段） ---------------- */
 
-/** 公开活动/课程条目（匿名可读白名单：id/title/status/visibility/enrollmentPolicy/registrationDeadline） */
+/** 公开活动/课程条目（匿名可读白名单：id/title/status/visibility/enrollmentPolicy/registrationDeadline + 时间/badge；capacity/confirmedCount 对匿名恒不可读） */
 export interface PublicOfferingItem {
   id: string;
   slug: string;
@@ -432,6 +458,14 @@ export interface PublicOfferingItem {
   visibility: Visibility;
   enrollmentPolicy: EnrollmentPolicy;
   registrationDeadline: string | null;
+  /** 开始时间（ISO8601）；null = 未定，展示层兜底「时间待定」（R3） */
+  startsAt?: string | null;
+  /** 结束时间（ISO8601）；null = 未定（R3） */
+  endsAt?: string | null;
+  /** 公开派生报名标签（R6/KTD1；展示经 ENROLLMENT_BADGE_LABEL） */
+  enrollmentBadge?: EnrollmentBadge | null;
+  /** 结构化场地（JsonString，JSON.parse 后为 VenueInfo；仅 event 有，null = 线上/未定，展示层兜底「地点待定」，R3） */
+  venue?: string | null;
   /** 是否收费（公开报名面收费项须选档；R4 免费零变化） */
   pricingEnabled?: boolean | null;
   /** 可售价格档位（JsonString 数组，后端已过滤过期档，R2；解析见 lib/payment.parsePriceTiers） */
@@ -458,6 +492,10 @@ export const PUBLIC_LIST_EVENTS: TypedDocumentNode<{
         visibility
         enrollmentPolicy
         registrationDeadline
+        startsAt
+        endsAt
+        enrollmentBadge
+        venue
       }
     }
   }
@@ -479,6 +517,9 @@ export const PUBLIC_LIST_COURSES: TypedDocumentNode<{
         visibility
         enrollmentPolicy
         registrationDeadline
+        startsAt
+        endsAt
+        enrollmentBadge
       }
     }
   }
@@ -498,6 +539,10 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       visibility
       enrollmentPolicy
       registrationDeadline
+      startsAt
+      endsAt
+      enrollmentBadge
+      venue
       sponsorshipEnabled
       sponsorshipTiers
       pricingEnabled
@@ -520,6 +565,9 @@ export const PUBLIC_GET_COURSE: TypedDocumentNode<
       visibility
       enrollmentPolicy
       registrationDeadline
+      startsAt
+      endsAt
+      enrollmentBadge
       pricingEnabled
       availablePriceTiers
     }
