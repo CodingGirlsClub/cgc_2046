@@ -14,7 +14,7 @@ execution: code
 ## Goal Capsule
 
 - **Objective:** 任何人都能在自己所在的面上发现 CGC 的公开活动与课程——未注册访客在 web 公开页，已接入用户在 OpenClacky 的聊天与侧边栏；发现之后有明确的下一步动作。
-- **Means:** 三面共用一份公开数据口径（新增公开浏览 MCP 读工具，与 web 匿名白名单同源）；web 公开页采用 landing 全暗视觉；Event/Course 补开始/结束时间与结构化 venue 字段及录入入口（KD3；实现面见 KTD1-KTD9）。
+- **Means:** 三面共用一份公开数据口径（新增公开浏览 MCP 读工具，与 web 匿名白名单同源）；web 公开页采用 landing 全暗视觉；Event/Course 补开始/结束时间与结构化 venue 字段及录入入口（KD2-KD4；实现面见 KTD1-KTD9）。
 - **Product authority:** 产品决策由项目 owner 在 brainstorm 对话中拍板；本计划管「公开活动/课程可发现性」一个工作单元，#293 其余条目不是本轮范围。
 - **Stop conditions:** 需要改动报名/支付流程、引入新第三方依赖、或扩大匿名数据白名单时，停下回报，不自行扩大范围。
 - **Open blockers:** 无。
@@ -94,7 +94,7 @@ flowchart TB
 
 - R7. /events、/courses 列表与详情页采用 landing 同款固定深色视觉（`.ld-*` token 体系），不受应用明暗主题影响；应用内页面双主题保持不变。
 - R8. 列表沿用 landing 行式形态（OfferingRow 同款 `.ld-*` 语言，不引入卡片），每行展示标题、状态标签（per R6）、报名政策、截止时间、开始时间与地点（地点仅 Event，per R3），字段排进 meta 行。
-- R9. 详情页提升信息密度，完整呈现描述、开始/结束/截止时间、venue（仅 Event，per R3）、报名政策与定价档位。
+- R9. 详情页提升信息密度，完整呈现描述、开始/结束/截止时间、venue（仅 Event，per R3）、报名政策、定价档位与赞助区（档位卡 + 意向表单，随页整体暗色化）。
 - R10. 公开页与 landing 继续共用同一匿名数据通道，仅扩展字段，不新建数据路径。
 
 **Agent 与侧边栏**
@@ -153,6 +153,7 @@ flowchart TB
 - Agent 答得上：问「最近有什么」「<地点> 有什么」得到真实数据，答案条目与公开读面返回一致，无编造。
 - 侧边栏看得见：发现入口列出公开条目并含时间/地点/状态，能打开详情。
 - 内容可录入：Owner 表单填完时间与 venue 后，web、agent、侧边栏、小程序详情即刻可见。
+- 发布门槛：上线前所有 status=open 且 visibility=public 的活动/课程完成开始/结束时间（Event 另含 venue）回填，公开面无「待定」刷屏。
 
 ### Scope Boundaries
 
@@ -193,10 +194,10 @@ flowchart TB
 - KTD2. **公开工具以匿名姿态读。** `Ash.read(actor: nil)` + 显式 `status == :open and visibility == :public` 过滤 + 显式 DTO 投影；成员调用者不因身份看到超出匿名白名单的数据（否则 ActorReadsOffering 造成 parity 泄漏）。用 `Ash.read` 不用 `read!`（审计要求）。落实 KD5。Governs R4, R16.
 - KTD3. **豁免 meta 开新家族 `membership: :public`。** 工具 meta 为 `%{workspace_id: :optional, membership: :public}`；wrapper.ex 加对应子句（跳过 workspace_id 必填且跳过 membership 校验，actor 校验恒在）——新 `%{membership: :public}` 子句必须置于现有 `%{workspace_id: :optional}` 子句之前（map 模式是子集匹配，追加在后即为永不命中的死子句），且 wrapper_gate_test.exs 除名单与计数外须断言两个公开工具命中 `:public` 分支而非落入 optional 分支。不复用确认流家族的语义，保住 fail-closed 的可评审面。Governs R4, R16.
 - KTD4. **两个工具，过滤在服务端。** (session-settled: user-approved — chosen over 城市过滤同时作用于课程: 课程为线上，按地点过滤会错误纳入或排除。) `list_public_offerings` 返回紧凑行（id/slug/title/kind/badge/starts_at/venue 的 city+district，无 description）+ total_count + undated_count，limit 20；`get_public_offering` 按 id 返回全白名单字段（含 description 与 pricingEnabled/availablePriceTiers）。过滤参数 kind/city/starts_after/starts_before；city 为跨 city/province/district 的大小写不敏感 contains，只作用于 event。排序 starts_at ASC NULLS LAST，tiebreak 为 registration_deadline、inserted_at。「近期」= starts_at >= now 或为 NULL；带时间过滤时无时间条目被排除并计入 undated_count。工具 description 钉死语义：跨工作区公开范围、空结果直说没有、「最近/近期」= starts_at >= now 的未来条目加上无时间条目（与过滤规则一致；无时间条目标「时间待定」）。两个工具都是低风险读，不进确认流。Governs R4, R5, R16.
-- KTD5. **venue = 单嵌入 map + 形状校验，不引行政区划依赖。** (session-settled: user-approved — chosen over 引入行政区划数据库: 新依赖触发 license 门禁，公开活动量级小，自由文本足够。) `:map` 列（jsonb）存 country/province/city/district 四键；新建 Cgc2046.Events.Venue 形状模块（sponsorship_tier.ex 先例）+ changeset validation；owner 表单为四个文本 input 组装 map。落实 KD4。Governs R2, R14.
+- KTD5. **venue = 单嵌入 map + 形状校验，不引行政区划依赖。** (session-settled: user-approved — chosen over 引入行政区划数据库: 新依赖触发 license 门禁，公开活动量级小，自由文本足够。) `:map` 列（jsonb）存 country/province/city/district 四键；新建 Cgc2046.Events.Venue 形状模块（sponsorship_tier.ex 先例）+ changeset validation；owner 表单为四个文本 input 组装 map。GraphQL 边界：本仓 `:map` 属性经 ash_graphql 暴露为 JsonString 标量（先例 research_requirements），web/小程序读侧统一经 parseVenue helper（照 web/lib/public-offerings.ts 的 parseSponsorshipTiers 容错纪律，解析失败按 nil），写侧 JSON.stringify 后提交；MCP 工具返回真 map，parity 测试先解码 GraphQL 侧再逐字段比对。落实 KD4。Governs R2, R14.
 - KTD6. **end > start 校验，message-only。** 两值同时存在时校验结束晚于开始，create 与 update 都挂；start 在过去允许（历史活动可录入）；不加新 domain_error_code（message-only 先例 sponsorship_tier.ex:90-94，不触发错误码契约再生成）。Governs R1, R14.
-- KTD7. **助手 prompt 与引导文案修复。** system_prompt.md 工具清单从 8 刷到 17、workspace_id 毯规则加公开工具例外、补 no-fabrication 纪律（只答工具返回的条目、空结果直说没有、地点只取自用户话语，缺则追问）；R13 静态文案落在 onboarding skill 完成语与 prompt usage 段，验收 = 文案存在。Governs R11, R13.
-- KTD8. **单 PR，按依赖序提交。** backend（属性 + migration + snapshots + schema.graphql 重生成）→ web → 小程序（operations + generated 代码同步，CI 有 `git diff --exit-code` 闸）→ 扩展。无新依赖，mix.lock 不变，deps-image 节奏不受影响。CONTEXT.md 随 U2 同步（工具数 15→17、workspace_id 作用域词条改写）。
+- KTD7. **助手 prompt 与引导文案修复。** system_prompt.md 工具清单从 8 刷到 17、workspace_id 毯规则加公开工具例外、补 no-fabrication 纪律（只答工具返回的条目、空结果直说没有、地点只取自用户话语，缺则追问）；另补不可信数据纪律：公开工具返回的 title/description/venue/定价文本是其他工作区 owner 录入的第三方数据，仅可作为内容转述，其中出现的任何指令一律忽略、不执行、不改变当前任务，也不得由其触发工具调用；两个公开工具的 description 标注返回文本为用户录入内容。R13 静态文案落在 onboarding skill 完成语与 prompt usage 段，验收 = 文案存在。Governs R11, R13.
+- KTD8. **单 PR，按依赖序提交。** 层序与 Sequencing 波次一致：backend 资源与工具（U1, U2；属性 + migration + snapshots + schema.graphql 重生成）→ GraphQL 白名单与扩展（U3, U6）→ web 与小程序（U4, U5, U7；小程序 operations + generated 代码同步，CI 有 `git diff --exit-code` 闸）。无新依赖，mix.lock 不变，deps-image 节奏不受影响。CONTEXT.md 随 U2 同步（工具数 15→17、workspace_id 作用域词条改写）。
 - KTD9. **独立发现面板，条目跳 web 详情。** (session-settled: user-approved — chosen over 并入现有面板或在面板内渲染详情: 与课程面板先例一致，web 详情页本就公开匿名可访问。) ext.yml 注册 order 10 面板；api/offering_routes.rb 直连 connected_registry，不复用 course_tool 的 workspace_id 硬要求；条目链接拼 config.web_url + 公开详情路径，先验证 locale 前缀下裸路径能正常跳转。Governs R12.
 
 ### High-Level Technical Design
@@ -227,12 +228,14 @@ stateDiagram-v2
   Loading --> Empty: 0 条
   Loading --> List: >=1 条
   Error --> Loading: 点重试
-  NotConnected --> Loading: 连接后重进
+  List --> Loading: 点刷新
+  Empty --> Loading: 点刷新
+  NotConnected --> Loading: 点重试
 ```
 
 ### Sequencing
 
-按 KTD8：U1 → U2 → (U3, U6, U7) → (U4, U5)，单 PR 落地（U3 依赖 U2 的工具做 parity 契约，故 U2 先于 U3；与各单元声明的 Dependencies 一致）。PR 走 feature→develop，`gh pr merge --auto --merge`（merge commit，根 AGENTS.md 约定）。mix.lock 未变，无 deps-image 等待约束；但 migration 与 snapshots 必须与资源改动同 PR，否则 CI 的 `generate_migrations --check` 红。
+按 KTD8：U1 → U2 → (U3, U6) → (U4, U5, U7)，单 PR 落地（U3 依赖 U2 的工具做 parity 契约，故 U2 先于 U3；U7 的 codegen 依赖 U3 暴露的新字段，故 U7 在 U3 之后；与各单元声明的 Dependencies 一致）。PR 走 feature→develop，`gh pr merge --auto --merge`（merge commit，根 AGENTS.md 约定）。mix.lock 未变，无 deps-image 等待约束；但 migration 与 snapshots 必须与资源改动同 PR，否则 CI 的 `generate_migrations --check` 红。
 
 ---
 
@@ -273,7 +276,7 @@ stateDiagram-v2
 - **Goal:** 匿名 GraphQL 暴露新字段与 badge，web 数据层同步，并钉住「工具返回 = 匿名 GraphQL」的逐字段契约。
 - **Requirements:** R10, R6（web 侧）, R3（web 侧） — per KTD1, KTD2.
 - **Files:** backend/lib/cgc_2046/events/event.ex、course.ex（graphql 块 + calculation `load:`）、schema.graphql（编译期自动重生，勿手改）、backend/test/cgc_2046_web/graphql_public_offering_test.exs、web/lib/graphql/events.ts。
-- **Approach:** 两资源 graphql 块暴露 starts_at/ends_at/venue/enrollment_badge；web/lib/graphql/events.ts 的 PublicOfferingItem、PUBLIC_LIST_* 与详情查询补字段；badge 的 label map 收在 events.ts:66-110 的既有惯例里；parity 契约测试逐条断言工具返回与匿名 GraphQL 同字段同值（含 badge、venue、时间），并断言成员身份调用工具不超标。
+- **Approach:** 两资源 graphql 块暴露 starts_at/ends_at/venue/enrollment_badge；web/lib/graphql/events.ts 的 PublicOfferingItem、PUBLIC_LIST_* 与详情查询补字段；badge 的 label map 收在 events.ts:66-110 的既有惯例里；parity 契约测试逐条断言工具返回与匿名 GraphQL 同字段同值（含 badge、venue、时间），并断言成员身份调用工具不超标；venue 经 GraphQL 为 JsonString（KTD5 GraphQL 边界），parity 断言先解码 GraphQL 侧再比对，web 读侧统一经 parseVenue。
 - **Test scenarios:**
   - 匿名 GraphQL 可查新字段，capacity/confirmed_count 仍 null。
   - badge 经 GraphQL 返回值与 calculation 单测一致。
@@ -286,12 +289,13 @@ stateDiagram-v2
 - **Goal:** /events、/courses 列表与详情进入 landing 全暗视觉，行式列表挂状态标签。
 - **Requirements:** R7, R8, R9, AE1, AE2, AE4 — per KTD1.
 - **Files:** web/components/public-offerings.tsx、web/components/public-offering-detail.tsx、web/components/landing-page.tsx（OfferingRow 换同款 badge）、web/messages/ 双语 i18n 文件。
-- **Approach:** 页面套 `.ld-root` 消费 globals.css 既有 `.ld-*` token；列表复用 landing OfferingRow 行式语言（标题/状态标签/报名政策/截止/开始时间/地点排进 meta 行，与 landing 零跳变，不新增卡片 token）；详情页提密度（描述/三时间/venue/报名政策/定价档位；定价档位为匿名可见的静态信息块，登录后 radio 选档器沿用现状作选择控件）；loading 暗色骨架抄 landing-page.tsx:148-157 骨架模式，empty 为纯文案，error 态保留错误消息与重试按钮（不抄跨页链接，/events→/events 会自环）；EventStatusTag 仅留工作区内部页；详情 not-accessible 文案中性化为「已结束或不公开访问」；报名失败后 refetch 让 badge 重派生；所有新文案走 i18n 双语 key（禁硬编码中文）。
+- **Approach:** 页面套 `.ld-root` 消费 globals.css 既有 `.ld-*` token；列表复用 landing OfferingRow 行式语言（标题/状态标签/报名政策/截止/开始时间/地点排进 meta 行，与 landing 零跳变，不新增卡片 token）；详情页提密度（描述/三时间/venue/报名政策/定价档位；定价档位为匿名可见的静态信息块，登录后 radio 选档器沿用现状作选择控件）；loading 暗色骨架抄 landing-page.tsx:148-157 骨架模式，empty 为纯文案，error 态保留错误消息与重试按钮（不抄跨页链接，/events→/events 会自环）；EventStatusTag 仅留工作区内部页；详情 not-accessible 文案中性化为「已结束或不公开访问」；报名失败后 refetch 让 badge 重派生；赞助区（档位卡 + 意向表单）随详情页整体暗色化，独占位徽标的硬编码 amber 调色板类改为 `.ld-root` 作用域下的语义 token；可访问性与响应式：行栅格与详情元信息区沿用 `.ld-*` 现有断点，重写保留现状报名分支的 role="status"/role="alert" 与 fieldset/legend 语义，表单控件在暗色下有可辨边框与 focus-visible 样式；所有新文案走 i18n 双语 key（禁硬编码中文）。
 - **Test scenarios:**
   - badge 三态 + 无时间「时间待定」兜底在列表行与详情的渲染（AE1/AE2）。
   - error 态显示错误消息与重试按钮，点击重试触发重新拉取。
   - 系统浅色主题下页面仍深色（AE4 结构断言：`.ld-root` 在场且背景 token 为暗色值）。
   - 满员详情不呈现报名动作；报名失败触发 refetch。
+  - 详情页无非 token 硬编码色值（结构断言，覆盖赞助区徽标）。
   - i18n key parity 检查通过。
 - **Verification:** `cd web && pnpm test && pnpm typecheck && pnpm lint`。
 - **Dependencies:** U3。
@@ -301,7 +305,7 @@ stateDiagram-v2
 - **Goal:** Owner 创建/编辑时可填开始/结束时间与 venue。
 - **Requirements:** R14, R1, R2 — per KTD5, KTD6.
 - **Files:** web/components/offering-pages.tsx、web/lib/events.ts、web/lib/graphql/events.ts（mutation）、web/messages/ 双语 i18n 文件。
-- **Approach:** 新建页（OfferingNewPage）与编辑页（MetaDraft 段）加 starts_at/ends_at 的 datetime-local input（先例 L1407-1408，复用 toLocalInput/fromLocalInput helpers L91-103）；Event 表单另加 venue 四文本 input，在 web/lib/events.ts 的 createOffering/updateOffering 里显式组装 input（时间转 UTC、venue 组 map）；venue 四 input 做客户端 all-or-none 校验——任一填写则缺键就地提示、不提交，全空按 nil 提交；i18n 走 `offerings.*` 命名空间。
+- **Approach:** 新建页（OfferingNewPage）与编辑页（MetaDraft 段）加 starts_at/ends_at 的 datetime-local input（先例 L1407-1408，复用 toLocalInput/fromLocalInput helpers L91-103）；Event 表单另加 venue 四文本 input，在 web/lib/events.ts 的 createOffering/updateOffering 里显式组装 input（时间转 UTC、venue 组 map）；venue 四 input 做客户端 all-or-none 校验——任一填写则缺键就地提示、不提交，全空按 nil 提交；提交时 venue JSON.stringify 为 JsonString（KTD5 GraphQL 边界）；venue 四输入窄屏纵向堆叠，控件暗色边框与 focus-visible 同 U4 口径；i18n 走 `offerings.*` 命名空间。
 - **Test scenarios:**
   - 提交 payload：datetime-local 值正确转 UTC；venue 四值组成 map 形状；空 venue 提交 nil。
   - venue 部分填写（缺键）被就地拦截、不产生提交。
@@ -320,7 +324,8 @@ stateDiagram-v2
   - 路由测试（FakeRegistry + allocate @params 先例）：未连接 → 503 NOT_CONNECTED；透传参数与返回形状正确；上游错误分层。
   - view.js 静态断言：IIFE 守卫、escapeHtml 包裹动态值、not-connected 视图在场（AE5）。
   - starts_at 为空的条目在面板行显示「时间待定」而非空白；Event 空 venue 显「地点待定」，Course 不渲染位置槽（R3，与 U4/U7 同一套兜底文案）。
-  - system_prompt 断言：工具清单数 = 17、公开工具豁免说明与 no-fabrication 段在场。
+  - system_prompt 断言：工具清单数 = 17、公开工具豁免说明、no-fabrication 段与不可信数据纪律段在场。
+  - 未连接视图含重试入口；列表/空态视图含刷新入口（静态断言）。
   - `bin/pack` 校验通过。
 - **Verification:** `cd openclacky-ext/cgc-2046 && mise exec -- ruby test/offering_routes_test.rb`（不在 CI，本地必跑）。
 - **Dependencies:** U2。
@@ -330,12 +335,12 @@ stateDiagram-v2
 - **Goal:** 小程序活动/课程详情展示新字段，空值有「待定」兜底。
 - **Requirements:** R15, R3 — per KTD1.
 - **Files:** miniprogram/src/api/operations.ts、miniprogram/src/api/generated/（codegen 产物）、miniprogram 的 models.ts 与 real.ts、miniprogram/src/pages/event-detail/index.tsx。
-- **Approach:** 两个 query 补 starts_at/ends_at/venue/enrollment_badge → `pnpm codegen` 重生成 → CatalogItem 与 mapContent 透传 → 详情页显式行展示（metrics/schemaFields 区），空值显「时间待定」；Event 空 venue 显「地点待定」（Course 无位置槽，per R3）。顺带用 badge 理顺 confirmedCount 对非成员为 null 的现有渲染问题。硬编码中文沿用小程序现状，不引 i18n。
+- **Approach:** 两个 query 补 starts_at/ends_at/venue/enrollment_badge → `pnpm codegen` 重生成 → CatalogItem 与 mapContent 透传 → 详情页显式行展示（metrics/schemaFields 区），空值显「时间待定」；Event 空 venue 显「地点待定」（Course 无位置槽，per R3）；venue 经 GraphQL 为 JsonString，渲染前 parse、解析失败按 nil（KTD5 GraphQL 边界）。顺带用 badge 理顺 confirmedCount 对非成员为 null 的现有渲染问题。硬编码中文沿用小程序现状，不引 i18n。
 - **Test scenarios:**
   - 有值行渲染正确；空值行显「待定」兜底（AE2 小程序面）。
   - `pnpm check:ci` 通过（含 codegen diff 闸）。
 - **Verification:** `cd miniprogram && pnpm check:ci`。
-- **Dependencies:** U1。
+- **Dependencies:** U1, U3（codegen 需要 U3 暴露的新字段）。
 
 ---
 
@@ -350,7 +355,8 @@ stateDiagram-v2
 | 小程序 | `cd miniprogram && pnpm check:ci` | U7（含 codegen diff 闸） |
 | 扩展 | `cd openclacky-ext/cgc-2046 && mise exec -- ruby test/offering_routes_test.rb` + `bin/pack` 校验 | U6（不在 CI，本地必跑） |
 | Parity 契约 | U3 的 backend 测试：工具返回 vs 匿名 GraphQL 逐字段一致 | R4, R10, R16 |
-| E2E | agent-browser：结构断言（暗色 token / 行式列表 / badge 数值）→ 交互流（列表→详情→报名入口；面板各状态）→ 登录态优先 `connect <cdp-port>` 复用 | F1, F3, AE4, AE5 |
+| E2E | agent-browser：结构断言（暗色 token / 行式列表 / badge 数值）→ 交互流（列表→详情→报名入口；面板各状态）→ 键盘可达性（Tab 走通列表→详情→报名入口，焦点可见）→ 登录态优先 `connect <cdp-port>` 复用 | F1, F3, AE4, AE5 |
+| Agent-chat E2E | 种子数据下问助手「最近有什么活动」「北京近期有什么」：答案条目与 list_public_offerings 返回逐 id 一致；无匹配时明确应答没有 | F2, R11, AE3 |
 
 ---
 
