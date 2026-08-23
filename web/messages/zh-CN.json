@@ -483,7 +483,10 @@
     "pickTierFirst": "请先选择价格档位",
     "slotReservedMsg": "名额已保留，请在限定时间内完成支付",
     "pendingMsg": "申请已提交，等待审批",
-    "enrolledMsg": "报名成功"
+    "enrolledMsg": "报名成功",
+    "reconciling": "同步中…",
+    "reconcileFailed": "未能同步最新状态，同步成功前暂不可重复提交。",
+    "resync": "重新同步"
   },
   "apply": {
     "loading": "加载中…",
