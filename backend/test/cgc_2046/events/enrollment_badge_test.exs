@@ -8,8 +8,8 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
   - starts_at 落在未来 7 天内且报名未截止（deadline 为空或晚于 now）→ starting_soon
   - 其余 → enrolling；无 starts_at 的条目永不为 starting_soon（AE2 数据面）
 
-  confirmed_count 只能由 Enrollment 原子维护——测试经裸 SQL 置位（布置而非
-  被测对象，EventsFixtures.force_open 同款纪律）。
+  confirmed_count 只能由 Enrollment 原子维护——测试经 EventsFixtures.set_confirmed_count
+  裸 SQL 置位（布置而非被测对象，force_open 同款纪律）。
   """
 
   use Cgc2046.DataCase, async: true
@@ -32,7 +32,7 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
 
     test "名额满（confirmed_count >= capacity）→ full", ctx do
       event = EventFixtures.create_event(ctx.workspace, ctx.admin, %{capacity: 2})
-      event = set_confirmed_count(event, :events, 2)
+      event = EventFixtures.set_confirmed_count(event, :events, 2)
       assert badge(event) == :full
     end
 
@@ -41,16 +41,16 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           capacity: 1,
           registration_deadline: nil,
-          starts_at: days_from_now(3)
+          starts_at: EventFixtures.days_from_now(3)
         })
 
-      event = set_confirmed_count(event, :events, 1)
+      event = EventFixtures.set_confirmed_count(event, :events, 1)
       assert badge(event) == :full
     end
 
     test "confirmed_count < capacity → 不 full", ctx do
       event = EventFixtures.create_event(ctx.workspace, ctx.admin, %{capacity: 2})
-      event = set_confirmed_count(event, :events, 1)
+      event = EventFixtures.set_confirmed_count(event, :events, 1)
       assert badge(event) == :enrolling
     end
 
@@ -58,7 +58,7 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           registration_deadline: nil,
-          starts_at: days_from_now(3)
+          starts_at: EventFixtures.days_from_now(3)
         })
 
       assert badge(event) == :starting_soon
@@ -67,8 +67,8 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
     test "starts_at 未来 7 天内且 deadline 晚于 now → starting_soon", ctx do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
-          registration_deadline: days_from_now(2),
-          starts_at: days_from_now(6)
+          registration_deadline: EventFixtures.days_from_now(2),
+          starts_at: EventFixtures.days_from_now(6)
         })
 
       assert badge(event) == :starting_soon
@@ -88,7 +88,7 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           registration_deadline: nil,
-          starts_at: days_from_now(-1)
+          starts_at: EventFixtures.days_from_now(-1)
         })
 
       assert badge(event) == :enrolling
@@ -98,7 +98,7 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           registration_deadline: nil,
-          starts_at: days_from_now(8)
+          starts_at: EventFixtures.days_from_now(8)
         })
 
       assert badge(event) == :enrolling
@@ -107,8 +107,8 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
     test "deadline 已过 → 不 starting_soon（报名已截止）", ctx do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
-          registration_deadline: days_from_now(-1),
-          starts_at: days_from_now(3)
+          registration_deadline: EventFixtures.days_from_now(-1),
+          starts_at: EventFixtures.days_from_now(3)
         })
 
       assert badge(event) == :enrolling
@@ -120,13 +120,13 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
       course =
         EventFixtures.create_course(ctx.workspace, ctx.admin, %{
           registration_deadline: nil,
-          starts_at: days_from_now(3)
+          starts_at: EventFixtures.days_from_now(3)
         })
 
       assert badge(course) == :starting_soon
 
       full_course = EventFixtures.create_course(ctx.workspace, ctx.admin, %{capacity: 1})
-      full_course = set_confirmed_count(full_course, :courses, 1)
+      full_course = EventFixtures.set_confirmed_count(full_course, :courses, 1)
       assert badge(full_course) == :full
     end
 
@@ -139,7 +139,7 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
   describe "load 依赖声明（KTD1：只 select 计算字段时依赖列自动补载）" do
     test "Query 只 load enrollment_badge 不误判（capacity/confirmed_count 补载）", ctx do
       event = EventFixtures.create_event(ctx.workspace, ctx.admin, %{capacity: 1})
-      _ = set_confirmed_count(event, :events, 1)
+      _ = EventFixtures.set_confirmed_count(event, :events, 1)
 
       require Ash.Query
 
@@ -158,19 +158,5 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
 
   defp badge(record) do
     Ash.load!(record, :enrollment_badge, authorize?: false).enrollment_badge
-  end
-
-  defp days_from_now(days), do: DateTime.add(DateTime.utc_now(), days, :day)
-
-  # 布置而非被测对象：confirmed_count 无公开写 action（仅 Enrollment 原子维护）。
-  defp set_confirmed_count(record, table, count) do
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE #{table} SET confirmed_count = $1 WHERE id = $2",
-        [count, Ecto.UUID.dump!(record.id)]
-      )
-
-    Ash.get!(record.__struct__, record.id, authorize?: false)
   end
 end

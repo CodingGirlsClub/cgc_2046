@@ -24,6 +24,7 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
   use Anubis.Server.Component, type: :tool, meta: %{workspace_id: :optional, membership: :public}
 
   alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Mcp.Tools.PublicOffering
   alias Cgc2046.Mcp.Wrapper
 
   require Ash.Query
@@ -62,7 +63,7 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
   # ---- 参数解析 ----
 
   defp parse_filters(params) do
-    with {:ok, kind} <- parse_kind(params["kind"] || params[:kind]),
+    with {:ok, kind} <- PublicOffering.parse_kind(params["kind"] || params[:kind]),
          {:ok, starts_after} <-
            parse_dt("starts_after", params["starts_after"] || params[:starts_after]),
          {:ok, starts_before} <-
@@ -76,13 +77,6 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
        }}
     end
   end
-
-  defp parse_kind(nil), do: {:ok, nil}
-  defp parse_kind("event"), do: {:ok, :event}
-  defp parse_kind("course"), do: {:ok, :course}
-
-  defp parse_kind(other),
-    do: {:error, "invalid kind: #{inspect(other)} (expected event | course)"}
 
   defp parse_dt(_field, nil), do: {:ok, nil}
 
@@ -200,7 +194,8 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
   defp unix(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
 
   # 紧凑行 DTO（显式白名单投影：无 description / capacity / confirmed_count /
-  # workspace_id——成员调用者也不超标，KTD2 parity）
+  # workspace_id——成员调用者也不超标，KTD2 parity）。starts_at 原样透传 DateTime，
+  # Response.to_response 的 Jason 编码即 to_iso8601（get_workflow 同款纪律）。
   defp to_row(%{kind: kind, entity: e}) do
     venue = if kind == :event, do: e.venue, else: nil
 
@@ -210,7 +205,7 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
       title: e.title,
       kind: to_string(kind),
       badge: to_string(e.enrollment_badge),
-      starts_at: iso8601(e.starts_at),
+      starts_at: e.starts_at,
       city: venue_value(venue, "city"),
       district: venue_value(venue, "district")
     }
@@ -218,7 +213,4 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
 
   defp venue_value(venue, key) when is_map(venue), do: venue[key]
   defp venue_value(_venue, _key), do: nil
-
-  defp iso8601(nil), do: nil
-  defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
 end

@@ -32,17 +32,25 @@ module Cgc2046CourseRoutes
     nil
   end
 
-  # MCP 工具结果 → loopback JSON 形状:{ ok: true, tool: ..., result: ... }
-  def call_course_tool(handler, tool_name, arguments)
+  # MCP 工具调用管道:connected_registry → call_tool → 200 包装;错误分层:
+  # 未连接 503(各面板自带 not_connected 引导文案)/ 上游 McpError 502 /
+  # 意外 500(error_prefix 区分面板)。offering 数据面同管道复用本函数。
+  def call_tool(handler, tool_name, arguments, not_connected:, error_prefix:)
     registry = connected_registry(handler)
-    return { status: 503, body: NOT_CONNECTED } unless registry
+    return { status: 503, body: not_connected } unless registry
 
     result = registry.call_tool(SERVER_NAME, tool_name, arguments)
     { status: 200, body: { ok: true, tool: tool_name, result: normalize_mcp_result(result) } }
   rescue Clacky::Mcp::Client::McpError => e
     { status: 502, body: { error: "MCP call failed: #{e.message}" } }
   rescue StandardError => e
-    { status: 500, body: { error: "course route failed: #{e.message}" } }
+    { status: 500, body: { error: "#{error_prefix}: #{e.message}" } }
+  end
+
+  # MCP 工具结果 → loopback JSON 形状:{ ok: true, tool: ..., result: ... }
+  def call_course_tool(handler, tool_name, arguments)
+    call_tool(handler, tool_name, arguments,
+              not_connected: NOT_CONNECTED, error_prefix: "course route failed")
   end
 
   # 宿主 client 返回形态收敛:content 数组取 text 拼接后 JSON 解析(失败原样)

@@ -191,21 +191,6 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
     """
   end
 
-  defp days_from_now(days), do: DateTime.add(DateTime.utc_now(), days, :day)
-
-  # 布置而非被测对象：confirmed_count 无公开写 action（仅 Enrollment 原子维护），
-  # 裸 SQL 置位（EventsFixtures.force_open / EnrollmentBadgeTest 同款纪律）。
-  defp set_confirmed_count(record, table, count) do
-    {:ok, _} =
-      Ecto.Adapters.SQL.query(
-        Cgc2046.Repo,
-        "UPDATE #{table} SET confirmed_count = $1 WHERE id = $2",
-        [count, Ecto.UUID.dump!(record.id)]
-      )
-
-    Ash.get!(record.__struct__, record.id, authorize?: false)
-  end
-
   # GraphQL DateTime/JsonString 与工具 ISO8601/map 的归一化（两侧同源，格式不同）。
   defp norm_dt(nil), do: nil
 
@@ -231,8 +216,8 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
         EventFixtures.create_event(workspace, admin, %{
           description: "公开描述",
           venue: @venue_beijing,
-          starts_at: days_from_now(3),
-          ends_at: days_from_now(4)
+          starts_at: EventFixtures.days_from_now(3),
+          ends_at: EventFixtures.days_from_now(4)
         })
 
       assert %{"data" => %{"getEventBySlug" => result}} =
@@ -266,8 +251,8 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       course =
         EventFixtures.create_course(workspace, admin, %{
           description: "课程描述",
-          starts_at: days_from_now(30),
-          ends_at: days_from_now(31)
+          starts_at: EventFixtures.days_from_now(30),
+          ends_at: EventFixtures.days_from_now(31)
         })
 
       assert %{"data" => %{"getCourseBySlug" => result}} =
@@ -289,7 +274,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       event =
         EventFixtures.create_event(workspace, admin, %{
           venue: @venue_beijing,
-          starts_at: days_from_now(2)
+          starts_at: EventFixtures.days_from_now(2)
         })
 
       course = EventFixtures.create_course(workspace, admin, %{})
@@ -320,10 +305,10 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
         EventFixtures.create_event(workspace, admin, %{
           capacity: 1,
           registration_deadline: nil,
-          starts_at: days_from_now(3)
+          starts_at: EventFixtures.days_from_now(3)
         })
 
-      event = set_confirmed_count(event, :events, 1)
+      event = EventFixtures.set_confirmed_count(event, :events, 1)
       assert event.confirmed_count == 1
 
       assert %{"data" => %{"getEventBySlug" => result}} =
@@ -339,7 +324,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       soon =
         EventFixtures.create_event(workspace, admin, %{
           registration_deadline: nil,
-          starts_at: days_from_now(3)
+          starts_at: EventFixtures.days_from_now(3)
         })
 
       undated =
@@ -357,7 +342,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       workspace = Fixtures.create_workspace(admin)
 
       course = EventFixtures.create_course(workspace, admin, %{capacity: 2})
-      _course = set_confirmed_count(course, :courses, 2)
+      _course = EventFixtures.set_confirmed_count(course, :courses, 2)
 
       assert %{"data" => %{"getCourseBySlug" => %{"enrollmentBadge" => "full"}}} =
                anon(public_course_detail_query(course.slug))
@@ -371,7 +356,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
       event =
         EventFixtures.create_event(workspace, admin, %{capacity: 5})
-        |> set_confirmed_count(:events, 3)
+        |> EventFixtures.set_confirmed_count(:events, 3)
 
       # capacity 可空：字段收窄为 null 并带 forbidden_field 错误，计数值不落响应
       capacity_query = """
@@ -465,13 +450,13 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
           title: "已满活动",
           capacity: 1,
           venue: @venue_beijing,
-          starts_at: days_from_now(2)
+          starts_at: EventFixtures.days_from_now(2)
         })
 
-      _full_event = set_confirmed_count(full_event, :events, 1)
+      _full_event = EventFixtures.set_confirmed_count(full_event, :events, 1)
 
       undated_event = EventFixtures.create_event(workspace, admin, %{title: "待定活动"})
-      soon_course = EventFixtures.create_course(workspace, admin, %{starts_at: days_from_now(3)})
+      soon_course = EventFixtures.create_course(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
 
       caller = Fixtures.register_user("u3-parity-list-user")
 
@@ -532,8 +517,8 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
         EventFixtures.create_event(workspace, admin, %{
           description: "parity 描述",
           venue: @venue_beijing,
-          starts_at: days_from_now(3),
-          ends_at: days_from_now(4),
+          starts_at: EventFixtures.days_from_now(3),
+          ends_at: EventFixtures.days_from_now(4),
           pricing_enabled: true,
           price_tiers: [
             %{"id" => Ash.UUID.generate(), "name" => "早鸟票", "amount_cents" => 9900}
@@ -570,7 +555,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       course =
         EventFixtures.create_course(workspace, admin, %{
           description: "课程 parity",
-          starts_at: days_from_now(5)
+          starts_at: EventFixtures.days_from_now(5)
         })
 
       caller = Fixtures.register_user("u3-parity-get-c-user")
@@ -601,10 +586,10 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
         EventFixtures.create_event(workspace, admin, %{
           capacity: 5,
           venue: @venue_beijing,
-          starts_at: days_from_now(2)
+          starts_at: EventFixtures.days_from_now(2)
         })
 
-      _event = set_confirmed_count(event, :events, 5)
+      _event = EventFixtures.set_confirmed_count(event, :events, 5)
 
       member = Fixtures.register_user("u3-parity-member-user")
       Fixtures.add_member(workspace, member, [:learner])

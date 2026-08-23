@@ -14,6 +14,7 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
   use Anubis.Server.Component, type: :tool, meta: %{workspace_id: :optional, membership: :public}
 
   alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Mcp.Tools.PublicOffering
   alias Cgc2046.Mcp.Wrapper
 
   require Ash.Query
@@ -29,7 +30,7 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
       Wrapper.run(frame, params, "get_public_offering", fn _actor, _workspace_id, params ->
         id = params["id"] || params[:id]
 
-        with {:ok, kind} <- parse_kind(params["kind"] || params[:kind]),
+        with {:ok, kind} <- PublicOffering.parse_kind(params["kind"] || params[:kind]),
              {:ok, found} <- fetch_public(kind, id) do
           {:ok, to_detail(found)}
         end
@@ -37,13 +38,6 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
   end
-
-  defp parse_kind(nil), do: {:ok, nil}
-  defp parse_kind("event"), do: {:ok, :event}
-  defp parse_kind("course"), do: {:ok, :course}
-
-  defp parse_kind(other),
-    do: {:error, "invalid kind: #{inspect(other)} (expected event | course)"}
 
   # ---- 读取（KTD2：匿名姿态，actor: nil + 显式 status/visibility 过滤）----
 
@@ -80,7 +74,8 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
   defp not_found(id), do: "public offering not found: #{id}"
 
   # 全白名单 DTO（显式投影，与 web PublicOffering 同口径 + 时间/venue/badge；
-  # 不含 capacity / confirmed_count / workspace_id 等 field_policy 收窄字段）
+  # 不含 capacity / confirmed_count / workspace_id 等 field_policy 收窄字段）。
+  # 时间字段原样透传 DateTime，Response.to_response 的 Jason 编码即 to_iso8601。
   defp to_detail(%{kind: kind, entity: e}) do
     %{
       id: e.id,
@@ -91,9 +86,9 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
       status: to_string(e.status),
       visibility: to_string(e.visibility),
       enrollment_policy: to_string(e.enrollment_policy),
-      registration_deadline: iso8601(e.registration_deadline),
-      starts_at: iso8601(e.starts_at),
-      ends_at: iso8601(e.ends_at),
+      registration_deadline: e.registration_deadline,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
       badge: to_string(e.enrollment_badge),
       pricing_enabled: e.pricing_enabled,
       available_price_tiers: e.available_price_tiers,
@@ -102,7 +97,4 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
       sponsorship_tiers: if(kind == :event, do: e.sponsorship_tiers, else: nil)
     }
   end
-
-  defp iso8601(nil), do: nil
-  defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
 end

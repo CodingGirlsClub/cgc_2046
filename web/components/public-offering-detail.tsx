@@ -313,12 +313,12 @@ export default function PublicOfferingDetailPage({
           <div className="ld-skeleton" />
         </div>
       ) : offering === null ? (
-        <div>
+        <>
           <h1 className="text-lg font-medium">{t("notAccessibleTitle", { label: labelsT(label) })}</h1>
           <p className="mt-2 text-sm text-ink-3">
             {t("notAccessibleDesc")}
           </p>
-        </div>
+        </>
       ) : (
         <>
           <div>

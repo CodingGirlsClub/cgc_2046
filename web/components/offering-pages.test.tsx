@@ -89,7 +89,8 @@ vi.mock("@/components/icons", () => ({
 
 const { submitEnrollment } = vi.hoisted(() => ({ submitEnrollment: vi.fn() }));
 
-vi.mock("@/lib/public-offerings", () => ({
+vi.mock("@/lib/public-offerings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/public-offerings")>()),
   parseSponsorshipTiers: () => [],
   submitEnrollment,
 }));
