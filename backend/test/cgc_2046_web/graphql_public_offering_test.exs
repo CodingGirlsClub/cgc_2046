@@ -266,6 +266,10 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
   # ── U3（R10/R6/KTD1）：公开白名单扩展字段 ──
 
+  # 7a284bb 曾误删本属性：使用处编译为 nil + warning，venue 合同测试退化
+  # 为 nil == nil 假绿（advisor02 第 4 轮 blocker 1）。恢复 + 下方非空断言。
+  @venue_beijing %{"country" => "中国", "province" => "北京市", "city" => "北京", "district" => "海淀区"}
+
   defp public_event_detail_query(slug) do
     """
     query {
@@ -338,6 +342,10 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
           starts_at: EventFixtures.days_from_now(3),
           ends_at: EventFixtures.days_from_now(4)
         })
+
+      # fixture 非空守卫：属性再被误删时（编译为 nil），这里先红，
+      # 不让 venue 断言退化成 nil == nil 假绿
+      assert event.venue == @venue_beijing
 
       assert %{"data" => %{"getEventBySlug" => result}} =
                anon(public_event_detail_query(event.slug))
