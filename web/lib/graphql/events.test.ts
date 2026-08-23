@@ -15,6 +15,7 @@ import {
 	CREATE_EVENT,
 	CREATE_COURSE,
 	UPDATE_EVENT,
+	UPDATE_COURSE,
 	LAUNCH_EVENT,
 	CLOSE_EVENT,
 	CANCEL_EVENT,
@@ -163,6 +164,34 @@ describe("公开面查询（R10 同一匿名通道扩展字段；R6 badge；R3 �
 		const courseDoc = print(PUBLIC_GET_COURSE);
 		expect(courseDoc).toContain("getCourseBySlug(slug: $slug)");
 		for (const field of ["startsAt", "endsAt", "enrollmentBadge"]) {
+			expect(courseDoc).toContain(field);
+		}
+		expect(courseDoc).not.toContain("venue");
+	});
+});
+
+describe("成员读写面（U5/R14：Owner 表单预填与保存回读）", () => {
+	it("GET_EVENT / GET_COURSE：带 startsAt/endsAt（event 另带 venue JsonString；course 无 venue 槽）", () => {
+		const eventDoc = print(GET_EVENT);
+		for (const field of ["startsAt", "endsAt", "venue"]) {
+			expect(eventDoc).toContain(field);
+		}
+
+		const courseDoc = print(GET_COURSE);
+		for (const field of ["startsAt", "endsAt"]) {
+			expect(courseDoc).toContain(field);
+		}
+		expect(courseDoc).not.toContain("venue");
+	});
+
+	it("UPDATE_EVENT / UPDATE_COURSE：result 带回 startsAt/endsAt（event 另带 venue）供局部状态更新", () => {
+		const eventDoc = print(UPDATE_EVENT);
+		for (const field of ["startsAt", "endsAt", "venue"]) {
+			expect(eventDoc).toContain(field);
+		}
+
+		const courseDoc = print(UPDATE_COURSE);
+		for (const field of ["startsAt", "endsAt"]) {
 			expect(courseDoc).toContain(field);
 		}
 		expect(courseDoc).not.toContain("venue");

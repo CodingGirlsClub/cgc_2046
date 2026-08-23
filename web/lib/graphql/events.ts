@@ -52,6 +52,12 @@ export interface OfferingItem {
   /** 已确认名额数（非成员读到 null，D2 白名单） */
   confirmedCount: number | null;
   registrationDeadline: string | null;
+  /** 开始时间（ISO8601；null = 未定；R1，course 语义为开课/结课） */
+  startsAt?: string | null;
+  /** 结束时间（ISO8601；须晚于 startsAt，KTD6 后端校验；null = 未定） */
+  endsAt?: string | null;
+  /** 结构化场地（JsonString，JSON.parse 后为 VenueInfo；仅 event 有 venue 槽，null = 线上/未定） */
+  venue?: string | null;
   /** 教研需求(自由文本;仅 course、成员可见;U8/R12) */
   researchRequirements?: string | null;
   /** 教研 run 引用(仅 course;U8 教研状态露出) */
@@ -199,6 +205,9 @@ export const GET_EVENT: TypedDocumentNode<
       capacity
       confirmedCount
       registrationDeadline
+      startsAt
+      endsAt
+      venue
       sponsorshipEnabled
       sponsorshipTiers
       sponsorshipDeadline
@@ -227,6 +236,8 @@ export const GET_COURSE: TypedDocumentNode<
       capacity
       confirmedCount
       registrationDeadline
+      startsAt
+      endsAt
       researchRequirements
       workflowRunId
       workflowRun {
@@ -305,6 +316,9 @@ export const UPDATE_EVENT: TypedDocumentNode<
         enrollmentPolicy
         capacity
         registrationDeadline
+        startsAt
+        endsAt
+        venue
       }
       errors {
         code
@@ -328,6 +342,8 @@ export const UPDATE_COURSE: TypedDocumentNode<
         enrollmentPolicy
         capacity
         registrationDeadline
+        startsAt
+        endsAt
         researchRequirements
       }
       errors {
