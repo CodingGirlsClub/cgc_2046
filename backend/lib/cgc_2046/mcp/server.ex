@@ -2,8 +2,10 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(15,#240 成员管理三工具后):
+  工具集(17,#293 公开浏览两工具后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
+  - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
+    list_public_offerings / get_public_offering
   - 写:save_step_output
   - 管理(确认流 two-tool,D-D3):create_invitation / approve_join_request / assign_roles
   - 内置:confirm_operation / cancel_operation
@@ -40,4 +42,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.GetLearningRecords)
   component(Cgc2046.Mcp.Tools.SaveLearningRecords)
   component(Cgc2046.Mcp.Tools.SaveCourseContent)
+  # 公开浏览(U2,#293):工具面 15 → 17(membership: :public 新豁免家族,KTD3)
+  component(Cgc2046.Mcp.Tools.ListPublicOfferings)
+  component(Cgc2046.Mcp.Tools.GetPublicOffering)
 end
