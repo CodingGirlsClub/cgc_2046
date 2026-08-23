@@ -7,9 +7,9 @@
  * - 无 WorkspaceShell：公开面是站点级漏斗，登录态不影响浏览（J-Visitor）；
  * - 数据唯一真实路径：fetchPublicOfferings（GraphQL 匿名查询）；
  * - 固定深色门面（R7/KD2）：.ld-root 重声明暗色 token，html.light 下仍为深色；
- * - 行式列表（R8）：复用 landing OfferingRow 同款 .ld-offer-row 语言，零跳变；
- *   行内状态标签 = 后端派生报名 badge（KTD1），meta 行排政策/截止/开始/地点
- *   （地点仅 event，R3 兜底「时间待定」「地点待定」）。
+ * - 行式列表（R8）：与 landing 首页共用 OfferingRow（@/components/offering-row）
+ *   同源行组件，零跳变；行内状态标签 = 后端派生报名 badge（KTD1），
+ *   meta 行排政策/截止/开始/地点（地点仅 event，R3 兜底「时间待定」「地点待定」）。
  */
 
 import { Link } from "@/i18n/navigation";
@@ -17,49 +17,14 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { fetchPublicOfferings, formatVenue, parseVenue } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
-import {
-	ENROLLMENT_POLICY_LABEL,
-	OFFERING_LABEL,
-} from "@/lib/graphql/events";
-import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
+import { OFFERING_LABEL } from "@/lib/graphql/events";
+import OfferingRow from "@/components/offering-row";
 import { formatDeadline } from "@/lib/events";
 
 interface PageState {
 	kind: OfferingKind;
 	rows: PublicOfferingItem[] | null;
 	error: string | null;
-}
-
-function OfferingRow({ item, kind }: { item: PublicOfferingItem; kind: OfferingKind }) {
-	const t = useTranslations("publicOfferings");
-	const tCommon = useTranslations("common");
-	const labelsT = useTranslations();
-	const base = kind === "event" ? "/events" : "/courses";
-	// 时间为空/非法 → 「时间待定」；空 venue → 「地点待定」（R3，任何面不出现空白）
-	const starts = formatDeadline(item.startsAt ?? null, "");
-	const venue = kind === "event" ? formatVenue(parseVenue(item.venue)) : null;
-	const meta = [
-		labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy]),
-		t("deadline", {
-			deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")),
-		}),
-		starts ? t("startsAt", { time: starts }) : tCommon("timeTbd"),
-	];
-	if (kind === "event") meta.push(venue ?? tCommon("venueTbd"));
-	return (
-		<li>
-			<Link href={`${base}/${item.slug}`} className="ld-offer-row">
-				<span className="ld-offer-row__main">
-					<span className="ld-offer-row__title">{item.title}</span>
-					<EnrollmentBadgeTag badge={item.enrollmentBadge} />
-				</span>
-				<span className="ld-offer-row__meta">{meta.join(" · ")}</span>
-				<span className="ld-offer-row__arrow" aria-hidden="true">
-					→
-				</span>
-			</Link>
-		</li>
-	);
 }
 
 export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
@@ -150,9 +115,19 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 					<p className="ld-offer-fallback">{t("empty", { label: labelsT(label) })}</p>
 				) : (
 					<ul className="ld-offers">
-						{rows.map((item) => (
-							<OfferingRow key={item.id} item={item} kind={kind} />
-						))}
+					{rows.map((item) => {
+						// 时间为空/非法 → 「时间待定」；空 venue → 「地点待定」（R3，任何面不出现空白）
+						const starts = formatDeadline(item.startsAt ?? null, "");
+						const venue =
+							kind === "event" ? formatVenue(parseVenue(item.venue)) : null;
+						const extra = [
+							starts ? t("startsAt", { time: starts }) : tCommon("timeTbd"),
+						];
+						if (kind === "event") extra.push(venue ?? tCommon("venueTbd"));
+						return (
+							<OfferingRow key={item.id} item={item} kind={kind} meta={extra} />
+						);
+					})}
 					</ul>
 				)}
 			</div>

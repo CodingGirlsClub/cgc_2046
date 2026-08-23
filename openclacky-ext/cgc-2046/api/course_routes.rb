@@ -34,7 +34,8 @@ module Cgc2046CourseRoutes
 
   # MCP 工具调用管道:connected_registry → call_tool → 200 包装;错误分层:
   # 未连接 503(各面板自带 not_connected 引导文案)/ 上游 McpError 502 /
-  # 意外 500(error_prefix 区分面板)。offering 数据面同管道复用本函数。
+  # 意外 500(error_prefix 区分面板)。offering 数据面整体委托本函数
+  # (call_offering_tool 单行转发,仅 not_connected 文案与 error_prefix 不同)。
   def call_tool(handler, tool_name, arguments, not_connected:, error_prefix:)
     registry = connected_registry(handler)
     return { status: 503, body: not_connected } unless registry

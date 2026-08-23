@@ -270,8 +270,7 @@
       "errorHint": "暂时无法加载，",
       "errorAction": "直接前往列表页查看 ›",
       "emptyHint": "暂无开放报名的条目，",
-      "emptyAction": "去列表页看看 ›",
-      "deadline": "截止 {deadline}"
+      "emptyAction": "去列表页看看 ›"
     },
     "paper": {
       "venue": "与卡耐基梅隆大学学者合作 · ICSE CHASE 2021 · IEEE 出版"

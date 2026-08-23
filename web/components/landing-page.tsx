@@ -24,9 +24,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslations } from "next-intl";
 import { fetchPublicOfferings } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
-import { ENROLLMENT_POLICY_LABEL } from "@/lib/graphql/events";
-import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
-import { formatDeadline } from "@/lib/events";
+import OfferingRow from "@/components/offering-row";
 
 const FOUNDED_YEAR = 2016;
 const TARGET_YEAR = 2046;
@@ -63,43 +61,6 @@ function YearStrip() {
 			</span>
 			<span className="ld-years__tick">{TARGET_YEAR}</span>
 		</div>
-	);
-}
-
-/* ---------------- 活动/课程行（与 /events、/courses 同数据源） ---------------- */
-
-function OfferingRow({
-	item,
-	kind,
-}: {
-	item: PublicOfferingItem;
-	kind: OfferingKind;
-}) {
-	const t = useTranslations("landing");
-	const tCommon = useTranslations("common");
-	const labelsT = useTranslations();
-	const base = kind === "event" ? "/events" : "/courses";
-	return (
-		<li>
-			<Link href={`${base}/${item.slug}`} className="ld-offer-row">
-				<span className="ld-offer-row__main">
-					<span className="ld-offer-row__title">{item.title}</span>
-					<EnrollmentBadgeTag badge={item.enrollmentBadge} />
-				</span>
-				<span className="ld-offer-row__meta">
-					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}
-					{t("sections.deadline", {
-						deadline: formatDeadline(
-							item.registrationDeadline,
-							tCommon("noDeadline"),
-						),
-					})}
-				</span>
-				<span className="ld-offer-row__arrow" aria-hidden="true">
-					→
-				</span>
-			</Link>
-		</li>
 	);
 }
 

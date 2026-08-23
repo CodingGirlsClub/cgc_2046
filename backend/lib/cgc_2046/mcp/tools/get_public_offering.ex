@@ -44,14 +44,16 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
   defp fetch_public(kind, id) do
     # 畸形 id 与不存在同一拒绝（不泄存在性）
     case Ecto.UUID.cast(id) do
-      {:ok, _uuid} -> do_fetch(kind, id)
+      {:ok, _uuid} -> do_fetch(kind, id) |> to_message(id)
       :error -> {:error, not_found(id)}
     end
   end
 
-  # kind 缺省：event → course 顺序查找（两表 id 均为 UUID，碰撞可忽略）
+  # kind 缺省：event → course 顺序查找（两表 id 均为 UUID，碰撞可忽略）；
+  # 仅 :not_found 回退 course，读取失败（:load_failed）不降级为「不存在」
   defp do_fetch(nil, id) do
-    with {:error, _} <- fetch_one(Event, :event, id), do: fetch_one(Course, :course, id)
+    with {:error, :not_found} <- fetch_one(Event, :event, id),
+         do: fetch_one(Course, :course, id)
   end
 
   defp do_fetch(:event, id), do: fetch_one(Event, :event, id)
@@ -65,11 +67,16 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
     |> Ash.Query.load([:enrollment_badge, :available_price_tiers])
     |> Ash.read_one(actor: nil)
     |> case do
-      {:ok, nil} -> {:error, not_found(id)}
+      {:ok, nil} -> {:error, :not_found}
       {:ok, entity} -> {:ok, %{kind: kind, entity: entity}}
-      {:error, _} -> {:error, "failed to load public offering"}
+      {:error, _} -> {:error, :load_failed}
     end
   end
+
+  # 工具边界：内部 tag 映射回用户可见消息（契约字符串，逐字节保持一致）
+  defp to_message({:ok, found}, _id), do: {:ok, found}
+  defp to_message({:error, :not_found}, id), do: {:error, not_found(id)}
+  defp to_message({:error, :load_failed}, _id), do: {:error, "failed to load public offering"}
 
   defp not_found(id), do: "public offering not found: #{id}"
 

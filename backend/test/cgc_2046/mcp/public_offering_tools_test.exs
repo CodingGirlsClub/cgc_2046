@@ -269,8 +269,13 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     test "默认「近期」口径：过去开始的条目排除，无时间条目保留并计入 undated_count" do
       admin = Fixtures.platform_admin("po-recent")
       workspace = Fixtures.create_workspace(admin)
-      past = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(-1)})
-      future = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
+
+      past =
+        EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(-1)})
+
+      future =
+        EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
+
       undated = EventFixtures.create_event(workspace, admin, %{})
       outsider = Fixtures.register_user("po-recent-user")
 
@@ -288,8 +293,13 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     test "starts_after / starts_before 过滤：无时间条目被排除但计入 undated_count" do
       admin = Fixtures.platform_admin("po-time")
       workspace = Fixtures.create_workspace(admin)
-      soon = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(2)})
-      later = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(9)})
+
+      soon =
+        EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(2)})
+
+      later =
+        EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(9)})
+
       _undated = EventFixtures.create_event(workspace, admin, %{})
       outsider = Fixtures.register_user("po-time-user")
 
@@ -341,8 +351,13 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     test "排序：starts_at 升序、无时间条目在最后" do
       admin = Fixtures.platform_admin("po-sort")
       workspace = Fixtures.create_workspace(admin)
-      later = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(8)})
-      sooner = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(2)})
+
+      later =
+        EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(8)})
+
+      sooner =
+        EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(2)})
+
       undated = EventFixtures.create_event(workspace, admin, %{})
       outsider = Fixtures.register_user("po-sort-user")
 
@@ -480,6 +495,39 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
                GetPublicOffering.execute(%{"id" => "not-a-uuid"}, frame_for(outsider))
 
       assert msg =~ "not found"
+    end
+
+    # 读取失败 ≠ 不存在（#4）：DB 级读故障必须报 load 失败，不得混入 not found。
+    # 故障注入不 mock 内部：直改库把公开活动的 enrollment_policy 落为越枚举值
+    # （text 列，绕过 Ash 校验），read_one 装载时 atom 枚举 cast 失败 = 真实读
+    # 失败；断言在消息边界（execute 返回的用户可见 error message）。
+    test "读取失败（DB 故障）报 failed to load 而非 not found" do
+      admin = Fixtures.platform_admin("po-get-loadfail")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{title: "读失败活动"})
+      outsider = Fixtures.register_user("po-get-loadfail-user")
+
+      assert {:ok, _} =
+               Ecto.Adapters.SQL.query(
+                 Cgc2046.Repo,
+                 "UPDATE events SET enrollment_policy = 'bogus' WHERE id = '#{event.id}'"
+               )
+
+      # kind 缺省：event 读取失败不得降级为「不存在」（若回退 course 查同一 id，
+      # 会误报 not found；正确行为 = 原样报 load 失败）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               GetPublicOffering.execute(%{"id" => event.id}, frame_for(outsider))
+
+      assert msg == "failed to load public offering"
+
+      # 显式 kind 路径同层错误
+      assert {:error, %Anubis.MCP.Error{message: msg2}, _} =
+               GetPublicOffering.execute(
+                 %{"id" => event.id, "kind" => "event"},
+                 frame_for(outsider)
+               )
+
+      assert msg2 == "failed to load public offering"
     end
   end
 

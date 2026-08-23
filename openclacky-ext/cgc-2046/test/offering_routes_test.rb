@@ -284,21 +284,18 @@ class AssistantPromptTest < Minitest::Test
   PROMPT = File.read(File.expand_path("../agents/cgc-assistant/system_prompt.md", __dir__))
   SKILL = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
 
-  # server.ex 实际注册顺序(读 5 + 公开浏览 2 + 课程 2 + 写 3 + 管理 3 + 内置 2)
-  TOOLS = %w[
-    get_workspace_context list_members list_join_requests get_workflow get_step_output
-    list_public_offerings get_public_offering
-    get_course_content get_learning_records
-    save_step_output save_learning_records save_course_content
-    create_invitation approve_join_request assign_roles
-    confirm_operation cancel_operation
-  ].freeze
+  # 真镜像:解析 server.ex 的 component(Cgc2046.Mcp.Tools.<Mod>) 注册行,
+  # 模块名 underscore 后即注册工具清单;prompt 清单必须与之逐项一致(防两侧漂移)。
+  SERVER_EX = File.read(File.expand_path("../../../backend/lib/cgc_2046/mcp/server.ex", __dir__))
+  REGISTERED_TOOLS = SERVER_EX.scan(/component\(Cgc2046\.Mcp\.Tools\.(\w+)\)/).flatten
+    .map { |mod| mod.gsub(/([A-Z\d]+)([A-Z][a-z])/, '\1_\2').gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase }
+    .freeze
 
   def test_tool_inventory_is_17_and_matches_server_registration
     assert_includes PROMPT, "工具清单（17 个）"
     listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
     assert_equal 17, listed.size, "工具清单列表项应为 17,实际 #{listed.size}"
-    assert_equal TOOLS.sort, listed.sort
+    assert_equal REGISTERED_TOOLS.sort, listed.sort
   end
 
   def test_public_tools_workspace_id_exemption
