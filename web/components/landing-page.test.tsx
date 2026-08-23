@@ -43,6 +43,7 @@ const EVENT_FIXTURE = {
 	visibility: "public",
 	enrollmentPolicy: "open",
 	registrationDeadline: null,
+	enrollmentBadge: "enrolling",
 } as const;
 
 const COURSE_FIXTURE = {
@@ -54,6 +55,7 @@ const COURSE_FIXTURE = {
 	visibility: "public",
 	enrollmentPolicy: "request",
 	registrationDeadline: null,
+	enrollmentBadge: "full",
 } as const;
 
 beforeEach(() => {
@@ -187,6 +189,24 @@ describe("公开 Landing 页", () => {
 			name: /零基础 Web 入门营/,
 		});
 		expect(courseLink).toHaveAttribute("href", "/courses/web-bootcamp");
+	});
+
+	it("行内状态标签为报名 badge（KTD1 派生口径），不再用活动状态机标签", async () => {
+		fetchPublicOfferings.mockImplementation((kind: string) =>
+			Promise.resolve(kind === "event" ? [EVENT_FIXTURE] : [COURSE_FIXTURE]),
+		);
+		render(<LandingPage />);
+
+		const eventLink = await screen.findByRole("link", {
+			name: /程序媛夜读会/,
+		});
+		expect(within(eventLink).getByText("报名中")).toBeInTheDocument();
+		const courseLink = await screen.findByRole("link", {
+			name: /零基础 Web 入门营/,
+		});
+		expect(within(courseLink).getByText("已满")).toBeInTheDocument();
+		// EventStatusTag（开放报名）从公开面移除，仅留工作区内部页
+		expect(screen.queryByText("开放报名")).toBeNull();
 	});
 
 	it("报道与认可：论文（ICSE CHASE 2021 链接）、媒体 6 条（5 条有链接）", () => {

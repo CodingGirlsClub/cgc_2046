@@ -5,6 +5,11 @@
  *
  * - 详情：匿名读（open + public）；workspace 活动 / 非 open → 404 语义
  *   （读策略过滤 → get 返回 null）；
+ * - 固定深色门面（U4/R7/KD2）：.ld-root 重声明暗色 token，html.light 下仍深色；
+ * - 信息密度（R9）：描述/开始/结束/截止时间/venue（仅 event）/报名政策/
+ *   定价档位静态信息块（匿名可见；登录后 radio 选档器沿用为选择控件）；
+ * - 行内状态标签 = 后端派生报名 badge（KTD1）；满员（AE1）不呈现报名动作；
+ *   报名失败后重拉详情让 badge 重派生；
  * - 报名表单（J-Visitor → J-Learner）：
  *   - 未登录：引导 /login（登录后回到本页）；
  *   - open：直接提交 → confirmed；
@@ -19,7 +24,9 @@ import { useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import {
   fetchPublicOffering,
+  formatVenue,
   parseSponsorshipTiers,
+  parseVenue,
   submitEnrollment,
 } from "@/lib/public-offerings";
 import SponsorshipIntentForm from "@/components/sponsorship-intent-form";
@@ -27,9 +34,8 @@ import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import {
   ENROLLMENT_POLICY_LABEL,
   OFFERING_LABEL,
-  VISIBILITY_LABEL,
 } from "@/lib/graphql/events";
-import EventStatusTag from "@/components/event-status-tag";
+import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
@@ -61,6 +67,8 @@ export default function PublicOfferingDetailPage({
     row: null,
     error: null,
   });
+  // 重试 nonce：load error 态点击重试 → 复位 + 触发 effect 重新拉取
+  const [nonce, setNonce] = useState(0);
   const [inviteCode, setInviteCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [tierId, setTierId] = useState<string | null>(null);
@@ -108,7 +116,7 @@ export default function PublicOfferingDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [slug, kind, t]);
+  }, [slug, kind, nonce, t]);
 
   const stale = state.id !== slug;
   const offering = stale ? null : state.row;
@@ -116,6 +124,25 @@ export default function PublicOfferingDetailPage({
   const enrollChecked = offering !== null && enrollForId === offering.id;
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
+  // 满员（AE1）：详情不再呈现可报名动作（已有报名的状态卡除外）
+  const isFull = offering?.enrollmentBadge === "full";
+
+  // load error 态重试：复位回 skeleton 并重新拉取
+  function retry() {
+    setState({ id: "", row: null, error: null });
+    setNonce((n) => n + 1);
+  }
+
+  // 报名失败后重拉详情：badge 由后端重派生（如提交瞬间满员 → 「已满」）
+  const refetchOffering = useCallback(async () => {
+    if (!slug) return;
+    try {
+      const row = await fetchPublicOffering(slug, kind);
+      setState({ id: slug, row, error: null });
+    } catch {
+      // 刷新失败保持现态；手动刷新页面仍可恢复
+    }
+  }, [slug, kind]);
 
   // 我的活跃报名（登录后才查；offering.id 就绪后发起）。失败按「未报名」
   // 处理（入口照常显示，不误报已报名）。
@@ -231,6 +258,7 @@ export default function PublicOfferingDetailPage({
           message: translatePaymentError(res.errors[0]?.code, t("submitFailed")),
           enrollmentId: null,
         });
+        void refetchOffering();
       }
     } catch (e: unknown) {
       setSubmitState({
@@ -241,14 +269,16 @@ export default function PublicOfferingDetailPage({
         ),
         enrollmentId: null,
       });
+      void refetchOffering();
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10">
-      <header className="mb-6">
+    <main className="ld-root">
+      <div className="ld-container max-w-3xl py-16">
+      <header className="mb-8">
         <p className="text-[13px] text-ink-3">
           <Link href="/" className="hover:text-ink">
             {t("breadcrumbHome")}
@@ -263,13 +293,27 @@ export default function PublicOfferingDetailPage({
       </header>
 
       {loadError ? (
-        <div className="join-card" role="alert">
-          {t("loadFailed")}：{loadError}
+        <div role="alert">
+          <p className="ld-offer-fallback">
+            {t("loadFailed")}：{loadError}
+          </p>
+          <button
+            type="button"
+            onClick={retry}
+            className="join-button join-button--outline mt-4"
+          >
+            {tCommon("retry")}
+          </button>
         </div>
       ) : stale ? (
-        <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
+        // 3 块与真实内容等高的 skeleton（landing 同款 ld-skeleton 模式）
+        <div aria-hidden="true">
+          <div className="ld-skeleton" />
+          <div className="ld-skeleton" />
+          <div className="ld-skeleton" />
+        </div>
       ) : offering === null ? (
-        <div className="join-card text-center">
+        <div>
           <h1 className="text-lg font-medium">{t("notAccessibleTitle", { label: labelsT(label) })}</h1>
           <p className="mt-2 text-sm text-ink-3">
             {t("notAccessibleDesc")}
@@ -277,15 +321,12 @@ export default function PublicOfferingDetailPage({
         </div>
       ) : (
         <>
-          <div className="join-card !p-8">
+          <div>
             <p className="flex items-center gap-2">
-              <EventStatusTag status={offering.status} />
-              <span className="text-[13px] text-ink-3">
-                {labelsT(VISIBILITY_LABEL[offering.visibility])}
-              </span>
+              <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
             </p>
-            <h1 className="mt-3 text-2xl font-semibold">{offering.title}</h1>
-            <div className="mt-4 grid gap-2 text-sm text-ink-3">
+            <h1 className="ld-section__title mt-3">{offering.title}</h1>
+            <div className="mt-5 grid gap-2 text-sm text-ink-3">
               <span>
                 {t("policyLabel", {
                   policy: labelsT(ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]),
@@ -299,15 +340,59 @@ export default function PublicOfferingDetailPage({
                   ),
                 })}
               </span>
-              {offering.description ? (
-                <p className="mt-3 whitespace-pre-wrap text-sm text-ink-3">
-                  {offering.description}
-                </p>
+              <span>
+                {t("startsLabel", {
+                  time: formatDeadline(offering.startsAt ?? null, tCommon("timeTbd")),
+                })}
+              </span>
+              <span>
+                {t("endsLabel", {
+                  time: formatDeadline(offering.endsAt ?? null, tCommon("timeTbd")),
+                })}
+              </span>
+              {kind === "event" ? (
+                <span>
+                  {t("venueLabel", {
+                    venue:
+                      formatVenue(parseVenue(offering.venue)) ??
+                      tCommon("venueTbd"),
+                  })}
+                </span>
               ) : null}
             </div>
+            {offering.description ? (
+              <p className="mt-4 whitespace-pre-wrap text-sm text-ink-2">
+                {offering.description}
+              </p>
+            ) : null}
+
+            {/* 定价档位静态信息块（R9，匿名可见）；登录后 radio 选档器沿用现状作选择控件 */}
+            {offering.pricingEnabled && priceTiers.length > 0 ? (
+              <div className="mt-5" data-testid="price-tier-info">
+                <h2 className="text-sm font-medium">{t("pricingTitle")}</h2>
+                <ul className="mt-2 grid gap-1.5 text-sm">
+                  {priceTiers.map((tier) => (
+                    <li
+                      key={tier.id}
+                      className="flex items-center justify-between gap-4"
+                    >
+                      <span>{tier.name}</span>
+                      <span className="font-medium">
+                        ¥{formatAmount(tier.amountCents)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             <div className="mt-6 border-t border-line pt-5">
               {!authed ? (
+                isFull ? (
+                  <p className="text-sm text-ink-3" data-testid="enrollment-full">
+                    {t("fullHint")}
+                  </p>
+                ) : (
                 <div className="text-sm">
                   <Link
                     href={`/login?next=${encodeURIComponent(`/${kind === "event" ? "events" : "courses"}/${offering.slug}`)}`}
@@ -319,6 +404,7 @@ export default function PublicOfferingDetailPage({
                     {t("enrollFreeHint")}
                   </p>
                 </div>
+                )
               ) : submitState.kind === "confirmed" ||
                 submitState.kind === "pending" ||
                 submitState.kind === "payment_pending" ? (
@@ -394,6 +480,10 @@ export default function PublicOfferingDetailPage({
                 </div>
               ) : !enrollChecked ? (
                 <div className="text-sm text-ink-3">{t("checkingEnroll")}</div>
+              ) : isFull ? (
+                <p className="text-sm text-ink-3" data-testid="enrollment-full">
+                  {t("fullHint")}
+                </p>
               ) : (
                 <div className="grid gap-3">
                   {offering.enrollmentPolicy === "invite_only" ? (
@@ -486,7 +576,7 @@ export default function PublicOfferingDetailPage({
           ) : null}
 
           {sponsorshipOpen ? (
-            <div className="join-card !p-8">
+            <div className="mt-8 border-t border-line pt-8">
               <h2 className="text-lg font-semibold">{t("sponsorTitle")}</h2>
               <p className="mt-1 text-[13px] text-ink-3">
                 {t("sponsorDesc")}
@@ -543,6 +633,7 @@ export default function PublicOfferingDetailPage({
           ) : null}
         </>
       )}
+      </div>
 
       {/* 批①桌面：收费报名的就地收银模态框（支付成功 onPaid 就地刷新报名态） */}
       {checkout ? (

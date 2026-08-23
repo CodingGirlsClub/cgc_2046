@@ -98,4 +98,14 @@ describe("设计 token 守卫", () => {
     expect(darkTokens.get("accent")).toBe("#ea5504");
     expect(lightTokens.get("accent")).toBe("#ea5504");
   });
+
+  it("E. .ld-root 固定深色门面：暗色 token 重声明 + 背景消费（AE4，公开页浅色系统下仍深色）", () => {
+    const ldBlock = extractBlock(css, ".ld-root");
+    expect(ldBlock, "无法定位 .ld-root 块——公开面固定深色门面被移除？").not.toBeNull();
+    const ldTokens = parseTokens(ldBlock!);
+    expect(ldTokens.get("canvas")).toBe("#08090a");
+    expect(ldTokens.get("ink")).toBe("#f7f8f8");
+    expect(ldBlock).toContain("background: var(--canvas)");
+    expect(ldBlock).toContain("min-height: 100svh");
+  });
 });
