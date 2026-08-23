@@ -5,6 +5,8 @@ import {
 	EVENT_STATUS_TONE,
 	VISIBILITY_LABEL,
 	ENROLLMENT_POLICY_LABEL,
+	ENROLLMENT_BADGE_LABEL,
+	ENROLLMENT_BADGES,
 	OFFERING_LABEL,
 	LIST_EVENTS,
 	LIST_COURSES,
@@ -16,6 +18,10 @@ import {
 	LAUNCH_EVENT,
 	CLOSE_EVENT,
 	CANCEL_EVENT,
+	PUBLIC_LIST_EVENTS,
+	PUBLIC_LIST_COURSES,
+	PUBLIC_GET_EVENT,
+	PUBLIC_GET_COURSE,
 	LIST_EVENT_ENROLLMENTS,
 	MY_EVENT_ENROLLMENT,
 	MY_COURSE_ENROLLMENT,
@@ -98,6 +104,68 @@ describe("events 展示词表", () => {
 		]);
 		expect(OFFERING_LABEL.event).toBe("labels.offeringKind.event");
 		expect(OFFERING_LABEL.course).toBe("labels.offeringKind.course");
+	});
+
+	it("badge 词表覆盖 KTD1 三枚举（enrolling/starting_soon/full）", () => {
+		expect(Object.keys(ENROLLMENT_BADGE_LABEL).sort()).toEqual(
+			["enrolling", "full", "starting_soon"].sort(),
+		);
+		expect(ENROLLMENT_BADGES.sort()).toEqual(
+			["enrolling", "full", "starting_soon"].sort(),
+		);
+		expect(ENROLLMENT_BADGE_LABEL.enrolling).toBe("labels.enrollmentBadge.enrolling");
+		expect(ENROLLMENT_BADGE_LABEL.starting_soon).toBe(
+			"labels.enrollmentBadge.starting_soon",
+		);
+		expect(ENROLLMENT_BADGE_LABEL.full).toBe("labels.enrollmentBadge.full");
+	});
+});
+
+describe("公开面查询（R10 同一匿名通道扩展字段；R6 badge；R3 时间/venue 可空）", () => {
+	it("PUBLIC_LIST_EVENTS：带 startsAt/endsAt/enrollmentBadge/venue", () => {
+		const doc = print(PUBLIC_LIST_EVENTS);
+		expect(doc).toContain(
+			'listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } })',
+		);
+		for (const field of [
+			"startsAt",
+			"endsAt",
+			"enrollmentBadge",
+			"venue",
+		]) {
+			expect(doc).toContain(field);
+		}
+	});
+
+	it("PUBLIC_LIST_COURSES：带 startsAt/endsAt/enrollmentBadge（course 无 venue 槽）", () => {
+		const doc = print(PUBLIC_LIST_COURSES);
+		expect(doc).toContain(
+			'listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } })',
+		);
+		for (const field of ["startsAt", "endsAt", "enrollmentBadge"]) {
+			expect(doc).toContain(field);
+		}
+		expect(doc).not.toContain("venue");
+	});
+
+	it("PUBLIC_GET_EVENT / PUBLIC_GET_COURSE：详情同步带时间+badge（event 另带 venue）", () => {
+		const eventDoc = print(PUBLIC_GET_EVENT);
+		expect(eventDoc).toContain("getEventBySlug(slug: $slug)");
+		for (const field of [
+			"startsAt",
+			"endsAt",
+			"enrollmentBadge",
+			"venue",
+		]) {
+			expect(eventDoc).toContain(field);
+		}
+
+		const courseDoc = print(PUBLIC_GET_COURSE);
+		expect(courseDoc).toContain("getCourseBySlug(slug: $slug)");
+		for (const field of ["startsAt", "endsAt", "enrollmentBadge"]) {
+			expect(courseDoc).toContain(field);
+		}
+		expect(courseDoc).not.toContain("venue");
 	});
 });
 
