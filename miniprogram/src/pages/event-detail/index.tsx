@@ -76,8 +76,8 @@ export default function EventDetailPage() {
             <Text className={styles.metricLabel}>报名状态</Text>
           </View>
           <View className={styles.metric}>
-            <Text className={styles.metricValue}>{item.capacity ?? '∞'}</Text>
-            <Text className={styles.metricLabel}>名额</Text>
+            <Text className={styles.metricValue}>{item.registrationDeadline ? formatDateTime(item.registrationDeadline) : '无截止'}</Text>
+            <Text className={styles.metricLabel}>报名截止</Text>
           </View>
           <View className={styles.metric}>
             <Text className={styles.metricValue}>{item.enrollmentPolicy === 'request' ? '审批' : '即时'}</Text>
@@ -97,14 +97,6 @@ export default function EventDetailPage() {
               <Text className={styles.value}>{venueText(item.venue) ?? '地点待定'}</Text>
             </View>
           )}
-          {item.schemaFields.length === 0 ? (
-            <PageState kind='empty' message='组织者还没有补充详细信息' />
-          ) : item.schemaFields.map((field) => (
-            <View key={field.key} className={styles.row} data-testid={`schema-field-${field.key}`}>
-              <Text className={styles.label}>{field.label}</Text>
-              <Text className={styles.value}>{field.value}</Text>
-            </View>
-          ))}
         </View>
 
         {item.pricingEnabled && (

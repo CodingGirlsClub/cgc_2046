@@ -9,22 +9,9 @@ import {
   parseEnrollmentStatus,
   remainingLabel,
   scheduleText,
-  schemaFieldsFromJson,
   venueText
 } from '../src/domain/format.ts'
 
-test('schema JSON 按 key-value 生成稳定展示字段', () => {
-  assert.deepEqual(schemaFieldsFromJson('{"audience":"零基础","sections":["介绍","练习"]}'), [
-    { key: 'audience', label: '适合人群', value: '零基础' },
-    { key: 'sections', label: '内容安排', value: '介绍、练习' }
-  ])
-})
-
-test('无效 JSON 降级为可读详情，不丢内容', () => {
-  assert.deepEqual(schemaFieldsFromJson('组织者补充说明'), [
-    { key: 'details', label: '详情', value: '组织者补充说明' }
-  ])
-})
 
 test('审批倒计时和 24 小时紧急阈值一致', () => {
   const now = Date.parse('2026-08-09T00:00:00Z')

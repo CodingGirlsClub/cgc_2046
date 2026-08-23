@@ -18,23 +18,13 @@ export type OrderStatus =
   | 'expired'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
-export interface SchemaField {
-  key: string
-  label: string
-  value: string
-}
-
 export interface CatalogItem {
   id: string
   kind: ContentKind
-  workspaceId: string
   workspaceName: string
   title: string
   enrollmentPolicy: 'open' | 'request' | 'invite_only'
-  capacity: number | null
-  confirmedCount: number
   registrationDeadline: string | null
-  schemaFields: SchemaField[]
   /** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
   pricingEnabled: boolean
   /** 可售价格档位（后端已过滤过期档，R2；空数组 = 无可售档） */

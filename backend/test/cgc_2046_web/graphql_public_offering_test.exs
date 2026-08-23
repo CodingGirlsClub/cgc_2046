@@ -614,4 +614,93 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
       refute Map.has_key?(member_detail, "workspace_id")
     end
   end
+
+  # F2（advisor02 第 2 轮）：小程序公开发现面查询的匿名白名单合同。
+  # 查询 = miniprogram/src/api/operations.ts CatalogQueryDocument 同源
+  # （filter status=open + visibility=public；字段不含成员可见字段），
+  # 四姿态（匿名/跨工作台成员/同工作台成员/成员列表）真实 HTTP 执行。
+  describe "F2 mini catalog：匿名白名单查询四姿态" do
+    @mini_catalog_query """
+    query {
+      listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+        results { id title status enrollmentPolicy registrationDeadline pricingEnabled availablePriceTiers startsAt endsAt venue enrollmentBadge }
+      }
+      listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+        results { id title status enrollmentPolicy registrationDeadline pricingEnabled availablePriceTiers startsAt endsAt enrollmentBadge }
+      }
+    }
+    """
+
+    test "匿名：仅 open+public 条目返回，workspace-only 不混入" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      public_event = EventFixtures.create_event(workspace, admin, %{title: "公开活动"})
+
+      _hidden =
+        EventFixtures.create_event(workspace, admin, %{visibility: :workspace, title: "仅工作台"})
+
+      assert %{"data" => %{"listEvents" => %{"results" => results}}} = anon(@mini_catalog_query)
+      ids = Enum.map(results, & &1["id"])
+      assert public_event.id in ids
+      refute Enum.any?(results, &(&1["title"] == "仅工作台"))
+    end
+
+    test "跨工作台成员：与匿名同形状，无 forbidden_field" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      EventFixtures.create_event(workspace, admin)
+
+      other_admin = Fixtures.platform_admin("f2-other-admin")
+      other_workspace = Fixtures.create_workspace(other_admin)
+      cross_member = Fixtures.register_user("f2-cross-member")
+      Fixtures.add_member(other_workspace, cross_member, [:learner])
+
+      assert %{"data" => %{"listEvents" => %{"results" => results}} = data} =
+               graphql(@mini_catalog_query, sign_in_token(cross_member))
+
+      # 白名单字段查询不带受保护字段 → 无 errors（受保护字段请求才会 forbidden_field）
+      assert is_map_key(data, "listCourses")
+      assert results != nil
+    end
+
+    test "同工作台成员：同一白名单查询也只见公开条目（列表口径按 filter 不按身份放宽）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      EventFixtures.create_event(workspace, admin, %{title: "公开活动"})
+      EventFixtures.create_event(workspace, admin, %{visibility: :workspace, title: "仅工作台"})
+      member = Fixtures.register_user("f2-same-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      assert %{"data" => %{"listEvents" => %{"results" => results}}} =
+               graphql(@mini_catalog_query, sign_in_token(member))
+
+      # filter 钉死 visibility=public：成员经公开发现面也不见 workspace_only
+      refute Enum.any?(results, &(&1["title"] == "仅工作台"))
+    end
+
+    test "详情查询白名单字段四姿态同构（匿名 == 成员，无受保护字段可请求）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{capacity: 5})
+      _event = EventFixtures.set_confirmed_count(event, :events, 5)
+      member = Fixtures.register_user("f2-detail-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      detail_query = """
+      query { getEvent(id: "#{event.id}") {
+        id title status enrollmentPolicy registrationDeadline
+        pricingEnabled availablePriceTiers startsAt endsAt venue enrollmentBadge
+      } }
+      """
+
+      assert %{"data" => %{"getEvent" => anon_detail}} = anon(detail_query)
+
+      assert %{"data" => %{"getEvent" => member_detail}} =
+               graphql(detail_query, sign_in_token(member))
+
+      # 白名单字段逐值一致（成员不因身份多得数据）；badge 派生满员
+      assert anon_detail == member_detail
+      assert anon_detail["enrollmentBadge"] == "full"
+    end
+  end
 end

@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem } from '@/domain/models'
+import { enrollmentBadgeText, venueText } from '@/domain/format'
 import styles from './index.module.css'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
@@ -40,11 +41,11 @@ export default function DiscoverPage() {
   const filtered = items.filter((item) => !normalized || [
     item.title,
     item.workspaceName,
-    ...item.schemaFields.map(({ value }) => value)
+    item.venue ? venueText(item.venue) ?? '' : ''
   ].some((value) => value.toLowerCase().includes(normalized)))
   const events = filtered.filter(({ kind }) => kind === 'event')
   const courses = filtered.filter(({ kind }) => kind === 'course')
-  const clubs = Array.from(new Map(filtered.map((item) => [item.workspaceId, item.workspaceName])).entries())
+  const clubs = Array.from(new Map(filtered.map((item) => [item.workspaceName, item.workspaceName])).entries())
 
   const openDetail = ({ id, kind }: CatalogItem) => {
     Taro.navigateTo({ url: `/pages/event-detail/index?id=${id}&kind=${kind}` })
@@ -123,7 +124,7 @@ export default function DiscoverPage() {
                     <Text className={styles.policy}>{policyText[item.enrollmentPolicy]}</Text>
                   </View>
                   <Text className={styles.cardTitle}>{item.title}</Text>
-                  <Text className={styles.cardMeta}>{item.workspaceName} · {item.confirmedCount}/{item.capacity ?? '∞'} 人</Text>
+                  <Text className={styles.cardMeta}>{item.workspaceName} · {enrollmentBadgeText[item.enrollmentBadge]}</Text>
                   <Text className={styles.arrow}>→</Text>
                 </View>
               ))}
