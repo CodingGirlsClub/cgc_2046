@@ -14,7 +14,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { fetchPublicOfferings, formatVenue, parseVenue } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import { OFFERING_LABEL } from "@/lib/graphql/events";
@@ -31,6 +31,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	const t = useTranslations("publicOfferings");
 	const tCommon = useTranslations("common");
 	const labelsT = useTranslations();
+	const locale = useLocale();
 	const [state, setState] = useState<PageState>({ kind, rows: null, error: null });
 	// 重试 nonce：error 态点击重试 → 复位 + 触发 effect 重新拉取
 	const [nonce, setNonce] = useState(0);
@@ -117,7 +118,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 					<ul className="ld-offers">
 					{rows.map((item) => {
 						// 时间为空/非法 → 「时间待定」；空 venue → 「地点待定」（R3，任何面不出现空白）
-						const starts = formatDeadline(item.startsAt ?? null, "");
+						const starts = formatDeadline(item.startsAt ?? null, "", locale);
 						const venue =
 							kind === "event" ? formatVenue(parseVenue(item.venue)) : null;
 						const extra = [

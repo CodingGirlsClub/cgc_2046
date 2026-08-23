@@ -1,5 +1,5 @@
 import { Link } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { formatDeadline } from "@/lib/events";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import { ENROLLMENT_POLICY_LABEL } from "@/lib/graphql/events";
@@ -25,11 +25,16 @@ export default function OfferingRow({
 	const t = useTranslations("publicOfferings");
 	const tCommon = useTranslations("common");
 	const labelsT = useTranslations();
+	const locale = useLocale();
 	const base = kind === "event" ? "/events" : "/courses";
 	const segments = [
 		labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy]),
 		t("deadline", {
-			deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")),
+			deadline: formatDeadline(
+				item.registrationDeadline,
+				tCommon("noDeadline"),
+				locale,
+			),
 		}),
 		...meta,
 	];

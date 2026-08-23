@@ -44,16 +44,18 @@ export function canManageEvents(myAbilities: string[] = []): boolean {
 
 /**
  * 截止时间展示（null/非法值 → undecidedLabel，由调用方传翻译文案）。
- * 日期格式随 locale 由 toLocaleString 派生。
+ * 日期格式随 locale 由 toLocaleString 派生（F7）：locale 缺省 zh-CN，
+ * 公开面调用点传 next-intl useLocale() 结果，/en 页面不再输出 zh-CN 形状。
  */
 export function formatDeadline(
 	deadline: string | null,
 	undecidedLabel: string,
+	locale?: string,
 ): string {
 	if (!deadline) return undecidedLabel;
 	const d = new Date(deadline);
 	if (Number.isNaN(d.getTime())) return undecidedLabel;
-	return d.toLocaleString("zh-CN", {
+	return d.toLocaleString(locale ?? "zh-CN", {
 		year: "numeric",
 		month: "2-digit",
 		day: "2-digit",

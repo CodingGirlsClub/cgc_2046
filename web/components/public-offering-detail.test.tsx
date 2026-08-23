@@ -398,6 +398,29 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
   });
 });
 
+describe("F6 键盘焦点环作用域：报名面控件位于 .ld-root 内", () => {
+  it("邀请码 input 与价格档位 radio 渲染于 main.ld-root（globals.css 的 .ld-root input:focus-visible 规则可达）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      enrollmentPolicy: "invite_only",
+    });
+    const { container } = render(<PublicOfferingDetailPage kind="event" />);
+
+    // happy-dom 不加载 globals.css，computed outline 断言不可行 → 结构断言：
+    // 控件是 .ld-root 后代（规则文本守卫在 lib/design-tokens.test.ts F 用例）
+    const root = container.querySelector("main.ld-root");
+    expect(root).not.toBeNull();
+
+    const invite = await screen.findByLabelText("邀请码（必填）");
+    expect(invite.closest("main.ld-root")).not.toBeNull();
+
+    const tier = await screen.findByTestId("price-tier-tier-1");
+    const radio = tier.querySelector('input[type="radio"]');
+    expect(radio).not.toBeNull();
+    expect(radio?.closest("main.ld-root")).not.toBeNull();
+  });
+});
+
 describe("赞助档位独占位徽标（F6 暗色 token）", () => {
   it("独占位徽标携带 ld-badge-exclusive；渲染输出无硬编码 amber 类", async () => {
     mocks.fetchPublicOffering.mockResolvedValue({
