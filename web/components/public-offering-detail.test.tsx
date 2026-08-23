@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import PublicOfferingDetailPage from "./public-offering-detail";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 
 const mocks = vi.hoisted(() => ({
   fetchPublicOffering: vi.fn(),
@@ -402,6 +403,115 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
       expect(screen.getByTestId("enrollment-full")).toBeInTheDocument(),
     );
     expect(screen.queryByRole("button", { name: "提交报名" })).not.toBeInTheDocument();
+  });
+
+  it("B2 报名失败 + refetch reject → reconcileFailed 提示 + resync 出口；提交按钮不回可点态", async () => {
+    mocks.fetchPublicOffering.mockResolvedValueOnce({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "enrolling",
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: null,
+      errors: [{ code: "capacity_full", message: "full" }],
+    });
+    mocks.fetchPublicOffering.mockRejectedValueOnce(new Error("network down"));
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+
+    // 错误 + reconcile 失败双提示出现；提交按钮被 resync 出口替换
+    expect(await screen.findByText(/未能同步最新状态/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "提交报名" })).not.toBeInTheDocument();
+
+    // resync 成功 → 回 idle，提交按钮恢复
+    mocks.fetchPublicOffering.mockResolvedValueOnce({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "full",
+    });
+    fireEvent.click(screen.getByTestId("resync-offering"));
+    await waitFor(() =>
+      expect(screen.getByTestId("enrollment-full")).toBeInTheDocument(),
+    );
+  });
+
+  it("B2 refetch 永不 settle → 10s 有界超时收敛为 reconcileFailed（不永久锁死）", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.fetchPublicOffering.mockResolvedValueOnce({
+        ...PAID_OFFERING,
+        pricingEnabled: false,
+        availablePriceTiers: null,
+        enrollmentBadge: "enrolling",
+      });
+      mocks.submitEnrollment.mockResolvedValueOnce({
+        result: null,
+        errors: [{ code: "capacity_full", message: "full" }],
+      });
+      // 永不 settle 的 refetch（网络挂死形状）
+      mocks.fetchPublicOffering.mockImplementationOnce(
+        () => new Promise(() => {}),
+      );
+
+      render(<PublicOfferingDetailPage kind="event" />);
+      fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+
+      // 超时前：错误已出但仍在同步（fake timers 下 findBy 需手动推进）
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("提交失败");
+
+      // 推进 10s：超时分支收敛为 reconcileFailed
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(screen.getByText(/未能同步最新状态/)).toBeInTheDocument();
+      expect(screen.getByTestId("resync-offering")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("B3 档位失效：报名失败 refetch 删除所选档 → tierId 被清空，旧 id 不再提交", async () => {
+    // 初始两档可选，选 tier-2 提交 → 后端 tier_not_available 拒
+    mocks.fetchPublicOffering.mockResolvedValueOnce(PAID_OFFERING);
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: null,
+      errors: [
+        { code: "enrollment_tier_not_available", message: "tier gone" },
+      ],
+    });
+    // refetch 返回：档位下架（只剩 tier-1）+ badge 仍 enrolling
+    mocks.fetchPublicOffering.mockResolvedValueOnce({
+      ...PAID_OFFERING,
+      availablePriceTiers: [
+        JSON.stringify({ id: "tier-1", name: "早鸟", amount_cents: 100 }),
+      ],
+      enrollmentBadge: "enrolling",
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    fireEvent.click(await screen.findByTestId("price-tier-tier-2"));
+    fireEvent.click(screen.getByRole("button", { name: "报名并支付 ¥199.00" }));
+
+    // reconcile 成功后：tier-2 已下架 → 档位列表只剩 tier-1，
+    // tierId 被清空（无选中档）
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId("price-tier-tier-2")).not.toBeInTheDocument();
+    });
+    const tier1Radio = screen
+      .getByTestId("price-tier-tier-1")
+      .querySelector("input") as HTMLInputElement;
+    expect(tier1Radio.checked).toBe(false);
+    // 旧 tierId 不在提交 payload 里：再次提交时守卫按 paidTier 判
+    // （未选档 → 前端拒，不发带旧 id 的 mutation）
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    expect(await screen.findByText(/请先选择价格档位/)).toBeInTheDocument();
   });
 
   it("拉取失败：错误消息 + 重试按钮；点击重试触发重新拉取", async () => {

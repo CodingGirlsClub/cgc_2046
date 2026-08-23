@@ -71,7 +71,14 @@ export default function PublicOfferingDetailPage({
   // 重试 nonce：load error 态点击重试 → 复位 + 触发 effect 重新拉取
   const [nonce, setNonce] = useState(0);
   const [inviteCode, setInviteCode] = useState("");
-  const [busy, setBusy] = useState(false);
+  // 判别式提交阶段（X3 竞态闭环）：submitting = mutation 在途；reconciling =
+  // 失败后重拉详情在途（busy 贯穿，防对旧 badge 重复提交）。reconcile 失败
+  // （网络异常/挂死超时）置 reconcileFailed，提交保持锁定直到 resync 成功。
+  const [submitPhase, setSubmitPhase] = useState<
+    "idle" | "submitting" | "reconciling"
+  >("idle");
+  const [reconcileFailed, setReconcileFailed] = useState(false);
+  const busy = submitPhase !== "idle";
   const [tierId, setTierId] = useState<string | null>(null);
   const [submitState, setSubmitState] = useState<{
     kind: "idle" | "confirmed" | "pending" | "payment_pending" | "error";
@@ -133,17 +140,37 @@ export default function PublicOfferingDetailPage({
     setState({ id: "", row: null, error: null });
     setNonce((n) => n + 1);
   }
-
-  // 报名失败后重拉详情：badge 由后端重派生（如提交瞬间满员 → 「已满」）
-  const refetchOffering = useCallback(async () => {
-    if (!slug) return;
+  // 报名失败后重拉详情：badge 由后端重派生（如提交瞬间满员 → 「已满」）。
+  // 返回显式结果（X3）：失败时调用方保持防重复提交并提供 resync 出口，
+  // 不静默回到旧可提交态。成功路径同时清理失效档位选择（B3）。
+  const refetchOffering = useCallback(async (): Promise<boolean> => {
+    if (!slug) return false;
     try {
       const row = await fetchPublicOffering(slug, kind);
+      if (!row) return false;
       setState({ id: slug, row, error: null });
+      const tiers = parsePriceTiers(row.availablePriceTiers);
+      setTierId((current) =>
+        current && tiers.some((tier) => tier.id === current) ? current : null,
+      );
+      return true;
     } catch {
-      // 刷新失败保持现态；手动刷新页面仍可恢复
+      // 刷新失败保持现态；由调用方决定收敛路径（resync / 手动刷新页面）
+      return false;
     }
   }, [slug, kind]);
+
+  // 有界等待（X3）：网络挂死时 reconcile 不永久锁死按钮——超时按失败收敛。
+  const RECONCILE_TIMEOUT_MS = 10_000;
+  const reconcile = useCallback(async (): Promise<boolean> => {
+    let timer: number | undefined;
+    const bounded = new Promise<boolean>((resolve) => {
+      timer = window.setTimeout(() => resolve(false), RECONCILE_TIMEOUT_MS);
+    });
+    const ok = await Promise.race([refetchOffering(), bounded]);
+    window.clearTimeout(timer);
+    return ok;
+  }, [refetchOffering]);
 
   // 我的活跃报名（登录后才查；offering.id 就绪后发起）。失败按「未报名」
   // 处理（入口照常显示，不误报已报名）。
@@ -207,18 +234,19 @@ export default function PublicOfferingDetailPage({
   }
   async function submit() {
     if (!offering || !authed || !userId) return;
-    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）；全过期档
-    // 由 priceTiers.length === 0 的表单分支挡住，此处防御重复
-    if (offering.pricingEnabled && !tierId) {
+    // 收费目标必须选档（R5）：当前有效 paidTier（B3）——tierId 字符串可能
+    // 已因 refetch 后档位下架而失效，只认仍在可售集合中的选择。
+    if (offering.pricingEnabled && !paidTier) {
       setSubmitState({
         kind: "error",
-        message: t("pickTierFirst"),
+        message: tierId ? t("submitFailed") : t("pickTierFirst"),
         enrollmentId: null,
       });
       return;
     }
-    setBusy(true);
+    setSubmitPhase("submitting");
     setSubmitState({ kind: "idle", message: null, enrollmentId: null });
+    let reconcileOk = true;
     try {
       const res = await submitEnrollment({
         eventId: kind === "event" ? offering.id : undefined,
@@ -254,14 +282,14 @@ export default function PublicOfferingDetailPage({
       } else {
         // :tier_id_required / :tier_not_available / unique 冲突等 AshGraphql
         // 错误经翻译层映射为可读文案；未知错误走兜底，不透传 GraphQL 原文。
-        // busy 保持到 refetch 完成（X3）：报名失败瞬间名额可能已满，刷新
-        // 未落定前按钮不得重新可点，否则用户对旧 badge 再点再失败。
+        // X3：失败后进入 reconciling（有界重拉）——落定前提交保持锁定。
         setSubmitState({
           kind: "error",
           message: translatePaymentError(res.errors[0]?.code, t("submitFailed")),
           enrollmentId: null,
         });
-        await refetchOffering();
+        setSubmitPhase("reconciling");
+        reconcileOk = await reconcile();
       }
     } catch (e: unknown) {
       setSubmitState({
@@ -272,9 +300,28 @@ export default function PublicOfferingDetailPage({
         ),
         enrollmentId: null,
       });
-      await refetchOffering();
+      setSubmitPhase("reconciling");
+      reconcileOk = await reconcile();
     } finally {
-      setBusy(false);
+      // reconcile 成功（badge/档位已重派生）→ 回 idle 允许再次提交；
+      // 失败/超时 → 保持锁定 + reconcileFailed 提示，resync 是唯一出口。
+      if (reconcileOk) {
+        setSubmitPhase("idle");
+        setReconcileFailed(false);
+      } else {
+        setSubmitPhase("reconciling");
+        setReconcileFailed(true);
+      }
+    }
+  }
+
+  // reconcile 失败后的重新同步出口（X3）：成功则解锁提交。
+  async function resync() {
+    setSubmitPhase("reconciling");
+    const ok = await reconcile();
+    if (ok) {
+      setSubmitPhase("idle");
+      setReconcileFailed(false);
     }
   }
 
@@ -564,20 +611,41 @@ export default function PublicOfferingDetailPage({
                       {submitState.message}
                     </p>
                   ) : null}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void submit()}
-                    className="join-button join-button--primary justify-self-start"
-                  >
-                    {busy
-                      ? t("submitting")
-                      : offering.pricingEnabled && paidTier
-                        ? t("submitWithPay", {
-                            amount: formatAmount(paidTier.amountCents),
-                          })
-                        : t("submit")}
-                  </button>
+                  {reconcileFailed ? (
+                    // X3：重拉失败/超时——提交保持锁定，resync 是唯一出口，
+                    // 不静默回到旧可提交态（旧 badge 下重复必败 mutation）
+                    <p className="text-[13px] text-ink-3" role="alert">
+                      {t("reconcileFailed")}
+                    </p>
+                  ) : null}
+                  {reconcileFailed ? (
+                    <button
+                      type="button"
+                      disabled={submitPhase !== "idle" && !reconcileFailed}
+                      onClick={() => void resync()}
+                      className="join-button join-button--outline justify-self-start"
+                      data-testid="resync-offering"
+                    >
+                      {submitPhase === "reconciling" ? t("reconciling") : t("resync")}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy || (offering.pricingEnabled === true && priceTiers.length === 0)}
+                      onClick={() => void submit()}
+                      className="join-button join-button--primary justify-self-start"
+                    >
+                      {busy
+                        ? submitPhase === "reconciling"
+                          ? t("reconciling")
+                          : t("submitting")
+                        : offering.pricingEnabled && paidTier
+                          ? t("submitWithPay", {
+                              amount: formatAmount(paidTier.amountCents),
+                            })
+                          : t("submit")}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
