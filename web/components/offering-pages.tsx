@@ -140,7 +140,7 @@ function ScheduleFields({
           type="datetime-local"
           value={startsAt}
           onChange={(e) => onStartsAtChange(e.target.value)}
-          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
         />
       </label>
       <label className="block">
@@ -149,7 +149,7 @@ function ScheduleFields({
           type="datetime-local"
           value={endsAt}
           onChange={(e) => onEndsAtChange(e.target.value)}
-          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
         />
       </label>
     </>
@@ -183,7 +183,7 @@ function VenueFields({
           <input
             value={value[key]}
             onChange={(e) => onChange({ ...value, [key]: e.target.value })}
-            className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+            className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
           />
         </label>
       ))}
