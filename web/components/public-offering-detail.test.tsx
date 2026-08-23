@@ -476,6 +476,116 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     }
   });
 
+  it("B2 失败稳态：resync 按钮显示「重新同步」且可点；resync 在途时 disabled 且二次点击零增调用", async () => {
+    mocks.fetchPublicOffering.mockResolvedValueOnce({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "enrolling",
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: null,
+      errors: [{ code: "capacity_full", message: "full" }],
+    });
+    // 首次 reconcile reject → 失败稳态
+    mocks.fetchPublicOffering.mockRejectedValueOnce(new Error("down"));
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+    await screen.findByText(/未能同步最新状态/);
+
+    // 失败稳态：按钮名 = 重新同步，enabled（advisor02 第 5 轮 blocker 1 断言形状）
+    const resyncBtn = screen.getByTestId("resync-offering") as HTMLButtonElement;
+    expect(resyncBtn.textContent).toBe("重新同步");
+    expect(resyncBtn.disabled).toBe(false);
+
+    // resync 在途（挂起）→ 按钮 disabled + 文案「同步中…」；
+    // 二次点击不产生新请求（fetchPublicOffering 调用数不变）
+    let releaseResync!: (row: unknown) => void;
+    mocks.fetchPublicOffering.mockImplementationOnce(
+      () => new Promise((resolve) => { releaseResync = resolve; }),
+    );
+    const callsBefore = mocks.fetchPublicOffering.mock.calls.length;
+    fireEvent.click(resyncBtn);
+    await waitFor(() => {
+      const btn = screen.getByTestId("resync-offering") as HTMLButtonElement;
+      expect(btn.textContent).toBe("同步中…");
+      expect(btn.disabled).toBe(true);
+    });
+    fireEvent.click(screen.getByTestId("resync-offering"));
+    expect(mocks.fetchPublicOffering.mock.calls.length).toBe(callsBefore + 1);
+
+    releaseResync({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "full",
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("enrollment-full")).toBeInTheDocument(),
+    );
+  });
+
+  it("B2 迟到响应不覆盖：R1 超时进失败态 → R2 resync 返回 full → R1 迟到 enrolling 被丢弃", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.fetchPublicOffering.mockResolvedValueOnce({
+        ...PAID_OFFERING,
+        pricingEnabled: false,
+        availablePriceTiers: null,
+        enrollmentBadge: "enrolling",
+      });
+      mocks.submitEnrollment.mockResolvedValueOnce({
+        result: null,
+        errors: [{ code: "capacity_full", message: "full" }],
+      });
+      // R1：永不 settle（将超时）
+      let resolveR1!: (row: unknown) => void;
+      mocks.fetchPublicOffering.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveR1 = resolve; }),
+      );
+
+      render(<PublicOfferingDetailPage kind="event" />);
+      fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+
+      // R1 超时 → 失败稳态
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      await screen.findByText(/未能同步最新状态/);
+
+      // R2（resync）立即返回 full → 满员态
+      mocks.fetchPublicOffering.mockResolvedValueOnce({
+        ...PAID_OFFERING,
+        pricingEnabled: false,
+        availablePriceTiers: null,
+        enrollmentBadge: "full",
+      });
+      fireEvent.click(screen.getByTestId("resync-offering"));
+      await waitFor(() =>
+        expect(screen.getByTestId("enrollment-full")).toBeInTheDocument(),
+      );
+
+      // R1 迟到 resolve 旧 enrolling —— generation 已过期，回写被丢弃：
+      // 满员态保持，提交按钮不重现（若守卫失效，badge 回 enrolling → 表单回来）
+      await act(async () => {
+        resolveR1({
+          ...PAID_OFFERING,
+          pricingEnabled: false,
+          availablePriceTiers: null,
+          enrollmentBadge: "enrolling",
+        });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("enrollment-full")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "提交报名" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("B3 档位失效：报名失败 refetch 删除所选档 → tierId 被清空，旧 id 不再提交", async () => {
     // 初始两档可选，选 tier-2 提交 → 后端 tier_not_available 拒
     mocks.fetchPublicOffering.mockResolvedValueOnce(PAID_OFFERING);

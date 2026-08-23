@@ -483,7 +483,7 @@
     "pickTierFirst": "Please choose a pricing tier first",
     "slotReservedMsg": "Slot reserved — complete payment within the time limit",
     "pendingMsg": "Application submitted, awaiting approval",
-    "enrolledMsg": "Enrolled successful",
+    "enrolledMsg": "Enrollment successful",
     "reconciling": "Syncing…",
     "reconcileFailed": "Couldn't re-sync the latest status. Submitting stays locked until it succeeds.",
     "resync": "Re-sync"

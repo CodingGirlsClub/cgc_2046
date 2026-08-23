@@ -19,7 +19,7 @@
 
 import { Link } from "@/i18n/navigation";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
 import {
@@ -71,14 +71,16 @@ export default function PublicOfferingDetailPage({
   // 重试 nonce：load error 态点击重试 → 复位 + 触发 effect 重新拉取
   const [nonce, setNonce] = useState(0);
   const [inviteCode, setInviteCode] = useState("");
-  // 判别式提交阶段（X3 竞态闭环）：submitting = mutation 在途；reconciling =
-  // 失败后重拉详情在途（busy 贯穿，防对旧 badge 重复提交）。reconcile 失败
-  // （网络异常/挂死超时）置 reconcileFailed，提交保持锁定直到 resync 成功。
+  // 判别式提交阶段（X3/B2 竞态闭环）四态：idle 可提交；submitting =
+  // mutation 在途；reconciling = 失败后重拉详情在途；reconcile_failed =
+  // 重拉失败稳态（resync 可点，在途时 disabled）。busy 贯穿非 idle 全程。
   const [submitPhase, setSubmitPhase] = useState<
-    "idle" | "submitting" | "reconciling"
+    "idle" | "submitting" | "reconciling" | "reconcile_failed"
   >("idle");
-  const [reconcileFailed, setReconcileFailed] = useState(false);
-  const busy = submitPhase !== "idle";
+  const busy = submitPhase !== "idle" && submitPhase !== "reconcile_failed";
+  // generation 守卫（B2 迟到响应）：只有最新 reconcile 请求可回写状态。
+  // 超时 loser 迟到 resolve 时 gen 已过期 → 丢弃，不覆盖较新的 full。
+  const reconcileGenRef = useRef(0);
   const [tierId, setTierId] = useState<string | null>(null);
   const [submitState, setSubmitState] = useState<{
     kind: "idle" | "confirmed" | "pending" | "payment_pending" | "error";
@@ -141,36 +143,47 @@ export default function PublicOfferingDetailPage({
     setNonce((n) => n + 1);
   }
   // 报名失败后重拉详情：badge 由后端重派生（如提交瞬间满员 → 「已满」）。
-  // 返回显式结果（X3）：失败时调用方保持防重复提交并提供 resync 出口，
-  // 不静默回到旧可提交态。成功路径同时清理失效档位选择（B3）。
-  const refetchOffering = useCallback(async (): Promise<boolean> => {
-    if (!slug) return false;
-    try {
-      const row = await fetchPublicOffering(slug, kind);
-      if (!row) return false;
-      setState({ id: slug, row, error: null });
-      const tiers = parsePriceTiers(row.availablePriceTiers);
-      setTierId((current) =>
-        current && tiers.some((tier) => tier.id === current) ? current : null,
-      );
-      return true;
-    } catch {
-      // 刷新失败保持现态；由调用方决定收敛路径（resync / 手动刷新页面）
-      return false;
-    }
-  }, [slug, kind]);
+  // gen 守卫（B2）：每次 reconcile 递增 generation，回写前校验自己仍是
+  // 最新请求——超时 loser 迟到 resolve 时 gen 已过期，丢弃回写，不会把
+  // 较新的 full 覆盖回旧 enrolling。成功路径同时清理失效档位选择（B3）。
+  const refetchOfferingGen = useCallback(
+    async (gen: number): Promise<boolean> => {
+      if (!slug) return false;
+      try {
+        const row = await fetchPublicOffering(slug, kind);
+        if (reconcileGenRef.current !== gen) return false;
+        if (!row) return false;
+        setState({ id: slug, row, error: null });
+        const tiers = parsePriceTiers(row.availablePriceTiers);
+        setTierId((current) =>
+          current && tiers.some((tier) => tier.id === current) ? current : null,
+        );
+        return true;
+      } catch {
+        // 刷新失败保持现态；由调用方决定收敛路径（resync / 手动刷新页面）
+        return false;
+      }
+    },
+    [slug, kind],
+  );
 
-  // 有界等待（X3）：网络挂死时 reconcile 不永久锁死按钮——超时按失败收敛。
+  // 有界等待 + 单飞（B2）：10s 超时按失败收敛；in-flight 守卫防重复请求
+  // （失败态 resync 可点，但同一时刻只有一份 reconcile 在途）。
   const RECONCILE_TIMEOUT_MS = 10_000;
+  const reconcilingRef = useRef(false);
   const reconcile = useCallback(async (): Promise<boolean> => {
+    if (reconcilingRef.current) return false;
+    reconcilingRef.current = true;
+    const gen = ++reconcileGenRef.current;
     let timer: number | undefined;
     const bounded = new Promise<boolean>((resolve) => {
       timer = window.setTimeout(() => resolve(false), RECONCILE_TIMEOUT_MS);
     });
-    const ok = await Promise.race([refetchOffering(), bounded]);
+    const ok = await Promise.race([refetchOfferingGen(gen), bounded]);
     window.clearTimeout(timer);
+    reconcilingRef.current = false;
     return ok;
-  }, [refetchOffering]);
+  }, [refetchOfferingGen]);
 
   // 我的活跃报名（登录后才查；offering.id 就绪后发起）。失败按「未报名」
   // 处理（入口照常显示，不误报已报名）。
@@ -303,26 +316,19 @@ export default function PublicOfferingDetailPage({
       setSubmitPhase("reconciling");
       reconcileOk = await reconcile();
     } finally {
-      // reconcile 成功（badge/档位已重派生）→ 回 idle 允许再次提交；
-      // 失败/超时 → 保持锁定 + reconcileFailed 提示，resync 是唯一出口。
-      if (reconcileOk) {
-        setSubmitPhase("idle");
-        setReconcileFailed(false);
-      } else {
-        setSubmitPhase("reconciling");
-        setReconcileFailed(true);
-      }
+      // reconcile 成功（badge/档位已重派生）→ 回 idle；失败/超时 →
+      // reconcile_failed 稳态：resync 按钮可点（B2 单飞防重复请求）。
+      setSubmitPhase(reconcileOk ? "idle" : "reconcile_failed");
     }
   }
 
-  // reconcile 失败后的重新同步出口（X3）：成功则解锁提交。
+  // reconcile_failed 稳态的重新同步出口（B2）：进入 reconciling（按钮
+  // disabled），成功回 idle，失败回 reconcile_failed。单飞由 reconcile
+  // 内 in-flight 守卫兜底。
   async function resync() {
     setSubmitPhase("reconciling");
     const ok = await reconcile();
-    if (ok) {
-      setSubmitPhase("idle");
-      setReconcileFailed(false);
-    }
+    setSubmitPhase(ok ? "idle" : "reconcile_failed");
   }
 
   return (
@@ -611,22 +617,25 @@ export default function PublicOfferingDetailPage({
                       {submitState.message}
                     </p>
                   ) : null}
-                  {reconcileFailed ? (
-                    // X3：重拉失败/超时——提交保持锁定，resync 是唯一出口，
-                    // 不静默回到旧可提交态（旧 badge 下重复必败 mutation）
+                  {submitPhase === "reconcile_failed" ? (
+                    // B2：重拉失败稳态——提交保持锁定，resync 是唯一出口。
                     <p className="text-[13px] text-ink-3" role="alert">
                       {t("reconcileFailed")}
                     </p>
                   ) : null}
-                  {reconcileFailed ? (
+                  {submitPhase === "reconcile_failed" ||
+                  submitPhase === "reconciling" ? (
                     <button
                       type="button"
-                      disabled={submitPhase !== "idle" && !reconcileFailed}
+                      // 稳态可点（重新同步）；在途 disabled（B2 单飞语义）
+                      disabled={submitPhase === "reconciling"}
                       onClick={() => void resync()}
                       className="join-button join-button--outline justify-self-start"
                       data-testid="resync-offering"
                     >
-                      {submitPhase === "reconciling" ? t("reconciling") : t("resync")}
+                      {submitPhase === "reconciling"
+                        ? t("reconciling")
+                        : t("resync")}
                     </button>
                   ) : (
                     <button
@@ -636,9 +645,7 @@ export default function PublicOfferingDetailPage({
                       className="join-button join-button--primary justify-self-start"
                     >
                       {busy
-                        ? submitPhase === "reconciling"
-                          ? t("reconciling")
-                          : t("submitting")
+                        ? t("submitting")
                         : offering.pricingEnabled && paidTier
                           ? t("submitWithPay", {
                               amount: formatAmount(paidTier.amountCents),
