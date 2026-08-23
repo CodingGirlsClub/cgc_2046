@@ -237,6 +237,9 @@ export type Course = {
   confirmedCount: Scalars['Int']['output'];
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: Maybe<Scalars['String']['output']>;
+  /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  enrollmentBadge?: Maybe<Scalars['String']['output']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy: Scalars['String']['output'];
   id: Scalars['ID']['output'];
@@ -250,6 +253,8 @@ export type Course = {
   researchRequirements?: Maybe<Scalars['JsonString']['output']>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: Maybe<Scalars['String']['output']>;
+  /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
   /** 课程状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status: Scalars['String']['output'];
   /** 课程标题 */
@@ -316,6 +321,22 @@ export type CourseFilterDescription = {
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type CourseFilterEndsAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
 export type CourseFilterEnrollmentPolicy = {
   eq?: InputMaybe<Scalars['String']['input']>;
   greaterThan?: InputMaybe<Scalars['String']['input']>;
@@ -356,6 +377,8 @@ export type CourseFilterInput = {
   confirmedCount?: InputMaybe<CourseFilterConfirmedCount>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<CourseFilterDescription>;
+  /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: InputMaybe<CourseFilterEndsAt>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<CourseFilterEnrollmentPolicy>;
   id?: InputMaybe<CourseFilterId>;
@@ -369,6 +392,8 @@ export type CourseFilterInput = {
   researchRequirements?: InputMaybe<CourseFilterResearchRequirements>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: InputMaybe<CourseFilterSlug>;
+  /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
+  startsAt?: InputMaybe<CourseFilterStartsAt>;
   /** 课程状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status?: InputMaybe<CourseFilterStatus>;
   /** 课程标题 */
@@ -449,6 +474,22 @@ export type CourseFilterSlug = {
   rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CourseFilterStartsAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type CourseFilterStatus = {
@@ -565,12 +606,14 @@ export type CourseSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
   | 'DESCRIPTION'
+  | 'ENDS_AT'
   | 'ENROLLMENT_POLICY'
   | 'ID'
   | 'PRICING_ENABLED'
   | 'REGISTRATION_DEADLINE'
   | 'RESEARCH_REQUIREMENTS'
   | 'SLUG'
+  | 'STARTS_AT'
   | 'STATUS'
   | 'TITLE'
   | 'VISIBILITY'
@@ -587,6 +630,8 @@ export type CreateCourseInput = {
   capacity?: InputMaybe<Scalars['Int']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
+  /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
@@ -599,6 +644,8 @@ export type CreateCourseInput = {
   researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: InputMaybe<Scalars['String']['input']>;
+  /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 课程标题 */
   title: Scalars['String']['input'];
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
@@ -640,6 +687,8 @@ export type CreateEventInput = {
   capacity?: InputMaybe<Scalars['Int']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
+  /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
@@ -660,8 +709,12 @@ export type CreateEventInput = {
   sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
   sponsorshipTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 活动开始时间；nil 表示未定（R1） */
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 活动标题 */
   title: Scalars['String']['input'];
+  /** 结构化场地（country/province/city/district 四键，KTD5/R2）；nil 表示线上或未定 */
+  venue?: InputMaybe<Scalars['JsonString']['input']>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<Scalars['String']['input']>;
   /** 目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略） */
@@ -1236,6 +1289,9 @@ export type Event = {
   confirmedCount: Scalars['Int']['output'];
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: Maybe<Scalars['String']['output']>;
+  /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  enrollmentBadge?: Maybe<Scalars['String']['output']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy: Scalars['String']['output'];
   id: Scalars['ID']['output'];
@@ -1257,10 +1313,14 @@ export type Event = {
   sponsorshipEnabled: Scalars['Boolean']['output'];
   /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
   sponsorshipTiers: Array<Scalars['JsonString']['output']>;
+  /** 活动开始时间；nil 表示未定（R1） */
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
   /** 活动状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status: Scalars['String']['output'];
   /** 活动标题 */
   title: Scalars['String']['output'];
+  /** 结构化场地（country/province/city/district 四键，KTD5/R2）；nil 表示线上或未定 */
+  venue?: Maybe<Scalars['JsonString']['output']>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility: Scalars['String']['output'];
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
@@ -1322,6 +1382,22 @@ export type EventFilterDescription = {
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type EventFilterEndsAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
 export type EventFilterEnrollmentPolicy = {
   eq?: InputMaybe<Scalars['String']['input']>;
   greaterThan?: InputMaybe<Scalars['String']['input']>;
@@ -1362,6 +1438,8 @@ export type EventFilterInput = {
   confirmedCount?: InputMaybe<EventFilterConfirmedCount>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<EventFilterDescription>;
+  /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: InputMaybe<EventFilterEndsAt>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<EventFilterEnrollmentPolicy>;
   id?: InputMaybe<EventFilterId>;
@@ -1381,10 +1459,14 @@ export type EventFilterInput = {
   sponsorshipDeadline?: InputMaybe<EventFilterSponsorshipDeadline>;
   /** 是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②） */
   sponsorshipEnabled?: InputMaybe<EventFilterSponsorshipEnabled>;
+  /** 活动开始时间；nil 表示未定（R1） */
+  startsAt?: InputMaybe<EventFilterStartsAt>;
   /** 活动状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status?: InputMaybe<EventFilterStatus>;
   /** 活动标题 */
   title?: InputMaybe<EventFilterTitle>;
+  /** 结构化场地（country/province/city/district 四键，KTD5/R2）；nil 表示线上或未定 */
+  venue?: InputMaybe<EventFilterVenue>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<EventFilterVisibility>;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
@@ -1510,6 +1592,22 @@ export type EventFilterSponsorshipEnabled = {
   rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
+export type EventFilterStartsAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
 export type EventFilterStatus = {
   eq?: InputMaybe<Scalars['String']['input']>;
   greaterThan?: InputMaybe<Scalars['String']['input']>;
@@ -1545,6 +1643,22 @@ export type EventFilterTitle = {
   rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type EventFilterVenue = {
+  eq?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  notEq?: InputMaybe<Scalars['JsonString']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type EventFilterVisibility = {
@@ -1599,6 +1713,7 @@ export type EventSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
   | 'DESCRIPTION'
+  | 'ENDS_AT'
   | 'ENROLLMENT_POLICY'
   | 'ID'
   | 'PRICING_ENABLED'
@@ -1608,8 +1723,10 @@ export type EventSortField =
   | 'SLUG'
   | 'SPONSORSHIP_DEADLINE'
   | 'SPONSORSHIP_ENABLED'
+  | 'STARTS_AT'
   | 'STATUS'
   | 'TITLE'
+  | 'VENUE'
   | 'VISIBILITY'
   | 'WORKFLOW_RUN_ID'
   | 'WORKSPACE_ID';
@@ -4877,6 +4994,8 @@ export type UpdateCourseInput = {
   capacity?: InputMaybe<Scalars['Int']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
+  /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
@@ -4889,6 +5008,8 @@ export type UpdateCourseInput = {
   researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: InputMaybe<Scalars['String']['input']>;
+  /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 课程标题 */
   title?: InputMaybe<Scalars['String']['input']>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
@@ -4908,6 +5029,8 @@ export type UpdateEventInput = {
   capacity?: InputMaybe<Scalars['Int']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
+  /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 价格档位配置（PriceTier 形状，见 price_tier.ex） */
@@ -4928,8 +5051,12 @@ export type UpdateEventInput = {
   sponsorshipEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex） */
   sponsorshipTiers?: InputMaybe<Array<Scalars['JsonString']['input']>>;
+  /** 活动开始时间；nil 表示未定（R1） */
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
   /** 活动标题 */
   title?: InputMaybe<Scalars['String']['input']>;
+  /** 结构化场地（country/province/city/district 四键，KTD5/R2）；nil 表示线上或未定 */
+  venue?: InputMaybe<Scalars['JsonString']['input']>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<Scalars['String']['input']>;
 };

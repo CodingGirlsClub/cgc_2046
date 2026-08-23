@@ -14,6 +14,10 @@ export const CatalogQueryDocument = /* GraphQL */ `
         registrationDeadline
         pricingEnabled
         availablePriceTiers
+        startsAt
+        endsAt
+        venue
+        enrollmentBadge
       }
     }
     listCourses(first: $first, filter: { status: { eq: "open" } }) {
@@ -30,6 +34,9 @@ export const CatalogQueryDocument = /* GraphQL */ `
         registrationDeadline
         pricingEnabled
         availablePriceTiers
+        startsAt
+        endsAt
+        enrollmentBadge
       }
     }
   }
@@ -50,6 +57,10 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       registrationDeadline
       pricingEnabled
       availablePriceTiers
+      startsAt
+      endsAt
+      venue
+      enrollmentBadge
     }
   }
 `
@@ -69,6 +80,9 @@ export const CourseDetailQueryDocument = /* GraphQL */ `
       registrationDeadline
       pricingEnabled
       availablePriceTiers
+      startsAt
+      endsAt
+      enrollmentBadge
     }
   }
 `

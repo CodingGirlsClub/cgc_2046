@@ -35,21 +35,21 @@ export type CatalogQueryVariables = Exact<{
 }>;
 
 
-export type CatalogQuery = { listEvents: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null }> | null } | null, listCourses: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null }> | null } | null };
+export type CatalogQuery = { listEvents: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null }> | null } | null, listCourses: { results: Array<{ id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null }> | null } | null };
 
 export type EventDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type CourseDetailQuery = { getCourse: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null } | null };
+export type CourseDetailQuery = { getCourse: { id: string, workspaceId: string, title: string, researchRequirements: string | null, status: string, workflowRunId: string | null, enrollmentPolicy: string, capacity: number | null, confirmedCount: number, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null };
 
 export type SessionQueryVariables = Exact<{ [key: string]: never; }>;
 

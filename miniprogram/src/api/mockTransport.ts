@@ -31,7 +31,11 @@ const records = [
     confirmedCount: 18,
     registrationDeadline: new Date(Date.now() + 72 * 3_600_000).toISOString(),
     pricingEnabled: false,
-    availablePriceTiers: []
+    availablePriceTiers: [],
+    startsAt: new Date(Date.now() + 3 * 24 * 3_600_000).toISOString(),
+    endsAt: new Date(Date.now() + (3 * 24 + 2) * 3_600_000).toISOString(),
+    venue: JSON.stringify({ country: '中国', province: '北京市', city: '北京', district: '海淀区' }),
+    enrollmentBadge: 'starting_soon'
   },
   {
     id: 'event-open',
@@ -45,7 +49,12 @@ const records = [
     confirmedCount: 31,
     registrationDeadline: null,
     pricingEnabled: false,
-    availablePriceTiers: []
+    availablePriceTiers: [],
+    // 时间/地点未定：详情页走「时间待定」「地点待定」兜底（R3）
+    startsAt: null,
+    endsAt: null,
+    venue: null,
+    enrollmentBadge: 'enrolling'
   }
 ]
 
@@ -61,7 +70,11 @@ const course = {
   confirmedCount: 12,
   registrationDeadline: null,
   pricingEnabled: false,
-  availablePriceTiers: []
+  availablePriceTiers: [],
+  // 课程无 venue 槽（R3）；开课时间已定、结课未定（部分空）
+  startsAt: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString(),
+  endsAt: null,
+  enrollmentBadge: 'enrolling'
 }
 
 interface MockOrder {
