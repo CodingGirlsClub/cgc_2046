@@ -90,21 +90,37 @@ export function scheduleText(startsAt: string | null, endsAt: string | null): st
 }
 
 /**
- * venue JsonString → 展示文本（country/province/city/district 四键非空拼接，KTD5）。
- * 解析失败/结构非法/全空 → null（展示层兜底「地点待定」，同 parseSponsorshipTiers
- * 静默丢弃纪律：展示层不假定结构，不报错不出空白）。
+ * venue JsonString → 展示文本（KTD5/R3）。解析遵循严格四键形状（与 backend
+ * Venue.valid?/1 同构）：对象恰有 country/province/city/district 四键且值均为
+ * string 才算解析成功；缺键/多键/非字符串值/JSON.parse 失败/输入非 string
+ * 一律 null（展示层兜底「地点待定」，同 web parseVenue 解析失败按 nil 的
+ * 容错纪律：展示层不假定结构，不报错不出空白）。四键全空串同样 null。
  */
-export function venueText(raw: string | null): string | null {
-  if (!raw) return null
+function parseVenue(raw: string | null): { country: string; province: string; city: string; district: string } | null {
+  if (typeof raw !== 'string') return null
   try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
     const venue = parsed as Record<string, unknown>
-    const parts = ['country', 'province', 'city', 'district']
-      .map((key) => venue[key])
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    return parts.length > 0 ? parts.join(' ') : null
+    if (Object.keys(venue).length !== 4) return null
+    if (
+      typeof venue.country !== 'string' ||
+      typeof venue.province !== 'string' ||
+      typeof venue.city !== 'string' ||
+      typeof venue.district !== 'string'
+    ) {
+      return null
+    }
+    return { country: venue.country, province: venue.province, city: venue.city, district: venue.district }
   } catch {
     return null
   }
+}
+
+/** venue → 单行展示（空段跳过；解析失败/全空 → null，展示层兜底「地点待定」，R3） */
+export function venueText(raw: string | null): string | null {
+  const venue = parseVenue(raw)
+  if (!venue) return null
+  const parts = [venue.country, venue.province, venue.city, venue.district].filter((s) => s.trim() !== '')
+  return parts.length > 0 ? parts.join(' ') : null
 }
