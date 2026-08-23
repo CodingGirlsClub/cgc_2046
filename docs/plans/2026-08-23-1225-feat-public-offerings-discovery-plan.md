@@ -93,14 +93,14 @@ flowchart TB
 **Web 公开页**
 
 - R7. /events、/courses 列表与详情页采用 landing 同款固定深色视觉（`.ld-*` token 体系），不受应用明暗主题影响；应用内页面双主题保持不变。
-- R8. 列表沿用 landing 行式形态（OfferingRow 同款 `.ld-*` 语言，不引入卡片），每行展示标题、状态标签（per R6）、报名政策、截止时间、开始时间与地点，字段排进 meta 行。
-- R9. 详情页提升信息密度，完整呈现描述、开始/结束/截止时间、venue、报名政策与定价档位。
+- R8. 列表沿用 landing 行式形态（OfferingRow 同款 `.ld-*` 语言，不引入卡片），每行展示标题、状态标签（per R6）、报名政策、截止时间、开始时间与地点（地点仅 Event，per R3），字段排进 meta 行。
+- R9. 详情页提升信息密度，完整呈现描述、开始/结束/截止时间、venue（仅 Event，per R3）、报名政策与定价档位。
 - R10. 公开页与 landing 继续共用同一匿名数据通道，仅扩展字段，不新建数据路径。
 
 **Agent 与侧边栏**
 
 - R11. CGC 助手能回答「最近有什么活动/课程」与「<地点> 近期有什么」两类问题，答案完全来自 R4/R16 工具的真实返回，无匹配条目时直说没有。
-- R12. OpenClacky 侧边栏提供发现入口，列出公开活动/课程的标题、时间、地点与状态标签，可打开对应 web 详情页；未连接 MCP 时显示连接引导。
+- R12. OpenClacky 侧边栏提供发现入口，列出公开活动/课程的标题、时间、地点（仅 Event，per R3）与状态标签，可打开对应 web 详情页；未连接 MCP 时显示连接引导。
 - R13. CGC 助手向新用户提供提示词引导，让其知道可以问「最近有什么活动/课程」。
 
 **录入**
@@ -313,12 +313,13 @@ stateDiagram-v2
 ### U6. OpenClacky 发现面板 + 助手 prompt 修复
 
 - **Goal:** 侧边栏出现发现入口；助手口径与新工具对齐；新用户有提示词引导。
-- **Requirements:** R11, R12, R13, AE5 — per KTD4, KTD7, KTD9.
+- **Requirements:** R11, R12, R13, R3, AE5 — per KTD4, KTD7, KTD9.
 - **Files:** openclacky-ext/cgc-2046/api/offering_routes.rb（新）、openclacky-ext/cgc-2046/api/handler.rb、openclacky-ext/cgc-2046/panels/cgc-discovery/view.js（新）、openclacky-ext/cgc-2046/ext.yml、openclacky-ext/cgc-2046/agents/cgc-assistant/system_prompt.md、onboarding skill 的 SKILL.md、openclacky-ext/cgc-2046/test/offering_routes_test.rb（新）。
 - **Approach:** 路由照 course_routes.rb:16-58 先例（connected_registry 取 mcp_registry，nil → 503 NOT_CONNECTED；call_tool → normalize_mcp_result；503/502/500 分层），但直连 registry 不复用 course_tool 的 workspace_id 硬要求；GET 参数走 route_params_value；面板照 cgc-course/view.js 模板（IIFE 守卫、apiGet、renderNotConnected、escapeHtml、injectStyles、registerWorkspace），状态机见 High-Level Technical Design；详情链接按 KTD9；system_prompt 与 onboarding 文案按 KTD7；ext.yml 注册 order 10 面板（title/title_zh 双语）。
 - **Test scenarios:**
   - 路由测试（FakeRegistry + allocate @params 先例）：未连接 → 503 NOT_CONNECTED；透传参数与返回形状正确；上游错误分层。
   - view.js 静态断言：IIFE 守卫、escapeHtml 包裹动态值、not-connected 视图在场（AE5）。
+  - starts_at 为空的条目在面板行显示「时间待定」而非空白；Event 空 venue 显「地点待定」，Course 不渲染位置槽（R3，与 U4/U7 同一套兜底文案）。
   - system_prompt 断言：工具清单数 = 17、公开工具豁免说明与 no-fabrication 段在场。
   - `bin/pack` 校验通过。
 - **Verification:** `cd openclacky-ext/cgc-2046 && mise exec -- ruby test/offering_routes_test.rb`（不在 CI，本地必跑）。
