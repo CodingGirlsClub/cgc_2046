@@ -248,11 +248,18 @@ class DiscoveryPanelViewTest < Minitest::Test
   end
 
   def test_undated_and_location_rendering
-    # KTD4:无 starts_at → 「时间待定」;KD6:event 有 city/district 才显示,course 无位置槽
+    # KTD4:无 starts_at → 「时间待定」;KD6:event 拼 city/district,course 无位置槽
     assert_includes VIEW, "时间待定"
     assert_includes VIEW, 'item.kind !== "event"'
     assert_includes VIEW, "item.city"
     assert_includes VIEW, "item.district"
+    # R3:event 空 venue 兑底,与 web/小程序同一套文案:
+    # - city/district 全空(含 venue 整体缺)→ 「地点待定」,地点槽恒渲染(placeLabel 恒非空)
+    # - partial(仅 city)→ filter join 拼出非空,不落兑底
+    # - course → placeLabel 返回 "",渲染处条件跳过位置槽
+    assert_includes VIEW, "地点待定"
+    assert_includes VIEW, 'return place || "地点待定"'
+    assert_includes VIEW, '[item.city, item.district].filter(function (v) { return !!v; }).join(" ")'
   end
 
   def test_detail_link_to_web
