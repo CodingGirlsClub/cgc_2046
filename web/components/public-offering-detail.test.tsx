@@ -77,6 +77,7 @@ const PAID_OFFERING = {
   enrollmentPolicy: "open",
   registrationDeadline: null,
   pricingEnabled: true,
+  enrollmentBadge: "enrolling",
   availablePriceTiers: [
     JSON.stringify({ id: "tier-1", name: "早鸟", amount_cents: 100 }),
     JSON.stringify({ id: "tier-2", name: "标准", amount_cents: 19900 }),
@@ -361,6 +362,46 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     await waitFor(() =>
       expect(mocks.fetchPublicOffering).toHaveBeenCalledTimes(2),
     );
+  });
+
+  it("X3 报名失败 refetch 未完成前按钮保持 disabled；resolve 为 full 后按钮消失", async () => {
+    // 第一次加载 enrolling；报名失败（满员冲突）后的 refetch 挂起
+    mocks.fetchPublicOffering.mockResolvedValueOnce({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "enrolling",
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: null,
+      errors: [{ code: "capacity_full", message: "capacity is full" }],
+    });
+
+    let releaseRefetch!: (row: typeof PAID_OFFERING) => void;
+    const refetchGate = new Promise<typeof PAID_OFFERING>((resolve) => {
+      releaseRefetch = resolve;
+    });
+    mocks.fetchPublicOffering.mockImplementationOnce(() => refetchGate);
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    const submit = await screen.findByRole("button", { name: "提交报名" });
+    fireEvent.click(submit);
+
+    // 错误文案已出（错误分支已进），但 refetch 仍挂起 → 按钮必须仍 disabled
+    expect(await screen.findByRole("alert")).toHaveTextContent("提交失败");
+    expect(submit).toBeDisabled();
+
+    // refetch 落定：badge=full → 满员态按钮整体消失（AE1）
+    releaseRefetch({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: [],
+      enrollmentBadge: "full",
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("enrollment-full")).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: "提交报名" })).not.toBeInTheDocument();
   });
 
   it("拉取失败：错误消息 + 重试按钮；点击重试触发重新拉取", async () => {
