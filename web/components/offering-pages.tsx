@@ -52,6 +52,7 @@ import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
+  parseVenue,
   submitEnrollment,
 } from "@/lib/public-offerings";
 import { useAuthed } from "@/lib/use-authed";
@@ -111,26 +112,6 @@ function fromLocalInput(value: string): string | null {
 
 /** venue 四键空草稿（全空 = 线上/未定，提交时由 lib 组装为 null） */
 const EMPTY_VENUE: VenueInfo = { country: "", province: "", city: "", district: "" };
-
-/** venue JsonString → 四键草稿（null/非法 → 全空，表单从空白起步） */
-function parseVenueDraft(json: string | null | undefined): VenueInfo {
-  if (!json) return { ...EMPTY_VENUE };
-  try {
-    const parsed = JSON.parse(json) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ...EMPTY_VENUE };
-    }
-    const rec = parsed as Record<string, unknown>;
-    return {
-      country: typeof rec.country === "string" ? rec.country : "",
-      province: typeof rec.province === "string" ? rec.province : "",
-      city: typeof rec.city === "string" ? rec.city : "",
-      district: typeof rec.district === "string" ? rec.district : "",
-    };
-  } catch {
-    return { ...EMPTY_VENUE };
-  }
-}
 
 /** venue all-or-none：任一填写但四键未齐（trim 后）→ true，表单就地拦截不提交 */
 function venueDraftIncomplete(venue: VenueInfo): boolean {
@@ -614,7 +595,7 @@ export function OfferingDetailPage({
             deadline: toLocalInput(offering.registrationDeadline),
             startsAt: toLocalInput(offering.startsAt ?? null),
             endsAt: toLocalInput(offering.endsAt ?? null),
-            venue: parseVenueDraft(offering.venue),
+            venue: parseVenue(offering.venue) ?? { ...EMPTY_VENUE },
             researchRequirements: parseResearchText(
               offering.researchRequirements,
             ),

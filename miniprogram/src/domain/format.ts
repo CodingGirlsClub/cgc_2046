@@ -77,7 +77,7 @@ export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
 }
 
 // 与详情页既有截止日期同款 toLocaleString 惯例（R15 随行展示不引新格式）
-function formatDateTime(iso: string): string {
+export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 

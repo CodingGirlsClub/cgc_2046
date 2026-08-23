@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
 
   alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Tools.GetPublicOffering
@@ -36,8 +36,6 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     [content] = response.content
     Jason.decode!(content["text"])
   end
-
-  defp days_from_now(days), do: DateTime.add(DateTime.utc_now(), days, :day)
 
   # draft 布置：状态机无直达 draft 保持外的公开 action，fixtures 默认 force_open，
   # 此处直走 create（不入 force_open）。
@@ -83,7 +81,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
         title: "parity 活动",
         capacity: 5,
         venue: @venue_beijing,
-        starts_at: days_from_now(3)
+        starts_at: EventFixtures.days_from_now(3)
       })
 
       EventFixtures.create_course(workspace, admin, %{title: "parity 课程", capacity: 9})
@@ -118,7 +116,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       EventFixtures.create_event(workspace, admin, %{
         capacity: 3,
         venue: @venue_beijing,
-        starts_at: days_from_now(2)
+        starts_at: EventFixtures.days_from_now(2)
       })
 
       outsider = Fixtures.register_user("po-shape-user")
@@ -271,8 +269,8 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     test "默认「近期」口径：过去开始的条目排除，无时间条目保留并计入 undated_count" do
       admin = Fixtures.platform_admin("po-recent")
       workspace = Fixtures.create_workspace(admin)
-      past = EventFixtures.create_event(workspace, admin, %{starts_at: days_from_now(-1)})
-      future = EventFixtures.create_event(workspace, admin, %{starts_at: days_from_now(3)})
+      past = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(-1)})
+      future = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
       undated = EventFixtures.create_event(workspace, admin, %{})
       outsider = Fixtures.register_user("po-recent-user")
 
@@ -290,13 +288,13 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     test "starts_after / starts_before 过滤：无时间条目被排除但计入 undated_count" do
       admin = Fixtures.platform_admin("po-time")
       workspace = Fixtures.create_workspace(admin)
-      soon = EventFixtures.create_event(workspace, admin, %{starts_at: days_from_now(2)})
-      later = EventFixtures.create_event(workspace, admin, %{starts_at: days_from_now(9)})
+      soon = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(2)})
+      later = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(9)})
       _undated = EventFixtures.create_event(workspace, admin, %{})
       outsider = Fixtures.register_user("po-time-user")
 
       # starts_after = now+5d：只留 later；undated 排除但计数
-      after_dt = days_from_now(5) |> DateTime.to_iso8601()
+      after_dt = EventFixtures.days_from_now(5) |> DateTime.to_iso8601()
 
       assert {:reply, _, _} =
                r1 =
@@ -307,7 +305,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       assert p1["undated_count"] == 1
 
       # starts_before = now+5d：只留 soon
-      before_dt = days_from_now(5) |> DateTime.to_iso8601()
+      before_dt = EventFixtures.days_from_now(5) |> DateTime.to_iso8601()
 
       assert {:reply, _, _} =
                r2 =
@@ -322,7 +320,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
                r3 =
                ListPublicOfferings.execute(
                  %{
-                   "starts_after" => days_from_now(1) |> DateTime.to_iso8601(),
+                   "starts_after" => EventFixtures.days_from_now(1) |> DateTime.to_iso8601(),
                    "starts_before" => before_dt
                  },
                  frame_for(outsider)
@@ -343,8 +341,8 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     test "排序：starts_at 升序、无时间条目在最后" do
       admin = Fixtures.platform_admin("po-sort")
       workspace = Fixtures.create_workspace(admin)
-      later = EventFixtures.create_event(workspace, admin, %{starts_at: days_from_now(8)})
-      sooner = EventFixtures.create_event(workspace, admin, %{starts_at: days_from_now(2)})
+      later = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(8)})
+      sooner = EventFixtures.create_event(workspace, admin, %{starts_at: EventFixtures.days_from_now(2)})
       undated = EventFixtures.create_event(workspace, admin, %{})
       outsider = Fixtures.register_user("po-sort-user")
 
@@ -397,8 +395,8 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
         EventFixtures.create_event(workspace, admin, %{
           description: "公开描述文案",
           venue: @venue_beijing,
-          starts_at: days_from_now(3),
-          ends_at: days_from_now(4),
+          starts_at: EventFixtures.days_from_now(3),
+          ends_at: EventFixtures.days_from_now(4),
           pricing_enabled: true,
           price_tiers: [
             %{"id" => Ash.UUID.generate(), "name" => "早鸟票", "amount_cents" => 9900}

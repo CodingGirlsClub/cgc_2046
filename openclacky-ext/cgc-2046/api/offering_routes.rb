@@ -9,7 +9,7 @@
 # 分野:course_tool 在 handler 层注入必填校验,这里直连 registry)。
 #
 # 管道(connected_registry / normalize_mcp_result / 503·502·500 错误分层)
-# 复用 Cgc2046CourseRoutes 的模块函数,仅 503 引导文案指向发现面板。
+# 复用 Cgc2046CourseRoutes.call_tool,仅 503 引导文案与 500 前缀指向发现面板。
 #
 # 安全红线:token 只存在于 mcp.json(由 connect 端点管理);本模块不读
 # token、不把凭证写进响应或日志。

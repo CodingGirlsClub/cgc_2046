@@ -4,7 +4,7 @@ import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
-import { enrollmentBadgeText, scheduleText, venueText } from '@/domain/format'
+import { enrollmentBadgeText, formatDateTime, scheduleText, venueText } from '@/domain/format'
 import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
@@ -128,7 +128,7 @@ export default function EventDetailPage() {
             <Text className={styles.policyText}>收费活动：提交报名后请在限定时间内完成支付。</Text>
           )}
           {item.registrationDeadline && (
-            <Text className={styles.deadline}>截止：{new Date(item.registrationDeadline).toLocaleString()}</Text>
+            <Text className={styles.deadline}>截止：{formatDateTime(item.registrationDeadline)}</Text>
           )}
         </View>
       </ScrollView>
