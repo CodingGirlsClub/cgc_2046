@@ -38,6 +38,7 @@ export async function fetchSpeakerInvitationCard(
 	const { data } = await client.query({
 		query: SPEAKER_INVITATION_CARD,
 		variables: { token },
+		fetchPolicy: "network-only",
 	});
 
 	return data?.speakerInvitationCard ?? null;

@@ -176,12 +176,12 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     # ── SpeakerInvitation（E-4 #49）──
 
-    @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请"
+    @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息 + viewerIsInviter；无效/过期/已用 token 统一错误，不泄露其它邀请"
     field :speaker_invitation_card, :speaker_invitation_card do
       arg(:token, non_null(:string))
 
-      resolve(fn _, %{token: token}, _ ->
-        case Cgc2046.Events.SpeakerInvitations.card(token) do
+      resolve(fn _, %{token: token}, %{context: context} ->
+        case Cgc2046.Events.SpeakerInvitations.card(token, context[:actor]) do
           {:ok, card} ->
             {:ok, card}
 
@@ -1765,6 +1765,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:status, non_null(:string))
     field(:topic, :string)
     field(:scheduled_at, :datetime)
+
+    @desc "当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy）"
+    field(:viewer_is_inviter, non_null(:boolean))
     field(:event, non_null(:speaker_invitation_card_event))
   end
 

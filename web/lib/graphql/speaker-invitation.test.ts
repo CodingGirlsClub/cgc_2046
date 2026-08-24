@@ -20,14 +20,16 @@ describe("speaker-invitation GraphQL 契约（对齐 speaker_invitation.ex + gra
 		expect(doc).not.toContain("tokenHash");
 	});
 
-	it("speakerInvitationCard(token)：公开卡片只含状态/主题/时间 + Event 公开白名单", () => {
+	it("speakerInvitationCard(token)：公开卡片只含状态/主题/时间 + Event 公开白名单 + viewerIsInviter", () => {
 		const doc = print(SPEAKER_INVITATION_CARD);
 		expect(doc).toContain("query SpeakerInvitationCard($token: String!)");
 		expect(doc).toContain("speakerInvitationCard(token: $token)");
 		expect(doc).toContain("topic");
 		expect(doc).toContain("scheduledAt");
+		expect(doc).toContain("viewerIsInviter");
 		expect(doc).not.toContain("speakerEmail");
 		expect(doc).not.toContain("tokenHash");
+		expect(doc).not.toContain("invitedBy");
 	});
 
 	it("create 返回 plainToken（仅此一次）；accept/decline 输入 token", () => {

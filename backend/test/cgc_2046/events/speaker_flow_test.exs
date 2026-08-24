@@ -78,13 +78,14 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert {:error, error} = SpeakerInvitation.issue(attrs, admin, workspace.id)
       assert Exception.message(error) =~ "already exists"
 
-      # 婉拒后（终态）允许重邀
+      # 婉拒后（终态）允许重邀；发出人不能自己 decline，由被邀请账号操作
       first =
         SpeakerInvitation
         |> Ash.Query.filter(token_hash == ^SpeakerInvitation.hash_token(token))
         |> Ash.read_one!(authorize?: false)
 
-      assert {:ok, _declined} = decide(first, admin, :decline_invitation, token)
+      speaker = Fixtures.register_user_with_email("speaker-b@example.com")
+      assert {:ok, _declined} = decide(first, speaker, :decline_invitation, token)
 
       assert {:ok, _again, _new_token} = SpeakerInvitation.issue(attrs, admin, workspace.id)
     end
@@ -186,7 +187,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
           workspace.id
         )
 
-      %{event: event, invitation: invitation, token: token}
+      %{admin: admin, event: event, invitation: invitation, token: token}
     end
 
     test "有效 token 返回卡片：主题/时间 + Event 公开信息，不含越权字段", %{
@@ -198,17 +199,29 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert card.status == "invited"
       assert card.topic == "TypeScript 类型体操"
       refute is_nil(card.scheduled_at)
+      assert card.viewer_is_inviter == false
 
       assert card.event.id == event.id
       assert card.event.slug == event.slug
       assert card.event.title == event.title
       assert card.event.status == "open"
 
-      # 不泄露越权字段：卡片只有状态/主题/时间 + Event 公开白名单
+      # 不泄露越权字段：卡片只有状态/主题/时间 + Event 公开白名单 + viewer_is_inviter
       refute Map.has_key?(card, :speaker_email)
       refute Map.has_key?(card, :token_hash)
+      refute Map.has_key?(card, :invited_by)
       refute Map.has_key?(card.event, :workspace_id)
       refute Map.has_key?(card.event, :capacity)
+    end
+
+    test "card(token, actor)：发出人 viewer_is_inviter=true，其他人/匿名为 false", %{
+      admin: admin,
+      token: token
+    } do
+      assert {:ok, %{viewer_is_inviter: true}} = SpeakerInvitations.card(token, admin)
+      assert {:ok, %{viewer_is_inviter: false}} = SpeakerInvitations.card(token)
+      other = Fixtures.register_user("spk-card-other")
+      assert {:ok, %{viewer_is_inviter: false}} = SpeakerInvitations.card(token, other)
     end
 
     test "无效 token → 统一错误", %{} do
@@ -335,7 +348,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert accepted.speaker_user_id == speaker.id
     end
 
-    test "无 speaker_email 的邀请（手动转发链接）：任何登录账号可 accept", %{
+    test "无 speaker_email 的邀请（手动转发链接）：发出人以外的登录账号可 accept", %{
       admin: admin,
       invitation: invitation
     } do
@@ -351,6 +364,62 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert {:ok, accepted} = decide(open_invitation, anyone, :accept_invitation, open_token)
       assert accepted.status == :accepted
       assert accepted.speaker_user_id == anyone.id
+    end
+
+    test "发出人不能 accept/decline 自己发出的邀请；邀请仍 invited、token 未消耗", %{
+      admin: admin,
+      invitation: invitation
+    } do
+      {:ok, open_invitation, open_token} =
+        SpeakerInvitation.issue(
+          %{event_id: invitation.event_id, speaker_name: "嘉宾发出人"},
+          admin,
+          invitation.workspace_id
+        )
+
+      assert {:error, accept_error} =
+               decide(open_invitation, admin, :accept_invitation, open_token)
+
+      assert Exception.message(accept_error) =~ "sender cannot accept or decline"
+
+      reloaded = Ash.get!(SpeakerInvitation, open_invitation.id, authorize?: false)
+      assert reloaded.status == :invited
+      assert is_nil(reloaded.speaker_user_id)
+
+      assert {:error, decline_error} =
+               decide(open_invitation, admin, :decline_invitation, open_token)
+
+      assert Exception.message(decline_error) =~ "sender cannot accept or decline"
+
+      reloaded = Ash.get!(SpeakerInvitation, open_invitation.id, authorize?: false)
+      assert reloaded.status == :invited
+
+      anyone = Fixtures.register_user("spk-after-inviter")
+      assert {:ok, accepted} = decide(open_invitation, anyone, :accept_invitation, open_token)
+      assert accepted.status == :accepted
+    end
+
+    test "发出人即使 speaker_email 匹配自己也不能 accept", %{
+      admin: admin,
+      invitation: invitation
+    } do
+      {:ok, self_invite, token} =
+        SpeakerInvitation.issue(
+          %{
+            event_id: invitation.event_id,
+            speaker_name: "我自己",
+            speaker_email: to_string(admin.email)
+          },
+          admin,
+          invitation.workspace_id
+        )
+
+      assert {:error, error} = decide(self_invite, admin, :accept_invitation, token)
+      assert Exception.message(error) =~ "sender cannot accept or decline"
+
+      reloaded = Ash.get!(SpeakerInvitation, self_invite.id, authorize?: false)
+      assert reloaded.status == :invited
+      assert is_nil(reloaded.speaker_user_id)
     end
 
     test "材料产出 → complete → completed + speaker.completed（幂等键）+ run succeeded", %{

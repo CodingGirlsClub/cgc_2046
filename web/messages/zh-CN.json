@@ -593,7 +593,9 @@
     "decline": "婉拒",
     "decisionHint": "接受后请产出分享材料；婉拒即结束，链接一次性生效。",
     "actionFailed": "操作失败，邀请链接可能已失效",
-    "actionFailedShort": "操作失败"
+    "actionFailedShort": "操作失败",
+    "youAreInviter": "这是你发出的邀请",
+    "youAreInviterDesc": "请把链接复制后转给嘉宾。你自己不能用这条链接接受或婉拒。"
   },
   "workspace": {
     "shell": {
@@ -1395,7 +1397,7 @@
     "created": "已创建邀请，链接见下方列表（明文 token 仅此一次，请立即复制）",
     "createFailed": "创建失败",
     "title": "邀请 Speaker",
-    "desc": "逐人定向邀请：嘉宾收到专属链接后可接受或婉拒；接受后产出分享材料即完成。",
+    "desc": "逐人定向邀请：创建后请复制链接发给嘉宾。嘉宾打开后可接受或婉拒；接受后产出分享材料即完成。",
     "speakerName": "嘉宾姓名 *",
     "speakerNamePlaceholder": "如：张三",
     "speakerEmail": "嘉宾邮箱（留空 = 手动转发链接）",
