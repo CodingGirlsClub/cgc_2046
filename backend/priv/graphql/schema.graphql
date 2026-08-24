@@ -6252,6 +6252,15 @@ type CreateSpeakerInvitationPayload {
   errors: [MutationError!]!
 }
 
+type ResendSpeakerInvitationPayload {
+  "resendSpeakerInvitation 返回：result 为邀请记录；plainToken 新明文仅此一次"
+  result: SpeakerInvitation
+
+  plainToken: String
+
+  errors: [MutationError!]!
+}
+
 type SpeakerInvitationActionPayload {
   "accept\/decline\/saveSpeakerMaterials\/completeSpeakerInvitation 返回：result + errors 两段式"
   result: SpeakerInvitation
@@ -6428,6 +6437,9 @@ type RootMutationType {
 
   "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
   createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
+
+  "Owner\/Admin 重发邀请\/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
+  resendSpeakerInvitation(id: ID!): ResendSpeakerInvitationPayload
 
   "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
   acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
