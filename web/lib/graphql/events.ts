@@ -272,6 +272,8 @@ export const CREATE_EVENT: TypedDocumentNode<
         capacity
         confirmedCount
         registrationDeadline
+        pricingEnabled
+        priceTiers
       }
       errors {
         code
@@ -297,6 +299,8 @@ export const CREATE_COURSE: TypedDocumentNode<
         capacity
         confirmedCount
         registrationDeadline
+        pricingEnabled
+        priceTiers
       }
       errors {
         code
@@ -323,6 +327,8 @@ export const UPDATE_EVENT: TypedDocumentNode<
         startsAt
         endsAt
         venue
+        pricingEnabled
+        priceTiers
       }
       errors {
         code
@@ -349,6 +355,8 @@ export const UPDATE_COURSE: TypedDocumentNode<
         startsAt
         endsAt
         researchRequirements
+        pricingEnabled
+        priceTiers
       }
       errors {
         code

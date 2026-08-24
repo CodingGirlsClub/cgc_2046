@@ -157,8 +157,9 @@ defmodule Cgc2046.Payments.Order do
     end
 
     # U8（R10）：已售档判定——编辑面比较订单 tier 快照 id 与档位草稿（删除/
-    # 改价已售档时警告；快照语义保证已付订单金额不受影响）。
-    calculate :tier_id, :uuid do
+    # 改价已售档时警告；快照语义保证已付订单金额不受影响）。string 而非 uuid：
+    # PriceTier.id 是前端 crypto.randomUUID() 或任意非空串，uuid cast 会拒。
+    calculate :tier_id, :string do
       public?(true)
       description("下单时档位快照 id（U8 已售档守卫）")
       calculation(expr(tier_snapshot["id"]))
@@ -678,10 +679,14 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
+  # review F5：FOR UPDATE 行锁序列化下单与批量免缴的竞态——锁内重读 status，
+  # 免缴事务先提交则此处读到 confirmed 拒单；下单先持锁则批量免缴 CAS 等待
+  # 后跳过该笔（num_rows=0），不再出现「已免缴确认后仍插入 pending 单」。
+  # before_action 运行在 action 事务内，行锁存活到 insert 提交。
   defp load_enrollment(id) when is_binary(id) do
     sql = """
     SELECT id, workspace_id, user_id, status, event_id, course_id, submission_payload
-    FROM enrollments WHERE id = $1
+    FROM enrollments WHERE id = $1 FOR UPDATE
     """
 
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do

@@ -21,10 +21,11 @@ export interface TierDraft {
 	name: string;
 	/** 元输入（展示层习惯）；保存转分 */
 	amount: string;
-	/** yyyy-mm-dd 可空 */
+	/** yyyy-mm-dd 可空（date input 值） */
 	availableUntil: string;
+	/** review F9：加载时的原始 available_until ISO——用户未改日期时原样回写 */
+	originalUntil?: string | null;
 }
-
 export function toDraft(raw: string[] | null | undefined): TierDraft[] {
 	if (!Array.isArray(raw)) return [];
 	return raw.flatMap((item) => {
@@ -41,6 +42,10 @@ export function toDraft(raw: string[] | null | undefined): TierDraft[] {
 						typeof t.available_until === "string"
 							? t.available_until.slice(0, 10)
 							: "",
+					// review F9：原始 ISO 保真——用户未改日期时保存回写原值
+					//（不重写 23:59:59Z / 不丢时分秒与时区）
+					originalUntil:
+						typeof t.available_until === "string" ? t.available_until : null,
 				},
 			];
 		} catch {
@@ -63,7 +68,14 @@ export function fromDraft(draft: TierDraft): Record<string, unknown> | null {
 		amount_cents: cents,
 	};
 	if (draft.availableUntil.trim() !== "") {
-		tier.available_until = `${draft.availableUntil.trim()}T23:59:59Z`;
+		// F9：日期未变（date input 值 = 原值前缀）→ 回写 originalUntil 原始 ISO；
+		// 用户改了日期 → 按当日 23:59:59Z 截止（新增/改期语义不变）
+		const changed =
+			!draft.originalUntil ||
+			draft.originalUntil.slice(0, 10) !== draft.availableUntil.trim();
+		tier.available_until = changed
+			? `${draft.availableUntil.trim()}T23:59:59Z`
+			: draft.originalUntil;
 	}
 	return tier;
 }
@@ -87,6 +99,7 @@ export default function TierEditor({
 				name: "",
 				amount: "",
 				availableUntil: "",
+				originalUntil: null,
 			},
 		]);
 	}

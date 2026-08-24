@@ -37,6 +37,7 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
     max_attempts: 5,
     unique: [period: 300, states: :incomplete]
 
+  require Ash.Query
   require Logger
 
   alias Cgc2046.Events.Enrollment
@@ -156,25 +157,50 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
   # F-B：失败不吞错——reload 真状态裁决：已终态（cancelled/expired/rejected）=
   # 合法竞态/迟到路径已处理；仍占位 = 真失败（capacity_counter_invalid / DB
   # 瞬断）→ {:error, reason} 让 Oban 重试收敛，拒绝「钱已退、坑还占」。
+  #
+  # review F2：confirmed + 免缴留痕 = U3 关闭收费批量免缴的迟到扣款退款——
+  # 学员已被免缴确认参会，退款只是退回迟到到的钱，报名必须保留 confirmed
+  # （AE1 语义：批量免缴后报名就是免费确认态）。非免缴的 confirmed 才取消。
   defp cancel_enrollment(order) do
     case Ash.get(Enrollment, order.enrollment_id, authorize?: false) do
       {:ok, %{status: status}} when status in [:cancelled, :expired, :rejected] ->
         :ok
 
-      {:ok, enrollment} ->
-        enrollment
-        |> Ash.Changeset.for_update(:cancel, %{})
-        |> Ash.update(tenant: order.workspace_id, authorize?: false)
-        |> case do
-          {:ok, _cancelled} ->
-            :ok
+      {:ok, %{status: :confirmed} = enrollment} ->
+        if waived?(enrollment) do
+          # 免缴迟到退款：钱退回，报名保持 confirmed（免缴占位不释放）
+          :ok
+        else
+          enrollment
+          |> Ash.Changeset.for_update(:cancel, %{})
+          |> Ash.update(tenant: order.workspace_id, authorize?: false)
+          |> case do
+            {:ok, _cancelled} ->
+              :ok
 
-          {:error, reason} ->
-            settle_cancel_failure(order, reason)
+            {:error, reason} ->
+              settle_cancel_failure(order, reason)
+          end
         end
+
+      {:ok, _non_holding} ->
+        # payment_pending 等非占位确认态：迟到/并发路径已裁决，报名侧无需动作
+        :ok
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # 免缴判定（同 payment_settlement_worker.waived?/1 单源语义）：waive_payment
+  # 审计行的存在性 ⇔ 免缴先落（批量免缴路径同写此审计行，KTD4）。
+  defp waived?(enrollment) do
+    Cgc2046.Accounts.AdminActionLog
+    |> Ash.Query.filter(action == :waive_payment and target_id == ^enrollment.id)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, [_ | _]} -> true
+      _ -> false
     end
   end
 

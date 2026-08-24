@@ -76,6 +76,10 @@ export type OfferingDraftInput = {
 	endsAt?: string | null;
 	/** 结构化 venue 四键草稿（仅 event；全空/null → 提交 null；缺键由表单 all-or-none 拦截，不下发） */
 	venue?: VenueInfo | null;
+	/** 收费开关（U6/R1）：undefined = 免费路径不下发键；true 时 priceTiers 必随行 */
+	pricingEnabled?: boolean;
+	/** 档位 JsonString 数组（caller-serializes） */
+	priceTiers?: string[];
 };
 
 export type OfferingUpdateInput = {
@@ -218,6 +222,13 @@ export async function createOffering(
 				endsAt: input.endsAt ?? null,
 				// venue 仅 event 有槽（CreateCourseInput 无此字段，下发即 GraphQL 校验错误）
 				...(kind === "event" ? { venue: venueDraftToJson(input.venue) } : {}),
+				// 定价随创建透传（U6/R1）：调用方仅在开启收费时落键，免费路径不下发
+				...(input.pricingEnabled !== undefined
+					? {
+							pricingEnabled: input.pricingEnabled,
+							priceTiers: input.priceTiers ?? [],
+						}
+					: {}),
 			},
 		},
 	});

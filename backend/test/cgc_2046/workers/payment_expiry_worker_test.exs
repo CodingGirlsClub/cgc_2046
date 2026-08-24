@@ -81,6 +81,54 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
       assert notif.args["data"]["re_enrollable"] == "false"
     end
 
+    test "review F8：nil registration_deadline 不崩溃，re_enrollable=true；已取消活动不承诺", ctx do
+      base = base_enrollment(ctx, nil)
+      insert_identity(base.learner.id, :wechat, "exp-nil-dl-" <> uniq())
+      order = create_order(base, expire_at: hours(-1))
+
+      # 布置：deadline 置 NULL（布置纪律同 set_confirmed_count：裸 SQL 而非被测对象）
+      {:ok, _} =
+        Cgc2046.Repo.query(
+          "UPDATE events SET registration_deadline = NULL WHERE id = $1",
+          [Ecto.UUID.dump!(base.event.id)]
+        )
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+      assert reload_order(order).status == :expired
+
+      notif =
+        all_enqueued(worker: NotificationWorker)
+        |> Enum.find(
+          &(&1.args["template_key"] == "payment_expired" and &1.args["user_id"] == base.learner.id)
+        )
+
+      refute is_nil(notif)
+      assert notif.args["data"]["re_enrollable"] == "true"
+
+      # 已取消活动：re_enrollable=false（open 状态门）
+      base2 = base_enrollment(ctx, nil)
+      insert_identity(base2.learner.id, :wechat, "exp-cancelled-" <> uniq())
+      order2 = create_order(base2, expire_at: hours(-1))
+
+      {:ok, _} =
+        Cgc2046.Repo.query(
+          "UPDATE events SET status = 'cancelled' WHERE id = $1",
+          [Ecto.UUID.dump!(base2.event.id)]
+        )
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+      assert reload_order(order2).status == :expired
+
+      notif2 =
+        all_enqueued(worker: NotificationWorker)
+        |> Enum.find(
+          &(&1.args["template_key"] == "payment_expired" and
+              &1.args["user_id"] == base2.learner.id)
+        )
+
+      assert notif2.args["data"]["re_enrollable"] == "false"
+    end
+
     test "SQL 下推：未到期 / paid / cancelled 不扫中，只有过期单变化", ctx do
       expired = pending_order(ctx, expire_at: hours(-1))
       not_due = pending_order(ctx, expire_at: hours(1))

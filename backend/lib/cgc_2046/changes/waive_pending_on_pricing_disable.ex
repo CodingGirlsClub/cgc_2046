@@ -45,6 +45,15 @@ defmodule Cgc2046.Changes.WaivePendingOnPricingDisable do
                fields: [:pricing_enabled]
              )}
 
+          {:error, :batch_waive_limit_exceeded} ->
+            {:error,
+             Cgc2046.Errors.BusinessError.exception(
+               message:
+                 "too many pending enrollments to waive in one transaction (limit 200); cancel the offering instead",
+               code: "pricing_disable_batch_limit",
+               fields: [:pricing_enabled]
+             )}
+
           {:error, reason} ->
             {:error, reason}
         end

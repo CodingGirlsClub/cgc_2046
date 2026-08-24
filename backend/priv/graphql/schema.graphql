@@ -5064,18 +5064,23 @@ type KeysetPageOfOrder {
 
 input OrderFilterTierId {
   isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
   rangeContains: String
-  rangeOverlaps: ID
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
 }
 
 input OrderFilterCourseId {
@@ -5471,7 +5476,7 @@ type Order {
   courseId: ID
 
   "下单时档位快照 id（U8 已售档守卫）"
-  tierId: ID
+  tierId: String
 }
 
 type RootQueryType {

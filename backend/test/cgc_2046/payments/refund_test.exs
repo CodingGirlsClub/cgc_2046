@@ -481,6 +481,36 @@ defmodule Cgc2046.Payments.RefundTest do
 
       assert length(jobs) == 2
     end
+
+    test "review F4：学员先取消报名 → 其 paid 订单仍被批量退款（订单为真源）", ctx do
+      admin = Fixtures.platform_admin()
+      setup = course_batch_setup(ctx, admin)
+
+      # 学员在取消信号异步处理前自行取消（confirmed → cancelled）
+      {:ok, _} =
+        hd(setup.paid_enrollments)
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: setup.workspace.id, authorize?: false)
+
+      {:ok, _} =
+        setup.course
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      assert :ok =
+               Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, %{
+                 type: "course.ended",
+                 data: %{
+                   "course_id" => setup.course.id,
+                   "idempotency_key" => "course.ended:" <> setup.course.id
+                 }
+               })
+
+      # 两笔 paid 全部入退款链（含报名已 cancelled 的那笔）
+      for order <- setup.paid_orders do
+        assert reload_order(order).status == :refunding
+      end
+    end
   end
 
   # ── 布置 ──
@@ -641,6 +671,7 @@ defmodule Cgc2046.Payments.RefundTest do
     %{
       workspace: workspace,
       course: course,
+      paid_enrollments: paid,
       paid_orders: paid_orders,
       pending_orders: pending_orders,
       pending_enrollments: [pending]
