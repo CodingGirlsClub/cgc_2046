@@ -797,6 +797,66 @@ defmodule Cgc2046.Events.EnrollmentTest do
                  )
                )
     end
+
+    test "review F2：批量免缴后的迟到退款保留 confirmed 报名（钱退款坑保留）", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      pending = pending_paid_enrollment(event, "f2-late")
+      order = reload_order_of(pending)
+
+      assert {:ok, _} = disable_pricing(event, ctx.admin)
+      assert Ash.get!(Enrollment, pending.id, authorize?: false).status == :confirmed
+
+      # 迟到扣款 → 作废单自动退款链（settlement → start_refund + 入队）
+      Fake.script!(
+        fetch_transaction: {:ok, %{status: :paid, amount_cents: 9_900, transaction_id: "txn-f2"}}
+      )
+
+      assert :ok = perform_settlement(order)
+      assert reload_order_of(pending).status == :refunding
+
+      # 退款 worker 收尾：钱退回，报名保持 confirmed（免缴占位不释放）
+      Fake.script!(
+        fetch_transaction:
+          {:ok, %{status: :refunded, amount_cents: 9_900, transaction_id: "txn-f2-r"}}
+      )
+
+      assert :ok = perform_job(PaymentRefundWorker, %{"order_id" => order.id})
+      assert reload_order_of(pending).status == :refunded
+
+      reloaded = Ash.get!(Enrollment, pending.id, authorize?: false)
+      assert reloaded.status == :confirmed
+    after
+      Fake.reset!()
+    end
+
+    test "review F5：批量免缴提交后新下单被拒（not_payment_pending 边界）", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      pending = pending_paid_enrollment(event, "f5-barrier")
+
+      assert {:ok, _} = disable_pricing(event, ctx.admin)
+
+      # 免缴已确认：学员端再尝试下单（create_for_enrollment）必须被拒，
+      # 不得插入新的 pending 订单（FOR UPDATE 锁内 status 重读裁决）
+      learner = %{
+        id: Ash.get!(Enrollment, pending.id, authorize?: false).user_id
+      }
+
+      assert {:error, error} =
+               Order
+               |> Ash.Changeset.for_create(:create_for_enrollment, %{
+                 enrollment_id: pending.id,
+                 provider: :wechat_native
+               })
+               |> Ash.create(tenant: ctx.workspace.id, actor: learner)
+
+      assert %Ash.Error.Invalid{} = error
+      assert Exception.message(error) =~ "not awaiting payment"
+
+      # 无新订单落库
+      assert reload_order_of(pending).status == :cancelled
+    after
+      Fake.reset!()
+    end
   end
 
   describe "内容安全检查（plan 2026-08-18-009 P2 + advisor09 F1-F3：reason 提交链路同步拦截）" do

@@ -2703,7 +2703,7 @@ export type Order = {
   refundedAt?: Maybe<Scalars['DateTime']['output']>;
   status: Scalars['String']['output'];
   /** 下单时档位快照 id（U8 已售档守卫） */
-  tierId?: Maybe<Scalars['ID']['output']>;
+  tierId?: Maybe<Scalars['String']['output']>;
   /** 下单时档位快照名（R3 改价不追溯） */
   tierName?: Maybe<Scalars['String']['output']>;
   tierSnapshot: Scalars['JsonString']['output'];
@@ -2965,19 +2965,24 @@ export type OrderFilterStatus = {
 };
 
 export type OrderFilterTierId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<Scalars['ID']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<Scalars['String']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
   isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterTierName = {
