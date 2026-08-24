@@ -133,6 +133,27 @@ defmodule Cgc2046.Events.Event do
       description: "报名截止时间；nil 表示不设截止"
     )
 
+    attribute(:starts_at, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "活动开始时间；nil 表示未定（R1）"
+    )
+
+    attribute(:ends_at, :utc_datetime,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+    )
+
+    attribute(:venue, :map,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "结构化场地（country/province/city/district 四键，KTD5/R2）；nil 表示线上或未定"
+    )
+
     attribute(:sponsorship_enabled, :boolean,
       allow_nil?: false,
       default: true,
@@ -179,6 +200,8 @@ defmodule Cgc2046.Events.Event do
   validations do
     validate({Cgc2046.Events.SponsorshipTiersValidation, []})
     validate({Cgc2046.Events.PriceTiersValidation, []})
+    validate({Cgc2046.Events.VenueValidation, []})
+    validate({Cgc2046.Events.ScheduleValidation, []})
   end
 
   calculations do
@@ -190,6 +213,18 @@ defmodule Cgc2046.Events.Event do
       load: [:price_tiers],
       calculation: fn records, _opts ->
         Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
+      end
+    )
+
+    # R6/KTD1 公开派生标签：full > closed > starting_soon > enrolling（逻辑在 EnrollmentBadge）。
+    # load 依赖声明同上；capacity/confirmed_count 本体仍留 field_policy denylist。
+    calculate(:enrollment_badge, :atom,
+      public?: true,
+      constraints: [one_of: [:enrolling, :starting_soon, :closed, :full]],
+      load: [:capacity, :confirmed_count, :starts_at, :registration_deadline],
+      calculation: fn records, _opts ->
+        now = DateTime.utc_now()
+        Enum.map(records, &Cgc2046.Events.EnrollmentBadge.badge(&1, now))
       end
     )
   end
@@ -222,6 +257,9 @@ defmodule Cgc2046.Events.Event do
       :enrollment_policy,
       :capacity,
       :registration_deadline,
+      :starts_at,
+      :ends_at,
+      :venue,
       :visibility,
       :slug,
       :description,
@@ -242,6 +280,9 @@ defmodule Cgc2046.Events.Event do
         :enrollment_policy,
         :capacity,
         :registration_deadline,
+        :starts_at,
+        :ends_at,
+        :venue,
         :visibility,
         :slug,
         :description,
@@ -322,6 +363,9 @@ defmodule Cgc2046.Events.Event do
         :enrollment_policy,
         :capacity,
         :registration_deadline,
+        :starts_at,
+        :ends_at,
+        :venue,
         :visibility,
         :slug,
         :description,
@@ -357,6 +401,10 @@ defmodule Cgc2046.Events.Event do
             changeset
         end
       end)
+
+      # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
+      # 同事务对 payment_pending 报名逐条复用免缴三元组。
+      change({Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :event})
     end
 
     # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。

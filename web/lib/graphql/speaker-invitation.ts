@@ -11,7 +11,8 @@ import type { MutationError } from "./shared";
  *   （库中只存 SHA256 哈希），邀请链接 = /events/{slug}/speaker-invite/{plainToken}；
  * - speakerInvitations(eventId)：Owner/Admin 可读（read policy 兜底）；
  * - speakerInvitationCard(token)：公开（无需登录）——只返回邀请主题/时间 +
- *   Event 公开白名单字段，不泄露其它邀请；无效/过期/已用 token 统一错误；
+ *   Event 公开白名单字段 + viewerIsInviter（对照当前登录用户，不泄露 invitedBy）；
+ *   无效/过期/已用 token 统一错误；
  * - accept/declineSpeakerInvitation(token)：登录后操作，token 一次性。
  */
 
@@ -51,16 +52,23 @@ export type CreateSpeakerInvitationResult = {
 	errors: MutationError[];
 };
 
+export type ResendSpeakerInvitationResult = {
+	result: SpeakerInvitationItem | null;
+	plainToken: string | null;
+	errors: MutationError[];
+};
+
 export type SpeakerInvitationActionResult = {
 	result: SpeakerInvitationItem | null;
 	errors: MutationError[];
 };
 
-/** 公开卡片（匿名可读：状态/主题/时间 + Event 公开白名单） */
+/** 公开卡片（匿名可读：状态/主题/时间 + Event 公开白名单 + viewerIsInviter） */
 export interface SpeakerInvitationCard {
 	status: SpeakerInvitationStatus;
 	topic: string | null;
 	scheduledAt: string | null;
+	viewerIsInviter: boolean;
 	event: {
 		id: string;
 		slug: string | null;
@@ -123,6 +131,7 @@ export const SPEAKER_INVITATION_CARD: TypedDocumentNode<
 			status
 			topic
 			scheduledAt
+			viewerIsInviter
 			event {
 				id
 				slug
@@ -194,6 +203,35 @@ export const DECLINE_SPEAKER_INVITATION: TypedDocumentNode<
 				id
 				status
 			}
+			errors {
+				message
+				code
+			}
+		}
+	}
+`;
+export const RESEND_SPEAKER_INVITATION: TypedDocumentNode<
+	{ resendSpeakerInvitation: ResendSpeakerInvitationResult },
+	{ id: string }
+> = gql`
+	mutation ResendSpeakerInvitation($id: ID!) {
+		resendSpeakerInvitation(id: $id) {
+			result {
+				id
+				eventId
+				workspaceId
+				speakerName
+				speakerEmail
+				topic
+				scheduledAt
+				note
+				status
+				acceptedAt
+				declinedAt
+				completedAt
+				expiresAt
+			}
+			plainToken
 			errors {
 				message
 				code

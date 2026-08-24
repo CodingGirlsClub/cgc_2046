@@ -1614,6 +1614,12 @@ input UpdateCourseInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: Boolean
 
@@ -1655,6 +1661,12 @@ input CreateCourseInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: Boolean
 
@@ -1679,6 +1691,8 @@ enum CourseSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  STARTS_AT
+  ENDS_AT
   PRICING_ENABLED
 }
 
@@ -1711,6 +1725,38 @@ input CourseFilterPricingEnabled {
   rangeAdjacent: Boolean
   rangeContains: String
   rangeOverlaps: Boolean
+}
+
+input CourseFilterEndsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input CourseFilterStartsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
 }
 
 input CourseFilterRegistrationDeadline {
@@ -1981,6 +2027,12 @@ input CourseFilterInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: CourseFilterRegistrationDeadline
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: CourseFilterStartsAt
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: CourseFilterEndsAt
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: CourseFilterPricingEnabled
 
@@ -2031,6 +2083,12 @@ type Course {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: Boolean!
 
@@ -2040,6 +2098,8 @@ type Course {
   workflowRun: WorkflowRun
 
   availablePriceTiers: [JsonString!]
+
+  enrollmentBadge: String
 }
 
 "The result of the :cancel_event mutation"
@@ -2106,6 +2166,15 @@ input UpdateEventInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -2159,6 +2228,15 @@ input CreateEventInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -2193,6 +2271,9 @@ enum EventSortField {
   CAPACITY
   CONFIRMED_COUNT
   REGISTRATION_DEADLINE
+  STARTS_AT
+  ENDS_AT
+  VENUE
   SPONSORSHIP_ENABLED
   SPONSORSHIP_DEADLINE
   PRICING_ENABLED
@@ -2259,6 +2340,54 @@ input EventFilterSponsorshipEnabled {
   rangeAdjacent: Boolean
   rangeContains: String
   rangeOverlaps: Boolean
+}
+
+input EventFilterVenue {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input EventFilterEndsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EventFilterStartsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
 }
 
 input EventFilterRegistrationDeadline {
@@ -2548,6 +2677,15 @@ input EventFilterInput {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: EventFilterRegistrationDeadline
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: EventFilterStartsAt
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: EventFilterEndsAt
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: EventFilterVenue
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: EventFilterSponsorshipEnabled
 
@@ -2605,6 +2743,15 @@ type Event {
   "报名截止时间；nil 表示不设截止"
   registrationDeadline: DateTime
 
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean!
 
@@ -2621,6 +2768,8 @@ type Event {
   priceTiers: [JsonString!]!
 
   availablePriceTiers: [JsonString!]
+
+  enrollmentBadge: String
 }
 
 enum WorkflowRunSortField {
@@ -4801,6 +4950,15 @@ type User {
   joinedAt: DateTime
 }
 
+"The result of the :retry_refund mutation"
+type RetryRefundResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
 "The result of the :refund_order mutation"
 type RefundOrderResult {
   "The successful result of the mutation"
@@ -4884,6 +5042,9 @@ enum OrderSortField {
   TIER_NAME
   ENROLLMENT_STATUS
   LEARNER_EMAIL
+  EVENT_ID
+  COURSE_ID
+  TIER_ID
 }
 
 "A keyset page of :order"
@@ -4899,6 +5060,59 @@ type KeysetPageOfOrder {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input OrderFilterTierId {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input OrderFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
 }
 
 input OrderFilterLearnerEmail {
@@ -5205,6 +5419,15 @@ input OrderFilterInput {
 
   "报名人邮箱（管理面识别付款人）"
   learnerEmail: OrderFilterLearnerEmail
+
+  "关联报名所属 Event（KTD2：订单按活动筛选）"
+  eventId: OrderFilterEventId
+
+  "关联报名所属 Course（KTD2：订单按课程筛选）"
+  courseId: OrderFilterCourseId
+
+  "下单时档位快照 id（U8 已售档守卫）"
+  tierId: OrderFilterTierId
 }
 
 input OrderSortInput {
@@ -5245,6 +5468,15 @@ type Order {
 
   "报名人邮箱（管理面识别付款人）"
   learnerEmail: String
+
+  "关联报名所属 Event（KTD2：订单按活动筛选）"
+  eventId: ID
+
+  "关联报名所属 Course（KTD2：订单按课程筛选）"
+  courseId: ID
+
+  "下单时档位快照 id（U8 已售档守卫）"
+  tierId: String
 }
 
 type RootQueryType {
@@ -5286,7 +5518,7 @@ type RootQueryType {
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
-  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
+  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息 + viewerIsInviter；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
   speakerInvitationCard(token: String!): SpeakerInvitationCard
 
   "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
@@ -5377,8 +5609,8 @@ type RootQueryType {
     workspaceId: ID!
   ): KeysetPageOfOrder
 
-  "工作台收款统计（R24）：已收\/待收\/已退，金额一律分"
-  workspacePaymentStats(workspaceId: ID!): JsonString!
+  "工作台收款统计（R24\/U4）：已收\/待收\/已退；可选 eventId\/courseId 收敛到单活动口径"
+  workspacePaymentStats(workspaceId: ID!, eventId: ID, courseId: ID): JsonString!
 
   "按 slug 获取工作台（需登录）"
   getWorkspace(
@@ -6061,6 +6293,9 @@ type SpeakerInvitationCard {
 
   scheduledAt: DateTime
 
+  "当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy）"
+  viewerIsInviter: Boolean!
+
   event: SpeakerInvitationCardEvent!
 }
 
@@ -6093,6 +6328,15 @@ input CreateSpeakerInvitationInput {
 
 type CreateSpeakerInvitationPayload {
   "createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次"
+  result: SpeakerInvitation
+
+  plainToken: String
+
+  errors: [MutationError!]!
+}
+
+type ResendSpeakerInvitationPayload {
+  "resendSpeakerInvitation 返回：result 为邀请记录；plainToken 新明文仅此一次"
   result: SpeakerInvitation
 
   plainToken: String
@@ -6277,6 +6521,9 @@ type RootMutationType {
   "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
   createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
 
+  "Owner\/Admin 重发邀请\/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
+  resendSpeakerInvitation(id: ID!): ResendSpeakerInvitationPayload
+
   "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
   acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
 
@@ -6306,6 +6553,9 @@ type RootMutationType {
 
   "管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）"
   refundOrder(id: ID!): RefundOrderResult!
+
+  "管理员重试退款：refund_failed → refunding 重入退款链（R17）"
+  retryRefund(id: ID!): RetryRefundResult!
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!

@@ -40,6 +40,8 @@
     "enrollment_invite_quota_unavailable": "The invite quota is used up. Please contact the organizer.",
     "enrollment_tier_id_required": "This is a paid enrollment. Please select a pricing tier first.",
     "enrollment_tier_not_available": "The selected tier is expired or unavailable. Please choose again.",
+    "pricing_disable_actor_required": "Disabling pricing requires a signed-in organizer. Please sign in again and retry.",
+    "pricing_disable_batch_limit": "Too many pending enrollments to confirm for free at once (over 200) — cancel the offering (auto refund) instead, or handle some pending payments first.",
     "join_request_invite_only": "This workspace is invite-only. Join via an invitation link.",
     "join_request_open": "This workspace is open to join directly. No application needed.",
     "join_request_not_found": "Workspace not found.",
@@ -270,8 +272,7 @@
       "errorHint": "Couldn't load right now.",
       "errorAction": "Go to the list instead ›",
       "emptyHint": "No open enrollments right now.",
-      "emptyAction": "Browse the list ›",
-      "deadline": "Closes {deadline}"
+      "emptyAction": "Browse the list ›"
     },
     "paper": {
       "venue": "With Carnegie Mellon University researchers · ICSE CHASE 2021 · IEEE"
@@ -389,12 +390,14 @@
   },
   "publicOfferings": {
     "loadFailed": "Failed to load",
-    "breadcrumbHome": "Workspaces",
+    "navigationLabel": "Public content navigation",
     "publicTitle": "Public {label}",
     "publicDesc": "{label} open to everyone; join a workspace for more internal ones.",
     "viewOther": "View {label} ›",
     "empty": "No public {label} right now.",
-    "deadline": "Closes {deadline}"
+    "deadline": "Closes {deadline}",
+    "timeLabel": "Starts",
+    "venueLabel": "Venue"
   },
   "onboarding": {
     "entryTitle": "Agent integration",
@@ -443,14 +446,22 @@
   },
   "offeringDetail": {
     "loadFailed": "Failed to load",
-    "breadcrumbHome": "Workspaces",
-    "detailFallback": "Details",
+    "backToList": "Back to all {label}",
+    "browseOther": "Browse other {label}",
     "notAccessibleTitle": "This {label} is not accessible",
-    "notAccessibleDesc": "It is only visible inside a workspace, or it has ended. Sign in and access it from your workspace.",
-    "policyLabel": "Enrollment: {policy}",
-    "deadlineLabel": "Enrollment closes: {deadline}",
+    "notAccessibleDesc": "It has ended or is not publicly accessible.",
+    "startsTitle": "Starts",
+    "endsTitle": "Ends",
+    "deadlineTitle": "Enrollment closes",
+    "venueTitle": "Venue",
+    "policyTitle": "Enrollment",
+    "registrationTitle": "Registration",
+    "aboutTitle": "About",
+    "pricingTitle": "Pricing tiers",
+    "fullHint": "This offering is full and no longer accepts new enrollments.",
+    "closedHint": "Enrollment is closed and no longer accepts new submissions.",
     "loginToEnroll": "Sign in to enroll",
-    "enrollFreeHint": "Enrollment is free. Sign in or create an account to submit (J-Visitor → J-Learner).",
+    "signInToEnrollHint": "Sign in or create an account to submit your enrollment.",
     "enrolledConfirm": "✓ Enrolled",
     "pendingPay": "⏳ Payment pending (slot reserved)",
     "submitted": "✓ Application submitted",
@@ -463,7 +474,7 @@
     "inviteCode": "Invite code (required)",
     "chooseTier": "Choose a pricing tier",
     "noTierAvailable": "No tiers available right now. Please contact the organizer.",
-    "requestApprovalHint": "Owner/Admin approval is required; your spot is confirmed once approved.",
+    "requestApprovalHint": "The organizer will review your request before confirming your spot.",
     "submitting": "Submitting…",
     "submitWithPay": "Enroll and pay ¥{amount}",
     "submit": "Submit enrollment",
@@ -478,7 +489,10 @@
     "pickTierFirst": "Please choose a pricing tier first",
     "slotReservedMsg": "Slot reserved — complete payment within the time limit",
     "pendingMsg": "Application submitted, awaiting approval",
-    "enrolledMsg": "Enrollment successful"
+    "enrolledMsg": "Enrollment successful",
+    "reconciling": "Syncing…",
+    "reconcileFailed": "Couldn't re-sync the latest status. Submitting stays locked until it succeeds.",
+    "resync": "Re-sync"
   },
   "apply": {
     "loading": "Loading…",
@@ -581,7 +595,9 @@
     "decline": "Decline",
     "decisionHint": "After accepting, please prepare the talk materials; declining ends here — the link works once.",
     "actionFailed": "Action failed. The invite link may have expired.",
-    "actionFailedShort": "Action failed"
+    "actionFailedShort": "Action failed",
+    "youAreInviter": "This is an invitation you sent",
+    "youAreInviterDesc": "Copy the link and share it with the speaker. You cannot accept or decline it yourself."
   },
   "workspace": {
     "shell": {
@@ -986,7 +1002,6 @@
   },
   "workspacePages": {
     "sponsorship": "Sponsorship",
-    "pricing": "Pricing",
     "payments": "Payments",
     "breadcrumbHome": "Workspaces",
     "breadcrumbSettings": "Settings"
@@ -1012,6 +1027,9 @@
     "breadcrumbAria": "Breadcrumb",
     "loadingAria": "Loading",
     "noDeadline": "No deadline",
+    "retry": "Retry",
+    "timeTbd": "Time to be determined",
+    "venueTbd": "Venue to be determined",
     "redirectingToDefaultProfile": "Redirecting to your default workspace profile…"
   },
   "participations": {
@@ -1200,6 +1218,34 @@
     "fieldTitle": "Title",
     "capacityHint": "Capacity limit (blank = unlimited)",
     "deadlineHint": "Enrollment closes (blank = no deadline)",
+    "startsAtHint": "Start time (blank = TBD)",
+    "endsAtHint": "End time (blank = TBD; must be after the start time)",
+    "venueSection": "Venue (leave all four blank = online or TBD)",
+    "venueCountry": "Country",
+    "venueProvince": "Province",
+    "venueCity": "City",
+    "venueDistrict": "District",
+    "venueIncomplete": "Venue requires all four fields (country, province, city, district), or leave all blank.",
+    "pricingSectionTitle": "Pricing (optional)",
+    "pricingSectionHint": "Free by default. When pricing is on, enrollment requires picking a tier and completing payment.",
+    "pricingEnable": "Enable pricing",
+    "pricingTierRequired": "Enabling pricing requires at least one valid tier (name and amount required, minimum ¥0.01).",
+    "pricingTierInvalid": "Some tiers are invalid (name and amount required, minimum ¥0.01) — fix or remove them and retry.",
+    "fieldPricing": "Pricing",
+    "pricingOn": "Paid · {overview}",
+    "pricingFree": "Free",
+    "guardDisableTitle": "Disable pricing",
+    "guardDisableBody": "{paid} paid enrollee(s) will not be refunded; {pending} pending payer(s) will be confirmed for free (their pending orders voided). Disable pricing?",
+    "guardDisableLoading": "Checking payment status of enrollees…",
+    "guardCountsFailed": "Failed to verify refund counts. Go back and retry.",
+    "guardEnableTitle": "Enable pricing",
+    "guardEnableBody": "Confirmed enrollments are unaffected; about {pending} pending applicant(s) will need to pick a tier and pay after approval. Enable pricing?",
+    "guardConfirm": "Confirm",
+    "guardCancel": "Back",
+    "guardSoldTier": "A tier referenced by orders has been deleted or repriced — paid orders keep their amount and validity (tier snapshot).",
+    "guardCancelRefund": "About {count} order(s) will be refunded automatically, totaling ¥{amount}.",
+    "guardClosePending": "Pending orders will expire naturally; paid amounts are non-refundable.",
+    "scheduleOrderError": "End time must be after the start time.",
     "researchNeed": "Research brief (free text; input for the research Agent to draft issue cards)",
     "researchPlaceholder": "Target learners, hours, topics to cover…",
     "savingMeta": "Saving…",
@@ -1265,6 +1311,8 @@
   "payments": {
     "refundConfirm": "A full refund will be issued to the original method; the enrollment is cancelled and the slot released. This cannot be undone.",
     "filterAll": "All statuses",
+    "filterOffering": "Offering",
+    "filterOfferingAll": "All offerings",
     "statsLoadFailed": "Failed to load stats ·",
     "retry": "Retry",
     "statCollected": "Collected",
@@ -1289,28 +1337,44 @@
     "thStatus": "Status",
     "thActions": "Actions"
   },
-  "pricing": {
-    "validation": "Tier amounts must be ≥ 0.01 CNY (no zero-amount tiers), and paid mode needs at least one valid tier.",
-    "saveFailedRetry": "Save failed. Please try again.",
-    "loadFailed": "Failed to load pricing config.",
+  "offeringPayments": {
+    "title": "Payments",
+    "freeStatus": "This is a free enrollment. No payments yet.",
+    "statsFailed": "Failed to load stats · ",
     "retry": "Retry",
-    "noOfferings": "This workspace has no events or courses yet. Create one before configuring pricing.",
-    "chooseTarget": "Choose event / course",
-    "paidSuffix": " · Paid",
-    "configTitle": "Pricing · {title}",
-    "enablePaid": "Enable paid enrollment",
-    "enablePaidHint": "Paid enrollment requires a tier and payment; free events keep the same enrollment path (R4).",
-    "noTiers": "No tiers configured{extra}.",
-    "noTiersPaidExtra": " — add at least one before enabling paid mode",
+    "statCollected": "Collected",
+    "statPending": "Pending",
+    "statRefunded": "Refunded",
+    "statRefundFailed": "Refund failed",
+    "listTitle": "Orders for this offering",
+    "filterLabel": "Status",
+    "filterDefault": "Default (active + refunded)",
+    "loadFailed": "Failed to load orders · ",
+    "emptyOrders": "No orders yet.",
+    "thEnrollee": "Enrollee",
+    "thTier": "Tier",
+    "thAmount": "Amount",
+    "thChannel": "Channel",
+    "thStatus": "Status",
+    "thActions": "Actions",
+    "waive": "Waive",
+    "refund": "Refund",
+    "retryRefund": "Retry refund",
+    "refundConfirm": "Confirm refund",
+    "refundBusy": "Processing…",
+    "refundCancel": "Cancel",
+    "refundFailed": "Refund failed. Please retry.",
+    "waiveFailed": "Waive failed. Please retry.",
+    "retryFailed": "Retry failed. Please retry.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…"
+  },
+  "pricing": {
+    "noTiersPlain": "No tiers yet. Add one below.",
     "tierNamePlaceholder": "Tier name (e.g. Standard)",
     "tierAmountPlaceholder": "Amount (CNY)",
     "delete": "Delete",
-    "tierBlocked": "Add at least one valid tier before enabling paid mode.",
-    "addTier": "Add tier",
-    "saving": "Saving…",
-    "saveConfig": "Save pricing config",
-    "saved": "✓ Saved",
-    "currentTiers": "Current tiers: "
+    "addTier": "Add tier"
   },
   "sponsorship": {
     "tierNameRequired": "Tier name cannot be empty",
@@ -1371,7 +1435,7 @@
     "created": "Invitation created — link below (plain-text token shown once; copy now)",
     "createFailed": "Failed to create",
     "title": "Invite a speaker",
-    "desc": "Targeted per-person invites: guests get a unique link to accept or decline; after accepting, they complete it by producing the talk materials.",
+    "desc": "Targeted per-person invites: copy the link and send it to the speaker. They can accept or decline; after accepting, they complete it by producing the talk materials.",
     "speakerName": "Speaker name *",
     "speakerNamePlaceholder": "e.g. Zhang San",
     "speakerEmail": "Speaker email (blank = forward the link manually)",
@@ -1389,7 +1453,12 @@
     "noTopic": "No topic set",
     "inviteLink": "Invite link",
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "resend": "Resend",
+    "regenerate": "Regenerate link",
+    "resent": "Sent",
+    "resendSuccess": "Invite link regenerated (old link revoked); if an email was provided, the invitation email has been sent",
+    "resendFailed": "Resend failed"
   },
   "admin": {
     "loadFailed": "Failed to load. Please try again later.",
@@ -1597,6 +1666,12 @@
       "open": "Open enrollment",
       "request": "By request",
       "invite_only": "Invite only"
+    },
+    "enrollmentBadge": {
+      "enrolling": "Enrolling",
+      "starting_soon": "Starting soon",
+      "closed": "Enrollment closed",
+      "full": "Full"
     },
     "offeringKind": {
       "event": "Event",

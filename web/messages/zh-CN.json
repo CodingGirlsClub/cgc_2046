@@ -40,6 +40,8 @@
     "enrollment_invite_quota_unavailable": "邀请名额已用完，请联系组织者。",
     "enrollment_tier_id_required": "该报名为收费项，请先选择价格档位。",
     "enrollment_tier_not_available": "所选档位已过期或不可用，请重新选择。",
+    "pricing_disable_actor_required": "关闭收费需要登录的组织者身份，请重新登录后再试。",
+    "pricing_disable_batch_limit": "待付报名过多（超过 200 笔）无法一次性免费确认——请改为取消活动（自动退款），或先处理部分待付。",
     "join_request_invite_only": "该工作台仅限邀请加入，请通过邀请链接加入。",
     "join_request_open": "该工作台可直接加入，无需申请。",
     "join_request_not_found": "工作台不存在。",
@@ -270,8 +272,7 @@
       "errorHint": "暂时无法加载，",
       "errorAction": "直接前往列表页查看 ›",
       "emptyHint": "暂无开放报名的条目，",
-      "emptyAction": "去列表页看看 ›",
-      "deadline": "截止 {deadline}"
+      "emptyAction": "去列表页看看 ›"
     },
     "paper": {
       "venue": "与卡耐基梅隆大学学者合作 · ICSE CHASE 2021 · IEEE 出版"
@@ -389,12 +390,14 @@
   },
   "publicOfferings": {
     "loadFailed": "加载失败",
-    "breadcrumbHome": "工作台",
+    "navigationLabel": "公开内容导航",
     "publicTitle": "公开{label}",
     "publicDesc": "面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。",
     "viewOther": "查看{label} ›",
     "empty": "暂无公开{label}。",
-    "deadline": "截止 {deadline}"
+    "deadline": "截止 {deadline}",
+    "timeLabel": "开始",
+    "venueLabel": "地点"
   },
   "onboarding": {
     "entryTitle": "Agent 接入",
@@ -443,14 +446,22 @@
   },
   "offeringDetail": {
     "loadFailed": "加载失败",
-    "breadcrumbHome": "工作台",
-    "detailFallback": "详情",
+    "backToList": "返回全部{label}",
+    "browseOther": "浏览其他{label}",
     "notAccessibleTitle": "该{label}不可访问",
-    "notAccessibleDesc": "仅工作台内部可见，或已结束。请登录后从工作台内访问。",
-    "policyLabel": "报名策略：{policy}",
-    "deadlineLabel": "报名截止：{deadline}",
+    "notAccessibleDesc": "已结束或不公开访问。",
+    "startsTitle": "开始",
+    "endsTitle": "结束",
+    "deadlineTitle": "报名截止",
+    "venueTitle": "地点",
+    "policyTitle": "报名方式",
+    "registrationTitle": "报名",
+    "aboutTitle": "详情",
+    "pricingTitle": "价格档位",
+    "fullHint": "名额已满，不再接受新的报名。",
+    "closedHint": "报名已截止，不再接受新的报名。",
     "loginToEnroll": "登录后报名",
-    "enrollFreeHint": "报名免费，登录或注册后提交（J-Visitor → J-Learner）。",
+    "signInToEnrollHint": "登录或注册后即可提交报名。",
     "enrolledConfirm": "✓ 报名成功",
     "pendingPay": "⏳ 待支付（名额已保留）",
     "submitted": "✓ 申请已提交",
@@ -463,7 +474,7 @@
     "inviteCode": "邀请码（必填）",
     "chooseTier": "选择价格档位",
     "noTierAvailable": "当前无可售档位，请联系组织者。",
-    "requestApprovalHint": "提交后需 Owner/Admin 审批，通过后确认名额。",
+    "requestApprovalHint": "提交后由组织方审批，通过后确认名额。",
     "submitting": "提交中…",
     "submitWithPay": "报名并支付 ¥{amount}",
     "submit": "提交报名",
@@ -478,7 +489,10 @@
     "pickTierFirst": "请先选择价格档位",
     "slotReservedMsg": "名额已保留，请在限定时间内完成支付",
     "pendingMsg": "申请已提交，等待审批",
-    "enrolledMsg": "报名成功"
+    "enrolledMsg": "报名成功",
+    "reconciling": "同步中…",
+    "reconcileFailed": "未能同步最新状态，同步成功前暂不可重复提交。",
+    "resync": "重新同步"
   },
   "apply": {
     "loading": "加载中…",
@@ -581,7 +595,9 @@
     "decline": "婉拒",
     "decisionHint": "接受后请产出分享材料；婉拒即结束，链接一次性生效。",
     "actionFailed": "操作失败，邀请链接可能已失效",
-    "actionFailedShort": "操作失败"
+    "actionFailedShort": "操作失败",
+    "youAreInviter": "这是你发出的邀请",
+    "youAreInviterDesc": "请把链接复制后转给嘉宾。你自己不能用这条链接接受或婉拒。"
   },
   "workspace": {
     "shell": {
@@ -986,7 +1002,6 @@
   },
   "workspacePages": {
     "sponsorship": "赞助管理",
-    "pricing": "定价配置",
     "payments": "缴费管理",
     "breadcrumbHome": "工作台",
     "breadcrumbSettings": "设置"
@@ -1012,6 +1027,9 @@
     "breadcrumbAria": "页面路径",
     "loadingAria": "加载中",
     "noDeadline": "不设截止",
+    "retry": "重试",
+    "timeTbd": "时间待定",
+    "venueTbd": "地点待定",
     "redirectingToDefaultProfile": "正在跳转到默认工作区个人资料…"
   },
   "participations": {
@@ -1200,6 +1218,34 @@
     "fieldTitle": "标题",
     "capacityHint": "名额上限（留空 = 不限）",
     "deadlineHint": "报名截止（留空 = 不设截止）",
+    "startsAtHint": "开始时间（留空 = 未定）",
+    "endsAtHint": "结束时间（留空 = 未定；须晚于开始时间）",
+    "venueSection": "活动地点（四项全留空 = 线上或未定）",
+    "venueCountry": "国家",
+    "venueProvince": "省份",
+    "venueCity": "城市",
+    "venueDistrict": "区县",
+    "venueIncomplete": "活动地点需国家、省份、城市、区县四项齐全，或全部留空。",
+    "pricingSectionTitle": "收费设置（可选）",
+    "pricingSectionHint": "默认免费。开启收费后报名须选择档位并完成支付。",
+    "pricingEnable": "开启收费",
+    "pricingTierRequired": "开启收费需要至少一个有效档位（名称与金额必填，金额至少 0.01 元）。",
+    "pricingTierInvalid": "存在无效档位（名称与金额必填，金额至少 0.01 元）——请修正或删除后重试。",
+    "fieldPricing": "收费",
+    "pricingOn": "收费中 · {overview}",
+    "pricingFree": "免费",
+    "guardDisableTitle": "关闭收费",
+    "guardDisableBody": "已付 {paid} 人不退款；待付 {pending} 人将免费确认（其待付订单作废）。确认关闭收费？",
+    "guardDisableLoading": "正在核对已报名者的付款状态…",
+    "guardCountsFailed": "退款笔数核对失败，请返回重试。",
+    "guardEnableTitle": "开启收费",
+    "guardEnableBody": "已确认报名不受影响；约 {pending} 名待审批者通过后需选择档位付款。确认开启收费？",
+    "guardConfirm": "确认",
+    "guardCancel": "返回",
+    "guardSoldTier": "有订单引用的档位被删除或改价——已付订单的金额与有效性不受影响（档位快照）。",
+    "guardCancelRefund": "将自动退款约 {count} 笔，共 ¥{amount}。",
+    "guardClosePending": "待付订单将自然过期，已付款不退。",
+    "scheduleOrderError": "结束时间须晚于开始时间。",
     "researchNeed": "教研需求（自由文本，教研 Agent 起草 issue 卡的输入）",
     "researchPlaceholder": "目标学员、课时、想覆盖的主题…",
     "savingMeta": "保存中…",
@@ -1265,6 +1311,8 @@
   "payments": {
     "refundConfirm": "将原路全额退款，报名同时取消并释放名额，此操作不可恢复。",
     "filterAll": "全部状态",
+    "filterOffering": "活动",
+    "filterOfferingAll": "全部活动",
     "statsLoadFailed": "统计加载失败 ·",
     "retry": "重试",
     "statCollected": "已收",
@@ -1289,28 +1337,44 @@
     "thStatus": "状态",
     "thActions": "操作"
   },
-  "pricing": {
-    "validation": "档位金额需 ≥ 0.01 元（无 0 元档），且启用收费时至少配置一个有效档位。",
-    "saveFailedRetry": "保存失败，请重试",
-    "loadFailed": "定价配置加载失败，",
+  "offeringPayments": {
+    "title": "收款概览",
+    "freeStatus": "本活动为免费报名，暂无收款。",
+    "statsFailed": "统计加载失败 · ",
     "retry": "重试",
-    "noOfferings": "本工作台还没有活动或课程，先创建后再配置定价。",
-    "chooseTarget": "选择活动 / 课程",
-    "paidSuffix": " · 收费",
-    "configTitle": "定价配置 · {title}",
-    "enablePaid": "启用收费",
-    "enablePaidHint": "收费报名须选档并完成支付；免费活动报名路径零变化（R4）。",
-    "noTiers": "未配置档位{extra}。",
-    "noTiersPaidExtra": "——启用收费前至少添加一档",
+    "statCollected": "已收",
+    "statPending": "待付",
+    "statRefunded": "已退",
+    "statRefundFailed": "退款失败待处理",
+    "listTitle": "本活动订单",
+    "filterLabel": "状态",
+    "filterDefault": "默认（非终态 + 已退款）",
+    "loadFailed": "订单加载失败 · ",
+    "emptyOrders": "暂无订单。",
+    "thEnrollee": "报名人",
+    "thTier": "档位",
+    "thAmount": "金额",
+    "thChannel": "渠道",
+    "thStatus": "状态",
+    "thActions": "操作",
+    "waive": "免缴",
+    "refund": "退款",
+    "retryRefund": "重试退款",
+    "refundConfirm": "确认退款",
+    "refundBusy": "处理中…",
+    "refundCancel": "取消",
+    "refundFailed": "退款失败，请重试",
+    "waiveFailed": "免缴失败，请重试",
+    "retryFailed": "重试失败，请重试",
+    "loadMore": "加载更多",
+    "loadingMore": "加载中…"
+  },
+  "pricing": {
+    "noTiersPlain": "暂无档位，点击下方添加。",
     "tierNamePlaceholder": "档位名（如 标准票）",
     "tierAmountPlaceholder": "金额(元)",
     "delete": "删除",
-    "tierBlocked": "启用收费前至少配置一个有效档位。",
-    "addTier": "添加档位",
-    "saving": "保存中…",
-    "saveConfig": "保存定价配置",
-    "saved": "✓ 已保存",
-    "currentTiers": "当前档位："
+    "addTier": "添加档位"
   },
   "sponsorship": {
     "tierNameRequired": "档位名不能为空",
@@ -1371,7 +1435,7 @@
     "created": "已创建邀请，链接见下方列表（明文 token 仅此一次，请立即复制）",
     "createFailed": "创建失败",
     "title": "邀请 Speaker",
-    "desc": "逐人定向邀请：嘉宾收到专属链接后可接受或婉拒；接受后产出分享材料即完成。",
+    "desc": "逐人定向邀请：创建后请复制链接发给嘉宾。嘉宾打开后可接受或婉拒；接受后产出分享材料即完成。",
     "speakerName": "嘉宾姓名 *",
     "speakerNamePlaceholder": "如：张三",
     "speakerEmail": "嘉宾邮箱（留空 = 手动转发链接）",
@@ -1389,7 +1453,12 @@
     "noTopic": "未填主题",
     "inviteLink": "邀请链接",
     "copied": "已复制",
-    "copy": "复制"
+    "copy": "复制",
+    "resend": "重发",
+    "regenerate": "重新生成链接",
+    "resent": "已重发",
+    "resendSuccess": "已重新生成邀请链接（旧链接已作废）；若填写了邮箱，邀请邮件已发出",
+    "resendFailed": "重发失败"
   },
   "admin": {
     "loadFailed": "加载失败，请稍后重试。",
@@ -1597,6 +1666,12 @@
       "open": "直接报名",
       "request": "申请审批",
       "invite_only": "邀请码报名"
+    },
+    "enrollmentBadge": {
+      "enrolling": "报名中",
+      "starting_soon": "即将开始",
+      "closed": "报名截止",
+      "full": "已满"
     },
     "offeringKind": {
       "event": "活动",

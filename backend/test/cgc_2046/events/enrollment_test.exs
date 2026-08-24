@@ -9,8 +9,10 @@ defmodule Cgc2046.Events.EnrollmentTest do
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Events.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Payments.Order
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Payments.{Order, Providers.Fake, WebhookEvent}
+  alias Cgc2046.Workers.{PaymentRefundWorker, PaymentSettlementWorker, SignalPublishWorker}
+
+  import Ecto.Query, only: [from: 2]
 
   describe "create_enrollment" do
     test "open 活动立即 confirmed，并原子占用一个名额" do
@@ -650,6 +652,213 @@ defmodule Cgc2046.Events.EnrollmentTest do
     end
   end
 
+  describe "关闭收费批量免费确认（organizer-payment U3，R9/AE1，KTD4）" do
+    setup do
+      admin = Fixtures.platform_admin("pricing-off-admin")
+      workspace = Fixtures.create_workspace(admin)
+      %{admin: admin, workspace: workspace}
+    end
+
+    test "AE1：3 已付不动、2 待付转免费确认 + 订单作废 + 审计行", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      paid = for i <- 1..3, do: paid_enrollment(event, "off-paid-#{i}")
+      pending = for i <- 1..2, do: pending_paid_enrollment(event, "off-pending-#{i}")
+
+      assert {:ok, updated} = disable_pricing(event, ctx.admin)
+      assert updated.pricing_enabled == false
+
+      # 已付 3 笔：订单 paid、报名 confirmed 不动（R9 确认瞬间已支付者保持已付）
+      for enrollment <- paid do
+        reloaded = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+        assert reloaded.status == :confirmed
+        assert reloaded.approved_by != ctx.admin.id
+        assert reload_order_of(enrollment).status == :paid
+      end
+
+      # 待付 2 笔：confirmed + approved_by=操作者 + 订单 cancelled(waived)
+      for enrollment <- pending do
+        reloaded = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+        assert reloaded.status == :confirmed
+        assert reloaded.approved_by == ctx.admin.id
+
+        order = reload_order_of(enrollment)
+        assert order.status == :cancelled
+        assert order.cancel_reason == "waived"
+      end
+
+      # 每笔待付一条免缴审计行（落账兜底 waived? 判定依赖，KTD4 正确性约束）
+      for enrollment <- pending do
+        assert [%{action: :waive_payment, target_type: :enrollment}] =
+                 Cgc2046.Repo.all(
+                   from(log in Cgc2046.Accounts.AdminActionLog,
+                     where: log.target_id == ^enrollment.id
+                   )
+                 )
+      end
+
+      # completed 信号补发（与单笔免缴同语义）
+      for enrollment <- pending do
+        assert count_enqueued("enrollment.completed", enrollment.id) == 1
+      end
+    end
+
+    test "竞态：批量前某待付已被落账转确认 → 批量跳过该笔，订单保持已付", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      settled = pending_paid_enrollment(event, "off-settled")
+      other = pending_paid_enrollment(event, "off-other")
+
+      # 落账先到：mark_paid + settle_paid（worker 同款两步）
+      order = reload_order_of(settled)
+
+      {:ok, _} =
+        order
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-race"})
+        |> Ash.update(tenant: ctx.workspace.id, authorize?: false)
+
+      {:ok, _} =
+        settled
+        |> Ash.Changeset.for_update(:settle_paid, %{})
+        |> Ash.update(tenant: ctx.workspace.id, authorize?: false)
+
+      assert {:ok, _} = disable_pricing(event, ctx.admin)
+
+      # 先落账者保持已付（CAS 先到先得，KTD4 窗口语义）
+      assert reload_order_of(settled).status == :paid
+      refute_enqueued_for(settled)
+
+      # 其余待付正常转换
+      assert Ash.get!(Enrollment, other.id, authorize?: false).status == :confirmed
+      assert reload_order_of(other).status == :cancelled
+    end
+
+    test "迟到支付：批量免缴后渠道迟到扣款 → 落账兜底自动原路退回", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      pending = pending_paid_enrollment(event, "off-late")
+      order = reload_order_of(pending)
+      assert {:ok, _} = disable_pricing(event, ctx.admin)
+
+      # 渠道迟到扣款（本地作废不关渠道单，QR 仍可被支付）
+      Fake.script!(
+        fetch_transaction:
+          {:ok, %{status: :paid, amount_cents: 9_900, transaction_id: "txn-late"}}
+      )
+
+      assert :ok = perform_settlement(order)
+      assert reload_order_of(pending).status == :refunding
+
+      assert_enqueued(
+        worker: Cgc2046.Workers.PaymentRefundWorker,
+        args: %{"order_id" => order.id}
+      )
+    after
+      Fake.reset!()
+    end
+
+    test "零副作用：免费活动编辑/开启收费/无报名关闭 全部不触发批量（AE4 回归面）", ctx do
+      # 免费活动改标题：成功、零审计行
+      free = EventFixtures.create_event(ctx.workspace, ctx.admin)
+
+      assert {:ok, _} =
+               free
+               |> Ash.Changeset.for_update(:update, %{title: "改个标题"})
+               |> Ash.update(tenant: ctx.workspace.id, actor: ctx.admin)
+
+      assert waive_logs() == []
+
+      # 收费活动零报名：关闭收费成功、零审计行
+      empty = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      assert {:ok, closed} = disable_pricing(empty, ctx.admin)
+      assert waive_logs() == []
+
+      # 开启方向（false→true）：无后端拦截（披露在前端，R16 语义）
+      assert {:ok, reopened} =
+               closed
+               |> Ash.Changeset.for_update(:update, %{pricing_enabled: true})
+               |> Ash.update(tenant: ctx.workspace.id, actor: ctx.admin)
+
+      assert reopened.pricing_enabled == true
+    end
+
+    test "Course 同语义：关闭收费待付转确认 + 审计行", ctx do
+      course = EventFixtures.create_course(ctx.workspace, ctx.admin, paid_attrs())
+      pending = pending_paid_enrollment(course, "off-course")
+
+      assert {:ok, _} = disable_pricing(course, ctx.admin)
+
+      reloaded = Ash.get!(Enrollment, pending.id, authorize?: false)
+      assert reloaded.status == :confirmed
+      assert reloaded.approved_by == ctx.admin.id
+      assert reload_order_of(pending).status == :cancelled
+
+      assert [%{action: :waive_payment}] =
+               Cgc2046.Repo.all(
+                 from(log in Cgc2046.Accounts.AdminActionLog,
+                   where: log.target_id == ^pending.id
+                 )
+               )
+    end
+
+    test "review F2：批量免缴后的迟到退款保留 confirmed 报名（钱退款坑保留）", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      pending = pending_paid_enrollment(event, "f2-late")
+      order = reload_order_of(pending)
+
+      assert {:ok, _} = disable_pricing(event, ctx.admin)
+      assert Ash.get!(Enrollment, pending.id, authorize?: false).status == :confirmed
+
+      # 迟到扣款 → 作废单自动退款链（settlement → start_refund + 入队）
+      Fake.script!(
+        fetch_transaction: {:ok, %{status: :paid, amount_cents: 9_900, transaction_id: "txn-f2"}}
+      )
+
+      assert :ok = perform_settlement(order)
+      assert reload_order_of(pending).status == :refunding
+
+      # 退款 worker 收尾：钱退回，报名保持 confirmed（免缴占位不释放）
+      Fake.script!(
+        fetch_transaction:
+          {:ok, %{status: :refunded, amount_cents: 9_900, transaction_id: "txn-f2-r"}}
+      )
+
+      assert :ok = perform_job(PaymentRefundWorker, %{"order_id" => order.id})
+      assert reload_order_of(pending).status == :refunded
+
+      reloaded = Ash.get!(Enrollment, pending.id, authorize?: false)
+      assert reloaded.status == :confirmed
+    after
+      Fake.reset!()
+    end
+
+    test "review F5：批量免缴提交后新下单被拒（not_payment_pending 边界）", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, paid_attrs())
+      pending = pending_paid_enrollment(event, "f5-barrier")
+
+      assert {:ok, _} = disable_pricing(event, ctx.admin)
+
+      # 免缴已确认：学员端再尝试下单（create_for_enrollment）必须被拒，
+      # 不得插入新的 pending 订单（FOR UPDATE 锁内 status 重读裁决）
+      learner = %{
+        id: Ash.get!(Enrollment, pending.id, authorize?: false).user_id
+      }
+
+      assert {:error, error} =
+               Order
+               |> Ash.Changeset.for_create(:create_for_enrollment, %{
+                 enrollment_id: pending.id,
+                 provider: :wechat_native
+               })
+               |> Ash.create(tenant: ctx.workspace.id, actor: learner)
+
+      assert %Ash.Error.Invalid{} = error
+      assert Exception.message(error) =~ "not awaiting payment"
+
+      # 无新订单落库
+      assert reload_order_of(pending).status == :cancelled
+    after
+      Fake.reset!()
+    end
+  end
+
   describe "内容安全检查（plan 2026-08-18-009 P2 + advisor09 F1-F3：reason 提交链路同步拦截）" do
     @msg_check_url "https://api.weixin.qq.com/wxa/msg_sec_check"
     @openid "wx-openid-content-check"
@@ -874,5 +1083,92 @@ defmodule Cgc2046.Events.EnrollmentTest do
       )
 
     count
+  end
+
+  # ── 关闭收费批量（U3）布置 ──
+
+  # 已付报名：pending 订单 mark_paid + 报名 settle_paid（落账 worker 同款两步）
+  defp paid_enrollment(target, suffix) do
+    {:ok, enrollment} =
+      create_enrollment(target, Fixtures.register_user(suffix), %{tier_id: @paid_tier_id})
+
+    order = create_pending_order(enrollment)
+
+    {:ok, _} =
+      order
+      |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-" <> suffix})
+      |> Ash.update(tenant: target.workspace_id, authorize?: false)
+
+    {:ok, _} =
+      enrollment
+      |> Ash.Changeset.for_update(:settle_paid, %{})
+      |> Ash.update(tenant: target.workspace_id, authorize?: false)
+
+    enrollment
+  end
+
+  defp pending_paid_enrollment(target, suffix) do
+    {:ok, enrollment} =
+      create_enrollment(target, Fixtures.register_user(suffix), %{tier_id: @paid_tier_id})
+
+    _order = create_pending_order(enrollment)
+    enrollment
+  end
+
+  defp disable_pricing(target, actor) do
+    target
+    |> Ash.Changeset.for_update(:update, %{pricing_enabled: false})
+    |> Ash.update(tenant: target.workspace_id, actor: actor)
+  end
+
+  defp reload_order_of(enrollment) do
+    require Ash.Query
+    enrollment_id = enrollment.id
+
+    Order
+    |> Ash.Query.filter(enrollment_id == ^enrollment_id)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp waive_logs do
+    Cgc2046.Repo.all(
+      from(log in Cgc2046.Accounts.AdminActionLog, where: log.action == :waive_payment)
+    )
+  end
+
+  # settlement worker 同码入口（与 payment_settlement_worker_test.perform_settlement
+  # 同形状）：webhook_event 布置 + perform_job
+  defp perform_settlement(order) do
+    require Ash.Query
+
+    event_id = "evt-" <> order.out_trade_no
+
+    event =
+      WebhookEvent
+      |> Ash.Query.filter(event_id == ^event_id)
+      |> Ash.read_one!(authorize?: false)
+      |> case do
+        nil ->
+          WebhookEvent
+          |> Ash.Changeset.for_create(:create, %{
+            provider: :wechat,
+            event_id: event_id,
+            payload: %{"out_trade_no" => order.out_trade_no}
+          })
+          |> Ash.create!(authorize?: false)
+
+        existing ->
+          existing
+      end
+
+    perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
+  end
+
+  defp refute_enqueued_for(enrollment) do
+    order = reload_order_of(enrollment)
+
+    assert [] =
+             all_enqueued(worker: PaymentRefundWorker)
+             |> Enum.filter(&(&1.args["order_id"] == order.id))
   end
 end

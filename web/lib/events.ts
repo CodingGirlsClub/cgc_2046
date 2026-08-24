@@ -4,6 +4,7 @@ import type {
 	OfferingKind,
 	OfferingMutationResult,
 	EventStatus,
+	VenueInfo,
 	Visibility,
 } from "./graphql/events";
 import {
@@ -43,16 +44,18 @@ export function canManageEvents(myAbilities: string[] = []): boolean {
 
 /**
  * 截止时间展示（null/非法值 → undecidedLabel，由调用方传翻译文案）。
- * 日期格式随 locale 由 toLocaleString 派生。
+ * 日期格式随 locale 由 toLocaleString 派生（F7）：locale 缺省 zh-CN，
+ * 公开面调用点传 next-intl useLocale() 结果，/en 页面不再输出 zh-CN 形状。
  */
 export function formatDeadline(
 	deadline: string | null,
 	undecidedLabel: string,
+	locale?: string,
 ): string {
 	if (!deadline) return undecidedLabel;
 	const d = new Date(deadline);
 	if (Number.isNaN(d.getTime())) return undecidedLabel;
-	return d.toLocaleString("zh-CN", {
+	return d.toLocaleString(locale ?? "zh-CN", {
 		year: "numeric",
 		month: "2-digit",
 		day: "2-digit",
@@ -67,6 +70,16 @@ export type OfferingDraftInput = {
 	visibility: Visibility;
 	capacity?: number | null;
 	registrationDeadline?: string | null;
+	/** 开始时间（UTC ISO；null = 未定；R1，course 语义为开课/结课） */
+	startsAt?: string | null;
+	/** 结束时间（UTC ISO；须晚于 startsAt，KTD6 后端复验；null = 未定） */
+	endsAt?: string | null;
+	/** 结构化 venue 四键草稿（仅 event；全空/null → 提交 null；缺键由表单 all-or-none 拦截，不下发） */
+	venue?: VenueInfo | null;
+	/** 收费开关（U6/R1）：undefined = 免费路径不下发键；true 时 priceTiers 必随行 */
+	pricingEnabled?: boolean;
+	/** 档位 JsonString 数组（caller-serializes） */
+	priceTiers?: string[];
 };
 
 export type OfferingUpdateInput = {
@@ -75,6 +88,12 @@ export type OfferingUpdateInput = {
 	visibility?: Visibility;
 	capacity?: number | null;
 	registrationDeadline?: string | null;
+	/** 开始时间（UTC ISO；null = 清除/未定；未传 = 不落键保留既有值） */
+	startsAt?: string | null;
+	/** 结束时间（UTC ISO；同 startsAt 语义） */
+	endsAt?: string | null;
+	/** 结构化 venue 四键草稿（仅 event；全空/null → 清除；未传 = 不落键保留既有值） */
+	venue?: VenueInfo | null;
 	/** 赞助档位配置（每项 JSON.stringify 后作为 JsonString 提交；E-3 #48，仅 event） */
 	sponsorshipTiers?: string[];
 	/** 是否收费（U2-R1 定价面；收费报名须选档并完成支付，R4） */
@@ -82,6 +101,22 @@ export type OfferingUpdateInput = {
 	/** 价格档位配置（每项 JSON.stringify 后作为 JsonString 提交；PriceTier 形状） */
 	priceTiers?: string[];
 };
+
+/**
+ * venue 四键草稿 → JsonString（KTD5 形状校验后端兜底）；
+ * null/全空（trim 后）→ null。all-or-none 缺键拦截在表单层（不下发）。
+ */
+function venueDraftToJson(venue: VenueInfo | null | undefined): string | null {
+	if (!venue) return null;
+	const v = {
+		country: venue.country.trim(),
+		province: venue.province.trim(),
+		city: venue.city.trim(),
+		district: venue.district.trim(),
+	};
+	if (Object.values(v).every((s) => s === "")) return null;
+	return JSON.stringify(v);
+}
 
 /** 状态机动作（详情页按钮） */
 export type EventTransition = "launch" | "close" | "cancel";
@@ -183,6 +218,17 @@ export async function createOffering(
 				visibility: input.visibility,
 				capacity: input.capacity ?? null,
 				registrationDeadline: input.registrationDeadline ?? null,
+				startsAt: input.startsAt ?? null,
+				endsAt: input.endsAt ?? null,
+				// venue 仅 event 有槽（CreateCourseInput 无此字段，下发即 GraphQL 校验错误）
+				...(kind === "event" ? { venue: venueDraftToJson(input.venue) } : {}),
+				// 定价随创建透传（U6/R1）：调用方仅在开启收费时落键，免费路径不下发
+				...(input.pricingEnabled !== undefined
+					? {
+							pricingEnabled: input.pricingEnabled,
+							priceTiers: input.priceTiers ?? [],
+						}
+					: {}),
 			},
 		},
 	});
@@ -198,9 +244,20 @@ export async function updateOffering(
 	kind: OfferingKind,
 	input: OfferingUpdateInput,
 ): Promise<OfferingMutationResult> {
+	const { venue, ...rest } = input;
 	const { data } = await client.mutate({
 		mutation: MUTATION_BY_KIND[kind].update,
-		variables: { id, input },
+		variables: {
+			id,
+			input: {
+				...rest,
+				// venue 草稿 → JsonString（全空 → null 清除）；未传不落键保留既有值；
+				// course 无 venue 槽，误传剥离不下发
+				...(venue !== undefined && kind === "event"
+					? { venue: venueDraftToJson(venue) }
+					: {}),
+			},
+		},
 	});
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;

@@ -31,6 +31,8 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
 
   import Ash.Expr, only: [ref: 1]
 
+  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Payments.NotificationTemplates, as: Templates
   alias Cgc2046.Payments.Order
 
   # 过期扫描声明式规格：Order pending + expire_at < now（SQL 下推过滤）。
@@ -81,8 +83,62 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
     |> Ash.Changeset.for_update(:expire, %{})
     |> Ash.update(tenant: order.workspace_id, authorize?: false)
     |> handle_expire_result("order", order.id)
+    |> tap_expired_notification(order)
   end
 
+  # U5/R13：成功过期 → 学员（名额已释放；截止未过才提示可重报）+ 组织者
+  # （该笔待付已失效）各一条。尽力而为：构建/入队失败记 warning 不影响释放。
+  defp tap_expired_notification(:ok, order) do
+    notify_expired(order)
+    :ok
+  end
+
+  defp tap_expired_notification(other, _order), do: other
+
+  defp notify_expired(order) do
+    case Ash.get(Enrollment, order.enrollment_id, authorize?: false) do
+      {:ok, enrollment} ->
+        with {:ok, loaded} <- Ash.load(enrollment, [:target_title]) do
+          recipients =
+            %{enrollment.user_id => Cgc2046.NotificationFanout.identities(enrollment.user_id)}
+            |> Map.merge(Cgc2046.NotificationFanout.managers(order.workspace_id))
+
+          Cgc2046.NotificationFanout.deliver(
+            recipients,
+            Templates.payment_expired(),
+            Templates.expiry_data(order, loaded.target_title, registration_open?(loaded)),
+            %{"idempotency_key" => Templates.payment_expired() <> ":" <> order.id}
+          )
+        else
+          {:error, reason} ->
+            Logger.warning(
+              "payment expiry: notify skipped for order #{order.id}: #{inspect(reason)}"
+            )
+        end
+
+      # review F8：报名读取失败（DB 瞬断等）不 crash 通知链——订单已 expired
+      # 终态，重试不重选本单，warning 落日志保可观测。
+      {:error, reason} ->
+        Logger.warning(
+          "payment expiry: notify skipped for order #{order.id}: enrollment read failed #{inspect(reason)}"
+        )
+    end
+  end
+
+  # R13 不承诺语义：报名截止已过 → false（学员文案不含「可重新报名」）。
+  defp registration_open?(%{event_id: event_id}) when is_binary(event_id) do
+    deadline_open?(Cgc2046.Events.Event, event_id)
+  end
+
+  defp registration_open?(%{course_id: course_id}) when is_binary(course_id) do
+    deadline_open?(Cgc2046.Events.Course, course_id)
+  end
+
+  defp registration_open?(_), do: false
+
+  # review F8：过期成功后通知构建失败（如 target_title 加载异常）不再吞为静默
+  # ——上抛走 Oban 重试；但订单已 expired（终态），重选不中本单，故通知失败
+  # 只记 warning 落日志（保留既有尽力而为语义），expire 主体不回滚。
   defp handle_expire_result(result, kind, id) do
     case result do
       {:ok, _} ->
@@ -91,6 +147,21 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
       {:error, error} ->
         Logger.warning("payment expiry: #{kind} #{id} expire skipped: #{inspect(error)}")
         :skip
+    end
+  end
+
+  # review F8：nil deadline = 永开放（ApprovalDeadline.not_expired? nil→true 同语义）；
+  # 非 open 状态（已取消/结束）不可再报名——re_enrollable 只在 open 且未截止时 true。
+  defp deadline_open?(resource, id) do
+    case Ash.get(resource, id, authorize?: false) do
+      {:ok, %{status: :open, registration_deadline: nil}} ->
+        true
+
+      {:ok, %{status: :open, registration_deadline: deadline}} ->
+        DateTime.compare(deadline, DateTime.utc_now()) == :gt
+
+      _ ->
+        false
     end
   end
 end

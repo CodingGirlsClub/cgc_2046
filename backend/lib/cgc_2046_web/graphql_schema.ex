@@ -176,12 +176,12 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     # ── SpeakerInvitation（E-4 #49）──
 
-    @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请"
+    @desc "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息 + viewerIsInviter；无效/过期/已用 token 统一错误，不泄露其它邀请"
     field :speaker_invitation_card, :speaker_invitation_card do
       arg(:token, non_null(:string))
 
-      resolve(fn _, %{token: token}, _ ->
-        case Cgc2046.Events.SpeakerInvitations.card(token) do
+      resolve(fn _, %{token: token}, %{context: context} ->
+        case Cgc2046.Events.SpeakerInvitations.card(token, context[:actor]) do
           {:ok, card} ->
             {:ok, card}
 
@@ -1270,6 +1270,47 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "Owner/Admin 重发邀请/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
+    field :resend_speaker_invitation, :resend_speaker_invitation_payload do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Ash.get(Cgc2046.Events.SpeakerInvitation, id, authorize?: false) do
+            {:ok, %Cgc2046.Events.SpeakerInvitation{} = invitation} ->
+              case Cgc2046.Events.SpeakerInvitation.resend(invitation, actor) do
+                {:ok, updated, plain_token} ->
+                  {:ok, %{result: updated, plain_token: plain_token, errors: []}}
+
+                {:error, error} ->
+                  {:ok,
+                   %{
+                     result: nil,
+                     plain_token: nil,
+                     errors:
+                       to_ash_graphql_errors(
+                         error,
+                         context,
+                         :resend_invitation,
+                         Cgc2046.Events.SpeakerInvitation,
+                         Cgc2046.Api
+                       )
+                   }}
+              end
+
+            _ ->
+              # id 不存在：与 AshGraphql NotFound 映射同形（message/code），不泄露存在性
+              {:ok,
+               %{
+                 result: nil,
+                 plain_token: nil,
+                 errors: [%{message: "could not be found", code: "not_found"}]
+               }}
+          end
+        end)
+      end)
+    end
+
     @desc "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
     field :accept_speaker_invitation, :speaker_invitation_action_payload do
       arg(:token, non_null(:string))
@@ -1765,6 +1806,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:status, non_null(:string))
     field(:topic, :string)
     field(:scheduled_at, :datetime)
+
+    @desc "当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy）"
+    field(:viewer_is_inviter, non_null(:boolean))
     field(:event, non_null(:speaker_invitation_card_event))
   end
 
@@ -1790,6 +1834,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   object :create_speaker_invitation_payload do
     @desc "createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次"
+    field(:result, :speaker_invitation)
+    field(:plain_token, :string)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
+  object :resend_speaker_invitation_payload do
+    @desc "resendSpeakerInvitation 返回：result 为邀请记录；plainToken 新明文仅此一次"
     field(:result, :speaker_invitation)
     field(:plain_token, :string)
     field(:errors, non_null(list_of(non_null(:mutation_error))))

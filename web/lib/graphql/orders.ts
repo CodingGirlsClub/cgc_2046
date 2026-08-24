@@ -43,10 +43,11 @@ export interface Order {
   cancelReason: string | null;
   /** 管理列表计算字段（R24） */
   tierName?: string | null;
+  /** 下单时档位快照 id（U8 已售档守卫，R10） */
+  tierId?: string | null;
   enrollmentStatus?: string | null;
   learnerEmail?: string | null;
 }
-
 export interface CreateOrderPayload {
   result: Order | null;
   errors: { message: string; code?: string | null }[];
@@ -181,14 +182,45 @@ export const MY_PENDING_ORDERS: TypedDocumentNode<
 export interface AdminOrderFilter {
   workspaceId: string;
   status?: string;
+  /** organizer-payment U4：订单按活动/课程收敛（详情页经营面，R6） */
+  eventId?: string;
+  courseId?: string;
 }
 
 export const WORKSPACE_ORDERS: TypedDocumentNode<
-  { workspaceOrders: { results: Order[]; count: number | null } },
-  AdminOrderFilter & { filter?: { status: { eq: string } } | null }
+  {
+    workspaceOrders: {
+      results: Order[];
+      count: number | null;
+      startKeyset: string | null;
+      endKeyset: string | null;
+    };
+  },
+  AdminOrderFilter & {
+    filter?:
+      | {
+          status?: { eq?: string; in?: string[] };
+          eventId?: { eq?: string };
+          courseId?: { eq?: string };
+        }
+      | null;
+    /** U7 keyset 分页（页大小 20；after = 上一页 endKeyset） */
+    first?: number;
+    after?: string | null;
+  }
 > = gql`
-  query WorkspaceOrders($workspaceId: ID!, $filter: OrderFilterInput) {
-    workspaceOrders(workspaceId: $workspaceId, filter: $filter) {
+  query WorkspaceOrders(
+    $workspaceId: ID!
+    $filter: OrderFilterInput
+    $first: Int
+    $after: String
+  ) {
+    workspaceOrders(
+      workspaceId: $workspaceId
+      filter: $filter
+      first: $first
+      after: $after
+    ) {
       count
       results {
         id
@@ -202,19 +234,29 @@ export const WORKSPACE_ORDERS: TypedDocumentNode<
         refundedAt
         cancelReason
         tierName
+        tierId
         enrollmentStatus
         learnerEmail
       }
+      startKeyset
+      endKeyset
     }
   }
 `;
-
 export const WORKSPACE_PAYMENT_STATS: TypedDocumentNode<
   { workspacePaymentStats: string },
-  { workspaceId: string }
+  { workspaceId: string; eventId?: string; courseId?: string }
 > = gql`
-  query WorkspacePaymentStats($workspaceId: ID!) {
-    workspacePaymentStats(workspaceId: $workspaceId)
+  query WorkspacePaymentStats(
+    $workspaceId: ID!
+    $eventId: ID
+    $courseId: ID
+  ) {
+    workspacePaymentStats(
+      workspaceId: $workspaceId
+      eventId: $eventId
+      courseId: $courseId
+    )
   }
 `;
 
@@ -243,6 +285,25 @@ export const WAIVE_PAYMENT: TypedDocumentNode<
 > = gql`
   mutation WaivePayment($id: ID!) {
     waivePayment(id: $id) {
+      result {
+        id
+        status
+      }
+      errors {
+        code
+        message
+      }
+    }
+  }
+`;
+
+/** 退款失败重试（organizer-payment U4/R7）：refund_failed → refunding 重入退款链 */
+export const RETRY_REFUND: TypedDocumentNode<
+  { retryRefund: OrderMutationResult },
+  { id: string }
+> = gql`
+  mutation RetryRefund($id: ID!) {
+    retryRefund(id: $id) {
       result {
         id
         status

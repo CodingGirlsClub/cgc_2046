@@ -20,7 +20,7 @@ defmodule Cgc2046.Payments.RefundTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Providers.Fake
-  alias Cgc2046.Workers.{EventCancelRefundWorker, NotificationWorker, PaymentRefundWorker}
+  alias Cgc2046.Workers.{OfferingCancelRefundWorker, NotificationWorker, PaymentRefundWorker}
 
   @tier_id "66666666-6666-6666-6666-666666666666"
 
@@ -289,7 +289,7 @@ defmodule Cgc2046.Payments.RefundTest do
     end
   end
 
-  describe "Event cancelled 批量（EventCancelRefundWorker）" do
+  describe "Event cancelled 批量（OfferingCancelRefundWorker）" do
     test "paid 逐笔退款、payment_pending 取消释放、其余跳过、逐笔隔离", ctx do
       admin = Fixtures.platform_admin()
       setup = batch_setup(ctx, admin)
@@ -304,7 +304,7 @@ defmodule Cgc2046.Payments.RefundTest do
       assert cancelled.status == :cancelled
 
       assert :ok =
-               Cgc2046.Workflows.SignalSubscriber.deliver(EventCancelRefundWorker, %{
+               Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, %{
                  type: "event.ended",
                  data: %{
                    "event_id" => setup.event.id,
@@ -346,6 +346,170 @@ defmodule Cgc2046.Payments.RefundTest do
       # - 批量本轮：pending_e2 取消释放 1（paid 2 的释放发生在退款 worker 收尾，
       #   订阅方只入队不落终态）= 7 - 3 = 4
       assert event_count(setup.event) == 4
+
+      # U1 回归：批量退款审计行真实落库可查回（target_type :event 曾因枚举缺值
+      # 静默写入失败——log 吞错后自上线以来未落一行）
+      assert [%{action: :event_cancel_batch_refund, target_type: :event}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == setup.event.id))
+
+      assert [%{"cancelled_enrollments" => 1, "refunded_orders" => 2}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == setup.event.id))
+               |> Enum.map(& &1.metadata)
+    end
+
+    test "批量审计枚举：event/course target_type 与 course 批量 action 通过校验", _ctx do
+      id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               Cgc2046.Accounts.AdminActionLog.log(%{
+                 actor_id: nil,
+                 action: :course_cancel_batch_refund,
+                 target_type: :course,
+                 target_id: id
+               })
+
+      assert [%{action: :course_cancel_batch_refund, target_type: :course}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == id))
+    end
+
+    test "Course cancelled：paid 逐笔退款 + pending 取消 + 审计行（AE7）", ctx do
+      admin = Fixtures.platform_admin()
+      setup = course_batch_setup(ctx, admin)
+
+      {:ok, cancelled} =
+        setup.course
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      assert cancelled.status == :cancelled
+
+      assert :ok =
+               Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, %{
+                 type: "course.ended",
+                 data: %{
+                   "course_id" => setup.course.id,
+                   "idempotency_key" => "course.ended:" <> setup.course.id
+                 }
+               })
+
+      for order <- setup.paid_orders do
+        assert reload_order(order).status == :refunding
+      end
+
+      assert_enqueued(
+        worker: PaymentRefundWorker,
+        args: %{"order_id" => hd(setup.paid_orders).id}
+      )
+
+      for enrollment <- setup.pending_enrollments do
+        assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :cancelled
+      end
+
+      for order <- setup.pending_orders do
+        assert reload_order(order).status == :cancelled
+      end
+
+      # 审计行：course 批量 action + target_type（U1 枚举 + U2 接线）
+      assert [%{action: :course_cancel_batch_refund, target_type: :course}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == setup.course.id))
+    end
+
+    test "Course closed（正常结束）：零订单变化，明确不退", ctx do
+      admin = Fixtures.platform_admin()
+      setup = course_batch_setup(ctx, admin)
+
+      {:ok, closed} =
+        setup.course
+        |> Ash.Changeset.for_update(:close, %{})
+        |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      assert closed.status == :closed
+
+      assert :ok =
+               Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, %{
+                 type: "course.ended",
+                 data: %{
+                   "course_id" => setup.course.id,
+                   "idempotency_key" => "course.ended:" <> setup.course.id
+                 }
+               })
+
+      for order <- setup.paid_orders do
+        assert reload_order(order).status == :paid
+      end
+
+      for enrollment <- setup.pending_enrollments do
+        assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status ==
+                 :payment_pending
+      end
+
+      assert [] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == setup.course.id))
+    end
+
+    test "信号重投幂等：同一 idempotency_key 二次投递不重复退款", ctx do
+      admin = Fixtures.platform_admin()
+      setup = course_batch_setup(ctx, admin)
+
+      {:ok, _} =
+        setup.course
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      signal = %{
+        type: "course.ended",
+        data: %{
+          "course_id" => setup.course.id,
+          "idempotency_key" => "course.ended:" <> setup.course.id
+        }
+      }
+
+      assert :ok = Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, signal)
+      assert :ok = Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, signal)
+
+      # 退款 job 恰好两笔（每 paid 订单一个），重投不重复入队
+      paid_ids = MapSet.new(setup.paid_orders, & &1.id)
+
+      jobs =
+        all_enqueued(worker: PaymentRefundWorker)
+        |> Enum.filter(&MapSet.member?(paid_ids, &1.args["order_id"]))
+
+      assert length(jobs) == 2
+    end
+
+    test "review F4：学员先取消报名 → 其 paid 订单仍被批量退款（订单为真源）", ctx do
+      admin = Fixtures.platform_admin()
+      setup = course_batch_setup(ctx, admin)
+
+      # 学员在取消信号异步处理前自行取消（confirmed → cancelled）
+      {:ok, _} =
+        hd(setup.paid_enrollments)
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: setup.workspace.id, authorize?: false)
+
+      {:ok, _} =
+        setup.course
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      assert :ok =
+               Cgc2046.Workflows.SignalSubscriber.deliver(OfferingCancelRefundWorker, %{
+                 type: "course.ended",
+                 data: %{
+                   "course_id" => setup.course.id,
+                   "idempotency_key" => "course.ended:" <> setup.course.id
+                 }
+               })
+
+      # 两笔 paid 全部入退款链（含报名已 cancelled 的那笔）
+      for order <- setup.paid_orders do
+        assert reload_order(order).status == :refunding
+      end
     end
   end
 
@@ -469,6 +633,48 @@ defmodule Cgc2046.Payments.RefundTest do
       refunding_order: refunding_order,
       expired_enrollment: expired_e,
       waived_enrollment: waived_e
+    }
+  end
+
+  # U2 Course 批量布置：与 batch_setup 同构（course_id 关联），取核心矩阵
+  # （paid×2 + pending×1）——逐笔逻辑与 Event 共享，接线正确性由本布置证明。
+  defp course_batch_setup(_ctx, admin) do
+    workspace = Fixtures.create_workspace(admin)
+
+    course =
+      EventFixtures.create_course(workspace, admin, %{
+        capacity: nil,
+        pricing_enabled: true,
+        price_tiers: [%{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}]
+      })
+
+    mk = fn suffix ->
+      learner = Fixtures.register_user("cbatch-" <> suffix <> "-" <> uniq())
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          course_id: course.id,
+          user_id: learner.id,
+          tier_id: @tier_id
+        })
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      enrollment
+    end
+
+    paid = [mk.("paid1"), mk.("paid2")]
+    paid_orders = Enum.map(paid, &create_paid_order(workspace, &1))
+    pending = mk.("pending1")
+    pending_orders = [create_pending_order(workspace, pending)]
+
+    %{
+      workspace: workspace,
+      course: course,
+      paid_enrollments: paid,
+      paid_orders: paid_orders,
+      pending_orders: pending_orders,
+      pending_enrollments: [pending]
     }
   end
 
