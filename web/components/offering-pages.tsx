@@ -46,13 +46,13 @@ import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tie
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import WorkspaceShell from "@/components/workspace-shell";
 import { client } from "@/lib/apollo-client";
-import { WORKSPACE_ORDERS } from "@/lib/graphql/orders";
+import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
 import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
-import { formatAmount, parsePriceTiers } from "@/lib/payment";
+import { formatAmount, parsePaymentStats, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
@@ -681,35 +681,54 @@ export function OfferingDetailPage({
     }
   }
 
-  // U8 守卫数字懒查询：offering 的 pending+paid 订单一次拉取（关收费 N/M、
-  // 取消披露 N/¥X、已售档 id 集合同源；快照时点容忍执行窗口内变化）
+  // 取消披露 N/¥X、已售档 id 集合同源；快照时点容忍执行窗口内变化。
+  // review F6：N/¥X 走服务端 stats 聚合（authoritative，不裁剪于首页 50 行、
+  // 绕过 Apollo cache-first）；已售档 id 集仍需订单行（仅 paid、no-store）。
   async function loadGuardCounts() {
     if (!offering) return;
     setGuardCounts((s) => ({ ...s, status: "loading" }));
     try {
       const key = kind === "event" ? "eventId" : "courseId";
-      const { data } = await client.query({
-        query: WORKSPACE_ORDERS,
-        variables: {
-          workspaceId: offering.workspaceId ?? ws?.id ?? "",
-          filter: {
-            [key]: { eq: offering.id },
-            status: { in: ["pending", "paid"] },
+      const [statsRes, paidRes, pendingRes] = await Promise.all([
+        client.query({
+          query: WORKSPACE_PAYMENT_STATS,
+          variables: {
+            workspaceId: offering.workspaceId ?? ws?.id ?? "",
+            [key]: offering.id,
           },
-        },
-      });
-      const orders = (data?.workspaceOrders?.results ?? []) as Array<{
-        status: string;
-        amountCents: number;
+          fetchPolicy: "network-only",
+        }),
+        client.query({
+          query: WORKSPACE_ORDERS,
+          variables: {
+            workspaceId: offering.workspaceId ?? ws?.id ?? "",
+            filter: { [key]: { eq: offering.id }, status: { eq: "paid" } },
+          },
+          fetchPolicy: "network-only",
+        }),
+        client.query({
+          query: WORKSPACE_ORDERS,
+          variables: {
+            workspaceId: offering.workspaceId ?? ws?.id ?? "",
+            filter: { [key]: { eq: offering.id }, status: { eq: "pending" } },
+            first: 1,
+          },
+          fetchPolicy: "network-only",
+        }),
+      ]);
+
+      const stats = parsePaymentStats(statsRes.data?.workspacePaymentStats);
+      const paidRows = (paidRes.data?.workspaceOrders?.results ?? []) as Array<{
         tierId?: string | null;
       }>;
-      const paid = orders.filter((o) => o.status === "paid");
+
       setGuardCounts({
         status: "ready",
-        paidCount: paid.length,
-        paidCents: paid.reduce((acc, o) => acc + o.amountCents, 0),
-        pendingCount: orders.length - paid.length,
-        soldTierIds: paid
+        // paid/pending 笔数 = 服务端 count（权威总数，不裁剪于页大小）
+        paidCount: paidRes.data?.workspaceOrders?.count ?? paidRows.length,
+        paidCents: stats?.collectedCents ?? 0,
+        pendingCount: pendingRes.data?.workspaceOrders?.count ?? 0,
+        soldTierIds: paidRows
           .map((o) => o.tierId)
           .filter((x): x is string => typeof x === "string"),
       });
@@ -750,15 +769,32 @@ export function OfferingDetailPage({
 
   async function performSaveMeta() {
     if (!offering || !activeDraft) return;
-    setSaveBusy(true);
-    setSaveMessage(null);
-    // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
+    // review F11：校验前置（setSaveBusy 之前）——无效档位不再把保存按钮
+    // 永久卡死；混合有效/无效行拒绝整次提交（不静默丢弃无效行）
     const validTiers =
       activeDraft.tierDrafts.map(fromDraft).filter((x) => x !== null);
+    if (
+      activeDraft.tierDrafts.length > 0 &&
+      validTiers.length !== activeDraft.tierDrafts.length
+    ) {
+      setSaveMessage(t("pricingTierInvalid"));
+      return;
+    }
     if (activeDraft.pricingEnabled && validTiers.length === 0) {
       setSaveMessage(t("pricingTierRequired"));
       return;
     }
+
+    // review F7：定价脏检查——仅当开关或档位相对服务端快照变化时下发定价键，
+    // 普通 metadata 保存不再整段重发定价快照（消除陈旧管理员把已关闭的收费
+    // 连旧档位一起恢复的除改窗口；服务端值仍是唯一真源）
+    const pricingDirty =
+      offering.pricingEnabled !== activeDraft.pricingEnabled ||
+      JSON.stringify(toDraft(offering.priceTiers)) !==
+        JSON.stringify(activeDraft.tierDrafts);
+
+    setSaveBusy(true);
+    setSaveMessage(null);
     try {
       const res = await updateOffering(offering.id, kind, {
         title: activeDraft.title,
@@ -775,9 +811,12 @@ export function OfferingDetailPage({
               ),
             }
           : { venue: activeDraft.venue }),
-        // 定价整段随保存下发（U6/R2；关闭收费的守卫弹窗在 U8 接入）
-        pricingEnabled: activeDraft.pricingEnabled,
-        priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
+        ...(pricingDirty
+          ? {
+              pricingEnabled: activeDraft.pricingEnabled,
+              priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
+            }
+          : {}),
       });
       if (res.result) {
         setState({
@@ -1503,6 +1542,14 @@ export function OfferingDetailPage({
                             {guardCounts.status === "loading"
                               ? t("guardDisableLoading")
                               : t("guardCountsFailed")}
+                          </p>
+                        ) : null}
+                        {tr === "close" && offering.pricingEnabled === true ? (
+                          <p
+                            className="mt-1 text-[13px] text-ink-3"
+                            data-testid="close-pending-disclosure"
+                          >
+                            {t("guardClosePending")}
                           </p>
                         ) : null}
                         <div className="mt-2 flex gap-2">

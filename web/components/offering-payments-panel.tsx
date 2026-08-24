@@ -81,10 +81,14 @@ export default function OfferingPaymentsPanel({
 	const [endKeyset, setEndKeyset] = useState<string | null>(null);
 	const [hasMore, setHasMore] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
+	// review F12：请求代守卫——筛选切换后的迟到响应不得覆写/追加新筛选的结果
+	const reqGen = useRef(0);
 
 	// 免费态收敛一行（AE4）：不拉订单/统计查询
 	const panelKey = kind === "event" ? "eventId" : "courseId";
 	async function load(filter: string) {
+		// F12：新请求作废在途响应（筛选切换重置游标 + 拒绝迟到覆写）
+		const gen = ++reqGen.current;
 		setLoadState("loading");
 		try {
 			// R6 默认视图：非终态 + 已退款；终态（cancelled/expired）经状态筛选可见
@@ -102,18 +106,20 @@ export default function OfferingPaymentsPanel({
 					first: PAGE_SIZE,
 				},
 			});
+			if (gen !== reqGen.current) return;
 			const page = data?.workspaceOrders;
 			setOrders(page?.results ?? []);
 			setEndKeyset(page?.endKeyset ?? null);
 			setHasMore((page?.results ?? []).length === PAGE_SIZE);
 			setLoadState("ok");
 		} catch {
-			setLoadState("error");
+			if (gen === reqGen.current) setLoadState("error");
 		}
 	}
 
 	async function loadMore(filter: string) {
 		if (loadingMore || !endKeyset) return;
+		const gen = reqGen.current;
 		setLoadingMore(true);
 		try {
 			const defaultStatuses = ["pending", "paid", "refunding", "refund_failed", "refunded"];
@@ -131,12 +137,14 @@ export default function OfferingPaymentsPanel({
 					after: endKeyset,
 				},
 			});
+			// F12：期间发生了筛选切换（代已前进）→ 丢弃本页（不追加进新筛选）
+			if (gen !== reqGen.current) return;
 			const page = data?.workspaceOrders;
 			setOrders((prev) => [...prev, ...(page?.results ?? [])]);
 			setEndKeyset(page?.endKeyset ?? null);
 			setHasMore((page?.results ?? []).length === PAGE_SIZE);
 		} catch {
-			setHasMore(false);
+			if (gen === reqGen.current) setHasMore(false);
 		} finally {
 			setLoadingMore(false);
 		}
@@ -159,18 +167,21 @@ export default function OfferingPaymentsPanel({
 	// 初拉（offering 维度变化时；ref 防串台）
 	const loadedFor = useRef("");
 	useEffect(() => {
-		if (!manage || !pricingEnabled) return;
+		if (!manage) return;
+		// F13：免费活动也拉数据——关闭收费故意保留已付订单，历史与退款
+		// 操作不因免费态消失（有已付订单时渲染完整面板）
 		const key = `${workspaceId}:${offeringId}`;
 		if (loadedFor.current === key) return;
 		loadedFor.current = key;
 		void load(statusFilter);
 		void loadStats();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [workspaceId, offeringId, manage, pricingEnabled]);
+	}, [workspaceId, offeringId, manage]);
 
 	if (!manage) return null;
 
-	if (!pricingEnabled) {
+	// F13：免费态且无任何订单/统计负担 → 收敛一行；有已付历史则完整面板
+	if (!pricingEnabled && orders.length === 0 && !statsError && (stats?.collectedCents ?? 0) === 0) {
 		return (
 			<section
 				className="rounded-large border border-line bg-card p-4"
