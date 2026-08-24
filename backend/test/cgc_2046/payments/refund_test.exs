@@ -346,6 +346,33 @@ defmodule Cgc2046.Payments.RefundTest do
       # - 批量本轮：pending_e2 取消释放 1（paid 2 的释放发生在退款 worker 收尾，
       #   订阅方只入队不落终态）= 7 - 3 = 4
       assert event_count(setup.event) == 4
+
+      # U1 回归：批量退款审计行真实落库可查回（target_type :event 曾因枚举缺值
+      # 静默写入失败——log 吞错后自上线以来未落一行）
+      assert [%{action: :event_cancel_batch_refund, target_type: :event}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == setup.event.id))
+
+      assert [%{"cancelled_enrollments" => 1, "refunded_orders" => 2}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == setup.event.id))
+               |> Enum.map(& &1.metadata)
+    end
+
+    test "批量审计枚举：event/course target_type 与 course 批量 action 通过校验", _ctx do
+      id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               Cgc2046.Accounts.AdminActionLog.log(%{
+                 actor_id: nil,
+                 action: :course_cancel_batch_refund,
+                 target_type: :course,
+                 target_id: id
+               })
+
+      assert [%{action: :course_cancel_batch_refund, target_type: :course}] =
+               Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
+               |> Enum.filter(&(&1.target_id == id))
     end
   end
 

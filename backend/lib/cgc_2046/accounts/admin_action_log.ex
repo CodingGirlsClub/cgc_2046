@@ -48,7 +48,9 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :order_refund_retry,
           # advisory F-J：Event cancelled 批量退款（系统驱动无 actor，actor_id
           # = nil 与 CLI 系统动作同语义；每 event 一行，metadata 带批量计数）
-          :event_cancel_batch_refund
+          :event_cancel_batch_refund,
+          # organizer-payment U2：Course cancelled 批量退款（R15，与 Event 同语义）
+          :course_cancel_batch_refund
         ]
       ],
       description: "治理动作类型"
@@ -58,7 +60,7 @@ defmodule Cgc2046.Accounts.AdminActionLog do
       allow_nil?: false,
       public?: true,
       constraints: [
-        one_of: [:workspace, :workspace_application, :user, :enrollment, :order]
+        one_of: [:workspace, :workspace_application, :user, :enrollment, :order, :event, :course]
       ],
       description: "目标资源类型"
     )
