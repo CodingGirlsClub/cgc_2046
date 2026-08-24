@@ -869,9 +869,12 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
-  # 平台侧全局唯一商户单号（R6）
+  # 平台侧全局唯一商户单号（R6）。长度硬约束 = 微信 APIv3 上限 32 字符
+  # （支付宝 64）——"CGC" + UUID hex 前 29 位；2026-08-24 生产实证：35 字符
+  # 单号微信下单必 400 PARAM_ERROR「商户订单号错误」。截位后 116 bit 随机性
+  # + unique_out_trade_no 唯一索引兜底碰撞。
   defp generate_out_trade_no do
-    "CGC" <> String.replace(Ecto.UUID.generate(), "-", "")
+    "CGC" <> binary_part(String.replace(Ecto.UUID.generate(), "-", ""), 0, 29)
   end
 
   defp status_to_atom(status) when is_binary(status), do: String.to_existing_atom(status)
@@ -1136,6 +1139,9 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_code(:order_not_found), do: "order_not_found"
   defp domain_error_code(:order_required), do: "order_required"
   defp domain_error_code(:openid_required), do: "order_openid_required"
+
+  # 渠道下单被拒（adapter 非 200 归一原子）：显式化以进契约工件（#241 F3 同款）
+  defp domain_error_code(:channel_create_failed), do: "order_channel_create_failed"
 
   defp domain_error_code(reason) when is_atom(reason), do: "order_" <> Atom.to_string(reason)
   defp domain_error_code({kind, _}) when is_atom(kind), do: "order_" <> Atom.to_string(kind)

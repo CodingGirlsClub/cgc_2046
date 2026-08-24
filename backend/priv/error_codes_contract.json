@@ -25,6 +25,7 @@
     "membership_check_failed",
     "not_platform_admin",
     "order_already_processed",
+    "order_channel_create_failed",
     "order_duplicate_active",
     "order_enrollment_not_found",
     "order_enrollment_required",

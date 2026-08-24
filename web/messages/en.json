@@ -34,6 +34,7 @@
     "enrollment_already_processed": "This enrollment is already processed. Please check My Enrollments.",
     "order_already_processed": "This order has been processed. Refresh to see the latest status.",
     "order_provider_not_configured": "This payment channel is not available yet. Please choose another method.",
+    "order_channel_create_failed": "The payment channel is temporarily unavailable. Please try again later or choose another method.",
     "enrollment_capacity_full_or_registration_closed": "Capacity is full and registration is closed.",
     "enrollment_target_not_open_or_registration_closed": "Registration is closed or the activity is not open.",
     "enrollment_invite_code_required": "This enrollment requires an invite code. Enter it and submit.",
