@@ -86,6 +86,9 @@ defmodule Cgc2046Web.GraphqlOrderTest do
       assert order["amountCents"] == 9900
       assert Jason.decode!(order["tierSnapshot"])["id"] == @tier_id
       assert order["outTradeNo"] =~ ~r/^CGC/
+      # 微信 APIv3 out_trade_no 上限 32 字符（2026-08-24 生产实证：35 字符必
+      # 400 PARAM_ERROR）；支付宝 64——按更严渠道约束
+      assert String.length(order["outTradeNo"]) <= 32
 
       # 无 deadline 场景：expire_at ≈ now + 2h
       expire_at = DateTime.from_iso8601(order["expireAt"]) |> elem(1)

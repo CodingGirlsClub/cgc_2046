@@ -28,6 +28,8 @@ export const COPY: Record<string, string> = {
   order_already_processed: '该订单已处理，请刷新查看状态。',
   // 未签约渠道（adapter 密钥缺失）
   order_provider_not_configured: '该支付渠道暂未开通，请选择其他方式。',
+  // 渠道下单被拒（非 200，如参数/风控）
+  order_channel_create_failed: '支付渠道暂时不可用，请稍后重试或选择其他支付方式。',
   // 名额 / 报名截止
   enrollment_capacity_full_or_registration_closed: '名额已满，报名已截止。',
   enrollment_target_not_open_or_registration_closed: '报名已截止或活动未开放。',
