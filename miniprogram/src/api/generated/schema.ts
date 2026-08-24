@@ -3172,6 +3172,13 @@ export type RequestPhoneCodeResult = {
   sent: Scalars['Boolean']['output'];
 };
 
+export type ResendSpeakerInvitationPayload = {
+  errors: Array<MutationError>;
+  plainToken?: Maybe<Scalars['String']['output']>;
+  /** resendSpeakerInvitation 返回：result 为邀请记录；plainToken 新明文仅此一次 */
+  result?: Maybe<SpeakerInvitation>;
+};
+
 export type ResetPasswordResult = {
   ok: Scalars['Boolean']['output'];
 };
@@ -3386,6 +3393,8 @@ export type RootMutationType = {
   requestPasswordReset?: Maybe<RequestPasswordResetResult>;
   /** 请求发送手机验证码（plan 002 U3；限流 phone 1/60s + 5/1h + 20/1d、IP 30/1d） */
   requestPhoneCode?: Maybe<RequestPhoneCodeResult>;
+  /** Owner/Admin 重发邀请/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达） */
+  resendSpeakerInvitation?: Maybe<ResendSpeakerInvitationPayload>;
   /** 使用一次性密码重置 token 设置新密码 */
   resetPassword?: Maybe<ResetPasswordResult>;
   /** 撤销邀请（邀请人本人或 Owner/Admin 或平台管理员） */
@@ -3687,6 +3696,11 @@ export type RootMutationTypeRequestPasswordResetArgs = {
 export type RootMutationTypeRequestPhoneCodeArgs = {
   phone: Scalars['String']['input'];
   purpose: PhoneCodePurpose;
+};
+
+
+export type RootMutationTypeResendSpeakerInvitationArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
