@@ -155,6 +155,14 @@ defmodule Cgc2046.Payments.Order do
       description("关联报名所属 Course（KTD2：订单按课程筛选）")
       calculation(expr(enrollment.course_id))
     end
+
+    # U8（R10）：已售档判定——编辑面比较订单 tier 快照 id 与档位草稿（删除/
+    # 改价已售档时警告；快照语义保证已付订单金额不受影响）。
+    calculate :tier_id, :uuid do
+      public?(true)
+      description("下单时档位快照 id（U8 已售档守卫）")
+      calculation(expr(tier_snapshot["id"]))
+    end
   end
 
   actions do

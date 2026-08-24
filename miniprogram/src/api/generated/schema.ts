@@ -2702,6 +2702,8 @@ export type Order = {
   provider: Scalars['String']['output'];
   refundedAt?: Maybe<Scalars['DateTime']['output']>;
   status: Scalars['String']['output'];
+  /** 下单时档位快照 id（U8 已售档守卫） */
+  tierId?: Maybe<Scalars['ID']['output']>;
   /** 下单时档位快照名（R3 改价不追溯） */
   tierName?: Maybe<Scalars['String']['output']>;
   tierSnapshot: Scalars['JsonString']['output'];
@@ -2863,6 +2865,8 @@ export type OrderFilterInput = {
   provider?: InputMaybe<OrderFilterProvider>;
   refundedAt?: InputMaybe<OrderFilterRefundedAt>;
   status?: InputMaybe<OrderFilterStatus>;
+  /** 下单时档位快照 id（U8 已售档守卫） */
+  tierId?: InputMaybe<OrderFilterTierId>;
   /** 下单时档位快照名（R3 改价不追溯） */
   tierName?: InputMaybe<OrderFilterTierName>;
   tierSnapshot?: InputMaybe<OrderFilterTierSnapshot>;
@@ -2960,6 +2964,22 @@ export type OrderFilterStatus = {
   rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type OrderFilterTierId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type OrderFilterTierName = {
   contains?: InputMaybe<Scalars['String']['input']>;
   eq?: InputMaybe<Scalars['String']['input']>;
@@ -3048,6 +3068,7 @@ export type OrderSortField =
   | 'PROVIDER'
   | 'REFUNDED_AT'
   | 'STATUS'
+  | 'TIER_ID'
   | 'TIER_NAME'
   | 'TIER_SNAPSHOT'
   | 'TRANSACTION_ID'

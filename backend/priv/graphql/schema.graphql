@@ -5044,6 +5044,7 @@ enum OrderSortField {
   LEARNER_EMAIL
   EVENT_ID
   COURSE_ID
+  TIER_ID
 }
 
 "A keyset page of :order"
@@ -5059,6 +5060,22 @@ type KeysetPageOfOrder {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input OrderFilterTierId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
 }
 
 input OrderFilterCourseId {
@@ -5403,6 +5420,9 @@ input OrderFilterInput {
 
   "关联报名所属 Course（KTD2：订单按课程筛选）"
   courseId: OrderFilterCourseId
+
+  "下单时档位快照 id（U8 已售档守卫）"
+  tierId: OrderFilterTierId
 }
 
 input OrderSortInput {
@@ -5449,6 +5469,9 @@ type Order {
 
   "关联报名所属 Course（KTD2：订单按课程筛选）"
   courseId: ID
+
+  "下单时档位快照 id（U8 已售档守卫）"
+  tierId: ID
 }
 
 type RootQueryType {
