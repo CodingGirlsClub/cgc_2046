@@ -1,24 +1,28 @@
 "use client";
 
 /**
- * E-5 #50 公开发现页 /events 与 /courses（站点级，游客免登录；U4 全暗重建）。
+ * E-5 #50 公开发现页 /events 与 /courses（站点级，游客免登录）。
  *
  * - 只列 open + public（匿名读策略白名单）；
  * - 无 WorkspaceShell：公开面是站点级漏斗，登录态不影响浏览（J-Visitor）；
  * - 数据唯一真实路径：fetchPublicOfferings（GraphQL 匿名查询）；
- * - 固定深色门面（R7/KD2）：.ld-root 重声明暗色 token，html.light 下仍为深色；
- * - 行式列表（R8）：与 landing 首页共用 OfferingRow（@/components/offering-row）
- *   同源行组件，零跳变；行内状态标签 = 后端派生报名 badge（KTD1），
- *   meta 行排政策/截止/开始/地点（地点仅 event，R3 兜底「时间待定」「地点待定」）。
+ * - 方向 B：跟随站点主题，以品牌导航 + 信息卡承载公开目录；
+ * - 行内状态标签 = 后端派生报名 badge（KTD1），卡片分层展示
+ *   政策/截止/开始/地点（地点仅 event，R3 兜底「时间待定」「地点待定」）。
  */
 
+import { BrandLockup } from "@/components/brand";
+import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
+import LanguageSwitcher from "@/components/language-switcher";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { fetchPublicOfferings, formatVenue, parseVenue } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
-import { OFFERING_LABEL } from "@/lib/graphql/events";
-import OfferingRow from "@/components/offering-row";
+import {
+	ENROLLMENT_POLICY_LABEL,
+	OFFERING_LABEL,
+} from "@/lib/graphql/events";
 import { formatDeadline } from "@/lib/events";
 
 interface PageState {
@@ -27,11 +31,76 @@ interface PageState {
 	error: string | null;
 }
 
-export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
+function PublicOfferingCard({
+	item,
+	kind,
+}: {
+	item: PublicOfferingItem;
+	kind: OfferingKind;
+}) {
 	const t = useTranslations("publicOfferings");
 	const tCommon = useTranslations("common");
 	const labelsT = useTranslations();
 	const locale = useLocale();
+	const base = kind === "event" ? "/events" : "/courses";
+	const startsAt = formatDeadline(
+		item.startsAt ?? null,
+		tCommon("timeTbd"),
+		locale,
+	);
+	const venue =
+		kind === "event"
+			? formatVenue(parseVenue(item.venue)) ?? tCommon("venueTbd")
+			: null;
+
+	return (
+		<li>
+			<Link href={`${base}/${item.slug}`} className="public-catalog-card">
+				<span className="public-catalog-card__head">
+					<span className="public-catalog-card__title">{item.title}</span>
+					<EnrollmentBadgeTag badge={item.enrollmentBadge} />
+				</span>
+
+				<dl className="public-catalog-card__facts">
+					<div>
+						<dt>{t("timeLabel")}</dt>
+						<dd>{startsAt}</dd>
+					</div>
+					{venue ? (
+						<div>
+							<dt>{t("venueLabel")}</dt>
+							<dd>{venue}</dd>
+						</div>
+					) : null}
+				</dl>
+
+				<span className="public-catalog-card__foot">
+					<span>
+						{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])}
+					</span>
+					<span>
+						{t("deadline", {
+							deadline: formatDeadline(
+								item.registrationDeadline,
+								tCommon("noDeadline"),
+								locale,
+							),
+						})}
+					</span>
+					<span className="public-catalog-card__arrow" aria-hidden="true">
+						→
+					</span>
+				</span>
+			</Link>
+		</li>
+	);
+}
+
+export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
+	const t = useTranslations("publicOfferings");
+	const navT = useTranslations("landing.nav");
+	const tCommon = useTranslations("common");
+	const labelsT = useTranslations();
 	const [state, setState] = useState<PageState>({ kind, rows: null, error: null });
 	// 重试 nonce：error 态点击重试 → 复位 + 触发 effect 重新拉取
 	const [nonce, setNonce] = useState(0);
@@ -71,67 +140,78 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	}
 
 	return (
-		<main className="ld-root">
-			<div className="ld-container py-16">
-				<header className="mb-10">
-					<p className="text-[13px] text-ink-3">
-						<Link href="/" className="hover:text-ink">
-							{t("breadcrumbHome")}
-						</Link>
-						{" › "}
-						<strong>{labelsT(label)}</strong>
-					</p>
-					<h1 className="ld-section__title mt-3">
-						{t("publicTitle", { label: labelsT(label) })}
-					</h1>
-					<p className="ld-section__desc">
-						{t("publicDesc", { label: labelsT(label) })}
-					</p>
-					<Link href={otherHref} className="ld-section__more mt-3 inline-block">
-						{t("viewOther", { label: labelsT(OFFERING_LABEL[otherKind]) })}
+		<div className="public-catalog">
+			<header className="public-catalog-nav">
+				<div className="public-catalog-container public-catalog-nav__inner">
+					<Link href="/" className="public-catalog-nav__brand">
+						<BrandLockup />
 					</Link>
-				</header>
-
-				{loadError ? (
-					<div role="alert">
-						<p className="ld-offer-fallback">
-							{t("loadFailed")}：{loadError}
-						</p>
-						<button
-							type="button"
-							onClick={retry}
-							className="join-button join-button--outline mt-4"
+					<nav className="public-catalog-nav__links" aria-label={t("navigationLabel")}>
+						<Link
+							href="/events"
+							aria-current={kind === "event" ? "page" : undefined}
+							className={`public-catalog-nav__link${kind === "event" ? " public-catalog-nav__link--active" : ""}`}
 						>
-							{tCommon("retry")}
-						</button>
+							{navT("events")}
+						</Link>
+						<Link
+							href="/courses"
+							aria-current={kind === "course" ? "page" : undefined}
+							className={`public-catalog-nav__link${kind === "course" ? " public-catalog-nav__link--active" : ""}`}
+						>
+							{navT("courses")}
+						</Link>
+					</nav>
+					<div className="public-catalog-nav__right">
+						<LanguageSwitcher className="public-catalog-nav__lang" />
+						<Link href="/login" className="public-catalog-nav__login">
+							{navT("login")} <span aria-hidden="true">→</span>
+						</Link>
 					</div>
-				) : rows === null ? (
-					// 3 块与真实行等高的 skeleton：加载完成不发生布局位移（同 landing）
-					<div aria-hidden="true">
-						<div className="ld-skeleton" />
-						<div className="ld-skeleton" />
-						<div className="ld-skeleton" />
-					</div>
-				) : rows.length === 0 ? (
-					<p className="ld-offer-fallback">{t("empty", { label: labelsT(label) })}</p>
-				) : (
-					<ul className="ld-offers">
-					{rows.map((item) => {
-						// 时间为空/非法 → 「时间待定」；空 venue → 「地点待定」（R3，任何面不出现空白）
-						const starts = formatDeadline(item.startsAt ?? null, "", locale);
-						const venue =
-							kind === "event" ? formatVenue(parseVenue(item.venue)) : null;
-						const extra = [
-							starts ? t("startsAt", { time: starts }) : tCommon("timeTbd"),
-						];
-						if (kind === "event") extra.push(venue ?? tCommon("venueTbd"));
-						return (
-							<OfferingRow key={item.id} item={item} kind={kind} meta={extra} />
-						);
-					})}
-					</ul>
-				)}
-			</div>
-		</main>
+				</div>
+			</header>
+
+			<main id="main-content" className="public-catalog-main">
+				<div className="public-catalog-container">
+					<header className="public-catalog-heading">
+						<div>
+							<h1>{t("publicTitle", { label: labelsT(label) })}</h1>
+							<p>{t("publicDesc", { label: labelsT(label) })}</p>
+						</div>
+						<Link href={otherHref} className="public-catalog-heading__switch">
+							{t("viewOther", { label: labelsT(OFFERING_LABEL[otherKind]) })}
+						</Link>
+					</header>
+
+					{loadError ? (
+						<div className="public-catalog-state" role="alert">
+							<p>
+								{t("loadFailed")}：{loadError}
+							</p>
+							<button type="button" onClick={retry} className="public-catalog-retry">
+								{tCommon("retry")}
+							</button>
+						</div>
+					) : rows === null ? (
+						// 3 块与真实卡片近似等高，加载完成不发生明显布局位移。
+						<ul className="public-catalog-grid" aria-hidden="true">
+							<li className="public-catalog-skeleton" />
+							<li className="public-catalog-skeleton" />
+							<li className="public-catalog-skeleton" />
+						</ul>
+					) : rows.length === 0 ? (
+						<p className="public-catalog-state">
+							{t("empty", { label: labelsT(label) })}
+						</p>
+					) : (
+						<ul className="public-catalog-grid">
+							{rows.map((item) => (
+								<PublicOfferingCard key={item.id} item={item} kind={kind} />
+							))}
+						</ul>
+					)}
+				</div>
+			</main>
+		</div>
 	);
 }

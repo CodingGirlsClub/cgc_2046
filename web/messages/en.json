@@ -388,13 +388,14 @@
   },
   "publicOfferings": {
     "loadFailed": "Failed to load",
-    "breadcrumbHome": "Workspaces",
+    "navigationLabel": "Public content navigation",
     "publicTitle": "Public {label}",
     "publicDesc": "{label} open to everyone; join a workspace for more internal ones.",
     "viewOther": "View {label} ›",
     "empty": "No public {label} right now.",
     "deadline": "Closes {deadline}",
-    "startsAt": "Starts {time}"
+    "timeLabel": "Starts",
+    "venueLabel": "Venue"
   },
   "onboarding": {
     "entryTitle": "Agent integration",

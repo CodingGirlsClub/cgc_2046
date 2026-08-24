@@ -5,12 +5,13 @@ import { ENROLLMENT_BADGE_LABEL } from "@/lib/graphql/events";
 /**
  * 公开面报名标签（R6/KTD1：后端派生 full > starting_soon > enrolling）。
  * 公开页（landing + /events /courses + 详情）统一用它替代 EventStatusTag
- * （活动状态机标签仅留工作区内部页）；token 类随 .ld-root 解析为暗色值。
+ * （活动状态机标签仅留工作区内部页）；颜色随当前主题 token 解析。
  */
 
 const TONE_CLASS: Record<EnrollmentBadge, string> = {
-	enrolling: "border-accent text-accent",
-	starting_soon: "border-accent bg-accent-mentionbg text-accent",
+	enrolling: "border-accent text-[var(--accent-strong)]",
+	starting_soon:
+		"border-accent bg-accent-mentionbg text-[var(--accent-strong)]",
 	full: "border-line text-ink-3",
 };
 
