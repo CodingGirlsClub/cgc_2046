@@ -865,19 +865,18 @@ defmodule Cgc2046.Events.Enrollment do
     end
   end
 
-  # completed 信号补发（SignalEmitter 同款 payload 形状；批量路径无 changeset，
-  # enrollment_policy 落 nil——confirm 路径同款先例）。幂等键由消费方
-  # SignalIdempotency 去重。
+  # completed 信号补发（批量路径无 changeset，enrollment_policy 落 nil——
+  # confirm 路径同款先例；幂等键由消费方 SignalIdempotency 去重）。payload
+  # 基座复用 base_enrollment_payload/1（同模块单源；enrollment 为批量路径
+  # 重构的 confirmed 内存记录）——emitter 键注入与 SignalEmitter 同款两行。
   defp emit_completed(enrollment, workspace_id) do
     payload =
-      %{
-        "enrollment_id" => enrollment.id,
-        "user_id" => enrollment.user_id,
-        "status" => "confirmed",
+      base_enrollment_payload(enrollment)
+      |> Map.merge(%{
         "event_id" => enrollment.event_id,
         "course_id" => enrollment.course_id,
         "enrollment_policy" => nil
-      }
+      })
       |> Map.put("idempotency_key", @completed_signal <> ":" <> enrollment.id)
       |> Map.put("workspace_id", enrollment.workspace_id)
 

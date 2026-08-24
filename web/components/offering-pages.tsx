@@ -987,7 +987,14 @@ export function OfferingDetailPage({
                   {manage ? (
                     <Field label={t("fieldPricing")}>
                       {offering.pricingEnabled
-                        ? t("pricingOn", { count: parsePriceTiers(offering.availablePriceTiers).length })
+                        ? t("pricingOn", {
+                                overview: parsePriceTiers(offering.availablePriceTiers)
+                                  .map(
+                                    (tier) =>
+                                      `${tier.name} ¥${formatAmount(tier.amountCents)}`,
+                                  )
+                                  .join(" / "),
+                              })
                         : t("pricingFree")}
                     </Field>
                   ) : null}
@@ -1486,18 +1493,27 @@ export function OfferingDetailPage({
                             })}
                           </p>
                         ) : null}
-                        {tr === "close" && offering.pricingEnabled === true ? (
+                        {tr === "cancel" &&
+                        offering.pricingEnabled === true &&
+                        guardCounts.status !== "ready" ? (
                           <p
                             className="mt-1 text-[13px] text-ink-3"
-                            data-testid="close-pending-disclosure"
+                            data-testid="cancel-refund-loading"
                           >
-                            {t("guardClosePending")}
+                            {guardCounts.status === "loading"
+                              ? t("guardDisableLoading")
+                              : t("guardCountsFailed")}
                           </p>
                         ) : null}
                         <div className="mt-2 flex gap-2">
                           <button
                             type="button"
-                            disabled={busyTransition !== null}
+                            disabled={
+                              busyTransition !== null ||
+                              (tr === "cancel" &&
+                                offering.pricingEnabled === true &&
+                                guardCounts.status !== "ready")
+                            }
                             onClick={() => void runTransition(tr)}
                             className="rounded-large border border-danger px-3 py-1.5 text-[13px] text-danger disabled:opacity-50"
                           >

@@ -98,10 +98,16 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 			/>,
 		);
 
-		// 初拉顺序：load(orders) → loadStats（面板 useEffect 内固定顺序）
+		// 初拉顺序：load(orders) → loadStats（面板 useEffect 内固定顺序）；
+		// 默认视图 = 非终态 + 已退款（R6，终态经状态筛选可见）
 		expect(client.query.mock.calls[0][0].variables).toEqual({
 			workspaceId: "ws-1",
-			filter: { eventId: { eq: "ev-1" } },
+			filter: {
+				eventId: { eq: "ev-1" },
+				status: {
+					in: ["pending", "paid", "refunding", "refund_failed", "refunded"],
+				},
+			},
 		});
 
 		expect(client.query.mock.calls[1][0].variables).toEqual({
