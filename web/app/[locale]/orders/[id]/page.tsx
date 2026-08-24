@@ -160,6 +160,29 @@ export default function OrderDetailPage() {
   });
   const manual = poll.manual;
 
+  // 支付宝/新标签页支付场景：页面在后台停留超 30s 轮询窗（转手动态）后，
+  // 用户支付完切回本页——此刻必须自动补拉收敛（否则停在「刷新已暂停」
+  // 显示待支付，手动刷新才恢复，生产实证 2026-08-24）。先例：工作台首联
+  // 等待的 focus/visibilitychange 监听（app/[locale]/w/[slug]/page.tsx）。
+  const resyncOnReturn = useCallback(() => {
+    if (document.visibilityState !== "visible") return;
+    if (status === "paid" || status === "expired") return;
+    poll.reset();
+    void fetchStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, fetchStatus, poll.reset]);
+
+  useEffect(() => {
+    const onFocus = () => void resyncOnReturn();
+    const onVisible = () => void resyncOnReturn();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [resyncOnReturn]);
+
   // 倒计时刷新（R6）
   useEffect(() => {
     if (loadState !== "ok") return;
