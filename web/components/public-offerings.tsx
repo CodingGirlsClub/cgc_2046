@@ -11,9 +11,8 @@
  *   政策/截止/开始/地点（地点仅 event，R3 兜底「时间待定」「地点待定」）。
  */
 
-import { BrandLockup } from "@/components/brand";
 import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
-import LanguageSwitcher from "@/components/language-switcher";
+import PublicCatalogShell from "@/components/public-catalog-shell";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -98,7 +97,6 @@ function PublicOfferingCard({
 
 export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	const t = useTranslations("publicOfferings");
-	const navT = useTranslations("landing.nav");
 	const tCommon = useTranslations("common");
 	const labelsT = useTranslations();
 	const [state, setState] = useState<PageState>({ kind, rows: null, error: null });
@@ -140,39 +138,8 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	}
 
 	return (
-		<div className="public-catalog">
-			<header className="public-catalog-nav">
-				<div className="public-catalog-container public-catalog-nav__inner">
-					<Link href="/" className="public-catalog-nav__brand">
-						<BrandLockup />
-					</Link>
-					<nav className="public-catalog-nav__links" aria-label={t("navigationLabel")}>
-						<Link
-							href="/events"
-							aria-current={kind === "event" ? "page" : undefined}
-							className={`public-catalog-nav__link${kind === "event" ? " public-catalog-nav__link--active" : ""}`}
-						>
-							{navT("events")}
-						</Link>
-						<Link
-							href="/courses"
-							aria-current={kind === "course" ? "page" : undefined}
-							className={`public-catalog-nav__link${kind === "course" ? " public-catalog-nav__link--active" : ""}`}
-						>
-							{navT("courses")}
-						</Link>
-					</nav>
-					<div className="public-catalog-nav__right">
-						<LanguageSwitcher className="public-catalog-nav__lang" />
-						<Link href="/login" className="public-catalog-nav__login">
-							{navT("login")} <span aria-hidden="true">→</span>
-						</Link>
-					</div>
-				</div>
-			</header>
-
-			<main id="main-content" className="public-catalog-main">
-				<div className="public-catalog-container">
+		<PublicCatalogShell activeKind={kind}>
+			<div className="public-catalog-container">
 					<header className="public-catalog-heading">
 						<div>
 							<h1>{t("publicTitle", { label: labelsT(label) })}</h1>
@@ -210,8 +177,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 							))}
 						</ul>
 					)}
-				</div>
-			</main>
-		</div>
+			</div>
+		</PublicCatalogShell>
 	);
 }

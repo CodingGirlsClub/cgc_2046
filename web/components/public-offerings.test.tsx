@@ -117,7 +117,7 @@ describe("公开发现页方向 B 信息卡", () => {
 		expect(within(cardA).getByText("开始")).toBeInTheDocument();
 		expect(within(cardA).getByText(/2026/)).toBeInTheDocument();
 		expect(within(cardA).getByText("地点")).toBeInTheDocument();
-		expect(within(cardA).getByText(/中国 上海 上海 徐汇/)).toBeInTheDocument();
+		expect(within(cardA).getByText(/中国 上海 徐汇/)).toBeInTheDocument();
 		// EventStatusTag（开放报名）从公开面移除，仅留工作区内部页
 		expect(within(cardA).queryByText("开放报名")).toBeNull();
 
