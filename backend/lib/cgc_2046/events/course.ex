@@ -176,11 +176,11 @@ defmodule Cgc2046.Events.Course do
       end
     )
 
-    # R6/KTD1 公开派生标签：full > starting_soon > enrolling（逻辑在 EnrollmentBadge）。
+    # R6/KTD1 公开派生标签：full > closed > starting_soon > enrolling（逻辑在 EnrollmentBadge）。
     # load 依赖声明同上；capacity/confirmed_count 本体仍留 field_policy denylist。
     calculate(:enrollment_badge, :atom,
       public?: true,
-      constraints: [one_of: [:enrolling, :starting_soon, :full]],
+      constraints: [one_of: [:enrolling, :starting_soon, :closed, :full]],
       load: [:capacity, :confirmed_count, :starts_at, :registration_deadline],
       calculation: fn records, _opts ->
         now = DateTime.utc_now()

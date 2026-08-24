@@ -4,7 +4,7 @@ import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
-import { enrollmentBadgeText, formatDateTime, scheduleText, venueText } from '@/domain/format'
+import { enrollmentBadgeText, formatDateTime, registrationClosedNotice, scheduleText, venueText } from '@/domain/format'
 import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
@@ -59,6 +59,8 @@ export default function EventDetailPage() {
   if (loading) return <PageState kind='loading' />
   if (error) return <PageState kind='error' message={error} onRetry={load} />
   if (!item) return <PageState kind='empty' message='内容不存在' />
+
+  const closedNotice = registrationClosedNotice(item.enrollmentBadge)
 
   return (
     <View className={styles.page}>
@@ -125,9 +127,15 @@ export default function EventDetailPage() {
       </ScrollView>
 
       <View className={styles.footer}>
-        <Button className={styles.primaryButton} data-testid='register-action' onClick={register}>
-          立即报名
-        </Button>
+        {closedNotice ? (
+          <Text className={styles.closedNotice} data-testid='registration-closed-notice'>
+            {closedNotice}
+          </Text>
+        ) : (
+          <Button className={styles.primaryButton} data-testid='register-action' onClick={register}>
+            立即报名
+          </Button>
+        )}
       </View>
     </View>
   )

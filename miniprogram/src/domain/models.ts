@@ -1,6 +1,6 @@
 export type ContentKind = 'event' | 'course'
 /** 公开派生报名标签（后端 EnrollmentBadge 单源，R6/KTD1） */
-export type EnrollmentBadge = 'enrolling' | 'starting_soon' | 'full'
+export type EnrollmentBadge = 'enrolling' | 'starting_soon' | 'closed' | 'full'
 export type EnrollmentStatus =
   | 'pending'
   | 'payment_pending'

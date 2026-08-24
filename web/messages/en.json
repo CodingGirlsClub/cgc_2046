@@ -455,6 +455,7 @@
     "venueLabel": "Venue: {venue}",
     "pricingTitle": "Pricing tiers",
     "fullHint": "This offering is full and no longer accepts new enrollments.",
+    "closedHint": "Enrollment is closed and no longer accepts new submissions.",
     "loginToEnroll": "Sign in to enroll",
     "enrollFreeHint": "Enrollment is free. Sign in or create an account to submit (J-Visitor → J-Learner).",
     "enrolledConfirm": "✓ Enrolled",
@@ -1622,6 +1623,7 @@
     "enrollmentBadge": {
       "enrolling": "Enrolling",
       "starting_soon": "Starting soon",
+      "closed": "Enrollment closed",
       "full": "Full"
     },
     "offeringKind": {

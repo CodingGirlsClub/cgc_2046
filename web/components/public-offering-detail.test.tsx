@@ -215,6 +215,30 @@ describe("公开详情页报名状态分叉（支付接续）", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("报名截止后已有 payment_pending 报名仍优先显示待支付卡", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "closed",
+      registrationDeadline: "2026-08-01T10:00:00+08:00",
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-closed-pending",
+      status: "payment_pending",
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(
+      await screen.findByTestId("public-enrollment-pending-card"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("enrollment-closed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("登录态已有 confirmed 报名 → 你已报名，不渲染报名表单", async () => {
     eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-confirmed",
@@ -342,6 +366,25 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     expect(await screen.findByTestId("enrollment-full")).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "登录后报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("报名截止：显示截止提示且不呈现报名动作", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "closed",
+      registrationDeadline: "2026-08-01T10:00:00+08:00",
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("enrollment-closed")).toHaveTextContent(
+      "报名已截止",
+    );
+    expect(screen.getByText("报名截止")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
     ).not.toBeInTheDocument();
   });
 
