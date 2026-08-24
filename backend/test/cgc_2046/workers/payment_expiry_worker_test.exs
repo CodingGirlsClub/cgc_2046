@@ -17,7 +17,7 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
   alias Cgc2046.Events.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
-  alias Cgc2046.Workers.PaymentExpiryWorker
+  alias Cgc2046.Workers.{NotificationWorker, PaymentExpiryWorker}
 
   @tier_id "55555555-5555-5555-5555-555555555555"
 
@@ -34,6 +34,51 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
       # 名额回池：同一用户可重新报名（R8「可重新报名」）
       {:ok, _re} = re_enroll(ctx, order)
       assert target_count(ctx, order) == 1
+    end
+
+    test "U5/R13：过期 → 学员+组织者各一条 payment_expired；截止未过 re_enrollable=true", ctx do
+      base = base_enrollment(ctx, 1, [])
+      insert_identity(base.learner.id, :wechat, "exp-learner-" <> uniq())
+      insert_identity(base.admin.id, :wechat, "exp-admin-" <> uniq())
+      order = create_order(base, expire_at: hours(-1))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert reload_order(order).status == :expired
+
+      expired_notifs =
+        all_enqueued(worker: NotificationWorker)
+        |> Enum.filter(&(&1.args["template_key"] == "payment_expired"))
+
+      assert Enum.any?(expired_notifs, &(&1.args["user_id"] == base.learner.id))
+      assert Enum.any?(expired_notifs, &(&1.args["user_id"] == base.admin.id))
+
+      learner_notif = Enum.find(expired_notifs, &(&1.args["user_id"] == base.learner.id))
+      assert learner_notif.args["data"]["re_enrollable"] == "true"
+    end
+
+    test "U5/R13：报名截止已过 → 学员数据不含可重新报名承诺", ctx do
+      base = base_enrollment(ctx, 1, [])
+      insert_identity(base.learner.id, :wechat, "exp-late-learner-" <> uniq())
+
+      # 报名先落（deadline 未过），再把截止改到过去（布置纪律同 set_confirmed_count：
+      # 裸 SQL 置位而非被测对象）
+      {:ok, _} =
+        Cgc2046.Repo.query(
+          "UPDATE events SET registration_deadline = NOW() - INTERVAL '1 hour' WHERE id = $1",
+          [Ecto.UUID.dump!(base.event.id)]
+        )
+
+      order = create_order(base, expire_at: hours(-1))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert [notif] =
+               all_enqueued(worker: NotificationWorker)
+               |> Enum.filter(&(&1.args["template_key"] == "payment_expired"))
+               |> Enum.filter(&(&1.args["user_id"] == base.learner.id))
+
+      assert notif.args["data"]["re_enrollable"] == "false"
     end
 
     test "SQL 下推：未到期 / paid / cancelled 不扫中，只有过期单变化", ctx do
@@ -123,20 +168,36 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
     paid
   end
 
+  defp insert_identity(user_id, provider, uid) do
+    Cgc2046.Repo.query!(
+      """
+      INSERT INTO user_identities (id, provider, uid, user_id, inserted_at, updated_at)
+      VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
+      """,
+      [to_string(provider), uid, Ecto.UUID.dump!(user_id)]
+    )
+  end
+
   defp cancel_order(order) do
     order
     |> Ash.Changeset.for_update(:cancel, %{cancel_reason: "test_setup"})
     |> Ash.update(tenant: order.workspace_id, authorize?: false)
   end
 
-  defp base_enrollment(_ctx, capacity) do
+  defp base_enrollment(_ctx, capacity, overrides \\ []) do
     admin = Fixtures.platform_admin("expiry-admin-" <> uniq())
     workspace = Fixtures.create_workspace(admin)
+
+    deadline =
+      if overrides[:deadline_passed],
+        do: DateTime.add(DateTime.utc_now(), -1, :hour),
+        else: DateTime.add(DateTime.utc_now(), 7, :day)
 
     event =
       EventFixtures.create_event(workspace, admin, %{
         capacity: capacity,
         pricing_enabled: true,
+        registration_deadline: deadline,
         price_tiers: [%{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}]
       })
 
@@ -151,7 +212,7 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
       })
       |> Ash.create(tenant: workspace.id, actor: learner)
 
-    %{workspace: workspace, event: event, learner: learner, enrollment: enrollment}
+    %{workspace: workspace, event: event, admin: admin, learner: learner, enrollment: enrollment}
   end
 
   defp create_order(base, overrides) do

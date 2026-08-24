@@ -12,7 +12,7 @@
  */
 
 import { Link } from "@/i18n/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
@@ -42,7 +42,11 @@ import {
   VISIBILITIES,
   VISIBILITY_LABEL,
 } from "@/lib/graphql/events";
+import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
+import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import WorkspaceShell from "@/components/workspace-shell";
+import { client } from "@/lib/apollo-client";
+import { WORKSPACE_ORDERS } from "@/lib/graphql/orders";
 import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
@@ -406,7 +410,6 @@ interface OfferingState {
   row: OfferingItem | null;
   error: string | null;
 }
-
 interface MetaDraft {
   offeringId: string;
   title: string;
@@ -420,6 +423,9 @@ interface MetaDraft {
   venue: VenueInfo;
   /** 教研需求自由文本(U8/R12,仅 course;原文透传 research_requirements) */
   researchRequirements: string;
+  /** 收费设置（U6/R2）：开关 + 档位草稿（编辑面就地修改） */
+  pricingEnabled: boolean;
+  tierDrafts: TierDraft[];
 }
 
 export function OfferingDetailPage({
@@ -460,6 +466,18 @@ export function OfferingDetailPage({
     status: "loading" | "ok" | "error";
     value: number;
   }>({ id: "", status: "loading", value: 0 });
+  // U8 守卫：关收费/取消披露的订单计数 + 已售档 id 集合（懒查询，R9/R10/R11）
+  const [guardCounts, setGuardCounts] = useState<{
+    status: "idle" | "loading" | "ready";
+    paidCount: number;
+    paidCents: number;
+    pendingCount: number;
+    soldTierIds: string[];
+  }>({ status: "idle", paidCount: 0, paidCents: 0, pendingCount: 0, soldTierIds: [] });
+  // saveMeta 守卫阶段：关收费确认 / 开收费披露（AE1/AE8 前端半）
+  const [pricingGuard, setPricingGuard] = useState<
+    "disable-confirm" | "enable-confirm" | null
+  >(null);
   // E-5 #50 G3：工作台详情页报名入口（活动 open + 本人无既有报名才显示）。
   // 支付接续：fetchMyEnrollment 回活跃报名行（id+status），渲染分四态——
   // payment_pending → 待支付卡（去支付入口）；pending → 审批中；confirmed →
@@ -599,8 +617,37 @@ export function OfferingDetailPage({
             researchRequirements: parseResearchText(
               offering.researchRequirements,
             ),
+            // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
+            pricingEnabled: offering.pricingEnabled === true,
+            tierDrafts: toDraft(offering.priceTiers),
           }
         : null;
+
+  // U8/R10：删除或改价命中已售档（快照语义保证已付订单金额不受影响，警告放行）
+  const soldTierTouched: string[] = useMemo(() => {
+    if (!offering || !activeDraft || guardCounts.status !== "ready") return [];
+    const originals = toDraft(offering.priceTiers);
+    const deleted = guardCounts.soldTierIds.filter(
+      (tid) => !activeDraft.tierDrafts.some((d) => d.id === tid),
+    );
+    const repriced = activeDraft.tierDrafts
+      .filter((d) => {
+        if (!guardCounts.soldTierIds.includes(d.id)) return false;
+        const orig = originals.find((o) => o.id === d.id);
+        if (!orig) return false;
+        return fromDraft(orig)?.amount_cents !== fromDraft(d)?.amount_cents;
+      })
+      .map((d) => d.id);
+    return [...deleted, ...repriced];
+  }, [offering, activeDraft, guardCounts]);
+
+  // U8：编辑面 + 收费开启时取一次守卫数据（已售档集合；守卫数字在确认时点再刷新）
+  useEffect(() => {
+    if (manage && offering?.pricingEnabled === true && guardCounts.status === "idle") {
+      void loadGuardCounts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manage, offering?.id, offering?.pricingEnabled]);
 
   async function saveVisibility(next: Visibility) {
     if (!offering) return;
@@ -634,6 +681,43 @@ export function OfferingDetailPage({
     }
   }
 
+  // U8 守卫数字懒查询：offering 的 pending+paid 订单一次拉取（关收费 N/M、
+  // 取消披露 N/¥X、已售档 id 集合同源；快照时点容忍执行窗口内变化）
+  async function loadGuardCounts() {
+    if (!offering) return;
+    setGuardCounts((s) => ({ ...s, status: "loading" }));
+    try {
+      const key = kind === "event" ? "eventId" : "courseId";
+      const { data } = await client.query({
+        query: WORKSPACE_ORDERS,
+        variables: {
+          workspaceId: offering.workspaceId ?? ws?.id ?? "",
+          filter: {
+            [key]: { eq: offering.id },
+            status: { in: ["pending", "paid"] },
+          },
+        },
+      });
+      const orders = (data?.workspaceOrders?.results ?? []) as Array<{
+        status: string;
+        amountCents: number;
+        tierId?: string | null;
+      }>;
+      const paid = orders.filter((o) => o.status === "paid");
+      setGuardCounts({
+        status: "ready",
+        paidCount: paid.length,
+        paidCents: paid.reduce((acc, o) => acc + o.amountCents, 0),
+        pendingCount: orders.length - paid.length,
+        soldTierIds: paid
+          .map((o) => o.tierId)
+          .filter((x): x is string => typeof x === "string"),
+      });
+    } catch {
+      setGuardCounts((s) => ({ ...s, status: "idle" }));
+    }
+  }
+
   async function saveMeta() {
     if (!offering || !activeDraft) return;
     // venue all-or-none：任一填写则四键须齐全，否则就地拦截不提交（KTD5）
@@ -641,8 +725,40 @@ export function OfferingDetailPage({
       setSaveMessage(t("venueIncomplete"));
       return;
     }
+    // U8 资金守卫（R9/R16，KD2）：关收费 → 明示影响后确认；开收费且有
+    // 待审批 → 披露后确认；其余直接保存。守卫数字为确认时点快照。
+    const disabling =
+      offering.pricingEnabled === true && activeDraft.pricingEnabled === false;
+    const enabling =
+      offering.pricingEnabled !== true && activeDraft.pricingEnabled === true;
+    const pendingApprovals =
+      pendingState.id === id && pendingState.status === "ok"
+        ? pendingState.value
+        : 0;
+
+    if (disabling) {
+      void loadGuardCounts();
+      setPricingGuard("disable-confirm");
+      return;
+    }
+    if (enabling && pendingApprovals > 0) {
+      setPricingGuard("enable-confirm");
+      return;
+    }
+    await performSaveMeta();
+  }
+
+  async function performSaveMeta() {
+    if (!offering || !activeDraft) return;
     setSaveBusy(true);
     setSaveMessage(null);
+    // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
+    const validTiers =
+      activeDraft.tierDrafts.map(fromDraft).filter((x) => x !== null);
+    if (activeDraft.pricingEnabled && validTiers.length === 0) {
+      setSaveMessage(t("pricingTierRequired"));
+      return;
+    }
     try {
       const res = await updateOffering(offering.id, kind, {
         title: activeDraft.title,
@@ -659,6 +775,9 @@ export function OfferingDetailPage({
               ),
             }
           : { venue: activeDraft.venue }),
+        // 定价整段随保存下发（U6/R2；关闭收费的守卫弹窗在 U8 接入）
+        pricingEnabled: activeDraft.pricingEnabled,
+        priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
       });
       if (res.result) {
         setState({
@@ -672,6 +791,12 @@ export function OfferingDetailPage({
             startsAt: res.result.startsAt ?? null,
             endsAt: res.result.endsAt ?? null,
             ...(kind === "event" ? { venue: res.result.venue ?? null } : {}),
+            ...(res.result.pricingEnabled !== undefined
+              ? { pricingEnabled: res.result.pricingEnabled }
+              : {}),
+            ...(res.result.priceTiers !== undefined
+              ? { priceTiers: res.result.priceTiers }
+              : {}),
           },
           error: null,
         });
@@ -859,6 +984,20 @@ export function OfferingDetailPage({
                           : pendingState.value}
                     </Field>
                   ) : null}
+                  {manage ? (
+                    <Field label={t("fieldPricing")}>
+                      {offering.pricingEnabled
+                        ? t("pricingOn", {
+                                overview: parsePriceTiers(offering.availablePriceTiers)
+                                  .map(
+                                    (tier) =>
+                                      `${tier.name} ¥${formatAmount(tier.amountCents)}`,
+                                  )
+                                  .join(" / "),
+                              })
+                        : t("pricingFree")}
+                    </Field>
+                  ) : null}
                 </div>
               </div>
 
@@ -1025,6 +1164,121 @@ export function OfferingDetailPage({
                           placeholder={t("researchPlaceholder")}
                         />
                       </label>
+                    ) : null}
+
+                    {/* 收费设置（U6/R2）：开关 + 档位就地修改（关收费守卫弹窗 U8 接入） */}
+                    <div className="grid gap-2" data-testid="pricing-edit-section">
+                      <label className="flex items-center gap-2 text-sm text-ink-2">
+                        <input
+                          type="checkbox"
+                          checked={activeDraft.pricingEnabled}
+                          onChange={(e) =>
+                            setMetaDraft({
+                              ...activeDraft,
+                              pricingEnabled: e.target.checked,
+                            })
+                          }
+                          data-testid="pricing-toggle"
+                        />
+                        {t("pricingEnable")}
+                      </label>
+                      {activeDraft.pricingEnabled && (
+                        <TierEditor
+                          drafts={activeDraft.tierDrafts}
+                          onChange={(tierDrafts) =>
+                            setMetaDraft({ ...activeDraft, tierDrafts })
+                          }
+                          manage
+                        />
+                      )}
+                      {soldTierTouched.length > 0 && (
+                        <p
+                          role="alert"
+                          className="text-[13px] text-amber-200"
+                          data-testid="sold-tier-warning"
+                        >
+                          {t("guardSoldTier")}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* U8 资金守卫确认（R9/R16）：关收费明示影响、开收费披露待审批；确认后执行 */}
+                    {pricingGuard === "disable-confirm" ? (
+                      <div
+                        className="rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
+                        role="group"
+                        aria-label={t("guardDisableTitle")}
+                        data-testid="pricing-disable-guard"
+                      >
+                        <p className="text-sm text-amber-200">
+                          {guardCounts.status === "ready"
+                            ? t("guardDisableBody", {
+                                paid: guardCounts.paidCount,
+                                pending: guardCounts.pendingCount,
+                              })
+                            : t("guardDisableLoading")}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="join-button join-button--primary"
+                            disabled={guardCounts.status !== "ready" || saveBusy}
+                            onClick={() => {
+                              setPricingGuard(null);
+                              void performSaveMeta();
+                            }}
+                            data-testid="pricing-guard-confirm"
+                          >
+                            {t("guardConfirm")}
+                          </button>
+                          <button
+                            type="button"
+                            className="join-button"
+                            disabled={saveBusy}
+                            onClick={() => setPricingGuard(null)}
+                            data-testid="pricing-guard-cancel"
+                          >
+                            {t("guardCancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {pricingGuard === "enable-confirm" ? (
+                      <div
+                        className="rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
+                        role="group"
+                        aria-label={t("guardEnableTitle")}
+                        data-testid="pricing-enable-guard"
+                      >
+                        <p className="text-sm text-amber-200">
+                          {t("guardEnableBody", {
+                            pending: pendingState.id === id ? pendingState.value : 0,
+                          })}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="join-button join-button--primary"
+                            disabled={saveBusy}
+                            onClick={() => {
+                              setPricingGuard(null);
+                              void performSaveMeta();
+                            }}
+                            data-testid="pricing-guard-confirm"
+                          >
+                            {t("guardConfirm")}
+                          </button>
+                          <button
+                            type="button"
+                            className="join-button"
+                            disabled={saveBusy}
+                            onClick={() => setPricingGuard(null)}
+                            data-testid="pricing-guard-cancel"
+                          >
+                            {t("guardCancel")}
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
 
                     <button
@@ -1225,10 +1479,41 @@ export function OfferingDetailPage({
                             ? t("transitionConfirmClose", { label: labelsT(label) })
                             : t("transitionConfirmCancel", { label: labelsT(label) })}
                         </p>
+                        {/* U8 披露（R11/R17）：收费活动的取消/结束明示资金影响；免费活动文案不变 */}
+                        {tr === "cancel" &&
+                        offering.pricingEnabled === true &&
+                        guardCounts.status === "ready" ? (
+                          <p
+                            className="mt-1 text-[13px] text-amber-200"
+                            data-testid="cancel-refund-disclosure"
+                          >
+                            {t("guardCancelRefund", {
+                              count: guardCounts.paidCount,
+                              amount: formatAmount(guardCounts.paidCents),
+                            })}
+                          </p>
+                        ) : null}
+                        {tr === "cancel" &&
+                        offering.pricingEnabled === true &&
+                        guardCounts.status !== "ready" ? (
+                          <p
+                            className="mt-1 text-[13px] text-ink-3"
+                            data-testid="cancel-refund-loading"
+                          >
+                            {guardCounts.status === "loading"
+                              ? t("guardDisableLoading")
+                              : t("guardCountsFailed")}
+                          </p>
+                        ) : null}
                         <div className="mt-2 flex gap-2">
                           <button
                             type="button"
-                            disabled={busyTransition !== null}
+                            disabled={
+                              busyTransition !== null ||
+                              (tr === "cancel" &&
+                                offering.pricingEnabled === true &&
+                                guardCounts.status !== "ready")
+                            }
                             onClick={() => void runTransition(tr)}
                             className="rounded-large border border-danger px-3 py-1.5 text-[13px] text-danger disabled:opacity-50"
                           >
@@ -1256,6 +1541,10 @@ export function OfferingDetailPage({
                         onClick={() => {
                           if (tr === "close" || tr === "cancel") {
                             setConfirmingTransition(tr);
+                            // R11：取消收费活动明示自动退款笔数与总金额
+                            if (tr === "cancel" && offering.pricingEnabled === true) {
+                              void loadGuardCounts();
+                            }
                           } else {
                             void runTransition(tr);
                           }
@@ -1324,6 +1613,7 @@ export function OfferingDetailPage({
                       setSaveMessage(
                         e instanceof Error ? e.message : t("saveFail"),
                       );
+
                       return false;
                     }
                   }}
@@ -1339,6 +1629,17 @@ export function OfferingDetailPage({
                 workspaceId={offering.workspaceId ?? ws?.id ?? ""}
               />
             ) : null}
+
+            {/* organizer-payment U7/R5-R7：本活动经营面（四数统计 + 订单 + 行内操作） */}
+            <div className="mt-4">
+              <OfferingPaymentsPanel
+                workspaceId={offering.workspaceId ?? ws?.id ?? ""}
+                offeringId={offering.id}
+                kind={kind}
+                manage={manage}
+                pricingEnabled={offering.pricingEnabled === true}
+              />
+            </div>
           </>
         )}
 
@@ -1383,18 +1684,27 @@ export function OfferingNewPage({
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [venue, setVenue] = useState<VenueInfo>({ ...EMPTY_VENUE });
+  // 收费设置（U6/R1）：默认免费收起（AE4 免费路径零额外操作）；开启时
+  // 至少一档的客户端校验对齐后端 PriceTiersValidation。
+  const [pricingEnabled, setPricingEnabled] = useState(false);
+  const [tierDrafts, setTierDrafts] = useState<TierDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
-
   async function submit() {
     if (!ws) return;
     // venue all-or-none：任一填写则四键须齐全，否则就地拦截不提交（KTD5）
     if (kind === "event" && venueDraftIncomplete(venue)) {
       setError(t("venueIncomplete"));
+      return;
+    }
+    // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
+    const validTiers = tierDrafts.map(fromDraft).filter((x) => x !== null);
+    if (pricingEnabled && validTiers.length === 0) {
+      setError(t("pricingTierRequired"));
       return;
     }
     setBusy(true);
@@ -1409,6 +1719,12 @@ export function OfferingNewPage({
         startsAt: fromLocalInput(startsAt),
         endsAt: fromLocalInput(endsAt),
         ...(kind === "event" ? { venue } : {}),
+        ...(pricingEnabled
+          ? {
+              pricingEnabled,
+              priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
+            }
+          : {}),
       });
       if (res.result) {
         router.push(`${base}/${res.result.id}`);
@@ -1559,6 +1875,31 @@ export function OfferingNewPage({
             {kind === "event" ? (
               <VenueFields value={venue} onChange={setVenue} />
             ) : null}
+
+            {/* 收费设置（U6/R1）：默认免费收起（<details> 折叠），开启后展开档位编辑 */}
+            <details
+              className="rounded-large border border-line bg-soft-2/40 p-4"
+              data-testid="pricing-section"
+            >
+              <summary className="cursor-pointer text-sm font-medium text-ink">
+                {t("pricingSectionTitle")}
+              </summary>
+              <div className="mt-3 grid gap-3">
+                <p className="text-[13px] text-ink-3">{t("pricingSectionHint")}</p>
+                <label className="flex items-center gap-2 text-sm text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={pricingEnabled}
+                    onChange={(e) => setPricingEnabled(e.target.checked)}
+                    data-testid="pricing-toggle"
+                  />
+                  {t("pricingEnable")}
+                </label>
+                {pricingEnabled && (
+                  <TierEditor drafts={tierDrafts} onChange={setTierDrafts} manage />
+                )}
+              </div>
+            </details>
 
             {error ? <p className="text-[13px] text-ink-3">{error}</p> : null}
 

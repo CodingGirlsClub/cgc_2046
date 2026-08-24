@@ -519,7 +519,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
         Cgc2046.Workflows.ResearchInstantiator,
         Cgc2046.Workflows.ResearchRunReaper,
         Cgc2046.Workflows.ShareSchemeInstantiator,
-        Cgc2046.Workers.EventCancelRefundWorker
+        Cgc2046.Workers.OfferingCancelRefundWorker
       ],
       fn module ->
         case Process.whereis(module) do

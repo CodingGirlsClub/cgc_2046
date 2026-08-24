@@ -2687,9 +2687,13 @@ export type OfferingReadinessPayload = {
 export type Order = {
   amountCents: Scalars['Int']['output'];
   cancelReason?: Maybe<Scalars['String']['output']>;
+  /** 关联报名所属 Course（KTD2：订单按课程筛选） */
+  courseId?: Maybe<Scalars['ID']['output']>;
   enrollmentId: Scalars['ID']['output'];
   /** 关联报名当前状态 */
   enrollmentStatus?: Maybe<Scalars['String']['output']>;
+  /** 关联报名所属 Event（KTD2：订单按活动筛选） */
+  eventId?: Maybe<Scalars['ID']['output']>;
   expireAt: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
   /** 报名人邮箱（管理面识别付款人） */
@@ -2698,6 +2702,8 @@ export type Order = {
   provider: Scalars['String']['output'];
   refundedAt?: Maybe<Scalars['DateTime']['output']>;
   status: Scalars['String']['output'];
+  /** 下单时档位快照 id（U8 已售档守卫） */
+  tierId?: Maybe<Scalars['ID']['output']>;
   /** 下单时档位快照名（R3 改价不追溯） */
   tierName?: Maybe<Scalars['String']['output']>;
   tierSnapshot: Scalars['JsonString']['output'];
@@ -2742,6 +2748,22 @@ export type OrderFilterCancelReason = {
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type OrderFilterCourseId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type OrderFilterEnrollmentId = {
   eq?: InputMaybe<Scalars['ID']['input']>;
   greaterThan?: InputMaybe<Scalars['ID']['input']>;
@@ -2772,6 +2794,22 @@ export type OrderFilterEnrollmentStatus = {
   rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type OrderFilterEventId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type OrderFilterExpireAt = {
@@ -2810,9 +2848,13 @@ export type OrderFilterInput = {
   amountCents?: InputMaybe<OrderFilterAmountCents>;
   and?: InputMaybe<Array<OrderFilterInput>>;
   cancelReason?: InputMaybe<OrderFilterCancelReason>;
+  /** 关联报名所属 Course（KTD2：订单按课程筛选） */
+  courseId?: InputMaybe<OrderFilterCourseId>;
   enrollmentId?: InputMaybe<OrderFilterEnrollmentId>;
   /** 关联报名当前状态 */
   enrollmentStatus?: InputMaybe<OrderFilterEnrollmentStatus>;
+  /** 关联报名所属 Event（KTD2：订单按活动筛选） */
+  eventId?: InputMaybe<OrderFilterEventId>;
   expireAt?: InputMaybe<OrderFilterExpireAt>;
   id?: InputMaybe<OrderFilterId>;
   /** 报名人邮箱（管理面识别付款人） */
@@ -2823,6 +2865,8 @@ export type OrderFilterInput = {
   provider?: InputMaybe<OrderFilterProvider>;
   refundedAt?: InputMaybe<OrderFilterRefundedAt>;
   status?: InputMaybe<OrderFilterStatus>;
+  /** 下单时档位快照 id（U8 已售档守卫） */
+  tierId?: InputMaybe<OrderFilterTierId>;
   /** 下单时档位快照名（R3 改价不追溯） */
   tierName?: InputMaybe<OrderFilterTierName>;
   tierSnapshot?: InputMaybe<OrderFilterTierSnapshot>;
@@ -2920,6 +2964,22 @@ export type OrderFilterStatus = {
   rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type OrderFilterTierId = {
+  eq?: InputMaybe<Scalars['ID']['input']>;
+  greaterThan?: InputMaybe<Scalars['ID']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  in?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
+  lessThan?: InputMaybe<Scalars['ID']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
+  notEq?: InputMaybe<Scalars['ID']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type OrderFilterTierName = {
   contains?: InputMaybe<Scalars['String']['input']>;
   eq?: InputMaybe<Scalars['String']['input']>;
@@ -2997,8 +3057,10 @@ export type OrderFilterWorkspaceId = {
 export type OrderSortField =
   | 'AMOUNT_CENTS'
   | 'CANCEL_REASON'
+  | 'COURSE_ID'
   | 'ENROLLMENT_ID'
   | 'ENROLLMENT_STATUS'
+  | 'EVENT_ID'
   | 'EXPIRE_AT'
   | 'ID'
   | 'LEARNER_EMAIL'
@@ -3006,6 +3068,7 @@ export type OrderSortField =
   | 'PROVIDER'
   | 'REFUNDED_AT'
   | 'STATUS'
+  | 'TIER_ID'
   | 'TIER_NAME'
   | 'TIER_SNAPSHOT'
   | 'TRANSACTION_ID'
@@ -3181,6 +3244,14 @@ export type ResendSpeakerInvitationPayload = {
 
 export type ResetPasswordResult = {
   ok: Scalars['Boolean']['output'];
+};
+
+/** The result of the :retry_refund mutation */
+export type RetryRefundResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Order>;
 };
 
 /** The result of the :revoke_invitation mutation */
@@ -3397,6 +3468,8 @@ export type RootMutationType = {
   resendSpeakerInvitation?: Maybe<ResendSpeakerInvitationPayload>;
   /** 使用一次性密码重置 token 设置新密码 */
   resetPassword?: Maybe<ResetPasswordResult>;
+  /** 管理员重试退款：refund_failed → refunding 重入退款链（R17） */
+  retryRefund: RetryRefundResult;
   /** 撤销邀请（邀请人本人或 Owner/Admin 或平台管理员） */
   revokeInvitation: RevokeInvitationResult;
   /** 撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性） */
@@ -3710,6 +3783,11 @@ export type RootMutationTypeResetPasswordArgs = {
 };
 
 
+export type RootMutationTypeRetryRefundArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeRevokeInvitationArgs = {
   id: Scalars['ID']['input'];
 };
@@ -3906,7 +3984,7 @@ export type RootQueryType = {
   workspaceMembers?: Maybe<KeysetPageOfWorkspaceMembership>;
   /** 工作台订单列表（R24 管理面） */
   workspaceOrders?: Maybe<KeysetPageOfOrder>;
-  /** 工作台收款统计（R24）：已收/待收/已退，金额一律分 */
+  /** 工作台收款统计（R24/U4）：已收/待收/已退；可选 eventId/courseId 收敛到单活动口径 */
   workspacePaymentStats: Scalars['JsonString']['output'];
   /** 当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权） */
   workspaceProfile?: Maybe<WorkspaceProfile>;
@@ -4231,6 +4309,8 @@ export type RootQueryTypeWorkspaceOrdersArgs = {
 
 
 export type RootQueryTypeWorkspacePaymentStatsArgs = {
+  courseId?: InputMaybe<Scalars['ID']['input']>;
+  eventId?: InputMaybe<Scalars['ID']['input']>;
   workspaceId: Scalars['ID']['input'];
 };
 

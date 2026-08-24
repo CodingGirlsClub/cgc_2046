@@ -215,6 +215,7 @@ export const GET_EVENT: TypedDocumentNode<
       sponsorshipDeadline
       pricingEnabled
       availablePriceTiers
+      priceTiers
     }
   }
 `;
@@ -248,6 +249,7 @@ export const GET_COURSE: TypedDocumentNode<
       }
       pricingEnabled
       availablePriceTiers
+      priceTiers
     }
   }
 `;

@@ -399,12 +399,12 @@
 ### Order（缴费订单，租户资源）
 
 - **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunding → refunded`（`refunding → refund_failed` 渠道拒绝，`refund_failed → refunding` 经 retry_refund 重入；cancelled / expired 为终态）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；订单过期后渠道侧迟到扣款自动原路退回。
-- **架构位置**：Enrollment（payment_pending 态）与支付渠道之间；回调链 = raw body 验签 → webhook 事件表幂等 → Oban 异步落账 → 回查渠道确认（不信 payload 快照）。退款发起方 = Workspace Owner/Admin（Event closed 后单笔仍可退，cancelled 批量退）；平台 Admin 持退款兜底权（统一商户号的资金主体，ADR-0007）。
+- **组织者查询面（organizer-payment U4/U7）**：Order 计算字段 `event_id` / `course_id`（expr(enrollment.event_id)，Enrollment 无 GraphQL 对象类型的惯用替代）使 `workspaceOrders` 可按活动筛选；`workspacePaymentStats` 收可选 `eventId`/`courseId`（JOIN enrollments 收敛，四数口径同源）；`retryRefund` mutation 暴露给客户端（此前只有后端 action）。活动经营面（详情页 OfferingPaymentsPanel，manage_events 门控）与工作区财务面（收款管理页 + 活动筛选）两层结构：定价与订单随活动走，工作区级只留汇总。孤儿定价配置页（/settings/pricing）已删除，TierEditor 共享组件嵌入创建/编辑表单。
 
 ### 管理员免缴（Fee Waiver）
 
 - **定义**：Owner/Admin 将 `payment_pending` 报名直接置 `confirmed` 的特权操作，跳过支付、不建订单；个案级免费入口（志愿者/组织者参会），审计照走。区别于 `pricing_enabled: false`（整场免费）与 0 元档（不存在，PriceTier 金额下限 1 分）。
-- **架构位置**：Enrollment 特权 action；与审批（confirm_enrollment）同权限面，资金语义不同（免缴 = 平台让渡，无资金动作）。
+- **关闭收费批量转换（organizer-payment U3/R9）**：Event/Course update 检测 `pricing_enabled` true→false 时，同事务对该活动全部 `payment_pending` 报名逐条复用免缴三元组（CAS 转确认 + 作废待付单 + 免缴审计行）+ 补发 completed 信号（`Enrollment.waive_pending_for_offering/4`，经 `Changes.WaivePendingOnPricingDisable` 挂接）。落账竞态 CAS 先到先得（先落账者保持已付）；迟到扣款由落账 worker 按免缴审计行/作废单判定自动原路退回——审计行不可省（KTD4 正确性约束）。
 
 ### Sponsorship（赞助，两级）
 
@@ -442,6 +442,7 @@
 - **stale 语义（表驱动单解释器，D2）**：提醒类类型发送时重查——approval_reminder 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；learning_stagnation 走 WorkflowRun `status == :running`。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
 - **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；NotificationFanout 主体 / NotificationService / Miniprogram.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
 - **架构位置**：横切契约面（root Worker 单文件，AEW `@expiry_specs` 同款先例）；消费方 = NotificationFanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/workers/notification_worker_test.exs`，D7）。
+- **缴费闭环新增键（organizer-payment U5，R12/R13）**：`payment_received`（收款到账 → workspace 管理者逐笔实时感知，data 含 title/tier_name/amount；落账 worker 挂点）与 `payment_expired`（订单超时 → 学员 + 管理者，data 携带 `re_enrollable` 标志——报名截止未过才承诺可重新报名；过期 worker 成功分支挂点，尽力而为不影响释放）。推送尽力而为，可靠兜底 = 经营面面板；模板未配置时 provider_not_configured 静默跳过。
 
 ### 审批期限（Approval Deadline）
 

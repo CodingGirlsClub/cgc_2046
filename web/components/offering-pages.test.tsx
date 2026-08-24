@@ -79,6 +79,9 @@ vi.mock("@/components/sponsorship-management", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/offering-payments-panel", () => ({
+  default: () => null,
+}));
 vi.mock("@/components/speaker-invitation-panel", () => ({
   default: () => null,
 }));
@@ -680,6 +683,8 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
           ...(kind === "course"
             ? { researchRequirements: JSON.stringify({ note: "" }) }
             : { venue: { country: "", province: "", city: "", district: "" } }),
+          pricingEnabled: false,
+          priceTiers: [],
         }),
       );
       // 成功：局部状态更新（标题）＋表单复位（metaDraft → null）
@@ -1008,7 +1013,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
         startsAt: new Date("2026-09-01T09:30").toISOString(),
         endsAt: new Date("2026-09-01T12:00").toISOString(),
         venue: { country: "中国", province: "浙江省", city: "杭州市", district: "西湖区" },
-      }),
+              }),
     );
     expect(routerMocks.push).toHaveBeenCalledWith("/w/demo/events/offering-1");
   });
@@ -1183,6 +1188,8 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         startsAt: new Date(startsInput.value).toISOString(),
         endsAt: new Date("2026-09-01T12:00").toISOString(),
         venue: { country: "中国", province: "浙江省", city: "杭州市", district: "滨江区" },
+        pricingEnabled: false,
+        priceTiers: [],
       }),
     );
     expect(await screen.findByText("已保存")).toBeInTheDocument();
@@ -1245,6 +1252,8 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         startsAt: new Date("2026-09-01T09:30").toISOString(),
         endsAt: null,
         researchRequirements: JSON.stringify({ note: "" }),
+        pricingEnabled: false,
+        priceTiers: [],
       }),
     );
   });
@@ -1271,5 +1280,217 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
       await screen.findByText("结束时间须晚于开始时间。"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/ends_at must be after/)).not.toBeInTheDocument();
+  });
+});
+
+describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
+  it("AE4：免费创建——收费区默认收起、提交 payload 不含定价字段", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({ result: { id: "offering-1" }, errors: [] });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "免费分享会" },
+    });
+    // 收费区收起（<details open=false>，未展开）
+    const section = screen.getByTestId("pricing-section") as HTMLDetailsElement;
+    expect(section.open).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    const call = mocks.createOffering.mock.calls[0];
+    expect(call[0]).toBe("workspace-1");
+    expect(call[2]).not.toHaveProperty("pricingEnabled");
+    expect(call[2]).not.toHaveProperty("priceTiers");
+  });
+
+  it("开启收费零档位 → 就地拦截，不提交", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "收费工作坊" },
+    });
+    fireEvent.click(screen.getByText("收费设置（可选）"));
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(await screen.findByText(/至少一个有效档位/)).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+  });
+
+  it("收费创建：payload 含 pricingEnabled + 序列化档位", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({ result: { id: "offering-1" }, errors: [] });
+
+    render(<OfferingNewPage slug="demo" kind="course" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "收费课程" },
+    });
+    fireEvent.click(screen.getByText("收费设置（可选）"));
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByTestId("tier-add"));
+    const nameInput = document.querySelector('[data-testid^="tier-name-"]') as HTMLInputElement;
+    const amountInput = document.querySelector('[data-testid^="tier-amount-"]') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "标准" } });
+    fireEvent.change(amountInput, { target: { value: "199" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建课程" }));
+
+    await waitFor(() => expect(mocks.createOffering).toHaveBeenCalled());
+    const input = mocks.createOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(input.pricingEnabled).toBe(true);
+    const tiers = input.priceTiers as string[];
+    expect(tiers).toHaveLength(1);
+    const tier = JSON.parse(tiers[0]);
+    expect(tier.name).toBe("标准");
+    expect(tier.amount_cents).toBe(19900);
+  });
+
+  it("KTD9：编辑面加载含过期档的活动 → 全量档位可编辑，保存下发全量", async () => {
+    const tiers = [
+      JSON.stringify({ id: "t1", name: "早鸟", amount_cents: 9900 }),
+      JSON.stringify({
+        id: "t2",
+        name: "往期档",
+        amount_cents: 19900,
+        available_until: "2020-01-01T00:00:00Z",
+      }),
+    ];
+
+    await renderManageDetail("event", offeringRow({ pricingEnabled: true, priceTiers: tiers }));
+
+    // 编辑区开关可见（收费开启）且两档全部进入编辑器（含过期档）
+    expect(screen.getByTestId("pricing-toggle")).toBeChecked();
+    const rows = document.querySelectorAll('[data-testid^="tier-row-"]');
+    expect(rows).toHaveLength(2);
+
+    fireEvent.change(screen.getByLabelText(/标题/), { target: { value: "改名" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    const input = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    const sent = (input.priceTiers as string[]).map((x) => JSON.parse(x).id);
+
+    expect(sent).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前端半）", () => {
+  const ordersPayload = (results: Array<Record<string, unknown>>) => ({
+    data: { workspaceOrders: { results, count: results.length } },
+  });
+
+  /** 注入 apollo client.query mock（offering-pages 的守卫懒查询走真 client） */
+  async function stubClientQuery(payload: unknown) {
+    const mod = await import("@/lib/apollo-client");
+    (mod as { client: { query: unknown } }).client.query = vi
+      .fn()
+      .mockResolvedValue(payload);
+  }
+
+  it("AE1 前端：关闭收费 → 弹窗显示 N/M，取消则不发 mutation", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    await stubClientQuery(
+      ordersPayload([
+        { status: "paid", amountCents: 19900, tierId: "t1" },
+        { status: "paid", amountCents: 19900, tierId: "t1" },
+        { status: "paid", amountCents: 19900, tierId: "t1" },
+        { status: "pending", amountCents: 19900, tierId: null },
+        { status: "pending", amountCents: 19900, tierId: null },
+      ]),
+    );
+
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByTestId("pricing-disable-guard")).toBeInTheDocument();
+    expect(await screen.findByText(/已付 3 人不退款；待付 2 人将免费确认/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-cancel"));
+    expect(screen.queryByTestId("pricing-disable-guard")).not.toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("AE8：开启收费且有待审批 → 披露 M；确认后执行保存", async () => {
+    mocks.fetchPendingCount.mockResolvedValue(2);
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: false,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByTestId("pricing-enable-guard")).toBeInTheDocument();
+    expect(screen.getByText(/约 2 名待审批者通过后需选择档位付款/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-confirm"));
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+  });
+
+  it("AE3：取消收费活动确认弹窗含退款笔数与总金额", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    await stubClientQuery(
+      ordersPayload(
+        Array.from({ length: 5 }, () => ({
+          status: "paid",
+          amountCents: 19900,
+          tierId: "t1",
+        })),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    const disclosure = await screen.findByTestId("cancel-refund-disclosure");
+    expect(disclosure).toHaveTextContent("5");
+    expect(disclosure).toHaveTextContent("995.00");
+  });
+
+  it("AE2 前端：删除已售档触发警告（快照语义文案）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [
+          JSON.stringify({ id: "t-sold", name: "已售档", amount_cents: 19900 }),
+          JSON.stringify({ id: "t-free", name: "未售档", amount_cents: 9900 }),
+        ],
+      }),
+    );
+
+    await stubClientQuery(
+      ordersPayload([{ status: "paid", amountCents: 19900, tierId: "t-sold" }]),
+    );
+
+    // 守卫数据就绪后删除已售档 → 警告出现
+    await waitFor(() => {
+      const removeSold = screen.queryByTestId("tier-remove-t-sold");
+      if (removeSold) fireEvent.click(removeSold);
+    });
+
+    expect(await screen.findByTestId("sold-tier-warning")).toBeInTheDocument();
   });
 });

@@ -140,6 +140,29 @@ defmodule Cgc2046.Payments.Order do
       description("报名人邮箱（管理面识别付款人）")
       calculation(expr(enrollment.user.email))
     end
+
+    # U4 活动维度（KTD2）：enrollment 无 GraphQL 对象类型（generate_object?
+    # false），关系路径筛选不可用——计算字段进 OrderFilterInput 是本仓库的
+    # 惯用替代（同 tierName/enrollmentStatus 先例）。
+    calculate :event_id, :uuid do
+      public?(true)
+      description("关联报名所属 Event（KTD2：订单按活动筛选）")
+      calculation(expr(enrollment.event_id))
+    end
+
+    calculate :course_id, :uuid do
+      public?(true)
+      description("关联报名所属 Course（KTD2：订单按课程筛选）")
+      calculation(expr(enrollment.course_id))
+    end
+
+    # U8（R10）：已售档判定——编辑面比较订单 tier 快照 id 与档位草稿（删除/
+    # 改价已售档时警告；快照语义保证已付订单金额不受影响）。
+    calculate :tier_id, :uuid do
+      public?(true)
+      description("下单时档位快照 id（U8 已售档守卫）")
+      calculation(expr(tier_snapshot["id"]))
+    end
   end
 
   actions do
@@ -385,8 +408,10 @@ defmodule Cgc2046.Payments.Order do
     # 授权经 policy（OwnerOrAdmin 从 ActionInput 提取 workspace_id，
     # MembershipContext 场景5），SQL 只算数不涉权。
     action :workspace_payment_stats, :map do
-      description("工作台收款统计（R24）：已收/待收/已退，金额一律分")
+      description("工作台收款统计（R24/U4）：已收/待收/已退；可选 eventId/courseId 收敛到单活动口径")
       argument(:workspace_id, :uuid, allow_nil?: false, public?: true)
+      argument(:event_id, :uuid, allow_nil?: true, public?: true)
+      argument(:course_id, :uuid, allow_nil?: true, public?: true)
 
       constraints(
         fields: [
@@ -398,17 +423,41 @@ defmodule Cgc2046.Payments.Order do
       )
 
       run(fn input, _ctx ->
+        # U4（KTD3）：可选 offering 维度经 JOIN enrollments 收敛——四数形状与
+        # 工作区口径同源（同一状态集分桶）；授权仍由 workspace_id 参数解析。
+        # 可选参数经 Map.get（GraphQL 未传时 arguments 无该键）。
+        event_id = Map.get(input.arguments, :event_id)
+        course_id = Map.get(input.arguments, :course_id)
+
+        {offering_join, extra_params} =
+          cond do
+            event_id ->
+              {"JOIN enrollments e ON e.id = o.enrollment_id AND e.event_id = $2",
+               [Cgc2046.Repo.uuid!(event_id)]}
+
+            course_id ->
+              {"JOIN enrollments e ON e.id = o.enrollment_id AND e.course_id = $2",
+               [Cgc2046.Repo.uuid!(course_id)]}
+
+            true ->
+              {"", []}
+          end
+
         sql = """
         SELECT
-          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'paid'), 0),
-          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'pending' AND expire_at > NOW()), 0),
-          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'refunded'), 0),
-          COALESCE(SUM(amount_cents) FILTER (WHERE status = 'refund_failed'), 0)
-        FROM payments_orders
-        WHERE workspace_id = $1
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'paid'), 0),
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'pending' AND o.expire_at > NOW()), 0),
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'refunded'), 0),
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'refund_failed'), 0)
+        FROM payments_orders o
+        #{offering_join}
+        WHERE o.workspace_id = $1
         """
 
-        case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(input.arguments.workspace_id)]) do
+        case Cgc2046.Repo.query(
+               sql,
+               [Cgc2046.Repo.uuid!(input.arguments.workspace_id)] ++ extra_params
+             ) do
           {:ok, %{rows: [[collected, pending, refunded, refund_failed]]}} ->
             {:ok,
              %{
@@ -460,8 +509,6 @@ defmodule Cgc2046.Payments.Order do
     end
 
     # 收款统计（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
-    # generic action 的 subject 是 ActionInput——OwnerOrAdmin 经
-    # MembershipContext.resolve_workspace_id 场景5 提取 workspace_id。
     policy action(:workspace_payment_stats) do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(Cgc2046.Policies.PlatformAdmin)
@@ -496,6 +543,7 @@ defmodule Cgc2046.Payments.Order do
       create(:replace_provider, :replace_provider)
       update(:cancel_order, :cancel_pending)
       update(:refund_order, :refund)
+      update(:retry_refund, :retry_refund)
     end
   end
 
