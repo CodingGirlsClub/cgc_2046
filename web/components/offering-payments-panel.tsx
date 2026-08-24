@@ -81,13 +81,17 @@ export default function OfferingPaymentsPanel({
 	async function load(filter: string) {
 		setLoadState("loading");
 		try {
+			// R6 默认视图：非终态 + 已退款；终态（cancelled/expired）经状态筛选可见
+			const defaultStatuses = ["pending", "paid", "refunding", "refund_failed", "refunded"];
 			const { data } = await client.query({
 				query: WORKSPACE_ORDERS,
 				variables: {
 					workspaceId,
 					filter: {
 						[panelKey]: { eq: offeringId },
-						...(filter ? { status: { eq: filter } } : {}),
+						...(filter
+							? { status: { eq: filter } }
+							: { status: { in: defaultStatuses } }),
 					},
 				},
 			});
@@ -112,6 +116,7 @@ export default function OfferingPaymentsPanel({
 		}
 	}
 
+	// 初拉（offering 维度变化时；ref 防串台）
 	const loadedFor = useRef("");
 	useEffect(() => {
 		if (!manage || !pricingEnabled) return;

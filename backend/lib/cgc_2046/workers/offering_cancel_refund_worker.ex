@@ -165,13 +165,9 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
     |> Ash.update(tenant: workspace_id, authorize?: false)
     |> case do
       {:ok, _} -> :ok
+      # log_skip 返回 :skip（计数口径：cancelled 只计成功行）
       {:error, reason} -> log_skip("enrollment", enrollment.id, reason)
     end
-    # log_skip 返回 :skip(计数口径)
-    |> then(fn
-      :ok -> :ok
-      _ -> :skip
-    end)
   end
 
   # confirmed 报名的 paid 单逐笔退款；无 paid 单（免缴 confirmed）自然跳过。
@@ -201,5 +197,7 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
 
   defp log_skip(kind, id, reason) do
     Logger.warning("offering cancel refund: #{kind} #{id} skipped: #{inspect(reason)}")
+    # 计数口径：跳过（cancelled/refunded 只计成功行，审计 metadata 不虚高）
+    :skip
   end
 end
