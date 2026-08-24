@@ -43,10 +43,11 @@ export interface Order {
   cancelReason: string | null;
   /** 管理列表计算字段（R24） */
   tierName?: string | null;
+  /** 下单时档位快照 id（U8 已售档守卫，R10） */
+  tierId?: string | null;
   enrollmentStatus?: string | null;
   learnerEmail?: string | null;
 }
-
 export interface CreateOrderPayload {
   result: Order | null;
   errors: { message: string; code?: string | null }[];
@@ -213,6 +214,7 @@ export const WORKSPACE_ORDERS: TypedDocumentNode<
         refundedAt
         cancelReason
         tierName
+        tierId
         enrollmentStatus
         learnerEmail
       }

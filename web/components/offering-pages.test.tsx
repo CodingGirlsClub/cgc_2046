@@ -1373,6 +1373,124 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
     const input = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
     const sent = (input.priceTiers as string[]).map((x) => JSON.parse(x).id);
+
     expect(sent).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前端半）", () => {
+  const ordersPayload = (results: Array<Record<string, unknown>>) => ({
+    data: { workspaceOrders: { results, count: results.length } },
+  });
+
+  /** 注入 apollo client.query mock（offering-pages 的守卫懒查询走真 client） */
+  async function stubClientQuery(payload: unknown) {
+    const mod = await import("@/lib/apollo-client");
+    (mod as { client: { query: unknown } }).client.query = vi
+      .fn()
+      .mockResolvedValue(payload);
+  }
+
+  it("AE1 前端：关闭收费 → 弹窗显示 N/M，取消则不发 mutation", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    await stubClientQuery(
+      ordersPayload([
+        { status: "paid", amountCents: 19900, tierId: "t1" },
+        { status: "paid", amountCents: 19900, tierId: "t1" },
+        { status: "paid", amountCents: 19900, tierId: "t1" },
+        { status: "pending", amountCents: 19900, tierId: null },
+        { status: "pending", amountCents: 19900, tierId: null },
+      ]),
+    );
+
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByTestId("pricing-disable-guard")).toBeInTheDocument();
+    expect(await screen.findByText(/已付 3 人不退款；待付 2 人将免费确认/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-cancel"));
+    expect(screen.queryByTestId("pricing-disable-guard")).not.toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("AE8：开启收费且有待审批 → 披露 M；确认后执行保存", async () => {
+    mocks.fetchPendingCount.mockResolvedValue(2);
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: false,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByTestId("pricing-enable-guard")).toBeInTheDocument();
+    expect(screen.getByText(/约 2 名待审批者通过后需选择档位付款/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-confirm"));
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+  });
+
+  it("AE3：取消收费活动确认弹窗含退款笔数与总金额", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    await stubClientQuery(
+      ordersPayload(
+        Array.from({ length: 5 }, () => ({
+          status: "paid",
+          amountCents: 19900,
+          tierId: "t1",
+        })),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    const disclosure = await screen.findByTestId("cancel-refund-disclosure");
+    expect(disclosure).toHaveTextContent("5");
+    expect(disclosure).toHaveTextContent("995.00");
+  });
+
+  it("AE2 前端：删除已售档触发警告（快照语义文案）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [
+          JSON.stringify({ id: "t-sold", name: "已售档", amount_cents: 19900 }),
+          JSON.stringify({ id: "t-free", name: "未售档", amount_cents: 9900 }),
+        ],
+      }),
+    );
+
+    await stubClientQuery(
+      ordersPayload([{ status: "paid", amountCents: 19900, tierId: "t-sold" }]),
+    );
+
+    // 守卫数据就绪后删除已售档 → 警告出现
+    await waitFor(() => {
+      const removeSold = screen.queryByTestId("tier-remove-t-sold");
+      if (removeSold) fireEvent.click(removeSold);
+    });
+
+    expect(await screen.findByTestId("sold-tier-warning")).toBeInTheDocument();
   });
 });
