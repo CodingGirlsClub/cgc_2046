@@ -34,6 +34,7 @@ import {
 	type PaymentStats,
 } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
+import { fetchWorkspaceOfferings } from "@/lib/events";
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
 	pending: "border-amber-400/40 text-amber-300",
@@ -191,6 +192,11 @@ export default function PaymentsManagement({
 		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
 	];
 	const [statusFilter, setStatusFilter] = useState("");
+	// U9/R8：活动筛选（财务汇总层——订单列表按活动收敛，统计卡保持工作区口径）
+	const [offerings, setOfferings] = useState<
+		Array<{ id: string; title: string; kind: "event" | "course" }>
+	>([]);
+	const [offeringFilter, setOfferingFilter] = useState("");
 	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);
 	const [statsError, setStatsError] = useState(false);
@@ -199,14 +205,24 @@ export default function PaymentsManagement({
 	const [refundTarget, setRefundTarget] = useState<Order | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 
-	async function load(filter: string) {
+	async function load(filter: string, offeringId: string = offeringFilter) {
 		setLoadState("loading");
 		try {
+			const selected = offerings.find((o) => o.id === offeringId);
 			const { data } = await client.query({
 				query: WORKSPACE_ORDERS,
 				variables: {
 					workspaceId,
-					filter: filter ? { status: { eq: filter } } : null,
+					filter: {
+						...(filter ? { status: { eq: filter } } : {}),
+						...(selected
+							? {
+									[selected.kind === "event" ? "eventId" : "courseId"]: {
+										eq: selected.id,
+									},
+								}
+							: {}),
+					},
 				},
 			});
 			setOrders(data?.workspaceOrders?.results ?? []);
@@ -230,12 +246,20 @@ export default function PaymentsManagement({
 		}
 	}
 
-	// 初拉（workspaceId 变化时；ref 防串台）
 	const loadedFor = useRef("");
 	useEffect(() => {
 		if (!workspaceId || loadedFor.current === workspaceId) return;
 		loadedFor.current = workspaceId;
-		void load(statusFilter);
+		void Promise.all([
+			fetchWorkspaceOfferings(workspaceId, "event"),
+			fetchWorkspaceOfferings(workspaceId, "course"),
+		]).then(([events, courses]) => {
+			setOfferings([
+				...events.map((e) => ({ id: e.id, title: e.title, kind: "event" as const })),
+				...courses.map((c) => ({ id: c.id, title: c.title, kind: "course" as const })),
+			]);
+			void load(statusFilter, "");
+		});
 		void loadStats();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [workspaceId]);
@@ -309,24 +333,45 @@ export default function PaymentsManagement({
 			<div className="rounded-large border border-line bg-card p-4">
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<h2 className="text-sm font-medium text-ink">{t("listTitle")}</h2>
-					<label className="flex items-center gap-2 text-[13px] text-ink-3">
-						{t("filterLabel")}
-						<select
-							value={statusFilter}
-							onChange={(e) => {
-								setStatusFilter(e.target.value);
-								void load(e.target.value);
-							}}
-							className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
-							data-testid="status-filter"
-						>
-							{statusFilters.map((f) => (
-								<option key={f.value} value={f.value}>
-									{f.label}
-								</option>
-							))}
-						</select>
-					</label>
+					<div className="flex flex-wrap items-center gap-3">
+						<label className="flex items-center gap-2 text-[13px] text-ink-3">
+							{t("filterOffering")}
+							<select
+								value={offeringFilter}
+								onChange={(e) => {
+									setOfferingFilter(e.target.value);
+									void load(statusFilter, e.target.value);
+								}}
+								className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+								data-testid="offering-filter"
+							>
+								<option value="">{t("filterOfferingAll")}</option>
+								{offerings.map((o) => (
+									<option key={o.id} value={o.id}>
+										{o.title}
+									</option>
+								))}
+							</select>
+						</label>
+						<label className="flex items-center gap-2 text-[13px] text-ink-3">
+							{t("filterLabel")}
+							<select
+								value={statusFilter}
+								onChange={(e) => {
+									setStatusFilter(e.target.value);
+									void load(e.target.value);
+								}}
+								className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+								data-testid="status-filter"
+							>
+								{statusFilters.map((f) => (
+									<option key={f.value} value={f.value}>
+										{f.label}
+									</option>
+								))}
+							</select>
+						</label>
+					</div>
 				</div>
 
 				{actionError ? (

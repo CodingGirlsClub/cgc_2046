@@ -26,7 +26,6 @@ export type NavSection =
 	| "settings-requests"
 	| "settings-invitations"
 	| "settings-sponsorship"
-	| "settings-pricing"
 	| "settings-payments"
 	| "settings-account-profile"
 	| "settings-account-preferences"
@@ -119,9 +118,9 @@ export const SETTINGS_NAV: NavDestination[] = [
 		key: "sponsorship",
 		labelKey: "sponsorship",
 		href: (s) => `/w/${s}/settings/sponsorship`,
-		// 2026-08-22 决策：管理台对普通成员无意义（后端对其返回空列表），
-		// 与 pricing 同源 = manage_events（页面内 manage 标志一致）
-		ability: "manage_events",
+	// 2026-08-22 决策：管理台对普通成员无意义（后端对其返回空列表）；
+	// 门控同活动管理 = manage_events（页面内 manage 标志一致）
+	ability: "manage_events",
 		group: "workspace",
 		active: "settings-sponsorship",
 		icon: "community",
