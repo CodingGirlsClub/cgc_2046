@@ -6,6 +6,7 @@ import { copyText } from "@/lib/clipboard";
 import {
 	createSpeakerInvitation,
 	fetchSpeakerInvitations,
+	resendSpeakerInvitation,
 } from "@/lib/speaker-invitations";
 import {
 	SPEAKER_INVITATION_STATUS_LABEL,
@@ -84,8 +85,11 @@ export default function SpeakerInvitationPanel({
 		id: string;
 		status: "loading" | "ok" | "error";
 	}>({ id: "", status: "loading" });
-	// 明文 token 仅本次会话持有（创建响应一次性返回；刷新后不可重建）
+	// 明文 token 仅本次会话持有（创建/重发响应一次性返回；刷新后不可重建）
 	const [tokenByInvitation, setTokenByInvitation] = useState<Record<string, string>>({});
+	// 重发防误触（R10）：请求 in-flight disabled + 成功后 30s per-row 冷却
+	const [resendingId, setResendingId] = useState<string | null>(null);
+	const [cooldown, setCooldown] = useState<Record<string, boolean>>({});
 
 	useEffect(() => {
 		if (!eventId) return;
@@ -147,6 +151,39 @@ export default function SpeakerInvitationPanel({
 			setBusy(false);
 		}
 	}
+
+	async function resend(item: SpeakerInvitationItem) {
+		if (resendingId || cooldown[item.id]) return;
+		setResendingId(item.id);
+		setMessage(null);
+		try {
+			const res = await resendSpeakerInvitation(item.id);
+
+			if (res.result && res.plainToken) {
+				// 旧链接已作废：行内替换为新记录 + 新 token 立即可复制（R8）
+				setItems((prev) =>
+					prev.map((it) => (it.id === item.id ? (res.result as SpeakerInvitationItem) : it)),
+				);
+				setTokenByInvitation((prev) => ({ ...prev, [item.id]: res.plainToken! }));
+				setMessage(t("resendSuccess"));
+				setCooldown((prev) => ({ ...prev, [item.id]: true }));
+				window.setTimeout(() => {
+					setCooldown((prev) => {
+						const next = { ...prev };
+						delete next[item.id];
+						return next;
+					});
+				}, 30_000);
+			} else {
+				setMessage(res.errors[0]?.message ?? t("resendFailed"));
+			}
+		} catch (e: unknown) {
+			setMessage(e instanceof Error ? e.message : t("resendFailed"));
+		} finally {
+			setResendingId(null);
+		}
+	}
+
 
 	const stale = listState.id !== eventId;
 	const loadError = stale ? false : listState.status === "error";
@@ -263,6 +300,20 @@ export default function SpeakerInvitationPanel({
 									<SpeakerStatusTag status={item.status} />
 									{token ? (
 										<CopyInviteLink token={token} href={inviteHref(token)} />
+									) : null}
+									{item.status === "invited" ? (
+										<button
+											type="button"
+											disabled={resendingId !== null || Boolean(cooldown[item.id])}
+											onClick={() => void resend(item)}
+											className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[12px] text-ink-3 hover:border-line-strong disabled:opacity-50"
+										>
+											{cooldown[item.id]
+												? t("resent")
+												: item.speakerEmail
+													? t("resend")
+													: t("regenerate")}
+										</button>
 									) : null}
 								</li>
 							);

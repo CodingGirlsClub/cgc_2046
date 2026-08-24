@@ -1415,7 +1415,12 @@
     "noTopic": "No topic set",
     "inviteLink": "Invite link",
     "copied": "Copied",
-    "copy": "Copy"
+    "copy": "Copy",
+    "resend": "Resend",
+    "regenerate": "Regenerate link",
+    "resent": "Sent",
+    "resendSuccess": "Invite link regenerated (old link revoked); if an email was provided, the invitation email has been sent",
+    "resendFailed": "Resend failed"
   },
   "admin": {
     "loadFailed": "Failed to load. Please try again later.",

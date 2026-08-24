@@ -52,6 +52,12 @@ export type CreateSpeakerInvitationResult = {
 	errors: MutationError[];
 };
 
+export type ResendSpeakerInvitationResult = {
+	result: SpeakerInvitationItem | null;
+	plainToken: string | null;
+	errors: MutationError[];
+};
+
 export type SpeakerInvitationActionResult = {
 	result: SpeakerInvitationItem | null;
 	errors: MutationError[];
@@ -197,6 +203,35 @@ export const DECLINE_SPEAKER_INVITATION: TypedDocumentNode<
 				id
 				status
 			}
+			errors {
+				message
+				code
+			}
+		}
+	}
+`;
+export const RESEND_SPEAKER_INVITATION: TypedDocumentNode<
+	{ resendSpeakerInvitation: ResendSpeakerInvitationResult },
+	{ id: string }
+> = gql`
+	mutation ResendSpeakerInvitation($id: ID!) {
+		resendSpeakerInvitation(id: $id) {
+			result {
+				id
+				eventId
+				workspaceId
+				speakerName
+				speakerEmail
+				topic
+				scheduledAt
+				note
+				status
+				acceptedAt
+				declinedAt
+				completedAt
+				expiresAt
+			}
+			plainToken
 			errors {
 				message
 				code

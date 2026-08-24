@@ -1415,7 +1415,12 @@
     "noTopic": "未填主题",
     "inviteLink": "邀请链接",
     "copied": "已复制",
-    "copy": "复制"
+    "copy": "复制",
+    "resend": "重发",
+    "regenerate": "重新生成链接",
+    "resent": "已重发",
+    "resendSuccess": "已重新生成邀请链接（旧链接已作废）；若填写了邮箱，邀请邮件已发出",
+    "resendFailed": "重发失败"
   },
   "admin": {
     "loadFailed": "加载失败，请稍后重试。",
