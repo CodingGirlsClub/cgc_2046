@@ -1363,7 +1363,9 @@
     "refundCancel": "取消",
     "refundFailed": "退款失败，请重试",
     "waiveFailed": "免缴失败，请重试",
-    "retryFailed": "重试失败，请重试"
+    "retryFailed": "重试失败，请重试",
+    "loadMore": "加载更多",
+    "loadingMore": "加载中…"
   },
   "pricing": {
     "noTiersPlain": "暂无档位，点击下方添加。",

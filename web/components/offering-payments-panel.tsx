@@ -45,6 +45,9 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 	expired: "bg-soft-2 text-ink-3",
 };
 
+/** U7 keyset 分页页大小（plan Outstanding Question：实施定夺，20/页） */
+const PAGE_SIZE = 20;
+
 function statusBadgeClass(status: string): string {
 	return STATUS_BADGE_CLASS[status] ?? "bg-soft-2 text-ink-3";
 }
@@ -74,10 +77,13 @@ export default function OfferingPaymentsPanel({
 	const [busy, setBusy] = useState(false);
 	const [refundTarget, setRefundTarget] = useState<Order | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
+	// U7 keyset 分页：after = 上一页 endKeyset；满页即可能有下一页
+	const [endKeyset, setEndKeyset] = useState<string | null>(null);
+	const [hasMore, setHasMore] = useState(false);
+	const [loadingMore, setLoadingMore] = useState(false);
 
 	// 免费态收敛一行（AE4）：不拉订单/统计查询
 	const panelKey = kind === "event" ? "eventId" : "courseId";
-
 	async function load(filter: string) {
 		setLoadState("loading");
 		try {
@@ -93,12 +99,46 @@ export default function OfferingPaymentsPanel({
 							? { status: { eq: filter } }
 							: { status: { in: defaultStatuses } }),
 					},
+					first: PAGE_SIZE,
 				},
 			});
-			setOrders(data?.workspaceOrders?.results ?? []);
+			const page = data?.workspaceOrders;
+			setOrders(page?.results ?? []);
+			setEndKeyset(page?.endKeyset ?? null);
+			setHasMore((page?.results ?? []).length === PAGE_SIZE);
 			setLoadState("ok");
 		} catch {
 			setLoadState("error");
+		}
+	}
+
+	async function loadMore(filter: string) {
+		if (loadingMore || !endKeyset) return;
+		setLoadingMore(true);
+		try {
+			const defaultStatuses = ["pending", "paid", "refunding", "refund_failed", "refunded"];
+			const { data } = await client.query({
+				query: WORKSPACE_ORDERS,
+				variables: {
+					workspaceId,
+					filter: {
+						[panelKey]: { eq: offeringId },
+						...(filter
+							? { status: { eq: filter } }
+							: { status: { in: defaultStatuses } }),
+					},
+					first: PAGE_SIZE,
+					after: endKeyset,
+				},
+			});
+			const page = data?.workspaceOrders;
+			setOrders((prev) => [...prev, ...(page?.results ?? [])]);
+			setEndKeyset(page?.endKeyset ?? null);
+			setHasMore((page?.results ?? []).length === PAGE_SIZE);
+		} catch {
+			setHasMore(false);
+		} finally {
+			setLoadingMore(false);
 		}
 	}
 
@@ -323,7 +363,11 @@ export default function OfferingPaymentsPanel({
 							</thead>
 							<tbody>
 								{orders.map((order) => (
-									<tr key={order.id} className="border-t border-line">
+									<tr
+										key={order.id}
+										className="border-t border-line"
+										data-testid={`order-row-${order.id}`}
+									>
 										<td className="px-3 py-2 text-ink">{order.learnerEmail ?? "—"}</td>
 										<td className="px-3 py-2 text-ink-2">{order.tierName ?? "—"}</td>
 										<td className="px-3 py-2 text-ink">¥{formatAmount(order.amountCents)}</td>
@@ -376,10 +420,23 @@ export default function OfferingPaymentsPanel({
 										</td>
 									</tr>
 								))}
-							</tbody>
-						</table>
-					</div>
+						</tbody>
+					</table>
+				</div>
 				)}
+				{hasMore && loadState === "ok" ? (
+					<div className="mt-3 flex justify-center">
+						<button
+							type="button"
+							className="rounded-large border border-line px-4 py-2 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
+							disabled={loadingMore}
+							onClick={() => void loadMore(statusFilter)}
+							data-testid="offering-load-more"
+						>
+							{loadingMore ? t("loadingMore") : t("loadMore")}
+						</button>
+					</div>
+				) : null}
 			</div>
 		</section>
 	);

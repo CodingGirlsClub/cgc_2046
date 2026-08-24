@@ -188,7 +188,14 @@ export interface AdminOrderFilter {
 }
 
 export const WORKSPACE_ORDERS: TypedDocumentNode<
-  { workspaceOrders: { results: Order[]; count: number | null } },
+  {
+    workspaceOrders: {
+      results: Order[];
+      count: number | null;
+      startKeyset: string | null;
+      endKeyset: string | null;
+    };
+  },
   AdminOrderFilter & {
     filter?:
       | {
@@ -197,10 +204,23 @@ export const WORKSPACE_ORDERS: TypedDocumentNode<
           courseId?: { eq?: string };
         }
       | null;
+    /** U7 keyset 分页（页大小 20；after = 上一页 endKeyset） */
+    first?: number;
+    after?: string | null;
   }
 > = gql`
-  query WorkspaceOrders($workspaceId: ID!, $filter: OrderFilterInput) {
-    workspaceOrders(workspaceId: $workspaceId, filter: $filter) {
+  query WorkspaceOrders(
+    $workspaceId: ID!
+    $filter: OrderFilterInput
+    $first: Int
+    $after: String
+  ) {
+    workspaceOrders(
+      workspaceId: $workspaceId
+      filter: $filter
+      first: $first
+      after: $after
+    ) {
       count
       results {
         id
@@ -218,6 +238,8 @@ export const WORKSPACE_ORDERS: TypedDocumentNode<
         enrollmentStatus
         learnerEmail
       }
+      startKeyset
+      endKeyset
     }
   }
 `;
