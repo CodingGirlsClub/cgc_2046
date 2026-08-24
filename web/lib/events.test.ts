@@ -107,6 +107,54 @@ describe("createOffering input 组装（U5/R14：时间落键 + venue 组 JsonSt
 	});
 });
 
+describe("定价字段透传与回读（review F1/F15：create 落键 + update result 选列）", () => {
+	it("create：pricingEnabled 开启时 input 落 pricingEnabled + priceTiers；免费路径两键皆不下发", async () => {
+		mutateMock.mockImplementation((opts) => {
+			const variables = opts?.variables as { input: Record<string, unknown> };
+			expect(variables.input.pricingEnabled).toBe(true);
+			expect(variables.input.priceTiers).toEqual([
+				JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 }),
+			]);
+			return Promise.resolve(ok("createEvent"));
+		});
+
+		await createOffering("ws-1", "event", {
+			title: "收费工作坊",
+			enrollmentPolicy: "open",
+			visibility: "public",
+			pricingEnabled: true,
+			priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+		});
+
+		// 免费路径：未传定价 → input 无 pricingEnabled/priceTiers 键（AE4 零额外字段）
+		mutateMock.mockImplementation(() => Promise.resolve(ok("createEvent")));
+		await createOffering("ws-1", "event", {
+			title: "免费工作坊",
+			enrollmentPolicy: "open",
+			visibility: "public",
+		});
+
+		const freeInput = mutateMock.mock.calls[1][0].variables as Record<string, unknown>;
+		expect(freeInput.input).not.toHaveProperty("pricingEnabled");
+		expect(freeInput.input).not.toHaveProperty("priceTiers");
+	});
+
+	it("F15：UPDATE_EVENT/UPDATE_COURSE 的 result selection 含 pricingEnabled/priceTiers（mutation 文本断言，防 UI 回退旧态）", () => {
+		for (const doc of [UPDATE_EVENT, UPDATE_COURSE]) {
+			const text = (doc as unknown as { loc: { source: { body: string } } }).loc.source.body;
+			expect(text).toContain("pricingEnabled");
+			expect(text).toContain("priceTiers");
+		}
+
+		// CREATE 同理（详情页跳转前已知收费态）
+		for (const doc of [CREATE_EVENT, CREATE_COURSE]) {
+			const text = (doc as unknown as { loc: { source: { body: string } } }).loc.source.body;
+			expect(text).toContain("pricingEnabled");
+			expect(text).toContain("priceTiers");
+		}
+	});
+});
+
 describe("updateOffering input 组装（部分更新语义：未传不落键）", () => {
 	it("未传 startsAt/endsAt/venue → 不落键（保留既有值），其余键原样透传", async () => {
 		mutateMock.mockImplementation(({ mutation, variables }) => {
