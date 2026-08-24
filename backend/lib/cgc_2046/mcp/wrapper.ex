@@ -7,7 +7,9 @@ defmodule Cgc2046.Mcp.Wrapper do
   1. 从 frame.assigns 取 actor（McpAuthPlug 注入 `:current_user`）
   2. 校验必填 `workspace_id`（D12 无状态作用域；`meta: %{workspace_id: :optional}` 的工具豁免）
   3. membership 鉴权：非成员直接 Forbidden（不经业务 action，快速拒绝）；
-     `meta: %{membership: :deferred}` 的工具由工具层授权判定替代
+     `meta: %{membership: :deferred}` 的工具由工具层授权判定替代；
+     `meta: %{membership: :public}` 的工具（公开浏览族，KTD3）跳过 membership
+     校验——任何持有效连接 token 的登录用户可用，匿名姿态读在工具层（KTD2）
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
   5. 落 ToolCallLog 审计（ok / error / forbidden；带 client_name / session_id 归因维度
      （#228），取不到时落 nil；失败不阻塞响应，记 Logger）
@@ -128,19 +130,42 @@ defmodule Cgc2046.Mcp.Wrapper do
     end
   end
 
-  defp check_membership(tool_name, actor, workspace_id) do
+  # 门控家族判定（gate test 可观察面，KTD3）：map 模式是子集匹配，
+  # `%{workspace_id: :optional, membership: :public}` 同时命中 :public 与
+  # :optional 两个模式——`:public` 子句必须置于 `:optional` 之前，追加在后即为
+  # 永不命中的死子句。分支顺序 = 语义，由 wrapper_gate_test 钉死。
+  @doc false
+  @spec gate_family(String.t()) :: :public | :optional | :deferred | :member_only
+  def gate_family(tool_name) do
     case meta_for(tool_name) do
+      # 公开浏览工具族：任何持连接 token 的登录用户可读公开面（KTD2/KTD3）
+      %{membership: :public} -> :public
       # 确认流承载工具：鉴权在 Confirmation 内做（pending 归属校验即授权）
-      %{workspace_id: :optional} ->
+      %{workspace_id: :optional} -> :optional
+      # 成员门槛由工具层授权判定替代（save_step_output 学员 / 课程三学员侧工具）
+      %{membership: :deferred} -> :deferred
+      # 默认 fail-closed：member-only + workspace_id 必填
+      _ -> :member_only
+    end
+  end
+
+  defp check_membership(tool_name, actor, workspace_id) do
+    case gate_family(tool_name) do
+      # 公开浏览工具族：跳过 membership 校验（匿名姿态读在工具层，KTD2）
+      :public ->
+        :ok
+
+      # 确认流承载工具：鉴权在 Confirmation 内做（pending 归属校验即授权）
+      :optional ->
         :ok
 
       # 成员门槛由工具层授权判定替代（save_step_output 学员 / 课程三学员侧工具；
       # 见各工具 moduledoc——工具内判定 + 资源层 policy 双重门禁）
-      %{membership: :deferred} ->
+      :deferred ->
         :ok
 
       # 默认 fail-closed：member-only + workspace_id 必填
-      _ ->
+      :member_only ->
         case MembershipContext.membership_of(actor, workspace_id) do
           nil -> {:error, "forbidden: not a member of workspace #{workspace_id}"}
           _membership -> :ok

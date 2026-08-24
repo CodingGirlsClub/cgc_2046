@@ -270,8 +270,7 @@
       "errorHint": "Couldn't load right now.",
       "errorAction": "Go to the list instead ›",
       "emptyHint": "No open enrollments right now.",
-      "emptyAction": "Browse the list ›",
-      "deadline": "Closes {deadline}"
+      "emptyAction": "Browse the list ›"
     },
     "paper": {
       "venue": "With Carnegie Mellon University researchers · ICSE CHASE 2021 · IEEE"
@@ -394,7 +393,8 @@
     "publicDesc": "{label} open to everyone; join a workspace for more internal ones.",
     "viewOther": "View {label} ›",
     "empty": "No public {label} right now.",
-    "deadline": "Closes {deadline}"
+    "deadline": "Closes {deadline}",
+    "startsAt": "Starts {time}"
   },
   "onboarding": {
     "entryTitle": "Agent integration",
@@ -446,9 +446,14 @@
     "breadcrumbHome": "Workspaces",
     "detailFallback": "Details",
     "notAccessibleTitle": "This {label} is not accessible",
-    "notAccessibleDesc": "It is only visible inside a workspace, or it has ended. Sign in and access it from your workspace.",
+    "notAccessibleDesc": "It has ended or is not publicly accessible.",
     "policyLabel": "Enrollment: {policy}",
     "deadlineLabel": "Enrollment closes: {deadline}",
+    "startsLabel": "Starts: {time}",
+    "endsLabel": "Ends: {time}",
+    "venueLabel": "Venue: {venue}",
+    "pricingTitle": "Pricing tiers",
+    "fullHint": "This offering is full and no longer accepts new enrollments.",
     "loginToEnroll": "Sign in to enroll",
     "enrollFreeHint": "Enrollment is free. Sign in or create an account to submit (J-Visitor → J-Learner).",
     "enrolledConfirm": "✓ Enrolled",
@@ -478,7 +483,10 @@
     "pickTierFirst": "Please choose a pricing tier first",
     "slotReservedMsg": "Slot reserved — complete payment within the time limit",
     "pendingMsg": "Application submitted, awaiting approval",
-    "enrolledMsg": "Enrollment successful"
+    "enrolledMsg": "Enrollment successful",
+    "reconciling": "Syncing…",
+    "reconcileFailed": "Couldn't re-sync the latest status. Submitting stays locked until it succeeds.",
+    "resync": "Re-sync"
   },
   "apply": {
     "loading": "Loading…",
@@ -1012,6 +1020,9 @@
     "breadcrumbAria": "Breadcrumb",
     "loadingAria": "Loading",
     "noDeadline": "No deadline",
+    "retry": "Retry",
+    "timeTbd": "Time to be determined",
+    "venueTbd": "Venue to be determined",
     "redirectingToDefaultProfile": "Redirecting to your default workspace profile…"
   },
   "participations": {
@@ -1200,6 +1211,15 @@
     "fieldTitle": "Title",
     "capacityHint": "Capacity limit (blank = unlimited)",
     "deadlineHint": "Enrollment closes (blank = no deadline)",
+    "startsAtHint": "Start time (blank = TBD)",
+    "endsAtHint": "End time (blank = TBD; must be after the start time)",
+    "venueSection": "Venue (leave all four blank = online or TBD)",
+    "venueCountry": "Country",
+    "venueProvince": "Province",
+    "venueCity": "City",
+    "venueDistrict": "District",
+    "venueIncomplete": "Venue requires all four fields (country, province, city, district), or leave all blank.",
+    "scheduleOrderError": "End time must be after the start time.",
     "researchNeed": "Research brief (free text; input for the research Agent to draft issue cards)",
     "researchPlaceholder": "Target learners, hours, topics to cover…",
     "savingMeta": "Saving…",
@@ -1597,6 +1617,11 @@
       "open": "Open enrollment",
       "request": "By request",
       "invite_only": "Invite only"
+    },
+    "enrollmentBadge": {
+      "enrolling": "Enrolling",
+      "starting_soon": "Starting soon",
+      "full": "Full"
     },
     "offeringKind": {
       "event": "Event",

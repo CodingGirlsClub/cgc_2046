@@ -1,4 +1,5 @@
 import type { OfferingKind, PublicOfferingItem } from "./graphql/events";
+import type { VenueInfo } from "./graphql/events";
 import {
 	CREATE_ENROLLMENT,
 	PUBLIC_GET_COURSE,
@@ -15,14 +16,16 @@ import { client } from "./apollo-client";
  *
  * - fetchPublicOfferings：匿名读 open+public 全部条目（发现页）；
  * - fetchPublicOffering：匿名按 id 读（宿主页；workspace/非 open 表现 NotFound）；
- * - submitEnrollment：登录后报名（后端 policy 校验 user_id == actor）。
+ * - submitEnrollment：登录后报名（后端 policy 校验 user_id == actor）；
+ * - 公开读一律 network-only（F4）：badge 由后端逐次派生，cache-first 会让
+ *   报名失败后的重拉吃缓存旧 badge（U4 重派生失效）；公开面量级小，代价可忽略。
  */
 
 export async function fetchPublicOfferings(
 	kind: OfferingKind,
 ): Promise<PublicOfferingItem[]> {
 	const query = kind === "event" ? PUBLIC_LIST_EVENTS : PUBLIC_LIST_COURSES;
-	const { data } = await client.query({ query });
+	const { data } = await client.query({ query, fetchPolicy: "network-only" });
 
 	const result = data as unknown as Record<
 		"listEvents" | "listCourses",
@@ -37,7 +40,11 @@ export async function fetchPublicOffering(
 	kind: OfferingKind,
 ): Promise<PublicOfferingItem | null> {
 	const query = kind === "event" ? PUBLIC_GET_EVENT : PUBLIC_GET_COURSE;
-	const { data } = await client.query({ query, variables: { slug } });
+	const { data } = await client.query({
+		query,
+		variables: { slug },
+		fetchPolicy: "network-only",
+	});
 
 	const result = data as unknown as Record<
 		"getEventBySlug" | "getCourseBySlug",
@@ -108,4 +115,43 @@ export function parseSponsorshipTiers(
 			return [];
 		}
 	});
+}
+
+/**
+ * venue JsonString → VenueInfo（R3；恰四键 country/province/city/district）。
+ * 解析失败/结构非法 → null，展示层兜底「地点待定」（不出现空白/报错）。
+ * 仅 event 有 venue 槽；course 无位置概念，查询本身不取 venue。
+ */
+export function parseVenue(raw: string | null | undefined): VenueInfo | null {
+	if (!raw) return null;
+	try {
+		const v: unknown = JSON.parse(raw);
+		if (typeof v !== "object" || v === null) return null;
+		const r = v as Record<string, unknown>;
+		if (
+			typeof r.country === "string" &&
+			typeof r.province === "string" &&
+			typeof r.city === "string" &&
+			typeof r.district === "string"
+		) {
+			return {
+				country: r.country,
+				province: r.province,
+				city: r.city,
+				district: r.district,
+			};
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/** VenueInfo → 单行展示（空段跳过；全空/null → null，由展示层兜底「地点待定」，R3） */
+export function formatVenue(venue: VenueInfo | null): string | null {
+	if (!venue) return null;
+	const parts = [venue.country, venue.province, venue.city, venue.district].filter(
+		(s) => s.trim() !== "",
+	);
+	return parts.length > 0 ? parts.join(" ") : null;
 }

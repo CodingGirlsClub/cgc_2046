@@ -2164,6 +2164,10 @@ body {
 .ld-skeleton + .ld-skeleton { margin-top: 10px; }
 @keyframes ld-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
+/* ---------- 详情页徽标：赞助档位「独占位」（F6 语义 token 替换硬编码 amber，
+   色板对齐 .l-badge-pending 的 --status-amber 家族；布局沿用组件内 utility） ---------- */
+.ld-badge-exclusive { color: var(--status-amber); background-color: color-mix(in srgb, var(--status-amber) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-amber) 35%, transparent); }
+
 /* ---------- 里程碑时间线 ---------- */
 .ld-journey { margin: 0; padding: 0; list-style: none; }
 .ld-journey__entry { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--line-soft); }
@@ -2235,6 +2239,23 @@ body {
   .ld-paper:hover { border-color: var(--line-strong); }
   .ld-press__row:hover { background: var(--soft-2); }
   .ld-footer a:hover { color: var(--ink-2); }
+}
+
+/* ---------- 键盘焦点环（F6）：公开页统一 :focus-visible，暗面以 accent-strong 描边可见。
+   仅键盘导航触发（指针/触屏交互不打扰）；.ld-offer-row 显式列出（行链接语义），
+   .ld-focus-ring 为 U5 owner 表单输入（datetime-local / venue 文本）挂钩；
+   input/select/textarea 覆盖公开报名/赞助面原生控件（详情邀请码 input、价格
+   radio、赞助意向表单 select/input；radio 为 input 自然覆盖，圆形 outline 可接受）——
+   规则全部锚在 .ld-* 作用域，应用内（非 .ld-*）既有 focus 样式不受影响。 ---------- */
+.ld-root a:focus-visible,
+.ld-root button:focus-visible,
+.ld-root input:focus-visible,
+.ld-root select:focus-visible,
+.ld-root textarea:focus-visible,
+.ld-offer-row:focus-visible,
+.ld-focus-ring:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }
 
 /* ---------- 动效降级 ---------- */

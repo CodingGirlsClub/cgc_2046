@@ -60,7 +60,7 @@ import {
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument
 } from './operations'
-import { parseEnrollmentPolicy, parseEnrollmentStatus, schemaFieldsFromJson } from '@/domain/format'
+import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
 import { parsePriceTiers } from '@/domain/payment'
 import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
@@ -88,25 +88,26 @@ import {
   readLocalNotifications
 } from '@/state/accountState'
 
-type ContentRecord = NonNullable<NonNullable<CatalogQuery['listEvents']>['results']>[number]
+type EventRecord = NonNullable<NonNullable<CatalogQuery['listEvents']>['results']>[number]
+type CourseRecord = NonNullable<NonNullable<CatalogQuery['listCourses']>['results']>[number]
+// venue 仅 event 有槽（Course 无位置概念，R3）——两 record 形状在此分叉，故取并集
+type ContentRecord = EventRecord | CourseRecord
 
 function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
   return {
     id: record.id,
     kind,
-    workspaceId: record.workspaceId,
-    workspaceName: '公开工作台',
     title: record.title,
     enrollmentPolicy: parseEnrollmentPolicy(record.enrollmentPolicy),
-    capacity: record.capacity,
-    confirmedCount: record.confirmedCount,
     registrationDeadline: record.registrationDeadline,
-    schemaFields: schemaFieldsFromJson(record.researchRequirements),
     pricingEnabled: record.pricingEnabled === true,
-    priceTiers: parsePriceTiers(record.availablePriceTiers)
+    priceTiers: parsePriceTiers(record.availablePriceTiers),
+    startsAt: record.startsAt,
+    endsAt: record.endsAt,
+    venue: 'venue' in record ? record.venue : null,
+    enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge)
   }
 }
-
 function parseOrderStatus(value: string): OrderStatus {
   if (
     value === 'pending' || value === 'paid' || value === 'refunding' ||

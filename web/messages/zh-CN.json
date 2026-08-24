@@ -270,8 +270,7 @@
       "errorHint": "暂时无法加载，",
       "errorAction": "直接前往列表页查看 ›",
       "emptyHint": "暂无开放报名的条目，",
-      "emptyAction": "去列表页看看 ›",
-      "deadline": "截止 {deadline}"
+      "emptyAction": "去列表页看看 ›"
     },
     "paper": {
       "venue": "与卡耐基梅隆大学学者合作 · ICSE CHASE 2021 · IEEE 出版"
@@ -394,7 +393,8 @@
     "publicDesc": "面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。",
     "viewOther": "查看{label} ›",
     "empty": "暂无公开{label}。",
-    "deadline": "截止 {deadline}"
+    "deadline": "截止 {deadline}",
+    "startsAt": "开始 {time}"
   },
   "onboarding": {
     "entryTitle": "Agent 接入",
@@ -446,9 +446,14 @@
     "breadcrumbHome": "工作台",
     "detailFallback": "详情",
     "notAccessibleTitle": "该{label}不可访问",
-    "notAccessibleDesc": "仅工作台内部可见，或已结束。请登录后从工作台内访问。",
+    "notAccessibleDesc": "已结束或不公开访问。",
     "policyLabel": "报名策略：{policy}",
     "deadlineLabel": "报名截止：{deadline}",
+    "startsLabel": "开始时间：{time}",
+    "endsLabel": "结束时间：{time}",
+    "venueLabel": "地点：{venue}",
+    "pricingTitle": "价格档位",
+    "fullHint": "名额已满，不再接受新的报名。",
     "loginToEnroll": "登录后报名",
     "enrollFreeHint": "报名免费，登录或注册后提交（J-Visitor → J-Learner）。",
     "enrolledConfirm": "✓ 报名成功",
@@ -478,7 +483,10 @@
     "pickTierFirst": "请先选择价格档位",
     "slotReservedMsg": "名额已保留，请在限定时间内完成支付",
     "pendingMsg": "申请已提交，等待审批",
-    "enrolledMsg": "报名成功"
+    "enrolledMsg": "报名成功",
+    "reconciling": "同步中…",
+    "reconcileFailed": "未能同步最新状态，同步成功前暂不可重复提交。",
+    "resync": "重新同步"
   },
   "apply": {
     "loading": "加载中…",
@@ -1012,6 +1020,9 @@
     "breadcrumbAria": "页面路径",
     "loadingAria": "加载中",
     "noDeadline": "不设截止",
+    "retry": "重试",
+    "timeTbd": "时间待定",
+    "venueTbd": "地点待定",
     "redirectingToDefaultProfile": "正在跳转到默认工作区个人资料…"
   },
   "participations": {
@@ -1200,6 +1211,15 @@
     "fieldTitle": "标题",
     "capacityHint": "名额上限（留空 = 不限）",
     "deadlineHint": "报名截止（留空 = 不设截止）",
+    "startsAtHint": "开始时间（留空 = 未定）",
+    "endsAtHint": "结束时间（留空 = 未定；须晚于开始时间）",
+    "venueSection": "活动地点（四项全留空 = 线上或未定）",
+    "venueCountry": "国家",
+    "venueProvince": "省份",
+    "venueCity": "城市",
+    "venueDistrict": "区县",
+    "venueIncomplete": "活动地点需国家、省份、城市、区县四项齐全，或全部留空。",
+    "scheduleOrderError": "结束时间须晚于开始时间。",
     "researchNeed": "教研需求（自由文本，教研 Agent 起草 issue 卡的输入）",
     "researchPlaceholder": "目标学员、课时、想覆盖的主题…",
     "savingMeta": "保存中…",
@@ -1597,6 +1617,11 @@
       "open": "直接报名",
       "request": "申请审批",
       "invite_only": "邀请码报名"
+    },
+    "enrollmentBadge": {
+      "enrolling": "报名中",
+      "starting_soon": "即将开始",
+      "full": "已满"
     },
     "offeringKind": {
       "event": "活动",

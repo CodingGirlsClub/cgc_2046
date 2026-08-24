@@ -23,7 +23,7 @@
 ### MCP server（模型上下文协议服务端）
 
 - **定义**：网站暴露的、供用户 OpenClacky 调用的协议端点。技术选型 **anubis_mcp**（Elixir/Phoenix，活跃维护）。全平台**只暴露一个** MCP server（D6）。
-- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
+- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权｜`membership: :public` 公开浏览族——任何持连接 token 的登录用户可用，匿名姿态读在工具层，KTD2/KTD3）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
 - **架构位置**：B 通道主干（见下）。网站能力以"工具"形态暴露给 Agent。
 
 ### B 通道（网站 MCP server 通道）—— 主干
@@ -114,7 +114,7 @@
 
 ### workspace_id 作用域（Workspace Scope）
 
-- **定义**：无状态的租户作用域。**除 `meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation）外，所有 MCP 工具必填 `workspace_id`**，每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **定义**：无状态的租户作用域。**除两类豁免外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation），以及 `meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
 - **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
@@ -234,8 +234,8 @@
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **15 个**（名单由 `wrapper_gate_test` 钉死）：
-  - **读 7**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **17 个**（名单由 `wrapper_gate_test` 钉死）：
+  - **读 9**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）/ `list_public_offerings` / `get_public_offering`（公开浏览 #293，`membership: :public` 豁免家族：任何持连接 token 的登录用户，跨工作区匿名白名单口径，KTD2/KTD3）
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
   - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
