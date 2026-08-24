@@ -12,7 +12,7 @@
  */
 
 import { Link } from "@/i18n/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
@@ -45,6 +45,8 @@ import {
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import WorkspaceShell from "@/components/workspace-shell";
+import { client } from "@/lib/apollo-client";
+import { WORKSPACE_ORDERS } from "@/lib/graphql/orders";
 import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
@@ -464,6 +466,18 @@ export function OfferingDetailPage({
     status: "loading" | "ok" | "error";
     value: number;
   }>({ id: "", status: "loading", value: 0 });
+  // U8 守卫：关收费/取消披露的订单计数 + 已售档 id 集合（懒查询，R9/R10/R11）
+  const [guardCounts, setGuardCounts] = useState<{
+    status: "idle" | "loading" | "ready";
+    paidCount: number;
+    paidCents: number;
+    pendingCount: number;
+    soldTierIds: string[];
+  }>({ status: "idle", paidCount: 0, paidCents: 0, pendingCount: 0, soldTierIds: [] });
+  // saveMeta 守卫阶段：关收费确认 / 开收费披露（AE1/AE8 前端半）
+  const [pricingGuard, setPricingGuard] = useState<
+    "disable-confirm" | "enable-confirm" | null
+  >(null);
   // E-5 #50 G3：工作台详情页报名入口（活动 open + 本人无既有报名才显示）。
   // 支付接续：fetchMyEnrollment 回活跃报名行（id+status），渲染分四态——
   // payment_pending → 待支付卡（去支付入口）；pending → 审批中；confirmed →
@@ -609,6 +623,32 @@ export function OfferingDetailPage({
           }
         : null;
 
+  // U8/R10：删除或改价命中已售档（快照语义保证已付订单金额不受影响，警告放行）
+  const soldTierTouched: string[] = useMemo(() => {
+    if (!offering || !activeDraft || guardCounts.status !== "ready") return [];
+    const originals = toDraft(offering.priceTiers);
+    const deleted = guardCounts.soldTierIds.filter(
+      (tid) => !activeDraft.tierDrafts.some((d) => d.id === tid),
+    );
+    const repriced = activeDraft.tierDrafts
+      .filter((d) => {
+        if (!guardCounts.soldTierIds.includes(d.id)) return false;
+        const orig = originals.find((o) => o.id === d.id);
+        if (!orig) return false;
+        return fromDraft(orig)?.amount_cents !== fromDraft(d)?.amount_cents;
+      })
+      .map((d) => d.id);
+    return [...deleted, ...repriced];
+  }, [offering, activeDraft, guardCounts]);
+
+  // U8：编辑面 + 收费开启时取一次守卫数据（已售档集合；守卫数字在确认时点再刷新）
+  useEffect(() => {
+    if (manage && offering?.pricingEnabled === true && guardCounts.status === "idle") {
+      void loadGuardCounts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manage, offering?.id, offering?.pricingEnabled]);
+
   async function saveVisibility(next: Visibility) {
     if (!offering) return;
     setSaveBusy(true);
@@ -641,6 +681,43 @@ export function OfferingDetailPage({
     }
   }
 
+  // U8 守卫数字懒查询：offering 的 pending+paid 订单一次拉取（关收费 N/M、
+  // 取消披露 N/¥X、已售档 id 集合同源；快照时点容忍执行窗口内变化）
+  async function loadGuardCounts() {
+    if (!offering) return;
+    setGuardCounts((s) => ({ ...s, status: "loading" }));
+    try {
+      const key = kind === "event" ? "eventId" : "courseId";
+      const { data } = await client.query({
+        query: WORKSPACE_ORDERS,
+        variables: {
+          workspaceId: offering.workspaceId ?? ws?.id ?? "",
+          filter: {
+            [key]: { eq: offering.id },
+            status: { in: ["pending", "paid"] },
+          },
+        },
+      });
+      const orders = (data?.workspaceOrders?.results ?? []) as Array<{
+        status: string;
+        amountCents: number;
+        tierId?: string | null;
+      }>;
+      const paid = orders.filter((o) => o.status === "paid");
+      setGuardCounts({
+        status: "ready",
+        paidCount: paid.length,
+        paidCents: paid.reduce((acc, o) => acc + o.amountCents, 0),
+        pendingCount: orders.length - paid.length,
+        soldTierIds: paid
+          .map((o) => o.tierId)
+          .filter((x): x is string => typeof x === "string"),
+      });
+    } catch {
+      setGuardCounts((s) => ({ ...s, status: "idle" }));
+    }
+  }
+
   async function saveMeta() {
     if (!offering || !activeDraft) return;
     // venue all-or-none：任一填写则四键须齐全，否则就地拦截不提交（KTD5）
@@ -648,6 +725,31 @@ export function OfferingDetailPage({
       setSaveMessage(t("venueIncomplete"));
       return;
     }
+    // U8 资金守卫（R9/R16，KD2）：关收费 → 明示影响后确认；开收费且有
+    // 待审批 → 披露后确认；其余直接保存。守卫数字为确认时点快照。
+    const disabling =
+      offering.pricingEnabled === true && activeDraft.pricingEnabled === false;
+    const enabling =
+      offering.pricingEnabled !== true && activeDraft.pricingEnabled === true;
+    const pendingApprovals =
+      pendingState.id === id && pendingState.status === "ok"
+        ? pendingState.value
+        : 0;
+
+    if (disabling) {
+      void loadGuardCounts();
+      setPricingGuard("disable-confirm");
+      return;
+    }
+    if (enabling && pendingApprovals > 0) {
+      setPricingGuard("enable-confirm");
+      return;
+    }
+    await performSaveMeta();
+  }
+
+  async function performSaveMeta() {
+    if (!offering || !activeDraft) return;
     setSaveBusy(true);
     setSaveMessage(null);
     // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
@@ -1082,7 +1184,95 @@ export function OfferingDetailPage({
                           manage
                         />
                       )}
+                      {soldTierTouched.length > 0 && (
+                        <p
+                          role="alert"
+                          className="text-[13px] text-amber-200"
+                          data-testid="sold-tier-warning"
+                        >
+                          {t("guardSoldTier")}
+                        </p>
+                      )}
                     </div>
+
+                    {/* U8 资金守卫确认（R9/R16）：关收费明示影响、开收费披露待审批；确认后执行 */}
+                    {pricingGuard === "disable-confirm" ? (
+                      <div
+                        className="rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
+                        role="group"
+                        aria-label={t("guardDisableTitle")}
+                        data-testid="pricing-disable-guard"
+                      >
+                        <p className="text-sm text-amber-200">
+                          {guardCounts.status === "ready"
+                            ? t("guardDisableBody", {
+                                paid: guardCounts.paidCount,
+                                pending: guardCounts.pendingCount,
+                              })
+                            : t("guardDisableLoading")}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="join-button join-button--primary"
+                            disabled={guardCounts.status !== "ready" || saveBusy}
+                            onClick={() => {
+                              setPricingGuard(null);
+                              void performSaveMeta();
+                            }}
+                            data-testid="pricing-guard-confirm"
+                          >
+                            {t("guardConfirm")}
+                          </button>
+                          <button
+                            type="button"
+                            className="join-button"
+                            disabled={saveBusy}
+                            onClick={() => setPricingGuard(null)}
+                            data-testid="pricing-guard-cancel"
+                          >
+                            {t("guardCancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {pricingGuard === "enable-confirm" ? (
+                      <div
+                        className="rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
+                        role="group"
+                        aria-label={t("guardEnableTitle")}
+                        data-testid="pricing-enable-guard"
+                      >
+                        <p className="text-sm text-amber-200">
+                          {t("guardEnableBody", {
+                            pending: pendingState.id === id ? pendingState.value : 0,
+                          })}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="join-button join-button--primary"
+                            disabled={saveBusy}
+                            onClick={() => {
+                              setPricingGuard(null);
+                              void performSaveMeta();
+                            }}
+                            data-testid="pricing-guard-confirm"
+                          >
+                            {t("guardConfirm")}
+                          </button>
+                          <button
+                            type="button"
+                            className="join-button"
+                            disabled={saveBusy}
+                            onClick={() => setPricingGuard(null)}
+                            data-testid="pricing-guard-cancel"
+                          >
+                            {t("guardCancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <button
                       type="button"
@@ -1282,6 +1472,28 @@ export function OfferingDetailPage({
                             ? t("transitionConfirmClose", { label: labelsT(label) })
                             : t("transitionConfirmCancel", { label: labelsT(label) })}
                         </p>
+                        {/* U8 披露（R11/R17）：收费活动的取消/结束明示资金影响；免费活动文案不变 */}
+                        {tr === "cancel" &&
+                        offering.pricingEnabled === true &&
+                        guardCounts.status === "ready" ? (
+                          <p
+                            className="mt-1 text-[13px] text-amber-200"
+                            data-testid="cancel-refund-disclosure"
+                          >
+                            {t("guardCancelRefund", {
+                              count: guardCounts.paidCount,
+                              amount: formatAmount(guardCounts.paidCents),
+                            })}
+                          </p>
+                        ) : null}
+                        {tr === "close" && offering.pricingEnabled === true ? (
+                          <p
+                            className="mt-1 text-[13px] text-ink-3"
+                            data-testid="close-pending-disclosure"
+                          >
+                            {t("guardClosePending")}
+                          </p>
+                        ) : null}
                         <div className="mt-2 flex gap-2">
                           <button
                             type="button"
@@ -1313,6 +1525,10 @@ export function OfferingDetailPage({
                         onClick={() => {
                           if (tr === "close" || tr === "cancel") {
                             setConfirmingTransition(tr);
+                            // R11：取消收费活动明示自动退款笔数与总金额
+                            if (tr === "cancel" && offering.pricingEnabled === true) {
+                              void loadGuardCounts();
+                            }
                           } else {
                             void runTransition(tr);
                           }
