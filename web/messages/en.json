@@ -1363,7 +1363,9 @@
     "refundCancel": "Cancel",
     "refundFailed": "Refund failed. Please retry.",
     "waiveFailed": "Waive failed. Please retry.",
-    "retryFailed": "Retry failed. Please retry."
+    "retryFailed": "Retry failed. Please retry.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…"
   },
   "pricing": {
     "noTiersPlain": "No tiers yet. Add one below.",

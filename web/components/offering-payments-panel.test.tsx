@@ -108,12 +108,68 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 					in: ["pending", "paid", "refunding", "refund_failed", "refunded"],
 				},
 			},
+			first: 20,
 		});
 
 		expect(client.query.mock.calls[1][0].variables).toEqual({
 			workspaceId: "ws-1",
 			eventId: "ev-1",
 		});
+	});
+
+	it("U7 keyset 分页：满页显示加载更多，点击带 after 追加；短页隐藏", async () => {
+		const page1 = Array.from({ length: 20 }, (_, i) => ({
+			...baseOrder,
+			id: `p1-${i}`,
+		}));
+		const page2 = [{ ...baseOrder, id: "p2-0" }];
+
+		client.query
+			.mockImplementationOnce(() => ({
+				data: {
+					workspaceOrders: {
+						results: page1,
+						count: 21,
+						startKeyset: "ks-0",
+						endKeyset: "ks-19",
+					},
+				},
+			}))
+			.mockImplementationOnce(() => statsPayload(0, 0, 0))
+			.mockImplementationOnce(() => ({
+				data: {
+					workspaceOrders: {
+						results: page2,
+						count: 21,
+						startKeyset: "ks-19",
+						endKeyset: "ks-20",
+					},
+				},
+			}));
+
+		render(
+			<OfferingPaymentsPanel
+				workspaceId="ws-1"
+				offeringId="ev-1"
+				kind="event"
+				manage
+				pricingEnabled
+			/>,
+		);
+
+		expect(await screen.findByTestId("order-row-p1-19")).toBeInTheDocument();
+		const loadMore = screen.getByTestId("offering-load-more");
+		expect(loadMore).toBeInTheDocument();
+
+		fireEvent.click(loadMore);
+
+		await screen.findByTestId("order-row-p2-0");
+		expect(client.query.mock.calls[2][0].variables).toMatchObject({
+			after: "ks-19",
+			first: 20,
+		});
+		// 短页（1 < 20）：加载更多隐藏
+		expect(screen.queryByTestId("offering-load-more")).not.toBeInTheDocument();
 	});
 
 	it("R7：refund_failed 行出现重试按钮，点击后 retryRefund 并刷新（此前无入口的回归对照）", async () => {
