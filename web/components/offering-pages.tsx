@@ -43,6 +43,7 @@ import {
   VISIBILITY_LABEL,
 } from "@/lib/graphql/events";
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
+import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import WorkspaceShell from "@/components/workspace-shell";
 import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
@@ -881,6 +882,13 @@ export function OfferingDetailPage({
                           : pendingState.value}
                     </Field>
                   ) : null}
+                  {manage ? (
+                    <Field label={t("fieldPricing")}>
+                      {offering.pricingEnabled
+                        ? t("pricingOn", { count: parsePriceTiers(offering.availablePriceTiers).length })
+                        : t("pricingFree")}
+                    </Field>
+                  ) : null}
                 </div>
               </div>
 
@@ -1373,6 +1381,7 @@ export function OfferingDetailPage({
                       setSaveMessage(
                         e instanceof Error ? e.message : t("saveFail"),
                       );
+
                       return false;
                     }
                   }}
@@ -1388,6 +1397,17 @@ export function OfferingDetailPage({
                 workspaceId={offering.workspaceId ?? ws?.id ?? ""}
               />
             ) : null}
+
+            {/* organizer-payment U7/R5-R7：本活动经营面（四数统计 + 订单 + 行内操作） */}
+            <div className="mt-4">
+              <OfferingPaymentsPanel
+                workspaceId={offering.workspaceId ?? ws?.id ?? ""}
+                offeringId={offering.id}
+                kind={kind}
+                manage={manage}
+                pricingEnabled={offering.pricingEnabled === true}
+              />
+            </div>
           </>
         )}
 

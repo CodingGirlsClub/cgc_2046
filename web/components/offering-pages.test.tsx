@@ -79,6 +79,9 @@ vi.mock("@/components/sponsorship-management", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/offering-payments-panel", () => ({
+  default: () => null,
+}));
 vi.mock("@/components/speaker-invitation-panel", () => ({
   default: () => null,
 }));
