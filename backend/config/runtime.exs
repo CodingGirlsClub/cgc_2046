@@ -328,6 +328,24 @@ if config_env() == :prod do
   # 缴费闭环 U4（KTD7）：渠道密钥同 SendCloud 模式——环境变量注入，不进 git。
   # 与 SendCloud 不同处：真实小额验收上线前，密钥允许缺席（adapter 返回
   # :provider_not_configured，boot 不崩），验收后补齐环境变量即启用。
+
+  # 商户 API 证书私钥（apiclient_key.pem）须经 base64 单行注入：注入链
+  # （.kamal/secrets → docker --env-file）为逐行 KEY=VALUE 格式，多行 PEM 会被
+  # 截成首行（2026-08-24 生产实证：值恰为 27 字符 = "-----BEGIN PRIVATE
+  # KEY-----"，七键门禁误过 → build_client raise → provider_not_configured）。
+  # 兼容旧形状：PEM 文本含 "-"（非 base64 字母表），解码必 :error 走原样分支。
+  wechat_pay_client_key =
+    case System.get_env("WECHAT_PAY_CLIENT_PRIVATE_KEY") do
+      nil ->
+        nil
+
+      value ->
+        case Base.decode64(value, ignore: :whitespace) do
+          {:ok, pem} -> pem
+          :error -> value
+        end
+    end
+
   config :cgc_2046,
     wechat_pay: [
       mch_id: System.get_env("WECHAT_PAY_MCH_ID"),
@@ -337,7 +355,7 @@ if config_env() == :prod do
       # adapter 门禁短路 provider_not_configured，boot 不崩。
       api_secret_v2_key: System.get_env("WECHAT_PAY_API_V2_KEY"),
       client_serial_no: System.get_env("WECHAT_PAY_CLIENT_SERIAL_NO"),
-      client_private_key: System.get_env("WECHAT_PAY_CLIENT_PRIVATE_KEY"),
+      client_private_key: wechat_pay_client_key,
       webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL")
     ],
     alipay_pay: [
