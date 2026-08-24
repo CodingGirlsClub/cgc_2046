@@ -201,6 +201,44 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
       refute_enqueued(worker: PaymentRefundWorker)
     end
 
+    test "U5/R12/AE5：落账成功 → 组织者收到 payment_received（含活动名/档位/金额）", ctx do
+      order = pending_order(ctx)
+      stub_channel_paid(order)
+
+      # 管理者收件面：该 workspace 的 Owner 挂 wechat 身份（查询形状同
+      # NotificationFanout.managed_member_ids：tenant + roles 关系）
+      owner_id =
+        Cgc2046.Accounts.WorkspaceMembership
+        |> Ash.Query.load(:roles)
+        |> Ash.read!(tenant: order.workspace_id, authorize?: false)
+        |> Enum.filter(fn m -> Enum.any?(m.roles, &(&1.name == :owner)) end)
+        |> Enum.map(& &1.user_id)
+        |> hd()
+
+      insert_identity(owner_id, :wechat, "settle-receipt-owner-openid")
+
+      assert :ok = perform_settlement(order)
+
+      # 组织者逐笔收款通知（data 含 title/tier_name/amount）
+      receipts =
+        all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
+        |> Enum.filter(&(&1.args["template_key"] == "payment_received"))
+
+      assert Enum.any?(receipts, &(&1.args["user_id"] == owner_id))
+
+      receipt = Enum.find(receipts, &(&1.args["user_id"] == owner_id))
+      assert receipt.args["data"]["amount"] == "199.00"
+      assert is_binary(receipt.args["data"]["title"])
+      assert is_binary(receipt.args["data"]["tier_name"])
+
+      # 学员 payment_succeeded 不受影响（R22 既有语义零回归）
+      assert Enum.any?(
+               all_enqueued(worker: Cgc2046.Workers.NotificationWorker),
+               &(&1.args["template_key"] == "payment_succeeded" and
+                   &1.args["user_id"] != owner_id)
+             )
+    end
+
     test "F-I 报名 CAS DB 错误：不误触自动退款，上抛走 Oban 重试；解除后自愈收敛", ctx do
       order = pending_order(ctx)
       stub_channel_paid(order)

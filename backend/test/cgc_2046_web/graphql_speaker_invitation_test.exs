@@ -91,12 +91,13 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     token = created["plainToken"]
     assert is_binary(token) and token != ""
 
-    # 卡片公开查询（无需登录）：主题 + Event 公开信息
+    # 卡片公开查询（无需登录）：主题 + Event 公开信息；匿名 viewerIsInviter=false
     card_query = """
     query {
       speakerInvitationCard(token: "#{token}") {
         status
         topic
+        viewerIsInviter
         event { slug title }
       }
     }
@@ -108,7 +109,14 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     assert card["status"] == "invited"
     assert card["topic"] == "Elixir 实战"
     assert card["event"]["title"] == event.title
+    assert card["viewerIsInviter"] == false
     refute Map.has_key?(card, "speakerEmail")
+    refute Map.has_key?(card, "invitedBy")
+
+    assert %{"data" => %{"speakerInvitationCard" => owner_card}} =
+             build_conn() |> graphql_post(card_query, owner_token)
+
+    assert owner_card["viewerIsInviter"] == true
 
     # Owner 列表
     list_query = """
@@ -216,6 +224,59 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
 
     assert %{"data" => %{"declineSpeakerInvitation" => %{"result" => %{"status" => "declined"}}}} =
              build_conn() |> graphql_post(decline_query, speaker_token)
+  end
+
+  test "发出人 accept 自己的邀请被拒，token 未消耗，他人仍可 accept", %{
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    speaker = Fixtures.register_user("gql-spk-not-owner")
+    speaker_token = sign_in_token(speaker.email)
+
+    create_query = """
+    mutation {
+      createSpeakerInvitation(input: {
+        workspaceId: "#{workspace.id}",
+        eventId: "#{event.id}",
+        speakerName: "嘉宾发出人自点"
+      }) {
+        result { id }
+        plainToken
+        errors { message }
+      }
+    }
+    """
+
+    assert %{"data" => %{"createSpeakerInvitation" => %{"plainToken" => token}}} =
+             build_conn() |> graphql_post(create_query, owner_token)
+
+    accept_query = """
+    mutation {
+      acceptSpeakerInvitation(token: "#{token}") {
+        result { id status }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "acceptSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => errors
+               }
+             }
+           } = build_conn() |> graphql_post(accept_query, owner_token)
+
+    assert Enum.any?(errors, fn error ->
+             error["code"] == "speaker_invitation_inviter_cannot_decide" and
+               is_binary(error["message"]) and
+               error["message"] =~ "sender cannot accept or decline"
+           end)
+
+    assert %{"data" => %{"acceptSpeakerInvitation" => %{"result" => %{"status" => "accepted"}}}} =
+             build_conn() |> graphql_post(accept_query, speaker_token)
   end
 
   test "saveSpeakerMaterials：Speaker 本人可存 → 材料落 run facts → completeSpeakerInvitation 达 completed（run succeeded）",
@@ -465,6 +526,153 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
 
     assert message == "event not found"
     assert code == "not_found"
+  end
+
+  test "resendSpeakerInvitation → 新 plainToken，旧 token 失效", %{
+    admin: admin,
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    {:ok, invitation, old_token} =
+      SpeakerInvitation.issue(
+        %{event_id: event.id, speaker_name: "嘉宾重发", speaker_email: "gql-resend@example.com"},
+        admin,
+        workspace.id
+      )
+
+    resend_query = """
+    mutation {
+      resendSpeakerInvitation(id: "#{invitation.id}") {
+        result { id status }
+        plainToken
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "resendSpeakerInvitation" => %{
+                 "result" => %{"status" => "invited"},
+                 "plainToken" => new_token,
+                 "errors" => []
+               }
+             }
+           } = build_conn() |> graphql_post(resend_query, owner_token)
+
+    refute new_token == old_token
+
+    # 旧 token 决策 → 统一无效（一次性 token 语义）
+    speaker = Fixtures.register_user_with_email("gql-resend@example.com")
+    speaker_token = sign_in_token(speaker.email)
+
+    accept_query = """
+    mutation {
+      acceptSpeakerInvitation(token: "#{old_token}") {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "acceptSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => [%{"message" => message}]
+               }
+             }
+           } = build_conn() |> graphql_post(accept_query, speaker_token)
+
+    assert message =~ "invalid, expired or already used"
+  end
+
+  test "非 Owner 不能重发；不存在的 id → not_found", %{
+    admin: admin,
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    member = Fixtures.register_user("gql-resend-member")
+    Fixtures.add_member(workspace, member)
+    member_token = sign_in_token(member.email)
+
+    {:ok, invitation, _token} =
+      SpeakerInvitation.issue(
+        %{event_id: event.id, speaker_name: "嘉宾权限", speaker_email: "gql-resend-perm@example.com"},
+        admin,
+        workspace.id
+      )
+
+    member_query = """
+    mutation {
+      resendSpeakerInvitation(id: "#{invitation.id}") {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "resendSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => errors
+               }
+             }
+           } = build_conn() |> graphql_post(member_query, member_token)
+
+    assert errors != []
+
+    missing_query = """
+    mutation {
+      resendSpeakerInvitation(id: "00000000-0000-4000-8000-000000000099") {
+        result { id }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "resendSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => [%{"code" => "not_found"}]
+               }
+             }
+           } = build_conn() |> graphql_post(missing_query, owner_token)
+  end
+
+  test "createSpeakerInvitation 拒绝逗号列表邮箱（MEDIUM 负向）", %{
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    query = """
+    mutation {
+      createSpeakerInvitation(input: {
+        workspaceId: "#{workspace.id}",
+        eventId: "#{event.id}",
+        speakerName: "嘉宾列表",
+        speakerEmail: "first,second@example.com"
+      }) {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "createSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => [%{"message" => message}]
+               }
+             }
+           } = build_conn() |> graphql_post(query, owner_token)
+
+    assert message =~ "valid email address"
   end
 
   # 布置：Owner 创建定向邀请（speakerEmail = 已登录 speaker 邮箱）→ speaker accept，

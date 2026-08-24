@@ -35,6 +35,7 @@ const CARD = {
 	status: "invited" as const,
 	topic: "Elixir 实战",
 	scheduledAt: "2026-08-20T10:00:00Z",
+	viewerIsInviter: false,
 	event: {
 		id: "e1",
 		slug: "demo-event",
@@ -98,6 +99,18 @@ describe("/events/[slug]/speaker-invite/[token] Speaker 着陆页", () => {
 
 		expect(await screen.findByText("已婉拒邀请")).toBeInTheDocument();
 		expect(declineSpeakerInvitation).toHaveBeenCalledWith("tok_123");
+	});
+
+	it("发出人打开自己的链接：不展示接受/婉拒，提示转给嘉宾", async () => {
+		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
+		fetchSpeakerInvitationCard.mockResolvedValue({ ...CARD, viewerIsInviter: true });
+		render(<SpeakerInvitePage />);
+
+		expect(await screen.findByText("这是你发出的邀请")).toBeInTheDocument();
+		expect(screen.getByText(/请把链接复制后转给嘉宾/)).toBeInTheDocument();
+		expect(screen.queryByText("你被邀请为以下活动的分享嘉宾")).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "接受邀请" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "婉拒" })).not.toBeInTheDocument();
 	});
 
 	it("决策失败（如已用 token）展示错误消息", async () => {

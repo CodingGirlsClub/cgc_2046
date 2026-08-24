@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem } from '@/domain/models'
+import { enrollmentBadgeText, venueText } from '@/domain/format'
 import styles from './index.module.css'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
@@ -35,16 +36,13 @@ export default function DiscoverPage() {
   }, [])
 
   useDidShow(() => { void load() })
-
   const normalized = keyword.trim().toLowerCase()
   const filtered = items.filter((item) => !normalized || [
     item.title,
-    item.workspaceName,
-    ...item.schemaFields.map(({ value }) => value)
+    item.venue ? venueText(item.venue) ?? '' : ''
   ].some((value) => value.toLowerCase().includes(normalized)))
   const events = filtered.filter(({ kind }) => kind === 'event')
   const courses = filtered.filter(({ kind }) => kind === 'course')
-  const clubs = Array.from(new Map(filtered.map((item) => [item.workspaceId, item.workspaceName])).entries())
 
   const openDetail = ({ id, kind }: CatalogItem) => {
     Taro.navigateTo({ url: `/pages/event-detail/index?id=${id}&kind=${kind}` })
@@ -88,23 +86,6 @@ export default function DiscoverPage() {
           <PageState kind='empty' message={keyword ? '换个关键词试试' : '还没有公开活动或课程'} />
         ) : (
           <View className={styles.content}>
-            <View className={styles.section}>
-              <View className={styles.sectionHeader}>
-                <Text className={styles.sectionTitle}>推荐 Club</Text>
-                <Text className={styles.sectionMeta}>{clubs.length} 个公开社区</Text>
-              </View>
-              <ScrollView scrollX className={styles.clubRail}>
-                <View className={styles.clubRow}>
-                  {clubs.map(([id, name], index) => (
-                    <View key={id} className={styles.clubCard}>
-                      <Text className={styles.clubIndex}>0{index + 1}</Text>
-                      <Text className={styles.clubName}>{name}</Text>
-                      <Text className={styles.clubCaption}>公开工作台</Text>
-                    </View>
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
 
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
@@ -123,7 +104,7 @@ export default function DiscoverPage() {
                     <Text className={styles.policy}>{policyText[item.enrollmentPolicy]}</Text>
                   </View>
                   <Text className={styles.cardTitle}>{item.title}</Text>
-                  <Text className={styles.cardMeta}>{item.workspaceName} · {item.confirmedCount}/{item.capacity ?? '∞'} 人</Text>
+                  <Text className={styles.cardMeta}>{enrollmentBadgeText[item.enrollmentBadge]}</Text>
                   <Text className={styles.arrow}>→</Text>
                 </View>
               ))}
@@ -139,7 +120,7 @@ export default function DiscoverPage() {
                   <View>
                     <Text className={styles.kind}>COURSE</Text>
                     <Text className={styles.cardTitle}>{item.title}</Text>
-                    <Text className={styles.cardMeta}>{item.workspaceName} · {policyText[item.enrollmentPolicy]}</Text>
+                    <Text className={styles.cardMeta}>{policyText[item.enrollmentPolicy]}</Text>
                   </View>
                   <Text className={styles.courseArrow}>›</Text>
                 </View>

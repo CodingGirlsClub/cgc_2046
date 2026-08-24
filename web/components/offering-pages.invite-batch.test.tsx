@@ -95,7 +95,8 @@ vi.mock("@/components/icons", () => ({
 	Icon: () => null,
 }));
 
-vi.mock("@/lib/public-offerings", () => ({
+vi.mock("@/lib/public-offerings", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/public-offerings")>()),
 	parseSponsorshipTiers: () => [],
 	submitEnrollment: vi.fn(),
 }));

@@ -23,7 +23,7 @@
 ### MCP server（模型上下文协议服务端）
 
 - **定义**：网站暴露的、供用户 OpenClacky 调用的协议端点。技术选型 **anubis_mcp**（Elixir/Phoenix，活跃维护）。全平台**只暴露一个** MCP server（D6）。
-- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
+- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权｜`membership: :public` 公开浏览族——任何持连接 token 的登录用户可用，匿名姿态读在工具层，KTD2/KTD3）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
 - **架构位置**：B 通道主干（见下）。网站能力以"工具"形态暴露给 Agent。
 
 ### B 通道（网站 MCP server 通道）—— 主干
@@ -114,7 +114,7 @@
 
 ### workspace_id 作用域（Workspace Scope）
 
-- **定义**：无状态的租户作用域。**除 `meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation）外，所有 MCP 工具必填 `workspace_id`**，每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **定义**：无状态的租户作用域。**除两类豁免外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation），以及 `meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
 - **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
@@ -234,8 +234,8 @@
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **15 个**（名单由 `wrapper_gate_test` 钉死）：
-  - **读 7**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **17 个**（名单由 `wrapper_gate_test` 钉死）：
+  - **读 9**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）/ `list_public_offerings` / `get_public_offering`（公开浏览 #293，`membership: :public` 豁免家族：任何持连接 token 的登录用户，跨工作区匿名白名单口径，KTD2/KTD3）
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
   - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
@@ -399,12 +399,12 @@
 ### Order（缴费订单，租户资源）
 
 - **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunding → refunded`（`refunding → refund_failed` 渠道拒绝，`refund_failed → refunding` 经 retry_refund 重入；cancelled / expired 为终态）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；订单过期后渠道侧迟到扣款自动原路退回。
-- **架构位置**：Enrollment（payment_pending 态）与支付渠道之间；回调链 = raw body 验签 → webhook 事件表幂等 → Oban 异步落账 → 回查渠道确认（不信 payload 快照）。退款发起方 = Workspace Owner/Admin（Event closed 后单笔仍可退，cancelled 批量退）；平台 Admin 持退款兜底权（统一商户号的资金主体，ADR-0007）。
+- **组织者查询面（organizer-payment U4/U7）**：Order 计算字段 `event_id` / `course_id`（expr(enrollment.event_id)，Enrollment 无 GraphQL 对象类型的惯用替代）使 `workspaceOrders` 可按活动筛选；`workspacePaymentStats` 收可选 `eventId`/`courseId`（JOIN enrollments 收敛，四数口径同源）；`retryRefund` mutation 暴露给客户端（此前只有后端 action）。活动经营面（详情页 OfferingPaymentsPanel，manage_events 门控）与工作区财务面（收款管理页 + 活动筛选）两层结构：定价与订单随活动走，工作区级只留汇总。孤儿定价配置页（/settings/pricing）已删除，TierEditor 共享组件嵌入创建/编辑表单。
 
 ### 管理员免缴（Fee Waiver）
 
 - **定义**：Owner/Admin 将 `payment_pending` 报名直接置 `confirmed` 的特权操作，跳过支付、不建订单；个案级免费入口（志愿者/组织者参会），审计照走。区别于 `pricing_enabled: false`（整场免费）与 0 元档（不存在，PriceTier 金额下限 1 分）。
-- **架构位置**：Enrollment 特权 action；与审批（confirm_enrollment）同权限面，资金语义不同（免缴 = 平台让渡，无资金动作）。
+- **关闭收费批量转换（organizer-payment U3/R9）**：Event/Course update 检测 `pricing_enabled` true→false 时，同事务对该活动全部 `payment_pending` 报名逐条复用免缴三元组（CAS 转确认 + 作废待付单 + 免缴审计行）+ 补发 completed 信号（`Enrollment.waive_pending_for_offering/4`，经 `Changes.WaivePendingOnPricingDisable` 挂接）。落账竞态 CAS 先到先得（先落账者保持已付）；迟到扣款由落账 worker 按免缴审计行/作废单判定自动原路退回——审计行不可省（KTD4 正确性约束）。
 
 ### Sponsorship（赞助，两级）
 
@@ -442,6 +442,7 @@
 - **stale 语义（表驱动单解释器，D2）**：提醒类类型发送时重查——approval_reminder 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；learning_stagnation 走 WorkflowRun `status == :running`。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
 - **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；NotificationFanout 主体 / NotificationService / Miniprogram.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
 - **架构位置**：横切契约面（root Worker 单文件，AEW `@expiry_specs` 同款先例）；消费方 = NotificationFanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/workers/notification_worker_test.exs`，D7）。
+- **缴费闭环新增键（organizer-payment U5，R12/R13）**：`payment_received`（收款到账 → workspace 管理者逐笔实时感知，data 含 title/tier_name/amount；落账 worker 挂点）与 `payment_expired`（订单超时 → 学员 + 管理者，data 携带 `re_enrollable` 标志——报名截止未过才承诺可重新报名；过期 worker 成功分支挂点，尽力而为不影响释放）。推送尽力而为，可靠兜底 = 经营面面板；模板未配置时 provider_not_configured 静默跳过。
 
 ### 审批期限（Approval Deadline）
 

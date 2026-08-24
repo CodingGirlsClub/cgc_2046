@@ -19,6 +19,9 @@ vi.mock("@/lib/payment-errors", async () => {
 	};
 });
 vi.mock("@/lib/apollo-client", () => ({ client }));
+vi.mock("@/lib/events", () => ({
+	fetchWorkspaceOfferings: vi.fn().mockResolvedValue([]),
+}));
 
 const baseOrder = {
 	id: "o1",
@@ -223,6 +226,42 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 			expect(client.query).toHaveBeenCalledWith(
 				expect.objectContaining({
 					variables: { workspaceId: "ws1", filter: { status: { eq: "paid" } } },
+				}),
+			);
+		});
+	});
+
+	it("U9/R8：活动筛选——选中后订单查询带 eventId；清除恢复全量", async () => {
+		const { fetchWorkspaceOfferings } = await import("@/lib/events");
+		(fetchWorkspaceOfferings as ReturnType<typeof vi.fn>).mockReset();
+		(fetchWorkspaceOfferings as ReturnType<typeof vi.fn>)
+			.mockResolvedValueOnce([{ id: "ev-1", title: "测试活动" }])
+			.mockResolvedValueOnce([]);
+
+		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
+			opts.variables.workspaceId === "ws1" ? ordersPayload([]) : statsPayload(0, 0, 0),
+		);
+
+		render(<PaymentsManagement workspaceId="ws1" manage />);
+		await screen.findByTestId("orders-empty");
+
+		const select = await screen.findByTestId("offering-filter");
+		fireEvent.change(select, { target: { value: "ev-1" } });
+
+		await waitFor(() => {
+			expect(client.query).toHaveBeenCalledWith(
+				expect.objectContaining({
+					variables: { workspaceId: "ws1", filter: { eventId: { eq: "ev-1" } } },
+				}),
+			);
+		});
+
+		fireEvent.change(select, { target: { value: "" } });
+
+		await waitFor(() => {
+			expect(client.query).toHaveBeenCalledWith(
+				expect.objectContaining({
+					variables: { workspaceId: "ws1", filter: {} },
 				}),
 			);
 		});

@@ -30,6 +30,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     domain: Cgc2046.Api
 
   alias Cgc2046.ApprovalClaim
+  alias Cgc2046.Events.SpeakerInvitationEmail
   alias Cgc2046.Repo
   alias Cgc2046.Workflows.{SpeakerInvitationInstantiator, WorkflowRun}
 
@@ -273,6 +274,20 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       )
     end
 
+    update :resend_invitation do
+      description("Owner/Admin 重发/重新生成链接：invited 内换 token_hash（旧链接即刻作废）；有邮箱的由调用方再发新邮件（尽力而为）")
+
+      require_atomic?(false)
+      accept([])
+
+      # token_hash 经 argument 通道（属性 writable?: false，同 create 纪律）
+      argument(:token_hash, :string, allow_nil?: false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_resend/1)
+      end)
+    end
+
     update :save_materials do
       description("Speaker 保存分享材料：写 WorkflowRun.facts[materials]（M1 内嵌步骤，v1 不建独立子系统）")
       require_atomic?(false)
@@ -335,6 +350,11 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
+    # 重发/重新生成链接：与创建同权限（R9）
+    policy action(:resend_invitation) do
+      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+    end
+
     # 决策：token 即凭据（token 持有者自助操作，拍板 #1 必须登录），
     # token 有效/未过期/未使用在 action 内校验；accept 的「账号与 speaker_email
     # 匹配」双重校验也在 action 逻辑层（decide/2）——policy 层拿不到邀请行的
@@ -381,8 +401,12 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     case __MODULE__
          |> Ash.Changeset.for_create(:create_invitation, attrs, tenant: tenant, actor: actor)
          |> Ash.create(tenant: tenant, actor: actor) do
-      {:ok, invitation} -> {:ok, invitation, token}
-      {:error, error} -> {:error, error}
+      {:ok, invitation} ->
+        maybe_send_invitation_email(invitation, token)
+        {:ok, invitation, token}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
@@ -391,6 +415,41 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   def hash_token(token) when is_binary(token) and token != "" do
     :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
   end
+
+  @doc """
+  Owner/Admin 重发 / 重新生成邀请链接（KD2/KD3）：重新生成 token——旧链接
+  即刻作废（token_hash 覆盖），返回 {:ok, invitation, 新明文 token}。仅
+  invited 可重发（action 内条件 UPDATE 抢占）；有 speaker_email 的同时
+  异步发出新邀请邮件（尽力而为，R8）。
+  """
+  @spec resend(__MODULE__.t(), term()) ::
+          {:ok, __MODULE__.t(), String.t()} | {:error, term()}
+  def resend(%__MODULE__{} = invitation, actor) do
+    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+
+    invitation
+    |> Ash.Changeset.for_update(:resend_invitation, %{token_hash: hash_token(token)},
+      tenant: invitation.workspace_id,
+      actor: actor
+    )
+    |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+    |> case do
+      {:ok, updated} ->
+        maybe_send_invitation_email(updated, token)
+        {:ok, updated, token}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # 创建/重发后尽力而为发邀请邮件（KD1/R1/R4）：有 speaker_email 才发；
+  # 组装与投递失败只落日志/遥测，不影响业务结果（补救 = 重发按钮）。
+  defp maybe_send_invitation_email(%__MODULE__{speaker_email: email} = invitation, token)
+       when is_binary(email) and email != "",
+       do: SpeakerInvitationEmail.send(invitation, token)
+
+  defp maybe_send_invitation_email(_invitation, _token), do: :ok
 
   # --- 创建准备 ------------------------------------------------------------
 
@@ -418,6 +477,8 @@ defmodule Cgc2046.Events.SpeakerInvitation do
         with {:ok, event} <- fetch_event(event_id),
              :ok <- ensure_event_eligible(event, workspace_id),
              :ok <- ensure_no_active_invitation(changeset, event_id),
+             :ok <- ensure_speaker_email_format(changeset),
+             :ok <- ensure_expires_at_future(changeset),
              :ok <- ensure_speaker_name(changeset),
              {:ok, invitation_id} <- invitation_id(changeset),
              {:ok, run} <-
@@ -504,6 +565,44 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
   end
 
+  # 邮箱格式校验（review M3/MEDIUM）：归一（trim + downcase）后验证，nil = 无邮箱
+  # 放行。严格单邮箱（review MEDIUM）：旧形状 `[^\s@]+` 接受
+  # "first,second@example.com"（逗号列表），该值经 Swoosh to() 投递后 SendCloud
+  # 可能按逗号拆分/拒信，且 accept 的账号精确匹配永不满足 → 死信邀请。
+  # 禁空白、@、逗号、分号、引号、尖括号、反斜杠 + RFC 5321 长度上限，
+  # 与 user.ex email 同形（单源纪律）。
+  defp ensure_speaker_email_format(changeset) do
+    case Ash.Changeset.get_attribute(changeset, :speaker_email) do
+      nil -> :ok
+      email when is_binary(email) -> validate_email_format(email)
+      _ -> {:error, :invalid_speaker_email}
+    end
+  end
+
+  defp validate_email_format(email) do
+    if byte_size(email) <= 254 and
+         Regex.match?(~r/^[^\s@,;"<>\\]+@[^\s@,;"<>\\]+\.[^\s@,;"<>\\]+$/, email),
+       do: :ok,
+       else: {:error, :invalid_speaker_email}
+  end
+
+  # 创建时拒绝已经过去的有效期（review HIGH）：过期 invited 只能来自时间流逝，
+  # 不允许落地「生而即死」的邀请（重发即续期路径负责救活它们）。
+  defp ensure_expires_at_future(changeset) do
+    case Ash.Changeset.get_attribute(changeset, :expires_at) do
+      nil ->
+        :ok
+
+      %DateTime{} = expires_at ->
+        if DateTime.compare(expires_at, DateTime.utc_now()) == :gt,
+          do: :ok,
+          else: {:error, :expires_at_in_past}
+
+      _ ->
+        {:error, :expires_at_in_past}
+    end
+  end
+
   # --- 决策准备（accept/decline 共享 token 校验 + 状态抢占） -----------------
 
   defp prepare_accept(changeset) do
@@ -520,11 +619,14 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   #
   # accept / decline 校验不对称（刻意决策，邀请设计 §2.2 S2 拍板 #1「token +
   # 账号匹配双重校验」；评审 E-4 BLOCKING 修复）：
-  # - accept 为双重校验：speaker_email 非空（定向邀请）时仅被邀请账号可接受
+  # - 发出人（invited_by）不能 accept/decline：管理页链接与嘉宾着陆页叠在同一
+  #   登录会话时，误点会把组织者绑成 Speaker 并作废一次性 token。
+  # - accept 另加双重校验：speaker_email 非空（定向邀请）时仅被邀请账号可接受
   #   （两边 trim + downcase 比较），防任意登录用户持有效链接把自己绑为
-  #   speaker_user_id；speaker_email 为空（手动转发链接）时 token 即凭据。
-  # - decline 保持 token-only：不绑定账号、无劫持收益，手动转发场景持链接即可
-  #   婉拒——与 accept 的不对称是刻意决策，勿"对齐"。
+  #   speaker_user_id；speaker_email 为空（手动转发链接）时 token 即凭据
+  #   （发出人除外）。
+  # - decline 保持 token-only（发出人除外）：不绑定账号、无劫持收益，手动转发
+  #   场景持链接即可婉拒——勿把邮箱匹配扩到 decline。
   # 匹配校验必须先于条件 UPDATE 抢占——不匹配的 accept 不得消耗 token。
   defp decide(changeset, to_status) do
     actor = changeset.context[:private][:actor]
@@ -542,12 +644,26 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
   end
 
+  # 决策身份：发出人一律拒绝（独立 reason :inviter_cannot_decide，与定向邮箱
+  # 不匹配的 :forbidden 区分——decline 路径也会命中，文案不能只提 accept）；
+  # accept 另校验定向邮箱；decline 仍 token-only。
+  defp ensure_decision_actor(changeset, to_status, actor) do
+    cond do
+      inviter?(changeset, actor) ->
+        {:error, :inviter_cannot_decide}
+
+      to_status == :declined ->
+        :ok
+
+      true ->
+        ensure_accept_actor(changeset, actor)
+    end
+  end
+
   # accept 双重校验的账号匹配侧（token 侧由 claim_decision 条件 UPDATE 复验）。
   # speaker_email 自创建归一（trim + downcase），actor.email 为 ci_string，
   # 统一 to_string 后归一比较；账号无邮箱（如小程序手机号用户）恒不匹配。
-  defp ensure_decision_actor(_changeset, :declined, _actor), do: :ok
-
-  defp ensure_decision_actor(changeset, :accepted, actor) do
+  defp ensure_accept_actor(changeset, actor) do
     case normalize_email(changeset.data.speaker_email) do
       nil ->
         :ok
@@ -558,6 +674,11 @@ defmodule Cgc2046.Events.SpeakerInvitation do
           else: {:error, :forbidden}
     end
   end
+
+  defp inviter?(changeset, %{id: actor_id}) when not is_nil(actor_id),
+    do: changeset.data.invited_by == actor_id
+
+  defp inviter?(_changeset, _actor), do: false
 
   defp actor_email(%{email: email}) when not is_nil(email), do: to_string(email)
   defp actor_email(_), do: nil
@@ -624,6 +745,56 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     changeset
     |> Ash.Changeset.force_change_attribute(:status, :declined)
     |> Ash.Changeset.force_change_attribute(:declined_at, now)
+  end
+
+  # --- 重发 / 重新生成链接（KD2/KD3） --------------------------------------
+
+  # 条件 UPDATE 抢占（同 accept/decline 模式），与并发 resend/accept 竞争时只有一方赢：
+  # - extra_where token_hash CAS：并发 resend（resend 不改 status，双方都满足
+  #   status='invited'）时旧哈希复验使败者 not_claimed——否则败者拿到「成功」
+  #   但邮件里的链接即刻作废（静默死信，review M1）；
+  # - 重发即续期：原子清空 expires_at（不设过期）。过期邀请若被拒绝重发，
+  #   会与「同邮箱未终态唯一索引挡住重邀」叠加成新死锁，违背 R6「一键自救」
+  #   （review HIGH）；清空后新链接即刻可用，新邮件不再携带死链。
+  # 输家（已决策/完成）统一 :not_invited（R6/AE7）。
+  defp prepare_resend(changeset) do
+    actor = changeset.context[:private][:actor]
+    token_hash = Ash.Changeset.get_argument(changeset, :token_hash)
+
+    cond do
+      is_nil(actor) ->
+        Ash.Changeset.add_error(changeset, "resend_invitation requires an authenticated actor")
+
+      not (is_binary(token_hash) and token_hash != "") ->
+        Ash.Changeset.add_error(changeset, "token_hash is required")
+
+      true ->
+        now = DateTime.utc_now()
+
+        case ApprovalClaim.claim(changeset.data,
+               table: :speaker_invitations,
+               from: [:invited],
+               set: [
+                 token_hash: {:arg, :token_hash},
+                 expires_at: nil,
+                 updated_at: {:arg, :now}
+               ],
+               extra_where: {"token_hash = $1", [changeset.data.token_hash]},
+               token_hash: token_hash,
+               now: now
+             ) do
+          {:ok, _returned} ->
+            changeset
+            |> Ash.Changeset.force_change_attribute(:token_hash, token_hash)
+            |> Ash.Changeset.force_change_attribute(:expires_at, nil)
+
+          {:error, :not_claimed} ->
+            add_domain_error(changeset, :not_invited)
+
+          {:error, {:database, _} = reason} ->
+            add_domain_error(changeset, reason)
+        end
+    end
   end
 
   # --- 材料产出（M1 内嵌步骤） ------------------------------------------------
@@ -847,13 +1018,23 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp domain_error_message(:forbidden),
     do: "only the invited speaker account may accept this invitation"
 
+  defp domain_error_message(:inviter_cannot_decide),
+    do: "the invitation sender cannot accept or decline their own invitation"
+
   defp domain_error_message(:event_not_found), do: "event not found"
   defp domain_error_message(:event_not_open), do: "event is closed or cancelled"
   defp domain_error_message(:target_tenant_mismatch), do: "event does not belong to tenant"
   defp domain_error_message(:speaker_name_required), do: "speaker name is required"
-  defp domain_error_message(:invitation_id_unavailable), do: "invitation id unavailable"
-  defp domain_error_message(:materials_required), do: "sharing materials must be produced first"
-  defp domain_error_message(:not_accepted), do: "invitation has not been accepted"
+
+  defp domain_error_message(:not_invited),
+    do: "invitation is no longer pending (already accepted, declined or completed)"
+
+  defp domain_error_message(:expires_at_in_past),
+    do: "expires_at must be in the future"
+
+  defp domain_error_message(:invalid_speaker_email),
+    do: "speaker email must be a valid email address"
+
   defp domain_error_message(:workflow_run_not_found), do: "workflow run not found"
   defp domain_error_message(:materials_save_failed), do: "failed to save sharing materials"
   defp domain_error_message(:invitation_not_found), do: "invitation not found"
@@ -868,6 +1049,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     do: "speaker_invitation_invalid_or_expired_token"
 
   defp domain_error_code(:forbidden), do: "speaker_invitation_forbidden"
+  defp domain_error_code(:inviter_cannot_decide), do: "speaker_invitation_inviter_cannot_decide"
   defp domain_error_code(:event_not_found), do: "speaker_invitation_event_not_found"
   defp domain_error_code(:event_not_open), do: "speaker_invitation_event_not_open"
   defp domain_error_code(:target_tenant_mismatch), do: "speaker_invitation_target_tenant_mismatch"
@@ -878,6 +1060,8 @@ defmodule Cgc2046.Events.SpeakerInvitation do
 
   defp domain_error_code(:materials_required), do: "speaker_invitation_materials_required"
   defp domain_error_code(:not_accepted), do: "speaker_invitation_not_accepted"
+  defp domain_error_code(:not_invited), do: "speaker_invitation_not_invited"
+  defp domain_error_code(:invalid_speaker_email), do: "speaker_invitation_invalid_speaker_email"
   defp domain_error_code(:workflow_run_not_found), do: "speaker_invitation_workflow_run_not_found"
   defp domain_error_code(:materials_save_failed), do: "speaker_invitation_materials_save_failed"
   defp domain_error_code(:invitation_not_found), do: "speaker_invitation_invitation_not_found"

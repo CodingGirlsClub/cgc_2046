@@ -14,6 +14,7 @@ require "json"
 require "fileutils"
 require_relative "mcp_config"
 require_relative "course_routes"
+require_relative "offering_routes"
 
 class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
@@ -122,6 +123,26 @@ class Cgc2046Ext < Clacky::ApiExtension
     json(outcome[:body], status: outcome[:status])
   end
 
+  # ── U6 发现面板数据面(公开浏览,纯读透传;无需 workspace_id,KTD9) ──────────
+
+  # GET /api/ext/cgc-2046/offerings?kind=&city=&starts_after=&starts_before=
+  # 公开活动/课程列表:透传 MCP list_public_offerings。四个过滤参数皆可选,
+  # 空值不下发;全缺省 = 服务端「近期」口径(未来条目 + 时间待定条目)。
+  get "/offerings" do
+    outcome = Cgc2046OfferingRoutes.call_offering_tool(self, "list_public_offerings", offering_filters)
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/offerings/:id?kind=
+  # 单个公开条目详情:透传 MCP get_public_offering(id 必填走 route capture,kind 可选)。
+  get "/offerings/:id" do
+    args = { "id" => route_params_value("id") }
+    kind = route_params_value("kind")
+    args["kind"] = kind unless kind.empty?
+    outcome = Cgc2046OfferingRoutes.call_offering_tool(self, "get_public_offering", args)
+    json(outcome[:body], status: outcome[:status])
+  end
+
   private
 
   # 路由/查询参数读取:三层兜底——
@@ -146,5 +167,13 @@ class Cgc2046Ext < Clacky::ApiExtension
       tool_name,
       extra.merge("workspace_id" => workspace_id)
     )
+  end
+
+  # 发现列表过滤参数收集:kind/city/starts_after/starts_before 皆可选,空串不下发
+  def offering_filters
+    %w[kind city starts_after starts_before].each_with_object({}) do |key, args|
+      value = route_params_value(key)
+      args[key] = value unless value.empty?
+    end
   end
 end

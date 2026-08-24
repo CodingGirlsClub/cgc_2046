@@ -4,6 +4,7 @@ import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
+import { enrollmentBadgeText, formatDateTime, registrationClosedNotice, scheduleText, venueText } from '@/domain/format'
 import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
@@ -59,23 +60,25 @@ export default function EventDetailPage() {
   if (error) return <PageState kind='error' message={error} onRetry={load} />
   if (!item) return <PageState kind='empty' message='内容不存在' />
 
+  const closedNotice = registrationClosedNotice(item.enrollmentBadge)
+
   return (
     <View className={styles.page}>
       <ScrollView scrollY className={styles.scroll}>
         <View className={styles.header}>
           <Text className={styles.kind}>{item.kind === 'event' ? 'EVENT' : 'COURSE'}</Text>
           <Text className={styles.title} data-testid='detail-title'>{item.title}</Text>
-          <Text className={styles.club}>{item.workspaceName}</Text>
         </View>
 
         <View className={styles.metrics}>
           <View className={styles.metric}>
-            <Text className={styles.metricValue}>{item.confirmedCount}</Text>
-            <Text className={styles.metricLabel}>已确认</Text>
+            {/* 公开面以派生标签替代原始计数（KTD1/D2：confirmedCount 对非成员不可读） */}
+            <Text className={styles.metricValue} data-testid='enrollment-badge'>{enrollmentBadgeText[item.enrollmentBadge]}</Text>
+            <Text className={styles.metricLabel}>报名状态</Text>
           </View>
           <View className={styles.metric}>
-            <Text className={styles.metricValue}>{item.capacity ?? '∞'}</Text>
-            <Text className={styles.metricLabel}>名额</Text>
+            <Text className={styles.metricValue}>{item.registrationDeadline ? formatDateTime(item.registrationDeadline) : '无截止'}</Text>
+            <Text className={styles.metricLabel}>报名截止</Text>
           </View>
           <View className={styles.metric}>
             <Text className={styles.metricValue}>{item.enrollmentPolicy === 'request' ? '审批' : '即时'}</Text>
@@ -85,14 +88,16 @@ export default function EventDetailPage() {
 
         <View className={styles.block}>
           <Text className={styles.blockTitle}>活动信息</Text>
-          {item.schemaFields.length === 0 ? (
-            <PageState kind='empty' message='组织者还没有补充详细信息' />
-          ) : item.schemaFields.map((field) => (
-            <View key={field.key} className={styles.row} data-testid={`schema-field-${field.key}`}>
-              <Text className={styles.label}>{field.label}</Text>
-              <Text className={styles.value}>{field.value}</Text>
+          <View className={styles.row} data-testid='detail-schedule'>
+            <Text className={styles.label}>时间</Text>
+            <Text className={styles.value}>{scheduleText(item.startsAt, item.endsAt)}</Text>
+          </View>
+          {item.kind === 'event' && (
+            <View className={styles.row} data-testid='detail-venue'>
+              <Text className={styles.label}>地点</Text>
+              <Text className={styles.value}>{venueText(item.venue) ?? '地点待定'}</Text>
             </View>
-          ))}
+          )}
         </View>
 
         {item.pricingEnabled && (
@@ -116,15 +121,21 @@ export default function EventDetailPage() {
             <Text className={styles.policyText}>收费活动：提交报名后请在限定时间内完成支付。</Text>
           )}
           {item.registrationDeadline && (
-            <Text className={styles.deadline}>截止：{new Date(item.registrationDeadline).toLocaleString()}</Text>
+            <Text className={styles.deadline}>截止：{formatDateTime(item.registrationDeadline)}</Text>
           )}
         </View>
       </ScrollView>
 
       <View className={styles.footer}>
-        <Button className={styles.primaryButton} data-testid='register-action' onClick={register}>
-          立即报名
-        </Button>
+        {closedNotice ? (
+          <Text className={styles.closedNotice} data-testid='registration-closed-notice'>
+            {closedNotice}
+          </Text>
+        ) : (
+          <Button className={styles.primaryButton} data-testid='register-action' onClick={register}>
+            立即报名
+          </Button>
+        )}
       </View>
     </View>
   )

@@ -135,6 +135,26 @@ defmodule Cgc2046.Workers.NotificationWorker do
       job_meta_keys: ["idempotency_key"],
       unique: :default,
       stale: nil
+    },
+    # organizer-payment U5/KTD6：收款到账 → workspace 管理者（逐笔实时，
+    # R12）；payload 构建 = Payments.NotificationTemplates.receipt_data/2。
+    %{
+      template_key: "payment_received",
+      id_key: nil,
+      data_keys: ["order_id", "enrollment_id", "amount", "provider", "title", "tier_name"],
+      job_meta_keys: ["idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
+    # organizer-payment U5/KTD6：订单超时作废 → 报名人 + workspace 管理者
+    # （R13；re_enrollable = 报名截止未过才承诺可重新报名）。
+    %{
+      template_key: "payment_expired",
+      id_key: nil,
+      data_keys: ["order_id", "enrollment_id", "amount", "provider", "title", "re_enrollable"],
+      job_meta_keys: ["idempotency_key"],
+      unique: :default,
+      stale: nil
     }
   ]
 

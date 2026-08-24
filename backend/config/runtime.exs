@@ -159,7 +159,10 @@ if config_env() == :prod do
       # 缴费闭环三模板（U10/KTD8 定稿）
       "payment_succeeded" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
       "refund_succeeded" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_FAILED")
+      "refund_failed" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_FAILED"),
+      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
+      "payment_received" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED"),
+      "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED")
     },
     tt: %{
       "approval_result" => System.get_env("TT_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -172,7 +175,10 @@ if config_env() == :prod do
       # 缴费闭环三模板（U10/KTD8 定稿）
       "payment_succeeded" => System.get_env("TT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
       "refund_succeeded" => System.get_env("TT_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.get_env("TT_MP_TEMPLATE_REFUND_FAILED")
+      "refund_failed" => System.get_env("TT_MP_TEMPLATE_REFUND_FAILED"),
+      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
+      "payment_received" => System.get_env("TT_MP_TEMPLATE_PAYMENT_RECEIVED"),
+      "payment_expired" => System.get_env("TT_MP_TEMPLATE_PAYMENT_EXPIRED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -185,7 +191,10 @@ if config_env() == :prod do
       # 缴费闭环三模板（U10/KTD8 定稿）
       "payment_succeeded" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
       "refund_succeeded" => System.get_env("XHS_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.get_env("XHS_MP_TEMPLATE_REFUND_FAILED")
+      "refund_failed" => System.get_env("XHS_MP_TEMPLATE_REFUND_FAILED"),
+      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
+      "payment_received" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_RECEIVED"),
+      "payment_expired" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_EXPIRED")
     }
   }
 

@@ -98,4 +98,37 @@ describe("设计 token 守卫", () => {
     expect(darkTokens.get("accent")).toBe("#ea5504");
     expect(lightTokens.get("accent")).toBe("#ea5504");
   });
+
+  it("E. .ld-root 固定深色门面：landing 仍重声明暗色 token", () => {
+    const ldBlock = extractBlock(css, ".ld-root");
+    expect(ldBlock, "无法定位 .ld-root 块——landing 固定深色门面被移除？").not.toBeNull();
+    const ldTokens = parseTokens(ldBlock!);
+    expect(ldTokens.get("canvas")).toBe("#08090a");
+    expect(ldTokens.get("ink")).toBe("#f7f8f8");
+    expect(ldBlock).toContain("background: var(--canvas)");
+    expect(ldBlock).toContain("min-height: 100svh");
+  });
+
+  it("F. .public-catalog 跟随全局主题 token，不重声明固定暗色值", () => {
+    const catalogBlock = extractBlock(css, ".public-catalog");
+    expect(catalogBlock, "无法定位 .public-catalog 方向 B 根样式").not.toBeNull();
+    expect(parseTokens(catalogBlock!).size).toBe(0);
+    expect(catalogBlock).toContain("background: var(--canvas)");
+    expect(catalogBlock).toContain("color: var(--ink)");
+    expect(catalogBlock).toContain("min-height: 100svh");
+  });
+});
+
+describe("公开页键盘焦点环规则（F6 补全）", () => {
+  it("G. .public-catalog :focus-visible 覆盖原生表单控件 input/select/textarea", () => {
+    // F6：公开报名/赞助面原生控件（详情邀请码 input、价格 radio、赞助意向表单
+    // select/input）必须被 .public-catalog 作用域的焦点环规则覆盖。组件测试环境
+    // （happy-dom）不加载 globals.css，computed outline 不可断言——由本规则
+    // 文本守卫 + 详情页测试的结构断言（控件位于 .public-catalog 内）共同覆盖。
+    const rule =
+      /\.public-catalog a:focus-visible,[\s\S]*\.public-catalog input:focus-visible,[\s\S]*\.public-catalog select:focus-visible,[\s\S]*\.public-catalog textarea:focus-visible \{[\s\S]*outline: 2px solid var\(--accent-strong\);[\s\S]*outline-offset: 3px;/.exec(
+        css,
+      );
+    expect(rule).not.toBeNull();
+  });
 });

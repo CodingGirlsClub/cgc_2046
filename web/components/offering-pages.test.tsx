@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
   useWorkspaceBySlug: vi.fn(),
 }));
 
+const { client: apolloClient } = vi.hoisted(() => ({
+  client: { query: vi.fn(), mutate: vi.fn() },
+}));
+
+vi.mock("@/lib/apollo-client", () => ({ client: apolloClient }));
 const routerMocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 
 // i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
@@ -79,6 +84,9 @@ vi.mock("@/components/sponsorship-management", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/offering-payments-panel", () => ({
+  default: () => null,
+}));
 vi.mock("@/components/speaker-invitation-panel", () => ({
   default: () => null,
 }));
@@ -89,7 +97,8 @@ vi.mock("@/components/icons", () => ({
 
 const { submitEnrollment } = vi.hoisted(() => ({ submitEnrollment: vi.fn() }));
 
-vi.mock("@/lib/public-offerings", () => ({
+vi.mock("@/lib/public-offerings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/public-offerings")>()),
   parseSponsorshipTiers: () => [],
   submitEnrollment,
 }));
@@ -572,6 +581,11 @@ describe("OfferingNewPage 新建调用链", () => {
           visibility: "workspace",
           capacity: 20,
           registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+          startsAt: null,
+          endsAt: null,
+          ...(kind === "event"
+            ? { venue: { country: "", province: "", city: "", district: "" } }
+            : {}),
         }),
       );
       expect(routerMocks.push).toHaveBeenCalledWith(`${base}offering-1`);
@@ -669,9 +683,13 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
           enrollmentPolicy: "request",
           capacity: 20,
           registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+          startsAt: null,
+          endsAt: null,
           ...(kind === "course"
             ? { researchRequirements: JSON.stringify({ note: "" }) }
-            : {}),
+            : { venue: { country: "", province: "", city: "", district: "" } }),
+          pricingEnabled: false,
+          priceTiers: [],
         }),
       );
       // 成功：局部状态更新（标题）＋表单复位（metaDraft → null）
@@ -950,5 +968,574 @@ describe("OfferingDetailPage fetchPendingCount 权限门控", () => {
 
     await screen.findByRole("heading", { name: "测试活动" });
     expect(mocks.fetchPendingCount).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------- U5/R14：开始/结束时间与结构化 venue 录入 ---------------- */
+
+const OWNER_WS_MOCK = {
+  ws: OWNER_WORKSPACE,
+  readOnlyVisitor: false,
+  loading: false,
+  error: null,
+  retry: vi.fn(),
+};
+
+describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
+  it("event：填开始/结束时间 + venue 四键 → createOffering 携带 UTC ISO 时间与四键草稿", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "线下工作坊" },
+    });
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-01T09:30" },
+    });
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-09-01T12:00" },
+    });
+    fireEvent.change(screen.getByLabelText("国家"), { target: { value: "中国" } });
+    fireEvent.change(screen.getByLabelText("省份"), { target: { value: "浙江省" } });
+    fireEvent.change(screen.getByLabelText("城市"), { target: { value: "杭州市" } });
+    fireEvent.change(screen.getByLabelText("区县"), { target: { value: "西湖区" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    // datetime-local 原值经 toLocalInput/fromLocalInput 转 UTC ISO（KTD6 时序后端复验）；
+    // venue 四键草稿原样下发，JsonString 组装在 lib 层（lib/events.test.ts 覆盖）
+    await waitFor(() =>
+      expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
+        title: "线下工作坊",
+        enrollmentPolicy: "open",
+        visibility: "public",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date("2026-09-01T09:30").toISOString(),
+        endsAt: new Date("2026-09-01T12:00").toISOString(),
+        venue: { country: "中国", province: "浙江省", city: "杭州市", district: "西湖区" },
+              }),
+    );
+    expect(routerMocks.push).toHaveBeenCalledWith("/w/demo/events/offering-1");
+  });
+
+  it("event：venue 部分填写（缺键）→ 就地拦截提示，不产生提交", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "线下工作坊" },
+    });
+    fireEvent.change(screen.getByLabelText("国家"), { target: { value: "中国" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(await screen.findByText(/四项齐全/)).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+    expect(routerMocks.push).not.toHaveBeenCalled();
+  });
+
+  it("event：venue 全空 → 四键空草稿照常下发（lib 组装为 null），时间留空 → null", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "线上分享" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    await waitFor(() =>
+      expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
+        title: "线上分享",
+        enrollmentPolicy: "open",
+        visibility: "public",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: null,
+        endsAt: null,
+        venue: { country: "", province: "", city: "", district: "" },
+      }),
+    );
+  });
+
+  it("course：只有时间输入、无 venue 输入；提交不携带 venue 键", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="course" />);
+
+    expect(await screen.findByLabelText(/^开始时间/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^结束时间/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("国家")).not.toBeInTheDocument();
+    expect(screen.queryByText(/活动地点/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/标题/), {
+      target: { value: "春季训练营" },
+    });
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-01T09:30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建课程" }));
+
+    await waitFor(() =>
+      expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "course", {
+        title: "春季训练营",
+        enrollmentPolicy: "open",
+        visibility: "public",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date("2026-09-01T09:30").toISOString(),
+        endsAt: null,
+      }),
+    );
+  });
+
+  it.each([
+    ["event", "活动"],
+    ["course", "课程"],
+  ] as const)(
+    "%s 创建：end<=start 后端校验错误（KTD6 message-only）→ 映射文案展示，不透传原文",
+    async (kind, label) => {
+      mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+      mocks.createOffering.mockResolvedValueOnce({
+        result: null,
+        errors: [
+          { message: "ends_at must be after starts_at", code: "invalid_changes" },
+        ],
+      });
+
+      render(<OfferingNewPage slug="demo" kind={kind} />);
+
+      fireEvent.change(await screen.findByLabelText(/标题/), {
+        target: { value: "x" },
+      });
+      fireEvent.change(screen.getByLabelText(/^开始时间/), {
+        target: { value: "2026-09-02T09:00" },
+      });
+      fireEvent.change(screen.getByLabelText(/^结束时间/), {
+        target: { value: "2026-09-01T09:00" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: `创建${label}` }));
+
+      expect(
+        await screen.findByText("结束时间须晚于开始时间。"),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/ends_at must be after/)).not.toBeInTheDocument();
+      expect(routerMocks.push).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
+  it("event：预填 startsAt/venue → 修改后保存携带 UTC ISO 时间与 venue 四键草稿", async () => {
+    const startsIso = "2026-09-01T01:30:00.000Z";
+    const venueJson = JSON.stringify({
+      country: "中国",
+      province: "浙江省",
+      city: "杭州市",
+      district: "西湖区",
+    });
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: startsIso,
+        endsAt: "2026-09-01T04:00:00.000Z",
+        venue: venueJson,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ startsAt: startsIso, endsAt: null, venue: venueJson }),
+    );
+
+    // 预填：startsAt 回读同一时刻（toLocalInput 往返）；endsAt null → 空；venue 四键回填
+    const startsInput = screen.getByLabelText(/^开始时间/) as HTMLInputElement;
+    expect(startsInput.value).not.toBe("");
+    expect(new Date(startsInput.value).toISOString()).toBe(startsIso);
+    expect(
+      (screen.getByLabelText(/^结束时间/) as HTMLInputElement).value,
+    ).toBe("");
+    expect((screen.getByLabelText("国家") as HTMLInputElement).value).toBe("中国");
+    expect((screen.getByLabelText("区县") as HTMLInputElement).value).toBe("西湖区");
+
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-09-01T12:00" },
+    });
+    fireEvent.change(screen.getByLabelText("区县"), { target: { value: "滨江区" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "event", {
+        title: "测试活动",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date(startsInput.value).toISOString(),
+        endsAt: new Date("2026-09-01T12:00").toISOString(),
+        venue: { country: "中国", province: "浙江省", city: "杭州市", district: "滨江区" },
+        pricingEnabled: false,
+        priceTiers: [],
+      }),
+    );
+    expect(await screen.findByText("已保存")).toBeInTheDocument();
+  });
+
+  it("event：venue 清空其一（缺键）→ 就地拦截提示，updateOffering 不调用", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        venue: JSON.stringify({
+          country: "中国",
+          province: "浙江省",
+          city: "杭州市",
+          district: "西湖区",
+        }),
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText("区县"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByText(/四项齐全/)).toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("course：MetaDraft 有时间输入、无 venue 输入；保存不携带 venue 键", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: "2026-09-01T01:30:00.000Z",
+        endsAt: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail("course", offeringRow({}));
+
+    expect(screen.getByLabelText(/^开始时间/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^结束时间/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("国家")).not.toBeInTheDocument();
+    expect(screen.queryByText(/活动地点/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-01T09:30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "course", {
+        title: "测试活动",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date("2026-09-01T09:30").toISOString(),
+        endsAt: null,
+        researchRequirements: JSON.stringify({ note: "" }),
+        pricingEnabled: false,
+        priceTiers: [],
+      }),
+    );
+  });
+
+  it("event：end<=start 后端校验错误（KTD6）→ 映射文案展示，不透传原文", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: null,
+      errors: [
+        { message: "ends_at must be after starts_at", code: "invalid_changes" },
+      ],
+    });
+
+    await renderManageDetail("event", offeringRow({}));
+
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-02T09:00" },
+    });
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-09-01T09:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText("结束时间须晚于开始时间。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ends_at must be after/)).not.toBeInTheDocument();
+  });
+});
+
+describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
+  it("AE4：免费创建——收费区默认收起、提交 payload 不含定价字段", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({ result: { id: "offering-1" }, errors: [] });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "免费分享会" },
+    });
+    // 收费区收起（<details open=false>，未展开）
+    const section = screen.getByTestId("pricing-section") as HTMLDetailsElement;
+    expect(section.open).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    const call = mocks.createOffering.mock.calls[0];
+    expect(call[0]).toBe("workspace-1");
+    expect(call[2]).not.toHaveProperty("pricingEnabled");
+    expect(call[2]).not.toHaveProperty("priceTiers");
+  });
+
+  it("开启收费零档位 → 就地拦截，不提交", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "收费工作坊" },
+    });
+    fireEvent.click(screen.getByText("收费设置（可选）"));
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(await screen.findByText(/至少一个有效档位/)).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+  });
+
+  it("收费创建：payload 含 pricingEnabled + 序列化档位", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({ result: { id: "offering-1" }, errors: [] });
+
+    render(<OfferingNewPage slug="demo" kind="course" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "收费课程" },
+    });
+    fireEvent.click(screen.getByText("收费设置（可选）"));
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByTestId("tier-add"));
+    const nameInput = document.querySelector('[data-testid^="tier-name-"]') as HTMLInputElement;
+    const amountInput = document.querySelector('[data-testid^="tier-amount-"]') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "标准" } });
+    fireEvent.change(amountInput, { target: { value: "199" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建课程" }));
+
+    await waitFor(() => expect(mocks.createOffering).toHaveBeenCalled());
+    const input = mocks.createOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(input.pricingEnabled).toBe(true);
+    const tiers = input.priceTiers as string[];
+    expect(tiers).toHaveLength(1);
+    const tier = JSON.parse(tiers[0]);
+    expect(tier.name).toBe("标准");
+    expect(tier.amount_cents).toBe(19900);
+  });
+
+  it("KTD9：编辑面加载含过期档的活动 → 全量档位可编辑，保存下发全量", async () => {
+    const tiers = [
+      JSON.stringify({ id: "t1", name: "早鸟", amount_cents: 9900 }),
+      JSON.stringify({
+        id: "t2",
+        name: "往期档",
+        amount_cents: 19900,
+        available_until: "2020-01-01T00:00:00Z",
+      }),
+    ];
+
+    await renderManageDetail("event", offeringRow({ pricingEnabled: true, priceTiers: tiers }));
+
+    // 编辑区开关可见（收费开启）且两档全部进入编辑器（含过期档）
+    expect(screen.getByTestId("pricing-toggle")).toBeChecked();
+    const rows = document.querySelectorAll('[data-testid^="tier-row-"]');
+    expect(rows).toHaveLength(2);
+
+    // F7：改标题（定价未变）→ 不下发定价键（脏检查）
+    fireEvent.change(screen.getByLabelText(/标题/), { target: { value: "改名" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    const metaOnly = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(metaOnly).not.toHaveProperty("pricingEnabled");
+    expect(metaOnly).not.toHaveProperty("priceTiers");
+
+    // 档位实际变更（删过期档）→ 下发全量剩余档（KTD9 语义：不静默丢档）
+    fireEvent.click(screen.getByTestId("tier-remove-t2"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalledTimes(2));
+    const input = mocks.updateOffering.mock.calls[1][2] as Record<string, unknown>;
+    const sent = (input.priceTiers as string[]).map((x) => JSON.parse(x).id);
+    expect(sent).toEqual(["t1"]);
+    expect(input.pricingEnabled).toBe(true);
+  });
+});
+
+describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前端半）", () => {
+  /** 守卫懒查询 mock（文件级 apolloClient.query；三响应序列 = stats/paid/pending） */
+  function stubGuardQueries(opts: {
+    collectedCents?: number;
+    paidRows?: Array<Record<string, unknown>>;
+    paidCount?: number;
+    pendingCount?: number;
+  }) {
+    const stats = {
+      data: {
+        workspacePaymentStats: JSON.stringify({
+          collected_cents: opts.collectedCents ?? 0,
+          pending_cents: 0,
+          refunded_cents: 0,
+          refund_failed_cents: 0,
+        }),
+      },
+    };
+    const paid = {
+      data: {
+        workspaceOrders: {
+          results: opts.paidRows ?? [],
+          count: opts.paidCount ?? (opts.paidRows ?? []).length,
+        },
+      },
+    };
+    const pending = {
+      data: { workspaceOrders: { results: [], count: opts.pendingCount ?? 0 } },
+    };
+
+    apolloClient.query
+      .mockReset()
+      .mockResolvedValue(stats)
+      .mockResolvedValueOnce(stats)
+      .mockResolvedValueOnce(paid)
+      .mockResolvedValueOnce(pending);
+  }
+
+  it("AE1 前端：关闭收费 → 弹窗显示 N/M，取消则不发 mutation", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    await stubGuardQueries({
+      collectedCents: 3 * 19900,
+      paidRows: [
+        { tierId: "t1" },
+        { tierId: "t1" },
+        { tierId: "t1" },
+      ],
+      paidCount: 3,
+      pendingCount: 2,
+    });
+
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByTestId("pricing-disable-guard")).toBeInTheDocument();
+    expect(await screen.findByText(/已付 3 人不退款；待付 2 人将免费确认/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-cancel"));
+    expect(screen.queryByTestId("pricing-disable-guard")).not.toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("AE8：开启收费且有待审批 → 披露 M；确认后执行保存", async () => {
+    mocks.fetchPendingCount.mockResolvedValue(2);
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: false,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByTestId("pricing-enable-guard")).toBeInTheDocument();
+    expect(screen.getByText(/约 2 名待审批者通过后需选择档位付款/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-confirm"));
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+  });
+
+  it("AE3：取消收费活动确认弹窗含退款笔数与总金额", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+      }),
+    );
+
+    await stubGuardQueries({
+      collectedCents: 5 * 19900,
+      paidRows: Array.from({ length: 5 }, () => ({ tierId: "t1" })),
+      paidCount: 5,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    const disclosure = await screen.findByTestId("cancel-refund-disclosure");
+    expect(disclosure).toHaveTextContent("5");
+    expect(disclosure).toHaveTextContent("995.00");
+  });
+
+  it("AE2 前端：删除已售档触发警告（快照语义文案）", async () => {
+    stubGuardQueries({
+      collectedCents: 19900,
+      paidRows: [{ tierId: "t-sold" }],
+      paidCount: 1,
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [
+          JSON.stringify({ id: "t-sold", name: "已售档", amount_cents: 19900 }),
+          JSON.stringify({ id: "t-free", name: "未售档", amount_cents: 9900 }),
+        ],
+      }),
+    );
+
+    await stubGuardQueries({
+      collectedCents: 19900,
+      paidRows: [{ tierId: "t-sold" }],
+      paidCount: 1,
+    });
+
+    // 守卫数据就绪后删除已售档 → 警告出现
+    await waitFor(() => {
+      const removeSold = screen.queryByTestId("tier-remove-t-sold");
+      if (removeSold) fireEvent.click(removeSold);
+    });
+
+    expect(await screen.findByTestId("sold-tier-warning")).toBeInTheDocument();
   });
 });

@@ -88,6 +88,104 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     end
   end
 
+  describe "订单活动维度（organizer-payment U4，KTD2/KTD3）" do
+    test "workspaceOrders 按 eventId/courseId 筛选只回该活动订单" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+
+      event_a = paid_event(workspace, owner)
+      event_b = paid_event(workspace, owner)
+
+      course_c =
+        EventFixtures.create_course(workspace, owner, %{
+          pricing_enabled: true,
+          price_tiers: [@tier]
+        })
+
+      _learner_a1 = paid_enrollment_in(event_a, workspace, owner, "off-a1")
+      _learner_a2 = pending_enrollment_in(event_a, workspace, owner, "off-a2")
+      _learner_b = paid_enrollment_in(event_b, workspace, owner, "off-b1")
+      _learner_c = paid_enrollment_in(course_c, workspace, owner, "off-c1")
+
+      # eventId 筛选：只回 event_a 的两单（paid + pending）
+      assert rows =
+               results(
+                 graphql(orders_query_with_event(workspace.id, event_a.id), sign_in_token(owner))
+               )
+
+      assert length(rows) == 2
+      assert Enum.sort(Enum.map(rows, & &1["status"])) == ["paid", "pending"]
+
+      # courseId 筛选：只回 course_c 的一单
+      assert [%{"status" => "paid"}] =
+               results(
+                 graphql(
+                   orders_query_with_course(workspace.id, course_c.id),
+                   sign_in_token(owner)
+                 )
+               )
+    end
+
+    test "workspacePaymentStats 带 offering 参数：口径与全工作区同源" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+
+      event_a = paid_event(workspace, owner)
+      _b = paid_enrollment_in(paid_event(workspace, owner), workspace, owner, "stats2-b")
+      paid_enrollment_in(event_a, workspace, owner, "stats2-a1")
+      pending_enrollment_in(event_a, workspace, owner, "stats2-a2")
+
+      scoped =
+        graphql(stats_query_with_event(workspace.id, event_a.id), sign_in_token(owner))
+
+      assert %{"data" => %{"workspacePaymentStats" => raw}} = scoped
+      stats = raw |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
+      assert stats["collected_cents"] == 19_900
+      assert stats["pending_cents"] == 19_900
+      assert stats["refunded_cents"] == 0
+
+      # 全工作区口径（2 paid + 1 pending）
+      assert %{"data" => %{"workspacePaymentStats" => raw_all}} =
+               graphql(stats_query(workspace.id), sign_in_token(owner))
+
+      all = raw_all |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
+      assert all["collected_cents"] == 2 * 19_900
+      assert all["pending_cents"] == 19_900
+    end
+
+    test "retryRefund：refund_failed → refunding + job 入队；paid 被拒；权限矩阵" do
+      %{owner: owner, member: member, admin: admin, workspace: workspace} = managed_workspace()
+
+      platform = Fixtures.platform_admin("retry-platform")
+      learner = refund_failed_enrollment(workspace, owner, "retry-failed")
+      order_id = order_id_of(enrollment_id_of(learner))
+
+      # 普通成员 403
+      assert [%{"message" => _}] =
+               gql_errors(graphql(retry_mutation(order_id), sign_in_token(member)))
+
+      # paid 单调用被拒（状态守卫）
+      paid_learner = paid_enrollment(workspace, owner, "retry-paid")
+      paid_order_id = order_id_of(enrollment_id_of(paid_learner))
+
+      assert [%{"message" => _} | _] =
+               gql_errors(graphql(retry_mutation(paid_order_id), sign_in_token(owner)))
+
+      # Owner：refund_failed → refunding + 退款 job 入队
+      assert %{"data" => %{"retryRefund" => %{"result" => %{"status" => "refunding"}}}} =
+               graphql(retry_mutation(order_id), sign_in_token(owner))
+
+      assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order_id})
+
+      # Admin / PlatformAdmin 同权（矩阵收尾：用 paid 单验证不再 403 即状态错误）
+      assert [%{"message" => msg}] =
+               gql_errors(graphql(retry_mutation(paid_order_id), sign_in_token(admin)))
+
+      assert msg =~ "already" or msg =~ "processed"
+
+      assert [%{"message" => _}] =
+               gql_errors(graphql(retry_mutation(paid_order_id), sign_in_token(platform)))
+    end
+  end
+
   describe "三通知模板端到端（R22/KTD8 定稿）" do
     test "模板 registry 三键已配（config 契约定稿）" do
       registry = Application.get_env(:cgc_2046, :miniprogram_templates, %{})
@@ -341,10 +439,11 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     require Ash.Query
 
     order = Ash.get!(Order, order_id, authorize?: false)
+    event_id = "evt-" <> order.out_trade_no
 
     event =
       WebhookEvent
-      |> Ash.Query.filter(event_id == ^("evt-" <> order.out_trade_no))
+      |> Ash.Query.filter(event_id == ^event_id)
       |> Ash.read_one!(authorize?: false)
       |> case do
         nil ->
@@ -389,6 +488,105 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     """
   end
 
+  # ── U4 helpers ──
+
+  defp orders_query_with_event(workspace_id, event_id) do
+    """
+    { workspaceOrders(workspaceId: "#{workspace_id}", filter: {eventId: {eq: "#{event_id}"}}) { results { id status } } }
+    """
+  end
+
+  defp orders_query_with_course(workspace_id, course_id) do
+    """
+    { workspaceOrders(workspaceId: "#{workspace_id}", filter: {courseId: {eq: "#{course_id}"}}) { results { id status } } }
+    """
+  end
+
+  defp stats_query_with_event(workspace_id, event_id) do
+    """
+    { workspacePaymentStats(workspaceId: "#{workspace_id}", eventId: "#{event_id}") }
+    """
+  end
+
+  defp retry_mutation(order_id) do
+    """
+    mutation {
+      retryRefund(id: "#{order_id}") {
+        result { id status }
+        errors { message }
+      }
+    }
+    """
+  end
+
+  # 定目标报名（共享同一 event/course 的布置基础）
+  defp enroll_in(target, workspace, learner) do
+    target_key = if target.__struct__ == Cgc2046.Events.Event, do: :event_id, else: :course_id
+
+    {:ok, enrollment} =
+      Enrollment
+      |> Ash.Changeset.for_create(:create_enrollment, %{
+        target_key => target.id,
+        user_id: learner.id,
+        tier_id: @tier_id
+      })
+      |> Ash.create(tenant: workspace.id, actor: learner)
+
+    enrollment
+  end
+
+  defp paid_enrollment_in(target, workspace, _creator, _suffix) do
+    learner = Fixtures.register_user("u4-#{uniq()}")
+    enrollment = enroll_in(target, workspace, learner)
+
+    {:ok, order} =
+      Order
+      |> Ash.Changeset.for_create(:create, %{
+        enrollment_id: enrollment.id,
+        provider: :wechat_native,
+        out_trade_no: "oto-" <> Ecto.UUID.generate(),
+        amount_cents: 19_900,
+        tier_snapshot: @tier,
+        expire_at: DateTime.add(DateTime.utc_now(), 2, :hour)
+      })
+      |> Ash.create(tenant: workspace.id, authorize?: false)
+
+    {:ok, _} =
+      order
+      |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-#{uniq()}"})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    {:ok, _} =
+      enrollment
+      |> Ash.Changeset.for_update(:settle_paid, %{})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    learner
+  end
+
+  defp pending_enrollment_in(target, workspace, _creator, _suffix) do
+    learner = Fixtures.register_user("u4-#{uniq()}")
+    enrollment = enroll_in(target, workspace, learner)
+    insert_order(workspace, enrollment, DateTime.add(DateTime.utc_now(), 1, :hour))
+    learner
+  end
+
+  defp refund_failed_enrollment(workspace, creator, suffix) do
+    learner = paid_enrollment(workspace, creator, suffix)
+
+    {:ok, refunding} =
+      order_of(learner)
+      |> Ash.Changeset.for_update(:start_refund, %{})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    {:ok, _} =
+      refunding
+      |> Ash.Changeset.for_update(:mark_refund_failed, %{})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    learner
+  end
+
   defp stats_query(workspace_id) do
     """
     { workspacePaymentStats(workspaceId: "#{workspace_id}") }
@@ -424,6 +622,22 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
       %{"data" => %{"workspaceOrders" => %{"results" => results}}} -> results
       %{"errors" => errors} -> flunk("query failed: #{inspect(errors)}")
       _ -> []
+    end
+  end
+
+  defp gql_errors(response) do
+    case response do
+      %{"errors" => errors} ->
+        errors
+
+      %{"data" => %{"retryRefund" => %{"errors" => errors}}} ->
+        errors
+
+      %{"data" => %{"workspaceOrders" => %{"results" => [_ | _]}}} ->
+        []
+
+      _ ->
+        []
     end
   end
 
