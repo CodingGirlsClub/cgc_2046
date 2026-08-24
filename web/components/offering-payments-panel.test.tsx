@@ -208,7 +208,12 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		await waitFor(() => expect(client.query.mock.calls.length).toBe(4));
 	});
 
-	it("AE4：免费活动 → 一行免费状态，不拉订单查询", () => {
+	it("AE4/F13：免费活动无订单 → 一行免费状态；有已付历史 → 完整面板可退款", async () => {
+		// 无订单：收敛一行免费态
+		client.query
+			.mockResolvedValueOnce(ordersPayload([]))
+			.mockResolvedValueOnce(statsPayload(0, 0, 0));
+
 		render(
 			<OfferingPaymentsPanel
 				workspaceId="ws-1"
@@ -219,7 +224,26 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 			/>,
 		);
 
-		expect(screen.getByTestId("offering-free-status")).toBeInTheDocument();
-		expect(client.query).not.toHaveBeenCalled();
+		expect(await screen.findByTestId("offering-free-status")).toBeInTheDocument();
+
+		// F13：免费态但有已付订单（关闭收费故意保留）→ 完整面板（退款可操作）
+		cleanup();
+		client.query
+			.mockReset()
+			.mockResolvedValueOnce(ordersPayload([{ ...baseOrder }]))
+			.mockResolvedValueOnce(statsPayload(19900, 0, 0));
+
+		render(
+			<OfferingPaymentsPanel
+				workspaceId="ws-1"
+				offeringId="ev-2"
+				kind="event"
+				manage
+				pricingEnabled={false}
+			/>,
+		);
+
+		expect(await screen.findByTestId(`offering-refund-${baseOrder.id}`)).toBeInTheDocument();
+		expect(screen.queryByTestId("offering-free-status")).not.toBeInTheDocument();
 	});
 });

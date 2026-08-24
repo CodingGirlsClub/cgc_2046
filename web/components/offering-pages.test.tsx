@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
   useWorkspaceBySlug: vi.fn(),
 }));
 
+const { client: apolloClient } = vi.hoisted(() => ({
+  client: { query: vi.fn(), mutate: vi.fn() },
+}));
+
+vi.mock("@/lib/apollo-client", () => ({ client: apolloClient }));
 const routerMocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 
 // i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
@@ -1367,28 +1372,63 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     const rows = document.querySelectorAll('[data-testid^="tier-row-"]');
     expect(rows).toHaveLength(2);
 
+    // F7：改标题（定价未变）→ 不下发定价键（脏检查）
     fireEvent.change(screen.getByLabelText(/标题/), { target: { value: "改名" } });
     fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
 
     await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
-    const input = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
-    const sent = (input.priceTiers as string[]).map((x) => JSON.parse(x).id);
+    const metaOnly = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(metaOnly).not.toHaveProperty("pricingEnabled");
+    expect(metaOnly).not.toHaveProperty("priceTiers");
 
-    expect(sent).toEqual(["t1", "t2"]);
+    // 档位实际变更（删过期档）→ 下发全量剩余档（KTD9 语义：不静默丢档）
+    fireEvent.click(screen.getByTestId("tier-remove-t2"));
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalledTimes(2));
+    const input = mocks.updateOffering.mock.calls[1][2] as Record<string, unknown>;
+    const sent = (input.priceTiers as string[]).map((x) => JSON.parse(x).id);
+    expect(sent).toEqual(["t1"]);
+    expect(input.pricingEnabled).toBe(true);
   });
 });
 
 describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前端半）", () => {
-  const ordersPayload = (results: Array<Record<string, unknown>>) => ({
-    data: { workspaceOrders: { results, count: results.length } },
-  });
+  /** 守卫懒查询 mock（文件级 apolloClient.query；三响应序列 = stats/paid/pending） */
+  function stubGuardQueries(opts: {
+    collectedCents?: number;
+    paidRows?: Array<Record<string, unknown>>;
+    paidCount?: number;
+    pendingCount?: number;
+  }) {
+    const stats = {
+      data: {
+        workspacePaymentStats: JSON.stringify({
+          collected_cents: opts.collectedCents ?? 0,
+          pending_cents: 0,
+          refunded_cents: 0,
+          refund_failed_cents: 0,
+        }),
+      },
+    };
+    const paid = {
+      data: {
+        workspaceOrders: {
+          results: opts.paidRows ?? [],
+          count: opts.paidCount ?? (opts.paidRows ?? []).length,
+        },
+      },
+    };
+    const pending = {
+      data: { workspaceOrders: { results: [], count: opts.pendingCount ?? 0 } },
+    };
 
-  /** 注入 apollo client.query mock（offering-pages 的守卫懒查询走真 client） */
-  async function stubClientQuery(payload: unknown) {
-    const mod = await import("@/lib/apollo-client");
-    (mod as { client: { query: unknown } }).client.query = vi
-      .fn()
-      .mockResolvedValue(payload);
+    apolloClient.query
+      .mockReset()
+      .mockResolvedValue(stats)
+      .mockResolvedValueOnce(stats)
+      .mockResolvedValueOnce(paid)
+      .mockResolvedValueOnce(pending);
   }
 
   it("AE1 前端：关闭收费 → 弹窗显示 N/M，取消则不发 mutation", async () => {
@@ -1400,15 +1440,16 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
       }),
     );
 
-    await stubClientQuery(
-      ordersPayload([
-        { status: "paid", amountCents: 19900, tierId: "t1" },
-        { status: "paid", amountCents: 19900, tierId: "t1" },
-        { status: "paid", amountCents: 19900, tierId: "t1" },
-        { status: "pending", amountCents: 19900, tierId: null },
-        { status: "pending", amountCents: 19900, tierId: null },
-      ]),
-    );
+    await stubGuardQueries({
+      collectedCents: 3 * 19900,
+      paidRows: [
+        { tierId: "t1" },
+        { tierId: "t1" },
+        { tierId: "t1" },
+      ],
+      paidCount: 3,
+      pendingCount: 2,
+    });
 
     fireEvent.click(screen.getByTestId("pricing-toggle"));
     fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
@@ -1452,15 +1493,11 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
       }),
     );
 
-    await stubClientQuery(
-      ordersPayload(
-        Array.from({ length: 5 }, () => ({
-          status: "paid",
-          amountCents: 19900,
-          tierId: "t1",
-        })),
-      ),
-    );
+    await stubGuardQueries({
+      collectedCents: 5 * 19900,
+      paidRows: Array.from({ length: 5 }, () => ({ tierId: "t1" })),
+      paidCount: 5,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
@@ -1470,6 +1507,12 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
   });
 
   it("AE2 前端：删除已售档触发警告（快照语义文案）", async () => {
+    stubGuardQueries({
+      collectedCents: 19900,
+      paidRows: [{ tierId: "t-sold" }],
+      paidCount: 1,
+    });
+
     await renderManageDetail(
       "event",
       offeringRow({
@@ -1481,9 +1524,11 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
       }),
     );
 
-    await stubClientQuery(
-      ordersPayload([{ status: "paid", amountCents: 19900, tierId: "t-sold" }]),
-    );
+    await stubGuardQueries({
+      collectedCents: 19900,
+      paidRows: [{ tierId: "t-sold" }],
+      paidCount: 1,
+    });
 
     // 守卫数据就绪后删除已售档 → 警告出现
     await waitFor(() => {
