@@ -401,6 +401,10 @@ defmodule Cgc2046.Events.Event do
             changeset
         end
       end)
+
+      # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
+      # 同事务对 payment_pending 报名逐条复用免缴三元组。
+      change({Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :event})
     end
 
     # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。

@@ -1,10 +1,12 @@
-defmodule Cgc2046.Workers.EventCancelRefundWorker do
+defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
   @moduledoc """
-  Event cancelled 批量退款（U9/F3，R15——退款即取消，ADR-0007）。
+  Event/Course cancelled 批量退款（payment-loop U9/F3 + organizer-payment U2，
+  R15——退款即取消，ADR-0007）。
 
-  订阅 `event.ended`（D4：closed 与 cancelled 共用信号）→ **回查 Event.status**
-  仅 `cancelled` 触发退款批量（closed = 正常结束，不退）；逐笔隔离，部分失败
-  只记 warning 不阻塞其余（下一波信号重投/管理员单笔 retry 兜底）：
+  订阅 `event.ended` / `course.ended`（D4：closed 与 cancelled 共用信号；双信号
+  按 payload 键分派，先例 ResearchRunReaper）→ **回查实体 status** 仅 `cancelled`
+  触发退款批量（closed = 正常结束，不退）；逐笔隔离，部分失败只记 warning 不
+  阻塞其余（下一波信号重投/管理员单笔 retry 兜底）：
 
   - paid 订单 → 内部 `:start_refund` CAS + 入队 `PaymentRefundWorker`
     （渠道调用与收尾同单笔链；系统驱动无 actor，不走管理员 :refund action）；
@@ -17,68 +19,80 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
 
   - **F-D 分页**：报名按 keyset 游标分批拉取（`id > cursor` + limit @batch_size），
     不再全量 load——大活动内存峰值与首响延迟受控；
-  - **F-J 审计**：批量动作落 `AdminActionLog`（action = :event_cancel_batch_refund，
-    actor_id = nil 系统语义同 CLI 先例；每 event 一行，metadata 带取消/退款计数
-    与 order id 列表）。
+  - **F-J 审计**：批量动作落 `AdminActionLog`（action = :event_cancel_batch_refund
+    / :course_cancel_batch_refund，actor_id = nil 系统语义同 CLI 先例；每实体
+    一行，metadata 带取消/退款计数与 order id 列表）。
 
   幂等 `:state_based`：全部转换 CAS 守卫（start_refund 只吃 paid、cancel 只吃
   非终态），信号重投/订阅方重启重复执行零多余效果。
   """
 
   use Cgc2046.Workflows.SignalSubscriber,
-    patterns: ["event.ended"],
+    patterns: ["event.ended", "course.ended"],
     idempotency: :state_based
 
   require Ash.Query
   require Logger
 
   alias Cgc2046.Accounts.AdminActionLog
-  alias Cgc2046.Events.{Enrollment, Event}
+  alias Cgc2046.Events.{Course, Enrollment, Event}
   alias Cgc2046.Payments.Order
   alias Cgc2046.Workers.PaymentRefundWorker
 
   # 分批步长（plan U9-3 批大小常量）：控制单波对 payments 队列的瞬时入队量
   @batch_size 50
 
-  @impl Cgc2046.Workflows.SignalSubscriber
-  def handle(_type, %{"event_id" => event_id}) when is_binary(event_id) do
-    case Ash.get(Event, event_id, authorize?: false) do
-      {:ok, %Event{status: :cancelled, workspace_id: workspace_id}} ->
-        refund_event_enrollments(event_id, workspace_id)
+  # 审计 action 按 offering kind 分派（Event/Course 各自的批量退款值）
+  @batch_actions %{event: :event_cancel_batch_refund, course: :course_cancel_batch_refund}
 
-      {:ok, %Event{status: :closed}} ->
+  @impl Cgc2046.Workflows.SignalSubscriber
+  def handle(_type, %{"event_id" => event_id}) when is_binary(event_id),
+    do: resolve_and_refund(Event, :event, event_id)
+
+  def handle(_type, %{"course_id" => course_id}) when is_binary(course_id),
+    do: resolve_and_refund(Course, :course, course_id)
+
+  def handle(_type, _data), do: :ok
+
+  # 回查实体状态后分派：cancelled → 批量退款；closed → 明确不退；未定态 →
+  # 不认领等信号重投（ended 信号先于终态可见的竞态窗口）。
+  defp resolve_and_refund(module, kind, id) do
+    case Ash.get(module, id, authorize?: false) do
+      {:ok, %{status: :cancelled, workspace_id: workspace_id}} ->
+        refund_offering_enrollments(kind, id, workspace_id)
+
+      {:ok, %{status: :closed}} ->
         # closed = 正常结束（D4），不属于取消退款面
         :ok
 
       {:ok, _other_status} ->
-        # ended 信号先于终态可见的竞态或非预期状态：不 claim，重投再试
-        {:error, :event_status_not_settled}
+        {:error, {:offering_status_not_settled, kind}}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  def handle(_type, _data), do: :ok
-
   # F-D：keyset 游标分页拉取（不全量 load）。排序键 = id（uuid 稳定全序）。
-  defp refund_event_enrollments(event_id, workspace_id) do
+  defp refund_offering_enrollments(kind, id, workspace_id) do
     counts =
-      stream_event_enrollments(event_id)
+      stream_offering_enrollments(kind, id)
       |> Enum.chunk_every(@batch_size)
       |> Enum.map(fn batch -> process_batch(batch, workspace_id) end)
       |> Enum.reduce(%{cancelled: 0, refunded: 0, skipped: 0}, &merge_counts/2)
 
-    log_batch_audit(event_id, counts)
+    log_batch_audit(kind, id, counts)
 
     :ok
   end
 
-  defp stream_event_enrollments(event_id) do
+  defp enrollment_scope(:event, id), do: Ash.Query.filter(Enrollment, event_id == ^id)
+  defp enrollment_scope(:course, id), do: Ash.Query.filter(Enrollment, course_id == ^id)
+
+  defp stream_offering_enrollments(kind, id) do
     Stream.unfold("", fn cursor ->
       batch =
-        Enrollment
-        |> Ash.Query.filter(event_id == ^event_id)
+        enrollment_scope(kind, id)
         |> Ash.Query.sort(id: :asc)
         |> then(fn q ->
           if cursor == "" do
@@ -123,12 +137,12 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
   end
 
   # F-J：批量退款审计留痕（系统动作，actor_id = nil 同 CLI 语义；每 event 一行）
-  defp log_batch_audit(event_id, counts) do
+  defp log_batch_audit(kind, id, counts) do
     case AdminActionLog.log(%{
            actor_id: nil,
-           action: :event_cancel_batch_refund,
-           target_type: :event,
-           target_id: event_id,
+           action: @batch_actions[kind],
+           target_type: kind,
+           target_id: id,
            metadata: %{
              "cancelled_enrollments" => counts.cancelled,
              "refunded_orders" => counts.refunded,
@@ -140,7 +154,7 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
 
       {:error, reason} ->
         Logger.warning(
-          "event cancel refund: audit log failed for event #{event_id}: #{inspect(reason)}"
+          "offering cancel refund: audit log failed for #{kind} #{id}: #{inspect(reason)}"
         )
     end
   end
@@ -151,13 +165,9 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
     |> Ash.update(tenant: workspace_id, authorize?: false)
     |> case do
       {:ok, _} -> :ok
+      # log_skip 返回 :skip（计数口径：cancelled 只计成功行）
       {:error, reason} -> log_skip("enrollment", enrollment.id, reason)
     end
-    # log_skip 返回 :skip(计数口径)
-    |> then(fn
-      :ok -> :ok
-      _ -> :skip
-    end)
   end
 
   # confirmed 报名的 paid 单逐笔退款；无 paid 单（免缴 confirmed）自然跳过。
@@ -186,6 +196,8 @@ defmodule Cgc2046.Workers.EventCancelRefundWorker do
   end
 
   defp log_skip(kind, id, reason) do
-    Logger.warning("event cancel refund: #{kind} #{id} skipped: #{inspect(reason)}")
+    Logger.warning("offering cancel refund: #{kind} #{id} skipped: #{inspect(reason)}")
+    # 计数口径：跳过（cancelled/refunded 只计成功行，审计 metadata 不虚高）
+    :skip
   end
 end

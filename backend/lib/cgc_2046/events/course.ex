@@ -390,6 +390,10 @@ defmodule Cgc2046.Events.Course do
             changeset
         end
       end)
+
+      # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
+      # 同事务对 payment_pending 报名逐条复用免缴三元组。
+      change({Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :course})
     end
 
     # draft → open：发布课程，发 course.launched 信号（教研实例化入口）。

@@ -240,6 +240,17 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
       Templates.payment_data(order),
       %{"idempotency_key" => Templates.payment_succeeded() <> ":" <> order.id}
     )
+
+    # U5/R12：组织者逐笔收款感知（尽力而为；managers 合并先例 refund worker，
+    # 可靠兜底 = 经营面面板）。data 含活动名/档位名/金额。
+    with {:ok, loaded} <- Ash.load(enrollment, [:target_title]) do
+      Cgc2046.NotificationFanout.deliver(
+        Cgc2046.NotificationFanout.managers(order.workspace_id),
+        Templates.payment_received(),
+        Templates.receipt_data(order, loaded.target_title),
+        %{"idempotency_key" => Templates.payment_received() <> ":" <> order.id}
+      )
+    end
   end
 
   # ── 金额不符（R20）──────────────────────────────────────────────────────

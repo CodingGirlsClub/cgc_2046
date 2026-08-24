@@ -24,6 +24,7 @@ defmodule Cgc2046.Events.Enrollment do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Api
 
+  require Ash.Query
   require Logger
 
   alias Cgc2046.ApprovalClaim
@@ -797,6 +798,93 @@ defmodule Cgc2046.Events.Enrollment do
       {:error, reason} ->
         add_domain_error(changeset, {:database, reason})
     end
+  end
+
+  @doc """
+  R9/KTD4 关闭收费批量免费确认：offering 的 payment_pending 报名逐条复用
+  免缴三元组（claim_waive CAS + void_pending_orders + 免缴审计行）+ 补发
+  completed 信号（与单笔 waive_payment action 同语义）。须在 Event/Course
+  update 事务内（after_action）调用；任一笔失败上抛，调用方整体回滚。
+
+  竞态：CAS num_rows=0（落账先到/报名已流转）跳过该笔——先落账者保持已付；
+  迟到扣款由落账 worker 按免缴审计行判定自动原路退回（KTD4 正确性约束：
+  审计行不可省）。无待付报名时 no-op；有待付但无 actor → {:error,
+  :actor_required}（组织者发起的治理动作必须有操作者）。
+  """
+  def waive_pending_for_offering(kind, id, actor, workspace_id)
+      when kind in [:event, :course] do
+    pending =
+      kind
+      |> pending_offering_scope(id)
+      |> Ash.read!(authorize?: false, tenant: workspace_id)
+
+    cond do
+      pending == [] ->
+        :ok
+
+      is_nil(actor) ->
+        {:error, :actor_required}
+
+      true ->
+        Enum.reduce_while(pending, :ok, fn enrollment, :ok ->
+          case waive_for_pricing_disable(enrollment, actor, workspace_id) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+    end
+  end
+
+  defp pending_offering_scope(:event, id) do
+    Ash.Query.filter(__MODULE__, status == :payment_pending and event_id == ^id)
+  end
+
+  defp pending_offering_scope(:course, id) do
+    Ash.Query.filter(__MODULE__, status == :payment_pending and course_id == ^id)
+  end
+
+  # 逐条免缴（三元组 + 信号）；CAS num_rows=0 = 竞态窗口先落账者，跳过。
+  defp waive_for_pricing_disable(enrollment, actor, workspace_id) do
+    now = DateTime.utc_now()
+
+    with {:ok, 1} <- claim_waive(enrollment.id, actor.id, now),
+         {:ok, _voided} <- void_pending_orders(enrollment.id, "waived"),
+         {:ok, _log} <-
+           Cgc2046.Accounts.AdminActionLog.log(%{
+             actor_id: actor.id,
+             action: :waive_payment,
+             target_type: :enrollment,
+             target_id: enrollment.id,
+             metadata: waive_log_metadata(nil, enrollment)
+           }) do
+      emit_completed(%{enrollment | status: :confirmed}, workspace_id)
+      :ok
+    else
+      {:ok, 0} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # completed 信号补发（批量路径无 changeset，enrollment_policy 落 nil——
+  # confirm 路径同款先例；幂等键由消费方 SignalIdempotency 去重）。payload
+  # 基座复用 base_enrollment_payload/1（同模块单源；enrollment 为批量路径
+  # 重构的 confirmed 内存记录）——emitter 键注入与 SignalEmitter 同款两行。
+  defp emit_completed(enrollment, workspace_id) do
+    payload =
+      base_enrollment_payload(enrollment)
+      |> Map.merge(%{
+        "event_id" => enrollment.event_id,
+        "course_id" => enrollment.course_id,
+        "enrollment_policy" => nil
+      })
+      |> Map.put("idempotency_key", @completed_signal <> ":" <> enrollment.id)
+      |> Map.put("workspace_id", enrollment.workspace_id)
+
+    Cgc2046.Workers.SignalPublishWorker.enqueue_in_transaction(
+      @completed_signal,
+      payload,
+      workspace_id
+    )
   end
 
   defp exactly_one_target(event_id, nil) when is_binary(event_id), do: {:ok, :event, event_id}

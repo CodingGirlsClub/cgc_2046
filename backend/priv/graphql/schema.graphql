@@ -4950,6 +4950,15 @@ type User {
   joinedAt: DateTime
 }
 
+"The result of the :retry_refund mutation"
+type RetryRefundResult {
+  "The successful result of the mutation"
+  result: Order
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
 "The result of the :refund_order mutation"
 type RefundOrderResult {
   "The successful result of the mutation"
@@ -5033,6 +5042,9 @@ enum OrderSortField {
   TIER_NAME
   ENROLLMENT_STATUS
   LEARNER_EMAIL
+  EVENT_ID
+  COURSE_ID
+  TIER_ID
 }
 
 "A keyset page of :order"
@@ -5048,6 +5060,54 @@ type KeysetPageOfOrder {
 
   "The last keyset in the results"
   endKeyset: String
+}
+
+input OrderFilterTierId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input OrderFilterCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input OrderFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
 }
 
 input OrderFilterLearnerEmail {
@@ -5354,6 +5414,15 @@ input OrderFilterInput {
 
   "报名人邮箱（管理面识别付款人）"
   learnerEmail: OrderFilterLearnerEmail
+
+  "关联报名所属 Event（KTD2：订单按活动筛选）"
+  eventId: OrderFilterEventId
+
+  "关联报名所属 Course（KTD2：订单按课程筛选）"
+  courseId: OrderFilterCourseId
+
+  "下单时档位快照 id（U8 已售档守卫）"
+  tierId: OrderFilterTierId
 }
 
 input OrderSortInput {
@@ -5394,6 +5463,15 @@ type Order {
 
   "报名人邮箱（管理面识别付款人）"
   learnerEmail: String
+
+  "关联报名所属 Event（KTD2：订单按活动筛选）"
+  eventId: ID
+
+  "关联报名所属 Course（KTD2：订单按课程筛选）"
+  courseId: ID
+
+  "下单时档位快照 id（U8 已售档守卫）"
+  tierId: ID
 }
 
 type RootQueryType {
@@ -5526,8 +5604,8 @@ type RootQueryType {
     workspaceId: ID!
   ): KeysetPageOfOrder
 
-  "工作台收款统计（R24）：已收\/待收\/已退，金额一律分"
-  workspacePaymentStats(workspaceId: ID!): JsonString!
+  "工作台收款统计（R24\/U4）：已收\/待收\/已退；可选 eventId\/courseId 收敛到单活动口径"
+  workspacePaymentStats(workspaceId: ID!, eventId: ID, courseId: ID): JsonString!
 
   "按 slug 获取工作台（需登录）"
   getWorkspace(
@@ -6470,6 +6548,9 @@ type RootMutationType {
 
   "管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）"
   refundOrder(id: ID!): RefundOrderResult!
+
+  "管理员重试退款：refund_failed → refunding 重入退款链（R17）"
+  retryRefund(id: ID!): RetryRefundResult!
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!

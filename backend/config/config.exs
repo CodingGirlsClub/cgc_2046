@@ -75,7 +75,10 @@ config :cgc_2046, :miniprogram_templates, %{
     # 缴费闭环三模板（U10/KTD8 定稿）
     "payment_succeeded" => "dev-wechat-payment-succeeded",
     "refund_succeeded" => "dev-wechat-refund-succeeded",
-    "refund_failed" => "dev-wechat-refund-failed"
+    "refund_failed" => "dev-wechat-refund-failed",
+    # organizer-payment U5（R12/R13）
+    "payment_received" => "dev-wechat-payment-received",
+    "payment_expired" => "dev-wechat-payment-expired"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
@@ -88,7 +91,10 @@ config :cgc_2046, :miniprogram_templates, %{
     # 缴费闭环三模板（U10/KTD8 定稿）
     "payment_succeeded" => "dev-tt-payment-succeeded",
     "refund_succeeded" => "dev-tt-refund-succeeded",
-    "refund_failed" => "dev-tt-refund-failed"
+    "refund_failed" => "dev-tt-refund-failed",
+    # organizer-payment U5（R12/R13）
+    "payment_received" => "dev-tt-payment-received",
+    "payment_expired" => "dev-tt-payment-expired"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
@@ -101,7 +107,10 @@ config :cgc_2046, :miniprogram_templates, %{
     # 缴费闭环三模板（U10/KTD8 定稿）
     "payment_succeeded" => "dev-xhs-payment-succeeded",
     "refund_succeeded" => "dev-xhs-refund-succeeded",
-    "refund_failed" => "dev-xhs-refund-failed"
+    "refund_failed" => "dev-xhs-refund-failed",
+    # organizer-payment U5（R12/R13）
+    "payment_received" => "dev-xhs-payment-received",
+    "payment_expired" => "dev-xhs-payment-expired"
   }
 }
 
