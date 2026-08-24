@@ -3,10 +3,12 @@ import {
 	ACCEPT_SPEAKER_INVITATION,
 	CREATE_SPEAKER_INVITATION,
 	DECLINE_SPEAKER_INVITATION,
-	SPEAKER_INVITATION_CARD,
+	RESEND_SPEAKER_INVITATION,
 	SPEAKER_INVITATIONS_FOR_EVENT,
+	SPEAKER_INVITATION_CARD,
 	type CreateSpeakerInvitationInput,
 	type CreateSpeakerInvitationResult,
+	type ResendSpeakerInvitationResult,
 	type SpeakerInvitationActionResult,
 	type SpeakerInvitationCard,
 	type SpeakerInvitationItem,
@@ -19,6 +21,7 @@ import {
  * - fetchSpeakerInvitationCard：公开卡片（无效/过期/已用 → null）
  * - createSpeakerInvitation：创建 + 一次性 plainToken（邀请链接原料）
  * - accept/declineSpeakerInvitation：着陆页决策（token 一次性）
+ * - resendSpeakerInvitation：重发/重新生成链接 + 新一次性 plainToken
  */
 
 export async function fetchSpeakerInvitations(
@@ -78,4 +81,18 @@ export async function declineSpeakerInvitation(
 	});
 
 	return data?.declineSpeakerInvitation ?? { result: null, errors: [{ message: "errors.noResponse" }] };
+}
+// 重发/重新生成链接：新 plainToken 仅此一次返回；有邮箱的同时后端异步发新邮件
+export async function resendSpeakerInvitation(
+	id: string,
+): Promise<ResendSpeakerInvitationResult> {
+	const { data } = await client.mutate({
+		mutation: RESEND_SPEAKER_INVITATION,
+		variables: { id },
+	});
+
+	return (
+		data?.resendSpeakerInvitation ??
+		({ result: null, plainToken: null, errors: [{ message: "errors.noResponse" }] } as ResendSpeakerInvitationResult)
+	);
 }
