@@ -39,10 +39,11 @@
     });
   }
 
-  // badge 三态中文标签(KTD4)
+  // badge 四态中文标签
   function badgeLabel(badge) {
     if (badge === "enrolling") return "报名中";
     if (badge === "starting_soon") return "即将开始";
+    if (badge === "closed") return "报名截止";
     if (badge === "full") return "已满";
     return badge || "";
   }
@@ -255,7 +256,7 @@
       ".cgc-badge{border:1px solid var(--border,#444);border-radius:999px;padding:0 8px;font-size:11px}" +
       ".cgc-badge-enrolling{color:#34d399;border-color:#34d399}" +
       ".cgc-badge-starting_soon{color:#fbbf24;border-color:#fbbf24}" +
-      ".cgc-badge-full{color:#9ca3af}";
+      ".cgc-badge-closed,.cgc-badge-full{color:#9ca3af}";
     document.head.appendChild(css);
   }
 

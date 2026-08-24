@@ -464,6 +464,20 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
                anon(public_event_detail_query(undated.slug))
     end
 
+    test "registration_deadline 已过 → closed" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      closed =
+        EventFixtures.create_event(workspace, admin, %{
+          registration_deadline: EventFixtures.days_from_now(-1),
+          starts_at: EventFixtures.days_from_now(3)
+        })
+
+      assert %{"data" => %{"getEventBySlug" => %{"enrollmentBadge" => "closed"}}} =
+               anon(public_event_detail_query(closed.slug))
+    end
+
     test "course：名额满 → full" do
       admin = Fixtures.platform_admin()
       workspace = Fixtures.create_workspace(admin)
@@ -584,6 +598,13 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
       undated_event = EventFixtures.create_event(workspace, admin, %{title: "待定活动"})
 
+      closed_event =
+        EventFixtures.create_event(workspace, admin, %{
+          title: "报名截止活动",
+          registration_deadline: EventFixtures.days_from_now(-1),
+          starts_at: EventFixtures.days_from_now(4)
+        })
+
       soon_course =
         EventFixtures.create_course(workspace, admin, %{starts_at: EventFixtures.days_from_now(3)})
 
@@ -608,7 +629,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
       # 本次种子的条目都在（同 workspace 其他测试 async 隔离，只按 id 对齐）
       for tool_row <- tool_event_rows do
-        if tool_row["id"] in [full_event.id, undated_event.id] do
+        if tool_row["id"] in [full_event.id, undated_event.id, closed_event.id] do
           assert tool_row["kind"] == "event"
 
           assert_list_row_parity(
@@ -629,9 +650,10 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
         end
       end
 
-      # 三态 badge 都被 parity 断言覆盖（full / enrolling / starting_soon）
+      # 四态 badge 都被 parity 断言覆盖（full / closed / enrolling / starting_soon）
       rows_by_id = Map.new(tool_event_rows ++ tool_course_rows, &{&1["id"], &1})
       assert rows_by_id[full_event.id]["badge"] == "full"
+      assert rows_by_id[closed_event.id]["badge"] == "closed"
       assert rows_by_id[undated_event.id]["badge"] == "enrolling"
       assert rows_by_id[soon_course.id]["badge"] == "starting_soon"
     end

@@ -85,10 +85,12 @@ describe("SpeakerInvitationPanel（Owner 入口：Event 详情页）", () => {
 			scheduledAt: null,
 			note: null,
 		});
-		expect(screen.getByRole("link", { name: "邀请链接" })).toHaveAttribute(
-			"href",
-			"/events/demo-event/speaker-invite/tok_new",
+		expect(screen.queryByRole("link", { name: "邀请链接" })).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "复制" }));
+		expect(copyText).toHaveBeenCalledWith(
+			expect.stringContaining("/events/demo-event/speaker-invite/tok_new"),
 		);
+		expect(await screen.findByRole("button", { name: "已复制" })).toBeInTheDocument();
 	});
 
 	it("创建失败展示后端错误消息（如重复邀请）", async () => {

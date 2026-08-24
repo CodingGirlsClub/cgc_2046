@@ -6,6 +6,7 @@
  * - 邀请卡片：token 公开校验（speakerInvitationCard）——Event 公开信息 +
  *   邀请主题/时间；无效/过期/已用 token 统一错误态（不做防枚举时序攻击，
  *   错误信息统一即可）；
+ * - 发出人打开自己的链接：不展示接受/婉拒（viewerIsInviter），提示把链接转给嘉宾；
  * - 决策：登录/注册后接受/婉拒（token 一次性，接受/婉拒后失效）；
  * - 已决策后展示终态（accepted 提示材料产出后完成 / declined 提示已婉拒）。
  */
@@ -146,7 +147,7 @@ export default function Page() {
 			) : (
 				<div className="join-card !p-8">
 					<p className="text-[13px] text-ink-3">
-						{t("invited")}
+						{card.viewerIsInviter ? t("youAreInviter") : t("invited")}
 					</p>
 					<h1 className="mt-3 text-2xl font-semibold">{card.event.title}</h1>
 					{card.event.description ? (
@@ -184,6 +185,18 @@ export default function Page() {
 								<p className="mt-1 text-[13px] text-ink-3">
 									{t("declinedDesc")}
 								</p>
+							</div>
+						) : card.viewerIsInviter ? (
+							<div className="text-sm" role="status">
+								<p className="text-[13px] text-ink-3">
+									{t("youAreInviterDesc")}
+								</p>
+								<Link
+									href={returnHref}
+									className="mt-4 inline-block text-[13px] text-accent hover:underline"
+								>
+									{t("backToEvent")}
+								</Link>
 							</div>
 						) : !authed ? (
 							<div className="text-sm">

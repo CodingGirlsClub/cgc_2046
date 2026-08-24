@@ -7,6 +7,7 @@ import {
   parseEnrollmentBadge,
   parseEnrollmentPolicy,
   parseEnrollmentStatus,
+  registrationClosedNotice,
   remainingLabel,
   scheduleText,
   venueText
@@ -75,13 +76,22 @@ test('venue 严格四键解析：恰四键 string 拼接；缺键/多键/非字�
   assert.equal(venueText(123 as unknown as string), null)
 })
 
-test('报名标签 fail-closed，展示文案对齐 KTD1（报名中/即将开始/已满）', () => {
+test('报名标签 fail-closed，展示文案覆盖报名中/即将开始/报名截止/已满', () => {
   assert.equal(parseEnrollmentBadge('enrolling'), 'enrolling')
   assert.equal(parseEnrollmentBadge('starting_soon'), 'starting_soon')
+  assert.equal(parseEnrollmentBadge('closed'), 'closed')
   assert.equal(parseEnrollmentBadge('full'), 'full')
   assert.throws(() => parseEnrollmentBadge('legacy'), /未知报名标签/)
   assert.throws(() => parseEnrollmentBadge(null), /未知报名标签/)
   assert.equal(enrollmentBadgeText.enrolling, '报名中')
   assert.equal(enrollmentBadgeText.starting_soon, '即将开始')
+  assert.equal(enrollmentBadgeText.closed, '报名截止')
   assert.equal(enrollmentBadgeText.full, '已满')
+})
+
+test('closed 阻断报名入口，其他 badge 不在这条产品决策中拦截', () => {
+  assert.equal(registrationClosedNotice('closed'), '报名已截止，不再接受新的报名。')
+  assert.equal(registrationClosedNotice('enrolling'), null)
+  assert.equal(registrationClosedNotice('starting_soon'), null)
+  assert.equal(registrationClosedNotice('full'), null)
 })

@@ -16,7 +16,7 @@
 
 ### 公开浏览（无需 `workspace_id`）
 
-- `list_public_offerings` — 列出全平台公开活动与课程（仅 status=open 且公开可见的条目）。过滤参数皆可选：`kind`（event | course）、`city`（仅作用于活动，课程为线上不受影响）、`starts_after` / `starts_before`（ISO8601）；缺省 = 近期口径（未来条目 + 时间待定条目），最多 20 条。返回 `items`（行内含 `badge`：enrolling / starting_soon / full）+ `total_count` + `undated_count`。
+- `list_public_offerings` — 列出全平台公开活动与课程（仅 status=open 且公开可见的条目）。过滤参数皆可选：`kind`（event | course）、`city`（仅作用于活动，课程为线上不受影响）、`starts_after` / `starts_before`（ISO8601）；缺省 = 近期口径（未来条目 + 时间待定条目），最多 20 条。返回 `items`（行内含 `badge`：enrolling / starting_soon / closed / full）+ `total_count` + `undated_count`。`full` = 已确认人数达到容量，`closed` = 报名截止时间已到；两者同时成立时返回 `full`，且都不应被描述为“可报名”。
 - `get_public_offering` — 按 id 读取单个公开活动/课程详情（描述、起止时间、venue、定价档位等白名单字段）。必填 `id`，可选 `kind`。
 
 ### 课程学习

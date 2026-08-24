@@ -30,7 +30,7 @@ export function parseEnrollmentStatus(value: string): EnrollmentStatus {
 }
 
 export function parseEnrollmentBadge(value: string | null): EnrollmentBadge {
-  if (value === 'enrolling' || value === 'starting_soon' || value === 'full') return value
+  if (value === 'enrolling' || value === 'starting_soon' || value === 'closed' || value === 'full') return value
   throw new Error(`服务端返回未知报名标签：${value}`)
 }
 
@@ -38,7 +38,12 @@ export function parseEnrollmentBadge(value: string | null): EnrollmentBadge {
 export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
   enrolling: '报名中',
   starting_soon: '即将开始',
+  closed: '报名截止',
   full: '已满'
+}
+
+export function registrationClosedNotice(badge: EnrollmentBadge): string | null {
+  return badge === 'closed' ? '报名已截止，不再接受新的报名。' : null
 }
 
 // 与详情页既有截止日期同款 toLocaleString 惯例（R15 随行展示不引新格式）

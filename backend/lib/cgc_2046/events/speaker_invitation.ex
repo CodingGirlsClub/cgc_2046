@@ -520,11 +520,14 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   #
   # accept / decline 校验不对称（刻意决策，邀请设计 §2.2 S2 拍板 #1「token +
   # 账号匹配双重校验」；评审 E-4 BLOCKING 修复）：
-  # - accept 为双重校验：speaker_email 非空（定向邀请）时仅被邀请账号可接受
+  # - 发出人（invited_by）不能 accept/decline：管理页链接与嘉宾着陆页叠在同一
+  #   登录会话时，误点会把组织者绑成 Speaker 并作废一次性 token。
+  # - accept 另加双重校验：speaker_email 非空（定向邀请）时仅被邀请账号可接受
   #   （两边 trim + downcase 比较），防任意登录用户持有效链接把自己绑为
-  #   speaker_user_id；speaker_email 为空（手动转发链接）时 token 即凭据。
-  # - decline 保持 token-only：不绑定账号、无劫持收益，手动转发场景持链接即可
-  #   婉拒——与 accept 的不对称是刻意决策，勿"对齐"。
+  #   speaker_user_id；speaker_email 为空（手动转发链接）时 token 即凭据
+  #   （发出人除外）。
+  # - decline 保持 token-only（发出人除外）：不绑定账号、无劫持收益，手动转发
+  #   场景持链接即可婉拒——勿把邮箱匹配扩到 decline。
   # 匹配校验必须先于条件 UPDATE 抢占——不匹配的 accept 不得消耗 token。
   defp decide(changeset, to_status) do
     actor = changeset.context[:private][:actor]
@@ -542,12 +545,26 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
   end
 
+  # 决策身份：发出人一律拒绝（独立 reason :inviter_cannot_decide，与定向邮箱
+  # 不匹配的 :forbidden 区分——decline 路径也会命中，文案不能只提 accept）；
+  # accept 另校验定向邮箱；decline 仍 token-only。
+  defp ensure_decision_actor(changeset, to_status, actor) do
+    cond do
+      inviter?(changeset, actor) ->
+        {:error, :inviter_cannot_decide}
+
+      to_status == :declined ->
+        :ok
+
+      true ->
+        ensure_accept_actor(changeset, actor)
+    end
+  end
+
   # accept 双重校验的账号匹配侧（token 侧由 claim_decision 条件 UPDATE 复验）。
   # speaker_email 自创建归一（trim + downcase），actor.email 为 ci_string，
   # 统一 to_string 后归一比较；账号无邮箱（如小程序手机号用户）恒不匹配。
-  defp ensure_decision_actor(_changeset, :declined, _actor), do: :ok
-
-  defp ensure_decision_actor(changeset, :accepted, actor) do
+  defp ensure_accept_actor(changeset, actor) do
     case normalize_email(changeset.data.speaker_email) do
       nil ->
         :ok
@@ -558,6 +575,11 @@ defmodule Cgc2046.Events.SpeakerInvitation do
           else: {:error, :forbidden}
     end
   end
+
+  defp inviter?(changeset, %{id: actor_id}) when not is_nil(actor_id),
+    do: changeset.data.invited_by == actor_id
+
+  defp inviter?(_changeset, _actor), do: false
 
   defp actor_email(%{email: email}) when not is_nil(email), do: to_string(email)
   defp actor_email(_), do: nil
@@ -847,6 +869,9 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   defp domain_error_message(:forbidden),
     do: "only the invited speaker account may accept this invitation"
 
+  defp domain_error_message(:inviter_cannot_decide),
+    do: "the invitation sender cannot accept or decline their own invitation"
+
   defp domain_error_message(:event_not_found), do: "event not found"
   defp domain_error_message(:event_not_open), do: "event is closed or cancelled"
   defp domain_error_message(:target_tenant_mismatch), do: "event does not belong to tenant"
@@ -868,6 +893,7 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     do: "speaker_invitation_invalid_or_expired_token"
 
   defp domain_error_code(:forbidden), do: "speaker_invitation_forbidden"
+  defp domain_error_code(:inviter_cannot_decide), do: "speaker_invitation_inviter_cannot_decide"
   defp domain_error_code(:event_not_found), do: "speaker_invitation_event_not_found"
   defp domain_error_code(:event_not_open), do: "speaker_invitation_event_not_open"
   defp domain_error_code(:target_tenant_mismatch), do: "speaker_invitation_target_tenant_mismatch"

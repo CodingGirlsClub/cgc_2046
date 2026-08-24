@@ -388,13 +388,14 @@
   },
   "publicOfferings": {
     "loadFailed": "加载失败",
-    "breadcrumbHome": "工作台",
+    "navigationLabel": "公开内容导航",
     "publicTitle": "公开{label}",
     "publicDesc": "面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。",
     "viewOther": "查看{label} ›",
     "empty": "暂无公开{label}。",
     "deadline": "截止 {deadline}",
-    "startsAt": "开始 {time}"
+    "timeLabel": "开始",
+    "venueLabel": "地点"
   },
   "onboarding": {
     "entryTitle": "Agent 接入",
@@ -443,19 +444,22 @@
   },
   "offeringDetail": {
     "loadFailed": "加载失败",
-    "breadcrumbHome": "工作台",
-    "detailFallback": "详情",
+    "backToList": "返回全部{label}",
+    "browseOther": "浏览其他{label}",
     "notAccessibleTitle": "该{label}不可访问",
     "notAccessibleDesc": "已结束或不公开访问。",
-    "policyLabel": "报名策略：{policy}",
-    "deadlineLabel": "报名截止：{deadline}",
-    "startsLabel": "开始时间：{time}",
-    "endsLabel": "结束时间：{time}",
-    "venueLabel": "地点：{venue}",
+    "startsTitle": "开始",
+    "endsTitle": "结束",
+    "deadlineTitle": "报名截止",
+    "venueTitle": "地点",
+    "policyTitle": "报名方式",
+    "registrationTitle": "报名",
+    "aboutTitle": "详情",
     "pricingTitle": "价格档位",
     "fullHint": "名额已满，不再接受新的报名。",
+    "closedHint": "报名已截止，不再接受新的报名。",
     "loginToEnroll": "登录后报名",
-    "enrollFreeHint": "报名免费，登录或注册后提交（J-Visitor → J-Learner）。",
+    "signInToEnrollHint": "登录或注册后即可提交报名。",
     "enrolledConfirm": "✓ 报名成功",
     "pendingPay": "⏳ 待支付（名额已保留）",
     "submitted": "✓ 申请已提交",
@@ -468,7 +472,7 @@
     "inviteCode": "邀请码（必填）",
     "chooseTier": "选择价格档位",
     "noTierAvailable": "当前无可售档位，请联系组织者。",
-    "requestApprovalHint": "提交后需 Owner/Admin 审批，通过后确认名额。",
+    "requestApprovalHint": "提交后由组织方审批，通过后确认名额。",
     "submitting": "提交中…",
     "submitWithPay": "报名并支付 ¥{amount}",
     "submit": "提交报名",
@@ -589,7 +593,9 @@
     "decline": "婉拒",
     "decisionHint": "接受后请产出分享材料；婉拒即结束，链接一次性生效。",
     "actionFailed": "操作失败，邀请链接可能已失效",
-    "actionFailedShort": "操作失败"
+    "actionFailedShort": "操作失败",
+    "youAreInviter": "这是你发出的邀请",
+    "youAreInviterDesc": "请把链接复制后转给嘉宾。你自己不能用这条链接接受或婉拒。"
   },
   "workspace": {
     "shell": {
@@ -1391,7 +1397,7 @@
     "created": "已创建邀请，链接见下方列表（明文 token 仅此一次，请立即复制）",
     "createFailed": "创建失败",
     "title": "邀请 Speaker",
-    "desc": "逐人定向邀请：嘉宾收到专属链接后可接受或婉拒；接受后产出分享材料即完成。",
+    "desc": "逐人定向邀请：创建后请复制链接发给嘉宾。嘉宾打开后可接受或婉拒；接受后产出分享材料即完成。",
     "speakerName": "嘉宾姓名 *",
     "speakerNamePlaceholder": "如：张三",
     "speakerEmail": "嘉宾邮箱（留空 = 手动转发链接）",
@@ -1621,6 +1627,7 @@
     "enrollmentBadge": {
       "enrolling": "报名中",
       "starting_soon": "即将开始",
+      "closed": "报名截止",
       "full": "已满"
     },
     "offeringKind": {

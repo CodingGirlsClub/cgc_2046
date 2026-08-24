@@ -2,9 +2,11 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
   @moduledoc """
   U1 / R6 / KTD1：enrollment_badge 公开派生标签矩阵。
 
-  枚举 `enrolling | starting_soon | full`，优先级 full > starting_soon > enrolling：
+  枚举 `enrolling | starting_soon | closed | full`，优先级
+  full > closed > starting_soon > enrolling：
 
   - capacity 非空且 confirmed_count >= capacity → full
+  - registration_deadline 已到或已过 → closed
   - starts_at 落在未来 7 天内且报名未截止（deadline 为空或晚于 now）→ starting_soon
   - 其余 → enrolling；无 starts_at 的条目永不为 starting_soon（AE2 数据面）
 
@@ -15,7 +17,8 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Events.Event
+  alias Cgc2046.Events.EnrollmentBadge
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   setup do
@@ -36,11 +39,11 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
       assert badge(event) == :full
     end
 
-    test "full 优先级最高：即将开始但名额已满 → full", ctx do
+    test "full 优先级最高：报名已截止但名额也已满 → full", ctx do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           capacity: 1,
-          registration_deadline: nil,
+          registration_deadline: EventFixtures.days_from_now(-1),
           starts_at: EventFixtures.days_from_now(3)
         })
 
@@ -104,14 +107,27 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
       assert badge(event) == :enrolling
     end
 
-    test "deadline 已过 → 不 starting_soon（报名已截止）", ctx do
+    test "deadline 已过 → closed（不再误标 enrolling）", ctx do
       event =
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           registration_deadline: EventFixtures.days_from_now(-1),
           starts_at: EventFixtures.days_from_now(3)
         })
 
-      assert badge(event) == :enrolling
+      assert badge(event) == :closed
+    end
+
+    test "deadline 恰好等于 now → closed" do
+      now = ~U[2026-08-24 00:00:00Z]
+
+      offering = %{
+        capacity: nil,
+        confirmed_count: 0,
+        starts_at: DateTime.add(now, 3, :day),
+        registration_deadline: now
+      }
+
+      assert EnrollmentBadge.badge(offering, now) == :closed
     end
   end
 
@@ -133,6 +149,15 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
     test "无 starts_at → enrolling", ctx do
       course = EventFixtures.create_course(ctx.workspace, ctx.admin)
       assert badge(course) == :enrolling
+    end
+
+    test "deadline 已过 → closed", ctx do
+      course =
+        EventFixtures.create_course(ctx.workspace, ctx.admin, %{
+          registration_deadline: EventFixtures.days_from_now(-1)
+        })
+
+      assert badge(course) == :closed
     end
   end
 

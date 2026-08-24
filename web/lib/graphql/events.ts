@@ -24,10 +24,10 @@ export type Visibility = "public" | "workspace";
 
 /**
  * 公开派生报名标签（R6/KTD1，后端 EnrollmentBadge 单源）：
- * 优先级 full > starting_soon > enrolling；无 startsAt 永不 starting_soon。
+ * 优先级 full > closed > starting_soon > enrolling；报名截止时间已到即 closed。
  * 公开面只暴露派生标签，不暴露 capacity/confirmedCount 原始计数。
  */
-export type EnrollmentBadge = "enrolling" | "starting_soon" | "full";
+export type EnrollmentBadge = "enrolling" | "starting_soon" | "closed" | "full";
 
 /** 结构化场地（venue JsonString JSON.parse 后形状，恰四键；仅 event 有 venue 槽，course 无位置概念） */
 export interface VenueInfo {
@@ -120,6 +120,7 @@ export const OFFERING_LABEL: Record<OfferingKind, string> = {
 export const ENROLLMENT_BADGE_LABEL: Record<EnrollmentBadge, string> = {
   enrolling: "labels.enrollmentBadge.enrolling",
   starting_soon: "labels.enrollmentBadge.starting_soon",
+  closed: "labels.enrollmentBadge.closed",
   full: "labels.enrollmentBadge.full",
 };
 
@@ -138,6 +139,7 @@ export const ENROLLMENT_POLICIES: EnrollmentPolicy[] = [
 export const ENROLLMENT_BADGES: EnrollmentBadge[] = [
   "enrolling",
   "starting_soon",
+  "closed",
   "full",
 ];
 
