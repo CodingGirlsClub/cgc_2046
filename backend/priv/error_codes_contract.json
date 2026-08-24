@@ -42,6 +42,7 @@
     "speaker_invitation_invalid_or_expired_token",
     "speaker_invitation_invitation_id_unavailable",
     "speaker_invitation_invitation_not_found",
+    "speaker_invitation_inviter_cannot_decide",
     "speaker_invitation_materials_required",
     "speaker_invitation_materials_save_failed",
     "speaker_invitation_not_accepted",

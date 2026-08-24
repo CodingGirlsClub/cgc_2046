@@ -3879,7 +3879,7 @@ export type RootQueryType = {
   ping?: Maybe<Scalars['String']['output']>;
   /** 平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after） */
   reconciliationFindings: Array<AdminReconciliationFinding>;
-  /** 邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息；无效/过期/已用 token 统一错误，不泄露其它邀请 */
+  /** 邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息 + viewerIsInviter；无效/过期/已用 token 统一错误，不泄露其它邀请 */
   speakerInvitationCard?: Maybe<SpeakerInvitationCard>;
   /** 某 Event 的 Speaker 邀请列表（仅 Owner/Admin 或平台管理员，read policy 兜底） */
   speakerInvitations: Array<SpeakerInvitation>;
@@ -4321,6 +4321,8 @@ export type SpeakerInvitationCard = {
   /** token 公开卡片：邀请主题/时间 + Event 公开信息（D2 白名单，不泄露其它邀请） */
   status: Scalars['String']['output'];
   topic?: Maybe<Scalars['String']['output']>;
+  /** 当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy） */
+  viewerIsInviter: Scalars['Boolean']['output'];
 };
 
 export type SpeakerInvitationCardEvent = {

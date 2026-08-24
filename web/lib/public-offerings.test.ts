@@ -173,6 +173,19 @@ describe("parseVenue / formatVenue（R3 venue JsonString 展示兜底）", () =>
 		expect(venue).not.toBeNull();
 		expect(formatVenue(venue)).toBeNull();
 	});
+
+	it("相邻行政区同名时只展示一次", () => {
+		const venue = parseVenue(
+			JSON.stringify({
+				country: "中国",
+				province: "上海",
+				city: "上海",
+				district: "徐汇",
+			}),
+		);
+
+		expect(formatVenue(venue)).toBe("中国 上海 徐汇");
+	});
 });
 
 describe("公开读 network-only（F4：报名失败后重拉不吃缓存旧 badge）", () => {

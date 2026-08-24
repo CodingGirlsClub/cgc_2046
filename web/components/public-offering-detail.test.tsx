@@ -215,6 +215,30 @@ describe("公开详情页报名状态分叉（支付接续）", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("报名截止后已有 payment_pending 报名仍优先显示待支付卡", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "closed",
+      registrationDeadline: "2026-08-01T10:00:00+08:00",
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-closed-pending",
+      status: "payment_pending",
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(
+      await screen.findByTestId("public-enrollment-pending-card"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("enrollment-closed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("登录态已有 confirmed 报名 → 你已报名，不渲染报名表单", async () => {
     eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-confirmed",
@@ -231,8 +255,8 @@ describe("公开详情页报名状态分叉（支付接续）", () => {
 });
 
 
-describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
-  it("完整呈现描述/三时间/venue/报名政策/定价档位静态块；.ld-root 在场（AE4）", async () => {
+describe("公开详情两栏布局（R7/R9/KTD1）", () => {
+  it("复用公开导航与主题壳层，按内容主栏 + 报名侧栏呈现完整详情", async () => {
     mocks.fetchPublicOffering.mockResolvedValue({
       ...PAID_OFFERING,
       enrollmentBadge: "starting_soon",
@@ -250,17 +274,16 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     const { container } = render(<PublicOfferingDetailPage kind="event" />);
 
     expect(await screen.findByText("即将开始")).toBeInTheDocument();
-    expect(
-      screen.getByText("开始时间：FMT(2026-09-01T10:00:00+08:00)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("结束时间：FMT(2026-09-01T12:00:00+08:00)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("报名截止：FMT(2026-08-30T00:00:00+08:00)"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("报名策略：直接报名")).toBeInTheDocument();
-    expect(screen.getByText("地点：中国 上海 上海 徐汇")).toBeInTheDocument();
+    expect(screen.getByText("开始")).toBeInTheDocument();
+    expect(screen.getByText("FMT(2026-09-01T10:00:00+08:00)")).toBeInTheDocument();
+    expect(screen.getByText("结束")).toBeInTheDocument();
+    expect(screen.getByText("FMT(2026-09-01T12:00:00+08:00)")).toBeInTheDocument();
+    expect(screen.getByText("报名截止")).toBeInTheDocument();
+    expect(screen.getByText("FMT(2026-08-30T00:00:00+08:00)")).toBeInTheDocument();
+    expect(screen.getByText("报名方式")).toBeInTheDocument();
+    expect(screen.getByText("直接报名")).toBeInTheDocument();
+    expect(screen.getByText("地点")).toBeInTheDocument();
+    expect(screen.getByText("中国 上海 徐汇")).toBeInTheDocument();
     expect(screen.getByText("线下分享与结对编程。")).toBeInTheDocument();
 
     // 定价档位静态信息块（匿名可见的展示块；radio 选档器仍是登录后的选择控件）
@@ -269,8 +292,22 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     expect(within(info).getByText("标准")).toBeInTheDocument();
     expect(within(info).getByText("¥1.00")).toBeInTheDocument();
 
-    // AE4 结构断言：固定深色门面根在场
-    expect(container.querySelector("main.ld-root")).not.toBeNull();
+    const nav = screen.getByRole("navigation", { name: "公开内容导航" });
+    expect(within(nav).getByRole("link", { name: "活动" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "返回全部活动" })).toHaveAttribute(
+      "href",
+      "/events",
+    );
+    expect(screen.queryByText("工作台")).toBeNull();
+
+    expect(container.querySelector(".public-catalog")).not.toBeNull();
+    expect(container.querySelector("main.public-catalog-main.public-detail-main")).not.toBeNull();
+    expect(container.querySelector(".public-detail__facts")).not.toBeNull();
+    expect(container.querySelector("aside.public-detail__rail")).not.toBeNull();
+    expect(container.querySelector("main.ld-root")).toBeNull();
     // EventStatusTag（开放报名）与 visibility 标签从公开详情移除
     expect(screen.queryByText("开放报名")).toBeNull();
     expect(screen.queryByText("公开可见")).toBeNull();
@@ -288,9 +325,8 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     });
     render(<PublicOfferingDetailPage kind="event" />);
 
-    expect(await screen.findByText("开始时间：时间待定")).toBeInTheDocument();
-    expect(screen.getByText("结束时间：时间待定")).toBeInTheDocument();
-    expect(screen.getByText("地点：地点待定")).toBeInTheDocument();
+    expect(await screen.findAllByText("时间待定")).toHaveLength(2);
+    expect(screen.getByText("地点待定")).toBeInTheDocument();
     expect(screen.queryByText("即将开始")).toBeNull();
   });
 
@@ -307,8 +343,8 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     });
     render(<PublicOfferingDetailPage kind="course" />);
 
-    expect(await screen.findByText("开始时间：时间待定")).toBeInTheDocument();
-    expect(screen.queryByText(/地点：/)).toBeNull();
+    expect(await screen.findAllByText("时间待定")).toHaveLength(2);
+    expect(screen.queryByText("地点")).toBeNull();
   });
 
   it("满员（AE1）登录态：不呈现报名动作，显示已满提示", async () => {
@@ -322,6 +358,10 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
 
     expect(await screen.findByTestId("enrollment-full")).toHaveTextContent(
       "名额已满",
+    );
+    expect(screen.getByRole("link", { name: "浏览其他活动" })).toHaveAttribute(
+      "href",
+      "/events",
     );
     expect(screen.getByText("已满")).toBeInTheDocument();
     expect(
@@ -343,6 +383,46 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
     expect(
       screen.queryByRole("link", { name: "登录后报名" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("报名截止：显示截止提示且不呈现报名动作", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "closed",
+      registrationDeadline: "2026-08-01T10:00:00+08:00",
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("enrollment-closed")).toHaveTextContent(
+      "报名已截止",
+    );
+    expect(screen.getByRole("link", { name: "浏览其他活动" })).toHaveAttribute(
+      "href",
+      "/events",
+    );
+    expect(screen.getAllByText("报名截止")).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("课程不可报名时返回课程目录", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "cs-full",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      enrollmentBadge: "full",
+    });
+    render(<PublicOfferingDetailPage kind="course" />);
+
+    expect(await screen.findByTestId("enrollment-full")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "浏览其他课程" })).toHaveAttribute(
+      "href",
+      "/courses",
+    );
   });
 
   it("报名失败后重新拉取详情（badge 重派生）", async () => {
@@ -659,8 +739,8 @@ describe("U4 详情密度与全暗（R7/R9/KTD1）", () => {
   });
 });
 
-describe("F6 键盘焦点环作用域：报名面控件位于 .ld-root 内", () => {
-  it("邀请码 input 与价格档位 radio 渲染于 main.ld-root（globals.css 的 .ld-root input:focus-visible 规则可达）", async () => {
+describe("F6 键盘焦点环作用域：报名面控件位于 .public-catalog 内", () => {
+  it("邀请码 input 与价格档位 radio 渲染于公开主题壳层", async () => {
     mocks.fetchPublicOffering.mockResolvedValue({
       ...PAID_OFFERING,
       enrollmentPolicy: "invite_only",
@@ -668,17 +748,17 @@ describe("F6 键盘焦点环作用域：报名面控件位于 .ld-root 内", () 
     const { container } = render(<PublicOfferingDetailPage kind="event" />);
 
     // happy-dom 不加载 globals.css，computed outline 断言不可行 → 结构断言：
-    // 控件是 .ld-root 后代（规则文本守卫在 lib/design-tokens.test.ts F 用例）
-    const root = container.querySelector("main.ld-root");
+    // 控件是 .public-catalog 后代（规则文本守卫在 lib/design-tokens.test.ts G 用例）
+    const root = container.querySelector(".public-catalog");
     expect(root).not.toBeNull();
 
     const invite = await screen.findByLabelText("邀请码（必填）");
-    expect(invite.closest("main.ld-root")).not.toBeNull();
+    expect(invite.closest(".public-catalog")).not.toBeNull();
 
     const tier = await screen.findByTestId("price-tier-tier-1");
     const radio = tier.querySelector('input[type="radio"]');
     expect(radio).not.toBeNull();
-    expect(radio?.closest("main.ld-root")).not.toBeNull();
+    expect(radio?.closest(".public-catalog")).not.toBeNull();
   });
 });
 

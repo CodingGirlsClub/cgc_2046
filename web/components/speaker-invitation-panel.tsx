@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import {
@@ -22,7 +21,8 @@ import { Icon } from "@/components/icons";
  * - 表单：speakerName 必填；speakerEmail/topic/scheduledAt/note 可选；
  * - 创建成功返回一次性 plainToken（库中只存哈希）——仅本次会话可复制链接，
  *   刷新后不再可重建（明文只出现一次的设计约束）；
- * - 列表：状态徽章 + 复制邀请链接（仅新创建的 invited 行持有 token）。
+ * - 列表：状态徽章 + 复制邀请链接（仅新创建的 invited 行持有 token；
+ *   不做成可导航超链接，避免组织者点进着陆页把自己变成 Speaker）。
  */
 
 const STATUS_TONE_CLASS: Record<"neutral" | "positive" | "negative", string> = {
@@ -298,19 +298,9 @@ function CopyInviteLink({ token, href }: { token: string; href: string | null })
 		}
 	}
 
-	if (!href) {
-		return <span className="text-[13px] text-ink-3">{token}</span>;
-	}
-
 	return (
 		<span className="inline-flex items-center gap-2">
-			<Link
-				href={href}
-				className="max-w-[220px] truncate text-[13px] text-accent hover:underline"
-				title={href}
-			>
-				{t("inviteLink")}
-			</Link>
+			<span className="text-[13px] text-ink-3">{t("inviteLink")}</span>
 			<button
 				type="button"
 				onClick={() => void copy()}

@@ -107,17 +107,18 @@ describe("events 展示词表", () => {
 		expect(OFFERING_LABEL.course).toBe("labels.offeringKind.course");
 	});
 
-	it("badge 词表覆盖 KTD1 三枚举（enrolling/starting_soon/full）", () => {
+	it("badge 词表覆盖四枚举（enrolling/starting_soon/closed/full）", () => {
 		expect(Object.keys(ENROLLMENT_BADGE_LABEL).sort()).toEqual(
-			["enrolling", "full", "starting_soon"].sort(),
+			["closed", "enrolling", "full", "starting_soon"].sort(),
 		);
 		expect(ENROLLMENT_BADGES.sort()).toEqual(
-			["enrolling", "full", "starting_soon"].sort(),
+			["closed", "enrolling", "full", "starting_soon"].sort(),
 		);
 		expect(ENROLLMENT_BADGE_LABEL.enrolling).toBe("labels.enrollmentBadge.enrolling");
 		expect(ENROLLMENT_BADGE_LABEL.starting_soon).toBe(
 			"labels.enrollmentBadge.starting_soon",
 		);
+		expect(ENROLLMENT_BADGE_LABEL.closed).toBe("labels.enrollmentBadge.closed");
 		expect(ENROLLMENT_BADGE_LABEL.full).toBe("labels.enrollmentBadge.full");
 	});
 });

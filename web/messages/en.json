@@ -388,13 +388,14 @@
   },
   "publicOfferings": {
     "loadFailed": "Failed to load",
-    "breadcrumbHome": "Workspaces",
+    "navigationLabel": "Public content navigation",
     "publicTitle": "Public {label}",
     "publicDesc": "{label} open to everyone; join a workspace for more internal ones.",
     "viewOther": "View {label} ›",
     "empty": "No public {label} right now.",
     "deadline": "Closes {deadline}",
-    "startsAt": "Starts {time}"
+    "timeLabel": "Starts",
+    "venueLabel": "Venue"
   },
   "onboarding": {
     "entryTitle": "Agent integration",
@@ -443,19 +444,22 @@
   },
   "offeringDetail": {
     "loadFailed": "Failed to load",
-    "breadcrumbHome": "Workspaces",
-    "detailFallback": "Details",
+    "backToList": "Back to all {label}",
+    "browseOther": "Browse other {label}",
     "notAccessibleTitle": "This {label} is not accessible",
     "notAccessibleDesc": "It has ended or is not publicly accessible.",
-    "policyLabel": "Enrollment: {policy}",
-    "deadlineLabel": "Enrollment closes: {deadline}",
-    "startsLabel": "Starts: {time}",
-    "endsLabel": "Ends: {time}",
-    "venueLabel": "Venue: {venue}",
+    "startsTitle": "Starts",
+    "endsTitle": "Ends",
+    "deadlineTitle": "Enrollment closes",
+    "venueTitle": "Venue",
+    "policyTitle": "Enrollment",
+    "registrationTitle": "Registration",
+    "aboutTitle": "About",
     "pricingTitle": "Pricing tiers",
     "fullHint": "This offering is full and no longer accepts new enrollments.",
+    "closedHint": "Enrollment is closed and no longer accepts new submissions.",
     "loginToEnroll": "Sign in to enroll",
-    "enrollFreeHint": "Enrollment is free. Sign in or create an account to submit (J-Visitor → J-Learner).",
+    "signInToEnrollHint": "Sign in or create an account to submit your enrollment.",
     "enrolledConfirm": "✓ Enrolled",
     "pendingPay": "⏳ Payment pending (slot reserved)",
     "submitted": "✓ Application submitted",
@@ -468,7 +472,7 @@
     "inviteCode": "Invite code (required)",
     "chooseTier": "Choose a pricing tier",
     "noTierAvailable": "No tiers available right now. Please contact the organizer.",
-    "requestApprovalHint": "Owner/Admin approval is required; your spot is confirmed once approved.",
+    "requestApprovalHint": "The organizer will review your request before confirming your spot.",
     "submitting": "Submitting…",
     "submitWithPay": "Enroll and pay ¥{amount}",
     "submit": "Submit enrollment",
@@ -589,7 +593,9 @@
     "decline": "Decline",
     "decisionHint": "After accepting, please prepare the talk materials; declining ends here — the link works once.",
     "actionFailed": "Action failed. The invite link may have expired.",
-    "actionFailedShort": "Action failed"
+    "actionFailedShort": "Action failed",
+    "youAreInviter": "This is an invitation you sent",
+    "youAreInviterDesc": "Copy the link and share it with the speaker. You cannot accept or decline it yourself."
   },
   "workspace": {
     "shell": {
@@ -1391,7 +1397,7 @@
     "created": "Invitation created — link below (plain-text token shown once; copy now)",
     "createFailed": "Failed to create",
     "title": "Invite a speaker",
-    "desc": "Targeted per-person invites: guests get a unique link to accept or decline; after accepting, they complete it by producing the talk materials.",
+    "desc": "Targeted per-person invites: copy the link and send it to the speaker. They can accept or decline; after accepting, they complete it by producing the talk materials.",
     "speakerName": "Speaker name *",
     "speakerNamePlaceholder": "e.g. Zhang San",
     "speakerEmail": "Speaker email (blank = forward the link manually)",
@@ -1621,6 +1627,7 @@
     "enrollmentBadge": {
       "enrolling": "Enrolling",
       "starting_soon": "Starting soon",
+      "closed": "Enrollment closed",
       "full": "Full"
     },
     "offeringKind": {

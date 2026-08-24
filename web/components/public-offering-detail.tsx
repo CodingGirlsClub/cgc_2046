@@ -5,7 +5,7 @@
  *
  * - 详情：匿名读（open + public）；workspace 活动 / 非 open → 404 语义
  *   （读策略过滤 → get 返回 null）；
- * - 固定深色门面（U4/R7/KD2）：.ld-root 重声明暗色 token，html.light 下仍深色；
+ * - 公开主题壳层：与目录共用品牌导航，不进入工作台导航；
  * - 信息密度（R9）：描述/开始/结束/截止时间/venue（仅 event）/报名政策/
  *   定价档位静态信息块（匿名可见；登录后 radio 选档器沿用为选择控件）；
  * - 行内状态标签 = 后端派生报名 badge（KTD1）；满员（AE1）不呈现报名动作；
@@ -41,6 +41,7 @@ import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
+import PublicCatalogShell from "@/components/public-catalog-shell";
 
 interface DetailState {
   id: string;
@@ -59,6 +60,7 @@ export default function PublicOfferingDetailPage({
   const { authed, userId } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("offeringDetail");
+  const navT = useTranslations("landing.nav");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
   const locale = useLocale();
@@ -134,8 +136,25 @@ export default function PublicOfferingDetailPage({
   const enrollChecked = offering !== null && enrollForId === offering.id;
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
-  // 满员（AE1）：详情不再呈现可报名动作（已有报名的状态卡除外）
-  const isFull = offering?.enrollmentBadge === "full";
+  const listLabel = navT(kind === "event" ? "events" : "courses");
+  // 满员或报名截止：详情不再呈现可报名动作（已有报名的状态卡除外）。
+  const enrollmentUnavailable =
+    offering?.enrollmentBadge === "closed"
+      ? { hint: t("closedHint"), testId: "enrollment-closed" }
+      : offering?.enrollmentBadge === "full"
+        ? { hint: t("fullHint"), testId: "enrollment-full" }
+        : null;
+  const enrollmentUnavailableNotice = enrollmentUnavailable ? (
+    <div
+      className="public-detail__unavailable"
+      data-testid={enrollmentUnavailable.testId}
+    >
+      <p>{enrollmentUnavailable.hint}</p>
+      <Link href={listHref} className="public-detail__browse">
+        {t("browseOther", { label: listLabel })}
+      </Link>
+    </div>
+  ) : null;
 
   // load error 态重试：复位回 skeleton 并重新拉取
   function retry() {
@@ -332,394 +351,409 @@ export default function PublicOfferingDetailPage({
   }
 
   return (
-    <main className="ld-root">
-      <div className="ld-container max-w-3xl py-16">
-      <header className="mb-8">
-        <p className="text-[13px] text-ink-3">
-          <Link href="/" className="hover:text-ink">
-            {t("breadcrumbHome")}
-          </Link>
-          {" › "}
-          <Link href={listHref} className="hover:text-ink">
-            {labelsT(label)}
-          </Link>
-          {" › "}
-          <strong>{offering?.title ?? t("detailFallback")}</strong>
-        </p>
-      </header>
+    <PublicCatalogShell activeKind={kind} mainClassName="public-detail-main">
+      <div className="public-catalog-container">
+        <Link href={listHref} className="public-detail-back">
+          <span aria-hidden="true">←</span>
+          {t("backToList", { label: listLabel })}
+        </Link>
 
-      {loadError ? (
-        <div role="alert">
-          <p className="ld-offer-fallback">
-            {t("loadFailed")}：{loadError}
-          </p>
-          <button
-            type="button"
-            onClick={retry}
-            className="join-button join-button--outline mt-4"
-          >
-            {tCommon("retry")}
-          </button>
-        </div>
-      ) : stale ? (
-        // 3 块与真实内容等高的 skeleton（landing 同款 ld-skeleton 模式）
-        <div aria-hidden="true">
-          <div className="ld-skeleton" />
-          <div className="ld-skeleton" />
-          <div className="ld-skeleton" />
-        </div>
-      ) : offering === null ? (
-        <>
-          <h1 className="text-lg font-medium">{t("notAccessibleTitle", { label: labelsT(label) })}</h1>
-          <p className="mt-2 text-sm text-ink-3">
-            {t("notAccessibleDesc")}
-          </p>
-        </>
-      ) : (
-        <>
-          <div>
-            <p className="flex items-center gap-2">
-              <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+        {loadError ? (
+          <div className="public-catalog-state public-detail-state" role="alert">
+            <p>
+              {t("loadFailed")}：{loadError}
             </p>
-            <h1 className="ld-section__title mt-3">{offering.title}</h1>
-            <div className="mt-5 grid gap-2 text-sm text-ink-3">
-              <span>
-                {t("policyLabel", {
-                  policy: labelsT(ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy]),
-                })}
-              </span>
-              <span>
-                {t("deadlineLabel", {
-                  deadline: formatDeadline(
-                    offering.registrationDeadline,
-                    tCommon("noDeadline"),
-                    locale,
-                  ),
-                })}
-              </span>
-              <span>
-                {t("startsLabel", {
-                  time: formatDeadline(
+            <button
+              type="button"
+              onClick={retry}
+              className="public-catalog-retry"
+            >
+              {tCommon("retry")}
+            </button>
+          </div>
+        ) : stale ? (
+          <div className="public-detail-skeletons" aria-hidden="true">
+            <div className="public-detail-skeleton public-detail-skeleton--hero" />
+            <div className="public-detail-skeleton" />
+            <div className="public-detail-skeleton" />
+          </div>
+        ) : offering === null ? (
+          <section className="public-catalog-state public-detail-state">
+            <h1>{t("notAccessibleTitle", { label: labelsT(label) })}</h1>
+            <p>{t("notAccessibleDesc")}</p>
+          </section>
+        ) : (
+          <article className="public-detail">
+            <header className="public-detail__hero">
+              <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+              <h1>{offering.title}</h1>
+            </header>
+
+            <dl className="public-detail__facts">
+              <div>
+                <dt>{t("startsTitle")}</dt>
+                <dd>
+                  {formatDeadline(
                     offering.startsAt ?? null,
                     tCommon("timeTbd"),
                     locale,
-                  ),
-                })}
-              </span>
-              <span>
-                {t("endsLabel", {
-                  time: formatDeadline(
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("endsTitle")}</dt>
+                <dd>
+                  {formatDeadline(
                     offering.endsAt ?? null,
                     tCommon("timeTbd"),
                     locale,
-                  ),
-                })}
-              </span>
-              {kind === "event" ? (
-                <span>
-                  {t("venueLabel", {
-                    venue:
-                      formatVenue(parseVenue(offering.venue)) ??
-                      tCommon("venueTbd"),
-                  })}
-                </span>
-              ) : null}
-            </div>
-            {offering.description ? (
-              <p className="mt-4 whitespace-pre-wrap text-sm text-ink-2">
-                {offering.description}
-              </p>
-            ) : null}
-
-            {/* 定价档位静态信息块（R9，匿名可见）；登录后 radio 选档器沿用现状作选择控件 */}
-            {offering.pricingEnabled && priceTiers.length > 0 ? (
-              <div className="mt-5" data-testid="price-tier-info">
-                <h2 className="text-sm font-medium">{t("pricingTitle")}</h2>
-                <ul className="mt-2 grid gap-1.5 text-sm">
-                  {priceTiers.map((tier) => (
-                    <li
-                      key={tier.id}
-                      className="flex items-center justify-between gap-4"
-                    >
-                      <span>{tier.name}</span>
-                      <span className="font-medium">
-                        ¥{formatAmount(tier.amountCents)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                  )}
+                </dd>
               </div>
-            ) : null}
-
-            <div className="mt-6 border-t border-line pt-5">
-              {!authed ? (
-                isFull ? (
-                  <p className="text-sm text-ink-3" data-testid="enrollment-full">
-                    {t("fullHint")}
-                  </p>
-                ) : (
-                <div className="text-sm">
-                  <Link
-                    href={`/login?next=${encodeURIComponent(`/${kind === "event" ? "events" : "courses"}/${offering.slug}`)}`}
-                    className="join-button join-button--primary inline-block"
-                  >
-                    {t("loginToEnroll")}
-                  </Link>
-                  <p className="mt-2 text-[13px] text-ink-3">
-                    {t("enrollFreeHint")}
-                  </p>
+              <div>
+                <dt>{t("deadlineTitle")}</dt>
+                <dd>
+                  {formatDeadline(
+                    offering.registrationDeadline,
+                    tCommon("noDeadline"),
+                    locale,
+                  )}
+                </dd>
+              </div>
+              {kind === "event" ? (
+                <div>
+                  <dt>{t("venueTitle")}</dt>
+                  <dd>
+                    {formatVenue(parseVenue(offering.venue)) ??
+                      tCommon("venueTbd")}
+                  </dd>
                 </div>
-                )
-              ) : submitState.kind === "confirmed" ||
-                submitState.kind === "pending" ||
-                submitState.kind === "payment_pending" ? (
-                <div className="text-sm" role="status">
-                  <p className="font-medium">
-                    {submitState.kind === "confirmed"
-                      ? t("enrolledConfirm")
-                      : submitState.kind === "payment_pending"
-                        ? t("pendingPay")
-                        : t("submitted")}
-                  </p>
-                  <p className="mt-1 text-[13px] text-ink-3">
-                    {submitState.message}
-                  </p>
-                  {submitState.kind === "payment_pending" &&
-                  submitState.enrollmentId ? (
+              ) : null}
+              <div>
+                <dt>{t("policyTitle")}</dt>
+                <dd>
+                  {labelsT(
+                    ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy],
+                  )}
+                </dd>
+              </div>
+            </dl>
+
+            <aside
+              className="public-detail__rail"
+              aria-labelledby="public-detail-registration-title"
+            >
+              <h2 id="public-detail-registration-title">
+                {t("registrationTitle")}
+              </h2>
+
+              {/* 定价档位静态信息块（R9，匿名可见）；登录后 radio 选档器沿用现状作选择控件 */}
+              {offering.pricingEnabled && priceTiers.length > 0 ? (
+                <div
+                  className="public-detail__pricing"
+                  data-testid="price-tier-info"
+                >
+                  <h3>{t("pricingTitle")}</h3>
+                  <ul>
+                    {priceTiers.map((tier) => (
+                      <li key={tier.id}>
+                        <span>{tier.name}</span>
+                        <strong>¥{formatAmount(tier.amountCents)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="public-detail__enrollment">
+                {!authed ? (
+                  enrollmentUnavailable ? (
+                    enrollmentUnavailableNotice
+                  ) : (
+                    <div className="text-sm">
+                      <Link
+                        href={`/login?next=${encodeURIComponent(`${listHref}/${offering.slug}`)}`}
+                        className="join-button join-button--primary inline-block"
+                      >
+                        {t("loginToEnroll")}
+                      </Link>
+                      <p className="mt-2 text-[13px] text-ink-3">
+                        {t("signInToEnrollHint")}
+                      </p>
+                    </div>
+                  )
+                ) : submitState.kind === "confirmed" ||
+                  submitState.kind === "pending" ||
+                  submitState.kind === "payment_pending" ? (
+                  <div className="text-sm" role="status">
+                    <p className="font-medium">
+                      {submitState.kind === "confirmed"
+                        ? t("enrolledConfirm")
+                        : submitState.kind === "payment_pending"
+                          ? t("pendingPay")
+                          : t("submitted")}
+                    </p>
+                    <p className="mt-1 text-[13px] text-ink-3">
+                      {submitState.message}
+                    </p>
+                    {submitState.kind === "payment_pending" &&
+                    submitState.enrollmentId ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openCheckoutFor(submitState.enrollmentId!)
+                        }
+                        className="join-button join-button--primary mt-3 inline-block"
+                        data-testid="public-enrollment-continue-pay"
+                      >
+                        {t("continuePay")}
+                      </button>
+                    ) : (
+                      <Link
+                        href="/participations"
+                        className="mt-3 inline-block text-[13px] text-accent hover:underline"
+                      >
+                        {t("viewInParticipations")}
+                      </Link>
+                    )}
+                  </div>
+                ) : myEnroll?.status === "payment_pending" ? (
+                  <div
+                    className="text-sm"
+                    role="status"
+                    data-testid="public-enrollment-pending-card"
+                  >
+                    <p className="font-medium">{t("slotReserved")}</p>
                     <button
                       type="button"
-                      onClick={() => openCheckoutFor(submitState.enrollmentId!)}
+                      onClick={() => openCheckoutFor(myEnroll!.id)}
                       className="join-button join-button--primary mt-3 inline-block"
-                      data-testid="public-enrollment-continue-pay"
+                      data-testid="public-enrollment-pending-pay"
                     >
                       {t("continuePay")}
                     </button>
-                  ) : (
+                  </div>
+                ) : myEnroll?.status === "pending" ? (
+                  <div className="text-sm" role="status">
+                    <p className="font-medium">
+                      {t("pendingApproval", { label: labelsT(label) })}
+                    </p>
                     <Link
                       href="/participations"
                       className="mt-3 inline-block text-[13px] text-accent hover:underline"
                     >
                       {t("viewInParticipations")}
                     </Link>
-                  )}
-                </div>
-              ) : myEnroll?.status === "payment_pending" ? (
-                <div
-                  className="text-sm"
-                  role="status"
-                  data-testid="public-enrollment-pending-card"
-                >
-                  <p className="font-medium">
-                    {t("slotReserved")}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => openCheckoutFor(myEnroll!.id)}
-                    className="join-button join-button--primary mt-3 inline-block"
-                    data-testid="public-enrollment-pending-pay"
-                  >
-                    {t("continuePay")}
-                  </button>
-                </div>
-              ) : myEnroll?.status === "pending" ? (
-                <div className="text-sm" role="status">
-                  <p className="font-medium">
-                    {t("pendingApproval", { label: labelsT(label) })}
-                  </p>
-                  <Link
-                    href="/participations"
-                    className="mt-3 inline-block text-[13px] text-accent hover:underline"
-                  >
-                    {t("viewInParticipations")}
-                  </Link>
-                </div>
-              ) : myEnroll ? (
-                <div className="text-sm" role="status">
-                  <p className="font-medium">{t("enrolled", { label: labelsT(label) })}</p>
-                  <Link
-                    href="/participations"
-                    className="mt-3 inline-block text-[13px] text-accent hover:underline"
-                  >
-                    {t("viewInParticipations")}
-                  </Link>
-                </div>
-              ) : !enrollChecked ? (
-                <div className="text-sm text-ink-3">{t("checkingEnroll")}</div>
-              ) : isFull ? (
-                <p className="text-sm text-ink-3" data-testid="enrollment-full">
-                  {t("fullHint")}
-                </p>
-              ) : (
-                <div className="grid gap-3">
-                  {offering.enrollmentPolicy === "invite_only" ? (
-                    <label className="block">
-                      <span className="block text-[13px] text-ink-3">
-                        {t("inviteCode")}
-                      </span>
-                      <input
-                        value={inviteCode}
-                        onChange={(e) => setInviteCode(e.target.value)}
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
-                      />
-                    </label>
-                  ) : null}
-                  {offering.pricingEnabled ? (
-                    <fieldset
-                      className="grid gap-2"
-                      data-testid="price-tier-picker"
-                    >
-                      <legend className="text-[13px] text-ink-3">
-                        {t("chooseTier")}
-                      </legend>
-                      {priceTiers.length === 0 ? (
-                        <p
-                          className="text-[13px] text-ink-3"
-                          data-testid="no-available-tier"
-                        >
-                          {t("noTierAvailable")}
-                        </p>
-                      ) : (
-                        priceTiers.map((tier) => (
-                          <label
-                            key={tier.id}
-                            className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
-                              tierId === tier.id
-                                ? "border-line-strong bg-soft-2 text-ink"
-                                : "border-line bg-card text-ink-2"
-                            }`}
-                            data-testid={`price-tier-${tier.id}`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <input
-                                type="radio"
-                                name="price-tier"
-                                value={tier.id}
-                                checked={tierId === tier.id}
-                                onChange={() => setTierId(tier.id)}
-                              />
-                              {tier.name}
-                            </span>
-                            <span className="font-medium">
-                              ¥{formatAmount(tier.amountCents)}
-                            </span>
-                          </label>
-                        ))
-                      )}
-                    </fieldset>
-                  ) : null}
-                  {offering.enrollmentPolicy === "request" ? (
-                    <p className="text-[13px] text-ink-3">
-                      {t("requestApprovalHint")}
-                    </p>
-                  ) : null}
-                  {submitState.kind === "error" ? (
-                    <p className="text-[13px] text-ink-3" role="alert">
-                      {submitState.message}
-                    </p>
-                  ) : null}
-                  {submitPhase === "reconcile_failed" ? (
-                    // B2：重拉失败稳态——提交保持锁定，resync 是唯一出口。
-                    <p className="text-[13px] text-ink-3" role="alert">
-                      {t("reconcileFailed")}
-                    </p>
-                  ) : null}
-                  {submitPhase === "reconcile_failed" ||
-                  submitPhase === "reconciling" ? (
-                    <button
-                      type="button"
-                      // 稳态可点（重新同步）；在途 disabled（B2 单飞语义）
-                      disabled={submitPhase === "reconciling"}
-                      onClick={() => void resync()}
-                      className="join-button join-button--outline justify-self-start"
-                      data-testid="resync-offering"
-                    >
-                      {submitPhase === "reconciling"
-                        ? t("reconciling")
-                        : t("resync")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={busy || (offering.pricingEnabled === true && priceTiers.length === 0)}
-                      onClick={() => void submit()}
-                      className="join-button join-button--primary justify-self-start"
-                    >
-                      {busy
-                        ? t("submitting")
-                        : offering.pricingEnabled && paidTier
-                          ? t("submitWithPay", {
-                              amount: formatAmount(paidTier.amountCents),
-                            })
-                          : t("submit")}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {kind === "course" && offering.slug ? (
-            <CourseMapSection slug={offering.slug} />
-          ) : null}
-
-          {sponsorshipOpen ? (
-            <div className="mt-8 border-t border-line pt-8">
-              <h2 className="text-lg font-semibold">{t("sponsorTitle")}</h2>
-              <p className="mt-1 text-[13px] text-ink-3">
-                {t("sponsorDesc")}
-              </p>
-              <div className="mt-4 grid gap-2">
-                {sponsorshipTiers.map((tier) => (
-                  <div
-                    key={tier.id}
-                    className="rounded-large border border-line bg-soft-2 p-3 text-sm"
-                  >
-                    <p className="flex items-center gap-2 font-medium">
-                      {tier.name}
-                      {tier.exclusive ? (
-                        <span className="ld-badge-exclusive rounded-full px-2 py-0.5 text-[11px]">
-                          {t("exclusive")}
-                        </span>
-                      ) : null}
-                    </p>
-                    {tier.amountSuggestion ? (
-                      <p className="mt-0.5 text-[13px] text-ink-3">
-                        {t("suggestAmount", { amount: tier.amountSuggestion })}
-                      </p>
-                    ) : null}
-                    {tier.benefits.length > 0 ? (
-                      <p className="mt-0.5 text-[13px] text-ink-3">
-                        {t("benefits", { benefits: tier.benefits.join(" / ") })}
-                      </p>
-                    ) : null}
                   </div>
-                ))}
-              </div>
-              <div className="mt-5 border-t border-line pt-5">
-                {!authed ? (
-                  <div className="text-sm">
+                ) : myEnroll ? (
+                  <div className="text-sm" role="status">
+                    <p className="font-medium">
+                      {t("enrolled", { label: labelsT(label) })}
+                    </p>
                     <Link
-                      href={`/login?next=${encodeURIComponent(`/events/${offering.slug}`)}`}
-                      className="join-button join-button--primary inline-block"
+                      href="/participations"
+                      className="mt-3 inline-block text-[13px] text-accent hover:underline"
                     >
-                      {t("loginToSponsor")}
+                      {t("viewInParticipations")}
                     </Link>
-                    <p className="mt-2 text-[13px] text-ink-3">
-                      {t("sponsorLoginHint")}
-                    </p>
                   </div>
-                ) : userId ? (
-                  <SponsorshipIntentForm
-                    eventId={offering.id}
-                    sponsorUserId={userId}
-                    tiers={sponsorshipTiers}
-                  />
-                ) : null}
+                ) : !enrollChecked ? (
+                  <div className="text-sm text-ink-3">
+                    {t("checkingEnroll")}
+                  </div>
+                ) : enrollmentUnavailable ? (
+                  enrollmentUnavailableNotice
+                ) : (
+                  <div className="grid gap-3">
+                    {offering.enrollmentPolicy === "invite_only" ? (
+                      <label className="block">
+                        <span className="block text-[13px] text-ink-3">
+                          {t("inviteCode")}
+                        </span>
+                        <input
+                          value={inviteCode}
+                          onChange={(e) => setInviteCode(e.target.value)}
+                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    {offering.pricingEnabled ? (
+                      <fieldset
+                        className="grid gap-2"
+                        data-testid="price-tier-picker"
+                      >
+                        <legend className="text-[13px] text-ink-3">
+                          {t("chooseTier")}
+                        </legend>
+                        {priceTiers.length === 0 ? (
+                          <p
+                            className="text-[13px] text-ink-3"
+                            data-testid="no-available-tier"
+                          >
+                            {t("noTierAvailable")}
+                          </p>
+                        ) : (
+                          priceTiers.map((tier) => (
+                            <label
+                              key={tier.id}
+                              className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
+                                tierId === tier.id
+                                  ? "border-line-strong bg-soft-2 text-ink"
+                                  : "border-line bg-card text-ink-2"
+                              }`}
+                              data-testid={`price-tier-${tier.id}`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name="price-tier"
+                                  value={tier.id}
+                                  checked={tierId === tier.id}
+                                  onChange={() => setTierId(tier.id)}
+                                />
+                                {tier.name}
+                              </span>
+                              <span className="font-medium">
+                                ¥{formatAmount(tier.amountCents)}
+                              </span>
+                            </label>
+                          ))
+                        )}
+                      </fieldset>
+                    ) : null}
+                    {offering.enrollmentPolicy === "request" ? (
+                      <p className="text-[13px] text-ink-3">
+                        {t("requestApprovalHint")}
+                      </p>
+                    ) : null}
+                    {submitState.kind === "error" ? (
+                      <p className="text-[13px] text-ink-3" role="alert">
+                        {submitState.message}
+                      </p>
+                    ) : null}
+                    {submitPhase === "reconcile_failed" ? (
+                      // B2：重拉失败稳态，提交保持锁定，resync 是唯一出口。
+                      <p className="text-[13px] text-ink-3" role="alert">
+                        {t("reconcileFailed")}
+                      </p>
+                    ) : null}
+                    {submitPhase === "reconcile_failed" ||
+                    submitPhase === "reconciling" ? (
+                      <button
+                        type="button"
+                        // 稳态可点（重新同步）；在途 disabled（B2 单飞语义）
+                        disabled={submitPhase === "reconciling"}
+                        onClick={() => void resync()}
+                        className="join-button join-button--outline justify-self-start"
+                        data-testid="resync-offering"
+                      >
+                        {submitPhase === "reconciling"
+                          ? t("reconciling")
+                          : t("resync")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          (offering.pricingEnabled === true &&
+                            priceTiers.length === 0)
+                        }
+                        onClick={() => void submit()}
+                        className="join-button join-button--primary justify-self-start"
+                      >
+                        {busy
+                          ? t("submitting")
+                          : offering.pricingEnabled && paidTier
+                            ? t("submitWithPay", {
+                                amount: formatAmount(paidTier.amountCents),
+                              })
+                            : t("submit")}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
+            </aside>
+
+            {offering.description ? (
+              <section
+                className="public-detail__about"
+                aria-labelledby="public-detail-about-title"
+              >
+                <h2 id="public-detail-about-title">{t("aboutTitle")}</h2>
+                <p>{offering.description}</p>
+              </section>
+            ) : null}
+
+            <div className="public-detail__after">
+              {kind === "course" && offering.slug ? (
+                <CourseMapSection slug={offering.slug} />
+              ) : null}
+
+              {sponsorshipOpen ? (
+                <section className="public-detail__sponsorship">
+                  <h2>{t("sponsorTitle")}</h2>
+                  <p className="mt-1 text-[13px] text-ink-3">
+                    {t("sponsorDesc")}
+                  </p>
+                  <div className="mt-4 grid gap-2">
+                    {sponsorshipTiers.map((tier) => (
+                      <div
+                        key={tier.id}
+                        className="rounded-large border border-line bg-soft-2 p-3 text-sm"
+                      >
+                        <p className="flex items-center gap-2 font-medium">
+                          {tier.name}
+                          {tier.exclusive ? (
+                            <span className="ld-badge-exclusive rounded-full px-2 py-0.5 text-[11px]">
+                              {t("exclusive")}
+                            </span>
+                          ) : null}
+                        </p>
+                        {tier.amountSuggestion ? (
+                          <p className="mt-0.5 text-[13px] text-ink-3">
+                            {t("suggestAmount", {
+                              amount: tier.amountSuggestion,
+                            })}
+                          </p>
+                        ) : null}
+                        {tier.benefits.length > 0 ? (
+                          <p className="mt-0.5 text-[13px] text-ink-3">
+                            {t("benefits", {
+                              benefits: tier.benefits.join(" / "),
+                            })}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-5 border-t border-line pt-5">
+                    {!authed ? (
+                      <div className="text-sm">
+                        <Link
+                          href={`/login?next=${encodeURIComponent(`/events/${offering.slug}`)}`}
+                          className="join-button join-button--primary inline-block"
+                        >
+                          {t("loginToSponsor")}
+                        </Link>
+                        <p className="mt-2 text-[13px] text-ink-3">
+                          {t("sponsorLoginHint")}
+                        </p>
+                      </div>
+                    ) : userId ? (
+                      <SponsorshipIntentForm
+                        eventId={offering.id}
+                        sponsorUserId={userId}
+                        tiers={sponsorshipTiers}
+                      />
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
             </div>
-          ) : null}
-        </>
-      )}
+          </article>
+        )}
       </div>
 
       {/* 批①桌面：收费报名的就地收银模态框（支付成功 onPaid 就地刷新报名态） */}
@@ -733,6 +767,6 @@ export default function PublicOfferingDetailPage({
           onPaid={() => void refetchEnrollment()}
         />
       ) : null}
-    </main>
+    </PublicCatalogShell>
   );
 }

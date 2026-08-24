@@ -5435,7 +5435,7 @@ type RootQueryType {
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
-  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
+  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息 + viewerIsInviter；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
   speakerInvitationCard(token: String!): SpeakerInvitationCard
 
   "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
@@ -6209,6 +6209,9 @@ type SpeakerInvitationCard {
   topic: String
 
   scheduledAt: DateTime
+
+  "当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy）"
+  viewerIsInviter: Boolean!
 
   event: SpeakerInvitationCardEvent!
 }

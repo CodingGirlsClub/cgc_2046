@@ -444,7 +444,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       assert [%{"name" => "早鸟票"}] = detail["available_price_tiers"]
       assert detail["venue"] == @venue_beijing
       assert detail["sponsorship_enabled"] == true
-      assert detail["badge"] in ["enrolling", "starting_soon", "full"]
+      assert detail["badge"] in ["enrolling", "starting_soon", "closed", "full"]
       assert is_binary(detail["starts_at"])
       assert is_binary(detail["ends_at"])
     end
@@ -465,6 +465,23 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       assert is_nil(detail["venue"])
       assert is_nil(detail["sponsorship_enabled"])
       assert is_nil(detail["sponsorship_tiers"])
+    end
+
+    test "报名截止的公开条目详情精确返回 closed badge" do
+      admin = Fixtures.platform_admin("po-get-closed")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          registration_deadline: EventFixtures.days_from_now(-1)
+        })
+
+      outsider = Fixtures.register_user("po-get-closed-user")
+
+      assert {:reply, _, _} =
+               reply = GetPublicOffering.execute(%{"id" => event.id}, frame_for(outsider))
+
+      assert decode(reply)["badge"] == "closed"
     end
 
     test "kind 参数显式分派；kind 与 id 不匹配 = not found" do

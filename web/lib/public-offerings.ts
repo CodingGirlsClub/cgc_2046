@@ -147,11 +147,11 @@ export function parseVenue(raw: string | null | undefined): VenueInfo | null {
 	}
 }
 
-/** VenueInfo → 单行展示（空段跳过；全空/null → null，由展示层兜底「地点待定」，R3） */
+/** VenueInfo → 单行展示（空段及相邻重复行政区跳过；全空/null → null，R3） */
 export function formatVenue(venue: VenueInfo | null): string | null {
 	if (!venue) return null;
-	const parts = [venue.country, venue.province, venue.city, venue.district].filter(
-		(s) => s.trim() !== "",
-	);
+	const parts = [venue.country, venue.province, venue.city, venue.district]
+		.map((part) => part.trim())
+		.filter((part, index, all) => part !== "" && part !== all[index - 1]);
 	return parts.length > 0 ? parts.join(" ") : null;
 }
