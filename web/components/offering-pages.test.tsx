@@ -89,7 +89,8 @@ vi.mock("@/components/icons", () => ({
 
 const { submitEnrollment } = vi.hoisted(() => ({ submitEnrollment: vi.fn() }));
 
-vi.mock("@/lib/public-offerings", () => ({
+vi.mock("@/lib/public-offerings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/public-offerings")>()),
   parseSponsorshipTiers: () => [],
   submitEnrollment,
 }));
@@ -572,6 +573,11 @@ describe("OfferingNewPage 新建调用链", () => {
           visibility: "workspace",
           capacity: 20,
           registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+          startsAt: null,
+          endsAt: null,
+          ...(kind === "event"
+            ? { venue: { country: "", province: "", city: "", district: "" } }
+            : {}),
         }),
       );
       expect(routerMocks.push).toHaveBeenCalledWith(`${base}offering-1`);
@@ -669,9 +675,11 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
           enrollmentPolicy: "request",
           capacity: 20,
           registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
+          startsAt: null,
+          endsAt: null,
           ...(kind === "course"
             ? { researchRequirements: JSON.stringify({ note: "" }) }
-            : {}),
+            : { venue: { country: "", province: "", city: "", district: "" } }),
         }),
       );
       // 成功：局部状态更新（标题）＋表单复位（metaDraft → null）
@@ -950,5 +958,318 @@ describe("OfferingDetailPage fetchPendingCount 权限门控", () => {
 
     await screen.findByRole("heading", { name: "测试活动" });
     expect(mocks.fetchPendingCount).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------- U5/R14：开始/结束时间与结构化 venue 录入 ---------------- */
+
+const OWNER_WS_MOCK = {
+  ws: OWNER_WORKSPACE,
+  readOnlyVisitor: false,
+  loading: false,
+  error: null,
+  retry: vi.fn(),
+};
+
+describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
+  it("event：填开始/结束时间 + venue 四键 → createOffering 携带 UTC ISO 时间与四键草稿", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "线下工作坊" },
+    });
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-01T09:30" },
+    });
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-09-01T12:00" },
+    });
+    fireEvent.change(screen.getByLabelText("国家"), { target: { value: "中国" } });
+    fireEvent.change(screen.getByLabelText("省份"), { target: { value: "浙江省" } });
+    fireEvent.change(screen.getByLabelText("城市"), { target: { value: "杭州市" } });
+    fireEvent.change(screen.getByLabelText("区县"), { target: { value: "西湖区" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    // datetime-local 原值经 toLocalInput/fromLocalInput 转 UTC ISO（KTD6 时序后端复验）；
+    // venue 四键草稿原样下发，JsonString 组装在 lib 层（lib/events.test.ts 覆盖）
+    await waitFor(() =>
+      expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
+        title: "线下工作坊",
+        enrollmentPolicy: "open",
+        visibility: "public",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date("2026-09-01T09:30").toISOString(),
+        endsAt: new Date("2026-09-01T12:00").toISOString(),
+        venue: { country: "中国", province: "浙江省", city: "杭州市", district: "西湖区" },
+      }),
+    );
+    expect(routerMocks.push).toHaveBeenCalledWith("/w/demo/events/offering-1");
+  });
+
+  it("event：venue 部分填写（缺键）→ 就地拦截提示，不产生提交", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "线下工作坊" },
+    });
+    fireEvent.change(screen.getByLabelText("国家"), { target: { value: "中国" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(await screen.findByText(/四项齐全/)).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+    expect(routerMocks.push).not.toHaveBeenCalled();
+  });
+
+  it("event：venue 全空 → 四键空草稿照常下发（lib 组装为 null），时间留空 → null", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "线上分享" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    await waitFor(() =>
+      expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
+        title: "线上分享",
+        enrollmentPolicy: "open",
+        visibility: "public",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: null,
+        endsAt: null,
+        venue: { country: "", province: "", city: "", district: "" },
+      }),
+    );
+  });
+
+  it("course：只有时间输入、无 venue 输入；提交不携带 venue 键", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="course" />);
+
+    expect(await screen.findByLabelText(/^开始时间/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^结束时间/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("国家")).not.toBeInTheDocument();
+    expect(screen.queryByText(/活动地点/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/标题/), {
+      target: { value: "春季训练营" },
+    });
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-01T09:30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建课程" }));
+
+    await waitFor(() =>
+      expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "course", {
+        title: "春季训练营",
+        enrollmentPolicy: "open",
+        visibility: "public",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date("2026-09-01T09:30").toISOString(),
+        endsAt: null,
+      }),
+    );
+  });
+
+  it.each([
+    ["event", "活动"],
+    ["course", "课程"],
+  ] as const)(
+    "%s 创建：end<=start 后端校验错误（KTD6 message-only）→ 映射文案展示，不透传原文",
+    async (kind, label) => {
+      mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+      mocks.createOffering.mockResolvedValueOnce({
+        result: null,
+        errors: [
+          { message: "ends_at must be after starts_at", code: "invalid_changes" },
+        ],
+      });
+
+      render(<OfferingNewPage slug="demo" kind={kind} />);
+
+      fireEvent.change(await screen.findByLabelText(/标题/), {
+        target: { value: "x" },
+      });
+      fireEvent.change(screen.getByLabelText(/^开始时间/), {
+        target: { value: "2026-09-02T09:00" },
+      });
+      fireEvent.change(screen.getByLabelText(/^结束时间/), {
+        target: { value: "2026-09-01T09:00" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: `创建${label}` }));
+
+      expect(
+        await screen.findByText("结束时间须晚于开始时间。"),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/ends_at must be after/)).not.toBeInTheDocument();
+      expect(routerMocks.push).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
+  it("event：预填 startsAt/venue → 修改后保存携带 UTC ISO 时间与 venue 四键草稿", async () => {
+    const startsIso = "2026-09-01T01:30:00.000Z";
+    const venueJson = JSON.stringify({
+      country: "中国",
+      province: "浙江省",
+      city: "杭州市",
+      district: "西湖区",
+    });
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: startsIso,
+        endsAt: "2026-09-01T04:00:00.000Z",
+        venue: venueJson,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ startsAt: startsIso, endsAt: null, venue: venueJson }),
+    );
+
+    // 预填：startsAt 回读同一时刻（toLocalInput 往返）；endsAt null → 空；venue 四键回填
+    const startsInput = screen.getByLabelText(/^开始时间/) as HTMLInputElement;
+    expect(startsInput.value).not.toBe("");
+    expect(new Date(startsInput.value).toISOString()).toBe(startsIso);
+    expect(
+      (screen.getByLabelText(/^结束时间/) as HTMLInputElement).value,
+    ).toBe("");
+    expect((screen.getByLabelText("国家") as HTMLInputElement).value).toBe("中国");
+    expect((screen.getByLabelText("区县") as HTMLInputElement).value).toBe("西湖区");
+
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-09-01T12:00" },
+    });
+    fireEvent.change(screen.getByLabelText("区县"), { target: { value: "滨江区" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "event", {
+        title: "测试活动",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date(startsInput.value).toISOString(),
+        endsAt: new Date("2026-09-01T12:00").toISOString(),
+        venue: { country: "中国", province: "浙江省", city: "杭州市", district: "滨江区" },
+      }),
+    );
+    expect(await screen.findByText("已保存")).toBeInTheDocument();
+  });
+
+  it("event：venue 清空其一（缺键）→ 就地拦截提示，updateOffering 不调用", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        venue: JSON.stringify({
+          country: "中国",
+          province: "浙江省",
+          city: "杭州市",
+          district: "西湖区",
+        }),
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText("区县"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(await screen.findByText(/四项齐全/)).toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("course：MetaDraft 有时间输入、无 venue 输入；保存不携带 venue 键", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: "2026-09-01T01:30:00.000Z",
+        endsAt: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail("course", offeringRow({}));
+
+    expect(screen.getByLabelText(/^开始时间/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^结束时间/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("国家")).not.toBeInTheDocument();
+    expect(screen.queryByText(/活动地点/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-01T09:30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "course", {
+        title: "测试活动",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        startsAt: new Date("2026-09-01T09:30").toISOString(),
+        endsAt: null,
+        researchRequirements: JSON.stringify({ note: "" }),
+      }),
+    );
+  });
+
+  it("event：end<=start 后端校验错误（KTD6）→ 映射文案展示，不透传原文", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: null,
+      errors: [
+        { message: "ends_at must be after starts_at", code: "invalid_changes" },
+      ],
+    });
+
+    await renderManageDetail("event", offeringRow({}));
+
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-09-02T09:00" },
+    });
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-09-01T09:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText("结束时间须晚于开始时间。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ends_at must be after/)).not.toBeInTheDocument();
   });
 });

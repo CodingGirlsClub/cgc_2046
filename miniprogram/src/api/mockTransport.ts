@@ -12,56 +12,49 @@ const workspace = {
   memberCount: 128
 }
 
+// 公开发现面 mock 记录（F2）：字段 = 匿名白名单，与 operations.ts 查询一致
 const records = [
   {
     id: 'event-1',
-    workspaceId: workspace.id,
     title: 'Python 入门工作坊',
-    researchRequirements: JSON.stringify({
-      audience: '零基础学习者',
-      duration: '2 小时',
-      location: '北京 CGC 活动空间',
-      tutor: '林老师',
-      sections: ['环境准备', '语法基础', '动手练习']
-    }),
     status: 'open',
-    workflowRunId: null,
     enrollmentPolicy: 'request',
-    capacity: 30,
-    confirmedCount: 18,
     registrationDeadline: new Date(Date.now() + 72 * 3_600_000).toISOString(),
     pricingEnabled: false,
-    availablePriceTiers: []
+    availablePriceTiers: [],
+    startsAt: new Date(Date.now() + 3 * 24 * 3_600_000).toISOString(),
+    endsAt: new Date(Date.now() + (3 * 24 + 2) * 3_600_000).toISOString(),
+    venue: JSON.stringify({ country: '中国', province: '北京市', city: '北京', district: '海淀区' }),
+    enrollmentBadge: 'starting_soon'
   },
   {
     id: 'event-open',
-    workspaceId: workspace.id,
     title: '周末开源分享会',
-    researchRequirements: JSON.stringify({ audience: '所有成员', format: '线下分享' }),
     status: 'open',
-    workflowRunId: null,
     enrollmentPolicy: 'open',
-    capacity: 80,
-    confirmedCount: 31,
     registrationDeadline: null,
     pricingEnabled: false,
-    availablePriceTiers: []
+    availablePriceTiers: [],
+    // 时间/地点未定：详情页走「时间待定」「地点待定」兜底（R3）
+    startsAt: null,
+    endsAt: null,
+    venue: null,
+    enrollmentBadge: 'enrolling'
   }
 ]
 
 const course = {
   id: 'course-1',
-  workspaceId: workspace.id,
   title: '社区组织者成长课',
-  researchRequirements: JSON.stringify({ audience: '社区志愿者', duration: '4 周' }),
   status: 'open',
-  workflowRunId: null,
   enrollmentPolicy: 'invite_only',
-  capacity: null,
-  confirmedCount: 12,
   registrationDeadline: null,
   pricingEnabled: false,
-  availablePriceTiers: []
+  availablePriceTiers: [],
+  // 课程无 venue 槽（R3）；开课时间已定、结课未定（部分空）
+  startsAt: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString(),
+  endsAt: null,
+  enrollmentBadge: 'enrolling'
 }
 
 interface MockOrder {

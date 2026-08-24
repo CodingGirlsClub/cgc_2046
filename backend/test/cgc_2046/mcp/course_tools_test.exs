@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   4. 课程 close 后 save_learning_records 业务错误、两读工具正常(AE2)
   5. run succeeded 后 save_learning_records 成功(AE3 缝级前置)
   6. get_learning_records 缺省 course_id 多课程;带 course_id 过滤
-  7. server 注册工具数 = 12 契约断言
+  7. server 注册工具数 = 17 契约断言
   """
   use Cgc2046.DataCase, async: true
 
@@ -511,11 +511,11 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   end
 
   describe "场景 7:server 工具契约" do
-    test "注册工具数 = 15(平台工具面契约,#240 成员管理三工具后)" do
+    test "注册工具数 = 17(平台工具面契约,公开浏览两工具后)" do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 15
+      assert length(names) == 17
 
       for name <- [
             "get_workspace_context",
@@ -532,7 +532,9 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
             "get_course_content",
             "get_learning_records",
             "save_learning_records",
-            "save_course_content"
+            "save_course_content",
+            "list_public_offerings",
+            "get_public_offering"
           ] do
         assert name in names, "expected tool #{name} registered"
       end

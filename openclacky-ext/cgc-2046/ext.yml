@@ -33,6 +33,14 @@ contributes:
       description_zh: CGC-2046 课程学习(学习单元视图与会话唤起)
       view: panels/cgc-course/view.js
       order: 9
+    # U6:发现面板(公开活动/课程,数据走 loopback MCP 透传,公开工具无需 workspace_id)
+    - id: cgc-2046-discovery
+      title: CGC Discovery
+      title_zh: CGC 发现
+      description: CGC-2046 public offerings discovery (events & courses, web detail links)
+      description_zh: CGC-2046 公开活动与课程发现(条目跳 web 详情页)
+      view: panels/cgc-discovery/view.js
+      order: 10
   agents:
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md

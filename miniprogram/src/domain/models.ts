@@ -1,4 +1,6 @@
 export type ContentKind = 'event' | 'course'
+/** 公开派生报名标签（后端 EnrollmentBadge 单源，R6/KTD1） */
+export type EnrollmentBadge = 'enrolling' | 'starting_soon' | 'full'
 export type EnrollmentStatus =
   | 'pending'
   | 'payment_pending'
@@ -16,27 +18,24 @@ export type OrderStatus =
   | 'expired'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
-export interface SchemaField {
-  key: string
-  label: string
-  value: string
-}
-
 export interface CatalogItem {
   id: string
   kind: ContentKind
-  workspaceId: string
-  workspaceName: string
   title: string
   enrollmentPolicy: 'open' | 'request' | 'invite_only'
-  capacity: number | null
-  confirmedCount: number
   registrationDeadline: string | null
-  schemaFields: SchemaField[]
   /** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
   pricingEnabled: boolean
   /** 可售价格档位（后端已过滤过期档，R2；空数组 = 无可售档） */
   priceTiers: PriceTier[]
+  /** 开始时间（ISO8601）；null = 未定（R3，展示层兜底「时间待定」） */
+  startsAt: string | null
+  /** 结束时间（ISO8601）；null = 未定（R3） */
+  endsAt: string | null
+  /** 结构化场地 JsonString（parse 后 {country,province,city,district}）；仅 event 有位置槽，course 恒 null（R3） */
+  venue: string | null
+  /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
+  enrollmentBadge: EnrollmentBadge
 }
 
 /** 价格档位（display 层消费形状；解析见 domain/payment.parsePriceTiers） */

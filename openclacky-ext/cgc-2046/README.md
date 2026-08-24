@@ -2,9 +2,9 @@
 
 OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供：
 
-- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。
-- **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）。
-- **agent**：`cgc-assistant`——通过 CGC MCP 工具读写工作台的助手（8 个工具，含 two-tool 确认流）。
+- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / `get_public_offering`，membership: public，无需 workspace_id），供发现面板使用。
+- **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）；`cgc-2046-discovery`——发现面板（公开活动/课程列表，标题/时间/地点/状态标签，条目跳 web 详情页；未连接显示连接引导）。
+- **agent**：`cgc-assistant`——通过 CGC MCP 工具读写工作台的助手（17 个工具，含 two-tool 确认流与公开浏览豁免）。
 - **skill**：`cgc2046-onboarding`——引导创建 token、经剪贴板管道调 connect、验证状态的连接流程。
 - **hooks**（OpenClacky ≥1.5.7 事件能力）：
   - `after_tool_use`——主 agent 每次调用 CGC MCP server（virtual skill `mcp:cgc-2046`，条目名与扩展 id 统一）后推 `ext.cgc-2046.tool_used` 事件（成功 persist: true 进消息流，失败仅实时提示）；subagent 内 curl 连接失败不抛异常、错误文本藏在 subagent summary 里——文本特征命中（MCP server 'cgc 前缀 / Connection refused / Failed to open TCP / localhost:4102 等具体形态）时另推 `ext.cgc-2046.mcp_error`（错误片段截断 + 抹凭证，覆盖 Bearer / cgc_ 前缀 / 裸 JWT 形态）。
@@ -21,8 +21,11 @@ openclacky-ext/cgc-2046/
   api/
     handler.rb                     # 薄 DSL 层：路由 + 上下文 + error! 惯例 + 互斥/回滚加固
     mcp_config.rb                  # mcp.json read-merge-write 纯逻辑（不依赖 clacky gem，含原子写）
+    offering_routes.rb             # 发现面板 loopback 数据面（公开浏览透传，复用 course_routes 管道）
   panels/workspace/
     view.js                        # 侧边栏入口 + 连接状态面板（薄，无框架依赖）
+  panels/cgc-discovery/
+    view.js                        # 发现面板（五态状态机，条目跳 web 详情页）
   agents/cgc-assistant/
     system_prompt.md               # CGC-2046 助手人设与工具说明
   skills/cgc2046-onboarding/
@@ -31,6 +34,7 @@ openclacky-ext/cgc-2046/
   test/
     mcp_config_test.rb             # 纯逻辑单测（minitest，stdlib）
     handler_routes_test.rb         # 请求级测试（fake req + Halt 捕获，不落盘）
+    offering_routes_test.rb        # 发现路由 + 面板/prompt 静态断言（FakeRegistry + allocate 先例）
 ```
 
 ## 打包与安装
@@ -93,6 +97,7 @@ rm -rf ~/.clacky/ext/installed/cgc-2046
 cd openclacky-ext/cgc-2046
 mise exec -- ruby test/mcp_config_test.rb        # mcp.json merge / 原子写 / 权限（test-first 交付）
 mise exec -- ruby test/handler_routes_test.rb    # 请求级：422/200/回滚/500/501 + 无 token 泄漏（不落盘）
+mise exec -- ruby test/offering_routes_test.rb   # 发现路由透传/503·502·500 分层 + 面板与 prompt 静态断言
 ```
 
 ## 验证步骤（安装后自测）

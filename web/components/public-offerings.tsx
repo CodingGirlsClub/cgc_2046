@@ -1,25 +1,24 @@
 "use client";
 
 /**
- * E-5 #50 公开发现页 /events 与 /courses（站点级，游客免登录）。
+ * E-5 #50 公开发现页 /events 与 /courses（站点级，游客免登录；U4 全暗重建）。
  *
  * - 只列 open + public（匿名读策略白名单）；
  * - 无 WorkspaceShell：公开面是站点级漏斗，登录态不影响浏览（J-Visitor）；
- * - 数据唯一真实路径：fetchPublicOfferings（GraphQL 匿名查询）。
+ * - 数据唯一真实路径：fetchPublicOfferings（GraphQL 匿名查询）；
+ * - 固定深色门面（R7/KD2）：.ld-root 重声明暗色 token，html.light 下仍为深色；
+ * - 行式列表（R8）：与 landing 首页共用 OfferingRow（@/components/offering-row）
+ *   同源行组件，零跳变；行内状态标签 = 后端派生报名 badge（KTD1），
+ *   meta 行排政策/截止/开始/地点（地点仅 event，R3 兜底「时间待定」「地点待定」）。
  */
 
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
-import {
-	fetchPublicOfferings,
-} from "@/lib/public-offerings";
+import { useLocale, useTranslations } from "next-intl";
+import { fetchPublicOfferings, formatVenue, parseVenue } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
-import {
-	ENROLLMENT_POLICY_LABEL,
-	OFFERING_LABEL,
-} from "@/lib/graphql/events";
-import EventStatusTag from "@/components/event-status-tag";
+import { OFFERING_LABEL } from "@/lib/graphql/events";
+import OfferingRow from "@/components/offering-row";
 import { formatDeadline } from "@/lib/events";
 
 interface PageState {
@@ -28,35 +27,14 @@ interface PageState {
 	error: string | null;
 }
 
-function OfferingCard({ item, kind }: { item: PublicOfferingItem; kind: OfferingKind }) {
+export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	const t = useTranslations("publicOfferings");
 	const tCommon = useTranslations("common");
 	const labelsT = useTranslations();
-	const base = kind === "event" ? "/events" : "/courses";
-	return (
-		<Link
-			href={`${base}/${item.slug}`}
-			className="join-card flex items-center gap-4 !p-6"
-		>
-			<span className="min-w-0 flex-1">
-				<span className="flex items-center gap-2">
-					<span className="block truncate text-sm font-medium">{item.title}</span>
-					<EventStatusTag status={item.status} />
-				</span>
-				<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-					{labelsT(ENROLLMENT_POLICY_LABEL[item.enrollmentPolicy])} ·{" "}
-					{t("deadline", { deadline: formatDeadline(item.registrationDeadline, tCommon("noDeadline")) })}
-				</span>
-			</span>
-			<span className="flex-none text-ink-3">›</span>
-		</Link>
-	);
-}
-
-export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
-	const t = useTranslations("publicOfferings");
-	const labelsT = useTranslations();
+	const locale = useLocale();
 	const [state, setState] = useState<PageState>({ kind, rows: null, error: null });
+	// 重试 nonce：error 态点击重试 → 复位 + 触发 effect 重新拉取
+	const [nonce, setNonce] = useState(0);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -78,7 +56,7 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [kind, t]);
+	}, [kind, nonce, t]);
 
 	const stale = state.kind !== kind;
 	const rows = stale ? null : state.rows;
@@ -87,44 +65,73 @@ export default function PublicOfferingsPage({ kind }: { kind: OfferingKind }) {
 	const otherKind = kind === "event" ? "course" : "event";
 	const otherHref = kind === "event" ? "/courses" : "/events";
 
-	return (
-		<main className="mx-auto w-full max-w-3xl px-4 py-10">
-			<header className="mb-6">
-				<p className="text-[13px] text-ink-3">
-					<Link href="/" className="hover:text-ink">
-						{t("breadcrumbHome")}
-					</Link>
-					{" › "}
-					<strong>{labelsT(label)}</strong>
-				</p>
-				<h1 className="mt-2 text-2xl font-semibold">
-					{t("publicTitle", { label: labelsT(label) })}
-				</h1>
-				<p className="mt-1 text-sm text-ink-3">
-					{t("publicDesc", { label: labelsT(label) })}
-				</p>
-				<Link href={otherHref} className="mt-2 inline-block text-sm text-accent">
-					{t("viewOther", { label: labelsT(OFFERING_LABEL[otherKind]) })} ›
-				</Link>
-			</header>
+	function retry() {
+		setState({ kind, rows: null, error: null });
+		setNonce((n) => n + 1);
+	}
 
-			{loadError ? (
-				<div className="join-card" role="alert">
-					{t("loadFailed")}：{loadError}
-				</div>
-			) : rows === null ? (
-				<div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
-			) : rows.length === 0 ? (
-				<div className="join-card text-center text-sm text-ink-3">
-					{t("empty", { label: labelsT(label) })}
-				</div>
-			) : (
-				<div className="grid gap-3">
-					{rows.map((item) => (
-						<OfferingCard key={item.id} item={item} kind={kind} />
-					))}
-				</div>
-			)}
+	return (
+		<main className="ld-root">
+			<div className="ld-container py-16">
+				<header className="mb-10">
+					<p className="text-[13px] text-ink-3">
+						<Link href="/" className="hover:text-ink">
+							{t("breadcrumbHome")}
+						</Link>
+						{" › "}
+						<strong>{labelsT(label)}</strong>
+					</p>
+					<h1 className="ld-section__title mt-3">
+						{t("publicTitle", { label: labelsT(label) })}
+					</h1>
+					<p className="ld-section__desc">
+						{t("publicDesc", { label: labelsT(label) })}
+					</p>
+					<Link href={otherHref} className="ld-section__more mt-3 inline-block">
+						{t("viewOther", { label: labelsT(OFFERING_LABEL[otherKind]) })}
+					</Link>
+				</header>
+
+				{loadError ? (
+					<div role="alert">
+						<p className="ld-offer-fallback">
+							{t("loadFailed")}：{loadError}
+						</p>
+						<button
+							type="button"
+							onClick={retry}
+							className="join-button join-button--outline mt-4"
+						>
+							{tCommon("retry")}
+						</button>
+					</div>
+				) : rows === null ? (
+					// 3 块与真实行等高的 skeleton：加载完成不发生布局位移（同 landing）
+					<div aria-hidden="true">
+						<div className="ld-skeleton" />
+						<div className="ld-skeleton" />
+						<div className="ld-skeleton" />
+					</div>
+				) : rows.length === 0 ? (
+					<p className="ld-offer-fallback">{t("empty", { label: labelsT(label) })}</p>
+				) : (
+					<ul className="ld-offers">
+					{rows.map((item) => {
+						// 时间为空/非法 → 「时间待定」；空 venue → 「地点待定」（R3，任何面不出现空白）
+						const starts = formatDeadline(item.startsAt ?? null, "", locale);
+						const venue =
+							kind === "event" ? formatVenue(parseVenue(item.venue)) : null;
+						const extra = [
+							starts ? t("startsAt", { time: starts }) : tCommon("timeTbd"),
+						];
+						if (kind === "event") extra.push(venue ?? tCommon("venueTbd"));
+						return (
+							<OfferingRow key={item.id} item={item} kind={kind} meta={extra} />
+						);
+					})}
+					</ul>
+				)}
+			</div>
 		</main>
 	);
 }
