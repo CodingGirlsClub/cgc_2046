@@ -91,12 +91,13 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     token = created["plainToken"]
     assert is_binary(token) and token != ""
 
-    # 卡片公开查询（无需登录）：主题 + Event 公开信息
+    # 卡片公开查询（无需登录）：主题 + Event 公开信息；匿名 viewerIsInviter=false
     card_query = """
     query {
       speakerInvitationCard(token: "#{token}") {
         status
         topic
+        viewerIsInviter
         event { slug title }
       }
     }
@@ -108,7 +109,14 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     assert card["status"] == "invited"
     assert card["topic"] == "Elixir 实战"
     assert card["event"]["title"] == event.title
+    assert card["viewerIsInviter"] == false
     refute Map.has_key?(card, "speakerEmail")
+    refute Map.has_key?(card, "invitedBy")
+
+    assert %{"data" => %{"speakerInvitationCard" => owner_card}} =
+             build_conn() |> graphql_post(card_query, owner_token)
+
+    assert owner_card["viewerIsInviter"] == true
 
     # Owner 列表
     list_query = """
@@ -216,6 +224,59 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
 
     assert %{"data" => %{"declineSpeakerInvitation" => %{"result" => %{"status" => "declined"}}}} =
              build_conn() |> graphql_post(decline_query, speaker_token)
+  end
+
+  test "发出人 accept 自己的邀请被拒，token 未消耗，他人仍可 accept", %{
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    speaker = Fixtures.register_user("gql-spk-not-owner")
+    speaker_token = sign_in_token(speaker.email)
+
+    create_query = """
+    mutation {
+      createSpeakerInvitation(input: {
+        workspaceId: "#{workspace.id}",
+        eventId: "#{event.id}",
+        speakerName: "嘉宾发出人自点"
+      }) {
+        result { id }
+        plainToken
+        errors { message }
+      }
+    }
+    """
+
+    assert %{"data" => %{"createSpeakerInvitation" => %{"plainToken" => token}}} =
+             build_conn() |> graphql_post(create_query, owner_token)
+
+    accept_query = """
+    mutation {
+      acceptSpeakerInvitation(token: "#{token}") {
+        result { id status }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "acceptSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => errors
+               }
+             }
+           } = build_conn() |> graphql_post(accept_query, owner_token)
+
+    assert Enum.any?(errors, fn error ->
+             error["code"] == "speaker_invitation_inviter_cannot_decide" and
+               is_binary(error["message"]) and
+               error["message"] =~ "sender cannot accept or decline"
+           end)
+
+    assert %{"data" => %{"acceptSpeakerInvitation" => %{"result" => %{"status" => "accepted"}}}} =
+             build_conn() |> graphql_post(accept_query, speaker_token)
   end
 
   test "saveSpeakerMaterials：Speaker 本人可存 → 材料落 run facts → completeSpeakerInvitation 达 completed（run succeeded）",

@@ -4,9 +4,10 @@ defmodule Cgc2046.Events.SpeakerInvitations do
 
   - list_for_event/2：Event 的邀请列表（Owner/Admin 门控经资源 read policy，
     tenant = Event 的 workspace_id；非管理角色 → forbidden）
-  - card/1：token 公开卡片查询（Speaker 着陆页，无需登录）——只返回邀请主题/
-    时间 + Event 公开信息（D2 白名单），不泄露其它邀请；无效/过期/已用 token
-    统一错误（不做防枚举时序攻击，任务验收明确错误信息统一即可）。
+  - card/2：token 公开卡片查询（Speaker 着陆页，无需登录）——只返回邀请主题/
+    时间 + Event 公开信息（D2 白名单）+ viewer_is_inviter（对照可选 actor，
+    不泄露 invited_by）；无效/过期/已用 token 统一错误（不做防枚举时序攻击，
+    任务验收明确错误信息统一即可）。
   """
 
   alias Cgc2046.Events.{Event, SpeakerInvitation}
@@ -36,8 +37,8 @@ defmodule Cgc2046.Events.SpeakerInvitations do
     end
   end
 
-  @spec card(String.t()) :: {:ok, map()} | {:error, :invalid_or_expired_token}
-  def card(token) do
+  @spec card(String.t(), term()) :: {:ok, map()} | {:error, :invalid_or_expired_token}
+  def card(token, actor \\ nil) do
     with {:ok, hash} <- valid_token(token),
          {:ok, invitation} <- fetch_by_token(hash),
          :ok <- ensure_decidable(invitation),
@@ -47,6 +48,7 @@ defmodule Cgc2046.Events.SpeakerInvitations do
          status: to_string(invitation.status),
          topic: invitation.topic,
          scheduled_at: invitation.scheduled_at,
+         viewer_is_inviter: viewer_is_inviter?(invitation, actor),
          event: %{
            id: event.id,
            slug: event.slug,
@@ -59,6 +61,12 @@ defmodule Cgc2046.Events.SpeakerInvitations do
       _ -> {:error, :invalid_or_expired_token}
     end
   end
+
+  defp viewer_is_inviter?(%{invited_by: invited_by}, %{id: actor_id})
+       when not is_nil(invited_by) and not is_nil(actor_id),
+       do: invited_by == actor_id
+
+  defp viewer_is_inviter?(_invitation, _actor), do: false
 
   defp valid_token(token) when is_binary(token) and token != "" do
     {:ok, SpeakerInvitation.hash_token(token)}

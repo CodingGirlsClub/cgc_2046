@@ -593,7 +593,9 @@
     "decline": "Decline",
     "decisionHint": "After accepting, please prepare the talk materials; declining ends here — the link works once.",
     "actionFailed": "Action failed. The invite link may have expired.",
-    "actionFailedShort": "Action failed"
+    "actionFailedShort": "Action failed",
+    "youAreInviter": "This is an invitation you sent",
+    "youAreInviterDesc": "Copy the link and share it with the speaker. You cannot accept or decline it yourself."
   },
   "workspace": {
     "shell": {
@@ -1395,7 +1397,7 @@
     "created": "Invitation created — link below (plain-text token shown once; copy now)",
     "createFailed": "Failed to create",
     "title": "Invite a speaker",
-    "desc": "Targeted per-person invites: guests get a unique link to accept or decline; after accepting, they complete it by producing the talk materials.",
+    "desc": "Targeted per-person invites: copy the link and send it to the speaker. They can accept or decline; after accepting, they complete it by producing the talk materials.",
     "speakerName": "Speaker name *",
     "speakerNamePlaceholder": "e.g. Zhang San",
     "speakerEmail": "Speaker email (blank = forward the link manually)",
