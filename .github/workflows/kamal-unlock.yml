@@ -31,6 +31,8 @@ jobs:
   unlock-and-redeploy:
     runs-on: ubuntu-latest
     environment: production
+    # 分支保护只放行 main —— 本通道必须在 main 分支上 dispatch（SERVER_*
+    # vars/secrets 在 production 环境，repo 级无副本，不能摘掉 environment）。
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
