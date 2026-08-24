@@ -42,6 +42,7 @@ import {
   VISIBILITIES,
   VISIBILITY_LABEL,
 } from "@/lib/graphql/events";
+import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import WorkspaceShell from "@/components/workspace-shell";
 import EventStatusTag from "@/components/event-status-tag";
 import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
@@ -406,7 +407,6 @@ interface OfferingState {
   row: OfferingItem | null;
   error: string | null;
 }
-
 interface MetaDraft {
   offeringId: string;
   title: string;
@@ -420,6 +420,9 @@ interface MetaDraft {
   venue: VenueInfo;
   /** 教研需求自由文本(U8/R12,仅 course;原文透传 research_requirements) */
   researchRequirements: string;
+  /** 收费设置（U6/R2）：开关 + 档位草稿（编辑面就地修改） */
+  pricingEnabled: boolean;
+  tierDrafts: TierDraft[];
 }
 
 export function OfferingDetailPage({
@@ -599,6 +602,9 @@ export function OfferingDetailPage({
             researchRequirements: parseResearchText(
               offering.researchRequirements,
             ),
+            // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
+            pricingEnabled: offering.pricingEnabled === true,
+            tierDrafts: toDraft(offering.priceTiers),
           }
         : null;
 
@@ -643,6 +649,13 @@ export function OfferingDetailPage({
     }
     setSaveBusy(true);
     setSaveMessage(null);
+    // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
+    const validTiers =
+      activeDraft.tierDrafts.map(fromDraft).filter((x) => x !== null);
+    if (activeDraft.pricingEnabled && validTiers.length === 0) {
+      setSaveMessage(t("pricingTierRequired"));
+      return;
+    }
     try {
       const res = await updateOffering(offering.id, kind, {
         title: activeDraft.title,
@@ -659,6 +672,9 @@ export function OfferingDetailPage({
               ),
             }
           : { venue: activeDraft.venue }),
+        // 定价整段随保存下发（U6/R2；关闭收费的守卫弹窗在 U8 接入）
+        pricingEnabled: activeDraft.pricingEnabled,
+        priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
       });
       if (res.result) {
         setState({
@@ -672,6 +688,12 @@ export function OfferingDetailPage({
             startsAt: res.result.startsAt ?? null,
             endsAt: res.result.endsAt ?? null,
             ...(kind === "event" ? { venue: res.result.venue ?? null } : {}),
+            ...(res.result.pricingEnabled !== undefined
+              ? { pricingEnabled: res.result.pricingEnabled }
+              : {}),
+            ...(res.result.priceTiers !== undefined
+              ? { priceTiers: res.result.priceTiers }
+              : {}),
           },
           error: null,
         });
@@ -1026,6 +1048,33 @@ export function OfferingDetailPage({
                         />
                       </label>
                     ) : null}
+
+                    {/* 收费设置（U6/R2）：开关 + 档位就地修改（关收费守卫弹窗 U8 接入） */}
+                    <div className="grid gap-2" data-testid="pricing-edit-section">
+                      <label className="flex items-center gap-2 text-sm text-ink-2">
+                        <input
+                          type="checkbox"
+                          checked={activeDraft.pricingEnabled}
+                          onChange={(e) =>
+                            setMetaDraft({
+                              ...activeDraft,
+                              pricingEnabled: e.target.checked,
+                            })
+                          }
+                          data-testid="pricing-toggle"
+                        />
+                        {t("pricingEnable")}
+                      </label>
+                      {activeDraft.pricingEnabled && (
+                        <TierEditor
+                          drafts={activeDraft.tierDrafts}
+                          onChange={(tierDrafts) =>
+                            setMetaDraft({ ...activeDraft, tierDrafts })
+                          }
+                          manage
+                        />
+                      )}
+                    </div>
 
                     <button
                       type="button"
@@ -1383,18 +1432,27 @@ export function OfferingNewPage({
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [venue, setVenue] = useState<VenueInfo>({ ...EMPTY_VENUE });
+  // 收费设置（U6/R1）：默认免费收起（AE4 免费路径零额外操作）；开启时
+  // 至少一档的客户端校验对齐后端 PriceTiersValidation。
+  const [pricingEnabled, setPricingEnabled] = useState(false);
+  const [tierDrafts, setTierDrafts] = useState<TierDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
-
   async function submit() {
     if (!ws) return;
     // venue all-or-none：任一填写则四键须齐全，否则就地拦截不提交（KTD5）
     if (kind === "event" && venueDraftIncomplete(venue)) {
       setError(t("venueIncomplete"));
+      return;
+    }
+    // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
+    const validTiers = tierDrafts.map(fromDraft).filter((x) => x !== null);
+    if (pricingEnabled && validTiers.length === 0) {
+      setError(t("pricingTierRequired"));
       return;
     }
     setBusy(true);
@@ -1409,6 +1467,12 @@ export function OfferingNewPage({
         startsAt: fromLocalInput(startsAt),
         endsAt: fromLocalInput(endsAt),
         ...(kind === "event" ? { venue } : {}),
+        ...(pricingEnabled
+          ? {
+              pricingEnabled,
+              priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
+            }
+          : {}),
       });
       if (res.result) {
         router.push(`${base}/${res.result.id}`);
@@ -1559,6 +1623,31 @@ export function OfferingNewPage({
             {kind === "event" ? (
               <VenueFields value={venue} onChange={setVenue} />
             ) : null}
+
+            {/* 收费设置（U6/R1）：默认免费收起（<details> 折叠），开启后展开档位编辑 */}
+            <details
+              className="rounded-large border border-line bg-soft-2/40 p-4"
+              data-testid="pricing-section"
+            >
+              <summary className="cursor-pointer text-sm font-medium text-ink">
+                {t("pricingSectionTitle")}
+              </summary>
+              <div className="mt-3 grid gap-3">
+                <p className="text-[13px] text-ink-3">{t("pricingSectionHint")}</p>
+                <label className="flex items-center gap-2 text-sm text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={pricingEnabled}
+                    onChange={(e) => setPricingEnabled(e.target.checked)}
+                    data-testid="pricing-toggle"
+                  />
+                  {t("pricingEnable")}
+                </label>
+                {pricingEnabled && (
+                  <TierEditor drafts={tierDrafts} onChange={setTierDrafts} manage />
+                )}
+              </div>
+            </details>
 
             {error ? <p className="text-[13px] text-ink-3">{error}</p> : null}
 
