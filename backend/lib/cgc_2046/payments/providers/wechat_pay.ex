@@ -38,6 +38,10 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
         amount: %{total: order.amount_cents, currency: "CNY"}
       }
 
+      # else 必须在场（2026-08-24 生产实证）：渠道 4xx 时 with 无 else 会把
+      # {:ok, %Tesla.Env{}} 原样漏给调用方——形状匹配 {:ok, credential}，
+      # Tesla.Env 伪装成凭据入库 + Absinthe 序列化崩 500（订单建了、渠道无单、
+      # 前端报错）。alipay adapter 同语义 :channel_create_failed。
       case order.provider do
         :wechat_jsapi ->
           with {:ok, openid} <- fetch_openid(ctx),
@@ -51,12 +55,18 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
                    Transactions.request_payment_args(client, config[:appid], prepay_id)
                  )
              }}
+          else
+            {:ok, %Tesla.Env{}} -> {:error, :channel_create_failed}
+            {:error, _} = error -> error
           end
 
         :wechat_native ->
           with {:ok, %Tesla.Env{status: 200, body: %{"code_url" => code_url}}} <-
                  post(Transactions.native(client, body)) do
             {:ok, %{"type" => "qr_code", "code_url" => code_url}}
+          else
+            {:ok, %Tesla.Env{}} -> {:error, :channel_create_failed}
+            {:error, _} = error -> error
           end
       end
     end
