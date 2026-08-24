@@ -73,7 +73,8 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
     end
   end
 
-  # F-D：keyset 游标分页拉取（不全量 load）。排序键 = id（uuid 稳定全序）。
+  # A2：ended 信号重投（订阅方重启/Oban 重试）对已处理完的 offering 是预期
+  # 路径——零效果不落新审计行（首行已记录批量结果，重投行只有 0/0/0 噪音）。
   defp refund_offering_enrollments(kind, id, workspace_id) do
     counts =
       stream_offering_enrollments(kind, id)
@@ -81,7 +82,9 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
       |> Enum.map(fn batch -> process_batch(batch, workspace_id) end)
       |> Enum.reduce(%{cancelled: 0, refunded: 0, skipped: 0}, &merge_counts/2)
 
-    log_batch_audit(kind, id, counts)
+    unless counts == %{cancelled: 0, refunded: 0, skipped: 0} do
+      log_batch_audit(kind, id, counts)
+    end
 
     :ok
   end
@@ -116,9 +119,15 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
     Map.merge(a, b, fn _k, x, y -> x + y end)
   end
 
-  # 逐笔隔离：单笔失败只记 warning，不阻塞其余（部分失败可重投/单笔 retry 收敛）
+  # 逐笔隔离：单笔失败只记 warning，不阻塞其余（部分失败可重投/单笔 retry 收敛）。
+  # review F4：paid 订单是退款真源——报名在异步窗口内可能已被学员取消
+  # （cancelled），其 paid 单仍必须退；支付态报名才走取消释放面。
   defp process_batch(batch, workspace_id) do
     Enum.reduce(batch, %{cancelled: 0, refunded: 0, skipped: 0}, fn enrollment, acc ->
+      # paid 单不问报名状态（已付必退，ADR-0007 取消即批量退）
+      n = refund_paid_order(enrollment, workspace_id)
+      acc = Map.update!(acc, :refunded, &(&1 + n))
+
       case enrollment.status do
         :payment_pending ->
           case cancel_enrollment(enrollment, workspace_id) do
@@ -127,8 +136,8 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
           end
 
         :confirmed ->
-          n = refund_paid_order(enrollment, workspace_id)
-          Map.update!(acc, :refunded, &(&1 + n))
+          # paid 单已在上面处理；免缴 confirmed（无 paid 单）自然零增量
+          acc
 
         _skipped ->
           Map.update!(acc, :skipped, &(&1 + 1))
@@ -171,28 +180,39 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
   end
 
   # confirmed 报名的 paid 单逐笔退款；无 paid 单（免缴 confirmed）自然跳过。
-  # 返回成功入队数（F-J 审计计数）。
+  # 返回成功入队数（F-J 审计计数）。review F3：transition + 入队同事务——
+  # 崩溃窗口不留「refunding 无 job」悬挂态；事务回滚后重投信号从 paid 重扫。
   defp refund_paid_order(enrollment, workspace_id) do
     Order
     |> Ash.Query.filter(enrollment_id == ^enrollment.id and status == :paid)
     |> Ash.read!(authorize?: false)
     |> Enum.reduce(0, fn order, acc ->
-      order
-      |> Ash.Changeset.for_update(:start_refund, %{})
-      |> Ash.update(tenant: workspace_id, authorize?: false)
-      |> case do
-        {:ok, refunding} ->
-          %{"order_id" => refunding.id}
-          |> PaymentRefundWorker.new()
-          |> Oban.insert!()
-
+      case Cgc2046.Repo.transaction(fn ->
+             with {:ok, refunding} <-
+                    order
+                    |> Ash.Changeset.for_update(:start_refund, %{})
+                    |> Ash.update(tenant: workspace_id, authorize?: false),
+                  {:ok, _job} <- enqueue_refund_job(refunding) do
+               {:ok, refunding.id}
+             end
+           end) do
+        {:ok, {:ok, _order_id}} ->
           acc + 1
+
+        {:ok, {:error, reason}} ->
+          log_skip("order", order.id, reason)
+          acc
 
         {:error, reason} ->
           log_skip("order", order.id, reason)
           acc
       end
     end)
+  end
+
+  # Oban.insert! 直入 oban_jobs 表（同连接同事务）——与 start_refund CAS 原子提交
+  defp enqueue_refund_job(refunding) do
+    {:ok, Oban.insert!(PaymentRefundWorker.new(%{"order_id" => refunding.id}))}
   end
 
   defp log_skip(kind, id, reason) do

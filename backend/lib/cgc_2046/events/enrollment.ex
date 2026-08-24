@@ -34,6 +34,9 @@ defmodule Cgc2046.Events.Enrollment do
   @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
 
   @submitted_signal "enrollment.submitted"
+  # review A1 容量上限：单事务批量免缴的待付笔数上限（定级依据见
+  # waive_pending_for_offering moduledoc「容量契约」）
+  @batch_waive_limit 200
   @approved_signal "enrollment.approved"
   @rejected_signal "enrollment.rejected"
   @completed_signal "enrollment.completed"
@@ -810,6 +813,15 @@ defmodule Cgc2046.Events.Enrollment do
   迟到扣款由落账 worker 按免缴审计行判定自动原路退回（KTD4 正确性约束：
   审计行不可省）。无待付报名时 no-op；有待付但无 actor → {:error,
   :actor_required}（组织者发起的治理动作必须有操作者）。
+
+  ## 容量契约（review A1 定级）
+
+  单事务内逐条处理，事务时长随待付笔数线性增长（每笔 3 条 SQL + 信号入队）。
+  上限 @batch_waive_limit（200 笔 ≈ 800 条语句，事务 < 2s，远低于连接池
+  超时与锁等待阈值）；超限拒绝并提示组织者先处理部分待付（或走取消活动
+  路径——取消信号经 worker 分批异步，无此约束）。超过上限的规模化场景
+  需要改造成可恢复批次（chunks + after_transaction 批间提交），当前产品
+  阶段（社区活动）不引入。
   """
   def waive_pending_for_offering(kind, id, actor, workspace_id)
       when kind in [:event, :course] do
@@ -821,6 +833,9 @@ defmodule Cgc2046.Events.Enrollment do
     cond do
       pending == [] ->
         :ok
+
+      length(pending) > @batch_waive_limit ->
+        {:error, :batch_waive_limit_exceeded}
 
       is_nil(actor) ->
         {:error, :actor_required}
