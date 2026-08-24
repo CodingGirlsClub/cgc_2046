@@ -388,13 +388,14 @@
   },
   "publicOfferings": {
     "loadFailed": "加载失败",
-    "breadcrumbHome": "工作台",
+    "navigationLabel": "公开内容导航",
     "publicTitle": "公开{label}",
     "publicDesc": "面向所有人开放报名的{label}；加入工作台后还有更多内部{label}。",
     "viewOther": "查看{label} ›",
     "empty": "暂无公开{label}。",
     "deadline": "截止 {deadline}",
-    "startsAt": "开始 {time}"
+    "timeLabel": "开始",
+    "venueLabel": "地点"
   },
   "onboarding": {
     "entryTitle": "Agent 接入",

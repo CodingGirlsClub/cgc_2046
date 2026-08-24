@@ -4,12 +4,11 @@ import { render } from "@/test-utils";
 import PublicOfferingsPage from "./public-offerings";
 
 /**
- * 公开发现页 /events 与 /courses（E-5 #50 G4；U4 全暗重建）。
+ * 公开发现页 /events 与 /courses（E-5 #50 G4；方向 B 主题目录）。
  *
- * 视觉：.ld-root 固定深色门面（AE4：浅色系统主题下仍深色，token 暗色值由
- * lib/design-tokens.test.ts 锚定）；列表复用 landing OfferingRow 行式语言
- * （.ld-offer-row，R8），行内状态标签为后端派生报名 badge（KTD1），
- * meta 行排报名政策/截止/开始时间/地点（地点仅 event，R3）。
+ * 视觉：.public-catalog 跟随全局主题 token，品牌导航提供活动/课程/语言/登录
+ * 入口；列表以 .public-catalog-card 信息卡展示后端派生报名 badge（KTD1）与
+ * 报名政策/截止/开始时间/地点（地点仅 event，R3）。
  */
 
 const { fetchPublicOfferings } = vi.hoisted(() => ({
@@ -25,6 +24,7 @@ vi.mock("@/lib/public-offerings", async (importOriginal) => {
 // next-intl createNavigation 顶层 import redirect/permanentRedirect；ThemeProvider 依赖 usePathname
 vi.mock("next/navigation", () => ({
 	usePathname: () => "/events",
+	useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
 	redirect: vi.fn(),
 	permanentRedirect: vi.fn(),
 }));
@@ -47,8 +47,8 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("公开发现页行式列表（U4/R8）", () => {
-	it("badge 三态 + meta 行（政策/截止/开始/venue），行链接到详情", async () => {
+describe("公开发现页方向 B 信息卡", () => {
+	it("品牌导航 + badge 三态 + 分层信息（政策/截止/开始/venue），卡片链接到详情", async () => {
 		fetchPublicOfferings.mockResolvedValue([
 			{
 				...BASE,
@@ -88,16 +88,28 @@ describe("公开发现页行式列表（U4/R8）", () => {
 		// 公开发现页不要求登录（游客可浏览）
 		expect(screen.getByRole("heading", { name: "公开活动" })).toBeInTheDocument();
 
-		const rowA = await screen.findByRole("link", { name: /活动甲/ });
-		expect(rowA).toHaveAttribute("href", "/events/a");
-		expect(rowA).toHaveClass("ld-offer-row");
-		expect(within(rowA).getByText("报名中")).toBeInTheDocument();
-		expect(within(rowA).getByText(/直接报名/)).toBeInTheDocument();
-		expect(within(rowA).getByText(/截止 不设截止/)).toBeInTheDocument();
-		expect(within(rowA).getByText(/开始 2/)).toBeInTheDocument();
-		expect(within(rowA).getByText(/中国 上海 上海 徐汇/)).toBeInTheDocument();
+		const nav = screen.getByRole("navigation", { name: "公开内容导航" });
+		expect(within(nav).getByRole("link", { name: "活动" })).toHaveAttribute(
+			"aria-current",
+			"page",
+		);
+		expect(within(nav).getByRole("link", { name: "课程" })).toHaveAttribute(
+			"href",
+			"/courses",
+		);
+
+		const cardA = await screen.findByRole("link", { name: /活动甲/ });
+		expect(cardA).toHaveAttribute("href", "/events/a");
+		expect(cardA).toHaveClass("public-catalog-card");
+		expect(within(cardA).getByText("报名中")).toBeInTheDocument();
+		expect(within(cardA).getByText(/直接报名/)).toBeInTheDocument();
+		expect(within(cardA).getByText(/截止 不设截止/)).toBeInTheDocument();
+		expect(within(cardA).getByText("开始")).toBeInTheDocument();
+		expect(within(cardA).getByText(/2026/)).toBeInTheDocument();
+		expect(within(cardA).getByText("地点")).toBeInTheDocument();
+		expect(within(cardA).getByText(/中国 上海 上海 徐汇/)).toBeInTheDocument();
 		// EventStatusTag（开放报名）从公开面移除，仅留工作区内部页
-		expect(within(rowA).queryByText("开放报名")).toBeNull();
+		expect(within(cardA).queryByText("开放报名")).toBeNull();
 
 		expect(
 			within(screen.getByRole("link", { name: /活动乙/ })).getByText("即将开始"),
@@ -106,8 +118,10 @@ describe("公开发现页行式列表（U4/R8）", () => {
 			within(screen.getByRole("link", { name: /活动丙/ })).getByText("已满"),
 		).toBeInTheDocument();
 
-		// AE4 结构断言：固定深色门面根在场（html.light 下 .ld-root 重声明暗色 token）
-		expect(container.querySelector("main.ld-root")).not.toBeNull();
+		// 方向 B：公开目录不再进入固定深色 .ld-root，跟随站点主题 token。
+		expect(container.querySelector(".public-catalog")).not.toBeNull();
+		expect(container.querySelector("main.public-catalog-main")).not.toBeNull();
+		expect(container.querySelector("main.ld-root")).toBeNull();
 	});
 
 	it("无开始时间：时间位显示「时间待定」，不出现「即将开始」（AE2）；空 venue → 「地点待定」（R3）", async () => {
@@ -116,13 +130,13 @@ describe("公开发现页行式列表（U4/R8）", () => {
 		]);
 		render(<PublicOfferingsPage kind="event" />);
 
-		const row = await screen.findByRole("link", { name: /程序媛夜读会/ });
-		expect(within(row).getByText(/时间待定/)).toBeInTheDocument();
-		expect(within(row).queryByText(/即将开始/)).toBeNull();
-		expect(within(row).getByText(/地点待定/)).toBeInTheDocument();
+		const card = await screen.findByRole("link", { name: /程序媛夜读会/ });
+		expect(within(card).getByText(/时间待定/)).toBeInTheDocument();
+		expect(within(card).queryByText(/即将开始/)).toBeNull();
+		expect(within(card).getByText(/地点待定/)).toBeInTheDocument();
 	});
 
-	it("course 行无地点槽（R3：Course 无位置概念）", async () => {
+	it("course 卡片无地点槽（R3：Course 无位置概念）", async () => {
 		fetchPublicOfferings.mockResolvedValue([
 			{
 				...BASE,
@@ -135,17 +149,18 @@ describe("公开发现页行式列表（U4/R8）", () => {
 		]);
 		render(<PublicOfferingsPage kind="course" />);
 
-		const row = await screen.findByRole("link", { name: /入门营/ });
-		expect(row).toHaveAttribute("href", "/courses/bootcamp");
-		expect(within(row).getByText(/时间待定/)).toBeInTheDocument();
-		expect(within(row).queryByText(/地点待定/)).toBeNull();
+		const card = await screen.findByRole("link", { name: /入门营/ });
+		expect(card).toHaveAttribute("href", "/courses/bootcamp");
+		expect(within(card).getByText(/时间待定/)).toBeInTheDocument();
+		expect(within(card).queryByText("地点")).toBeNull();
+		expect(within(card).queryByText(/地点待定/)).toBeNull();
 	});
 
-	it("加载中：暗色骨架（landing 同款 ld-skeleton ×3）", () => {
+	it("加载中：主题信息卡骨架 ×3", () => {
 		fetchPublicOfferings.mockReturnValue(new Promise(() => {}));
 		const { container } = render(<PublicOfferingsPage kind="event" />);
 
-		expect(container.querySelectorAll(".ld-skeleton")).toHaveLength(3);
+		expect(container.querySelectorAll(".public-catalog-skeleton")).toHaveLength(3);
 	});
 
 	it("空列表：纯文案兜底（不抄 landing 跨页链接，避免 /events→/events 自环）", async () => {
