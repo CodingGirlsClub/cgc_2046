@@ -30,7 +30,7 @@ defmodule Cgc2046.Application do
       Cgc2046.Events.SponsorshipEndedSubscriber,
       # Event cancelled 批量退款（缴费闭环 U9：订阅 event.ended，回查 cancelled
       # 才批量退——paid 逐笔退款 / payment_pending 取消释放）。
-      Cgc2046.Workers.EventCancelRefundWorker,
+      Cgc2046.Workers.OfferingCancelRefundWorker,
       # 学习 workflow 实例化（E-7 #122：订阅 enrollment.completed → 幂等种 learning run）
       Cgc2046.Workflows.LearningInstantiator,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
