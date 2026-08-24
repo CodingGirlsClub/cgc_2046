@@ -528,6 +528,153 @@ defmodule Cgc2046Web.GraphqlSpeakerInvitationTest do
     assert code == "not_found"
   end
 
+  test "resendSpeakerInvitation → 新 plainToken，旧 token 失效", %{
+    admin: admin,
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    {:ok, invitation, old_token} =
+      SpeakerInvitation.issue(
+        %{event_id: event.id, speaker_name: "嘉宾重发", speaker_email: "gql-resend@example.com"},
+        admin,
+        workspace.id
+      )
+
+    resend_query = """
+    mutation {
+      resendSpeakerInvitation(id: "#{invitation.id}") {
+        result { id status }
+        plainToken
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "resendSpeakerInvitation" => %{
+                 "result" => %{"status" => "invited"},
+                 "plainToken" => new_token,
+                 "errors" => []
+               }
+             }
+           } = build_conn() |> graphql_post(resend_query, owner_token)
+
+    refute new_token == old_token
+
+    # 旧 token 决策 → 统一无效（一次性 token 语义）
+    speaker = Fixtures.register_user_with_email("gql-resend@example.com")
+    speaker_token = sign_in_token(speaker.email)
+
+    accept_query = """
+    mutation {
+      acceptSpeakerInvitation(token: "#{old_token}") {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "acceptSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => [%{"message" => message}]
+               }
+             }
+           } = build_conn() |> graphql_post(accept_query, speaker_token)
+
+    assert message =~ "invalid, expired or already used"
+  end
+
+  test "非 Owner 不能重发；不存在的 id → not_found", %{
+    admin: admin,
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    member = Fixtures.register_user("gql-resend-member")
+    Fixtures.add_member(workspace, member)
+    member_token = sign_in_token(member.email)
+
+    {:ok, invitation, _token} =
+      SpeakerInvitation.issue(
+        %{event_id: event.id, speaker_name: "嘉宾权限", speaker_email: "gql-resend-perm@example.com"},
+        admin,
+        workspace.id
+      )
+
+    member_query = """
+    mutation {
+      resendSpeakerInvitation(id: "#{invitation.id}") {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "resendSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => errors
+               }
+             }
+           } = build_conn() |> graphql_post(member_query, member_token)
+
+    assert errors != []
+
+    missing_query = """
+    mutation {
+      resendSpeakerInvitation(id: "00000000-0000-4000-8000-000000000099") {
+        result { id }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "resendSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => [%{"code" => "not_found"}]
+               }
+             }
+           } = build_conn() |> graphql_post(missing_query, owner_token)
+  end
+
+  test "createSpeakerInvitation 拒绝逗号列表邮箱（MEDIUM 负向）", %{
+    workspace: workspace,
+    event: event,
+    owner_token: owner_token
+  } do
+    query = """
+    mutation {
+      createSpeakerInvitation(input: {
+        workspaceId: "#{workspace.id}",
+        eventId: "#{event.id}",
+        speakerName: "嘉宾列表",
+        speakerEmail: "first,second@example.com"
+      }) {
+        result { id }
+        errors { message }
+      }
+    }
+    """
+
+    assert %{
+             "data" => %{
+               "createSpeakerInvitation" => %{
+                 "result" => nil,
+                 "errors" => [%{"message" => message}]
+               }
+             }
+           } = build_conn() |> graphql_post(query, owner_token)
+
+    assert message =~ "valid email address"
+  end
+
   # 布置：Owner 创建定向邀请（speakerEmail = 已登录 speaker 邮箱）→ speaker accept，
   # 返回 invitation id（saveSpeakerMaterials / completeSpeakerInvitation 测试共享）。
   defp create_and_accept(workspace, event, owner_token, speaker_token, speaker_email) do

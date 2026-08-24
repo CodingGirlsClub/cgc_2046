@@ -242,15 +242,23 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       workspace = Ash.get!(Cgc2046.Accounts.Workspace, event.workspace_id, authorize?: false)
       Fixtures.add_member(workspace, admin, [:owner])
 
-      {:ok, _invitation, expired_token} =
+      # 创建时未来有效期 + 裸 SQL 回拨（创建守卫拒绝 past expires_at，布置同款纪律）
+      {:ok, invitation, expired_token} =
         SpeakerInvitation.issue(
           %{
             event_id: event.id,
             speaker_name: "嘉宾己",
-            expires_at: DateTime.add(DateTime.utc_now(), -1, :hour)
+            expires_at: DateTime.add(DateTime.utc_now(), 1, :hour)
           },
           admin,
           event.workspace_id
+        )
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE speaker_invitations SET expires_at = NOW() - INTERVAL '1 hour' WHERE id = $1",
+          [Ecto.UUID.dump!(invitation.id)]
         )
 
       assert {:error, :invalid_or_expired_token} = SpeakerInvitations.card(expired_token)
@@ -310,15 +318,23 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
     end
 
     test "过期 token 不能接受", %{admin: admin, invitation: invitation} do
+      # 创建时未来有效期 + 裸 SQL 回拨（创建守卫拒绝 past expires_at）
       {:ok, expired, expired_token} =
         SpeakerInvitation.issue(
           %{
             event_id: invitation.event_id,
             speaker_name: "嘉宾辛",
-            expires_at: DateTime.add(DateTime.utc_now(), -1, :minute)
+            expires_at: DateTime.add(DateTime.utc_now(), 1, :hour)
           },
           admin,
           invitation.workspace_id
+        )
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE speaker_invitations SET expires_at = NOW() - INTERVAL '1 hour' WHERE id = $1",
+          [Ecto.UUID.dump!(expired.id)]
         )
 
       speaker = Fixtures.register_user("spk-expired-accept")
@@ -696,6 +712,203 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert user_ids == Enum.sort([admin.id, speaker.id])
       assert claim_rows("speaker.completed") == 1
     end
+  end
+
+  describe "resend_invitation（重发 / 重新生成链接）" do
+    test "重发 = 重新生成 token：旧链接即刻作废，新链接可决策（R6/R7/AE5）" do
+      admin = Fixtures.platform_admin("spk-resend")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      {:ok, invitation, old_token} =
+        SpeakerInvitation.issue(
+          %{event_id: event.id, speaker_name: "嘉宾重发", speaker_email: "resend-a@example.com"},
+          admin,
+          workspace.id
+        )
+
+      assert {:ok, updated, new_token} = SpeakerInvitation.resend(invitation, admin)
+
+      refute new_token == old_token
+      assert updated.status == :invited
+      assert updated.token_hash == SpeakerInvitation.hash_token(new_token)
+
+      # 库层面旧 hash 不复存在（换 token 已持久化）
+      reloaded = Ash.get!(SpeakerInvitation, invitation.id, authorize?: false)
+      assert reloaded.token_hash == SpeakerInvitation.hash_token(new_token)
+
+      # 旧 token → 统一无效态；新 token → 正常卡片
+      assert {:error, :invalid_or_expired_token} = SpeakerInvitations.card(old_token)
+      assert {:ok, %{status: "invited"}} = SpeakerInvitations.card(new_token)
+    end
+
+    test "无邮箱邀请重发：换 token 供复制转发（AE6，刷新丢链接的自救路径）" do
+      admin = Fixtures.platform_admin("spk-resend-nomail")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      {:ok, invitation, old_token} =
+        SpeakerInvitation.issue(
+          %{event_id: event.id, speaker_name: "嘉宾手转"},
+          admin,
+          workspace.id
+        )
+
+      assert {:ok, updated, new_token} = SpeakerInvitation.resend(invitation, admin)
+      refute new_token == old_token
+      assert is_nil(updated.speaker_email)
+      assert {:ok, _card} = SpeakerInvitations.card(new_token)
+    end
+
+    test "已接受（非 invited）不可重发 → 域错误（R6/AE7）" do
+      admin = Fixtures.platform_admin("spk-resend-accepted")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      {:ok, invitation, token} =
+        SpeakerInvitation.issue(
+          %{event_id: event.id, speaker_name: "嘉宾已受", speaker_email: "resend-b@example.com"},
+          admin,
+          workspace.id
+        )
+
+      speaker = Fixtures.register_user_with_email("resend-b@example.com")
+      assert {:ok, _accepted} = decide(invitation, speaker, :accept_invitation, token)
+
+      assert {:error, error} = SpeakerInvitation.resend(invitation, admin)
+      assert Exception.message(error) =~ "no longer pending"
+    end
+
+    test "普通成员不能重发（R9：与创建同权限）" do
+      admin = Fixtures.platform_admin("spk-resend-member")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      member = Fixtures.register_user("spk-resend-member-user")
+      Fixtures.add_member(workspace, member)
+
+      {:ok, invitation, _token} =
+        SpeakerInvitation.issue(
+          %{event_id: event.id, speaker_name: "嘉宾成员测", speaker_email: "resend-c@example.com"},
+          admin,
+          workspace.id
+        )
+
+      assert {:error, %Ash.Error.Forbidden{}} = SpeakerInvitation.resend(invitation, member)
+    end
+  end
+
+  test "并发 resend CAS（M1）：stale token_hash 的第二次重发被拒", %{} do
+    admin = Fixtures.platform_admin("spk-resend-cas")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    {:ok, invitation, _token} =
+      SpeakerInvitation.issue(
+        %{event_id: event.id, speaker_name: "嘉宾CAS", speaker_email: "resend-cas@example.com"},
+        admin,
+        workspace.id
+      )
+
+    # 第一次重发成功（DB token_hash 已换新）
+    assert {:ok, _updated, _new_token} = SpeakerInvitation.resend(invitation, admin)
+
+    # 并发模拟：第二个调用方持 stale record（旧 token_hash）再发——CAS 使其
+    # not_claimed，不得返回成功 + 死链邮件
+    assert {:error, error} = SpeakerInvitation.resend(invitation, admin)
+    assert Exception.message(error) =~ "no longer pending"
+
+    # fresh read 后可正常重发（30s 冷却是前端层，后端不挡）
+    fresh = Ash.get!(SpeakerInvitation, invitation.id, authorize?: false)
+    assert {:ok, _u2, _t2} = SpeakerInvitation.resend(fresh, admin)
+  end
+
+  test "过期邀请重发即续期（HIGH 修订）：清空 expires_at，新链接即刻可决策", %{} do
+    admin = Fixtures.platform_admin("spk-resend-expired")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    # 创建时未来有效期合法；过期 invited 只能来自时间流逝——裸 SQL 回拨布置
+    # （force_open 同款纪律：布置而非被测对象）
+    {:ok, invitation, _token} =
+      SpeakerInvitation.issue(
+        %{
+          event_id: event.id,
+          speaker_name: "嘉宾过期",
+          speaker_email: "resend-exp@example.com",
+          expires_at: DateTime.add(DateTime.utc_now(), 1, :hour)
+        },
+        admin,
+        workspace.id
+      )
+
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE speaker_invitations SET expires_at = NOW() - INTERVAL '1 hour' WHERE id = $1",
+        [Ecto.UUID.dump!(invitation.id)]
+      )
+
+    # R6「一键自救」：拒绝重发会与未终态唯一索引叠加成死锁，故重发必须救活
+    assert {:ok, updated, new_token} = SpeakerInvitation.resend(invitation, admin)
+    assert is_nil(updated.expires_at)
+
+    # 新链接即刻可用（card 无过期守卫拦截）；旧 token 作废
+    assert {:ok, %{status: "invited"}} = SpeakerInvitations.card(new_token)
+  end
+
+  test "创建时拒绝已经过去的有效期（HIGH 修订）：不落地「生而即死」的邀请", %{} do
+    admin = Fixtures.platform_admin("spk-exp-past")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    assert {:error, error} =
+             SpeakerInvitation.issue(
+               %{
+                 event_id: event.id,
+                 speaker_name: "嘉宾过去",
+                 speaker_email: "exp-past@example.com",
+                 expires_at: DateTime.add(DateTime.utc_now(), -1, :hour)
+               },
+               admin,
+               workspace.id
+             )
+
+    assert Exception.message(error) =~ "expires_at must be in the future"
+  end
+
+  test "非法 speaker_email 创建被拒（MEDIUM）：不进入邮件投递面", %{} do
+    admin = Fixtures.platform_admin("spk-email-fmt")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin)
+
+    # 逗号列表：旧正则接受，SendCloud 可能按逗号拆分 → 死信邀请
+    for bad <- [
+          "first,second@example.com",
+          "a;b@example.com",
+          "not-an-email",
+          String.duplicate("x", 250) <> "@example.com"
+        ] do
+      assert {:error, error} =
+               SpeakerInvitation.issue(
+                 %{event_id: event.id, speaker_name: "嘉宾邮箱", speaker_email: bad},
+                 admin,
+                 workspace.id
+               )
+
+      assert Exception.message(error) =~ "valid email address", "should reject: #{bad}"
+    end
+
+    # 归一后合法的输入（首尾空白 + 大小写）不受影响
+    assert {:ok, _inv, _tok} =
+             SpeakerInvitation.issue(
+               %{
+                 event_id: event.id,
+                 speaker_name: "嘉宾邮箱2",
+                 speaker_email: "  Valid@Example.COM "
+               },
+               admin,
+               workspace.id
+             )
   end
 
   # --- helpers ---------------------------------------------------------------

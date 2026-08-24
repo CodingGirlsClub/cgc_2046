@@ -124,7 +124,10 @@ defmodule Cgc2046.Accounts.User do
   end
 
   validations do
-    validate(match(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
+    # 严格单邮箱（review MEDIUM，与 SpeakerInvitation.speaker_email 同形）：
+    # 禁逗号/分号列表与控制字符，限 RFC 5321 长度——该值进入邮件投递面
+    # （密码重置/邀请），旧形状 `[^\s@]+` 接受 "first,second@example.com"。
+    validate(match(:email, ~r/^[^\s@,;"<>\\]+@[^\s@,;"<>\\]+\.[^\s@,;"<>\\]+$/),
       message: "must be a valid email address"
     )
   end
