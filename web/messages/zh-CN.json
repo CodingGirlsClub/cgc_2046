@@ -40,6 +40,7 @@
     "enrollment_invite_quota_unavailable": "邀请名额已用完，请联系组织者。",
     "enrollment_tier_id_required": "该报名为收费项，请先选择价格档位。",
     "enrollment_tier_not_available": "所选档位已过期或不可用，请重新选择。",
+    "pricing_disable_actor_required": "关闭收费需要登录的组织者身份，请重新登录后再试。",
     "join_request_invite_only": "该工作台仅限邀请加入，请通过邀请链接加入。",
     "join_request_open": "该工作台可直接加入，无需申请。",
     "join_request_not_found": "工作台不存在。",
