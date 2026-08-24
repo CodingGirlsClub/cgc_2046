@@ -4,7 +4,7 @@
 # - 两路由注册与透传(JSON 形状 + 可选过滤参数透传;公开浏览工具无 workspace_id 硬要求)
 # - 未连接态(registry 未配置 cgc-2046)→ 503 + 引导信息(AE5 数据面)
 # - 上游错误分层:McpError → 502,意外异常 → 500
-# - 发现面板 view.js 结构静态断言(IIFE 守卫/五态状态机/badge 三态/详情链接/未连接引导)
+# - 发现面板 view.js 结构静态断言(IIFE 守卫/五态状态机/badge 四态/详情链接/未连接引导)
 # - system_prompt 工具清单 = 17(server.ex 实际注册数)+ 公开工具豁免 + no-fabrication 段(KTD7)
 # - onboarding SKILL 提示词引导文案(R13)
 #
@@ -270,13 +270,15 @@ class DiscoveryPanelViewTest < Minitest::Test
     assert_includes VIEW, "#cgc-retry"
   end
 
-  def test_badge_three_states_chinese
-    # KTD4:badge 三态 enrolling/starting_soon/full → 报名中/即将开始/已满
+  def test_badge_four_states_chinese
+    # badge 四态 enrolling/starting_soon/closed/full → 报名中/即将开始/报名截止/已满
     assert_includes VIEW, "enrolling"
     assert_includes VIEW, "starting_soon"
+    assert_includes VIEW, '"closed"'
     assert_includes VIEW, '"full"'
     assert_includes VIEW, "报名中"
     assert_includes VIEW, "即将开始"
+    assert_includes VIEW, "报名截止"
     assert_includes VIEW, "已满"
   end
 

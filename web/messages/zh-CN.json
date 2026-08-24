@@ -455,6 +455,7 @@
     "venueLabel": "地点：{venue}",
     "pricingTitle": "价格档位",
     "fullHint": "名额已满，不再接受新的报名。",
+    "closedHint": "报名已截止，不再接受新的报名。",
     "loginToEnroll": "登录后报名",
     "enrollFreeHint": "报名免费，登录或注册后提交（J-Visitor → J-Learner）。",
     "enrolledConfirm": "✓ 报名成功",
@@ -1622,6 +1623,7 @@
     "enrollmentBadge": {
       "enrolling": "报名中",
       "starting_soon": "即将开始",
+      "closed": "报名截止",
       "full": "已满"
     },
     "offeringKind": {

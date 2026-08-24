@@ -134,8 +134,18 @@ export default function PublicOfferingDetailPage({
   const enrollChecked = offering !== null && enrollForId === offering.id;
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
-  // 满员（AE1）：详情不再呈现可报名动作（已有报名的状态卡除外）
-  const isFull = offering?.enrollmentBadge === "full";
+  // 满员或报名截止：详情不再呈现可报名动作（已有报名的状态卡除外）。
+  const enrollmentUnavailable =
+    offering?.enrollmentBadge === "closed"
+      ? { hint: t("closedHint"), testId: "enrollment-closed" }
+      : offering?.enrollmentBadge === "full"
+        ? { hint: t("fullHint"), testId: "enrollment-full" }
+        : null;
+  const enrollmentUnavailableNotice = enrollmentUnavailable ? (
+    <p className="text-sm text-ink-3" data-testid={enrollmentUnavailable.testId}>
+      {enrollmentUnavailable.hint}
+    </p>
+  ) : null;
 
   // load error 态重试：复位回 skeleton 并重新拉取
   function retry() {
@@ -453,10 +463,8 @@ export default function PublicOfferingDetailPage({
 
             <div className="mt-6 border-t border-line pt-5">
               {!authed ? (
-                isFull ? (
-                  <p className="text-sm text-ink-3" data-testid="enrollment-full">
-                    {t("fullHint")}
-                  </p>
+                enrollmentUnavailable ? (
+                  enrollmentUnavailableNotice
                 ) : (
                 <div className="text-sm">
                   <Link
@@ -545,10 +553,8 @@ export default function PublicOfferingDetailPage({
                 </div>
               ) : !enrollChecked ? (
                 <div className="text-sm text-ink-3">{t("checkingEnroll")}</div>
-              ) : isFull ? (
-                <p className="text-sm text-ink-3" data-testid="enrollment-full">
-                  {t("fullHint")}
-                </p>
+              ) : enrollmentUnavailable ? (
+                enrollmentUnavailableNotice
               ) : (
                 <div className="grid gap-3">
                   {offering.enrollmentPolicy === "invite_only" ? (

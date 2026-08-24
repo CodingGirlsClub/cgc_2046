@@ -48,7 +48,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("公开发现页方向 B 信息卡", () => {
-	it("品牌导航 + badge 三态 + 分层信息（政策/截止/开始/venue），卡片链接到详情", async () => {
+	it("品牌导航 + badge 四态 + 分层信息（政策/截止/开始/venue），卡片链接到详情", async () => {
 		fetchPublicOfferings.mockResolvedValue([
 			{
 				...BASE,
@@ -79,6 +79,16 @@ describe("公开发现页方向 B 信息卡", () => {
 				slug: "c",
 				title: "活动丙",
 				enrollmentBadge: "full",
+				startsAt: null,
+				venue: null,
+			},
+			{
+				...BASE,
+				id: "e4",
+				slug: "d",
+				title: "活动丁",
+				enrollmentBadge: "closed",
+				registrationDeadline: "2026-08-01T10:00:00+08:00",
 				startsAt: null,
 				venue: null,
 			},
@@ -116,6 +126,9 @@ describe("公开发现页方向 B 信息卡", () => {
 		).toBeInTheDocument();
 		expect(
 			within(screen.getByRole("link", { name: /活动丙/ })).getByText("已满"),
+		).toBeInTheDocument();
+		expect(
+			within(screen.getByRole("link", { name: /活动丁/ })).getByText("报名截止"),
 		).toBeInTheDocument();
 
 		// 方向 B：公开目录不再进入固定深色 .ld-root，跟随站点主题 token。

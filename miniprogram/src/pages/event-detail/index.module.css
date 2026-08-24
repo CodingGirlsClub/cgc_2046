@@ -19,3 +19,4 @@
 .policyText, .deadline { display: block; margin-top: 9rpx; color: #667085; font-size: 23rpx; }
 .footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom)); background: #fff; border-top: 1rpx solid #eaecf0; }
 .primaryButton { color: #fff; background: #5e6ad2; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
+.closedNotice { display: block; color: #667085; font-size: 25rpx; line-height: 1.5; text-align: center; }

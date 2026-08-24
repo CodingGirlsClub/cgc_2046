@@ -130,6 +130,15 @@ describe('getContent 新字段透传（mapContent）', () => {
     expect(item.enrollmentBadge).toBe('full')
   })
 
+  it('closed badge 按后端派生值透传', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, enrollmentBadge: 'closed' }
+    })
+    const api = new RealMiniProgramApi()
+    const item = await api.getContent('event', 'event-1')
+    expect(item.enrollmentBadge).toBe('closed')
+  })
+
   it('未知 badge 值 fail-closed（同 parseEnrollmentPolicy 纪律）', async () => {
     mocks.graphqlRequest.mockResolvedValue({
       getEvent: { ...EVENT_RECORD, enrollmentBadge: 'legacy' }

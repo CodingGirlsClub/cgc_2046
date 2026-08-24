@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
+import { registrationClosedNotice } from '@/domain/format'
 import { formatAmount, paymentLandingUrl } from '@/domain/payment'
 import styles from './index.module.css'
 
@@ -27,12 +28,13 @@ export default function RegisterFormPage() {
     setError('')
     try {
       const [content, session] = await Promise.all([api.getContent(kind, id), api.getSession()])
+      setTarget(content)
+      if (registrationClosedNotice(content.enrollmentBadge)) return
       if (!session.user) {
         const returnUrl = `/pages/register-form/index?id=${id}&kind=${kind}`
         await Taro.redirectTo({ url: `/pages/login/index?returnUrl=${encodeURIComponent(returnUrl)}` })
         return
       }
-      setTarget(content)
       setName(session.user.displayName)
       setEmail(session.user.email ?? '')
     } catch (reasonValue) {
@@ -90,6 +92,9 @@ export default function RegisterFormPage() {
   if (loading) return <PageState kind='loading' />
   if (!target && error) return <PageState kind='error' message={error} onRetry={load} />
   if (!target) return <PageState kind='empty' message='报名项目不存在' />
+
+  const closedNotice = registrationClosedNotice(target.enrollmentBadge)
+  if (closedNotice) return <PageState kind='empty' message={closedNotice} />
 
   return (
     <View className={styles.page}>
