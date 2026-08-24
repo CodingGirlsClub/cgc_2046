@@ -58,8 +58,8 @@ jobs:
               -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
               -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
-          # 展示残留锁详情（谁/何时/哪个 version）再释放
-          ssh "${{ vars.SERVER_HOST }}" 'cat /run/kamal-lock 2>/dev/null || true'
+          # 残留锁详情由 kamal 输出（Acquiring 时打印 Locked by/Version）；
+          # 不裸 ssh（deploy.yml user=deploy，裸连 runner@ 必 publickey 拒绝）
           kamal lock release -c config/deploy.ci.yml || {
             echo "::error::kamal lock release 失败——锁文件可能无写权限，见上方锁内容"
             exit 1
