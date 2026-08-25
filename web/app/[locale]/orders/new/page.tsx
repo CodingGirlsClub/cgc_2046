@@ -28,6 +28,7 @@ import { MY_ENROLLMENT } from "@/lib/graphql/events";
 import { useAuthed } from "@/lib/use-authed";
 import { PROVIDER_LABEL, WEB_ENABLED_PROVIDERS } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
+import { storeOrderContext } from "@/lib/order-context";
 
 /**
  * web 端可下单渠道展示列表（wechat_jsapi 是小程序专属凭据，不在 web 面提供）。
@@ -61,6 +62,8 @@ function NewOrderForm() {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [guard, setGuard] = useState<GuardState>({ kind: "checking" });
+	// 报名对象标题（守卫查询随返）：下单成功时经 sessionStorage 交接订单页成功卡
+	const [enrollTitle, setEnrollTitle] = useState<string | null>(null);
 
 	// 进页守卫（P1）：报名状态校验 + 已有 pending 订单跳转
 	useEffect(() => {
@@ -82,6 +85,7 @@ function NewOrderForm() {
 						});
 					return;
 				}
+				if (!cancelled) setEnrollTitle(enrollment.targetTitle ?? null);
 				const { data: ordData } = await client.query({
 					query: MY_PENDING_ORDERS,
 					variables: { enrollmentId },
@@ -128,6 +132,8 @@ function NewOrderForm() {
 						payload.metadata.credential,
 					);
 				}
+				// 活动名上下文同口径交接（守卫随返 targetTitle；无则不写）
+				storeOrderContext(payload.result.id, enrollTitle);
 				router.replace(`/orders/${payload.result.id}`);
 				return;
 			}

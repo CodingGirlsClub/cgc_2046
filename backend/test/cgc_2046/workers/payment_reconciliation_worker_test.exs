@@ -170,6 +170,53 @@ defmodule Cgc2046.Workers.PaymentReconciliationWorkerTest do
 
       Fake.reset!()
     end
+
+    test "SDK raise 隔离（生产实证 2026-08-21~25）：单渠道崩溃不拖死 job,其余渠道照常比对" do
+      base = setup_workspace()
+      stuck = insert_order(base, :pending, 19_900, expire_offset: -7_200)
+
+      handler_id = "recon-raise-#{System.unique_integer([:positive])}"
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:cgc2046, :payment_recon, :statement_fetch_failed],
+          fn _event, _measurements, meta, _config -> send(self(), {:recon_alert, meta}) end,
+          nil
+        )
+
+      # 两渠道 script 同 raise(旧形状下整个 job 崩 → discarded)
+      Fake.script!(fetch_statement: :raise)
+
+      # rescue 隔离:job 完成,不抛
+      assert :ok = perform_job(PaymentReconciliationWorker, %{})
+
+      # 两渠道各一条告警(reason 带异常摘要)
+      events =
+        for _ <- 1..2 do
+          receive do
+            {:recon_alert, meta} -> meta
+          after
+            1_000 -> flunk("telemetry event not received")
+          end
+        end
+
+      :ok = :telemetry.detach(handler_id)
+
+      assert Enum.sort(Enum.map(events, & &1.channel)) == [:alipay, :wechat]
+      assert Enum.all?(events, &String.contains?(&1.reason, "ArgumentError"))
+
+      # 本地判定不受渠道崩溃影响:pending 超期照常落 Finding
+      findings =
+        Ash.read!(Finding, authorize?: false) |> Enum.filter(&(&1.rule == :payment_recon))
+
+      assert Enum.any?(
+               findings,
+               &(&1.entity_id == stuck.id and &1.detail["kind"] == "pending_overdue")
+             )
+    after
+      Fake.reset!()
+    end
   end
 
   # ── 布置 ──

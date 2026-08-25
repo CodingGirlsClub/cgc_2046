@@ -81,11 +81,11 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 		expect(courseDoc).toContain("results {\n      id\n      status\n    }");
 	});
 
-	it("MY_ENROLLMENT：按 id 读本人报名（/orders/new 守卫）", () => {
+	it("MY_ENROLLMENT：按 id 读本人报名（/orders/new 守卫）+ targetTitle 随返（下单上下文交接）", () => {
 		const doc = print(MY_ENROLLMENT);
 		expect(doc).toContain("query MyEnrollment($id: ID!)");
 		expect(doc).toContain("myEnrollments(filter: { id: { eq: $id } })");
-		expect(doc).toContain("results {\n      id\n      status\n    }");
+		expect(doc).toContain("results {\n      id\n      status\n      targetTitle\n    }");
 	});
 });
 
