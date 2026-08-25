@@ -666,6 +666,8 @@ export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
 export interface MyEnrollmentRow {
   id: string;
   status: string;
+  /** 报名对象（活动/课程）标题——仅 MY_ENROLLMENT 选取（/orders/new 下单上下文交接用） */
+  targetTitle?: string | null;
 }
 
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
@@ -710,7 +712,8 @@ export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
 
 /**
  * 按 id 读本人报名（/orders/new 进页守卫：校验报名是否为 payment_pending；
- * 读策略仅本人可见，他人/不存在 → 空 results）。
+ * 读策略仅本人可见，他人/不存在 → 空 results）。targetTitle 随守卫一并返回，
+ * 下单成功后经 sessionStorage 交接订单页成功卡活动名（lib/order-context）。
  */
 export const MY_ENROLLMENT: TypedDocumentNode<
   { myEnrollments: { results: MyEnrollmentRow[] } },
@@ -721,6 +724,7 @@ export const MY_ENROLLMENT: TypedDocumentNode<
       results {
         id
         status
+        targetTitle
       }
     }
   }
