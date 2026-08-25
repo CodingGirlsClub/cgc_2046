@@ -139,6 +139,27 @@ defmodule Cgc2046.Payments.ProvidersTest do
     end
   end
 
+  describe "支付宝账单 query 形状（对账规⑦回归钉,生产实证 2026-08-21~25）" do
+    setup do
+      {_pub, priv} = rsa_keypair()
+      %{priv: priv}
+    end
+
+    test "fetch_statement 的 query 经 v3_sign 签名段不崩(keyword list 形状)", ctx do
+      # ArgumentError,每日对账 job 全数 discarded——此处钉死正确形状:
+      # Tesla env.query 原样透传 v3_sign,只接受 keyword list/binary
+      env = %{
+        method: :get,
+        url: "/v3/alipay/data/dataservice/bill/downloadurl/query",
+        query: [bill_type: "trade", bill_date: "2026-08-24"],
+        body: ""
+      }
+
+      # 签名纯函数可跑通即形状正确(map 形状此处 raise,等价生产崩溃)
+      assert is_binary(Alipay.Crypto.v3_sign(env, "app_id=x,nonce=y,timestamp=z", ctx.priv))
+    end
+  end
+
   # ── 布置 ──
 
   defp fake_order do

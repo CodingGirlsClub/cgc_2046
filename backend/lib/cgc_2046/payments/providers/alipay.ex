@@ -197,10 +197,13 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   @impl Cgc2046.Payments.Provider
   def fetch_statement(date) do
     with {:ok, _} <- ensure_configured() do
-      case Trade.fetch_bill_download_url(Client, %{
+      # query 传 keyword list(Tesla env.query 原样透传 Alipay.Crypto.v3_sign 的
+      # path_join_query——只接受 list/binary;map 形状在签名段 ArgumentError 崩溃,
+      # 生产实证 2026-08-21~25 每日 03:23 对账 job 全数 discarded,规⑦从未生效)
+      case Trade.fetch_bill_download_url(Client,
              bill_type: "trade",
              bill_date: Calendar.strftime(date, "%Y-%m-%d")
-           }) do
+           ) do
         {:ok, %Tesla.Env{status: 200, body: %{"bill_download_url" => url}}} ->
           case Client.get(url) do
             {:ok, %Tesla.Env{status: 200, body: csv}} when is_binary(csv) ->
