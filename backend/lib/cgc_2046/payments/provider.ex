@@ -63,6 +63,17 @@ defmodule Cgc2046.Payments.Provider do
   def for(:alipay_wap), do: channel_adapter(:alipay)
   def for(:alipay_qr), do: channel_adapter(:alipay)
 
+  @doc """
+  provider 原子 → 渠道原子（:wechat | :alipay）。WebhookEvent.provider 等
+  渠道面字段消费（订单侧存的是完整 provider 枚举）。
+  """
+  @spec channel_of(provider_atom()) :: channel()
+  def channel_of(:wechat_jsapi), do: :wechat
+  def channel_of(:wechat_native), do: :wechat
+  def channel_of(:alipay_page), do: :alipay
+  def channel_of(:alipay_wap), do: :alipay
+  def channel_of(:alipay_qr), do: :alipay
+
   @doc "渠道原子（:wechat | :alipay）→ adapter 模块（回调入口消费）。"
   @spec for_channel(channel()) :: module()
   def for_channel(channel), do: channel_adapter(channel)
