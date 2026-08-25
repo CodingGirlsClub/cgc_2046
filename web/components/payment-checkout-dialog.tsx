@@ -44,11 +44,13 @@ import {
   readOrderCredential,
   storeOrderCredential,
 } from "@/lib/order-credential";
+import { storeOrderContext } from "@/lib/order-context";
 import {
   readLastPaymentProvider,
   rememberPaymentProvider,
 } from "@/lib/last-payment-provider";
 import { useOrderPolling } from "@/lib/use-order-polling";
+import OrderPaidDetails from "./order-paid-details";
 import { useDialogA11y } from "./modal-a11y";
 
 const COUNTDOWN_TICK_MS = 500;
@@ -58,7 +60,7 @@ const DEFAULT_PROVIDER: PaymentProvider = "wechat_native";
 /** 模态框内流转的订单最小面（createOrder/replaceProvider 全量 Order 兼容） */
 type CheckoutOrder = Pick<
   Order,
-  "id" | "provider" | "status" | "amountCents" | "expireAt"
+  "id" | "provider" | "status" | "amountCents" | "expireAt" | "outTradeNo"
 >;
 
 type Phase = "checking" | "paying" | "error";
@@ -152,6 +154,8 @@ export default function PaymentCheckoutDialog({
         if (payload?.result) {
           // 凭据落 sessionStorage（/orders/[id] 兜底路径可续），不落 URL
           storeOrderCredential(payload.result.id, payload.metadata?.credential);
+          // 活动名上下文同口径交接（订单页成功卡明细行；无 title 上下文跳过）
+          storeOrderContext(payload.result.id, title);
           setOrder(payload.result);
           setCredential(payload.metadata?.credential ?? null);
           setProvider(next);
@@ -178,7 +182,7 @@ export default function PaymentCheckoutDialog({
         setBusy(false);
       }
     },
-    [enrollmentId, t, translatePaymentError],
+    [enrollmentId, title, t, translatePaymentError],
   );
 
   // 开框初始化（一次）：复用活单 or 初始下单
@@ -201,6 +205,7 @@ export default function PaymentCheckoutDialog({
       if (pending) {
         // 复用活单：凭据读 sessionStorage 但不焚毁（本框可反复开关，且
         // /orders/[id] 兜底路径仍需；丢失 → credentialLost 引导换渠道恢复）
+        storeOrderContext(pending.id, title);
         setOrder(pending);
         setProvider(pending.provider as PaymentProvider);
         setCredential(readOrderCredential(pending.id));
@@ -212,7 +217,7 @@ export default function PaymentCheckoutDialog({
     return () => {
       cancelled = true;
     };
-  }, [enrollmentId, createOrder]);
+  }, [enrollmentId, title, createOrder]);
 
   // 换渠道（R11）：旧单作废新单新凭据，框内就地换码；轮询窗重置
   const switchProvider = useCallback(
@@ -228,6 +233,8 @@ export default function PaymentCheckoutDialog({
         const payload = data?.replaceProvider;
         if (payload?.result) {
           storeOrderCredential(payload.result.id, payload.metadata?.credential);
+          // 换渠道产生新单：活动名上下文按新单 id 重写一份
+          storeOrderContext(payload.result.id, title);
           setOrder(payload.result);
           setCredential(payload.metadata?.credential ?? null);
           setProvider(next);
@@ -252,7 +259,7 @@ export default function PaymentCheckoutDialog({
         setBusy(false);
       }
     },
-    [order, busy, provider, poll, t, translatePaymentError],
+    [order, busy, provider, poll, title, t, translatePaymentError],
   );
 
   // 支付成功：✓ 报名已确认 → 1.5s 自动关框（onPaid 先行，报名区就地刷新）
@@ -365,6 +372,11 @@ export default function PaymentCheckoutDialog({
               ✓
             </span>
             <p className="text-sm font-medium text-ink">{t("paidTitle")}</p>
+            <OrderPaidDetails
+              eventTitle={title}
+              tierName={tierName}
+              outTradeNo={order?.outTradeNo ?? null}
+            />
             <p className="text-[13px] text-ink-3">{t("autoClose")}</p>
           </div>
         ) : phase === "checking" ? (
