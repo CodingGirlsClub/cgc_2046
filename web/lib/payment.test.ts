@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
 	POLL_INTERVAL_MS,
+	POLL_SLOW_INTERVAL_MS,
 	POLL_TOTAL_MS,
 	countdownText,
 	dispatchCredential,
@@ -8,7 +9,6 @@ import {
 	nextPollTick,
 	parsePaymentStats,
 	parsePriceTiers,
-	pollTickCount,
 } from "./payment";
 
 describe("U11 payment 纯逻辑", () => {
@@ -46,14 +46,14 @@ describe("U11 payment 纯逻辑", () => {
 		});
 	});
 
-	describe("轮询决策（R14：2s 间隔、30s 停、终态即停）", () => {
-		it("间隔 2s、总窗 30s、共 15 次", () => {
+	describe("轮询决策（R14 修订：30s 快频 + 降频续轮到终态，无死窗）", () => {
+		it("常量：快频 2s、快频段 30s、降频 5s", () => {
 			expect(POLL_INTERVAL_MS).toBe(2000);
 			expect(POLL_TOTAL_MS).toBe(30000);
-			expect(pollTickCount()).toBe(15);
+			expect(POLL_SLOW_INTERVAL_MS).toBe(5000);
 		});
 
-		it("pending 持续轮询：每轮延迟 2s，未到窗不超窗", () => {
+		it("快频段内（<30s）：每轮延迟 2s，未过窗", () => {
 			for (const elapsed of [0, 2000, 4000, 28000]) {
 				const tick = nextPollTick(elapsed, "pending");
 				expect(tick.continue).toBe(true);
@@ -62,18 +62,22 @@ describe("U11 payment 纯逻辑", () => {
 			}
 		});
 
-		it("到 30s 窗即停并转手动刷新态", () => {
-			const tick = nextPollTick(30000, "pending");
-			expect(tick.continue).toBe(false);
-			expect(tick.expiredWindow).toBe(true);
-			expect(tick.delayMs).toBeNull();
+		it("过 30s 后不停轮：降频 5s 续轮（扫码支付 30~60s+ 真实窗口）", () => {
+			for (const elapsed of [30000, 60000, 300000]) {
+				const tick = nextPollTick(elapsed, "pending");
+				expect(tick.continue).toBe(true);
+				expect(tick.expiredWindow).toBe(true);
+				expect(tick.delayMs).toBe(5000);
+			}
 		});
 
-		it("终态即停（paid/refunded/expired 等），不受窗口影响", () => {
+		it("终态即停（paid/refunded/expired 等），无论快频/降频段", () => {
 			for (const status of ["paid", "refunded", "expired", "cancelled", "refund_failed", "refunding"] as const) {
-				const tick = nextPollTick(0, status);
-				expect(tick.continue).toBe(false);
-				expect(tick.delayMs).toBeNull();
+				for (const elapsed of [0, 30000, 300000]) {
+					const tick = nextPollTick(elapsed, status);
+					expect(tick.continue).toBe(false);
+					expect(tick.delayMs).toBeNull();
+				}
 			}
 		});
 	});

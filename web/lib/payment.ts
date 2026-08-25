@@ -10,10 +10,12 @@
  */
 import type { PaymentProvider } from "./graphql/orders";
 
-/* ---------------- 轮询（R14：2s×30s，成功即停） ---------------- */
+/* ---------------- 轮询（R14 修订：2s×30s 快收敛 + 5s 降频续轮到终态） ---------------- */
 
 export const POLL_INTERVAL_MS = 2_000;
 export const POLL_TOTAL_MS = 30_000;
+/** 30s 窗后的降频间隔（扫码支付真实耗时 30~60s+，页面前台续轮到终态） */
+export const POLL_SLOW_INTERVAL_MS = 5_000;
 
 /** 轮询推进的订单状态（终态即停；pending 继续轮） */
 export type OrderPollStatus =
@@ -37,15 +39,21 @@ const POLL_TERMINAL: Record<string, true> = {
 export interface PollDecision {
 	/** 继续下一轮 */
 	continue: boolean;
-	/** 本轮后的累计耗时是否已超窗（超窗即转手动刷新态） */
+	/** 本轮后的累计耗时是否已过快频段（30s）——仅降频信号，不再停轮 */
 	expiredWindow: boolean;
 	/** 下一轮延迟；continue=false 时为 null */
 	delayMs: number | null;
 }
 
 /**
- * 轮询决策：elapsed + status → 是否继续 / 是否超窗。
- * 纯函数（fake timers 测试面）；调用方 setInterval 编排。
+ * 轮询决策：elapsed + status → 是否继续 / 本轮延迟。
+ * 30s 内 2s 一轮（支付完成秒级收敛），之后 5s 降频续轮到终态——
+ * 纯函数（fake timers 测试面）；调用方 setTimeout 编排。
+ *
+ * 生产实证（2026-08-24/25）：扫码支付掏手机→解锁→打开 App→扫码→确认
+ * 平均 30~60s，旧 30s 死窗大概率命中「自动确认已暂停」手动态，用户付完
+ * 钱回来还要手动刷新；跳转支付（新标签页）场景另有 visibilitychange 补拉，
+ * 扫码场景页面前台，只有续轮能收敛。
  */
 export function nextPollTick(
 	elapsedMs: number,
@@ -58,18 +66,13 @@ export function nextPollTick(
 		return { continue: false, expiredWindow, delayMs: null };
 	}
 
-	if (expiredWindow) {
-		return { continue: false, expiredWindow: true, delayMs: null };
-	}
-
 	// 纯函数纪律：nowMs 参数化，不内嵌 Date.now（测试确定性）
 	void nowMs;
-	return { continue: true, expiredWindow: false, delayMs: POLL_INTERVAL_MS };
-}
-
-/** 轮询总次数（测试与页面展示用） */
-export function pollTickCount(): number {
-	return Math.ceil(POLL_TOTAL_MS / POLL_INTERVAL_MS);
+	return {
+		continue: true,
+		expiredWindow,
+		delayMs: expiredWindow ? POLL_SLOW_INTERVAL_MS : POLL_INTERVAL_MS,
+	};
 }
 
 /* ---------------- 凭据分派（R13） ---------------- */
