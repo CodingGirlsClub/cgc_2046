@@ -151,26 +151,23 @@ export default function OrderDetailPage() {
     credential === null &&
     status === "pending";
 
-  // 轮询（R14）：定时器编排与决策在 useOrderPolling（与收银模态框共用口径）；
-  // 手动态（超窗）由 hook 派生
+  // 轮询（R14 修订）：定时器编排与决策在 useOrderPolling（与收银模态框
+  // 共用口径）；pending 降频续轮到终态，无手动态
   const poll = useOrderPolling({
     enabled: loadState === "ok" && authed,
     status,
     onTick: fetchStatus,
   });
-  const manual = poll.manual;
 
-  // 支付宝/新标签页支付场景：页面在后台停留超 30s 轮询窗（转手动态）后，
-  // 用户支付完切回本页——此刻必须自动补拉收敛（否则停在「刷新已暂停」
-  // 显示待支付，手动刷新才恢复，生产实证 2026-08-24）。先例：工作台首联
-  // 等待的 focus/visibilitychange 监听（app/[locale]/w/[slug]/page.tsx）。
+  // 支付宝/新标签页支付场景补拉：页面后台时 timer 被节流、切回即补一次
+  // 即时拉取收敛（后台停留跨过支付完成点，生产实证 2026-08-24）。先例：
+  // 工作台首联等待的 focus/visibilitychange 监听（app/[locale]/w/[slug]/page.tsx）。
   const resyncOnReturn = useCallback(() => {
     if (document.visibilityState !== "visible") return;
     if (status === "paid" || status === "expired") return;
-    poll.reset();
     void fetchStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, fetchStatus, poll.reset]);
+  }, [status, fetchStatus]);
 
   useEffect(() => {
     const onFocus = () => void resyncOnReturn();
@@ -307,19 +304,6 @@ export default function OrderDetailPage() {
               >
                 {t("expiredNote")}
               </p>
-            ) : manual ? (
-              <div className="mt-4 grid gap-2" data-testid="order-manual-mode">
-                <p className="text-[13px] text-ink-3">
-                  {t("refreshPaused")}
-                </p>
-                <button
-                  type="button"
-                  onClick={poll.reset}
-                  className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
-                >
-                  {t("refreshStatus")}
-                </button>
-              </div>
             ) : (
               <p
                 className="mt-4 text-[13px] text-ink-3"
