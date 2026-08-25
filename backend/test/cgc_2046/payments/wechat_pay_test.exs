@@ -96,6 +96,16 @@ defmodule Cgc2046.Payments.WechatPayTest do
       assert :error =
                WechatPay.verify_webhook(raw_body, %{headers | "wechatpay-serial" => "NOT-SEEDED"})
     end
+
+    test "验签通过但解密失败（APIv3 key 不匹配，生产实证 2026-08-25）→ :error 干净拒绝而非 500 崩溃", ctx do
+      # 同 signed_webhook，但密文用「错误 key」加密：验签（平台证书）通过，
+      # AES-GCM tag 校验失败。现状缺陷：SDK 解密返回 :error 被直传
+      # Jason.decode → ArgumentError 500；微信按 5 次梯度重试全数崩溃，
+      # 事件永不落库（订单停在 pending、用户已扣款）。
+      {raw_body, headers} = signed_webhook(ctx, api_key: String.duplicate("X", 32))
+
+      assert :error = WechatPay.verify_webhook(raw_body, headers)
+    end
   end
 
   describe "client 启动接线（B1：ClientSup 动态挂载 + Refresher 证书加载）" do
@@ -189,10 +199,9 @@ defmodule Cgc2046.Payments.WechatPayTest do
 
   # 回环报文：真实微信回调形状（encrypt-resource + AEAD_AES_256_GCM），
   # 用平台证书私钥对 timestamp\nnonce\nraw_body\n 签名。
-  defp signed_webhook(ctx) do
-    api_key = ctx.config[:api_v3_key]
-
-    # iv 需同时是合法 JSON 字符串与 12 字节 AES-GCM nonce（SDK 将 nonce 字段原样传入）
+  # opts[:api_key] 覆盖加密密钥（解密失败分支用例：验签过、tag 校验败）
+  defp signed_webhook(ctx, opts \\ []) do
+    api_key = Keyword.get(opts, :api_key, ctx.config[:api_v3_key])
     iv = "0123456789ab"
     plaintext = ~s({"out_trade_no":"oto-test-1","trade_state":"SUCCESS"})
 

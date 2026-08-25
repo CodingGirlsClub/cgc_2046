@@ -327,12 +327,24 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
            "associated_data" => associated_data
          }
        }) do
-    decrypted =
-      Crypto.decrypt_aes_256_gcm(client.api_secret_key(), ciphertext, associated_data, iv)
+    case Crypto.decrypt_aes_256_gcm(client.api_secret_key(), ciphertext, associated_data, iv) do
+      :error ->
+        # AEAD tag 校验失败：验签已过、密文来自微信，几乎必为 APIv3 密钥与
+        # 商户平台不一致（生产实证 2026-08-25：错 key 下回调重试全数 500
+        # 崩溃、事件永不落库）。返回 :error → controller 400，渠道按策略
+        # 重试；告警带排查方向，收敛可用 mix cgc2046.settle_order。
+        Logger.warning(
+          "WechatPay webhook resource decrypt failed (AEAD tag mismatch): " <>
+            "verify WECHAT_PAY_API_V3_KEY against pay.weixin.qq.com"
+        )
 
-    case Jason.decode(decrypted) do
-      {:ok, event} when is_map(event) -> {:ok, event}
-      _ -> :error
+        :error
+
+      decrypted ->
+        case Jason.decode(decrypted) do
+          {:ok, event} when is_map(event) -> {:ok, event}
+          _ -> :error
+        end
     end
   end
 
