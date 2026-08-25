@@ -34,6 +34,7 @@ import {
   countdownText,
   dispatchCredential,
   formatAmount,
+  tierSnapshotName,
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
@@ -42,7 +43,9 @@ import {
   discardOrderCredential,
   readOrderCredential,
 } from "@/lib/order-credential";
+import { readOrderContext } from "@/lib/order-context";
 import { useOrderPolling } from "@/lib/use-order-polling";
+import OrderPaidDetails from "@/components/order-paid-details";
 
 const COUNTDOWN_TICK_MS = 500;
 
@@ -66,6 +69,8 @@ export default function OrderDetailPage() {
   const [credential, setCredential] = useState<unknown>(() =>
     readOrderCredential(orderId),
   );
+  // 下单入口交接的展示上下文（活动名；不读后即焚，仅成功卡明细展示用）
+  const [orderContext] = useState(() => readOrderContext(orderId));
   const [generatedQr, setGeneratedQr] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ok" | "error">(
     "loading",
@@ -290,6 +295,11 @@ export default function OrderDetailPage() {
                 <p role="status" data-testid="order-paid">
                   {t("paidConfirm")}
                 </p>
+                <OrderPaidDetails
+                  eventTitle={orderContext?.title ?? null}
+                  tierName={tierSnapshotName(order.tierSnapshot)}
+                  outTradeNo={order.outTradeNo ?? null}
+                />
                 <Link
                   href="/participations"
                   className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
