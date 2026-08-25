@@ -163,7 +163,7 @@ jobs:
           ALIPAY_PUBLIC_KEY: ${{ secrets.ALIPAY_PUBLIC_KEY }}
           ALIPAY_SANDBOX: ${{ vars.ALIPAY_SANDBOX }}
           WECHAT_WEB_APPID: ${{ vars.WECHAT_WEB_APPID }}
-          WECHAT_MP_APPID: ${{ secrets.WECHAT_MP_APPID }}
+          WECHAT_MP_APPID: ${{ vars.WECHAT_MP_APPID }}
           WECHAT_MP_SECRET: ${{ secrets.WECHAT_MP_SECRET }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
       - name: Deploy backend
