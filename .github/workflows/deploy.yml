@@ -220,7 +220,7 @@ jobs:
     needs: [changes, backend]
     if: ${{ !cancelled() && needs.changes.outputs.web == 'true' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     environment: production
     steps:
       - uses: actions/checkout@v7
@@ -251,7 +251,7 @@ jobs:
       - name: Deploy web
         working-directory: web
         # 同 backend：step 级超时报 failure 而非 cancelled
-        timeout-minutes: 12
+        timeout-minutes: 40
         run: |
           # vars 非空断言（#254，同 backend secrets 的 fail-closed 约定）：
           # GitHub 漏配时 sed 注入空串仍能通过下方占位符检查——
