@@ -126,13 +126,14 @@ jobs:
             WEB_BASE_URL CORS_ORIGIN POSTGRES_PASSWORD \
             WECHAT_PAY_MCH_ID WECHAT_PAY_APPID WECHAT_PAY_API_V3_KEY \
             WECHAT_PAY_API_V2_KEY WECHAT_PAY_CLIENT_SERIAL_NO WECHAT_PAY_CLIENT_PRIVATE_KEY \
+            WECHAT_PAY_PUBLIC_KEY WECHAT_PAY_PUBLIC_KEY_ID \
             PAYMENTS_WEBHOOK_BASE_URL ALIPAY_APP_ID ALIPAY_PRIVATE_KEY ALIPAY_PUBLIC_KEY \
             ALIPAY_SANDBOX WECHAT_WEB_APPID WECHAT_WEB_SECRET; do
             [ -n "${!v}" ] || { missing="$missing $v"; continue; }
             printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
           [ -z "$missing" ] || { echo "::error::GitHub 侧漏配（值为空）:$missing"; exit 1; }
-          echo "secrets 非空校验通过（27 项）"
+          echo "secrets 非空校验通过（29 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -154,6 +155,8 @@ jobs:
           WECHAT_PAY_API_V2_KEY: ${{ secrets.WECHAT_PAY_API_V2_KEY }}
           WECHAT_PAY_CLIENT_SERIAL_NO: ${{ vars.WECHAT_PAY_CLIENT_SERIAL_NO }}
           WECHAT_PAY_CLIENT_PRIVATE_KEY: ${{ secrets.WECHAT_PAY_CLIENT_PRIVATE_KEY }}
+          WECHAT_PAY_PUBLIC_KEY: ${{ secrets.WECHAT_PAY_PUBLIC_KEY }}
+          WECHAT_PAY_PUBLIC_KEY_ID: ${{ vars.WECHAT_PAY_PUBLIC_KEY_ID }}
           PAYMENTS_WEBHOOK_BASE_URL: ${{ vars.PAYMENTS_WEBHOOK_BASE_URL }}
           ALIPAY_APP_ID: ${{ vars.ALIPAY_APP_ID }}
           ALIPAY_PRIVATE_KEY: ${{ secrets.ALIPAY_PRIVATE_KEY }}
