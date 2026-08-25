@@ -41,6 +41,8 @@ export interface Order {
   expireAt: string;
   refundedAt: string | null;
   cancelReason: string | null;
+  /** 下单时档位快照（JsonString，含 name；成功卡明细取名见 lib/payment.tierSnapshotName） */
+  tierSnapshot?: string | null;
   /** 管理列表计算字段（R24） */
   tierName?: string | null;
   /** 下单时档位快照 id（U8 已售档守卫，R10） */
@@ -121,6 +123,8 @@ export const ORDER_STATUS: TypedDocumentNode<
       transactionId
       expireAt
       amountCents
+      outTradeNo
+      tierSnapshot
     }
   }
 `;
@@ -155,7 +159,10 @@ export const MY_PENDING_ORDERS: TypedDocumentNode<
   {
     myOrders: {
       results: Array<
-        Pick<Order, "id" | "provider" | "status" | "amountCents" | "expireAt">
+        Pick<
+          Order,
+          "id" | "provider" | "status" | "amountCents" | "expireAt" | "outTradeNo"
+        >
       >;
     };
   },
@@ -172,6 +179,7 @@ export const MY_PENDING_ORDERS: TypedDocumentNode<
         status
         amountCents
         expireAt
+        outTradeNo
       }
     }
   }

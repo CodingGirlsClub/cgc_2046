@@ -9,6 +9,7 @@ const { QRCodeStub } = vi.hoisted(() => ({
 	QRCodeStub: { toDataURL: vi.fn() },
 }));
 const { useParams } = vi.hoisted(() => ({ useParams: vi.fn() }));
+const { copyText } = vi.hoisted(() => ({ copyText: vi.fn() }));
 
 // i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
 // NextIntlClientProvider，mock 同语义的 zh-CN translator（真实迁移语义在
@@ -25,6 +26,7 @@ vi.mock("@/lib/payment-errors", async () => {
 });
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("@/lib/apollo-client", () => ({ client }));
+vi.mock("@/lib/clipboard", () => ({ copyText }));
 vi.mock("qrcode", () => ({ default: QRCodeStub }));
 vi.mock("next/navigation", () => ({
 	redirect: vi.fn(),
@@ -46,6 +48,8 @@ function orderPayload(overrides: Record<string, unknown> = {}) {
 			expireAt,
 			amountCents: 19900,
 			provider: "wechat_native",
+			outTradeNo: "2026082500010001234567890123",
+			tierSnapshot: JSON.stringify({ id: "t1", name: "早鸟票", amount_cents: 19900 }),
 			...overrides,
 		},
 	};
@@ -55,12 +59,14 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
 	useParams.mockReturnValue({ id: "o1" });
+	copyText.mockResolvedValue(true);
 	QRCodeStub.toDataURL.mockResolvedValue("data:image/png;base64,qr");
 	vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-16T11:59:30Z"));
 });
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	sessionStorage.clear();
 	cleanup();
 });
 
@@ -82,6 +88,42 @@ describe("/orders/[id] 订单页（U11：倒计时/凭据/轮询编排）", () =
 		expect(await screen.findByTestId("order-paid")).toBeInTheDocument();
 		expect(screen.queryByTestId("order-credential")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("order-switch")).not.toBeInTheDocument();
+	});
+
+	it("已支付态明细：活动名（sessionStorage 交接）+ 档位名 + 订单号截断 + 复制全量", async () => {
+		sessionStorage.setItem(
+			"order-context:o1",
+			JSON.stringify({ title: "教研分享会" }),
+		);
+		client.query.mockResolvedValue({ data: orderPayload({ status: "paid" }) });
+
+		render(<OrderDetailPage />);
+
+		await screen.findByTestId("order-paid-details");
+		expect(screen.getByTestId("order-paid-event")).toHaveTextContent("教研分享会");
+		expect(screen.getByTestId("order-paid-tier")).toHaveTextContent("早鸟票");
+		// 28 位单号中段省略（前 8 … 后 4）
+		expect(screen.getByTestId("order-paid-out-trade-no")).toHaveTextContent(
+			"20260825…0123",
+		);
+
+		fireEvent.click(screen.getByTestId("order-paid-copy"));
+		await waitFor(() =>
+			expect(screen.getByTestId("order-paid-copy")).toHaveTextContent("已复制"),
+		);
+		// 复制用全量原值，不是截断展示串
+		expect(copyText).toHaveBeenCalledWith("2026082500010001234567890123");
+	});
+
+	it("已支付态明细：无活动名上下文 → 活动行不渲染（档位/订单号仍在）", async () => {
+		client.query.mockResolvedValue({ data: orderPayload({ status: "paid" }) });
+
+		render(<OrderDetailPage />);
+
+		await screen.findByTestId("order-paid-details");
+		expect(screen.queryByTestId("order-paid-event")).not.toBeInTheDocument();
+		expect(screen.getByTestId("order-paid-tier")).toHaveTextContent("早鸟票");
+		expect(screen.getByTestId("order-paid-out-trade-no")).toBeInTheDocument();
 	});
 
 	it("过期态：名额已释放提示，不渲染二维码", async () => {

@@ -9,6 +9,8 @@ import {
 	nextPollTick,
 	parsePaymentStats,
 	parsePriceTiers,
+	tierSnapshotName,
+	truncateOutTradeNo,
 } from "./payment";
 
 describe("U11 payment 纯逻辑", () => {
@@ -145,6 +147,27 @@ describe("U11 payment 纯逻辑", () => {
 			expect(formatAmount(19900)).toBe("199.00");
 			expect(formatAmount(9900)).toBe("99.00");
 			expect(formatAmount(1)).toBe("0.01");
+		});
+	});
+
+	describe("成功卡明细（tierSnapshotName / truncateOutTradeNo）", () => {
+		it("tierSnapshot JsonString → 档位名；坏 JSON/缺 name/空串 → null", () => {
+			expect(
+				tierSnapshotName(JSON.stringify({ id: "t1", name: "早鸟票", amount_cents: 9900 })),
+			).toBe("早鸟票");
+			expect(tierSnapshotName('{"id":"t1"}')).toBeNull();
+			expect(tierSnapshotName('{"name":""}')).toBeNull();
+			expect(tierSnapshotName("broken-json")).toBeNull();
+			expect(tierSnapshotName(null)).toBeNull();
+			expect(tierSnapshotName(undefined)).toBeNull();
+		});
+
+		it("truncateOutTradeNo：超 16 位中段省略（前 8 … 后 4），短号原样", () => {
+			expect(truncateOutTradeNo("2026082500010001234567890123")).toBe(
+				"20260825…0123",
+			);
+			expect(truncateOutTradeNo("T1")).toBe("T1");
+			expect(truncateOutTradeNo("1234567890123456")).toBe("1234567890123456");
 		});
 	});
 });

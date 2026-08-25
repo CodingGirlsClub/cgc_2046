@@ -223,6 +223,24 @@ export function formatAmount(cents: number): string {
 	return (cents / 100).toFixed(2);
 }
 
+/** tierSnapshot（JsonString，下单时物化档位）→ 档位名；坏 JSON/缺 name → null */
+export function tierSnapshotName(raw: string | null | undefined): string | null {
+	if (!raw) return null;
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed !== "object" || parsed === null) return null;
+		const name = (parsed as Record<string, unknown>).name;
+		return typeof name === "string" && name !== "" ? name : null;
+	} catch {
+		return null;
+	}
+}
+
+/** 商户订单号展示截断：超长中段省略（前 8 + … + 后 4）；复制/对账仍用全量原值 */
+export function truncateOutTradeNo(no: string): string {
+	return no.length > 16 ? `${no.slice(0, 8)}…${no.slice(-4)}` : no;
+}
+
 /**
  * web 端已签约可下单渠道（单源：下单页渠道列表 enabled 判定与订单页换渠道
  * 候选共用）。签约新渠道后在此增删；alipay_page/alipay_wap 未签约暂缺。
