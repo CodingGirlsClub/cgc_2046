@@ -1134,9 +1134,7 @@
     "paidConfirm": "✓ 支付完成，报名已确认。",
     "viewEnrollments": "查看我的报名",
     "expiredNote": "订单超时未支付，名额已释放。可重新报名后再下单。",
-    "refreshPaused": "自动刷新已暂停（30 秒）。完成支付后请手动刷新确认。",
-    "refreshStatus": "刷新状态",
-    "checkingPayment": "正在确认支付状态…（每 2 秒自动刷新）",
+    "checkingPayment": "正在确认支付状态…（自动刷新，支付完成后自动确认）",
     "alipayQrAlt": "支付宝支付二维码",
     "wechatQrAlt": "微信支付二维码",
     "qrGenerating": "二维码生成中…",
@@ -1304,9 +1302,7 @@
     "newWindowNote": "新窗口完成支付后回到本页，状态将自动确认。",
     "credentialLost": "支付凭据已失效，请点击其他支付方式重新获取（无需重新报名）。",
     "expiredNote": "订单超时未支付，名额已释放。关闭后可重新报名。",
-    "refreshPaused": "自动确认已暂停（30 秒）。完成支付后请刷新状态。",
-    "refreshStatus": "刷新状态",
-    "checkingPayment": "正在确认支付状态…（每 2 秒自动刷新）",
+    "checkingPayment": "正在确认支付状态…（自动刷新，支付完成后自动确认）",
     "orderValidHint": "订单 2 小时内有效，关闭本窗口不取消订单，可从「继续支付」重新进入。"
   },
   "payments": {

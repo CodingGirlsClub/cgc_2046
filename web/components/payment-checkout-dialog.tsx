@@ -470,7 +470,7 @@ export default function PaymentCheckoutDialog({
               </div>
             ) : null}
 
-            {/* 状态行：错误 > 过期 > 手动态 > 轮询中 */}
+            {/* 状态行：错误 > 过期 > 轮询中（降频续轮到终态，无手动态） */}
             {error ? (
               <p
                 role="alert"
@@ -486,19 +486,6 @@ export default function PaymentCheckoutDialog({
               >
                 {t("expiredNote")}
               </p>
-            ) : poll.manual ? (
-              <div className="grid gap-2" data-testid="checkout-manual">
-                <p className="text-[13px] text-ink-3">
-                  {t("refreshPaused")}
-                </p>
-                <button
-                  type="button"
-                  onClick={poll.reset}
-                  className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
-                >
-                  {t("refreshStatus")}
-                </button>
-              </div>
             ) : order !== null ? (
               <p
                 className="text-[13px] text-ink-3"
