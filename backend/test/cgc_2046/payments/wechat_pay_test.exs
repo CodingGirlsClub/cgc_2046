@@ -148,6 +148,91 @@ defmodule Cgc2046.Payments.WechatPayTest do
     end
   end
 
+  describe "微信支付公钥模式（pub key mode：PUB_KEY_ID 预写 + 验签命中）" do
+    # 生产实证 2026-08-24：已开通公钥的商户号 /v3/certificates 恒 403，
+    # 平台证书槽永远为空；SDK（feng19/wechat#10）尚不支持——adapter 在 client
+    # 启动后把公钥按 PUB_KEY_ID 写进 SDK 同一 persistent_term 槽。
+    test "配置 public_key/public_key_id → 种子命中 get_cert，webhook 用公钥验签通过" do
+      pay_key = X509.PrivateKey.new_rsa(2048)
+      pub_key_id = "PUB_KEY_ID_0114869583TEST"
+
+      pub_record = {:RSAPublicKey, elem(pay_key, 2), elem(pay_key, 3)}
+
+      pay_pub_pem =
+        :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPublicKey, pub_record)])
+
+      config =
+        base_config() |> Keyword.merge(public_key: pay_pub_pem, public_key_id: pub_key_id)
+
+      Application.put_env(:cgc_2046, :wechat_pay, config)
+      client = WechatPay.current_client()
+      on_exit(fn -> cleanup(config, client) end)
+
+      # 种子写入：PUB_KEY_ID 槽命中公钥
+      assert not is_nil(Certificates.get_cert(client, pub_key_id))
+
+      # 回环：以公钥对应私钥签名 → webhook 验签 + 解密通过
+      api_key = config[:api_v3_key]
+      iv = "0123456789ab"
+      plaintext = ~s({"out_trade_no":"oto-pk-1","trade_state":"SUCCESS"})
+
+      {ciphertext, tag} =
+        :crypto.crypto_one_time_aead(:aes_256_gcm, api_key, iv, plaintext, "transaction", true)
+
+      raw_body =
+        Jason.encode!(%{
+          "event_type" => "TRANSACTION.SUCCESS",
+          "resource_type" => "encrypt-resource",
+          "resource" => %{
+            "algorithm" => "AEAD_AES_256_GCM",
+            "nonce" => iv,
+            "ciphertext" => Base.encode64(<<ciphertext::binary, tag::binary>>),
+            "associated_data" => "transaction"
+          }
+        })
+
+      timestamp = DateTime.to_unix(DateTime.utc_now()) |> to_string()
+      nonce = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+
+      signature =
+        Base.encode64(:public_key.sign("#{timestamp}\n#{nonce}\n#{raw_body}\n", :sha256, pay_key))
+
+      assert {:ok, %{"out_trade_no" => "oto-pk-1"}} =
+               WechatPay.verify_webhook(raw_body, %{
+                 "wechatpay-signature" => signature,
+                 "wechatpay-timestamp" => timestamp,
+                 "wechatpay-nonce" => nonce,
+                 "wechatpay-serial" => pub_key_id
+               })
+
+      # 反例：未配置公钥的 serial 仍拒（种子只写 PUB_KEY_ID 槽）
+      assert :error =
+               WechatPay.verify_webhook(raw_body, %{
+                 "wechatpay-signature" => signature,
+                 "wechatpay-timestamp" => timestamp,
+                 "wechatpay-nonce" => nonce,
+                 "wechatpay-serial" => "NOT-SEEDED"
+               })
+    end
+
+    test "公钥畸形（非 PEM）→ 不崩、回落平台证书模式，槽内无种子" do
+      config =
+        base_config() |> Keyword.merge(public_key: "not-a-pem", public_key_id: "PUB_KEY_ID_X")
+
+      platform_key = X509.PrivateKey.new_rsa(2048)
+      platform_cert = X509.Certificate.self_signed(platform_key, "/CN=fallback")
+      seed_cert_storage(config[:mch_id], X509.Certificate.to_pem(platform_cert))
+
+      Application.put_env(:cgc_2046, :wechat_pay, config)
+      client = WechatPay.current_client()
+      on_exit(fn -> cleanup(config, client) end)
+
+      # 畸形公钥不种：PUB_KEY_ID 槽为 nil；平台证书槽（restore 路径）照常可用
+      assert is_nil(Certificates.get_cert(client, "PUB_KEY_ID_X"))
+      assert not is_nil(Certificates.get_cert(client, @platform_serial))
+    end
+  end
+
   # ── 布置 ──
 
   # 全量七键配置；每次调用生成新商户 RSA 密钥 → 配置指纹唯一 → client 模块名隔离
