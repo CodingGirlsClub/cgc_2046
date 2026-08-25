@@ -346,6 +346,20 @@ if config_env() == :prod do
         end
     end
 
+  # 微信支付公钥（pub_key.pem）：与商户私钥同款 base64 单行注入兼容（PEM 文本
+  # 含 "-" 解码必 :error 走原样分支，两种注入形状都可用）。
+  wechat_pay_public_key =
+    case System.get_env("WECHAT_PAY_PUBLIC_KEY") do
+      nil ->
+        nil
+
+      value ->
+        case Base.decode64(value, ignore: :whitespace) do
+          {:ok, pem} -> pem
+          :error -> value
+        end
+    end
+
   config :cgc_2046,
     wechat_pay: [
       mch_id: System.get_env("WECHAT_PAY_MCH_ID"),
@@ -356,7 +370,13 @@ if config_env() == :prod do
       api_secret_v2_key: System.get_env("WECHAT_PAY_API_V2_KEY"),
       client_serial_no: System.get_env("WECHAT_PAY_CLIENT_SERIAL_NO"),
       client_private_key: wechat_pay_client_key,
-      webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL")
+      webhook_base_url: System.get_env("PAYMENTS_WEBHOOK_BASE_URL"),
+      # 微信支付公钥模式（2026 新商户号形态，生产实证 2026-08-24：平台证书通道
+      # 对已开通公钥的商户关闭，/v3/certificates 恒 403——验签必须用商户平台
+      # 下发的公钥 + PUB_KEY_ID 序列号；未配置时回落平台证书模式（老商户号））。
+      # PEM 多行同样走 base64 单行注入（与 client_key 同链路约束）。
+      public_key: wechat_pay_public_key,
+      public_key_id: System.get_env("WECHAT_PAY_PUBLIC_KEY_ID")
     ],
     alipay_pay: [
       app_id: System.get_env("ALIPAY_APP_ID"),
