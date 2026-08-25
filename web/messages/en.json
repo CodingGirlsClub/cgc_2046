@@ -1134,9 +1134,7 @@
     "paidConfirm": "✓ Payment complete, enrollment confirmed.",
     "viewEnrollments": "View my enrollments",
     "expiredNote": "The order timed out unpaid and the slot was released. Enroll again to place a new order.",
-    "refreshPaused": "Auto-refresh paused (30s). Refresh manually after completing payment.",
-    "refreshStatus": "Refresh status",
-    "checkingPayment": "Confirming payment status… (auto-refresh every 2s)",
+    "checkingPayment": "Confirming payment status… (auto-refreshes; confirms automatically when paid)",
     "alipayQrAlt": "Alipay payment QR code",
     "wechatQrAlt": "WeChat payment QR code",
     "qrGenerating": "Generating QR code…",
@@ -1304,9 +1302,7 @@
     "newWindowNote": "After paying in the new window, return here and the status will update automatically.",
     "credentialLost": "The payment credential has expired. Click another payment method to get a new one (no re-enrollment needed).",
     "expiredNote": "The order timed out unpaid and the slot was released. Close and enroll again.",
-    "refreshPaused": "Auto-confirmation paused (30s). Refresh status after paying.",
-    "refreshStatus": "Refresh status",
-    "checkingPayment": "Confirming payment status… (auto-refresh every 2s)",
+    "checkingPayment": "Confirming payment status… (auto-refreshes; confirms automatically when paid)",
     "orderValidHint": "The order is valid for 2 hours. Closing this window won't cancel it; re-enter via “Continue to pay”."
   },
   "payments": {
