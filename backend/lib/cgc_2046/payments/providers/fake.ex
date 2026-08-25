@@ -58,6 +58,9 @@ defmodule Cgc2046.Payments.Providers.Fake do
   @impl Cgc2046.Payments.Provider
   def fetch_statement(_date) do
     case scripted(:fetch_statement) do
+      # raise 模拟：SDK 签名段 ArgumentError 等崩溃形态（对账 worker rescue
+      # 隔离的测试面；生产实证 2026-08-21~25 alipay query 形状 bug）
+      :raise -> raise ArgumentError, "simulated sdk crash"
       nil -> {:ok, []}
       result -> result
     end

@@ -109,6 +109,29 @@ defmodule Cgc2046.Workers.PaymentReconciliationWorker do
   # ── 账单拉取（失败告警不抛，KTD11）────────────────────────────────────────
 
   defp fetch_channel_statement(channel, date) do
+    # rescue 隔离:adapter/SDK 可能直接 raise(生产实证 2026-08-21~25,alipay
+    # query 形状 bug 在签名段 ArgumentError,每日 job 全数 discarded)——单渠道
+    # 崩溃只 skip 该渠道,不拖死其余渠道已拉账单的比对与 Finding 落库
+    try do
+      do_fetch_channel_statement(channel, date)
+    rescue
+      e ->
+        Logger.error(
+          "payment recon: #{channel} statement fetch raised for #{Date.to_iso8601(date)}: " <>
+            Exception.format(:error, e, __STACKTRACE__)
+        )
+
+        :telemetry.execute(
+          [:cgc2046, :payment_recon, :statement_fetch_failed],
+          %{count: 1},
+          %{channel: channel, date: Date.to_iso8601(date), reason: inspect(e)}
+        )
+
+        :skip
+    end
+  end
+
+  defp do_fetch_channel_statement(channel, date) do
     case Provider.for_channel(channel).fetch_statement(date) do
       {:ok, rows} when is_list(rows) ->
         {:ok, rows}
