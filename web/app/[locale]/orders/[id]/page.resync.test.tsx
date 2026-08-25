@@ -4,14 +4,14 @@ import { render } from "@/test-utils";
 import OrderDetailPage from "./page";
 
 /**
- * 回归：支付宝（新标签页跳转支付）支付完成后切回页面必须自动收敛（生产
- * 实证 2026-08-24：支付期间页面后台停留超 30s 轮询窗转手动态，切回后
- * 停在「刷新已暂停」显示待支付，手动刷新才恢复）。
+ * 回归：支付完成后页面必须自动收敛（生产实证 2026-08-24/25）。
  *
- * 修复：focus/visibilitychange 补拉（poll.reset + fetchStatus），
- * 先例 = 工作台首联等待监听。红绿锚定：切回后 order-paid 必须出现。
+ * R14 修订后轮询无死窗：30s 快频后 5s 降频续轮到终态；新标签页跳转支付
+ * （alipay_page）场景页面后台 timer 被节流，切回时 focus/visibilitychange
+ * 补拉一次即时收敛。两条断言链：
+ * 1. 后台停留超 30s → 前台恢复后轮询仍在推进（无「刷新已暂停」手动态）；
+ * 2. 支付在后台完成 → 切回 → order-paid 出现。
  */
-
 const { client } = vi.hoisted(() => ({ client: { query: vi.fn(), mutate: vi.fn() } }));
 const { QRCodeStub } = vi.hoisted(() => ({
 	QRCodeStub: { toDataURL: vi.fn() },
@@ -69,9 +69,9 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("支付完成后切回页面自动收敛（visibilitychange 补拉回归）", () => {
-	it("后台支付 30s+ 轮询超窗 → 用户切回页面 → 必须自动补拉并显示已支付", async () => {
-		// 首拉 + 轮询窗内 15 轮全 pending（支付在途）；此后（切回补拉）paid
+describe("支付完成后自动收敛（降频续轮 + visibilitychange 补拉回归）", () => {
+	it("后台支付 30s+（超快频段）→ 切回页面 → 补拉即显示已支付", async () => {
+		// 首拉 + 在途轮询全 pending；切回补拉时 paid
 		let queryCallCount = 0;
 		client.query.mockImplementation(async () => {
 			queryCallCount += 1;
@@ -85,16 +85,16 @@ describe("支付完成后切回页面自动收敛（visibilitychange 补拉回�
 		expect(
 			screen.queryByTestId("order-detail")?.textContent ?? "",
 		).toContain("19");
-
-		// 用户点开支付宝新标签页支付，本页转后台 —— 推进 35s（超 30s 轮询窗）
-		for (let i = 0; i < 15; i++) {
+		// 用户点开支付宝新标签页支付，本页转后台 —— 细粒度推进 35s（超 30s
+		// 快频段；1s 步长让快频链充分跑：首拉 + 15 轮 = 16 次 pending）
+		for (let i = 0; i < 35; i++) {
 			await act(async () => {
-				await vi.advanceTimersByTimeAsync(5_000);
+				await vi.advanceTimersByTimeAsync(1_000);
 			});
 		}
 
-		// 轮询窗耗尽 → 手动态（真实用户在此期间完成支付）
-		expect(screen.getByTestId("order-manual-mode")).toBeInTheDocument();
+		// 无手动态：轮询持续（不渲染「刷新已暂停」）
+		expect(screen.queryByTestId("order-manual-mode")).not.toBeInTheDocument();
 
 		// 用户从支付宝切回本页（visibilitychange → visible）
 		await act(async () => {
@@ -105,10 +105,34 @@ describe("支付完成后切回页面自动收敛（visibilitychange 补拉回�
 			document.dispatchEvent(new Event("visibilitychange"));
 		});
 
-		// 断言：页面应自动补拉并显示已支付（当前实现无此逻辑 → 红）
+		// 断言：补拉 + 显示已支付
 		expect(
 			await screen.findByTestId("order-paid", {}, { timeout: 3000 }),
 		).toBeInTheDocument();
+	});
+
+	it("前台扫码支付 60s 完成 → 降频续轮自动翻转 paid（无手动刷新）", async () => {
+		// 前 17 次查询 pending（首拉 + 快频 15 + 降频 1 ≈ 35s），此后 paid
+		let queryCallCount = 0;
+		client.query.mockImplementation(async () => {
+			queryCallCount += 1;
+			return queryCallCount <= 17 ? orderPayload("pending") : orderPayload("paid");
+		});
+
+		render(<OrderDetailPage />);
+		expect(await screen.findByTestId("order-summary")).toBeInTheDocument();
+
+		// 快频段耗尽后降频续轮（1s 步长推进 75s：快频 30s + 降频 45s ≈ 9 轮，
+		// 第 18 次查询起 paid → 页面自动翻转，全程无手动刷新入口）
+		for (let i = 0; i < 75; i++) {
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1_000);
+			});
+		}
+
 		expect(screen.queryByTestId("order-manual-mode")).not.toBeInTheDocument();
+		expect(
+			await screen.findByTestId("order-paid", {}, { timeout: 3000 }),
+		).toBeInTheDocument();
 	});
 });
