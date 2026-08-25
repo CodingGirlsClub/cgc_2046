@@ -104,6 +104,10 @@ env:
     # 微信扫码登录（可选门禁：缺省 wechat_login_unavailable）
     - WECHAT_WEB_APPID
     - WECHAT_WEB_SECRET
+    # 微信小程序凭证（可选门禁：缺值 platform_not_configured，boot 不崩；
+    # runtime.exs 注释见 issue #264——web 先行部署、小程序上架时补齐）
+    - WECHAT_MP_APPID
+    - WECHAT_MP_SECRET
 
 # 数据库迁移在切流前完成（blue-green 新容器执行，旧容器不受影响）
 accessories:
