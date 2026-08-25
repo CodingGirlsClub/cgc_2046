@@ -216,6 +216,7 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
              ) do
           {:ok, module} ->
             :ok = start_client_supervisor(module)
+            seed_public_key_mode(module)
             :persistent_term.put({__MODULE__, fingerprint}, module)
             :persistent_term.put({__MODULE__, :current_fingerprint}, fingerprint)
             module
@@ -226,6 +227,46 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
 
       module ->
         module
+    end
+  end
+
+  # 公钥模式预写（生产实证 2026-08-24，上游 SDK feng19/wechat#10 待支持）：
+  # 已开通「微信支付公钥」的商户号，平台证书通道关闭（/v3/certificates 恒
+  # 403），SDK 的证书缓存永远为空 → VerifySignature 中间件对每个 200 应答
+  # 判 :invaild_response 丢弃（下单 200 但前端报「切换渠道失败」）。
+  # 修复：把公钥按 PUB_KEY_ID 序列号写进 SDK 同一 persistent_term 槽
+  # （{:wechat, {client, serial}} => public_key）——中间件按 Wechatpay-Serial
+  # 头查 get_cert 即命中，SDK 零改动；webhook 验签走同槽同样生效。
+  # 未配置公钥（老商户号/未迁移）时不写，回落平台证书模式行为不变。
+  defp seed_public_key_mode(module) do
+    with pub_key when is_binary(pub_key) and pub_key != "" <- config()[:public_key],
+         pub_key_id when is_binary(pub_key_id) and pub_key_id != "" <- config()[:public_key_id],
+         {:ok, public_key} <- decode_public_key(pub_key) do
+      :persistent_term.put({:wechat, {module, pub_key_id}}, public_key)
+      Logger.info("WechatPay public key mode seeded (serial=#{pub_key_id})")
+      :ok
+    else
+      {:error, :malformed_public_key} = e ->
+        Logger.error(
+          "WechatPay public_key configured but malformed — platform cert fallback will be used; if this merchant is on public key mode, ALL v3 calls will fail with invaild_response"
+        )
+
+        e
+
+      _ ->
+        # 公钥未配置（老商户号）或 id 缺席——回落平台证书模式
+        :ok
+    end
+  end
+
+  defp decode_public_key(pem) do
+    case :public_key.pem_decode(pem) do
+      [entry] ->
+        {:ok, :public_key.pem_entry_decode(entry)}
+
+      _ ->
+        Logger.error("WechatPay public_key PEM decode failed (malformed)")
+        {:error, :malformed_public_key}
     end
   end
 
