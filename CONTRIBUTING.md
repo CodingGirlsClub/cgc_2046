@@ -86,7 +86,7 @@ Conventions:
 
 ## 5. Commits & PRs
 
-- **Write commit messages and PR titles/descriptions in English.** This applies to everyone, regardless of working language. (Issue bodies and code comments may stay in Chinese.)
+- **Commit messages and PR titles/descriptions may be written in Chinese or English.** Keep conventional-commit type prefixes (`feat`/`fix`/`docs`/...) and technical terms in English either way. (Issue bodies and code comments may stay in Chinese.)
 - Keep commits focused; squash noise before requesting review.
 - PR descriptions should briefly state: **what**, **why**, and any **user-visible impact** (e.g. new routes, changed permissions).
 - Run the full gate matrix before pushing: `mix test` + `pnpm test` + `pnpm typecheck` + `pnpm lint` + `pnpm build`.
