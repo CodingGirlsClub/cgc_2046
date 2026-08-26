@@ -129,11 +129,13 @@ jobs:
             WECHAT_PAY_PUBLIC_KEY WECHAT_PAY_PUBLIC_KEY_ID \
             PAYMENTS_WEBHOOK_BASE_URL ALIPAY_APP_ID ALIPAY_PRIVATE_KEY ALIPAY_PUBLIC_KEY \
             ALIPAY_SANDBOX WECHAT_WEB_APPID WECHAT_WEB_SECRET \
-            WECHAT_MP_APPID WECHAT_MP_SECRET; do
+            WECHAT_MP_APPID WECHAT_MP_SECRET WECHAT_MP_TEMPLATE_APPROVAL_RESULT \
+            WECHAT_MP_TEMPLATE_APPROVAL_REMINDER WECHAT_MP_TEMPLATE_EVENT_REMINDER; do
+          # （原 31 项 + 3 模板 = 34 项）
           [ -n "${!v}" ] || { missing="$missing $v"; continue; }
           printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
-          echo "secrets 非空校验通过（31 项）"
+          echo "secrets 非空校验通过（34 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -165,6 +167,9 @@ jobs:
           WECHAT_WEB_APPID: ${{ vars.WECHAT_WEB_APPID }}
           WECHAT_MP_APPID: ${{ vars.WECHAT_MP_APPID }}
           WECHAT_MP_SECRET: ${{ secrets.WECHAT_MP_SECRET }}
+          WECHAT_MP_TEMPLATE_APPROVAL_RESULT: ${{ secrets.WECHAT_MP_TEMPLATE_APPROVAL_RESULT }}
+          WECHAT_MP_TEMPLATE_APPROVAL_REMINDER: ${{ secrets.WECHAT_MP_TEMPLATE_APPROVAL_REMINDER }}
+          WECHAT_MP_TEMPLATE_EVENT_REMINDER: ${{ secrets.WECHAT_MP_TEMPLATE_EVENT_REMINDER }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
       - name: Deploy backend
         working-directory: backend

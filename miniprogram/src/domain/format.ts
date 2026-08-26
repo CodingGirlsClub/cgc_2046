@@ -42,8 +42,11 @@ export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
   full: '已满'
 }
 
-export function registrationClosedNotice(badge: EnrollmentBadge): string | null {
-  return badge === 'closed' ? '报名已截止，不再接受新的报名。' : null
+/** 报名阻断提示：closed/full 返回阻断文案（与 web 端 closedHint/fullHint 逐字一致），其余 badge 放行返回 null */
+export function enrollmentBlockedNotice(badge: EnrollmentBadge): string | null {
+  if (badge === 'closed') return '报名已截止，不再接受新的报名。'
+  if (badge === 'full') return '名额已满，不再接受新的报名。'
+  return null
 }
 
 // 与详情页既有截止日期同款 toLocaleString 惯例（R15 随行展示不引新格式）
