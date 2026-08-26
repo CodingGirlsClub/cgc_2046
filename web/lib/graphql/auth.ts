@@ -6,8 +6,8 @@ import type { MutationResult } from "./shared";
  * #61 登录/注册 GraphQL mutation（已按后端 #60 实际 schema 对齐，commit d73b578）。
  *
  * 关键约定（已迁移 httpOnly cookie —— 路径 B）：
- * - signUp 是 create mutation：参数 input 嵌套，返回 result/errors 两段式；
- *   token 由后端 before_send 写 httpOnly cookie，响应体不再返回。
+ * - signUpWithPhone（手机号注册）是 create mutation：input 嵌套，result/errors 两段式；
+ *   token 由后端 before_send 写 httpOnly cookie（旧邮箱 signUp 已下线）。
  * - signIn 是 read_one as_mutation：参数平铺，返回平铺字段（无 token）；
  *   失败时 signIn 为 null
  *   且顶层 errors 含 [{ message, code: "authentication_failed" }]（Apollo 抛 ApolloError）。
@@ -15,20 +15,11 @@ import type { MutationResult } from "./shared";
 
 /* ---------------- 类型（对齐 backend/priv/graphql/schema.graphql） ---------------- */
 
-export interface SignUpInput {
-  /** 用户邮箱（全局唯一，登录身份标识） */
-  email: string;
-  /** 明文密码（后端 min 8 位） */
-  password: string;
-}
-
 export interface UserLite {
   id: string;
   email: string;
   isPlatformAdmin: boolean;
 }
-
-export type SignUpResultData = MutationResult<UserLite>;
 
 export interface SignInResultData {
   id: string;
@@ -52,12 +43,32 @@ export interface PasswordResetGraphqlError {
 
 /* ---------------- 真实 mutation ---------------- */
 
-export const SIGN_UP: TypedDocumentNode<
-  { signUp: SignUpResultData },
-  { input: SignUpInput }
+/* ---------------- 手机号注册（/register 邮箱 → 手机号） ---------------- */
+
+export interface SignUpWithPhoneInput {
+  /** 手机号（后端归一化 +86 形） */
+  phone: string;
+  /** 短信验证码（purpose REGISTER） */
+  code: string;
+  /** 明文密码（后端 min 8 位） */
+  password: string;
+}
+
+export interface PhoneUserLite {
+  id: string;
+  /** 手机号用户 email 可空 */
+  email: string | null;
+  isPlatformAdmin: boolean;
+}
+
+export type SignUpWithPhoneResultData = MutationResult<PhoneUserLite>;
+
+export const SIGN_UP_WITH_PHONE: TypedDocumentNode<
+  { signUpWithPhone: SignUpWithPhoneResultData },
+  { input: SignUpWithPhoneInput }
 > = gql`
-  mutation SignUp($input: SignUpInput!) {
-    signUp(input: $input) {
+  mutation SignUpWithPhone($input: SignUpWithPhoneInput!) {
+    signUpWithPhone(input: $input) {
       result {
         id
         email
@@ -86,7 +97,7 @@ export const SIGN_IN: TypedDocumentNode<
 
 /* ---------------- 手机验证码登录（plan 002 U3/U5） ---------------- */
 
-export type PhoneCodePurpose = "LOGIN" | "WECHAT_BIND";
+export type PhoneCodePurpose = "LOGIN" | "WECHAT_BIND" | "REGISTER";
 
 export interface RequestPhoneCodeResult {
   sent: boolean;
@@ -201,32 +212,6 @@ export const RESET_PASSWORD: TypedDocumentNode<
 
 /* ---------------- 错误提取（两端结构不对称，统一转成前端可读 message） ---------------- */
 
-/**
- * signUp 失败：mutation 不抛错，result 为 null、errors 数组含 message。
- * #86 防邮箱枚举：后端对「邮箱已存在」返回通用 registration_failed（不区分
- * 重复邮箱与未知错误）。本函数只提取结构化错误数据（code + message），
- * 前端文案映射由调用方（hook 层 useTranslations）完成——i18n Phase 2 起
- * lib 层不再内嵌中文。成功 / 无错误返回 null。
- */
-export function signUpError(
-  data: { signUp: SignUpResultData } | null | undefined,
-): { code: string | null; message: string | null } | null {
-  const errors = data?.signUp?.errors;
-  if (data?.signUp?.result || !errors || errors.length === 0) return null;
-  const first = errors[0];
-  return { code: first?.code ?? null, message: first?.message ?? null };
-}
-
-/**
- * 从 signUp 失败结果提取首条 message（直透后端文案，如邮箱格式错误）；
- * 与旧 signUpErrorMessage 语义对齐，供需要直透 message 的调用方使用。
- */
-export function signUpErrorMessage(
-  data: { signUp: SignUpResultData } | null | undefined,
-): string | null {
-  const err = signUpError(data);
-  return err?.message ?? null;
-}
 
 /**
  * signIn 失败：signIn 为 null 且顶层 errors 抛异常。

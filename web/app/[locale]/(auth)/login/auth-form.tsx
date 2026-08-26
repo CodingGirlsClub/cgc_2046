@@ -8,10 +8,7 @@ import { useSearchParams } from "next/navigation";
 export type AuthMode = "login" | "register";
 
 export interface AuthSubmitPayload {
-  mode: AuthMode;
-  /** 保留为兼容字段；注册页当前只收集邮箱和密码。 */
-  nickname?: string;
-  /** 登录标识：登录模式下为手机号或邮箱（signIn login 入参）；注册模式下为邮箱。 */
+  /** 登录标识：手机号或邮箱（signIn login 入参）。注册已走手机号验证码路径（register-phone-form），不经此 payload。 */
   login: string;
   password: string;
 }
@@ -132,52 +129,35 @@ export function PasswordStrength({ password }: { password: string }) {
 }
 
 export default function AuthForm({
-  mode,
-  setMode,
   onSubmit,
   busy = false,
   error,
 }: {
-  mode: AuthMode;
-  /** 仅供旧的组件测试/嵌入方使用；正式认证页通过路由切换。 */
-  setMode?: (mode: AuthMode) => void;
   onSubmit: (payload: AuthSubmitPayload) => Promise<void>;
   busy?: boolean;
   error?: string | null;
 }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const isRegister = mode === "register";
+  // 注册已迁 register-phone-form（手机号验证码）；本组件 login-only。
   const t = useTranslations("auth");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
 
-    if (isRegister && password.length < 8) {
-      setFormError(t("error.shortPassword"));
-      return;
-    }
-    if (isRegister && password !== confirmPassword) {
-      setFormError(t("error.passwordMismatch"));
-      return;
-    }
-
-    await onSubmit({ mode, login, password });
+    await onSubmit({ login, password });
   };
 
   const displayError = formError ?? error;
-  const switchLabel = isRegister ? t("switch.returnLogin") : t("switch.createAccount");
+  const switchLabel = t("switch.createAccount");
   // 切换登录/注册保留 next（报名页引导链路不回丢）
   const searchParams = useSearchParams();
   const nextRaw = searchParams?.get("next") ?? null;
   const switchHref =
-    (isRegister ? "/login" : "/register") +
-    (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
+    "/register" + (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
 
   return (
     <div className="auth-form-body">
@@ -193,14 +173,14 @@ export default function AuthForm({
             id="auth-email"
             name="login"
             className="auth-input"
-            type={isRegister ? "email" : "text"}
-            placeholder={isRegister ? "you@example.com" : t("placeholder.login")}
+            type="text"
+            placeholder={t("placeholder.login")}
             value={login}
             onChange={(event) => {
               setLogin(event.target.value);
               setFormError(null);
             }}
-            autoComplete={isRegister ? "email" : "username"}
+            autoComplete="username"
             autoFocus
             required
           />
@@ -217,61 +197,25 @@ export default function AuthForm({
             }}
             visible={showPassword}
             onToggle={() => setShowPassword((current) => !current)}
-            autoComplete={isRegister ? "new-password" : "current-password"}
+            autoComplete="current-password"
           />
-          {isRegister && <PasswordStrength password={password} />}
         </div>
 
-        {isRegister && (
-          <div className="auth-field">
-            <PasswordField
-              id="auth-confirm-password"
-              placeholder={t("placeholder.confirmPassword")}
-              value={confirmPassword}
-              onChange={(value) => {
-                setConfirmPassword(value);
-                setFormError(null);
-              }}
-              visible={showConfirmPassword}
-              onToggle={() => setShowConfirmPassword((current) => !current)}
-              autoComplete="new-password"
-            />
-          </div>
-        )}
-
         <button type="submit" className="auth-submit" disabled={busy} aria-busy={busy}>
-          {busy
-            ? t("submit.processing")
-            : isRegister
-              ? t("submit.registerAndContinue")
-              : t("submit.loginAndEnter")}
+          {busy ? t("submit.processing") : t("submit.loginAndEnter")}
         </button>
       </form>
       <p className="auth-switch">
-        {!isRegister ? (
-          <Link href="/forgot-password" className="auth-inline-link auth-switch__action">
-            {t("forgotPassword")}
-          </Link>
-        ) : (
-          <span aria-hidden="true" />
-        )}
-        {setMode ? (
-          <button
-            type="button"
-            className="auth-inline-link auth-switch__action"
-            onClick={() => setMode(isRegister ? "login" : "register")}
-          >
-            {switchLabel}
-          </button>
-        ) : (
-          <Link href={switchHref} className="auth-inline-link auth-switch__action">
-            {switchLabel}
-          </Link>
-        )}
+        <Link href="/forgot-password" className="auth-inline-link auth-switch__action">
+          {t("forgotPassword")}
+        </Link>
+        <Link href={switchHref} className="auth-inline-link auth-switch__action">
+          {switchLabel}
+        </Link>
       </p>
 
       <p className="auth-terms">
-        {isRegister ? t("terms.registerAction") : t("terms.loginAction")}{t("terms.agreePrefix")}
+        {t("terms.loginAction")}{t("terms.agreePrefix")}
         <Link href="/terms">{t("terms.serviceTerms")}</Link>
         {t("terms.and")}
         <Link href="/privacy">{t("terms.privacyPolicy")}</Link>

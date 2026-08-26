@@ -283,4 +283,151 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       assert me_res["data"]["me"] == nil
     end
   end
+
+  describe "signUpWithPhone" do
+    @password "sup3r-secret-password"
+
+    defp sign_up_phone_mutation(phone, code, password) do
+      """
+      mutation {
+        signUpWithPhone(input: { phone: "#{phone}", code: "#{code}", password: "#{password}" }) {
+          result { id email isPlatformAdmin }
+          errors { message code fields }
+        }
+      }
+      """
+    end
+
+    test "正确码：建号（email 可空）+ 密码可登录 + httpOnly cookie + 入座 2046" do
+      # seed 默认 workspace（测试库无 seed；admit_to_default_workspace 按 slug=2046 找）
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        ~s'INSERT INTO workspaces (slug, name) VALUES (\x272046\x27, \x27CGC 2046\x27) ON CONFLICT (slug) DO NOTHING'
+      )
+
+      code = issue_and_get_code(@phone, :register)
+
+      conn = graphql_post(build_conn(), sign_up_phone_mutation(@phone_raw, code, @password))
+      res = json_response(conn, 200)
+
+      assert %{"data" => %{"signUpWithPhone" => payload}} = res
+      assert payload["errors"] == []
+      assert is_binary(payload["result"]["id"])
+      assert is_nil(payload["result"]["email"])
+
+      cookie = conn.resp_cookies["cgc_token"]
+      assert cookie != nil and cookie.http_only == true
+      {:ok, claims} = Jwt.peek(cookie.value)
+      assert claims["purpose"] == "user"
+
+      # 建号后密码可登录（password_phone 策略 sign-in 路径打通）
+      sign_in_conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post(
+          "/api/graphql",
+          %{
+            "query" =>
+              ~s'mutation { signIn(login: "#{@phone_raw}", password: "#{@password}") { id isPlatformAdmin } }'
+          }
+        )
+
+      assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(sign_in_conn, 200)
+
+      # ADR-0004 §3.5：注册自动入座默认 workspace 2046
+      membership =
+        Ecto.Adapters.SQL.query!(
+          Cgc2046.Repo,
+          """
+          SELECT count(*) FROM workspace_memberships wm
+          JOIN workspaces w ON w.id = wm.workspace_id
+          WHERE wm.user_id = $1 AND w.slug = '2046'
+          """,
+          [Ecto.UUID.dump!(payload["result"]["id"])]
+        )
+
+      assert [%{rows: [[count]]}] = [membership]
+      assert count == 1
+    end
+
+    test "已注册手机号：phone_already_registered（验码通过后返回，无枚举风险）" do
+      code = issue_and_get_code(@phone, :register)
+      graphql_post(build_conn(), sign_up_phone_mutation(@phone_raw, code, @password))
+
+      code2 = issue_and_get_code(@phone, :register)
+      res = graphql_post(build_conn(), sign_up_phone_mutation(@phone_raw, code2, @password))
+
+      assert %{"errors" => [%{"code" => "phone_already_registered"}]} =
+               json_response(res, 200)
+    end
+
+    test "真实发码链路：requestPhoneCode(REGISTER) 可发码并完成注册（atom 映射回归钉测）" do
+      # 直接调 issue 绕过了 request_phone_code → phone_code_purpose_atom 入口，
+      # 曾漏 :register 映射导致 FunctionClauseError。此用例钉住全链路。
+      conn =
+        graphql_post(
+          build_conn(),
+          """
+          mutation {
+            requestPhoneCode(phone: "#{@phone_raw}", purpose: REGISTER) {
+              sent
+              retryAfterSeconds
+            }
+          }
+          """
+        )
+
+      assert %{"data" => %{"requestPhoneCode" => %{"retryAfterSeconds" => 60}}} =
+               json_response(conn, 200)
+    end
+
+    test "短密码：invalid_password 且不烧码（修正后同码可用）" do
+      code = issue_and_get_code(@phone, :register)
+
+      res =
+        graphql_post(build_conn(), sign_up_phone_mutation(@phone_raw, code, "short"))
+
+      assert %{"errors" => [%{"code" => "invalid_password"}]} = json_response(res, 200)
+
+      # 密码校验先于验码消费——同码换合法密码应成功
+      res2 =
+        graphql_post(
+          build_conn(),
+          sign_up_phone_mutation(@phone_raw, code, @password)
+        )
+
+      assert %{"data" => %{"signUpWithPhone" => %{"result" => %{"id" => _}}}} =
+               json_response(res2, 200)
+    end
+
+    test "超 72 字节密码：invalid_password（bcrypt 截断互认防线）" do
+      code = issue_and_get_code(@phone, :register)
+
+      res =
+        graphql_post(
+          build_conn(),
+          sign_up_phone_mutation(@phone_raw, code, String.duplicate("a", 73))
+        )
+
+      assert %{"errors" => [%{"code" => "invalid_password"}]} = json_response(res, 200)
+    end
+
+    test "错码：invalid_or_expired_code，不建号" do
+      _code = issue_and_get_code(@phone, :register)
+
+      res = graphql_post(build_conn(), sign_up_phone_mutation(@phone_raw, "000000", @password))
+
+      assert %{"errors" => [%{"code" => "invalid_or_expired_code"}]} =
+               json_response(res, 200)
+    end
+
+    test "register purpose 码不串用：login purpose 码注册被拒" do
+      login_code = issue_and_get_code(@phone, :login)
+
+      res = graphql_post(build_conn(), sign_up_phone_mutation(@phone_raw, login_code, @password))
+
+      assert %{"errors" => [%{"code" => "invalid_or_expired_code"}]} =
+               json_response(res, 200)
+    end
+  end
 end

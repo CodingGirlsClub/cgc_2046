@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import AuthForm, { type AuthMode } from "./login/auth-form";
+import RegisterPhoneForm from "./login/register-phone-form";
 import SmsForm from "./login/sms-form";
 import WechatQrPanel from "./login/wechat-qr-panel";
 import { useAuthSubmit } from "./login/use-auth-submit";
@@ -148,7 +149,7 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
               <div className="auth-form-heading">
                 <h2 id="auth-page-title">{t("heading.register")}</h2>
               </div>
-              <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+              <RegisterPhoneForm />
             </>
           ) : (
             <div className="auth-login-split">
@@ -167,7 +168,7 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
                     </div>
                     <LoginMethodTabs method={loginMethod} onChange={setLoginMethod} />
                     {loginMethod === "password" && (
-                      <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+                      <AuthForm onSubmit={onSubmit} busy={busy} error={error} />
                     )}
                     {loginMethod === "sms" && <SmsForm />}
                   </>
