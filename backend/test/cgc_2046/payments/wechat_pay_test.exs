@@ -158,11 +158,12 @@ defmodule Cgc2046.Payments.WechatPayTest do
     end
   end
 
-  describe "微信支付公钥模式（pub key mode：PUB_KEY_ID 预写 + 验签命中）" do
-    # 生产实证 2026-08-24：已开通公钥的商户号 /v3/certificates 恒 403，
-    # 平台证书槽永远为空；SDK（feng19/wechat#10）尚不支持——adapter 在 client
-    # 启动后把公钥按 PUB_KEY_ID 写进 SDK 同一 persistent_term 槽。
-    test "配置 public_key/public_key_id → 种子命中 get_cert，webhook 用公钥验签通过" do
+  describe "微信支付公钥模式（pub key mode：SDK 原生 platform_public_* + 验签命中）" do
+    # SDK 0.20.0 原生支持（feng19/wechat#10）：两键齐配时 build_client 传
+    # platform_public_id/platform_public_key，Refresher.Pay init 把公钥按
+    # PUB_KEY_ID 写进验签 persistent_term 槽，并跳过平台证书下载/轮换
+    # （公钥商户 /v3/certificates 恒 403）。
+    test "配置 public_key/public_key_id → 公钥入槽命中 get_cert，webhook 用公钥验签通过" do
       pay_key = X509.PrivateKey.new_rsa(2048)
       pub_key_id = "PUB_KEY_ID_0114869583TEST"
 
@@ -178,7 +179,7 @@ defmodule Cgc2046.Payments.WechatPayTest do
       client = WechatPay.current_client()
       on_exit(fn -> cleanup(config, client) end)
 
-      # 种子写入：PUB_KEY_ID 槽命中公钥
+      # 公钥入槽：PUB_KEY_ID 槽命中（Refresher.Pay init 的 put_platform_public_key）
       assert not is_nil(Certificates.get_cert(client, pub_key_id))
 
       # 回环：以公钥对应私钥签名 → webhook 验签 + 解密通过
@@ -215,7 +216,7 @@ defmodule Cgc2046.Payments.WechatPayTest do
                  "wechatpay-serial" => pub_key_id
                })
 
-      # 反例：未配置公钥的 serial 仍拒（种子只写 PUB_KEY_ID 槽）
+      # 反例：未配置公钥的 serial 仍拒（入槽只写 PUB_KEY_ID）
       assert :error =
                WechatPay.verify_webhook(raw_body, %{
                  "wechatpay-signature" => signature,
@@ -225,21 +226,18 @@ defmodule Cgc2046.Payments.WechatPayTest do
                })
     end
 
-    test "公钥畸形（非 PEM）→ 不崩、回落平台证书模式，槽内无种子" do
+    test "公钥畸形（非 PEM）→ SDK build_client raise 被 rescue，干净降级 provider_not_configured" do
+      # 新语义（0.20.0 原生支持后）：SDK 对 platform_public_key 做 PEM 解析，
+      # 畸形即 ArgumentError——不再回落平台证书模式（公钥商户的证书通道恒 403，
+      # 回落是假兜底），fetch_client rescue 统一降级。
       config =
         base_config() |> Keyword.merge(public_key: "not-a-pem", public_key_id: "PUB_KEY_ID_X")
 
-      platform_key = X509.PrivateKey.new_rsa(2048)
-      platform_cert = X509.Certificate.self_signed(platform_key, "/CN=fallback")
-      seed_cert_storage(config[:mch_id], X509.Certificate.to_pem(platform_cert))
-
       Application.put_env(:cgc_2046, :wechat_pay, config)
-      client = WechatPay.current_client()
-      on_exit(fn -> cleanup(config, client) end)
+      on_exit(fn -> cleanup(config, nil) end)
 
-      # 畸形公钥不种：PUB_KEY_ID 槽为 nil；平台证书槽（restore 路径）照常可用
-      assert is_nil(Certificates.get_cert(client, "PUB_KEY_ID_X"))
-      assert not is_nil(Certificates.get_cert(client, @platform_serial))
+      assert {:error, :provider_not_configured} =
+               WechatPay.create_payment(order(), %{openid: "oX"})
     end
   end
 

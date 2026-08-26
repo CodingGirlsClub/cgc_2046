@@ -2,7 +2,7 @@ defmodule Cgc2046.Miniprogram.WechatRequester do
   @moduledoc """
   微信 API Tesla requester（宿主自有，SDK client 的请求层）。
 
-  与 deps/wechat 0.19.0 的 `WeChat.Requester.OfficialAccount` 同构
+  与 deps/wechat 0.20.0 的 `WeChat.Requester.OfficialAccount` 同构
   （BaseUrl + Retry×3 + JSON（含 text/plain 解码）+ Logger）；SDK 无 adapter
   配置点——其 test 分支靠 dep 编译期 `Mix.env()`，宿主构建实测不生效（仍走
   Finch 真实外呼），故平行实现，adapter 由 `:wechat_tesla_adapter` 编译期注入。
