@@ -151,6 +151,7 @@ if config_env() == :prod do
     wechat: %{
       "approval_result" => System.get_env("WECHAT_MP_TEMPLATE_APPROVAL_RESULT"),
       "approval_reminder" => System.get_env("WECHAT_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "event_reminder" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_REMINDER"),
       "enrollment_submitted" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
       "speaker_accepted" => System.get_env("WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
@@ -168,6 +169,7 @@ if config_env() == :prod do
       "approval_result" => System.get_env("TT_MP_TEMPLATE_APPROVAL_RESULT"),
       "approval_reminder" => System.get_env("TT_MP_TEMPLATE_APPROVAL_REMINDER"),
       "enrollment_submitted" => System.get_env("TT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "event_reminder" => System.get_env("TT_MP_TEMPLATE_EVENT_REMINDER"),
       "enrollment_completed" => System.get_env("TT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
       "speaker_accepted" => System.get_env("TT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
       "speaker_completed" => System.get_env("TT_MP_TEMPLATE_SPEAKER_COMPLETED"),
@@ -185,6 +187,7 @@ if config_env() == :prod do
       "approval_reminder" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_REMINDER"),
       "enrollment_submitted" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      "event_reminder" => System.get_env("XHS_MP_TEMPLATE_EVENT_REMINDER"),
       "speaker_accepted" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_ACCEPTED"),
       "speaker_completed" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_COMPLETED"),
       "learning_stagnation" => System.get_env("XHS_MP_TEMPLATE_LEARNING_STAGNATION"),
