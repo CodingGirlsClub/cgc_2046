@@ -315,7 +315,7 @@ export default function WorkspaceShell({
 								}
 							>
 								<Icon name="settings" />
-								<span>{t("headingPersonal")}</span>
+								<span>{t("preferencesLink")}</span>
 							</Link>
 							<Link
 								href={`/w/${slug}/settings/account/profile`}

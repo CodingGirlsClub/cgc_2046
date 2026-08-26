@@ -623,6 +623,7 @@
       "navGroup": "工作区导航",
       "backToApp": "Back to app",
       "headingPersonal": "Personal",
+      "preferencesLink": "偏好设置",
       "headingIntegrations": "集成",
       "headingWorkspace": "Workspace",
       "profileLink": "个人资料",
@@ -994,8 +995,8 @@
   "workspacePreferences": {
     "breadcrumbHome": "工作台",
     "breadcrumbSettings": "设置",
-    "breadcrumbTitle": "Preferences",
-    "title": "Preferences",
+    "breadcrumbTitle": "偏好设置",
+    "title": "偏好设置",
     "subtitle": "管理你的界面偏好",
     "loadingAria": "加载中",
     "themeLabel": "界面主题",
