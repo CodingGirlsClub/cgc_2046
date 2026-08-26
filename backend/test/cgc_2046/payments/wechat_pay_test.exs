@@ -23,6 +23,8 @@ defmodule Cgc2046.Payments.WechatPayTest do
   # 动态编译互扰（与 client_test 同约束）。
   use Cgc2046.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Cgc2046.Payments.Providers.WechatPay
   alias WeChat.Pay.Certificates
 
@@ -226,18 +228,43 @@ defmodule Cgc2046.Payments.WechatPayTest do
                })
     end
 
-    test "公钥畸形（非 PEM）→ SDK build_client raise 被 rescue，干净降级 provider_not_configured" do
+    test "公钥畸形（非 PEM）→ SDK build_client raise 被 rescue，降级且日志指名来源" do
       # 新语义（0.20.0 原生支持后）：SDK 对 platform_public_key 做 PEM 解析，
       # 畸形即 ArgumentError——不再回落平台证书模式（公钥商户的证书通道恒 403，
       # 回落是假兜底），fetch_client rescue 统一降级。
+      # 日志断言钉住失败来源（advisor F3c）：裸 provider_not_configured 与
+      # 「完全没配」不可区分——若 build_options 回归成不传 platform_public_*，
+      # 仅靠返回值断言照样绿。
       config =
         base_config() |> Keyword.merge(public_key: "not-a-pem", public_key_id: "PUB_KEY_ID_X")
 
       Application.put_env(:cgc_2046, :wechat_pay, config)
       on_exit(fn -> cleanup(config, nil) end)
 
-      assert {:error, :provider_not_configured} =
-               WechatPay.create_payment(order(), %{openid: "oX"})
+      log =
+        capture_log(fn ->
+          assert {:error, :provider_not_configured} =
+                   WechatPay.create_payment(order(), %{openid: "oX"})
+        end)
+
+      assert log =~ "platform_public_key"
+    end
+
+    test "半配置（只配 public_key_id）→ 显式报错＋日志降级，不静默回落恒坏的证书模式" do
+      # advisor F2/F3a：两键分属 GitHub secrets/vars 两个存储，半配是最自然的
+      # 运维错误形态。回落证书模式对公钥商户 = /v3/certificates 恒 403 的静默
+      # broken；改为 build_options raise → rescue 日志 + provider_not_configured。
+      config = base_config() |> Keyword.merge(public_key_id: "PUB_KEY_ID_HALF")
+      Application.put_env(:cgc_2046, :wechat_pay, config)
+      on_exit(fn -> cleanup(config, nil) end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :provider_not_configured} =
+                   WechatPay.create_payment(order(), %{openid: "oX"})
+        end)
+
+      assert log =~ "half-configured"
     end
   end
 
