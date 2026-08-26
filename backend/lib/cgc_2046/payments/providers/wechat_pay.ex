@@ -192,7 +192,17 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
         # 「未配置」语义），半配置（如缺 api_secret_key）在此 raise——真实小额
         # 验收实证：wechat 全空配置下默认渠道下单即崩 something_went_wrong。
         # 与 alipay 同语义降级 provider_not_configured。
-        _ -> {:error, :provider_not_configured}
+        # 降级必须留日志（advisor F1）：畸形公钥（SDK ArgumentError）若静默吞，
+        # 表现为「九键全配、业务却报未配置」，生产零线索。可达 raise 路径的
+        # message 已逐条核验不含密钥材料：check_api_key 的 inspect(api_key)
+        # 分支被 configured? 的 is_binary 门禁挡死；X509/PEM 解析错误只含
+        # 原子 reason；半配置 raise 只含 boolean。
+        e ->
+          Logger.error(
+            "WechatPay client build failed: #{inspect(e.__struct__)} #{Exception.message(e)}"
+          )
+
+          {:error, :provider_not_configured}
       end
     else
       {:error, :provider_not_configured}
@@ -204,12 +214,15 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
 
     case cached_client(fingerprint) do
       nil ->
-        shutdown_stale_client(fingerprint)
         client_module = Module.concat(__MODULE__, "Client#{fingerprint}")
 
         case WeChat.Pay.build_client(client_module, build_options()) do
           {:ok, module} ->
             :ok = start_client_supervisor(module)
+            # 新 client 挂载成功后才摘旧（advisor F4）：build/start 失败时旧
+            # client 继续服务——轮换公钥贴错不再拖垮健康支付，改回配置即自愈。
+            # 池名/模块名含指纹不同名，新旧短暂共存安全。
+            shutdown_stale_client(fingerprint)
             :persistent_term.put({__MODULE__, fingerprint}, module)
             :persistent_term.put({__MODULE__, :current_fingerprint}, fingerprint)
             module
@@ -227,10 +240,11 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
   # public_key/public_key_id 两键齐配 → 传 platform_public_*，SDK 以公钥验签
   # （写入同一 persistent_term 槽，get_cert/webhook 验签零改动命中），并跳过
   # 平台证书下载与轮换——公钥商户 /v3/certificates 恒 403，旧 workaround 时代的
-  # 60s 重试 403 循环随之消除。缺配或半配（SDK 对两键成对校验，单配即 raise）
-  # → 整体不传，回落平台证书模式（老商户号）。畸形 PEM 由 SDK build_client 抛
-  # ArgumentError → fetch_client rescue 降级 provider_not_configured（公钥商户的
-  # 证书回落恒失败，fail-fast 优于静默 broken）。
+  # 60s 重试 403 循环随之消除。两键全缺 → 回落平台证书模式（老商户号）。
+  # 半配（只配其一，advisor F2）→ 显式 raise：回落证书模式对公钥商户是恒 403
+  # 的假兜底（下单 200 被 VerifySignature 丢弃、验签恒 :error 的静默 broken），
+  # 与畸形 PEM（SDK 解析 raise）同走 fetch_client rescue：日志指名 + 降级
+  # provider_not_configured。raise 消息只含 boolean，不含键值。
   defp build_options do
     base = [
       mch_id: config()[:mch_id],
@@ -240,11 +254,25 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
       client_key: {:binary, config()[:client_private_key]}
     ]
 
-    with pub_key when is_binary(pub_key) and pub_key != "" <- config()[:public_key],
-         pub_key_id when is_binary(pub_key_id) and pub_key_id != "" <- config()[:public_key_id] do
-      Keyword.merge(base, platform_public_id: pub_key_id, platform_public_key: pub_key)
-    else
-      _ -> base
+    case {config()[:public_key], config()[:public_key_id]} do
+      {pub_key, pub_key_id}
+      when is_binary(pub_key) and pub_key != "" and is_binary(pub_key_id) and pub_key_id != "" ->
+        # {:binary, _} 落在 SDK 声明的 pem_file 类型内（裸 binary 依赖的是
+        # 未文档化子句，advisor F5），与上面 client_key 写法一致
+        Keyword.merge(base,
+          platform_public_id: pub_key_id,
+          platform_public_key: {:binary, pub_key}
+        )
+
+      {pub_key, pub_key_id}
+      when (is_binary(pub_key) and pub_key != "") or
+             (is_binary(pub_key_id) and pub_key_id != "") ->
+        raise "wechat pay public key mode half-configured: " <>
+                "public_key set=#{is_binary(pub_key) and pub_key != ""}, " <>
+                "public_key_id set=#{is_binary(pub_key_id) and pub_key_id != ""}"
+
+      _ ->
+        base
     end
   end
 
@@ -295,8 +323,9 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
     end
   end
 
-  # 指纹变更（配置热更）：旧 client 的 Refresher/Finch 池先摘再建，防池泄漏
-  # （persistent_term 无遍历，put 时顺记 :current_fingerprint 作索引）。
+  # 指纹变更（配置热更）：新 client 挂载成功后摘旧 Refresher/Finch 池，防池
+  # 泄漏（persistent_term 无遍历，put 时顺记 :current_fingerprint 作索引）。
+  # 调用点在 build/start 成功分支之后——失败的重建不得拖走健康 client。
   # 注：WeChat.Pay.shutdown_client 按 child id 摘（普通 Supervisor 语义），对
   # DynamicSupervisor 不适用（其 child id 恒 :undefined）——按模块名匹配
   # which_children 后用原生 terminate_child/delete_child。
