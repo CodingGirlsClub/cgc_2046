@@ -24,7 +24,9 @@ defmodule Cgc2046.NotificationSubscriber do
     ],
     idempotency: :claim_first
 
-  require Logger
+  require Ash.Query
+
+  alias Cgc2046.Events.{Enrollment, Offering}
 
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
@@ -59,17 +61,47 @@ defmodule Cgc2046.NotificationSubscriber do
     end
   end
 
-  # approved / rejected → 报名学员本人，逐平台身份入队（#3）。
+  # approved / rejected → 报名学员本人，逐平台身份入队（#3）。活动名称与名额
+  # 序号（approval_result 模板 thing1/number3 数据源）经反查补齐——信号 payload
+  # 只带基础键（enrollment.ex approval_payload），title 解析复用 Offering 读取面。
   defp handle_approval_result(%{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload) do
     Cgc2046.NotificationFanout.deliver(
       {user_id, Cgc2046.NotificationFanout.identities(user_id)},
       "approval_result",
-      %{
-        "status" => payload["status"] || "processed",
-        "enrollment_id" => enrollment_id
-      },
+      Map.merge(
+        %{
+          "status" => payload["status"] || "processed",
+          "enrollment_id" => enrollment_id
+        },
+        approval_context(enrollment_id)
+      ),
       %{"enrollment_id" => enrollment_id}
     )
+  end
+
+  # 反查失败降级为缺字段发送（渲染层对 nil 跳过），不阻塞通知本身。
+  defp approval_context(enrollment_id) do
+    Enrollment
+    |> Ash.Query.filter(id == ^enrollment_id)
+    |> Ash.Query.select([:event_id, :course_id, :capacity_seq])
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, enrollment} when not is_nil(enrollment) ->
+        Map.merge(%{"capacity_seq" => enrollment.capacity_seq}, offering_title(enrollment))
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp offering_title(enrollment) do
+    case Offering.fetch_by_signal_payload(%{
+           "event_id" => enrollment.event_id,
+           "course_id" => enrollment.course_id
+         }) do
+      {:ok, offering} -> %{"title" => Offering.title(offering)}
+      {:error, _} -> %{}
+    end
   end
 
   # 待审批报名 → workspace Owner/Admin（管理角色判定唯一真源
