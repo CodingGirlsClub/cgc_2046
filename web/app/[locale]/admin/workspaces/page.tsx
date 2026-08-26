@@ -110,6 +110,7 @@ export default function AdminWorkspacesPage() {
 								<th>{t("thJoinPolicy")}</th>
 								<th className="admin-table__num">{t("thMemberCount")}</th>
 								<th>{t("thCreatedAt")}</th>
+								<th className="admin-table__actions">{t("thActions")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -128,6 +129,14 @@ export default function AdminWorkspacesPage() {
 									<td className="admin-table__num">{ws.memberCount}</td>
 									<td>
 										{new Date(ws.insertedAt).toLocaleDateString("zh-CN")}
+									</td>
+									<td className="admin-table__actions">
+										<Link
+											href={`/admin/workspaces/${ws.id}`}
+											className="l-btn-outline"
+										>
+											{t("viewWorkspace")}
+										</Link>
 									</td>
 								</tr>
 							))}

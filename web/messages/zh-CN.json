@@ -1533,6 +1533,7 @@
     "currentUser": "当前用户",
     "demote": "降级",
     "promote": "提升",
+    "viewWorkspace": "详情",
     "demoteDialogAria": "确认降级",
     "demoteTitle": "确认降级",
     "demoteSelfDesc": "你将降级自己（{user}）的平台管理员权限。请确认。",
