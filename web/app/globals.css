@@ -1651,15 +1651,19 @@ body {
     .auth-login-split__side { order: 2; }
   }
 
-  /* 平板竖屏区间：品牌区从侧栏收为顶部横幅（<768px 时整体隐藏，见下） */
+  /* 平板竖屏区间：品牌区从侧栏收为顶部横幅（<768px 时整体隐藏，见下）。
+     logo 与右上角 .auth-topbar 组成同一页头行（左品牌、右帮助/语言），
+     故 padding-top 与 topbar 的 top:28px 中心对齐，不再预留 88px 空档 */
   @media (min-width: 768px) and (max-width: 1279px) {
     .auth-brand-panel {
       flex: none;
       justify-content: flex-start;
       border-right: 0;
       border-bottom: 1px solid var(--line);
-      padding: 88px clamp(24px, 6vw, 64px) 44px;
+      padding: 24px clamp(24px, 6vw, 64px) 40px;
     }
+    /* 顶栏右缘与横幅内容右缘对齐（同一边距），页头行两端齐平 */
+    .auth-topbar { right: clamp(24px, 6vw, 64px); }
     /* 圆圈装饰移到右缘，避免压住横幅文案 */
     .auth-brand-panel::before { top: -260px; right: -160px; left: auto; width: 420px; height: 420px; }
     .auth-brand-panel::after { top: -120px; right: 40px; left: auto; width: 220px; height: 220px; }

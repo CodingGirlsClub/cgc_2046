@@ -55,10 +55,12 @@ defmodule Cgc2046.NotificationServiceTest do
 
     assert :ok =
              NotificationService.send_to_user(user.id, :wechat, "approval_result", %{
-               "thing1" => %{"value" => "报名已通过"}
+               "status" => "approved"
              })
 
-    assert_receive {:notification, :wechat, %{"touser" => "wx-openid"}}
+    assert_receive {:notification, :wechat,
+                    %{"touser" => "wx-openid", "data" => %{"thing2" => %{"value" => "已通过"}}}}
+
     assert {:ok, 1} = NotificationConsent.remaining(user.id, :wechat, "approval_result")
 
     assert :ok = NotificationService.send_to_user(user.id, :wechat, "approval_result", %{})
@@ -98,13 +100,13 @@ defmodule Cgc2046.NotificationServiceTest do
         Tesla.Mock.json(%{"errcode" => 43101, "errmsg" => "user refuse"})
     end)
 
-    user = Fixtures.register_user("notification-43101")
+    user = Fixtures.register_user("notification-refuse")
     insert_identity(user.id, :wechat, "wx-refuse-openid")
     assert {:ok, 1} = NotificationConsent.grant(user.id, :wechat, "approval_result")
 
     assert {:error, {:platform_rejected, 43101, "user refuse"}} =
              NotificationService.send_to_user(user.id, :wechat, "approval_result", %{
-               "thing1" => %{"value" => "报名已通过"}
+               "status" => "rejected"
              })
 
     # 发送失败回补授权配额（沿用 refund 断言模式）
@@ -195,10 +197,59 @@ defmodule Cgc2046.NotificationServiceTest do
                :wechat,
                "wx-openid-2",
                "approval_result",
-               %{"thing1" => %{"value" => "报名已通过"}}
+               %{"status" => "approved", "enrollment_id" => Ecto.UUID.generate()}
              )
 
-    assert_receive {:notification, :wechat, %{"touser" => "wx-openid-2"}}
+    assert_receive {:notification, :wechat, %{"touser" => "wx-openid-2", "data" => data}}
+    # UUID 去连字符 → character_string 兼容形状（approval_reminder 渲染同款）;
+    # approval_result 此处只断 thing2 存在
+    assert %{"thing2" => %{"value" => "已通过"}} = data
+  end
+
+  test "approval_reminder 渲染：UUID 单号 + ISO 截止时间 → character_string1/time11" do
+    user = Fixtures.register_user("notification-reminder-render")
+    insert_identity(user.id, :wechat, "wx-reminder-openid")
+    {:ok, _} = NotificationConsent.grant(user.id, :wechat, "approval_reminder")
+
+    enrollment_id = "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b"
+
+    assert :ok =
+             NotificationService.send_to_user(user.id, :wechat, "approval_reminder", %{
+               "enrollment_id" => enrollment_id,
+               "approval_deadline" => "2026-09-02T12:00:00Z"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "character_string1" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"},
+                        "time11" => %{"value" => "2026-09-02 12:00"}
+                      }
+                    }}
+  end
+
+  test "event_reminder 渲染：thing2/time3/thing4，缺 venue 跳过" do
+    user = Fixtures.register_user("notification-event-render")
+    insert_identity(user.id, :wechat, "wx-event-openid")
+    {:ok, _} = NotificationConsent.grant(user.id, :wechat, "event_reminder")
+
+    assert :ok =
+             NotificationService.send_to_user(user.id, :wechat, "event_reminder", %{
+               "title" => "AI 入门工作坊",
+               "starts_at" => "2026-09-10T09:30:00Z",
+               "venue" => nil
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" =>
+                        %{
+                          "thing2" => %{"value" => "AI 入门工作坊"},
+                          "time3" => %{"value" => "2026-09-10 09:30"}
+                        } = data
+                    }}
+
+    refute Map.has_key?(data, "thing4")
   end
 
   defp insert_identity(user_id, platform, uid) do
