@@ -1,4 +1,5 @@
 import type { UserConfigExport } from '@tarojs/cli'
+import './env'
 import { resolve } from 'node:path'
 
 const developmentEndpoint = 'http://localhost:4001/api/graphql'

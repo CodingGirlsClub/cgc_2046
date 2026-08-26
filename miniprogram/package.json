@@ -49,6 +49,7 @@
     "@types/node": "26.2.0",
     "@types/react": "^18.3.12",
     "babel-preset-taro": "4.2.1",
+    "dotenv": "16.6.1",
     "miniprogram-automator": "0.12.1",
     "postcss": "^8.4.47",
     "react-refresh": "^0.14.2",

@@ -8,7 +8,8 @@
 
 # Env / secrets
 .env
-.env.local
+.env.prod
+.env.*.local
 
 # Logs
 *.log
