@@ -29,12 +29,18 @@ vi.mock("next/navigation", () => ({
 	notFound: vi.fn(),
 	useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
 	usePathname: () => "/login",
-	useSearchParams: () => new URLSearchParams(),
+	useSearchParams: () => searchParams.current,
 }));
+
+const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }));
 
 afterEach(cleanup);
 
 describe("LoginPage（plan U3 反向断言：登录链路无首公里模态，F2 不被劫持）", () => {
+	afterEach(() => {
+		searchParams.current = new URLSearchParams();
+	});
+
 	it("登录页组件树无 onboarding 邀请模态（R3：登录分发不因此功能改变）", () => {
 		render(<LoginPage />);
 
@@ -47,5 +53,32 @@ describe("LoginPage（plan U3 反向断言：登录链路无首公里模态，F2
 			screen.queryByTestId("onboarding-invite-overlay"),
 		).not.toBeInTheDocument();
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+	});
+
+	it("bind_ticket 模式：tabs 隐藏，卡片内渲染「验证手机号」绑定表单", () => {
+		searchParams.current = new URLSearchParams({ bind_ticket: "s1" });
+
+		render(<LoginPage />);
+
+		expect(
+			screen.getByRole("heading", { name: "验证手机号" }),
+		).toBeInTheDocument();
+		expect(screen.getByText(/首次使用微信登录/)).toBeInTheDocument();
+		// tabs 不在（绑定模式独占主列）
+		expect(screen.queryByRole("tab", { name: "密码登录" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("tab", { name: "验证码登录" })).not.toBeInTheDocument();
+		// 登录表单不在
+		expect(
+			screen.queryByPlaceholderText("手机号或邮箱"),
+		).not.toBeInTheDocument();
+		// 微信扫码侧栏仍在（重扫换账号自洽）
+		expect(screen.getByPlaceholderText("请输入手机号")).toBeInTheDocument();
+	});
+
+	it("无 bind_ticket：正常登录 tabs", () => {
+		render(<LoginPage />);
+
+		expect(screen.getByRole("tab", { name: "密码登录" })).toBeInTheDocument();
+		expect(screen.getByRole("tab", { name: "验证码登录" })).toBeInTheDocument();
 	});
 });

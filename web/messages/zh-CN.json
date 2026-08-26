@@ -194,6 +194,7 @@
       "missingParams": "缺少微信回调参数，请重新扫码",
       "signInFailed": "微信登录失败，请重试",
       "bindHint": "首次使用微信登录，请验证手机号完成绑定（未注册将自动创建账号）",
+      "bindTitle": "验证手机号",
       "fieldPhone": "手机号",
       "placeholderPhone": "请输入手机号",
       "fieldCode": "验证码",
