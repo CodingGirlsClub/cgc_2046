@@ -40,8 +40,18 @@ defmodule Cgc2046.Workers.NotificationWorker do
     %{
       template_key: "approval_result",
       id_key: nil,
-      data_keys: ["status", "enrollment_id"],
+      data_keys: ["status", "enrollment_id", "title", "capacity_seq"],
       job_meta_keys: ["enrollment_id"],
+      unique: :default,
+      stale: nil
+    },
+    # 活动开始提醒 → 已报名用户（event_reminder；发送方 #203 未落地，映射层
+    # 已注册——配置齐全即可发送，前端订阅触点在 my-enrollments 页）。
+    %{
+      template_key: "event_reminder",
+      id_key: nil,
+      data_keys: ["title", "starts_at", "venue"],
+      job_meta_keys: [],
       unique: :default,
       stale: nil
     },
