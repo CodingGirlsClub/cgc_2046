@@ -135,6 +135,9 @@ jobs:
           [ -n "${!v}" ] || { missing="$missing $v"; continue; }
           printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
+          # missing 累积后必须真断言（此前无条件 echo 成功，注释承诺的
+          # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
+          [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
           echo "secrets 非空校验通过（34 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
