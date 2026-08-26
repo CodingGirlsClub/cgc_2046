@@ -2,7 +2,9 @@
 
 import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import AuthForm, { type AuthMode } from "./login/auth-form";
+import RegisterPhoneForm from "./login/register-phone-form";
 import SmsForm from "./login/sms-form";
 import WechatQrPanel from "./login/wechat-qr-panel";
 import { useAuthSubmit } from "./login/use-auth-submit";
@@ -10,7 +12,6 @@ import LanguageSwitcher from "@/components/language-switcher";
 import { BrandLockup } from "@/components/brand";
 import { Link } from "@/i18n/navigation";
 
-/** 登录方式(plan 002 U5):密码(手机号/邮箱)/手机验证码。微信扫码常驻右栏，不占 tab。 */
 type LoginMethod = "password" | "sms";
 
 function LoginMethodTabs({
@@ -119,6 +120,10 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
   const isRegister = mode === "register";
   const [loginMethod, setLoginMethod] = useState<LoginMethod>("password");
   const t = useTranslations("auth");
+  const bindT = useTranslations("auth.wechatCallback");
+  // 微信扫码 NEEDS_BINDING → /login?bind_ticket=：tabs 区原地切绑定表单
+  // （卡片壳/品牌区/QR 面板一帧不动，用户无换页感）
+  const bindTicket = useSearchParams()?.get("bind_ticket") ?? undefined;
 
   return (
     <div className={`auth-page ${isRegister ? "auth-page--register" : "auth-page--login"}`}>
@@ -144,19 +149,30 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
               <div className="auth-form-heading">
                 <h2 id="auth-page-title">{t("heading.register")}</h2>
               </div>
-              <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+              <RegisterPhoneForm />
             </>
           ) : (
             <div className="auth-login-split">
               <div className="auth-login-split__main">
-                <div className="auth-form-heading">
-                  <h2 id="auth-page-title">{t("heading.login")}</h2>
-                </div>
-                <LoginMethodTabs method={loginMethod} onChange={setLoginMethod} />
-                {loginMethod === "password" && (
-                  <AuthForm mode={mode} onSubmit={onSubmit} busy={busy} error={error} />
+                {bindTicket ? (
+                  <>
+                    <div className="auth-form-heading">
+                      <h2 id="auth-page-title">{bindT("bindTitle")}</h2>
+                    </div>
+                    <SmsForm bindTicket={bindTicket} />
+                  </>
+                ) : (
+                  <>
+                    <div className="auth-form-heading">
+                      <h2 id="auth-page-title">{t("heading.login")}</h2>
+                    </div>
+                    <LoginMethodTabs method={loginMethod} onChange={setLoginMethod} />
+                    {loginMethod === "password" && (
+                      <AuthForm onSubmit={onSubmit} busy={busy} error={error} />
+                    )}
+                    {loginMethod === "sms" && <SmsForm />}
+                  </>
                 )}
-                {loginMethod === "sms" && <SmsForm />}
               </div>
               <aside className="auth-login-split__side" aria-label={t("wechat.sideLabel")}>
                 <WechatQrPanel />

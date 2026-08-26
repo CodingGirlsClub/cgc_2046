@@ -113,11 +113,17 @@
       "returnLogin": "返回登录",
       "createAccount": "创建账号"
     },
+    "error": {
+      "shortPassword": "密码至少需要 8 个字符",
+      "passwordMismatch": "两次输入的密码不一致",
+      "invalidPasswordLength": "密码长度需为 8-72 字节（一个汉字算 3 字节）"
+    },
     "errors": {
       "loginFailed": "登录失败，请检查邮箱与密码",
       "registerFailedDuplicate": "注册失败，请检查信息后重试",
       "registerFailedRetry": "注册失败，请稍后重试",
-      "networkFailed": "网络异常，请稍后重试"
+      "networkFailed": "网络异常，请稍后重试",
+      "phoneAlreadyRegistered": "该手机号已注册，请直接登录"
     },
     "terms": {
       "registerAction": "注册",
@@ -194,6 +200,7 @@
       "missingParams": "缺少微信回调参数，请重新扫码",
       "signInFailed": "微信登录失败，请重试",
       "bindHint": "首次使用微信登录，请验证手机号完成绑定（未注册将自动创建账号）",
+      "bindTitle": "验证手机号",
       "fieldPhone": "手机号",
       "placeholderPhone": "请输入手机号",
       "fieldCode": "验证码",
@@ -623,6 +630,7 @@
       "navGroup": "工作区导航",
       "backToApp": "Back to app",
       "headingPersonal": "Personal",
+      "preferencesLink": "偏好设置",
       "headingIntegrations": "集成",
       "headingWorkspace": "Workspace",
       "profileLink": "个人资料",
@@ -994,8 +1002,8 @@
   "workspacePreferences": {
     "breadcrumbHome": "工作台",
     "breadcrumbSettings": "设置",
-    "breadcrumbTitle": "Preferences",
-    "title": "Preferences",
+    "breadcrumbTitle": "偏好设置",
+    "title": "偏好设置",
     "subtitle": "管理你的界面偏好",
     "loadingAria": "加载中",
     "themeLabel": "界面主题",

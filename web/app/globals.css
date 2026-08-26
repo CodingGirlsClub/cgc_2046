@@ -1445,7 +1445,9 @@ body {
     margin-top: 0;
     font-size: clamp(26px, 2.6vw, 36px);
     letter-spacing: -0.7px;
-    white-space: nowrap;
+    /* 不设 nowrap：EN 标题 "Connect with the community, and with your
+       creativity" 在 45% 品牌栏内自然换行（zh 字短不受影响）。
+       nowrap 无宽度约束会把 with 之后的内容裁出可视区。 */
   }
 
   .auth-page--register .auth-brand-copy {
@@ -1460,7 +1462,8 @@ body {
     margin-top: 0;
     font-size: clamp(30px, 3vw, 42px);
     letter-spacing: -0.9px;
-    white-space: nowrap;
+    /* 不设 nowrap：EN 标题在 45% 品牌栏内自然换行（同 login 分支修复，
+       nowrap 无宽度约束会把行尾裁出可视区）。 */
   }
 
   .auth-page--register .auth-benefits { margin-top: 48px; }

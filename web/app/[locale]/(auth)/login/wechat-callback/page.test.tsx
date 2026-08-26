@@ -1,15 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
+import type * as ApolloReact from "@apollo/client/react";
 import WechatCallbackPage from "./page";
 
 // vi.mock 工厂会被提升（hoist），mock 函数必须用 vi.hoisted 定义
-const { push, signInMock, bindMock, resetStore, sendCode } = vi.hoisted(() => ({
+const { push, signInMock, resetStore } = vi.hoisted(() => ({
 	push: vi.fn(),
 	signInMock: vi.fn(),
-	bindMock: vi.fn(),
 	resetStore: vi.fn().mockResolvedValue(undefined),
-	sendCode: vi.fn(),
 }));
 
 const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }));
@@ -27,7 +26,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@apollo/client/react", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@apollo/client/react")>();
+	const actual = await importOriginal<typeof ApolloReact>();
 	return {
 		...actual,
 		useMutation: (doc: unknown) => {
@@ -35,8 +34,6 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 				doc as { definitions?: Array<{ name?: { value?: string } }> }
 			)?.definitions?.[0]?.name?.value;
 			if (name === "SignInWithWechat") return [signInMock, { loading: false }];
-			if (name === "BindWechatWithPhone") return [bindMock, { loading: false }];
-			if (name === "RequestPhoneCode") return [sendCode, { loading: false }];
 			return [vi.fn(), { loading: false }];
 		},
 	};
@@ -50,8 +47,6 @@ describe("wechat-callback（plan U5.8 / advisor02 M6）", () => {
 	beforeEach(() => {
 		push.mockClear();
 		signInMock.mockReset();
-		bindMock.mockReset();
-		sendCode.mockReset();
 		setParams({ code: "c1", state: "s1" });
 	});
 
@@ -69,7 +64,8 @@ describe("wechat-callback（plan U5.8 / advisor02 M6）", () => {
 		});
 	});
 
-	it("NEEDS_BINDING：渲染手机验证码绑定表单", async () => {
+	it("NEEDS_BINDING：跳转登录页绑定模式（bind_ticket/next 透传）", async () => {
+		setParams({ code: "c1", state: "s1", next: "/orders/9" });
 		signInMock.mockResolvedValue({
 			data: {
 				signInWithWechat: { status: "NEEDS_BINDING", bindTicket: "s1" },
@@ -79,11 +75,23 @@ describe("wechat-callback（plan U5.8 / advisor02 M6）", () => {
 		render(<WechatCallbackPage />);
 
 		await waitFor(() => {
-			expect(screen.getByLabelText("手机号")).toBeInTheDocument();
-			expect(screen.getByLabelText("验证码")).toBeInTheDocument();
-			expect(
-				screen.getByRole("button", { name: "完成绑定并登录" }),
-			).toBeInTheDocument();
+			expect(push).toHaveBeenCalledWith(
+				"/login?bind_ticket=s1&next=%2Forders%2F9",
+			);
+		});
+	});
+
+	it("NEEDS_BINDING 无 next：跳转仅带 bind_ticket", async () => {
+		signInMock.mockResolvedValue({
+			data: {
+				signInWithWechat: { status: "NEEDS_BINDING", bindTicket: "s1" },
+			},
+		});
+
+		render(<WechatCallbackPage />);
+
+		await waitFor(() => {
+			expect(push).toHaveBeenCalledWith("/login?bind_ticket=s1");
 		});
 	});
 
@@ -115,41 +123,4 @@ describe("wechat-callback（plan U5.8 / advisor02 M6）", () => {
 		});
 		expect(signInMock).not.toHaveBeenCalled();
 	});
-
-	it("绑定提交成功：跳转 next", async () => {
-		signInMock.mockResolvedValue({
-			data: {
-				signInWithWechat: { status: "NEEDS_BINDING", bindTicket: "s1" },
-			},
-		});
-		bindMock.mockResolvedValue({
-			data: {
-				bindWechatWithPhone: { id: "u9", email: null, isPlatformAdmin: false },
-			},
-		});
-
-		render(<WechatCallbackPage />);
-
-		await waitFor(() => {
-			expect(screen.getByLabelText("手机号")).toBeInTheDocument();
-		});
-
-		await act(async () => {
-			screen.getByLabelText("手机号").focus();
-		});
-		fireEvent.change(screen.getByLabelText("手机号"), {
-			target: { value: "13800137000" },
-		});
-		fireEvent.change(screen.getByLabelText("验证码"), {
-			target: { value: "123456" },
-		});
-		fireEvent.submit(screen.getByLabelText("手机号").closest("form")!);
-
-		await waitFor(() => {
-			expect(bindMock).toHaveBeenCalledWith({
-				variables: { bindTicket: "s1", phone: "13800137000", code: "123456" },
-			});
-		});
-	});
 });
-

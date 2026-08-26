@@ -382,13 +382,13 @@ defmodule Cgc2046.Accounts.User do
         end
       end
 
-      # 手机号 + 密码登录（plan 002 U2）：与 email 策略共用 hashed_password，
-      # 仅消费 sign_in_with_password_phone；不开放 register_with_password_phone
-      # （GraphQL 不暴露，手机号建号只走验证码 / 微信绑定路径）。
+      # 手机号 + 密码（plan 002 U2 登录；手机号注册）：与 email 策略共用
+      # hashed_password。注册走 register_with_password_phone（GraphQL
+      # signUpWithPhone：先验码后建号），email 可空（无邮箱手机号用户）。
       password :password_phone do
         identity_field(:phone)
         confirmation_required?(false)
-        registration_enabled?(false)
+        registration_enabled?(true)
       end
 
       miniprogram do
@@ -432,9 +432,12 @@ defmodule Cgc2046.Accounts.User do
       authorize_if(always())
     end
 
-    # 手机号密码登录同理（plan 002 U2；register_with_password_phone 未生成，
-    # registrations_enabled?(false)）。
+    # 手机号密码登录/注册同理（plan 002 U2 / 手机号注册）。
     bypass action(:sign_in_with_password_phone) do
+      authorize_if(always())
+    end
+
+    bypass action(:register_with_password_phone) do
       authorize_if(always())
     end
 
