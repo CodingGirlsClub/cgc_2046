@@ -500,7 +500,9 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		render(<WorkspacePage />);
 
 		expect(await screen.findByRole("dialog")).toBeInTheDocument();
-		expect(markInviteShown).toHaveBeenCalledTimes(1);
+		// CI 慢机器：dialog 渲染与 effect flush 之间有竞态（findByRole 可在
+		// markInviteShown effect 执行前返回），断言包 waitFor 消除时序假设
+		await waitFor(() => expect(markInviteShown).toHaveBeenCalledTimes(1));
 		// KTD4 旗标按 userId 命名空间写入（共享机器换账号不互相抑制）
 		expect(markInviteShown).toHaveBeenCalledWith("u_0202");
 	});
