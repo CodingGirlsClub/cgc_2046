@@ -4,6 +4,23 @@ defmodule Cgc2046Web.Router do
   import Cgc2046Web.AuthPlug
   import Phoenix.LiveView.Router
 
+  # #297.1：GraphQL 查询成本限制（非 dev 生效，照 GraphqlIntrospectionGuard 先例）。
+  # 现网最大操作 complexity ~28，250 上限留约 9 倍余量；超限错误自带实际/上限值，撞线可诊断。
+  # token_limit 在 lexer 层挡 MB 级 document（别名/字段炸弹的原始形态）——complexity
+  # 分析发生在 parse 之后，解析开销须先截断。三选项经 @raw_options 透传进 document
+  # pipeline，与 introspection guard 的 pipeline modifier 无冲突。dev（Playground）放行。
+  @dev_routes Application.compile_env(:cgc_2046, :dev_routes, false)
+
+  @graphql_abuse_opts (if @dev_routes do
+                         []
+                       else
+                         [
+                           analyze_complexity: true,
+                           max_complexity: 250,
+                           token_limit: 5_000
+                         ]
+                       end)
+
   pipeline :api do
     plug(:accepts, ["json"])
   end
@@ -79,7 +96,7 @@ defmodule Cgc2046Web.Router do
         before_send: {Cgc2046Web.Plugs.AuthCookiePlug, :before_send},
         # VULN-001（#81）：非 dev 拒绝 __schema/__type introspection
         pipeline: {Cgc2046Web.Plug.GraphqlIntrospectionGuard, :pipeline}
-      ],
+      ] ++ @graphql_abuse_opts,
       alias: false
     )
   end
