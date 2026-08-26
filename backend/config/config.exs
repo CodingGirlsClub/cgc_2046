@@ -67,6 +67,7 @@ config :cgc_2046, :miniprogram_templates, %{
   wechat: %{
     "approval_result" => "dev-wechat-approval-result",
     "approval_reminder" => "dev-wechat-approval-reminder",
+    "event_reminder" => "dev-wechat-event-reminder",
     "enrollment_submitted" => "dev-wechat-enrollment-submitted",
     "enrollment_completed" => "dev-wechat-enrollment-completed",
     "speaker_accepted" => "dev-wechat-speaker-accepted",
@@ -83,6 +84,7 @@ config :cgc_2046, :miniprogram_templates, %{
   tt: %{
     "approval_result" => "dev-tt-approval-result",
     "approval_reminder" => "dev-tt-approval-reminder",
+    "event_reminder" => "dev-tt-event-reminder",
     "enrollment_submitted" => "dev-tt-enrollment-submitted",
     "enrollment_completed" => "dev-tt-enrollment-completed",
     "speaker_accepted" => "dev-tt-speaker-accepted",
@@ -99,6 +101,7 @@ config :cgc_2046, :miniprogram_templates, %{
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
     "approval_reminder" => "dev-xhs-approval-reminder",
+    "event_reminder" => "dev-xhs-event-reminder",
     "enrollment_submitted" => "dev-xhs-enrollment-submitted",
     "enrollment_completed" => "dev-xhs-enrollment-completed",
     "speaker_accepted" => "dev-xhs-speaker-accepted",
