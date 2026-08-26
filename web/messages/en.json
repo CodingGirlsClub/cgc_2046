@@ -194,6 +194,7 @@
       "missingParams": "Missing WeChat callback parameters. Please scan again.",
       "signInFailed": "WeChat sign-in failed. Please try again.",
       "bindHint": "First time signing in with WeChat. Verify your phone number to finish (an account will be created if needed).",
+      "bindTitle": "Verify your phone",
       "fieldPhone": "Phone number",
       "placeholderPhone": "Enter your phone number",
       "fieldCode": "Verification code",

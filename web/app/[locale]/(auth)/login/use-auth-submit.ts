@@ -31,6 +31,26 @@ export function resolveNextTarget(raw: string | null, origin: string): string {
 	}
 }
 
+/**
+ * 登录后导航：iframe 内（D2 QR 面板）时接管顶层（同源才可写，跨源兜底本窗口）。
+ * wechat-callback（SIGNED_IN / NEEDS_BINDING→绑定页）与 wechat-bind（绑定成功）共用。
+ */
+export function navigateAfterLogin(
+	router: { push: (path: string) => void },
+	nextRaw: string | null,
+) {
+	const path = resolveNextTarget(nextRaw, window.location.origin);
+	if (window.self !== window.top) {
+		try {
+			window.top!.location.assign(path);
+			return;
+		} catch {
+			// 跨源顶层（理论不可达，防御）：退回本窗口
+		}
+	}
+	router.push(path);
+}
+
 export interface UseAuthSubmitResult {
 	/** 表单提交回调：mode=login 走 signIn，mode=register 走 signUp，成功跳转首页 */
 	onSubmit: (payload: AuthSubmitPayload) => Promise<void>;
