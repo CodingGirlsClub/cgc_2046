@@ -1529,6 +1529,7 @@
     "currentUser": "current user",
     "demote": "Demote",
     "promote": "Promote",
+    "viewWorkspace": "View",
     "demoteDialogAria": "Confirm demotion",
     "demoteTitle": "Confirm demotion",
     "demoteSelfDesc": "You are about to demote yourself ({user}) from platform admin. Please confirm.",
