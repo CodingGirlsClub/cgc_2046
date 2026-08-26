@@ -102,13 +102,15 @@
     "forgotPassword": "Forgot password?",
     "error": {
       "shortPassword": "Password must be at least 8 characters",
-      "passwordMismatch": "The two passwords do not match"
+      "passwordMismatch": "The two passwords do not match",
+      "invalidPasswordLength": "Password must be 8 to 72 bytes"
     },
     "errors": {
       "loginFailed": "Sign-in failed. Check your email and password.",
       "registerFailedDuplicate": "Registration failed. Please check your input and try again.",
       "registerFailedRetry": "Registration failed. Please try again later.",
-      "networkFailed": "Network error. Please try again later."
+      "networkFailed": "Network error. Please try again later.",
+      "phoneAlreadyRegistered": "This phone number is already registered. Please sign in directly."
     },
     "submit": {
       "processing": "Processing…",

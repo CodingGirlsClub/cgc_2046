@@ -639,76 +639,22 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录）"
-    field :sign_up, :sign_up_payload do
-      arg(:input, non_null(:sign_up_input))
+    @desc "手机号注册（验证码 + 密码；httpOnly cookie 交付 token，自动登录）"
+    field :sign_up_with_phone, :sign_up_with_phone_payload do
+      arg(:input, non_null(:sign_up_with_phone_input))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:input, :email])
+      resolve(fn _, %{input: %{phone: raw_phone, code: code, password: password}}, ctx ->
+        context = ctx.context
 
-      resolve(fn _, %{input: %{email: email, password: password}}, %{context: context} ->
-        changeset =
-          Cgc2046.Accounts.User
-          |> Ash.Changeset.for_create(:register_with_password, %{email: email, password: password})
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+             :ok <- check_phone_code_verify_limits(context, phone) do
+          sign_up_with_phone(phone, code, password, context)
+        else
+          {:error, :invalid} ->
+            {:error, message: "Invalid phone number", code: "invalid_phone"}
 
-        try do
-          case Ash.create(changeset) do
-            {:ok, user} ->
-              token = user.__metadata__[:token]
-
-              # ADR-0004 §3.5：新用户自动加入默认社区 workspace 2046（无差异标签）
-              # + 建 per-workspace 档案。失败降级不阻断注册（2046 是保障而非硬依赖）。
-              # 故意宽捕 rescue：入座失败不应让注册 500（user 已建，2046 是兜底），
-              # 包括编程错误也一律降级为 warning 日志——后续排查依赖该日志，不静默吞掉。
-              try do
-                case Cgc2046.Accounts.MembershipContext.admit_to_default_workspace(user.id) do
-                  {:ok, _} ->
-                    :ok
-
-                  {:error, reason} ->
-                    Logger.warning("[signUp] default workspace enroll failed: #{inspect(reason)}")
-                end
-              rescue
-                error ->
-                  Logger.warning(
-                    "[signUp] default workspace enroll raised: #{Exception.message(error)}"
-                  )
-              end
-
-              {:ok,
-               %{
-                 result: %{
-                   id: user.id,
-                   email: user.email,
-                   is_platform_admin: user.is_platform_admin
-                 },
-                 errors: [],
-                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
-                 __token__: token
-               }}
-
-            {:error, %Ash.Error.Invalid{} = error} ->
-              # #86 防邮箱枚举：「邮箱已存在」的 has already been taken + fields: [:email]
-              # 是可枚举信号。unique_email 冲突时返回与未知错误分支同码同形的
-              # registration_failed（重复邮箱失败与其它失败不可区分）；非唯一性
-              # 校验错误（格式/密码等）仍走 AshGraphql.Error 结构化透传——格式非法
-              # 邮箱不可能入库，其错误不泄露存在性，且 message 可指导用户修正输入。
-              if unique_email_conflict?(error) do
-                {:ok, registration_failed_payload()}
-              else
-                {:ok,
-                 %{
-                   result: nil,
-                   errors: to_ash_graphql_errors(error, context, :register_with_password),
-                   __token__: nil
-                 }}
-              end
-
-            {:error, _error} ->
-              {:ok, registration_failed_payload()}
-          end
-        rescue
-          _ ->
-            {:ok, registration_failed_payload()}
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
         end
       end)
 
@@ -1671,6 +1617,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   enum :phone_code_purpose do
     value(:login)
     value(:wechat_bind)
+    value(:register)
   end
 
   object :sign_in_with_phone_code_result do
@@ -1696,19 +1643,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     value(:needs_binding)
   end
 
-  object :sign_up_payload do
-    field(:result, :sign_up_user)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  object :sign_up_user do
+  @desc "手机号注册结果（email 可空——无邮箱手机号用户，同 phone code 登录 result）"
+  object :sign_up_with_phone_user do
     field(:id, non_null(:id))
-    field(:email, non_null(:string))
+    field(:email, :string)
     field(:is_platform_admin, non_null(:boolean))
   end
 
-  input_object :sign_up_input do
-    field(:email, non_null(:string))
+  object :sign_up_with_phone_payload do
+    field(:result, :sign_up_with_phone_user)
+    field(:errors, list_of(:mutation_error))
+  end
+
+  input_object :sign_up_with_phone_input do
+    field(:phone, non_null(:string))
+    field(:code, non_null(:string))
     field(:password, non_null(:string))
   end
 
@@ -1932,8 +1881,10 @@ defmodule Cgc2046Web.GraphqlSchema do
   # Absinthe enum 内部值（"login"/"wechat_bind"）→ 资源原子
   defp phone_code_purpose_atom(:login), do: :login
   defp phone_code_purpose_atom(:wechat_bind), do: :wechat_bind
+  defp phone_code_purpose_atom(:register), do: :register
   defp phone_code_purpose_atom("login"), do: :login
   defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
+  defp phone_code_purpose_atom("register"), do: :register
 
   defp deliver_phone_code(phone, code, send_request_id) do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
@@ -1952,6 +1903,106 @@ defmodule Cgc2046Web.GraphqlSchema do
       Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
       :ok
     end
+  end
+
+  # 手机号注册（手机号注册）：验码(purpose :register) → 已存在则
+  # phone_already_registered（此时手机所有权已证明，无枚举风险）→ 建号
+  # （register_with_password_phone，email 可空）→ 自动入座 2046 → 签 JWT。
+  defp sign_up_with_phone(phone, code, password, context) do
+    # 无副作用校验前置（codex 评审 #3/#6）：bcrypt 只取前 72 字节——先于验码
+    # 消费拒绝越界密码，避免「短密码烧码后重试要重新收码」与 72 字节截断互认。
+    with :ok <- validate_register_password(password),
+         :ok <- Cgc2046.Accounts.PhoneVerificationCode.consume_valid(phone, code, :register),
+         :ok <- ensure_phone_unregistered(phone) do
+      changeset =
+        Cgc2046.Accounts.User
+        |> Ash.Changeset.for_create(:register_with_password_phone, %{
+          phone: phone,
+          password: password
+        })
+
+      case Ash.create(changeset) do
+        {:ok, user} ->
+          # ADR-0004 §3.5：同 signUp——入座失败降级不阻断注册
+          try do
+            case Cgc2046.Accounts.MembershipContext.admit_to_default_workspace(user.id) do
+              {:ok, _} ->
+                :ok
+
+              {:error, reason} ->
+                Logger.warning("[signUpWithPhone] enroll failed: #{inspect(reason)}")
+            end
+          rescue
+            error ->
+              Logger.warning("[signUpWithPhone] enroll raised: #{Exception.message(error)}")
+          end
+
+          {:ok,
+           %{
+             result: %{id: user.id, email: user.email, is_platform_admin: user.is_platform_admin},
+             errors: [],
+             __token__: user.__metadata__[:token]
+           }}
+
+        {:error, %Ash.Error.Invalid{} = error} ->
+          {:ok,
+           %{
+             result: nil,
+             errors: to_ash_graphql_errors(error, context, :register_with_password_phone),
+             __token__: nil
+           }}
+
+        {:error, reason} ->
+          Logger.warning("[signUpWithPhone] create failed: #{inspect(reason)}")
+          {:ok, phone_registration_failed_payload()}
+      end
+    else
+      {:error, :invalid_password} ->
+        {:error, message: "Password must be 8 to 72 bytes", code: "invalid_password"}
+
+      {:error, :invalid_code} ->
+        {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+      {:error, :code_not_available} ->
+        {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+      {:error, :phone_taken} ->
+        {:error, message: "Phone number already registered", code: "phone_already_registered"}
+
+      {:error, reason} ->
+        # ensure_phone_unregistered 的 DB 读失败等未知错误：受控失败 payload
+        # （旧 signUp 的 rescue 降级语义），不抛 WithClauseError 变顶层 500。
+        Logger.warning("[signUpWithPhone] pre-check failed: #{inspect(reason)}")
+        {:ok, phone_registration_failed_payload()}
+    end
+  end
+
+  # 8..72 字节（byte_size，非字符数；bcrypt 上限 72）。GraphQL 层前置，
+  # 与 register_with_password_phone action 的 min 8 校验双保险。
+  defp validate_register_password(password) when is_binary(password) do
+    size = byte_size(password)
+
+    if size >= 8 and size <= 72,
+      do: :ok,
+      else: {:error, :invalid_password}
+  end
+
+  defp ensure_phone_unregistered(phone) do
+    case Cgc2046.Accounts.User
+         |> Ash.Query.filter(phone == ^phone)
+         |> Ash.read(authorize?: false) do
+      {:ok, []} -> :ok
+      {:ok, _} -> {:error, :phone_taken}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp phone_registration_failed_payload do
+    %{
+      result: nil,
+      errors: [%{message: "Registration failed. Please try again.", code: "registration_failed"}],
+      __token__: nil
+    }
   end
 
   defp sign_in_with_phone_code(phone, code, context) do
@@ -2154,38 +2205,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
-  end
-
-  # #86 防邮箱枚举：sign_up 的 unique_email 冲突识别。ash_postgres 把
-  # users_unique_email_index（identity :unique_email）的 PG unique violation 转成
-  # Ash.Error.Invalid{errors: [InvalidAttribute{field: :email, private_vars: [constraint_type: :unique]}]}。
-  # 判法同 MembershipContext.unique_membership_conflict?/1（constraint_type 区分
-  # 「唯一冲突」与「DB 故障」），此处再限定 field: :email——仅抹平「该邮箱已存在」
-  # 这一可枚举信号，格式/密码等校验错误不受影响。
-  defp unique_email_conflict?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{field: :email, private_vars: private_vars} ->
-        Keyword.get(private_vars || [], :constraint_type) == :unique
-
-      _ ->
-        false
-    end)
-  end
-
-  # sign_up 通用失败 payload：重复邮箱（unique 冲突）、未知错误、rescue 三处同形
-  # ——result nil + errors[{message generic, code: "registration_failed"}]，无 fields，
-  # 使「邮箱已存在」与其它注册失败不可区分。
-  defp registration_failed_payload do
-    %{
-      result: nil,
-      errors: [
-        %{
-          message: "Registration failed. Please check your input and try again.",
-          code: "registration_failed"
-        }
-      ],
-      __token__: nil
-    }
   end
 
   # SpeakerInvitation 决策（accept/decline）：token 即凭据——按 token_hash 定位邀请

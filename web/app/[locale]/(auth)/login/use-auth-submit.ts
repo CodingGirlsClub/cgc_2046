@@ -7,8 +7,6 @@ import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import {
 	SIGN_IN,
-	SIGN_UP,
-	signUpError,
 	signInErrorMessage,
 } from "@/lib/graphql/auth";
 import type { AuthSubmitPayload } from "./auth-form";
@@ -52,7 +50,7 @@ export function navigateAfterLogin(
 }
 
 export interface UseAuthSubmitResult {
-	/** 表单提交回调：mode=login 走 signIn，mode=register 走 signUp，成功跳转首页 */
+	/** 表单提交回调：login 走 signIn（注册已迁 register-phone-form 手机号验证码路径） */
 	onSubmit: (payload: AuthSubmitPayload) => Promise<void>;
 	busy: boolean;
 	error: string | null;
@@ -61,11 +59,11 @@ export interface UseAuthSubmitResult {
 /**
  * #61 登录/注册提交逻辑（页面级 hook）。
  *
- * - token 交付：后端 #60 路径 B（httpOnly cookie），signIn/signUp 响应体暂仍返回 token
+ * - token 交付：后端 #60 路径 B（httpOnly cookie）
  *   （Phase 1 向后兼容），但前端不再 setAuthToken——token 由后端 before_send 写 httpOnly cookie。
  * - 成功跳转：跳 "/"——首页按 workspace 列表分发：有可进入工作区 → 重定向默认
  *   workspace（最近记忆 > 第一个 active）；无 → 极简空态引导去 /join。
- * - 失败提示：signUp 取 result.errors[0].message；signIn 取 ApolloError.graphQLErrors[0].message。
+ * - 失败提示：signIn 取 ApolloError.graphQLErrors[0].message。
  */
 export function useAuthSubmit(): UseAuthSubmitResult {
 	const router = useRouter();
@@ -82,16 +80,15 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 			: "/";
 	const [error, setError] = useState<string | null>(null);
 	const [doSignIn, signInState] = useMutation(SIGN_IN);
-	const [doSignUp, signUpState] = useMutation(SIGN_UP);
 
 	const onSubmit = useCallback(
 		async (payload: AuthSubmitPayload) => {
 			setError(null);
 			try {
-				if (payload.mode === "login") {
 					const { data } = await doSignIn({
 						variables: { login: payload.login, password: payload.password },
 					});
+
 					if (data?.signIn?.id) {
 						// ponytail: 同 SPA 会话换用户时 refetch me/ME_PROFILE。
 						// logout 用 clearStore（不 refetch，cookie 将失效避免 401 风暴）；
@@ -101,37 +98,14 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						router.push(next);
 						return;
 					}
+
 					setError(t("loginFailed"));
-				} else {
-					const { data } = await doSignUp({
-						variables: {
-							input: { email: payload.login, password: payload.password },
-						},
-					});
-					if (data?.signUp?.result) {
-						// ponytail: 同 SPA 会话换用户时 refetch me/ME_PROFILE。
-						// logout 用 clearStore（不 refetch，cookie 将失效避免 401 风暴）；
-						// login 时 cookie 新鲜，resetStore 用 B 的有效 cookie 重发所有活动查询。
-						await client.resetStore();
-						// token 由后端 before_send 写 httpOnly cookie
-						router.push(next);
-						return;
-					}
-					// #86 防枚举：registration_failed（重复邮箱与未知错误同形）→ 通用文案；
-					// 其它错误直透后端 message（如邮箱格式错误，仍可指导用户）；无 message 走兜底。
-					const signUpErr = signUpError(data);
-					setError(
-						signUpErr?.code === "registration_failed"
-							? t("registerFailedDuplicate")
-							: (signUpErr?.message ?? t("registerFailedRetry")),
-					);
-				}
 			} catch (e) {
 				setError(signInErrorMessage(e) ?? t("networkFailed"));
 			}
 		},
-		[doSignIn, doSignUp, router, next, t],
+		[doSignIn, router, next, t],
 	);
 
-	return { onSubmit, busy: signInState.loading || signUpState.loading, error };
+	return { onSubmit, busy: signInState.loading, error };
 }
