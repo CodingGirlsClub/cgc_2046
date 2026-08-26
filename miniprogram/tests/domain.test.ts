@@ -7,7 +7,7 @@ import {
   parseEnrollmentBadge,
   parseEnrollmentPolicy,
   parseEnrollmentStatus,
-  registrationClosedNotice,
+  enrollmentBlockedNotice,
   remainingLabel,
   scheduleText,
   venueText
@@ -89,9 +89,9 @@ test('报名标签 fail-closed，展示文案覆盖报名中/即将开始/报名
   assert.equal(enrollmentBadgeText.full, '已满')
 })
 
-test('closed 阻断报名入口，其他 badge 不在这条产品决策中拦截', () => {
-  assert.equal(registrationClosedNotice('closed'), '报名已截止，不再接受新的报名。')
-  assert.equal(registrationClosedNotice('enrolling'), null)
-  assert.equal(registrationClosedNotice('starting_soon'), null)
-  assert.equal(registrationClosedNotice('full'), null)
+test('closed/full 阻断报名入口，enrolling/starting_soon 不拦截', () => {
+  assert.equal(enrollmentBlockedNotice('closed'), '报名已截止，不再接受新的报名。')
+  assert.equal(enrollmentBlockedNotice('full'), '名额已满，不再接受新的报名。')
+  assert.equal(enrollmentBlockedNotice('enrolling'), null)
+  assert.equal(enrollmentBlockedNotice('starting_soon'), null)
 })
