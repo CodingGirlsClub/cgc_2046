@@ -1,18 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { print } from "graphql";
-import {
-	SIGN_IN,
-	SIGN_UP,
-	signUpError,
-	signInErrorMessage,
-	type SignUpResultData,
-} from "./auth";
+import { SIGN_IN, SIGN_UP_WITH_PHONE, signInErrorMessage } from "./auth";
 
-describe("signUp/signIn mutation 文档（对齐 #60 路径 B：httpOnly cookie）", () => {
-	it("SIGN_UP 使用 input 嵌套 + result/errors 两段式（无 metadata）", () => {
-		const doc = print(SIGN_UP);
-		expect(doc).toContain("mutation SignUp($input: SignUpInput!)");
-		expect(doc).toContain("signUp(input: $input)");
+describe("signUpWithPhone/signIn mutation 文档（httpOnly cookie；邮箱 signUp 已下线）", () => {
+	it("SIGN_UP_WITH_PHONE 使用 input 嵌套 + result/errors 两段式（无 metadata）", () => {
+		const doc = print(SIGN_UP_WITH_PHONE);
+		expect(doc).toContain("mutation SignUpWithPhone($input: SignUpWithPhoneInput!)");
+		expect(doc).toContain("signUpWithPhone(input: $input)");
 		expect(doc).toContain("result {");
 		expect(doc).toContain("errors {");
 		expect(doc).toContain("isPlatformAdmin");
@@ -26,58 +20,6 @@ describe("signUp/signIn mutation 文档（对齐 #60 路径 B：httpOnly cookie�
 		expect(doc).toContain("email");
 		expect(doc).toContain("isPlatformAdmin");
 		expect(doc).not.toContain("token");
-	});
-});
-
-describe("signUpError（signUp 失败走 result.errors，结构化错误数据）", () => {
-	const ok: { signUp: SignUpResultData } = {
-		signUp: {
-			result: { id: "u1", email: "a@b.c", isPlatformAdmin: false },
-			errors: [],
-		},
-	};
-
-	it("成功时返回 null", () => {
-		expect(signUpError(ok)).toBeNull();
-		expect(signUpError(undefined)).toBeNull();
-	});
-
-	it("registration_failed（#86 防枚举，重复邮箱与未知错误同形）提取 code 与 message", () => {
-		const fail: { signUp: SignUpResultData } = {
-			signUp: {
-				result: null,
-				errors: [
-					{
-						message: "Registration failed. Please check your input and try again.",
-						code: "registration_failed",
-					},
-				],
-			},
-		};
-		expect(signUpError(fail)).toEqual({
-			code: "registration_failed",
-			message: "Registration failed. Please check your input and try again.",
-		});
-	});
-
-	it("非 registration_failed 的 message 直透（如邮箱格式错误，仍可指导用户）", () => {
-		const fail: { signUp: SignUpResultData } = {
-			signUp: {
-				result: null,
-				errors: [{ message: "must match the format ...", code: "invalid" }],
-			},
-		};
-		expect(signUpError(fail)).toEqual({
-			code: "invalid",
-			message: "must match the format ...",
-		});
-	});
-
-	it("errors 为空数组时返回 null（视为成功）", () => {
-		const empty: { signUp: SignUpResultData } = {
-			signUp: { result: null, errors: [] },
-		};
-		expect(signUpError(empty)).toBeNull();
 	});
 });
 

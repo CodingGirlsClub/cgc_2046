@@ -3118,6 +3118,7 @@ export type PermissionMatrixRow = {
 
 export type PhoneCodePurpose =
   | 'LOGIN'
+  | 'REGISTER'
   | 'WECHAT_BIND';
 
 export type PortfolioItem = {
@@ -3493,8 +3494,8 @@ export type RootMutationType = {
   signInWithWechat?: Maybe<SignInWithWechatResult>;
   /** 登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放） */
   signOut?: Maybe<Scalars['String']['output']>;
-  /** 注册新用户（#60 路径 B：httpOnly cookie 交付 token，自动登录） */
-  signUp?: Maybe<SignUpPayload>;
+  /** 手机号注册（验证码 + 密码；httpOnly cookie 交付 token，自动登录） */
+  signUpWithPhone?: Maybe<SignUpWithPhonePayload>;
   /** 编辑课程元数据（Owner/Admin） */
   updateCourse: UpdateCourseResult;
   /** 更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段） */
@@ -3842,8 +3843,8 @@ export type RootMutationTypeSignInWithWechatArgs = {
 };
 
 
-export type RootMutationTypeSignUpArgs = {
-  input: SignUpInput;
+export type RootMutationTypeSignUpWithPhoneArgs = {
+  input: SignUpWithPhoneInput;
 };
 
 
@@ -4352,18 +4353,20 @@ export type SignInWithWechatResult = {
   status: WechatSignInStatus;
 };
 
-export type SignUpInput = {
-  email: Scalars['String']['input'];
+export type SignUpWithPhoneInput = {
+  code: Scalars['String']['input'];
   password: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
 };
 
-export type SignUpPayload = {
+export type SignUpWithPhonePayload = {
   errors?: Maybe<Array<Maybe<MutationError>>>;
-  result?: Maybe<SignUpUser>;
+  result?: Maybe<SignUpWithPhoneUser>;
 };
 
-export type SignUpUser = {
-  email: Scalars['String']['output'];
+/** 手机号注册结果（email 可空——无邮箱手机号用户，同 phone code 登录 result） */
+export type SignUpWithPhoneUser = {
+  email?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isPlatformAdmin: Scalars['Boolean']['output'];
 };

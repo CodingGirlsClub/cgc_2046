@@ -102,13 +102,15 @@
     "forgotPassword": "Forgot password?",
     "error": {
       "shortPassword": "Password must be at least 8 characters",
-      "passwordMismatch": "The two passwords do not match"
+      "passwordMismatch": "The two passwords do not match",
+      "invalidPasswordLength": "Password must be 8 to 72 bytes"
     },
     "errors": {
       "loginFailed": "Sign-in failed. Check your email and password.",
       "registerFailedDuplicate": "Registration failed. Please check your input and try again.",
       "registerFailedRetry": "Registration failed. Please try again later.",
-      "networkFailed": "Network error. Please try again later."
+      "networkFailed": "Network error. Please try again later.",
+      "phoneAlreadyRegistered": "This phone number is already registered. Please sign in directly."
     },
     "submit": {
       "processing": "Processing…",
@@ -194,6 +196,7 @@
       "missingParams": "Missing WeChat callback parameters. Please scan again.",
       "signInFailed": "WeChat sign-in failed. Please try again.",
       "bindHint": "First time signing in with WeChat. Verify your phone number to finish (an account will be created if needed).",
+      "bindTitle": "Verify your phone",
       "fieldPhone": "Phone number",
       "placeholderPhone": "Enter your phone number",
       "fieldCode": "Verification code",
@@ -623,6 +626,7 @@
       "navGroup": "Workspace navigation",
       "backToApp": "Back to app",
       "headingPersonal": "Personal",
+      "preferencesLink": "Preferences",
       "headingIntegrations": "Integrations",
       "headingWorkspace": "Workspace",
       "profileLink": "Profile",

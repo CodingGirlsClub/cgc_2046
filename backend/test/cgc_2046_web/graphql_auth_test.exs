@@ -32,67 +32,29 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     cookie
   end
 
-  defp sign_up_query(email, password) do
-    """
-    mutation {
-      signUp(input: { email: "#{email}", password: "#{password}" }) {
-        result { id email isPlatformAdmin }
-        errors { message code fields }
-      }
-    }
-    """
+  # signUp mutation 已删（邮箱注册下线，注册只走 signUpWithPhone 手机号验证码）。
+  # 邮箱用户夹具改为资源层直建（register_with_password action 仍可用，仅 GraphQL 面关闭）。
+  defp create_email_user(email, password) do
+    {:ok, user} =
+      Cgc2046.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{email: email, password: password})
+      |> Ash.create()
+
+    user
   end
 
-  describe "signUp mutation" do
-    test "registers a user and returns the user (token in httpOnly cookie)" do
-      conn = build_conn()
+  describe "signUp mutation（已下线：注册只走手机号验证码）" do
+    test "schema 不再暴露 signUp（防邮箱注册绕过手机验证回潮）" do
+      res =
+        graphql_post(
+          build_conn(),
+          ~s'mutation { signUp(input: { email: "gone@example.com", password: "whatever-pass" }) { result { id } } }'
+        )
+        |> graphql_response()
 
-      conn = graphql_post(conn, sign_up_query(@email, @password))
-      res = graphql_response(conn)
-
-      assert %{"data" => %{"signUp" => %{"result" => result}}} = res
-      assert result["email"] == @email
-      assert result["isPlatformAdmin"] == false
-      # 正向 regression guard：before_send 必须写 httpOnly cgc_token。
-      # 误删 router 的 before_send 注册或改错 cookie 选项时此断言失败。
-      assert_auth_cookie_written(conn)
-    end
-
-    test "returns a generic error for a duplicate email (#86 anti-enumeration)" do
-      conn = build_conn()
-
-      # 成功响应：result/errors 两段式
-      ok_res = graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
-      assert %{"data" => %{"signUp" => %{"result" => %{"id" => _id}, "errors" => []}}} = ok_res
-
-      res = graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
-
-      # 顶层 shape 与成功响应一致（result/errors 两键结构不变），失败仅体现在值上
-      assert %{"data" => %{"signUp" => %{"result" => nil, "errors" => errors}}} = res
-
-      # #86：重复邮箱失败与未知错误失败同码同形——generic message + registration_failed。
-      # 响应不泄露「该邮箱已存在」：无 taken 文案、无 fields 指向 email。
-      assert [
-               %{
-                 "message" => "Registration failed. Please check your input and try again.",
-                 "code" => "registration_failed",
-                 "fields" => nil
-               }
-             ] = errors
-    end
-
-    test "rejects an invalid email format (structured, no existence leak)" do
-      conn = build_conn()
-
-      res = graphql_post(conn, sign_up_query("not-an-email", @password)) |> graphql_response()
-
-      assert %{"data" => %{"signUp" => %{"result" => result, "errors" => errors}}} = res
-      assert is_nil(result)
-
-      # 格式错误保持结构化（message 可指导用户修正输入），且不含存在性信号：
-      # 格式非法的邮箱不可能入库，此响应与邮箱是否已注册无关。
-      assert Enum.any?(errors, &(&1["message"] =~ "email"))
-      assert Enum.all?(errors, &(not (&1["message"] =~ "taken")))
+      # 字段不存在 → 顶层 errors（schema 校验期拒绝）
+      assert %{"errors" => errors} = res
+      assert Enum.any?(errors, &(&1["message"] =~ ~r/Cannot query field \"signUp\"/))
     end
   end
 
@@ -100,9 +62,7 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     setup do
       conn = build_conn()
 
-      assert %{"data" => %{"signUp" => %{"result" => %{"id" => _id}}}} =
-               graphql_post(conn, sign_up_query(@email, @password)) |> graphql_response()
-
+      create_email_user(@email, @password)
       {:ok, conn: conn}
     end
 
@@ -151,13 +111,9 @@ defmodule Cgc2046Web.GraphqlAuthTest do
     @phone_password "phone-login-secret-1"
 
     setup do
-      # 经 password 策略注册 email 用户后，内部挂手机号（密码哈希复用注册哈希）
-      assert %{"data" => %{"signUp" => %{"result" => %{"id" => user_id}}}} =
-               graphql_post(
-                 build_conn(),
-                 sign_up_query("phone-owner@example.com", @phone_password)
-               )
-               |> graphql_response()
+      # 资源层建 email 用户（signUp 已下线）后，内部挂手机号（密码哈希复用注册哈希）
+      user = create_email_user("phone-owner@example.com", @phone_password)
+      user_id = user.id
 
       # 用原子 SQL 挂 phone（User 无 accept phone 的公开 action；登录路径只读 phone）
       {:ok, res} =
@@ -216,10 +172,19 @@ defmodule Cgc2046Web.GraphqlAuthTest do
 
   describe "signOut mutation" do
     setup do
-      conn = build_conn()
-      conn = graphql_post(conn, sign_up_query(@email, @password))
-      cookie = assert_auth_cookie_written(conn)
-      {:ok, conn: conn, token: cookie.value}
+      # signUp 已下线：资源层建号 + 策略 sign-in 拿 token（cookie 写入由
+      # signIn mutation 的既有用例覆盖，此处只需有效凭证）
+      user = create_email_user(@email, @password)
+
+      strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
+
+      {:ok, signed} =
+        AshAuthentication.Strategy.action(strategy, :sign_in, %{
+          "email" => @email,
+          "password" => @password
+        })
+
+      {:ok, token: signed.__metadata__[:token], user: user}
     end
 
     test "clears the httpOnly auth cookie (登出后会话不残留)", %{token: token} do
@@ -284,15 +249,19 @@ defmodule Cgc2046Web.GraphqlAuthTest do
   # user → current_user == nil → load_actor 标记 auth_uncertain。
   describe "me resolver auth_uncertain（token 有效但 user 加载失败时不误踢）" do
     test "有效 token 但 user 不存在时返回 auth_uncertain（不误判 unauthorized）" do
-      # 注册并拿有效 token（cookie）
-      conn = build_conn()
-      conn = graphql_post(conn, sign_up_query("uncertain@example.com", @password))
-      cookie = assert_auth_cookie_written(conn)
-      token = cookie.value
+      # 资源层建号 + 策略签 token（signUp 已下线；cookie 断言属 signIn 用例职责）
+      user = create_email_user("uncertain@example.com", @password)
+      user_id = user.id
 
-      # 从 signUp 响应拿 user id，然后删除该 user（模拟 user 加载失败）。
-      res = graphql_response(conn)
-      user_id = res["data"]["signUp"]["result"]["id"]
+      strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
+
+      {:ok, signed} =
+        AshAuthentication.Strategy.action(strategy, :sign_in, %{
+          "email" => "uncertain@example.com",
+          "password" => @password
+        })
+
+      token = signed.__metadata__[:token]
 
       # User 资源无 destroy action，直接 SQL 删行模拟"user 在 DB 中不存在"。
       # 注册自动加入默认 workspace 2046（ADR-0004）会建 membership + member 角色，
