@@ -97,7 +97,7 @@ export const SIGN_IN: TypedDocumentNode<
 
 /* ---------------- 手机验证码登录（plan 002 U3/U5） ---------------- */
 
-export type PhoneCodePurpose = "LOGIN" | "WECHAT_BIND" | "REGISTER";
+export type PhoneCodePurpose = "LOGIN" | "WECHAT_BIND" | "REGISTER" | "CHANGE_PHONE";
 
 export interface RequestPhoneCodeResult {
   sent: boolean;
@@ -131,6 +131,34 @@ export const SIGN_IN_WITH_PHONE_CODE: TypedDocumentNode<
       id
       email
       isPlatformAdmin
+    }
+  }
+`;
+
+/* ---------------- 设置页绑定/换绑手机号（purpose CHANGE_PHONE） ---------------- */
+
+/** 当前登录用户的掩码手机号（仅本人；未绑定为 null；前 6 后 4 中间 ****） */
+export const MY_PHONE: TypedDocumentNode<
+  { myPhone: string | null },
+  Record<string, never>
+> = gql`
+  query MyPhone {
+    myPhone
+  }
+`;
+
+/**
+ * 绑定/换绑当前用户手机号：验码（CHANGE_PHONE）→ 占用检查 → 更新。
+ * 失败走 top-level GraphQL error（invalid_phone / invalid_or_expired_code /
+ * rate_limited / phone_already_registered），由 graphqlErrorDetails 提取 code。
+ */
+export const UPDATE_MY_PHONE: TypedDocumentNode<
+  { updateMyPhone: { id: string } | null },
+  { phone: string; code: string }
+> = gql`
+  mutation UpdateMyPhone($phone: String!, $code: String!) {
+    updateMyPhone(phone: $phone, code: $code) {
+      id
     }
   }
 `;
