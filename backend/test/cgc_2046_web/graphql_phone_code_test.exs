@@ -5,6 +5,8 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
   - 发码：成功（sent true + retryAfterSeconds）、非法手机号、限流各窗口
   - 登录：正确码自动建号 + cookie、错码 3 次失效、码单次使用、
     未归一化输入同号、重登吊销旧 token
+  - 换绑（updateMyPhone，purpose :change_phone）：成功/错码/purpose 隔离/
+    他人占用/未登录/同号幂等；myPhone 掩码查询（含 null 与未登录）
   """
   use Cgc2046Web.ConnCase, async: false
 
@@ -428,6 +430,197 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
 
       assert %{"errors" => [%{"code" => "invalid_or_expired_code"}]} =
                json_response(res, 200)
+    end
+  end
+
+  # ── 设置页绑定/换绑手机号（purpose :change_phone）────────────────────────
+
+  defp update_my_phone_mutation(phone, code) do
+    """
+    mutation {
+      updateMyPhone(phone: "#{phone}", code: "#{code}") {
+        id
+        memberNumber
+        joinedAt
+      }
+    }
+    """
+  end
+
+  # 无手机号用户（password 策略建号，email 唯一防冲突）
+  defp create_user_without_phone do
+    {:ok, user} =
+      Cgc2046.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_password, %{
+        email: "cp-#{Ecto.UUID.generate()}@example.com",
+        password: "sup3r-secret-password"
+      })
+      |> Ash.create(authorize?: false, context: %{private: %{ash_authentication?: true}})
+
+    user
+  end
+
+  # 有手机号用户（小程序策略建号，phone 为锚）
+  defp create_user_with_phone(phone) do
+    {:ok, user} =
+      Cgc2046.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_miniprogram, %{phone: phone})
+      |> Ash.create(authorize?: false, context: %{private: %{ash_authentication?: true}})
+
+    user
+  end
+
+  defp web_token(user) do
+    {:ok, signed} =
+      Cgc2046.Accounts.SignInFlow.generate_token(user, :web, %{
+        private: %{ash_authentication?: true}
+      })
+
+    signed.__metadata__[:token]
+  end
+
+  defp authed_post(token, query) do
+    build_conn()
+    |> put_req_cookie("cgc_token", token)
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/graphql", %{"query" => query})
+  end
+
+  describe "updateMyPhone" do
+    test "成功：change_phone 码换绑，users.phone 更新并返回 user（含计算字段）" do
+      user = create_user_without_phone()
+      token = web_token(user)
+      code = issue_and_get_code(@phone, :change_phone)
+
+      res = authed_post(token, update_my_phone_mutation(@phone_raw, code)) |> json_response(200)
+
+      assert %{
+               "data" => %{
+                 "updateMyPhone" => %{"id" => id, "memberNumber" => mn, "joinedAt" => ja}
+               }
+             } = res
+
+      assert id == user.id
+      assert String.starts_with?(mn, "CGC-")
+      assert is_binary(ja)
+
+      %{rows: [[db_phone]]} =
+        Ecto.Adapters.SQL.query!(
+          Cgc2046.Repo,
+          "SELECT phone FROM users WHERE id = $1",
+          [Ecto.UUID.dump!(user.id)]
+        )
+
+      assert db_phone == @phone
+    end
+
+    test "错码 → invalid_or_expired_code，phone 不变" do
+      user = create_user_without_phone()
+      token = web_token(user)
+      code = issue_and_get_code(@phone, :change_phone)
+      wrong = if code == "000000", do: "111111", else: "000000"
+
+      res = authed_post(token, update_my_phone_mutation(@phone_raw, wrong)) |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "invalid_or_expired_code"}]} = res
+    end
+
+    test "purpose 隔离：login 码不能用于换绑" do
+      user = create_user_without_phone()
+      token = web_token(user)
+      login_code = issue_and_get_code(@phone, :login)
+
+      res =
+        authed_post(token, update_my_phone_mutation(@phone_raw, login_code))
+        |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "invalid_or_expired_code"}]} = res
+    end
+
+    test "目标号已被他人占用 → phone_already_registered" do
+      _other = create_user_with_phone(@phone)
+      user = create_user_without_phone()
+      token = web_token(user)
+      code = issue_and_get_code(@phone, :change_phone)
+
+      res = authed_post(token, update_my_phone_mutation(@phone_raw, code)) |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "phone_already_registered"}]} = res
+    end
+
+    test "未登录 → unauthorized（码不被消费）" do
+      code = issue_and_get_code(@phone, :change_phone)
+
+      res =
+        graphql_post(build_conn(), update_my_phone_mutation(@phone_raw, code))
+        |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "unauthorized"}]} = res
+
+      # 未登录调用被拒后码未被消费：同一 phone+code 做已登录换绑应成功
+      user = create_user_without_phone()
+      token = web_token(user)
+
+      res2 = authed_post(token, update_my_phone_mutation(@phone_raw, code)) |> json_response(200)
+
+      assert %{"data" => %{"updateMyPhone" => %{"id" => id}}} = res2
+      assert id == user.id
+    end
+
+    test "新号 == 现号 → 幂等成功（验码通过但不改行）" do
+      user = create_user_with_phone(@phone)
+      token = web_token(user)
+      code = issue_and_get_code(@phone, :change_phone)
+
+      res = authed_post(token, update_my_phone_mutation(@phone_raw, code)) |> json_response(200)
+
+      assert %{"data" => %{"updateMyPhone" => %{"id" => id}}} = res
+      assert id == user.id
+    end
+
+    test "非法手机号 → invalid_phone" do
+      user = create_user_without_phone()
+      token = web_token(user)
+
+      res =
+        authed_post(token, update_my_phone_mutation("not-a-phone", "123456"))
+        |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "invalid_phone"}]} = res
+    end
+
+    test "真实发码链路：requestPhoneCode(CHANGE_PHONE) 可发码（atom 映射回归钉测）" do
+      res =
+        graphql_post(build_conn(), request_code_mutation("13800138004", "change_phone"))
+        |> json_response(200)
+
+      assert %{"data" => %{"requestPhoneCode" => %{"sent" => true}}} = res
+    end
+  end
+
+  describe "myPhone" do
+    test "已绑定：返回掩码（前 6 + **** + 后 4）" do
+      user = create_user_with_phone("+8615578793094")
+      token = web_token(user)
+
+      res = authed_post(token, "query { myPhone }") |> json_response(200)
+
+      assert %{"data" => %{"myPhone" => "+86155****3094"}} = res
+    end
+
+    test "未绑定：返回 null" do
+      user = create_user_without_phone()
+      token = web_token(user)
+
+      res = authed_post(token, "query { myPhone }") |> json_response(200)
+
+      assert %{"data" => %{"myPhone" => nil}} = res
+    end
+
+    test "未登录 → unauthorized" do
+      res = graphql_post(build_conn(), "query { myPhone }") |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "unauthorized"}]} = res
     end
   end
 end

@@ -71,6 +71,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面）"
+    field :my_phone, :string do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, fn actor ->
+          {:ok, mask_phone(actor.phone)}
+        end)
+      end)
+    end
+
     @desc "当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权）"
     field :workspace_profile, :workspace_profile do
       arg(:workspace_id, non_null(:id))
@@ -977,6 +986,35 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "绑定/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并）"
+    field :update_my_phone, :user do
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
+        with_actor(context, fn actor ->
+          with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+               :ok <- check_phone_code_verify_limits(context, phone),
+               :ok <-
+                 Cgc2046.Accounts.PhoneVerificationCode.consume_valid(phone, code, :change_phone) do
+            update_my_phone(actor, phone, context)
+          else
+            {:error, :invalid} ->
+              {:error, message: "Invalid phone number", code: "invalid_phone"}
+
+            {:error, :rate_limited} ->
+              {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+
+            {:error, :invalid_code} ->
+              {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+            {:error, :code_not_available} ->
+              {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+          end
+        end)
+      end)
+    end
+
     @desc "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
     field :update_my_locale, :user do
       arg(:locale, non_null(:string))
@@ -1618,6 +1656,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     value(:login)
     value(:wechat_bind)
     value(:register)
+    value(:change_phone)
   end
 
   object :sign_in_with_phone_code_result do
@@ -1878,13 +1917,15 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # Absinthe enum 内部值（"login"/"wechat_bind"）→ 资源原子
+  # Absinthe enum 内部值（"login"/"wechat_bind"/"register"/"change_phone"）→ 资源原子
   defp phone_code_purpose_atom(:login), do: :login
   defp phone_code_purpose_atom(:wechat_bind), do: :wechat_bind
   defp phone_code_purpose_atom(:register), do: :register
+  defp phone_code_purpose_atom(:change_phone), do: :change_phone
   defp phone_code_purpose_atom("login"), do: :login
   defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
   defp phone_code_purpose_atom("register"), do: :register
+  defp phone_code_purpose_atom("change_phone"), do: :change_phone
 
   defp deliver_phone_code(phone, code, send_request_id) do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
@@ -1994,6 +2035,47 @@ defmodule Cgc2046Web.GraphqlSchema do
       {:ok, []} -> :ok
       {:ok, _} -> {:error, :phone_taken}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # 换绑编排（updateMyPhone，验码已通过）：新号 == 现号幂等成功；被他人占用 →
+  # phone_already_registered（短信所有权已证明，无枚举顾虑）；否则走
+  # :update_phone 原子更新（并发占用由 unique_phone 部分唯一索引兜底）。
+  defp update_my_phone(actor, phone, context) do
+    if actor.phone == phone do
+      load_profile(actor, actor, context, :update_phone)
+    else
+      case ensure_phone_unregistered(phone) do
+        :ok ->
+          case Ash.update(actor, %{phone: phone}, action: :update_phone, actor: actor) do
+            {:ok, user} ->
+              load_profile(user, actor, context, :update_phone)
+
+            {:error, error} ->
+              {:error, to_ash_graphql_errors(error, context, :update_phone)}
+          end
+
+        {:error, :phone_taken} ->
+          {:error, message: "Phone number already registered", code: "phone_already_registered"}
+
+        {:error, reason} ->
+          # 占用预检 DB 读失败：受控失败（同 signUpWithPhone pre-check 语义），
+          # 复用 Ash 错误映射，不新增 resolver 字面量 code。
+          Logger.warning("[updateMyPhone] pre-check failed: #{inspect(reason)}")
+          {:error, to_ash_graphql_errors(reason, context, :update_phone)}
+      end
+    end
+  end
+
+  # 掩码：前 6 字符 + **** + 后 4（+8615578793094 → +86155****3094）；
+  # 异常短号（normalize 已保证 +区号号码，理论不可达）全掩码防泄露。
+  defp mask_phone(nil), do: nil
+
+  defp mask_phone(phone) when is_binary(phone) do
+    if String.length(phone) > 10 do
+      String.slice(phone, 0, 6) <> "****" <> String.slice(phone, -4, 4)
+    else
+      String.duplicate("*", String.length(phone))
     end
   end
 
