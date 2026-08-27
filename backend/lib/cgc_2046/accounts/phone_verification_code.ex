@@ -4,7 +4,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
 
   - `phone`：归一化规范形（`+区号号码`，PhoneNumber 单源）
   - `code_hash`：`SHA256(phone <> ":" <> code)`——明文码不落库
-  - `purpose`：`:login`（验证码登录）/ `:wechat_bind`（微信扫码绑定）/ `:register`（手机号注册）
+  - `purpose`：`:login`（验证码登录）/ `:wechat_bind`（微信扫码绑定）/ `:register`（手机号注册）/ `:change_phone`（设置页绑定/换绑手机号）
   - `expires_at`：5 分钟
   - `attempts_left`：错码 3 次后失效（防爆破）
   - `consumed_at`：单次使用；原子消费（DB 单条 UPDATE，防并发重放）
@@ -47,8 +47,8 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
     attribute(:purpose, :atom,
       allow_nil?: false,
       public?: true,
-      constraints: [one_of: [:login, :wechat_bind, :register]],
-      description: "用途：login 验证码登录 / wechat_bind 微信扫码绑定 / register 手机号注册"
+      constraints: [one_of: [:login, :wechat_bind, :register, :change_phone]],
+      description: "用途：login 验证码登录 / wechat_bind 微信扫码绑定 / register 手机号注册 / change_phone 绑定或换绑手机号"
     )
 
     attribute(:expires_at, :utc_datetime,
@@ -111,10 +111,10 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   send_request_id 是落库的渠道幂等键，供 deliver 上送（重试不重复发）。
   `:dev_sandbox` 模式（SMS 未配置的 dev）由调用方 Logger 输出。
   """
-  @spec issue(String.t(), :login | :wechat_bind | :register) ::
+  @spec issue(String.t(), :login | :wechat_bind | :register | :change_phone) ::
           {:ok, String.t(), String.t()} | {:error, term()}
   def issue(phone, purpose)
-      when is_binary(phone) and purpose in [:login, :wechat_bind, :register] do
+      when is_binary(phone) and purpose in [:login, :wechat_bind, :register, :change_phone] do
     code = generate_code()
     now = DateTime.utc_now()
     send_request_id = generate_request_id()
@@ -151,11 +151,11 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   `{:error, :code_not_available}`（无活跃码：不存在/过期/耗尽/已消费——
   统一语义，防枚举）。
   """
-  @spec consume_valid(String.t(), String.t(), :login | :wechat_bind | :register) ::
+  @spec consume_valid(String.t(), String.t(), :login | :wechat_bind | :register | :change_phone) ::
           :ok | {:error, :invalid_code} | {:error, :code_not_available}
   def consume_valid(phone, code, purpose)
       when is_binary(phone) and is_binary(code) and
-             purpose in [:login, :wechat_bind, :register] do
+             purpose in [:login, :wechat_bind, :register, :change_phone] do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     hash = hash_code(phone, code)
 
