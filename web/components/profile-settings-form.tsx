@@ -37,6 +37,7 @@ import {
 } from "@/lib/profile";
 import type { MembershipRoleName } from "@/lib/graphql/workspace";
 import { ProfileLocaleSelect } from "./profile-locale-select";
+import { PhoneBindingSection } from "./phone-binding-section";
 import type { ProfileVisibility } from "@/lib/graphql/profile";
 import { Avatar } from "./profile-avatar";
 import { RoleChips } from "./profile-role";
@@ -367,6 +368,9 @@ export function ProfileSettingsForm({
           <div className="profile-edit-divider" />
           <ProfileLocaleSelect />
         </section>
+
+        {/* 全局身份：绑定/换绑手机号（组件自查 MY_PHONE 数据，props 零侵入） */}
+        <PhoneBindingSection />
       </aside>
 
       <section

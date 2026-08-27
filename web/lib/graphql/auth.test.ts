@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { print } from "graphql";
-import { SIGN_IN, SIGN_UP_WITH_PHONE, signInErrorMessage } from "./auth";
+import {
+	MY_PHONE,
+	SIGN_IN,
+	SIGN_UP_WITH_PHONE,
+	UPDATE_MY_PHONE,
+	signInErrorMessage,
+} from "./auth";
 
 describe("signUpWithPhone/signIn mutation 文档（httpOnly cookie；邮箱 signUp 已下线）", () => {
 	it("SIGN_UP_WITH_PHONE 使用 input 嵌套 + result/errors 两段式（无 metadata）", () => {
@@ -20,6 +26,26 @@ describe("signUpWithPhone/signIn mutation 文档（httpOnly cookie；邮箱 sign
 		expect(doc).toContain("email");
 		expect(doc).toContain("isPlatformAdmin");
 		expect(doc).not.toContain("token");
+	});
+});
+
+describe("myPhone/updateMyPhone 文档（设置页绑定/换绑手机号，purpose CHANGE_PHONE）", () => {
+	it("MY_PHONE：无变量 query MyPhone，选择集仅掩码标量 myPhone", () => {
+		const doc = print(MY_PHONE);
+		expect(doc).toContain("query MyPhone");
+		expect(doc).toContain("myPhone");
+		expect(doc).not.toContain("$");
+		expect(doc).not.toContain("mutation");
+	});
+
+	it("UPDATE_MY_PHONE：平铺 phone/code 非空变量 + updateMyPhone 选择集 id", () => {
+		const doc = print(UPDATE_MY_PHONE);
+		expect(doc).toContain(
+			"mutation UpdateMyPhone($phone: String!, $code: String!)",
+		);
+		expect(doc).toContain("updateMyPhone(phone: $phone, code: $code)");
+		expect(doc).toContain("id");
+		expect(doc).not.toContain("errors {");
 	});
 });
 
