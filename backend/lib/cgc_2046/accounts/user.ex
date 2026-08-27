@@ -25,8 +25,9 @@ defmodule Cgc2046.Accounts.User do
   - query `me` → `User`（全局身份：id/email/displayName/isPlatformAdmin/memberNumber/joinedAt）
 
   phone 字段 `sensitive?: true`；public 化是 password_phone 策略的 identity_field
-  校验强制（见 attributes 块注释）——GraphQL 出口仍由手写 resolver 单点控制，
-  响应不含 phone（v1 明文存储已评审接受；掩码 + 本人可见留给后续阶段）。
+  校验强制（见 attributes 块注释）——GraphQL 出口仍由手写 resolver 单点控制：
+  User type 不含 phone，读仅经 myPhone 掩码查询（本人可见），写仅经
+  updateMyPhone 换绑（v1 明文存储已评审接受）。
 
   ADR-0004：profile 字段（avatar_url/location/about/skills/visibility/ui_theme_preference）
   已迁至 `WorkspaceProfile`（per-workspace）；本资源仅保留全局身份字段。
@@ -62,8 +63,9 @@ defmodule Cgc2046.Accounts.User do
 
     # phone 需 public?: true —— password_phone 策略的 identity_field 校验强制
     # （ash_authentication transformer validate_identity_field/2）。GraphQL 出口
-    # 已在 graphql 块 hide_fields([:phone]) 摘除（advisor02 M9）；手写 resolver
-    # 只吃 login 入参，不返回 phone。
+    # 已在 graphql 块 hide_fields([:phone]) 摘除（advisor02 M9）：User type 不含
+    # phone，唯一读出口是手写 query myPhone（掩码，仅本人）；写出口是手写
+    # mutation updateMyPhone（验证码验新号 → action :update_phone）。
     attribute(:phone, :string,
       allow_nil?: true,
       public?: true,
@@ -196,6 +198,16 @@ defmodule Cgc2046.Accounts.User do
             end
         end
       end)
+    end
+
+    update :update_phone do
+      description("绑定/换绑当前用户手机号（仅本人；验证码校验在 GraphQL 层完成，占用唯一由 unique_phone 部分唯一索引兜底）")
+
+      # 资源级改密吊销 change（KTD5，on: [:update]）使一切 update 无法原子校验，
+      # 与 update_display_name 同置 false（单字段写入，无原子性需求）
+      require_atomic?(false)
+
+      accept([:phone])
     end
 
     update :update_locale do
@@ -465,6 +477,11 @@ defmodule Cgc2046.Accounts.User do
 
     # 更新全局显示名：仅本人（SimpleCheck，strict 阶段可判定）
     policy action(:update_display_name) do
+      authorize_if(Cgc2046.Policies.OwnUser)
+    end
+
+    # 绑定/换绑手机号：仅本人（验证码校验在 GraphQL resolver 完成）
+    policy action(:update_phone) do
       authorize_if(Cgc2046.Policies.OwnUser)
     end
 
