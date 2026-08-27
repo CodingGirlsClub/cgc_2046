@@ -215,6 +215,24 @@
   }
   .profile-settings-form__footer .l-btn-primary { min-height: 32px; }
 
+  /* 设置页「绑定/换绑手机号」卡片（profile-edit-side 内；输入框继承 .profile-edit-layout 形制） */
+  .profile-phone { margin-top: 18px; padding: 24px 25px; }
+  .profile-phone-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  .profile-phone-current { color: var(--ink); font-family: var(--font-mono); font-size: 14px; line-height: 20px; }
+  .profile-phone-edit { min-height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink-2); font-size: 12px; line-height: 20px; white-space: nowrap; }
+  .profile-phone-edit:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+  .profile-phone-form { margin-top: 14px; }
+  .profile-phone-field { margin-top: 12px; }
+  .profile-phone-code-row { display: flex; gap: 8px; margin-top: 7px; }
+  .profile-phone-code-row input { flex: 1; margin-top: 0; }
+  .profile-phone-send { min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); color: var(--ink-2); font-size: 13px; line-height: 20px; white-space: nowrap; }
+  .profile-phone-send:hover:not(:disabled) { border-color: var(--accent-strong); color: var(--accent-strong); }
+  .profile-phone-send:disabled { color: var(--ink-3); cursor: default; }
+  .profile-phone-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+  .profile-phone-actions .l-btn-primary { min-height: 32px; }
+  .profile-phone-cancel { min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink-2); font-size: 13px; line-height: 20px; }
+  .profile-phone-cancel:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+
   /* Preferences 页：主题设置行 */
   .settings-preference-row {
     display: flex;

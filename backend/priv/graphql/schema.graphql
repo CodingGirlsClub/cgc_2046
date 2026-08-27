@@ -5491,6 +5491,9 @@ type RootQueryType {
   "当前登录用户个人资料（#68 Profile API，需登录）：id\/email\/displayName\/isPlatformAdmin + memberNumber\/joinedAt（ADR-0004 收窄为全局身份）"
   me: User
 
+  "当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面）"
+  myPhone: String
+
   "当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权）"
   workspaceProfile(workspaceId: ID!): WorkspaceProfile
 
@@ -6136,6 +6139,7 @@ enum PhoneCodePurpose {
   LOGIN
   WECHAT_BIND
   REGISTER
+  CHANGE_PHONE
 }
 
 type SignInWithPhoneCodeResult {
@@ -6493,6 +6497,9 @@ type RootMutationType {
 
   "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
   updateDisplayName(displayName: String!): User
+
+  "绑定\/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并）"
+  updateMyPhone(phone: String!, code: String!): User
 
   "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
   updateMyLocale(locale: String!): User

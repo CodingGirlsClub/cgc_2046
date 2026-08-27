@@ -993,6 +993,14 @@
     "deletePortfolioAria": "Delete item: {title}",
     "untitled": "Untitled item",
     "portfolioTypes": "Document, Book, Guide",
+    "phoneTitle": "Phone number",
+    "phoneUnbound": "Not bound",
+    "phoneBindCta": "Bind",
+    "phoneChangeCta": "Change",
+    "phoneCancel": "Cancel",
+    "phoneBindSaved": "Phone number updated",
+    "phoneLoadFailed": "Failed to load phone number",
+    "phoneTakenByOther": "This phone number is already linked to another account.",
     "loadingAria": "Loading"
   },
   "workspacePreferences": {
@@ -1529,6 +1537,7 @@
     "currentUser": "current user",
     "demote": "Demote",
     "promote": "Promote",
+    "viewWorkspace": "View",
     "demoteDialogAria": "Confirm demotion",
     "demoteTitle": "Confirm demotion",
     "demoteSelfDesc": "You are about to demote yourself ({user}) from platform admin. Please confirm.",

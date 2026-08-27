@@ -192,7 +192,17 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
         # 「未配置」语义），半配置（如缺 api_secret_key）在此 raise——真实小额
         # 验收实证：wechat 全空配置下默认渠道下单即崩 something_went_wrong。
         # 与 alipay 同语义降级 provider_not_configured。
-        _ -> {:error, :provider_not_configured}
+        # 降级必须留日志（advisor F1）：畸形公钥（SDK ArgumentError）若静默吞，
+        # 表现为「九键全配、业务却报未配置」，生产零线索。可达 raise 路径的
+        # message 已逐条核验不含密钥材料：check_api_key 的 inspect(api_key)
+        # 分支被 configured? 的 is_binary 门禁挡死；X509/PEM 解析错误只含
+        # 原子 reason；半配置 raise 只含 boolean。
+        e ->
+          Logger.error(
+            "WechatPay client build failed: #{inspect(e.__struct__)} #{Exception.message(e)}"
+          )
+
+          {:error, :provider_not_configured}
       end
     else
       {:error, :provider_not_configured}
@@ -204,19 +214,15 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
 
     case cached_client(fingerprint) do
       nil ->
-        shutdown_stale_client(fingerprint)
         client_module = Module.concat(__MODULE__, "Client#{fingerprint}")
 
-        case WeChat.Pay.build_client(client_module,
-               mch_id: config()[:mch_id],
-               api_secret_key: config()[:api_v3_key],
-               api_secret_v2_key: config()[:api_secret_v2_key],
-               client_serial_no: config()[:client_serial_no],
-               client_key: {:binary, config()[:client_private_key]}
-             ) do
+        case WeChat.Pay.build_client(client_module, build_options()) do
           {:ok, module} ->
             :ok = start_client_supervisor(module)
-            seed_public_key_mode(module)
+            # 新 client 挂载成功后才摘旧（advisor F4）：build/start 失败时旧
+            # client 继续服务——轮换公钥贴错不再拖垮健康支付，改回配置即自愈。
+            # 池名/模块名含指纹不同名，新旧短暂共存安全。
+            shutdown_stale_client(fingerprint)
             :persistent_term.put({__MODULE__, fingerprint}, module)
             :persistent_term.put({__MODULE__, :current_fingerprint}, fingerprint)
             module
@@ -230,43 +236,43 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
     end
   end
 
-  # 公钥模式预写（生产实证 2026-08-24，上游 SDK feng19/wechat#10 待支持）：
-  # 已开通「微信支付公钥」的商户号，平台证书通道关闭（/v3/certificates 恒
-  # 403），SDK 的证书缓存永远为空 → VerifySignature 中间件对每个 200 应答
-  # 判 :invaild_response 丢弃（下单 200 但前端报「切换渠道失败」）。
-  # 修复：把公钥按 PUB_KEY_ID 序列号写进 SDK 同一 persistent_term 槽
-  # （{:wechat, {client, serial}} => public_key）——中间件按 Wechatpay-Serial
-  # 头查 get_cert 即命中，SDK 零改动；webhook 验签走同槽同样生效。
-  # 未配置公钥（老商户号/未迁移）时不写，回落平台证书模式行为不变。
-  defp seed_public_key_mode(module) do
-    with pub_key when is_binary(pub_key) and pub_key != "" <- config()[:public_key],
-         pub_key_id when is_binary(pub_key_id) and pub_key_id != "" <- config()[:public_key_id],
-         {:ok, public_key} <- decode_public_key(pub_key) do
-      :persistent_term.put({:wechat, {module, pub_key_id}}, public_key)
-      Logger.info("WechatPay public key mode seeded (serial=#{pub_key_id})")
-      :ok
-    else
-      {:error, :malformed_public_key} = e ->
-        Logger.error(
-          "WechatPay public_key configured but malformed — platform cert fallback will be used; if this merchant is on public key mode, ALL v3 calls will fail with invaild_response"
+  # 微信支付公钥模式（SDK 0.20.0 原生支持，上游 feng19/wechat#10 落地）：
+  # public_key/public_key_id 两键齐配 → 传 platform_public_*，SDK 以公钥验签
+  # （写入同一 persistent_term 槽，get_cert/webhook 验签零改动命中），并跳过
+  # 平台证书下载与轮换——公钥商户 /v3/certificates 恒 403，旧 workaround 时代的
+  # 60s 重试 403 循环随之消除。两键全缺 → 回落平台证书模式（老商户号）。
+  # 半配（只配其一，advisor F2）→ 显式 raise：回落证书模式对公钥商户是恒 403
+  # 的假兜底（下单 200 被 VerifySignature 丢弃、验签恒 :error 的静默 broken），
+  # 与畸形 PEM（SDK 解析 raise）同走 fetch_client rescue：日志指名 + 降级
+  # provider_not_configured。raise 消息只含 boolean，不含键值。
+  defp build_options do
+    base = [
+      mch_id: config()[:mch_id],
+      api_secret_key: config()[:api_v3_key],
+      api_secret_v2_key: config()[:api_secret_v2_key],
+      client_serial_no: config()[:client_serial_no],
+      client_key: {:binary, config()[:client_private_key]}
+    ]
+
+    case {config()[:public_key], config()[:public_key_id]} do
+      {pub_key, pub_key_id}
+      when is_binary(pub_key) and pub_key != "" and is_binary(pub_key_id) and pub_key_id != "" ->
+        # {:binary, _} 落在 SDK 声明的 pem_file 类型内（裸 binary 依赖的是
+        # 未文档化子句，advisor F5），与上面 client_key 写法一致
+        Keyword.merge(base,
+          platform_public_id: pub_key_id,
+          platform_public_key: {:binary, pub_key}
         )
 
-        e
+      {pub_key, pub_key_id}
+      when (is_binary(pub_key) and pub_key != "") or
+             (is_binary(pub_key_id) and pub_key_id != "") ->
+        raise "wechat pay public key mode half-configured: " <>
+                "public_key set=#{is_binary(pub_key) and pub_key != ""}, " <>
+                "public_key_id set=#{is_binary(pub_key_id) and pub_key_id != ""}"
 
       _ ->
-        # 公钥未配置（老商户号）或 id 缺席——回落平台证书模式
-        :ok
-    end
-  end
-
-  defp decode_public_key(pem) do
-    case :public_key.pem_decode(pem) do
-      [entry] ->
-        {:ok, :public_key.pem_entry_decode(entry)}
-
-      _ ->
-        Logger.error("WechatPay public_key PEM decode failed (malformed)")
-        {:error, :malformed_public_key}
+        base
     end
   end
 
@@ -317,8 +323,9 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
     end
   end
 
-  # 指纹变更（配置热更）：旧 client 的 Refresher/Finch 池先摘再建，防池泄漏
-  # （persistent_term 无遍历，put 时顺记 :current_fingerprint 作索引）。
+  # 指纹变更（配置热更）：新 client 挂载成功后摘旧 Refresher/Finch 池，防池
+  # 泄漏（persistent_term 无遍历，put 时顺记 :current_fingerprint 作索引）。
+  # 调用点在 build/start 成功分支之后——失败的重建不得拖走健康 client。
   # 注：WeChat.Pay.shutdown_client 按 child id 摘（普通 Supervisor 语义），对
   # DynamicSupervisor 不适用（其 child id 恒 :undefined）——按模块名匹配
   # which_children 后用原生 terminate_child/delete_child。

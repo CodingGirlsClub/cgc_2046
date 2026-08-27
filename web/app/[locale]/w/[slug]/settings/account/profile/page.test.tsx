@@ -75,6 +75,11 @@ vi.mock("@/components/profile-locale-select", () => ({
 	ProfileLocaleSelect: () => null,
 }));
 
+// 手机号绑定/换绑区块自身在 phone-binding-section.test.tsx 以 document 分发 mock 覆盖
+vi.mock("@/components/phone-binding-section", () => ({
+	PhoneBindingSection: () => null,
+}));
+
 const ME = {
 	id: "u_1",
 	email: "xiaomei@example.com",

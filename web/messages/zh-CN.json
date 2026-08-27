@@ -997,6 +997,14 @@
     "deletePortfolioAria": "删除作品：{title}",
     "untitled": "未命名作品",
     "portfolioTypes": "文档、书籍、指南",
+    "phoneTitle": "手机号",
+    "phoneUnbound": "未绑定",
+    "phoneBindCta": "绑定",
+    "phoneChangeCta": "修改",
+    "phoneCancel": "取消",
+    "phoneBindSaved": "手机号已更新",
+    "phoneLoadFailed": "加载手机号失败",
+    "phoneTakenByOther": "该手机号已被其他账号使用",
     "loadingAria": "加载中"
   },
   "workspacePreferences": {
@@ -1533,6 +1541,7 @@
     "currentUser": "当前用户",
     "demote": "降级",
     "promote": "提升",
+    "viewWorkspace": "详情",
     "demoteDialogAria": "确认降级",
     "demoteTitle": "确认降级",
     "demoteSelfDesc": "你将降级自己（{user}）的平台管理员权限。请确认。",
