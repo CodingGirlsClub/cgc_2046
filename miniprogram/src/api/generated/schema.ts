@@ -3117,6 +3117,7 @@ export type PermissionMatrixRow = {
 };
 
 export type PhoneCodePurpose =
+  | 'CHANGE_PHONE'
   | 'LOGIN'
   | 'REGISTER'
   | 'WECHAT_BIND';
@@ -3504,6 +3505,8 @@ export type RootMutationType = {
   updateEvent: UpdateEventResult;
   /** 更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人） */
   updateMyLocale?: Maybe<User>;
+  /** 绑定/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并） */
+  updateMyPhone?: Maybe<User>;
   /** 更新某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   updatePortfolioItem?: Maybe<PortfolioItem>;
   /** 更新工作台（Owner/Admin 或平台管理员） */
@@ -3870,6 +3873,12 @@ export type RootMutationTypeUpdateMyLocaleArgs = {
 };
 
 
+export type RootMutationTypeUpdateMyPhoneArgs = {
+  code: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeUpdatePortfolioItemArgs = {
   id: Scalars['ID']['input'];
   input: UpdatePortfolioItemInput;
@@ -3958,6 +3967,8 @@ export type RootQueryType = {
   myOrders?: Maybe<KeysetPageOfOrder>;
   /** 当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123） */
   myPendingApprovals: Array<PendingApproval>;
+  /** 当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面） */
+  myPhone?: Maybe<Scalars['String']['output']>;
   /** 当前用户跨工作台的赞助意向 */
   mySponsorships?: Maybe<KeysetPageOfSponsorship>;
   /** 当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请） */
