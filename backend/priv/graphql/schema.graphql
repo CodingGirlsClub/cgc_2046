@@ -458,7 +458,7 @@ input WorkflowDefinitionFilterInput {
   "蓝图名称（租户内可读）"
   name: WorkflowDefinitionFilterName
 
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ research 教研"
+  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研"
   type: WorkflowDefinitionFilterType
 
   "版本号，单调递增；new_version 出 v+1（#34）"
@@ -486,7 +486,7 @@ type WorkflowDefinition {
   "蓝图名称（租户内可读）"
   name: String!
 
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ research 教研"
+  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研"
   type: String!
 
   "版本号，单调递增；new_version 出 v+1（#34）"
