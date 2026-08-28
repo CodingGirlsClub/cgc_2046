@@ -14,7 +14,7 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
   alias Cgc2046.Workers.{NotificationWorker, PaymentExpiryWorker}

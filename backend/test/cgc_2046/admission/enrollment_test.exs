@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.EnrollmentTest do
+defmodule Cgc2046.Admission.EnrollmentTest do
   @paid_tier_id "33333333-3333-3333-3333-333333333333"
 
   use Cgc2046.DataCase, async: true
@@ -7,7 +7,7 @@ defmodule Cgc2046.Events.EnrollmentTest do
   alias Cgc2046.Accounts.UserIdentity
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Errors.BusinessError
-  alias Cgc2046.Events.{Enrollment, InviteBatch}
+  alias Cgc2046.Admission.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{Order, Providers.Fake, WebhookEvent}
   alias Cgc2046.Workers.{PaymentRefundWorker, PaymentSettlementWorker, SignalPublishWorker}

@@ -18,7 +18,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Workflows.Step
   alias Cgc2046.Workflows.StepRole
   alias Cgc2046.Workflows.WorkflowRun

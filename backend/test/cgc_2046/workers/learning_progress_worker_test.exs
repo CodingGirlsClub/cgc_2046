@@ -11,7 +11,7 @@ defmodule Cgc2046.Workers.LearningProgressWorkerTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   use Oban.Testing, repo: Cgc2046.Repo
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Learning.LearningRecord
   alias Cgc2046.Workers.LearningProgressWorker
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}

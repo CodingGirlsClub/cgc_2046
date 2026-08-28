@@ -35,7 +35,8 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
   require Logger
 
   alias Cgc2046.Accounts.AdminActionLog
-  alias Cgc2046.Events.{Course, Enrollment, Event}
+  alias Cgc2046.Admission.Enrollment
+  alias Cgc2046.Events.{Course, Event}
   alias Cgc2046.Payments.Order
   alias Cgc2046.Workers.PaymentRefundWorker
 

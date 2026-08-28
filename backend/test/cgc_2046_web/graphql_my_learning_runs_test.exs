@@ -2,7 +2,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.{Step, WorkflowDefinition, WorkflowRun}
 

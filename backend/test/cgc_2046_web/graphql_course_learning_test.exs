@@ -69,7 +69,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
 
   defp enroll(course, learner) do
     {:ok, enrollment} =
-      Cgc2046.Events.Enrollment
+      Cgc2046.Admission.Enrollment
       |> Ash.Changeset.for_create(:create_enrollment, %{course_id: course.id, user_id: learner.id})
       |> Ash.create(tenant: course.workspace_id, actor: learner)
 

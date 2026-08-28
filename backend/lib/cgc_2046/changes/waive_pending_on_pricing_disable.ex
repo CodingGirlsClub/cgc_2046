@@ -23,7 +23,7 @@ defmodule Cgc2046.Changes.WaivePendingOnPricingDisable do
 
   use Ash.Resource.Change
 
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
 
   @impl true
   def change(changeset, opts, _context) do

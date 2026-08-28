@@ -103,7 +103,7 @@ defmodule Cgc2046.Payments.Order do
 
   relationships do
     belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
-    belongs_to(:enrollment, Cgc2046.Events.Enrollment, define_attribute?: false)
+    belongs_to(:enrollment, Cgc2046.Admission.Enrollment, define_attribute?: false)
   end
 
   identities do

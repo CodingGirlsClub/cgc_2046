@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.PendingApprovals do
+defmodule Cgc2046.PendingApprovals do
   @moduledoc """
   当前 actor 的跨工作台审批待办聚合。
 
@@ -33,7 +33,8 @@ defmodule Cgc2046.Events.PendingApprovals do
   require Ash.Query
 
   alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role, User, Workspace}
-  alias Cgc2046.Events.{Enrollment, Sponsorship}
+  alias Cgc2046.Admission.Enrollment
+  alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Policies.SponsorshipApprover
 
   @spec list(term(), keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -331,7 +332,7 @@ defmodule Cgc2046.Events.PendingApprovals do
       }
 
       # 批量读取唯一真源 = Offering（per-kind per-tenant 批量，消 N+1 形状不变）
-      Map.merge(acc, Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id))
+      Map.merge(acc, Cgc2046.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id))
     end)
   end
 
@@ -346,7 +347,7 @@ defmodule Cgc2046.Events.PendingApprovals do
         course: ws_rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1)
       }
 
-      Map.merge(acc, Cgc2046.Events.Offering.fetch_slugs_by_ids(ids_by_kind, workspace_id))
+      Map.merge(acc, Cgc2046.Offering.fetch_slugs_by_ids(ids_by_kind, workspace_id))
     end)
   end
 

@@ -40,7 +40,7 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.{Order, Provider}
   alias Cgc2046.Payments.NotificationTemplates, as: Templates
 

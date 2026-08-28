@@ -145,7 +145,7 @@ defmodule Cgc2046.Events.Sponsorship do
 
             Map.merge(
               acc,
-              Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
+              Cgc2046.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
             )
           end)
 
