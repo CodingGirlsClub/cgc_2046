@@ -14,8 +14,7 @@ defmodule Cgc2046.GlobalApi do
     resource_group_labels(
       accounts: "账号",
       tenancy: "工作台与成员",
-      access: "加入与邀请",
-      miniprogram: "小程序"
+      access: "加入与邀请"
     )
   end
 
@@ -52,9 +51,5 @@ defmodule Cgc2046.GlobalApi do
 
     # #116 R10a：admin 治理操作留痕（全局资源，区别于 Mcp.ToolCallLog 运营审计）
     resource(Cgc2046.Accounts.AdminActionLog)
-    resource(Cgc2046.Miniprogram.Code)
-    resource(Cgc2046.Miniprogram.NotificationConsent)
-    # plan 011 P1：微信 URL Scheme 分享链接缓存（全局资源，UK target+platform）
-    resource(Cgc2046.Miniprogram.ShareScheme)
   end
 end
