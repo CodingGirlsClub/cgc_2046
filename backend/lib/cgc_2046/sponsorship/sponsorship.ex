@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.Sponsorship do
+defmodule Cgc2046.Sponsorship.Sponsorship do
   @moduledoc """
   赞助资源（E-3 #48）：两级赞助（Event 级单场 / Workspace 级长期）。
 
@@ -22,12 +22,12 @@ defmodule Cgc2046.Events.Sponsorship do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Events
+    domain: Cgc2046.Sponsorship
 
   alias Cgc2046.ApprovalClaim
   alias Cgc2046.Repo
 
-  alias Cgc2046.Events.SponsorshipTier
+  alias Cgc2046.Sponsorship.SponsorshipTier
   alias Cgc2046.Accounts.Workspace
   require Ash.Query
 
@@ -196,7 +196,7 @@ defmodule Cgc2046.Events.Sponsorship do
       source_attribute: :approved_by
     )
 
-    has_many(:deliveries, Cgc2046.Events.SponsorshipDelivery,
+    has_many(:deliveries, Cgc2046.Sponsorship.SponsorshipDelivery,
       destination_attribute: :sponsorship_id,
       public?: true
     )
@@ -952,7 +952,7 @@ defmodule Cgc2046.Events.Sponsorship do
   defp domain_error_code(_), do: "sponsorship_unknown"
 
   admin do
-    resource_group(:events)
+    resource_group(:sponsorship)
 
     table_columns([
       :id,

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.SponsorshipDelivery do
+defmodule Cgc2046.Sponsorship.SponsorshipDelivery do
   @moduledoc """
   履约账本（E-3 #48，D5 拍板）：Sponsorship 激活（A3）同事务从 tier.benefits
   物化的交付行。
@@ -14,7 +14,7 @@ defmodule Cgc2046.Events.SponsorshipDelivery do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Events
+    domain: Cgc2046.Sponsorship
 
   alias Cgc2046.Repo
 
@@ -64,7 +64,7 @@ defmodule Cgc2046.Events.SponsorshipDelivery do
   end
 
   relationships do
-    belongs_to(:sponsorship, Cgc2046.Events.Sponsorship, define_attribute?: false)
+    belongs_to(:sponsorship, Cgc2046.Sponsorship.Sponsorship, define_attribute?: false)
   end
 
   actions do
@@ -160,7 +160,7 @@ defmodule Cgc2046.Events.SponsorshipDelivery do
   defp domain_error_code(_), do: "sponsorship_delivery_unknown"
 
   admin do
-    resource_group(:events)
+    resource_group(:sponsorship)
     table_columns([:id, :sponsorship_id, :benefit, :due_date, :fulfilled_at, :exclusive])
   end
 end

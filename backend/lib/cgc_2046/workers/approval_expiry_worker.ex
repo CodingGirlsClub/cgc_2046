@@ -49,7 +49,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Workflows.WorkflowRun
 
   # 六份过期扫描的声明式规格（PR-D）：每行 = 一个资源面。

@@ -17,7 +17,8 @@ config :cgc_2046,
     Cgc2046.Events,
     Cgc2046.GlobalApi,
     Cgc2046.Mcp,
-    Cgc2046.Payments
+    Cgc2046.Payments,
+    Cgc2046.Sponsorship
   ],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 

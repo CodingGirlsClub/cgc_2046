@@ -1,9 +1,10 @@
-defmodule Cgc2046.Events.SponsorshipFlowTest do
+defmodule Cgc2046.Sponsorship.SponsorshipFlowTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Event, Sponsorship, SponsorshipDelivery}
+  alias Cgc2046.Events.Event
+  alias Cgc2046.Sponsorship.{Sponsorship, SponsorshipDelivery}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workers.SignalPublishWorker
@@ -441,14 +442,17 @@ defmodule Cgc2046.Events.SponsorshipFlowTest do
         }
       }
 
-      assert :ok = SignalSubscriber.deliver(Cgc2046.Events.SponsorshipEndedSubscriber, signal)
+      assert :ok =
+               SignalSubscriber.deliver(Cgc2046.Sponsorship.SponsorshipEndedSubscriber, signal)
 
       assert Ash.get!(Sponsorship, event_pending.id, authorize?: false).status == :ended
       assert Ash.get!(Sponsorship, ws_pending.id, authorize?: false).status == :active
 
       # 重复投递：状态守卫幂等 + SignalIdempotency claim
       ended_at = Ash.get!(Sponsorship, event_pending.id, authorize?: false).ended_at
-      assert :ok = SignalSubscriber.deliver(Cgc2046.Events.SponsorshipEndedSubscriber, signal)
+
+      assert :ok =
+               SignalSubscriber.deliver(Cgc2046.Sponsorship.SponsorshipEndedSubscriber, signal)
 
       assert %{status: :ended, ended_at: ^ended_at} =
                Ash.get!(Sponsorship, event_pending.id, authorize?: false)

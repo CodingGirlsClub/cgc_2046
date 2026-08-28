@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.SponsorshipTier do
+defmodule Cgc2046.Sponsorship.SponsorshipTier do
   @moduledoc """
   赞助档位配置的纯函数族（E-3 #48）。
 
@@ -64,7 +64,7 @@ defmodule Cgc2046.Events.SponsorshipTier do
   def exclusive?(_tier), do: false
 end
 
-defmodule Cgc2046.Events.SponsorshipTiersValidation do
+defmodule Cgc2046.Sponsorship.SponsorshipTiersValidation do
   @moduledoc """
   `sponsorship_tiers` 字段结构校验（Ash Resource.Validation）。
 
@@ -75,7 +75,7 @@ defmodule Cgc2046.Events.SponsorshipTiersValidation do
 
   use Ash.Resource.Validation
 
-  alias Cgc2046.Events.SponsorshipTier
+  alias Cgc2046.Sponsorship.SponsorshipTier
 
   @impl true
   def validate(changeset, _opts, _context) do
