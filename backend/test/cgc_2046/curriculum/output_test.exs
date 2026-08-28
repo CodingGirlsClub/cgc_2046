@@ -1,6 +1,6 @@
-defmodule Cgc2046.Workflows.ResearchOutputTest do
+defmodule Cgc2046.Curriculum.OutputTest do
   @moduledoc """
-  ResearchOutput 资源测试(切片 H U1, #180):
+  Curriculum.Output 资源测试(切片 H U1, #180):
 
   - 首次保存 kind=:issues 成功,key 形如 course_<id>,(key,kind) 唯一
   - 同 key 二次保存为更新(活文档),不产生第二行
@@ -14,7 +14,7 @@ defmodule Cgc2046.Workflows.ResearchOutputTest do
   require Ash.Query
 
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workflows.ResearchOutput
+  alias Cgc2046.Curriculum.Output
 
   defp content_fixture(attrs \\ %{}) do
     Map.merge(
@@ -55,12 +55,12 @@ defmodule Cgc2046.Workflows.ResearchOutputTest do
   end
 
   defp upsert(workspace, actor, course, content, attrs \\ %{}) do
-    ResearchOutput
+    Output
     |> Ash.Changeset.for_create(
       :upsert_content,
       Map.merge(
         %{
-          key: ResearchOutput.course_key(course.id),
+          key: Output.course_key(course.id),
           kind: :issues,
           data: content,
           submitted_by: actor.id,
@@ -101,12 +101,12 @@ defmodule Cgc2046.Workflows.ResearchOutputTest do
       {:ok, result} =
         Ecto.Adapters.SQL.query(
           Repo,
-          "INSERT INTO research_outputs (id, workspace_id, key, kind, data, submitted_by) " <>
+          "INSERT INTO curriculum_outputs (id, workspace_id, key, kind, data, submitted_by) " <>
             "VALUES ($1, $2, $3, 'issues', $4::jsonb, $5) ON CONFLICT DO NOTHING",
           [
             Ecto.UUID.dump!(Ecto.UUID.generate()),
             Ecto.UUID.dump!(workspace.id),
-            ResearchOutput.course_key(course.id),
+            Output.course_key(course.id),
             Jason.encode!(content_fixture()),
             Ecto.UUID.dump!(admin.id)
           ]
@@ -135,7 +135,7 @@ defmodule Cgc2046.Workflows.ResearchOutputTest do
       assert second.submitted_by == admin.id
 
       assert [row] =
-               ResearchOutput
+               Output
                |> Ash.Query.filter(workspace_id == ^workspace.id)
                |> Ash.read!(authorize?: false, tenant: workspace.id)
 
@@ -231,7 +231,7 @@ defmodule Cgc2046.Workflows.ResearchOutputTest do
       # 读面同样非 Forbidden:读 policy 全拒 → 查询被置空(Ash 读门禁语义,
       # 同 actor_reads_offering 家族),非成员读不到租户内任何行
       assert {:ok, []} =
-               ResearchOutput
+               Output
                |> Ash.Query.for_read(:read)
                |> Ash.read(tenant: workspace.id, actor: outsider)
     end
@@ -243,11 +243,11 @@ defmodule Cgc2046.Workflows.ResearchOutputTest do
       {:ok, _} = upsert(workspace, admin, course, content_fixture())
 
       assert {:ok, [output]} =
-               ResearchOutput
+               Output
                |> Ash.Query.for_read(:read)
                |> Ash.read(tenant: workspace.id, actor: admin)
 
-      assert output.key == ResearchOutput.course_key(course.id)
+      assert output.key == Output.course_key(course.id)
     end
   end
 end

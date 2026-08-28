@@ -23,9 +23,9 @@ defmodule Cgc2046.Application do
       # 注册不随短命调用进程丢失——SC2-011）
       Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
-      Cgc2046.Workflows.ResearchInstantiator,
+      Cgc2046.Curriculum.Instantiator,
       # 生命周期级联（E-9 #124：订阅 event/course.ended 信号 → 停教研 run 回收）
-      Cgc2046.Workflows.ResearchRunReaper,
+      Cgc2046.Curriculum.Reaper,
       # 赞助关系级联（E-3 #48：订阅 event.ended → Event 级 active Sponsorship 转 ended）
       Cgc2046.Events.SponsorshipEndedSubscriber,
       # Event cancelled 批量退款（缴费闭环 U9：订阅 event.ended，回查 cancelled

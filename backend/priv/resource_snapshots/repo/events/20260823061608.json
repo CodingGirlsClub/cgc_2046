@@ -89,7 +89,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "research_enabled",
+      "source": "curriculum_enabled",
       "type": "boolean"
     },
     {
@@ -101,7 +101,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "research_requirements",
+      "source": "curriculum_requirements",
       "type": "map"
     },
     {

@@ -4,8 +4,8 @@ defmodule Cgc2046.Offering.Readiness do
 
   清单 v1（D3 定稿）：
   1. `registration_deadline` 已设（null 合法 = 不设截止，仅提示）；
-  2. published research 定义存在（无则教研 run 不会实例化，
-     research_instantiator 静默跳过——对账规则④同源）；
+  2. published curriculum 定义存在（无则教研 run 不会实例化，
+     curriculum instantiator 静默跳过——对账规则④同源）；
   3. `sponsorship_tiers_configured`：event 的 `sponsorship_enabled=true` 时
      sponsorship_tiers 非空已配（E-3 落库后追加，D3）；course 无赞助概念恒 pass。
 
@@ -27,9 +27,9 @@ defmodule Cgc2046.Offering.Readiness do
         ok: not is_nil(entity.registration_deadline)
       },
       %{
-        key: "research_definition",
+        key: "curriculum_definition",
         label: "已发布教研 workflow 定义",
-        ok: research_definition_published?(entity.workspace_id)
+        ok: curriculum_definition_published?(entity.workspace_id)
       },
       %{
         key: "sponsorship_tiers_configured",
@@ -70,9 +70,9 @@ defmodule Cgc2046.Offering.Readiness do
 
   # 已发布教研定义（多个取任意即可，实例化取最新）——查询失败视为未就绪
   # （fail-closed：宁可提示不可静默放行）。
-  defp research_definition_published?(workspace_id) do
+  defp curriculum_definition_published?(workspace_id) do
     case WorkflowDefinition
-         |> Ash.Query.filter(type == :research and status == :published)
+         |> Ash.Query.filter(type == :curriculum and status == :published)
          |> Ash.read_first(tenant: workspace_id, authorize?: false) do
       {:ok, %WorkflowDefinition{}} -> true
       {:ok, nil} -> false

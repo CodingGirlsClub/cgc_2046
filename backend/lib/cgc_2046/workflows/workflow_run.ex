@@ -673,15 +673,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   @doc """
   建 run 唯一入口：非终态去重 + create→start 顺序内化（漏 start = 永久 pending run
-  的 ordering leak 从 interface 根除）。三个 instantiator（research/learning/speaker）
+  的 ordering leak 从 interface 根除）。三个 instantiator（curriculum/learning/speaker）
   不再各自手写两步五参舞蹈。
 
   - `key`：去重键（写入 `input_snapshot["key"]`）。非 nil → 按 definition + key 查
-    非终态 run（`pending/running/waiting`，终态列表与 research/learning 既有
+    非终态 run（`pending/running/waiting`，终态列表与 curriculum/learning 既有
     existing_run 逐字一致），命中返回 `{:ok, run, :existing}`；未命中 → 创建并启动。
     nil → 不去重，直接创建并启动（speaker 供：邀请唯一性由调用侧
     `ensure_no_active_invitation` 保证，key 字段仍随 input 写入）。
-  - `start_action`：`:start_run`（默认；research/speaker，pending → 执行闭环）｜
+  - `start_action`：`:start_run`（默认；curriculum/speaker，pending → 执行闭环）｜
     `:start`（learning：协议而非 DAG，纯状态流转 pending → running，不经 Engine）。
   - `actor`：透传（默认 nil = `authorize?: false` 无 actor，与既有 instantiator 一致）。
 
@@ -714,7 +714,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
   end
 
-  # 非终态去重（终态列表与 research/learning 既有 existing_run 逐字一致）：同一
+  # 非终态去重（终态列表与 curriculum/learning 既有 existing_run 逐字一致）：同一
   # definition + instance key 已有 pending/running/waiting run → 命中；终态后可重新
   # 实例化（succeeded/failed/cancelled/expired 不在判定内）。
   defp existing_run(workspace_id, definition_id, key) do
@@ -728,7 +728,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   end
 
   # create → 紧接 start（同一函数体内，漏 start 不再可能；失败原样上抛）。
-  # key 非 nil 时把去重键写入 input_snapshot（与 research/learning 既有
+  # key 非 nil 时把去重键写入 input_snapshot（与 curriculum/learning 既有
   # Map.put(input, "key", key) 语义一致）；key nil 时 input 原样落库（speaker 的
   # key 字段随 input 自带）。
   defp create_and_start(workspace_id, definition, input, start_action, opts, key \\ nil) do

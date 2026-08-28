@@ -421,8 +421,8 @@ interface MetaDraft {
   endsAt: string;
   /** venue 四键草稿（仅 event 渲染与下发；全空 = 线上/未定） */
   venue: VenueInfo;
-  /** 教研需求自由文本(U8/R12,仅 course;原文透传 research_requirements) */
-  researchRequirements: string;
+  /** 教研需求自由文本(U8/R12,仅 course;原文透传 curriculum_requirements) */
+  curriculumRequirements: string;
   /** 收费设置（U6/R2）：开关 + 档位草稿（编辑面就地修改） */
   pricingEnabled: boolean;
   tierDrafts: TierDraft[];
@@ -614,8 +614,8 @@ export function OfferingDetailPage({
             startsAt: toLocalInput(offering.startsAt ?? null),
             endsAt: toLocalInput(offering.endsAt ?? null),
             venue: parseVenue(offering.venue) ?? { ...EMPTY_VENUE },
-            researchRequirements: parseResearchText(
-              offering.researchRequirements,
+            curriculumRequirements: parseResearchText(
+              offering.curriculumRequirements,
             ),
             // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
             pricingEnabled: offering.pricingEnabled === true,
@@ -806,8 +806,8 @@ export function OfferingDetailPage({
         endsAt: fromLocalInput(activeDraft.endsAt),
         ...(kind === "course"
           ? {
-              researchRequirements: buildResearchJson(
-                activeDraft.researchRequirements,
+              curriculumRequirements: buildResearchJson(
+                activeDraft.curriculumRequirements,
               ),
             }
           : { venue: activeDraft.venue }),
@@ -1192,11 +1192,11 @@ export function OfferingDetailPage({
                         <textarea
                           data-testid="research-requirements-input"
                           rows={4}
-                          value={activeDraft.researchRequirements}
+                          value={activeDraft.curriculumRequirements}
                           onChange={(e) =>
                             setMetaDraft({
                               ...activeDraft,
-                              researchRequirements: e.target.value,
+                              curriculumRequirements: e.target.value,
                             })
                           }
                           className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"

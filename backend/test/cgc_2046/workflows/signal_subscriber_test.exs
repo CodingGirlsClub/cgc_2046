@@ -516,8 +516,8 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
         Cgc2046.SpeakerSubscriber,
         Cgc2046.Events.SponsorshipEndedSubscriber,
         Cgc2046.Workflows.LearningInstantiator,
-        Cgc2046.Workflows.ResearchInstantiator,
-        Cgc2046.Workflows.ResearchRunReaper,
+        Cgc2046.Curriculum.Instantiator,
+        Cgc2046.Curriculum.Reaper,
         Cgc2046.Workflows.ShareSchemeInstantiator,
         Cgc2046.Workers.OfferingCancelRefundWorker
       ],

@@ -1269,7 +1269,7 @@ input UpdateCourseInput {
   description: String
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -1316,7 +1316,7 @@ input CreateCourseInput {
   description: String
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -1352,7 +1352,7 @@ enum CourseSortField {
   TITLE
   SLUG
   DESCRIPTION
-  RESEARCH_REQUIREMENTS
+  CURRICULUM_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
   ENROLLMENT_POLICY
@@ -1540,7 +1540,7 @@ input CourseFilterStatus {
   rangeOverlaps: String
 }
 
-input CourseFilterResearchRequirements {
+input CourseFilterCurriculumRequirements {
   isNil: Boolean
   eq: JsonString
   notEq: JsonString
@@ -1673,7 +1673,7 @@ input CourseFilterInput {
   description: CourseFilterDescription
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: CourseFilterResearchRequirements
+  curriculumRequirements: CourseFilterCurriculumRequirements
 
   "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: CourseFilterStatus
@@ -1729,7 +1729,7 @@ type Course {
   description: String
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: String!
@@ -2681,10 +2681,10 @@ input UpdateEventInput {
   description: String
 
   "是否启用教研 workflow"
-  researchEnabled: Boolean
+  curriculumEnabled: Boolean
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -2743,10 +2743,10 @@ input CreateEventInput {
   description: String
 
   "是否启用教研 workflow"
-  researchEnabled: Boolean
+  curriculumEnabled: Boolean
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -2794,8 +2794,8 @@ enum EventSortField {
   TITLE
   SLUG
   DESCRIPTION
-  RESEARCH_ENABLED
-  RESEARCH_REQUIREMENTS
+  CURRICULUM_ENABLED
+  CURRICULUM_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
   ENROLLMENT_POLICY
@@ -3034,7 +3034,7 @@ input EventFilterStatus {
   rangeOverlaps: String
 }
 
-input EventFilterResearchRequirements {
+input EventFilterCurriculumRequirements {
   isNil: Boolean
   eq: JsonString
   notEq: JsonString
@@ -3050,7 +3050,7 @@ input EventFilterResearchRequirements {
   rangeOverlaps: JsonString
 }
 
-input EventFilterResearchEnabled {
+input EventFilterCurriculumEnabled {
   isNil: Boolean
   eq: Boolean
   notEq: Boolean
@@ -3183,10 +3183,10 @@ input EventFilterInput {
   description: EventFilterDescription
 
   "是否启用教研 workflow"
-  researchEnabled: EventFilterResearchEnabled
+  curriculumEnabled: EventFilterCurriculumEnabled
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: EventFilterResearchRequirements
+  curriculumRequirements: EventFilterCurriculumRequirements
 
   "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: EventFilterStatus
@@ -3249,10 +3249,10 @@ type Event {
   description: String
 
   "是否启用教研 workflow"
-  researchEnabled: Boolean!
+  curriculumEnabled: Boolean!
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: String!

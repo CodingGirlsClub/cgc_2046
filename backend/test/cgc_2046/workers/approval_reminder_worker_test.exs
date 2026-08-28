@@ -59,7 +59,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
                :create,
                %{
                  name: "审批 workflow",
-                 type: :research,
+                 type: :curriculum,
                  input_schema: %{"text" => "string"},
                  node_def: gated_node_def(),
                  approval_timeout: approval_timeout

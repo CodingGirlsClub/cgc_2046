@@ -2,7 +2,7 @@ defmodule Cgc2046.AsyncSignalTest do
   @moduledoc """
   E-2 #47 验收：异步衍生 Signal 订阅方（NotificationSubscriber）端到端测试。
 
-  分层（与 repo 既有纪律对齐——research_run_reaper_test 直接调 deliver/2，
+  分层（与 repo 既有纪律对齐——curriculum/reaper_test 直接调 deliver/2，
   「信号总线异步投递在 POC 已验证」）：
 
   1. **真实总线异步投递**：Enrollment after_action 事务内入队 SignalPublishWorker

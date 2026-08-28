@@ -20,7 +20,7 @@ defmodule Cgc2046.Policies.ActorIsWorkspaceMemberViaTest do
         :create,
         %{
           name: "成员可读 workflow",
-          type: :research,
+          type: :curriculum,
           input_schema: %{"topic" => "string"},
           node_def: %{steps: ["outline_design"]},
           approval_timeout: 604_800

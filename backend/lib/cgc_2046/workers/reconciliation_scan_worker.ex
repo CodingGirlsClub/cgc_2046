@@ -18,10 +18,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
      处于 discarded（PR-A 后同事务必入队，死信 = 信号从未发布 = 信号链断连；
      SignalLog 只记入向 ADR-0003，原「无 signal_log」不可实现）
   4. `:open_entity_without_research_definition` — open 实体其工作台无 published
-     教研定义（U6:course 无条件;event 保留 research_enabled=false 合法不命中）
+     教研定义（U6:course 无条件;event 保留 curriculum_enabled=false 合法不命中）
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定；
-     ResearchInstantiator 二次校验与 INSERT 竞态 / reaper cancel 失败残余窗口兜底）
+     Curriculum.Instantiator 二次校验与 INSERT 竞态 / reaper cancel 失败残余窗口兜底）
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker）。
      **Pruner 7 天窗口内判定**：oban_jobs 超出 Pruner max_age（7 天）的 discarded
      历史行不报告——死信告警只覆盖可排查窗口，历史已过期行交给 Pruner 清理。
@@ -281,19 +281,19 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   # ── 规4:open 实体无 published 教研定义(U6:course 无条件,event-only 门控)──
 
   defp scan_rule4 do
-    research_workspace_ids =
+    curriculum_workspace_ids =
       WorkflowDefinition
-      |> Ash.Query.filter(type == :research and status == :published)
+      |> Ash.Query.filter(type == :curriculum and status == :published)
       |> Ash.read!(authorize?: false)
       |> MapSet.new(fn definition -> definition.workspace_id end)
 
-    # U6(#180/R14):Course 删 research_enabled 后无条件命中(open 课程无
-    # published 定义 = 真孤儿);Event 保留开关过滤(research_enabled=false
+    # U6(#180/R14):Course 删 curriculum_enabled 后无条件命中(open 课程无
+    # published 定义 = 真孤儿);Event 保留开关过滤(curriculum_enabled=false
     # 合法不命中,退出通道)。
     open_entities(Event)
     |> Kernel.++(open_unconditional(Course))
     |> Enum.reject(fn entity ->
-      MapSet.member?(research_workspace_ids, entity.workspace_id)
+      MapSet.member?(curriculum_workspace_ids, entity.workspace_id)
     end)
     |> Enum.map(fn entity ->
       entity_type = if is_struct(entity, Event), do: :event, else: :course
@@ -309,7 +309,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
 
   defp open_entities(resource) do
     resource
-    |> Ash.Query.filter(status == :open and research_enabled)
+    |> Ash.Query.filter(status == :open and curriculum_enabled)
     |> Ash.read!(authorize?: false)
   end
 
@@ -319,7 +319,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
     |> Ash.read!(authorize?: false)
   end
 
-  # ── 规5：closed/cancelled Event/Course 仍有非终态 research run --------------
+  # ── 规5：closed/cancelled Event/Course 仍有非终态 curriculum run --------------
 
   defp scan_rule5 do
     closed_keys = closed_entity_keys(Event) |> Map.merge(closed_entity_keys(Course))
@@ -328,7 +328,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
       []
     else
       WorkflowRun
-      |> Ash.Query.filter(definition.type == :research and status in @non_terminal_statuses)
+      |> Ash.Query.filter(definition.type == :curriculum and status in @non_terminal_statuses)
       |> Ash.read!(authorize?: false)
       |> Enum.flat_map(fn run ->
         case Map.get(closed_keys, run.input_snapshot["key"]) do

@@ -1,10 +1,10 @@
 defmodule Cgc2046.Courses.U6CoursePipelineTest do
   @moduledoc """
-  U6(切片 H, #180/R14):research_enabled 删列与消费方收紧。
+  U6(切片 H, #180/R14):curriculum_enabled 删列与消费方收紧。
 
   - course launch 恒实例化教研 run(原 false 跳过分支删除后的行为)
   - open 课程无 published 定义 → 规则④命中(AE4);有定义不命中;
-    Event research_enabled=false 仍合法不命中
+    Event curriculum_enabled=false 仍合法不命中
   - Readiness course 教研项无条件检查(不看开关)
   """
 
@@ -17,8 +17,9 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.ReconciliationScanWorker
 
+  alias Cgc2046.Curriculum.Instantiator
+
   alias Cgc2046.Workflows.{
-    ResearchInstantiator,
     SignalSubscriber,
     WorkflowDefinition,
     WorkflowRun
@@ -26,14 +27,14 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
 
   require Ash.Query
 
-  defp create_research_definition(workspace, actor) do
+  defp create_curriculum_definition(workspace, actor) do
     {:ok, defn} =
       WorkflowDefinition
       |> Ash.Changeset.for_create(
         :create,
         %{
           name: "教研 #{Ecto.UUID.generate()}",
-          type: :research,
+          type: :curriculum,
           input_schema: %{},
           node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
         },
@@ -49,13 +50,13 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
 
   defp launch_signal(course) do
     :ok =
-      SignalSubscriber.deliver(ResearchInstantiator, %{
+      SignalSubscriber.deliver(Instantiator, %{
         type: "course.launched",
         data: %{"course_id" => course.id, "title" => course.title}
       })
   end
 
-  defp research_runs(workspace_id, course) do
+  defp curriculum_runs(workspace_id, course) do
     WorkflowRun
     |> Ash.Query.filter(input_snapshot["key"] == ^"course_#{course.id}")
     |> Ash.read!(authorize?: false, tenant: workspace_id)
@@ -68,18 +69,18 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
   end
 
   describe "course launch 恒实例化(U6)" do
-    test "published 定义存在 → 教研 run 创建(无 research_enabled 概念)" do
+    test "published 定义存在 → 教研 run 创建(无 curriculum_enabled 概念)" do
       admin = Fixtures.platform_admin("u6-launch")
       workspace = Fixtures.create_workspace(admin)
-      create_research_definition(workspace, admin)
+      create_curriculum_definition(workspace, admin)
       course = EventFixtures.create_course(workspace, admin, %{title: "课程"})
 
       launch_signal(course)
 
       # 异步路径:轮询等待实例化(常驻订阅方可能抢先,幂等殊途同归)
-      wait_until(fn -> length(research_runs(workspace.id, course)) == 1 end)
+      wait_until(fn -> length(curriculum_runs(workspace.id, course)) == 1 end)
 
-      [run] = research_runs(workspace.id, course)
+      [run] = curriculum_runs(workspace.id, course)
       assert run.status in [:waiting, :running]
       assert course.workflow_run_id == nil || course.workflow_run_id == run.id
     end
@@ -101,17 +102,17 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
     test "工作台有 published 定义 → 不命中" do
       admin = Fixtures.platform_admin("u6-r4-def")
       workspace = Fixtures.create_workspace(admin)
-      create_research_definition(workspace, admin)
+      create_curriculum_definition(workspace, admin)
       EventFixtures.create_course(workspace, admin, %{title: "有定义课程"})
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:open_entity_without_research_definition)
     end
 
-    test "Event research_enabled=false 仍合法不命中(event-only 退出通道)" do
+    test "Event curriculum_enabled=false 仍合法不命中(event-only 退出通道)" do
       admin = Fixtures.platform_admin("u6-r4-event")
       workspace = Fixtures.create_workspace(admin)
-      EventFixtures.create_event(workspace, admin, %{research_enabled: false})
+      EventFixtures.create_event(workspace, admin, %{curriculum_enabled: false})
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:open_entity_without_research_definition)
@@ -119,23 +120,23 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
   end
 
   describe "Readiness course 教研项无条件(U6)" do
-    test "course 无 published 定义 → research_definition 项 not ok(不看开关)" do
+    test "course 无 published 定义 → curriculum_definition 项 not ok(不看开关)" do
       admin = Fixtures.platform_admin("u6-ready")
       workspace = Fixtures.create_workspace(admin)
       course = EventFixtures.create_course(workspace, admin, %{title: "课程"})
 
       result = Readiness.evaluate(course)
 
-      research_item = Enum.find(result.items, &(&1.key == "research_definition"))
-      refute research_item.ok
+      curriculum_item = Enum.find(result.items, &(&1.key == "curriculum_definition"))
+      refute curriculum_item.ok
       refute result.ready
 
       # 有定义 → ok(无条件检查的正向)
-      create_research_definition(workspace, admin)
+      create_curriculum_definition(workspace, admin)
 
       result2 = Readiness.evaluate(course)
-      research_item2 = Enum.find(result2.items, &(&1.key == "research_definition"))
-      assert research_item2.ok
+      curriculum_item2 = Enum.find(result2.items, &(&1.key == "curriculum_definition"))
+      assert curriculum_item2.ok
     end
   end
 

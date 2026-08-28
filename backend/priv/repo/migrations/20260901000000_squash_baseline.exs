@@ -376,14 +376,14 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :workspace_id, :uuid, null: false
     end
 
-    create table(:research_outputs, primary_key: false) do
+    create table(:curriculum_outputs, primary_key: false) do
       add :id, :uuid, default: fragment("gen_random_uuid()"), null: false, primary_key: true
 
       add :workspace_id,
           references(:workspaces,
             column: :id,
             type: :uuid,
-            name: "research_outputs_workspace_id_fkey",
+            name: "curriculum_outputs_workspace_id_fkey",
             on_delete: :delete_all
           ),
           null: false
@@ -651,7 +651,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
           null: false
 
       add :title, :text, null: false
-      add :research_requirements, :map, default: %{}
+      add :curriculum_requirements, :map, default: %{}
       add :status, :text, default: "draft", null: false
 
       add :workflow_run_id,
@@ -688,8 +688,8 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
           null: false
 
       add :title, :text, null: false
-      add :research_enabled, :boolean, default: true, null: false
-      add :research_requirements, :map, default: %{}
+      add :curriculum_enabled, :boolean, default: true, null: false
+      add :curriculum_requirements, :map, default: %{}
       add :status, :text, default: "draft", null: false
 
       add :workflow_run_id,
@@ -1193,11 +1193,13 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
 
     create index(:portfolio_items, [:user_id], name: "portfolio_items_user_id_index")
 
-    create unique_index(:research_outputs, [:key, :kind],
-             name: "research_outputs_unique_key_kind_index"
+    create unique_index(:curriculum_outputs, [:key, :kind],
+             name: "curriculum_outputs_unique_key_kind_index"
            )
 
-    create index(:research_outputs, [:workspace_id], name: "research_outputs_workspace_id_index")
+    create index(:curriculum_outputs, [:workspace_id],
+             name: "curriculum_outputs_workspace_id_index"
+           )
 
     create index(:signal_idempotency, [:inserted_at],
              name: "signal_idempotency_inserted_at_index"
@@ -1403,7 +1405,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
     drop table(:workflow_definitions)
     drop table(:user_identities)
     drop table(:signal_idempotency)
-    drop table(:research_outputs)
+    drop table(:curriculum_outputs)
     drop table(:portfolio_items)
     drop table(:mp_notification_consents)
     drop table(:join_requests)

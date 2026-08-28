@@ -73,7 +73,7 @@ defmodule Cgc2046.Offering.ReadinessTest do
 
       assert Enum.map(items, & &1.key) == [
                "registration_deadline",
-               "research_definition",
+               "curriculum_definition",
                "sponsorship_tiers_configured"
              ]
     end

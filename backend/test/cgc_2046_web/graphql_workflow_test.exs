@@ -17,8 +17,9 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
 
+  alias Cgc2046.Curriculum.Instantiator
+
   alias Cgc2046.Workflows.{
-    ResearchInstantiator,
     StepHandlerRegistry,
     TestActions,
     WorkflowDefinition
@@ -88,7 +89,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     WorkflowDefinition
     |> Ash.Changeset.for_create(
       :create,
-      %{name: "教研 workflow", type: :research, node_def: node_def},
+      %{name: "教研 workflow", type: :curriculum, node_def: node_def},
       tenant: workspace.id,
       actor: actor
     )
@@ -135,7 +136,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     event = force_open(create_event(workspace, admin) |> elem(1), :events)
 
     assert {:ok, run} =
-             ResearchInstantiator.launch(
+             Instantiator.launch(
                workspace.id,
                published.id,
                %{"event_id" => event.id, "title" => event.title, "text" => "hi"},

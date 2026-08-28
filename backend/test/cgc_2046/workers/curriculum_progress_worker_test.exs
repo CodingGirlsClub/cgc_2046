@@ -1,6 +1,6 @@
-defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
+defmodule Cgc2046.Workers.CurriculumProgressWorkerTest do
   @moduledoc """
-  ResearchProgressWorker 测试(切片 H U5, #180):
+  CurriculumProgressWorker 测试(切片 H U5, #180):
 
   - 内容存在 + run waiting/running → succeeded
   - run 已终态不动;无内容不动
@@ -12,7 +12,7 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.ResearchProgressWorker
+  alias Cgc2046.Workers.CurriculumProgressWorker
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   require Ash.Query
@@ -37,14 +37,14 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
     }
   end
 
-  defp create_research_definition(workspace, actor) do
+  defp create_curriculum_definition(workspace, actor) do
     {:ok, defn} =
       WorkflowDefinition
       |> Ash.Changeset.for_create(
         :create,
         %{
           name: "教研 #{Ecto.UUID.generate()}",
-          type: :research,
+          type: :curriculum,
           input_schema: %{},
           node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
         },
@@ -97,11 +97,11 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
   end
 
   defp save_content(workspace, actor, course) do
-    Cgc2046.Workflows.ResearchOutput
+    Cgc2046.Curriculum.Output
     |> Ash.Changeset.for_create(
       :upsert_content,
       %{
-        key: Cgc2046.Workflows.ResearchOutput.course_key(course.id),
+        key: Cgc2046.Curriculum.Output.course_key(course.id),
         kind: :issues,
         data: content_fixture(),
         submitted_by: actor.id
@@ -119,7 +119,7 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
   test "内容存在 + run waiting/running → succeeded;无内容不动" do
     admin = Fixtures.platform_admin("rpw-u5")
     workspace = Fixtures.create_workspace(admin)
-    definition = create_research_definition(workspace, admin)
+    definition = create_curriculum_definition(workspace, admin)
 
     course_a = EventFixtures.create_course(workspace, admin, %{title: "有内容课"})
     course_b = EventFixtures.create_course(workspace, admin, %{title: "无内容课"})
@@ -130,7 +130,7 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
 
     save_content(workspace, admin, course_a)
 
-    assert :ok = perform_job(ResearchProgressWorker, %{})
+    assert :ok = perform_job(CurriculumProgressWorker, %{})
 
     assert fetch_run(run_running.id, workspace.id).status == :succeeded
     assert fetch_run(run_waiting.id, workspace.id).status == :succeeded
@@ -140,13 +140,13 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
   test "run 已终态不动(succeeded 不重复处理)" do
     admin = Fixtures.platform_admin("rpw-u5-terminal")
     workspace = Fixtures.create_workspace(admin)
-    definition = create_research_definition(workspace, admin)
+    definition = create_curriculum_definition(workspace, admin)
     course = EventFixtures.create_course(workspace, admin, %{})
 
     run = create_active_run(workspace, definition, course, :succeeded)
     save_content(workspace, admin, course)
 
-    assert :ok = perform_job(ResearchProgressWorker, %{})
+    assert :ok = perform_job(CurriculumProgressWorker, %{})
 
     reloaded = fetch_run(run.id, workspace.id)
     assert reloaded.status == :succeeded
@@ -182,7 +182,7 @@ defmodule Cgc2046.Workers.ResearchProgressWorkerTest do
       run_seeds.()
       run_seeds.()
 
-      for {type, name} <- [{:research, "教研 workflow"}, {:learning, "学习 workflow"}] do
+      for {type, name} <- [{:curriculum, "教研 workflow"}, {:learning, "学习 workflow"}] do
         definitions =
           WorkflowDefinition
           |> Ash.Query.filter(name == ^name and type == ^type and status == :published)

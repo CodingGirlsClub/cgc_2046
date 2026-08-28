@@ -6,7 +6,7 @@ defmodule Cgc2046.Workflows.LearningProgress do
   Todo(无 done 记录)/ In Progress(部分 done)/ Done(全部 done);
   currentIssue = 首个非 Done issue(无则课程 Done 态)。
 
-  `project/6` 数据源 = course content(ResearchOutput.data,经
+  `project/6` 数据源 = course content(Curriculum.Output.data,经
   `CourseContent.issues/1` 解析)+ 该 user 学习记录列表(宽存引用,
   不在内容中的记录不参与分母——id 稳定纪律下的内容编辑安全)。
 

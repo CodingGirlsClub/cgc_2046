@@ -11,7 +11,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
   defp create_definition(workspace, actor, attrs \\ %{}) do
     defaults = %{
       name: "教研 workflow",
-      type: :research,
+      type: :curriculum,
       input_schema: %{"topic" => "string"},
       node_def: %{steps: ["outline_design", "content_review"]},
       approval_timeout: 604_800
@@ -235,7 +235,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
             :enrollment,
             :sponsorship,
             :speaker_invitation,
-            :research
+            :curriculum
           ] do
         assert {:ok, defn} = create_definition(workspace, admin, %{name: "wf-#{t}", type: t})
         assert defn.type == t
@@ -349,7 +349,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
                WorkflowDefinition
                |> Ash.Changeset.for_create(:create, %{
                  name: "forbidden",
-                 type: :research
+                 type: :curriculum
                })
                |> Ash.create(tenant: workspace.id, actor: outsider)
     end

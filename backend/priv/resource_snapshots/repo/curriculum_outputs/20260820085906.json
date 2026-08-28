@@ -32,7 +32,7 @@
           "global": null,
           "strategy": null
         },
-        "name": "research_outputs_workspace_id_fkey",
+        "name": "curriculum_outputs_workspace_id_fkey",
         "on_delete": null,
         "on_update": null,
         "primary_key?": true,
@@ -112,7 +112,7 @@
           "global": true,
           "strategy": "attribute"
         },
-        "name": "research_outputs_workflow_run_id_fkey",
+        "name": "curriculum_outputs_workflow_run_id_fkey",
         "on_delete": null,
         "on_update": null,
         "primary_key?": true,
@@ -184,7 +184,7 @@
     {
       "all_tenants?": true,
       "base_filter": null,
-      "index_name": "research_outputs_unique_key_kind_index",
+      "index_name": "curriculum_outputs_unique_key_kind_index",
       "keys": [
         {
           "type": "atom",
@@ -207,5 +207,5 @@
   },
   "repo": "Elixir.Cgc2046.Repo",
   "schema": null,
-  "table": "research_outputs"
+  "table": "curriculum_outputs"
 }
