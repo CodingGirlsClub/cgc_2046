@@ -30,7 +30,7 @@ defmodule Cgc2046.Admission.Enrollment do
 
   alias Cgc2046.Admission.CapacityLedger
   alias Cgc2046.ApprovalClaim
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
 
   # reason 内容安全平台判定白名单（替代 String.to_atom，杜绝未知字符串造原子）
   @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}

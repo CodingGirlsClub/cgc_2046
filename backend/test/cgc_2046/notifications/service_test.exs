@@ -2,7 +2,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.Notifications.Consent
   alias Cgc2046.Notifications.Fanout
   alias Cgc2046.Notifications.Service
@@ -34,7 +34,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
       end
     end)
 
-    # wechat 分支已迁 SDK（token 由 SDK ETS 管理）——请求层走宿主 WechatRequester
+    # wechat 分支已迁 SDK（token 由 SDK ETS 管理）——请求层走宿主 Wechat.Requester
     # 的 Tesla.Mock adapter。BaseUrl middleware 在 adapter 前，mock 收到的是全 URL。
     # mock fun 内回传请求体后返回；token 读 Cache 得 nil 只影响 query，不出网。
     Tesla.Mock.mock(fn

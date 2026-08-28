@@ -1,9 +1,9 @@
-defmodule Cgc2046.Sms.SendCloud do
+defmodule Cgc2046.Integrations.SendCloud.Sms do
   @moduledoc """
   SendCloud 短信发送（plan 002 U3）。
 
   直调 `POST https://api.sendcloud.net/smsapi/send`（模板短信）。不进 Swoosh——
-  SMS 非邮件，与 `Cgc2046.SwooshAdapters.SendCloud`（`/apiv2/mail/send`）是
+  SMS 非邮件，与 `Cgc2046.Integrations.SendCloud.Mailer`（`/apiv2/mail/send`）是
   两个端点两套协议；Req 复用既有依赖（先例：miniprogram/client.ex、
   swoosh_adapters/send_cloud.ex）。
 

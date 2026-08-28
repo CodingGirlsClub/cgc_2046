@@ -535,7 +535,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:next, :string)
 
       resolve(fn _, args, %{context: context} ->
-        if Cgc2046.OAuth.WechatWeb.configured?() do
+        if Cgc2046.Integrations.Wechat.WebOAuth.configured?() do
           with :ok <- check_wechat_login_start_limits(context) do
             start_wechat_login(args[:next])
           else
@@ -821,7 +821,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{workspace_id: workspace_id, platform: platform}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.MiniprogramCode.generate(workspace_id, actor, platform) do
+          case Cgc2046.Accounts.MiniprogramCode.generate(workspace_id, actor, platform) do
             {:ok, result} ->
               {:ok, result}
 
@@ -852,7 +852,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           is_nil(context[:actor]) ->
             {:error, unauthorized_error()}
 
-          not Cgc2046.MiniprogramCode.valid_scene?(scene) ->
+          not Cgc2046.Accounts.MiniprogramCode.valid_scene?(scene) ->
             {:error, message: "Invalid scene", code: "invalid_scene"}
 
           true ->
@@ -864,7 +864,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             # 视角，受邀者被拒成 not_found 到不了 action）；随后 for_update 带
             # actor 走 accept_miniprogram 的 actor_present 门禁，before_action
             # scene 复验（已用/过期 → invalid_or_expired_scene）。
-            with {:ok, code} <- Cgc2046.MiniprogramCode.code_for_scene(scene),
+            with {:ok, code} <- Cgc2046.Accounts.MiniprogramCode.code_for_scene(scene),
                  {:ok, invitation} <-
                    Ash.get(Cgc2046.Accounts.Invitation, code.invitation_id, authorize?: false),
                  {:ok, accepted} <-
@@ -1941,10 +1941,10 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp deliver_phone_code(phone, code, send_request_id) do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
 
-    if Cgc2046.Sms.SendCloud.configured?() do
+    if Cgc2046.Integrations.SendCloud.Sms.configured?() do
       template_id = Keyword.fetch!(sms, :template_id)
 
-      Cgc2046.Sms.SendCloud.send_template_sms(
+      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
         phone,
         template_id,
         %{"code" => code},
@@ -2177,7 +2177,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     case Cgc2046.Accounts.WechatLoginTicket.issue() do
       {:ok, %{state: state, expires_at: expires_at}} ->
-        case Cgc2046.OAuth.WechatWeb.qr_connect_url(redirect_uri, state) do
+        case Cgc2046.Integrations.Wechat.WebOAuth.qr_connect_url(redirect_uri, state) do
           url when is_binary(url) ->
             expires_in = max(DateTime.diff(expires_at, DateTime.utc_now()), 0)
             {:ok, %{qr_url: url, state: state, expires_in_seconds: expires_in}}

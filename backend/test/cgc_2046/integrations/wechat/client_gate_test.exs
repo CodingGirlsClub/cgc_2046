@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.ClientGateTest do
+defmodule Cgc2046.Integrations.Wechat.ClientGateTest do
   @moduledoc """
   issue #264：平台凭证功能门禁（runtime.exs 小程序 env 由 fetch_env! 改 get_env
   后的运行时守卫，写法沿用 wechat_pay_test 配置门禁块）。
@@ -14,7 +14,7 @@ defmodule Cgc2046.Miniprogram.ClientGateTest do
 
   use ExUnit.Case, async: false
 
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.MiniprogramFixtures, as: Fixtures
   # config.exs 在 boot 时载入 :miniprogram_platforms，put_env 覆盖后 delete_env
   # 会连原值一并删除（app env 是扁平 kv，无「回退 config」语义）——on_exit 存

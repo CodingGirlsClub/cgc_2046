@@ -1,9 +1,9 @@
-defmodule Cgc2046.Miniprogram.ClientTest do
+defmodule Cgc2046.Integrations.Wechat.ClientTest do
   # Tesla.Mock 为 process dict + wechat client 走 :persistent_term 缓存
   # （与 miniprogram_code_test 同约束，串行防跨用例污染）
   use ExUnit.Case, async: false
 
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
 
   @skipped_event [:cgc_2046, :content_check, :skipped]
   @msg_check_url "https://api.weixin.qq.com/wxa/msg_sec_check"

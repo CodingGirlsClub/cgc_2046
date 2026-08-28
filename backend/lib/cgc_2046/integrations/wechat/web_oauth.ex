@@ -1,4 +1,4 @@
-defmodule Cgc2046.OAuth.WechatWeb do
+defmodule Cgc2046.Integrations.Wechat.WebOAuth do
   @moduledoc """
   微信开放平台网站应用扫码登录 HTTP 层（plan 002 U4，D1：Req 直调不走 SDK）。
 

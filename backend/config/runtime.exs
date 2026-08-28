@@ -233,7 +233,7 @@ if config_env() == :prod do
       """
 
   config :cgc_2046, Cgc2046.Mailer,
-    adapter: Cgc2046.SwooshAdapters.SendCloud,
+    adapter: Cgc2046.Integrations.SendCloud.Mailer,
     api_user: sendcloud_api_user,
     api_key: sendcloud_api_key,
     from: sendcloud_from,

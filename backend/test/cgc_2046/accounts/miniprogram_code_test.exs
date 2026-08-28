@@ -1,9 +1,9 @@
-defmodule Cgc2046.MiniprogramCodeTest do
+defmodule Cgc2046.Accounts.MiniprogramCodeTest do
   use Cgc2046.DataCase, async: false
 
   alias Cgc2046.Accounts.Invitation
-  alias Cgc2046.Miniprogram.Client
-  alias Cgc2046.MiniprogramCode
+  alias Cgc2046.Integrations.Wechat.Client
+  alias Cgc2046.Accounts.MiniprogramCode
   alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
@@ -36,7 +36,7 @@ defmodule Cgc2046.MiniprogramCodeTest do
       end
     end)
 
-    # wechat 码走 SDK client（宿主 WechatRequester + Tesla.Mock）；
+    # wechat 码走 SDK client（宿主 Wechat.Requester + Tesla.Mock）；
     # mock fun 内回传请求体，断言 page/check_path/scene 由用例完成。
     Tesla.Mock.mock(fn
       %{method: :post, url: "https://api.weixin.qq.com/wxa/getwxacodeunlimit" <> _} = env ->

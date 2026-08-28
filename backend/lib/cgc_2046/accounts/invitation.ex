@@ -486,7 +486,7 @@ defmodule Cgc2046.Accounts.Invitation do
         Ash.Changeset.before_action(changeset, fn cs ->
           scene = Ash.Changeset.get_argument(cs, :scene)
 
-          if Cgc2046.MiniprogramCode.valid_scene?(scene) do
+          if Cgc2046.Accounts.MiniprogramCode.valid_scene?(scene) do
             actor = cs.context[:private][:actor]
             now = DateTime.utc_now()
 

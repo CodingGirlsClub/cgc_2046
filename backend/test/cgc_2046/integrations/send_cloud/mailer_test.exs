@@ -1,9 +1,9 @@
-defmodule Cgc2046.SwooshAdapters.SendCloudTest do
+defmodule Cgc2046.Integrations.SendCloud.MailerTest do
   use ExUnit.Case, async: false
 
   import Swoosh.Email
 
-  alias Cgc2046.SwooshAdapters.SendCloud
+  alias Cgc2046.Integrations.SendCloud.Mailer
 
   @stub __MODULE__
   @config [
@@ -61,6 +61,6 @@ defmodule Cgc2046.SwooshAdapters.SendCloudTest do
       |> subject("Reset your password")
       |> html_body("<p>Reset</p>")
 
-    SendCloud.deliver(email, @config ++ [req_options: [plug: {Req.Test, @stub}]])
+    Mailer.deliver(email, @config ++ [req_options: [plug: {Req.Test, @stub}]])
   end
 end
