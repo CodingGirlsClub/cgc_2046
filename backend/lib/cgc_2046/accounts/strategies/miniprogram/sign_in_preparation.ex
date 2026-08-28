@@ -5,7 +5,7 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
   保持 ash_graphql / ash_authentication_phoenix 的 401 映射语义）。
 
   步骤：
-  1. code2session → openid/unionid/session_key（`Cgc2046.Miniprogram.Client`）
+  1. code2session → openid/unionid/session_key（`Cgc2046.Integrations.Wechat.Client`）
   2. session_key 解密手机号（无手机号不建号——Q2：平台验证手机号为 User 锚）
   3. find-or-create User by phone（`Cgc2046.Accounts.SignInFlow`，plan 002 U3 抽取）
   4. upsert UserIdentity（provider/uid/unionid；换绑手机号时随新锚重指向）
@@ -19,7 +19,7 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
   alias Ash.Query
   alias AshAuthentication.Errors.AuthenticationFailed
   alias Cgc2046.Accounts.{SignInFlow, UserIdentity}
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
 
   require Logger
 

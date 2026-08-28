@@ -13,7 +13,7 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
       end
     end)
 
-    # wechat 码已迁 SDK client（宿主 WechatRequester + Tesla.Mock，token 走 SDK ETS）
+    # wechat 码已迁 SDK client（宿主 Wechat.Requester + Tesla.Mock，token 走 SDK ETS）
     Tesla.Mock.mock(fn
       %{method: :post, url: "https://api.weixin.qq.com/wxa/getwxacodeunlimit" <> _} ->
         %Tesla.Env{

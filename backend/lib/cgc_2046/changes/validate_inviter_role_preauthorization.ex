@@ -15,7 +15,7 @@ defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
 
   @impl true
   def change(changeset, _opts, _context) do

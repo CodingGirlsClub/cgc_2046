@@ -220,16 +220,16 @@ defmodule Cgc2046.Learning.LearningRecord do
     # user_id == actor.id 过滤在工具层做恒锚(见 save_step_output 家族纪律)。
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 写入:learner 本人(MCP 工具经工具层授权后传 actor)∪ 成员门槛兜底;
     # 课程终态拦截在工具层,资源层不拦(U2 Approach)
     policy action_type(:create) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

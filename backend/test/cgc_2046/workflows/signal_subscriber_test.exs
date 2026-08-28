@@ -314,7 +314,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       _ = Supervisor.restart_child(Cgc2046.Supervisor, JidoAdapter.bus_name())
     end
 
-    test "真实订阅方（NotificationSubscriber）：bus :kill 重启后投递恢复（真实双证）" do
+    test "真实订阅方（Notifications.Subscriber）：bus :kill 重启后投递恢复（真实双证）" do
       # enrollment.submitted 非 request 策略 → handle 落 :ok 无副作用分支：
       # 只经 claim（SignalIdempotency 写，shared sandbox 覆盖）+ telemetry 可观察
       test_pid = self()
@@ -323,7 +323,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
         "bus-restart-ns",
         [:cgc2046, :signal, :deliver],
         fn _event, _measurements, meta, _config ->
-          if meta[:subscriber] == "NotificationSubscriber" do
+          if meta[:subscriber] == "Subscriber" do
             send(test_pid, {:ns_delivered, meta.type})
           end
         end,
@@ -512,7 +512,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
   defp app_subscribers_resubscribed? do
     Enum.all?(
       [
-        Cgc2046.NotificationSubscriber,
+        Cgc2046.Notifications.Subscriber,
         Cgc2046.SpeakerSubscriber,
         Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
         Cgc2046.Workflows.LearningInstantiator,

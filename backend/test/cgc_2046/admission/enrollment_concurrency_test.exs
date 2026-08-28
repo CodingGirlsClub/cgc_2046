@@ -1,6 +1,6 @@
 defmodule Cgc2046.Admission.EnrollmentConcurrencyTest do
   # 不走 DataCase 默认 sandbox：本测试的 unboxed 清理须在 sandbox 事务结束后
-  # 执行——应用级订阅方（NotificationSubscriber，E-2 #47）在共享 sandbox 事务
+  # 执行——应用级订阅方（Notifications.Subscriber，E-2 #47）在共享 sandbox 事务
   # 内写 signal_idempotency claim，其 workspaces 外键 KEY SHARE 锁持有至事务
   # 结束；不先停 owner，清理里的 unboxed DELETE FROM workspaces 会阻塞到连接
   # 超时。故自管 owner 生命周期，清理回调先 stop_owner 再删真实行。

@@ -18,7 +18,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberSmokeTest do
   use ExUnit.Case, async: false
 
   @subscribers [
-    Cgc2046.NotificationSubscriber,
+    Cgc2046.Notifications.Subscriber,
     Cgc2046.SpeakerSubscriber,
     Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
     Cgc2046.Workflows.LearningInstantiator,

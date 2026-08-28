@@ -5,7 +5,7 @@ defmodule Cgc2046.Miniprogram.Code do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Miniprogram
 
   attributes do
     uuid_primary_key(:id)

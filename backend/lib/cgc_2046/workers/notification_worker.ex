@@ -6,7 +6,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
   `types/0` 公开读契约，2026-08-18 架构深化候选 D；plan
   docs/plans/2026-08-18-005-notification-type-registry.md D1-D8 全锁定）。
   生产方（subscriber/worker）仍自构建 data/job_meta 值（D4/D6），契约描述引用
-  `type/1`；unique 预设由 NotificationFanout 缺省查表（D3）；提醒类类型的 stale
+  `type/1`；unique 预设由 Notifications.Fanout 缺省查表（D3）；提醒类类型的 stale
   重查由本 module 表驱动解释器统一判定（D2）。
 
   ## @notification_types 条目字段
@@ -15,7 +15,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
     键集与表双射，D7 测试锚定）；
   - `id_key`：stale 重查的资源 id 在 data 中的键（不重查 = nil）；
   - `data_keys` / `job_meta_keys`：生产方构建 data / job_meta 的键集契约；
-  - `unique`：NotificationFanout.deliver 缺省使用的 unique 预设
+  - `unique`：Notifications.Fanout.deliver 缺省使用的 unique 预设
     （`:default` | `:reminder_7d`）；
   - `stale`：提醒类类型发送时重查规格 `{resource, required_status,
     :not_expired | :running}`（nil = 不重查）。
@@ -29,7 +29,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
   alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Sponsorship.Sponsorship
-  alias Cgc2046.NotificationService
+  alias Cgc2046.Notifications.Service
   alias Cgc2046.Workflows.WorkflowRun
 
   # 通知类型契约表（AEW @expiry_specs 同款声明式规格先例，D1）。
@@ -198,7 +198,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
   defp deliver(args, platform) do
     case args["identity_uid"] do
       uid when is_binary(uid) ->
-        NotificationService.send_to_identity(
+        Service.send_to_identity(
           args["user_id"],
           platform,
           uid,
@@ -207,7 +207,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
         )
 
       _ ->
-        NotificationService.send_to_user(
+        Service.send_to_user(
           args["user_id"],
           platform,
           args["template_key"],

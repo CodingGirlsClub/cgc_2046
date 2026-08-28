@@ -145,7 +145,7 @@ if config_env() == :prod do
 
   config :cgc_2046, :miniprogram_platforms, miniprogram_platforms
 
-  # 订阅消息模板 ID 同策略：缺值时键保留（值 nil），由 NotificationService
+  # 订阅消息模板 ID 同策略：缺值时键保留（值 nil），由 Notifications.Service
   # 的 template_id 门禁返回 template_not_configured，boot 不崩。
   config :cgc_2046, :miniprogram_templates, %{
     wechat: %{
@@ -233,7 +233,7 @@ if config_env() == :prod do
       """
 
   config :cgc_2046, Cgc2046.Mailer,
-    adapter: Cgc2046.SwooshAdapters.SendCloud,
+    adapter: Cgc2046.Integrations.SendCloud.Mailer,
     api_user: sendcloud_api_user,
     api_key: sendcloud_api_key,
     from: sendcloud_from,

@@ -103,7 +103,7 @@
 
 - **定义**：全局标记（`is_platform_admin`，非租户角色），可多人；负责创建 Workspace 并指定 Owner。
 - **不变量**：系统必须维持 ≥1 名平台管理员；降级最后一名管理员被拒绝（不变量由 `User :demote_platform_admin` action 守卫）。
-- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。
+- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
 
@@ -354,7 +354,7 @@
 
 - **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Offering`（2026-08-15 读取面收敛，架构评审候选④；plan `docs/plans/2026-08-15-009-offering-read-seam.md` D1-D7 全锁定）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
 - **命名空间区分**：kind 原子 `:event` 与 Sponsorship `level: :event`（赞助级别）**撞名但无语义关系**——前者是读取分派键，后者是业务分类字段，勿混用。
-- **架构位置**：读取面 seam（已迁出 events/，位于 lib/cgc_2046/ 顶层 offering.ex）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ Curriculum.Instantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
+- **架构位置**：读取面 seam（已迁出 events/，位于 lib/cgc_2046/ 顶层 offering.ex）；消费方 = Notifications.Subscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ Curriculum.Instantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
 - **发布语言读端口（ADR-0009 D5，目标态已落地）**：Events/Courses 对 Admission 的**发布语言读端口**（纯读投影契约，零写入），位于中立位置 lib/cgc_2046/offering.ex；共享纯函数内核（PriceTier / ScheduleValidation / EnrollmentBadge / Readiness / 状态机 CAS helper）同层收进 `offering/` 目录（PR②，KTD2——纯函数共享不破坏 bounded context：无状态、无表）。消费面不变：Admission 校验、分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
 
 ### Issue（学习议题，课程内容原子单元）
@@ -400,10 +400,10 @@
 
 ### 内容安全检查（Content Safety Check）
 
-- **定义**：报名 reason 自由文本的同步内容安全拦截（plan `docs/plans/2026-08-18-009-ugc-content-safety-plan.md`，issue #230；advisor09 F1-F3 修订）。提交时 reason 经微信 **msgSecCheck v2**（`Cgc2046.Miniprogram.Client.content_check/3`，宿主 WechatRequester 直发 `POST /wxa/msg_sec_check`，body `%{content, version: 2, scene: 2, openid}`——SDK `Security.msg_check/2` 为 v1 已废弃）同步检查——**违规内容拒绝提交且不落库**（`result.suggest` 为 `risky`/`review` → BusinessError code `enrollment_content_rejected`）；平台瞬时故障（errcode 非 0 含 45009/47001/61010 / 网络错误 / 非 200）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含 reason 明文）。
+- **定义**：报名 reason 自由文本的同步内容安全拦截（plan `docs/plans/2026-08-18-009-ugc-content-safety-plan.md`，issue #230；advisor09 F1-F3 修订）。提交时 reason 经微信 **msgSecCheck v2**（`Cgc2046.Integrations.Wechat.Client.content_check/3`，宿主 Wechat.Requester 直发 `POST /wxa/msg_sec_check`，body `%{content, version: 2, scene: 2, openid}`——SDK `Security.msg_check/2` 为 v1 已废弃）同步检查——**违规内容拒绝提交且不落库**（`result.suggest` 为 `risky`/`review` → BusinessError code `enrollment_content_rejected`）；平台瞬时故障（errcode 非 0 含 45009/47001/61010 / 网络错误 / 非 200）**fail-open 放行**并记 telemetry `[:cgc_2046, :content_check, :skipped]`（metadata 仅类别原子，不含 reason 明文）。
 - **范围**：v1 wechat-only——tt/xhs 显式 pass-through（各自平台审核独立，Phase 4 接入）；检查字段仅 `submission_payload.reason`；reason **服务端前置校验**（F3：必须 binary 且 ≤2500 字节合法 UTF-8，违者直接拒绝——检查产物 = 落库产物，无静默截断）。
 - **平台判定**：create 时 actor 无 platform（platform claim 在 JWT，User struct 不带），取 `user_identities` 的 wechat uid 作 openid（order.ex 同款 SQL）——有 wechat identity → wechat 检查；无 wechat identity（tt/xhs 单平台 / web 无 identity）/ 查询失败 → pass-through 放行。
-- **红线**：reason 明文不进日志 / telemetry / BusinessError message；msg_check 请求走宿主 WechatRequester（debug: false 既有）。
+- **红线**：reason 明文不进日志 / telemetry / BusinessError message；msg_check 请求走宿主 Wechat.Requester（debug: false 既有）。
 - **架构位置**：`Client.content_check/3`（miniprogram facade，v2 错误分类单点）+ `Enrollment :create_enrollment` 的 before_action **首位**（F2：外呼移至目标校验 / FOR SHARE 行锁获取之前，外呼不持锁）；前端文案在 `miniprogram/src/domain/error-copy.ts`（`enrollment_content_rejected`）。
 
 ### learning 锚定（Enrollment Anchor）
@@ -437,7 +437,7 @@
 
 ### 赞助审批人（Sponsorship Approver Roles）
 
-- **定义**：「谁是赞助审批人」规则（拍板 #4）的唯一真源 = `Cgc2046.Policies.SponsorshipApprover.approver_roles/1`（2026-08-17 架构深化候选 F，plan `docs/plans/2026-08-17-002-sponsorship-approver-roles.md` D1-D8 全锁定）：`approver_roles(:event) -> Role.manage_roles()`（owner/admin，角色清单变更自动跟随）｜`approver_roles(:workspace) -> [:owner]`（长期承诺加严；平台 Admin 备案二期，不参与审批）。**三消费面只改此处即全链路跟随**：写面 `match?/3`（approve/reject policy，委托 `Enum.any?(roles, &(&1 in approver_roles(level)))`）｜提醒面 `ApprovalReminderWorker` 每工作台两套收件人选择器按 `{:roles, approver_roles(level)}` 派生（收件人零变化，测试钉死）｜读面 `PendingApprovals` 按角色集反查 `allowed_levels` 做 Sponsorship 行级过滤（`level in ^allowed_levels` 下推到 pending/expired/count 三路径——admin 无 workspace 级行，与写面 policy 一致，看得到点不动的行不进待办读面）。
+- **定义**：「谁是赞助审批人」规则（拍板 #4）的唯一真源 = `Cgc2046.Sponsorship.Policies.SponsorshipApprover.approver_roles/1`（2026-08-17 架构深化候选 F，plan `docs/plans/2026-08-17-002-sponsorship-approver-roles.md` D1-D8 全锁定）：`approver_roles(:event) -> Role.manage_roles()`（owner/admin，角色清单变更自动跟随）｜`approver_roles(:workspace) -> [:owner]`（长期承诺加严；平台 Admin 备案二期，不参与审批）。**三消费面只改此处即全链路跟随**：写面 `match?/3`（approve/reject policy，委托 `Enum.any?(roles, &(&1 in approver_roles(level)))`）｜提醒面 `ApprovalReminderWorker` 每工作台两套收件人选择器按 `{:roles, approver_roles(level)}` 派生（收件人零变化，测试钉死）｜读面 `PendingApprovals` 按角色集反查 `allowed_levels` 做 Sponsorship 行级过滤（`level in ^allowed_levels` 下推到 pending/expired/count 三路径——admin 无 workspace 级行，与写面 policy 一致，看得到点不动的行不进待办读面）。
 - **架构位置**：横切判定面（policy 模块内纯函数薄壳，规则归属地不另起第二真源）；消费方 = sponsorship approve/reject policy / ApprovalReminderWorker / PendingApprovals；`is_nil(event_id)` 不变量本体不动（仅 ARW 不再作分派依据）。
 
 ### SpeakerInvitation（分享嘉宾邀请）
@@ -447,7 +447,7 @@
 
 ### ShareScheme（微信 URL Scheme 分享链接）
 
-- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，GlobalApi domain，无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Miniprogram.Code` 先例）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
+- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Miniprogram.Code` 先例）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
 - **架构位置**：生成/复用/clamp 唯一入口 = `Cgc2046.Miniprogram.ShareSchemeService.fetch_or_generate/2`（外呼经 `UrlScheme.create_link/3`，errcode 保真传播不落库）；触发 = `Workflows.ShareSchemeInstantiator` 订阅 `event.launched`/`course.launched` → Oban job（`Workers.ShareSchemeWorker`，maintenance 队列）异步预生成——外呼不进信号同步路径，`:not_found` warning 不重试、平台错误走 Oban 默认重试。scheme query/path 只含 `id`+`kind`（安全红线，永不携带 token/凭据/openid）；前端配套 = event-detail 分享 title 兜底 + `Taro.onAppShow` 热启动路由（`resolveAppShowRoute` 纯函数，scene 优先）。
 
 ### AuditLog（审计日志，二期）
@@ -458,14 +458,14 @@
 ### 通知分发面（Notification Fanout）
 
 - **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`，未显式传参时按 template_key 查 `NotificationWorker.type/1` 的 unique 预设（缺省 `:default`，2026-08-18 架构深化候选 D D3）——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
-- **架构位置**：NotificationSubscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；NotificationSubscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 NotificationService 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
+- **架构位置**：Notifications.Subscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；Notifications.Subscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 Notifications.Service 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
 
 ### 通知类型（Notification Types）
 
-- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Workers.NotificationWorker` 的 `@notification_types` 表（2026-08-18 架构深化候选 D，plan `docs/plans/2026-08-18-005-notification-type-registry.md` D1-D8 全锁定；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**；runtime.exs prod 块同键集注入亦由 D7 测试锚定——三面一致，防 prod 漏配静默失败）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`unique`（NotificationFanout.deliver 缺省 unique 预设 `:default` \| `:reminder_7d`）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。
+- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Workers.NotificationWorker` 的 `@notification_types` 表（2026-08-18 架构深化候选 D，plan `docs/plans/2026-08-18-005-notification-type-registry.md` D1-D8 全锁定；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**；runtime.exs prod 块同键集注入亦由 D7 测试锚定——三面一致，防 prod 漏配静默失败）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`unique`（Notifications.Fanout.deliver 缺省 unique 预设 `:default` \| `:reminder_7d`）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。
 - **stale 语义（表驱动单解释器，D2）**：提醒类类型发送时重查——approval_reminder 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；learning_stagnation 走 WorkflowRun `status == :running`。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
-- **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；NotificationFanout 主体 / NotificationService / Miniprogram.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
-- **架构位置**：横切契约面（root Worker 单文件，AEW `@expiry_specs` 同款先例）；消费方 = NotificationFanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/workers/notification_worker_test.exs`，D7）。
+- **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；Notifications.Fanout 主体 / Notifications.Service / Integrations.Wechat.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
+- **架构位置**：横切契约面（root Worker 单文件，AEW `@expiry_specs` 同款先例）；消费方 = Notifications.Fanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/workers/notification_worker_test.exs`，D7）。
 - **缴费闭环新增键（organizer-payment U5，R12/R13）**：`payment_received`（收款到账 → workspace 管理者逐笔实时感知，data 含 title/tier_name/amount；落账 worker 挂点）与 `payment_expired`（订单超时 → 学员 + 管理者，data 携带 `re_enrollable` 标志——报名截止未过才承诺可重新报名；过期 worker 成功分支挂点，尽力而为不影响释放）。推送尽力而为，可靠兜底 = 经营面面板；模板未配置时 provider_not_configured 静默跳过。
 
 ### 审批期限（Approval Deadline）
@@ -473,7 +473,7 @@
 - **定义**：审批截止时间的派生语义唯一真源 = `Cgc2046.ApprovalDeadline`（2026-08-14 审批期限深化，架构评审候选②；plan `docs/plans/2026-08-14-005-approval-deadline-deepening.md` D1-D8 全锁定；2026-08-17 架构深化 A+B 补谓词端口 `not_expired?/2`，plan `docs/plans/2026-08-17-001-approval-claim-predicate-port.md` D7-D8 全锁定）。interface：`derive/1`（列实体读 `approval_deadline` 列；Invitation 读 `expires_at` 列；WorkflowRun = `updated_at + definition.approval_timeout` 内存派生，调用方需先 load definition）｜`not_expired?/2`（**放行谓词**：nil→true、否则严格 `> now`；==now 不放行）｜`overdue?/2`（**扫中谓词**：deadline 严格过点 `< now`）｜`in_window?/3`（提醒窗口 `(now, window_end]` 半开区间）｜`default_timeout_days/0`（四资源创建期默认期限 7 天的唯一来源）。`not_expired?` 与 `overdue?` 是**不对称对偶**（nil 侧相反：not_expired? nil→true / overdue? nil→false；==now 侧双双 false），语义分工：放行谓词（claim 守卫 / 投递守卫）vs 扫中谓词（过期扫描），不可互相代用；SQL 端口 = ApprovalClaim 的 deadline 守卫（`:future` ↔ not_expired? / `:passed` ↔ overdue?，测试对偶钉死）。
 - **nil 语义（单点）**：`derive/1` 返回 nil = **永不过期**——不参与过期扫描（`overdue?` 恒 false），也不进入提醒窗口。WorkflowRun 的 `definition.approval_timeout = nil`（F7 方案 A）即此语义；列实体 deadline 列为空同此。
 - **扫尾 specs**：ApprovalExpiryWorker 六份过期扫描由 `@expiry_specs` 声明式规格驱动（`{resource, status, deadline: {:column, atom} | :derived, tenant}`）——列实体保持 SQL 下推过滤，WorkflowRun 走 `:derived`（load definition + 内存判断，**绝不可并入纯 SQL 分支**，否则 timeout nil 的 run 会被误扫）；每记录转换仍走各资源 `:expire` 领域 action（D-A6）。
-- **架构位置**：横切读取面（root 单文件，NotificationFanout 同款先例）；消费方 = ApprovalExpiryWorker / ApprovalReminderWorker（窗口大小 48h 仍为 ARW 私有常量）与四资源创建期（Enrollment 客户端可传覆盖 / Sponsorship 服务端固定的创建纪律差异另行决策）。
+- **架构位置**：横切读取面（root 单文件，Notifications.Fanout 同款先例）；消费方 = ApprovalExpiryWorker / ApprovalReminderWorker（窗口大小 48h 仍为 ARW 私有常量）与四资源创建期（Enrollment 客户端可传覆盖 / Sponsorship 服务端固定的创建纪律差异另行决策）。
 
 ### 原子抢占（Approval Claim）
 
@@ -481,7 +481,7 @@
 - **错误分工（D3）**：claim 只返回 `{:ok, returned} | {:error, :not_claimed}`，DB 错误 `{:error, {:database, reason}}` 回传资源层——各资源现有错误原子/消息/发生层原样保留（graphql 契约字符串、Splode code、域错误原子均不动）；sponsorship 读回消歧（approval_conflict/reject_conflict）、enrollment claim_cancellable RETURNING 值判读留各资源。
 - **收编边界**：7 资源 14 条 claim SQL（join_request/workspace_application approve、invitation accept、enrollment claim_pending/prepare_expire/claim_cancellable/claim_waive、sponsorship approve/reject/expire/end、speaker_invitation claim_decision×2/claim_complete）。**保留（D5）**：invitation accept_miniprogram（多表 JOIN+别名+双 deadline 列）、user demote（count 子查询聚合）、capacity ledger reserve/release counter（capacity_ledger.ex）+ enrollment consume_invite_quota counter、validate_pending_status 快照守卫×2、transition.ex、payments/order.ex 私有 claim/4、其余非 approval deadline 守卫（registration_deadline/invite_batches/sponsorship_deadline + FOR SHARE）、Ash expr 全部（ARW/AEW/pending_approvals/reconciliation，D7 冻结面）。
 - **组合序留在资源层**：sponsorship approve 独占位 advisory lock（`Repo.acquire_lock!`）在 claim 前取得（锁序 lock→claim，D6）；不加租户过滤（row id 已从租户隔离读面解析）；不自己开事务/checkout（before_action 事务继承，savepoint 语义不变）；成功不 force_change（回写留资源层）。plan 2026-08-15-010 D4「裸 SQL 本体不动」re-scope：claim 族是真同构（deletion test 失败=复杂度随资源数扩散），与 domain_error 族假同构（39 原子仅 1 共享）区分。
-- **架构位置**：横切写原语（root 单文件，ApprovalDeadline / NotificationFanout 同款先例）；消费方 = 七个资源 action 的 before_action（事务内）+ 表驱动契约测试（`test/cgc_2046/approval_claim_test.exs`）。
+- **架构位置**：横切写原语（root 单文件，ApprovalDeadline / Notifications.Fanout 同款先例）；消费方 = 七个资源 action 的 before_action（事务内）+ 表驱动契约测试（`test/cgc_2046/approval_claim_test.exs`）。
 
 ### 对账扫描（Reconciliation Scan）
 

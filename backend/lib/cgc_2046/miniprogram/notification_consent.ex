@@ -2,7 +2,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
   @moduledoc """
   小程序订阅消息的一次性授权余额。
 
-  写入路径：`Cgc2046.NotificationConsent` 原始 SQL（grant/take/refund 原子增减，
+  写入路径：`Cgc2046.Notifications.Consent` 原始 SQL（grant/take/refund 原子增减，
   不经 Ash action——配额变更与消费的原子性由 SQL 保证）；读路径：仅
   platform_admin（AshAdmin 观测面）；非 admin default-deny（#209 fail-closed）。
   """
@@ -11,7 +11,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Miniprogram
 
   attributes do
     uuid_primary_key(:id)
@@ -44,7 +44,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
   policies do
     # platform_admin 可读授权余额（AshAdmin 观测面）；非 admin default-deny（#209）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

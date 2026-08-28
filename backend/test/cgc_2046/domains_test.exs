@@ -15,8 +15,8 @@ defmodule Cgc2046.DomainsTest do
     Cgc2046.Reconciliation
   ]
 
-  test "all eight ADR-0009 bounded-context domains and GlobalApi are loaded with the AshGraphQL extension" do
-    for domain <- @bounded_context_domains ++ [Cgc2046.GlobalApi] do
+  test "all eight ADR-0009 bounded-context domains and Accounts are loaded with the AshGraphQL extension" do
+    for domain <- @bounded_context_domains ++ [Cgc2046.Accounts] do
       assert Code.ensure_loaded?(domain)
     end
   end
@@ -27,7 +27,8 @@ defmodule Cgc2046.DomainsTest do
     # 精确集合比对：旧 Api domain 不在列即随之钉死（无需引用已删除模块名）
     assert Enum.sort(ash_domains) ==
              Enum.sort(
-               @bounded_context_domains ++ [Cgc2046.GlobalApi, Cgc2046.Mcp, Cgc2046.Payments]
+               @bounded_context_domains ++
+                 [Cgc2046.Accounts, Cgc2046.Mcp, Cgc2046.Miniprogram, Cgc2046.Payments]
              )
   end
 

@@ -24,7 +24,7 @@ defmodule Cgc2046.Accounts.Invitation do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   require Ash.Query
 
@@ -204,7 +204,7 @@ defmodule Cgc2046.Accounts.Invitation do
   def invitation_log_skip_unless(changeset, invitation) do
     actor = get_in(changeset.context, [:private, :actor])
 
-    Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) and
+    Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) and
       :owner in (invitation.preauthorized_role_names || [])
   end
 
@@ -486,7 +486,7 @@ defmodule Cgc2046.Accounts.Invitation do
         Ash.Changeset.before_action(changeset, fn cs ->
           scene = Ash.Changeset.get_argument(cs, :scene)
 
-          if Cgc2046.MiniprogramCode.valid_scene?(scene) do
+          if Cgc2046.Accounts.MiniprogramCode.valid_scene?(scene) do
             actor = cs.context[:private][:actor]
             now = DateTime.utc_now()
 
@@ -540,17 +540,17 @@ defmodule Cgc2046.Accounts.Invitation do
     # pending-owner 邀请由专用 check 放行：仅平台管理员 + 预授权 owner。
     policy action(:create) do
       forbid_unless(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsVolunteer)
-      authorize_if(Cgc2046.Policies.PlatformAdminOwnerInvite)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsVolunteer)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdminOwnerInvite)
     end
 
     # :revoke 限邀请人本人或 Owner/Admin；
     # pending-owner 期间无工作台 Owner/Admin，取消邀请由同一专用 check 放行。
     policy action(:revoke) do
       authorize_if(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdminOwnerInvite)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdminOwnerInvite)
     end
 
     # :validate 持 token 即可（不要求成员）
@@ -572,8 +572,8 @@ defmodule Cgc2046.Accounts.Invitation do
     # #114 加 platform_admin bypass（admin 详情页 pending-owner badge 任意平台管理员可见）
     policy action_type(:read) do
       authorize_if(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

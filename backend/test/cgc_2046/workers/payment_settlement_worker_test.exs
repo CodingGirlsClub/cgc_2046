@@ -206,7 +206,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
       stub_channel_paid(order)
 
       # 管理者收件面：该 workspace 的 Owner 挂 wechat 身份（查询形状同
-      # NotificationFanout.managed_member_ids：tenant + roles 关系）
+      # Notifications.Fanout.managed_member_ids：tenant + roles 关系）
       owner_id =
         Cgc2046.Accounts.WorkspaceMembership
         |> Ash.Query.load(:roles)
