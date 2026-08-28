@@ -21,7 +21,8 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["enrollment.completed"],
-    idempotency: :claim_in_handle
+    idempotency: :claim_in_handle,
+    consumer_key: "learning_instantiator"
 
   require Ash.Query
   require Logger

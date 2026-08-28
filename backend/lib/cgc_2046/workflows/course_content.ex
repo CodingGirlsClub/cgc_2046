@@ -18,7 +18,7 @@ defmodule Cgc2046.Workflows.CourseContent do
 
   消费方:Curriculum.Output changeset 校验(U1)、LearningProgress issue 级投影与
   完成判定(U4)。JSONB 只按 string keys 校验(MCP `save_course_content` 经
-  Jason 解码是唯一写入口;SponsorshipTier 同款先例)。
+  Jason 解码是唯一写入口;Accounts.SponsorshipTier 同款先例)。
 
   id 稳定纪律(R2/KTD4):issue `id` 与 checklist `item id` 发布后不改不删;
   本模块只做形状与卡集内唯一性校验(id 非空、issue id 卡集内唯一、item id

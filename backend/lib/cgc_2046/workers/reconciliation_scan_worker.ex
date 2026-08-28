@@ -2,10 +2,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   @moduledoc """
   对账扫描 worker（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D2）。
 
-  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫十一条规则 →
+  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫十二条规则 →
   落 `reconciliation_findings`（`Cgc2046.Reconciliation.Finding`）。
 
-  ## 规则（枚举见 Finding moduledoc；1-7 = E-10，8-11 = ADR-0009 U7 名额账本）
+  ## 规则（枚举见 Finding moduledoc；1-7 = E-10，8-11 = ADR-0009 U7 名额账本，12 = Fable 5 HIGH-1 缓存漂移）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot->>'enrollment_id'` join
@@ -34,9 +34,12 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
      （confirmed + payment_pending）
   10. `:capacity_projection_drift` — 展示投影滞后账本超一拍
-     （宽限 = 一个 cron 周期，见 @projection_drift_grace_seconds）
+     （宽限 = 一个 cron 周期，见 @drift_grace_seconds）
   11. `:occupancy_exceeds_capacity` — 账本 occupancy > capacity
      （R16/AE4 capacity 调小后的合法超员窗口看护，自然释放收敛后自消）
+  12. `:ledger_cache_drift` — 账本三列缓存漂移于 offering 真值
+     （status / capacity / registration_deadline 异步覆盖写的丢投窗口看护；
+     宽限与规10 同形一拍，见 @drift_grace_seconds）
 
   ## 刷新语义（D2）
 
@@ -47,7 +50,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   ## 平台读（specs/unique 同款：approval_expiry_worker）
 
   规1/2/4/5 走 Ash 查询下推（`authorize?: false` 跨租户全局读）；规3/6 经 Repo
-  直查 oban_jobs，规8-11 经 Repo 直查账本 / offering 表（账本写路径全裸 SQL，
+  直查 oban_jobs，规8-12 经 Repo 直查账本 / offering 表（账本写路径全裸 SQL，
   对账读同口径）。Finding 写同样 `authorize?: false`——资源 policy 仅
   PlatformAdmin，worker 平台读旁路（D2）。
   """
@@ -83,9 +86,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   # 规6 死信窗口：与 Oban Pruner max_age（7 天，config.exs）对齐
   @dead_letter_window_days 7
 
-  # 规10 投影漂移宽限：R17「超 N 拍」与 cron 周期（10 分钟一拍）对齐取一拍——
-  # capacity.synced 异步在途属正常窗口，账本最近变更早于一个周期仍漂移才告警
-  @projection_drift_grace_seconds 600
+  # 规10/12 漂移宽限：R17「超 N 拍」与 cron 周期（10 分钟一拍）对齐取一拍——
+  # 异步信号在途（capacity.synced / 缓存覆盖写）属正常窗口，账本最近变更
+  # 早于一个周期仍漂移才告警
+  @drift_grace_seconds 600
 
   @non_terminal_statuses [:pending, :running, :waiting]
 
@@ -124,7 +128,8 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
       {:open_offering_without_ledger, fn -> scan_rule8() end},
       {:ledger_occupancy_mismatch, fn -> scan_rule9() end},
       {:capacity_projection_drift, fn -> scan_rule10() end},
-      {:occupancy_exceeds_capacity, fn -> scan_rule11() end}
+      {:occupancy_exceeds_capacity, fn -> scan_rule11() end},
+      {:ledger_cache_drift, fn -> scan_rule12() end}
     ]
   end
 
@@ -483,9 +488,9 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
     }
   end
 
-  # ── 规8-11：名额账本 / 展示投影（ADR-0009 PR⑤ U7；R17；KD2）------------------
+  # ── 规8-12：名额账本 / 展示投影 / 缓存漂移（ADR-0009 PR⑤ U7；R17；KD2；Fable 5 HIGH-1）
   #
-  # 四条均经 Repo 直查（账本写路径全裸 SQL 不经 Ash action，对账读同口径；
+  # 五条均经 Repo 直查（账本写路径全裸 SQL 不经 Ash action，对账读同口径；
   # 规3/6 的 oban_jobs 包读先例）。entity_type 复用 :event/:course，/admin
   # 对账页按既有投影实体链接渲染。Repo.query 返回的 uuid 列为 16 字节
   # 原始二进制，落 Finding 前一律 Ecto.UUID.load! 转字符串（Oban JSON 载荷同限）。
@@ -581,7 +586,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
                OR c.confirmed_count_sync_version <> l.sync_version)
           AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
         """,
-        [@projection_drift_grace_seconds]
+        [@drift_grace_seconds]
       )
 
     Enum.map(rows, fn [
@@ -626,4 +631,85 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
       }
     end)
   end
+
+  # 规12：账本三列缓存漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1）——
+  # status / capacity / registration_deadline 经 launched / offering.capacity_changed
+  # / *.ended 信号异步覆盖写（KTD4/KTD5），丢投不重试窗口内缓存滞留旧值；规8-11
+  # 只看护 occupancy 与下游投影，本规则补「缓存≈真值」新不变量的上游看护。
+  # 宽限与规10 同形（l.updated_at 早于 NOW() - 一拍）。规10 的已知缺陷（纯缓存
+  # 更新刷新 l.updated_at 清零漂移计时）对本规则不构成误掩：任何缓存写都是回读
+  # 真值后的覆盖（sync_cache 永取最新值），写完即收敛缓存≈真值；真正滞留的漂移
+  # 行其 l.updated_at 停在最后一次收敛时刻，超一拍仍漂移 = 信号链断连。
+  defp scan_rule12 do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT l.offering_kind, l.offering_id, l.workspace_id,
+               l.status, e.status,
+               l.capacity, e.capacity,
+               l.registration_deadline, e.registration_deadline
+        FROM admission_capacity_ledgers l
+        JOIN events e ON e.id = l.offering_id
+        WHERE l.offering_kind = 'event'
+          AND (l.status <> e.status
+               OR l.capacity IS DISTINCT FROM e.capacity
+               OR l.registration_deadline IS DISTINCT FROM e.registration_deadline)
+          AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
+        UNION ALL
+        SELECT l.offering_kind, l.offering_id, l.workspace_id,
+               l.status, c.status,
+               l.capacity, c.capacity,
+               l.registration_deadline, c.registration_deadline
+        FROM admission_capacity_ledgers l
+        JOIN courses c ON c.id = l.offering_id
+        WHERE l.offering_kind = 'course'
+          AND (l.status <> c.status
+               OR l.capacity IS DISTINCT FROM c.capacity
+               OR l.registration_deadline IS DISTINCT FROM c.registration_deadline)
+          AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
+        """,
+        [@drift_grace_seconds]
+      )
+
+    Enum.map(rows, fn [
+                        kind,
+                        offering_id,
+                        workspace_id,
+                        ledger_status,
+                        truth_status,
+                        ledger_capacity,
+                        truth_capacity,
+                        ledger_deadline,
+                        truth_deadline
+                      ] ->
+      %{
+        entity_type: String.to_atom(kind),
+        entity_id: Ecto.UUID.load!(offering_id),
+        workspace_id: Ecto.UUID.load!(workspace_id),
+        detail: %{
+          drifts:
+            cache_drifts(
+              status: {ledger_status, truth_status},
+              capacity: {ledger_capacity, truth_capacity},
+              registration_deadline: {ledger_deadline, truth_deadline}
+            )
+        }
+      }
+    end)
+  end
+
+  # 规12 detail：仅列漂移字段，逐字段双值（ledger 缓存值 / truth offering 真值）。
+  # registration_deadline 裸 SQL 解出 NaiveDateTime（无时区，order.ex 同款注释），
+  # 落 jsonb 前转 ISO8601 字符串（规7 last_update_at 同款）。
+  defp cache_drifts(pairs) do
+    pairs
+    |> Enum.reject(fn {_field, {ledger, truth}} -> ledger == truth end)
+    |> Map.new(fn {field, {ledger, truth}} ->
+      {Atom.to_string(field), %{"ledger" => drift_value(ledger), "truth" => drift_value(truth)}}
+    end)
+  end
+
+  defp drift_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp drift_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp drift_value(value), do: value
 end

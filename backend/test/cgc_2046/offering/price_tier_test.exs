@@ -3,7 +3,7 @@ defmodule Cgc2046.Offering.PriceTierTest do
   U2：PriceTier 嵌入式定价配置（R1/R2/R4）。
 
   - 纯函数族：valid?/find/available?（available_until 三态）。
-  - PriceTiersValidation：结构校验 + 「pricing_enabled 且无档位」拒绝（SponsorshipTiersValidation 同款挂法）。
+  - PriceTiersValidation：结构校验 + 「pricing_enabled 且无档位」拒绝（Accounts.SponsorshipTiersValidation 同款挂法）。
   - R4 回归：免费活动（默认 pricing_enabled=false）字段默认值 + 空档位通过校验。
   """
 

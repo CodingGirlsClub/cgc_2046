@@ -32,8 +32,7 @@ defmodule Cgc2046.Curriculum do
     resource(Cgc2046.Curriculum.Output)
   end
 
-  # ── 内容读契约（KD3/R4）：唯一实现落本域；`Course.course_content/1` 与
-  # `Course.issue_map_rows/1` 委托于此，MCP 工具与 GraphQL resolver 直调 ──
+  # ── 内容读契约（KD3/R4）：唯一实现落本域；MCP 工具与 GraphQL resolver 直调（Course 侧零调用兼容委托已删，Fable 5 LOW）──
 
   # 地图行(goal-only,R10):key 派生(KTD6)= slug 短码 + 卡集内 1 起序号。
   # 消费方 = graphql_schema resolve_course_map(G3:calculate 包装已删,

@@ -1,4 +1,4 @@
-defmodule Cgc2046.SpeakerSubscriber do
+defmodule Cgc2046.Events.SpeakerSubscriber do
   @moduledoc """
   订阅 SpeakerInvitation 生命周期信号并为相关用户创建 Oban 通知任务（E-4 #49）。
 
@@ -15,7 +15,8 @@ defmodule Cgc2046.SpeakerSubscriber do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["speaker.accepted", "speaker.completed"],
-    idempotency: :claim_first
+    idempotency: :claim_first,
+    consumer_key: "speaker_subscriber"
 
   require Logger
 

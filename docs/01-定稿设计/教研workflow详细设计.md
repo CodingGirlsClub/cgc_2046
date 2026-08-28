@@ -35,7 +35,7 @@
   | 属性 | 取值 | 说明 |
   |---|---|---|
   | `research_enabled` | boolean | 是否启用教研 workflow（默认 Event 开、Course 开） |
-  | `research_requirements` | json | 教研材料需求（主题/受众/时长/章节数/招募文案要求，作为 run input 注入） |
+  | `curriculum_requirements` | json | 教研材料需求（主题/受众/时长/章节数/招募文案要求，作为 run input 注入） |
   | `research_flow` | string | 流程模板选择（v1 固定三段式；未来可多模板，verify_8 结论：定义即模板，多模板 = 多 Agent module） |
 - v1 主路径 = **三段式**：教研产出段（大纲 + 招募物料）→ 现场辅导段（答疑）→ 收尾段（归档/复盘）。全部按 verify_8 模板机制实例化复用。
 
@@ -94,7 +94,7 @@ flowchart LR
     "course_id": "uuid | null",          // Course 级
     "event_id": "uuid | null",           // Event 级
     "title": "string",                   // 活动/课程标题
-    "research_requirements": {           // 教研材料需求
+    "curriculum_requirements": {           // 教研材料需求
       "audience": "string",
       "duration_hours": "integer|null",
       "sections": "integer|null",
@@ -161,7 +161,7 @@ flowchart LR
 
 **S7 自动步骤：开启答疑（`open_qna`，verify_8 OpenQnA 对应）**
 - 分类：自动（Jido Action，同步）
-- 输入：course_id/event_id + research_requirements
+- 输入：course_id/event_id + curriculum_requirements
 - 逻辑：开启答疑线程（Thread journal metadata 带 course_id，verify_8 D-A2c：qna thread metadata 各带自己的 course_id）；写 `qna_opened` 事件
 - 输出：`qna_opened: true` + `thread_rev`
 - 触发：活动/课程开始（`event.started` 信号或 S7 在产出段完成后自动进入——v1 建议 event.started 驱动，活动未开始不提前开答疑）
@@ -215,13 +215,13 @@ flowchart LR
 |---|---|---|
 | 定义 | Agent module + `workflow_fn: &Mod.build/0`（模板，build 返回全新不可变 Workflow） | `ResearchWorkflow.build/0`（扩展为三段式 DAG）；`ResearchAgent`（use Jido.Agent + strategy） |
 | 实例化 | `InstanceManager.get(mgr, key)` keyed singleton | key 规则：**`"event_#{id}"`（Event 级）/ `"course_#{id}"`（Course 级）**；同一 key 幂等复用（重复 get 返回同一实例） |
-| 参数化 | 无占位符；run input（signal data → Runic Fact → ActionNode params merge → Action run(params)） | 实例化后 feed `%{course_id, event_id, title, research_requirements}`；Action schema 声明 `course_id/event_id` 必填（verify_8 源码：CreateOutline/PrepareRecruitMaterials/OpenQnA schema 均 required） |
+| 参数化 | 无占位符；run input（signal data → Runic Fact → ActionNode params merge → Action run(params)） | 实例化后 feed `%{course_id, event_id, title, curriculum_requirements}`；Action schema 声明 `course_id/event_id` 必填（verify_8 源码：CreateOutline/PrepareRecruitMaterials/OpenQnA schema 均 required） |
 | 隔离 | 进程级（AgentServer + strategy state 独立；产出按 key 落点） | 多 Event/Course 并行天然成立；业务表按 course_id/event_id 隔离产出；qna thread metadata 带 key |
 | partition | partition 是更粗租户维度，与 key 叠加 | partition = **Course/Event 所属 Workspace**（D-A5）；key 实例隔离 + partition 租户隔离 |
 | 生命周期 | on-demand：event.launched → get；idle 超时 hibernate；event 结束 stop | `event.launched` 订阅 → get；S8 长等待 idle → hibernate（G1 已验证 checkpoint/thaw）；`event.ended` → 收尾 → stop |
 | 替代方案 | 不需要；未来运行期组装用 `Workflow.merge/2`（编译期模板组合） | v1 不引入 |
 
-- **run input 传参设计**：教研材料需求（`research_requirements`）在 Event/Course 创建时录入（J-Owner 表单/筹备 workflow 产物）→ `event.launched` 时随 run input 注入 → Action 从 params 读取。**无需为每个 Event 复制 Definition**（verify_8 D-A2b 实证：course_1/course_2 同一定义各自生成定向物料文案）。
+- **run input 传参设计**：教研材料需求（`curriculum_requirements`）在 Event/Course 创建时录入（J-Owner 表单/筹备 workflow 产物）→ `event.launched` 时随 run input 注入 → Action 从 params 读取。**无需为每个 Event 复制 Definition**（verify_8 D-A2b 实证：course_1/course_2 同一定义各自生成定向物料文案）。
 
 ### 2.4 版本与部署
 
@@ -372,7 +372,7 @@ stateDiagram-v2
 ### 5.3 WorkflowRun 与教研产出的关联方式
 
 - **正向**：产出记录.workflow_run_id 指向创建它的 WorkflowRun（S2/S4/S10 写入）。
-- **反向**：WorkflowRun.input_snapshot 含 key/course_id/event_id/research_requirements；facts 含 outline/materials/retro 快照。
+- **反向**：WorkflowRun.input_snapshot 含 key/course_id/event_id/curriculum_requirements；facts 含 outline/materials/retro 快照。
 - **查询需求**：Event/Course 详情页显示教研产出（大纲/物料）→ 按 event_id/course_id 查产出记录；教研流程展示页 → 按 workflow_run_id 查 run 状态。
 - v1 建议：产出记录为主查询入口（展示侧），WorkflowRun.facts 为产出内容入口（用户侧）；workflow_run_id 双向可达（同前三份 §5.3）。
 - **Step 产物展示（原型验证结论 #3）**：教研流程展示页 / Event-Course 详情页的教研产出展示采用 **schema 驱动 key-value 渲染**（不手工排版），与领域模型/Step 的产物 schema 字段对齐（outline/materials/retro 按 output schema → key 标签 + value 渲染，缺省字段自动隐藏）。

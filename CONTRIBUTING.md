@@ -56,7 +56,7 @@ mix test
 Conventions:
 
 - Always `mix format` before committing; `.formatter.exs` covers `lib`, `test`, and `priv/*/migrations`.
-- New Ash resources follow the existing templates: attribute multitenancy (`workspace_id`), `Ash.Policy.Authorizer` policies, AshGraphql exposure via the domain, and registration in `GlobalApi`.
+- New Ash resources follow the existing templates: attribute multitenancy (`workspace_id`), `Ash.Policy.Authorizer` policies, AshGraphql exposure via the domain, and registration in its bounded-context domain (`Cgc2046.Accounts` / `Admission` / `Events` / `Courses` / …；领域地图见 CONTEXT.md——`GlobalApi` 已退役为 `Accounts`).
 - Migrations must be **idempotent** (`table_exists?` / `index_exists?` / `column_exists?` guards) and reversible (`down` drops).
 - Never store bearer credentials (tokens, secrets) in plaintext columns. Token-hash or return-once via metadata, following the existing `Invitation`/`TokenResource` patterns.
 - New endpoints/actions keep the GraphQL schema contract in sync — the frontend contracts live in `web/lib/graphql/*.ts`.

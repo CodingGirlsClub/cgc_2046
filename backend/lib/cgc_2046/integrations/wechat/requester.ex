@@ -41,7 +41,7 @@ defmodule Cgc2046.Integrations.Wechat.Requester do
   def post(url, body, opts \\ []), do: Tesla.post(client(), url, body, opts)
 end
 
-defmodule Cgc2046.Miniprogram.WechatClient do
+defmodule Cgc2046.Integrations.Wechat.SdkClient do
   @moduledoc """
   微信小程序 SDK client 宿主（运行时配置 → WeChat.build_client 动态模块）。
 

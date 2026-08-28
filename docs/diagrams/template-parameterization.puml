@@ -14,7 +14,7 @@ skinparam backgroundColor white
 
 ' ---------------- 数据流（无占位符替换） ----------------
 package "参数化数据流（D-A2b）" #E8F0FE {
-    rectangle "event.launched 信号\ndata = %{key, course_id, event_id,\ntitle, research_requirements}" as INPUT
+    rectangle "event.launched 信号\ndata = %{key, course_id, event_id,\ntitle, curriculum_requirements}" as INPUT
     rectangle "SignalFact.from_signal\n→ Runic Fact\n(value = signal.data)" as FACT
     rectangle "ActionNode 执行\nfact value merge 进 node params" as MERGE
     rectangle "Jido Action run(params, ctx)\nschema: course_id/event_id required\nCreateOutline / PrepareRecruitMaterials / OpenQnA" as ACTION
