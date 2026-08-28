@@ -2,11 +2,12 @@ defmodule Cgc2046.Reconciliation.Finding do
   @moduledoc """
   对账扫描发现（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D1）。
 
-  平台级孤儿报告：`Cgc2046.Workers.ReconciliationScanWorker` 每 10 分钟扫七条规则，
-  命中落本表。**刷新语义**（D2）：命中 upsert（保 first_seen_at、刷新 last_seen_at），
-  本次未命中删除——「无孤儿 → 空报告」由结构保证。
+  平台级孤儿报告：`Cgc2046.Workers.ReconciliationScanWorker` 每 10 分钟扫描规则
+  （E-10 七条 + ADR-0009 U7 名额账本四条），命中落本表。**刷新语义**（D2）：
+  命中 upsert（保 first_seen_at、刷新 last_seen_at），本次未命中删除——
+  「无孤儿 → 空报告」由结构保证。
 
-  ## 七规则（rule 枚举）
+  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot` join `workflow_definitions.type=learning`，
@@ -18,7 +19,7 @@ defmodule Cgc2046.Reconciliation.Finding do
      处于 discarded（PR-A 后同事务必入队，死信 = 信号从未发布 = 信号链断连；
      SignalLog 只记入向，ADR-0003，原「无 signal_log」不可实现）
   4. `:open_entity_without_research_definition` — open 实体其工作台无 published
-     教研定义（U6:course 无条件;event 保留 research_enabled=false 合法不命中）
+     教研定义（U6:course 无条件;event 保留 curriculum_enabled=false 合法不命中）
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
@@ -26,6 +27,15 @@ defmodule Cgc2046.Reconciliation.Finding do
   7. `:learning_run_stalled` — learning run 停滞（`status=running` 且 `updated_at`
      严格早于 `LearningProgress.stagnant_cutoff/1`，即 7 天无 facts 更新；
      与 LearningProgressWorker 停滞提醒（D6-③）同源判定，阈值只在一处定义）
+  8. `:open_offering_without_ledger` — open offering 无名额账本行
+     （ADR-0009 U7 R17；launched 信号建行 / 报名懒建双路均未到达）
+  9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
+     （confirmed + payment_pending 报名行数；R17）
+  10. `:capacity_projection_drift` — offering 展示投影滞后账本超一拍
+     （confirmed_count / confirmed_count_sync_version 与账本不一致且账本
+     最近变更早于一个扫描周期；R17 的「超 N 拍」= 10 分钟 cron 周期对齐）
+  11. `:occupancy_exceeds_capacity` — 账本 occupancy > capacity
+     （capacity 调小后的合法超员窗口由此规则看护直至自然释放收敛，AE4）
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -41,19 +51,27 @@ defmodule Cgc2046.Reconciliation.Finding do
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Reconciliation
 
   @rule_values [
     :confirmed_enrollment_without_run,
     :pending_without_deadline,
     :active_sponsorship_signal_dead,
+    # 冻结（ADR-0009 PR③ research→curriculum 改名不溯及）：规④/⑤ 原子是
+    # reconciliation_findings.rule 列的 DB 落库枚举值，改名会使存量 finding 孤儿化，
+    # 原子名保留 research_* 原样（语义见上 moduledoc 规④/⑤）
     :open_entity_without_research_definition,
     :nonterminal_research_run_for_closed_entity,
     :dead_letter_job,
     :learning_run_stalled,
     # 缴费闭环（U7 落账前置兜底 / U13 规⑦）
     :payment_amount_mismatch,
-    :payment_recon
+    :payment_recon,
+    # ADR-0009 PR⑤ U7（R17）：名额账本 / 投影对账四规则
+    :open_offering_without_ledger,
+    :ledger_occupancy_mismatch,
+    :capacity_projection_drift,
+    :occupancy_exceeds_capacity
   ]
 
   @entity_type_values [

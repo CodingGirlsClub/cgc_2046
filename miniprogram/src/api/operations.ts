@@ -1,5 +1,5 @@
 // 公开发现面查询（F2/D2）：字段 = 匿名白名单（与 web PUBLIC_LIST_* 同源），
-// 不含 workspaceId/researchRequirements/workflowRunId/capacity/confirmedCount
+// 不含 workspaceId/curriculumRequirements/workflowRunId/capacity/confirmedCount
 // 等成员可见字段——匿名/跨工作台成员请求受保护字段会 forbidden_field 抛错。
 // filter 同时钉死 status=open 且 visibility=public，workspace_only 条目不混入。
 export const CatalogQueryDocument = /* GraphQL */ `

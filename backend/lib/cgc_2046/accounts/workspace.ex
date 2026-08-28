@@ -134,7 +134,7 @@ defmodule Cgc2046.Accounts.Workspace do
       message: "slug must only contain lowercase letters, numbers and hyphens"
     )
 
-    validate({Cgc2046.Events.SponsorshipTiersValidation, []})
+    validate({Cgc2046.Sponsorship.SponsorshipTiersValidation, []})
   end
 
   # #116 R10a：workspace 直接创建的留痕 metadata 纯函数（供 LogAdminAction change

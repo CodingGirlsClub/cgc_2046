@@ -15,7 +15,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workers.ApprovalReminderWorker
@@ -59,7 +59,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
                :create,
                %{
                  name: "审批 workflow",
-                 type: :research,
+                 type: :curriculum,
                  input_schema: %{"text" => "string"},
                  node_def: gated_node_def(),
                  approval_timeout: approval_timeout

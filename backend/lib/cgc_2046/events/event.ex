@@ -10,7 +10,7 @@ defmodule Cgc2046.Events.Event do
 
   `launch` action：draft → open，发 `event.launched` 信号（SignalEmitter 事务内
   outbox 入队，SignalPublishWorker 经 JidoAdapter 总线异步投递），
-  `Cgc2046.Workflows.ResearchInstantiator` 订阅该信号创建教研 WorkflowRun。
+  `Cgc2046.Curriculum.Instantiator` 订阅该信号创建教研 WorkflowRun。
 
   ## 多租户
 
@@ -22,9 +22,9 @@ defmodule Cgc2046.Events.Event do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Events
 
-  alias Cgc2046.Repo
+  alias Cgc2046.Offering.StatusTransition
 
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
@@ -61,7 +61,7 @@ defmodule Cgc2046.Events.Event do
       description: "公开展示文案（可空；null 由展示层按空串呈现）"
     )
 
-    attribute(:research_enabled, :boolean,
+    attribute(:curriculum_enabled, :boolean,
       allow_nil?: false,
       default: true,
       public?: true,
@@ -69,7 +69,7 @@ defmodule Cgc2046.Events.Event do
       description: "是否启用教研 workflow"
     )
 
-    attribute(:research_requirements, :map,
+    attribute(:curriculum_requirements, :map,
       default: %{},
       public?: true,
       writable?: true,
@@ -123,7 +123,19 @@ defmodule Cgc2046.Events.Event do
       public?: true,
       writable?: false,
       constraints: [min: 0],
+      # ADR-0009 U7 起为展示投影（Events 自订阅 capacity.synced 自写本列；权威计数
+      # 在 Admission 名额账本 occupancy）。description 永久冻结旧文案（U8 裁决）：
+      # 公开 SDL 零 diff 门（R8/KTD3）优先于文案更正，正确语义以本注释与
+      # CONTEXT.md 名额账本词条为准
       description: "已确认名额数（仅由 Enrollment 原子维护）"
+    )
+
+    attribute(:confirmed_count_sync_version, :integer,
+      allow_nil?: false,
+      default: 0,
+      public?: false,
+      writable?: false,
+      description: "confirmed_count 投影已应用的账本 sync_version（只接受更大版本，覆盖式幂等 + 乱序收敛）"
     )
 
     attribute(:registration_deadline, :utc_datetime,
@@ -198,10 +210,10 @@ defmodule Cgc2046.Events.Event do
   end
 
   validations do
-    validate({Cgc2046.Events.SponsorshipTiersValidation, []})
-    validate({Cgc2046.Events.PriceTiersValidation, []})
+    validate({Cgc2046.Sponsorship.SponsorshipTiersValidation, []})
+    validate({Cgc2046.Offering.PriceTiersValidation, []})
     validate({Cgc2046.Events.VenueValidation, []})
-    validate({Cgc2046.Events.ScheduleValidation, []})
+    validate({Cgc2046.Offering.ScheduleValidation, []})
   end
 
   calculations do
@@ -212,7 +224,7 @@ defmodule Cgc2046.Events.Event do
       public?: true,
       load: [:price_tiers],
       calculation: fn records, _opts ->
-        Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
+        Enum.map(records, &Cgc2046.Offering.PriceTier.available_tiers(&1.price_tiers))
       end
     )
 
@@ -224,7 +236,7 @@ defmodule Cgc2046.Events.Event do
       load: [:capacity, :confirmed_count, :starts_at, :registration_deadline],
       calculation: fn records, _opts ->
         now = DateTime.utc_now()
-        Enum.map(records, &Cgc2046.Events.EnrollmentBadge.badge(&1, now))
+        Enum.map(records, &Cgc2046.Offering.EnrollmentBadge.badge(&1, now))
       end
     )
   end
@@ -252,8 +264,8 @@ defmodule Cgc2046.Events.Event do
   actions do
     default_accept([
       :title,
-      :research_enabled,
-      :research_requirements,
+      :curriculum_enabled,
+      :curriculum_requirements,
       :enrollment_policy,
       :capacity,
       :registration_deadline,
@@ -275,8 +287,8 @@ defmodule Cgc2046.Events.Event do
 
       accept([
         :title,
-        :research_enabled,
-        :research_requirements,
+        :curriculum_enabled,
+        :curriculum_requirements,
         :enrollment_policy,
         :capacity,
         :registration_deadline,
@@ -358,8 +370,8 @@ defmodule Cgc2046.Events.Event do
 
       accept([
         :title,
-        :research_enabled,
-        :research_requirements,
+        :curriculum_enabled,
+        :curriculum_requirements,
         :enrollment_policy,
         :capacity,
         :registration_deadline,
@@ -405,6 +417,16 @@ defmodule Cgc2046.Events.Event do
       # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
       # 同事务对 payment_pending 报名逐条复用免缴三元组。
       change({Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :event})
+
+      # R16/KTD4（ADR-0009 PR⑤ U6）：capacity / registration_deadline 变更发
+      # offering.capacity_changed，名额账本订阅方回查 Offering 同步缓存。
+      # payload 不扩字段（KTD5：订阅方回读永远拿最新值，优于信号快照）。
+      change(
+        {Cgc2046.Changes.SignalEmitter,
+         type: "offering.capacity_changed",
+         payload: &__MODULE__.capacity_changed_payload/2,
+         skip_unless: &__MODULE__.capacity_or_deadline_changed?/2}
+      )
     end
 
     # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。
@@ -449,7 +471,7 @@ defmodule Cgc2046.Events.Event do
 
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
       # 明细经 GraphQL readiness 查询暴露后台（course.launch 同款，Readiness 统一）。
-      change(after_transaction(&Cgc2046.Events.Readiness.warn_unless_ready/3))
+      change(after_transaction(&Cgc2046.Offering.Readiness.warn_unless_ready/3))
     end
 
     # open → closed：结束活动（手动，或 registration_deadline 到点由
@@ -533,9 +555,9 @@ defmodule Cgc2046.Events.Event do
 
     defaults([:read])
 
-    # #14：教研 run 创建后回写产物引用（ResearchInstantiator 内部调用，authorize?: false）。
+    # #14：教研 run 创建后回写产物引用（Curriculum.Instantiator 内部调用，authorize?: false）。
     # workflow_run_id 是 writable 属性但不在任何公开 action 的 accept——只有本 action 可写。
-    update :link_research_run do
+    update :link_curriculum_run do
       description("回写教研 workflow 产物引用（#39 实例化后）")
       require_atomic?(false)
       accept([:workflow_run_id])
@@ -559,31 +581,31 @@ defmodule Cgc2046.Events.Event do
     %{
       "event_id" => event.id,
       "title" => event.title,
-      "research_requirements" => event.research_requirements || %{}
+      # ADR-0009 KD8/R9：payload 键逐字节冻结，键名不随属性改名
+      "research_requirements" => event.curriculum_requirements || %{}
     }
   end
 
   def ended_payload(_changeset, event), do: %{"event_id" => event.id, "title" => event.title}
 
-  # DB 级 compare-and-set：条件 UPDATE 原子抢占状态迁移（enrollment.expire 同款
-  # 纪律）。num_rows=0 → 并发竞态（cron 与手动双拍），拒绝而非双成功双发布。
-  # 成功后由调用方 force_change（Ash 后续写同值幂等，返回 record 状态正确）。
-  defp status_transition(changeset, to_status) do
-    sql = "UPDATE events SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3"
-    id = Ash.Changeset.get_data(changeset, :id)
-    from_status = Ash.Changeset.get_data(changeset, :status)
+  # offering.capacity_changed（R16）：仅 event_id 锚定，缓存值由订阅方回查；
+  # 幂等键自带逐次唯一判别子（同事件多次变更各自独立去重，键集合不变仅值唯一化）。
+  def capacity_changed_payload(_changeset, event),
+    do: %{
+      "event_id" => event.id,
+      "idempotency_key" =>
+        "offering.capacity_changed:#{event.id}:#{System.unique_integer([:positive])}"
+    }
 
-    case Repo.query(sql, [to_string(to_status), Repo.uuid!(id), to_string(from_status)]) do
-      {:ok, %{num_rows: 1}} ->
-        :ok
-
-      {:ok, %{num_rows: 0}} ->
-        {:error, :status_race}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
+  # SignalEmitter skip_unless 谓词：capacity / registration_deadline 任一变更为信号触发
+  def capacity_or_deadline_changed?(changeset, _event) do
+    Ash.Changeset.changing_attribute?(changeset, :capacity) or
+      Ash.Changeset.changing_attribute?(changeset, :registration_deadline)
   end
+
+  # 状态机 CAS 委托 offering 层共享 helper（KTD2）。
+  defp status_transition(changeset, to_status),
+    do: StatusTransition.run(changeset, "events", to_status)
 
   postgres do
     table("events")
@@ -607,7 +629,7 @@ defmodule Cgc2046.Events.Event do
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
-  # research_enabled / research_requirements / workflow_run_id / capacity /
+  # curriculum_enabled / curriculum_requirements / workflow_run_id / capacity /
   # confirmed_count，匿名被筛除。
   field_policies do
     field_policy :* do
@@ -616,8 +638,8 @@ defmodule Cgc2046.Events.Event do
 
     field_policy [
       :workspace_id,
-      :research_enabled,
-      :research_requirements,
+      :curriculum_enabled,
+      :curriculum_requirements,
       :workflow_run_id,
       :capacity,
       :confirmed_count

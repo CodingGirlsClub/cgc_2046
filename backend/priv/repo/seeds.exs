@@ -74,7 +74,7 @@ end
 definitions = [
   %{
     name: "教研 workflow",
-    type: :research,
+    type: :curriculum,
     node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
   },
   %{
@@ -124,5 +124,5 @@ IO.puts(
 )
 
 IO.puts(
-  "[seeds] research agent instruction: #{byte_size(AgentInstructions.research_agent())} bytes"
+  "[seeds] curriculum agent instruction: #{byte_size(Cgc2046.Curriculum.AgentInstructions.curriculum_agent())} bytes"
 )

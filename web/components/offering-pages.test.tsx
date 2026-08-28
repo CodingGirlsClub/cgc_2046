@@ -644,6 +644,63 @@ describe("OfferingNewPage 新建调用链", () => {
   );
 });
 
+describe("OfferingDetailPage capacity 警告（R18，ADR-0009 U7）", () => {
+  it.each(["event", "course"] as const)(
+    "%s 目标容量 < 当前已占席数 → 警告渲染，保存不拦截",
+    async (kind) => {
+      await renderManageDetail(
+        kind,
+        offeringRow({ capacity: 10, confirmedCount: 3 }),
+      );
+
+      // 初始值（10 ≥ 3）不警告
+      expect(
+        screen.queryByTestId("capacity-below-occupied-warning"),
+      ).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/名额上限/), {
+        target: { value: "1" },
+      });
+
+      const warning = screen.getByTestId("capacity-below-occupied-warning");
+      expect(warning).toBeInTheDocument();
+      expect(warning).toHaveAttribute("role", "alert");
+      expect(warning.textContent).toContain("已占 3 席");
+
+      // 不拦截：照常提交且 capacity 按新值下发
+      fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+      await waitFor(() =>
+        expect(mocks.updateOffering).toHaveBeenCalledWith(
+          "offering-1",
+          kind,
+          expect.objectContaining({ capacity: 1 }),
+        ),
+      );
+    },
+  );
+
+  it("目标容量 ≥ 已占席数 / 留空（不限）→ 不渲染警告", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({ capacity: 10, confirmedCount: 3 }),
+    );
+
+    fireEvent.change(screen.getByLabelText(/名额上限/), {
+      target: { value: "3" },
+    });
+    expect(
+      screen.queryByTestId("capacity-below-occupied-warning"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/名额上限/), {
+      target: { value: "" },
+    });
+    expect(
+      screen.queryByTestId("capacity-below-occupied-warning"),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("OfferingDetailPage 保存元数据调用链", () => {
   it.each(["event", "course"] as const)(
     "%s 改元数据 → updateOffering 变量正确 → 表单复位",
@@ -686,7 +743,7 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
           startsAt: null,
           endsAt: null,
           ...(kind === "course"
-            ? { researchRequirements: JSON.stringify({ note: "" }) }
+            ? { curriculumRequirements: JSON.stringify({ note: "" }) }
             : { venue: { country: "", province: "", city: "", district: "" } }),
           pricingEnabled: false,
           priceTiers: [],
@@ -1256,7 +1313,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         registrationDeadline: null,
         startsAt: new Date("2026-09-01T09:30").toISOString(),
         endsAt: null,
-        researchRequirements: JSON.stringify({ note: "" }),
+        curriculumRequirements: JSON.stringify({ note: "" }),
         pricingEnabled: false,
         priceTiers: [],
       }),

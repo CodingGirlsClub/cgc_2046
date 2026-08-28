@@ -15,7 +15,7 @@ defmodule Cgc2046.Policies.SponsorshipDeliveryReadable do
   use Ash.Policy.SimpleCheck
 
   alias Cgc2046.Accounts.{MembershipContext, Role}
-  alias Cgc2046.Events.{Sponsorship, SponsorshipDelivery}
+  alias Cgc2046.Sponsorship.{Sponsorship, SponsorshipDelivery}
 
   @impl true
   def describe(_opts), do: "actor can read the parent sponsorship"

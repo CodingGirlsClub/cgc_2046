@@ -3,7 +3,7 @@ defmodule Cgc2046.Policies.SponsorshipApproverTest do
 
   alias Cgc2046.Accounts.Role
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Policies.SponsorshipApprover
 
   describe "approver_roles/1 规则唯一真源（拍板 #4）" do

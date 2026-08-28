@@ -24,7 +24,7 @@ defmodule Cgc2046.Workflows.Step do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   @type_values [:auto, :manual, :gate, :sub_workflow]
 

@@ -131,7 +131,7 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
   end
 
   defp registration_open?(%{course_id: course_id}) when is_binary(course_id) do
-    deadline_open?(Cgc2046.Events.Course, course_id)
+    deadline_open?(Cgc2046.Courses.Course, course_id)
   end
 
   defp registration_open?(_), do: false

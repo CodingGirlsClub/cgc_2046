@@ -28,7 +28,7 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   alias Cgc2046.Repo
 

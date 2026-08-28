@@ -25,8 +25,8 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert enrollment.status == :confirmed
       assert enrollment.capacity_seq == 1
 
-      reloaded = Ash.get!(event.__struct__, event.id, authorize?: false)
-      assert reloaded.confirmed_count == 1
+      # ADR-0009 PR⑤ U6 口径平移：占位计数权威 = 名额账本 occupancy
+      assert EventFixtures.ledger_occupancy(event) == 1
 
       second = Fixtures.register_user("enrollment-full")
       assert {:error, error} = create_enrollment(event, second)
@@ -48,14 +48,14 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert {:ok, pending} = create_enrollment(event, learner)
       assert pending.status == :pending
       refute is_nil(pending.approval_deadline)
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+      assert EventFixtures.ledger_occupancy(event) == 0
 
       assert {:error, _} = confirm(pending, member)
       assert {:ok, confirmed} = confirm(pending, admin)
       assert confirmed.status == :confirmed
       assert confirmed.approved_by == admin.id
       refute is_nil(confirmed.approved_at)
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+      assert EventFixtures.ledger_occupancy(event) == 1
     end
 
     test "outsider 非本 workspace 成员审批 pending 报名被拒，状态不变（Phase 5 越权演练）" do
@@ -162,7 +162,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
                |> Ash.update(tenant: workspace.id, actor: learner)
 
       assert cancelled.status == :cancelled
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+      assert EventFixtures.ledger_occupancy(event) == 0
     end
 
     test "显式传错 tenant 仍报 target_tenant_mismatch（#104 验收：派生不放开越权）" do
@@ -454,7 +454,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
       assert enrollment.status == :payment_pending
       assert enrollment.capacity_seq == 1
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+      assert EventFixtures.ledger_occupancy(event) == 1
 
       # submitted 发（报名动作发生），completed 不发（未真正确认，KTD6-6）
       assert count_enqueued("enrollment.submitted", enrollment.id) == 1
@@ -491,13 +491,13 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
       assert {:ok, pending} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
       assert pending.status == :pending
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+      assert EventFixtures.ledger_occupancy(event) == 0
 
       assert {:ok, payment_pending} = confirm(pending, admin)
       assert payment_pending.status == :payment_pending
       assert payment_pending.capacity_seq == 1
       assert payment_pending.approved_by == admin.id
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+      assert EventFixtures.ledger_occupancy(event) == 1
 
       # approved 发，completed 不发（支付未完成）
       assert count_enqueued("enrollment.approved", pending.id) == 1
@@ -567,7 +567,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
                |> Ash.update(tenant: workspace.id, actor: learner)
 
       assert cancelled.status == :cancelled
-      assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+      assert EventFixtures.ledger_occupancy(event) == 0
 
       # 释放后可重新报名（计数回落再占位，重新拿回 1 号位）
       assert {:ok, re} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
