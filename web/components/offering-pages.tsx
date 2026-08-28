@@ -56,6 +56,7 @@ import { formatAmount, parsePaymentStats, parsePriceTiers } from "@/lib/payment"
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
+  serializeSponsorshipTier,
   parseVenue,
   submitEnrollment,
 } from "@/lib/public-offerings";
@@ -1655,16 +1656,14 @@ export function OfferingDetailPage({
                   onSaveTiers={async (tiers) => {
                     try {
                       const res = await updateOffering(offering.id, kind, {
-                        sponsorshipTiers: tiers.map((t) => JSON.stringify(t)),
+                        sponsorshipTiers: tiers.map(serializeSponsorshipTier),
                       });
                       if (res.result) {
                         setState({
                           id: offering.id,
                           row: {
                             ...offering,
-                            sponsorshipTiers: tiers.map((t) =>
-                              JSON.stringify(t),
-                            ),
+                            sponsorshipTiers: tiers.map(serializeSponsorshipTier),
                           },
                           error: null,
                         });
