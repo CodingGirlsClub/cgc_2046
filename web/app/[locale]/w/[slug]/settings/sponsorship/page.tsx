@@ -15,7 +15,7 @@ import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { canManageEvents } from "@/lib/events";
-import { parseSponsorshipTiers } from "@/lib/public-offerings";
+import { parseSponsorshipTiers, serializeSponsorshipTier } from "@/lib/public-offerings";
 import { updateWorkspaceSponsorshipTiers } from "@/lib/workspaces";
 import WorkspaceShell from "@/components/workspace-shell";
 import MembersTabs from "@/components/members-tabs";
@@ -57,7 +57,7 @@ export default function WorkspaceSponsorshipPage() {
 							try {
 								await updateWorkspaceSponsorshipTiers(
 									ws.id,
-									tiers.map((t) => JSON.stringify(t)),
+									tiers.map(serializeSponsorshipTier),
 								);
 								return true;
 							} catch {
