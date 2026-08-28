@@ -10,7 +10,8 @@ defmodule Cgc2046.Workers.EventLifecycleWorkerTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
   alias Cgc2046.Workers.EventLifecycleWorker
 
   defp backdate_deadline(table, id, interval) do

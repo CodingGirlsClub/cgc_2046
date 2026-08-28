@@ -9,7 +9,15 @@ import Config
 
 config :cgc_2046,
   ecto_repos: [Cgc2046.Repo],
-  ash_domains: [Cgc2046.Api, Cgc2046.Admission, Cgc2046.GlobalApi, Cgc2046.Mcp, Cgc2046.Payments],
+  ash_domains: [
+    Cgc2046.Api,
+    Cgc2046.Admission,
+    Cgc2046.Courses,
+    Cgc2046.Events,
+    Cgc2046.GlobalApi,
+    Cgc2046.Mcp,
+    Cgc2046.Payments
+  ],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
 config :cgc_2046, AshPostgres,

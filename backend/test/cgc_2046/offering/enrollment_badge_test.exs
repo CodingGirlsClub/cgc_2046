@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.EnrollmentBadgeTest do
+defmodule Cgc2046.Offering.EnrollmentBadgeTest do
   @moduledoc """
   U1 / R6 / KTD1：enrollment_badge 公开派生标签矩阵。
 
@@ -18,7 +18,7 @@ defmodule Cgc2046.Events.EnrollmentBadgeTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
-  alias Cgc2046.Events.EnrollmentBadge
+  alias Cgc2046.Offering.EnrollmentBadge
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   setup do

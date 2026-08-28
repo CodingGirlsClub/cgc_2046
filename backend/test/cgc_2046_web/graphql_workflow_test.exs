@@ -14,7 +14,8 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
 
   use Cgc2046Web.ConnCase, async: true
 
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
 
   alias Cgc2046.Workflows.{
     ResearchInstantiator,

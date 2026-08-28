@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.ScheduleValidation do
+defmodule Cgc2046.Offering.ScheduleValidation do
   @moduledoc """
   `starts_at`/`ends_at` 时序校验（Ash Resource.Validation，KTD6）。
 

@@ -142,7 +142,7 @@ defmodule Cgc2046.Admission.Enrollment do
   relationships do
     belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
     belongs_to(:event, Cgc2046.Events.Event, define_attribute?: false)
-    belongs_to(:course, Cgc2046.Events.Course, define_attribute?: false)
+    belongs_to(:course, Cgc2046.Courses.Course, define_attribute?: false)
     belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false)
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun, define_attribute?: false)
     belongs_to(:invite_batch, Cgc2046.Admission.InviteBatch, define_attribute?: false)
@@ -627,9 +627,9 @@ defmodule Cgc2046.Admission.Enrollment do
     tier_id = Ash.Changeset.get_argument(changeset, :tier_id)
 
     with true <- (is_binary(tier_id) and tier_id != "") || {:error, :tier_id_required},
-         {:ok, tier} <- Cgc2046.Events.PriceTier.find(tiers, tier_id),
+         {:ok, tier} <- Cgc2046.Offering.PriceTier.find(tiers, tier_id),
          true <-
-           Cgc2046.Events.PriceTier.available?(tier, DateTime.utc_now()) ||
+           Cgc2046.Offering.PriceTier.available?(tier, DateTime.utc_now()) ||
              {:error, :tier_not_available} do
       payload =
         changeset

@@ -15,7 +15,8 @@ defmodule Cgc2046.Events.EventVisibilityTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   defp reload(resource, id, actor \\ nil, tenant \\ nil) do

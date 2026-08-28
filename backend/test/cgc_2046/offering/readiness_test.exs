@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.ReadinessTest do
+defmodule Cgc2046.Offering.ReadinessTest do
   @moduledoc """
   E-5 #50 G2：readiness 清单第三项 `sponsorship_tiers_configured` 正反例。
 
@@ -11,7 +11,7 @@ defmodule Cgc2046.Events.ReadinessTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Readiness
+  alias Cgc2046.Offering.Readiness
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   defp sponsorship_item(entity) do

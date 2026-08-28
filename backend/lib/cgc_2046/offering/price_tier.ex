@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.PriceTier do
+defmodule Cgc2046.Offering.PriceTier do
   @moduledoc """
   报名价格档位配置的纯函数族（缴费闭环 U2，R1/R2）。
 
@@ -88,7 +88,7 @@ defmodule Cgc2046.Events.PriceTier do
   def available_tiers(_tiers), do: []
 end
 
-defmodule Cgc2046.Events.PriceTiersValidation do
+defmodule Cgc2046.Offering.PriceTiersValidation do
   @moduledoc """
   `price_tiers` 字段结构校验 + 收费开启配对校验（Ash Resource.Validation）。
 
@@ -101,7 +101,7 @@ defmodule Cgc2046.Events.PriceTiersValidation do
 
   use Ash.Resource.Validation
 
-  alias Cgc2046.Events.PriceTier
+  alias Cgc2046.Offering.PriceTier
 
   @impl true
   def validate(changeset, _opts, _context) do

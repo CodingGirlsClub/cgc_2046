@@ -207,7 +207,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
         EventFixtures.create_course(workspace, admin, %{visibility: :workspace, title: "内部课"})
 
       draft =
-        Cgc2046.Events.Course
+        Cgc2046.Courses.Course
         |> Ash.Changeset.for_create(
           :create,
           %{title: "草稿课", workspace_id: workspace.id},

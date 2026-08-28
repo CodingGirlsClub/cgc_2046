@@ -3,2088 +3,6 @@ schema {
   query: RootQueryType
 }
 
-type SpeakerInvitation {
-  id: ID!
-
-  "所属工作台（租户）ID（= Event 的 workspace_id）"
-  workspaceId: ID!
-
-  "目标活动（Event）ID"
-  eventId: ID!
-
-  "接受后绑定的全局账号（拍板 #1：Speaker 必须全局账号，不成为成员）"
-  speakerUserId: ID
-
-  "被邀请人姓名"
-  speakerName: String!
-
-  "被邀请人邮箱（可空 = 手动转发链接）"
-  speakerEmail: String
-
-  "分享主题（可选）"
-  topic: String
-
-  "分享时间（可选）"
-  scheduledAt: DateTime
-
-  "备注（可选）"
-  note: String
-
-  "发起人（Owner\/Admin）"
-  invitedBy: ID!
-
-  "状态机：invited \/ accepted \/ declined \/ completed"
-  status: String!
-
-  acceptedBy: ID
-
-  acceptedAt: DateTime
-
-  declinedAt: DateTime
-
-  completedAt: DateTime
-
-  "token 有效期（可空 = 不设过期）"
-  expiresAt: DateTime
-
-  "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
-  workflowRunId: ID
-}
-
-"The result of the :fulfill_delivery mutation"
-type FulfillDeliveryResult {
-  "The successful result of the mutation"
-  result: SponsorshipDelivery
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input FulfillDeliveryInput {
-  proofNote: String!
-}
-
-enum SponsorshipDeliverySortField {
-  ID
-  WORKSPACE_ID
-  SPONSORSHIP_ID
-  BENEFIT
-  DUE_DATE
-  FULFILLED_AT
-  PROOF_NOTE
-  EXCLUSIVE
-}
-
-input SponsorshipDeliveryFilterExclusive {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
-}
-
-input SponsorshipDeliveryFilterProofNote {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipDeliveryFilterFulfilledAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipDeliveryFilterDueDate {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipDeliveryFilterBenefit {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipDeliveryFilterSponsorshipId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipDeliveryFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipDeliveryFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipDeliveryFilterInput {
-  and: [SponsorshipDeliveryFilterInput!]
-
-  or: [SponsorshipDeliveryFilterInput!]
-
-  not: [SponsorshipDeliveryFilterInput!]
-
-  id: SponsorshipDeliveryFilterId
-
-  "所属工作台（物化时从 Sponsorship 复制，租户）"
-  workspaceId: SponsorshipDeliveryFilterWorkspaceId
-
-  sponsorshipId: SponsorshipDeliveryFilterSponsorshipId
-
-  "权益项名（物化自 tier.benefits）"
-  benefit: SponsorshipDeliveryFilterBenefit
-
-  dueDate: SponsorshipDeliveryFilterDueDate
-
-  fulfilledAt: SponsorshipDeliveryFilterFulfilledAt
-
-  proofNote: SponsorshipDeliveryFilterProofNote
-
-  "独占位标记（随档位复制）"
-  exclusive: SponsorshipDeliveryFilterExclusive
-}
-
-input SponsorshipDeliverySortInput {
-  order: SortOrder
-  field: SponsorshipDeliverySortField!
-}
-
-type SponsorshipDelivery {
-  id: ID!
-
-  "所属工作台（物化时从 Sponsorship 复制，租户）"
-  workspaceId: ID!
-
-  sponsorshipId: ID!
-
-  "权益项名（物化自 tier.benefits）"
-  benefit: String!
-
-  dueDate: DateTime
-
-  fulfilledAt: DateTime
-
-  proofNote: String
-
-  "独占位标记（随档位复制）"
-  exclusive: Boolean!
-}
-
-"The result of the :reject_sponsorship mutation"
-type RejectSponsorshipResult {
-  "The successful result of the mutation"
-  result: Sponsorship
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input RejectSponsorshipInput {
-  rejectionReason: String
-}
-
-"The result of the :approve_sponsorship mutation"
-type ApproveSponsorshipResult {
-  "The successful result of the mutation"
-  result: Sponsorship
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :create_sponsorship mutation"
-type CreateSponsorshipResult {
-  "The successful result of the mutation"
-  result: Sponsorship
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreateSponsorshipInput {
-  "赞助级别：event 单场 \/ workspace 长期"
-  level: String!
-
-  eventId: ID
-
-  "赞助方（全局账号，非成员）"
-  sponsorUserId: ID!
-
-  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
-  tierId: ID
-
-  "意向金额（元，v1 仅登记不收款；可空）"
-  amount: Int
-
-  "赞助方公司\/展示名"
-  companyName: String!
-
-  "联系邮箱（必填）"
-  contactEmail: String!
-
-  contactPhone: String
-
-  "备注\/合作意向"
-  message: String
-
-  targetWorkspaceId: ID
-}
-
-enum SponsorshipSortField {
-  ID
-  LEVEL
-  WORKSPACE_ID
-  EVENT_ID
-  SPONSOR_USER_ID
-  WORKFLOW_RUN_ID
-  TIER_ID
-  TIER_NAME
-  STATUS
-  AMOUNT
-  COMPANY_NAME
-  CONTACT_EMAIL
-  CONTACT_PHONE
-  MESSAGE
-  APPROVED_BY
-  APPROVED_AT
-  REJECTION_REASON
-  APPROVAL_DEADLINE
-  EXPIRED_AT
-  STARTED_AT
-  ENDED_AT
-}
-
-"A keyset page of :sponsorship"
-type KeysetPageOfSponsorship {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [Sponsorship!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input SponsorshipFilterEndedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterStartedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterExpiredAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterApprovalDeadline {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterRejectionReason {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterApprovedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterApprovedBy {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterMessage {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterContactPhone {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterContactEmail {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterCompanyName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterAmount {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input SponsorshipFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input SponsorshipFilterTierName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterTierId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterWorkflowRunId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterSponsorUserId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterEventId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterLevel {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input SponsorshipFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterInput {
-  and: [SponsorshipFilterInput!]
-
-  or: [SponsorshipFilterInput!]
-
-  not: [SponsorshipFilterInput!]
-
-  id: SponsorshipFilterId
-
-  "赞助级别：event 单场 \/ workspace 长期"
-  level: SponsorshipFilterLevel
-
-  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
-  workspaceId: SponsorshipFilterWorkspaceId
-
-  eventId: SponsorshipFilterEventId
-
-  "赞助方（全局账号，非成员）"
-  sponsorUserId: SponsorshipFilterSponsorUserId
-
-  workflowRunId: SponsorshipFilterWorkflowRunId
-
-  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
-  tierId: SponsorshipFilterTierId
-
-  "档位展示名冗余（审批\/展示用）"
-  tierName: SponsorshipFilterTierName
-
-  status: SponsorshipFilterStatus
-
-  "意向金额（元，v1 仅登记不收款；可空）"
-  amount: SponsorshipFilterAmount
-
-  "赞助方公司\/展示名"
-  companyName: SponsorshipFilterCompanyName
-
-  "联系邮箱（必填）"
-  contactEmail: SponsorshipFilterContactEmail
-
-  contactPhone: SponsorshipFilterContactPhone
-
-  "备注\/合作意向"
-  message: SponsorshipFilterMessage
-
-  approvedBy: SponsorshipFilterApprovedBy
-
-  approvedAt: SponsorshipFilterApprovedAt
-
-  rejectionReason: SponsorshipFilterRejectionReason
-
-  approvalDeadline: SponsorshipFilterApprovalDeadline
-
-  expiredAt: SponsorshipFilterExpiredAt
-
-  startedAt: SponsorshipFilterStartedAt
-
-  endedAt: SponsorshipFilterEndedAt
-
-  deliveries: SponsorshipDeliveryFilterInput
-}
-
-input SponsorshipSortInput {
-  order: SortOrder
-  field: SponsorshipSortField!
-}
-
-type Sponsorship {
-  id: ID!
-
-  "赞助级别：event 单场 \/ workspace 长期"
-  level: String!
-
-  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
-  workspaceId: ID!
-
-  eventId: ID
-
-  "赞助方（全局账号，非成员）"
-  sponsorUserId: ID!
-
-  workflowRunId: ID
-
-  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
-  tierId: ID
-
-  "档位展示名冗余（审批\/展示用）"
-  tierName: String
-
-  status: String!
-
-  "意向金额（元，v1 仅登记不收款；可空）"
-  amount: Int
-
-  "赞助方公司\/展示名"
-  companyName: String!
-
-  "联系邮箱（必填）"
-  contactEmail: String!
-
-  contactPhone: String
-
-  "备注\/合作意向"
-  message: String
-
-  approvedBy: ID
-
-  approvedAt: DateTime
-
-  rejectionReason: String
-
-  approvalDeadline: DateTime
-
-  expiredAt: DateTime
-
-  startedAt: DateTime
-
-  endedAt: DateTime
-
-  deliveries(
-    "How to sort the records in the response"
-    sort: [SponsorshipDeliverySortInput]
-
-    "A filter to limit the results"
-    filter: SponsorshipDeliveryFilterInput
-
-    "The number of records to return."
-    limit: Int
-
-    "The number of records to skip."
-    offset: Int
-  ): [SponsorshipDelivery!]!
-
-  targetTitle: String
-}
-
-"The result of the :cancel_course mutation"
-type CancelCourseResult {
-  "The successful result of the mutation"
-  result: Course
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :close_course mutation"
-type CloseCourseResult {
-  "The successful result of the mutation"
-  result: Course
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :launch_course mutation"
-type LaunchCourseResult {
-  "The successful result of the mutation"
-  result: Course
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :update_course mutation"
-type UpdateCourseResult {
-  "The successful result of the mutation"
-  result: Course
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input UpdateCourseInput {
-  "课程标题"
-  title: String
-
-  "公开 URL 段（\/courses\/[slug]，全局唯一）"
-  slug: String
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: String
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: String
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: String
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: DateTime
-
-  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
-  startsAt: DateTime
-
-  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: DateTime
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: Boolean
-
-  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
-  priceTiers: [JsonString!]
-}
-
-"The result of the :create_course mutation"
-type CreateCourseResult {
-  "The successful result of the mutation"
-  result: Course
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreateCourseInput {
-  "课程标题"
-  title: String!
-
-  "公开 URL 段（\/courses\/[slug]，全局唯一）"
-  slug: String
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: String
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: String
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: String
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: DateTime
-
-  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
-  startsAt: DateTime
-
-  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: DateTime
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: Boolean
-
-  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
-  priceTiers: [JsonString!]
-
-  "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
-  workspaceId: ID
-}
-
-enum CourseSortField {
-  ID
-  WORKSPACE_ID
-  TITLE
-  SLUG
-  DESCRIPTION
-  RESEARCH_REQUIREMENTS
-  STATUS
-  WORKFLOW_RUN_ID
-  ENROLLMENT_POLICY
-  VISIBILITY
-  CAPACITY
-  CONFIRMED_COUNT
-  REGISTRATION_DEADLINE
-  STARTS_AT
-  ENDS_AT
-  PRICING_ENABLED
-}
-
-"A keyset page of :course"
-type KeysetPageOfCourse {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [Course!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input CourseFilterPricingEnabled {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
-}
-
-input CourseFilterEndsAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input CourseFilterStartsAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input CourseFilterRegistrationDeadline {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input CourseFilterConfirmedCount {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input CourseFilterCapacity {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input CourseFilterVisibility {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input CourseFilterEnrollmentPolicy {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input CourseFilterWorkflowRunId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input CourseFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input CourseFilterResearchRequirements {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input CourseFilterDescription {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input CourseFilterSlug {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input CourseFilterTitle {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input CourseFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input CourseFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input CourseFilterInput {
-  and: [CourseFilterInput!]
-
-  or: [CourseFilterInput!]
-
-  not: [CourseFilterInput!]
-
-  id: CourseFilterId
-
-  "所属工作台（租户）ID"
-  workspaceId: CourseFilterWorkspaceId
-
-  "课程标题"
-  title: CourseFilterTitle
-
-  "公开 URL 段（\/courses\/[slug]，全局唯一）"
-  slug: CourseFilterSlug
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: CourseFilterDescription
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: CourseFilterResearchRequirements
-
-  "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
-  status: CourseFilterStatus
-
-  "教研 workflow 产物引用（领域模型 §5.2 ER）"
-  workflowRunId: CourseFilterWorkflowRunId
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: CourseFilterEnrollmentPolicy
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: CourseFilterVisibility
-
-  "报名名额上限；nil 表示不限"
-  capacity: CourseFilterCapacity
-
-  "已确认名额数（仅由 Enrollment 原子维护）"
-  confirmedCount: CourseFilterConfirmedCount
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: CourseFilterRegistrationDeadline
-
-  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
-  startsAt: CourseFilterStartsAt
-
-  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: CourseFilterEndsAt
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: CourseFilterPricingEnabled
-
-  workflowRun: WorkflowRunFilterInput
-}
-
-input CourseSortInput {
-  order: SortOrder
-  field: CourseSortField!
-}
-
-type Course {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "课程标题"
-  title: String!
-
-  "公开 URL 段（\/courses\/[slug]，全局唯一）"
-  slug: String
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: String
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
-
-  "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
-  status: String!
-
-  "教研 workflow 产物引用（领域模型 §5.2 ER）"
-  workflowRunId: ID
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: String!
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: String!
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  "已确认名额数（仅由 Enrollment 原子维护）"
-  confirmedCount: Int!
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: DateTime
-
-  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
-  startsAt: DateTime
-
-  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: DateTime
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: Boolean!
-
-  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
-  priceTiers: [JsonString!]!
-
-  workflowRun: WorkflowRun
-
-  availablePriceTiers: [JsonString!]
-
-  enrollmentBadge: String
-}
-
-"The result of the :cancel_event mutation"
-type CancelEventResult {
-  "The successful result of the mutation"
-  result: Event
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :close_event mutation"
-type CloseEventResult {
-  "The successful result of the mutation"
-  result: Event
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :launch_event mutation"
-type LaunchEventResult {
-  "The successful result of the mutation"
-  result: Event
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :update_event mutation"
-type UpdateEventResult {
-  "The successful result of the mutation"
-  result: Event
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input UpdateEventInput {
-  "活动标题"
-  title: String
-
-  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
-  slug: String
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: String
-
-  "是否启用教研 workflow"
-  researchEnabled: Boolean
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: String
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: String
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: DateTime
-
-  "活动开始时间；nil 表示未定（R1）"
-  startsAt: DateTime
-
-  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: DateTime
-
-  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
-  venue: JsonString
-
-  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
-  sponsorshipEnabled: Boolean
-
-  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
-  sponsorshipTiers: [JsonString!]
-
-  "赞助意向截止；nil 表示长期开放"
-  sponsorshipDeadline: DateTime
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: Boolean
-
-  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
-  priceTiers: [JsonString!]
-}
-
-"The result of the :create_event mutation"
-type CreateEventResult {
-  "The successful result of the mutation"
-  result: Event
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreateEventInput {
-  "活动标题"
-  title: String!
-
-  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
-  slug: String
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: String
-
-  "是否启用教研 workflow"
-  researchEnabled: Boolean
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: String
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: String
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: DateTime
-
-  "活动开始时间；nil 表示未定（R1）"
-  startsAt: DateTime
-
-  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: DateTime
-
-  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
-  venue: JsonString
-
-  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
-  sponsorshipEnabled: Boolean
-
-  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
-  sponsorshipTiers: [JsonString!]
-
-  "赞助意向截止；nil 表示长期开放"
-  sponsorshipDeadline: DateTime
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: Boolean
-
-  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
-  priceTiers: [JsonString!]
-
-  "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
-  workspaceId: ID
-}
-
-enum EventSortField {
-  ID
-  WORKSPACE_ID
-  TITLE
-  SLUG
-  DESCRIPTION
-  RESEARCH_ENABLED
-  RESEARCH_REQUIREMENTS
-  STATUS
-  WORKFLOW_RUN_ID
-  ENROLLMENT_POLICY
-  VISIBILITY
-  CAPACITY
-  CONFIRMED_COUNT
-  REGISTRATION_DEADLINE
-  STARTS_AT
-  ENDS_AT
-  VENUE
-  SPONSORSHIP_ENABLED
-  SPONSORSHIP_DEADLINE
-  PRICING_ENABLED
-}
-
-"A keyset page of :event"
-type KeysetPageOfEvent {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [Event!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input EventFilterPricingEnabled {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
-}
-
-input EventFilterSponsorshipDeadline {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EventFilterSponsorshipEnabled {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
-}
-
-input EventFilterVenue {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input EventFilterEndsAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EventFilterStartsAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EventFilterRegistrationDeadline {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EventFilterConfirmedCount {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input EventFilterCapacity {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input EventFilterVisibility {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input EventFilterEnrollmentPolicy {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input EventFilterWorkflowRunId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EventFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input EventFilterResearchRequirements {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input EventFilterResearchEnabled {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
-}
-
-input EventFilterDescription {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input EventFilterSlug {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input EventFilterTitle {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input EventFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EventFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EventFilterInput {
-  and: [EventFilterInput!]
-
-  or: [EventFilterInput!]
-
-  not: [EventFilterInput!]
-
-  id: EventFilterId
-
-  "所属工作台（租户）ID"
-  workspaceId: EventFilterWorkspaceId
-
-  "活动标题"
-  title: EventFilterTitle
-
-  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
-  slug: EventFilterSlug
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: EventFilterDescription
-
-  "是否启用教研 workflow"
-  researchEnabled: EventFilterResearchEnabled
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: EventFilterResearchRequirements
-
-  "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
-  status: EventFilterStatus
-
-  "教研 workflow 产物引用（领域模型 §5.2 ER）"
-  workflowRunId: EventFilterWorkflowRunId
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: EventFilterEnrollmentPolicy
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: EventFilterVisibility
-
-  "报名名额上限；nil 表示不限"
-  capacity: EventFilterCapacity
-
-  "已确认名额数（仅由 Enrollment 原子维护）"
-  confirmedCount: EventFilterConfirmedCount
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: EventFilterRegistrationDeadline
-
-  "活动开始时间；nil 表示未定（R1）"
-  startsAt: EventFilterStartsAt
-
-  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: EventFilterEndsAt
-
-  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
-  venue: EventFilterVenue
-
-  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
-  sponsorshipEnabled: EventFilterSponsorshipEnabled
-
-  "赞助意向截止；nil 表示长期开放"
-  sponsorshipDeadline: EventFilterSponsorshipDeadline
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: EventFilterPricingEnabled
-}
-
-input EventSortInput {
-  order: SortOrder
-  field: EventSortField!
-}
-
-type Event {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "活动标题"
-  title: String!
-
-  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
-  slug: String
-
-  "公开展示文案（可空；null 由展示层按空串呈现）"
-  description: String
-
-  "是否启用教研 workflow"
-  researchEnabled: Boolean!
-
-  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
-
-  "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
-  status: String!
-
-  "教研 workflow 产物引用（领域模型 §5.2 ER）"
-  workflowRunId: ID
-
-  "报名策略：open \/ request \/ invite_only"
-  enrollmentPolicy: String!
-
-  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
-  visibility: String!
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  "已确认名额数（仅由 Enrollment 原子维护）"
-  confirmedCount: Int!
-
-  "报名截止时间；nil 表示不设截止"
-  registrationDeadline: DateTime
-
-  "活动开始时间；nil 表示未定（R1）"
-  startsAt: DateTime
-
-  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
-  endsAt: DateTime
-
-  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
-  venue: JsonString
-
-  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
-  sponsorshipEnabled: Boolean!
-
-  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
-  sponsorshipTiers: [JsonString!]!
-
-  "赞助意向截止；nil 表示长期开放"
-  sponsorshipDeadline: DateTime
-
-  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
-  pricingEnabled: Boolean!
-
-  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
-  priceTiers: [JsonString!]!
-
-  availablePriceTiers: [JsonString!]
-
-  enrollmentBadge: String
-}
-
 enum WorkflowRunSortField {
   ID
   WORKSPACE_ID
@@ -3302,6 +1220,2088 @@ input EnrollmentFilterInput {
 input EnrollmentSortInput {
   order: SortOrder
   field: EnrollmentSortField!
+}
+
+"The result of the :cancel_course mutation"
+type CancelCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :close_course mutation"
+type CloseCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :launch_course mutation"
+type LaunchCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :update_course mutation"
+type UpdateCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdateCourseInput {
+  "课程标题"
+  title: String
+
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+}
+
+"The result of the :create_course mutation"
+type CreateCourseResult {
+  "The successful result of the mutation"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateCourseInput {
+  "课程标题"
+  title: String!
+
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+
+  "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
+  workspaceId: ID
+}
+
+enum CourseSortField {
+  ID
+  WORKSPACE_ID
+  TITLE
+  SLUG
+  DESCRIPTION
+  RESEARCH_REQUIREMENTS
+  STATUS
+  WORKFLOW_RUN_ID
+  ENROLLMENT_POLICY
+  VISIBILITY
+  CAPACITY
+  CONFIRMED_COUNT
+  REGISTRATION_DEADLINE
+  STARTS_AT
+  ENDS_AT
+  PRICING_ENABLED
+}
+
+"A keyset page of :course"
+type KeysetPageOfCourse {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Course!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input CourseFilterPricingEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input CourseFilterEndsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input CourseFilterStartsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input CourseFilterRegistrationDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input CourseFilterConfirmedCount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input CourseFilterCapacity {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input CourseFilterVisibility {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input CourseFilterEnrollmentPolicy {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input CourseFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input CourseFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input CourseFilterResearchRequirements {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input CourseFilterDescription {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input CourseFilterSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input CourseFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input CourseFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input CourseFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input CourseFilterInput {
+  and: [CourseFilterInput!]
+
+  or: [CourseFilterInput!]
+
+  not: [CourseFilterInput!]
+
+  id: CourseFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: CourseFilterWorkspaceId
+
+  "课程标题"
+  title: CourseFilterTitle
+
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: CourseFilterSlug
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: CourseFilterDescription
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: CourseFilterResearchRequirements
+
+  "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: CourseFilterStatus
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: CourseFilterWorkflowRunId
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: CourseFilterEnrollmentPolicy
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: CourseFilterVisibility
+
+  "报名名额上限；nil 表示不限"
+  capacity: CourseFilterCapacity
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: CourseFilterConfirmedCount
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: CourseFilterRegistrationDeadline
+
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: CourseFilterStartsAt
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: CourseFilterEndsAt
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: CourseFilterPricingEnabled
+
+  workflowRun: WorkflowRunFilterInput
+}
+
+input CourseSortInput {
+  order: SortOrder
+  field: CourseSortField!
+}
+
+type Course {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "课程标题"
+  title: String!
+
+  "公开 URL 段（\/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: String!
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: ID
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String!
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: Int!
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "开课时间；nil 表示未定（R1，Course 语义为开课\/结课）"
+  startsAt: DateTime
+
+  "结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean!
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]!
+
+  workflowRun: WorkflowRun
+
+  availablePriceTiers: [JsonString!]
+
+  enrollmentBadge: String
+}
+
+"The result of the :fulfill_delivery mutation"
+type FulfillDeliveryResult {
+  "The successful result of the mutation"
+  result: SponsorshipDelivery
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input FulfillDeliveryInput {
+  proofNote: String!
+}
+
+enum SponsorshipDeliverySortField {
+  ID
+  WORKSPACE_ID
+  SPONSORSHIP_ID
+  BENEFIT
+  DUE_DATE
+  FULFILLED_AT
+  PROOF_NOTE
+  EXCLUSIVE
+}
+
+input SponsorshipDeliveryFilterExclusive {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input SponsorshipDeliveryFilterProofNote {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipDeliveryFilterFulfilledAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipDeliveryFilterDueDate {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipDeliveryFilterBenefit {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipDeliveryFilterSponsorshipId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipDeliveryFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipDeliveryFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipDeliveryFilterInput {
+  and: [SponsorshipDeliveryFilterInput!]
+
+  or: [SponsorshipDeliveryFilterInput!]
+
+  not: [SponsorshipDeliveryFilterInput!]
+
+  id: SponsorshipDeliveryFilterId
+
+  "所属工作台（物化时从 Sponsorship 复制，租户）"
+  workspaceId: SponsorshipDeliveryFilterWorkspaceId
+
+  sponsorshipId: SponsorshipDeliveryFilterSponsorshipId
+
+  "权益项名（物化自 tier.benefits）"
+  benefit: SponsorshipDeliveryFilterBenefit
+
+  dueDate: SponsorshipDeliveryFilterDueDate
+
+  fulfilledAt: SponsorshipDeliveryFilterFulfilledAt
+
+  proofNote: SponsorshipDeliveryFilterProofNote
+
+  "独占位标记（随档位复制）"
+  exclusive: SponsorshipDeliveryFilterExclusive
+}
+
+input SponsorshipDeliverySortInput {
+  order: SortOrder
+  field: SponsorshipDeliverySortField!
+}
+
+type SponsorshipDelivery {
+  id: ID!
+
+  "所属工作台（物化时从 Sponsorship 复制，租户）"
+  workspaceId: ID!
+
+  sponsorshipId: ID!
+
+  "权益项名（物化自 tier.benefits）"
+  benefit: String!
+
+  dueDate: DateTime
+
+  fulfilledAt: DateTime
+
+  proofNote: String
+
+  "独占位标记（随档位复制）"
+  exclusive: Boolean!
+}
+
+"The result of the :reject_sponsorship mutation"
+type RejectSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectSponsorshipInput {
+  rejectionReason: String
+}
+
+"The result of the :approve_sponsorship mutation"
+type ApproveSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_sponsorship mutation"
+type CreateSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateSponsorshipInput {
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: String!
+
+  eventId: ID
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: ID!
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: ID
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: Int
+
+  "赞助方公司\/展示名"
+  companyName: String!
+
+  "联系邮箱（必填）"
+  contactEmail: String!
+
+  contactPhone: String
+
+  "备注\/合作意向"
+  message: String
+
+  targetWorkspaceId: ID
+}
+
+enum SponsorshipSortField {
+  ID
+  LEVEL
+  WORKSPACE_ID
+  EVENT_ID
+  SPONSOR_USER_ID
+  WORKFLOW_RUN_ID
+  TIER_ID
+  TIER_NAME
+  STATUS
+  AMOUNT
+  COMPANY_NAME
+  CONTACT_EMAIL
+  CONTACT_PHONE
+  MESSAGE
+  APPROVED_BY
+  APPROVED_AT
+  REJECTION_REASON
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+  STARTED_AT
+  ENDED_AT
+}
+
+"A keyset page of :sponsorship"
+type KeysetPageOfSponsorship {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Sponsorship!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input SponsorshipFilterEndedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterMessage {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterContactPhone {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterContactEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterCompanyName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterAmount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input SponsorshipFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input SponsorshipFilterTierName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterTierId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterSponsorUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterLevel {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input SponsorshipFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterInput {
+  and: [SponsorshipFilterInput!]
+
+  or: [SponsorshipFilterInput!]
+
+  not: [SponsorshipFilterInput!]
+
+  id: SponsorshipFilterId
+
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: SponsorshipFilterLevel
+
+  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
+  workspaceId: SponsorshipFilterWorkspaceId
+
+  eventId: SponsorshipFilterEventId
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: SponsorshipFilterSponsorUserId
+
+  workflowRunId: SponsorshipFilterWorkflowRunId
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: SponsorshipFilterTierId
+
+  "档位展示名冗余（审批\/展示用）"
+  tierName: SponsorshipFilterTierName
+
+  status: SponsorshipFilterStatus
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: SponsorshipFilterAmount
+
+  "赞助方公司\/展示名"
+  companyName: SponsorshipFilterCompanyName
+
+  "联系邮箱（必填）"
+  contactEmail: SponsorshipFilterContactEmail
+
+  contactPhone: SponsorshipFilterContactPhone
+
+  "备注\/合作意向"
+  message: SponsorshipFilterMessage
+
+  approvedBy: SponsorshipFilterApprovedBy
+
+  approvedAt: SponsorshipFilterApprovedAt
+
+  rejectionReason: SponsorshipFilterRejectionReason
+
+  approvalDeadline: SponsorshipFilterApprovalDeadline
+
+  expiredAt: SponsorshipFilterExpiredAt
+
+  startedAt: SponsorshipFilterStartedAt
+
+  endedAt: SponsorshipFilterEndedAt
+
+  deliveries: SponsorshipDeliveryFilterInput
+}
+
+input SponsorshipSortInput {
+  order: SortOrder
+  field: SponsorshipSortField!
+}
+
+type Sponsorship {
+  id: ID!
+
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: String!
+
+  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
+  workspaceId: ID!
+
+  eventId: ID
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: ID!
+
+  workflowRunId: ID
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: ID
+
+  "档位展示名冗余（审批\/展示用）"
+  tierName: String
+
+  status: String!
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: Int
+
+  "赞助方公司\/展示名"
+  companyName: String!
+
+  "联系邮箱（必填）"
+  contactEmail: String!
+
+  contactPhone: String
+
+  "备注\/合作意向"
+  message: String
+
+  approvedBy: ID
+
+  approvedAt: DateTime
+
+  rejectionReason: String
+
+  approvalDeadline: DateTime
+
+  expiredAt: DateTime
+
+  startedAt: DateTime
+
+  endedAt: DateTime
+
+  deliveries(
+    "How to sort the records in the response"
+    sort: [SponsorshipDeliverySortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipDeliveryFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [SponsorshipDelivery!]!
+
+  targetTitle: String
+}
+
+type SpeakerInvitation {
+  id: ID!
+
+  "所属工作台（租户）ID（= Event 的 workspace_id）"
+  workspaceId: ID!
+
+  "目标活动（Event）ID"
+  eventId: ID!
+
+  "接受后绑定的全局账号（拍板 #1：Speaker 必须全局账号，不成为成员）"
+  speakerUserId: ID
+
+  "被邀请人姓名"
+  speakerName: String!
+
+  "被邀请人邮箱（可空 = 手动转发链接）"
+  speakerEmail: String
+
+  "分享主题（可选）"
+  topic: String
+
+  "分享时间（可选）"
+  scheduledAt: DateTime
+
+  "备注（可选）"
+  note: String
+
+  "发起人（Owner\/Admin）"
+  invitedBy: ID!
+
+  "状态机：invited \/ accepted \/ declined \/ completed"
+  status: String!
+
+  acceptedBy: ID
+
+  acceptedAt: DateTime
+
+  declinedAt: DateTime
+
+  completedAt: DateTime
+
+  "token 有效期（可空 = 不设过期）"
+  expiresAt: DateTime
+
+  "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
+  workflowRunId: ID
+}
+
+"The result of the :cancel_event mutation"
+type CancelEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :close_event mutation"
+type CloseEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :launch_event mutation"
+type LaunchEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :update_event mutation"
+type UpdateEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input UpdateEventInput {
+  "活动标题"
+  title: String
+
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: Boolean
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+}
+
+"The result of the :create_event mutation"
+type CreateEventResult {
+  "The successful result of the mutation"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateEventInput {
+  "活动标题"
+  title: String!
+
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: Boolean
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]
+
+  "目标工作台 ID（GraphQL 入口必传；tenant 已注入时省略）"
+  workspaceId: ID
+}
+
+enum EventSortField {
+  ID
+  WORKSPACE_ID
+  TITLE
+  SLUG
+  DESCRIPTION
+  RESEARCH_ENABLED
+  RESEARCH_REQUIREMENTS
+  STATUS
+  WORKFLOW_RUN_ID
+  ENROLLMENT_POLICY
+  VISIBILITY
+  CAPACITY
+  CONFIRMED_COUNT
+  REGISTRATION_DEADLINE
+  STARTS_AT
+  ENDS_AT
+  VENUE
+  SPONSORSHIP_ENABLED
+  SPONSORSHIP_DEADLINE
+  PRICING_ENABLED
+}
+
+"A keyset page of :event"
+type KeysetPageOfEvent {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Event!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input EventFilterPricingEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input EventFilterSponsorshipDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EventFilterSponsorshipEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input EventFilterVenue {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input EventFilterEndsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EventFilterStartsAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EventFilterRegistrationDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EventFilterConfirmedCount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input EventFilterCapacity {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input EventFilterVisibility {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input EventFilterEnrollmentPolicy {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input EventFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EventFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input EventFilterResearchRequirements {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input EventFilterResearchEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input EventFilterDescription {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EventFilterSlug {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EventFilterTitle {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EventFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EventFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EventFilterInput {
+  and: [EventFilterInput!]
+
+  or: [EventFilterInput!]
+
+  not: [EventFilterInput!]
+
+  id: EventFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: EventFilterWorkspaceId
+
+  "活动标题"
+  title: EventFilterTitle
+
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: EventFilterSlug
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: EventFilterDescription
+
+  "是否启用教研 workflow"
+  researchEnabled: EventFilterResearchEnabled
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: EventFilterResearchRequirements
+
+  "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: EventFilterStatus
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: EventFilterWorkflowRunId
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: EventFilterEnrollmentPolicy
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: EventFilterVisibility
+
+  "报名名额上限；nil 表示不限"
+  capacity: EventFilterCapacity
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: EventFilterConfirmedCount
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: EventFilterRegistrationDeadline
+
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: EventFilterStartsAt
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: EventFilterEndsAt
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: EventFilterVenue
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: EventFilterSponsorshipEnabled
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: EventFilterSponsorshipDeadline
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: EventFilterPricingEnabled
+}
+
+input EventSortInput {
+  order: SortOrder
+  field: EventSortField!
+}
+
+type Event {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "活动标题"
+  title: String!
+
+  "公开 URL 段（\/events\/[slug] 或 \/courses\/[slug]，全局唯一）"
+  slug: String
+
+  "公开展示文案（可空；null 由展示层按空串呈现）"
+  description: String
+
+  "是否启用教研 workflow"
+  researchEnabled: Boolean!
+
+  "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
+  researchRequirements: JsonString
+
+  "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
+  status: String!
+
+  "教研 workflow 产物引用（领域模型 §5.2 ER）"
+  workflowRunId: ID
+
+  "报名策略：open \/ request \/ invite_only"
+  enrollmentPolicy: String!
+
+  "可见性：public 公开可见 \/ workspace 仅工作台可见（可随时双向切换，D9）"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  "已确认名额数（仅由 Enrollment 原子维护）"
+  confirmedCount: Int!
+
+  "报名截止时间；nil 表示不设截止"
+  registrationDeadline: DateTime
+
+  "活动开始时间；nil 表示未定（R1）"
+  startsAt: DateTime
+
+  "活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1）"
+  endsAt: DateTime
+
+  "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
+  venue: JsonString
+
+  "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
+  sponsorshipEnabled: Boolean!
+
+  "赞助档位配置（SponsorshipTier 形状，见 sponsorship_tier.ex）"
+  sponsorshipTiers: [JsonString!]!
+
+  "赞助意向截止；nil 表示长期开放"
+  sponsorshipDeadline: DateTime
+
+  "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
+  pricingEnabled: Boolean!
+
+  "价格档位配置（PriceTier 形状，见 price_tier.ex）"
+  priceTiers: [JsonString!]!
+
+  availablePriceTiers: [JsonString!]
+
+  enrollmentBadge: String
 }
 
 "The result of the :reject_workspace_application mutation"
@@ -5733,6 +5733,128 @@ type RootQueryType {
     last: Int
   ): KeysetPageOfWorkspaceApplication
 
+  "工作台的活动列表（#40 展示页）"
+  listEvents(
+    "How to sort the records in the response"
+    sort: [EventSortInput]
+
+    "A filter to limit the results"
+    filter: EventFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfEvent
+
+  "按 id 获取活动（#40）"
+  getEvent(
+    "A filter to limit the results"
+    filter: EventFilterInput
+
+    id: ID!
+  ): Event
+
+  "按 slug 获取（E-5 公开宿主页）"
+  getEventBySlug(
+    "A filter to limit the results"
+    filter: EventFilterInput
+
+    slug: String!
+  ): Event
+
+  sponsorships(
+    "How to sort the records in the response"
+    sort: [SponsorshipSortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfSponsorship
+
+  "当前用户跨工作台的赞助意向"
+  mySponsorships(
+    "How to sort the records in the response"
+    sort: [SponsorshipSortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfSponsorship
+
+  getSponsorship(
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    id: ID!
+  ): Sponsorship
+
+  "工作台的课程列表（#40 展示页）"
+  listCourses(
+    "How to sort the records in the response"
+    sort: [CourseSortInput]
+
+    "A filter to limit the results"
+    filter: CourseFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfCourse
+
+  "按 id 获取课程（#40）"
+  getCourse(
+    "A filter to limit the results"
+    filter: CourseFilterInput
+
+    id: ID!
+  ): Course
+
+  "按 slug 获取（E-5 公开宿主页）"
+  getCourseBySlug(
+    "A filter to limit the results"
+    filter: CourseFilterInput
+
+    slug: String!
+  ): Course
+
   enrollments(
     "How to sort the records in the response"
     sort: [EnrollmentSortInput]
@@ -5822,128 +5944,6 @@ type RootQueryType {
 
     id: ID!
   ): WorkflowRun
-
-  "工作台的活动列表（#40 展示页）"
-  listEvents(
-    "How to sort the records in the response"
-    sort: [EventSortInput]
-
-    "A filter to limit the results"
-    filter: EventFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfEvent
-
-  "按 id 获取活动（#40）"
-  getEvent(
-    "A filter to limit the results"
-    filter: EventFilterInput
-
-    id: ID!
-  ): Event
-
-  "按 slug 获取（E-5 公开宿主页）"
-  getEventBySlug(
-    "A filter to limit the results"
-    filter: EventFilterInput
-
-    slug: String!
-  ): Event
-
-  "工作台的课程列表（#40 展示页）"
-  listCourses(
-    "How to sort the records in the response"
-    sort: [CourseSortInput]
-
-    "A filter to limit the results"
-    filter: CourseFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfCourse
-
-  "按 id 获取课程（#40）"
-  getCourse(
-    "A filter to limit the results"
-    filter: CourseFilterInput
-
-    id: ID!
-  ): Course
-
-  "按 slug 获取（E-5 公开宿主页）"
-  getCourseBySlug(
-    "A filter to limit the results"
-    filter: CourseFilterInput
-
-    slug: String!
-  ): Course
-
-  sponsorships(
-    "How to sort the records in the response"
-    sort: [SponsorshipSortInput]
-
-    "A filter to limit the results"
-    filter: SponsorshipFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfSponsorship
-
-  "当前用户跨工作台的赞助意向"
-  mySponsorships(
-    "How to sort the records in the response"
-    sort: [SponsorshipSortInput]
-
-    "A filter to limit the results"
-    filter: SponsorshipFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfSponsorship
-
-  getSponsorship(
-    "A filter to limit the results"
-    filter: SponsorshipFilterInput
-
-    id: ID!
-  ): Sponsorship
 }
 
 type AbilityGrant {
@@ -6606,6 +6606,48 @@ type RootMutationType {
   "拒绝创建工作台申请（platform_admin）"
   rejectWorkspaceApplication(id: ID!, input: RejectWorkspaceApplicationInput): RejectWorkspaceApplicationResult!
 
+  "创建活动（默认 status=draft）"
+  createEvent(input: CreateEventInput!): CreateEventResult!
+
+  "编辑活动元数据（Owner\/Admin）"
+  updateEvent(id: ID!, input: UpdateEventInput): UpdateEventResult!
+
+  "发布活动：draft → open，发 event.launched 信号"
+  launchEvent(id: ID!): LaunchEventResult!
+
+  "结束活动：open → closed，发 event.ended 信号"
+  closeEvent(id: ID!): CloseEventResult!
+
+  "取消活动：open → cancelled，发 event.ended 信号"
+  cancelEvent(id: ID!): CancelEventResult!
+
+  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
+  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
+
+  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
+  approveSponsorship(id: ID!): ApproveSponsorshipResult!
+
+  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
+  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
+
+  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
+  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
+
+  "创建课程（默认 status=draft）"
+  createCourse(input: CreateCourseInput!): CreateCourseResult!
+
+  "编辑课程元数据（Owner\/Admin）"
+  updateCourse(id: ID!, input: UpdateCourseInput): UpdateCourseResult!
+
+  "发布课程：draft → open，发 course.launched 信号"
+  launchCourse(id: ID!): LaunchCourseResult!
+
+  "结束课程：open → closed，发 course.ended 信号"
+  closeCourse(id: ID!): CloseCourseResult!
+
+  "取消课程：open → cancelled，发 course.ended 信号"
+  cancelCourse(id: ID!): CancelCourseResult!
+
   "创建报名；open\/invite_only 立即占位，request 等待审批"
   createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
 
@@ -6624,48 +6666,6 @@ type RootMutationType {
   createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
 
   disableInviteBatch(id: ID!): DisableInviteBatchResult!
-
-  "创建活动（默认 status=draft）"
-  createEvent(input: CreateEventInput!): CreateEventResult!
-
-  "编辑活动元数据（Owner\/Admin）"
-  updateEvent(id: ID!, input: UpdateEventInput): UpdateEventResult!
-
-  "发布活动：draft → open，发 event.launched 信号"
-  launchEvent(id: ID!): LaunchEventResult!
-
-  "结束活动：open → closed，发 event.ended 信号"
-  closeEvent(id: ID!): CloseEventResult!
-
-  "取消活动：open → cancelled，发 event.ended 信号"
-  cancelEvent(id: ID!): CancelEventResult!
-
-  "创建课程（默认 status=draft）"
-  createCourse(input: CreateCourseInput!): CreateCourseResult!
-
-  "编辑课程元数据（Owner\/Admin）"
-  updateCourse(id: ID!, input: UpdateCourseInput): UpdateCourseResult!
-
-  "发布课程：draft → open，发 course.launched 信号"
-  launchCourse(id: ID!): LaunchCourseResult!
-
-  "结束课程：open → closed，发 course.ended 信号"
-  closeCourse(id: ID!): CloseCourseResult!
-
-  "取消课程：open → cancelled，发 course.ended 信号"
-  cancelCourse(id: ID!): CancelCourseResult!
-
-  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
-  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
-
-  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
-  approveSponsorship(id: ID!): ApproveSponsorshipResult!
-
-  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
-  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
-
-  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
-  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
 }
 
 """

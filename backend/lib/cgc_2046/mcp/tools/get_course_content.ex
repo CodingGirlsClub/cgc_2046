@@ -60,7 +60,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   # 课程元数据(title/slug,key 派生原料);授权已在工具层发生,
   # authorize?: false 直读(save_learning_records fetch_course 同款纪律)
   defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Events.Course
+    case Cgc2046.Courses.Course
          |> Ash.Query.for_read(:get_by_id, %{id: course_id})
          |> Ash.read_one(authorize?: false, tenant: workspace_id) do
       {:ok, nil} -> {:error, "course not found: #{course_id}"}

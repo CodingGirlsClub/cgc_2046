@@ -11,7 +11,8 @@ defmodule Cgc2046.EventsFixtures do
   - `days_from_now/1`：badge / 时间过滤测试共用的布置时间源。
   """
 
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
 
   def create_event(workspace, actor, attrs \\ %{}) do
     attrs =

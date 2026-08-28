@@ -6,7 +6,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   require Ash.Expr
 
   use AshGraphql,
-    domains: [Cgc2046.Api, Cgc2046.Admission, Cgc2046.GlobalApi, Cgc2046.Payments],
+    domains: [
+      Cgc2046.Api,
+      Cgc2046.Admission,
+      Cgc2046.Courses,
+      Cgc2046.Events,
+      Cgc2046.GlobalApi,
+      Cgc2046.Payments
+    ],
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true
 
@@ -2526,7 +2533,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 匿名面);成员视角走管理页/工作台课程列表,不经本查询;其余 → {:ok, nil}。
   # goal-only 投影(object :course_map_issue 无 checklist 字段)。
   defp resolve_course_map(slug) do
-    case Cgc2046.Events.Course
+    case Cgc2046.Courses.Course
          |> Ash.Query.for_read(:get_by_slug, %{slug: slug})
          |> Ash.read_one(authorize?: false) do
       {:ok, %{} = course} ->
@@ -2542,14 +2549,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp build_course_map(course) do
-    content = Cgc2046.Events.Course.course_content(course)
+    content = Cgc2046.Courses.Course.course_content(course)
 
     %{
       course_id: course.id,
       title: course.title,
       slug: course.slug,
       goals: content["goals"] || [],
-      issues: Cgc2046.Events.Course.issue_map_rows(course)
+      issues: Cgc2046.Courses.Course.issue_map_rows(course)
     }
   end
 
@@ -2590,7 +2597,7 @@ defmodule Cgc2046Web.GraphqlSchema do
              course.workspace_id,
              course.id
            ) do
-      content = Cgc2046.Events.Course.course_content(course)
+      content = Cgc2046.Courses.Course.course_content(course)
       records = fetch_actor_records(course, actor)
       {:ok, build_course_learning_detail(course, content, records)}
     else
@@ -2602,7 +2609,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # resolve_course_learning_detail 的 LearnerAuthorization 三层判定
   # （成员 ∪ confirmed enrollment ∪ 记忆持有者）承担，无权限 → nil。
   defp fetch_course_for_detail(course_id) do
-    Cgc2046.Events.Course
+    Cgc2046.Courses.Course
     |> Ash.Query.for_read(:get_by_id, %{id: course_id})
     |> Ash.read_one(authorize?: false)
     |> case do
@@ -2881,7 +2888,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       # #217 旁路读取（D 类）：投影元数据，守门同函数头锚链。
       course =
-        Cgc2046.Events.Course
+        Cgc2046.Courses.Course
         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
         |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
         |> case do
@@ -3175,7 +3182,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   defp resolve_readiness(id, actor) do
     with {:ok, entity} <- fetch_offering_by_id(id, actor) do
-      {:ok, Cgc2046.Events.Readiness.evaluate(entity)}
+      {:ok, Cgc2046.Offering.Readiness.evaluate(entity)}
     end
   end
 
