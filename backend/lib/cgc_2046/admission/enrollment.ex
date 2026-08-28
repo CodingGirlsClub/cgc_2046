@@ -299,7 +299,7 @@ defmodule Cgc2046.Admission.Enrollment do
       )
 
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :waive_payment,
          target_type: :enrollment,
          metadata: &__MODULE__.waive_log_metadata/2}

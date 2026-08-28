@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.WaivePendingOnPricingDisable do
+defmodule Cgc2046.Admission.Changes.WaivePendingOnPricingDisable do
   @moduledoc """
   R9 关闭收费批量免费确认（organizer-payment U3，KTD4）。
 
@@ -14,7 +14,7 @@ defmodule Cgc2046.Changes.WaivePendingOnPricingDisable do
 
   用法（fn 约束同 SignalEmitter：本模块自身即 change，opts 字面量安全）：
 
-      change {Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :event}
+      change {Cgc2046.Admission.Changes.WaivePendingOnPricingDisable, kind: :event}
 
   opts：
 

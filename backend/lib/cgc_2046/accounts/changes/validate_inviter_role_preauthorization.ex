@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.ValidateInviterRolePreauthorization do
+defmodule Cgc2046.Accounts.Changes.ValidateInviterRolePreauthorization do
   @moduledoc """
   校验邀请创建时 inviter 的角色与预授权角色的一致性（决策 5）。
 

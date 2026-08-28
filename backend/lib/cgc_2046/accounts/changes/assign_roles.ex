@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.AssignRoles do
+defmodule Cgc2046.Accounts.Changes.AssignRoles do
   @moduledoc """
   替换某成员（WorkspaceMembership）的整组角色（多角色并集）。
 

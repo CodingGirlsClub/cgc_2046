@@ -142,7 +142,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
         constraints: [items: [one_of: Cgc2046.Accounts.Role.role_names()]]
       )
 
-      change(Cgc2046.Changes.AssignRoles)
+      change(Cgc2046.Accounts.Changes.AssignRoles)
     end
   end
 

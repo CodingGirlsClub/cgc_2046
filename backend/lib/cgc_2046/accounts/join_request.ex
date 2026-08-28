@@ -153,10 +153,10 @@ defmodule Cgc2046.Accounts.JoinRequest do
         )
       )
 
-      change(Cgc2046.Changes.ValidateWorkspaceJoinPolicy)
+      change(Cgc2046.Accounts.Changes.ValidateWorkspaceJoinPolicy)
 
       # #115 ownerless 门控：join_policy 校验通过后，阻断向 pending-owner 工作台提交申请
-      change(Cgc2046.Changes.ValidateWorkspaceHasOwner)
+      change(Cgc2046.Accounts.Changes.ValidateWorkspaceHasOwner)
     end
 
     update :approve do

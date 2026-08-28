@@ -258,7 +258,7 @@ defmodule Cgc2046.Accounts.Invitation do
       end)
 
       # 校验 Volunteer 不可预授权 admin/owner（决策 5）
-      change(Cgc2046.Changes.ValidateInviterRolePreauthorization)
+      change(Cgc2046.Accounts.Changes.ValidateInviterRolePreauthorization)
 
       # after_action 把明文 token 注入 record metadata（AshGraphql 暴露为 mutation result 的 metadata.plainToken）
       change(
@@ -331,7 +331,7 @@ defmodule Cgc2046.Accounts.Invitation do
       # 条件挂接：actor 是 platform_admin 且 preauthorized 含 :owner；成员撤销自己的
       # 普通邀请不记。fail-closed：留痕失败回滚撤销本身（同一事务）。
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :owner_invitation_cancel,
          target_type: :workspace,
          target_id: &__MODULE__.invitation_log_target_id/2,

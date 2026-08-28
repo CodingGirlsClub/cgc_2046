@@ -240,7 +240,7 @@ defmodule Cgc2046.Accounts.Workspace do
       # after_action 落 application_approve，该不变量由 admin_action_log_test 钉死）。
       # 留痕失败上抛回滚整个创建（fail-closed）。
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :workspace_create,
          target_type: :workspace,
          on_missing_actor: :skip,
@@ -311,7 +311,7 @@ defmodule Cgc2046.Accounts.Workspace do
                    {:ok, workspace} <-
                      seat_new_owner(workspace, tenant, actor, owner_user_id, owner_email),
                    {:ok, _log} <-
-                     Cgc2046.Changes.LogAdminAction.log(changeset, workspace, %{
+                     Cgc2046.Accounts.Changes.LogAdminAction.log(changeset, workspace, %{
                        action: :owner_reassign,
                        target_type: :workspace,
                        target_id: workspace.id,
