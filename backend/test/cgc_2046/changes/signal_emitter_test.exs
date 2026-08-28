@@ -15,7 +15,7 @@ defmodule Cgc2046.Changes.SignalEmitterTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Changes.SignalEmitter
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.SignalPublishWorker
 

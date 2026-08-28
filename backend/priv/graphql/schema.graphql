@@ -866,693 +866,6 @@ type Sponsorship {
   targetTitle: String
 }
 
-"The result of the :waive_payment mutation"
-type WaivePaymentResult {
-  "The successful result of the mutation"
-  result: Enrollment
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :cancel_enrollment mutation"
-type CancelEnrollmentResult {
-  "The successful result of the mutation"
-  result: Enrollment
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :reject_enrollment mutation"
-type RejectEnrollmentResult {
-  "The successful result of the mutation"
-  result: Enrollment
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input RejectEnrollmentInput {
-  rejectionReason: String
-}
-
-"The result of the :confirm_enrollment mutation"
-type ConfirmEnrollmentResult {
-  "The successful result of the mutation"
-  result: Enrollment
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :create_enrollment mutation"
-type CreateEnrollmentResult {
-  "The successful result of the mutation"
-  result: Enrollment
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreateEnrollmentInput {
-  eventId: ID
-
-  courseId: ID
-
-  userId: ID!
-
-  workflowRunId: ID
-
-  submissionPayload: JsonString
-
-  approvalDeadline: DateTime
-
-  inviteCode: String
-
-  "价格档位 ID（收费活动报名时必填）"
-  tierId: String
-}
-
-enum EnrollmentSortField {
-  ID
-  WORKSPACE_ID
-  EVENT_ID
-  COURSE_ID
-  USER_ID
-  WORKFLOW_RUN_ID
-  INVITE_BATCH_ID
-  STATUS
-  SUBMISSION_PAYLOAD
-  CAPACITY_SEQ
-  APPROVED_BY
-  APPROVED_AT
-  REJECTION_REASON
-  APPROVAL_DEADLINE
-  EXPIRED_AT
-  CANCELLED_AT
-  INSERTED_AT
-}
-
-"A keyset page of :enrollment"
-type KeysetPageOfEnrollment {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [Enrollment!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input EnrollmentFilterInsertedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime!]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EnrollmentFilterCancelledAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EnrollmentFilterExpiredAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EnrollmentFilterApprovalDeadline {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EnrollmentFilterRejectionReason {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input EnrollmentFilterApprovedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input EnrollmentFilterApprovedBy {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterCapacitySeq {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input EnrollmentFilterSubmissionPayload {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString!]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input EnrollmentFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input EnrollmentFilterInviteBatchId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterWorkflowRunId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterUserId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterCourseId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterEventId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input EnrollmentFilterInput {
-  and: [EnrollmentFilterInput!]
-  or: [EnrollmentFilterInput!]
-  not: [EnrollmentFilterInput!]
-  id: EnrollmentFilterId
-  workspaceId: EnrollmentFilterWorkspaceId
-  eventId: EnrollmentFilterEventId
-  courseId: EnrollmentFilterCourseId
-  userId: EnrollmentFilterUserId
-  workflowRunId: EnrollmentFilterWorkflowRunId
-  inviteBatchId: EnrollmentFilterInviteBatchId
-  status: EnrollmentFilterStatus
-  submissionPayload: EnrollmentFilterSubmissionPayload
-  capacitySeq: EnrollmentFilterCapacitySeq
-  approvedBy: EnrollmentFilterApprovedBy
-  approvedAt: EnrollmentFilterApprovedAt
-  rejectionReason: EnrollmentFilterRejectionReason
-  approvalDeadline: EnrollmentFilterApprovalDeadline
-  expiredAt: EnrollmentFilterExpiredAt
-  cancelledAt: EnrollmentFilterCancelledAt
-  insertedAt: EnrollmentFilterInsertedAt
-}
-
-input EnrollmentSortInput {
-  order: SortOrder
-  field: EnrollmentSortField!
-}
-
-"The result of the :disable_invite_batch mutation"
-type DisableInviteBatchResult {
-  "The successful result of the mutation"
-  result: InviteBatch
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :create_invite_batch mutation"
-type CreateInviteBatchResult {
-  "The successful result of the mutation"
-  result: InviteBatch
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreateInviteBatchInput {
-  eventId: ID
-  courseId: ID
-  inviteCode: String!
-  quota: Int!
-  expiresAt: DateTime
-  status: String
-  remark: String
-}
-
-enum InviteBatchSortField {
-  ID
-  WORKSPACE_ID
-  EVENT_ID
-  COURSE_ID
-  INVITE_CODE
-  QUOTA
-  REMAINING_QUOTA
-  EXPIRES_AT
-  STATUS
-  REMARK
-  INSERTED_AT
-}
-
-"A keyset page of :invite_batch"
-type KeysetPageOfInviteBatch {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [InviteBatch!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input InviteBatchFilterInsertedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime!]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input InviteBatchFilterRemark {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input InviteBatchFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input InviteBatchFilterExpiresAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input InviteBatchFilterRemainingQuota {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input InviteBatchFilterQuota {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input InviteBatchFilterInviteCode {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input InviteBatchFilterCourseId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterEventId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterInput {
-  and: [InviteBatchFilterInput!]
-  or: [InviteBatchFilterInput!]
-  not: [InviteBatchFilterInput!]
-  id: InviteBatchFilterId
-  workspaceId: InviteBatchFilterWorkspaceId
-  eventId: InviteBatchFilterEventId
-  courseId: InviteBatchFilterCourseId
-  inviteCode: InviteBatchFilterInviteCode
-  quota: InviteBatchFilterQuota
-  remainingQuota: InviteBatchFilterRemainingQuota
-  expiresAt: InviteBatchFilterExpiresAt
-  status: InviteBatchFilterStatus
-  remark: InviteBatchFilterRemark
-  insertedAt: InviteBatchFilterInsertedAt
-}
-
-input InviteBatchSortInput {
-  order: SortOrder
-  field: InviteBatchSortField!
-}
-
-type InviteBatch {
-  id: ID!
-  workspaceId: ID!
-  eventId: ID
-  courseId: ID
-  inviteCode: String!
-  quota: Int!
-  remainingQuota: Int!
-  expiresAt: DateTime
-  status: String!
-  remark: String
-  insertedAt: DateTime!
-}
-
 "The result of the :cancel_course mutation"
 type CancelCourseResult {
   "The successful result of the mutation"
@@ -3302,6 +2615,693 @@ type MutationError {
 
   "The path to the field that produced the error"
   path: [String!]
+}
+
+"The result of the :disable_invite_batch mutation"
+type DisableInviteBatchResult {
+  "The successful result of the mutation"
+  result: InviteBatch
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_invite_batch mutation"
+type CreateInviteBatchResult {
+  "The successful result of the mutation"
+  result: InviteBatch
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateInviteBatchInput {
+  eventId: ID
+  courseId: ID
+  inviteCode: String!
+  quota: Int!
+  expiresAt: DateTime
+  status: String
+  remark: String
+}
+
+enum InviteBatchSortField {
+  ID
+  WORKSPACE_ID
+  EVENT_ID
+  COURSE_ID
+  INVITE_CODE
+  QUOTA
+  REMAINING_QUOTA
+  EXPIRES_AT
+  STATUS
+  REMARK
+  INSERTED_AT
+}
+
+"A keyset page of :invite_batch"
+type KeysetPageOfInviteBatch {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [InviteBatch!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input InviteBatchFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input InviteBatchFilterRemark {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InviteBatchFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input InviteBatchFilterExpiresAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input InviteBatchFilterRemainingQuota {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input InviteBatchFilterQuota {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input InviteBatchFilterInviteCode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input InviteBatchFilterCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input InviteBatchFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input InviteBatchFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input InviteBatchFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input InviteBatchFilterInput {
+  and: [InviteBatchFilterInput!]
+  or: [InviteBatchFilterInput!]
+  not: [InviteBatchFilterInput!]
+  id: InviteBatchFilterId
+  workspaceId: InviteBatchFilterWorkspaceId
+  eventId: InviteBatchFilterEventId
+  courseId: InviteBatchFilterCourseId
+  inviteCode: InviteBatchFilterInviteCode
+  quota: InviteBatchFilterQuota
+  remainingQuota: InviteBatchFilterRemainingQuota
+  expiresAt: InviteBatchFilterExpiresAt
+  status: InviteBatchFilterStatus
+  remark: InviteBatchFilterRemark
+  insertedAt: InviteBatchFilterInsertedAt
+}
+
+input InviteBatchSortInput {
+  order: SortOrder
+  field: InviteBatchSortField!
+}
+
+type InviteBatch {
+  id: ID!
+  workspaceId: ID!
+  eventId: ID
+  courseId: ID
+  inviteCode: String!
+  quota: Int!
+  remainingQuota: Int!
+  expiresAt: DateTime
+  status: String!
+  remark: String
+  insertedAt: DateTime!
+}
+
+"The result of the :waive_payment mutation"
+type WaivePaymentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :cancel_enrollment mutation"
+type CancelEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :reject_enrollment mutation"
+type RejectEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectEnrollmentInput {
+  rejectionReason: String
+}
+
+"The result of the :confirm_enrollment mutation"
+type ConfirmEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_enrollment mutation"
+type CreateEnrollmentResult {
+  "The successful result of the mutation"
+  result: Enrollment
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateEnrollmentInput {
+  eventId: ID
+
+  courseId: ID
+
+  userId: ID!
+
+  workflowRunId: ID
+
+  submissionPayload: JsonString
+
+  approvalDeadline: DateTime
+
+  inviteCode: String
+
+  "价格档位 ID（收费活动报名时必填）"
+  tierId: String
+}
+
+enum EnrollmentSortField {
+  ID
+  WORKSPACE_ID
+  EVENT_ID
+  COURSE_ID
+  USER_ID
+  WORKFLOW_RUN_ID
+  INVITE_BATCH_ID
+  STATUS
+  SUBMISSION_PAYLOAD
+  CAPACITY_SEQ
+  APPROVED_BY
+  APPROVED_AT
+  REJECTION_REASON
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+  CANCELLED_AT
+  INSERTED_AT
+}
+
+"A keyset page of :enrollment"
+type KeysetPageOfEnrollment {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Enrollment!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input EnrollmentFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EnrollmentFilterCancelledAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EnrollmentFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EnrollmentFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EnrollmentFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EnrollmentFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input EnrollmentFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterCapacitySeq {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input EnrollmentFilterSubmissionPayload {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString!]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input EnrollmentFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input EnrollmentFilterInviteBatchId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EnrollmentFilterInput {
+  and: [EnrollmentFilterInput!]
+  or: [EnrollmentFilterInput!]
+  not: [EnrollmentFilterInput!]
+  id: EnrollmentFilterId
+  workspaceId: EnrollmentFilterWorkspaceId
+  eventId: EnrollmentFilterEventId
+  courseId: EnrollmentFilterCourseId
+  userId: EnrollmentFilterUserId
+  workflowRunId: EnrollmentFilterWorkflowRunId
+  inviteBatchId: EnrollmentFilterInviteBatchId
+  status: EnrollmentFilterStatus
+  submissionPayload: EnrollmentFilterSubmissionPayload
+  capacitySeq: EnrollmentFilterCapacitySeq
+  approvedBy: EnrollmentFilterApprovedBy
+  approvedAt: EnrollmentFilterApprovedAt
+  rejectionReason: EnrollmentFilterRejectionReason
+  approvalDeadline: EnrollmentFilterApprovalDeadline
+  expiredAt: EnrollmentFilterExpiredAt
+  cancelledAt: EnrollmentFilterCancelledAt
+  insertedAt: EnrollmentFilterInsertedAt
+}
+
+input EnrollmentSortInput {
+  order: SortOrder
+  field: EnrollmentSortField!
 }
 
 "The result of the :reject_workspace_application mutation"
@@ -5733,6 +5733,67 @@ type RootQueryType {
     last: Int
   ): KeysetPageOfWorkspaceApplication
 
+  enrollments(
+    "How to sort the records in the response"
+    sort: [EnrollmentSortInput]
+
+    "A filter to limit the results"
+    filter: EnrollmentFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfEnrollment
+
+  "当前用户跨工作台的报名记录"
+  myEnrollments(
+    "How to sort the records in the response"
+    sort: [EnrollmentSortInput]
+
+    "A filter to limit the results"
+    filter: EnrollmentFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfEnrollment
+
+  inviteBatches(
+    "How to sort the records in the response"
+    sort: [InviteBatchSortInput]
+
+    "A filter to limit the results"
+    filter: InviteBatchFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfInviteBatch
+
   "工作台的 workflow run 列表（#40 展示页）"
   listWorkflowRuns(
     "How to sort the records in the response"
@@ -5835,67 +5896,6 @@ type RootQueryType {
 
     slug: String!
   ): Course
-
-  inviteBatches(
-    "How to sort the records in the response"
-    sort: [InviteBatchSortInput]
-
-    "A filter to limit the results"
-    filter: InviteBatchFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfInviteBatch
-
-  enrollments(
-    "How to sort the records in the response"
-    sort: [EnrollmentSortInput]
-
-    "A filter to limit the results"
-    filter: EnrollmentFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfEnrollment
-
-  "当前用户跨工作台的报名记录"
-  myEnrollments(
-    "How to sort the records in the response"
-    sort: [EnrollmentSortInput]
-
-    "A filter to limit the results"
-    filter: EnrollmentFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfEnrollment
 
   sponsorships(
     "How to sort the records in the response"
@@ -6606,6 +6606,25 @@ type RootMutationType {
   "拒绝创建工作台申请（platform_admin）"
   rejectWorkspaceApplication(id: ID!, input: RejectWorkspaceApplicationInput): RejectWorkspaceApplicationResult!
 
+  "创建报名；open\/invite_only 立即占位，request 等待审批"
+  createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
+
+  "Owner\/Admin 确认 pending 报名并原子占用名额"
+  confirmEnrollment(id: ID!): ConfirmEnrollmentResult!
+
+  "Owner\/Admin 拒绝 pending 报名"
+  rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
+
+  "报名人取消报名；confirmed\/payment_pending 报名释放名额"
+  cancelEnrollment(id: ID!): CancelEnrollmentResult!
+
+  "Owner\/Admin\/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18）"
+  waivePayment(id: ID!): WaivePaymentResult!
+
+  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
+
+  disableInviteBatch(id: ID!): DisableInviteBatchResult!
+
   "创建活动（默认 status=draft）"
   createEvent(input: CreateEventInput!): CreateEventResult!
 
@@ -6635,25 +6654,6 @@ type RootMutationType {
 
   "取消课程：open → cancelled，发 course.ended 信号"
   cancelCourse(id: ID!): CancelCourseResult!
-
-  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
-
-  disableInviteBatch(id: ID!): DisableInviteBatchResult!
-
-  "创建报名；open\/invite_only 立即占位，request 等待审批"
-  createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
-
-  "Owner\/Admin 确认 pending 报名并原子占用名额"
-  confirmEnrollment(id: ID!): ConfirmEnrollmentResult!
-
-  "Owner\/Admin 拒绝 pending 报名"
-  rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
-
-  "报名人取消报名；confirmed\/payment_pending 报名释放名额"
-  cancelEnrollment(id: ID!): CancelEnrollmentResult!
-
-  "Owner\/Admin\/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18）"
-  waivePayment(id: ID!): WaivePaymentResult!
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

@@ -12,7 +12,7 @@ defmodule Cgc2046.Payments.ReplaySettlementTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{Order, Providers.Fake, ReplaySettlement, WebhookEvent}
   alias Cgc2046.Workers.{PaymentSettlementWorker, SignalPublishWorker}

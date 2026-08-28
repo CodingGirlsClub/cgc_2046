@@ -26,7 +26,8 @@ defmodule Cgc2046.NotificationSubscriber do
 
   require Ash.Query
 
-  alias Cgc2046.Events.{Enrollment, Offering}
+  alias Cgc2046.Admission.Enrollment
+  alias Cgc2046.Offering
 
   @submitted_signal "enrollment.submitted"
   @completed_signal "enrollment.completed"
@@ -163,8 +164,8 @@ defmodule Cgc2046.NotificationSubscriber do
   # 分派；错误坍缩 :not_found——原 :event_not_found/:course_not_found/:target_not_found
   # 仅进日志无消费方，D6 审计）。
   defp target_title(data) do
-    with {:ok, offering} <- Cgc2046.Events.Offering.fetch_by_signal_payload(data) do
-      {:ok, Cgc2046.Events.Offering.title(offering)}
+    with {:ok, offering} <- Cgc2046.Offering.fetch_by_signal_payload(data) do
+      {:ok, Cgc2046.Offering.title(offering)}
     end
   end
 end

@@ -25,7 +25,7 @@ defmodule Cgc2046.Miniprogram.ShareSchemeService do
 
   require Ash.Query
 
-  alias Cgc2046.Events.Offering
+  alias Cgc2046.Offering
   alias Cgc2046.Miniprogram.{ShareScheme, UrlScheme}
 
   @buffer_days 7

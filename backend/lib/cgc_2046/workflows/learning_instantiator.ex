@@ -26,7 +26,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   # --- 公开 API --------------------------------------------------------------
@@ -115,7 +115,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
       "user_id" => ctx.enrollment.user_id,
       "event_id" => ctx.enrollment.event_id,
       "course_id" => ctx.enrollment.course_id,
-      "title" => Cgc2046.Events.Offering.title(ctx.entity)
+      "title" => Cgc2046.Offering.title(ctx.entity)
     }
 
     case launch(ctx.workspace_id, ctx.defn.id, input) do
@@ -144,10 +144,10 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   # 读取唯一真源 = Offering（按 enrollment 的 event_id/course_id 分派；错误坍缩
   # :not_found——原 :entity_not_found 仅进日志无消费方，D6 审计）。
   defp fetch_entity(%Enrollment{event_id: event_id}) when is_binary(event_id),
-    do: Cgc2046.Events.Offering.fetch(:event, event_id)
+    do: Cgc2046.Offering.fetch(:event, event_id)
 
   defp fetch_entity(%Enrollment{course_id: course_id}) when is_binary(course_id),
-    do: Cgc2046.Events.Offering.fetch(:course, course_id)
+    do: Cgc2046.Offering.fetch(:course, course_id)
 
   defp fetch_entity(%Enrollment{}), do: {:error, :not_found}
 

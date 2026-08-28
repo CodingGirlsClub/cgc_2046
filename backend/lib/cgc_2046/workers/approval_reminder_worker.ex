@@ -38,7 +38,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   require Logger
 
   alias Cgc2046.ApprovalDeadline
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Policies.SponsorshipApprover
   alias Cgc2046.Workflows.SignalLog

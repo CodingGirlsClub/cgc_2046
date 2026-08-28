@@ -4,7 +4,7 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
   require Ash.Query
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.InviteBatch
+  alias Cgc2046.Admission.InviteBatch
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   test "Owner 与 Admin 经 HTTP 创建成功，服务端派生 workspace_id 且公开 insertedAt" do

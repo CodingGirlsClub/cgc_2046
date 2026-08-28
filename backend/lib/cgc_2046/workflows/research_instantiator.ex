@@ -164,7 +164,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   # 异步路径：按 entity_id 反查 offering（PK 全局唯一，global?(true) 下可不带 tenant）。
   # 读取唯一真源 = Offering；错误坍缩 :not_found（原 :event_not_found/:course_not_found
   # 仅进日志无消费方，D6 审计）。
-  defp fetch_entity(kind, entity_id), do: Cgc2046.Events.Offering.fetch(kind, entity_id)
+  defp fetch_entity(kind, entity_id), do: Cgc2046.Offering.fetch(kind, entity_id)
 
   # 孤儿 run 防护：信号先于 launch 事务提交发布（change 回调在事务内，提交失败
   # 时事件仍为 draft 但信号已发），异步路径必须校验实体已 launch 才实例化。

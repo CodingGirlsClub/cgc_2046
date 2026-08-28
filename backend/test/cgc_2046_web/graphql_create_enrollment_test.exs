@@ -2,8 +2,8 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
-  alias Cgc2046.Events.InviteBatch
+  alias Cgc2046.Admission.Enrollment
+  alias Cgc2046.Admission.InviteBatch
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   # #104：GraphQL pipeline 不注入 tenant，createEnrollment 必须从目标派生 tenant，

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.OfferingTest do
+defmodule Cgc2046.OfferingTest do
   @moduledoc """
   Offering 读取面 seam 单测（PR-H D7）：fetch 两种 kind / not_found / actor 与
   authorize 选项 / fetch_by_signal_payload 键分派 / 批量形状。
@@ -7,7 +7,7 @@ defmodule Cgc2046.Events.OfferingTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Offering
+  alias Cgc2046.Offering
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   describe "fetch/3 两种 kind + 投影" do
