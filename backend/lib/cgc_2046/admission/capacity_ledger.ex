@@ -279,7 +279,7 @@ defmodule Cgc2046.Admission.CapacityLedger do
       "workspace_id" => Ecto.UUID.load!(workspace_id)
     }
 
-    Cgc2046.Workers.SignalPublishWorker.enqueue_in_transaction(
+    Cgc2046.Workflows.SignalPublishWorker.enqueue_in_transaction(
       "capacity.synced",
       data,
       Ecto.UUID.load!(workspace_id)

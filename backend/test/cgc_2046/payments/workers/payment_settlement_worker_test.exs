@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
+defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
   @moduledoc """
   U7：回调落账唯一路径（KTD12/R7/R9/R20-R22）。
 
@@ -20,7 +20,9 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
   alias Cgc2046.Payments.{Order, WebhookEvent}
   alias Cgc2046.Payments.Providers.Fake
   alias Cgc2046.Reconciliation.Finding
-  alias Cgc2046.Workers.{PaymentRefundWorker, PaymentSettlementWorker, SignalPublishWorker}
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   @tier_id "44444444-4444-4444-4444-444444444444"
 
@@ -49,7 +51,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
 
       # 支付成功通知（报名者，R22；模板接线 U10 定稿）
       assert_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
       )
 
@@ -193,7 +195,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
 
       # 补发支付成功通知（R22；NotificationWorker unique 幂等，重放不重复）
       assert_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
       )
 
@@ -221,7 +223,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
 
       # 组织者逐笔收款通知（data 含 title/tier_name/amount）
       receipts =
-        all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
+        all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
         |> Enum.filter(&(&1.args["template_key"] == "payment_received"))
 
       assert Enum.any?(receipts, &(&1.args["user_id"] == owner_id))
@@ -233,7 +235,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorkerTest do
 
       # 学员 payment_succeeded 不受影响（R22 既有语义零回归）
       assert Enum.any?(
-               all_enqueued(worker: Cgc2046.Workers.NotificationWorker),
+               all_enqueued(worker: Cgc2046.Notifications.NotificationWorker),
                &(&1.args["template_key"] == "payment_succeeded" and
                    &1.args["user_id"] != owner_id)
              )

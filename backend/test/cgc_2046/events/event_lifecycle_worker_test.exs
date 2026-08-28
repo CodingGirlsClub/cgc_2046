@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.EventLifecycleWorkerTest do
+defmodule Cgc2046.Events.EventLifecycleWorkerTest do
   @moduledoc """
   E-9 #124 到点扫描测试：registration_deadline 过点的 open Event/Course → close。
 
@@ -12,7 +12,7 @@ defmodule Cgc2046.Workers.EventLifecycleWorkerTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
-  alias Cgc2046.Workers.EventLifecycleWorker
+  alias Cgc2046.Events.EventLifecycleWorker
 
   defp backdate_deadline(table, id, interval) do
     {:ok, _} =

@@ -25,7 +25,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberSmokeTest do
     Cgc2046.Curriculum.Instantiator,
     Cgc2046.Curriculum.Reaper,
     Cgc2046.Workflows.ShareSchemeInstantiator,
-    Cgc2046.Workers.OfferingCancelRefundWorker
+    Cgc2046.Admission.Workers.OfferingCancelRefundWorker
   ]
 
   describe "应用级订阅方 init → subscribe 冒烟（#134-①）" do

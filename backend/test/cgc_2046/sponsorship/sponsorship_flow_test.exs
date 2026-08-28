@@ -7,7 +7,7 @@ defmodule Cgc2046.Sponsorship.SponsorshipFlowTest do
   alias Cgc2046.Sponsorship.{Sponsorship, SponsorshipDelivery}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.SignalSubscriber
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   require Ash.Query
 
@@ -401,7 +401,7 @@ defmodule Cgc2046.Sponsorship.SponsorshipFlowTest do
           [Ecto.UUID.dump!(pending.id)]
         )
 
-      assert :ok = Cgc2046.Workers.ApprovalExpiryWorker.perform(%Oban.Job{})
+      assert :ok = Cgc2046.Admission.Workers.ApprovalExpiryWorker.perform(%Oban.Job{})
       expired = Ash.get!(Sponsorship, pending.id, authorize?: false)
       assert expired.status == :expired
       refute is_nil(expired.expired_at)

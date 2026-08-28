@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.SignalPublishWorker do
+defmodule Cgc2046.Workflows.SignalPublishWorker do
   @moduledoc """
   信号发布投递（E-9 #124，复审 B1 收口）：ended 信号统一经本 worker 发布。
 

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
+defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   @moduledoc """
   E-10 #125 对账扫描 worker 测试（D9）。
 
@@ -20,12 +20,21 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
-  alias Cgc2046.Workers.NotificationWorker
-  alias Cgc2046.Workers.ReconciliationScanWorker
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Reconciliation.ReconciliationScanWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Workflows.LearningProgress
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
+
+  # ── 规6 白名单完整性(ADR-0010 W1:防字符串漂移→规则失明)──────────────────
+
+  test "规6 死信白名单的每个模块名字符串必须对应真实存在的模块" do
+    for name <- ReconciliationScanWorker.dead_letter_workers() do
+      assert Code.ensure_loaded?(String.to_atom("Elixir." <> name)),
+             "死信白名单模块不存在(改名后字符串未随迁): #{name}"
+    end
+  end
 
   # ── 查询助手 ------------------------------------------------------------------
 
@@ -150,7 +159,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
   defp discard_sponsorship_active_job(sponsorship) do
     {:ok, %{rows: [[job_id]]}} =
       Repo.query(
-        "SELECT id FROM oban_jobs WHERE worker = 'Cgc2046.Workers.SignalPublishWorker' " <>
+        "SELECT id FROM oban_jobs WHERE worker = 'Cgc2046.Workflows.SignalPublishWorker' " <>
           "AND args->>'signal_type' = 'sponsorship.active' " <>
           "AND args->'data'->>'idempotency_key' = $1",
         ["sponsorship.active:" <> sponsorship.id]
@@ -437,7 +446,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
       assert [finding] = findings(:dead_letter_job)
       assert finding.entity_type == :oban_job
       assert finding.entity_id == to_string(job.id)
-      assert finding.detail["worker"] == "Cgc2046.Workers.NotificationWorker"
+      assert finding.detail["worker"] == "Cgc2046.Notifications.NotificationWorker"
       assert is_nil(finding.workspace_id)
     end
 

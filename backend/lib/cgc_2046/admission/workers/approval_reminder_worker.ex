@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ApprovalReminderWorker do
+defmodule Cgc2046.Admission.Workers.ApprovalReminderWorker do
   @moduledoc """
   48h 审批提醒 job（0C；Oban cron 每小时一拍，见 config.exs）。
 

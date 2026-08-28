@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.LearningProgressWorker do
+defmodule Cgc2046.Learning.LearningProgressWorker do
   @moduledoc """
   学习 workflow 进度扫描（E-7 #122;完成判定升级:切片 H U4, #180）。
 

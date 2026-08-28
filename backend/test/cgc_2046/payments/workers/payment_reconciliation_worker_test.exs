@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentReconciliationWorkerTest do
+defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorkerTest do
   @moduledoc """
   U13：缴费对账规⑦（KTD11/R23）。
 
@@ -15,7 +15,7 @@ defmodule Cgc2046.Workers.PaymentReconciliationWorkerTest do
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Providers.{Alipay, Fake, WechatPay}
   alias Cgc2046.Reconciliation.Finding
-  alias Cgc2046.Workers.PaymentReconciliationWorker
+  alias Cgc2046.Payments.Workers.PaymentReconciliationWorker
 
   @tier_id "88888888-8888-8888-8888-888888888888"
   @tier %{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}

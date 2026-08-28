@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentRefundWorker do
+defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
   @moduledoc """
   退款渠道调用 worker（U9/F3，R15-R17——退款即取消，ADR-0007）。
 

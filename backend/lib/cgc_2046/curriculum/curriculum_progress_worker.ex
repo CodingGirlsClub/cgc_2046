@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.CurriculumProgressWorker do
+defmodule Cgc2046.Curriculum.CurriculumProgressWorker do
   @moduledoc """
   教研 run 完成判定扫描(切片 H U5, #180;Q7 discharge,KTD5;ADR-0009 PR③ 自 ResearchProgressWorker 改名)。
 

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ApprovalExpiryWorker do
+defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorker do
   @moduledoc """
   审批超时扫描 worker（0C；Oban cron 每 5 分钟一拍，见 config.exs）。
 

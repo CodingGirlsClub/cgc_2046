@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
+defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
   @moduledoc """
   U8：超时释放 worker（KTD5/R8/F2）。
 
@@ -17,7 +17,8 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
-  alias Cgc2046.Workers.{NotificationWorker, PaymentExpiryWorker}
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Payments.Workers.PaymentExpiryWorker
 
   @tier_id "55555555-5555-5555-5555-555555555555"
 

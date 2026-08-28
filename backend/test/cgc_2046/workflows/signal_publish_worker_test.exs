@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.SignalPublishWorkerTest do
+defmodule Cgc2046.Workflows.SignalPublishWorkerTest do
   @moduledoc """
   E-9 #124 信号发布投递 worker 测试：perform 成功/失败路径 + 事务内入队。
   """
@@ -6,7 +6,7 @@ defmodule Cgc2046.Workers.SignalPublishWorkerTest do
   use Cgc2046Web.ConnCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   test "perform 经内存总线发布成功返回 :ok" do
     assert :ok =

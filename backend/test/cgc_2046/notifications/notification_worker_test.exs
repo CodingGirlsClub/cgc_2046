@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.NotificationWorkerTest do
+defmodule Cgc2046.Notifications.NotificationWorkerTest do
   @moduledoc """
   通知类型契约 registry 的表驱动契约测试（2026-08-18 架构深化候选 D；plan
   docs/plans/2026-08-18-005-notification-type-registry.md D7）。
@@ -23,7 +23,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Notifications.Consent
-  alias Cgc2046.Workers.NotificationWorker
+  alias Cgc2046.Notifications.NotificationWorker
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
