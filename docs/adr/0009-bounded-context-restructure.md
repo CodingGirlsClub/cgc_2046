@@ -68,7 +68,7 @@ MCP gateway (interface layer) —— 工具面/鉴权/审计（适配器，不�
 3. **D3：内容归 Curriculum（教研）context，Course 持发布投影。** 教研产出物（现 `ResearchOutput` 家族：outline/materials/issues/archive）的起草/审核/归档归 Curriculum；Courses 拥有课程供给（排期/定价/报名策略/发布状态）与「哪版内容已发布」的投影；Learning 经读契约消费已发布内容。物理基础已存在（内容本体存 ResearchOutput，`course_content/1` 本为读 seam）。
 4. **D4：Sponsorship 独立 context。** 两级赞助（Event 级单场 / Workspace 级长期）+ 履约账本，不纯是 Event 的附属；Event 引用改软引用。
 5. **D5：Offering 保留命名、转正为发布语言读端口。** 英文标识符不动（`Cgc2046.Offering`，移出 events/ 至中立位置，或作 `Admission.Offering` 上游端口）；中文统一语言定名**供给物**。模块变薄：纯读取投影契约，零写入；Events/Courses 各实现 adapter。消费面不变：Admission 校验、小程序分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
-6. **D6：Payments 为 supporting domain，Order 锚 enrollment_id 不变。** 报名是唯一收费场景（赞助 v1 不收款），**放弃 `(subject_kind, subject_id)` 泛化**（无需求抽象）；Admission 独立后 order.ex 的 event/course 双分叉 JOIN 收敛为单 JOIN。资金对账（PaymentReconciliationWorker / ReplaySettlement）留 Payments 域内；Reconciliation Finding 底座与 /admin 对账页保持「底座共享 + 扫描器归各域」结构不动。**（实施期补记，2026-08-29 Fable 5 评审 M2：PR⑤ 漏收一处逆向写点——Enrollment 直写 `payments_orders` 作废 pending 单的裸 SQL,已收编为 Payments 端口 `Order.void_pending_for_enrollment/2`,Admission 侧三处调用点改走端口,语义逐行等价。）**
+6. **D6：Payments 为 supporting domain，Order 锚 enrollment_id 不变。** 报名是唯一收费场景（赞助 v1 不收款），**放弃 `(subject_kind, subject_id)` 泛化**（无需求抽象）；Admission 独立后 order.ex 的 event/course 双分叉 JOIN 收敛为单 JOIN。资金对账（PaymentReconciliationWorker / ReplaySettlement）留 Payments 域内；Reconciliation Finding 底座与 /admin 对账页保持「底座共享 + 扫描器归各域」结构不动。**(措辞更正,2026-08-29 复审 A2:「扫描器归各域」未落实且被取代——reconciliation_scan_worker 一体留守并归 `reconciliation/`(ADR-0010 W1 拍板,保守路径:单文件 12 规则硬编码 11 域不变量,拆开收益不抵分散风险);「归各域」措辞自此作废,以 ADR-0010 为准。)****（实施期补记，2026-08-29 Fable 5 评审 M2：PR⑤ 漏收一处逆向写点——Enrollment 直写 `payments_orders` 作废 pending 单的裸 SQL,已收编为 Payments 端口 `Order.void_pending_for_enrollment/2`,Admission 侧三处调用点改走端口,语义逐行等价。）**
 7. **D7：教研英文命名 = Curriculum。** Research 太宽泛，Teaching Research 为中式英语；学科通用名 instructional design，命名取产出物本质（Curriculum = 课程编制）。`ResearchOutput → Curriculum 家族`、`ResearchInstantiator → CurriculumInstantiator`、`research_enabled → curriculum_enabled` 等改名随迁移序列进行；中文文档继续称「教研」。
 8. **D8：迁移策略——模型先行、五步 PR 序列**（数据库可重置，无绞杀/兼容层）：
    - **PR① Admission 抽出**：Enrollment/InviteBatch 迁入 `admission/`；Offering 读契约改上游端口（移出 events/）；信号名 `enrollment.*` 不变（订阅方零改动）。
@@ -83,7 +83,7 @@ MCP gateway (interface layer) —— 工具面/鉴权/审计（适配器，不�
 
 - **Enrollment 双表复制**（EventEnrollment/CourseEnrollment）：一词两义违背统一语言；名额 CAS、审批超时、缴费状态机等纪律双份维护，缴费闭环回归面翻倍。
 - **`(subject_kind, subject_id)` 泛化支付**：Order 唯一收费场景是报名，泛化是无需求抽象（YAGNI）。
-- **浅拆（仅 course.ex 移目录）**：不解耦——Enrollment/InviteBatch 仍双 belongs_to，Offering 仍跨 kind；目录搬家不等于边界。
+- **浅拆（仅 course.ex 移目录）**：不解耦——Enrollment/InviteBatch 仍双 belongs_to，Offering 仍跨 kind；目录搬家不等于边界。（补记,2026-08-29 复审:双 belongs_to 是 Ash 关系定义的技术必然,实读全走端口;「引用形状解耦」正式列为 deferred——本条判据仅针对「只搬目录」的伪拆分,不要求消灭关系声明本身。)
 - **content 归 Learning**：content 是教研**产出物**（写侧在 Tutor/教研 workflow），Learning 是读侧消费方；归 Learning 会把写作权错配给消费方。
 - **绞杀式迁移 / 数据迁移**：数据库可重置（用户量 = product owner 一人），模型先行整体切换即可。
 
