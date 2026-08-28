@@ -8,13 +8,13 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
 
   角色分配（#64）：
   - `assign_roles`：替换某成员的整组角色（多角色并集）
-  - 仅 Owner/Admin 可分配（`Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin`）
+  - 仅 Owner/Admin 可分配（`Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin`）
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)
@@ -111,7 +111,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
 
           # owner 移除校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
           # 与 assign_roles 共用同一实现）。destroy 场景：removing_owner=true, granting_owner=false。
-          case Cgc2046.Rbac.validate_owner_removal!(
+          case Cgc2046.Accounts.Rbac.validate_owner_removal!(
                  c,
                  actor,
                  membership.user_id,
@@ -160,22 +160,22 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
   policies do
     # 创建/删除成员：仅 Owner/Admin（角色分配受控）
     policy action_type([:create, :destroy]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     # 角色分配（update）：仅 Owner/Admin
     policy action_type(:update) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     # 读取：成员本人可读自己的成员资格；Owner/Admin 可读该工作台全部成员（成员管理）
     # platform_admin bypass（Phase 10 P2）：非成员 platform_admin 可读全部成员
     # （R13 admin 详情页成员列表），对齐 Phase 2 的 User/ToolCallLog/PendingOperation 模式。
-    # 双面契约见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
+    # 双面契约见 `Cgc2046.Accounts.Policies.PlatformAdmin` moduledoc。
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

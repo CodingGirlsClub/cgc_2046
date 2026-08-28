@@ -3,7 +3,7 @@ defmodule Cgc2046.Offering do
   供给物（Offering）读取面 seam：一行可指向 Event 或 Course 的统一读取
   （PR-H；plan 2026-08-15-009 决策 D1-D7）。
 
-  五处各自为政的 Ash.get Event/Course 分叉（NotificationSubscriber.target_title /
+  五处各自为政的 Ash.get Event/Course 分叉（Notifications.Subscriber.target_title /
   LearningInstantiator.fetch_entity / PendingApprovals.load_offering_titles /
   GraphqlSchema.fetch_offering_by_id / Curriculum.Instantiator.fetch_entity）收敛为
   一个 interface，错误形状统一坍缩为 `{:error, :not_found}` 单点。

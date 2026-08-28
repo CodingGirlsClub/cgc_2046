@@ -176,13 +176,13 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   # 按 :reminded 计（基线 rescue 返回 :ok → LPW 映射 :reminded），单记录失败
   # 不中断整拍（moduledoc 不变量）。
   defp remind_stagnant_for(run, enrollment) do
-    identities = Cgc2046.NotificationFanout.identities(enrollment.user_id)
+    identities = Cgc2046.Notifications.Fanout.identities(enrollment.user_id)
 
     if identities == [] do
       # 无平台身份 → 无可入队（:no_identity 分类语义留在本 worker，PR-C）
       :skipped
     else
-      Cgc2046.NotificationFanout.deliver(
+      Cgc2046.Notifications.Fanout.deliver(
         {enrollment.user_id, identities},
         "learning_stagnation",
         %{

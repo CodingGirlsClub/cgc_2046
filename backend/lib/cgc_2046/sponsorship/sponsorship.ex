@@ -339,13 +339,13 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
 
     # （长期承诺加严；平台 Admin 备案二期，不参与审批）。
     policy action([:approve_sponsorship, :reject_sponsorship]) do
-      authorize_if(Cgc2046.Policies.SponsorshipApprover)
+      authorize_if(Cgc2046.Sponsorship.Policies.SponsorshipApprover)
     end
 
     policy action_type(:read) do
       authorize_if(expr(sponsor_user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

@@ -11,7 +11,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Courses,
       Cgc2046.Curriculum,
       Cgc2046.Events,
-      Cgc2046.GlobalApi,
+      Cgc2046.Accounts,
       Cgc2046.Learning,
       Cgc2046.Payments,
       Cgc2046.Reconciliation,
@@ -34,7 +34,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn _actor ->
           roles =
-            Cgc2046.Rbac.matrix()
+            Cgc2046.Accounts.Rbac.matrix()
             |> Enum.map(fn row ->
               %{
                 name: to_string(row.role),
@@ -262,7 +262,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         admin_list(
           Cgc2046.Accounts.Workspace,
           fn q, args -> maybe_workspace_search(q, args[:search]) end,
-          admin_result(Cgc2046.Accounts.Workspace, Cgc2046.GlobalApi),
+          admin_result(Cgc2046.Accounts.Workspace, Cgc2046.Accounts),
           pre_read: fn q -> Ash.Query.load(q, :member_count) end
         )
       )
@@ -279,7 +279,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         admin_list(
           Cgc2046.Accounts.WorkspaceApplication,
           fn q, args -> maybe_status_filter(q, args[:status]) end,
-          admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+          admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
         )
       )
     end
@@ -292,7 +292,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           |> Ash.Query.for_read(:read)
           |> Ash.Query.filter(applicant_id == ^actor.id)
           |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
         end)
       end)
     end
@@ -382,7 +382,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_action_filter(args[:action])
             |> maybe_time_range_filter(args)
           end,
-          admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.GlobalApi)
+          admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.Accounts)
         )
       )
     end
@@ -535,7 +535,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:next, :string)
 
       resolve(fn _, args, %{context: context} ->
-        if Cgc2046.OAuth.WechatWeb.configured?() do
+        if Cgc2046.Integrations.Wechat.WebOAuth.configured?() do
           with :ok <- check_wechat_login_start_limits(context) do
             start_wechat_login(args[:next])
           else
@@ -821,7 +821,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{workspace_id: workspace_id, platform: platform}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.MiniprogramCode.generate(workspace_id, actor, platform) do
+          case Cgc2046.Accounts.MiniprogramCode.generate(workspace_id, actor, platform) do
             {:ok, result} ->
               {:ok, result}
 
@@ -852,7 +852,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           is_nil(context[:actor]) ->
             {:error, unauthorized_error()}
 
-          not Cgc2046.MiniprogramCode.valid_scene?(scene) ->
+          not Cgc2046.Accounts.MiniprogramCode.valid_scene?(scene) ->
             {:error, message: "Invalid scene", code: "invalid_scene"}
 
           true ->
@@ -864,7 +864,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             # 视角，受邀者被拒成 not_found 到不了 action）；随后 for_update 带
             # actor 走 accept_miniprogram 的 actor_present 门禁，before_action
             # scene 复验（已用/过期 → invalid_or_expired_scene）。
-            with {:ok, code} <- Cgc2046.MiniprogramCode.code_for_scene(scene),
+            with {:ok, code} <- Cgc2046.Accounts.MiniprogramCode.code_for_scene(scene),
                  {:ok, invitation} <-
                    Ash.get(Cgc2046.Accounts.Invitation, code.invitation_id, authorize?: false),
                  {:ok, accepted} <-
@@ -950,7 +950,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.NotificationConsent.grant(actor.id, platform, template_key) do
+          case Cgc2046.Notifications.Consent.grant(actor.id, platform, template_key) do
             {:ok, remaining} ->
               {:ok, remaining}
 
@@ -1941,10 +1941,10 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp deliver_phone_code(phone, code, send_request_id) do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
 
-    if Cgc2046.Sms.SendCloud.configured?() do
+    if Cgc2046.Integrations.SendCloud.Sms.configured?() do
       template_id = Keyword.fetch!(sms, :template_id)
 
-      Cgc2046.Sms.SendCloud.send_template_sms(
+      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
         phone,
         template_id,
         %{"code" => code},
@@ -2177,7 +2177,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     case Cgc2046.Accounts.WechatLoginTicket.issue() do
       {:ok, %{state: state, expires_at: expires_at}} ->
-        case Cgc2046.OAuth.WechatWeb.qr_connect_url(redirect_uri, state) do
+        case Cgc2046.Integrations.Wechat.WebOAuth.qr_connect_url(redirect_uri, state) do
           url when is_binary(url) ->
             expires_in = max(DateTime.diff(expires_at, DateTime.utc_now()), 0)
             {:ok, %{qr_url: url, state: state, expires_in_seconds: expires_in}}
@@ -2287,13 +2287,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
   # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
-  # domain 默认 GlobalApi（历史调用方均属此域）；其它域的资源（如 Cgc2046.Mcp.Token）须显式传入。
+  # domain 默认 Accounts（历史调用方均属此域）；其它域的资源（如 Cgc2046.Mcp.Token）须显式传入。
   defp to_ash_graphql_errors(
          error,
          context,
          action,
          resource \\ Cgc2046.Accounts.User,
-         domain \\ Cgc2046.GlobalApi
+         domain \\ Cgc2046.Accounts
        ) do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
@@ -2413,7 +2413,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp load_profile(user, actor, context, action) do
     case Ash.load(user, [:member_number, :joined_at],
            actor: actor,
-           domain: Cgc2046.GlobalApi
+           domain: Cgc2046.Accounts
          ) do
       {:ok, loaded} ->
         {:ok, loaded}
@@ -2961,7 +2961,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     actor = context[:actor]
 
     cond do
-      Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) ->
+      Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) ->
         fun.(actor)
 
       is_nil(actor) ->

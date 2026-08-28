@@ -100,10 +100,10 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
       {:ok, enrollment} ->
         with {:ok, loaded} <- Ash.load(enrollment, [:target_title]) do
           recipients =
-            %{enrollment.user_id => Cgc2046.NotificationFanout.identities(enrollment.user_id)}
-            |> Map.merge(Cgc2046.NotificationFanout.managers(order.workspace_id))
+            %{enrollment.user_id => Cgc2046.Notifications.Fanout.identities(enrollment.user_id)}
+            |> Map.merge(Cgc2046.Notifications.Fanout.managers(order.workspace_id))
 
-          Cgc2046.NotificationFanout.deliver(
+          Cgc2046.Notifications.Fanout.deliver(
             recipients,
             Templates.payment_expired(),
             Templates.expiry_data(order, loaded.target_title, registration_open?(loaded)),

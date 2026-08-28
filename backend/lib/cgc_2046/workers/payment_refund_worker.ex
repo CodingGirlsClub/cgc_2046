@@ -233,9 +233,9 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
     enrollment = Ash.get!(Enrollment, order.enrollment_id, authorize?: false)
 
     recipients =
-      %{enrollment.user_id => Cgc2046.NotificationFanout.identities(enrollment.user_id)}
+      %{enrollment.user_id => Cgc2046.Notifications.Fanout.identities(enrollment.user_id)}
       |> Map.merge(%{
-        initiator_user_id => Cgc2046.NotificationFanout.identities(initiator_user_id)
+        initiator_user_id => Cgc2046.Notifications.Fanout.identities(initiator_user_id)
       })
 
     deliver_refund(recipients, order, template_key)
@@ -245,14 +245,14 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
     enrollment = Ash.get!(Enrollment, order.enrollment_id, authorize?: false)
 
     recipients =
-      %{enrollment.user_id => Cgc2046.NotificationFanout.identities(enrollment.user_id)}
-      |> Map.merge(Cgc2046.NotificationFanout.managers(order.workspace_id))
+      %{enrollment.user_id => Cgc2046.Notifications.Fanout.identities(enrollment.user_id)}
+      |> Map.merge(Cgc2046.Notifications.Fanout.managers(order.workspace_id))
 
     deliver_refund(recipients, order, template_key)
   end
 
   defp deliver_refund(recipients, order, template_key) do
-    Cgc2046.NotificationFanout.deliver(
+    Cgc2046.Notifications.Fanout.deliver(
       recipients,
       template_key,
       Templates.payment_data(order),

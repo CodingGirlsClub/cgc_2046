@@ -3,7 +3,7 @@ defmodule Cgc2046.Admission do
   报名域（ADR-0009 PR①）：Event/Course 的报名聚合（Enrollment）、邀请批次码
   （InviteBatch）与名额账本（CapacityLedger，PR⑤ U6 落地）。
 
-  KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.GlobalApi 同款——
+  KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Accounts 同款——
   `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止意外公开
   租户资源。
   """

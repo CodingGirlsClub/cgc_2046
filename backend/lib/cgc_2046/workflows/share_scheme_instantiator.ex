@@ -9,7 +9,7 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiator do
   幂等两层：本订阅方 claim_first（同信号重投不重复入队）；worker 执行
   fetch_or_generate 天然幂等（未过期命中复用零外呼）。claim 后入队失败/
   重试耗尽时该目标预生成缺失，由渠道消费侧 lazy fetch_or_generate 重建
-  （at-most-once 取舍同 NotificationSubscriber）。
+  （at-most-once 取舍同 Notifications.Subscriber）。
   """
 
   use Cgc2046.Workflows.SignalSubscriber,

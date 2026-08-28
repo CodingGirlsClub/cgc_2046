@@ -90,14 +90,14 @@ defmodule Cgc2046.Sponsorship.SponsorshipDelivery do
   policies do
     # 核销：目标工作台 Owner/Admin（平台 Admin 备案二期，不参与）
     policy action(:fulfill) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     # 读取：唯一暴露面是 Sponsorship.deliveries 关系字段（父行已授权）；
     # 关系加载 query 无 tenant，经 SponsorshipDeliveryReadable 把父行授权
     # 翻译到交付行（sponsor 本人 / 目标工作台 Owner/Admin）。
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.SponsorshipDeliveryReadable)
+      authorize_if(Cgc2046.Sponsorship.Policies.SponsorshipDeliveryReadable)
     end
   end
 

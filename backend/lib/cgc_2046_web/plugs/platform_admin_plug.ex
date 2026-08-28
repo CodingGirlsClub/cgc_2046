@@ -14,7 +14,7 @@ defmodule Cgc2046Web.Plugs.PlatformAdminPlug do
 
   import Plug.Conn
 
-  alias Cgc2046.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
 
   @impl true
   def init(opts), do: opts

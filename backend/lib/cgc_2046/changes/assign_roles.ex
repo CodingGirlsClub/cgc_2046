@@ -40,7 +40,7 @@ defmodule Cgc2046.Changes.AssignRoles do
   require Ash.Query
 
   alias Cgc2046.Accounts.{MembershipRole, Role}
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Repo
 
   @impl true

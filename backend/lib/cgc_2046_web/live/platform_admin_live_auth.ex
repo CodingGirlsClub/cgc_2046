@@ -22,7 +22,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuth do
   import Phoenix.Component
 
   alias Cgc2046.Accounts.User
-  alias Cgc2046.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
 
   @session_key "cgc_current_user_id"
 
@@ -59,7 +59,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuth do
   end
 
   defp authorize_user(user_id, socket) do
-    case Ash.get(User, user_id, authorize?: false, domain: Cgc2046.GlobalApi) do
+    case Ash.get(User, user_id, authorize?: false, domain: Cgc2046.Accounts) do
       {:ok, user} ->
         if PlatformAdmin.platform_admin?(user) do
           {:cont, assign(socket, :current_user, user)}

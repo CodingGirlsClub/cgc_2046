@@ -41,7 +41,7 @@ defmodule Cgc2046.Application do
       # 学习 workflow 实例化（E-7 #122：订阅 enrollment.completed → 幂等种 learning run）
       Cgc2046.Workflows.LearningInstantiator,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
-      Cgc2046.NotificationSubscriber,
+      Cgc2046.Notifications.Subscriber,
       # SpeakerInvitation 生命周期信号 → Oban 异步订阅消息（E-4 #49；
       # SignalIdempotency 幂等去重）。
       Cgc2046.SpeakerSubscriber,
