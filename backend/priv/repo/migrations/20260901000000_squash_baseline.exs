@@ -1431,6 +1431,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
     drop table(:mp_notification_consents)
     drop table(:join_requests)
     drop table(:invitations)
+    drop table(:admission_capacity_ledgers)
     drop table(:workspaces)
     drop table(:workspace_profiles)
     drop table(:wechat_login_tickets)

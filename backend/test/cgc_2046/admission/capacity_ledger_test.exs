@@ -382,6 +382,53 @@ defmodule Cgc2046.Admission.CapacityLedgerTest do
       assert ledger.occupancy == 1
       assert Ash.get!(InviteBatch, batch.id, authorize?: false).remaining_quota == 0
     end
+
+    test "capacity 占满反方向：账本 CAS 先拒，另一有效邀请码配额不消耗" do
+      admin = Fixtures.platform_admin("ledger-invfull-admin")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          capacity: 1,
+          enrollment_policy: :invite_only
+        })
+
+      InviteBatch
+      |> Ash.Changeset.for_create(:create, %{
+        event_id: event.id,
+        invite_code: "LEDGER_FULL_FILL",
+        quota: 1
+      })
+      |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      hold_batch =
+        InviteBatch
+        |> Ash.Changeset.for_create(:create, %{
+          event_id: event.id,
+          invite_code: "LEDGER_FULL_HOLD",
+          quota: 1
+        })
+        |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      # 第一笔占满 capacity=1 的唯一席位
+      first = Fixtures.register_user("ledger-invfull-first")
+      assert {:ok, _} = create_enrollment(event, first, %{invite_code: "LEDGER_FULL_FILL"})
+      assert {:ok, ledger} = CapacityLedger.fetch_by_offering(:event, event.id)
+      assert ledger.occupancy == 1
+
+      # 第二人持另一有效邀请码：KTD7 锁序账本行先行——reserve CAS 失败整体回滚，
+      # consume_invite_quota 不生效，hold_batch 配额保持不消耗
+      second = Fixtures.register_user("ledger-invfull-second")
+
+      assert_business_code(
+        create_enrollment(event, second, %{invite_code: "LEDGER_FULL_HOLD"}),
+        "enrollment_capacity_full_or_registration_closed"
+      )
+
+      assert Ash.get!(InviteBatch, hold_batch.id, authorize?: false).remaining_quota == 1
+      assert {:ok, ledger} = CapacityLedger.fetch_by_offering(:event, event.id)
+      assert ledger.occupancy == 1
+    end
   end
 
   describe "重投 / 乱序幂等（KTD5：唯一索引吸收）" do

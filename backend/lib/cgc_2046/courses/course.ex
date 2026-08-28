@@ -545,8 +545,14 @@ defmodule Cgc2046.Courses.Course do
   def ended_payload(_changeset, course),
     do: %{"course_id" => course.id, "title" => course.title}
 
-  # offering.capacity_changed（R16）：仅 course_id 锚定，缓存值由订阅方回查。
-  def capacity_changed_payload(_changeset, course), do: %{"course_id" => course.id}
+  # offering.capacity_changed（R16）：仅 course_id 锚定，缓存值由订阅方回查；
+  # 幂等键自带逐次唯一判别子（同课程多次变更各自独立去重，键集合不变仅值唯一化）。
+  def capacity_changed_payload(_changeset, course),
+    do: %{
+      "course_id" => course.id,
+      "idempotency_key" =>
+        "offering.capacity_changed:#{course.id}:#{System.unique_integer([:positive])}"
+    }
 
   # SignalEmitter skip_unless 谓词：capacity / registration_deadline 任一变更为信号触发
   def capacity_or_deadline_changed?(changeset, _course) do

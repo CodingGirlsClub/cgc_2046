@@ -33,7 +33,7 @@ defmodule Cgc2046.Admission.CapacitySyncTest do
       assert [data] = synced_payloads(event.id)
       assert data["occupancy"] == 1
       assert data["sync_version"] == 1
-      assert data["idempotency_key"] == "capacity.synced:#{event.id}"
+      assert data["idempotency_key"] == "capacity.synced:#{event.id}:v1"
       assert data["workspace_id"] == event.workspace_id
     end
 
@@ -72,6 +72,22 @@ defmodule Cgc2046.Admission.CapacitySyncTest do
       assert [_, data] = synced_payloads(paid_event.id)
       assert data["occupancy"] == 0
       assert data["sync_version"] == 2
+    end
+
+    test "两次 reserve 发射的 capacity.synced idempotency_key 互不相同（#1 唯一性）" do
+      {_workspace, _admin, event} = base_event("sync-keyuniq")
+
+      assert {:ok, _} = create_enrollment(event, Fixtures.register_user("sync-keyuniq-a"))
+      assert {:ok, _} = create_enrollment(event, Fixtures.register_user("sync-keyuniq-b"))
+
+      # 键携带本次 CAS RETURNING 的 sync_version 后缀：逐次唯一，claim 型订阅方
+      # 不会因恒定键永久丢信（payload 其余键/值语义不变）
+      assert [first, second] = synced_payloads(event.id)
+      assert first["sync_version"] == 1
+      assert second["sync_version"] == 2
+      assert first["idempotency_key"] == "capacity.synced:#{event.id}:v1"
+      assert second["idempotency_key"] == "capacity.synced:#{event.id}:v2"
+      refute first["idempotency_key"] == second["idempotency_key"]
     end
   end
 

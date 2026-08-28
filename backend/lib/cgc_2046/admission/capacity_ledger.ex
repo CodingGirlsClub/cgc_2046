@@ -244,11 +244,12 @@ defmodule Cgc2046.Admission.CapacityLedger do
   end
 
   @doc """
-  按 offering 读取账本行（测试 / 对账读取面）。
-  返回 `{:ok, ledger}` / `{:error, :not_found}`。
+  按 offering 读取账本行（测试读取面）。
+  返回 `{:ok, ledger}` / `{:error, :not_found}`（无行）；
+  读取层错误透传 `{:error, reason}`，不坍缩为 `:not_found`。
   """
   @spec fetch_by_offering(:event | :course, String.t()) ::
-          {:ok, __MODULE__.t()} | {:error, :not_found}
+          {:ok, __MODULE__.t()} | {:error, :not_found | term()}
   def fetch_by_offering(kind, offering_id) when kind in @offering_kinds do
     __MODULE__
     |> Ash.Query.filter(offering_kind == ^kind and offering_id == ^offering_id)
@@ -256,7 +257,7 @@ defmodule Cgc2046.Admission.CapacityLedger do
     |> case do
       {:ok, nil} -> {:error, :not_found}
       {:ok, ledger} -> {:ok, ledger}
-      {:error, _} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -273,7 +274,7 @@ defmodule Cgc2046.Admission.CapacityLedger do
       target_key => offering_id,
       "occupancy" => occupancy,
       "sync_version" => sync_version,
-      "idempotency_key" => "capacity.synced:#{offering_id}",
+      "idempotency_key" => "capacity.synced:#{offering_id}:v#{sync_version}",
       # RETURNING 的 uuid 列为 16 字节原始二进制，入 Oban JSON 载荷前转字符串
       "workspace_id" => Ecto.UUID.load!(workspace_id)
     }

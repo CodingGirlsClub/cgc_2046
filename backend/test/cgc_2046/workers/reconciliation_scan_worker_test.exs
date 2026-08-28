@@ -666,6 +666,58 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:ledger_occupancy_mismatch)
     end
+
+    test "payment_pending 报名占席计入计数：账本 occupancy=1 与口径一致不命中" do
+      admin = Fixtures.platform_admin("rc9p-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc9p-learner")
+      tier_id = Ecto.UUID.generate()
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          pricing_enabled: true,
+          price_tiers: [%{"id" => tier_id, "name" => "标准", "amount_cents" => 19_900}]
+        })
+
+      assert {:ok, enrollment} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 event_id: event.id,
+                 user_id: learner.id,
+                 tier_id: tier_id
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      # 收费占位：payment_pending 已占席（账本 occupancy=1），规9口径含 payment_pending
+      assert enrollment.status == :payment_pending
+      assert EventFixtures.ledger_occupancy(event) == 1
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:ledger_occupancy_mismatch)
+    end
+
+    test "报名 cancelled 但账本 occupancy=1 → 命中且 detail 计数为 0" do
+      admin = Fixtures.platform_admin("rc9c-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc9c-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      # 裸 SQL 置 cancelled（绕过领域 cancel 的名额释放，规9 同款注入纪律）：
+      # 账本 occupancy 滞留 1，占位报名计数已为 0
+      Repo.query!(
+        "UPDATE enrollments SET status = 'cancelled' WHERE id = $1",
+        [Ecto.UUID.dump!(enrollment.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:ledger_occupancy_mismatch)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.detail["occupancy"] == 1
+      assert finding.detail["enrollment_count"] == 0
+    end
   end
 
   describe "规10 展示投影漂移超一拍" do
