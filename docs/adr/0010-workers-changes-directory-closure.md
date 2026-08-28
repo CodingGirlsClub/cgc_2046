@@ -61,6 +61,7 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 3. occupancy 负数防御:`admission_capacity_ledgers` CHECK `occupancy >= 0`(迁移 20260902000000,幂等可逆)。
 4. 定稿设计文档字段名漂移:`research_requirements → curriculum_requirements`(两份定稿 + template-parameterization puml/svg);`DRIFT-EVIDENCE/` 历史快照不动。
 5. payments_orders 逆向写点收编 `Payments.Order.void_pending_for_enrollment/2`(ADR-0009 D6 补记);StatusTransition 迁根部白名单化,offering/ 纯读零写。
+5b. **规12 宽限锚点缝隙(2026-08-29 清偿)**:删规12 的 `l.updated_at < NOW()-600s` 宽限谓词——reserve/release 的 `SET updated_at=NOW()` 不占缓存列却刷新锚点,报名活跃的 offering 永不告警(恰是超卖风险最高者)。改「缓存≠真值即出 finding」,在途瞬时命中由刷新语义下一拍自消(规8 先例)。`@drift_grace_seconds` 还原为规10 专属;规10 同构锚点问题(纯缓存写也刷 updated_at)仍为 LOW 挂账,语义纠缠未动。
 
 **开放缺口(评审原件 ⑥-⑩,按建议执行序)**:
 
