@@ -198,7 +198,7 @@ defmodule Cgc2046.Events.Event do
   end
 
   validations do
-    validate({Cgc2046.Events.SponsorshipTiersValidation, []})
+    validate({Cgc2046.Sponsorship.SponsorshipTiersValidation, []})
     validate({Cgc2046.Offering.PriceTiersValidation, []})
     validate({Cgc2046.Events.VenueValidation, []})
     validate({Cgc2046.Offering.ScheduleValidation, []})

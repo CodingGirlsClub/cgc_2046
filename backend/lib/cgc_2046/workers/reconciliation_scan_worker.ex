@@ -59,7 +59,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Event
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
   alias Cgc2046.Workflows.LearningProgress

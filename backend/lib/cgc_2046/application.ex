@@ -27,7 +27,7 @@ defmodule Cgc2046.Application do
       # 生命周期级联（E-9 #124：订阅 event/course.ended 信号 → 停教研 run 回收）
       Cgc2046.Curriculum.Reaper,
       # 赞助关系级联（E-3 #48：订阅 event.ended → Event 级 active Sponsorship 转 ended）
-      Cgc2046.Events.SponsorshipEndedSubscriber,
+      Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
       # Event cancelled 批量退款（缴费闭环 U9：订阅 event.ended，回查 cancelled
       # 才批量退——paid 逐笔退款 / payment_pending 取消释放）。
       Cgc2046.Workers.OfferingCancelRefundWorker,

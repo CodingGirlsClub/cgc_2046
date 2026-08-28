@@ -1,8 +1,8 @@
-defmodule Cgc2046.Events.SponsorshipConcurrencyTest do
+defmodule Cgc2046.Sponsorship.SponsorshipConcurrencyTest do
   use Cgc2046.DataCase, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.MiniprogramFixtures.Barrier
 

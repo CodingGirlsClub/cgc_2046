@@ -13,7 +13,8 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Curriculum,
       Cgc2046.Events,
       Cgc2046.GlobalApi,
-      Cgc2046.Payments
+      Cgc2046.Payments,
+      Cgc2046.Sponsorship
     ],
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true

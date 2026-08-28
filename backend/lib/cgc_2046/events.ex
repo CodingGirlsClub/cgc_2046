@@ -1,8 +1,7 @@
 defmodule Cgc2046.Events do
   @moduledoc """
   活动域（ADR-0009 PR②）：Event / SpeakerInvitation 家族归 Events 限界上下文
-  （长运营能力迭代重心）。Sponsorship 家族暂随本域注册，PR④ 独立成
-  Cgc2046.Sponsorship。
+  （长运营能力迭代重心）。Sponsorship 家族已随 PR④ 独立成 Cgc2046.Sponsorship。
 
   KTD1 域纪律：与 Cgc2046.Api / Cgc2046.Payments / Cgc2046.Admission 同款——
   `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止意外公开
@@ -29,9 +28,5 @@ defmodule Cgc2046.Events do
     # ADR-0009 R3：Event / SpeakerInvitation 家族归 Events context
     resource(Cgc2046.Events.Event)
     resource(Cgc2046.Events.SpeakerInvitation)
-
-    # Sponsorship 家族暂随 Events 注册（PR④ 独立成 Cgc2046.Sponsorship）
-    resource(Cgc2046.Events.Sponsorship)
-    resource(Cgc2046.Events.SponsorshipDelivery)
   end
 end

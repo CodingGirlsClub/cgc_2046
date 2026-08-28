@@ -514,7 +514,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       [
         Cgc2046.NotificationSubscriber,
         Cgc2046.SpeakerSubscriber,
-        Cgc2046.Events.SponsorshipEndedSubscriber,
+        Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
         Cgc2046.Workflows.LearningInstantiator,
         Cgc2046.Curriculum.Instantiator,
         Cgc2046.Curriculum.Reaper,

@@ -28,7 +28,7 @@ defmodule Cgc2046.Workers.NotificationWorker do
 
   alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.NotificationService
   alias Cgc2046.Workflows.WorkflowRun
 

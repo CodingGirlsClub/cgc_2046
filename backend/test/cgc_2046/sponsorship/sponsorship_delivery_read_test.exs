@@ -1,8 +1,8 @@
-defmodule Cgc2046.Events.SponsorshipDeliveryReadTest do
+defmodule Cgc2046.Sponsorship.SponsorshipDeliveryReadTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   @tier %{

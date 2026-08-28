@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.SponsorshipEndedSubscriber do
+defmodule Cgc2046.Sponsorship.SponsorshipEndedSubscriber do
   @moduledoc """
   赞助关系随 Event 结束自动 ended（E-3 #48；赞助 doc #5 待 v1 项由此落地）。
 
@@ -16,7 +16,7 @@ defmodule Cgc2046.Events.SponsorshipEndedSubscriber do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
 
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(_type, %{"event_id" => event_id}) when is_binary(event_id) do

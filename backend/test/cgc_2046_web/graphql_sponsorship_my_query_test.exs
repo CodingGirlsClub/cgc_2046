@@ -2,7 +2,7 @@ defmodule Cgc2046Web.GraphqlSponsorshipMyQueryTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   @tier %{
