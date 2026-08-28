@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.Readiness do
+defmodule Cgc2046.Offering.Readiness do
   @moduledoc """
   GO/NO-GO readiness 清单（E-5 #50，D3 拍板：v1 警告放行 + readiness 查询暴露后台）。
 

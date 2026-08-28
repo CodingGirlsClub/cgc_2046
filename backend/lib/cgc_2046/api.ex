@@ -9,7 +9,7 @@ defmodule Cgc2046.Api do
     show?(true)
     # #113 ops 面优化：domain 命名 + 资源分组标签
     name("Workflows & Events")
-    resource_group_labels(workflows: "工作流", events: "教研活动")
+    resource_group_labels(workflows: "工作流")
   end
 
   graphql do
@@ -39,14 +39,5 @@ defmodule Cgc2046.Api do
 
     # 对账扫描（E-10 #125：平台级孤儿报告，/admin 对账页）
     resource(Cgc2046.Reconciliation.Finding)
-
-    # 教研实例化实体（#39 阶段 6：Event/Course launch → 教研 workflow run）
-    resource(Cgc2046.Events.Event)
-    resource(Cgc2046.Events.Course)
-    resource(Cgc2046.Events.Sponsorship)
-    resource(Cgc2046.Events.SponsorshipDelivery)
-
-    # 邀请 workflow（E-4 #49：Event 级逐人定向 SpeakerInvitation）
-    resource(Cgc2046.Events.SpeakerInvitation)
   end
 end

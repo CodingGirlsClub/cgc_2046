@@ -11,7 +11,8 @@ defmodule Cgc2046.Events.EventLifecycleTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.SignalPublishWorker
 

@@ -22,9 +22,9 @@ defmodule Cgc2046.Events.Event do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Events
 
-  alias Cgc2046.Repo
+  alias Cgc2046.Offering.StatusTransition
 
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
@@ -199,9 +199,9 @@ defmodule Cgc2046.Events.Event do
 
   validations do
     validate({Cgc2046.Events.SponsorshipTiersValidation, []})
-    validate({Cgc2046.Events.PriceTiersValidation, []})
+    validate({Cgc2046.Offering.PriceTiersValidation, []})
     validate({Cgc2046.Events.VenueValidation, []})
-    validate({Cgc2046.Events.ScheduleValidation, []})
+    validate({Cgc2046.Offering.ScheduleValidation, []})
   end
 
   calculations do
@@ -212,7 +212,7 @@ defmodule Cgc2046.Events.Event do
       public?: true,
       load: [:price_tiers],
       calculation: fn records, _opts ->
-        Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
+        Enum.map(records, &Cgc2046.Offering.PriceTier.available_tiers(&1.price_tiers))
       end
     )
 
@@ -224,7 +224,7 @@ defmodule Cgc2046.Events.Event do
       load: [:capacity, :confirmed_count, :starts_at, :registration_deadline],
       calculation: fn records, _opts ->
         now = DateTime.utc_now()
-        Enum.map(records, &Cgc2046.Events.EnrollmentBadge.badge(&1, now))
+        Enum.map(records, &Cgc2046.Offering.EnrollmentBadge.badge(&1, now))
       end
     )
   end
@@ -449,7 +449,7 @@ defmodule Cgc2046.Events.Event do
 
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
       # 明细经 GraphQL readiness 查询暴露后台（course.launch 同款，Readiness 统一）。
-      change(after_transaction(&Cgc2046.Events.Readiness.warn_unless_ready/3))
+      change(after_transaction(&Cgc2046.Offering.Readiness.warn_unless_ready/3))
     end
 
     # open → closed：结束活动（手动，或 registration_deadline 到点由
@@ -565,25 +565,9 @@ defmodule Cgc2046.Events.Event do
 
   def ended_payload(_changeset, event), do: %{"event_id" => event.id, "title" => event.title}
 
-  # DB 级 compare-and-set：条件 UPDATE 原子抢占状态迁移（enrollment.expire 同款
-  # 纪律）。num_rows=0 → 并发竞态（cron 与手动双拍），拒绝而非双成功双发布。
-  # 成功后由调用方 force_change（Ash 后续写同值幂等，返回 record 状态正确）。
-  defp status_transition(changeset, to_status) do
-    sql = "UPDATE events SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3"
-    id = Ash.Changeset.get_data(changeset, :id)
-    from_status = Ash.Changeset.get_data(changeset, :status)
-
-    case Repo.query(sql, [to_string(to_status), Repo.uuid!(id), to_string(from_status)]) do
-      {:ok, %{num_rows: 1}} ->
-        :ok
-
-      {:ok, %{num_rows: 0}} ->
-        {:error, :status_race}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
+  # 状态机 CAS 委托 offering 层共享 helper（KTD2）。
+  defp status_transition(changeset, to_status),
+    do: StatusTransition.run(changeset, "events", to_status)
 
   postgres do
     table("events")

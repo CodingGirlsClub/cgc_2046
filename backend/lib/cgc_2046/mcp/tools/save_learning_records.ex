@@ -55,7 +55,7 @@ defmodule Cgc2046.Mcp.Tools.SaveLearningRecords do
   # tenant: workspace_id 收紧课程归属(F1):不带 tenant 会全表读——A 租户
   # 成员可用 B 租户 course_id 越权写 B 课的学习记录
   defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Events.Course
+    case Cgc2046.Courses.Course
          |> Ash.Query.for_read(:get_by_id, %{id: course_id})
          |> Ash.read_one(authorize?: false, tenant: workspace_id) do
       {:ok, nil} -> {:error, "course not found: #{course_id}"}

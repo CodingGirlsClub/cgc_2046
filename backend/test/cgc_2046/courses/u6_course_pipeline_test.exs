@@ -1,4 +1,4 @@
-defmodule Cgc2046.U6CoursePipelineTest do
+defmodule Cgc2046.Courses.U6CoursePipelineTest do
   @moduledoc """
   U6(切片 H, #180/R14):research_enabled 删列与消费方收紧。
 
@@ -12,8 +12,8 @@ defmodule Cgc2046.U6CoursePipelineTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Course
-  alias Cgc2046.Events.Readiness
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Offering.Readiness
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.ReconciliationScanWorker
 

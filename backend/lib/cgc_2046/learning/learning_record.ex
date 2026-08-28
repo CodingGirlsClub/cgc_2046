@@ -113,7 +113,7 @@ defmodule Cgc2046.Learning.LearningRecord do
       allow_nil?: false
     )
 
-    belongs_to(:course, Cgc2046.Events.Course,
+    belongs_to(:course, Cgc2046.Courses.Course,
       source_attribute: :course_id,
       destination_attribute: :id,
       allow_nil?: false

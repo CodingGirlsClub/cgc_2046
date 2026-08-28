@@ -786,9 +786,9 @@ defmodule Cgc2046.Payments.Order do
   defp resolve_tier(enrollment, target) do
     tier_id = enrollment.submission_payload["tier_id"]
 
-    with {:ok, tier} <- Cgc2046.Events.PriceTier.find(target.price_tiers, tier_id),
+    with {:ok, tier} <- Cgc2046.Offering.PriceTier.find(target.price_tiers, tier_id),
          true <-
-           Cgc2046.Events.PriceTier.available?(tier, DateTime.utc_now()) ||
+           Cgc2046.Offering.PriceTier.available?(tier, DateTime.utc_now()) ||
              {:error, :tier_not_available} do
       {:ok, tier}
     end

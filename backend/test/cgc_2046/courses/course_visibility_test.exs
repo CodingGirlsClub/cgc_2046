@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.CourseVisibilityTest do
+defmodule Cgc2046.Courses.CourseVisibilityTest do
   @moduledoc """
   Course 读策略同构覆盖：匿名白名单 + draft 收紧 + 角色组合 + 跨租户。
   """
@@ -6,7 +6,7 @@ defmodule Cgc2046.Events.CourseVisibilityTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Course
+  alias Cgc2046.Courses.Course
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   defp reload(id, actor \\ nil, tenant \\ nil) do

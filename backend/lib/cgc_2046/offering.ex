@@ -31,7 +31,8 @@ defmodule Cgc2046.Offering do
 
   require Ash.Query
 
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
 
   @doc """
   按 kind + id 读取供给物。默认 `authorize?: false`（匹配原五处分叉行为）；

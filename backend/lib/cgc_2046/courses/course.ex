@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.Course do
+defmodule Cgc2046.Courses.Course do
   @moduledoc """
   课程资源（Slice C #39，阶段 6 教研实例化最小子集）。
 
@@ -23,9 +23,9 @@ defmodule Cgc2046.Events.Course do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Courses
 
-  alias Cgc2046.Repo
+  alias Cgc2046.Offering.StatusTransition
   require Ash.Query
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
@@ -160,8 +160,8 @@ defmodule Cgc2046.Events.Course do
   end
 
   validations do
-    validate({Cgc2046.Events.PriceTiersValidation, []})
-    validate({Cgc2046.Events.ScheduleValidation, []})
+    validate({Cgc2046.Offering.PriceTiersValidation, []})
+    validate({Cgc2046.Offering.ScheduleValidation, []})
   end
 
   calculations do
@@ -172,7 +172,7 @@ defmodule Cgc2046.Events.Course do
       public?: true,
       load: [:price_tiers],
       calculation: fn records, _opts ->
-        Enum.map(records, &Cgc2046.Events.PriceTier.available_tiers(&1.price_tiers))
+        Enum.map(records, &Cgc2046.Offering.PriceTier.available_tiers(&1.price_tiers))
       end
     )
 
@@ -184,7 +184,7 @@ defmodule Cgc2046.Events.Course do
       load: [:capacity, :confirmed_count, :starts_at, :registration_deadline],
       calculation: fn records, _opts ->
         now = DateTime.utc_now()
-        Enum.map(records, &Cgc2046.Events.EnrollmentBadge.badge(&1, now))
+        Enum.map(records, &Cgc2046.Offering.EnrollmentBadge.badge(&1, now))
       end
     )
   end
@@ -438,7 +438,7 @@ defmodule Cgc2046.Events.Course do
 
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
       # 明细经 GraphQL readiness 查询暴露后台（event.launch 同款，Readiness 统一）。
-      change(after_transaction(&Cgc2046.Events.Readiness.warn_unless_ready/3))
+      change(after_transaction(&Cgc2046.Offering.Readiness.warn_unless_ready/3))
     end
 
     # open → closed：结束课程（手动，或 registration_deadline 到点由
@@ -557,25 +557,9 @@ defmodule Cgc2046.Events.Course do
   def ended_payload(_changeset, course),
     do: %{"course_id" => course.id, "title" => course.title}
 
-  # DB 级 compare-and-set：条件 UPDATE 原子抢占状态迁移（enrollment.expire 同款
-  # 纪律）。num_rows=0 → 并发竞态（cron 与手动双拍），拒绝而非双成功双发布。
-  # 成功后由调用方 force_change（Ash 后续写同值幂等，返回 record 状态正确）。
-  defp status_transition(changeset, to_status) do
-    sql = "UPDATE courses SET status = $1, updated_at = NOW() WHERE id = $2 AND status = $3"
-    id = Ash.Changeset.get_data(changeset, :id)
-    from_status = Ash.Changeset.get_data(changeset, :status)
-
-    case Repo.query(sql, [to_string(to_status), Repo.uuid!(id), to_string(from_status)]) do
-      {:ok, %{num_rows: 1}} ->
-        :ok
-
-      {:ok, %{num_rows: 0}} ->
-        {:error, :status_race}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
+  # 状态机 CAS 委托 offering 层共享 helper（KTD2）。
+  defp status_transition(changeset, to_status),
+    do: StatusTransition.run(changeset, "courses", to_status)
 
   postgres do
     table("courses")
@@ -640,7 +624,7 @@ defmodule Cgc2046.Events.Course do
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
-    resource_group(:events)
+    resource_group(:courses)
     label_field(:title)
 
     table_columns([

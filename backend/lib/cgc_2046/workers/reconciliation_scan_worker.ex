@@ -56,7 +56,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
 
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.Accounts.WorkspaceApplication
-  alias Cgc2046.Events.Course
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Event
   alias Cgc2046.Events.Sponsorship

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.PriceTierTest do
+defmodule Cgc2046.Offering.PriceTierTest do
   @moduledoc """
   U2：PriceTier 嵌入式定价配置（R1/R2/R4）。
 
@@ -10,7 +10,9 @@ defmodule Cgc2046.Events.PriceTierTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event, PriceTier}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
+  alias Cgc2046.Offering.PriceTier
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   describe "PriceTier.valid?（R1：档位形状）" do

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.EnrollmentBadge do
+defmodule Cgc2046.Offering.EnrollmentBadge do
   @moduledoc """
   报名状态派生标签的纯函数（R6 / KTD1）。
 

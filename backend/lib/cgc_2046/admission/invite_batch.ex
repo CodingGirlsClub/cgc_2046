@@ -68,7 +68,7 @@ defmodule Cgc2046.Admission.InviteBatch do
   relationships do
     belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
     belongs_to(:event, Cgc2046.Events.Event, define_attribute?: false)
-    belongs_to(:course, Cgc2046.Events.Course, define_attribute?: false)
+    belongs_to(:course, Cgc2046.Courses.Course, define_attribute?: false)
   end
 
   identities do
