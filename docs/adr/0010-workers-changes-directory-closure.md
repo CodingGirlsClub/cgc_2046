@@ -22,7 +22,7 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 | learning_progress_worker | learning_records | `learning/` |
 | notification_worker | 通知投递 | `notifications/` |
 | signal_publish_worker | signals outbox | `workflows/` |
-| share_scheme_worker | 分享 scheme(小程序侧) | `miniprogram/`(评审序4 判定) |
+| share_scheme_worker | 分享 scheme(小程序侧) | `miniprogram/`(product owner 裁定 2026-08-29:22 行薄壳,唯一依赖 Miniprogram.ShareSchemeService,属主明确) |
 | login_artifact_pruner_worker | 登录工件清理(phone_verification_codes/wechat_login_tickets) | `miniprogram/` ⚠️分歧 |
 
 ⚠️分歧三项(评审原判 vs 本 ADR 拍板,均非对错、由 product owner 定夺,执行 PR 前定稿):
@@ -87,6 +87,6 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 
 ## 后果
 
-- workers/、changes/ 两目录的物理搬迁排入后续独立 PR(本 ADR 为唯一事实来源);搬迁 PR 只做 `git mv` + 模块前缀改 + 引用收敛,零行为变化,评审走机械核对。
+- workers/、changes/ 两目录按本 ADR 映射完成物理搬迁(**实施状态:2026-08-29 已执行**,单 PR 双 commit——W2 changes/ 先行、W1 workers/ 随后;规6 白名单三处字符串随迁,并加「白名单模块必须真实存在」测试断言)。
 - 目录消亡后,「新增 worker/change 放哪」不再有默认坑位——CONTRIBUTING 新增条目指向本 ADR 的归属原则。
 - G1 登记随评审原件对齐更新;登记项清偿时划去并注 PR 号。

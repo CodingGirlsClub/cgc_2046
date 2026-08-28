@@ -15,7 +15,7 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Offering.Readiness
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.ReconciliationScanWorker
+  alias Cgc2046.Reconciliation.ReconciliationScanWorker
 
   alias Cgc2046.Curriculum.Instantiator
 

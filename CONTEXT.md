@@ -462,7 +462,7 @@
 
 ### 通知类型（Notification Types）
 
-- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Workers.NotificationWorker` 的 `@notification_types` 表（2026-08-18 架构深化候选 D，plan `docs/plans/2026-08-18-005-notification-type-registry.md` D1-D8 全锁定；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**；runtime.exs prod 块同键集注入亦由 D7 测试锚定——三面一致，防 prod 漏配静默失败）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`unique`（Notifications.Fanout.deliver 缺省 unique 预设 `:default` \| `:reminder_7d`）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。
+- **定义**：**通知类型契约的唯一真源** = `Cgc2046.Notifications.NotificationWorker` 的 `@notification_types` 表（2026-08-18 架构深化候选 D，plan `docs/plans/2026-08-18-005-notification-type-registry.md` D1-D8 全锁定；AEW `@expiry_specs` 同款声明式规格先例），公开 `type/1`（按 template_key 查条目 \| nil）与 `types/0`（全条目）读契约。条目字段：`template_key`（通知类型键，与 config `:miniprogram_templates` 三平台 registry 键集**双射**；runtime.exs prod 块同键集注入亦由 D7 测试锚定——三面一致，防 prod 漏配静默失败）｜`id_key`（stale 重查的资源 id 在 data 中的键，无重查 = nil）｜`data_keys` / `job_meta_keys`（生产方构建 data / job_meta 的键集契约）｜`unique`（Notifications.Fanout.deliver 缺省 unique 预设 `:default` \| `:reminder_7d`）｜`stale`（重查规格 `{resource, required_status, :not_expired \| :running}`，nil = 不重查）。
 - **stale 语义（表驱动单解释器，D2）**：提醒类类型发送时重查——approval_reminder 同键两行（Enrollment / Sponsorship 面，由 data 携带的 id_key 分派）走 `ApprovalDeadline.not_expired?/2` **放行谓词**（nil 永不过期=投递、==now 不放行=跳过；**禁用 overdue?/2**——不对称对偶）；learning_stagnation 走 WorkflowRun `status == :running`。非 required_status / 读失败 → 跳过（stale=true）；未知类型 / 无 stale → 不重查直接投递。
 - **收敛/不收边界**：收敛面 = 键集契约（data_keys / job_meta_keys）+ unique 预设 + stale 谓词（D4）；payload 值构建不收敛（生产方仍自构建 data / job_meta 值，D4/D6——`Payments.NotificationTemplates.payment_data/1` 是唯一 payload builder 先例，不扩此面）；Notifications.Fanout 主体 / Notifications.Service / Integrations.Wechat.Client / config 面与 miniprogram SubscriptionScenario（独立数据面，`event_reminder` 漂移仅 advisory，D5）不收。
 - **架构位置**：横切契约面（root Worker 单文件，AEW `@expiry_specs` 同款先例）；消费方 = Notifications.Fanout（unique 缺省查表，D3）/ 生产方（moduledoc 契约描述引用 `type/1`，D6）/ 表驱动契约测试（`test/cgc_2046/workers/notification_worker_test.exs`，D7）。
@@ -491,7 +491,7 @@
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
 - **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
 - **缴费对账（已落地）**：`payment_amount_mismatch` / `payment_recon` 两条规由 Payments 域 PaymentReconciliationWorker / PaymentSettlementWorker 写入同一 Finding 底座（「底座共享 + 扫描器归各域」，ADR-0009 D6；ADR-0007，webhook 丢失的长尾兜底）。
-- **架构位置**：`Cgc2046.Reconciliation.Finding`（Reconciliation domain 全局资源，PR⑤ U8 归位、Api 退役）+ `Cgc2046.Workers.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs、规8-11 Repo 直查账本/offering 表）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
+- **架构位置**：`Cgc2046.Reconciliation.Finding`（Reconciliation domain 全局资源，PR⑤ U8 归位、Api 退役）+ `Cgc2046.Reconciliation.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs、规8-11 Repo 直查账本/offering 表）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
 
 ### 工具 = 形状 原则（见 §3）
 

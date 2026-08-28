@@ -299,7 +299,7 @@ defmodule Cgc2046.Admission.Enrollment do
       )
 
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :waive_payment,
          target_type: :enrollment,
          metadata: &__MODULE__.waive_log_metadata/2}
@@ -935,7 +935,7 @@ defmodule Cgc2046.Admission.Enrollment do
       |> Map.put("idempotency_key", @completed_signal <> ":" <> enrollment.id)
       |> Map.put("workspace_id", enrollment.workspace_id)
 
-    Cgc2046.Workers.SignalPublishWorker.enqueue_in_transaction(
+    Cgc2046.Workflows.SignalPublishWorker.enqueue_in_transaction(
       @completed_signal,
       payload,
       workspace_id

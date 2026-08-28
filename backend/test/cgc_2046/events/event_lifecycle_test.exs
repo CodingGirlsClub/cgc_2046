@@ -14,7 +14,7 @@ defmodule Cgc2046.Events.EventLifecycleTest do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   defp reload(resource, id), do: Ash.get!(resource, id, authorize?: false)
 

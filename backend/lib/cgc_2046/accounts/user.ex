@@ -255,7 +255,7 @@ defmodule Cgc2046.Accounts.User do
       # #116 R10a：治理留痕 promote/demote（CLI 无 actor 调用时 actor_id 落 nil）；
       # 留痕失败上抛回滚本次变更（fail-closed）。action 由 argument 算出。
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: &__MODULE__.admin_log_action/2,
          target_type: :user,
          metadata: &__MODULE__.admin_log_user_metadata/2}
@@ -313,7 +313,7 @@ defmodule Cgc2046.Accounts.User do
       # #116 R10a：治理留痕 demote（原子 UPDATE 成功后才进 after_action；
       # 失败上抛回滚，fail-closed）
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :admin_demote,
          target_type: :user,
          metadata: &__MODULE__.admin_log_user_metadata/2}

@@ -2,7 +2,7 @@ defmodule Cgc2046.Reconciliation.Finding do
   @moduledoc """
   对账扫描发现（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D1）。
 
-  平台级孤儿报告：`Cgc2046.Workers.ReconciliationScanWorker` 每 10 分钟扫描规则
+  平台级孤儿报告：`Cgc2046.Reconciliation.ReconciliationScanWorker` 每 10 分钟扫描规则
   （E-10 七条 + ADR-0009 U7 名额账本四条），命中落本表。**刷新语义**（D2）：
   命中 upsert（保 first_seen_at、刷新 last_seen_at），本次未命中删除——
   「无孤儿 → 空报告」由结构保证。
