@@ -58,7 +58,7 @@ decision_record: docs/adr/0009-bounded-context-restructure.md
 
 **行为保持门**
 
-- R8. GraphQL 对外面：除 R5 白名单（`researchRequirements` / `researchEnabled` 及其派生 input / filter 类型改名）外，每个 PR 的 `backend/priv/graphql/schema.graphql` diff 必须为零。
+- R8. GraphQL 对外面：除 R5 白名单（`researchRequirements` / `researchEnabled` 及其派生 input / filter 类型改名）外，SDL 内容不变（仅按 domain 分组重排）；每个 PR 的验收以排序归一化后逐行对比为空为准（`git show BASE:backend/priv/graphql/schema.graphql | LC_ALL=C sort` 与当前文件同样排序后 diff 为空）。
 - R9. 既有信号名（`event.*` / `course.*` / `enrollment.*` / `order.*` / `sponsorship.*` / `speaker.*`）与 payload 键逐字节冻结。仅允许新增 `offering.capacity_changed` 与 `capacity.synced` 两个信号。
 - R10. MCP 工具对外名、审计名、meta 不变；工具实现仅改委托目标。
 - R11. 纯搬迁 PR（①②④）不改任何测试断言逻辑，测试仅随迁 alias 与文件路径。
@@ -114,7 +114,7 @@ decision_record: docs/adr/0009-bounded-context-restructure.md
 
 - KTD1. **每 context 实体化真 `Ash.Domain`**（Events / Courses / Admission / Curriculum / Sponsorship，收尾补 Workflows / Learning / Reconciliation），单 Absinthe schema 聚合列表随之变长但拓扑不变。依据：Ash 官方 glossary 定义 domain ≈ bounded context；项目零 code interface、全部调用走 `Ash.*`，迁移成本≈0；AshAdmin 按 `:ash_domains` 自动发现分组。每个新 domain 继承 `graphql do authorize?(true) end` 防御惯例与中文 `resource_group_labels`。
 - KTD2. **Offering 落 `Cgc2046.Offering` 中立位置**，共享纯函数内核（PriceTier / ScheduleValidation / EnrollmentBadge / Readiness / 状态机 CAS helper）同层收进 `backend/lib/cgc_2046/offering/`。消费方横跨 Notification / Sponsorship / Miniprogram / Workflows / GraphQL，非 Admission 专属下游，故不挂 `Admission.Offering`。纯函数共享不破坏 bounded context（无状态、无表）。Instantiates KD5.
-- KTD3. **PR③ 是唯一允许 SDL diff 的 PR**，白名单 = `researchRequirements→curriculumRequirements`、`researchEnabled→curriculumEnabled` 及派生 input / filter；其余 PR 以 `schema.graphql` 逐字节零 diff 为本地验收门（全部 type / query / mutation 名已显式声明，零 diff 可机械证明）。
+- KTD3. **PR③ 是唯一允许 SDL 内容变更的 PR**，白名单 = `researchRequirements→curriculumRequirements`、`researchEnabled→curriculumEnabled` 及派生 input / filter；其余 PR 的验收门为 SDL 排序归一化后逐行 diff 为空（domain 归属切换引起的分组重排属合法形态，口径同 R8；全部 type / query / mutation 名已显式声明，语义冻结可机械证明）。
 - KTD4. **名额账本同步全信号化**：上行 `offering.capacity_changed`（编辑传播）、下行 `capacity.synced`（覆盖式 + sync_version）。Admission 独占账本写权；Events / Courses 自写各自投影列（自写不算跨 context 写）；反向直写（Admission 写 events/courses 表）禁止。Instantiates KD2.
 - KTD5. **建行双路 = launched 订阅 + 报名路径懒建 upsert 兜底**；launched payload 不扩字段（订阅方经 Offering 端口回读，永远拿最新 capacity / deadline，优于信号快照）；双路竞态由 `(offering_kind, offering_id)` 唯一索引幂等吸收。Instantiates KD2.
 - KTD6. **支付超时释放 = 同事务端口调用** `Admission.release_for_payment_expiry/1`，不用异步信号：保「名额回池后才通知可重报」的现有语义；同库单事务，事务性不破，只改模块归属。Instantiates KD6.
@@ -254,8 +254,8 @@ backend/lib/cgc_2046/
   - 编译零警告（`--warnings-as-errors`）通过。
   - 既有 `enrollment_concurrency_test`（并发占位不超卖）原样全绿——占位 CAS 口径不变。
   - 既有 `graphql_create_enrollment` / `graphql_enrollment_my_query` / 支付三测试原样全绿。
-  - `priv/graphql/schema.graphql` diff 为空（R8 门）。
-- **Verification:** `cd backend && mix compile --warnings-as-errors` 与 `mix test` 全绿；SDL 零 diff；`grep -r "Events.Enrollment\|Events.InviteBatch\|Events.Offering\|Events.PendingApprovals" backend/lib backend/test` 零命中。
+  - SDL 内容不变（仅按 domain 分组重排）：`priv/graphql/schema.graphql` 排序归一化后逐行对比为空（`git show BASE:backend/priv/graphql/schema.graphql | LC_ALL=C sort` 与当前文件同样排序后 diff 为空；R8 门）。
+- **Verification:** `cd backend && mix compile --warnings-as-errors` 与 `mix test` 全绿；SDL 排序归一化后逐行 diff 为空（口径同 R8）；`grep -rE "Events\.(Enrollment|InviteBatch|Offering|PendingApprovals)([^A-Za-z0-9_]|$)" backend/lib backend/test` 零命中（词边界匹配，排除合法存续的 Events.EnrollmentBadge）。
 
 ### U2. Courses / Events 分家（PR②）
 
@@ -278,7 +278,7 @@ backend/lib/cgc_2046/
   - 编译零警告；既有事件生命周期 / 可见性 / Readiness / 徽章测试原样全绿。
   - SDL 零 diff（R8 门）。
   - 信号字面量扫描：`course.launched` / `course.ended` / `event.*` 字符串零变化（R9 门）。
-- **Verification:** 同 U1 口径 + `grep -r "Events.Course" backend/lib backend/test` 零命中。
+- **Verification:** 同 U1 口径 + `grep -rE "Events\.Course" backend/lib backend/test` 零命中。
 
 ### U3. Curriculum 独立与 research_* 改名（PR③）
 
@@ -318,7 +318,7 @@ backend/lib/cgc_2046/
 - **Test scenarios:**
   - 编译零警告；sponsorship 全流程与并发测试原样全绿。
   - SDL 零 diff；`sponsorship.*` 信号字面量零变化。
-- **Verification:** 同 U1 口径 + `grep -r "Events.Sponsorship" backend/lib backend/test` 零命中。
+- **Verification:** 同 U1 口径 + `grep -rE "Events\.Sponsorship" backend/lib backend/test` 零命中。
 
 ### U5. Payments 收敛（PR⑤ 第一部分）
 
@@ -408,7 +408,7 @@ backend/lib/cgc_2046/
 |---|---|---|
 | `cd backend && mix compile --warnings-as-errors` | 全部 | 零警告 |
 | `cd backend && mix test` | 全部 | 全绿，纯搬迁 PR 断言零改动（R11） |
-| `backend/priv/graphql/schema.graphql` diff | 全部 | 逐字节为空；PR③ 仅 KTD3 白名单 |
+| `backend/priv/graphql/schema.graphql` diff | 全部 | 排序归一化后逐行为空（允许 domain 分组重排，口径同 R8）；PR③ 仅 KTD3 白名单 |
 | 信号字面量扫描（冻结清单见 Appendix） | 全部 | 既有名与 payload 键零变化（R9） |
 | 旧模块名残留 grep（每 PR 指定模式） | 全部 | 零命中 |
 | web `pnpm typecheck` / lint | ③⑤ | 通过 |

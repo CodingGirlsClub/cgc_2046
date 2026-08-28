@@ -352,9 +352,9 @@
 
 - **命名说明**：offering = 商业英语「提供物/供给物」，Event/Course 的**上位词**（course offerings = 开设的课程清单，非「课程设置」）。中文统一语言定名**供给物**；ADR-0009 拍板代码标识符保留 `Offering` 不改名。
 
-- **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Events.Offering`（2026-08-15 读取面收敛，架构评审候选④；plan `docs/plans/2026-08-15-009-offering-read-seam.md` D1-D7 全锁定）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
+- **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Offering`（2026-08-15 读取面收敛，架构评审候选④；plan `docs/plans/2026-08-15-009-offering-read-seam.md` D1-D7 全锁定）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
 - **命名空间区分**：kind 原子 `:event` 与 Sponsorship `level: :event`（赞助级别）**撞名但无语义关系**——前者是读取分派键，后者是业务分类字段，勿混用。
-- **架构位置**：读取面 seam（events/ 目录）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ ResearchInstantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
+- **架构位置**：读取面 seam（已迁出 events/，位于 lib/cgc_2046/ 顶层 offering.ex）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ ResearchInstantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
 - **目标态（ADR-0009 D5）**：转正为 Events/Courses 对 Admission 的**发布语言读端口**（纯读投影契约，零写入），移出 events/ 至中立位置；Events/Courses 各实现 adapter。消费面不变：Admission 校验、分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
 
 ### Issue（学习议题，课程内容原子单元）
@@ -375,13 +375,13 @@
 ### Enrollment（报名 / 事件级参与者）
 
 - **定义**：Event/Course 的**事件级参与者记录**，归**Admission（报名）context**（ADR-0009，取代 D-A4「归活动 context」）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单；免费是默认（Event/Course 不配置定价），收费路径经 Order 缴费（2026-08-15 缴费 grilling 拍板，取代 Learner Q3「全免费」约束）。
-- **架构位置**：Admission context 资源（目标态；现状在 events/ 目录，迁移随 ADR-0009 四步序列）；与 WorkspaceMembership（长期成员）两类关系并存。「报名」对 Event/Course 语义逐字相同 = 同一概念，不随两者分家复制。
+- **架构位置**：Admission context 资源（现状位于 lib/cgc_2046/admission/，已随 ADR-0009 PR① 迁出 events/）；与 WorkspaceMembership（长期成员）两类关系并存。「报名」对 Event/Course 语义逐字相同 = 同一概念，不随两者分家复制。
 
 ### Admission（报名上下文）
 
 - **定义**：报名生命周期的限界上下文（ADR-0009，2026-08-28 拍板）：Enrollment + InviteBatch + 名额账本。Events/Courses 是其**上游**——经 Offering（供给物）发布语言读契约供 status/capacity/deadline/price_tiers；下游 = Payments（Customer/Supplier，Order 锚 `enrollment_id` 单一引用）。
 - **名额账本**（D2）：占位/释放的原子 CAS 在 Admission 自己的账本表内完成（offering launched 信号建 capacity 投影）；offering 上的 `confirmed_count` 退化为展示投影（信号最终一致同步）——消除系统唯一跨 context 写点（服务独占数据更新权）。capacity 调小的同步窗口由账本 CAS 拒单 + 对账规则兜底，不构成超卖。
-- **架构位置**：目标态独立 context（`admission/`）；现状 Enrollment/InviteBatch 在 events/ 目录，迁移随 ADR-0009 PR①。
+- **架构位置**：独立 context（`admission/`，已随 ADR-0009 PR① 落地）；Enrollment/InviteBatch 位于 lib/cgc_2046/admission/。
 
 ### Curriculum（教研）
 
@@ -399,12 +399,12 @@
 
 ### learning 锚定（Enrollment Anchor）
 
-- **定义**：「learning run 锚定到哪条 Enrollment」的**唯一读取真源** = `Cgc2046.Events.Enrollment.anchor/1`（+ 双键提取 `anchored_id/1`；2026-08-17 架构深化 E，plan `docs/plans/2026-08-17-004-learning-anchor-claim-guard.md` D1-D8 全锁定）。三消费方（Workflows→Events 依赖方向）：`StepAuthorization.enrolled_learner?`（fail-closed→false）/ `LearningInstantiator`（instantiate + ensure_create_guards + instance_key/input_enrollment_id，warning+:ok）/ `LearningProgressWorker`（fetch_enrollment_or_nil→nil / remind_stagnant→:skipped）——三份私有拷贝已收编于此，删则复杂度回散三处。
+- **定义**：「learning run 锚定到哪条 Enrollment」的**唯一读取真源** = `Cgc2046.Admission.Enrollment.anchor/1`（+ 双键提取 `anchored_id/1`；2026-08-17 架构深化 E，plan `docs/plans/2026-08-17-004-learning-anchor-claim-guard.md` D1-D8 全锁定）。三消费方（Workflows→Admission 依赖方向）：`StepAuthorization.enrolled_learner?`（fail-closed→false）/ `LearningInstantiator`（instantiate + ensure_create_guards + instance_key/input_enrollment_id，warning+:ok）/ `LearningProgressWorker`（fetch_enrollment_or_nil→nil / remind_stagnant→:skipped）——三份私有拷贝已收编于此，删则复杂度回散三处。
 - **双键超集语义**：string 键优先、atom 键兜底（`Map.get(m, "enrollment_id") || Map.get(m, :enrollment_id)`）——可达输入全为 string 键（input_snapshot 经 JSONB 持久化；唯一写入方 LI 以 string 键构造 input），atom 分支仅激活于不可达的 in-memory 输入（安全方向，fail-closed 不放松）。
 - **双错误语义**：无锚 → `:no_enrollment_anchor`（含 nil 防御 input_snapshot 可空）；有锚读取失败/不存在 → `:enrollment_read_failed`（避开 payments 域同名 `:enrollment_not_found`，防跨域误读）。错误原子零外部消费，仅进日志与 with 通配符。
 - **边界不收**：reconciliation_scan_worker ×2、graphql ×2（anchored_to_enrollment? SQL filter / 展示投影）、ActorIsEnrolledLearner（委托非拷贝）、payments 域。
 - **配套（G）**：SignalSubscriber 骨架把 `:claim_in_handle` 策略结构化为**双回调**——`before_claim/2`（校验链 → `{:ok, ctx}` | `:skip` | `{:error,_}`）+ `effects/3`（副作用），claim 时机由骨架持有（before_claim 后、effects 前），不再依赖模块自调；`:skip`/`{:error,_}` 不烧 claim 归一化 `:ok`（重投仍可推进），重复投递 `:duplicate` → `:ok`（不重复执行 effects），声明策略但未实现双回调 → `raise ArgumentError`。历史 post-hoc 检测方案因无法区分「校验不过合法 skip」与「忘调 claim」被证伪，弃用。
-- **架构位置**：事件 context 资源（events/）读取面；依赖方向 Workflows→Events，三消费方坍缩语义各自保持。
+- **架构位置**：Admission context 资源（admission/）读取面；依赖方向 Workflows→Admission，三消费方坍缩语义各自保持。
 
 ### PriceTier（价格档位）
 
