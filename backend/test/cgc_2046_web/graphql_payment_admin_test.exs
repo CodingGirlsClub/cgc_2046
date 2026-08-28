@@ -151,6 +151,33 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
       assert all["pending_cents"] == 19_900
     end
 
+    test "workspacePaymentStats 跨类误传：course UUID 传入 eventId 返回零,不归并 course 金额(PR⑤ peer#2 钉测)" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+
+      course_c =
+        EventFixtures.create_course(workspace, owner, %{
+          pricing_enabled: true,
+          price_tiers: [@tier]
+        })
+
+      _learner_c = paid_enrollment_in(course_c, workspace, owner, "cross-c1")
+
+      # course UUID 误传入 eventId:event 侧无此供给物,必须零值而非归并 course 统计
+      assert %{"data" => %{"workspacePaymentStats" => raw}} =
+               graphql(stats_query_with_event(workspace.id, course_c.id), sign_in_token(owner))
+
+      stats = raw |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
+      assert stats["collected_cents"] == 0
+      assert stats["pending_cents"] == 0
+
+      # 正确入参 courseId 仍能取到 course 统计
+      assert %{"data" => %{"workspacePaymentStats" => raw_c}} =
+               graphql(stats_query_with_course(workspace.id, course_c.id), sign_in_token(owner))
+
+      stats_c = raw_c |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
+      assert stats_c["collected_cents"] == 19_900
+    end
+
     test "retryRefund：refund_failed → refunding + job 入队；paid 被拒；权限矩阵" do
       %{owner: owner, member: member, admin: admin, workspace: workspace} = managed_workspace()
 
@@ -505,6 +532,12 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
   defp stats_query_with_event(workspace_id, event_id) do
     """
     { workspacePaymentStats(workspaceId: "#{workspace_id}", eventId: "#{event_id}") }
+    """
+  end
+
+  defp stats_query_with_course(workspace_id, course_id) do
+    """
+    { workspacePaymentStats(workspaceId: "#{workspace_id}", courseId: "#{course_id}") }
     """
   end
 
