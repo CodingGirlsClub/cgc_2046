@@ -14,7 +14,8 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiator do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["event.launched", "course.launched"],
-    idempotency: :claim_first
+    idempotency: :claim_first,
+    consumer_key: "share_scheme_instantiator"
 
   require Logger
 

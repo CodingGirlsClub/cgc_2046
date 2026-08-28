@@ -23,7 +23,8 @@ defmodule Cgc2046.Curriculum.Instantiator do
   """
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["event.launched", "course.launched"],
-    idempotency: :state_based
+    idempotency: :state_based,
+    consumer_key: "instantiator"
 
   require Ash.Query
   require Logger

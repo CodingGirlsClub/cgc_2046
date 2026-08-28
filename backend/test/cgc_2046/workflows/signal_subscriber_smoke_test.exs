@@ -19,7 +19,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberSmokeTest do
 
   @subscribers [
     Cgc2046.Notifications.Subscriber,
-    Cgc2046.SpeakerSubscriber,
+    Cgc2046.Events.SpeakerSubscriber,
     Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
     Cgc2046.Workflows.LearningInstantiator,
     Cgc2046.Curriculum.Instantiator,

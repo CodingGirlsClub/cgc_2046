@@ -373,8 +373,8 @@ export function OfferingsListPage({
 
 /* ---------------- 详情/管理页 ---------------- */
 
-/** research_requirements(JsonString)与自由文本互转(U8/R12:Q10 自由文本语义) */
-function parseResearchText(json: string | null | undefined): string {
+/** curriculum_requirements(JsonString)与自由文本互转(U8/R12:Q10 自由文本语义) */
+function parseCurriculumText(json: string | null | undefined): string {
   if (!json) return "";
   try {
     const parsed = JSON.parse(json) as unknown;
@@ -390,7 +390,7 @@ function parseResearchText(json: string | null | undefined): string {
   return "";
 }
 
-function buildResearchJson(text: string): string {
+function buildCurriculumJson(text: string): string {
   return JSON.stringify({ note: text });
 }
 
@@ -614,7 +614,7 @@ export function OfferingDetailPage({
             startsAt: toLocalInput(offering.startsAt ?? null),
             endsAt: toLocalInput(offering.endsAt ?? null),
             venue: parseVenue(offering.venue) ?? { ...EMPTY_VENUE },
-            curriculumRequirements: parseResearchText(
+            curriculumRequirements: parseCurriculumText(
               offering.curriculumRequirements,
             ),
             // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
@@ -806,7 +806,7 @@ export function OfferingDetailPage({
         endsAt: fromLocalInput(activeDraft.endsAt),
         ...(kind === "course"
           ? {
-              curriculumRequirements: buildResearchJson(
+              curriculumRequirements: buildCurriculumJson(
                 activeDraft.curriculumRequirements,
               ),
             }
@@ -1206,7 +1206,7 @@ export function OfferingDetailPage({
                           {t("researchNeed")}
                         </span>
                         <textarea
-                          data-testid="research-requirements-input"
+                          data-testid="curriculum-requirements-input"
                           rows={4}
                           value={activeDraft.curriculumRequirements}
                           onChange={(e) =>

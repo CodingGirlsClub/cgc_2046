@@ -804,6 +804,160 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     end
   end
 
+  # ── 规12：账本缓存漂移（ADR-0009 Fable 5 HIGH-1；宽限与规10 同形一拍）---------
+
+  describe "规12 账本缓存漂移（ledger_cache_drift）" do
+    test "status 漂移（缓存滞留 open，真值已 closed = ended 信号丢投）→ 命中且 detail 双值" do
+      admin = Fixtures.platform_admin("rc12-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc12-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      # 注入漂移：真值转 closed（缓存仍 open），回拨账本出一拍宽限
+      force_status("events", event.id, "closed")
+      backdate_ledger("event", event.id)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:ledger_cache_drift)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.workspace_id == workspace.id
+
+      assert finding.detail["drifts"]["status"] == %{
+               "ledger" => "open",
+               "truth" => "closed"
+             }
+    end
+
+    test "capacity 漂移（course 侧，capacity_changed 信号丢投）→ 命中" do
+      admin = Fixtures.platform_admin("rc12c-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc12c-learner")
+      course = EventFixtures.create_course(workspace, admin, %{capacity: 10})
+
+      assert {:ok, enrollment} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 course_id: course.id,
+                 user_id: learner.id
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert enrollment.status == :confirmed
+
+      # 注入漂移：真值调小到 5，缓存仍 10
+      Repo.query!("UPDATE courses SET capacity = 5 WHERE id = $1", [
+        Ecto.UUID.dump!(course.id)
+      ])
+
+      backdate_ledger("course", course.id)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:ledger_cache_drift)
+      assert finding.entity_type == :course
+      assert finding.entity_id == course.id
+      assert finding.detail["drifts"]["capacity"] == %{"ledger" => 10, "truth" => 5}
+    end
+
+    test "registration_deadline 漂移（缓存 NULL ≠ 真值）→ 命中" do
+      admin = Fixtures.platform_admin("rc12d-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc12d-learner")
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          registration_deadline: DateTime.add(DateTime.utc_now(), 3 * 86_400, :second)
+        })
+
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      # 注入漂移：缓存 deadline 滞留 NULL，真值三天后截止
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET registration_deadline = NULL WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      backdate_ledger("event", event.id)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:ledger_cache_drift)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+
+      drift = finding.detail["drifts"]["registration_deadline"]
+      assert is_nil(drift["ledger"])
+      assert is_binary(drift["truth"])
+    end
+
+    test "缓存与真值一致（即便出一拍宽限）→ 不命中" do
+      admin = Fixtures.platform_admin("rc12ok-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc12ok-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      # 缓存=真值（懒建同步值），仅回拨 updated_at 出宽限——仍不命中
+      backdate_ledger("event", event.id)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:ledger_cache_drift)
+    end
+
+    test "漂移但账本最近变更在一拍宽限内（信号在途正常窗口）→ 不命中" do
+      admin = Fixtures.platform_admin("rc12g-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc12g-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      # 漂移存在但不回拨 updated_at：懒建行刚写（< 一拍）→ 宽限内不告警
+      force_status("events", event.id, "closed")
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:ledger_cache_drift)
+    end
+
+    test "重复扫描幂等：保 first_seen_at、推 last_seen_at；缓存收敛后消解" do
+      admin = Fixtures.platform_admin("rc12i-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc12i-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      force_status("events", event.id, "closed")
+      backdate_ledger("event", event.id)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [finding] = findings(:ledger_cache_drift)
+      first_seen = finding.first_seen_at
+
+      # 回拨 last_seen_at → 第二拍 upsert 只推 last_seen_at（claim 语义不重复建）
+      Repo.query!(
+        "UPDATE reconciliation_findings SET last_seen_at = NOW() - INTERVAL '1 day' WHERE id = $1",
+        [Ecto.UUID.dump!(finding.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [again] = findings(:ledger_cache_drift)
+      assert again.first_seen_at == first_seen
+      assert DateTime.compare(again.last_seen_at, first_seen) == :gt
+
+      # 消解：缓存覆盖写收敛（ended 订阅方回查同路径效果）→ 下一拍删除
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET status = 'closed' WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:ledger_cache_drift)
+    end
+  end
+
   # ── 刷新语义（D2）与空报告 ----------------------------------------------------
 
   describe "刷新语义" do
@@ -905,5 +1059,14 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
       timestamp,
       Ecto.UUID.dump!(run.id)
     ])
+  end
+
+  # 回拨账本 updated_at 出一拍宽限（布置而非被测对象；规9-11 同款裸 SQL 注入纪律）
+  defp backdate_ledger(kind, offering_id) do
+    Repo.query!(
+      "UPDATE admission_capacity_ledgers SET updated_at = NOW() - INTERVAL '11 minutes' " <>
+        "WHERE offering_kind = '#{kind}' AND offering_id = $1",
+      [Ecto.UUID.dump!(offering_id)]
+    )
   end
 end

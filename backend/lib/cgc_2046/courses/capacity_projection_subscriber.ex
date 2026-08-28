@@ -10,7 +10,8 @@ defmodule Cgc2046.Courses.CapacityProjectionSubscriber do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["capacity.synced"],
-    idempotency: :state_based
+    idempotency: :state_based,
+    consumer_key: "capacity_projection_subscriber"
 
   require Logger
 

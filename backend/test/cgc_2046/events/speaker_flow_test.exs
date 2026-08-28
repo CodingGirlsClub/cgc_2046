@@ -24,7 +24,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Events.{SpeakerInvitation, SpeakerInvitations}
-  alias Cgc2046.SpeakerSubscriber
+  alias Cgc2046.Events.SpeakerSubscriber
   alias Cgc2046.Workflows.SignalIdempotency
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workflows.WorkflowRun

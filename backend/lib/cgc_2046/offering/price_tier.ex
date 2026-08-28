@@ -92,7 +92,7 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
   @moduledoc """
   `price_tiers` 字段结构校验 + 收费开启配对校验（Ash Resource.Validation）。
 
-  Event/Course 的 create/update 路径复用（SponsorshipTiersValidation 同款挂法）：
+  Event/Course 的 create/update 路径复用（Accounts.SponsorshipTiersValidation 同款挂法）：
 
   - 结构非法（0 元档 / 缺 name / 未知键 / 畸形时间）入库前拒绝；
   - `pricing_enabled: true` 且 `price_tiers` 为空拒绝——收费活动必须配置

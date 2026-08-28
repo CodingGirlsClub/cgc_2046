@@ -26,7 +26,8 @@ defmodule Cgc2046.Admission.CapacityLedgerSubscriber do
       "course.ended",
       "offering.capacity_changed"
     ],
-    idempotency: :state_based
+    idempotency: :state_based,
+    consumer_key: "capacity_ledger_subscriber"
 
   require Logger
 

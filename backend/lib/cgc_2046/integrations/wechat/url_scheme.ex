@@ -13,7 +13,7 @@ defmodule Cgc2046.Integrations.Wechat.UrlScheme do
   2023-12-19 起取消一人一链，同目标可复用同一 scheme（存储/复用在
   `ShareScheme` 资源）。
   """
-  alias Cgc2046.Miniprogram.WechatClient
+  alias Cgc2046.Integrations.Wechat.SdkClient
 
   @doc """
   生成 URL Scheme（spike 原型；存储/复用/clamp 在 `ShareSchemeService`）。
@@ -24,7 +24,7 @@ defmodule Cgc2046.Integrations.Wechat.UrlScheme do
   @spec create_link(String.t(), String.t(), DateTime.t() | nil) ::
           {:ok, String.t()} | {:error, term()}
   def create_link(target_id, kind, expires_at \\ nil) do
-    with {:ok, client} <- WechatClient.fetch(),
+    with {:ok, client} <- SdkClient.fetch(),
          {:ok, %Tesla.Env{status: 200, body: %{"openlink" => link}}} <-
            WeChat.MiniProgram.UrlScheme.create_scheme(
              client,

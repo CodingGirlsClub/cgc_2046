@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.SignalEmitterTest do
+defmodule Cgc2046.Workflows.SignalEmitterTest do
   @moduledoc """
   SignalEmitter 契约测试（plan 2026-08-14-003 Phase A.1 验收）：
 
@@ -14,7 +14,7 @@ defmodule Cgc2046.Changes.SignalEmitterTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Changes.SignalEmitter
+  alias Cgc2046.Workflows.SignalEmitter
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.SignalPublishWorker

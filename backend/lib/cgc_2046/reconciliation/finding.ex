@@ -7,7 +7,7 @@ defmodule Cgc2046.Reconciliation.Finding do
   命中 upsert（保 first_seen_at、刷新 last_seen_at），本次未命中删除——
   「无孤儿 → 空报告」由结构保证。
 
-  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条）
+  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条；12 = Fable 5 HIGH-1 缓存漂移）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot` join `workflow_definitions.type=learning`，
@@ -36,6 +36,10 @@ defmodule Cgc2046.Reconciliation.Finding do
      最近变更早于一个扫描周期；R17 的「超 N 拍」= 10 分钟 cron 周期对齐）
   11. `:occupancy_exceeds_capacity` — 账本 occupancy > capacity
      （capacity 调小后的合法超员窗口由此规则看护直至自然释放收敛，AE4）
+  12. `:ledger_cache_drift` — 账本三列缓存（status / capacity /
+     registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1：
+     缓存经异步信号覆盖写，丢投不重试窗口的上游漂移由本规则看护；
+     宽限一拍对齐 cron，与规10 同形）
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -71,7 +75,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     :open_offering_without_ledger,
     :ledger_occupancy_mismatch,
     :capacity_projection_drift,
-    :occupancy_exceeds_capacity
+    :occupancy_exceeds_capacity,
+    # ADR-0009 Fable 5 HIGH-1：账本缓存 vs offering 真值的上游漂移看护
+    :ledger_cache_drift
   ]
 
   @entity_type_values [
@@ -93,7 +99,7 @@ defmodule Cgc2046.Reconciliation.Finding do
       allow_nil?: false,
       public?: true,
       constraints: [one_of: @rule_values],
-      description: "对账规则枚举（七条）"
+      description: "对账规则枚举（见 moduledoc 规则清单）"
     )
 
     attribute(:entity_type, :atom,
