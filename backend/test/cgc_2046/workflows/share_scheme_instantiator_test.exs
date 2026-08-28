@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiatorTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Cgc2046.Workers.ShareSchemeWorker
+  alias Cgc2046.Miniprogram.ShareSchemeWorker
   alias Cgc2046.Workflows.{ShareSchemeInstantiator, SignalSubscriber}
 
   # P3 订阅器契约（plan 011；curriculum instantiator / notification_subscriber 先例）：

@@ -33,7 +33,8 @@ defmodule Cgc2046.AsyncSignalTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Notifications.Subscriber
   alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, SignalSubscriber}
-  alias Cgc2046.Workers.{NotificationWorker, SignalPublishWorker}
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   require Ash.Query
 

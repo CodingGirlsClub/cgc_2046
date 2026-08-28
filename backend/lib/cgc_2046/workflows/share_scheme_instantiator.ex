@@ -3,7 +3,7 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiator do
   分享链接预生成订阅方（plan 011 P3，D-1 拍板：活动发布时预生成）。
 
   订阅 `event.launched` / `course.launched` → 入队 Oban job
-  （`Cgc2046.Workers.ShareSchemeWorker`）异步调 `ShareSchemeService.fetch_or_generate/2`
+  （`Cgc2046.Miniprogram.ShareSchemeWorker`）异步调 `ShareSchemeService.fetch_or_generate/2`
   ——微信外呼不进信号同步路径（发布事务不等平台 API）。
 
   幂等两层：本订阅方 claim_first（同信号重投不重复入队）；worker 执行
@@ -19,7 +19,7 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiator do
 
   require Logger
 
-  alias Cgc2046.Workers.ShareSchemeWorker
+  alias Cgc2046.Miniprogram.ShareSchemeWorker
 
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(_type, %{"event_id" => event_id}) when is_binary(event_id) do

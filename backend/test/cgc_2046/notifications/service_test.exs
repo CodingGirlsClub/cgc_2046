@@ -149,7 +149,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
                %{"enrollment_id" => second_enrollment_id}
              )
 
-    jobs = all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
+    jobs = all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
     assert length(jobs) == 2
 
     assert Enum.map(jobs, & &1.args["enrollment_id"]) |> Enum.sort() ==
@@ -177,7 +177,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
                :reminder_7d
              )
 
-    jobs = all_enqueued(worker: Cgc2046.Workers.NotificationWorker)
+    jobs = all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
     assert length(jobs) == 2
 
     assert Enum.map(jobs, & &1.args["identity_uid"]) |> Enum.sort() ==

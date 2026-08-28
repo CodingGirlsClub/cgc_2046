@@ -252,7 +252,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
                    error_message: "该用户已是本工作台成员"
                  ),
                {:ok, _log} <-
-                 Cgc2046.Changes.LogAdminAction.log(changeset, application, %{
+                 Cgc2046.Accounts.Changes.LogAdminAction.log(changeset, application, %{
                    action: :application_approve,
                    target_type: :workspace_application,
                    target_id: application.id,
@@ -303,7 +303,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
       # #116 R10a：治理留痕 application_reject（失败上抛回滚，fail-closed）
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :application_reject,
          target_type: :workspace_application,
          metadata: &__MODULE__.application_log_metadata/2}

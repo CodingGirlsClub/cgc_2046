@@ -15,7 +15,8 @@ defmodule Cgc2046.Payments.ReplaySettlementTest do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{Order, Providers.Fake, ReplaySettlement, WebhookEvent}
-  alias Cgc2046.Workers.{PaymentSettlementWorker, SignalPublishWorker}
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   @tier_id "33333333-3333-3333-3333-333333333333"
 

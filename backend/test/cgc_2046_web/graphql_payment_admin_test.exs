@@ -19,7 +19,9 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{NotificationTemplates, Order}
   alias Cgc2046.Payments.Providers.Fake
-  alias Cgc2046.Workers.{NotificationWorker, PaymentRefundWorker, PaymentSettlementWorker}
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
 
   @tier_id "77777777-7777-7777-7777-777777777777"
   @tier %{"id" => @tier_id, "name" => "标准档", "amount_cents" => 19_900}

@@ -249,7 +249,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # 不接受任何属性（/check SC2-005：继承 default_accept 可改 input_snapshot/definition_version）
       accept([])
       change(optimistic_lock(:version))
-      change({Cgc2046.Changes.Transition, from: [:pending], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:pending], to: :running})
       change(set_attribute(:started_at, &DateTime.utc_now/0))
     end
 
@@ -261,7 +261,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       require_atomic?(false)
       accept([])
       change(optimistic_lock(:version))
-      change({Cgc2046.Changes.Transition, from: [:pending], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:pending], to: :running})
 
       # 执行闭环只在 Transition 守卫通过（源状态匹配）时运行——非 pending 时
       # Transition 已 add_error，此处 no-op 不调引擎（原内联守卫的语义）。
@@ -303,7 +303,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change({Cgc2046.Changes.Transition, from: [:running], to: :waiting})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:running], to: :waiting})
     end
 
     # waiting → running：信号放行后恢复执行
@@ -313,7 +313,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change({Cgc2046.Changes.Transition, from: [:waiting], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:waiting], to: :running})
     end
 
     # waiting → running/succeeded/failed：信号放行 + 恢复执行闭环（阶段 4 #37）。
@@ -325,7 +325,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       argument(:payload, :map, default: %{})
       change(optimistic_lock(:version))
 
-      change({Cgc2046.Changes.Transition, from: [:waiting], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:waiting], to: :running})
 
       # 执行闭环只在 Transition 守卫通过（源状态匹配）时运行——非 waiting 时
       # Transition 已 add_error，此处 no-op 不走授权/Engine（原内联守卫的语义）。
@@ -348,7 +348,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # waiting 达终态，终态后 checkpoint 无消费方（ADR-0002），须清理（此前缺失，
       # 由 speaker 外部补偿兜着，PR-G D4 收编后补偿删除）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:running, :waiting], to: :succeeded, cleanup_checkpoint: true}
       )
 
@@ -365,7 +365,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # PR-G D4：fail 补 cleanup_checkpoint（此前由 speaker_invitation.ex 外部补偿
       # 清理；Transition 内建后补偿删除，fail 路径 checkpoint 清理由本 action 承担）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:running, :waiting], to: :failed, cleanup_checkpoint: true}
       )
 
@@ -383,7 +383,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # cleanup_checkpoint: true 内建 after_transaction 清理（Transition D3 收编原
       # 逐字拷贝；失败记日志不阻塞，策略单源在 CheckpointLifecycle，候选 #2）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:pending, :running, :waiting], to: :cancelled, cleanup_checkpoint: true}
       )
 
@@ -399,7 +399,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
       # #16：waiting → expired 时删除 jido_checkpoints（同 cancel 的 checkpoint 清理）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:pending, :waiting], to: :expired, cleanup_checkpoint: true}
       )
 
