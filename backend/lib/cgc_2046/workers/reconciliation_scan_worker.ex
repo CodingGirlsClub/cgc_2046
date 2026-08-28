@@ -109,7 +109,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
     :ok
   end
 
-  # 七规则分派表（运行时求值：scan_ruleN 为私有函数，编译期前向引用不可行）
+  # 规则分派表（运行时求值：scan_ruleN 为私有函数，编译期前向引用不可行）
   defp rules do
     [
       {:confirmed_enrollment_without_run, fn -> scan_rule1() end},

@@ -83,6 +83,9 @@ defmodule Cgc2046.Admission.EnrollmentConcurrencyTest do
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
     assert Enum.count(results, &match?({:error, _}, &1)) == 1
     assert Ash.get!(InviteBatch, batch.id, authorize?: false).remaining_quota == 0
+
+    # 与 open race 同口径：占位计数权威 = 名额账本 occupancy
+    assert EventFixtures.ledger_occupancy(event) == 1
   end
 
   defp race_enrollments(event, users, barrier, extra_attrs) do

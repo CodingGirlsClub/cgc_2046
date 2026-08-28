@@ -588,8 +588,14 @@ defmodule Cgc2046.Events.Event do
 
   def ended_payload(_changeset, event), do: %{"event_id" => event.id, "title" => event.title}
 
-  # offering.capacity_changed（R16）：仅 event_id 锚定，缓存值由订阅方回查。
-  def capacity_changed_payload(_changeset, event), do: %{"event_id" => event.id}
+  # offering.capacity_changed（R16）：仅 event_id 锚定，缓存值由订阅方回查；
+  # 幂等键自带逐次唯一判别子（同事件多次变更各自独立去重，键集合不变仅值唯一化）。
+  def capacity_changed_payload(_changeset, event),
+    do: %{
+      "event_id" => event.id,
+      "idempotency_key" =>
+        "offering.capacity_changed:#{event.id}:#{System.unique_integer([:positive])}"
+    }
 
   # SignalEmitter skip_unless 谓词：capacity / registration_deadline 任一变更为信号触发
   def capacity_or_deadline_changed?(changeset, _event) do

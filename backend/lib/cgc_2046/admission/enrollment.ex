@@ -11,7 +11,7 @@ defmodule Cgc2046.Admission.Enrollment do
   ## learning 锚定（唯一真源，架构深化 E；plan 2026-08-17-004）
 
   「learning run 锚定到哪条 Enrollment」的唯一读取面 = `anchor/1`（+ 双键提取
-  `anchored_id/1`）。三消费方（Workflows→Events 依赖方向）：
+  `anchored_id/1`）。三消费方（Workflows→Admission 依赖方向）：
   `StepAuthorization.enrolled_learner?` / `LearningInstantiator` /
   `LearningProgressWorker`，各私有拷贝已收编于此。双键超集语义：string 键优先、
   atom 键兜底——可达输入全为 string 键（input_snapshot 经 JSONB 持久化；唯一
