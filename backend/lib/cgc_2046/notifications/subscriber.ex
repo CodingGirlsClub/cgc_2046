@@ -1,4 +1,4 @@
-defmodule Cgc2046.NotificationSubscriber do
+defmodule Cgc2046.Notifications.Subscriber do
   @moduledoc """
   订阅 Enrollment 生命周期信号并为相关用户创建 Oban 通知任务（E-2 #47）。
 
@@ -11,7 +11,7 @@ defmodule Cgc2046.NotificationSubscriber do
 
   订阅骨架与 claim-first 幂等语义由 `Cgc2046.Workflows.SignalSubscriber` 统一
   持有（语义事实见其 moduledoc）；收件人解析与 Oban 入队收敛到
-  `Cgc2046.NotificationFanout`（唯一实现，通知分发面深化 PR-C）——本模块退化为
+  `Cgc2046.Notifications.Fanout`（唯一实现，通知分发面深化 PR-C）——本模块退化为
   **纯订阅方**，无公共入队面（异步计划 Q4 backlog）。
   """
 
@@ -66,8 +66,8 @@ defmodule Cgc2046.NotificationSubscriber do
   # 序号（approval_result 模板 thing1/number3 数据源）经反查补齐——信号 payload
   # 只带基础键（enrollment.ex approval_payload），title 解析复用 Offering 读取面。
   defp handle_approval_result(%{"user_id" => user_id, "enrollment_id" => enrollment_id} = payload) do
-    Cgc2046.NotificationFanout.deliver(
-      {user_id, Cgc2046.NotificationFanout.identities(user_id)},
+    Cgc2046.Notifications.Fanout.deliver(
+      {user_id, Cgc2046.Notifications.Fanout.identities(user_id)},
       "approval_result",
       Map.merge(
         %{
@@ -106,7 +106,7 @@ defmodule Cgc2046.NotificationSubscriber do
   end
 
   # 待审批报名 → workspace Owner/Admin（管理角色判定唯一真源
-  # `Role.manage_roles/0`，经 NotificationFanout.managers/2 收敛）。
+  # `Role.manage_roles/0`，经 Notifications.Fanout.managers/2 收敛）。
   defp notify_workspace_managers(data) do
     enrollment_id = Map.fetch!(data, "enrollment_id")
     job_meta = %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
@@ -114,8 +114,8 @@ defmodule Cgc2046.NotificationSubscriber do
     with {:ok, title} <- target_title(data) do
       data
       |> Map.fetch!("workspace_id")
-      |> Cgc2046.NotificationFanout.managers()
-      |> Cgc2046.NotificationFanout.deliver(
+      |> Cgc2046.Notifications.Fanout.managers()
+      |> Cgc2046.Notifications.Fanout.deliver(
         "enrollment_submitted",
         %{"enrollment_id" => enrollment_id, "title" => title},
         job_meta
@@ -140,8 +140,8 @@ defmodule Cgc2046.NotificationSubscriber do
 
     with {:ok, title} <- target_title(data),
          user_id when is_binary(user_id) <- Map.get(data, "user_id") do
-      Cgc2046.NotificationFanout.deliver(
-        {user_id, Cgc2046.NotificationFanout.identities(user_id)},
+      Cgc2046.Notifications.Fanout.deliver(
+        {user_id, Cgc2046.Notifications.Fanout.identities(user_id)},
         "enrollment_completed",
         %{"enrollment_id" => enrollment_id, "title" => title},
         %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}

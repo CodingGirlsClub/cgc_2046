@@ -31,7 +31,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   ## 幂等四策略（Q2 如实映射六订阅方现状语义；PR-B 评审 P1 增补第四值）
 
-  - `:claim_first`：副作用前先 claim（NotificationSubscriber / SpeakerSubscriber）。
+  - `:claim_first`：副作用前先 claim（Notifications.Subscriber / SpeakerSubscriber）。
     首投 claim 成功 → 执行 `handle/2`；重复投递 `{:error, :already_claimed}` →
     返回 `:duplicate` 跳过执行。claim 成功后执行失败不回滚 claim（副作用均可
     达重投/对账路径，失败可见性靠 error 日志与 E-10 对账扫描）。
@@ -102,7 +102,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
   @idempotency_strategies [:claim_first, :claim_in_handle, :claim_after_effects, :state_based]
 
-  # D7（E-10 #125）：信号投递 telemetry——与 NotificationFanout 的
+  # D7（E-10 #125）：信号投递 telemetry——与 Notifications.Fanout 的
   # `[:cgc2046, :notification_fanout, :deliver]` 事件族同构（measurements %{count}，
   # metadata status/type/detail）；死信可见性由 E-10 对账规则⑥（oban_jobs discarded
   # 7 天窗口）承担，不扩 Oban discard 插件。
@@ -218,7 +218,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
       {:error, {:crashed, Exception.message(error)}}
   end
 
-  # D7：metadata status/detail 同 NotificationFanout `[:cgc2046, :notification_fanout,
+  # D7：metadata status/detail 同 Notifications.Fanout `[:cgc2046, :notification_fanout,
   # :deliver]` 事件族同构；type 为信号类型、subscriber 为消费方短名（路由/归因用）。
   defp emit(module, type, result) do
     {status, detail} =

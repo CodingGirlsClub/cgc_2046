@@ -1,15 +1,15 @@
-defmodule Cgc2046.NotificationFanout do
+defmodule Cgc2046.Notifications.Fanout do
   @moduledoc """
   通知分发面：收件人解析（recipient resolution）+ 通知入队（Oban deliver）的唯一归属。
 
   （2026-08-14 通知分发收敛，架构评审候选①；plan
   docs/plans/2026-08-14-004-notification-fanout-deepening.md Q1-Q12 全锁定）
 
-  收敛前，`managed_identities_by_user` 三份同构拷贝（NotificationSubscriber /
+  收敛前，`managed_identities_by_user` 三份同构拷贝（Notifications.Subscriber /
   SpeakerSubscriber / ApprovalReminderWorker）、`identities_for_user` 两份、
   `insert_notification` 两份、`@reminder_unique` 一份散落四方；本 module 收编为
-  **唯一实现**。NotificationSubscriber 的公共入队面删除（异步计划 Q4 backlog），
-  退化为纯订阅方；发送侧 NotificationService / NotificationWorker 不动。
+  **唯一实现**。Notifications.Subscriber 的公共入队面删除（异步计划 Q4 backlog），
+  退化为纯订阅方；发送侧 Notifications.Service / NotificationWorker 不动。
 
   ## 两段式 interface（Q2/Q8）
 
@@ -30,7 +30,7 @@ defmodule Cgc2046.NotificationFanout do
   ## unique 命名预设（Q9）
 
   - `:default`：不覆盖，走 NotificationWorker 自身 7 天全 args unique；
-  - `:reminder_7d`：提醒任务的去重窗口（自 NotificationSubscriber `@reminder_unique`
+  - `:reminder_7d`：提醒任务的去重窗口（自 Notifications.Subscriber `@reminder_unique`
     收编，唯一真源）——discarded/cancelled 释放名额（失败后下拍可重建），
     completed/在途仍阻塞重复（#7）。
 

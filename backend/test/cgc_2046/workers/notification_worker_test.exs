@@ -22,7 +22,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.NotificationConsent
+  alias Cgc2046.Notifications.Consent
   alias Cgc2046.Workers.NotificationWorker
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
@@ -130,7 +130,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
                perform_job(NotificationWorker, reminder_args(owner, enrollment))
 
       assert_receive {:notification, :wechat, _}
-      assert {:ok, 0} = NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+      assert {:ok, 0} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
 
     test "报名已过期 → 跳过且不消耗授权" do
@@ -146,7 +146,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       assert :ok = perform_job(NotificationWorker, reminder_args(owner, enrollment))
 
       refute_receive {:notification, :wechat, _}
-      assert {:ok, 1} = NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
 
     test "报名非 pending（confirmed）→ 跳过" do
@@ -162,7 +162,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       assert :ok = perform_job(NotificationWorker, reminder_args(owner, enrollment))
 
       refute_receive {:notification, :wechat, _}
-      assert {:ok, 1} = NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
   end
 
@@ -174,7 +174,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
                perform_job(NotificationWorker, sponsorship_reminder_args(owner, sponsorship))
 
       assert_receive {:notification, :wechat, _}
-      assert {:ok, 0} = NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+      assert {:ok, 0} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
 
     test "赞助已过期 → 跳过且不消耗授权" do
@@ -190,7 +190,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       assert :ok = perform_job(NotificationWorker, sponsorship_reminder_args(owner, sponsorship))
 
       refute_receive {:notification, :wechat, _}
-      assert {:ok, 1} = NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
 
     test "赞助非 pending（active）→ 跳过" do
@@ -206,7 +206,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       assert :ok = perform_job(NotificationWorker, sponsorship_reminder_args(owner, sponsorship))
 
       refute_receive {:notification, :wechat, _}
-      assert {:ok, 1} = NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
   end
 
@@ -217,7 +217,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       assert :ok = perform_job(NotificationWorker, stagnation_args(owner, run))
 
       assert_receive {:notification, :wechat, _}
-      assert {:ok, 0} = NotificationConsent.remaining(owner.id, :wechat, "learning_stagnation")
+      assert {:ok, 0} = Consent.remaining(owner.id, :wechat, "learning_stagnation")
     end
 
     test "learning run 终态（succeeded）→ 跳过" do
@@ -233,7 +233,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       assert :ok = perform_job(NotificationWorker, stagnation_args(owner, run))
 
       refute_receive {:notification, :wechat, _}
-      assert {:ok, 1} = NotificationConsent.remaining(owner.id, :wechat, "learning_stagnation")
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "learning_stagnation")
     end
   end
 
@@ -242,7 +242,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       owner = Fixtures.platform_admin("nw-nostale")
 
       insert_identity(owner.id, "nw-nostale-openid")
-      {:ok, _} = NotificationConsent.grant(owner.id, :wechat, "approval_result")
+      {:ok, _} = Consent.grant(owner.id, :wechat, "approval_result")
 
       assert :ok =
                perform_job(NotificationWorker, %{
@@ -254,7 +254,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
                })
 
       assert_receive {:notification, :wechat, _}
-      assert {:ok, 0} = NotificationConsent.remaining(owner.id, :wechat, "approval_result")
+      assert {:ok, 0} = Consent.remaining(owner.id, :wechat, "approval_result")
     end
   end
 
@@ -283,7 +283,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       |> Ash.create!(tenant: workspace.id, actor: learner)
 
     insert_identity(owner.id, "nw-enroll-owner-openid")
-    {:ok, _} = NotificationConsent.grant(owner.id, :wechat, "approval_reminder")
+    {:ok, _} = Consent.grant(owner.id, :wechat, "approval_reminder")
     %{owner: owner, enrollment: enrollment}
   end
 
@@ -314,7 +314,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
       )
 
     insert_identity(owner.id, "nw-sponsor-owner-openid")
-    {:ok, _} = NotificationConsent.grant(owner.id, :wechat, "approval_reminder")
+    {:ok, _} = Consent.grant(owner.id, :wechat, "approval_reminder")
     %{owner: owner, sponsorship: sponsorship}
   end
 
@@ -366,7 +366,7 @@ defmodule Cgc2046.Workers.NotificationWorkerTest do
     assert running.status == :running
 
     insert_identity(owner.id, "nw-stag-owner-openid")
-    {:ok, _} = NotificationConsent.grant(owner.id, :wechat, "learning_stagnation")
+    {:ok, _} = Consent.grant(owner.id, :wechat, "learning_stagnation")
     %{owner: owner, run: running}
   end
 

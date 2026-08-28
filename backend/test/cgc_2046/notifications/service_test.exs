@@ -1,11 +1,11 @@
-defmodule Cgc2046.NotificationServiceTest do
+defmodule Cgc2046.Notifications.ServiceTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.Miniprogram.Client
-  alias Cgc2046.NotificationConsent
-  alias Cgc2046.NotificationFanout
-  alias Cgc2046.NotificationService
+  alias Cgc2046.Notifications.Consent
+  alias Cgc2046.Notifications.Fanout
+  alias Cgc2046.Notifications.Service
   alias Cgc2046.AccountsFixtures, as: Fixtures
 
   setup do
@@ -50,25 +50,25 @@ defmodule Cgc2046.NotificationServiceTest do
     user = Fixtures.register_user("notification-consent")
     insert_identity(user.id, :wechat, "wx-openid")
 
-    assert {:ok, 1} = NotificationConsent.grant(user.id, :wechat, "approval_result")
-    assert {:ok, 2} = NotificationConsent.grant(user.id, :wechat, "approval_result")
+    assert {:ok, 1} = Consent.grant(user.id, :wechat, "approval_result")
+    assert {:ok, 2} = Consent.grant(user.id, :wechat, "approval_result")
 
     assert :ok =
-             NotificationService.send_to_user(user.id, :wechat, "approval_result", %{
+             Service.send_to_user(user.id, :wechat, "approval_result", %{
                "status" => "approved"
              })
 
     assert_receive {:notification, :wechat,
                     %{"touser" => "wx-openid", "data" => %{"thing2" => %{"value" => "已通过"}}}}
 
-    assert {:ok, 1} = NotificationConsent.remaining(user.id, :wechat, "approval_result")
+    assert {:ok, 1} = Consent.remaining(user.id, :wechat, "approval_result")
 
-    assert :ok = NotificationService.send_to_user(user.id, :wechat, "approval_result", %{})
+    assert :ok = Service.send_to_user(user.id, :wechat, "approval_result", %{})
 
     assert {:error, :consent_exhausted} =
-             NotificationService.send_to_user(user.id, :wechat, "approval_result", %{})
+             Service.send_to_user(user.id, :wechat, "approval_result", %{})
 
-    assert {:ok, 0} = NotificationConsent.remaining(user.id, :wechat, "approval_result")
+    assert {:ok, 0} = Consent.remaining(user.id, :wechat, "approval_result")
   end
 
   test "三平台 adapter 使用 registry 模板并归一成功信封" do
@@ -102,15 +102,15 @@ defmodule Cgc2046.NotificationServiceTest do
 
     user = Fixtures.register_user("notification-refuse")
     insert_identity(user.id, :wechat, "wx-refuse-openid")
-    assert {:ok, 1} = NotificationConsent.grant(user.id, :wechat, "approval_result")
+    assert {:ok, 1} = Consent.grant(user.id, :wechat, "approval_result")
 
     assert {:error, {:platform_rejected, 43101, "user refuse"}} =
-             NotificationService.send_to_user(user.id, :wechat, "approval_result", %{
+             Service.send_to_user(user.id, :wechat, "approval_result", %{
                "status" => "rejected"
              })
 
     # 发送失败回补授权配额（沿用 refund 断言模式）
-    assert {:ok, 1} = NotificationConsent.remaining(user.id, :wechat, "approval_result")
+    assert {:ok, 1} = Consent.remaining(user.id, :wechat, "approval_result")
   end
 
   # 零外呼结构性红线（plan 008 决策回传终检用例，永久保留）：
@@ -131,10 +131,10 @@ defmodule Cgc2046.NotificationServiceTest do
     insert_identity(user.id, :wechat, "signal-openid")
     first_enrollment_id = Ecto.UUID.generate()
     second_enrollment_id = Ecto.UUID.generate()
-    identities = NotificationFanout.identities(user.id)
+    identities = Fanout.identities(user.id)
 
     assert :ok =
-             NotificationFanout.deliver(
+             Fanout.deliver(
                {user.id, identities},
                "approval_result",
                %{"status" => "confirmed", "enrollment_id" => first_enrollment_id},
@@ -142,7 +142,7 @@ defmodule Cgc2046.NotificationServiceTest do
              )
 
     assert :ok =
-             NotificationFanout.deliver(
+             Fanout.deliver(
                {user.id, identities},
                "approval_result",
                %{"status" => "confirmed", "enrollment_id" => second_enrollment_id},
@@ -166,8 +166,8 @@ defmodule Cgc2046.NotificationServiceTest do
     deadline = DateTime.add(DateTime.utc_now(), 24, :hour)
 
     assert :ok =
-             NotificationFanout.deliver(
-               {user.id, NotificationFanout.identities(user.id)},
+             Fanout.deliver(
+               {user.id, Fanout.identities(user.id)},
                "approval_reminder",
                %{
                  "enrollment_id" => enrollment_id,
@@ -189,10 +189,10 @@ defmodule Cgc2046.NotificationServiceTest do
     insert_identity(user.id, :wechat, "wx-openid-1")
     insert_identity(user.id, :wechat, "wx-openid-2")
 
-    {:ok, _} = NotificationConsent.grant(user.id, :wechat, "approval_result")
+    {:ok, _} = Consent.grant(user.id, :wechat, "approval_result")
 
     assert :ok =
-             NotificationService.send_to_identity(
+             Service.send_to_identity(
                user.id,
                :wechat,
                "wx-openid-2",
@@ -209,12 +209,12 @@ defmodule Cgc2046.NotificationServiceTest do
   test "approval_reminder 渲染：UUID 单号 + ISO 截止时间 → character_string1/time11" do
     user = Fixtures.register_user("notification-reminder-render")
     insert_identity(user.id, :wechat, "wx-reminder-openid")
-    {:ok, _} = NotificationConsent.grant(user.id, :wechat, "approval_reminder")
+    {:ok, _} = Consent.grant(user.id, :wechat, "approval_reminder")
 
     enrollment_id = "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b"
 
     assert :ok =
-             NotificationService.send_to_user(user.id, :wechat, "approval_reminder", %{
+             Service.send_to_user(user.id, :wechat, "approval_reminder", %{
                "enrollment_id" => enrollment_id,
                "approval_deadline" => "2026-09-02T12:00:00Z"
              })
@@ -231,10 +231,10 @@ defmodule Cgc2046.NotificationServiceTest do
   test "event_reminder 渲染：thing2/time3/thing4，缺 venue 跳过" do
     user = Fixtures.register_user("notification-event-render")
     insert_identity(user.id, :wechat, "wx-event-openid")
-    {:ok, _} = NotificationConsent.grant(user.id, :wechat, "event_reminder")
+    {:ok, _} = Consent.grant(user.id, :wechat, "event_reminder")
 
     assert :ok =
-             NotificationService.send_to_user(user.id, :wechat, "event_reminder", %{
+             Service.send_to_user(user.id, :wechat, "event_reminder", %{
                "title" => "AI 入门工作坊",
                "starts_at" => "2026-09-10T09:30:00Z",
                "venue" => nil

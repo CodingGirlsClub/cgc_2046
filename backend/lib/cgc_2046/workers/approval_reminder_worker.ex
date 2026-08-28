@@ -5,7 +5,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
   F7 方案 A「deadline 前 48h 提醒审批人」的三条独立扫描：
 
   1. Enrollment 扫描（run-less 报名的单属主提醒路径）：`status=pending` 且
-     `approval_deadline` 落在 (now, now+48h] 的报名，逐条经 NotificationService
+     `approval_deadline` 落在 (now, now+48h] 的报名，逐条经 Notifications.Service
      的 Oban 队列为工作台 Owner/Admin 异步发送 approval_reminder 提醒。入队 args
      含 recipient identity + enrollment_id + deadline，NotificationWorker 7 天
      args-unique 保证同一报名同一收件人不重复、不同报名/不同收件人不折叠。
@@ -97,10 +97,10 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Ash.read!(authorize?: false)
     |> Enum.group_by(& &1.workspace_id)
     |> Enum.map(fn {workspace_id, enrollments} ->
-      recipients = Cgc2046.NotificationFanout.managers(workspace_id)
+      recipients = Cgc2046.Notifications.Fanout.managers(workspace_id)
 
       Enum.reduce(enrollments, 0, fn enrollment, acc ->
-        Cgc2046.NotificationFanout.deliver(
+        Cgc2046.Notifications.Fanout.deliver(
           recipients,
           "approval_reminder",
           %{
@@ -132,13 +132,13 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
     |> Enum.group_by(& &1.workspace_id)
     |> Enum.map(fn {workspace_id, sponsorships} ->
       event_recipients =
-        Cgc2046.NotificationFanout.managers(
+        Cgc2046.Notifications.Fanout.managers(
           workspace_id,
           {:roles, SponsorshipApprover.approver_roles(:event)}
         )
 
       workspace_recipients =
-        Cgc2046.NotificationFanout.managers(
+        Cgc2046.Notifications.Fanout.managers(
           workspace_id,
           {:roles, SponsorshipApprover.approver_roles(:workspace)}
         )
@@ -147,7 +147,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
         recipients =
           if sponsorship.level == :workspace, do: workspace_recipients, else: event_recipients
 
-        Cgc2046.NotificationFanout.deliver(
+        Cgc2046.Notifications.Fanout.deliver(
           recipients,
           "approval_reminder",
           %{
