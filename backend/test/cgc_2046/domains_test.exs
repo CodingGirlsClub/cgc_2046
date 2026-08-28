@@ -27,7 +27,8 @@ defmodule Cgc2046.DomainsTest do
     # 精确集合比对：旧 Api domain 不在列即随之钉死（无需引用已删除模块名）
     assert Enum.sort(ash_domains) ==
              Enum.sort(
-               @bounded_context_domains ++ [Cgc2046.GlobalApi, Cgc2046.Mcp, Cgc2046.Payments]
+               @bounded_context_domains ++
+                 [Cgc2046.GlobalApi, Cgc2046.Mcp, Cgc2046.Miniprogram, Cgc2046.Payments]
              )
   end
 
