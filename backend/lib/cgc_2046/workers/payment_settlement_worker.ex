@@ -33,7 +33,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
   require Logger
 
   alias Cgc2046.Accounts.AdminActionLog
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.NotificationTemplates, as: Templates
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Reconciliation.Finding
@@ -304,7 +304,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
   end
 
   defp enrollment_of(order) do
-    Cgc2046.Events.Enrollment
+    Cgc2046.Admission.Enrollment
     |> Ash.get!(order.enrollment_id, authorize?: false)
   end
 

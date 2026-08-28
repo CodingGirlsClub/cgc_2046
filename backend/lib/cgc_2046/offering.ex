@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.Offering do
+defmodule Cgc2046.Offering do
   @moduledoc """
   供给物（Offering）读取面 seam：一行可指向 Event 或 Course 的统一读取
   （PR-H；plan 2026-08-15-009 决策 D1-D7）。

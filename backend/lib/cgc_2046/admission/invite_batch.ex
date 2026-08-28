@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.InviteBatch do
+defmodule Cgc2046.Admission.InviteBatch do
   @moduledoc """
   Event/Course 的共享报名批次码。`remaining_quota` 仅由 Enrollment 创建事务中的
   条件 UPDATE 扣减；quota=1 自然形成一次性码。
@@ -8,7 +8,7 @@ defmodule Cgc2046.Events.InviteBatch do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Admission
 
   attributes do
     uuid_primary_key(:id)
@@ -228,7 +228,7 @@ defmodule Cgc2046.Events.InviteBatch do
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
-    resource_group(:events)
+    resource_group(:admission)
     label_field(:invite_code)
 
     table_columns([

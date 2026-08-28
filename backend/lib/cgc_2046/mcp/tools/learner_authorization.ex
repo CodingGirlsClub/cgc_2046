@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   """
 
   alias Cgc2046.Accounts.MembershipContext
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Learning.LearningRecord
 
   require Ash.Query

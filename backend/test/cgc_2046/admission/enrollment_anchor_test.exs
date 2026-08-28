@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.EnrollmentAnchorTest do
+defmodule Cgc2046.Admission.EnrollmentAnchorTest do
   @moduledoc """
   learning 锚定单源（Enrollment.anchor/anchored_id）单测（架构深化 E；
   plan 2026-08-17-004 D6）。
@@ -11,7 +11,7 @@ defmodule Cgc2046.Events.EnrollmentAnchorTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   describe "anchored_id/1 双键提取（纯函数）" do

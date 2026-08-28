@@ -1,15 +1,17 @@
 defmodule Cgc2046.DomainsTest do
   use ExUnit.Case, async: true
 
-  test "Api and GlobalApi domains are loaded with the AshGraphQL extension" do
+  test "Api, Admission and GlobalApi domains are loaded with the AshGraphQL extension" do
     assert Code.ensure_loaded?(Cgc2046.Api)
+    assert Code.ensure_loaded?(Cgc2046.Admission)
     assert Code.ensure_loaded?(Cgc2046.GlobalApi)
   end
 
-  test "both domains are registered as Ash domains for the app" do
+  test "all five domains are registered as Ash domains for the app" do
     ash_domains = Application.get_env(:cgc_2046, :ash_domains, [])
 
     assert Cgc2046.Api in ash_domains
+    assert Cgc2046.Admission in ash_domains
     assert Cgc2046.GlobalApi in ash_domains
   end
 

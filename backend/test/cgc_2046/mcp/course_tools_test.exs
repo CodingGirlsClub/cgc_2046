@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
 
   alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Server
   alias Cgc2046.Mcp.Tools.GetCourseContent

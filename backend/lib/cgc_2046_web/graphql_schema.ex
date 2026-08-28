@@ -6,7 +6,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   require Ash.Expr
 
   use AshGraphql,
-    domains: [Cgc2046.Api, Cgc2046.GlobalApi, Cgc2046.Payments],
+    domains: [Cgc2046.Api, Cgc2046.Admission, Cgc2046.GlobalApi, Cgc2046.Payments],
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true
 
@@ -124,7 +124,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
-          Cgc2046.Events.PendingApprovals.list(actor,
+          Cgc2046.PendingApprovals.list(actor,
             include_expired: args[:include_expired] || false
           )
         end)
@@ -135,7 +135,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :pending_approvals_count, non_null(:integer) do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.Events.PendingApprovals.count_pending(actor) do
+          case Cgc2046.PendingApprovals.count_pending(actor) do
             {:ok, count} -> {:ok, count}
             {:error, reason} -> {:error, reason}
           end
@@ -2764,7 +2764,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp read_confirmed_enrollments(actor) do
-    Cgc2046.Events.Enrollment
+    Cgc2046.Admission.Enrollment
     |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
     |> Ash.Query.filter(status == :confirmed)
     |> Ash.Query.load(:target_title)
@@ -3183,9 +3183,9 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 读取唯一真源 = Offering；**必须显式 authorize?: true**（D2 风险：Offering 默认
   # authorize?: false 会绕过 read policy，actor 感知读取退化为全量可见）。
   defp fetch_offering_by_id(id, actor) do
-    case Cgc2046.Events.Offering.fetch(:event, id, actor: actor, authorize?: true) do
+    case Cgc2046.Offering.fetch(:event, id, actor: actor, authorize?: true) do
       {:ok, entity} -> {:ok, entity}
-      {:error, _} -> Cgc2046.Events.Offering.fetch(:course, id, actor: actor, authorize?: true)
+      {:error, _} -> Cgc2046.Offering.fetch(:course, id, actor: actor, authorize?: true)
     end
   end
 end

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
+defmodule Cgc2046.Admission.EnrollmentConcurrencyTest do
   # 不走 DataCase 默认 sandbox：本测试的 unboxed 清理须在 sandbox 事务结束后
   # 执行——应用级订阅方（NotificationSubscriber，E-2 #47）在共享 sandbox 事务
   # 内写 signal_idempotency claim，其 workspaces 外键 KEY SHARE 锁持有至事务
@@ -7,7 +7,7 @@ defmodule Cgc2046.Events.EnrollmentConcurrencyTest do
   use ExUnit.Case, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Enrollment, InviteBatch}
+  alias Cgc2046.Admission.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.MiniprogramFixtures.Barrier
 

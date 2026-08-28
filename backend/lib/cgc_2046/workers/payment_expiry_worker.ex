@@ -31,7 +31,7 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
 
   import Ash.Expr, only: [ref: 1]
 
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.NotificationTemplates, as: Templates
   alias Cgc2046.Payments.Order
 

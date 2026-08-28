@@ -175,7 +175,7 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
     learner = Fixtures.register_user("code-order-learner")
 
     {:ok, enrollment} =
-      Cgc2046.Events.Enrollment
+      Cgc2046.Admission.Enrollment
       |> Ash.Changeset.for_create(:create_enrollment, %{
         event_id: event.id,
         user_id: learner.id,

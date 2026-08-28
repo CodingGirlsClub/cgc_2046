@@ -14,7 +14,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workers.ApprovalExpiryWorker

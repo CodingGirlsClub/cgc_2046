@@ -48,7 +48,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorker do
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.ApprovalDeadline
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.Workflows.WorkflowRun
 
