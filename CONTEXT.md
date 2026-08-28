@@ -447,7 +447,7 @@
 
 ### ShareScheme（微信 URL Scheme 分享链接）
 
-- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，GlobalApi domain，无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Miniprogram.Code` 先例）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
+- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Miniprogram.Code` 先例）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
 - **架构位置**：生成/复用/clamp 唯一入口 = `Cgc2046.Miniprogram.ShareSchemeService.fetch_or_generate/2`（外呼经 `UrlScheme.create_link/3`，errcode 保真传播不落库）；触发 = `Workflows.ShareSchemeInstantiator` 订阅 `event.launched`/`course.launched` → Oban job（`Workers.ShareSchemeWorker`，maintenance 队列）异步预生成——外呼不进信号同步路径，`:not_found` warning 不重试、平台错误走 Oban 默认重试。scheme query/path 只含 `id`+`kind`（安全红线，永不携带 token/凭据/openid）；前端配套 = event-detail 分享 title 兜底 + `Taro.onAppShow` 热启动路由（`resolveAppShowRoute` 纯函数，scene 优先）。
 
 ### AuditLog（审计日志，二期）

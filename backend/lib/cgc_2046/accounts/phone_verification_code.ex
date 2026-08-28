@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   @code_ttl_seconds 300
   @max_attempts 3

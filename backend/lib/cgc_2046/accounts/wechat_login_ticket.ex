@@ -16,7 +16,7 @@ defmodule Cgc2046.Accounts.WechatLoginTicket do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   @ticket_ttl_seconds 600
 

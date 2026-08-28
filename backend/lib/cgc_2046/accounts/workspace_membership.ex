@@ -14,7 +14,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)

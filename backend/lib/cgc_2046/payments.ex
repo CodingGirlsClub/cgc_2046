@@ -3,7 +3,7 @@ defmodule Cgc2046.Payments do
   支付域（plan feat/payment-loop）：座位保留型限时订单（Order）+ 渠道回调
   幂等去重（WebhookEvent）。
 
-  KTD1 域纪律：与 Cgc2046.GlobalApi 同款——
+  KTD1 域纪律：与 Cgc2046.Accounts 同款——
   `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止未来
   注册到 GraphQL 面时意外公开租户资源。U1 尚无资源暴露 GraphQL/Admin
   （订单查询/操作面随 U5 落地）；WebhookEvent 为内部资源，永不暴露。

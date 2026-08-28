@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   alias Cgc2046.ApprovalClaim
 

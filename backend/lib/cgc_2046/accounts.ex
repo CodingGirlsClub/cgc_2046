@@ -1,4 +1,4 @@
-defmodule Cgc2046.GlobalApi do
+defmodule Cgc2046.Accounts do
   use Ash.Domain,
     otp_app: :cgc_2046,
     extensions: [AshGraphql.Domain, AshAdmin.Domain]

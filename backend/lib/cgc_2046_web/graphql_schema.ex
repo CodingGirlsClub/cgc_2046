@@ -11,7 +11,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Courses,
       Cgc2046.Curriculum,
       Cgc2046.Events,
-      Cgc2046.GlobalApi,
+      Cgc2046.Accounts,
       Cgc2046.Learning,
       Cgc2046.Payments,
       Cgc2046.Reconciliation,
@@ -262,7 +262,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         admin_list(
           Cgc2046.Accounts.Workspace,
           fn q, args -> maybe_workspace_search(q, args[:search]) end,
-          admin_result(Cgc2046.Accounts.Workspace, Cgc2046.GlobalApi),
+          admin_result(Cgc2046.Accounts.Workspace, Cgc2046.Accounts),
           pre_read: fn q -> Ash.Query.load(q, :member_count) end
         )
       )
@@ -279,7 +279,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         admin_list(
           Cgc2046.Accounts.WorkspaceApplication,
           fn q, args -> maybe_status_filter(q, args[:status]) end,
-          admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+          admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
         )
       )
     end
@@ -292,7 +292,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           |> Ash.Query.for_read(:read)
           |> Ash.Query.filter(applicant_id == ^actor.id)
           |> Ash.read(actor: actor)
-          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.GlobalApi)
+          |> map_error(context, :read, Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
         end)
       end)
     end
@@ -382,7 +382,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_action_filter(args[:action])
             |> maybe_time_range_filter(args)
           end,
-          admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.GlobalApi)
+          admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.Accounts)
         )
       )
     end
@@ -2287,13 +2287,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
   # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
-  # domain 默认 GlobalApi（历史调用方均属此域）；其它域的资源（如 Cgc2046.Mcp.Token）须显式传入。
+  # domain 默认 Accounts（历史调用方均属此域）；其它域的资源（如 Cgc2046.Mcp.Token）须显式传入。
   defp to_ash_graphql_errors(
          error,
          context,
          action,
          resource \\ Cgc2046.Accounts.User,
-         domain \\ Cgc2046.GlobalApi
+         domain \\ Cgc2046.Accounts
        ) do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
@@ -2413,7 +2413,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp load_profile(user, actor, context, action) do
     case Ash.load(user, [:member_number, :joined_at],
            actor: actor,
-           domain: Cgc2046.GlobalApi
+           domain: Cgc2046.Accounts
          ) do
       {:ok, loaded} ->
         {:ok, loaded}
