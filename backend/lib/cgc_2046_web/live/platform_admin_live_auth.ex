@@ -59,7 +59,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuth do
   end
 
   defp authorize_user(user_id, socket) do
-    case Ash.get(User, user_id, authorize?: false, domain: Cgc2046.GlobalApi) do
+    case Ash.get(User, user_id, authorize?: false, domain: Cgc2046.Accounts) do
       {:ok, user} ->
         if PlatformAdmin.platform_admin?(user) do
           {:cont, assign(socket, :current_user, user)}

@@ -19,7 +19,7 @@ defmodule Cgc2046.Accounts.AdminActionLog do
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)

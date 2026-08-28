@@ -12,7 +12,7 @@ defmodule Cgc2046.Accounts.Token do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAuthentication.TokenResource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   import Ash.Expr, only: [expr: 1]
 
