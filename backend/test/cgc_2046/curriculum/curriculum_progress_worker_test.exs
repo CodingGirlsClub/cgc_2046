@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.CurriculumProgressWorkerTest do
+defmodule Cgc2046.Curriculum.CurriculumProgressWorkerTest do
   @moduledoc """
   CurriculumProgressWorker 测试(切片 H U5, #180):
 
@@ -12,7 +12,7 @@ defmodule Cgc2046.Workers.CurriculumProgressWorkerTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.CurriculumProgressWorker
+  alias Cgc2046.Curriculum.CurriculumProgressWorker
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   require Ash.Query

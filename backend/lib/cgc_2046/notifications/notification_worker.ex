@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.NotificationWorker do
+defmodule Cgc2046.Notifications.NotificationWorker do
   @moduledoc """
   异步发送审批结果或提醒订阅消息。
 

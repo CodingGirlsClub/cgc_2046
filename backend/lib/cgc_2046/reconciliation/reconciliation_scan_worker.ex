@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ReconciliationScanWorker do
+defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   @moduledoc """
   对账扫描 worker（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D2）。
 
@@ -79,9 +79,14 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
 
   # 规3/6 判定的信号族 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）
   @dead_letter_workers [
-    "Cgc2046.Workers.SignalPublishWorker",
-    "Cgc2046.Workers.NotificationWorker"
+    "Cgc2046.Workflows.SignalPublishWorker",
+    "Cgc2046.Notifications.NotificationWorker"
   ]
+
+  # 白名单只读访问器（ADR-0010 W1):worker 改名后字符串易漂移,测试经本函数
+  # 断言「每个白名单模块真实存在」,杜绝「字符串漂移→规6 失明」形状复发。
+  @doc false
+  def dead_letter_workers, do: @dead_letter_workers
 
   # 规6 死信窗口：与 Oban Pruner max_age（7 天，config.exs）对齐
   @dead_letter_window_days 7
@@ -441,7 +446,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
           AND worker = $1
           AND args->>'signal_type' = $2
         """,
-        ["Cgc2046.Workers.SignalPublishWorker", signal_type]
+        ["Cgc2046.Workflows.SignalPublishWorker", signal_type]
       )
 
     Enum.map(rows, fn [id, worker, args, errors] ->

@@ -17,7 +17,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
   alias Cgc2046.Curriculum.Instantiator

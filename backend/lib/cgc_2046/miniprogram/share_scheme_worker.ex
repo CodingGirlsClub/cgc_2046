@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ShareSchemeWorker do
+defmodule Cgc2046.Miniprogram.ShareSchemeWorker do
   @moduledoc """
   微信 URL Scheme 预生成 job（plan 011 P3）。
 

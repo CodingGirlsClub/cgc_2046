@@ -1,11 +1,11 @@
-defmodule Cgc2046.Workers.ShareSchemeWorkerTest do
+defmodule Cgc2046.Miniprogram.ShareSchemeWorkerTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Miniprogram.ShareScheme
-  alias Cgc2046.Workers.ShareSchemeWorker
+  alias Cgc2046.Miniprogram.ShareSchemeWorker
 
   # P3 worker 契约：job → fetch_or_generate（外呼在 Oban 异步路径）；
   # :not_found → warning + :ok（answer 拍板：不重试）；平台错误走 Oban 默认重试。

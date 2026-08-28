@@ -20,7 +20,9 @@ defmodule Cgc2046.Payments.RefundTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Providers.Fake
-  alias Cgc2046.Workers.{OfferingCancelRefundWorker, NotificationWorker, PaymentRefundWorker}
+  alias Cgc2046.Admission.Workers.OfferingCancelRefundWorker
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   @tier_id "66666666-6666-6666-6666-666666666666"
 

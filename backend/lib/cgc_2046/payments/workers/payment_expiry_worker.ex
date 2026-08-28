@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentExpiryWorker do
+defmodule Cgc2046.Payments.Workers.PaymentExpiryWorker do
   @moduledoc """
   支付超时释放 worker（U8/KTD5；Oban cron 每分钟一拍，见 config.exs）。
 

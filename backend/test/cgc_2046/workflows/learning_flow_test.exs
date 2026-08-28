@@ -28,8 +28,8 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
   alias Cgc2046.Mcp.Tools.SaveStepOutput
   alias Cgc2046.Workflows.SignalIdempotency
   alias Cgc2046.Workflows.SignalSubscriber
-  alias Cgc2046.Workers.LearningProgressWorker
-  alias Cgc2046.Workers.NotificationWorker
+  alias Cgc2046.Learning.LearningProgressWorker
+  alias Cgc2046.Notifications.NotificationWorker
   alias Cgc2046.Workflows.LearningInstantiator
   alias Cgc2046.Workflows.Step
   alias Cgc2046.Workflows.StepRole

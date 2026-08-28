@@ -27,7 +27,7 @@ defmodule Cgc2046.Admission.CapacityLedgerTest do
   alias Cgc2046.Admission.{CapacityLedger, CapacityLedgerSubscriber, Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.MiniprogramFixtures.Barrier
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Workflows.SignalSubscriber
 
   setup do

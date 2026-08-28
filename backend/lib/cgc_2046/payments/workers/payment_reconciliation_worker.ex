@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentReconciliationWorker do
+defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
   @moduledoc """
   缴费对账规⑦（U13/KTD11/R23；先例：`ReconciliationScanWorker` 的 upsert/刷新语义）。
 

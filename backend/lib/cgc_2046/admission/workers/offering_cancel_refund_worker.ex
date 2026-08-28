@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
+defmodule Cgc2046.Admission.Workers.OfferingCancelRefundWorker do
   @moduledoc """
   Event/Course cancelled 批量退款（payment-loop U9/F3 + organizer-payment U2，
   R15——退款即取消，ADR-0007）。
@@ -40,7 +40,7 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
   alias Cgc2046.Payments.Order
-  alias Cgc2046.Workers.PaymentRefundWorker
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   # 分批步长（plan U9-3 批大小常量）：控制单波对 payments 队列的瞬时入队量
   @batch_size 50

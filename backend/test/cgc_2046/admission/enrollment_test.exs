@@ -10,7 +10,9 @@ defmodule Cgc2046.Admission.EnrollmentTest do
   alias Cgc2046.Admission.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{Order, Providers.Fake, WebhookEvent}
-  alias Cgc2046.Workers.{PaymentRefundWorker, PaymentSettlementWorker, SignalPublishWorker}
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   import Ecto.Query, only: [from: 2]
 
@@ -430,7 +432,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
           [Ecto.UUID.dump!(pending.id)]
         )
 
-      assert :ok = Cgc2046.Workers.ApprovalExpiryWorker.perform(%Oban.Job{})
+      assert :ok = Cgc2046.Admission.Workers.ApprovalExpiryWorker.perform(%Oban.Job{})
       expired = Ash.get!(Enrollment, pending.id, authorize?: false)
       assert expired.status == :expired
       refute is_nil(expired.expired_at)
@@ -770,7 +772,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert reload_order_of(pending).status == :refunding
 
       assert_enqueued(
-        worker: Cgc2046.Workers.PaymentRefundWorker,
+        worker: Cgc2046.Payments.Workers.PaymentRefundWorker,
         args: %{"order_id" => order.id}
       )
     after

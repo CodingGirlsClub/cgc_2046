@@ -55,7 +55,7 @@ defmodule Cgc2046.Notifications.Fanout do
   require Logger
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
-  alias Cgc2046.Workers.NotificationWorker
+  alias Cgc2046.Notifications.NotificationWorker
 
   @telemetry_event [:cgc2046, :notification_fanout, :deliver]
 

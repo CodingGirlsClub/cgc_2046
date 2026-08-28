@@ -17,7 +17,7 @@ defmodule Cgc2046.Workflows.SignalEmitterTest do
   alias Cgc2046.Workflows.SignalEmitter
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   # 直挂契约测试用 opts（远程捕获须为 public 模块函数）
   def atom_keyed_payload(_changeset, record), do: %{enrollment_id: record.id, note: :atom_value}

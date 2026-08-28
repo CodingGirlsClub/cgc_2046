@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.EventLifecycleWorker do
+defmodule Cgc2046.Events.EventLifecycleWorker do
   @moduledoc """
   生命周期到点扫描（E-9 #124）：registration_deadline 过点的 open Event/Course
   → :close 动作转 closed（close 的 after_transaction 发 ended 信号）。

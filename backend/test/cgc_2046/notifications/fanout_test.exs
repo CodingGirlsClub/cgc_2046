@@ -4,7 +4,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Notifications.Fanout
-  alias Cgc2046.Workers.NotificationWorker
+  alias Cgc2046.Notifications.NotificationWorker
 
   @telemetry_event [:cgc2046, :notification_fanout, :deliver]
 
@@ -327,7 +327,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
     {:ok, %{rows: [[count]]}} =
       Ecto.Adapters.SQL.query(
         Cgc2046.Repo,
-        "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Workers.NotificationWorker' AND args->>'template_key' = $1 AND args->>'user_id' = $2",
+        "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Notifications.NotificationWorker' AND args->>'template_key' = $1 AND args->>'user_id' = $2",
         [template_key, user_id]
       )
 

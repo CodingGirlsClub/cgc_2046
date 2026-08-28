@@ -15,7 +15,7 @@ defmodule Cgc2046Web.PaymentWebhookController do
   require Logger
 
   alias Cgc2046.Payments.{Provider, WebhookEvent}
-  alias Cgc2046.Workers.PaymentSettlementWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
 
   @channel_providers %{"wechat" => :wechat, "alipay" => :alipay}
 

@@ -28,7 +28,7 @@ defmodule Cgc2046.Payments.ReplaySettlement do
 
   alias Cgc2046.Payments.Provider
   alias Cgc2046.Payments.{Order, WebhookEvent}
-  alias Cgc2046.Workers.PaymentSettlementWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
 
   @doc """
   按商户单号收敛落账。返回 `{:ok, %{event_id: …, job_id: …}}`；订单不存在

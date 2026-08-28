@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.LoginArtifactPrunerWorker do
+defmodule Cgc2046.Miniprogram.LoginArtifactPrunerWorker do
   @moduledoc """
   登录支撑表过期清理（#252）。
 

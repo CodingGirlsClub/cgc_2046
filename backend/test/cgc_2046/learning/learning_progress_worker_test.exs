@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.LearningProgressWorkerTest do
+defmodule Cgc2046.Learning.LearningProgressWorkerTest do
   @moduledoc """
   LearningProgressWorker 完成判定升级测试(切片 H U4, #180)。
 
@@ -13,7 +13,7 @@ defmodule Cgc2046.Workers.LearningProgressWorkerTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Learning.LearningRecord
-  alias Cgc2046.Workers.LearningProgressWorker
+  alias Cgc2046.Learning.LearningProgressWorker
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   require Ash.Query

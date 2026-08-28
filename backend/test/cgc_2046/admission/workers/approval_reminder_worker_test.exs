@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
+defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
   @moduledoc """
   48h 审批提醒 job 测试。
 
@@ -17,8 +17,8 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.ApprovalExpiryWorker
-  alias Cgc2046.Workers.ApprovalReminderWorker
+  alias Cgc2046.Admission.Workers.ApprovalExpiryWorker
+  alias Cgc2046.Admission.Workers.ApprovalReminderWorker
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
@@ -158,7 +158,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
       refute_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{
           "user_id" => learner.id,
           "platform" => "wechat",
@@ -168,7 +168,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       for approver <- [owner, admin] do
         assert_enqueued(
-          worker: Cgc2046.Workers.NotificationWorker,
+          worker: Cgc2046.Notifications.NotificationWorker,
           args: %{
             "user_id" => approver.id,
             "platform" => "wechat",
@@ -233,7 +233,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
       assert_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{
           "user_id" => owner.id,
           "platform" => "wechat",
@@ -268,7 +268,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
       refute_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{
           "user_id" => owner.id,
           "platform" => "wechat",
@@ -297,7 +297,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       assert [_one] =
                all_enqueued(
-                 worker: Cgc2046.Workers.NotificationWorker,
+                 worker: Cgc2046.Notifications.NotificationWorker,
                  args: %{
                    "user_id" => owner.id,
                    "template_key" => "approval_reminder"
@@ -324,7 +324,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       assert [job] =
                all_enqueued(
-                 worker: Cgc2046.Workers.NotificationWorker,
+                 worker: Cgc2046.Notifications.NotificationWorker,
                  args: %{"user_id" => owner.id, "template_key" => "approval_reminder"}
                )
 
@@ -343,7 +343,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       {:ok, %{rows: [[count]]}} =
         Ecto.Adapters.SQL.query(
           Cgc2046.Repo,
-          "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Workers.NotificationWorker' AND args->>'user_id' = $1 AND args->>'template_key' = 'approval_reminder'",
+          "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Notifications.NotificationWorker' AND args->>'user_id' = $1 AND args->>'template_key' = 'approval_reminder'",
           [owner.id]
         )
 
@@ -351,7 +351,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       assert [_new] =
                all_enqueued(
-                 worker: Cgc2046.Workers.NotificationWorker,
+                 worker: Cgc2046.Notifications.NotificationWorker,
                  args: %{"user_id" => owner.id, "template_key" => "approval_reminder"}
                )
     end
@@ -382,7 +382,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
         )
 
       assert :ok =
-               perform_job(Cgc2046.Workers.NotificationWorker, %{
+               perform_job(Cgc2046.Notifications.NotificationWorker, %{
                  "user_id" => owner.id,
                  "identity_uid" => "reminder-owner-openid",
                  "platform" => "wechat",
@@ -422,7 +422,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       assert [_one] =
                all_enqueued(
-                 worker: Cgc2046.Workers.NotificationWorker,
+                 worker: Cgc2046.Notifications.NotificationWorker,
                  args: %{
                    "user_id" => owner.id,
                    "template_key" => "approval_reminder",
@@ -455,7 +455,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       assert [_one] =
                all_enqueued(
-                 worker: Cgc2046.Workers.NotificationWorker,
+                 worker: Cgc2046.Notifications.NotificationWorker,
                  args: %{
                    "user_id" => owner.id,
                    "template_key" => "approval_reminder",
@@ -530,7 +530,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       # Event 级：Owner 与 Admin 各一条，data 带 sponsorship_id
       for approver <- [owner, admin] do
         assert_enqueued(
-          worker: Cgc2046.Workers.NotificationWorker,
+          worker: Cgc2046.Notifications.NotificationWorker,
           args: %{
             "user_id" => approver.id,
             "platform" => "wechat",
@@ -542,7 +542,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       # Workspace 级：仅 Owner（Admin 不提醒，拍板 #4）
       assert_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{
           "user_id" => owner.id,
           "platform" => "wechat",
@@ -552,7 +552,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       )
 
       refute_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{
           "user_id" => admin.id,
           "platform" => "wechat",
@@ -594,7 +594,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
       refute_enqueued(
-        worker: Cgc2046.Workers.NotificationWorker,
+        worker: Cgc2046.Notifications.NotificationWorker,
         args: %{
           "user_id" => owner.id,
           "platform" => "wechat",

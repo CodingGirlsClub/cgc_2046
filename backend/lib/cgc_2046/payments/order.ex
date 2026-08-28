@@ -1027,7 +1027,7 @@ defmodule Cgc2046.Payments.Order do
       end)
 
     args
-    |> Cgc2046.Workers.PaymentRefundWorker.new()
+    |> Cgc2046.Payments.Workers.PaymentRefundWorker.new()
     |> Oban.insert!()
 
     {:ok, order}

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.PaymentSettlementWorker do
+defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
   @moduledoc """
   支付回调落账 worker（U7，KTD12）——资金落账唯一路径。
 
@@ -37,7 +37,7 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
   alias Cgc2046.Payments.NotificationTemplates, as: Templates
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Reconciliation.Finding
-  alias Cgc2046.Workers.PaymentRefundWorker
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"webhook_event_id" => event_id}}) do

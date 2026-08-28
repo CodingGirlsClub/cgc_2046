@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
+defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
   @moduledoc """
   0C 审批超时扫描 worker 测试。
 
@@ -27,7 +27,7 @@ defmodule Cgc2046.Workers.ApprovalExpiryWorkerTest do
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Workers.ApprovalExpiryWorker
+  alias Cgc2046.Admission.Workers.ApprovalExpiryWorker
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions

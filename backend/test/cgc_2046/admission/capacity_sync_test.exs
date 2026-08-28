@@ -17,7 +17,7 @@ defmodule Cgc2046.Admission.CapacitySyncTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.{CapacityLedger, Enrollment}
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Workflows.SignalSubscriber
 
   @tier_id "66666666-6666-6666-6666-666666666666"

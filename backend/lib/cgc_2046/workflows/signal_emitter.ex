@@ -39,7 +39,7 @@ defmodule Cgc2046.Workflows.SignalEmitter do
 
   use Ash.Resource.Change
 
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   @impl true
   def change(changeset, opts, _context) do
