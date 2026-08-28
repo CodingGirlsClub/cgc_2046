@@ -17,7 +17,6 @@ defmodule Cgc2046.Payments.RefundTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Providers.Fake
@@ -718,16 +717,21 @@ defmodule Cgc2046.Payments.RefundTest do
     paid
   end
 
+  # ADR-0009 PR⑤ U6 口径平移：占位计数权威 = 名额账本 occupancy（原 events.confirmed_count）
   defp event_count(event) do
-    Ash.get!(Event, event.id, authorize?: false).confirmed_count
+    EventFixtures.ledger_occupancy(event)
   end
 
+  # 注入计数状态（取消失败注入等）：裸 SQL 置账本 occupancy，set_confirmed_count 同纪律
   defp set_event_count(event, count) do
     {:ok, _} =
-      Cgc2046.Repo.query("UPDATE events SET confirmed_count = $1 WHERE id = $2", [
-        count,
-        Ecto.UUID.dump!(event.id)
-      ])
+      Cgc2046.Repo.query(
+        "UPDATE admission_capacity_ledgers SET occupancy = $1 WHERE offering_kind = 'event' AND offering_id = $2",
+        [
+          count,
+          Ecto.UUID.dump!(event.id)
+        ]
+      )
 
     :ok
   end

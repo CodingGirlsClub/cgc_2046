@@ -672,6 +672,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :enrollment_policy, :text, default: "open", null: false
       add :capacity, :bigint
       add :confirmed_count, :bigint, default: 0, null: false
+      add :confirmed_count_sync_version, :bigint, default: 0, null: false
       add :registration_deadline, :utc_datetime
       add :visibility, :string, size: 255, default: "public", null: false
       add :slug, :string, size: 255, null: false
@@ -710,6 +711,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :enrollment_policy, :text, default: "open", null: false
       add :capacity, :bigint
       add :confirmed_count, :bigint, default: 0, null: false
+      add :confirmed_count_sync_version, :bigint, default: 0, null: false
       add :registration_deadline, :utc_datetime
       add :visibility, :string, size: 255, default: "public", null: false
       add :slug, :string, size: 255, null: false
@@ -780,6 +782,31 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :expires_at, :utc_datetime
       add :status, :text, default: "active", null: false
       add :remark, :text
+      add :inserted_at, :utc_datetime_usec, null: false
+      add :updated_at, :utc_datetime_usec, null: false
+    end
+
+    # ADR-0009 PR⑤ U6（R12）：名额账本——每个 offering 唯一一行，占位/释放
+    # 原子 CAS 收编于此；offering_id 多态指向 events/courses 不建外键。
+    create table(:admission_capacity_ledgers, primary_key: false) do
+      add :id, :uuid, default: fragment("gen_random_uuid()"), null: false, primary_key: true
+
+      add :workspace_id,
+          references(:workspaces,
+            column: :id,
+            type: :uuid,
+            name: "admission_capacity_ledgers_workspace_id_fkey",
+            on_delete: :delete_all
+          ),
+          null: false
+
+      add :offering_kind, :text, null: false
+      add :offering_id, :uuid, null: false
+      add :status, :text, null: false
+      add :capacity, :bigint
+      add :registration_deadline, :utc_datetime
+      add :occupancy, :bigint, default: 0, null: false
+      add :sync_version, :bigint, default: 0, null: false
       add :inserted_at, :utc_datetime_usec, null: false
       add :updated_at, :utc_datetime_usec, null: false
     end
@@ -1261,20 +1288,10 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
              check: "((capacity IS NULL) OR (capacity > 0))"
            )
 
-    create constraint(:courses, :courses_confirmed_count_valid,
-             check:
-               "((confirmed_count >= 0) AND ((capacity IS NULL) OR (confirmed_count <= capacity)))"
-           )
-
     create unique_index(:events, [:slug], name: "events_slug_index")
 
     create constraint(:events, :events_capacity_positive,
              check: "((capacity IS NULL) OR (capacity > 0))"
-           )
-
-    create constraint(:events, :events_confirmed_count_valid,
-             check:
-               "((confirmed_count >= 0) AND ((capacity IS NULL) OR (confirmed_count <= capacity)))"
            )
 
     create unique_index(:workflow_step_roles, [:workspace_id, :step_id, :role_id],
@@ -1283,6 +1300,10 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
 
     create unique_index(:invite_batches, [:invite_code],
              name: "invite_batches_unique_invite_code_index"
+           )
+
+    create unique_index(:admission_capacity_ledgers, [:offering_kind, :offering_id],
+             name: "admission_capacity_ledgers_unique_offering_index"
            )
 
     create constraint(:invite_batches, :invite_batches_exactly_one_target,

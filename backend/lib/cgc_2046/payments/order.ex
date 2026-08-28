@@ -424,24 +424,19 @@ defmodule Cgc2046.Payments.Order do
       )
 
       run(fn input, _ctx ->
-        # U4（KTD3）：可选 offering 维度经 JOIN enrollments 收敛——四数形状与
-        # 工作区口径同源（同一状态集分桶）；授权仍由 workspace_id 参数解析。
-        # 可选参数经 Map.get（GraphQL 未传时 arguments 无该键）。
-        event_id = Map.get(input.arguments, :event_id)
-        course_id = Map.get(input.arguments, :course_id)
+        # U4（KTD3）+ U5（R19）：可选 offering 维度收敛为单 JOIN enrollments——
+        # event_id/course_id 双可空恰一非空，OR 条件与原 kind 分叉 JOIN 结果集
+        # 逐行相同；四数形状与工作区口径同源（同一状态集分桶）；授权仍由
+        # workspace_id 参数解析。可选参数经 Map.get（GraphQL 未传时无该键）；
+        # 双参同传时 event_id 优先（与原 cond 分叉序一致）。
+        offering_id = Map.get(input.arguments, :event_id) || Map.get(input.arguments, :course_id)
 
         {offering_join, extra_params} =
-          cond do
-            event_id ->
-              {"JOIN enrollments e ON e.id = o.enrollment_id AND e.event_id = $2",
-               [Cgc2046.Repo.uuid!(event_id)]}
-
-            course_id ->
-              {"JOIN enrollments e ON e.id = o.enrollment_id AND e.course_id = $2",
-               [Cgc2046.Repo.uuid!(course_id)]}
-
-            true ->
-              {"", []}
+          if offering_id do
+            {"JOIN enrollments e ON e.id = o.enrollment_id " <>
+               "AND (e.event_id = $2 OR e.course_id = $2)", [Cgc2046.Repo.uuid!(offering_id)]}
+          else
+            {"", []}
           end
 
         sql = """
@@ -926,54 +921,18 @@ defmodule Cgc2046.Payments.Order do
   defp prepare_expire(changeset) do
     case claim(changeset, [:pending], "status = 'expired'") do
       {:ok, changeset} ->
-        case expire_enrollment(changeset.data.enrollment_id) do
+        # 报名侧联动收编 Admission 端口（ADR-0009 U5 / R20，KTD6 同事务）：
+        # CAS payment_pending→expired + 名额回落由 Enrollment 承担。num_rows=0 =
+        # 报名已流转（免缴 confirmed / 已取消）——订单过期照常，无名额可释，迟到
+        # 收款由落账 worker 自动退款链兜底（KTD12 不变量）。失败 → {:error,_}
+        # 整体回滚（含订单 CAS），扫描下拍重试。
+        case Cgc2046.Admission.Enrollment.release_for_payment_expiry(changeset.data.enrollment_id) do
           :ok -> Ash.Changeset.force_change_attribute(changeset, :status, :expired)
           {:error, reason} -> add_domain_error(changeset, {:database, reason})
         end
 
       {:error, changeset} ->
         changeset
-    end
-  end
-
-  # 报名侧联动（同事务）：CAS payment_pending→expired + 名额回落。num_rows=0 =
-  # 报名已流转（免缴 confirmed / 已取消）——订单过期照常，无名额可释，迟到
-  # 收款由落账 worker 自动退款链兜底（KTD12 不变量）。计数/DB 失败 → {:error,_}
-  # 整体回滚（含订单 CAS），扫描下拍重试。
-  defp expire_enrollment(enrollment_id) do
-    sql = """
-    UPDATE enrollments
-    SET status = 'expired', expired_at = NOW(), updated_at = NOW()
-    WHERE id = $1 AND status = 'payment_pending'
-    RETURNING event_id, course_id
-    """
-
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(enrollment_id)]) do
-      {:ok, %{rows: [[event_id, nil]]}} when not is_nil(event_id) ->
-        decrement_confirmed_count("events", Ecto.UUID.load!(event_id))
-
-      {:ok, %{rows: [[nil, course_id]]}} when not is_nil(course_id) ->
-        decrement_confirmed_count("courses", Ecto.UUID.load!(course_id))
-
-      {:ok, %{rows: []}} ->
-        :ok
-
-      {:ok, _unexpected} ->
-        {:error, :enrollment_target_shape}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp decrement_confirmed_count(table, target_id) do
-    case Cgc2046.Repo.query(
-           "UPDATE #{table} SET confirmed_count = confirmed_count - 1 WHERE id = $1 AND confirmed_count > 0",
-           [Cgc2046.Repo.uuid!(target_id)]
-         ) do
-      {:ok, %{num_rows: 1}} -> :ok
-      {:ok, %{num_rows: 0}} -> {:error, :capacity_counter_invalid}
-      {:error, reason} -> {:error, reason}
     end
   end
 

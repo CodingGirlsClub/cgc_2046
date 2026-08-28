@@ -580,6 +580,178 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     end
   end
 
+  # ── 规8-11：名额账本 / 展示投影（ADR-0009 PR⑤ U7；R17）------------------------
+
+  describe "规8 open offering 无账本行" do
+    test "open event 无账本行 → 命中；建行消解 → 空" do
+      admin = Fixtures.platform_admin("rc8-admin")
+      workspace = Fixtures.create_workspace(admin)
+      # fixture force_open 不走 launched 信号、无报名懒建 → 账本行缺失
+      event = EventFixtures.create_event(workspace, admin)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:open_offering_without_ledger)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.workspace_id == workspace.id
+      assert finding.detail["title"] == event.title
+
+      # 消解：回查建行（launched 订阅同路径）
+      assert :ok = Cgc2046.Admission.CapacityLedger.sync_from_offering(event)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:open_offering_without_ledger)
+    end
+
+    test "open course 无账本行 → 命中；报名懒建建行 → 不命中" do
+      admin = Fixtures.platform_admin("rc8c-admin")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [finding] = findings(:open_offering_without_ledger)
+      assert finding.entity_type == :course
+      assert finding.entity_id == course.id
+
+      # 消解：报名触发懒建（KTD5）
+      learner = Fixtures.register_user("rc8c-learner")
+      # create_confirmed_enrollment 是 event-only 助手，course 报名直接建
+      assert {:ok, enrollment} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 course_id: course.id,
+                 user_id: learner.id
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert enrollment.status == :confirmed
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:open_offering_without_ledger)
+    end
+  end
+
+  describe "规9 账本 occupancy ≠ 占位报名计数" do
+    test "占位报名后口径一致不命中；账本计数被抬 → 命中；恢复 → 空" do
+      admin = Fixtures.platform_admin("rc9-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc9-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:ledger_occupancy_mismatch)
+
+      # 注入漂移：账本 occupancy 抬到 3（报名计数仍 1）
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET occupancy = 3 WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:ledger_occupancy_mismatch)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.detail["occupancy"] == 3
+      assert finding.detail["enrollment_count"] == 1
+
+      # 消解：计数恢复一致
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET occupancy = 1 WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:ledger_occupancy_mismatch)
+    end
+  end
+
+  describe "规10 展示投影漂移超一拍" do
+    test "在途窗口不命中；账本变更超一拍且投影滞后 → 命中；投递同步消解 → 空" do
+      admin = Fixtures.platform_admin("rc10-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc10-learner")
+      event = EventFixtures.create_event(workspace, admin)
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      # 投影列（0）滞后账本（1）但账本刚变更——在一拍宽限内不告警
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:capacity_projection_drift)
+
+      # 回拨账本 updated_at 超一拍 → 漂移命中
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET updated_at = NOW() - INTERVAL '11 minutes' WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:capacity_projection_drift)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.detail["occupancy"] == 1
+      assert finding.detail["confirmed_count"] == 0
+
+      # 消解：投递 capacity.synced 真实 outbox 载荷，投影收敛
+      payload =
+        [worker: SignalPublishWorker]
+        |> all_enqueued()
+        |> Enum.find(
+          &(&1.args["signal_type"] == "capacity.synced" &&
+              get_in(&1.args, ["data", "event_id"]) == event.id)
+        )
+        |> Map.fetch!(:args)
+        |> Map.fetch!("data")
+
+      assert :ok =
+               Cgc2046.Workflows.SignalSubscriber.deliver(
+                 Cgc2046.Events.CapacityProjectionSubscriber,
+                 %{type: "capacity.synced", data: payload}
+               )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:capacity_projection_drift)
+    end
+  end
+
+  describe "规11 occupancy > capacity" do
+    test "超员注入 → 命中；自然释放收敛 → 空" do
+      admin = Fixtures.platform_admin("rc11-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc11-learner")
+      event = EventFixtures.create_event(workspace, admin, %{capacity: 1})
+      _enrollment = create_confirmed_enrollment(event, workspace, learner)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:occupancy_exceeds_capacity)
+
+      # 注入 AE4 形态：capacity 1 < occupancy 2（调小后的合法超员窗口）
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET occupancy = 2 WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:occupancy_exceeds_capacity)
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.detail["occupancy"] == 2
+      assert finding.detail["capacity"] == 1
+
+      # 消解：释放收敛回 capacity 内
+      Repo.query!(
+        "UPDATE admission_capacity_ledgers SET occupancy = 1 WHERE offering_kind = 'event' AND offering_id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:occupancy_exceeds_capacity)
+    end
+  end
+
   # ── 刷新语义（D2）与空报告 ----------------------------------------------------
 
   describe "刷新语义" do

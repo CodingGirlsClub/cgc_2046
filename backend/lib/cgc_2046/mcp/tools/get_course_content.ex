@@ -79,7 +79,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
     |> Ash.read_one(authorize?: false, tenant: workspace_id)
     |> case do
       {:ok, nil} ->
-        {:error, "no course content saved for course #{course_id} (research pending)"}
+        {:error, "no course content saved for course #{course_id} (curriculum pending)"}
 
       {:ok, output} ->
         {:ok, output.data || %{}}

@@ -21,7 +21,7 @@ defmodule Cgc2046.Workflows.SignalLog do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   attributes do
     uuid_primary_key(:id)

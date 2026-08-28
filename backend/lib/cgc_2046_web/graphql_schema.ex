@@ -7,14 +7,16 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   use AshGraphql,
     domains: [
-      Cgc2046.Api,
       Cgc2046.Admission,
       Cgc2046.Courses,
       Cgc2046.Curriculum,
       Cgc2046.Events,
       Cgc2046.GlobalApi,
+      Cgc2046.Learning,
       Cgc2046.Payments,
-      Cgc2046.Sponsorship
+      Cgc2046.Reconciliation,
+      Cgc2046.Sponsorship,
+      Cgc2046.Workflows
     ],
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true
@@ -359,7 +361,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_signal_type_filter(args[:signal_type])
             |> maybe_time_range_filter(args)
           end,
-          admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Api)
+          admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Workflows)
         )
       )
     end
@@ -403,7 +405,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_status_filter(args[:entity_type], :entity_type)
             |> maybe_real_workspace_filter(args[:workspace_id])
           end,
-          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Api)
+          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation)
         )
       )
     end
@@ -1256,7 +1258,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                    context,
                    :create_invitation,
                    Cgc2046.Events.SpeakerInvitation,
-                   Cgc2046.Api
+                   Cgc2046.Events
                  )
              }}
         end
@@ -1286,7 +1288,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                          context,
                          :resend_invitation,
                          Cgc2046.Events.SpeakerInvitation,
-                         Cgc2046.Api
+                         Cgc2046.Events
                        )
                    }}
               end
@@ -2371,7 +2373,7 @@ defmodule Cgc2046Web.GraphqlSchema do
            context,
            action,
            Cgc2046.Events.SpeakerInvitation,
-           Cgc2046.Api
+           Cgc2046.Events
          )
      }}
   end

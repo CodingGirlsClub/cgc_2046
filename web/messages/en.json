@@ -1233,6 +1233,7 @@
     "editMeta": "Edit metadata",
     "fieldTitle": "Title",
     "capacityHint": "Capacity limit (blank = unlimited)",
+    "capacityBelowOccupied": "Target capacity is below the {confirmed} occupied seats: saving is not blocked; the overage is enforced by the capacity ledger (new enrollments rejected) and settles as seats are released",
     "deadlineHint": "Enrollment closes (blank = no deadline)",
     "startsAtHint": "Start time (blank = TBD)",
     "endsAtHint": "End time (blank = TBD; must be after the start time)",
@@ -1771,7 +1772,11 @@
       "open_entity_without_research_definition": "Open entity without research definition",
       "nonterminal_research_run_for_closed_entity": "Closed entity with active research run",
       "dead_letter_job": "Dead letter job",
-      "learning_run_stalled": "Learning run stalled"
+      "learning_run_stalled": "Learning run stalled",
+      "open_offering_without_ledger": "Open offering without capacity ledger row",
+      "ledger_occupancy_mismatch": "Ledger occupancy mismatches enrollments",
+      "capacity_projection_drift": "Capacity display projection drift",
+      "occupancy_exceeds_capacity": "Ledger occupancy exceeds capacity"
     },
     "reconEntity": {
       "enrollment": "Enrollment",

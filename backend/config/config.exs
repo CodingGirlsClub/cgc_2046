@@ -10,15 +10,17 @@ import Config
 config :cgc_2046,
   ecto_repos: [Cgc2046.Repo],
   ash_domains: [
-    Cgc2046.Api,
     Cgc2046.Admission,
     Cgc2046.Courses,
     Cgc2046.Curriculum,
     Cgc2046.Events,
     Cgc2046.GlobalApi,
+    Cgc2046.Learning,
     Cgc2046.Mcp,
     Cgc2046.Payments,
-    Cgc2046.Sponsorship
+    Cgc2046.Reconciliation,
+    Cgc2046.Sponsorship,
+    Cgc2046.Workflows
   ],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
