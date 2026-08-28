@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.WechatRequester do
+defmodule Cgc2046.Integrations.Wechat.Requester do
   @moduledoc """
   微信 API Tesla requester（宿主自有，SDK client 的请求层）。
 
@@ -74,7 +74,7 @@ defmodule Cgc2046.Miniprogram.WechatClient do
                      app_type: :mini_program,
                      appid: appid,
                      appsecret: secret,
-                     requester: Cgc2046.Miniprogram.WechatRequester
+                     requester: Cgc2046.Integrations.Wechat.Requester
                    ) do
               maybe_start(module, fingerprint)
               :persistent_term.put({__MODULE__, fingerprint}, module)

@@ -64,7 +64,7 @@ config :cgc_2046, :miniprogram_req_plug, {Req.Test, Cgc2046.MiniprogramClientStu
 # wechat 分支 token 由测试直接种 WeChat.Storage.Cache，SDK 请求走 Tesla.Mock。
 config :cgc_2046, :wechat_client_autostart, false
 
-# 微信 SDK 请求层走 Tesla.Mock（WechatRequester 的 adapter 编译期注入；
+# 微信 SDK 请求层走 Tesla.Mock（Wechat.Requester 的 adapter 编译期注入；
 # SDK 自带 test 分支在宿主构建不生效——见 wechat_client.ex 模块注释）。
 config :cgc_2046, :wechat_tesla_adapter, Tesla.Mock
 

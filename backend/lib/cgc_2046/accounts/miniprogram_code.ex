@@ -1,4 +1,4 @@
-defmodule Cgc2046.MiniprogramCode do
+defmodule Cgc2046.Accounts.MiniprogramCode do
   @moduledoc """
   Workspace Invitation → 平台小程序码服务。
 
@@ -10,7 +10,7 @@ defmodule Cgc2046.MiniprogramCode do
   require Ash.Query
 
   alias Cgc2046.Accounts.{Invitation, MembershipContext, Role}
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.Miniprogram.Code
 
   @scene_regex ~r/^[A-Za-z0-9_]{1,32}$/

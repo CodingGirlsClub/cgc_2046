@@ -1,11 +1,11 @@
-defmodule Cgc2046.Sms.SendCloudTest do
+defmodule Cgc2046.Integrations.SendCloud.SmsTest do
   @moduledoc """
   SendCloud SMS 单测（plan 002 U3）：签名算法（官档 §API 验证机制规则锁定）+
   HTTP 契约（Req.Test stub：成功 / result:false / 5xx / 未配置门禁）。
   """
   use Cgc2046.DataCase, async: true
 
-  alias Cgc2046.Sms.SendCloud
+  alias Cgc2046.Integrations.SendCloud.Sms
 
   @stub Cgc2046.SmsSendCloudStub
 
@@ -30,7 +30,7 @@ defmodule Cgc2046.Sms.SendCloudTest do
       expected =
         :crypto.hash(:sha256, "KEY&" <> sorted_plain <> "&KEY") |> Base.encode16(case: :lower)
 
-      assert SendCloud.signature(params, "KEY") == expected
+      assert Sms.signature(params, "KEY") == expected
       assert String.length(expected) == 64
       assert expected == String.downcase(expected)
     end
@@ -40,7 +40,7 @@ defmodule Cgc2046.Sms.SendCloudTest do
 
       with_sig = Map.put(base, "signature", "should-be-ignored")
 
-      assert SendCloud.signature(with_sig, "K") == SendCloud.signature(base, "K")
+      assert Sms.signature(with_sig, "K") == Sms.signature(base, "K")
     end
   end
 
@@ -66,7 +66,7 @@ defmodule Cgc2046.Sms.SendCloudTest do
         Req.Test.json(conn, %{"result" => true})
       end)
 
-      assert :ok = SendCloud.send_template_sms("+8613800138000", "t", %{"code" => "123456"}, "r1")
+      assert :ok = Sms.send_template_sms("+8613800138000", "t", %{"code" => "123456"}, "r1")
     end
 
     test "业务失败：result false → {:error, {:send_cloud_sms, status, body}}" do
@@ -75,7 +75,7 @@ defmodule Cgc2046.Sms.SendCloudTest do
       end)
 
       assert {:error, {:send_cloud_sms, 200, _body}} =
-               SendCloud.send_template_sms("+8613800138000", "t", %{}, "r2")
+               Sms.send_template_sms("+8613800138000", "t", %{}, "r2")
     end
 
     test "HTTP 500 → {:error, {:send_cloud_sms, 500, _}}" do
@@ -86,7 +86,7 @@ defmodule Cgc2046.Sms.SendCloudTest do
       end)
 
       assert {:error, {:send_cloud_sms, 500, _}} =
-               SendCloud.send_template_sms("+8613800138000", "t", %{}, "r3")
+               Sms.send_template_sms("+8613800138000", "t", %{}, "r3")
     end
 
     test "凭证缺失 → {:error, :sms_not_configured}（不发请求）" do
@@ -97,9 +97,9 @@ defmodule Cgc2046.Sms.SendCloudTest do
       )
 
       assert {:error, :sms_not_configured} =
-               SendCloud.send_template_sms("+8613800138000", "t", %{}, "r4")
+               Sms.send_template_sms("+8613800138000", "t", %{}, "r4")
 
-      refute SendCloud.configured?()
+      refute Sms.configured?()
     end
   end
 end

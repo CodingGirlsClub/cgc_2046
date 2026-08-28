@@ -1,4 +1,4 @@
-defmodule Cgc2046.SwooshAdapters.SendCloud do
+defmodule Cgc2046.Integrations.SendCloud.Mailer do
   @moduledoc """
   Swoosh adapter for SendCloud's regular mail API.
 

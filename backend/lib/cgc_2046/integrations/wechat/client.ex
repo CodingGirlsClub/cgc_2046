@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.Client do
+defmodule Cgc2046.Integrations.Wechat.Client do
   @moduledoc """
   小程序三平台服务端 API 客户端（Phase 1：登录会话 + 手机号解密）。
 
@@ -493,11 +493,11 @@ defmodule Cgc2046.Miniprogram.Client do
   自由文本内容安全检查（v1 wechat-only，plan 2026-08-18-009 D-1；msgSecCheck v2 契约，
   advisor09 F1）。
 
-  报名 reason 提交链路同步拦截：wechat 经宿主 WechatRequester 直发 v2
+  报名 reason 提交链路同步拦截：wechat 经宿主 Wechat.Requester 直发 v2
   `POST /wxa/msg_sec_check`（SDK `Security.msg_check/2` 为 v1 已废弃——body 无
   version/openid，v2 契约不可达），body `%{content, version: 2, scene: 2, openid}`，
   access_token 由 SDK client 管理（`client.get_access_token/0`）。请求体含 content
-  明文，经宿主 WechatRequester 出网（debug:false 既有红线）。tt/xhs 显式
+  明文，经宿主 Wechat.Requester 出网（debug:false 既有红线）。tt/xhs 显式
   pass-through（各自平台审核独立，Phase 4 接入，零外呼）。
 
   语义（plan D-2 + v2）：

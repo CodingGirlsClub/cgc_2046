@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.UrlScheme do
+defmodule Cgc2046.Integrations.Wechat.UrlScheme do
   @moduledoc """
   微信 URL Scheme 生成（spike）：活动分享深链。
 

@@ -4,7 +4,7 @@ defmodule Cgc2046.Notifications.Service do
   require Ash.Query
 
   alias Cgc2046.Accounts.UserIdentity
-  alias Cgc2046.Miniprogram.Client
+  alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.Notifications.Consent
 
   def send_to_user(user_id, platform, template_key, data) when is_map(data) do

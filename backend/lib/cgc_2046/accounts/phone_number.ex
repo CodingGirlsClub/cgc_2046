@@ -2,7 +2,7 @@ defmodule Cgc2046.Accounts.PhoneNumber do
   @moduledoc """
   手机号归一化单源（plan 2026-08-19-002 D5）：产出 `"+区号号码"` 规范形。
 
-  全平台唯一归一化实现——小程序负载解析（`Cgc2046.Miniprogram.Client`）与
+  全平台唯一归一化实现——小程序负载解析（`Cgc2046.Integrations.Wechat.Client`）与
   web 端手机号/邮箱登录共用，禁止第二套实现（防同一号码锚出
   `"+86138…"` 与 `"138…"` 两个 User 的分裂风险）。
 

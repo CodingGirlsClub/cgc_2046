@@ -1,7 +1,7 @@
-defmodule Cgc2046.Miniprogram.UrlSchemeTest do
+defmodule Cgc2046.Integrations.Wechat.UrlSchemeTest do
   use Cgc2046.DataCase, async: false
 
-  alias Cgc2046.Miniprogram.UrlScheme
+  alias Cgc2046.Integrations.Wechat.UrlScheme
 
   describe "create_link/3" do
     test "成功：返回 openlink，且请求体携带 jump_wxa 与到期失效参数（SDK 覆盖验证）" do
