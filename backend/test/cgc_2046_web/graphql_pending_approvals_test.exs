@@ -3,7 +3,7 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsTest do
 
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
 

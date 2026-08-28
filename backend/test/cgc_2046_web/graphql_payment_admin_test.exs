@@ -14,7 +14,7 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.WebhookEvent
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{NotificationTemplates, Order}

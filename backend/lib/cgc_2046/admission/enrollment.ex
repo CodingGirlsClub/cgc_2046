@@ -1,4 +1,4 @@
-defmodule Cgc2046.Events.Enrollment do
+defmodule Cgc2046.Admission.Enrollment do
   @moduledoc """
   Event/Course 报名资源。
 
@@ -22,7 +22,7 @@ defmodule Cgc2046.Events.Enrollment do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Admission
 
   require Ash.Query
   require Logger
@@ -127,7 +127,7 @@ defmodule Cgc2046.Events.Enrollment do
 
             Map.merge(
               acc,
-              Cgc2046.Events.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
+              Cgc2046.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
             )
           end)
 
@@ -145,7 +145,7 @@ defmodule Cgc2046.Events.Enrollment do
     belongs_to(:course, Cgc2046.Events.Course, define_attribute?: false)
     belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false)
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun, define_attribute?: false)
-    belongs_to(:invite_batch, Cgc2046.Events.InviteBatch, define_attribute?: false)
+    belongs_to(:invite_batch, Cgc2046.Admission.InviteBatch, define_attribute?: false)
 
     belongs_to(:approver, Cgc2046.Accounts.User,
       define_attribute?: false,
@@ -1305,7 +1305,7 @@ defmodule Cgc2046.Events.Enrollment do
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
-    resource_group(:events)
+    resource_group(:admission)
     table_columns([:id, :workspace_id, :user_id, :event_id, :course_id, :status, :inserted_at])
   end
 end

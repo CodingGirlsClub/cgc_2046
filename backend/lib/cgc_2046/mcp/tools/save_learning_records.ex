@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.SaveLearningRecords do
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Learning.LearningRecord
   alias Cgc2046.Mcp.Tools.LearnerAuthorization
   alias Cgc2046.Mcp.Wrapper

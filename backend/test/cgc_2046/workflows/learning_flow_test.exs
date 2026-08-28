@@ -23,7 +23,7 @@ defmodule Cgc2046.Workflows.LearningFlowTest do
 
   alias Cgc2046.Accounts.Role
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Tools.SaveStepOutput
   alias Cgc2046.Workflows.SignalIdempotency

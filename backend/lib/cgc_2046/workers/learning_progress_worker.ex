@@ -42,7 +42,7 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Workflows.{LearningProgress, WorkflowRun}
 
   @impl Oban.Worker

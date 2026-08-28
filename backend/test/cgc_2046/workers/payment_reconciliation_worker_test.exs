@@ -292,7 +292,7 @@ defmodule Cgc2046.Workers.PaymentReconciliationWorkerTest do
     learner = Cgc2046.AccountsFixtures.register_user("recon-l-" <> uniq())
 
     {:ok, enrollment} =
-      Cgc2046.Events.Enrollment
+      Cgc2046.Admission.Enrollment
       |> Ash.Changeset.for_create(:create_enrollment, %{
         event_id: event.id,
         user_id: learner.id,

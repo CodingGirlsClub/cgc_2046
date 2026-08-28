@@ -19,7 +19,7 @@ defmodule Cgc2046.SpeakerSubscriber do
 
   require Logger
 
-  alias Cgc2046.Events.Offering
+  alias Cgc2046.Offering
 
   @accepted_signal "speaker.accepted"
   @completed_signal "speaker.completed"
