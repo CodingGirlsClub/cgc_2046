@@ -45,10 +45,10 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     消费键派生仍由本骨架唯一持有。历史 post-hoc 检测方案（B 版）因无法区分
     「校验不过合法 skip」与「忘调 claim」被证伪，弃用。
   - `:claim_after_effects`：全部副作用成功（`handle/2` 返回 `:ok`）才 claim
-    （SponsorshipEndedSubscriber / ResearchRunReaper）；`{:error, reason}` 不落
+    （SponsorshipEndedSubscriber / Curriculum.Reaper）；`{:error, reason}` 不落
     claim、只记 error 日志不 crash forwarder——重投（SignalPublishWorker 重试
     或对账）仍会执行，逃逸行不会与「已完成」claim 并存。
-  - `:state_based`：不写 claim，靠业务状态守卫幂等（ResearchInstantiator 的
+  - `:state_based`：不写 claim，靠业务状态守卫幂等（Curriculum.Instantiator 的
     find_or_create run）。
 
   ## 消费键规则（Q12）

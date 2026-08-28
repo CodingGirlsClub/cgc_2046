@@ -3,7 +3,7 @@ defmodule Cgc2046.Workers.LearningProgressWorkerTest do
   LearningProgressWorker 完成判定升级测试(切片 H U4, #180)。
 
   - 全部 issue Done → run succeeded;部分 Done → 保持 running
-  - 无内容课程(无 ResearchOutput)→ 不判完成
+  - 无内容课程(无 Curriculum.Output)→ 不判完成
   - 记录更新后下一轮扫描完成(F3 集成)
   """
   use Cgc2046.DataCase, async: true
@@ -101,11 +101,11 @@ defmodule Cgc2046.Workers.LearningProgressWorkerTest do
   end
 
   defp save_content(workspace, actor, course) do
-    Cgc2046.Workflows.ResearchOutput
+    Cgc2046.Curriculum.Output
     |> Ash.Changeset.for_create(
       :upsert_content,
       %{
-        key: Cgc2046.Workflows.ResearchOutput.course_key(course.id),
+        key: Cgc2046.Curriculum.Output.course_key(course.id),
         kind: :issues,
         data: content_fixture(),
         submitted_by: actor.id
@@ -169,7 +169,7 @@ defmodule Cgc2046.Workers.LearningProgressWorkerTest do
     assert fetch_run(run_x.id, workspace.id).status == :running
   end
 
-  test "无内容课程(无 ResearchOutput)→ 不判完成" do
+  test "无内容课程(无 Curriculum.Output)→ 不判完成" do
     admin = Fixtures.platform_admin("lpw-u4-nocontent")
     workspace = Fixtures.create_workspace(admin)
     published = create_learning_definition(workspace, admin)

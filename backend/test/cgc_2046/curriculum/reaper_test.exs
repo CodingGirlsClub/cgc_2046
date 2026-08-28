@@ -1,10 +1,10 @@
-defmodule Cgc2046.Workflows.ResearchRunReaperTest do
+defmodule Cgc2046.Curriculum.ReaperTest do
   @moduledoc """
   E-9 #124 教研 run 回收测试：event.ended 信号 → 停该实体的非终态教研 run。
 
   测试直接调 SignalSubscriber.deliver/2（与生产 forwarder 同码；信号总线异步
   投递在 POC 已验证，测试不覆盖异步路径）。实例化走
-  ResearchInstantiator.launch/4 真实路径，验证 instance key 约定
+  Curriculum.Instantiator.launch/4 真实路径，验证 instance key 约定
   （input_snapshot["key"] = "event_\#{id}"）。
   """
 
@@ -13,16 +13,16 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
+  alias Cgc2046.Curriculum.{Instantiator, Reaper}
+
   alias Cgc2046.Workflows.{
-    ResearchInstantiator,
-    ResearchRunReaper,
     SignalIdempotency,
     SignalSubscriber,
     WorkflowDefinition,
     WorkflowRun
   }
 
-  defp create_definition(workspace, actor, type \\ :research) do
+  defp create_definition(workspace, actor, type \\ :curriculum) do
     WorkflowDefinition
     |> Ash.Changeset.for_create(
       :create,
@@ -43,12 +43,12 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     end)
   end
 
-  defp launch_research_run(workspace, actor, entity, entity_type) do
+  defp launch_curriculum_run(workspace, actor, entity, entity_type) do
     defn = create_definition(workspace, actor)
     key_field = "#{entity_type}_id"
 
     {:ok, run} =
-      ResearchInstantiator.launch(
+      Instantiator.launch(
         workspace.id,
         defn.id,
         %{key_field => entity.id, "title" => entity.title, "research_requirements" => %{}},
@@ -64,7 +64,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
   defp ended_signal(entity, type \\ "event.ended") do
     id_key = if type == "event.ended", do: "event_id", else: "course_id"
 
-    SignalSubscriber.deliver(ResearchRunReaper, %{
+    SignalSubscriber.deliver(Reaper, %{
       type: type,
       data: %{id_key => entity.id, "idempotency_key" => type <> ":" <> entity.id}
     })
@@ -76,7 +76,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     event = EventFixtures.create_event(workspace, admin)
 
     # manual-only 定义 → start_run 直达 waiting（无需 StepHandlerRegistry）
-    run = launch_research_run(workspace, admin, event, :event)
+    run = launch_curriculum_run(workspace, admin, event, :event)
     assert run.status == :waiting
 
     assert :ok = ended_signal(event)
@@ -94,8 +94,8 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     course = EventFixtures.create_course(workspace, admin)
     other_event = EventFixtures.create_event(workspace, admin)
 
-    course_run = launch_research_run(workspace, admin, course, :course)
-    other_run = launch_research_run(workspace, admin, other_event, :event)
+    course_run = launch_curriculum_run(workspace, admin, course, :course)
+    other_run = launch_curriculum_run(workspace, admin, other_event, :event)
 
     assert :ok = ended_signal(course, "course.ended")
 
@@ -156,7 +156,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
     assert claim_rows() == 1
   end
 
-  test "非 research run 同 instance key 不受影响（BLOCKING 5 负向）" do
+  test "非 curriculum run 同 instance key 不受影响（BLOCKING 5 负向）" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
@@ -187,14 +187,14 @@ defmodule Cgc2046.Workflows.ResearchRunReaperTest do
   test "无 entity id 的信号不崩溃；缺幂等键的信号被丢弃" do
     # 有消费键、无 entity id → catch-all 分支跳过，不崩溃
     assert :ok =
-             SignalSubscriber.deliver(ResearchRunReaper, %{
+             SignalSubscriber.deliver(Reaper, %{
                type: "event.ended",
                data: %{"event_id" => nil, "idempotency_key" => "event.ended:no-entity"}
              })
 
     # 缺 idempotency_key = 生产者契约违约 → 丢弃（不执行副作用、不 crash）
     assert {:error, :missing_idempotency_key} =
-             SignalSubscriber.deliver(ResearchRunReaper, %{
+             SignalSubscriber.deliver(Reaper, %{
                type: "event.ended",
                data: %{}
              })

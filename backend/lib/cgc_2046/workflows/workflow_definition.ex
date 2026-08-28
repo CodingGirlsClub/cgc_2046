@@ -37,13 +37,13 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     domain: Cgc2046.Api
 
   # WorkflowDefinition.type 全 5 枚举（R3 裁决 2026-08-16：删 platform_ops——零驱动的死枚举；
-  # enrollment/sponsorship 为实体自序贯预留，learning/research/speaker_invitation 有 instantiator）
+  # enrollment/sponsorship 为实体自序贯预留，learning/curriculum/speaker_invitation 有 instantiator）
   @type_values [
     :learning,
     :enrollment,
     :sponsorship,
     :speaker_invitation,
-    :research
+    :curriculum
   ]
   @status_values [:draft, :published, :archived]
 

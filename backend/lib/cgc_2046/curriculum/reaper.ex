@@ -1,14 +1,15 @@
-defmodule Cgc2046.Workflows.ResearchRunReaper do
+defmodule Cgc2046.Curriculum.Reaper do
   @moduledoc """
-  教研 run 回收（E-9 #124，总纲:171「event.ended → stop 回收」）。
+  教研 run 回收（E-9 #124，总纲:171「event.ended → stop 回收」;ADR-0009 PR③ 自
+  Workflows.ResearchRunReaper 迁入改名）。
 
   订阅 `event.ended` / `course.ended` → 停该实体的非终态教研 run
   （WorkflowRun :cancel——含 checkpoint 清理与 finished_at）。
   订阅骨架与 claim-after 幂等语义由 `Cgc2046.Workflows.SignalSubscriber`
   统一持有（语义事实见其 moduledoc）。
 
-  - **非 research 不碰**：按 `definition.type == :research` 过滤（BLOCKING 5）。
-  - **竞态兜底**：ResearchInstantiator 建 run 前二次校验实体 open（BLOCKING 3）；
+  - **非教研不碰**：按 `definition.type == :curriculum` 过滤（BLOCKING 5）。
+  - **竞态兜底**：Curriculum.Instantiator 建 run 前二次校验实体 open（BLOCKING 3）；
     残余窗口由对账扫描 E-10 规则⑤登记（#125）。
   """
 
@@ -32,18 +33,18 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
     do: stop_runs("course_#{course_id}")
 
   def handle(_type, data) do
-    Logger.warning("ResearchRunReaper received signal without entity id: #{inspect(data)}")
+    Logger.warning("Curriculum.Reaper received signal without entity id: #{inspect(data)}")
     :ok
   end
 
-  # instance key 存于 input_snapshot["key"]（research_instantiator 写入约定）。
+  # instance key 存于 input_snapshot["key"]（curriculum instantiator 写入约定）。
   # WorkflowRun multitenancy global?(true)：无 tenant 全局读（同 expiry worker）。
-  # 限定 definition.type == :research（BLOCKING 5：不碰同 key 的其他类型 run）。
+  # 限定 definition.type == :curriculum（BLOCKING 5：不碰同 key 的其他类型 run）。
   # 返回 :ok（全部成功或无可回收 run）| {:error, failed_count}（骨架不落 claim 等重投）。
   defp stop_runs(key) do
     WorkflowRun
     |> Ash.Query.filter(
-      definition.type == :research and status in @non_terminal_statuses and
+      definition.type == :curriculum and status in @non_terminal_statuses and
         input_snapshot["key"] == ^key
     )
     |> Ash.read!(authorize?: false)
@@ -63,7 +64,7 @@ defmodule Cgc2046.Workflows.ResearchRunReaper do
         :ok
 
       {:error, reason} ->
-        Logger.warning("ResearchRunReaper cancel failed for run #{run.id}: #{inspect(reason)}")
+        Logger.warning("Curriculum.Reaper cancel failed for run #{run.id}: #{inspect(reason)}")
         :error
     end
   end

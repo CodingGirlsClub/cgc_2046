@@ -1,6 +1,7 @@
-defmodule Cgc2046.Workflows.ResearchInstantiator do
+defmodule Cgc2046.Curriculum.Instantiator do
   @moduledoc """
-  教研 workflow 实例化（Slice C #39，阶段 6）。
+  教研 workflow 实例化（Slice C #39，阶段 6;ADR-0009 PR③ 自
+  Workflows.ResearchInstantiator 迁入改名）。
 
   Event/Course launch → 创建教研 WorkflowRun + start_run。领域模型 §2.3：
   每个 Event/Course 实例化一个教研 workflow 实例，instance key 为
@@ -50,7 +51,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
       when is_binary(workspace_id) and is_binary(definition_id) and is_map(input) and
              entity_type in [:event, :course] do
     with {:ok, defn} <- fetch_definition(workspace_id, definition_id),
-         :ok <- ensure_research_definition(defn),
+         :ok <- ensure_curriculum_definition(defn),
          :ok <- ensure_create_guards(entity_type, input),
          {:ok, run, _status} <-
            WorkflowRun.find_or_create_and_start(workspace_id, defn, input,
@@ -65,6 +66,8 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   # 信号 → 解析实体/教研定义 → launch/4。signal.data 形态（Event/Course launch
   # action 发布）：%{"event_id" => id, "title" => ..., "research_requirements" => ...}
   # 或 %{"course_id" => id, ...}。
+  # （ADR-0009 KD8/R9：信号 payload 键逐字节冻结，`research_requirements` 键名不随
+  # 属性改名。）
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(_type, %{"event_id" => event_id} = data) when is_binary(event_id) do
     instantiate(event_id, :event, data)
@@ -75,7 +78,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   end
 
   def handle(_type, data) do
-    Logger.warning("ResearchInstantiator received signal without entity id: #{inspect(data)}")
+    Logger.warning("Curriculum.Instantiator received signal without entity id: #{inspect(data)}")
     :ok
   end
 
@@ -85,8 +88,8 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   defp instantiate(entity_id, entity_type, data) do
     with {:ok, entity} <- fetch_entity(entity_type, entity_id),
          :ok <- ensure_launched(entity),
-         :ok <- ensure_research_enabled(entity_type, entity),
-         {:ok, %WorkflowDefinition{} = defn} <- fetch_research_definition(entity.workspace_id) do
+         :ok <- ensure_curriculum_enabled(entity_type, entity),
+         {:ok, %WorkflowDefinition{} = defn} <- fetch_curriculum_definition(entity.workspace_id) do
       input =
         case entity_type do
           :event ->
@@ -111,11 +114,11 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
         {:ok, %WorkflowRun{} = run} ->
           # #14：run 创建成功 → 回写实体 workflow_run_id（产物引用链；失败只记日志，
           # 不阻塞实例化——引用可对账补写）。
-          link_research_run(entity, entity_type, run)
+          link_curriculum_run(entity, entity_type, run)
 
         {:error, reason} ->
           Logger.error(
-            "ResearchInstantiator launch failed for #{entity_type} #{entity_id}: #{inspect(reason)}"
+            "Curriculum.Instantiator launch failed for #{entity_type} #{entity_id}: #{inspect(reason)}"
           )
 
           :ok
@@ -123,7 +126,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
     else
       {:error, reason} ->
         Logger.warning(
-          "ResearchInstantiator skipped instantiation for #{entity_type} #{entity_id}: #{inspect(reason)}"
+          "Curriculum.Instantiator skipped instantiation for #{entity_type} #{entity_id}: #{inspect(reason)}"
         )
 
         :ok
@@ -131,14 +134,14 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
       # 无已 published 教研定义（read_first 返回 nil）是合法场景，走 skipped 而非 unexpected。
       {:ok, nil} ->
         Logger.warning(
-          "ResearchInstantiator skipped instantiation for #{entity_type} #{entity_id}: :research_definition_not_found"
+          "Curriculum.Instantiator skipped instantiation for #{entity_type} #{entity_id}: :curriculum_definition_not_found"
         )
 
         :ok
 
       other ->
         Logger.warning(
-          "ResearchInstantiator unexpected instantiation result for #{entity_type} #{entity_id}: #{inspect(other)}"
+          "Curriculum.Instantiator unexpected instantiation result for #{entity_type} #{entity_id}: #{inspect(other)}"
         )
 
         :ok
@@ -154,11 +157,11 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
     end
   end
 
-  defp ensure_research_definition(%WorkflowDefinition{type: :research, status: :published}),
+  defp ensure_curriculum_definition(%WorkflowDefinition{type: :curriculum, status: :published}),
     do: :ok
 
-  defp ensure_research_definition(%WorkflowDefinition{type: type, status: status}) do
-    {:error, {:definition_not_research_published, type, status}}
+  defp ensure_curriculum_definition(%WorkflowDefinition{type: type, status: status}) do
+    {:error, {:definition_not_curriculum_published, type, status}}
   end
 
   # 异步路径：按 entity_id 反查 offering（PK 全局唯一，global?(true) 下可不带 tenant）。
@@ -173,22 +176,22 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
 
   # #6 + U6(#180/R14):教研开关门控退化为 **event-only**——Course 删列后
   # 恒走教研实例化(issue 卡是课程内容本体);Event 保留退出通道
-  # (research_enabled = 「这场活动不使用教研链路」,轻聚会场景)。
-  defp ensure_research_enabled(:event, %{research_enabled: true}), do: :ok
+  # (curriculum_enabled = 「这场活动不使用教研链路」,轻聚会场景)。
+  defp ensure_curriculum_enabled(:event, %{curriculum_enabled: true}), do: :ok
 
-  defp ensure_research_enabled(:event, %{research_enabled: false}),
-    do: {:error, :research_disabled}
+  defp ensure_curriculum_enabled(:event, %{curriculum_enabled: false}),
+    do: {:error, :curriculum_disabled}
 
-  defp ensure_research_enabled(:course, _course), do: :ok
+  defp ensure_curriculum_enabled(:course, _course), do: :ok
 
   # #14：run 创建成功后回写实体 workflow_run_id（产物引用链）。
   # 失败只记日志不阻塞——引用可对账补写（best-effort，同 launch 容错语义）。
-  defp link_research_run(entity, _entity_type, run) do
+  defp link_curriculum_run(entity, _entity_type, run) do
     attrs = %{workflow_run_id: run.id}
 
     case entity
          |> Ash.Changeset.for_update(
-           :link_research_run,
+           :link_curriculum_run,
            attrs,
            tenant: entity.workspace_id,
            authorize?: false
@@ -199,7 +202,7 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
 
       {:error, reason} ->
         Logger.error(
-          "ResearchInstantiator link_research_run failed for #{entity.__struct__} #{entity.id}: #{inspect(reason)}"
+          "Curriculum.Instantiator link_curriculum_run failed for #{entity.__struct__} #{entity.id}: #{inspect(reason)}"
         )
 
         :ok
@@ -210,9 +213,9 @@ defmodule Cgc2046.Workflows.ResearchInstantiator do
   # inserted_at desc 兜底）——read_one 无排序时 Postgres 返回任意行，实例化
   # 会跑错 workflow（low-1）；且 read_one + sort 会因多行报 MultipleResults，
   # 取排序首行必须用 read_first。
-  defp fetch_research_definition(workspace_id) do
+  defp fetch_curriculum_definition(workspace_id) do
     WorkflowDefinition
-    |> Ash.Query.filter(type == :research and status == :published)
+    |> Ash.Query.filter(type == :curriculum and status == :published)
     |> Ash.Query.sort(version: :desc, inserted_at: :desc)
     |> Ash.read_first(tenant: workspace_id, authorize?: false)
   end

@@ -10,6 +10,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Api,
       Cgc2046.Admission,
       Cgc2046.Courses,
+      Cgc2046.Curriculum,
       Cgc2046.Events,
       Cgc2046.GlobalApi,
       Cgc2046.Payments
@@ -2549,14 +2550,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp build_course_map(course) do
-    content = Cgc2046.Courses.Course.course_content(course)
+    content = Cgc2046.Curriculum.course_content(course)
 
     %{
       course_id: course.id,
       title: course.title,
       slug: course.slug,
       goals: content["goals"] || [],
-      issues: Cgc2046.Courses.Course.issue_map_rows(course)
+      issues: Cgc2046.Curriculum.issue_map_rows(course)
     }
   end
 
@@ -2597,7 +2598,7 @@ defmodule Cgc2046Web.GraphqlSchema do
              course.workspace_id,
              course.id
            ) do
-      content = Cgc2046.Courses.Course.course_content(course)
+      content = Cgc2046.Curriculum.course_content(course)
       records = fetch_actor_records(course, actor)
       {:ok, build_course_learning_detail(course, content, records)}
     else
@@ -2856,7 +2857,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # U7:内容/记录/课程按 (course, user) 组装(无内容课程 → nil → 投影 0/n)。
   # course 供 issue key 派生(slug 短码);一次往返,抽屉数据同源。
-  # #217 旁路读取（D 类·本人锚链）：本函数三处直读（ResearchOutput 内容 /
+  # #217 旁路读取（D 类·本人锚链）：本函数三处直读（Curriculum.Output 内容 /
   # LearningRecord 记录 / Course 元数据）由同一调用链守门——
   # project_learning_run 已校验 enrollment.user_id == actor.id，records 再按
   # user_id 过滤本人；无他人视角可构造。
@@ -2865,9 +2866,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     if is_binary(course_id) do
       content =
-        Cgc2046.Workflows.ResearchOutput
+        Cgc2046.Curriculum.Output
         |> Ash.Query.filter(
-          key == ^Cgc2046.Workflows.ResearchOutput.course_key(course_id) and kind == :issues
+          key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
         )
         |> Ash.Query.limit(1)
         |> Ash.read_one(authorize?: false, tenant: run.workspace_id)

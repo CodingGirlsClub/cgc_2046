@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   @moduledoc """
   保存课程内容 issue 卡集(切片 H U3, #180;R1 写,教研侧唯一写入口)。
 
-  - 写 ResearchOutput(kind=:issues, key=course_<id>)活文档(U1
+  - 写 Curriculum.Output(kind=:issues, key=course_<id>)活文档(U1
     upsert_content;run 终态后仍可更新,Q8);
   - run 非终态时向教研 run `facts["issues"]` 浅合并镜像(KTD1)。
 
@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
   alias Cgc2046.Mcp.Wrapper
-  alias Cgc2046.Workflows.ResearchOutput
+  alias Cgc2046.Curriculum.Output
 
   @non_terminal_statuses [:pending, :running, :waiting]
 
@@ -72,11 +72,11 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
 
   defp save_output(actor, workspace_id, course, content) do
     changeset =
-      ResearchOutput
+      Output
       |> Ash.Changeset.for_create(
         :upsert_content,
         %{
-          key: ResearchOutput.course_key(course.id),
+          key: Output.course_key(course.id),
           kind: :issues,
           data: content,
           submitted_by: actor.id,
@@ -102,7 +102,7 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   end
 
   # KTD1:run 非终态时向 facts["issues"] 浅合并镜像(save_step_output 的浅合并
-  # 语义);终态 run 不动(Q8:活文档经 ResearchOutput 本体更新,镜像只是教研
+  # 语义);终态 run 不动(Q8:活文档经 Curriculum.Output 本体更新,镜像只是教研
   # run 视角的方便投影)。镜像失败不阻塞写结果(审计可见性优于响应语义)。
   defp mirror_to_run(course, content) do
     case course.workflow_run_id do

@@ -4,7 +4,7 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
   R15——退款即取消，ADR-0007）。
 
   订阅 `event.ended` / `course.ended`（D4：closed 与 cancelled 共用信号；双信号
-  按 payload 键分派，先例 ResearchRunReaper）→ **回查实体 status** 仅 `cancelled`
+  按 payload 键分派，先例 Curriculum.Reaper）→ **回查实体 status** 仅 `cancelled`
   触发退款批量（closed = 正常结束，不退）；逐笔隔离，部分失败只记 warning 不
   阻塞其余（下一波信号重投/管理员单笔 retry 兜底）：
 

@@ -1,9 +1,10 @@
-defmodule Cgc2046.Workflows.ResearchOutput do
+defmodule Cgc2046.Curriculum.Output do
   @moduledoc """
-  教研产出资源(切片 H U1, #180):课程内容的唯一持久层。
+  教研产出资源(切片 H U1, #180;ADR-0009 PR③ 自 Workflows.ResearchOutput 迁入改名):
+  课程内容的唯一持久层。
 
   - `(key, kind)` 唯一,key = `course_<id>`(`course_key/1` 单源约定,
-    ResearchProgressWorker / save_course_content 工具共用);`(key, kind)`
+    CurriculumProgressWorker / save_course_content 工具共用);`(key, kind)`
     全局唯一(course id 全局唯一,重复即 bug)。
   - v1 `kind = :issues`:课程内容本体(course content JSONB,形状校验见
     `Cgc2046.Workflows.CourseContent`);`:materials` / `:archive` 设计保留、
@@ -25,7 +26,7 @@ defmodule Cgc2046.Workflows.ResearchOutput do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Curriculum
 
   @kind_values [:issues]
 
@@ -128,7 +129,7 @@ defmodule Cgc2046.Workflows.ResearchOutput do
   end
 
   postgres do
-    table("research_outputs")
+    table("curriculum_outputs")
     repo(Cgc2046.Repo)
 
     custom_indexes do
@@ -153,14 +154,14 @@ defmodule Cgc2046.Workflows.ResearchOutput do
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪
-    resource_group(:workflows)
+    resource_group(:curriculum)
     label_field(:key)
     table_columns([:id, :workspace_id, :key, :kind, :submitted_by, :inserted_at])
   end
 
   # --- 纯函数单源 --------------------------------------------------------------
 
-  @doc "课程内容 key 约定(`course_<id>`);ResearchProgressWorker 与 save_course_content 共用。"
+  @doc "课程内容 key 约定(`course_<id>`);CurriculumProgressWorker 与 save_course_content 共用。"
   @spec course_key(String.t()) :: String.t()
   def course_key(course_id) when is_binary(course_id), do: "course_#{course_id}"
 end

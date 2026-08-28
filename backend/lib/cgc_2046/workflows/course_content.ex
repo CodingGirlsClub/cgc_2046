@@ -16,7 +16,7 @@ defmodule Cgc2046.Workflows.CourseContent do
         }
       }
 
-  消费方:ResearchOutput changeset 校验(U1)、LearningProgress issue 级投影与
+  消费方:Curriculum.Output changeset 校验(U1)、LearningProgress issue 级投影与
   完成判定(U4)。JSONB 只按 string keys 校验(MCP `save_course_content` 经
   Jason 解码是唯一写入口;SponsorshipTier 同款先例)。
 
@@ -138,7 +138,7 @@ end
 
 defmodule Cgc2046.Workflows.CourseContentValidation do
   @moduledoc """
-  `ResearchOutput.data` 的 course content 形状校验(Ash Resource.Validation)。
+  `Curriculum.Output.data` 的 course content 形状校验(Ash Resource.Validation)。
 
   非法内容在入库前拒绝(fail-fast),错误挂 `:data` 字段。
   """

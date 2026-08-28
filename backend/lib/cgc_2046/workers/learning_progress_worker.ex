@@ -6,10 +6,10 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   扫 `type=learning` 且 `status=running` 的 run，做两件事：
 
   1. **完成判定（U4,全 issue Done）**：run 锚定 enrollment 对应课程的
-     course content（ResearchOutput kind=:issues）+ 该 user 学习记录，
+     course content（Curriculum.Output kind=:issues）+ 该 user 学习记录，
      全部 issue 的 checklist 条目均有 done 记录 → 调既有 `:complete` action
      置 `succeeded`（完成语义从「走完了」升级为「学会了」，#180 US25）。
-     无内容课程（无 ResearchOutput）不判完成（skip，不报错）；run 终态
+     无内容课程（无 Curriculum.Output）不判完成（skip，不报错）；run 终态
      不重扫（查询限定 running）。
 
   2. **停滞升级（D6-③）**：`running` 且 facts 无新增 > 7 天（`updated_at` 代理——
@@ -78,7 +78,7 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
   end
 
   # U4(#180):完成条件 = 全部 issue Done(数据源 = course content
-  # ResearchOutput + 该 user 学习记录;无内容课程不判完成,KTD3)。
+  # Curriculum.Output + 该 user 学习记录;无内容课程不判完成,KTD3)。
   defp maybe_complete(%WorkflowRun{} = run) do
     with enrollment when is_map(enrollment) <- fetch_enrollment_or_nil(run),
          {:ok, content} <- fetch_course_content(run.workspace_id, enrollment),
@@ -118,12 +118,12 @@ defmodule Cgc2046.Workers.LearningProgressWorker do
     end
   end
 
-  # 无内容课程(无 ResearchOutput)→ {:ok, nil} → all_issues_done? false(skip)
+  # 无内容课程(无 Curriculum.Output)→ {:ok, nil} → all_issues_done? false(skip)
   defp fetch_course_content(workspace_id, %{course_id: course_id})
        when is_binary(course_id) do
-    Cgc2046.Workflows.ResearchOutput
+    Cgc2046.Curriculum.Output
     |> Ash.Query.filter(
-      key == ^Cgc2046.Workflows.ResearchOutput.course_key(course_id) and kind == :issues
+      key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
     )
     |> Ash.Query.limit(1)
     |> Ash.read_one(authorize?: false, tenant: workspace_id)

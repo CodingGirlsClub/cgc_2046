@@ -91,7 +91,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     run
   end
 
-  defp create_research_run(workspace, actor, definition, key) do
+  defp create_curriculum_run(workspace, actor, definition, key) do
     assert {:ok, run} =
              WorkflowRun
              |> Ash.Changeset.for_create(
@@ -323,7 +323,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     end
   end
 
-  # ── 规4：open 且 research_enabled 但工作台无 published 教研定义 ---------------
+  # ── 规4：open 且 curriculum_enabled 但工作台无 published 教研定义 ---------------
 
   describe "规4 open 实体无 published 教研定义" do
     test "open event/course 无教研定义 → 各命中一例" do
@@ -343,33 +343,33 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     test "工作台有 published 教研定义 → 不命中" do
       admin = Fixtures.platform_admin("rc4-admin")
       workspace = Fixtures.create_workspace(admin)
-      create_published_definition(workspace, admin, :research)
+      create_published_definition(workspace, admin, :curriculum)
       EventFixtures.create_event(workspace, admin)
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:open_entity_without_research_definition)
     end
 
-    test "research_enabled = false 合法不命中" do
+    test "curriculum_enabled = false 合法不命中" do
       admin = Fixtures.platform_admin("rc4-admin")
       workspace = Fixtures.create_workspace(admin)
-      EventFixtures.create_event(workspace, admin, %{research_enabled: false})
+      EventFixtures.create_event(workspace, admin, %{curriculum_enabled: false})
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:open_entity_without_research_definition)
     end
   end
 
-  # ── 规5：closed/cancelled 实体仍有非终态 research run ------------------------
+  # ── 规5：closed/cancelled 实体仍有非终态 curriculum run ------------------------
 
-  describe "规5 closed/cancelled 实体仍有非终态 research run" do
+  describe "规5 closed/cancelled 实体仍有非终态 curriculum run" do
     test "closed event + 非终态 run → 命中；消解（run 转终态）→ 空" do
       admin = Fixtures.platform_admin("rc5-admin")
       workspace = Fixtures.create_workspace(admin)
-      research_defn = create_published_definition(workspace, admin, :research)
+      curriculum_defn = create_published_definition(workspace, admin, :curriculum)
       event = EventFixtures.create_event(workspace, admin)
       force_status("events", event.id, "closed")
-      run = create_research_run(workspace, admin, research_defn, "event_#{event.id}")
+      run = create_curriculum_run(workspace, admin, curriculum_defn, "event_#{event.id}")
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
 
@@ -388,10 +388,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     test "cancelled course + 非终态 run → 命中（course 前缀 instance key）" do
       admin = Fixtures.platform_admin("rc5-admin")
       workspace = Fixtures.create_workspace(admin)
-      research_defn = create_published_definition(workspace, admin, :research)
+      curriculum_defn = create_published_definition(workspace, admin, :curriculum)
       course = EventFixtures.create_course(workspace, admin)
       force_status("courses", course.id, "cancelled")
-      create_research_run(workspace, admin, research_defn, "course_#{course.id}")
+      create_curriculum_run(workspace, admin, curriculum_defn, "course_#{course.id}")
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
 
@@ -403,10 +403,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     test "closed 实体但 run 已终态 → 不命中" do
       admin = Fixtures.platform_admin("rc5-admin")
       workspace = Fixtures.create_workspace(admin)
-      research_defn = create_published_definition(workspace, admin, :research)
+      curriculum_defn = create_published_definition(workspace, admin, :curriculum)
       event = EventFixtures.create_event(workspace, admin)
       force_status("events", event.id, "closed")
-      run = create_research_run(workspace, admin, research_defn, "event_#{event.id}")
+      run = create_curriculum_run(workspace, admin, curriculum_defn, "event_#{event.id}")
       force_run_status(run, "succeeded")
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
@@ -416,9 +416,9 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
     test "open 实体 + 非终态 run → 不命中（仅 closed/cancelled 判孤儿）" do
       admin = Fixtures.platform_admin("rc5-admin")
       workspace = Fixtures.create_workspace(admin)
-      research_defn = create_published_definition(workspace, admin, :research)
+      curriculum_defn = create_published_definition(workspace, admin, :curriculum)
       event = EventFixtures.create_event(workspace, admin)
-      create_research_run(workspace, admin, research_defn, "event_#{event.id}")
+      create_curriculum_run(workspace, admin, curriculum_defn, "event_#{event.id}")
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:nonterminal_research_run_for_closed_entity)
@@ -588,7 +588,7 @@ defmodule Cgc2046.Workers.ReconciliationScanWorkerTest do
       workspace = Fixtures.create_workspace(admin)
 
       # 教研定义 + 学习定义都具备：open 实体、confirmed 报名、learning run 齐备
-      create_published_definition(workspace, admin, :research)
+      create_published_definition(workspace, admin, :curriculum)
       learning_defn = create_published_definition(workspace, admin, :learning)
       learner = Fixtures.register_user("rc-empty-learner")
       event = EventFixtures.create_event(workspace, admin)

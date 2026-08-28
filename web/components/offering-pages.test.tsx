@@ -686,7 +686,7 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
           startsAt: null,
           endsAt: null,
           ...(kind === "course"
-            ? { researchRequirements: JSON.stringify({ note: "" }) }
+            ? { curriculumRequirements: JSON.stringify({ note: "" }) }
             : { venue: { country: "", province: "", city: "", district: "" } }),
           pricingEnabled: false,
           priceTiers: [],
@@ -1256,7 +1256,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         registrationDeadline: null,
         startsAt: new Date("2026-09-01T09:30").toISOString(),
         endsAt: null,
-        researchRequirements: JSON.stringify({ note: "" }),
+        curriculumRequirements: JSON.stringify({ note: "" }),
         pricingEnabled: false,
         priceTiers: [],
       }),

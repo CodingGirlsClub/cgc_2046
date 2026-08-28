@@ -4,7 +4,7 @@ defmodule Cgc2046.Events.EventLifecycleTest do
   compare-and-set 陈旧守卫（Event/Course 双覆盖）。
 
   信号发布不在此断言：发布路径由事务内 outbox 入队（SignalPublishWorker）承担，
-  本测试断言 close/cancel 后 job 已入队；订阅方行为由 ResearchRunReaper 测试覆盖。
+  本测试断言 close/cancel 后 job 已入队；订阅方行为由 Curriculum.Reaper 测试覆盖。
   """
 
   use Cgc2046.DataCase, async: true

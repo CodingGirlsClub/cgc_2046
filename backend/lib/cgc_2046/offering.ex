@@ -5,7 +5,7 @@ defmodule Cgc2046.Offering do
 
   五处各自为政的 Ash.get Event/Course 分叉（NotificationSubscriber.target_title /
   LearningInstantiator.fetch_entity / PendingApprovals.load_offering_titles /
-  GraphqlSchema.fetch_offering_by_id / ResearchInstantiator.fetch_entity）收敛为
+  GraphqlSchema.fetch_offering_by_id / Curriculum.Instantiator.fetch_entity）收敛为
   一个 interface，错误形状统一坍缩为 `{:error, :not_found}` 单点。
 
   ## 命名空间区分
@@ -18,8 +18,8 @@ defmodule Cgc2046.Offering do
 
   - `fetch/3`：`fetch(kind, id, opts \\ [])` → `{:ok, entity} | {:error, :not_found}`。
     kind ∈ `:event | :course`；opts `authorize?: false`（默认）/ `actor:`（graphql
-    场景，全库唯一 actor 感知读取）/ `tenant:`。返回**完整 entity**（research 需
-    status graphql 需完整 struct 供 Readiness;research 门控 U6 起 event-only)。
+    场景，全库唯一 actor 感知读取）/ `tenant:`。返回**完整 entity**（curriculum 需
+    status graphql 需完整 struct 供 Readiness;curriculum 门控 U6 起 event-only)。
   - `fetch_by_signal_payload/1`：按 payload 键 `event_id`/`course_id` 分派（消灭
     各处手写键探测）。
   - `fetch_titles_by_ids/2`：批量（`%{kind => [ids]}` + tenant → `%{id => title}`），

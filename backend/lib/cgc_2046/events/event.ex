@@ -10,7 +10,7 @@ defmodule Cgc2046.Events.Event do
 
   `launch` action：draft → open，发 `event.launched` 信号（SignalEmitter 事务内
   outbox 入队，SignalPublishWorker 经 JidoAdapter 总线异步投递），
-  `Cgc2046.Workflows.ResearchInstantiator` 订阅该信号创建教研 WorkflowRun。
+  `Cgc2046.Curriculum.Instantiator` 订阅该信号创建教研 WorkflowRun。
 
   ## 多租户
 
@@ -61,7 +61,7 @@ defmodule Cgc2046.Events.Event do
       description: "公开展示文案（可空；null 由展示层按空串呈现）"
     )
 
-    attribute(:research_enabled, :boolean,
+    attribute(:curriculum_enabled, :boolean,
       allow_nil?: false,
       default: true,
       public?: true,
@@ -69,7 +69,7 @@ defmodule Cgc2046.Events.Event do
       description: "是否启用教研 workflow"
     )
 
-    attribute(:research_requirements, :map,
+    attribute(:curriculum_requirements, :map,
       default: %{},
       public?: true,
       writable?: true,
@@ -252,8 +252,8 @@ defmodule Cgc2046.Events.Event do
   actions do
     default_accept([
       :title,
-      :research_enabled,
-      :research_requirements,
+      :curriculum_enabled,
+      :curriculum_requirements,
       :enrollment_policy,
       :capacity,
       :registration_deadline,
@@ -275,8 +275,8 @@ defmodule Cgc2046.Events.Event do
 
       accept([
         :title,
-        :research_enabled,
-        :research_requirements,
+        :curriculum_enabled,
+        :curriculum_requirements,
         :enrollment_policy,
         :capacity,
         :registration_deadline,
@@ -358,8 +358,8 @@ defmodule Cgc2046.Events.Event do
 
       accept([
         :title,
-        :research_enabled,
-        :research_requirements,
+        :curriculum_enabled,
+        :curriculum_requirements,
         :enrollment_policy,
         :capacity,
         :registration_deadline,
@@ -533,9 +533,9 @@ defmodule Cgc2046.Events.Event do
 
     defaults([:read])
 
-    # #14：教研 run 创建后回写产物引用（ResearchInstantiator 内部调用，authorize?: false）。
+    # #14：教研 run 创建后回写产物引用（Curriculum.Instantiator 内部调用，authorize?: false）。
     # workflow_run_id 是 writable 属性但不在任何公开 action 的 accept——只有本 action 可写。
-    update :link_research_run do
+    update :link_curriculum_run do
       description("回写教研 workflow 产物引用（#39 实例化后）")
       require_atomic?(false)
       accept([:workflow_run_id])
@@ -559,7 +559,8 @@ defmodule Cgc2046.Events.Event do
     %{
       "event_id" => event.id,
       "title" => event.title,
-      "research_requirements" => event.research_requirements || %{}
+      # ADR-0009 KD8/R9：payload 键逐字节冻结，键名不随属性改名
+      "research_requirements" => event.curriculum_requirements || %{}
     }
   end
 
@@ -591,7 +592,7 @@ defmodule Cgc2046.Events.Event do
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
-  # research_enabled / research_requirements / workflow_run_id / capacity /
+  # curriculum_enabled / curriculum_requirements / workflow_run_id / capacity /
   # confirmed_count，匿名被筛除。
   field_policies do
     field_policy :* do
@@ -600,8 +601,8 @@ defmodule Cgc2046.Events.Event do
 
     field_policy [
       :workspace_id,
-      :research_enabled,
-      :research_requirements,
+      :curriculum_enabled,
+      :curriculum_requirements,
       :workflow_run_id,
       :capacity,
       :confirmed_count

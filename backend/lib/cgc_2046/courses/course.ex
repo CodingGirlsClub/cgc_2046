@@ -11,7 +11,7 @@ defmodule Cgc2046.Courses.Course do
 
   `launch` action：draft → open，发 `course.launched` 信号（SignalEmitter 事务内
   outbox 入队，SignalPublishWorker 经 JidoAdapter 总线异步投递），
-  `Cgc2046.Workflows.ResearchInstantiator` 订阅该信号创建教研 WorkflowRun。
+  `Cgc2046.Curriculum.Instantiator` 订阅该信号创建教研 WorkflowRun。
 
   ## 多租户
 
@@ -26,7 +26,6 @@ defmodule Cgc2046.Courses.Course do
     domain: Cgc2046.Courses
 
   alias Cgc2046.Offering.StatusTransition
-  require Ash.Query
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
   @visibility_values [:public, :workspace]
@@ -61,7 +60,7 @@ defmodule Cgc2046.Courses.Course do
       description: "公开展示文案（可空；null 由展示层按空串呈现）"
     )
 
-    attribute(:research_requirements, :map,
+    attribute(:curriculum_requirements, :map,
       default: %{},
       public?: true,
       writable?: true,
@@ -189,46 +188,12 @@ defmodule Cgc2046.Courses.Course do
     )
   end
 
-  # 地图行(goal-only,R10):key 派生(KTD6)= slug 短码 + 卡集内 1 起序号。
-  # 唯一消费方 = graphql_schema resolve_course_map(G3:calculate 包装已删,
-  # 无 GraphQL/Ash 面需要,留纯函数直调)
+  # 内容读契约归 Curriculum（ADR-0009 KD3/R4：内容写侧是教研产出）：实现落
+  # `Cgc2046.Curriculum`，本模块仅委托（行为不变）。
   @doc false
-  def issue_map_rows(%__MODULE__{} = course) do
-    content = course_content(course)
+  def issue_map_rows(%__MODULE__{} = course), do: Cgc2046.Curriculum.issue_map_rows(course)
 
-    content
-    |> Cgc2046.Workflows.CourseContent.issues()
-    |> Enum.with_index(1)
-    |> Enum.map(fn {issue, idx} ->
-      %{
-        key: Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx),
-        id: issue["id"],
-        title: issue["title"],
-        kind: issue["kind"],
-        goal: issue["story"]["goal"]
-      }
-    end)
-  end
-
-  # U7:课程内容读取(公开地图与学员详情共用源);authorize?: false——门禁在
-  # 调用面(course 读 policy / 学习详情工具层授权),内容本体无独立敏感面
-  # (goal-only 投影由调用方负责;本函数返回全量 content,不外泄 checklist 的
-  # 责任在投影层)。
-  def course_content(%__MODULE__{id: id, workspace_id: workspace_id})
-      when is_binary(id) and is_binary(workspace_id) do
-    Cgc2046.Workflows.ResearchOutput
-    |> Ash.Query.filter(
-      key == ^Cgc2046.Workflows.ResearchOutput.course_key(id) and kind == :issues
-    )
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
-    |> case do
-      {:ok, output} -> output && output.data
-      _ -> nil
-    end
-  end
-
-  def course_content(_course), do: nil
+  def course_content(course), do: Cgc2046.Curriculum.course_content(course)
 
   multitenancy do
     strategy(:attribute)
@@ -257,7 +222,7 @@ defmodule Cgc2046.Courses.Course do
   actions do
     default_accept([
       :title,
-      :research_requirements,
+      :curriculum_requirements,
       :enrollment_policy,
       :capacity,
       :registration_deadline,
@@ -275,7 +240,7 @@ defmodule Cgc2046.Courses.Course do
 
       accept([
         :title,
-        :research_requirements,
+        :curriculum_requirements,
         :enrollment_policy,
         :capacity,
         :registration_deadline,
@@ -353,7 +318,7 @@ defmodule Cgc2046.Courses.Course do
 
       accept([
         :title,
-        :research_requirements,
+        :curriculum_requirements,
         :enrollment_policy,
         :capacity,
         :registration_deadline,
@@ -524,9 +489,9 @@ defmodule Cgc2046.Courses.Course do
 
     defaults([:read])
 
-    # #14：教研 run 创建后回写产物引用（ResearchInstantiator 内部调用，authorize?: false）。
+    # #14：教研 run 创建后回写产物引用（Curriculum.Instantiator 内部调用，authorize?: false）。
     # workflow_run_id 是 writable 属性但不在任何公开 action 的 accept——只有本 action 可写。
-    update :link_research_run do
+    update :link_curriculum_run do
       description("回写教研 workflow 产物引用（#39 实例化后）")
       require_atomic?(false)
       accept([:workflow_run_id])
@@ -550,7 +515,8 @@ defmodule Cgc2046.Courses.Course do
     %{
       "course_id" => course.id,
       "title" => course.title,
-      "research_requirements" => course.research_requirements || %{}
+      # ADR-0009 KD8/R9：payload 键逐字节冻结，键名不随属性改名
+      "research_requirements" => course.curriculum_requirements || %{}
     }
   end
 
@@ -583,7 +549,7 @@ defmodule Cgc2046.Courses.Course do
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
-  # research_requirements / workflow_run_id / capacity /
+  # curriculum_requirements / workflow_run_id / capacity /
   # confirmed_count，匿名被筛除。
   field_policies do
     field_policy :* do
@@ -592,7 +558,7 @@ defmodule Cgc2046.Courses.Course do
 
     field_policy [
       :workspace_id,
-      :research_requirements,
+      :curriculum_requirements,
       :workflow_run_id,
       :capacity,
       :confirmed_count
