@@ -120,7 +120,7 @@ defmodule Cgc2046.Mcp.ToolCallLog do
 
     # platform_admin 可读全部审计记录（R10/R12 前置）；非 admin 仍 default-deny
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

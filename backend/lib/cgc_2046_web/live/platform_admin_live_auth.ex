@@ -22,7 +22,7 @@ defmodule Cgc2046Web.Live.PlatformAdminLiveAuth do
   import Phoenix.Component
 
   alias Cgc2046.Accounts.User
-  alias Cgc2046.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
 
   @session_key "cgc_current_user_id"
 

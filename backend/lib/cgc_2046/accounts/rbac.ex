@@ -1,4 +1,4 @@
-defmodule Cgc2046.Rbac do
+defmodule Cgc2046.Accounts.Rbac do
   @moduledoc """
   统一权限判定模块（#66 A-5-BE Rbac 模块）。
 
@@ -28,13 +28,13 @@ defmodule Cgc2046.Rbac do
     **`update_join_policy` 亦有豁免**（#78：Workspace 全局资源管理能力，平台管理员历史上可更新，能力不回收；
     与 policy 侧并集一致）；管理类能力（`list_members` / `manage_members` / `assign_roles` / `manage_events`）**无豁免**，
     仍按实际 membership 判定——此拒绝是双面契约的能力面，契约真源见
-    `Cgc2046.Policies.PlatformAdmin` moduledoc（#66 P2 方向①，#64「平台管理员非成员 canAccess=false」）
+    `Cgc2046.Accounts.Policies.PlatformAdmin` moduledoc（#66 P2 方向①，#64「平台管理员非成员 canAccess=false」）
   - actor 为 `nil`（匿名）→ 一律 `false`
   - `create_workspace` 是平台级能力，不出现在角色矩阵（与前端 #67 矩阵一致：五角色均为 false）
 
   与各资源 Ash policies 的关系：资源自身由 `policies do ... end` 强制（如 workspace
   读取、workspace_membership 管理）；policy 面与能力面的分工（双面契约）见
-  `Cgc2046.Policies.PlatformAdmin` moduledoc。
+  `Cgc2046.Accounts.Policies.PlatformAdmin` moduledoc。
   """
 
   alias Cgc2046.Accounts.MembershipContext

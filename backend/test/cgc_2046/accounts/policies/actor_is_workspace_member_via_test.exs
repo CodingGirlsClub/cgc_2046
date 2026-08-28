@@ -1,8 +1,8 @@
-defmodule Cgc2046.Policies.ActorIsWorkspaceMemberViaTest do
+defmodule Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberViaTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Policies.ActorIsWorkspaceMemberVia
+  alias Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 

@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.ActorIsWorkspaceMemberVia do
+defmodule Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia do
   @moduledoc """
   「成员可读」授权的命名 FilterCheck：actor 是否为记录所属工作台的成员。
 
@@ -6,7 +6,7 @@ defmodule Cgc2046.Policies.ActorIsWorkspaceMemberVia do
   `authorize_if(relates_to_actor_via(<全路径>))`。各资源只声明怎么到工作台：
 
       policy action_type(:read) do
-        authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
+        authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
       end
 
   - `path`（atom 列表）：从当前资源到 `Cgc2046.Accounts.Workspace` 的关系路径

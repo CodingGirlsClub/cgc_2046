@@ -1,8 +1,8 @@
-defmodule Cgc2046.Policies.PlatformAdminTest do
+defmodule Cgc2046.Accounts.Policies.PlatformAdminTest do
   use ExUnit.Case, async: true
 
   alias Cgc2046.Accounts.User
-  alias Cgc2046.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
 
   describe "platform_admin?/1（纯谓词，fail-closed）" do
     test "nil → false" do

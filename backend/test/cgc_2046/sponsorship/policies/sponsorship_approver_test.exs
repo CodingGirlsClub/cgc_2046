@@ -1,10 +1,10 @@
-defmodule Cgc2046.Policies.SponsorshipApproverTest do
+defmodule Cgc2046.Sponsorship.Policies.SponsorshipApproverTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.Role
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Sponsorship.Sponsorship
-  alias Cgc2046.Policies.SponsorshipApprover
+  alias Cgc2046.Sponsorship.Policies.SponsorshipApprover
 
   describe "approver_roles/1 规则唯一真源（拍板 #4）" do
     test ":event 委托 Role.manage_roles/0（owner/admin，角色清单变更自动跟随）" do

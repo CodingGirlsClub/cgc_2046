@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.WorkspaceActorIsVolunteer do
+defmodule Cgc2046.Accounts.Policies.WorkspaceActorIsVolunteer do
   @moduledoc """
   判断 actor 是否为目标工作台（租户）的 Volunteer。
 

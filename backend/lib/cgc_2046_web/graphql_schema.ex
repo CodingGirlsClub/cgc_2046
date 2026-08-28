@@ -34,7 +34,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn _actor ->
           roles =
-            Cgc2046.Rbac.matrix()
+            Cgc2046.Accounts.Rbac.matrix()
             |> Enum.map(fn row ->
               %{
                 name: to_string(row.role),
@@ -2961,7 +2961,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     actor = context[:actor]
 
     cond do
-      Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) ->
+      Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) ->
         fun.(actor)
 
       is_nil(actor) ->

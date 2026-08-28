@@ -1,4 +1,4 @@
-defmodule Cgc2046.RbacContractTest do
+defmodule Cgc2046.Accounts.RbacContractTest do
   @moduledoc """
   golden-file 契约守卫（#1 能力接口收敛）。
 
@@ -13,9 +13,9 @@ defmodule Cgc2046.RbacContractTest do
   use ExUnit.Case, async: true
 
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Rbac
 
-  @contract_path Path.expand("../../priv/rbac_contract.json", __DIR__)
+  @contract_path Path.expand("../../../priv/rbac_contract.json", __DIR__)
 
   test "committed rbac_contract.json exists and matches Rbac single source" do
     contract = File.read!(@contract_path) |> Jason.decode!()

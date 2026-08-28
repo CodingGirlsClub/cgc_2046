@@ -93,7 +93,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   policies do
     # 内部资源：仅 platform_admin 经 AshAdmin 观测；非 admin default-deny（#209）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

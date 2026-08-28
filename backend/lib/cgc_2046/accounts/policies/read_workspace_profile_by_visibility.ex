@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.ReadWorkspaceProfileByVisibility do
+defmodule Cgc2046.Accounts.Policies.ReadWorkspaceProfileByVisibility do
   @moduledoc """
   WorkspaceProfile 读取授权：按 visibility 三档判定「当前 actor 能否读取该
   workspace 档案」（ADR-0004，per-workspace 语义）。

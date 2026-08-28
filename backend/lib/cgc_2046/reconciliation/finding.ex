@@ -184,7 +184,7 @@ defmodule Cgc2046.Reconciliation.Finding do
     # 平台级报告：仅平台管理员可读（对账页消费）；扫描 worker 走 authorize?: false
     # 平台读（D2）。create/refresh 亦仅 PlatformAdmin——worker 之外无合法写入口。
     policy action_type([:read, :create, :update, :destroy]) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 end

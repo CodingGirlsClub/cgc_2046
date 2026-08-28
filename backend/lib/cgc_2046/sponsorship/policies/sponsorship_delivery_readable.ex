@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.SponsorshipDeliveryReadable do
+defmodule Cgc2046.Sponsorship.Policies.SponsorshipDeliveryReadable do
   @moduledoc """
   履约账本行读取授权（E-3 #48）。
 

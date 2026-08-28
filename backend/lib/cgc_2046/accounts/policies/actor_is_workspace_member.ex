@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.ActorIsWorkspaceMember do
+defmodule Cgc2046.Accounts.Policies.ActorIsWorkspaceMember do
   @moduledoc """
   判断 actor 是否为目标工作台（租户）的成员（ADR-0004 per-workspace profile 写授权）。
 

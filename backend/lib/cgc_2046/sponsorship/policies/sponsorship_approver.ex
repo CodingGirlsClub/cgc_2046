@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.SponsorshipApprover do
+defmodule Cgc2046.Sponsorship.Policies.SponsorshipApprover do
   @moduledoc """
   赞助审批权限（E-3 #48 拍板 #4）：
 

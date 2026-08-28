@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.ActorReadsOffering do
+defmodule Cgc2046.Offering.ActorReadsOffering do
   @moduledoc """
   Offering 读取授权：工作台成员可读非 draft；Owner/Admin 可读全部状态。
 

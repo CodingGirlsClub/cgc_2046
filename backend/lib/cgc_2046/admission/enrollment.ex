@@ -341,21 +341,21 @@ defmodule Cgc2046.Admission.Enrollment do
 
   policies do
     policy action(:create_enrollment) do
-      forbid_if(Cgc2046.Policies.PlatformAdmin)
+      forbid_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end
 
     policy action([:confirm_enrollment, :reject_enrollment]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     policy action(:waive_payment) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     policy action(:cancel) do
-      forbid_if(Cgc2046.Policies.PlatformAdmin)
+      forbid_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end
 
@@ -365,8 +365,8 @@ defmodule Cgc2046.Admission.Enrollment do
 
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 
