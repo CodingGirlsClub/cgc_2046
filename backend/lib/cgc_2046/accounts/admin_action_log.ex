@@ -111,7 +111,7 @@ defmodule Cgc2046.Accounts.AdminActionLog do
 
     # platform_admin 可读全部留痕（R10a）；非 admin default-deny
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

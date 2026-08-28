@@ -357,13 +357,13 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
     # :approve / :reject 仅 platform_admin
     policy action([:approve, :reject]) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # :read 申请人本人可读自己的申请；platform_admin 可读全部
     policy action_type(:read) do
       authorize_if(expr(applicant_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

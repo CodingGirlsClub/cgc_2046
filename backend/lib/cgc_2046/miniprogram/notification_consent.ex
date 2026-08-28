@@ -44,7 +44,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
   policies do
     # platform_admin 可读授权余额（AshAdmin 观测面）；非 admin default-deny（#209）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

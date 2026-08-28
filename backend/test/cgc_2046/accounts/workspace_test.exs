@@ -4,7 +4,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Rbac
 
   describe "create workspace" do
     test "platform admin can create a workspace with defaults" do

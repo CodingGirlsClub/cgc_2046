@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.ActorIsEnrolledLearner do
+defmodule Cgc2046.Admission.Policies.ActorIsEnrolledLearner do
   @moduledoc """
   「报名学员本人」授权的命名 SimpleCheck（E-7 #122，学习 workflow 设计 §4.1）。
 

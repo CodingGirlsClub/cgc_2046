@@ -140,15 +140,15 @@ defmodule Cgc2046.Curriculum.Output do
   policies do
     # 读取:workspace 成员或平台管理员(学员侧豁免在工具层,U3)
     policy action_type(:read) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 写入:成员门槛在资源层;tutor ∪ owner/admin 细粒度判定在工具层(U3,
     # update_facts_for_mcp bypass 同款纪律)
     policy action_type(:create) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

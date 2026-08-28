@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.ReadOwnUser do
+defmodule Cgc2046.Accounts.Policies.ReadOwnUser do
   @moduledoc """
   User 读取授权：仅本人可读（ADR-0004 收窄）。
 

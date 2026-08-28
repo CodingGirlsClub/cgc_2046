@@ -1,8 +1,8 @@
-defmodule Cgc2046.RbacTest do
+defmodule Cgc2046.Accounts.RbacTest do
   use ExUnit.Case, async: true
 
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Rbac
 
   describe "matrix/0" do
     test "matches the contract artifact (5 roles, G1)" do

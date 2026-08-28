@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.OwnWorkspaceProfile do
+defmodule Cgc2046.Accounts.Policies.OwnWorkspaceProfile do
   @moduledoc """
   WorkspaceProfile 写授权：actor 是该档案本人（`changeset.data.user_id == actor.id`）。
 

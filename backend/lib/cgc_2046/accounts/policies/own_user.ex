@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.OwnUser do
+defmodule Cgc2046.Accounts.Policies.OwnUser do
   @moduledoc """
   User 写授权：actor 是目标用户本人（`changeset.data.id == actor.id`）。
 

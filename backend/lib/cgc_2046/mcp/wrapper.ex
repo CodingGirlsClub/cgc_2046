@@ -28,8 +28,8 @@ defmodule Cgc2046.Mcp.Wrapper do
     get_step_output 等）一律 Forbidden。MCP 是自动化 agent 代理面，取最小
     授权：平台管理员的跨租户治理读走 GraphQL admin 查询，不经 agent 直连面。
   - **policy / Rbac 面**：资源 read policy 放行 platform_admin 跨租户治理读取
-    （成员列表 / 审计 / 工作流，见 `Cgc2046.Policies.PlatformAdmin`
-    「双面契约」段与 `Cgc2046.Rbac.abilities_for/2`）。
+    （成员列表 / 审计 / 工作流，见 `Cgc2046.Accounts.Policies.PlatformAdmin`
+    「双面契约」段与 `Cgc2046.Accounts.Rbac.abilities_for/2`）。
 
   修改任一面前先读对面——MCP 门若要放宽 admin 豁免，须与
   `Policies.PlatformAdmin`、`Rbac.abilities_for/2`、CONTEXT.md「平台管理员」

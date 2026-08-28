@@ -273,13 +273,13 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     # 读取（H3）：仅 workspace 成员或平台管理员可读，杜绝跨租户泄露
     # （对比：原 actor_present() 配合 global?(true) 会让任意登录用户读到任意租户定义）
     policy action_type(:read) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 写操作：Owner/Admin（多角色并集）
     policy action_type([:create, :update]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 

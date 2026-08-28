@@ -127,7 +127,7 @@ defmodule Cgc2046.Admission.CapacityLedger do
   policies do
     # platform_admin 可读账本行（观测面）；非 admin default-deny（#209 同款）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

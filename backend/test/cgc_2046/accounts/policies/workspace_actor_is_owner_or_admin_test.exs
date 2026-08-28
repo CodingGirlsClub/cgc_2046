@@ -1,9 +1,9 @@
-defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdminTest do
+defmodule Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdminTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin
+  alias Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin
 
   require Ash.Query
 

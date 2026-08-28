@@ -306,13 +306,13 @@ defmodule Cgc2046.Accounts.JoinRequest do
 
     # :approve / :reject 仅 Owner/Admin
     policy action([:approve, :reject]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     # :read 申请人本人可读自己的申请；Owner/Admin 可读该工作台全部申请
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 

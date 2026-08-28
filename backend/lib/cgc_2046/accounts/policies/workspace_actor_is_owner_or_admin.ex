@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin do
+defmodule Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin do
   @moduledoc """
   判断 actor 是否为目标工作台（租户）的 Owner 或 Admin。
 

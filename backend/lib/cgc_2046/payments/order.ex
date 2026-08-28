@@ -497,29 +497,29 @@ defmodule Cgc2046.Payments.Order do
     # 学员专用面仍是 my_orders / get_by_id 专用 action，互不影响。
     policy action(:read) do
       authorize_if(expr(enrollment.user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 管理列表（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
     # workspace_id 经 action filter 并入 query.filter，OwnerOrAdmin 从 filter
     # 提取（MembershipContext query 场景）。
     policy action(:workspace_orders) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 收款统计（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
     policy action(:workspace_payment_stats) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 管理员单笔退款/重试（R15/R19）：Workspace Owner/Admin；PlatformAdmin
     # 持退款兜底权（资金主体）。
     policy action([:refund, :retry_refund]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 下单/换渠道/取消：actor 在场（匿名拒绝），本人校验经 prepare 内

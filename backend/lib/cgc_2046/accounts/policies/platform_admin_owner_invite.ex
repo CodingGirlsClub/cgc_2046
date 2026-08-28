@@ -1,4 +1,4 @@
-defmodule Cgc2046.Policies.PlatformAdminOwnerInvite do
+defmodule Cgc2046.Accounts.Policies.PlatformAdminOwnerInvite do
   @moduledoc """
   仅允许平台管理员处理预授权 Owner 的邀请。
 
@@ -9,7 +9,7 @@ defmodule Cgc2046.Policies.PlatformAdminOwnerInvite do
   use Ash.Policy.SimpleCheck
 
   alias Cgc2046.Accounts.Invitation
-  alias Cgc2046.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
 
   @impl true
   def describe(_opts), do: "actor is a platform admin with an owner invitation"

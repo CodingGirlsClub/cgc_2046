@@ -103,7 +103,7 @@
 
 - **定义**：全局标记（`is_platform_admin`，非租户角色），可多人；负责创建 Workspace 并指定 Owner。
 - **不变量**：系统必须维持 ≥1 名平台管理员；降级最后一名管理员被拒绝（不变量由 `User :demote_platform_admin` action 守卫）。
-- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。
+- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
 
@@ -437,7 +437,7 @@
 
 ### 赞助审批人（Sponsorship Approver Roles）
 
-- **定义**：「谁是赞助审批人」规则（拍板 #4）的唯一真源 = `Cgc2046.Policies.SponsorshipApprover.approver_roles/1`（2026-08-17 架构深化候选 F，plan `docs/plans/2026-08-17-002-sponsorship-approver-roles.md` D1-D8 全锁定）：`approver_roles(:event) -> Role.manage_roles()`（owner/admin，角色清单变更自动跟随）｜`approver_roles(:workspace) -> [:owner]`（长期承诺加严；平台 Admin 备案二期，不参与审批）。**三消费面只改此处即全链路跟随**：写面 `match?/3`（approve/reject policy，委托 `Enum.any?(roles, &(&1 in approver_roles(level)))`）｜提醒面 `ApprovalReminderWorker` 每工作台两套收件人选择器按 `{:roles, approver_roles(level)}` 派生（收件人零变化，测试钉死）｜读面 `PendingApprovals` 按角色集反查 `allowed_levels` 做 Sponsorship 行级过滤（`level in ^allowed_levels` 下推到 pending/expired/count 三路径——admin 无 workspace 级行，与写面 policy 一致，看得到点不动的行不进待办读面）。
+- **定义**：「谁是赞助审批人」规则（拍板 #4）的唯一真源 = `Cgc2046.Sponsorship.Policies.SponsorshipApprover.approver_roles/1`（2026-08-17 架构深化候选 F，plan `docs/plans/2026-08-17-002-sponsorship-approver-roles.md` D1-D8 全锁定）：`approver_roles(:event) -> Role.manage_roles()`（owner/admin，角色清单变更自动跟随）｜`approver_roles(:workspace) -> [:owner]`（长期承诺加严；平台 Admin 备案二期，不参与审批）。**三消费面只改此处即全链路跟随**：写面 `match?/3`（approve/reject policy，委托 `Enum.any?(roles, &(&1 in approver_roles(level)))`）｜提醒面 `ApprovalReminderWorker` 每工作台两套收件人选择器按 `{:roles, approver_roles(level)}` 派生（收件人零变化，测试钉死）｜读面 `PendingApprovals` 按角色集反查 `allowed_levels` 做 Sponsorship 行级过滤（`level in ^allowed_levels` 下推到 pending/expired/count 三路径——admin 无 workspace 级行，与写面 policy 一致，看得到点不动的行不进待办读面）。
 - **架构位置**：横切判定面（policy 模块内纯函数薄壳，规则归属地不另起第二真源）；消费方 = sponsorship approve/reject policy / ApprovalReminderWorker / PendingApprovals；`is_nil(event_id)` 不变量本体不动（仅 ARW 不再作分派依据）。
 
 ### SpeakerInvitation（分享嘉宾邀请）
