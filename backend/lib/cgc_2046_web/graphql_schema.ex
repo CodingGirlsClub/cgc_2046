@@ -950,7 +950,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.NotificationConsent.grant(actor.id, platform, template_key) do
+          case Cgc2046.Notifications.Consent.grant(actor.id, platform, template_key) do
             {:ok, remaining} ->
               {:ok, remaining}
 

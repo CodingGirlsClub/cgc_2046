@@ -30,7 +30,7 @@ defmodule Cgc2046.Changes.SignalEmitter do
 
   - `"idempotency_key"` = `"<type>:<record_id>"`——仅缺省注入（payload fn
     自带幂等键时保留自带值，如 `offering.capacity_changed` 逐次唯一键）；
-    缺省值与消费方既有派生回退（NotificationSubscriber/SpeakerSubscriber
+    缺省值与消费方既有派生回退（Notifications.Subscriber/SpeakerSubscriber
     的 `"<type>:<id>"` fallback）逐值一致，存量 claim 键不变；
   - `"workspace_id"` 取自 `record.workspace_id`（覆盖 payload fn 同名片段，
     规范唯一来源在 emitter）；

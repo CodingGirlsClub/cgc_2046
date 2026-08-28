@@ -232,9 +232,9 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
   # ── 通知（R22：支付成功 → 报名人；契约 = Payments.NotificationTemplates）──
 
   defp notify_payment_succeeded(order, enrollment) do
-    recipients = {enrollment.user_id, Cgc2046.NotificationFanout.identities(enrollment.user_id)}
+    recipients = {enrollment.user_id, Cgc2046.Notifications.Fanout.identities(enrollment.user_id)}
 
-    Cgc2046.NotificationFanout.deliver(
+    Cgc2046.Notifications.Fanout.deliver(
       recipients,
       Templates.payment_succeeded(),
       Templates.payment_data(order),
@@ -244,8 +244,8 @@ defmodule Cgc2046.Workers.PaymentSettlementWorker do
     # U5/R12：组织者逐笔收款感知（尽力而为；managers 合并先例 refund worker，
     # 可靠兜底 = 经营面面板）。data 含活动名/档位名/金额。
     with {:ok, loaded} <- Ash.load(enrollment, [:target_title]) do
-      Cgc2046.NotificationFanout.deliver(
-        Cgc2046.NotificationFanout.managers(order.workspace_id),
+      Cgc2046.Notifications.Fanout.deliver(
+        Cgc2046.Notifications.Fanout.managers(order.workspace_id),
         Templates.payment_received(),
         Templates.receipt_data(order, loaded.target_title),
         %{"idempotency_key" => Templates.payment_received() <> ":" <> order.id}

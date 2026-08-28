@@ -1,11 +1,11 @@
-defmodule Cgc2046.NotificationService do
+defmodule Cgc2046.Notifications.Service do
   @moduledoc "按平台身份投递订阅消息，并以数据库原子操作消费一次性授权。"
 
   require Ash.Query
 
   alias Cgc2046.Accounts.UserIdentity
   alias Cgc2046.Miniprogram.Client
-  alias Cgc2046.NotificationConsent
+  alias Cgc2046.Notifications.Consent
 
   def send_to_user(user_id, platform, template_key, data) when is_map(data) do
     with {:ok, uid} <- identity_uid(user_id, platform) do
@@ -16,7 +16,7 @@ defmodule Cgc2046.NotificationService do
   @doc "投递到指定平台身份（uid 已知，如同用户多身份场景）；授权按 user+platform 原子消费。"
   def send_to_identity(user_id, platform, uid, template_key, data) when is_map(data) do
     with {:ok, template_id} <- template_id(platform, template_key),
-         {:ok, _remaining} <- NotificationConsent.take(user_id, platform, template_key) do
+         {:ok, _remaining} <- Consent.take(user_id, platform, template_key) do
       case Client.send_notification(
              platform,
              uid,
@@ -27,7 +27,7 @@ defmodule Cgc2046.NotificationService do
           :ok
 
         {:error, _} = error ->
-          _ = NotificationConsent.refund(user_id, platform, template_key)
+          _ = Consent.refund(user_id, platform, template_key)
           error
       end
     end

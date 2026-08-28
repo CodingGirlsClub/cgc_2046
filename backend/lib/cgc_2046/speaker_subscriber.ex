@@ -9,7 +9,7 @@ defmodule Cgc2046.SpeakerSubscriber do
 
   订阅骨架与 claim-first 幂等语义由 `Cgc2046.Workflows.SignalSubscriber` 统一
   持有（语义事实见其 moduledoc）；收件人解析与 Oban 入队收敛到
-  `Cgc2046.NotificationFanout`（唯一实现，通知分发面深化 PR-C）——本模块退化为
+  `Cgc2046.Notifications.Fanout`（唯一实现，通知分发面深化 PR-C）——本模块退化为
   纯订阅方。
   """
 
@@ -54,7 +54,7 @@ defmodule Cgc2046.SpeakerSubscriber do
   defp producer_key(data), do: Map.fetch!(data, "idempotency_key")
 
   # 通知 workspace Owner/Admin（管理角色判定唯一真源 `Role.manage_roles/0`，
-  # 经 NotificationFanout.managers/2 收敛）
+  # 经 Notifications.Fanout.managers/2 收敛）
   defp notify_workspace_managers(data, template_key) do
     invitation_id = Map.fetch!(data, "speaker_invitation_id")
 
@@ -66,8 +66,8 @@ defmodule Cgc2046.SpeakerSubscriber do
     with {:ok, title} <- event_title(data) do
       data
       |> Map.fetch!("workspace_id")
-      |> Cgc2046.NotificationFanout.managers()
-      |> Cgc2046.NotificationFanout.deliver(
+      |> Cgc2046.Notifications.Fanout.managers()
+      |> Cgc2046.Notifications.Fanout.deliver(
         template_key,
         %{"speaker_invitation_id" => invitation_id, "title" => title},
         job_meta
@@ -90,8 +90,8 @@ defmodule Cgc2046.SpeakerSubscriber do
 
     case Map.get(data, "speaker_user_id") do
       user_id when is_binary(user_id) ->
-        Cgc2046.NotificationFanout.deliver(
-          {user_id, Cgc2046.NotificationFanout.identities(user_id)},
+        Cgc2046.Notifications.Fanout.deliver(
+          {user_id, Cgc2046.Notifications.Fanout.identities(user_id)},
           "speaker_completed",
           %{"speaker_invitation_id" => invitation_id},
           %{"speaker_invitation_id" => invitation_id, "idempotency_key" => producer_key(data)}
@@ -110,7 +110,7 @@ defmodule Cgc2046.SpeakerSubscriber do
 
   # 标题解析唯一真源 = Offering 读取面（fetch_by_signal_payload 按 event_id 分派，
   # {:ok, nil}/未命中/错误统一坍缩 {:error, :not_found}——仅进日志无消费方；
-  # 同 notification_subscriber.target_title 形状，Offering 第六消费方）。
+  # 同 notifications.subscriber.target_title 形状，Offering 第六消费方）。
   defp event_title(data) do
     with {:ok, offering} <- Offering.fetch_by_signal_payload(data) do
       {:ok, Offering.title(offering)}

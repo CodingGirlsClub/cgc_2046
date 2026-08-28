@@ -1,4 +1,4 @@
-defmodule Cgc2046.NotificationConsent do
+defmodule Cgc2046.Notifications.Consent do
   @moduledoc "订阅消息授权配额的原子增减接口。"
 
   @platforms [:wechat, :tt, :xhs]

@@ -1,9 +1,9 @@
-defmodule Cgc2046.NotificationFanoutTest do
+defmodule Cgc2046.Notifications.FanoutTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.NotificationFanout
+  alias Cgc2046.Notifications.Fanout
   alias Cgc2046.Workers.NotificationWorker
 
   @telemetry_event [:cgc2046, :notification_fanout, :deliver]
@@ -16,7 +16,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       insert_identity(admin.id, :tt, "fanout-manage-admin-openid")
       insert_identity(member.id, :xhs, "fanout-manage-member-openid")
 
-      assert %{} = recipients = NotificationFanout.managers(workspace.id)
+      assert %{} = recipients = Fanout.managers(workspace.id)
 
       assert Map.keys(recipients) |> Enum.sort() == Enum.sort([owner.id, admin.id])
       assert [%{provider: :wechat, uid: "fanout-manage-owner-openid"}] = recipients[owner.id]
@@ -30,7 +30,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       insert_identity(owner.id, :wechat, "fanout-narrow-owner-openid")
       insert_identity(admin.id, :tt, "fanout-narrow-admin-openid")
 
-      assert %{} = recipients = NotificationFanout.managers(workspace.id, {:roles, [:owner]})
+      assert %{} = recipients = Fanout.managers(workspace.id, {:roles, [:owner]})
 
       assert Map.keys(recipients) == [owner.id]
       refute Map.has_key?(recipients, admin.id)
@@ -46,14 +46,14 @@ defmodule Cgc2046.NotificationFanoutTest do
       Fixtures.add_member(workspace, member)
       insert_identity(member.id, :wechat, "fanout-empty-member-openid")
 
-      assert NotificationFanout.managers(workspace.id) == %{}
+      assert Fanout.managers(workspace.id) == %{}
     end
 
     test "管理成员无平台身份 → 空 map（调用方不区分「无人」与「有人无身份」）" do
       owner = Fixtures.platform_admin("fanout-no-identity")
       workspace = Fixtures.create_workspace(owner)
 
-      assert NotificationFanout.managers(workspace.id) == %{}
+      assert Fanout.managers(workspace.id) == %{}
     end
 
     test "同用户多平台身份按 user_id 分组为一个列表（分组形状）" do
@@ -64,7 +64,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       insert_identity(owner.id, :tt, "fanout-group-tt")
 
       owner_id = owner.id
-      assert %{^owner_id => identities} = NotificationFanout.managers(workspace.id)
+      assert %{^owner_id => identities} = Fanout.managers(workspace.id)
 
       assert identities |> Enum.map(& &1.uid) |> Enum.sort() ==
                ["fanout-group-tt", "fanout-group-wx"]
@@ -77,7 +77,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       insert_identity(user.id, :wechat, "fanout-identities-wx")
       insert_identity(user.id, :tt, "fanout-identities-tt")
 
-      assert [i1, i2] = NotificationFanout.identities(user.id)
+      assert [i1, i2] = Fanout.identities(user.id)
 
       assert [i1, i2] |> Enum.map(& &1.uid) |> Enum.sort() ==
                ["fanout-identities-tt", "fanout-identities-wx"]
@@ -87,7 +87,7 @@ defmodule Cgc2046.NotificationFanoutTest do
 
     test "无平台身份 → []" do
       user = Fixtures.register_user("fanout-no-identities")
-      assert NotificationFanout.identities(user.id) == []
+      assert Fanout.identities(user.id) == []
     end
   end
 
@@ -96,10 +96,10 @@ defmodule Cgc2046.NotificationFanoutTest do
       user = Fixtures.register_user("fanout-deliver-shape")
       insert_identity(user.id, :wechat, "fanout-deliver-shape-wx")
       insert_identity(user.id, :tt, "fanout-deliver-shape-tt")
-      identities = NotificationFanout.identities(user.id)
+      identities = Fanout.identities(user.id)
 
       assert :ok =
-               NotificationFanout.deliver(
+               Fanout.deliver(
                  {user.id, identities},
                  "approval_result",
                  %{"status" => "confirmed"},
@@ -109,7 +109,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       assert length(all_enqueued(worker: NotificationWorker)) == 2
 
       assert :ok =
-               NotificationFanout.deliver(
+               Fanout.deliver(
                  %{user.id => identities},
                  "approval_result",
                  %{"status" => "confirmed"},
@@ -130,8 +130,8 @@ defmodule Cgc2046.NotificationFanoutTest do
       deadline = "2026-08-15T00:00:00Z"
 
       assert :ok =
-               NotificationFanout.deliver(
-                 {user.id, NotificationFanout.identities(user.id)},
+               Fanout.deliver(
+                 {user.id, Fanout.identities(user.id)},
                  "approval_reminder",
                  %{"enrollment_id" => enrollment_id, "approval_deadline" => deadline},
                  %{
@@ -156,14 +156,14 @@ defmodule Cgc2046.NotificationFanoutTest do
       user = Fixtures.register_user("fanout-deliver-empty")
 
       assert :ok =
-               NotificationFanout.deliver(
+               Fanout.deliver(
                  {user.id, []},
                  "approval_result",
                  %{},
                  %{}
                )
 
-      assert :ok = NotificationFanout.deliver(%{}, "approval_result", %{}, %{})
+      assert :ok = Fanout.deliver(%{}, "approval_result", %{}, %{})
 
       assert all_enqueued(worker: NotificationWorker) == []
 
@@ -178,8 +178,8 @@ defmodule Cgc2046.NotificationFanoutTest do
       insert_identity(user.id, :tt, "fanout-telemetry-tt")
 
       assert :ok =
-               NotificationFanout.deliver(
-                 {user.id, NotificationFanout.identities(user.id)},
+               Fanout.deliver(
+                 {user.id, Fanout.identities(user.id)},
                  "approval_result",
                  %{},
                  %{}
@@ -195,7 +195,7 @@ defmodule Cgc2046.NotificationFanoutTest do
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           # 非法 recipients 形状 → normalize 函数子句错误被 rescue 捕获
-          assert :ok = NotificationFanout.deliver(:bogus, "approval_result", %{}, %{})
+          assert :ok = Fanout.deliver(:bogus, "approval_result", %{}, %{})
         end)
 
       assert log =~ "notification deliver failed (approval_result)"
@@ -209,11 +209,11 @@ defmodule Cgc2046.NotificationFanoutTest do
     test "unique 预设：:default 含 discarded 阻塞重拍；:reminder_7d 释放 discarded 名额（#7）" do
       user = Fixtures.register_user("fanout-unique")
       insert_identity(user.id, :wechat, "fanout-unique-openid")
-      identities = NotificationFanout.identities(user.id)
+      identities = Fanout.identities(user.id)
       data = %{"enrollment_id" => Ecto.UUID.generate()}
 
       # :default —— 同 args 重入队折叠为既有 job
-      assert :ok = NotificationFanout.deliver({user.id, identities}, "approval_result", data, %{})
+      assert :ok = Fanout.deliver({user.id, identities}, "approval_result", data, %{})
 
       assert [job] =
                all_enqueued(
@@ -221,7 +221,7 @@ defmodule Cgc2046.NotificationFanoutTest do
                  args: %{"template_key" => "approval_result"}
                )
 
-      assert :ok = NotificationFanout.deliver({user.id, identities}, "approval_result", data, %{})
+      assert :ok = Fanout.deliver({user.id, identities}, "approval_result", data, %{})
 
       assert [same] =
                all_enqueued(
@@ -239,12 +239,12 @@ defmodule Cgc2046.NotificationFanoutTest do
           [job.id]
         )
 
-      assert :ok = NotificationFanout.deliver({user.id, identities}, "approval_result", data, %{})
+      assert :ok = Fanout.deliver({user.id, identities}, "approval_result", data, %{})
       assert count_rows("approval_result", user.id) == 1
 
       # :reminder_7d —— discarded 释放名额，重拍插入新行
       assert :ok =
-               NotificationFanout.deliver(
+               Fanout.deliver(
                  {user.id, identities},
                  "approval_reminder",
                  data,
@@ -266,7 +266,7 @@ defmodule Cgc2046.NotificationFanoutTest do
         )
 
       assert :ok =
-               NotificationFanout.deliver(
+               Fanout.deliver(
                  {user.id, identities},
                  "approval_reminder",
                  data,

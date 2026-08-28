@@ -371,7 +371,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
         })
 
       insert_identity(owner.id, "reminder-owner-openid")
-      {:ok, _} = Cgc2046.NotificationConsent.grant(owner.id, :wechat, "approval_reminder")
+      {:ok, _} = Cgc2046.Notifications.Consent.grant(owner.id, :wechat, "approval_reminder")
 
       # 入队后、执行前，报名被过期扫描转 expired
       {:ok, _} =
@@ -395,7 +395,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorkerTest do
 
       # 未投递 → 授权未被消费
       assert {:ok, 1} =
-               Cgc2046.NotificationConsent.remaining(owner.id, :wechat, "approval_reminder")
+               Cgc2046.Notifications.Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
 
     test "带非空 workflow_run_id 的 pending Enrollment 处于窗口内 → 仅由 Enrollment 扫描产生每收件人一条提醒" do
