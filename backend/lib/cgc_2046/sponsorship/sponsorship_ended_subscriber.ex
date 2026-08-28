@@ -11,7 +11,8 @@ defmodule Cgc2046.Sponsorship.SponsorshipEndedSubscriber do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["event.ended"],
-    idempotency: :claim_after_effects
+    idempotency: :claim_after_effects,
+    consumer_key: "sponsorship_ended_subscriber"
 
   require Ash.Query
   require Logger

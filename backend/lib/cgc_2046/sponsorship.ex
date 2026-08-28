@@ -1,9 +1,10 @@
 defmodule Cgc2046.Sponsorship do
   @moduledoc """
   赞助域（ADR-0009 PR④）：两级赞助聚合（Sponsorship = Event 级单场 /
-  Workspace 级长期）与履约账本（SponsorshipDelivery）。档位纯函数族
-  （SponsorshipTier / SponsorshipTiersValidation）与 event.ended 级联订阅器
-  （SponsorshipEndedSubscriber）随迁同目录。Event 侧保持软引用（D4/KD4：
+  Workspace 级长期）与履约账本（SponsorshipDelivery）。档位形状纯函数与结构校验上迁 Accounts
+  （Cgc2046.Accounts.SponsorshipTier / SponsorshipTiersValidation,Fable 5 M6:
+  tiers 属主在 Workspace/Event,本域下游消费）;event.ended 级联订阅器
+  （SponsorshipEndedSubscriber）同目录。Event 侧保持软引用（D4/KD4：
   赞助不纯是 Event 的附属）。
 
   KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Admission /

@@ -26,6 +26,9 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     `before_claim/2` + `effects/3`（缺双回调在投递时 `raise ArgumentError`）。
   - `max_retries`：bus 退避重试上限（可选，默认 30）。达到后转低频无限探测
     而非放弃（#244）。测试 fixture 注入小值使 give-up→探测→恢复秒级完成。
+  - `consumer_key`：消费方幂等键后缀（Fable 5 M3；**新订阅方必填**，字符串）。
+    显式声明钉死持久化 claim 键后缀；缺省回落模块 leaf 派生仅为存量兼容
+    （见「消费键规则」）。
   - `probe_interval_ms`：探测模式下两次 `:bus_resubscribe` 探测的间隔毫秒
     （可选，默认 30_000）。
 
@@ -51,13 +54,19 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   - `:state_based`：不写 claim，靠业务状态守卫幂等（Curriculum.Instantiator 的
     find_or_create run）。
 
-  ## 消费键规则（Q12）
+  ## 消费键规则（Q12；Fable 5 M3 显式化）
 
-  claim 键 = `payload["idempotency_key"] <> ":" <> 消费者短名`（模块名最后一段
-  `Macro.underscore`，如 `:learning_instantiator`）。生产者键由 SignalEmitter
-  统一注入（`"<type>:<record_id>"`），消费者作用域后缀保证多订阅方对同一信号
-  各自独立去重。payload 缺 `idempotency_key` = 生产者契约违约：记 error 并丢弃
-  （不执行副作用）。
+  claim 键 = `payload["idempotency_key"] <> ":" <> 消费者短名`。生产者键由
+  SignalEmitter 统一注入（`"<type>:<record_id>"`），消费者作用域后缀保证多
+  订阅方对同一信号各自独立去重。payload 缺 `idempotency_key` = 生产者契约
+  违约：记 error 并丢弃（不执行副作用）。
+
+  消费者短名由 `use` 的 `consumer_key` 显式声明钉死（**新订阅方必须显式
+  声明**）——持久化 claim 键不随模块改名漂移。缺省回落模块名最后一段
+  `Macro.underscore` 派生**仅为存量兼容**：leaf 改名会静默换持久化幂等键
+  （已发生两次：notification_subscriber→subscriber、
+  research_run_reaper→reaper）。存量订阅方的显式键值 = 派生现值（契约测试
+  锚定，改名即红灯）。
 
   ## 订阅生命周期（Q3 / D3 / #120）
 
@@ -268,8 +277,15 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
     end
   end
 
+  # Fable 5 M3：消费键后缀显式声明优先——`consumer_key` 钉死持久化幂等键，
+  # 不随模块 leaf 改名漂移（改名静默换键已发生两次：notification_subscriber→
+  # subscriber、research_run_reaper→reaper）。缺省回落派生**仅为存量兼容**
+  # （测试 fixture 用）；新订阅方必须显式声明。
   defp consumer_suffix(module) do
-    module |> Module.split() |> List.last() |> Macro.underscore()
+    case module.__signal_subscriber_config__() do
+      %{consumer_key: key} when is_binary(key) -> key
+      _config -> module |> Module.split() |> List.last() |> Macro.underscore()
+    end
   end
 
   # G（2026-08-17-004，方向②）：claim_in_handle 双回调执行。before_claim 校验
@@ -325,6 +341,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
   defmacro __using__(opts) do
     patterns = Keyword.fetch!(opts, :patterns)
     idempotency = Keyword.fetch!(opts, :idempotency)
+    consumer_key = Keyword.get(opts, :consumer_key)
 
     # #244：退避参数可注入（仅测试 fixture 用毫秒级小值；生产默认不变）。
     # max_retries 默认 30；probe_interval_ms 默认 30s——give-up 后转低频无限探测。
@@ -352,6 +369,12 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
       raise ArgumentError, "probe_interval_ms 须为正整数毫秒：#{inspect(probe_interval_ms)}"
     end
 
+    # Fable 5 M3：consumer_key 编译期校验（与 patterns/idempotency 守卫同契约）。
+    # 缺省（nil）走 leaf 派生兼容路径；显式声明必须为字符串。
+    unless is_nil(consumer_key) or is_binary(consumer_key) do
+      raise ArgumentError, "consumer_key 须为字符串：#{inspect(consumer_key)}"
+    end
+
     quote do
       use GenServer
 
@@ -371,7 +394,7 @@ defmodule Cgc2046.Workflows.SignalSubscriber do
 
       @doc false
       def __signal_subscriber_config__ do
-        %{idempotency: unquote(idempotency)}
+        %{idempotency: unquote(idempotency), consumer_key: unquote(consumer_key)}
       end
 
       def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)

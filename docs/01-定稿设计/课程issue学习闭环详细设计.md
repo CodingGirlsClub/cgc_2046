@@ -144,7 +144,7 @@ course content 整体（`get_course_content` 返回、ResearchOutput 存储）�
 
 ### 6.2 教研 Agent 指令（切片 1 同批产出）
 
-从 `research_requirements` + 与 Tutor 对话澄清 → 起草整套 issue 卡：User-Story 写法（as_a/given/goal）、checklist 可自验措辞（handwork 条目必须指向可检查产物）、kind 判别（证据在哪为界）、id 稳定纪律（修订保 id）→ 经 `save_course_content` 提交。
+从 `curriculum_requirements` + 与 Tutor 对话澄清 → 起草整套 issue 卡：User-Story 写法（as_a/given/goal）、checklist 可自验措辞（handwork 条目必须指向可检查产物）、kind 判别（证据在哪为界）、id 稳定纪律（修订保 id）→ 经 `save_course_content` 提交。
 
 ### 6.3 分发机制（算法如何到 agent）
 
@@ -166,7 +166,7 @@ course content 整体（`get_course_content` 返回、ResearchOutput 存储）�
 
 - **`/courses/[slug]` 课程地图**：story 骨架平铺 = issue key + 标题 + kind 标签（chip）+ **goal 一行**；**不露 checklist**（公开页职责是「承诺你会变成什么样」，评分细则不泄底；与 Linear 公开 roadmap 同构）。即招募文案本体。
 - **`/participations` 我的学习**：顶部子导航「学习 / 报名 / 赞助」（模仿 Linear My Issues 的 Assigned/Created/Subscribed），学习为默认 tab。按**课程**分组；行 = 状态图标 + issue key + 标题 + kind 标签 + checklist 进度（n/m）。点击 issue → **右侧抽屉**（Linear 同款交互）：story 全文 + checklist 逐条（done / 未 + evidence 摘要 + 时间）+「在 OpenClacky 继续这一节」CTA（#92 OpenClackyCta 模式）。抽屉 = 学习记录在 Web 的账本展示面。
-- **`/w/[slug]/courses/[id]` 管理页**补教研状态露出（run 状态 + issue 卡完成度）+ 教研需求自由文本框（落 research_requirements，不做结构化表单）。
+- **`/w/[slug]/courses/[id]` 管理页**补教研状态露出（run 状态 + issue 卡完成度）+ 教研需求自由文本框（落 curriculum_requirements，不做结构化表单）。
 - 视觉：Tailwind 仿 Linear 设计语言（行密度、状态图标、标签、抽屉）。
 
 ### 7.2 扩展面板（v1 并入 cgc-2046；DSH 同构）

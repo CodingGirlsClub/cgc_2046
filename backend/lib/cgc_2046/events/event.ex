@@ -4,7 +4,7 @@ defmodule Cgc2046.Events.Event do
 
   领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Event 是活动实体，
   教研字段之外，Phase 2 加入报名策略、容量与报名截止时间。`confirmed_count`
-  是数据库原子占位计数，Enrollment 创建/确认通过条件 UPDATE 维护，防并发超卖。
+  是账本（Admission.CapacityLedger）投影：创建/确认的原子占位由账本条件 UPDATE 承担（防超卖唯一权威），confirmed_count 经 capacity.synced 信号覆盖式投影跟随。
 
   ## 教研实例化（#39）
 
@@ -24,7 +24,7 @@ defmodule Cgc2046.Events.Event do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Events
 
-  alias Cgc2046.Offering.StatusTransition
+  alias Cgc2046.StatusTransition
 
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
@@ -210,7 +210,7 @@ defmodule Cgc2046.Events.Event do
   end
 
   validations do
-    validate({Cgc2046.Sponsorship.SponsorshipTiersValidation, []})
+    validate({Cgc2046.Accounts.SponsorshipTiersValidation, []})
     validate({Cgc2046.Offering.PriceTiersValidation, []})
     validate({Cgc2046.Events.VenueValidation, []})
     validate({Cgc2046.Offering.ScheduleValidation, []})
@@ -422,7 +422,7 @@ defmodule Cgc2046.Events.Event do
       # offering.capacity_changed，名额账本订阅方回查 Offering 同步缓存。
       # payload 不扩字段（KTD5：订阅方回读永远拿最新值，优于信号快照）。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "offering.capacity_changed",
          payload: &__MODULE__.capacity_changed_payload/2,
          skip_unless: &__MODULE__.capacity_or_deadline_changed?/2}
@@ -465,7 +465,7 @@ defmodule Cgc2046.Events.Event do
       # Q6）：job 与 open 终态同事务提交，SignalPublishWorker 提交后异步投递——
       # 订阅方读到的必是已提交 open 状态（#1 TOCTOU 由 outbox 结构性解决）。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "event.launched", payload: &__MODULE__.launched_payload/2}
       )
 
@@ -512,7 +512,8 @@ defmodule Cgc2046.Events.Event do
       # event.ended 经 SignalEmitter 事务内 outbox 入队：job 与事件终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Changes.SignalEmitter, type: "event.ended", payload: &__MODULE__.ended_payload/2}
+        {Cgc2046.Workflows.SignalEmitter,
+         type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
 
@@ -549,7 +550,8 @@ defmodule Cgc2046.Events.Event do
       # event.ended 经 SignalEmitter 事务内 outbox 入队：job 与事件终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Changes.SignalEmitter, type: "event.ended", payload: &__MODULE__.ended_payload/2}
+        {Cgc2046.Workflows.SignalEmitter,
+         type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
 
@@ -603,9 +605,9 @@ defmodule Cgc2046.Events.Event do
       Ash.Changeset.changing_attribute?(changeset, :registration_deadline)
   end
 
-  # 状态机 CAS 委托 offering 层共享 helper（KTD2）。
+  # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),
-    do: StatusTransition.run(changeset, "events", to_status)
+    do: StatusTransition.run(changeset, :events, to_status)
 
   postgres do
     table("events")

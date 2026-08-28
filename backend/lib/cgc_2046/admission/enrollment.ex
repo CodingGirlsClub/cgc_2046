@@ -208,12 +208,12 @@ defmodule Cgc2046.Admission.Enrollment do
       # 任何策略都发 submitted；open/invite_only 自动确认（confirmed）时再发
       # completed（KTD1/R3），两个 after_action 按声明顺序入队。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @submitted_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @completed_signal,
          payload: &__MODULE__.signal_payload/2,
          skip_unless: &__MODULE__.confirmed?/2}
@@ -234,12 +234,12 @@ defmodule Cgc2046.Admission.Enrollment do
       # 落 payment_pending 而非 confirmed，completed 不发（KTD6-6：真正 confirmed
       # 才发，支付落账/免缴时补发）。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @approved_signal, payload: &__MODULE__.approval_payload/2}
       )
 
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @completed_signal,
          payload: &__MODULE__.signal_payload/2,
          skip_unless: &__MODULE__.confirmed?/2}
@@ -257,7 +257,7 @@ defmodule Cgc2046.Admission.Enrollment do
       end)
 
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @rejected_signal, payload: &__MODULE__.approval_payload/2}
       )
     end
@@ -294,7 +294,7 @@ defmodule Cgc2046.Admission.Enrollment do
 
       # 免缴即真正 confirmed：补发 completed（支付落账路径在回调 worker 同款补发）
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @completed_signal, payload: &__MODULE__.signal_payload/2}
       )
 
@@ -321,7 +321,7 @@ defmodule Cgc2046.Admission.Enrollment do
 
       # 真正 confirmed 才发 completed（KTD6-6；与免缴路径同款补发）
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @completed_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -667,14 +667,22 @@ defmodule Cgc2046.Admission.Enrollment do
 
   # 审批通过后的落点（KTD6-3）：收费目标占位后进 payment_pending（支付完成才
   # confirmed，由回调 worker 推进）；免费目标直接 confirmed（R4 现状不变）。
+  # 活值守卫（Fable 5 M1）：offering 真值行 status 必须为 open——账本缓存可能
+  # 滞后于 cancel/close，仅信缓存会让「取消后批准」漏过批量退款扫描；真值读取
+  # 在 reserve_capacity 之后执行:已同步的关闭/截止仍由账本 CAS 报
+  # capacity_full_or_registration_closed(R14 钉测不动),未同步漂移才由本守卫报
+  # target_not_open;失败路径随事务回滚,占位零泄漏。
   defp confirm_target_status(kind, target_id) do
     table = target_table(kind)
 
-    case Cgc2046.Repo.query("SELECT pricing_enabled FROM #{table} WHERE id = $1", [
+    case Cgc2046.Repo.query("SELECT status, pricing_enabled FROM #{table} WHERE id = $1", [
            Cgc2046.Repo.uuid!(target_id)
          ]) do
-      {:ok, %{rows: [[pricing_enabled]]}} ->
+      {:ok, %{rows: [["open", pricing_enabled]]}} ->
         {:ok, if(pricing_enabled, do: :payment_pending, else: :confirmed)}
+
+      {:ok, %{rows: [[_status, _pricing_enabled]]}} ->
+        {:error, :target_not_open_or_registration_closed}
 
       {:ok, %{rows: []}} ->
         {:error, :target_not_open_or_registration_closed}
@@ -736,7 +744,11 @@ defmodule Cgc2046.Admission.Enrollment do
 
     with {:ok, capacity_target} <- claim_cancellable(changeset.data.id, now),
          :ok <- release_capacity(capacity_target),
-         {:ok, _voided} <- void_pending_orders(changeset.data.id, "enrollment_cancelled") do
+         {:ok, _voided} <-
+           Cgc2046.Payments.Order.void_pending_for_enrollment(
+             changeset.data.id,
+             "enrollment_cancelled"
+           ) do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, :cancelled)
       |> Ash.Changeset.force_change_attribute(:cancelled_at, now)
@@ -745,20 +757,9 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  # R12/e2e #1：取消/免缴在离开占位态的同一事务内作废报名关联 pending 订单
-  # （报名已流转而订单仍 pending = 「无占位却有未付单」脏窗口：待收统计失真，
-  # 且本地作废不关渠道单、QR 仍可被支付——迟到收款由落账 worker 走作废单
-  # 自动退款分支兜底，AE2 语义）。cancelled 是终态，部分唯一索引放行后续
-  # 新报名的新订单。
-  defp void_pending_orders(enrollment_id, cancel_reason) do
-    case Cgc2046.Repo.query(
-           "UPDATE payments_orders SET status = 'cancelled', cancel_reason = $2, updated_at = NOW() WHERE enrollment_id = $1 AND status = 'pending'",
-           [Cgc2046.Repo.uuid!(enrollment_id), cancel_reason]
-         ) do
-      {:ok, %{num_rows: count}} -> {:ok, count}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
+  # 作废语义已收编至 Payments 端口 Order.void_pending_for_enrollment/2
+  # （ADR-0009 Fable 5 MEDIUM-2）：R12/e2e #1——取消/免缴在离开占位态的同一
+  # 事务内作废报名关联 pending 订单，脏窗口/AE2 兜底论证见该端口文档。
 
   # 支付落账（U7，KTD12）：CAS payment_pending → confirmed（免缴/过期/取消竞态
   # 由 num_rows=0 上抛给 worker 走自动退款分支）。
@@ -791,7 +792,8 @@ defmodule Cgc2046.Admission.Enrollment do
     actor = changeset.context[:private][:actor]
 
     with {:ok, 1} <- claim_waive(changeset.data.id, actor.id, now),
-         {:ok, _voided} <- void_pending_orders(changeset.data.id, "waived") do
+         {:ok, _voided} <-
+           Cgc2046.Payments.Order.void_pending_for_enrollment(changeset.data.id, "waived") do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, :confirmed)
       |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
@@ -807,7 +809,7 @@ defmodule Cgc2046.Admission.Enrollment do
 
   @doc """
   R9/KTD4 关闭收费批量免费确认：offering 的 payment_pending 报名逐条复用
-  免缴三元组（claim_waive CAS + void_pending_orders + 免缴审计行）+ 补发
+  免缴三元组（claim_waive CAS + Order.void_pending_for_enrollment + 免缴审计行）+ 补发
   completed 信号（与单笔 waive_payment action 同语义）。须在 Event/Course
   update 事务内（after_action）调用；任一笔失败上抛，调用方整体回滚。
 
@@ -900,7 +902,8 @@ defmodule Cgc2046.Admission.Enrollment do
     now = DateTime.utc_now()
 
     with {:ok, 1} <- claim_waive(enrollment.id, actor.id, now),
-         {:ok, _voided} <- void_pending_orders(enrollment.id, "waived"),
+         {:ok, _voided} <-
+           Cgc2046.Payments.Order.void_pending_for_enrollment(enrollment.id, "waived"),
          {:ok, _log} <-
            Cgc2046.Accounts.AdminActionLog.log(%{
              actor_id: actor.id,

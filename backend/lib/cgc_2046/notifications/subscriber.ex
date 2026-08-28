@@ -22,7 +22,8 @@ defmodule Cgc2046.Notifications.Subscriber do
       "enrollment.submitted",
       "enrollment.completed"
     ],
-    idempotency: :claim_first
+    idempotency: :claim_first,
+    consumer_key: "subscriber"
 
   require Ash.Query
 

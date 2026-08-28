@@ -14,7 +14,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   测试注入：`:cgc_2046, :miniprogram_req_plug` 配置 Req plug（test 环境为
   `{Req.Test, Cgc2046.MiniprogramClientStub}`），未配置时走真实 HTTP。
   """
-  alias Cgc2046.Miniprogram.WechatClient
+  alias Cgc2046.Integrations.Wechat.SdkClient
 
   @type platform :: :wechat | :tt | :xhs
   @type session :: %{openid: String.t(), unionid: String.t() | nil, session_key: String.t()}
@@ -106,7 +106,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   end
 
   defp request_notification(:wechat, openid, template_id, data) do
-    with {:ok, client} <- WechatClient.fetch() do
+    with {:ok, client} <- SdkClient.fetch() do
       client
       |> WeChat.MiniProgram.SubscribeMessage.send(openid, template_id, data, %{
         page: @notification_page.wechat
@@ -180,7 +180,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   defp parse_access_token(_, _), do: {:error, :platform_bad_response}
 
   defp request_code(:wechat, scene) do
-    with {:ok, client} <- WechatClient.fetch() do
+    with {:ok, client} <- SdkClient.fetch() do
       client
       |> WeChat.MiniProgram.Code.create_code_unlimited(scene, %{
         page: @code_page,
@@ -475,7 +475,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
           {:ok, String.t()} | {:error, term()}
   def fetch_phone_by_code(:wechat, openid, phone_code)
       when is_binary(openid) and is_binary(phone_code) do
-    with {:ok, client} <- WechatClient.fetch(),
+    with {:ok, client} <- SdkClient.fetch(),
          {:ok, %Tesla.Env{status: 200, body: %{"errcode" => 0, "phone_info" => info}}} <-
            WeChat.MiniProgram.UserInfo.get_phone_number(client, openid, phone_code),
          local when is_binary(local) <- info["purePhoneNumber"] || info["phoneNumber"],
@@ -516,7 +516,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
           {:ok, :passed | :skipped | :unchecked} | {:error, :content_rejected}
   def content_check(:wechat, content, openid)
       when is_binary(content) and is_binary(openid) do
-    case WechatClient.fetch() do
+    case SdkClient.fetch() do
       {:ok, client} ->
         body = %{content: content, version: 2, scene: 2, openid: openid}
 

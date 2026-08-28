@@ -25,6 +25,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     ClaimInHandleIncomplete,
     Crash,
     DrainClaim,
+    ExplicitKey,
     Resubscribe,
     StateBased
   }
@@ -180,6 +181,49 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
 
       refute_receive {:handled, _}
       refute_receive {:failed_effect, _}
+    end
+  end
+
+  describe "consumer_key 显式声明（Fable 5 M3）" do
+    test "显式 consumer_key 优先于 leaf 派生：claim 键用钉死值" do
+      # ExplicitKey 的 leaf 派生值为 "explicit_key"，显式声明 "pinned_consumer"——
+      # 键落 pinned_consumer 即证显式优先（派生回落由其余 fixture 全覆盖）。
+      assert :ok =
+               SignalSubscriber.deliver(ExplicitKey, %{
+                 type: "fixture.explicit_key",
+                 data: %{"test_pid" => self(), "n" => 1, "idempotency_key" => "fixture:ek-1"}
+               })
+
+      assert_receive {:handled, 1}
+      assert claim_keys("fixture.explicit_key") == ["fixture:ek-1:pinned_consumer"]
+    end
+
+    # 注册订阅方（Application 监督树）显式 consumer_key 锚定：键值 = 当前 leaf
+    # 派生值——钉死持久化幂等键。模块 leaf 改名 → 派生值变化 → 本断言红灯，
+    # 强制人工核对存量 claim 键（改名静默换键已发生两次：
+    # notification_subscriber→subscriber、research_run_reaper→reaper）。
+    # 新增订阅方须在此登记。
+    @registered_subscribers [
+      Cgc2046.Admission.CapacityLedgerSubscriber,
+      Cgc2046.Courses.CapacityProjectionSubscriber,
+      Cgc2046.Curriculum.Instantiator,
+      Cgc2046.Curriculum.Reaper,
+      Cgc2046.Events.CapacityProjectionSubscriber,
+      Cgc2046.Notifications.Subscriber,
+      Cgc2046.Events.SpeakerSubscriber,
+      Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
+      Cgc2046.Workers.OfferingCancelRefundWorker,
+      Cgc2046.Workflows.LearningInstantiator,
+      Cgc2046.Workflows.ShareSchemeInstantiator
+    ]
+
+    test "契约：注册订阅方显式 consumer_key == 当前 leaf 派生值" do
+      for module <- @registered_subscribers do
+        derived = module |> Module.split() |> List.last() |> Macro.underscore()
+
+        assert module.__signal_subscriber_config__().consumer_key == derived,
+               "#{inspect(module)} 未显式声明 consumer_key 或键值已漂移"
+      end
     end
   end
 
@@ -513,7 +557,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     Enum.all?(
       [
         Cgc2046.Notifications.Subscriber,
-        Cgc2046.SpeakerSubscriber,
+        Cgc2046.Events.SpeakerSubscriber,
         Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
         Cgc2046.Workflows.LearningInstantiator,
         Cgc2046.Curriculum.Instantiator,

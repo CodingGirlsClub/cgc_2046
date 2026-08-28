@@ -153,7 +153,7 @@ defmodule Cgc2046.Workers.PaymentRefundWorker do
   end
 
   # 退款即取消（R16）：confirmed 报名 → cancelled + 名额释放（enrollment.cancel
-  # 内置 CAS + confirmed_count 回落 + 作废残留 pending 订单）。
+  # 内置 CAS + 账本 occupancy 释放（投影 confirmed_count 跟随） + 作废残留 pending 订单）。
   # F-B：失败不吞错——reload 真状态裁决：已终态（cancelled/expired/rejected）=
   # 合法竞态/迟到路径已处理；仍占位 = 真失败（capacity_counter_invalid / DB
   # 瞬断）→ {:error, reason} 让 Oban 重试收敛，拒绝「钱已退、坑还占」。
