@@ -27,7 +27,7 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
   alias Cgc2046.ApprovalClaim
   alias Cgc2046.Repo
 
-  alias Cgc2046.Sponsorship.SponsorshipTier
+  alias Cgc2046.Accounts.SponsorshipTier
   alias Cgc2046.Accounts.Workspace
   require Ash.Query
 
@@ -248,7 +248,7 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
 
       # 信号经 SignalEmitter 事务内 outbox 入队（plan 2026-08-14-003 Q6）。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @submitted_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -265,12 +265,12 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
       # 审批通过：先发 approved，再发 active（按声明顺序入队；active 幂等键由
       # emitter 注入，赞助 doc §2.2/§4.2 约定逐值一致）。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @approved_signal, payload: &__MODULE__.signal_payload/2}
       )
 
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @active_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -286,7 +286,7 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
       end)
 
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: @rejected_signal, payload: &__MODULE__.signal_payload/2}
       )
     end
@@ -428,18 +428,21 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
   defp target_by_level(_level, _event_id, _target_workspace_id),
     do: {:error, :level_required}
 
-  # 目标存在 + 赞助开放 + 未过赞助截止（FOR SHARE 锁，同报名 eligible_target）
+  # 目标存在 + 赞助开放 + 未过赞助截止（FOR SHARE 锁，同报名 eligible_target）。
+  # tiers 同行锁读（Fable 5 M6）：与资格判定共享同一锁定行快照，消灭二次裸读
+  # 与「锁后读到新 tiers」竞态（旧 load_tiers 二次查询已删）。
   defp eligible_target(:event, id) do
     # v1 赞助入口挂公开宿主页：仅 public 活动可收赞助意向（评审 A5；
     # 私发邀请赞助二期再解耦）
     case Repo.query(
-           "SELECT workspace_id FROM events WHERE id = $1 AND sponsorship_enabled = TRUE " <>
+           "SELECT workspace_id, sponsorship_tiers FROM events WHERE id = $1 " <>
+             "AND sponsorship_enabled = TRUE " <>
              "AND visibility = 'public' AND status = 'open' " <>
              "AND (sponsorship_deadline IS NULL OR sponsorship_deadline > NOW()) FOR SHARE",
            [Repo.uuid!(id)]
          ) do
-      {:ok, %{rows: [[workspace_id]]}} ->
-        {:ok, %{workspace_id: Ecto.UUID.load!(workspace_id), tiers: load_tiers(:event, id)}}
+      {:ok, %{rows: [[workspace_id, tiers]]}} ->
+        {:ok, %{workspace_id: Ecto.UUID.load!(workspace_id), tiers: tiers}}
 
       {:ok, %{rows: []}} ->
         {:error, :sponsorship_not_open}
@@ -451,12 +454,13 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
 
   defp eligible_target(:workspace, id) do
     case Repo.query(
-           "SELECT id FROM workspaces WHERE id = $1 AND sponsorship_enabled = TRUE " <>
+           "SELECT id, sponsorship_tiers FROM workspaces WHERE id = $1 " <>
+             "AND sponsorship_enabled = TRUE " <>
              "AND (sponsorship_deadline IS NULL OR sponsorship_deadline > NOW()) FOR SHARE",
            [Repo.uuid!(id)]
          ) do
-      {:ok, %{rows: [[workspace_id]]}} ->
-        {:ok, %{workspace_id: Ecto.UUID.load!(workspace_id), tiers: load_tiers(:workspace, id)}}
+      {:ok, %{rows: [[workspace_id, tiers]]}} ->
+        {:ok, %{workspace_id: Ecto.UUID.load!(workspace_id), tiers: tiers}}
 
       {:ok, %{rows: []}} ->
         {:error, :sponsorship_not_open}
@@ -464,20 +468,6 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
       {:error, reason} ->
         {:error, {:database, reason}}
     end
-  end
-
-  defp load_tiers(:event, id) do
-    {:ok, %{rows: [[tiers]]}} =
-      Repo.query("SELECT sponsorship_tiers FROM events WHERE id = $1", [Repo.uuid!(id)])
-
-    tiers
-  end
-
-  defp load_tiers(:workspace, id) do
-    {:ok, %{rows: [[tiers]]}} =
-      Repo.query("SELECT sponsorship_tiers FROM workspaces WHERE id = $1", [Repo.uuid!(id)])
-
-    tiers
   end
 
   defp resolve_tier(nil, _target), do: {:ok, nil}
@@ -710,6 +700,23 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
       end
 
     SponsorshipTier.find(load_tiers(target_kind, target_id), record.tier_id)
+  end
+
+  # 审批时点 tiers 读取（Fable 5 M6）：走领域端口而非裸 SQL——event 经
+  # Offering seam,workspace 经 Accounts 直读（租户根；authorize?: false 同其他
+  # 审批内读纪律）。目标缺失返回 nil,由 SponsorshipTier.find 落 tier_not_found。
+  defp load_tiers(:event, id) do
+    case Cgc2046.Offering.fetch(:event, id) do
+      {:ok, event} -> event.sponsorship_tiers
+      {:error, :not_found} -> nil
+    end
+  end
+
+  defp load_tiers(:workspace, id) do
+    case Ash.get(Cgc2046.Accounts.Workspace, id, authorize?: false) do
+      {:ok, workspace} -> workspace.sponsorship_tiers
+      {:error, _} -> nil
+    end
   end
 
   # ── 审批拒绝（pending → rejected，reason 落审计）──────────────────────────

@@ -574,6 +574,29 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert re.status == :payment_pending
       assert re.capacity_seq == 1
     end
+
+    test "cancel payment_pending：同事务作废 pending 订单（cancel_reason=enrollment_cancelled，e2e #1）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("enrollment-paid-cancel-void")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment)
+      assert pending_cents(workspace.id) == 9_900
+
+      assert {:ok, cancelled} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: workspace.id, actor: learner)
+
+      assert cancelled.status == :cancelled
+
+      reloaded = Ash.get!(Order, order.id, tenant: workspace.id, authorize?: false)
+      assert reloaded.status == :cancelled
+      assert reloaded.cancel_reason == "enrollment_cancelled"
+      # R24 待收只计 pending 未过期单——作废后回落
+      assert pending_cents(workspace.id) == 0
+    end
   end
 
   describe "waive_payment 免缴（R18，AE3 免缴半）" do

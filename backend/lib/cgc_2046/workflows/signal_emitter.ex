@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.SignalEmitter do
+defmodule Cgc2046.Workflows.SignalEmitter do
   @moduledoc """
   信号发布 change（异步链路深化 PR-A；plan 2026-08-14-003 决策 Q5/Q6/Q12/Q13/Q14）。
 
@@ -16,7 +16,7 @@ defmodule Cgc2046.Changes.SignalEmitter do
   用法（fn 须为 public 模块函数的远程捕获——Spark DSL 实体 opts 需可转义，
   匿名 fn 与私有捕获会在资源编译期报错，同 LogAdminAction 契约）：
 
-      change {Cgc2046.Changes.SignalEmitter,
+      change {Cgc2046.Workflows.SignalEmitter,
         type: "enrollment.completed", payload: &__MODULE__.signal_payload/2}
 
   opts：

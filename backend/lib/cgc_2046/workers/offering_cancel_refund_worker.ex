@@ -29,7 +29,8 @@ defmodule Cgc2046.Workers.OfferingCancelRefundWorker do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["event.ended", "course.ended"],
-    idempotency: :state_based
+    idempotency: :state_based,
+    consumer_key: "offering_cancel_refund_worker"
 
   require Ash.Query
   require Logger

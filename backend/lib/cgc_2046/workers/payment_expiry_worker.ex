@@ -4,7 +4,7 @@ defmodule Cgc2046.Workers.PaymentExpiryWorker do
 
   R8/F2 超时链：`expire_at` 过点未付的 pending 订单 → 走 `Order :expire` 领域
   action，同事务三联动——订单 CAS expired → 报名 CAS payment_pending→expired →
-  名额回落（confirmed_count-1）。名额回池后可重新报名；订单过期后渠道侧迟到
+  名额回落（账本 occupancy-1,capacity.synced 信号投影 confirmed_count）。名额回池后可重新报名；订单过期后渠道侧迟到
   扣款由落账 worker 的自动退款链处理（AE2，KTD12）。
 
   复刻 `ApprovalExpiryWorker` 模式（@expiry_specs 声明式规格 + SQL 下推过滤 +

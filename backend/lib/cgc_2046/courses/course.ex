@@ -5,7 +5,7 @@ defmodule Cgc2046.Courses.Course do
   领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Course 与 Event 字段同构
   （线上课程，无 venue 场地字段；starts_at/ends_at 语义为开课/结课），教研字段一致。
   Phase 2 加入报名策略、容量与报名截止时间；
-  `confirmed_count` 由 Enrollment 的数据库条件 UPDATE 原子维护。
+  `confirmed_count` 为账本投影：原子占位由 Admission.CapacityLedger 条件 UPDATE 承担，本字段经 capacity.synced 信号覆盖式投影跟随。
 
   ## 教研实例化（#39）
 
@@ -25,7 +25,7 @@ defmodule Cgc2046.Courses.Course do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Courses
 
-  alias Cgc2046.Offering.StatusTransition
+  alias Cgc2046.StatusTransition
   @status_values [:draft, :open, :closed, :cancelled]
   @enrollment_policy_values [:open, :request, :invite_only]
   @visibility_values [:public, :workspace]
@@ -200,13 +200,6 @@ defmodule Cgc2046.Courses.Course do
     )
   end
 
-  # 内容读契约归 Curriculum（ADR-0009 KD3/R4：内容写侧是教研产出）：实现落
-  # `Cgc2046.Curriculum`，本模块仅委托（行为不变）。
-  @doc false
-  def issue_map_rows(%__MODULE__{} = course), do: Cgc2046.Curriculum.issue_map_rows(course)
-
-  def course_content(course), do: Cgc2046.Curriculum.course_content(course)
-
   multitenancy do
     strategy(:attribute)
     attribute(:workspace_id)
@@ -376,7 +369,7 @@ defmodule Cgc2046.Courses.Course do
       # offering.capacity_changed，名额账本订阅方回查 Offering 同步缓存
       # （event.ex :update 同款；payload 不扩字段，订阅方回读最新值）。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "offering.capacity_changed",
          payload: &__MODULE__.capacity_changed_payload/2,
          skip_unless: &__MODULE__.capacity_or_deadline_changed?/2}
@@ -419,7 +412,7 @@ defmodule Cgc2046.Courses.Course do
       end)
 
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "course.launched", payload: &__MODULE__.launched_payload/2}
       )
 
@@ -466,7 +459,7 @@ defmodule Cgc2046.Courses.Course do
       # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
@@ -504,7 +497,7 @@ defmodule Cgc2046.Courses.Course do
       # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
     end
@@ -560,9 +553,9 @@ defmodule Cgc2046.Courses.Course do
       Ash.Changeset.changing_attribute?(changeset, :registration_deadline)
   end
 
-  # 状态机 CAS 委托 offering 层共享 helper（KTD2）。
+  # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),
-    do: StatusTransition.run(changeset, "courses", to_status)
+    do: StatusTransition.run(changeset, :courses, to_status)
 
   postgres do
     table("courses")

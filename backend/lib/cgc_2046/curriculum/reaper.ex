@@ -15,7 +15,8 @@ defmodule Cgc2046.Curriculum.Reaper do
 
   use Cgc2046.Workflows.SignalSubscriber,
     patterns: ["event.ended", "course.ended"],
-    idempotency: :claim_after_effects
+    idempotency: :claim_after_effects,
+    consumer_key: "reaper"
 
   require Ash.Query
   require Logger

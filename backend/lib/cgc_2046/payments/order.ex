@@ -295,7 +295,7 @@ defmodule Cgc2046.Payments.Order do
 
       # R7：支付成功信号（落账 worker 驱动，CAS 成功才入队）
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "order.paid", payload: &__MODULE__.paid_signal_payload/2}
       )
     end
@@ -889,6 +889,34 @@ defmodule Cgc2046.Payments.Order do
       "amount_cents" => order.amount_cents,
       "provider" => to_string(order.provider)
     }
+  end
+
+  # ── 跨 context 端口（ADR-0009 写点收编）────────────────────────────────
+
+  @doc """
+  报名侧作废端口（ADR-0009 Fable 5 MEDIUM-2 收编；R12/e2e #1）：Admission 的
+  Enrollment 在取消/免缴路径离开占位态的同一事务内调用——将该报名关联的
+  pending 订单批量置 cancelled 并落 cancel_reason。
+
+  语义（与收编前 enrollment.ex 内嵌 SQL 逐行等价）：
+
+  - 仅命中 `status = 'pending'`（已过期时点但未被 expire 扫描置为 expired 的
+    单一并置为 cancelled，状态守卫只认 status 列，不看 expire_at）；
+  - cancelled 是终态，部分唯一索引（R11）放行后续新报名的新订单；
+  - 本地作废不关渠道单、QR 仍可被支付——迟到收款由落账 worker 走作废单
+    自动退款分支兜底（AE2 语义）；
+  - 返回 {:ok, 作废笔数}（0 笔合法：报名可能尚无订单）；SQL 失败
+    {:error, {:database, _}}，调用方整体回滚（本函数用 Repo.query 跑在
+    调用方事务连接上，不开隐式独立事务）。
+  """
+  def void_pending_for_enrollment(enrollment_id, cancel_reason) do
+    case Cgc2046.Repo.query(
+           "UPDATE payments_orders SET status = 'cancelled', cancel_reason = $2, updated_at = NOW() WHERE enrollment_id = $1 AND status = 'pending'",
+           [Cgc2046.Repo.uuid!(enrollment_id), cancel_reason]
+         ) do
+      {:ok, %{num_rows: count}} -> {:ok, count}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
   end
 
   # ── 状态迁移（DB 级 CAS：条件 UPDATE + num_rows 守卫）────────────────────
