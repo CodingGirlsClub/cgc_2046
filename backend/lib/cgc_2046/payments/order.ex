@@ -425,18 +425,23 @@ defmodule Cgc2046.Payments.Order do
 
       run(fn input, _ctx ->
         # U4（KTD3）+ U5（R19）：可选 offering 维度收敛为单 JOIN enrollments——
-        # event_id/course_id 双可空恰一非空，OR 条件与原 kind 分叉 JOIN 结果集
-        # 逐行相同；四数形状与工作区口径同源（同一状态集分桶）；授权仍由
-        # workspace_id 参数解析。可选参数经 Map.get（GraphQL 未传时无该键）；
-        # 双参同传时 event_id 优先（与原 cond 分叉序一致）。
-        offering_id = Map.get(input.arguments, :event_id) || Map.get(input.arguments, :course_id)
-
+        # 按入参 kind 选择谓词（event_id 只匹配 event 侧，course_id 只匹配
+        # course 侧），杜绝把合法 course UUID 传入 eventId 时的跨类误归并
+        # （PR⑤ cross-model review peer #2）；四数形状与工作区口径同源（同一
+        # 状态集分桶）；授权仍由 workspace_id 参数解析。可选参数经 Map.get
+        # （GraphQL 未传时无该键）；双参同传时 event_id 优先（与原 cond 分叉序一致）。
         {offering_join, extra_params} =
-          if offering_id do
-            {"JOIN enrollments e ON e.id = o.enrollment_id " <>
-               "AND (e.event_id = $2 OR e.course_id = $2)", [Cgc2046.Repo.uuid!(offering_id)]}
-          else
-            {"", []}
+          cond do
+            event_id = Map.get(input.arguments, :event_id) ->
+              {"JOIN enrollments e ON e.id = o.enrollment_id AND e.event_id = $2",
+               [Cgc2046.Repo.uuid!(event_id)]}
+
+            course_id = Map.get(input.arguments, :course_id) ->
+              {"JOIN enrollments e ON e.id = o.enrollment_id AND e.course_id = $2",
+               [Cgc2046.Repo.uuid!(course_id)]}
+
+            true ->
+              {"", []}
           end
 
         sql = """
