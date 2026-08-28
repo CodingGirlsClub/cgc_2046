@@ -389,6 +389,10 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	nonterminal_research_run_for_closed_entity: "labels.reconRule.nonterminal_research_run_for_closed_entity",
 	dead_letter_job: "labels.reconRule.dead_letter_job",
 	learning_run_stalled: "labels.reconRule.learning_run_stalled",
+	open_offering_without_ledger: "labels.reconRule.open_offering_without_ledger",
+	ledger_occupancy_mismatch: "labels.reconRule.ledger_occupancy_mismatch",
+	capacity_projection_drift: "labels.reconRule.capacity_projection_drift",
+	occupancy_exceeds_capacity: "labels.reconRule.occupancy_exceeds_capacity",
 };
 
 /** 对账实体类型 → 中文标签 */

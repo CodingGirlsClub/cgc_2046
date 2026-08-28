@@ -6,7 +6,7 @@ defmodule Cgc2046.Sponsorship do
   （SponsorshipEndedSubscriber）随迁同目录。Event 侧保持软引用（D4/KD4：
   赞助不纯是 Event 的附属）。
 
-  KTD1 域纪律：与 Cgc2046.Api / Cgc2046.Payments / Cgc2046.Admission /
+  KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Admission /
   Cgc2046.Curriculum 同款——`graphql do authorize?(true) end`，未带 policy
   的动作默认拒绝，防止意外公开租户资源。
   """
@@ -16,7 +16,7 @@ defmodule Cgc2046.Sponsorship do
     extensions: [AshGraphql.Domain, AshAdmin.Domain]
 
   admin do
-    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（同 Cgc2046.Api）
+    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（各 domain 同款）
     show?(true)
     # #113 ops 面优化同款：domain 命名 + 资源分组标签（中文）
     name("Sponsorship")

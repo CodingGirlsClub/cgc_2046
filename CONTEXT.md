@@ -343,10 +343,10 @@
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
 
-### research_enabled（教研开关，Event-only）
+### curriculum_enabled（教研开关，Event-only）
 
-- **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.research_enabled` 列已删除——对账规则④对 Course 无条件（open 且无 published 教研定义 = 孤儿），Readiness 教研项对 Course 无条件检查。
-- **架构位置**：Event 属性；`ResearchInstantiator.ensure_research_enabled` 门控为 event-only 分支（按 key 前缀分叉）；对账规则④仅 Event 侧保留 research_enabled 过滤。Event 侧 UI 暴露留待真实需求。
+- **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.curriculum_enabled` 列已删除——对账规则④对 Course 无条件（open 且无 published 教研定义 = 孤儿），Readiness 教研项对 Course 无条件检查。
+- **架构位置**：Event 属性；`Curriculum.Instantiator.ensure_curriculum_enabled` 门控为 event-only 分支（按 key 前缀分叉）；对账规则④仅 Event 侧保留 curriculum_enabled 过滤。Event 侧 UI 暴露留待真实需求。
 
 ### Offering（供给物）
 
@@ -354,8 +354,8 @@
 
 - **定义**：「一行可指向 Event 或 Course」的统一读取 seam = `Cgc2046.Offering`（2026-08-15 读取面收敛，架构评审候选④；plan `docs/plans/2026-08-15-009-offering-read-seam.md` D1-D7 全锁定）。interface：`fetch(kind, id, opts \\ [])`（`{:ok, entity} | {:error, :not_found}`，默认 `authorize?: false`；`actor:` + `authorize?: true` 为 graphql 场景的 actor 感知读取；返回完整 entity 供 status/Readiness 消费）｜`fetch_by_signal_payload(data)`（按 `event_id`/`course_id` 键分派）｜`fetch_titles_by_ids(ids_by_kind, tenant)`（per-kind per-tenant 批量，消 N+1 不退化）｜投影 `kind/1`/`title/1`/`workspace_id/1`。错误形状统一坍缩 `:not_found` 单点。
 - **命名空间区分**：kind 原子 `:event` 与 Sponsorship `level: :event`（赞助级别）**撞名但无语义关系**——前者是读取分派键，后者是业务分类字段，勿混用。
-- **架构位置**：读取面 seam（已迁出 events/，位于 lib/cgc_2046/ 顶层 offering.ex）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ ResearchInstantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
-- **目标态（ADR-0009 D5）**：转正为 Events/Courses 对 Admission 的**发布语言读端口**（纯读投影契约，零写入），移出 events/ 至中立位置；Events/Courses 各实现 adapter。消费面不变：Admission 校验、分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
+- **架构位置**：读取面 seam（已迁出 events/，位于 lib/cgc_2046/ 顶层 offering.ex）；消费方 = NotificationSubscriber / LearningInstantiator / PendingApprovals / GraphqlSchema（offeringReadiness）/ Curriculum.Instantiator；不碰 enrollment 裸 SQL 家族、Event/Course lifecycle change、sponsorship level 分叉。
+- **发布语言读端口（ADR-0009 D5，目标态已落地）**：Events/Courses 对 Admission 的**发布语言读端口**（纯读投影契约，零写入），位于中立位置 lib/cgc_2046/offering.ex；共享纯函数内核（PriceTier / ScheduleValidation / EnrollmentBadge / Readiness / 状态机 CAS helper）同层收进 `offering/` 目录（PR②，KTD2——纯函数共享不破坏 bounded context：无状态、无表）。消费面不变：Admission 校验、分享深链（target_kind/target_id）、PendingApprovals 标题、通知 target_title、GraphQL offeringReadiness、公开浏览族。
 
 ### Issue（学习议题，课程内容原子单元）
 
@@ -380,14 +380,23 @@
 ### Admission（报名上下文）
 
 - **定义**：报名生命周期的限界上下文（ADR-0009，2026-08-28 拍板）：Enrollment + InviteBatch + 名额账本。Events/Courses 是其**上游**——经 Offering（供给物）发布语言读契约供 status/capacity/deadline/price_tiers；下游 = Payments（Customer/Supplier，Order 锚 `enrollment_id` 单一引用）。
-- **名额账本**（D2）：占位/释放的原子 CAS 在 Admission 自己的账本表内完成（offering launched 信号建 capacity 投影）；offering 上的 `confirmed_count` 退化为展示投影（信号最终一致同步）——消除系统唯一跨 context 写点（服务独占数据更新权）。capacity 调小的同步窗口由账本 CAS 拒单 + 对账规则兜底，不构成超卖。
+- **名额账本**（D2）：占位/释放的原子 CAS 在 Admission 自己的账本表内完成（PR⑤ U6 落地，详见下「名额账本」词条）；offering 上的 `confirmed_count` 退化为展示投影（`capacity.synced` 信号最终一致同步，PR⑤ U7）——消除系统三处跨 context 写点（enrollment.ex reserve / release 裸 SQL、order.ex expire 链名额回落、confirmed_count check constraint 耦合；ADR-0009 实施期更正，原称「唯一」）。capacity 调小的同步窗口由账本 CAS 拒单 + 对账规则兜底，不构成超卖。
 - **架构位置**：独立 context（`admission/`，已随 ADR-0009 PR① 落地）；Enrollment/InviteBatch 位于 lib/cgc_2046/admission/。
+
+### 名额账本（CapacityLedger）
+
+- **定义**：名额事实源（`admission_capacity_ledgers` 表，ADR-0009 D2，PR⑤ U6 落地）：每个 offering（Event/Course）唯一一行，持 `status / capacity / registration_deadline` 缓存列与权威 `occupancy / sync_version`；占位/释放的原子 CAS 收编于本表（reserve 三守卫：open + 截止未过 + 未满员；release 守卫 `occupancy > 0`），Admission 独占写权。
+- **建行与缓存同步（KTD5/R16）**：三族信号一个动作——`event.launched` / `course.launched` 建行（与报名路径懒建 upsert 的竞态由 `(offering_kind, offering_id)` 唯一索引幂等吸收）、`offering.capacity_changed` 编辑传播、`*.ended` 回查 status；订阅器 `Admission.CapacityLedgerSubscriber` 一律经 Offering 端口回查实体最新值覆盖式同步（`:state_based` 幂等，乱序自收敛）。
+- **展示投影回路（KTD4/R15）**：账本写成功后同事务发布 `capacity.synced`（权威 occupancy + 单调 sync_version）；Events/Courses 各自订阅**自写本表** `confirmed_count` 列（条件 `confirmed_count_sync_version < 新版本`，覆盖式幂等 + 乱序收敛）——自写不算跨 context 写，反向直写（Admission 写 events/courses 表）禁止。
+- **锁序（KTD7）**：invite_only 报名双 CAS 的锁获取顺序固化——**账本行（offering 侧）永远先于 invite_batches 行**获取；反向获取禁止（防死锁）。
+- **对账兜底（R17）**：规则⑧ open 无账本行 / ⑨ occupancy ≠ 占位报名计数 / ⑩ 展示投影漂移超一拍 / ⑪ occupancy > capacity，四规则看护收敛（finding 语义见「对账扫描」词条）。
+- **架构位置**：`Cgc2046.Admission.CapacityLedger`（lib/cgc_2046/admission/，不进 GraphQL）；CapacityLedgerSubscriber 同目录。
 
 ### Curriculum（教研）
 
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
-- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 ResearchOutput 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
-- **架构位置**：目标态独立 context（`curriculum/`）；现状 research_* 命名（ResearchOutput/ResearchInstantiator/research_enabled）随 ADR-0009 PR③ 改名（research_enabled → curriculum_enabled 等）。
+- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
+- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）/ 教研段 AgentInstructions 同目录；research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
 
 ### 内容安全检查（Content Safety Check）
 
@@ -424,7 +433,7 @@
 ### Sponsorship（赞助，两级）
 
 - **定义**：**两级赞助** = Event 级（单场活动）+ Workspace 级（长期）（D-A3）。赞助方以账号身份参与赞助 workflow（意向 → Owner/Admin 审批 → 权益生效），**不必成为成员**。
-- **架构位置**：活动/Workspace 资源；权益生效经异步 Signal。
+- **架构位置**：独立 context（`sponsorship/`，已随 ADR-0009 PR④ 落地——D4：赞助不纯是 Event 的附属）：Sponsorship / SponsorshipDelivery 聚合 + SponsorshipTier 纯函数族 + 履约订阅器同目录；Event 侧保持软引用；权益生效经异步 Signal。
 
 ### 赞助审批人（Sponsorship Approver Roles）
 
@@ -476,13 +485,13 @@
 
 ### 对账扫描（Reconciliation Scan）
 
-- **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125；plan `docs/plans/2026-08-15-011-e10-reconciliation-scan.md` D1-D10 全锁定）。`ReconciliationScanWorker` 每 10 分钟扫六规则 → 落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。
-- **六规则**：① confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ open 但工作台无 published 教研定义——Course 无条件命中（research_enabled 已删列，2026-08-16 Q12）、Event 仅 research_enabled=true 命中（false = 轻聚会合法不命中）｜⑤ closed/cancelled Event/Course 仍有非终态 research run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ 信号族死信（SignalPublishWorker / NotificationWorker 的 discarded job）。
+- **定义**：平台级 best-effort 异步路径孤儿报告（E-10 #125；plan `docs/plans/2026-08-15-011-e10-reconciliation-scan.md` D1-D10 全锁定）。`ReconciliationScanWorker` 每 10 分钟扫十一规则（E-10 七条 + ADR-0009 U7 名额账本四条） → 落 `Reconciliation.Finding`（表 reconciliation_findings，全局资源，read 仅 PlatformAdmin）→ /admin/reconciliation 对账页可读。
+- **规则清单**：① confirmed enrollment 无 learning run（`workflow_runs.input_snapshot->>'enrollment_id'` join `workflow_definitions.type=learning`，BYO 无平台终态、存在即非孤儿）｜② pending 无 approval_deadline（enrollment/sponsorship/join_request/workspace_application 四资源 UNION，创建路径必写）｜③ active sponsorship 的 `sponsorship.active` 发布 job 处于 discarded（PR-A 同事务必入队，死信=信号链断连；原「无 signal_log」因 ADR-0003 入向局限不可实现而修正）｜④ open 但工作台无 published 教研定义——Course 无条件命中（curriculum_enabled 无此列，2026-08-16 Q12）、Event 仅 curriculum_enabled=true 命中（false = 轻聚会合法不命中）｜⑤ closed/cancelled Event/Course 仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）｜⑥ 信号族死信（SignalPublishWorker / NotificationWorker 的 discarded job）｜⑦ learning run 停滞（7 天无 facts 更新，与 LearningProgressWorker 同源判定）。规④/⑤原子名保留 `research_*` 原样——DB 落库枚举值冻结，不随 PR③ 改名。**名额账本四条（ADR-0009 U7，R17）**：⑧ open offering 无账本行｜⑨ 账本 occupancy ≠ 占位报名计数（confirmed + payment_pending）｜⑩ 展示投影漂移超一拍（confirmed_count / sync_version 与账本不一致且超一个扫描周期）｜⑪ 账本 occupancy > capacity（capacity 调小后的合法超员窗口看护至自然释放收敛）。
 - **刷新语义**：命中 upsert（唯一键 `(rule, entity_type, entity_id)`，保 first_seen_at、刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证。
 - **死信窗口**：规⑥只判 oban_jobs 7 天窗口内（与 Oban Pruner max_age 对齐）的 discarded 行；死信可见性由本扫描承担，不扩 Oban discard 插件。
 - **七天上限（窗口语义，非 bug）**：规③/规⑥的有效窗口同受 Oban Pruner（max_age 7 天）约束——discarded job 被 Pruner 删除后，未消解的规③/规⑥孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）。
-- **缴费对账（预留）**：Order 落地后扩规⑦——夜间拉渠道账单（微信/支付宝对账单 API）核对 paid 订单（渠道侧无对应交易 / 金额不符 / 我方 pending 超期未清），差异同落 `Finding`（ADR-0007，webhook 丢失的长尾兜底）。
-- **架构位置**：`Cgc2046.Reconciliation.Finding`（Api domain 全局资源）+ `Cgc2046.Workers.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
+- **缴费对账（已落地）**：`payment_amount_mismatch` / `payment_recon` 两条规由 Payments 域 PaymentReconciliationWorker / PaymentSettlementWorker 写入同一 Finding 底座（「底座共享 + 扫描器归各域」，ADR-0009 D6；ADR-0007，webhook 丢失的长尾兜底）。
+- **架构位置**：`Cgc2046.Reconciliation.Finding`（Reconciliation domain 全局资源，PR⑤ U8 归位、Api 退役）+ `Cgc2046.Workers.ReconciliationScanWorker`（maintenance 队列，unique 300s，规1/2/4/5 Ash 查询下推、规3/6 Repo 直查 oban_jobs）；配套 SignalSubscriber 骨架 telemetry `[:cgc2046, :signal, :deliver]`（D7）与订阅方冒烟测试（#134-①）。
 
 ### 工具 = 形状 原则（见 §3）
 
@@ -506,7 +515,7 @@
 | Research vs Curriculum | 教研 context 英文定名 Curriculum（ADR-0009）；research_* 代码命名随重构 PR③ 退役 |
 
 ## 10. 待细化/待办（编码阶段）
-- ADR-0009 限界上下文重构四步序列：PR① Admission 抽出（含 Offering 端口化）→ PR② Courses 独立 → PR③ Curriculum 独立 + research_* 改名 → PR④ Payments 收敛 + 名额账本。每步独立 PR、CI 全绿推进
+- ~~ADR-0009 限界上下文重构序列~~ ✅ 已完成（2026-08-28，更正后五步：PR① Admission 抽出（含 Offering 端口化）→ PR② Courses/Events 分家 → PR③ Curriculum 独立 + research_* 改名 → PR④ Sponsorship 独立（原序列漏排，实施期更正）→ PR⑤ Payments 收敛 + 名额账本 + 展示投影回路 + Workflows/Learning/Reconciliation 归位、`Cgc2046.Api` 退役）
 
 - ~~Invitation 撤销流程（revoked 状态 + 到期清理）~~ ✅ 已实现（slice-B）
 - ~~JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）~~ ✅ 已定稿：审批方指定（slice-B 决策 2）

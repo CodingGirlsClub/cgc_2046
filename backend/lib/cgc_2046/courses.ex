@@ -3,7 +3,7 @@ defmodule Cgc2046.Courses do
   课程域（ADR-0009 PR②）：Course 聚合独立成 Courses 限界上下文
   （长内容形态与学习闭环迭代重心，与 Event 运营面分叉）。
 
-  KTD1 域纪律：与 Cgc2046.Api / Cgc2046.Payments / Cgc2046.Admission 同款——
+  KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Admission 同款——
   `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止意外公开
   租户资源。
   """
@@ -13,7 +13,7 @@ defmodule Cgc2046.Courses do
     extensions: [AshGraphql.Domain, AshAdmin.Domain]
 
   admin do
-    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（同 Cgc2046.Api）
+    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（各 domain 同款）
     show?(true)
     # #113 ops 面优化同款：domain 命名 + 资源分组标签（中文）
     name("Courses")

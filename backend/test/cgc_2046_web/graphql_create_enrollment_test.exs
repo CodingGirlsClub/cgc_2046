@@ -23,7 +23,8 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
     assert result["status"] == "confirmed"
     assert result["capacitySeq"] == 1
     assert result["workspaceId"] == workspace.id
-    assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+    # ADR-0009 PR⑤ U6 口径平移：占位计数权威 = 名额账本 occupancy
+    assert EventFixtures.ledger_occupancy(event) == 1
 
     second = Fixtures.register_user("gql-enroll-open-full")
 
@@ -31,7 +32,7 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
              graphql(create_mutation(event, second), sign_in_token(second))
 
     assert Enum.map_join(errors, " ", & &1["message"]) =~ "capacity"
-    assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+    assert EventFixtures.ledger_occupancy(event) == 1
   end
 
   test "request 活动：HTTP mutation 先 pending 且带 approvalDeadline，不占名额" do
@@ -50,7 +51,7 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
 
     assert result["status"] == "pending"
     refute is_nil(result["approvalDeadline"])
-    assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 0
+    assert EventFixtures.ledger_occupancy(event) == 0
   end
 
   test "invite_only 活动：HTTP mutation 带 inviteCode 立即 confirmed 并扣减批次配额" do
@@ -283,7 +284,7 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
 
     assert result["status"] == "payment_pending"
     assert result["capacitySeq"] == 1
-    assert Ash.get!(event.__struct__, event.id, authorize?: false).confirmed_count == 1
+    assert EventFixtures.ledger_occupancy(event) == 1
   end
 
   defp create_mutation(event, user, extra \\ []) do

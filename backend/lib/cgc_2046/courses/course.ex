@@ -114,7 +114,19 @@ defmodule Cgc2046.Courses.Course do
       public?: true,
       writable?: false,
       constraints: [min: 0],
+      # ADR-0009 U7 起为展示投影（Courses 自订阅 capacity.synced 自写本列；权威计数
+      # 在 Admission 名额账本 occupancy）。description 永久冻结旧文案（U8 裁决）：
+      # 公开 SDL 零 diff 门（R8/KTD3）优先于文案更正，正确语义以本注释与
+      # CONTEXT.md 名额账本词条为准
       description: "已确认名额数（仅由 Enrollment 原子维护）"
+    )
+
+    attribute(:confirmed_count_sync_version, :integer,
+      allow_nil?: false,
+      default: 0,
+      public?: false,
+      writable?: false,
+      description: "confirmed_count 投影已应用的账本 sync_version（只接受更大版本，覆盖式幂等 + 乱序收敛）"
     )
 
     attribute(:registration_deadline, :utc_datetime,
@@ -359,6 +371,16 @@ defmodule Cgc2046.Courses.Course do
       # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
       # 同事务对 payment_pending 报名逐条复用免缴三元组。
       change({Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :course})
+
+      # R16/KTD4（ADR-0009 PR⑤ U6）：capacity / registration_deadline 变更发
+      # offering.capacity_changed，名额账本订阅方回查 Offering 同步缓存
+      # （event.ex :update 同款；payload 不扩字段，订阅方回读最新值）。
+      change(
+        {Cgc2046.Changes.SignalEmitter,
+         type: "offering.capacity_changed",
+         payload: &__MODULE__.capacity_changed_payload/2,
+         skip_unless: &__MODULE__.capacity_or_deadline_changed?/2}
+      )
     end
 
     # draft → open：发布课程，发 course.launched 信号（教研实例化入口）。
@@ -522,6 +544,15 @@ defmodule Cgc2046.Courses.Course do
 
   def ended_payload(_changeset, course),
     do: %{"course_id" => course.id, "title" => course.title}
+
+  # offering.capacity_changed（R16）：仅 course_id 锚定，缓存值由订阅方回查。
+  def capacity_changed_payload(_changeset, course), do: %{"course_id" => course.id}
+
+  # SignalEmitter skip_unless 谓词：capacity / registration_deadline 任一变更为信号触发
+  def capacity_or_deadline_changed?(changeset, _course) do
+    Ash.Changeset.changing_attribute?(changeset, :capacity) or
+      Ash.Changeset.changing_attribute?(changeset, :registration_deadline)
+  end
 
   # 状态机 CAS 委托 offering 层共享 helper（KTD2）。
   defp status_transition(changeset, to_status),

@@ -4,7 +4,7 @@ defmodule Cgc2046.Curriculum do
   教研 run 生命周期（Instantiator 实例化 / Reaper 回收）。内容读契约归本域
   （KD3：内容写侧是教研产出，写作权不能错配给消费方），Course 持委托。
 
-  KTD1 域纪律：与 Cgc2046.Api / Cgc2046.Payments / Cgc2046.Admission 同款——
+  KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Admission 同款——
   `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止意外公开
   租户资源。
   """
@@ -16,7 +16,7 @@ defmodule Cgc2046.Curriculum do
   require Ash.Query
 
   admin do
-    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（同 Cgc2046.Api）
+    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（各 domain 同款）
     show?(true)
     # #113 ops 面优化同款：domain 命名 + 资源分组标签（中文）
     name("Curriculum")

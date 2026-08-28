@@ -3,538 +3,6 @@ schema {
   query: RootQueryType
 }
 
-enum WorkflowRunSortField {
-  ID
-  WORKSPACE_ID
-  DEFINITION_ID
-  DEFINITION_VERSION
-  STATUS
-  INPUT_SNAPSHOT
-  FACTS
-  PARTITION_ID
-  VERSION
-  STARTED_AT
-  FINISHED_AT
-}
-
-"A keyset page of :workflow_run"
-type KeysetPageOfWorkflowRun {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [WorkflowRun!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input WorkflowRunFilterFinishedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input WorkflowRunFilterStartedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input WorkflowRunFilterVersion {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowRunFilterPartitionId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterFacts {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowRunFilterInputSnapshot {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowRunFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input WorkflowRunFilterDefinitionVersion {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowRunFilterDefinitionId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterInput {
-  and: [WorkflowRunFilterInput!]
-
-  or: [WorkflowRunFilterInput!]
-
-  not: [WorkflowRunFilterInput!]
-
-  id: WorkflowRunFilterId
-
-  "所属工作台（租户）ID"
-  workspaceId: WorkflowRunFilterWorkspaceId
-
-  "绑定的 WorkflowDefinition ID"
-  definitionId: WorkflowRunFilterDefinitionId
-
-  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
-  definitionVersion: WorkflowRunFilterDefinitionVersion
-
-  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
-  status: WorkflowRunFilterStatus
-
-  "run 输入快照（创建时固化，执行引擎按此驱动）"
-  inputSnapshot: WorkflowRunFilterInputSnapshot
-
-  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
-  facts: WorkflowRunFilterFacts
-
-  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
-  partitionId: WorkflowRunFilterPartitionId
-
-  "乐观锁版本号，每次状态流转 +1"
-  version: WorkflowRunFilterVersion
-
-  "开始执行时间（start action 写入）"
-  startedAt: WorkflowRunFilterStartedAt
-
-  "结束时间（终态 action 写入）"
-  finishedAt: WorkflowRunFilterFinishedAt
-
-  definition: WorkflowDefinitionFilterInput
-}
-
-input WorkflowRunSortInput {
-  order: SortOrder
-  field: WorkflowRunSortField!
-}
-
-type WorkflowRun {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "绑定的 WorkflowDefinition ID"
-  definitionId: ID!
-
-  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
-  definitionVersion: Int!
-
-  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
-  status: String!
-
-  "run 输入快照（创建时固化，执行引擎按此驱动）"
-  inputSnapshot: JsonString
-
-  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
-  facts: JsonString
-
-  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
-  partitionId: ID
-
-  "乐观锁版本号，每次状态流转 +1"
-  version: Int!
-
-  "开始执行时间（start action 写入）"
-  startedAt: DateTime
-
-  "结束时间（终态 action 写入）"
-  finishedAt: DateTime
-
-  definition: WorkflowDefinition!
-
-  "run 绑定版本的步骤定义（step_key\/title\/type\/output_schema，plan 020）"
-  steps: [JsonString!]
-}
-
-input WorkflowDefinitionFilterApprovalTimeout {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowDefinitionFilterNodeDef {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowDefinitionFilterInputSchema {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowDefinitionFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input WorkflowDefinitionFilterVersion {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowDefinitionFilterType {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input WorkflowDefinitionFilterName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input WorkflowDefinitionFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowDefinitionFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowDefinitionFilterInput {
-  and: [WorkflowDefinitionFilterInput!]
-
-  or: [WorkflowDefinitionFilterInput!]
-
-  not: [WorkflowDefinitionFilterInput!]
-
-  id: WorkflowDefinitionFilterId
-
-  "所属工作台（租户）ID"
-  workspaceId: WorkflowDefinitionFilterWorkspaceId
-
-  "蓝图名称（租户内可读）"
-  name: WorkflowDefinitionFilterName
-
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研"
-  type: WorkflowDefinitionFilterType
-
-  "版本号，单调递增；new_version 出 v+1（#34）"
-  version: WorkflowDefinitionFilterVersion
-
-  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
-  status: WorkflowDefinitionFilterStatus
-
-  "workflow 输入参数 schema"
-  inputSchema: WorkflowDefinitionFilterInputSchema
-
-  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
-  nodeDef: WorkflowDefinitionFilterNodeDef
-
-  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
-  approvalTimeout: WorkflowDefinitionFilterApprovalTimeout
-}
-
-type WorkflowDefinition {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "蓝图名称（租户内可读）"
-  name: String!
-
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研"
-  type: String!
-
-  "版本号，单调递增；new_version 出 v+1（#34）"
-  version: Int!
-
-  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
-  status: String!
-
-  "workflow 输入参数 schema"
-  inputSchema: JsonString
-
-  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
-  nodeDef: JsonString
-
-  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
-  approvalTimeout: Int
-}
-
-enum SortOrder {
-  DESC
-  DESC_NULLS_FIRST
-  DESC_NULLS_LAST
-  ASC
-  ASC_NULLS_FIRST
-  ASC_NULLS_LAST
-}
-
-"An error generated by a failed mutation"
-type MutationError {
-  "The human readable error message"
-  message: String
-
-  "A shorter error message, with vars not replaced"
-  shortMessage: String
-
-  "Replacements for the short message"
-  vars: Json
-
-  "An error code for the given error"
-  code: String
-
-  "The field or fields that produced the error"
-  fields: [String!]
-
-  "The path to the field that produced the error"
-  path: [String!]
-}
-
 "The result of the :disable_invite_batch mutation"
 type DisableInviteBatchResult {
   "The successful result of the mutation"
@@ -1220,6 +688,36 @@ input EnrollmentFilterInput {
 input EnrollmentSortInput {
   order: SortOrder
   field: EnrollmentSortField!
+}
+
+enum SortOrder {
+  DESC
+  DESC_NULLS_FIRST
+  DESC_NULLS_LAST
+  ASC
+  ASC_NULLS_FIRST
+  ASC_NULLS_LAST
+}
+
+"An error generated by a failed mutation"
+type MutationError {
+  "The human readable error message"
+  message: String
+
+  "A shorter error message, with vars not replaced"
+  shortMessage: String
+
+  "Replacements for the short message"
+  vars: Json
+
+  "An error code for the given error"
+  code: String
+
+  "The field or fields that produced the error"
+  fields: [String!]
+
+  "The path to the field that produced the error"
+  path: [String!]
 }
 
 "The result of the :cancel_course mutation"
@@ -5479,6 +4977,508 @@ type Sponsorship {
   targetTitle: String
 }
 
+enum WorkflowRunSortField {
+  ID
+  WORKSPACE_ID
+  DEFINITION_ID
+  DEFINITION_VERSION
+  STATUS
+  INPUT_SNAPSHOT
+  FACTS
+  PARTITION_ID
+  VERSION
+  STARTED_AT
+  FINISHED_AT
+}
+
+"A keyset page of :workflow_run"
+type KeysetPageOfWorkflowRun {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [WorkflowRun!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input WorkflowRunFilterFinishedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input WorkflowRunFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input WorkflowRunFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowRunFilterPartitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterFacts {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowRunFilterInputSnapshot {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowRunFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input WorkflowRunFilterDefinitionVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowRunFilterDefinitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterInput {
+  and: [WorkflowRunFilterInput!]
+
+  or: [WorkflowRunFilterInput!]
+
+  not: [WorkflowRunFilterInput!]
+
+  id: WorkflowRunFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: WorkflowRunFilterWorkspaceId
+
+  "绑定的 WorkflowDefinition ID"
+  definitionId: WorkflowRunFilterDefinitionId
+
+  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
+  definitionVersion: WorkflowRunFilterDefinitionVersion
+
+  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
+  status: WorkflowRunFilterStatus
+
+  "run 输入快照（创建时固化，执行引擎按此驱动）"
+  inputSnapshot: WorkflowRunFilterInputSnapshot
+
+  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
+  facts: WorkflowRunFilterFacts
+
+  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
+  partitionId: WorkflowRunFilterPartitionId
+
+  "乐观锁版本号，每次状态流转 +1"
+  version: WorkflowRunFilterVersion
+
+  "开始执行时间（start action 写入）"
+  startedAt: WorkflowRunFilterStartedAt
+
+  "结束时间（终态 action 写入）"
+  finishedAt: WorkflowRunFilterFinishedAt
+
+  definition: WorkflowDefinitionFilterInput
+}
+
+input WorkflowRunSortInput {
+  order: SortOrder
+  field: WorkflowRunSortField!
+}
+
+type WorkflowRun {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "绑定的 WorkflowDefinition ID"
+  definitionId: ID!
+
+  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
+  definitionVersion: Int!
+
+  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
+  status: String!
+
+  "run 输入快照（创建时固化，执行引擎按此驱动）"
+  inputSnapshot: JsonString
+
+  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
+  facts: JsonString
+
+  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
+  partitionId: ID
+
+  "乐观锁版本号，每次状态流转 +1"
+  version: Int!
+
+  "开始执行时间（start action 写入）"
+  startedAt: DateTime
+
+  "结束时间（终态 action 写入）"
+  finishedAt: DateTime
+
+  definition: WorkflowDefinition!
+
+  "run 绑定版本的步骤定义（step_key\/title\/type\/output_schema，plan 020）"
+  steps: [JsonString!]
+}
+
+input WorkflowDefinitionFilterApprovalTimeout {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowDefinitionFilterNodeDef {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowDefinitionFilterInputSchema {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowDefinitionFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input WorkflowDefinitionFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowDefinitionFilterType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input WorkflowDefinitionFilterName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkflowDefinitionFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowDefinitionFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowDefinitionFilterInput {
+  and: [WorkflowDefinitionFilterInput!]
+
+  or: [WorkflowDefinitionFilterInput!]
+
+  not: [WorkflowDefinitionFilterInput!]
+
+  id: WorkflowDefinitionFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: WorkflowDefinitionFilterWorkspaceId
+
+  "蓝图名称（租户内可读）"
+  name: WorkflowDefinitionFilterName
+
+  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研"
+  type: WorkflowDefinitionFilterType
+
+  "版本号，单调递增；new_version 出 v+1（#34）"
+  version: WorkflowDefinitionFilterVersion
+
+  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
+  status: WorkflowDefinitionFilterStatus
+
+  "workflow 输入参数 schema"
+  inputSchema: WorkflowDefinitionFilterInputSchema
+
+  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
+  nodeDef: WorkflowDefinitionFilterNodeDef
+
+  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
+  approvalTimeout: WorkflowDefinitionFilterApprovalTimeout
+}
+
+type WorkflowDefinition {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "蓝图名称（租户内可读）"
+  name: String!
+
+  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研"
+  type: String!
+
+  "版本号，单调递增；new_version 出 v+1（#34）"
+  version: Int!
+
+  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
+  status: String!
+
+  "workflow 输入参数 schema"
+  inputSchema: JsonString
+
+  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
+  nodeDef: JsonString
+
+  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
+  approvalTimeout: Int
+}
+
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
@@ -5559,6 +5559,35 @@ type RootQueryType {
 
   "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
   reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "工作台的 workflow run 列表（#40 展示页）"
+  listWorkflowRuns(
+    "How to sort the records in the response"
+    sort: [WorkflowRunSortInput]
+
+    "A filter to limit the results"
+    filter: WorkflowRunFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfWorkflowRun
+
+  "按 id 获取 workflow run 详情（#40）"
+  getWorkflowRun(
+    "A filter to limit the results"
+    filter: WorkflowRunFilterInput
+
+    id: ID!
+  ): WorkflowRun
 
   sponsorships(
     "How to sort the records in the response"
@@ -5915,35 +5944,6 @@ type RootQueryType {
     "The number of records to return to the end. Maximum 250"
     last: Int
   ): KeysetPageOfInviteBatch
-
-  "工作台的 workflow run 列表（#40 展示页）"
-  listWorkflowRuns(
-    "How to sort the records in the response"
-    sort: [WorkflowRunSortInput]
-
-    "A filter to limit the results"
-    filter: WorkflowRunFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfWorkflowRun
-
-  "按 id 获取 workflow run 详情（#40）"
-  getWorkflowRun(
-    "A filter to limit the results"
-    filter: WorkflowRunFilterInput
-
-    id: ID!
-  ): WorkflowRun
 }
 
 type AbilityGrant {

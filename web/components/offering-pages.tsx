@@ -1147,6 +1147,22 @@ export function OfferingDetailPage({
                       />
                     </label>
 
+                    {/* R18（ADR-0009 U7）：目标容量 < 当前已占席数仅警告不拦截——
+                        后端放行编辑，超员部分由账本 CAS 拒新单 + 自然释放收敛（AE4） */}
+                    {activeDraft.capacity !== "" &&
+                      Number(activeDraft.capacity) <
+                        (offering?.confirmedCount ?? 0) && (
+                        <p
+                          role="alert"
+                          className="text-[13px] text-amber-200"
+                          data-testid="capacity-below-occupied-warning"
+                        >
+                          {t("capacityBelowOccupied", {
+                            confirmed: offering?.confirmedCount ?? 0,
+                          })}
+                        </p>
+                      )}
+
                     <label className="block">
                       <span className="block text-[13px] text-ink-3">
                         {t("deadlineHint")}

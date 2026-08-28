@@ -10,8 +10,9 @@ defmodule Cgc2046.Offering.EnrollmentBadgeTest do
   - starts_at 落在未来 7 天内且报名未截止（deadline 为空或晚于 now）→ starting_soon
   - 其余 → enrolling；无 starts_at 的条目永不为 starting_soon（AE2 数据面）
 
-  confirmed_count 只能由 Enrollment 原子维护——测试经 EventsFixtures.set_confirmed_count
-  裸 SQL 置位（布置而非被测对象，force_open 同款纪律）。
+  confirmed_count 是展示投影（ADR-0009 U7，权威在名额账本 occupancy）——测试经
+  EventsFixtures.set_confirmed_count 置账本 occupancy 后走真实投影订阅收敛显示列
+  （布置而非被测对象，force_open 同款纪律）。
   """
 
   use Cgc2046.DataCase, async: true

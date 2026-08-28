@@ -2,10 +2,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   @moduledoc """
   对账扫描 worker（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D2）。
 
-  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫七条孤儿规则 →
+  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫十一条规则 →
   落 `reconciliation_findings`（`Cgc2046.Reconciliation.Finding`）。
 
-  ## 七规则（rule 枚举见 Finding moduledoc）
+  ## 规则（枚举见 Finding moduledoc；1-7 = E-10，8-11 = ADR-0009 U7 名额账本）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot->>'enrollment_id'` join
@@ -30,6 +30,13 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
      （7 天无 facts 更新）。阈值与 LearningProgressWorker 停滞提醒（D6-③）同源
      ——`LearningProgress.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
      分工：提醒归 LPW，对账可见归本规则（/admin 对账页 findings 列表）。
+  8. `:open_offering_without_ledger` — open offering 无名额账本行
+  9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
+     （confirmed + payment_pending）
+  10. `:capacity_projection_drift` — 展示投影滞后账本超一拍
+     （宽限 = 一个 cron 周期，见 @projection_drift_grace_seconds）
+  11. `:occupancy_exceeds_capacity` — 账本 occupancy > capacity
+     （R16/AE4 capacity 调小后的合法超员窗口看护，自然释放收敛后自消）
 
   ## 刷新语义（D2）
 
@@ -40,7 +47,8 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   ## 平台读（specs/unique 同款：approval_expiry_worker）
 
   规1/2/4/5 走 Ash 查询下推（`authorize?: false` 跨租户全局读）；规3/6 经 Repo
-  直查 oban_jobs（包读助手）。Finding 写同样 `authorize?: false`——资源 policy 仅
+  直查 oban_jobs，规8-11 经 Repo 直查账本 / offering 表（账本写路径全裸 SQL，
+  对账读同口径）。Finding 写同样 `authorize?: false`——资源 policy 仅
   PlatformAdmin，worker 平台读旁路（D2）。
   """
 
@@ -75,6 +83,10 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
   # 规6 死信窗口：与 Oban Pruner max_age（7 天，config.exs）对齐
   @dead_letter_window_days 7
 
+  # 规10 投影漂移宽限：R17「超 N 拍」与 cron 周期（10 分钟一拍）对齐取一拍——
+  # capacity.synced 异步在途属正常窗口，账本最近变更早于一个周期仍漂移才告警
+  @projection_drift_grace_seconds 600
+
   @non_terminal_statuses [:pending, :running, :waiting]
 
   @active_signal "sponsorship.active"
@@ -103,10 +115,16 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
       {:confirmed_enrollment_without_run, fn -> scan_rule1() end},
       {:pending_without_deadline, fn -> scan_rule2() end},
       {:active_sponsorship_signal_dead, fn -> scan_rule3() end},
+      # 规④/⑤ 原子名冻结（research_* 为 DB 落库枚举值，不随 PR③ 改名，
+      # 冻结原因见 Reconciliation.Finding @rule_values 注释）
       {:open_entity_without_research_definition, fn -> scan_rule4() end},
       {:nonterminal_research_run_for_closed_entity, fn -> scan_rule5() end},
       {:dead_letter_job, fn -> scan_rule6() end},
-      {:learning_run_stalled, fn -> scan_rule7() end}
+      {:learning_run_stalled, fn -> scan_rule7() end},
+      {:open_offering_without_ledger, fn -> scan_rule8() end},
+      {:ledger_occupancy_mismatch, fn -> scan_rule9() end},
+      {:capacity_projection_drift, fn -> scan_rule10() end},
+      {:occupancy_exceeds_capacity, fn -> scan_rule11() end}
     ]
   end
 
@@ -463,5 +481,149 @@ defmodule Cgc2046.Workers.ReconciliationScanWorker do
         last_update_at: DateTime.to_iso8601(run.updated_at)
       }
     }
+  end
+
+  # ── 规8-11：名额账本 / 展示投影（ADR-0009 PR⑤ U7；R17；KD2）------------------
+  #
+  # 四条均经 Repo 直查（账本写路径全裸 SQL 不经 Ash action，对账读同口径；
+  # 规3/6 的 oban_jobs 包读先例）。entity_type 复用 :event/:course，/admin
+  # 对账页按既有投影实体链接渲染。Repo.query 返回的 uuid 列为 16 字节
+  # 原始二进制，落 Finding 前一律 Ecto.UUID.load! 转字符串（Oban JSON 载荷同限）。
+
+  # 规8：open offering 无账本行（launched 信号建行 + 报名懒建双路均未到达）。
+  # 信号在途窗口（秒级）命中的瞬时 finding 下一拍自消（刷新语义兜底）。
+  defp scan_rule8 do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT 'event' AS kind, e.id, e.workspace_id, e.title
+      FROM events e
+      WHERE e.status = 'open'
+        AND NOT EXISTS (
+          SELECT 1 FROM admission_capacity_ledgers l
+          WHERE l.offering_kind = 'event' AND l.offering_id = e.id
+        )
+      UNION ALL
+      SELECT 'course', c.id, c.workspace_id, c.title
+      FROM courses c
+      WHERE c.status = 'open'
+        AND NOT EXISTS (
+          SELECT 1 FROM admission_capacity_ledgers l
+          WHERE l.offering_kind = 'course' AND l.offering_id = c.id
+        )
+      """)
+
+    Enum.map(rows, fn [kind, offering_id, workspace_id, title] ->
+      %{
+        entity_type: String.to_atom(kind),
+        entity_id: Ecto.UUID.load!(offering_id),
+        workspace_id: Ecto.UUID.load!(workspace_id),
+        detail: %{title: title}
+      }
+    end)
+  end
+
+  # 规9：账本 occupancy ≠ 占位报名计数（占位态 = confirmed + payment_pending，
+  # 与 Enrollment 占位/释放路径口径一致：payment_pending 已占位待付）。
+  defp scan_rule9 do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      WITH occupying AS (
+        SELECT 'event' AS kind, event_id AS offering_id, COUNT(*)::bigint AS n
+        FROM enrollments
+        WHERE status IN ('confirmed', 'payment_pending') AND event_id IS NOT NULL
+        GROUP BY event_id
+        UNION ALL
+        SELECT 'course', course_id, COUNT(*)::bigint
+        FROM enrollments
+        WHERE status IN ('confirmed', 'payment_pending') AND course_id IS NOT NULL
+        GROUP BY course_id
+      )
+      SELECT l.offering_kind, l.offering_id, l.workspace_id, l.occupancy,
+             COALESCE(o.n, 0) AS enrollment_count
+      FROM admission_capacity_ledgers l
+      LEFT JOIN occupying o ON o.kind = l.offering_kind AND o.offering_id = l.offering_id
+      WHERE l.occupancy <> COALESCE(o.n, 0)
+      """)
+
+    Enum.map(rows, fn [kind, offering_id, workspace_id, occupancy, enrollment_count] ->
+      %{
+        entity_type: String.to_atom(kind),
+        entity_id: Ecto.UUID.load!(offering_id),
+        workspace_id: Ecto.UUID.load!(workspace_id),
+        detail: %{occupancy: occupancy, enrollment_count: enrollment_count}
+      }
+    end)
+  end
+
+  # 规10：展示投影漂移超一拍（R17「超 N 拍」= 与 cron 周期对齐的一拍宽限）——
+  # 投影（confirmed_count / confirmed_count_sync_version）与账本不一致，且账本
+  # 最近变更早于一个扫描周期（capacity.synced 异步在途的正常窗口不告警；
+  # 超窗仍漂移 = 信号丢失/订阅方失败）。
+  defp scan_rule10 do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT l.offering_kind, l.offering_id, l.workspace_id, l.occupancy,
+               l.sync_version, e.confirmed_count, e.confirmed_count_sync_version
+        FROM admission_capacity_ledgers l
+        JOIN events e ON e.id = l.offering_id
+        WHERE l.offering_kind = 'event'
+          AND (e.confirmed_count <> l.occupancy
+               OR e.confirmed_count_sync_version <> l.sync_version)
+          AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
+        UNION ALL
+        SELECT l.offering_kind, l.offering_id, l.workspace_id, l.occupancy,
+               l.sync_version, c.confirmed_count, c.confirmed_count_sync_version
+        FROM admission_capacity_ledgers l
+        JOIN courses c ON c.id = l.offering_id
+        WHERE l.offering_kind = 'course'
+          AND (c.confirmed_count <> l.occupancy
+               OR c.confirmed_count_sync_version <> l.sync_version)
+          AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
+        """,
+        [@projection_drift_grace_seconds]
+      )
+
+    Enum.map(rows, fn [
+                        kind,
+                        offering_id,
+                        workspace_id,
+                        occupancy,
+                        sync_version,
+                        confirmed_count,
+                        applied_version
+                      ] ->
+      %{
+        entity_type: String.to_atom(kind),
+        entity_id: Ecto.UUID.load!(offering_id),
+        workspace_id: Ecto.UUID.load!(workspace_id),
+        detail: %{
+          occupancy: occupancy,
+          sync_version: sync_version,
+          confirmed_count: confirmed_count,
+          confirmed_count_sync_version: applied_version
+        }
+      }
+    end)
+  end
+
+  # 规11：occupancy > capacity（R16/AE4：capacity 调小低于 occupancy 放行后的
+  # 合法超员窗口由本规则看护，存量占位自然释放收敛后 finding 自消）。
+  defp scan_rule11 do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT offering_kind, offering_id, workspace_id, occupancy, capacity
+      FROM admission_capacity_ledgers
+      WHERE capacity IS NOT NULL AND occupancy > capacity
+      """)
+
+    Enum.map(rows, fn [kind, offering_id, workspace_id, occupancy, capacity] ->
+      %{
+        entity_type: String.to_atom(kind),
+        entity_id: Ecto.UUID.load!(offering_id),
+        workspace_id: Ecto.UUID.load!(workspace_id),
+        detail: %{occupancy: occupancy, capacity: capacity}
+      }
+    end)
   end
 end
