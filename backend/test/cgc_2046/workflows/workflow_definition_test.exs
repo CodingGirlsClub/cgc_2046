@@ -250,6 +250,14 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
                create_definition(workspace, admin, %{name: "wf-ops", type: :platform_ops})
     end
 
+    test "rejects retired research type" do
+      admin = Fixtures.platform_admin("wfdef")
+      workspace = Fixtures.create_workspace(admin)
+
+      assert {:error, _} =
+               create_definition(workspace, admin, %{name: "wf-research", type: :research})
+    end
+
     test "rejects invalid type" do
       admin = Fixtures.platform_admin("wfdef")
       workspace = Fixtures.create_workspace(admin)

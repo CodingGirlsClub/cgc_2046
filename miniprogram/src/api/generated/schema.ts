@@ -5272,7 +5272,7 @@ export type WorkflowDefinition = {
   nodeDef?: Maybe<Scalars['JsonString']['output']>;
   /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
   status: Scalars['String']['output'];
-  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研 */
+  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 */
   type: Scalars['String']['output'];
   /** 版本号，单调递增；new_version 出 v+1（#34） */
   version: Scalars['Int']['output'];
@@ -5327,7 +5327,7 @@ export type WorkflowDefinitionFilterInput = {
   or?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
   /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
   status?: InputMaybe<WorkflowDefinitionFilterStatus>;
-  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研 */
+  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 */
   type?: InputMaybe<WorkflowDefinitionFilterType>;
   /** 版本号，单调递增；new_version 出 v+1（#34） */
   version?: InputMaybe<WorkflowDefinitionFilterVersion>;

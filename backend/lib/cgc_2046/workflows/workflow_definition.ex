@@ -71,7 +71,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       constraints: [one_of: @type_values],
       description:
         "workflow 类型：learning 学习 / enrollment 报名 / " <>
-          "sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研"
+          "sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研"
     )
 
     attribute(:version, :integer,
