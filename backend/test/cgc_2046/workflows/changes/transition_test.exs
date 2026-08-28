@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.TransitionTest do
+defmodule Cgc2046.Workflows.Changes.TransitionTest do
   @moduledoc """
   Transition change 契约单测（PR-G D7）：from 匹配 force_change / from 不匹配
   add_error（错误串逐字「cannot <verb> from status=<s>」）/ cleanup 开关

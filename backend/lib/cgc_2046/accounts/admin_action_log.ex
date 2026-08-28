@@ -7,7 +7,7 @@ defmodule Cgc2046.Accounts.AdminActionLog do
   治理操作：workspace 直接创建、工作台创建申请审批（approve/reject）、
   platform_admin 提升/降级、pending-owner 重指派与邀请取消（#114）。
 
-  写入路径：治理 action 的挂接统一经 `Cgc2046.Changes.LogAdminAction` 注册（声明式
+  写入路径：治理 action 的挂接统一经 `Cgc2046.Accounts.Changes.LogAdminAction` 注册（声明式
   change 或函数式 `log/3`，见其 moduledoc），同事务落库（authorize?: false），失败
   上抛回滚治理操作本身（fail-closed，不留半态，对齐 workspace create 角色 seed 范式）。
   读路径：仅 platform_admin（/admin/audit 治理操作 tab + AshAdmin /ops/admin）。

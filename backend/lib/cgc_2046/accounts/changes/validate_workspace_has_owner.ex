@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.ValidateWorkspaceHasOwner do
+defmodule Cgc2046.Accounts.Changes.ValidateWorkspaceHasOwner do
   @moduledoc """
   校验目标工作台已有 Owner 就位（#115 ownerless 门控，方案 B）。
 

@@ -416,7 +416,7 @@ defmodule Cgc2046.Events.Event do
 
       # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
       # 同事务对 payment_pending 报名逐条复用免缴三元组。
-      change({Cgc2046.Changes.WaivePendingOnPricingDisable, kind: :event})
+      change({Cgc2046.Admission.Changes.WaivePendingOnPricingDisable, kind: :event})
 
       # R16/KTD4（ADR-0009 PR⑤ U6）：capacity / registration_deadline 变更发
       # offering.capacity_changed，名额账本订阅方回查 Offering 同步缓存。

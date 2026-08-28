@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.LogAdminAction do
+defmodule Cgc2046.Accounts.Changes.LogAdminAction do
   @moduledoc """
   治理操作留痕挂接（#116 R10a 收口，7 处挂接点的统一注册表）。
 
@@ -6,7 +6,7 @@ defmodule Cgc2046.Changes.LogAdminAction do
   `{:ok, record} | {:error, _}`（fail-closed：调用方经 with 上抛，失败回滚治理操作）。
 
   声明式：作为 resource change 挂在治理 action 上（on_missing_actor 默认 :log）：
-      change {Cgc2046.Changes.LogAdminAction,
+      change {Cgc2046.Accounts.Changes.LogAdminAction,
         action: :admin_demote,
         target_type: :user,
         # fn 须为 public 远程捕获（匿名 fn 无法被 DSL 实体转义，见文末注意）

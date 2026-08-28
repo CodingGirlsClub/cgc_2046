@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.Transition do
+defmodule Cgc2046.Workflows.Changes.Transition do
   @moduledoc """
   状态迁移守卫 change（PR-G；plan 2026-08-15-008 决策 D1-D7）。
 
@@ -18,7 +18,7 @@ defmodule Cgc2046.Changes.Transition do
 
   用法（同 SignalEmitter 的 module+opts change 形态；opts 是编译期字面量）：
 
-      change {Cgc2046.Changes.Transition, from: [:running, :waiting], to: :succeeded,
+      change {Cgc2046.Workflows.Changes.Transition, from: [:running, :waiting], to: :succeeded,
               cleanup_checkpoint: true}
 
   - `from`：允许的起始 status 列表（必填）。

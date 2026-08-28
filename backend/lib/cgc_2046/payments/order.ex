@@ -371,7 +371,7 @@ defmodule Cgc2046.Payments.Order do
       end)
 
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :order_refund_retry,
          target_type: :order,
          metadata: &__MODULE__.refund_log_metadata/2}
@@ -398,7 +398,7 @@ defmodule Cgc2046.Payments.Order do
       end)
 
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :order_refund, target_type: :order, metadata: &__MODULE__.refund_log_metadata/2}
       )
     end

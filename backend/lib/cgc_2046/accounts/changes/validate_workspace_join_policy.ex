@@ -1,4 +1,4 @@
-defmodule Cgc2046.Changes.ValidateWorkspaceJoinPolicy do
+defmodule Cgc2046.Accounts.Changes.ValidateWorkspaceJoinPolicy do
   @moduledoc """
   校验目标工作台的 join_policy 是否为 :request。
 
