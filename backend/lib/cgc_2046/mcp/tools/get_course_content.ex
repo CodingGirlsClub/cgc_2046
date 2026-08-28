@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   @moduledoc """
   读取课程内容 issue 卡集(切片 H U3, #180;R4 读)。
 
-  数据源 = ResearchOutput(kind=:issues, key=course_<id>);无内容返回
+  数据源 = Curriculum.Output(kind=:issues, key=course_<id>);无内容返回
   course 无教研产出的明确错误(agent 侧可提示等待教研)。
 
   授权(KTD2):workspace 成员(tutor/教研编辑)∪ 本人 confirmed enrollment
@@ -16,7 +16,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
   alias Cgc2046.Mcp.Tools.LearnerAuthorization
   alias Cgc2046.Mcp.Wrapper
-  alias Cgc2046.Workflows.ResearchOutput
+  alias Cgc2046.Curriculum.Output
   require Ash.Query
 
   schema do
@@ -60,7 +60,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   # 课程元数据(title/slug,key 派生原料);授权已在工具层发生,
   # authorize?: false 直读(save_learning_records fetch_course 同款纪律)
   defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Events.Course
+    case Cgc2046.Courses.Course
          |> Ash.Query.for_read(:get_by_id, %{id: course_id})
          |> Ash.read_one(authorize?: false, tenant: workspace_id) do
       {:ok, nil} -> {:error, "course not found: #{course_id}"}
@@ -73,13 +73,13 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   # 由工具层授权后经 authorize?: false 读取——读门禁在工具层已真实发生
   # (save_step_output fetch_run 同款纪律)。
   defp fetch_content(workspace_id, course_id) do
-    ResearchOutput
-    |> Ash.Query.filter(key == ^ResearchOutput.course_key(course_id) and kind == :issues)
+    Output
+    |> Ash.Query.filter(key == ^Output.course_key(course_id) and kind == :issues)
     |> Ash.Query.limit(1)
     |> Ash.read_one(authorize?: false, tenant: workspace_id)
     |> case do
       {:ok, nil} ->
-        {:error, "no course content saved for course #{course_id} (research pending)"}
+        {:error, "no course content saved for course #{course_id} (curriculum pending)"}
 
       {:ok, output} ->
         {:ok, output.data || %{}}

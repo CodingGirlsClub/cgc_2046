@@ -305,12 +305,14 @@ defmodule Cgc2046.Workers.PaymentExpiryWorkerTest do
     }
   end
 
+  # ADR-0009 PR⑤ U6 口径平移：占位计数权威 = 名额账本 occupancy（原 events.confirmed_count）
   defp target_count(_ctx, order) do
     enrollment = Ash.get!(Enrollment, order.enrollment_id, authorize?: false)
 
-    Cgc2046.Events.Event
-    |> Ash.get!(enrollment.event_id, authorize?: false)
-    |> Map.get(:confirmed_count)
+    {:ok, ledger} =
+      Cgc2046.Admission.CapacityLedger.fetch_by_offering(:event, enrollment.event_id)
+
+    ledger.occupancy
   end
 
   defp reload_order(order) do

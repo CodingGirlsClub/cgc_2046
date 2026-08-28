@@ -39,7 +39,7 @@ defmodule Cgc2046.Workers.ApprovalReminderWorker do
 
   alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Policies.SponsorshipApprover
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowRun

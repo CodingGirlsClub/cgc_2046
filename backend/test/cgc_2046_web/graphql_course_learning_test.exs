@@ -52,11 +52,11 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
   end
 
   defp save_content(workspace, actor, course) do
-    Cgc2046.Workflows.ResearchOutput
+    Cgc2046.Curriculum.Output
     |> Ash.Changeset.for_create(
       :upsert_content,
       %{
-        key: Cgc2046.Workflows.ResearchOutput.course_key(course.id),
+        key: Cgc2046.Curriculum.Output.course_key(course.id),
         kind: :issues,
         data: content_fixture(),
         submitted_by: actor.id
@@ -207,7 +207,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
         EventFixtures.create_course(workspace, admin, %{visibility: :workspace, title: "内部课"})
 
       draft =
-        Cgc2046.Events.Course
+        Cgc2046.Courses.Course
         |> Ash.Changeset.for_create(
           :create,
           %{title: "草稿课", workspace_id: workspace.id},

@@ -5,7 +5,7 @@ defmodule Cgc2046.Workflows.ShareSchemeInstantiatorTest do
   alias Cgc2046.Workers.ShareSchemeWorker
   alias Cgc2046.Workflows.{ShareSchemeInstantiator, SignalSubscriber}
 
-  # P3 订阅器契约（plan 011；research_instantiator / notification_subscriber 先例）：
+  # P3 订阅器契约（plan 011；curriculum instantiator / notification_subscriber 先例）：
   # 信号 → Oban 入队（外呼不进信号同步路径）；claim_first 幂等。
 
   test "patterns/0 声明 event.launched / course.launched" do

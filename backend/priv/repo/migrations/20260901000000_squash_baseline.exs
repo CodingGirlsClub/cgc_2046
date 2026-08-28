@@ -376,14 +376,14 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :workspace_id, :uuid, null: false
     end
 
-    create table(:research_outputs, primary_key: false) do
+    create table(:curriculum_outputs, primary_key: false) do
       add :id, :uuid, default: fragment("gen_random_uuid()"), null: false, primary_key: true
 
       add :workspace_id,
           references(:workspaces,
             column: :id,
             type: :uuid,
-            name: "research_outputs_workspace_id_fkey",
+            name: "curriculum_outputs_workspace_id_fkey",
             on_delete: :delete_all
           ),
           null: false
@@ -651,7 +651,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
           null: false
 
       add :title, :text, null: false
-      add :research_requirements, :map, default: %{}
+      add :curriculum_requirements, :map, default: %{}
       add :status, :text, default: "draft", null: false
 
       add :workflow_run_id,
@@ -672,6 +672,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :enrollment_policy, :text, default: "open", null: false
       add :capacity, :bigint
       add :confirmed_count, :bigint, default: 0, null: false
+      add :confirmed_count_sync_version, :bigint, default: 0, null: false
       add :registration_deadline, :utc_datetime
       add :visibility, :string, size: 255, default: "public", null: false
       add :slug, :string, size: 255, null: false
@@ -688,8 +689,8 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
           null: false
 
       add :title, :text, null: false
-      add :research_enabled, :boolean, default: true, null: false
-      add :research_requirements, :map, default: %{}
+      add :curriculum_enabled, :boolean, default: true, null: false
+      add :curriculum_requirements, :map, default: %{}
       add :status, :text, default: "draft", null: false
 
       add :workflow_run_id,
@@ -710,6 +711,7 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :enrollment_policy, :text, default: "open", null: false
       add :capacity, :bigint
       add :confirmed_count, :bigint, default: 0, null: false
+      add :confirmed_count_sync_version, :bigint, default: 0, null: false
       add :registration_deadline, :utc_datetime
       add :visibility, :string, size: 255, default: "public", null: false
       add :slug, :string, size: 255, null: false
@@ -780,6 +782,31 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :expires_at, :utc_datetime
       add :status, :text, default: "active", null: false
       add :remark, :text
+      add :inserted_at, :utc_datetime_usec, null: false
+      add :updated_at, :utc_datetime_usec, null: false
+    end
+
+    # ADR-0009 PR⑤ U6（R12）：名额账本——每个 offering 唯一一行，占位/释放
+    # 原子 CAS 收编于此；offering_id 多态指向 events/courses 不建外键。
+    create table(:admission_capacity_ledgers, primary_key: false) do
+      add :id, :uuid, default: fragment("gen_random_uuid()"), null: false, primary_key: true
+
+      add :workspace_id,
+          references(:workspaces,
+            column: :id,
+            type: :uuid,
+            name: "admission_capacity_ledgers_workspace_id_fkey",
+            on_delete: :delete_all
+          ),
+          null: false
+
+      add :offering_kind, :text, null: false
+      add :offering_id, :uuid, null: false
+      add :status, :text, null: false
+      add :capacity, :bigint
+      add :registration_deadline, :utc_datetime
+      add :occupancy, :bigint, default: 0, null: false
+      add :sync_version, :bigint, default: 0, null: false
       add :inserted_at, :utc_datetime_usec, null: false
       add :updated_at, :utc_datetime_usec, null: false
     end
@@ -1193,11 +1220,13 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
 
     create index(:portfolio_items, [:user_id], name: "portfolio_items_user_id_index")
 
-    create unique_index(:research_outputs, [:key, :kind],
-             name: "research_outputs_unique_key_kind_index"
+    create unique_index(:curriculum_outputs, [:key, :kind],
+             name: "curriculum_outputs_unique_key_kind_index"
            )
 
-    create index(:research_outputs, [:workspace_id], name: "research_outputs_workspace_id_index")
+    create index(:curriculum_outputs, [:workspace_id],
+             name: "curriculum_outputs_workspace_id_index"
+           )
 
     create index(:signal_idempotency, [:inserted_at],
              name: "signal_idempotency_inserted_at_index"
@@ -1259,20 +1288,10 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
              check: "((capacity IS NULL) OR (capacity > 0))"
            )
 
-    create constraint(:courses, :courses_confirmed_count_valid,
-             check:
-               "((confirmed_count >= 0) AND ((capacity IS NULL) OR (confirmed_count <= capacity)))"
-           )
-
     create unique_index(:events, [:slug], name: "events_slug_index")
 
     create constraint(:events, :events_capacity_positive,
              check: "((capacity IS NULL) OR (capacity > 0))"
-           )
-
-    create constraint(:events, :events_confirmed_count_valid,
-             check:
-               "((confirmed_count >= 0) AND ((capacity IS NULL) OR (confirmed_count <= capacity)))"
            )
 
     create unique_index(:workflow_step_roles, [:workspace_id, :step_id, :role_id],
@@ -1281,6 +1300,10 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
 
     create unique_index(:invite_batches, [:invite_code],
              name: "invite_batches_unique_invite_code_index"
+           )
+
+    create unique_index(:admission_capacity_ledgers, [:offering_kind, :offering_id],
+             name: "admission_capacity_ledgers_unique_offering_index"
            )
 
     create constraint(:invite_batches, :invite_batches_exactly_one_target,
@@ -1403,11 +1426,12 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
     drop table(:workflow_definitions)
     drop table(:user_identities)
     drop table(:signal_idempotency)
-    drop table(:research_outputs)
+    drop table(:curriculum_outputs)
     drop table(:portfolio_items)
     drop table(:mp_notification_consents)
     drop table(:join_requests)
     drop table(:invitations)
+    drop table(:admission_capacity_ledgers)
     drop table(:workspaces)
     drop table(:workspace_profiles)
     drop table(:wechat_login_tickets)

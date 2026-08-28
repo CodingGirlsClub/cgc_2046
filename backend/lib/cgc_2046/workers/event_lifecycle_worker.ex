@@ -21,7 +21,8 @@ defmodule Cgc2046.Workers.EventLifecycleWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do

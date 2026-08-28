@@ -10,7 +10,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
     expired 后重提 → 新 enrollment → 新 key）。
   - **幂等两层**：① claim-in-handle（校验链通过后、launch 前经骨架 `claim/3`
     登记，键 = 消费者作用域——校验不过不烧 claim，重投仍可推进）；② find_or_create
-    非终态 run（`ResearchInstantiator` 同款，终态后可重新实例化）。
+    非终态 run（`Curriculum.Instantiator` 同款，终态后可重新实例化）。
   - **定义获取**：租户内已 published 的 `type=learning` 定义（多个取最新，
     version desc + inserted_at desc）。无 published 定义 → warning skip 供对账
     （E-10 规则：confirmed enrollment 无 learning run）。
@@ -89,7 +89,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
         {:error, reason}
 
       # 无已 published 学习定义（read_first 返回 nil）是合法场景，走 skipped 而非
-      # unexpected（同 research_instantiator.ex 模式；供 E-10 对账）。
+      # unexpected（同 curriculum/instantiator.ex 模式；供 E-10 对账）。
       {:ok, nil} ->
         Logger.warning(
           "LearningInstantiator skipped instantiation for enrollment #{enrollment_id}: :learning_definition_not_found"
@@ -166,7 +166,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   end
 
   # 异步路径：取该租户已 published 的学习定义。多个时取最新（version desc，
-  # inserted_at desc 兜底）——read_first 取排序首行（同 research 先例）。
+  # inserted_at desc 兜底）——read_first 取排序首行（同 curriculum 先例）。
   defp fetch_learning_definition(workspace_id) do
     WorkflowDefinition
     |> Ash.Query.filter(type == :learning and status == :published)
@@ -175,7 +175,7 @@ defmodule Cgc2046.Workflows.LearningInstantiator do
   end
 
   # ensure_confirmed 与 INSERT 之间的窗口内报名可能转 cancelled（取消联动属 E-2
-  # 范围）——创建前重读 enrollment 二次校验（对齐 research BLOCKING 3 修复）；
+  # 范围）——创建前重读 enrollment 二次校验（对齐 curriculum BLOCKING 3 修复）；
   # 残余极小窗口由对账扫描（E-10）兜底。前置守卫留调用侧（PR-F D5）——统一入口
   # 只内化 create→start 顺序与非终态去重。读取委托 Enrollment.anchor/1（锚定
   # 单源，架构深化 E）。

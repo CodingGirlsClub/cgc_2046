@@ -28,9 +28,10 @@ defmodule Cgc2046.Changes.SignalEmitter do
 
   emitter 统一上收的 payload 规范（Q12，资源不再自拼）：
 
-  - `"idempotency_key"` = `"<type>:<record_id>"`——与消费方既有派生回退
-    （NotificationSubscriber/SpeakerSubscriber 的 `"<type>:<id>"` fallback）
-    逐值一致，存量 claim 键不变；
+  - `"idempotency_key"` = `"<type>:<record_id>"`——仅缺省注入（payload fn
+    自带幂等键时保留自带值，如 `offering.capacity_changed` 逐次唯一键）；
+    缺省值与消费方既有派生回退（NotificationSubscriber/SpeakerSubscriber
+    的 `"<type>:<id>"` fallback）逐值一致，存量 claim 键不变；
   - `"workspace_id"` 取自 `record.workspace_id`（覆盖 payload fn 同名片段，
     规范唯一来源在 emitter）；
   - payload 键一律字符串（atom 键在 emitter 边界归一）。
@@ -53,7 +54,7 @@ defmodule Cgc2046.Changes.SignalEmitter do
         payload =
           payload_fn.(cs, record)
           |> Map.new(fn {key, value} -> {to_string(key), value} end)
-          |> Map.put("idempotency_key", type <> ":" <> record.id)
+          |> Map.put_new("idempotency_key", type <> ":" <> record.id)
           |> Map.put("workspace_id", record.workspace_id)
 
         SignalPublishWorker.enqueue_in_transaction(type, payload, cs.tenant)

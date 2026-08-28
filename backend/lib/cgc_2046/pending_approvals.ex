@@ -34,7 +34,7 @@ defmodule Cgc2046.PendingApprovals do
 
   alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role, User, Workspace}
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Events.Sponsorship
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Policies.SponsorshipApprover
 
   @spec list(term(), keyword()) :: {:ok, [map()]} | {:error, term()}

@@ -25,7 +25,8 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
   """
   use Anubis.Server.Component, type: :tool, meta: %{workspace_id: :optional, membership: :public}
 
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
   alias Cgc2046.Mcp.Tools.PublicOffering
   alias Cgc2046.Mcp.Wrapper
 

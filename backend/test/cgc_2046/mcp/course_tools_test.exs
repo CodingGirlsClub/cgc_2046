@@ -194,7 +194,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
       course = EventFixtures.create_course(workspace, admin, %{})
 
       # 造一个非终态教研 run 并挂到 course(镜像目标)
-      # 造一个非终态教研 run 并挂到 course(镜像目标):走 ResearchInstantiator
+      # 造一个非终态教研 run 并挂到 course(镜像目标):走 Curriculum.Instantiator
       # 正道(manual step → waiting 非终态)
       {:ok, published} =
         Cgc2046.Workflows.WorkflowDefinition
@@ -202,7 +202,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
           :create,
           %{
             name: "教研",
-            type: :research,
+            type: :curriculum,
             input_schema: %{},
             node_def: %{"steps" => [%{"id" => "draft_issues", "type" => "manual"}]}
           },
@@ -217,7 +217,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
         end)
 
       {:ok, run} =
-        Cgc2046.Workflows.ResearchInstantiator.launch(
+        Cgc2046.Curriculum.Instantiator.launch(
           workspace.id,
           published.id,
           %{"course_id" => course.id, "title" => course.title, "research_requirements" => %{}},
@@ -227,7 +227,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
       assert run.status in [:waiting, :running]
 
       course
-      |> Ash.Changeset.for_update(:link_research_run, %{workflow_run_id: run.id},
+      |> Ash.Changeset.for_update(:link_curriculum_run, %{workflow_run_id: run.id},
         tenant: workspace.id,
         authorize?: false
       )
@@ -398,7 +398,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
              |> Ash.Query.filter(course_id == ^course_b.id)
              |> Ash.read!(authorize?: false) == []
 
-      assert Cgc2046.Workflows.ResearchOutput
+      assert Cgc2046.Curriculum.Output
              |> Ash.Query.filter(key == ^"course_#{course_b.id}")
              |> Ash.read!(authorize?: false) == []
     end

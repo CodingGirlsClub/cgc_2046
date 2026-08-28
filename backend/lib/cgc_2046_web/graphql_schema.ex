@@ -6,7 +6,18 @@ defmodule Cgc2046Web.GraphqlSchema do
   require Ash.Expr
 
   use AshGraphql,
-    domains: [Cgc2046.Api, Cgc2046.Admission, Cgc2046.GlobalApi, Cgc2046.Payments],
+    domains: [
+      Cgc2046.Admission,
+      Cgc2046.Courses,
+      Cgc2046.Curriculum,
+      Cgc2046.Events,
+      Cgc2046.GlobalApi,
+      Cgc2046.Learning,
+      Cgc2046.Payments,
+      Cgc2046.Reconciliation,
+      Cgc2046.Sponsorship,
+      Cgc2046.Workflows
+    ],
     generate_sdl_file: "priv/graphql/schema.graphql",
     auto_generate_sdl_file?: true
 
@@ -350,7 +361,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_signal_type_filter(args[:signal_type])
             |> maybe_time_range_filter(args)
           end,
-          admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Api)
+          admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Workflows)
         )
       )
     end
@@ -394,7 +405,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_status_filter(args[:entity_type], :entity_type)
             |> maybe_real_workspace_filter(args[:workspace_id])
           end,
-          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Api)
+          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation)
         )
       )
     end
@@ -1247,7 +1258,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                    context,
                    :create_invitation,
                    Cgc2046.Events.SpeakerInvitation,
-                   Cgc2046.Api
+                   Cgc2046.Events
                  )
              }}
         end
@@ -1277,7 +1288,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                          context,
                          :resend_invitation,
                          Cgc2046.Events.SpeakerInvitation,
-                         Cgc2046.Api
+                         Cgc2046.Events
                        )
                    }}
               end
@@ -2362,7 +2373,7 @@ defmodule Cgc2046Web.GraphqlSchema do
            context,
            action,
            Cgc2046.Events.SpeakerInvitation,
-           Cgc2046.Api
+           Cgc2046.Events
          )
      }}
   end
@@ -2526,7 +2537,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 匿名面);成员视角走管理页/工作台课程列表,不经本查询;其余 → {:ok, nil}。
   # goal-only 投影(object :course_map_issue 无 checklist 字段)。
   defp resolve_course_map(slug) do
-    case Cgc2046.Events.Course
+    case Cgc2046.Courses.Course
          |> Ash.Query.for_read(:get_by_slug, %{slug: slug})
          |> Ash.read_one(authorize?: false) do
       {:ok, %{} = course} ->
@@ -2542,14 +2553,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp build_course_map(course) do
-    content = Cgc2046.Events.Course.course_content(course)
+    content = Cgc2046.Curriculum.course_content(course)
 
     %{
       course_id: course.id,
       title: course.title,
       slug: course.slug,
       goals: content["goals"] || [],
-      issues: Cgc2046.Events.Course.issue_map_rows(course)
+      issues: Cgc2046.Curriculum.issue_map_rows(course)
     }
   end
 
@@ -2590,7 +2601,7 @@ defmodule Cgc2046Web.GraphqlSchema do
              course.workspace_id,
              course.id
            ) do
-      content = Cgc2046.Events.Course.course_content(course)
+      content = Cgc2046.Curriculum.course_content(course)
       records = fetch_actor_records(course, actor)
       {:ok, build_course_learning_detail(course, content, records)}
     else
@@ -2602,7 +2613,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # resolve_course_learning_detail 的 LearnerAuthorization 三层判定
   # （成员 ∪ confirmed enrollment ∪ 记忆持有者）承担，无权限 → nil。
   defp fetch_course_for_detail(course_id) do
-    Cgc2046.Events.Course
+    Cgc2046.Courses.Course
     |> Ash.Query.for_read(:get_by_id, %{id: course_id})
     |> Ash.read_one(authorize?: false)
     |> case do
@@ -2849,7 +2860,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # U7:内容/记录/课程按 (course, user) 组装(无内容课程 → nil → 投影 0/n)。
   # course 供 issue key 派生(slug 短码);一次往返,抽屉数据同源。
-  # #217 旁路读取（D 类·本人锚链）：本函数三处直读（ResearchOutput 内容 /
+  # #217 旁路读取（D 类·本人锚链）：本函数三处直读（Curriculum.Output 内容 /
   # LearningRecord 记录 / Course 元数据）由同一调用链守门——
   # project_learning_run 已校验 enrollment.user_id == actor.id，records 再按
   # user_id 过滤本人；无他人视角可构造。
@@ -2858,9 +2869,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     if is_binary(course_id) do
       content =
-        Cgc2046.Workflows.ResearchOutput
+        Cgc2046.Curriculum.Output
         |> Ash.Query.filter(
-          key == ^Cgc2046.Workflows.ResearchOutput.course_key(course_id) and kind == :issues
+          key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
         )
         |> Ash.Query.limit(1)
         |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
@@ -2881,7 +2892,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       # #217 旁路读取（D 类）：投影元数据，守门同函数头锚链。
       course =
-        Cgc2046.Events.Course
+        Cgc2046.Courses.Course
         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
         |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
         |> case do
@@ -3175,7 +3186,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   defp resolve_readiness(id, actor) do
     with {:ok, entity} <- fetch_offering_by_id(id, actor) do
-      {:ok, Cgc2046.Events.Readiness.evaluate(entity)}
+      {:ok, Cgc2046.Offering.Readiness.evaluate(entity)}
     end
   end
 

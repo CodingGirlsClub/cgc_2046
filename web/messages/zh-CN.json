@@ -1237,6 +1237,7 @@
     "editMeta": "编辑元数据",
     "fieldTitle": "标题",
     "capacityHint": "名额上限（留空 = 不限）",
+    "capacityBelowOccupied": "目标容量低于当前已占 {confirmed} 席：保存不拦截，超员部分将由账本拒新单、随取消/过期自然释放收敛",
     "deadlineHint": "报名截止（留空 = 不设截止）",
     "startsAtHint": "开始时间（留空 = 未定）",
     "endsAtHint": "结束时间（留空 = 未定；须晚于开始时间）",
@@ -1775,7 +1776,11 @@
       "open_entity_without_research_definition": "开放实体无教研定义",
       "nonterminal_research_run_for_closed_entity": "已结束实体仍有进行中教研",
       "dead_letter_job": "信号族死信",
-      "learning_run_stalled": "学习 run 停滞"
+      "learning_run_stalled": "学习 run 停滞",
+      "open_offering_without_ledger": "开放供给物无名额账本行",
+      "ledger_occupancy_mismatch": "账本占位计数与报名不符",
+      "capacity_projection_drift": "名额展示投影漂移",
+      "occupancy_exceeds_capacity": "账本占位超容量上限"
     },
     "reconEntity": {
       "enrollment": "报名",

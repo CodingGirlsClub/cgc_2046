@@ -2,15 +2,16 @@ defmodule Cgc2046.Admission.Enrollment do
   @moduledoc """
   Event/Course 报名资源。
 
-  核心并发不变量由数据库承担：目标活动的 `confirmed_count` 通过条件 UPDATE
-  占位，InviteBatch 配额通过 `remaining_quota > 0` 条件 UPDATE 扣减，报名本身
+  核心并发不变量由数据库承担：名额账本行（CapacityLedger，`occupancy`）通过
+  条件 UPDATE 占位（ADR-0009 PR⑤ U6，原 events/courses 计数列写点收编），
+  InviteBatch 配额通过 `remaining_quota > 0` 条件 UPDATE 扣减，报名本身
   由两个部分唯一索引防重复。所有写都位于 Ash action 事务内，后续步骤失败会回滚
   已执行的计数更新。
 
   ## learning 锚定（唯一真源，架构深化 E；plan 2026-08-17-004）
 
   「learning run 锚定到哪条 Enrollment」的唯一读取面 = `anchor/1`（+ 双键提取
-  `anchored_id/1`）。三消费方（Workflows→Events 依赖方向）：
+  `anchored_id/1`）。三消费方（Workflows→Admission 依赖方向）：
   `StepAuthorization.enrolled_learner?` / `LearningInstantiator` /
   `LearningProgressWorker`，各私有拷贝已收编于此。双键超集语义：string 键优先、
   atom 键兜底——可达输入全为 string 键（input_snapshot 经 JSONB 持久化；唯一
@@ -27,6 +28,7 @@ defmodule Cgc2046.Admission.Enrollment do
   require Ash.Query
   require Logger
 
+  alias Cgc2046.Admission.CapacityLedger
   alias Cgc2046.ApprovalClaim
   alias Cgc2046.Miniprogram.Client
 
@@ -142,7 +144,7 @@ defmodule Cgc2046.Admission.Enrollment do
   relationships do
     belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
     belongs_to(:event, Cgc2046.Events.Event, define_attribute?: false)
-    belongs_to(:course, Cgc2046.Events.Course, define_attribute?: false)
+    belongs_to(:course, Cgc2046.Courses.Course, define_attribute?: false)
     belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false)
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun, define_attribute?: false)
     belongs_to(:invite_batch, Cgc2046.Admission.InviteBatch, define_attribute?: false)
@@ -627,9 +629,9 @@ defmodule Cgc2046.Admission.Enrollment do
     tier_id = Ash.Changeset.get_argument(changeset, :tier_id)
 
     with true <- (is_binary(tier_id) and tier_id != "") || {:error, :tier_id_required},
-         {:ok, tier} <- Cgc2046.Events.PriceTier.find(tiers, tier_id),
+         {:ok, tier} <- Cgc2046.Offering.PriceTier.find(tiers, tier_id),
          true <-
-           Cgc2046.Events.PriceTier.available?(tier, DateTime.utc_now()) ||
+           Cgc2046.Offering.PriceTier.available?(tier, DateTime.utc_now()) ||
              {:error, :tier_not_available} do
       payload =
         changeset
@@ -850,6 +852,41 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
+  @doc """
+  支付超时释放端口（ADR-0009 U5 / R20；KTD6 同事务）：`Order :expire` 在订单
+  CAS 同事务内调用——报名 CAS payment_pending→expired（落 expired_at）+ 账本
+  occupancy 释放一步完成（U6 收编）；任一步失败返回 {:error, _}，调用方整体回滚
+  （含订单 CAS），扫描下拍重试。
+
+  报名已流转（免缴 confirmed / 已取消）时 CAS num_rows=0 → :ok，无名额可释，
+  订单过期照常，迟到收款由落账 worker 自动退款链兜底（KTD12 不变量）。
+  """
+  def release_for_payment_expiry(enrollment_id) do
+    sql = """
+    UPDATE enrollments
+    SET status = 'expired', expired_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND status = 'payment_pending'
+    RETURNING event_id, course_id
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(enrollment_id)]) do
+      {:ok, %{rows: [[event_id, nil]]}} when not is_nil(event_id) ->
+        release_capacity({:event, Ecto.UUID.load!(event_id)})
+
+      {:ok, %{rows: [[nil, course_id]]}} when not is_nil(course_id) ->
+        release_capacity({:course, Ecto.UUID.load!(course_id)})
+
+      {:ok, %{rows: []}} ->
+        :ok
+
+      {:ok, _unexpected} ->
+        {:error, :enrollment_target_shape}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp pending_offering_scope(:event, id) do
     Ash.Query.filter(__MODULE__, status == :payment_pending and event_id == ^id)
   end
@@ -1002,24 +1039,9 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp reserve_capacity(kind, id) do
-    table = target_table(kind)
-
-    sql = """
-    UPDATE #{table}
-    SET confirmed_count = confirmed_count + 1, updated_at = NOW()
-    WHERE id = $1 AND status = 'open'
-      AND (registration_deadline IS NULL OR registration_deadline > NOW())
-      AND (capacity IS NULL OR confirmed_count < capacity)
-    RETURNING confirmed_count
-    """
-
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
-      {:ok, %{rows: [[sequence]]}} -> {:ok, sequence}
-      {:ok, %{rows: []}} -> {:error, :capacity_full_or_registration_closed}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
+  # R14：占位 CAS 收编账本行（守卫三条件原样复刻；懒建 upsert 兜底在账本侧，
+  # KTD5）。返回值 = 账本 occupancy（capacity_seq 语义随之改指账本计数）。
+  defp reserve_capacity(kind, id), do: CapacityLedger.reserve(kind, id)
 
   defp consume_invite_quota(workspace_id, kind, target_id, invite_code) do
     target_column = if kind == :event, do: "event_id", else: "course_id"
@@ -1126,20 +1148,8 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp release_capacity(nil), do: :ok
-
-  defp release_capacity({kind, target_id}) do
-    table = target_table(kind)
-
-    case Cgc2046.Repo.query(
-           "UPDATE #{table} SET confirmed_count = confirmed_count - 1 WHERE id = $1 AND confirmed_count > 0",
-           [Cgc2046.Repo.uuid!(target_id)]
-         ) do
-      {:ok, %{num_rows: 1}} -> :ok
-      {:ok, %{num_rows: 0}} -> {:error, :capacity_counter_invalid}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
+  # R14：释放 CAS 收编账本行（occupancy > 0 守卫语义不变）
+  defp release_capacity(capacity_target), do: CapacityLedger.release(capacity_target)
 
   # GraphQL 入口不注入 tenant（nil 时从目标派生）；显式传错 tenant 仍拒绝（防跨 workspace 越权）
   defp resolve_tenant(nil, workspace_id), do: {:ok, workspace_id}

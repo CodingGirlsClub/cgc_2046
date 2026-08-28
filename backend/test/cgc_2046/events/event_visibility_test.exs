@@ -15,7 +15,8 @@ defmodule Cgc2046.Events.EventVisibilityTest do
   use Cgc2046.DataCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   defp reload(resource, id, actor \\ nil, tenant \\ nil) do
@@ -144,7 +145,7 @@ defmodule Cgc2046.Events.EventVisibilityTest do
       assert match?(%Ash.ForbiddenField{}, anon_view.capacity)
       assert match?(%Ash.ForbiddenField{}, anon_view.confirmed_count)
       assert match?(%Ash.ForbiddenField{}, anon_view.workspace_id)
-      assert match?(%Ash.ForbiddenField{}, anon_view.research_enabled)
+      assert match?(%Ash.ForbiddenField{}, anon_view.curriculum_enabled)
       assert anon_view.title == event.title
       assert anon_view.visibility == :public
 

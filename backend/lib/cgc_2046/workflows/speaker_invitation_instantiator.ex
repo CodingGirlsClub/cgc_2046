@@ -75,7 +75,7 @@ defmodule Cgc2046.Workflows.SpeakerInvitationInstantiator do
 
   # 取该租户已 published 的邀请定义。多个时取最新（version desc，
   # inserted_at desc 兜底）——read_one 无排序时 Postgres 返回任意行
-  # （ResearchInstantiator.fetch_research_definition 同款纪律）。
+  # （Curriculum.Instantiator.fetch_curriculum_definition 同款纪律）。
   defp fetch_definition(workspace_id) do
     WorkflowDefinition
     |> Ash.Query.filter(type == :speaker_invitation and status == :published)

@@ -9,7 +9,19 @@ import Config
 
 config :cgc_2046,
   ecto_repos: [Cgc2046.Repo],
-  ash_domains: [Cgc2046.Api, Cgc2046.Admission, Cgc2046.GlobalApi, Cgc2046.Mcp, Cgc2046.Payments],
+  ash_domains: [
+    Cgc2046.Admission,
+    Cgc2046.Courses,
+    Cgc2046.Curriculum,
+    Cgc2046.Events,
+    Cgc2046.GlobalApi,
+    Cgc2046.Learning,
+    Cgc2046.Mcp,
+    Cgc2046.Payments,
+    Cgc2046.Reconciliation,
+    Cgc2046.Sponsorship,
+    Cgc2046.Workflows
+  ],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
 config :cgc_2046, AshPostgres,
@@ -157,7 +169,7 @@ config :cgc_2046, Oban,
        {"*/5 * * * *", Cgc2046.Workers.ApprovalExpiryWorker},
        {"*/5 * * * *", Cgc2046.Workers.EventLifecycleWorker},
        {"*/5 * * * *", Cgc2046.Workers.LearningProgressWorker},
-       {"*/5 * * * *", Cgc2046.Workers.ResearchProgressWorker},
+       {"*/5 * * * *", Cgc2046.Workers.CurriculumProgressWorker},
        {"17 * * * *", Cgc2046.Workers.ApprovalReminderWorker},
        # #252 登录支撑表清理：验证码/扫码票 TTL 分钟级，保留 1 天排查窗，
        # 小时级清理粒度足够。

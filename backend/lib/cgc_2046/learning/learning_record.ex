@@ -21,7 +21,7 @@ defmodule Cgc2046.Learning.LearningRecord do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Learning
 
   attributes do
     uuid_primary_key(:id)
@@ -113,7 +113,7 @@ defmodule Cgc2046.Learning.LearningRecord do
       allow_nil?: false
     )
 
-    belongs_to(:course, Cgc2046.Events.Course,
+    belongs_to(:course, Cgc2046.Courses.Course,
       source_attribute: :course_id,
       destination_attribute: :id,
       allow_nil?: false
@@ -235,7 +235,7 @@ defmodule Cgc2046.Learning.LearningRecord do
 
   admin do
     # #113 ops 面优化:导航分组 + 列表列裁剪
-    resource_group(:events)
+    resource_group(:learning)
     label_field(:issue_id)
 
     table_columns([
