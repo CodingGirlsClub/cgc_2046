@@ -861,26 +861,73 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
         end)
 
       cleanup_on_exit(workspace.id, [owner, tutor])
-      barrier = start_supervised!({Barrier, 2})
+      parent = self()
+      {:ok, defn} = PrepInstantiator.fetch_prep_definition(workspace.id)
 
-      # R1-02 保真：两参与者先各自确认 initial miss（fetch_run = nil），Barrier
-      # 同步后才进 lock/create 窗口——删锁时两者都从 miss 出发并发建 run，
-      # 测试必红（不靠调度器碰运气串行）
-      results =
+      # R3 结构证明（advisor R2-01）：同步点在 production internal miss 之后、
+      # lock/create 之前——spawn_under_course_lock/3 的 spawn_fun 是 caller
+      # 闭包（合法 seam）：闭包开头即锁内 fetch_run（with 的 miss）已过、create
+      # 未始的精确时刻。gate = send :at_gate + receive :go（放行由主进程广播，
+      # 非双方会合——有锁时 B 阻塞在行锁外到不了 gate，Barrier 会死锁）。
+      #
+      # 有 FOR UPDATE：A 获锁 → 锁内 miss → spawn_fun 挂 gate；B 阻塞在行锁
+      # 外。主进程收 A 的 :at_gate 广播 :go → A create+提交 → B 获锁 →
+      # 锁内重读命中 A 的 run → 双 {:ok} 同 id（绿，不死锁）。
+      # 删 FOR UPDATE：A/B 各自锁内读 nil（互不可见未提交）→ 双双挂 gate →
+      # 放行 → 双 create → run id 不同（稳定红，删码验证见 R3 报告）。
+      tasks =
         [tutor, tutor]
-        |> Enum.map(fn actor ->
+        |> Enum.map(fn _actor ->
           Task.async(fn ->
             unboxed(fn ->
-              nil = Prep.fetch_run(course.id, workspace.id)
-              Barrier.arrive(barrier)
-              Prep.ensure_active_run(course, actor: actor)
+              Prep.spawn_under_course_lock(course, ["draft", "open"], fn ->
+                send(parent, :at_gate)
+
+                receive do
+                  :go -> :ok
+                end
+
+                PrepInstantiator.launch(workspace.id, defn.id, %{
+                  "course_id" => course.id,
+                  "title" => course.title
+                })
+              end)
             end)
           end)
         end)
-        |> Task.await_many(15_000)
 
-      # 两参与者都成功，且拿到同一个 run（后到者锁内重读胜者已建的 run）
-      assert [{:ok, run_a}, {:ok, run_b}] = results
+      # 放行条件（确定性）：两个 participant 都到 gate（删锁世界：双方都已
+      # 过各自的锁内 miss、挂在 create 前——放行即双建，稳定红），或出现
+      # 行锁等待者（有锁世界：A 在 gate 持锁挂起，B 阻塞在 FOR UPDATE 到
+      # 不了 gate——此时放行 A，A 提交后 B 获锁锁内重读命中，绿）。
+      # 若只等第一个 gate：B 可能尚未到 gate 而 A 已被放行建 run 提交，
+      # B 随后 fetch_run 命中——false green（advisor R2 指出的窗口）。
+      wait_until(fn ->
+        # 非破坏性收点 mailbox 里已积压的 :at_gate（最多两条）
+        gates =
+          Enum.count(1..2, fn _ ->
+            receive do
+              :at_gate -> true
+            after
+              0 -> false
+            end
+          end)
+
+        if gates >= 2 do
+          true
+        else
+          %{rows: [[n]]} =
+            Repo.query!(
+              "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
+            )
+
+          n >= 1
+        end
+      end)
+
+      Enum.each(tasks, &send(&1.pid, :go))
+
+      assert [{:ok, run_a}, {:ok, run_b}] = Task.await_many(tasks, 15_000)
       assert run_a.id == run_b.id
 
       unboxed(fn ->
@@ -892,6 +939,55 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
         # fetch_run 幂等可读（多行会 MultipleResults 卡死——S6-01 的原始故障面）
         assert %WorkflowRun{} = Prep.fetch_run(course.id, workspace.id)
+      end)
+    end
+
+    test "ensure_active_run 层真并发（采样性质）：双调用幂等同 run" do
+      # 采样补充（advisor R2-01 如实定性）：ensure_active_run 全链路（锁外
+      # guard → fetch_run → spawn_under_course_lock）真并发，但调度不受
+      # gate 控制——本测试的绿是采样证据（每次都过真实链路），结构证明
+      # 由上一测试的 spawn_fun gate 承担。
+      {owner, workspace, course, tutor} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-smp-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-smp-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, _run} = course_with_prep(workspace, owner, %{title: "采样并发"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+          assert decode(report_reply)["outcome"] == "published"
+
+          {owner, workspace, course, tutor}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+
+      results =
+        [tutor, tutor]
+        |> Enum.map(fn actor ->
+          Task.async(fn ->
+            unboxed(fn -> Prep.ensure_active_run(course, actor: actor) end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert [{:ok, run_a}, {:ok, run_b}] = results
+      assert run_a.id == run_b.id
+
+      unboxed(fn ->
+        active = Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+        assert length(active) == 1
       end)
     end
   end
@@ -994,6 +1090,193 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       assert [] =
                Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "锁互斥（真实 close 事务重叠）：producer 持锁挂起时 close 等待，放行后收口 producer 的 run" do
+      {owner, workspace, course, tutor} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-r3m-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-r3m-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, _run} = course_with_prep(workspace, owner, %{title: "锁互斥"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+          assert decode(report_reply)["outcome"] == "published"
+
+          {owner, workspace, course, tutor}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+      parent = self()
+      {:ok, defn} = PrepInstantiator.fetch_prep_definition(workspace.id)
+
+      # R3（advisor R2 MUST 2）：真实 producer（lazy，open 白名单）与真实
+      # close 事务重叠。producer 经 spawn_under_course_lock 的 spawn_fun gate
+      # 挂起——此刻 producer 持有 course 行写锁；closer（真实 :close 域
+      # action）阻塞等同一行锁。
+      producer =
+        Task.async(fn ->
+          unboxed(fn ->
+            Prep.spawn_under_course_lock(course, ["draft", "open"], fn ->
+              send(parent, :at_gate)
+
+              receive do
+                :go -> :ok
+              end
+
+              PrepInstantiator.launch(workspace.id, defn.id, %{
+                "course_id" => course.id,
+                "title" => course.title
+              })
+            end)
+          end)
+        end)
+
+      receive do
+        :at_gate -> :ok
+      end
+
+      closer =
+        Task.async(fn ->
+          unboxed(fn ->
+            closed =
+              Ash.get!(Course, course.id, authorize?: false)
+              |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+              |> Ash.update!(tenant: workspace.id, actor: owner)
+
+            send(parent, :closer_done)
+            closed
+          end)
+        end)
+
+      # 放行条件（确定性，R3）：closer 完成或已阻塞在行锁——任一先出现才放行
+      # producer。有 FOR UPDATE：closer 阻塞等 producer 的行锁（waiter 出现）→
+      # 放行 → producer create+提交+释放锁 → closer 获锁完成并在同事务收口
+      # producer 的 run（close 必然在 producer 提交之后提交——结构证据）。
+      # 删 FOR UPDATE：closer 不被阻塞直接完成（closed 已提交）→ 放行 →
+      # producer 恢复 spawn_fun 直接建 run（status/fetch 均为挂起前旧读）→
+      # run 落库时课程已 terminal 且无人收口 → 断言 cancelled/active-0 红。
+      wait_until(fn ->
+        closer_done? =
+          receive do
+            :closer_done -> true
+          after
+            0 -> false
+          end
+
+        if closer_done? do
+          true
+        else
+          %{rows: [[n]]} =
+            Repo.query!(
+              "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
+            )
+
+          n >= 1
+        end
+      end)
+
+      send(producer.pid, :go)
+
+      assert {:ok, spawned} = Task.await(producer, 15_000)
+      Task.await(closer, 15_000)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # 收口路径：producer 的 run 存在且被 close 取消（cancelled + finished_at）
+      reloaded = reload_run(spawned, workspace)
+      assert reloaded.status == :cancelled
+      refute is_nil(reloaded.finished_at)
+
+      # 终态后 active run 恒 0
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "序列 B（真实接线）：handler 过 draft 检查后阻塞在行锁，terminal 先提交 → 锁内拒绝零 run" do
+      # 布置须真实提交（unboxed）：handler 与持锁事务各自用独立 unboxed 连接，
+      # sandbox 未提交数据对其不可见（fetch_course 会 :not_found skip——
+      # 认领竞态测试同款纪律）
+      {owner, workspace, course} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-r3b-owner")
+          workspace = Fixtures.create_workspace(owner)
+          create_prep_definition(workspace, owner)
+
+          # 无 prep run 的 draft 课程（course.created 未投递）
+          course = draft_course(workspace, owner, %{title: "序列 B 真实接线"})
+          {owner, workspace, course}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner])
+
+      # 真实 handler（SignalSubscriber.deliver 同步执行 PrepInstantiator.handle/2，
+      # Task 进程内）：fetch_course(draft) → ensure_draft ✓ → fetch defn →
+      # spawn_under_course_lock 的 SELECT ... FOR UPDATE——主进程持锁期间
+      # handler 唯一可能的阻塞点即此（「已通过 draft 检查后暂停」的真实实现）。
+      handler =
+        Task.async(fn ->
+          unboxed(fn ->
+            SignalSubscriber.deliver(PrepInstantiator, %{
+              type: "course.created",
+              data: %{"course_id" => course.id, "title" => course.title}
+            })
+          end)
+        end)
+
+      # 主进程持锁必须包在 Repo.transaction 里（unboxed_run 是 autocommit——
+      # 裸 SELECT FOR UPDATE 是语句级锁，语句结束即释放，从未真正挡住 handler）
+      unboxed(fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SELECT id FROM courses WHERE id = $1 FOR UPDATE", [
+            Ecto.UUID.dump!(course.id)
+          ])
+
+          # 等 handler 的锁请求出现（精确条件：waiter 超基线 **且** run 未建——
+          # 真实接线下 handler 阻塞在 SELECT ... FOR UPDATE，此刻 run 必未建；
+          # 若 handler 回退为直接 launch/3，会先建 run 再阻塞在 link 的
+          # UPDATE，本条件永不满足，超时后走到 force closed，最终断言
+          # [] = prep_runs 因 run 已建而稳定红——回退验证锚点）。
+          # 基线消化其他 async 测试的锁等待干扰（误判方向只会提前放行，
+          # 结果不变量不受影响，不产生 false red）。
+          %{rows: [[baseline]]} =
+            Repo.query!(
+              "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
+            )
+
+          wait_until(fn ->
+            %{rows: [[n]]} =
+              Repo.query!(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
+              )
+
+            n > baseline and prep_runs(workspace) == []
+          end)
+
+          # 持锁事务内注入 terminal 状态（真实链路 launch→close 的域副作用
+          # 与断言无关，此处只需 world state = closed 已提交；事务提交释放
+          # 锁后，handler 恢复获锁并由锁内 status 裁决拒绝）
+          force_course_status(course, "closed")
+        end)
+      end)
+
+      assert :ok = Task.await(handler, 10_000)
+
+      # 锁内裁决拒绝：handler 无写副作用，零 run（若 handler 回退为直接
+      # launch/3，run 会在持锁期间被建并提交——terminal 后遗留 active run，
+      # 本断言红；回退验证见 R3 报告）
+      assert [] = prep_runs(workspace)
     end
   end
 
@@ -1973,4 +2256,40 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
   end
 
   defp unboxed(fun), do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fun)
+
+  # 等待出现至少一个未获授的 transactionid 锁请求（行锁等待者）——必然事件
+  # 的条件轮询（25ms 间隔，u6 测试 wait_until 先例）。注：pg_locks 全库可见，
+  # 其他 async 测试的锁等待可能被计入——误判只会让放行更晚（结果不变量不受
+  # 影响），不会产生 false green。
+  # 必然事件的条件轮询（25ms 间隔，u6 测试 wait_until 先例）
+  defp wait_until(fun, attempts \\ 200)
+
+  defp wait_until(fun, 0), do: fun.()
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(25)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
+  defp wait_until_lock_waiter(attempts \\ 200)
+
+  defp wait_until_lock_waiter(0), do: :ok
+
+  defp wait_until_lock_waiter(attempts) do
+    %{rows: [[n]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
+      )
+
+    if n >= 1 do
+      :ok
+    else
+      Process.sleep(25)
+      wait_until_lock_waiter(attempts - 1)
+    end
+  end
 end
