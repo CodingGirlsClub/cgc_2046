@@ -2,13 +2,16 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   @moduledoc """
   架构深化 C 一致性测试：鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控）。
 
-  - 派生门控集合恰为 10 个豁免工具（精确名单：3 × workspace_id: :optional +
-    1 × optional+deferred 双键 + 4 × membership: :deferred + 2 × membership: :public）
+  - 派生门控集合恰为 20 个豁免工具（精确名单：3 × workspace_id: :optional +
+    1 × optional+deferred 双键 + 4 × membership: :deferred + 2 × membership: :public +
+    10 × workspace_id: :optional + membership: :platform_admin）
   - member-only 工具不携带豁免 meta
   - 未声明 meta 的工具默认门控 = member-only + workspace_id 必填（fail-closed）
   - 两个公开工具命中 `:public` 分支而非落入 optional 分支（map 子集匹配下
     子句顺序即语义，KTD3）；optional+deferred 双键工具命中 `:optional` 分支
     （同理，S1 get_role_playbook）
+  - 平台治理十工具（admin_ 前缀，双键 meta）命中 `:platform_admin` 分支——
+    S2 新门控族，子句置于 `:optional` 之前而不吞掉 S1 双键工具
 
   新工具漏声明、豁免被误删均直接红（结构性消除 wrapper 时代「删清单条目无
   编译错误、无测试断言」的删除风险）。
@@ -22,11 +25,12 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
 
-  # 精确名单（与 server.ex 注册的 20 工具一一对应）
+  # 精确名单（与 server.ex 注册的 30 工具一一对应）
   @workspace_id_optional ~w(confirm_operation cancel_operation list_my_workspaces)
   @optional_deferred ~w(get_role_playbook)
   @membership_deferred ~w(save_step_output get_course_content get_learning_records save_learning_records)
   @membership_public ~w(list_public_offerings get_public_offering)
+  @membership_platform_admin ~w(admin_list_users admin_list_workspaces admin_list_workspace_applications admin_list_audit_logs admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user)
   @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks)
 
   defp frame_for(user), do: Frame.new(current_user: user)
@@ -36,7 +40,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
     |> Map.new(fn tool -> {tool.name, tool.meta} end)
   end
 
-  describe "派生门控集合 = 10 个豁免工具（精确名单）" do
+  describe "派生门控集合 = 20 个豁免工具（精确名单）" do
     test "workspace_id: :optional = confirm_operation / cancel_operation / list_my_workspaces" do
       meta_map = tool_meta_map()
 
@@ -73,7 +77,19 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "豁免工具恰为 10 个：无遗漏、无多出" do
+    test "membership: :platform_admin 双键 = admin_ 前缀十工具（S2 平台治理族）" do
+      meta_map = tool_meta_map()
+
+      for tool <- @membership_platform_admin do
+        assert Map.get(meta_map, tool) == %{
+                 workspace_id: :optional,
+                 membership: :platform_admin
+               },
+               "expected #{tool} to declare workspace_id: :optional + membership: :platform_admin"
+      end
+    end
+
+    test "豁免工具恰为 20 个：无遗漏、无多出" do
       exempt =
         tool_meta_map()
         |> Enum.filter(fn {_name, meta} -> meta != nil end)
@@ -82,7 +98,8 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       assert Map.keys(exempt) |> Enum.sort() ==
                Enum.sort(
                  @workspace_id_optional ++
-                   @optional_deferred ++ @membership_deferred ++ @membership_public
+                   @optional_deferred ++
+                   @membership_deferred ++ @membership_public ++ @membership_platform_admin
                )
     end
 
@@ -94,14 +111,15 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "注册工具数 = 20 且名单完备（无未收录工具）" do
+    test "注册工具数 = 30 且名单完备（无未收录工具）" do
       meta_map = tool_meta_map()
 
       assert Map.keys(meta_map) |> Enum.sort() ==
                Enum.sort(
                  @workspace_id_optional ++
                    @optional_deferred ++
-                   @membership_deferred ++ @membership_public ++ @member_only
+                   @membership_deferred ++
+                   @membership_public ++ @membership_platform_admin ++ @member_only
                )
     end
 
@@ -125,6 +143,19 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
 
       assert Wrapper.gate_family("list_my_workspaces") == :optional
       assert Wrapper.gate_family("list_my_tasks") == :member_only
+    end
+
+    test "平台治理工具命中 :platform_admin 分支，S1 双键工具不被吞掉（S2 新子句顺序回归）" do
+      for tool <- @membership_platform_admin do
+        assert Wrapper.gate_family(tool) == :platform_admin,
+               "expected #{tool} to hit :platform_admin gate branch"
+      end
+
+      # 回归：%{membership: :platform_admin} 子句置于 :optional 之前，
+      # 不得吞掉 S1 的 %{workspace_id: :optional, membership: :deferred} 工具
+      assert Wrapper.gate_family("get_role_playbook") == :optional
+      assert Wrapper.gate_family("list_my_workspaces") == :optional
+      assert Wrapper.gate_family("confirm_operation") == :optional
     end
   end
 
@@ -226,6 +257,47 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
                end)
 
       assert msg =~ "unauthenticated"
+    end
+
+    test "membership: :platform_admin 工具：非平台管理员 → forbidden（不经业务 fun）" do
+      outsider = Fixtures.register_user("mcp-gate-pa-outsider")
+
+      assert {:error, msg} =
+               Wrapper.run(
+                 frame_for(outsider),
+                 %{},
+                 "admin_list_users",
+                 fn _, _, _ -> {:ok, %{called: true}} end
+               )
+
+      assert msg =~ "forbidden: platform admin required"
+    end
+
+    test "membership: :platform_admin 工具：平台管理员无 workspace_id 放行到业务 fun" do
+      admin = Fixtures.platform_admin("mcp-gate-pa-admin")
+
+      assert {:ok, %{called: true}} =
+               Wrapper.run(
+                 frame_for(admin),
+                 %{},
+                 "admin_list_users",
+                 fn _, _, _ -> {:ok, %{called: true}} end
+               )
+    end
+
+    test "member-only 双面契约不动：非成员平台管理员调 member-only 工具仍 forbidden" do
+      admin = Fixtures.platform_admin("mcp-gate-pa-nonmember")
+      %{workspace: workspace} = Fixtures.workspace_with_member()
+
+      assert {:error, msg} =
+               Wrapper.run(
+                 frame_for(admin),
+                 %{"workspace_id" => workspace.id},
+                 "list_members",
+                 fn _, _, _ -> {:ok, %{called: true}} end
+               )
+
+      assert msg =~ "not a member"
     end
   end
 
