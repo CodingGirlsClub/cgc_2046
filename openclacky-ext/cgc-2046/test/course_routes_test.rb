@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
-# U9 课程学习面板 loopback 路由测试(plan 001/#180 R15):
-# - 三端点注册与透传 JSON 形状(MCP registry call_tool 透传)
+# U9 课程学习面板 loopback 路由测试(plan 001/#180 R15;S4-extension 加草稿写回):
+# - 三读端点注册与透传 JSON 形状(MCP registry call_tool 透传)
 # - 未连接态(registry 未配置 cgc-2046)→ 503 + 引导信息
 # - workspace_id 缺失 → 400
 # - 面板 view.js 结构静态断言(三态行/当前卡/CTA/未连接态标记)
+# - 写面纪律:面板唯一写操作 = 草稿保存(POST content → save_course_content);
+#   学习记录写回仍只发生在 session(写面收窄断言,409/编辑断言在
+#   course_content_write_test.rb)
 #
 # 运行(需项目 mise 环境):cd openclacky-ext/cgc-2046 && mise exec -- ruby test/course_routes_test.rb
 
@@ -258,10 +261,12 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "503"
   end
 
-  def test_panel_is_read_only
-    # 纯视图零写操作:不得出现写工具调用(写回发生在 session)
+  def test_panel_write_surface_is_draft_save_only
+    # S4 起面板唯一写操作 = 课程草稿保存(save_course_content,经 loopback
+    # POST /courses/:course_id/content);学习记录写回仍只发生在 session 工具调用
     refute_includes VIEW, "save_learning_records"
-    refute_includes VIEW, "save_course_content"
-    refute_match(/method:\s*["'](?:POST|PUT|DELETE|PATCH)["']/, VIEW)
+    # 面板不直连 MCP 写工具名之外的回写通道;唯一 POST 面 = 草稿保存路由
+    assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/content"'
+    refute_match(/method:\s*["'](?:PUT|DELETE|PATCH)["']/, VIEW)
   end
 end

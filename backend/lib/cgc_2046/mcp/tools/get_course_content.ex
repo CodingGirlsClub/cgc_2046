@@ -9,7 +9,8 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   ∪ 本人已有记忆(记忆持有者)。
 
   响应(advisory H2/H3,KTD6「Web 与扩展共用形状约定」):`course_title` +
-  逐 issue 注入展示层 `key`(slug 短码-序号派生,单源
+  草稿 `version`(S4 乐观并发基准,`save_course_content` 的 `base_version`
+  来源)+ 逐 issue 注入展示层 `key`(slug 短码-序号派生,单源
   `Cgc2046.Learning.Progress.issue_key/2`)——面板与 agent 无需自算或退用内部 id。
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
@@ -30,7 +31,9 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
         with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
              {:ok, course} <- fetch_course(workspace_id, course_id),
-             {:ok, content} <- fetch_content(workspace_id, course_id) do
+             {:ok, output} <- fetch_content(workspace_id, course_id) do
+          content = output.data || %{}
+
           issues =
             (content["issues"] || [])
             |> Enum.with_index(1)
@@ -46,6 +49,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
            %{
              course_id: course_id,
              course_title: course.title,
+             version: output.version,
              goals: content["goals"] || [],
              issues: issues
            }}
@@ -70,14 +74,15 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   # 读取带 actor:资源层 read policy(成员/平台管理员)放行成员;学员(非成员)
   # 由工具层授权后经 authorize?: false 读取——读门禁在工具层已真实发生
   # (save_step_output fetch_run 同款纪律)。
-  # 读经 Curriculum.content_output/2 单一入口(A4);字符串错误为 MCP 工具契约
+  # 读经 Curriculum.content_output/2 单一入口(A4);字符串错误为 MCP 工具契约。
+  # 返回 Output 记录本体——响应需要顶层 version(S4 乐观并发读侧)。
   defp fetch_content(workspace_id, course_id) do
     case Cgc2046.Curriculum.content_output(workspace_id, course_id) do
       {:ok, nil} ->
         {:error, "no course content saved for course #{course_id} (curriculum pending)"}
 
       {:ok, output} ->
-        {:ok, output.data || %{}}
+        {:ok, output}
 
       {:error, _} ->
         {:error, "failed to load course content"}

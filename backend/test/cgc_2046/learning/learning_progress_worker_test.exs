@@ -108,7 +108,8 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
         key: Cgc2046.Curriculum.Output.course_key(course.id),
         kind: :issues,
         data: content_fixture(),
-        submitted_by: actor.id
+        submitted_by: actor.id,
+        base_version: 0
       },
       tenant: workspace.id,
       actor: actor

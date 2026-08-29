@@ -1,12 +1,24 @@
-// CGC-2046 课程学习面板(U9,plan 001 / #180 R15)。
+// CGC-2046 课程学习面板(U9,plan 001 / #180 R15;role-agent-journeys-v2 S4-extension
+// 加教研侧草稿编辑与自动刷新)。
 //
-// 结构:我的课程 → issue 列表(三态)→ 当前 issue 卡(goal/given/materials/
-// checklist 打勾态)→「和导师学这一节」唤起学习会话(Rsk3 降级:复制任务
-// 指令文本,粘贴到会话;记录写回发生在 session 工具调用)。
+// 结构:Workspace 选择器(按名选择,用户永不手填 UUID,S1 finding 收敛)→
+// 我的课程 → issue 列表(三态)→ 当前 issue 卡(goal/given/materials/checklist
+// 打勾态)→「和导师学这一节」唤起学习会话(Rsk3 降级:复制任务指令文本,粘贴
+// 到会话;记录写回发生在 session 工具调用)。
+//
+// S4 教研侧编辑(R9/R10,AE2):当前 Workspace 角色含 tutor|owner|admin 时
+// (canEdit)详情页出现「编辑内容」入口——goals/issues 表单化编辑,保存走
+// POST /courses/:id/content(透传 save_course_content,携带 base_version);
+// 409 version_conflict → 丢弃本地编辑 + 红色横幅 + 重载最新草稿。
+// 编辑仅做 UX 门控,网站 RBAC 为唯一权威(工具层 tutor ∪ owner/admin 判定)。
+//
+// R11 自动刷新:面板可见时 10s 轮询(详情 = 草稿 version + 记录签名,列表 =
+// 记录签名),变化只亮非侵入更新条,不打断浏览;编辑/保存态轮询挂起(陈旧基准
+// 由保存时 409 兜底);手动刷新按钮常驻。
 //
 // 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/courses*)→
-// 扩展 core 作为 MCP 客户端透传 get_learning_records / get_course_content
-// (dsh-cgc-core 已验证模式)。面板纯视图零写操作。
+// 扩展 core 作为 MCP 客户端透传 get_learning_records / get_course_content /
+// save_course_content(dsh-cgc-core 已验证模式)。
 //
 // 未连接态(loopback 503 或 status 未配置)→ 引导视图(去连接面板)。
 
@@ -17,14 +29,31 @@
   const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-course";
   const STORE_KEY = "cgc2046.coursePanel.workspaceId";
+  const POLL_MS = 10000;
   let currentContainer = null;
+  let pollTimer = null;
 
   // ---- 面板状态 ----
   const state = {
+    bootStarted: false,
+    loadingBoot: false,
+    bootError: null,
+    workspaces: [],    // [{ workspace_id, name, slug, roles }](list_my_workspaces)
     workspaceId: "",
+    canEdit: false,    // 当前 Workspace 角色含 tutor|owner|admin(S4 编辑入口)
     courses: [],       // [{ courseId, records }]
+    coursesSig: "",    // 列表签名(轮询变更检测)
     selected: null,    // { courseId, content, records }
+    detailSig: "",     // 详情签名(version + 记录;轮询变更检测)
     currentIssue: null,
+    editing: false,    // S4 草稿编辑态(编辑中轮询挂起)
+    draft: null,       // 编辑工作副本 { goals: [], issues: [] }
+    draftContent: null,// 编辑基准草稿原文(get_course_content 全量,含 version 与未知键)
+    saving: false,
+    saveError: null,
+    conflict: null,    // 409 冲突横幅文案(AE2)
+    updateNotice: false, // 详情轮询发现变化(非侵入条)
+    listNotice: false, // 列表轮询发现变化(非侵入条)
     loading: false,
     error: null,
     copied: false
@@ -61,7 +90,44 @@
     return done > 0 ? "in_progress" : "todo";
   }
 
+  // ---- 角色 / 版本 / 签名 ----
+  const EDIT_ROLES = ["tutor", "owner", "admin"];
+
+  // 网站 RBAC 为唯一权威,面板只做 UX 门控
+  function computeCanEdit() {
+    const ws = state.workspaces.find(function (w) { return w.workspace_id === state.workspaceId; });
+    const roles = (ws && ws.roles) || [];
+    state.canEdit = roles.some(function (r) { return EDIT_ROLES.indexOf(r) >= 0; });
+  }
+
+  // 草稿版本:进入编辑时拉取的 get_course_content 结果顶层 version;缺失按 0(首存)
+  function draftVersion() {
+    const v = state.draftContent && state.draftContent.version;
+    return Number.isInteger(v) ? v : 0;
+  }
+
+  // 学习记录签名(issue/item/done 三元组),轮询变更检测用
+  function recordsSignature(records) {
+    return (records || []).map(function (r) {
+      return String(r.course_id) + "/" + String(r.issue_id) + "/" + String(r.item_id) + ":" + (r.done ? "1" : "0");
+    }).sort().join("|");
+  }
+
+  // 详情签名:草稿 version(编辑域外的他人写入检测)+ 记录签名
+  function detailSignature(content, records) {
+    const v = content && Number.isInteger(content.version) ? content.version : 0;
+    return "v" + v + ";" + recordsSignature(records);
+  }
+
   // ---- 数据加载 ----
+  // 不带 workspace_id 的裸 GET(仅 /me/workspaces 身份路由用)
+  async function rawGet(path) {
+    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
+    const body = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw Object.assign(new Error(body.error || "HTTP " + res.status), { body, status: res.status });
+    return body;
+  }
+
   async function apiGet(path) {
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
     const res = await fetch(API + path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId), {
@@ -72,13 +138,98 @@
     return body;
   }
 
+  // POST JSON(S4 草稿保存);错误体挂 status/body(409 走冲突 UX)
+  async function apiPost(path, payload) {
+    const res = await fetch(API + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const body = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
+    return body;
+  }
+
+  // ---- 10s 轮询(R11) ----
+  // 只探测不打断:发现变化只亮非侵入条,视图由用户点击刷新;编辑/保存/加载态
+  // 挂起;容器脱离 DOM(面板关闭)自停;失败静默下轮重试。
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(pollTick, POLL_MS);
+  }
+
+  // R1 P2-1:页面隐藏跳本轮(R11「面板可见时」口径);in-flight 闸防单轮 >10s 叠请求。
+  let pollInFlight = false;
+
+  async function pollTick() {
+    if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
+    if (document.hidden || pollInFlight) return;
+    if (state.editing || state.saving || state.loading || state.loadingBoot) return;
+    if (!state.workspaceId || state.error) return;
+    pollInFlight = true;
+    try {
+      if (state.selected) {
+        // 详情页:草稿 version + 学习记录签名(他人/Agent 写入或学习进展)
+        const [contentRes, recordsRes] = await Promise.all([
+          apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/content"),
+          apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/records")
+        ]);
+        const sig = detailSignature(contentRes.result || {}, (recordsRes.result && recordsRes.result.records) || []);
+        if (sig !== state.detailSig) {
+          state.updateNotice = true;
+          render();
+        }
+      } else {
+        const payload = await apiGet("/courses");
+        const sig = recordsSignature((payload.result && payload.result.records) || []);
+        if (sig !== state.coursesSig) {
+          state.listNotice = true;
+          render();
+        }
+      }
+    } catch (e) { /* 轮询失败静默,下轮重试 */ } finally { pollInFlight = false; }
+  }
+
+  // 开面板引导:拉可访问 Workspace 列表 → 解析选中(持久化 id 有效则沿用,
+  // 否则回退第一项)→ 自动加载课程。503 走未连接引导,其它错误进 gate 视图。
+  async function boot() {
+    state.loadingBoot = true;
+    state.bootError = null;
+    state.error = null;
+    render();
+    try {
+      const payload = await rawGet("/me/workspaces");
+      const result = payload.result || {};
+      state.workspaces = Array.isArray(result.workspaces) ? result.workspaces : [];
+      const stored = localStorage.getItem(STORE_KEY) || "";
+      const found = state.workspaces.find(function (w) { return w.workspace_id === stored; });
+      const chosen = found || state.workspaces[0] || null;
+      state.workspaceId = chosen ? String(chosen.workspace_id) : "";
+      if (chosen) localStorage.setItem(STORE_KEY, state.workspaceId);
+      computeCanEdit();
+    } catch (e) {
+      state.workspaces = [];
+      if (e && e.status === 503) state.error = e; else state.bootError = e;
+    } finally {
+      state.loadingBoot = false;
+      render();
+    }
+    if (state.workspaceId && !state.error && !state.bootError) loadCourses();
+  }
+
   async function loadCourses() {
     state.loading = true;
     state.error = null;
+    state.listNotice = false;
     render();
     try {
       const payload = await apiGet("/courses");
       const records = (payload.result && payload.result.records) || [];
+      state.coursesSig = recordsSignature(records);
       const byCourse = {};
       records.forEach(function (r) {
         (byCourse[r.course_id] = byCourse[r.course_id] || []).push(r);
@@ -100,6 +251,7 @@
   async function openCourse(courseId) {
     state.loading = true;
     state.error = null;
+    state.updateNotice = false;
     render();
     try {
       const [contentRes, recordsRes] = await Promise.all([
@@ -109,6 +261,7 @@
       const content = contentRes.result || {};
       const records = (recordsRes.result && recordsRes.result.records) || [];
       state.selected = { courseId: courseId, content: content, records: records };
+      state.detailSig = detailSignature(content, records);
       state.currentIssue = null;
     } catch (e) {
       state.error = e;
@@ -148,19 +301,34 @@
   function render(container) {
     currentContainer = container || currentContainer;
     if (!currentContainer) return;
-    if (!state.workspaceId) {
-      renderWorkspaceConfig();
+    if (!state.bootStarted) {
+      state.bootStarted = true;
+      shell('<div class="cgc-card">加载中…</div>');
+      boot();
       return;
     }
     if (state.error && state.error.status === 503) {
+      stopPolling();
       renderNotConnected();
+      return;
+    }
+    if (!state.workspaceId) {
+      stopPolling();
+      renderWorkspaceGate();
       return;
     }
     if (!state.selected) {
       renderCourseList();
-      return;
+    } else {
+      renderCourseDetail();
     }
-    renderCourseDetail();
+    maybeStartPolling();
+  }
+
+  // 编辑/保存态不轮询(陈旧基准由保存时 409 兜底);其余可见态确保轮询在跑
+  function maybeStartPolling() {
+    if (state.editing || state.saving) return;
+    startPolling();
   }
 
   function shell(inner) {
@@ -171,22 +339,53 @@
       '</div>';
   }
 
-  function renderWorkspaceConfig() {
-    shell(
-      '<p class="cgc-panel-sub">填入平台的 workspace_id(D12 无状态作用域),用于拉取课程数据。</p>' +
-      '<div class="cgc-card">' +
-        '<input id="cgc-ws-input" class="cgc-input" placeholder="workspace_id(UUID)" />' +
-        '<button id="cgc-ws-save" class="cgc-btn" type="button">保存</button>' +
-      '</div>' +
-      '<p class="cgc-empty">workspace_id 可在网站工作台设置页查看。</p>'
-    );
-    const input = currentContainer.querySelector("#cgc-ws-input");
-    input.value = localStorage.getItem(STORE_KEY) || "";
-    currentContainer.querySelector("#cgc-ws-save").addEventListener("click", function () {
-      const v = input.value.trim();
-      localStorage.setItem(STORE_KEY, v);
-      state.workspaceId = v;
-      if (v) loadCourses(); else render();
+  // Workspace gate:boot 加载中 / 失败重试 / 零可访问工作台引导
+  function renderWorkspaceGate() {
+    if (state.loadingBoot) {
+      shell('<div class="cgc-card">加载 Workspace 列表…</div>');
+      return;
+    }
+    if (state.bootError) {
+      shell(
+        '<div class="cgc-card cgc-ev-err">加载 Workspace 列表失败:' + escapeHtml(state.bootError.message || "") + '</div>' +
+        '<div class="cgc-actions">' +
+          '<button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary" type="button">重试</button>' +
+        '</div>'
+      );
+      currentContainer.querySelector("#cgc-boot-retry").addEventListener("click", boot);
+      return;
+    }
+    shell('<div class="cgc-card cgc-empty">当前账号没有可访问的 Workspace。请先在网站加入或创建工作台。</div>');
+  }
+
+  // 课程列表头部的 Workspace 选择器:按名称切换(S1 finding:用户永不手填 UUID)
+  function pickerRow() {
+    const opts = state.workspaces.map(function (w) {
+      const sel = w.workspace_id === state.workspaceId ? " selected" : "";
+      return '<option value="' + escapeHtml(w.workspace_id) + '"' + sel + '>' +
+             escapeHtml(w.name || w.slug || w.workspace_id) + '</option>';
+    }).join("");
+    return '<div class="cgc-ws-row"><select id="cgc-ws-switch" class="cgc-select">' + opts + '</select></div>';
+  }
+
+  function bindWorkspaceSwitch() {
+    const sw = currentContainer.querySelector("#cgc-ws-switch");
+    if (!sw) return;
+    sw.addEventListener("change", function () {
+      state.workspaceId = sw.value;
+      localStorage.setItem(STORE_KEY, sw.value);
+      // R1 P2-2:切换 Workspace 清空旧课程详情与编辑态——否则旧 course_id 滞留,
+      // 轮询拿旧 course_id + 新 workspace_id 静默失败,编辑保存更是写错目标。
+      state.selected = null;
+      state.currentIssue = null;
+      state.conflict = null;
+      state.updateNotice = false;
+      state.editing = false;
+      state.draft = null;
+      state.draftContent = null;
+      state.saveError = null;
+      computeCanEdit();
+      loadCourses();
     });
   }
 
@@ -196,33 +395,42 @@
         '<b>CGC-2046 未连接。</b>' + escapeHtml(state.error.message || "") +
         '<div class="cgc-banner-hint">请先在 CGC-2046 连接面板完成连接(生成 token 并连接),再使用课程学习面板。</div>' +
       '</div>' +
-      // smoke01 #2:显式重试入口——loadCourses 清 error 后重探 loopback,
+      // smoke01 #2:显式重试入口——boot 重探 loopback(先 /me/workspaces 后 /courses),
       // 成功进课程列表、仍 503 则回到本引导视图(不再需要整页刷新恢复)。
       '<div class="cgc-actions">' +
         '<button id="cgc-retry" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-retry">重试</button>' +
       '</div>'
     );
-    currentContainer.querySelector("#cgc-retry").addEventListener("click", function () { loadCourses(); });
+    currentContainer.querySelector("#cgc-retry").addEventListener("click", boot);
   }
 
   function renderCourseList() {
     let inner =
+      pickerRow() +
       '<p class="cgc-panel-sub">我的课程(按学习记录推导)</p>' +
       '<div class="cgc-actions"><button id="cgc-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button></div>';
 
+    // R11 列表轮询更新条:点击才刷新(不在用户浏览时抽换视图)
+    if (state.listNotice) {
+      inner +=
+        '<div class="cgc-update-bar" data-testid="panel-list-update-bar">课程列表已更新 ' +
+          '<button id="cgc-list-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新查看</button>' +
+        '</div>';
+    }
+
     if (state.loading) {
       shell(inner + '<div class="cgc-card">加载中…</div>');
-      bindBack(null);
+      bindListExtras();
       return;
     }
     if (state.error) {
       shell(inner + '<div class="cgc-card cgc-ev-err">加载失败:' + escapeHtml(state.error.message || "") + '</div>');
-      bindBack(null);
+      bindListExtras();
       return;
     }
     if (state.courses.length === 0) {
       shell(inner + '<div class="cgc-card cgc-empty">暂无在学课程。在网站报名课程并开始学习后,这里会显示课程列表。</div>');
-      bindBack(null);
+      bindListExtras();
       return;
     }
 
@@ -236,10 +444,18 @@
     }).join("");
 
     shell(inner + '<div class="cgc-card cgc-course-list">' + rows + '</div>');
-    bindBack(null);
+    bindListExtras();
     currentContainer.querySelectorAll("[data-course]").forEach(function (el) {
       el.addEventListener("click", function () { openCourse(el.getAttribute("data-course")); });
     });
+  }
+
+  function bindListExtras() {
+    bindWorkspaceSwitch();
+    const refresh = currentContainer.querySelector("#cgc-refresh");
+    if (refresh) refresh.addEventListener("click", loadCourses);
+    const bar = currentContainer.querySelector("#cgc-list-refresh");
+    if (bar) bar.addEventListener("click", loadCourses);
   }
 
   function renderCourseDetail() {
@@ -247,15 +463,47 @@
     const issues = ((sel.content && sel.content.issues) || []);
     const index = doneIndex(sel.records);
 
+    // 编辑态:整体换编辑器视图(轮询已挂起)
+    if (state.editing) {
+      shell(renderEditor());
+      bindEditor();
+      return;
+    }
+
     let inner =
+      pickerRow() +
       '<div class="cgc-actions">' +
         '<button id="cgc-back" class="cgc-btn cgc-btn-secondary" type="button">← 返回课程</button>' +
+        '<button id="cgc-detail-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button>' +
         '<span class="cgc-panel-sub">' + issues.length + ' 个学习单元</span>' +
+        (Number.isInteger(sel.content && sel.content.version)
+          ? '<span class="cgc-badge" data-testid="panel-draft-version">草稿 v' + sel.content.version + '</span>'
+          : "") +
+        (state.canEdit
+          ? '<button id="cgc-edit-toggle" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-edit-toggle">编辑内容</button>'
+          : "") +
       '</div>';
+
+    // AE2:409 冲突横幅(本地编辑已丢弃,展示最新草稿)
+    if (state.conflict) {
+      inner += '<div class="cgc-banner cgc-banner-err" data-testid="panel-conflict">' + escapeHtml(state.conflict) + '</div>';
+    }
+
+    // R11 详情轮询更新条
+    if (state.updateNotice) {
+      inner +=
+        '<div class="cgc-update-bar" data-testid="panel-update-bar">内容已更新 ' +
+          '<button id="cgc-update-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新查看</button>' +
+        '</div>';
+    }
+
+    if (state.saveError) {
+      inner += '<div class="cgc-card cgc-ev-err">保存失败:' + escapeHtml(state.saveError.message || "") + '</div>';
+    }
 
     if (issues.length === 0) {
       shell(inner + '<div class="cgc-card cgc-empty">该课程暂无教研产出(issue 卡未提交)。</div>');
-      bindBack(sel.courseId);
+      bindDetailExtras(sel.courseId);
       return;
     }
 
@@ -275,7 +523,7 @@
     const card = state.currentIssue ? currentIssueCard(issues, index) : "";
     shell(inner + '<div class="cgc-card cgc-issue-list">' + list + '</div>' + card);
 
-    bindBack(sel.courseId);
+    bindDetailExtras(sel.courseId);
     currentContainer.querySelectorAll("[data-issue]").forEach(function (el) {
       el.addEventListener("click", function () {
         state.currentIssue = el.getAttribute("data-issue");
@@ -292,6 +540,19 @@
     }
   }
 
+  // 详情页公共绑定:返回 + 手动刷新 + S4 编辑入口 + R11 轮询更新条
+  function bindDetailExtras(courseId) {
+    bindWorkspaceSwitch();
+    const back = currentContainer.querySelector("#cgc-back");
+    if (back) back.addEventListener("click", function () { state.selected = null; state.currentIssue = null; state.conflict = null; render(); });
+    const refresh = currentContainer.querySelector("#cgc-detail-refresh");
+    if (refresh) refresh.addEventListener("click", function () { openCourse(courseId); });
+    const toggle = currentContainer.querySelector("#cgc-edit-toggle");
+    if (toggle) toggle.addEventListener("click", enterEdit);
+    const upd = currentContainer.querySelector("#cgc-update-refresh");
+    if (upd) upd.addEventListener("click", function () { openCourse(courseId); });
+  }
+
   function currentIssueCard(issues, index) {
     const issue = issues.find(function (i) { return i.id === state.currentIssue; });
     if (!issue) return "";
@@ -300,7 +561,7 @@
     const materials = story.materials || [];
 
     const items = checklist.map(function (c) {
-      const rec = index[(issue.id || "") + "\u0000" + (c.id || "")];
+      const rec = index[(issue.id || "") + " " + (c.id || "")];
       return (
         '<li class="cgc-check' + (rec ? " cgc-check-done" : "") + '" data-testid="panel-check-item" data-done="' + (rec ? "true" : "false") + '">' +
           '<span class="cgc-st">' + (rec ? "✓" : "○") + '</span>' +
@@ -331,11 +592,213 @@
     );
   }
 
-  function bindBack(_courseId) {
-    const refresh = currentContainer.querySelector("#cgc-refresh");
-    if (refresh) refresh.addEventListener("click", loadCourses);
-    const back = currentContainer.querySelector("#cgc-back");
-    if (back) back.addEventListener("click", function () { state.selected = null; state.currentIssue = null; render(); });
+  // ---- S4 草稿编辑(教研侧;tutor|owner|admin;v1 schema:goals + issues/checklist) ----
+  // 编辑基准 = get_course_content 草稿(含 version 与未知键);进入编辑时才拉取。
+  async function enterEdit() {
+    if (!state.selected || state.loading) return;
+    const courseId = state.selected.courseId;
+    state.loading = true;
+    state.saveError = null;
+    render();
+    try {
+      const res = await apiGet("/courses/" + encodeURIComponent(courseId) + "/content");
+      const content = res.result || {};
+      state.draftContent = content;
+      state.draft = {
+        goals: Array.isArray(content.goals) ? content.goals.slice() : [],
+        issues: JSON.parse(JSON.stringify(Array.isArray(content.issues) ? content.issues : []))
+      };
+      state.editing = true;
+      state.conflict = null;
+      state.updateNotice = false;
+    } catch (e) {
+      state.error = e;
+    } finally {
+      state.loading = false;
+      render();
+    }
+  }
+
+  function exitEdit() {
+    state.editing = false;
+    state.draft = null;
+    state.draftContent = null;
+    state.saveError = null;
+    render();
+  }
+
+  function trim(s) { return String(s == null ? "" : s).trim(); }
+
+  // 材料:每行「标题 | 链接」;无 | 整行当标题
+  function parseMaterials(text) {
+    return text.split("\n").map(trim).filter(Boolean).map(function (line) {
+      const i = line.indexOf("|");
+      return i < 0
+        ? { title: line, ref: "" }
+        : { title: trim(line.slice(0, i)), ref: trim(line.slice(i + 1)) };
+    });
+  }
+
+  // checklist:每行「id | 文本」;无 | 自动补 c<行号> 作 id
+  function parseChecklist(text) {
+    return text.split("\n").map(trim).filter(Boolean).map(function (line, n) {
+      const i = line.indexOf("|");
+      return i < 0
+        ? { id: "c" + (n + 1), text: line }
+        : { id: trim(line.slice(0, i)), text: trim(line.slice(i + 1)) };
+    });
+  }
+
+  // 编辑器 DOM → draft(结构性动作与保存前调用,re-render 不丢输入)。
+  // 只写编辑器暴露的已知键——issue/story 上的未知键随深拷贝对象原样保留
+  // (无损往返:未来新增字段不被编辑器丢弃)。
+  function collectEditor() {
+    if (!state.draft || !currentContainer) return;
+    const goalsEl = currentContainer.querySelector("#cgc-edit-goals");
+    if (goalsEl) state.draft.goals = goalsEl.value.split("\n").map(trim).filter(Boolean);
+    currentContainer.querySelectorAll("[data-edit-issue]").forEach(function (el) {
+      const issue = state.draft.issues[Number(el.getAttribute("data-edit-issue"))];
+      if (!issue) return;
+      const story = issue.story = issue.story || {};
+      issue.kind = el.querySelector("[data-f='kind']").value;
+      issue.title = trim(el.querySelector("[data-f='title']").value);
+      story.as_a = trim(el.querySelector("[data-f='as_a']").value);
+      story.given = el.querySelector("[data-f='given']").value.split("/").map(trim).filter(Boolean);
+      story.goal = trim(el.querySelector("[data-f='goal']").value);
+      story.materials = parseMaterials(el.querySelector("[data-f='materials']").value);
+      story.checklist = parseChecklist(el.querySelector("[data-f='checklist']").value);
+    });
+  }
+
+  async function saveDraft() {
+    if (!state.selected || !state.draft || state.saving) return;
+    const courseId = state.selected.courseId;
+    collectEditor();
+    // 保留 content 上未编辑的键(如 course_title),剥离 version(并发控制走顶层 base_version)
+    const content = Object.assign({}, state.draftContent, {
+      goals: state.draft.goals,
+      issues: state.draft.issues
+    });
+    delete content.version;
+    state.saving = true;
+    state.saveError = null;
+    render();
+    try {
+      await apiPost("/courses/" + encodeURIComponent(courseId) + "/content", {
+        workspace_id: state.workspaceId,
+        content: content,
+        base_version: draftVersion()
+      });
+      // 成功:退出编辑态并重载(只读视图展示最新草稿)
+      state.editing = false;
+      state.draft = null;
+      state.draftContent = null;
+      await openCourse(courseId);
+    } catch (e) {
+      if (e && e.status === 409) {
+        // AE2:版本冲突——丢弃本地编辑(不做 diff),回只读视图 + 红色横幅
+        state.editing = false;
+        state.draft = null;
+        state.draftContent = null;
+        state.conflict = "内容已被他人更新到更新版本,本地编辑已丢弃;请重新进入编辑,基于最新草稿修改";
+        await openCourse(courseId);
+      } else {
+        state.saveError = e;
+      }
+    } finally {
+      state.saving = false;
+      render();
+    }
+  }
+
+  function renderEditor() {
+    const draft = state.draft || { goals: [], issues: [] };
+    const goalRows = (draft.goals || []).join("\n");
+
+    const issueCards = draft.issues.map(function (issue, idx) {
+      const story = issue.story || {};
+      const mats = (Array.isArray(story.materials) ? story.materials : []).map(function (m) {
+        return (m.title || "") + (m.ref ? " | " + m.ref : "");
+      }).join("\n");
+      const checks = (Array.isArray(story.checklist) ? story.checklist : []).map(function (c) {
+        return (c.id || "") + " | " + (c.text || "");
+      }).join("\n");
+      return (
+        '<div class="cgc-card cgc-issue-edit" data-edit-issue="' + idx + '" data-testid="panel-issue-edit">' +
+          '<div class="cgc-edit-row cgc-edit-head">' +
+            '<span class="cgc-issue-key">id:' + escapeHtml(issue.id) + '</span>' +
+            '<button class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button" data-remove-issue="' + idx + '">删除</button>' +
+          '</div>' +
+          '<div class="cgc-edit-row"><label>kind</label>' +
+            '<select data-f="kind">' +
+              '<option value="handwork"' + (issue.kind === "handwork" ? " selected" : "") + '>handwork(动手型)</option>' +
+              '<option value="thoughtwork"' + (issue.kind === "thoughtwork" ? " selected" : "") + '>thoughtwork(知识型)</option>' +
+            '</select></div>' +
+          '<div class="cgc-edit-row"><label>标题</label>' +
+            '<input data-f="title" type="text" value="' + escapeHtml(issue.title || "") + '"></div>' +
+          '<div class="cgc-edit-row"><label>as_a(目标学员画像)</label>' +
+            '<input data-f="as_a" type="text" value="' + escapeHtml(story.as_a || "") + '"></div>' +
+          '<div class="cgc-edit-row"><label>given(先修状态,/ 分隔)</label>' +
+            '<input data-f="given" type="text" value="' + escapeHtml((Array.isArray(story.given) ? story.given : []).join(" / ")) + '"></div>' +
+          '<div class="cgc-edit-row"><label>goal(完成后能独立做到什么)</label>' +
+            '<input data-f="goal" type="text" value="' + escapeHtml(story.goal || "") + '"></div>' +
+          '<div class="cgc-edit-row"><label>materials(每行一条,格式:标题 | 链接)</label>' +
+            '<textarea data-f="materials" rows="2">' + escapeHtml(mats) + '</textarea></div>' +
+          '<div class="cgc-edit-row"><label>checklist(每行一条,格式:id | 文本)</label>' +
+            '<textarea data-f="checklist" rows="3">' + escapeHtml(checks) + '</textarea></div>' +
+        '</div>'
+      );
+    }).join("");
+
+    return (
+      '<div class="cgc-actions">' +
+        '<span class="cgc-badge" data-testid="panel-draft-version">草稿 v' + draftVersion() + '</span>' +
+        '<span class="cgc-panel-sub">编辑课程草稿(保存经 save_course_content,base_version 乐观并发)</span>' +
+      '</div>' +
+      '<div class="cgc-card" data-testid="panel-editor">' +
+        '<div class="cgc-edit-row"><label>课程目标 goals(每行一条)</label>' +
+          '<textarea id="cgc-edit-goals" rows="3">' + escapeHtml(goalRows) + '</textarea></div>' +
+        issueCards +
+        '<div class="cgc-edit-row">' +
+          '<button id="cgc-add-issue" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-add-issue">+ 添加 issue</button>' +
+        '</div>' +
+        (state.saveError
+          ? '<div class="cgc-ev-err">保存失败:' + escapeHtml(state.saveError.message || "") + '</div>'
+          : "") +
+        '<div class="cgc-actions">' +
+          '<button id="cgc-save" class="cgc-btn cgc-btn-primary" type="button" data-testid="panel-save"' +
+            (state.saving ? " disabled" : "") + '>' + (state.saving ? "保存中…" : "保存草稿") + '</button>' +
+          '<button id="cgc-cancel-edit" class="cgc-btn cgc-btn-secondary" type="button">取消</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function bindEditor() {
+    const save = currentContainer.querySelector("#cgc-save");
+    if (save) save.addEventListener("click", saveDraft);
+    const cancel = currentContainer.querySelector("#cgc-cancel-edit");
+    if (cancel) cancel.addEventListener("click", exitEdit);
+    const add = currentContainer.querySelector("#cgc-add-issue");
+    if (add) {
+      add.addEventListener("click", function () {
+        collectEditor();
+        state.draft.issues.push({
+          id: "issue-" + Date.now(),
+          kind: "handwork",
+          title: "",
+          story: { as_a: "", given: [], goal: "", materials: [], checklist: [] }
+        });
+        render();
+      });
+    }
+    currentContainer.querySelectorAll("[data-remove-issue]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        collectEditor();
+        state.draft.issues.splice(Number(el.getAttribute("data-remove-issue")), 1);
+        render();
+      });
+    });
   }
 
   // ---- 样式(面板自包含) ----
@@ -362,11 +825,21 @@
       ".cgc-check{display:flex;gap:8px;padding:4px 0;font-size:13px}" +
       ".cgc-check-done{color:var(--text,#eee)}" +
       ".cgc-ev-hint{font-size:11px;color:#9ca3af;margin-top:6px}" +
-      ".cgc-btn-primary{background:#6366f1;color:#fff;border:none}";
+      ".cgc-btn-primary{background:#6366f1;color:#fff;border:none}" +
+      ".cgc-ws-row{margin-bottom:8px}" +
+      ".cgc-select{padding:4px 8px;border:1px solid var(--border,#444);border-radius:6px;background:transparent;color:inherit;font-size:13px}" +
+      ".cgc-badge{font-size:11px;border:1px solid var(--border,#444);border-radius:999px;padding:1px 8px;color:#9ca3af}" +
+      ".cgc-btn-mini{padding:2px 8px;font-size:12px}" +
+      ".cgc-banner-err{border-color:rgba(192,57,43,.5);background:rgba(192,57,43,.08);color:#c0392b}" +
+      ".cgc-update-bar{display:flex;gap:8px;align-items:center;font-size:12px;color:#9ca3af;border:1px dashed var(--border,#444);border-radius:8px;padding:6px 10px;margin:8px 0}" +
+      ".cgc-edit-row{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;font-size:12px}" +
+      ".cgc-edit-row label{opacity:.65}" +
+      ".cgc-edit-row input,.cgc-edit-row textarea,.cgc-edit-row select{padding:6px 10px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;font-size:13px;font-family:inherit}" +
+      ".cgc-edit-head{flex-direction:row;justify-content:space-between;align-items:center}" +
+      ".cgc-issue-edit{margin-top:10px}";
     document.head.appendChild(css);
   }
 
   injectStyles();
-  state.workspaceId = localStorage.getItem(STORE_KEY) || "";
   Clacky.ext.ui.registerWorkspace(WS_ID, { title: "CGC 课程学习", render: render });
 })();
