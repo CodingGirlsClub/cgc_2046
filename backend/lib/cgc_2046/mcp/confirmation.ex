@@ -179,6 +179,49 @@ defmodule Cgc2046.Mcp.Confirmation do
     Cgc2046.Mcp.Tools.AdminDemoteUser.execute_confirmed(actor, params)
   end
 
+  # 工作台管理面确认流（role-agent-journeys-v2 S3，工具面 30 → 43）：
+  # Course 生命周期四写 + 报名三写 + 订单两写 + 加入策略；create_course 为
+  # 直接写工具（零输入草稿可逆低风险），不经确认流
+  defp execute("update_course", actor, params) do
+    Cgc2046.Mcp.Tools.UpdateCourse.execute_confirmed(actor, params)
+  end
+
+  defp execute("launch_course", actor, params) do
+    Cgc2046.Mcp.Tools.LaunchCourse.execute_confirmed(actor, params)
+  end
+
+  defp execute("close_course", actor, params) do
+    Cgc2046.Mcp.Tools.CloseCourse.execute_confirmed(actor, params)
+  end
+
+  defp execute("cancel_course", actor, params) do
+    Cgc2046.Mcp.Tools.CancelCourse.execute_confirmed(actor, params)
+  end
+
+  defp execute("confirm_enrollment", actor, params) do
+    Cgc2046.Mcp.Tools.ConfirmEnrollment.execute_confirmed(actor, params)
+  end
+
+  defp execute("reject_enrollment", actor, params) do
+    Cgc2046.Mcp.Tools.RejectEnrollment.execute_confirmed(actor, params)
+  end
+
+  defp execute("waive_payment", actor, params) do
+    Cgc2046.Mcp.Tools.WaivePayment.execute_confirmed(actor, params)
+  end
+
+  defp execute("refund_order", actor, params) do
+    Cgc2046.Mcp.Tools.RefundOrder.execute_confirmed(actor, params)
+  end
+
+  defp execute("retry_refund", actor, params) do
+    Cgc2046.Mcp.Tools.RetryRefund.execute_confirmed(actor, params)
+  end
+
+  defp execute("update_join_policy", actor, params) do
+    Cgc2046.Mcp.Tools.UpdateJoinPolicy.execute_confirmed(actor, params)
+  end
+
   # fallback：防御性处理未知 tool（理论上 request 写入的 tool 名与分派覆盖一致，
   # 但数据异常时不泄露 params/actor 结构）
   defp execute(tool, _actor, _params) do

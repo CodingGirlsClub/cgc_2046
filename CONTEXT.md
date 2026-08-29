@@ -239,15 +239,16 @@
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **30 个**（名单由 `wrapper_gate_test` 钉死）：
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **43 个**（名单由 `wrapper_gate_test` 钉死）：
   - **读 9**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）/ `list_public_offerings` / `get_public_offering`（公开浏览 #293，`membership: :public` 豁免家族：任何持连接 token 的登录用户，跨工作区匿名白名单口径，KTD2/KTD3）
   - **角色工作台基座 3（role-agent-journeys-v2 S1，R2/R3/R8）**：`list_my_workspaces`（actor 的工作台列表 + 各台角色并集 + `is_platform_admin`，按名排序，`workspace_id: :optional` 族——上下文选择器数据源，用户永不手填 UUID）/ `get_role_playbook`（按角色分发版本化 playbook，`optional+deferred` 双键，工具层四分支授权）/ `list_my_tasks`（member-only，PendingApprovals 聚合；课程教研任务行 S5 接入）
   - **平台治理族 10（role-agent-journeys-v2 S2，R12–R16；`workspace_id: :optional` + `membership: :platform_admin` 双键，`is_platform_admin` 全局标记专属，无工作台作用域）**：读 `admin_list_users` / `admin_list_workspaces` / `admin_list_workspace_applications` / `admin_list_audit_logs`（各封顶 50；审计面三源元数据投影，结构性不读 params/metadata 列）+ 确认流写 `admin_approve_workspace_application` / `admin_reject_workspace_application` / `admin_create_workspace`（Owner 二选一：现有用户入座 / pending-owner 预授权邀请，明文 token 仅 confirm 结果一次性返回）/ `admin_reassign_workspace_owner`（仅 pending-owner 期间）/ `admin_promote_user` / `admin_demote_user`（最后一名管理员不变量原文透传）——全部委托 accounts 域既有 action + LogAdminAction 留痕，与网站 /admin 后台同源同语义
+  - **工作台管理面 13（role-agent-journeys-v2 S3，R17–R19 + R21 前半；member-only 无 meta 声明 = fail-closed 默认 + 工具层 Owner/Admin 判定）**：课程生命周期 `create_course`（唯一直接写；零输入草稿合法——title 缺省生成临时占位标题并打 `provisional_title` 标记，R21/AE1）/ `update_course`（设置正式标题即清标记；`pricing_enabled` true→false 摘要含将批量免缴的待支付报名笔数，R9）/ `launch_course`（命名门：`provisional_title` 课程不能发布）/ `close_course` / `cancel_course`（终态不可逆，摘要含终态提示）+ 报名管理读 `list_course_enrollments` 与确认流 `confirm_enrollment` / `reject_enrollment` / `waive_payment`（免缴：报名 → confirmed + 关联 pending 订单同事务作废 + 逐笔留痕）+ 订单读 `list_workspace_orders` 与确认流 `refund_order` / `retry_refund`（委托 Payments 域既有退款 action + 异步 worker）+ 加入策略 `update_join_policy`——与 web 管理页同源同语义（同一批 domain action），他租户 id ≡ not found
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
   - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
   - **已死亡（标注取代后除名）**：`reply_learner_question`（被 issue 卡 checklist 复盘 + `save_learning_records` 取代，切片 H）；`get_learner_history`（被 `get_learning_records` 取代）
-- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。`update_join_policy` / 删除类等低频管理操作维持 web 面（GraphQL + 设置页），真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开。
+- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。删除类等低频管理操作维持 web 面（GraphQL + 设置页），真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开（S3 已以此范式重开课程生命周期/报名/订单/加入策略 13 工具）。
 
 ### 确认流（Confirmation Flow）
 
@@ -349,6 +350,11 @@
 
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
+
+### provisional_title（课程临时占位标题标记，Course-only）
+
+- **定义**：Course 的「当前标题是系统生成的临时占位」标记（role-agent-journeys-v2 S3，R21/AE1）：`create_course` 缺省 title 时生成 `未命名课程 <hex8>` 并置 true；`update_course` 设置正式标题即自动清回 false。**命名门**：`provisional_title = true` 的课程不能 `:launch`（域 action 层校验 + MCP 工具第一段快速失败双拦截），防「忘了起名就发布」。匿名可见性排除在 field_policy denylist（占位标题不出公开面）。
+- **架构位置**：Course 属性（writable? false，只能经 create/update 的 change 间接翻转）；MCP 侧由 `create_course` / `update_course` / `launch_course` 三工具承载语义。
 
 ### curriculum_enabled（教研开关，Event-only）
 
