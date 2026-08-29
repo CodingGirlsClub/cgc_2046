@@ -832,6 +832,162 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     end
   end
 
+  # ── 惰性次周期原子性与 terminal 生命周期（advisor R1：S6-01/S6-02） ---------------
+
+  describe "惰性次周期原子性（S6-01）" do
+    test "并发 get_prep_status 懒开：course 行锁串行化，恰一个非终态 run，fetch_run 不多行" do
+      {owner, workspace, course, tutor} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-lazy-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-lazy-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, _run} = course_with_prep(workspace, owner, %{title: "并发懒开"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+          assert decode(report_reply)["outcome"] == "published"
+
+          {owner, workspace, course, tutor}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+      barrier = start_supervised!({Barrier, 2})
+
+      # 发布后 run1 已终态且无次周期 run——两个成员并发读状态（check-then-create
+      # 竞态窗口）：FOR UPDATE 串行化，后到者锁内重读返回胜者已建的 run
+      results =
+        [tutor, tutor]
+        |> Enum.map(fn actor ->
+          Task.async(fn ->
+            unboxed(fn ->
+              Barrier.arrive(barrier)
+
+              case GetPrepStatus.execute(
+                     %{"workspace_id" => workspace.id, "course_id" => course.id},
+                     frame_for(actor)
+                   ) do
+                {:reply, _, _} -> :ok
+                {:error, %Anubis.MCP.Error{message: msg}, _} -> {:error, msg}
+              end
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      # 两调用都成功（后到者不报错、不重复建）
+      assert results == [:ok, :ok]
+
+      unboxed(fn ->
+        all = prep_runs(workspace)
+        assert length(all) == 2
+
+        active = Enum.filter(all, &(&1.status in [:pending, :running, :waiting]))
+        assert length(active) == 1
+
+        # fetch_run 幂等可读（多行会 MultipleResults 卡死——S6-01 的原始故障面）
+        assert %WorkflowRun{} = Prep.fetch_run(course.id, workspace.id)
+      end)
+    end
+  end
+
+  describe "terminal 课程生命周期（S6-02）" do
+    test "closed 后惰性入口 fail closed：明确错误且无写副作用" do
+      owner = Fixtures.platform_admin("s6-term-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-term-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "终态课程"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # 发布后 close（域 action：收口同事务；重读拿 open 状态的最新 struct）
+      Ash.get!(Course, course.id, authorize?: false)
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # closed 后惰性入口：明确错误（fail closed）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      assert msg =~ "course #{course.id} is closed"
+
+      # 无写副作用：无任何非终态 run（首周期 run 已终态，无新建）
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "next-cycle run 存在时 course close：active run 同事务收口（cancelled）" do
+      owner = Fixtures.platform_admin("s6-term2-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-term2-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "收口次周期"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # 懒开次周期 run（active）
+      assert {:reply, _, _} =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      run2 = prep_run!(course, workspace)
+      assert run2.status == :running
+
+      # close → 次周期 run 同事务收口（重读拿 open 状态的最新 struct）
+      Ash.get!(Course, course.id, authorize?: false)
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      reloaded = reload_run(run2, workspace)
+      assert reloaded.status == :cancelled
+      refute is_nil(reloaded.finished_at)
+
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+  end
+
   # ── 门禁失败（R26）与 launch 教研门（R23） ---------------------------------------
 
   describe "门禁失败与 launch 教研门" do
