@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workflows.LearningProgressTest do
+defmodule Cgc2046.Learning.ProgressTest do
   @moduledoc """
   LearningProgress issue 级投影测试(切片 H U4, #180)。
 
@@ -9,7 +9,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
   """
   use ExUnit.Case, async: true
 
-  alias Cgc2046.Workflows.LearningProgress
+  alias Cgc2046.Learning.Progress
 
   defp content_fixture do
     %{
@@ -44,7 +44,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
 
   describe "issue 级投影" do
     test "无记录 → Todo 全量,currentIssue = 首张" do
-      assert LearningProgress.project_issues(content_fixture(), []) == %{
+      assert Progress.project_issues(content_fixture(), []) == %{
                done_issues: 0,
                total_issues: 2,
                current_issue_id: "py-first",
@@ -55,7 +55,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
     test "部分 done → In Progress,当前 issue 仍是首张" do
       records = [record("py-first", "c1", true)]
 
-      assert LearningProgress.project_issues(content_fixture(), records) == %{
+      assert Progress.project_issues(content_fixture(), records) == %{
                done_issues: 0,
                total_issues: 2,
                current_issue_id: "py-first",
@@ -69,7 +69,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
         record("py-first", "c2", true)
       ]
 
-      assert LearningProgress.project_issues(content_fixture(), records) == %{
+      assert Progress.project_issues(content_fixture(), records) == %{
                done_issues: 1,
                total_issues: 2,
                current_issue_id: "py-vars",
@@ -84,7 +84,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
         record("py-vars", "c1", true)
       ]
 
-      assert LearningProgress.project_issues(content_fixture(), records) == %{
+      assert Progress.project_issues(content_fixture(), records) == %{
                done_issues: 2,
                total_issues: 2,
                current_issue_id: nil,
@@ -95,7 +95,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
     test "run 级 project:run 元信息 + issue 投影合并" do
       records = [record("py-first", "c1", true)]
 
-      assert LearningProgress.project(
+      assert Progress.project(
                "run-1",
                "enrollment-1",
                "Python 入门",
@@ -116,7 +116,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
 
     test "无内容/畸形内容安全返回 0/n(currentIssue nil)" do
       for content <- [nil, %{}, %{"issues" => []}, "garbage"] do
-        assert LearningProgress.project_issues(content, [
+        assert Progress.project_issues(content, [
                  record("any", "any", true)
                ]) == %{
                  done_issues: 0,
@@ -133,7 +133,7 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
         record("py-first", "ghost-item", true)
       ]
 
-      projection = LearningProgress.project_issues(content_fixture(), records)
+      projection = Progress.project_issues(content_fixture(), records)
       assert projection.done_issues == 0
       assert projection.current_issue_id == "py-first"
     end
@@ -141,15 +141,15 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
 
   describe "issue key 派生(KTD6)" do
     test "slug 短码大写 + 序号补零两位" do
-      assert LearningProgress.issue_key("python-intro", 1) == "PYTH-01"
-      assert LearningProgress.issue_key("python-intro", 2) == "PYTH-02"
-      assert LearningProgress.issue_key("py", 12) == "PY-12"
+      assert Progress.issue_key("python-intro", 1) == "PYTH-01"
+      assert Progress.issue_key("python-intro", 2) == "PYTH-02"
+      assert Progress.issue_key("py", 12) == "PY-12"
     end
 
     test "无 slug / 纯符号 slug → C 前缀;非法序号 → 空串" do
-      assert LearningProgress.issue_key(nil, 3) == "C-03"
-      assert LearningProgress.issue_key("中文课", 3) == "C-03"
-      assert LearningProgress.issue_key("py", 0) == ""
+      assert Progress.issue_key(nil, 3) == "C-03"
+      assert Progress.issue_key("中文课", 3) == "C-03"
+      assert Progress.issue_key("py", 0) == ""
     end
   end
 
@@ -157,17 +157,17 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
     test "all_issues_done?:全部条目 done 才 true" do
       content = content_fixture()
 
-      refute LearningProgress.all_issues_done?(content, [])
-      refute LearningProgress.all_issues_done?(content, [record("py-first", "c1", true)])
+      refute Progress.all_issues_done?(content, [])
+      refute Progress.all_issues_done?(content, [record("py-first", "c1", true)])
 
-      assert LearningProgress.all_issues_done?(content, [
+      assert Progress.all_issues_done?(content, [
                record("py-first", "c1", true),
                record("py-first", "c2", true),
                record("py-vars", "c1", true)
              ])
 
       # done=false 的记录不算完成
-      refute LearningProgress.all_issues_done?(content, [
+      refute Progress.all_issues_done?(content, [
                record("py-first", "c1", true),
                record("py-first", "c2", false),
                record("py-vars", "c1", true)
@@ -175,8 +175,8 @@ defmodule Cgc2046.Workflows.LearningProgressTest do
     end
 
     test "无内容课程恒 false(不判完成)" do
-      refute LearningProgress.all_issues_done?(nil, [])
-      refute LearningProgress.all_issues_done?(%{"issues" => []}, [])
+      refute Progress.all_issues_done?(nil, [])
+      refute Progress.all_issues_done?(%{"issues" => []}, [])
     end
   end
 end

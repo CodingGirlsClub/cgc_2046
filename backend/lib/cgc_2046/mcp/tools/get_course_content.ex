@@ -10,7 +10,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
   响应(advisory H2/H3,KTD6「Web 与扩展共用形状约定」):`course_title` +
   逐 issue 注入展示层 `key`(slug 短码-序号派生,单源
-  `LearningProgress.issue_key/2`)——面板与 agent 无需自算或退用内部 id。
+  `Cgc2046.Learning.Progress.issue_key/2`)——面板与 agent 无需自算或退用内部 id。
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
@@ -40,7 +40,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
               Map.put(
                 issue,
                 "key",
-                Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx)
+                Cgc2046.Learning.Progress.issue_key(course.slug, idx)
               )
             end)
 

@@ -25,7 +25,7 @@ defmodule Cgc2046.Reconciliation.Finding do
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
      Pruner 7 天窗口内判定，moduledoc 见 worker）
   7. `:learning_run_stalled` — learning run 停滞（`status=running` 且 `updated_at`
-     严格早于 `LearningProgress.stagnant_cutoff/1`，即 7 天无 facts 更新；
+     严格早于 `Cgc2046.Learning.Progress.stagnant_cutoff/1`，即 7 天无 facts 更新；
      与 LearningProgressWorker 停滞提醒（D6-③）同源判定，阈值只在一处定义）
   8. `:open_offering_without_ledger` — open offering 无名额账本行
      （ADR-0009 U7 R17；launched 信号建行 / 报名懒建双路均未到达）
