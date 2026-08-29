@@ -49,7 +49,7 @@ defmodule Cgc2046.Curriculum do
     |> Enum.with_index(1)
     |> Enum.map(fn {issue, idx} ->
       %{
-        key: Cgc2046.Learning.Progress.issue_key(course.slug, idx),
+        key: Cgc2046.Curriculum.Content.issue_key(course.slug, idx),
         id: issue["id"],
         title: issue["title"],
         kind: issue["kind"],

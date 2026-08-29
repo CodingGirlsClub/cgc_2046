@@ -235,11 +235,26 @@
     },
     "stats": {
       "items": [
-        { "value": "4000+", "label": "learners" },
-        { "value": "1000+", "label": "coaches" },
-        { "value": "50+", "label": "offline workshops" },
-        { "value": "17", "label": "universities" },
-        { "value": "10", "label": "cities" }
+        {
+          "value": "4000+",
+          "label": "learners"
+        },
+        {
+          "value": "1000+",
+          "label": "coaches"
+        },
+        {
+          "value": "50+",
+          "label": "offline workshops"
+        },
+        {
+          "value": "17",
+          "label": "universities"
+        },
+        {
+          "value": "10",
+          "label": "cities"
+        }
       ]
     },
     "trust": {
@@ -252,18 +267,42 @@
       "title": "What happens after you join",
       "description": "From your first line of code to a lasting skill and a daily habit.",
       "steps": [
-        { "title": "Join a workshop", "description": "Start with one offline or online workshop — write your first line of code, no experience needed." },
-        { "title": "Take a course", "description": "Enroll in long-term courses and cohorts, moving forward at a steady pace with peers." },
-        { "title": "Stay in the community", "description": "Grow alongside thousands of peers who help each other, long after the workshop ends." }
+        {
+          "title": "Join a workshop",
+          "description": "Start with one offline or online workshop — write your first line of code, no experience needed."
+        },
+        {
+          "title": "Take a course",
+          "description": "Enroll in long-term courses and cohorts, moving forward at a steady pace with peers."
+        },
+        {
+          "title": "Stay in the community",
+          "description": "Grow alongside thousands of peers who help each other, long after the workshop ends."
+        }
       ]
     },
     "journey": {
       "entries": [
-        { "year": "2016", "text": "Coding Girls Club founded; the first coding workshop held." },
-        { "year": "2018", "text": "Selected for the UNDP “Tech for Good” project casebook." },
-        { "year": "2019", "text": "Awarded in the CYLC National Youth Social Organizations Partnership Program." },
-        { "year": "2021", "text": "Paper with Carnegie Mellon University researchers published at ICSE CHASE 2021 (IEEE)." },
-        { "year": "2046", "text": "The thirty-year promise fulfilled — we are on our way." }
+        {
+          "year": "2016",
+          "text": "Coding Girls Club founded; the first coding workshop held."
+        },
+        {
+          "year": "2018",
+          "text": "Selected for the UNDP “Tech for Good” project casebook."
+        },
+        {
+          "year": "2019",
+          "text": "Awarded in the CYLC National Youth Social Organizations Partnership Program."
+        },
+        {
+          "year": "2021",
+          "text": "Paper with Carnegie Mellon University researchers published at ICSE CHASE 2021 (IEEE)."
+        },
+        {
+          "year": "2046",
+          "text": "The thirty-year promise fulfilled — we are on our way."
+        }
       ],
       "note": "We also supported the UNDP & UN Women #科技遇见她# one-hour coding challenge."
     },
@@ -1841,10 +1880,10 @@
     "tabEnrollments": "Enrollments",
     "tabSponsorships": "Sponsorships",
     "navAria": "My participations sections",
-    "agentPrompt1": "Please study {title} with me — issue {key} “{issue}”.",
+    "agentPrompt1": "Please help me learn the objective “{issue}” of the course “{title}”.",
     "agentGoal": "Goal:{goal}",
     "agentGoalFallback": "(see course content)",
-    "agentPrompt2": "Follow the learning Agent's eight-step loop: first read my learning records and the course content, then continue from the current progress.",
+    "agentPrompt2": "Follow the learner playbook's seven-step learning loop: first call get_learning_state to read the course map and current progress, then teach from this objective per the next_action reason; for formal evaluation call submit_learning_attempt with a one-line evidence summary and rubric_results covering exactly all criterion ids of the objective's rubric.",
     "empty": "No courses in progress. Enroll and confirm a course and your progress will show here.",
     "unnamedCourse": "Unnamed course",
     "processing": "Processing",
@@ -1874,7 +1913,23 @@
     "issueKindThoughtwork": "Think",
     "issueKindHandwork": "Build",
     "courseMapTitle": "Course map",
-    "courseMapGoalDesc": "After completing all units, you'll be able to:{goals}"
+    "courseMapGoalDesc": "After completing all units, you'll be able to:{goals}",
+    "masteryUnassessed": "Unassessed",
+    "masteryDeveloping": "Developing",
+    "masteryMastered": "Mastered",
+    "masteryNeedsReview": "Needs review",
+    "progressLabelV2": "Required objectives mastered {done}/{total}",
+    "learningComplete": "Completed",
+    "staleRevision": "New revision",
+    "staleRevisionHint": "A new revision of this course has been published. Your progress on the current revision is preserved; starting a new run switches to the new one.",
+    "nextActionLabel": "Next action",
+    "masteredLabel": "required objectives mastered",
+    "completeLabel": "Completed",
+    "electiveLabel": "Elective",
+    "attemptCountLabel": "{count} attempts",
+    "lockedLabel": "Locked — prerequisites: {titles}",
+    "learnThisObjective": "Learn this objective",
+    "agentObjectiveId": "(objective_id: {id})"
   },
   "profileAvatar": {
     "typeError": "Only {types} formats are supported",

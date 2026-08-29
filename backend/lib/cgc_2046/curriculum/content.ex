@@ -157,7 +157,57 @@ defmodule Cgc2046.Curriculum.Content do
 
   def objective_violations(_content), do: []
 
-  @doc "issue 的 checklist item id 列表(学习记录 item_id 的匹配目标;畸形返回 [])。"
+  @doc """
+  issue 的 objectives 平铺并各带 `issue_id`(S8 投影按 issue 分组/展示锚点用;
+  学习地图与 web 面板消费)。issue 非 map 或 objectives 非 list 的条目跳过
+  (形状违规由 `objective_violations/1` 另报)。无 objectives 的 v1 内容返回 []。
+  """
+  @spec objectives_with_issue(term()) :: [map()]
+  def objectives_with_issue(content) when is_map(content) do
+    content
+    |> issues()
+    |> Enum.flat_map(fn
+      %{"id" => issue_id, "objectives" => objectives}
+      when is_binary(issue_id) and is_list(objectives) ->
+        Enum.map(objectives, fn
+          objective when is_map(objective) -> Map.put(objective, "issue_id", issue_id)
+          other -> other
+        end)
+
+      _ ->
+        []
+    end)
+  end
+
+  def objectives_with_issue(_content), do: []
+
+  @doc """
+  issue key 展示层派生(KTD6):课程 slug 短码大写截短 + issue 序号(1 起,
+  补零两位),如 "PY-02"。不入库;Web 与扩展共用此形状约定。
+  (S8 自 Learning.Progress 搬入——issue key 是内容形状契约,不依赖学习记录。)
+  """
+  @spec issue_key(String.t() | nil, non_neg_integer()) :: String.t()
+  def issue_key(slug, index) when is_integer(index) and index >= 1 do
+    "#{course_code(slug)}-#{:io_lib.format("~2..0B", [index])}"
+  end
+
+  def issue_key(_slug, _index), do: ""
+
+  @doc "课程短码:slug 非空 → 字母数字段大写截短(前 4 字符);无 slug → \"C\"。"
+  @spec course_code(String.t() | nil) :: String.t()
+  def course_code(nil), do: "C"
+
+  def course_code(slug) when is_binary(slug) do
+    code =
+      slug
+      |> String.replace(~r/[^a-zA-Z0-9]/, "")
+      |> String.upcase()
+      |> String.slice(0, 4)
+
+    if code == "", do: "C", else: code
+  end
+
+  @doc "issue 的 checklist item id 列表(畸形返回 [];v1 内容兼容保留——checklist 的学习消费面已随 LearningRecord 退役)。"
   @spec checklist_item_ids(term()) :: [String.t()]
   def checklist_item_ids(issue) when is_map(issue) do
     case issue["story"] do

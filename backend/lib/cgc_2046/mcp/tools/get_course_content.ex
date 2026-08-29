@@ -41,7 +41,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
               Map.put(
                 issue,
                 "key",
-                Cgc2046.Learning.Progress.issue_key(course.slug, idx)
+                Cgc2046.Curriculum.Content.issue_key(course.slug, idx)
               )
             end)
 

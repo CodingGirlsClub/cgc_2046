@@ -6045,11 +6045,9 @@ type MyLearningRun {
   enrollmentId: ID!
   targetTitle: String
   status: String!
-  doneIssues: Int!
-  totalIssues: Int!
-  currentIssueId: String
-  currentIssueTitle: String
-  currentIssueKey: String
+  staleRevision: Boolean!
+  progress: LearningProgress!
+  nextAction: LearningNextAction
   courseId: ID
 }
 
@@ -6057,31 +6055,12 @@ type CourseLearningDetail {
   courseId: ID!
   title: String!
   slug: String
-  goals: [String!]!
-  issues: [LearningIssue!]!
+  run: LearningRunSummary
+  revisionNumber: Int
+  staleRevision: Boolean!
+  objectives: [LearningObjectiveState!]!
+  nextAction: LearningNextAction
   progress: LearningProgress
-}
-
-type LearningIssue {
-  key: String!
-  id: String!
-  title: String!
-  kind: String!
-  status: String!
-  story: IssueStory
-}
-
-type IssueStory {
-  asA: String
-  given: [String!]!
-  goal: String
-  materials: [IssueMaterial!]!
-  checklist: [IssueChecklistItem!]!
-}
-
-type IssueMaterial {
-  title: String
-  ref: String
 }
 
 type CourseMap {
@@ -6100,20 +6079,42 @@ type CourseMapIssue {
   goal: String
 }
 
-type IssueChecklistItem {
+type LearningRunSummary {
+  id: ID!
+  status: String!
+  revisionId: ID
+  revisionNumber: Int
+}
+
+type LearningObjectiveState {
   id: String!
-  text: String!
-  done: Boolean!
-  evidence: String
-  recordedAt: DateTime
+  title: String!
+  required: Boolean!
+  issueId: String
+  prereqIds: [String!]!
+  mastery: String!
+  everMastered: Boolean!
+  locked: Boolean!
+  missingPrereqIds: [LearningPrereqRef!]!
+  attemptCount: Int!
+  lastAttemptAt: DateTime
+}
+
+type LearningPrereqRef {
+  id: String!
+  title: String
+}
+
+type LearningNextAction {
+  kind: String!
+  objectiveId: String!
+  reason: String!
 }
 
 type LearningProgress {
-  doneIssues: Int!
-  totalIssues: Int!
-  currentIssueId: String
-  currentIssueTitle: String
-  currentIssueKey: String
+  masteredRequired: Int!
+  totalRequired: Int!
+  complete: Boolean!
 }
 
 type WorkspaceToolCall {

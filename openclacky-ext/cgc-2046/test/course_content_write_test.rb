@@ -348,8 +348,7 @@ class CoursePanelEditTest < Minitest::Test
   def test_existing_read_markers_kept
     # S4 不破坏列表/详情/连接引导的既有 testid
     assert_includes VIEW, 'data-testid="panel-course"'
-    assert_includes VIEW, 'data-testid="panel-issue-row"'
-    assert_includes VIEW, 'data-testid="panel-issue-card"'
+    assert_includes VIEW, 'data-testid="panel-obj-row"'
     assert_includes VIEW, 'data-testid="panel-cta"'
     assert_includes VIEW, 'data-testid="panel-not-connected"'
     assert_includes VIEW, 'data-testid="panel-retry"'

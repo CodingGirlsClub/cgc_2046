@@ -23,7 +23,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   alias Cgc2046.Notifications.NotificationWorker
   alias Cgc2046.Reconciliation.ReconciliationScanWorker
   alias Cgc2046.Workflows.SignalPublishWorker
-  alias Cgc2046.Learning.Progress
+  alias Cgc2046.Learning.Runs
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -480,7 +480,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       enrollment = create_confirmed_enrollment(event, workspace, learner)
       run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
       force_run_status(run, "running")
-      backdate_run(run, Progress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+      backdate_run(run, Runs.stagnant_cutoff() |> DateTime.add(-3600, :second))
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
 
@@ -497,7 +497,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       assert [] = findings(:learning_run_stalled)
     end
 
-    test "活跃 run（updated_at 近）→ 不命中" do
+    test "活跃 run（新近活动）→ 不命中" do
       admin = Fixtures.platform_admin("rc7-admin")
       workspace = Fixtures.create_workspace(admin)
       learning_defn = create_published_definition(workspace, admin, :learning)
@@ -518,7 +518,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       event = EventFixtures.create_event(workspace, admin)
 
       # 测试与扫描各算一次 cutoff（亚秒偏差）——用 ±60s 裕度做确定性两侧断言
-      cutoff = Progress.stagnant_cutoff()
+      cutoff = Runs.stagnant_cutoff()
 
       # cutoff + 60s：7 天差 1 分钟，未满 7 天 → 不命中
       learner_a = Fixtures.register_user("rc7-learner-a")
@@ -549,10 +549,10 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       enrollment = create_confirmed_enrollment(event, workspace, learner)
       run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
       # 默认 pending（未 start）；再补一个 succeeded
-      backdate_run(run, Progress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+      backdate_run(run, Runs.stagnant_cutoff() |> DateTime.add(-3600, :second))
       done = create_learning_run(workspace, admin, learning_defn, enrollment.id)
       force_run_status(done, "succeeded")
-      backdate_run(done, Progress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+      backdate_run(done, Runs.stagnant_cutoff() |> DateTime.add(-3600, :second))
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:learning_run_stalled)
@@ -567,7 +567,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       enrollment = create_confirmed_enrollment(event, workspace, learner)
       run = create_learning_run(workspace, admin, learning_defn, enrollment.id)
       force_run_status(run, "running")
-      backdate_run(run, Progress.stagnant_cutoff() |> DateTime.add(-3600, :second))
+      backdate_run(run, Runs.stagnant_cutoff() |> DateTime.add(-3600, :second))
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [finding] = findings(:learning_run_stalled)
@@ -1070,8 +1070,9 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   end
 
   # 回拨 updated_at（布置而非被测对象；SQL 直写绕开 Ash update_timestamp）
+  # S8：停滞口径 = last_activity_at（最新 attempt，零 attempt 回退 inserted_at）
   defp backdate_run(run, timestamp) do
-    Repo.query!("UPDATE workflow_runs SET updated_at = $1 WHERE id = $2", [
+    Repo.query!("UPDATE workflow_runs SET updated_at = $1, inserted_at = $1 WHERE id = $2", [
       timestamp,
       Ecto.UUID.dump!(run.id)
     ])
