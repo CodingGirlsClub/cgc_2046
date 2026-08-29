@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workflows.CourseContent do
+defmodule Cgc2046.Curriculum.Content do
   @moduledoc """
   课程内容(issue 卡集)的形状契约纯函数族(切片 H U1, #180)。
 
@@ -136,7 +136,7 @@ defmodule Cgc2046.Workflows.CourseContent do
   defp non_empty_string?(value), do: is_binary(value) and value != ""
 end
 
-defmodule Cgc2046.Workflows.CourseContentValidation do
+defmodule Cgc2046.Curriculum.ContentValidation do
   @moduledoc """
   `Curriculum.Output.data` 的 course content 形状校验(Ash Resource.Validation)。
 
@@ -145,7 +145,7 @@ defmodule Cgc2046.Workflows.CourseContentValidation do
 
   use Ash.Resource.Validation
 
-  alias Cgc2046.Workflows.CourseContent
+  alias Cgc2046.Curriculum.Content
 
   @impl true
   def validate(changeset, _opts, _context) do
@@ -154,7 +154,7 @@ defmodule Cgc2046.Workflows.CourseContentValidation do
         :ok
 
       content ->
-        if CourseContent.valid?(content) do
+        if Content.valid?(content) do
           :ok
         else
           {:error,

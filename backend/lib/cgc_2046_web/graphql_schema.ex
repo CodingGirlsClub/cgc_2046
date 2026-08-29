@@ -2634,14 +2634,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 本人记录合成:done/evidence/recorded_at)+ 汇总 progress(同 myLearningRuns
   # 投影单源 LearningProgress)。
   defp build_course_learning_detail(course, content, records) do
-    issues = Cgc2046.Workflows.CourseContent.issues(content)
+    issues = Cgc2046.Curriculum.Content.issues(content)
     done_items = done_record_index(records)
 
     learning_issues =
       issues
       |> Enum.with_index(1)
       |> Enum.map(fn {issue, idx} ->
-        checklist_items = Cgc2046.Workflows.CourseContent.checklist_item_ids(issue)
+        checklist_items = Cgc2046.Curriculum.Content.checklist_item_ids(issue)
 
         done_count =
           Enum.count(checklist_items, &Map.has_key?(done_items, {issue["id"], &1}))
@@ -2869,13 +2869,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     if is_binary(course_id) do
       content =
-        Cgc2046.Curriculum.Output
-        |> Ash.Query.filter(
-          key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
-        )
-        |> Ash.Query.limit(1)
-        |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
-        |> case do
+        case Cgc2046.Curriculum.content_output(run.workspace_id, course_id) do
           {:ok, output} -> output && output.data
           _ -> nil
         end
@@ -2910,7 +2904,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # issue key 展示层派生(KTD6):当前 issue 在卡集中的 1 起序号 + 课程 slug 短码。
   # current_issue_id 由 records 视角派生(全 Done → nil → key nil)
   defp current_issue_key(course, content, records) do
-    issues = Cgc2046.Workflows.CourseContent.issues(content)
+    issues = Cgc2046.Curriculum.Content.issues(content)
 
     with %{current_issue_id: issue_id} when is_binary(issue_id) <-
            Cgc2046.Learning.Progress.project_issues(content, records),

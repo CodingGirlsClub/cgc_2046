@@ -7,7 +7,7 @@ defmodule Cgc2046.Curriculum.Output do
     CurriculumProgressWorker / save_course_content 工具共用);`(key, kind)`
     全局唯一(course id 全局唯一,重复即 bug)。
   - v1 `kind = :issues`:课程内容本体(course content JSONB,形状校验见
-    `Cgc2046.Workflows.CourseContent`);`:materials` / `:archive` 设计保留、
+    `Cgc2046.Curriculum.Content`);`:materials` / `:archive` 设计保留、
     实现后置(设计 §4.1)。
   - **活文档**:`upsert_content` 按 `(key, kind)` 更新 data 与审计列,不产生
     版本流(KTD4:id 稳定纪律 + 学习记录引用 id,内容编辑不破坏进行中学员);
@@ -59,7 +59,7 @@ defmodule Cgc2046.Curriculum.Output do
       allow_nil?: false,
       public?: true,
       writable?: true,
-      description: "course content JSONB(goals + issues,形状见 CourseContent)"
+      description: "course content JSONB(goals + issues,形状见 Cgc2046.Curriculum.Content)"
     )
 
     attribute(:submitted_by, :uuid,
@@ -119,7 +119,7 @@ defmodule Cgc2046.Curriculum.Output do
   end
 
   validations do
-    validate(Cgc2046.Workflows.CourseContentValidation)
+    validate(Cgc2046.Curriculum.ContentValidation)
   end
 
   identities do

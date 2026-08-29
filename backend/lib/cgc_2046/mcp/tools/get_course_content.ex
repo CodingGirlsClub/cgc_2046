@@ -16,8 +16,6 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
   alias Cgc2046.Mcp.Tools.LearnerAuthorization
   alias Cgc2046.Mcp.Wrapper
-  alias Cgc2046.Curriculum.Output
-  require Ash.Query
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
@@ -72,12 +70,9 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   # 读取带 actor:资源层 read policy(成员/平台管理员)放行成员;学员(非成员)
   # 由工具层授权后经 authorize?: false 读取——读门禁在工具层已真实发生
   # (save_step_output fetch_run 同款纪律)。
+  # 读经 Curriculum.content_output/2 单一入口(A4);字符串错误为 MCP 工具契约
   defp fetch_content(workspace_id, course_id) do
-    Output
-    |> Ash.Query.filter(key == ^Output.course_key(course_id) and kind == :issues)
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
-    |> case do
+    case Cgc2046.Curriculum.content_output(workspace_id, course_id) do
       {:ok, nil} ->
         {:error, "no course content saved for course #{course_id} (curriculum pending)"}
 

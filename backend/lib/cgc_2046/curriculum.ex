@@ -42,7 +42,7 @@ defmodule Cgc2046.Curriculum do
     content = course_content(course)
 
     content
-    |> Cgc2046.Workflows.CourseContent.issues()
+    |> Cgc2046.Curriculum.Content.issues()
     |> Enum.with_index(1)
     |> Enum.map(fn {issue, idx} ->
       %{
@@ -61,15 +61,28 @@ defmodule Cgc2046.Curriculum do
   # 责任在投影层)。
   def course_content(%Cgc2046.Courses.Course{id: id, workspace_id: workspace_id})
       when is_binary(id) and is_binary(workspace_id) do
-    Cgc2046.Curriculum.Output
-    |> Ash.Query.filter(key == ^Cgc2046.Curriculum.Output.course_key(id) and kind == :issues)
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
-    |> case do
+    case content_output(workspace_id, id) do
       {:ok, output} -> output && output.data
       _ -> nil
     end
   end
 
   def course_content(_course), do: nil
+
+  # A4 收敛:课程内容 Output(kind=:issues, key=course_<id>)单一读入口——
+  # curriculum_progress_worker / learning_progress_worker / mcp get_course_content /
+  # graphql_schema 原五处同形查询的唯一真源。authorize?: false 语义同
+  # course_content/1 头注(门禁在调用面);返回原始 Output 记录,
+  # 投影(data 解包)与错误形状由各调用方自持。
+  @spec content_output(String.t(), String.t()) ::
+          {:ok, Cgc2046.Curriculum.Output.t() | nil} | {:error, term()}
+  def content_output(workspace_id, course_id)
+      when is_binary(workspace_id) and is_binary(course_id) do
+    Cgc2046.Curriculum.Output
+    |> Ash.Query.filter(
+      key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+  end
 end
