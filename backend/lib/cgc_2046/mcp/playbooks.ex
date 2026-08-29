@@ -89,8 +89,8 @@ defmodule Cgc2046.Mcp.Playbooks do
      - launch_course(workspace_id, course_id) 发布 draft → open;命名门:带 provisional_title 临时标题的课程不能发布,先经 update_course 设置正式课程标题;
      - close_course / cancel_course(workspace_id, course_id) open → closed(截止报名) / cancelled(取消),均为终态不可逆,摘要含终态提示;
   5. 报名管理:list_course_enrollments(workspace_id, course_id, status?) 读取报名行(学员/状态/档位);confirm_enrollment / reject_enrollment(workspace_id, enrollment_id, ...) 审批 request 策略课程的 pending 报名;waive_payment(workspace_id, enrollment_id) 免缴 payment_pending 报名——报名转 confirmed,关联 pending 订单同事务作废;
-  6. 订单与退款:list_workspace_orders(workspace_id, course_id?, status?) 读取本工作台订单行;refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;
-  7. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open / approval / closed);
+  6. 订单与退款:list_workspace_orders(workspace_id, course_id?) 读取本工作台订单行(course_id 可选=按课程过滤,缺省全工作台);refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;
+  7. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请);
   8. 工作流:get_workflow(workspace_id, run_id) 读取 run 状态;get_step_output(workspace_id, run_id, step_key) 读 step 产出;save_step_output 写 step 产出(直接写,需该 step 授权);
   9. 课程内容:get_course_content / save_course_content(workspace_id, course_id, content) 读写课程 issue 卡集(教研面同 tutor 模式);
   10. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
