@@ -122,13 +122,8 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
   # 无内容课程(无 Curriculum.Output)→ {:ok, nil} → all_issues_done? false(skip)
   defp fetch_course_content(workspace_id, %{course_id: course_id})
        when is_binary(course_id) do
-    Cgc2046.Curriculum.Output
-    |> Ash.Query.filter(
-      key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
-    )
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
-    |> case do
+    # 读经 Curriculum.content_output/2 单一入口(A4)
+    case Cgc2046.Curriculum.content_output(workspace_id, course_id) do
       {:ok, nil} -> {:ok, nil}
       {:ok, output} -> {:ok, output.data}
       {:error, _} -> {:error, :content_read_failed}

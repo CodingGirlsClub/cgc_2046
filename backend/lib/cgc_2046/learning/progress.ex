@@ -7,7 +7,7 @@ defmodule Cgc2046.Learning.Progress do
   currentIssue = 首个非 Done issue(无则课程 Done 态)。
 
   `project/6` 数据源 = course content(Curriculum.Output.data,经
-  `CourseContent.issues/1` 解析)+ 该 user 学习记录列表(宽存引用,
+  `Cgc2046.Curriculum.Content.issues/1` 解析)+ 该 user 学习记录列表(宽存引用,
   不在内容中的记录不参与分母——id 稳定纪律下的内容编辑安全)。
 
   另承载学习 run 停滞口径(E-9 #122 补差同源常量):`stagnant_cutoff/1`
@@ -15,7 +15,7 @@ defmodule Cgc2046.Learning.Progress do
   `learning_run_stalled` 的判定基准——两消费方只引用,不各自定义阈值。
   """
 
-  alias Cgc2046.Workflows.CourseContent
+  alias Cgc2046.Curriculum.Content
 
   # 停滞阈值(天,D6-③):LearningProgressWorker 提醒与 ReconciliationScanWorker
   # 规则⑦同源——修改只在此一处。
@@ -53,7 +53,7 @@ defmodule Cgc2046.Learning.Progress do
           current_issue_title: String.t() | nil
         }
   def project_issues(content, records) do
-    issues = CourseContent.issues(content)
+    issues = Content.issues(content)
     done_items = done_item_ids(records)
 
     {done_count, current} =
@@ -113,7 +113,7 @@ defmodule Cgc2046.Learning.Progress do
   """
   @spec all_issues_done?(term(), [learning_record_input()]) :: boolean()
   def all_issues_done?(content, records) do
-    issues = CourseContent.issues(content)
+    issues = Content.issues(content)
 
     issues != [] and Enum.all?(issues, &issue_done?(&1, done_item_ids(records)))
   end
@@ -133,7 +133,7 @@ defmodule Cgc2046.Learning.Progress do
 
   # 该 issue 全部 checklist 条目均有 done 记录(记录按 (issue_id, item_id) 索引)
   defp issue_done?(issue, done_items) do
-    item_ids = CourseContent.checklist_item_ids(issue)
+    item_ids = Content.checklist_item_ids(issue)
 
     item_ids != [] and Enum.all?(item_ids, &MapSet.member?(done_items, {issue["id"], &1}))
   end
