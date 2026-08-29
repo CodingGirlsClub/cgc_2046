@@ -22,7 +22,14 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Learning.Runs
   alias Cgc2046.Mcp.ToolCallLog
-  alias Cgc2046.Mcp.Tools.{GetLearningState, StartLearningRun, SubmitLearningAttempt}
+
+  alias Cgc2046.Mcp.Tools.{
+    AdminListAuditLogs,
+    GetLearningState,
+    StartLearningRun,
+    SubmitLearningAttempt
+  }
+
   alias Cgc2046.Workflows.WorkflowDefinition
 
   require Ash.Query
@@ -504,6 +511,125 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
       |> Ash.update!(authorize?: false)
 
       assert {:reply, _, _} = get_state(ctx, ctx.learner)
+    end
+  end
+
+  describe "复习队列(R45,S9)" do
+    test "fresh mastery:刚掌握的 objective 里程碑未到 → review_queue 为空" do
+      ctx = learning_ctx("ll-review-fresh")
+      assert {:reply, _, _} = start(ctx, ctx.learner)
+      assert {:reply, _, _} = submit(ctx, ctx.learner, "obj-run")
+
+      assert {:reply, _, _} = reply = get_state(ctx, ctx.learner)
+      state = decode(reply)
+
+      assert state["review_queue"] == []
+      # 掌握后里程碑未到,next_action 正常推进下一必修
+      assert state["next_action"]["kind"] == "next_required"
+    end
+
+    test "复习失败 → needs_review 立即到期入队(带 flag);next_action review 优先于 developing" do
+      ctx = learning_ctx("ll-review-flip")
+      assert {:reply, _, _} = start(ctx, ctx.learner)
+
+      # obj-run qualifying 掌握;随后复习失败 → needs_review
+      assert {:reply, _, _} = submit(ctx, ctx.learner, "obj-run")
+
+      assert {:reply, _, _} = failed = submit(ctx, ctx.learner, "obj-run", %{"passed" => false})
+      failed_payload = decode(failed)
+      assert failed_payload["mastery"] == "needs_review"
+      assert failed_payload["ever_mastered"] == true
+      # submit 响应的 next_action 同源:复习回补优先
+      assert failed_payload["next_action"]["kind"] == "review"
+      assert failed_payload["next_action"]["objective_id"] == "obj-run"
+      assert failed_payload["next_action"]["reason"] =~ "待复习"
+
+      # obj-explain 已解锁(obj-run ever_mastered 粘性),失败 → developing
+      assert {:reply, _, _} = submit(ctx, ctx.learner, "obj-explain", %{"passed" => false})
+
+      assert {:reply, _, _} = reply = get_state(ctx, ctx.learner)
+      state = decode(reply)
+
+      # needs_review 恒立即到期:due_at = 失败 attempt 时间,下一里程碑 +1d
+      assert [entry] = state["review_queue"]
+      assert entry["objective_id"] == "obj-run"
+      assert entry["needs_review"] == true
+      assert entry["milestone_days"] == 1
+      assert is_binary(entry["due_at"])
+
+      # R40:review 优先于 developing(obj-explain)
+      assert state["next_action"]["kind"] == "review"
+      assert state["next_action"]["objective_id"] == "obj-run"
+      assert state["next_action"]["reason"] =~ "待复习"
+    end
+
+    test "AE10:进行中 needs_review 翻转不撤销完成;完成后无复习提交通道(v1 边界,L4 已知代价)" do
+      ctx = learning_ctx("ll-review-ae10")
+      assert {:reply, _, _} = start_reply = start(ctx, ctx.learner)
+      run_id = decode(start_reply)["run_id"]
+
+      # obj-run 掌握后复习失败(进行中翻转 needs_review)→ 再完成 obj-explain
+      assert {:reply, _, _} = submit(ctx, ctx.learner, "obj-run")
+      assert {:reply, _, _} = submit(ctx, ctx.learner, "obj-run", %{"passed" => false})
+
+      assert {:reply, _, _} = completed = submit(ctx, ctx.learner, "obj-explain")
+      assert decode(completed)["run_completed"] == true
+      assert fetch_run(run_id, ctx.workspace.id).status == :succeeded
+
+      assert {:reply, _, _} = reply = get_state(ctx, ctx.learner)
+      state = decode(reply)
+
+      # AE10:完成不撤销——obj-run needs_review 仍 ever_mastered,完成判定不倒退
+      assert state["progress"]["complete"] == true
+
+      obj_run = Enum.find(state["objectives"], &(&1["id"] == "obj-run"))
+      assert obj_run["mastery"] == "needs_review"
+      assert obj_run["ever_mastered"] == true
+
+      # 复习队列仍列出(被查看 run 的复习到期视图);完成守卫 → next_action = nil
+      assert [%{"objective_id" => "obj-run", "needs_review" => true}] = state["review_queue"]
+      assert state["next_action"] == nil
+
+      # v1 边界:终态 run 无复习提交通道(submit 拒,提示先 start)
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = submit(ctx, ctx.learner, "obj-run")
+      assert msg =~ "no active learning run"
+
+      # 同版重进 = resume 语义:返回既有完成 run,不开新 run
+      assert {:reply, _, _} = again = start(ctx, ctx.learner)
+      again_payload = decode(again)
+      assert again_payload["created"] == false
+      assert again_payload["run_id"] == run_id
+      assert again_payload["status"] == "succeeded"
+    end
+  end
+
+  describe "审计跨面组合(AE12×AE13,S10 终验)" do
+    test "submit 带 marker → admin_list_audit_logs 读回全源无 marker" do
+      ctx = learning_ctx("ll-audit-combo")
+      assert {:reply, _, _} = start(ctx, ctx.learner)
+
+      assert {:reply, _, _} =
+               submit(ctx, ctx.learner, "obj-run", %{
+                 "evidence" => "EVIDENCE-MARKER-combo-学员作答正文",
+                 "rationale" => "RATIONALE-MARKER-combo-判定理由正文"
+               })
+
+      # 平台管理员经 admin_list_audit_logs 读 tool_calls 源:全库唯一审计写点
+      admin = Fixtures.platform_admin("ll-audit-combo-admin")
+
+      assert {:reply, _, _} =
+               tc_reply =
+               AdminListAuditLogs.execute(%{"source" => "tool_calls"}, frame_for(admin))
+
+      tc = decode(tc_reply)
+      assert Enum.any?(tc["logs"], &(&1["tool"] == "submit_learning_attempt"))
+
+      raw = tc["logs"] |> Jason.encode!()
+
+      refute raw =~ "EVIDENCE-MARKER"
+      refute raw =~ "RATIONALE-MARKER"
+      refute raw =~ "evidence"
+      refute raw =~ "rationale"
     end
   end
 end

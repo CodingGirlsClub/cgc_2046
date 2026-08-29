@@ -32,7 +32,7 @@ defmodule Cgc2046.Learning.Runs do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.{Content, CourseRevision}
-  alias Cgc2046.Learning.{Attempt, Mastery, NextAction}
+  alias Cgc2046.Learning.{Attempt, Mastery, NextAction, ReviewSchedule}
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   # 停滞阈值（天，D6-③）：LearningProgressWorker 提醒与 ReconciliationScanWorker
@@ -279,9 +279,10 @@ defmodule Cgc2046.Learning.Runs do
   - run 绑定**旧** revision → 报 run 自己 revision 的 objectives + states，
     `stale_revision: true`（学完旧版前不被新版内容 silently 换底）。
 
-  `review_queue` 恒 `[]`（ReviewSchedule 属 S9；NextAction review 分支等接通）；
-  `next_action` 按投影同一份 objectives+states 计算（完成 → nil，AE10：完成
-  守卫先行）。
+  `review_queue`（R45）由 `ReviewSchedule.due/3` 从同一批 attempts 派生
+  （needs_review 恒立即到期 / 里程碑按序消费）；`next_action` 按投影同一份
+  objectives+states+review_queue 计算（完成 → nil，AE10：完成守卫先行，
+  复习到期不再打扰已完成课程）。
   """
   @spec learning_state(term(), Course.t() | nil) :: map()
   # 事件型 enrollment（无 course）→ 空投影（objectives [] / progress 0,0,false /
@@ -320,6 +321,7 @@ defmodule Cgc2046.Learning.Runs do
       end
 
     states = Mastery.states(attempts, objectives)
+    review_queue = ReviewSchedule.due(attempts, objectives, DateTime.utc_now())
 
     %{
       run: run_row,
@@ -327,8 +329,8 @@ defmodule Cgc2046.Learning.Runs do
       revision_number: current && current.number,
       stale_revision: stale?,
       objectives: project_objectives(objectives, states),
-      review_queue: [],
-      next_action: NextAction.next(objectives, states, []),
+      review_queue: review_queue,
+      next_action: NextAction.next(objectives, states, review_queue),
       progress: progress(objectives, states)
     }
   end
