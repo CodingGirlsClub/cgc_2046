@@ -4,7 +4,8 @@
 # - POST /courses/:course_id/content 注册与透传(save_course_content,
 #   base_version 乐观并发;版本流读侧 = GET content 顶层 version 透传)
 # - body 校验:workspace_id / content / base_version 必填,base_version 必须整数 → 400
-# - 乐观并发:上游工具错误消息 version_conflict: 前缀 → 409 {error, message}(§B#23)
+# - 乐观并发:上游 version_conflict: 错误 → 409 {error, message}(§B#23;宿主 client
+#   包装为 "MCP server ... error on tools/call: <上游消息> (code -32000)",按子串匹配)
 # - 未连接 → 503;其它上游 McpError → 502;意外 → 500
 # - 面板 view.js 编辑器静态断言(v1 schema:goals/issues/checklist 子编辑器;
 #   未知键无损往返;409 处理;R11 轮询条)
@@ -64,6 +65,14 @@ class CourseContentWriteTest < Minitest::Test
   end
 
   FakeReq = Struct.new(:body, :query)
+
+  # 宿主 openclacky gem 的真实包装(lib/clacky/mcp/client.rb:209,1.5.12 实证):
+  # 上游 JSON-RPC error → ProtocolError("MCP server '<name>' error on tools/call:
+  # <上游消息> (code -32000)")。测试一律用此形状——手搓无前缀消息是假绿(R1 P1-1)。
+  def protocol_error(upstream_message)
+    Clacky::Mcp::Client::ProtocolError.new(
+      "MCP server 'cgc-2046' error on tools/call: #{upstream_message} (code -32000)")
+  end
 
   # 宿主真实形态(course_routes_test 同款,smoke01 实证):
   #   @params = route pattern captures(symbol key,如 :course_id)
@@ -187,7 +196,7 @@ class CourseContentWriteTest < Minitest::Test
   # ---- 乐观并发:version_conflict: → 409 ----
 
   def test_version_conflict_maps_409
-    registry = FakeRegistry.new(error: Clacky::Mcp::Client::McpError.new("version_conflict: draft is at version 5; re-read with get_course_content and retry"))
+    registry = FakeRegistry.new(error: protocol_error("version_conflict: draft is at version 5; re-read with get_course_content and retry"))
 
     halt = save(registry: registry, body: { "workspace_id" => WS, "content" => CONTENT, "base_version" => 3 })
 
@@ -211,8 +220,9 @@ class CourseContentWriteTest < Minitest::Test
     assert_empty registry.calls
   end
 
+  # 同为宿主包装形状但不含 version_conflict: 子串 → 保持 502(钉住 include? 不误判)
   def test_other_mcp_error_stays_502
-    registry = FakeRegistry.new(error: Clacky::Mcp::Client::McpError.new("forbidden: not a tutor"))
+    registry = FakeRegistry.new(error: protocol_error("forbidden: not a tutor"))
 
     halt = save(registry: registry, body: { "workspace_id" => WS, "content" => CONTENT, "base_version" => 0 })
 
