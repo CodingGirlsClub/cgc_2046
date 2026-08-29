@@ -71,6 +71,8 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 9. **跨域 FOR UPDATE 行锁未端口化——已清偿(2026-08-29,`59edcdc`,test-first)**:`Enrollment.lock_for_order/1` + `workspace_id_for_order/1` 发布于 Admission,SQL 原样内迁、返回形状逐键不变;Order 四处调用点改一行委托。钉测 `order_enrollment_lock_test.exs`(先写于现代码即绿、搬迁后仍绿)确定性编排「持锁方确认 → 竞争下单获锁重读 status 拒单、零订单落库」(pg_locks 取证阻塞;教训:sandbox shared 下持锁事务必须 unboxed,否则只是 savepoint 锁不释放)。锁生命周期经钉测验证无可观测差异。
 10. **Miniprogram 壳 domain——已清偿(2026-08-29,本批 commit,方案 A:资源跟写路径走,product owner 拍板)**:`Miniprogram.Code` → `Accounts.InvitationCode`(表 `invitation_codes`;语义更准——本质是 Invitation 渠道码缓存,写方 `Accounts.MiniprogramCode` 同域);`Miniprogram.NotificationConsent` → `Notifications.NotificationConsent`(表 `notification_consents`,mp_ 前缀名不副实——支持 wechat/tt/xhs 三平台;与唯一写方 `Notifications.Consent` 裸 SQL 同域,SQL 形态不变只改表名);`login_artifact_pruner_worker` → `accounts/workers/`(crontab 同步);Miniprogram domain 收缩至仅 ShareScheme。连带新建 `Cgc2046.Notifications` Ash domain(此前该 context 无 domain 模块;无 GraphQL 面,同 Mcp 先例),ash_domains config 与 domains_test 精确集合同步。表改名 migration `20260903000000` 纯 rename 保数据、up/down 对称,resource_snapshots 目录与 JSON 同步更名。
 
+11. **赞助档位 id 收紧 UUID(批次5)——已清偿(2026-08-29,本 commit)**:`SponsorshipTier.valid_tier?/1` 的 id 校验从「非空字符串」收紧为 `Ecto.UUID.cast` 必须成功(前端 `crypto.randomUUID` 生成,形状本就 UUID——收紧是钉死约定而非行为变更)。存量复核:seeds 无 tiers、dev 库 2 个在配 id 全 UUID、前端两处生成点均 `crypto.randomUUID`,无数据迁移面。测试:`sponsorship_tier_test.exs` 补「UUID 接受 / 非 UUID("t1") 拒绝」;存量 fixture 短 id 残留 4 处("t1"×2、"gold"×2)同步改 UUID。**账目说明**:此项属挂账批批次5,因 #344 合并时序跳过、PR #345 收官时遗漏(既未销记也未挂账),本 commit 补齐。
+
 **复审补记(A2-A5)**:
 
 - **A2 措辞认账**:W1 把 reconciliation_scan_worker 整体判给 `reconciliation/`(评审原稿保守路径 a,成立),但 ADR-0009 D6「扫描器归各域」原文需同步改写,否则两 ADR 矛盾——已在 ADR-0009 D6 补记。

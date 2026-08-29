@@ -9,7 +9,7 @@ defmodule Cgc2046.Accounts.SponsorshipTier do
   档位形状（赞助 doc §5.1 + D5 独占位标记）：
 
       %{
-        "id" => uuid,                 # 档位稳定标识（Sponsorship.tier_id 指向它）
+        "id" => uuid,                 # 档位稳定标识（Sponsorship.tier_id 指向它）；批次5 收紧：必须为 UUID（前端 crypto.randomUUID 生成）
         "name" => "冠名",             # 档位名
         "amount_suggestion" => 10000, # 建议金额（元，integer；可 null，v1 仅登记不收款）
         "benefits" => ["logo 展示位", "鸣谢页"],  # 权益项列表（激活时物化交付行）
@@ -29,7 +29,7 @@ defmodule Cgc2046.Accounts.SponsorshipTier do
   def valid?(_tiers), do: false
 
   defp valid_tier?(tier) when is_map(tier) do
-    is_binary(tier["id"]) and tier["id"] != "" and
+    is_binary(tier["id"]) and match?({:ok, _}, Ecto.UUID.cast(tier["id"])) and
       is_binary(tier["name"]) and tier["name"] != "" and
       is_list(tier["benefits"]) and Enum.all?(tier["benefits"], &is_binary/1) and
       is_boolean(tier["exclusive"]) and
@@ -90,7 +90,7 @@ defmodule Cgc2046.Accounts.SponsorshipTiersValidation do
           {:error,
            field: :sponsorship_tiers,
            message:
-             "sponsorship tiers must be a list of maps with id/name/benefits/exclusive keys"}
+             "sponsorship tiers must be a list of maps with id (UUID)/name/benefits/exclusive keys"}
         end
     end
   end
