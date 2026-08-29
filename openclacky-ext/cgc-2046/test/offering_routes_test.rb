@@ -351,7 +351,7 @@ class AssistantPromptTest < Minitest::Test
   def test_role_specific_tools_not_listed_statically
     listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
     %w[get_workspace_context list_members assign_roles create_invitation
-       get_course_content save_learning_records].each do |tool|
+       get_course_content get_learning_state].each do |tool|
       refute_includes listed, tool, "角色专属工具 #{tool} 不应出现在静态清单(由 playbook 携带)"
     end
   end

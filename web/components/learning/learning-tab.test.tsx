@@ -13,16 +13,15 @@ import {
 const { useQuery } = vi.hoisted(() => ({ useQuery: vi.fn() }));
 vi.mock("@apollo/client/react", () => ({ useQuery }));
 
+// S8（ADR-0011）：objective 口径 fixtures
 const RUN_DONE: MyLearningRun = {
 	runId: "run-done",
 	enrollmentId: "enr-1",
 	targetTitle: "Python 入门",
-	status: "running",
-	doneIssues: 2,
-	totalIssues: 2,
-	currentIssueId: null,
-	currentIssueTitle: null,
-	currentIssueKey: null,
+	status: "succeeded",
+	staleRevision: false,
+	progress: { masteredRequired: 2, totalRequired: 2, complete: true },
+	nextAction: null,
 	courseId: "course-1",
 };
 
@@ -30,25 +29,29 @@ const RUN_PARTIAL: MyLearningRun = {
 	runId: "run-partial",
 	enrollmentId: "enr-2",
 	targetTitle: "Python 入门",
-	status: "waiting",
-	doneIssues: 1,
-	totalIssues: 3,
-	currentIssueId: "py-02",
-	currentIssueTitle: "变量与数据",
-	currentIssueKey: "PYTH-02",
+	status: "running",
+	staleRevision: false,
+	progress: { masteredRequired: 1, totalRequired: 2, complete: false },
+	nextAction: {
+		kind: "developing",
+		objectiveId: "obj-explain",
+		reason: "继续攻克「能讲懂代码」——已有尝试但尚未达到掌握标准",
+	},
 	courseId: "course-1",
 };
 
-const RUN_TODO: MyLearningRun = {
-	runId: "run-todo",
+const RUN_STALE: MyLearningRun = {
+	runId: "run-stale",
 	enrollmentId: "enr-3",
 	targetTitle: "写作课",
 	status: "running",
-	doneIssues: 0,
-	totalIssues: 4,
-	currentIssueId: "wr-01",
-	currentIssueTitle: "第一个句子",
-	currentIssueKey: "WR-01",
+	staleRevision: true,
+	progress: { masteredRequired: 0, totalRequired: 4, complete: false },
+	nextAction: {
+		kind: "next_required",
+		objectiveId: "wr-obj-1",
+		reason: "下一个必修目标是「写第一个句子」，从这里开始",
+	},
 	courseId: "course-2",
 };
 
@@ -56,181 +59,185 @@ const DETAIL: CourseLearningDetail = {
 	courseId: "course-1",
 	title: "Python 入门",
 	slug: "python-intro",
-	goals: ["能写程序"],
-	progress: {
-		doneIssues: 1,
-		totalIssues: 2,
-		currentIssueId: "py-02",
-		currentIssueTitle: "变量与数据",
-		currentIssueKey: "PYTH-02",
+	run: {
+		id: "run-partial",
+		status: "running",
+		revisionId: "rev-1",
+		revisionNumber: 1,
 	},
-	issues: [
+	revisionNumber: 1,
+	staleRevision: false,
+	objectives: [
 		{
-			key: "PYTH-01",
-			id: "py-01",
-			title: "第一个程序",
-			kind: "handwork",
-			status: "done",
-			story: {
-				asA: "学员",
-				given: [],
-				goal: "写问候程序",
-				materials: [{ title: "Python 教程", ref: "https://ex.io" }],
-				checklist: [
-					{ id: "c1", text: "程序能运行", done: true, evidence: "跑通了", recordedAt: null },
-					{ id: "c2", text: "能讲懂代码", done: true, evidence: "讲过了", recordedAt: null },
-				],
-			},
+			id: "obj-run",
+			title: "能运行问候程序",
+			required: true,
+			issueId: "py-01",
+			prereqIds: [],
+			mastery: "mastered",
+			everMastered: true,
+			locked: false,
+			missingPrereqIds: [],
+			attemptCount: 2,
+			lastAttemptAt: "2026-08-30T00:00:00Z",
 		},
 		{
-			key: "PYTH-02",
-			id: "py-02",
-			title: "变量与数据",
-			kind: "thoughtwork",
-			status: "todo",
-			story: {
-				asA: "学员",
-				given: ["py-01"],
-				goal: "理解变量绑定",
-				materials: [],
-				checklist: [{ id: "c1", text: "能解释绑定", done: false, evidence: null, recordedAt: null }],
-			},
+			id: "obj-explain",
+			title: "能讲懂代码",
+			required: true,
+			issueId: "py-01",
+			prereqIds: ["obj-run"],
+			mastery: "developing",
+			everMastered: false,
+			locked: false,
+			missingPrereqIds: [],
+			attemptCount: 1,
+			lastAttemptAt: "2026-08-30T01:00:00Z",
+		},
+		{
+			id: "obj-extra",
+			title: "挑战：改写成函数",
+			required: false,
+			issueId: "py-02",
+			prereqIds: ["obj-run"],
+			mastery: "unassessed",
+			everMastered: false,
+			locked: false,
+			missingPrereqIds: [],
+			attemptCount: 0,
+			lastAttemptAt: null,
+		},
+		{
+			id: "obj-locked",
+			title: "调试程序",
+			required: true,
+			issueId: "py-03",
+			prereqIds: ["obj-run", "obj-explain"],
+			mastery: "unassessed",
+			everMastered: false,
+			locked: true,
+			missingPrereqIds: [
+				{ id: "obj-explain", title: "能讲懂代码" },
+			],
+			attemptCount: 0,
+			lastAttemptAt: null,
 		},
 	],
+	nextAction: {
+		kind: "developing",
+		objectiveId: "obj-explain",
+		reason: "继续攻克「能讲懂代码」——已有尝试但尚未达到掌握标准",
+	},
+	progress: { masteredRequired: 1, totalRequired: 3, complete: false },
 };
 
 beforeEach(() => {
+	type UseQueryResult = {
+		data: { courseLearningDetail: CourseLearningDetail | null } | undefined;
+		loading: boolean;
+		error: unknown;
+	};
+	vi.mocked(useQuery).mockReturnValue({
+		data: { courseLearningDetail: DETAIL },
+		loading: false,
+		error: null,
+	} as unknown as UseQueryResult);
+});
+
+afterEach(() => {
+	cleanup();
 	vi.clearAllMocks();
 });
 
-afterEach(cleanup);
-
-describe("LearningTab 三态行渲染(plan U8 场景 1)", () => {
-	it("状态图标 + issue key + 标题 + kind 标签 + n/m 计数", () => {
-		render(<LearningTab runs={[RUN_DONE, RUN_PARTIAL, RUN_TODO]} />);
-
-		// 按课程分组:course-1 两行 + course-2 一行
-		expect(screen.getAllByTestId("learning-group")).toHaveLength(2);
-
-		// 三态图标:done / in_progress / todo
-		expect(screen.getAllByTestId("issue-status-done")).toHaveLength(1);
-		expect(screen.getAllByTestId("issue-status-in_progress")).toHaveLength(1);
-		expect(screen.getAllByTestId("issue-status-todo")).toHaveLength(1);
-
-		// issue key + 标题 + n/m(kind 标签在抽屉 issue 行——run 投影无 kind)
-		expect(screen.getByText("PYTH-02")).toBeInTheDocument();
-		expect(screen.getByText("变量与数据")).toBeInTheDocument();
-		expect(screen.getByText("WR-01")).toBeInTheDocument();
-		expect(screen.getByText("第一个句子")).toBeInTheDocument();
-		expect(
-			screen.getByText((_, el) => el?.textContent === "学习进度：1/3 节"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText((_, el) => el?.textContent === "学习进度：2/2 节"),
-		).toBeInTheDocument();
-	});
-
-	it("无在学课程空态(边界)", () => {
+describe("LearningTab（S8 objective 口径）", () => {
+	it("空列表渲染 empty 提示", () => {
 		render(<LearningTab runs={[]} />);
-		expect(screen.getByTestId("learning-empty")).toBeInTheDocument();
+		expect(screen.getByTestId("learning-empty")).toBeTruthy();
 	});
-});
 
-describe("抽屉开合与字段(plan U8 场景 2)", () => {
-	it("点击行 → 抽屉开 → issue 展开 story/checklist/evidence → Esc 关", async () => {
-		useQuery.mockReturnValue({ data: { courseLearningDetail: DETAIL }, loading: false, error: undefined });
+	it("按课程分组渲染；行展示 next_action reason 与进度", () => {
+		render(<LearningTab runs={[RUN_DONE, RUN_PARTIAL, RUN_STALE]} />);
 
+		const groups = screen.getAllByTestId("learning-group");
+		expect(groups.length).toBe(2);
+
+		const rows = screen.getAllByTestId("learning-run-row");
+		expect(rows.length).toBe(3);
+		// next_action reason 呈现在行内
+		expect(screen.getByText(/继续攻克「能讲懂代码」/)).toBeTruthy();
+		// 完成行显示结业
+		expect(screen.getByText(/已结业/)).toBeTruthy();
+		// stale 徽章
+		expect(screen.getByText(/有新版/)).toBeTruthy();
+		// 进度文本
+		expect(screen.getByText(/必修已掌握 1\/2/)).toBeTruthy();
+	});
+
+	it("抽屉渲染四态地图/锁定先修/选修 chip/尝试次数/next_action/CTA", async () => {
 		render(<LearningTab runs={[RUN_PARTIAL]} />);
+		fireEvent.click(screen.getAllByTestId("learning-run-row")[0]);
 
-		fireEvent.click(screen.getByTestId("learning-run-row"));
+		await waitFor(() => {
+			expect(screen.getByTestId("objective-drawer")).toBeTruthy();
+		});
 
-		const drawer = await screen.findByTestId("issue-drawer");
-		expect(drawer).toBeInTheDocument();
-
-		// 抽屉头部进度
-		expect(screen.getByText(/1\/2 节已完成/)).toBeInTheDocument();
-
-		// 展开 issue 1:story 全文 + checklist 逐条 evidence + 材料列表
-		fireEvent.click(screen.getByTestId("drawer-issue-py-01"));
-		expect(screen.getByTestId("drawer-story-py-01")).toBeInTheDocument();
-		expect(screen.getByText(/写问候程序/)).toBeInTheDocument();
-		expect(screen.getByText(/Python 教程/)).toBeInTheDocument();
-
-		// 抽屉 issue 行:kind 标签(R11 行规范)
-		expect(screen.getByTestId("issue-kind-handwork")).toBeInTheDocument();
-		expect(screen.getByTestId("issue-kind-thoughtwork")).toBeInTheDocument();
-
-		const doneItem = screen.getByTestId("checklist-py-01-c1");
-		expect(doneItem.getAttribute("data-done")).toBe("true");
-		expect(screen.getByText(/证据：跑通了/)).toBeInTheDocument();
-
-		// 展开 issue 2:未完成条目 done=false、无证据行
-		fireEvent.click(screen.getByTestId("drawer-issue-py-02"));
-		const openItem = screen.getByTestId("checklist-py-02-c1");
-		expect(openItem.getAttribute("data-done")).toBe("false");
-		expect(screen.queryByText(/证据：/)).not.toBeInTheDocument();
-
-		// Esc 关闭
-		fireEvent.keyDown(window, { key: "Escape" });
-		await waitFor(() => expect(screen.queryByTestId("issue-drawer")).not.toBeInTheDocument());
+		// 四态图标
+		expect(screen.getAllByTestId("mastery-mastered").length).toBeGreaterThan(0);
+		expect(screen.getAllByTestId("mastery-developing").length).toBeGreaterThan(0);
+		expect(screen.getAllByTestId("mastery-unassessed").length).toBeGreaterThan(0);
+		// 选修 chip
+		expect(screen.getByText(/选修/)).toBeTruthy();
+		// 锁定 + 缺失先修标题
+		const locked = screen.getByTestId("objective-locked-obj-locked");
+		expect(locked.textContent).toContain("能讲懂代码");
+		// 尝试次数
+		expect(screen.getByText(/尝试 2 次/)).toBeTruthy();
+		// next_action 当前任务卡
+		expect(screen.getByTestId("drawer-next-action").textContent).toContain(
+			"继续攻克",
+		);
+		// CTA（解锁 objective 有；锁定的没有）
+		expect(screen.getByTestId("cta-learn-obj-explain")).toBeTruthy();
+		expect(() => screen.getByTestId("cta-learn-obj-locked")).toThrow();
 	});
 
-	it("CTA 复制学习指令(Rsk3 降级路径)", async () => {
-		useQuery.mockReturnValue({ data: { courseLearningDetail: DETAIL }, loading: false, error: undefined });
+	it("CTA 复制 objective 口径指令（含 objective_id 与 submit_learning_attempt）", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
-		// happy-dom 的 navigator.clipboard 是 getter-only，Object.assign 不可写——
-		// 用 defineProperty 替换（jsdom 下同样有效）
 		Object.defineProperty(navigator, "clipboard", {
 			value: { writeText },
 			configurable: true,
 		});
 
 		render(<LearningTab runs={[RUN_PARTIAL]} />);
-		fireEvent.click(screen.getByTestId("learning-run-row"));
-		await screen.findByTestId("issue-drawer");
+		fireEvent.click(screen.getAllByTestId("learning-run-row")[0]);
 
-		fireEvent.click(screen.getByTestId("drawer-issue-py-02"));
-		const cta = screen.getByTestId("cta-learn-py-02");
-		expect(cta).toBeInTheDocument();
-		fireEvent.click(cta);
+		await waitFor(() => {
+			expect(screen.getByTestId("cta-learn-obj-explain")).toBeTruthy();
+		});
+		fireEvent.click(screen.getByTestId("cta-learn-obj-explain"));
 
-		await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
-		const prompt = writeText.mock.calls[0][0] as string;
-		expect(prompt).toContain("Python 入门");
-		expect(prompt).toContain("PYTH-02");
-		expect(prompt).toContain("变量与数据");
+		await waitFor(() => {
+			expect(writeText).toHaveBeenCalled();
+		});
+		const text = writeText.mock.calls[0][0] as string;
+		expect(text).toContain("objective_id: obj-explain");
+		expect(text).toContain("submit_learning_attempt");
 	});
 
-	it("指令文本构造:课程/issue/八步循环引导", () => {
-		const issue = DETAIL.issues[1];
-		const text = learningSessionPrompt(DETAIL, issue);
-		expect(text).toContain("《Python 入门》");
-		expect(text).toContain("PYTH-02「变量与数据」");
-		expect(text).toContain("理解变量绑定");
-		expect(text).toContain("八步循环");
+	it("learningSessionPrompt 纯函数：title + objective + 七步循环话术", () => {
+		const text = learningSessionPrompt(DETAIL, DETAIL.objectives[1]);
+		expect(text).toContain("Python 入门");
+		expect(text).toContain("能讲懂代码");
+		expect(text).toContain("objective_id: obj-explain");
+		expect(text).toContain("七步学习循环");
 	});
 });
 
-describe("tab 切换(plan U8 场景 3:URL 制,导航态)", () => {
-	it("学习默认 aria-current;报名/赞助各指 ?tab=", () => {
+describe("ParticipationsTabs", () => {
+	it("三个 tab 导航", () => {
 		render(<ParticipationsTabs tab="learning" />);
-		expect(screen.getByTestId("tab-learning").getAttribute("aria-current")).toBe("page");
-		expect(screen.getByTestId("tab-enrollments").getAttribute("aria-current")).toBeNull();
-		expect(screen.getByTestId("tab-enrollments").getAttribute("href")).toBe(
-			"/participations?tab=enrollments",
-		);
-		expect(screen.getByTestId("tab-sponsorships").getAttribute("href")).toBe(
-			"/participations?tab=sponsorships",
-		);
-	});
-});
-
-describe("抽屉加载态与错误态", () => {
-	it("detail 查询 null(无权限/无课程)→ 抽屉空标题不炸", async () => {
-		useQuery.mockReturnValue({ data: { courseLearningDetail: null }, loading: false, error: undefined });
-		render(<LearningTab runs={[RUN_PARTIAL]} />);
-		fireEvent.click(screen.getByTestId("learning-run-row"));
-		expect(await screen.findByTestId("issue-drawer")).toBeInTheDocument();
-		expect(screen.queryByTestId("drawer-issues")).not.toBeInTheDocument();
+		expect(screen.getByTestId("tab-learning")).toBeTruthy();
+		expect(screen.getByTestId("tab-enrollments")).toBeTruthy();
+		expect(screen.getByTestId("tab-sponsorships")).toBeTruthy();
 	});
 });

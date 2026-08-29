@@ -3,19 +3,25 @@
 import { useTranslations } from "next-intl";
 
 /**
- * 学习 issue 三态图标与 kind 标签(U8,R7/R11)。
+ * 学习 objective 四态图标与标签（S8，ADR-0011 / R43）。
  *
- * 状态由学习记录派生(Todo/In Progress/Done),非手柄——图标只读展示。
- * kind 二分:thoughtwork(证据在对话)/ handwork(证据在产物)。
+ * mastery 由 Attempt 账本投影派生（unassessed/developing/mastered/
+ * needs_review），非手柄——图标只读展示。kind 二分沿 issue 语义（course-map
+ * 消费 IssueKindChip）。
  */
 
-export type IssueStatus = "todo" | "in_progress" | "done";
+export type ObjectiveMastery =
+  | "unassessed"
+  | "developing"
+  | "mastered"
+  | "needs_review";
 
 /** 值 = learning messages key 名(渲染方 useTranslations("learning") 翻译) */
-export const ISSUE_STATUS_LABEL: Record<IssueStatus, string> = {
-  todo: "issueStatusTodo",
-  in_progress: "issueStatusInProgress",
-  done: "issueStatusDone",
+export const MASTERY_LABEL: Record<ObjectiveMastery, string> = {
+  unassessed: "masteryUnassessed",
+  developing: "masteryDeveloping",
+  mastered: "masteryMastered",
+  needs_review: "masteryNeedsReview",
 };
 
 /** 值 = learning messages key 名(渲染方 useTranslations("learning") 翻译) */
@@ -24,14 +30,15 @@ export const ISSUE_KIND_LABEL: Record<string, string> = {
   handwork: "issueKindHandwork",
 };
 
-/** 三态图标:Todo 空心圆 / In Progress 半填充 / Done 实心勾(Linear 同款语汇) */
-export function IssueStatusIcon({ status }: { status: IssueStatus }) {
+/** 四态图标:unassessed 空心圆 / developing 半填充 / mastered 实心勾 /
+ *  needs_review 感叹号(Linear 同款语汇) */
+export function MasteryIcon({ mastery }: { mastery: ObjectiveMastery }) {
   const t = useTranslations("learning");
-  if (status === "done") {
+  if (mastery === "mastered") {
     return (
       <svg
-        data-testid="issue-status-done"
-        aria-label={t(ISSUE_STATUS_LABEL.done)}
+        data-testid="mastery-mastered"
+        aria-label={t(MASTERY_LABEL.mastered)}
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -50,11 +57,11 @@ export function IssueStatusIcon({ status }: { status: IssueStatus }) {
     );
   }
 
-  if (status === "in_progress") {
+  if (mastery === "developing") {
     return (
       <svg
-        data-testid="issue-status-in_progress"
-        aria-label={t(ISSUE_STATUS_LABEL.in_progress)}
+        data-testid="mastery-developing"
+        aria-label={t(MASTERY_LABEL.developing)}
         width="14"
         height="14"
         viewBox="0 0 16 16"
@@ -73,10 +80,34 @@ export function IssueStatusIcon({ status }: { status: IssueStatus }) {
     );
   }
 
+  if (mastery === "needs_review") {
+    return (
+      <svg
+        data-testid="mastery-needs_review"
+        aria-label={t(MASTERY_LABEL.needs_review)}
+        width="14"
+        height="14"
+        viewBox="0 0 16 16"
+        className="shrink-0 text-orange-500"
+      >
+        <circle
+          cx="8"
+          cy="8"
+          r="6.4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+        <circle cx="8" cy="11.2" r="0.9" fill="currentColor" />
+        <path d="M8 4.2v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
   return (
     <svg
-      data-testid="issue-status-todo"
-      aria-label={t(ISSUE_STATUS_LABEL.todo)}
+      data-testid="mastery-unassessed"
+      aria-label={t(MASTERY_LABEL.unassessed)}
       width="14"
       height="14"
       viewBox="0 0 16 16"

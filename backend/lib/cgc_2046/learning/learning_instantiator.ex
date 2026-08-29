@@ -116,7 +116,11 @@ defmodule Cgc2046.Learning.LearningInstantiator do
       "user_id" => ctx.enrollment.user_id,
       "event_id" => ctx.enrollment.event_id,
       "course_id" => ctx.enrollment.course_id,
-      "title" => Cgc2046.Offering.title(ctx.entity)
+      "title" => Cgc2046.Offering.title(ctx.entity),
+      # S8（ADR-0011 L6）：course 报名绑 Course.current_revision_id（发布后）
+      # 进 input_snapshot；无 revision 的存量课程 nil 宽限（key 后缀 "none"）。
+      # event 报名不绑定（event 无 revision 概念，key 走 "none" 分支）。
+      "course_revision_id" => current_revision_id(ctx)
     }
 
     case launch(ctx.workspace_id, ctx.defn.id, input) do
@@ -187,12 +191,23 @@ defmodule Cgc2046.Learning.LearningInstantiator do
     end
   end
 
-  # instance key 派生（"enrollment_#{enrollment_id}"；input 自带 key 时原样使用）。
-  # 双键提取委托 Enrollment.anchored_id/1（单源，架构深化 E）。
+  # instance key（S8/ADR-0011 L6）：`Runs.instance_key/2` 单源——
+  # "learning_<enrollment_id>_<revision_id|none>"（含 revision：一个报名对
+  # 一个课程版本 = 一个 run；与 start_learning_run 工具路径幂等互通，R36）。
+  # input 自带 key 时原样使用（测试直调口径）。
   defp instance_key(input) do
     Map.get(input, "key") || Map.get(input, :key) ||
-      "enrollment_#{input_enrollment_id(input)}"
+      Cgc2046.Learning.Runs.instance_key(
+        input_enrollment_id(input),
+        Map.get(input, "course_revision_id") || Map.get(input, :course_revision_id)
+      )
   end
+
+  # course 报名的当前 published revision（无 revision / event 报名 → nil）
+  defp current_revision_id(%{entity: %Cgc2046.Courses.Course{} = course}),
+    do: course.current_revision_id
+
+  defp current_revision_id(_ctx), do: nil
 
   defp input_enrollment_id(input) do
     case Enrollment.anchored_id(input) do

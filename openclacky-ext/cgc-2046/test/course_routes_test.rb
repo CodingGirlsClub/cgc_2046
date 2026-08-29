@@ -92,27 +92,11 @@ class CourseRoutesTest < Minitest::Test
 
   def test_course_routes_registered
     routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
-    assert_includes routes, [:get, "/courses"]
-    assert_includes routes, [:get, "/courses/:course_id/content"]
-    assert_includes routes, [:get, "/courses/:course_id/records"]
+        assert_includes routes, [:get, "/courses/:course_id/content"]
     assert_includes routes, [:get, "/courses/:course_id/prep"]
   end
 
   # ---- 透传 JSON(plan U9 场景 2) ----
-
-  def test_courses_transfers_get_learning_records
-    payload = { "records" => [{ "course_id" => COURSE, "issue_id" => "i1", "item_id" => "c1", "done" => true }] }
-    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(payload) }] })
-
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }))
-
-    assert_equal 200, halt.status
-    body = JSON.parse(halt.payload)
-    assert_equal true, body["ok"]
-    assert_equal "get_learning_records", body["tool"]
-    assert_equal payload, body["result"]
-    assert_equal [["cgc-2046", "get_learning_records", { "workspace_id" => WS }]], registry.calls
-  end
 
   def test_content_transfers_get_course_content
     content = { "goals" => ["g"], "issues" => [{ "id" => "i1", "kind" => "handwork", "title" => "t", "story" => {} }] }
@@ -127,17 +111,6 @@ class CourseRoutesTest < Minitest::Test
     assert_equal COURSE, body["result"]["course_id"]
     assert_equal "handwork", body["result"]["issues"][0]["kind"]
     assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
-  end
-
-  def test_records_transfers_filtered_query
-    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate({ "records" => [] }) }] })
-
-    halt = invoke(:get, "/courses/:course_id/records",
-                  build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
-
-    assert_equal 200, halt.status
-    assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
-    assert_equal "get_learning_records", JSON.parse(halt.payload)["tool"]
   end
 
   # S5-extension:教研状态透传(get_prep_status;workspace_id query 合并同 course_tool)
@@ -163,7 +136,7 @@ class CourseRoutesTest < Minitest::Test
   def test_not_connected_503_with_hint
     registry = FakeRegistry.new(configured: false)
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 503, halt.status
     body = JSON.parse(halt.payload)
@@ -173,7 +146,7 @@ class CourseRoutesTest < Minitest::Test
   end
 
   def test_no_http_server_503
-    halt = invoke(:get, "/courses", build(registry: nil, query: { "workspace_id" => WS }))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: nil, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 503, halt.status
   end
@@ -183,10 +156,10 @@ class CourseRoutesTest < Minitest::Test
   def test_workspace_id_via_query_when_params_empty
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }, params: {}))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }, params: {}))
 
     assert_equal 200, halt.status
-    assert_equal [["cgc-2046", "get_learning_records", { "workspace_id" => WS }]], registry.calls
+    assert_equal [["cgc-2046", "get_course_content", { "workspace_id" => WS, "course_id" => COURSE }]], registry.calls
   end
 
   # 真实宿主 dispatcher 注入 symbol key route captures(:course_id)
@@ -204,7 +177,7 @@ class CourseRoutesTest < Minitest::Test
   def test_course_id_via_string_params
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses/:course_id/records",
+    halt = invoke(:get, "/courses/:course_id/content",
                   build(registry: registry, query: { "workspace_id" => WS }, params: { "course_id" => COURSE }))
 
     assert_equal 200, halt.status
@@ -215,7 +188,7 @@ class CourseRoutesTest < Minitest::Test
   def test_missing_workspace_id_400
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: {}, params: {}))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: {}, params: {}))
 
     assert_equal 400, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
@@ -225,7 +198,7 @@ class CourseRoutesTest < Minitest::Test
   def test_mcp_error_502
     registry = FakeRegistry.new(error: Clacky::Mcp::Client::McpError.new("boom"))
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 502, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "boom"
@@ -242,18 +215,23 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, '"cgc-2046-course"'
   end
 
-  def test_panel_renders_three_state_rows_and_current_card
-    # 三态行(plan 场景 1)
-    assert_includes VIEW, 'data-testid="panel-issue-done"'
-    assert_includes VIEW, 'data-testid="panel-issue-progress"'
-    assert_includes VIEW, 'data-testid="panel-issue-todo"'
-    # 当前 issue 卡字段:goal/given/materials/checklist 打勾态
-    assert_includes VIEW, 'data-testid="panel-issue-card"'
-    assert_includes VIEW, "story.goal"
-    assert_includes VIEW, "story.given"
-    assert_includes VIEW, "story.materials"
-    assert_includes VIEW, 'data-testid="panel-check-item"'
-    assert_includes VIEW, "data-done"
+  def test_panel_renders_objective_map_and_next_action
+    # S8:objective 四态地图(S8 全量替换 issue 三态行/当前卡)
+    assert_includes VIEW, 'data-testid="panel-obj-row"'
+    assert_includes VIEW, 'data-testid="panel-obj-badge"'
+    assert_includes VIEW, 'masteryLabel'
+    assert_includes VIEW, "已掌握"
+    assert_includes VIEW, "学习中"
+    assert_includes VIEW, "待复习"
+    assert_includes VIEW, "未学"
+    assert_includes VIEW, 'data-testid="panel-obj-locked"'
+    assert_includes VIEW, 'data-testid="panel-next-action"'
+    assert_includes VIEW, 'data-testid="panel-progress"'
+    assert_includes VIEW, 'data-testid="panel-stale"'
+    # 旧 issue 三态/checklist 学习语义已删
+    refute_includes VIEW, 'data-testid="panel-issue-done"'
+    refute_includes VIEW, 'data-testid="panel-issue-card"'
+    refute_includes VIEW, 'data-testid="panel-check-item"'
   end
 
   def test_not_connected_guidance_view
@@ -268,20 +246,22 @@ class CoursePanelViewTest < Minitest::Test
   end
 
   def test_session_launch_cta_and_prompt
-    # 唤起(Rsk3 降级):复制任务指令
+    # S8 唤起(Rsk3 降级):复制 objective 口径任务指令
     assert_includes VIEW, 'data-testid="panel-cta"'
-    assert_includes VIEW, "和导师学这一节"
     assert_includes VIEW, "clipboard.writeText"
-    assert_includes VIEW, "八步循环"
-    # H2/H3:指令用 course_title + issue.key(非内部 id 原文/goals 拼接)
+    assert_includes VIEW, "七步学习循环"
+    assert_includes VIEW, "submit_learning_attempt"
+    assert_includes VIEW, "objective_id"
     assert_includes VIEW, "content.course_title"
-    assert_includes VIEW, "issue.key"
+    refute_includes VIEW, "八步循环"
     refute_includes VIEW, "goals.join"
   end
 
-  def test_issue_rows_render_key
-    # H2:issue 行渲染展示层 key 短码
-    assert_includes VIEW, "cgc-issue-key"
+  def test_panel_uses_learning_state_source
+    # S8:详情主数据源 /learning_state + /revision 展示增强
+    assert_includes VIEW, '"/learning_state?workspace_id="'
+    assert_includes VIEW, '"/revision"'
+    refute_includes VIEW, '"/records"'
   end
 
   def test_not_connected_guidance_view

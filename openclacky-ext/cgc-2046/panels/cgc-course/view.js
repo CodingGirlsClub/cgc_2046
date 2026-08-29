@@ -21,9 +21,10 @@
 // 记录签名),变化只亮非侵入更新条,不打断浏览;编辑/保存态轮询挂起(陈旧基准
 // 由保存时 409 兜底);手动刷新按钮常驻。
 //
-// 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/courses*)→
-// 扩展 core 作为 MCP 客户端透传 get_learning_records / get_course_content /
-// save_course_content / get_prep_status(dsh-cgc-core 已验证模式)。
+// 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/*)→
+// 扩展 core 作为 MCP 客户端透传学习面工具(S8:get_learning_state /
+// start_learning_run / get_course_revision;内容编辑面 get_course_content /
+// save_course_content / get_prep_status;dsh-cgc-core 已验证模式)。
 //
 // 未连接态(loopback 503 或 status 未配置)→ 引导视图(去连接面板)。
 
@@ -73,31 +74,7 @@
     });
   }
 
-  function statusIcon(status) {
-    if (status === "done") return '<span class="cgc-st cgc-st-done" data-testid="panel-issue-done">✓</span>';
-    if (status === "in_progress") return '<span class="cgc-st cgc-st-progress" data-testid="panel-issue-progress">◔</span>';
-    return '<span class="cgc-st cgc-st-todo" data-testid="panel-issue-todo">○</span>';
-  }
-
   // 记录 → (issue_id, item_id) done 集
-  function doneIndex(records) {
-    const map = {};
-    (records || []).forEach(function (r) {
-      if (r.done) map[r.issue_id + "\u0000" + r.item_id] = r;
-    });
-    return map;
-  }
-
-  function issueStatus(issue, index) {
-    const items = (((issue.story || {}).checklist) || []);
-    if (items.length === 0) return "todo";
-    const done = items.filter(function (c) {
-      return index[(issue.id || "") + "\u0000" + (c.id || "")];
-    }).length;
-    if (done === items.length) return "done";
-    return done > 0 ? "in_progress" : "todo";
-  }
-
   // ---- 角色 / 版本 / 签名 ----
   const EDIT_ROLES = ["tutor", "owner", "admin"];
 
@@ -112,6 +89,20 @@
   function draftVersion() {
     const v = state.draftContent && state.draftContent.version;
     return Number.isInteger(v) ? v : 0;
+  }
+
+  // S8 学习状态签名(objective mastery/attempt_count + progress + next_action;
+  // 不含 version/时间戳——详情轮询变更检测用)
+  function learningSignature(learning) {
+    const mastery = {};
+    ((learning && learning.objectives) || []).forEach(function (o) {
+      mastery[String(o.id)] = String(o.mastery) + ":" + String(o.attempt_count);
+    });
+    const progress = (learning && learning.progress) || {};
+    const next = (learning && learning.next_action) || {};
+    return [JSON.stringify(mastery),
+            String(progress.mastered_required) + "/" + String(progress.total_required) + ":" + String(progress.complete),
+            String(next.objective_id || "")].join(";");
   }
 
   // 报名列表签名(enrollment id + status),S7 列表轮询变更检测用
@@ -214,12 +205,10 @@
     pollInFlight = true;
     try {
       if (state.selected) {
-        // 详情页:草稿 version + 学习记录签名(他人/Agent 写入或学习进展)
-        const [contentRes, recordsRes] = await Promise.all([
-          apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/content"),
-          apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/records")
-        ]);
-        const sig = detailSignature(contentRes.result || {}, (recordsRes.result && recordsRes.result.records) || []);
+        // 详情页:学习状态签名(mastery/attempt/progress 变化检测)
+        const learningRes = await apiGet("/learning_state?workspace_id=" + encodeURIComponent(state.workspaceId) +
+          "&course_id=" + encodeURIComponent(state.selected.courseId));
+        const sig = learningSignature(learningRes.result || {});
         if (sig !== state.detailSig) {
           state.updateNotice = true;
           render();
@@ -325,14 +314,25 @@
     state.prep = null;
     render();
     try {
-      const [contentRes, recordsRes] = await Promise.all([
-        apiGet("/courses/" + encodeURIComponent(courseId) + "/content"),
-        apiGet("/courses/" + encodeURIComponent(courseId) + "/records")
+      // S8(ADR-0011):详情主数据源 = /learning_state(objective 课程地图);
+      // /content 仍拉(编辑器与教研视图用);/revision 展示增强(state 为底
+      // 永不丢 objective;未发布课程无 revision 退化 state 自带字段,不算失败)
+      const [contentRes, learningRes] = await Promise.all([
+        apiGet("/courses/" + encodeURIComponent(courseId) + "/content").catch(function () { return { result: {} }; }),
+        apiGet("/learning_state?workspace_id=" + encodeURIComponent(state.workspaceId) +
+          "&course_id=" + encodeURIComponent(courseId))
       ]);
+      let revision = null;
+      try {
+        const revRes = await apiGet("/courses/" + encodeURIComponent(courseId) + "/revision");
+        revision = revRes.result || null;
+      } catch (e) {
+        if (!(e && /no published revision/.test(e.message || ""))) throw e;
+      }
       const content = contentRes.result || {};
-      const records = (recordsRes.result && recordsRes.result.records) || [];
-      state.selected = { courseId: courseId, content: content, records: records };
-      state.detailSig = detailSignature(content, records);
+      const learning = learningRes.result || {};
+      state.selected = { courseId: courseId, content: content, learning: learning, revision: revision };
+      state.detailSig = learningSignature(learning);
       state.currentIssue = null;
       // S5:教研状态仅 canEdit 视图拉取;存量课程无 prep run(上游
       // 「no preparation run found」)或任何失败都按无流程处理,不置错误态
@@ -353,16 +353,20 @@
     }
   }
 
-  // H2/H3:课程名走 course_title、issue 走展示层 key(后端 get_course_content
-  // 已注入,不再用内部 id 原文/goals 拼接)
-  function learningPrompt(issue) {
-    const content = (state.selected && state.selected.content) || {};
-    const title = content.course_title || "本课程";
-    const issueLabel = issue.key ? issue.key + "「" + (issue.title || "") + "」" : (issue.title || issue.id || "");
+  // S8 CTA 话术:objective 口径(objective_id + submit_learning_attempt);
+  // 课程名走 get_learning_state 无 title,退 content.course_title
+  function learningPrompt(objectiveId) {
+    const sel = state.selected || {};
+    const learning = sel.learning || {};
+    const obj = (learning.objectives || []).find(function (o) { return o.id === objectiveId; }) || {};
+    const title = (sel.content && sel.content.course_title) || "本课程";
+    const objTitle = obj.title || objectiveId;
     return [
-      "请和我一起学习课程《" + title + "》的 " + issueLabel + "。",
-      "学习目标:" + (((issue.story || {}).goal) || "(见课程内容)"),
-      "请按学习 Agent 指令的八步循环开始:先读取我的学习记录与课程内容,从当前进度接续教学。"
+      "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
+      "(objective_id: " + objectiveId + ")",
+      "请按 learner playbook 的七步学习循环:先 get_learning_state 读取课程地图与当前进度,",
+      "按 next_action 的 reason 从该目标开始教学;正式评价时调用 submit_learning_attempt,",
+      "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
     ].join("\n");
   }
 
@@ -572,10 +576,20 @@
     if (bootRetry) bootRetry.addEventListener("click", boot);
   }
 
+  // S8 掌握四态中文标签(旧 ref 语义)
+  function masteryLabel(m) {
+    if (m === "mastered") return "已掌握";
+    if (m === "developing") return "学习中";
+    if (m === "needs_review") return "待复习";
+    return "未学";
+  }
+
   function renderCourseDetail() {
     const sel = state.selected;
-    const issues = ((sel.content && sel.content.issues) || []);
-    const index = doneIndex(sel.records);
+    const learning = sel.learning || {};
+    const objectives = learning.objectives || [];
+    const progress = learning.progress || {};
+    const next = learning.next_action || null;
 
     // 编辑态:整体换编辑器视图(轮询已挂起)
     if (state.editing) {
@@ -589,7 +603,11 @@
       '<div class="cgc-actions">' +
         '<button id="cgc-back" class="cgc-btn cgc-btn-secondary" type="button">← 返回课程</button>' +
         '<button id="cgc-detail-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button>' +
-        '<span class="cgc-panel-sub">' + issues.length + ' 个学习单元</span>' +
+        '<span class="cgc-panel-sub">' + objectives.length + ' 个学习目标 · 已掌握 ' +
+          escapeHtml(progress.mastered_required || 0) + '/' + escapeHtml(progress.total_required || 0) + '</span>' +
+        (progress.complete
+          ? '<span class="cgc-badge cgc-badge-done" data-testid="panel-complete">已结业</span>'
+          : "") +
         (Number.isInteger(sel.content && sel.content.version)
           ? '<span class="cgc-badge" data-testid="panel-draft-version">草稿 v' + sel.content.version + '</span>'
           : "") +
@@ -617,41 +635,99 @@
 
     inner += prepSection();
 
-    if (issues.length === 0) {
-      shell(inner + '<div class="cgc-card cgc-empty">该课程暂无教研产出(issue 卡未提交)。</div>');
+    // stale 横幅:课程已发新版(run 绑旧版)——学习新版走 startLearning
+    if (learning.stale_revision) {
+      inner +=
+        '<div class="cgc-banner" data-testid="panel-stale">' +
+          '课程已发布新版本,你正在学旧版(进度保留) ' +
+          '<button id="cgc-learn-new" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">学习新版</button>' +
+        '</div>';
+    }
+
+    if (objectives.length === 0) {
+      shell(inner + '<div class="cgc-card cgc-empty">该课程暂无学习目标(教研未完成或未发布)。</div>');
       bindDetailExtras(sel.courseId);
+      bindStartLearning(sel.courseId);
       return;
     }
 
-    const list = issues.map(function (issue) {
-      const st = issueStatus(issue, index);
-      return (
-        '<div class="cgc-issue-row' + (state.currentIssue === issue.id ? " cgc-issue-active" : "") + '"' +
-          ' data-testid="panel-issue-row" data-issue="' + escapeHtml(issue.id) + '">' +
-          statusIcon(st) +
-          (issue.key ? '<span class="cgc-issue-key">' + escapeHtml(issue.key) + '</span>' : "") +
-          '<span class="task-name">' + escapeHtml(issue.title || issue.id) + '</span>' +
-          '<span class="cgc-kind">' + escapeHtml(issue.kind || "") + '</span>' +
-        '</div>'
-      );
+    // 当前任务卡(next_action):推荐徽章 + reason + CTA(会话指令含 objective_id)
+    if (next && next.objective_id) {
+      inner +=
+        '<div class="cgc-card cgc-next-card" data-testid="panel-next-action">' +
+          '<span class="cgc-badge cgc-badge-next">当前任务</span> ' +
+          escapeHtml(next.reason || "") +
+          '<button class="cgc-btn cgc-btn-primary cgc-btn-sm" type="button" data-cta="' +
+            escapeHtml(next.objective_id) + '" data-testid="panel-cta">复制学习指令</button>' +
+        '</div>';
+    }
+
+    // 进度条(mastered_required/total_required)
+    const total = Number(progress.total_required) || 0;
+    const done = Number(progress.mastered_required) || 0;
+    const pct = total > 0 ? Math.round((done * 100) / total) : 0;
+    inner +=
+      '<div class="cgc-progress" data-testid="panel-progress">' +
+        '<div class="cgc-progress-bar" style="width:' + pct + '%"></div>' +
+      '</div>' +
+      '<p class="cgc-panel-sub">必修掌握 ' + done + '/' + total + '</p>';
+
+    const list = objectives.map(function (o) {
+      return objectiveRow(o, next);
     }).join("");
 
-    const card = state.currentIssue ? currentIssueCard(issues, index) : "";
-    shell(inner + '<div class="cgc-card cgc-issue-list">' + list + '</div>' + card);
+    shell(inner + '<div class="cgc-card cgc-obj-list">' + list + '</div>');
 
     bindDetailExtras(sel.courseId);
-    currentContainer.querySelectorAll("[data-issue]").forEach(function (el) {
-      el.addEventListener("click", function () {
-        state.currentIssue = el.getAttribute("data-issue");
-        render();
-      });
-    });
-
+    bindStartLearning(sel.courseId);
     const cta = currentContainer.querySelector("[data-testid='panel-cta']");
     if (cta) {
       cta.addEventListener("click", function () {
-        const issue = issues.find(function (i) { return i.id === state.currentIssue; });
-        if (issue) copySessionPrompt(issue);
+        copySessionPrompt(cta.getAttribute("data-cta"));
+      });
+    }
+  }
+
+  // S8 objective 行:四态徽章 / 锁与缺失先修 / 选修 chip / 尝试次数 /
+  // 推荐徽章(next_action 命中)/ reason 行
+  function objectiveRow(o, next) {
+    const locked = !!o.locked;
+    const missing = o.missing_prereq_ids || [];
+    const isNext = next && next.objective_id === o.id;
+    return (
+      '<div class="cgc-obj-row' + (locked ? " cgc-obj-locked" : "") + '"' +
+        ' data-testid="panel-obj-row" data-objective="' + escapeHtml(o.id) + '">' +
+        '<span class="cgc-badge cgc-obj-' + escapeHtml(o.mastery) + '" data-testid="panel-obj-badge">' +
+          escapeHtml(masteryLabel(o.mastery)) + '</span>' +
+        (isNext ? '<span class="cgc-badge cgc-badge-next">推荐</span>' : "") +
+        '<span class="task-name">' + escapeHtml(o.title || o.id) + '</span>' +
+        (o.required ? "" : '<span class="cgc-badge cgc-obj-elective">选修</span>') +
+        '<span class="cgc-obj-meta">' +
+          (o.attempt_count > 0 ? '<span>尝试 ' + escapeHtml(o.attempt_count) + ' 次</span>' : "") +
+          (locked
+            ? '<span class="cgc-obj-missing" data-testid="panel-obj-locked">🔒 需先修:' +
+                escapeHtml((missing || []).map(function (m) { return m.title || m.id; }).join("、")) + '</span>'
+            : "") +
+        '</span>' +
+        (isNext && next && next.reason
+          ? '<div class="cgc-obj-reason">' + escapeHtml(next.reason) + '</div>'
+          : "") +
+      '</div>'
+    );
+  }
+
+  // S8 学习新版(POST /learning/start):新版 key 自动开新 run,重载详情
+  function bindStartLearning(courseId) {
+    const btn = currentContainer.querySelector("#cgc-learn-new");
+    if (btn) {
+      btn.addEventListener("click", async function () {
+        try {
+          await apiPost("/learning/start", { workspace_id: state.workspaceId, course_id: courseId });
+          await openCourse(courseId, state.workspaceId);
+        } catch (e) {
+          state.error = e;
+          render();
+        }
       });
     }
   }
@@ -708,45 +784,6 @@
     if (toggle) toggle.addEventListener("click", enterEdit);
     const upd = currentContainer.querySelector("#cgc-update-refresh");
     if (upd) upd.addEventListener("click", function () { openCourse(courseId); });
-  }
-
-  function currentIssueCard(issues, index) {
-    const issue = issues.find(function (i) { return i.id === state.currentIssue; });
-    if (!issue) return "";
-    const story = issue.story || {};
-    const checklist = story.checklist || [];
-    const materials = story.materials || [];
-
-    const items = checklist.map(function (c) {
-      const rec = index[(issue.id || "") + " " + (c.id || "")];
-      return (
-        '<li class="cgc-check' + (rec ? " cgc-check-done" : "") + '" data-testid="panel-check-item" data-done="' + (rec ? "true" : "false") + '">' +
-          '<span class="cgc-st">' + (rec ? "✓" : "○") + '</span>' +
-          '<span>' + escapeHtml(c.text) +
-            (rec && rec.evidence ? '<div class="cgc-ev-hint">证据:' + escapeHtml(rec.evidence) + '</div>' : "") +
-          '</span>' +
-        '</li>'
-      );
-    }).join("");
-
-    const given = (story.given || []).map(escapeHtml).join(" / ");
-
-    return (
-      '<div class="cgc-card cgc-issue-card" data-testid="panel-issue-card">' +
-        '<h4 class="cgc-issue-title">' + escapeHtml(issue.title || "") +
-          '<span class="cgc-kind">' + escapeHtml(issue.kind || "") + '</span></h4>' +
-        (story.goal ? '<p class="cgc-goal"><b>目标:</b>' + escapeHtml(story.goal) + '</p>' : "") +
-        (given ? '<p class="cgc-goal"><b>先修:</b>' + given + '</p>' : "") +
-        (materials.length > 0
-          ? '<p class="cgc-goal"><b>材料:</b>' + materials.map(function (m) { return escapeHtml(m.title || m.ref || ""); }).join(" / ") + '</p>'
-          : "") +
-        '<ul class="cgc-checklist">' + items + '</ul>' +
-        '<button class="cgc-btn cgc-btn-primary" type="button" data-testid="panel-cta">' +
-          (state.copied ? "已复制学习指令" : "和导师学这一节") +
-        '</button>' +
-        '<div class="cgc-ev-hint">复制指令后粘贴到会话开始学习;学习记录由会话中的工具调用写回。</div>' +
-      '</div>'
-    );
   }
 
   // ---- S4 草稿编辑(教研侧;tutor|owner|admin;v1 schema:goals + issues/checklist) ----
@@ -968,6 +1005,22 @@
       ".cgc-course-list{margin-top:10px}" +
       ".cgc-course-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer}" +
       ".cgc-course-row:hover{background:rgba(127,127,127,.12)}" +
+      ".cgc-obj-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border-radius:8px}" +
+      ".cgc-obj-row:hover{background:rgba(127,127,127,.12)}" +
+      ".cgc-obj-locked .task-name{color:#6b7280}" +
+      ".cgc-obj-unassessed{color:#9ca3af;border-color:#9ca3af}" +
+      ".cgc-obj-developing{color:#fbbf24;border-color:#fbbf24}" +
+      ".cgc-obj-mastered{color:#34d399;border-color:#34d399}" +
+      ".cgc-obj-needs_review{color:#f97316;border-color:#f97316}" +
+      ".cgc-obj-elective{color:#a78bfa;border-color:#a78bfa}" +
+      ".cgc-badge-next{color:#6366f1;border-color:#6366f1}" +
+      ".cgc-obj-meta{display:flex;gap:8px;font-size:12px;color:#9ca3af}" +
+      ".cgc-obj-missing{color:#f97316}" +
+      ".cgc-obj-reason{width:100%;font-size:12px;color:#9ca3af;margin:2px 0 0}" +
+      ".cgc-next-card{display:flex;gap:8px;align-items:center;flex-wrap:wrap}" +
+      ".cgc-progress{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin:6px 0}" +
+      ".cgc-progress-bar{height:100%;background:#34d399}" +
+      ".cgc-badge-done{color:#34d399;border-color:#34d399}" +
       ".cgc-ws-group{margin-bottom:6px}" +
       ".cgc-ws-group-name{font-size:11px;color:#9ca3af;margin:6px 4px 2px}" +
       ".cgc-inflight-row{cursor:default}" +
