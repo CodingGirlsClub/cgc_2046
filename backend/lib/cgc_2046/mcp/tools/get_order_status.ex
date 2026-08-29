@@ -46,7 +46,7 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
           {:ok,
            %{
              order: order && order_dto(order),
-             checkout_url: checkout_url(order, enrollment.id),
+             checkout_url: checkout_url(order, enrollment),
              enrollment_status: to_string(enrollment.status)
            }}
         end
@@ -112,9 +112,12 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   defp paid_at(%{status: :paid, updated_at: updated_at}), do: updated_at
   defp paid_at(_order), do: nil
 
-  # 支付入口：仅 pending 订单给下单页链接（继续/完成支付）
-  defp checkout_url(%{status: :pending}, enrollment_id),
-    do: LearnerJourney.checkout_url(enrollment_id)
+  # 支付入口（advisor F5）：报名仍 payment_pending 即给下单页链接——Order 只在
+  # 学员进入 /orders/new 创建（web 侧 createOrder），payment_pending 尚无 Order
+  # 是合法状态（面板重载后的 resumePayment 恢复路径）；confirmed/expired 等
+  # 终态报名无支付动作（含 order 已 paid 的报名）。
+  defp checkout_url(_order, %{status: :payment_pending, id: id}),
+    do: LearnerJourney.checkout_url(id)
 
-  defp checkout_url(_order, _enrollment_id), do: nil
+  defp checkout_url(_order, _enrollment), do: nil
 end

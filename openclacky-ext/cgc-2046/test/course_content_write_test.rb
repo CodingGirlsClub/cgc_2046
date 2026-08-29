@@ -64,7 +64,11 @@ class CourseContentWriteTest < Minitest::Test
     end
   end
 
-  FakeReq = Struct.new(:body, :query)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 宿主 openclacky gem 的真实包装(lib/clacky/mcp/client.rb:209,1.5.12 实证):
   # 上游 JSON-RPC error → ProtocolError("MCP server '<name>' error on tools/call:
@@ -77,9 +81,14 @@ class CourseContentWriteTest < Minitest::Test
   # 宿主真实形态(course_routes_test 同款,smoke01 实证):
   #   @params = route pattern captures(symbol key,如 :course_id)
   #   POST body 在 req.body(JSON 字符串);GET query 在 req.query
-  def build(registry:, body: nil, query: {}, params: {})
+  # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
+  def write_headers
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+  end
+
+  def build(registry:, body: nil, query: {}, params: {}, header: write_headers)
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(body && JSON.generate(body), query))
+    inst.instance_variable_set(:@req, FakeReq.new(body && JSON.generate(body), query, header))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst

@@ -33,6 +33,7 @@
 
   const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-discovery";
+  let csrfToken = "";                 // advisor F2:写路由 CSRF token(经 /status 同源下发)
   const PAY_POLL_MS = 5000;               // AE7:支付状态 5s 轮询
   const PAY_POLL_CAP_MS = 10 * 60 * 1000; // 轮询 10 分钟上限
   let currentContainer = null;
@@ -127,7 +128,9 @@
 
   // ---- 数据加载 ----
   async function apiGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
+    const headers = { Accept: "application/json" };
+    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
+    const res = await fetch(API + path, { headers: headers });
     const body = await res.json().catch(function () { return {}; });
     if (!res.ok) throw Object.assign(new Error(body.error || "HTTP " + res.status), { body, status: res.status });
     return body;
@@ -135,9 +138,11 @@
 
   // 报名提交:POST JSON;错误体挂 status/body
   async function apiPost(path, payload) {
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
     const res = await fetch(API + path, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: headers,
       body: JSON.stringify(payload)
     });
     const body = await res.json().catch(function () { return {}; });
@@ -160,6 +165,7 @@
       const result = listRes.result || {};
       state.items = Array.isArray(result.offerings) ? result.offerings : [];
       state.webUrl = statusRes.web_url || "";
+      if (statusRes.csrf_token) csrfToken = String(statusRes.csrf_token);
       state.view = state.items.length === 0 ? "empty" : "list";
     } catch (e) {
       state.error = e;
@@ -175,7 +181,9 @@
     state.confirm = { item: item, summary: null, tierId: "", loading: true, saving: false, error: null };
     paint();
     try {
-      const wsId = (item.workspace && item.workspace.id) || "";
+      // advisor F4:动作安全作用域 = workspace_id 原值优先（invite_only 台对
+      // 非成员展示块 workspace 为 nil，但动作仍可携真实作用域走通）
+      const wsId = (item.workspace && item.workspace.id) || item.workspace_id || "";
       const payload = await apiGet("/enrollment_summary?workspace_id=" + encodeURIComponent(wsId) +
         "&kind=" + encodeURIComponent(item.kind) +
         "&offering_id=" + encodeURIComponent(item.id));
@@ -199,7 +207,7 @@
     const c = state.confirm;
     if (!c || !c.summary || c.saving) return;
     const item = c.item;
-    const wsId = (item.workspace && item.workspace.id) || "";
+    const wsId = (item.workspace && item.workspace.id) || item.workspace_id || "";
     c.saving = true;
     c.error = null;
     paint();

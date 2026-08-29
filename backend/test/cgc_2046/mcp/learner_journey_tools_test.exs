@@ -308,6 +308,8 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       [row] = payload["offerings"]
       assert row["title"] == "私密台公开活动"
       assert is_nil(row["workspace"])
+      # advisor F4:动作安全作用域原值保留（报名动作可携真实作用域走通）
+      assert row["workspace_id"] == workspace.id
     end
 
     test "封顶 100：超出截断，total_count 为截断前命中小计（§B#16）" do
@@ -662,6 +664,9 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
         |> Map.new()
 
       assert Map.keys(rows) |> Enum.sort() == Enum.sort([free_event.id, paid_course.id])
+      # advisor F4:行附 workspace_id 原值（enrollment 自身列，动作作用域）
+      assert rows[free_event.id]["workspace_id"] == workspace_a.id
+      assert rows[paid_course.id]["workspace_id"] == workspace_b.id
 
       free_row = rows[free_event.id]
       assert free_row["status"] == "confirmed"
@@ -683,6 +688,24 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
 
       [log] = tool_logs_for(learner.id, "get_my_enrollments")
       assert log.result_status == :ok
+    end
+
+    test "封顶 100：超出截断，total_count 为截断前小计（§B#16，advisor F3）" do
+      admin = Fixtures.platform_admin("s7-my-cap")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("s7-my-cap-learner")
+
+      for i <- 1..105 do
+        event = EventFixtures.create_event(workspace, admin, %{title: "活动 #{i}"})
+        domain_enroll(event, learner)
+      end
+
+      assert {:reply, _, _} = reply = GetMyEnrollments.execute(%{}, frame_for(learner))
+      payload = decode_reply(reply)
+
+      assert length(payload["enrollments"]) == 100
+      assert payload["count"] == 100
+      assert payload["total_count"] == 105
     end
   end
 
@@ -748,6 +771,61 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert payload["order"]["id"] == order.id
       assert payload["order"]["status"] == "paid"
       assert is_binary(payload["order"]["paid_at"])
+      # advisor F5 语义：mark_paid 与 settle_paid 间的窗口（enrollment 仍
+      # payment_pending）→ checkout_url 仍给（支付回调竞态下继续完成路径）
+      assert is_binary(payload["checkout_url"])
+    end
+
+    test "payment_pending 且尚无 Order → checkout_url 非 nil（resumePayment 恢复路径，advisor F5）" do
+      admin = Fixtures.platform_admin("s7-ord-f5")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("s7-ord-f5-learner")
+      # create_enrollment 落 payment_pending 时 Order 尚未创建（学员未进 /orders/new）
+      enrollment = domain_enroll(course, learner, %{tier_id: @paid_tier_id})
+
+      assert {:reply, _, _} =
+               reply =
+               GetOrderStatus.execute(
+                 %{"workspace_id" => workspace.id, "enrollment_id" => enrollment.id},
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert is_nil(payload["order"])
+      assert payload["checkout_url"] =~ "/orders/new?enrollmentId=#{enrollment.id}"
+      assert payload["enrollment_status"] == "payment_pending"
+    end
+
+    test "confirmed / expired 报名 → checkout_url 落 nil（无支付动作）" do
+      admin = Fixtures.platform_admin("s7-ord-f5b")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("s7-ord-f5b-learner")
+      enrollment = domain_enroll(course, learner, %{tier_id: @paid_tier_id})
+      order = order_fixture(enrollment)
+
+      # 真实支付序列：order mark_paid（支付回调）→ enrollment settle_paid
+      # （报名转 confirmed）——终态报名无支付动作
+      order
+      |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-s7-f5"},
+        tenant: workspace.id
+      )
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      enrollment
+      |> Ash.Changeset.for_update(:settle_paid, %{}, tenant: workspace.id)
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      assert {:reply, _, _} =
+               reply =
+               GetOrderStatus.execute(
+                 %{"workspace_id" => workspace.id, "enrollment_id" => enrollment.id},
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["order"]["status"] == "paid"
       assert is_nil(payload["checkout_url"])
     end
 

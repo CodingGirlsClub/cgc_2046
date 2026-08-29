@@ -29,7 +29,10 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   1. 调用 discover_offerings()（无参数）拿合并发现流：全平台公开条目 ∪ 本人各
      workspace 可访问条目（已去重；条目含 workspace 名/状态/价格概要/报名截止/
-     我的报名状态）。想看单个条目详情再调 get_public_offering(id, kind) 查实;
+     我的报名状态）。条目详情按来源分流(advisor F6):公开条目(visibility=public)
+     用 get_public_offering(id, kind) 查实;成员段/非公开条目(workspace 可见性
+     或 closed)用 get_enrollment_summary(workspace_id, kind, id)——get_public_
+     offering 只回 open+public,对成员段条目必返回 not found;
   2. 报名前确认:调用 get_enrollment_summary(workspace_id, kind, offering_id) 拿
      报名摘要——目标/时间/价格档(price_tiers)/报名策略(policy)/将创建的报名状态
      (would_create_status:直接确认 confirmed / 需审批 pending / 需支付 payment_pending;
@@ -197,7 +200,7 @@ defmodule Cgc2046.Mcp.Playbooks do
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-08-29.5", content: @workspace_admin_content},
     tutor: %{version: "2026-08-29.4", content: @tutor_content},
-    learner: %{version: "2026-08-29.2", content: @learner_content}
+    learner: %{version: "2026-08-29.3", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner

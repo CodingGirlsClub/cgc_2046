@@ -34,6 +34,7 @@
   const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-course";
   const STORE_KEY = "cgc2046.coursePanel.workspaceId";
+  let csrfToken = "";                 // advisor F2:写路由 CSRF token(lazy 经 /status 取)
   const POLL_MS = 10000;
   let currentContainer = null;
   let pollTimer = null;
@@ -142,6 +143,17 @@
     return body;
   }
 
+  // advisor F2:写路由 CSRF token(lazy 经 /status 同源取一次,失败静默——
+  // 写请求会因缺 token 403,用户重试时 /status 已恢复)
+  async function ensureCsrf() {
+    if (csrfToken) return;
+    try {
+      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
+      const body = await res.json().catch(function () { return {}; });
+      if (res.ok && body.csrf_token) csrfToken = String(body.csrf_token);
+    } catch (e) { /* 静默:写请求会因缺 token 403,用户可重试 */ }
+  }
+
   async function apiGet(path) {
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
     const res = await fetch(API + path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId), {
@@ -154,9 +166,12 @@
 
   // POST JSON(S4 草稿保存);错误体挂 status/body(409 走冲突 UX)
   async function apiPost(path, payload) {
+    await ensureCsrf();
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
     const res = await fetch(API + path, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: headers,
       body: JSON.stringify(payload)
     });
     const body = await res.json().catch(function () { return {}; });
@@ -183,7 +198,9 @@
     if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
     if (document.hidden || pollInFlight) return;
     if (state.editing || state.saving || state.loading || state.loadingBoot) return;
-    if (!state.workspaceId || state.error) return;
+    if (state.error) return;
+    // 详情态的作用域查询(草稿/记录)需要 workspaceId;列表态轮询 /me/enrollments 无需
+    if (state.selected && !state.workspaceId) return;
     pollInFlight = true;
     try {
       if (state.selected) {
@@ -233,7 +250,11 @@
       state.loadingBoot = false;
       render();
     }
-    if (state.workspaceId && !state.error && !state.bootError) loadCourses();
+    // advisor F1(AE8/R35):/me/enrollments 是 actor 锚定跨台读,与 workspace
+    // 选择解耦——零成员身份的公开课报名(confirmed)同样要出现在列表。
+    // workspace 选择仅在打开作用域详情时要求(openCourse 以报名行
+    // data-ws/workspace_id 原值驱动)。
+    loadCourses();
   }
 
   // S7(AE8/R35):列表源 = /me/enrollments(跨 workspace,无需 workspace_id);
@@ -257,7 +278,8 @@
           return {
             courseId: String(offering.id || ""),
             title: String(offering.title || ""),
-            workspaceId: String(ws.id || ""),
+            // advisor F4:workspace_id 原值兜底（invite_only 台 ws 块 nil 场景）
+            workspaceId: String(ws.id || e.workspace_id || ""),
             workspaceName: String(ws.name || ws.slug || "")
           };
         })
@@ -361,9 +383,9 @@
       renderNotConnected();
       return;
     }
-    if (!state.workspaceId) {
+    if (state.error && state.error.status !== 503) {
       stopPolling();
-      renderWorkspaceGate();
+      shell('<div class="cgc-card cgc-ev-err">加载失败:' + escapeHtml(state.error.message || "") + '</div>');
       return;
     }
     if (!state.selected) {
@@ -386,25 +408,6 @@
         '<h3 class="cgc-panel-title">CGC 课程学习</h3>' +
         inner +
       '</div>';
-  }
-
-  // Workspace gate:boot 加载中 / 失败重试 / 零可访问工作台引导
-  function renderWorkspaceGate() {
-    if (state.loadingBoot) {
-      shell('<div class="cgc-card">加载 Workspace 列表…</div>');
-      return;
-    }
-    if (state.bootError) {
-      shell(
-        '<div class="cgc-card cgc-ev-err">加载 Workspace 列表失败:' + escapeHtml(state.bootError.message || "") + '</div>' +
-        '<div class="cgc-actions">' +
-          '<button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary" type="button">重试</button>' +
-        '</div>'
-      );
-      currentContainer.querySelector("#cgc-boot-retry").addEventListener("click", boot);
-      return;
-    }
-    shell('<div class="cgc-card cgc-empty">当前账号没有可访问的 Workspace。请先在网站加入或创建工作台。</div>');
   }
 
   // 课程列表头部的 Workspace 选择器:按名称切换(S1 finding:用户永不手填 UUID)
@@ -455,8 +458,19 @@
   }
 
   function renderCourseList() {
-    let inner =
-      pickerRow() +
+    let inner = pickerRow();
+
+    // advisor F1:workspace 列表加载失败或零成员身份——非阻断提示条
+    // (报名列表跨台加载照常;详情打开由报名行作用域驱动)
+    if (state.bootError) {
+      inner += '<div class="cgc-card cgc-ev-err" data-testid="panel-ws-boot-error">Workspace 列表加载失败:' +
+        escapeHtml(state.bootError.message || "") +
+        ' <button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">重试</button></div>';
+    } else if (state.workspaces.length === 0) {
+      inner += '<p class="cgc-panel-sub">当前账号没有可访问的 Workspace——课程列表来自你的报名,跨 Workspace 显示。</p>';
+    }
+
+    inner +=
       '<p class="cgc-panel-sub">我的课程(按报名推导,跨 Workspace)</p>' +
       '<div class="cgc-actions"><button id="cgc-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button></div>';
 
@@ -544,6 +558,8 @@
     if (refresh) refresh.addEventListener("click", loadCourses);
     const bar = currentContainer.querySelector("#cgc-list-refresh");
     if (bar) bar.addEventListener("click", loadCourses);
+    const bootRetry = currentContainer.querySelector("#cgc-boot-retry");
+    if (bootRetry) bootRetry.addEventListener("click", boot);
   }
 
   function renderCourseDetail() {

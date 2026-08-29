@@ -10,6 +10,8 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
   供给标题/slugs 经 `authorize?: false` 批量投影（先例 = Enrollment.target_title
   计算字段：本人报名锚定的供给段收窄，标题非敏感面）；宿主 workspace 块带
   actor 走 policy（invite_only 工作台对非成员落 nil——跨台报名的可能宿主）。
+  行附 `workspace_id` 原值（enrollment 自身列，advisor F4 动作安全作用域——
+  展示块 redact 不影响课程面板打开详情的作用域驱动）。
   附最新订单的 tier_snapshot（带 actor 本人订单，非终态优先）。
   最多 100 条（§B#16 读面封顶）。
   """
@@ -37,6 +39,7 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
     result =
       Wrapper.run(frame, params, "get_my_enrollments", fn actor, _workspace_id, _params ->
         with {:ok, enrollments} <- read_my_enrollments(actor),
+             {:ok, total_count} <- count_my_enrollments(actor),
              {:ok, offerings} <- load_offerings(enrollments),
              {:ok, workspaces} <- load_workspaces(actor, enrollments),
              {:ok, tier_snapshots} <- load_tier_snapshots(actor, enrollments) do
@@ -44,12 +47,25 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
            %{
              enrollments:
                Enum.map(enrollments, &to_row(&1, offerings, workspaces, tier_snapshots)),
-             count: length(enrollments)
+             count: length(enrollments),
+             total_count: total_count
            }}
         end
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
+  end
+
+  # 截断前总数（§B#16：total_count 为截断前小计——advisor F3；行载荷维持
+  # 100 上限，>100 时消费者据 total_count 判定截断页非全集）
+  defp count_my_enrollments(actor) do
+    Enrollment
+    |> Ash.Query.filter(user_id == ^actor.id)
+    |> Ash.count(authorize?: false)
+    |> case do
+      {:ok, count} -> {:ok, count}
+      {:error, _} -> {:error, "failed to count enrollments"}
+    end
   end
 
   # 本人报名全状态（带 actor 走 policy，user_id == actor 收窄）；倒序 + 上限。
@@ -140,6 +156,7 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
         title: offering && offering.title,
         slug: offering && offering.slug
       },
+      workspace_id: enrollment.workspace_id,
       workspace: workspace_block(Map.get(workspaces, enrollment.workspace_id)),
       status: to_string(enrollment.status),
       tier_snapshot: tier_snapshot(Map.get(tier_snapshots, enrollment.id)),
