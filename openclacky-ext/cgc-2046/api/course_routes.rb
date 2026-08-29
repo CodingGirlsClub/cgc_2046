@@ -38,8 +38,11 @@ module Cgc2046CourseRoutes
   # 未连接 503(各面板自带 not_connected 引导文案)/ 上游 McpError 502 /
   # 意外 500(error_prefix 区分面板)。offering 数据面整体委托本函数
   # (call_offering_tool 单行转发,仅 not_connected 文案与 error_prefix 不同)。
-  # conflict_409: true 时,上游错误消息以 version_conflict: 开头映射为 409
+  # conflict_409: true 时,上游 version_conflict: 错误映射为 409
   # (S4 乐观并发冲突,§B#23 错误分层,面板据此走冲突 UX),其余 McpError 保持 502。
+  # 宿主 client(openclacky gem lib/clacky/mcp/client.rb)把上游 JSON-RPC error 包装为
+  # "MCP server '<name>' error on tools/call: <上游消息> (code -32000)"——消息带宿主
+  # 前缀,故按子串匹配而非开头匹配(评审 R1 P1-1:start_with? 在生产恒 false)。
   def call_tool(handler, tool_name, arguments, not_connected:, error_prefix:, conflict_409: false)
     registry = connected_registry(handler)
     return { status: 503, body: not_connected } unless registry
@@ -47,7 +50,7 @@ module Cgc2046CourseRoutes
     result = registry.call_tool(SERVER_NAME, tool_name, arguments)
     { status: 200, body: { ok: true, tool: tool_name, result: normalize_mcp_result(result) } }
   rescue Clacky::Mcp::Client::McpError => e
-    if conflict_409 && e.message.start_with?("version_conflict:")
+    if conflict_409 && e.message.include?("version_conflict:")
       { status: 409, body: { error: "version_conflict", message: e.message } }
     else
       { status: 502, body: { error: "MCP call failed: #{e.message}" } }

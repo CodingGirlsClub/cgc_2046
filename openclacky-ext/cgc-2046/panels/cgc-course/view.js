@@ -162,10 +162,15 @@
     pollTimer = setInterval(pollTick, POLL_MS);
   }
 
+  // R1 P2-1:页面隐藏跳本轮(R11「面板可见时」口径);in-flight 闸防单轮 >10s 叠请求。
+  let pollInFlight = false;
+
   async function pollTick() {
     if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
+    if (document.hidden || pollInFlight) return;
     if (state.editing || state.saving || state.loading || state.loadingBoot) return;
     if (!state.workspaceId || state.error) return;
+    pollInFlight = true;
     try {
       if (state.selected) {
         // 详情页:草稿 version + 学习记录签名(他人/Agent 写入或学习进展)
@@ -186,7 +191,7 @@
           render();
         }
       }
-    } catch (e) { /* 轮询失败静默,下轮重试 */ }
+    } catch (e) { /* 轮询失败静默,下轮重试 */ } finally { pollInFlight = false; }
   }
 
   // 开面板引导:拉可访问 Workspace 列表 → 解析选中(持久化 id 有效则沿用,
@@ -369,6 +374,16 @@
     sw.addEventListener("change", function () {
       state.workspaceId = sw.value;
       localStorage.setItem(STORE_KEY, sw.value);
+      // R1 P2-2:切换 Workspace 清空旧课程详情与编辑态——否则旧 course_id 滞留,
+      // 轮询拿旧 course_id + 新 workspace_id 静默失败,编辑保存更是写错目标。
+      state.selected = null;
+      state.currentIssue = null;
+      state.conflict = null;
+      state.updateNotice = false;
+      state.editing = false;
+      state.draft = null;
+      state.draftContent = null;
+      state.saveError = null;
       computeCanEdit();
       loadCourses();
     });
