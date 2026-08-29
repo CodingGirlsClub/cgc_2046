@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(43,role-agent-journeys-v2 S3 工作台管理面后):
+  工具集(52,role-agent-journeys-v2 S5 课程教研流程后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -26,6 +26,16 @@ defmodule Cgc2046.Mcp.Server do
     (委托 Admission 既有 action,免缴同事务作废 pending 单 + 补发 completed);
     订单 list_workspace_orders(读) / refund_order / retry_refund(委托 Payments
     既有 CAS action);加入策略 update_join_policy
+  - 课程教研流程(S5,R22-R28;member-only 门 + 工具层角色判定,域逻辑宿主
+    Curriculum.Prep;prep run = 协议而非 DAG,prep_state 存 facts):
+    get_prep_status(读,任何成员) / assign_prep_tutor(Owner/Admin 直接写) /
+    claim_prep_authoring(tutor∪Owner/Admin,run version 乐观锁 CAS 认领) /
+    update_prep_policy(Owner/Admin 确认流,提交质检后冻结) /
+    submit_prep_for_check(assignee∪Owner/Admin,同步跑 PrepGate 结构门禁) /
+    submit_prep_quality_report(达标按策略进 review 或直接发布) /
+    override_prep_gate(reviewer-per-policy∪Owner/Admin 确认流,理由落审计) /
+    approve_prep(reviewer-per-policy∪Owner/Admin 确认流,发布=course launch) /
+    request_changes_prep(review → authoring 直接写)
   - 写:save_step_output
   - 管理(确认流 two-tool,D-D3):create_invitation / approve_join_request / assign_roles
   - 内置:confirm_operation / cancel_operation
@@ -98,4 +108,16 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.RefundOrder)
   component(Cgc2046.Mcp.Tools.RetryRefund)
   component(Cgc2046.Mcp.Tools.UpdateJoinPolicy)
+  # 课程教研流程九工具（role-agent-journeys-v2 S5，R22-R28）：工具面 43 → 52
+  # （member-only 门 + 工具层角色判定；策略调整/门禁覆盖/审核发布三件走确认流，
+  # 域逻辑宿主 Curriculum.Prep）
+  component(Cgc2046.Mcp.Tools.GetPrepStatus)
+  component(Cgc2046.Mcp.Tools.AssignPrepTutor)
+  component(Cgc2046.Mcp.Tools.ClaimPrepAuthoring)
+  component(Cgc2046.Mcp.Tools.UpdatePrepPolicy)
+  component(Cgc2046.Mcp.Tools.SubmitPrepForCheck)
+  component(Cgc2046.Mcp.Tools.SubmitPrepQualityReport)
+  component(Cgc2046.Mcp.Tools.OverridePrepGate)
+  component(Cgc2046.Mcp.Tools.ApprovePrep)
+  component(Cgc2046.Mcp.Tools.RequestChangesPrep)
 end

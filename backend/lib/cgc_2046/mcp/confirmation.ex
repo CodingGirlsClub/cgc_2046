@@ -222,6 +222,21 @@ defmodule Cgc2046.Mcp.Confirmation do
     Cgc2046.Mcp.Tools.UpdateJoinPolicy.execute_confirmed(actor, params)
   end
 
+  # 课程教研流程确认流（role-agent-journeys-v2 S5，工具面 43 → 52）：
+  # 策略调整 / 门禁覆盖 / 审核发布三高风险写；其余六件（读状态/指派/认领/
+  # 提交检查/质量报告/请求修改）为直接写
+  defp execute("update_prep_policy", actor, params) do
+    Cgc2046.Mcp.Tools.UpdatePrepPolicy.execute_confirmed(actor, params)
+  end
+
+  defp execute("override_prep_gate", actor, params) do
+    Cgc2046.Mcp.Tools.OverridePrepGate.execute_confirmed(actor, params)
+  end
+
+  defp execute("approve_prep", actor, params) do
+    Cgc2046.Mcp.Tools.ApprovePrep.execute_confirmed(actor, params)
+  end
+
   # fallback：防御性处理未知 tool（理论上 request 写入的 tool 名与分派覆盖一致，
   # 但数据异常时不泄露 params/actor 结构）
   defp execute(tool, _actor, _params) do

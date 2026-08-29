@@ -434,6 +434,32 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         end
       end)
     end
+
+    # role-agent-journeys-v2 S5：课程教研流程 facts 写入（R22-R28）。与
+    # update_facts_for_mcp 的差异：facts 整体替换（调用方 Curriculum.Prep 负责
+    # 合并）+ optimistic_lock(:version) 乐观锁（prep 认领/迁移的并发 CAS 基石——
+    # 陈旧 version 写入 StaleRecord 上抛，并发双认领恰一成一败，零裸 SQL）；
+    # 终态拒绝同上。细粒度角色判定（assignee/reviewer/owner-admin）在
+    # Curriculum.Prep 过渡函数与 MCP 工具层。
+    update :update_prep_facts do
+      description("课程教研流程 facts 写入（S5；facts 整体替换 + 乐观锁 + 终态拒绝）")
+      require_atomic?(false)
+      accept([:facts])
+      change(optimistic_lock(:version))
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          status when status in [:pending, :running, :waiting] ->
+            changeset
+
+          status ->
+            Ash.Changeset.add_error(
+              changeset,
+              "cannot update prep facts on run in status=#{status}"
+            )
+        end
+      end)
+    end
   end
 
   postgres do
@@ -472,6 +498,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       )
 
       authorize_if(Cgc2046.Admission.Policies.ActorIsEnrolledLearner)
+    end
+
+    # role-agent-journeys-v2 S5：教研 facts 写入对成员放开（assignee/reviewer/
+    # owner-admin 细粒度判定在 Curriculum.Prep 过渡函数与 MCP 工具层，与
+    # update_facts_for_mcp 同款纪律；学员无教研面——不放行 ActorIsEnrolledLearner）。
+    bypass action(:update_prep_facts) do
+      authorize_if(
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]}
+      )
     end
 
     # 写操作：Owner/Admin（多角色并集）

@@ -71,9 +71,30 @@ defmodule Cgc2046.Mcp.Playbooks do
   - 写入草稿前必须先调用 get_course_content(workspace_id, course_id) 读取当前 version,save_course_content 必须携带 base_version——首次保存(尚无草稿,get_course_content 报无内容)传 base_version=0,其后一律传刚读到的 version;
   - 收到 version_conflict 错误时,说明草稿已被他人/他会话改动:必须先重新 get_course_content 读取最新内容与 version,在最新版本上合并你的修改后再提交——不得携带旧 base_version 盲目重试,那会覆盖面板或他人的修改。
 
+  教研旅程(课程教研流程,S5):每门课程创建时平台自动开一个教研流程,状态机
+  draft → authoring → quality_check → review → published。你的完整动线:
+
+  1. 找活:list_my_tasks(workspace_id) 里的 course_prep_claimable 行是可认领任务,
+     调 claim_prep_authoring(workspace_id, course_id) 认领(已被指派给你的任务是
+     course_prep_authoring 行,不用认领);
+  2. 读状态:get_prep_status(workspace_id, course_id) 拿生效策略(quality_threshold /
+     review_required / reviewer)、当前 prep_state 与实时门禁违规清单;
+  3. 生产内容:按上方起草规则与版本纪律经 save_course_content 迭代 issue 卡集;
+  4. 提交检查:submit_prep_for_check(workspace_id, course_id) 跑结构门禁——返回
+     passed=false 时 violations 逐条修复后重新提交,passed=true 进入 quality_check;
+  5. 诚实评分:submit_prep_quality_report(workspace_id, course_id, report) 提交结构化
+     质量报告(score 0-100 + summary + 可选 findings)。score 低于生效阈值会退回
+     authoring(报告在案,reviewer/Owner 可记理由覆盖);达到阈值按策略进入 review
+     或直接发布;
+  6. review_required 开着时等待审核:被 request_changes_prep 退回会回 authoring
+     (理由在案),修订内容后从第 4 步重新提交。
+
+  纪律:评分必须诚实反映内容质量,不为冲过阈值虚报高分;被退回是正常迭代,逐条
+  回应 findings 再提交。
+
   纪律:
   - 起草前先调用 get_course_content(workspace_id, course_id) 读取当前内容,在其基础上迭代,不覆盖他人已有成果;
-  - agent 权限 = 用户权限:save_course_content 要求你在该工作台持有 tutor 或管理角色;被拒绝时如实告知用户,不绕过、不伪装重试。
+  - agent 权限 = 用户权限:save_course_content 与教研流程写工具要求你在该工作台持有 tutor 或管理角色;被拒绝时如实告知用户,不绕过、不伪装重试。
   """
 
   @workspace_admin_content """
@@ -87,11 +108,12 @@ defmodule Cgc2046.Mcp.Playbooks do
      - create_invitation(workspace_id, ...) 创建邀请(可指定目标邮箱或生成公开链接,可选有效期小时数);
      - approve_join_request(workspace_id, join_request_id, ...) 批准加入申请(仅可授予非管理角色;owner 走 assign_roles 专门指派);
      - assign_roles(workspace_id, membership_id, role_names) 整体替换某成员的角色集合(membership_id 从 list_members 获取;role_names 为替换后的完整集合,空数组 = 清空差异标签);
-  4. 课程生命周期（除 create_course 外均走确认流）:
-     - create_course(workspace_id, title?, ...) 直接写,创建 draft 课程;title 可省略——系统生成临时占位标题并打 provisional_title 标记;
+  4. 课程生命周期与教研流程（除 create_course 外均走确认流）:
+     - create_course(workspace_id, title?, ...) 直接写,创建 draft 课程;title 可省略——系统生成临时占位标题并打 provisional_title 标记;创建即自动开教研流程(draft → authoring → quality_check → review → published);
      - update_course(workspace_id, course_id, ...) 改标题/描述/定价/报名策略等;设置正式标题即自动清除 provisional_title;pricing_enabled 改 false 会批量免缴该课程全部待支付报名(摘要会展示受影响笔数,确认后逐笔免缴留痕);
-     - launch_course(workspace_id, course_id) 发布 draft → open;命名门:带 provisional_title 临时标题的课程不能发布,先经 update_course 设置正式课程标题;
+     - launch_course(workspace_id, course_id) 发布 draft → open;命名门:带 provisional_title 临时标题的课程不能发布,先经 update_course 设置正式课程标题;教研门:有教研流程的新课程不能带外发布(报「课程须完成教研流程后发布」即此义)——发布只能由教研流程的 approve_prep / 质量报告达标自动触发;launch_course 只对无教研流程的存量课程可用;
      - close_course / cancel_course(workspace_id, course_id) open → closed(截止报名) / cancelled(取消),均为终态不可逆,摘要含终态提示;
+     - 教研流程督导:get_prep_status(workspace_id, course_id) 读 prep_state/生效策略/门禁违规/最新质量报告;assign_prep_tutor(workspace_id, course_id, tutor_user_id) 指派 tutor(直接写;未指派时 tutor 可自行认领);update_prep_policy(workspace_id, course_id, review_required?/quality_threshold?/reviewer_user_id?) 调整教研策略(tutor 提交质量检查后冻结,须在此之前改定);审核环节 approve_prep(通过即发布)/ request_changes_prep(退回修订);低于阈值的质量报告可经 override_prep_gate(workspace_id, course_id, reason) 记理由覆盖(落审计);
   5. 报名管理:list_course_enrollments(workspace_id, course_id, status?) 读取报名行(学员/状态/档位);confirm_enrollment / reject_enrollment(workspace_id, enrollment_id, ...) 审批 request 策略课程的 pending 报名;waive_payment(workspace_id, enrollment_id) 免缴 payment_pending 报名——报名转 confirmed,关联 pending 订单同事务作废;
   6. 订单与退款:list_workspace_orders(workspace_id, course_id?) 读取本工作台订单行(course_id 可选=按课程过滤,缺省全工作台);refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;
   7. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请);
@@ -109,7 +131,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   - 不编造 workspace_id / course_id / enrollment_id / order_id:上下文与目标对象由 list 工具或用户确认选定,使用返回的 id;
   - 确认流摘要必须忠实反映将发生的写操作,不缩水不夸大——终态、批量免缴、退款等影响必须如实复述;
   - 上述工具与网站管理页同源同语义(同一批 domain action + 免缴/退款逐笔留痕)——MCP 与 web 任一侧操作,另一侧立即可见;
-  - 课前 prep 督导、数据分析报表等尚无 MCP 工具面的管理动作引导用户去网站管理页完成,不要假装能代办。
+  - 数据分析报表等尚无 MCP 工具面的管理动作引导用户去网站管理页完成,不要假装能代办。
   """
 
   @platform_admin_content """
@@ -136,8 +158,8 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-08-29.3", content: @workspace_admin_content},
-    tutor: %{version: "2026-08-29.2", content: @tutor_content},
+    workspace_admin: %{version: "2026-08-29.4", content: @workspace_admin_content},
+    tutor: %{version: "2026-08-29.3", content: @tutor_content},
     learner: %{version: "2026-08-29.1", content: @learner_content}
   }
 

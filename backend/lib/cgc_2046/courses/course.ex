@@ -13,6 +13,14 @@ defmodule Cgc2046.Courses.Course do
   outbox 入队，SignalPublishWorker 经 JidoAdapter 总线异步投递），
   `Cgc2046.Curriculum.Instantiator` 订阅该信号创建教研 WorkflowRun。
 
+  ## 课程教研流程（role-agent-journeys-v2 S5，R22-R28）
+
+  `create` action：发 `course.created` 信号（同事务内 outbox），
+  `Cgc2046.Curriculum.PrepInstantiator` 订阅幂等实例化 course_preparation
+  WorkflowRun（prep_state 状态机在 run facts 内，见 `Cgc2046.Curriculum.Prep`）。
+  `launch` 带教研门：存在未走完的 prep run 时拒绝带外发布，发布由教研流程的
+  发布步经 changeset context `via_prep: true` 放行；存量无 prep run 课程放行。
+
   ## 多租户
 
   multitenancy attribute :workspace_id，与 WorkflowRun 一致；workspace_id 由 tenant
@@ -337,6 +345,15 @@ defmodule Cgc2046.Courses.Course do
           Ash.Changeset.add_error(changeset, "create requires a tenant (workspace_id)")
         end
       end)
+
+      # role-agent-journeys-v2 S5 课程教研流程（R22）：课程创建即发 course.created
+      # 信号（事务内 outbox，与 course.launched 同一 SignalEmitter 纪律；emitter 注入
+      # 幂等键 course.created:<course_id>），Curriculum.PrepInstantiator 订阅幂等
+      # 实例化 prep run——每门新课程恰有一个教研流程 run。
+      change(
+        {Cgc2046.Workflows.SignalEmitter,
+         type: "course.created", payload: &__MODULE__.created_payload/2}
+      )
     end
 
     # 编辑课程元数据（E-11 #127）：visibility 可随时双向切换（含 open 后，D9）。
@@ -430,6 +447,32 @@ defmodule Cgc2046.Courses.Course do
           )
         else
           changeset
+        end
+      end)
+
+      # S5 教研门（R23/R28）：课程存在 course_preparation run 且教研流程未走完
+      # （prep_state != published）时，带外发布（web/GraphQL/MCP launch_course）
+      # 一律拒绝——发布只能由教研流程的发布步触发。发布步经 changeset context
+      # `via_prep: true` 放行（context 只能由后端调用方注入，GraphQL/MCP 参数面
+      # 无法伪造，§B#10）；无 prep run 的课程（本特性前的存量课程）照常发布。
+      change(fn changeset, _context ->
+        if changeset.context[:via_prep] == true do
+          changeset
+        else
+          case Cgc2046.Curriculum.Prep.fetch_run(
+                 Ash.Changeset.get_data(changeset, :id),
+                 Ash.Changeset.get_data(changeset, :workspace_id)
+               ) do
+            nil ->
+              changeset
+
+            run ->
+              if Cgc2046.Curriculum.Prep.prep_state(run) == "published" do
+                changeset
+              else
+                Ash.Changeset.add_error(changeset, "课程须完成教研流程后发布")
+              end
+          end
         end
       end)
 
@@ -581,6 +624,12 @@ defmodule Cgc2046.Courses.Course do
       # ADR-0009 KD8/R9：payload 键逐字节冻结，键名不随属性改名
       "research_requirements" => course.curriculum_requirements || %{}
     }
+  end
+
+  # S5：course.created 信号 payload（课程教研流程实例化入口；title 此时可能是
+  # 临时占位标题——provisional_title 课程也走完整教研流程，发布才被门禁拦截）
+  def created_payload(_changeset, course) do
+    %{"course_id" => course.id, "title" => course.title}
   end
 
   def ended_payload(_changeset, course),
