@@ -32,20 +32,24 @@ description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CG
 **macOS**：
 
 ```bash
+CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
 pbpaste | ruby -rjson -e 'print JSON.generate({token: STDIN.read.strip})' | \
   curl -sS -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
-  -H 'Content-Type: application/json' --data-binary @-
+  -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @-
 ```
 
 **Linux（X11 / Wayland）**：
 
 ```bash
+CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
 (xclip -o 2>/dev/null || wl-paste) | ruby -rjson -e 'print JSON.generate({token: STDIN.read.strip})' | \
   curl -sS -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
-  -H 'Content-Type: application/json' --data-binary @-
+  -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @-
 ```
 
-要点：
+要点：connect 是写端点，需带 `X-CGC-CSRF-Token` 头——`CGC_CSRF` 变量先经 `GET /status`（无 Origin 的本地 curl 放行）取回进程级 token；跨站网页因 Origin 校验读不到该 token，这是防 CSRF 劫持的通道（伪造 connect 可改写 mcp.json 指向攻击者 URL，最高危写端点，不可豁免）。
+
+其他要点：
 
 - token 全程经管道传递，**不出现在 argv 和命令行字面量里**，不写入会话记录；
 - `JSON.generate` 负责转义，剪贴板内容含引号 / 换行也不会破坏请求；`strip` 去掉首尾空白；
@@ -82,9 +86,10 @@ curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/ap
 2. agent 执行固定命令（读文件 → stdin 管道 → POST，成功才删除该文件）：
 
 ```bash
+CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
 ruby -rjson -e 'print JSON.generate({token: File.read(ARGV[0]).strip})' ~/.clacky/cgc-token.txt | \
   curl -sS --fail-with-body -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
-  -H 'Content-Type: application/json' --data-binary @- && \
+  -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @- && \
   ruby -e 'File.delete(ARGV[0])' ~/.clacky/cgc-token.txt
 ```
 

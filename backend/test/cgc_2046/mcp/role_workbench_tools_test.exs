@@ -105,10 +105,15 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       payload = decode_reply(reply)
       assert payload["role"] == "learner"
-      assert payload["version"] == "2026-08-29.1"
+      # S7 bump:learner playbook 加发现/报名/支付旅程段；R1 再 bump 详情分流
+      assert payload["version"] == "2026-08-29.3"
       assert payload["content"] =~ "学习模式"
       # S1 吸收原 Learning.AgentInstructions 八步循环段落随版本号分发
       assert payload["content"] =~ "八步循环"
+
+      # advisor F6:discover 详情按来源分流（公开 → public 工具；成员段 → summary）
+      assert payload["content"] =~ "get_public_offering(id, kind)"
+      assert payload["content"] =~ "成员段/非公开条目"
       assert payload["content"] =~ "save_learning_records"
 
       [log] = tool_logs_for(user.id, "get_role_playbook")

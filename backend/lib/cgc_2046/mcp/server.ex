@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(53,role-agent-journeys-v2 S6 课程版本后):
+  工具集(58,role-agent-journeys-v2 S7 学员旅程后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -40,6 +40,17 @@ defmodule Cgc2046.Mcp.Server do
   - 课程版本读(role-agent-journeys-v2 S6,R29/R38):get_course_revision(deferred;
     成员任意版本/confirmed 学员仅最新/其他 forbidden;从未发布明确错误不回退
     草稿;内容快照原样投影)
+  - 学员旅程(role-agent-journeys-v2 S7,R30-R35;两读面 optional+deferred 双键
+    跨台锚定,三面 deferred):
+    discover_offerings(公开∪成员可访问并集,{kind,id} 去重,封顶 100+total_count
+    截断前小计;invite_only 台非成员 workspace 块落 nil) /
+    get_enrollment_summary(报名前摘要;would_create_status 镜像域 prepare_policy,
+    驱动因子=offering enrollment_policy;capacity_info 仅成员;goals 取 published
+    revision 无则回退草稿) / create_enrollment(唯一直接写——客户端确认即契约;
+    reason 进 Wrapper 前摘除;撞 enrollment_duplicate_active 幂等重放既有活跃
+    报名;payment_pending 附 checkout_url 外部结算页) /
+    get_my_enrollments(全状态跨台,封顶 100,课程面板列表源) /
+    get_order_status(本人最新订单白名单摘要,非终态优先;渠道凭据永不出面)
   - 写:save_step_output
   - 管理(确认流 two-tool,D-D3):create_invitation / approve_join_request / assign_roles
   - 内置:confirm_operation / cancel_operation
@@ -127,4 +138,12 @@ defmodule Cgc2046.Mcp.Server do
   # 课程版本读（role-agent-journeys-v2 S6，R29/R38）：工具面 52 → 53
   # （deferred 族 +1：发布即冻结的不可变内容快照，授权三分支在工具层）
   component(Cgc2046.Mcp.Tools.GetCourseRevision)
+  # 学员旅程五工具（role-agent-journeys-v2 S7，R30-R35）：工具面 53 → 58
+  # （发现/报名/支付；create_enrollment 为唯一直接写——客户端确认契约，
+  # 幂等重放；订单摘要渠道凭据红线）
+  component(Cgc2046.Mcp.Tools.DiscoverOfferings)
+  component(Cgc2046.Mcp.Tools.GetEnrollmentSummary)
+  component(Cgc2046.Mcp.Tools.CreateEnrollment)
+  component(Cgc2046.Mcp.Tools.GetMyEnrollments)
+  component(Cgc2046.Mcp.Tools.GetOrderStatus)
 end

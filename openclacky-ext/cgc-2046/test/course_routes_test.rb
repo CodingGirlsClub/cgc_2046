@@ -59,15 +59,24 @@ class CourseRoutesTest < Minitest::Test
     end
   end
 
-  FakeReq = Struct.new(:body, :query)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 宿主真实形态(openclacky-1.5.9 dispatcher,smoke01 #1 实证):
   #   @params = route pattern captures(symbol key,如 :course_id)
   #   GET query 在 req.query(WEBrick),不进 @params
   # params 默认 {} = 无 route capture 的 /courses 路径真实形态。
-  def build(registry:, query: {}, params: {})
+  # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
+  def write_headers
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+  end
+
+  def build(registry:, query: {}, params: {}, header: {})
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(nil, query))
+    inst.instance_variable_set(:@req, FakeReq.new(nil, query, {}))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
