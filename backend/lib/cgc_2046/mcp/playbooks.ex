@@ -29,10 +29,10 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   1. 调用 discover_offerings()（无参数）拿合并发现流：全平台公开条目 ∪ 本人各
      workspace 可访问条目（已去重；条目含 workspace 名/状态/价格概要/报名截止/
-     我的报名状态）。条目详情按来源分流(advisor F6):公开条目(visibility=public)
-     用 get_public_offering(id, kind) 查实;成员段/非公开条目(workspace 可见性
-     或 closed)用 get_enrollment_summary(workspace_id, kind, id)——get_public_
-     offering 只回 open+public,对成员段条目必返回 not found;
+     我的报名状态）。条目详情按来源分流:公开条目(visibility=public)用
+     get_public_offering(id, kind) 查实;成员段/非公开条目用
+     get_enrollment_summary(workspace_id, kind, id)——get_public_offering 只回
+     open+public,对成员段条目必返回 not found;
   2. 报名前确认:调用 get_enrollment_summary(workspace_id, kind, offering_id) 拿
      报名摘要——目标/时间/价格档(price_tiers)/报名策略(policy)/将创建的报名状态
      (would_create_status:直接确认 confirmed / 需审批 pending / 需支付 payment_pending;
@@ -49,30 +49,41 @@ defmodule Cgc2046.Mcp.Playbooks do
   2. 支付状态查询:调用 get_order_status(workspace_id, enrollment_id) 拿本人最新
      订单安全摘要(金额/渠道/状态/过期时间)——已支付则报名转 confirmed。
 
-  三、学习入口(confirmed 课程):
+  三、学习循环（每门 confirmed 课程按此循环教学,R36-R46）:
 
-  1. 调用 get_my_enrollments() 拿本人全部报名(全状态、跨 workspace);confirmed
-     课程即学习入口——新报名零学习记录也出现在列表;
-  2. 学员选定课程后调用 get_course_content(workspace_id, course_id) 获取 issue 卡集,
-     按下方学习循环引导。
-
-  学习循环——每次学习会话完整跑一遍以下八步循环:
-
-  1. 调用 get_learning_records(workspace_id) 获取学员全部学习记录(含在学课程列表);
-  2. 扫描学习进度:某课程全部 issue Done → 告知学员已结业并跳过;部分 Done → 记录缺口;无记录 → 该课程为候选起点;
-  3. 取第一个未 Done 的 issue 作为本次起点,向学员解释「为什么从这里开始」(given 字段描述了先修状态);
-  4. 教学循环,按 issue 的 kind 分支:
-     - thoughtwork(知识型,证据在对话):讲解 → 提问检验 → 纠正误解 → 再检验(苏格拉底式);
-     - handwork(动手型,证据在产物):你引导、学员动手 → 遇阻时协助调试 → 学员独立重做关键步骤(带练式;你代劳则 checklist 失效);
-  5. checklist 复盘:逐条判定是否达成——条目指向可检查产物时,必须实际运行/读取产物再判 done,不采信口头完成;对话类条目经问答自验;
-  6. 调用 save_learning_records(workspace_id, course_id, issue_id, records) 写回本次复盘结果(records 每条含 item_id / done / evidence,evidence 为一句证据摘要);
-  7. 询问学员继续下一节还是休息 → 回到第 2 步。
+  1. 启动(或续学):调用 start_learning_run(workspace_id, course_id)——幂等:同一
+     版本重进返回同一 run(created: false);课程发布新 revision 后再调自动开新
+     run(旧 run 与掌握记录保留,不迁移);
+  2. 读状态:调用 get_learning_state(workspace_id, course_id) 拿课程地图——
+     objectives(四态 mastery:unassessed/developing/mastered/needs_review、锁定与
+     缺失先修、尝试次数)、progress(mastered_required/total_required/complete)、
+     next_action(kind/objective_id/reason);
+  3. 解释起点:向学员复述 next_action 的 reason(为什么从这里开始);next_action
+     为 null 且 complete=true 即已结业,如实告知并停止;
+  4. 教学循环,对当前 objective:
+     - 目标说明:讲清 title 与达成标准(rubric 各条);
+     - 诊断:先探学员已有理解,定位起点;
+     - 讲解/示范 + 练习:thoughtwork 型以对话问答推进,handwork 型引导学员动手
+       产出可检查的产物;遇阻协助调试,再让学员独立重做关键步骤;
+     - 反馈:对照 rubric 逐条给出针对性反馈,指出差距;
+  5. 正式评价:调用 submit_learning_attempt(workspace_id, course_id, objective_id,
+     evidence, rubric_results, passed, rationale, confidence)——
+     evidence 为一句证据摘要;rubric_results 逐条 {criterion_id, met} 须**精确覆盖**
+     objective rubric 全部 criterion id(不多不少);confidence < 0.8 不构成掌握,
+     如实报低置信并继续教学后重试(无限重试,失败评价永不删除);
+  6. 读结果:响应含 attempt_id/mastery/ever_mastered/run_completed/next_action——
+     mastery 未达 mastering 就按反馈继续教;锁定的 objective 平台拒绝评价(不可
+     绕过),先补先修;
+  7. 继续:按 next_action 进入下一 objective,回到第 4 步。
 
   纪律:
-  - 记忆挂人不挂报名:学习记录跨报名延续,以记录为准不假设从零开始;
-  - 不自行判定课程完成:全部 issue Done 由平台进度投影判定,你只如实写记录;
-  - 课程已 close/cancel 时 save_learning_records 会被平台拒绝——如实告知学员账本已封笔,读仍可用;
-  - issue 的 id 与 checklist 条目的 id 是稳定标识,引用时原样使用;
+  - 掌握状态只由平台从评价账本投影(agent 永不直写 mastery),不自判课程完成——
+    run_completed/complete 由平台判定;
+  - 先修锁不可绕过:locked objective 的评价被平台拒绝,先按 missing_prereq_ids
+    补先修;
+  - stale_revision=true 时告知学员课程已发新版,询问是否 start_learning_run
+    切换到新版(旧进度保留);
+  - issue/objective 的 id 是稳定标识,引用时原样使用;
   - 名额已满/报名截止/需邀请码等域错误原样转述,不重试绕过;
   - 支付一律在网站结算页(外部浏览器)完成,你不经手任何支付凭证。
   """
@@ -200,7 +211,7 @@ defmodule Cgc2046.Mcp.Playbooks do
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-08-29.5", content: @workspace_admin_content},
     tutor: %{version: "2026-08-29.4", content: @tutor_content},
-    learner: %{version: "2026-08-29.3", content: @learner_content}
+    learner: %{version: "2026-08-30.1", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner

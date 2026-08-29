@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(58,role-agent-journeys-v2 S7 学员旅程后):
+  工具集(59,role-agent-journeys-v2 S8 学习 v2 后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -83,9 +83,9 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.ConfirmOperation)
   component(Cgc2046.Mcp.Tools.CancelOperation)
   # 课程 issue 学习闭环(切片 H U3,#180):工具面 8 → 12
+  # (S8:get_learning_records/save_learning_records 已随 LearningRecord 退役——
+  # 学习 v2 三件见文件尾注册区)
   component(Cgc2046.Mcp.Tools.GetCourseContent)
-  component(Cgc2046.Mcp.Tools.GetLearningRecords)
-  component(Cgc2046.Mcp.Tools.SaveLearningRecords)
   component(Cgc2046.Mcp.Tools.SaveCourseContent)
   # 公开浏览(U2,#293):工具面 15 → 17(membership: :public 新豁免家族,KTD3)
   component(Cgc2046.Mcp.Tools.ListPublicOfferings)
@@ -146,4 +146,10 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.CreateEnrollment)
   component(Cgc2046.Mcp.Tools.GetMyEnrollments)
   component(Cgc2046.Mcp.Tools.GetOrderStatus)
+  # 学习循环 v2（role-agent-journeys-v2 S8，R36-R44；ADR-0011）：工具面 58 → 59
+  # （-2 学习记录读写随 LearningRecord 退役，+3 学习 v2：run 幂等启动/
+  # 不可变评价提交/状态投影——掌握由账本纯投影，agent 永不直写）
+  component(Cgc2046.Mcp.Tools.StartLearningRun)
+  component(Cgc2046.Mcp.Tools.SubmitLearningAttempt)
+  component(Cgc2046.Mcp.Tools.GetLearningState)
 end

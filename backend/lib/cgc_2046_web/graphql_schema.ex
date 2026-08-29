@@ -1522,55 +1522,35 @@ defmodule Cgc2046Web.GraphqlSchema do
   # U7(#180/KD8):issue 级进度,旧 manual-steps 字段(completedManualSteps/
   # totalManualSteps/currentStepTitle)与 manual_steps_compat 派生已删——
   # 直接替换不留兼容层(AGENTS.md);currentIssueId 供抽屉/扩展联动。
+  # S8（ADR-0011）：objective 口径（RunProjection 薄壳 Runs.learning_state）
   object :my_learning_run do
     field(:run_id, non_null(:id))
     field(:enrollment_id, non_null(:id))
     field(:target_title, :string)
     field(:status, non_null(:string))
-    field(:done_issues, non_null(:integer))
-    field(:total_issues, non_null(:integer))
-    field(:current_issue_id, :string)
-    field(:current_issue_title, :string)
-    field(:current_issue_key, :string)
+    field(:stale_revision, non_null(:boolean))
+    field(:progress, non_null(:learning_progress))
+    field(:next_action, :learning_next_action)
     field(:course_id, :id)
   end
 
-  # U7(#180/R11):学员视角课程学习详情(抽屉数据)。issues 含三态 + checklist
-  # 逐条(与本人记录合成:evidence 摘要 + 时间)——与公开地图(issue_map,
-  # goal-only)不同面,本查询仅登录 actor 本人可见(恒 actor,无他人视角)。
+  # U7(#180/R11)→S8（ADR-0011）：学员视角课程学习详情（objective 口径，
+  # Runs.learning_state 薄壳）。与公开地图（issue_map, goal-only）不同面，
+  # 本查询仅登录 actor 本人可见（恒 actor,无他人视角）。
+  # S8（ADR-0011）：objective 口径学习详情（Runs.learning_state 薄壳投影）。
+  # 破坏性变更有意（登录面一次性切换）：issue/checklist/story 学习语义删除。
   object :course_learning_detail do
     field(:course_id, non_null(:id))
     field(:title, non_null(:string))
     field(:slug, :string)
-    field(:goals, non_null(list_of(non_null(:string))))
-    field(:issues, non_null(list_of(non_null(:learning_issue))))
+    field(:run, :learning_run_summary)
+    field(:revision_number, :integer)
+    field(:stale_revision, non_null(:boolean))
+    field(:objectives, non_null(list_of(non_null(:learning_objective_state))))
+    field(:next_action, :learning_next_action)
     field(:progress, :learning_progress)
   end
 
-  object :learning_issue do
-    field(:key, non_null(:string))
-    field(:id, non_null(:string))
-    field(:title, non_null(:string))
-    field(:kind, non_null(:string))
-    field(:status, non_null(:string))
-    field(:story, :issue_story)
-  end
-
-  object :issue_story do
-    field(:as_a, :string)
-    field(:given, non_null(list_of(non_null(:string))))
-    field(:goal, :string)
-    field(:materials, non_null(list_of(non_null(:issue_material))))
-    field(:checklist, non_null(list_of(non_null(:issue_checklist_item))))
-  end
-
-  object :issue_material do
-    field(:title, :string)
-    field(:ref, :string)
-  end
-
-  # U7(#180/R10):公开课程地图行(goal-only,无 checklist 字段——object 面
-  # 即契约:想露 checklist 必须改此 object,评审可见)。
   object :course_map do
     field(:course_id, non_null(:id))
 
@@ -1588,20 +1568,46 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:goal, :string)
   end
 
-  object :issue_checklist_item do
-    field(:id, non_null(:string))
-    field(:text, non_null(:string))
-    field(:done, non_null(:boolean))
-    field(:evidence, :string)
-    field(:recorded_at, :datetime)
+  object :learning_run_summary do
+    field(:id, non_null(:id))
+    field(:status, non_null(:string))
+    field(:revision_id, :id)
+    field(:revision_number, :integer)
   end
 
+  # objective id/title 非全局唯一（课程内容内字符串 id）——Apollo 缓存必须
+  # keyFields: false（§B#22，跨课程/跨 run 串掌握态事故先例）
+  object :learning_objective_state do
+    field(:id, non_null(:string))
+    field(:title, non_null(:string))
+    field(:required, non_null(:boolean))
+    field(:issue_id, :string)
+    field(:prereq_ids, non_null(list_of(non_null(:string))))
+    field(:mastery, non_null(:string))
+    field(:ever_mastered, non_null(:boolean))
+    field(:locked, non_null(:boolean))
+    field(:missing_prereq_ids, non_null(list_of(non_null(:learning_prereq_ref))))
+    field(:attempt_count, non_null(:integer))
+    field(:last_attempt_at, :datetime)
+  end
+
+  object :learning_prereq_ref do
+    field(:id, non_null(:string))
+    field(:title, :string)
+  end
+
+  object :learning_next_action do
+    field(:kind, non_null(:string))
+    field(:objective_id, non_null(:string))
+    field(:reason, non_null(:string))
+  end
+
+  # S8：objective 口径（mastered_required/total_required/complete；R39 完成
+  # = 必修全 ever_mastered，needs_review 不倒退）
   object :learning_progress do
-    field(:done_issues, non_null(:integer))
-    field(:total_issues, non_null(:integer))
-    field(:current_issue_id, :string)
-    field(:current_issue_title, :string)
-    field(:current_issue_key, :string)
+    field(:mastered_required, non_null(:integer))
+    field(:total_required, non_null(:integer))
+    field(:complete, non_null(:boolean))
   end
 
   object :workspace_tool_call do
@@ -2275,21 +2281,39 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 三层(成员 ∪ confirmed enrollment ∪ 记忆持有者,LearnerAuthorization 同源);
   # 无他人视角可构造(查询无 user_id 参数)。无权限/无课程 → {:ok, nil}
   # (404 语义,不泄露存在性)。
+  # S8（ADR-0011）：薄壳直调 Runs.learning_state/2（与 MCP get_learning_state
+  # 同源单源）；三层授权（成员 ∪ confirmed enrollment ∪ 学习 run 持有者）；
+  # 无权限/无课程 → {:ok, nil}（不泄存在性）。
   defp resolve_course_learning_detail(actor, course_id) do
-    with %{} = course <-
-           fetch_course_for_detail(course_id),
+    with %{} = course <- fetch_course_for_detail(course_id),
          :ok <-
            Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
              actor,
              course.workspace_id,
              course.id
            ) do
-      content = Cgc2046.Curriculum.course_content(course)
-      records = fetch_actor_records(course, actor)
-      {:ok, build_course_learning_detail(course, content, records)}
+      {:ok, build_course_learning_detail(actor, course)}
     else
       _ -> {:ok, nil}
     end
+  end
+
+  # 学习详情 = Runs.learning_state 投影组装（objective 口径；S8 全量切换——
+  # issue/checklist 学习语义随 LearningRecord 退役）
+  defp build_course_learning_detail(actor, course) do
+    state = Cgc2046.Learning.Runs.learning_state(actor, course)
+
+    %{
+      course_id: course.id,
+      title: course.title,
+      slug: course.slug,
+      run: state.run,
+      revision_number: state.revision_number,
+      stale_revision: state.stale_revision,
+      objectives: state.objectives,
+      next_action: state.next_action,
+      progress: state.progress
+    }
   end
 
   # #217 旁路读取（D 类·显式判定前置）：Course 直读定位，门禁由调用方
@@ -2307,98 +2331,10 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # #217 旁路读取（D 类·本人锚）：filter user_id == actor.id 仅读本人学习
   # 记录，且仅在 LearnerAuthorization 判定通过后到达。
-  defp fetch_actor_records(course, actor) do
-    Cgc2046.Learning.LearningRecord
-    |> Ash.Query.filter(course_id == ^course.id and user_id == ^actor.id)
-    |> Ash.read!(authorize?: false, tenant: course.workspace_id)
-  end
 
   # 抽屉形状:course 元信息 + goals + issues(story 全文 + checklist 逐条与
   # 本人记录合成:done/evidence/recorded_at)+ 汇总 progress(同 myLearningRuns
   # 投影单源 LearningProgress)。
-  defp build_course_learning_detail(course, content, records) do
-    issues = Cgc2046.Curriculum.Content.issues(content)
-    done_items = done_record_index(records)
-
-    learning_issues =
-      issues
-      |> Enum.with_index(1)
-      |> Enum.map(fn {issue, idx} ->
-        checklist_items = Cgc2046.Curriculum.Content.checklist_item_ids(issue)
-
-        done_count =
-          Enum.count(checklist_items, &Map.has_key?(done_items, {issue["id"], &1}))
-
-        status =
-          cond do
-            checklist_items != [] and done_count == length(checklist_items) -> "done"
-            done_count > 0 -> "in_progress"
-            true -> "todo"
-          end
-
-        %{
-          key: Cgc2046.Learning.Progress.issue_key(course.slug, idx),
-          id: issue["id"],
-          title: issue["title"],
-          kind: issue["kind"],
-          status: status,
-          story: issue_story(issue, done_items)
-        }
-      end)
-
-    progress = Cgc2046.Learning.Progress.project_issues(content, records)
-
-    current_issue_key =
-      with issue_id when is_binary(issue_id) <- progress.current_issue_id,
-           idx when is_integer(idx) <-
-             Enum.find_index(issues, &(&1["id"] == progress.current_issue_id)) do
-        Cgc2046.Learning.Progress.issue_key(course.slug, idx + 1)
-      else
-        _ -> nil
-      end
-
-    %{
-      course_id: course.id,
-      title: course.title,
-      slug: course.slug,
-      goals: content["goals"] || [],
-      issues: learning_issues,
-      progress: Map.put(progress, :current_issue_key, current_issue_key)
-    }
-  end
-
-  # (issue_id, item_id) → done record 索引(仅 done 行;三态与 checklist 合成单源)
-  defp done_record_index(records) do
-    records
-    |> Enum.filter(& &1.done)
-    |> Map.new(fn record -> {{record.issue_id, record.item_id}, record} end)
-  end
-
-  defp issue_story(issue, done_index) do
-    story = issue["story"] || %{}
-
-    checklist =
-      (story["checklist"] || [])
-      |> Enum.map(fn item ->
-        record = Map.get(done_index, {issue["id"], item["id"]})
-
-        %{
-          id: item["id"],
-          text: item["text"],
-          done: not is_nil(record),
-          evidence: record && record.evidence,
-          recorded_at: record && record.recorded_at
-        }
-      end)
-
-    %{
-      as_a: story["as_a"],
-      given: List.wrap(story["given"]),
-      goal: story["goal"],
-      materials: List.wrap(story["materials"]),
-      checklist: checklist
-    }
-  end
 
   # plan 020 U2.1：本人 MCP 工具调用活动流。
   # policy（显式判定，与 Wrapper 成员门槛同源）：workspace 成员 + 仅本人。

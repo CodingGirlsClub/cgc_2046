@@ -67,6 +67,24 @@ class LearnerJourneyRoutesTest < Minitest::Test
     ]
   }.freeze
 
+  LEARNING_STATE_PAYLOAD = {
+    "run" => { "id" => "run-1", "status" => "running", "revision_id" => "rev-1", "revision_number" => 1 },
+    "revision_number" => 1,
+    "stale_revision" => false,
+    "objectives" => [
+      { "id" => "obj-1", "title" => "能运行程序", "required" => true, "issue_id" => "issue-1",
+        "prereq_ids" => [], "mastery" => "developing", "ever_mastered" => false, "locked" => false,
+        "missing_prereq_ids" => [], "attempt_count" => 1, "last_attempt_at" => nil }
+    ],
+    "next_action" => { "kind" => "developing", "objective_id" => "obj-1", "reason" => "继续攻克「能运行程序」" },
+    "progress" => { "mastered_required" => 0, "total_required" => 1, "complete" => false }
+  }.freeze
+
+  REVISION_PAYLOAD = {
+    "course_id" => OFF, "revision_number" => 1, "published_at" => "2026-09-01T00:00:00Z",
+    "goals" => ["目标"], "issues" => []
+  }.freeze
+
   ORDER_STATUS_PAYLOAD = {
     "order" => { "id" => "ord-1", "amount_cents" => 9900, "provider" => "wechat",
                  "status" => "pending", "expires_at" => "2026-09-01T00:15:00Z", "paid_at" => nil },
@@ -467,6 +485,72 @@ class LearnerJourneyRoutesTest < Minitest::Test
     assert_includes JSON.parse(halt.payload)["error"], "learner route failed"
   end
 
+  # ---- S8 学习路由 ----
+
+  def test_learning_state_transfers_both_params
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(LEARNING_STATE_PAYLOAD) }] })
+    query = { "workspace_id" => WS, "course_id" => OFF }
+
+    halt = invoke(:get, "/learning_state", build(registry: registry, query: query))
+
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "get_learning_state", body["tool"]
+    assert_equal LEARNING_STATE_PAYLOAD, body["result"]
+    assert_equal [["cgc-2046", "get_learning_state", query]], registry.calls
+  end
+
+  def test_learning_state_missing_params_400
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/learning_state", build(registry: registry, query: { "course_id" => OFF }))
+    assert_equal 400, halt.status
+    assert_empty registry.calls
+
+    halt2 = invoke(:get, "/learning_state", build(registry: registry, query: { "workspace_id" => WS }))
+    assert_equal 400, halt2.status
+    assert_empty registry.calls
+  end
+
+  def test_learning_start_posts_and_requires_csrf
+    registry = FakeRegistry.new
+
+    # 缺 token → 403,零 call（guard_write!）
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, FakeReq.new(JSON.generate({ "workspace_id" => WS, "course_id" => OFF }), {},
+                                                  { "Content-Type" => "application/json" })
+    )
+    inst.instance_variable_set(:@params, {})
+    inst.instance_variable_set(:@http_server, FakeServer.new(registry))
+    halt = invoke(:post, "/learning/start", inst)
+    assert_equal 403, halt.status
+    assert_empty registry.calls
+
+    # 带写头 → 透传
+    halt2 = invoke(:post, "/learning/start", build(registry: registry,
+                                                   body: { "workspace_id" => WS, "course_id" => OFF },
+                                                   header: write_headers))
+    assert_equal 200, halt2.status
+    assert_equal [["cgc-2046", "start_learning_run", { "workspace_id" => WS, "course_id" => OFF }]], registry.calls
+  end
+
+  def test_revision_route_transfers_course_id
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(REVISION_PAYLOAD) }] })
+
+    halt = invoke(:get, "/courses/:course_id/revision", build(registry: registry, params: { course_id: OFF }))
+
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "get_course_revision", body["tool"]
+    assert_equal REVISION_PAYLOAD, body["result"]
+  end
+
+  def test_retired_record_routes_not_registered
+    routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
+    refute_includes routes, [:get, "/courses"]
+    refute_includes routes, [:get, "/courses/:course_id/records"]
+  end
+
   # ---- GET /order_status → get_order_status(两参数必填) ----
 
   def test_order_status_transfers_both_params
@@ -865,5 +949,21 @@ class CoursePanelEnrollmentListTest < Minitest::Test
     assert_includes VIEW, 'data-ws='
     assert_includes VIEW, "openCourse(courseId, workspaceId)"
     assert_includes VIEW, 'el.getAttribute("data-ws")'
+  end
+
+  def test_detail_reads_objective_grain
+    # S8:详情切 /learning_state(objective 口径)+ /revision 展示增强;
+    # records 读面整体移除
+    assert_includes VIEW, '"/learning_state?workspace_id="'
+    assert_includes VIEW, '"/revision"'
+        assert_includes VIEW, 'data-testid="panel-obj-row"'
+    assert_includes VIEW, 'data-testid="panel-obj-locked"'
+    assert_includes VIEW, 'data-testid="panel-next-action"'
+    assert_includes VIEW, 'data-testid="panel-progress"'
+    assert_includes VIEW, 'data-testid="panel-stale"'
+    assert_includes VIEW, 'data-testid="panel-cta"'
+    assert_includes VIEW, "learningSignature"
+    assert_includes VIEW, "apiPost(\"/learning/start\""
+    refute_includes VIEW, '"/records"'
   end
 end

@@ -377,23 +377,33 @@
 
 ### Issue（学习议题，课程内容原子单元）
 
-- **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 与 checklist item id 发布后不改不删，内容编辑保 id（学习记录永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储）。状态 **Todo / In Progress / Done**（Linear 同款）由学习记录派生——投影非手柄，不提供手动切换。
+- **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 发布后不改不删，内容编辑保 id（attempts 按 objective_id 引用，永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储，单源 `Curriculum.Content.issue_key/2`）。学习状态（S8 起）在 **objective 粒度**（见「学习评价账本」词条），issue 不再承载学习三态。
 - **架构位置**：存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance（2026-08-16 课程 issue 学习闭环设计；learning_objectives 的职责由 issue 内 `objectives` 字段承担，见「课程版本」词条 schema v2 段）。
 
 ### checklist（检查单）
 
-- **定义**：issue 内可自验条目清单（`{id, text}`，无测试题形态）；handwork 条目指向可检查产物。学习 agent 判定规则：**条目指向产物时必须实际运行/读取产物再判 done，不采信口头完成**；对话类条目经问答自验（checklist 复盘）。
-- **架构位置**：issue story 字段组；学习记录按 item_id 追踪。
+- **定义**：issue 内可自验条目清单（`{id, text}`，无测试题形态）；handwork 条目指向可检查产物。**S8（ADR-0011）起 checklist 不再承载学习语义**——掌握与评价的唯一粒度是 issue 内 `objectives`（见「学习评价账本」词条）；checklist 保留为教研起草期的自验清单（`Content.valid_v1?` 校验保留，v1 内容兼容），学习消费面已随 LearningRecord 退役。
+- **架构位置**：issue story 字段组。
 
-### 学习记录（LearningRecord，个人记忆库）
+### 学习评价账本（Learning.Attempt，S8 已退役 LearningRecord）
 
-- **定义**：一条 checklist 条目的完成记录（done + evidence 摘要 + recorded_at）。**唯一键 `(course_id, user_id, issue_id, item_id)`，upsert 最新为准——记忆挂人不挂报名**（跨 enrollment 延续，退款重报不清零；enrollment_id/run_id 为审计列）。课程 close/cancel 后拒写保读（账本不删）。**记忆在平台、算法在 agent**：平台只存结构与做进度投影（全 issue Done → learning run succeeded），自适应教学决策（八步循环）全在学员 agent，经学习 Agent 指令分发（D10）。导出预留：未来用户可下载个人记忆（用户数据权利）。
-- **架构位置**：learning_records 表；MCP `get_learning_records`（course_id 可选，缺省 = 本人全部课程记录）/ `save_learning_records`。
+- **定义**：一条**不可变**的正式评价记录（role-agent-journeys-v2 S8，ADR-0011 L1；R42/R44）：锚定三元组 `(learning_run_id, course_revision_id, objective_id)` + `evidence`（证据摘要）+ `rubric_results`（逐条 `{criterion_id, met, note?}`）+ `passed` + `rationale`（恒必填）+ `confidence`（0..1）+ `agent_meta`。**只有 create + read**——失败评价永不删除，重试写新行（无限重试，无 tutor 逐条审核）。掌握状态**不落库**：由 `Mastery` 纯投影派生（qualifying = passed ∧ confidence ≥ 0.8 ∧ rubric 精确覆盖且逐条 met）。**语义修订（L3）**：旧「学习记录（记忆挂人不挂报名）」词条退役——新语义为「**账本挂人**（attempts 永久保留、跨 run 可审计可回放），**掌握态挂 run × revision**」；跨 run/跨 enrollment 的掌握延续 = deferred（投影不建表，未来按人×revision 重算即可）。
+- **架构位置**：`learning/learning_attempt.ex`（learning_attempts 表）；读面 = run 持有者 ∪ 本台 tutor/owner/admin（**平台管理员刻意不放行**——证据正文不进平台治理读面，R48）；写面 = 仅 run 持有者本人（SimpleCheck fail-closed）。不开 GraphQL 面。审计红线：`submit_learning_attempt` 的 ToolCallLog params 经 per-tool 白名单只留 `workspace_id/course_id/objective_id/passed/confidence`（evidence/rubric_results/rationale/agent_meta 不落审计，AE12）。
+
+### 掌握投影（Mastery）与下一步推荐（NextAction）
+
+- **定义**：掌握四态 latest-attempt-driven 纯投影（L2，无表）：无 attempt = unassessed；无一 qualifying = developing；最新 qualifying = mastered；曾 qualifying 最新失败 = needs_review（`ever_mastered` 粘性——完成判定用它，复习失败不倒退 AE10；`first_mastered_at` 锚首条 qualifying）。run 完成判据 = 全部**必修** objective ever_mastered（空必修集 → false，§B#14）。NextAction 五级优先（L5，R40）：完成守卫先行 → review（S9 队列接通前恒空）→ remediation（developing 的先修中有 needs_review 者）→ developing（最近活动者）→ next_required（内容序首个已解锁必修 unassessed）→ elective。`unlocked?` = 全部 prereq ever_mastered；锁定项报缺失先修 id+title，submit 工具拒评（R41 不可绕过）。
+- **架构位置**：`learning/mastery.ex` / `learning/next_action.ex`（纯函数，判据单源）。
+
+### 学习 run 投影单源（Learning.Runs）
+
+- **定义**：learning WorkflowRun 的启动/查询/投影/完成判定/停滞口径的**单源**（L6）：instance key = `learning_<enrollment_id>_<revision_id|none>`（按 key 命中**任意状态**即 resume，§B#11——同版重进 = 续学，新版发布 = 新 run）；revision 绑定走 `input_snapshot["course_revision_id"]`（enrollment 锚同款先例——引擎表零域列零 opt）；`learning_state/2` = MCP `get_learning_state` 与 GraphQL `courseLearningDetail` 共用投影（含 **stale_revision 语义**——run 绑旧版时投影自己版本的 objectives+states 不换底）；完成判定 `complete_when_mastered/1`（非同事务 §B#12：attempt 落库后即时调用，失败只记日志，5 分钟 worker 兜底）；停滞口径 = 最新 attempt `created_at`，零 attempt 回退 run `inserted_at`（规⑦ detail 键 `last_activity_at`）。
+- **架构位置**：`learning/runs.ex`；Instantiator（enrollment.completed 异步路径）与 `start_learning_run` 工具（学员主动路径）共用同一 key，两路径幂等互通（R36）。MCP 面 = `start_learning_run` / `submit_learning_attempt`（六步校验链：本人 confirmed → 非终态 run → run 绑 revision → objective 存在且 rubric 精确覆盖 → confidence/evidence/rationale → 先修锁）/ `get_learning_state`（`get_learning_records`/`save_learning_records` 已随 LearningRecord 退役删除）。
 
 ### Learning（学习上下文）
 
-- **定义**：学员侧学习的限界上下文：LearningRecord（个人记忆库，见上条）+ 学习实例化与进度逻辑（ADR-0010 A3 归位，2026-08-29）——`Learning.LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死）、`Learning.Progress`（进度投影纯函数族：project/project_issues/issue_key/stagnant_cutoff）、`Learning.RunProjection`（GraphQL 学习详情投影组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁）、`Learning.LearningProgressWorker`（停滞扫描/完课判定）。`Learning.AgentInstructions` 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` learner playbook 吸收）。
-- **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（经 `Curriculum.content_output/2` 读契约），被 GraphQL/MCP 消费。
+- **定义**：学员侧学习的限界上下文（ADR-0010 A3 归位；S8 起为 ADR-0011 Learning v2）：`Attempt`（不可变评价账本）+ `Mastery`/`NextAction`（派生投影纯函数族）+ `Runs`（run×revision 投影单源）+ `LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死；S8 起 key 含 revision、course 报名绑 `Course.current_revision_id` 进 input_snapshot）+ `RunProjection`（GraphQL myLearningRuns 行组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁；S8 切 objective 口径薄壳 `Runs.learning_state`）+ `LearningProgressWorker`（停滞扫描/完课判定，就地改逻辑不改名——Oban jobs.worker 字符串雷区）。`Learning.Progress` 与 `LearningRecord` 已随 S8 删除（issue/checklist 口径投影由 Mastery/Runs 取代）。
+- **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（revision 经 `Curriculum.revision_by_id/2` 读契约），被 GraphQL/MCP 消费。
 
 ### Enrollment（报名 / 事件级参与者）
 
