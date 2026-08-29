@@ -12,7 +12,6 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Learning.LearningRecord
 
   require Ash.Query
 
