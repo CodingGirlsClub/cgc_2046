@@ -511,11 +511,11 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   end
 
   describe "场景 7:server 工具契约" do
-    test "注册工具数 = 20(平台工具面契约,角色工作台基座三工具后)" do
+    test "注册工具数 = 30(平台工具面契约,S2 平台治理十工具后)" do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 20
+      assert length(names) == 30
 
       for name <- [
             "get_workspace_context",
@@ -537,7 +537,17 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
             "get_public_offering",
             "list_my_workspaces",
             "get_role_playbook",
-            "list_my_tasks"
+            "list_my_tasks",
+            "admin_list_users",
+            "admin_list_workspaces",
+            "admin_list_workspace_applications",
+            "admin_list_audit_logs",
+            "admin_approve_workspace_application",
+            "admin_reject_workspace_application",
+            "admin_create_workspace",
+            "admin_reassign_workspace_owner",
+            "admin_promote_user",
+            "admin_demote_user"
           ] do
         assert name in names, "expected tool #{name} registered"
       end

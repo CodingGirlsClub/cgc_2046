@@ -9,7 +9,9 @@ defmodule Cgc2046.Mcp.Wrapper do
   3. membership 鉴权：非成员直接 Forbidden（不经业务 action，快速拒绝）；
      `meta: %{membership: :deferred}` 的工具由工具层授权判定替代；
      `meta: %{membership: :public}` 的工具（公开浏览族，KTD3）跳过 membership
-     校验——任何持有效连接 token 的登录用户可用，匿名姿态读在工具层（KTD2）
+     校验——任何持有效连接 token 的登录用户可用，匿名姿态读在工具层（KTD2）；
+     `meta: %{membership: :platform_admin}` 的工具（平台治理族，S2）判定
+     `is_platform_admin` 全局标记——非平台管理员一律 Forbidden，无工作台作用域
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
   5. 落 ToolCallLog 审计（ok / error / forbidden；带 client_name / session_id 归因维度
      （#228），取不到时落 nil；失败不阻塞响应，记 Logger）
@@ -26,14 +28,21 @@ defmodule Cgc2046.Mcp.Wrapper do
   - **MCP 面（本模块默认门）**：member-only 门**不含 platform_admin 豁免**——
     非成员平台管理员调 member-only 工具（list_members / get_workflow /
     get_step_output 等）一律 Forbidden。MCP 是自动化 agent 代理面，取最小
-    授权：平台管理员的跨租户治理读走 GraphQL admin 查询，不经 agent 直连面。
+    授权。
+  - **平台治理族（S2 显式门）**：`admin_` 前缀工具声明
+    `%{workspace_id: :optional, membership: :platform_admin}`，命中
+    `:platform_admin` 分支——`is_platform_admin` 全局标记判定（唯一真源
+    `Cgc2046.Accounts.Policies.PlatformAdmin`），fail-closed（非管理员一律
+    Forbidden），无工作台作用域（跨租户治理），每次调用落 ToolCallLog 审计。
+    这是平台管理员的 agent 治理面——经独立显式族开放，**而非放宽
+    member-only 门**：member-only 族的「无 admin 豁免」规则不变。
   - **policy / Rbac 面**：资源 read policy 放行 platform_admin 跨租户治理读取
     （成员列表 / 审计 / 工作流，见 `Cgc2046.Accounts.Policies.PlatformAdmin`
     「双面契约」段与 `Cgc2046.Accounts.Rbac.abilities_for/2`）。
 
   修改任一面前先读对面——MCP 门若要放宽 admin 豁免，须与
   `Policies.PlatformAdmin`、`Rbac.abilities_for/2`、CONTEXT.md「平台管理员」
-  一起裁决，不允许单面放宽。
+  一起裁决，不允许单面放宽（S2 的裁决 = 新增显式族而非动 member-only 门）。
 
   确认流工具（D-D3 two-tool）不在此处理 `needs_confirmation`——由
   `Cgc2046.Mcp.Confirmation.request/4` 先行拦截，本模块只负责审计与鉴权。
@@ -41,6 +50,7 @@ defmodule Cgc2046.Mcp.Wrapper do
 
   alias Anubis.Server.Component.Tool
   alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Mcp.Redact
   alias Cgc2046.Mcp.ToolCallLog
 
@@ -133,13 +143,17 @@ defmodule Cgc2046.Mcp.Wrapper do
   # 门控家族判定（gate test 可观察面，KTD3）：map 模式是子集匹配，
   # `%{workspace_id: :optional, membership: :public}` 同时命中 :public 与
   # :optional 两个模式——`:public` 子句必须置于 `:optional` 之前，追加在后即为
-  # 永不命中的死子句。分支顺序 = 语义，由 wrapper_gate_test 钉死。
+  # 永不命中的死子句。`:platform_admin` 同理必须先于 `:optional`（平台治理工具
+  # 同时声明两键）。分支顺序 = 语义，由 wrapper_gate_test 钉死。
   @doc false
-  @spec gate_family(String.t()) :: :public | :optional | :deferred | :member_only
+  @spec gate_family(String.t()) ::
+          :public | :platform_admin | :optional | :deferred | :member_only
   def gate_family(tool_name) do
     case meta_for(tool_name) do
       # 公开浏览工具族：任何持连接 token 的登录用户可读公开面（KTD2/KTD3）
       %{membership: :public} -> :public
+      # 平台治理工具族（S2）：platform_admin 专属，跨租户治理面无工作台作用域
+      %{membership: :platform_admin} -> :platform_admin
       # 确认流承载工具（鉴权在 Confirmation 内做，pending 归属校验即授权）+
       # actor 锚定跨工作台读（S1：list_my_workspaces / get_role_playbook
       # 双键同命中本分支，无单一 workspace 可作门，授权在工具层）
@@ -156,6 +170,15 @@ defmodule Cgc2046.Mcp.Wrapper do
       # 公开浏览工具族：跳过 membership 校验（匿名姿态读在工具层，KTD2）
       :public ->
         :ok
+
+      # 平台治理工具族（S2）：is_platform_admin 全局标记判定（唯一真源委托
+      # Policies.PlatformAdmin），fail-closed，无工作台作用域
+      :platform_admin ->
+        if PlatformAdmin.platform_admin?(actor) do
+          :ok
+        else
+          {:error, "forbidden: platform admin required"}
+        end
 
       # 确认流承载工具（鉴权在 Confirmation 内做，pending 归属校验即授权）+
       # actor 锚定跨工作台读（list_my_workspaces / get_role_playbook，工具层授权）

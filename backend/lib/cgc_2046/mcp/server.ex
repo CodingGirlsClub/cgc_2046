@@ -2,13 +2,20 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(20,role-agent-journeys-v2 S1 角色工作台基座三工具后):
+  工具集(30,role-agent-journeys-v2 S2 平台治理族后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
   - 角色工作台基座(S1,R2/R3/R8):list_my_workspaces(workspace_id: :optional,
     actor 锚定跨工作台读) / get_role_playbook(optional+deferred 双键,工具层四分支
     授权) / list_my_tasks(member-only,PendingApprovals 聚合)
+  - 平台治理(S2,R12-R16;membership: :platform_admin 新门控族,is_platform_admin
+    全局标记专属,无工作台作用域):
+    读 admin_list_users / admin_list_workspaces / admin_list_workspace_applications /
+    admin_list_audit_logs(各封顶 50;审计面三源元数据投影,结构性不读 params/metadata 列)
+    + 确认流写 admin_approve_workspace_application / admin_reject_workspace_application /
+    admin_create_workspace / admin_reassign_workspace_owner / admin_promote_user /
+    admin_demote_user(委托 accounts 域既有 action + LogAdminAction 留痕)
   - 写:save_step_output
   - 管理(确认流 two-tool,D-D3):create_invitation / approve_join_request / assign_roles
   - 内置:confirm_operation / cancel_operation
@@ -52,4 +59,17 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.ListMyWorkspaces)
   component(Cgc2046.Mcp.Tools.GetRolePlaybook)
   component(Cgc2046.Mcp.Tools.ListMyTasks)
+  # 平台治理族(role-agent-journeys-v2 S2,R12-R16):工具面 20 → 30
+  # (membership: :platform_admin 新门控族,is_platform_admin 全局标记专属,无工作台作用域;
+  # 读四件封顶 50 且审计面结构性不读 params/metadata 列,写六件走确认流委托 accounts 域 action)
+  component(Cgc2046.Mcp.Tools.AdminListUsers)
+  component(Cgc2046.Mcp.Tools.AdminListWorkspaces)
+  component(Cgc2046.Mcp.Tools.AdminListWorkspaceApplications)
+  component(Cgc2046.Mcp.Tools.AdminListAuditLogs)
+  component(Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication)
+  component(Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication)
+  component(Cgc2046.Mcp.Tools.AdminCreateWorkspace)
+  component(Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner)
+  component(Cgc2046.Mcp.Tools.AdminPromoteUser)
+  component(Cgc2046.Mcp.Tools.AdminDemoteUser)
 end

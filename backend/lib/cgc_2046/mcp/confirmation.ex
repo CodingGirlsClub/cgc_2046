@@ -153,6 +153,32 @@ defmodule Cgc2046.Mcp.Confirmation do
     Cgc2046.Mcp.Tools.AssignRoles.execute_confirmed(actor, params)
   end
 
+  # 平台治理确认流（role-agent-journeys-v2 S2，工具面 20 → 30）：
+  # 全部委托 accounts 域既有 action（LogAdminAction 留痕在域 action 内同事务落库）
+  defp execute("admin_approve_workspace_application", actor, params) do
+    Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication.execute_confirmed(actor, params)
+  end
+
+  defp execute("admin_reject_workspace_application", actor, params) do
+    Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication.execute_confirmed(actor, params)
+  end
+
+  defp execute("admin_create_workspace", actor, params) do
+    Cgc2046.Mcp.Tools.AdminCreateWorkspace.execute_confirmed(actor, params)
+  end
+
+  defp execute("admin_reassign_workspace_owner", actor, params) do
+    Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner.execute_confirmed(actor, params)
+  end
+
+  defp execute("admin_promote_user", actor, params) do
+    Cgc2046.Mcp.Tools.AdminPromoteUser.execute_confirmed(actor, params)
+  end
+
+  defp execute("admin_demote_user", actor, params) do
+    Cgc2046.Mcp.Tools.AdminDemoteUser.execute_confirmed(actor, params)
+  end
+
   # fallback：防御性处理未知 tool（理论上 request 写入的 tool 名与分派覆盖一致，
   # 但数据异常时不泄露 params/actor 结构）
   defp execute(tool, _actor, _params) do
