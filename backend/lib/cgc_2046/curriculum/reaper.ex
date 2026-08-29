@@ -1,12 +1,16 @@
 defmodule Cgc2046.Curriculum.Reaper do
   @moduledoc """
   教研 run 回收（E-9 #124，总纲:171「event.ended → stop 回收」;ADR-0009 PR③ 自
-  Workflows.ResearchRunReaper 迁入改名）。
+  Workflows.ResearchRunReaper 迁入改名；S6 起 **event-only**）。
 
-  订阅 `event.ended` / `course.ended` → 停该实体的非终态教研 run
-  （WorkflowRun :cancel——含 checkpoint 清理与 finished_at）。
-  订阅骨架与 claim-after 幂等语义由 `Cgc2046.Workflows.SignalSubscriber`
-  统一持有（语义事实见其 moduledoc）。
+  订阅 `event.ended` → 停该实体的非终态教研 run（WorkflowRun :cancel——含
+  checkpoint 清理与 finished_at）。订阅骨架与 claim-after 幂等语义由
+  `Cgc2046.Workflows.SignalSubscriber` 统一持有（语义事实见其 moduledoc）。
+
+  **S6 收窄说明**：course 侧教研 run 实例化已随 Instantiator 收窄退役
+  （课程教研由 `course_preparation` prep run 承担，其 key 前缀不同、本就
+  不在本规则的 `:curriculum` 型扫描内）——不再订阅 `course.ended`；存量
+  dev 行自然 aging（对账规则⑤ 同步 event-only）。
 
   - **非教研不碰**：按 `definition.type == :curriculum` 过滤（BLOCKING 5）。
   - **竞态兜底**：Curriculum.Instantiator 建 run 前二次校验实体 open（BLOCKING 3）；
@@ -14,7 +18,7 @@ defmodule Cgc2046.Curriculum.Reaper do
   """
 
   use Cgc2046.Workflows.SignalSubscriber,
-    patterns: ["event.ended", "course.ended"],
+    patterns: ["event.ended"],
     idempotency: :claim_after_effects,
     consumer_key: "reaper"
 
@@ -25,13 +29,10 @@ defmodule Cgc2046.Curriculum.Reaper do
 
   @non_terminal_statuses [:pending, :running, :waiting]
 
-  # 信号 → 按 entity instance key（"event_#{id}" / "course_#{id}"）停教研 run。
+  # 信号 → 按 entity instance key（"event_#{id}"）停教研 run。
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(_type, %{"event_id" => event_id}) when is_binary(event_id),
     do: stop_runs("event_#{event_id}")
-
-  def handle(_type, %{"course_id" => course_id}) when is_binary(course_id),
-    do: stop_runs("course_#{course_id}")
 
   def handle(_type, data) do
     Logger.warning("Curriculum.Reaper received signal without entity id: #{inspect(data)}")
