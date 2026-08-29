@@ -353,18 +353,39 @@ class AssistantPromptTest < Minitest::Test
   PROMPT = File.read(File.expand_path("../agents/cgc-assistant/system_prompt.md", __dir__))
   SKILL = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
 
-  # 真镜像:解析 server.ex 的 component(Cgc2046.Mcp.Tools.<Mod>) 注册行,
-  # 模块名 underscore 后即注册工具清单;prompt 清单必须与之逐项一致(防两侧漂移)。
-  SERVER_EX = File.read(File.expand_path("../../../backend/lib/cgc_2046/mcp/server.ex", __dir__))
-  REGISTERED_TOOLS = SERVER_EX.scan(/component\(Cgc2046\.Mcp\.Tools\.(\w+)\)/).flatten
-    .map { |mod| mod.gsub(/([A-Z\d]+)([A-Z][a-z])/, '\1_\2').gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase }
-    .freeze
+  # S1-extension:prompt 改写为 router 人设,静态清单只列 7 个跨角色工具;
+  # 角色专属工具由 get_role_playbook 动态携带,不再静态列出
+  # (旧版曾钉 server.ex 注册清单 17 项逐项一致;S1 起注册面 20 工具、
+  # 静态清单为跨角色公共子集,注册面精确名单由 backend wrapper_gate_test 钉死)。
+  CROSS_ROLE_TOOLS = %w[
+    list_my_workspaces get_role_playbook list_my_tasks
+    list_public_offerings get_public_offering
+    confirm_operation cancel_operation
+  ].freeze
 
-  def test_tool_inventory_is_17_and_matches_server_registration
-    assert_includes PROMPT, "工具清单（17 个）"
+  def test_tool_inventory_is_7_cross_role_tools
+    assert_includes PROMPT, "公共工具清单（7 个"
     listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
-    assert_equal 17, listed.size, "工具清单列表项应为 17,实际 #{listed.size}"
-    assert_equal REGISTERED_TOOLS.sort, listed.sort
+    assert_equal CROSS_ROLE_TOOLS.sort, listed.sort,
+                 "静态清单应恰好为 7 个跨角色工具,实际 #{listed.inspect}"
+  end
+
+  def test_role_specific_tools_not_listed_statically
+    listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
+    %w[get_workspace_context list_members assign_roles create_invitation
+       get_course_content save_learning_records].each do |tool|
+      refute_includes listed, tool, "角色专属工具 #{tool} 不应出现在静态清单(由 playbook 携带)"
+    end
+  end
+
+  def test_router_persona_discipline
+    # 启动先定上下文;永不索要/编造 UUID;RBAC 唯一权威
+    assert_includes PROMPT, "list_my_workspaces"
+    assert_includes PROMPT, "永不向用户索要 UUID"
+    assert_includes PROMPT, "永不编造 `workspace_id`"
+    assert_includes PROMPT, "get_role_playbook"
+    assert_includes PROMPT, "RBAC 是唯一权威"
+    assert_includes PROMPT, "list_my_tasks"
   end
 
   def test_public_tools_workspace_id_exemption
