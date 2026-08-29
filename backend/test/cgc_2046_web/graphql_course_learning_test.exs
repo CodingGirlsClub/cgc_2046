@@ -290,6 +290,22 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
                  graphql(course_map_query(course.slug), nil)
       end
     end
+
+    test "S6-03 内部发布指针不进公共 SDL(currentRevisionId 全部声明面缺席)" do
+      # courseMap 是 S6 唯一的公共 GraphQL 需求(内容源切换,输出形状零变化)；
+      # current_revision_id 是内部发布指针(public?: false),不得生成
+      # output field / filter / sort 任何声明面——防公共契约意外扩张回归
+      sdl = File.read!("priv/graphql/schema.graphql")
+
+      refute sdl =~ "currentRevisionId"
+      refute sdl =~ "CourseFilterCurrentRevisionId"
+      refute sdl =~ "CURRENT_REVISION_ID"
+
+      # courseMap 输出形状(S6 切内容源后)不变:仍只投 course_id/title/slug/goals/issues
+      course_map_block = Regex.run(~r/type CourseMap \{[^}]*\}/s, sdl) |> List.first()
+      assert course_map_block =~ "courseId"
+      refute course_map_block =~ "currentRevisionId"
+    end
   end
 
   describe "myLearningRuns 字段切换(KD8)" do

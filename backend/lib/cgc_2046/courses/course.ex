@@ -99,7 +99,11 @@ defmodule Cgc2046.Courses.Course do
     )
 
     attribute(:current_revision_id, :uuid,
-      public?: true,
+      # S6-03（advisor R1）：非公共——内部发布指针无公共 GraphQL 消费方，
+      # public?: true 会把 output/filter/sort 面扩进公开 SDL（外部消费者形成
+      # 依赖后移除即 breaking）。读取 = 域代码（published_content/1）与
+      # :bind_current_revision 端口，不经 API 面。
+      public?: false,
       writable?: true,
       description: "当前 published 课程版本（S6 R29：教研发布步经端口写入；nil = 从未经教研流程发布的存量课程）"
     )
@@ -559,6 +563,19 @@ defmodule Cgc2046.Courses.Course do
         {Cgc2046.Workflows.SignalEmitter,
          type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # S6-02（advisor R1）：terminal 收口——同事务取消非终态 prep run
+      # （closed/cancelled 课程无法再发布，遗留 active run 只会成为孤儿；
+      # 收口失败整体回滚，与状态迁移原子）。经 Curriculum.Prep 域服务
+      # （WorkflowRun :cancel 接口，warn 抑制同 launch 端口纪律）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, course ->
+          case Cgc2046.Curriculum.Prep.stop_active_runs(course) do
+            :ok -> {:ok, course}
+            {:error, reason} -> {:error, reason}
+          end
+        end)
+      end)
     end
 
     # open → cancelled：取消课程。同样发 course.ended（D4：closed/cancelled 即 ended）。
@@ -597,6 +614,19 @@ defmodule Cgc2046.Courses.Course do
         {Cgc2046.Workflows.SignalEmitter,
          type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # S6-02（advisor R1）：terminal 收口——同事务取消非终态 prep run
+      # （closed/cancelled 课程无法再发布，遗留 active run 只会成为孤儿；
+      # 收口失败整体回滚，与状态迁移原子）。经 Curriculum.Prep 域服务
+      # （WorkflowRun :cancel 接口，warn 抑制同 launch 端口纪律）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, course ->
+          case Cgc2046.Curriculum.Prep.stop_active_runs(course) do
+            :ok -> {:ok, course}
+            {:error, reason} -> {:error, reason}
+          end
+        end)
+      end)
     end
 
     defaults([:read])
@@ -776,9 +806,10 @@ defmodule Cgc2046.Courses.Course do
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
-  # curriculum_requirements / workflow_run_id / current_revision_id（S6 起发布
-  # 版本引用，同排匿名可见）/ capacity / confirmed_count / provisional_title
-  # （S3 起新字段排除匿名可见，计划 §A 纪律），匿名被筛除。
+  # curriculum_requirements / workflow_run_id / capacity /
+  # confirmed_count / provisional_title（S3 起新字段排除匿名可见，计划 §A
+  # 纪律），匿名被筛除。current_revision_id 非公共属性（S6-03：无 API 面，
+  # 无需 field_policy——confirmed_count_sync_version 同款一致性）。
   field_policies do
     field_policy :* do
       authorize_if(always())
@@ -788,7 +819,6 @@ defmodule Cgc2046.Courses.Course do
       :workspace_id,
       :curriculum_requirements,
       :workflow_run_id,
-      :current_revision_id,
       :capacity,
       :confirmed_count,
       :provisional_title

@@ -149,13 +149,66 @@ defmodule Cgc2046.Curriculum.Prep do
   实例化不变。无已 published 的 course_preparation 定义 → 返回错误（存量
   工作台同 get_prep_status 旧语义）。实例化/回写/assignee 沿用均为系统
   效应（authorize?: false；成员门槛在工具层）。
+
+  **状态守卫（S6-02，advisor R1）**：仅 draft/open 课程懒开——closed/
+  cancelled（terminal）课程 fail closed，无写副作用（terminal 课程无法再
+  发布，新 run 只会成为永远不可完成的孤儿）。
+
+  **并发原子性（S6-01，advisor R1）**：懒开在事务内持 course 行 FOR UPDATE
+  （`Enrollment.lock_for_order` 同款先例）——同课程并发懒开串行化，锁内
+  重读非终态 run，后到者直接返回胜者已建的 run。check-then-create 竞态
+  由此收口（`fetch_run` 的 read_one 多行卡死不可再发生）。
   """
   @spec ensure_active_run(Course.t(), keyword()) ::
           {:ok, WorkflowRun.t()} | {:error, String.t()}
-  def ensure_active_run(%Course{} = course, opts \\ []) do
+  def ensure_active_run(%Course{status: status} = course, opts)
+      when status in [:draft, :open] do
     case fetch_run(course.id, course.workspace_id) do
-      %WorkflowRun{} = run -> {:ok, run}
-      nil -> spawn_next_run(course, opts)
+      %WorkflowRun{} = run ->
+        {:ok, run}
+
+      nil ->
+        spawn_next_run(course, opts)
+    end
+  end
+
+  def ensure_active_run(%Course{status: status} = course, _opts) do
+    {:error,
+     "course #{course.id} is #{status}; preparation runs are only started for draft or open courses"}
+  end
+
+  @doc """
+  收口课程的非终态 prep run（S6-02，advisor R1）：course close/cancel 的
+  同事务调用——terminal 课程不得遗留永远无法发布的 active run（S6 收窄后
+  Reaper/对账规⑤均为 event-only，无自动清理路径）。经 WorkflowRun
+  `:cancel`（含 checkpoint 清理与 finished_at）；终态 run 不动。
+
+  失败上抛让调用方（close/cancel action）整体回滚——收口与状态迁移原子。
+  """
+  @spec stop_active_runs(Course.t()) :: :ok | {:error, String.t()}
+  def stop_active_runs(%Course{} = course) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :course_preparation and
+        status in ^@non_terminal_statuses and
+        input_snapshot["key"] == ^instance_key(course.id)
+    )
+    |> Ash.read!(authorize?: false, tenant: course.workspace_id)
+    |> Enum.reduce_while(:ok, fn run, :ok ->
+      case cancel_prep_run(run) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp cancel_prep_run(%WorkflowRun{} = run) do
+    case run
+         |> Ash.Changeset.for_update(:cancel, %{}, tenant: run.workspace_id)
+         |> Ash.Changeset.set_context(%{warn_on_transaction_hooks?: false})
+         |> Ash.update(tenant: run.workspace_id, authorize?: false) do
+      {:ok, _} -> :ok
+      {:error, error} -> {:error, error_message(error, "failed to cancel preparation run")}
     end
   end
 
@@ -621,7 +674,32 @@ defmodule Cgc2046.Curriculum.Prep do
 
   # --- 发布次周期懒实例化（ensure_active_run 私有实现） -------------------------
 
+  # S6-01（advisor R1）：懒开单事务 + course 行 FOR UPDATE——同课程并发
+  # 懒开串行化（keyed callers 的 find_or_create_and_start 公共 API 与其他
+  # 消费方不动；course 行锁与发布端口事务（bind 写 courses 行）锁序一致，
+  # 无死锁窗口）。锁内重读非终态 run：后到者发现胜者已建直接返回。
   defp spawn_next_run(%Course{} = course, opts) do
+    Repo.transaction(fn ->
+      with :ok <- lock_course_row(course),
+           nil <- fetch_run(course.id, course.workspace_id),
+           {:ok, run} <- do_spawn_next_run(course, opts) do
+        run
+      else
+        %WorkflowRun{} = run ->
+          # 并发胜者已建（锁内重读命中）——直接返回，幂等
+          run
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+    |> case do
+      {:ok, run} -> {:ok, run}
+      {:error, reason} -> {:error, error_message(reason, "failed to start next preparation run")}
+    end
+  end
+
+  defp do_spawn_next_run(%Course{} = course, opts) do
     with {:ok, definition} <- fetch_prep_definition(course.workspace_id),
          {:ok, run} <-
            PrepInstantiator.launch(course.workspace_id, definition.id, %{
@@ -631,6 +709,15 @@ defmodule Cgc2046.Curriculum.Prep do
          :ok <- PrepInstantiator.link_prep_run(course, run),
          {:ok, run} <- carry_over_assignee(course, run, opts[:actor]) do
       {:ok, run}
+    end
+  end
+
+  # SELECT ... FOR UPDATE（lock_for_order 同款纪律；uuid 经 Repo.uuid! 编解码）
+  defp lock_course_row(%Course{id: id}) do
+    case Repo.query("SELECT id FROM courses WHERE id = $1 FOR UPDATE", [Repo.uuid!(id)]) do
+      {:ok, %_{num_rows: 1}} -> :ok
+      {:ok, %_{num_rows: 0}} -> {:error, "course not found: #{id}"}
+      {:error, reason} -> {:error, {:database, reason}}
     end
   end
 
