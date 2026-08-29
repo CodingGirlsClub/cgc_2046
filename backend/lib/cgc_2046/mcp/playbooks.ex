@@ -79,25 +79,33 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   1. 待办:list_my_tasks(workspace_id) 读取本人在该工作台的审批待办(报名/加入申请/赞助,含审批截止时间),从这里开始一天的管理工作;
   2. 成员管理:list_members(workspace_id) 查看成员与角色;list_join_requests(workspace_id) 查看待审批加入申请(含批准时可预授的 grantable_roles);
-  3. 管理写操作（全部走 two-tool 确认流）:
+  3. 成员写操作（走 two-tool 确认流）:
      - create_invitation(workspace_id, ...) 创建邀请(可指定目标邮箱或生成公开链接,可选有效期小时数);
      - approve_join_request(workspace_id, join_request_id, ...) 批准加入申请(仅可授予非管理角色;owner 走 assign_roles 专门指派);
      - assign_roles(workspace_id, user_id, role_names) 整体替换某成员的角色集合(role_names 为替换后的完整集合,空数组 = 清空差异标签);
-  4. 工作流:get_workflow(workspace_id, run_id) 读取 run 状态;get_step_output(workspace_id, run_id, step_key) 读 step 产出;save_step_output 写 step 产出(直接写,需该 step 授权);
-  5. 课程内容:get_course_content / save_course_content(workspace_id, course_id, content) 读写课程 issue 卡集(教研面同 tutor 模式);
-  6. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
+  4. 课程生命周期（除 create_course 外均走确认流）:
+     - create_course(workspace_id, title?, ...) 直接写,创建 draft 课程;title 可省略——系统生成临时占位标题并打 provisional_title 标记;
+     - update_course(workspace_id, course_id, ...) 改标题/描述/定价/报名策略等;设置正式标题即自动清除 provisional_title;pricing_enabled 改 false 会批量免缴该课程全部待支付报名(摘要会展示受影响笔数,确认后逐笔免缴留痕);
+     - launch_course(workspace_id, course_id) 发布 draft → open;命名门:带 provisional_title 临时标题的课程不能发布,先经 update_course 设置正式课程标题;
+     - close_course / cancel_course(workspace_id, course_id) open → closed(截止报名) / cancelled(取消),均为终态不可逆,摘要含终态提示;
+  5. 报名管理:list_course_enrollments(workspace_id, course_id, status?) 读取报名行(学员/状态/档位);confirm_enrollment / reject_enrollment(workspace_id, enrollment_id, ...) 审批 request 策略课程的 pending 报名;waive_payment(workspace_id, enrollment_id) 免缴 payment_pending 报名——报名转 confirmed,关联 pending 订单同事务作废;
+  6. 订单与退款:list_workspace_orders(workspace_id, course_id?) 读取本工作台订单行(course_id 可选=按课程过滤,缺省全工作台);refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;
+  7. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请);
+  8. 工作流:get_workflow(workspace_id, run_id) 读取 run 状态;get_step_output(workspace_id, run_id, step_key) 读 step 产出;save_step_output 写 step 产出(直接写,需该 step 授权);
+  9. 课程内容:get_course_content / save_course_content(workspace_id, course_id, content) 读写课程 issue 卡集(教研面同 tutor 模式);
+  10. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
 
-  确认流纪律:上述管理写操作第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
+  确认流纪律:上述写操作（除 create_course）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
   先把 summary 复述给用户、明确征得同意后再调 confirm_operation(pending_id);用户反悔则
   cancel_operation(pending_id);未经确认不落库。确认成功后若返回明文凭证(如 invitation_token),
   只展示一次并提醒用户保存,不主动写进额外文件或日志。
 
   纪律:
   - agent 权限 = 用户权限:你只能做该用户在工作台里有权做的事;越权操作会被网站拒绝,如实告知用户,不绕过、不伪装重试;
-  - 不编造 workspace_id:上下文由 list_my_workspaces 让用户按名称选定,选定后使用返回的 workspace_id;
-  - 确认流摘要必须忠实反映将发生的写操作,不缩水不夸大;
-  - 上述工具与网站管理页同源同语义(同一批 domain action)——MCP 与 web 任一侧操作,另一侧立即可见;
-  - 尚无 MCP 工具面的管理动作(课程设置、定价、退款等)引导用户去网站管理页完成,不要假装能代办。
+  - 不编造 workspace_id / course_id / enrollment_id / order_id:上下文与目标对象由 list 工具或用户确认选定,使用返回的 id;
+  - 确认流摘要必须忠实反映将发生的写操作,不缩水不夸大——终态、批量免缴、退款等影响必须如实复述;
+  - 上述工具与网站管理页同源同语义(同一批 domain action + 免缴/退款逐笔留痕)——MCP 与 web 任一侧操作,另一侧立即可见;
+  - 课前 prep 督导、数据分析报表等尚无 MCP 工具面的管理动作引导用户去网站管理页完成,不要假装能代办。
   """
 
   @platform_admin_content """
@@ -124,7 +132,7 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-08-29.1", content: @workspace_admin_content},
+    workspace_admin: %{version: "2026-08-29.2", content: @workspace_admin_content},
     tutor: %{version: "2026-08-29.1", content: @tutor_content},
     learner: %{version: "2026-08-29.1", content: @learner_content}
   }

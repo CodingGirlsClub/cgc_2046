@@ -43,7 +43,15 @@ defmodule Cgc2046.Courses.Course do
       allow_nil?: false,
       public?: true,
       writable?: true,
-      description: "课程标题"
+      description: "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
+    )
+
+    attribute(:provisional_title, :boolean,
+      allow_nil?: false,
+      default: false,
+      public?: true,
+      writable?: false,
+      description: "当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21/AE1）；设置真实标题即清除，发布前置门"
     )
 
     attribute(:slug, :string,
@@ -268,6 +276,22 @@ defmodule Cgc2046.Courses.Course do
 
       change(set_attribute(:status, :draft))
 
+      # S3 零输入草稿（R21/AE1）：title 缺省时生成可辨识临时占位标题并打
+      # provisional_title 标记；Tutor 发布前必须补名（launch 命名门拦截）。
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :title) do
+          value when is_binary(value) and value != "" ->
+            changeset
+
+          _ ->
+            suffix = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+
+            changeset
+            |> Ash.Changeset.force_change_attribute(:title, "未命名课程 " <> suffix)
+            |> Ash.Changeset.force_change_attribute(:provisional_title, true)
+        end
+      end)
+
       # slug 未提供时兜底生成（公开 URL 段；唯一索引防碰撞）
       change(fn changeset, _context ->
         changeset =
@@ -361,6 +385,17 @@ defmodule Cgc2046.Courses.Course do
         end
       end)
 
+      # S3：设置真实标题即清除临时占位标记（provisional_title 不可由调用方直写）
+      change(fn changeset, _context ->
+        case Ash.Changeset.fetch_change(changeset, :title) do
+          {:ok, value} when is_binary(value) and value != "" ->
+            Ash.Changeset.force_change_attribute(changeset, :provisional_title, false)
+
+          _ ->
+            changeset
+        end
+      end)
+
       # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
       # 同事务对 payment_pending 报名逐条复用免缴三元组。
       change({Cgc2046.Admission.Changes.WaivePendingOnPricingDisable, kind: :course})
@@ -384,6 +419,19 @@ defmodule Cgc2046.Courses.Course do
       description("发布课程：draft → open，发 course.launched 信号")
       require_atomic?(false)
       accept([])
+
+      # S3 命名门（R21/AE1）：临时占位标题的课程不得发布——先经 update 设置正式
+      # 标题。域名层拦截（非仅工具层），GraphQL/MCP 同语义。
+      change(fn changeset, _context ->
+        if Ash.Changeset.get_data(changeset, :provisional_title) do
+          Ash.Changeset.add_error(
+            changeset,
+            "课程尚未命名，不能发布：请先设置正式课程标题（当前为系统生成的临时标题）"
+          )
+        else
+          changeset
+        end
+      end)
 
       # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
       # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
@@ -580,7 +628,8 @@ defmodule Cgc2046.Courses.Course do
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
   # curriculum_requirements / workflow_run_id / capacity /
-  # confirmed_count，匿名被筛除。
+  # confirmed_count / provisional_title（S3 起新字段排除匿名可见，计划 §A 纪律），
+  # 匿名被筛除。
   field_policies do
     field_policy :* do
       authorize_if(always())
@@ -591,7 +640,8 @@ defmodule Cgc2046.Courses.Course do
       :curriculum_requirements,
       :workflow_run_id,
       :capacity,
-      :confirmed_count
+      :confirmed_count,
+      :provisional_title
     ] do
       authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)

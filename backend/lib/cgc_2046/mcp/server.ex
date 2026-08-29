@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(30,role-agent-journeys-v2 S2 平台治理族后):
+  工具集(43,role-agent-journeys-v2 S3 工作台管理面后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -16,6 +16,16 @@ defmodule Cgc2046.Mcp.Server do
     + 确认流写 admin_approve_workspace_application / admin_reject_workspace_application /
     admin_create_workspace / admin_reassign_workspace_owner / admin_promote_user /
     admin_demote_user(委托 accounts 域既有 action + LogAdminAction 留痕)
+  - 工作台管理面(S3,R17-R19 + R21 前半;member-only 门 + 工具层
+    Role.manage_role?/1 判定,Owner/Admin 专属;写走确认流两段式快速失败):
+    Course 生命周期 create_course(唯一直接写——零输入草稿可逆低风险,title 缺省
+    生成「未命名课程 <hex8>」+ provisional_title 标记,launch 命名门拦截) /
+    update_course(pricing_enabled true→false 摘要含批量免缴影响) / launch_course /
+    close_course / cancel_course(终态不可逆提示);报名管理 list_course_enrollments
+    (读,报名人摘要投影) / confirm_enrollment / reject_enrollment / waive_payment
+    (委托 Admission 既有 action,免缴同事务作废 pending 单 + 补发 completed);
+    订单 list_workspace_orders(读) / refund_order / retry_refund(委托 Payments
+    既有 CAS action);加入策略 update_join_policy
   - 写:save_step_output
   - 管理(确认流 two-tool,D-D3):create_invitation / approve_join_request / assign_roles
   - 内置:confirm_operation / cancel_operation
@@ -72,4 +82,20 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner)
   component(Cgc2046.Mcp.Tools.AdminPromoteUser)
   component(Cgc2046.Mcp.Tools.AdminDemoteUser)
+  # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
+  # 工具面 30 → 43（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
+  # 两段式快速失败，create_course 为唯一直接写——零输入草稿可逆低风险）
+  component(Cgc2046.Mcp.Tools.CreateCourse)
+  component(Cgc2046.Mcp.Tools.UpdateCourse)
+  component(Cgc2046.Mcp.Tools.LaunchCourse)
+  component(Cgc2046.Mcp.Tools.CloseCourse)
+  component(Cgc2046.Mcp.Tools.CancelCourse)
+  component(Cgc2046.Mcp.Tools.ListCourseEnrollments)
+  component(Cgc2046.Mcp.Tools.ConfirmEnrollment)
+  component(Cgc2046.Mcp.Tools.RejectEnrollment)
+  component(Cgc2046.Mcp.Tools.WaivePayment)
+  component(Cgc2046.Mcp.Tools.ListWorkspaceOrders)
+  component(Cgc2046.Mcp.Tools.RefundOrder)
+  component(Cgc2046.Mcp.Tools.RetryRefund)
+  component(Cgc2046.Mcp.Tools.UpdateJoinPolicy)
 end
