@@ -349,6 +349,10 @@ class Cgc2046Ext < Clacky::ApiExtension
   #   2) 写路由(POST):Content-Type 必须 application/json(挡 text/plain 的
   #      cross-site simple request)+ CSRF token 匹配(进程级随机 token 经
   #      GET /status 同源下发;跨站页面读不到 /status——同为 origin 收口面)。
+  # 注：同源比对按 host（剥端口后缀）——**同 host 异端口放行是已知残留面**
+  # （如 Origin: http://localhost:9999 vs Host: localhost:4114）。攻击前提为
+  # 受害者本机已运行恶意 HTTP 服务，风险低；收紧为 host+port 双比对前需先
+  # 确认宿主反代场景是否存在合法异端口同源（advisor R2 advisory 1）。
   def guard_origin!
     origin = request_header("Origin")
     unless origin.nil? || origin.strip.empty?
@@ -373,9 +377,18 @@ class Cgc2046Ext < Clacky::ApiExtension
       json({ error: "Content-Type must be application/json" }, status: 415)
     end
     token = request_header("X-CGC-CSRF-Token")
-    unless token.is_a?(String) && token == Cgc2046Ext.csrf_token
+    unless token.is_a?(String) && secure_compare(token, Cgc2046Ext.csrf_token)
       json({ error: "missing or invalid CSRF token" }, status: 403)
     end
+  end
+
+  # 常量时间字符串比较（对齐宿主 http_server.rb secure_compare 先例；
+  # loopback 场景实际不可利用，防御性对齐——advisor R2 advisory 2）
+  def secure_compare(a, b)
+    return false unless a.bytesize == b.bytesize
+    res = 0
+    a.bytes.zip(b.bytes) { |x, y| res |= x ^ y }
+    res.zero?
   end
 
   # req.headers 兼容层:宿主 WEBrick req 是 #header(Rack 风格小写键);

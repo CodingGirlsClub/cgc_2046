@@ -2,7 +2,7 @@
 
 OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供：
 
-- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / `get_public_offering`，membership: public，无需 workspace_id），供发现面板使用。
+- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。全部路由做 Origin/Host 同源校验（无 Origin 的本地 curl 放行）；写路由（POST）另需 `Content-Type: application/json` + `X-CGC-CSRF-Token`（进程级 token 经 `GET /status` 同源下发，防跨站伪造写——尤其 connect 可改写 mcp.json 指向）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / `get_public_offering`，membership: public，无需 workspace_id），供发现面板使用。
 - **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）；`cgc-2046-discovery`——发现面板（公开活动/课程列表，标题/时间/地点/状态标签，条目跳 web 详情页；未连接显示连接引导）。
 - **agent**：`cgc-assistant`——通过 CGC MCP 工具读写工作台的助手（17 个工具，含 two-tool 确认流与公开浏览豁免）。
 - **skill**：`cgc2046-onboarding`——引导创建 token、经剪贴板管道调 connect、验证状态的连接流程。
@@ -59,7 +59,7 @@ openclacky ext install openclacky-ext/dist/cgc-2046.zip
 
 1. 在 CGC-2046 网站工作台的「MCP」页 `/w/<slug>/settings/integrations/agents/mcp` 创建 token 并**复制到剪贴板**（明文只显示一次；不要粘贴进对话）。
 2. 在 OpenClacky 里新建会话、选择 `cgc-assistant`（或任意带 terminal 的会话触发 `cgc2046-onboarding` skill）。
-3. skill 用「剪贴板 → stdin 管道」命令 curl `POST /api/ext/cgc-2046/connect` 写入配置（loopback 免 access-key；token 不进 argv、不进入会话记录）。
+3. skill 用「剪贴板 → stdin 管道」命令写入配置（loopback 免 access-key；token 不进 argv、不进入会话记录）。connect 是写端点，需 CSRF token：命令先 `GET /status`（无 Origin 的本地 curl 放行）取 `csrf_token`，再以 `-H "X-CGC-CSRF-Token: $CGC_CSRF"` POST `/connect`——完整命令见 `skills/cgc2046-onboarding/SKILL.md`。
 4. `GET /api/ext/cgc-2046/status` 返回 `configured:true` 后即可提问工作台问题。
 5. 侧边栏「CGC-2046」入口可随时查看连接状态；「断开连接」移除 `cgc-2046` 条目（`DELETE /api/ext/cgc-2046/connect`），不触碰其它 server 条目。
 

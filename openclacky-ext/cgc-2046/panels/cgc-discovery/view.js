@@ -136,15 +136,28 @@
     return body;
   }
 
-  // 报名提交:POST JSON;错误体挂 status/body
-  async function apiPost(path, payload) {
+  // 重取 CSRF token(宿主热重载会轮换进程级 token——advisor R2 自愈路径)
+  async function refreshCsrf() {
+    try {
+      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
+      const body = await res.json().catch(function () { return {}; });
+      if (res.ok && body.csrf_token) { csrfToken = String(body.csrf_token); return true; }
+    } catch (e) { /* 静默 */ }
+    return false;
+  }
+
+  function postHeaders() {
     const headers = { "Content-Type": "application/json", Accept: "application/json" };
     if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-    const res = await fetch(API + path, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(payload)
-    });
+    return headers;
+  }
+
+  // 报名提交:POST JSON;错误体挂 status/body;403-on-CSRF 重取 token 重试一次
+  async function apiPost(path, payload) {
+    let res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
+    if (res.status === 403 && (await refreshCsrf())) {
+      res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
+    }
     const body = await res.json().catch(function () { return {}; });
     if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
     return body;

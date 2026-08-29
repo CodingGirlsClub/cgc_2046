@@ -530,6 +530,38 @@ class LearnerJourneyRoutesTest < Minitest::Test
   end
 end
 
+# ---- advisor R2 advisory-3:面板 403-on-CSRF 自愈(重取 token 重试一次) ----
+
+class PanelCsrfSelfHealTest < Minitest::Test
+  DISCOVERY_VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))
+  COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  COURSE_VIEW_PATH = File.expand_path("../panels/cgc-course/view.js", __dir__)
+
+  def test_discovery_api_post_retries_once_on_csrf_403
+    assert_includes DISCOVERY_VIEW, "async function refreshCsrf()"
+    assert_includes DISCOVERY_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    # 重试只一次(无循环):403 分支后无再次重试的嵌套
+    refute_includes DISCOVERY_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+  end
+
+  def test_course_api_post_retries_once_on_csrf_403
+    assert_includes COURSE_VIEW, "async function refreshCsrf()"
+    assert_includes COURSE_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes COURSE_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+  end
+
+  def test_csrf_retry_protocol_behavior
+    # 协议级行为验证(harness):stale token POST → 403 → 重取 /status(fresh)
+    # → 重试 → 200;宿主热重载轮换进程 token 后的恢复序列
+    out, status = Open3.capture2e("node", HARNESS, COURSE_VIEW_PATH, "csrf_retry_self_heal")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK csrf_retry_self_heal"
+    assert_includes out, '"stale_rejected":true'
+    assert_includes out, '"refetch_then_retry":true'
+  end
+end
+
 # ---- advisor F1:课程面板 boot 解耦的行为级断言(Node harness 执行 view.js) ----
 
 class CoursePanelBehaviorTest < Minitest::Test

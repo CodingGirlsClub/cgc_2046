@@ -451,3 +451,46 @@ class HandlerRequestTest < Minitest::Test
     Cgc2046Ext.meta = old
   end
 end
+
+
+# ---- advisor R2-1:onboarding skill 的文档化调用方形态钉进测试 ----
+# SKILL.md 的 curl 管道(无 Origin 头、Content-Type json、经 /status 取
+# X-CGC-CSRF-Token)是 connect 的唯一非面板调用方——以该精确形态为基线,
+# 防止未来收口改动再把它挡掉(S1-S7 面板全断的 P1 回归)。
+class OnboardingCallerContractTest < Minitest::Test
+  def build_inst(header:, body:)
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, HandlerRequestTest::FakeReq.new(JSON.generate(body), {}, header))
+    inst.instance_variable_set(:@params, {})
+    inst
+  end
+
+  def invoke_connect(inst)
+    route = Cgc2046Ext.routes.find { |r| r.method == :post && r.pattern == "/connect" }
+    refute_nil route
+    assert_raises(Clacky::ApiExtension::Halt) { inst.instance_exec(&route.block) }
+  end
+
+  def skill_curl_shape(token_header: true)
+    h = { "Content-Type" => "application/json" }
+    h["X-CGC-CSRF-Token"] = Cgc2046Ext.csrf_token if token_header
+    h
+  end
+
+  # SKILL.md 形态:无 Origin 本地 curl + json + 正确 token → 通过 guard 到业务层
+  def test_skill_curl_shape_with_token_passes_guard
+    inst = build_inst(header: skill_curl_shape, body: { "token" => "x" * 40 })
+    halt = invoke_connect(inst)
+    # 到达业务层(422 = token 校验失败,mcp_config stub 未接)——非 403/415 即通过 guard
+    refute_equal 403, halt.status
+    refute_equal 415, halt.status
+  end
+
+  # SKILL.md 旧形态(缺 token)→ 403:文档化调用方必须带 token 的契约钉死
+  def test_skill_curl_shape_without_token_rejected
+    inst = build_inst(header: skill_curl_shape(token_header: false), body: { "token" => "x" * 40 })
+    halt = invoke_connect(inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "CSRF"
+  end
+end
