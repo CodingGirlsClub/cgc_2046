@@ -19,7 +19,11 @@ class HandlerRequestTest < Minitest::Test
   TOKEN = "tok_test_secret_aaa"
   URL   = "http://localhost:4102/mcp"
 
-  FakeReq = Struct.new(:body, :query)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 记录 reload 调用次数；fail_times 控制前 N 次抛错（之后成功）
   class FakeRegistry
@@ -54,6 +58,11 @@ class HandlerRequestTest < Minitest::Test
 
   # ---- 路由结构（保留首轮断言）----
 
+  # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
+  def write_headers
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+  end
+
   def test_routes_registered
     routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
 
@@ -71,7 +80,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/tasks"]
     assert_includes routes, [:post, "/courses/:course_id/content"]
     assert_includes routes, [:get, "/courses/:course_id/prep"]
-    assert_equal 14, Cgc2046Ext.routes.size
+    assert_equal 19, Cgc2046Ext.routes.size
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
@@ -388,9 +397,9 @@ class HandlerRequestTest < Minitest::Test
   private
 
   # 手动构造实例（契约 §8 先例：allocate + 塞 ivar，不需要真 WEBrick req）
-  def build(body: nil, registry: nil)
+  def build(body: nil, registry: nil, header: write_headers)
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(body, {}))
+    inst.instance_variable_set(:@req, FakeReq.new(body, {}, header))
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
   end
@@ -440,5 +449,70 @@ class HandlerRequestTest < Minitest::Test
     yield
   ensure
     Cgc2046Ext.meta = old
+  end
+end
+
+
+# ---- advisor R2-1:onboarding skill 的文档化调用方形态钉进测试 ----
+# SKILL.md 的 curl 管道(无 Origin 头、Content-Type json、经 /status 取
+# X-CGC-CSRF-Token)是 connect 的唯一非面板调用方——以该精确形态为基线,
+# 防止未来收口改动再把它挡掉(S1-S7 面板全断的 P1 回归)。
+class OnboardingCallerContractTest < Minitest::Test
+  def build_inst(header:, body:)
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, HandlerRequestTest::FakeReq.new(JSON.generate(body), {}, header))
+    inst.instance_variable_set(:@params, {})
+    inst
+  end
+
+  def invoke_connect(inst)
+    route = Cgc2046Ext.routes.find { |r| r.method == :post && r.pattern == "/connect" }
+    refute_nil route
+    assert_raises(Clacky::ApiExtension::Halt) { inst.instance_exec(&route.block) }
+  end
+
+  def skill_curl_shape(token_header: true)
+    h = { "Content-Type" => "application/json" }
+    h["X-CGC-CSRF-Token"] = Cgc2046Ext.csrf_token if token_header
+    h
+  end
+
+  # SKILL.md 形态:无 Origin 本地 curl + json + 正确 token → 通过 guard 到业务层
+  def test_skill_curl_shape_with_token_passes_guard
+    inst = build_inst(header: skill_curl_shape, body: { "token" => "x" * 40 })
+    halt = invoke_connect(inst)
+    # 到达业务层(422 = token 校验失败,mcp_config stub 未接)——非 403/415 即通过 guard
+    refute_equal 403, halt.status
+    refute_equal 415, halt.status
+  end
+
+  # SKILL.md 旧形态(缺 token)→ 403:文档化调用方必须带 token 的契约钉死
+  def test_skill_curl_shape_without_token_rejected
+    inst = build_inst(header: skill_curl_shape(token_header: false), body: { "token" => "x" * 40 })
+    halt = invoke_connect(inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "CSRF"
+  end
+
+  # advisor R3:结构防回归——SKILL.md 的 bash 代码块中,变量赋值(VAR=$(...))
+  # 不得出现在管道右侧段。管道各段在子 shell 执行,赋值不回传父 shell——
+  # 备选 A 曾因 $CGC_CSRF 被管道右侧赋值挤空导致 POST 必 403(文档命令无
+  # shell 语义测试的盲区,本断言钉死该结构形态)。
+  def test_skill_commands_keep_assignment_out_of_pipeline_right_side
+    skill = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
+    blocks = skill.scan(/```bash\n(.*?)```/m).flatten
+    refute_empty blocks, "SKILL.md 应含 bash 代码块"
+
+    blocks.each_with_index do |block, bi|
+      # 续行(\ 结尾)拼接为逻辑行,再按管道拆段
+      block.gsub(/\\\n/, " ").each_line do |line|
+        next unless line.include?("|")
+        _lhs, *rhs = line.split("|")
+        rhs.each do |seg|
+          refute_match(/\w+=\$\(/, seg,
+            "SKILL.md 代码块 #{bi + 1}:变量赋值出现在管道右侧段(子 shell 赋值不回传,\$CGC_CSRF 将为空):#{line.strip}")
+        end
+      end
+    end
   end
 end

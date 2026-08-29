@@ -34,6 +34,7 @@
   const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-course";
   const STORE_KEY = "cgc2046.coursePanel.workspaceId";
+  let csrfToken = "";                 // advisor F2:写路由 CSRF token(lazy 经 /status 取)
   const POLL_MS = 10000;
   let currentContainer = null;
   let pollTimer = null;
@@ -47,7 +48,8 @@
     workspaceId: "",
     canEdit: false,    // 当前 Workspace 角色含 tutor|owner|admin(S4 编辑入口)
     prep: null,        // S5 教研流程状态(get_prep_status;仅 canEdit 详情拉取,无 prep run → null)
-    courses: [],       // [{ courseId, records }]
+    courses: [],       // [{ courseId, title, workspaceId, workspaceName }]（S7:/me/enrollments 源）
+    inFlight: [],      // 报名进行中(pending/payment_pending 课程报名)
     coursesSig: "",    // 列表签名(轮询变更检测)
     selected: null,    // { courseId, content, records }
     detailSig: "",     // 详情签名(version + 记录;轮询变更检测)
@@ -112,6 +114,13 @@
     return Number.isInteger(v) ? v : 0;
   }
 
+  // 报名列表签名(enrollment id + status),S7 列表轮询变更检测用
+  function enrollmentsSignature(enrollments) {
+    return (enrollments || []).map(function (e) {
+      return String(e.id) + ":" + String(e.status);
+    }).sort().join(",");
+  }
+
   // 学习记录签名(issue/item/done 三元组),轮询变更检测用
   function recordsSignature(records) {
     return (records || []).map(function (r) {
@@ -134,6 +143,17 @@
     return body;
   }
 
+  // advisor F2:写路由 CSRF token(lazy 经 /status 同源取一次,失败静默——
+  // 写请求会因缺 token 403,用户重试时 /status 已恢复)
+  async function ensureCsrf() {
+    if (csrfToken) return;
+    try {
+      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
+      const body = await res.json().catch(function () { return {}; });
+      if (res.ok && body.csrf_token) csrfToken = String(body.csrf_token);
+    } catch (e) { /* 静默:写请求会因缺 token 403,用户可重试 */ }
+  }
+
   async function apiGet(path) {
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
     const res = await fetch(API + path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId), {
@@ -145,12 +165,25 @@
   }
 
   // POST JSON(S4 草稿保存);错误体挂 status/body(409 走冲突 UX)
+  function postHeaders() {
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
+    return headers;
+  }
+
+  // advisor R2:403-on-CSRF 自愈——重取 token(宿主热重载轮换进程级 token)
+  async function refreshCsrf() {
+    csrfToken = "";
+    await ensureCsrf();
+    return !!csrfToken;
+  }
+
   async function apiPost(path, payload) {
-    const res = await fetch(API + path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(payload)
-    });
+    await ensureCsrf();
+    let res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
+    if (res.status === 403 && (await refreshCsrf())) {
+      res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
+    }
     const body = await res.json().catch(function () { return {}; });
     if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
     return body;
@@ -175,7 +208,9 @@
     if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
     if (document.hidden || pollInFlight) return;
     if (state.editing || state.saving || state.loading || state.loadingBoot) return;
-    if (!state.workspaceId || state.error) return;
+    if (state.error) return;
+    // 详情态的作用域查询(草稿/记录)需要 workspaceId;列表态轮询 /me/enrollments 无需
+    if (state.selected && !state.workspaceId) return;
     pollInFlight = true;
     try {
       if (state.selected) {
@@ -190,8 +225,9 @@
           render();
         }
       } else {
-        const payload = await apiGet("/courses");
-        const sig = recordsSignature((payload.result && payload.result.records) || []);
+        // S7:列表页轮询报名列表(签名为 enrollment id+status)
+        const payload = await rawGet("/me/enrollments");
+        const sig = enrollmentsSignature((payload.result && payload.result.enrollments) || []);
         if (sig !== state.coursesSig) {
           state.listNotice = true;
           render();
@@ -224,37 +260,65 @@
       state.loadingBoot = false;
       render();
     }
-    if (state.workspaceId && !state.error && !state.bootError) loadCourses();
+    // advisor F1(AE8/R35):/me/enrollments 是 actor 锚定跨台读,与 workspace
+    // 选择解耦——零成员身份的公开课报名(confirmed)同样要出现在列表。
+    // workspace 选择仅在打开作用域详情时要求(openCourse 以报名行
+    // data-ws/workspace_id 原值驱动)。
+    loadCourses();
   }
 
+  // S7(AE8/R35):列表源 = /me/enrollments(跨 workspace,无需 workspace_id);
+  // confirmed 课程报名 = 可学习课程(零学习记录也显示),pending/payment_pending
+  // 入「报名进行中」区
   async function loadCourses() {
     state.loading = true;
     state.error = null;
     state.listNotice = false;
     render();
     try {
-      const payload = await apiGet("/courses");
-      const records = (payload.result && payload.result.records) || [];
-      state.coursesSig = recordsSignature(records);
-      const byCourse = {};
-      records.forEach(function (r) {
-        (byCourse[r.course_id] = byCourse[r.course_id] || []).push(r);
-      });
-      state.courses = Object.keys(byCourse).map(function (cid) {
-        return { courseId: cid, records: byCourse[cid] };
+      const payload = await rawGet("/me/enrollments");
+      const enrollments = (payload.result && payload.result.enrollments) || [];
+      state.coursesSig = enrollmentsSignature(enrollments);
+      const courseEnrollments = enrollments.filter(function (e) { return e.kind === "course"; });
+      state.courses = courseEnrollments
+        .filter(function (e) { return e.status === "confirmed"; })
+        .map(function (e) {
+          const offering = e.offering || {};
+          const ws = e.workspace || {};
+          return {
+            courseId: String(offering.id || ""),
+            title: String(offering.title || ""),
+            // advisor F4:workspace_id 原值兜底（invite_only 台 ws 块 nil 场景）
+            workspaceId: String(ws.id || e.workspace_id || ""),
+            workspaceName: String(ws.name || ws.slug || "")
+          };
+        })
+        .filter(function (c) { return c.courseId !== ""; });
+      state.inFlight = courseEnrollments.filter(function (e) {
+        return e.status === "pending" || e.status === "payment_pending";
       });
       state.selected = null;
       state.currentIssue = null;
     } catch (e) {
       state.error = e;
       state.courses = [];
+      state.inFlight = [];
     } finally {
       state.loading = false;
       render();
     }
   }
 
-  async function openCourse(courseId) {
+  // S7:报名跨 workspace——行携带 data-ws,打开时若目标工作台 ≠ 当前选中,
+  // 切换读面上下文(详情/草稿/教研都按该 workspace 读)
+  async function openCourse(courseId, workspaceId) {
+    if (workspaceId && workspaceId !== state.workspaceId) {
+      const ws = state.workspaces.find(function (w) { return w.workspace_id === workspaceId; });
+      state.workspaceId = workspaceId;
+      state.workspaceName = ws ? String(ws.name || ws.slug || "") : state.workspaceName;
+      localStorage.setItem(STORE_KEY, workspaceId);
+      computeCanEdit();
+    }
     state.loading = true;
     state.error = null;
     state.updateNotice = false;
@@ -329,9 +393,9 @@
       renderNotConnected();
       return;
     }
-    if (!state.workspaceId) {
+    if (state.error && state.error.status !== 503) {
       stopPolling();
-      renderWorkspaceGate();
+      shell('<div class="cgc-card cgc-ev-err">加载失败:' + escapeHtml(state.error.message || "") + '</div>');
       return;
     }
     if (!state.selected) {
@@ -354,25 +418,6 @@
         '<h3 class="cgc-panel-title">CGC 课程学习</h3>' +
         inner +
       '</div>';
-  }
-
-  // Workspace gate:boot 加载中 / 失败重试 / 零可访问工作台引导
-  function renderWorkspaceGate() {
-    if (state.loadingBoot) {
-      shell('<div class="cgc-card">加载 Workspace 列表…</div>');
-      return;
-    }
-    if (state.bootError) {
-      shell(
-        '<div class="cgc-card cgc-ev-err">加载 Workspace 列表失败:' + escapeHtml(state.bootError.message || "") + '</div>' +
-        '<div class="cgc-actions">' +
-          '<button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary" type="button">重试</button>' +
-        '</div>'
-      );
-      currentContainer.querySelector("#cgc-boot-retry").addEventListener("click", boot);
-      return;
-    }
-    shell('<div class="cgc-card cgc-empty">当前账号没有可访问的 Workspace。请先在网站加入或创建工作台。</div>');
   }
 
   // 课程列表头部的 Workspace 选择器:按名称切换(S1 finding:用户永不手填 UUID)
@@ -423,9 +468,20 @@
   }
 
   function renderCourseList() {
-    let inner =
-      pickerRow() +
-      '<p class="cgc-panel-sub">我的课程(按学习记录推导)</p>' +
+    let inner = pickerRow();
+
+    // advisor F1:workspace 列表加载失败或零成员身份——非阻断提示条
+    // (报名列表跨台加载照常;详情打开由报名行作用域驱动)
+    if (state.bootError) {
+      inner += '<div class="cgc-card cgc-ev-err" data-testid="panel-ws-boot-error">Workspace 列表加载失败:' +
+        escapeHtml(state.bootError.message || "") +
+        ' <button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">重试</button></div>';
+    } else if (state.workspaces.length === 0) {
+      inner += '<p class="cgc-panel-sub">当前账号没有可访问的 Workspace——课程列表来自你的报名,跨 Workspace 显示。</p>';
+    }
+
+    inner +=
+      '<p class="cgc-panel-sub">我的课程(按报名推导,跨 Workspace)</p>' +
       '<div class="cgc-actions"><button id="cgc-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button></div>';
 
     // R11 列表轮询更新条:点击才刷新(不在用户浏览时抽换视图)
@@ -446,26 +502,64 @@
       bindListExtras();
       return;
     }
-    if (state.courses.length === 0) {
-      shell(inner + '<div class="cgc-card cgc-empty">暂无在学课程。在网站报名课程并开始学习后,这里会显示课程列表。</div>');
+    if (state.courses.length === 0 && state.inFlight.length === 0) {
+      shell(inner + '<div class="cgc-card cgc-empty">暂无在学课程。报名课程后,这里会显示课程列表。</div>');
       bindListExtras();
       return;
     }
 
-    const rows = state.courses.map(function (c) {
-      return (
-        '<div class="cgc-course-row" data-testid="panel-course" data-course="' + escapeHtml(c.courseId) + '">' +
-          '<span class="task-name">课程 ' + escapeHtml(c.courseId.slice(0, 8)) + '…</span>' +
-          '<span class="cgc-ev">' + c.records.length + ' 条记录</span>' +
-        '</div>'
-      );
-    }).join("");
+    // S7:报名进行中(pending/payment_pending)——状态徽章,无学习入口
+    if (state.inFlight.length > 0) {
+      const inflightRows = state.inFlight.map(function (e) {
+        const offering = e.offering || {};
+        const ws = e.workspace || {};
+        return (
+          '<div class="cgc-course-row cgc-inflight-row" data-testid="panel-inflight">' +
+            '<span class="task-name">' + escapeHtml(offering.title || "课程") + '</span>' +
+            '<span class="cgc-inflight-meta">' + escapeHtml(ws.name || "") +
+              '<span class="cgc-kind">' + escapeHtml(inFlightStatusBadge(e.status)) + '</span></span>' +
+          '</div>'
+        );
+      }).join("");
+      inner += '<p class="cgc-panel-sub">报名进行中</p>' +
+        '<div class="cgc-card cgc-inflight-list">' + inflightRows + '</div>';
+    }
 
-    shell(inner + '<div class="cgc-card cgc-course-list">' + rows + '</div>');
+    // S7:可学习课程(confirmed 报名;零学习记录的新报名同样出现)按 workspace 分组
+    if (state.courses.length > 0) {
+      const groups = {};
+      state.courses.forEach(function (c) {
+        const key = c.workspaceName || "未命名工作台";
+        (groups[key] = groups[key] || []).push(c);
+      });
+      inner += Object.keys(groups).sort().map(function (name) {
+        const rows = groups[name].map(function (c) {
+          const title = c.title || ("课程 " + c.courseId.slice(0, 8) + "…");
+          return (
+            '<div class="cgc-course-row" data-testid="panel-course" data-course="' + escapeHtml(c.courseId) +
+              '" data-ws="' + escapeHtml(c.workspaceId) + '">' +
+              '<span class="task-name">' + escapeHtml(title) + '</span>' +
+              '<span class="cgc-ev">开始学习 ›</span>' +
+            '</div>'
+          );
+        }).join("");
+        return '<div class="cgc-ws-group" data-testid="panel-course-group">' +
+          '<div class="cgc-ws-group-name">' + escapeHtml(name) + '</div>' + rows + '</div>';
+      }).join("");
+    }
+
+    shell(inner);
     bindListExtras();
     currentContainer.querySelectorAll("[data-course]").forEach(function (el) {
-      el.addEventListener("click", function () { openCourse(el.getAttribute("data-course")); });
+      el.addEventListener("click", function () { openCourse(el.getAttribute("data-course"), el.getAttribute("data-ws")); });
     });
+  }
+
+  // 报名进行中状态徽章(发现面板同款口径)
+  function inFlightStatusBadge(status) {
+    if (status === "pending") return "待审批";
+    if (status === "payment_pending") return "待支付";
+    return status || "";
   }
 
   function bindListExtras() {
@@ -474,6 +568,8 @@
     if (refresh) refresh.addEventListener("click", loadCourses);
     const bar = currentContainer.querySelector("#cgc-list-refresh");
     if (bar) bar.addEventListener("click", loadCourses);
+    const bootRetry = currentContainer.querySelector("#cgc-boot-retry");
+    if (bootRetry) bootRetry.addEventListener("click", boot);
   }
 
   function renderCourseDetail() {
@@ -872,6 +968,11 @@
       ".cgc-course-list{margin-top:10px}" +
       ".cgc-course-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer}" +
       ".cgc-course-row:hover{background:rgba(127,127,127,.12)}" +
+      ".cgc-ws-group{margin-bottom:6px}" +
+      ".cgc-ws-group-name{font-size:11px;color:#9ca3af;margin:6px 4px 2px}" +
+      ".cgc-inflight-row{cursor:default}" +
+      ".cgc-inflight-meta{display:flex;gap:8px;align-items:center;font-size:12px;color:#9ca3af}" +
+      ".cgc-kind{border:1px solid var(--border,#444);border-radius:999px;padding:0 8px;font-size:11px}" +
       ".cgc-issue-list{margin-top:10px}" +
       ".cgc-issue-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer}" +
       ".cgc-issue-row:hover,.cgc-issue-row.cgc-issue-active{background:rgba(127,127,127,.12)}" +
