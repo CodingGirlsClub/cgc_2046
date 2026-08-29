@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.NotificationConsent do
+defmodule Cgc2046.Notifications.NotificationConsent do
   @moduledoc """
   小程序订阅消息的一次性授权余额。
 
@@ -11,7 +11,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Miniprogram
+    domain: Cgc2046.Notifications
 
   attributes do
     uuid_primary_key(:id)
@@ -49,12 +49,12 @@ defmodule Cgc2046.Miniprogram.NotificationConsent do
   end
 
   postgres do
-    table("mp_notification_consents")
+    table("notification_consents")
     repo(Cgc2046.Repo)
   end
 
   admin do
     # #113 ops 面优化：导航分组
-    resource_group(:miniprogram)
+    resource_group(:notifications)
   end
 end

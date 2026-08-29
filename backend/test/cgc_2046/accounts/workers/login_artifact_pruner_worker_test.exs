@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.LoginArtifactPrunerWorkerTest do
+defmodule Cgc2046.Accounts.Workers.LoginArtifactPrunerWorkerTest do
   @moduledoc """
   #252 登录支撑表清理测试：只删 expires_at 早于 now()-1day 的行，
   保留窗口内（含已过期未满 1 天）的行不动；cron 接线生效。
@@ -8,7 +8,7 @@ defmodule Cgc2046.Miniprogram.LoginArtifactPrunerWorkerTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.Accounts.{PhoneVerificationCode, WechatLoginTicket}
-  alias Cgc2046.Miniprogram.LoginArtifactPrunerWorker
+  alias Cgc2046.Accounts.Workers.LoginArtifactPrunerWorker
 
   @phone "+8613800136000"
 
