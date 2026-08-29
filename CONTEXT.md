@@ -373,7 +373,7 @@
 ### Issue（学习议题，课程内容原子单元）
 
 - **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 与 checklist item id 发布后不改不删，内容编辑保 id（学习记录永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储）。状态 **Todo / In Progress / Done**（Linear 同款）由学习记录派生——投影非手柄，不提供手动切换。
-- **架构位置**：存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance / learning_objectives（2026-08-16 课程 issue 学习闭环设计）。
+- **架构位置**：存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance（2026-08-16 课程 issue 学习闭环设计；learning_objectives 的职责由 issue 内 `objectives` 字段承担，见「课程版本」词条 schema v2 段）。
 
 ### checklist（检查单）
 
@@ -418,8 +418,8 @@
 ### Curriculum（教研）
 
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
-- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
-- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）。教研段 AgentInstructions 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` tutor playbook 吸收）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
+- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族；发布归档 = `Curriculum.CourseRevision`，S6）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影（`current_revision_id`），Learning 经读契约消费已发布内容。
+- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）；发布内容读契约同域（S6）：`Curriculum.latest_revision/2` / `revision_by_id/2` / `revision_by_number/3` 为 CourseRevision 唯一读入口（消费方 = Course.published_content 投影与 get_course_revision 工具）。教研段 AgentInstructions 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` tutor playbook 吸收）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
 - **草稿版本（S4，R9/R10，AE2）**：`Curriculum.Output` 持 `version` 列（bigint，默认 1，`writable?: false`）；`save_course_content` 以 `base_version` 为必填写契约（0 = 首次创建），CAS upsert（`upsert_condition(version == base_version)`）成功后 `atomic_update(:version, version + 1)`；`base_version > 0` 而无草稿直接 `version_conflict`，冲突响应附最新 `version` 供调用方重载重试。双等价入口：MCP 工具 + 扩展面板 `POST /courses/:course_id/content` 共用同一工具实现（面板 409 → 弃本地编辑重载，10s 轮询在编辑/保存态挂起）。冲突文案单源 `Curriculum.Output.version_conflict_message/1`（MCP StaleRecord 与无草稿分支共用）。
 
 ### 课程教研流程（Course Preparation，prep run）
@@ -428,9 +428,15 @@
 - **prep_state 五态 facts 状态机**：`draft → authoring → quality_check → review → published`（外加 `below_threshold` 回退 authoring），存于 `run.facts["prep_state"]`（缺省 draft）；迁移一律经 `Curriculum.Prep` 域服务（前置断言「invalid prep_state transition」），facts 写走 WorkflowRun 专用 `:update_prep_facts` action（optimistic_lock version；成员 bypass，学员不放行）。
 - **策略快照（R22）**：`prep_policy`（review_required 默认 true / quality_threshold 默认 80 / reviewer_user_id 默认 nil=任何成员可审）创建时固化进 `input_snapshot` **不可变**；Owner/Admin 经确认流 `update_prep_policy` 写 `facts["prep_policy_override"]`（override-first 合并，快照本体不动），进入 quality_check 即冻结。
 - **认领 = run version 乐观锁 CAS**（R24）：tutor 认领未指派的 draft/authoring run，并发双认领恰一成一败（StaleRecord →「already claimed」业务错误），零裸 SQL。
-- **结构门禁（R26）**：`Curriculum.PrepGate.check/2` 纯函数 v1 四项——非临时占位标题 / 内容草稿存在 / goals 非空 / issues 非空 + Content v1 形状复核；objectives 加严属 S6。提交质量检查与发布前各跑一次（发布复跑不过 → 整体回滚）。
-- **发布 = launch 单事务（R23/R28，plan §B#9/#10）**：S5 语义 = 课程 draft → open——同事务内防御性复跑门禁 → `Course :launch`（changeset context `via_prep: true` 放行教研门，授权已在工具层完成故 `authorize?: false`）→ run `:complete`（succeeded）。**教研门**：存在非终态 prep run 的课程 `:launch` 一律拦截（「课程须完成教研流程后发布」），via_prep 或 prep_state=published 才放行；存量课程（无 prep run）不受影响。S6 起发布改生成不可变 CourseRevision。
+- **结构门禁（R26，S6 加严 schema v2）**：`Curriculum.PrepGate.check/2` 纯函数——非临时占位标题 / 内容草稿存在 / goals 非空 / issues 非空 + Content v1 形状复核 + **objectives 硬性要求**（全课程 ≥1 objective 且 ≥1 必修；逐条规则：id 课程级唯一 / title 非空 / rubric 非空组内唯一 / prereq_ids 存在且 DAG——无环无自引用）。v1-only 旧草稿不能发布，无数据迁移。提交质量检查与发布前各跑一次（发布复跑不过 → 整体回滚）。
+- **发布单事务（R23/R28/R29，plan §B#9/#10）**：`Curriculum.Prep.publish/4`（撞 (course_id, number) 唯一索引重读 max 重试一次）单事务 = 防御性复跑门禁 → 创建不可变 `CourseRevision`（number = max+1，草稿快照冻结）→ 调 Courses 发布端口 `Course.bind_revision_for_publish/3`（绑定 current_revision_id + 课程 draft 时 `:launch`——changeset context `via_prep: true` 放行教研门，授权已在工具层完成故 `authorize?: false`；已 open 只换绑）→ run `:complete`（succeeded，facts 记 published_revision_id/number）。**教研门**：存在非终态 prep run 的课程 `:launch` 一律拦截（「课程须完成教研流程后发布」），via_prep 或 prep_state=published 才放行；存量课程（无 prep run）不受影响。**发布次周期**：run 终态后 `get_prep_status` / `submit_prep_for_check` 经 `Prep.ensure_active_run/2` 懒开新 run（默认策略快照，assignee 沿用上任）。
 - **架构位置**：`curriculum/prep.ex`（域服务）/ `prep_gate.ex`（纯函数）/ `prep_instantiator.ex`（订阅器，application 注册于 curriculum Instantiator 后）；MCP 面 = 九工具（get_prep_status 读 + assign/claim/submit×2/request_changes 直接写 + update_prep_policy/override_prep_gate/approve_prep 确认流），`list_my_tasks` 按角色分派三类教研行（claimable/authoring/review）；扩展面板 `GET /courses/:course_id/prep` 透出状态。
+
+### 课程版本（CourseRevision，发布即冻结的内容快照）
+
+- **定义**：教研流程发布步生成的**不可变**课程内容快照（role-agent-journeys-v2 S6，R29/R38）——`content` 是发布时点的完整 schema v2 内容（goals + issues + objectives），`(course_id, number)` 唯一且 per-course 单调递增（发布事务内 max+1，撞唯一索引重读重试一次）；资源层只定义 create + read（无 update/destroy——不可变纪律钉死），旧版本与其学习 run 永不被改写。`prep_run_id` / `published_by_id` / `published_at` 为溯源审计列。
+- **schema v2（R38）**：issue 的 `objectives` 字段——LearningObjective 是掌握单元，携带稳定 id（课程级唯一）、`required` 必修/选修标志（缺省 true；全课程至少一个必修）、机器可读先修 `prereq_ids`（引用存在的 objective 且构成 DAG）、activity / assessment / materials / 非空 rubric（≥1 条 `{id, text}`，组内 id 唯一）。形状契约在 `Curriculum.Content`（`valid_v1?` 与 `objective_violations` 分层报告）；**v1-only 旧草稿不能发布**（tutor 补 objectives 后重过门禁，无数据迁移）。
+- **架构位置**：`curriculum/course_revision.ex`（表 `curriculum_course_revisions`；不开 GraphQL 面——消费走 MCP `get_course_revision` 工具 + 域读入口 `Curriculum.latest_revision/2` 等）；`Courses.Course.current_revision_id` 为当前 published 版本投影（唯一写入口 `:bind_current_revision`，发布端口 `bind_revision_for_publish/3` 在发布事务内写入——本计划唯一新增跨 context 端口）；公开 courseMap 内容源 = `Course.published_content/1`（读 current_revision 指向版本，无 revision 的存量课程回退草稿读面——旧行为）。授权：资源层成员 ∪ PlatformAdmin；学员侧「仅最新 published 版本」细粒度判定在 `get_course_revision` 工具层（deferred 族）。
 
 ### 内容安全检查（Content Safety Check）
 
