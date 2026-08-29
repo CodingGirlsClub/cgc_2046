@@ -63,7 +63,11 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:post, "/skills/sync"]
     # U9 课程面板数据面新增三路由(纯读透传)
     # U6 发现面板数据面新增两路由(公开浏览透传,无 workspace_id 硬要求)
-    assert_equal 9, Cgc2046Ext.routes.size
+    # S1-extension 工作台数据面新增三路由(身份/playbook/待办透传)
+    assert_includes routes, [:get, "/me/workspaces"]
+    assert_includes routes, [:get, "/playbook"]
+    assert_includes routes, [:get, "/tasks"]
+    assert_equal 12, Cgc2046Ext.routes.size
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 

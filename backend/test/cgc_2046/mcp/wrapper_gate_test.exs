@@ -2,12 +2,13 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   @moduledoc """
   架构深化 C 一致性测试：鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控）。
 
-  - 派生门控集合恰为 8 个豁免工具（精确名单：2 × workspace_id: :optional +
-    4 × membership: :deferred + 2 × membership: :public）
+  - 派生门控集合恰为 10 个豁免工具（精确名单：3 × workspace_id: :optional +
+    1 × optional+deferred 双键 + 4 × membership: :deferred + 2 × membership: :public）
   - member-only 工具不携带豁免 meta
   - 未声明 meta 的工具默认门控 = member-only + workspace_id 必填（fail-closed）
   - 两个公开工具命中 `:public` 分支而非落入 optional 分支（map 子集匹配下
-    子句顺序即语义，KTD3）
+    子句顺序即语义，KTD3）；optional+deferred 双键工具命中 `:optional` 分支
+    （同理，S1 get_role_playbook）
 
   新工具漏声明、豁免被误删均直接红（结构性消除 wrapper 时代「删清单条目无
   编译错误、无测试断言」的删除风险）。
@@ -21,11 +22,12 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
 
-  # 精确名单（与 server.ex 注册的 17 工具一一对应）
-  @workspace_id_optional ~w(confirm_operation cancel_operation)
+  # 精确名单（与 server.ex 注册的 20 工具一一对应）
+  @workspace_id_optional ~w(confirm_operation cancel_operation list_my_workspaces)
+  @optional_deferred ~w(get_role_playbook)
   @membership_deferred ~w(save_step_output get_course_content get_learning_records save_learning_records)
   @membership_public ~w(list_public_offerings get_public_offering)
-  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content)
+  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks)
 
   defp frame_for(user), do: Frame.new(current_user: user)
 
@@ -34,13 +36,22 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
     |> Map.new(fn tool -> {tool.name, tool.meta} end)
   end
 
-  describe "派生门控集合 = 8 个豁免工具（精确名单）" do
-    test "workspace_id: :optional = confirm_operation / cancel_operation" do
+  describe "派生门控集合 = 10 个豁免工具（精确名单）" do
+    test "workspace_id: :optional = confirm_operation / cancel_operation / list_my_workspaces" do
       meta_map = tool_meta_map()
 
       for tool <- @workspace_id_optional do
         assert Map.get(meta_map, tool) == %{workspace_id: :optional},
                "expected #{tool} to declare workspace_id: :optional"
+      end
+    end
+
+    test "optional+deferred 双键 = get_role_playbook（S1，授权在工具层）" do
+      meta_map = tool_meta_map()
+
+      for tool <- @optional_deferred do
+        assert Map.get(meta_map, tool) == %{workspace_id: :optional, membership: :deferred},
+               "expected #{tool} to declare workspace_id: :optional + membership: :deferred"
       end
     end
 
@@ -62,14 +73,17 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "豁免工具恰为 8 个：无遗漏、无多出" do
+    test "豁免工具恰为 10 个：无遗漏、无多出" do
       exempt =
         tool_meta_map()
         |> Enum.filter(fn {_name, meta} -> meta != nil end)
         |> Map.new()
 
       assert Map.keys(exempt) |> Enum.sort() ==
-               Enum.sort(@workspace_id_optional ++ @membership_deferred ++ @membership_public)
+               Enum.sort(
+                 @workspace_id_optional ++
+                   @optional_deferred ++ @membership_deferred ++ @membership_public
+               )
     end
 
     test "member-only 工具不携带豁免 meta" do
@@ -80,12 +94,13 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "注册工具数 = 17 且名单完备（无未收录工具）" do
+    test "注册工具数 = 20 且名单完备（无未收录工具）" do
       meta_map = tool_meta_map()
 
       assert Map.keys(meta_map) |> Enum.sort() ==
                Enum.sort(
                  @workspace_id_optional ++
+                   @optional_deferred ++
                    @membership_deferred ++ @membership_public ++ @member_only
                )
     end
@@ -100,6 +115,16 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       assert Wrapper.gate_family("confirm_operation") == :optional
       assert Wrapper.gate_family("save_step_output") == :deferred
       assert Wrapper.gate_family("list_members") == :member_only
+    end
+
+    test "optional+deferred 双键工具命中 :optional 分支（子句顺序即语义，S1）" do
+      for tool <- @optional_deferred do
+        assert Wrapper.gate_family(tool) == :optional,
+               "expected #{tool} to hit :optional gate branch"
+      end
+
+      assert Wrapper.gate_family("list_my_workspaces") == :optional
+      assert Wrapper.gate_family("list_my_tasks") == :member_only
     end
   end
 

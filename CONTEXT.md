@@ -214,7 +214,7 @@
 
 ### 任务指令模式（Task-Instruction Pattern）
 
-- **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`（**roadmap**：随 Agent 资源落地实现，#211 裁决 1/3；v1 载体 = `AgentInstructions` 模块常量）；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
+- **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`（**roadmap**：随 Agent 资源落地实现，#211 裁决 1/3；v1 载体 = `Cgc2046.Mcp.Playbooks` 模块常量——四角色版本化 playbook，经 `get_role_playbook` 分发，role-agent-journeys-v2 S1，见 §5「角色 Playbook」词条）；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
 - **架构位置**：替代"运行时下发文件"（热加载未验证、工程风险高）与"纯静态打包"（不支持动态公共 Agent）两条路。
 
 ### AgentRun（领域操作聚合记录，实体不建）
@@ -230,12 +230,18 @@
 ### Agent（授权/配置登记，租户资源）
 
 - **定义**：两种形态——**个人 Agent**（角色分身，仅本人可见可用）与**公共 Agent**（Workspace 级，按 Workflow 协作）。在 BYO 架构下，Agent 只是授权与配置登记：`type / allowed_roles / owner` + OpenClacky 配置引用（`openclacky_profile / model / system_prompt / skills`）（D2）。**不包含执行逻辑**——执行发生在用户本地 OpenClacky。
-- **架构位置**：授权/配置登记概念，**实体未落地**（roadmap：plan 020，与 AgentRun 重启条件同钩子，#211 裁决 2/3）；v1 载体 = `Cgc2046.Workflows.AgentInstructions` 模块常量，`get_agent_instruction` 工具随实体落地（#211 裁决 1/3）。
+- **架构位置**：授权/配置登记概念，**实体未落地**（roadmap：plan 020，与 AgentRun 重启条件同钩子，#211 裁决 2/3）；v1 载体 = `Cgc2046.Mcp.Playbooks` 模块常量（四角色版本化 playbook，经 `get_role_playbook` 分发，role-agent-journeys-v2 S1），`get_agent_instruction` 工具随实体落地（#211 裁决 1/3）。
+
+### 角色 Playbook（Role Playbook / 角色工作模式）
+
+- **定义**：四角色（`platform_admin` / `workspace_admin` / `tutor` / `learner`）工作模式说明书——「如何经工具面完成角色职责」的版本化文本（role-agent-journeys-v2 S1，R2/R6）。载体 = `Cgc2046.Mcp.Playbooks` 模块常量 + 逐角色版本号（API `roles/0` / `fetch/1` / `version/1`）；分发通道 = MCP `get_role_playbook`（工具层四分支授权：learner 任何已认证用户 / tutor 与 workspace_admin 须持对应工作台角色 / platform_admin 须 `is_platform_admin` 全局标记）。**playbook 只组织用户已有能力**——面板隐藏、Agent 提示、本地缓存都不扩大网站 RBAC 权限（R6）。learner/tutor 两角色核心章节逐字吸收自已删除的 `Learning.AgentInstructions` / `Curriculum.AgentInstructions` 死代码模块。
+- **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。扩展 `system_prompt.md` 静态清单收缩为 7 个跨角色公共工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2 / 确认流 2），角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **17 个**（名单由 `wrapper_gate_test` 钉死）：
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **20 个**（名单由 `wrapper_gate_test` 钉死）：
   - **读 9**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）/ `list_public_offerings` / `get_public_offering`（公开浏览 #293，`membership: :public` 豁免家族：任何持连接 token 的登录用户，跨工作区匿名白名单口径，KTD2/KTD3）
+  - **角色工作台基座 3（role-agent-journeys-v2 S1，R2/R3/R8）**：`list_my_workspaces`（actor 的工作台列表 + 各台角色并集 + `is_platform_admin`，按名排序，`workspace_id: :optional` 族——上下文选择器数据源，用户永不手填 UUID）/ `get_role_playbook`（按角色分发版本化 playbook，`optional+deferred` 双键，工具层四分支授权）/ `list_my_tasks`（member-only，PendingApprovals 聚合；课程教研任务行 S5 接入）
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
   - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
@@ -374,7 +380,7 @@
 
 ### Learning（学习上下文）
 
-- **定义**：学员侧学习的限界上下文：LearningRecord（个人记忆库，见上条）+ 学习实例化与进度逻辑（ADR-0010 A3 归位，2026-08-29）——`Learning.LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死）、`Learning.Progress`（进度投影纯函数族：project/project_issues/issue_key/stagnant_cutoff）、`Learning.AgentInstructions`（学习 Agent 指令模板）、`Learning.RunProjection`（GraphQL 学习详情投影组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁）、`Learning.LearningProgressWorker`（停滞扫描/完课判定）。
+- **定义**：学员侧学习的限界上下文：LearningRecord（个人记忆库，见上条）+ 学习实例化与进度逻辑（ADR-0010 A3 归位，2026-08-29）——`Learning.LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死）、`Learning.Progress`（进度投影纯函数族：project/project_issues/issue_key/stagnant_cutoff）、`Learning.RunProjection`（GraphQL 学习详情投影组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁）、`Learning.LearningProgressWorker`（停滞扫描/完课判定）。`Learning.AgentInstructions` 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` learner playbook 吸收）。
 - **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（经 `Curriculum.content_output/2` 读契约），被 GraphQL/MCP 消费。
 
 ### Enrollment（报名 / 事件级参与者）
@@ -406,7 +412,7 @@
 
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
 - **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
-- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）/ 教研段 AgentInstructions 同目录；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
+- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）。教研段 AgentInstructions 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` tutor playbook 吸收）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
 
 ### 内容安全检查（Content Safety Check）
 
