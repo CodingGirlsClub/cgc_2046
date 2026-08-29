@@ -5,7 +5,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   - 派生门控集合恰为 20 个豁免工具（精确名单：3 × workspace_id: :optional +
     1 × optional+deferred 双键 + 4 × membership: :deferred + 2 × membership: :public +
     10 × workspace_id: :optional + membership: :platform_admin）
-  - member-only 工具不携带豁免 meta
+  - member-only 工具不携带豁免 meta（S3 后 23 个：原 10 + 工作台管理面 13）
   - 未声明 meta 的工具默认门控 = member-only + workspace_id 必填（fail-closed）
   - 两个公开工具命中 `:public` 分支而非落入 optional 分支（map 子集匹配下
     子句顺序即语义，KTD3）；optional+deferred 双键工具命中 `:optional` 分支
@@ -25,13 +25,14 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
 
-  # 精确名单（与 server.ex 注册的 30 工具一一对应）
+  # 精确名单（与 server.ex 注册的 43 工具一一对应）
   @workspace_id_optional ~w(confirm_operation cancel_operation list_my_workspaces)
   @optional_deferred ~w(get_role_playbook)
   @membership_deferred ~w(save_step_output get_course_content get_learning_records save_learning_records)
   @membership_public ~w(list_public_offerings get_public_offering)
   @membership_platform_admin ~w(admin_list_users admin_list_workspaces admin_list_workspace_applications admin_list_audit_logs admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user)
-  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks)
+  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks) ++
+                 ~w(create_course update_course launch_course close_course cancel_course list_course_enrollments confirm_enrollment reject_enrollment waive_payment list_workspace_orders refund_order retry_refund update_join_policy)
 
   defp frame_for(user), do: Frame.new(current_user: user)
 
@@ -111,7 +112,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "注册工具数 = 30 且名单完备（无未收录工具）" do
+    test "注册工具数 = 43 且名单完备（无未收录工具）" do
       meta_map = tool_meta_map()
 
       assert Map.keys(meta_map) |> Enum.sort() ==

@@ -5,6 +5,8 @@
 //   - 工作台身份区（已连接时置顶展示，R3/R4）：
 //       - 身份栏：身份模式徽章（is_platform_admin →「平台管理模式」）+ 当前 Workspace 名
 //         + 角色徽章（GET /me/workspaces 透传 list_my_workspaces）
+//         + 管理入口（role-agent-journeys-v2 S3）：选中 Workspace 的角色含 owner/admin 时
+//           显示「管理」链接 → 网站工作台管理页（{web_url}/w/{slug}/settings/members）
 //       - Workspace 选择器：按名称切换（用户永不手填 workspace_id），选择持久化到
 //         localStorage(cgc2046.workspacePanel.workspaceId)；存储 id 失效时回退列表第一项
 //       - 我的任务：GET /tasks?workspace_id=<选中>（透传 list_my_tasks），
@@ -38,6 +40,7 @@
   let workspaces = [];        // [{ workspace_id, name, slug, roles }]
   let isPlatformAdmin = false;
   let selectedWorkspaceId = "";
+  let webUrl = "";            // status.web_url，管理入口链接的基址
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -153,6 +156,15 @@
       (Array.isArray(current.roles) ? current.roles : []).forEach(function (r) {
         html += '<span class="cgc-badge">' + escapeHtml(r) + '</span>';
       });
+      // 管理入口（role-agent-journeys-v2 S3）：选中工作台的角色含 owner/admin 时，
+      // 显示跳转网站工作台管理页的薄入口（面板不做管理操作本体）
+      const roles = Array.isArray(current.roles) ? current.roles : [];
+      const isManager = roles.indexOf("owner") !== -1 || roles.indexOf("admin") !== -1;
+      if (isManager && webUrl && current.slug) {
+        html += '<a class="cgc-btn cgc-btn-secondary cgc-btn-mini" href="' +
+                escapeHtml(webUrl.replace(/\/+$/, "")) + '/w/' + encodeURIComponent(current.slug) +
+                '/settings/members" target="_blank" rel="noopener noreferrer">管理</a>';
+      }
     }
     idEl.innerHTML = html || '<span class="cgc-empty">无可访问的 Workspace</span>';
 
@@ -289,6 +301,8 @@
     if (st.url) lines.push("<b>端点：</b>" + escapeHtml(st.url));
     lines.push("<b>Token：</b>" + (st.token_configured ? "已配置" : "未配置"));
     statusEl.innerHTML = lines.join("<br>");
+
+    webUrl = st.web_url || "";
 
     discEl.disabled = !st.configured;
     if (st.web_url) {
