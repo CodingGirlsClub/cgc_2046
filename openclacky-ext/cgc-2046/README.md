@@ -24,8 +24,9 @@ openclacky-ext/cgc-2046/
     offering_routes.rb             # 发现面板 loopback 数据面（公开浏览透传，复用 course_routes 管道）
   panels/workspace/
     view.js                        # 侧边栏入口 + 连接状态面板（薄，无框架依赖）
+  api/learner_routes.rb            # Learner 发现/报名/支付 loopback 数据面（S7）
   panels/cgc-discovery/
-    view.js                        # 发现面板（五态状态机，条目跳 web 详情页）
+    view.js                        # 发现面板 v2（合并流 + 报名确认卡 + 支付轮询）
   agents/cgc-assistant/
     system_prompt.md               # CGC-2046 助手人设与工具说明
   skills/cgc2046-onboarding/
@@ -35,6 +36,11 @@ openclacky-ext/cgc-2046/
     mcp_config_test.rb             # 纯逻辑单测（minitest，stdlib）
     handler_routes_test.rb         # 请求级测试（fake req + Halt 捕获，不落盘）
     offering_routes_test.rb        # 发现路由 + 面板/prompt 静态断言（FakeRegistry + allocate 先例）
+    course_routes_test.rb          # 课程路由（call_tool 管道与错误分层）
+    course_content_write_test.rb   # 草稿写路径（协议错误/409 冲突）
+    workbench_routes_test.rb       # 工作台路由
+    hooks_test.rb                  # 生命周期钩子
+    learner_journey_routes_test.rb # Learner 五路由 + 发现/课程面板静态断言（S7）
 ```
 
 ## 打包与安装
@@ -98,6 +104,10 @@ cd openclacky-ext/cgc-2046
 mise exec -- ruby test/mcp_config_test.rb        # mcp.json merge / 原子写 / 权限（test-first 交付）
 mise exec -- ruby test/handler_routes_test.rb    # 请求级：422/200/回滚/500/501 + 无 token 泄漏（不落盘）
 mise exec -- ruby test/offering_routes_test.rb   # 发现路由透传/503·502·500 分层 + 面板与 prompt 静态断言
+mise exec -- ruby test/learner_journey_routes_test.rb # Learner 五路由/400·503·502·500 + 面板 v2 静态断言
+
+# 或全量（8 文件）
+for f in test/*.rb; do mise exec -- ruby "$f"; done
 ```
 
 ## 验证步骤（安装后自测）

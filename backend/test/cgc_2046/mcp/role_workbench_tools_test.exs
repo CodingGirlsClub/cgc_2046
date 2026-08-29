@@ -105,7 +105,8 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       payload = decode_reply(reply)
       assert payload["role"] == "learner"
-      assert payload["version"] == "2026-08-29.1"
+      # S7 bump:learner playbook 加发现/报名/支付旅程段
+      assert payload["version"] == "2026-08-29.2"
       assert payload["content"] =~ "学习模式"
       # S1 吸收原 Learning.AgentInstructions 八步循环段落随版本号分发
       assert payload["content"] =~ "八步循环"

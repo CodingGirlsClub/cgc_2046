@@ -356,6 +356,11 @@
 - **定义**：Course 的「当前标题是系统生成的临时占位」标记（role-agent-journeys-v2 S3，R21/AE1）：`create_course` 缺省 title 时生成 `未命名课程 <hex8>` 并置 true；`update_course` 设置正式标题即自动清回 false。**命名门**：`provisional_title = true` 的课程不能 `:launch`（域 action 层校验 + MCP 工具第一段快速失败双拦截），防「忘了起名就发布」。匿名可见性排除在 field_policy denylist（占位标题不出公开面）。
 - **架构位置**：Course 属性（writable? false，只能经 create/update 的 change 间接翻转）；MCP 侧由 `create_course` / `update_course` / `launch_course` 三工具承载语义。
 
+### 学员旅程（Learner Journey：发现 / 报名 / 支付）
+
+- **定义**：学员从发现到进入学习的完整通道（role-agent-journeys-v2 S7，R30-R35）。发现 = `discover_offerings`（无参跨台合并流：全平台公开 ∪ 本人各 workspace 可访问，按 {kind,id} 去重、封顶 100 + total_count 截断前小计、条目带 workspace 块/pricing 概要/my_enrollment；invite_only 工作台对非成员 workspace 块落 nil——不泄露不可发现工作台）。报名 = `get_enrollment_summary`（摘要 + `would_create_status` **精确镜像域 prepare_policy 分支**：open+收费→payment_pending / open→confirmed / request→pending / invite_only→nil；驱动因子 = offering 的 enrollment_policy 而非 workspace join_policy）→ 客户端确认 → `create_enrollment`（唯一直接写工具——确认契约在客户端 R31，不进确认流；**幂等重放**：撞 `enrollment_duplicate_active` 返回既有活跃报名 + `idempotent_replay: true` 非错误；reason 进 Wrapper 前摘除——审计不落自由文本）。支付 = payment_pending 附 `checkout_url`（web 下单页 `/orders/new?enrollmentId=`，外部浏览器完成）+ `get_order_status`（本人最新订单白名单摘要——id/amount/provider/status/expires_at/paid_at，**渠道凭据/单号/回调原文永不出面**）。学习入口 = `get_my_enrollments`（全状态跨台封顶 100；扩展课程面板列表源——confirmed 课程即学习入口，零学习记录也显示）。
+- **架构位置**：`mcp/tools/learner_journey.ex`（共享辅助：active_statuses/checkout_url/active_enrollment(s)）+ 五工具；两读面（discover/my_enrollments）`optional+deferred` 双键跨台锚定，三面（summary/create/order）`deferred` workspace 必填；`Admission.Enrollment :create_enrollment` 域 action 单源（web/小程序/工具同语义）；`Course.published_content/2`（显式 workspace_id 版，S7 增设——actor policy 读出的 workspace_id 列对非成员是 ForbiddenField）。扩展侧 `api/learner_routes.rb` 五 loopback 路由 + 发现面板 v2（报名确认卡/支付轮询 5s·10min cap/去支付外链）。
+
 ### curriculum_enabled（教研开关，Event-only）
 
 - **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.curriculum_enabled` 列已删除——对账规则④对 Course 无条件（open 且无 published 教研定义 = 孤儿），Readiness 教研项对 Course 无条件检查。
