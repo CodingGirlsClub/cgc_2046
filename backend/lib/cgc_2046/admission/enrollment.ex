@@ -1275,6 +1275,73 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp domain_error_code(_), do: "enrollment_unknown"
 
+  # ── ⑨ 跨域行锁端口（ADR-0010 批次4 清偿）────────────────────────────────
+  # Payments 下单链对 enrollments 的裸 SQL 直读收编为本端口（SQL 原样内迁，
+  # 返回形状与 Payments.Order 旧内联实现逐键一致，行为零变化）。
+
+  @doc """
+  下单链路行锁读（review F5）：`SELECT … FOR UPDATE` 序列化下单与批量免缴
+  竞态——**调用方须在事务内调用，行锁存活至其事务提交**；锁内重读的 status
+  是裁决口径（免缴先提交则读 confirmed 拒单）。
+  返回 `{:ok, %{id, workspace_id, user_id, status, event_id, course_id,
+  submission_payload}}` / `{:error, :enrollment_not_found | :enrollment_required
+  | {:database, term()}}`。
+  """
+  @spec lock_for_order(term()) ::
+          {:ok, map()}
+          | {:error, :enrollment_not_found | :enrollment_required | {:database, term()}}
+  def lock_for_order(id) when is_binary(id) do
+    sql = """
+    SELECT id, workspace_id, user_id, status, event_id, course_id, submission_payload
+    FROM enrollments WHERE id = $1 FOR UPDATE
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
+      {:ok, %{rows: [[id, ws, user_id, status, event_id, course_id, payload]]}} ->
+        {:ok,
+         %{
+           id: Ecto.UUID.load!(id),
+           workspace_id: Ecto.UUID.load!(ws),
+           user_id: Ecto.UUID.load!(user_id),
+           status: lock_status_to_atom(status),
+           event_id: event_id && Ecto.UUID.load!(event_id),
+           course_id: course_id && Ecto.UUID.load!(course_id),
+           submission_payload: payload || %{}
+         }}
+
+      {:ok, %{rows: []}} ->
+        {:error, :enrollment_not_found}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  def lock_for_order(_id), do: {:error, :enrollment_required}
+
+  @doc """
+  下单租户解析读（U1 骨架从 enrollment 派生租户）：无锁直读 workspace_id。
+  返回 `{:ok, workspace_id}` / `{:error, :enrollment_not_found |
+  :enrollment_required | {:database, term()}}`。
+  """
+  @spec workspace_id_for_order(term()) ::
+          {:ok, Ecto.UUID.t()}
+          | {:error, :enrollment_not_found | :enrollment_required | {:database, term()}}
+  def workspace_id_for_order(id) when is_binary(id) do
+    case Cgc2046.Repo.query("SELECT workspace_id FROM enrollments WHERE id = $1", [
+           Cgc2046.Repo.uuid!(id)
+         ]) do
+      {:ok, %{rows: [[workspace_id]]}} -> {:ok, Ecto.UUID.load!(workspace_id)}
+      {:ok, %{rows: []}} -> {:error, :enrollment_not_found}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
+  def workspace_id_for_order(_id), do: {:error, :enrollment_required}
+
+  defp lock_status_to_atom(status) when is_binary(status), do: String.to_existing_atom(status)
+  defp lock_status_to_atom(status) when is_atom(status), do: status
+
   # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
   # idempotency_key / workspace_id 由 emitter 统一注入，plan 2026-08-14-003 Q12）──
 
