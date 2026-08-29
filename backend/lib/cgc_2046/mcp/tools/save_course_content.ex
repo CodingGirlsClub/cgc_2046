@@ -4,7 +4,10 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
 
   - 写 Curriculum.Output(kind=:issues, key=course_<id>)活文档(U1
     upsert_content;run 终态后仍可更新,Q8);
-  - run 非终态时向教研 run `facts["issues"]` 浅合并镜像(KTD1)。
+  - run 非终态时向教研 run `facts["issues"]` 浅合并镜像(KTD1);
+  - 版本纪律(S4,R9/R10):`base_version` 必传——首存 0,其后为
+    `get_course_content` 返回的当前 `version`;check-and-write 单语句原子,
+    陈旧基准或并发首存落败 → `version_conflict:` 错误(草稿不变,重读后再写)。
 
   授权(R6/KTD2):tutor ∪ owner/admin(membership roles 并集;owner/admin
     豁免语义同 StepAuthorization,成员角色 tutor 放行,learner/volunteer 拒)。
@@ -16,6 +19,8 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Curriculum.Output
 
+  require Ash.Query
+
   @non_terminal_statuses [:pending, :running, :waiting]
 
   schema do
@@ -25,6 +30,10 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
     field(:content, {:required, :map},
       description: "course content:%{goals: [string], issues: [issue 卡]}(形状校验在资源层)"
     )
+
+    field(:base_version, {:required, :integer},
+      description: "乐观并发基准版本:首次保存传 0;其后传 get_course_content 返回的当前 version"
+    )
   end
 
   @impl true
@@ -33,12 +42,15 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
       Wrapper.run(frame, params, "save_course_content", fn actor, workspace_id, params ->
         course_id = params["course_id"] || params[:course_id]
         content = params["content"] || params[:content]
+        base_version = params["base_version"] || params[:base_version]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, course} <- fetch_course(workspace_id, course_id),
-             {:ok, output} <- save_output(actor, workspace_id, course, content) do
+             {:ok, output} <- save_output(actor, workspace_id, course, content, base_version) do
           mirror_to_run(course, content)
-          {:ok, %{course_id: course_id, key: output.key, status: "saved"}}
+
+          {:ok,
+           %{course_id: course_id, key: output.key, version: output.version, status: "saved"}}
         end
       end)
 
@@ -70,7 +82,7 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
     end
   end
 
-  defp save_output(actor, workspace_id, course, content) do
+  defp save_output(actor, workspace_id, course, content, base_version) do
     changeset =
       Output
       |> Ash.Changeset.for_create(
@@ -80,7 +92,8 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
           kind: :issues,
           data: content,
           submitted_by: actor.id,
-          workflow_run_id: course.workflow_run_id
+          workflow_run_id: course.workflow_run_id,
+          base_version: base_version
         },
         tenant: workspace_id,
         actor: actor
@@ -94,10 +107,29 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
         {:error, "forbidden: not authorized to save course content"}
 
       {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
+        # 版本冲突(StaleRecord:upsert_condition 零行命中)映射为带当前版本号的
+        # version_conflict 契约文案;base_version 缺失/首存基准错等域名错误原样透出
+        if Enum.any?(err.errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
+          {:error, Output.version_conflict_message(current_version(workspace_id, course))}
+        else
+          {:error, Exception.message(err)}
+        end
 
       {:error, _} ->
         {:error, "failed to save course content"}
+    end
+  end
+
+  # 冲突文案里的当前版本号(信息性重读,真实契约是客户端经 get_course_content
+  # 重读);读不到(不应发生:StaleRecord 意味冲突行存在)按无草稿 0 处理
+  defp current_version(workspace_id, course) do
+    Output
+    |> Ash.Query.filter(key == ^Output.course_key(course.id) and kind == :issues)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+    |> case do
+      {:ok, %{version: version}} -> version
+      _ -> 0
     end
   end
 
