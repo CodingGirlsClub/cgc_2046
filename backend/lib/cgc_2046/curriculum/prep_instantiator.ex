@@ -86,11 +86,21 @@ defmodule Cgc2046.Curriculum.PrepInstantiator do
          {:ok, %WorkflowDefinition{} = defn} <- fetch_prep_definition(course.workspace_id) do
       input = %{"course_id" => course.id, "title" => data["title"] || course.title}
 
-      case launch(course.workspace_id, defn.id, input) do
+      # advisor R2（R1-01b）：producer 参加与懒开次周期**同一** course 锁协议
+      # （`Prep.spawn_under_course_lock/3`）——锁内重读最新 status（仍 draft
+      # 才建；锁外 ensure_draft 只作快速拒绝，stale struct 窗口由锁内裁决
+      # 封死）+ 锁内重读 active run（并发幂等）。
+      course
+      |> Prep.spawn_under_course_lock(["draft"], fn ->
+        launch(course.workspace_id, defn.id, input)
+      end)
+      |> case do
         {:ok, %WorkflowRun{} = run} ->
           link_prep_run(course, run)
 
         {:error, reason} ->
+          # terminal 状态的幂等放弃（课程已 launch/close/cancel——重投无意义）
+          # 与 DB 失败同为 best-effort：记日志不抛错（信号路径原语义）
           Logger.error(
             "PrepInstantiator launch failed for course #{course_id}: #{inspect(reason)}"
           )

@@ -834,8 +834,8 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
   # ── 惰性次周期原子性与 terminal 生命周期（advisor R1：S6-01/S6-02） ---------------
 
-  describe "惰性次周期原子性（S6-01）" do
-    test "并发 get_prep_status 懒开：course 行锁串行化，恰一个非终态 run，fetch_run 不多行" do
+  describe "惰性次周期原子性（S6-01/R1-02）" do
+    test "并发懒开（保真 miss→create 窗口）：两参与者都已观察到 miss 后进锁，恰一个非终态 run" do
       {owner, workspace, course, tutor} =
         unboxed(fn ->
           owner = Fixtures.platform_admin("s6-lazy-owner")
@@ -863,29 +863,25 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       cleanup_on_exit(workspace.id, [owner, tutor])
       barrier = start_supervised!({Barrier, 2})
 
-      # 发布后 run1 已终态且无次周期 run——两个成员并发读状态（check-then-create
-      # 竞态窗口）：FOR UPDATE 串行化，后到者锁内重读返回胜者已建的 run
+      # R1-02 保真：两参与者先各自确认 initial miss（fetch_run = nil），Barrier
+      # 同步后才进 lock/create 窗口——删锁时两者都从 miss 出发并发建 run，
+      # 测试必红（不靠调度器碰运气串行）
       results =
         [tutor, tutor]
         |> Enum.map(fn actor ->
           Task.async(fn ->
             unboxed(fn ->
+              nil = Prep.fetch_run(course.id, workspace.id)
               Barrier.arrive(barrier)
-
-              case GetPrepStatus.execute(
-                     %{"workspace_id" => workspace.id, "course_id" => course.id},
-                     frame_for(actor)
-                   ) do
-                {:reply, _, _} -> :ok
-                {:error, %Anubis.MCP.Error{message: msg}, _} -> {:error, msg}
-              end
+              Prep.ensure_active_run(course, actor: actor)
             end)
           end)
         end)
         |> Task.await_many(15_000)
 
-      # 两调用都成功（后到者不报错、不重复建）
-      assert results == [:ok, :ok]
+      # 两参与者都成功，且拿到同一个 run（后到者锁内重读胜者已建的 run）
+      assert [{:ok, run_a}, {:ok, run_b}] = results
+      assert run_a.id == run_b.id
 
       unboxed(fn ->
         all = prep_runs(workspace)
@@ -897,6 +893,107 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
         # fetch_run 幂等可读（多行会 MultipleResults 卡死——S6-01 的原始故障面）
         assert %WorkflowRun{} = Prep.fetch_run(course.id, workspace.id)
       end)
+    end
+  end
+
+  describe "terminal 收口后的确定性交错（advisor R2：R1-01 序列 A/B）" do
+    test "序列 A：terminal 先提交、lazy caller 携 stale open struct 后获锁——锁内重读拒绝，无写副作用" do
+      owner = Fixtures.platform_admin("s6-r2a-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-r2a-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "序列 A"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # 交错第一步：lazy caller 在 close 前读到 open struct（stale 快照）
+      stale_open = Ash.get!(Course, course.id, authorize?: false)
+      assert stale_open.status == :open
+
+      # 交错第二步：close 抢先提交（收口无 run 可收——次周期尚未开）
+      stale_open
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # 交错第三步：lazy caller 携 stale struct 后获锁——锁内重读最新 status
+      # 必须 closed 拒绝（锁外 guard 对 stale struct 无效，正确性来源在锁内）
+      assert {:error, msg} = Prep.ensure_active_run(stale_open, actor: tutor)
+      assert msg =~ "course #{course.id} is closed"
+
+      # 终态后 active run 恒 0
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "序列 B：created handler 通过 draft 检查后课程抢先 launch+close——锁内重读放弃，无写副作用" do
+      owner = Fixtures.platform_admin("s6-r2b-owner")
+      workspace = Fixtures.create_workspace(owner)
+      create_prep_definition(workspace, owner)
+
+      # 无 prep run 的 draft 课程（course.created 未投递）
+      course = draft_course(workspace, owner, %{title: "序列 B"})
+
+      # 交错第一步：handler 读到 draft struct（stale 快照，通过 ensure_draft）
+      stale_draft = course
+      assert stale_draft.status == :draft
+
+      # 交错第二步：legacy 路径抢先——无 prep run 的课程 launch 放行（教研门：
+      # 无 prep run 照常发布），随后 close 提交
+      stale_draft
+      |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      {:ok, launched} = Ash.get(Course, course.id, tenant: workspace.id, authorize?: false)
+      assert launched.status == :open
+
+      launched
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # 交错第三步：handler 恢复，携 stale draft struct 进锁协议（模拟锁外
+      # ensure_draft 已过、锁前 terminal 的窗口）——锁内重读 status = closed，
+      # 幂等放弃
+      {:ok, defn} = PrepInstantiator.fetch_prep_definition(workspace.id)
+
+      assert {:error, msg} =
+               Prep.spawn_under_course_lock(stale_draft, ["draft"], fn ->
+                 PrepInstantiator.launch(workspace.id, defn.id, %{
+                   "course_id" => stale_draft.id,
+                   "title" => stale_draft.title
+                 })
+               end)
+
+      assert msg =~ "course #{course.id} is closed"
+
+      # 终态后 active run 恒 0（terminal 课程无孤儿 prep run）
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+
+      # 端到端：真实 handler 对 closed 课程同样幂等放弃（fetch_course 重读 →
+      # 锁外 ensure_draft 快速拒绝 → :ok 无写副作用）
+      assert :ok =
+               SignalSubscriber.deliver(PrepInstantiator, %{
+                 type: "course.created",
+                 data: %{"course_id" => course.id, "title" => course.title}
+               })
+
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
     end
   end
 
