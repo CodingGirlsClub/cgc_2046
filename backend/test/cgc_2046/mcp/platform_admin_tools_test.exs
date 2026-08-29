@@ -6,7 +6,8 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   - 读四件：admin 见用户/工作台/申请；admin_list_audit_logs 三源只投影操作
     元数据（断言无 params/payload/metadata 键，§B#21 结构性免疫）
   - 写六件（确认流两段）：approve/reject 申请、create_workspace 双 Owner 路径、
-    pending-owner 重指派、promote/demote（≥1 admin 不变量错误原文透传）
+    pending-owner 重指派、promote/demote（≥1 admin 不变量错误原文透传；
+    确认窗口内角色被撤 → confirm 被域 policy 拒 + pending 回滚可重试）
   - cancel_operation 无副作用；他人 pending 不可确认（新分派子句同受归属校验保护）
 
   async: false + setup 清 admin 标记：≥1 admin 不变量依赖全局计数
@@ -662,6 +663,57 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       # effect 失败回滚 pending（MEDIUM-2 语义），管理员标记未动
       assert pending_status(pending_id) == :pending
       assert Ash.get!(User, admin.id, authorize?: false).is_platform_admin
+    end
+
+    test "确认窗口内 admin 角色被撤 → confirm 被域 policy 拒 + pending 回滚可重试" do
+      # §B#7 第二段兜底：第一段门控只在 request 时拦一次，confirm 以 confirm 时刻
+      # actor 调域 action，PlatformAdmin policy 必须拒绝已失权的确认。
+      admin = Fixtures.platform_admin("pa-rw-admin")
+      revoker = Fixtures.platform_admin("pa-rw-revoker")
+
+      # 第一段：admin 对自建 pending（demote 自己——confirm 段自读走 ReadOwnUser
+      # 仍放行，失败精确落在写 policy 上而非读 policy）
+      {:reply, _, _} =
+        reply = AdminDemoteUser.execute(%{"user_id" => admin.id}, frame_for(admin))
+
+      %{"pending_id" => pending_id} = decode_reply(reply)
+
+      # 确认窗口内：另一管理员经域 action 撤掉发起者的管理员身份
+      {:ok, _} =
+        admin
+        |> Ash.Changeset.for_update(:demote_platform_admin, %{})
+        |> Ash.update(actor: revoker)
+
+      # confirm 时刻 actor 由服务端按会话重新解析（fresh read），PlatformAdmin policy
+      # 读的是 actor struct 上的标记——撤销后到达 confirm 的 actor 已是非管理员
+      admin = Ash.get!(User, admin.id, authorize?: false)
+      refute admin.is_platform_admin
+
+      # 第二段：confirm 被域 policy 拒（effect 失败 → pending 回滚）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "forbidden: platform admin required to demote users"
+      assert pending_status(pending_id) == :pending
+
+      # 被拒的 confirm 零 effect：admin_demote 留痕恰一行（revoker 的撤权）
+      assert [log] = admin_action_logs(:admin_demote, admin.id)
+      assert log.actor_id == revoker.id
+
+      # 回滚后可重试：恢复身份再 confirm 同一 pending 即成功
+      # （重试请求的 actor 同样是重新解析的——用域 action 返回的新 struct）
+      {:ok, admin} =
+        admin
+        |> Ash.Changeset.for_update(:set_platform_admin, %{is_platform_admin: true})
+        |> Ash.update(actor: revoker)
+
+      assert {:reply, _, _} =
+               retry_reply =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert decode_reply(retry_reply)["result"]["is_platform_admin"] == false
+      refute Ash.get!(User, admin.id, authorize?: false).is_platform_admin
+      assert Ash.get!(User, revoker.id, authorize?: false).is_platform_admin
     end
   end
 
