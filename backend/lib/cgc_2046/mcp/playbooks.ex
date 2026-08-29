@@ -64,8 +64,12 @@ defmodule Cgc2046.Mcp.Playbooks do
   5. id 唯一性:issue id 在卡集内唯一,checklist item id 在单张 issue 内唯一(平台在提交时校验);
   6. materials 是朴素参考列表({title, ref}),不按 kind 区分形态。
 
-  提交:整套内容经 save_course_content(workspace_id, course_id, content) 写入,content 形如
+  提交:整套内容经 save_course_content(workspace_id, course_id, content, base_version) 写入,content 形如
   %{"goals" => [课程级目标字符串], "issues" => [issue 卡]}。提交成功即视为教研产出确认;后续修订走同一工具(活文档,平台按 (course_<id>, issues) upsert)。
+
+  版本纪律(乐观并发):
+  - 写入草稿前必须先调用 get_course_content(workspace_id, course_id) 读取当前 version,save_course_content 必须携带 base_version——首次保存(尚无草稿,get_course_content 报无内容)传 base_version=0,其后一律传刚读到的 version;
+  - 收到 version_conflict 错误时,说明草稿已被他人/他会话改动:必须先重新 get_course_content 读取最新内容与 version,在最新版本上合并你的修改后再提交——不得携带旧 base_version 盲目重试,那会覆盖面板或他人的修改。
 
   纪律:
   - 起草前先调用 get_course_content(workspace_id, course_id) 读取当前内容,在其基础上迭代,不覆盖他人已有成果;
@@ -82,7 +86,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   3. 成员写操作（走 two-tool 确认流）:
      - create_invitation(workspace_id, ...) 创建邀请(可指定目标邮箱或生成公开链接,可选有效期小时数);
      - approve_join_request(workspace_id, join_request_id, ...) 批准加入申请(仅可授予非管理角色;owner 走 assign_roles 专门指派);
-     - assign_roles(workspace_id, user_id, role_names) 整体替换某成员的角色集合(role_names 为替换后的完整集合,空数组 = 清空差异标签);
+     - assign_roles(workspace_id, membership_id, role_names) 整体替换某成员的角色集合(membership_id 从 list_members 获取;role_names 为替换后的完整集合,空数组 = 清空差异标签);
   4. 课程生命周期（除 create_course 外均走确认流）:
      - create_course(workspace_id, title?, ...) 直接写,创建 draft 课程;title 可省略——系统生成临时占位标题并打 provisional_title 标记;
      - update_course(workspace_id, course_id, ...) 改标题/描述/定价/报名策略等;设置正式标题即自动清除 provisional_title;pricing_enabled 改 false 会批量免缴该课程全部待支付报名(摘要会展示受影响笔数,确认后逐笔免缴留痕);
@@ -92,7 +96,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   6. 订单与退款:list_workspace_orders(workspace_id, course_id?) 读取本工作台订单行(course_id 可选=按课程过滤,缺省全工作台);refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;
   7. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请);
   8. 工作流:get_workflow(workspace_id, run_id) 读取 run 状态;get_step_output(workspace_id, run_id, step_key) 读 step 产出;save_step_output 写 step 产出(直接写,需该 step 授权);
-  9. 课程内容:get_course_content / save_course_content(workspace_id, course_id, content) 读写课程 issue 卡集(教研面同 tutor 模式);
+  9. 课程内容:get_course_content / save_course_content(workspace_id, course_id, content, base_version) 读写课程 issue 卡集(教研面同 tutor 模式,base_version 乐观并发纪律同);
   10. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
 
   确认流纪律:上述写操作（除 create_course）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
@@ -132,8 +136,8 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-08-29.2", content: @workspace_admin_content},
-    tutor: %{version: "2026-08-29.1", content: @tutor_content},
+    workspace_admin: %{version: "2026-08-29.3", content: @workspace_admin_content},
+    tutor: %{version: "2026-08-29.2", content: @tutor_content},
     learner: %{version: "2026-08-29.1", content: @learner_content}
   }
 

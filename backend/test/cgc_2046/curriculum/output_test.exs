@@ -64,7 +64,8 @@ defmodule Cgc2046.Curriculum.OutputTest do
           kind: :issues,
           data: content,
           submitted_by: actor.id,
-          workflow_run_id: course.workflow_run_id
+          workflow_run_id: course.workflow_run_id,
+          base_version: 0
         },
         attrs
       ),
@@ -117,7 +118,7 @@ defmodule Cgc2046.Curriculum.OutputTest do
   end
 
   describe "活文档更新" do
-    test "同 key 二次保存为更新,不产生第二行" do
+    test "同 key 二次保存为更新,不产生第二行;version 递增(S4)" do
       admin = Fixtures.platform_admin("ro-live")
       workspace = Fixtures.create_workspace(admin)
       tutor = Fixtures.register_user("ro-live-tutor")
@@ -125,14 +126,17 @@ defmodule Cgc2046.Curriculum.OutputTest do
       course = EventFixtures.create_course(workspace, admin, %{title: "课程"})
 
       {:ok, first} = upsert(workspace, tutor, course, content_fixture())
+      assert first.version == 1
+
       updated_content = content_fixture(%{"goals" => ["目标 v2"]})
 
-      assert {:ok, second} = upsert(workspace, admin, course, updated_content)
+      assert {:ok, second} = upsert(workspace, admin, course, updated_content, %{base_version: 1})
 
-      # 更新面:data 与 submitted_by;key/kind 是身份不改
+      # 更新面:data 与 submitted_by;key/kind 是身份不改;version 1 → 2
       assert second.id == first.id
       assert second.data["goals"] == ["目标 v2"]
       assert second.submitted_by == admin.id
+      assert second.version == 2
 
       assert [row] =
                Output
@@ -140,6 +144,84 @@ defmodule Cgc2046.Curriculum.OutputTest do
                |> Ash.read!(authorize?: false, tenant: workspace.id)
 
       assert row.id == first.id
+    end
+  end
+
+  describe "草稿版本契约(S4,base_version 乐观并发)" do
+    test "缺 base_version → 必填错误" do
+      admin = Fixtures.platform_admin("ro-ver-req")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      assert {:error, error} =
+               Output
+               |> Ash.Changeset.for_create(
+                 :upsert_content,
+                 %{
+                   key: Output.course_key(course.id),
+                   kind: :issues,
+                   data: content_fixture(),
+                   submitted_by: admin.id
+                 },
+                 tenant: workspace.id,
+                 actor: admin
+               )
+               |> Ash.create(tenant: workspace.id, actor: admin)
+
+      assert Exception.message(error) =~ "base_version is required"
+    end
+
+    test "首存传非 0 base_version(无草稿行)→ version_conflict 语义(version 0)" do
+      admin = Fixtures.platform_admin("ro-ver-first")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      assert {:error, error} =
+               upsert(workspace, admin, course, content_fixture(), %{base_version: 1})
+
+      assert Exception.message(error) =~ "version_conflict: draft is at version 0"
+      assert Exception.message(error) =~ "get_course_content"
+
+      # 草稿未落库
+      assert Output
+             |> Ash.Query.filter(key == ^Output.course_key(course.id))
+             |> Ash.read!(authorize?: false, tenant: workspace.id) == []
+    end
+
+    test "陈旧 base_version → StaleRecord,行保持不变" do
+      admin = Fixtures.platform_admin("ro-ver-stale")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      {:ok, first} = upsert(workspace, admin, course, content_fixture())
+
+      # 以过期基准(0)再写:行已存在(version 1),upsert_condition 不命中
+      # (StaleRecord 经事务回滚包装为 Invalid 类返回)
+      assert {:error, %Ash.Error.Invalid{errors: stale1}} =
+               upsert(workspace, admin, course, content_fixture(%{"goals" => ["覆盖"]}))
+
+      assert Enum.any?(stale1, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+      # 以 version 1 写成功 → version 2;再用同一基准写 → StaleRecord
+      assert {:ok, second} =
+               upsert(workspace, admin, course, content_fixture(), %{base_version: first.version})
+
+      assert second.version == 2
+
+      assert {:error, %Ash.Error.Invalid{errors: stale2}} =
+               upsert(
+                 workspace,
+                 admin,
+                 course,
+                 content_fixture(%{"goals" => ["覆盖"]}),
+                 %{base_version: 1}
+               )
+
+      assert Enum.any?(stale2, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+      reloaded = Ash.get!(Output, first.id, authorize?: false, tenant: workspace.id)
+      assert reloaded.version == 2
+      assert reloaded.data["goals"] == ["能写简单程序"]
     end
   end
 

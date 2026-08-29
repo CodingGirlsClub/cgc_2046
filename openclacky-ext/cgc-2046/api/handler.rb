@@ -99,8 +99,8 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("skills sync ships in a later slice", status: 501)
   end
 
-  # ── U9 课程学习面板数据面(纯读透传;写操作发生在 session) ──────────────
-  # workspace_id 为必填 query(平台 D12 无状态作用域);面板侧经配置记忆。
+  # ── U9 课程学习面板数据面(读透传 + S4 草稿写回;学习评价写回发生在 session) ──
+  # workspace_id 为必填 query(平台 D12 无状态作用域);面板侧经选择器记忆。
 
   # GET /api/ext/cgc-2046/courses?workspace_id=...
   # 我的课程列表:透传 MCP get_learning_records(本人全部课程记录,面板按
@@ -111,9 +111,38 @@ class Cgc2046Ext < Clacky::ApiExtension
   end
 
   # GET /api/ext/cgc-2046/courses/:course_id/content?workspace_id=...
-  # 课程内容(issue 卡集):透传 MCP get_course_content。
+  # 课程内容(issue 卡集草稿):透传 MCP get_course_content。
+  # 结果顶层 version 随透传自动流动(S4 乐观并发的读侧)。
   get "/courses/:course_id/content" do
     outcome = course_tool("get_course_content", { "course_id" => route_params_value("course_id") })
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # POST /api/ext/cgc-2046/courses/:course_id/content
+  # 课程草稿保存(S4-extension):透传 MCP save_course_content。
+  # body { workspace_id, content, base_version } 皆必填,base_version 必须整数
+  # (首存 0,之后为当前版本);版本冲突 → 409(面板据此加载最新草稿并提示重编)。
+  post "/courses/:course_id/content" do
+    body         = json_body
+    workspace_id = (body["workspace_id"] || body[:workspace_id]).to_s.strip
+    content      = body["content"] || body[:content]
+    base_version = body["base_version"] || body[:base_version]
+
+    outcome =
+      if workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
+      elsif !content.is_a?(Hash)
+        { status: 400, body: { error: "content must be an object" } }
+      elsif !base_version.is_a?(Integer)
+        { status: 400, body: { error: "base_version must be an integer" } }
+      else
+        Cgc2046CourseRoutes.call_course_save_tool(self, {
+          "workspace_id" => workspace_id,
+          "course_id"    => route_params_value("course_id"),
+          "content"      => content,
+          "base_version" => base_version
+        })
+      end
     json(outcome[:body], status: outcome[:status])
   end
 

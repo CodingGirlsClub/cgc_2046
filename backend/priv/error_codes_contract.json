@@ -80,6 +80,7 @@
     "sponsorship_tier_not_found",
     "sponsorship_unknown",
     "sponsorship_unknown_level",
+    "version_conflict",
     "wechat_login_unavailable"
   ]
 }
