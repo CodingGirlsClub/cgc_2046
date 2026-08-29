@@ -140,7 +140,9 @@ defmodule Cgc2046.Mcp.Wrapper do
     case meta_for(tool_name) do
       # 公开浏览工具族：任何持连接 token 的登录用户可读公开面（KTD2/KTD3）
       %{membership: :public} -> :public
-      # 确认流承载工具：鉴权在 Confirmation 内做（pending 归属校验即授权）
+      # 确认流承载工具（鉴权在 Confirmation 内做，pending 归属校验即授权）+
+      # actor 锚定跨工作台读（S1：list_my_workspaces / get_role_playbook
+      # 双键同命中本分支，无单一 workspace 可作门，授权在工具层）
       %{workspace_id: :optional} -> :optional
       # 成员门槛由工具层授权判定替代（save_step_output 学员 / 课程三学员侧工具）
       %{membership: :deferred} -> :deferred
@@ -155,7 +157,8 @@ defmodule Cgc2046.Mcp.Wrapper do
       :public ->
         :ok
 
-      # 确认流承载工具：鉴权在 Confirmation 内做（pending 归属校验即授权）
+      # 确认流承载工具（鉴权在 Confirmation 内做，pending 归属校验即授权）+
+      # actor 锚定跨工作台读（list_my_workspaces / get_role_playbook，工具层授权）
       :optional ->
         :ok
 
