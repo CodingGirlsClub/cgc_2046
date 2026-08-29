@@ -27,14 +27,14 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
 
   require Ash.Query
 
-  defp create_curriculum_definition(workspace, actor) do
+  defp create_curriculum_definition(workspace, actor, type \\ :curriculum) do
     {:ok, defn} =
       WorkflowDefinition
       |> Ash.Changeset.for_create(
         :create,
         %{
           name: "教研 #{Ecto.UUID.generate()}",
-          type: :curriculum,
+          type: type,
           input_schema: %{},
           node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
         },
@@ -131,8 +131,9 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
       refute curriculum_item.ok
       refute result.ready
 
-      # 有定义 → ok(无条件检查的正向)
-      create_curriculum_definition(workspace, admin)
+      # 有定义 → ok(无条件检查的正向)。S5 起 course 教研项查
+      # :course_preparation 定义(prep run 实例化源),event 仍 :curriculum
+      create_curriculum_definition(workspace, admin, :course_preparation)
 
       result2 = Readiness.evaluate(course)
       curriculum_item2 = Enum.find(result2.items, &(&1.key == "curriculum_definition"))

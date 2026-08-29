@@ -145,8 +145,8 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       payload = decode_reply(reply)
       assert payload["role"] == "tutor"
-      # S4 bump:tutor playbook 加 base_version 乐观并发纪律
-      assert payload["version"] == "2026-08-29.2"
+      # S5 bump:tutor playbook 加教研旅程动线（认领/质检/评分/审核链路）
+      assert payload["version"] == "2026-08-29.3"
       assert payload["content"] =~ "教研模式"
       # S1 吸收原 Curriculum.AgentInstructions 起草规则段落随版本号分发
       assert payload["content"] =~ "id 稳定纪律"
@@ -154,6 +154,9 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       # S4:版本纪律章节随版本号分发
       assert payload["content"] =~ "base_version"
       assert payload["content"] =~ "version_conflict"
+      # S5:教研旅程章节随版本号分发
+      assert payload["content"] =~ "claim_prep_authoring"
+      assert payload["content"] =~ "submit_prep_quality_report"
     end
 
     test "tutor：缺 workspace_id → 明确报错（非 forbidden 审计）" do

@@ -86,6 +86,7 @@ class CourseRoutesTest < Minitest::Test
     assert_includes routes, [:get, "/courses"]
     assert_includes routes, [:get, "/courses/:course_id/content"]
     assert_includes routes, [:get, "/courses/:course_id/records"]
+    assert_includes routes, [:get, "/courses/:course_id/prep"]
   end
 
   # ---- 透传 JSON(plan U9 场景 2) ----
@@ -128,6 +129,24 @@ class CourseRoutesTest < Minitest::Test
     assert_equal 200, halt.status
     assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
     assert_equal "get_learning_records", JSON.parse(halt.payload)["tool"]
+  end
+
+  # S5-extension:教研状态透传(get_prep_status;workspace_id query 合并同 course_tool)
+  def test_prep_transfers_get_prep_status
+    prep = { "course_id" => COURSE, "prep_state" => "authoring",
+             "policy" => { "review_required" => true, "quality_threshold" => 80, "reviewer_user_id" => nil },
+             "assignee_user_id" => "u-1", "latest_quality_report" => nil,
+             "gate_violations" => [], "version" => 3 }
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(prep) }] })
+
+    halt = invoke(:get, "/courses/:course_id/prep",
+                  build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
+
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "get_prep_status", body["tool"]
+    assert_equal "authoring", body["result"]["prep_state"]
+    assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
   end
 
   # ---- 未连接态(plan U9 场景 2 后半) ----
@@ -268,5 +287,18 @@ class CoursePanelViewTest < Minitest::Test
     # 面板不直连 MCP 写工具名之外的回写通道;唯一 POST 面 = 草稿保存路由
     assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/content"'
     refute_match(/method:\s*["'](?:PUT|DELETE|PATCH)["']/, VIEW)
+  end
+
+  def test_panel_prep_section_structure
+    # S5-extension:canEdit 详情页教研流程状态区(prep_state badge / 违规清单 /
+    # 最新质量报告);仅读透传 get_prep_status,无写操作
+    assert_includes VIEW, 'data-testid="panel-prep"'
+    assert_includes VIEW, 'data-testid="panel-prep-state"'
+    assert_includes VIEW, 'data-testid="panel-prep-violations"'
+    assert_includes VIEW, 'data-testid="panel-prep-quality"'
+    assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/prep"'
+    # 存量课程无 prep run 按 null 处理(不置 state.error)
+    assert_includes VIEW, "state.prep = null"
+    refute_includes VIEW, "approve_prep"
   end
 end
