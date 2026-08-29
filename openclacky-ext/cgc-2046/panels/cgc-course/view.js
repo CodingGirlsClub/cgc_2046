@@ -21,9 +21,10 @@
 // 记录签名),变化只亮非侵入更新条,不打断浏览;编辑/保存态轮询挂起(陈旧基准
 // 由保存时 409 兜底);手动刷新按钮常驻。
 //
-// 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/courses*)→
-// 扩展 core 作为 MCP 客户端透传 get_learning_records / get_course_content /
-// save_course_content / get_prep_status(dsh-cgc-core 已验证模式)。
+// 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/*)→
+// 扩展 core 作为 MCP 客户端透传学习面工具(S8:get_learning_state /
+// start_learning_run / get_course_revision;内容编辑面 get_course_content /
+// save_course_content / get_prep_status;dsh-cgc-core 已验证模式)。
 //
 // 未连接态(loopback 503 或 status 未配置)→ 引导视图(去连接面板)。
 
