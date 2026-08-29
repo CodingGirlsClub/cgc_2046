@@ -372,6 +372,11 @@
 - **定义**：一条 checklist 条目的完成记录（done + evidence 摘要 + recorded_at）。**唯一键 `(course_id, user_id, issue_id, item_id)`，upsert 最新为准——记忆挂人不挂报名**（跨 enrollment 延续，退款重报不清零；enrollment_id/run_id 为审计列）。课程 close/cancel 后拒写保读（账本不删）。**记忆在平台、算法在 agent**：平台只存结构与做进度投影（全 issue Done → learning run succeeded），自适应教学决策（八步循环）全在学员 agent，经学习 Agent 指令分发（D10）。导出预留：未来用户可下载个人记忆（用户数据权利）。
 - **架构位置**：learning_records 表；MCP `get_learning_records`（course_id 可选，缺省 = 本人全部课程记录）/ `save_learning_records`。
 
+### Learning（学习上下文）
+
+- **定义**：学员侧学习的限界上下文：LearningRecord（个人记忆库，见上条）+ 学习实例化与进度逻辑（ADR-0010 A3 归位，2026-08-29）——`Learning.LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死）、`Learning.Progress`（进度投影纯函数族：project/project_issues/issue_key/stagnant_cutoff）、`Learning.AgentInstructions`（学习 Agent 指令模板）、`Learning.RunProjection`（GraphQL 学习详情投影组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁）、`Learning.LearningProgressWorker`（停滞扫描/完课判定）。
+- **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（经 `Curriculum.content_output/2` 读契约），被 GraphQL/MCP 消费。
+
 ### Enrollment（报名 / 事件级参与者）
 
 - **定义**：Event/Course 的**事件级参与者记录**，归**Admission（报名）context**（ADR-0009，取代 D-A4「归活动 context」）：由报名 workflow **同步调 `create_enrollment` Action** 创建（强一致：名额/唯一性）；**不自动成为 Workspace 成员**。报名轻量表单；免费是默认（Event/Course 不配置定价），收费路径经 Order 缴费（2026-08-15 缴费 grilling 拍板，取代 Learner Q3「全免费」约束）。
@@ -392,11 +397,16 @@
 - **对账兜底（R17）**：规则⑧ open 无账本行 / ⑨ occupancy ≠ 占位报名计数 / ⑩ 展示投影漂移超一拍 / ⑪ occupancy > capacity，四规则看护收敛（finding 语义见「对账扫描」词条）。
 - **架构位置**：`Cgc2046.Admission.CapacityLedger`（lib/cgc_2046/admission/，不进 GraphQL）；CapacityLedgerSubscriber 同目录。
 
+### 审批机制族（ApprovalClaim / ApprovalDeadline / PendingApprovals / StatusTransition）
+
+- **定义**：跨 context 共享的横切写原语与读模型（ADR-0010 G1-⑦ 命名，2026-08-29 词条化）——`ApprovalClaim`（status 条件 UPDATE 原子抢占原语，4 context/17 处复用：enrollment confirm/waive/cancel、join_request、invitation 等）、`ApprovalDeadline`（审批截止计算口径）、`StatusTransition`（状态机条件 UPDATE 单文件原语）、`PendingApprovals`（跨 4 域「待我审批」CQRS 读模型）。
+- **架构位置**：**刻意不归任一 context，根部驻留**（lib/cgc_2046/ 顶层）——消费面横跨 Accounts/Admission/Events/Courses/Workflows，归任一域都会把横切原语伪装成域内资产并制造反向依赖；纯函数/裸 SQL 写原语、无自有表（写各调用方聚合的表）。进阶收编为 `approvals/` 目录是开放选项（ADR-0010 G1-⑦），未拍板前维持根部驻留。
+
 ### Curriculum（教研）
 
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
 - **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
-- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）/ 教研段 AgentInstructions 同目录；research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
+- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）/ 教研段 AgentInstructions 同目录；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
 
 ### 内容安全检查（Content Safety Check）
 
@@ -447,7 +457,7 @@
 
 ### ShareScheme（微信 URL Scheme 分享链接）
 
-- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Miniprogram.Code` 先例）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
+- **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出；⑩ 方案 A 收缩后该 domain 仅剩本资源），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Accounts.InvitationCode` 先例——原 Miniprogram.Code，⑩ 方案 A 迁域）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
 - **架构位置**：生成/复用/clamp 唯一入口 = `Cgc2046.Miniprogram.ShareSchemeService.fetch_or_generate/2`（外呼经 `UrlScheme.create_link/3`，errcode 保真传播不落库）；触发 = `Workflows.ShareSchemeInstantiator` 订阅 `event.launched`/`course.launched` → Oban job（`Workers.ShareSchemeWorker`，maintenance 队列）异步预生成——外呼不进信号同步路径，`:not_found` warning 不重试、平台错误走 Oban 默认重试。scheme query/path 只含 `id`+`kind`（安全红线，永不携带 token/凭据/openid）；前端配套 = event-detail 分享 title 兜底 + `Taro.onAppShow` 热启动路由（`resolveAppShowRoute` 纯函数，scene 优先）。
 
 ### AuditLog（审计日志，二期）

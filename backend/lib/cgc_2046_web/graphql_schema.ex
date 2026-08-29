@@ -488,7 +488,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{phone: raw_phone, purpose: purpose}, %{context: context} ->
         with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
-             :ok <- check_phone_code_request_limits(context, phone) do
+             :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_request_limits(context, phone) do
           request_phone_code(phone, purpose)
         else
           {:error, :invalid} ->
@@ -507,7 +507,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
         with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
-             :ok <- check_phone_code_verify_limits(context, phone) do
+             :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone) do
           sign_in_with_phone_code(phone, code, context)
         else
           {:error, :invalid} ->
@@ -536,8 +536,8 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         if Cgc2046.Integrations.Wechat.WebOAuth.configured?() do
-          with :ok <- check_wechat_login_start_limits(context) do
-            start_wechat_login(args[:next])
+          with :ok <- Cgc2046.Accounts.WebAuthFlow.check_wechat_login_start_limits(context) do
+            Cgc2046.Accounts.WebAuthFlow.start_wechat_login(args[:next])
           else
             {:error, :rate_limited} ->
               {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
@@ -566,7 +566,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:state, non_null(:string))
 
       resolve(fn _, %{code: code, state: state}, %{context: context} ->
-        with :ok <- check_wechat_callback_limits(context) do
+        with :ok <- Cgc2046.Accounts.WebAuthFlow.check_wechat_callback_limits(context) do
           case Cgc2046.Accounts.WechatWebSignIn.sign_in_with_wechat(state, code, context) do
             {:ok, :signed_in, user} ->
               {:ok,
@@ -582,7 +582,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, reason} ->
               # 防枚举：客户端只收统一错误；服务端只记白名单分类，原始
               # code/token/身份值与下游 error struct 均不得进入日志。
-              summary = summarize_wechat_sign_in_failure(reason)
+              summary = Cgc2046.Accounts.WebAuthFlow.summarize_wechat_sign_in_failure(reason)
               Logger.warning("[wechat_web sign_in] failed: #{inspect(summary)}")
 
               {:error, message: "WeChat sign in failed", code: "wechat_sign_in_failed"}
@@ -614,7 +614,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                  %{bind_ticket: bind_ticket, phone: raw_phone, code: code},
                  %{context: context} ->
         with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
-             :ok <- check_wechat_bind_limits(context, phone) do
+             :ok <- Cgc2046.Accounts.WebAuthFlow.check_wechat_bind_limits(context, phone) do
           case Cgc2046.Accounts.WechatWebSignIn.bind_wechat_with_phone(
                  bind_ticket,
                  phone,
@@ -667,8 +667,8 @@ defmodule Cgc2046Web.GraphqlSchema do
         context = ctx.context
 
         with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
-             :ok <- check_phone_code_verify_limits(context, phone) do
-          sign_up_with_phone(phone, code, password, context)
+             :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone) do
+          Cgc2046.Accounts.WebAuthFlow.sign_up_with_phone(phone, code, password, context)
         else
           {:error, :invalid} ->
             {:error, message: "Invalid phone number", code: "invalid_phone"}
@@ -702,7 +702,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{email: email}, %{context: context} ->
         email = normalize_email(email)
 
-        case check_password_reset_request_limits(context, email) do
+        case Cgc2046.Accounts.WebAuthFlow.check_password_reset_request_limits(context, email) do
           :ok ->
             strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
 
@@ -742,17 +742,17 @@ defmodule Cgc2046Web.GraphqlSchema do
               {:ok, %{ok: true}}
 
             {:error, error} ->
-              classify_password_reset_error(error, context)
+              Cgc2046.Accounts.WebAuthFlow.classify_password_reset_error(error, context)
 
             other ->
-              report_password_reset_failure(other)
+              Cgc2046.Accounts.WebAuthFlow.report_password_reset_failure(other)
           end
         rescue
           error ->
-            report_password_reset_failure(error)
+            Cgc2046.Accounts.WebAuthFlow.report_password_reset_failure(error)
         catch
           kind, reason ->
-            report_password_reset_failure({kind, reason})
+            Cgc2046.Accounts.WebAuthFlow.report_password_reset_failure({kind, reason})
         end
       end)
     end
@@ -1005,10 +1005,10 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
         with_actor(context, fn actor ->
           with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
-               :ok <- check_phone_code_verify_limits(context, phone),
+               :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone),
                :ok <-
                  Cgc2046.Accounts.PhoneVerificationCode.consume_valid(phone, code, :change_phone) do
-            update_my_phone(actor, phone, context)
+            Cgc2046.Accounts.WebAuthFlow.update_my_phone(actor, phone, context)
           else
             {:error, :invalid} ->
               {:error, message: "Invalid phone number", code: "invalid_phone"}
@@ -1864,47 +1864,6 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # ── 手机验证码（plan 002 U3）───────────────────────────────────────────
 
-  # 发码四窗口限流（phone 1/60s + 5/1h + 20/1d，IP 30/1d）；固定窗口 ETS
-  # 同款（密码重置双限流先例），多实例连调。
-  defp check_phone_code_request_limits(context, phone) do
-    ip = remote_ip(context)
-
-    phone_key = Cgc2046Web.Plugs.RateLimit.build_key("rate:phone-code:phone", phone)
-
-    windows = [
-      {"#{phone_key}:1m", 60, 1},
-      {"#{phone_key}:1h", 3_600, 5},
-      {"#{phone_key}:1d", 86_400, 20},
-      {"rate:phone-code:ip:1d:#{ip}", 86_400, 30}
-    ]
-
-    windows
-    |> Enum.reduce_while(:ok, fn {key, window, max}, :ok ->
-      case Cgc2046Web.Plugs.RateLimit.check(key, window_seconds: window, max_attempts: max) do
-        :ok -> {:cont, :ok}
-        :error -> {:halt, {:error, :rate_limited}}
-      end
-    end)
-  end
-
-  # 验码双限流（phone 5/15min，IP 20/15min）
-  defp check_phone_code_verify_limits(context, phone) do
-    ip = remote_ip(context)
-
-    windows = [
-      {Cgc2046Web.Plugs.RateLimit.build_key("rate:phone-code-verify:phone", phone), 900, 5},
-      {"rate:phone-code-verify:ip:#{ip}", 900, 20}
-    ]
-
-    windows
-    |> Enum.reduce_while(:ok, fn {key, window, max}, :ok ->
-      case Cgc2046Web.Plugs.RateLimit.check(key, window_seconds: window, max_attempts: max) do
-        :ok -> {:cont, :ok}
-        :error -> {:halt, {:error, :rate_limited}}
-      end
-    end)
-  end
-
   # 发码统一响应：SendCloud 失败外的所有分支 sent: true（防枚举）；
   # deliver 失败冒泡为 sent:false + retryAfterSeconds（plan U3.4——M4 修复：
   # 此前结果被丢弃恒 sent:true，用户看到已发送但短信不存在）。
@@ -1957,127 +1916,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # 手机号注册（手机号注册）：验码(purpose :register) → 已存在则
-  # phone_already_registered（此时手机所有权已证明，无枚举风险）→ 建号
-  # （register_with_password_phone，email 可空）→ 自动入座 2046 → 签 JWT。
-  defp sign_up_with_phone(phone, code, password, context) do
-    # 无副作用校验前置（codex 评审 #3/#6）：bcrypt 只取前 72 字节——先于验码
-    # 消费拒绝越界密码，避免「短密码烧码后重试要重新收码」与 72 字节截断互认。
-    with :ok <- validate_register_password(password),
-         :ok <- Cgc2046.Accounts.PhoneVerificationCode.consume_valid(phone, code, :register),
-         :ok <- ensure_phone_unregistered(phone) do
-      changeset =
-        Cgc2046.Accounts.User
-        |> Ash.Changeset.for_create(:register_with_password_phone, %{
-          phone: phone,
-          password: password
-        })
-
-      case Ash.create(changeset) do
-        {:ok, user} ->
-          # ADR-0004 §3.5：同 signUp——入座失败降级不阻断注册
-          try do
-            case Cgc2046.Accounts.MembershipContext.admit_to_default_workspace(user.id) do
-              {:ok, _} ->
-                :ok
-
-              {:error, reason} ->
-                Logger.warning("[signUpWithPhone] enroll failed: #{inspect(reason)}")
-            end
-          rescue
-            error ->
-              Logger.warning("[signUpWithPhone] enroll raised: #{Exception.message(error)}")
-          end
-
-          {:ok,
-           %{
-             result: %{id: user.id, email: user.email, is_platform_admin: user.is_platform_admin},
-             errors: [],
-             __token__: user.__metadata__[:token]
-           }}
-
-        {:error, %Ash.Error.Invalid{} = error} ->
-          {:ok,
-           %{
-             result: nil,
-             errors: to_ash_graphql_errors(error, context, :register_with_password_phone),
-             __token__: nil
-           }}
-
-        {:error, reason} ->
-          Logger.warning("[signUpWithPhone] create failed: #{inspect(reason)}")
-          {:ok, phone_registration_failed_payload()}
-      end
-    else
-      {:error, :invalid_password} ->
-        {:error, message: "Password must be 8 to 72 bytes", code: "invalid_password"}
-
-      {:error, :invalid_code} ->
-        {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
-
-      {:error, :code_not_available} ->
-        {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
-
-      {:error, :phone_taken} ->
-        {:error, message: "Phone number already registered", code: "phone_already_registered"}
-
-      {:error, reason} ->
-        # ensure_phone_unregistered 的 DB 读失败等未知错误：受控失败 payload
-        # （旧 signUp 的 rescue 降级语义），不抛 WithClauseError 变顶层 500。
-        Logger.warning("[signUpWithPhone] pre-check failed: #{inspect(reason)}")
-        {:ok, phone_registration_failed_payload()}
-    end
-  end
-
-  # 8..72 字节（byte_size，非字符数；bcrypt 上限 72）。GraphQL 层前置，
-  # 与 register_with_password_phone action 的 min 8 校验双保险。
-  defp validate_register_password(password) when is_binary(password) do
-    size = byte_size(password)
-
-    if size >= 8 and size <= 72,
-      do: :ok,
-      else: {:error, :invalid_password}
-  end
-
-  defp ensure_phone_unregistered(phone) do
-    case Cgc2046.Accounts.User
-         |> Ash.Query.filter(phone == ^phone)
-         |> Ash.read(authorize?: false) do
-      {:ok, []} -> :ok
-      {:ok, _} -> {:error, :phone_taken}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # 换绑编排（updateMyPhone，验码已通过）：新号 == 现号幂等成功；被他人占用 →
-  # phone_already_registered（短信所有权已证明，无枚举顾虑）；否则走
-  # :update_phone 原子更新（并发占用由 unique_phone 部分唯一索引兜底）。
-  defp update_my_phone(actor, phone, context) do
-    if actor.phone == phone do
-      load_profile(actor, actor, context, :update_phone)
-    else
-      case ensure_phone_unregistered(phone) do
-        :ok ->
-          case Ash.update(actor, %{phone: phone}, action: :update_phone, actor: actor) do
-            {:ok, user} ->
-              load_profile(user, actor, context, :update_phone)
-
-            {:error, error} ->
-              {:error, to_ash_graphql_errors(error, context, :update_phone)}
-          end
-
-        {:error, :phone_taken} ->
-          {:error, message: "Phone number already registered", code: "phone_already_registered"}
-
-        {:error, reason} ->
-          # 占用预检 DB 读失败：受控失败（同 signUpWithPhone pre-check 语义），
-          # 复用 Ash 错误映射，不新增 resolver 字面量 code。
-          Logger.warning("[updateMyPhone] pre-check failed: #{inspect(reason)}")
-          {:error, to_ash_graphql_errors(reason, context, :update_phone)}
-      end
-    end
-  end
-
   # 掩码：前 6 字符 + **** + 后 4（+8615578793094 → +86155****3094）；
   # 异常短号（normalize 已保证 +区号号码，理论不可达）全掩码防泄露。
   defp mask_phone(nil), do: nil
@@ -2088,14 +1926,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     else
       String.duplicate("*", String.length(phone))
     end
-  end
-
-  defp phone_registration_failed_payload do
-    %{
-      result: nil,
-      errors: [%{message: "Registration failed. Please try again.", code: "registration_failed"}],
-      __token__: nil
-    }
   end
 
   defp sign_in_with_phone_code(phone, code, context) do
@@ -2118,103 +1948,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # ── 微信扫码登录（plan 002 U4）─────────────────────────────────────────
-
-  defp check_wechat_login_start_limits(context) do
-    check_single_limit("rate:wechat-login-start:ip:#{remote_ip(context)}", 900, 20)
-  end
-
-  defp check_wechat_callback_limits(context) do
-    check_single_limit("rate:wechat-callback:ip:#{remote_ip(context)}", 900, 20)
-  end
-
-  defp check_wechat_bind_limits(_context, phone) do
-    check_single_limit(
-      Cgc2046Web.Plugs.RateLimit.build_key("rate:wechat-bind:phone", phone),
-      900,
-      5
-    )
-  end
-
-  defp check_single_limit(key, window, max) do
-    case Cgc2046Web.Plugs.RateLimit.check(key, window_seconds: window, max_attempts: max) do
-      :ok -> :ok
-      :error -> {:error, :rate_limited}
-    end
-  end
-
-  defp summarize_wechat_sign_in_failure(reason) when is_atom(reason), do: reason
-
-  defp summarize_wechat_sign_in_failure({:wechat_web_code_rejected, errcode})
-       when is_integer(errcode),
-       do: {:wechat_web_code_rejected, errcode}
-
-  defp summarize_wechat_sign_in_failure({:wechat_web_bad_response, status})
-       when is_integer(status),
-       do: {:wechat_web_bad_response, status}
-
-  defp summarize_wechat_sign_in_failure({:wechat_web_network, _reason}),
-    do: :wechat_web_network
-
-  defp summarize_wechat_sign_in_failure({tag, _detail}) when is_atom(tag), do: tag
-  defp summarize_wechat_sign_in_failure({tag, _detail, _context}) when is_atom(tag), do: tag
-  defp summarize_wechat_sign_in_failure(_reason), do: :internal_error
-
-  defp start_wechat_login(next) do
-    # next 由 state 无关的 URL 参数透传(plan 002):嵌入 redirect_uri,微信回调原样带回;
-    # 开放跳转防护在 callback 页 resolveNextTarget 同源校验,此处仅透传。
-    base = Application.fetch_env!(:cgc_2046, :web_base_url) <> "/login/wechat-callback"
-
-    redirect_uri =
-      case next do
-        value when is_binary(value) and value != "" ->
-          # 不预编码:qr_connect_url 的 encode_query 对整个 redirect_uri 统一编码一次
-          base <> "?next=" <> value
-
-        _ ->
-          base
-      end
-
-    case Cgc2046.Accounts.WechatLoginTicket.issue() do
-      {:ok, %{state: state, expires_at: expires_at}} ->
-        case Cgc2046.Integrations.Wechat.WebOAuth.qr_connect_url(redirect_uri, state) do
-          url when is_binary(url) ->
-            expires_in = max(DateTime.diff(expires_at, DateTime.utc_now()), 0)
-            {:ok, %{qr_url: url, state: state, expires_in_seconds: expires_in}}
-
-          {:error, _reason} ->
-            {:error, message: "WeChat login is unavailable", code: "wechat_login_unavailable"}
-        end
-
-      {:error, _reason} ->
-        {:error, message: "WeChat login is unavailable", code: "wechat_login_unavailable"}
-    end
-  end
-
-  defp check_password_reset_request_limits(context, email) do
-    email_key = Cgc2046Web.Plugs.RateLimit.build_key("rate:password-reset:email", email)
-
-    ip_key =
-      Cgc2046Web.Plugs.RateLimit.build_key(
-        "rate:password-reset:ip",
-        remote_ip(context)
-      )
-
-    with :ok <-
-           Cgc2046Web.Plugs.RateLimit.check(
-             email_key,
-             window_seconds: 3_600
-           ),
-         :ok <-
-           Cgc2046Web.Plugs.RateLimit.check(
-             ip_key,
-             window_seconds: 3_600,
-             max_attempts: 20
-           ) do
-      :ok
-    end
-  end
-
   # signIn 限流 key 归一化（plan 002 U2）：email → downcase（与 normalize_email 同）；
   # 手机号 → PhoneNumber 规范形（"138…" 与 "+86138…" 同 key，防换写法绕过限流）；
   # 非法输入原样保留（保持与认证失败路径一致的计数语义）。
@@ -2229,59 +1962,6 @@ defmodule Cgc2046Web.GraphqlSchema do
         {:error, :invalid} -> login
       end
     end
-  end
-
-  defp remote_ip(%{conn: %{remote_ip: ip}}), do: ip |> :inet.ntoa() |> to_string()
-  defp remote_ip(_context), do: "unknown"
-
-  @doc false
-  def password_reset_failure_telemetry(reason) do
-    if revoke_failure?(reason) do
-      {[:cgc2046, :password_reset, :revoke], :revoke_failed}
-    else
-      {[:cgc2046, :password_reset, :reset], :reset_failed}
-    end
-  end
-
-  defp revoke_failure?(%Cgc2046.Accounts.PasswordResetRevocationError{}), do: true
-
-  defp revoke_failure?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &revoke_failure?/1)
-  end
-
-  defp revoke_failure?(%{value: value}), do: revoke_failure?(value)
-  defp revoke_failure?(%{error: error}), do: revoke_failure?(error)
-  defp revoke_failure?(%{reason: reason}), do: revoke_failure?(reason)
-
-  defp revoke_failure?(list) when is_list(list) do
-    Enum.any?(list, &revoke_failure?/1)
-  end
-
-  defp revoke_failure?(_reason), do: false
-
-  defp classify_password_reset_error(error, _context)
-       when is_struct(error, AshAuthentication.Errors.InvalidToken) do
-    {:error, message: "链接无效或已过期", code: "invalid_reset_token"}
-  end
-
-  defp classify_password_reset_error(%Ash.Error.Invalid{} = error, context) do
-    {:error, to_ash_graphql_errors(error, context, :password_reset_with_password)}
-  end
-
-  defp classify_password_reset_error(error, _context), do: report_password_reset_failure(error)
-
-  defp report_password_reset_failure(reason) do
-    {telemetry_event, reason_category} = password_reset_failure_telemetry(reason)
-
-    Logger.warning("password reset failed reason=#{reason_category}")
-
-    :telemetry.execute(
-      telemetry_event,
-      %{count: 1},
-      %{reason: reason_category, email: nil}
-    )
-
-    {:error, message: "密码重置失败，请稍后重试", code: "password_reset_failed"}
   end
 
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
@@ -2634,14 +2314,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 本人记录合成:done/evidence/recorded_at)+ 汇总 progress(同 myLearningRuns
   # 投影单源 LearningProgress)。
   defp build_course_learning_detail(course, content, records) do
-    issues = Cgc2046.Workflows.CourseContent.issues(content)
+    issues = Cgc2046.Curriculum.Content.issues(content)
     done_items = done_record_index(records)
 
     learning_issues =
       issues
       |> Enum.with_index(1)
       |> Enum.map(fn {issue, idx} ->
-        checklist_items = Cgc2046.Workflows.CourseContent.checklist_item_ids(issue)
+        checklist_items = Cgc2046.Curriculum.Content.checklist_item_ids(issue)
 
         done_count =
           Enum.count(checklist_items, &Map.has_key?(done_items, {issue["id"], &1}))
@@ -2654,7 +2334,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           end
 
         %{
-          key: Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx),
+          key: Cgc2046.Learning.Progress.issue_key(course.slug, idx),
           id: issue["id"],
           title: issue["title"],
           kind: issue["kind"],
@@ -2663,13 +2343,13 @@ defmodule Cgc2046Web.GraphqlSchema do
         }
       end)
 
-    progress = Cgc2046.Workflows.LearningProgress.project_issues(content, records)
+    progress = Cgc2046.Learning.Progress.project_issues(content, records)
 
     current_issue_key =
       with issue_id when is_binary(issue_id) <- progress.current_issue_id,
            idx when is_integer(idx) <-
              Enum.find_index(issues, &(&1["id"] == progress.current_issue_id)) do
-        Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx + 1)
+        Cgc2046.Learning.Progress.issue_key(course.slug, idx + 1)
       else
         _ -> nil
       end
@@ -2763,7 +2443,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           Enum.flat_map(enrollments, fn enrollment ->
             enrollment
             |> read_learning_runs()
-            |> Enum.map(&project_learning_run(&1, enrollment, actor))
+            |> Enum.map(&Cgc2046.Learning.RunProjection.project_run(&1, enrollment, actor))
             |> Enum.reject(&is_nil/1)
           end)
 
@@ -2790,7 +2470,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
   # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
-  # workspace_id 一致性校验，project_learning_run 再校验
+  # workspace_id 一致性校验，RunProjection.project_run 再校验
   # enrollment.user_id == actor.id（双重本人锚）。
   defp read_learning_runs(enrollment) do
     Cgc2046.Workflows.WorkflowRun
@@ -2820,117 +2500,6 @@ defmodule Cgc2046Web.GraphqlSchema do
         []
     end
   end
-
-  defp project_learning_run(run, enrollment, actor) do
-    definition = Map.get(run, :definition)
-
-    cond do
-      enrollment.user_id != actor.id ->
-        nil
-
-      not anchored_to_enrollment?(run, enrollment) ->
-        nil
-
-      run.workspace_id != enrollment.workspace_id ->
-        nil
-
-      not learning_definition?(definition) ->
-        nil
-
-      true ->
-        target_title =
-          if is_binary(enrollment.target_title), do: enrollment.target_title, else: nil
-
-        # U7(#180):issue 级权威投影(course content + learning_records);
-        # manual_steps_compat/旧字段派生已删(KD8),issue key 展示层派生(KTD6)
-        {content, records, course} = learning_projection_sources(run, enrollment)
-
-        Cgc2046.Workflows.LearningProgress.project(
-          run.id,
-          enrollment.id,
-          target_title,
-          run.status,
-          content,
-          records
-        )
-        |> Map.put(:course_id, enrollment.course_id)
-        |> Map.put(:current_issue_key, current_issue_key(course, content, records))
-    end
-  end
-
-  # U7:内容/记录/课程按 (course, user) 组装(无内容课程 → nil → 投影 0/n)。
-  # course 供 issue key 派生(slug 短码);一次往返,抽屉数据同源。
-  # #217 旁路读取（D 类·本人锚链）：本函数三处直读（Curriculum.Output 内容 /
-  # LearningRecord 记录 / Course 元数据）由同一调用链守门——
-  # project_learning_run 已校验 enrollment.user_id == actor.id，records 再按
-  # user_id 过滤本人；无他人视角可构造。
-  defp learning_projection_sources(run, enrollment) do
-    course_id = enrollment.course_id
-
-    if is_binary(course_id) do
-      content =
-        Cgc2046.Curriculum.Output
-        |> Ash.Query.filter(
-          key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
-        )
-        |> Ash.Query.limit(1)
-        |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
-        |> case do
-          {:ok, output} -> output && output.data
-          _ -> nil
-        end
-
-      # #217 旁路读取（D 类·本人锚）：user_id 过滤，锚链同函数头注释。
-      records =
-        if is_binary(enrollment.user_id) do
-          Cgc2046.Learning.LearningRecord
-          |> Ash.Query.filter(course_id == ^course_id and user_id == ^enrollment.user_id)
-          |> Ash.read!(authorize?: false, tenant: run.workspace_id)
-        else
-          []
-        end
-
-      # #217 旁路读取（D 类）：投影元数据，守门同函数头锚链。
-      course =
-        Cgc2046.Courses.Course
-        |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-        |> Ash.read_one(authorize?: false, tenant: run.workspace_id)
-        |> case do
-          {:ok, nil} -> nil
-          {:ok, course} -> course
-          _ -> nil
-        end
-
-      {content, records, course}
-    else
-      {nil, [], nil}
-    end
-  end
-
-  # issue key 展示层派生(KTD6):当前 issue 在卡集中的 1 起序号 + 课程 slug 短码。
-  # current_issue_id 由 records 视角派生(全 Done → nil → key nil)
-  defp current_issue_key(course, content, records) do
-    issues = Cgc2046.Workflows.CourseContent.issues(content)
-
-    with %{current_issue_id: issue_id} when is_binary(issue_id) <-
-           Cgc2046.Workflows.LearningProgress.project_issues(content, records),
-         idx when is_integer(idx) <- Enum.find_index(issues, &(&1["id"] == issue_id)) do
-      Cgc2046.Workflows.LearningProgress.issue_key(course && course.slug, idx + 1)
-    else
-      _ -> nil
-    end
-  end
-
-  defp anchored_to_enrollment?(%{input_snapshot: input}, %{id: enrollment_id})
-       when is_map(input) do
-    Map.get(input, "enrollment_id") == enrollment_id or
-      Map.get(input, :enrollment_id) == enrollment_id
-  end
-
-  defp anchored_to_enrollment?(_run, _enrollment), do: false
-
-  defp learning_definition?(%{type: type}) when type in [:learning, "learning"], do: true
-  defp learning_definition?(_definition), do: false
 
   # id / is_platform_admin 可空：update 失败时承载错误 payload（errors 非空、业务字段为 nil），
   # 与 admin 面其它 mutation 的 payload 式错误通道一致。
