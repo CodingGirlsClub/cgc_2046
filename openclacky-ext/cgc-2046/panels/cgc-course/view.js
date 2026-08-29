@@ -165,15 +165,25 @@
   }
 
   // POST JSON(S4 草稿保存);错误体挂 status/body(409 走冲突 UX)
-  async function apiPost(path, payload) {
-    await ensureCsrf();
+  function postHeaders() {
     const headers = { "Content-Type": "application/json", Accept: "application/json" };
     if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-    const res = await fetch(API + path, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(payload)
-    });
+    return headers;
+  }
+
+  // advisor R2:403-on-CSRF 自愈——重取 token(宿主热重载轮换进程级 token)
+  async function refreshCsrf() {
+    csrfToken = "";
+    await ensureCsrf();
+    return !!csrfToken;
+  }
+
+  async function apiPost(path, payload) {
+    await ensureCsrf();
+    let res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
+    if (res.status === 403 && (await refreshCsrf())) {
+      res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
+    }
     const body = await res.json().catch(function () { return {}; });
     if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
     return body;
