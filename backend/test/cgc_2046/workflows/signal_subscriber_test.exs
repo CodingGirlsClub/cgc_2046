@@ -198,31 +198,31 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       assert claim_keys("fixture.explicit_key") == ["fixture:ek-1:pinned_consumer"]
     end
 
-    # 注册订阅方（Application 监督树）显式 consumer_key 锚定：键值 = 当前 leaf
-    # 派生值——钉死持久化幂等键。模块 leaf 改名 → 派生值变化 → 本断言红灯，
-    # 强制人工核对存量 claim 键（改名静默换键已发生两次：
+    # 注册订阅方（Application 监督树）显式 consumer_key 锚定：钉死持久化幂等键，
+    # 不随模块 leaf 改名漂移（改名静默换键已发生两次：
     # notification_subscriber→subscriber、research_run_reaper→reaper）。
-    # 新增订阅方须在此登记。
-    @registered_subscribers [
-      Cgc2046.Admission.CapacityLedgerSubscriber,
-      Cgc2046.Courses.CapacityProjectionSubscriber,
-      Cgc2046.Curriculum.Instantiator,
-      Cgc2046.Curriculum.Reaper,
-      Cgc2046.Events.CapacityProjectionSubscriber,
-      Cgc2046.Notifications.Subscriber,
-      Cgc2046.Events.SpeakerSubscriber,
-      Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
-      Cgc2046.Admission.Workers.OfferingCancelRefundWorker,
-      Cgc2046.Learning.LearningInstantiator,
-      Cgc2046.Workflows.ShareSchemeInstantiator
-    ]
+    # 存量订阅方键值 = 声明时 leaf 派生现值；S5 PrepInstantiator 刻意声明
+    # "course_prep_instantiator"（≠ leaf 派生 "prep_instantiator"——与旧分支
+    # CoursePrepInstantiator 的持久化 claim 键族对齐语义）。新增订阅方须在此登记。
+    @registered_subscribers %{
+      Cgc2046.Admission.CapacityLedgerSubscriber => "capacity_ledger_subscriber",
+      Cgc2046.Courses.CapacityProjectionSubscriber => "capacity_projection_subscriber",
+      Cgc2046.Curriculum.Instantiator => "instantiator",
+      Cgc2046.Curriculum.Reaper => "reaper",
+      Cgc2046.Events.CapacityProjectionSubscriber => "capacity_projection_subscriber",
+      Cgc2046.Notifications.Subscriber => "subscriber",
+      Cgc2046.Events.SpeakerSubscriber => "speaker_subscriber",
+      Cgc2046.Sponsorship.SponsorshipEndedSubscriber => "sponsorship_ended_subscriber",
+      Cgc2046.Admission.Workers.OfferingCancelRefundWorker => "offering_cancel_refund_worker",
+      Cgc2046.Learning.LearningInstantiator => "learning_instantiator",
+      Cgc2046.Workflows.ShareSchemeInstantiator => "share_scheme_instantiator",
+      Cgc2046.Curriculum.PrepInstantiator => "course_prep_instantiator"
+    }
 
-    test "契约：注册订阅方显式 consumer_key == 当前 leaf 派生值" do
-      for module <- @registered_subscribers do
-        derived = module |> Module.split() |> List.last() |> Macro.underscore()
-
-        assert module.__signal_subscriber_config__().consumer_key == derived,
-               "#{inspect(module)} 未显式声明 consumer_key 或键值已漂移"
+    test "契约：注册订阅方显式 consumer_key == 钉死键值" do
+      for {module, pinned} <- @registered_subscribers do
+        assert module.__signal_subscriber_config__().consumer_key == pinned,
+               "#{inspect(module)} 未显式声明 consumer_key 或键值已漂移（期望 #{pinned}）"
       end
     end
   end
@@ -548,7 +548,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     end
   end
 
-  # #244 B2：探测测试 after 恢复 bus 后须等待 8 个 app 级订阅方全部重订阅完成
+  # #244 B2：探测测试 after 恢复 bus 后须等待 9 个 app 级订阅方全部重订阅完成
   # 再返回——terminate_child 期间它们与 fixture 一同进入退避链，restart_child
   # 后订阅窗口（subscriptions == %{}）最长可达退避 cap 级；smoke 无重试断言
   # map_size > 0（async: false 串行），seed 排到紧随即 flake。列表与 smoke
@@ -561,6 +561,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
         Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
         Cgc2046.Learning.LearningInstantiator,
         Cgc2046.Curriculum.Instantiator,
+        Cgc2046.Curriculum.PrepInstantiator,
         Cgc2046.Curriculum.Reaper,
         Cgc2046.Workflows.ShareSchemeInstantiator,
         Cgc2046.Admission.Workers.OfferingCancelRefundWorker

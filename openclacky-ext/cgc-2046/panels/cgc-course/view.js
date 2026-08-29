@@ -1,5 +1,5 @@
 // CGC-2046 课程学习面板(U9,plan 001 / #180 R15;role-agent-journeys-v2 S4-extension
-// 加教研侧草稿编辑与自动刷新)。
+// 加教研侧草稿编辑与自动刷新;S5-extension 加教研流程状态区)。
 //
 // 结构:Workspace 选择器(按名选择,用户永不手填 UUID,S1 finding 收敛)→
 // 我的课程 → issue 列表(三态)→ 当前 issue 卡(goal/given/materials/checklist
@@ -12,13 +12,18 @@
 // 409 version_conflict → 丢弃本地编辑 + 红色横幅 + 重载最新草稿。
 // 编辑仅做 UX 门控,网站 RBAC 为唯一权威(工具层 tutor ∪ owner/admin 判定)。
 //
+// S5 教研流程状态区(R22-R28):canEdit 详情页拉取 GET /courses/:id/prep
+// (透传 get_prep_status)——prep_state badge / 生效策略(阈值与是否需人工审核)/
+// 结构门禁违规清单 / 最新质量报告。存量课程无 prep run(上游「no preparation
+// run found」)或拉取失败时本区不渲染,不置面板错误态。
+//
 // R11 自动刷新:面板可见时 10s 轮询(详情 = 草稿 version + 记录签名,列表 =
 // 记录签名),变化只亮非侵入更新条,不打断浏览;编辑/保存态轮询挂起(陈旧基准
 // 由保存时 409 兜底);手动刷新按钮常驻。
 //
 // 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/courses*)→
 // 扩展 core 作为 MCP 客户端透传 get_learning_records / get_course_content /
-// save_course_content(dsh-cgc-core 已验证模式)。
+// save_course_content / get_prep_status(dsh-cgc-core 已验证模式)。
 //
 // 未连接态(loopback 503 或 status 未配置)→ 引导视图(去连接面板)。
 
@@ -41,6 +46,7 @@
     workspaces: [],    // [{ workspace_id, name, slug, roles }](list_my_workspaces)
     workspaceId: "",
     canEdit: false,    // 当前 Workspace 角色含 tutor|owner|admin(S4 编辑入口)
+    prep: null,        // S5 教研流程状态(get_prep_status;仅 canEdit 详情拉取,无 prep run → null)
     courses: [],       // [{ courseId, records }]
     coursesSig: "",    // 列表签名(轮询变更检测)
     selected: null,    // { courseId, content, records }
@@ -252,6 +258,7 @@
     state.loading = true;
     state.error = null;
     state.updateNotice = false;
+    state.prep = null;
     render();
     try {
       const [contentRes, recordsRes] = await Promise.all([
@@ -263,6 +270,16 @@
       state.selected = { courseId: courseId, content: content, records: records };
       state.detailSig = detailSignature(content, records);
       state.currentIssue = null;
+      // S5:教研状态仅 canEdit 视图拉取;存量课程无 prep run(上游
+      // 「no preparation run found」)或任何失败都按无流程处理,不置错误态
+      if (state.canEdit) {
+        try {
+          const prepRes = await apiGet("/courses/" + encodeURIComponent(courseId) + "/prep");
+          state.prep = prepRes.result || null;
+        } catch (e) {
+          state.prep = null;
+        }
+      }
     } catch (e) {
       state.error = e;
       state.selected = null;
@@ -381,6 +398,7 @@
       state.conflict = null;
       state.updateNotice = false;
       state.editing = false;
+      state.prep = null;
       state.draft = null;
       state.draftContent = null;
       state.saveError = null;
@@ -501,6 +519,8 @@
       inner += '<div class="cgc-card cgc-ev-err">保存失败:' + escapeHtml(state.saveError.message || "") + '</div>';
     }
 
+    inner += prepSection();
+
     if (issues.length === 0) {
       shell(inner + '<div class="cgc-card cgc-empty">该课程暂无教研产出(issue 卡未提交)。</div>');
       bindDetailExtras(sel.courseId);
@@ -540,11 +560,52 @@
     }
   }
 
+  // S5 教研流程区(仅 canEdit 且课程有 prep run 时渲染):prep_state badge +
+  // 生效策略 + 结构门禁违规清单 + 最新质量报告。全部经 escapeHtml 转义。
+  function prepSection() {
+    const prep = state.prep;
+    if (!state.canEdit || !prep) return "";
+
+    const policy = prep.policy || {};
+    const violations = Array.isArray(prep.gate_violations) ? prep.gate_violations : [];
+    const report = prep.latest_quality_report || null;
+    const tutor = prep.tutor || null;
+
+    let html =
+      '<div class="cgc-card cgc-prep" data-testid="panel-prep">' +
+        '<div class="cgc-prep-head">' +
+          '<b>教研流程</b>' +
+          '<span class="cgc-badge" data-testid="panel-prep-state">' + escapeHtml(prep.prep_state || "") + '</span>' +
+          (tutor
+            ? '<span class="cgc-panel-sub">tutor:' + escapeHtml(tutor.display_name || tutor.user_id || "") + '</span>'
+            : "") +
+          '<span class="cgc-panel-sub">阈值 ' + escapeHtml(policy.quality_threshold) +
+            (policy.review_required ? ' · 需人工审核' : ' · 达标自动发布') + '</span>' +
+        '</div>';
+
+    if (violations.length > 0) {
+      html +=
+        '<ul class="cgc-prep-violations" data-testid="panel-prep-violations">' +
+          violations.map(function (v) { return '<li>' + escapeHtml(v) + '</li>'; }).join("") +
+        '</ul>';
+    }
+
+    if (report) {
+      html +=
+        '<div class="cgc-prep-quality" data-testid="panel-prep-quality">' +
+          '质量报告 ' + escapeHtml(report.score) + '/100 · ' + escapeHtml(report.outcome || "") +
+          (report.summary ? '<div class="cgc-panel-sub">' + escapeHtml(report.summary) + '</div>' : "") +
+        '</div>';
+    }
+
+    return html + '</div>';
+  }
+
   // 详情页公共绑定:返回 + 手动刷新 + S4 编辑入口 + R11 轮询更新条
   function bindDetailExtras(courseId) {
     bindWorkspaceSwitch();
     const back = currentContainer.querySelector("#cgc-back");
-    if (back) back.addEventListener("click", function () { state.selected = null; state.currentIssue = null; state.conflict = null; render(); });
+    if (back) back.addEventListener("click", function () { state.selected = null; state.currentIssue = null; state.conflict = null; state.prep = null; render(); });
     const refresh = currentContainer.querySelector("#cgc-detail-refresh");
     if (refresh) refresh.addEventListener("click", function () { openCourse(courseId); });
     const toggle = currentContainer.querySelector("#cgc-edit-toggle");
@@ -836,7 +897,11 @@
       ".cgc-edit-row label{opacity:.65}" +
       ".cgc-edit-row input,.cgc-edit-row textarea,.cgc-edit-row select{padding:6px 10px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;font-size:13px;font-family:inherit}" +
       ".cgc-edit-head{flex-direction:row;justify-content:space-between;align-items:center}" +
-      ".cgc-issue-edit{margin-top:10px}";
+      ".cgc-issue-edit{margin-top:10px}" +
+      ".cgc-prep{margin-top:10px}" +
+      ".cgc-prep-head{display:flex;align-items:center;gap:8px;font-size:13px}" +
+      ".cgc-prep-violations{margin:6px 0 0;padding-left:18px;font-size:12px;color:#c0392b}" +
+      ".cgc-prep-quality{margin-top:6px;font-size:12px}";
     document.head.appendChild(css);
   }
 
