@@ -28,7 +28,13 @@ defmodule Cgc2046.DomainsTest do
     assert Enum.sort(ash_domains) ==
              Enum.sort(
                @bounded_context_domains ++
-                 [Cgc2046.Accounts, Cgc2046.Mcp, Cgc2046.Miniprogram, Cgc2046.Payments]
+                 [
+                   Cgc2046.Accounts,
+                   Cgc2046.Mcp,
+                   Cgc2046.Miniprogram,
+                   Cgc2046.Notifications,
+                   Cgc2046.Payments
+                 ]
              )
   end
 

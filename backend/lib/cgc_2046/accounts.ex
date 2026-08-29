@@ -46,6 +46,9 @@ defmodule Cgc2046.Accounts do
     # B-2 #31：邀请
     resource(Cgc2046.Accounts.Invitation)
 
+    # 邀请渠道码缓存（方案 A 自 Miniprogram.Code 迁回；写方 MiniprogramCode 服务同域）
+    resource(Cgc2046.Accounts.InvitationCode)
+
     # Platform Admin Dashboard R6/R7：工作台创建申请（全局资源，platform_admin 审批）
     resource(Cgc2046.Accounts.WorkspaceApplication)
 

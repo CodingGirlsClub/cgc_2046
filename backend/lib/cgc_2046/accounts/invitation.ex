@@ -496,7 +496,7 @@ defmodule Cgc2046.Accounts.Invitation do
                 """
                 UPDATE invitations AS i
                 SET status = 'used', accepted_at = $1, accepted_by = $2
-                FROM miniprogram_codes AS c
+                FROM invitation_codes AS c
                 WHERE i.id = $3 AND c.invitation_id = i.id AND c.scene = $4
                   AND i.status = 'active'
                   AND (i.expires_at IS NULL OR i.expires_at > $1)

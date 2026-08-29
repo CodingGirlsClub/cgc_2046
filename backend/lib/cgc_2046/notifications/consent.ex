@@ -21,11 +21,11 @@ defmodule Cgc2046.Notifications.Consent do
 
   defp do_grant(user_id, platform, template_key) do
     sql = """
-    INSERT INTO mp_notification_consents
+    INSERT INTO notification_consents
       (id, user_id, platform, template_key, remaining_uses, inserted_at, updated_at)
     VALUES (gen_random_uuid(), $1, $2, $3, 1, NOW(), NOW())
     ON CONFLICT (user_id, platform, template_key)
-    DO UPDATE SET remaining_uses = mp_notification_consents.remaining_uses + 1,
+    DO UPDATE SET remaining_uses = notification_consents.remaining_uses + 1,
                   updated_at = NOW()
     RETURNING remaining_uses
     """
@@ -37,7 +37,7 @@ defmodule Cgc2046.Notifications.Consent do
 
   def take(user_id, platform, template_key) when platform in @platforms do
     sql = """
-    UPDATE mp_notification_consents
+    UPDATE notification_consents
     SET remaining_uses = remaining_uses - 1, updated_at = NOW()
     WHERE user_id = $1 AND platform = $2 AND template_key = $3
       AND remaining_uses > 0
@@ -53,7 +53,7 @@ defmodule Cgc2046.Notifications.Consent do
 
   def remaining(user_id, platform, template_key) when platform in @platforms do
     sql = """
-    SELECT remaining_uses FROM mp_notification_consents
+    SELECT remaining_uses FROM notification_consents
     WHERE user_id = $1 AND platform = $2 AND template_key = $3
     """
 
@@ -66,7 +66,7 @@ defmodule Cgc2046.Notifications.Consent do
 
   def refund(user_id, platform, template_key) when platform in @platforms do
     sql = """
-    UPDATE mp_notification_consents
+    UPDATE notification_consents
     SET remaining_uses = remaining_uses + 1, updated_at = NOW()
     WHERE user_id = $1 AND platform = $2 AND template_key = $3
     RETURNING remaining_uses

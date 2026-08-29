@@ -23,13 +23,13 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 | notification_worker | 通知投递 | `notifications/` |
 | signal_publish_worker | signals outbox | `workflows/` |
 | share_scheme_worker | 分享 scheme(小程序侧) | `miniprogram/`(product owner 裁定 2026-08-29:22 行薄壳,唯一依赖 Miniprogram.ShareSchemeService,属主明确) |
-| login_artifact_pruner_worker | 登录工件清理(phone_verification_codes/wechat_login_tickets) | `miniprogram/` ⚠️分歧 |
+| login_artifact_pruner_worker | 登录工件清理(phone_verification_codes/wechat_login_tickets) | `accounts/workers/`(⑩ 方案A 落地 2026-08-29,采纳评审原判) |
 
 ⚠️分歧三项(评审原判 vs 本 ADR 拍板,均非对错、由 product owner 定夺,执行 PR 前定稿):
 
 - approval_expiry/reminder:本 ADR 判 `admission/workers/`(推进 enrollment 审批 SLA);评审原判**跨域**——它扫 6 类资源(含 Accounts×3/Sponsorship),见缺口⑦「审批机制族」。
 - offering_cancel_refund_worker:本 ADR 判 `admission/`(取消报名编排);评审原判 **Payments**(取消→批量退款是资金反应)。
-- login_artifact_pruner_worker:本 ADR 判 `miniprogram/`;评审原判 **Accounts**(清理对象是登录工件,Accounts 语义更近)。
+- login_artifact_pruner_worker:本 ADR 判 `miniprogram/`;评审原判 **Accounts**(清理对象是登录工件,Accounts 语义更近)。**⑩ 方案A 落地时采纳评审原判,已迁 `accounts/workers/`(2026-08-29)**。
 
 迁移注意事项(写进执行 PR):
 
@@ -69,7 +69,7 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 7. **审批机制族命名——已清偿(2026-08-29,本批 docs commit,取最低成本路径)**:CONTEXT.md 新增「审批机制族」词条,明示 ApprovalClaim/ApprovalDeadline/StatusTransition/PendingApprovals 为横切共享写原语与读模型、**刻意不归任一 context、根部驻留**;进阶 `approvals/` 收编维持开放选项,未拍板不动。
 8. **Offering 正名 Shared Kernel——已清偿(2026-08-29,本批 docs commit)**:领域模型定稿 §5.4 已补 Offering 行(shared kernel;纯读零写、无状态无表;改动需 Events/Courses 两侧同时回归)。
 9. **跨域 FOR UPDATE 行锁未端口化——已清偿(2026-08-29,`59edcdc`,test-first)**:`Enrollment.lock_for_order/1` + `workspace_id_for_order/1` 发布于 Admission,SQL 原样内迁、返回形状逐键不变;Order 四处调用点改一行委托。钉测 `order_enrollment_lock_test.exs`(先写于现代码即绿、搬迁后仍绿)确定性编排「持锁方确认 → 竞争下单获锁重读 status 拒单、零订单落库」(pg_locks 取证阻塞;教训:sandbox shared 下持锁事务必须 unboxed,否则只是 savepoint 锁不释放)。锁生命周期经钉测验证无可观测差异。
-10. **Miniprogram 壳 domain——保持挂账(评估缓办 2026-08-29)**:写权分离拍板项(资源跟写路径走 vs 服务跟资源走)未拍板;§5.4 已补 Miniprogram 行并注明此缺口(A5 三行之一)。
+10. **Miniprogram 壳 domain——已清偿(2026-08-29,本批 commit,方案 A:资源跟写路径走,product owner 拍板)**:`Miniprogram.Code` → `Accounts.InvitationCode`(表 `invitation_codes`;语义更准——本质是 Invitation 渠道码缓存,写方 `Accounts.MiniprogramCode` 同域);`Miniprogram.NotificationConsent` → `Notifications.NotificationConsent`(表 `notification_consents`,mp_ 前缀名不副实——支持 wechat/tt/xhs 三平台;与唯一写方 `Notifications.Consent` 裸 SQL 同域,SQL 形态不变只改表名);`login_artifact_pruner_worker` → `accounts/workers/`(crontab 同步);Miniprogram domain 收缩至仅 ShareScheme。连带新建 `Cgc2046.Notifications` Ash domain(此前该 context 无 domain 模块;无 GraphQL 面,同 Mcp 先例),ash_domains config 与 domains_test 精确集合同步。表改名 migration `20260903000000` 纯 rename 保数据、up/down 对称,resource_snapshots 目录与 JSON 同步更名。
 
 **复审补记(A2-A5)**:
 
