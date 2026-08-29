@@ -23,13 +23,13 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 | notification_worker | 通知投递 | `notifications/` |
 | signal_publish_worker | signals outbox | `workflows/` |
 | share_scheme_worker | 分享 scheme(小程序侧) | `miniprogram/`(product owner 裁定 2026-08-29:22 行薄壳,唯一依赖 Miniprogram.ShareSchemeService,属主明确) |
-| login_artifact_pruner_worker | 登录工件清理(phone_verification_codes/wechat_login_tickets) | `miniprogram/` ⚠️分歧 |
+| login_artifact_pruner_worker | 登录工件清理(phone_verification_codes/wechat_login_tickets) | `accounts/workers/`(⑩ 方案A 落地 2026-08-29,采纳评审原判) |
 
 ⚠️分歧三项(评审原判 vs 本 ADR 拍板,均非对错、由 product owner 定夺,执行 PR 前定稿):
 
 - approval_expiry/reminder:本 ADR 判 `admission/workers/`(推进 enrollment 审批 SLA);评审原判**跨域**——它扫 6 类资源(含 Accounts×3/Sponsorship),见缺口⑦「审批机制族」。
 - offering_cancel_refund_worker:本 ADR 判 `admission/`(取消报名编排);评审原判 **Payments**(取消→批量退款是资金反应)。
-- login_artifact_pruner_worker:本 ADR 判 `miniprogram/`;评审原判 **Accounts**(清理对象是登录工件,Accounts 语义更近)。
+- login_artifact_pruner_worker:本 ADR 判 `miniprogram/`;评审原判 **Accounts**(清理对象是登录工件,Accounts 语义更近)。**⑩ 方案A 落地时采纳评审原判,已迁 `accounts/workers/`(2026-08-29)**。
 
 迁移注意事项(写进执行 PR):
 
@@ -65,26 +65,28 @@ Oban worker 不是独立关注点,是它驱动的状态机的异步执行臂。�
 
 **开放缺口(评审原件 ⑥-⑩,按建议执行序)**:
 
-6. **graphql_schema.ex 单体瘦身(3202 行)**:藏着两块应用逻辑——学习投影组装(`learning_projection_sources/2` 等,`authorize?: false` 直读 Curriculum/Learning/Courses 三域)与整套注册/登录/改手机号流程(`sign_up_with_phone/4` 等 ~400 行);interface layer 长成事实上的第 13 个 context。先抽 `Learning.RunProjection` 与 `Accounts.SignUpFlow`(`accounts/sign_in_flow.ex` 已是先例),schema 分文件可缓。
-7. **审批机制族命名**:`approval_claim.ex`(4 context/17 处引用)+ `approval_deadline.ex`(5 context/8 文件)+ `pending_approvals.ex`(跨 4 域 CQRS 读模型)+ 两个 approval worker,是客观存在但没名字的共享内核。最低成本:CONTEXT.md 词条明示「刻意不归任一 context」;进阶:成立 `approvals/` 收编五件。注:StatusTransition 迁根后根部横切写原语增至三件(ApprovalClaim/ApprovalDeadline/StatusTransition)+ PendingApprovals,是本缺口的扩大版,收编时一并定归宿。
-8. **Offering 正名 Shared Kernel**:offering/ 下 5/6 子模块只被 Event+Course 消费——上下文映射里的 Shared Kernel(耦合最强映射),与「对 Admission 的 OHS 端口」是两种身份。§5.4 补一行显式承认,并约定「改动需两侧同时回归」。
-9. **跨域 FOR UPDATE 行锁未端口化**:`payments/order.ex:689` 在 Payments 事务里锁 Admission 的 enrollments 行并依赖其 7 个列名。锁必要,但锁语义该由 Admission 发布(`Enrollment.lock_for_order/1`);实施前需针对性测试验证 Ash 事务继承下锁生命周期不变。
-10. **Miniprogram 壳 domain**:三资源里两张表写权在别家——Code 写路径在 `Accounts.MiniprogramCode`、Consent 写路径在 `notifications/consent.ex` 裸 SQL(与 `miniprogram/notification_consent.ex` 同表),违反 D2「服务独占更新权」。资源跟写路径走,或服务跟资源走,二选一(拍板项)。
+6. **graphql_schema.ex 单体瘦身——已清偿(2026-08-29,`06e0074`)**:学习投影组装抽 `Cgc2046.Learning.RunProjection`(公开入口 `project_run/3`,#217 锚链守卫头注随迁);注册/登录/改手机号/密码重置 + 限流函数族抽 `Cgc2046.Accounts.WebAuthFlow`(命名取舍:非纯 sign-up,按 sign_in_flow.ex 先例取 flow 名;moduledoc 写清与 SignInFlow 分工)。graphql_schema.ex 3196→2771 行(-425),SDL 零 diff;7 个 error code 字面量随迁致 `priv/error_codes_contract.json` 按契约测试指引再生成(纯 +7 无删除)。schema 分文件仍缓(非缺口)。
+7. **审批机制族命名——已清偿(2026-08-29,本批 docs commit,取最低成本路径)**:CONTEXT.md 新增「审批机制族」词条,明示 ApprovalClaim/ApprovalDeadline/StatusTransition/PendingApprovals 为横切共享写原语与读模型、**刻意不归任一 context、根部驻留**;进阶 `approvals/` 收编维持开放选项,未拍板不动。
+8. **Offering 正名 Shared Kernel——已清偿(2026-08-29,本批 docs commit)**:领域模型定稿 §5.4 已补 Offering 行(shared kernel;纯读零写、无状态无表;改动需 Events/Courses 两侧同时回归)。
+9. **跨域 FOR UPDATE 行锁未端口化——已清偿(2026-08-29,`59edcdc`,test-first)**:`Enrollment.lock_for_order/1` + `workspace_id_for_order/1` 发布于 Admission,SQL 原样内迁、返回形状逐键不变;Order 四处调用点改一行委托。钉测 `order_enrollment_lock_test.exs`(先写于现代码即绿、搬迁后仍绿)确定性编排「持锁方确认 → 竞争下单获锁重读 status 拒单、零订单落库」(pg_locks 取证阻塞;教训:sandbox shared 下持锁事务必须 unboxed,否则只是 savepoint 锁不释放)。锁生命周期经钉测验证无可观测差异。
+10. **Miniprogram 壳 domain——已清偿(2026-08-29,本批 commit,方案 A:资源跟写路径走,product owner 拍板)**:`Miniprogram.Code` → `Accounts.InvitationCode`(表 `invitation_codes`;语义更准——本质是 Invitation 渠道码缓存,写方 `Accounts.MiniprogramCode` 同域);`Miniprogram.NotificationConsent` → `Notifications.NotificationConsent`(表 `notification_consents`,mp_ 前缀名不副实——支持 wechat/tt/xhs 三平台;与唯一写方 `Notifications.Consent` 裸 SQL 同域,SQL 形态不变只改表名);`login_artifact_pruner_worker` → `accounts/workers/`(crontab 同步);Miniprogram domain 收缩至仅 ShareScheme。连带新建 `Cgc2046.Notifications` Ash domain(此前该 context 无 domain 模块;无 GraphQL 面,同 Mcp 先例),ash_domains config 与 domains_test 精确集合同步。表改名 migration `20260903000000` 纯 rename 保数据、up/down 对称,resource_snapshots 目录与 JSON 同步更名。
 
 **复审补记(A2-A5)**:
 
 - **A2 措辞认账**:W1 把 reconciliation_scan_worker 整体判给 `reconciliation/`(评审原稿保守路径 a,成立),但 ADR-0009 D6「扫描器归各域」原文需同步改写,否则两 ADR 矛盾——已在 ADR-0009 D6 补记。
-- **A3 Learning 逻辑主体在 W1 射程外**:learning_instantiator.ex(订阅 enrollment.completed 种 run,业务规则非编排)、learning_progress.ex(进度投影+停滞口径)、agent_instructions.ex(零消费方)都在 `workflows/`——同批 Curriculum/Sponsorship/Admission 的 instantiator 都归位了,唯 Learning 例外。待办:迁 `learning/` 或在本 ADR 明示排除理由。
-- **A4 内容读契约收敛**:CourseContent 形状契约仍在 `workflows/`(Curriculum 反向依赖它);`Output(kind=:issues)` 同形查询 5 处重复(curriculum/两 worker/MCP/graphql_schema),只 1 处在域内。
-- **A5 §5.4 补三行**:develop 上领域模型定稿 §5.4 仍无 Offering/Integrations/Miniprogram 行,「代码目录与本表一一对应」声明失真,需补。
+- **A3 Learning 逻辑主体在 W1 射程外——已清偿(2026-08-29,`872d143`)**:三模块迁 `learning/`——`Learning.LearningInstantiator`(leaf 保留 `learning_instantiator`,SignalSubscriber consumer_key 契约与幂等 claim 键不变)、`Learning.Progress`、`Learning.AgentInstructions`(零消费方种子语义不变);引用收敛(curriculum.ex / mcp get_course_content / application.ex / graphql_schema.ex / reconciliation 两文件);测试镜像随迁。
+- **A4 内容读契约收敛——已清偿(2026-08-29,`0a81d1a`)**:`CourseContent`(+Validation)迁 `curriculum/content.ex`(`Cgc2046.Curriculum.Content*`);五处同形查询收敛为 `Curriculum.content_output/2` 单一入口——语义比对结论:核心查询逐字同构(filter+limit(1)+read_one+authorize?: false+tenant),差异仅结果包装(data 解包/错误原子/字符串错误各调用方自持),零行为变化。
+- **A5 §5.4 补三行——已清偿(2026-08-29,本批 docs commit)**:Offering(shared kernel)/ Integrations(ACL/infra)/ Miniprogram(channel supporting)三行已补;「一一对应」声明按终态修正(根部横切写原语为例外并指向 CONTEXT.md 词条)。
 
 **「该留勿动」清单(防后续误改)**:
 
 - Events/Courses 各一份同构 CapacityProjectionSubscriber 是**正确做法**(各写自己的表,合并反而重造跨域写点)。
 - 根部 `Cgc2046.Mailer` 与 `Integrations.SendCloud.Mailer` 是 Swoosh mailer/adapter 标准两层,非重复。
 - Admission 对 Event/Course 的双 belongs_to 是 Ash 关系定义的技术必然,实读全走端口;「引用形状解耦」为 deferred(ADR-0009 已补记——「双 belongs_to」正是它自己列的浅拆判据,特此对齐)。
-- **M6 归宿 trade-off(钉账防误认终态)**:Accounts.SponsorshipTier 让依赖箭头顺流(方向正确),代价是赞助统一语言词汇(档位/独占位/权益)住进身份/租户上下文、Sponsorship 反向 import 自己的核心概念——**命名错位换方向正确,根治挂 B9-b**:sponsorship_tiers 列随聚合迁 `Sponsorship.TierConfig`(软引用 target_kind/target_id)后模块回家。
+- **M6 归宿 trade-off(钉账防误认终态,保持挂账,评估缓办 2026-08-29)**:Accounts.SponsorshipTier 让依赖箭头顺流(方向正确),代价是赞助统一语言词汇(档位/独占位/权益)住进身份/租户上下文、Sponsorship 反向 import 自己的核心概念——**命名错位换方向正确,根治挂 B9-b**:sponsorship_tiers 列随聚合迁 `Sponsorship.TierConfig`(软引用 target_kind/target_id)后模块回家。
 - **M1 覆盖面说明(可接受,不动)**:confirm 活值守卫只恢复 status 真值,registration_deadline 维度仍靠缓存——规12 已看护该列漂移。
+- **规10 同构锚点(LOW,保持挂账,评估缓办 2026-08-29)**:sync_from_offering 纯缓存写也刷 updated_at,频繁编辑清零投影漂移计时;语义纠缠不进清偿批。
+- **「保存失败」无字段名提示(保持挂账,评估缓办 2026-08-29)**:赞助档位保存的错误提示体验,键名错配修复(异常①)时已明示不随批。
 
 ## 后果
 

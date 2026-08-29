@@ -11,7 +11,7 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
 
   alias Cgc2046.Accounts.{Invitation, MembershipContext, Role}
   alias Cgc2046.Integrations.Wechat.Client
-  alias Cgc2046.Miniprogram.Code
+  alias Cgc2046.Accounts.InvitationCode
 
   @scene_regex ~r/^[A-Za-z0-9_]{1,32}$/
   @default_expiry_days 7
@@ -41,7 +41,8 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
     end
   end
 
-  @spec generate_for_invitation(Invitation.t(), atom()) :: {:ok, Code.t()} | {:error, term()}
+  @spec generate_for_invitation(Invitation.t(), atom()) ::
+          {:ok, InvitationCode.t()} | {:error, term()}
   def generate_for_invitation(%Invitation{} = invitation, platform) do
     with :ok <- active_invitation?(invitation),
          {:ok, platform} <- normalize_platform(platform) do
@@ -49,7 +50,7 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
         lock_code_generation(invitation.id, platform)
 
         case cached(invitation.id, platform) do
-          {:ok, %Code{} = code} ->
+          {:ok, %InvitationCode{} = code} ->
             code
 
           {:ok, nil} ->
@@ -68,7 +69,7 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
       end)
     end
     |> case do
-      {:ok, %Code{} = code} -> {:ok, code}
+      {:ok, %InvitationCode{} = code} -> {:ok, code}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -76,14 +77,14 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
   @spec valid_scene?(term()) :: boolean()
   def valid_scene?(scene), do: is_binary(scene) and Regex.match?(@scene_regex, scene)
 
-  @spec code_for_scene(String.t()) :: {:ok, Code.t()} | {:error, term()}
+  @spec code_for_scene(String.t()) :: {:ok, InvitationCode.t()} | {:error, term()}
   def code_for_scene(scene) do
     if valid_scene?(scene) do
-      Code
+      InvitationCode
       |> Ash.Query.filter(scene == ^scene and expires_at > ^DateTime.utc_now())
       |> Ash.read_one(authorize?: false)
       |> case do
-        {:ok, %Code{} = code} -> {:ok, code}
+        {:ok, %InvitationCode{} = code} -> {:ok, code}
         {:ok, nil} -> {:error, :invalid_or_expired_scene}
         {:error, reason} -> {:error, reason}
       end
@@ -119,7 +120,7 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
   end
 
   defp cached(invitation_id, platform) do
-    Code
+    InvitationCode
     |> Ash.Query.filter(
       invitation_id == ^invitation_id and platform == ^platform and
         expires_at > ^DateTime.utc_now()
@@ -131,7 +132,7 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
     expires_at =
       invitation.expires_at || DateTime.add(DateTime.utc_now(), @default_expiry_days, :day)
 
-    Code
+    InvitationCode
     |> Ash.Changeset.for_create(:create, %{
       invitation_id: invitation.id,
       platform: platform,

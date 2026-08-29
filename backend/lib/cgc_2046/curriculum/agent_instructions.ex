@@ -1,7 +1,7 @@
 defmodule Cgc2046.Curriculum.AgentInstructions do
   @moduledoc """
   教研 Agent 指令模板(切片 H U5 种子, #180;R13,设计 §6;ADR-0009 PR③ 自
-  Workflows.AgentInstructions 教研段随迁)。
+  Workflows.AgentInstructions(现 Learning.AgentInstructions)教研段随迁)。
 
   算法在 agent:平台只分发指令文本,零计算(记忆在平台、算法在 agent)。
   v1 载体 = 模块常量(任务指令模式消费面 `get_agent_instruction` 系

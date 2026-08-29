@@ -32,48 +32,16 @@
           "global": null,
           "strategy": null
         },
-        "name": "miniprogram_codes_workspace_id_fkey",
+        "name": "notification_consents_user_id_fkey",
         "on_delete": null,
         "on_update": null,
         "primary_key?": true,
         "schema": "public",
-        "table": "workspaces"
+        "table": "users"
       },
       "scale": null,
       "size": null,
-      "source": "workspace_id",
-      "type": "uuid"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": {
-        "deferrable": false,
-        "destination_attribute": "id",
-        "destination_attribute_default": null,
-        "destination_attribute_generated": null,
-        "index?": false,
-        "index_where": null,
-        "match_type": null,
-        "match_with": null,
-        "multitenancy": {
-          "attribute": "workspace_id",
-          "global": true,
-          "strategy": "attribute"
-        },
-        "name": "miniprogram_codes_invitation_id_fkey",
-        "on_delete": null,
-        "on_update": null,
-        "primary_key?": true,
-        "schema": "public",
-        "table": "invitations"
-      },
-      "scale": null,
-      "size": null,
-      "source": "invitation_id",
+      "source": "user_id",
       "type": "uuid"
     },
     {
@@ -97,32 +65,20 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "scene",
+      "source": "template_key",
       "type": "text"
     },
     {
       "allow_nil?": false,
-      "default": "nil",
+      "default": "0",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
       "references": null,
       "scale": null,
       "size": null,
-      "source": "code",
-      "type": "binary"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "expires_at",
-      "type": "utc_datetime"
+      "source": "remaining_uses",
+      "type": "bigint"
     },
     {
       "allow_nil?": false,
@@ -135,6 +91,18 @@
       "size": null,
       "source": "inserted_at",
       "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
     }
   ],
   "base_filter": null,
@@ -142,48 +110,38 @@
   "create_table_options": null,
   "custom_indexes": [],
   "custom_statements": [],
-  "has_create_action": true,
-  "hash": "76012125A5319386CCDD02A97974D6C984FE4938D1C48D7CB1EDBDBB49161380",
+  "has_create_action": false,
+  "hash": "5A791A861CEFEB2F4DAC3E77D3F5C997626199D60D5E11F1962113935291DEF6",
   "identities": [
     {
-      "all_tenants?": true,
+      "all_tenants?": false,
       "base_filter": null,
-      "index_name": "miniprogram_codes_unique_invitation_platform_index",
+      "index_name": "notification_consents_unique_user_platform_template_index",
       "keys": [
         {
           "type": "atom",
-          "value": "invitation_id"
+          "value": "user_id"
         },
         {
           "type": "atom",
           "value": "platform"
-        }
-      ],
-      "name": "unique_invitation_platform",
-      "nils_distinct?": true,
-      "where": null
-    },
-    {
-      "all_tenants?": true,
-      "base_filter": null,
-      "index_name": "miniprogram_codes_unique_scene_index",
-      "keys": [
+        },
         {
           "type": "atom",
-          "value": "scene"
+          "value": "template_key"
         }
       ],
-      "name": "unique_scene",
+      "name": "unique_user_platform_template",
       "nils_distinct?": true,
       "where": null
     }
   ],
   "multitenancy": {
-    "attribute": "workspace_id",
-    "global": true,
-    "strategy": "attribute"
+    "attribute": null,
+    "global": null,
+    "strategy": null
   },
   "repo": "Elixir.Cgc2046.Repo",
   "schema": null,
-  "table": "miniprogram_codes"
+  "table": "notification_consents"
 }

@@ -31,10 +31,12 @@ defmodule Cgc2046Web.GraphqlPasswordResetTest do
       wrapped_revoke_marker = Ash.Error.to_error_class(revoke_marker)
 
       assert {@revoke_telemetry_event, :revoke_failed} =
-               Cgc2046Web.GraphqlSchema.password_reset_failure_telemetry(revoke_marker)
+               Cgc2046.Accounts.WebAuthFlow.password_reset_failure_telemetry(revoke_marker)
 
       assert {@revoke_telemetry_event, :revoke_failed} =
-               Cgc2046Web.GraphqlSchema.password_reset_failure_telemetry(wrapped_revoke_marker)
+               Cgc2046.Accounts.WebAuthFlow.password_reset_failure_telemetry(
+                 wrapped_revoke_marker
+               )
 
       for reason <- [
             :unexpected_result,
@@ -43,7 +45,7 @@ defmodule Cgc2046Web.GraphqlPasswordResetTest do
             {:throw, :reset_threw}
           ] do
         assert {[:cgc2046, :password_reset, :reset], :reset_failed} =
-                 Cgc2046Web.GraphqlSchema.password_reset_failure_telemetry(reason)
+                 Cgc2046.Accounts.WebAuthFlow.password_reset_failure_telemetry(reason)
       end
     end
   end

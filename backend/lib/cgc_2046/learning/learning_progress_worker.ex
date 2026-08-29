@@ -24,7 +24,7 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     ReconciliationScanWorker 落地）。
   - 规则⑦：`learning_run_stalled`（E-9 #122 补差）——停滞判定与本 worker 提醒
     同一口径（`updated_at` 严格早于 cutoff），阈值同源
-    `LearningProgress.stagnant_cutoff/1`（本 worker 与对账扫描只引用，不各自
+    `Cgc2046.Learning.Progress.stagnant_cutoff/1`（本 worker 与对账扫描只引用，不各自
     定义）；分工：本 worker 负责提醒学员，ReconciliationScanWorker 负责对账
     可见（/admin 对账页 findings 列表）。
 
@@ -43,7 +43,8 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
   require Logger
 
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Workflows.{LearningProgress, WorkflowRun}
+  alias Cgc2046.Learning.Progress
+  alias Cgc2046.Workflows.WorkflowRun
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -60,9 +61,9 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     :ok
   end
 
-  @doc "停滞阈值 cutoff（7 天，D6-③）；同源 `LearningProgress.stagnant_cutoff/1`（对账规则⑦复用同一语义）。"
+  @doc "停滞阈值 cutoff（7 天，D6-③）；同源 `Cgc2046.Learning.Progress.stagnant_cutoff/1`（对账规则⑦复用同一语义）。"
   def stagnant_cutoff(now \\ DateTime.utc_now()) do
-    LearningProgress.stagnant_cutoff(now)
+    Progress.stagnant_cutoff(now)
   end
 
   # --- 完成判定（D6-②） -------------------------------------------------------
@@ -83,7 +84,7 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     with enrollment when is_map(enrollment) <- fetch_enrollment_or_nil(run),
          {:ok, content} <- fetch_course_content(run.workspace_id, enrollment),
          {:ok, records} <- fetch_records(run.workspace_id, enrollment),
-         true <- LearningProgress.all_issues_done?(content, records) do
+         true <- Progress.all_issues_done?(content, records) do
       complete_run(run)
     else
       _ -> :skipped
@@ -121,13 +122,8 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
   # 无内容课程(无 Curriculum.Output)→ {:ok, nil} → all_issues_done? false(skip)
   defp fetch_course_content(workspace_id, %{course_id: course_id})
        when is_binary(course_id) do
-    Cgc2046.Curriculum.Output
-    |> Ash.Query.filter(
-      key == ^Cgc2046.Curriculum.Output.course_key(course_id) and kind == :issues
-    )
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
-    |> case do
+    # 读经 Curriculum.content_output/2 单一入口(A4)
+    case Cgc2046.Curriculum.content_output(workspace_id, course_id) do
       {:ok, nil} -> {:ok, nil}
       {:ok, output} -> {:ok, output.data}
       {:error, _} -> {:error, :content_read_failed}

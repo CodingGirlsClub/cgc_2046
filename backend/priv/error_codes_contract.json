@@ -17,6 +17,9 @@
     "enrollment_tier_not_available",
     "enrollment_unknown",
     "enrollment_unknown_enrollment_policy",
+    "invalid_or_expired_code",
+    "invalid_password",
+    "invalid_reset_token",
     "join_request_invite_only",
     "join_request_not_found",
     "join_request_open",
@@ -36,8 +39,11 @@
     "order_required",
     "order_target_tenant_mismatch",
     "order_unknown",
+    "password_reset_failed",
+    "phone_already_registered",
     "pricing_disable_actor_required",
     "pricing_disable_batch_limit",
+    "registration_failed",
     "speaker_invitation_duplicate_invitation",
     "speaker_invitation_event_not_found",
     "speaker_invitation_event_not_open",
@@ -73,6 +79,7 @@
     "sponsorship_target_workspace_required",
     "sponsorship_tier_not_found",
     "sponsorship_unknown",
-    "sponsorship_unknown_level"
+    "sponsorship_unknown_level",
+    "wechat_login_unavailable"
   ]
 }

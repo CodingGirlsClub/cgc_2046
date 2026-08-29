@@ -561,17 +561,8 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
-  defp enrollment_workspace(id) when is_binary(id) do
-    case Cgc2046.Repo.query("SELECT workspace_id FROM enrollments WHERE id = $1", [
-           Cgc2046.Repo.uuid!(id)
-         ]) do
-      {:ok, %{rows: [[workspace_id]]}} -> {:ok, Ecto.UUID.load!(workspace_id)}
-      {:ok, %{rows: []}} -> {:error, :enrollment_not_found}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
-
-  defp enrollment_workspace(_id), do: {:error, :enrollment_required}
+  # ⑨ 端口收编（ADR-0010 批次4）：SQL 原样在 Admission 侧，本模块只委托
+  defp enrollment_workspace(id), do: Cgc2046.Admission.Enrollment.workspace_id_for_order(id)
 
   # 渠道凭据 → 记录 metadata（AshGraphql mutation payload 的 credential 字段）
   defp attach_credential(changeset) do
@@ -683,34 +674,10 @@ defmodule Cgc2046.Payments.Order do
   # 免缴事务先提交则此处读到 confirmed 拒单；下单先持锁则批量免缴 CAS 等待
   # 后跳过该笔（num_rows=0），不再出现「已免缴确认后仍插入 pending 单」。
   # before_action 运行在 action 事务内，行锁存活到 insert 提交。
-  defp load_enrollment(id) when is_binary(id) do
-    sql = """
-    SELECT id, workspace_id, user_id, status, event_id, course_id, submission_payload
-    FROM enrollments WHERE id = $1 FOR UPDATE
-    """
-
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
-      {:ok, %{rows: [[id, ws, user_id, status, event_id, course_id, payload]]}} ->
-        {:ok,
-         %{
-           id: Ecto.UUID.load!(id),
-           workspace_id: Ecto.UUID.load!(ws),
-           user_id: Ecto.UUID.load!(user_id),
-           status: status_to_atom(status),
-           event_id: event_id && Ecto.UUID.load!(event_id),
-           course_id: course_id && Ecto.UUID.load!(course_id),
-           submission_payload: payload || %{}
-         }}
-
-      {:ok, %{rows: []}} ->
-        {:error, :enrollment_not_found}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
-
-  defp load_enrollment(_id), do: {:error, :enrollment_required}
+  # ⑨ 端口收编（ADR-0010 批次4）：FOR UPDATE SQL 原样在 Admission 侧。
+  # 锁生命周期零变化——before_action 运行在 action 事务内，行锁仍存活到
+  # 调用方（本模块）事务提交。
+  defp load_enrollment(id), do: Cgc2046.Admission.Enrollment.lock_for_order(id)
 
   defp load_order(id) when is_binary(id) do
     sql = """

@@ -27,7 +27,6 @@ defmodule Cgc2046.Curriculum.CurriculumProgressWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Curriculum.Output
   alias Cgc2046.Workflows.WorkflowRun
 
   @non_terminal_statuses [:pending, :running, :waiting]
@@ -93,12 +92,9 @@ defmodule Cgc2046.Curriculum.CurriculumProgressWorker do
 
   defp course_id_of(_run), do: nil
 
+  # 读经 Curriculum.content_output/2 单一入口(A4);错误形状为本 worker 契约
   defp fetch_content(workspace_id, course_id) do
-    Output
-    |> Ash.Query.filter(key == ^Output.course_key(course_id) and kind == :issues)
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
-    |> case do
+    case Cgc2046.Curriculum.content_output(workspace_id, course_id) do
       {:ok, nil} -> {:error, :no_content}
       {:ok, output} -> {:ok, output}
       {:error, _} -> {:error, :content_read_failed}

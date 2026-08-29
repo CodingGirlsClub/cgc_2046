@@ -1,4 +1,4 @@
-defmodule Cgc2046.Miniprogram.NotificationConsentTest do
+defmodule Cgc2046.Notifications.NotificationConsentTest do
   @moduledoc """
   #209 fail-closed：授权余额资源 read 仅 platform_admin。
 
@@ -7,7 +7,7 @@ defmodule Cgc2046.Miniprogram.NotificationConsentTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Cgc2046.Miniprogram.NotificationConsent
+  alias Cgc2046.Notifications.NotificationConsent
 
   test "member 与 nil actor 读被拒（Forbidden）" do
     member = Cgc2046.AccountsFixtures.register_user("mp-consent-fc")

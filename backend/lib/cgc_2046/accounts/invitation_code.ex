@@ -1,11 +1,11 @@
-defmodule Cgc2046.Miniprogram.Code do
+defmodule Cgc2046.Accounts.InvitationCode do
   @moduledoc "平台小程序码缓存；同一 Invitation/平台只保留一份有效码。"
 
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Miniprogram
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)
@@ -61,7 +61,7 @@ defmodule Cgc2046.Miniprogram.Code do
   end
 
   postgres do
-    table("miniprogram_codes")
+    table("invitation_codes")
     repo(Cgc2046.Repo)
   end
 
@@ -73,7 +73,7 @@ defmodule Cgc2046.Miniprogram.Code do
 
   admin do
     # #113 ops 面优化：导航分组 + 列表列裁剪（默认全列横向爆炸；敏感/超大字段不列出）
-    resource_group(:miniprogram)
+    resource_group(:access)
     table_columns([:id, :workspace_id, :platform, :scene, :expires_at, :inserted_at])
   end
 end

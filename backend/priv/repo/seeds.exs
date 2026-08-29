@@ -14,7 +14,7 @@
 alias Cgc2046.Accounts.MembershipContext
 alias Cgc2046.Accounts.User
 alias Cgc2046.Accounts.Workspace
-alias Cgc2046.Workflows.AgentInstructions
+alias Cgc2046.Learning.AgentInstructions
 alias Cgc2046.Workflows.WorkflowDefinition
 
 require Ash.Query

@@ -39,7 +39,7 @@ defmodule Cgc2046.Application do
       # 才批量退——paid 逐笔退款 / payment_pending 取消释放）。
       Cgc2046.Admission.Workers.OfferingCancelRefundWorker,
       # 学习 workflow 实例化（E-7 #122：订阅 enrollment.completed → 幂等种 learning run）
-      Cgc2046.Workflows.LearningInstantiator,
+      Cgc2046.Learning.LearningInstantiator,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
       Cgc2046.Notifications.Subscriber,
       # SpeakerInvitation 生命周期信号 → Oban 异步订阅消息（E-4 #49；
