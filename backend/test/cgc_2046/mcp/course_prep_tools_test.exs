@@ -881,7 +881,9 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
           Task.async(fn ->
             unboxed(fn ->
               Prep.spawn_under_course_lock(course, ["draft", "open"], fn ->
-                send(parent, :at_gate)
+                # gate 携带 participant 事务 xid（spawn_fun 在 Repo.transaction
+                # 内，FOR UPDATE 已持锁——xid 已分配）
+                send(parent, {:at_gate, self(), current_txid()})
 
                 receive do
                   :go -> :ok
@@ -896,34 +898,30 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
           end)
         end)
 
-      # 放行条件（确定性）：两个 participant 都到 gate（删锁世界：双方都已
-      # 过各自的锁内 miss、挂在 create 前——放行即双建，稳定红），或出现
-      # 行锁等待者（有锁世界：A 在 gate 持锁挂起，B 阻塞在 FOR UPDATE 到
-      # 不了 gate——此时放行 A，A 提交后 B 获锁锁内重读命中，绿）。
-      # 若只等第一个 gate：B 可能尚未到 gate 而 A 已被放行建 run 提交，
-      # B 随后 fetch_run 命中——false green（advisor R2 指出的窗口）。
-      wait_until(fn ->
-        # 非破坏性收点 mailbox 里已积压的 :at_gate（最多两条）
-        gates =
-          Enum.count(1..2, fn _ ->
-            receive do
-              :at_gate -> true
-            after
-              0 -> false
-            end
-          end)
+      # 放行条件（确定性，advisor R4/R3-02）：两个 participant 都到 gate
+      # （删锁世界：双方都已过各自锁内 miss、挂 create 前——放行即双建，稳定
+      # 红），或出现**绑定已见 participant 事务**的行锁等待者（有锁世界：A 在
+      # gate 持锁挂起，B 阻塞在 A 事务的 FOR UPDATE 到不了 gate——transactionid
+      # 精确匹配只认等 A 的连接，无关 waiter 不误判；此时放行 A，A 提交后
+      # B 获锁锁内重读命中，绿）。gate 按 task pid 去重累计（进程字典——
+      # 跨轮询不丢，两次轮询间到达的 gate 不被时间等待吞掉）。
+      assert wait_until(fn ->
+               receive do
+                 {:at_gate, pid, xid} -> Process.put(:r4_gates, Map.put(gates(), pid, xid))
+               after
+                 0 -> :ok
+               end
 
-        if gates >= 2 do
-          true
-        else
-          %{rows: [[n]]} =
-            Repo.query!(
-              "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
-            )
+               seen = gates()
 
-          n >= 1
-        end
-      end)
+               if map_size(seen) >= 2 do
+                 true
+               else
+                 seen
+                 |> Map.values()
+                 |> Enum.any?(&(&1 != nil and lock_waiters_of(&1) >= 1))
+               end
+             end)
 
       Enum.each(tasks, &send(&1.pid, :go))
 
@@ -1129,7 +1127,9 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
         Task.async(fn ->
           unboxed(fn ->
             Prep.spawn_under_course_lock(course, ["draft", "open"], fn ->
-              send(parent, :at_gate)
+              # gate 携带 producer 事务 xid（spawn_fun 在 Repo.transaction 内，
+              # FOR UPDATE 已持锁）
+              send(parent, {:producer_gate, self(), current_txid()})
 
               receive do
                 :go -> :ok
@@ -1143,9 +1143,10 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
           end)
         end)
 
-      receive do
-        :at_gate -> :ok
-      end
+      producer_xid =
+        receive do
+          {:producer_gate, _pid, xid} -> xid
+        end
 
       closer =
         Task.async(fn ->
@@ -1160,32 +1161,25 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
           end)
         end)
 
-      # 放行条件（确定性，R3）：closer 完成或已阻塞在行锁——任一先出现才放行
-      # producer。有 FOR UPDATE：closer 阻塞等 producer 的行锁（waiter 出现）→
-      # 放行 → producer create+提交+释放锁 → closer 获锁完成并在同事务收口
-      # producer 的 run（close 必然在 producer 提交之后提交——结构证据）。
-      # 删 FOR UPDATE：closer 不被阻塞直接完成（closed 已提交）→ 放行 →
-      # producer 恢复 spawn_fun 直接建 run（status/fetch 均为挂起前旧读）→
-      # run 落库时课程已 terminal 且无人收口 → 断言 cancelled/active-0 红。
-      wait_until(fn ->
-        closer_done? =
-          receive do
-            :closer_done -> true
-          after
-            0 -> false
-          end
+      # 放行条件（确定性，advisor R4/R3-02）：closer 完成，或已阻塞在
+      # **producer 事务**的行锁上（transactionid 精确匹配——无关 waiter 不
+      # 误判）——任一先出现才放行 producer。有 FOR UPDATE：closer 阻塞等
+      # producer 行锁 → 放行 → producer create+提交+释放锁 → closer 获锁
+      # 完成并在同事务收口 producer 的 run（close 必然在 producer 提交之后
+      # 提交——结构证据）。删 FOR UPDATE：closer 不被阻塞直接完成（closed
+      # 已提交）→ 放行 → producer 恢复 spawn_fun 直接建 run（status/fetch
+      # 均为挂起前旧读）→ run 落库时课程已 terminal 且无人收口 → 断言
+      # cancelled/active-0 红。
+      assert wait_until(fn ->
+               closer_done? =
+                 receive do
+                   :closer_done -> true
+                 after
+                   0 -> false
+                 end
 
-        if closer_done? do
-          true
-        else
-          %{rows: [[n]]} =
-            Repo.query!(
-              "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
-            )
-
-          n >= 1
-        end
-      end)
+               closer_done? or lock_waiters_of(producer_xid) >= 1
+             end)
 
       send(producer.pid, :go)
 
@@ -1220,6 +1214,42 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
         end)
 
       cleanup_on_exit(workspace.id, [owner])
+      parent = self()
+
+      # 顺序（advisor R4/R3-01）：主进程**先**在真实 transaction 内取得
+      # course 行锁（unboxed_run 是 autocommit——裸 SELECT FOR UPDATE 是语句
+      # 级锁，语句结束即释放，必须包在 Repo.transaction 里），此时 handler
+      # 尚未启动、不存在「handler 等锁被计入基线」的竞态；再启动 handler。
+      holder =
+        Task.async(fn ->
+          unboxed(fn ->
+            Repo.transaction(fn ->
+              Repo.query!("SELECT id FROM courses WHERE id = $1 FOR UPDATE", [
+                Ecto.UUID.dump!(course.id)
+              ])
+
+              # 持锁事务 xid——后续 waiter 判定按此精确匹配（只认等本事务
+              # 锁的连接，无关 waiter 不误判；FOR UPDATE 保证 xid 已分配）
+              me = current_txid()
+              send(parent, {:locked, me})
+
+              receive do
+                :release -> :ok
+              end
+
+              # 放行后（handler 已确认阻塞在本事务锁上）注入 terminal 状态
+              # 并随事务提交（真实链路 launch→close 的域副作用与断言无关，
+              # 此处只需 world state = closed 已提交；提交释放锁，handler
+              # 恢复获锁并由锁内 status 裁决拒绝）
+              force_course_status(course, "closed")
+            end)
+          end)
+        end)
+
+      holder_xid =
+        receive do
+          {:locked, xid} -> xid
+        end
 
       # 真实 handler（SignalSubscriber.deliver 同步执行 PrepInstantiator.handle/2，
       # Task 进程内）：fetch_course(draft) → ensure_draft ✓ → fetch defn →
@@ -1235,47 +1265,24 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
           end)
         end)
 
-      # 主进程持锁必须包在 Repo.transaction 里（unboxed_run 是 autocommit——
-      # 裸 SELECT FOR UPDATE 是语句级锁，语句结束即释放，从未真正挡住 handler）
-      unboxed(fn ->
-        Repo.transaction(fn ->
-          Repo.query!("SELECT id FROM courses WHERE id = $1 FOR UPDATE", [
-            Ecto.UUID.dump!(course.id)
-          ])
+      # 等 handler 的锁请求出现（advisor R4/R3-01：显式 assert——超时即测试
+      # 失败，不静默进入 force_course_status）。精确条件：等待本持锁事务的
+      # waiter 出现 **且** run 未建——真实接线下 handler 阻塞在
+      # SELECT ... FOR UPDATE，此刻 run 必未建；若 handler 回退为直接
+      # launch/3，会先建 run 再阻塞在 link 的 UPDATE，`prep_runs == []` 恒假
+      # → 超时 assert 失败（红）——回退验证锚点。
+      assert wait_until(fn ->
+               lock_waiters_of(holder_xid) >= 1 and prep_runs(workspace) == []
+             end)
 
-          # 等 handler 的锁请求出现（精确条件：waiter 超基线 **且** run 未建——
-          # 真实接线下 handler 阻塞在 SELECT ... FOR UPDATE，此刻 run 必未建；
-          # 若 handler 回退为直接 launch/3，会先建 run 再阻塞在 link 的
-          # UPDATE，本条件永不满足，超时后走到 force closed，最终断言
-          # [] = prep_runs 因 run 已建而稳定红——回退验证锚点）。
-          # 基线消化其他 async 测试的锁等待干扰（误判方向只会提前放行，
-          # 结果不变量不受影响，不产生 false red）。
-          %{rows: [[baseline]]} =
-            Repo.query!(
-              "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
-            )
-
-          wait_until(fn ->
-            %{rows: [[n]]} =
-              Repo.query!(
-                "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
-              )
-
-            n > baseline and prep_runs(workspace) == []
-          end)
-
-          # 持锁事务内注入 terminal 状态（真实链路 launch→close 的域副作用
-          # 与断言无关，此处只需 world state = closed 已提交；事务提交释放
-          # 锁后，handler 恢复获锁并由锁内 status 裁决拒绝）
-          force_course_status(course, "closed")
-        end)
-      end)
+      send(holder.pid, :release)
 
       assert :ok = Task.await(handler, 10_000)
+      Task.await(holder, 10_000)
 
       # 锁内裁决拒绝：handler 无写副作用，零 run（若 handler 回退为直接
       # launch/3，run 会在持锁期间被建并提交——terminal 后遗留 active run，
-      # 本断言红；回退验证见 R3 报告）
+      # 本断言红；回退验证见 R4 报告）
       assert [] = prep_runs(workspace)
     end
   end
@@ -2257,39 +2264,42 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
   defp unboxed(fun), do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fun)
 
-  # 等待出现至少一个未获授的 transactionid 锁请求（行锁等待者）——必然事件
-  # 的条件轮询（25ms 间隔，u6 测试 wait_until 先例）。注：pg_locks 全库可见，
-  # 其他 async 测试的锁等待可能被计入——误判只会让放行更晚（结果不变量不受
-  # 影响），不会产生 false green。
-  # 必然事件的条件轮询（25ms 间隔，u6 测试 wait_until 先例）
+  # 必然事件的条件轮询（25ms 间隔，u6 测试 wait_until 先例）。返回 boolean：
+  # 条件达成 true，耗尽 false——调用方必须显式 assert（超时即测试失败，
+  # 不静默继续——advisor R4/R3-01）。
   defp wait_until(fun, attempts \\ 200)
 
   defp wait_until(fun, 0), do: fun.()
 
   defp wait_until(fun, attempts) do
     if fun.() do
-      :ok
+      true
     else
       Process.sleep(25)
       wait_until(fun, attempts - 1)
     end
   end
 
-  defp wait_until_lock_waiter(attempts \\ 200)
-
-  defp wait_until_lock_waiter(0), do: :ok
-
-  defp wait_until_lock_waiter(attempts) do
+  # 等待指定 transaction 的行锁等待者出现（精确匹配：pg_locks 中 NOT granted
+  # 且 transactionid = 目标事务 xid = 正在等该事务锁的连接——只认本测试
+  # 持锁事务的等待者，无关 waiter 不产生 false green，advisor R4/R3-02）。
+  # holder_xid 为持锁事务内 SELECT txid_current() 的返回。
+  defp lock_waiters_of(holder_xid) do
     %{rows: [[n]]} =
       Repo.query!(
-        "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted"
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted AND transactionid = $1",
+        [holder_xid]
       )
 
-    if n >= 1 do
-      :ok
-    else
-      Process.sleep(25)
-      wait_until_lock_waiter(attempts - 1)
-    end
+    n
+  end
+
+  # gate 记账（进程字典：task pid → participant 事务 xid，跨轮询累计）
+  defp gates, do: Process.get(:r4_gates) || %{}
+
+  # 当前事务 xid（须在已持行锁的事务内调用——FOR UPDATE 保证分配 xid）
+  defp current_txid do
+    %{rows: [[xid]]} = Repo.query!("SELECT txid_current()")
+    xid
   end
 end
