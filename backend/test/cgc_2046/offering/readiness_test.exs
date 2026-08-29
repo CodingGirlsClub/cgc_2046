@@ -39,7 +39,12 @@ defmodule Cgc2046.Offering.ReadinessTest do
         EventFixtures.create_event(workspace, admin, %{
           sponsorship_enabled: true,
           sponsorship_tiers: [
-            %{"id" => "t1", "name" => "Gold", "benefits" => [], "exclusive" => false}
+            %{
+              "id" => "a1b2c3d4-0000-4000-8000-000000000021",
+              "name" => "Gold",
+              "benefits" => [],
+              "exclusive" => false
+            }
           ]
         })
 

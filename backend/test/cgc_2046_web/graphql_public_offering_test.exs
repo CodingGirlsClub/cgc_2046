@@ -676,7 +676,12 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
           ],
           sponsorship_enabled: true,
           sponsorship_tiers: [
-            %{"id" => "gold", "name" => "金牌", "benefits" => ["logo 展示位"], "exclusive" => false}
+            %{
+              "id" => "a1b2c3d4-0000-4000-8000-000000000030",
+              "name" => "金牌",
+              "benefits" => ["logo 展示位"],
+              "exclusive" => false
+            }
           ]
         })
 
