@@ -1,8 +1,9 @@
 defmodule Cgc2046.Learning do
   @moduledoc """
-  学习域（ADR-0009 PR⑤ U8，旧 Api domain 退役归位）：LearningRecord 个人
-  记忆库（切片 H U2，#180）——记忆挂人不挂报名（跨 enrollment 延续）；
-  经读契约消费 Curriculum 已发布内容（定稿 §5.4）。
+  学习域（ADR-0009 PR⑤ U8 归位；S8 起为 ADR-0011 Learning v2）：
+  Attempt（不可变评价账本，L1）+ Mastery/NextAction（派生投影纯函数族，
+  L2/L5）+ Runs（run×revision 投影单源，L6）——账本挂人（attempts 永久
+  保留、跨 run 可审计），掌握态挂 run × revision。
 
   KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Admission 同款——
   `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止意外公开
@@ -27,6 +28,7 @@ defmodule Cgc2046.Learning do
 
   resources do
     # 学习记忆库（切片 H U2，#180）
-    resource(Cgc2046.Learning.LearningRecord)
+    # ADR-0011 L1（S8）：Attempt（不可变评价账本）取代 LearningRecord
+    resource(Cgc2046.Learning.Attempt)
   end
 end

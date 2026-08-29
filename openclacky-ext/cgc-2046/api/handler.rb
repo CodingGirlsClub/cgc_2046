@@ -115,15 +115,6 @@ class Cgc2046Ext < Clacky::ApiExtension
   # ── U9 课程学习面板数据面(读透传 + S4 草稿写回;学习评价写回发生在 session) ──
   # workspace_id 为必填 query(平台 D12 无状态作用域);面板侧经选择器记忆。
 
-  # GET /api/ext/cgc-2046/courses?workspace_id=...
-  # 我的课程列表:透传 MCP get_learning_records(本人全部课程记录,面板按
-  # course_id 分组推导课程列表)。
-  get "/courses" do
-    guard_origin!
-    outcome = course_tool("get_learning_records", {})
-    json(outcome[:body], status: outcome[:status])
-  end
-
   # GET /api/ext/cgc-2046/courses/:course_id/content?workspace_id=...
   # 课程内容(issue 卡集草稿):透传 MCP get_course_content。
   # 结果顶层 version 随透传自动流动(S4 乐观并发的读侧)。
@@ -162,13 +153,6 @@ class Cgc2046Ext < Clacky::ApiExtension
     json(outcome[:body], status: outcome[:status])
   end
 
-  # GET /api/ext/cgc-2046/courses/:course_id/records?workspace_id=...
-  # 本人该课程学习记录:透传 MCP get_learning_records(course_id 过滤)。
-  get "/courses/:course_id/records" do
-    guard_origin!
-    outcome = course_tool("get_learning_records", { "course_id" => route_params_value("course_id") })
-    json(outcome[:body], status: outcome[:status])
-  end
 
   # GET /api/ext/cgc-2046/courses/:course_id/prep?workspace_id=...
   # 课程教研流程状态(role-agent-journeys-v2 S5-extension):透传 MCP get_prep_status。
@@ -241,6 +225,59 @@ class Cgc2046Ext < Clacky::ApiExtension
     else
       outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "list_my_tasks", { "workspace_id" => workspace_id })
     end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/learning_state?workspace_id=&course_id=
+  # 学员学习状态投影(objective 课程地图/先修锁/next_action/进度):
+  # 透传 MCP get_learning_state。两参数皆必填,缺一 → 400。
+  get "/learning_state" do
+    workspace_id = route_params_value("workspace_id")
+    course_id    = route_params_value("course_id")
+    outcome =
+      if workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
+      elsif course_id.empty?
+        { status: 400, body: { error: "course_id is required" } }
+      else
+        Cgc2046LearnerRoutes.call_learner_tool(self, "get_learning_state",
+                                               { "workspace_id" => workspace_id, "course_id" => course_id })
+      end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # POST /api/ext/cgc-2046/learning/start
+  # 启动(或幂等续学)学习 run:透传 MCP start_learning_run。
+  # body { workspace_id, course_id } 必填;同版重进 resume,新版自动开新 run。
+  post "/learning/start" do
+    guard_write!
+    body         = json_body
+    workspace_id = (body["workspace_id"] || body[:workspace_id]).to_s.strip
+    course_id    = (body["course_id"] || body[:course_id]).to_s.strip
+    outcome =
+      if workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
+      elsif course_id.empty?
+        { status: 400, body: { error: "course_id is required" } }
+      else
+        Cgc2046LearnerRoutes.call_learner_tool(self, "start_learning_run",
+                                               { "workspace_id" => workspace_id, "course_id" => course_id })
+      end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/courses/:course_id/revision
+  # 课程当前已发布版本详情(展示增强用:issue 标题/kind;state 为底永不丢
+  # objective):透传 MCP get_course_revision(:course_id 路由捕获)。
+  get "/courses/:course_id/revision" do
+    course_id = route_params_value("course_id")
+    outcome =
+      if course_id.empty?
+        { status: 400, body: { error: "course_id is required" } }
+      else
+        Cgc2046LearnerRoutes.call_learner_tool(self, "get_course_revision",
+                                               { "course_id" => course_id })
+      end
     json(outcome[:body], status: outcome[:status])
   end
 

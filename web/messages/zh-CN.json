@@ -102,7 +102,8 @@
     "forgotPassword": "忘记密码？",
     "error": {
       "shortPassword": "密码至少需要 8 个字符",
-      "passwordMismatch": "两次输入的密码不一致"
+      "passwordMismatch": "两次输入的密码不一致",
+      "invalidPasswordLength": "密码长度需为 8-72 字节（一个汉字算 3 字节）"
     },
     "submit": {
       "processing": "处理中…",
@@ -112,11 +113,6 @@
     "switch": {
       "returnLogin": "返回登录",
       "createAccount": "创建账号"
-    },
-    "error": {
-      "shortPassword": "密码至少需要 8 个字符",
-      "passwordMismatch": "两次输入的密码不一致",
-      "invalidPasswordLength": "密码长度需为 8-72 字节（一个汉字算 3 字节）"
     },
     "errors": {
       "loginFailed": "登录失败，请检查邮箱与密码",
@@ -239,11 +235,26 @@
     },
     "stats": {
       "items": [
-        { "value": "4000+", "label": "名学员" },
-        { "value": "1000+", "label": "位教练" },
-        { "value": "50+", "label": "场线下工作坊" },
-        { "value": "17", "label": "所高校" },
-        { "value": "10", "label": "个城市" }
+        {
+          "value": "4000+",
+          "label": "名学员"
+        },
+        {
+          "value": "1000+",
+          "label": "位教练"
+        },
+        {
+          "value": "50+",
+          "label": "场线下工作坊"
+        },
+        {
+          "value": "17",
+          "label": "所高校"
+        },
+        {
+          "value": "10",
+          "label": "个城市"
+        }
       ]
     },
     "trust": {
@@ -256,18 +267,42 @@
       "title": "加入之后，会发生什么",
       "description": "从第一次触碰代码，到把编程变成长期的能力与日常。",
       "steps": [
-        { "title": "参加工作坊", "description": "从一次线下或线上工作坊开始，零基础也能写出自己的第一行代码。" },
-        { "title": "系统学课程", "description": "报名长期课程与成长营，与同伴同行，按节奏稳步前进。" },
-        { "title": "留在社群里", "description": "和几千名同伴互相求助、结对成长，让工作坊里的火花变成日常。" }
+        {
+          "title": "参加工作坊",
+          "description": "从一次线下或线上工作坊开始，零基础也能写出自己的第一行代码。"
+        },
+        {
+          "title": "系统学课程",
+          "description": "报名长期课程与成长营，与同伴同行，按节奏稳步前进。"
+        },
+        {
+          "title": "留在社群里",
+          "description": "和几千名同伴互相求助、结对成长，让工作坊里的火花变成日常。"
+        }
       ]
     },
     "journey": {
       "entries": [
-        { "year": "2016", "text": "Coding Girls Club 创立，第一堂编程工作坊开课。" },
-        { "year": "2018", "text": "入选联合国开发计划署「科技与慈善」项目案例集。" },
-        { "year": "2019", "text": "获共青团中央「全国青年社会组织伙伴计划」奖项。" },
-        { "year": "2021", "text": "与卡耐基梅隆大学学者合作的论文发表于 ICSE CHASE 2021（IEEE 出版）。" },
-        { "year": "2046", "text": "三十年之约抵达之日——我们正在路上。" }
+        {
+          "year": "2016",
+          "text": "Coding Girls Club 创立，第一堂编程工作坊开课。"
+        },
+        {
+          "year": "2018",
+          "text": "入选联合国开发计划署「科技与慈善」项目案例集。"
+        },
+        {
+          "year": "2019",
+          "text": "获共青团中央「全国青年社会组织伙伴计划」奖项。"
+        },
+        {
+          "year": "2021",
+          "text": "与卡耐基梅隆大学学者合作的论文发表于 ICSE CHASE 2021（IEEE 出版）。"
+        },
+        {
+          "year": "2046",
+          "text": "三十年之约抵达之日——我们正在路上。"
+        }
       ],
       "note": "也曾支持联合国开发计划署与联合国妇女署 #科技遇见她# 一小时编程挑战。"
     },
@@ -1845,10 +1880,10 @@
     "tabEnrollments": "报名",
     "tabSponsorships": "赞助",
     "navAria": "我的参与分区",
-    "agentPrompt1": "请和我一起学习课程《{title}》的 {key}「{issue}」。",
+    "agentPrompt1": "请和我一起学习课程《{title}》的学习目标「{issue}」。",
     "agentGoal": "学习目标:{goal}",
     "agentGoalFallback": "(见课程内容)",
-    "agentPrompt2": "请按学习 Agent 指令的八步循环开始:先读取我的学习记录与课程内容,从当前进度接续教学。",
+    "agentPrompt2": "请按 learner playbook 的七步学习循环：先 get_learning_state 读取课程地图与当前进度，按 next_action 的 reason 从该目标开始教学；正式评价时调用 submit_learning_attempt，evidence 写一句证据摘要，rubric_results 精确覆盖该目标 rubric 全部 criterion id。",
     "empty": "暂无在学课程。报名课程并确认后,这里会显示学习进度。",
     "unnamedCourse": "未命名课程",
     "processing": "处理中",
@@ -1878,7 +1913,23 @@
     "issueKindThoughtwork": "思考",
     "issueKindHandwork": "动手",
     "courseMapTitle": "课程地图",
-    "courseMapGoalDesc": "完成全部学习单元后,你将具备:{goals}"
+    "courseMapGoalDesc": "完成全部学习单元后,你将具备:{goals}",
+    "masteryUnassessed": "未学",
+    "masteryDeveloping": "学习中",
+    "masteryMastered": "已掌握",
+    "masteryNeedsReview": "待复习",
+    "progressLabelV2": "必修已掌握 {done}/{total}",
+    "learningComplete": "已结业",
+    "staleRevision": "有新版",
+    "staleRevisionHint": "课程已发布新版本。你正在学的旧版进度保留；发起新学习会切换到新版。",
+    "nextActionLabel": "当前任务",
+    "masteredLabel": "个必修已掌握",
+    "completeLabel": "已结业",
+    "electiveLabel": "选修",
+    "attemptCountLabel": "尝试 {count} 次",
+    "lockedLabel": "需先修：{titles}",
+    "learnThisObjective": "学这个目标",
+    "agentObjectiveId": "(objective_id: {id})"
   },
   "profileAvatar": {
     "typeError": "仅支持 {types} 格式",

@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * 我的学习 tab(U8,R11):按课程分组 + issue 行(状态图标/key/标题/kind/n-m)
- * + 右侧抽屉(story 全文 + checklist 逐条 evidence + OpenClacky CTA)。
+ * 我的学习 tab（U8/R11→S8，ADR-0011）：按课程分组 + objective 掌握地图
+ * （四态图标/锁定与缺失先修/尝试次数）+ 右侧抽屉（objective 全列表 +
+ * next_action 当前任务 + OpenClacky CTA）。
  *
- * 抽屉数据 = courseLearningDetail(U7,恒本人视角);打开时懒加载。
- * CTA 走 Rsk3 降级路径:复制学习任务指令文本,引导粘贴到 OpenClacky 会话。
+ * 抽屉数据 = courseLearningDetail（Runs.learning_state 薄壳，恒本人视角）；
+ * 打开时懒加载。CTA 走 Rsk3 降级路径：复制 objective 口径学习任务指令文本，
+ * 引导粘贴到 OpenClacky 会话。
  */
 
 import { Link } from "@/i18n/navigation";
@@ -16,14 +18,13 @@ import { useQuery } from "@apollo/client/react";
 import {
   COURSE_LEARNING_DETAIL,
   type CourseLearningDetail,
-  type LearningIssue,
+  type LearningObjectiveState,
   type MyLearningRun,
 } from "@/lib/graphql/participations";
 import { LEARNING_RUN_STATUS_LABEL } from "@/lib/graphql/participations";
 import {
-  IssueKindChip,
-  IssueStatusIcon,
-  type IssueStatus,
+  MasteryIcon,
+  type ObjectiveMastery,
 } from "@/components/learning/issue-bits";
 
 type Tab = "learning" | "enrollments" | "sponsorships";
@@ -70,9 +71,9 @@ export function ParticipationsTabs({ tab }: { tab: Tab }) {
   );
 }
 
-/** 学习任务指令文本(Rsk3 降级:复制后粘贴到 OpenClacky 会话)。
- * 组件内传 useTranslations("learning") 的 t;无 provider 的纯函数直调(测试)用
- * zh-CN 源文案的降级 translator,与硬编码原文一致。 */
+/** 学习任务指令文本（Rsk3 降级：复制后粘贴到 OpenClacky 会话；S8 objective 口径）。
+ * 组件内传 useTranslations("learning") 的 t；无 provider 的纯函数直调(测试)用
+ * zh-CN 源文案的降级 translator。 */
 type LearningTranslate = ReturnType<typeof useTranslations<"learning">>;
 
 const fallbackLearningT = createTranslator({
@@ -83,12 +84,12 @@ const fallbackLearningT = createTranslator({
 
 export function learningSessionPrompt(
   detail: CourseLearningDetail,
-  issue: LearningIssue,
+  objective: LearningObjectiveState,
   t: LearningTranslate = fallbackLearningT,
 ): string {
   return [
-    t("agentPrompt1", { title: detail.title, key: issue.key, issue: issue.title }),
-    t("agentGoal", { goal: issue.story.goal ?? t("agentGoalFallback") }),
+    t("agentPrompt1", { title: detail.title, issue: objective.title }),
+    t("agentObjectiveId", { id: objective.id }),
     t("agentPrompt2"),
   ].join("\n");
 }
@@ -152,7 +153,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
       })}
 
       {drawerCourseId ? (
-        <IssueDrawer
+        <ObjectiveDrawer
           courseId={drawerCourseId}
           onClose={() => setDrawerCourseId(null)}
         />
@@ -169,13 +170,12 @@ function LearningRunRow({
   onOpenDrawer: (courseId: string) => void;
 }) {
   const t = useTranslations("learning");
-  // 行级进度 = run 的 doneIssues/totalIssues(投影单源);点行开抽屉看逐条
-  const status: IssueStatus =
-    run.totalIssues > 0 && run.doneIssues === run.totalIssues
-      ? "done"
-      : run.doneIssues > 0
-        ? "in_progress"
-        : "todo";
+  // 行级进度 = run 的 objective 掌握进度(投影单源);点行开抽屉看逐条
+  const mastery: ObjectiveMastery = run.progress.complete
+    ? "mastered"
+    : run.progress.masteredRequired > 0
+      ? "developing"
+      : "unassessed";
 
   return (
     <button
@@ -185,20 +185,27 @@ function LearningRunRow({
       className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-soft-2"
     >
       <span className="pt-1">
-        <IssueStatusIcon status={status} />
+        <MasteryIcon mastery={mastery} />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
-          {run.currentIssueKey ? (
-            <span className="font-mono text-[12px] text-ink-3">
-              {run.currentIssueKey}
+          {run.nextAction ? (
+            run.nextAction.reason
+          ) : (
+            <span>{t("learningComplete")}</span>
+          )}
+          {run.staleRevision ? (
+            <span className="rounded-full border border-orange-400 px-2 py-0.5 text-[11px] text-orange-500">
+              {t("staleRevision")}
             </span>
           ) : null}
-          {run.currentIssueTitle ?? t("learningInProgress")}
         </span>
-        {run.totalIssues > 0 ? (
+        {run.progress.totalRequired > 0 ? (
           <span className="mt-0.5 block text-[13px] text-ink-3">
-            {t("progressLabel", { done: run.doneIssues, total: run.totalIssues })}
+            {t("progressLabelV2", {
+              done: run.progress.masteredRequired,
+              total: run.progress.totalRequired,
+            })}
           </span>
         ) : null}
       </span>
@@ -206,8 +213,8 @@ function LearningRunRow({
   );
 }
 
-/** 右侧抽屉:课程全部 issue(story 全文 + checklist 逐条 evidence)+ CTA */
-function IssueDrawer({
+/** 右侧抽屉：课程 objective 掌握地图 + next_action 当前任务 + CTA */
+function ObjectiveDrawer({
   courseId,
   onClose,
 }: {
@@ -221,7 +228,6 @@ function IssueDrawer({
 
   const t = useTranslations("learning");
 
-  const [openIssueId, setOpenIssueId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -232,9 +238,9 @@ function IssueDrawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function copyPrompt(issue: LearningIssue) {
+  async function copyPrompt(objective: LearningObjectiveState) {
     if (!detail) return;
-    const text = learningSessionPrompt(detail, issue, t);
+    const text = learningSessionPrompt(detail, objective, t);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -256,7 +262,7 @@ function IssueDrawer({
       <aside
         role="dialog"
         aria-label={t("dialogAria")}
-        data-testid="issue-drawer"
+        data-testid="objective-drawer"
         className="h-full w-full max-w-xl overflow-y-auto bg-view p-6 shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3">
@@ -266,11 +272,9 @@ function IssueDrawer({
             </h3>
             {detail ? (
               <p className="mt-1 text-[13px] text-ink-3">
-                {detail.progress.doneIssues}/{detail.progress.totalIssues}{" "}
-                {t("doneLabel")}
-                {detail.progress.currentIssueKey
-                  ? t("currentLabel", { key: detail.progress.currentIssueKey })
-                  : ""}
+                {detail.progress.masteredRequired}/{detail.progress.totalRequired}{" "}
+                {t("masteredLabel")}
+                {detail.progress.complete ? ` · ${t("completeLabel")}` : ""}
               </p>
             ) : null}
           </div>
@@ -290,136 +294,97 @@ function IssueDrawer({
         ) : null}
 
         {detail ? (
-          <div className="mt-5 grid gap-3" data-testid="drawer-issues">
-            {detail.issues.map((issue) => {
-              const doneCount = issue.story.checklist.filter(
-                (c) => c.done,
-              ).length;
-              const total = issue.story.checklist.length;
-              const expanded = openIssueId === issue.id;
+          detail.staleRevision ? (
+            <p
+              className="mt-4 rounded-large border border-orange-400 bg-orange-50 p-3 text-[13px] text-orange-600"
+              data-testid="drawer-stale"
+            >
+              {t("staleRevisionHint")}
+            </p>
+          ) : null
+        ) : null}
 
-              return (
-                <div
-                  key={issue.id}
-                  className="rounded-large border border-line bg-card"
-                >
-                  <button
-                    type="button"
-                    data-testid={`drawer-issue-${issue.id}`}
-                    aria-expanded={expanded}
-                    onClick={() => setOpenIssueId(expanded ? null : issue.id)}
-                    className="flex w-full items-start gap-3 p-4 text-left"
-                  >
-                    <span className="pt-1">
-                      <IssueStatusIcon status={issue.status} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
-                        <span className="font-mono text-[12px] text-ink-3">
-                          {issue.key}
-                        </span>
-                        {issue.title}
-                        <IssueKindChip kind={issue.kind} />
-                      </span>
-                      <span className="mt-0.5 block text-[13px] text-ink-3">
-                        {t("doneCountLabel", { done: doneCount, total })}
-                      </span>
-                    </span>
-                  </button>
-
-                  {expanded ? (
-                    <div
-                      className="border-t border-line p-4"
-                      data-testid={`drawer-story-${issue.id}`}
-                    >
-                      {issue.story.goal ? (
-                        <p className="text-sm text-ink-2">
-                          <strong>{t("goalLabel")}</strong>
-                          {issue.story.goal}
-                        </p>
-                      ) : null}
-                      {issue.story.given.length > 0 ? (
-                        <p className="mt-1 text-[13px] text-ink-3">
-                          {t("givenLabel", {
-                            given: issue.story.given.join(" / "),
-                          })}
-                        </p>
-                      ) : null}
-                      {issue.story.materials.length > 0 ? (
-                        <ul className="mt-2 grid gap-1 text-[13px] text-ink-3">
-                          {issue.story.materials.map((m, i) => (
-                            <li key={i}>
-                              {t("materialLabel", { title: m.title ?? "" })}
-                              {m.ref ? `(${m.ref})` : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-
-                      <ul
-                        className="mt-3 grid gap-1.5"
-                        data-testid={`drawer-checklist-${issue.id}`}
-                      >
-                        {issue.story.checklist.map((item) => (
-                          <li
-                            key={item.id}
-                            className="flex items-start gap-2 text-sm"
-                            data-testid={`checklist-${issue.id}-${item.id}`}
-                            data-done={item.done}
-                          >
-                            <span
-                              className={
-                                item.done ? "text-emerald-500" : "text-ink-3"
-                              }
-                            >
-                              {item.done ? "✓" : "○"}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span
-                                className={
-                                  item.done ? "text-ink-2" : "text-ink"
-                                }
-                              >
-                                {item.text}
-                              </span>
-                              {item.done && item.evidence ? (
-                                <span className="mt-0.5 block text-[12px] text-ink-3">
-                                  {t("evidenceLabel", { evidence: item.evidence })}
-                                </span>
-                              ) : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-
-                      <div className="mt-4 border-t border-line pt-3">
-                        <button
-                          type="button"
-                          data-testid={`cta-learn-${issue.id}`}
-                          onClick={() => void copyPrompt(issue)}
-                          className="join-button join-button--primary"
-                        >
-                          {copied ? t("copiedInstruction") : t("tutorThisSection")}
-                        </button>
-                        <p className="mt-2 text-[12px] text-ink-3">
-                          {t("copyHint1")}
-                          {t("copyHint2")}
-                          <Link
-                            href="/settings/integrations"
-                            className="text-accent hover:underline"
-                          >
-                            {t("integrationSettings")}
-                          </Link>
-                          。
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
+        {detail?.nextAction ? (
+          <div
+            className="mt-4 rounded-large border border-line-strong bg-card p-4"
+            data-testid="drawer-next-action"
+          >
+            <span className="rounded-full border border-accent px-2 py-0.5 text-[11px] text-accent">
+              {t("nextActionLabel")}
+            </span>
+            <p className="mt-2 text-sm text-ink-2">{detail.nextAction.reason}</p>
           </div>
         ) : null}
+
+        {detail ? (
+          <div className="mt-5 grid gap-3" data-testid="drawer-objectives">
+            {detail.objectives.map((objective) => (
+              <div
+                key={objective.id}
+                className="rounded-large border border-line bg-card"
+                data-testid={`drawer-objective-${objective.id}`}
+              >
+                <div className="flex items-start gap-3 p-4">
+                  <span className="pt-0.5">
+                    <MasteryIcon mastery={objective.mastery} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
+                      {objective.title}
+                      {objective.required ? null : (
+                        <span className="rounded-full border border-violet-400 px-2 py-0.5 text-[11px] text-violet-500">
+                          {t("electiveLabel")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-3 text-[13px] text-ink-3">
+                      {objective.attemptCount > 0 ? (
+                        <span>
+                          {t("attemptCountLabel", { count: objective.attemptCount })}
+                        </span>
+                      ) : null}
+                      {objective.locked ? (
+                        <span
+                          className="text-orange-500"
+                          data-testid={`objective-locked-${objective.id}`}
+                        >
+                          🔒{" "}
+                          {t("lockedLabel", {
+                            titles: objective.missingPrereqIds
+                              .map((m) => m.title ?? m.id)
+                              .join("、"),
+                          })}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  {!objective.locked ? (
+                    <button
+                      type="button"
+                      data-testid={`cta-learn-${objective.id}`}
+                      onClick={() => void copyPrompt(objective)}
+                      className="join-button join-button--primary shrink-0"
+                    >
+                      {copied ? t("copiedInstruction") : t("learnThisObjective")}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <p className="mt-4 text-[12px] text-ink-3">
+          {t("copyHint1")}
+          {t("copyHint2")}
+          <Link
+            href="/settings/integrations"
+            className="text-accent hover:underline"
+          >
+            {t("integrationSettings")}
+          </Link>
+          。
+        </p>
       </aside>
     </div>
   );

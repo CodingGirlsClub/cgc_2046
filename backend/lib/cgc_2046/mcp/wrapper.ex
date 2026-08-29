@@ -211,7 +211,7 @@ defmodule Cgc2046.Mcp.Wrapper do
       %{
         user_id: actor.id,
         tool: tool_name,
-        params: Redact.call(params || %{}),
+        params: Redact.call(tool_name, params || %{}),
         result_status: status,
         error_message: error_message && String.slice(error_message, 0, 500),
         latency_ms: latency_ms,

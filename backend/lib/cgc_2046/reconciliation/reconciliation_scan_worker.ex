@@ -28,7 +28,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   7. `:learning_run_stalled` — learning run 停滞（E-9 #122 补差）：
      `status=running ∧ definition.type=learning ∧ updated_at 严格早于 cutoff`
      （7 天无 facts 更新）。阈值与 LearningProgressWorker 停滞提醒（D6-③）同源
-     ——`Cgc2046.Learning.Progress.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
+     ——`Cgc2046.Learning.Runs.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
      分工：提醒归 LPW，对账可见归本规则（/admin 对账页 findings 列表）。
   8. `:open_offering_without_ledger` — open offering 无名额账本行
   9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
@@ -73,7 +73,6 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
-  alias Cgc2046.Learning.Progress
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -480,20 +479,18 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
 
   defp last_error(_errors), do: nil
 
-  # ── 规7：learning run 停滞（7 天无 facts 更新，与 LPW 提醒同源判定）-----------
+  # ── 规7：learning run 停滞（与 LPW 提醒同源判定）-----------------------------
 
-  # 判定与 LearningProgressWorker 停滞提醒（D6-③）同一口径：running 且
-  # updated_at 严格早于 cutoff（running 态下 facts 写入是唯一更新路径，
-  # updated_at 即 facts 更新代理）；阈值单点定义在 LearningProgress，只引用。
+  # S8（ADR-0011/R50）：停滞口径 = Runs.stagnant?/2 单源——活动时间 = 最新
+  # attempt created_at，零 attempt 回退 run inserted_at；阈值单点定义在
+  # Learning.Runs，只引用。detail 键 last_activity_at（原 last_update_at）。
   defp scan_rule7 do
-    cutoff = Progress.stagnant_cutoff()
+    now = DateTime.utc_now()
 
     WorkflowRun
     |> Ash.Query.filter(status == :running and definition.type == :learning)
     |> Ash.read!(authorize?: false)
-    |> Enum.filter(fn run ->
-      is_struct(run.updated_at, DateTime) and DateTime.compare(run.updated_at, cutoff) == :lt
-    end)
+    |> Enum.filter(&Cgc2046.Learning.Runs.stagnant?(&1, now))
     |> Enum.map(&stagnation_candidate/1)
   end
 
@@ -508,7 +505,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       detail: %{
         enrollment_id: enrollment_id,
         title: Map.get(input, "title") || Map.get(input, :title),
-        last_update_at: DateTime.to_iso8601(run.updated_at)
+        last_activity_at: DateTime.to_iso8601(Cgc2046.Learning.Runs.last_activity_at(run))
       }
     }
   end
@@ -724,7 +721,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
 
   # 规12 detail：仅列漂移字段，逐字段双值（ledger 缓存值 / truth offering 真值）。
   # registration_deadline 裸 SQL 解出 NaiveDateTime（无时区，order.ex 同款注释），
-  # 落 jsonb 前转 ISO8601 字符串（规7 last_update_at 同款）。
+  # 落 jsonb 前转 ISO8601 字符串（规7 last_activity_at 同款）。
   defp cache_drifts(pairs) do
     pairs
     |> Enum.reject(fn {_field, {ledger, truth}} -> ledger == truth end)

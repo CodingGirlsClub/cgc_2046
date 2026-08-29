@@ -24,9 +24,10 @@ defmodule Cgc2046.Reconciliation.Finding do
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
      Pruner 7 天窗口内判定，moduledoc 见 worker）
-  7. `:learning_run_stalled` — learning run 停滞（`status=running` 且 `updated_at`
-     严格早于 `Cgc2046.Learning.Progress.stagnant_cutoff/1`，即 7 天无 facts 更新；
-     与 LearningProgressWorker 停滞提醒（D6-③）同源判定，阈值只在一处定义）
+  7. `:learning_run_stalled` — learning run 停滞（`status=running` 且最后活动时间
+     （S8：最新 attempt created_at，零 attempt 回退 inserted_at）严格早于
+     `Cgc2046.Learning.Runs.stagnant_cutoff/1`；与 LearningProgressWorker
+     停滞提醒（D6-③）同源判定，阈值只在一处定义）
   8. `:open_offering_without_ledger` — open offering 无名额账本行
      （ADR-0009 U7 R17；launched 信号建行 / 报名懒建双路均未到达）
   9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
