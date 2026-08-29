@@ -8,7 +8,9 @@
 # 2. owner 成员资格：归属首个平台管理员（migration 08000000 同语义）；fresh DB
 #    无用户/无平台管理员时安全跳过（ADR-0004：后续首个平台管理员可认领）。
 # 3. 课程 issue 学习闭环种子(切片 H U5, #180)：教研/学习 workflow 定义(单 manual
-#    step 协议容器, published)。角色 playbook 以 Mcp.Playbooks 版本化模块常量
+#    step 协议容器, published)；role-agent-journeys-v2 S5 加「课程教研 workflow」
+#    定义(course_preparation,课程创建即经 course.created 信号实例化 prep run)。
+#    角色 playbook 以 Mcp.Playbooks 版本化模块常量
 #    为载体(role-agent-journeys-v2 S1，经 get_role_playbook 分发)，
 #    此处仅打印确认落位。
 
@@ -82,6 +84,13 @@ definitions = [
     name: "学习 workflow",
     type: :learning,
     node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}
+  },
+  %{
+    # role-agent-journeys-v2 S5 课程教研流程（R22-R28）：协议而非 DAG，
+    # manual step 协议容器（同学习定义；PrepInstantiator 订阅 course.created 实例化）
+    name: "课程教研 workflow",
+    type: :course_preparation,
+    node_def: %{"steps" => [%{"id" => "course_preparation", "type" => "manual"}]}
   }
 ]
 

@@ -65,11 +65,13 @@ class HandlerRequestTest < Minitest::Test
     # U6 发现面板数据面新增两路由(公开浏览透传,无 workspace_id 硬要求)
     # S1-extension 工作台数据面新增三路由(身份/playbook/待办透传)
     # S4-extension 课程草稿写回新增一路由(base_version 乐观并发,409 冲突映射)
+    # S5-extension 教研状态读新增一路由(get_prep_status 透传)
     assert_includes routes, [:get, "/me/workspaces"]
     assert_includes routes, [:get, "/playbook"]
     assert_includes routes, [:get, "/tasks"]
     assert_includes routes, [:post, "/courses/:course_id/content"]
-    assert_equal 13, Cgc2046Ext.routes.size
+    assert_includes routes, [:get, "/courses/:course_id/prep"]
+    assert_equal 14, Cgc2046Ext.routes.size
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 

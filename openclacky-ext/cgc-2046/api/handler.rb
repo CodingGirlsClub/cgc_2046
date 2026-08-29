@@ -153,6 +153,15 @@ class Cgc2046Ext < Clacky::ApiExtension
     json(outcome[:body], status: outcome[:status])
   end
 
+  # GET /api/ext/cgc-2046/courses/:course_id/prep?workspace_id=...
+  # 课程教研流程状态(role-agent-journeys-v2 S5-extension):透传 MCP get_prep_status。
+  # 课程无 prep run(存量课程)时上游报「no preparation run found」——面板按
+  # prep=null 处理(不置错误态),仅 canEdit 视图拉取本端点。
+  get "/courses/:course_id/prep" do
+    outcome = course_tool("get_prep_status", { "course_id" => route_params_value("course_id") })
+    json(outcome[:body], status: outcome[:status])
+  end
+
   # ── U6 发现面板数据面(公开浏览,纯读透传;无需 workspace_id,KTD9) ──────────
 
   # GET /api/ext/cgc-2046/offerings?kind=&city=&starts_after=&starts_before=
