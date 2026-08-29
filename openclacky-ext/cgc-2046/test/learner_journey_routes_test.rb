@@ -18,6 +18,7 @@
 
 require "minitest/autorun"
 require "json"
+require "open3"
 
 gem_spec = Gem::Specification.find_by_name("openclacky")
 require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
@@ -108,14 +109,19 @@ class LearnerJourneyRoutesTest < Minitest::Test
     end
   end
 
-  FakeReq = Struct.new(:body, :query)
+  # advisor F2:req 加 headers(Rack 风格小写键,同宿主 WEBrick #header)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 宿主真实形态(course_routes_test 同款,smoke01 实证):
   #   @params = route pattern captures(symbol key)
   #   POST body 在 req.body(JSON 字符串);GET query 在 req.query,不进 @params
-  def build(registry:, body: nil, query: {}, params: {})
+  def build(registry:, body: nil, query: {}, params: {}, header: {})
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(body && JSON.generate(body), query))
+    inst.instance_variable_set(:@req, FakeReq.new(body && JSON.generate(body), query, header))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
@@ -127,8 +133,13 @@ class LearnerJourneyRoutesTest < Minitest::Test
     assert_raises(Clacky::ApiExtension::Halt) { inst.instance_exec(&route.block) }
   end
 
+  # POST /enrollments 的面板同款写头（advisor F2：json Content-Type + CSRF token）
+  def write_headers
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+  end
+
   def enroll(registry:, body:)
-    invoke(:post, "/enrollments", build(registry: registry, body: body))
+    invoke(:post, "/enrollments", build(registry: registry, body: body, header: write_headers))
   end
 
   # ---- 路由注册 ----
@@ -519,7 +530,142 @@ class LearnerJourneyRoutesTest < Minitest::Test
   end
 end
 
-# ---- 发现面板 v2 view.js 结构静态断言(S7 的可测面;DOM 级留手动冒烟) ----
+# ---- advisor F1:课程面板 boot 解耦的行为级断言(Node harness 执行 view.js) ----
+
+class CoursePanelBehaviorTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  VIEW = File.expand_path("../panels/cgc-course/view.js", __dir__)
+
+  def test_zero_member_confirmed_enrollment_lists_course
+    # AE8/R35 行为证据(非字符串扫描):零成员身份(/me/workspaces 返回空)下
+    # /me/enrollments 仍无条件拉取,confirmed 公开课报名出现在可学习列表,
+    # 行携带报名 workspace 作用域(data-ws),pending 报名入「报名进行中」区,
+    # 无 workspace gate 阻断。
+    out, status = Open3.capture2e("node", HARNESS, VIEW, "zero_member_confirmed")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK zero_member_confirmed"
+    assert_includes out, '"enrollments_fetched_without_membership":true'
+    assert_includes out, '"confirmed_course_visible":true'
+    assert_includes out, '"row_carries_enrollment_workspace_scope":true'
+    assert_includes out, '"in_flight_section_rendered":true'
+    assert_includes out, '"no_workspace_gate_blocking_list":true'
+  end
+end
+
+# ---- advisor F2:loopback 请求来源收口(Origin 同源 / 写路由 Content-Type + CSRF) ----
+
+class CsrfGuardTest < Minitest::Test
+  LOCAL = { "Host" => "127.0.0.1:4114" }.freeze
+  EVIL  = { "Host" => "127.0.0.1:4114", "Origin" => "https://evil.example" }.freeze
+
+  def fake_registry
+    @fake_registry ||= begin
+      reg = LearnerJourneyRoutesTest::FakeRegistry.new
+      reg
+    end
+  end
+
+  def build_inst(header:, body: nil)
+    inst = Cgc2046Ext.allocate
+    req = LearnerJourneyRoutesTest::FakeReq.new(body && JSON.generate(body), {}, header)
+    inst.instance_variable_set(:@req, req)
+    inst.instance_variable_set(:@params, {})
+    inst
+  end
+
+  def invoke(method, pattern, inst)
+    route = Cgc2046Ext.routes.find { |r| r.method == method && r.pattern == pattern }
+    refute_nil route
+    assert_raises(Clacky::ApiExtension::Halt) { inst.instance_exec(&route.block) }
+  end
+
+  def with_fake_server(header:, body: nil)
+    inst = Cgc2046Ext.allocate
+    req = LearnerJourneyRoutesTest::FakeReq.new(body && JSON.generate(body), {}, header)
+    inst.instance_variable_set(:@req, req)
+    inst.instance_variable_set(:@params, {})
+    reg = LearnerJourneyRoutesTest::FakeRegistry.new
+    inst.instance_variable_set(:@http_server, LearnerJourneyRoutesTest::FakeServer.new(reg))
+    [inst, reg]
+  end
+
+  def test_cross_origin_get_403_zero_registry_calls
+    inst, reg = with_fake_server(header: EVIL)
+    halt = invoke(:get, "/discover", inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    assert_empty reg.calls
+  end
+
+  def test_cross_origin_plain_text_post_403_zero_calls
+    inst, reg = with_fake_server(header: EVIL.merge("Content-Type" => "text/plain"),
+                                 body: { "workspace_id" => "ws", "kind" => "course", "offering_id" => "o" })
+    halt = invoke(:post, "/enrollments", inst)
+    assert_equal 403, halt.status
+    assert_empty reg.calls
+  end
+
+  def test_same_origin_and_no_origin_allowed
+    reg = LearnerJourneyRoutesTest::FakeRegistry.new
+
+    # 无 Origin(本地 curl / 宿主内部)放行
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, LearnerJourneyRoutesTest::FakeReq.new(nil, {}, LOCAL))
+    inst.instance_variable_set(:@params, {})
+    inst.instance_variable_set(:@http_server, LearnerJourneyRoutesTest::FakeServer.new(reg))
+    halt = invoke(:get, "/discover", inst)
+    assert_equal 200, halt.status
+    assert_equal 1, reg.calls.length
+
+    # 同源 Origin 放行
+    inst2 = Cgc2046Ext.allocate
+    inst2.instance_variable_set(:@req, LearnerJourneyRoutesTest::FakeReq.new(nil, {}, LOCAL.merge("Origin" => "http://127.0.0.1:4114")))
+    inst2.instance_variable_set(:@params, {})
+    inst2.instance_variable_set(:@http_server, LearnerJourneyRoutesTest::FakeServer.new(reg))
+    halt2 = invoke(:get, "/me/enrollments", inst2)
+    assert_equal 200, halt2.status
+    assert_equal 2, reg.calls.length
+  end
+
+  def test_write_route_requires_json_content_type_and_csrf_token
+    body = { "workspace_id" => "ws", "kind" => "course", "offering_id" => "o" }
+
+    # 同源但 text/plain(simple request 形态)→ 415,零 call
+    inst, reg = with_fake_server(header: LOCAL.merge("Origin" => "http://127.0.0.1:4114", "Content-Type" => "text/plain"),
+                                 body: body)
+    halt = invoke(:post, "/enrollments", inst)
+    assert_equal 415, halt.status
+    assert_empty reg.calls
+
+    # application/json 但无 token → 403,零 call
+    inst2, reg2 = with_fake_server(header: LOCAL.merge("Content-Type" => "application/json"),
+                                   body: body)
+    halt2 = invoke(:post, "/enrollments", inst2)
+    assert_equal 403, halt2.status
+    assert_includes JSON.parse(halt2.payload)["error"], "CSRF"
+    assert_empty reg2.calls
+
+    # application/json + 正确 token → 透传 registry
+    inst3, reg3 = with_fake_server(
+      header: LOCAL.merge("Content-Type" => "application/json",
+                          "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token),
+      body: body
+    )
+    halt3 = invoke(:post, "/enrollments", inst3)
+    assert_equal 200, halt3.status
+    assert_equal [["cgc-2046", "create_enrollment", body]], reg3.calls
+  end
+
+  def test_status_delivers_csrf_token_to_same_origin
+    inst, = with_fake_server(header: LOCAL)
+    halt = invoke(:get, "/status", inst)
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal Cgc2046Ext.csrf_token, body["csrf_token"]
+  end
+end
+
+# ---- 发现面板 v2 view.js 结构静态断言(S7 的可测面;DOM 级 留手动冒烟) ----
 
 class DiscoveryPanelV2Test < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))

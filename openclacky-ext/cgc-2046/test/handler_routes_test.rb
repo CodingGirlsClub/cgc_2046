@@ -19,7 +19,11 @@ class HandlerRequestTest < Minitest::Test
   TOKEN = "tok_test_secret_aaa"
   URL   = "http://localhost:4102/mcp"
 
-  FakeReq = Struct.new(:body, :query)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 记录 reload 调用次数；fail_times 控制前 N 次抛错（之后成功）
   class FakeRegistry
@@ -53,6 +57,11 @@ class HandlerRequestTest < Minitest::Test
   end
 
   # ---- 路由结构（保留首轮断言）----
+
+  # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
+  def write_headers
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+  end
 
   def test_routes_registered
     routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
@@ -388,9 +397,9 @@ class HandlerRequestTest < Minitest::Test
   private
 
   # 手动构造实例（契约 §8 先例：allocate + 塞 ivar，不需要真 WEBrick req）
-  def build(body: nil, registry: nil)
+  def build(body: nil, registry: nil, header: write_headers)
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(body, {}))
+    inst.instance_variable_set(:@req, FakeReq.new(body, {}, header))
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
   end
