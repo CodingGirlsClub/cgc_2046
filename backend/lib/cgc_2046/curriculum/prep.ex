@@ -674,15 +674,32 @@ defmodule Cgc2046.Curriculum.Prep do
 
   # --- 发布次周期懒实例化（ensure_active_run 私有实现） -------------------------
 
-  # S6-01（advisor R1）：懒开单事务 + course 行 FOR UPDATE——同课程并发
-  # 懒开串行化（keyed callers 的 find_or_create_and_start 公共 API 与其他
-  # 消费方不动；course 行锁与发布端口事务（bind 写 courses 行）锁序一致，
-  # 无死锁窗口）。锁内重读非终态 run：后到者发现胜者已建直接返回。
-  defp spawn_next_run(%Course{} = course, opts) do
+  @doc """
+  course 锁协议下的 prep run producer 共用入口（advisor R2：R1-01）——
+  懒开次周期（`spawn_next_run`，draft/open）与 `course.created` 首周期
+  producer（`PrepInstantiator.handle/2`，draft）参加**同一**锁协议：
+
+  事务内 course 行 `FOR UPDATE` → **锁内重读最新 status**（仅
+  `allowed_statuses` 白名单继续；terminal 状态即使调用方持有 stale
+  struct 也在此裁决拒绝——无写副作用）→ **锁内重读非终态 run**
+  （后到者发现胜者已建直接返回，幂等）→ 白名单内且无 active run 才执行
+  `spawn_fun`。
+
+  锁外调用方的 status guard（`ensure_active_run` 的 draft/open 子句 /
+  handler 的 `ensure_draft`）保留作快速拒绝，不是正确性来源。
+
+  `spawn_fun` 返回 `{:ok, run}`；其内部创建经
+  `WorkflowRun.find_or_create_and_start`（公共 API 不动）。
+  """
+  @spec spawn_under_course_lock(Course.t(), [String.t()], (-> {:ok, WorkflowRun.t()})) ::
+          {:ok, WorkflowRun.t()} | {:error, String.t()}
+  def spawn_under_course_lock(%Course{} = course, allowed_statuses, spawn_fun)
+      when is_list(allowed_statuses) and is_function(spawn_fun, 0) do
     Repo.transaction(fn ->
-      with :ok <- lock_course_row(course),
+      with {:ok, status} <- lock_course_status(course),
+           :ok <- ensure_spawnable_status(status, allowed_statuses, course),
            nil <- fetch_run(course.id, course.workspace_id),
-           {:ok, run} <- do_spawn_next_run(course, opts) do
+           {:ok, run} <- spawn_fun.() do
         run
       else
         %WorkflowRun{} = run ->
@@ -695,8 +712,16 @@ defmodule Cgc2046.Curriculum.Prep do
     end)
     |> case do
       {:ok, run} -> {:ok, run}
-      {:error, reason} -> {:error, error_message(reason, "failed to start next preparation run")}
+      {:error, reason} -> {:error, error_message(reason, "failed to start preparation run")}
     end
+  end
+
+  # 次周期懒开：draft/open 白名单（发布后课程进次周期；draft 兜住 course.created
+  # 信号丢失的首周期）
+  defp spawn_next_run(%Course{} = course, opts) do
+    spawn_under_course_lock(course, ["draft", "open"], fn ->
+      do_spawn_next_run(course, opts)
+    end)
   end
 
   defp do_spawn_next_run(%Course{} = course, opts) do
@@ -712,12 +737,29 @@ defmodule Cgc2046.Curriculum.Prep do
     end
   end
 
-  # SELECT ... FOR UPDATE（lock_for_order 同款纪律；uuid 经 Repo.uuid! 编解码）
-  defp lock_course_row(%Course{id: id}) do
-    case Repo.query("SELECT id FROM courses WHERE id = $1 FOR UPDATE", [Repo.uuid!(id)]) do
-      {:ok, %_{num_rows: 1}} -> :ok
-      {:ok, %_{num_rows: 0}} -> {:error, "course not found: #{id}"}
-      {:error, reason} -> {:error, {:database, reason}}
+  # SELECT ... FOR UPDATE + 返回最新已提交 status（advisor R2：R1-01a——
+  # FOR UPDATE 读取的是最新已提交行版本，锁内据此裁决，stale struct 无效化）。
+  # lock_for_order 同款纪律；uuid 经 Repo.uuid! 编解码。
+  defp lock_course_status(%Course{id: id}) do
+    case Repo.query("SELECT id, status FROM courses WHERE id = $1 FOR UPDATE", [Repo.uuid!(id)]) do
+      {:ok, %{num_rows: 1, rows: [[_, status]]}} when is_binary(status) ->
+        {:ok, status}
+
+      {:ok, %{num_rows: 0}} ->
+        {:error, "course not found: #{id}"}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  defp ensure_spawnable_status(status, allowed_statuses, %Course{id: id})
+       when is_binary(status) do
+    if status in allowed_statuses do
+      :ok
+    else
+      {:error,
+       "course #{id} is #{status}; preparation runs are only started for #{Enum.join(allowed_statuses, "/")} courses"}
     end
   end
 
