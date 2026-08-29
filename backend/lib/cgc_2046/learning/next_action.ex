@@ -3,9 +3,9 @@ defmodule Cgc2046.Learning.NextAction do
   下一动作推荐(role-agent-journeys-v2 S8,R40/R41;ADR-0011 L5):纯函数,无 IO。
 
   输入 = 某 revision 内容的 objectives(内容序,`Curriculum.Content.objectives/1`
-  平铺结果)+ `Mastery.states/2` 投影 + 复习到期队列(**S8 恒 []**——
-  ReviewSchedule 与真实队列属 S9,`next/3` 第三参保留默认签名,
-  review 分支结构在位等接通)。
+  平铺结果)+ `Mastery.states/2` 投影 + 复习到期队列(S9 起由
+  `Cgc2046.Learning.ReviewSchedule.due/3` 派生;元素为队列条目
+  `%{objective_id, due_at, milestone_days, needs_review}`)。
 
   返回 `%{kind, objective_id, reason}` 或 nil(课程完成)。reason 是含
   objective title 的中文句——playbook 要求 agent 按 reason 向学员解释起点。
@@ -32,7 +32,7 @@ defmodule Cgc2046.Learning.NextAction do
   """
 
   alias Cgc2046.Curriculum.Content
-  alias Cgc2046.Learning.Mastery
+  alias Cgc2046.Learning.{Mastery, ReviewSchedule}
 
   @typedoc "下一动作推荐"
   @type t :: %{
@@ -44,7 +44,7 @@ defmodule Cgc2046.Learning.NextAction do
   @doc """
   下一动作推荐(R40 优先级;完成守卫先行,全必修 ever_mastered → nil)。
   """
-  @spec next([map()], %{String.t() => Mastery.state_entry()}, [map()]) ::
+  @spec next([map()], %{String.t() => Mastery.state_entry()}, [ReviewSchedule.queue_entry()]) ::
           t() | nil
   def next(objectives, states, review_queue \\ [])
       when is_list(objectives) and is_map(states) and is_list(review_queue) do

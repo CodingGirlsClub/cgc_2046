@@ -105,11 +105,14 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       payload = decode_reply(reply)
       assert payload["role"] == "learner"
-      # S8 bump:learner playbook 学习循环切七步 objective 口径
-      assert payload["version"] == "2026-08-30.1"
+      # S9 bump:learner playbook 步骤 2 补 review_queue + 复习纪律句恢复
+      assert payload["version"] == "2026-08-30.2"
       assert payload["content"] =~ "学习模式"
       # S1 吸收原 Learning.AgentInstructions 八步循环段落随版本号分发
       assert payload["content"] =~ "学习循环（每门 confirmed 课程按此循环教学"
+      # S9(R45):步骤 2 提及 review_queue,纪律段恢复复习纪律
+      assert payload["content"] =~ "review_queue"
+      assert payload["content"] =~ "复习纪律(间隔重复)"
 
       # advisor F6:discover 详情按来源分流（公开 → public 工具；成员段 → summary）
       assert payload["content"] =~ "get_public_offering(id, kind)"
@@ -150,8 +153,8 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       payload = decode_reply(reply)
       assert payload["role"] == "tutor"
-      # S5 bump:tutor playbook 加教研旅程动线（认领/质检/评分/审核链路）
-      assert payload["version"] == "2026-08-29.4"
+      # S10 bump:tutor playbook 加数据回流章节（get_course_learning_analytics）
+      assert payload["version"] == "2026-08-30.1"
       assert payload["content"] =~ "教研模式"
       # S1 吸收原 Curriculum.AgentInstructions 起草规则段落随版本号分发
       assert payload["content"] =~ "id 稳定纪律"
@@ -162,6 +165,10 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       # S5:教研旅程章节随版本号分发
       assert payload["content"] =~ "claim_prep_authoring"
       assert payload["content"] =~ "submit_prep_quality_report"
+      # S10(R50):数据回流章节
+      assert payload["content"] =~ "数据回流"
+      assert payload["content"] =~ "get_course_learning_analytics"
+      assert payload["content"] =~ "永不自动修改或发布当前 Revision"
     end
 
     test "tutor：缺 workspace_id → 明确报错（非 forbidden 审计）" do

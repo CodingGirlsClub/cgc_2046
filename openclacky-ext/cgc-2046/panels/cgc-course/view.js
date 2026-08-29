@@ -92,7 +92,8 @@
   }
 
   // S8 学习状态签名(objective mastery/attempt_count + progress + next_action;
-  // 不含 version/时间戳——详情轮询变更检测用)
+  // 不含 version/时间戳——详情轮询变更检测用);S9 起并入 review_queue 四字段
+  // (里程碑到期/恢复条目变化同样亮更新条)
   function learningSignature(learning) {
     const mastery = {};
     ((learning && learning.objectives) || []).forEach(function (o) {
@@ -100,9 +101,13 @@
     });
     const progress = (learning && learning.progress) || {};
     const next = (learning && learning.next_action) || {};
+    const review = ((learning && learning.review_queue) || []).map(function (e) {
+      return String(e.objective_id) + ":" + String(e.due_at) + ":" +
+        String(e.milestone_days) + ":" + String(e.needs_review);
+    });
     return [JSON.stringify(mastery),
             String(progress.mastered_required) + "/" + String(progress.total_required) + ":" + String(progress.complete),
-            String(next.objective_id || "")].join(";");
+            String(next.objective_id || ""), review.join("|")].join(";");
   }
 
   // 报名列表签名(enrollment id + status),S7 列表轮询变更检测用
@@ -355,12 +360,21 @@
 
   // S8 CTA 话术:objective 口径(objective_id + submit_learning_attempt);
   // 课程名走 get_learning_state 无 title,退 content.course_title
-  function learningPrompt(objectiveId) {
+  function learningPrompt(objectiveId, reviewEntry) {
     const sel = state.selected || {};
     const learning = sel.learning || {};
     const obj = (learning.objectives || []).find(function (o) { return o.id === objectiveId; }) || {};
     const title = (sel.content && sel.content.course_title) || "本课程";
     const objTitle = obj.title || objectiveId;
+    if (reviewEntry) {
+      return [
+        "请带我复习课程《" + title + "》的学习目标「" + objTitle + "」。",
+        "(objective_id: " + objectiveId + ")",
+        "这是一次到期复习——先诊断我的保留度,再针对性讲解;",
+        "复习后正式评价:调用 submit_learning_attempt,evidence 写一句证据摘要,",
+        "rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
+      ].join("\n");
+    }
     return [
       "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
       "(objective_id: " + objectiveId + ")",
@@ -370,8 +384,8 @@
     ].join("\n");
   }
 
-  async function copySessionPrompt(issue) {
-    const text = learningPrompt(issue);
+  async function copySessionPrompt(objectiveId, reviewById) {
+    const text = learningPrompt(objectiveId, (reviewById || {})[String(objectiveId)]);
     try {
       await navigator.clipboard.writeText(text);
       state.copied = true;
@@ -676,20 +690,79 @@
       return objectiveRow(o, next);
     }).join("");
 
-    shell(inner + '<div class="cgc-card cgc-obj-list">' + list + '</div>');
+    // S9:复习队列置顶(objective 地图之上;空队列不渲染)
+    shell(inner + reviewQueueSection(learning) + '<div class="cgc-card cgc-obj-list">' + list + '</div>');
 
     bindDetailExtras(sel.courseId);
     bindStartLearning(sel.courseId);
+    // S9:复习队列行点击 → 展开对应 objective 并滚动定位到地图行
+    currentContainer.querySelectorAll("[data-review-obj]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        const id = el.getAttribute("data-review-obj");
+        state.currentObjective = id;
+        render();
+        const row = currentContainer.querySelector('[data-objective="' + id + '"]');
+        if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+      });
+    });
+    const reviewById = reviewEntryMap(learning);
     const cta = currentContainer.querySelector("[data-testid='panel-cta']");
     if (cta) {
       cta.addEventListener("click", function () {
-        copySessionPrompt(cta.getAttribute("data-cta"));
+        copySessionPrompt(cta.getAttribute("data-cta"), reviewById);
       });
     }
   }
 
   // S8 objective 行:四态徽章 / 锁与缺失先修 / 选修 chip / 尝试次数 /
   // 推荐徽章(next_action 命中)/ reason 行
+  // S9:review_queue → objective id 查找表(行点击展开与 CTA 复习口吻判定用)
+  function reviewEntryMap(learning) {
+    const byObjective = {};
+    ((learning && learning.review_queue) || []).forEach(function (entry) {
+      if (entry && entry.objective_id != null) byObjective[String(entry.objective_id)] = entry;
+    });
+    return byObjective;
+  }
+
+  // S9 复习队列区(详情页置顶,objective 地图之上;队列空 → 不渲染):
+  // 间隔重复 1/7/30 天里程碑按序消费——里程碑条目「第 N 天复习到期」;
+  // needs_review 条目 = 复习失败待恢复掌握(立即到期,红色调区分,「待复习恢复」徽章;
+  // 其 milestone_days 是重新达标后的下一里程碑,不作到期信息展示)。
+  // 标题优先取 state 投影(stale run 报旧版 objectives 同样覆盖),缺则 id 兜底。
+  function reviewQueueSection(learning) {
+    const queue = (learning && learning.review_queue) || [];
+    if (queue.length === 0) return "";
+    const stateTitles = {};
+    ((learning && learning.objectives) || []).forEach(function (o) {
+      if (o) stateTitles[String(o.id)] = o.title;
+    });
+    const rows = queue.map(function (entry) {
+      const id = String(entry.objective_id || "");
+      const title = stateTitles[id] || id;
+      const urgent = entry.needs_review === true;
+      return (
+        '<div class="cgc-review-row' + (urgent ? " cgc-review-urgent" : "") + '"' +
+          ' data-testid="panel-review-row" data-review-obj="' + escapeHtml(id) + '">' +
+          '<span class="task-name">' + escapeHtml(title) + '</span>' +
+          '<span class="cgc-obj-meta">' +
+            (urgent
+              ? '<span class="cgc-badge cgc-obj-review" data-testid="panel-review-needs">待复习恢复</span>'
+              : "") +
+            (!urgent && Number.isInteger(entry.milestone_days)
+              ? '<span class="cgc-review-due" data-testid="panel-review-due">第 ' + entry.milestone_days + ' 天复习到期</span>'
+              : "") +
+          '</span>' +
+        '</div>'
+      );
+    }).join("");
+    return (
+      '<div class="cgc-card cgc-review-section" data-testid="panel-review-queue">' +
+        '<div class="cgc-issue-head">待复习</div>' + rows +
+      '</div>'
+    );
+  }
+
   function objectiveRow(o, next) {
     const locked = !!o.locked;
     const missing = o.missing_prereq_ids || [];
@@ -1013,11 +1086,17 @@
       ".cgc-obj-mastered{color:#34d399;border-color:#34d399}" +
       ".cgc-obj-needs_review{color:#f97316;border-color:#f97316}" +
       ".cgc-obj-elective{color:#a78bfa;border-color:#a78bfa}" +
+      ".cgc-obj-review{color:#f87171;border-color:#f87171}" +
       ".cgc-badge-next{color:#6366f1;border-color:#6366f1}" +
       ".cgc-obj-meta{display:flex;gap:8px;font-size:12px;color:#9ca3af}" +
       ".cgc-obj-missing{color:#f97316}" +
       ".cgc-obj-reason{width:100%;font-size:12px;color:#9ca3af;margin:2px 0 0}" +
       ".cgc-next-card{display:flex;gap:8px;align-items:center;flex-wrap:wrap}" +
+      ".cgc-review-section{margin-top:10px}" +
+      ".cgc-review-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;cursor:pointer;box-shadow:inset 2px 0 0 #fbbf24}" +
+      ".cgc-review-row:hover{background:rgba(127,127,127,.12)}" +
+      ".cgc-review-row.cgc-review-urgent{box-shadow:inset 2px 0 0 #f87171}" +
+      ".cgc-review-due{font-size:11px;color:#fbbf24;white-space:nowrap}" +
       ".cgc-progress{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin:6px 0}" +
       ".cgc-progress-bar{height:100%;background:#34d399}" +
       ".cgc-badge-done{color:#34d399;border-color:#34d399}" +

@@ -1546,9 +1546,18 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:run, :learning_run_summary)
     field(:revision_number, :integer)
     field(:stale_revision, non_null(:boolean))
+    field(:review_queue, non_null(list_of(non_null(:learning_review_queue_entry))))
     field(:objectives, non_null(list_of(non_null(:learning_objective_state))))
     field(:next_action, :learning_next_action)
     field(:progress, :learning_progress)
+  end
+
+  # S9（R45）：复习到期队列（needs_review 恒立即到期 / 里程碑按序消费）
+  object :learning_review_queue_entry do
+    field(:objective_id, non_null(:string))
+    field(:due_at, non_null(:datetime))
+    field(:milestone_days, :integer)
+    field(:needs_review, non_null(:boolean))
   end
 
   object :course_map do
@@ -2310,6 +2319,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       run: state.run,
       revision_number: state.revision_number,
       stale_revision: state.stale_revision,
+      review_queue: state.review_queue,
       objectives: state.objectives,
       next_action: state.next_action,
       progress: state.progress

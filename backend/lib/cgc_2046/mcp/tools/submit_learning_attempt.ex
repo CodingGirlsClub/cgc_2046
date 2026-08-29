@@ -40,7 +40,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
 
   require Logger
 
-  alias Cgc2046.Learning.{Attempt, Mastery, NextAction, Runs}
+  alias Cgc2046.Learning.{Attempt, Mastery, NextAction, ReviewSchedule, Runs}
   alias Cgc2046.Mcp.Tools.Response
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Curriculum.Content
@@ -256,13 +256,17 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
         new_states = Mastery.states(all_attempts, objectives)
         entry = Map.get(new_states, objective["id"], %{})
 
+        # 复习到期队列(S9,R45)同源:掌握后复习失败 → next_action 优先回补
+        review_queue = ReviewSchedule.due(all_attempts, objectives, DateTime.utc_now())
+
         {:ok,
          %{
            attempt_id: attempt.id,
            mastery: to_string(Map.get(entry, :state, :unassessed)),
            ever_mastered: Map.get(entry, :ever_mastered, false),
            run_completed: completion == :completed,
-           next_action: serialize_next_action(NextAction.next(objectives, new_states, []))
+           next_action:
+             serialize_next_action(NextAction.next(objectives, new_states, review_queue))
          }}
 
       {:error, %Ash.Error.Invalid{} = error} ->

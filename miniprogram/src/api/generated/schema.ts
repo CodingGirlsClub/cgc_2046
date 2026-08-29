@@ -602,6 +602,7 @@ export type CourseLearningDetail = {
   nextAction?: Maybe<LearningNextAction>;
   objectives: Array<LearningObjectiveState>;
   progress?: Maybe<LearningProgress>;
+  reviewQueue: Array<LearningReviewQueueEntry>;
   revisionNumber?: Maybe<Scalars['Int']['output']>;
   run?: Maybe<LearningRunSummary>;
   slug?: Maybe<Scalars['String']['output']>;
@@ -2642,6 +2643,13 @@ export type LearningProgress = {
   complete: Scalars['Boolean']['output'];
   masteredRequired: Scalars['Int']['output'];
   totalRequired: Scalars['Int']['output'];
+};
+
+export type LearningReviewQueueEntry = {
+  dueAt: Scalars['DateTime']['output'];
+  milestoneDays?: Maybe<Scalars['Int']['output']>;
+  needsReview: Scalars['Boolean']['output'];
+  objectiveId: Scalars['String']['output'];
 };
 
 export type LearningRunSummary = {
