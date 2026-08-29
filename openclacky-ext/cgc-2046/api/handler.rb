@@ -16,6 +16,7 @@ require_relative "mcp_config"
 require_relative "course_routes"
 require_relative "offering_routes"
 require_relative "workbench_routes"
+require_relative "learner_routes"
 
 class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
@@ -218,6 +219,95 @@ class Cgc2046Ext < Clacky::ApiExtension
     else
       outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "list_my_tasks", { "workspace_id" => workspace_id })
     end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/discover
+  # 合并发现流(公开 ∪ 本人各 workspace 可访问,逐条按可见性过滤,已去重):
+  # 透传 MCP discover_offerings(无参数)。
+  get "/discover" do
+    outcome = Cgc2046LearnerRoutes.call_learner_tool(self, "discover_offerings", {})
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/enrollment_summary?workspace_id=&kind=&offering_id=
+  # 报名确认卡摘要(目标/价格/策略/deadline/将创建的 enrollment 状态):
+  # 透传 MCP get_enrollment_summary。三参数皆必填,缺一 → 400(不下发 registry)。
+  get "/enrollment_summary" do
+    args = {}
+    missing = []
+    %w[workspace_id kind offering_id].each do |key|
+      value = route_params_value(key)
+      if value.empty?
+        missing << key
+      else
+        args[key] = value
+      end
+    end
+    outcome =
+      if missing.any?
+        { status: 400, body: { error: "#{missing.join(", ")} is required" } }
+      else
+        Cgc2046LearnerRoutes.call_learner_tool(self, "get_enrollment_summary", args)
+      end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # POST /api/ext/cgc-2046/enrollments
+  # 创建报名(幂等:同一意图重放返回既有 enrollment,永不报错——AE3):
+  # 透传 MCP create_enrollment。body { workspace_id, kind, offering_id } 必填,
+  # kind 枚举 event|course;reason/tier_id 可选,空值不下发。
+  # 收费条目返回 payment_pending + checkout_url(web 结算页),面板据此跳外部支付。
+  post "/enrollments" do
+    body         = json_body
+    workspace_id = (body["workspace_id"] || body[:workspace_id]).to_s.strip
+    kind         = (body["kind"] || body[:kind]).to_s.strip
+    offering_id  = (body["offering_id"] || body[:offering_id]).to_s.strip
+
+    outcome =
+      if workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
+      elsif kind.empty?
+        { status: 400, body: { error: "kind is required" } }
+      elsif !%w[event course].include?(kind)
+        { status: 400, body: { error: "kind must be event or course" } }
+      elsif offering_id.empty?
+        { status: 400, body: { error: "offering_id is required" } }
+      else
+        args = { "workspace_id" => workspace_id, "kind" => kind, "offering_id" => offering_id }
+        reason  = (body["reason"] || body[:reason]).to_s.strip
+        tier_id = (body["tier_id"] || body[:tier_id]).to_s.strip
+        args["reason"] = reason unless reason.empty?
+        args["tier_id"] = tier_id unless tier_id.empty?
+        Cgc2046LearnerRoutes.call_learner_tool(self, "create_enrollment", args)
+      end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/me/enrollments
+  # 本人全部报名(所有状态,跨 workspace):透传 MCP get_my_enrollments(无参数)。
+  # 课程面板列表数据源(AE8/R35):confirmed 课程报名 = 可学习课程
+  # (新报名零学习记录也必须出现);pending/payment_pending 入「报名进行中」区。
+  get "/me/enrollments" do
+    outcome = Cgc2046LearnerRoutes.call_learner_tool(self, "get_my_enrollments", {})
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/order_status?workspace_id=&enrollment_id=
+  # 订单安全摘要(金额/状态/过期时间,无渠道敏感数据)+ checkout_url:
+  # 透传 MCP get_order_status。两参数皆必填,缺一 → 400。
+  get "/order_status" do
+    workspace_id  = route_params_value("workspace_id")
+    enrollment_id = route_params_value("enrollment_id")
+    outcome =
+      if workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
+      elsif enrollment_id.empty?
+        { status: 400, body: { error: "enrollment_id is required" } }
+      else
+        Cgc2046LearnerRoutes.call_learner_tool(self, "get_order_status",
+                                               { "workspace_id" => workspace_id, "enrollment_id" => enrollment_id })
+      end
     json(outcome[:body], status: outcome[:status])
   end
 

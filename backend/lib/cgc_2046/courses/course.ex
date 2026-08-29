@@ -764,11 +764,19 @@ defmodule Cgc2046.Courses.Course do
 
   # S6（R29）：公开读面（courseMap）的内容源 = 当前 published CourseRevision——
   # 发布即冻结，草稿后续编辑不影响公开面；current_revision_id 为 nil 的存量
-  # 课程（从未经教研流程发布）回退 Curriculum.course_content/1 活文档草稿。
-  # authorize?: false 纪律同 Curriculum.course_content/1（门禁在调用面，
-  # 内容投影由调用方负责）。
+  # 课程（从未经教研流程发布）回退 Curriculum 草稿读面。authorize?: false 纪律
+  # 同 Curriculum.course_content/1（门禁在调用面，内容投影由调用方负责）。
+  #
+  # S7 增设显式 workspace_id 的 /2：actor policy 读出的 course struct 其
+  # workspace_id 可能是 %Ash.ForbiddenField{}（field_policy 对非成员收窄），
+  # /1 会落 nil；调用方持可信作用域（如工具入参）时经 /2 复用同一读序
+  # （published 优先、无 revision 回退草稿）。
   @doc false
-  def published_content(%__MODULE__{current_revision_id: revision_id, workspace_id: workspace_id})
+  def published_content(%__MODULE__{} = course),
+    do: published_content(course, course.workspace_id)
+
+  @doc false
+  def published_content(%__MODULE__{current_revision_id: revision_id}, workspace_id)
       when is_binary(revision_id) and is_binary(workspace_id) do
     case Cgc2046.Curriculum.revision_by_id(workspace_id, revision_id) do
       {:ok, %{content: content}} -> content
@@ -776,9 +784,15 @@ defmodule Cgc2046.Courses.Course do
     end
   end
 
-  def published_content(%__MODULE__{} = course), do: Cgc2046.Curriculum.course_content(course)
+  def published_content(%__MODULE__{id: id}, workspace_id)
+      when is_binary(id) and is_binary(workspace_id) do
+    case Cgc2046.Curriculum.content_output(workspace_id, id) do
+      {:ok, output} -> output && output.data
+      _ -> nil
+    end
+  end
 
-  def published_content(_course), do: nil
+  def published_content(%__MODULE__{}, _workspace_id), do: nil
 
   # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),

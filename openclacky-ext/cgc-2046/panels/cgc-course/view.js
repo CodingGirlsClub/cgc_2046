@@ -47,7 +47,8 @@
     workspaceId: "",
     canEdit: false,    // 当前 Workspace 角色含 tutor|owner|admin(S4 编辑入口)
     prep: null,        // S5 教研流程状态(get_prep_status;仅 canEdit 详情拉取,无 prep run → null)
-    courses: [],       // [{ courseId, records }]
+    courses: [],       // [{ courseId, title, workspaceId, workspaceName }]（S7:/me/enrollments 源）
+    inFlight: [],      // 报名进行中(pending/payment_pending 课程报名)
     coursesSig: "",    // 列表签名(轮询变更检测)
     selected: null,    // { courseId, content, records }
     detailSig: "",     // 详情签名(version + 记录;轮询变更检测)
@@ -110,6 +111,13 @@
   function draftVersion() {
     const v = state.draftContent && state.draftContent.version;
     return Number.isInteger(v) ? v : 0;
+  }
+
+  // 报名列表签名(enrollment id + status),S7 列表轮询变更检测用
+  function enrollmentsSignature(enrollments) {
+    return (enrollments || []).map(function (e) {
+      return String(e.id) + ":" + String(e.status);
+    }).sort().join(",");
   }
 
   // 学习记录签名(issue/item/done 三元组),轮询变更检测用
@@ -190,8 +198,9 @@
           render();
         }
       } else {
-        const payload = await apiGet("/courses");
-        const sig = recordsSignature((payload.result && payload.result.records) || []);
+        // S7:列表页轮询报名列表(签名为 enrollment id+status)
+        const payload = await rawGet("/me/enrollments");
+        const sig = enrollmentsSignature((payload.result && payload.result.enrollments) || []);
         if (sig !== state.coursesSig) {
           state.listNotice = true;
           render();
@@ -227,34 +236,57 @@
     if (state.workspaceId && !state.error && !state.bootError) loadCourses();
   }
 
+  // S7(AE8/R35):列表源 = /me/enrollments(跨 workspace,无需 workspace_id);
+  // confirmed 课程报名 = 可学习课程(零学习记录也显示),pending/payment_pending
+  // 入「报名进行中」区
   async function loadCourses() {
     state.loading = true;
     state.error = null;
     state.listNotice = false;
     render();
     try {
-      const payload = await apiGet("/courses");
-      const records = (payload.result && payload.result.records) || [];
-      state.coursesSig = recordsSignature(records);
-      const byCourse = {};
-      records.forEach(function (r) {
-        (byCourse[r.course_id] = byCourse[r.course_id] || []).push(r);
-      });
-      state.courses = Object.keys(byCourse).map(function (cid) {
-        return { courseId: cid, records: byCourse[cid] };
+      const payload = await rawGet("/me/enrollments");
+      const enrollments = (payload.result && payload.result.enrollments) || [];
+      state.coursesSig = enrollmentsSignature(enrollments);
+      const courseEnrollments = enrollments.filter(function (e) { return e.kind === "course"; });
+      state.courses = courseEnrollments
+        .filter(function (e) { return e.status === "confirmed"; })
+        .map(function (e) {
+          const offering = e.offering || {};
+          const ws = e.workspace || {};
+          return {
+            courseId: String(offering.id || ""),
+            title: String(offering.title || ""),
+            workspaceId: String(ws.id || ""),
+            workspaceName: String(ws.name || ws.slug || "")
+          };
+        })
+        .filter(function (c) { return c.courseId !== ""; });
+      state.inFlight = courseEnrollments.filter(function (e) {
+        return e.status === "pending" || e.status === "payment_pending";
       });
       state.selected = null;
       state.currentIssue = null;
     } catch (e) {
       state.error = e;
       state.courses = [];
+      state.inFlight = [];
     } finally {
       state.loading = false;
       render();
     }
   }
 
-  async function openCourse(courseId) {
+  // S7:报名跨 workspace——行携带 data-ws,打开时若目标工作台 ≠ 当前选中,
+  // 切换读面上下文(详情/草稿/教研都按该 workspace 读)
+  async function openCourse(courseId, workspaceId) {
+    if (workspaceId && workspaceId !== state.workspaceId) {
+      const ws = state.workspaces.find(function (w) { return w.workspace_id === workspaceId; });
+      state.workspaceId = workspaceId;
+      state.workspaceName = ws ? String(ws.name || ws.slug || "") : state.workspaceName;
+      localStorage.setItem(STORE_KEY, workspaceId);
+      computeCanEdit();
+    }
     state.loading = true;
     state.error = null;
     state.updateNotice = false;
@@ -425,7 +457,7 @@
   function renderCourseList() {
     let inner =
       pickerRow() +
-      '<p class="cgc-panel-sub">我的课程(按学习记录推导)</p>' +
+      '<p class="cgc-panel-sub">我的课程(按报名推导,跨 Workspace)</p>' +
       '<div class="cgc-actions"><button id="cgc-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button></div>';
 
     // R11 列表轮询更新条:点击才刷新(不在用户浏览时抽换视图)
@@ -446,26 +478,64 @@
       bindListExtras();
       return;
     }
-    if (state.courses.length === 0) {
-      shell(inner + '<div class="cgc-card cgc-empty">暂无在学课程。在网站报名课程并开始学习后,这里会显示课程列表。</div>');
+    if (state.courses.length === 0 && state.inFlight.length === 0) {
+      shell(inner + '<div class="cgc-card cgc-empty">暂无在学课程。报名课程后,这里会显示课程列表。</div>');
       bindListExtras();
       return;
     }
 
-    const rows = state.courses.map(function (c) {
-      return (
-        '<div class="cgc-course-row" data-testid="panel-course" data-course="' + escapeHtml(c.courseId) + '">' +
-          '<span class="task-name">课程 ' + escapeHtml(c.courseId.slice(0, 8)) + '…</span>' +
-          '<span class="cgc-ev">' + c.records.length + ' 条记录</span>' +
-        '</div>'
-      );
-    }).join("");
+    // S7:报名进行中(pending/payment_pending)——状态徽章,无学习入口
+    if (state.inFlight.length > 0) {
+      const inflightRows = state.inFlight.map(function (e) {
+        const offering = e.offering || {};
+        const ws = e.workspace || {};
+        return (
+          '<div class="cgc-course-row cgc-inflight-row" data-testid="panel-inflight">' +
+            '<span class="task-name">' + escapeHtml(offering.title || "课程") + '</span>' +
+            '<span class="cgc-inflight-meta">' + escapeHtml(ws.name || "") +
+              '<span class="cgc-kind">' + escapeHtml(inFlightStatusBadge(e.status)) + '</span></span>' +
+          '</div>'
+        );
+      }).join("");
+      inner += '<p class="cgc-panel-sub">报名进行中</p>' +
+        '<div class="cgc-card cgc-inflight-list">' + inflightRows + '</div>';
+    }
 
-    shell(inner + '<div class="cgc-card cgc-course-list">' + rows + '</div>');
+    // S7:可学习课程(confirmed 报名;零学习记录的新报名同样出现)按 workspace 分组
+    if (state.courses.length > 0) {
+      const groups = {};
+      state.courses.forEach(function (c) {
+        const key = c.workspaceName || "未命名工作台";
+        (groups[key] = groups[key] || []).push(c);
+      });
+      inner += Object.keys(groups).sort().map(function (name) {
+        const rows = groups[name].map(function (c) {
+          const title = c.title || ("课程 " + c.courseId.slice(0, 8) + "…");
+          return (
+            '<div class="cgc-course-row" data-testid="panel-course" data-course="' + escapeHtml(c.courseId) +
+              '" data-ws="' + escapeHtml(c.workspaceId) + '">' +
+              '<span class="task-name">' + escapeHtml(title) + '</span>' +
+              '<span class="cgc-ev">开始学习 ›</span>' +
+            '</div>'
+          );
+        }).join("");
+        return '<div class="cgc-ws-group" data-testid="panel-course-group">' +
+          '<div class="cgc-ws-group-name">' + escapeHtml(name) + '</div>' + rows + '</div>';
+      }).join("");
+    }
+
+    shell(inner);
     bindListExtras();
     currentContainer.querySelectorAll("[data-course]").forEach(function (el) {
-      el.addEventListener("click", function () { openCourse(el.getAttribute("data-course")); });
+      el.addEventListener("click", function () { openCourse(el.getAttribute("data-course"), el.getAttribute("data-ws")); });
     });
+  }
+
+  // 报名进行中状态徽章(发现面板同款口径)
+  function inFlightStatusBadge(status) {
+    if (status === "pending") return "待审批";
+    if (status === "payment_pending") return "待支付";
+    return status || "";
   }
 
   function bindListExtras() {
@@ -872,6 +942,11 @@
       ".cgc-course-list{margin-top:10px}" +
       ".cgc-course-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer}" +
       ".cgc-course-row:hover{background:rgba(127,127,127,.12)}" +
+      ".cgc-ws-group{margin-bottom:6px}" +
+      ".cgc-ws-group-name{font-size:11px;color:#9ca3af;margin:6px 4px 2px}" +
+      ".cgc-inflight-row{cursor:default}" +
+      ".cgc-inflight-meta{display:flex;gap:8px;align-items:center;font-size:12px;color:#9ca3af}" +
+      ".cgc-kind{border:1px solid var(--border,#444);border-radius:999px;padding:0 8px;font-size:11px}" +
       ".cgc-issue-list{margin-top:10px}" +
       ".cgc-issue-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer}" +
       ".cgc-issue-row:hover,.cgc-issue-row.cgc-issue-active{background:rgba(127,127,127,.12)}" +

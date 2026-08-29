@@ -270,50 +270,25 @@ class DiscoveryPanelViewTest < Minitest::Test
     assert_includes VIEW, "#cgc-retry"
   end
 
-  def test_badge_four_states_chinese
-    # badge 四态 enrolling/starting_soon/closed/full → 报名中/即将开始/报名截止/已满
-    assert_includes VIEW, "enrolling"
-    assert_includes VIEW, "starting_soon"
-    assert_includes VIEW, '"closed"'
-    assert_includes VIEW, '"full"'
+  def test_badge_and_enrollment_states_chinese
+    # S7 v2:offering badge（open→报名中/closed→报名截止）+ my_enrollment 六态徽章
+    # （确认/待审批/待支付/已拒绝/已过期/已取消 + 支付中）
+    assert_includes VIEW, "badgeLabel"
+    assert_includes VIEW, "enrollmentBadge"
     assert_includes VIEW, "报名中"
-    assert_includes VIEW, "即将开始"
     assert_includes VIEW, "报名截止"
-    assert_includes VIEW, "已满"
+    assert_includes VIEW, "已报名"
+    assert_includes VIEW, "待审批"
+    assert_includes VIEW, "待支付"
+    assert_includes VIEW, "支付中"
   end
 
-  def test_undated_and_location_rendering
-    # KTD4:无 starts_at → 「时间待定」;KD6:event 拼 city/district,course 无位置槽
-    assert_includes VIEW, "时间待定"
-    assert_includes VIEW, 'item.kind !== "event"'
-    # R3:event 空 venue 兑底,与 web/小程序同一套文案;X4:先 trim 再 filter/join
-    assert_includes VIEW, "地点待定"
-    assert_includes VIEW, ".trim()"
-    assert_includes VIEW, '.filter(Boolean)'
-  end
-
-  # X4:placeLabel 可执行断言——从 view.js 提取函数体,Node 求值五分支
-  #（空白 city/district、tab 值、partial、nil 值、course）。
-  def test_place_label_trim_five_branches
-    fn_src = VIEW[/function placeLabel\(item\) \{.*?\n  \}/m]
-    refute_nil fn_src, "view.js 中 placeLabel 函数体应可提取"
-
-    cases = [
-      [{ kind: "event", city: "   ", district: "   " }, "地点待定"],
-      [{ kind: "event", city: "\t", district: "北京" }, "北京"],
-      [{ kind: "event", city: "北京", district: nil }, "北京"],
-      [{ kind: "event", city: nil, district: nil }, "地点待定"],
-      [{ kind: "course", city: "北京", district: "海淀区" }, ""]
-    ]
-    script = fn_src + cases.each_with_index.map do |(item, _expect), i|
-      ";console.log(JSON.stringify(placeLabel(#{JSON.generate(item)})));"
-    end.join
-    out, status = Open3.capture2e("node", "-e", script)
-    assert status.success?, "node eval placeLabel 失败: #{out}"
-    actual = out.lines.map(&:strip).reject(&:empty?)
-    cases.each_with_index do |(_item, expected), i|
-      assert_equal expected, JSON.parse(actual[i]), "分支 #{i} (#{cases[i][0].inspect})"
-    end
+  def test_deadline_and_kind_labels
+    # S7 v2:报名截止时间槽（无 deadline 不渲染）+ kind 中文标签
+    assert_includes VIEW, "deadlineLabel"
+    assert_includes VIEW, "kindLabel"
+    assert_includes VIEW, "活动"
+    assert_includes VIEW, "课程"
   end
 
   def test_detail_link_to_web
@@ -329,13 +304,16 @@ class DiscoveryPanelViewTest < Minitest::Test
   def test_dynamic_values_escaped
     assert_includes VIEW, "function escapeHtml("
     assert_includes VIEW, "escapeHtml(item.title)"
-    assert_includes VIEW, "escapeHtml(item.badge)"
+    assert_includes VIEW, "escapeHtml(item.kind)"
   end
 
-  def test_panel_is_read_only_and_workspace_scoped_free
-    # 纯视图零写操作;公开浏览不下发 workspace 作用域参数(KTD9)
-    refute_match(/method:\s*["'](?:POST|PUT|DELETE|PATCH)["']/, VIEW)
-    refute_includes VIEW, "workspace_id"
+  def test_discover_call_is_workspace_scoped_free
+    # S7 v2:发现面走无参 /discover（跨 workspace 合并面孔,不下发作用域参数）;
+    # 报名提交是本面板唯一的 POST（写面 = /enrollments,见 learner 测试）
+    assert_includes VIEW, 'apiGet("/discover")'
+    refute_includes VIEW, 'apiGet("/offerings"'
+    # discover 调用不带任何 query(无参合并面孔;summary/order 带参是别的端点)
+    refute_includes VIEW, 'apiGet("/discover?' 
   end
 
   def test_sidebar_entry_mount
