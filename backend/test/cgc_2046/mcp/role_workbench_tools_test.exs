@@ -146,7 +146,7 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       payload = decode_reply(reply)
       assert payload["role"] == "tutor"
       # S5 bump:tutor playbook 加教研旅程动线（认领/质检/评分/审核链路）
-      assert payload["version"] == "2026-08-29.3"
+      assert payload["version"] == "2026-08-29.4"
       assert payload["content"] =~ "教研模式"
       # S1 吸收原 Curriculum.AgentInstructions 起草规则段落随版本号分发
       assert payload["content"] =~ "id 稳定纪律"

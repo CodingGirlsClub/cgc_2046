@@ -167,8 +167,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
                    "title" => event_1.title,
                    "research_requirements" => event_1.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert {:ok, run_2} =
@@ -180,8 +179,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
                    "title" => event_2.title,
                    "research_requirements" => event_2.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert run_1.id != run_2.id
@@ -249,8 +247,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
                    "title" => event.title,
                    "research_requirements" => event.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert run.status == :succeeded
@@ -305,8 +302,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
                    "title" => event.title,
                    "research_requirements" => event.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert run.status == :failed
@@ -429,8 +425,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         "text" => "hi"
       }
 
-      assert {:ok, run_1} = Instantiator.launch(workspace.id, published.id, input, :event)
-      assert {:ok, run_2} = Instantiator.launch(workspace.id, published.id, input, :event)
+      assert {:ok, run_1} = Instantiator.launch(workspace.id, published.id, input)
+      assert {:ok, run_2} = Instantiator.launch(workspace.id, published.id, input)
 
       assert run_1.id == run_2.id
 
@@ -446,7 +442,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert done.status == :succeeded
 
-      assert {:ok, run_3} = Instantiator.launch(workspace.id, published.id, input, :event)
+      assert {:ok, run_3} = Instantiator.launch(workspace.id, published.id, input)
       assert run_3.id != run_1.id
     end
   end

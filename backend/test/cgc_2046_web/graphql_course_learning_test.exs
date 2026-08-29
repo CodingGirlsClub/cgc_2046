@@ -200,6 +200,74 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
       assert %{"data" => %{"courseMap" => %{"issues" => []}}} = response
     end
 
+    test "S6 已发布读 published 版:草稿后续编辑不影响公开面;未发布回退草稿" do
+      admin = Fixtures.platform_admin("s6-map-pub")
+      workspace = Fixtures.create_workspace(admin)
+
+      course =
+        EventFixtures.create_course(workspace, admin, %{title: "发布课", slug: "pub-map"})
+
+      save_content(workspace, admin, course)
+
+      # 发布 revision 1（content = 发布时点草稿快照）+ 绑定 current_revision_id
+      {:ok, revision} =
+        Cgc2046.Curriculum.CourseRevision
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            course_id: course.id,
+            number: 1,
+            content: content_fixture(),
+            published_at: DateTime.utc_now()
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      course
+      |> Ash.Changeset.for_update(
+        :bind_current_revision,
+        %{current_revision_id: revision.id},
+        tenant: workspace.id
+      )
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      # 发布后草稿被改（次周期修订中）——公开面不得读到
+      draft = %{
+        content_fixture()
+        | "issues" => [
+            put_in(
+              hd(content_fixture()["issues"]) |> Map.take(["id", "kind", "title", "story"]),
+              ["story", "goal"],
+              "次周期修订中的新目标"
+            )
+            | tl(content_fixture()["issues"])
+          ]
+      }
+
+      Cgc2046.Curriculum.Output
+      |> Ash.Changeset.for_create(
+        :upsert_content,
+        %{
+          key: Cgc2046.Curriculum.Output.course_key(course.id),
+          kind: :issues,
+          data: draft,
+          submitted_by: admin.id,
+          base_version: 1
+        },
+        tenant: workspace.id,
+        actor: admin
+      )
+      |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      response = graphql(course_map_query(course.slug), nil)
+
+      assert %{"data" => %{"courseMap" => course_data}} = response
+      assert [first | _] = course_data["issues"]
+      assert first["goal"] == "独立写问候程序"
+      refute Jason.encode!(response) =~ "次周期修订中的新目标"
+    end
+
     test "workspace-only / draft 不可见(404 语义)" do
       admin = Fixtures.platform_admin("u7-map-ws")
       workspace = Fixtures.create_workspace(admin)
@@ -221,6 +289,22 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
         assert %{"data" => %{"courseMap" => nil}} =
                  graphql(course_map_query(course.slug), nil)
       end
+    end
+
+    test "S6-03 内部发布指针不进公共 SDL(currentRevisionId 全部声明面缺席)" do
+      # courseMap 是 S6 唯一的公共 GraphQL 需求(内容源切换,输出形状零变化)；
+      # current_revision_id 是内部发布指针(public?: false),不得生成
+      # output field / filter / sort 任何声明面——防公共契约意外扩张回归
+      sdl = File.read!("priv/graphql/schema.graphql")
+
+      refute sdl =~ "currentRevisionId"
+      refute sdl =~ "CourseFilterCurrentRevisionId"
+      refute sdl =~ "CURRENT_REVISION_ID"
+
+      # courseMap 输出形状(S6 切内容源后)不变:仍只投 course_id/title/slug/goals/issues
+      course_map_block = Regex.run(~r/type CourseMap \{[^}]*\}/s, sdl) |> List.first()
+      assert course_map_block =~ "courseId"
+      refute course_map_block =~ "currentRevisionId"
     end
   end
 

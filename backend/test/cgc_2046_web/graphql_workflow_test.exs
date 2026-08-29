@@ -139,8 +139,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
              Instantiator.launch(
                workspace.id,
                published.id,
-               %{"event_id" => event.id, "title" => event.title, "text" => "hi"},
-               :event
+               %{"event_id" => event.id, "title" => event.title, "text" => "hi"}
              )
 
     {admin, workspace, run}

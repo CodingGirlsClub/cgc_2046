@@ -98,6 +98,16 @@ defmodule Cgc2046.Courses.Course do
       description: "教研 workflow 产物引用（领域模型 §5.2 ER）"
     )
 
+    attribute(:current_revision_id, :uuid,
+      # S6-03（advisor R1）：非公共——内部发布指针无公共 GraphQL 消费方，
+      # public?: true 会把 output/filter/sort 面扩进公开 SDL（外部消费者形成
+      # 依赖后移除即 breaking）。读取 = 域代码（published_content/1）与
+      # :bind_current_revision 端口，不经 API 面。
+      public?: false,
+      writable?: true,
+      description: "当前 published 课程版本（S6 R29：教研发布步经端口写入；nil = 从未经教研流程发布的存量课程）"
+    )
+
     attribute(:enrollment_policy, :atom,
       allow_nil?: false,
       default: :open,
@@ -553,6 +563,19 @@ defmodule Cgc2046.Courses.Course do
         {Cgc2046.Workflows.SignalEmitter,
          type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # S6-02（advisor R1）：terminal 收口——同事务取消非终态 prep run
+      # （closed/cancelled 课程无法再发布，遗留 active run 只会成为孤儿；
+      # 收口失败整体回滚，与状态迁移原子）。经 Curriculum.Prep 域服务
+      # （WorkflowRun :cancel 接口，warn 抑制同 launch 端口纪律）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, course ->
+          case Cgc2046.Curriculum.Prep.stop_active_runs(course) do
+            :ok -> {:ok, course}
+            {:error, reason} -> {:error, reason}
+          end
+        end)
+      end)
     end
 
     # open → cancelled：取消课程。同样发 course.ended（D4：closed/cancelled 即 ended）。
@@ -591,6 +614,19 @@ defmodule Cgc2046.Courses.Course do
         {Cgc2046.Workflows.SignalEmitter,
          type: "course.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # S6-02（advisor R1）：terminal 收口——同事务取消非终态 prep run
+      # （closed/cancelled 课程无法再发布，遗留 active run 只会成为孤儿；
+      # 收口失败整体回滚，与状态迁移原子）。经 Curriculum.Prep 域服务
+      # （WorkflowRun :cancel 接口，warn 抑制同 launch 端口纪律）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _changeset, course ->
+          case Cgc2046.Curriculum.Prep.stop_active_runs(course) do
+            :ok -> {:ok, course}
+            {:error, reason} -> {:error, reason}
+          end
+        end)
+      end)
     end
 
     defaults([:read])
@@ -601,6 +637,15 @@ defmodule Cgc2046.Courses.Course do
       description("回写教研 workflow 产物引用（#39 实例化后）")
       require_atomic?(false)
       accept([:workflow_run_id])
+    end
+
+    # S6：发布步绑定当前 published 版本（发布端口 bind_revision_for_publish/3 内部
+    # 调用，authorize?: false）。current_revision_id 是 writable 属性但不在任何
+    # 公开 action 的 accept——只有本 action 可写。
+    update :bind_current_revision do
+      description("回写当前 published 课程版本（S6 发布步）")
+      require_atomic?(false)
+      accept([:current_revision_id])
     end
 
     # #40 展示页：按 id 取课程详情（GraphQL read_one）
@@ -650,6 +695,91 @@ defmodule Cgc2046.Courses.Course do
       Ash.Changeset.changing_attribute?(changeset, :registration_deadline)
   end
 
+  # ── 发布端口与公开内容读面（S6，R29；端口范式 = Order.void_pending_for_enrollment）──
+
+  @doc """
+  发布端口（Curriculum.Prep.publish 发布事务内调用；本计划唯一新增跨 context
+  端口，plan §C）：绑定 `current_revision_id`，课程仍 draft 时 launch
+  （`via_prep: true` changeset context 放行教研门，§B#10），已 open 则只换绑
+  不重复 launch（次周期发布）。closed/cancelled 课程经 launch 前置拒绝整体
+  回滚（发布事务由调用方持有——本端口不开隐式事务）。
+
+  launch/complete 是发布步的系统效应（授权已在 MCP 工具层完成），
+  `authorize?: false` 执行；域校验（命名门/教研门/CAS/信号）照常。
+  """
+  @spec bind_revision_for_publish(t(), Cgc2046.Curriculum.CourseRevision.t(), term()) ::
+          {:ok, t()} | {:error, String.t()}
+  def bind_revision_for_publish(%__MODULE__{} = course, revision, actor) do
+    with {:ok, course} <- bind_current_revision(course, revision),
+         {:ok, course} <- maybe_launch_for_publish(course, actor) do
+      {:ok, course}
+    end
+  end
+
+  defp bind_current_revision(
+         %__MODULE__{} = course,
+         %Cgc2046.Curriculum.CourseRevision{} = revision
+       ) do
+    course
+    |> Ash.Changeset.for_update(:bind_current_revision, %{current_revision_id: revision.id},
+      tenant: course.workspace_id
+    )
+    |> Ash.update(tenant: course.workspace_id, authorize?: false)
+    |> case do
+      {:ok, course} -> {:ok, course}
+      {:error, _} -> {:error, "failed to bind current course revision"}
+    end
+  end
+
+  # 课程仍 draft → launch（发布即公开）；已 open（次周期发布）→ 只换绑。
+  # 其余状态由 launch 的状态前置拒绝（同事务回滚）。
+  defp maybe_launch_for_publish(%__MODULE__{status: :open} = course, _actor), do: {:ok, course}
+
+  defp maybe_launch_for_publish(%__MODULE__{} = course, actor) do
+    course
+    |> Ash.Changeset.for_update(:launch, %{},
+      tenant: course.workspace_id,
+      context: %{via_prep: true}
+    )
+    # 发布步刻意单事务（plan §B#9）：launch 的 after_transaction 钩子（SignalEmitter
+    # 事务内 outbox + Readiness 警告）皆为同连接事务内 DB 写/日志，随外层事务
+    # 回滚而回滚——抑制「外裹事务」警告。
+    |> Ash.Changeset.set_context(%{warn_on_transaction_hooks?: false})
+    |> Ash.update(tenant: course.workspace_id, actor: actor, authorize?: false)
+    |> case do
+      {:ok, launched} ->
+        {:ok, launched}
+
+      # Ash 3 失败返回 changeset 或 Invalid——归一为字符串（发布事务回滚契约）
+      {:error, %Ash.Changeset{errors: errors}} when errors != [] ->
+        {:error, Enum.map_join(errors, ", ", &Exception.message/1)}
+
+      {:error, %Ash.Error.Invalid{} = err} ->
+        {:error, Exception.message(err)}
+
+      {:error, _} ->
+        {:error, "failed to launch course"}
+    end
+  end
+
+  # S6（R29）：公开读面（courseMap）的内容源 = 当前 published CourseRevision——
+  # 发布即冻结，草稿后续编辑不影响公开面；current_revision_id 为 nil 的存量
+  # 课程（从未经教研流程发布）回退 Curriculum.course_content/1 活文档草稿。
+  # authorize?: false 纪律同 Curriculum.course_content/1（门禁在调用面，
+  # 内容投影由调用方负责）。
+  @doc false
+  def published_content(%__MODULE__{current_revision_id: revision_id, workspace_id: workspace_id})
+      when is_binary(revision_id) and is_binary(workspace_id) do
+    case Cgc2046.Curriculum.revision_by_id(workspace_id, revision_id) do
+      {:ok, %{content: content}} -> content
+      _ -> nil
+    end
+  end
+
+  def published_content(%__MODULE__{} = course), do: Cgc2046.Curriculum.course_content(course)
+
+  def published_content(_course), do: nil
+
   # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :courses, to_status)
@@ -677,8 +807,9 @@ defmodule Cgc2046.Courses.Course do
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
   # curriculum_requirements / workflow_run_id / capacity /
-  # confirmed_count / provisional_title（S3 起新字段排除匿名可见，计划 §A 纪律），
-  # 匿名被筛除。
+  # confirmed_count / provisional_title（S3 起新字段排除匿名可见，计划 §A
+  # 纪律），匿名被筛除。current_revision_id 非公共属性（S6-03：无 API 面，
+  # 无需 field_policy——confirmed_count_sync_version 同款一致性）。
   field_policies do
     field_policy :* do
       authorize_if(always())

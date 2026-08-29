@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(52,role-agent-journeys-v2 S5 课程教研流程后):
+  工具集(53,role-agent-journeys-v2 S6 课程版本后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -34,8 +34,12 @@ defmodule Cgc2046.Mcp.Server do
     submit_prep_for_check(assignee∪Owner/Admin,同步跑 PrepGate 结构门禁) /
     submit_prep_quality_report(达标按策略进 review 或直接发布) /
     override_prep_gate(reviewer-per-policy∪Owner/Admin 确认流,理由落审计) /
-    approve_prep(reviewer-per-policy∪Owner/Admin 确认流,发布=course launch) /
+    approve_prep(reviewer-per-policy∪Owner/Admin 确认流,发布=生成不可变
+    CourseRevision+课程 open) /
     request_changes_prep(review → authoring 直接写)
+  - 课程版本读(role-agent-journeys-v2 S6,R29/R38):get_course_revision(deferred;
+    成员任意版本/confirmed 学员仅最新/其他 forbidden;从未发布明确错误不回退
+    草稿;内容快照原样投影)
   - 写:save_step_output
   - 管理(确认流 two-tool,D-D3):create_invitation / approve_join_request / assign_roles
   - 内置:confirm_operation / cancel_operation
@@ -120,4 +124,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.OverridePrepGate)
   component(Cgc2046.Mcp.Tools.ApprovePrep)
   component(Cgc2046.Mcp.Tools.RequestChangesPrep)
+  # 课程版本读（role-agent-journeys-v2 S6，R29/R38）：工具面 52 → 53
+  # （deferred 族 +1：发布即冻结的不可变内容快照，授权三分支在工具层）
+  component(Cgc2046.Mcp.Tools.GetCourseRevision)
 end
