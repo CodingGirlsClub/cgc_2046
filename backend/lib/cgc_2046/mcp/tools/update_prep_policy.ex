@@ -71,6 +71,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
     with {:ok, course} <- fetch_course(workspace_id, course_id),
          {:ok, run} <- fetch_run(course),
          {:ok, patch} <- collect_patch(params, workspace_id),
+         :ok <- authorize(actor, workspace_id),
          {:ok, updated} <- Prep.update_policy(run, patch, actor) do
       {:ok,
        %{
@@ -89,7 +90,8 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
     end
   end
 
-  # 第一段快速失败省 pending；confirm 段由 Prep.update_policy 前置断言兜底
+  # 第一段快速失败省 pending；§B#7 confirm 段由 authorize 重查（manage?/1 经
+  # role_names 隐含成员资格——被移出工作台即 false）+ Prep.update_policy 前置断言兜底
   defp require_updatable(run) do
     if Prep.prep_state(run) in ["draft", "authoring"] do
       :ok

@@ -65,6 +65,7 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
     with {:ok, reason} <- require_reason(params["reason"]),
          {:ok, course} <- fetch_course(workspace_id, course_id),
          {:ok, run} <- fetch_run(course),
+         :ok <- authorize(actor, workspace_id, run),
          {:ok, updated, outcome} <- Prep.override_gate(run, actor, reason) do
       {:ok,
        %{
@@ -75,16 +76,20 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
     end
   end
 
-  # reviewer-per-policy（快照指定 reviewer 则仅本人，否则任何成员）或 Owner/Admin
+  # reviewer-per-policy（快照指定 reviewer 则仅本人，否则任何成员）或 Owner/Admin。
+  # §B#7：本函数自包含成员资格判定（Prep.reviewer?/2 在未指定 reviewer 时恒
+  # true——成员门槛第一段由 Wrapper member 门保证，但确认段不走 Wrapper），
+  # 两段共用：确认窗口内被移出工作台的角色在 confirm 段兜底拒绝。
   defp authorize(actor, workspace_id, run) do
-    if Prep.reviewer?(run, actor) or Prep.manage?(actor, workspace_id) do
+    if Cgc2046.Accounts.MembershipContext.membership_of(actor, workspace_id) &&
+         (Prep.reviewer?(run, actor) or Prep.manage?(actor, workspace_id)) do
       :ok
     else
       {:error, "forbidden: reviewer-per-policy, owner or admin required to override prep gate"}
     end
   end
 
-  # 第一段快速失败省 pending；confirm 段由 Prep.override_gate 前置断言兜底
+  # 第一段快速失败省 pending；confirm 段由 authorize 重查 + Prep.override_gate 前置断言兜底
   defp require_overridable(run) do
     if (run.facts || %{})["below_threshold_pending"] do
       :ok

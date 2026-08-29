@@ -14,6 +14,8 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
   - 低于阈值 → authoring + below_threshold_pending；带理由覆盖（确认流）→ review；
     无理由 / 无待覆盖报告 → error
   - 认领竞态（unboxed 真实事务 + Barrier）：两 tutor 并发认领恰一成一败
+  - 确认窗口内撤权（§B#7）：approve_prep / update_prep_policy 发起后被移出
+    工作台 → confirm 段 forbidden，无发布/策略副作用
   - 策略冻结：进入 quality_check 后 update_prep_policy 第一段与域层双重拒绝
   - request_changes：review → authoring 且理由落 change_requests
   - list_my_tasks 三类教研行按角色分派（tutor/assignee/reviewer/owner/plain member）
@@ -1097,6 +1099,94 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       # plain member（无 tutor/manage、非 assignee、reviewer 指定他人）：什么都不见
       assert list.(member) == []
+    end
+  end
+
+  # ── 确认窗口内撤权（§B#7：confirm 段授权兜底） ------------------------------------
+
+  describe "确认窗口内撤权（§B#7 第二段兜底）" do
+    test "approve_prep：发起后被移出工作台 → confirm 段 forbidden，课程仍 draft、run 仍 review" do
+      owner = Fixtures.platform_admin("s5-rvk-approve-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-rvk-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      reviewer = Fixtures.register_user("s5-rvk-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "撤权窗口发布"})
+
+      assert {:reply, _, _} =
+               AssignPrepTutor.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "tutor_user_id" => tutor.id
+                 },
+                 frame_for(owner)
+               )
+
+      assert :ok = drive_to_quality_check(workspace, course, tutor)
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 85)
+      assert decode(report_reply)["prep_state"] == "review"
+
+      # reviewer（未指定 = 任何成员）发起 approve → 建 pending
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(reviewer)
+               )
+
+      payload = decode(approve_reply)
+      assert payload["status"] == "needs_confirmation"
+
+      # 确认窗口内被移出工作台 → confirm 段 forbidden（发布步 authorize?: false，
+      # 兜底只能靠工具层 authorize 重查；reviewer? 未指定时恒 true，须自包含成员判定）
+      Fixtures.remove_membership(workspace, reviewer)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               confirm(reviewer, payload["pending_id"])
+
+      assert msg =~ "forbidden"
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+
+      final = reload_run(run, workspace)
+      assert final.status == :running
+      assert Prep.prep_state(final) == "review"
+    end
+
+    test "update_prep_policy：admin 发起后被移出工作台 → confirm 段 forbidden，策略未被改" do
+      owner = Fixtures.platform_admin("s5-rvk-policy-owner")
+      workspace = Fixtures.create_workspace(owner)
+      admin = Fixtures.register_user("s5-rvk-admin")
+      Fixtures.add_member(workspace, admin, [:admin])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "撤权窗口策略"})
+
+      assert {:reply, _, _} =
+               policy_reply =
+               UpdatePrepPolicy.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "quality_threshold" => 60
+                 },
+                 frame_for(admin)
+               )
+
+      payload = decode(policy_reply)
+      assert payload["status"] == "needs_confirmation"
+
+      # 确认窗口内被移出 → manage?/1 经 role_names 归空 → confirm 段 forbidden
+      Fixtures.remove_membership(workspace, admin)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               confirm(admin, payload["pending_id"])
+
+      assert msg =~ "forbidden"
+
+      run = Prep.fetch_run(course.id, workspace.id)
+      assert Prep.policy(run)["quality_threshold"] == 80
     end
   end
 
