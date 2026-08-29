@@ -5,6 +5,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   任何工作台成员可读（默认 fail-closed member 门）。返回 prep_state /
   生效策略（override-first 合并后）/ 被指派的 tutor 摘要 / 最新质量报告 /
   实时计算的结构门禁违规清单 / run version（乐观锁版本，供并发对话）。
+
+  S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run——发布后编辑自动有
+  活动 run 驱动下一版本（次周期 assignee 沿用）。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -23,11 +26,11 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   @impl true
   def execute(params, frame) do
     result =
-      Wrapper.run(frame, params, "get_prep_status", fn _actor, workspace_id, params ->
+      Wrapper.run(frame, params, "get_prep_status", fn actor, workspace_id, params ->
         course_id = params["course_id"] || params[:course_id]
 
         with {:ok, course} <- fetch_course(workspace_id, course_id),
-             {:ok, run} <- fetch_run(course) do
+             {:ok, run} <- fetch_run(course, actor) do
           gate = Prep.gate(course)
           assignee_id = Prep.assignee(run)
 
@@ -60,11 +63,10 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
     end
   end
 
-  defp fetch_run(course) do
-    case Prep.fetch_run(course.id, course.workspace_id) do
-      nil -> {:error, "no preparation run found for course #{course.id}"}
-      run -> {:ok, run}
-    end
+  # S6：惰性 ensure_active_run——run 已终态（发布后次周期）时懒开新 run
+  # （默认策略快照 + assignee 沿用，系统效应 authorize?: false）。
+  defp fetch_run(course, actor) do
+    Prep.ensure_active_run(course, actor: actor)
   end
 
   # tutor 摘要（内部读 authorize?: false——行可见性已由 member 门保证，

@@ -2233,14 +2233,17 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp build_course_map(course) do
-    content = Cgc2046.Curriculum.course_content(course)
+    # S6（R29）：内容源 = 当前 published CourseRevision（发布即冻结，草稿后续
+    # 编辑不影响公开面）；无 revision 的存量课程回退草稿读面（旧行为）。
+    # 投影形状（goal-only）不变——公开 SDL 零 diff。
+    content = Cgc2046.Courses.Course.published_content(course) || %{}
 
     %{
       course_id: course.id,
       title: course.title,
       slug: course.slug,
       goals: content["goals"] || [],
-      issues: Cgc2046.Curriculum.issue_map_rows(course)
+      issues: Cgc2046.Curriculum.issue_map_rows(course, content)
     }
   end
 

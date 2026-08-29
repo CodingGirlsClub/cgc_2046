@@ -854,6 +854,7 @@ enum CourseSortField {
   CURRICULUM_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
+  CURRENT_REVISION_ID
   ENROLLMENT_POLICY
   VISIBILITY
   CAPACITY
@@ -1005,6 +1006,22 @@ input CourseFilterEnrollmentPolicy {
   rangeAdjacent: String
   rangeContains: String
   rangeOverlaps: String
+}
+
+input CourseFilterCurrentRevisionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
 }
 
 input CourseFilterWorkflowRunId {
@@ -1199,6 +1216,9 @@ input CourseFilterInput {
   "教研 workflow 产物引用（领域模型 §5.2 ER）"
   workflowRunId: CourseFilterWorkflowRunId
 
+  "当前 published 课程版本（S6 R29：教研发布步经端口写入；nil = 从未经教研流程发布的存量课程）"
+  currentRevisionId: CourseFilterCurrentRevisionId
+
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: CourseFilterEnrollmentPolicy
 
@@ -1257,6 +1277,9 @@ type Course {
 
   "教研 workflow 产物引用（领域模型 §5.2 ER）"
   workflowRunId: ID
+
+  "当前 published 课程版本（S6 R29：教研发布步经端口写入；nil = 从未经教研流程发布的存量课程）"
+  currentRevisionId: ID
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String!
