@@ -152,4 +152,5 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.StartLearningRun)
   component(Cgc2046.Mcp.Tools.SubmitLearningAttempt)
   component(Cgc2046.Mcp.Tools.GetLearningState)
+  component(Cgc2046.Mcp.Tools.GetCourseLearningAnalytics)
 end

@@ -392,13 +392,23 @@
 
 ### 掌握投影（Mastery）与下一步推荐（NextAction）
 
-- **定义**：掌握四态 latest-attempt-driven 纯投影（L2，无表）：无 attempt = unassessed；无一 qualifying = developing；最新 qualifying = mastered；曾 qualifying 最新失败 = needs_review（`ever_mastered` 粘性——完成判定用它，复习失败不倒退 AE10；`first_mastered_at` 锚首条 qualifying）。run 完成判据 = 全部**必修** objective ever_mastered（空必修集 → false，§B#14）。NextAction 五级优先（L5，R40）：完成守卫先行 → review（S9 队列接通前恒空）→ remediation（developing 的先修中有 needs_review 者）→ developing（最近活动者）→ next_required（内容序首个已解锁必修 unassessed）→ elective。`unlocked?` = 全部 prereq ever_mastered；锁定项报缺失先修 id+title，submit 工具拒评（R41 不可绕过）。
+- **定义**：掌握四态 latest-attempt-driven 纯投影（L2，无表）：无 attempt = unassessed；无一 qualifying = developing；最新 qualifying = mastered；曾 qualifying 最新失败 = needs_review（`ever_mastered` 粘性——完成判定用它，复习失败不倒退 AE10；`first_mastered_at` 锚首条 qualifying）。run 完成判据 = 全部**必修** objective ever_mastered（空必修集 → false，§B#14）。NextAction 五级优先（L5，R40）：完成守卫先行 → review（S9 起 `ReviewSchedule.due/3` 真实队列）→ remediation（developing 的先修中有 needs_review 者）→ developing（最近活动者）→ next_required（内容序首个已解锁必修 unassessed）→ elective。`unlocked?` = 全部 prereq ever_mastered；锁定项报缺失先修 id+title，submit 工具拒评（R41 不可绕过）。
 - **架构位置**：`learning/mastery.ex` / `learning/next_action.ex`（纯函数，判据单源）。
 
 ### 学习 run 投影单源（Learning.Runs）
 
 - **定义**：learning WorkflowRun 的启动/查询/投影/完成判定/停滞口径的**单源**（L6）：instance key = `learning_<enrollment_id>_<revision_id|none>`（按 key 命中**任意状态**即 resume，§B#11——同版重进 = 续学，新版发布 = 新 run）；revision 绑定走 `input_snapshot["course_revision_id"]`（enrollment 锚同款先例——引擎表零域列零 opt）；`learning_state/2` = MCP `get_learning_state` 与 GraphQL `courseLearningDetail` 共用投影（含 **stale_revision 语义**——run 绑旧版时投影自己版本的 objectives+states 不换底）；完成判定 `complete_when_mastered/1`（非同事务 §B#12：attempt 落库后即时调用，失败只记日志，5 分钟 worker 兜底）；停滞口径 = 最新 attempt `created_at`，零 attempt 回退 run `inserted_at`（规⑦ detail 键 `last_activity_at`）。
 - **架构位置**：`learning/runs.ex`；Instantiator（enrollment.completed 异步路径）与 `start_learning_run` 工具（学员主动路径）共用同一 key，两路径幂等互通（R36）。MCP 面 = `start_learning_run` / `submit_learning_attempt`（六步校验链：本人 confirmed → 非终态 run → run 绑 revision → objective 存在且 rubric 精确覆盖 → confidence/evidence/rationale → 先修锁）/ `get_learning_state`（`get_learning_records`/`save_learning_records` 已随 LearningRecord 退役删除）。
+
+### 复习调度（Learning.ReviewSchedule）
+
+- **定义**：间隔重复复习到期队列的纯函数投影（L4，无表，R45）：objective 首次掌握（`first_mastered_at`）后进入复习队列，里程碑 = 首次掌握起 **+1/+7/+30 天**（`intervals/0`），按序消费——第 n 条「掌握后 qualifying attempt」（严格晚于 `first_mastered_at`）满足第 n 个里程碑，前提是晚于上一里程碑锚点（防突击刷档；迟到复习照常按序）；失败复习不消费任何里程碑且使 objective 翻 `needs_review`（恒立即到期，due_at = 失败 attempt 时间，全里程碑消费完后再失败 → `milestone_days: nil` = 「再次合格恢复 mastered」语义）；三里程碑全满足后不再到期。`due/3` 时间全部由调用方注入。**完成不撤销（AE10）**：复习失败翻转 needs_review 不影响已产出的 run 完成结果；v1 边界 = 已 succeeded run 无复习提交通道（L4 已知代价，详见 ADR-0011）。
+- **架构位置**：`learning/review_schedule.ex`；消费方 = `Runs.learning_state/2`（`review_queue` 键）、`submit_learning_attempt`（next_action 第三参真队列）、GraphQL `courseLearningDetail.reviewQueue`；`NextAction.next/3` review 分支由此接通（review 优先于 developing，R40）。
+
+### 学习分析聚合（Learning.Analytics）
+
+- **定义**：tutor ∪ owner/admin 的课程学习数据回流聚合读面（R49/R50，AE14）：`for_course/2`（IO）+ `compute/5`（纯函数，now 可注入）两层。数据范围 = 课程全部 learning run（`input_snapshot["course_id"]` 课程级锚定，无 user 过滤）+ 其 attempts + 当前 published revision objectives。输出五键：`run_stats`（total/active/completed/completion_rate，零 run null）、`objectives`（当前 revision 逐行：掌握四态**按 run 计**——仅计绑定 revision 含该 objective 的 run；qualifying 按 attempt 所属 run 绑定版 rubric 判；重试热点 `avg_attempts_to_first_mastery` 仅统计曾掌握的 run）、`orphan_objectives`（当前版已移除 objective 的 attempts 汇总）、`drop_off.stale_run_count`（`Runs.stagnant_cutoff` 口径同源，内存算）、`generated_at`。**红线（R49）**：纯聚合计数，永不返回 evidence/rubric_results/rationale 正文。
+- **架构位置**：`learning/analytics.ex`；MCP 面 = `get_course_learning_analytics`（member-only + 工具层 tutor ∪ manage roles；租户收紧 not found 不泄存在性）；tutor playbook「数据回流」章节（R50：分析 → 判断内容问题 → 新 Revision 草稿重进教研链，永不自动改/发布当前 Revision）。
 
 ### Learning（学习上下文）
 

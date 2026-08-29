@@ -290,4 +290,33 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "state.prep = null"
     refute_includes VIEW, "approve_prep"
   end
+
+  def test_review_queue_section_markers
+    # S9:复习队列区置顶于 objective 地图之上;队列空不渲染。
+    # 里程碑条目「第 N 天复习到期」;needs_review 条目「待复习恢复」徽章 +
+    # 红色调(cgc-review-urgent);行点击展开对应 objective 卡(data-review-obj)
+    assert_includes VIEW, "review_queue"
+    assert_includes VIEW, 'data-testid="panel-review-queue"'
+    assert_includes VIEW, 'data-testid="panel-review-row"'
+    assert_includes VIEW, 'data-testid="panel-review-due"'
+    assert_includes VIEW, "天复习到期"
+    assert_includes VIEW, 'data-testid="panel-review-needs"'
+    assert_includes VIEW, "待复习恢复"
+    assert_includes VIEW, "cgc-review-urgent"
+    assert_includes VIEW, "data-review-obj"
+  end
+
+  def test_review_flavored_prompt_for_due_objective
+    # S9:复习队列中的目标,复制指令切复习口吻(到期复习先诊断保留度再正式评价)
+    assert_includes VIEW, "这是一次到期复习"
+    assert_includes VIEW, "先诊断我的保留度"
+    assert_includes VIEW, "reviewEntry"
+  end
+
+  def test_polling_signature_includes_review_queue
+    # S9:轮询签名并入 review_queue 四字段——里程碑到期/恢复条目变化同样亮更新条
+    assert_includes VIEW, "review_queue"
+    assert_includes VIEW, "milestone_days"
+    assert_includes VIEW, "needs_review"
+  end
 end
