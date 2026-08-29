@@ -20,10 +20,13 @@ defmodule Cgc2046.Curriculum.Prep do
     进入 quality_check 后 `update_prep_policy` 一律拒绝。
   - 实例 key：`course_prep_<course_id>`（每门课程恰一个非终态 prep run，
     `WorkflowRun.find_or_create_and_start/4` 非终态去重）。
-  - **发布语义（S5 切片）**：发布 = course launch（draft → open），单事务内
-    复跑门禁 → launch（`via_prep: true`）→ prep_state published + run
-    `:complete`。S6 切不可变 CourseRevision 归档（届时发布步改建 revision +
-    绑定 `course.current_revision_id`，launch 语义由发布端口承接）。
+  - **发布语义（S6，R29）**：发布步单事务 = 复跑门禁（提交后草稿可再改，
+    不过整体回滚）→ 创建不可变 `CourseRevision`（number = max+1，撞唯一索引
+    重读重试一次）→ 调 Courses 发布端口 `Course.bind_revision_for_publish/3`
+    （绑定 current_revision_id + 课程 draft 时 launch `via_prep: true`，已
+    open 只换绑）→ prep_state published + run `:complete`（succeeded）。发布后
+    课程进入次 prep 周期：`ensure_active_run/2` 懒开新 run（沿用上任
+    assignee）。
 
   ## 授权分工
 
@@ -40,10 +43,11 @@ defmodule Cgc2046.Curriculum.Prep do
   """
 
   require Ash.Query
+  require Logger
 
   alias Cgc2046.Accounts.{MembershipContext, Role}
   alias Cgc2046.Courses.Course
-  alias Cgc2046.Curriculum.{Output, PrepGate}
+  alias Cgc2046.Curriculum.{CourseRevision, Output, PrepGate, PrepInstantiator}
   alias Cgc2046.Repo
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -132,6 +136,27 @@ defmodule Cgc2046.Curriculum.Prep do
     |> Ash.Query.filter(key == ^Output.course_key(course_id) and kind == :issues)
     |> Ash.Query.limit(1)
     |> Ash.read_one!(authorize?: false, tenant: workspace_id)
+  end
+
+  @doc """
+  课程的活动 prep run 就位（S6 发布次周期，R29）：有非终态 run → 返回；
+  缺失或已终态 → 懒开新 run（默认策略快照——新 run = 新快照机会；
+  prep_state `draft`；沿用最近一个教研 run 的 assignee 保持连续性）并回写
+  `course.workflow_run_id`。
+
+  接线面 = `get_prep_status` 与 `submit_prep_for_check`（发布后编辑自动有
+  活动 run 驱动下一版本）；`PrepInstantiator` 的 course.created 首周期
+  实例化不变。无已 published 的 course_preparation 定义 → 返回错误（存量
+  工作台同 get_prep_status 旧语义）。实例化/回写/assignee 沿用均为系统
+  效应（authorize?: false；成员门槛在工具层）。
+  """
+  @spec ensure_active_run(Course.t(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, String.t()}
+  def ensure_active_run(%Course{} = course, opts \\ []) do
+    case fetch_run(course.id, course.workspace_id) do
+      %WorkflowRun{} = run -> {:ok, run}
+      nil -> spawn_next_run(course, opts)
+    end
   end
 
   # --- 角色判定助手（工具层授权用） -------------------------------------------
@@ -264,8 +289,8 @@ defmodule Cgc2046.Curriculum.Prep do
 
   - score < 生效阈值 → 回 `authoring`，报告记入 `below_threshold_pending`
     （override_prep_gate 的前置锚）；
-  - score ≥ 阈值 → review_required ? `review` : 发布（publish/4，S5 语义 =
-    课程 launch）。
+  - score ≥ 阈值 → review_required ? `review` : 发布（publish/4，S6 语义 =
+    生成不可变 CourseRevision + 绑定课程当前版本 + launch）。
     返回 `{:ok, run, :below_threshold | :review | :published}`。
   """
   @spec submit_quality_report(WorkflowRun.t(), term(), map()) ::
@@ -369,27 +394,56 @@ defmodule Cgc2046.Curriculum.Prep do
   end
 
   @doc """
-  发布步（S5 语义 = course launch，R23/R28；S6 切 CourseRevision 归档）：
-  **单事务**内——
+  发布步（S6，R29）：**单事务**内——
 
   1. 重读当前草稿（Output 活文档）并防御性复跑 PrepGate（必须过；提交后
      草稿可再改，不过 → 整体回滚，prep_state 不变）；
-  2. launch 课程（draft → open，`context: %{via_prep: true}` 放行教研门）；
-  3. prep_state → `published`、run `:complete`（succeeded）、facts 记
-     published_at / published_by（外加调用方 facts_patch，如 approved_by /
+  2. 创建不可变 CourseRevision（number = 该课程 max(number)+1，内容 = 当前
+     草稿快照，prep_run_id/published_by_id/published_at 溯源审计列）；
+  3. 调 Courses 发布端口 `Course.bind_revision_for_publish/3`：绑定
+     `course.current_revision_id` 并 launch（via_prep 语义不变；课程已
+     open——次周期发布——跳过 launch 只换绑版本）；
+  4. prep_state → `published`、run `:complete`（succeeded）、facts 记
+     published_at / published_by / published_revision_id /
+     published_revision_number（外加调用方 facts_patch，如 approved_by /
      gate_override / latest_quality_report）。
 
-  launch/complete 是流程级系统效应（授权已在工具层完成），`authorize?: false`
-  执行；launch 教研门由 via_prep changeset context 放行（§B#10）。
+  撞 `(course_id, number)` 唯一索引（并发发布同门课程）→ 重读 max 重试一次
+  （新事务）。launch/complete 是流程级系统效应（授权已在工具层完成），
+  `authorize?: false` 执行并经端口注入 `context: %{via_prep: true}` 放行
+  launch 教研门（§B#10）。
   """
   @spec publish(WorkflowRun.t(), term(), map(), [String.t()]) ::
           {:ok, WorkflowRun.t()} | {:error, String.t()}
   def publish(%WorkflowRun{} = run, actor, facts_patch \\ %{}, drop \\ []) do
+    case publish_once(run, actor, facts_patch, drop) do
+      {:error, reason} ->
+        # 撞号识别在外壳（Ash 3 的 identity 冲突可能以 :revision_number_conflict
+        # 哨兵或原始 changeset/Invalid 形态从事务里漏出——双态全接）→ 重读
+        # max(number) 重试一次（新事务）；其余错误归一为字符串契约
+        if reason == :revision_number_conflict or revision_number_conflict?(reason) do
+          case publish_once(run, actor, facts_patch, drop) do
+            {:error, retried} -> {:error, error_message(retried, "publish failed")}
+            other -> other
+          end
+        else
+          {:error, error_message(reason, "publish failed")}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  # --- 私有实现 --------------------------------------------------------------
+
+  defp publish_once(%WorkflowRun{} = run, actor, facts_patch, drop) do
     Repo.transaction(fn ->
       with {:ok, course} <- fetch_course(run),
-           :ok <- guard_publishable(course),
-           {:ok, _launched} <- launch_course(course, actor),
-           {:ok, completed} <- complete_run(run, actor, facts_patch, drop) do
+           {:ok, output} <- guard_publishable(course),
+           {:ok, revision} <- create_revision(course, output, run, actor),
+           {:ok, _course} <- Course.bind_revision_for_publish(course, revision, actor),
+           {:ok, completed} <- complete_run(run, actor, revision, facts_patch, drop) do
         completed
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -397,19 +451,99 @@ defmodule Cgc2046.Curriculum.Prep do
     end)
   end
 
-  # --- 私有实现 --------------------------------------------------------------
-
-  # 发布前的防御性结构复核（R26）：提交时门禁已过不保证发布时点草稿仍合规
-  # （提交后草稿可再改）；不过 → 回滚，prep_state 不变。
+  # 发布前的防御性结构复核（R26 完整形态）：提交时门禁已过不保证发布时点草稿
+  # 仍合规（提交后草稿可再改）；不过 → 回滚，prep_state 不变。门禁通过必有草稿行。
   defp guard_publishable(%Course{} = course) do
-    gate = gate(course)
+    output = fetch_output(course.id, course.workspace_id)
+    gate = PrepGate.check(course, output)
 
     if gate.passed do
-      :ok
+      {:ok, output}
     else
       {:error, "publish blocked by structure gate: " <> Enum.join(gate.violations, "；")}
     end
   end
+
+  defp create_revision(%Course{} = course, %Output{} = output, run, actor) do
+    attrs = %{
+      course_id: course.id,
+      number: next_revision_number(course.id, run.workspace_id),
+      content: output.data,
+      prep_run_id: run.id,
+      published_by_id: actor.id,
+      published_at: DateTime.utc_now()
+    }
+
+    case CourseRevision
+         |> Ash.Changeset.for_create(:create, attrs, tenant: run.workspace_id)
+         |> Ash.create(tenant: run.workspace_id, actor: actor, authorize?: false) do
+      {:ok, revision} ->
+        {:ok, revision}
+
+      {:error, error} ->
+        # Ash 3 失败返回 changeset 或 Invalid——统一归一后识别撞号
+        if revision_number_conflict?(error) do
+          {:error, :revision_number_conflict}
+        else
+          {:error, error_message(error, "failed to create course revision")}
+        end
+    end
+  end
+
+  # per-course 单调编号（R29）：max(number)+1；唯一索引兜底（撞号由 publish/4
+  # 重试一次）。DB 错误上抛（fail-closed，事务回滚）。
+  defp next_revision_number(course_id, workspace_id) do
+    CourseRevision
+    |> Ash.Query.filter(course_id == ^course_id)
+    |> Ash.Query.sort(number: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+    |> case do
+      {:ok, nil} -> 1
+      {:ok, %{number: number}} -> number + 1
+      {:error, reason} -> raise "failed to read latest course revision number: #{inspect(reason)}"
+    end
+  end
+
+  # (course_id, number) 唯一索引冲突识别（identity 冲突映射为 InvalidAttribute
+  # "has already been taken"；裸索引冲突兜底按索引名匹配）。Ash 3 失败返回
+  # changeset 或 Invalid 两种形态，errors 位置不同——双态归一。
+  defp revision_number_conflict?(%Ash.Error.Invalid{errors: errors}),
+    do: conflict_in_errors?(errors)
+
+  defp revision_number_conflict?(%Ash.Changeset{errors: errors}),
+    do: conflict_in_errors?(errors)
+
+  defp revision_number_conflict?(_), do: false
+
+  defp conflict_in_errors?(errors) do
+    Enum.any?(errors, fn
+      # identity 冲突可挂在 identity 任一键上（实测挂首键 course_id）
+      %Ash.Error.Changes.InvalidAttribute{field: field} when field in [:course_id, :number] ->
+        true
+
+      %{message: message} when is_binary(message) ->
+        message =~ "curriculum_course_revisions_unique_course_number_index"
+
+      _ ->
+        false
+    end)
+  end
+
+  # Ash 3 错误归一为字符串（changeset 的 errors 逐条 message 拼接；已是
+  # 字符串的错误原样透传——内部环节的友好文案不被 fallback 吞掉）
+  defp error_message(message, _fallback) when is_binary(message), do: message
+
+  defp error_message(%Ash.Changeset{errors: errors}, fallback),
+    do: errors_message(errors, fallback)
+
+  defp error_message(%Ash.Error.Invalid{} = err, _fallback), do: Exception.message(err)
+  defp error_message(_other, fallback), do: fallback
+
+  defp errors_message([], fallback), do: fallback
+
+  defp errors_message(errors, _fallback),
+    do: Enum.map_join(errors, ", ", &Exception.message/1)
 
   # run → 课程（input_snapshot["course_id"]，租户收紧；内部读 authorize?: false）
   defp fetch_course(%WorkflowRun{} = run) do
@@ -427,38 +561,7 @@ defmodule Cgc2046.Curriculum.Prep do
     end
   end
 
-  # S5 发布 = launch（draft → open）。发布时点课程必为 draft（教研门已挡住
-  # 带外发布）；非 draft 时 launch CAS/状态前置拒绝，整体回滚。
-  defp launch_course(%Course{} = course, actor) do
-    case course
-         |> Ash.Changeset.for_update(:launch, %{},
-           tenant: course.workspace_id,
-           context: %{via_prep: true}
-         )
-         # 发布步刻意单事务（plan §B#9）：launch 的 after_transaction 钩子
-         # （SignalEmitter 事务内 outbox + Readiness 警告）皆为同连接事务内 DB
-         # 写/日志，随外层事务回滚而回滚——抑制「外裹事务」警告。
-         |> Ash.Changeset.set_context(%{warn_on_transaction_hooks?: false})
-         |> Ash.update(
-           tenant: course.workspace_id,
-           actor: actor,
-           # 发布是教研流程的系统效应：迁移授权已在工具层完成（assignee/reviewer/
-           # owner-admin），Course update policy 的 Owner/Admin 门槛不适用于
-           # tutor/reviewer 驱动的发布（R28）；域校验（命名门/教研门/CAS/信号）照常。
-           authorize?: false
-         ) do
-      {:ok, launched} ->
-        {:ok, launched}
-
-      {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
-
-      {:error, _} ->
-        {:error, "failed to launch course"}
-    end
-  end
-
-  defp complete_run(%WorkflowRun{} = run, actor, facts_patch, drop) do
+  defp complete_run(%WorkflowRun{} = run, actor, revision, facts_patch, drop) do
     facts =
       (run.facts || %{})
       |> Map.drop(drop)
@@ -466,7 +569,9 @@ defmodule Cgc2046.Curriculum.Prep do
       |> Map.merge(%{
         "prep_state" => "published",
         "published_at" => now_iso(),
-        "published_by" => actor.id
+        "published_by" => actor.id,
+        "published_revision_id" => revision.id,
+        "published_revision_number" => revision.number
       })
 
     case run
@@ -479,11 +584,8 @@ defmodule Cgc2046.Curriculum.Prep do
       {:ok, completed} ->
         {:ok, completed}
 
-      {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
-
-      {:error, _} ->
-        {:error, "failed to complete prep run"}
+      {:error, error} ->
+        {:error, error_message(error, "failed to complete prep run")}
     end
   end
 
@@ -514,6 +616,89 @@ defmodule Cgc2046.Curriculum.Prep do
 
       {:error, _} ->
         {:error, "failed to update prep run"}
+    end
+  end
+
+  # --- 发布次周期懒实例化（ensure_active_run 私有实现） -------------------------
+
+  defp spawn_next_run(%Course{} = course, opts) do
+    with {:ok, definition} <- fetch_prep_definition(course.workspace_id),
+         {:ok, run} <-
+           PrepInstantiator.launch(course.workspace_id, definition.id, %{
+             "course_id" => course.id,
+             "title" => course.title
+           }),
+         :ok <- PrepInstantiator.link_prep_run(course, run),
+         {:ok, run} <- carry_over_assignee(course, run, opts[:actor]) do
+      {:ok, run}
+    end
+  end
+
+  # 定义读取单源 = PrepInstantiator（最新 published course_preparation；
+  # 无定义 = 存量工作台旧语义「无 prep run」）
+  defp fetch_prep_definition(workspace_id) do
+    case PrepInstantiator.fetch_prep_definition(workspace_id) do
+      {:ok, nil} -> {:error, "no published course_preparation definition in workspace"}
+      {:ok, definition} -> {:ok, definition}
+      {:error, _} -> {:error, "failed to load course_preparation definition"}
+    end
+  end
+
+  # 连续性（R29 次周期）：沿用最近一个教研 run（含终态）的 assignee；prep_state
+  # 保持 draft（再进 authoring 走 assign/claim 既有迁移）。系统效应
+  # authorize?: false；失败只记日志不阻塞（best-effort，同 link_prep_run 语义）。
+  defp carry_over_assignee(course, run, actor) do
+    case latest_prep_run(course, exclude_id: run.id) do
+      %WorkflowRun{} = previous ->
+        case assignee(previous) do
+          nil ->
+            {:ok, run}
+
+          assignee_user_id ->
+            case put_facts_system(run, %{"assignee_user_id" => assignee_user_id}, actor) do
+              {:ok, run} ->
+                {:ok, run}
+
+              {:error, reason} ->
+                Logger.warning(
+                  "Curriculum.Prep carry_over_assignee failed for course #{course.id}: #{inspect(reason)}"
+                )
+
+                {:ok, run}
+            end
+        end
+
+      nil ->
+        {:ok, run}
+    end
+  end
+
+  # 最近一次教研 run（含终态；assignee 沿用的来源）。exclude_id 排除刚创建的新
+  # run 自身（同 key 下 inserted_at 最新即它）。无 → nil（首周期）。
+  defp latest_prep_run(%Course{} = course, exclude_id: exclude_id) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :course_preparation and
+        input_snapshot["key"] == ^instance_key(course.id) and
+        id != ^exclude_id
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one!(authorize?: false, tenant: course.workspace_id)
+  end
+
+  # put_facts 的系统效应变体（authorize?: false）：次周期 assignee 沿用不依赖
+  # 调用方成员 bypass（PrepInstantiator 同款纪律）。
+  defp put_facts_system(%WorkflowRun{} = run, patch, actor) do
+    facts = (run.facts || %{}) |> Map.merge(patch)
+
+    case run
+         |> Ash.Changeset.for_update(:update_prep_facts, %{facts: facts},
+           tenant: run.workspace_id
+         )
+         |> Ash.update(tenant: run.workspace_id, actor: actor, authorize?: false) do
+      {:ok, updated} -> {:ok, updated}
+      {:error, reason} -> {:error, reason}
     end
   end
 
