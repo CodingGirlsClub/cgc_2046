@@ -8,13 +8,14 @@
 # 2. owner 成员资格：归属首个平台管理员（migration 08000000 同语义）；fresh DB
 #    无用户/无平台管理员时安全跳过（ADR-0004：后续首个平台管理员可认领）。
 # 3. 课程 issue 学习闭环种子(切片 H U5, #180)：教研/学习 workflow 定义(单 manual
-#    step 协议容器, published)。Agent 指令以 AgentInstructions 纯文本模块为载体
-#    (plan 020 U4)，此处仅打印确认落位。
+#    step 协议容器, published)。角色 playbook 以 Mcp.Playbooks 版本化模块常量
+#    为载体(role-agent-journeys-v2 S1，经 get_role_playbook 分发)，
+#    此处仅打印确认落位。
 
 alias Cgc2046.Accounts.MembershipContext
 alias Cgc2046.Accounts.User
 alias Cgc2046.Accounts.Workspace
-alias Cgc2046.Learning.AgentInstructions
+alias Cgc2046.Mcp.Playbooks
 alias Cgc2046.Workflows.WorkflowDefinition
 
 require Ash.Query
@@ -117,12 +118,12 @@ Enum.each(definitions, fn attrs ->
   end
 end)
 
-# Agent 指令种子:模块常量已是幂等载体(重复运行同一文本);
-# 打印确认落位(get_agent_instruction 工具落地后切库)。
-IO.puts(
-  "[seeds] learning agent instruction: #{byte_size(AgentInstructions.learning_agent())} bytes"
-)
+# 角色 playbook 种子:模块常量已是幂等载体(重复运行同一文本);
+# 打印确认落位(Agent 资源落地后切库,roadmap plan 020)。
+Enum.each(Playbooks.roles(), fn role ->
+  {:ok, playbook} = Playbooks.fetch(role)
 
-IO.puts(
-  "[seeds] curriculum agent instruction: #{byte_size(Cgc2046.Curriculum.AgentInstructions.curriculum_agent())} bytes"
-)
+  IO.puts(
+    "[seeds] role playbook #{role}: v#{playbook.version} (#{byte_size(playbook.content)} bytes)"
+  )
+end)

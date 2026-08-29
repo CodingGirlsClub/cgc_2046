@@ -15,6 +15,7 @@ require "fileutils"
 require_relative "mcp_config"
 require_relative "course_routes"
 require_relative "offering_routes"
+require_relative "workbench_routes"
 
 class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
@@ -140,6 +141,45 @@ class Cgc2046Ext < Clacky::ApiExtension
     kind = route_params_value("kind")
     args["kind"] = kind unless kind.empty?
     outcome = Cgc2046OfferingRoutes.call_offering_tool(self, "get_public_offering", args)
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # ── S1-extension 工作台数据面(身份上下文;纯读透传) ─────────────────────
+  # query 读取走 route_params_value 三层兜底(真实宿主 GET query 不进 @params)。
+
+  # GET /api/ext/cgc-2046/me/workspaces
+  # 本人可访问 Workspace 列表 + 各处角色 + is_platform_admin:
+  # 透传 MCP list_my_workspaces(无参数)。
+  get "/me/workspaces" do
+    outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "list_my_workspaces", {})
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/playbook?role=...&workspace_id=...
+  # 角色工作模式 playbook:透传 MCP get_role_playbook。
+  # role 必填(平台管理模式 = platform_admin),workspace_id 可选。
+  get "/playbook" do
+    role = route_params_value("role")
+    if role.empty?
+      outcome = { status: 400, body: { error: "role is required" } }
+    else
+      args = { "role" => role }
+      workspace_id = route_params_value("workspace_id")
+      args["workspace_id"] = workspace_id unless workspace_id.empty?
+      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "get_role_playbook", args)
+    end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # GET /api/ext/cgc-2046/tasks?workspace_id=...
+  # 本人在该 Workspace 的待办列表:透传 MCP list_my_tasks(workspace_id 必填)。
+  get "/tasks" do
+    workspace_id = route_params_value("workspace_id")
+    if workspace_id.empty?
+      outcome = { status: 400, body: { error: "workspace_id is required" } }
+    else
+      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "list_my_tasks", { "workspace_id" => workspace_id })
+    end
     json(outcome[:body], status: outcome[:status])
   end
 
