@@ -65,11 +65,44 @@ defmodule Cgc2046.Payments.OrderEnrollmentLockTest do
 
     cleanup_on_exit(owner, workspace, event, [learner])
 
-    # 事务编排（确定性复现 F5 竞态的「免缴先提交」臂）：
-    # 1) 本测试事务先持 enrollment 行 FOR UPDATE 锁；
-    # 2) 下单任务进入 load_enrollment 的 FOR UPDATE → 阻塞等锁（pg_locks 取证）；
-    # 3) 持锁方把 status 改为 confirmed（模拟免缴事务）并提交释放锁；
+    # 确定性编排（消息握手 + pg_sleep 定界，无锁等待探测——长持锁 + pg_stat
+    # 轮询的探针方案在本机 flake：15s 级长事务内连接被异常断开）：
+    # 1) holder 任务 unboxed 持 enrollment 行 FOR UPDATE 锁，到手即回执
+    #    :lock_held，随后 pg_sleep(0.8) 保持锁窗口；
+    # 2) 测试进程收 :lock_held 后才启动下单任务——下单的 FOR UPDATE 严格晚于
+    #    holder 获锁（消息定序），必然阻塞至 holder 提交；
+    # 3) holder 醒后把 status 改 confirmed 并提交释放锁；
     # 4) 下单获锁后锁内重读 status=confirmed → 拒单（not awaiting payment）。
+    # 注：持锁事务与下单皆须 unboxed（shared sandbox 下测试进程事务只是
+    # savepoint，行锁不随其释放）。
+    test_pid = self()
+
+    holder =
+      Task.async(fn ->
+        unboxed(fn ->
+          Repo.transaction(fn ->
+            {:ok, %{rows: [[_]]}} =
+              Repo.query("SELECT id FROM enrollments WHERE id = $1 FOR UPDATE", [
+                Repo.uuid!(enrollment.id)
+              ])
+
+            send(test_pid, :lock_held)
+            {:ok, _} = Repo.query("SELECT pg_sleep(0.8)", [])
+
+            {:ok, _} =
+              Repo.query("UPDATE enrollments SET status = 'confirmed' WHERE id = $1", [
+                Repo.uuid!(enrollment.id)
+              ])
+          end)
+        end)
+      end)
+
+    receive do
+      :lock_held -> :ok
+    after
+      5_000 -> flunk("holder 未能在 5s 内获取 enrollment 行锁（竞态编排失败）")
+    end
+
     task =
       Task.async(fn ->
         unboxed(fn ->
@@ -82,29 +115,10 @@ defmodule Cgc2046.Payments.OrderEnrollmentLockTest do
         end)
       end)
 
-    # 持锁事务必须 unboxed（真连接真提交）——shared sandbox 下测试进程的
-    # Repo.transaction 只是 owner 大事务内的 savepoint，行锁不随其释放。
-    result =
-      unboxed(fn ->
-        Repo.transaction(fn ->
-          {:ok, %{rows: [[_]]}} =
-            Repo.query("SELECT id FROM enrollments WHERE id = $1 FOR UPDATE", [
-              Repo.uuid!(enrollment.id)
-            ])
-
-          assert :blocked = wait_until_blocked_on_row()
-
-          {:ok, _} =
-            Repo.query("UPDATE enrollments SET status = 'confirmed' WHERE id = $1", [
-              Repo.uuid!(enrollment.id)
-            ])
-        end)
-      end)
-
-    assert {:ok, _} = result
-
     assert {:error, %Ash.Error.Invalid{} = error} = Task.await(task, 15_000)
     assert Exception.message(error) =~ "not awaiting payment"
+    # holder 崩溃会以 exit 形式失败本测试，无需形状断言
+    Task.await(holder, 15_000)
 
     unboxed(fn ->
       {:ok, %{rows: [[0]]}} =
@@ -114,27 +128,6 @@ defmodule Cgc2046.Payments.OrderEnrollmentLockTest do
     end)
   after
     Fake.reset!()
-  end
-
-  # 下单任务阻塞于 enrollment 行锁的取证：pg_locks 出现未授予的 tuple/xact 锁
-  # （FOR UPDATE 等待者的两种等待形态）。~5s 未观测到 = 竞态编排失败（测试红）。
-  defp wait_until_blocked_on_row(deadline_ms \\ 5_000)
-
-  defp wait_until_blocked_on_row(deadline_ms) when deadline_ms <= 0, do: :timeout
-
-  defp wait_until_blocked_on_row(deadline_ms) do
-    {:ok, %{rows: [[waiting]]}} =
-      Repo.query(
-        "SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype IN ('tuple', 'transactionid')",
-        []
-      )
-
-    if waiting > 0 do
-      :blocked
-    else
-      Process.sleep(50)
-      wait_until_blocked_on_row(deadline_ms - 50)
-    end
   end
 
   defp cleanup_on_exit(owner, workspace, event, users) do
