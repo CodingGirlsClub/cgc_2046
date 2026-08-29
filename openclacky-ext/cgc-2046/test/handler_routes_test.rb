@@ -493,4 +493,26 @@ class OnboardingCallerContractTest < Minitest::Test
     assert_equal 403, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "CSRF"
   end
+
+  # advisor R3:结构防回归——SKILL.md 的 bash 代码块中,变量赋值(VAR=$(...))
+  # 不得出现在管道右侧段。管道各段在子 shell 执行,赋值不回传父 shell——
+  # 备选 A 曾因 $CGC_CSRF 被管道右侧赋值挤空导致 POST 必 403(文档命令无
+  # shell 语义测试的盲区,本断言钉死该结构形态)。
+  def test_skill_commands_keep_assignment_out_of_pipeline_right_side
+    skill = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
+    blocks = skill.scan(/```bash\n(.*?)```/m).flatten
+    refute_empty blocks, "SKILL.md 应含 bash 代码块"
+
+    blocks.each_with_index do |block, bi|
+      # 续行(\ 结尾)拼接为逻辑行,再按管道拆段
+      block.gsub(/\\\n/, " ").each_line do |line|
+        next unless line.include?("|")
+        _lhs, *rhs = line.split("|")
+        rhs.each do |seg|
+          refute_match(/\w+=\$\(/, seg,
+            "SKILL.md 代码块 #{bi + 1}:变量赋值出现在管道右侧段(子 shell 赋值不回传,\$CGC_CSRF 将为空):#{line.strip}")
+        end
+      end
+    end
+  end
 end
