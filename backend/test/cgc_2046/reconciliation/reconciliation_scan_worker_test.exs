@@ -394,7 +394,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       assert [] = findings(:nonterminal_research_run_for_closed_entity)
     end
 
-    test "cancelled course + 非终态 run → 命中（course 前缀 instance key）" do
+    test "cancelled course + 非终态 run → 不命中（S6 event-only，存量行自然 aging）" do
       admin = Fixtures.platform_admin("rc5-admin")
       workspace = Fixtures.create_workspace(admin)
       curriculum_defn = create_published_definition(workspace, admin, :curriculum)
@@ -404,9 +404,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
 
-      assert [finding] = findings(:nonterminal_research_run_for_closed_entity)
-      assert finding.entity_type == :course
-      assert finding.entity_id == course.id
+      assert [] = findings(:nonterminal_research_run_for_closed_entity)
     end
 
     test "closed 实体但 run 已终态 → 不命中" do

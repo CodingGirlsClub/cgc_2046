@@ -10,6 +10,9 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
     （`passed: false` + `violations`——业务结果非错误，逐条修复后重新提交）。
 
   被指派的 tutor 或 Owner/Admin 可提交。
+
+  S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run——发布后修订自动
+  有活动 run 驱动下一版本（次周期 assignee 沿用）。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -29,7 +32,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
         course_id = params["course_id"] || params[:course_id]
 
         with {:ok, course} <- fetch_course(workspace_id, course_id),
-             {:ok, run} <- fetch_run(course),
+             {:ok, run} <- fetch_run(course, actor),
              :ok <- authorize(actor, workspace_id, run),
              {:ok, updated, gate} <- Prep.submit_for_check(run, actor) do
           {:ok,
@@ -65,10 +68,9 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
     end
   end
 
-  defp fetch_run(course) do
-    case Prep.fetch_run(course.id, course.workspace_id) do
-      nil -> {:error, "no preparation run found for course #{course.id}"}
-      run -> {:ok, run}
-    end
+  # S6：惰性 ensure_active_run——run 已终态（发布后次周期）时懒开新 run
+  # （默认策略快照 + assignee 沿用，系统效应 authorize?: false）。
+  defp fetch_run(course, actor) do
+    Prep.ensure_active_run(course, actor: actor)
   end
 end

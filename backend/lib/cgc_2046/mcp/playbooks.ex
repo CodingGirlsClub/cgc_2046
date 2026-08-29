@@ -63,6 +63,12 @@ defmodule Cgc2046.Mcp.Playbooks do
   4. id 稳定纪律:issue 的 id 与 checklist 条目的 id 一经发布不改不删;修订内容时保 id(学习记录按 id 引用,改 id 会破坏进行中学员的记忆);
   5. id 唯一性:issue id 在卡集内唯一,checklist item id 在单张 issue 内唯一(平台在提交时校验);
   6. materials 是朴素参考列表({title, ref}),不按 kind 区分形态。
+  7. objectives(schema v2,掌握单元):每张 issue 卡配 objectives 数组,每个 objective 含
+     id(课程级唯一,非仅 issue 内)/title/required(缺省 true 必修,显式 false 为选修——
+     全课程至少一个必修)/prereq_ids(先修 objective 的 id 数组,只能引用课程内存在的
+     objective,不得成环或自引用)/activity/assessment(字符串,可空串)/materials
+     ({title, ref} 数组)/rubric(至少一条 {id, text},评分标准须可判定——空 rubric 的
+     objective 不可判定掌握,过不了门禁)。objective 的 id 与 issue 的 id 一样发布后不改不删。
 
   提交:整套内容经 save_course_content(workspace_id, course_id, content, base_version) 写入,content 形如
   %{"goals" => [课程级目标字符串], "issues" => [issue 卡]}。提交成功即视为教研产出确认;后续修订走同一工具(活文档,平台按 (course_<id>, issues) upsert)。
@@ -80,7 +86,8 @@ defmodule Cgc2046.Mcp.Playbooks do
   2. 读状态:get_prep_status(workspace_id, course_id) 拿生效策略(quality_threshold /
      review_required / reviewer)、当前 prep_state 与实时门禁违规清单;
   3. 生产内容:按上方起草规则与版本纪律经 save_course_content 迭代 issue 卡集;
-  4. 提交检查:submit_prep_for_check(workspace_id, course_id) 跑结构门禁——返回
+  4. 提交检查:submit_prep_for_check(workspace_id, course_id) 跑结构门禁——无
+     objectives 的 v1 内容不能过门禁(「课程内容缺 LearningObjective」即此义),返回
      passed=false 时 violations 逐条修复后重新提交,passed=true 进入 quality_check;
   5. 诚实评分:submit_prep_quality_report(workspace_id, course_id, report) 提交结构化
      质量报告(score 0-100 + summary + 可选 findings)。score 低于生效阈值会退回
@@ -89,8 +96,14 @@ defmodule Cgc2046.Mcp.Playbooks do
   6. review_required 开着时等待审核:被 request_changes_prep 退回会回 authoring
      (理由在案),修订内容后从第 4 步重新提交。
 
+  发布与版本(S6):发布会冻结当前草稿为不可变课程版本(CourseRevision)并将课程转为
+  open;发布后修订走次周期(平台自动开新教研 run 并沿用你为 assignee),再发布生成
+  下一版本,旧版本永不改写。读已发布版本用 get_course_revision(workspace_id,
+  course_id, revision_number?)(缺省=最新;revision_number 可显式取旧版)。
+
   纪律:评分必须诚实反映内容质量,不为冲过阈值虚报高分;被退回是正常迭代,逐条
-  回应 findings 再提交。
+  回应 findings 再提交。草稿经 get_course_content 读写,已发布版本经
+  get_course_revision 读取——两份内容不要混淆,发布后修订仍以草稿为工作面(次周期 run)。
 
   纪律:
   - 起草前先调用 get_course_content(workspace_id, course_id) 读取当前内容,在其基础上迭代,不覆盖他人已有成果;
@@ -113,7 +126,7 @@ defmodule Cgc2046.Mcp.Playbooks do
      - update_course(workspace_id, course_id, ...) 改标题/描述/定价/报名策略等;设置正式标题即自动清除 provisional_title;pricing_enabled 改 false 会批量免缴该课程全部待支付报名(摘要会展示受影响笔数,确认后逐笔免缴留痕);
      - launch_course(workspace_id, course_id) 发布 draft → open;命名门:带 provisional_title 临时标题的课程不能发布,先经 update_course 设置正式课程标题;教研门:有教研流程的新课程不能带外发布(报「课程须完成教研流程后发布」即此义)——发布只能由教研流程的 approve_prep / 质量报告达标自动触发;launch_course 只对无教研流程的存量课程可用;
      - close_course / cancel_course(workspace_id, course_id) open → closed(截止报名) / cancelled(取消),均为终态不可逆,摘要含终态提示;
-     - 教研流程督导:get_prep_status(workspace_id, course_id) 读 prep_state/生效策略/门禁违规/最新质量报告;assign_prep_tutor(workspace_id, course_id, tutor_user_id) 指派 tutor(直接写;未指派时 tutor 可自行认领);update_prep_policy(workspace_id, course_id, review_required?/quality_threshold?/reviewer_user_id?) 调整教研策略(tutor 提交质量检查后冻结,须在此之前改定);审核环节 approve_prep(通过即发布)/ request_changes_prep(退回修订);低于阈值的质量报告可经 override_prep_gate(workspace_id, course_id, reason) 记理由覆盖(落审计);
+     - 教研流程督导:get_prep_status(workspace_id, course_id) 读 prep_state/生效策略/门禁违规/最新质量报告;assign_prep_tutor(workspace_id, course_id, tutor_user_id) 指派 tutor(直接写;未指派时 tutor 可自行认领);update_prep_policy(workspace_id, course_id, review_required?/quality_threshold?/reviewer_user_id?) 调整教研策略(tutor 提交质量检查后冻结,须在此之前改定);审核环节 approve_prep(通过即发布——冻结当前草稿为不可变课程版本并将课程转 open;发布后修订走次周期,平台自动开新教研 run 沿用原 assignee)/ request_changes_prep(退回修订);低于阈值的质量报告可经 override_prep_gate(workspace_id, course_id, reason) 记理由覆盖(落审计);已发布版本经 get_course_revision(workspace_id, course_id, revision_number?) 读取(缺省=最新);
   5. 报名管理:list_course_enrollments(workspace_id, course_id, status?) 读取报名行(学员/状态/档位);confirm_enrollment / reject_enrollment(workspace_id, enrollment_id, ...) 审批 request 策略课程的 pending 报名;waive_payment(workspace_id, enrollment_id) 免缴 payment_pending 报名——报名转 confirmed,关联 pending 订单同事务作废;
   6. 订单与退款:list_workspace_orders(workspace_id, course_id?) 读取本工作台订单行(course_id 可选=按课程过滤,缺省全工作台);refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;
   7. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请);
@@ -158,8 +171,8 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-08-29.4", content: @workspace_admin_content},
-    tutor: %{version: "2026-08-29.3", content: @tutor_content},
+    workspace_admin: %{version: "2026-08-29.5", content: @workspace_admin_content},
+    tutor: %{version: "2026-08-29.4", content: @tutor_content},
     learner: %{version: "2026-08-29.1", content: @learner_content}
   }
 

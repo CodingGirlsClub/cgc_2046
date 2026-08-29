@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   4. 课程 close 后 save_learning_records 业务错误、两读工具正常(AE2)
   5. run succeeded 后 save_learning_records 成功(AE3 缝级前置)
   6. get_learning_records 缺省 course_id 多课程;带 course_id 过滤
-  7. server 注册工具数 = 52 契约断言(S5 课程教研九工具后)
+  7. server 注册工具数 = 53 契约断言(S6 课程版本读工具后)
   """
   use Cgc2046.DataCase, async: true
 
@@ -217,12 +217,14 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
           |> Ash.update(tenant: workspace.id, actor: admin)
         end)
 
-      {:ok, run} =
-        Cgc2046.Curriculum.Instantiator.launch(
+      # S6 起 Instantiator event-only——course 型教研 run 布景改经
+      # WorkflowRun 统一入口直造（instance key 约定 "course_<id>"，镜像语义不变）
+      {:ok, run, _} =
+        Cgc2046.Workflows.WorkflowRun.find_or_create_and_start(
           workspace.id,
-          published.id,
+          published,
           %{"course_id" => course.id, "title" => course.title, "research_requirements" => %{}},
-          :course
+          key: "course_#{course.id}"
         )
 
       assert run.status in [:waiting, :running]
@@ -514,11 +516,11 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   end
 
   describe "场景 7:server 工具契约" do
-    test "注册工具数 = 52(平台工具面契约,S5 课程教研九工具后)" do
+    test "注册工具数 = 53(平台工具面契约,S6 课程版本读工具后)" do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 52
+      assert length(names) == 53
 
       for name <- [
             "get_workspace_context",

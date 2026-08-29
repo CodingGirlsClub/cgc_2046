@@ -306,7 +306,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     end
   end
 
-  # ── 规4:open 实体无 published 教研定义(U6:course 无条件,event-only 门控)──
+  # ── 规4:open 实体无 published 教研定义(Event=:curriculum 定义;Course=
+  # :course_preparation 定义,S6 起教研流程类型分家) ──
 
   defp scan_rule4 do
     curriculum_workspace_ids =
@@ -315,15 +316,31 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       |> Ash.read!(authorize?: false)
       |> MapSet.new(fn definition -> definition.workspace_id end)
 
-    # U6(#180/R14):Course 删 curriculum_enabled 后无条件命中(open 课程无
-    # published 定义 = 真孤儿);Event 保留开关过滤(curriculum_enabled=false
-    # 合法不命中,退出通道)。
-    open_entities(Event)
-    |> Kernel.++(open_unconditional(Course))
-    |> Enum.reject(fn entity ->
-      MapSet.member?(curriculum_workspace_ids, entity.workspace_id)
-    end)
-    |> Enum.map(fn entity ->
+    prep_workspace_ids =
+      WorkflowDefinition
+      |> Ash.Query.filter(type == :course_preparation and status == :published)
+      |> Ash.read!(authorize?: false)
+      |> MapSet.new(fn definition -> definition.workspace_id end)
+
+    # S6:course 侧教研流程 = course_preparation prep run(Curriculum.PrepInstantiator)
+    # ——open 课程的孤儿判定改为「工作台无 published course_preparation 定义」
+    # (无条件命中;prep run 缺失 = 教研流程不会实例化)。Event 保留 curriculum_
+    # enabled 开关过滤(false 合法不命中,退出通道),定义仍取 :curriculum 型。
+    # 「教研已完成」口径与 Instantiator 收窄对齐:course.launched 不再实例化
+    # :curriculum run,open 课程不因缺教研 run 命中(命中条件只有定义缺失)。
+    orphans =
+      open_entities(Event)
+      |> Enum.reject(fn entity ->
+        MapSet.member?(curriculum_workspace_ids, entity.workspace_id)
+      end)
+      |> Kernel.++(
+        open_unconditional(Course)
+        |> Enum.reject(fn entity ->
+          MapSet.member?(prep_workspace_ids, entity.workspace_id)
+        end)
+      )
+
+    Enum.map(orphans, fn entity ->
       entity_type = if is_struct(entity, Event), do: :event, else: :course
 
       %{
@@ -347,10 +364,13 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     |> Ash.read!(authorize?: false)
   end
 
-  # ── 规5：closed/cancelled Event/Course 仍有非终态 curriculum run --------------
+  # ── 规5：closed/cancelled Event 仍有非终态 curriculum run ---------------------
+  # S6 起 event-only：course 侧 :curriculum run 不再创建（教研由
+  # course_preparation prep run 承担，Instantiator 已收窄），存量 dev 行自然
+  # aging，不再纳入本规则扫描。
 
   defp scan_rule5 do
-    closed_keys = closed_entity_keys(Event) |> Map.merge(closed_entity_keys(Course))
+    closed_keys = closed_entity_keys(Event)
 
     if map_size(closed_keys) == 0 do
       []
