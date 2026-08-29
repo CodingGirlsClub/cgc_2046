@@ -110,6 +110,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
     query {
       courseLearningDetail(courseId: "#{course_id}") {
         courseId title slug staleRevision revisionNumber
+        reviewQueue { objectiveId dueAt milestoneDays needsReview }
         objectives { id title required mastery everMastered locked attemptCount
           missingPrereqIds { id title } }
         nextAction { kind objectiveId reason }
@@ -524,6 +525,134 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
       assert detail["progress"]["complete"] == false
       assert detail["nextAction"]["objectiveId"] == "obj-explain"
       assert detail["nextAction"]["kind"] == "next_required"
+    end
+
+    test "复习失败(S9,R45/AE10):reviewQueue 立即到期条目 + nextAction 优先复习" do
+      admin = Fixtures.platform_admin("u7-detail-review")
+      workspace = Fixtures.create_workspace(admin)
+
+      course =
+        EventFixtures.create_course(workspace, admin, %{title: "课程", slug: "python-review"})
+
+      learner = Fixtures.register_user("u7-detail-review-learner")
+      enrollment = enroll(course, learner)
+
+      {:ok, revision} =
+        Cgc2046.Curriculum.CourseRevision
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            course_id: course.id,
+            number: 1,
+            content: content_fixture(),
+            published_at: DateTime.utc_now()
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      course
+      |> Ash.Changeset.for_update(:bind_current_revision, %{current_revision_id: revision.id},
+        tenant: workspace.id
+      )
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      {:ok, defn} =
+        Cgc2046.Workflows.WorkflowDefinition
+        |> Ash.Changeset.for_create(
+          :create,
+          %{name: "学习", type: :learning, input_schema: %{}, node_def: %{"steps" => []}},
+          tenant: workspace.id,
+          actor: admin
+        )
+        |> Ash.create(tenant: workspace.id, actor: admin)
+
+      {:ok, published} =
+        defn
+        |> Ash.Changeset.for_update(:publish, %{}, actor: admin)
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      {:ok, run} =
+        Cgc2046.Workflows.WorkflowRun
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            definition_id: published.id,
+            definition_version: published.version,
+            input_snapshot: %{
+              "key" => Cgc2046.Learning.Runs.instance_key(enrollment.id, revision.id),
+              "enrollment_id" => enrollment.id,
+              "user_id" => learner.id,
+              "course_id" => course.id,
+              "course_revision_id" => revision.id
+            }
+          },
+          tenant: workspace.id,
+          actor: admin
+        )
+        |> Ash.create(tenant: workspace.id, actor: admin)
+
+      run
+      |> Ash.Changeset.for_update(:start, %{}, tenant: workspace.id, authorize?: false)
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      # 掌握 → 复习失败:needs_review(ever_mastered 粘性)
+      attempt_attrs = %{
+        learning_run_id: run.id,
+        course_revision_id: revision.id,
+        objective_id: "obj-run",
+        evidence: "跑通了",
+        rationale: "证据可复核"
+      }
+
+      {:ok, _} =
+        Cgc2046.Learning.Attempt
+        |> Ash.Changeset.for_create(
+          :create,
+          Map.merge(attempt_attrs, %{
+            rubric_results: [%{"criterion_id" => "r1", "met" => true}],
+            passed: true,
+            confidence: 0.9
+          }),
+          tenant: workspace.id,
+          authorize?: false
+        )
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      {:ok, _} =
+        Cgc2046.Learning.Attempt
+        |> Ash.Changeset.for_create(
+          :create,
+          Map.merge(attempt_attrs, %{
+            rubric_results: [%{"criterion_id" => "r1", "met" => false}],
+            passed: false,
+            confidence: 0.4
+          }),
+          tenant: workspace.id,
+          authorize?: false
+        )
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      response = graphql(detail_query(course.id), sign_in_token(learner))
+
+      assert %{"data" => %{"courseLearningDetail" => detail}} = response
+
+      # needs_review 恒立即到期:dueAt = 失败 attempt 时间,下一未满足里程碑 +1d
+      assert [entry] = detail["reviewQueue"]
+      assert entry["objectiveId"] == "obj-run"
+      assert entry["needsReview"] == true
+      assert entry["milestoneDays"] == 1
+      assert is_binary(entry["dueAt"])
+
+      # R40:复习到期优先于 next_required(obj-explain)
+      assert detail["nextAction"]["kind"] == "review"
+      assert detail["nextAction"]["objectiveId"] == "obj-run"
+      assert detail["nextAction"]["reason"] =~ "待复习"
+
+      # AE10:needs_review 不倒退 ever_mastered
+      obj_run = Enum.find(detail["objectives"], &(&1["id"] == "obj-run"))
+      assert obj_run["mastery"] == "needs_review"
+      assert obj_run["everMastered"] == true
     end
 
     test "本人无 attempts:全 unassessed;未报名非成员 → null" do

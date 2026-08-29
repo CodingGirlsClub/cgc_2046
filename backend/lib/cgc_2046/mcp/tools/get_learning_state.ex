@@ -13,8 +13,9 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
   - `objectives`:objective 粒度掌握投影(id/title/required/issue_id/
     prereq_ids/mastery/ever_mastered/locked/missing_prereq_ids/attempt_count/
     last_attempt_at);
-  - `review_queue`:S8 恒缺席(ReviewSchedule 属 S9,R45——届时由
-    `Learning.ReviewSchedule.due/3` 派生真实队列);
+  - `review_queue`:复习到期队列(S9,R45):`%{objective_id, due_at, milestone_days,
+    needs_review}` 按 due_at 升序;间隔重复 +1/+7/+30 天里程碑按序消费,
+    needs_review 条目恒立即到期且带 flag;从未掌握 → [];
   - `next_action`:R40 推荐(%{kind, objective_id, reason},reason 含目标
     标题——playbook 要求 agent 按 reason 向学员解释起点;复习到期优先
     (needs_review 条目 reason 明示「待复习」);课程完成 → null);
@@ -70,6 +71,15 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
       run: state.run,
       revision_number: state.revision_number,
       stale_revision: state.stale_revision,
+      review_queue:
+        Enum.map(state.review_queue, fn entry ->
+          %{
+            objective_id: entry.objective_id,
+            due_at: iso8601(entry.due_at),
+            milestone_days: entry.milestone_days,
+            needs_review: entry.needs_review
+          }
+        end),
       objectives:
         Enum.map(state.objectives, fn objective ->
           %{objective | last_attempt_at: iso8601(objective.last_attempt_at)}

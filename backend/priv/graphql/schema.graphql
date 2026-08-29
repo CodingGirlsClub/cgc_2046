@@ -6058,9 +6058,17 @@ type CourseLearningDetail {
   run: LearningRunSummary
   revisionNumber: Int
   staleRevision: Boolean!
+  reviewQueue: [LearningReviewQueueEntry!]!
   objectives: [LearningObjectiveState!]!
   nextAction: LearningNextAction
   progress: LearningProgress
+}
+
+type LearningReviewQueueEntry {
+  objectiveId: String!
+  dueAt: DateTime!
+  milestoneDays: Int
+  needsReview: Boolean!
 }
 
 type CourseMap {

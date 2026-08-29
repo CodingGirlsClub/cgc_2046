@@ -56,8 +56,9 @@ defmodule Cgc2046.Mcp.Playbooks do
      run(旧 run 与掌握记录保留,不迁移);
   2. 读状态:调用 get_learning_state(workspace_id, course_id) 拿课程地图——
      objectives(四态 mastery:unassessed/developing/mastered/needs_review、锁定与
-     缺失先修、尝试次数)、progress(mastered_required/total_required/complete)、
-     next_action(kind/objective_id/reason);
+     缺失先修、尝试次数)、review_queue(复习到期队列:objective_id/due_at/
+     milestone_days/needs_review,按到期时间升序)、progress(mastered_required/
+     total_required/complete)、next_action(kind/objective_id/reason);
   3. 解释起点:向学员复述 next_action 的 reason(为什么从这里开始);next_action
      为 null 且 complete=true 即已结业,如实告知并停止;
   4. 教学循环,对当前 objective:
@@ -81,6 +82,12 @@ defmodule Cgc2046.Mcp.Playbooks do
     run_completed/complete 由平台判定;
   - 先修锁不可绕过:locked objective 的评价被平台拒绝,先按 missing_prereq_ids
     补先修;
+  - 复习纪律(间隔重复):objective 首次掌握后进入复习队列(首次掌握起 +1/+7/+30
+    天三个里程碑,按序消费;对已掌握 objective 的正式评价即复习,无单独标记)。
+    next_action.kind=review 时优先安排复习——reason 会说明是到期复习还是待复习;
+    复习失败会把掌握标为 needs_review(待复习,复习队列立即到期并带
+    needs_review=true),但不撤销已完成的学习结果(课程完成判定只看
+    ever_mastered);待复习目标经再次正式评价合格后恢复 mastered;
   - stale_revision=true 时告知学员课程已发新版,询问是否 start_learning_run
     切换到新版(旧进度保留);
   - issue/objective 的 id 是稳定标识,引用时原样使用;
@@ -146,6 +153,19 @@ defmodule Cgc2046.Mcp.Playbooks do
   纪律:
   - 起草前先调用 get_course_content(workspace_id, course_id) 读取当前内容,在其基础上迭代,不覆盖他人已有成果;
   - agent 权限 = 用户权限:save_course_content 与教研流程写工具要求你在该工作台持有 tutor 或管理角色;被拒绝时如实告知用户,不绕过、不伪装重试。
+
+  数据回流(S10,R50):课程发布后,调用 get_course_learning_analytics(workspace_id,
+  course_id)拿教学聚合面——run 完成统计 + 当前 Revision 逐 objective 的掌握四态分布
+  (mastered/developing/needs_review/unassessed)、重试热点(total_attempts /
+  avg_attempts_to_first_mastery)、低置信度计数(low_confidence_attempts)与
+  流失位置(drop_off.stale_run_count + 各行 last_activity_at)。据此判断内容
+  问题:rubric 是否不可判定、先修链是否合理、哪些 objective 卡住了学员;如需
+  修订,按上方起草规则发起**新 Revision 草稿**(继续走 save_course_content +
+  submit_prep_for_check 教研流程)。
+
+  回流纪律:数据回流是只读面——**永不自动修改或发布当前 Revision**,修订一律经
+  新草稿 + 教研门禁;分析面只含聚合计数,不含任何学员聊天/证据正文,不要向
+  用户暗示你能看到学员的具体作答内容。
   """
 
   @workspace_admin_content """
@@ -210,8 +230,8 @@ defmodule Cgc2046.Mcp.Playbooks do
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-08-29.5", content: @workspace_admin_content},
-    tutor: %{version: "2026-08-29.4", content: @tutor_content},
-    learner: %{version: "2026-08-30.1", content: @learner_content}
+    tutor: %{version: "2026-08-30.1", content: @tutor_content},
+    learner: %{version: "2026-08-30.2", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner
