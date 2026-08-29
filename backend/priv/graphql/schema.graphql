@@ -757,7 +757,7 @@ type UpdateCourseResult {
 }
 
 input UpdateCourseInput {
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: String
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
@@ -804,7 +804,7 @@ type CreateCourseResult {
 }
 
 input CreateCourseInput {
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: String!
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
@@ -848,6 +848,7 @@ enum CourseSortField {
   ID
   WORKSPACE_ID
   TITLE
+  PROVISIONAL_TITLE
   SLUG
   DESCRIPTION
   CURRICULUM_REQUIREMENTS
@@ -1096,6 +1097,22 @@ input CourseFilterSlug {
   ilike: String
 }
 
+input CourseFilterProvisionalTitle {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
 input CourseFilterTitle {
   isNil: Boolean
   eq: String
@@ -1161,8 +1178,11 @@ input CourseFilterInput {
   "所属工作台（租户）ID"
   workspaceId: CourseFilterWorkspaceId
 
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: CourseFilterTitle
+
+  "当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21\/AE1）；设置真实标题即清除，发布前置门"
+  provisionalTitle: CourseFilterProvisionalTitle
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
   slug: CourseFilterSlug
@@ -1217,8 +1237,11 @@ type Course {
   "所属工作台（租户）ID"
   workspaceId: ID!
 
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: String!
+
+  "当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21\/AE1）；设置真实标题即清除，发布前置门"
+  provisionalTitle: Boolean!
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
   slug: String
