@@ -64,12 +64,13 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
     enrollment
   end
 
-  defp save_content(user, workspace, course, content \\ nil) do
+  defp save_content(user, workspace, course, content \\ nil, base_version \\ 0) do
     SaveCourseContent.execute(
       %{
         "workspace_id" => workspace.id,
         "course_id" => course.id,
-        "content" => content || content_fixture()
+        "content" => content || content_fixture(),
+        "base_version" => base_version
       },
       frame_for(user)
     )
@@ -233,18 +234,19 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
       )
       |> Ash.update!(tenant: workspace.id, authorize?: false)
 
-      # tutor 保存成功
+      # tutor 保存成功(首存 base_version=0 → version 1)
       assert {:reply, _, _} = reply = save_content(tutor, workspace, course)
       payload = decode(reply)
       assert payload["status"] == "saved"
       assert payload["key"] == "course_#{course.id}"
+      assert payload["version"] == 1
 
       # facts 镜像:非终态 run 的 facts["issues"] 浅合并
       mirrored = fetch_run(run.id, workspace.id)
       assert mirrored.facts["issues"]["goals"] == ["能写简单程序"]
 
-      # owner/admin 放行
-      assert {:reply, _, _} = save_content(admin, workspace, course)
+      # owner/admin 放行(第二次写入,base_version=1)
+      assert {:reply, _, _} = save_content(admin, workspace, course, nil, 1)
 
       # learner 成员拒(R6)
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =
@@ -373,7 +375,8 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
                  %{
                    "workspace_id" => workspace_a.id,
                    "course_id" => course_b.id,
-                   "content" => content_fixture()
+                   "content" => content_fixture(),
+                   "base_version" => 0
                  },
                  frame_for(tutor_a)
                )

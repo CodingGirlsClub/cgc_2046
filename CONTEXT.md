@@ -373,7 +373,7 @@
 ### Issue（学习议题，课程内容原子单元）
 
 - **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 与 checklist item id 发布后不改不删，内容编辑保 id（学习记录永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储）。状态 **Todo / In Progress / Done**（Linear 同款）由学习记录派生——投影非手柄，不提供手动切换。
-- **架构位置**：存储于 ResearchOutput(`kind=:issues`)；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。取代词汇：section / story 卡 / acceptance / learning_objectives（2026-08-16 课程 issue 学习闭环设计）。
+- **架构位置**：存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance / learning_objectives（2026-08-16 课程 issue 学习闭环设计）。
 
 ### checklist（检查单）
 
@@ -420,6 +420,7 @@
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
 - **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
 - **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）。教研段 AgentInstructions 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` tutor playbook 吸收）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
+- **草稿版本（S4，R9/R10，AE2）**：`Curriculum.Output` 持 `version` 列（bigint，默认 1，`writable?: false`）；`save_course_content` 以 `base_version` 为必填写契约（0 = 首次创建），CAS upsert（`upsert_condition(version == base_version)`）成功后 `atomic_update(:version, version + 1)`；`base_version > 0` 而无草稿直接 `version_conflict`，冲突响应附最新 `version` 供调用方重载重试。双等价入口：MCP 工具 + 扩展面板 `POST /courses/:course_id/content` 共用同一工具实现（面板 409 → 弃本地编辑重载，10s 轮询在编辑/保存态挂起）。冲突文案单源 `Curriculum.Output.version_conflict_message/1`（MCP StaleRecord 与无草稿分支共用）。
 
 ### 内容安全检查（Content Safety Check）
 
