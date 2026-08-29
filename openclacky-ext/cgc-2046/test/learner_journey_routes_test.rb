@@ -551,15 +551,13 @@ class PanelCsrfSelfHealTest < Minitest::Test
     refute_includes COURSE_VIEW, "refreshCsrf())) && (await refreshCsrf()"
   end
 
-  def test_csrf_retry_protocol_behavior
-    # 协议级行为验证(harness):stale token POST → 403 → 重取 /status(fresh)
-    # → 重试 → 200;宿主热重载轮换进程 token 后的恢复序列
-    out, status = Open3.capture2e("node", HARNESS, COURSE_VIEW_PATH, "csrf_retry_self_heal")
-    assert status.success?, "harness 失败: #{out}"
-    assert_includes out, "OK csrf_retry_self_heal"
-    assert_includes out, '"stale_rejected":true'
-    assert_includes out, '"refetch_then_retry":true'
-  end
+  # advisor R3:harness 的 csrf_retry_self_heal 场景已删除——该场景在
+  # spec.render 前 process.exit(0),fetch 序列由 harness 自身 stub 完成,
+  # view.js 的 apiPost 未参与(自导自演的假验证,不留)。自愈的验证面:
+  #   1) 上方两测试的代码路径静态锚(自愈在场 + 仅一次 + 无嵌套);
+  #   2) 路由层 CsrfGuardTest 的 token 匹配/403 语义;
+  #   3) 真实 DOM 级驱动需要面板暴露内部函数或完整编辑器流,污染生产代码
+  #      不值得——留真机 e2e(人类验收面)。
 end
 
 # ---- advisor F1:课程面板 boot 解耦的行为级断言(Node harness 执行 view.js) ----

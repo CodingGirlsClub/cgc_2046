@@ -86,9 +86,8 @@ curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/ap
 2. agent 执行固定命令（读文件 → stdin 管道 → POST，成功才删除该文件）：
 
 ```bash
-ruby -rjson -e 'print JSON.generate({token: File.read(ARGV[0]).strip})' ~/.clacky/cgc-token.txt | \
 CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
-  ruby -rjson -e 'print JSON.generate({token: File.read(ARGV[0]).strip})' ~/.clacky/cgc-token.txt | \
+ruby -rjson -e 'print JSON.generate({token: File.read(ARGV[0]).strip})' ~/.clacky/cgc-token.txt | \
   curl -sS --fail-with-body -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
   -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @- && \
   ruby -e 'File.delete(ARGV[0])' ~/.clacky/cgc-token.txt
