@@ -39,7 +39,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
      （R16/AE4 capacity 调小后的合法超员窗口看护，自然释放收敛后自消）
   12. `:ledger_cache_drift` — 账本三列缓存漂移于 offering 真值
      （status / capacity / registration_deadline 异步覆盖写的丢投窗口看护；
-     宽限与规10 同形一拍，见 @drift_grace_seconds）
+     无宽限——缓存≠真值即报,在途瞬时命中下一拍自消;规12 锚点缝隙修复,见 scan_rule12 注释）
 
   ## 刷新语义（D2）
 
@@ -91,9 +91,9 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   # 规6 死信窗口：与 Oban Pruner max_age（7 天，config.exs）对齐
   @dead_letter_window_days 7
 
-  # 规10/12 漂移宽限：R17「超 N 拍」与 cron 周期（10 分钟一拍）对齐取一拍——
+  # 规10 漂移宽限：R17「超 N 拍」与 cron 周期（10 分钟一拍）对齐取一拍——
   # 异步信号在途（capacity.synced / 缓存覆盖写）属正常窗口，账本最近变更
-  # 早于一个周期仍漂移才告警
+  # 早于一个周期仍漂移才告警。规12 不用本常量（无宽限，见 scan_rule12 注释）
   @drift_grace_seconds 600
 
   @non_terminal_statuses [:pending, :running, :waiting]
@@ -641,10 +641,11 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   # status / capacity / registration_deadline 经 launched / offering.capacity_changed
   # / *.ended 信号异步覆盖写（KTD4/KTD5），丢投不重试窗口内缓存滞留旧值；规8-11
   # 只看护 occupancy 与下游投影，本规则补「缓存≈真值」新不变量的上游看护。
-  # 宽限与规10 同形（l.updated_at 早于 NOW() - 一拍）。规10 的已知缺陷（纯缓存
-  # 更新刷新 l.updated_at 清零漂移计时）对本规则不构成误掩：任何缓存写都是回读
-  # 真值后的覆盖（sync_cache 永取最新值），写完即收敛缓存≈真值；真正滞留的漂移
-  # 行其 l.updated_at 停在最后一次收敛时刻，超一拍仍漂移 = 信号链断连。
+  # 无宽限（Fable 5 复审 MEDIUM 缝隙修复）：旧版锚 l.updated_at < NOW()-600s 会被
+  # reserve/release 的 SET updated_at=NOW()（不占缓存列、不收敛漂移）持续刷新——
+  # 报名活跃的 offering 宽限永不满足、永不告警，恰是超卖风险最高者。改为「缓存≠
+  # 真值即出 finding」：信号在途（秒级）命中的瞬时 finding 由刷新语义（逐规则
+  # upsert + 未命中删除）下一拍自消（规8 同款先例），误报窗口低、无害、自愈。
   defp scan_rule12 do
     {:ok, %{rows: rows}} =
       Repo.query(
@@ -659,7 +660,6 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
           AND (l.status <> e.status
                OR l.capacity IS DISTINCT FROM e.capacity
                OR l.registration_deadline IS DISTINCT FROM e.registration_deadline)
-          AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
         UNION ALL
         SELECT l.offering_kind, l.offering_id, l.workspace_id,
                l.status, c.status,
@@ -671,9 +671,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
           AND (l.status <> c.status
                OR l.capacity IS DISTINCT FROM c.capacity
                OR l.registration_deadline IS DISTINCT FROM c.registration_deadline)
-          AND l.updated_at < NOW() - ($1 * INTERVAL '1 second')
         """,
-        [@drift_grace_seconds]
+        []
       )
 
     Enum.map(rows, fn [
