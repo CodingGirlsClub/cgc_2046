@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workflows.LearningProgress do
+defmodule Cgc2046.Learning.Progress do
   @moduledoc """
   学习 workflow 进度投影的纯函数(切片 H U4, #180)。
 

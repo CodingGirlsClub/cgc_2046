@@ -28,7 +28,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   7. `:learning_run_stalled` — learning run 停滞（E-9 #122 补差）：
      `status=running ∧ definition.type=learning ∧ updated_at 严格早于 cutoff`
      （7 天无 facts 更新）。阈值与 LearningProgressWorker 停滞提醒（D6-③）同源
-     ——`LearningProgress.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
+     ——`Cgc2046.Learning.Progress.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
      分工：提醒归 LPW，对账可见归本规则（/admin 对账页 findings 列表）。
   8. `:open_offering_without_ledger` — open offering 无名额账本行
   9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
@@ -73,7 +73,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
-  alias Cgc2046.Workflows.LearningProgress
+  alias Cgc2046.Learning.Progress
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -466,7 +466,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   # updated_at 严格早于 cutoff（running 态下 facts 写入是唯一更新路径，
   # updated_at 即 facts 更新代理）；阈值单点定义在 LearningProgress，只引用。
   defp scan_rule7 do
-    cutoff = LearningProgress.stagnant_cutoff()
+    cutoff = Progress.stagnant_cutoff()
 
     WorkflowRun
     |> Ash.Query.filter(status == :running and definition.type == :learning)

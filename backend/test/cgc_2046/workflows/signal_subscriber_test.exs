@@ -213,7 +213,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       Cgc2046.Events.SpeakerSubscriber,
       Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
       Cgc2046.Admission.Workers.OfferingCancelRefundWorker,
-      Cgc2046.Workflows.LearningInstantiator,
+      Cgc2046.Learning.LearningInstantiator,
       Cgc2046.Workflows.ShareSchemeInstantiator
     ]
 
@@ -559,7 +559,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
         Cgc2046.Notifications.Subscriber,
         Cgc2046.Events.SpeakerSubscriber,
         Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
-        Cgc2046.Workflows.LearningInstantiator,
+        Cgc2046.Learning.LearningInstantiator,
         Cgc2046.Curriculum.Instantiator,
         Cgc2046.Curriculum.Reaper,
         Cgc2046.Workflows.ShareSchemeInstantiator,

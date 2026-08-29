@@ -1,4 +1,4 @@
-defmodule Cgc2046.Workflows.AgentInstructions do
+defmodule Cgc2046.Learning.AgentInstructions do
   @moduledoc """
   学习 Agent 指令模板(切片 H U5 种子, #180;R13,设计 §6)。
 

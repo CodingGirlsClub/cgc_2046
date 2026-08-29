@@ -2654,7 +2654,7 @@ defmodule Cgc2046Web.GraphqlSchema do
           end
 
         %{
-          key: Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx),
+          key: Cgc2046.Learning.Progress.issue_key(course.slug, idx),
           id: issue["id"],
           title: issue["title"],
           kind: issue["kind"],
@@ -2663,13 +2663,13 @@ defmodule Cgc2046Web.GraphqlSchema do
         }
       end)
 
-    progress = Cgc2046.Workflows.LearningProgress.project_issues(content, records)
+    progress = Cgc2046.Learning.Progress.project_issues(content, records)
 
     current_issue_key =
       with issue_id when is_binary(issue_id) <- progress.current_issue_id,
            idx when is_integer(idx) <-
              Enum.find_index(issues, &(&1["id"] == progress.current_issue_id)) do
-        Cgc2046.Workflows.LearningProgress.issue_key(course.slug, idx + 1)
+        Cgc2046.Learning.Progress.issue_key(course.slug, idx + 1)
       else
         _ -> nil
       end
@@ -2845,7 +2845,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         # manual_steps_compat/旧字段派生已删(KD8),issue key 展示层派生(KTD6)
         {content, records, course} = learning_projection_sources(run, enrollment)
 
-        Cgc2046.Workflows.LearningProgress.project(
+        Cgc2046.Learning.Progress.project(
           run.id,
           enrollment.id,
           target_title,
@@ -2913,9 +2913,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     issues = Cgc2046.Workflows.CourseContent.issues(content)
 
     with %{current_issue_id: issue_id} when is_binary(issue_id) <-
-           Cgc2046.Workflows.LearningProgress.project_issues(content, records),
+           Cgc2046.Learning.Progress.project_issues(content, records),
          idx when is_integer(idx) <- Enum.find_index(issues, &(&1["id"] == issue_id)) do
-      Cgc2046.Workflows.LearningProgress.issue_key(course && course.slug, idx + 1)
+      Cgc2046.Learning.Progress.issue_key(course && course.slug, idx + 1)
     else
       _ -> nil
     end
