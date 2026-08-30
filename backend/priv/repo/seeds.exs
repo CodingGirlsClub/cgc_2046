@@ -10,6 +10,9 @@
 # 3. 课程 issue 学习闭环种子(切片 H U5, #180)：教研/学习 workflow 定义(单 manual
 #    step 协议容器, published)；role-agent-journeys-v2 S5 加「课程教研 workflow」
 #    定义(course_preparation,课程创建即经 course.created 信号实例化 prep run)。
+#    #348 修复后产品单源 = Workspace :create after_action(新 workspace 自动
+#    seed 三份定义,见 accounts/workspace.ex seed_workflow_definitions/1);
+#    本节保留默认 workspace 的存量幂等补种(修复前建的 DB 靠 mix run 补)。
 #    角色 playbook 以 Mcp.Playbooks 版本化模块常量
 #    为载体(role-agent-journeys-v2 S1，经 get_role_playbook 分发)，
 #    此处仅打印确认落位。

@@ -142,7 +142,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
       WorkflowDefinition
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "学习 workflow", type: :learning, input_schema: %{}, node_def: node_def},
+        %{name: "学习 workflow（测试布景）", type: :learning, input_schema: %{}, node_def: node_def},
         tenant: workspace.id,
         actor: actor
       )

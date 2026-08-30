@@ -67,7 +67,7 @@
 
 ### Workspace（工作区，全局资源）
 
-- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。
+- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。`:create` after_action 同事务 seed 五角色（`Role.role_descriptions/0` 单源）+ **三份协议定义**（curriculum / learning / course_preparation，published——#348：新租户教研链与学习 run 即刻可用；形状单源对齐 seeds.exs §3，任一失败整体回滚不留半 seeded workspace）。
 - **架构位置**：全局资源；所有租户资源以 `workspace_id` 列过滤（Ash attribute 多租户策略）；WorkflowRun 等 workflow 实体归属其 partition。
 
 ### join_policy（加入策略）

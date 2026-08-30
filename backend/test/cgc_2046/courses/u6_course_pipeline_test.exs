@@ -88,6 +88,8 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
     test "open 课程无 published 定义 → 命中(真孤儿)" do
       admin = Fixtures.platform_admin("u6-r4")
       workspace = Fixtures.create_workspace(admin)
+      # #348 后新 workspace 恒 seed 定义——孤儿态布景直删
+      delete_seed_definitions(workspace)
       EventFixtures.create_course(workspace, admin, %{title: "孤儿课程"})
 
       assert :ok = perform_job(ReconciliationScanWorker, %{})
@@ -111,6 +113,8 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
     test "仅有 :curriculum 定义 → course 仍命中(S6 定义类型分家),Event 不受影响" do
       admin = Fixtures.platform_admin("u6-r4-split")
       workspace = Fixtures.create_workspace(admin)
+      # #348 后新 workspace 恒 seed 定义——只留 :curriculum(手工造),先清 seed
+      delete_seed_definitions(workspace)
 
       # :curriculum 定义只豁免 Event 侧;course 侧孤儿判定认 :course_preparation
       create_curriculum_definition(workspace, admin, :curriculum)
@@ -138,6 +142,8 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
     test "course 无 published 定义 → curriculum_definition 项 not ok(不看开关)" do
       admin = Fixtures.platform_admin("u6-ready")
       workspace = Fixtures.create_workspace(admin)
+      # #348 后新 workspace 恒 seed 定义——异常态布景直删
+      delete_seed_definitions(workspace)
       course = EventFixtures.create_course(workspace, admin, %{title: "课程"})
 
       result = Readiness.evaluate(course)
@@ -154,5 +160,12 @@ defmodule Cgc2046.Courses.U6CoursePipelineTest do
       curriculum_item2 = Enum.find(result2.items, &(&1.key == "curriculum_definition"))
       assert curriculum_item2.ok
     end
+  end
+
+  # #348 后新 workspace 恒 seed 三份定义——异常态(无定义)布景直删
+  defp delete_seed_definitions(workspace) do
+    Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+      Ecto.UUID.dump!(workspace.id)
+    ])
   end
 end
