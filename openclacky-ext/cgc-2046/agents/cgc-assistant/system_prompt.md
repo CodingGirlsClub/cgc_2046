@@ -20,6 +20,10 @@
 
 用户问「我有什么待办」「有什么要我处理的」时，调用 `list_my_tasks(workspace_id)` 查看该 Workspace 下的待办列表（含审批截止时间），如实转述；空列表直接说没有。
 
+## 课程伴学面板（会话侧栏「学这一节」）
+
+用户在右侧「学这一节」面板点击学习目标时，会有一条带课程与目标上下文的指令直接进入对话（含 `objective_id`、七步学习循环或到期复习的要求）。按指令执行：先 `get_learning_state` 确认课程地图与当前进度，按 learner playbook 教学该目标；正式评价时调用 `submit_learning_attempt`，`rubric_results` 精确覆盖该目标 rubric 全部 criterion id。面板只负责发起学习与展示进度，完成状态一律以工具结果为准——不因用户点了面板就声称已完成。
+
 ## 公共工具清单（7 个，跨角色）
 
 以下工具跨角色可用。除注明豁免外，工作台工具调用都必须带 `workspace_id`（取自 `list_my_workspaces`，禁止编造）——豁免两类：公开浏览两工具**无需 `workspace_id`**；确认流两工具只操作 pending 操作本身。非成员调用工作台工具会被拒绝（Forbidden）。

@@ -194,3 +194,68 @@ class CdpAutoConnectDocsTest < Minitest::Test
     assert_includes VIEW, "回退 skill 的人工引导流程"
   end
 end
+
+class CgcLearnPanelTest < Minitest::Test
+  VIEW = File.read(File.expand_path("../panels/cgc-learn/view.js", __dir__))
+  COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+
+  # 挂载合同:仅 CGC 助手会话(agents 过滤 + ctx 双保险);session.aside 是
+  # TABBED_SLOT,必须带 tab(宿主 ext.js TABBED_SLOTS 约束)
+  def test_session_aside_mount_contract
+    assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
+    assert_includes VIEW, "agents: [AGENT]"
+    assert_includes VIEW, 'ctx.agentProfile !== AGENT'
+    assert_includes VIEW, "tab: {"
+    assert_includes VIEW, "学这一节"
+  end
+
+  def test_ext_yml_attaches_to_assistant
+    assert_includes EXT_YML, "- id: cgc-2046-learn"
+    assert_includes EXT_YML, "panels/cgc-learn/view.js"
+    assert_includes EXT_YML, "attach: [cgc-assistant]"
+  end
+
+  # 注入管道(qingclaw sendLessonPrompt 同款):填输入框 + dispatch + 点发送;
+  # 输入框缺失时兜底剪贴板/prompt,不得静默失败
+  def test_inject_pipeline
+    assert_includes VIEW, 'document.getElementById("user-input")'
+    assert_includes VIEW, 'document.getElementById("btn-send")'
+    # 宿主 #user-input 是 contenteditable DIV:textContent 注入(真机实证,
+    # value 赋值 Composer.text 读不到);发送按钮禁用(订阅确认前)时待启用补发
+    assert_includes VIEW, "input.textContent = text"
+    refute_includes VIEW, "input.value = text"
+    assert_includes VIEW, 'new Event("input", { bubbles: true })'
+    assert_includes VIEW, "send.disabled"
+    assert_includes VIEW, "send.click()"
+    assert_includes VIEW, "navigator.clipboard.writeText"
+  end
+
+  # 指令文案与课程页 learningPrompt 同口径(两处共享的关键句,防漂移)
+  def test_prompt_copy_in_sync_with_course_panel
+    %w[objective_id submit_learning_attempt 七步学习循环 rubric 全部 criterion id 到期复习].each do |key|
+      assert_includes VIEW, key, "伴学面板指令缺关键句:#{key}"
+      assert_includes COURSE_VIEW, key, "课程页指令缺关键句:#{key}"
+    end
+  end
+
+  # 数据面:报名列表 + 学习状态;错误/空态收敛在面板内,不打扰会话
+  def test_data_channels_and_states
+    assert_includes VIEW, 'apiGet("/me/enrollments")'
+    assert_includes VIEW, 'apiGet("/learning_state?workspace_id="'
+    assert_includes VIEW, "data-testid=\"learn-error\""
+    assert_includes VIEW, "data-testid=\"learn-empty\""
+    assert_includes VIEW, "data-testid=\"learn-next\""
+  end
+
+  def test_dynamic_values_escaped
+    assert_includes VIEW, "function escapeHtml("
+    assert_includes VIEW, "escapeHtml(c.title)"
+    assert_includes VIEW, "escapeHtml(o.title || o.id)"
+    assert_includes VIEW, "escapeHtml(next.reason || next.objective_id)"
+  end
+
+  # 锁定目标不可点(无 data-inject),防越先修注入
+  def test_locked_objectives_not_injectable
+    assert_includes VIEW, '(locked ? "" : \' data-inject="'
+  end
+end
