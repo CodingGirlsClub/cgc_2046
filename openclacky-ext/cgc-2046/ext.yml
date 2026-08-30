@@ -35,6 +35,15 @@ contributes:
       description_zh: CGC-2046 课程学习(学习单元视图与会话唤起)
       view: panels/cgc-course/view.js
       order: 9
+    # S2 教研拆出:草稿编辑器 + prep 状态区独立面板(canEdit 角色入口;
+    # 学习中心不再承载教研)
+    - id: cgc-2046-curriculum
+      title: CGC Curriculum
+      title_zh: CGC 教研工作台
+      description: Curriculum workspace for tutors (draft editor + prep pipeline)
+      description_zh: 教研工作台(课程草稿编辑与教研流程;对齐后端 Curriculum 教研域)
+      view: panels/cgc-2046-curriculum/view.js
+      order: 12
     # U6:发现面板(公开活动/课程,数据走 loopback MCP 透传,公开工具无需 workspace_id)
     - id: cgc-2046-discovery
       title: CGC Discovery

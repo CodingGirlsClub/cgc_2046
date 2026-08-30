@@ -29,6 +29,7 @@
   const API = "/api/ext/cgc-2046";
   const HOME_ID = "cgc";
   const DISCOVERY_ID = "cgc-2046-discovery";
+  const TEACH_ID = "cgc-2046-curriculum";
   const COURSE_ID = "cgc-2046-course";
   const AGENT_PROFILE = "cgc-assistant";
   const EVENTS_MAX = 20;
@@ -244,7 +245,7 @@
     ];
     if (canEdit) {
       specs.push({ key: "tutor", ic: "edit", title: "教研工作台",
-        desc: "课程草稿编辑与教研流程", action: "workspace", target: COURSE_ID });
+        desc: "课程草稿编辑与教研流程", action: "workspace", target: TEACH_ID });
     }
     if (isPlatformAdmin) {
       specs.push({ key: "admin", ic: "shield", title: "平台管理",

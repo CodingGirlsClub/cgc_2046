@@ -205,8 +205,6 @@ class CourseRoutesTest < Minitest::Test
   end
 end
 
-# ---- 面板 view.js 结构静态断言(plan U9 场景 1/3 的可测面;DOM 级留手动冒烟) ----
-
 class CoursePanelViewTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
 
@@ -215,52 +213,70 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, '"cgc-2046-course"'
   end
 
-  def test_panel_renders_objective_map_and_next_action
-    # S8:objective 四态地图(S8 全量替换 issue 三态行/当前卡)
-    assert_includes VIEW, 'data-testid="panel-obj-row"'
-    assert_includes VIEW, 'data-testid="panel-obj-badge"'
-    assert_includes VIEW, 'masteryLabel'
-    assert_includes VIEW, "已掌握"
-    assert_includes VIEW, "学习中"
-    assert_includes VIEW, "待复习"
-    assert_includes VIEW, "未学"
-    assert_includes VIEW, 'data-testid="panel-obj-locked"'
-    assert_includes VIEW, 'data-testid="panel-next-action"'
+  def test_learning_center_layout
+    assert_includes VIEW, "cglc-page"
+    assert_includes VIEW, "cglc-side"
+    assert_includes VIEW, "cglc-tree"
+    assert_includes VIEW, 'data-testid="panel-course-select"'
+    assert_includes VIEW, 'data-testid="panel-outline-tree"'
+  end
+
+  def test_outline_tree_marks_mastery_and_locks
+    assert_includes VIEW, 'data-testid="panel-outline-node"'
+    assert_includes VIEW, "cglc-g-mastered"
+    assert_includes VIEW, "cglc-g-developing"
+    assert_includes VIEW, "cglc-g-todo"
+    assert_includes VIEW, "is-locked"
+    assert_includes VIEW, 'data-testid="panel-outline-review"'
+    assert_includes VIEW, "issueTitle"
+  end
+
+  def test_overview_state_resume_and_progress
     assert_includes VIEW, 'data-testid="panel-progress"'
+    assert_includes VIEW, 'data-testid="panel-resume"'
+    assert_includes VIEW, 'data-testid="panel-resume-btn"'
+    assert_includes VIEW, "继续学习"
     assert_includes VIEW, 'data-testid="panel-stale"'
-    # 旧 issue 三态/checklist 学习语义已删
-    refute_includes VIEW, 'data-testid="panel-issue-done"'
-    refute_includes VIEW, 'data-testid="panel-issue-card"'
-    refute_includes VIEW, 'data-testid="panel-check-item"'
   end
 
-  def test_not_connected_guidance_view
-    assert_includes VIEW, 'data-testid="panel-not-connected"'
-    assert_includes VIEW, "503"
+  def test_objective_detail_state
+    assert_includes VIEW, 'data-testid="panel-obj-badge"'
+    assert_includes VIEW, "学习活动"
+    assert_includes VIEW, "评价标准 (rubric)"
+    assert_includes VIEW, "co.materials"
+    assert_includes VIEW, "co.rubric"
+    assert_includes VIEW, 'data-testid="panel-obj-learn"'
+    assert_includes VIEW, "ctaDisabled"
   end
 
-  def test_not_connected_retry_entry
-    # smoke01 #2:引导视图显式重试入口(loadCourses 重探 loopback)
-    assert_includes VIEW, 'data-testid="panel-retry"'
-    assert_includes VIEW, "#cgc-retry"
-  end
-
-  def test_session_launch_cta_and_prompt
-    # S8 唤起(Rsk3 降级):复制 objective 口径任务指令
-    assert_includes VIEW, 'data-testid="panel-cta"'
-    assert_includes VIEW, "clipboard.writeText"
+  def test_learning_actions_via_session_injection
+    # 面板视图内无会话输入框——先创建并进入会话再注入(真机实证)
+    assert_includes VIEW, "goLearnObjective"
+    assert_includes VIEW, 'fetch("/api/sessions"'
+    assert_includes VIEW, "Clacky.Sessions.select(session.id)"
+    assert_includes VIEW, "injectIntoComposer"
+    assert_includes VIEW, "input.textContent = text"
     assert_includes VIEW, "七步学习循环"
+    assert_includes VIEW, "这是一次到期复习"
     assert_includes VIEW, "submit_learning_attempt"
-    assert_includes VIEW, "objective_id"
-    assert_includes VIEW, "content.course_title"
-    refute_includes VIEW, "八步循环"
-    refute_includes VIEW, "goals.join"
+    refute_includes VIEW, 'data-testid="panel-cta"'
+    refute_includes VIEW, 'data-testid="panel-next-action"'
+    refute_includes VIEW, 'apiPost("/learning/start"'
+  end
+
+  def test_teaching_editor_split_out
+    assert_includes VIEW, "教研工作台"
+    assert_includes VIEW, '"cgc-2046-curriculum"'
+    refute_includes VIEW, "panel-edit-toggle"
+    refute_includes VIEW, "collectEditor"
+    refute_includes VIEW, "get_prep_status"
   end
 
   def test_panel_uses_learning_state_source
-    # S8:详情主数据源 /learning_state + /revision 展示增强
     assert_includes VIEW, '"/learning_state?workspace_id="'
+    assert_includes VIEW, '"/content"'
     assert_includes VIEW, '"/revision"'
+    assert_includes VIEW, "Promise.all"
     refute_includes VIEW, '"/records"'
   end
 
@@ -269,54 +285,21 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "503"
   end
 
-  def test_panel_write_surface_is_draft_save_only
-    # S4 起面板唯一写操作 = 课程草稿保存(save_course_content,经 loopback
-    # POST /courses/:course_id/content);学习记录写回仍只发生在 session 工具调用
-    refute_includes VIEW, "save_learning_records"
-    # 面板不直连 MCP 写工具名之外的回写通道;唯一 POST 面 = 草稿保存路由
-    assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/content"'
-    refute_match(/method:\s*["'](?:PUT|DELETE|PATCH)["']/, VIEW)
+  def test_course_scope_follows_enrollment_workspace
+    # 跨台报名:课程作用域 = 报名所在 workspace(与 hub 选择器解耦;S7 语义找回)。
+    # 三源请求、轮询、注入指令全部按课程归属台;下拉按 workspace 分组展示
+    assert_includes VIEW, "function scopeOf(courseId)"
+    assert_includes VIEW, "course.workspaceId) || state.workspaceId"
+    assert_includes VIEW, "scopeOf(state.selectedCourseId)"
+    assert_includes VIEW, "workspace_id: \" + wsId + \""
+    assert_includes VIEW, "optgroup"
   end
 
-  def test_panel_prep_section_structure
-    # S5-extension:canEdit 详情页教研流程状态区(prep_state badge / 违规清单 /
-    # 最新质量报告);仅读透传 get_prep_status,无写操作
-    assert_includes VIEW, 'data-testid="panel-prep"'
-    assert_includes VIEW, 'data-testid="panel-prep-state"'
-    assert_includes VIEW, 'data-testid="panel-prep-violations"'
-    assert_includes VIEW, 'data-testid="panel-prep-quality"'
-    assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/prep"'
-    # 存量课程无 prep run 按 null 处理(不置 state.error)
-    assert_includes VIEW, "state.prep = null"
-    refute_includes VIEW, "approve_prep"
-  end
-
-  def test_review_queue_section_markers
-    # S9:复习队列区置顶于 objective 地图之上;队列空不渲染。
-    # 里程碑条目「第 N 天复习到期」;needs_review 条目「待复习恢复」徽章 +
-    # 红色调(cgc-review-urgent);行点击展开对应 objective 卡(data-review-obj)
-    assert_includes VIEW, "review_queue"
-    assert_includes VIEW, 'data-testid="panel-review-queue"'
-    assert_includes VIEW, 'data-testid="panel-review-row"'
-    assert_includes VIEW, 'data-testid="panel-review-due"'
-    assert_includes VIEW, "天复习到期"
-    assert_includes VIEW, 'data-testid="panel-review-needs"'
-    assert_includes VIEW, "待复习恢复"
-    assert_includes VIEW, "cgc-review-urgent"
-    assert_includes VIEW, "data-review-obj"
-  end
-
-  def test_review_flavored_prompt_for_due_objective
-    # S9:复习队列中的目标,复制指令切复习口吻(到期复习先诊断保留度再正式评价)
-    assert_includes VIEW, "这是一次到期复习"
-    assert_includes VIEW, "先诊断我的保留度"
-    assert_includes VIEW, "reviewEntry"
-  end
-
-  def test_polling_signature_includes_review_queue
-    # S9:轮询签名并入 review_queue 四字段——里程碑到期/恢复条目变化同样亮更新条
-    assert_includes VIEW, "review_queue"
-    assert_includes VIEW, "milestone_days"
-    assert_includes VIEW, "needs_review"
+  def test_polling_signature_and_lifecycle
+    assert_includes VIEW, "setInterval"
+    assert_includes VIEW, "clearInterval"
+    assert_includes VIEW, "POLL_MS = 10000"
+    assert_includes VIEW, "learningSignature"
+    assert_includes VIEW, "document.hidden"
   end
 end
