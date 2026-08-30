@@ -18,13 +18,15 @@ config:
 contributes:
   api: api/handler.rb
   panels:
-    - id: cgc-2046
-      title: CGC-2046
-      title_zh: CGC-2046
-      description: CGC-2046 平台连接状态
-      description_zh: CGC-2046 平台连接状态
-      view: panels/workspace/view.js
-      order: 8
+    # S1-S4 重构:单一入口 hub 面板(替代原 workspace 连接面板,挂侧栏顶部;
+    # 发现/课程保留为隐藏功能页,经目录卡 openWorkspace 直达)
+    - id: cgc
+      title: CGC 2046
+      title_zh: 程序媛汇 2046
+      description: CGC-2046 hub (connection, identity, role-aware catalog, assistant session)
+      description_zh: 程序媛汇 2046 工作台（连接、身份、角色目录、助手会话入口）
+      view: panels/cgc-home/view.js
+      order: 5
     # U9(plan 001/#180 R15):课程学习面板(纯视图,数据走 loopback MCP 透传)
     - id: cgc-2046-course
       title: CGC Course

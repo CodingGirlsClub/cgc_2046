@@ -634,7 +634,8 @@ end
 class PanelCsrfSelfHealTest < Minitest::Test
   DISCOVERY_VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
-  WORKSPACE_VIEW = File.read(File.expand_path("../panels/workspace/view.js", __dir__))
+  # S4:workspace 面板已删,disconnect 职责迁入 cgc-home hub 面板
+  HOME_VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
   HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
   COURSE_VIEW_PATH = File.expand_path("../panels/cgc-course/view.js", __dir__)
 
@@ -652,9 +653,9 @@ class PanelCsrfSelfHealTest < Minitest::Test
   end
   # workspace 面板 disconnect（DELETE）与 POST 写路由同规：带 token + 403 自愈一次
   def test_workspace_api_delete_retries_once_on_csrf_403
-    assert_includes WORKSPACE_VIEW, "async function refreshCsrf()"
-    assert_includes WORKSPACE_VIEW, 'res.status === 403 && (await refreshCsrf())'
-    refute_includes WORKSPACE_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+    assert_includes HOME_VIEW, "async function refreshCsrf()"
+    assert_includes HOME_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes HOME_VIEW, "refreshCsrf())) && (await refreshCsrf()"
   end
 
   # advisor R3:harness 的 csrf_retry_self_heal 场景已删除——该场景在
