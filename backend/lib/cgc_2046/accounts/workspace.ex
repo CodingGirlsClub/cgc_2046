@@ -205,7 +205,10 @@ defmodule Cgc2046.Accounts.Workspace do
             end
 
           result =
-            with {:ok, role_records} <- role_records do
+            with {:ok, role_records} <- role_records,
+                 # #348：同事务 seed 三份协议定义（教研/学习/课程教研）——新租户
+                 # 教研链与学习 run 即刻可用；任一失败回滚整个 workspace 创建。
+                 :ok <- seed_workflow_definitions(workspace) do
               # Owner 来源优先级：owner_user_id > owner_email > actor.id（D1）
               # owner_user_id：建 Owner membership 给该用户；owner_email：建 pending-owner
               # Invitation（preauthorized [:owner]）；都无：回退 actor（现有行为）。
@@ -510,6 +513,51 @@ defmodule Cgc2046.Accounts.Workspace do
   # 既有 membership 上补 Owner 角色（多角色并集，保留原角色）。该用户不可能已持
   # Owner 角色（:reassign_owner 的 owner_count 守卫前置拦截；:create 路径工作台新建
   # 无成员），unique_membership_role 仅作 fail-closed 兜底。
+  # #348：三份协议定义种子（形状单源对齐 priv/repo/seeds.exs §3；此处为产品
+  # 修复的常驻路径——seeds 只覆盖默认 workspace 的存量幂等补种）。reduce_while
+  # + 非 bang Ash 调用：任一失败返回 {:error, _} → after_action 在父 create
+  # 事务内整体回滚，不留半 seeded workspace。create → publish 两步（消费面
+  # PrepInstantiator / Runs / Curriculum.Instantiator 均按 status :published
+  # 读取）。全名调用（同上方 Role seed 先例），不引 alias 以免 Accounts ↔
+  # Workflows 编译期依赖成环。
+  defp seed_workflow_definitions(workspace) do
+    definitions = [
+      %{
+        name: "教研 workflow",
+        type: :curriculum,
+        node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
+      },
+      %{
+        name: "学习 workflow",
+        type: :learning,
+        node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}
+      },
+      %{
+        name: "课程教研 workflow",
+        type: :course_preparation,
+        node_def: %{"steps" => [%{"id" => "course_preparation", "type" => "manual"}]}
+      }
+    ]
+
+    Enum.reduce_while(definitions, :ok, fn attrs, :ok ->
+      with {:ok, defn} <-
+             Cgc2046.Workflows.WorkflowDefinition
+             |> Ash.Changeset.for_create(:create, Map.merge(attrs, %{input_schema: %{}}),
+               tenant: workspace.id,
+               authorize?: false
+             )
+             |> Ash.create(tenant: workspace.id, authorize?: false),
+           {:ok, _published} <-
+             defn
+             |> Ash.Changeset.for_update(:publish, %{}, tenant: workspace.id, authorize?: false)
+             |> Ash.update(tenant: workspace.id, authorize?: false) do
+        {:cont, :ok}
+      else
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
   defp create_owner_membership(workspace, tenant, user_id, role_records) do
     owner_role = Enum.find(role_records, &(&1.name == :owner))
 

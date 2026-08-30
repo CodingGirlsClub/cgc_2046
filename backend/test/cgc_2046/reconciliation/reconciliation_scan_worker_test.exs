@@ -338,6 +338,13 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
     test "open event/course 无教研定义 → 各命中一例" do
       admin = Fixtures.platform_admin("rc4-admin")
       workspace = Fixtures.create_workspace(admin)
+      # #348 后新 workspace 恒 seed published curriculum 定义——规4 的
+      # 异常态(无教研定义)需布景直删 seed 定义再构造(状态机无公开删除
+      # action,SQL 布景直写,同 force_open 惯例)
+      Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
       EventFixtures.create_event(workspace, admin, %{title: "RC4 Event"})
       EventFixtures.create_course(workspace, admin, %{title: "RC4 Course"})
 

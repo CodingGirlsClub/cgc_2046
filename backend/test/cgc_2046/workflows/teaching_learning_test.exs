@@ -35,7 +35,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   defp create_definition(workspace, actor, attrs) do
     defaults = %{
-      name: "教研 workflow",
+      name: "教研 workflow（测试布景）",
       type: :curriculum,
       input_schema: %{"text" => "string"},
       node_def: %{steps: ["outline_design", "content_review"]},
@@ -567,6 +567,12 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "无 published 教研定义时跳过实例化（不 raise、不建 run）" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
+
+      # #348 后新 workspace 恒 seed published 定义——异常态(无定义)布景直删
+      Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
       {:ok, event} = create_event(workspace, admin)
 
       {:ok, launched} =

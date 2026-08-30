@@ -164,6 +164,11 @@ defmodule Cgc2046.Payments.OrderEnrollmentLockTest do
           [Repo.uuid!(workspace.id)]
         )
 
+        # #348:workspace seed 落 workflow_definitions(FK)——先清子表再删 workspace
+        Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+          Repo.uuid!(workspace.id)
+        ])
+
         Repo.query!("DELETE FROM workspaces WHERE id = $1", [Repo.uuid!(workspace.id)])
 
         Enum.each(users, fn user ->

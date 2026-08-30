@@ -323,6 +323,12 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     test "无 published course_preparation 定义 → 跳过实例化（不 raise、不建 run）" do
       owner = Fixtures.platform_admin("s5-inst-nodef")
       workspace = Fixtures.create_workspace(owner)
+
+      # #348 后新 workspace 恒 seed published 定义——异常态(无定义)布景直删
+      Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
       course = draft_course(workspace, owner, %{title: "无定义"})
 
       deliver_created(course)

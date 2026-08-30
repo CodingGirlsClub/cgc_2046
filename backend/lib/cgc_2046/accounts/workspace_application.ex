@@ -227,9 +227,9 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       change(
         after_action(fn changeset, application, _context ->
           # 创建 workspace：authorize?: false + 无 actor → Workspace.create after_action
-          # 仅 seed 五角色差异标签、不建 Owner membership（actor nil 分支），Owner 由下方
-          # admit_member 指定给申请人——applicant 为唯一 Owner（验收标准）。
-          # slug 冲突 / 角色 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
+          # seed 五角色差异标签 + 三份协议定义（#348）,不建 Owner membership（actor nil
+          # 分支）,Owner 由下方 admit_member 指定给申请人——applicant 为唯一 Owner（验收标准）。
+          # slug 冲突 / 角色/定义 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
           # UPDATE 一并回滚，application 保持 pending，不留孤儿 workspace）。
           # #116：无 actor 调 create 同时保证治理留痕不双记——workspace_create 行只在
           # actor 非 nil 的直接创建路径落（workspace.ex on_missing_actor: :skip）。

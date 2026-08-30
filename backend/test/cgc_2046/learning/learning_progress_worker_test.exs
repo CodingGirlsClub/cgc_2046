@@ -55,7 +55,7 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "学习 workflow",
+          name: "学习 workflow（测试布景）",
           type: :learning,
           input_schema: %{},
           node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}

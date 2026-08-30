@@ -58,7 +58,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "学习 workflow",
+          name: "学习 workflow（测试布景）",
           type: :learning,
           input_schema: %{},
           node_def: learning_node_def()
@@ -274,6 +274,12 @@ defmodule Cgc2046.Learning.LearningFlowTest do
     test "无 published 学习定义 → warning skip 不种 run（供对账）" do
       admin = Fixtures.platform_admin("lf-nodef")
       workspace = Fixtures.create_workspace(admin)
+
+      # #348 后新 workspace 恒 seed published 定义——异常态(无定义)布景直删
+      Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
       event = EventFixtures.create_event(workspace, admin, %{})
       learner = Fixtures.register_user("lf-nodef-learner")
       {:ok, enrollment} = enroll(event, learner)
