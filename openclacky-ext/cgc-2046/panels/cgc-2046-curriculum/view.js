@@ -40,10 +40,27 @@
     });
   }
 
-  function computeCanEdit() {
-    const ws = state.workspaces.find(function (w) { return w.workspace_id === state.workspaceId; });
-    const roles = (ws && ws.roles) || [];
-    state.canEdit = ["tutor", "owner", "admin"].some(function (r) { return roles.indexOf(r) >= 0; });
+  // 教研权限按**课程归属工作台**判定(跨台角色:uat 台 learner + 2046 台 tutor
+  // 时,编辑 2046 的课是合法的);无权限视图仅在用户任何台都没有教研角色时出现
+  const EDIT_ROLES = ["tutor", "owner", "admin"];
+
+  function rolesOf(workspaceId) {
+    const ws = state.workspaces.find(function (w) { return w.workspace_id === workspaceId; });
+    return (ws && ws.roles) || [];
+  }
+
+  function canEditCourse(courseId) {
+    const course = state.courses.find(function (c) { return c.courseId === courseId; });
+    const wsId = (course && course.workspaceId) || state.workspaceId;
+    const roles = rolesOf(wsId);
+    return EDIT_ROLES.some(function (r) { return roles.indexOf(r) >= 0; });
+  }
+
+  function hasAnyEditRole() {
+    return state.workspaces.some(function (w) {
+      const roles = Array.isArray(w.roles) ? w.roles : [];
+      return EDIT_ROLES.some(function (r) { return roles.indexOf(r) >= 0; });
+    });
   }
 
   async function rawGet(path) {
@@ -53,9 +70,15 @@
     return body;
   }
 
+  // 作用域 = 所选课程归属工作台(跨台教研;boot 台仅作无课程上下文时兜底)
+  function scopeOf(courseId) {
+    const course = state.courses.find(function (c) { return c.courseId === (courseId || state.selectedCourseId); });
+    return (course && course.workspaceId) || state.workspaceId;
+  }
+
   async function apiGet(path) {
     const sep = path.indexOf("?") >= 0 ? "&" : "?";
-    return rawGet(path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId));
+    return rawGet(path + sep + "workspace_id=" + encodeURIComponent(scopeOf()));
   }
 
   function postHeaders() {
@@ -110,7 +133,6 @@
       const chosen = found || state.workspaces[0] || null;
       state.workspaceId = chosen ? String(chosen.workspace_id) : "";
       if (chosen) localStorage.setItem(STORE_KEY, state.workspaceId);
-      computeCanEdit();
     } catch (e) {
       state.workspaces = [];
       state.bootError = e;
@@ -132,9 +154,11 @@
         .filter(function (e) { return e.kind === "course" && e.status === "confirmed"; })
         .map(function (e) {
           const offering = e.offering || {};
+          const ws = e.workspace || {};
           return {
             courseId: String(offering.id || ""),
-            title: String(offering.title || "")
+            title: String(offering.title || ""),
+            workspaceId: String(ws.id || e.workspace_id || "")
           };
         })
         .filter(function (c) { return c.courseId !== ""; });
@@ -166,8 +190,15 @@
       state.content = contentRes.result || {};
       state.error = null;
     } catch (e) {
-      state.error = e;
-      state.content = null;
+      if (/no course content saved/.test(String(e.message || e))) {
+        // 新课从未保存过草稿(curriculum pending)——教研初始态,不是错误:
+        // 空 goals/issues + version 0(首存 base_version)
+        state.content = { goals: [], issues: [], version: 0 };
+        state.error = null;
+      } else {
+        state.error = e;
+        state.content = null;
+      }
     } finally {
       state.loading = false;
       render();
@@ -177,7 +208,7 @@
   // ---- 渲染 ----
   function render() {
     if (!currentContainer) return;
-    if (!state.canEdit && !state.loadingBoot) {
+    if (!state.loadingBoot && state.workspaces.length > 0 && !hasAnyEditRole()) {
       currentContainer.innerHTML =
         '<div class="cgt-page"><div class="cgt-main"><div class="cgc-card" data-testid="prep-no-permission">' +
         '<b>教研工作台仅对 tutor / owner / admin 开放。</b><br>' +
@@ -223,14 +254,19 @@
     }
     if (!state.content) { main.innerHTML = '<div class="cgc-card cgch-empty">暂无课程。</div>'; return; }
 
+    const isNewDraft = state.content.version === 0 && !(state.content.goals || []).length && !(state.content.issues || []).length;
     let html =
       '<div class="cgt-head">' +
         '<div class="cgt-title-row">' +
           '<h3 class="cgt-title">' + escapeHtml(state.content.course_title || (state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "") + '</h3>' +
-          (Number.isInteger(state.content.version)
-            ? '<span class="cgch-chip" data-testid="prep-draft-version">草稿 v' + escapeHtml(state.content.version) + '</span>' : "") +
+          (isNewDraft
+            ? '<span class="cgch-chip">新课程 · 未保存草稿</span>'
+            : (Number.isInteger(state.content.version)
+              ? '<span class="cgch-chip" data-testid="prep-draft-version">草稿 v' + escapeHtml(state.content.version) + '</span>' : "")) +
         '</div>' +
-        '<button id="cgt-edit-toggle" class="cgch-btn cgch-btn-ghost" type="button" data-testid="prep-edit-toggle">编辑内容</button>' +
+        (canEditCourse(state.selectedCourseId)
+          ? '<button id="cgt-edit-toggle" class="cgch-btn cgch-btn-ghost" type="button" data-testid="prep-edit-toggle">编辑内容</button>'
+          : '<span class="cgch-empty">当前课程归属工作台无教研角色,只读</span>') +
       '</div>';
 
     if (state.conflict) {
@@ -242,6 +278,10 @@
 
     html += prepSection();
 
+    if (isNewDraft) {
+      html += '<div class="cgc-card"><b>这门课还没有任何内容。</b><br>' +
+        '<span class="cgch-empty">点右上「编辑内容」开始编写课程目标与学习单元——首次保存会创建草稿(v0)。</span></div>';
+    }
     const goals = Array.isArray(state.content.goals) ? state.content.goals : [];
     const issues = Array.isArray(state.content.issues) ? state.content.issues : [];
     html += '<div class="cgc-card"><div class="cgt-section-title">课程目标 (' + goals.length + ')</div>' +
@@ -462,13 +502,20 @@
 
   async function enterEdit() {
     if (!state.selectedCourseId || state.loading) return;
+    if (!canEditCourse(state.selectedCourseId)) return;
     const courseId = state.selectedCourseId;
     state.loading = true;
     state.saveError = null;
     render();
     try {
-      const res = await apiGet("/courses/" + encodeURIComponent(courseId) + "/content");
-      const content = res.result || {};
+      let content;
+      try {
+        const res = await apiGet("/courses/" + encodeURIComponent(courseId) + "/content");
+        content = res.result || {};
+      } catch (inner) {
+        if (!/no course content saved/.test(String(inner.message || inner))) throw inner;
+        content = { goals: [], issues: [], version: 0 };  // 新课空草稿
+      }
       state.draftContent = content;
       state.draft = {
         goals: Array.isArray(content.goals) ? content.goals.slice() : [],
