@@ -130,15 +130,16 @@ jobs:
             PAYMENTS_WEBHOOK_BASE_URL ALIPAY_APP_ID ALIPAY_PRIVATE_KEY ALIPAY_PUBLIC_KEY \
             ALIPAY_SANDBOX WECHAT_WEB_APPID WECHAT_WEB_SECRET \
             WECHAT_MP_APPID WECHAT_MP_SECRET WECHAT_MP_TEMPLATE_APPROVAL_RESULT \
-            WECHAT_MP_TEMPLATE_APPROVAL_REMINDER WECHAT_MP_TEMPLATE_EVENT_REMINDER; do
-          # （原 31 项 + 3 模板 = 34 项）
+            WECHAT_MP_TEMPLATE_APPROVAL_REMINDER WECHAT_MP_TEMPLATE_EVENT_REMINDER \
+            WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED; do
+          # （原 31 项 + 5 模板 = 36 项）
           [ -n "${!v}" ] || { missing="$missing $v"; continue; }
           printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
           # missing 累积后必须真断言（此前无条件 echo 成功，注释承诺的
           # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
-          echo "secrets 非空校验通过（34 项）"
+          echo "secrets 非空校验通过（36 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -173,6 +174,8 @@ jobs:
           WECHAT_MP_TEMPLATE_APPROVAL_RESULT: ${{ secrets.WECHAT_MP_TEMPLATE_APPROVAL_RESULT }}
           WECHAT_MP_TEMPLATE_APPROVAL_REMINDER: ${{ secrets.WECHAT_MP_TEMPLATE_APPROVAL_REMINDER }}
           WECHAT_MP_TEMPLATE_EVENT_REMINDER: ${{ secrets.WECHAT_MP_TEMPLATE_EVENT_REMINDER }}
+          WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED: ${{ secrets.WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED }}
+          WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED: ${{ secrets.WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
       - name: Deploy backend
         working-directory: backend
