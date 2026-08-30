@@ -19,6 +19,7 @@ require_relative "course_routes"
 require_relative "offering_routes"
 require_relative "workbench_routes"
 require_relative "learner_routes"
+require_relative "../hooks/credential"
 
 class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
@@ -383,7 +384,54 @@ class Cgc2046Ext < Clacky::ApiExtension
     json(outcome[:body], status: outcome[:status])
   end
 
+
+  # GET /api/ext/cgc-2046/activity
+  # 最近 CGC 助手调用记录(历史回放):扫描宿主全部会话消息中
+  # invoke_skill(skill_name=mcp:cgc-2046)的工具调用,匹配 role=tool 结果消息
+  # 判定成败(subagent summary 含 "Subagent executed successfully" 为成功——
+  # 与 hooks/after_tool_use 的实时事件互补:实时事件不落盘,本端点补历史)。
+  # task 摘要截断 120 字符 + 凭证脱敏,时间倒序,最近 20 条。
+  get "/activity" do
+    guard_origin!
+    items = []
+    session_manager&.all_sessions&.each do |session|
+      messages = session[:messages] || session["messages"] || []
+      by_call_id = messages.each_with_object({}) do |m, acc|
+        next unless (m[:role] || m["role"]).to_s == "tool"
+        call_id = m[:tool_call_id] || m["tool_call_id"]
+        acc[call_id] = (m[:content] || m["content"]).to_s
+      end
+      messages.each do |m|
+        next unless (m[:role] || m["role"]).to_s == "assistant"
+        Array(m[:tool_calls] || m["tool_calls"]).each do |tc|
+          next unless tc.is_a?(Hash)
+          fn = tc[:function] || tc["function"]
+          next unless fn.is_a?(Hash)
+          next unless (fn[:name] || fn["name"]).to_s == "invoke_skill"
+          raw_args = fn[:arguments] || fn["arguments"]
+          args = raw_args.is_a?(String) ? (JSON.parse(raw_args) rescue {}) : (raw_args || {})
+          next unless args["skill_name"].to_s == "mcp:cgc-2046"
+          call_id = tc[:id] || tc["id"]
+          result_text = by_call_id[call_id].to_s
+          ok = result_text.empty? || result_text.include?("Subagent executed successfully")
+          items << {
+            at: (m[:created_at] || m["created_at"]),
+            status: ok ? "ok" : "error",
+            task: redact_text(args["task"].to_s.gsub(/\s+/, " ")[0, 120])
+          }
+        end
+      end
+    end
+    items.sort_by! { |i| -(i[:at].to_f) }
+    json(ok: true, activity: items.first(20))
+  end
+
   private
+
+  # 凭证脱敏(与 hooks/credential 同一套正则;摘要进响应体前抹 Bearer/cgc_/裸 JWT)
+  def redact_text(text)
+    text.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
+  end
 
   # ---- advisor F2:loopback 请求来源收口(CSRF/跨站借用防线) ----
   # 宿主 http server 对 loopback peer 免 access key + CORS 全开(Allow-Origin: *
