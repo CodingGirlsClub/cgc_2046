@@ -127,6 +127,18 @@ defmodule Cgc2046.Admission.EnrollmentConcurrencyTest do
           Ecto.UUID.dump!(workspace_id)
         ])
 
+        # 占位账本无 workspace 列且 FK 不级联——按本测试 event 显式清理,
+        # 否则 unboxed 残留 occupancy=1 孤儿行污染规9 全表扫描(#348 排查发现)
+        Cgc2046.Repo.query!(
+          "DELETE FROM admission_capacity_ledgers WHERE offering_kind = 'event' AND offering_id NOT IN (SELECT id FROM events)"
+        )
+
+        # #348:workspace seed 落 workflow_definitions(FK 引用 workspaces)——
+        # 先清子表再删 workspace,否则 FK violation 中断 cleanup 残留数据
+        Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
         # #242：workspace create 的 LogAdminAction 落 admin_action_logs（无 FK 不级联），
         # unboxed 真实提交会累积；cleanup 必须显式清理，否则污染共享 DB 全局表。
         Cgc2046.Repo.query!(

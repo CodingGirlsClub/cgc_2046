@@ -375,7 +375,9 @@ defmodule Cgc2046.Learning.Runs do
     end
   end
 
-  defp fetch_learning_definition(workspace_id) do
+  # 公开供测试直接驱动（同 PrepInstantiator.fetch_prep_definition 先例）
+  @doc false
+  def fetch_learning_definition(workspace_id) do
     WorkflowDefinition
     |> Ash.Query.filter(type == :learning and status == :published)
     |> Ash.Query.sort(version: :desc, inserted_at: :desc)
