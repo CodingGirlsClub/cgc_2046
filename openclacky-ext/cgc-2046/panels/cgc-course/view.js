@@ -431,9 +431,15 @@
   function shell(inner) {
     currentContainer.innerHTML =
       '<div class="cgc-panel cgc-course-panel">' +
-        '<h3 class="cgc-panel-title">CGC 课程学习</h3>' +
+        '<div class="cgc-panel-head">' +
+          '<h3 class="cgc-panel-title">CGC 课程学习</h3>' +
+          '<button id="cgc-back-home" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">← 返回工作台</button>' +
+        '</div>' +
         inner +
       '</div>';
+    // S4:隐藏功能页(无侧栏入口),返回「程序媛汇 2046」hub 目录再进
+    const back = currentContainer.querySelector("#cgc-back-home");
+    if (back) back.addEventListener("click", function () { Clacky.ext.ui.openWorkspace("cgc"); });
   }
 
   // 课程列表头部的 Workspace 选择器:按名称切换(S1 finding:用户永不手填 UUID)
@@ -1073,6 +1079,7 @@
     css.id = "cgc-course-styles";
     css.textContent =
       ".cgc-course-panel .cgc-input{width:70%;margin-right:8px;padding:6px 10px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;font-size:13px}" +
+      ".cgc-panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}" +
       ".cgc-course-list{margin-top:10px}" +
       ".cgc-course-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer}" +
       ".cgc-course-row:hover{background:rgba(127,127,127,.12)}" +

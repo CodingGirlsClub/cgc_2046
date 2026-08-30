@@ -298,11 +298,12 @@ end
 # ---- 面板 view.js 结构静态断言(S1-extension 的可测面;DOM 级留手动冒烟) ----
 
 class WorkspacePanelViewTest < Minitest::Test
-  VIEW = File.read(File.expand_path("../panels/workspace/view.js", __dir__))
+  # S4:身份/任务区自 workspace 面板迁入 cgc-home hub,id 与行为同构迁移
+  VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
 
   def test_workbench_sections_present
     # 身份栏 / Workspace 选择器 / 我的任务三区挂载点
-    assert_includes VIEW, 'id="cgc-workbench"'
+    assert_includes VIEW, 'id="cgc-identity-wrap"'
     assert_includes VIEW, 'id="cgc-identity"'
     assert_includes VIEW, 'id="cgc-ws-select"'
     assert_includes VIEW, 'id="cgc-tasks"'
