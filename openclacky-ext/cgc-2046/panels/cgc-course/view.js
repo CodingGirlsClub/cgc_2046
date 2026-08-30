@@ -1,32 +1,24 @@
-// CGC-2046 课程学习面板(U9,plan 001 / #180 R15;role-agent-journeys-v2 S4-extension
-// 加教研侧草稿编辑与自动刷新;S5-extension 加教研流程状态区)。
+// CGC-2046 课程学习中心(U9 重构:S1 学习中心版)。
 //
-// 结构:Workspace 选择器(按名选择,用户永不手填 UUID,S1 finding 收敛)→
-// 我的课程 → issue 列表(三态)→ 当前 issue 卡(goal/given/materials/checklist
-// 打勾态)→「和导师学这一节」唤起学习会话(Rsk3 降级:复制任务指令文本,粘贴
-// 到会话;记录写回发生在 session 工具调用)。
+// 定位收敛:本面板 = **导航与规划**(选课程 → 看大纲/进度 → 发起学习);
+// 学习的执行在 CGC 助手会话(侧栏「学这一节」面板承接);教研编辑拆出至
+// cgc-2046-curriculum 面板(canEdit 门控,本面板左栏底部提供入口)。
 //
-// S4 教研侧编辑(R9/R10,AE2):当前 Workspace 角色含 tutor|owner|admin 时
-// (canEdit)详情页出现「编辑内容」入口——goals/issues 表单化编辑,保存走
-// POST /courses/:id/content(透传 save_course_content,携带 base_version);
-// 409 version_conflict → 丢弃本地编辑 + 红色横幅 + 重载最新草稿。
-// 编辑仅做 UX 门控,网站 RBAC 为唯一权威(工具层 tutor ∪ owner/admin 判定)。
+// 布局(业界课程学习页标准形态:侧边栏大纲树 + 主区内容,极客时间/Coursera
+// course-home 同构):
+//   左栏  课程切换 + 大纲树(issue 分组 → objective 节点,掌握三态标注:
+//         ✓ 掌握 / ● 学习中 / ○ 未学 / 🔒 先修锁;复习到期节点加角标)
+//         + [教研工作台] 入口(canEdit)
+//   右主区 两态:
+//         overview  总进度条 + Resume 卡(next_action,最显眼动作 = 继续上次)
+//                   + 待复习队列 + stale 横幅
+//         objective 单目标详情(掌握态/尝试/先修/材料/rubric) + [去会话学 ▶]
 //
-// S5 教研流程状态区(R22-R28):canEdit 详情页拉取 GET /courses/:id/prep
-// (透传 get_prep_status)——prep_state badge / 生效策略(阈值与是否需人工审核)/
-// 结构门禁违规清单 / 最新质量报告。存量课程无 prep run(上游「no preparation
-// run found」)或拉取失败时本区不渲染,不置面板错误态。
+// 学习动作统一出口:[去会话学 ▶] / [继续学习] → 创建/复用助手会话并注入指令
+// (contenteditable 管道,token 不出现;objective 粒度,复习条目自动切复习口吻)。
+// 本面板不再有任何直接写学习状态的通道(学习记录写回只发生在会话工具调用)。
 //
-// R11 自动刷新:面板可见时 10s 轮询(详情 = 草稿 version + 记录签名,列表 =
-// 记录签名),变化只亮非侵入更新条,不打断浏览;编辑/保存态轮询挂起(陈旧基准
-// 由保存时 409 兜底);手动刷新按钮常驻。
-//
-// 数据通道:面板 fetch 扩展 loopback 路由(/api/ext/cgc-2046/*)→
-// 扩展 core 作为 MCP 客户端透传学习面工具(S8:get_learning_state /
-// start_learning_run / get_course_revision;内容编辑面 get_course_content /
-// save_course_content / get_prep_status;dsh-cgc-core 已验证模式)。
-//
-// 未连接态(loopback 503 或 status 未配置)→ 引导视图(去连接面板)。
+// 安全红线:只渲染 loopback 透传数据,服务端字符串一律 escapeHtml。
 
 (() => {
   "use strict";
@@ -34,8 +26,9 @@
 
   const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-course";
+  const TEACH_ID = "cgc-2046-curriculum";
   const STORE_KEY = "cgc2046.coursePanel.workspaceId";
-  let csrfToken = "";                 // advisor F2:写路由 CSRF token(lazy 经 /status 取)
+  let csrfToken = "";                 // 预留(本面板现无写端点,保持与其它面板一致)
   const POLL_MS = 10000;
   let currentContainer = null;
   let pollTimer = null;
@@ -45,27 +38,20 @@
     bootStarted: false,
     loadingBoot: false,
     bootError: null,
-    workspaces: [],    // [{ workspace_id, name, slug, roles }](list_my_workspaces)
+    workspaces: [],
     workspaceId: "",
-    canEdit: false,    // 当前 Workspace 角色含 tutor|owner|admin(S4 编辑入口)
-    prep: null,        // S5 教研流程状态(get_prep_status;仅 canEdit 详情拉取,无 prep run → null)
-    courses: [],       // [{ courseId, title, workspaceId, workspaceName }]（S7:/me/enrollments 源）
-    inFlight: [],      // 报名进行中(pending/payment_pending 课程报名)
-    coursesSig: "",    // 列表签名(轮询变更检测)
-    selected: null,    // { courseId, content, records }
-    detailSig: "",     // 详情签名(version + 记录;轮询变更检测)
-    currentIssue: null,
-    editing: false,    // S4 草稿编辑态(编辑中轮询挂起)
-    draft: null,       // 编辑工作副本 { goals: [], issues: [] }
-    draftContent: null,// 编辑基准草稿原文(get_course_content 全量,含 version 与未知键)
-    saving: false,
-    saveError: null,
-    conflict: null,    // 409 冲突横幅文案(AE2)
-    updateNotice: false, // 详情轮询发现变化(非侵入条)
-    listNotice: false, // 列表轮询发现变化(非侵入条)
+    canEdit: false,
+    courses: [],        // confirmed 课程报名 → { courseId, title, workspaceId, workspaceName }
+    selectedCourseId: "",  // 学习中心选中的课程
+    learning: null,     // /learning_state result
+    content: null,      // /content result(材料/rubric 详情用)
+    revision: null,     // /revision result(issue 标题分组用)
+    view: "overview",   // overview | objective
+    currentObjectiveId: "",
+    progresses: {},     // courseId → 概览摘要(未选中课程的卡片信息)
     loading: false,
     error: null,
-    copied: false
+    signed: false       // learningSignature(轮询变更检测)
   };
 
   function escapeHtml(s) {
@@ -74,26 +60,56 @@
     });
   }
 
-  // 记录 → (issue_id, item_id) done 集
-  // ---- 角色 / 版本 / 签名 ----
   const EDIT_ROLES = ["tutor", "owner", "admin"];
 
-  // 网站 RBAC 为唯一权威,面板只做 UX 门控
   function computeCanEdit() {
     const ws = state.workspaces.find(function (w) { return w.workspace_id === state.workspaceId; });
     const roles = (ws && ws.roles) || [];
     state.canEdit = roles.some(function (r) { return EDIT_ROLES.indexOf(r) >= 0; });
   }
 
-  // 草稿版本:进入编辑时拉取的 get_course_content 结果顶层 version;缺失按 0(首存)
-  function draftVersion() {
-    const v = state.draftContent && state.draftContent.version;
-    return Number.isInteger(v) ? v : 0;
+  // ---- 数据加载 ----
+  async function rawGet(path) {
+    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
+    const body = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw Object.assign(new Error(body.error || ("HTTP " + res.status)), { body, status: res.status });
+    return body;
   }
 
-  // S8 学习状态签名(objective mastery/attempt_count + progress + next_action;
-  // 不含 version/时间戳——详情轮询变更检测用);S9 起并入 review_queue 四字段
-  // (里程碑到期/恢复条目变化同样亮更新条)
+  async function apiGet(path) {
+    const sep = path.indexOf("?") >= 0 ? "&" : "?";
+    return rawGet(path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId));
+  }
+
+  // ---- 轮询(R11 收敛:只探 learning_state 签名;编辑无此面板不再挂起) ----
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(pollTick, POLL_MS);
+  }
+
+  let pollInFlight = false;
+
+  async function pollTick() {
+    if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
+    if (document.hidden || pollInFlight) return;
+    if (state.loading || state.loadingBoot || !state.selectedCourseId) return;
+    if (state.error) return;
+    pollInFlight = true;
+    try {
+      const res = await apiGet("/learning_state?workspace_id=" + encodeURIComponent(scopeOf(state.selectedCourseId)) +
+        "&course_id=" + encodeURIComponent(state.selectedCourseId));
+      const sig = learningSignature(res.result || {});
+      if (sig !== state.signed) {
+        state.signed = sig;
+        await loadCourseData(state.selectedCourseId, true);
+      }
+    } catch (e) { /* 轮询失败静默 */ } finally { pollInFlight = false; }
+  }
+
   function learningSignature(learning) {
     const mastery = {};
     ((learning && learning.objectives) || []).forEach(function (o) {
@@ -106,132 +122,11 @@
         String(e.milestone_days) + ":" + String(e.needs_review);
     });
     return [JSON.stringify(mastery),
-            String(progress.mastered_required) + "/" + String(progress.total_required) + ":" + String(progress.complete),
-            String(next.objective_id || ""), review.join("|")].join(";");
+      String(progress.mastered_required) + "/" + String(progress.total_required) + ":" + String(progress.complete),
+      String(next.objective_id || ""), review.join("|")].join(";");
   }
 
-  // 报名列表签名(enrollment id + status),S7 列表轮询变更检测用
-  function enrollmentsSignature(enrollments) {
-    return (enrollments || []).map(function (e) {
-      return String(e.id) + ":" + String(e.status);
-    }).sort().join(",");
-  }
-
-  // 学习记录签名(issue/item/done 三元组),轮询变更检测用
-  function recordsSignature(records) {
-    return (records || []).map(function (r) {
-      return String(r.course_id) + "/" + String(r.issue_id) + "/" + String(r.item_id) + ":" + (r.done ? "1" : "0");
-    }).sort().join("|");
-  }
-
-  // 详情签名:草稿 version(编辑域外的他人写入检测)+ 记录签名
-  function detailSignature(content, records) {
-    const v = content && Number.isInteger(content.version) ? content.version : 0;
-    return "v" + v + ";" + recordsSignature(records);
-  }
-
-  // ---- 数据加载 ----
-  // 不带 workspace_id 的裸 GET(仅 /me/workspaces 身份路由用)
-  async function rawGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || "HTTP " + res.status), { body, status: res.status });
-    return body;
-  }
-
-  // advisor F2:写路由 CSRF token(lazy 经 /status 同源取一次,失败静默——
-  // 写请求会因缺 token 403,用户重试时 /status 已恢复)
-  async function ensureCsrf() {
-    if (csrfToken) return;
-    try {
-      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
-      const body = await res.json().catch(function () { return {}; });
-      if (res.ok && body.csrf_token) csrfToken = String(body.csrf_token);
-    } catch (e) { /* 静默:写请求会因缺 token 403,用户可重试 */ }
-  }
-
-  async function apiGet(path) {
-    const sep = path.indexOf("?") >= 0 ? "&" : "?";
-    const res = await fetch(API + path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId), {
-      headers: { Accept: "application/json" }
-    });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || "HTTP " + res.status), { body, status: res.status });
-    return body;
-  }
-
-  // POST JSON(S4 草稿保存);错误体挂 status/body(409 走冲突 UX)
-  function postHeaders() {
-    const headers = { "Content-Type": "application/json", Accept: "application/json" };
-    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-    return headers;
-  }
-
-  // advisor R2:403-on-CSRF 自愈——重取 token(宿主热重载轮换进程级 token)
-  async function refreshCsrf() {
-    csrfToken = "";
-    await ensureCsrf();
-    return !!csrfToken;
-  }
-
-  async function apiPost(path, payload) {
-    await ensureCsrf();
-    let res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
-    if (res.status === 403 && (await refreshCsrf())) {
-      res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
-    }
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
-    return body;
-  }
-
-  // ---- 10s 轮询(R11) ----
-  // 只探测不打断:发现变化只亮非侵入条,视图由用户点击刷新;编辑/保存/加载态
-  // 挂起;容器脱离 DOM(面板关闭)自停;失败静默下轮重试。
-  function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  function startPolling() {
-    stopPolling();
-    pollTimer = setInterval(pollTick, POLL_MS);
-  }
-
-  // R1 P2-1:页面隐藏跳本轮(R11「面板可见时」口径);in-flight 闸防单轮 >10s 叠请求。
-  let pollInFlight = false;
-
-  async function pollTick() {
-    if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
-    if (document.hidden || pollInFlight) return;
-    if (state.editing || state.saving || state.loading || state.loadingBoot) return;
-    if (state.error) return;
-    // 详情态的作用域查询(草稿/记录)需要 workspaceId;列表态轮询 /me/enrollments 无需
-    if (state.selected && !state.workspaceId) return;
-    pollInFlight = true;
-    try {
-      if (state.selected) {
-        // 详情页:学习状态签名(mastery/attempt/progress 变化检测)
-        const learningRes = await apiGet("/learning_state?workspace_id=" + encodeURIComponent(state.workspaceId) +
-          "&course_id=" + encodeURIComponent(state.selected.courseId));
-        const sig = learningSignature(learningRes.result || {});
-        if (sig !== state.detailSig) {
-          state.updateNotice = true;
-          render();
-        }
-      } else {
-        // S7:列表页轮询报名列表(签名为 enrollment id+status)
-        const payload = await rawGet("/me/enrollments");
-        const sig = enrollmentsSignature((payload.result && payload.result.enrollments) || []);
-        if (sig !== state.coursesSig) {
-          state.listNotice = true;
-          render();
-        }
-      }
-    } catch (e) { /* 轮询失败静默,下轮重试 */ } finally { pollInFlight = false; }
-  }
-
-  // 开面板引导:拉可访问 Workspace 列表 → 解析选中(持久化 id 有效则沿用,
-  // 否则回退第一项)→ 自动加载课程。503 走未连接引导,其它错误进 gate 视图。
+  // ---- boot ----
   async function boot() {
     state.loadingBoot = true;
     state.bootError = null;
@@ -254,347 +149,208 @@
       state.loadingBoot = false;
       render();
     }
-    // advisor F1(AE8/R35):/me/enrollments 是 actor 锚定跨台读,与 workspace
-    // 选择解耦——零成员身份的公开课报名(confirmed)同样要出现在列表。
-    // workspace 选择仅在打开作用域详情时要求(openCourse 以报名行
-    // data-ws/workspace_id 原值驱动)。
     loadCourses();
   }
 
-  // S7(AE8/R35):列表源 = /me/enrollments(跨 workspace,无需 workspace_id);
-  // confirmed 课程报名 = 可学习课程(零学习记录也显示),pending/payment_pending
-  // 入「报名进行中」区
   async function loadCourses() {
     state.loading = true;
     state.error = null;
-    state.listNotice = false;
     render();
     try {
       const payload = await rawGet("/me/enrollments");
       const enrollments = (payload.result && payload.result.enrollments) || [];
-      state.coursesSig = enrollmentsSignature(enrollments);
-      const courseEnrollments = enrollments.filter(function (e) { return e.kind === "course"; });
-      state.courses = courseEnrollments
-        .filter(function (e) { return e.status === "confirmed"; })
+      state.courses = enrollments
+        .filter(function (e) { return e.kind === "course" && e.status === "confirmed"; })
         .map(function (e) {
           const offering = e.offering || {};
           const ws = e.workspace || {};
           return {
             courseId: String(offering.id || ""),
             title: String(offering.title || ""),
-            // advisor F4:workspace_id 原值兜底（invite_only 台 ws 块 nil 场景）
             workspaceId: String(ws.id || e.workspace_id || ""),
             workspaceName: String(ws.name || ws.slug || "")
           };
         })
         .filter(function (c) { return c.courseId !== ""; });
-      state.inFlight = courseEnrollments.filter(function (e) {
-        return e.status === "pending" || e.status === "payment_pending";
-      });
-      state.selected = null;
-      state.currentIssue = null;
+      const storedCourse = localStorage.getItem("cgc2046.learnCenter.courseId") || "";
+      const found = state.courses.find(function (c) { return c.courseId === storedCourse; });
+      state.selectedCourseId = (found || state.courses[0] || {}).courseId || "";
+      if (state.selectedCourseId) localStorage.setItem("cgc2046.learnCenter.courseId", state.selectedCourseId);
+      state.loading = false;
+      if (state.selectedCourseId) {
+        await loadCourseData(state.selectedCourseId);
+      } else {
+        render();
+      }
     } catch (e) {
       state.error = e;
-      state.courses = [];
-      state.inFlight = [];
-    } finally {
       state.loading = false;
       render();
     }
   }
 
-  // S7:报名跨 workspace——行携带 data-ws,打开时若目标工作台 ≠ 当前选中,
-  // 切换读面上下文(详情/草稿/教研都按该 workspace 读)
-  async function openCourse(courseId, workspaceId) {
-    if (workspaceId && workspaceId !== state.workspaceId) {
-      state.workspaceId = workspaceId;
-      localStorage.setItem(STORE_KEY, workspaceId);
-      computeCanEdit();
-    }
-    state.loading = true;
-    state.error = null;
-    state.updateNotice = false;
-    state.prep = null;
-    render();
+  // 作用域解析:课程的 MCP 作用域 = 其报名所在的 workspace(enrollment 自带),
+  // 与 hub 的 Workspace 选择器无关(那是管理工作台语义)。跨台报名选课时
+  // 自动切到课程归属台——否则上游按作用域校验直接报错(S7 语义,重写找回)。
+  function scopeOf(courseId) {
+    const course = state.courses.find(function (c) { return c.courseId === courseId; });
+    return (course && course.workspaceId) || state.workspaceId;
+  }
+
+  // 选中课程的三源并行(learning_state 主 / content 材料与 rubric / revision 大纲分组)
+  async function loadCourseData(courseId, silent) {
+    if (!silent) { state.loading = true; state.error = null; render(); }
     try {
-      // S8(ADR-0011):详情主数据源 = /learning_state(objective 课程地图);
-      // /content 仍拉(编辑器与教研视图用);/revision 展示增强(state 为底
-      // 永不丢 objective;未发布课程无 revision 退化 state 自带字段,不算失败)
-      const [contentRes, learningRes] = await Promise.all([
+      const ws = scopeOf(courseId);
+      const [learningRes, contentRes, revRes] = await Promise.all([
+        apiGet("/learning_state?workspace_id=" + encodeURIComponent(ws) +
+          "&course_id=" + encodeURIComponent(courseId)),
         apiGet("/courses/" + encodeURIComponent(courseId) + "/content").catch(function () { return { result: {} }; }),
-        apiGet("/learning_state?workspace_id=" + encodeURIComponent(state.workspaceId) +
-          "&course_id=" + encodeURIComponent(courseId))
+        apiGet("/courses/" + encodeURIComponent(courseId) + "/revision").catch(function () { return { result: null }; })
       ]);
-      let revision = null;
-      try {
-        const revRes = await apiGet("/courses/" + encodeURIComponent(courseId) + "/revision");
-        revision = revRes.result || null;
-      } catch (e) {
-        if (!(e && /no published revision/.test(e.message || ""))) throw e;
-      }
-      const content = contentRes.result || {};
-      const learning = learningRes.result || {};
-      state.selected = { courseId: courseId, content: content, learning: learning, revision: revision };
-      state.detailSig = learningSignature(learning);
-      state.currentIssue = null;
-      // S5:教研状态仅 canEdit 视图拉取;存量课程无 prep run(上游
-      // 「no preparation run found」)或任何失败都按无流程处理,不置错误态
-      if (state.canEdit) {
-        try {
-          const prepRes = await apiGet("/courses/" + encodeURIComponent(courseId) + "/prep");
-          state.prep = prepRes.result || null;
-        } catch (e) {
-          state.prep = null;
-        }
-      }
+      state.learning = learningRes.result || {};
+      state.content = contentRes.result || {};
+      state.revision = revRes.result || null;
+      state.signed = learningSignature(state.learning);
+      state.error = null;
     } catch (e) {
-      state.error = e;
-      state.selected = null;
+      if (!silent) { state.error = e; state.learning = null; }
     } finally {
       state.loading = false;
       render();
     }
   }
 
-  // S8 CTA 话术:objective 口径(objective_id + submit_learning_attempt);
-  // 课程名走 get_learning_state 无 title,退 content.course_title
-  function learningPrompt(objectiveId, reviewEntry) {
-    const sel = state.selected || {};
-    const learning = sel.learning || {};
-    const obj = (learning.objectives || []).find(function (o) { return o.id === objectiveId; }) || {};
-    const title = (sel.content && sel.content.course_title) || "本课程";
-    const objTitle = obj.title || objectiveId;
-    if (reviewEntry) {
-      return [
-        "请带我复习课程《" + title + "》的学习目标「" + objTitle + "」。",
-        "(objective_id: " + objectiveId + ")",
-        "这是一次到期复习——先诊断我的保留度,再针对性讲解;",
-        "复习后正式评价:调用 submit_learning_attempt,evidence 写一句证据摘要,",
-        "rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
-      ].join("\n");
-    }
-    return [
-      "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
-      "(objective_id: " + objectiveId + ")",
-      "请按 learner playbook 的七步学习循环:先 get_learning_state 读取课程地图与当前进度,",
-      "按 next_action 的 reason 从该目标开始教学;正式评价时调用 submit_learning_attempt,",
-      "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
-    ].join("\n");
+  function selectCourse(courseId) {
+    state.selectedCourseId = courseId;
+    localStorage.setItem("cgc2046.learnCenter.courseId", courseId);
+    state.view = "overview";
+    state.currentObjectiveId = "";
+    loadCourseData(courseId);
   }
 
-  async function copySessionPrompt(objectiveId, reviewById) {
-    const text = learningPrompt(objectiveId, (reviewById || {})[String(objectiveId)]);
-    try {
-      await navigator.clipboard.writeText(text);
-      state.copied = true;
-      setTimeout(function () { state.copied = false; render(); }, 2000);
-    } catch (e) {
+  // ---- 大纲树数据:objectives 按 issue 分组(标题取 revision/content,缺省用 id) ----
+  function outlineGroups() {
+    const learning = state.learning || {};
+    const objectives = learning.objectives || [];
+    const issues = (state.revision && state.revision.issues) ||
+      (state.content && state.content.issues) || [];
+    const issueTitle = {};
+    issues.forEach(function (i) {
+      if (i && i.id != null) issueTitle[String(i.id)] = i.title || i.key || String(i.id);
+    });
+    const reviewById = {};
+    (learning.review_queue || []).forEach(function (e) {
+      if (e && e.objective_id != null) reviewById[String(e.objective_id)] = e;
+    });
+    const groups = [];
+    const byIssue = {};
+    objectives.forEach(function (o) {
+      const key = String(o.issue_id || "default");
+      if (!byIssue[key]) {
+        byIssue[key] = { issueId: key, title: issueTitle[key] || ("章节 " + key.slice(0, 8)), objectives: [] };
+        groups.push(byIssue[key]);
+      }
+      byIssue[key].objectives.push(o);
+    });
+    return { groups: groups, reviewById: reviewById };
+  }
+
+  // ---- 注入会话管道(hub/cgc-learn 真机实证同款) ----
+  function injectIntoComposer(text) {
+    const input = document.getElementById("user-input");
+    const send = document.getElementById("btn-send");
+    if (!input || !send) {
       window.prompt("复制以下指令到会话开始学习:", text);
+      return;
     }
-    render();
+    // 宿主 #user-input 是 contenteditable DIV:textContent 注入(value 是 expando)
+    input.textContent = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    send.click();
+    if (send.disabled) {
+      const timer = setInterval(function () {
+        if (!send.disabled) { clearInterval(timer); send.click(); }
+      }, 200);
+      setTimeout(function () { clearInterval(timer); }, 8000);
+    }
+  }
+
+  function goLearnObjective(objectiveId) {
+    // 学习动作 = 创建/进入助手会话后注入指令(hub 同款通道;面板视图内没有
+    // 会话输入框,必须先切会话,否则注入落空——真机实证)
+    const learning = state.learning || {};
+    const obj = (learning.objectives || []).find(function (o) { return o.id === objectiveId; }) || {};
+    const title = (state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "本课程";
+    const review = (learning.review_queue || []).find(function (e) {
+      return e && String(e.objective_id) === String(objectiveId);
+    });
+    const objTitle = obj.title || objectiveId;
+    const lines = review
+      ? [
+          "请带我复习课程《" + title + "》的学习目标「" + objTitle + "」。",
+          "(objective_id: " + objectiveId + ")",
+          "这是一次到期复习——先诊断我的保留度,再针对性讲解;",
+          "复习后正式评价:调用 submit_learning_attempt,evidence 写一句证据摘要,",
+          "rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
+        ]
+      : [
+          "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
+          "(objective_id: " + objectiveId + ")",
+          "请按 learner playbook 的七步学习循环:先 get_learning_state 读取课程地图与当前进度,",
+          "按 next_action 的 reason 从该目标开始教学;正式评价时调用 submit_learning_attempt,",
+          "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
+        ];
+    const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
+    const wsId = (course.workspaceId) || state.workspaceId;
+    const instruction = lines.join("\n").replace("(objective_id: " + objectiveId + ")",
+      "(objective_id: " + objectiveId + ", workspace_id: " + wsId + ")");
+
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "CGC-2046 助手",
+        agent_profile: "cgc-assistant",
+        source: "manual"
+      })
+    })
+      .then(function (res) { return res.json().catch(function () { return {}; }); })
+      .then(function (payload) {
+        const session = payload.session;
+        if (!session || !session.id) throw new Error("没有创建可用的助手会话");
+        if (Clacky.Sessions && typeof Clacky.Sessions.add === "function") {
+          Clacky.Sessions.add(session);
+          if (typeof Clacky.Sessions.renderList === "function") Clacky.Sessions.renderList();
+          Clacky.Sessions.select(session.id);
+        } else if (Clacky.Router && typeof Clacky.Router.navigate === "function") {
+          Clacky.Router.navigate("session", { id: session.id });
+        }
+        // 会话就绪(订阅确认前 btn-send 禁用,注入管道已处理补发)
+        setTimeout(function () { injectIntoComposer(instruction); }, 1500);
+      })
+      .catch(function (e) {
+        window.alert("打开会话失败：" + String(e.message || e));
+      });
+  }
+
+  function resumeLearning() {
+    const next = (state.learning || {}).next_action || {};
+    if (next.objective_id) {
+      goLearnObjective(next.objective_id);
+    } else {
+      goLearnObjective((state.learning && state.learning.objectives || [])[0]);
+    }
   }
 
   // ---- 渲染 ----
-  function render(container) {
-    currentContainer = container || currentContainer;
-    if (!currentContainer) return;
-    if (!state.bootStarted) {
-      state.bootStarted = true;
-      shell('<div class="cgc-card">加载中…</div>');
-      boot();
-      return;
-    }
-    if (state.error && state.error.status === 503) {
-      stopPolling();
-      renderNotConnected();
-      return;
-    }
-    if (state.error && state.error.status !== 503) {
-      stopPolling();
-      shell('<div class="cgc-card cgc-ev-err">加载失败:' + escapeHtml(state.error.message || "") + '</div>');
-      return;
-    }
-    if (!state.selected) {
-      renderCourseList();
-    } else {
-      renderCourseDetail();
-    }
-    maybeStartPolling();
+  function masteryGlyph(m) {
+    if (m === "mastered") return '<span class="cglc-glyph cglc-g-mastered">✓</span>';
+    if (m === "developing") return '<span class="cglc-glyph cglc-g-developing">●</span>';
+    if (m === "needs_review") return '<span class="cglc-glyph cglc-g-review">!</span>';
+    return '<span class="cglc-glyph cglc-g-todo">○</span>';
   }
 
-  // 编辑/保存态不轮询(陈旧基准由保存时 409 兜底);其余可见态确保轮询在跑
-  function maybeStartPolling() {
-    if (state.editing || state.saving) return;
-    startPolling();
-  }
-
-  function shell(inner) {
-    currentContainer.innerHTML =
-      '<div class="cgc-panel cgc-course-panel">' +
-        '<div class="cgc-panel-head">' +
-          '<h3 class="cgc-panel-title">CGC 课程学习</h3>' +
-          '<button id="cgc-back-home" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">← 返回工作台</button>' +
-        '</div>' +
-        inner +
-      '</div>';
-    // S4:隐藏功能页(无侧栏入口),返回「程序媛汇 2046」hub 目录再进
-    const back = currentContainer.querySelector("#cgc-back-home");
-    if (back) back.addEventListener("click", function () { Clacky.ext.ui.openWorkspace("cgc"); });
-  }
-
-  // 课程列表头部的 Workspace 选择器:按名称切换(S1 finding:用户永不手填 UUID)
-  function pickerRow() {
-    const opts = state.workspaces.map(function (w) {
-      const sel = w.workspace_id === state.workspaceId ? " selected" : "";
-      return '<option value="' + escapeHtml(w.workspace_id) + '"' + sel + '>' +
-             escapeHtml(w.name || w.slug || w.workspace_id) + '</option>';
-    }).join("");
-    return '<div class="cgc-ws-row"><select id="cgc-ws-switch" class="cgc-select">' + opts + '</select></div>';
-  }
-
-  function bindWorkspaceSwitch() {
-    const sw = currentContainer.querySelector("#cgc-ws-switch");
-    if (!sw) return;
-    sw.addEventListener("change", function () {
-      state.workspaceId = sw.value;
-      localStorage.setItem(STORE_KEY, sw.value);
-      // R1 P2-2:切换 Workspace 清空旧课程详情与编辑态——否则旧 course_id 滞留,
-      // 轮询拿旧 course_id + 新 workspace_id 静默失败,编辑保存更是写错目标。
-      state.selected = null;
-      state.currentIssue = null;
-      state.conflict = null;
-      state.updateNotice = false;
-      state.editing = false;
-      state.prep = null;
-      state.draft = null;
-      state.draftContent = null;
-      state.saveError = null;
-      computeCanEdit();
-      loadCourses();
-    });
-  }
-
-  function renderNotConnected() {
-    shell(
-      '<div class="cgc-banner" data-testid="panel-not-connected">' +
-        '<b>CGC-2046 未连接。</b>' + escapeHtml(state.error.message || "") +
-        '<div class="cgc-banner-hint">请先在 CGC-2046 连接面板完成连接(生成 token 并连接),再使用课程学习面板。</div>' +
-      '</div>' +
-      // smoke01 #2:显式重试入口——boot 重探 loopback(先 /me/workspaces 后 /courses),
-      // 成功进课程列表、仍 503 则回到本引导视图(不再需要整页刷新恢复)。
-      '<div class="cgc-actions">' +
-        '<button id="cgc-retry" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-retry">重试</button>' +
-      '</div>'
-    );
-    currentContainer.querySelector("#cgc-retry").addEventListener("click", boot);
-  }
-
-  function renderCourseList() {
-    let inner = pickerRow();
-
-    // advisor F1:workspace 列表加载失败或零成员身份——非阻断提示条
-    // (报名列表跨台加载照常;详情打开由报名行作用域驱动)
-    if (state.bootError) {
-      inner += '<div class="cgc-card cgc-ev-err" data-testid="panel-ws-boot-error">Workspace 列表加载失败:' +
-        escapeHtml(state.bootError.message || "") +
-        ' <button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">重试</button></div>';
-    } else if (state.workspaces.length === 0) {
-      inner += '<p class="cgc-panel-sub">当前账号没有可访问的 Workspace——课程列表来自你的报名,跨 Workspace 显示。</p>';
-    }
-
-    inner +=
-      '<p class="cgc-panel-sub">我的课程(按报名推导,跨 Workspace)</p>' +
-      '<div class="cgc-actions"><button id="cgc-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button></div>';
-
-    // R11 列表轮询更新条:点击才刷新(不在用户浏览时抽换视图)
-    if (state.listNotice) {
-      inner +=
-        '<div class="cgc-update-bar" data-testid="panel-list-update-bar">课程列表已更新 ' +
-          '<button id="cgc-list-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新查看</button>' +
-        '</div>';
-    }
-
-    if (state.loading) {
-      shell(inner + '<div class="cgc-card">加载中…</div>');
-      bindListExtras();
-      return;
-    }
-    if (state.error) {
-      shell(inner + '<div class="cgc-card cgc-ev-err">加载失败:' + escapeHtml(state.error.message || "") + '</div>');
-      bindListExtras();
-      return;
-    }
-    if (state.courses.length === 0 && state.inFlight.length === 0) {
-      shell(inner + '<div class="cgc-card cgc-empty">暂无在学课程。报名课程后,这里会显示课程列表。</div>');
-      bindListExtras();
-      return;
-    }
-
-    // S7:报名进行中(pending/payment_pending)——状态徽章,无学习入口
-    if (state.inFlight.length > 0) {
-      const inflightRows = state.inFlight.map(function (e) {
-        const offering = e.offering || {};
-        const ws = e.workspace || {};
-        return (
-          '<div class="cgc-course-row cgc-inflight-row" data-testid="panel-inflight">' +
-            '<span class="task-name">' + escapeHtml(offering.title || "课程") + '</span>' +
-            '<span class="cgc-inflight-meta">' + escapeHtml(ws.name || "") +
-              '<span class="cgc-kind">' + escapeHtml(inFlightStatusBadge(e.status)) + '</span></span>' +
-          '</div>'
-        );
-      }).join("");
-      inner += '<p class="cgc-panel-sub">报名进行中</p>' +
-        '<div class="cgc-card cgc-inflight-list">' + inflightRows + '</div>';
-    }
-
-    // S7:可学习课程(confirmed 报名;零学习记录的新报名同样出现)按 workspace 分组
-    if (state.courses.length > 0) {
-      const groups = {};
-      state.courses.forEach(function (c) {
-        const key = c.workspaceName || "未命名工作台";
-        (groups[key] = groups[key] || []).push(c);
-      });
-      inner += Object.keys(groups).sort().map(function (name) {
-        const rows = groups[name].map(function (c) {
-          const title = c.title || ("课程 " + c.courseId.slice(0, 8) + "…");
-          return (
-            '<div class="cgc-course-row" data-testid="panel-course" data-course="' + escapeHtml(c.courseId) +
-              '" data-ws="' + escapeHtml(c.workspaceId) + '">' +
-              '<span class="task-name">' + escapeHtml(title) + '</span>' +
-              '<span class="cgc-ev">开始学习 ›</span>' +
-            '</div>'
-          );
-        }).join("");
-        return '<div class="cgc-ws-group" data-testid="panel-course-group">' +
-          '<div class="cgc-ws-group-name">' + escapeHtml(name) + '</div>' + rows + '</div>';
-      }).join("");
-    }
-
-    shell(inner);
-    bindListExtras();
-    currentContainer.querySelectorAll("[data-course]").forEach(function (el) {
-      el.addEventListener("click", function () { openCourse(el.getAttribute("data-course"), el.getAttribute("data-ws")); });
-    });
-  }
-
-  // 报名进行中状态徽章(发现面板同款口径)
-  function inFlightStatusBadge(status) {
-    if (status === "pending") return "待审批";
-    if (status === "payment_pending") return "待支付";
-    return status || "";
-  }
-
-  function bindListExtras() {
-    bindWorkspaceSwitch();
-    const refresh = currentContainer.querySelector("#cgc-refresh");
-    if (refresh) refresh.addEventListener("click", loadCourses);
-    const bar = currentContainer.querySelector("#cgc-list-refresh");
-    if (bar) bar.addEventListener("click", loadCourses);
-    const bootRetry = currentContainer.querySelector("#cgc-boot-retry");
-    if (bootRetry) bootRetry.addEventListener("click", boot);
-  }
-
-  // S8 掌握四态中文标签(旧 ref 语义)
   function masteryLabel(m) {
     if (m === "mastered") return "已掌握";
     if (m === "developing") return "学习中";
@@ -602,547 +358,401 @@
     return "未学";
   }
 
-  function renderCourseDetail() {
-    const sel = state.selected;
-    const learning = sel.learning || {};
-    const objectives = learning.objectives || [];
-    const progress = learning.progress || {};
-    const next = learning.next_action || null;
+  function objectiveTitle(objectiveId) {
+    const o = ((state.learning || {}).objectives || []).find(function (x) { return x.id === objectiveId; });
+    return o ? (o.title || o.id) : String(objectiveId);
+  }
 
-    // 编辑态:整体换编辑器视图(轮询已挂起)
-    if (state.editing) {
-      shell(renderEditor());
-      bindEditor();
+  function render() {
+    currentContainer = currentContainer || null;
+    if (!currentContainer) return;
+    if (state.error && state.error.status === 503) { stopPolling(); renderNotConnected(); return; }
+    if (state.error && state.error.status !== 503) {
+      stopPolling();
+      currentContainer.innerHTML =
+        '<div class="cglc-page"><div class="cglc-main"><div class="cgc-card cgc-ev-err" data-testid="panel-error">' +
+        '加载失败:' + escapeHtml(state.error.message || "") +
+        ' <button id="cgc-retry" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">重试</button></div></div></div>';
+      const retry = currentContainer.querySelector("#cgc-retry");
+      if (retry) retry.addEventListener("click", boot);
+      return;
+    }
+    if (state.bootError) {
+      currentContainer.innerHTML =
+        '<div class="cglc-page"><div class="cglc-main"><div class="cgc-card cgc-ev-err" data-testid="panel-ws-boot-error">' +
+        'Workspace 列表加载失败:' + escapeHtml(state.bootError.message || "") +
+        ' <button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">重试</button></div></div></div>';
+      const retry = currentContainer.querySelector("#cgc-boot-retry");
+      if (retry) retry.addEventListener("click", boot);
       return;
     }
 
-    let inner =
-      pickerRow() +
-      '<div class="cgc-actions">' +
-        '<button id="cgc-back" class="cgc-btn cgc-btn-secondary" type="button">← 返回课程</button>' +
-        '<button id="cgc-detail-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button>' +
-        '<span class="cgc-panel-sub">' + objectives.length + ' 个学习目标 · 已掌握 ' +
-          escapeHtml(progress.mastered_required || 0) + '/' + escapeHtml(progress.total_required || 0) + '</span>' +
-        (progress.complete
-          ? '<span class="cgc-badge cgc-badge-done" data-testid="panel-complete">已结业</span>'
-          : "") +
-        (Number.isInteger(sel.content && sel.content.version)
-          ? '<span class="cgc-badge" data-testid="panel-draft-version">草稿 v' + sel.content.version + '</span>'
-          : "") +
-        (state.canEdit
-          ? '<button id="cgc-edit-toggle" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-edit-toggle">编辑内容</button>'
-          : "") +
+    currentContainer.innerHTML =
+      '<div class="cglc-page">' +
+        '<aside class="cglc-side">' +
+          '<div class="cglc-side-title">课程学习中心</div>' +
+          '<select id="cglc-course" class="cglc-select" data-testid="panel-course-select"></select>' +
+          '<div class="cglc-tree" id="cglc-tree" data-testid="panel-outline-tree">加载中…</div>' +
+          (state.canEdit
+            ? '<button id="cgc-teach-entry" class="cglc-teach-entry" type="button" data-testid="panel-teach-entry">教研工作台</button>'
+            : "") +
+        '</aside>' +
+        '<main class="cglc-main" id="cglc-main"></main>' +
       '</div>';
 
-    // AE2:409 冲突横幅(本地编辑已丢弃,展示最新草稿)
-    if (state.conflict) {
-      inner += '<div class="cgc-banner cgc-banner-err" data-testid="panel-conflict">' + escapeHtml(state.conflict) + '</div>';
-    }
+    const courseSel = currentContainer.querySelector("#cglc-course");
+    // 按所属 workspace 分组(跨台报名时每门课的归属一目了然)
+    const groups = {};
+    state.courses.forEach(function (c) {
+      const key = c.workspaceName || "其它工作台";
+      (groups[key] = groups[key] || []).push(c);
+    });
+    courseSel.innerHTML = Object.keys(groups).sort().map(function (name) {
+      return '<optgroup label="' + escapeHtml(name) + '">' +
+        groups[name].map(function (c) {
+          const sel = c.courseId === state.selectedCourseId ? " selected" : "";
+          return '<option value="' + escapeHtml(c.courseId) + '"' + sel + '>' +
+                 escapeHtml(c.title || c.courseId) + '</option>';
+        }).join("") + '</optgroup>';
+    }).join("");
+    courseSel.addEventListener("change", function () { selectCourse(courseSel.value); });
 
-    // R11 详情轮询更新条
-    if (state.updateNotice) {
-      inner +=
-        '<div class="cgc-update-bar" data-testid="panel-update-bar">内容已更新 ' +
-          '<button id="cgc-update-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新查看</button>' +
-        '</div>';
-    }
+    renderTree();
+    renderMain();
 
-    if (state.saveError) {
-      inner += '<div class="cgc-card cgc-ev-err">保存失败:' + escapeHtml(state.saveError.message || "") + '</div>';
-    }
+    const teach = currentContainer.querySelector("#cgc-teach-entry");
+    if (teach) teach.addEventListener("click", function () { Clacky.ext.ui.openWorkspace(TEACH_ID); });
+    startPolling();
+  }
 
-    inner += prepSection();
+  function renderTree() {
+    const tree = currentContainer.querySelector("#cglc-tree");
 
-    // stale 横幅:课程已发新版(run 绑旧版)——学习新版走 startLearning
-    if (learning.stale_revision) {
-      inner +=
-        '<div class="cgc-banner" data-testid="panel-stale">' +
-          '课程已发布新版本,你正在学旧版(进度保留) ' +
-          '<button id="cgc-learn-new" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">学习新版</button>' +
-        '</div>';
-    }
-
-    if (objectives.length === 0) {
-      shell(inner + '<div class="cgc-card cgc-empty">该课程暂无学习目标(教研未完成或未发布)。</div>');
-      bindDetailExtras(sel.courseId);
-      bindStartLearning(sel.courseId);
+    if (!tree) return;
+    if (state.loading || !state.learning) {
+      tree.innerHTML = '<div class="cgch-empty">' + (state.loading ? "加载中…" : "暂无数据") + '</div>';
       return;
     }
-
-    // 当前任务卡(next_action):推荐徽章 + reason + CTA(会话指令含 objective_id)
-    if (next && next.objective_id) {
-      inner +=
-        '<div class="cgc-card cgc-next-card" data-testid="panel-next-action">' +
-          '<span class="cgc-badge cgc-badge-next">当前任务</span> ' +
-          escapeHtml(next.reason || "") +
-          '<button class="cgc-btn cgc-btn-primary cgc-btn-sm" type="button" data-cta="' +
-            escapeHtml(next.objective_id) + '" data-testid="panel-cta">复制学习指令</button>' +
-        '</div>';
+    const _ref = outlineGroups();
+    const groups = _ref.groups;
+    const reviewById = _ref.reviewById;
+    if (!groups.length) {
+      tree.innerHTML = '<div class="cgch-empty">该课程暂无学习目标(教研未完成或未发布)。</div>';
+      return;
     }
+    const reviewCount = ((state.learning || {}).review_queue || []).length;
+    const overviewActive = state.view === "overview" ? " is-active" : "";
+    let html =
+      '<div class="cglc-node cglc-node-overview' + overviewActive + '" data-node="__overview__"' +
+        ' data-testid="panel-outline-overview">' +
+        '<span class="cglc-glyph cglc-g-mastered">⌂</span>' +
+        '<span class="cglc-node-title">课程概览</span>' +
+        (reviewCount > 0 ? '<span class="cglc-node-review">' + reviewCount + '</span>' : "") +
+      '</div>';
+    html += groups.map(function (g) {
+      const rows = g.objectives.map(function (o) {
+        const locked = !!o.locked;
+        const review = reviewById[String(o.id)];
+        const active = state.view === "objective" && state.currentObjectiveId === o.id;
+        return (
+          '<div class="cglc-node' + (locked ? " is-locked" : "") + (active ? " is-active" : "") + '"' +
+            (locked ? "" : ' data-node="' + escapeHtml(o.id) + '"') +
+            ' data-testid="panel-outline-node" data-objective="' + escapeHtml(o.id) + '">' +
+            masteryGlyph(locked ? "todo" : o.mastery) +
+            '<span class="cglc-node-title">' + escapeHtml(o.title || o.id) + '</span>' +
+            (review ? '<span class="cglc-node-review" data-testid="panel-outline-review">' +
+              (review.needs_review === true ? "恢复" : "复习") + '</span>' : "") +
+            (locked ? '<span class="cglc-lock">🔒</span>' : "") +
+          '</div>'
+        );
+      }).join("");
+      return '<div class="cglc-group"><div class="cglc-group-name">' + escapeHtml(g.title) + '</div>' + rows + '</div>';
+    }).join("");
+    tree.innerHTML = html;
+    tree.querySelectorAll("[data-node]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        const id = el.getAttribute("data-node");
+        if (id === "__overview__") {
+          state.view = "overview";
+          state.currentObjectiveId = "";
+        } else {
+          state.view = "objective";
+          state.currentObjectiveId = id;
+        }
+        renderTree();
+        renderMain();
+      });
+    });
+  }
 
-    // 进度条(mastered_required/total_required)
+  function renderMain() {
+    const main = currentContainer.querySelector("#cglc-main");
+    if (!main) return;
+    if (state.loading) {
+      main.innerHTML = '<div class="cgc-card cgch-empty">加载中…</div>';
+      return;
+    }
+    if (!state.learning) {
+      main.innerHTML = '<div class="cgc-card cgch-empty">暂无在学课程。在「CGC 发现」报名课程后,这里会显示学习中心。</div>';
+      return;
+    }
+    if (state.view === "objective" && state.currentObjectiveId) {
+      renderObjectiveDetail(main);
+    } else {
+      renderOverview(main);
+    }
+  }
+
+  // ---- 概览态 ----
+  function renderOverview(main) {
+    const learning = state.learning || {};
+    const progress = learning.progress || {};
+    const next = learning.next_action || null;
     const total = Number(progress.total_required) || 0;
     const done = Number(progress.mastered_required) || 0;
     const pct = total > 0 ? Math.round((done * 100) / total) : 0;
-    inner +=
-      '<div class="cgc-progress" data-testid="panel-progress">' +
-        '<div class="cgc-progress-bar" style="width:' + pct + '%"></div>' +
-      '</div>' +
-      '<p class="cgc-panel-sub">必修掌握 ' + done + '/' + total + '</p>';
-
-    const list = objectives.map(function (o) {
-      return objectiveRow(o, next);
-    }).join("");
-
-    // S9:复习队列置顶(objective 地图之上;空队列不渲染)
-    shell(inner + reviewQueueSection(learning) + '<div class="cgc-card cgc-obj-list">' + list + '</div>');
-
-    bindDetailExtras(sel.courseId);
-    bindStartLearning(sel.courseId);
-    // S9:复习队列行点击 → 展开对应 objective 并滚动定位到地图行
-    currentContainer.querySelectorAll("[data-review-obj]").forEach(function (el) {
-      el.addEventListener("click", function () {
-        const id = el.getAttribute("data-review-obj");
-        state.currentObjective = id;
-        render();
-        const row = currentContainer.querySelector('[data-objective="' + id + '"]');
-        if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
-      });
-    });
-    const reviewById = reviewEntryMap(learning);
-    const cta = currentContainer.querySelector("[data-testid='panel-cta']");
-    if (cta) {
-      cta.addEventListener("click", function () {
-        copySessionPrompt(cta.getAttribute("data-cta"), reviewById);
-      });
-    }
-  }
-
-  // S8 objective 行:四态徽章 / 锁与缺失先修 / 选修 chip / 尝试次数 /
-  // 推荐徽章(next_action 命中)/ reason 行
-  // S9:review_queue → objective id 查找表(行点击展开与 CTA 复习口吻判定用)
-  function reviewEntryMap(learning) {
-    const byObjective = {};
-    ((learning && learning.review_queue) || []).forEach(function (entry) {
-      if (entry && entry.objective_id != null) byObjective[String(entry.objective_id)] = entry;
-    });
-    return byObjective;
-  }
-
-  // S9 复习队列区(详情页置顶,objective 地图之上;队列空 → 不渲染):
-  // 间隔重复 1/7/30 天里程碑按序消费——里程碑条目「第 N 天复习到期」;
-  // needs_review 条目 = 复习失败待恢复掌握(立即到期,红色调区分,「待复习恢复」徽章;
-  // 其 milestone_days 是重新达标后的下一里程碑,不作到期信息展示)。
-  // 标题优先取 state 投影(stale run 报旧版 objectives 同样覆盖),缺则 id 兜底。
-  function reviewQueueSection(learning) {
-    const queue = (learning && learning.review_queue) || [];
-    if (queue.length === 0) return "";
-    const stateTitles = {};
-    ((learning && learning.objectives) || []).forEach(function (o) {
-      if (o) stateTitles[String(o.id)] = o.title;
-    });
-    const rows = queue.map(function (entry) {
-      const id = String(entry.objective_id || "");
-      const title = stateTitles[id] || id;
-      const urgent = entry.needs_review === true;
-      return (
-        '<div class="cgc-review-row' + (urgent ? " cgc-review-urgent" : "") + '"' +
-          ' data-testid="panel-review-row" data-review-obj="' + escapeHtml(id) + '">' +
-          '<span class="task-name">' + escapeHtml(title) + '</span>' +
-          '<span class="cgc-obj-meta">' +
-            (urgent
-              ? '<span class="cgc-badge cgc-obj-review" data-testid="panel-review-needs">待复习恢复</span>'
-              : "") +
-            (!urgent && Number.isInteger(entry.milestone_days)
-              ? '<span class="cgc-review-due" data-testid="panel-review-due">第 ' + entry.milestone_days + ' 天复习到期</span>'
-              : "") +
-          '</span>' +
-        '</div>'
-      );
-    }).join("");
-    return (
-      '<div class="cgc-card cgc-review-section" data-testid="panel-review-queue">' +
-        '<div class="cgc-issue-head">待复习</div>' + rows +
-      '</div>'
-    );
-  }
-
-  function objectiveRow(o, next) {
-    const locked = !!o.locked;
-    const missing = o.missing_prereq_ids || [];
-    const isNext = next && next.objective_id === o.id;
-    return (
-      '<div class="cgc-obj-row' + (locked ? " cgc-obj-locked" : "") + '"' +
-        ' data-testid="panel-obj-row" data-objective="' + escapeHtml(o.id) + '">' +
-        '<span class="cgc-badge cgc-obj-' + escapeHtml(o.mastery) + '" data-testid="panel-obj-badge">' +
-          escapeHtml(masteryLabel(o.mastery)) + '</span>' +
-        (isNext ? '<span class="cgc-badge cgc-badge-next">推荐</span>' : "") +
-        '<span class="task-name">' + escapeHtml(o.title || o.id) + '</span>' +
-        (o.required ? "" : '<span class="cgc-badge cgc-obj-elective">选修</span>') +
-        '<span class="cgc-obj-meta">' +
-          (o.attempt_count > 0 ? '<span>尝试 ' + escapeHtml(o.attempt_count) + ' 次</span>' : "") +
-          (locked
-            ? '<span class="cgc-obj-missing" data-testid="panel-obj-locked">🔒 需先修:' +
-                escapeHtml((missing || []).map(function (m) { return m.title || m.id; }).join("、")) + '</span>'
-            : "") +
-        '</span>' +
-        (isNext && next && next.reason
-          ? '<div class="cgc-obj-reason">' + escapeHtml(next.reason) + '</div>'
-          : "") +
-      '</div>'
-    );
-  }
-
-  // S8 学习新版(POST /learning/start):新版 key 自动开新 run,重载详情
-  function bindStartLearning(courseId) {
-    const btn = currentContainer.querySelector("#cgc-learn-new");
-    if (btn) {
-      btn.addEventListener("click", async function () {
-        try {
-          await apiPost("/learning/start", { workspace_id: state.workspaceId, course_id: courseId });
-          await openCourse(courseId, state.workspaceId);
-        } catch (e) {
-          state.error = e;
-          render();
-        }
-      });
-    }
-  }
-
-  // S5 教研流程区(仅 canEdit 且课程有 prep run 时渲染):prep_state badge +
-  // 生效策略 + 结构门禁违规清单 + 最新质量报告。全部经 escapeHtml 转义。
-  function prepSection() {
-    const prep = state.prep;
-    if (!state.canEdit || !prep) return "";
-
-    const policy = prep.policy || {};
-    const violations = Array.isArray(prep.gate_violations) ? prep.gate_violations : [];
-    const report = prep.latest_quality_report || null;
-    const tutor = prep.tutor || null;
+    const review = learning.review_queue || [];
 
     let html =
-      '<div class="cgc-card cgc-prep" data-testid="panel-prep">' +
-        '<div class="cgc-prep-head">' +
-          '<b>教研流程</b>' +
-          '<span class="cgc-badge" data-testid="panel-prep-state">' + escapeHtml(prep.prep_state || "") + '</span>' +
-          (tutor
-            ? '<span class="cgc-panel-sub">tutor:' + escapeHtml(tutor.display_name || tutor.user_id || "") + '</span>'
-            : "") +
-          '<span class="cgc-panel-sub">阈值 ' + escapeHtml(policy.quality_threshold) +
-            (policy.review_required ? ' · 需人工审核' : ' · 达标自动发布') + '</span>' +
-        '</div>';
+      '<div class="cglc-head">' +
+        '<div class="cglc-title-row">' +
+          '<h3 class="cglc-title">' + escapeHtml((state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "") + '</h3>' +
+          (Number.isInteger(state.content && state.content.version)
+            ? '<span class="cgch-chip">草稿 v' + escapeHtml(state.content.version) + '</span>' : "") +
+          (progress.complete ? '<span class="cgch-chip cgch-chip-admin">已结业</span>' : "") +
+        '</div>' +
+        '<div class="cglc-progress" data-testid="panel-progress">' +
+          '<div class="cglc-progress-bar" style="width:' + pct + '%"></div>' +
+        '</div>' +
+        '<div class="cglc-progress-text">必修掌握 ' + done + '/' + total +
+          ' · 目标 ' + ((learning.objectives || []).length) + ' 个</div>' +
+      '</div>';
 
-    if (violations.length > 0) {
+    if (learning.stale_revision) {
       html +=
-        '<ul class="cgc-prep-violations" data-testid="panel-prep-violations">' +
-          violations.map(function (v) { return '<li>' + escapeHtml(v) + '</li>'; }).join("") +
-        '</ul>';
+        '<div class="cgc-banner" data-testid="panel-stale">课程已发布新版本,你正在学旧版(进度保留)。' +
+          '点「继续学习」将开新版 run。</div>';
     }
 
-    if (report) {
+    // Resume 卡:最显眼动作 = 继续上次
+    if (next && next.objective_id) {
       html +=
-        '<div class="cgc-prep-quality" data-testid="panel-prep-quality">' +
-          '质量报告 ' + escapeHtml(report.score) + '/100 · ' + escapeHtml(report.outcome || "") +
-          (report.summary ? '<div class="cgc-panel-sub">' + escapeHtml(report.summary) + '</div>' : "") +
-        '</div>';
-    }
-
-    return html + '</div>';
-  }
-
-  // 详情页公共绑定:返回 + 手动刷新 + S4 编辑入口 + R11 轮询更新条
-  function bindDetailExtras(courseId) {
-    bindWorkspaceSwitch();
-    const back = currentContainer.querySelector("#cgc-back");
-    if (back) back.addEventListener("click", function () { state.selected = null; state.currentIssue = null; state.conflict = null; state.prep = null; render(); });
-    const refresh = currentContainer.querySelector("#cgc-detail-refresh");
-    if (refresh) refresh.addEventListener("click", function () { openCourse(courseId); });
-    const toggle = currentContainer.querySelector("#cgc-edit-toggle");
-    if (toggle) toggle.addEventListener("click", enterEdit);
-    const upd = currentContainer.querySelector("#cgc-update-refresh");
-    if (upd) upd.addEventListener("click", function () { openCourse(courseId); });
-  }
-
-  // ---- S4 草稿编辑(教研侧;tutor|owner|admin;v1 schema:goals + issues/checklist) ----
-  // 编辑基准 = get_course_content 草稿(含 version 与未知键);进入编辑时才拉取。
-  async function enterEdit() {
-    if (!state.selected || state.loading) return;
-    const courseId = state.selected.courseId;
-    state.loading = true;
-    state.saveError = null;
-    render();
-    try {
-      const res = await apiGet("/courses/" + encodeURIComponent(courseId) + "/content");
-      const content = res.result || {};
-      state.draftContent = content;
-      state.draft = {
-        goals: Array.isArray(content.goals) ? content.goals.slice() : [],
-        issues: JSON.parse(JSON.stringify(Array.isArray(content.issues) ? content.issues : []))
-      };
-      state.editing = true;
-      state.conflict = null;
-      state.updateNotice = false;
-    } catch (e) {
-      state.error = e;
-    } finally {
-      state.loading = false;
-      render();
-    }
-  }
-
-  function exitEdit() {
-    state.editing = false;
-    state.draft = null;
-    state.draftContent = null;
-    state.saveError = null;
-    render();
-  }
-
-  function trim(s) { return String(s == null ? "" : s).trim(); }
-
-  // 材料:每行「标题 | 链接」;无 | 整行当标题
-  function parseMaterials(text) {
-    return text.split("\n").map(trim).filter(Boolean).map(function (line) {
-      const i = line.indexOf("|");
-      return i < 0
-        ? { title: line, ref: "" }
-        : { title: trim(line.slice(0, i)), ref: trim(line.slice(i + 1)) };
-    });
-  }
-
-  // checklist:每行「id | 文本」;无 | 自动补 c<行号> 作 id
-  function parseChecklist(text) {
-    return text.split("\n").map(trim).filter(Boolean).map(function (line, n) {
-      const i = line.indexOf("|");
-      return i < 0
-        ? { id: "c" + (n + 1), text: line }
-        : { id: trim(line.slice(0, i)), text: trim(line.slice(i + 1)) };
-    });
-  }
-
-  // 编辑器 DOM → draft(结构性动作与保存前调用,re-render 不丢输入)。
-  // 只写编辑器暴露的已知键——issue/story 上的未知键随深拷贝对象原样保留
-  // (无损往返:未来新增字段不被编辑器丢弃)。
-  function collectEditor() {
-    if (!state.draft || !currentContainer) return;
-    const goalsEl = currentContainer.querySelector("#cgc-edit-goals");
-    if (goalsEl) state.draft.goals = goalsEl.value.split("\n").map(trim).filter(Boolean);
-    currentContainer.querySelectorAll("[data-edit-issue]").forEach(function (el) {
-      const issue = state.draft.issues[Number(el.getAttribute("data-edit-issue"))];
-      if (!issue) return;
-      const story = issue.story = issue.story || {};
-      issue.kind = el.querySelector("[data-f='kind']").value;
-      issue.title = trim(el.querySelector("[data-f='title']").value);
-      story.as_a = trim(el.querySelector("[data-f='as_a']").value);
-      story.given = el.querySelector("[data-f='given']").value.split("/").map(trim).filter(Boolean);
-      story.goal = trim(el.querySelector("[data-f='goal']").value);
-      story.materials = parseMaterials(el.querySelector("[data-f='materials']").value);
-      story.checklist = parseChecklist(el.querySelector("[data-f='checklist']").value);
-    });
-  }
-
-  async function saveDraft() {
-    if (!state.selected || !state.draft || state.saving) return;
-    const courseId = state.selected.courseId;
-    collectEditor();
-    // 保留 content 上未编辑的键(如 course_title),剥离 version(并发控制走顶层 base_version)
-    const content = Object.assign({}, state.draftContent, {
-      goals: state.draft.goals,
-      issues: state.draft.issues
-    });
-    delete content.version;
-    state.saving = true;
-    state.saveError = null;
-    render();
-    try {
-      await apiPost("/courses/" + encodeURIComponent(courseId) + "/content", {
-        workspace_id: state.workspaceId,
-        content: content,
-        base_version: draftVersion()
-      });
-      // 成功:退出编辑态并重载(只读视图展示最新草稿)
-      state.editing = false;
-      state.draft = null;
-      state.draftContent = null;
-      await openCourse(courseId);
-    } catch (e) {
-      if (e && e.status === 409) {
-        // AE2:版本冲突——丢弃本地编辑(不做 diff),回只读视图 + 红色横幅
-        state.editing = false;
-        state.draft = null;
-        state.draftContent = null;
-        state.conflict = "内容已被他人更新到更新版本,本地编辑已丢弃;请重新进入编辑,基于最新草稿修改";
-        await openCourse(courseId);
-      } else {
-        state.saveError = e;
-      }
-    } finally {
-      state.saving = false;
-      render();
-    }
-  }
-
-  function renderEditor() {
-    const draft = state.draft || { goals: [], issues: [] };
-    const goalRows = (draft.goals || []).join("\n");
-
-    const issueCards = draft.issues.map(function (issue, idx) {
-      const story = issue.story || {};
-      const mats = (Array.isArray(story.materials) ? story.materials : []).map(function (m) {
-        return (m.title || "") + (m.ref ? " | " + m.ref : "");
-      }).join("\n");
-      const checks = (Array.isArray(story.checklist) ? story.checklist : []).map(function (c) {
-        return (c.id || "") + " | " + (c.text || "");
-      }).join("\n");
-      return (
-        '<div class="cgc-card cgc-issue-edit" data-edit-issue="' + idx + '" data-testid="panel-issue-edit">' +
-          '<div class="cgc-edit-row cgc-edit-head">' +
-            '<span class="cgc-issue-key">id:' + escapeHtml(issue.id) + '</span>' +
-            '<button class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button" data-remove-issue="' + idx + '">删除</button>' +
+        '<div class="cglc-resume" data-testid="panel-resume">' +
+          '<div class="cglc-resume-copy">' +
+            '<span class="cglc-badge cglc-badge-next">继续学习</span>' +
+            '<span class="cglc-resume-text">' + escapeHtml(objectiveTitle(next.objective_id)) +
+              (next.reason ? ' — ' + escapeHtml(next.reason) : "") + '</span>' +
           '</div>' +
-          '<div class="cgc-edit-row"><label>kind</label>' +
-            '<select data-f="kind">' +
-              '<option value="handwork"' + (issue.kind === "handwork" ? " selected" : "") + '>handwork(动手型)</option>' +
-              '<option value="thoughtwork"' + (issue.kind === "thoughtwork" ? " selected" : "") + '>thoughtwork(知识型)</option>' +
-            '</select></div>' +
-          '<div class="cgc-edit-row"><label>标题</label>' +
-            '<input data-f="title" type="text" value="' + escapeHtml(issue.title || "") + '"></div>' +
-          '<div class="cgc-edit-row"><label>as_a(目标学员画像)</label>' +
-            '<input data-f="as_a" type="text" value="' + escapeHtml(story.as_a || "") + '"></div>' +
-          '<div class="cgc-edit-row"><label>given(先修状态,/ 分隔)</label>' +
-            '<input data-f="given" type="text" value="' + escapeHtml((Array.isArray(story.given) ? story.given : []).join(" / ")) + '"></div>' +
-          '<div class="cgc-edit-row"><label>goal(完成后能独立做到什么)</label>' +
-            '<input data-f="goal" type="text" value="' + escapeHtml(story.goal || "") + '"></div>' +
-          '<div class="cgc-edit-row"><label>materials(每行一条,格式:标题 | 链接)</label>' +
-            '<textarea data-f="materials" rows="2">' + escapeHtml(mats) + '</textarea></div>' +
-          '<div class="cgc-edit-row"><label>checklist(每行一条,格式:id | 文本)</label>' +
-            '<textarea data-f="checklist" rows="3">' + escapeHtml(checks) + '</textarea></div>' +
-        '</div>'
-      );
-    }).join("");
-
-    return (
-      '<div class="cgc-actions">' +
-        '<span class="cgc-badge" data-testid="panel-draft-version">草稿 v' + draftVersion() + '</span>' +
-        '<span class="cgc-panel-sub">编辑课程草稿(保存经 save_course_content,base_version 乐观并发)</span>' +
-      '</div>' +
-      '<div class="cgc-card" data-testid="panel-editor">' +
-        '<div class="cgc-edit-row"><label>课程目标 goals(每行一条)</label>' +
-          '<textarea id="cgc-edit-goals" rows="3">' + escapeHtml(goalRows) + '</textarea></div>' +
-        issueCards +
-        '<div class="cgc-edit-row">' +
-          '<button id="cgc-add-issue" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-add-issue">+ 添加 issue</button>' +
-        '</div>' +
-        (state.saveError
-          ? '<div class="cgc-ev-err">保存失败:' + escapeHtml(state.saveError.message || "") + '</div>'
-          : "") +
-        '<div class="cgc-actions">' +
-          '<button id="cgc-save" class="cgc-btn cgc-btn-primary" type="button" data-testid="panel-save"' +
-            (state.saving ? " disabled" : "") + '>' + (state.saving ? "保存中…" : "保存草稿") + '</button>' +
-          '<button id="cgc-cancel-edit" class="cgc-btn cgc-btn-secondary" type="button">取消</button>' +
-        '</div>' +
-      '</div>'
-    );
-  }
-
-  function bindEditor() {
-    const save = currentContainer.querySelector("#cgc-save");
-    if (save) save.addEventListener("click", saveDraft);
-    const cancel = currentContainer.querySelector("#cgc-cancel-edit");
-    if (cancel) cancel.addEventListener("click", exitEdit);
-    const add = currentContainer.querySelector("#cgc-add-issue");
-    if (add) {
-      add.addEventListener("click", function () {
-        collectEditor();
-        state.draft.issues.push({
-          id: "issue-" + Date.now(),
-          kind: "handwork",
-          title: "",
-          story: { as_a: "", given: [], goal: "", materials: [], checklist: [] }
-        });
-        render();
-      });
+          '<button class="cglc-resume-btn" type="button" data-testid="panel-resume-btn">▶ 继续学习</button>' +
+        '</div>';
     }
-    currentContainer.querySelectorAll("[data-remove-issue]").forEach(function (el) {
-      el.addEventListener("click", function () {
-        collectEditor();
-        state.draft.issues.splice(Number(el.getAttribute("data-remove-issue")), 1);
-        render();
-      });
+
+    // 待复习队列
+    if (review.length > 0) {
+      const rows = review.map(function (entry) {
+        const urgent = entry.needs_review === true;
+        const id = String(entry.objective_id || "");
+        return (
+          '<button class="cglc-row" type="button" data-review="' + escapeHtml(id) + '"' +
+            ' data-testid="panel-review-row">' +
+            '<span class="' + (urgent ? "cgch-err" : "cglc-review-due") + '" data-testid="panel-review-due">' +
+              (urgent ? "待复习恢复" : "第 " + escapeHtml(entry.milestone_days) + " 天复习到期") + '</span>' +
+            '<span class="cglc-row-copy">' + escapeHtml(objectiveTitle(id)) + '</span>' +
+            '<span class="cgch-btn cgch-btn-ghost cgch-btn-sm">去学 ▶</span>' +
+          '</button>'
+        );
+      }).join("");
+      html += '<div class="cgc-card"><div class="cglc-section-title">待复习</div>' +
+        '<div class="cgch-row-list">' + rows + '</div></div>';
+    }
+
+    main.innerHTML = html;
+    const resumeBtn = main.querySelector("[data-testid='panel-resume-btn']");
+    if (resumeBtn) resumeBtn.addEventListener("click", resumeLearning);
+    main.querySelectorAll("[data-review]").forEach(function (row) {
+      row.addEventListener("click", function () { goLearnObjective(row.getAttribute("data-review")); });
     });
   }
 
-  // ---- 样式(面板自包含) ----
+  // ---- 目标详情态 ----
+  function renderObjectiveDetail(main) {
+    const learning = state.learning || {};
+    const o = (learning.objectives || []).find(function (x) { return x.id === state.currentObjectiveId; });
+    if (!o) { state.view = "overview"; renderMain(); return; }
+    const locked = !!o.locked;
+    const missing = o.missing_prereq_ids || [];
+    const review = (learning.review_queue || []).find(function (e) {
+      return e && String(e.objective_id) === String(o.id);
+    });
+
+    // 材料/rubric 取自 content(按 objective id 对齐;S8 后 learner 材料可见性在此恢复)
+    let materials = [];
+    let rubric = [];
+    let activity = "";
+    let assessment = "";
+    ((state.content && state.content.issues) || []).forEach(function (issue) {
+      ((issue && issue.objectives) || []).forEach(function (co) {
+        if (co && String(co.id) === String(o.id)) {
+          materials = Array.isArray(co.materials) ? co.materials : [];
+          rubric = Array.isArray(co.rubric) ? co.rubric : [];
+          activity = co.activity || "";
+          assessment = co.assessment || "";
+        }
+      });
+    });
+
+    let html =
+      '<div class="cglc-head">' +
+        '<div class="cglc-title-row">' +
+          '<h3 class="cglc-title">' + escapeHtml(o.title || o.id) + '</h3>' +
+          '<span class="cgch-chip" data-testid="panel-obj-badge">' + escapeHtml(masteryLabel(o.mastery)) + '</span>' +
+          (o.required ? "" : '<span class="cgch-chip">选修</span>') +
+        '</div>' +
+        '<div class="cglc-progress-text">' +
+          '尝试 ' + escapeHtml(o.attempt_count || 0) + ' 次' +
+          (o.last_attempt_at ? ' · 上次 ' + escapeHtml(new Date(o.last_attempt_at).toLocaleString()) : "") +
+        '</div>' +
+      '</div>';
+
+    if (locked) {
+      html += '<div class="cgc-banner">🔒 该目标未解锁,需先修:' +
+        escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '</div>';
+    }
+
+    html += '<div class="cglc-obj-grid">';
+
+    html += '<div class="cgc-card">' +
+      '<div class="cglc-section-title">学习活动</div>' +
+      (activity ? '<div class="cglc-kv"><label>活动</label><span>' + escapeHtml(activity) + '</span></div>' : "") +
+      (assessment ? '<div class="cglc-kv"><label>评估</label><span>' + escapeHtml(assessment) + '</span></div>' : "") +
+      (materials.length
+        ? '<div class="cglc-kv"><label>材料</label><span>' + materials.map(function (m) {
+            const ref = m.ref ? ' <a href="' + escapeHtml(m.ref) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.ref) + '</a>' : "";
+            return escapeHtml(m.title || "") + ref;
+          }).join('<br>') + '</span></div>'
+        : '<div class="cglc-kv"><label>材料</label><span class="cgch-empty">无</span></div>') +
+      '</div>';
+
+    html += '<div class="cgc-card">' +
+      '<div class="cglc-section-title">评价标准 (rubric)</div>' +
+      (rubric.length
+        ? '<ul class="cglc-rubric">' + rubric.map(function (r) {
+            return '<li>' + escapeHtml(r.text || r.id) + '</li>';
+          }).join("") + '</ul>'
+        : '<div class="cgch-empty">无</div>') +
+      '</div>';
+
+    html += '</div>';
+
+    const ctaDisabled = locked ? " disabled" : "";
+    html +=
+      '<div class="cglc-resume" data-testid="panel-obj-cta">' +
+        '<div class="cglc-resume-copy">' +
+          (review
+            ? '<span class="cglc-resume-text">' + (review.needs_review === true ? "该目标待复习恢复" : "复习到期") + '——学习时将先诊断保留度</span>'
+            : '<span class="cglc-resume-text">准备好就出发,助手按七步学习循环带你掌握它</span>') +
+        '</div>' +
+        '<button class="cglc-resume-btn" type="button" data-testid="panel-obj-learn"' + ctaDisabled + '>▶ 去会话学</button>' +
+      '</div>';
+
+    main.innerHTML = html;
+    const learnBtn = main.querySelector("[data-testid='panel-obj-learn']");
+    if (learnBtn && !locked) {
+      learnBtn.addEventListener("click", function () { goLearnObjective(o.id); });
+    }
+  }
+
+  function renderNotConnected() {
+    currentContainer.innerHTML =
+      '<div class="cglc-page"><div class="cglc-main">' +
+        '<div class="cgc-banner" data-testid="panel-not-connected">' +
+          '<b>CGC-2046 未连接。</b>' + escapeHtml(state.error.message || "") +
+          '<div class="cgc-banner-hint">请先在 CGC-2046 连接面板完成连接(生成 token 并连接),再使用课程学习面板。</div>' +
+        '</div>' +
+        '<div class="cgch-actions"><button id="cgc-retry" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button" data-testid="panel-retry">重试</button></div>' +
+      '</div></div>';
+    currentContainer.querySelector("#cgc-retry").addEventListener("click", boot);
+  }
+
+  // ---- 样式(宿主变量;左栏大纲树 + 主区两态) ----
   function injectStyles() {
-    if (document.getElementById("cgc-course-styles")) return;
+    if (document.getElementById("cglc-styles")) return;
     const css = document.createElement("style");
-    css.id = "cgc-course-styles";
-    css.textContent =
-      ".cgc-course-panel .cgc-input{width:70%;margin-right:8px;padding:6px 10px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;font-size:13px}" +
-      ".cgc-panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}" +
-      ".cgc-course-list{margin-top:10px}" +
-      ".cgc-course-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer}" +
-      ".cgc-course-row:hover{background:rgba(127,127,127,.12)}" +
-      ".cgc-obj-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border-radius:8px}" +
-      ".cgc-obj-row:hover{background:rgba(127,127,127,.12)}" +
-      ".cgc-obj-locked .task-name{color:#6b7280}" +
-      ".cgc-obj-unassessed{color:#9ca3af;border-color:#9ca3af}" +
-      ".cgc-obj-developing{color:#fbbf24;border-color:#fbbf24}" +
-      ".cgc-obj-mastered{color:#34d399;border-color:#34d399}" +
-      ".cgc-obj-needs_review{color:#f97316;border-color:#f97316}" +
-      ".cgc-obj-elective{color:#a78bfa;border-color:#a78bfa}" +
-      ".cgc-obj-review{color:#f87171;border-color:#f87171}" +
-      ".cgc-badge-next{color:#6366f1;border-color:#6366f1}" +
-      ".cgc-obj-meta{display:flex;gap:8px;font-size:12px;color:#9ca3af}" +
-      ".cgc-obj-missing{color:#f97316}" +
-      ".cgc-obj-reason{width:100%;font-size:12px;color:#9ca3af;margin:2px 0 0}" +
-      ".cgc-next-card{display:flex;gap:8px;align-items:center;flex-wrap:wrap}" +
-      ".cgc-review-section{margin-top:10px}" +
-      ".cgc-review-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;cursor:pointer;box-shadow:inset 2px 0 0 #fbbf24}" +
-      ".cgc-review-row:hover{background:rgba(127,127,127,.12)}" +
-      ".cgc-review-row.cgc-review-urgent{box-shadow:inset 2px 0 0 #f87171}" +
-      ".cgc-review-due{font-size:11px;color:#fbbf24;white-space:nowrap}" +
-      ".cgc-progress{height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin:6px 0}" +
-      ".cgc-progress-bar{height:100%;background:#34d399}" +
-      ".cgc-badge-done{color:#34d399;border-color:#34d399}" +
-      ".cgc-ws-group{margin-bottom:6px}" +
-      ".cgc-ws-group-name{font-size:11px;color:#9ca3af;margin:6px 4px 2px}" +
-      ".cgc-inflight-row{cursor:default}" +
-      ".cgc-inflight-meta{display:flex;gap:8px;align-items:center;font-size:12px;color:#9ca3af}" +
-      ".cgc-kind{border:1px solid var(--border,#444);border-radius:999px;padding:0 8px;font-size:11px}" +
-      ".cgc-issue-list{margin-top:10px}" +
-      ".cgc-issue-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer}" +
-      ".cgc-issue-row:hover,.cgc-issue-row.cgc-issue-active{background:rgba(127,127,127,.12)}" +
-      ".cgc-st{width:18px;text-align:center}" +
-      ".cgc-st-done{color:#34d399}.cgc-st-progress{color:#fbbf24}.cgc-st-todo{color:#9ca3af}" +
-      ".cgc-issue-key{font-family:ui-monospace,monospace;font-size:11px;color:#9ca3af}" +
-      ".cgc-kind{margin-left:auto;font-size:11px;border:1px solid var(--border,#444);border-radius:999px;padding:1px 8px;color:#9ca3af}" +
-      ".cgc-issue-card{margin-top:10px}" +
-      ".cgc-issue-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}" +
-      ".cgc-goal{font-size:12px;color:#9ca3af;margin:4px 0}" +
-      ".cgc-checklist{list-style:none;padding:0;margin:8px 0}" +
-      ".cgc-check{display:flex;gap:8px;padding:4px 0;font-size:13px}" +
-      ".cgc-check-done{color:var(--text,#eee)}" +
-      ".cgc-ev-hint{font-size:11px;color:#9ca3af;margin-top:6px}" +
-      ".cgc-btn-primary{background:#6366f1;color:#fff;border:none}" +
-      ".cgc-ws-row{margin-bottom:8px}" +
-      ".cgc-select{padding:4px 8px;border:1px solid var(--border,#444);border-radius:6px;background:transparent;color:inherit;font-size:13px}" +
-      ".cgc-badge{font-size:11px;border:1px solid var(--border,#444);border-radius:999px;padding:1px 8px;color:#9ca3af}" +
-      ".cgc-btn-mini{padding:2px 8px;font-size:12px}" +
-      ".cgc-banner-err{border-color:rgba(192,57,43,.5);background:rgba(192,57,43,.08);color:#c0392b}" +
-      ".cgc-update-bar{display:flex;gap:8px;align-items:center;font-size:12px;color:#9ca3af;border:1px dashed var(--border,#444);border-radius:8px;padding:6px 10px;margin:8px 0}" +
-      ".cgc-edit-row{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;font-size:12px}" +
-      ".cgc-edit-row label{opacity:.65}" +
-      ".cgc-edit-row input,.cgc-edit-row textarea,.cgc-edit-row select{padding:6px 10px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;font-size:13px;font-family:inherit}" +
-      ".cgc-edit-head{flex-direction:row;justify-content:space-between;align-items:center}" +
-      ".cgc-issue-edit{margin-top:10px}" +
-      ".cgc-prep{margin-top:10px}" +
-      ".cgc-prep-head{display:flex;align-items:center;gap:8px;font-size:13px}" +
-      ".cgc-prep-violations{margin:6px 0 0;padding-left:18px;font-size:12px;color:#c0392b}" +
-      ".cgc-prep-quality{margin-top:6px;font-size:12px}";
+    css.id = "cglc-styles";
+    css.textContent = [
+      ".cglc-page{display:grid;grid-template-columns:250px 1fr;gap:16px;min-height:100%;box-sizing:border-box;padding:24px clamp(16px,3vw,40px) 48px;color:var(--color-text-primary);background:radial-gradient(circle at 94% 4%,var(--color-accent-soft),transparent 24rem),var(--color-bg-secondary)}",
+      ".cglc-side{display:flex;flex-direction:column;gap:8px}",
+      ".cglc-side-title{font-size:0.9375rem;font-weight:700;margin-bottom:2px}",
+      ".cglc-select{padding:6px 10px;border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px);background:var(--color-bg-card);color:inherit;font-size:0.8125rem}",
+      ".cglc-tree{background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px);box-shadow:var(--shadow-xs);padding:8px;flex:1;overflow-y:auto}",
+      ".cglc-group-name{font-size:0.6875rem;font-weight:650;color:var(--color-text-tertiary);padding:8px 6px 4px;text-transform:uppercase;letter-spacing:0.04em}",
+      ".cglc-node{display:flex;gap:7px;align-items:center;padding:6px 8px;border-radius:var(--radius-md,8px);cursor:pointer;font-size:0.8125rem}",
+      ".cglc-node:hover{background:var(--color-bg-hover)}",
+      ".cglc-node.is-active{background:var(--color-accent-soft)}",
+      ".cglc-node.is-locked{opacity:0.55;cursor:default}",
+      ".cglc-glyph{flex:none;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;font-size:10px;font-weight:700}",
+      ".cglc-g-mastered{color:var(--color-success,#34d399);border:1px solid currentColor}",
+      ".cglc-g-developing{color:var(--color-warning,#fbbf24);border:1px solid currentColor}",
+      ".cglc-g-review{color:var(--color-error,#f87171);border:1px solid currentColor}",
+      ".cglc-g-todo{color:var(--color-text-muted);border:1px solid currentColor}",
+      ".cglc-node-title{flex:1;min-width:0;word-break:break-all}",
+      ".cglc-node-review{flex:none;font-size:10px;font-weight:700;color:var(--color-warning,#fbbf24)}",
+      ".cglc-lock{flex:none;font-size:11px}",
+      ".cglc-teach-entry{margin-top:4px;padding:8px 10px;border:1px dashed var(--color-border-primary);border-radius:var(--radius-md,8px);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:0.75rem;text-align:left}",
+      ".cglc-teach-entry:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}",
+      ".cglc-main{min-width:0}",
+      ".cglc-head{margin-bottom:16px}",
+      ".cglc-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}",
+      ".cglc-title{margin:0;font-size:1.125rem;font-weight:700;letter-spacing:-0.01em}",
+      ".cglc-progress{height:8px;border-radius:4px;background:var(--color-bg-hover);overflow:hidden;margin:10px 0 6px;max-width:420px}",
+      ".cglc-progress-bar{height:100%;background:var(--color-accent-primary)}",
+      ".cglc-progress-text{font-size:0.75rem;color:var(--color-text-tertiary)}",
+      ".cglc-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:16px 18px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-accent-primary) 30%,var(--color-border-primary));border-radius:var(--radius-lg,10px);box-shadow:var(--shadow-sm)}",
+      ".cglc-resume-copy{flex:1;min-width:200px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}",
+      ".cglc-resume-text{font-size:0.875rem}",
+      ".cglc-resume-btn{flex:none;padding:9px 18px;border:0;border-radius:var(--radius-md,8px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.8125rem;font-weight:700;cursor:pointer;transition:filter var(--transition-fast)}",
+      ".cglc-resume-btn:hover{filter:brightness(1.1)}",
+      ".cglc-badge-next{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;border-radius:999px;font-size:0.6875rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary))}",
+      ".cglc-section-title{font-weight:680;font-size:0.8125rem;margin-bottom:8px}",
+      ".cglc-kv{display:flex;gap:8px;margin-bottom:6px;font-size:0.8125rem}",
+      ".cglc-kv label{flex:none;min-width:44px;color:var(--color-text-tertiary)}",
+      ".cglc-rubric{margin:0;padding-left:18px;font-size:0.8125rem;line-height:1.8}",
+      ".cglc-obj-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}",
+      ".cglc-review-due{font-size:0.6875rem;color:var(--color-warning,#fbbf24);white-space:nowrap}",
+      "@media (max-width:900px){.cglc-page{grid-template-columns:1fr}.cglc-obj-grid{grid-template-columns:1fr}}",
+      ".cgc-card{box-sizing:border-box;padding:14px 16px;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px);box-shadow:var(--shadow-xs);font-size:0.8125rem;line-height:1.7;margin-bottom:14px}",
+      ".cgc-banner{border:1px solid color-mix(in srgb,var(--color-error,#c0392b) 40%,var(--color-border-primary));background:color-mix(in srgb,var(--color-error,#c0392b) 7%,var(--color-bg-card));border-radius:var(--radius-md,8px);padding:10px 12px;margin-bottom:10px;color:var(--color-error,#c0392b);font-size:0.8125rem}",
+      ".cgc-banner-hint{margin-top:4px;opacity:0.85}",
+      ".cgch-empty{color:var(--color-text-tertiary);font-size:0.8125rem;padding:4px 0}",
+      ".cgch-err{color:var(--color-error,#c0392b);font-size:0.8125rem}",
+      ".cgch-chip{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:999px;font-size:0.6875rem;font-weight:650;line-height:1}",
+      ".cgch-chip-admin{color:var(--color-accent-primary);background:var(--color-accent-soft);border-color:color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary))}",
+      ".cgch-actions{display:flex;gap:8px;flex-wrap:wrap}",
+      ".cgch-btn{display:inline-block;padding:7px 14px;border-radius:var(--radius-md,8px);font-size:0.75rem;font-weight:650;text-decoration:none;cursor:pointer;border:1px solid var(--color-border-primary);background:var(--color-bg-card);color:var(--color-text-primary);transition:border-color var(--transition-fast),box-shadow var(--transition-fast)}",
+      ".cgch-btn:hover{border-color:var(--color-border-strong);box-shadow:var(--shadow-sm)}",
+      ".cgch-btn-ghost{background:transparent}",
+      ".cgch-btn-sm{padding:4px 10px;font-size:0.6875rem}",
+      ".cgch-row-list{display:flex;flex-direction:column}",
+      ".cgch-row{display:flex;gap:10px;align-items:baseline;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);font-size:0.8125rem}",
+      ".cgch-row:last-child{border-bottom:0}",
+      ".cgch-row:hover{background:var(--color-bg-hover)}",
+      ".cgch-row-copy{flex:1;min-width:0;word-break:break-all;text-align:left}"
+    ].join("\n");
     document.head.appendChild(css);
   }
 
+  // ---- 生命周期 ----
+  function renderShell(container) {
+    currentContainer = container;
+    if (!state.bootStarted) {
+      state.bootStarted = true;
+      container.innerHTML = '<div class="cglc-page"><div class="cglc-main"><div class="cgc-card cgch-empty">加载中…</div></div></div>';
+      boot();
+      return;
+    }
+    render();
+  }
+
   injectStyles();
-  Clacky.ext.ui.registerWorkspace(WS_ID, { title: "CGC 课程学习", render: render });
+  Clacky.ext.ui.registerWorkspace(WS_ID, { title: "CGC 课程学习中心", render: renderShell });
 })();

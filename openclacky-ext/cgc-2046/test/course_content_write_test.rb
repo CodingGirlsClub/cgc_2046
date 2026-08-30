@@ -265,18 +265,20 @@ end
 # ---- 面板 view.js S4 静态断言(可测面;DOM 级留手动冒烟) ----
 
 class CoursePanelEditTest < Minitest::Test
-  VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+  # S2 教研拆出:编辑器整体迁移至 cgc-2046-curriculum 面板,锚随迁
+  VIEW = File.read(File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__))
+  COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
 
   def test_workspace_picker_replaces_uuid_input
     # S1 finding 收敛:按名选择器(数据源 /me/workspaces),用户永不手填 UUID
-    assert_includes VIEW, 'id="cgc-ws-switch"'
+    assert_includes VIEW, 'id="cgt-course"'
     assert_includes VIEW, "/me/workspaces"
     refute_includes VIEW, "cgc-ws-input"
   end
 
   def test_edit_toggle_gated_by_roles
     # 教研侧角色门控:tutor|owner|admin 才出现编辑入口
-    assert_includes VIEW, 'data-testid="panel-edit-toggle"'
+    assert_includes VIEW, 'data-testid="prep-edit-toggle"'
     assert_includes VIEW, "编辑内容"
     assert_includes VIEW, "canEdit"
     assert_includes VIEW, '"tutor"'
@@ -285,7 +287,7 @@ class CoursePanelEditTest < Minitest::Test
   end
 
   def test_draft_version_badge
-    assert_includes VIEW, 'data-testid="panel-draft-version"'
+    assert_includes VIEW, 'data-testid="prep-draft-version"'
     assert_includes VIEW, "草稿 v"
     # 版本号来自 get_course_content 结果顶层 version(编辑基准 draftContent)
     assert_includes VIEW, "draftContent.version"
@@ -293,7 +295,7 @@ class CoursePanelEditTest < Minitest::Test
 
   def test_editor_shape_and_fields
     # v1 schema:goals 文本域 + issue 卡编辑器(kind/title/as_a/given/goal/materials/checklist)
-    assert_includes VIEW, 'data-testid="panel-editor"'
+    assert_includes VIEW, 'data-testid="curriculum-editor"'
     assert_includes VIEW, 'id="cgc-edit-goals"'
     assert_includes VIEW, 'data-f="kind"'
     assert_includes VIEW, "thoughtwork"
@@ -323,35 +325,38 @@ class CoursePanelEditTest < Minitest::Test
   def test_save_posts_with_base_version
     assert_includes VIEW, 'method: "POST"'
     assert_includes VIEW, "base_version: draftVersion()"
-    assert_includes VIEW, 'data-testid="panel-save"'
+    assert_includes VIEW, 'id="cgc-save"'
   end
 
   def test_conflict_banner_and_reload_on_409
     # AE2:409 → 红色横幅 + 丢弃本地编辑回只读视图
     assert_includes VIEW, "e.status === 409"
-    assert_includes VIEW, 'data-testid="panel-conflict"'
+    assert_includes VIEW, 'data-testid="prep-conflict"'
     assert_includes VIEW, "内容已被他人更新到更新版本,本地编辑已丢弃;请重新进入编辑,基于最新草稿修改"
   end
 
-  def test_polling_markers
-    # R11:10s 轮询 + 非侵入条 + 编辑态挂起 + 容器脱离自停
-    assert_includes VIEW, "setInterval"
-    assert_includes VIEW, "clearInterval"
-    assert_includes VIEW, "10000"
-    assert_includes VIEW, "state.editing || state.saving"
-    assert_includes VIEW, 'data-testid="panel-update-bar"'
-    assert_includes VIEW, "内容已更新"
-    assert_includes VIEW, 'data-testid="panel-list-update-bar"'
-    assert_includes VIEW, "课程列表已更新"
+  def test_prep_section_structure
+    # S5 教研流程状态区迁移自 course 面板(prep_state/策略/违规/质量报告;只读透传)
+    assert_includes VIEW, 'data-testid="prep-section"'
+    assert_includes VIEW, 'data-testid="prep-state"'
+    assert_includes VIEW, 'data-testid="prep-violations"'
+    assert_includes VIEW, 'data-testid="prep-quality"'
+    assert_includes VIEW, '"/prep"'
+    assert_includes VIEW, "state.prep = null"
   end
 
-  def test_existing_read_markers_kept
-    # S4 不破坏列表/详情/连接引导的既有 testid
-    assert_includes VIEW, 'data-testid="panel-course"'
-    assert_includes VIEW, 'data-testid="panel-obj-row"'
-    assert_includes VIEW, 'data-testid="panel-cta"'
-    assert_includes VIEW, 'data-testid="panel-not-connected"'
-    assert_includes VIEW, 'data-testid="panel-retry"'
+  def test_unsaved_exit_guard
+    # 教研拆出新增:取消编辑须确认(防误触丢稿)
+    assert_includes VIEW, "放弃未保存的编辑内容?"
+  end
+
+  def test_read_markers_kept_on_learning_center
+    # 学习中心(原列表/详情面)既有 testid 不丢
+    assert_includes COURSE_VIEW, 'data-testid="panel-course-select"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-outline-node"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-resume-btn"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-not-connected"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-retry"'
   end
 
   def test_editor_escapes_server_strings

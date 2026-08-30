@@ -230,11 +230,14 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, "navigator.clipboard.writeText"
   end
 
-  # 指令文案与课程页 learningPrompt 同口径(两处共享的关键句,防漂移)
+  # 指令口径分侧防漂移:learn 面板全口径(学习+到期复习);course 页 goLearn
+  # 为泛学习入口(无 objective,七步循环口径),复习口吻归 learn 侧
   def test_prompt_copy_in_sync_with_course_panel
     %w[objective_id submit_learning_attempt 七步学习循环 rubric 全部 criterion id 到期复习].each do |key|
       assert_includes VIEW, key, "伴学面板指令缺关键句:#{key}"
-      assert_includes COURSE_VIEW, key, "课程页指令缺关键句:#{key}"
+    end
+    %w[objective_id submit_learning_attempt 七步学习循环].each do |key|
+      assert_includes COURSE_VIEW, key, "课程页 goLearn 指令缺关键句:#{key}"
     end
   end
 
