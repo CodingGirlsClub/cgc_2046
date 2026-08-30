@@ -12,6 +12,7 @@
 
 require "json"
 require "securerandom"
+require "uri"
 require "fileutils"
 require_relative "mcp_config"
 require_relative "course_routes"
@@ -92,7 +93,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 移除 mcpServers["cgc-2046"] 条目并 reload MCP registry（断开连接）。
   # 事务（snapshot→remove→原子提交→reload→回滚）收在 Cgc2046McpConfig.disconnect_server。
   delete "/connect" do
-    guard_origin!
+    guard_write!
     # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe）
     reloader = -> { @http_server&.send(:mcp_registry)&.reload }
 
@@ -232,6 +233,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 学员学习状态投影(objective 课程地图/先修锁/next_action/进度):
   # 透传 MCP get_learning_state。两参数皆必填,缺一 → 400。
   get "/learning_state" do
+    guard_origin!
     workspace_id = route_params_value("workspace_id")
     course_id    = route_params_value("course_id")
     outcome =
@@ -270,6 +272,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 课程当前已发布版本详情(展示增强用:issue 标题/kind;state 为底永不丢
   # objective):透传 MCP get_course_revision(:course_id 路由捕获)。
   get "/courses/:course_id/revision" do
+    guard_origin!
     course_id = route_params_value("course_id")
     outcome =
       if course_id.empty?
@@ -386,6 +389,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   #   2) 写路由(POST):Content-Type 必须 application/json(挡 text/plain 的
   #      cross-site simple request)+ CSRF token 匹配(进程级随机 token 经
   #      GET /status 同源下发;跨站页面读不到 /status——同为 origin 收口面)。
+  #   3) 写路由含 DELETE(断开连接):同样是写端点,与 POST 同规——跨站页面
+  #      可借宿主全开的 preflight 发出 cross-site DELETE,CSRF 一并拦截。
   # 注：同源比对按 host（剥端口后缀）——**同 host 异端口放行是已知残留面**
   # （如 Origin: http://localhost:9999 vs Host: localhost:4114）。攻击前提为
   # 受害者本机已运行恶意 HTTP 服务，风险低；收紧为 host+port 双比对前需先

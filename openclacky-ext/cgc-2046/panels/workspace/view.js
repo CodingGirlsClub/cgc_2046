@@ -13,7 +13,8 @@
 //         行 = kind 标签 + 摘要（申请人 → 目标资源）+ 截止时间（若有）；空态「暂无待办」；
 //         手动刷新按钮
 //   - 连接状态卡：configured / url / token_configured（GET /api/ext/cgc-2046/status，脱敏）
-//   - 断开连接：DELETE /api/ext/cgc-2046/connect（带 confirm，移除 mcp.json 的 cgc-2046 条目）
+//   - 断开连接：DELETE /api/ext/cgc-2046/connect（带 confirm，移除 mcp.json 的 cgc-2046 条目；
+//     写端点同 POST 规——带 X-CGC-CSRF-Token，403-on-CSRF 重取 /status token 重试一次）
 //   - 跳转网站（status.web_url，来自 ext.yml config）
 //   - 最近活动：订阅扩展事件总线（ext.cgc-2046.*，宿主 Agent#emit_event → ws 路由）
 //       - ext.cgc-2046.tool_used —— 每次 CGC MCP 调用完成（hooks/after_tool_use.rb）
@@ -41,6 +42,7 @@
   let isPlatformAdmin = false;
   let selectedWorkspaceId = "";
   let webUrl = "";            // status.web_url，管理入口链接的基址
+  let csrfToken = "";        // 写路由 CSRF token（refresh 时经 /status 同源缓存）
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -297,6 +299,7 @@
     }
 
     const lines = [];
+    if (st.csrf_token) csrfToken = String(st.csrf_token);
     lines.push("<b>连接：</b>" + (st.configured ? "已连接" : "未连接"));
     if (st.url) lines.push("<b>端点：</b>" + escapeHtml(st.url));
     lines.push("<b>Token：</b>" + (st.token_configured ? "已配置" : "未配置"));
@@ -329,7 +332,13 @@
     discEl.disabled = true;
 
     try {
-      const res = await fetch(API + "/connect", { method: "DELETE" });
+      const headers = { "Content-Type": "application/json", Accept: "application/json" };
+      if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
+      let res = await fetch(API + "/connect", { method: "DELETE", headers: headers });
+      if (res.status === 403 && (await refreshCsrf())) {
+        headers["X-CGC-CSRF-Token"] = csrfToken;
+        res = await fetch(API + "/connect", { method: "DELETE", headers: headers });
+      }
       const body = await res.json().catch(function () { return {}; });
       if (!res.ok || !body.ok) throw new Error(body.error || ("HTTP " + res.status));
       await refresh(container, webEl, discEl);
@@ -337,6 +346,17 @@
       window.alert("断开失败：" + String(e.message || e));
       discEl.disabled = false;
     }
+  }
+
+  // 重取 CSRF token（宿主热重载会轮换进程级 token——403-on-CSRF 自愈路径，
+  // 与发现/课程面板同款）
+  async function refreshCsrf() {
+    try {
+      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
+      const body = await res.json().catch(function () { return {}; });
+      if (res.ok && body.csrf_token) { csrfToken = String(body.csrf_token); return true; }
+    } catch (e) { /* 静默 */ }
+    return false;
   }
 
   // ---- 扩展事件总线订阅 ----

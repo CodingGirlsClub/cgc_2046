@@ -2,8 +2,8 @@
 
 OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供：
 
-- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。全部路由做 Origin/Host 同源校验（无 Origin 的本地 curl 放行）；写路由（POST）另需 `Content-Type: application/json` + `X-CGC-CSRF-Token`（进程级 token 经 `GET /status` 同源下发，防跨站伪造写——尤其 connect 可改写 mcp.json 指向）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / `get_public_offering`，membership: public，无需 workspace_id），供发现面板使用。
-- **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）；`cgc-2046-discovery`——发现面板（公开活动/课程列表，标题/时间/地点/状态标签，条目跳 web 详情页；未连接显示连接引导）。
+- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。全部路由做 Origin/Host 同源校验（无 Origin 的本地 curl 放行）；写路由（POST 及 `DELETE /connect`——同为写端点，跨站可借宿主全开的 preflight 发出 cross-site DELETE）另需 `Content-Type: application/json` + `X-CGC-CSRF-Token`（进程级 token 经 `GET /status` 同源下发，防跨站伪造写——尤其 connect 可改写 mcp.json 指向）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / `get_public_offering`，membership: public，无需 workspace_id），供发现面板使用。
+- **panel**：`cgc-2046`——侧边栏入口打开连接状态面板（configured / url / token 配置状态 + 断开连接 + 跳转网站）；`cgc-2046-course`——课程学习面板（我的课程 / 学习目标地图 / 草稿编辑 / 待复习队列）；`cgc-2046-discovery`——发现面板（公开活动/课程列表，标题/时间/地点/状态标签，条目跳 web 详情页；未连接显示连接引导）。
 - **agent**：`cgc-assistant`——通过 CGC MCP 工具读写工作台的助手（17 个工具，含 two-tool 确认流与公开浏览豁免）。
 - **skill**：`cgc2046-onboarding`——引导创建 token、经剪贴板管道调 connect、验证状态的连接流程。
 - **hooks**（OpenClacky ≥1.5.7 事件能力）：
@@ -19,18 +19,24 @@ OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供�
 openclacky-ext/cgc-2046/
   ext.yml                          # manifest（id 与目录名一致；config.mcp_url 是唯一改 URL 的点）
   api/
-    handler.rb                     # 薄 DSL 层：路由 + 上下文 + error! 惯例 + 互斥/回滚加固
+    handler.rb                     # 薄 DSL 层：路由 + 上下文 + error! 惯例 + origin/CSRF 收口
     mcp_config.rb                  # mcp.json read-merge-write 纯逻辑（不依赖 clacky gem，含原子写）
-    offering_routes.rb             # 发现面板 loopback 数据面（公开浏览透传，复用 course_routes 管道）
-  panels/workspace/
-    view.js                        # 侧边栏入口 + 连接状态面板（薄，无框架依赖）
-  api/learner_routes.rb            # Learner 发现/报名/支付 loopback 数据面（S7）
-  panels/cgc-discovery/
-    view.js                        # 发现面板 v2（合并流 + 报名确认卡 + 支付轮询）
+    course_routes.rb               # 课程数据面 + 共享 call_tool 管道（503/502/500 分层，409 冲突映射）
+    offering_routes.rb             # 发现面板公开浏览数据面（复用 course_routes 管道）
+    workbench_routes.rb            # 工作台身份数据面（workspaces/playbook/tasks）
+    learner_routes.rb              # Learner 发现/报名/支付数据面（S7）
+  panels/
+    workspace/view.js              # 侧边栏入口 + 连接状态面板（身份区/任务/断开连接）
+    cgc-course/view.js             # 课程学习面板（列表/详情/草稿编辑/轮询）
+    cgc-discovery/view.js          # 发现面板 v2（合并流 + 报名确认卡 + 支付轮询）
   agents/cgc-assistant/
     system_prompt.md               # CGC-2046 助手人设与工具说明
   skills/cgc2046-onboarding/
     SKILL.md                       # 连接引导流程（剪贴板管道主流程）
+  hooks/
+    after_tool_use.rb              # CGC MCP 调用后推 tool_used / mcp_error 事件
+    on_tool_error.rb               # 工具异常文本命中 CGC 形态时推 mcp_error 事件
+    credential.rb                  # 两 hook 共享的凭证脱敏正则
   bin/pack                         # 打包脚本（symlink → ext pack → ext verify）
   test/
     mcp_config_test.rb             # 纯逻辑单测（minitest，stdlib）
@@ -40,7 +46,8 @@ openclacky-ext/cgc-2046/
     course_content_write_test.rb   # 草稿写路径（协议错误/409 冲突）
     workbench_routes_test.rb       # 工作台路由
     hooks_test.rb                  # 生命周期钩子
-    learner_journey_routes_test.rb # Learner 五路由 + 发现/课程面板静态断言（S7）
+    learner_journey_routes_test.rb # Learner 路由 + guard 收口 + 面板静态断言（S7）
+    panel_behavior_harness.js      # 面板行为级 harness（node 驱动 view.js，DOM 断言）
 ```
 
 ## 打包与安装
@@ -75,7 +82,10 @@ openclacky ext install openclacky-ext/dist/cgc-2046.zip
 
 ```bash
 rm -rf ~/.clacky/ext/installed/cgc-2046
-# 断开连接（移除 cgc-2046 条目）：面板「断开连接」或 curl -X DELETE http://127.0.0.1:7070/api/ext/cgc-2046/connect
+# 断开连接（移除 cgc-2046 条目）：面板「断开连接」按钮，或本地 curl
+# （DELETE 为写端点：Content-Type + CSRF token，token 先经 /status 取，无 Origin 本地 curl 放行 origin 校验）
+CGC_CSRF=$(curl -sS "http://127.0.0.1:7070/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
+curl -sS -X DELETE "http://127.0.0.1:7070/api/ext/cgc-2046/connect" -H "Content-Type: application/json" -H "X-CGC-CSRF-Token: $CGC_CSRF"
 # 或手动编辑 ~/.clacky/mcp.json，删除 mcpServers 下的 "cgc-2046" 条目
 ```
 

@@ -307,9 +307,7 @@
   // 切换读面上下文(详情/草稿/教研都按该 workspace 读)
   async function openCourse(courseId, workspaceId) {
     if (workspaceId && workspaceId !== state.workspaceId) {
-      const ws = state.workspaces.find(function (w) { return w.workspace_id === workspaceId; });
       state.workspaceId = workspaceId;
-      state.workspaceName = ws ? String(ws.name || ws.slug || "") : state.workspaceName;
       localStorage.setItem(STORE_KEY, workspaceId);
       computeCanEdit();
     }
