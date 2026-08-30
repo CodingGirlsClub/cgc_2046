@@ -420,6 +420,22 @@ class HandlerRequestTest < Minitest::Test
 
   # ---- skills/sync（D11 留位）----
 
+  # 真机回归:WEBrick header 未发送键 = 空数组(truthy),request_header 须剔除
+  # 空数组再取候选,否则 Content-Type/CSRF 永远读不到(全部写请求 415/403)
+  def test_write_headers_read_through_webrick_empty_array_shape
+    header = {
+      "Content-Type" => [],
+      "content-type" => ["application/json"],
+      "X-CGC-CSRF-Token" => [],
+      "x-cgc-csrf-token" => [Cgc2046Ext.csrf_token]
+    }
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, FakeReq.new("{}", {}, header))
+
+    halt = invoke(:post, "/skills/sync", inst)
+    assert_equal 501, halt.status, "通过 guard(415/403 之外的错误码即 guard 放行)"
+  end
+
   def test_skills_sync_501
     halt = invoke(:post, "/skills/sync", build(body: "{}"))
 

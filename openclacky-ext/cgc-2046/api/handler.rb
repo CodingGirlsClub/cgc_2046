@@ -443,8 +443,13 @@ class Cgc2046Ext < Clacky::ApiExtension
   def request_header(name)
     h = req.respond_to?(:header) ? req.header : (req.respond_to?(:headers) ? req.headers : {})
     return nil if h.nil?
-    v = h[name] || h[name.downcase] || h[name.upcase] ||
-        h[name.to_sym] || h[name.downcase.to_sym]
+    # WEBrick header 对未发送的键返回空数组(truthy)——直接 || 链会被空数组
+    # 短路,必须先剔除空值再取第一个候选
+    v = [h[name], h[name.downcase], h[name.upcase],
+         h[name.to_sym], h[name.downcase.to_sym]]
+        .compact
+        .reject { |x| x.is_a?(Array) && x.empty? }
+        .first
     v = v.first if v.is_a?(Array)
     v.is_a?(String) ? v : nil
   end
