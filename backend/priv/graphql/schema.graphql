@@ -3,360 +3,55 @@ schema {
   query: RootQueryType
 }
 
-type SpeakerInvitation {
-  id: ID!
-
-  "所属工作台（租户）ID（= Event 的 workspace_id）"
-  workspaceId: ID!
-
-  "目标活动（Event）ID"
-  eventId: ID!
-
-  "接受后绑定的全局账号（拍板 #1：Speaker 必须全局账号，不成为成员）"
-  speakerUserId: ID
-
-  "被邀请人姓名"
-  speakerName: String!
-
-  "被邀请人邮箱（可空 = 手动转发链接）"
-  speakerEmail: String
-
-  "分享主题（可选）"
-  topic: String
-
-  "分享时间（可选）"
-  scheduledAt: DateTime
-
-  "备注（可选）"
-  note: String
-
-  "发起人（Owner\/Admin）"
-  invitedBy: ID!
-
-  "状态机：invited \/ accepted \/ declined \/ completed"
-  status: String!
-
-  acceptedBy: ID
-
-  acceptedAt: DateTime
-
-  declinedAt: DateTime
-
-  completedAt: DateTime
-
-  "token 有效期（可空 = 不设过期）"
-  expiresAt: DateTime
-
-  "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
-  workflowRunId: ID
-}
-
-"The result of the :fulfill_delivery mutation"
-type FulfillDeliveryResult {
+"The result of the :disable_invite_batch mutation"
+type DisableInviteBatchResult {
   "The successful result of the mutation"
-  result: SponsorshipDelivery
+  result: InviteBatch
 
   "Any errors generated, if the mutation failed"
   errors: [MutationError!]!
 }
 
-input FulfillDeliveryInput {
-  proofNote: String!
-}
-
-enum SponsorshipDeliverySortField {
-  ID
-  WORKSPACE_ID
-  SPONSORSHIP_ID
-  BENEFIT
-  DUE_DATE
-  FULFILLED_AT
-  PROOF_NOTE
-  EXCLUSIVE
-}
-
-input SponsorshipDeliveryFilterExclusive {
-  isNil: Boolean
-  eq: Boolean
-  notEq: Boolean
-  in: [Boolean!]
-  lessThan: Boolean
-  greaterThan: Boolean
-  lessThanOrEqual: Boolean
-  greaterThanOrEqual: Boolean
-  isDistinctFrom: Boolean
-  isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
-}
-
-input SponsorshipDeliveryFilterProofNote {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipDeliveryFilterFulfilledAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipDeliveryFilterDueDate {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipDeliveryFilterBenefit {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipDeliveryFilterSponsorshipId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipDeliveryFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipDeliveryFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipDeliveryFilterInput {
-  and: [SponsorshipDeliveryFilterInput!]
-
-  or: [SponsorshipDeliveryFilterInput!]
-
-  not: [SponsorshipDeliveryFilterInput!]
-
-  id: SponsorshipDeliveryFilterId
-
-  "所属工作台（物化时从 Sponsorship 复制，租户）"
-  workspaceId: SponsorshipDeliveryFilterWorkspaceId
-
-  sponsorshipId: SponsorshipDeliveryFilterSponsorshipId
-
-  "权益项名（物化自 tier.benefits）"
-  benefit: SponsorshipDeliveryFilterBenefit
-
-  dueDate: SponsorshipDeliveryFilterDueDate
-
-  fulfilledAt: SponsorshipDeliveryFilterFulfilledAt
-
-  proofNote: SponsorshipDeliveryFilterProofNote
-
-  "独占位标记（随档位复制）"
-  exclusive: SponsorshipDeliveryFilterExclusive
-}
-
-input SponsorshipDeliverySortInput {
-  order: SortOrder
-  field: SponsorshipDeliverySortField!
-}
-
-type SponsorshipDelivery {
-  id: ID!
-
-  "所属工作台（物化时从 Sponsorship 复制，租户）"
-  workspaceId: ID!
-
-  sponsorshipId: ID!
-
-  "权益项名（物化自 tier.benefits）"
-  benefit: String!
-
-  dueDate: DateTime
-
-  fulfilledAt: DateTime
-
-  proofNote: String
-
-  "独占位标记（随档位复制）"
-  exclusive: Boolean!
-}
-
-"The result of the :reject_sponsorship mutation"
-type RejectSponsorshipResult {
+"The result of the :create_invite_batch mutation"
+type CreateInviteBatchResult {
   "The successful result of the mutation"
-  result: Sponsorship
+  result: InviteBatch
 
   "Any errors generated, if the mutation failed"
   errors: [MutationError!]!
 }
 
-input RejectSponsorshipInput {
-  rejectionReason: String
-}
-
-"The result of the :approve_sponsorship mutation"
-type ApproveSponsorshipResult {
-  "The successful result of the mutation"
-  result: Sponsorship
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :create_sponsorship mutation"
-type CreateSponsorshipResult {
-  "The successful result of the mutation"
-  result: Sponsorship
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-input CreateSponsorshipInput {
-  "赞助级别：event 单场 \/ workspace 长期"
-  level: String!
-
+input CreateInviteBatchInput {
   eventId: ID
-
-  "赞助方（全局账号，非成员）"
-  sponsorUserId: ID!
-
-  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
-  tierId: ID
-
-  "意向金额（元，v1 仅登记不收款；可空）"
-  amount: Int
-
-  "赞助方公司\/展示名"
-  companyName: String!
-
-  "联系邮箱（必填）"
-  contactEmail: String!
-
-  contactPhone: String
-
-  "备注\/合作意向"
-  message: String
-
-  targetWorkspaceId: ID
+  courseId: ID
+  inviteCode: String!
+  quota: Int!
+  expiresAt: DateTime
+  status: String
+  remark: String
 }
 
-enum SponsorshipSortField {
+enum InviteBatchSortField {
   ID
-  LEVEL
   WORKSPACE_ID
   EVENT_ID
-  SPONSOR_USER_ID
-  WORKFLOW_RUN_ID
-  TIER_ID
-  TIER_NAME
+  COURSE_ID
+  INVITE_CODE
+  QUOTA
+  REMAINING_QUOTA
+  EXPIRES_AT
   STATUS
-  AMOUNT
-  COMPANY_NAME
-  CONTACT_EMAIL
-  CONTACT_PHONE
-  MESSAGE
-  APPROVED_BY
-  APPROVED_AT
-  REJECTION_REASON
-  APPROVAL_DEADLINE
-  EXPIRED_AT
-  STARTED_AT
-  ENDED_AT
+  REMARK
+  INSERTED_AT
 }
 
-"A keyset page of :sponsorship"
-type KeysetPageOfSponsorship {
+"A keyset page of :invite_batch"
+type KeysetPageOfInviteBatch {
   "Total count on all pages"
   count: Int
 
   "The records contained in the page"
-  results: [Sponsorship!]
+  results: [InviteBatch!]
 
   "The first keyset in the results"
   startKeyset: String
@@ -365,11 +60,11 @@ type KeysetPageOfSponsorship {
   endKeyset: String
 }
 
-input SponsorshipFilterEndedAt {
+input InviteBatchFilterInsertedAt {
   isNil: Boolean
   eq: DateTime
   notEq: DateTime
-  in: [DateTime]
+  in: [DateTime!]
   lessThan: DateTime
   greaterThan: DateTime
   lessThanOrEqual: DateTime
@@ -381,55 +76,7 @@ input SponsorshipFilterEndedAt {
   rangeOverlaps: DateTime
 }
 
-input SponsorshipFilterStartedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterExpiredAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterApprovalDeadline {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterRejectionReason {
+input InviteBatchFilterRemark {
   isNil: Boolean
   eq: String
   notEq: String
@@ -450,81 +97,7 @@ input SponsorshipFilterRejectionReason {
   ilike: String
 }
 
-input SponsorshipFilterApprovedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input SponsorshipFilterApprovedBy {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterMessage {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterContactPhone {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input SponsorshipFilterContactEmail {
+input InviteBatchFilterStatus {
   isNil: Boolean
   eq: String
   notEq: String
@@ -533,44 +106,34 @@ input SponsorshipFilterContactEmail {
   greaterThan: String
   lessThanOrEqual: String
   greaterThanOrEqual: String
-  contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
   rangeAdjacent: String
   rangeContains: String
   rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
 }
 
-input SponsorshipFilterCompanyName {
+input InviteBatchFilterExpiresAt {
   isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
   rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
+  rangeOverlaps: DateTime
 }
 
-input SponsorshipFilterAmount {
+input InviteBatchFilterRemainingQuota {
   isNil: Boolean
   eq: Int
   notEq: Int
-  in: [Int]
+  in: [Int!]
   lessThan: Int
   greaterThan: Int
   lessThanOrEqual: Int
@@ -582,27 +145,27 @@ input SponsorshipFilterAmount {
   rangeOverlaps: Int
 }
 
-input SponsorshipFilterStatus {
+input InviteBatchFilterQuota {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input InviteBatchFilterInviteCode {
   isNil: Boolean
   eq: String
   notEq: String
   in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input SponsorshipFilterTierName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
   lessThan: String
   greaterThan: String
   lessThanOrEqual: String
@@ -619,7 +182,7 @@ input SponsorshipFilterTierName {
   ilike: String
 }
 
-input SponsorshipFilterTierId {
+input InviteBatchFilterCourseId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -635,7 +198,7 @@ input SponsorshipFilterTierId {
   rangeOverlaps: ID
 }
 
-input SponsorshipFilterWorkflowRunId {
+input InviteBatchFilterEventId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -651,7 +214,7 @@ input SponsorshipFilterWorkflowRunId {
   rangeOverlaps: ID
 }
 
-input SponsorshipFilterSponsorUserId {
+input InviteBatchFilterWorkspaceId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -667,23 +230,7 @@ input SponsorshipFilterSponsorUserId {
   rangeOverlaps: ID
 }
 
-input SponsorshipFilterEventId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterWorkspaceId {
+input InviteBatchFilterId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -699,171 +246,40 @@ input SponsorshipFilterWorkspaceId {
   rangeOverlaps: ID
 }
 
-input SponsorshipFilterLevel {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
+input InviteBatchFilterInput {
+  and: [InviteBatchFilterInput!]
+  or: [InviteBatchFilterInput!]
+  not: [InviteBatchFilterInput!]
+  id: InviteBatchFilterId
+  workspaceId: InviteBatchFilterWorkspaceId
+  eventId: InviteBatchFilterEventId
+  courseId: InviteBatchFilterCourseId
+  inviteCode: InviteBatchFilterInviteCode
+  quota: InviteBatchFilterQuota
+  remainingQuota: InviteBatchFilterRemainingQuota
+  expiresAt: InviteBatchFilterExpiresAt
+  status: InviteBatchFilterStatus
+  remark: InviteBatchFilterRemark
+  insertedAt: InviteBatchFilterInsertedAt
 }
 
-input SponsorshipFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input SponsorshipFilterInput {
-  and: [SponsorshipFilterInput!]
-
-  or: [SponsorshipFilterInput!]
-
-  not: [SponsorshipFilterInput!]
-
-  id: SponsorshipFilterId
-
-  "赞助级别：event 单场 \/ workspace 长期"
-  level: SponsorshipFilterLevel
-
-  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
-  workspaceId: SponsorshipFilterWorkspaceId
-
-  eventId: SponsorshipFilterEventId
-
-  "赞助方（全局账号，非成员）"
-  sponsorUserId: SponsorshipFilterSponsorUserId
-
-  workflowRunId: SponsorshipFilterWorkflowRunId
-
-  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
-  tierId: SponsorshipFilterTierId
-
-  "档位展示名冗余（审批\/展示用）"
-  tierName: SponsorshipFilterTierName
-
-  status: SponsorshipFilterStatus
-
-  "意向金额（元，v1 仅登记不收款；可空）"
-  amount: SponsorshipFilterAmount
-
-  "赞助方公司\/展示名"
-  companyName: SponsorshipFilterCompanyName
-
-  "联系邮箱（必填）"
-  contactEmail: SponsorshipFilterContactEmail
-
-  contactPhone: SponsorshipFilterContactPhone
-
-  "备注\/合作意向"
-  message: SponsorshipFilterMessage
-
-  approvedBy: SponsorshipFilterApprovedBy
-
-  approvedAt: SponsorshipFilterApprovedAt
-
-  rejectionReason: SponsorshipFilterRejectionReason
-
-  approvalDeadline: SponsorshipFilterApprovalDeadline
-
-  expiredAt: SponsorshipFilterExpiredAt
-
-  startedAt: SponsorshipFilterStartedAt
-
-  endedAt: SponsorshipFilterEndedAt
-
-  deliveries: SponsorshipDeliveryFilterInput
-}
-
-input SponsorshipSortInput {
+input InviteBatchSortInput {
   order: SortOrder
-  field: SponsorshipSortField!
+  field: InviteBatchSortField!
 }
 
-type Sponsorship {
+type InviteBatch {
   id: ID!
-
-  "赞助级别：event 单场 \/ workspace 长期"
-  level: String!
-
-  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
   workspaceId: ID!
-
   eventId: ID
-
-  "赞助方（全局账号，非成员）"
-  sponsorUserId: ID!
-
-  workflowRunId: ID
-
-  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
-  tierId: ID
-
-  "档位展示名冗余（审批\/展示用）"
-  tierName: String
-
+  courseId: ID
+  inviteCode: String!
+  quota: Int!
+  remainingQuota: Int!
+  expiresAt: DateTime
   status: String!
-
-  "意向金额（元，v1 仅登记不收款；可空）"
-  amount: Int
-
-  "赞助方公司\/展示名"
-  companyName: String!
-
-  "联系邮箱（必填）"
-  contactEmail: String!
-
-  contactPhone: String
-
-  "备注\/合作意向"
-  message: String
-
-  approvedBy: ID
-
-  approvedAt: DateTime
-
-  rejectionReason: String
-
-  approvalDeadline: DateTime
-
-  expiredAt: DateTime
-
-  startedAt: DateTime
-
-  endedAt: DateTime
-
-  deliveries(
-    "How to sort the records in the response"
-    sort: [SponsorshipDeliverySortInput]
-
-    "A filter to limit the results"
-    filter: SponsorshipDeliveryFilterInput
-
-    "The number of records to return."
-    limit: Int
-
-    "The number of records to skip."
-    offset: Int
-  ): [SponsorshipDelivery!]!
-
-  targetTitle: String
+  remark: String
+  insertedAt: DateTime!
 }
 
 "The result of the :waive_payment mutation"
@@ -1274,283 +690,34 @@ input EnrollmentSortInput {
   field: EnrollmentSortField!
 }
 
-"The result of the :disable_invite_batch mutation"
-type DisableInviteBatchResult {
-  "The successful result of the mutation"
-  result: InviteBatch
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
+enum SortOrder {
+  DESC
+  DESC_NULLS_FIRST
+  DESC_NULLS_LAST
+  ASC
+  ASC_NULLS_FIRST
+  ASC_NULLS_LAST
 }
 
-"The result of the :create_invite_batch mutation"
-type CreateInviteBatchResult {
-  "The successful result of the mutation"
-  result: InviteBatch
+"An error generated by a failed mutation"
+type MutationError {
+  "The human readable error message"
+  message: String
 
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
+  "A shorter error message, with vars not replaced"
+  shortMessage: String
 
-input CreateInviteBatchInput {
-  eventId: ID
-  courseId: ID
-  inviteCode: String!
-  quota: Int!
-  expiresAt: DateTime
-  status: String
-  remark: String
-}
+  "Replacements for the short message"
+  vars: Json
 
-enum InviteBatchSortField {
-  ID
-  WORKSPACE_ID
-  EVENT_ID
-  COURSE_ID
-  INVITE_CODE
-  QUOTA
-  REMAINING_QUOTA
-  EXPIRES_AT
-  STATUS
-  REMARK
-  INSERTED_AT
-}
+  "An error code for the given error"
+  code: String
 
-"A keyset page of :invite_batch"
-type KeysetPageOfInviteBatch {
-  "Total count on all pages"
-  count: Int
+  "The field or fields that produced the error"
+  fields: [String!]
 
-  "The records contained in the page"
-  results: [InviteBatch!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input InviteBatchFilterInsertedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime!]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input InviteBatchFilterRemark {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input InviteBatchFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input InviteBatchFilterExpiresAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input InviteBatchFilterRemainingQuota {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input InviteBatchFilterQuota {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input InviteBatchFilterInviteCode {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input InviteBatchFilterCourseId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterEventId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input InviteBatchFilterInput {
-  and: [InviteBatchFilterInput!]
-  or: [InviteBatchFilterInput!]
-  not: [InviteBatchFilterInput!]
-  id: InviteBatchFilterId
-  workspaceId: InviteBatchFilterWorkspaceId
-  eventId: InviteBatchFilterEventId
-  courseId: InviteBatchFilterCourseId
-  inviteCode: InviteBatchFilterInviteCode
-  quota: InviteBatchFilterQuota
-  remainingQuota: InviteBatchFilterRemainingQuota
-  expiresAt: InviteBatchFilterExpiresAt
-  status: InviteBatchFilterStatus
-  remark: InviteBatchFilterRemark
-  insertedAt: InviteBatchFilterInsertedAt
-}
-
-input InviteBatchSortInput {
-  order: SortOrder
-  field: InviteBatchSortField!
-}
-
-type InviteBatch {
-  id: ID!
-  workspaceId: ID!
-  eventId: ID
-  courseId: ID
-  inviteCode: String!
-  quota: Int!
-  remainingQuota: Int!
-  expiresAt: DateTime
-  status: String!
-  remark: String
-  insertedAt: DateTime!
+  "The path to the field that produced the error"
+  path: [String!]
 }
 
 "The result of the :cancel_course mutation"
@@ -1590,7 +757,7 @@ type UpdateCourseResult {
 }
 
 input UpdateCourseInput {
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: String
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
@@ -1600,7 +767,7 @@ input UpdateCourseInput {
   description: String
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -1637,7 +804,7 @@ type CreateCourseResult {
 }
 
 input CreateCourseInput {
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: String!
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
@@ -1647,7 +814,7 @@ input CreateCourseInput {
   description: String
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -1681,9 +848,10 @@ enum CourseSortField {
   ID
   WORKSPACE_ID
   TITLE
+  PROVISIONAL_TITLE
   SLUG
   DESCRIPTION
-  RESEARCH_REQUIREMENTS
+  CURRICULUM_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
   ENROLLMENT_POLICY
@@ -1871,7 +1039,7 @@ input CourseFilterStatus {
   rangeOverlaps: String
 }
 
-input CourseFilterResearchRequirements {
+input CourseFilterCurriculumRequirements {
   isNil: Boolean
   eq: JsonString
   notEq: JsonString
@@ -1927,6 +1095,22 @@ input CourseFilterSlug {
   stringStartsWith: String
   like: String
   ilike: String
+}
+
+input CourseFilterProvisionalTitle {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
 }
 
 input CourseFilterTitle {
@@ -1994,8 +1178,11 @@ input CourseFilterInput {
   "所属工作台（租户）ID"
   workspaceId: CourseFilterWorkspaceId
 
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: CourseFilterTitle
+
+  "当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21\/AE1）；设置真实标题即清除，发布前置门"
+  provisionalTitle: CourseFilterProvisionalTitle
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
   slug: CourseFilterSlug
@@ -2004,7 +1191,7 @@ input CourseFilterInput {
   description: CourseFilterDescription
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: CourseFilterResearchRequirements
+  curriculumRequirements: CourseFilterCurriculumRequirements
 
   "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: CourseFilterStatus
@@ -2050,8 +1237,11 @@ type Course {
   "所属工作台（租户）ID"
   workspaceId: ID!
 
-  "课程标题"
+  "课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空"
   title: String!
+
+  "当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21\/AE1）；设置真实标题即清除，发布前置门"
+  provisionalTitle: Boolean!
 
   "公开 URL 段（\/courses\/[slug]，全局唯一）"
   slug: String
@@ -2060,7 +1250,7 @@ type Course {
   description: String
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "课程状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: String!
@@ -2100,6 +1290,54 @@ type Course {
   availablePriceTiers: [JsonString!]
 
   enrollmentBadge: String
+}
+
+type SpeakerInvitation {
+  id: ID!
+
+  "所属工作台（租户）ID（= Event 的 workspace_id）"
+  workspaceId: ID!
+
+  "目标活动（Event）ID"
+  eventId: ID!
+
+  "接受后绑定的全局账号（拍板 #1：Speaker 必须全局账号，不成为成员）"
+  speakerUserId: ID
+
+  "被邀请人姓名"
+  speakerName: String!
+
+  "被邀请人邮箱（可空 = 手动转发链接）"
+  speakerEmail: String
+
+  "分享主题（可选）"
+  topic: String
+
+  "分享时间（可选）"
+  scheduledAt: DateTime
+
+  "备注（可选）"
+  note: String
+
+  "发起人（Owner\/Admin）"
+  invitedBy: ID!
+
+  "状态机：invited \/ accepted \/ declined \/ completed"
+  status: String!
+
+  acceptedBy: ID
+
+  acceptedAt: DateTime
+
+  declinedAt: DateTime
+
+  completedAt: DateTime
+
+  "token 有效期（可空 = 不设过期）"
+  expiresAt: DateTime
+
+  "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
+  workflowRunId: ID
 }
 
 "The result of the :cancel_event mutation"
@@ -2149,10 +1387,10 @@ input UpdateEventInput {
   description: String
 
   "是否启用教研 workflow"
-  researchEnabled: Boolean
+  curriculumEnabled: Boolean
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -2211,10 +1449,10 @@ input CreateEventInput {
   description: String
 
   "是否启用教研 workflow"
-  researchEnabled: Boolean
+  curriculumEnabled: Boolean
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "报名策略：open \/ request \/ invite_only"
   enrollmentPolicy: String
@@ -2262,8 +1500,8 @@ enum EventSortField {
   TITLE
   SLUG
   DESCRIPTION
-  RESEARCH_ENABLED
-  RESEARCH_REQUIREMENTS
+  CURRICULUM_ENABLED
+  CURRICULUM_REQUIREMENTS
   STATUS
   WORKFLOW_RUN_ID
   ENROLLMENT_POLICY
@@ -2502,7 +1740,7 @@ input EventFilterStatus {
   rangeOverlaps: String
 }
 
-input EventFilterResearchRequirements {
+input EventFilterCurriculumRequirements {
   isNil: Boolean
   eq: JsonString
   notEq: JsonString
@@ -2518,7 +1756,7 @@ input EventFilterResearchRequirements {
   rangeOverlaps: JsonString
 }
 
-input EventFilterResearchEnabled {
+input EventFilterCurriculumEnabled {
   isNil: Boolean
   eq: Boolean
   notEq: Boolean
@@ -2651,10 +1889,10 @@ input EventFilterInput {
   description: EventFilterDescription
 
   "是否启用教研 workflow"
-  researchEnabled: EventFilterResearchEnabled
+  curriculumEnabled: EventFilterCurriculumEnabled
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: EventFilterResearchRequirements
+  curriculumRequirements: EventFilterCurriculumRequirements
 
   "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: EventFilterStatus
@@ -2717,10 +1955,10 @@ type Event {
   description: String
 
   "是否启用教研 workflow"
-  researchEnabled: Boolean!
+  curriculumEnabled: Boolean!
 
   "教研材料需求（audience\/duration\/sections 等），作为 run input 注入"
-  researchRequirements: JsonString
+  curriculumRequirements: JsonString
 
   "活动状态：draft 草稿 \/ open 已发布 \/ closed 已结束 \/ cancelled 已取消"
   status: String!
@@ -2770,538 +2008,6 @@ type Event {
   availablePriceTiers: [JsonString!]
 
   enrollmentBadge: String
-}
-
-enum WorkflowRunSortField {
-  ID
-  WORKSPACE_ID
-  DEFINITION_ID
-  DEFINITION_VERSION
-  STATUS
-  INPUT_SNAPSHOT
-  FACTS
-  PARTITION_ID
-  VERSION
-  STARTED_AT
-  FINISHED_AT
-}
-
-"A keyset page of :workflow_run"
-type KeysetPageOfWorkflowRun {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [WorkflowRun!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input WorkflowRunFilterFinishedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input WorkflowRunFilterStartedAt {
-  isNil: Boolean
-  eq: DateTime
-  notEq: DateTime
-  in: [DateTime]
-  lessThan: DateTime
-  greaterThan: DateTime
-  lessThanOrEqual: DateTime
-  greaterThanOrEqual: DateTime
-  isDistinctFrom: DateTime
-  isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
-}
-
-input WorkflowRunFilterVersion {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowRunFilterPartitionId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterFacts {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowRunFilterInputSnapshot {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowRunFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input WorkflowRunFilterDefinitionVersion {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowRunFilterDefinitionId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowRunFilterInput {
-  and: [WorkflowRunFilterInput!]
-
-  or: [WorkflowRunFilterInput!]
-
-  not: [WorkflowRunFilterInput!]
-
-  id: WorkflowRunFilterId
-
-  "所属工作台（租户）ID"
-  workspaceId: WorkflowRunFilterWorkspaceId
-
-  "绑定的 WorkflowDefinition ID"
-  definitionId: WorkflowRunFilterDefinitionId
-
-  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
-  definitionVersion: WorkflowRunFilterDefinitionVersion
-
-  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
-  status: WorkflowRunFilterStatus
-
-  "run 输入快照（创建时固化，执行引擎按此驱动）"
-  inputSnapshot: WorkflowRunFilterInputSnapshot
-
-  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
-  facts: WorkflowRunFilterFacts
-
-  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
-  partitionId: WorkflowRunFilterPartitionId
-
-  "乐观锁版本号，每次状态流转 +1"
-  version: WorkflowRunFilterVersion
-
-  "开始执行时间（start action 写入）"
-  startedAt: WorkflowRunFilterStartedAt
-
-  "结束时间（终态 action 写入）"
-  finishedAt: WorkflowRunFilterFinishedAt
-
-  definition: WorkflowDefinitionFilterInput
-}
-
-input WorkflowRunSortInput {
-  order: SortOrder
-  field: WorkflowRunSortField!
-}
-
-type WorkflowRun {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "绑定的 WorkflowDefinition ID"
-  definitionId: ID!
-
-  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
-  definitionVersion: Int!
-
-  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
-  status: String!
-
-  "run 输入快照（创建时固化，执行引擎按此驱动）"
-  inputSnapshot: JsonString
-
-  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
-  facts: JsonString
-
-  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
-  partitionId: ID
-
-  "乐观锁版本号，每次状态流转 +1"
-  version: Int!
-
-  "开始执行时间（start action 写入）"
-  startedAt: DateTime
-
-  "结束时间（终态 action 写入）"
-  finishedAt: DateTime
-
-  definition: WorkflowDefinition!
-
-  "run 绑定版本的步骤定义（step_key\/title\/type\/output_schema，plan 020）"
-  steps: [JsonString!]
-}
-
-input WorkflowDefinitionFilterApprovalTimeout {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowDefinitionFilterNodeDef {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowDefinitionFilterInputSchema {
-  isNil: Boolean
-  eq: JsonString
-  notEq: JsonString
-  in: [JsonString]
-  lessThan: JsonString
-  greaterThan: JsonString
-  lessThanOrEqual: JsonString
-  greaterThanOrEqual: JsonString
-  isDistinctFrom: JsonString
-  isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
-}
-
-input WorkflowDefinitionFilterStatus {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input WorkflowDefinitionFilterVersion {
-  isNil: Boolean
-  eq: Int
-  notEq: Int
-  in: [Int!]
-  lessThan: Int
-  greaterThan: Int
-  lessThanOrEqual: Int
-  greaterThanOrEqual: Int
-  isDistinctFrom: Int
-  isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
-}
-
-input WorkflowDefinitionFilterType {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-}
-
-input WorkflowDefinitionFilterName {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String!]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
-input WorkflowDefinitionFilterWorkspaceId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowDefinitionFilterId {
-  isNil: Boolean
-  eq: ID
-  notEq: ID
-  in: [ID!]
-  lessThan: ID
-  greaterThan: ID
-  lessThanOrEqual: ID
-  greaterThanOrEqual: ID
-  isDistinctFrom: ID
-  isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
-}
-
-input WorkflowDefinitionFilterInput {
-  and: [WorkflowDefinitionFilterInput!]
-
-  or: [WorkflowDefinitionFilterInput!]
-
-  not: [WorkflowDefinitionFilterInput!]
-
-  id: WorkflowDefinitionFilterId
-
-  "所属工作台（租户）ID"
-  workspaceId: WorkflowDefinitionFilterWorkspaceId
-
-  "蓝图名称（租户内可读）"
-  name: WorkflowDefinitionFilterName
-
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ research 教研"
-  type: WorkflowDefinitionFilterType
-
-  "版本号，单调递增；new_version 出 v+1（#34）"
-  version: WorkflowDefinitionFilterVersion
-
-  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
-  status: WorkflowDefinitionFilterStatus
-
-  "workflow 输入参数 schema"
-  inputSchema: WorkflowDefinitionFilterInputSchema
-
-  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
-  nodeDef: WorkflowDefinitionFilterNodeDef
-
-  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
-  approvalTimeout: WorkflowDefinitionFilterApprovalTimeout
-}
-
-type WorkflowDefinition {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "蓝图名称（租户内可读）"
-  name: String!
-
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ research 教研"
-  type: String!
-
-  "版本号，单调递增；new_version 出 v+1（#34）"
-  version: Int!
-
-  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
-  status: String!
-
-  "workflow 输入参数 schema"
-  inputSchema: JsonString
-
-  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
-  nodeDef: JsonString
-
-  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
-  approvalTimeout: Int
-}
-
-enum SortOrder {
-  DESC
-  DESC_NULLS_FIRST
-  DESC_NULLS_LAST
-  ASC
-  ASC_NULLS_FIRST
-  ASC_NULLS_LAST
-}
-
-"An error generated by a failed mutation"
-type MutationError {
-  "The human readable error message"
-  message: String
-
-  "A shorter error message, with vars not replaced"
-  shortMessage: String
-
-  "Replacements for the short message"
-  vars: Json
-
-  "An error code for the given error"
-  code: String
-
-  "The field or fields that produced the error"
-  fields: [String!]
-
-  "The path to the field that produced the error"
-  path: [String!]
 }
 
 "The result of the :reject_workspace_application mutation"
@@ -5479,6 +4185,1323 @@ type Order {
   tierId: String
 }
 
+"The result of the :fulfill_delivery mutation"
+type FulfillDeliveryResult {
+  "The successful result of the mutation"
+  result: SponsorshipDelivery
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input FulfillDeliveryInput {
+  proofNote: String!
+}
+
+enum SponsorshipDeliverySortField {
+  ID
+  WORKSPACE_ID
+  SPONSORSHIP_ID
+  BENEFIT
+  DUE_DATE
+  FULFILLED_AT
+  PROOF_NOTE
+  EXCLUSIVE
+}
+
+input SponsorshipDeliveryFilterExclusive {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input SponsorshipDeliveryFilterProofNote {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipDeliveryFilterFulfilledAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipDeliveryFilterDueDate {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipDeliveryFilterBenefit {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipDeliveryFilterSponsorshipId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipDeliveryFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipDeliveryFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipDeliveryFilterInput {
+  and: [SponsorshipDeliveryFilterInput!]
+
+  or: [SponsorshipDeliveryFilterInput!]
+
+  not: [SponsorshipDeliveryFilterInput!]
+
+  id: SponsorshipDeliveryFilterId
+
+  "所属工作台（物化时从 Sponsorship 复制，租户）"
+  workspaceId: SponsorshipDeliveryFilterWorkspaceId
+
+  sponsorshipId: SponsorshipDeliveryFilterSponsorshipId
+
+  "权益项名（物化自 tier.benefits）"
+  benefit: SponsorshipDeliveryFilterBenefit
+
+  dueDate: SponsorshipDeliveryFilterDueDate
+
+  fulfilledAt: SponsorshipDeliveryFilterFulfilledAt
+
+  proofNote: SponsorshipDeliveryFilterProofNote
+
+  "独占位标记（随档位复制）"
+  exclusive: SponsorshipDeliveryFilterExclusive
+}
+
+input SponsorshipDeliverySortInput {
+  order: SortOrder
+  field: SponsorshipDeliverySortField!
+}
+
+type SponsorshipDelivery {
+  id: ID!
+
+  "所属工作台（物化时从 Sponsorship 复制，租户）"
+  workspaceId: ID!
+
+  sponsorshipId: ID!
+
+  "权益项名（物化自 tier.benefits）"
+  benefit: String!
+
+  dueDate: DateTime
+
+  fulfilledAt: DateTime
+
+  proofNote: String
+
+  "独占位标记（随档位复制）"
+  exclusive: Boolean!
+}
+
+"The result of the :reject_sponsorship mutation"
+type RejectSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input RejectSponsorshipInput {
+  rejectionReason: String
+}
+
+"The result of the :approve_sponsorship mutation"
+type ApproveSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"The result of the :create_sponsorship mutation"
+type CreateSponsorshipResult {
+  "The successful result of the mutation"
+  result: Sponsorship
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+input CreateSponsorshipInput {
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: String!
+
+  eventId: ID
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: ID!
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: ID
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: Int
+
+  "赞助方公司\/展示名"
+  companyName: String!
+
+  "联系邮箱（必填）"
+  contactEmail: String!
+
+  contactPhone: String
+
+  "备注\/合作意向"
+  message: String
+
+  targetWorkspaceId: ID
+}
+
+enum SponsorshipSortField {
+  ID
+  LEVEL
+  WORKSPACE_ID
+  EVENT_ID
+  SPONSOR_USER_ID
+  WORKFLOW_RUN_ID
+  TIER_ID
+  TIER_NAME
+  STATUS
+  AMOUNT
+  COMPANY_NAME
+  CONTACT_EMAIL
+  CONTACT_PHONE
+  MESSAGE
+  APPROVED_BY
+  APPROVED_AT
+  REJECTION_REASON
+  APPROVAL_DEADLINE
+  EXPIRED_AT
+  STARTED_AT
+  ENDED_AT
+}
+
+"A keyset page of :sponsorship"
+type KeysetPageOfSponsorship {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Sponsorship!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input SponsorshipFilterEndedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterExpiredAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterApprovalDeadline {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterRejectionReason {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterApprovedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input SponsorshipFilterApprovedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterMessage {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterContactPhone {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterContactEmail {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterCompanyName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterAmount {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input SponsorshipFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input SponsorshipFilterTierName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input SponsorshipFilterTierId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterWorkflowRunId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterSponsorUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterEventId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterLevel {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input SponsorshipFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input SponsorshipFilterInput {
+  and: [SponsorshipFilterInput!]
+
+  or: [SponsorshipFilterInput!]
+
+  not: [SponsorshipFilterInput!]
+
+  id: SponsorshipFilterId
+
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: SponsorshipFilterLevel
+
+  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
+  workspaceId: SponsorshipFilterWorkspaceId
+
+  eventId: SponsorshipFilterEventId
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: SponsorshipFilterSponsorUserId
+
+  workflowRunId: SponsorshipFilterWorkflowRunId
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: SponsorshipFilterTierId
+
+  "档位展示名冗余（审批\/展示用）"
+  tierName: SponsorshipFilterTierName
+
+  status: SponsorshipFilterStatus
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: SponsorshipFilterAmount
+
+  "赞助方公司\/展示名"
+  companyName: SponsorshipFilterCompanyName
+
+  "联系邮箱（必填）"
+  contactEmail: SponsorshipFilterContactEmail
+
+  contactPhone: SponsorshipFilterContactPhone
+
+  "备注\/合作意向"
+  message: SponsorshipFilterMessage
+
+  approvedBy: SponsorshipFilterApprovedBy
+
+  approvedAt: SponsorshipFilterApprovedAt
+
+  rejectionReason: SponsorshipFilterRejectionReason
+
+  approvalDeadline: SponsorshipFilterApprovalDeadline
+
+  expiredAt: SponsorshipFilterExpiredAt
+
+  startedAt: SponsorshipFilterStartedAt
+
+  endedAt: SponsorshipFilterEndedAt
+
+  deliveries: SponsorshipDeliveryFilterInput
+}
+
+input SponsorshipSortInput {
+  order: SortOrder
+  field: SponsorshipSortField!
+}
+
+type Sponsorship {
+  id: ID!
+
+  "赞助级别：event 单场 \/ workspace 长期"
+  level: String!
+
+  "所属工作台（租户）：Event 级 = 活动所属工作台；Workspace 级 = 目标工作台"
+  workspaceId: ID!
+
+  eventId: ID
+
+  "赞助方（全局账号，非成员）"
+  sponsorUserId: ID!
+
+  workflowRunId: ID
+
+  "意向档位（指向目标 sponsorship_tiers 配置内的档位 id，可选）"
+  tierId: ID
+
+  "档位展示名冗余（审批\/展示用）"
+  tierName: String
+
+  status: String!
+
+  "意向金额（元，v1 仅登记不收款；可空）"
+  amount: Int
+
+  "赞助方公司\/展示名"
+  companyName: String!
+
+  "联系邮箱（必填）"
+  contactEmail: String!
+
+  contactPhone: String
+
+  "备注\/合作意向"
+  message: String
+
+  approvedBy: ID
+
+  approvedAt: DateTime
+
+  rejectionReason: String
+
+  approvalDeadline: DateTime
+
+  expiredAt: DateTime
+
+  startedAt: DateTime
+
+  endedAt: DateTime
+
+  deliveries(
+    "How to sort the records in the response"
+    sort: [SponsorshipDeliverySortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipDeliveryFilterInput
+
+    "The number of records to return."
+    limit: Int
+
+    "The number of records to skip."
+    offset: Int
+  ): [SponsorshipDelivery!]!
+
+  targetTitle: String
+}
+
+enum WorkflowRunSortField {
+  ID
+  WORKSPACE_ID
+  DEFINITION_ID
+  DEFINITION_VERSION
+  STATUS
+  INPUT_SNAPSHOT
+  FACTS
+  PARTITION_ID
+  VERSION
+  STARTED_AT
+  FINISHED_AT
+}
+
+"A keyset page of :workflow_run"
+type KeysetPageOfWorkflowRun {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [WorkflowRun!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+input WorkflowRunFilterFinishedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input WorkflowRunFilterStartedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input WorkflowRunFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowRunFilterPartitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterFacts {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowRunFilterInputSnapshot {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowRunFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input WorkflowRunFilterDefinitionVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowRunFilterDefinitionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowRunFilterInput {
+  and: [WorkflowRunFilterInput!]
+
+  or: [WorkflowRunFilterInput!]
+
+  not: [WorkflowRunFilterInput!]
+
+  id: WorkflowRunFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: WorkflowRunFilterWorkspaceId
+
+  "绑定的 WorkflowDefinition ID"
+  definitionId: WorkflowRunFilterDefinitionId
+
+  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
+  definitionVersion: WorkflowRunFilterDefinitionVersion
+
+  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
+  status: WorkflowRunFilterStatus
+
+  "run 输入快照（创建时固化，执行引擎按此驱动）"
+  inputSnapshot: WorkflowRunFilterInputSnapshot
+
+  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
+  facts: WorkflowRunFilterFacts
+
+  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
+  partitionId: WorkflowRunFilterPartitionId
+
+  "乐观锁版本号，每次状态流转 +1"
+  version: WorkflowRunFilterVersion
+
+  "开始执行时间（start action 写入）"
+  startedAt: WorkflowRunFilterStartedAt
+
+  "结束时间（终态 action 写入）"
+  finishedAt: WorkflowRunFilterFinishedAt
+
+  definition: WorkflowDefinitionFilterInput
+}
+
+input WorkflowRunSortInput {
+  order: SortOrder
+  field: WorkflowRunSortField!
+}
+
+type WorkflowRun {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "绑定的 WorkflowDefinition ID"
+  definitionId: ID!
+
+  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
+  definitionVersion: Int!
+
+  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
+  status: String!
+
+  "run 输入快照（创建时固化，执行引擎按此驱动）"
+  inputSnapshot: JsonString
+
+  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
+  facts: JsonString
+
+  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
+  partitionId: ID
+
+  "乐观锁版本号，每次状态流转 +1"
+  version: Int!
+
+  "开始执行时间（start action 写入）"
+  startedAt: DateTime
+
+  "结束时间（终态 action 写入）"
+  finishedAt: DateTime
+
+  definition: WorkflowDefinition!
+
+  "run 绑定版本的步骤定义（step_key\/title\/type\/output_schema，plan 020）"
+  steps: [JsonString!]
+}
+
+input WorkflowDefinitionFilterApprovalTimeout {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowDefinitionFilterNodeDef {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowDefinitionFilterInputSchema {
+  isNil: Boolean
+  eq: JsonString
+  notEq: JsonString
+  in: [JsonString]
+  lessThan: JsonString
+  greaterThan: JsonString
+  lessThanOrEqual: JsonString
+  greaterThanOrEqual: JsonString
+  isDistinctFrom: JsonString
+  isNotDistinctFrom: JsonString
+  rangeAdjacent: JsonString
+  rangeContains: String
+  rangeOverlaps: JsonString
+}
+
+input WorkflowDefinitionFilterStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input WorkflowDefinitionFilterVersion {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int!]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input WorkflowDefinitionFilterType {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input WorkflowDefinitionFilterName {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input WorkflowDefinitionFilterWorkspaceId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowDefinitionFilterId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID!]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input WorkflowDefinitionFilterInput {
+  and: [WorkflowDefinitionFilterInput!]
+
+  or: [WorkflowDefinitionFilterInput!]
+
+  not: [WorkflowDefinitionFilterInput!]
+
+  id: WorkflowDefinitionFilterId
+
+  "所属工作台（租户）ID"
+  workspaceId: WorkflowDefinitionFilterWorkspaceId
+
+  "蓝图名称（租户内可读）"
+  name: WorkflowDefinitionFilterName
+
+  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研 \/ course_preparation 课程教研流程（S5）"
+  type: WorkflowDefinitionFilterType
+
+  "版本号，单调递增；new_version 出 v+1（#34）"
+  version: WorkflowDefinitionFilterVersion
+
+  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
+  status: WorkflowDefinitionFilterStatus
+
+  "workflow 输入参数 schema"
+  inputSchema: WorkflowDefinitionFilterInputSchema
+
+  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
+  nodeDef: WorkflowDefinitionFilterNodeDef
+
+  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
+  approvalTimeout: WorkflowDefinitionFilterApprovalTimeout
+}
+
+type WorkflowDefinition {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "蓝图名称（租户内可读）"
+  name: String!
+
+  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研 \/ course_preparation 课程教研流程（S5）"
+  type: String!
+
+  "版本号，单调递增；new_version 出 v+1（#34）"
+  version: Int!
+
+  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
+  status: String!
+
+  "workflow 输入参数 schema"
+  inputSchema: JsonString
+
+  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
+  nodeDef: JsonString
+
+  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
+  approvalTimeout: Int
+}
+
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
@@ -5559,6 +5582,83 @@ type RootQueryType {
 
   "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
   reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "工作台的 workflow run 列表（#40 展示页）"
+  listWorkflowRuns(
+    "How to sort the records in the response"
+    sort: [WorkflowRunSortInput]
+
+    "A filter to limit the results"
+    filter: WorkflowRunFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfWorkflowRun
+
+  "按 id 获取 workflow run 详情（#40）"
+  getWorkflowRun(
+    "A filter to limit the results"
+    filter: WorkflowRunFilterInput
+
+    id: ID!
+  ): WorkflowRun
+
+  sponsorships(
+    "How to sort the records in the response"
+    sort: [SponsorshipSortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfSponsorship
+
+  "当前用户跨工作台的赞助意向"
+  mySponsorships(
+    "How to sort the records in the response"
+    sort: [SponsorshipSortInput]
+
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    "The number of records to return from the beginning. Maximum 250"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 250"
+    last: Int
+  ): KeysetPageOfSponsorship
+
+  getSponsorship(
+    "A filter to limit the results"
+    filter: SponsorshipFilterInput
+
+    id: ID!
+  ): Sponsorship
 
   "当前用户订单列表（R14）"
   myOrders(
@@ -5733,35 +5833,6 @@ type RootQueryType {
     last: Int
   ): KeysetPageOfWorkspaceApplication
 
-  "工作台的 workflow run 列表（#40 展示页）"
-  listWorkflowRuns(
-    "How to sort the records in the response"
-    sort: [WorkflowRunSortInput]
-
-    "A filter to limit the results"
-    filter: WorkflowRunFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfWorkflowRun
-
-  "按 id 获取 workflow run 详情（#40）"
-  getWorkflowRun(
-    "A filter to limit the results"
-    filter: WorkflowRunFilterInput
-
-    id: ID!
-  ): WorkflowRun
-
   "工作台的活动列表（#40 展示页）"
   listEvents(
     "How to sort the records in the response"
@@ -5836,26 +5907,6 @@ type RootQueryType {
     slug: String!
   ): Course
 
-  inviteBatches(
-    "How to sort the records in the response"
-    sort: [InviteBatchSortInput]
-
-    "A filter to limit the results"
-    filter: InviteBatchFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfInviteBatch
-
   enrollments(
     "How to sort the records in the response"
     sort: [EnrollmentSortInput]
@@ -5897,12 +5948,12 @@ type RootQueryType {
     last: Int
   ): KeysetPageOfEnrollment
 
-  sponsorships(
+  inviteBatches(
     "How to sort the records in the response"
-    sort: [SponsorshipSortInput]
+    sort: [InviteBatchSortInput]
 
     "A filter to limit the results"
-    filter: SponsorshipFilterInput
+    filter: InviteBatchFilterInput
 
     "The number of records to return from the beginning. Maximum 250"
     first: Int
@@ -5915,35 +5966,7 @@ type RootQueryType {
 
     "The number of records to return to the end. Maximum 250"
     last: Int
-  ): KeysetPageOfSponsorship
-
-  "当前用户跨工作台的赞助意向"
-  mySponsorships(
-    "How to sort the records in the response"
-    sort: [SponsorshipSortInput]
-
-    "A filter to limit the results"
-    filter: SponsorshipFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfSponsorship
-
-  getSponsorship(
-    "A filter to limit the results"
-    filter: SponsorshipFilterInput
-
-    id: ID!
-  ): Sponsorship
+  ): KeysetPageOfInviteBatch
 }
 
 type AbilityGrant {
@@ -6022,11 +6045,9 @@ type MyLearningRun {
   enrollmentId: ID!
   targetTitle: String
   status: String!
-  doneIssues: Int!
-  totalIssues: Int!
-  currentIssueId: String
-  currentIssueTitle: String
-  currentIssueKey: String
+  staleRevision: Boolean!
+  progress: LearningProgress!
+  nextAction: LearningNextAction
   courseId: ID
 }
 
@@ -6034,31 +6055,20 @@ type CourseLearningDetail {
   courseId: ID!
   title: String!
   slug: String
-  goals: [String!]!
-  issues: [LearningIssue!]!
+  run: LearningRunSummary
+  revisionNumber: Int
+  staleRevision: Boolean!
+  reviewQueue: [LearningReviewQueueEntry!]!
+  objectives: [LearningObjectiveState!]!
+  nextAction: LearningNextAction
   progress: LearningProgress
 }
 
-type LearningIssue {
-  key: String!
-  id: String!
-  title: String!
-  kind: String!
-  status: String!
-  story: IssueStory
-}
-
-type IssueStory {
-  asA: String
-  given: [String!]!
-  goal: String
-  materials: [IssueMaterial!]!
-  checklist: [IssueChecklistItem!]!
-}
-
-type IssueMaterial {
-  title: String
-  ref: String
+type LearningReviewQueueEntry {
+  objectiveId: String!
+  dueAt: DateTime!
+  milestoneDays: Int
+  needsReview: Boolean!
 }
 
 type CourseMap {
@@ -6077,20 +6087,42 @@ type CourseMapIssue {
   goal: String
 }
 
-type IssueChecklistItem {
+type LearningRunSummary {
+  id: ID!
+  status: String!
+  revisionId: ID
+  revisionNumber: Int
+}
+
+type LearningObjectiveState {
   id: String!
-  text: String!
-  done: Boolean!
-  evidence: String
-  recordedAt: DateTime
+  title: String!
+  required: Boolean!
+  issueId: String
+  prereqIds: [String!]!
+  mastery: String!
+  everMastered: Boolean!
+  locked: Boolean!
+  missingPrereqIds: [LearningPrereqRef!]!
+  attemptCount: Int!
+  lastAttemptAt: DateTime
+}
+
+type LearningPrereqRef {
+  id: String!
+  title: String
+}
+
+type LearningNextAction {
+  kind: String!
+  objectiveId: String!
+  reason: String!
 }
 
 type LearningProgress {
-  doneIssues: Int!
-  totalIssues: Int!
-  currentIssueId: String
-  currentIssueTitle: String
-  currentIssueKey: String
+  masteredRequired: Int!
+  totalRequired: Int!
+  complete: Boolean!
 }
 
 type WorkspaceToolCall {
@@ -6552,6 +6584,18 @@ type RootMutationType {
   "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
   demoteUser(id: ID!): AdminUserPayload
 
+  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
+  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
+
+  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
+  approveSponsorship(id: ID!): ApproveSponsorshipResult!
+
+  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
+  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
+
+  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
+  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
+
   "报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5\/R6\/R13）"
   createOrder(input: CreateOrderInput!): CreateOrderResult!
 
@@ -6636,10 +6680,6 @@ type RootMutationType {
   "取消课程：open → cancelled，发 course.ended 信号"
   cancelCourse(id: ID!): CancelCourseResult!
 
-  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
-
-  disableInviteBatch(id: ID!): DisableInviteBatchResult!
-
   "创建报名；open\/invite_only 立即占位，request 等待审批"
   createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
 
@@ -6655,17 +6695,9 @@ type RootMutationType {
   "Owner\/Admin\/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18）"
   waivePayment(id: ID!): WaivePaymentResult!
 
-  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
-  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
+  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
 
-  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
-  approveSponsorship(id: ID!): ApproveSponsorshipResult!
-
-  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
-  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
-
-  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
-  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
+  disableInviteBatch(id: ID!): DisableInviteBatchResult!
 }
 
 """

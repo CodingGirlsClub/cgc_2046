@@ -16,7 +16,7 @@ defmodule Cgc2046.Accounts.WechatLoginTicket do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   @ticket_ttl_seconds 600
 
@@ -83,7 +83,7 @@ defmodule Cgc2046.Accounts.WechatLoginTicket do
   policies do
     # 内部资源：仅 platform_admin 经 AshAdmin 观测；非 admin default-deny（#209）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

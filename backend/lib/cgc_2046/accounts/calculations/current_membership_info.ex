@@ -11,13 +11,13 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
   成员路径从已加载的角色并集派生；空标签 membership 仍具备成员基准能力
   （view_workspace / access_invite_only，与旧 member 角色等价）。非成员分支
   （actor 不在该工作台）平台管理员豁免 view/access/create_workspace、其余为 []。
-  双面契约（policy 面放行 vs 能力面拒绝）真源见 `Cgc2046.Policies.PlatformAdmin` moduledoc。
+  双面契约（policy 面放行 vs 能力面拒绝）真源见 `Cgc2046.Accounts.Policies.PlatformAdmin` moduledoc。
   """
   use Ash.Resource.Calculation
 
   alias Cgc2046.Accounts.MembershipContext
-  alias Cgc2046.Policies.PlatformAdmin
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
+  alias Cgc2046.Accounts.Rbac
 
   @impl true
   def calculate(records, opts, %{actor: %{id: _user_id} = actor}) do
@@ -48,7 +48,7 @@ defmodule Cgc2046.Accounts.Calculations.CurrentMembershipInfo do
         nil ->
           # 非成员分支同样由 Rbac.abilities_for/2 派生：平台管理员豁免
           # view/access + create_workspace，其余为 []
-          # （双面契约能力面，真源见 Cgc2046.Policies.PlatformAdmin moduledoc）
+          # （双面契约能力面，真源见 Cgc2046.Accounts.Policies.PlatformAdmin moduledoc）
           if key == :my_abilities do
             non_member_abilities(actor)
           else

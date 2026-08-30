@@ -9,7 +9,7 @@ defmodule Cgc2046.Accounts.MembershipRole do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)
@@ -62,13 +62,13 @@ defmodule Cgc2046.Accounts.MembershipRole do
   policies do
     # 只有 Owner/Admin 能创建/删除角色关联（角色分配受控）
     policy action_type([:create, :destroy]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     # 读取：仅该 membership 所属用户本人可读（或平台管理员）
     policy action_type(:read) do
       authorize_if(expr(membership.user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

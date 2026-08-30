@@ -1,8 +1,8 @@
 defmodule Cgc2046.AsyncSignalTest do
   @moduledoc """
-  E-2 #47 验收：异步衍生 Signal 订阅方（NotificationSubscriber）端到端测试。
+  E-2 #47 验收：异步衍生 Signal 订阅方（Notifications.Subscriber）端到端测试。
 
-  分层（与 repo 既有纪律对齐——research_run_reaper_test 直接调 deliver/2，
+  分层（与 repo 既有纪律对齐——curriculum/reaper_test 直接调 deliver/2，
   「信号总线异步投递在 POC 已验证」）：
 
   1. **真实总线异步投递**：Enrollment after_action 事务内入队 SignalPublishWorker
@@ -29,11 +29,12 @@ defmodule Cgc2046.AsyncSignalTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.NotificationSubscriber
+  alias Cgc2046.Notifications.Subscriber
   alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, SignalSubscriber}
-  alias Cgc2046.Workers.{NotificationWorker, SignalPublishWorker}
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   require Ash.Query
 
@@ -42,15 +43,15 @@ defmodule Cgc2046.AsyncSignalTest do
   setup do
     # 停掉应用级订阅方：本测试经自己的订阅转发进程接收同一信号并同步驱动
     # deliver/2（sandbox owner），避免两个消费者对同一 claim 的竞争。
-    :ok = Supervisor.terminate_child(Cgc2046.Supervisor, NotificationSubscriber)
+    :ok = Supervisor.terminate_child(Cgc2046.Supervisor, Subscriber)
 
     on_exit(fn ->
-      {:ok, _pid} = Supervisor.restart_child(Cgc2046.Supervisor, NotificationSubscriber)
+      {:ok, _pid} = Supervisor.restart_child(Cgc2046.Supervisor, Subscriber)
     end)
 
     test_pid = self()
 
-    for pattern <- NotificationSubscriber.patterns() do
+    for pattern <- Subscriber.patterns() do
       assert {:ok, _sub_id, _monitor_ref, _forwarder_pid} =
                JidoAdapter.subscribe(pattern, fn type, data ->
                  send(test_pid, {:bus_signal, %{type: type, data: data}})
@@ -61,7 +62,7 @@ defmodule Cgc2046.AsyncSignalTest do
   end
 
   test "订阅接线：submitted/completed 已注册（其余模式由全量套件消费行为覆盖）" do
-    patterns = NotificationSubscriber.patterns()
+    patterns = Subscriber.patterns()
     assert "enrollment.submitted" in patterns
     assert "enrollment.completed" in patterns
   end
@@ -266,8 +267,8 @@ defmodule Cgc2046.AsyncSignalTest do
 
       signal = %{type: "enrollment.completed", data: payload}
 
-      assert :ok = SignalSubscriber.deliver(NotificationSubscriber, signal)
-      assert :duplicate = SignalSubscriber.deliver(NotificationSubscriber, signal)
+      assert :ok = SignalSubscriber.deliver(Subscriber, signal)
+      assert :duplicate = SignalSubscriber.deliver(Subscriber, signal)
 
       assert [%{args: %{"idempotency_key" => ^key}}] =
                all_enqueued(
@@ -325,7 +326,7 @@ defmodule Cgc2046.AsyncSignalTest do
   defp handle_delivered_signal(signal_type, enrollment_id, timeout \\ 10_000) do
     receive do
       {:bus_signal, %{type: ^signal_type, data: %{"enrollment_id" => ^enrollment_id}} = signal} ->
-        SignalSubscriber.deliver(NotificationSubscriber, signal)
+        SignalSubscriber.deliver(Subscriber, signal)
     after
       timeout -> :timeout
     end
@@ -333,7 +334,7 @@ defmodule Cgc2046.AsyncSignalTest do
 
   # 骨架消费键（plan Q12）：生产者键 <> ":" <> 消费者短名。
   defp claim_key(enrollment_id),
-    do: "enrollment.completed:" <> enrollment_id <> ":notification_subscriber"
+    do: "enrollment.completed:" <> enrollment_id <> ":subscriber"
 
   defp create_enrollment(event, user) do
     Enrollment

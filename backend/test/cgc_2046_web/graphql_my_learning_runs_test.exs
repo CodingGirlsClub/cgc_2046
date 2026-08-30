@@ -2,7 +2,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.{Step, WorkflowDefinition, WorkflowRun}
 
@@ -57,16 +57,16 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
     assert waiting["enrollmentId"] == enrollment.id
     assert waiting["targetTitle"] == "快照标题"
     assert waiting["status"] == "waiting"
-    # U7(KD8):issue 级口径。事件型 enrollment(无 course content)→ 0/0
-    assert waiting["doneIssues"] == 0
-    assert waiting["totalIssues"] == 0
-    assert waiting["currentIssueTitle"] == nil
+    # S8(ADR-0011):objective 口径。事件型 enrollment(无 course content)→ 0/0
+    assert waiting["progress"]["masteredRequired"] == 0
+    assert waiting["progress"]["totalRequired"] == 0
+    assert waiting["progress"]["complete"] == false
 
     succeeded = Enum.find(rows, &(&1["runId"] == succeeded_run.id))
     assert succeeded["status"] == "succeeded"
-    assert succeeded["doneIssues"] == 0
-    assert succeeded["totalIssues"] == 0
-    assert succeeded["currentIssueTitle"] == nil
+    assert succeeded["progress"]["masteredRequired"] == 0
+    assert succeeded["progress"]["totalRequired"] == 0
+    assert succeeded["progress"]["complete"] == false
   end
 
   test "无 confirmed enrollment 的用户返回空列表，未登录被拒" do
@@ -142,7 +142,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
       WorkflowDefinition
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "学习 workflow", type: :learning, input_schema: %{}, node_def: node_def},
+        %{name: "学习 workflow（测试布景）", type: :learning, input_schema: %{}, node_def: node_def},
         tenant: workspace.id,
         actor: actor
       )
@@ -192,9 +192,9 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
         enrollmentId
         targetTitle
         status
-        doneIssues
-        totalIssues
-        currentIssueTitle
+        staleRevision
+        progress { masteredRequired totalRequired complete }
+        nextAction { kind objectiveId reason }
       }
     }
     """

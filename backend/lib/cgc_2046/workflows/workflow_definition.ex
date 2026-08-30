@@ -34,16 +34,19 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
-  # WorkflowDefinition.type 全 5 枚举（R3 裁决 2026-08-16：删 platform_ops——零驱动的死枚举；
-  # enrollment/sponsorship 为实体自序贯预留，learning/research/speaker_invitation 有 instantiator）
+  # WorkflowDefinition.type 全 6 枚举（R3 裁决 2026-08-16：删 platform_ops——零驱动的死枚举；
+  # enrollment/sponsorship 为实体自序贯预留，learning/curriculum/speaker_invitation 有
+  # instantiator；role-agent-journeys-v2 S5 加 course_preparation——课程教研流程，协议而非
+  # DAG，PrepInstantiator 订阅 course.created 实例化）
   @type_values [
     :learning,
     :enrollment,
     :sponsorship,
     :speaker_invitation,
-    :research
+    :curriculum,
+    :course_preparation
   ]
   @status_values [:draft, :published, :archived]
 
@@ -71,7 +74,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       constraints: [one_of: @type_values],
       description:
         "workflow 类型：learning 学习 / enrollment 报名 / " <>
-          "sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研"
+          "sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 / " <>
+          "course_preparation 课程教研流程（S5）"
     )
 
     attribute(:version, :integer,
@@ -273,13 +277,13 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     # 读取（H3）：仅 workspace 成员或平台管理员可读，杜绝跨租户泄露
     # （对比：原 actor_present() 配合 global?(true) 会让任意登录用户读到任意租户定义）
     policy action_type(:read) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 写操作：Owner/Admin（多角色并集）
     policy action_type([:create, :update]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 

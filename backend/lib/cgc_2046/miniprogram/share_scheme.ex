@@ -3,7 +3,7 @@ defmodule Cgc2046.Miniprogram.ShareScheme do
   微信 URL Scheme 分享链接缓存（plan 011 P1，spike §6 D2-A）。
 
   同一 (target_kind, target_id, platform) 只保留一份记录：未过期复用、
-  过期重生成覆盖（upsert 幂等照 `Cgc2046.Miniprogram.Code` 先例）。
+  过期重生成覆盖（upsert 幂等照 `Cgc2046.Accounts.InvitationCode` 先例）。
   全局资源（scheme 属平台 appid 级产物，不绑 workspace）；到期失效策略
   `min(registration_deadline + 7d, now + 30d)` 在 `ShareSchemeService` 落地
   （D-1；时间源修正见 plan owner 2026-08-18 应答：Event/Course 统一以
@@ -14,7 +14,7 @@ defmodule Cgc2046.Miniprogram.ShareScheme do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Miniprogram
 
   attributes do
     uuid_primary_key(:id)

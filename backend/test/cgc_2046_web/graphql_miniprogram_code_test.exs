@@ -13,7 +13,7 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
       end
     end)
 
-    # wechat 码已迁 SDK client（宿主 WechatRequester + Tesla.Mock，token 走 SDK ETS）
+    # wechat 码已迁 SDK client（宿主 Wechat.Requester + Tesla.Mock，token 走 SDK ETS）
     Tesla.Mock.mock(fn
       %{method: :post, url: "https://api.weixin.qq.com/wxa/getwxacodeunlimit" <> _} ->
         %Tesla.Env{
@@ -113,7 +113,7 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
     scene = get_in(generated, ["data", "generateMiniProgramCode", "scene"])
 
     Cgc2046.Repo.query!(
-      "UPDATE miniprogram_codes SET expires_at = NOW() - INTERVAL '1 minute' WHERE scene = $1",
+      "UPDATE invitation_codes SET expires_at = NOW() - INTERVAL '1 minute' WHERE scene = $1",
       [scene]
     )
 

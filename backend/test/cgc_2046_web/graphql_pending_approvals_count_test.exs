@@ -3,7 +3,8 @@ defmodule Cgc2046Web.GraphqlPendingApprovalsCountTest do
 
   alias Cgc2046.Accounts.JoinRequest
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Enrollment, Sponsorship}
+  alias Cgc2046.Admission.Enrollment
+  alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   # 角标计数口径 ≠ /approvals 展示口径（KTD8）。对侧：graphql_pending_approvals_test.exs。

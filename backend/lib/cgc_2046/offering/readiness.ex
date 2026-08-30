@@ -1,0 +1,90 @@
+defmodule Cgc2046.Offering.Readiness do
+  @moduledoc """
+  GO/NO-GO readiness 清单（E-5 #50，D3 拍板：v1 警告放行 + readiness 查询暴露后台）。
+
+  清单 v1（D3 定稿）：
+  1. `registration_deadline` 已设（null 合法 = 不设截止，仅提示）；
+  2. published 教研 workflow 定义存在（course 查 `:course_preparation`——S5
+     prep run 实例化源；event 查 `:curriculum`。无则对应 run 不会实例化，
+     instantiator 静默跳过——对账规则④同源）；
+  3. `sponsorship_tiers_configured`：event 的 `sponsorship_enabled=true` 时
+     sponsorship_tiers 非空已配（E-3 落库后追加，D3）；course 无赞助概念恒 pass。
+
+  语义：清单非 ready 不阻塞 launch（D3 警告放行），仅记 warning 日志 +
+  经 GraphQL 查询向后台暴露。
+  """
+
+  require Ash.Query
+  require Logger
+
+  alias Cgc2046.Workflows.WorkflowDefinition
+
+  @spec evaluate(map()) :: %{items: [map()], ready: boolean()}
+  def evaluate(entity) do
+    items = [
+      %{
+        key: "registration_deadline",
+        label: "报名截止已设置",
+        ok: not is_nil(entity.registration_deadline)
+      },
+      %{
+        key: "curriculum_definition",
+        label: "已发布教研 workflow 定义",
+        ok: curriculum_definition_published?(entity)
+      },
+      %{
+        key: "sponsorship_tiers_configured",
+        label: "赞助档位已配置",
+        ok: sponsorship_tiers_configured?(entity)
+      }
+    ]
+
+    %{items: items, ready: Enum.all?(items, & &1.ok)}
+  end
+
+  @doc """
+  GO/NO-GO 发布警告（D3 警告放行）：launch 后清单非 ready 记 warning 不阻塞发布，
+  明细经 GraphQL readiness 查询暴露后台。after_transaction 回调形态（Event/Course
+  launch 共用）——仅成功结果评估，原样透传 result。
+  """
+  def warn_unless_ready(_changeset, result, _context) do
+    with {:ok, record} <- result,
+         %{ready: false, items: items} <- evaluate(record) do
+      missing = items |> Enum.reject(& &1.ok) |> Enum.map_join(", ", & &1.label)
+      Logger.warning("GO/NO-GO: launched with missing readiness items: #{missing}")
+    end
+
+    result
+  end
+
+  # 赞助档位就绪判定（D3）：event 的 sponsorship_enabled=true 时 tiers 非空才算
+  # 配好（打开赞助入口却无档位 = 未就绪）；enabled=false 或 course（无
+  # sponsorship_enabled 字段，Map.get 恒 nil）恒 pass。fail-open：读不到字段即视为
+  # 无此维度（course），与「未评估」语义一致。
+  defp sponsorship_tiers_configured?(entity) do
+    case Map.get(entity, :sponsorship_enabled) do
+      nil -> true
+      false -> true
+      true -> not is_nil(entity.sponsorship_tiers) and entity.sponsorship_tiers != []
+    end
+  end
+
+  # 已发布教研定义（多个取任意即可，实例化取最新）——查询失败视为未就绪
+  # （fail-closed：宁可提示不可静默放行）。
+  # role-agent-journeys-v2 S5：course 的教研门槛改为 course_preparation 定义
+  # （prep run 实例化源；launch 教研门同源），event 仍查 :curriculum。
+  defp curriculum_definition_published?(entity) do
+    type = definition_type_for(entity)
+
+    case WorkflowDefinition
+         |> Ash.Query.filter(type == ^type and status == :published)
+         |> Ash.read_first(tenant: entity.workspace_id, authorize?: false) do
+      {:ok, %WorkflowDefinition{}} -> true
+      {:ok, nil} -> false
+      {:error, _} -> false
+    end
+  end
+
+  defp definition_type_for(%Cgc2046.Courses.Course{}), do: :course_preparation
+  defp definition_type_for(_entity), do: :curriculum
+end

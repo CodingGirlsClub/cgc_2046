@@ -67,11 +67,13 @@ const LEARNING_RUN = {
 	enrollmentId: "enr-1",
 	targetTitle: "教研分享会",
 	status: "waiting",
-	doneIssues: 1,
-	totalIssues: 3,
-	currentIssueId: "py-02",
-	currentIssueTitle: "变量与数据",
-	currentIssueKey: "PYTH-02",
+	staleRevision: false,
+	progress: { masteredRequired: 1, totalRequired: 3, complete: false },
+	nextAction: {
+		kind: "developing",
+		objectiveId: "obj-2",
+		reason: "继续攻克「变量与数据」——已有尝试但尚未达到掌握标准",
+	},
 	courseId: "course-1",
 };
 
@@ -164,13 +166,14 @@ describe("/participations 我的参与", () => {
 		tabState.tab = null;
 		render(<ParticipationsPage />);
 		expect(screen.getByRole("heading", { name: "我的学习" })).toBeInTheDocument();
-		// 行内进度:doneIssues/totalIssues 与静态文案同 span(textContent 匹配)
+		// S8 objective 口径:行内 = next_action reason + 必修掌握进度
+		expect(screen.getByText(/继续攻克「变量与数据」/)).toBeInTheDocument();
 		expect(
-			screen.getByText((_, el) => el?.textContent === "学习进度：1/3 节"),
+			screen.getByText(
+				(_, el) => el?.textContent === "必修已掌握 1/3",
+			),
 		).toBeInTheDocument();
 		expect(screen.getByText("等待中")).toBeInTheDocument();
-		expect(screen.getByText("PYTH-02")).toBeInTheDocument();
-		expect(screen.getByText("变量与数据")).toBeInTheDocument();
 	});
 
 	it("未登录跳转登录页", () => {

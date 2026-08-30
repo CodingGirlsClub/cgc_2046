@@ -10,6 +10,8 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
   alias Cgc2046.Mcp.{Confirmation, PendingOperation}
   alias Cgc2046.AccountsFixtures, as: Fixtures
 
+  require Ash.Query
+
   defp pend(user, tool \\ "race_probe") do
     {:ok, op} =
       PendingOperation
@@ -87,6 +89,115 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
       reloaded = Ash.get!(PendingOperation, op.id, authorize?: false)
       assert reloaded.status == :pending
       assert reloaded.resolved_at == nil
+    end
+  end
+
+  # S2：平台治理确认流工具走同一 race 范式——全链（Confirmation.confirm → 分派 →
+  # 域 action）并发双确认恰一成一败，effect 恰好执行一次。
+  describe "S2 平台治理工具并发双确认" do
+    test "并发 confirm 同一 admin_promote_user pending：恰一成一败 + 留痕恰好一行" do
+      admin = Fixtures.platform_admin("race-pa-admin")
+      target = Fixtures.register_user("race-pa-target")
+
+      {:needs_confirmation, %{pending_id: pending_id}} =
+        Confirmation.request(admin, "admin_promote_user", %{"user_id" => target.id}, "probe")
+
+      results =
+        1..2
+        |> Task.async_stream(
+          fn _ -> Confirmation.confirm(admin, pending_id) end,
+          max_concurrency: 2
+        )
+        |> Enum.map(fn {:ok, r} -> r end)
+
+      oks = Enum.count(results, &match?({:ok, %{status: "confirmed"}}, &1))
+      errs = Enum.count(results, &match?({:error, _}, &1))
+
+      assert oks == 1
+      assert errs == 1
+
+      # effect 恰好执行一次：目标已提升 + 治理留痕恰一行
+      assert Ash.get!(Cgc2046.Accounts.User, target.id, authorize?: false).is_platform_admin
+
+      logs =
+        Cgc2046.Accounts.AdminActionLog
+        |> Ash.Query.filter(action == :admin_promote and target_id == ^target.id)
+        |> Ash.read!(authorize?: false)
+
+      assert length(logs) == 1
+
+      reloaded = Ash.get!(PendingOperation, pending_id, authorize?: false)
+      assert reloaded.status == :confirmed
+    end
+  end
+
+  # S3：工作台管理确认流工具走同一 race 范式——waive_payment 全链
+  # （Confirmation.confirm → 分派 → 域 action）并发双确认恰一成一败，
+  # 免缴副作用恰好执行一次（报名 confirmed + 审计行恰一行）。
+  describe "S3 工作台管理工具并发双确认" do
+    @tier %{
+      "id" => "88888888-8888-8888-8888-888888888888",
+      "name" => "标准",
+      "amount_cents" => 19_900
+    }
+
+    test "并发 confirm 同一 waive_payment pending：恰一成一败 + 留痕恰好一行" do
+      owner = Fixtures.platform_admin("race-s3-owner")
+      workspace = Fixtures.create_workspace(owner)
+
+      course =
+        Cgc2046.EventsFixtures.create_course(workspace, owner, %{
+          pricing_enabled: true,
+          price_tiers: [@tier]
+        })
+
+      learner = Fixtures.register_user("race-s3-learner")
+
+      {:ok, enrollment} =
+        Cgc2046.Admission.Enrollment
+        |> Ash.Changeset.for_create(
+          :create_enrollment,
+          %{course_id: course.id, user_id: learner.id, tier_id: @tier["id"]}
+        )
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert enrollment.status == :payment_pending
+
+      {:needs_confirmation, %{pending_id: pending_id}} =
+        Confirmation.request(
+          owner,
+          "waive_payment",
+          %{"workspace_id" => workspace.id, "enrollment_id" => enrollment.id},
+          "probe"
+        )
+
+      results =
+        1..2
+        |> Task.async_stream(
+          fn _ -> Confirmation.confirm(owner, pending_id) end,
+          max_concurrency: 2
+        )
+        |> Enum.map(fn {:ok, r} -> r end)
+
+      oks = Enum.count(results, &match?({:ok, %{status: "confirmed"}}, &1))
+      errs = Enum.count(results, &match?({:error, _}, &1))
+
+      assert oks == 1
+      assert errs == 1
+
+      # effect 恰好执行一次：报名已免缴确认 + 审计行恰一行
+      assert Ash.get!(Cgc2046.Admission.Enrollment, enrollment.id, authorize?: false).status ==
+               :confirmed
+
+      logs =
+        Cgc2046.Accounts.AdminActionLog
+        |> Ash.Query.filter(action == :waive_payment and target_id == ^enrollment.id)
+        |> Ash.read!(authorize?: false)
+
+      assert length(logs) == 1
+
+      reloaded = Ash.get!(PendingOperation, pending_id, authorize?: false)
+      assert reloaded.status == :confirmed
     end
   end
 end

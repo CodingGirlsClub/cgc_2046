@@ -56,6 +56,7 @@ import { formatAmount, parsePaymentStats, parsePriceTiers } from "@/lib/payment"
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
+  serializeSponsorshipTier,
   parseVenue,
   submitEnrollment,
 } from "@/lib/public-offerings";
@@ -373,8 +374,8 @@ export function OfferingsListPage({
 
 /* ---------------- 详情/管理页 ---------------- */
 
-/** research_requirements(JsonString)与自由文本互转(U8/R12:Q10 自由文本语义) */
-function parseResearchText(json: string | null | undefined): string {
+/** curriculum_requirements(JsonString)与自由文本互转(U8/R12:Q10 自由文本语义) */
+function parseCurriculumText(json: string | null | undefined): string {
   if (!json) return "";
   try {
     const parsed = JSON.parse(json) as unknown;
@@ -390,7 +391,7 @@ function parseResearchText(json: string | null | undefined): string {
   return "";
 }
 
-function buildResearchJson(text: string): string {
+function buildCurriculumJson(text: string): string {
   return JSON.stringify({ note: text });
 }
 
@@ -421,8 +422,8 @@ interface MetaDraft {
   endsAt: string;
   /** venue 四键草稿（仅 event 渲染与下发；全空 = 线上/未定） */
   venue: VenueInfo;
-  /** 教研需求自由文本(U8/R12,仅 course;原文透传 research_requirements) */
-  researchRequirements: string;
+  /** 教研需求自由文本(U8/R12,仅 course;原文透传 curriculum_requirements) */
+  curriculumRequirements: string;
   /** 收费设置（U6/R2）：开关 + 档位草稿（编辑面就地修改） */
   pricingEnabled: boolean;
   tierDrafts: TierDraft[];
@@ -614,8 +615,8 @@ export function OfferingDetailPage({
             startsAt: toLocalInput(offering.startsAt ?? null),
             endsAt: toLocalInput(offering.endsAt ?? null),
             venue: parseVenue(offering.venue) ?? { ...EMPTY_VENUE },
-            researchRequirements: parseResearchText(
-              offering.researchRequirements,
+            curriculumRequirements: parseCurriculumText(
+              offering.curriculumRequirements,
             ),
             // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
             pricingEnabled: offering.pricingEnabled === true,
@@ -806,8 +807,8 @@ export function OfferingDetailPage({
         endsAt: fromLocalInput(activeDraft.endsAt),
         ...(kind === "course"
           ? {
-              researchRequirements: buildResearchJson(
-                activeDraft.researchRequirements,
+              curriculumRequirements: buildCurriculumJson(
+                activeDraft.curriculumRequirements,
               ),
             }
           : { venue: activeDraft.venue }),
@@ -1147,6 +1148,22 @@ export function OfferingDetailPage({
                       />
                     </label>
 
+                    {/* R18（ADR-0009 U7）：目标容量 < 当前已占席数仅警告不拦截——
+                        后端放行编辑，超员部分由账本 CAS 拒新单 + 自然释放收敛（AE4） */}
+                    {activeDraft.capacity !== "" &&
+                      Number(activeDraft.capacity) <
+                        (offering?.confirmedCount ?? 0) && (
+                        <p
+                          role="alert"
+                          className="text-[13px] text-amber-200"
+                          data-testid="capacity-below-occupied-warning"
+                        >
+                          {t("capacityBelowOccupied", {
+                            confirmed: offering?.confirmedCount ?? 0,
+                          })}
+                        </p>
+                      )}
+
                     <label className="block">
                       <span className="block text-[13px] text-ink-3">
                         {t("deadlineHint")}
@@ -1190,13 +1207,13 @@ export function OfferingDetailPage({
                           {t("researchNeed")}
                         </span>
                         <textarea
-                          data-testid="research-requirements-input"
+                          data-testid="curriculum-requirements-input"
                           rows={4}
-                          value={activeDraft.researchRequirements}
+                          value={activeDraft.curriculumRequirements}
                           onChange={(e) =>
                             setMetaDraft({
                               ...activeDraft,
-                              researchRequirements: e.target.value,
+                              curriculumRequirements: e.target.value,
                             })
                           }
                           className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
@@ -1639,16 +1656,14 @@ export function OfferingDetailPage({
                   onSaveTiers={async (tiers) => {
                     try {
                       const res = await updateOffering(offering.id, kind, {
-                        sponsorshipTiers: tiers.map((t) => JSON.stringify(t)),
+                        sponsorshipTiers: tiers.map(serializeSponsorshipTier),
                       });
                       if (res.result) {
                         setState({
                           id: offering.id,
                           row: {
                             ...offering,
-                            sponsorshipTiers: tiers.map((t) =>
-                              JSON.stringify(t),
-                            ),
+                            sponsorshipTiers: tiers.map(serializeSponsorshipTier),
                           },
                           error: null,
                         });

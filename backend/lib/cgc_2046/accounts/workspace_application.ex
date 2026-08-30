@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   alias Cgc2046.ApprovalClaim
 
@@ -227,9 +227,9 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       change(
         after_action(fn changeset, application, _context ->
           # 创建 workspace：authorize?: false + 无 actor → Workspace.create after_action
-          # 仅 seed 五角色差异标签、不建 Owner membership（actor nil 分支），Owner 由下方
-          # admit_member 指定给申请人——applicant 为唯一 Owner（验收标准）。
-          # slug 冲突 / 角色 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
+          # seed 五角色差异标签 + 三份协议定义（#348）,不建 Owner membership（actor nil
+          # 分支）,Owner 由下方 admit_member 指定给申请人——applicant 为唯一 Owner（验收标准）。
+          # slug 冲突 / 角色/定义 seed 失败 → 返回 {:error, _}，父事务回滚（approve 原子
           # UPDATE 一并回滚，application 保持 pending，不留孤儿 workspace）。
           # #116：无 actor 调 create 同时保证治理留痕不双记——workspace_create 行只在
           # actor 非 nil 的直接创建路径落（workspace.ex on_missing_actor: :skip）。
@@ -252,7 +252,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
                    error_message: "该用户已是本工作台成员"
                  ),
                {:ok, _log} <-
-                 Cgc2046.Changes.LogAdminAction.log(changeset, application, %{
+                 Cgc2046.Accounts.Changes.LogAdminAction.log(changeset, application, %{
                    action: :application_approve,
                    target_type: :workspace_application,
                    target_id: application.id,
@@ -303,7 +303,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
       # #116 R10a：治理留痕 application_reject（失败上抛回滚，fail-closed）
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :application_reject,
          target_type: :workspace_application,
          metadata: &__MODULE__.application_log_metadata/2}
@@ -357,13 +357,13 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
     # :approve / :reject 仅 platform_admin
     policy action([:approve, :reject]) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # :read 申请人本人可读自己的申请；platform_admin 可读全部
     policy action_type(:read) do
       authorize_if(expr(applicant_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

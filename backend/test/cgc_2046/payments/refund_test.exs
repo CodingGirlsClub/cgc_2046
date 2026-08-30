@@ -16,11 +16,13 @@ defmodule Cgc2046.Payments.RefundTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Enrollment, Event}
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Providers.Fake
-  alias Cgc2046.Workers.{OfferingCancelRefundWorker, NotificationWorker, PaymentRefundWorker}
+  alias Cgc2046.Admission.Workers.OfferingCancelRefundWorker
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   @tier_id "66666666-6666-6666-6666-666666666666"
 
@@ -717,16 +719,21 @@ defmodule Cgc2046.Payments.RefundTest do
     paid
   end
 
+  # ADR-0009 PR⑤ U6 口径平移：占位计数权威 = 名额账本 occupancy（原 events.confirmed_count）
   defp event_count(event) do
-    Ash.get!(Event, event.id, authorize?: false).confirmed_count
+    EventFixtures.ledger_occupancy(event)
   end
 
+  # 注入计数状态（取消失败注入等）：裸 SQL 置账本 occupancy，set_confirmed_count 同纪律
   defp set_event_count(event, count) do
     {:ok, _} =
-      Cgc2046.Repo.query("UPDATE events SET confirmed_count = $1 WHERE id = $2", [
-        count,
-        Ecto.UUID.dump!(event.id)
-      ])
+      Cgc2046.Repo.query(
+        "UPDATE admission_capacity_ledgers SET occupancy = $1 WHERE offering_kind = 'event' AND offering_id = $2",
+        [
+          count,
+          Ecto.UUID.dump!(event.id)
+        ]
+      )
 
     :ok
   end

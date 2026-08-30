@@ -4,7 +4,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   覆盖：
 
-  1. 教研定义复用多实例：一个 research WorkflowDefinition 实例化多个 Event，
+  1. 教研定义复用多实例：一个 curriculum WorkflowDefinition 实例化多个 Event，
      各自独立 WorkflowRun，facts 不串
   2. 子 workflow 嵌套：父定义 sub_workflow 步骤递归执行子定义，facts 嵌套
   3. Event launch 发信号：launch action → status=open + event.launched 信号已发
@@ -17,10 +17,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
-  alias Cgc2046.Workers.SignalPublishWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
-  alias Cgc2046.Workflows.ResearchInstantiator
+  alias Cgc2046.Curriculum.Instantiator
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
@@ -35,8 +35,8 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
   defp create_definition(workspace, actor, attrs) do
     defaults = %{
-      name: "教研 workflow",
-      type: :research,
+      name: "教研 workflow（测试布景）",
+      type: :curriculum,
       input_schema: %{"text" => "string"},
       node_def: %{steps: ["outline_design", "content_review"]},
       approval_timeout: 604_800
@@ -57,7 +57,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
   end
 
   defp create_event(workspace, actor, attrs \\ %{}) do
-    defaults = %{title: "教研活动", research_requirements: %{"audience" => "kids"}}
+    defaults = %{title: "教研活动", curriculum_requirements: %{"audience" => "kids"}}
 
     Event
     |> Ash.Changeset.for_create(:create, Map.merge(defaults, attrs),
@@ -97,7 +97,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
   end
 
   # 教研定义：uppercase → (manual approval) → append_exclamation
-  defp research_node_def do
+  defp curriculum_node_def do
     %{
       "steps" => [
         %{
@@ -148,10 +148,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
   end
 
   describe "教研定义复用多实例（#39 验收）" do
-    test "一个 research 定义实例化多个 Event，各自独立 run，facts 不串" do
+    test "一个 curriculum 定义实例化多个 Event，各自独立 run，facts 不串" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
 
       event_1 = force_open_event(create_event(workspace, admin, %{title: "活动一"}) |> elem(1))
@@ -159,29 +159,27 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       # 各自实例化 → 独立 run，均 waiting（执行到人工步骤）
       assert {:ok, run_1} =
-               ResearchInstantiator.launch(
+               Instantiator.launch(
                  workspace.id,
                  published.id,
                  %{
                    "event_id" => event_1.id,
                    "title" => event_1.title,
-                   "research_requirements" => event_1.research_requirements,
+                   "research_requirements" => event_1.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert {:ok, run_2} =
-               ResearchInstantiator.launch(
+               Instantiator.launch(
                  workspace.id,
                  published.id,
                  %{
                    "event_id" => event_2.id,
                    "title" => event_2.title,
-                   "research_requirements" => event_2.research_requirements,
+                   "research_requirements" => event_2.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert run_1.id != run_2.id
@@ -241,16 +239,15 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       event = force_open_event(create_event(workspace, admin) |> elem(1))
 
       assert {:ok, run} =
-               ResearchInstantiator.launch(
+               Instantiator.launch(
                  workspace.id,
                  parent_published.id,
                  %{
                    "event_id" => event.id,
                    "title" => event.title,
-                   "research_requirements" => event.research_requirements,
+                   "research_requirements" => event.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert run.status == :succeeded
@@ -297,16 +294,15 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       # 普通 fact 值，父 run 标 succeeded 且错误 tuple 嵌入 facts（#3）。
       # 修复后：子失败 → 父 run failed。
       assert {:ok, run} =
-               ResearchInstantiator.launch(
+               Instantiator.launch(
                  workspace.id,
                  parent_published.id,
                  %{
                    "event_id" => event.id,
                    "title" => event.title,
-                   "research_requirements" => event.research_requirements,
+                   "research_requirements" => event.curriculum_requirements,
                    "text" => "hi"
-                 },
-                 :event
+                 }
                )
 
       assert run.status == :failed
@@ -418,19 +414,19 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "同一 Event 重复 launch → 返回同一 run（不重复创建）" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       event = force_open_event(create_event(workspace, admin) |> elem(1))
 
       input = %{
         "event_id" => event.id,
         "title" => event.title,
-        "research_requirements" => event.research_requirements,
+        "research_requirements" => event.curriculum_requirements,
         "text" => "hi"
       }
 
-      assert {:ok, run_1} = ResearchInstantiator.launch(workspace.id, published.id, input, :event)
-      assert {:ok, run_2} = ResearchInstantiator.launch(workspace.id, published.id, input, :event)
+      assert {:ok, run_1} = Instantiator.launch(workspace.id, published.id, input)
+      assert {:ok, run_2} = Instantiator.launch(workspace.id, published.id, input)
 
       assert run_1.id == run_2.id
 
@@ -446,7 +442,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert done.status == :succeeded
 
-      assert {:ok, run_3} = ResearchInstantiator.launch(workspace.id, published.id, input, :event)
+      assert {:ok, run_3} = Instantiator.launch(workspace.id, published.id, input)
       assert run_3.id != run_1.id
     end
   end
@@ -455,14 +451,14 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "draft event 信号不创建 run" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
 
       # 白盒驱动异步路径（apply 私有函数；测试进程在沙箱内可查 DB，而真实订阅
       # 进程不在沙箱——异步投递本身不测，见计划假设）。draft 实体 → 守卫拦截。
       assert :ok =
-               SignalSubscriber.deliver(ResearchInstantiator, %{
+               SignalSubscriber.deliver(Instantiator, %{
                  type: "event.launched",
                  data: %{"event_id" => event.id, "title" => event.title}
                })
@@ -478,7 +474,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "open event 信号创建 run（守卫不误伤）" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
 
@@ -493,7 +489,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               SignalSubscriber.deliver(ResearchInstantiator, %{
+               SignalSubscriber.deliver(Instantiator, %{
                  type: "event.launched",
                  data: %{"event_id" => event.id, "title" => event.title}
                })
@@ -506,12 +502,12 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       assert length(runs) == 1
     end
 
-    test "research_enabled=false 不实例化（#6 门控）" do
+    test "curriculum_enabled=false 不实例化（#6 门控）" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
-      {:ok, event} = create_event(workspace, admin, %{research_enabled: false})
+      {:ok, event} = create_event(workspace, admin, %{curriculum_enabled: false})
 
       {:ok, _} =
         Ecto.Adapters.SQL.query(
@@ -521,7 +517,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               SignalSubscriber.deliver(ResearchInstantiator, %{
+               SignalSubscriber.deliver(Instantiator, %{
                  type: "event.launched",
                  data: %{"event_id" => event.id, "title" => event.title}
                })
@@ -537,7 +533,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "实例化后回写 workflow_run_id（#14 产物引用链）" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, published} = publish_definition(defn, workspace, admin)
       {:ok, event} = create_event(workspace, admin)
 
@@ -549,7 +545,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               SignalSubscriber.deliver(ResearchInstantiator, %{
+               SignalSubscriber.deliver(Instantiator, %{
                  type: "event.launched",
                  data: %{"event_id" => event.id, "title" => event.title}
                })
@@ -571,6 +567,12 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "无 published 教研定义时跳过实例化（不 raise、不建 run）" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
+
+      # #348 后新 workspace 恒 seed published 定义——异常态(无定义)布景直删
+      Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
       {:ok, event} = create_event(workspace, admin)
 
       {:ok, launched} =
@@ -580,10 +582,10 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
 
       assert launched.status == :open
 
-      # 工作台无任何 published 教研定义 → fetch_research_definition 返回 nil，
+      # 工作台无任何 published 教研定义 → fetch_curriculum_definition 返回 nil，
       # 不得 nil-deref raise，也不得创建 run（best-effort 跳过）。
       assert :ok =
-               SignalSubscriber.deliver(ResearchInstantiator, %{
+               SignalSubscriber.deliver(Instantiator, %{
                  type: "event.launched",
                  data: %{"event_id" => launched.id, "title" => launched.title}
                })
@@ -601,12 +603,12 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
       workspace = Fixtures.create_workspace(admin)
 
       {:ok, def_a} =
-        create_definition(workspace, admin, %{name: "教研 A", node_def: research_node_def()})
+        create_definition(workspace, admin, %{name: "教研 A", node_def: curriculum_node_def()})
 
       {:ok, pub_a} = publish_definition(def_a, workspace, admin)
 
       {:ok, def_b} =
-        create_definition(workspace, admin, %{name: "教研 B", node_def: research_node_def()})
+        create_definition(workspace, admin, %{name: "教研 B", node_def: curriculum_node_def()})
 
       {:ok, pub_b} = publish_definition(def_b, workspace, admin)
 
@@ -623,7 +625,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
         )
 
       assert :ok =
-               SignalSubscriber.deliver(ResearchInstantiator, %{
+               SignalSubscriber.deliver(Instantiator, %{
                  type: "event.launched",
                  data: %{"event_id" => event.id, "title" => event.title}
                })
@@ -643,7 +645,7 @@ defmodule Cgc2046.Workflows.TeachingLearningTest do
     test "step 无 sub_definition_id → 透传 data，不报错" do
       admin = Fixtures.platform_admin("tl")
       workspace = Fixtures.create_workspace(admin)
-      {:ok, defn} = create_definition(workspace, admin, %{node_def: research_node_def()})
+      {:ok, defn} = create_definition(workspace, admin, %{node_def: curriculum_node_def()})
       {:ok, _published} = publish_definition(defn, workspace, admin)
       {:ok, _event} = create_event(workspace, admin)
 

@@ -129,7 +129,7 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
 
     defn =
       create_definition(workspace, admin, %{
-        name: "学习 workflow",
+        name: "学习 workflow（测试布景）",
         type: :learning,
         node_def: learning_definition()
       })

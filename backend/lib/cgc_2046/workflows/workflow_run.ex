@@ -44,7 +44,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   require Ash.Query
 
@@ -249,7 +249,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # 不接受任何属性（/check SC2-005：继承 default_accept 可改 input_snapshot/definition_version）
       accept([])
       change(optimistic_lock(:version))
-      change({Cgc2046.Changes.Transition, from: [:pending], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:pending], to: :running})
       change(set_attribute(:started_at, &DateTime.utc_now/0))
     end
 
@@ -261,7 +261,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       require_atomic?(false)
       accept([])
       change(optimistic_lock(:version))
-      change({Cgc2046.Changes.Transition, from: [:pending], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:pending], to: :running})
 
       # 执行闭环只在 Transition 守卫通过（源状态匹配）时运行——非 pending 时
       # Transition 已 add_error，此处 no-op 不调引擎（原内联守卫的语义）。
@@ -303,7 +303,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change({Cgc2046.Changes.Transition, from: [:running], to: :waiting})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:running], to: :waiting})
     end
 
     # waiting → running：信号放行后恢复执行
@@ -313,7 +313,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       accept([])
       change(optimistic_lock(:version))
 
-      change({Cgc2046.Changes.Transition, from: [:waiting], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:waiting], to: :running})
     end
 
     # waiting → running/succeeded/failed：信号放行 + 恢复执行闭环（阶段 4 #37）。
@@ -325,7 +325,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       argument(:payload, :map, default: %{})
       change(optimistic_lock(:version))
 
-      change({Cgc2046.Changes.Transition, from: [:waiting], to: :running})
+      change({Cgc2046.Workflows.Changes.Transition, from: [:waiting], to: :running})
 
       # 执行闭环只在 Transition 守卫通过（源状态匹配）时运行——非 waiting 时
       # Transition 已 add_error，此处 no-op 不走授权/Engine（原内联守卫的语义）。
@@ -348,7 +348,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # waiting 达终态，终态后 checkpoint 无消费方（ADR-0002），须清理（此前缺失，
       # 由 speaker 外部补偿兜着，PR-G D4 收编后补偿删除）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:running, :waiting], to: :succeeded, cleanup_checkpoint: true}
       )
 
@@ -365,7 +365,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # PR-G D4：fail 补 cleanup_checkpoint（此前由 speaker_invitation.ex 外部补偿
       # 清理；Transition 内建后补偿删除，fail 路径 checkpoint 清理由本 action 承担）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:running, :waiting], to: :failed, cleanup_checkpoint: true}
       )
 
@@ -383,7 +383,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       # cleanup_checkpoint: true 内建 after_transaction 清理（Transition D3 收编原
       # 逐字拷贝；失败记日志不阻塞，策略单源在 CheckpointLifecycle，候选 #2）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:pending, :running, :waiting], to: :cancelled, cleanup_checkpoint: true}
       )
 
@@ -399,7 +399,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
       # #16：waiting → expired 时删除 jido_checkpoints（同 cancel 的 checkpoint 清理）。
       change(
-        {Cgc2046.Changes.Transition,
+        {Cgc2046.Workflows.Changes.Transition,
          from: [:pending, :waiting], to: :expired, cleanup_checkpoint: true}
       )
 
@@ -434,6 +434,32 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         end
       end)
     end
+
+    # role-agent-journeys-v2 S5：课程教研流程 facts 写入（R22-R28）。与
+    # update_facts_for_mcp 的差异：facts 整体替换（调用方 Curriculum.Prep 负责
+    # 合并）+ optimistic_lock(:version) 乐观锁（prep 认领/迁移的并发 CAS 基石——
+    # 陈旧 version 写入 StaleRecord 上抛，并发双认领恰一成一败，零裸 SQL）；
+    # 终态拒绝同上。细粒度角色判定（assignee/reviewer/owner-admin）在
+    # Curriculum.Prep 过渡函数与 MCP 工具层。
+    update :update_prep_facts do
+      description("课程教研流程 facts 写入（S5；facts 整体替换 + 乐观锁 + 终态拒绝）")
+      require_atomic?(false)
+      accept([:facts])
+      change(optimistic_lock(:version))
+
+      change(fn changeset, _context ->
+        case Ash.Changeset.get_data(changeset, :status) do
+          status when status in [:pending, :running, :waiting] ->
+            changeset
+
+          status ->
+            Ash.Changeset.add_error(
+              changeset,
+              "cannot update prep facts on run in status=#{status}"
+            )
+        end
+      end)
+    end
   end
 
   postgres do
@@ -444,15 +470,20 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   policies do
     # 读取（H3）：经 definition → workspace → memberships 路径，仅成员或平台管理员
     policy action_type(:read) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]}
+      )
+
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # #38 StepRole 授权：start_run（auto 步骤引擎执行不授权，§4.3）与 resume_signal
     # （manual 信号发起人，StepRole 判定在 action 内）对成员放开；expire 仍限 Owner/Admin。
     # 非成员平台管理员为只读审计者，不得启动或恢复 workflow。
     bypass action([:start_run, :resume_signal]) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
+      authorize_if(
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]}
+      )
     end
 
     # 切片 D：MCP save_step_output 的 facts 写入对成员放开（StepRole 细粒度授权
@@ -462,13 +493,25 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     # 注意：bypass 必须位于通用 create/update policy **之前**——Ash 按序评估，
     # 通用 policy 先失败则后续 bypass 不再被求值。
     bypass action(:update_facts_for_mcp) do
-      authorize_if({Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]})
-      authorize_if(Cgc2046.Policies.ActorIsEnrolledLearner)
+      authorize_if(
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]}
+      )
+
+      authorize_if(Cgc2046.Admission.Policies.ActorIsEnrolledLearner)
+    end
+
+    # role-agent-journeys-v2 S5：教研 facts 写入对成员放开（assignee/reviewer/
+    # owner-admin 细粒度判定在 Curriculum.Prep 过渡函数与 MCP 工具层，与
+    # update_facts_for_mcp 同款纪律；学员无教研面——不放行 ActorIsEnrolledLearner）。
+    bypass action(:update_prep_facts) do
+      authorize_if(
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]}
+      )
     end
 
     # 写操作：Owner/Admin（多角色并集）
     policy action_type([:create, :update]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 
@@ -673,15 +716,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
 
   @doc """
   建 run 唯一入口：非终态去重 + create→start 顺序内化（漏 start = 永久 pending run
-  的 ordering leak 从 interface 根除）。三个 instantiator（research/learning/speaker）
+  的 ordering leak 从 interface 根除）。三个 instantiator（curriculum/learning/speaker）
   不再各自手写两步五参舞蹈。
 
   - `key`：去重键（写入 `input_snapshot["key"]`）。非 nil → 按 definition + key 查
-    非终态 run（`pending/running/waiting`，终态列表与 research/learning 既有
+    非终态 run（`pending/running/waiting`，终态列表与 curriculum/learning 既有
     existing_run 逐字一致），命中返回 `{:ok, run, :existing}`；未命中 → 创建并启动。
     nil → 不去重，直接创建并启动（speaker 供：邀请唯一性由调用侧
     `ensure_no_active_invitation` 保证，key 字段仍随 input 写入）。
-  - `start_action`：`:start_run`（默认；research/speaker，pending → 执行闭环）｜
+  - `start_action`：`:start_run`（默认；curriculum/speaker，pending → 执行闭环）｜
     `:start`（learning：协议而非 DAG，纯状态流转 pending → running，不经 Engine）。
   - `actor`：透传（默认 nil = `authorize?: false` 无 actor，与既有 instantiator 一致）。
 
@@ -714,7 +757,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     end
   end
 
-  # 非终态去重（终态列表与 research/learning 既有 existing_run 逐字一致）：同一
+  # 非终态去重（终态列表与 curriculum/learning 既有 existing_run 逐字一致）：同一
   # definition + instance key 已有 pending/running/waiting run → 命中；终态后可重新
   # 实例化（succeeded/failed/cancelled/expired 不在判定内）。
   defp existing_run(workspace_id, definition_id, key) do
@@ -728,7 +771,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   end
 
   # create → 紧接 start（同一函数体内，漏 start 不再可能；失败原样上抛）。
-  # key 非 nil 时把去重键写入 input_snapshot（与 research/learning 既有
+  # key 非 nil 时把去重键写入 input_snapshot（与 curriculum/learning 既有
   # Map.put(input, "key", key) 语义一致）；key nil 时 input 原样落库（speaker 的
   # key 字段随 input 自带）。
   defp create_and_start(workspace_id, definition, input, start_action, opts, key \\ nil) do

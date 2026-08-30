@@ -18,7 +18,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Workflows.Step
   alias Cgc2046.Workflows.StepRole
   alias Cgc2046.Workflows.WorkflowRun
@@ -128,7 +128,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
   def enrolled_learner?(_actor, _workspace_id, _run), do: false
 
-  # run 定义须为 learning 类型（research/teaching run 不走学员豁免）
+  # run 定义须为 learning 类型（curriculum/teaching run 不走学员豁免）
   defp learning_definition?(%WorkflowRun{definition_id: definition_id}, workspace_id) do
     case Ash.get(Cgc2046.Workflows.WorkflowDefinition, definition_id,
            tenant: workspace_id,

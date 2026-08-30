@@ -3,7 +3,7 @@ defmodule Cgc2046.Payments.NotificationTemplates do
   缴费闭环通知模板（U10/KTD8/R22 + organizer-payment U5/KTD6）。
 
   模板键、data/job_meta 键集与 unique 预设的**唯一真源** =
-  `Cgc2046.Workers.NotificationWorker` 通知类型 registry（`type/1` / `types/0`；
+  `Cgc2046.Notifications.NotificationWorker` 通知类型 registry（`type/1` / `types/0`；
   见 CONTEXT.md「通知类型（Notification Types）」词条）——本 module 不再重复
   声明键集契约（2026-08-18 架构深化候选 D，D6 单点化）。
 

@@ -28,7 +28,7 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)
@@ -224,15 +224,15 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
     # 匿名处理在 ReadWorkspaceProfileByVisibility.filter(nil)（返回恒假 filter），
     # 不在此处 forbid_if——避免 expr forbid 在 filter 阶段干扰 FilterCheck（#68 教训）。
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.ReadWorkspaceProfileByVisibility)
+      authorize_if(Cgc2046.Accounts.Policies.ReadWorkspaceProfileByVisibility)
     end
 
     # 写（update_profile / set_ui_theme）：仅本人（SimpleCheck 判 user_id）+ 该 workspace 成员。
     # forbid_unless OwnWorkspaceProfile 把 owner 设为必要条件（AND），否则同 policy 内
     # 两个 authorize_if 是 OR，任意成员都能改他人档案（review HIGH-1 authz bypass 修复）。
     policy action_type(:update) do
-      forbid_unless(Cgc2046.Policies.OwnWorkspaceProfile)
-      authorize_if(Cgc2046.Policies.ActorIsWorkspaceMember)
+      forbid_unless(Cgc2046.Accounts.Policies.OwnWorkspaceProfile)
+      authorize_if(Cgc2046.Accounts.Policies.ActorIsWorkspaceMember)
     end
   end
 

@@ -4,7 +4,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Rbac
+  alias Cgc2046.Accounts.Rbac
 
   describe "create workspace" do
     test "platform admin can create a workspace with defaults" do
@@ -638,7 +638,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         Ash.get!(Workspace, workspace.id,
           actor: admin,
           load: [:member_count],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       assert fetched.member_count == 1
@@ -654,7 +654,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         Ash.get!(Workspace, workspace.id,
           actor: admin,
           load: [:member_count],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       assert fetched.member_count == 3
@@ -705,7 +705,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         Ash.get!(Workspace, workspace.id,
           actor: admin,
           load: [:my_abilities],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       assert fetched.my_abilities == [
@@ -739,7 +739,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         Ash.get!(Workspace, workspace.id,
           actor: member,
           load: [:my_abilities],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       assert fetched.my_abilities == ["view_workspace", "access_invite_only"]
@@ -778,7 +778,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         Ash.get!(Workspace, workspace.id,
           actor: admin,
           load: [:my_abilities],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       # 与 Rbac.abilities_for/2 非成员平台管理员分支一致（#1 语义单源；#78 豁免）
@@ -811,7 +811,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         Ash.get!(Workspace, workspace.id,
           actor: outsider,
           load: [:my_abilities],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       assert fetched.my_abilities == []
@@ -850,7 +850,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
           actor: admin,
           tenant: workspace.id,
           load: [:user_email, :user_display_name, :joined_at, :user],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       by_email = Map.new(memberships, &{&1.user_email, &1})
@@ -901,7 +901,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
           actor: member_a,
           tenant: workspace.id,
           load: [:user_email, :user_display_name],
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       # read policy 只放行本人行 → 只返回自己的成员资格
@@ -1298,7 +1298,7 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
         |> Ash.read(
           actor: other_admin,
           tenant: workspace.id,
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
 
       # platform_admin 非成员应可见全部成员（含 owner 行）

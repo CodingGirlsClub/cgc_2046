@@ -23,21 +23,31 @@ defmodule Cgc2046.Application do
       # 注册不随短命调用进程丢失——SC2-011）
       Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
-      Cgc2046.Workflows.ResearchInstantiator,
+      Cgc2046.Curriculum.Instantiator,
+      # 课程教研流程实例化（role-agent-journeys-v2 S5 R22：订阅 course.created →
+      # 幂等种 course_preparation prep run 并回写 course.workflow_run_id）
+      Cgc2046.Curriculum.PrepInstantiator,
+      # 名额账本（ADR-0009 PR⑤ U6：订阅 *.launched / offering.capacity_changed /
+      # *.ended → 建行与缓存同步，回查式覆盖幂等）
+      Cgc2046.Admission.CapacityLedgerSubscriber,
+      # 展示投影（ADR-0009 PR⑤ U7：订阅 capacity.synced → Events/Courses 各自
+      # 自写本表 confirmed_count 列，sync_version 条件覆盖幂等收敛）
+      Cgc2046.Events.CapacityProjectionSubscriber,
+      Cgc2046.Courses.CapacityProjectionSubscriber,
       # 生命周期级联（E-9 #124：订阅 event/course.ended 信号 → 停教研 run 回收）
-      Cgc2046.Workflows.ResearchRunReaper,
+      Cgc2046.Curriculum.Reaper,
       # 赞助关系级联（E-3 #48：订阅 event.ended → Event 级 active Sponsorship 转 ended）
-      Cgc2046.Events.SponsorshipEndedSubscriber,
+      Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
       # Event cancelled 批量退款（缴费闭环 U9：订阅 event.ended，回查 cancelled
       # 才批量退——paid 逐笔退款 / payment_pending 取消释放）。
-      Cgc2046.Workers.OfferingCancelRefundWorker,
+      Cgc2046.Admission.Workers.OfferingCancelRefundWorker,
       # 学习 workflow 实例化（E-7 #122：订阅 enrollment.completed → 幂等种 learning run）
-      Cgc2046.Workflows.LearningInstantiator,
+      Cgc2046.Learning.LearningInstantiator,
       # Enrollment 审批结果信号 → Oban 异步订阅消息（不阻塞 action 事务）。
-      Cgc2046.NotificationSubscriber,
+      Cgc2046.Notifications.Subscriber,
       # SpeakerInvitation 生命周期信号 → Oban 异步订阅消息（E-4 #49；
       # SignalIdempotency 幂等去重）。
-      Cgc2046.SpeakerSubscriber,
+      Cgc2046.Events.SpeakerSubscriber,
       # 分享链接预生成（plan 011：订阅 event/course.launched → Oban 异步生成 scheme）。
       Cgc2046.Workflows.ShareSchemeInstantiator,
       # AshAuthentication supervisor (periodic token cleanup etc.)

@@ -13,7 +13,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   生命周期（#253 方案 A）：重发不作废旧码——新旧并存且都有效；消费走
   `consume_valid/3`（任一活跃码 hash 命中 → 成功并作废全部活跃码；错码
   仅对最新码递减 attempts，3 次错作废）。过期/耗尽行由 #252
-  LoginArtifactPrunerWorker 每小时清理（expires_at < now()-1d）。
+  Accounts.Workers.LoginArtifactPrunerWorker 每小时清理（expires_at < now()-1d）。
 
   内部资源（#209 SignalIdempotency 惯例）：无 GraphQL 面、无 actor 面，
   模块函数封装全部操作，policy 默认拒绝仅 admin 可读。
@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   @code_ttl_seconds 300
   @max_attempts 3
@@ -93,7 +93,7 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   policies do
     # 内部资源：仅 platform_admin 经 AshAdmin 观测；非 admin default-deny（#209）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 
