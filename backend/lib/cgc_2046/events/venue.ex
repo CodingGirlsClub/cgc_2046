@@ -31,7 +31,7 @@ defmodule Cgc2046.Events.VenueValidation do
   @moduledoc """
   `venue` 字段结构校验（Ash Resource.Validation）。
 
-  create/update 入库前拒绝畸形 map（SponsorshipTiersValidation 同款挂法，
+  create/update 入库前拒绝畸形 map（Accounts.SponsorshipTiersValidation 同款挂法，
   message-only 不触发错误码契约再生成）。
   """
 

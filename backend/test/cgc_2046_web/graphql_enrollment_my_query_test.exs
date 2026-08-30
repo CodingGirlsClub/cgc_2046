@@ -2,7 +2,7 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   test "本人可跨工作台分页读取报名并补齐目标标题" do

@@ -10,7 +10,7 @@ Ecto.Adapters.SQL.Sandbox.mode(Cgc2046.Repo, :manual)
 # 与本显式预构建不冲突（maybe_start 在 test 环境不执行）。
 # config 缺失时 fetch 返回 {:error, :wechat_not_configured}——宽容忽略不阻断
 # 测试启动；其它异常如实暴露（测试基础设施问题应早爆）。
-case Cgc2046.Miniprogram.WechatClient.fetch() do
+case Cgc2046.Integrations.Wechat.SdkClient.fetch() do
   {:ok, _module} -> :ok
   {:error, :wechat_not_configured} -> :ok
 end

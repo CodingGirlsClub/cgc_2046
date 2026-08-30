@@ -1,0 +1,34 @@
+defmodule Cgc2046.Admission do
+  @moduledoc """
+  报名域（ADR-0009 PR①）：Event/Course 的报名聚合（Enrollment）、邀请批次码
+  （InviteBatch）与名额账本（CapacityLedger，PR⑤ U6 落地）。
+
+  KTD1 域纪律：与 Cgc2046.Payments / Cgc2046.Accounts 同款——
+  `graphql do authorize?(true) end`，未带 policy 的动作默认拒绝，防止意外公开
+  租户资源。
+  """
+
+  use Ash.Domain,
+    otp_app: :cgc_2046,
+    extensions: [AshGraphql.Domain, AshAdmin.Domain]
+
+  admin do
+    # 安全门控由 :admin_browser pipeline 的 PlatformAdminPlug 承担（各 domain 同款）
+    show?(true)
+    # #113 ops 面优化同款：domain 命名 + 资源分组标签（中文）
+    name("Admission")
+    resource_group_labels(admission: "报名")
+  end
+
+  graphql do
+    authorize?(true)
+  end
+
+  resources do
+    # ADR-0009 KD1：Enrollment / InviteBatch 归 Admission context
+    resource(Cgc2046.Admission.Enrollment)
+    resource(Cgc2046.Admission.InviteBatch)
+    # KD2：名额账本归 Admission（占位/释放 CAS 收编账本行；不进 GraphQL）
+    resource(Cgc2046.Admission.CapacityLedger)
+  end
+end

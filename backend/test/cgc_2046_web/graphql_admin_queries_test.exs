@@ -164,7 +164,7 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   defp create_definition(workspace, actor) do
     defaults = %{
       name: "admin queries wf",
-      type: :research,
+      type: :curriculum,
       input_schema: %{"topic" => "string"},
       node_def: %{
         "steps" => [

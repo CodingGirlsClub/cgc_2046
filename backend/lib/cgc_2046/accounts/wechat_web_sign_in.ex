@@ -20,7 +20,7 @@ defmodule Cgc2046.Accounts.WechatWebSignIn do
 
   alias Ash.Changeset
   alias Cgc2046.Accounts.{PhoneVerificationCode, SignInFlow, UserIdentity, WechatLoginTicket}
-  alias Cgc2046.OAuth.WechatWeb
+  alias Cgc2046.Integrations.Wechat.WebOAuth
 
   @internal_opts [context: %{private: %{ash_authentication?: true}}]
 
@@ -34,7 +34,7 @@ defmodule Cgc2046.Accounts.WechatWebSignIn do
       when is_binary(state) and is_binary(code) do
     with :ok <- check_browser_binding(state, context),
          {:ok, _ticket} <- WechatLoginTicket.fetch_pending(state),
-         {:ok, session} <- WechatWeb.code2access_token(code) do
+         {:ok, session} <- WebOAuth.code2access_token(code) do
       case find_user_by_wechat(session) do
         {:ok, %Cgc2046.Accounts.User{} = user} ->
           with :ok <- WechatLoginTicket.consume_now(state),

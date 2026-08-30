@@ -73,6 +73,21 @@ export async function submitEnrollment(input: {
 }
 
 /**
+ * 保存路径序列化：产出后端白名单的 snake_case 键（SponsorshipTiersValidation
+ * 只认 amount_suggestion 等；JSON.stringify 裸 SponsorshipTierConfig 会产出
+ * camelCase 键被拒——0e35a51 起两端错配）。与下方 parseSponsorshipTiers 对偶。
+ */
+export function serializeSponsorshipTier(tier: SponsorshipTierConfig): string {
+	return JSON.stringify({
+		id: tier.id,
+		name: tier.name,
+		amount_suggestion: tier.amountSuggestion,
+		benefits: tier.benefits,
+		exclusive: tier.exclusive,
+	});
+}
+
+/**
  * E-3 #48：sponsorshipTiers 是 JsonString 数组（每项 JSON 编码字符串），
  * 逐项 JSON.parse 为 SponsorshipTierConfig；解析失败/结构非法项静默丢弃
  * （展示层不假定结构，同 workflows.ts parseJsonString 纪律）。

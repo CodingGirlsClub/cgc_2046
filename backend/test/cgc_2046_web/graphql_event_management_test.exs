@@ -123,15 +123,15 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
     assert %{"data" => %{"offeringReadiness" => %{"ready" => ready, "items" => items}}} =
              graphql(query, token)
 
-    # registration_deadline 默认已设（fixture 7 天后）；research 定义未建 → ready=false
+    # registration_deadline 默认已设（fixture 7 天后）；curriculum 定义未建 → ready=false
     assert is_boolean(ready)
 
-    # G2：清单三项（registration_deadline / research_definition / sponsorship_tiers_configured）
+    # G2：清单三项（registration_deadline / curriculum_definition / sponsorship_tiers_configured）
     assert length(items) == 3
 
     assert Enum.map(items, & &1["key"]) == [
              "registration_deadline",
-             "research_definition",
+             "curriculum_definition",
              "sponsorship_tiers_configured"
            ]
 

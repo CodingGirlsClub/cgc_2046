@@ -41,7 +41,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
       # tier_id 持久化在 submission_payload（GraphQL 输出类型不暴露报名表单负载，
       # 既有隐私面不动；域面读取校验）
       enrollment =
-        Ash.get!(Cgc2046.Events.Enrollment, result["id"],
+        Ash.get!(Cgc2046.Admission.Enrollment, result["id"],
           authorize?: false,
           tenant: workspace.id
         )
@@ -278,7 +278,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
   end
 
   defp paid_enrollment_for(event, learner) do
-    Cgc2046.Events.Enrollment
+    Cgc2046.Admission.Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{
       event_id: event.id,
       user_id: learner.id,
@@ -288,13 +288,13 @@ defmodule Cgc2046Web.GraphqlOrderTest do
   end
 
   defp create_enrollment(event, user) do
-    Cgc2046.Events.Enrollment
+    Cgc2046.Admission.Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
     |> Ash.create(tenant: event.workspace_id, actor: user)
   end
 
   defp get_enrollment(id) do
-    Ash.get!(Cgc2046.Events.Enrollment, id, authorize?: false)
+    Ash.get!(Cgc2046.Admission.Enrollment, id, authorize?: false)
   end
 
   defp list_orders(Order, enrollment_id) do

@@ -235,6 +235,8 @@ export type Course = {
   capacity?: Maybe<Scalars['Int']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: Maybe<Scalars['JsonString']['output']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: Maybe<Scalars['String']['output']>;
   /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -247,17 +249,17 @@ export type Course = {
   priceTiers: Array<Scalars['JsonString']['output']>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled: Scalars['Boolean']['output'];
+  /** 当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21/AE1）；设置真实标题即清除，发布前置门 */
+  provisionalTitle: Scalars['Boolean']['output'];
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: Maybe<Scalars['JsonString']['output']>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: Maybe<Scalars['String']['output']>;
   /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
   startsAt?: Maybe<Scalars['DateTime']['output']>;
   /** 课程状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status: Scalars['String']['output'];
-  /** 课程标题 */
+  /** 课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空 */
   title: Scalars['String']['output'];
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility: Scalars['String']['output'];
@@ -298,6 +300,22 @@ export type CourseFilterConfirmedCount = {
   rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type CourseFilterCurriculumRequirements = {
+  eq?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  notEq?: InputMaybe<Scalars['JsonString']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type CourseFilterDescription = {
@@ -375,6 +393,8 @@ export type CourseFilterInput = {
   capacity?: InputMaybe<CourseFilterCapacity>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount?: InputMaybe<CourseFilterConfirmedCount>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: InputMaybe<CourseFilterCurriculumRequirements>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<CourseFilterDescription>;
   /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -386,17 +406,17 @@ export type CourseFilterInput = {
   or?: InputMaybe<Array<CourseFilterInput>>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled?: InputMaybe<CourseFilterPricingEnabled>;
+  /** 当前标题是否为系统生成的临时占位（role-agent-journeys-v2 S3 零输入草稿，R21/AE1）；设置真实标题即清除，发布前置门 */
+  provisionalTitle?: InputMaybe<CourseFilterProvisionalTitle>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<CourseFilterRegistrationDeadline>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: InputMaybe<CourseFilterResearchRequirements>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: InputMaybe<CourseFilterSlug>;
   /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
   startsAt?: InputMaybe<CourseFilterStartsAt>;
   /** 课程状态：draft 草稿 / open 已发布 / closed 已结束 / cancelled 已取消 */
   status?: InputMaybe<CourseFilterStatus>;
-  /** 课程标题 */
+  /** 课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空 */
   title?: InputMaybe<CourseFilterTitle>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<CourseFilterVisibility>;
@@ -408,6 +428,22 @@ export type CourseFilterInput = {
 };
 
 export type CourseFilterPricingEnabled = {
+  eq?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  notEq?: InputMaybe<Scalars['Boolean']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type CourseFilterProvisionalTitle = {
   eq?: InputMaybe<Scalars['Boolean']['input']>;
   greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
   greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
@@ -437,22 +473,6 @@ export type CourseFilterRegistrationDeadline = {
   rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
-};
-
-export type CourseFilterResearchRequirements = {
-  eq?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type CourseFilterSlug = {
@@ -579,10 +599,14 @@ export type CourseFilterWorkspaceId = {
 
 export type CourseLearningDetail = {
   courseId: Scalars['ID']['output'];
-  goals: Array<Scalars['String']['output']>;
-  issues: Array<LearningIssue>;
+  nextAction?: Maybe<LearningNextAction>;
+  objectives: Array<LearningObjectiveState>;
   progress?: Maybe<LearningProgress>;
+  reviewQueue: Array<LearningReviewQueueEntry>;
+  revisionNumber?: Maybe<Scalars['Int']['output']>;
+  run?: Maybe<LearningRunSummary>;
   slug?: Maybe<Scalars['String']['output']>;
+  staleRevision: Scalars['Boolean']['output'];
   title: Scalars['String']['output'];
 };
 
@@ -605,13 +629,14 @@ export type CourseMapIssue = {
 export type CourseSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
+  | 'CURRICULUM_REQUIREMENTS'
   | 'DESCRIPTION'
   | 'ENDS_AT'
   | 'ENROLLMENT_POLICY'
   | 'ID'
   | 'PRICING_ENABLED'
+  | 'PROVISIONAL_TITLE'
   | 'REGISTRATION_DEADLINE'
-  | 'RESEARCH_REQUIREMENTS'
   | 'SLUG'
   | 'STARTS_AT'
   | 'STATUS'
@@ -628,6 +653,8 @@ export type CourseSortInput = {
 export type CreateCourseInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
   /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -640,13 +667,11 @@ export type CreateCourseInput = {
   pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: InputMaybe<Scalars['String']['input']>;
   /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
   startsAt?: InputMaybe<Scalars['DateTime']['input']>;
-  /** 课程标题 */
+  /** 课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空 */
   title: Scalars['String']['input'];
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<Scalars['String']['input']>;
@@ -685,6 +710,10 @@ export type CreateEnrollmentResult = {
 export type CreateEventInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 是否启用教研 workflow */
+  curriculumEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -697,10 +726,6 @@ export type CreateEventInput = {
   pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
-  /** 是否启用教研 workflow */
-  researchEnabled?: InputMaybe<Scalars['Boolean']['input']>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
   slug?: InputMaybe<Scalars['String']['input']>;
   /** 赞助意向截止；nil 表示长期开放 */
@@ -1287,6 +1312,10 @@ export type Event = {
   capacity?: Maybe<Scalars['Int']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];
+  /** 是否启用教研 workflow */
+  curriculumEnabled: Scalars['Boolean']['output'];
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: Maybe<Scalars['JsonString']['output']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: Maybe<Scalars['String']['output']>;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -1301,10 +1330,6 @@ export type Event = {
   pricingEnabled: Scalars['Boolean']['output'];
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
-  /** 是否启用教研 workflow */
-  researchEnabled: Scalars['Boolean']['output'];
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: Maybe<Scalars['JsonString']['output']>;
   /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
   slug?: Maybe<Scalars['String']['output']>;
   /** 赞助意向截止；nil 表示长期开放 */
@@ -1359,6 +1384,38 @@ export type EventFilterConfirmedCount = {
   rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type EventFilterCurriculumEnabled = {
+  eq?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
+  notEq?: InputMaybe<Scalars['Boolean']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type EventFilterCurriculumRequirements = {
+  eq?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
+  notEq?: InputMaybe<Scalars['JsonString']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type EventFilterDescription = {
@@ -1436,6 +1493,10 @@ export type EventFilterInput = {
   capacity?: InputMaybe<EventFilterCapacity>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount?: InputMaybe<EventFilterConfirmedCount>;
+  /** 是否启用教研 workflow */
+  curriculumEnabled?: InputMaybe<EventFilterCurriculumEnabled>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: InputMaybe<EventFilterCurriculumRequirements>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<EventFilterDescription>;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -1449,10 +1510,6 @@ export type EventFilterInput = {
   pricingEnabled?: InputMaybe<EventFilterPricingEnabled>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<EventFilterRegistrationDeadline>;
-  /** 是否启用教研 workflow */
-  researchEnabled?: InputMaybe<EventFilterResearchEnabled>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: InputMaybe<EventFilterResearchRequirements>;
   /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
   slug?: InputMaybe<EventFilterSlug>;
   /** 赞助意向截止；nil 表示长期开放 */
@@ -1505,38 +1562,6 @@ export type EventFilterRegistrationDeadline = {
   rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
-};
-
-export type EventFilterResearchEnabled = {
-  eq?: InputMaybe<Scalars['Boolean']['input']>;
-  greaterThan?: InputMaybe<Scalars['Boolean']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
-  in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['Boolean']['input']>;
-  lessThan?: InputMaybe<Scalars['Boolean']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
-  notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
-};
-
-export type EventFilterResearchRequirements = {
-  eq?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type EventFilterSlug = {
@@ -1712,14 +1737,14 @@ export type EventFilterWorkspaceId = {
 export type EventSortField =
   | 'CAPACITY'
   | 'CONFIRMED_COUNT'
+  | 'CURRICULUM_ENABLED'
+  | 'CURRICULUM_REQUIREMENTS'
   | 'DESCRIPTION'
   | 'ENDS_AT'
   | 'ENROLLMENT_POLICY'
   | 'ID'
   | 'PRICING_ENABLED'
   | 'REGISTRATION_DEADLINE'
-  | 'RESEARCH_ENABLED'
-  | 'RESEARCH_REQUIREMENTS'
   | 'SLUG'
   | 'SPONSORSHIP_DEADLINE'
   | 'SPONSORSHIP_ENABLED'
@@ -2202,27 +2227,6 @@ export type InviteBatchSortInput = {
   order?: InputMaybe<SortOrder>;
 };
 
-export type IssueChecklistItem = {
-  done: Scalars['Boolean']['output'];
-  evidence?: Maybe<Scalars['String']['output']>;
-  id: Scalars['String']['output'];
-  recordedAt?: Maybe<Scalars['DateTime']['output']>;
-  text: Scalars['String']['output'];
-};
-
-export type IssueMaterial = {
-  ref?: Maybe<Scalars['String']['output']>;
-  title?: Maybe<Scalars['String']['output']>;
-};
-
-export type IssueStory = {
-  asA?: Maybe<Scalars['String']['output']>;
-  checklist: Array<IssueChecklistItem>;
-  given: Array<Scalars['String']['output']>;
-  goal?: Maybe<Scalars['String']['output']>;
-  materials: Array<IssueMaterial>;
-};
-
 export type JoinRequest = {
   /** 审批截止时间（默认 created_at + 7 天） */
   approvalDeadline?: Maybe<Scalars['DateTime']['output']>;
@@ -2610,21 +2614,49 @@ export type LaunchEventResult = {
   result?: Maybe<Event>;
 };
 
-export type LearningIssue = {
-  id: Scalars['String']['output'];
-  key: Scalars['String']['output'];
+export type LearningNextAction = {
   kind: Scalars['String']['output'];
-  status: Scalars['String']['output'];
-  story?: Maybe<IssueStory>;
+  objectiveId: Scalars['String']['output'];
+  reason: Scalars['String']['output'];
+};
+
+export type LearningObjectiveState = {
+  attemptCount: Scalars['Int']['output'];
+  everMastered: Scalars['Boolean']['output'];
+  id: Scalars['String']['output'];
+  issueId?: Maybe<Scalars['String']['output']>;
+  lastAttemptAt?: Maybe<Scalars['DateTime']['output']>;
+  locked: Scalars['Boolean']['output'];
+  mastery: Scalars['String']['output'];
+  missingPrereqIds: Array<LearningPrereqRef>;
+  prereqIds: Array<Scalars['String']['output']>;
+  required: Scalars['Boolean']['output'];
   title: Scalars['String']['output'];
 };
 
+export type LearningPrereqRef = {
+  id: Scalars['String']['output'];
+  title?: Maybe<Scalars['String']['output']>;
+};
+
 export type LearningProgress = {
-  currentIssueId?: Maybe<Scalars['String']['output']>;
-  currentIssueKey?: Maybe<Scalars['String']['output']>;
-  currentIssueTitle?: Maybe<Scalars['String']['output']>;
-  doneIssues: Scalars['Int']['output'];
-  totalIssues: Scalars['Int']['output'];
+  complete: Scalars['Boolean']['output'];
+  masteredRequired: Scalars['Int']['output'];
+  totalRequired: Scalars['Int']['output'];
+};
+
+export type LearningReviewQueueEntry = {
+  dueAt: Scalars['DateTime']['output'];
+  milestoneDays?: Maybe<Scalars['Int']['output']>;
+  needsReview: Scalars['Boolean']['output'];
+  objectiveId: Scalars['String']['output'];
+};
+
+export type LearningRunSummary = {
+  id: Scalars['ID']['output'];
+  revisionId?: Maybe<Scalars['ID']['output']>;
+  revisionNumber?: Maybe<Scalars['Int']['output']>;
+  status: Scalars['String']['output'];
 };
 
 export type McpToken = {
@@ -2662,15 +2694,13 @@ export type MutationError = {
 
 export type MyLearningRun = {
   courseId?: Maybe<Scalars['ID']['output']>;
-  currentIssueId?: Maybe<Scalars['String']['output']>;
-  currentIssueKey?: Maybe<Scalars['String']['output']>;
-  currentIssueTitle?: Maybe<Scalars['String']['output']>;
-  doneIssues: Scalars['Int']['output'];
   enrollmentId: Scalars['ID']['output'];
+  nextAction?: Maybe<LearningNextAction>;
+  progress: LearningProgress;
   runId: Scalars['ID']['output'];
+  staleRevision: Scalars['Boolean']['output'];
   status: Scalars['String']['output'];
   targetTitle?: Maybe<Scalars['String']['output']>;
-  totalIssues: Scalars['Int']['output'];
 };
 
 export type OfferingReadinessItem = {
@@ -5107,6 +5137,8 @@ export type SponsorshipSortInput = {
 export type UpdateCourseInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
   /** 结课时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -5119,13 +5151,11 @@ export type UpdateCourseInput = {
   pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开 URL 段（/courses/[slug]，全局唯一） */
   slug?: InputMaybe<Scalars['String']['input']>;
   /** 开课时间；nil 表示未定（R1，Course 语义为开课/结课） */
   startsAt?: InputMaybe<Scalars['DateTime']['input']>;
-  /** 课程标题 */
+  /** 课程标题；create 缺省时由 change 生成临时占位标题（未命名课程 <hex8>，见 provisional_title），读取面恒非空 */
   title?: InputMaybe<Scalars['String']['input']>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<Scalars['String']['input']>;
@@ -5142,6 +5172,10 @@ export type UpdateCourseResult = {
 export type UpdateEventInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 是否启用教研 workflow */
+  curriculumEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
+  curriculumRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: InputMaybe<Scalars['String']['input']>;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -5154,10 +5188,6 @@ export type UpdateEventInput = {
   pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
-  /** 是否启用教研 workflow */
-  researchEnabled?: InputMaybe<Scalars['Boolean']['input']>;
-  /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
-  researchRequirements?: InputMaybe<Scalars['JsonString']['input']>;
   /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
   slug?: InputMaybe<Scalars['String']['input']>;
   /** 赞助意向截止；nil 表示长期开放 */
@@ -5272,7 +5302,7 @@ export type WorkflowDefinition = {
   nodeDef?: Maybe<Scalars['JsonString']['output']>;
   /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
   status: Scalars['String']['output'];
-  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研 */
+  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 / course_preparation 课程教研流程（S5） */
   type: Scalars['String']['output'];
   /** 版本号，单调递增；new_version 出 v+1（#34） */
   version: Scalars['Int']['output'];
@@ -5327,7 +5357,7 @@ export type WorkflowDefinitionFilterInput = {
   or?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
   /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
   status?: InputMaybe<WorkflowDefinitionFilterStatus>;
-  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / research 教研 */
+  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 / course_preparation 课程教研流程（S5） */
   type?: InputMaybe<WorkflowDefinitionFilterType>;
   /** 版本号，单调递增；new_version 出 v+1（#34） */
   version?: InputMaybe<WorkflowDefinitionFilterVersion>;

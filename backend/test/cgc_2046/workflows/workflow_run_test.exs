@@ -22,8 +22,8 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
 
   defp create_definition(workspace, actor, attrs \\ %{}) do
     defaults = %{
-      name: "教研 workflow",
-      type: :research,
+      name: "教研 workflow（测试布景）",
+      type: :curriculum,
       input_schema: %{"topic" => "string"},
       node_def: %{steps: ["outline_design", "content_review"]},
       approval_timeout: 604_800

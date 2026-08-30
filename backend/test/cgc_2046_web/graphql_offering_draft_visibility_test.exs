@@ -8,7 +8,8 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.{Course, Event, SpeakerInvitation}
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.{Event, SpeakerInvitation}
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   @missing_id "00000000-0000-4000-8000-000000000099"

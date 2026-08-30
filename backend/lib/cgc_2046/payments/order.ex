@@ -103,7 +103,7 @@ defmodule Cgc2046.Payments.Order do
 
   relationships do
     belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
-    belongs_to(:enrollment, Cgc2046.Events.Enrollment, define_attribute?: false)
+    belongs_to(:enrollment, Cgc2046.Admission.Enrollment, define_attribute?: false)
   end
 
   identities do
@@ -295,7 +295,7 @@ defmodule Cgc2046.Payments.Order do
 
       # R7：支付成功信号（落账 worker 驱动，CAS 成功才入队）
       change(
-        {Cgc2046.Changes.SignalEmitter,
+        {Cgc2046.Workflows.SignalEmitter,
          type: "order.paid", payload: &__MODULE__.paid_signal_payload/2}
       )
     end
@@ -371,7 +371,7 @@ defmodule Cgc2046.Payments.Order do
       end)
 
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :order_refund_retry,
          target_type: :order,
          metadata: &__MODULE__.refund_log_metadata/2}
@@ -398,7 +398,7 @@ defmodule Cgc2046.Payments.Order do
       end)
 
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :order_refund, target_type: :order, metadata: &__MODULE__.refund_log_metadata/2}
       )
     end
@@ -424,19 +424,19 @@ defmodule Cgc2046.Payments.Order do
       )
 
       run(fn input, _ctx ->
-        # U4（KTD3）：可选 offering 维度经 JOIN enrollments 收敛——四数形状与
-        # 工作区口径同源（同一状态集分桶）；授权仍由 workspace_id 参数解析。
-        # 可选参数经 Map.get（GraphQL 未传时 arguments 无该键）。
-        event_id = Map.get(input.arguments, :event_id)
-        course_id = Map.get(input.arguments, :course_id)
-
+        # U4（KTD3）+ U5（R19）：可选 offering 维度收敛为单 JOIN enrollments——
+        # 按入参 kind 选择谓词（event_id 只匹配 event 侧，course_id 只匹配
+        # course 侧），杜绝把合法 course UUID 传入 eventId 时的跨类误归并
+        # （PR⑤ cross-model review peer #2）；四数形状与工作区口径同源（同一
+        # 状态集分桶）；授权仍由 workspace_id 参数解析。可选参数经 Map.get
+        # （GraphQL 未传时无该键）；双参同传时 event_id 优先（与原 cond 分叉序一致）。
         {offering_join, extra_params} =
           cond do
-            event_id ->
+            event_id = Map.get(input.arguments, :event_id) ->
               {"JOIN enrollments e ON e.id = o.enrollment_id AND e.event_id = $2",
                [Cgc2046.Repo.uuid!(event_id)]}
 
-            course_id ->
+            course_id = Map.get(input.arguments, :course_id) ->
               {"JOIN enrollments e ON e.id = o.enrollment_id AND e.course_id = $2",
                [Cgc2046.Repo.uuid!(course_id)]}
 
@@ -497,29 +497,29 @@ defmodule Cgc2046.Payments.Order do
     # 学员专用面仍是 my_orders / get_by_id 专用 action，互不影响。
     policy action(:read) do
       authorize_if(expr(enrollment.user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 管理列表（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
     # workspace_id 经 action filter 并入 query.filter，OwnerOrAdmin 从 filter
     # 提取（MembershipContext query 场景）。
     policy action(:workspace_orders) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 收款统计（R24）：Owner/Admin 本租户；PlatformAdmin 跨租户只读（R19）。
     policy action(:workspace_payment_stats) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 管理员单笔退款/重试（R15/R19）：Workspace Owner/Admin；PlatformAdmin
     # 持退款兜底权（资金主体）。
     policy action([:refund, :retry_refund]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 下单/换渠道/取消：actor 在场（匿名拒绝），本人校验经 prepare 内
@@ -561,17 +561,8 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
-  defp enrollment_workspace(id) when is_binary(id) do
-    case Cgc2046.Repo.query("SELECT workspace_id FROM enrollments WHERE id = $1", [
-           Cgc2046.Repo.uuid!(id)
-         ]) do
-      {:ok, %{rows: [[workspace_id]]}} -> {:ok, Ecto.UUID.load!(workspace_id)}
-      {:ok, %{rows: []}} -> {:error, :enrollment_not_found}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
-
-  defp enrollment_workspace(_id), do: {:error, :enrollment_required}
+  # ⑨ 端口收编（ADR-0010 批次4）：SQL 原样在 Admission 侧，本模块只委托
+  defp enrollment_workspace(id), do: Cgc2046.Admission.Enrollment.workspace_id_for_order(id)
 
   # 渠道凭据 → 记录 metadata（AshGraphql mutation payload 的 credential 字段）
   defp attach_credential(changeset) do
@@ -683,34 +674,10 @@ defmodule Cgc2046.Payments.Order do
   # 免缴事务先提交则此处读到 confirmed 拒单；下单先持锁则批量免缴 CAS 等待
   # 后跳过该笔（num_rows=0），不再出现「已免缴确认后仍插入 pending 单」。
   # before_action 运行在 action 事务内，行锁存活到 insert 提交。
-  defp load_enrollment(id) when is_binary(id) do
-    sql = """
-    SELECT id, workspace_id, user_id, status, event_id, course_id, submission_payload
-    FROM enrollments WHERE id = $1 FOR UPDATE
-    """
-
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
-      {:ok, %{rows: [[id, ws, user_id, status, event_id, course_id, payload]]}} ->
-        {:ok,
-         %{
-           id: Ecto.UUID.load!(id),
-           workspace_id: Ecto.UUID.load!(ws),
-           user_id: Ecto.UUID.load!(user_id),
-           status: status_to_atom(status),
-           event_id: event_id && Ecto.UUID.load!(event_id),
-           course_id: course_id && Ecto.UUID.load!(course_id),
-           submission_payload: payload || %{}
-         }}
-
-      {:ok, %{rows: []}} ->
-        {:error, :enrollment_not_found}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
-
-  defp load_enrollment(_id), do: {:error, :enrollment_required}
+  # ⑨ 端口收编（ADR-0010 批次4）：FOR UPDATE SQL 原样在 Admission 侧。
+  # 锁生命周期零变化——before_action 运行在 action 事务内，行锁仍存活到
+  # 调用方（本模块）事务提交。
+  defp load_enrollment(id), do: Cgc2046.Admission.Enrollment.lock_for_order(id)
 
   defp load_order(id) when is_binary(id) do
     sql = """
@@ -786,9 +753,9 @@ defmodule Cgc2046.Payments.Order do
   defp resolve_tier(enrollment, target) do
     tier_id = enrollment.submission_payload["tier_id"]
 
-    with {:ok, tier} <- Cgc2046.Events.PriceTier.find(target.price_tiers, tier_id),
+    with {:ok, tier} <- Cgc2046.Offering.PriceTier.find(target.price_tiers, tier_id),
          true <-
-           Cgc2046.Events.PriceTier.available?(tier, DateTime.utc_now()) ||
+           Cgc2046.Offering.PriceTier.available?(tier, DateTime.utc_now()) ||
              {:error, :tier_not_available} do
       {:ok, tier}
     end
@@ -891,6 +858,34 @@ defmodule Cgc2046.Payments.Order do
     }
   end
 
+  # ── 跨 context 端口（ADR-0009 写点收编）────────────────────────────────
+
+  @doc """
+  报名侧作废端口（ADR-0009 Fable 5 MEDIUM-2 收编；R12/e2e #1）：Admission 的
+  Enrollment 在取消/免缴路径离开占位态的同一事务内调用——将该报名关联的
+  pending 订单批量置 cancelled 并落 cancel_reason。
+
+  语义（与收编前 enrollment.ex 内嵌 SQL 逐行等价）：
+
+  - 仅命中 `status = 'pending'`（已过期时点但未被 expire 扫描置为 expired 的
+    单一并置为 cancelled，状态守卫只认 status 列，不看 expire_at）；
+  - cancelled 是终态，部分唯一索引（R11）放行后续新报名的新订单；
+  - 本地作废不关渠道单、QR 仍可被支付——迟到收款由落账 worker 走作废单
+    自动退款分支兜底（AE2 语义）；
+  - 返回 {:ok, 作废笔数}（0 笔合法：报名可能尚无订单）；SQL 失败
+    {:error, {:database, _}}，调用方整体回滚（本函数用 Repo.query 跑在
+    调用方事务连接上，不开隐式独立事务）。
+  """
+  def void_pending_for_enrollment(enrollment_id, cancel_reason) do
+    case Cgc2046.Repo.query(
+           "UPDATE payments_orders SET status = 'cancelled', cancel_reason = $2, updated_at = NOW() WHERE enrollment_id = $1 AND status = 'pending'",
+           [Cgc2046.Repo.uuid!(enrollment_id), cancel_reason]
+         ) do
+      {:ok, %{num_rows: count}} -> {:ok, count}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
   # ── 状态迁移（DB 级 CAS：条件 UPDATE + num_rows 守卫）────────────────────
 
   defp prepare_mark_paid(changeset) do
@@ -926,54 +921,18 @@ defmodule Cgc2046.Payments.Order do
   defp prepare_expire(changeset) do
     case claim(changeset, [:pending], "status = 'expired'") do
       {:ok, changeset} ->
-        case expire_enrollment(changeset.data.enrollment_id) do
+        # 报名侧联动收编 Admission 端口（ADR-0009 U5 / R20，KTD6 同事务）：
+        # CAS payment_pending→expired + 名额回落由 Enrollment 承担。num_rows=0 =
+        # 报名已流转（免缴 confirmed / 已取消）——订单过期照常，无名额可释，迟到
+        # 收款由落账 worker 自动退款链兜底（KTD12 不变量）。失败 → {:error,_}
+        # 整体回滚（含订单 CAS），扫描下拍重试。
+        case Cgc2046.Admission.Enrollment.release_for_payment_expiry(changeset.data.enrollment_id) do
           :ok -> Ash.Changeset.force_change_attribute(changeset, :status, :expired)
           {:error, reason} -> add_domain_error(changeset, {:database, reason})
         end
 
       {:error, changeset} ->
         changeset
-    end
-  end
-
-  # 报名侧联动（同事务）：CAS payment_pending→expired + 名额回落。num_rows=0 =
-  # 报名已流转（免缴 confirmed / 已取消）——订单过期照常，无名额可释，迟到
-  # 收款由落账 worker 自动退款链兜底（KTD12 不变量）。计数/DB 失败 → {:error,_}
-  # 整体回滚（含订单 CAS），扫描下拍重试。
-  defp expire_enrollment(enrollment_id) do
-    sql = """
-    UPDATE enrollments
-    SET status = 'expired', expired_at = NOW(), updated_at = NOW()
-    WHERE id = $1 AND status = 'payment_pending'
-    RETURNING event_id, course_id
-    """
-
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(enrollment_id)]) do
-      {:ok, %{rows: [[event_id, nil]]}} when not is_nil(event_id) ->
-        decrement_confirmed_count("events", Ecto.UUID.load!(event_id))
-
-      {:ok, %{rows: [[nil, course_id]]}} when not is_nil(course_id) ->
-        decrement_confirmed_count("courses", Ecto.UUID.load!(course_id))
-
-      {:ok, %{rows: []}} ->
-        :ok
-
-      {:ok, _unexpected} ->
-        {:error, :enrollment_target_shape}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp decrement_confirmed_count(table, target_id) do
-    case Cgc2046.Repo.query(
-           "UPDATE #{table} SET confirmed_count = confirmed_count - 1 WHERE id = $1 AND confirmed_count > 0",
-           [Cgc2046.Repo.uuid!(target_id)]
-         ) do
-      {:ok, %{num_rows: 1}} -> :ok
-      {:ok, %{num_rows: 0}} -> {:error, :capacity_counter_invalid}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1035,7 +994,7 @@ defmodule Cgc2046.Payments.Order do
       end)
 
     args
-    |> Cgc2046.Workers.PaymentRefundWorker.new()
+    |> Cgc2046.Payments.Workers.PaymentRefundWorker.new()
     |> Oban.insert!()
 
     {:ok, order}

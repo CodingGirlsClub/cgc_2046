@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   alias Cgc2046.ApprovalClaim
 
@@ -153,10 +153,10 @@ defmodule Cgc2046.Accounts.JoinRequest do
         )
       )
 
-      change(Cgc2046.Changes.ValidateWorkspaceJoinPolicy)
+      change(Cgc2046.Accounts.Changes.ValidateWorkspaceJoinPolicy)
 
       # #115 ownerless 门控：join_policy 校验通过后，阻断向 pending-owner 工作台提交申请
-      change(Cgc2046.Changes.ValidateWorkspaceHasOwner)
+      change(Cgc2046.Accounts.Changes.ValidateWorkspaceHasOwner)
     end
 
     update :approve do
@@ -306,13 +306,13 @@ defmodule Cgc2046.Accounts.JoinRequest do
 
     # :approve / :reject 仅 Owner/Admin
     policy action([:approve, :reject]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
     # :read 申请人本人可读自己的申请；Owner/Admin 可读该工作台全部申请
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 

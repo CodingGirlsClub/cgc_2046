@@ -14,12 +14,14 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Events.Enrollment
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.WebhookEvent
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{NotificationTemplates, Order}
   alias Cgc2046.Payments.Providers.Fake
-  alias Cgc2046.Workers.{NotificationWorker, PaymentRefundWorker, PaymentSettlementWorker}
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
 
   @tier_id "77777777-7777-7777-7777-777777777777"
   @tier %{"id" => @tier_id, "name" => "标准档", "amount_cents" => 19_900}
@@ -149,6 +151,33 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
       all = raw_all |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
       assert all["collected_cents"] == 2 * 19_900
       assert all["pending_cents"] == 19_900
+    end
+
+    test "workspacePaymentStats 跨类误传：course UUID 传入 eventId 返回零,不归并 course 金额(PR⑤ peer#2 钉测)" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+
+      course_c =
+        EventFixtures.create_course(workspace, owner, %{
+          pricing_enabled: true,
+          price_tiers: [@tier]
+        })
+
+      _learner_c = paid_enrollment_in(course_c, workspace, owner, "cross-c1")
+
+      # course UUID 误传入 eventId:event 侧无此供给物,必须零值而非归并 course 统计
+      assert %{"data" => %{"workspacePaymentStats" => raw}} =
+               graphql(stats_query_with_event(workspace.id, course_c.id), sign_in_token(owner))
+
+      stats = raw |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
+      assert stats["collected_cents"] == 0
+      assert stats["pending_cents"] == 0
+
+      # 正确入参 courseId 仍能取到 course 统计
+      assert %{"data" => %{"workspacePaymentStats" => raw_c}} =
+               graphql(stats_query_with_course(workspace.id, course_c.id), sign_in_token(owner))
+
+      stats_c = raw_c |> Jason.decode!() |> Map.new(fn {k, v} -> {k, as_int(v)} end)
+      assert stats_c["collected_cents"] == 19_900
     end
 
     test "retryRefund：refund_failed → refunding + job 入队；paid 被拒；权限矩阵" do
@@ -505,6 +534,12 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
   defp stats_query_with_event(workspace_id, event_id) do
     """
     { workspacePaymentStats(workspaceId: "#{workspace_id}", eventId: "#{event_id}") }
+    """
+  end
+
+  defp stats_query_with_course(workspace_id, course_id) do
+    """
+    { workspacePaymentStats(workspaceId: "#{workspace_id}", courseId: "#{course_id}") }
     """
   end
 

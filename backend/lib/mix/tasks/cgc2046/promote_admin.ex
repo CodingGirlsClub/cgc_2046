@@ -38,14 +38,14 @@ defmodule Mix.Tasks.Cgc2046.PromoteAdmin do
     user =
       User
       |> Ash.Query.filter(email == ^email)
-      |> Ash.read_one!(authorize?: false, domain: Cgc2046.GlobalApi)
+      |> Ash.read_one!(authorize?: false, domain: Cgc2046.Accounts)
 
     if user do
       {:ok, updated} =
         user
         |> Ash.Changeset.for_update(:set_platform_admin, %{is_platform_admin: true},
           authorize?: false,
-          domain: Cgc2046.GlobalApi
+          domain: Cgc2046.Accounts
         )
         |> Ash.update()
 

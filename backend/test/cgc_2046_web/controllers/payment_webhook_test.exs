@@ -14,7 +14,7 @@ defmodule Cgc2046Web.PaymentWebhookTest do
 
   alias Cgc2046.Payments.Providers.Fake
   alias Cgc2046.Payments.WebhookEvent
-  alias Cgc2046.Workers.PaymentSettlementWorker
+  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
 
   describe "POST /api/payments/webhooks/:provider" do
     test "合法回调：200 + 事件落库 + 落账 job 入队（args 只带 webhook_event_id）" do

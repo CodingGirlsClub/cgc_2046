@@ -41,7 +41,7 @@ defmodule Cgc2046.Accounts.User do
       Cgc2046.Accounts.Strategies.Miniprogram
     ],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   attributes do
     uuid_primary_key(:id)
@@ -255,7 +255,7 @@ defmodule Cgc2046.Accounts.User do
       # #116 R10a：治理留痕 promote/demote（CLI 无 actor 调用时 actor_id 落 nil）；
       # 留痕失败上抛回滚本次变更（fail-closed）。action 由 argument 算出。
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: &__MODULE__.admin_log_action/2,
          target_type: :user,
          metadata: &__MODULE__.admin_log_user_metadata/2}
@@ -313,7 +313,7 @@ defmodule Cgc2046.Accounts.User do
       # #116 R10a：治理留痕 demote（原子 UPDATE 成功后才进 after_action；
       # 失败上抛回滚，fail-closed）
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :admin_demote,
          target_type: :user,
          metadata: &__MODULE__.admin_log_user_metadata/2}
@@ -471,38 +471,38 @@ defmodule Cgc2046.Accounts.User do
     # WorkspaceProfile.ReadWorkspaceProfileByVisibility；me 只查本人）。
     # 匿名（actor nil）→ filter 恒假不可读。
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.ReadOwnUser)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.ReadOwnUser)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 更新全局显示名：仅本人（SimpleCheck，strict 阶段可判定）
     policy action(:update_display_name) do
-      authorize_if(Cgc2046.Policies.OwnUser)
+      authorize_if(Cgc2046.Accounts.Policies.OwnUser)
     end
 
     # 绑定/换绑手机号：仅本人（验证码校验在 GraphQL resolver 完成）
     policy action(:update_phone) do
-      authorize_if(Cgc2046.Policies.OwnUser)
+      authorize_if(Cgc2046.Accounts.Policies.OwnUser)
     end
 
     # 更新界面语言偏好：仅本人（i18n Phase 1）
     policy action(:update_locale) do
-      authorize_if(Cgc2046.Policies.OwnUser)
+      authorize_if(Cgc2046.Accounts.Policies.OwnUser)
     end
 
     # 拒绝首公里接入邀请：仅本人（R2 拒绝状态持久化、跨设备一致）
     policy action(:dismiss_onboarding_invitation) do
-      authorize_if(Cgc2046.Policies.OwnUser)
+      authorize_if(Cgc2046.Accounts.Policies.OwnUser)
     end
 
     # promote/demote：仅 platform_admin 可调用 set_platform_admin
     policy action(:set_platform_admin) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # demote 的 ≥1 admin 不变量由 action 自身守卫（原子条件 UPDATE）
     policy action(:demote_platform_admin) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 注意：不能使用 `policy always() do forbid_if(always()) end` 做默认拒绝。

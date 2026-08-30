@@ -21,7 +21,7 @@ defmodule Cgc2046.Workflows.SignalLog do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   attributes do
     uuid_primary_key(:id)
@@ -129,15 +129,16 @@ defmodule Cgc2046.Workflows.SignalLog do
     # 读取（H3）：经 run → definition → workspace → memberships 路径，仅成员或平台管理员
     policy action_type(:read) do
       authorize_if(
-        {Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:run, :definition, :workspace]}
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia,
+         path: [:run, :definition, :workspace]}
       )
 
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     # 写操作：Owner/Admin（多角色并集）
     policy action_type([:create, :update]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 

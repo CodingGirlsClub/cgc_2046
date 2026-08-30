@@ -17,7 +17,7 @@ defmodule Cgc2046.Workflows.StepRole do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   attributes do
     uuid_primary_key(:id)
@@ -91,14 +91,15 @@ defmodule Cgc2046.Workflows.StepRole do
     # 读取（H3）：经 step → definition → workspace → memberships 路径，仅成员或平台管理员
     policy action_type(:read) do
       authorize_if(
-        {Cgc2046.Policies.ActorIsWorkspaceMemberVia, path: [:step, :definition, :workspace]}
+        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia,
+         path: [:step, :definition, :workspace]}
       )
 
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
     policy action_type([:create, :update, :destroy]) do
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
   end
 

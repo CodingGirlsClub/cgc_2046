@@ -28,7 +28,7 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.Api
+    domain: Cgc2046.Workflows
 
   alias Cgc2046.Repo
 
@@ -81,7 +81,7 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   policies do
     # platform_admin 可读幂等登记（AshAdmin 观测面）；非 admin default-deny（#209）
     policy action_type(:read) do
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

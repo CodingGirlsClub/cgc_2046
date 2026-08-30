@@ -59,7 +59,7 @@ export interface OfferingItem {
   /** 结构化场地（JsonString，JSON.parse 后为 VenueInfo；仅 event 有 venue 槽，null = 线上/未定） */
   venue?: string | null;
   /** 教研需求(自由文本;仅 course、成员可见;U8/R12) */
-  researchRequirements?: string | null;
+  curriculumRequirements?: string | null;
   /** 教研 run 引用(仅 course;U8 教研状态露出) */
   workflowRunId?: string | null;
   workflowRun?: { id: string; status: string } | null;
@@ -241,7 +241,7 @@ export const GET_COURSE: TypedDocumentNode<
       registrationDeadline
       startsAt
       endsAt
-      researchRequirements
+      curriculumRequirements
       workflowRunId
       workflowRun {
         id
@@ -354,7 +354,7 @@ export const UPDATE_COURSE: TypedDocumentNode<
         registrationDeadline
         startsAt
         endsAt
-        researchRequirements
+        curriculumRequirements
         pricingEnabled
         priceTiers
       }

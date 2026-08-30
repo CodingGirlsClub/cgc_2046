@@ -24,11 +24,12 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Events.{SpeakerInvitation, SpeakerInvitations}
-  alias Cgc2046.SpeakerSubscriber
+  alias Cgc2046.Events.SpeakerSubscriber
   alias Cgc2046.Workflows.SignalIdempotency
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Workflows.WorkflowRun
-  alias Cgc2046.Workers.{NotificationWorker, SignalPublishWorker}
+  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   describe "create_invitation" do
     test "Owner 创建邀请 → invited + workflow run waiting + 一次性明文 token（库中只存 hash）" do

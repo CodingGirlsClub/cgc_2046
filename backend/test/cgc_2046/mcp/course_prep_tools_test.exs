@@ -1,0 +1,2311 @@
+defmodule Cgc2046.Mcp.CoursePrepToolsTest do
+  @moduledoc """
+  课程教研九工具测试（role-agent-journeys-v2 S5，R22-R28；直接调 tool
+  execute/2，不走 HTTP；workspace_admin_tools_test 同款模式）。
+
+  - 实例化：MCP/域 create 都发 course.created；投递两次恰一个 prep run
+    （key/策略快照固化/course.workflow_run_id 回写）；非 draft 守卫与无定义跳过
+  - 黄金链路（review ON）：指派 → 内容 → 门禁 → 报告 → 审核 → 发布全链落库；
+    自审（策略指定 reviewer 为 tutor 本人）放行
+  - review OFF：策略确认流改 review_required=false → 报告达标直接发布
+  - 门禁失败：无内容 / 临时标题保持 authoring 且违规落 facts；launch 域 action
+    与 MCP confirm 段同被教研门拦截（「课程须完成教研流程后发布」）；
+    PrepGate 纯函数逐条违规
+  - 低于阈值 → authoring + below_threshold_pending；带理由覆盖（确认流）→ review；
+    无理由 / 无待覆盖报告 → error
+  - 认领竞态（unboxed 真实事务 + Barrier）：两 tutor 并发认领恰一成一败
+  - 确认窗口内撤权（§B#7）：approve_prep / update_prep_policy 发起后被移出
+    工作台 → confirm 段 forbidden，无发布/策略副作用
+  - 策略冻结：进入 quality_check 后 update_prep_policy 第一段与域层双重拒绝
+  - request_changes：review → authoring 且理由落 change_requests
+  - list_my_tasks 三类教研行按角色分派（tutor/assignee/reviewer/owner/plain member）
+  - 授权矩阵：九工具 × plain member/learner/outsider 负例 + ToolCallLog 落行
+  """
+
+  use Cgc2046.DataCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
+
+  alias Anubis.Server.Frame
+  alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Curriculum.{CourseRevision, Output, Prep, PrepGate, PrepInstantiator}
+  alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
+
+  alias Cgc2046.Mcp.Tools.{
+    ApprovePrep,
+    AssignPrepTutor,
+    ClaimPrepAuthoring,
+    ConfirmOperation,
+    CreateCourse,
+    GetPrepStatus,
+    LaunchCourse,
+    ListMyTasks,
+    OverridePrepGate,
+    RequestChangesPrep,
+    SaveCourseContent,
+    SubmitPrepForCheck,
+    SubmitPrepQualityReport,
+    UpdatePrepPolicy
+  }
+
+  alias Cgc2046.MiniprogramFixtures.Barrier
+  alias Cgc2046.Repo
+
+  alias Cgc2046.Workflows.{
+    SignalPublishWorker,
+    SignalSubscriber,
+    WorkflowDefinition,
+    WorkflowRun
+  }
+
+  require Ash.Query
+
+  @tool_modules %{
+    "get_prep_status" => GetPrepStatus,
+    "assign_prep_tutor" => AssignPrepTutor,
+    "claim_prep_authoring" => ClaimPrepAuthoring,
+    "update_prep_policy" => UpdatePrepPolicy,
+    "submit_prep_for_check" => SubmitPrepForCheck,
+    "submit_prep_quality_report" => SubmitPrepQualityReport,
+    "override_prep_gate" => OverridePrepGate,
+    "approve_prep" => ApprovePrep,
+    "request_changes_prep" => RequestChangesPrep
+  }
+
+  defp frame_for(user), do: Frame.new(current_user: user)
+
+  defp decode({:reply, response, _frame}) do
+    [content] = response.content
+    Jason.decode!(content["text"])
+  end
+
+  defp tool_logs_for(user_id, tool_name) do
+    ToolCallLog
+    |> Ash.Query.filter(user_id == ^user_id and tool == ^tool_name)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp pending_count do
+    PendingOperation |> Ash.read!(authorize?: false) |> length()
+  end
+
+  # 草稿课程（不经 EventFixtures 的 force_open——教研链路全程需要 draft 起点；
+  # workspace_admin_tools_test 同款 helper）
+  defp draft_course(workspace, actor, attrs) do
+    attrs =
+      Map.merge(
+        %{title: "S5 教研课程", registration_deadline: EventFixtures.days_from_now(7)},
+        attrs
+      )
+
+    Course
+    |> Ash.Changeset.for_create(:create, attrs, tenant: workspace.id)
+    |> Ash.create!(tenant: workspace.id, actor: actor)
+  end
+
+  # published course_preparation 定义（prep run 实例化前置；node_def 不经 Engine，
+  # 协议而非 DAG——空 steps 合法，reconciliation_scan_worker_test 同款）
+  defp create_prep_definition(workspace, actor) do
+    {:ok, defn} =
+      WorkflowDefinition
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "课程教研 #{Ecto.UUID.generate()}",
+          type: :course_preparation,
+          input_schema: %{},
+          node_def: %{"steps" => []}
+        },
+        tenant: workspace.id,
+        actor: actor
+      )
+      |> Ash.create(tenant: workspace.id, actor: actor)
+
+    defn
+    |> Ash.Changeset.for_update(:publish, %{}, tenant: workspace.id, actor: actor)
+    |> Ash.update!(tenant: workspace.id, actor: actor)
+  end
+
+  # 手动投递 course.created（测试环境 Oban manual：信号 job 只入队不执行；
+  # state_based 幂等无需 idempotency_key，与生产 forwarder 同码同步投递）
+  defp deliver_created(course) do
+    :ok =
+      SignalSubscriber.deliver(PrepInstantiator, %{
+        type: "course.created",
+        data: %{"course_id" => course.id, "title" => course.title}
+      })
+  end
+
+  defp prep_run!(course, workspace) do
+    run = Prep.fetch_run(course.id, workspace.id)
+    assert run, "expected a non-terminal prep run for course #{course.id}"
+    run
+  end
+
+  defp prep_runs(workspace) do
+    WorkflowRun
+    |> Ash.Query.filter(definition.type == :course_preparation)
+    |> Ash.read!(authorize?: false, tenant: workspace.id)
+  end
+
+  defp reload_run(run, workspace),
+    do: Ash.get!(WorkflowRun, run.id, tenant: workspace.id, authorize?: false)
+
+  defp force_course_status(course, status) do
+    {:ok, _} =
+      Repo.query("UPDATE courses SET status = $1 WHERE id = $2", [
+        status,
+        Ecto.UUID.dump!(course.id)
+      ])
+  end
+
+  # v2 内容形状（goals + issues[id/kind/title/story/objectives]，schema v2：
+  # objectives 是门禁硬性要求——S6 起 v1-only 草稿不能发布）
+  defp content_fixture do
+    %{
+      "goals" => ["能写简单程序"],
+      "issues" => [
+        %{
+          "id" => "py-first-program",
+          "kind" => "handwork",
+          "title" => "写你的第一个程序",
+          "story" => %{
+            "as_a" => "学员",
+            "given" => [],
+            "goal" => "独立写问候程序",
+            "materials" => [],
+            "checklist" => [
+              %{"id" => "c1", "text" => "程序能运行并正确输出"},
+              %{"id" => "c2", "text" => "能讲懂代码"}
+            ]
+          },
+          "objectives" => [
+            %{
+              "id" => "obj-hello",
+              "title" => "能独立运行问候程序",
+              "rubric" => [%{"id" => "r1", "text" => "程序能运行并输出问候"}]
+            }
+          ]
+        }
+      ]
+    }
+  end
+
+  # v1-only 内容（无 objectives）：保存合法、门禁不过（S6 验收素材）
+  defp v1_only_content do
+    content_fixture()
+    |> put_in(["issues", Access.at(0)], Map.drop(hd(content_fixture()["issues"]), ["objectives"]))
+  end
+
+  defp save_content(user, workspace, course) do
+    SaveCourseContent.execute(
+      %{
+        "workspace_id" => workspace.id,
+        "course_id" => course.id,
+        "content" => content_fixture(),
+        "base_version" => 0
+      },
+      frame_for(user)
+    )
+  end
+
+  defp confirm(actor, pending_id) do
+    ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(actor))
+  end
+
+  defp confirm!(actor, pending_id) do
+    {:reply, _, _} = reply = confirm(actor, pending_id)
+    decode(reply)
+  end
+
+  # 布置：建课程 + 定义 + 投递信号 → prep run（返回 {course, run}）
+  defp course_with_prep(workspace, owner, attrs) do
+    create_prep_definition(workspace, owner)
+    course = draft_course(workspace, owner, attrs)
+    deliver_created(course)
+    {course, prep_run!(course, workspace)}
+  end
+
+  # 布置：推进到 quality_check（指派/认领在调用方完成，此处假定 run 已 authoring
+  # 且 assignee = tutor）
+  defp drive_to_quality_check(workspace, course, tutor) do
+    {:reply, _, _} = save_content(tutor, workspace, course)
+
+    {:reply, _, _} =
+      reply =
+      SubmitPrepForCheck.execute(
+        %{"workspace_id" => workspace.id, "course_id" => course.id},
+        frame_for(tutor)
+      )
+
+    assert decode(reply)["passed"] == true
+    :ok
+  end
+
+  defp submit_report(user, workspace, course, score) do
+    SubmitPrepQualityReport.execute(
+      %{
+        "workspace_id" => workspace.id,
+        "course_id" => course.id,
+        "report" => %{"score" => score, "summary" => "评审摘要 score=#{score}"}
+      },
+      frame_for(user)
+    )
+  end
+
+  # ── 实例化（course.created → prep run，R22） -----------------------------------
+
+  describe "实例化（course.created → prep run）" do
+    test "MCP create_course 与域 create 都发 course.created 信号（事务内 outbox 入队）" do
+      owner = Fixtures.platform_admin("s5-inst-owner")
+      workspace = Fixtures.create_workspace(owner)
+
+      # MCP 入口
+      assert {:reply, _, _} =
+               reply =
+               CreateCourse.execute(
+                 %{"workspace_id" => workspace.id, "title" => "MCP 创建"},
+                 frame_for(owner)
+               )
+
+      mcp_course_id = decode(reply)["course_id"]
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "course.created", "data" => %{"course_id" => mcp_course_id}}
+      )
+
+      # 域入口
+      course = draft_course(workspace, owner, %{title: "域创建"})
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "course.created", "data" => %{"course_id" => course.id}}
+      )
+    end
+
+    test "投递两次恰一个 prep run：key/状态/策略快照固化，课程回写 workflow_run_id" do
+      owner = Fixtures.platform_admin("s5-inst-idem")
+      workspace = Fixtures.create_workspace(owner)
+      create_prep_definition(workspace, owner)
+      course = draft_course(workspace, owner, %{title: "幂等实例化"})
+
+      deliver_created(course)
+      deliver_created(course)
+
+      [run] = prep_runs(workspace)
+      assert run.status == :running
+      assert run.input_snapshot["key"] == "course_prep_#{course.id}"
+      assert run.input_snapshot["course_id"] == course.id
+      assert run.input_snapshot["prep_policy"] == Prep.default_policy()
+      assert Prep.prep_state(run) == "draft"
+
+      # 产物引用链回写（save_course_content facts 镜像与 workflowRun 关系的锚）
+      assert Ash.get!(Course, course.id, authorize?: false).workflow_run_id == run.id
+    end
+
+    test "非 draft 课程守卫：信号重投不实例化（首投失败、课程已发布后重投的防护）" do
+      owner = Fixtures.platform_admin("s5-inst-guard")
+      workspace = Fixtures.create_workspace(owner)
+      create_prep_definition(workspace, owner)
+      course = draft_course(workspace, owner, %{title: "守卫"})
+
+      # 布置：直接置 open（模拟「课程已发布后信号重投」；prep run 不存在时
+      # launch 教研门本就放行存量课程）
+      force_course_status(course, "open")
+
+      deliver_created(course)
+
+      assert prep_runs(workspace) == []
+    end
+
+    test "无 published course_preparation 定义 → 跳过实例化（不 raise、不建 run）" do
+      owner = Fixtures.platform_admin("s5-inst-nodef")
+      workspace = Fixtures.create_workspace(owner)
+
+      # #348 后新 workspace 恒 seed published 定义——异常态(无定义)布景直删
+      Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
+      course = draft_course(workspace, owner, %{title: "无定义"})
+
+      deliver_created(course)
+
+      assert prep_runs(workspace) == []
+    end
+  end
+
+  # ── 黄金链路（review ON，R22-R28） ---------------------------------------------
+
+  describe "黄金链路（review ON）" do
+    test "指派 → 内容 → 门禁 → 报告 → 审核 → 发布：全链落库与终态" do
+      owner = Fixtures.platform_admin("s5-golden-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-golden-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      reviewer = Fixtures.register_user("s5-golden-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "黄金链路"})
+
+      # 读面：draft + 默认策略 + 未指派 + 实时门禁（无内容 → 违规非空）
+      assert {:reply, _, _} =
+               status_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status = decode(status_reply)
+      assert status["prep_state"] == "draft"
+      assert status["policy"] == Prep.default_policy()
+      assert status["assignee_user_id"] == nil
+      assert status["tutor"] == nil
+      assert status["version"] == run.version
+      assert status["gate_violations"] != []
+
+      # Owner 指派 tutor：draft → authoring
+      assert {:reply, _, _} =
+               assign_reply =
+               AssignPrepTutor.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "tutor_user_id" => tutor.id
+                 },
+                 frame_for(owner)
+               )
+
+      assigned = decode(assign_reply)
+      assert assigned["prep_state"] == "authoring"
+      assert assigned["assignee_user_id"] == tutor.id
+
+      # tutor 生产内容（首存 base_version 0 → version 1）
+      assert {:reply, _, _} = save_content(tutor, workspace, course)
+
+      # 提交质量检查：门禁过 → quality_check
+      assert {:reply, _, _} =
+               check_reply =
+               SubmitPrepForCheck.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      checked = decode(check_reply)
+      assert checked["passed"] == true
+      assert checked["violations"] == []
+      assert checked["prep_state"] == "quality_check"
+      assert checked["draft_version"] == 1
+
+      # 质量报告 85 ≥ 默认阈值 80 → review
+      assert {:reply, _, _} =
+               report_reply =
+               SubmitPrepQualityReport.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "report" => %{
+                     "score" => 85,
+                     "summary" => "结构完整",
+                     "findings" => [%{"severity" => "info", "message" => "可补充例子"}]
+                   }
+                 },
+                 frame_for(tutor)
+               )
+
+      reported = decode(report_reply)
+      assert reported["outcome"] == "review"
+      assert reported["prep_state"] == "review"
+      assert reported["threshold"] == 80
+      assert reported["course_status"] == "draft"
+
+      # 另一成员审核通过（reviewer-per-policy 未指定 = 任何成员；确认流两段）
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(reviewer)
+               )
+
+      approve_payload = decode(approve_reply)
+      assert approve_payload["status"] == "needs_confirmation"
+      assert approve_payload["summary"] =~ course.id
+
+      # 第一段无副作用
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+
+      confirmed = confirm!(reviewer, approve_payload["pending_id"])
+      assert confirmed["status"] == "confirmed"
+      assert confirmed["result"]["prep_state"] == "published"
+      assert confirmed["result"]["course_status"] == "open"
+
+      # 终态：课程 open、run succeeded、facts 记发布与审核审计
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+      final = reload_run(run, workspace)
+      assert final.status == :succeeded
+      assert final.facts["prep_state"] == "published"
+      assert final.facts["published_by"] == reviewer.id
+      assert final.facts["approved_by"] == reviewer.id
+      assert final.facts["latest_quality_report"]["score"] == 85
+      assert final.facts["latest_quality_report"]["outcome"] == "passed"
+      assert final.facts["latest_quality_report"]["submitted_by"] == tutor.id
+    end
+
+    test "自审：策略指定 reviewer_user_id 为 tutor 本人 → tutor approve 放行" do
+      owner = Fixtures.platform_admin("s5-self-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-self-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "自审"})
+
+      # Owner 指定 reviewer = tutor（确认流）
+      assert {:reply, _, _} =
+               policy_reply =
+               UpdatePrepPolicy.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "reviewer_user_id" => tutor.id
+                 },
+                 frame_for(owner)
+               )
+
+      policy_payload = decode(policy_reply)
+      assert policy_payload["status"] == "needs_confirmation"
+      policy_confirmed = confirm!(owner, policy_payload["pending_id"])
+      assert policy_confirmed["result"]["policy"]["reviewer_user_id"] == tutor.id
+
+      # tutor 认领 → 内容 → 门禁 → 报告（review_required 默认 true → review）
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 85)
+      assert decode(report_reply)["outcome"] == "review"
+
+      # tutor 本人 approve（确认流）
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      confirmed = confirm!(tutor, decode(approve_reply)["pending_id"])
+      assert confirmed["result"]["prep_state"] == "published"
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+    end
+  end
+
+  # ── review OFF：报告达标直接发布 -------------------------------------------------
+
+  describe "review OFF 自动发布" do
+    test "review_required=false：认领 → 门禁 → 报告达标 → 直接发布（无人工审核）" do
+      owner = Fixtures.platform_admin("s5-auto-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-auto-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "自动发布"})
+
+      # 策略调整（确认流）：review_required false
+      assert {:reply, _, _} =
+               policy_reply =
+               UpdatePrepPolicy.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "review_required" => false
+                 },
+                 frame_for(owner)
+               )
+
+      policy_payload = decode(policy_reply)
+      assert policy_payload["summary"] =~ "review_required"
+      # 第一段无副作用：生效策略仍是快照默认
+      assert Prep.policy(prep_run!(course, workspace))["review_required"] == true
+
+      policy_confirmed = confirm!(owner, policy_payload["pending_id"])
+      assert policy_confirmed["result"]["policy"]["review_required"] == false
+      assert policy_confirmed["result"]["prep_state"] == "draft"
+      # 快照本体不可变：override 落 facts，input_snapshot 不动
+      reloaded = reload_run(run, workspace)
+      assert reloaded.input_snapshot["prep_policy"]["review_required"] == true
+      assert reloaded.facts["prep_policy_override"]["review_required"] == false
+
+      # tutor 认领 → authoring
+      assert {:reply, _, _} =
+               claim_reply =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      claimed = decode(claim_reply)
+      assert claimed["prep_state"] == "authoring"
+      assert claimed["assignee_user_id"] == tutor.id
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      # 报告 90 ≥ 80 且 review OFF → 直接发布
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      reported = decode(report_reply)
+      assert reported["outcome"] == "published"
+      assert reported["course_status"] == "open"
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+      final = reload_run(run, workspace)
+      assert final.status == :succeeded
+      assert final.facts["prep_state"] == "published"
+      assert final.facts["published_by"] == tutor.id
+    end
+  end
+
+  # ── 发布生成 CourseRevision（S6，R29/R38） --------------------------------------
+
+  describe "发布生成 CourseRevision（S6）" do
+    test "首次发布：冻结草稿快照为 revision 1，绑定 current_revision_id，facts 记发布溯源" do
+      owner = Fixtures.platform_admin("s6-pub-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-pub-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "版本发布"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # revision 1 = 发布时点草稿快照（内容逐字节等于草稿）
+      assert [revision] = revisions(course, workspace)
+      assert revision.number == 1
+      assert revision.content == content_fixture()
+      assert revision.prep_run_id == run.id
+      assert revision.published_by_id == tutor.id
+      assert %DateTime{} = revision.published_at
+
+      # 绑定课程当前版本 + run facts 溯源
+      reloaded = Ash.get!(Course, course.id, authorize?: false)
+      assert reloaded.status == :open
+      assert reloaded.current_revision_id == revision.id
+
+      final = reload_run(run, workspace)
+      assert final.status == :succeeded
+      assert final.facts["published_revision_id"] == revision.id
+      assert final.facts["published_revision_number"] == 1
+    end
+
+    test "次周期：get_prep_status 惰性开新 run（assignee 沿用）→ 再发布生成 revision 2，revision 1 字节不变" do
+      owner = Fixtures.platform_admin("s6-cycle-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-cycle-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run1} = course_with_prep(workspace, owner, %{title: "次周期"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+      assert [revision1] = revisions(course, workspace)
+
+      # 次周期：run1 已终态，get_prep_status 惰性 ensure_active_run 开 run2
+      # （prep_state=draft、沿用上一周期 assignee）
+      assert {:reply, _, _} =
+               status_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status = decode(status_reply)
+      assert status["prep_state"] == "draft"
+      assert status["assignee_user_id"] == tutor.id
+
+      run2 = prep_run!(course, workspace)
+      assert run2.id != run1.id
+      assert run2.status == :running
+
+      # 进 authoring：assignee 非空挡住认领（既定行为），Owner 重新指派同一 tutor
+      assert {:reply, _, _} =
+               AssignPrepTutor.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "tutor_user_id" => tutor.id
+                 },
+                 frame_for(owner)
+               )
+
+      assert reload_run(run2, workspace).facts["prep_state"] == "authoring"
+
+      # 修订草稿（首存后 version=1，乐观并发基准）→ 门禁 → 报告
+      modified = %{content_fixture() | "goals" => ["能写简单程序", "能调试程序"]}
+
+      assert {:reply, _, _} =
+               SaveCourseContent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "content" => modified,
+                   "base_version" => 1
+                 },
+                 frame_for(tutor)
+               )
+
+      assert {:reply, _, _} =
+               check_reply =
+               SubmitPrepForCheck.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      assert decode(check_reply)["passed"] == true
+
+      # run2 是新 run：策略快照默认 review_required=true → 报告达标进 review
+      assert {:reply, _, _} = report2_reply = submit_report(tutor, workspace, course, 88)
+      assert decode(report2_reply)["outcome"] == "review"
+
+      # Owner 审核通过（确认流）→ 发布 revision 2（课程已 open，跳过 launch 只换绑）
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(owner)
+               )
+
+      confirmed = confirm!(owner, decode(approve_reply)["pending_id"])
+      assert confirmed["result"]["prep_state"] == "published"
+      assert confirmed["result"]["course_status"] == "open"
+
+      assert [revision1_after, revision2] = revisions(course, workspace)
+      assert revision2.number == 2
+      assert revision2.content == modified
+      assert revision2.prep_run_id == run2.id
+
+      # 不可变纪律：revision 1 内容字节不变（发布即冻结）
+      assert revision1_after.id == revision1.id
+      assert revision1_after.content == content_fixture()
+
+      # 课程当前版本换绑 revision 2
+      reloaded = Ash.get!(Course, course.id, authorize?: false)
+      assert reloaded.current_revision_id == revision2.id
+
+      assert reload_run(run2, workspace).facts["published_revision_number"] == 2
+      assert reload_run(run1, workspace).facts["published_revision_number"] == 1
+    end
+
+    test "并发发布撞号：恰一成一败（字符串错误，无 Invalid 泄漏），revision number 无重号" do
+      {owner, workspace, course, tutor, run} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-race-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-race-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, run} = course_with_prep(workspace, owner, %{title: "并发撞号"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          # 认领/质检已推进 run version——发布乐观锁基准须为最新 struct
+          {owner, workspace, course, tutor, reload_run(run, workspace)}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+      barrier = start_supervised!({Barrier, 2})
+
+      results =
+        [tutor, tutor]
+        |> Enum.map(fn actor ->
+          Task.async(fn ->
+            unboxed(fn ->
+              Barrier.arrive(barrier)
+              Prep.publish(run, actor)
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      # 恰一成一败；失败方是字符串错误（撞号被消化，Ash.Error.Invalid 不外泄）
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      [{:error, msg}] = Enum.filter(results, &match?({:error, _}, &1))
+      assert is_binary(msg)
+      refute msg =~ "revision_number_conflict"
+
+      # 无重号：失败方整体回滚，落库恰 revision 1
+      unboxed(fn ->
+        assert [%{number: 1}] = revisions(course, workspace)
+
+        reloaded = Ash.get!(Course, course.id, authorize?: false)
+        assert reloaded.status == :open
+        assert reloaded.current_revision_id == hd(revisions(course, workspace)).id
+        assert reload_run(run, workspace).status == :succeeded
+      end)
+    end
+
+    test "门禁复跑回滚：submit 后草稿被改坏 → publish 整体回滚，修复后可重发" do
+      owner = Fixtures.platform_admin("s6-rollback-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-rollback-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "门禁复跑回滚"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      # 提交门禁已过 → 草稿改坏为 v1-only（保存合法，发布门禁不过）
+      assert {:reply, _, _} =
+               SaveCourseContent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "content" => v1_only_content(),
+                   "base_version" => 1
+                 },
+                 frame_for(tutor)
+               )
+
+      # 发布步防御性复跑门禁 → 整体回滚（§B#9）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               submit_report(tutor, workspace, course, 90)
+
+      assert msg =~ "publish blocked by structure gate"
+      assert msg =~ "缺 LearningObjective"
+
+      # 回滚完整性：无 revision、课程仍 draft 未绑、run 仍非终态可修复重发
+      assert [] = revisions(course, workspace)
+
+      reloaded = Ash.get!(Course, course.id, authorize?: false)
+      assert reloaded.status == :draft
+      assert is_nil(reloaded.current_revision_id)
+
+      assert reload_run(run, workspace).status == :running
+      assert Prep.prep_state(reload_run(run, workspace)) == "quality_check"
+
+      # 修复：恢复 v2 内容 → 无需重新提交检查，直接再报 → 复跑门禁通过发布
+      assert {:reply, _, _} =
+               SaveCourseContent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "content" => content_fixture(),
+                   "base_version" => 2
+                 },
+                 frame_for(tutor)
+               )
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      assert [%{number: 1}] = revisions(course, workspace)
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+    end
+  end
+
+  # ── 惰性次周期原子性与 terminal 生命周期（advisor R1：S6-01/S6-02） ---------------
+
+  describe "惰性次周期原子性（S6-01/R1-02）" do
+    test "并发懒开（保真 miss→create 窗口）：两参与者都已观察到 miss 后进锁，恰一个非终态 run" do
+      {owner, workspace, course, tutor} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-lazy-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-lazy-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, _run} = course_with_prep(workspace, owner, %{title: "并发懒开"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+          assert decode(report_reply)["outcome"] == "published"
+
+          {owner, workspace, course, tutor}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+      parent = self()
+      {:ok, defn} = PrepInstantiator.fetch_prep_definition(workspace.id)
+
+      # R3 结构证明（advisor R2-01）：同步点在 production internal miss 之后、
+      # lock/create 之前——spawn_under_course_lock/3 的 spawn_fun 是 caller
+      # 闭包（合法 seam）：闭包开头即锁内 fetch_run（with 的 miss）已过、create
+      # 未始的精确时刻。gate = send :at_gate + receive :go（放行由主进程广播，
+      # 非双方会合——有锁时 B 阻塞在行锁外到不了 gate，Barrier 会死锁）。
+      #
+      # 有 FOR UPDATE：A 获锁 → 锁内 miss → spawn_fun 挂 gate；B 阻塞在行锁
+      # 外。主进程收 A 的 :at_gate 广播 :go → A create+提交 → B 获锁 →
+      # 锁内重读命中 A 的 run → 双 {:ok} 同 id（绿，不死锁）。
+      # 删 FOR UPDATE：A/B 各自锁内读 nil（互不可见未提交）→ 双双挂 gate →
+      # 放行 → 双 create → run id 不同（稳定红，删码验证见 R3 报告）。
+      tasks =
+        [tutor, tutor]
+        |> Enum.map(fn _actor ->
+          Task.async(fn ->
+            unboxed(fn ->
+              Prep.spawn_under_course_lock(course, ["draft", "open"], fn ->
+                # gate 携带 participant 事务 xid（spawn_fun 在 Repo.transaction
+                # 内，FOR UPDATE 已持锁——xid 已分配）
+                send(parent, {:at_gate, self(), current_txid()})
+
+                receive do
+                  :go -> :ok
+                end
+
+                PrepInstantiator.launch(workspace.id, defn.id, %{
+                  "course_id" => course.id,
+                  "title" => course.title
+                })
+              end)
+            end)
+          end)
+        end)
+
+      # 放行条件（确定性，advisor R4/R3-02）：两个 participant 都到 gate
+      # （删锁世界：双方都已过各自锁内 miss、挂 create 前——放行即双建，稳定
+      # 红），或出现**绑定已见 participant 事务**的行锁等待者（有锁世界：A 在
+      # gate 持锁挂起，B 阻塞在 A 事务的 FOR UPDATE 到不了 gate——transactionid
+      # 精确匹配只认等 A 的连接，无关 waiter 不误判；此时放行 A，A 提交后
+      # B 获锁锁内重读命中，绿）。gate 按 task pid 去重累计（进程字典——
+      # 跨轮询不丢，两次轮询间到达的 gate 不被时间等待吞掉）。
+      assert wait_until(fn ->
+               receive do
+                 {:at_gate, pid, xid} -> Process.put(:r4_gates, Map.put(gates(), pid, xid))
+               after
+                 0 -> :ok
+               end
+
+               seen = gates()
+
+               if map_size(seen) >= 2 do
+                 true
+               else
+                 seen
+                 |> Map.values()
+                 |> Enum.any?(&(&1 != nil and lock_waiters_of(&1) >= 1))
+               end
+             end)
+
+      Enum.each(tasks, &send(&1.pid, :go))
+
+      assert [{:ok, run_a}, {:ok, run_b}] = Task.await_many(tasks, 15_000)
+      assert run_a.id == run_b.id
+
+      unboxed(fn ->
+        all = prep_runs(workspace)
+        assert length(all) == 2
+
+        active = Enum.filter(all, &(&1.status in [:pending, :running, :waiting]))
+        assert length(active) == 1
+
+        # fetch_run 幂等可读（多行会 MultipleResults 卡死——S6-01 的原始故障面）
+        assert %WorkflowRun{} = Prep.fetch_run(course.id, workspace.id)
+      end)
+    end
+
+    test "ensure_active_run 层真并发（采样性质）：双调用幂等同 run" do
+      # 采样补充（advisor R2-01 如实定性）：ensure_active_run 全链路（锁外
+      # guard → fetch_run → spawn_under_course_lock）真并发，但调度不受
+      # gate 控制——本测试的绿是采样证据（每次都过真实链路），结构证明
+      # 由上一测试的 spawn_fun gate 承担。
+      {owner, workspace, course, tutor} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-smp-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-smp-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, _run} = course_with_prep(workspace, owner, %{title: "采样并发"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+          assert decode(report_reply)["outcome"] == "published"
+
+          {owner, workspace, course, tutor}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+
+      results =
+        [tutor, tutor]
+        |> Enum.map(fn actor ->
+          Task.async(fn ->
+            unboxed(fn -> Prep.ensure_active_run(course, actor: actor) end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert [{:ok, run_a}, {:ok, run_b}] = results
+      assert run_a.id == run_b.id
+
+      unboxed(fn ->
+        active = Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+        assert length(active) == 1
+      end)
+    end
+  end
+
+  describe "terminal 收口后的确定性交错（advisor R2：R1-01 序列 A/B）" do
+    test "序列 A：terminal 先提交、lazy caller 携 stale open struct 后获锁——锁内重读拒绝，无写副作用" do
+      owner = Fixtures.platform_admin("s6-r2a-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-r2a-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "序列 A"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # 交错第一步：lazy caller 在 close 前读到 open struct（stale 快照）
+      stale_open = Ash.get!(Course, course.id, authorize?: false)
+      assert stale_open.status == :open
+
+      # 交错第二步：close 抢先提交（收口无 run 可收——次周期尚未开）
+      stale_open
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # 交错第三步：lazy caller 携 stale struct 后获锁——锁内重读最新 status
+      # 必须 closed 拒绝（锁外 guard 对 stale struct 无效，正确性来源在锁内）
+      assert {:error, msg} = Prep.ensure_active_run(stale_open, actor: tutor)
+      assert msg =~ "course #{course.id} is closed"
+
+      # 终态后 active run 恒 0
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "序列 B：created handler 通过 draft 检查后课程抢先 launch+close——锁内重读放弃，无写副作用" do
+      owner = Fixtures.platform_admin("s6-r2b-owner")
+      workspace = Fixtures.create_workspace(owner)
+      create_prep_definition(workspace, owner)
+
+      # 无 prep run 的 draft 课程（course.created 未投递）
+      course = draft_course(workspace, owner, %{title: "序列 B"})
+
+      # 交错第一步：handler 读到 draft struct（stale 快照，通过 ensure_draft）
+      stale_draft = course
+      assert stale_draft.status == :draft
+
+      # 交错第二步：legacy 路径抢先——无 prep run 的课程 launch 放行（教研门：
+      # 无 prep run 照常发布），随后 close 提交
+      stale_draft
+      |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      {:ok, launched} = Ash.get(Course, course.id, tenant: workspace.id, authorize?: false)
+      assert launched.status == :open
+
+      launched
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # 交错第三步：handler 恢复，携 stale draft struct 进锁协议（模拟锁外
+      # ensure_draft 已过、锁前 terminal 的窗口）——锁内重读 status = closed，
+      # 幂等放弃
+      {:ok, defn} = PrepInstantiator.fetch_prep_definition(workspace.id)
+
+      assert {:error, msg} =
+               Prep.spawn_under_course_lock(stale_draft, ["draft"], fn ->
+                 PrepInstantiator.launch(workspace.id, defn.id, %{
+                   "course_id" => stale_draft.id,
+                   "title" => stale_draft.title
+                 })
+               end)
+
+      assert msg =~ "course #{course.id} is closed"
+
+      # 终态后 active run 恒 0（terminal 课程无孤儿 prep run）
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+
+      # 端到端：真实 handler 对 closed 课程同样幂等放弃（fetch_course 重读 →
+      # 锁外 ensure_draft 快速拒绝 → :ok 无写副作用）
+      assert :ok =
+               SignalSubscriber.deliver(PrepInstantiator, %{
+                 type: "course.created",
+                 data: %{"course_id" => course.id, "title" => course.title}
+               })
+
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "锁互斥（真实 close 事务重叠）：producer 持锁挂起时 close 等待，放行后收口 producer 的 run" do
+      {owner, workspace, course, tutor} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-r3m-owner")
+          workspace = Fixtures.create_workspace(owner)
+          tutor = Fixtures.register_user("s6-r3m-tutor")
+          Fixtures.add_member(workspace, tutor, [:tutor])
+
+          {course, _run} = course_with_prep(workspace, owner, %{title: "锁互斥"})
+          review_off!(workspace, owner, course)
+
+          {:reply, _, _} =
+            ClaimPrepAuthoring.execute(
+              %{"workspace_id" => workspace.id, "course_id" => course.id},
+              frame_for(tutor)
+            )
+
+          :ok = drive_to_quality_check(workspace, course, tutor)
+
+          {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+          assert decode(report_reply)["outcome"] == "published"
+
+          {owner, workspace, course, tutor}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner, tutor])
+      parent = self()
+      {:ok, defn} = PrepInstantiator.fetch_prep_definition(workspace.id)
+
+      # R3（advisor R2 MUST 2）：真实 producer（lazy，open 白名单）与真实
+      # close 事务重叠。producer 经 spawn_under_course_lock 的 spawn_fun gate
+      # 挂起——此刻 producer 持有 course 行写锁；closer（真实 :close 域
+      # action）阻塞等同一行锁。
+      producer =
+        Task.async(fn ->
+          unboxed(fn ->
+            Prep.spawn_under_course_lock(course, ["draft", "open"], fn ->
+              # gate 携带 producer 事务 xid（spawn_fun 在 Repo.transaction 内，
+              # FOR UPDATE 已持锁）
+              send(parent, {:producer_gate, self(), current_txid()})
+
+              receive do
+                :go -> :ok
+              end
+
+              PrepInstantiator.launch(workspace.id, defn.id, %{
+                "course_id" => course.id,
+                "title" => course.title
+              })
+            end)
+          end)
+        end)
+
+      producer_xid =
+        receive do
+          {:producer_gate, _pid, xid} -> xid
+        end
+
+      closer =
+        Task.async(fn ->
+          unboxed(fn ->
+            closed =
+              Ash.get!(Course, course.id, authorize?: false)
+              |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+              |> Ash.update!(tenant: workspace.id, actor: owner)
+
+            send(parent, :closer_done)
+            closed
+          end)
+        end)
+
+      # 放行条件（确定性，advisor R4/R3-02）：closer 完成，或已阻塞在
+      # **producer 事务**的行锁上（transactionid 精确匹配——无关 waiter 不
+      # 误判）——任一先出现才放行 producer。有 FOR UPDATE：closer 阻塞等
+      # producer 行锁 → 放行 → producer create+提交+释放锁 → closer 获锁
+      # 完成并在同事务收口 producer 的 run（close 必然在 producer 提交之后
+      # 提交——结构证据）。删 FOR UPDATE：closer 不被阻塞直接完成（closed
+      # 已提交）→ 放行 → producer 恢复 spawn_fun 直接建 run（status/fetch
+      # 均为挂起前旧读）→ run 落库时课程已 terminal 且无人收口 → 断言
+      # cancelled/active-0 红。
+      assert wait_until(fn ->
+               closer_done? =
+                 receive do
+                   :closer_done -> true
+                 after
+                   0 -> false
+                 end
+
+               closer_done? or lock_waiters_of(producer_xid) >= 1
+             end)
+
+      send(producer.pid, :go)
+
+      assert {:ok, spawned} = Task.await(producer, 15_000)
+      Task.await(closer, 15_000)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # 收口路径：producer 的 run 存在且被 close 取消（cancelled + finished_at）
+      reloaded = reload_run(spawned, workspace)
+      assert reloaded.status == :cancelled
+      refute is_nil(reloaded.finished_at)
+
+      # 终态后 active run 恒 0
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "序列 B（真实接线）：handler 过 draft 检查后阻塞在行锁，terminal 先提交 → 锁内拒绝零 run" do
+      # 布置须真实提交（unboxed）：handler 与持锁事务各自用独立 unboxed 连接，
+      # sandbox 未提交数据对其不可见（fetch_course 会 :not_found skip——
+      # 认领竞态测试同款纪律）
+      {owner, workspace, course} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s6-r3b-owner")
+          workspace = Fixtures.create_workspace(owner)
+          create_prep_definition(workspace, owner)
+
+          # 无 prep run 的 draft 课程（course.created 未投递）
+          course = draft_course(workspace, owner, %{title: "序列 B 真实接线"})
+          {owner, workspace, course}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner])
+      parent = self()
+
+      # 顺序（advisor R4/R3-01）：主进程**先**在真实 transaction 内取得
+      # course 行锁（unboxed_run 是 autocommit——裸 SELECT FOR UPDATE 是语句
+      # 级锁，语句结束即释放，必须包在 Repo.transaction 里），此时 handler
+      # 尚未启动、不存在「handler 等锁被计入基线」的竞态；再启动 handler。
+      holder =
+        Task.async(fn ->
+          unboxed(fn ->
+            Repo.transaction(fn ->
+              Repo.query!("SELECT id FROM courses WHERE id = $1 FOR UPDATE", [
+                Ecto.UUID.dump!(course.id)
+              ])
+
+              # 持锁事务 xid——后续 waiter 判定按此精确匹配（只认等本事务
+              # 锁的连接，无关 waiter 不误判；FOR UPDATE 保证 xid 已分配）
+              me = current_txid()
+              send(parent, {:locked, me})
+
+              receive do
+                :release -> :ok
+              end
+
+              # 放行后（handler 已确认阻塞在本事务锁上）注入 terminal 状态
+              # 并随事务提交（真实链路 launch→close 的域副作用与断言无关，
+              # 此处只需 world state = closed 已提交；提交释放锁，handler
+              # 恢复获锁并由锁内 status 裁决拒绝）
+              force_course_status(course, "closed")
+            end)
+          end)
+        end)
+
+      holder_xid =
+        receive do
+          {:locked, xid} -> xid
+        end
+
+      # 真实 handler（SignalSubscriber.deliver 同步执行 PrepInstantiator.handle/2，
+      # Task 进程内）：fetch_course(draft) → ensure_draft ✓ → fetch defn →
+      # spawn_under_course_lock 的 SELECT ... FOR UPDATE——主进程持锁期间
+      # handler 唯一可能的阻塞点即此（「已通过 draft 检查后暂停」的真实实现）。
+      handler =
+        Task.async(fn ->
+          unboxed(fn ->
+            SignalSubscriber.deliver(PrepInstantiator, %{
+              type: "course.created",
+              data: %{"course_id" => course.id, "title" => course.title}
+            })
+          end)
+        end)
+
+      # 等 handler 的锁请求出现（advisor R4/R3-01：显式 assert——超时即测试
+      # 失败，不静默进入 force_course_status）。精确条件：等待本持锁事务的
+      # waiter 出现 **且** run 未建——真实接线下 handler 阻塞在
+      # SELECT ... FOR UPDATE，此刻 run 必未建；若 handler 回退为直接
+      # launch/3，会先建 run 再阻塞在 link 的 UPDATE，`prep_runs == []` 恒假
+      # → 超时 assert 失败（红）——回退验证锚点。
+      assert wait_until(fn ->
+               lock_waiters_of(holder_xid) >= 1 and prep_runs(workspace) == []
+             end)
+
+      send(holder.pid, :release)
+
+      assert :ok = Task.await(handler, 10_000)
+      Task.await(holder, 10_000)
+
+      # 锁内裁决拒绝：handler 无写副作用，零 run（若 handler 回退为直接
+      # launch/3，run 会在持锁期间被建并提交——terminal 后遗留 active run，
+      # 本断言红；回退验证见 R4 报告）
+      assert [] = prep_runs(workspace)
+    end
+  end
+
+  describe "terminal 课程生命周期（S6-02）" do
+    test "closed 后惰性入口 fail closed：明确错误且无写副作用" do
+      owner = Fixtures.platform_admin("s6-term-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-term-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "终态课程"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # 发布后 close（域 action：收口同事务；重读拿 open 状态的最新 struct）
+      Ash.get!(Course, course.id, authorize?: false)
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      # closed 后惰性入口：明确错误（fail closed）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      assert msg =~ "course #{course.id} is closed"
+
+      # 无写副作用：无任何非终态 run（首周期 run 已终态，无新建）
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+
+    test "next-cycle run 存在时 course close：active run 同事务收口（cancelled）" do
+      owner = Fixtures.platform_admin("s6-term2-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-term2-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "收口次周期"})
+      review_off!(workspace, owner, course)
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 90)
+      assert decode(report_reply)["outcome"] == "published"
+
+      # 懒开次周期 run（active）
+      assert {:reply, _, _} =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      run2 = prep_run!(course, workspace)
+      assert run2.status == :running
+
+      # close → 次周期 run 同事务收口（重读拿 open 状态的最新 struct）
+      Ash.get!(Course, course.id, authorize?: false)
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: owner)
+      |> Ash.update!(tenant: workspace.id, actor: owner)
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :closed
+
+      reloaded = reload_run(run2, workspace)
+      assert reloaded.status == :cancelled
+      refute is_nil(reloaded.finished_at)
+
+      assert [] =
+               Enum.filter(prep_runs(workspace), &(&1.status in [:pending, :running, :waiting]))
+    end
+  end
+
+  # ── 门禁失败（R26）与 launch 教研门（R23） ---------------------------------------
+
+  describe "门禁失败与 launch 教研门" do
+    test "无内容草稿 → submit_for_check 不过，违规清单落 facts，保持 authoring" do
+      owner = Fixtures.platform_admin("s5-gate-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-gate-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "门禁失败"})
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      # 不存内容直接提交
+      assert {:reply, _, _} =
+               reply =
+               SubmitPrepForCheck.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      payload = decode(reply)
+      assert payload["passed"] == false
+      assert payload["prep_state"] == "authoring"
+      assert payload["draft_version"] == 0
+      assert payload["violations"] == ["课程内容为空：尚无经 save_course_content 保存的内容草稿"]
+
+      # 违规清单落 facts（get_prep_status 透出同一份）
+      assert reload_run(run, workspace).facts["gate_violations"] == payload["violations"]
+    end
+
+    test "临时占位标题 → 门禁报标题违规（内容合规也不放行）" do
+      owner = Fixtures.platform_admin("s5-gate-title")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-gate-title-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      # 无 title 创建 → 系统占位标题 + provisional_title（S3 R21）
+      {course, _run} = course_with_prep(workspace, owner, %{title: nil})
+      assert course.provisional_title == true
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      assert {:reply, _, _} = save_content(tutor, workspace, course)
+
+      assert {:reply, _, _} =
+               reply =
+               SubmitPrepForCheck.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      payload = decode(reply)
+      assert payload["passed"] == false
+      assert payload["prep_state"] == "authoring"
+
+      assert payload["violations"] == [
+               "课程标题仍是系统生成的临时标题：请先经 update_course 设置正式标题"
+             ]
+    end
+
+    test "launch 域 action 被拒：存在未走完的 prep run（带外发布拦截，域名层）" do
+      owner = Fixtures.platform_admin("s5-launch-owner")
+      workspace = Fixtures.create_workspace(owner)
+      {course, _run} = course_with_prep(workspace, owner, %{title: "教研门"})
+
+      assert {:error, %Ash.Error.Invalid{} = err} =
+               course
+               |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id, actor: owner)
+               |> Ash.update(tenant: workspace.id, actor: owner)
+
+      assert Exception.message(err) =~ "课程须完成教研流程后发布"
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+    end
+
+    test "MCP launch_course confirm 段同被教研门拦截（pending 回滚、课程仍 draft）" do
+      owner = Fixtures.platform_admin("s5-launch-mcp")
+      workspace = Fixtures.create_workspace(owner)
+      {course, _run} = course_with_prep(workspace, owner, %{title: "教研门 MCP"})
+
+      # 第一段：draft 快速预检通过，建 pending（教研门在域 action，confirm 段拦截）
+      assert {:reply, _, _} =
+               reply =
+               LaunchCourse.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(owner)
+               )
+
+      payload = decode(reply)
+      assert payload["status"] == "needs_confirmation"
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               confirm(owner, payload["pending_id"])
+
+      assert msg =~ "课程须完成教研流程后发布"
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+    end
+  end
+
+  # ── PrepGate 纯函数（R26；空 goals 内容无法入库，纯函数覆盖） --------------------
+
+  describe "PrepGate 纯函数" do
+    test "无内容 / 临时标题 / 空 goals / 空 issues / 形状非法逐条报违规" do
+      course = %Course{provisional_title: false}
+      provisional = %Course{provisional_title: true}
+
+      valid_issue = %{
+        "id" => "i1",
+        "kind" => "handwork",
+        "title" => "卡",
+        "story" => %{"checklist" => [%{"id" => "c1", "text" => "项"}]},
+        "objectives" => [
+          %{"id" => "o1", "title" => "单元一", "rubric" => [%{"id" => "r1", "text" => "达标"}]}
+        ]
+      }
+
+      # 无内容
+      assert %{passed: false, violations: [msg]} = PrepGate.check(course, nil)
+      assert msg =~ "内容为空"
+
+      # 临时标题 + 无内容 → 两条
+      assert %{passed: false, violations: [title_msg, content_msg]} =
+               PrepGate.check(provisional, nil)
+
+      assert title_msg =~ "临时标题"
+      assert content_msg =~ "内容为空"
+
+      # 空 goals（issues 合规）→ 仅 goals 违规（shape 不可检时 objectives 检查跳过）
+      output = %Output{data: %{"goals" => [], "issues" => [valid_issue]}}
+
+      assert %{passed: false, violations: [goals_msg]} = PrepGate.check(course, output)
+      assert goals_msg =~ "goals"
+
+      # 空 issues → 仅 issues 违规
+      output = %Output{data: %{"goals" => ["目标"], "issues" => []}}
+
+      assert %{passed: false, violations: [issues_msg]} = PrepGate.check(course, output)
+      assert issues_msg =~ "issue 卡集为空"
+
+      # 形状非法（issue id 卡集内重复）→ 形状违规 + objective id 重复（dup 卡带同一 objective）
+      dup = %{valid_issue | "title" => "另一卡"}
+      output = %Output{data: %{"goals" => ["目标"], "issues" => [valid_issue, dup]}}
+
+      assert %{passed: false, violations: [shape_msg, dup_objective_msg]} =
+               PrepGate.check(course, output)
+
+      assert shape_msg =~ "结构不合法"
+      assert dup_objective_msg =~ "objective id 在课程内重复"
+
+      # 全部合规 → 通过
+      output = %Output{data: %{"goals" => ["目标"], "issues" => [valid_issue]}}
+      assert %{passed: true, violations: []} = PrepGate.check(course, output)
+    end
+
+    test "S6 objectives 门禁：v1-only 草稿 / 全部选修 / 先修成环 / 先修引用不存在逐条报违规" do
+      course = %Course{provisional_title: false}
+
+      v1_issue = %{
+        "id" => "i1",
+        "kind" => "handwork",
+        "title" => "卡",
+        "story" => %{"checklist" => [%{"id" => "c1", "text" => "项"}]}
+      }
+
+      objective = fn id, extra ->
+        Map.merge(
+          %{"id" => id, "title" => "单元 #{id}", "rubric" => [%{"id" => "r1", "text" => "达标"}]},
+          extra
+        )
+      end
+
+      with_objectives = fn objectives ->
+        %Output{
+          data: %{"goals" => ["目标"], "issues" => [Map.put(v1_issue, "objectives", objectives)]}
+        }
+      end
+
+      # v1-only 草稿（无 objectives）→ 缺 LearningObjective 违规（无数据迁移：不可发布）
+      output = %Output{data: %{"goals" => ["目标"], "issues" => [v1_issue]}}
+
+      assert %{passed: false, violations: [msg]} = PrepGate.check(course, output)
+      assert msg =~ "缺 LearningObjective"
+
+      # 全部选修（required=false）→ 必修违规
+      assert %{passed: false, violations: [msg]} =
+               PrepGate.check(
+                 course,
+                 with_objectives.([objective.("o1", %{"required" => false})])
+               )
+
+      assert msg =~ "至少一个必修 objective"
+
+      # 先修成环（o1 → o2 → o1）→ DAG 违规
+      cyclic =
+        with_objectives.([
+          objective.("o1", %{"prereq_ids" => ["o2"]}),
+          objective.("o2", %{"prereq_ids" => ["o1"]})
+        ])
+
+      assert %{passed: false, violations: [msg]} = PrepGate.check(course, cyclic)
+      assert msg =~ "先修关系存在环"
+
+      # 先修自引用 → 同环违规
+      self_ref = with_objectives.([objective.("o1", %{"prereq_ids" => ["o1"]})])
+
+      assert %{passed: false, violations: [msg]} = PrepGate.check(course, self_ref)
+      assert msg =~ "先修关系存在环"
+
+      # 先修引用不存在 → 引用违规
+      missing = with_objectives.([objective.("o1", %{"prereq_ids" => ["ghost"]})])
+
+      assert %{passed: false, violations: [msg]} = PrepGate.check(course, missing)
+      assert msg =~ "引用不存在的 objective"
+
+      # 空 rubric → rubric 违规
+      no_rubric = with_objectives.([objective.("o1", %{"rubric" => []})])
+
+      assert %{passed: false, violations: [msg]} = PrepGate.check(course, no_rubric)
+      assert msg =~ "rubric 为空"
+    end
+  end
+
+  # ── 低于阈值与覆盖（R27/AE5） ---------------------------------------------------
+
+  describe "低于阈值与覆盖" do
+    test "低于阈值 → 回 authoring + below_threshold_pending；带理由覆盖（确认流）→ review → 发布" do
+      owner = Fixtures.platform_admin("s5-ovr-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-ovr-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      reviewer = Fixtures.register_user("s5-ovr-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "覆盖链路"})
+
+      {:ok, _run} = Prep.assign_tutor(run, tutor.id, owner)
+      :ok = drive_to_quality_check(workspace, course, tutor)
+
+      # 报告 50 < 80 → 回 authoring，待覆盖报告落 facts
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 50)
+      reported = decode(report_reply)
+      assert reported["outcome"] == "below_threshold"
+      assert reported["prep_state"] == "authoring"
+      assert reported["course_status"] == "draft"
+
+      below = reload_run(run, workspace)
+      assert below.facts["below_threshold_pending"]["score"] == 50
+      assert below.facts["latest_quality_report"]["outcome"] == "below_threshold"
+
+      # reviewer（默认策略：任何成员可审）带理由覆盖（确认流）→ review
+      assert {:reply, _, _} =
+               override_reply =
+               OverridePrepGate.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "reason" => "线下评审已通过"
+                 },
+                 frame_for(reviewer)
+               )
+
+      override_payload = decode(override_reply)
+      assert override_payload["status"] == "needs_confirmation"
+      assert override_payload["summary"] =~ "线下评审已通过"
+      assert override_payload["summary"] =~ "review"
+
+      # 第一段无副作用
+      assert Prep.prep_state(reload_run(run, workspace)) == "authoring"
+
+      override_confirmed = confirm!(reviewer, override_payload["pending_id"])
+      assert override_confirmed["result"]["outcome"] == "review"
+      assert override_confirmed["result"]["prep_state"] == "review"
+
+      overridden = reload_run(run, workspace)
+      assert overridden.facts["gate_override"]["reason"] == "线下评审已通过"
+      assert overridden.facts["gate_override"]["overridden_by"] == reviewer.id
+      assert overridden.facts["below_threshold_pending"] == nil
+
+      # 审核通过 → 发布
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(reviewer)
+               )
+
+      approve_confirmed = confirm!(reviewer, decode(approve_reply)["pending_id"])
+      assert approve_confirmed["result"]["prep_state"] == "published"
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+      assert reload_run(run, workspace).status == :succeeded
+    end
+
+    test "覆盖无理由 → error 不建 pending；无待覆盖报告 → error" do
+      owner = Fixtures.platform_admin("s5-ovr-neg")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-ovr-neg-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "覆盖负例"})
+
+      {:ok, _run} = Prep.assign_tutor(run, tutor.id, owner)
+      :ok = drive_to_quality_check(workspace, course, tutor)
+      assert {:reply, _, _} = submit_report(tutor, workspace, course, 50)
+
+      # 无理由（空串/空白同样拒）
+      for reason <- ["", "   "] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 OverridePrepGate.execute(
+                   %{
+                     "workspace_id" => workspace.id,
+                     "course_id" => course.id,
+                     "reason" => reason
+                   },
+                   frame_for(owner)
+                 )
+
+        assert msg =~ "reason is required"
+      end
+
+      assert pending_count() == 0
+
+      # 覆盖成功（review ON → review 态，below_threshold_pending 清除）
+      assert {:reply, _, _} =
+               override_reply =
+               OverridePrepGate.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "reason" => "达标证据线下补充"
+                 },
+                 frame_for(owner)
+               )
+
+      confirm!(owner, decode(override_reply)["pending_id"])
+      assert Prep.prep_state(reload_run(run, workspace)) == "review"
+
+      # 再次覆盖：无待覆盖报告 → 第一段快速失败（不建 pending）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               OverridePrepGate.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "reason" => "二次覆盖"
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "no below-threshold quality report pending override"
+
+      # 唯一 pending 行来自成功覆盖（confirmed 留痕）；二次覆盖第一段拒绝未新增
+      assert pending_count() == 1
+
+      assert Ash.get!(PendingOperation, decode(override_reply)["pending_id"], authorize?: false).status ==
+               :confirmed
+    end
+  end
+
+  # ── 认领竞态（R24；unboxed 真实事务 + Barrier，draft_versioning_test 同款纪律） ---
+
+  describe "认领竞态" do
+    test "两 tutor 并发认领同一未指派 prep run → 恰一成一败，落库恰一份指派" do
+      {owner, workspace, course, tutors} =
+        unboxed(fn ->
+          owner = Fixtures.platform_admin("s5-claim-owner")
+          workspace = Fixtures.create_workspace(owner)
+          definition = create_prep_definition(workspace, owner)
+          course = draft_course(workspace, owner, %{title: "认领竞态"})
+
+          {:ok, _run} =
+            PrepInstantiator.launch(workspace.id, definition.id, %{
+              "course_id" => course.id,
+              "title" => course.title
+            })
+
+          tutors =
+            for name <- ["s5-claim-a", "s5-claim-b"] do
+              tutor = Fixtures.register_user(name)
+              Fixtures.add_member(workspace, tutor, [:tutor])
+              tutor
+            end
+
+          {owner, workspace, course, tutors}
+        end)
+
+      cleanup_on_exit(workspace.id, [owner | tutors])
+      barrier = start_supervised!({Barrier, 2})
+
+      results =
+        tutors
+        |> Enum.map(fn tutor ->
+          Task.async(fn ->
+            unboxed(fn ->
+              Barrier.arrive(barrier)
+
+              case ClaimPrepAuthoring.execute(
+                     %{"workspace_id" => workspace.id, "course_id" => course.id},
+                     frame_for(tutor)
+                   ) do
+                {:reply, response, _frame} ->
+                  [content] = response.content
+                  {:ok, Jason.decode!(content["text"])}
+
+                {:error, %Anubis.MCP.Error{message: msg}, _frame} ->
+                  {:error, msg}
+              end
+            end)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert Enum.count(results, &match?({:error, _}, &1)) == 1
+
+      {:ok, winner} = Enum.find(results, &match?({:ok, _}, &1))
+      assert winner["prep_state"] == "authoring"
+      winner_id = winner["assignee_user_id"]
+      assert winner_id in Enum.map(tutors, & &1.id)
+
+      {:error, loser_msg} = Enum.find(results, &match?({:error, _}, &1))
+      assert loser_msg =~ "already claimed"
+
+      # 落库恰一份指派（胜者），prep_state authoring
+      unboxed(fn ->
+        run = Prep.fetch_run(course.id, workspace.id)
+        assert Prep.assignee(run) == winner_id
+        assert Prep.prep_state(run) == "authoring"
+      end)
+    end
+  end
+
+  # ── 策略冻结（R22：提交后生效策略冻结） ------------------------------------------
+
+  describe "策略冻结" do
+    test "进入 quality_check 后 update_prep_policy 被拒（第一段与域层双重）" do
+      owner = Fixtures.platform_admin("s5-freeze-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-freeze-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "策略冻结"})
+
+      {:ok, _run} = Prep.assign_tutor(run, tutor.id, owner)
+      :ok = drive_to_quality_check(workspace, course, tutor)
+      assert Prep.prep_state(prep_run!(course, workspace)) == "quality_check"
+
+      # 第一段快速失败（不建 pending）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdatePrepPolicy.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "review_required" => false
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "frozen"
+      assert pending_count() == 0
+
+      # 域层兜底（confirm 段同款前置断言：pending 存活期内状态翻转的防线）
+      assert {:error, domain_msg} =
+               Prep.update_policy(
+                 prep_run!(course, workspace),
+                 %{"review_required" => false},
+                 owner
+               )
+
+      assert domain_msg =~ "invalid prep_state transition"
+    end
+  end
+
+  # ── request_changes（R28） ------------------------------------------------------
+
+  describe "request_changes" do
+    test "review → authoring 且理由落 change_requests；无理由拒" do
+      owner = Fixtures.platform_admin("s5-rc-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-rc-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      reviewer = Fixtures.register_user("s5-rc-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "请求修改"})
+
+      {:ok, _run} = Prep.assign_tutor(run, tutor.id, owner)
+      :ok = drive_to_quality_check(workspace, course, tutor)
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 88)
+      assert decode(report_reply)["outcome"] == "review"
+
+      # 无理由 → error（不落 facts）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               RequestChangesPrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id, "reason" => " "},
+                 frame_for(reviewer)
+               )
+
+      assert msg =~ "reason is required"
+      assert Prep.prep_state(reload_run(run, workspace)) == "review"
+
+      # 有理由 → 回 authoring，理由追加进 change_requests
+      assert {:reply, _, _} =
+               reply =
+               RequestChangesPrep.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "reason" => "补充先修说明"
+                 },
+                 frame_for(reviewer)
+               )
+
+      assert decode(reply)["prep_state"] == "authoring"
+
+      reloaded = reload_run(run, workspace)
+
+      assert [%{"reason" => "补充先修说明", "requested_by" => requested_by}] =
+               reloaded.facts["change_requests"]
+
+      assert requested_by == reviewer.id
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+    end
+  end
+
+  # ── list_my_tasks 教研行（R20） --------------------------------------------------
+
+  describe "list_my_tasks 教研行" do
+    test "三类教研行按角色分派：claimable / authoring / review；plain member 不见" do
+      owner = Fixtures.platform_admin("s5-tasks-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor_a = Fixtures.register_user("s5-tasks-tutor-a")
+      Fixtures.add_member(workspace, tutor_a, [:tutor])
+      tutor_b = Fixtures.register_user("s5-tasks-tutor-b")
+      Fixtures.add_member(workspace, tutor_b, [:tutor])
+      reviewer = Fixtures.register_user("s5-tasks-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+      member = Fixtures.register_user("s5-tasks-member")
+      Fixtures.add_member(workspace, member, [])
+
+      definition = create_prep_definition(workspace, owner)
+
+      # course_claimable：draft 未指派
+      course_c = draft_course(workspace, owner, %{title: "待认领"})
+
+      {:ok, _run_c} =
+        PrepInstantiator.launch(workspace.id, definition.id, %{
+          "course_id" => course_c.id,
+          "title" => course_c.title
+        })
+
+      # course_authoring：指派 tutor_a（authoring）
+      course_a = draft_course(workspace, owner, %{title: "生产中"})
+
+      {:ok, run_a} =
+        PrepInstantiator.launch(workspace.id, definition.id, %{
+          "course_id" => course_a.id,
+          "title" => course_a.title
+        })
+
+      {:ok, _run_a} = Prep.assign_tutor(run_a, tutor_a.id, owner)
+
+      # course_review：指定 reviewer，推进到 review
+      course_r = draft_course(workspace, owner, %{title: "待审核"})
+
+      {:ok, run_r} =
+        PrepInstantiator.launch(workspace.id, definition.id, %{
+          "course_id" => course_r.id,
+          "title" => course_r.title
+        })
+
+      {:ok, run_r} = Prep.update_policy(run_r, %{"reviewer_user_id" => reviewer.id}, owner)
+      {:ok, run_r} = Prep.assign_tutor(run_r, tutor_a.id, owner)
+      {:reply, _, _} = save_content(tutor_a, workspace, course_r)
+      {:ok, run_r, %{passed: true}} = Prep.submit_for_check(run_r, tutor_a)
+
+      {:ok, _run_r, :review} =
+        Prep.submit_quality_report(run_r, tutor_a, %{"score" => 88, "summary" => "达标"})
+
+      list = fn user ->
+        {:reply, _, _} =
+          reply = ListMyTasks.execute(%{"workspace_id" => workspace.id}, frame_for(user))
+
+        decode(reply)["tasks"]
+      end
+
+      # tutor_b（tutor 角色、未指派）：只见 claimable
+      assert [%{"kind" => "course_prep_claimable"} = row] = list.(tutor_b)
+      assert row["course_id"] == course_c.id
+      assert row["prep_state"] == "draft"
+      assert row["context_title"] == "待认领"
+      assert row["workspace_slug"] == workspace.slug
+
+      # tutor_a：claimable（course_c）+ authoring（course_a）；course_r 已进
+      # review 且 reviewer 指定他人 → 不见
+      kinds_a = Map.new(list.(tutor_a), &{&1["course_id"], &1["kind"]})
+
+      assert kinds_a == %{
+               course_c.id => "course_prep_claimable",
+               course_a.id => "course_prep_authoring"
+             }
+
+      # reviewer（指定 reviewer 仅本人）：review 行
+      assert [%{"kind" => "course_prep_review", "course_id" => cid, "prep_state" => "review"}] =
+               list.(reviewer)
+
+      assert cid == course_r.id
+
+      # owner（manage）：claimable + review；authoring 不见（非 assignee）
+      kinds_o = Map.new(list.(owner), &{&1["course_id"], &1["kind"]})
+
+      assert kinds_o == %{
+               course_c.id => "course_prep_claimable",
+               course_r.id => "course_prep_review"
+             }
+
+      # plain member（无 tutor/manage、非 assignee、reviewer 指定他人）：什么都不见
+      assert list.(member) == []
+    end
+  end
+
+  # ── 确认窗口内撤权（§B#7：confirm 段授权兜底） ------------------------------------
+
+  describe "确认窗口内撤权（§B#7 第二段兜底）" do
+    test "approve_prep：发起后被移出工作台 → confirm 段 forbidden，课程仍 draft、run 仍 review" do
+      owner = Fixtures.platform_admin("s5-rvk-approve-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-rvk-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      reviewer = Fixtures.register_user("s5-rvk-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "撤权窗口发布"})
+
+      assert {:reply, _, _} =
+               AssignPrepTutor.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "tutor_user_id" => tutor.id
+                 },
+                 frame_for(owner)
+               )
+
+      assert :ok = drive_to_quality_check(workspace, course, tutor)
+      assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 85)
+      assert decode(report_reply)["prep_state"] == "review"
+
+      # reviewer（未指定 = 任何成员）发起 approve → 建 pending
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(reviewer)
+               )
+
+      payload = decode(approve_reply)
+      assert payload["status"] == "needs_confirmation"
+
+      # 确认窗口内被移出工作台 → confirm 段 forbidden（发布步 authorize?: false，
+      # 兜底只能靠工具层 authorize 重查；reviewer? 未指定时恒 true，须自包含成员判定）
+      Fixtures.remove_membership(workspace, reviewer)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               confirm(reviewer, payload["pending_id"])
+
+      assert msg =~ "forbidden"
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+
+      final = reload_run(run, workspace)
+      assert final.status == :running
+      assert Prep.prep_state(final) == "review"
+    end
+
+    test "update_prep_policy：admin 发起后被移出工作台 → confirm 段 forbidden，策略未被改" do
+      owner = Fixtures.platform_admin("s5-rvk-policy-owner")
+      workspace = Fixtures.create_workspace(owner)
+      admin = Fixtures.register_user("s5-rvk-admin")
+      Fixtures.add_member(workspace, admin, [:admin])
+
+      {course, _run} = course_with_prep(workspace, owner, %{title: "撤权窗口策略"})
+
+      assert {:reply, _, _} =
+               policy_reply =
+               UpdatePrepPolicy.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "quality_threshold" => 60
+                 },
+                 frame_for(admin)
+               )
+
+      payload = decode(policy_reply)
+      assert payload["status"] == "needs_confirmation"
+
+      # 确认窗口内被移出 → manage?/1 经 role_names 归空 → confirm 段 forbidden
+      Fixtures.remove_membership(workspace, admin)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               confirm(admin, payload["pending_id"])
+
+      assert msg =~ "forbidden"
+
+      run = Prep.fetch_run(course.id, workspace.id)
+      assert Prep.policy(run)["quality_threshold"] == 80
+    end
+  end
+
+  # ── 授权矩阵（九工具 × 负例角色） + ToolCallLog -----------------------------------
+
+  describe "授权矩阵与 ToolCallLog" do
+    test "plain member/learner/outsider 各拒；get_prep_status 成员可读、outsider 拒" do
+      owner = Fixtures.platform_admin("s5-authz-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-authz-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      reviewer = Fixtures.register_user("s5-authz-reviewer")
+      Fixtures.add_member(workspace, reviewer, [])
+      member = Fixtures.register_user("s5-authz-member")
+      Fixtures.add_member(workspace, member, [])
+      learner = Fixtures.register_user("s5-authz-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+      outsider = Fixtures.register_user("s5-authz-outsider")
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "授权矩阵"})
+
+      # 布置：指定 reviewer（reviewer 族三工具的 member 负例前置）+ 指派 tutor
+      # （submit 族两工具的非 assignee 负例前置）
+      {:ok, run} = Prep.update_policy(run, %{"reviewer_user_id" => reviewer.id}, owner)
+      {:ok, _run} = Prep.assign_tutor(run, tutor.id, owner)
+
+      base = %{"workspace_id" => workspace.id, "course_id" => course.id}
+
+      params_for = fn
+        "assign_prep_tutor" ->
+          Map.put(base, "tutor_user_id", tutor.id)
+
+        "update_prep_policy" ->
+          Map.put(base, "quality_threshold", 60)
+
+        "submit_prep_quality_report" ->
+          Map.put(base, "report", %{"score" => 50, "summary" => "x"})
+
+        "override_prep_gate" ->
+          Map.put(base, "reason", "理由")
+
+        "request_changes_prep" ->
+          Map.put(base, "reason", "改")
+
+        _ ->
+          base
+      end
+
+      expected_for = fn
+        "get_prep_status" -> :member_readable
+        "assign_prep_tutor" -> "owner or admin required"
+        "claim_prep_authoring" -> "tutor, owner or admin required"
+        "update_prep_policy" -> "owner or admin required"
+        "submit_prep_for_check" -> "assigned tutor, owner or admin required"
+        "submit_prep_quality_report" -> "assigned tutor, owner or admin required"
+        "override_prep_gate" -> "reviewer-per-policy, owner or admin required"
+        "approve_prep" -> "reviewer-per-policy, owner or admin required"
+        "request_changes_prep" -> "reviewer-per-policy, owner or admin required"
+      end
+
+      for {tool_name, module} <- @tool_modules do
+        params = params_for.(tool_name)
+
+        case expected_for.(tool_name) do
+          :member_readable ->
+            # 读面：任何成员（含 learner）放行；outsider 撞 member 门
+            for user <- [member, learner] do
+              assert {:reply, _, _} = apply(module, :execute, [params, frame_for(user)]),
+                     "expected #{tool_name} readable for #{user.email}"
+            end
+
+            assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                     apply(module, :execute, [params, frame_for(outsider)])
+
+            assert msg =~ "not a member"
+            [log] = tool_logs_for(outsider.id, tool_name)
+            assert log.result_status == :forbidden
+
+          fragment ->
+            for {user, expected} <- [
+                  {member, fragment},
+                  {learner, fragment},
+                  {outsider, "not a member"}
+                ] do
+              assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                       apply(module, :execute, [params, frame_for(user)]),
+                     "expected #{tool_name} to reject #{user.email}"
+
+              assert msg =~ "forbidden", "expected forbidden for #{tool_name}, got: #{msg}"
+
+              assert msg =~ expected,
+                     "expected #{inspect(expected)} for #{tool_name}, got: #{msg}"
+
+              [log] = tool_logs_for(user.id, tool_name)
+              assert log.result_status == :forbidden
+            end
+        end
+      end
+
+      # 负例全部第一段拒绝：无任何 pending 副作用
+      assert pending_count() == 0
+    end
+  end
+
+  # ── 私有布置（unboxed 清理；draft_versioning_test 同款） --------------------------
+
+  defp cleanup_on_exit(workspace_id, users) do
+    on_exit(fn ->
+      unboxed(fn ->
+        Repo.query!("DELETE FROM mcp_tool_call_logs WHERE user_id = ANY($1)", [
+          Enum.map(users, &Ecto.UUID.dump!(&1.id))
+        ])
+
+        Repo.query!("DELETE FROM curriculum_outputs WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
+        # S6：revisions 引用 courses（FK）——删 courses 前先清
+        Repo.query!("DELETE FROM curriculum_course_revisions WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
+        Repo.query!("DELETE FROM courses WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
+        Repo.query!("DELETE FROM workflow_runs WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
+        Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
+        Repo.query!(
+          "DELETE FROM admin_action_logs WHERE target_type = 'workspace' AND target_id = $1",
+          [Ecto.UUID.dump!(workspace_id)]
+        )
+
+        Repo.query!(
+          "DELETE FROM membership_roles WHERE membership_id IN " <>
+            "(SELECT id FROM workspace_memberships WHERE workspace_id = $1)",
+          [Ecto.UUID.dump!(workspace_id)]
+        )
+
+        Repo.query!("DELETE FROM workspace_memberships WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
+        Repo.query!("DELETE FROM workspaces WHERE id = $1", [Ecto.UUID.dump!(workspace_id)])
+
+        Enum.each(users, fn user ->
+          Repo.query!("DELETE FROM users WHERE id = $1", [Ecto.UUID.dump!(user.id)])
+        end)
+      end)
+    end)
+  end
+
+  # S6 发布链 helper：域直调关 review（确认流本身由 update_prep_policy 测试覆盖）
+  defp review_off!(workspace, owner, course) do
+    {:ok, _} =
+      Prep.update_policy(
+        prep_run!(course, workspace),
+        %{"review_required" => false},
+        owner
+      )
+  end
+
+  defp revisions(course, workspace) do
+    CourseRevision
+    |> Ash.Query.filter(course_id == ^course.id)
+    |> Ash.Query.sort(number: :asc)
+    |> Ash.read!(authorize?: false, tenant: workspace.id)
+  end
+
+  defp unboxed(fun), do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fun)
+
+  # 必然事件的条件轮询（25ms 间隔，u6 测试 wait_until 先例）。返回 boolean：
+  # 条件达成 true，耗尽 false——调用方必须显式 assert（超时即测试失败，
+  # 不静默继续——advisor R4/R3-01）。
+  defp wait_until(fun, attempts \\ 200)
+
+  defp wait_until(fun, 0), do: fun.()
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(25)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
+  # 等待指定 transaction 的行锁等待者出现（精确匹配：pg_locks 中 NOT granted
+  # 且 transactionid = 目标事务 xid = 正在等该事务锁的连接——只认本测试
+  # 持锁事务的等待者，无关 waiter 不产生 false green，advisor R4/R3-02）。
+  # holder_xid 为持锁事务内 SELECT txid_current() 的返回。
+  defp lock_waiters_of(holder_xid) do
+    %{rows: [[n]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'transactionid' AND NOT granted AND transactionid = $1",
+        [holder_xid]
+      )
+
+    n
+  end
+
+  # gate 记账（进程字典：task pid → participant 事务 xid，跨轮询累计）
+  defp gates, do: Process.get(:r4_gates) || %{}
+
+  # 当前事务 xid（须在已持行锁的事务内调用——FOR UPDATE 保证分配 xid）
+  defp current_txid do
+    %{rows: [[xid]]} = Repo.query!("SELECT txid_current()")
+    xid
+  end
+end

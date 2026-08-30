@@ -24,7 +24,7 @@ defmodule Cgc2046.Accounts.Invitation do
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
-    domain: Cgc2046.GlobalApi
+    domain: Cgc2046.Accounts
 
   require Ash.Query
 
@@ -204,7 +204,7 @@ defmodule Cgc2046.Accounts.Invitation do
   def invitation_log_skip_unless(changeset, invitation) do
     actor = get_in(changeset.context, [:private, :actor])
 
-    Cgc2046.Policies.PlatformAdmin.platform_admin?(actor) and
+    Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) and
       :owner in (invitation.preauthorized_role_names || [])
   end
 
@@ -258,7 +258,7 @@ defmodule Cgc2046.Accounts.Invitation do
       end)
 
       # 校验 Volunteer 不可预授权 admin/owner（决策 5）
-      change(Cgc2046.Changes.ValidateInviterRolePreauthorization)
+      change(Cgc2046.Accounts.Changes.ValidateInviterRolePreauthorization)
 
       # after_action 把明文 token 注入 record metadata（AshGraphql 暴露为 mutation result 的 metadata.plainToken）
       change(
@@ -331,7 +331,7 @@ defmodule Cgc2046.Accounts.Invitation do
       # 条件挂接：actor 是 platform_admin 且 preauthorized 含 :owner；成员撤销自己的
       # 普通邀请不记。fail-closed：留痕失败回滚撤销本身（同一事务）。
       change(
-        {Cgc2046.Changes.LogAdminAction,
+        {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :owner_invitation_cancel,
          target_type: :workspace,
          target_id: &__MODULE__.invitation_log_target_id/2,
@@ -486,7 +486,7 @@ defmodule Cgc2046.Accounts.Invitation do
         Ash.Changeset.before_action(changeset, fn cs ->
           scene = Ash.Changeset.get_argument(cs, :scene)
 
-          if Cgc2046.MiniprogramCode.valid_scene?(scene) do
+          if Cgc2046.Accounts.MiniprogramCode.valid_scene?(scene) do
             actor = cs.context[:private][:actor]
             now = DateTime.utc_now()
 
@@ -496,7 +496,7 @@ defmodule Cgc2046.Accounts.Invitation do
                 """
                 UPDATE invitations AS i
                 SET status = 'used', accepted_at = $1, accepted_by = $2
-                FROM miniprogram_codes AS c
+                FROM invitation_codes AS c
                 WHERE i.id = $3 AND c.invitation_id = i.id AND c.scene = $4
                   AND i.status = 'active'
                   AND (i.expires_at IS NULL OR i.expires_at > $1)
@@ -540,17 +540,17 @@ defmodule Cgc2046.Accounts.Invitation do
     # pending-owner 邀请由专用 check 放行：仅平台管理员 + 预授权 owner。
     policy action(:create) do
       forbid_unless(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsVolunteer)
-      authorize_if(Cgc2046.Policies.PlatformAdminOwnerInvite)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsVolunteer)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdminOwnerInvite)
     end
 
     # :revoke 限邀请人本人或 Owner/Admin；
     # pending-owner 期间无工作台 Owner/Admin，取消邀请由同一专用 check 放行。
     policy action(:revoke) do
       authorize_if(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdminOwnerInvite)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdminOwnerInvite)
     end
 
     # :validate 持 token 即可（不要求成员）
@@ -572,8 +572,8 @@ defmodule Cgc2046.Accounts.Invitation do
     # #114 加 platform_admin bypass（admin 详情页 pending-owner badge 任意平台管理员可见）
     policy action_type(:read) do
       authorize_if(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Policies.WorkspaceActorIsOwnerOrAdmin)
-      authorize_if(Cgc2046.Policies.PlatformAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 

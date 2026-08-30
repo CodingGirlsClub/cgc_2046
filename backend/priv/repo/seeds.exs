@@ -8,13 +8,19 @@
 # 2. owner 成员资格：归属首个平台管理员（migration 08000000 同语义）；fresh DB
 #    无用户/无平台管理员时安全跳过（ADR-0004：后续首个平台管理员可认领）。
 # 3. 课程 issue 学习闭环种子(切片 H U5, #180)：教研/学习 workflow 定义(单 manual
-#    step 协议容器, published)。Agent 指令以 AgentInstructions 纯文本模块为载体
-#    (plan 020 U4)，此处仅打印确认落位。
+#    step 协议容器, published)；role-agent-journeys-v2 S5 加「课程教研 workflow」
+#    定义(course_preparation,课程创建即经 course.created 信号实例化 prep run)。
+#    #348 修复后产品单源 = Workspace :create after_action(新 workspace 自动
+#    seed 三份定义,见 accounts/workspace.ex seed_workflow_definitions/1);
+#    本节保留默认 workspace 的存量幂等补种(修复前建的 DB 靠 mix run 补)。
+#    角色 playbook 以 Mcp.Playbooks 版本化模块常量
+#    为载体(role-agent-journeys-v2 S1，经 get_role_playbook 分发)，
+#    此处仅打印确认落位。
 
 alias Cgc2046.Accounts.MembershipContext
 alias Cgc2046.Accounts.User
 alias Cgc2046.Accounts.Workspace
-alias Cgc2046.Workflows.AgentInstructions
+alias Cgc2046.Mcp.Playbooks
 alias Cgc2046.Workflows.WorkflowDefinition
 
 require Ash.Query
@@ -74,13 +80,20 @@ end
 definitions = [
   %{
     name: "教研 workflow",
-    type: :research,
+    type: :curriculum,
     node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
   },
   %{
     name: "学习 workflow",
     type: :learning,
     node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}
+  },
+  %{
+    # role-agent-journeys-v2 S5 课程教研流程（R22-R28）：协议而非 DAG，
+    # manual step 协议容器（同学习定义；PrepInstantiator 订阅 course.created 实例化）
+    name: "课程教研 workflow",
+    type: :course_preparation,
+    node_def: %{"steps" => [%{"id" => "course_preparation", "type" => "manual"}]}
   }
 ]
 
@@ -117,12 +130,12 @@ Enum.each(definitions, fn attrs ->
   end
 end)
 
-# Agent 指令种子:模块常量已是幂等载体(重复运行同一文本);
-# 打印确认落位(get_agent_instruction 工具落地后切库)。
-IO.puts(
-  "[seeds] learning agent instruction: #{byte_size(AgentInstructions.learning_agent())} bytes"
-)
+# 角色 playbook 种子:模块常量已是幂等载体(重复运行同一文本);
+# 打印确认落位(Agent 资源落地后切库,roadmap plan 020)。
+Enum.each(Playbooks.roles(), fn role ->
+  {:ok, playbook} = Playbooks.fetch(role)
 
-IO.puts(
-  "[seeds] research agent instruction: #{byte_size(AgentInstructions.research_agent())} bytes"
-)
+  IO.puts(
+    "[seeds] role playbook #{role}: v#{playbook.version} (#{byte_size(playbook.content)} bytes)"
+  )
+end)
