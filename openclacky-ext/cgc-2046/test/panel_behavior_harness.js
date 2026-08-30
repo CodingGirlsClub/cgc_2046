@@ -79,6 +79,7 @@ const RESPONDERS = {
 globalThis.window = globalThis;
 globalThis.document = {
   hidden: false,
+  addEventListener() {},
   createElement: el,
   getElementById() { return null; },
   querySelector() { return null; },

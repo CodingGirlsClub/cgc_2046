@@ -1021,6 +1021,13 @@
     document.head.appendChild(style);
   }
 
+  // 焦点回归重拉:角色/身份是页面闭包快照,后台变更(如授角色)后回到前台
+  // 自动刷新——未连接态不拉(503 会误报错误);无输入态,重渲染安全
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden || !currentContainer || !configured) return;
+    loadWorkspaces(currentContainer);
+  });
+
   injectStyles();
   Clacky.ext.subscribe("ext.cgc-2046.tool_used", onToolUsed);
   Clacky.ext.subscribe("ext.cgc-2046.mcp_error", onMcpError);
