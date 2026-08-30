@@ -9,6 +9,32 @@ description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CG
 
 **核心安全约束**：token 的目标落盘点只有 `~/.clacky/mcp.json`（connect 写入期间存在短暂的 0600 临时文件，原子 rename 后即清除）。OpenClacky 会把 tool arguments 全量记入会话文件（`~/.clacky/sessions/*.json`），所以 **token 绝不能出现在对话消息或工具参数里**。下面按环境给出三级通道，能走主流程就不要走 fallback。
 
+## 首选路径：CDP 自动连接（用户点面板「连接网站」时）
+
+用户已登录 CGC 网站时，token 的获取与复制可以由 agent 用浏览器自动化（宿主 CDP / browser
+工具，或 computer-use 操作真实浏览器窗口——**必须接管用户日常使用的浏览器**才有登录态，
+自起新浏览器永远是未登录态）自动完成：
+
+1. **工具选择（重要）**：优先用宿主自带的 `browser` 工具——它经 chrome-devtools-mcp
+   `--autoConnect` 驱动**用户真实 Chrome（146+）**，自动发现、零配置，**不需要也不允许
+   让用户手动开启 remote debugging / CDP 端口**。`browser` 工具不可用时才退
+   computer-use（macOS 辅助功能操作真实窗口）。两者都不可用才回退人工引导。
+   工作流：`browser open <URL>` → `browser snapshot`（a11y 树拿 ref）→ `browser act
+   kind=click ref=<...>` 逐步操作。
+2. 打开网站工作台的「MCP」页：`/w/<slug>/settings/integrations/agents/mcp`（slug 不知
+   道就先问用户，或从网站导航定位）。
+3. **登录态判定**：若页面跳到登录页/要求登录——在对话中提醒用户「请先在浏览器登录 CGC
+   网站」，用户登录并说继续后重试本步骤。不要替用户填账号密码。
+4. 已登录：**先清理旧 token**——列表里若已有 `openclacky-auto-*` 命名的历史自动连接
+   token，逐个点「撤销」（页面有两步确认）。**只撤销 `openclacky-auto-*` 命名的**，
+   用户手动创建的其它 token 绝不动。
+5. 「签发新 token」→ 填名称（建议 `openclacky-auto-<YYYYMMDD>`）→ 提交签发。
+6. **关键**：签发成功后页面出现一次性明文横幅和「复制」按钮——**点击「复制」**，token
+   进入剪贴板。绝不读取/转述明文内容（防止 token 进会话记录）。
+7. 剪贴板里已有 token 后，执行下方「主流程」第 2 步的固定管道命令写入配置（token 不进
+   argv、不进会话记录），再走第 3 步断言连接结果。
+8. 失败回退：页面结构对不上/复制失败时，回退到下方人工引导流程（让用户手动复制并配合）。
+
 ## 主流程（剪贴板 → stdin 管道）
 
 ### 1. 让用户创建 token 并只复制到剪贴板
