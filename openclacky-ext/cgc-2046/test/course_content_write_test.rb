@@ -277,13 +277,17 @@ class CoursePanelEditTest < Minitest::Test
   end
 
   def test_edit_toggle_gated_by_roles
-    # 教研侧角色门控:tutor|owner|admin 才出现编辑入口
+    # 教研权限按课程归属工作台判定(跨台角色:编辑入口随所选课程显隐);
+    # 无权限卡仅在用户任何台都没有教研角色时出现
     assert_includes VIEW, 'data-testid="prep-edit-toggle"'
     assert_includes VIEW, "编辑内容"
-    assert_includes VIEW, "canEdit"
+    assert_includes VIEW, "canEditCourse"
+    assert_includes VIEW, "hasAnyEditRole"
     assert_includes VIEW, '"tutor"'
     assert_includes VIEW, '"owner"'
     assert_includes VIEW, '"admin"'
+    assert_includes VIEW, "无教研角色,只读"
+    assert_includes VIEW, "function scopeOf(courseId)"
   end
 
   def test_draft_version_badge
