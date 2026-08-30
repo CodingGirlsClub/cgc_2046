@@ -1,10 +1,12 @@
 defmodule Cgc2046.Learning.LearningProgressWorkerTest do
   @moduledoc """
-  LearningProgressWorker 完成判定升级测试(切片 H U4, #180)。
+  LearningProgressWorker 完成判定测试(S8 重写:R39/AE10)。
 
-  - 全部 issue Done → run succeeded;部分 Done → 保持 running
-  - 无内容课程(无 Curriculum.Output)→ 不判完成
-  - 记录更新后下一轮扫描完成(F3 集成)
+  - 必修 objective 全 ever_mastered(qualifying attempt)→ run succeeded;
+    部分掌握 → 保持 running;零 attempt → running
+  - run 未绑定 revision(存量 nil 宽限)→ 不判完成
+  - attempt 补全后下一轮扫描完成(worker 兜底收敛;submit 工具即时判定
+    的覆盖在 learning_loop_tools_test.exs)
   """
   use Cgc2046.DataCase, async: true
 
@@ -12,32 +14,36 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
   use Oban.Testing, repo: Cgc2046.Repo
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Learning.LearningRecord
-  alias Cgc2046.Learning.LearningProgressWorker
+  alias Cgc2046.Curriculum.CourseRevision
+  alias Cgc2046.Learning.{Attempt, LearningProgressWorker}
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
-  require Ash.Query
-
-  @issue_id "py-first-program"
-
+  # 两必修 objective(同 issue),各配单条 rubric
   defp content_fixture do
     %{
       "goals" => ["能写程序"],
       "issues" => [
         %{
-          "id" => @issue_id,
+          "id" => "py-first-program",
           "kind" => "handwork",
           "title" => "写你的第一个程序",
-          "story" => %{
-            "as_a" => "学员",
-            "given" => [],
-            "goal" => "独立写问候程序",
-            "materials" => [],
-            "checklist" => [
-              %{"id" => "c1", "text" => "程序能运行并正确输出"},
-              %{"id" => "c2", "text" => "能讲懂代码"}
-            ]
-          }
+          "story" => %{"as_a" => "学员", "given" => [], "goal" => "独立写问候程序"},
+          "objectives" => [
+            %{
+              "id" => "obj-run",
+              "title" => "能运行问候程序",
+              "required" => true,
+              "prereq_ids" => [],
+              "rubric" => [%{"id" => "r1", "text" => "程序能运行"}]
+            },
+            %{
+              "id" => "obj-explain",
+              "title" => "能讲懂代码",
+              "required" => true,
+              "prereq_ids" => [],
+              "rubric" => [%{"id" => "r1", "text" => "能逐行讲清"}]
+            }
+          ]
         }
       ]
     }
@@ -49,7 +55,7 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "学习 workflow",
+          name: "学习 workflow（测试布景）",
           type: :learning,
           input_schema: %{},
           node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}
@@ -76,8 +82,34 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
     enrollment
   end
 
-  # 学习 run:create → start(与 instantiator 产出的 running 态同形状)
-  defp create_running_run(workspace, definition, enrollment, learner, course) do
+  # 发布 revision 并绑定为课程当前版本;返回 revision
+  defp publish_revision(workspace, course) do
+    {:ok, revision} =
+      CourseRevision
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          course_id: course.id,
+          number: 1,
+          content: content_fixture(),
+          published_at: DateTime.utc_now()
+        },
+        tenant: workspace.id
+      )
+      |> Ash.create(tenant: workspace.id, authorize?: false)
+
+    course
+    |> Ash.Changeset.for_update(:bind_current_revision, %{current_revision_id: revision.id},
+      tenant: workspace.id
+    )
+    |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+    revision
+  end
+
+  # 学习 run:create → start(与 instantiator 产出的 running 态同形状);
+  # revision 绑定经 input_snapshot(ADR-0011 L6——引擎表零域列,v2 无列)
+  defp create_running_run(workspace, definition, enrollment, learner, course, revision) do
     WorkflowRun
     |> Ash.Changeset.for_create(
       :create,
@@ -85,11 +117,12 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
         definition_id: definition.id,
         definition_version: definition.version,
         input_snapshot: %{
-          "key" => "enrollment_#{enrollment.id}",
+          "key" => Cgc2046.Learning.Runs.instance_key(enrollment.id, revision && revision.id),
           "enrollment_id" => enrollment.id,
           "user_id" => learner.id,
           "course_id" => course.id,
-          "title" => course.title
+          "title" => course.title,
+          "course_revision_id" => revision && revision.id
         }
       },
       tenant: workspace.id,
@@ -100,67 +133,54 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
     |> Ash.update!(tenant: workspace.id, authorize?: false)
   end
 
-  defp save_content(workspace, actor, course) do
-    Cgc2046.Curriculum.Output
+  # qualifying attempt(passed + confidence 0.9 + rubric 精确覆盖且 met)
+  defp submit_attempt(workspace, run, revision, objective_id) do
+    Attempt
     |> Ash.Changeset.for_create(
-      :upsert_content,
+      :create,
       %{
-        key: Cgc2046.Curriculum.Output.course_key(course.id),
-        kind: :issues,
-        data: content_fixture(),
-        submitted_by: actor.id
+        learning_run_id: run.id,
+        course_revision_id: revision.id,
+        objective_id: objective_id,
+        evidence: "实机跑通,输出正确",
+        rubric_results: [%{"criterion_id" => "r1", "met" => true}],
+        passed: true,
+        rationale: "证据可复核,标准达成",
+        confidence: 0.9
       },
       tenant: workspace.id,
-      actor: actor
+      authorize?: false
     )
-    |> Ash.create!(tenant: workspace.id, actor: actor)
-  end
-
-  defp save_record(workspace, learner, course, item_id) do
-    LearningRecord
-    |> Ash.Changeset.for_create(
-      :upsert_record,
-      %{
-        course_id: course.id,
-        user_id: learner.id,
-        issue_id: @issue_id,
-        item_id: item_id,
-        done: true,
-        evidence: "ok",
-        recorded_at: DateTime.utc_now()
-      },
-      tenant: workspace.id,
-      actor: learner
-    )
-    |> Ash.create!(tenant: workspace.id, actor: learner)
+    |> Ash.create!(tenant: workspace.id, authorize?: false)
   end
 
   defp fetch_run(run_id, workspace_id) do
     Ash.get!(WorkflowRun, run_id, tenant: workspace_id, authorize?: false)
   end
 
-  test "全部 issue Done → succeeded;部分 Done → 仍 running;无记录 → Todo 全量" do
-    admin = Fixtures.platform_admin("lpw-u4")
+  test "必修全 ever_mastered → succeeded;部分掌握 → 仍 running;零 attempt → running" do
+    admin = Fixtures.platform_admin("lpw-s8")
     workspace = Fixtures.create_workspace(admin)
     published = create_learning_definition(workspace, admin)
 
     course = EventFixtures.create_course(workspace, admin, %{title: "课程"})
-    finisher = Fixtures.register_user("lpw-u4-finisher")
-    partial = Fixtures.register_user("lpw-u4-partial")
-    fresh = Fixtures.register_user("lpw-u4-fresh")
+    revision = publish_revision(workspace, course)
+
+    finisher = Fixtures.register_user("lpw-s8-finisher")
+    partial = Fixtures.register_user("lpw-s8-partial")
+    fresh = Fixtures.register_user("lpw-s8-fresh")
 
     enrollment_f = enroll(course, finisher)
     enrollment_p = enroll(course, partial)
     enrollment_x = enroll(course, fresh)
 
-    run_f = create_running_run(workspace, published, enrollment_f, finisher, course)
-    run_p = create_running_run(workspace, published, enrollment_p, partial, course)
-    run_x = create_running_run(workspace, published, enrollment_x, fresh, course)
+    run_f = create_running_run(workspace, published, enrollment_f, finisher, course, revision)
+    run_p = create_running_run(workspace, published, enrollment_p, partial, course, revision)
+    run_x = create_running_run(workspace, published, enrollment_x, fresh, course, revision)
 
-    save_content(workspace, admin, course)
-    save_record(workspace, finisher, course, "c1")
-    save_record(workspace, finisher, course, "c2")
-    save_record(workspace, partial, course, "c1")
+    submit_attempt(workspace, run_f, revision, "obj-run")
+    submit_attempt(workspace, run_f, revision, "obj-explain")
+    submit_attempt(workspace, run_p, revision, "obj-run")
 
     assert :ok = perform_job(LearningProgressWorker, %{})
 
@@ -169,43 +189,39 @@ defmodule Cgc2046.Learning.LearningProgressWorkerTest do
     assert fetch_run(run_x.id, workspace.id).status == :running
   end
 
-  test "无内容课程(无 Curriculum.Output)→ 不判完成" do
-    admin = Fixtures.platform_admin("lpw-u4-nocontent")
+  test "run 未绑定 revision(存量 nil 宽限)→ 不判完成" do
+    admin = Fixtures.platform_admin("lpw-s8-norev")
     workspace = Fixtures.create_workspace(admin)
     published = create_learning_definition(workspace, admin)
 
-    course = EventFixtures.create_course(workspace, admin, %{title: "无内容课"})
-    learner = Fixtures.register_user("lpw-u4-nocontent-learner")
+    course = EventFixtures.create_course(workspace, admin, %{title: "无版本课"})
+    learner = Fixtures.register_user("lpw-s8-norev-learner")
     enrollment = enroll(course, learner)
 
-    run = create_running_run(workspace, published, enrollment, learner, course)
-
-    # 有记录但无内容:分母不可知 → 不判完成
-    save_record(workspace, learner, course, "c1")
-    save_record(workspace, learner, course, "c2")
+    run = create_running_run(workspace, published, enrollment, learner, course, nil)
 
     assert :ok = perform_job(LearningProgressWorker, %{})
     assert fetch_run(run.id, workspace.id).status == :running
   end
 
-  test "记录补全后下一轮扫描完成(F3 集成)" do
-    admin = Fixtures.platform_admin("lpw-u4-f3")
+  test "attempt 补全后下一轮扫描完成(兜底收敛)" do
+    admin = Fixtures.platform_admin("lpw-s8-f3")
     workspace = Fixtures.create_workspace(admin)
     published = create_learning_definition(workspace, admin)
 
     course = EventFixtures.create_course(workspace, admin, %{title: "课程"})
-    learner = Fixtures.register_user("lpw-u4-f3-learner")
+    revision = publish_revision(workspace, course)
+    learner = Fixtures.register_user("lpw-s8-f3-learner")
     enrollment = enroll(course, learner)
-    run = create_running_run(workspace, published, enrollment, learner, course)
-    save_content(workspace, admin, course)
+    run = create_running_run(workspace, published, enrollment, learner, course, revision)
 
-    # 第一拍:部分 done,保持 running
-    save_record(workspace, learner, course, "c1")
+    # 第一拍:部分掌握,保持 running
+    submit_attempt(workspace, run, revision, "obj-run")
     assert :ok = perform_job(LearningProgressWorker, %{})
     assert fetch_run(run.id, workspace.id).status == :running
 
-    # 第二拍:补全 → succeeded(完成由记录变更驱动,至多一个 cron 周期延迟)
-    save_record(workspace, learner, course, "c2")
+    # 第二拍:补全 → succeeded(完成由 attempt 落账驱动,至多一个 cron 周期延迟)
+    submit_attempt(workspace, run, revision, "obj-explain")
     assert :ok = perform_job(LearningProgressWorker, %{})
     reloaded = fetch_run(run.id, workspace.id)
     assert reloaded.status == :succeeded

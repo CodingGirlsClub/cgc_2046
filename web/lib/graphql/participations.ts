@@ -48,16 +48,27 @@ export interface ParticipationSponsorship {
   deliveries: SponsorshipDelivery[];
 }
 
+// S8（ADR-0011）：objective 口径
+export interface LearningProgressV2 {
+  masteredRequired: number;
+  totalRequired: number;
+  complete: boolean;
+}
+
+export interface LearningNextAction {
+  kind: "review" | "remediation" | "developing" | "next_required" | "elective";
+  objectiveId: string;
+  reason: string;
+}
+
 export interface MyLearningRun {
   runId: string;
   enrollmentId: string;
   targetTitle: string | null;
   status: LearningRunStatus;
-  doneIssues: number;
-  totalIssues: number;
-  currentIssueId: string | null;
-  currentIssueTitle: string | null;
-  currentIssueKey: string | null;
+  staleRevision: boolean;
+  progress: LearningProgressV2;
+  nextAction: LearningNextAction | null;
   courseId: string | null;
 }
 
@@ -131,10 +142,17 @@ export const MY_LEARNING_RUNS: TypedDocumentNode<
       enrollmentId
       targetTitle
       status
-      doneIssues
-      totalIssues
-      currentIssueTitle
-      currentIssueKey
+      staleRevision
+      progress {
+        masteredRequired
+        totalRequired
+        complete
+      }
+      nextAction {
+        kind
+        objectiveId
+        reason
+      }
       courseId
     }
   }
@@ -189,44 +207,49 @@ export const LEARNING_RUN_STATUS_LABEL: Record<LearningRunStatus, string> = {
 
 /* ---------------- 课程学习详情(U8/R11:学习 tab 抽屉数据,恒本人视角) ---------------- */
 
-export interface LearningChecklistItem {
+// S8（ADR-0011）：objective 掌握地图（issue/checklist 学习语义删除）
+export interface LearningRunSummary {
   id: string;
-  text: string;
-  done: boolean;
-  evidence: string | null;
-  recordedAt: string | null;
+  status: string;
+  revisionId: string | null;
+  revisionNumber: number | null;
 }
 
-export interface LearningIssueStory {
-  asA: string | null;
-  given: string[];
-  goal: string | null;
-  materials: Array<{ title: string | null; ref: string | null }>;
-  checklist: LearningChecklistItem[];
+export interface LearningPrereqRef {
+  id: string;
+  title: string | null;
 }
 
-export interface LearningIssue {
-  key: string;
+export type ObjectiveMastery =
+  | "unassessed"
+  | "developing"
+  | "mastered"
+  | "needs_review";
+
+export interface LearningObjectiveState {
   id: string;
   title: string;
-  kind: string;
-  status: "todo" | "in_progress" | "done";
-  story: LearningIssueStory;
+  required: boolean;
+  issueId: string | null;
+  prereqIds: string[];
+  mastery: ObjectiveMastery;
+  everMastered: boolean;
+  locked: boolean;
+  missingPrereqIds: LearningPrereqRef[];
+  attemptCount: number;
+  lastAttemptAt: string | null;
 }
 
 export interface CourseLearningDetail {
   courseId: string;
   title: string;
   slug: string | null;
-  goals: string[];
-  issues: LearningIssue[];
-  progress: {
-    doneIssues: number;
-    totalIssues: number;
-    currentIssueId: string | null;
-    currentIssueTitle: string | null;
-    currentIssueKey: string | null;
-  };
+  run: LearningRunSummary | null;
+  revisionNumber: number | null;
+  staleRevision: boolean;
+  objectives: LearningObjectiveState[];
+  nextAction: LearningNextAction | null;
+  progress: LearningProgressV2;
 }
 
 export const COURSE_LEARNING_DETAIL: TypedDocumentNode<
@@ -238,34 +261,39 @@ export const COURSE_LEARNING_DETAIL: TypedDocumentNode<
       courseId
       title
       slug
-      goals
-      progress {
-        doneIssues
-        totalIssues
-        currentIssueTitle
-        currentIssueKey
+      run {
+        id
+        status
+        revisionId
+        revisionNumber
       }
-      issues {
-        key
+      revisionNumber
+      staleRevision
+      objectives {
         id
         title
-        kind
-        status
-        story {
-          asA
-          goal
-          given
-          materials {
-            title
-            ref
-          }
-          checklist {
-            id
-            text
-            done
-            evidence
-          }
+        required
+        issueId
+        prereqIds
+        mastery
+        everMastered
+        locked
+        missingPrereqIds {
+          id
+          title
         }
+        attemptCount
+        lastAttemptAt
+      }
+      nextAction {
+        kind
+        objectiveId
+        reason
+      }
+      progress {
+        masteredRequired
+        totalRequired
+        complete
       }
     }
   }

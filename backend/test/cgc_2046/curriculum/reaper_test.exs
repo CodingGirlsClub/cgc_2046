@@ -4,8 +4,9 @@ defmodule Cgc2046.Curriculum.ReaperTest do
 
   测试直接调 SignalSubscriber.deliver/2（与生产 forwarder 同码；信号总线异步
   投递在 POC 已验证，测试不覆盖异步路径）。实例化走
-  Curriculum.Instantiator.launch/4 真实路径，验证 instance key 约定
-  （input_snapshot["key"] = "event_\#{id}"）。
+  Curriculum.Instantiator.launch/3 真实路径，验证 instance key 约定
+  （input_snapshot["key"] = "event_\#{id}"）。S6 起 event-only——course.ended
+  不再回收（course 型 run 布景经显式 key 直造）。
   """
 
   use Cgc2046Web.ConnCase, async: true
@@ -43,16 +44,30 @@ defmodule Cgc2046.Curriculum.ReaperTest do
     end)
   end
 
-  defp launch_curriculum_run(workspace, actor, entity, entity_type) do
+  defp launch_curriculum_run(workspace, actor, entity, :event) do
     defn = create_definition(workspace, actor)
-    key_field = "#{entity_type}_id"
 
     {:ok, run} =
-      Instantiator.launch(
+      Instantiator.launch(workspace.id, defn.id, %{
+        "event_id" => entity.id,
+        "title" => entity.title,
+        "research_requirements" => %{}
+      })
+
+    run
+  end
+
+  # S6 起 Instantiator event-only——course 型 run 布景经 WorkflowRun 统一入口
+  # 直造（instance key 约定 "course_<id>"，存量行布景同形）
+  defp launch_curriculum_run(workspace, actor, entity, :course) do
+    defn = create_definition(workspace, actor)
+
+    {:ok, run, _} =
+      WorkflowRun.find_or_create_and_start(
         workspace.id,
-        defn.id,
-        %{key_field => entity.id, "title" => entity.title, "research_requirements" => %{}},
-        entity_type
+        defn,
+        %{"course_id" => entity.id, "title" => entity.title, "research_requirements" => %{}},
+        key: "course_#{entity.id}"
       )
 
     run
@@ -88,18 +103,21 @@ defmodule Cgc2046.Curriculum.ReaperTest do
     assert claim_rows() == 1
   end
 
-  test "course.ended 同样回收；其他实体的 run 不受影响" do
+  test "course.ended 不再回收（S6 event-only 收窄）；存量 course run 自然 aging" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
     course = EventFixtures.create_course(workspace, admin)
     other_event = EventFixtures.create_event(workspace, admin)
 
+    # 存量 course 型教研 run（显式 key 直造布景）+ 活动 event run
     course_run = launch_curriculum_run(workspace, admin, course, :course)
     other_run = launch_curriculum_run(workspace, admin, other_event, :event)
 
+    # 收窄后 Reaper 不订阅 course.ended：deliver 落 fallback（警告日志），
+    # course run 不被 cancel；event run 亦不受影响
     assert :ok = ended_signal(course, "course.ended")
 
-    assert Ash.get!(WorkflowRun, course_run.id, authorize?: false).status == :cancelled
+    assert Ash.get!(WorkflowRun, course_run.id, authorize?: false).status == :waiting
     assert Ash.get!(WorkflowRun, other_run.id, authorize?: false).status == :waiting
   end
 

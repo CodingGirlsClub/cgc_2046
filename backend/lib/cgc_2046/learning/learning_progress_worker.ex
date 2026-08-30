@@ -12,7 +12,7 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
      无内容课程（无 Curriculum.Output）不判完成（skip，不报错）；run 终态
      不重扫（查询限定 running）。
 
-  2. **停滞升级（D6-③）**：`running` 且 facts 无新增 > 7 天（`updated_at` 代理——
+  2. **停滞升级（D6-③）**：`running` 且 facts 无新增 > 7 天（S8 起 = 最新 attempt created_at，零 attempt 回退 run inserted_at——
      running 态下 facts 写入是唯一更新路径）→ 经 NotificationWorker 入队提醒
      报名学员（48h 提醒同款 Oban 入队模式；7 天 args-unique 保证同一 run 同一
      收件人 7 天内至多一条）。收件人守卫：反查 Enrollment 仍 `confirmed` 才提醒。
@@ -23,8 +23,8 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     LearningInstantiator 的 warning 日志 + 报名/run 两表可扫支撑，E-10
     ReconciliationScanWorker 落地）。
   - 规则⑦：`learning_run_stalled`（E-9 #122 补差）——停滞判定与本 worker 提醒
-    同一口径（`updated_at` 严格早于 cutoff），阈值同源
-    `Cgc2046.Learning.Progress.stagnant_cutoff/1`（本 worker 与对账扫描只引用，不各自
+    同一口径，阈值同源
+    `Cgc2046.Learning.Runs.stagnant_cutoff/1`（本 worker 与对账扫描只引用，不各自
     定义）；分工：本 worker 负责提醒学员，ReconciliationScanWorker 负责对账
     可见（/admin 对账页 findings 列表）。
 
@@ -43,7 +43,6 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
   require Logger
 
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Learning.Progress
   alias Cgc2046.Workflows.WorkflowRun
 
   @impl Oban.Worker
@@ -61,9 +60,9 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     :ok
   end
 
-  @doc "停滞阈值 cutoff（7 天，D6-③）；同源 `Cgc2046.Learning.Progress.stagnant_cutoff/1`（对账规则⑦复用同一语义）。"
+  @doc "停滞阈值 cutoff（7 天，D6-③）；同源 `Runs.stagnant_cutoff/1`（对账规则⑦复用同一语义）。"
   def stagnant_cutoff(now \\ DateTime.utc_now()) do
-    Progress.stagnant_cutoff(now)
+    Cgc2046.Learning.Runs.stagnant_cutoff(now)
   end
 
   # --- 完成判定（D6-②） -------------------------------------------------------
@@ -78,28 +77,16 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     end)
   end
 
-  # U4(#180):完成条件 = 全部 issue Done(数据源 = course content
-  # Curriculum.Output + 该 user 学习记录;无内容课程不判完成,KTD3)。
+  # S8（ADR-0011）：完成判定 = Runs.complete_when_mastered/1 单源——
+  # 必修 objective 全 ever_mastered 即 complete（issue/checklist 口径随
+  # LearningRecord 退役）。:incomplete/:not_running → skipped；失败记日志。
   defp maybe_complete(%WorkflowRun{} = run) do
-    with enrollment when is_map(enrollment) <- fetch_enrollment_or_nil(run),
-         {:ok, content} <- fetch_course_content(run.workspace_id, enrollment),
-         {:ok, records} <- fetch_records(run.workspace_id, enrollment),
-         true <- Progress.all_issues_done?(content, records) do
-      complete_run(run)
-    else
-      _ -> :skipped
-    end
-  end
-
-  defp complete_run(run) do
-    case run
-         |> Ash.Changeset.for_update(:complete, %{},
-           tenant: run.workspace_id,
-           authorize?: false
-         )
-         |> Ash.update(tenant: run.workspace_id, authorize?: false) do
-      {:ok, _} ->
+    case Cgc2046.Learning.Runs.complete_when_mastered(run) do
+      {:ok, :completed, _run} ->
         :completed
+
+      {:ok, _outcome, _run} ->
+        :skipped
 
       {:error, reason} ->
         Logger.warning(
@@ -110,46 +97,13 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     end
   end
 
-  # course_id 缺失的 run(事件型 enrollment)无课程内容可判——skip。
-  # 读取委托 Enrollment.anchor/1（锚定单源，架构深化 E），错误坍缩 nil。
-  defp fetch_enrollment_or_nil(%WorkflowRun{} = run) do
-    case Enrollment.anchor(run.input_snapshot) do
-      {:ok, enrollment} -> enrollment
-      {:error, _} -> nil
-    end
-  end
-
-  # 无内容课程(无 Curriculum.Output)→ {:ok, nil} → all_issues_done? false(skip)
-  defp fetch_course_content(workspace_id, %{course_id: course_id})
-       when is_binary(course_id) do
-    # 读经 Curriculum.content_output/2 单一入口(A4)
-    case Cgc2046.Curriculum.content_output(workspace_id, course_id) do
-      {:ok, nil} -> {:ok, nil}
-      {:ok, output} -> {:ok, output.data}
-      {:error, _} -> {:error, :content_read_failed}
-    end
-  end
-
-  defp fetch_course_content(_workspace_id, _enrollment), do: {:ok, nil}
-
-  defp fetch_records(workspace_id, %{course_id: course_id, user_id: user_id})
-       when is_binary(course_id) and is_binary(user_id) do
-    Cgc2046.Learning.LearningRecord
-    |> Ash.Query.filter(course_id == ^course_id and user_id == ^user_id)
-    |> Ash.read(authorize?: false, tenant: workspace_id)
-  end
-
-  defp fetch_records(_workspace_id, _enrollment), do: {:ok, []}
-
   # --- 停滞升级（D6-③） -------------------------------------------------------
 
+  # S8（R50）：停滞口径 = Runs.stagnant?/2 单源——活动时间 = 最新 attempt
+  # created_at，零 attempt 回退 run inserted_at（updated_at 不再代理活跃）。
   defp remind_stagnant_runs(now) do
-    cutoff = stagnant_cutoff(now)
-
     learning_running_runs()
-    |> Enum.filter(fn run ->
-      run.updated_at && DateTime.compare(run.updated_at, cutoff) == :lt
-    end)
+    |> Enum.filter(&Cgc2046.Learning.Runs.stagnant?(&1, now))
     |> Enum.reduce(0, fn run, acc ->
       case remind_stagnant(run) do
         :reminded -> acc + 1

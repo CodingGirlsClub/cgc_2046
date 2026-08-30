@@ -89,7 +89,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
     WorkflowDefinition
     |> Ash.Changeset.for_create(
       :create,
-      %{name: "教研 workflow", type: :curriculum, node_def: node_def},
+      %{name: "教研 workflow（测试布景）", type: :curriculum, node_def: node_def},
       tenant: workspace.id,
       actor: actor
     )
@@ -139,8 +139,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
              Instantiator.launch(
                workspace.id,
                published.id,
-               %{"event_id" => event.id, "title" => event.title, "text" => "hi"},
-               :event
+               %{"event_id" => event.id, "title" => event.title, "text" => "hi"}
              )
 
     {admin, workspace, run}

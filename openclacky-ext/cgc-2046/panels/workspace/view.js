@@ -1,7 +1,17 @@
-// CGC-2046 连接面板（v1 薄面板，Issue #100）。
+// CGC-2046 连接面板（v1 薄面板，Issue #100；role-agent-journeys-v2 S1-extension 增加工作台身份区）。
 //
 // 能力：
 //   - 侧边栏入口（sidebar.nav.bottom）→ 打开本面板页
+//   - 工作台身份区（已连接时置顶展示，R3/R4）：
+//       - 身份栏：身份模式徽章（is_platform_admin →「平台管理模式」）+ 当前 Workspace 名
+//         + 角色徽章（GET /me/workspaces 透传 list_my_workspaces）
+//         + 管理入口（role-agent-journeys-v2 S3）：选中 Workspace 的角色含 owner/admin 时
+//           显示「管理」链接 → 网站工作台管理页（{web_url}/w/{slug}/settings/members）
+//       - Workspace 选择器：按名称切换（用户永不手填 workspace_id），选择持久化到
+//         localStorage(cgc2046.workspacePanel.workspaceId)；存储 id 失效时回退列表第一项
+//       - 我的任务：GET /tasks?workspace_id=<选中>（透传 list_my_tasks），
+//         行 = kind 标签 + 摘要（申请人 → 目标资源）+ 截止时间（若有）；空态「暂无待办」；
+//         手动刷新按钮
 //   - 连接状态卡：configured / url / token_configured（GET /api/ext/cgc-2046/status，脱敏）
 //   - 断开连接：DELETE /api/ext/cgc-2046/connect（带 confirm，移除 mcp.json 的 cgc-2046 条目）
 //   - 跳转网站（status.web_url，来自 ext.yml config）
@@ -9,8 +19,8 @@
 //       - ext.cgc-2046.tool_used —— 每次 CGC MCP 调用完成（hooks/after_tool_use.rb）
 //       - ext.cgc-2046.mcp_error —— MCP 连接异常（hooks/on_tool_error.rb），显示引导横幅
 //
-// 安全红线：面板只展示 status 的布尔/URL 字段与事件脱敏文本，绝不渲染 token/headers。
-// 参考宿主侧边栏样式（task-item 系列）与 ext-studio / trading-cockpit 面板先例。
+// 安全红线：面板只展示 status 的布尔/URL 字段、loopback 透传的工作台数据与事件
+// 脱敏文本，绝不渲染 token/headers；所有服务端字符串一律经 escapeHtml 渲染。
 
 (() => {
   "use strict";
@@ -19,11 +29,18 @@
   const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046";
   const EVENTS_MAX = 20;
+  const LS_WORKSPACE = "cgc2046.workspacePanel.workspaceId";
 
   // ---- 事件总线状态（闭包内，跨面板开关保持）----
   let events = [];          // { type, tool, status, error, at }
   let mcpError = null;      // 最近的连接异常文本（横幅）
   let currentContainer = null;
+
+  // ---- 工作台身份区状态 ----
+  let workspaces = [];        // [{ workspace_id, name, slug, roles }]
+  let isPlatformAdmin = false;
+  let selectedWorkspaceId = "";
+  let webUrl = "";            // status.web_url，管理入口链接的基址
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -61,6 +78,15 @@
       '<div class="cgc-panel">' +
         '<h3 class="cgc-panel-title">CGC-2046 连接</h3>' +
         '<p class="cgc-panel-sub">平台 MCP 连接状态与配置管理</p>' +
+        '<div class="cgc-card" id="cgc-workbench" style="display:none">' +
+          '<div class="cgc-identity" id="cgc-identity">加载中…</div>' +
+          '<div id="cgc-picker-slot"></div>' +
+          '<div class="cgc-tasks-head">' +
+            '<span class="cgc-activity-title">我的任务</span>' +
+            '<button id="cgc-tasks-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新</button>' +
+          '</div>' +
+          '<div id="cgc-tasks"><div class="cgc-empty">加载中…</div></div>' +
+        '</div>' +
         '<div class="cgc-card" id="cgc-status">加载中…</div>' +
         '<div class="cgc-card" id="cgc-activity"></div>' +
         '<div class="cgc-actions">' +
@@ -73,8 +99,151 @@
     const webEl = container.querySelector("#cgc-open-web");
     const discEl = container.querySelector("#cgc-disconnect");
     discEl.addEventListener("click", function () { disconnect(container); });
+    // 选择器选项随身份区重渲染而重建,change 监听委托给父卡(不随 option 重建失效)
+    container.querySelector("#cgc-workbench").addEventListener("change", function (e) {
+      if (e.target && e.target.id === "cgc-ws-select") selectWorkspace(container, e.target.value);
+    });
+    container.querySelector("#cgc-tasks-refresh").addEventListener("click", function () {
+      loadTasks(container);
+    });
     renderActivity(container);
     refresh(container, webEl, discEl);
+  }
+
+  // ---- 工作台身份区 ----
+  async function loadWorkspaces(container) {
+    const idEl = container.querySelector("#cgc-identity");
+    const pickerEl = container.querySelector("#cgc-picker-slot");
+    const tasksEl = container.querySelector("#cgc-tasks");
+    try {
+      const res = await fetch(API + "/me/workspaces", { headers: { Accept: "application/json" } });
+      const body = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
+
+      const result = body.result || {};
+      workspaces = Array.isArray(result.workspaces) ? result.workspaces : [];
+      isPlatformAdmin = !!result.is_platform_admin;
+
+      // 选中解析:持久化 id 仍在列表中则沿用,否则回退第一项;列表为空不动存储(可能是瞬态)
+      const stored = localStorage.getItem(LS_WORKSPACE) || "";
+      const found = workspaces.find(function (w) { return w.workspace_id === stored; });
+      const chosen = found || workspaces[0] || null;
+      selectedWorkspaceId = chosen ? String(chosen.workspace_id) : "";
+      if (chosen) localStorage.setItem(LS_WORKSPACE, selectedWorkspaceId);
+
+      renderIdentity(container);
+      loadTasks(container);
+    } catch (e) {
+      workspaces = [];
+      isPlatformAdmin = false;
+      selectedWorkspaceId = "";
+      if (idEl) idEl.innerHTML = '<span class="cgc-ev-err">加载 Workspace 列表失败：' + escapeHtml(String(e.message || e)) + '</span>';
+      if (pickerEl) pickerEl.innerHTML = "";
+      if (tasksEl) tasksEl.innerHTML = '<div class="cgc-empty">暂无待办</div>';
+    }
+  }
+
+  function renderIdentity(container) {
+    const idEl = container.querySelector("#cgc-identity");
+    const pickerEl = container.querySelector("#cgc-picker-slot");
+    if (!idEl || !pickerEl) return;
+
+    const current = workspaces.find(function (w) { return w.workspace_id === selectedWorkspaceId; });
+    let html = "";
+    if (isPlatformAdmin) html += '<span class="cgc-badge cgc-badge-admin">平台管理模式</span>';
+    if (current) {
+      html += '<span class="cgc-identity-line">当前：<b>' + escapeHtml(current.name || current.slug || "") + '</b></span>';
+      (Array.isArray(current.roles) ? current.roles : []).forEach(function (r) {
+        html += '<span class="cgc-badge">' + escapeHtml(r) + '</span>';
+      });
+      // 管理入口（role-agent-journeys-v2 S3）：选中工作台的角色含 owner/admin 时，
+      // 显示跳转网站工作台管理页的薄入口（面板不做管理操作本体）
+      const roles = Array.isArray(current.roles) ? current.roles : [];
+      const isManager = roles.indexOf("owner") !== -1 || roles.indexOf("admin") !== -1;
+      if (isManager && webUrl && current.slug) {
+        html += '<a class="cgc-btn cgc-btn-secondary cgc-btn-mini" href="' +
+                escapeHtml(webUrl.replace(/\/+$/, "")) + '/w/' + encodeURIComponent(current.slug) +
+                '/settings/members" target="_blank" rel="noopener noreferrer">管理</a>';
+      }
+    }
+    idEl.innerHTML = html || '<span class="cgc-empty">无可访问的 Workspace</span>';
+
+    if (workspaces.length === 0) {
+      pickerEl.innerHTML = "";
+      return;
+    }
+    const opts = workspaces.map(function (w) {
+      const sel = w.workspace_id === selectedWorkspaceId ? " selected" : "";
+      return '<option value="' + escapeHtml(w.workspace_id) + '"' + sel + '>' +
+             escapeHtml(w.name || w.slug || w.workspace_id) + '</option>';
+    }).join("");
+    pickerEl.innerHTML =
+      '<label class="cgc-picker-label" for="cgc-ws-select">Workspace</label>' +
+      '<select id="cgc-ws-select" class="cgc-select">' + opts + '</select>';
+  }
+
+  function selectWorkspace(container, id) {
+    selectedWorkspaceId = id;
+    localStorage.setItem(LS_WORKSPACE, id);
+    renderIdentity(container);
+    loadTasks(container);
+  }
+
+  // 任务行摘要:申请人 → 目标资源(context_title);缺省兜底 id 短码
+  function taskSummary(t) {
+    const requester = t.requester_name ? String(t.requester_name) : "";
+    const context = t.context_title ? String(t.context_title) : "";
+    if (requester && context) return requester + " → " + context;
+    if (context) return context;
+    if (requester) return requester;
+    const cand = [t.title, t.name, t.summary, t.key];
+    for (let i = 0; i < cand.length; i++) {
+      if (cand[i]) return String(cand[i]);
+    }
+    return t.id ? String(t.id).slice(0, 8) + "…" : "";
+  }
+
+  function taskDeadline(t) {
+    if (!t.approval_deadline) return "";
+    const d = new Date(t.approval_deadline);
+    const text = isNaN(d.getTime()) ? String(t.approval_deadline) : d.toLocaleString();
+    return '<span class="cgc-ev-time">截止 ' + escapeHtml(text) + '</span>';
+  }
+
+  async function loadTasks(container) {
+    const tasksEl = container.querySelector("#cgc-tasks");
+    if (!tasksEl) return;
+    if (!selectedWorkspaceId) {
+      tasksEl.innerHTML = '<div class="cgc-empty">暂无待办</div>';
+      return;
+    }
+    tasksEl.innerHTML = '<div class="cgc-empty">加载中…</div>';
+    try {
+      const res = await fetch(API + "/tasks?workspace_id=" + encodeURIComponent(selectedWorkspaceId), {
+        headers: { Accept: "application/json" }
+      });
+      const body = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
+
+      const result = body.result || {};
+      const tasks = Array.isArray(result.tasks) ? result.tasks : [];
+      if (tasks.length === 0) {
+        tasksEl.innerHTML = '<div class="cgc-empty">暂无待办</div>';
+        return;
+      }
+      const rows = tasks.map(function (t) {
+        return (
+          '<div class="cgc-ev cgc-task-row">' +
+            '<span class="cgc-kind">' + escapeHtml(t.kind || "") + '</span>' +
+            '<span class="cgc-task-summary">' + escapeHtml(taskSummary(t)) + '</span>' +
+            taskDeadline(t) +
+          '</div>'
+        );
+      }).join("");
+      tasksEl.innerHTML = '<div class="cgc-ev-list">' + rows + '</div>';
+    } catch (e) {
+      tasksEl.innerHTML = '<div class="cgc-ev-err">加载失败：' + escapeHtml(String(e.message || e)) + '</div>';
+    }
   }
 
   // 渲染最近活动卡：连接异常横幅（若有）+ 事件列表（倒序，最多 EVENTS_MAX 条）。
@@ -112,6 +281,7 @@
 
   async function refresh(container, webEl, discEl) {
     const statusEl = container.querySelector("#cgc-status");
+    const workbenchEl = container.querySelector("#cgc-workbench");
     statusEl.textContent = "加载中…";
     discEl.disabled = true;
 
@@ -122,6 +292,7 @@
       if (!res.ok || !st.ok) throw new Error(st.error || ("HTTP " + res.status));
     } catch (e) {
       statusEl.innerHTML = "<b>获取状态失败：</b>" + escapeHtml(String(e.message || e));
+      if (workbenchEl) workbenchEl.style.display = "none";
       return;
     }
 
@@ -131,12 +302,22 @@
     lines.push("<b>Token：</b>" + (st.token_configured ? "已配置" : "未配置"));
     statusEl.innerHTML = lines.join("<br>");
 
+    webUrl = st.web_url || "";
+
     discEl.disabled = !st.configured;
     if (st.web_url) {
       webEl.href = st.web_url;
       webEl.style.display = "";
     } else {
       webEl.style.display = "none";
+    }
+
+    // 已连接才展开工作台身份区(身份/任务数据走 loopback,未连接必 503)
+    if (st.configured) {
+      workbenchEl.style.display = "";
+      loadWorkspaces(container);
+    } else {
+      workbenchEl.style.display = "none";
     }
   }
 
@@ -201,6 +382,19 @@
       ".cgc-ev-tool { flex: 1; word-break: break-all; }" +
       ".cgc-ev-ok { color: #27ae60; flex: none; }" +
       ".cgc-ev-err { color: #c0392b; flex: none; }" +
+      ".cgc-identity { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }" +
+      ".cgc-identity-line { font-size: 13px; }" +
+      ".cgc-badge { font-size: 11px; border: 1px solid rgba(128,128,128,.4); border-radius: 999px; " +
+        "padding: 1px 8px; opacity: .8; }" +
+      ".cgc-badge-admin { border-color: #6366f1; color: #6366f1; opacity: 1; }" +
+      ".cgc-picker-label { font-size: 12px; opacity: .6; margin-right: 6px; }" +
+      ".cgc-select { padding: 4px 8px; border: 1px solid rgba(128,128,128,.4); border-radius: 6px; " +
+        "background: transparent; color: inherit; font-size: 13px; margin-bottom: 8px; }" +
+      ".cgc-tasks-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }" +
+      ".cgc-btn-mini { padding: 2px 8px; font-size: 12px; }" +
+      ".cgc-task-row .cgc-kind { flex: none; font-size: 11px; border: 1px solid rgba(128,128,128,.4); " +
+        "border-radius: 999px; padding: 1px 8px; opacity: .8; }" +
+      ".cgc-task-summary { flex: 1; word-break: break-all; }" +
       ".cgc-actions { display: flex; gap: 8px; flex-wrap: wrap; }" +
       ".cgc-btn { display: inline-block; padding: 6px 12px; border-radius: 6px; " +
         "font-size: 13px; text-decoration: none; cursor: pointer; border: 1px solid transparent; }" +

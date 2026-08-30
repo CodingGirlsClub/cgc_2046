@@ -128,6 +128,11 @@ defmodule Cgc2046.Sponsorship.SponsorshipConcurrencyTest do
           Ecto.UUID.dump!(workspace_id)
         ])
 
+        # #348:workspace seed 落 workflow_definitions(FK)——先清子表再删 workspace
+        Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+          Ecto.UUID.dump!(workspace_id)
+        ])
+
         Cgc2046.Repo.query!("DELETE FROM workspaces WHERE id = $1", [
           Ecto.UUID.dump!(workspace_id)
         ])

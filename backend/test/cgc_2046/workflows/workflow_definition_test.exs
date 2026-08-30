@@ -10,7 +10,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
 
   defp create_definition(workspace, actor, attrs \\ %{}) do
     defaults = %{
-      name: "教研 workflow",
+      name: "教研 workflow（测试布景）",
       type: :curriculum,
       input_schema: %{"topic" => "string"},
       node_def: %{steps: ["outline_design", "content_review"]},
@@ -225,8 +225,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
     end
   end
 
-  describe "type enum (全 5 个，R3 删 platform_ops)" do
-    test "accepts all 5 type values" do
+  describe "type enum (全 6 个，R3 删 platform_ops；S5 加 course_preparation)" do
+    test "accepts all 6 type values" do
       admin = Fixtures.platform_admin("wfdef")
       workspace = Fixtures.create_workspace(admin)
 
@@ -235,7 +235,8 @@ defmodule Cgc2046.Workflows.WorkflowDefinitionTest do
             :enrollment,
             :sponsorship,
             :speaker_invitation,
-            :curriculum
+            :curriculum,
+            :course_preparation
           ] do
         assert {:ok, defn} = create_definition(workspace, admin, %{name: "wf-#{t}", type: t})
         assert defn.type == t

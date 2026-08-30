@@ -26,6 +26,11 @@ export const client = new ApolloClient({
 			IssueChecklistItem: { keyFields: false },
 			// materials 同理:朴素参考列表,issue 内语义、无全局唯一 id
 			IssueMaterial: { keyFields: false },
+			// S8（ADR-0011 §B#22）:objective id/title 是课程内容内字符串 id,非全局
+			// 唯一——按 __typename:id 规范化会跨课程/跨 run 串掌握态(同型事故先例)
+			LearningObjectiveState: { keyFields: false },
+			// prerequisites 引用条目同理(缺先修 title 展示)
+			LearningPrereqRef: { keyFields: false },
 		},
 	}),
 });

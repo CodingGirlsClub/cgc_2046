@@ -23,7 +23,7 @@
 ### MCP server（模型上下文协议服务端）
 
 - **定义**：网站暴露的、供用户 OpenClacky 调用的协议端点。技术选型 **anubis_mcp**（Elixir/Phoenix，活跃维护）。全平台**只暴露一个** MCP server（D6）。
-- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权｜`membership: :public` 公开浏览族——任何持连接 token 的登录用户可用，匿名姿态读在工具层，KTD2/KTD3）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
+- **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权｜`membership: :public` 公开浏览族——任何持连接 token 的登录用户可用，匿名姿态读在工具层，KTD2/KTD3｜`membership: :platform_admin` 平台治理族——`is_platform_admin` 全局标记判定、无工作台作用域，role-agent-journeys-v2 S2）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
 - **架构位置**：B 通道主干（见下）。网站能力以"工具"形态暴露给 Agent。
 
 ### B 通道（网站 MCP server 通道）—— 主干
@@ -67,7 +67,7 @@
 
 ### Workspace（工作区，全局资源）
 
-- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。
+- **定义**：**组织单元**（如"北京 CGC 分会"），也是租户单元。UUID 主键 + 全局唯一 slug（展示用），带加入策略 `join_policy`（open | request | invite_only）。由平台管理员创建（申请审批 + 主动创建两级，D-A3）并指定 Owner，普通用户不可自助创建。**一个 Workspace = 一个 Jido partition**（D-A5）。`:create` after_action 同事务 seed 五角色（`Role.role_descriptions/0` 单源）+ **三份协议定义**（curriculum / learning / course_preparation，published——#348：新租户教研链与学习 run 即刻可用；形状单源对齐 seeds.exs §3，任一失败整体回滚不留半 seeded workspace）。
 - **架构位置**：全局资源；所有租户资源以 `workspace_id` 列过滤（Ash attribute 多租户策略）；WorkflowRun 等 workflow 实体归属其 partition。
 
 ### join_policy（加入策略）
@@ -103,7 +103,7 @@
 
 - **定义**：全局标记（`is_platform_admin`，非租户角色），可多人；负责创建 Workspace 并指定 Owner。
 - **不变量**：系统必须维持 ≥1 名平台管理员；降级最后一名管理员被拒绝（不变量由 `User :demote_platform_admin` action 守卫）。
-- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。
+- **架构位置**：User 上的布尔标记，跨租户生效。**判定唯一真源 = `Cgc2046.Accounts.Policies.PlatformAdmin`**（2026-08-12 named-check 收敛）：Ash check（`match?/3`）+ 纯谓词 `platform_admin?/1` 两个 surface，policy 字面量与 plug/live/graphql ad-hoc 判定全部收口。**双面契约**：policy 面放行跨租户治理读（含成员列表，load-bearing，实 bug `7f925b7`）；能力面（Rbac abilities / myAbilities）不给非成员管理员管理类 ability（#66 P2）——两面刻意不同答，契约成文于该 module moduledoc。**MCP 治理面（role-agent-journeys-v2 S2，R12–R16）**：`admin_` 前缀十工具（读 4 + 确认流写 6）经显式 `membership: :platform_admin` 门控族开放（Wrapper 委托上述唯一真源判定，fail-closed，无工作台作用域）；member-only 门「无 admin 豁免」规则不变——非成员平台管理员调 member 工具仍 Forbidden。治理读面只暴露操作元数据：`admin_list_audit_logs` 三源投影结构性不读 params/metadata 列（不靠查询后裁剪）。
 
 ### 连接 token（MCP 连接令牌 / Connection Token）
 
@@ -114,7 +114,7 @@
 
 ### workspace_id 作用域（Workspace Scope）
 
-- **定义**：无状态的租户作用域。**除两类豁免外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation），以及 `meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
+- **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（admin_ 前缀族——跨租户治理面无工作台作用域，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
 - **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
@@ -214,7 +214,7 @@
 
 ### 任务指令模式（Task-Instruction Pattern）
 
-- **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`（**roadmap**：随 Agent 资源落地实现，#211 裁决 1/3；v1 载体 = `AgentInstructions` 模块常量）；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
+- **定义**：公共 Agent 分发方式——Agent 定义（prompt/skills/授权）**存网站**，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`（**roadmap**：随 Agent 资源落地实现，#211 裁决 1/3；v1 载体 = `Cgc2046.Mcp.Playbooks` 模块常量——四角色版本化 playbook，经 `get_role_playbook` 分发，role-agent-journeys-v2 S1，见 §5「角色 Playbook」词条）；用户说"用教研 Agent"→ CGC 助手拉取定义 → 按定义工作。公共 Agent 动态创建天然支持（D10）。
 - **架构位置**：替代"运行时下发文件"（热加载未验证、工程风险高）与"纯静态打包"（不支持动态公共 Agent）两条路。
 
 ### AgentRun（领域操作聚合记录，实体不建）
@@ -230,17 +230,25 @@
 ### Agent（授权/配置登记，租户资源）
 
 - **定义**：两种形态——**个人 Agent**（角色分身，仅本人可见可用）与**公共 Agent**（Workspace 级，按 Workflow 协作）。在 BYO 架构下，Agent 只是授权与配置登记：`type / allowed_roles / owner` + OpenClacky 配置引用（`openclacky_profile / model / system_prompt / skills`）（D2）。**不包含执行逻辑**——执行发生在用户本地 OpenClacky。
-- **架构位置**：授权/配置登记概念，**实体未落地**（roadmap：plan 020，与 AgentRun 重启条件同钩子，#211 裁决 2/3）；v1 载体 = `Cgc2046.Workflows.AgentInstructions` 模块常量，`get_agent_instruction` 工具随实体落地（#211 裁决 1/3）。
+- **架构位置**：授权/配置登记概念，**实体未落地**（roadmap：plan 020，与 AgentRun 重启条件同钩子，#211 裁决 2/3）；v1 载体 = `Cgc2046.Mcp.Playbooks` 模块常量（四角色版本化 playbook，经 `get_role_playbook` 分发，role-agent-journeys-v2 S1），`get_agent_instruction` 工具随实体落地（#211 裁决 1/3）。
+
+### 角色 Playbook（Role Playbook / 角色工作模式）
+
+- **定义**：四角色（`platform_admin` / `workspace_admin` / `tutor` / `learner`）工作模式说明书——「如何经工具面完成角色职责」的版本化文本（role-agent-journeys-v2 S1，R2/R6）。载体 = `Cgc2046.Mcp.Playbooks` 模块常量 + 逐角色版本号（API `roles/0` / `fetch/1` / `version/1`）；分发通道 = MCP `get_role_playbook`（工具层四分支授权：learner 任何已认证用户 / tutor 与 workspace_admin 须持对应工作台角色 / platform_admin 须 `is_platform_admin` 全局标记）。**playbook 只组织用户已有能力**——面板隐藏、Agent 提示、本地缓存都不扩大网站 RBAC 权限（R6）。learner/tutor 两角色核心章节逐字吸收自已删除的 `Learning.AgentInstructions` / `Curriculum.AgentInstructions` 死代码模块。
+- **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。扩展 `system_prompt.md` 静态清单收缩为 7 个跨角色公共工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2 / 确认流 2），角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
 
 ### MCP 工具集（MCP Tool Set）
 
-- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **17 个**（名单由 `wrapper_gate_test` 钉死）：
+- **定义**：网站经 MCP server 暴露的工具面（**D7 收窄 + 分层，#211 裁决 1/3，2026-08-18**），当前 **43 个**（名单由 `wrapper_gate_test` 钉死）：
   - **读 9**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）/ `list_public_offerings` / `get_public_offering`（公开浏览 #293，`membership: :public` 豁免家族：任何持连接 token 的登录用户，跨工作区匿名白名单口径，KTD2/KTD3）
+  - **角色工作台基座 3（role-agent-journeys-v2 S1，R2/R3/R8）**：`list_my_workspaces`（actor 的工作台列表 + 各台角色并集 + `is_platform_admin`，按名排序，`workspace_id: :optional` 族——上下文选择器数据源，用户永不手填 UUID）/ `get_role_playbook`（按角色分发版本化 playbook，`optional+deferred` 双键，工具层四分支授权）/ `list_my_tasks`（member-only，PendingApprovals 聚合；课程教研任务行 S5 接入）
+  - **平台治理族 10（role-agent-journeys-v2 S2，R12–R16；`workspace_id: :optional` + `membership: :platform_admin` 双键，`is_platform_admin` 全局标记专属，无工作台作用域）**：读 `admin_list_users` / `admin_list_workspaces` / `admin_list_workspace_applications` / `admin_list_audit_logs`（各封顶 50；审计面三源元数据投影，结构性不读 params/metadata 列）+ 确认流写 `admin_approve_workspace_application` / `admin_reject_workspace_application` / `admin_create_workspace`（Owner 二选一：现有用户入座 / pending-owner 预授权邀请，明文 token 仅 confirm 结果一次性返回）/ `admin_reassign_workspace_owner`（仅 pending-owner 期间）/ `admin_promote_user` / `admin_demote_user`（最后一名管理员不变量原文透传）——全部委托 accounts 域既有 action + LogAdminAction 留痕，与网站 /admin 后台同源同语义
+  - **工作台管理面 13（role-agent-journeys-v2 S3，R17–R19 + R21 前半；member-only 无 meta 声明 = fail-closed 默认 + 工具层 Owner/Admin 判定）**：课程生命周期 `create_course`（唯一直接写；零输入草稿合法——title 缺省生成临时占位标题并打 `provisional_title` 标记，R21/AE1）/ `update_course`（设置正式标题即清标记；`pricing_enabled` true→false 摘要含将批量免缴的待支付报名笔数，R9）/ `launch_course`（命名门：`provisional_title` 课程不能发布）/ `close_course` / `cancel_course`（终态不可逆，摘要含终态提示）+ 报名管理读 `list_course_enrollments` 与确认流 `confirm_enrollment` / `reject_enrollment` / `waive_payment`（免缴：报名 → confirmed + 关联 pending 订单同事务作废 + 逐笔留痕）+ 订单读 `list_workspace_orders` 与确认流 `refund_order` / `retry_refund`（委托 Payments 域既有退款 action + 异步 worker）+ 加入策略 `update_join_policy`——与 web 管理页同源同语义（同一批 domain action），他租户 id ≡ not found
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
   - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
   - **已死亡（标注取代后除名）**：`reply_learner_question`（被 issue 卡 checklist 复盘 + `save_learning_records` 取代，切片 H）；`get_learner_history`（被 `get_learning_records` 取代）
-- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。`update_join_policy` / 删除类等低频管理操作维持 web 面（GraphQL + 设置页），真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开。
+- **架构位置**：B 通道能力面；鉴权立场随工具走（工具自身 meta 声明 + Wrapper 派生门控，fail-closed 默认：未声明 = member-only + workspace_id 必填），每次调用鉴权 + 审计。删除类等低频管理操作维持 web 面（GraphQL + 设置页），真实 agent-first 需求出现时按「确认流 + RBAC 兜底」范式增量重开（S3 已以此范式重开课程生命周期/报名/订单/加入策略 13 工具）。
 
 ### 确认流（Confirmation Flow）
 
@@ -343,6 +351,16 @@
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
 
+### provisional_title（课程临时占位标题标记，Course-only）
+
+- **定义**：Course 的「当前标题是系统生成的临时占位」标记（role-agent-journeys-v2 S3，R21/AE1）：`create_course` 缺省 title 时生成 `未命名课程 <hex8>` 并置 true；`update_course` 设置正式标题即自动清回 false。**命名门**：`provisional_title = true` 的课程不能 `:launch`（域 action 层校验 + MCP 工具第一段快速失败双拦截），防「忘了起名就发布」。匿名可见性排除在 field_policy denylist（占位标题不出公开面）。
+- **架构位置**：Course 属性（writable? false，只能经 create/update 的 change 间接翻转）；MCP 侧由 `create_course` / `update_course` / `launch_course` 三工具承载语义。
+
+### 学员旅程（Learner Journey：发现 / 报名 / 支付）
+
+- **定义**：学员从发现到进入学习的完整通道（role-agent-journeys-v2 S7，R30-R35）。发现 = `discover_offerings`（无参跨台合并流：全平台公开 ∪ 本人各 workspace 可访问，按 {kind,id} 去重、封顶 100 + total_count 截断前小计、条目带 workspace 块/pricing 概要/my_enrollment；invite_only 工作台对非成员 workspace 块落 nil——不泄露不可发现工作台）。报名 = `get_enrollment_summary`（摘要 + `would_create_status` **精确镜像域 prepare_policy 分支**：open+收费→payment_pending / open→confirmed / request→pending / invite_only→nil；驱动因子 = offering 的 enrollment_policy 而非 workspace join_policy）→ 客户端确认 → `create_enrollment`（唯一直接写工具——确认契约在客户端 R31，不进确认流；**幂等重放**：撞 `enrollment_duplicate_active` 返回既有活跃报名 + `idempotent_replay: true` 非错误；reason 进 Wrapper 前摘除——审计不落自由文本）。支付 = payment_pending 附 `checkout_url`（web 下单页 `/orders/new?enrollmentId=`，外部浏览器完成）+ `get_order_status`（本人最新订单白名单摘要——id/amount/provider/status/expires_at/paid_at，**渠道凭据/单号/回调原文永不出面**）。学习入口 = `get_my_enrollments`（全状态跨台封顶 100；扩展课程面板列表源——confirmed 课程即学习入口，零学习记录也显示）。
+- **架构位置**：`mcp/tools/learner_journey.ex`（共享辅助：active_statuses/checkout_url/active_enrollment(s)）+ 五工具；两读面（discover/my_enrollments）`optional+deferred` 双键跨台锚定，三面（summary/create/order）`deferred` workspace 必填；`Admission.Enrollment :create_enrollment` 域 action 单源（web/小程序/工具同语义）；`Course.published_content/2`（显式 workspace_id 版，S7 增设——actor policy 读出的 workspace_id 列对非成员是 ForbiddenField）。扩展侧 `api/learner_routes.rb` 五 loopback 路由 + 发现面板 v2（报名确认卡/支付轮询 5s·10min cap/去支付外链）。
+
 ### curriculum_enabled（教研开关，Event-only）
 
 - **定义**：Event 的「本活动不使用教研链路」退出通道（轻聚会等形态），默认 true。**Course 无此开关**（2026-08-16 grill Q12 语义分家）：issue 卡是课程内容本体，Course 恒走教研实例化，`courses.curriculum_enabled` 列已删除——对账规则④对 Course 无条件（open 且无 published 教研定义 = 孤儿），Readiness 教研项对 Course 无条件检查。
@@ -359,23 +377,43 @@
 
 ### Issue（学习议题，课程内容原子单元）
 
-- **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 与 checklist item id 发布后不改不删，内容编辑保 id（学习记录永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储）。状态 **Todo / In Progress / Done**（Linear 同款）由学习记录派生——投影非手柄，不提供手动切换。
-- **架构位置**：存储于 ResearchOutput(`kind=:issues`)；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。取代词汇：section / story 卡 / acceptance / learning_objectives（2026-08-16 课程 issue 学习闭环设计）。
+- **定义**：Course 内容的原子单元，User-Story 式内容契约：`as_a / given（先修状态）/ goal（目标，Tutor 设定）/ materials（朴素参考列表，无 type 字段——动手卡 ≠ 技能）/ checklist`，带 `kind` 二分——`thoughtwork`（知识型，证据在对话）与 `handwork`（动手型，证据在产物，agent 必须实查产物判完成）。**id 稳定纪律**：issue id 发布后不改不删，内容编辑保 id（attempts 按 objective_id 引用，永远可追溯）。展示短码 issue key（`PY-02` 式，课程短码-序号，派生非存储，单源 `Curriculum.Content.issue_key/2`）。学习状态（S8 起）在 **objective 粒度**（见「学习评价账本」词条），issue 不再承载学习三态。
+- **架构位置**：存储于 `Curriculum.Output`（`kind=:issues`）；教研 Agent 起草（Tutor 经 MCP `save_course_content` 活文档式更新，run 终态后仍可改）；读取经 `get_course_content`。写入一律带 `base_version` 乐观锁（纪律见「Curriculum」词条草稿版本段）。取代词汇：section / story 卡 / acceptance（2026-08-16 课程 issue 学习闭环设计；learning_objectives 的职责由 issue 内 `objectives` 字段承担，见「课程版本」词条 schema v2 段）。
 
 ### checklist（检查单）
 
-- **定义**：issue 内可自验条目清单（`{id, text}`，无测试题形态）；handwork 条目指向可检查产物。学习 agent 判定规则：**条目指向产物时必须实际运行/读取产物再判 done，不采信口头完成**；对话类条目经问答自验（checklist 复盘）。
-- **架构位置**：issue story 字段组；学习记录按 item_id 追踪。
+- **定义**：issue 内可自验条目清单（`{id, text}`，无测试题形态）；handwork 条目指向可检查产物。**S8（ADR-0011）起 checklist 不再承载学习语义**——掌握与评价的唯一粒度是 issue 内 `objectives`（见「学习评价账本」词条）；checklist 保留为教研起草期的自验清单（`Content.valid_v1?` 校验保留，v1 内容兼容），学习消费面已随 LearningRecord 退役。
+- **架构位置**：issue story 字段组。
 
-### 学习记录（LearningRecord，个人记忆库）
+### 学习评价账本（Learning.Attempt，S8 已退役 LearningRecord）
 
-- **定义**：一条 checklist 条目的完成记录（done + evidence 摘要 + recorded_at）。**唯一键 `(course_id, user_id, issue_id, item_id)`，upsert 最新为准——记忆挂人不挂报名**（跨 enrollment 延续，退款重报不清零；enrollment_id/run_id 为审计列）。课程 close/cancel 后拒写保读（账本不删）。**记忆在平台、算法在 agent**：平台只存结构与做进度投影（全 issue Done → learning run succeeded），自适应教学决策（八步循环）全在学员 agent，经学习 Agent 指令分发（D10）。导出预留：未来用户可下载个人记忆（用户数据权利）。
-- **架构位置**：learning_records 表；MCP `get_learning_records`（course_id 可选，缺省 = 本人全部课程记录）/ `save_learning_records`。
+- **定义**：一条**不可变**的正式评价记录（role-agent-journeys-v2 S8，ADR-0011 L1；R42/R44）：锚定三元组 `(learning_run_id, course_revision_id, objective_id)` + `evidence`（证据摘要）+ `rubric_results`（逐条 `{criterion_id, met, note?}`）+ `passed` + `rationale`（恒必填）+ `confidence`（0..1）+ `agent_meta`。**只有 create + read**——失败评价永不删除，重试写新行（无限重试，无 tutor 逐条审核）。掌握状态**不落库**：由 `Mastery` 纯投影派生（qualifying = passed ∧ confidence ≥ 0.8 ∧ rubric 精确覆盖且逐条 met）。**语义修订（L3）**：旧「学习记录（记忆挂人不挂报名）」词条退役——新语义为「**账本挂人**（attempts 永久保留、跨 run 可审计可回放），**掌握态挂 run × revision**」；跨 run/跨 enrollment 的掌握延续 = deferred（投影不建表，未来按人×revision 重算即可）。
+- **架构位置**：`learning/learning_attempt.ex`（learning_attempts 表）；读面 = run 持有者 ∪ 本台 tutor/owner/admin（**平台管理员刻意不放行**——证据正文不进平台治理读面，R48）；写面 = 仅 run 持有者本人（SimpleCheck fail-closed）。不开 GraphQL 面。审计红线：`submit_learning_attempt` 的 ToolCallLog params 经 per-tool 白名单只留 `workspace_id/course_id/objective_id/passed/confidence`（evidence/rubric_results/rationale/agent_meta 不落审计，AE12）。
+
+### 掌握投影（Mastery）与下一步推荐（NextAction）
+
+- **定义**：掌握四态 latest-attempt-driven 纯投影（L2，无表）：无 attempt = unassessed；无一 qualifying = developing；最新 qualifying = mastered；曾 qualifying 最新失败 = needs_review（`ever_mastered` 粘性——完成判定用它，复习失败不倒退 AE10；`first_mastered_at` 锚首条 qualifying）。run 完成判据 = 全部**必修** objective ever_mastered（空必修集 → false，§B#14）。NextAction 五级优先（L5，R40）：完成守卫先行 → review（S9 起 `ReviewSchedule.due/3` 真实队列）→ remediation（developing 的先修中有 needs_review 者）→ developing（最近活动者）→ next_required（内容序首个已解锁必修 unassessed）→ elective。`unlocked?` = 全部 prereq ever_mastered；锁定项报缺失先修 id+title，submit 工具拒评（R41 不可绕过）。
+- **架构位置**：`learning/mastery.ex` / `learning/next_action.ex`（纯函数，判据单源）。
+
+### 学习 run 投影单源（Learning.Runs）
+
+- **定义**：learning WorkflowRun 的启动/查询/投影/完成判定/停滞口径的**单源**（L6）：instance key = `learning_<enrollment_id>_<revision_id|none>`（按 key 命中**任意状态**即 resume，§B#11——同版重进 = 续学，新版发布 = 新 run）；revision 绑定走 `input_snapshot["course_revision_id"]`（enrollment 锚同款先例——引擎表零域列零 opt）；`learning_state/2` = MCP `get_learning_state` 与 GraphQL `courseLearningDetail` 共用投影（含 **stale_revision 语义**——run 绑旧版时投影自己版本的 objectives+states 不换底）；完成判定 `complete_when_mastered/1`（非同事务 §B#12：attempt 落库后即时调用，失败只记日志，5 分钟 worker 兜底）；停滞口径 = 最新 attempt `created_at`，零 attempt 回退 run `inserted_at`（规⑦ detail 键 `last_activity_at`）。
+- **架构位置**：`learning/runs.ex`；Instantiator（enrollment.completed 异步路径）与 `start_learning_run` 工具（学员主动路径）共用同一 key，两路径幂等互通（R36）。MCP 面 = `start_learning_run` / `submit_learning_attempt`（六步校验链：本人 confirmed → 非终态 run → run 绑 revision → objective 存在且 rubric 精确覆盖 → confidence/evidence/rationale → 先修锁）/ `get_learning_state`（`get_learning_records`/`save_learning_records` 已随 LearningRecord 退役删除）。
+
+### 复习调度（Learning.ReviewSchedule）
+
+- **定义**：间隔重复复习到期队列的纯函数投影（L4，无表，R45）：objective 首次掌握（`first_mastered_at`）后进入复习队列，里程碑 = 首次掌握起 **+1/+7/+30 天**（`intervals/0`），按序消费——第 n 条「掌握后 qualifying attempt」（严格晚于 `first_mastered_at`）满足第 n 个里程碑，前提是晚于上一里程碑锚点（防突击刷档；迟到复习照常按序）；失败复习不消费任何里程碑且使 objective 翻 `needs_review`（恒立即到期，due_at = 失败 attempt 时间，全里程碑消费完后再失败 → `milestone_days: nil` = 「再次合格恢复 mastered」语义）；三里程碑全满足后不再到期。`due/3` 时间全部由调用方注入。**完成不撤销（AE10）**：复习失败翻转 needs_review 不影响已产出的 run 完成结果；v1 边界 = 已 succeeded run 无复习提交通道（L4 已知代价，详见 ADR-0011）。
+- **架构位置**：`learning/review_schedule.ex`；消费方 = `Runs.learning_state/2`（`review_queue` 键）、`submit_learning_attempt`（next_action 第三参真队列）、GraphQL `courseLearningDetail.reviewQueue`；`NextAction.next/3` review 分支由此接通（review 优先于 developing，R40）。
+
+### 学习分析聚合（Learning.Analytics）
+
+- **定义**：tutor ∪ owner/admin 的课程学习数据回流聚合读面（R49/R50，AE14）：`for_course/2`（IO）+ `compute/5`（纯函数，now 可注入）两层。数据范围 = 课程全部 learning run（`input_snapshot["course_id"]` 课程级锚定，无 user 过滤）+ 其 attempts + 当前 published revision objectives。输出五键：`run_stats`（total/active/completed/completion_rate，零 run null）、`objectives`（当前 revision 逐行：掌握四态**按 run 计**——仅计绑定 revision 含该 objective 的 run；qualifying 按 attempt 所属 run 绑定版 rubric 判；重试热点 `avg_attempts_to_first_mastery` 仅统计曾掌握的 run）、`orphan_objectives`（当前版已移除 objective 的 attempts 汇总）、`drop_off.stale_run_count`（`Runs.stagnant_cutoff` 口径同源，内存算）、`generated_at`。**红线（R49）**：纯聚合计数，永不返回 evidence/rubric_results/rationale 正文。
+- **架构位置**：`learning/analytics.ex`；MCP 面 = `get_course_learning_analytics`（member-only + 工具层 tutor ∪ manage roles；租户收紧 not found 不泄存在性）；tutor playbook「数据回流」章节（R50：分析 → 判断内容问题 → 新 Revision 草稿重进教研链，永不自动改/发布当前 Revision）。
 
 ### Learning（学习上下文）
 
-- **定义**：学员侧学习的限界上下文：LearningRecord（个人记忆库，见上条）+ 学习实例化与进度逻辑（ADR-0010 A3 归位，2026-08-29）——`Learning.LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死）、`Learning.Progress`（进度投影纯函数族：project/project_issues/issue_key/stagnant_cutoff）、`Learning.AgentInstructions`（学习 Agent 指令模板）、`Learning.RunProjection`（GraphQL 学习详情投影组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁）、`Learning.LearningProgressWorker`（停滞扫描/完课判定）。
-- **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（经 `Curriculum.content_output/2` 读契约），被 GraphQL/MCP 消费。
+- **定义**：学员侧学习的限界上下文（ADR-0010 A3 归位；S8 起为 ADR-0011 Learning v2）：`Attempt`（不可变评价账本）+ `Mastery`/`NextAction`（派生投影纯函数族）+ `Runs`（run×revision 投影单源）+ `LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死；S8 起 key 含 revision、course 报名绑 `Course.current_revision_id` 进 input_snapshot）+ `RunProjection`（GraphQL myLearningRuns 行组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁；S8 切 objective 口径薄壳 `Runs.learning_state`）+ `LearningProgressWorker`（停滞扫描/完课判定，就地改逻辑不改名——Oban jobs.worker 字符串雷区）。`Learning.Progress` 与 `LearningRecord` 已随 S8 删除（issue/checklist 口径投影由 Mastery/Runs 取代）。
+- **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（revision 经 `Curriculum.revision_by_id/2` 读契约），被 GraphQL/MCP 消费。
 
 ### Enrollment（报名 / 事件级参与者）
 
@@ -405,8 +443,25 @@
 ### Curriculum（教研）
 
 - **定义**：教研 context 的英文命名（ADR-0009，2026-08-28 拍板）。教研 = 设计课程大纲/材料/学习活动，学科通用名 instructional design；命名取产出物本质（Curriculum = 课程编制）。Research 命名太宽泛退役；Teaching Research 为中式英语不采用。中文文档继续称「教研」。
-- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影，Learning 经读契约消费已发布内容。
-- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）/ 教研段 AgentInstructions 同目录；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
+- **边界**：拥有教研产出物（outline/materials/issues/archive 的起草/审核/归档，现 `Curriculum.Output` 家族；发布归档 = `Curriculum.CourseRevision`，S6）与教研实例化触发；Event/Course 引用其产出，Course 持「哪版内容已发布」投影（`current_revision_id`），Learning 经读契约消费已发布内容。
+- **架构位置**：独立 context（`curriculum/`，已随 ADR-0009 PR③ 落地）：Output（课程内容唯一持久层）/ Instantiator（实例化触发）/ Reaper（run 回收）；另含 `Content`（课程内容形状契约 + ContentValidation，ADR-0010 A4 自 workflows/ 迁回）与 `CurriculumProgressWorker`；**`Curriculum.content_output/2` 为课程内容 Output（kind=:issues, key=course_<id>）唯一读入口**（A4 收敛：原 curriculum/两 worker/MCP/graphql_schema 五处同形查询全归并）；发布内容读契约同域（S6）：`Curriculum.latest_revision/2` / `revision_by_id/2` / `revision_by_number/3` 为 CourseRevision 唯一读入口（消费方 = Course.published_content 投影与 get_course_revision 工具）。教研段 AgentInstructions 已随 role-agent-journeys-v2 S1 删除（内容由 `Mcp.Playbooks` tutor playbook 吸收）。research_* 命名已全代码退役（research_enabled → curriculum_enabled 等；信号 payload 键 `research_requirements` 与对账规则④⑤原子名为冻结例外，不随改名）。
+- **草稿版本（S4，R9/R10，AE2）**：`Curriculum.Output` 持 `version` 列（bigint，默认 1，`writable?: false`）；`save_course_content` 以 `base_version` 为必填写契约（0 = 首次创建），CAS upsert（`upsert_condition(version == base_version)`）成功后 `atomic_update(:version, version + 1)`；`base_version > 0` 而无草稿直接 `version_conflict`，冲突响应附最新 `version` 供调用方重载重试。双等价入口：MCP 工具 + 扩展面板 `POST /courses/:course_id/content` 共用同一工具实现（面板 409 → 弃本地编辑重载，10s 轮询在编辑/保存态挂起）。冲突文案单源 `Curriculum.Output.version_conflict_message/1`（MCP StaleRecord 与无草稿分支共用）。
+
+### 课程教研流程（Course Preparation，prep run）
+
+- **定义**：每门新课程恰一个的教研流程实例（role-agent-journeys-v2 S5，R22-R28）——`course.created` 信号经 `Curriculum.PrepInstantiator`（SignalSubscriber，`idempotency: :state_based`，consumer_key 钉死 `"course_prep_instantiator"`）幂等种出 `type=:course_preparation` 的 WorkflowRun（实例 key `course_prep_<course_id>`，非终态去重），并回写 `course.workflow_run_id`。**协议而非 DAG**（与 learning run 同，TD3）：实例化即 `:start`（pending → running），不经 Engine，node_def 空 steps 合法。
+- **prep_state 五态 facts 状态机**：`draft → authoring → quality_check → review → published`（外加 `below_threshold` 回退 authoring），存于 `run.facts["prep_state"]`（缺省 draft）；迁移一律经 `Curriculum.Prep` 域服务（前置断言「invalid prep_state transition」），facts 写走 WorkflowRun 专用 `:update_prep_facts` action（optimistic_lock version；成员 bypass，学员不放行）。
+- **策略快照（R22）**：`prep_policy`（review_required 默认 true / quality_threshold 默认 80 / reviewer_user_id 默认 nil=任何成员可审）创建时固化进 `input_snapshot` **不可变**；Owner/Admin 经确认流 `update_prep_policy` 写 `facts["prep_policy_override"]`（override-first 合并，快照本体不动），进入 quality_check 即冻结。
+- **认领 = run version 乐观锁 CAS**（R24）：tutor 认领未指派的 draft/authoring run，并发双认领恰一成一败（StaleRecord →「already claimed」业务错误），零裸 SQL。
+- **结构门禁（R26，S6 加严 schema v2）**：`Curriculum.PrepGate.check/2` 纯函数——非临时占位标题 / 内容草稿存在 / goals 非空 / issues 非空 + Content v1 形状复核 + **objectives 硬性要求**（全课程 ≥1 objective 且 ≥1 必修；逐条规则：id 课程级唯一 / title 非空 / rubric 非空组内唯一 / prereq_ids 存在且 DAG——无环无自引用）。v1-only 旧草稿不能发布，无数据迁移。提交质量检查与发布前各跑一次（发布复跑不过 → 整体回滚）。
+- **发布单事务（R23/R28/R29，plan §B#9/#10）**：`Curriculum.Prep.publish/4`（撞 (course_id, number) 唯一索引重读 max 重试一次）单事务 = 防御性复跑门禁 → 创建不可变 `CourseRevision`（number = max+1，草稿快照冻结）→ 调 Courses 发布端口 `Course.bind_revision_for_publish/3`（绑定 current_revision_id + 课程 draft 时 `:launch`——changeset context `via_prep: true` 放行教研门，授权已在工具层完成故 `authorize?: false`；已 open 只换绑）→ run `:complete`（succeeded，facts 记 published_revision_id/number）。**教研门**：存在非终态 prep run 的课程 `:launch` 一律拦截（「课程须完成教研流程后发布」），via_prep 或 prep_state=published 才放行；存量课程（无 prep run）不受影响。**发布次周期**：run 终态后 `get_prep_status` / `submit_prep_for_check` 经 `Prep.ensure_active_run/2` 懒开新 run（默认策略快照，assignee 沿用上任；advisor R1/R2 定稿：懒开与 `course.created` 首周期 producer 共用 `Prep.spawn_under_course_lock/3` 锁协议——事务内 course 行 FOR UPDATE + 锁内重读最新 status（白名单裁决，stale struct 无效化）+ 锁内重读非终态 run——同课程恰一个非终态 run；仅 draft（producer）/draft+open（懒开）课程建 run，closed/cancelled fail closed 无写副作用；course `:close`/`:cancel` 同事务经 `Prep.stop_active_runs/1` 收口既有非终态 run——terminal 课程不遗留不可发布的孤儿 run）。
+- **架构位置**：`curriculum/prep.ex`（域服务）/ `prep_gate.ex`（纯函数）/ `prep_instantiator.ex`（订阅器，application 注册于 curriculum Instantiator 后）；MCP 面 = 九工具（get_prep_status 读 + assign/claim/submit×2/request_changes 直接写 + update_prep_policy/override_prep_gate/approve_prep 确认流），`list_my_tasks` 按角色分派三类教研行（claimable/authoring/review）；扩展面板 `GET /courses/:course_id/prep` 透出状态。
+
+### 课程版本（CourseRevision，发布即冻结的内容快照）
+
+- **定义**：教研流程发布步生成的**不可变**课程内容快照（role-agent-journeys-v2 S6，R29/R38）——`content` 是发布时点的完整 schema v2 内容（goals + issues + objectives），`(course_id, number)` 唯一且 per-course 单调递增（发布事务内 max+1，撞唯一索引重读重试一次）；资源层只定义 create + read（无 update/destroy——不可变纪律钉死），旧版本与其学习 run 永不被改写。`prep_run_id` / `published_by_id` / `published_at` 为溯源审计列。
+- **schema v2（R38）**：issue 的 `objectives` 字段——LearningObjective 是掌握单元，携带稳定 id（课程级唯一）、`required` 必修/选修标志（缺省 true；全课程至少一个必修）、机器可读先修 `prereq_ids`（引用存在的 objective 且构成 DAG）、activity / assessment / materials / 非空 rubric（≥1 条 `{id, text}`，组内 id 唯一）。形状契约在 `Curriculum.Content`（`valid_v1?` 与 `objective_violations` 分层报告）；**v1-only 旧草稿不能发布**（tutor 补 objectives 后重过门禁，无数据迁移）。
+- **架构位置**：`curriculum/course_revision.ex`（表 `curriculum_course_revisions`；不开 GraphQL 面——消费走 MCP `get_course_revision` 工具 + 域读入口 `Curriculum.latest_revision/2` 等）；`Courses.Course.current_revision_id` 为当前 published 版本投影（唯一写入口 `:bind_current_revision`，发布端口 `bind_revision_for_publish/3` 在发布事务内写入——本计划唯一新增跨 context 端口）；公开 courseMap 内容源 = `Course.published_content/1`（读 current_revision 指向版本，无 revision 的存量课程回退草稿读面——旧行为）。授权：资源层成员 ∪ PlatformAdmin；学员侧「仅最新 published 版本」细粒度判定在 `get_course_revision` 工具层（deferred 族）。
 
 ### 内容安全检查（Content Safety Check）
 

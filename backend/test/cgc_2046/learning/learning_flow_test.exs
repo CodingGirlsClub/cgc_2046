@@ -58,7 +58,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "学习 workflow",
+          name: "学习 workflow（测试布景）",
           type: :learning,
           input_schema: %{},
           node_def: learning_node_def()
@@ -187,8 +187,11 @@ defmodule Cgc2046.Learning.LearningFlowTest do
   defp backdate_run(run, days) do
     cutoff = DateTime.add(DateTime.utc_now(), -days, :day)
 
+    # S8 停滞口径 = last_activity_at（最新 attempt，零 attempt 回退 inserted_at）：
+    # backdate 两者（零 attempt 路径走 inserted_at；updated_at 不再代理但一并
+    # 回拨保持布景一致）
     Cgc2046.Repo.query!(
-      "UPDATE workflow_runs SET updated_at = $1 WHERE id = $2",
+      "UPDATE workflow_runs SET updated_at = $1, inserted_at = $1 WHERE id = $2",
       [cutoff, Ecto.UUID.dump!(run.id)]
     )
   end
@@ -205,7 +208,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       assert enrollment.status == :confirmed
       instantiate(enrollment)
 
-      key = "enrollment_#{enrollment.id}"
+      key = Cgc2046.Learning.Runs.instance_key(enrollment.id, nil)
       run = await_run(published.id, key)
 
       assert run.status == :running
@@ -246,7 +249,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
                |> Ash.Query.filter(signal_type == "enrollment.completed")
                |> Ash.read!(authorize?: false)
 
-      key = "enrollment_#{enrollment.id}"
+      key = Cgc2046.Learning.Runs.instance_key(enrollment.id, nil)
       _run = await_run(published.id, key)
     end
 
@@ -264,12 +267,19 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       assert enrollment.status == :pending
       instantiate(enrollment)
 
-      assert learning_runs(published.id, "enrollment_#{enrollment.id}") == []
+      assert learning_runs(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil)) ==
+               []
     end
 
     test "无 published 学习定义 → warning skip 不种 run（供对账）" do
       admin = Fixtures.platform_admin("lf-nodef")
       workspace = Fixtures.create_workspace(admin)
+
+      # #348 后新 workspace 恒 seed published 定义——异常态(无定义)布景直删
+      Cgc2046.Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
       event = EventFixtures.create_event(workspace, admin, %{})
       learner = Fixtures.register_user("lf-nodef-learner")
       {:ok, enrollment} = enroll(event, learner)
@@ -289,7 +299,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       {:ok, enrollment} = enroll(event, learner)
       published = create_learning_definition(workspace, admin)
       instantiate(enrollment)
-      run = await_run(published.id, "enrollment_#{enrollment.id}")
+      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
 
       reply =
         save_output(learner, workspace, run, "module_reading", %{"notes" => "读完第三章"}, "跳过了视频")
@@ -326,7 +336,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       # 放行即证明学员豁免分支生效（而非「未配置 = 不限制」路径）。
       create_step_with_role(workspace, admin, published, "module_reading", :tutor)
       instantiate(enrollment)
-      run = await_run(published.id, "enrollment_#{enrollment.id}")
+      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
 
       reply = save_output(learner, workspace, run, "module_reading", %{"notes" => "ok"})
       assert decode_reply(reply)["step_key"] == "module_reading"
@@ -342,7 +352,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       {:ok, enrollment} = enroll(event, learner)
       published = create_learning_definition(workspace, admin)
       instantiate(enrollment)
-      run = await_run(published.id, "enrollment_#{enrollment.id}")
+      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
 
       # 非成员非学员（outsider）
       outsider = Fixtures.register_user("lf-reject-outsider")
@@ -375,7 +385,9 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       published = create_learning_definition(workspace, admin)
 
       instantiate(enrollment_done)
-      run_done = await_run(published.id, "enrollment_#{enrollment_done.id}")
+
+      run_done =
+        await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment_done.id, nil))
 
       # 旧口径:写末步 facts 即完成;U4 起事件型 run 无课程内容 → 不判完成
       save_output(finisher, workspace, run_done, @final_step, %{"essay" => "毕业总结"})
@@ -400,9 +412,14 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       published = create_learning_definition(workspace, admin)
 
       instantiate(stale_enrollment)
-      stale_run = await_run(published.id, "enrollment_#{stale_enrollment.id}")
+
+      stale_run =
+        await_run(published.id, Cgc2046.Learning.Runs.instance_key(stale_enrollment.id, nil))
+
       instantiate(fresh_enrollment)
-      fresh_run = await_run(published.id, "enrollment_#{fresh_enrollment.id}")
+
+      fresh_run =
+        await_run(published.id, Cgc2046.Learning.Runs.instance_key(fresh_enrollment.id, nil))
 
       insert_identity(stale_learner.id, "wechat-uid-stale")
       insert_identity(fresh_learner.id, "wechat-uid-fresh")
