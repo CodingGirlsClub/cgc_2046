@@ -64,6 +64,13 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, "send.disabled"
   end
 
+  def test_focus_refresh_reloads_workspaces
+    # hub 焦点重拉:角色目录判定/身份区自动刷新;未连接态不拉
+    assert_includes VIEW, 'document.addEventListener("visibilitychange"'
+    assert_includes VIEW, "loadWorkspaces(currentContainer)"
+    assert_includes VIEW, "!configured) return"
+  end
+
   def test_recent_sessions_section
     assert_includes VIEW, '"/api/sessions?limit=50"'
     assert_includes VIEW, "s.agent_profile === AGENT_PROFILE"

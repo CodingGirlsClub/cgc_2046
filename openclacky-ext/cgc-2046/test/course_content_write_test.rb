@@ -349,6 +349,13 @@ class CoursePanelEditTest < Minitest::Test
     assert_includes VIEW, "state.prep = null"
   end
 
+  def test_focus_refresh_skips_rerender_while_editing
+    # 焦点重拉在编辑态只更新快照不重渲染——renderEditor 用 state.draft 重建
+    # DOM,未 collectEditor 的输入会丢(编辑保护)
+    assert_includes VIEW, "document.addEventListener(\"visibilitychange\""
+    assert_includes VIEW, "if (!state.editing && currentContainer) render()"
+  end
+
   def test_unsaved_exit_guard
     # 教研拆出新增:取消编辑须确认(防误触丢稿)
     assert_includes VIEW, "放弃未保存的编辑内容?"

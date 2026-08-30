@@ -221,6 +221,18 @@
     }
   }
 
+  // 焦点回归重拉角色快照(后台授角色后回前台自动生效);失败静默保持旧快照。
+  // 只刷新 workspaces,视图态(view/objectiveId)在 state 中,重渲染不丢。
+  async function reloadWorkspaces() {
+    try {
+      const payload = await rawGet("/me/workspaces");
+      const result = payload.result || {};
+      const next = Array.isArray(result.workspaces) ? result.workspaces : [];
+      if (next.length > 0) state.workspaces = next;
+    } catch (e) { /* 静默 */ }
+    if (currentContainer) render();
+  }
+
   function selectCourse(courseId) {
     state.selectedCourseId = courseId;
     localStorage.setItem("cgc2046.learnCenter.courseId", courseId);
@@ -752,6 +764,11 @@
     }
     render();
   }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden || !currentContainer) return;
+    reloadWorkspaces();
+  });
 
   injectStyles();
   Clacky.ext.ui.registerWorkspace(WS_ID, { title: "CGC 课程学习中心", render: renderShell });

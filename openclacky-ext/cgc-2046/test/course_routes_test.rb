@@ -295,6 +295,14 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "optgroup"
   end
 
+  def test_focus_refresh_reloads_workspaces
+    # 焦点回归(visibilitychange)重拉角色快照:后台授角色后回前台自动生效;
+    # 视图态在 state,重渲染不丢
+    assert_includes VIEW, 'document.addEventListener("visibilitychange"'
+    assert_includes VIEW, "reloadWorkspaces"
+    assert_includes VIEW, "if (next.length > 0) state.workspaces = next"
+  end
+
   def test_polling_signature_and_lifecycle
     assert_includes VIEW, "setInterval"
     assert_includes VIEW, "clearInterval"

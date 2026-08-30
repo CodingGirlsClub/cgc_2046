@@ -143,6 +143,18 @@
     loadCourses();
   }
 
+  // 焦点回归重拉角色快照;编辑态只更新 state.workspaces 不重渲染——
+  // renderEditor 会用 state.draft 重建 DOM,未 collectEditor 的输入会丢
+  async function reloadWorkspaces() {
+    try {
+      const payload = await rawGet("/me/workspaces");
+      const result = payload.result || {};
+      const next = Array.isArray(result.workspaces) ? result.workspaces : [];
+      if (next.length > 0) state.workspaces = next;
+    } catch (e) { /* 静默 */ }
+    if (!state.editing && currentContainer) render();
+  }
+
   async function loadCourses() {
     state.loading = true;
     state.error = null;
@@ -641,6 +653,11 @@
     }
     render();
   }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden || !currentContainer) return;
+    reloadWorkspaces();
+  });
 
   Clacky.ext.ui.registerWorkspace(WS_ID, { title: "CGC 教研工作台", render: renderShell });
 })();
