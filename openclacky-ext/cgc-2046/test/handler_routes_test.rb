@@ -80,7 +80,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/tasks"]
     assert_includes routes, [:post, "/courses/:course_id/content"]
     assert_includes routes, [:get, "/courses/:course_id/prep"]
-    assert_equal 20, Cgc2046Ext.routes.size
+    assert_equal 21, Cgc2046Ext.routes.size  # +/activity 历史回放
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
