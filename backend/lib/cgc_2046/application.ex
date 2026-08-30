@@ -24,6 +24,9 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.StepHandlerRegistry,
       # 教研 workflow 实例化（#39 阶段 6：订阅 event/course.launched 信号 → 创建教研 run）
       Cgc2046.Curriculum.Instantiator,
+      # 课程教研流程实例化（role-agent-journeys-v2 S5 R22：订阅 course.created →
+      # 幂等种 course_preparation prep run 并回写 course.workflow_run_id）
+      Cgc2046.Curriculum.PrepInstantiator,
       # 名额账本（ADR-0009 PR⑤ U6：订阅 *.launched / offering.capacity_changed /
       # *.ended → 建行与缓存同步，回查式覆盖幂等）
       Cgc2046.Admission.CapacityLedgerSubscriber,

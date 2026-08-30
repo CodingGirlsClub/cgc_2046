@@ -32,7 +32,7 @@
           "global": null,
           "strategy": null
         },
-        "name": "learning_records_workspace_id_fkey",
+        "name": "learning_attempts_workspace_id_fkey",
         "on_delete": null,
         "on_update": null,
         "primary_key?": true,
@@ -64,16 +64,48 @@
           "global": true,
           "strategy": "attribute"
         },
-        "name": "learning_records_course_id_fkey",
+        "name": "learning_attempts_learning_run_id_fkey",
         "on_delete": null,
         "on_update": null,
         "primary_key?": true,
         "schema": "public",
-        "table": "courses"
+        "table": "workflow_runs"
       },
       "scale": null,
       "size": null,
-      "source": "course_id",
+      "source": "learning_run_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": "workspace_id",
+          "global": true,
+          "strategy": "attribute"
+        },
+        "name": "learning_attempts_course_revision_id_fkey",
+        "on_delete": null,
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "public",
+        "table": "curriculum_course_revisions"
+      },
+      "scale": null,
+      "size": null,
+      "source": "course_revision_id",
       "type": "uuid"
     },
     {
@@ -85,47 +117,11 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "user_id",
-      "type": "uuid"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "issue_id",
+      "source": "objective_id",
       "type": "text"
     },
     {
       "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "item_id",
-      "type": "text"
-    },
-    {
-      "allow_nil?": false,
-      "default": "false",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "done",
-      "type": "boolean"
-    },
-    {
-      "allow_nil?": true,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -138,18 +134,21 @@
     },
     {
       "allow_nil?": false,
-      "default": "nil",
+      "default": "[]",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
       "references": null,
       "scale": null,
       "size": null,
-      "source": "recorded_at",
-      "type": "utc_datetime_usec"
+      "source": "rubric_results",
+      "type": [
+        "array",
+        "map"
+      ]
     },
     {
-      "allow_nil?": true,
+      "allow_nil?": false,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -157,11 +156,11 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "enrollment_id",
-      "type": "uuid"
+      "source": "passed",
+      "type": "boolean"
     },
     {
-      "allow_nil?": true,
+      "allow_nil?": false,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -169,8 +168,32 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "run_id",
-      "type": "uuid"
+      "source": "rationale",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "confidence",
+      "type": "float"
+    },
+    {
+      "allow_nil?": false,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "agent_meta",
+      "type": "map"
     },
     {
       "allow_nil?": false,
@@ -181,19 +204,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "inserted_at",
-      "type": "utc_datetime_usec"
-    },
-    {
-      "allow_nil?": false,
-      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "updated_at",
+      "source": "created_at",
       "type": "utc_datetime_usec"
     }
   ],
@@ -228,12 +239,68 @@
       "all_tenants?": false,
       "concurrently": false,
       "error_fields": [
-        "user_id"
+        "learning_run_id"
       ],
       "fields": [
         {
           "type": "atom",
-          "value": "user_id"
+          "value": "learning_run_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": null,
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "course_revision_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "course_revision_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": null,
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "learning_run_id",
+        "objective_id",
+        "created_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "learning_run_id"
+        },
+        {
+          "type": "atom",
+          "value": "objective_id"
+        },
+        {
+          "type": "atom",
+          "value": "created_at"
         }
       ],
       "include": null,
@@ -250,35 +317,8 @@
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "FCBAE5733F186E66F5DD79EE8712FBA2FB89C7603891C7BAB5DA3F041AB22417",
-  "identities": [
-    {
-      "all_tenants?": true,
-      "base_filter": null,
-      "index_name": "learning_records_unique_key_index",
-      "keys": [
-        {
-          "type": "atom",
-          "value": "course_id"
-        },
-        {
-          "type": "atom",
-          "value": "user_id"
-        },
-        {
-          "type": "atom",
-          "value": "issue_id"
-        },
-        {
-          "type": "atom",
-          "value": "item_id"
-        }
-      ],
-      "name": "unique_key",
-      "nils_distinct?": true,
-      "where": null
-    }
-  ],
+  "hash": "84559954C0C42AA205F69E84727EB4E2AA618F2F4E6BDDB199E6304C7F8C8EEA",
+  "identities": [],
   "multitenancy": {
     "attribute": "workspace_id",
     "global": true,
@@ -286,5 +326,5 @@
   },
   "repo": "Elixir.Cgc2046.Repo",
   "schema": null,
-  "table": "learning_records"
+  "table": "learning_attempts"
 }

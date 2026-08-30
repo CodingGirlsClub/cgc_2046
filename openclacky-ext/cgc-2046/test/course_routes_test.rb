@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
-# U9 课程学习面板 loopback 路由测试(plan 001/#180 R15):
-# - 三端点注册与透传 JSON 形状(MCP registry call_tool 透传)
+# U9 课程学习面板 loopback 路由测试(plan 001/#180 R15;S4-extension 加草稿写回):
+# - 三读端点注册与透传 JSON 形状(MCP registry call_tool 透传)
 # - 未连接态(registry 未配置 cgc-2046)→ 503 + 引导信息
 # - workspace_id 缺失 → 400
 # - 面板 view.js 结构静态断言(三态行/当前卡/CTA/未连接态标记)
+# - 写面纪律:面板唯一写操作 = 草稿保存(POST content → save_course_content);
+#   学习记录写回仍只发生在 session(写面收窄断言,409/编辑断言在
+#   course_content_write_test.rb)
 #
 # 运行(需项目 mise 环境):cd openclacky-ext/cgc-2046 && mise exec -- ruby test/course_routes_test.rb
 
@@ -56,15 +59,24 @@ class CourseRoutesTest < Minitest::Test
     end
   end
 
-  FakeReq = Struct.new(:body, :query)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 宿主真实形态(openclacky-1.5.9 dispatcher,smoke01 #1 实证):
   #   @params = route pattern captures(symbol key,如 :course_id)
   #   GET query 在 req.query(WEBrick),不进 @params
   # params 默认 {} = 无 route capture 的 /courses 路径真实形态。
-  def build(registry:, query: {}, params: {})
+  # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
+  def write_headers
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+  end
+
+  def build(registry:, query: {}, params: {}, header: {})
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(nil, query))
+    inst.instance_variable_set(:@req, FakeReq.new(nil, query, {}))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
@@ -80,26 +92,11 @@ class CourseRoutesTest < Minitest::Test
 
   def test_course_routes_registered
     routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
-    assert_includes routes, [:get, "/courses"]
-    assert_includes routes, [:get, "/courses/:course_id/content"]
-    assert_includes routes, [:get, "/courses/:course_id/records"]
+        assert_includes routes, [:get, "/courses/:course_id/content"]
+    assert_includes routes, [:get, "/courses/:course_id/prep"]
   end
 
   # ---- 透传 JSON(plan U9 场景 2) ----
-
-  def test_courses_transfers_get_learning_records
-    payload = { "records" => [{ "course_id" => COURSE, "issue_id" => "i1", "item_id" => "c1", "done" => true }] }
-    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(payload) }] })
-
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }))
-
-    assert_equal 200, halt.status
-    body = JSON.parse(halt.payload)
-    assert_equal true, body["ok"]
-    assert_equal "get_learning_records", body["tool"]
-    assert_equal payload, body["result"]
-    assert_equal [["cgc-2046", "get_learning_records", { "workspace_id" => WS }]], registry.calls
-  end
 
   def test_content_transfers_get_course_content
     content = { "goals" => ["g"], "issues" => [{ "id" => "i1", "kind" => "handwork", "title" => "t", "story" => {} }] }
@@ -116,15 +113,22 @@ class CourseRoutesTest < Minitest::Test
     assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
   end
 
-  def test_records_transfers_filtered_query
-    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate({ "records" => [] }) }] })
+  # S5-extension:教研状态透传(get_prep_status;workspace_id query 合并同 course_tool)
+  def test_prep_transfers_get_prep_status
+    prep = { "course_id" => COURSE, "prep_state" => "authoring",
+             "policy" => { "review_required" => true, "quality_threshold" => 80, "reviewer_user_id" => nil },
+             "assignee_user_id" => "u-1", "latest_quality_report" => nil,
+             "gate_violations" => [], "version" => 3 }
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(prep) }] })
 
-    halt = invoke(:get, "/courses/:course_id/records",
+    halt = invoke(:get, "/courses/:course_id/prep",
                   build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "get_prep_status", body["tool"]
+    assert_equal "authoring", body["result"]["prep_state"]
     assert_equal({ "workspace_id" => WS, "course_id" => COURSE }, registry.calls[0][2])
-    assert_equal "get_learning_records", JSON.parse(halt.payload)["tool"]
   end
 
   # ---- 未连接态(plan U9 场景 2 后半) ----
@@ -132,7 +136,7 @@ class CourseRoutesTest < Minitest::Test
   def test_not_connected_503_with_hint
     registry = FakeRegistry.new(configured: false)
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 503, halt.status
     body = JSON.parse(halt.payload)
@@ -142,7 +146,7 @@ class CourseRoutesTest < Minitest::Test
   end
 
   def test_no_http_server_503
-    halt = invoke(:get, "/courses", build(registry: nil, query: { "workspace_id" => WS }))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: nil, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 503, halt.status
   end
@@ -152,10 +156,10 @@ class CourseRoutesTest < Minitest::Test
   def test_workspace_id_via_query_when_params_empty
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }, params: {}))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }, params: {}))
 
     assert_equal 200, halt.status
-    assert_equal [["cgc-2046", "get_learning_records", { "workspace_id" => WS }]], registry.calls
+    assert_equal [["cgc-2046", "get_course_content", { "workspace_id" => WS, "course_id" => COURSE }]], registry.calls
   end
 
   # 真实宿主 dispatcher 注入 symbol key route captures(:course_id)
@@ -173,7 +177,7 @@ class CourseRoutesTest < Minitest::Test
   def test_course_id_via_string_params
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses/:course_id/records",
+    halt = invoke(:get, "/courses/:course_id/content",
                   build(registry: registry, query: { "workspace_id" => WS }, params: { "course_id" => COURSE }))
 
     assert_equal 200, halt.status
@@ -184,7 +188,7 @@ class CourseRoutesTest < Minitest::Test
   def test_missing_workspace_id_400
     registry = FakeRegistry.new
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: {}, params: {}))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: {}, params: {}))
 
     assert_equal 400, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
@@ -194,7 +198,7 @@ class CourseRoutesTest < Minitest::Test
   def test_mcp_error_502
     registry = FakeRegistry.new(error: Clacky::Mcp::Client::McpError.new("boom"))
 
-    halt = invoke(:get, "/courses", build(registry: registry, query: { "workspace_id" => WS }))
+    halt = invoke(:get, "/courses/:course_id/content", build(registry: registry, query: { "workspace_id" => WS, "course_id" => COURSE }))
 
     assert_equal 502, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "boom"
@@ -211,18 +215,23 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, '"cgc-2046-course"'
   end
 
-  def test_panel_renders_three_state_rows_and_current_card
-    # 三态行(plan 场景 1)
-    assert_includes VIEW, 'data-testid="panel-issue-done"'
-    assert_includes VIEW, 'data-testid="panel-issue-progress"'
-    assert_includes VIEW, 'data-testid="panel-issue-todo"'
-    # 当前 issue 卡字段:goal/given/materials/checklist 打勾态
-    assert_includes VIEW, 'data-testid="panel-issue-card"'
-    assert_includes VIEW, "story.goal"
-    assert_includes VIEW, "story.given"
-    assert_includes VIEW, "story.materials"
-    assert_includes VIEW, 'data-testid="panel-check-item"'
-    assert_includes VIEW, "data-done"
+  def test_panel_renders_objective_map_and_next_action
+    # S8:objective 四态地图(S8 全量替换 issue 三态行/当前卡)
+    assert_includes VIEW, 'data-testid="panel-obj-row"'
+    assert_includes VIEW, 'data-testid="panel-obj-badge"'
+    assert_includes VIEW, 'masteryLabel'
+    assert_includes VIEW, "已掌握"
+    assert_includes VIEW, "学习中"
+    assert_includes VIEW, "待复习"
+    assert_includes VIEW, "未学"
+    assert_includes VIEW, 'data-testid="panel-obj-locked"'
+    assert_includes VIEW, 'data-testid="panel-next-action"'
+    assert_includes VIEW, 'data-testid="panel-progress"'
+    assert_includes VIEW, 'data-testid="panel-stale"'
+    # 旧 issue 三态/checklist 学习语义已删
+    refute_includes VIEW, 'data-testid="panel-issue-done"'
+    refute_includes VIEW, 'data-testid="panel-issue-card"'
+    refute_includes VIEW, 'data-testid="panel-check-item"'
   end
 
   def test_not_connected_guidance_view
@@ -237,20 +246,22 @@ class CoursePanelViewTest < Minitest::Test
   end
 
   def test_session_launch_cta_and_prompt
-    # 唤起(Rsk3 降级):复制任务指令
+    # S8 唤起(Rsk3 降级):复制 objective 口径任务指令
     assert_includes VIEW, 'data-testid="panel-cta"'
-    assert_includes VIEW, "和导师学这一节"
     assert_includes VIEW, "clipboard.writeText"
-    assert_includes VIEW, "八步循环"
-    # H2/H3:指令用 course_title + issue.key(非内部 id 原文/goals 拼接)
+    assert_includes VIEW, "七步学习循环"
+    assert_includes VIEW, "submit_learning_attempt"
+    assert_includes VIEW, "objective_id"
     assert_includes VIEW, "content.course_title"
-    assert_includes VIEW, "issue.key"
+    refute_includes VIEW, "八步循环"
     refute_includes VIEW, "goals.join"
   end
 
-  def test_issue_rows_render_key
-    # H2:issue 行渲染展示层 key 短码
-    assert_includes VIEW, "cgc-issue-key"
+  def test_panel_uses_learning_state_source
+    # S8:详情主数据源 /learning_state + /revision 展示增强
+    assert_includes VIEW, '"/learning_state?workspace_id="'
+    assert_includes VIEW, '"/revision"'
+    refute_includes VIEW, '"/records"'
   end
 
   def test_not_connected_guidance_view
@@ -258,10 +269,54 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "503"
   end
 
-  def test_panel_is_read_only
-    # 纯视图零写操作:不得出现写工具调用(写回发生在 session)
+  def test_panel_write_surface_is_draft_save_only
+    # S4 起面板唯一写操作 = 课程草稿保存(save_course_content,经 loopback
+    # POST /courses/:course_id/content);学习记录写回仍只发生在 session 工具调用
     refute_includes VIEW, "save_learning_records"
-    refute_includes VIEW, "save_course_content"
-    refute_match(/method:\s*["'](?:POST|PUT|DELETE|PATCH)["']/, VIEW)
+    # 面板不直连 MCP 写工具名之外的回写通道;唯一 POST 面 = 草稿保存路由
+    assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/content"'
+    refute_match(/method:\s*["'](?:PUT|DELETE|PATCH)["']/, VIEW)
+  end
+
+  def test_panel_prep_section_structure
+    # S5-extension:canEdit 详情页教研流程状态区(prep_state badge / 违规清单 /
+    # 最新质量报告);仅读透传 get_prep_status,无写操作
+    assert_includes VIEW, 'data-testid="panel-prep"'
+    assert_includes VIEW, 'data-testid="panel-prep-state"'
+    assert_includes VIEW, 'data-testid="panel-prep-violations"'
+    assert_includes VIEW, 'data-testid="panel-prep-quality"'
+    assert_includes VIEW, '"/courses/" + encodeURIComponent(courseId) + "/prep"'
+    # 存量课程无 prep run 按 null 处理(不置 state.error)
+    assert_includes VIEW, "state.prep = null"
+    refute_includes VIEW, "approve_prep"
+  end
+
+  def test_review_queue_section_markers
+    # S9:复习队列区置顶于 objective 地图之上;队列空不渲染。
+    # 里程碑条目「第 N 天复习到期」;needs_review 条目「待复习恢复」徽章 +
+    # 红色调(cgc-review-urgent);行点击展开对应 objective 卡(data-review-obj)
+    assert_includes VIEW, "review_queue"
+    assert_includes VIEW, 'data-testid="panel-review-queue"'
+    assert_includes VIEW, 'data-testid="panel-review-row"'
+    assert_includes VIEW, 'data-testid="panel-review-due"'
+    assert_includes VIEW, "天复习到期"
+    assert_includes VIEW, 'data-testid="panel-review-needs"'
+    assert_includes VIEW, "待复习恢复"
+    assert_includes VIEW, "cgc-review-urgent"
+    assert_includes VIEW, "data-review-obj"
+  end
+
+  def test_review_flavored_prompt_for_due_objective
+    # S9:复习队列中的目标,复制指令切复习口吻(到期复习先诊断保留度再正式评价)
+    assert_includes VIEW, "这是一次到期复习"
+    assert_includes VIEW, "先诊断我的保留度"
+    assert_includes VIEW, "reviewEntry"
+  end
+
+  def test_polling_signature_includes_review_queue
+    # S9:轮询签名并入 review_queue 四字段——里程碑到期/恢复条目变化同样亮更新条
+    assert_includes VIEW, "review_queue"
+    assert_includes VIEW, "milestone_days"
+    assert_includes VIEW, "needs_review"
   end
 end

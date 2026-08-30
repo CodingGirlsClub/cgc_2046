@@ -1,11 +1,16 @@
 defmodule Cgc2046.Curriculum.Instantiator do
   @moduledoc """
   教研 workflow 实例化（Slice C #39，阶段 6;ADR-0009 PR③ 自
-  Workflows.ResearchInstantiator 迁入改名）。
+  Workflows.ResearchInstantiator 迁入改名；S6 起 **event-only**）。
 
-  Event/Course launch → 创建教研 WorkflowRun + start_run。领域模型 §2.3：
-  每个 Event/Course 实例化一个教研 workflow 实例，instance key 为
-  `"event_\#{id}"` / `"course_\#{id}"`。
+  Event launch → 创建教研 WorkflowRun + start_run。领域模型 §2.3：每个
+  Event 实例化一个教研 workflow 实例，instance key 为 `"event_\#{id}"`。
+
+  **S6 收窄说明**：course 侧教研 run 已被课程教研流程（`type=
+  :course_preparation` 的 prep run，见 `Curriculum.Prep` /
+  `Curriculum.PrepInstantiator`）取代——本模块不再订阅 `course.launched`，
+  也不再为 `course_` key 实例化（存量 dev 行的回收由 Reaper / 对账规则⑤的
+  自然 aging 承担，Event 侧语义不变）。
 
   ## 幂等（state_based，骨架不写 claim）
 
@@ -14,15 +19,15 @@ defmodule Cgc2046.Curriculum.Instantiator do
 
   ## 信号订阅（生产路径）
 
-  订阅 `event.launched` / `course.launched` 信号，收到信号 → 解析实体/教研
-  定义 → 调 `launch/4`。订阅骨架（订阅生命周期 / DOWN 重订阅 / rescue 壳）由
+  订阅 `event.launched` 信号，收到信号 → 解析实体/教研定义 → 调 `launch/3`。
+  订阅骨架（订阅生命周期 / DOWN 重订阅 / rescue 壳）由
   `Cgc2046.Workflows.SignalSubscriber` 统一持有。
 
   异步路径是 best-effort：信号不含租户，需按 entity_id 反查实体拿 workspace_id，
   再取该租户已 published 的教研定义（多个时取最新）。任一环节失败只记日志。
   """
   use Cgc2046.Workflows.SignalSubscriber,
-    patterns: ["event.launched", "course.launched"],
+    patterns: ["event.launched"],
     idempotency: :state_based,
     consumer_key: "instantiator"
 
@@ -34,29 +39,27 @@ defmodule Cgc2046.Curriculum.Instantiator do
   # --- 公开 API --------------------------------------------------------------
 
   @doc """
-  教研 workflow 实例化：Event/Course launch → 创建 WorkflowRun + start_run。
+  教研 workflow 实例化：Event launch → 创建 WorkflowRun + start_run。
 
-  - `workspace_id`：租户（= Event/Course 的 workspace_id）
+  - `workspace_id`：租户（= Event 的 workspace_id）
   - `definition_id`：已 published 的教研 WorkflowDefinition ID
-  - `input`：run 输入（含 `key`/`event_id`/`course_id`/`title`/`research_requirements`）
-  - `entity_type`：`:event | :course`，用于 instance key 前缀
+  - `input`：run 输入（含 `key`/`event_id`/`title`/`research_requirements`）
 
-  幂等：同一 Event/Course 已有非终态 run → 返回已有 run（不重复创建）。
+  幂等：同一 Event 已有非终态 run → 返回已有 run（不重复创建）。
 
   返回 `{:ok, run}`（waiting/succeeded/failed 均返回 run，调用方按 status 判定）
   或 `{:error, reason}`。
   """
-  @spec launch(String.t(), String.t(), map(), atom()) ::
+  @spec launch(String.t(), String.t(), map()) ::
           {:ok, WorkflowRun.t()} | {:error, term()}
-  def launch(workspace_id, definition_id, input, entity_type)
-      when is_binary(workspace_id) and is_binary(definition_id) and is_map(input) and
-             entity_type in [:event, :course] do
+  def launch(workspace_id, definition_id, input)
+      when is_binary(workspace_id) and is_binary(definition_id) and is_map(input) do
     with {:ok, defn} <- fetch_definition(workspace_id, definition_id),
          :ok <- ensure_curriculum_definition(defn),
-         :ok <- ensure_create_guards(entity_type, input),
+         :ok <- ensure_create_guards(input),
          {:ok, run, _status} <-
            WorkflowRun.find_or_create_and_start(workspace_id, defn, input,
-             key: instance_key(entity_type, input)
+             key: instance_key(input)
            ) do
       {:ok, run}
     end
@@ -64,18 +67,13 @@ defmodule Cgc2046.Curriculum.Instantiator do
 
   # --- 信号处理 ----------------------------------------------------------------
 
-  # 信号 → 解析实体/教研定义 → launch/4。signal.data 形态（Event/Course launch
-  # action 发布）：%{"event_id" => id, "title" => ..., "research_requirements" => ...}
-  # 或 %{"course_id" => id, ...}。
+  # 信号 → 解析实体/教研定义 → launch/3。signal.data 形态（Event launch action
+  # 发布）：%{"event_id" => id, "title" => ..., "research_requirements" => ...}。
   # （ADR-0009 KD8/R9：信号 payload 键逐字节冻结，`research_requirements` 键名不随
   # 属性改名。）
   @impl Cgc2046.Workflows.SignalSubscriber
   def handle(_type, %{"event_id" => event_id} = data) when is_binary(event_id) do
-    instantiate(event_id, :event, data)
-  end
-
-  def handle(_type, %{"course_id" => course_id} = data) when is_binary(course_id) do
-    instantiate(course_id, :course, data)
+    instantiate(event_id, data)
   end
 
   def handle(_type, data) do
@@ -85,41 +83,30 @@ defmodule Cgc2046.Curriculum.Instantiator do
 
   # 按 entity_id 反查实体 → 校验实体已 launch（status == :open，孤儿 run 防护：
   # 信号先于事务提交发布时，draft 实体不得实例化）→ 取该租户已 published 的教研
-  # 定义 → `launch/4`。任一环节失败返回 `:ok`（best-effort，不抛错）。
-  defp instantiate(entity_id, entity_type, data) do
-    with {:ok, entity} <- fetch_entity(entity_type, entity_id),
+  # 定义 → `launch/3`。任一环节失败返回 `:ok`（best-effort，不抛错）。
+  defp instantiate(event_id, data) do
+    with {:ok, entity} <- fetch_entity(:event, event_id),
          :ok <- ensure_launched(entity),
-         :ok <- ensure_curriculum_enabled(entity_type, entity),
+         :ok <- ensure_curriculum_enabled(entity),
          {:ok, %WorkflowDefinition{} = defn} <- fetch_curriculum_definition(entity.workspace_id) do
-      input =
-        case entity_type do
-          :event ->
-            %{
-              "event_id" => entity_id,
-              "title" => data["title"],
-              "research_requirements" => data["research_requirements"] || %{}
-            }
+      input = %{
+        "event_id" => event_id,
+        "title" => data["title"],
+        "research_requirements" => data["research_requirements"] || %{}
+      }
 
-          :course ->
-            %{
-              "course_id" => entity_id,
-              "title" => data["title"],
-              "research_requirements" => data["research_requirements"] || %{}
-            }
-        end
-
-      # #13：不得丢弃 launch/4 返回值——创建成功但 start 失败（hibernate 写失败等）
+      # #13：不得丢弃 launch/3 返回值——创建成功但 start 失败（hibernate 写失败等）
       # 时 run 已落库但未启动，静默丢弃会让故障不可见。best-effort 语义保持
       # （异步路径不抛错），失败记 error 日志供对账。
-      case launch(entity.workspace_id, defn.id, input, entity_type) do
+      case launch(entity.workspace_id, defn.id, input) do
         {:ok, %WorkflowRun{} = run} ->
           # #14：run 创建成功 → 回写实体 workflow_run_id（产物引用链；失败只记日志，
           # 不阻塞实例化——引用可对账补写）。
-          link_curriculum_run(entity, entity_type, run)
+          link_curriculum_run(entity, run)
 
         {:error, reason} ->
           Logger.error(
-            "Curriculum.Instantiator launch failed for #{entity_type} #{entity_id}: #{inspect(reason)}"
+            "Curriculum.Instantiator launch failed for event #{event_id}: #{inspect(reason)}"
           )
 
           :ok
@@ -127,7 +114,7 @@ defmodule Cgc2046.Curriculum.Instantiator do
     else
       {:error, reason} ->
         Logger.warning(
-          "Curriculum.Instantiator skipped instantiation for #{entity_type} #{entity_id}: #{inspect(reason)}"
+          "Curriculum.Instantiator skipped instantiation for event #{event_id}: #{inspect(reason)}"
         )
 
         :ok
@@ -135,14 +122,14 @@ defmodule Cgc2046.Curriculum.Instantiator do
       # 无已 published 教研定义（read_first 返回 nil）是合法场景，走 skipped 而非 unexpected。
       {:ok, nil} ->
         Logger.warning(
-          "Curriculum.Instantiator skipped instantiation for #{entity_type} #{entity_id}: :curriculum_definition_not_found"
+          "Curriculum.Instantiator skipped instantiation for event #{event_id}: :curriculum_definition_not_found"
         )
 
         :ok
 
       other ->
         Logger.warning(
-          "Curriculum.Instantiator unexpected instantiation result for #{entity_type} #{entity_id}: #{inspect(other)}"
+          "Curriculum.Instantiator unexpected instantiation result for event #{event_id}: #{inspect(other)}"
         )
 
         :ok
@@ -175,19 +162,17 @@ defmodule Cgc2046.Curriculum.Instantiator do
   defp ensure_launched(%{status: :open}), do: :ok
   defp ensure_launched(%{status: status}), do: {:error, {:entity_not_launched, status}}
 
-  # #6 + U6(#180/R14):教研开关门控退化为 **event-only**——Course 删列后
-  # 恒走教研实例化(issue 卡是课程内容本体);Event 保留退出通道
-  # (curriculum_enabled = 「这场活动不使用教研链路」,轻聚会场景)。
-  defp ensure_curriculum_enabled(:event, %{curriculum_enabled: true}), do: :ok
+  # #6 + U6(#180/R14):教研开关门控 = Event 的退出通道
+  # (curriculum_enabled = 「这场活动不使用教研链路」,轻聚会场景);Course 已不走
+  # 本模块实例化(S6 收窄,教研由 course_preparation prep run 承担)。
+  defp ensure_curriculum_enabled(%{curriculum_enabled: true}), do: :ok
 
-  defp ensure_curriculum_enabled(:event, %{curriculum_enabled: false}),
+  defp ensure_curriculum_enabled(%{curriculum_enabled: false}),
     do: {:error, :curriculum_disabled}
-
-  defp ensure_curriculum_enabled(:course, _course), do: :ok
 
   # #14：run 创建成功后回写实体 workflow_run_id（产物引用链）。
   # 失败只记日志不阻塞——引用可对账补写（best-effort，同 launch 容错语义）。
-  defp link_curriculum_run(entity, _entity_type, run) do
+  defp link_curriculum_run(entity, run) do
     attrs = %{workflow_run_id: run.id}
 
     case entity
@@ -225,22 +210,18 @@ defmodule Cgc2046.Curriculum.Instantiator do
   # （reaper 已扫过、claim 已写）。创建前重读实体二次校验；残余极小窗口由对账
   # 扫描（E-10）兜底。前置守卫留调用侧（PR-F D5）——统一入口只内化
   # create→start 顺序与非终态去重。
-  defp ensure_create_guards(entity_type, input) do
-    with {:ok, entity} <- fetch_entity(entity_type, input_entity_id(input)),
+  defp ensure_create_guards(input) do
+    with {:ok, entity} <- fetch_entity(:event, input_entity_id(input)),
          :ok <- ensure_launched(entity) do
       :ok
     end
   end
 
-  # instance key 派生（"event_#{id}" / "course_#{id}"；input 自带 key 时原样使用）。
-  defp instance_key(entity_type, input) do
+  # instance key 派生（"event_#{id}"；input 自带 key 时原样使用）。
+  defp instance_key(input) do
     case Map.get(input, "key") || Map.get(input, :key) do
       nil ->
-        entity_id =
-          Map.get(input, "event_id") || Map.get(input, :event_id) ||
-            Map.get(input, "course_id") || Map.get(input, :course_id)
-
-        "#{entity_type}_#{entity_id}"
+        "event_#{input_entity_id(input)}"
 
       key ->
         key
@@ -248,7 +229,6 @@ defmodule Cgc2046.Curriculum.Instantiator do
   end
 
   defp input_entity_id(input) do
-    Map.get(input, "event_id") || Map.get(input, :event_id) ||
-      Map.get(input, "course_id") || Map.get(input, :course_id)
+    Map.get(input, "event_id") || Map.get(input, :event_id)
   end
 end

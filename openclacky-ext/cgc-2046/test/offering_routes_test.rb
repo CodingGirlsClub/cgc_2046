@@ -270,50 +270,25 @@ class DiscoveryPanelViewTest < Minitest::Test
     assert_includes VIEW, "#cgc-retry"
   end
 
-  def test_badge_four_states_chinese
-    # badge 四态 enrolling/starting_soon/closed/full → 报名中/即将开始/报名截止/已满
-    assert_includes VIEW, "enrolling"
-    assert_includes VIEW, "starting_soon"
-    assert_includes VIEW, '"closed"'
-    assert_includes VIEW, '"full"'
+  def test_badge_and_enrollment_states_chinese
+    # S7 v2:offering badge（open→报名中/closed→报名截止）+ my_enrollment 六态徽章
+    # （确认/待审批/待支付/已拒绝/已过期/已取消 + 支付中）
+    assert_includes VIEW, "badgeLabel"
+    assert_includes VIEW, "enrollmentBadge"
     assert_includes VIEW, "报名中"
-    assert_includes VIEW, "即将开始"
     assert_includes VIEW, "报名截止"
-    assert_includes VIEW, "已满"
+    assert_includes VIEW, "已报名"
+    assert_includes VIEW, "待审批"
+    assert_includes VIEW, "待支付"
+    assert_includes VIEW, "支付中"
   end
 
-  def test_undated_and_location_rendering
-    # KTD4:无 starts_at → 「时间待定」;KD6:event 拼 city/district,course 无位置槽
-    assert_includes VIEW, "时间待定"
-    assert_includes VIEW, 'item.kind !== "event"'
-    # R3:event 空 venue 兑底,与 web/小程序同一套文案;X4:先 trim 再 filter/join
-    assert_includes VIEW, "地点待定"
-    assert_includes VIEW, ".trim()"
-    assert_includes VIEW, '.filter(Boolean)'
-  end
-
-  # X4:placeLabel 可执行断言——从 view.js 提取函数体,Node 求值五分支
-  #（空白 city/district、tab 值、partial、nil 值、course）。
-  def test_place_label_trim_five_branches
-    fn_src = VIEW[/function placeLabel\(item\) \{.*?\n  \}/m]
-    refute_nil fn_src, "view.js 中 placeLabel 函数体应可提取"
-
-    cases = [
-      [{ kind: "event", city: "   ", district: "   " }, "地点待定"],
-      [{ kind: "event", city: "\t", district: "北京" }, "北京"],
-      [{ kind: "event", city: "北京", district: nil }, "北京"],
-      [{ kind: "event", city: nil, district: nil }, "地点待定"],
-      [{ kind: "course", city: "北京", district: "海淀区" }, ""]
-    ]
-    script = fn_src + cases.each_with_index.map do |(item, _expect), i|
-      ";console.log(JSON.stringify(placeLabel(#{JSON.generate(item)})));"
-    end.join
-    out, status = Open3.capture2e("node", "-e", script)
-    assert status.success?, "node eval placeLabel 失败: #{out}"
-    actual = out.lines.map(&:strip).reject(&:empty?)
-    cases.each_with_index do |(_item, expected), i|
-      assert_equal expected, JSON.parse(actual[i]), "分支 #{i} (#{cases[i][0].inspect})"
-    end
+  def test_deadline_and_kind_labels
+    # S7 v2:报名截止时间槽（无 deadline 不渲染）+ kind 中文标签
+    assert_includes VIEW, "deadlineLabel"
+    assert_includes VIEW, "kindLabel"
+    assert_includes VIEW, "活动"
+    assert_includes VIEW, "课程"
   end
 
   def test_detail_link_to_web
@@ -329,13 +304,16 @@ class DiscoveryPanelViewTest < Minitest::Test
   def test_dynamic_values_escaped
     assert_includes VIEW, "function escapeHtml("
     assert_includes VIEW, "escapeHtml(item.title)"
-    assert_includes VIEW, "escapeHtml(item.badge)"
+    assert_includes VIEW, "escapeHtml(item.kind)"
   end
 
-  def test_panel_is_read_only_and_workspace_scoped_free
-    # 纯视图零写操作;公开浏览不下发 workspace 作用域参数(KTD9)
-    refute_match(/method:\s*["'](?:POST|PUT|DELETE|PATCH)["']/, VIEW)
-    refute_includes VIEW, "workspace_id"
+  def test_discover_call_is_workspace_scoped_free
+    # S7 v2:发现面走无参 /discover（跨 workspace 合并面孔,不下发作用域参数）;
+    # 报名提交是本面板唯一的 POST（写面 = /enrollments,见 learner 测试）
+    assert_includes VIEW, 'apiGet("/discover")'
+    refute_includes VIEW, 'apiGet("/offerings"'
+    # discover 调用不带任何 query(无参合并面孔;summary/order 带参是别的端点)
+    refute_includes VIEW, 'apiGet("/discover?' 
   end
 
   def test_sidebar_entry_mount
@@ -353,18 +331,39 @@ class AssistantPromptTest < Minitest::Test
   PROMPT = File.read(File.expand_path("../agents/cgc-assistant/system_prompt.md", __dir__))
   SKILL = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
 
-  # 真镜像:解析 server.ex 的 component(Cgc2046.Mcp.Tools.<Mod>) 注册行,
-  # 模块名 underscore 后即注册工具清单;prompt 清单必须与之逐项一致(防两侧漂移)。
-  SERVER_EX = File.read(File.expand_path("../../../backend/lib/cgc_2046/mcp/server.ex", __dir__))
-  REGISTERED_TOOLS = SERVER_EX.scan(/component\(Cgc2046\.Mcp\.Tools\.(\w+)\)/).flatten
-    .map { |mod| mod.gsub(/([A-Z\d]+)([A-Z][a-z])/, '\1_\2').gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase }
-    .freeze
+  # S1-extension:prompt 改写为 router 人设,静态清单只列 7 个跨角色工具;
+  # 角色专属工具由 get_role_playbook 动态携带,不再静态列出
+  # (旧版曾钉 server.ex 注册清单 17 项逐项一致;S1 起注册面 20 工具、
+  # 静态清单为跨角色公共子集,注册面精确名单由 backend wrapper_gate_test 钉死)。
+  CROSS_ROLE_TOOLS = %w[
+    list_my_workspaces get_role_playbook list_my_tasks
+    list_public_offerings get_public_offering
+    confirm_operation cancel_operation
+  ].freeze
 
-  def test_tool_inventory_is_17_and_matches_server_registration
-    assert_includes PROMPT, "工具清单（17 个）"
+  def test_tool_inventory_is_7_cross_role_tools
+    assert_includes PROMPT, "公共工具清单（7 个"
     listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
-    assert_equal 17, listed.size, "工具清单列表项应为 17,实际 #{listed.size}"
-    assert_equal REGISTERED_TOOLS.sort, listed.sort
+    assert_equal CROSS_ROLE_TOOLS.sort, listed.sort,
+                 "静态清单应恰好为 7 个跨角色工具,实际 #{listed.inspect}"
+  end
+
+  def test_role_specific_tools_not_listed_statically
+    listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
+    %w[get_workspace_context list_members assign_roles create_invitation
+       get_course_content get_learning_state].each do |tool|
+      refute_includes listed, tool, "角色专属工具 #{tool} 不应出现在静态清单(由 playbook 携带)"
+    end
+  end
+
+  def test_router_persona_discipline
+    # 启动先定上下文;永不索要/编造 UUID;RBAC 唯一权威
+    assert_includes PROMPT, "list_my_workspaces"
+    assert_includes PROMPT, "永不向用户索要 UUID"
+    assert_includes PROMPT, "永不编造 `workspace_id`"
+    assert_includes PROMPT, "get_role_playbook"
+    assert_includes PROMPT, "RBAC 是唯一权威"
+    assert_includes PROMPT, "list_my_tasks"
   end
 
   def test_public_tools_workspace_id_exemption

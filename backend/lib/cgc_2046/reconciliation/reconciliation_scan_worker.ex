@@ -28,7 +28,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   7. `:learning_run_stalled` — learning run 停滞（E-9 #122 补差）：
      `status=running ∧ definition.type=learning ∧ updated_at 严格早于 cutoff`
      （7 天无 facts 更新）。阈值与 LearningProgressWorker 停滞提醒（D6-③）同源
-     ——`Cgc2046.Learning.Progress.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
+     ——`Cgc2046.Learning.Runs.stagnant_cutoff/1` 单点定义，本 worker 只引用不改逻辑；
      分工：提醒归 LPW，对账可见归本规则（/admin 对账页 findings 列表）。
   8. `:open_offering_without_ledger` — open offering 无名额账本行
   9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
@@ -73,7 +73,6 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
-  alias Cgc2046.Learning.Progress
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
@@ -306,7 +305,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     end
   end
 
-  # ── 规4:open 实体无 published 教研定义(U6:course 无条件,event-only 门控)──
+  # ── 规4:open 实体无 published 教研定义(Event=:curriculum 定义;Course=
+  # :course_preparation 定义,S6 起教研流程类型分家) ──
 
   defp scan_rule4 do
     curriculum_workspace_ids =
@@ -315,15 +315,31 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       |> Ash.read!(authorize?: false)
       |> MapSet.new(fn definition -> definition.workspace_id end)
 
-    # U6(#180/R14):Course 删 curriculum_enabled 后无条件命中(open 课程无
-    # published 定义 = 真孤儿);Event 保留开关过滤(curriculum_enabled=false
-    # 合法不命中,退出通道)。
-    open_entities(Event)
-    |> Kernel.++(open_unconditional(Course))
-    |> Enum.reject(fn entity ->
-      MapSet.member?(curriculum_workspace_ids, entity.workspace_id)
-    end)
-    |> Enum.map(fn entity ->
+    prep_workspace_ids =
+      WorkflowDefinition
+      |> Ash.Query.filter(type == :course_preparation and status == :published)
+      |> Ash.read!(authorize?: false)
+      |> MapSet.new(fn definition -> definition.workspace_id end)
+
+    # S6:course 侧教研流程 = course_preparation prep run(Curriculum.PrepInstantiator)
+    # ——open 课程的孤儿判定改为「工作台无 published course_preparation 定义」
+    # (无条件命中;prep run 缺失 = 教研流程不会实例化)。Event 保留 curriculum_
+    # enabled 开关过滤(false 合法不命中,退出通道),定义仍取 :curriculum 型。
+    # 「教研已完成」口径与 Instantiator 收窄对齐:course.launched 不再实例化
+    # :curriculum run,open 课程不因缺教研 run 命中(命中条件只有定义缺失)。
+    orphans =
+      open_entities(Event)
+      |> Enum.reject(fn entity ->
+        MapSet.member?(curriculum_workspace_ids, entity.workspace_id)
+      end)
+      |> Kernel.++(
+        open_unconditional(Course)
+        |> Enum.reject(fn entity ->
+          MapSet.member?(prep_workspace_ids, entity.workspace_id)
+        end)
+      )
+
+    Enum.map(orphans, fn entity ->
       entity_type = if is_struct(entity, Event), do: :event, else: :course
 
       %{
@@ -347,10 +363,13 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     |> Ash.read!(authorize?: false)
   end
 
-  # ── 规5：closed/cancelled Event/Course 仍有非终态 curriculum run --------------
+  # ── 规5：closed/cancelled Event 仍有非终态 curriculum run ---------------------
+  # S6 起 event-only：course 侧 :curriculum run 不再创建（教研由
+  # course_preparation prep run 承担，Instantiator 已收窄），存量 dev 行自然
+  # aging，不再纳入本规则扫描。
 
   defp scan_rule5 do
-    closed_keys = closed_entity_keys(Event) |> Map.merge(closed_entity_keys(Course))
+    closed_keys = closed_entity_keys(Event)
 
     if map_size(closed_keys) == 0 do
       []
@@ -460,20 +479,18 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
 
   defp last_error(_errors), do: nil
 
-  # ── 规7：learning run 停滞（7 天无 facts 更新，与 LPW 提醒同源判定）-----------
+  # ── 规7：learning run 停滞（与 LPW 提醒同源判定）-----------------------------
 
-  # 判定与 LearningProgressWorker 停滞提醒（D6-③）同一口径：running 且
-  # updated_at 严格早于 cutoff（running 态下 facts 写入是唯一更新路径，
-  # updated_at 即 facts 更新代理）；阈值单点定义在 LearningProgress，只引用。
+  # S8（ADR-0011/R50）：停滞口径 = Runs.stagnant?/2 单源——活动时间 = 最新
+  # attempt created_at，零 attempt 回退 run inserted_at；阈值单点定义在
+  # Learning.Runs，只引用。detail 键 last_activity_at（原 last_update_at）。
   defp scan_rule7 do
-    cutoff = Progress.stagnant_cutoff()
+    now = DateTime.utc_now()
 
     WorkflowRun
     |> Ash.Query.filter(status == :running and definition.type == :learning)
     |> Ash.read!(authorize?: false)
-    |> Enum.filter(fn run ->
-      is_struct(run.updated_at, DateTime) and DateTime.compare(run.updated_at, cutoff) == :lt
-    end)
+    |> Enum.filter(&Cgc2046.Learning.Runs.stagnant?(&1, now))
     |> Enum.map(&stagnation_candidate/1)
   end
 
@@ -488,7 +505,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       detail: %{
         enrollment_id: enrollment_id,
         title: Map.get(input, "title") || Map.get(input, :title),
-        last_update_at: DateTime.to_iso8601(run.updated_at)
+        last_activity_at: DateTime.to_iso8601(Cgc2046.Learning.Runs.last_activity_at(run))
       }
     }
   end
@@ -704,7 +721,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
 
   # 规12 detail：仅列漂移字段，逐字段双值（ledger 缓存值 / truth offering 真值）。
   # registration_deadline 裸 SQL 解出 NaiveDateTime（无时区，order.ex 同款注释），
-  # 落 jsonb 前转 ISO8601 字符串（规7 last_update_at 同款）。
+  # 落 jsonb 前转 ISO8601 字符串（规7 last_activity_at 同款）。
   defp cache_drifts(pairs) do
     pairs
     |> Enum.reject(fn {_field, {ledger, truth}} -> ledger == truth end)
