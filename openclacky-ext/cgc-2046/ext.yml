@@ -43,11 +43,24 @@ contributes:
       description_zh: CGC-2046 公开活动与课程发现(条目跳 web 详情页)
       view: panels/cgc-discovery/view.js
       order: 10
+    # 会话伴学侧栏(session.aside,attach cgc-assistant;点目标直接注入会话指令,
+    # 替代课程页「复制学习指令」的剪贴板管道)
+    - id: cgc-2046-learn
+      title: CGC Learn
+      title_zh: 学这一节
+      description: Session-aside learning companion (objectives, review queue, inject-and-go)
+      description_zh: 会话侧学习伴读(目标地图/待复习/一键注入会话)
+      view: panels/cgc-learn/view.js
+      order: 15
+      attach: [cgc-assistant]
   agents:
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
       skills: [cgc2046-onboarding]
+      # 会话伴学侧栏对 CGC 助手会话可见(宿主 panel_agents_map 按 agent.panels
+      # 引用驱动 session 面板可见性,qingclaw 同款)
+      panels: [cgc-2046-learn]
   skills:
     - id: cgc2046-onboarding
   hooks:
