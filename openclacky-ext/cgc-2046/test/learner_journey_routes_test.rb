@@ -534,15 +534,30 @@ class LearnerJourneyRoutesTest < Minitest::Test
     assert_equal [["cgc-2046", "start_learning_run", { "workspace_id" => WS, "course_id" => OFF }]], registry.calls
   end
 
-  def test_revision_route_transfers_course_id
+  # 实证合同(UAT 真机 -32602):上游 get_course_revision 必填 workspace_id,
+  # 路由层缺参 400(不下发 registry),带参原样透传
+  def test_revision_route_transfers_course_and_workspace
     registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(REVISION_PAYLOAD) }] })
 
-    halt = invoke(:get, "/courses/:course_id/revision", build(registry: registry, params: { course_id: OFF }))
+    halt = invoke(:get, "/courses/:course_id/revision",
+                  build(registry: registry, params: { course_id: OFF }, query: { "workspace_id" => WS }))
 
     assert_equal 200, halt.status
     body = JSON.parse(halt.payload)
     assert_equal "get_course_revision", body["tool"]
     assert_equal REVISION_PAYLOAD, body["result"]
+    assert_equal [["cgc-2046", "get_course_revision", { "course_id" => OFF, "workspace_id" => WS }]],
+                 registry.calls
+  end
+
+  def test_revision_route_missing_workspace_id_400
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/courses/:course_id/revision", build(registry: registry, params: { course_id: OFF }))
+
+    assert_equal 400, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
+    assert_empty registry.calls, "缺参不得下发 registry"
   end
 
   def test_retired_record_routes_not_registered

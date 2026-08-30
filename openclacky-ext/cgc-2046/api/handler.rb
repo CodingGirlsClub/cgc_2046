@@ -270,16 +270,21 @@ class Cgc2046Ext < Clacky::ApiExtension
 
   # GET /api/ext/cgc-2046/courses/:course_id/revision
   # 课程当前已发布版本详情(展示增强用:issue 标题/kind;state 为底永不丢
-  # objective):透传 MCP get_course_revision(:course_id 路由捕获)。
+  # objective):透传 MCP get_course_revision。实证合同(UAT 真机 -32602):
+  # 上游工具必填 workspace_id(缺参路由层 400 引导;面板 apiGet 自动附
+  # workspace_id,无需面板侧改动)。
   get "/courses/:course_id/revision" do
     guard_origin!
-    course_id = route_params_value("course_id")
+    course_id    = route_params_value("course_id")
+    workspace_id = route_params_value("workspace_id")
     outcome =
       if course_id.empty?
         { status: 400, body: { error: "course_id is required" } }
+      elsif workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
       else
         Cgc2046LearnerRoutes.call_learner_tool(self, "get_course_revision",
-                                               { "course_id" => course_id })
+                                               { "course_id" => course_id, "workspace_id" => workspace_id })
       end
     json(outcome[:body], status: outcome[:status])
   end
