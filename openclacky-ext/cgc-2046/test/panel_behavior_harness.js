@@ -59,32 +59,9 @@ globalThis.localStorage = {
   setItem: (k, v) => store.set(k, String(v)),
   removeItem: (k) => store.delete(k),
 };
-// advisor R2 场景:第一次 POST(旧 token)→ 403 CSRF;重取 /status(新 token)→ 重试 200
-let csrfPhase = 0;
-let postedTokens = [];
-
-globalThis.fetch = async (url, opts) => {
+globalThis.fetch = async (url) => {
   const path = String(url).split("?")[0];
   calls.fetches.push(path);
-
-  // advisor R3:csrf_retry 场景 = 服务端真实语义。第一次 /status 下发 stale
-  // token（模拟宿主热重载前面板已缓存的旧值），之后的 /status 下发 fresh；
-  // POST 的 token ≠ fresh 一律 403——由 view.js 自身路径
-  // （ensureCsrf → apiPost → 403 → refreshCsrf → 重试）真实驱动。
-  if (scenario === "csrf_retry_self_heal" && path === "/api/ext/cgc-2046/status") {
-    csrfPhase += 1;
-    const token = csrfPhase === 1 ? "stale-token" : "fresh-token";
-    return { ok: true, status: 200, json: async () => ({ ok: true, csrf_token: token }) };
-  }
-  if (scenario === "csrf_retry_self_heal" && path === "/api/ext/cgc-2046/courses/course-uuid-1/content") {
-    if (opts && opts.method === "POST") {
-      const t = (opts.headers || {})["X-CGC-CSRF-Token"];
-      postedTokens.push(t);
-      if (t === "fresh-token") return { ok: true, status: 200, json: async () => ({ ok: true, status: "saved" }) };
-      return { ok: false, status: 403, json: async () => ({ error: "missing or invalid CSRF token" }) };
-    }
-    return { ok: true, status: 200, json: async () => ({ result: {} }) };
-  }
 
   const r = RESPONDERS[path];
   if (!r) return { ok: false, status: 404, json: async () => ({}) };

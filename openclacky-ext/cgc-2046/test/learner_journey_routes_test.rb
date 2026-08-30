@@ -619,6 +619,7 @@ end
 class PanelCsrfSelfHealTest < Minitest::Test
   DISCOVERY_VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+  WORKSPACE_VIEW = File.read(File.expand_path("../panels/workspace/view.js", __dir__))
   HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
   COURSE_VIEW_PATH = File.expand_path("../panels/cgc-course/view.js", __dir__)
 
@@ -633,6 +634,12 @@ class PanelCsrfSelfHealTest < Minitest::Test
     assert_includes COURSE_VIEW, "async function refreshCsrf()"
     assert_includes COURSE_VIEW, 'res.status === 403 && (await refreshCsrf())'
     refute_includes COURSE_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+  end
+  # workspace 面板 disconnect（DELETE）与 POST 写路由同规：带 token + 403 自愈一次
+  def test_workspace_api_delete_retries_once_on_csrf_403
+    assert_includes WORKSPACE_VIEW, "async function refreshCsrf()"
+    assert_includes WORKSPACE_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes WORKSPACE_VIEW, "refreshCsrf())) && (await refreshCsrf()"
   end
 
   # advisor R3:harness 的 csrf_retry_self_heal 场景已删除——该场景在
@@ -706,6 +713,23 @@ class CsrfGuardTest < Minitest::Test
   def test_cross_origin_get_403_zero_registry_calls
     inst, reg = with_fake_server(header: EVIL)
     halt = invoke(:get, "/discover", inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    assert_empty reg.calls
+  end
+  # learning_state / revision 曾漏挂 guard_origin!（相对「全部路由收口」声明的
+  # 回归钉子）：跨源 → 403，零 registry 调用
+  def test_cross_origin_learning_state_403_zero_registry_calls
+    inst, reg = with_fake_server(header: EVIL)
+    halt = invoke(:get, "/learning_state", inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    assert_empty reg.calls
+  end
+
+  def test_cross_origin_course_revision_403_zero_registry_calls
+    inst, reg = with_fake_server(header: EVIL)
+    halt = invoke(:get, "/courses/:course_id/revision", inst)
     assert_equal 403, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
     assert_empty reg.calls
