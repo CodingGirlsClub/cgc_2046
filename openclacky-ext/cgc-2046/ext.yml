@@ -54,6 +54,15 @@ contributes:
       order: 10
     # 会话伴学侧栏(session.aside,attach cgc-assistant;点目标直接注入会话指令,
     # 替代课程页「复制学习指令」的剪贴板管道)
+    # P1 教研侧边栏(session.aside,attach cgc-tutor;会话内实时显示草稿产出)
+    - id: cgc-2046-tutor-aside
+      title: CGC Tutor Aside
+      title_zh: 教研产出
+      description: Live draft panel beside tutor sessions (goals/issues tree, version, prep state)
+      description_zh: 教研会话侧栏(草稿树/版本/流程状态实时同步)
+      view: panels/cgc-2046-tutor-aside/view.js
+      order: 17
+      attach: [cgc-tutor]
     - id: cgc-2046-learn
       title: CGC Learn
       title_zh: 学这一节
@@ -63,6 +72,11 @@ contributes:
       order: 15
       attach: [cgc-assistant]
   agents:
+    # P1 AI 辅助教研:教研共创专用 agent(会话语境与学习分离;
+    # 教研侧边栏 attach 本 agent)
+    - id: cgc-tutor
+      title: "CGC 教研助手"
+      prompt: agents/cgc-tutor/system_prompt.md
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
