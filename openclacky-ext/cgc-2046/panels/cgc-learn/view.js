@@ -179,7 +179,7 @@
   function renderPanel() {
     let html =
       '<div class="cgc-learn-head">' +
-        '<span class="cgc-learn-title">学这一节</span>' +
+        '<span class="cgc-learn-title">学习地图</span>' +
         '<button id="cgc-learn-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新</button>' +
       '</div>';
 
@@ -349,7 +349,7 @@
     order: 15,
     tab: {
       id: "cgc-2046-learn",
-      label: function () { return "学这一节"; }
+      label: function () { return "学习地图"; }
     }
   });
 })();

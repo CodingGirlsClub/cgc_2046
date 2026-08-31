@@ -268,7 +268,7 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, "agents: [AGENT]"
     assert_includes VIEW, 'ctx.agentProfile !== AGENT'
     assert_includes VIEW, "tab: {"
-    assert_includes VIEW, "学这一节"
+    assert_includes VIEW, "学习地图"
   end
 
   def test_ext_yml_attaches_to_assistant

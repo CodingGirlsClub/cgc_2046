@@ -64,10 +64,10 @@ contributes:
       order: 17
       attach: [cgc-tutor]
     - id: cgc-2046-learn
-      title: CGC Learn
-      title_zh: 学这一节
-      description: Session-aside learning companion (objectives, review queue, inject-and-go)
-      description_zh: 会话侧学习伴读(目标地图/待复习/一键注入会话)
+      title: CGC Learning Map
+      title_zh: 学习地图
+      description: Session-aside learning map (objectives, review queue, inject-and-go)
+      description_zh: 会话侧学习地图(目标地图/待复习/一键注入会话)
       view: panels/cgc-learn/view.js
       order: 15
       attach: [cgc-assistant]
