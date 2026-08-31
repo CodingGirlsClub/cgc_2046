@@ -137,6 +137,11 @@
   }
 
   // ---- 注入管道(qingclaw sendLessonPrompt 同款;失败兜底剪贴板) ----
+  function objectiveTitle(objectiveId) {
+    const o = ((state.learning || {}).objectives || []).find(function (x) { return x.id === objectiveId; });
+    return o ? (o.title || o.id) : String(objectiveId);
+  }
+
   function injectPrompt(objectiveId, reviewEntry) {
     const text = learningPrompt(objectiveId, reviewEntry);
     const input = document.getElementById("user-input");
@@ -151,8 +156,14 @@
     }
     // 宿主 #user-input 是 contenteditable DIV(非 textarea):必须写
     // textContent——value 赋值只是 expando 属性,Composer.text 读不到,
-    // _sendMessage 会因内容为空直接 return(真机实证)
-    input.textContent = text;
+    // _sendMessage 会因内容为空直接 return(真机实证)。
+    // 注入保草稿(qingclaw 精髓 3):输入框已有内容追加为「我的补充问题」,
+    // 不覆盖用户打到一半的话
+    const draft = (input.textContent || "").trim();
+    const finalText = draft && draft !== text
+      ? text + "\n\n我的补充问题:\n" + draft
+      : text;
+    input.textContent = finalText;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     send.click();
     // 宿主在会话订阅确认前禁用发送按钮(app.js:btn-send disabled until
@@ -218,13 +229,25 @@
       escapeHtml(progress.mastered_required || 0) + '/' + escapeHtml(progress.total_required || 0) +
       (progress.complete ? ' · 已结业' : '') + '</div>';
 
-    if (next && next.objective_id) {
+    // Resume 置顶大卡(第一屏):下一个必修目标为主;有到期复习时优先显示复习
+    // (口吻自动切到期复习),主按钮永远是最显眼的下一步(qingclaw 精髓 1)
+    const dueReview = (learning.review_queue || [])[0];
+    const resume = (dueReview && dueReview.objective_id)
+      ? { objectiveId: dueReview.objective_id, label: "继续复习", reason: (dueReview.needs_review === true ? "待复习恢复" : "复习到期") }
+      : (next && next.objective_id
+          ? { objectiveId: next.objective_id, label: "继续学习", reason: next.reason || "" }
+          : null);
+    if (resume) {
+      const objTitle = objectiveTitle(resume.objectiveId);
       html +=
-        '<div class="cgc-learn-next" data-testid="learn-next">' +
-          '<span class="cgc-badge cgc-badge-next">当前任务</span>' +
-          '<span class="cgc-learn-next-text">' + escapeHtml(next.reason || next.objective_id) + '</span>' +
-          '<button class="cgc-btn cgc-btn-primary cgc-btn-mini" type="button" data-inject="' +
-            escapeHtml(next.objective_id) + '" data-testid="learn-next-cta">开始学</button>' +
+        '<div class="cgc-learn-resume" data-testid="learn-next">' +
+          '<div class="cgc-learn-resume-copy">' +
+            '<span class="cgc-badge cgc-badge-next">' + escapeHtml(resume.label) + '</span>' +
+            '<span class="cgc-learn-resume-title">' + escapeHtml(objTitle) + '</span>' +
+            (resume.reason ? '<span class="cgc-learn-resume-reason">' + escapeHtml(resume.reason) + '</span>' : "") +
+          '</div>' +
+          '<button class="cgc-learn-resume-btn" type="button" data-inject="' +
+            escapeHtml(resume.objectiveId) + '" data-testid="learn-next-cta">▶</button>' +
         '</div>';
     }
 
@@ -307,6 +330,12 @@
       ".cgc-learn-title{font-weight:600;font-size:13px}" +
       ".cgc-learn-head + .cgc-select, .cgc-select{width:100%;padding:4px 8px;border:1px solid rgba(128,128,128,.4);border-radius:6px;background:transparent;color:inherit;font-size:12px;margin-bottom:8px}" +
       ".cgc-learn-progress{font-size:12px;opacity:.7;margin-bottom:8px}" +
+      ".cgc-learn-resume{display:flex;align-items:center;gap:10px;padding:12px;margin-bottom:10px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-accent-primary) 35%,var(--color-border-primary));border-radius:10px;box-shadow:var(--shadow-sm)}" +
+      ".cgc-learn-resume-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}" +
+      ".cgc-learn-resume-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+      ".cgc-learn-resume-reason{font-size:11px;color:var(--color-text-tertiary)}" +
+      ".cgc-learn-resume-btn{flex:none;width:44px;height:44px;border:0;border-radius:10px;background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:17px;font-weight:700;cursor:pointer;transition:filter var(--transition-fast)}" +
+      ".cgc-learn-resume-btn:hover{filter:brightness(1.12)}" +
       ".cgc-learn-next{display:flex;gap:6px;align-items:center;flex-wrap:wrap;border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:8px;margin-bottom:8px;font-size:12px}" +
       ".cgc-learn-next-text{flex:1;min-width:0}" +
       ".cgc-badge{font-size:10px;border:1px solid rgba(128,128,128,.4);border-radius:999px;padding:0 6px;flex:none}" +

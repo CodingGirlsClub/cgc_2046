@@ -263,6 +263,22 @@ class CgcLearnPanelTest < Minitest::Test
 
   # 挂载合同:仅 CGC 助手会话(agents 过滤 + ctx 双保险);session.aside 是
   # TABBED_SLOT,必须带 tab(宿主 ext.js TABBED_SLOTS 约束)
+  # 学习地图优化:注入保草稿 + Resume 置顶大卡
+  def test_inject_preserves_user_draft
+    # 注入前读输入框已有内容,追加为「我的补充问题」——不覆盖用户草稿
+    assert_includes VIEW, "const draft = (input.textContent || \"\").trim();"
+    assert_includes VIEW, "我的补充问题"
+  end
+
+  def test_resume_card_first_screen
+    # Resume 置顶大卡:到期复习优先,否则 next_action;accent 实底主按钮
+    assert_includes VIEW, "cgc-learn-resume"
+    assert_includes VIEW, "继续复习"
+    assert_includes VIEW, "继续学习"
+    assert_includes VIEW, "dueReview"
+    assert_includes VIEW, "cgc-learn-resume-btn"
+  end
+
   def test_session_aside_mount_contract
     assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
     assert_includes VIEW, "agents: [AGENT]"
@@ -284,7 +300,7 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, 'document.getElementById("btn-send")'
     # 宿主 #user-input 是 contenteditable DIV:textContent 注入(真机实证,
     # value 赋值 Composer.text 读不到);发送按钮禁用(订阅确认前)时待启用补发
-    assert_includes VIEW, "input.textContent = text"
+    assert_includes VIEW, "input.textContent = finalText"
     refute_includes VIEW, "input.value = text"
     assert_includes VIEW, 'new Event("input", { bubbles: true })'
     assert_includes VIEW, "send.disabled"
@@ -316,7 +332,8 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, "function escapeHtml("
     assert_includes VIEW, "escapeHtml(c.title)"
     assert_includes VIEW, "escapeHtml(o.title || o.id)"
-    assert_includes VIEW, "escapeHtml(next.reason || next.objective_id)"
+    assert_includes VIEW, "escapeHtml(objTitle)"
+    assert_includes VIEW, "escapeHtml(resume.reason)"
   end
 
   # 锁定目标不可点(无 data-inject),防越先修注入
