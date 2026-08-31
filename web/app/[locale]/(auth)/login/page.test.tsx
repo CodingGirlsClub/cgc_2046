@@ -71,7 +71,11 @@ describe("LoginPage（plan U3 反向断言：登录链路无首公里模态，F2
 		expect(
 			screen.queryByPlaceholderText("手机号或邮箱"),
 		).not.toBeInTheDocument();
-		// 微信扫码侧栏仍在（重扫换账号自洽）
+		// 绑定模式侧栏不得挂 QR 面板（挂载即 wechatLoginStart → 覆盖
+		// cgc_wechat_state cookie → 绑定请求 browser_mismatch 必败），
+		// 只渲染静态进行中提示
+		expect(screen.queryByTitle("微信登录二维码")).not.toBeInTheDocument();
+		expect(screen.getByText(/正在验证手机号/)).toBeInTheDocument();
 		expect(screen.getByPlaceholderText("请输入手机号")).toBeInTheDocument();
 	});
 
