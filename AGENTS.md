@@ -33,6 +33,26 @@ Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architect
 3. **视觉复核（兜底，仅感知层）**：截图交给视觉模型只查「无法数值断言」的主观项 —— 层级 / 对比度观感 / 留白协调 / 整体美感；同时截图作为给人看的证据。不要为每个页面都截图问模型；截图前先确认结构断言已全部通过。
 4. **登录态**：优先 `agent-browser connect <cdp-port>` 复用已登录浏览器；无法复用且确需登录时，先备份 `users.hashed_password`（psql `cgc_2046_dev`），临时重置密码完成验证后**必须恢复原哈希**。
 
+### 网络层调试（Rockxy）
+
+按层选工具，不混用：页面层问题（DOM / 样式 / 控制台 / 性能）用 agent-browser / chrome-devtools；网络层问题（请求发了什么 / 收到了什么）用 Rockxy（macOS 本地抓包代理）。
+
+Rockxy 场景：
+
+- **API 争议仲裁**：抓真实请求取证（实际发出的 header / body / 状态码），Compose 重放验证修复，Diff 对比修复前后——不靠猜。
+- **错误注入**：Breakpoint 把响应改成 401/500/bad payload 测前端 fallback；Block host 模拟第三方 API 故障。不改后端代码。
+- **Mock / 环境切换**：Map Local 钉死本地 JSON（后端未完成先调前端）；Map Remote 把流量改写到 localhost，不动 `/etc/hosts`。
+- **Webhook 重放**：第三方回调失败时从捕获改参重发。
+- **AI 取证**：装了 Rockxy 的机器上，MCP（`~/.omp/agent/mcp.json` 用户级已配 `rockxy-mcp`）可直接列 flows / 读请求响应 / 导出 cURL，不要让用户手贴 curl。
+
+Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Server** 已开（监听 `127.0.0.1:9710`，握手文件 `~/Library/Application Support/com.amunx.rockxy.community/mcp-handshake.json`）；app 没跑时桥报 `handshake file not found`，属预期，先开 app。
+
+红线：
+
+- 捕获含真实凭证。导出 / 分享捕获前必须过 redaction（authorization / cookie / bearer token）；保持 MCP 的 Redact Sensitive Data 开启。
+- 调试中的临时状态（重置的密码、注入的 token）验证完必须恢复，同 E2E 登录态规则。
+- HTTPS 解密依赖信任 Rockxy 根 CA；只对调试需要的 host 开解密，其余 passthrough。
+
 ### PR 合并与发布
 
 - **一律 merge commit**（repo 已禁 squash/rebase 合并，界面选不出别的）：CI gate 与 deploy 的去重判定依赖「双亲 merge commit + tree 等值」识别已验证代码——squash 会让每次合并都白跑一轮全量 CI。
