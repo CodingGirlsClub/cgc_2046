@@ -601,28 +601,33 @@ export function OfferingDetailPage({
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
 
-  const activeDraft: MetaDraft | null =
-    metaDraft && metaDraft.offeringId === offering?.id
-      ? metaDraft
-      : offering
-        ? {
-            offeringId: offering.id,
-            title: offering.title,
-            enrollmentPolicy: offering.enrollmentPolicy,
-            capacity:
-              offering.capacity === null ? "" : String(offering.capacity),
-            deadline: toLocalInput(offering.registrationDeadline),
-            startsAt: toLocalInput(offering.startsAt ?? null),
-            endsAt: toLocalInput(offering.endsAt ?? null),
-            venue: parseVenue(offering.venue) ?? { ...EMPTY_VENUE },
-            curriculumRequirements: parseCurriculumText(
-              offering.curriculumRequirements,
-            ),
-            // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
-            pricingEnabled: offering.pricingEnabled === true,
-            tierDrafts: toDraft(offering.priceTiers),
-          }
-        : null;
+  // useMemo 稳定引用：字面量分支每渲染新建对象，会令 soldTierTouched 的
+  // useMemo 依赖（activeDraft）每渲染变化而失效（react-hooks lint 强制）
+  const activeDraft: MetaDraft | null = useMemo(
+    () =>
+      metaDraft && metaDraft.offeringId === offering?.id
+        ? metaDraft
+        : offering
+          ? {
+              offeringId: offering.id,
+              title: offering.title,
+              enrollmentPolicy: offering.enrollmentPolicy,
+              capacity:
+                offering.capacity === null ? "" : String(offering.capacity),
+              deadline: toLocalInput(offering.registrationDeadline),
+              startsAt: toLocalInput(offering.startsAt ?? null),
+              endsAt: toLocalInput(offering.endsAt ?? null),
+              venue: parseVenue(offering.venue) ?? { ...EMPTY_VENUE },
+              curriculumRequirements: parseCurriculumText(
+                offering.curriculumRequirements,
+              ),
+              // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
+              pricingEnabled: offering.pricingEnabled === true,
+              tierDrafts: toDraft(offering.priceTiers),
+            }
+          : null,
+    [metaDraft, offering],
+  );
 
   // U8/R10：删除或改价命中已售档（快照语义保证已付订单金额不受影响，警告放行）
   const soldTierTouched: string[] = useMemo(() => {
