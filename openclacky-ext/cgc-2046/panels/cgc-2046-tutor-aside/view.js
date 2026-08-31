@@ -106,6 +106,7 @@
         rawGet("/courses/" + encodeURIComponent(state.selectedCourseId) + "/prep?workspace_id=" + encodeURIComponent(ws))
           .catch(function () { return { result: null }; })
       ]);
+      state.prevContent = state.content;  // 旧 content 存下来供 issue 改动 diff
       state.content = contentRes.result || null;
       state.prep = (prepRes.result || null);
       state.lastRefresh = new Date().toLocaleTimeString();
@@ -324,10 +325,37 @@
           return '<div class="cgta-goal">· ' + escapeHtml(g) + '</div>';
         }).join("") + '</div>';
       }
+      // 展开态:localStorage 记忆(用户手动展开过的 issue id);agent 改动的
+      // issue 自动展开+高亮(对比新旧 content 的 issue 内容 hash)
+      const openIssues = {};
+      try {
+        JSON.parse(localStorage.getItem("cgc2046.tutorAside.openIssues") || "{}")
+          .forEach(function (id) { openIssues[id] = true; });
+      } catch (_e) {}
+      // agent 改动检测:比较新旧 issues 的 objectives 数量/materials 数量/rubric 数量
+      const changedIssues = {};
+      if (state.prevContent && state.prevContent.issues && c.issues) {
+        const prevMap = {};
+        (state.prevContent.issues || []).forEach(function (i) { prevMap[i.id] = i; });
+        (c.issues || []).forEach(function (cur) {
+          const prev = prevMap[cur.id];
+          if (!prev) { changedIssues[cur.id] = true; return; } // 新增
+          const cnt = function (iss) {
+            return ((iss.objectives || []).map(function (o) {
+              return ((o.materials || []).length) + ":" + ((o.rubric || []).length);
+            }).join(","));
+          };
+          if (cnt(prev) !== cnt(cur)) changedIssues[cur.id] = true;
+        });
+      }
+
       inner += (c.issues || []).map(function (issue) {
         const objs = (issue.objectives || []);
+        const isOpen = openIssues[issue.id] || changedIssues[issue.id];
         return (
-          '<details class="cgta-issue"' + ' open>' +
+          '<details class="cgta-issue' + (changedIssues[issue.id] ? " is-changed" : "") + '"' +
+            ' data-issue="' + escapeHtml(issue.id || "") + '"' +
+            (isOpen ? " open" : "") + '>' +
             '<summary class="cgta-issue-summary">' +
               '<span class="cgta-issue-name">' + escapeHtml(issue.title || issue.id) + '</span>' +
               '<span class="cgta-issue-count">' + objs.length + ' 目标</span>' +
@@ -385,6 +413,16 @@
     if (open) open.addEventListener("click", function () {
       Clacky.ext.ui.openWorkspace("cgc-2046-curriculum");
     });
+    // 用户手动展开/收起 issue → localStorage 记忆(跨刷新保持)
+    root.querySelectorAll(".cgta-issue").forEach(function (d) {
+      d.addEventListener("toggle", function () {
+        const ids = Array.from(root.querySelectorAll(".cgta-issue[open]"))
+          .map(function (d2) { return d2.getAttribute("data-issue"); })
+          .filter(Boolean);
+        try { localStorage.setItem("cgc2046.tutorAside.openIssues", JSON.stringify(ids)); } catch (_e) {}
+      });
+    });
+
     // 局部 AI 动作:✎ 定向重写(位置自动携带,tutor 只说改成什么)
     root.querySelectorAll("[data-rewrite]").forEach(function (btn) {
       btn.addEventListener("click", function (e) {
@@ -530,6 +568,7 @@
       ".cgta-goals{margin:0;padding:8px 10px;border-radius:var(--radius-md,8px);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary)}" +
       ".cgta-goal{font-size:0.6875rem;line-height:1.6;color:var(--color-text-secondary)}" +
       ".cgta-issue{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}" +
+      ".cgta-issue.is-changed{border-color:color-mix(in srgb,var(--color-accent-primary) 35%,var(--color-border-primary));box-shadow:inset 2px 0 0 var(--color-accent-primary)}" +
       ".cgta-issue-summary{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;cursor:pointer;list-style:none;user-select:none}" +
       ".cgta-issue-summary::-webkit-details-marker{display:none}" +
       ".cgta-issue-name{flex:1;min-width:0;font-weight:650;font-size:0.71875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
