@@ -145,6 +145,8 @@ export default function TierEditor({
 						<input
 							type="date"
 							className="w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+							aria-label={t("tierUntilAria")}
+							title={t("tierUntilAria")}
 							value={d.availableUntil}
 							disabled={!manage}
 							onChange={(e) =>
@@ -164,6 +166,12 @@ export default function TierEditor({
 						)}
 					</div>
 				))
+			)}
+
+			{drafts.length > 0 && (
+				<p className="text-xs text-ink-3" data-testid="tier-until-hint">
+					{t("tierUntilHint")}
+				</p>
 			)}
 
 			{manage && (

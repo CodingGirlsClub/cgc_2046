@@ -175,7 +175,18 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
                 )}
               </div>
               <aside className="auth-login-split__side" aria-label={t("wechat.sideLabel")}>
-                <WechatQrPanel />
+                {/* 绑定会话进行中不得再发起新扫码会话：wechatLoginStart 会下发
+                    新 cgc_wechat_state cookie 覆盖旧 state，bind 请求
+                    browser_mismatch 必败（生产事故 2026-08-31）。 */}
+                {bindTicket ? (
+                  <div className="auth-wechat-panel">
+                    <p className="auth-wechat-hint" aria-live="polite">
+                      {t("wechat.bindingInProgress")}
+                    </p>
+                  </div>
+                ) : (
+                  <WechatQrPanel />
+                )}
               </aside>
             </div>
           )}
