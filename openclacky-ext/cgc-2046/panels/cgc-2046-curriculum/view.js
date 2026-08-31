@@ -155,6 +155,102 @@
     if (!state.editing && currentContainer) render();
   }
 
+  // ---- 和教研助手共创(P1:创建 cgc-tutor 会话 + 注入教研指令) ----
+  function coCreateWithTutor() {
+    const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
+    const title = course.title || "当前课程";
+    const version = Number.isInteger(state.content && state.content.version) ? state.content.version : "无";
+    const instruction = [
+      "请作为教研助手与我共创课程《" + title + "》。",
+      "(course_id: " + state.selectedCourseId + ", workspace_id: " + scopeOf() + ", 当前草稿版本: " + version + ")",
+      "请先 get_course_content 与 get_prep_status 读取现状,然后向我确认本次共创的目标",
+      "(从课程定位/goals 开始渐进推进);每次修改经 save_course_content 保存并汇报变更摘要。",
+      "教研侧边栏会实时显示草稿,我会在对话里给你方向与反馈。"
+    ].join("\n");
+    coCreateWithTutorInstruction(instruction);
+  }
+
+  function coCreateWithTutorInstruction(instruction) {
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "教研共创", agent_profile: "cgc-tutor", source: "manual" })
+    })
+      .then(function (res) { return res.json().catch(function () { return {}; }); })
+      .then(function (payload) {
+        const session = payload.session;
+        if (!session || !session.id) throw new Error("没有创建可用的教研会话");
+        if (Clacky.Sessions && typeof Clacky.Sessions.add === "function") {
+          Clacky.Sessions.add(session);
+          if (typeof Clacky.Sessions.renderList === "function") Clacky.Sessions.renderList();
+          Clacky.Sessions.select(session.id);
+        } else if (Clacky.Router && typeof Clacky.Router.navigate === "function") {
+          Clacky.Router.navigate("session", { id: session.id });
+        }
+        setTimeout(function () { injectIntoComposer(instruction); }, 1500);
+      })
+      .catch(function (e) {
+        window.alert("打开教研会话失败：" + String(e.message || e));
+      });
+  }
+
+  function injectIntoComposer(text) {
+    const input = document.getElementById("user-input");
+    const send = document.getElementById("btn-send");
+    if (!input || !send) {
+      window.prompt("复制以下指令到教研会话开始共创:", text);
+      return;
+    }
+    input.textContent = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    send.click();
+    if (send.disabled) {
+      const timer = setInterval(function () {
+        if (!send.disabled) { clearInterval(timer); send.click(); }
+      }, 200);
+      setTimeout(function () { clearInterval(timer); }, 8000);
+    }
+  }
+
+  // ---- prep 流程条(P1:状态展示 + 推进动作走会话注入;面板=状态,会话=执行) ----
+  const PREP_STATES = ["draft", "authoring", "quality_check", "review", "published"];
+  const PREP_LABELS = { draft: "草稿", authoring: "编写中", quality_check: "质检", review: "审核", published: "已发布" };
+  const PREP_ACTIONS = {
+    draft: { label: "开始编写(认领教研)", instruction: "请 claim_prep_authoring 认领本课程教研,然后与我确认课程定位并开始共创内容。" },
+    authoring: { label: "提交质量检查", instruction: "内容已就绪,请检查结构门禁后 submit_prep_for_check 提交质量检查。" },
+    quality_check: { label: "提交质量报告", instruction: "请按结构完整度如实自评,submit_prep_quality_report 提交质量报告(诚实评分,不美化)。" },
+    review: { label: "审核发布 / 驳回", instruction: "我已审阅草稿。等待我的明确指示后 approve_prep 通过发布,或 request_changes_prep 驳回;在此之前不要执行发布。" }
+  };
+
+  function prepStepper() {
+    const current = (state.prep || {}).prep_state || "draft";
+    const idx = PREP_STATES.indexOf(current);
+    const dots = PREP_STATES.map(function (s, i) {
+      const cls = i < idx ? " cgt-st-done" : (i === idx ? " cgt-st-current" : "");
+      return '<span class="cgt-st' + cls + '">' + escapeHtml(PREP_LABELS[s] || s) + '</span>';
+    }).join('<span class="cgt-st-sep"></span>');
+    const action = PREP_ACTIONS[current];
+    const btn = (action && canEditCourse(state.selectedCourseId))
+      ? ' <button id="cgt-prep-action" class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button"' +
+            ' data-testid="prep-action">' + escapeHtml(action.label) + '</button>'
+      : "";
+    return '<div class="cgt-stepper" data-testid="prep-stepper">' + dots + btn + '</div>';
+  }
+
+  function bindPrepAction() {
+    const btn = currentContainer && currentContainer.querySelector("#cgt-prep-action");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      const current = (state.prep || {}).prep_state || "draft";
+      const action = PREP_ACTIONS[current];
+      if (!action) return;
+      const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
+      const instruction = "课程《" + (course.title || "") + "》(course_id: " + state.selectedCourseId +
+        ", workspace_id: " + scopeOf() + ")。" + action.instruction;
+      coCreateWithTutorInstruction(instruction);
+    });
+  }
+
   async function loadCourses() {
     state.loading = true;
     state.error = null;
@@ -271,6 +367,7 @@
       '<div class="cgt-head">' +
         '<div class="cgt-title-row">' +
           '<h3 class="cgt-title">' + escapeHtml(state.content.course_title || (state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "") + '</h3>' +
+          '<button id="cgt-cocreate" class="cgt-cocreate" type="button" data-testid="prep-cocreate">✦ 和教研助手共创</button>' +
           (isNewDraft
             ? '<span class="cgch-chip">新课程 · 未保存草稿</span>'
             : (Number.isInteger(state.content.version)
@@ -280,6 +377,8 @@
           ? '<button id="cgt-edit-toggle" class="cgch-btn cgch-btn-ghost" type="button" data-testid="prep-edit-toggle">编辑内容</button>'
           : '<span class="cgch-empty">当前课程归属工作台无教研角色,只读</span>') +
       '</div>';
+
+    html += prepStepper();
 
     if (state.conflict) {
       html += '<div class="cgc-banner" data-testid="prep-conflict">' + escapeHtml(state.conflict) + '</div>';
@@ -311,6 +410,9 @@
     main.innerHTML = html;
     const toggle = main.querySelector("#cgt-edit-toggle");
     if (toggle) toggle.addEventListener("click", enterEdit);
+    const cocreate = main.querySelector("#cgt-cocreate");
+    if (cocreate) cocreate.addEventListener("click", coCreateWithTutor);
+    bindPrepAction();
   }
 
   function previewText(kind, raw) {
@@ -635,6 +737,13 @@
       ".cgcc-card-grid{display:grid;grid-template-columns:1fr;gap:10px}",
       ".cgt-issue-card{margin-top:10px;padding:12px;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}",
       ".cgt-issue-key{font-family:ui-monospace,monospace;font-size:0.6875rem;color:var(--color-text-tertiary)}",
+      ".cgt-stepper{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}",
+      ".cgt-st{font-size:0.6875rem;font-weight:650;padding:2px 8px;border-radius:999px;border:1px solid var(--color-border-secondary);color:var(--color-text-tertiary)}",
+      ".cgt-st-done{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}",
+      ".cgt-st-current{color:var(--color-accent-primary);border-color:var(--color-accent-primary);background:var(--color-accent-soft)}",
+      ".cgt-st-sep{width:10px;height:1px;background:var(--color-border-secondary)}",
+      ".cgt-cocreate{padding:7px 14px;border:0;border-radius:var(--radius-md,8px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.75rem;font-weight:700;cursor:pointer}",
+      ".cgt-cocreate:hover{filter:brightness(1.1)}",
       ".cgt-parse-preview{margin-top:4px;padding:4px 8px;border-radius:6px;font-size:11px;color:var(--color-text-tertiary);background:var(--color-bg-subtle,rgba(127,127,127,.08))}",
       ".cgch-row-dot{flex:none;align-self:center;width:7px;height:7px;border-radius:999px;background:var(--color-border-secondary)}"
     ].join("\n");

@@ -202,6 +202,61 @@ class CdpAutoConnectDocsTest < Minitest::Test
   end
 end
 
+# ---- P1 教研侧边栏 + 共创入口静态锚 ----
+class TutorAsidePanelTest < Minitest::Test
+  VIEW = File.read(File.expand_path("../panels/cgc-2046-tutor-aside/view.js", __dir__))
+  CURRICULUM_VIEW = File.read(File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__))
+  PROMPT = File.read(File.expand_path("../agents/cgc-tutor/system_prompt.md", __dir__))
+
+  def test_ext_yml_registers_tutor_agent_and_aside
+    assert_includes EXT_YML, "- id: cgc-tutor"
+    assert_includes EXT_YML, "agents/cgc-tutor/system_prompt.md"
+    assert_includes EXT_YML, "- id: cgc-2046-tutor-aside"
+    assert_includes EXT_YML, "attach: [cgc-tutor]"
+  end
+
+  def test_aside_mount_and_sync
+    # attach cgc-tutor 的 session.aside;推拉结合(draft_saved/tool_used 事件 → 防抖拉)
+    # + 10s 轮询兜底;version 签名变化才重渲染
+    assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
+    assert_includes VIEW, "agents: [AGENT]"
+    assert_includes VIEW, 'ctx.agentProfile !== AGENT'
+    assert_includes VIEW, 'subscribe("ext.cgc-2046.draft_saved"'
+    assert_includes VIEW, 'subscribe("ext.cgc-2046.tool_used"'
+    assert_includes VIEW, "POLL_MS = 10000"
+    assert_includes VIEW, "function signature()"
+  end
+
+  def test_aside_shares_course_selection_and_scope
+    # 与教研工作台共享课程选择 key;作用域按课程归属台
+    assert_includes VIEW, "cgc2046.curriculum.courseId"
+    assert_includes VIEW, "function scopeOf(courseId)"
+    assert_includes VIEW, "在教研工作台打开"
+  end
+
+  def test_cocreate_entry_and_prep_stepper
+    # 共创入口创建 cgc-tutor 会话并注入教研指令;prep 流程条展示态 + 推进走会话注入
+    assert_includes CURRICULUM_VIEW, "coCreateWithTutor"
+    assert_includes CURRICULUM_VIEW, 'agent_profile: "cgc-tutor"'
+    assert_includes CURRICULUM_VIEW, "get_course_content 与 get_prep_status 读取现状"
+    assert_includes CURRICULUM_VIEW, "prepStepper"
+    assert_includes CURRICULUM_VIEW, 'data-testid="prep-stepper"'
+    assert_includes CURRICULUM_VIEW, 'data-testid="prep-action"'
+    assert_includes CURRICULUM_VIEW, "approve_prep"
+    assert_includes CURRICULUM_VIEW, "request_changes_prep"
+  end
+
+  def test_tutor_prompt_sop
+    # 教研 SOP:先读后写/渐进生成/409 合并重试/自评诚实/发布须 tutor 同意
+    assert_includes PROMPT, "先读现状"
+    assert_includes PROMPT, "渐进生成，不要一次全量"
+    assert_includes PROMPT, "合并"
+    assert_includes PROMPT, "自评要诚实"
+    assert_includes PROMPT, "只在 tutor 明确同意后调用"
+    assert_includes PROMPT, "绝不编造 UUID"
+  end
+end
+
 class CgcLearnPanelTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-learn/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))

@@ -252,6 +252,37 @@ class AfterToolUseHookTest < Minitest::Test
   end
 end
 
+class DraftSavedEventTest < Minitest::Test
+  # P1 AI 辅助教研:save_course_content 特征命中(task 或 summary)推 draft_saved 纯信号
+  def setup
+    load_hook(:after_tool_use, "after_tool_use.rb")
+    @hook = Clacky::ExtensionHookRegistry.callbacks[:after_tool_use].last
+    @agent = FakeAgent.new
+  end
+
+  def trigger(call, result)
+    @hook.call(call, result, @agent)
+  end
+
+  def test_emits_draft_saved_on_save_course_content_task
+    trigger({ name: "invoke_skill", arguments: { "skill_name" => "mcp:cgc-2046",
+      "task" => "请 save_course_content 保存课程草稿" } },
+      { "result" => "已保存" })
+
+    ev = @agent.emitted.find { |e| e[:type] == "ext.cgc-2046.draft_saved" }
+    refute_nil ev, "应推 draft_saved 信号"
+    assert_equal false, ev[:persist]
+  end
+
+  def test_no_draft_saved_without_save_marker
+    trigger({ name: "invoke_skill", arguments: { "skill_name" => "mcp:cgc-2046",
+      "task" => "查询学习状态" } },
+      { "result" => "正常" })
+
+    assert @agent.emitted.none? { |e| e[:type] == "ext.cgc-2046.draft_saved" }
+  end
+end
+
 class HookManagerIntegrationTest < Minitest::Test
   # 走宿主真实加载/触发路径：ExtensionHookRegistry.apply_to → HookManager.trigger
   # （验证回调参数顺序 call/error/agent 与 agent 注入机制，而非直接调块）
