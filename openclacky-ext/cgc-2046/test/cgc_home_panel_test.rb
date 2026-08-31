@@ -227,6 +227,19 @@ class TutorAsidePanelTest < Minitest::Test
     assert_includes VIEW, "function signature()"
   end
 
+  def test_per_objective_rewrite_action
+    # 局部 AI 动作:✎ 定向重写——位置(objective_id+issue_id)自动携带,
+    # tutor 只说改成什么;重写/扩展二选一(prompt 确认/取消/放弃三态)
+    assert_includes CURRICULUM_VIEW2, "data-rewrite" if defined?(CURRICULUM_VIEW2)
+    assert_includes VIEW, "data-rewrite"
+    assert_includes VIEW, "cgta-obj-edit"
+    assert_includes VIEW, "injectRewrite"
+    assert_includes VIEW, "objective_id: " + '" + objId'
+    assert_includes VIEW, "保持 objective_id 不变"
+    assert_includes VIEW, "其它目标/单元一律不动"
+    assert_includes VIEW, "我的修改意图是"
+  end
+
   def test_aside_shares_course_selection_and_scope
     # 与教研工作台共享课程选择 key;作用域按课程归属台
     assert_includes VIEW, "cgc2046.curriculum.courseId"
