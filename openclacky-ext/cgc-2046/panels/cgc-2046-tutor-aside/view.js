@@ -89,12 +89,15 @@
     await refreshDraft();
   }
 
-  async function refreshDraft() {
+  async function refreshDraft(force) {
     if (!state.selectedCourseId) {
       state.loading = false;
       renderPanel();
       return;
     }
+    const before = signature();
+    // 菜单打开时跳过非强制刷新(重渲染会清掉行内菜单的 DOM)
+    if (!force && root && root.querySelector(".cgta-rewrite-menu")) return;
     try {
       const ws = scopeOf();
       const [contentRes, prepRes] = await Promise.all([
@@ -107,6 +110,8 @@
       state.prep = (prepRes.result || null);
       state.lastRefresh = new Date().toLocaleTimeString();
       state.error = null;
+      // 数据没变不重渲染(轮询/事件刷新不闪、不打断交互)
+      if (!force && signature() === before) { state.loading = false; return; }
     } catch (e) {
       state.error = e;
     } finally {
