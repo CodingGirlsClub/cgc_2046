@@ -316,6 +316,16 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, "cgla-continue-button"
   end
 
+  # #3 材料快捷动作:目标行 📎 hover 显示 → 点击就地展开材料链接
+  def test_materials_quick_action
+    assert_includes VIEW, "materialsOf"
+    assert_includes VIEW, "data-mats"
+    assert_includes VIEW, "cgla-obj-mats"
+    assert_includes VIEW, "cgla-mats-panel"
+    assert_includes VIEW, "cgla-mat-ref"
+    assert_includes VIEW, '"/courses/" + encodeURIComponent(state.selected.courseId) + "/content"'
+  end
+
   def test_session_aside_mount_contract
     assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
     assert_includes VIEW, "agents: [AGENT]"
