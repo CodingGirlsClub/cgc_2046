@@ -271,7 +271,14 @@
               '<span class="cgta-course-chevron">⌄</span>' +
             '</summary>' +
             '<div class="cgta-issue-body">' + objs.map(function (o) {
-              return '<div class="cgta-obj">· ' + escapeHtml(o.title || o.id) + '</div>';
+              return (
+                '<div class="cgta-obj">' +
+                  '<span class="cgta-obj-title">· ' + escapeHtml(o.title || o.id) + '</span>' +
+                  '<button class="cgta-obj-edit" type="button" data-rewrite="' + escapeHtml(o.id) +
+                    '" data-issue="' + escapeHtml(issue.id || "") +
+                    '" data-title="' + escapeHtml(o.title || o.id) + '" title="定向重写这个目标">✎</button>' +
+                '</div>'
+              );
             }).join("") + '</div>' +
           '</details>'
         );
@@ -311,6 +318,105 @@
     if (open) open.addEventListener("click", function () {
       Clacky.ext.ui.openWorkspace("cgc-2046-curriculum");
     });
+    // 局部 AI 动作:✎ 定向重写(位置自动携带,tutor 只说改成什么)
+    root.querySelectorAll("[data-rewrite]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        const row = btn.closest(".cgta-obj");
+        const objId = btn.getAttribute("data-rewrite");
+        const issueId = btn.getAttribute("data-issue");
+        const objTitle = btn.getAttribute("data-title");
+
+        // 行内菜单:展开/收起 toggle(同一时间只展开一个)
+        const existing = root.querySelector(".cgta-rewrite-menu");
+        if (existing) existing.remove();
+        if (row.dataset.menuOpen === "1") { delete row.dataset.menuOpen; return; }
+        root.querySelectorAll(".cgta-obj").forEach(function (r2) { delete r2.dataset.menuOpen; });
+        row.dataset.menuOpen = "1";
+        row.classList.add("is-target");
+
+        const menu = document.createElement("div");
+        menu.className = "cgta-rewrite-menu";
+        menu.innerHTML =
+          '<button type="button" data-verb="rewrite">↻ 重写<span>替换全部内容</span></button>' +
+          '<button type="button" data-verb="extend">＋ 扩展<span>在现有基础上补充</span></button>' +
+          '<button type="button" data-verb="cancel">× 放弃</button>';
+        row.parentElement.insertBefore(menu, row.nextSibling);
+
+        menu.addEventListener("click", function (e2) {
+          const v = e2.target.closest("[data-verb]");
+          if (!v) return;
+          menu.remove();
+          row.classList.remove("is-target");
+          delete row.dataset.menuOpen;
+          const verb = v.getAttribute("data-verb");
+          if (verb === "cancel") return;
+          injectRewrite(objId, issueId, objTitle,
+            verb === "rewrite" ? "重写(替换该目标全部内容)" : "扩展(在现有基础上补充)");
+        });
+      });
+    });
+  }
+
+  // 定向重写指令:位置(objective_id + issue)自动携带,tutor 只补「改成什么」
+  function injectRewrite(objId, issueId, objTitle, verb) {
+    const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
+    const title = course.title || "当前课程";
+    const instruction = [
+      "请" + verb + "课程《" + title + "》学习单元中的目标「" + objTitle + "」。",
+      "(course_id: " + state.selectedCourseId + ", workspace_id: " + scopeOf() +
+        (issueId ? ", issue_id: " + issueId : "") + ", objective_id: " + objId + ")",
+      "要求:",
+      "- 先 get_course_content 确认该目标的当前内容;",
+      "- 只修改这一个目标(" + (true ? "保持 objective_id 不变" : "") + "),其它目标/单元一律不动;",
+      "- " + (verb.indexOf("重写") >= 0
+          ? "整体重写该目标的 activity/assessment/materials/rubric;"
+          : "在现有内容基础上补充,不删除已有内容;") + "- 保存后汇报变更摘要。",
+      "我的修改意图是:(请等我描述)"
+    ].join("\n");
+    createTutorSession(instruction);
+  }
+
+  function createTutorSession(instruction) {
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "教研共创", agent_profile: "cgc-tutor", source: "manual" })
+    })
+      .then(function (res) { return res.json().catch(function () { return {}; }); })
+      .then(function (payload) {
+        const session = payload.session;
+        if (!session || !session.id) throw new Error("没有创建可用的教研会话");
+        if (Clacky.Sessions && typeof Clacky.Sessions.add === "function") {
+          Clacky.Sessions.add(session);
+          if (typeof Clacky.Sessions.renderList === "function") Clacky.Sessions.renderList();
+          Clacky.Sessions.select(session.id);
+        } else if (Clacky.Router && typeof Clacky.Router.navigate === "function") {
+          Clacky.Router.navigate("session", { id: session.id });
+        }
+        setTimeout(function () { injectIntoComposer(instruction); }, 1500);
+      })
+      .catch(function (e) {
+        window.alert("打开教研会话失败：" + String(e.message || e));
+      });
+  }
+
+  function injectIntoComposer(text) {
+    const input = document.getElementById("user-input");
+    const send = document.getElementById("btn-send");
+    if (!input || !send) {
+      window.prompt("复制以下指令到教研会话:", text);
+      return;
+    }
+    input.textContent = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    send.click();
+    if (send.disabled) {
+      const timer = setInterval(function () {
+        if (!send.disabled) { clearInterval(timer); send.click(); }
+      }, 200);
+      setTimeout(function () { clearInterval(timer); }, 8000);
+    }
   }
 
   function bindHead() {
@@ -362,7 +468,17 @@
       ".cgta-issue-name{flex:1;min-width:0;font-weight:650;font-size:0.71875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
       ".cgta-issue-count{flex:none;font-size:0.59375rem;color:var(--color-text-tertiary)}" +
       ".cgta-issue-body{border-top:1px solid var(--color-border-secondary);padding:6px 10px}" +
-      ".cgta-obj{font-size:0.6875rem;color:var(--color-text-secondary);padding:3px 0}" +
+      ".cgta-obj{display:flex;align-items:center;gap:6px;font-size:0.6875rem;color:var(--color-text-secondary);padding:3px 0}" +
+      ".cgta-obj-title{flex:1;min-width:0}" +
+      ".cgta-obj-edit{flex:none;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:transparent;color:var(--color-text-muted);font-size:0.6875rem;cursor:pointer;opacity:0;transition:opacity var(--transition-fast),color var(--transition-fast)}" +
+      ".cgta-obj:hover .cgta-obj-edit{opacity:1}" +
+      ".cgta-obj-edit:hover{color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
+      ".cgta-obj.is-target{background:color-mix(in srgb,var(--color-accent-primary) 8%,transparent);border-radius:4px}" +
+      ".cgta-rewrite-menu{display:flex;gap:6px;padding:6px 8px;border-radius:6px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-accent-primary) 30%,var(--color-border-primary));margin:2px 0 6px}" +
+      ".cgta-rewrite-menu button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;border:1px solid var(--color-border-secondary);border-radius:6px;background:var(--color-bg-subtle);color:var(--color-text-primary);font-size:0.625rem;font-weight:650;cursor:pointer;font-family:inherit;transition:border-color var(--transition-fast),background var(--transition-fast)}" +
+      ".cgta-rewrite-menu button:hover{border-color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
+      ".cgta-rewrite-menu button span{font-size:0.53125rem;font-weight:400;color:var(--color-text-tertiary)}" +
+      ".cgta-rewrite-menu button[data-verb=cancel]{flex:none;color:var(--color-text-tertiary);border-style:dashed}" + +
       ".cgta-continue{padding:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--color-accent-primary) 12%,var(--color-bg-card)),var(--color-bg-card));border:1px solid color-mix(in srgb,var(--color-accent-primary) 20%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
       ".cgta-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
       ".cgta-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
