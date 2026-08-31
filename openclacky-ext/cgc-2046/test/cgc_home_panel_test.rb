@@ -227,6 +227,19 @@ class TutorAsidePanelTest < Minitest::Test
     assert_includes VIEW, "function signature()"
   end
 
+  # #5 质量报告摘要卡:quality_check/review 态显示 score/阈值/违规/审核 CTA
+  def test_quality_report_card
+    assert_includes VIEW, "function qualityReportCard()"
+    assert_includes VIEW, '"quality_check" && st !== "review"'
+    assert_includes VIEW, "latest_quality_report"
+    assert_includes VIEW, "gate_violations"
+    assert_includes VIEW, "quality_threshold"
+    assert_includes VIEW, "达标"
+    assert_includes VIEW, "未达标"
+    assert_includes VIEW, "data-goto-review"
+    assert_includes VIEW, "去工作台审核发布"
+  end
+
   def test_per_objective_rewrite_action
     # 局部 AI 动作:✎ 定向重写——位置(objective_id+issue_id)自动携带,
     # tutor 只说改成什么;重写/扩展二选一(prompt 确认/取消/放弃三态)
