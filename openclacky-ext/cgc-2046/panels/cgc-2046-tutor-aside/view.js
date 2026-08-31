@@ -141,6 +141,62 @@
     }
   }
 
+  // ---- 质量报告摘要卡(#5):quality_check/review 态显示 score/阈值/违规 ----
+  function qualityReportCard() {
+    const prep = state.prep || {};
+    const st = prep.prep_state;
+    if (st !== "quality_check" && st !== "review") return "";
+
+    const report = prep.latest_quality_report;
+    const violations = Array.isArray(prep.gate_violations) ? prep.gate_violations : [];
+    const policy = prep.policy || {};
+    const threshold = policy.quality_threshold;
+
+    let html =
+      '<div class="cgta-quality" data-testid="cgta-quality">' +
+        '<div class="cgta-quality-head">';
+    if (report) {
+      const score = report.score;
+      const passed = threshold != null ? score >= threshold : (report.outcome === "passed" || report.outcome === "pass");
+      html +=
+        '<span class="cgta-quality-score-group">' +
+          '<span class="cgta-quality-score-label">质量评分</span>' +
+          '<span class="cgta-quality-score ' + (passed ? "is-pass" : "is-fail") + '">' +
+            escapeHtml(String(score)) + '</span>' +
+          '<span class="cgta-quality-sep">/ 100</span>' +
+        '</span>' +
+        '<span class="cgta-quality-threshold">及格线 ' + escapeHtml(String(threshold != null ? threshold : 80)) + '</span>' +
+        '<span class="cgta-quality-badge ' + (passed ? "is-pass" : "is-fail") + '">' +
+          (passed ? "达标 ✓" : "未达标 ✗") + '</span>';
+    } else {
+      html += '<span class="cgta-quality-pending">等待质量报告…</span>';
+    }
+    html += '</div>';
+
+    if (violations.length > 0) {
+      html +=
+        '<div class="cgta-quality-violations">' +
+          '<span class="cgta-quality-violations-label">违规 ' + violations.length + ' 项:</span>' +
+          violations.slice(0, 3).map(function (v) {
+            return '<div class="cgta-quality-violation">· ' + escapeHtml(String(v)) + '</div>';
+          }).join("") +
+          (violations.length > 3
+            ? '<div class="cgta-quality-violation">…共 ' + violations.length + ' 项</div>' : "") +
+        '</div>';
+    }
+
+    if (report && report.summary) {
+      html += '<div class="cgta-quality-summary">' + escapeHtml(report.summary.slice(0, 120)) + '</div>';
+    }
+
+    if (st === "review") {
+      html +=
+        '<button class="cgta-quality-cta" type="button" data-goto-review>→ 去工作台审核发布</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   // ---- 渲染 ----
   const PREP_STATES = ["draft", "authoring", "quality_check", "review", "published"];
   const PREP_LABELS = { draft: "草稿", authoring: "编写中", quality_check: "质检", review: "审核", published: "已发布" };
@@ -253,6 +309,8 @@
       '<span class="cgta-prepbar">' + prepDots() + '</span>' +
     '</div>';
 
+    inner += qualityReportCard();
+
     if (isNew) {
       inner += '<div class="cgta-continue">' +
         '<div class="cgta-eyebrow">开始共创</div>' +
@@ -309,6 +367,10 @@
         localStorage.setItem("cgc2046.curriculum.courseId", cid);
         refreshDraft();
       });
+    });
+    const gotoReview = root.querySelector("[data-goto-review]");
+    if (gotoReview) gotoReview.addEventListener("click", function () {
+      Clacky.ext.ui.openWorkspace("cgc-2046-curriculum");
     });
     const cocreate = root.querySelector("[data-cocreate]");
     if (cocreate) cocreate.addEventListener("click", function () {
@@ -492,6 +554,25 @@
       ".cgta-continue-button:hover{filter:brightness(1.12)}" +
       ".cgta-open{display:block;width:100%;margin-top:4px;padding:8px;border:1px dashed var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:0.625rem;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
       ".cgta-open:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
+      ".cgta-quality{padding:12px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-warning,#fbbf24) 35%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
+      ".cgta-quality-head{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}" +
+      ".cgta-quality-score-group{display:flex;align-items:baseline;gap:3px}" +
+      ".cgta-quality-score-label{font-size:0.59375rem;font-weight:650;color:var(--color-text-tertiary);margin-right:3px}" +
+      ".cgta-quality-score{font-size:1.375rem;font-weight:720;letter-spacing:-0.03em;line-height:1}" +
+      ".cgta-quality-threshold{font-size:0.59375rem;color:var(--color-text-tertiary);margin-left:auto;white-space:nowrap}" +
+      ".cgta-quality-score.is-pass{color:var(--color-success,#34d399)}" +
+      ".cgta-quality-score.is-fail{color:var(--color-error,#f87171)}" +
+      ".cgta-quality-sep{font-size:0.6875rem;color:var(--color-text-tertiary)}" +
+      ".cgta-quality-badge{display:inline-flex;padding:1px 8px;min-height:16px;align-items:center;border-radius:999px;font-size:0.59375rem;font-weight:700}" +
+      ".cgta-quality-badge.is-pass{color:var(--color-success,#34d399);border:1px solid currentColor}" +
+      ".cgta-quality-badge.is-fail{color:var(--color-error,#f87171);border:1px solid currentColor}" +
+      ".cgta-quality-pending{font-size:0.6875rem;color:var(--color-text-tertiary)}" +
+      ".cgta-quality-violations{margin-top:8px;font-size:0.625rem;line-height:1.5}" +
+      ".cgta-quality-violations-label{font-weight:650;color:var(--color-warning,#fbbf24)}" +
+      ".cgta-quality-violation{color:var(--color-text-secondary);padding-left:8px}" +
+      ".cgta-quality-summary{margin-top:6px;font-size:0.59375rem;color:var(--color-text-tertiary);line-height:1.45}" +
+      ".cgta-quality-cta{display:block;width:100%;margin-top:8px;padding:6px;border:0;border-radius:var(--radius-sm,6px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.625rem;font-weight:700;cursor:pointer;font-family:inherit;transition:filter var(--transition-fast)}" +
+      ".cgta-quality-cta:hover{filter:brightness(1.12)}" +
       "@media (max-width:720px){.cgta-header{padding-inline:12px}.cgta-source{padding-inline:12px}.cgta-content{padding-inline:8px}}";
 document.head.appendChild(css);
   }
