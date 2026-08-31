@@ -228,6 +228,16 @@ class TutorAsidePanelTest < Minitest::Test
   end
 
   # #5 质量报告摘要卡:quality_check/review 态显示 score/阈值/违规/审核 CTA
+  # #2 展开态记忆 + agent 改动 issue 自动展开高亮
+  def test_issue_expand_memory_and_auto_expand
+    assert_includes VIEW, "cgc2046.tutorAside.openIssues"
+    assert_includes VIEW, "changedIssues"
+    assert_includes VIEW, "state.prevContent"
+    assert_includes VIEW, "is-changed"
+    assert_includes VIEW, '"toggle"'
+    assert_includes VIEW, "data-issue="
+  end
+
   def test_quality_report_card
     assert_includes VIEW, "function qualityReportCard()"
     assert_includes VIEW, '"quality_check" && st !== "review"'
