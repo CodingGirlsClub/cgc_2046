@@ -1,8 +1,8 @@
 defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   @moduledoc """
-  平台治理十工具测试（role-agent-journeys-v2 S2，直接调 tool execute/2，不走 HTTP）。
+    平台治理十一工具测试（role-agent-journeys-v2 S2，直接调 tool execute/2，不走 HTTP）。
 
-  - 门控：非平台管理员（含 workspace owner）十工具一律 forbidden + 审计
+    - 门控：非平台管理员（含 workspace owner）十一工具一律 forbidden + 审计
   - 读四件：admin 见用户/工作台/申请；admin_list_audit_logs 三源只投影操作
     元数据（断言无 params/payload/metadata 键，§B#21 结构性免疫）
   - 写六件（确认流两段）：approve/reject 申请、create_workspace 双 Owner 路径、
@@ -27,12 +27,14 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
+  alias Cgc2046.Reconciliation.Finding
 
   alias Cgc2046.Mcp.Tools.{
     AdminApproveWorkspaceApplication,
     AdminCreateWorkspace,
     AdminDemoteUser,
     AdminListAuditLogs,
+    AdminListReconciliationFindings,
     AdminListUsers,
     AdminListWorkspaceApplications,
     AdminListWorkspaces,
@@ -121,7 +123,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   end
 
   describe "门控：非平台管理员一律 forbidden" do
-    test "workspace owner（非平台管理员）调十工具全部 forbidden 落审计" do
+    test "workspace owner（非平台管理员）调十一工具全部 forbidden 落审计" do
       %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
 
       tools = [
@@ -129,6 +131,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
         {AdminListWorkspaces, %{}},
         {AdminListWorkspaceApplications, %{}},
         {AdminListAuditLogs, %{"source" => "tool_calls"}},
+        {AdminListReconciliationFindings, %{}},
         {AdminApproveWorkspaceApplication, %{"application_id" => Ecto.UUID.generate()}},
         {AdminRejectWorkspaceApplication, %{"application_id" => Ecto.UUID.generate()}},
         {AdminCreateWorkspace, %{"name" => "X", "owner_email" => "x@example.com"}},
@@ -151,7 +154,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
         |> Ash.Query.filter(user_id == ^owner.id)
         |> Ash.read!(authorize?: false)
 
-      assert length(logs) == 10
+      assert length(logs) == 11
       assert Enum.all?(logs, &(&1.result_status == :forbidden))
       assert Enum.all?(logs, &String.starts_with?(&1.tool, "admin_"))
       # 门控在业务 fun 之前：不落任何 pending
@@ -325,6 +328,69 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
                AdminListAuditLogs.execute(%{"source" => "bogus"}, frame_for(admin))
 
       assert msg =~ "invalid source"
+    end
+
+    test "admin_list_reconciliation_findings：全量/rule 过滤/workspace 过滤 + 非法 rule → error" do
+      admin = Fixtures.platform_admin("pa-recon-admin")
+      %{workspace: ws_a} = Fixtures.workspace_with_member()
+      %{workspace: ws_b} = Fixtures.workspace_with_member()
+
+      # 直造两行 finding（worker 写入逻辑另有 reconciliation_scan_worker_test 钉；
+      # entity_id 无 FK 约束，裸 UUID 即可）
+      for {ws, rule} <- [
+            {ws_a, :open_entity_without_research_definition},
+            {ws_b, :ledger_cache_drift}
+          ] do
+        assert {:ok, _} =
+                 Finding
+                 |> Ash.Changeset.for_create(:create, %{
+                   rule: rule,
+                   entity_type: :course,
+                   entity_id: Ecto.UUID.generate(),
+                   workspace_id: ws.id,
+                   detail: %{"title" => "recon-fixture"}
+                 })
+                 |> Ash.create(authorize?: false)
+      end
+
+      # 全量：两行都在
+      {:reply, _, _} = all_reply = AdminListReconciliationFindings.execute(%{}, frame_for(admin))
+      all = decode_reply(all_reply)
+      assert all["count"] >= 2
+      row = Enum.find(all["findings"], &(&1["rule"] == "ledger_cache_drift"))
+      assert Map.has_key?(row, "entity_type")
+      assert Map.has_key?(row, "entity_id")
+      assert Map.has_key?(row, "workspace_id")
+      assert Map.has_key?(row, "first_seen_at")
+      assert Map.has_key?(row, "last_seen_at")
+
+      # rule 过滤：只剩规则四
+      {:reply, _, _} =
+        rule_reply =
+        AdminListReconciliationFindings.execute(
+          %{"rule" => "open_entity_without_research_definition"},
+          frame_for(admin)
+        )
+
+      rule_rows = decode_reply(rule_reply)["findings"]
+      assert rule_rows != []
+      assert Enum.all?(rule_rows, &(&1["rule"] == "open_entity_without_research_definition"))
+
+      # workspace 过滤：只剩 ws_a
+      {:reply, _, _} =
+        ws_reply =
+        AdminListReconciliationFindings.execute(%{"workspace_id" => ws_a.id}, frame_for(admin))
+
+      ws_rows = decode_reply(ws_reply)["findings"]
+      assert ws_rows != []
+      assert Enum.all?(ws_rows, &(&1["workspace_id"] == ws_a.id))
+
+      # 非法 rule → error（报文带合法清单）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AdminListReconciliationFindings.execute(%{"rule" => "bogus"}, frame_for(admin))
+
+      assert msg =~ "invalid rule"
+      assert msg =~ "open_entity_without_research_definition"
     end
   end
 

@@ -374,6 +374,41 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:open_entity_without_research_definition)
     end
+
+    # UAT P2：教研发生在 draft→launch 之间，缺定义工作台的 draft 课程教研链
+    # 已断流（tutor 撞 :course_preparation_definition_not_found），旧口径扫不到
+    test "draft 课程无教研定义 → 命中；补种定义 → 下一拍自愈清空" do
+      admin = Fixtures.platform_admin("rc4-draft-admin")
+      workspace = Fixtures.create_workspace(admin)
+      # 同规4 布景：SQL 直删 seed 定义构造异常态（#348 后新 workspace 恒 seed）
+      Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+        Ecto.UUID.dump!(workspace.id)
+      ])
+
+      # draft 态课程（:create 默认 status draft，不经 fixture 的 force_open）
+      assert {:ok, course} =
+               Cgc2046.Courses.Course
+               |> Ash.Changeset.for_create(:create, %{title: "RC4 Draft Course"},
+                 tenant: workspace.id,
+                 actor: admin
+               )
+               |> Ash.create(tenant: workspace.id, actor: admin)
+
+      assert course.status == :draft
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [%Finding{entity_type: :course, entity_id: entity_id}] =
+               findings(:open_entity_without_research_definition)
+
+      assert entity_id == course.id
+
+      # 自愈：补种 published course_preparation 定义 → 刷新语义 delete_stale 清空
+      create_published_definition(workspace, admin, :course_preparation)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:open_entity_without_research_definition)
+    end
   end
 
   # ── 规5：closed/cancelled 实体仍有非终态 curriculum run ------------------------
