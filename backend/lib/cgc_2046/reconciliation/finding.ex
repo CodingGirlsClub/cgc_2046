@@ -80,6 +80,11 @@ defmodule Cgc2046.Reconciliation.Finding do
     # ADR-0009 Fable 5 HIGH-1：账本缓存 vs offering 真值的上游漂移看护
     :ledger_cache_drift
   ]
+  # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
+  # @doc false public 先例同 Runs.fetch_learning_definition）
+  @doc false
+  @spec rule_values() :: [atom()]
+  def rule_values, do: @rule_values
 
   @entity_type_values [
     :enrollment,
