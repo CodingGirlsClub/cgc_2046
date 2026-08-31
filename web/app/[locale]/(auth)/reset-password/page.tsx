@@ -12,6 +12,7 @@ import {
   PasswordField,
   PasswordStrength,
 } from "../login/auth-form";
+import AuthShell from "../auth-shell";
 
 type ResetView = "loading" | "form" | "success" | "invalid";
 
@@ -104,139 +105,137 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <main className="auth-page auth-page--login">
+    <AuthShell mode="login">
       <meta name="referrer" content="no-referrer" />
-      <section className="auth-form-panel">
-        <div className="auth-form-card">
-          <div className="auth-form-heading">
-            <h2>{view === "success" ? t("titleSuccess") : t("titleForm")}</h2>
-          </div>
+      <div className="auth-form-heading">
+        <h2 id="auth-page-title">
+          {view === "success" ? t("titleSuccess") : t("titleForm")}
+        </h2>
+      </div>
 
-          {view === "loading" && (
-            <div className="auth-submit-note" role="status" aria-live="polite">
-              {t("checking")}
-            </div>
-          )}
-
-          {view === "invalid" && (
-            <div
-              ref={statusRef}
-              className="auth-submit-note"
-              role="status"
-              tabIndex={-1}
-              aria-live="polite"
-            >
-              <p>{t("invalidP1")}</p>
-              <p>{t("invalidP2")}</p>
-              <p className="auth-switch">
-                <Link className="auth-switch__action auth-inline-link" href="/forgot-password">
-                  {t("resend")}
-                </Link>
-                <span aria-hidden="true"> · </span>
-                <Link className="auth-switch__action auth-inline-link" href="/login">
-                  {t("backToLogin")}
-                </Link>
-              </p>
-            </div>
-          )}
-
-          {view === "success" && (
-            <div
-              ref={statusRef}
-              className="auth-submit-note"
-              role="status"
-              tabIndex={-1}
-              aria-live="polite"
-            >
-              <p>{t("successP1")}</p>
-              <p className="auth-switch">
-                <Link className="auth-switch__action auth-inline-link" href="/login">
-                  {t("goLogin")}
-                </Link>
-              </p>
-            </div>
-          )}
-
-          {view === "form" && (
-            <div className="auth-form-body">
-              {error && (
-                <div
-                  ref={statusRef}
-                  className="auth-alert"
-                  role="alert"
-                  tabIndex={-1}
-                  aria-live="assertive"
-                >
-                  {error}
-                </div>
-              )}
-
-              <form className="auth-form" onSubmit={handleSubmit} noValidate>
-                <div className="auth-field">
-                  <label className="auth-field__label" htmlFor="reset-password">
-                    {t("fieldNewPassword")}
-                  </label>
-                  <PasswordField
-                    id="reset-password"
-                    placeholder={authT("placeholder.passwordMin")}
-                    value={password}
-                    onChange={(value) => {
-                      setPassword(value);
-                      setPasswordError(null);
-                    }}
-                    visible={showPassword}
-                    onToggle={() => setShowPassword((current) => !current)}
-                    autoComplete="new-password"
-                    ariaDescribedBy={passwordError ? "reset-password-error" : undefined}
-                    ariaInvalid={Boolean(passwordError)}
-                  />
-                  <PasswordStrength password={password} />
-                </div>
-
-                <div className="auth-field">
-                  <label className="auth-field__label" htmlFor="reset-confirm-password">
-                    {t("fieldConfirmNewPassword")}
-                  </label>
-                  <PasswordField
-                    id="reset-confirm-password"
-                    placeholder={authT("placeholder.confirmPassword")}
-                    value={confirmPassword}
-                    onChange={(value) => {
-                      setConfirmPassword(value);
-                      setPasswordError(null);
-                    }}
-                    visible={showConfirmPassword}
-                    onToggle={() => setShowConfirmPassword((current) => !current)}
-                    autoComplete="new-password"
-                  />
-                </div>
-
-                {passwordError && (
-                  <div
-                    ref={statusRef}
-                    id="reset-password-error"
-                    className="auth-alert"
-                    role="alert"
-                    tabIndex={-1}
-                    aria-live="assertive"
-                  >
-                    {passwordError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  className="auth-submit"
-                  disabled={loading}
-                  aria-busy={loading}
-                >
-                  {loading ? t("saving") : t("submitSave")}
-                </button>
-              </form>
-            </div>
-          )}
+      {view === "loading" && (
+        <div className="auth-submit-note" role="status" aria-live="polite">
+          {t("checking")}
         </div>
-      </section>
-    </main>
+      )}
+
+      {view === "invalid" && (
+        <div
+          ref={statusRef}
+          className="auth-submit-note"
+          role="status"
+          tabIndex={-1}
+          aria-live="polite"
+        >
+          <p>{t("invalidP1")}</p>
+          <p>{t("invalidP2")}</p>
+          <p className="auth-switch">
+            <Link className="auth-switch__action auth-inline-link" href="/forgot-password">
+              {t("resend")}
+            </Link>
+            <span aria-hidden="true"> · </span>
+            <Link className="auth-switch__action auth-inline-link" href="/login">
+              {t("backToLogin")}
+            </Link>
+          </p>
+        </div>
+      )}
+
+      {view === "success" && (
+        <div
+          ref={statusRef}
+          className="auth-submit-note"
+          role="status"
+          tabIndex={-1}
+          aria-live="polite"
+        >
+          <p>{t("successP1")}</p>
+          <p className="auth-switch">
+            <Link className="auth-switch__action auth-inline-link" href="/login">
+              {t("goLogin")}
+            </Link>
+          </p>
+        </div>
+      )}
+
+      {view === "form" && (
+        <div className="auth-form-body">
+          {error && (
+            <div
+              ref={statusRef}
+              className="auth-alert"
+              role="alert"
+              tabIndex={-1}
+              aria-live="assertive"
+            >
+              {error}
+            </div>
+          )}
+
+          <form className="auth-form" onSubmit={handleSubmit} noValidate>
+            <div className="auth-field">
+              <label className="auth-field__label" htmlFor="reset-password">
+                {t("fieldNewPassword")}
+              </label>
+              <PasswordField
+                id="reset-password"
+                placeholder={authT("placeholder.passwordMin")}
+                value={password}
+                onChange={(value) => {
+                  setPassword(value);
+                  setPasswordError(null);
+                }}
+                visible={showPassword}
+                onToggle={() => setShowPassword((current) => !current)}
+                autoComplete="new-password"
+                ariaDescribedBy={passwordError ? "reset-password-error" : undefined}
+                ariaInvalid={Boolean(passwordError)}
+              />
+              <PasswordStrength password={password} />
+            </div>
+
+            <div className="auth-field">
+              <label className="auth-field__label" htmlFor="reset-confirm-password">
+                {t("fieldConfirmNewPassword")}
+              </label>
+              <PasswordField
+                id="reset-confirm-password"
+                placeholder={authT("placeholder.confirmPassword")}
+                value={confirmPassword}
+                onChange={(value) => {
+                  setConfirmPassword(value);
+                  setPasswordError(null);
+                }}
+                visible={showConfirmPassword}
+                onToggle={() => setShowConfirmPassword((current) => !current)}
+                autoComplete="new-password"
+              />
+            </div>
+
+            {passwordError && (
+              <div
+                ref={statusRef}
+                id="reset-password-error"
+                className="auth-alert"
+                role="alert"
+                tabIndex={-1}
+                aria-live="assertive"
+              >
+                {passwordError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="auth-submit"
+              disabled={loading}
+              aria-busy={loading}
+            >
+              {loading ? t("saving") : t("submitSave")}
+            </button>
+          </form>
+        </div>
+      )}
+    </AuthShell>
   );
 }

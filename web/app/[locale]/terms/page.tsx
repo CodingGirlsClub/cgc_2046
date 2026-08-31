@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
+import SitePage from "@/components/site-page";
 
 /**
  * /terms 用户服务协议（静态法务页，#210 U1）。
@@ -26,7 +27,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default function TermsPage() {
 	return (
-		<main className="mx-auto max-w-3xl px-4 py-10">
+		<SitePage>
+			<div className="mx-auto max-w-3xl px-4 py-10">
 			<h1 className="l-h1">CGC 平台用户服务协议</h1>
 
 			<div className="mt-4 space-y-1 rounded-large border border-line bg-card px-5 py-4 text-[12px] leading-5 text-ink-3">
@@ -116,6 +118,7 @@ export default function TermsPage() {
 			<div className="mt-10 rounded-large border border-line bg-card px-5 py-4 text-sm leading-6 text-ink-2">
 				<p><strong>重要提示</strong>：请重点阅读第 3 节（行为规范）、第 5 节（退款）、第 6 节（AI/Agent 操作归责）、第 7 节（免责）。如您对条款有疑问，请在注册前联系我们。</p>
 			</div>
-		</main>
+			</div>
+		</SitePage>
 	);
 }

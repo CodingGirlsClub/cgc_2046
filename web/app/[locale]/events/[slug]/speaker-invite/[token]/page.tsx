@@ -22,6 +22,7 @@ import {
 	fetchSpeakerInvitationCard,
 } from "@/lib/speaker-invitations";
 import type { SpeakerInvitationCard } from "@/lib/graphql/speaker-invitation";
+import SitePage from "@/components/site-page";
 
 type DecisionState =
 	| { kind: "idle" }
@@ -114,7 +115,8 @@ export default function Page() {
 	const invitePath = `/events/${slug}/speaker-invite/${token}`;
 
 	return (
-		<main className="mx-auto w-full max-w-3xl px-4 py-10">
+		<SitePage>
+			<div className="mx-auto w-full max-w-3xl px-4 py-10">
 			<header className="mb-6">
 				<p className="text-[13px] text-ink-3">
 					<Link href="/" className="hover:text-ink">
@@ -250,6 +252,7 @@ export default function Page() {
 					</div>
 				</div>
 			)}
-		</main>
+			</div>
+	</SitePage>
 	);
 }

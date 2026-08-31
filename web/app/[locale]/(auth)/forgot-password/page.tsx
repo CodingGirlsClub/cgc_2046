@@ -8,6 +8,7 @@ import {
   graphqlErrorDetails,
   REQUEST_PASSWORD_RESET,
 } from "@/lib/graphql/auth";
+import AuthShell from "../auth-shell";
 
 export default function ForgotPasswordPage() {
   const t = useTranslations("auth.forgot");
@@ -46,85 +47,81 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <main className="auth-page auth-page--login">
-      <section className="auth-form-panel">
-        <div className="auth-form-card">
-          <div className="auth-form-heading">
-            <h2>{t("title")}</h2>
-          </div>
+    <AuthShell mode="login">
+      <div className="auth-form-heading">
+        <h2 id="auth-page-title">{t("title")}</h2>
+      </div>
 
-          {submitted ? (
+      {submitted ? (
+        <div
+          ref={statusRef}
+          className="auth-submit-note"
+          role="status"
+          tabIndex={-1}
+          aria-live="polite"
+        >
+          <p>{t("sentP1")}</p>
+          <p>{t("sentP2")}</p>
+          <Link className="auth-inline-link" href="/login">
+            {t("backToLogin")}
+          </Link>
+        </div>
+      ) : (
+        <div className="auth-form-body">
+          {error && (
             <div
               ref={statusRef}
-              className="auth-submit-note"
-              role="status"
+              className="auth-alert"
+              role="alert"
               tabIndex={-1}
-              aria-live="polite"
+              aria-live="assertive"
             >
-              <p>{t("sentP1")}</p>
-              <p>{t("sentP2")}</p>
-              <Link className="auth-inline-link" href="/login">
-                {t("backToLogin")}
-              </Link>
-            </div>
-          ) : (
-            <div className="auth-form-body">
-              {error && (
-                <div
-                  ref={statusRef}
-                  className="auth-alert"
-                  role="alert"
-                  tabIndex={-1}
-                  aria-live="assertive"
-                >
-                  {error}
-                </div>
-              )}
-
-              <form className="auth-form" onSubmit={handleSubmit} noValidate>
-                <div className="auth-field">
-                  <label className="auth-field__label" htmlFor="forgot-email">
-                    {t("fieldEmail")}
-                  </label>
-                  <input
-                    id="forgot-email"
-                    name="email"
-                    className="auth-input"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(event) => {
-                      setEmail(event.target.value);
-                      setError(null);
-                    }}
-                    autoComplete="email"
-                    autoFocus
-                    required
-                  />
-                  <span className="auth-field__hint">
-                    {t("hint")}
-                  </span>
-                </div>
-
-                <button
-                  type="submit"
-                  className="auth-submit"
-                  disabled={loading}
-                  aria-busy={loading}
-                >
-                  {loading ? t("sending") : t("submit")}
-                </button>
-              </form>
-
-              <p className="auth-switch">
-                <Link className="auth-switch__action auth-inline-link" href="/login">
-                  {t("backToLogin")}
-                </Link>
-              </p>
+              {error}
             </div>
           )}
+
+          <form className="auth-form" onSubmit={handleSubmit} noValidate>
+            <div className="auth-field">
+              <label className="auth-field__label" htmlFor="forgot-email">
+                {t("fieldEmail")}
+              </label>
+              <input
+                id="forgot-email"
+                name="email"
+                className="auth-input"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  setError(null);
+                }}
+                autoComplete="email"
+                autoFocus
+                required
+              />
+              <span className="auth-field__hint">
+                {t("hint")}
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit"
+              disabled={loading}
+              aria-busy={loading}
+            >
+              {loading ? t("sending") : t("submit")}
+            </button>
+          </form>
+
+          <p className="auth-switch">
+            <Link className="auth-switch__action auth-inline-link" href="/login">
+              {t("backToLogin")}
+            </Link>
+          </p>
         </div>
-      </section>
-    </main>
+      )}
+    </AuthShell>
   );
 }
