@@ -306,7 +306,9 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   end
 
   # ── 规4:open 实体无 published 教研定义(Event=:curriculum 定义;Course=
-  # :course_preparation 定义,S6 起教研流程类型分家) ──
+  # :course_preparation 定义,S6 起教研流程类型分家;Course 侧含 draft——
+  # 教研发生在 draft→launch 之间,缺定义的断流课程在 draft 期就该看见,
+  # 不等 open 才暴露) ──
 
   defp scan_rule4 do
     curriculum_workspace_ids =
@@ -322,9 +324,12 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       |> MapSet.new(fn definition -> definition.workspace_id end)
 
     # S6:course 侧教研流程 = course_preparation prep run(Curriculum.PrepInstantiator)
-    # ——open 课程的孤儿判定改为「工作台无 published course_preparation 定义」
-    # (无条件命中;prep run 缺失 = 教研流程不会实例化)。Event 保留 curriculum_
-    # enabled 开关过滤(false 合法不命中,退出通道),定义仍取 :curriculum 型。
+    # ——draft/open 课程的孤儿判定改为「工作台无 published course_preparation
+    # 定义」(无条件命中;prep run 缺失 = 教研流程不会实例化)。course 扩 draft:
+    # 教研发生在 draft→launch 之间,缺定义工作台的 draft 课程教研链已断流,
+    # 不等 open 才暴露(UAT P2:tutor 的 draft 课撞 :course_preparation_
+    # definition_not_found,旧口径扫不到)。Event 保留 curriculum_enabled
+    # 开关过滤(false 合法不命中,退出通道),定义仍取 :curriculum 型。
     # 「教研已完成」口径与 Instantiator 收窄对齐:course.launched 不再实例化
     # :curriculum run,open 课程不因缺教研 run 命中(命中条件只有定义缺失)。
     orphans =
@@ -333,7 +338,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
         MapSet.member?(curriculum_workspace_ids, entity.workspace_id)
       end)
       |> Kernel.++(
-        open_unconditional(Course)
+        draft_or_open_unconditional(Course)
         |> Enum.reject(fn entity ->
           MapSet.member?(prep_workspace_ids, entity.workspace_id)
         end)
@@ -357,9 +362,9 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     |> Ash.read!(authorize?: false)
   end
 
-  defp open_unconditional(resource) do
+  defp draft_or_open_unconditional(resource) do
     resource
-    |> Ash.Query.filter(status == :open)
+    |> Ash.Query.filter(status in [:draft, :open])
     |> Ash.read!(authorize?: false)
   end
 
