@@ -189,7 +189,8 @@
       "sideLabel": "WeChat QR sign-in",
       "unavailable": "WeChat sign-in is not available yet. Please use another method.",
       "expired": "QR code expired",
-      "refresh": "Refresh QR code"
+      "refresh": "Refresh QR code",
+      "bindingInProgress": "Finish phone verification to sign in"
     },
     "wechatCallback": {
       "processing": "Completing WeChat sign-in…",
@@ -1428,7 +1429,9 @@
     "tierNamePlaceholder": "Tier name (e.g. Standard)",
     "tierAmountPlaceholder": "Amount (CNY)",
     "delete": "Delete",
-    "addTier": "Add tier"
+    "addTier": "Add tier",
+    "tierUntilAria": "Sales end date (optional)",
+    "tierUntilHint": "Sales end (optional, e.g. early-bird): leave empty to sell until the registration deadline; once passed, this tier is automatically hidden from the enrollment page."
   },
   "sponsorship": {
     "tierNameRequired": "Tier name cannot be empty",
