@@ -46,6 +46,12 @@ defmodule Cgc2046.Notifications.Service do
   #   连字符恰 32 字符）/ 截止日期=time11
   # - event_reminder「活动开始提醒」：活动名称=thing2 / 开始时间=time3 /
   #   活动地点=thing4（发送方未落地，#203；字段映射先注册）
+  # - payment_received「收款成功通知」：活动名称=thing6 / 商品名称=thing8
+  #   （档位快照名，空档跳过）/ 订单金额=amount2 / 订单编号=character_string1
+  #   （order_id UUID 去连字符）
+  # - payment_expired「订单状态变化通知」：订单号=character_string11 / 商品名
+  #   称=thing14（活动名）/ 订单金额=amount8 / 备注=thing10（超时说明，
+  #   re_enrollable=true 时提示报名截止前可重新报名）
   #
   # 缺值字段跳过（微信允许少传）；无映射的平台/模板键原样透传（tt/xhs 模板
   # 未申请，template_not_configured 在更早已拦截，透传仅为不炸兜底路径）。
@@ -75,9 +81,36 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
+  defp render(:wechat, "payment_received", %{} = data) do
+    %{
+      "thing6" => thing(data["title"]),
+      "thing8" => thing(blank_to_nil(data["tier_name"])),
+      "amount2" => data["amount"],
+      "character_string1" => code(data["order_id"])
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "payment_expired", %{} = data) do
+    %{
+      "character_string11" => code(data["order_id"]),
+      "thing14" => thing(data["title"]),
+      "amount8" => data["amount"],
+      "thing10" => expiry_note(data["re_enrollable"])
+    }
+    |> drop_nils()
+  end
+
   defp render(_platform, _template_key, data), do: data
 
   defp drop_nils(fields), do: Map.reject(fields, fn {_k, v} -> is_nil(v) end)
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(text) when is_binary(text), do: text
+
+  # thing ≤20 字：「订单超时作废，报名截止前可重新报名」恰 17 字
+  defp expiry_note("true"), do: "订单超时作废，报名截止前可重新报名"
+  defp expiry_note(_), do: "订单超时作废"
 
   defp approval_result_text("approved"), do: "已通过"
   defp approval_result_text("rejected"), do: "未通过"

@@ -252,6 +252,60 @@ defmodule Cgc2046.Notifications.ServiceTest do
     refute Map.has_key?(data, "thing4")
   end
 
+  test "payment_received 渲染：thing6/thing8/amount2/character_string1，空档位跳过" do
+    user = Fixtures.register_user("notification-receipt-render")
+    insert_identity(user.id, :wechat, "wx-receipt-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "payment_received")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "payment_received", %{
+               "order_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "enrollment_id" => "enr-1",
+               "amount" => "199.00",
+               "provider" => "wechat_jsapi",
+               "title" => "AI 入门工作坊",
+               "tier_name" => ""
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" =>
+                        %{
+                          "thing6" => %{"value" => "AI 入门工作坊"},
+                          "amount2" => %{"value" => "199.00"},
+                          "character_string1" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"}
+                        } = data
+                    }}
+
+    refute Map.has_key?(data, "thing8")
+  end
+
+  test "payment_expired 渲染：character_string11/thing14/amount8/thing10（可重报文案）" do
+    user = Fixtures.register_user("notification-expiry-render")
+    insert_identity(user.id, :wechat, "wx-expiry-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "payment_expired")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "payment_expired", %{
+               "order_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "enrollment_id" => "enr-1",
+               "amount" => "199.00",
+               "provider" => "wechat_jsapi",
+               "title" => "AI 入门工作坊",
+               "re_enrollable" => "true"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "character_string11" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"},
+                        "thing14" => %{"value" => "AI 入门工作坊"},
+                        "amount8" => %{"value" => "199.00"},
+                        "thing10" => %{"value" => "订单超时作废，报名截止前可重新报名"}
+                      }
+                    }}
+  end
+
   defp insert_identity(user_id, platform, uid) do
     Cgc2046.Repo.query!(
       """
