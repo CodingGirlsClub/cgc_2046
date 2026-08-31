@@ -33,7 +33,8 @@
     error: null,
     courses: [],      // [{ courseId, title, workspaceId, workspaceName }]
     selected: null,   // 选中的 course 对象
-    learning: null    // /learning_state result
+    learning: null,   // /learning_state result
+    lastRefresh: ""
   };
 
   function escapeHtml(s) {
@@ -101,7 +102,9 @@
         encodeURIComponent(state.selected.workspaceId) +
         "&course_id=" + encodeURIComponent(state.selected.courseId));
       state.learning = payload.result || null;
+      state.lastRefresh = new Date().toLocaleTimeString();
       state.error = null;
+      state.lastRefresh = new Date().toLocaleTimeString();
     } catch (e) {
       // 未连接(503)与其它错误都收敛为面板内提示,不打扰会话
       state.learning = null;
@@ -188,129 +191,159 @@
   }
 
   function renderPanel() {
+    const _p = ((state.learning || {}).progress || {});
+    const progressText = state.loading ? "" :
+      "必修 " + (Number(_p.mastered_required) || 0) + "/" + (Number(_p.total_required) || 0) +
+      ((_p.complete) ? " · 已结业" : "");
+
     let html =
-      '<div class="cgc-learn-head">' +
-        '<span class="cgc-learn-title">学习地图</span>' +
-        '<button id="cgc-learn-refresh" class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button">刷新</button>' +
-      '</div>';
+      '<div class="cgl-header">' +
+        '<div class="cgl-header-copy">' +
+          '<div class="cgl-title">学习地图</div>' +
+          '<div class="cgl-progress-text">' + escapeHtml(progressText) + '</div>' +
+        '</div>' +
+        '<button id="cgc-learn-refresh" class="cgl-sync" type="button">刷新</button>' +
+      '</div>' +
+      '<div class="cgl-source">' +
+        '<span class="cgl-source-dot"></span><span>目标地图</span>' +
+        (state.lastRefresh ? '<span class="cgl-source-date">' + escapeHtml(state.lastRefresh) + '</span>' : "") +
+      '</div>' +
+      '<div class="cgl-content">';
 
     if (state.loading) {
-      root.innerHTML = html + '<div class="cgc-empty">加载中…</div>';
+      root.innerHTML = html + '<div class="cgl-empty">加载中…</div></div>';
       bind();
       return;
     }
     if (state.error) {
-      root.innerHTML = html +
-        '<div class="cgc-ev-err" data-testid="learn-error">加载失败:' +
-        escapeHtml(String(state.error.message || state.error)) + '</div>';
+      root.innerHTML = html + '<div class="cgl-empty cgl-error" data-testid="learn-error">加载失败:' +
+        escapeHtml(String(state.error.message || state.error)) + '</div></div>';
       bind();
       return;
     }
     if (state.courses.length === 0) {
-      root.innerHTML = html +
-        '<div class="cgc-empty" data-testid="learn-empty">暂无在学课程。先在「CGC 发现」报名课程。</div>';
+      root.innerHTML = html + '<div class="cgl-empty" data-testid="learn-empty">暂无在学课程。先在「CGC 发现」报名课程。</div></div>';
       bind();
       return;
     }
 
-    const opts = state.courses.map(function (c) {
-      const sel = state.selected && c.courseId === state.selected.courseId ? " selected" : "";
-      return '<option value="' + escapeHtml(c.courseId) + '"' + sel + '>' +
-             escapeHtml(c.title) + '</option>';
+    // 课程折叠卡(details):多课程信息密度 > select;选中课程默认展开+标记
+    html += state.courses.map(function (c) {
+      const isSel = state.selected && c.courseId === state.selected.courseId;
+      return (
+        '<details class="cgl-course"' + (isSel ? " open" : "") + ' data-course="' + escapeHtml(c.courseId) + '">' +
+          '<summary class="cgl-course-summary">' +
+            '<span class="cgl-course-copy">' +
+              '<span class="cgl-course-title">' + escapeHtml(c.title) + '</span>' +
+              (isSel ? '<span class="cgl-course-now">当前</span>' : "") +
+            '</span>' +
+            '<span class="cgl-course-chevron">⌄</span>' +
+          '</summary>' +
+          '<div class="cgl-course-body" data-body="' + escapeHtml(c.courseId) + '"></div>' +
+        '</details>'
+      );
     }).join("");
-    html += '<select id="cgc-learn-course" class="cgc-select">' + opts + '</select>';
 
+    html += '</div>';
+
+    // 选中课程的内容块(渲染后搬进对应卡 body)
     const learning = state.learning || {};
     const objectives = learning.objectives || [];
     const progress = learning.progress || {};
     const next = learning.next_action || null;
 
-    html += '<div class="cgc-learn-progress">必修 ' +
-      escapeHtml(progress.mastered_required || 0) + '/' + escapeHtml(progress.total_required || 0) +
-      (progress.complete ? ' · 已结业' : '') + '</div>';
+    let inner = "";
+    const total = Number(progress.total_required) || 0;
+    const done = Number(progress.mastered_required) || 0;
+    const pct = total > 0 ? Math.round((done * 100) / total) : 0;
+    inner += '<div class="cgl-progress"><div class="cgl-progress-bar"><div style="width:' + pct + '%"></div></div></div>';
 
-    // Resume 置顶大卡(第一屏):下一个必修目标为主;有到期复习时优先显示复习
-    // (口吻自动切到期复习),主按钮永远是最显眼的下一步(qingclaw 精髓 1)
+    // Resume 置顶大卡(渐变+eyebrow;到期复习优先)
     const dueReview = (learning.review_queue || [])[0];
     const resume = (dueReview && dueReview.objective_id)
-      ? { objectiveId: dueReview.objective_id, label: "继续复习", reason: (dueReview.needs_review === true ? "待复习恢复" : "复习到期") }
+      ? { objectiveId: dueReview.objectiveId2 || dueReview.objective_id, label: "继续复习", reason: (dueReview.needs_review === true ? "待复习恢复" : "复习到期") }
       : (next && next.objective_id
           ? { objectiveId: next.objective_id, label: "继续学习", reason: next.reason || "" }
           : null);
     if (resume) {
       const objTitle = objectiveTitle(resume.objectiveId);
-      html +=
-        '<div class="cgc-learn-resume" data-testid="learn-next">' +
-          '<div class="cgc-learn-resume-copy">' +
-            '<span class="cgc-badge cgc-badge-next">' + escapeHtml(resume.label) + '</span>' +
-            '<span class="cgc-learn-resume-title">' + escapeHtml(objTitle) + '</span>' +
-            (resume.reason ? '<span class="cgc-learn-resume-reason">' + escapeHtml(resume.reason) + '</span>' : "") +
-          '</div>' +
-          '<button class="cgc-learn-resume-btn" type="button" data-inject="' +
-            escapeHtml(resume.objectiveId) + '" data-testid="learn-next-cta">▶</button>' +
+      let reason = resume.reason || "";
+      reason = reason.replace(new RegExp("「" + objTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "」", "g"), "").replace(/^[,，。:：\s]+|[,，。\s]+$/g, "").slice(0, 40);
+      inner +=
+        '<div class="cgl-continue" data-testid="learn-next">' +
+          '<div class="cgl-eyebrow">' + escapeHtml(resume.label) + '</div>' +
+          '<div class="cgl-continue-title">' + escapeHtml(objTitle) + '</div>' +
+          (reason ? '<div class="cgl-continue-subtitle">' + escapeHtml(reason) + '</div>' : "") +
+          '<button class="cgl-continue-button" type="button" data-inject="' +
+            escapeHtml(resume.objectiveId) + '" data-testid="learn-next-cta">▶ 开始学习</button>' +
         '</div>';
     }
 
-    const reviewById = {};
-    (learning.review_queue || []).forEach(function (entry) {
-      if (entry && entry.objective_id != null) reviewById[String(entry.objective_id)] = entry;
-    });
+    // 复习队列
     (learning.review_queue || []).forEach(function (entry) {
       if (!entry || entry.objective_id == null) return;
       const urgent = entry.needs_review === true;
       const obj = (learning.objectives || []).find(function (o) { return o.id === entry.objective_id; }) || {};
-      html +=
-        '<div class="cgc-learn-review' + (urgent ? " cgc-learn-urgent" : "") + '"' +
+      inner +=
+        '<button class="cgl-review' + (urgent ? " cgl-urgent" : "") + '" type="button"' +
           ' data-inject="' + escapeHtml(entry.objective_id) + '" data-review="1" data-testid="learn-review">' +
-          (urgent ? "待复习恢复 · " : "复习到期 · ") + escapeHtml(obj.title || entry.objective_id) +
-        '</div>';
+          '<span class="review-tag">' + (urgent ? "待恢复" : "复习") + '</span>' +
+          '<span class="review-title">' + escapeHtml(obj.title || entry.objective_id) + '</span>' +
+          '<span class="review-go">▶</span>' +
+        '</button>';
     });
 
+    // 目标地图(掌握行中划线;锁定行 badge=🔒+右侧需先修)
     if (objectives.length === 0) {
-      html += '<div class="cgc-empty">该课程暂无学习目标(教研未完成或未发布)。</div>';
+      inner += '<div class="cgl-empty">该课程暂无学习目标(教研未完成或未发布)。</div>';
     } else {
-      const rows = objectives.map(function (o) {
+      inner += '<div class="cgl-obj-list">' + objectives.map(function (o) {
         const locked = !!o.locked;
         const missing = o.missing_prereq_ids || [];
         return (
-          '<div class="cgc-learn-obj' + (locked ? " cgc-learn-locked" : "") + '"' +
+          '<div class="cgl-obj' + (locked ? " is-locked" : "") + (o.mastery === "mastered" ? " is-done" : "") + '"' +
             (locked ? "" : ' data-inject="' + escapeHtml(o.id) + '"') +
             ' data-testid="learn-obj" data-objective="' + escapeHtml(o.id) + '">' +
-            '<span class="cgc-badge cgc-obj-' + escapeHtml(o.mastery) + '">' +
-              escapeHtml(masteryLabel(o.mastery)) + '</span>' +
-            '<span class="cgc-learn-obj-title">' + escapeHtml(o.title || o.id) + '</span>' +
-            (locked
-              ? '<span class="cgc-learn-lock">🔒</span>'
-              : (o.attempt_count > 0 ? '<span class="cgc-learn-attempts">' + escapeHtml(o.attempt_count) + '次</span>' : "")) +
+            '<span class="obj-badge ' + (locked ? "" : "obj-" + escapeHtml(o.mastery)) + '">' +
+              escapeHtml(locked ? "🔒" : masteryLabel(o.mastery)) + '</span>' +
+            '<span class="cgl-obj-title">' + escapeHtml(o.title || o.id) + '</span>' +
+            (!locked && o.attempt_count > 0
+              ? '<span class="cgl-attempts">' + escapeHtml(o.attempt_count) + '次</span>' : "") +
             (locked && missing.length > 0
-              ? '<div class="cgc-learn-prereq">需先修:' +
-                  escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '</div>'
-              : "") +
+              ? '<span class="cgl-prereq" title="' +
+                  escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '">需先修</span>' : "") +
           '</div>'
         );
-      }).join("");
-      html += '<div class="cgc-learn-list">' + rows + '</div>';
+      }).join("") + '</div>';
     }
 
     root.innerHTML = html;
+
+    // 搬运:内容块填入选中课程卡 body;课程卡渲染在 content 内
+    const selBody = root.querySelector("[data-body='" + (state.selected ? state.selected.courseId : "") + "']");
+    if (selBody) selBody.innerHTML = inner;
+
     bind();
   }
 
   function bind() {
     const refresh = root.querySelector("#cgc-learn-refresh");
     if (refresh) refresh.addEventListener("click", boot);
-    const course = root.querySelector("#cgc-learn-course");
-    if (course) {
-      course.addEventListener("change", function () {
-        state.selected = state.courses.find(function (c) { return c.courseId === course.value; }) || null;
-        loadLearning();
-      });
-    }
     root.querySelectorAll("[data-inject]").forEach(function (el) {
       el.addEventListener("click", function () {
         const id = el.getAttribute("data-inject");
         const review = el.getAttribute("data-review") === "1";
         injectPrompt(id, review ? reviewByIdFor(id) : null);
+      });
+    });
+    // 点非选中课程卡 = 切课;选中卡 = 折叠/展开
+    root.querySelectorAll(".cgl-course").forEach(function (d) {
+      const cid = d.getAttribute("data-course");
+      d.querySelector(".cgl-course-summary").addEventListener("click", function (e) {
+        if (state.selected && cid === state.selected.courseId) return;
+        e.preventDefault();
+        const c = state.courses.find(function (x) { return x.courseId === cid; });
+        if (c) { state.selected = c; loadLearning(); }
       });
     });
   }
@@ -326,39 +359,58 @@
     const css = document.createElement("style");
     css.id = "cgc-learn-styles";
     css.textContent =
-      ".cgc-learn-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}" +
-      ".cgc-learn-title{font-weight:600;font-size:13px}" +
-      ".cgc-learn-head + .cgc-select, .cgc-select{width:100%;padding:4px 8px;border:1px solid rgba(128,128,128,.4);border-radius:6px;background:transparent;color:inherit;font-size:12px;margin-bottom:8px}" +
-      ".cgc-learn-progress{font-size:12px;opacity:.7;margin-bottom:8px}" +
-      ".cgc-learn-resume{display:flex;align-items:center;gap:10px;padding:12px;margin-bottom:10px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-accent-primary) 35%,var(--color-border-primary));border-radius:10px;box-shadow:var(--shadow-sm)}" +
-      ".cgc-learn-resume-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}" +
-      ".cgc-learn-resume-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
-      ".cgc-learn-resume-reason{font-size:11px;color:var(--color-text-tertiary)}" +
-      ".cgc-learn-resume-btn{flex:none;width:44px;height:44px;border:0;border-radius:10px;background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:17px;font-weight:700;cursor:pointer;transition:filter var(--transition-fast)}" +
-      ".cgc-learn-resume-btn:hover{filter:brightness(1.12)}" +
-      ".cgc-learn-next{display:flex;gap:6px;align-items:center;flex-wrap:wrap;border:1px solid rgba(99,102,241,.4);border-radius:8px;padding:8px;margin-bottom:8px;font-size:12px}" +
-      ".cgc-learn-next-text{flex:1;min-width:0}" +
-      ".cgc-badge{font-size:10px;border:1px solid rgba(128,128,128,.4);border-radius:999px;padding:0 6px;flex:none}" +
-      ".cgc-badge-next{color:#6366f1;border-color:#6366f1}" +
-      ".cgc-learn-review{font-size:12px;color:#fbbf24;border:1px dashed rgba(251,191,36,.5);border-radius:6px;padding:5px 8px;margin-bottom:4px;cursor:pointer;box-shadow:inset 2px 0 0 #fbbf24}" +
-      ".cgc-learn-urgent{color:#f87171;border-color:rgba(248,113,113,.5);box-shadow:inset 2px 0 0 #f87171}" +
-      ".cgc-learn-list{display:flex;flex-direction:column;gap:2px}" +
-      ".cgc-learn-obj{display:flex;gap:6px;align-items:baseline;padding:5px 4px;border-radius:6px;cursor:pointer;font-size:12px;flex-wrap:wrap}" +
-      ".cgc-learn-obj:hover{background:rgba(127,127,127,.12)}" +
-      ".cgc-learn-obj-title{flex:1;min-width:0;word-break:break-all}" +
-      ".cgc-learn-locked{cursor:default;opacity:.6}" +
-      ".cgc-learn-attempts{font-size:10px;opacity:.6;flex:none}" +
-      ".cgc-learn-prereq{width:100%;font-size:11px;color:#f97316}" +
-      ".cgc-obj-mastered{color:#34d399;border-color:#34d399}" +
-      ".cgc-obj-developing{color:#fbbf24;border-color:#fbbf24}" +
-      ".cgc-obj-needs_review{color:#f97316;border-color:#f97316}" +
-      ".cgc-btn{display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;text-decoration:none;cursor:pointer;border:1px solid transparent}" +
-      ".cgc-btn-secondary{background:transparent;border-color:rgba(128,128,128,.4);color:inherit}" +
-      ".cgc-btn-primary{background:#6366f1;color:#fff}" +
-      ".cgc-btn-mini{padding:2px 8px;font-size:11px}" +
-      ".cgc-empty{opacity:.55;font-size:12px}" +
-      ".cgc-ev-err{color:#c0392b;font-size:12px}";
-    document.head.appendChild(css);
+      ".cgl-root{min-height:100%;color:var(--color-text-primary);background:var(--color-bg-primary);font-size:0.75rem}" +
+      ".cgl-header{display:flex;align-items:center;gap:12px;padding:16px 16px 10px}" +
+      ".cgl-header-copy{flex:1;min-width:0}" +
+      ".cgl-title{font-size:0.9375rem;font-weight:680}" +
+      ".cgl-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
+      ".cgl-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
+      ".cgl-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
+      ".cgl-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
+      ".cgl-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
+      ".cgl-source-date{margin-left:auto}" +
+      ".cgl-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
+      ".cgl-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
+      ".cgl-error{color:var(--color-error,#c0392b)}" +
+      ".cgl-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
+      ".cgl-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
+      ".cgl-course-summary::-webkit-details-marker{display:none}" +
+      ".cgl-course-copy{display:flex;flex:1;align-items:center;gap:8px;min-width:0}" +
+      ".cgl-course-title{overflow:hidden;flex:1;font-size:0.75rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}" +
+      ".cgl-course-now{flex:none;font-size:0.5625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));border-radius:999px;padding:0 6px;min-height:13px;display:inline-flex;align-items:center}" +
+      ".cgl-course-chevron{color:var(--color-text-tertiary);font-size:0.875rem;transition:transform var(--transition-fast)}" +
+      ".cgl-course[open] .cgl-course-chevron{transform:rotate(180deg)}" +
+      ".cgl-course-body{border-top:1px solid var(--color-border-secondary);padding:10px;display:flex;flex-direction:column;gap:8px}" +
+      ".cgl-progress{height:4px;border-radius:2px;background:var(--color-bg-hover);overflow:hidden}" +
+      ".cgl-progress-bar div{height:100%;background:var(--color-accent-primary);transition:width .4s ease}" +
+      ".cgl-continue{padding:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--color-accent-primary) 12%,var(--color-bg-card)),var(--color-bg-card));border:1px solid color-mix(in srgb,var(--color-accent-primary) 20%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
+      ".cgl-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
+      ".cgl-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
+      ".cgl-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
+      ".cgl-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
+      ".cgl-continue-button:hover{filter:brightness(1.12)}" +
+      ".cgl-review{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:0.6875rem;color:var(--color-warning,#fbbf24);border:1px dashed color-mix(in srgb,var(--color-warning,#fbbf24) 40%,var(--color-border-primary));border-radius:var(--radius-sm,6px);cursor:pointer;text-align:left;width:100%;font-family:inherit;background:transparent;transition:background var(--transition-fast)}" +
+      ".cgl-review:hover{background:color-mix(in srgb,var(--color-warning,#fbbf24) 6%,transparent)}" +
+      ".cgl-urgent{color:var(--color-error,#f87171);border-color:color-mix(in srgb,var(--color-error,#f87171) 40%,var(--color-border-primary))}" +
+      ".review-tag{flex:none;font-size:0.59375rem;font-weight:700}" +
+      ".review-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+      ".review-go{flex:none;font-size:0.59375rem;opacity:.5}" +
+      ".cgl-obj-list{display:flex;flex-direction:column}" +
+      ".cgl-obj{display:flex;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);cursor:pointer;transition:background var(--transition-fast)}" +
+      ".cgl-obj:last-child{border-bottom:0}" +
+      ".cgl-obj:hover{background:var(--color-bg-hover)}" +
+      ".cgl-obj.is-done .cgl-obj-title{text-decoration:line-through;color:var(--color-text-tertiary)}" +
+      ".cgl-obj.is-locked{cursor:default;opacity:.5}" +
+      ".cgl-obj.is-locked:hover{background:transparent}" +
+      ".obj-badge{flex:none;font-size:0.5625rem;font-weight:700;padding:0 5px;min-height:14px;display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--color-border-secondary);color:var(--color-text-tertiary)}" +
+      ".obj-mastered{color:var(--color-success,#34d399)!important;border-color:var(--color-success,#34d399)!important}" +
+      ".obj-developing{color:var(--color-warning,#fbbf24)!important;border-color:var(--color-warning,#fbbf24)!important}" +
+      ".obj-needs_review{color:var(--color-error,#f97316)!important;border-color:var(--color-error,#f97316)!important}" +
+      ".cgl-obj-title{flex:1;min-width:0;word-break:break-all;line-height:1.4;font-size:0.71875rem;font-weight:580}" +
+      ".cgl-attempts{flex:none;font-size:0.5625rem;color:var(--color-text-tertiary)}" +
+      ".cgl-prereq{flex:none;font-size:0.5625rem;color:var(--color-warning,#f97316)}" +
+      "@media (max-width:720px){.cgl-header{padding-inline:12px}.cgl-source{padding-inline:12px}.cgl-content{padding-inline:8px}}";
+document.head.appendChild(css);
   }
 
   injectStyles();
@@ -368,7 +420,7 @@
     if (!ctx || ctx.agentProfile !== AGENT || !ctx.sessionId) return;
 
     root = document.createElement("div");
-    root.className = "cgc-learn-root";
+    root.className = "cgl-root";
     container.appendChild(root);
     rerender = renderPanel;
 

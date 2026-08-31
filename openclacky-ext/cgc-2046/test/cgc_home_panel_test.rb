@@ -271,12 +271,13 @@ class CgcLearnPanelTest < Minitest::Test
   end
 
   def test_resume_card_first_screen
-    # Resume 置顶大卡:到期复习优先,否则 next_action;accent 实底主按钮
-    assert_includes VIEW, "cgc-learn-resume"
+    # Resume 置顶大卡(qingclaw 渐变+eyebrow 骨架):到期复习优先,否则 next_action
+    assert_includes VIEW, "cgl-continue"
+    assert_includes VIEW, "cgl-eyebrow"
     assert_includes VIEW, "继续复习"
     assert_includes VIEW, "继续学习"
     assert_includes VIEW, "dueReview"
-    assert_includes VIEW, "cgc-learn-resume-btn"
+    assert_includes VIEW, "cgl-continue-button"
   end
 
   def test_session_aside_mount_contract
@@ -332,8 +333,9 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, "function escapeHtml("
     assert_includes VIEW, "escapeHtml(c.title)"
     assert_includes VIEW, "escapeHtml(o.title || o.id)"
+    assert_includes VIEW, "m.title || m.id"
     assert_includes VIEW, "escapeHtml(objTitle)"
-    assert_includes VIEW, "escapeHtml(resume.reason)"
+    assert_includes VIEW, "escapeHtml(reason)"
   end
 
   # 锁定目标不可点(无 data-inject),防越先修注入
