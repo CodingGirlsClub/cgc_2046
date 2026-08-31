@@ -197,32 +197,32 @@
       ((_p.complete) ? " · 已结业" : "");
 
     let html =
-      '<div class="cgl-header">' +
-        '<div class="cgl-header-copy">' +
-          '<div class="cgl-title">学习地图</div>' +
-          '<div class="cgl-progress-text">' + escapeHtml(progressText) + '</div>' +
+      '<div class="cgla-header">' +
+        '<div class="cgla-header-copy">' +
+          '<div class="cgla-title">学习地图</div>' +
+          '<div class="cgla-progress-text">' + escapeHtml(progressText) + '</div>' +
         '</div>' +
-        '<button id="cgc-learn-refresh" class="cgl-sync" type="button">刷新</button>' +
+        '<button id="cgc-learn-refresh" class="cgla-sync" type="button">刷新</button>' +
       '</div>' +
-      '<div class="cgl-source">' +
-        '<span class="cgl-source-dot"></span><span>目标地图</span>' +
-        (state.lastRefresh ? '<span class="cgl-source-date">' + escapeHtml(state.lastRefresh) + '</span>' : "") +
+      '<div class="cgla-source">' +
+        '<span class="cgla-source-dot"></span><span>目标地图</span>' +
+        (state.lastRefresh ? '<span class="cgla-source-date">' + escapeHtml(state.lastRefresh) + '</span>' : "") +
       '</div>' +
-      '<div class="cgl-content">';
+      '<div class="cgla-content">';
 
     if (state.loading) {
-      root.innerHTML = html + '<div class="cgl-empty">加载中…</div></div>';
+      root.innerHTML = html + '<div class="cgla-empty">加载中…</div></div>';
       bind();
       return;
     }
     if (state.error) {
-      root.innerHTML = html + '<div class="cgl-empty cgl-error" data-testid="learn-error">加载失败:' +
+      root.innerHTML = html + '<div class="cgla-empty cgla-error" data-testid="learn-error">加载失败:' +
         escapeHtml(String(state.error.message || state.error)) + '</div></div>';
       bind();
       return;
     }
     if (state.courses.length === 0) {
-      root.innerHTML = html + '<div class="cgl-empty" data-testid="learn-empty">暂无在学课程。先在「CGC 发现」报名课程。</div></div>';
+      root.innerHTML = html + '<div class="cgla-empty" data-testid="learn-empty">暂无在学课程。先在「CGC 发现」报名课程。</div></div>';
       bind();
       return;
     }
@@ -231,15 +231,15 @@
     html += state.courses.map(function (c) {
       const isSel = state.selected && c.courseId === state.selected.courseId;
       return (
-        '<details class="cgl-course"' + (isSel ? " open" : "") + ' data-course="' + escapeHtml(c.courseId) + '">' +
-          '<summary class="cgl-course-summary">' +
-            '<span class="cgl-course-copy">' +
-              '<span class="cgl-course-title">' + escapeHtml(c.title) + '</span>' +
-              (isSel ? '<span class="cgl-course-now">当前</span>' : "") +
+        '<details class="cgla-course"' + (isSel ? " open" : "") + ' data-course="' + escapeHtml(c.courseId) + '">' +
+          '<summary class="cgla-course-summary">' +
+            '<span class="cgla-course-copy">' +
+              '<span class="cgla-course-title">' + escapeHtml(c.title) + '</span>' +
+              (isSel ? '<span class="cgla-course-now">当前</span>' : "") +
             '</span>' +
-            '<span class="cgl-course-chevron">⌄</span>' +
+            '<span class="cgla-course-chevron">⌄</span>' +
           '</summary>' +
-          '<div class="cgl-course-body" data-body="' + escapeHtml(c.courseId) + '"></div>' +
+          '<div class="cgla-course-body" data-body="' + escapeHtml(c.courseId) + '"></div>' +
         '</details>'
       );
     }).join("");
@@ -256,7 +256,7 @@
     const total = Number(progress.total_required) || 0;
     const done = Number(progress.mastered_required) || 0;
     const pct = total > 0 ? Math.round((done * 100) / total) : 0;
-    inner += '<div class="cgl-progress"><div class="cgl-progress-bar"><div style="width:' + pct + '%"></div></div></div>';
+    inner += '<div class="cgla-progress"><div class="cgla-progress-bar"><div style="width:' + pct + '%"></div></div></div>';
 
     // Resume 置顶大卡(渐变+eyebrow;到期复习优先)
     const dueReview = (learning.review_queue || [])[0];
@@ -270,11 +270,11 @@
       let reason = resume.reason || "";
       reason = reason.replace(new RegExp("「" + objTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "」", "g"), "").replace(/^[,，。:：\s]+|[,，。\s]+$/g, "").slice(0, 40);
       inner +=
-        '<div class="cgl-continue" data-testid="learn-next">' +
-          '<div class="cgl-eyebrow">' + escapeHtml(resume.label) + '</div>' +
-          '<div class="cgl-continue-title">' + escapeHtml(objTitle) + '</div>' +
-          (reason ? '<div class="cgl-continue-subtitle">' + escapeHtml(reason) + '</div>' : "") +
-          '<button class="cgl-continue-button" type="button" data-inject="' +
+        '<div class="cgla-continue" data-testid="learn-next">' +
+          '<div class="cgla-eyebrow">' + escapeHtml(resume.label) + '</div>' +
+          '<div class="cgla-continue-title">' + escapeHtml(objTitle) + '</div>' +
+          (reason ? '<div class="cgla-continue-subtitle">' + escapeHtml(reason) + '</div>' : "") +
+          '<button class="cgla-continue-button" type="button" data-inject="' +
             escapeHtml(resume.objectiveId) + '" data-testid="learn-next-cta">▶ 开始学习</button>' +
         '</div>';
     }
@@ -285,7 +285,7 @@
       const urgent = entry.needs_review === true;
       const obj = (learning.objectives || []).find(function (o) { return o.id === entry.objective_id; }) || {};
       inner +=
-        '<button class="cgl-review' + (urgent ? " cgl-urgent" : "") + '" type="button"' +
+        '<button class="cgla-review' + (urgent ? " cgla-urgent" : "") + '" type="button"' +
           ' data-inject="' + escapeHtml(entry.objective_id) + '" data-review="1" data-testid="learn-review">' +
           '<span class="review-tag">' + (urgent ? "待恢复" : "复习") + '</span>' +
           '<span class="review-title">' + escapeHtml(obj.title || entry.objective_id) + '</span>' +
@@ -295,22 +295,22 @@
 
     // 目标地图(掌握行中划线;锁定行 badge=🔒+右侧需先修)
     if (objectives.length === 0) {
-      inner += '<div class="cgl-empty">该课程暂无学习目标(教研未完成或未发布)。</div>';
+      inner += '<div class="cgla-empty">该课程暂无学习目标(教研未完成或未发布)。</div>';
     } else {
-      inner += '<div class="cgl-obj-list">' + objectives.map(function (o) {
+      inner += '<div class="cgla-obj-list">' + objectives.map(function (o) {
         const locked = !!o.locked;
         const missing = o.missing_prereq_ids || [];
         return (
-          '<div class="cgl-obj' + (locked ? " is-locked" : "") + (o.mastery === "mastered" ? " is-done" : "") + '"' +
+          '<div class="cgla-obj' + (locked ? " is-locked" : "") + (o.mastery === "mastered" ? " is-done" : "") + '"' +
             (locked ? "" : ' data-inject="' + escapeHtml(o.id) + '"') +
             ' data-testid="learn-obj" data-objective="' + escapeHtml(o.id) + '">' +
             '<span class="obj-badge ' + (locked ? "" : "obj-" + escapeHtml(o.mastery)) + '">' +
               escapeHtml(locked ? "🔒" : masteryLabel(o.mastery)) + '</span>' +
-            '<span class="cgl-obj-title">' + escapeHtml(o.title || o.id) + '</span>' +
+            '<span class="cgla-obj-title">' + escapeHtml(o.title || o.id) + '</span>' +
             (!locked && o.attempt_count > 0
-              ? '<span class="cgl-attempts">' + escapeHtml(o.attempt_count) + '次</span>' : "") +
+              ? '<span class="cgla-attempts">' + escapeHtml(o.attempt_count) + '次</span>' : "") +
             (locked && missing.length > 0
-              ? '<span class="cgl-prereq" title="' +
+              ? '<span class="cgla-prereq" title="' +
                   escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '">需先修</span>' : "") +
           '</div>'
         );
@@ -337,9 +337,9 @@
       });
     });
     // 点非选中课程卡 = 切课;选中卡 = 折叠/展开
-    root.querySelectorAll(".cgl-course").forEach(function (d) {
+    root.querySelectorAll(".cgla-course").forEach(function (d) {
       const cid = d.getAttribute("data-course");
-      d.querySelector(".cgl-course-summary").addEventListener("click", function (e) {
+      d.querySelector(".cgla-course-summary").addEventListener("click", function (e) {
         if (state.selected && cid === state.selected.courseId) return;
         e.preventDefault();
         const c = state.courses.find(function (x) { return x.courseId === cid; });
@@ -359,57 +359,57 @@
     const css = document.createElement("style");
     css.id = "cgc-learn-styles";
     css.textContent =
-      ".cgl-root{min-height:100%;color:var(--color-text-primary);background:var(--color-bg-primary);font-size:0.75rem}" +
-      ".cgl-header{display:flex;align-items:center;gap:12px;padding:16px 16px 10px}" +
-      ".cgl-header-copy{flex:1;min-width:0}" +
-      ".cgl-title{font-size:0.9375rem;font-weight:680}" +
-      ".cgl-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
-      ".cgl-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
-      ".cgl-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
-      ".cgl-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
-      ".cgl-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
-      ".cgl-source-date{margin-left:auto}" +
-      ".cgl-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
-      ".cgl-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
-      ".cgl-error{color:var(--color-error,#c0392b)}" +
-      ".cgl-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
-      ".cgl-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
-      ".cgl-course-summary::-webkit-details-marker{display:none}" +
-      ".cgl-course-copy{display:flex;flex:1;align-items:center;gap:8px;min-width:0}" +
-      ".cgl-course-title{overflow:hidden;flex:1;font-size:0.75rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}" +
-      ".cgl-course-now{flex:none;font-size:0.5625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));border-radius:999px;padding:0 6px;min-height:13px;display:inline-flex;align-items:center}" +
-      ".cgl-course-chevron{color:var(--color-text-tertiary);font-size:0.875rem;transition:transform var(--transition-fast)}" +
-      ".cgl-course[open] .cgl-course-chevron{transform:rotate(180deg)}" +
-      ".cgl-course-body{border-top:1px solid var(--color-border-secondary);padding:10px;display:flex;flex-direction:column;gap:8px}" +
-      ".cgl-progress{height:4px;border-radius:2px;background:var(--color-bg-hover);overflow:hidden}" +
-      ".cgl-progress-bar div{height:100%;background:var(--color-accent-primary);transition:width .4s ease}" +
-      ".cgl-continue{padding:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--color-accent-primary) 12%,var(--color-bg-card)),var(--color-bg-card));border:1px solid color-mix(in srgb,var(--color-accent-primary) 20%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
-      ".cgl-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
-      ".cgl-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
-      ".cgl-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
-      ".cgl-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
-      ".cgl-continue-button:hover{filter:brightness(1.12)}" +
-      ".cgl-review{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:0.6875rem;color:var(--color-warning,#fbbf24);border:1px dashed color-mix(in srgb,var(--color-warning,#fbbf24) 40%,var(--color-border-primary));border-radius:var(--radius-sm,6px);cursor:pointer;text-align:left;width:100%;font-family:inherit;background:transparent;transition:background var(--transition-fast)}" +
-      ".cgl-review:hover{background:color-mix(in srgb,var(--color-warning,#fbbf24) 6%,transparent)}" +
-      ".cgl-urgent{color:var(--color-error,#f87171);border-color:color-mix(in srgb,var(--color-error,#f87171) 40%,var(--color-border-primary))}" +
+      ".cgla-root{min-height:100%;color:var(--color-text-primary);background:var(--color-bg-primary);font-size:0.75rem}" +
+      ".cgla-header{display:flex;align-items:center;gap:12px;padding:16px 16px 10px}" +
+      ".cgla-header-copy{flex:1;min-width:0}" +
+      ".cgla-title{font-size:0.9375rem;font-weight:680}" +
+      ".cgla-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
+      ".cgla-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
+      ".cgla-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
+      ".cgla-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
+      ".cgla-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
+      ".cgla-source-date{margin-left:auto}" +
+      ".cgla-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
+      ".cgla-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
+      ".cgla-error{color:var(--color-error,#c0392b)}" +
+      ".cgla-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
+      ".cgla-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
+      ".cgla-course-summary::-webkit-details-marker{display:none}" +
+      ".cgla-course-copy{display:flex;flex:1;align-items:center;gap:8px;min-width:0}" +
+      ".cgla-course-title{overflow:hidden;flex:1;font-size:0.75rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}" +
+      ".cgla-course-now{flex:none;font-size:0.5625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));border-radius:999px;padding:0 6px;min-height:13px;display:inline-flex;align-items:center}" +
+      ".cgla-course-chevron{color:var(--color-text-tertiary);font-size:0.875rem;transition:transform var(--transition-fast)}" +
+      ".cgla-course[open] .cgla-course-chevron{transform:rotate(180deg)}" +
+      ".cgla-course-body{border-top:1px solid var(--color-border-secondary);padding:10px;display:flex;flex-direction:column;gap:8px}" +
+      ".cgla-progress{height:4px;border-radius:2px;background:var(--color-bg-hover);overflow:hidden}" +
+      ".cgla-progress-bar div{height:100%;background:var(--color-accent-primary);transition:width .4s ease}" +
+      ".cgla-continue{padding:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--color-accent-primary) 12%,var(--color-bg-card)),var(--color-bg-card));border:1px solid color-mix(in srgb,var(--color-accent-primary) 20%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
+      ".cgla-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
+      ".cgla-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
+      ".cgla-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
+      ".cgla-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
+      ".cgla-continue-button:hover{filter:brightness(1.12)}" +
+      ".cgla-review{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:0.6875rem;color:var(--color-warning,#fbbf24);border:1px dashed color-mix(in srgb,var(--color-warning,#fbbf24) 40%,var(--color-border-primary));border-radius:var(--radius-sm,6px);cursor:pointer;text-align:left;width:100%;font-family:inherit;background:transparent;transition:background var(--transition-fast)}" +
+      ".cgla-review:hover{background:color-mix(in srgb,var(--color-warning,#fbbf24) 6%,transparent)}" +
+      ".cgla-urgent{color:var(--color-error,#f87171);border-color:color-mix(in srgb,var(--color-error,#f87171) 40%,var(--color-border-primary))}" +
       ".review-tag{flex:none;font-size:0.59375rem;font-weight:700}" +
       ".review-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
       ".review-go{flex:none;font-size:0.59375rem;opacity:.5}" +
-      ".cgl-obj-list{display:flex;flex-direction:column}" +
-      ".cgl-obj{display:flex;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);cursor:pointer;transition:background var(--transition-fast)}" +
-      ".cgl-obj:last-child{border-bottom:0}" +
-      ".cgl-obj:hover{background:var(--color-bg-hover)}" +
-      ".cgl-obj.is-done .cgl-obj-title{text-decoration:line-through;color:var(--color-text-tertiary)}" +
-      ".cgl-obj.is-locked{cursor:default;opacity:.5}" +
-      ".cgl-obj.is-locked:hover{background:transparent}" +
+      ".cgla-obj-list{display:flex;flex-direction:column}" +
+      ".cgla-obj{display:flex;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);cursor:pointer;transition:background var(--transition-fast)}" +
+      ".cgla-obj:last-child{border-bottom:0}" +
+      ".cgla-obj:hover{background:var(--color-bg-hover)}" +
+      ".cgla-obj.is-done .cgla-obj-title{text-decoration:line-through;color:var(--color-text-tertiary)}" +
+      ".cgla-obj.is-locked{cursor:default;opacity:.5}" +
+      ".cgla-obj.is-locked:hover{background:transparent}" +
       ".obj-badge{flex:none;font-size:0.5625rem;font-weight:700;padding:0 5px;min-height:14px;display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--color-border-secondary);color:var(--color-text-tertiary)}" +
       ".obj-mastered{color:var(--color-success,#34d399)!important;border-color:var(--color-success,#34d399)!important}" +
       ".obj-developing{color:var(--color-warning,#fbbf24)!important;border-color:var(--color-warning,#fbbf24)!important}" +
       ".obj-needs_review{color:var(--color-error,#f97316)!important;border-color:var(--color-error,#f97316)!important}" +
-      ".cgl-obj-title{flex:1;min-width:0;word-break:break-all;line-height:1.4;font-size:0.71875rem;font-weight:580}" +
-      ".cgl-attempts{flex:none;font-size:0.5625rem;color:var(--color-text-tertiary)}" +
-      ".cgl-prereq{flex:none;font-size:0.5625rem;color:var(--color-warning,#f97316)}" +
-      "@media (max-width:720px){.cgl-header{padding-inline:12px}.cgl-source{padding-inline:12px}.cgl-content{padding-inline:8px}}";
+      ".cgla-obj-title{flex:1;min-width:0;word-break:break-all;line-height:1.4;font-size:0.71875rem;font-weight:580}" +
+      ".cgla-attempts{flex:none;font-size:0.5625rem;color:var(--color-text-tertiary)}" +
+      ".cgla-prereq{flex:none;font-size:0.5625rem;color:var(--color-warning,#f97316)}" +
+      "@media (max-width:720px){.cgla-header{padding-inline:12px}.cgla-source{padding-inline:12px}.cgla-content{padding-inline:8px}}";
 document.head.appendChild(css);
   }
 
@@ -420,7 +420,7 @@ document.head.appendChild(css);
     if (!ctx || ctx.agentProfile !== AGENT || !ctx.sessionId) return;
 
     root = document.createElement("div");
-    root.className = "cgl-root";
+    root.className = "cgla-root";
     container.appendChild(root);
     rerender = renderPanel;
 
