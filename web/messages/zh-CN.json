@@ -189,7 +189,8 @@
       "sideLabel": "微信扫码登录",
       "unavailable": "微信扫码登录暂未开放，请使用其他方式登录",
       "expired": "二维码已过期",
-      "refresh": "刷新二维码"
+      "refresh": "刷新二维码",
+      "bindingInProgress": "正在验证手机号，完成后即登录"
     },
     "wechatCallback": {
       "processing": "正在完成微信登录…",
@@ -1428,7 +1429,9 @@
     "tierNamePlaceholder": "档位名（如 标准票）",
     "tierAmountPlaceholder": "金额(元)",
     "delete": "删除",
-    "addTier": "添加档位"
+    "addTier": "添加档位",
+    "tierUntilAria": "停售时间（可选）",
+    "tierUntilHint": "停售时间（可选，早鸟价常用）：留空 = 卖到报名截止；到期后该档位自动从报名页隐藏，学员只能选其他档位。"
   },
   "sponsorship": {
     "tierNameRequired": "档位名不能为空",
