@@ -34,6 +34,7 @@
     courses: [],      // [{ courseId, title, workspaceId, workspaceName }]
     selected: null,   // 选中的 course 对象
     learning: null,   // /learning_state result
+    content: null,    // /content result(材料数据源)
     lastRefresh: ""
   };
 
@@ -98,10 +99,15 @@
     state.loading = true;
     rerender();
     try {
-      const payload = await apiGet("/learning_state?workspace_id=" +
-        encodeURIComponent(state.selected.workspaceId) +
-        "&course_id=" + encodeURIComponent(state.selected.courseId));
-      state.learning = payload.result || null;
+      const [learningRes, contentRes] = await Promise.all([
+        apiGet("/learning_state?workspace_id=" +
+          encodeURIComponent(state.selected.workspaceId) +
+          "&course_id=" + encodeURIComponent(state.selected.courseId)),
+        apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/content?workspace_id=" + encodeURIComponent(state.selected.workspaceId))
+          .catch(function () { return { result: null }; })
+      ]);
+      state.learning = learningRes.result || null;
+      state.content = contentRes.result || null;
       state.lastRefresh = new Date().toLocaleTimeString();
       state.error = null;
       state.lastRefresh = new Date().toLocaleTimeString();
@@ -143,6 +149,20 @@
   function objectiveTitle(objectiveId) {
     const o = ((state.learning || {}).objectives || []).find(function (x) { return x.id === objectiveId; });
     return o ? (o.title || o.id) : String(objectiveId);
+  }
+
+  // 从 content 中取指定 objective 的 materials(id → issue.objectives 匹配)
+  function materialsOf(objectiveId) {
+    const issues = (state.content && state.content.issues) || [];
+    for (var i = 0; i < issues.length; i++) {
+      var objs = issues[i].objectives || [];
+      for (var j = 0; j < objs.length; j++) {
+        if (String(objs[j].id) === String(objectiveId)) {
+          return Array.isArray(objs[j].materials) ? objs[j].materials : [];
+        }
+      }
+    }
+    return [];
   }
 
   function injectPrompt(objectiveId, reviewEntry) {
@@ -300,7 +320,10 @@
       inner += '<div class="cgla-obj-list">' + objectives.map(function (o) {
         const locked = !!o.locked;
         const missing = o.missing_prereq_ids || [];
+        const mats = materialsOf(o.id);
+        const hasMats = mats.length > 0;
         return (
+          '<div class="cgla-obj-wrap">' +
           '<div class="cgla-obj' + (locked ? " is-locked" : "") + (o.mastery === "mastered" ? " is-done" : "") + '"' +
             (locked ? "" : ' data-inject="' + escapeHtml(o.id) + '"') +
             ' data-testid="learn-obj" data-objective="' + escapeHtml(o.id) + '">' +
@@ -312,6 +335,10 @@
             (locked && missing.length > 0
               ? '<span class="cgla-prereq" title="' +
                   escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '">需先修</span>' : "") +
+            (hasMats
+              ? '<button class="cgla-obj-mats" type="button" data-mats="' + escapeHtml(o.id) + '"' +
+                  ' data-testid="learn-obj-mats" title="查看学习材料(' + mats.length + '条)">📎</button>' : "") +
+          '</div>' +
           '</div>'
         );
       }).join("") + '</div>';
@@ -329,6 +356,29 @@
   function bind() {
     const refresh = root.querySelector("#cgc-learn-refresh");
     if (refresh) refresh.addEventListener("click", boot);
+    root.querySelectorAll("[data-mats]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        const objId = btn.getAttribute("data-mats");
+        const wrap = btn.closest(".cgla-obj-wrap");
+        const existing = wrap.querySelector(".cgla-mats-panel");
+        if (existing) { existing.remove(); return; }
+        const mats = materialsOf(objId);
+        const panel = document.createElement("div");
+        panel.className = "cgla-mats-panel";
+        panel.innerHTML = mats.map(function (m) {
+          const ref = m.ref || "";
+          return (
+            '<div class="cgla-mat-item">' +
+              '<span class="cgla-mat-title">' + escapeHtml(m.title || m.ref || "材料") + '</span>' +
+              (ref ? ' <a href="' + escapeHtml(ref) + '" target="_blank" rel="noopener noreferrer" class="cgla-mat-ref">' +
+                escapeHtml(ref.length > 30 ? ref.slice(0, 30) + "…" : ref) + '</a>' : "") +
+            '</div>'
+          );
+        }).join("");
+        wrap.appendChild(panel);
+      });
+    });
     root.querySelectorAll("[data-inject]").forEach(function (el) {
       el.addEventListener("click", function () {
         const id = el.getAttribute("data-inject");
@@ -408,6 +458,15 @@
       ".obj-needs_review{color:var(--color-error,#f97316)!important;border-color:var(--color-error,#f97316)!important}" +
       ".cgla-obj-title{flex:1;min-width:0;word-break:break-all;line-height:1.4;font-size:0.71875rem;font-weight:580}" +
       ".cgla-attempts{flex:none;font-size:0.5625rem;color:var(--color-text-tertiary)}" +
+      ".cgla-obj-wrap{position:relative}" +
+      ".cgla-obj-mats{flex:none;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:transparent;color:var(--color-text-muted);font-size:0.625rem;cursor:pointer;opacity:0;transition:opacity var(--transition-fast),color var(--transition-fast)}" +
+      ".cgla-obj:hover .cgla-obj-mats{opacity:1}" +
+      ".cgla-obj-mats:hover{color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
+      ".cgla-mats-panel{padding:6px 10px 6px 28px;border-top:1px dashed var(--color-border-secondary);background:var(--color-bg-subtle)}" +
+      ".cgla-mat-item{display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:0.625rem}" +
+      ".cgla-mat-title{color:var(--color-text-primary);flex:none}" +
+      ".cgla-mat-ref{color:var(--color-accent-primary);text-decoration:none;word-break:break-all}" +
+      ".cgla-mat-ref:hover{text-decoration:underline}" +
       ".cgla-prereq{flex:none;font-size:0.5625rem;color:var(--color-warning,#f97316)}" +
       "@media (max-width:720px){.cgla-header{padding-inline:12px}.cgla-source{padding-inline:12px}.cgla-content{padding-inline:8px}}";
 document.head.appendChild(css);
