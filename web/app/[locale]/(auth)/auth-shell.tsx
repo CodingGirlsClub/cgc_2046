@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import AuthForm, { type AuthMode } from "./login/auth-form";
@@ -115,7 +115,18 @@ function RegisterBenefits() {
   );
 }
 
-export default function AuthShell({ mode }: { mode: AuthMode }) {
+/**
+ * auth 全家壳：topbar（帮助 + 语言）+ 品牌分屏 + 表单卡。
+ * login/register 走内置表单；children 供同族流程页（忘记密码 / 重置密码）
+ * 复用同一壳层，auth 页面间换壳零跳变。
+ */
+export default function AuthShell({
+	mode,
+	children,
+}: {
+	mode: AuthMode;
+	children?: ReactNode;
+}) {
   const { onSubmit, busy, error } = useAuthSubmit();
   const isRegister = mode === "register";
   const [loginMethod, setLoginMethod] = useState<LoginMethod>("password");
@@ -144,7 +155,7 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
 
       <main className="auth-form-panel">
         <section className="auth-form-card" aria-labelledby="auth-page-title">
-          {isRegister ? (
+          {children ?? (isRegister ? (
             <>
               <div className="auth-form-heading">
                 <h2 id="auth-page-title">{t("heading.register")}</h2>
@@ -189,7 +200,7 @@ export default function AuthShell({ mode }: { mode: AuthMode }) {
                 )}
               </aside>
             </div>
-          )}
+          ))}
         </section>
       </main>
     </div>

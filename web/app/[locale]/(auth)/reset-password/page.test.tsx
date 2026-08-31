@@ -17,6 +17,20 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
   };
 });
 
+// 套 AuthShell 后引入 app router 依赖（useAuthSubmit 的 useRouter、壳的
+// useSearchParams 与语言切换器）：mock 掉，表单行为不受影响
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => null,
+  usePathname: () => "/reset-password",
+  redirect: vi.fn(),
+  permanentRedirect: vi.fn(),
+}));
+
+vi.mock("@/components/language-switcher", () => ({
+  default: () => null,
+}));
+
 afterEach(() => {
   cleanup();
   window.history.replaceState({}, "", "/reset-password");

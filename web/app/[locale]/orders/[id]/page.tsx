@@ -46,6 +46,7 @@ import {
 import { readOrderContext } from "@/lib/order-context";
 import { useOrderPolling } from "@/lib/use-order-polling";
 import OrderPaidDetails from "@/components/order-paid-details";
+import SitePage from "@/components/site-page";
 
 const COUNTDOWN_TICK_MS = 500;
 
@@ -234,12 +235,14 @@ export default function OrderDetailPage() {
 
   if (!authed || !confirmed) {
     return (
-      <main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10">
-        <div className="join-card text-center">
-          <h1 className="text-lg font-medium">{t("loginTitle")}</h1>
-          <p className="mt-2 text-sm text-ink-3">{t("loginDesc")}</p>
+      <SitePage>
+        <div className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10">
+          <div className="join-card text-center">
+            <h1 className="text-lg font-medium">{t("loginTitle")}</h1>
+            <p className="mt-2 text-sm text-ink-3">{t("loginDesc")}</p>
+          </div>
         </div>
-      </main>
+      </SitePage>
     );
   }
 
@@ -248,10 +251,11 @@ export default function OrderDetailPage() {
   const paid = status === "paid";
 
   return (
-    <main
-      className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10"
-      data-testid="order-detail"
-    >
+    <SitePage>
+      <div
+        className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10"
+        data-testid="order-detail"
+      >
       {loadState === "loading" ? (
         <div className="h-48 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
       ) : loadState === "error" || !order ? (
@@ -414,6 +418,7 @@ export default function OrderDetailPage() {
           ) : null}
         </>
       )}
-    </main>
+      </div>
+    </SitePage>
   );
 }
