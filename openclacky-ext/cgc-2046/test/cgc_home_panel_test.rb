@@ -272,12 +272,12 @@ class CgcLearnPanelTest < Minitest::Test
 
   def test_resume_card_first_screen
     # Resume 置顶大卡(qingclaw 渐变+eyebrow 骨架):到期复习优先,否则 next_action
-    assert_includes VIEW, "cgl-continue"
-    assert_includes VIEW, "cgl-eyebrow"
+    assert_includes VIEW, "cgla-continue"
+    assert_includes VIEW, "cgla-eyebrow"
     assert_includes VIEW, "继续复习"
     assert_includes VIEW, "继续学习"
     assert_includes VIEW, "dueReview"
-    assert_includes VIEW, "cgl-continue-button"
+    assert_includes VIEW, "cgla-continue-button"
   end
 
   def test_session_aside_mount_contract

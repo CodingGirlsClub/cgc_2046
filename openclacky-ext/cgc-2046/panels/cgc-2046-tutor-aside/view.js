@@ -186,34 +186,34 @@
     const issuesLen = ((state.content || {}).issues || []).length;
 
     let html =
-      '<div class="cgt2-header">' +
-        '<div class="cgt2-header-copy">' +
-          '<div class="cgt2-title">教研产出</div>' +
-          '<div class="cgt2-progress-text">' +
+      '<div class="cgta-header">' +
+        '<div class="cgta-header-copy">' +
+          '<div class="cgta-title">教研产出</div>' +
+          '<div class="cgta-progress-text">' +
             (_prep ? escapeHtml(PREP_LABELS[_prep] || _prep) : "草稿") +
             ' · ' + goalsLen + ' 目标 · ' + issuesLen + ' 单元' +
           '</div>' +
         '</div>' +
-        '<button id="cgta-refresh" class="cgt2-sync" type="button">刷新</button>' +
+        '<button id="cgta-refresh" class="cgta-sync" type="button">刷新</button>' +
       '</div>' +
-      '<div class="cgt2-source">' +
-        '<span class="cgt2-source-dot"></span><span>草稿树</span>' +
-        (state.lastRefresh ? '<span class="cgt2-source-date">' + escapeHtml(state.lastRefresh) + '</span>' : "") +
+      '<div class="cgta-source">' +
+        '<span class="cgta-source-dot"></span><span>草稿树</span>' +
+        (state.lastRefresh ? '<span class="cgta-source-date">' + escapeHtml(state.lastRefresh) + '</span>' : "") +
       '</div>' +
-      '<div class="cgt2-content">';
+      '<div class="cgta-content">';
 
     if (state.loading) {
-      root.innerHTML = html + '<div class="cgt2-empty">加载中…</div></div>';
+      root.innerHTML = html + '<div class="cgta-empty">加载中…</div></div>';
       bindHead();
       return;
     }
     if (state.error) {
-      root.innerHTML = html + '<div class="cgt2-empty cgt2-error">加载失败:' + escapeHtml(state.error.message || "") + '</div></div>';
+      root.innerHTML = html + '<div class="cgta-empty cgta-error">加载失败:' + escapeHtml(state.error.message || "") + '</div></div>';
       bindHead();
       return;
     }
     if (!state.courses.length) {
-      root.innerHTML = html + '<div class="cgt2-empty">暂无 confirmed 课程报名。</div></div>';
+      root.innerHTML = html + '<div class="cgta-empty">暂无 confirmed 课程报名。</div></div>';
       bindHead();
       return;
     }
@@ -222,15 +222,15 @@
     html += state.courses.map(function (c) {
       const isSel = c.courseId === state.selectedCourseId;
       return (
-        '<details class="cgt2-course"' + (isSel ? " open" : "") + ' data-course="' + escapeHtml(c.courseId) + '">' +
-          '<summary class="cgt2-course-summary">' +
-            '<span class="cgt2-course-copy">' +
-              '<span class="cgt2-course-title">' + escapeHtml(c.title) + '</span>' +
-              (isSel ? '<span class="cgt2-course-now">当前</span>' : "") +
+        '<details class="cgta-course"' + (isSel ? " open" : "") + ' data-course="' + escapeHtml(c.courseId) + '">' +
+          '<summary class="cgta-course-summary">' +
+            '<span class="cgta-course-copy">' +
+              '<span class="cgta-course-title">' + escapeHtml(c.title) + '</span>' +
+              (isSel ? '<span class="cgta-course-now">当前</span>' : "") +
             '</span>' +
-            '<span class="cgt2-course-chevron">⌄</span>' +
+            '<span class="cgta-course-chevron">⌄</span>' +
           '</summary>' +
-          '<div class="cgt2-course-body" data-body="' + escapeHtml(c.courseId) + '"></div>' +
+          '<div class="cgta-course-body" data-body="' + escapeHtml(c.courseId) + '"></div>' +
         '</details>'
       );
     }).join("");
@@ -241,56 +241,56 @@
     const c = state.content;
     const v = c && Number.isInteger(c.version) ? c.version : null;
     const isNew = v === 0 && goalsLen === 0 && issuesLen === 0;
-    inner += '<div class="cgt2-status">' +
+    inner += '<div class="cgta-status">' +
       (v !== null
-        ? '<span class="cgt2-version" data-version-badge>' + (isNew ? "新课程" : "草稿 v" + escapeHtml(v)) + '</span>'
-        : '<span class="cgt2-version">无草稿</span>') +
-      '<span class="cgt2-prepbar">' + prepDots() + '</span>' +
+        ? '<span class="cgta-version" data-version-badge>' + (isNew ? "新课程" : "草稿 v" + escapeHtml(v)) + '</span>'
+        : '<span class="cgta-version">无草稿</span>') +
+      '<span class="cgta-prepbar">' + prepDots() + '</span>' +
     '</div>';
 
     if (isNew) {
-      inner += '<div class="cgt2-continue">' +
-        '<div class="cgt2-eyebrow">开始共创</div>' +
-        '<div class="cgt2-continue-title">这门课还没有任何内容</div>' +
-        '<div class="cgt2-continue-subtitle">点下面的按钮,让教研助手从零生成初稿</div>' +
-        '<button class="cgt2-continue-button" type="button" data-cocreate>✦ 让助手开始生成</button>' +
+      inner += '<div class="cgta-continue">' +
+        '<div class="cgta-eyebrow">开始共创</div>' +
+        '<div class="cgta-continue-title">这门课还没有任何内容</div>' +
+        '<div class="cgta-continue-subtitle">点下面的按钮,让教研助手从零生成初稿</div>' +
+        '<button class="cgta-continue-button" type="button" data-cocreate>✦ 让助手开始生成</button>' +
       '</div>';
     } else if (c) {
       if (goalsLen) {
-        inner += '<div class="cgt2-goals">' + (c.goals || []).map(function (g) {
-          return '<div class="cgt2-goal">· ' + escapeHtml(g) + '</div>';
+        inner += '<div class="cgta-goals">' + (c.goals || []).map(function (g) {
+          return '<div class="cgta-goal">· ' + escapeHtml(g) + '</div>';
         }).join("") + '</div>';
       }
       inner += (c.issues || []).map(function (issue) {
         const objs = (issue.objectives || []);
         return (
-          '<details class="cgt2-issue"' + ' open>' +
-            '<summary class="cgt2-issue-summary">' +
-              '<span class="cgt2-issue-name">' + escapeHtml(issue.title || issue.id) + '</span>' +
-              '<span class="cgt2-issue-count">' + objs.length + ' 目标</span>' +
-              '<span class="cgt2-course-chevron">⌄</span>' +
+          '<details class="cgta-issue"' + ' open>' +
+            '<summary class="cgta-issue-summary">' +
+              '<span class="cgta-issue-name">' + escapeHtml(issue.title || issue.id) + '</span>' +
+              '<span class="cgta-issue-count">' + objs.length + ' 目标</span>' +
+              '<span class="cgta-course-chevron">⌄</span>' +
             '</summary>' +
-            '<div class="cgt2-issue-body">' + objs.map(function (o) {
-              return '<div class="cgt2-obj">· ' + escapeHtml(o.title || o.id) + '</div>';
+            '<div class="cgta-issue-body">' + objs.map(function (o) {
+              return '<div class="cgta-obj">· ' + escapeHtml(o.title || o.id) + '</div>';
             }).join("") + '</div>' +
           '</details>'
         );
       }).join("");
     } else {
-      inner += '<div class="cgt2-empty">暂无草稿(新课程,等待助手生成或手动创建)</div>';
+      inner += '<div class="cgta-empty">暂无草稿(新课程,等待助手生成或手动创建)</div>';
     }
-    inner += '<button id="cgta-open-workbench" class="cgt2-open" type="button">在教研工作台打开 →</button>';
+    inner += '<button id="cgta-open-workbench" class="cgta-open" type="button">在教研工作台打开 →</button>';
 
     root.innerHTML = html;
     const selBody = root.querySelector("[data-body='" + state.selectedCourseId + "']");
     if (selBody) selBody.innerHTML = inner;
 
     bindHead();
-    const sel2 = root.querySelector(".cgt2-course");
+    const sel2 = root.querySelector(".cgta-course");
     // 绑定非选中卡 = 切课;选中卡 = 折叠
-    root.querySelectorAll(".cgt2-course").forEach(function (d) {
+    root.querySelectorAll(".cgta-course").forEach(function (d) {
       const cid = d.getAttribute("data-course");
-      d.querySelector(".cgt2-course-summary").addEventListener("click", function (e) {
+      d.querySelector(".cgta-course-summary").addEventListener("click", function (e) {
         if (cid === state.selectedCourseId) return;
         e.preventDefault();
         state.selectedCourseId = cid;
@@ -324,54 +324,54 @@
     const css = document.createElement("style");
     css.id = "cgta-styles";
     css.textContent =
-      ".cgt2-root{min-height:100%;color:var(--color-text-primary);background:var(--color-bg-primary);font-size:0.75rem}" +
-      ".cgt2-header{display:flex;align-items:center;gap:12px;padding:16px 16px 10px}" +
-      ".cgt2-header-copy{flex:1;min-width:0}" +
-      ".cgt2-title{font-size:0.9375rem;font-weight:680}" +
-      ".cgt2-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
-      ".cgt2-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
-      ".cgt2-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
-      ".cgt2-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
-      ".cgt2-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
-      ".cgt2-source-date{margin-left:auto}" +
-      ".cgt2-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
-      ".cgt2-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
-      ".cgt2-error{color:var(--color-error,#c0392b)}" +
-      ".cgt2-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
-      ".cgt2-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
-      ".cgt2-course-summary::-webkit-details-marker{display:none}" +
-      ".cgt2-course-copy{display:flex;flex:1;align-items:center;gap:8px;min-width:0}" +
-      ".cgt2-course-title{overflow:hidden;flex:1;font-size:0.75rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}" +
-      ".cgt2-course-now{flex:none;font-size:0.5625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));border-radius:999px;padding:0 6px;min-height:13px;display:inline-flex;align-items:center}" +
-      ".cgt2-course-chevron{color:var(--color-text-tertiary);font-size:0.875rem;transition:transform var(--transition-fast)}" +
-      ".cgt2-course[open] .cgt2-course-chevron,.cgt2-issue[open] .cgt2-course-chevron{transform:rotate(180deg)}" +
-      ".cgt2-course-body{border-top:1px solid var(--color-border-secondary);padding:10px;display:flex;flex-direction:column;gap:8px}" +
-      ".cgt2-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}" +
-      ".cgt2-version{display:inline-flex;padding:0 8px;min-height:18px;align-items:center;border-radius:999px;font-size:0.625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));transition:box-shadow .3s}" +
-      ".cgt2-version.is-flash{box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent-primary) 35%,transparent)}" +
-      ".cgt2-prepbar{display:flex;align-items:center;gap:3px;flex-wrap:wrap}" +
+      ".cgta-root{min-height:100%;color:var(--color-text-primary);background:var(--color-bg-primary);font-size:0.75rem}" +
+      ".cgta-header{display:flex;align-items:center;gap:12px;padding:16px 16px 10px}" +
+      ".cgta-header-copy{flex:1;min-width:0}" +
+      ".cgta-title{font-size:0.9375rem;font-weight:680}" +
+      ".cgta-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
+      ".cgta-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
+      ".cgta-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
+      ".cgta-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
+      ".cgta-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
+      ".cgta-source-date{margin-left:auto}" +
+      ".cgta-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
+      ".cgta-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
+      ".cgta-error{color:var(--color-error,#c0392b)}" +
+      ".cgta-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
+      ".cgta-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
+      ".cgta-course-summary::-webkit-details-marker{display:none}" +
+      ".cgta-course-copy{display:flex;flex:1;align-items:center;gap:8px;min-width:0}" +
+      ".cgta-course-title{overflow:hidden;flex:1;font-size:0.75rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}" +
+      ".cgta-course-now{flex:none;font-size:0.5625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));border-radius:999px;padding:0 6px;min-height:13px;display:inline-flex;align-items:center}" +
+      ".cgta-course-chevron{color:var(--color-text-tertiary);font-size:0.875rem;transition:transform var(--transition-fast)}" +
+      ".cgta-course[open] .cgta-course-chevron,.cgta-issue[open] .cgta-course-chevron{transform:rotate(180deg)}" +
+      ".cgta-course-body{border-top:1px solid var(--color-border-secondary);padding:10px;display:flex;flex-direction:column;gap:8px}" +
+      ".cgta-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}" +
+      ".cgta-version{display:inline-flex;padding:0 8px;min-height:18px;align-items:center;border-radius:999px;font-size:0.625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));transition:box-shadow .3s}" +
+      ".cgta-version.is-flash{box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent-primary) 35%,transparent)}" +
+      ".cgta-prepbar{display:flex;align-items:center;gap:3px;flex-wrap:wrap}" +
       ".cgta-dot{font-size:0.5625rem;padding:1px 5px;border-radius:999px;border:1px solid var(--color-border-secondary);color:var(--color-text-tertiary)}" +
       ".cgta-dot.is-done{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}" +
       ".cgta-dot.is-current{color:var(--color-accent-primary);border-color:var(--color-accent-primary);font-weight:700}" +
       ".cgta-sep{width:8px;height:1px;background:var(--color-border-secondary)}" +
-      ".cgt2-goals{margin:0;padding:8px 10px;border-radius:var(--radius-md,8px);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary)}" +
-      ".cgt2-goal{font-size:0.6875rem;line-height:1.6;color:var(--color-text-secondary)}" +
-      ".cgt2-issue{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}" +
-      ".cgt2-issue-summary{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;cursor:pointer;list-style:none;user-select:none}" +
-      ".cgt2-issue-summary::-webkit-details-marker{display:none}" +
-      ".cgt2-issue-name{flex:1;min-width:0;font-weight:650;font-size:0.71875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
-      ".cgt2-issue-count{flex:none;font-size:0.59375rem;color:var(--color-text-tertiary)}" +
-      ".cgt2-issue-body{border-top:1px solid var(--color-border-secondary);padding:6px 10px}" +
-      ".cgt2-obj{font-size:0.6875rem;color:var(--color-text-secondary);padding:3px 0}" +
-      ".cgt2-continue{padding:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--color-accent-primary) 12%,var(--color-bg-card)),var(--color-bg-card));border:1px solid color-mix(in srgb,var(--color-accent-primary) 20%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
-      ".cgt2-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
-      ".cgt2-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
-      ".cgt2-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
-      ".cgt2-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
-      ".cgt2-continue-button:hover{filter:brightness(1.12)}" +
-      ".cgt2-open{display:block;width:100%;margin-top:4px;padding:8px;border:1px dashed var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:0.625rem;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
-      ".cgt2-open:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
-      "@media (max-width:720px){.cgt2-header{padding-inline:12px}.cgt2-source{padding-inline:12px}.cgt2-content{padding-inline:8px}}";
+      ".cgta-goals{margin:0;padding:8px 10px;border-radius:var(--radius-md,8px);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary)}" +
+      ".cgta-goal{font-size:0.6875rem;line-height:1.6;color:var(--color-text-secondary)}" +
+      ".cgta-issue{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}" +
+      ".cgta-issue-summary{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;cursor:pointer;list-style:none;user-select:none}" +
+      ".cgta-issue-summary::-webkit-details-marker{display:none}" +
+      ".cgta-issue-name{flex:1;min-width:0;font-weight:650;font-size:0.71875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+      ".cgta-issue-count{flex:none;font-size:0.59375rem;color:var(--color-text-tertiary)}" +
+      ".cgta-issue-body{border-top:1px solid var(--color-border-secondary);padding:6px 10px}" +
+      ".cgta-obj{font-size:0.6875rem;color:var(--color-text-secondary);padding:3px 0}" +
+      ".cgta-continue{padding:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--color-accent-primary) 12%,var(--color-bg-card)),var(--color-bg-card));border:1px solid color-mix(in srgb,var(--color-accent-primary) 20%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
+      ".cgta-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
+      ".cgta-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
+      ".cgta-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
+      ".cgta-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
+      ".cgta-continue-button:hover{filter:brightness(1.12)}" +
+      ".cgta-open{display:block;width:100%;margin-top:4px;padding:8px;border:1px dashed var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:0.625rem;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
+      ".cgta-open:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
+      "@media (max-width:720px){.cgta-header{padding-inline:12px}.cgta-source{padding-inline:12px}.cgta-content{padding-inline:8px}}";
 document.head.appendChild(css);
   }
 
@@ -381,7 +381,7 @@ document.head.appendChild(css);
     if (!ctx || ctx.agentProfile !== AGENT || !ctx.sessionId) return;
 
     root = document.createElement("div");
-    root.className = "cgt2-root";
+    root.className = "cgta-root";
     container.appendChild(root);
     loadCourses();
     pollTimer = setInterval(async function () {
