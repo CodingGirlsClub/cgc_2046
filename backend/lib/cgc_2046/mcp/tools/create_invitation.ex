@@ -16,7 +16,7 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
     field(:target_email, :string, description: "目标邮箱（空 = 公开链接）")
     field(:expires_in_hours, :integer, description: "有效期（小时，可选）")
 
-    field(:preauthorized_role_names, {:array, :string},
+    field(:preauthorized_role_names, {:list, :string},
       description:
         "预授权角色（可多个，仅 tutor|volunteer|learner；接受邀请时自动授予；缺省 [] = 无角色入座，Owner 可事后 assign_roles）"
     )
