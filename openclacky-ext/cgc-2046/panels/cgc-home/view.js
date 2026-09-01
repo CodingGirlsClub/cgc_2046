@@ -628,13 +628,18 @@
           });
         });
       }));
-      const tasks = settled.filter(function (r) { return r.status === "fulfilled"; })
-        .flatMap(function (r) {
-          return r.value.tasks.map(function (t) {
-            t._ws_name = r.value.name;
-            return t;
-          });
+      const fulfilled = settled.filter(function (r) { return r.status === "fulfilled"; });
+      // 全部失败 ≠ 暂无待办——空态会掩盖后端不可用/token 过期(与被选中台遮蔽同款静默错)
+      if (fulfilled.length === 0) {
+        tasksEl.innerHTML = '<div class="cgch-err">待办加载失败：所有工作台请求均未成功</div>';
+        return;
+      }
+      const tasks = fulfilled.flatMap(function (r) {
+        return r.value.tasks.map(function (t) {
+          t._ws_name = r.value.name;
+          return t;
         });
+      });
       if (tasks.length === 0) {
         tasksEl.innerHTML = '<div class="cgch-empty">暂无待办</div>';
         return;

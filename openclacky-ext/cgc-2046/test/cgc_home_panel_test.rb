@@ -187,6 +187,12 @@ class CgcHomePanelTest < Minitest::Test
     refute_includes VIEW, '"/tasks?workspace_id=" + encodeURIComponent(selectedWorkspaceId)'
   end
 
+  # 全部失败 ≠ 暂无待办:空态会掩盖后端不可用/token 过期
+  def test_tasks_all_failed_renders_error_not_empty
+    assert_includes VIEW, "fulfilled.length === 0"
+    assert_includes VIEW, "待办加载失败"
+  end
+
   # ---- 角色感知功能目录 ----
   def test_role_aware_catalog
     # 全员三卡
