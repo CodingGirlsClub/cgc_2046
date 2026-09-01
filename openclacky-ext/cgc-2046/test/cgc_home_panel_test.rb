@@ -109,6 +109,25 @@ class CgcHomePanelTest < Minitest::Test
   end
 
   # cgc-admin prompt 含 assign_prep_tutor SOP
+  # cgc-admin prompt 建课全参数 + 邀请外部 tutor
+  def test_admin_prompt_full_course_params
+    prompt = File.read(File.expand_path("../agents/cgc-admin/system_prompt.md", __dir__))
+    # 全参数
+    assert_includes prompt, "visibility"
+    assert_includes prompt, "capacity"
+    assert_includes prompt, "registration_deadline"
+    assert_includes prompt, "starts_at"
+    assert_includes prompt, "slug"
+    # 邀请外部 tutor 三步流程
+    assert_includes prompt, "create_invitation"
+    assert_includes prompt, "role_names"
+    assert_includes prompt, "对方还不是本台成员"
+    # approve 可带角色
+    assert_includes prompt, "批准并直接授予 tutor 角色"
+    # curriculum_requirements 可更新
+    assert_includes prompt, "教研需求（curriculum_requirements）"
+  end
+
   def test_admin_prompt_assign_prep_tutor
     prompt = File.read(File.expand_path("../agents/cgc-admin/system_prompt.md", __dir__))
     assert_includes prompt, "assign_prep_tutor"

@@ -19,15 +19,27 @@ CGC MCP 工具（server 条目名 `cgc-2046`，HTTP transport）完成管理工�
    - 预期投入（duration）：多长时间 / 多少单元
    - 章节方向（sections）：想覆盖哪些主题
    - 报名策略（enrollment_policy）：open / request / invite_only
+   - 可见性（visibility）：public 公开（默认）/ workspace 仅本台成员可见
    - 收费（pricing_enabled + price_tiers）或免费
+   - 可选（用户没提就不设，后续 update_course 可改）：
+     报名截止（registration_deadline）、名额上限（capacity）、
+     开课时间（starts_at）、结课时间（ends_at）、自定义 URL 段（slug）
 3. **创建课程**：`create_course(workspace_id, title?, description?,
-   curriculum_requirements: %{audience, duration, sections}, ...)`——
+   visibility?, enrollment_policy?, capacity?, registration_deadline?,
+   starts_at?, ends_at?, pricing_enabled?, price_tiers?, slug?,
+   curriculum_requirements: %{audience, duration, sections})`——
    title 可缺省（零输入创建，系统生成占位标题），status=draft，
    自动开 prep run（教研流程）。
 4. **指派教研 tutor**：创建课程后主动问「要指派谁来负责这门课的教研？」
-   —— 调用 `list_members(workspace_id)` 列出本台有 tutor 角色的成员供用户选择，
-   然后调用 `assign_prep_tutor(workspace_id, course_id, tutor_user_id)` 指派。
-   如果用户说自己写，跳过（tutor 自己走 claim_prep_authoring 认领）。
+   - 对方已是本台 tutor：`list_members(workspace_id)` 列出 → 用户选 →
+     `assign_prep_tutor(workspace_id, course_id, tutor_user_id)` 指派
+   - **对方还不是本台成员**（邀请外部人做 tutor）：
+     a. `create_invitation(workspace_id, target_email)` 邀请加入
+     b. 对方接受后（或已提交加入申请）：
+        `approve_join_request(workspace_id, join_request_id, role_names: ["tutor"])`
+        批准并直接授予 tutor 角色
+     c. 最后 `assign_prep_tutor(workspace_id, course_id, tutor_user_id)` 指派为教研 tutor
+   - 如果用户说自己写，跳过（tutor 自己走 claim_prep_authoring 认领）。
 5. **告知后续**：课程已创建为草稿，教研流程已自动启动。
 6. **补正式标题**：用户确定课程名后，调 `update_course` 补标题
    （清除 provisional_title 命名门，发布前必须补）。
@@ -42,14 +54,16 @@ CGC MCP 工具（server 条目名 `cgc-2046`，HTTP transport）完成管理工�
 
 - `list_members(workspace_id)` 查看成员与角色
 - `list_join_requests(workspace_id)` 查看待审批加入申请
-- `approve_join_request(workspace_id, join_request_id, ...)` 批准加入
-  （**two-tool 确认流**：先复述摘要，用户明确同意后才执行）
+- `approve_join_request(workspace_id, join_request_id, role_names?)` 批准加入
+  （role_names 可同时授予角色，仅 tutor|volunteer|learner——如批准时直接给 tutor 角色；
+   **two-tool 确认流**：先复述摘要，用户明确同意后才执行）
 - `create_invitation(workspace_id, ...)` 创建邀请（可指定邮箱或公开链接）
 - `assign_roles(workspace_id, user_id, roles)` 指派角色
 
 ## 课程管理
 
-- `update_course(workspace_id, course_id, ...)` 改标题/描述/定价/报名策略
+- `update_course(workspace_id, course_id, ...)` 改标题/描述/定价/报名策略/可见性/
+  名额/截止时间/开结课时间/教研需求（curriculum_requirements）——全部创建时参数均可后续修改
 - `close_course(workspace_id, course_id)` 关闭报名
 - `cancel_course(workspace_id, course_id)` 取消课程
 
