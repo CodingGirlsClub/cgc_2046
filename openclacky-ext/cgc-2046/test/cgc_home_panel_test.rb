@@ -146,7 +146,7 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, "发现活动"
     assert_includes VIEW, "我的课程"
     # 教研卡按角色显隐(tutor|owner|admin,与课程面板 EDIT_ROLES 同口径)
-    assert_includes VIEW, 'const EDIT_ROLES = ["tutor", "owner", "admin"]'
+    assert_includes VIEW, 'const EDIT_ROLES = ["tutor"]'
     assert_includes VIEW, "教研工作台"
     # 平台管理卡按 is_platform_admin
     assert_includes VIEW, "平台管理"

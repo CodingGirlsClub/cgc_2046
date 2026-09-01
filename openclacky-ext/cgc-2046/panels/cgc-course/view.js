@@ -60,7 +60,7 @@
     });
   }
 
-  const EDIT_ROLES = ["tutor", "owner", "admin"];
+  const EDIT_ROLES = ["tutor"];
 
   function computeCanEdit() {
     const ws = state.workspaces.find(function (w) { return w.workspace_id === state.workspaceId; });

@@ -35,7 +35,7 @@
   const EVENTS_MAX = 20;
   // 沿用原 workspace 面板的存储 key:用户已持久化的选择不丢失
   const LS_WORKSPACE = "cgc2046.workspacePanel.workspaceId";
-  const EDIT_ROLES = ["tutor", "owner", "admin"];
+  const EDIT_ROLES = ["tutor"];
   const ADMIN_ROLES = ["owner", "admin"];
 
   // ---- 闭包状态(跨面板开关保持) ----
