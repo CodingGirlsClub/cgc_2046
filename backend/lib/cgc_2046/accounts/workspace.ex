@@ -518,8 +518,9 @@ defmodule Cgc2046.Accounts.Workspace do
   # + 非 bang Ash 调用：任一失败返回 {:error, _} → after_action 在父 create
   # 事务内整体回滚，不留半 seeded workspace。create → publish 两步（消费面
   # PrepInstantiator / Runs / Curriculum.Instantiator 均按 status :published
-  # 读取）。全名调用（同上方 Role seed 先例），不引 alias 以免 Accounts ↔
-  # Workflows 编译期依赖成环。
+  # 读取）。全名调用（同上方 Role seed 先例）——真正的防环保证是
+  # ProtocolDefinitions 为零依赖纯数据 leaf（alias 本身纯词法不构成编译依赖，
+  # 见其 moduledoc 演进纪律）。
   defp seed_workflow_definitions(workspace) do
     definitions = Cgc2046.Workflows.ProtocolDefinitions.definitions()
 

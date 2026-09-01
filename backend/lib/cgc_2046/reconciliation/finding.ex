@@ -18,8 +18,10 @@ defmodule Cgc2046.Reconciliation.Finding do
   3. `:active_sponsorship_signal_dead` — active 赞助的 `sponsorship.active` 发布 job
      处于 discarded（PR-A 后同事务必入队，死信 = 信号从未发布 = 信号链断连；
      SignalLog 只记入向，ADR-0003，原「无 signal_log」不可实现）
-  4. `:open_entity_without_research_definition` — open 实体其工作台无 published
-     教研定义（U6:course 无条件;event 保留 curriculum_enabled=false 合法不命中）
+  4. `:open_entity_without_research_definition` — draft/open 实体其工作台无 published
+     教研定义（course 侧扩 draft：prep run 始于 course.created，draft 期断流即
+     该看见；event 保留 curriculum_enabled=false 合法不命中——其教研 run
+     始于 launched，draft 期无断流，不扩）
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
   6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
