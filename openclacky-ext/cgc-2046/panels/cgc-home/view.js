@@ -609,20 +609,32 @@
   async function loadTasks(container) {
     const tasksEl = container.querySelector("#cgc-tasks");
     if (!tasksEl) return;
-    if (!selectedWorkspaceId) {
+    if (workspaces.length === 0) {
       tasksEl.innerHTML = '<div class="cgch-empty">暂无待办</div>';
       return;
     }
     tasksEl.innerHTML = '<div class="cgch-empty">加载中…</div>';
     try {
-      const res = await fetch(API + "/tasks?workspace_id=" + encodeURIComponent(selectedWorkspaceId), {
-        headers: { Accept: "application/json" }
-      });
-      const body = await res.json().catch(function () { return {}; });
-      if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
-
-      const result = body.result || {};
-      const tasks = Array.isArray(result.tasks) ? result.tasks : [];
+      // 聚合所有工作台的待办(不按当前选中台过滤——多台用户的任务不该被选中态遮蔽);
+      // allSettled:单台失败不拖空白单(跳过该台)
+      const settled = await Promise.allSettled(workspaces.map(function (w) {
+        return fetch(API + "/tasks?workspace_id=" + encodeURIComponent(w.workspace_id), {
+          headers: { Accept: "application/json" }
+        }).then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (body) {
+            if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
+            const tasks = Array.isArray((body.result || {}).tasks) ? body.result.tasks : [];
+            return { name: w.name || "", tasks: tasks };
+          });
+        });
+      }));
+      const tasks = settled.filter(function (r) { return r.status === "fulfilled"; })
+        .flatMap(function (r) {
+          return r.value.tasks.map(function (t) {
+            t._ws_name = r.value.name;
+            return t;
+          });
+        });
       if (tasks.length === 0) {
         tasksEl.innerHTML = '<div class="cgch-empty">暂无待办</div>';
         return;
@@ -633,7 +645,7 @@
         return (
           '<div class="cgch-row"' + clickable + '>' +
             '<span class="cgch-chip">' + escapeHtml(taskKindLabel(t.kind)) + '</span>' +
-            '<span class="cgch-row-copy">' + escapeHtml(taskSummary(t)) + '</span>' +
+            '<span class="cgch-row-copy">' + escapeHtml(t._ws_name ? "[" + t._ws_name + "] " : "") + escapeHtml(taskSummary(t)) + '</span>' +
             taskDeadline(t) +
             '<span class="cgch-row-arrow">' + icon("arrow") + '</span>' +
           '</div>'

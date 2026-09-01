@@ -68,12 +68,24 @@
   }
 
   function loadTasks() {
-    if (!state.selectedWsId) {
+    // 聚合所有 admin/owner 角色工作台的待办(不按选中台过滤——同 hub loadTasks);
+    // allSettled:单台失败跳过不拖空
+    if (state.workspaces.length === 0) {
       state.tasks = [];
       return Promise.resolve();
     }
-    return rawGet("/tasks?workspace_id=" + encodeURIComponent(state.selectedWsId)).then(function (payload) {
-      state.tasks = (((payload.result || {}).tasks) || []);
+    return Promise.allSettled(state.workspaces.map(function (w) {
+      return rawGet("/tasks?workspace_id=" + encodeURIComponent(w.workspace_id)).then(function (payload) {
+        return { name: w.name || "", tasks: (((payload.result || {}).tasks) || []) };
+      });
+    })).then(function (settled) {
+      state.tasks = settled.filter(function (r) { return r.status === "fulfilled"; })
+        .flatMap(function (r) {
+          return r.value.tasks.map(function (t) {
+            t._ws_name = r.value.name;
+            return t;
+          });
+        });
       state.lastRefresh = new Date().toLocaleTimeString();
     });
   }
@@ -176,6 +188,7 @@
           '<div class="cgaa-task" data-testid="cgaa-task">' +
             '<span class="cgaa-task-kind">' + escapeHtml(taskKindLabel(t.kind)) + '</span>' +
             '<span class="cgaa-task-copy">' +
+              escapeHtml(t._ws_name ? "[" + t._ws_name + "] " : "") +
               escapeHtml(t.context_title || t.title || t.requester_name || "") +
             '</span>' +
             (dlText ? '<span class="cgaa-task-dl">截止 ' + escapeHtml(dlText) + '</span>' : "") +
