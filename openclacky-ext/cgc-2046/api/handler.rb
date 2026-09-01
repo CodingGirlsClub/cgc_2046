@@ -385,6 +385,22 @@ class Cgc2046Ext < Clacky::ApiExtension
   end
 
 
+  # GET /api/ext/cgc-2046/workspace/courses?workspace_id=
+  # 工作台全部课程(含 draft,#366):教研工作台课程发现面——
+  # tutor 有权编辑却不必然报名,get_my_enrollments 看不到未报名的课程
+  get "/workspace/courses" do
+    guard_origin!
+    workspace_id = route_params_value("workspace_id")
+    if workspace_id.empty?
+      json({ error: "workspace_id is required" }, status: 400)
+    else
+      outcome = Cgc2046CourseRoutes.call_course_tool(
+        self, "list_workspace_courses", { "workspace_id" => workspace_id }
+      )
+      json(outcome[:body], status: outcome[:status])
+    end
+  end
+
   # GET /api/ext/cgc-2046/activity
   # 最近 CGC 助手调用记录(历史回放):扫描宿主全部会话消息中
   # invoke_skill(skill_name=mcp:cgc-2046)的工具调用,匹配 role=tool 结果消息

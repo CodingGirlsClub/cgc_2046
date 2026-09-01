@@ -108,6 +108,21 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, '"cgc-admin"'
   end
 
+  # cgc-admin prompt 含 assign_prep_tutor SOP
+  def test_admin_prompt_assign_prep_tutor
+    prompt = File.read(File.expand_path("../agents/cgc-admin/system_prompt.md", __dir__))
+    assert_includes prompt, "assign_prep_tutor"
+    assert_includes prompt, "指派教研 tutor"
+    assert_includes prompt, "list_members"
+  end
+
+  # handler 新路由
+  def test_workspace_courses_route
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, '/workspace/courses'
+    assert_includes handler, "list_workspace_courses"
+  end
+
   def test_task_kind_labels_and_navigation
     assert_includes VIEW, "TASK_KINDS"
     assert_includes VIEW, '"教研审核"'
