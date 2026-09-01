@@ -326,6 +326,9 @@
         apiGet("/courses/" + encodeURIComponent(state.selectedCourseId) + "/content"),
         apiGet("/courses/" + encodeURIComponent(state.selectedCourseId) + "/prep").then(function (r) {
           state.prep = r.result || null;
+          // Promise.all 对新课会在 content reject 时提前渲染(loading=false),
+          // prep 落地晚于那次渲染——补一次,否则 stepper 永远卡在默认 draft
+          if (!state.loading) render();
         }).catch(function () { state.prep = null; })
       ]);
       state.content = contentRes.result || {};
