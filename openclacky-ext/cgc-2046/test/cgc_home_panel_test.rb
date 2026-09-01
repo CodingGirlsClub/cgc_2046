@@ -122,6 +122,11 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes prompt, "create_invitation"
     assert_includes prompt, "preauthorized_role_names"
     assert_includes prompt, "接受邀请时自动授予"
+    # 邀请即完整意图:绑课一步到位 + 邮件自动发送
+    assert_includes prompt, "prep_course_ids"
+    assert_includes prompt, "自动被指派为这些课程的教研 tutor"
+    assert_includes prompt, "无需你再 assign_prep_tutor"
+    assert_includes prompt, "系统自动向对方邮箱发送含接受链接的邮件"
     assert_includes prompt, "role_names"
     assert_includes prompt, "对方还不是本台成员"
     # approve 可带角色

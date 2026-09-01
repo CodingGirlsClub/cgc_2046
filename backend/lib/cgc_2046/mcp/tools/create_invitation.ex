@@ -8,6 +8,9 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
   """
   use Anubis.Server.Component, type: :tool
 
+  require Ash.Query
+
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
@@ -19,6 +22,11 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
     field(:preauthorized_role_names, {:list, :string},
       description:
         "预授权角色（可多个，仅 tutor|volunteer|learner；接受邀请时自动授予；缺省 [] = 无角色入座，Owner 可事后 assign_roles）"
+    )
+
+    field(:prep_course_ids, {:list, :string},
+      description:
+        "绑定的教研课程 ID 列表（可选；须含 tutor 预授权角色；接受邀请时自动指派为这些课程的教研 tutor——邀请即完整意图，Admin 无需二次 assign_prep_tutor；系统自动向目标邮箱发送含接受链接的邮件）"
     )
   end
 
@@ -33,11 +41,13 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
         roles_str =
           if is_list(roles) and roles != [], do: "（预授权角色: #{Enum.join(roles, ", ")}）", else: ""
 
+        courses_str = courses_summary(params["prep_course_ids"] || params[:prep_course_ids])
+
         summary =
           if target do
-            "在 workspace #{workspace_id} 创建指向 #{target} 的邀请#{roles_str}"
+            "在 workspace #{workspace_id} 创建指向 #{target} 的邀请#{roles_str}#{courses_str}（邮件将自动发送）"
           else
-            "在 workspace #{workspace_id} 创建公开邀请链接#{roles_str}"
+            "在 workspace #{workspace_id} 创建公开邀请链接#{roles_str}#{courses_str}"
           end
 
         Confirmation.request(frame.assigns[:current_user], "create_invitation", params, summary)
@@ -63,7 +73,8 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
         inviter_id: actor.id,
         target_email: params["target_email"],
         expires_at: expires_at,
-        preauthorized_role_names: preauthorized
+        preauthorized_role_names: preauthorized,
+        prep_course_ids: params["prep_course_ids"]
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Map.new()
@@ -116,4 +127,21 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
   end
 
   defp expires_at_from(_), do: nil
+
+  # 绑定课程摘要：查课程标题，供确认流展示（查不到的资源层创建校验兜底）
+  defp courses_summary(nil), do: ""
+
+  defp courses_summary([]), do: ""
+
+  defp courses_summary(course_ids) when is_list(course_ids) do
+    titles =
+      Course
+      |> Ash.Query.filter(id in ^Enum.map(course_ids, &to_string/1))
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(&to_string(&1.title))
+
+    if titles == [], do: "", else: "（绑定教研课程: #{Enum.join(titles, ", ")}）"
+  end
+
+  defp courses_summary(_), do: ""
 end
