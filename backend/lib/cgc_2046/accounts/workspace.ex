@@ -513,31 +513,16 @@ defmodule Cgc2046.Accounts.Workspace do
   # 既有 membership 上补 Owner 角色（多角色并集，保留原角色）。该用户不可能已持
   # Owner 角色（:reassign_owner 的 owner_count 守卫前置拦截；:create 路径工作台新建
   # 无成员），unique_membership_role 仅作 fail-closed 兜底。
-  # #348：三份协议定义种子（形状单源对齐 priv/repo/seeds.exs §3；此处为产品
-  # 修复的常驻路径——seeds 只覆盖默认 workspace 的存量幂等补种）。reduce_while
+  # #348：三份协议定义种子（attrs 单源 = Workflows.ProtocolDefinitions；此处为
+  # 产品常驻路径——seeds 只覆盖默认 workspace 的存量幂等补种）。reduce_while
   # + 非 bang Ash 调用：任一失败返回 {:error, _} → after_action 在父 create
   # 事务内整体回滚，不留半 seeded workspace。create → publish 两步（消费面
   # PrepInstantiator / Runs / Curriculum.Instantiator 均按 status :published
-  # 读取）。全名调用（同上方 Role seed 先例），不引 alias 以免 Accounts ↔
-  # Workflows 编译期依赖成环。
+  # 读取）。全名调用（同上方 Role seed 先例）——真正的防环保证是
+  # ProtocolDefinitions 为零依赖纯数据 leaf（alias 本身纯词法不构成编译依赖，
+  # 见其 moduledoc 演进纪律）。
   defp seed_workflow_definitions(workspace) do
-    definitions = [
-      %{
-        name: "教研 workflow",
-        type: :curriculum,
-        node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
-      },
-      %{
-        name: "学习 workflow",
-        type: :learning,
-        node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}
-      },
-      %{
-        name: "课程教研 workflow",
-        type: :course_preparation,
-        node_def: %{"steps" => [%{"id" => "course_preparation", "type" => "manual"}]}
-      }
-    ]
+    definitions = Cgc2046.Workflows.ProtocolDefinitions.definitions()
 
     Enum.reduce_while(definitions, :ok, fn attrs, :ok ->
       with {:ok, defn} <-
