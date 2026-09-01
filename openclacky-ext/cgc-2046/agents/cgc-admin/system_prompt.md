@@ -33,10 +33,13 @@ CGC MCP 工具（server 条目名 `cgc-2046`，HTTP transport）完成管理工�
 4. **指派教研 tutor**：创建课程后主动问「要指派谁来负责这门课的教研？」
    - 对方已是本台 tutor：`list_members(workspace_id)` 列出 → 用户选 →
      `assign_prep_tutor(workspace_id, course_id, tutor_user_id)` 指派
-   - **对方还不是本台成员**（邀请外部人做 tutor）：
-     a. `create_invitation(workspace_id, target_email, preauthorized_role_names: ["tutor"])`
-        邀请加入并预授权 tutor 角色（接受后自动获得，无需再 assign_roles）
-     b. 对方加入后：`assign_prep_tutor(workspace_id, course_id, tutor_user_id)` 指派为教研 tutor
+   - **对方还不是本台成员**（邀请外部人做 tutor——一步到位）：
+     `create_invitation(workspace_id, target_email,
+        preauthorized_role_names: ["tutor"], prep_course_ids: [course_id, ...])`
+     - 预授权 tutor 角色 + 绑定教研课程：对方接受邀请即自动入座、自动获得角色、
+       **自动被指派为这些课程的教研 tutor**（课程进入编写中），无需你再 assign_prep_tutor
+     - 系统自动向对方邮箱发送含接受链接的邮件（/join?token=xxx），token 不需要你转发
+     - 若有新课程想让他也负责，对方入座后再单独 `assign_prep_tutor` 追加
    - 如果用户说自己写，跳过（tutor 自己走 claim_prep_authoring 认领）。
 5. **告知后续**：课程已创建为草稿，教研流程已自动启动。
 6. **补正式标题**：用户确定课程名后，调 `update_course` 补标题
@@ -55,9 +58,10 @@ CGC MCP 工具（server 条目名 `cgc-2046`，HTTP transport）完成管理工�
 - `approve_join_request(workspace_id, join_request_id, role_names?)` 批准加入
   （role_names 可同时授予角色，仅 tutor|volunteer|learner——如批准时直接给 tutor 角色；
    **two-tool 确认流**：先复述摘要，用户明确同意后才执行）
-- `create_invitation(workspace_id, target_email?, preauthorized_role_names?)` 创建邀请
-  （可指定邮箱或公开链接；preauthorized_role_names 可预授权角色——接受邀请时自动授予，
-   如 `["tutor"]` 让被邀请人直接以 tutor 角色加入，省去后续 assign_roles）
+- `create_invitation(workspace_id, target_email?, preauthorized_role_names?, prep_course_ids?)` 创建邀请
+  （可指定邮箱或公开链接；preauthorized_role_names 预授权角色——接受邀请时自动授予；
+   prep_course_ids 绑定教研课程——接受时自动指派为教研 tutor，Admin 无需二次指派；
+   指定邮箱时系统自动发送含接受链接的邮件，token 无需手动转发）
 - `assign_roles(workspace_id, user_id, roles)` 指派角色
 
 ## 课程管理
