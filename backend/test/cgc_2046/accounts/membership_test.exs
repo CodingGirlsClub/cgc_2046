@@ -366,4 +366,64 @@ defmodule Cgc2046.Accounts.MembershipTest do
       assert Cgc2046.Accounts.MembershipContext.role_names(admin_only, workspace.id) == []
     end
   end
+
+  describe "membership role visibility（MembershipRole read policy 管理面）" do
+    # 回归：list_members load(:roles) 他人角色被滤空的根因——MembershipRole
+    # read policy 只放行本人/平台管理员，台内 Owner/Admin 不在其中。
+    # 既有 member_tools 测试全用 platform_admin 当 actor，恰好绕过此缺口。
+    test "workspace owner/admin sees other members' roles via authorized load" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+
+      admin = Fixtures.register_user("mr-vis-admin")
+      Fixtures.add_member(workspace, admin, [:admin])
+      tutor = Fixtures.register_user("mr-vis-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      # Owner 视角（非 platform_admin）：见全部成员的角色
+      {:ok, list} =
+        WorkspaceMembership
+        |> Ash.Query.load(:roles)
+        |> Ash.read(actor: owner, tenant: workspace.id)
+
+      roles_of = fn user_id ->
+        list |> Enum.find(&(&1.user_id == user_id)) |> Map.fetch!(:roles) |> Enum.map(& &1.name)
+      end
+
+      assert roles_of.(tutor.id) == [:tutor]
+      assert roles_of.(admin.id) == [:admin]
+      assert :owner in roles_of.(owner.id)
+
+      # Admin 视角同（管理面）
+      {:ok, admin_list} =
+        WorkspaceMembership
+        |> Ash.Query.load(:roles)
+        |> Ash.read(actor: admin, tenant: workspace.id)
+
+      admin_roles_of = fn user_id ->
+        admin_list
+        |> Enum.find(&(&1.user_id == user_id))
+        |> Map.fetch!(:roles)
+        |> Enum.map(& &1.name)
+      end
+
+      assert admin_roles_of.(tutor.id) == [:tutor]
+    end
+
+    test "plain member still sees only own membership (no escalation)" do
+      %{owner: _owner, workspace: workspace, member: member} =
+        Fixtures.workspace_with_member(member_roles: [:learner])
+
+      other = Fixtures.register_user("mr-vis-other")
+      Fixtures.add_member(workspace, other, [:tutor])
+
+      {:ok, list} =
+        WorkspaceMembership
+        |> Ash.Query.load(:roles)
+        |> Ash.read(actor: member, tenant: workspace.id)
+
+      # membership read policy：仅本人
+      assert Enum.all?(list, &(&1.user_id == member.id))
+      assert list |> List.first() |> Map.fetch!(:roles) |> Enum.map(& &1.name) == [:learner]
+    end
+  end
 end
