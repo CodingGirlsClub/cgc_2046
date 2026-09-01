@@ -42,7 +42,7 @@
 
   // 教研权限按**课程归属工作台**判定(跨台角色:uat 台 learner + 2046 台 tutor
   // 时,编辑 2046 的课是合法的);无权限视图仅在用户任何台都没有教研角色时出现
-  const EDIT_ROLES = ["tutor", "owner", "admin"];
+  const EDIT_ROLES = ["tutor"];
 
   function rolesOf(workspaceId) {
     const ws = state.workspaces.find(function (w) { return w.workspace_id === workspaceId; });
@@ -269,7 +269,10 @@
             workspaceId: String(ws.id || e.workspace_id || "")
           };
         })
-        .filter(function (c) { return c.courseId !== ""; });
+        .filter(function (c) { return c.courseId !== ""; })
+        // 角色过滤:教研工作台只显示 tutor 角色工作台的课程
+        // (learner 报名的课程归学习中心,owner/admin 的管理操作归管理助手)
+        .filter(function (c) { return canEditCourse(c.courseId); });
       const stored = localStorage.getItem("cgc2046.curriculum.courseId") || "";
       const found = state.courses.find(function (c) { return c.courseId === stored; });
       state.selectedCourseId = (found || state.courses[0] || {}).courseId || "";

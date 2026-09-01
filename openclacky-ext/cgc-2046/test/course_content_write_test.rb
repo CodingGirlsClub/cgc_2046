@@ -284,8 +284,8 @@ class CoursePanelEditTest < Minitest::Test
     assert_includes VIEW, "canEditCourse"
     assert_includes VIEW, "hasAnyEditRole"
     assert_includes VIEW, '"tutor"'
-    assert_includes VIEW, '"owner"'
-    assert_includes VIEW, '"admin"'
+    assert_includes VIEW, 
+    assert_includes VIEW, 
     assert_includes VIEW, "无教研角色,只读"
     assert_includes VIEW, "function scopeOf(courseId)"
   end
