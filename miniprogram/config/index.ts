@@ -40,10 +40,10 @@ export default {
       process.env.CGC_WECHAT_TEMPLATE_EVENT_REMINDER ?? ''
     ),
     __TT_TEMPLATE_APPROVAL_RESULT__: JSON.stringify(
-      process.env.CGC_TT_TEMPLATE_APPROVAL_RESULT ?? ''
+      process.env.CGC_DOUYIN_TEMPLATE_APPROVAL_RESULT ?? ''
     ),
     __TT_TEMPLATE_EVENT_REMINDER__: JSON.stringify(
-      process.env.CGC_TT_TEMPLATE_EVENT_REMINDER ?? ''
+      process.env.CGC_DOUYIN_TEMPLATE_EVENT_REMINDER ?? ''
     )
   },
   copy: {

@@ -132,8 +132,8 @@ if config_env() == :prod do
       secret: System.get_env("WECHAT_MP_SECRET")
     },
     tt: %{
-      appid: System.get_env("TT_MP_APPID"),
-      secret: System.get_env("TT_MP_SECRET")
+      appid: System.get_env("DOUYIN_MP_APPID"),
+      secret: System.get_env("DOUYIN_MP_SECRET")
     },
     xhs: %{
       appid: System.get_env("XHS_MP_APPID"),
@@ -166,21 +166,21 @@ if config_env() == :prod do
       "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED")
     },
     tt: %{
-      "approval_result" => System.get_env("TT_MP_TEMPLATE_APPROVAL_RESULT"),
-      "approval_reminder" => System.get_env("TT_MP_TEMPLATE_APPROVAL_REMINDER"),
-      "enrollment_submitted" => System.get_env("TT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
-      "event_reminder" => System.get_env("TT_MP_TEMPLATE_EVENT_REMINDER"),
-      "enrollment_completed" => System.get_env("TT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
-      "speaker_accepted" => System.get_env("TT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
-      "speaker_completed" => System.get_env("TT_MP_TEMPLATE_SPEAKER_COMPLETED"),
-      "learning_stagnation" => System.get_env("TT_MP_TEMPLATE_LEARNING_STAGNATION"),
+      "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
+      "approval_reminder" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_REMINDER"),
+      "enrollment_submitted" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
+      "event_reminder" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_REMINDER"),
+      "enrollment_completed" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      "speaker_accepted" => System.get_env("DOUYIN_MP_TEMPLATE_SPEAKER_ACCEPTED"),
+      "speaker_completed" => System.get_env("DOUYIN_MP_TEMPLATE_SPEAKER_COMPLETED"),
+      "learning_stagnation" => System.get_env("DOUYIN_MP_TEMPLATE_LEARNING_STAGNATION"),
       # 缴费闭环三模板（U10/KTD8 定稿）
-      "payment_succeeded" => System.get_env("TT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
-      "refund_succeeded" => System.get_env("TT_MP_TEMPLATE_REFUND_SUCCEEDED"),
-      "refund_failed" => System.get_env("TT_MP_TEMPLATE_REFUND_FAILED"),
+      "payment_succeeded" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
+      "refund_succeeded" => System.get_env("DOUYIN_MP_TEMPLATE_REFUND_SUCCEEDED"),
+      "refund_failed" => System.get_env("DOUYIN_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
-      "payment_received" => System.get_env("TT_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("TT_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_received" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_RECEIVED"),
+      "payment_expired" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_EXPIRED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
