@@ -203,17 +203,112 @@ defmodule Cgc2046Web.GraphqlSignInWithPlatformTest do
       assert [%{"code" => "authentication_failed"}] = json_response(conn, 200)["errors"]
     end
 
-    test "tt 只给 phoneCode：authentication_failed（unsupported 组合 fail-closed）" do
-      Fixtures.stub_code2session(%{
-        tt:
-          Fixtures.code2session_body(:tt, %{
-            openid: "t-gql-pc-4",
-            session_key: Fixtures.new_session_key()
-          })
+    # tt phoneCode 全链路（code2session → client_token → get_phone_number）
+    # 共用 MiniprogramClientStub；每个用例自建 stub 分发（stub_code2session
+    # 只覆盖 code2session 端点，对 open.douyin.com 请求会 raise）。
+    defp tt_platform_config do
+      :cgc_2046
+      |> Application.get_env(:miniprogram_platforms, %{})
+      |> Map.fetch!(:tt)
+    end
+
+    defp stub_tt_phone_chain(phone_body) do
+      test_pid = self()
+
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        case {conn.method, conn.host, conn.request_path} do
+          {"POST", "developer.toutiao.com", "/api/apps/v2/jscode2session"} ->
+            config = tt_platform_config()
+            {:ok, raw, conn} = Plug.Conn.read_body(conn)
+            params = Jason.decode!(raw)
+
+            assert params["appid"] == config.appid,
+                   "tt appid 应来自 runtime config，实际 #{params["appid"]}"
+
+            assert params["secret"] == config.secret
+            assert is_binary(params["code"])
+
+            Req.Test.json(
+              conn,
+              Fixtures.code2session_body(:tt, %{
+                openid: "t-gql-pc-4",
+                session_key: Fixtures.new_session_key()
+              })
+            )
+
+          {"POST", "open.douyin.com", "/oauth/client_token/"} ->
+            config = tt_platform_config()
+            {:ok, raw, conn} = Plug.Conn.read_body(conn)
+            params = Jason.decode!(raw)
+
+            assert params["client_key"] == config.appid,
+                   "client_token 的 client_key 应来自 runtime config"
+
+            assert params["client_secret"] == config.secret
+            assert params["grant_type"] == "client_credential"
+            Req.Test.json(conn, %{"data" => %{"access_token" => "tt-pc-token"}})
+
+          {"POST", "open.douyin.com", "/api/apps/v2/get_phone_number"} ->
+            assert [token] = Plug.Conn.get_req_header(conn, "access-token")
+            assert token == "tt-pc-token", "get_phone_number 必须携带 token 步签发的 access-token"
+
+            {:ok, raw, conn} = Plug.Conn.read_body(conn)
+            params = Jason.decode!(raw)
+            assert is_binary(params["code"]) and params["code"] != ""
+            send(test_pid, {:tt_phone_request, params})
+            Req.Test.json(conn, phone_body)
+
+          other ->
+            raise "unexpected tt phone chain request: #{inspect(other)}"
+        end
+      end)
+
+      :ok
+    end
+
+    test "tt + phoneCode 成功：get_phone_number 直取手机号并锚定 +861380001234" do
+      stub_tt_phone_chain(%{
+        "err_no" => 0,
+        "err_tips" => "success",
+        "data" => %{"phone_number" => "13800001234", "country_code" => "86"}
       })
 
       conn = graphql_post(build_conn(), phone_code_mutation("tt", "gql-pc-code-4", "pc-token-4"))
+
+      assert %{"data" => %{"signInWithPlatform" => payload}} = json_response(conn, 200)
+      assert is_binary(payload["id"])
+      assert_receive {:tt_phone_request, %{"code" => "pc-token-4"}}
+
+      user = Cgc2046.Repo.get!(Cgc2046.Accounts.User, payload["id"])
+      assert user.phone == "+8613800001234"
+
+      cookie = assert_auth_cookie_written(conn)
+      {:ok, claims} = Jwt.peek(cookie.value)
+      assert claims["platform"] == "tt"
+    end
+
+    test "tt phone_number 为密文（匿名手机号方案）：authentication_failed + 不写 cookie" do
+      stub_tt_phone_chain(%{
+        "err_no" => 0,
+        "err_tips" => "success",
+        "data" => %{"phone_number" => "kRv3qBase64CipherText==", "country_code" => "86"}
+      })
+
+      conn = graphql_post(build_conn(), phone_code_mutation("tt", "gql-pc-code-5", "pc-token-5"))
+
       assert [%{"code" => "authentication_failed"}] = json_response(conn, 200)["errors"]
+      assert conn.resp_cookies["cgc_token"] == nil
+    end
+
+    test "tt get_phone_number 平台拒绝（err_no 非零）：authentication_failed" do
+      stub_tt_phone_chain(%{"err_no" => 40_029, "err_tips" => "invalid code", "data" => %{}})
+
+      conn = graphql_post(build_conn(), phone_code_mutation("tt", "gql-pc-code-6", "pc-token-6"))
+
+      assert [%{"code" => "authentication_failed"}] = json_response(conn, 200)["errors"]
+      assert conn.resp_cookies["cgc_token"] == nil
     end
   end
 

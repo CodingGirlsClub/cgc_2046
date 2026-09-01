@@ -201,9 +201,12 @@ export class RealMiniProgramApi implements MiniProgramApi {
   async signIn(payload: PlatformPhonePayload): Promise<SessionSnapshot> {
     // 契约：phoneCode（新）或 encryptedData+iv（legacy）二选一——与服务端
     // SignInPreparation.fetch_phone 的组合校验对齐，缺登录凭证必拒。
-    // phoneCode 仅限 weapp：tt/xhs 回调可能并存 code 字段（抖音 ≥3.51.0），
-    // 但两平台无服务端 code API——code 不进新契约语义（advisor09 F1 gate）
-    const phoneCode = process.env.TARO_ENV === 'weapp' ? payload.code : undefined
+    // phoneCode 仅限 weapp/tt（服务端分别走 getuserphonenumber /
+    // get_phone_number）；xhs 无服务端 code API，并存 code 字段剥离出契约
+    // （advisor09 F1 gate 范围收窄至 xhs）
+    const isNewPhonePlatform =
+      process.env.TARO_ENV === 'weapp' || process.env.TARO_ENV === 'tt'
+    const phoneCode = isNewPhonePlatform ? payload.code : undefined
     if (!payload.loginCode || (!phoneCode && (!payload.encryptedData || !payload.iv))) {
       throw new Error('平台登录参数不完整')
     }
