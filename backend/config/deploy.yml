@@ -108,6 +108,10 @@ env:
     # runtime.exs 注释见 issue #264——web 先行部署、小程序上架时补齐）
     - WECHAT_MP_APPID
     - WECHAT_MP_SECRET
+    # 抖音小程序凭证（可选门禁：缺值 platform_not_configured，boot 不崩；
+    # 抖音端上架启用，命名与 WECHAT_MP_* 对称）
+    - DOUYIN_MP_APPID
+    - DOUYIN_MP_SECRET
     # 订阅消息模板 ID（2026-08-26 平台申请：参与活动提醒/待处理申请提醒/活动开始提醒；
     # 其余模板槽未配置时发送侧静默跳过，不阻塞）
     - WECHAT_MP_TEMPLATE_APPROVAL_RESULT
