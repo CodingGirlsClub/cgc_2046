@@ -356,7 +356,7 @@ class TutorAsidePanelTest < Minitest::Test
   def test_tutor_prompt_sop
     # 教研 SOP:先读后写/渐进生成/409 合并重试/自评诚实/发布须 tutor 同意
     assert_includes PROMPT, "先读现状"
-    assert_includes PROMPT, "渐进生成，不要一次全量"
+    assert_includes PROMPT, "渐进确认在对话，落盘必须整卡"
     assert_includes PROMPT, "合并"
     assert_includes PROMPT, "自评要诚实"
     assert_includes PROMPT, "只在 tutor 明确同意后调用"
