@@ -55,6 +55,6 @@
 
 ## 已知缺口（待 backend/平台契约，非本端可解）
 
-- [ ] 抖音/小红书手机号 `code` 契约（真机验证响应结构后交 backend）
+- [ ] 抖音 phoneCode 契约已落地（`get_phone_number` code 换号，前端 weapp/tt 同 gate 发送）；**待真机确认**：若线上 `data.phone_number` 为匿名手机号方案密文，需在抖音后台配置应用公私钥并补 RSA 解密（当前后端返回 `phone_number_encrypted` 拒绝并记脱敏日志）；小红书 `code` 契约仍待定
 - [ ] 小红书服务通知的授权交互与下发语义（平台文档 + 真机确认后回写）
 - [ ] 抖音/小红书模板 ID 申请与运维归属（§9 Q3 human 项）
