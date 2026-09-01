@@ -392,6 +392,18 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       assert msg =~ "invalid rule"
       assert msg =~ "open_entity_without_research_definition"
     end
+
+    test "admin_list_reconciliation_findings：非法 workspace_id（非 UUID 串）→ 明确 error" do
+      admin = Fixtures.platform_admin("pa-recon-badws")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AdminListReconciliationFindings.execute(
+                 %{"workspace_id" => "not-a-uuid"},
+                 frame_for(admin)
+               )
+
+      assert msg =~ "invalid workspace_id"
+    end
   end
 
   describe "admin_approve_workspace_application 确认流" do
