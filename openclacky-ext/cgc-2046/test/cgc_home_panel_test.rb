@@ -120,10 +120,12 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes prompt, "slug"
     # 邀请外部 tutor 三步流程
     assert_includes prompt, "create_invitation"
+    assert_includes prompt, "preauthorized_role_names"
+    assert_includes prompt, "接受邀请时自动授予"
     assert_includes prompt, "role_names"
     assert_includes prompt, "对方还不是本台成员"
     # approve 可带角色
-    assert_includes prompt, "批准并直接授予 tutor 角色"
+    assert_includes prompt, "批准时直接给 tutor 角色"
     # curriculum_requirements 可更新
     assert_includes prompt, "教研需求（curriculum_requirements）"
   end

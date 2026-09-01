@@ -15,6 +15,11 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:target_email, :string, description: "目标邮箱（空 = 公开链接）")
     field(:expires_in_hours, :integer, description: "有效期（小时，可选）")
+
+    field(:preauthorized_role_names, {:array, :string},
+      description:
+        "预授权角色（可多个，仅 tutor|volunteer|learner；接受邀请时自动授予；缺省 [] = 无角色入座，Owner 可事后 assign_roles）"
+    )
   end
 
   @impl true
@@ -23,11 +28,16 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
       Wrapper.run(frame, params, "create_invitation", fn _actor, workspace_id, params ->
         target = params["target_email"] || params[:target_email]
 
+        roles = params["preauthorized_role_names"] || params[:preauthorized_role_names] || []
+
+        roles_str =
+          if is_list(roles) and roles != [], do: "（预授权角色: #{Enum.join(roles, ", ")}）", else: ""
+
         summary =
           if target do
-            "在 workspace #{workspace_id} 创建指向 #{target} 的邀请"
+            "在 workspace #{workspace_id} 创建指向 #{target} 的邀请#{roles_str}"
           else
-            "在 workspace #{workspace_id} 创建公开邀请链接"
+            "在 workspace #{workspace_id} 创建公开邀请链接#{roles_str}"
           end
 
         Confirmation.request(frame.assigns[:current_user], "create_invitation", params, summary)
@@ -45,12 +55,15 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
     workspace_id = params["workspace_id"]
     expires_at = expires_at_from(params["expires_in_hours"])
 
+    preauthorized = parse_preauthorized_roles(params["preauthorized_role_names"])
+
     input =
       %{
         workspace_id: workspace_id,
         inviter_id: actor.id,
         target_email: params["target_email"],
-        expires_at: expires_at
+        expires_at: expires_at,
+        preauthorized_role_names: preauthorized
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Map.new()
@@ -77,6 +90,24 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
         {:error, "failed to create invitation"}
     end
   end
+
+  @valid_preauth_roles ~w(tutor volunteer learner)a
+
+  defp parse_preauthorized_roles(nil), do: nil
+
+  defp parse_preauthorized_roles(roles) when is_list(roles) do
+    Enum.map(roles, fn role ->
+      atom = String.to_existing_atom(to_string(role))
+
+      if atom in @valid_preauth_roles,
+        do: atom,
+        else: raise(ArgumentError, "invalid role: #{role}")
+    end)
+  rescue
+    ArgumentError -> {:error, "invalid preauthorized role: #{inspect(roles)}"}
+  end
+
+  defp parse_preauthorized_roles(_), do: nil
 
   defp expires_at_from(nil), do: nil
 
