@@ -54,6 +54,15 @@ contributes:
       order: 10
     # 会话伴学侧栏(session.aside,attach cgc-assistant;点目标直接注入会话指令,
     # 替代课程页「复制学习指令」的剪贴板管道)
+    # 管理侧边栏(session.aside,attach cgc-admin;待办审批 + 管理快捷入口)
+    - id: cgc-2046-admin-aside
+      title: CGC Admin Aside
+      title_zh: 工作台管理
+      description: Admin aside (pending tasks, quick actions)
+      description_zh: 管理侧栏(待办审批/快捷入口)
+      view: panels/cgc-2046-admin-aside/view.js
+      order: 20
+      attach: [cgc-admin]
     # P1 教研侧边栏(session.aside,attach cgc-tutor;会话内实时显示草稿产出)
     - id: cgc-2046-tutor-aside
       title: CGC Tutor Aside

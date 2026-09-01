@@ -323,6 +323,34 @@ class TutorAsidePanelTest < Minitest::Test
   end
 end
 
+# ---- 管理侧边栏(attach cgc-admin) ----
+class AdminAsidePanelTest < Minitest::Test
+  VIEW = File.read(File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__))
+
+  def test_mount_and_attach
+    assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
+    assert_includes VIEW, "agents: [AGENT]"
+    assert_includes VIEW, '"cgc-admin"'
+    assert_includes VIEW, "工作台管理"
+  end
+
+  def test_data_and_actions
+    assert_includes VIEW, '"/me/workspaces"'
+    assert_includes VIEW, '"/tasks?workspace_id="'
+    assert_includes VIEW, "ADMIN_ROLES"
+    assert_includes VIEW, "data-action"
+    assert_includes VIEW, "创建课程"
+    assert_includes VIEW, "邀请成员"
+    assert_includes VIEW, "injectIntoComposer"
+    assert_includes VIEW, "POLL_MS = 10000"
+  end
+
+  def test_ext_yml_registered
+    assert_includes EXT_YML, "- id: cgc-2046-admin-aside"
+    assert_includes EXT_YML, "attach: [cgc-admin]"
+  end
+end
+
 class CgcLearnPanelTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-learn/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
