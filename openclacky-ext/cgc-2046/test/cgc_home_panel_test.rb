@@ -180,6 +180,13 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, "/settings/members"
   end
 
+  # 待办聚合所有工作台(问题4-B):不按选中台过滤,行首带台名
+  def test_tasks_aggregate_all_workspaces
+    assert_includes VIEW, "Promise.allSettled(workspaces.map"
+    assert_includes VIEW, 't._ws_name ? "[" + t._ws_name + "] " : ""'
+    refute_includes VIEW, '"/tasks?workspace_id=" + encodeURIComponent(selectedWorkspaceId)'
+  end
+
   # ---- 角色感知功能目录 ----
   def test_role_aware_catalog
     # 全员三卡
@@ -379,6 +386,8 @@ class AdminAsidePanelTest < Minitest::Test
     assert_includes VIEW, '"/me/workspaces"'
     assert_includes VIEW, '"/tasks?workspace_id="'
     assert_includes VIEW, "ADMIN_ROLES"
+    assert_includes VIEW, "Promise.allSettled(state.workspaces.map"
+    assert_includes VIEW, 't._ws_name ? "[" + t._ws_name + "] " : ""'
     assert_includes VIEW, "data-action"
     assert_includes VIEW, "创建课程"
     assert_includes VIEW, "邀请成员"
