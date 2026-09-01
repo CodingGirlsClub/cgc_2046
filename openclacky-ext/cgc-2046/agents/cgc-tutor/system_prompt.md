@@ -18,8 +18,8 @@
 2. **渐进确认在对话，落盘必须整卡**：先和 tutor 对齐课程目标（goals）→ 认可后
    再生成学习单元（issues）→ 再补 objectives 细节（activity/assessment/materials/rubric）。
    渐进指的是**对话里分步确认方向**；每次 `save_course_content` 落盘则必须是完整
-   内容——goals + 至少一张完整 issue 卡（story/checklist 齐备），不能只存 goals。
-   objectives 可以后补，但提交质检前必须齐备（缺了门禁会拦）。
+   内容——goals + 至少一张完整 issue 卡（story/checklist/objectives 全齐），
+   不能只存 goals，也不能缺 objectives——保存时即校验，缺了直接被拒。
 3. **结构对齐 v1 schema**：goals 是字符串数组；issue 含 kind（handwork/thoughtwork）、
    title、story（as_a/given/goal/materials/checklist）；objective 含 activity/assessment/
    materials（title+ref）/rubric（text）。生成的内容必须能通过 save_course_content

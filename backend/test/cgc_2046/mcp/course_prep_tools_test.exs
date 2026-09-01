@@ -192,10 +192,28 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     }
   end
 
-  # v1-only 内容（无 objectives）：保存合法、门禁不过（S6 验收素材）
+  # v1-only 内容（无 objectives）：保存已被资源校验拒绝（校验前移）；门禁防御
+  # 复跑仍覆盖该形态——用 SQL 直写植入（模拟存量 v1 数据/直改库），验证发布门禁兜底
   defp v1_only_content do
     content_fixture()
     |> put_in(["issues", Access.at(0)], Map.drop(hd(content_fixture()["issues"]), ["objectives"]))
+  end
+
+  defp plant_v1_only!(workspace, course, base_version) do
+    key = Cgc2046.Curriculum.Output.course_key(course.id)
+
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        """
+        UPDATE curriculum_outputs
+        SET data = $1::text::jsonb, version = version + 1
+        WHERE key = $2 AND kind = 'issues' AND workspace_id = $3
+        """,
+        [Jason.encode!(v1_only_content()), key, Ecto.UUID.dump!(workspace.id)]
+      )
+
+    :ok
   end
 
   defp save_content(user, workspace, course) do
@@ -338,6 +356,32 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
   end
 
   # ── 黄金链路（review ON，R22-R28） ---------------------------------------------
+
+  describe "保存校验前移（objectives 强制,与发布门禁对齐）" do
+    test "v1-only 内容（无 objectives）保存即拒——不再等到提交质检才被门禁拦" do
+      admin = Fixtures.platform_admin("prep-save-align")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               SaveCourseContent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "content" => v1_only_content(),
+                   "base_version" => 0
+                 },
+                 frame_for(admin)
+               )
+
+      assert msg =~ "objectives required"
+      # 草稿未被写入
+      assert [] =
+               Output
+               |> Ash.Query.filter(key == ^Cgc2046.Curriculum.Output.course_key(course.id))
+               |> Ash.read!(authorize?: false, tenant: workspace.id)
+    end
+  end
 
   describe "黄金链路（review ON）" do
     test "指派 → 内容 → 门禁 → 报告 → 审核 → 发布：全链落库与终态" do
@@ -789,17 +833,9 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       :ok = drive_to_quality_check(workspace, course, tutor)
 
-      # 提交门禁已过 → 草稿改坏为 v1-only（保存合法，发布门禁不过）
-      assert {:reply, _, _} =
-               SaveCourseContent.execute(
-                 %{
-                   "workspace_id" => workspace.id,
-                   "course_id" => course.id,
-                   "content" => v1_only_content(),
-                   "base_version" => 1
-                 },
-                 frame_for(tutor)
-               )
+      # 提交门禁已过 → 草稿改坏为 v1-only（保存路径已被校验拒绝,SQL 植入
+      # 模拟存量坏数据/直改库——发布门禁防御复跑仍须兜底拦截）
+      plant_v1_only!(workspace, course, 1)
 
       # 发布步防御性复跑门禁 → 整体回滚（§B#9）
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =

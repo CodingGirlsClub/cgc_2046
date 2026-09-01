@@ -152,7 +152,14 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
         "goal" => "目标",
         "materials" => [],
         "checklist" => [%{"id" => "c1", "text" => "完成"}]
-      }
+      },
+      "objectives" => [
+        %{
+          "id" => "obj-goals-1",
+          "title" => "掌握本单元核心目标",
+          "rubric" => [%{"id" => "r1", "text" => "能独立完成"}]
+        }
+      ]
     }
   end
 
