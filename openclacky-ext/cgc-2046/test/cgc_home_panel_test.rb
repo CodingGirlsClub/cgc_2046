@@ -86,6 +86,28 @@ class CgcHomePanelTest < Minitest::Test
   end
 
   # 任务 kind 中文标签 + 可点击跳转对应面板
+  # cgc-admin agent + hub 工作台管理卡
+  def test_admin_agent_registered
+    assert_includes EXT_YML, "- id: cgc-admin"
+    assert_includes EXT_YML, "agents/cgc-admin/system_prompt.md"
+    prompt = File.read(File.expand_path("../agents/cgc-admin/system_prompt.md", __dir__))
+    assert_includes prompt, "create_course"
+    assert_includes prompt, "curriculum_requirements"
+    assert_includes prompt, "claim_prep_authoring"
+    assert_includes prompt, "Owner/Admin"
+    assert_includes prompt, "list_members"
+    assert_includes prompt, "approve_join_request"
+  end
+
+  def test_hub_admin_card_for_owner_admin
+    assert_includes VIEW, "ADMIN_ROLES"
+    assert_includes VIEW, "wsadmin"
+    assert_includes VIEW, "工作台管理"
+    assert_includes VIEW, "创建课程·成员·审批·邀请"
+    assert_includes VIEW, "startAdminSession"
+    assert_includes VIEW, '"cgc-admin"'
+  end
+
   def test_task_kind_labels_and_navigation
     assert_includes VIEW, "TASK_KINDS"
     assert_includes VIEW, '"教研审核"'
