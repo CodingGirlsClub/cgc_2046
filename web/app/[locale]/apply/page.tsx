@@ -15,6 +15,7 @@ import {
 	type AdminWorkspaceApplication,
 } from "@/lib/graphql/admin";
 import { useAuthed } from "@/lib/use-authed";
+import SitePage from "@/components/site-page";
 
 export default function ApplyPage() {
 	const t = useTranslations("apply");
@@ -74,31 +75,36 @@ export default function ApplyPage() {
 	// 登录确认中：不渲染表单（避免未登录提交）
 	if (!confirmed) {
 		return (
-			<section className="mx-auto max-w-xl px-4 py-10">
-				<p className="text-sm text-neutral-500">{t("loading")}</p>
-			</section>
+			<SitePage>
+				<div className="mx-auto w-full max-w-xl px-4 py-10">
+					<p className="text-sm text-ink-3">{t("loading")}</p>
+				</div>
+			</SitePage>
 		);
 	}
 
 	if (!authed) {
 		return (
-			<section className="mx-auto max-w-xl px-4 py-10">
-				<h1 className="text-2xl font-semibold mb-2">{t("title")}</h1>
-				<p className="text-neutral-600">
-					{t("loginFirst")}{" "}
-					<Link href="/login" className="text-blue-600 hover:underline">
-						{t("login")}
-					</Link>{" "}
-					{t("loginAfter")}
-				</p>
-			</section>
+			<SitePage>
+				<div className="mx-auto w-full max-w-xl px-4 py-10">
+					<h1 className="text-2xl font-semibold mb-2">{t("title")}</h1>
+					<p className="text-ink-2">
+						{t("loginFirst")}{" "}
+						<Link href="/login" className="text-accent hover:underline">
+							{t("login")}
+						</Link>{" "}
+						{t("loginAfter")}
+					</p>
+				</div>
+			</SitePage>
 		);
 	}
 
 	return (
-		<section className="mx-auto max-w-xl px-4 py-10">
+		<SitePage>
+			<div className="mx-auto w-full max-w-xl px-4 py-10">
 			<h1 className="text-2xl font-semibold mb-2">{t("title")}</h1>
-			<p className="text-neutral-600 mb-6">
+			<p className="text-ink-2 mb-6">
 				{t("intro")}
 			</p>
 
@@ -113,7 +119,7 @@ export default function ApplyPage() {
 						onChange={(e) => setName(e.target.value)}
 						placeholder={t("namePlaceholder")}
 						required
-						className="px-3 py-2 rounded-md border border-neutral-300 text-sm"
+						className="rounded-large border border-line-strong bg-card px-3 py-2 text-sm"
 					/>
 				</div>
 
@@ -128,7 +134,7 @@ export default function ApplyPage() {
 						placeholder={t("slugPlaceholder")}
 						required
 						pattern="[a-z0-9-]+"
-						className="px-3 py-2 rounded-md border border-neutral-300 text-sm"
+						className="rounded-large border border-line-strong bg-card px-3 py-2 text-sm"
 					/>
 				</div>
 
@@ -143,13 +149,13 @@ export default function ApplyPage() {
 						placeholder={t("purposePlaceholder")}
 						required
 						rows={3}
-						className="px-3 py-2 rounded-md border border-neutral-300 text-sm"
+						className="rounded-large border border-line-strong bg-card px-3 py-2 text-sm"
 					/>
 				</div>
 
-				{formError && <p className="text-sm text-red-600">{formError}</p>}
+				{formError && <p className="text-sm text-red-300">{formError}</p>}
 				{submitted && (
-					<p className="text-sm text-green-700">
+					<p className="text-sm text-ink">
 						{t("submitSuccess")}
 					</p>
 				)}
@@ -157,7 +163,7 @@ export default function ApplyPage() {
 				<button
 					type="submit"
 					disabled={submitting}
-					className="px-4 py-2 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-700 disabled:opacity-50"
+					className="join-button join-button--primary"
 				>
 					{t("submit")}
 				</button>
@@ -165,16 +171,16 @@ export default function ApplyPage() {
 
 			<section aria-label={t("myAppsLabel")}>
 				<h2 className="text-lg font-semibold mb-3">{t("myAppsLabel")}</h2>
-				{listError && <p className="text-sm text-red-600 mb-3">{t("listFailed")}</p>}
+				{listError && <p className="text-sm text-red-300 mb-3">{t("listFailed")}</p>}
 				{myApps && myApps.length === 0 && (
-					<p className="text-sm text-neutral-500">{t("noApps")}</p>
+					<p className="text-sm text-ink-3">{t("noApps")}</p>
 				)}
 				{myApps && myApps.length > 0 && (
 					<ul className="flex flex-col gap-2">
 						{myApps.map((app) => (
 							<li
 								key={app.id}
-								className="rounded-lg border border-neutral-200 p-3"
+								className="rounded-large border border-line bg-view p-3"
 							>
 								<div className="flex items-center justify-between">
 									<span className="font-medium">{app.name}</span>
@@ -182,9 +188,9 @@ export default function ApplyPage() {
 										{labelsT(APPLICATION_STATUS_LABEL[app.status])}
 									</span>
 								</div>
-								<div className="text-xs text-neutral-500 mt-1">{app.slug}</div>
+								<div className="text-xs text-ink-3 mt-1">{app.slug}</div>
 								{app.rejectionReason && (
-									<div className="text-xs text-red-600 mt-1">
+									<div className="text-xs text-red-300 mt-1">
 										{t("rejectionReason", { reason: app.rejectionReason })}
 									</div>
 								)}
@@ -193,6 +199,7 @@ export default function ApplyPage() {
 					</ul>
 				)}
 			</section>
-		</section>
+			</div>
+		</SitePage>
 	);
 }

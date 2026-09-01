@@ -29,6 +29,7 @@ import { useAuthed } from "@/lib/use-authed";
 import { PROVIDER_LABEL, WEB_ENABLED_PROVIDERS } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { storeOrderContext } from "@/lib/order-context";
+import SitePage from "@/components/site-page";
 
 /**
  * web 端可下单渠道展示列表（wechat_jsapi 是小程序专属凭据，不在 web 面提供）。
@@ -279,10 +280,12 @@ function NewOrderForm() {
 
 export default function NewOrderPage() {
 	return (
-		<main className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10">
-			<Suspense fallback={<div className="h-40 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />}>
-				<NewOrderForm />
-			</Suspense>
-		</main>
+		<SitePage>
+			<div className="mx-auto grid w-full max-w-lg gap-4 px-4 py-10">
+				<Suspense fallback={<div className="h-40 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />}>
+					<NewOrderForm />
+				</Suspense>
+			</div>
+		</SitePage>
 	);
 }

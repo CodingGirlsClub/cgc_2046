@@ -218,6 +218,7 @@
   },
   "landing": {
     "nav": {
+      "ariaLabel": "Primary",
       "events": "Events",
       "courses": "Courses",
       "login": "Sign in",

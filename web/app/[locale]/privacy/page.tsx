@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
+import SitePage from "@/components/site-page";
 
 /**
  * /privacy 隐私政策 + 个人信息处理规则（静态法务页，#210 U1）。
@@ -31,7 +32,8 @@ const cell = "border-b border-line py-2 pr-4 align-top text-sm leading-6 text-in
 
 export default function PrivacyPage() {
 	return (
-		<main className="mx-auto max-w-3xl px-4 py-10">
+		<SitePage>
+			<div className="mx-auto max-w-3xl px-4 py-10">
 			<h1 className="l-h1">CGC 平台隐私政策</h1>
 
 			<div className="mt-4 space-y-1 rounded-large border border-line bg-card px-5 py-4 text-[12px] leading-5 text-ink-3">
@@ -343,6 +345,7 @@ export default function PrivacyPage() {
 				<h3 className="l-h4 mt-8">安全事件响应</h3>
 				<p className="mt-3 text-sm leading-7 text-ink-2">发生个人信息泄露等安全事件时，我们将依法采取补救措施，按规定告知监管部门与受影响用户。</p>
 			</section>
-		</main>
+			</div>
+		</SitePage>
 	);
 }

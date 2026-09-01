@@ -12,6 +12,12 @@ const { createApplication, fetchMyApplications } = vi.hoisted(() => ({
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("@/lib/admin", () => ({ createApplication, fetchMyApplications }));
 
+// 套 SitePage 顶导后引入语言切换器（next-intl useRouter 依赖 app router）：
+// mock 掉，表单行为不受影响
+vi.mock("@/components/language-switcher", () => ({
+	default: () => null,
+}));
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
@@ -96,7 +102,9 @@ describe("/apply 申请创建工作台", () => {
 
 		render(<ApplyPage />);
 
-		expect(screen.getByText(/登录/)).toBeInTheDocument();
+		// 顶导（SiteHeader）与正文各有「登录」链接（顶导的 → 是 aria-hidden，
+		// 两者可访问名相同）：断言两处都在，且表单不渲染。
+		expect(screen.getAllByRole("link", { name: "登录" })).toHaveLength(2);
 		expect(screen.queryByPlaceholderText(/名称/)).not.toBeInTheDocument();
 	});
 
