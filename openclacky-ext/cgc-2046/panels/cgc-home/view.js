@@ -36,6 +36,7 @@
   // 沿用原 workspace 面板的存储 key:用户已持久化的选择不丢失
   const LS_WORKSPACE = "cgc2046.workspacePanel.workspaceId";
   const EDIT_ROLES = ["tutor", "owner", "admin"];
+  const ADMIN_ROLES = ["owner", "admin"];
 
   // ---- 闭包状态(跨面板开关保持) ----
   let events = [];            // { type, tool, status, at }
@@ -251,6 +252,15 @@
       specs.push({ key: "admin", ic: "shield", title: "平台管理",
         desc: "网站管理端(成员/工作台)", action: "web" });
     }
+    // 工作台管理(Owner/Admin):创建课程/成员/审批/邀请
+    const isAdmin = workspaces.some(function (w) {
+      const roles = Array.isArray(w.roles) ? w.roles : [];
+      return ADMIN_ROLES.some(function (r) { return roles.indexOf(r) !== -1; });
+    });
+    if (isAdmin) {
+      specs.push({ key: "wsadmin", ic: "shield", title: "工作台管理",
+        desc: "创建课程·成员·审批·邀请", action: "session-admin" });
+    }
     return specs;
   }
 
@@ -293,6 +303,8 @@
         if (!spec) return;
         if (spec.action === "session") {
           startAssistantSession();
+        } else if (spec.action === "session-admin") {
+          startAdminSession();
         } else if (spec.action === "workspace") {
           Clacky.ext.ui.openWorkspace(spec.target);
         } else if (spec.action === "web") {
@@ -362,6 +374,68 @@
     const send = document.getElementById("btn-send");
     if (!input || !send) {
       toast("请在新会话中输入「连接 CGC-2046」开始自动连接", "info");
+      return;
+    }
+    input.textContent = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    send.click();
+    if (send.disabled) {
+      const timer = setInterval(function () {
+        if (!send.disabled) { clearInterval(timer); send.click(); }
+      }, 200);
+      setTimeout(function () { clearInterval(timer); }, 8000);
+    }
+  }
+
+  // ---- 工作台管理助手(cgc-admin):创建会话并注入管理指令 ----
+  function startAdminSession() {
+    if (sessionBusy) return;
+    sessionBusy = true;
+    setCatalogBusy("wsadmin", true);
+
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "CGC 管理助手",
+        agent_profile: "cgc-admin",
+        source: "manual"
+      })
+    })
+      .then(function (res) { return res.json().catch(function () { return {}; }); })
+      .then(function (payload) {
+        const session = payload.session;
+        if (!session || !session.id) throw new Error("没有创建可用的管理会话");
+        if (Clacky.Sessions && typeof Clacky.Sessions.add === "function") {
+          Clacky.Sessions.add(session);
+          if (typeof Clacky.Sessions.renderList === "function") Clacky.Sessions.renderList();
+          Clacky.Sessions.select(session.id);
+        } else if (Clacky.Router && typeof Clacky.Router.navigate === "function") {
+          Clacky.Router.navigate("session", { id: session.id });
+        }
+        // 管理指令:先读身份确认权限,然后等用户指令
+        const instruction = [
+          "请作为 CGC 管理助手帮助我。",
+          "先调 list_my_workspaces 确认我的工作台与角色，",
+          "然后告诉我你可以帮我做什么(创建课程/成员管理/审批/邀请)。",
+          "等待我的具体需求。"
+        ].join("\n");
+        setTimeout(function () { injectIntoComposer(instruction); }, 1500);
+      })
+      .catch(function (e) {
+        toast(String(e.message || e), "error");
+      })
+      .finally(function () {
+        sessionBusy = false;
+        setCatalogBusy("wsadmin", false);
+      });
+  }
+
+  function injectIntoComposer(text) {
+    const input = document.getElementById("user-input");
+    const send = document.getElementById("btn-send");
+    if (!input || !send) {
+      window.prompt("复制以下指令到管理会话:", text);
       return;
     }
     input.textContent = text;

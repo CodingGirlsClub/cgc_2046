@@ -72,6 +72,10 @@ contributes:
       order: 15
       attach: [cgc-assistant]
   agents:
+    # 工作台管理专用 agent(Owner/Admin:创建课程/成员/审批/邀请)
+    - id: cgc-admin
+      title: "CGC 管理助手"
+      prompt: agents/cgc-admin/system_prompt.md
     # P1 AI 辅助教研:教研共创专用 agent(会话语境与学习分离;
     # 教研侧边栏 attach 本 agent)
     - id: cgc-tutor
