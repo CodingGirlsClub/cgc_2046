@@ -57,12 +57,20 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
     end
   end
 
-  # 手机号获取优先级：wechat + phone_code → 新 API（不触碰 session_key）；
-  # 否则 legacy session_key 解密。组合不完整（phone_code 缺且 encrypted_data/iv
-  # 不齐；或非 wechat 平台只给 phone_code）→ 统一认证失败（防枚举语义不变）。
+  # 手机号获取优先级：phone_code 新 API 优先（wechat SDK 直取 / tt
+  # get_phone_number，均不触碰 session_key）；否则 legacy session_key 解密。
+  # 组合不完整（phone_code 缺且 encrypted_data/iv 不齐）→ 统一认证失败
+  # （防枚举语义不变）。
   defp fetch_phone(:wechat, %{openid: openid}, phone_code, _encrypted_data, _iv)
        when is_binary(phone_code) and phone_code != "" do
     Client.fetch_phone_by_code(:wechat, openid, phone_code)
+  end
+
+  # tt 新契约：getPhoneNumber 回调的 code 服务端仅凭自身换号（不绑定
+  # openid），故 openid 不参与调用。
+  defp fetch_phone(:tt, _session, phone_code, _encrypted_data, _iv)
+       when is_binary(phone_code) and phone_code != "" do
+    Client.fetch_phone_by_code(:tt, nil, phone_code)
   end
 
   defp fetch_phone(platform, session, nil, encrypted_data, iv)
