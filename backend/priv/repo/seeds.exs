@@ -22,6 +22,7 @@ alias Cgc2046.Accounts.User
 alias Cgc2046.Accounts.Workspace
 alias Cgc2046.Mcp.Playbooks
 alias Cgc2046.Workflows.WorkflowDefinition
+alias Cgc2046.Workflows.ProtocolDefinitions
 
 require Ash.Query
 
@@ -77,25 +78,7 @@ case User
 end
 
 # ── 3. 学习闭环 workflow 定义（幂等，存在即跳过）───────────────────
-definitions = [
-  %{
-    name: "教研 workflow",
-    type: :curriculum,
-    node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
-  },
-  %{
-    name: "学习 workflow",
-    type: :learning,
-    node_def: %{"steps" => [%{"id" => "learning_loop", "type" => "manual"}]}
-  },
-  %{
-    # role-agent-journeys-v2 S5 课程教研流程（R22-R28）：协议而非 DAG，
-    # manual step 协议容器（同学习定义；PrepInstantiator 订阅 course.created 实例化）
-    name: "课程教研 workflow",
-    type: :course_preparation,
-    node_def: %{"steps" => [%{"id" => "course_preparation", "type" => "manual"}]}
-  }
-]
+definitions = ProtocolDefinitions.definitions()
 
 Enum.each(definitions, fn attrs ->
   existing =
