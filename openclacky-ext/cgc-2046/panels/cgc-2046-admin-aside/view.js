@@ -24,6 +24,7 @@
     workspaces: [],       // [{ workspace_id, name, slug, roles }]
     selectedWsId: "",
     tasks: [],
+    tasksError: false,
     loading: true,
     error: null,
     lastRefresh: ""
@@ -79,13 +80,15 @@
         return { name: w.name || "", tasks: (((payload.result || {}).tasks) || []) };
       });
     })).then(function (settled) {
-      state.tasks = settled.filter(function (r) { return r.status === "fulfilled"; })
-        .flatMap(function (r) {
-          return r.value.tasks.map(function (t) {
-            t._ws_name = r.value.name;
-            return t;
-          });
+      const fulfilled = settled.filter(function (r) { return r.status === "fulfilled"; });
+      // 全部失败 ≠ 暂无待办(同 hub loadTasks——空态掩盖后端不可用/token 过期)
+      state.tasksError = fulfilled.length === 0;
+      state.tasks = fulfilled.flatMap(function (r) {
+        return r.value.tasks.map(function (t) {
+          t._ws_name = r.value.name;
+          return t;
         });
+      });
       state.lastRefresh = new Date().toLocaleTimeString();
     });
   }
@@ -177,7 +180,9 @@
 
     // 待办列表
     if (pendingCount === 0) {
-      html += '<div class="cgaa-empty">暂无管理待办。</div>';
+      html += (state.tasksError
+          ? '<div class="cgaa-empty">待办加载失败：所有工作台请求均未成功。</div>'
+          : '<div class="cgaa-empty">暂无管理待办。</div>');
     } else {
       html += '<div class="cgaa-task-list">' + state.tasks.map(function (t) {
         const dl = t.approval_deadline
