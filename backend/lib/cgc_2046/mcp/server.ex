@@ -111,8 +111,10 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminDemoteUser)
   # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
   # 工具面 30 → 43（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
-  # 两段式快速失败，create_course 为唯一直接写——零输入草稿可逆低风险）
+  # 两段式快速失败，create_course 为唯一直接写——零输入草稿可逆低风险；
+  # list_workspace_courses 为 member-only 课程发现面，#366）
   component(Cgc2046.Mcp.Tools.CreateCourse)
+  component(Cgc2046.Mcp.Tools.ListWorkspaceCourses)
   component(Cgc2046.Mcp.Tools.UpdateCourse)
   component(Cgc2046.Mcp.Tools.LaunchCourse)
   component(Cgc2046.Mcp.Tools.CloseCourse)

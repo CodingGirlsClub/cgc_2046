@@ -20,6 +20,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Server
   alias Cgc2046.Mcp.Tools.GetCourseContent
+  alias Cgc2046.Mcp.Tools.ListWorkspaceCourses
   alias Cgc2046.Mcp.Tools.SaveCourseContent
 
   require Ash.Query
@@ -210,12 +211,83 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
     end
   end
 
+  describe "list_workspace_courses（#366 member-only 课程发现面）" do
+    test "member（tutor）见本台全部状态课程含 draft；status 过滤；非 member forbidden" do
+      admin = Fixtures.platform_admin("cwlc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      tutor = Fixtures.register_user("cwlc-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      outsider = Fixtures.register_user("cwlc-outsider")
+
+      # draft（fixture 会 force_open，draft 态绕过直建）+ open 各一门
+      assert {:ok, draft} =
+               Cgc2046.Courses.Course
+               |> Ash.Changeset.for_create(:create, %{title: "CWLC Draft"},
+                 tenant: workspace.id,
+                 actor: admin
+               )
+               |> Ash.create(tenant: workspace.id, actor: admin)
+
+      open = EventFixtures.create_course(workspace, admin, %{title: "CWLC Open"})
+
+      # tutor（member，非管理角色）→ 全部状态含 draft
+      {:reply, _, _} =
+        reply = ListWorkspaceCourses.execute(%{"workspace_id" => workspace.id}, frame_for(tutor))
+
+      decoded = decode(reply)
+      assert decoded["count"] == 2
+
+      titles = Enum.map(decoded["courses"], & &1["title"])
+      assert Enum.sort(titles) == ["CWLC Draft", "CWLC Open"]
+
+      for row <- decoded["courses"] do
+        assert Map.has_key?(row, "course_id")
+        assert Map.has_key?(row, "status")
+        assert Map.has_key?(row, "visibility")
+        assert Map.has_key?(row, "current_revision_id")
+        assert Map.has_key?(row, "prep_state")
+      end
+
+      draft_row = Enum.find(decoded["courses"], &(&1["course_id"] == draft.id))
+      assert draft_row["status"] == "draft"
+
+      # status 过滤：只剩 draft
+      {:reply, _, _} =
+        filtered =
+        ListWorkspaceCourses.execute(
+          %{"workspace_id" => workspace.id, "status" => "draft"},
+          frame_for(tutor)
+        )
+
+      filtered_rows = decode(filtered)["courses"]
+      assert [%{"status" => "draft"}] = filtered_rows
+
+      # 非 member → Wrapper member-only 门 forbidden
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ListWorkspaceCourses.execute(
+                 %{"workspace_id" => workspace.id},
+                 frame_for(outsider)
+               )
+
+      assert msg =~ "not a member"
+
+      # 非法 status → 明确清单报错
+      assert {:error, %Anubis.MCP.Error{message: status_msg}, _} =
+               ListWorkspaceCourses.execute(
+                 %{"workspace_id" => workspace.id, "status" => "bogus"},
+                 frame_for(tutor)
+               )
+
+      assert status_msg =~ "invalid status"
+    end
+  end
+
   describe "场景 7:server 工具契约" do
-    test "注册工具数 = 61(平台工具面契约,admin_list_reconciliation_findings 后)" do
+    test "注册工具数 = 62(平台工具面契约,list_workspace_courses 后)" do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 61
+      assert length(names) == 62
 
       for name <- [
             "get_workspace_context",
