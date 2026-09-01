@@ -135,8 +135,8 @@ describe('signIn phoneCode 新契约变量形状', () => {
     expect(variables.iv).toBeNull()
   })
 
-  it('非 weapp：code 与 encryptedData/iv 并存（抖音 ≥3.51.0 回调形状）→ code 不进 phoneCode 语义，走 legacy（advisor09 F1）', async () => {
-    // TARO_ENV 未 stub → 非 weapp：gate 关闭，回调里的 code 字段被剥离出契约
+  it('tt：code 在场（抖音 ≥3.51.0 回调形状）→ variables 发 phoneCode 且 legacy 字段为 null', async () => {
+    vi.stubEnv('TARO_ENV', 'tt')
     mocks.getAuthToken.mockReturnValue('new-token')
     mocks.graphqlRequest.mockImplementation((doc: string) => {
       if (doc === 'SIGN_IN_MUTATION') return Promise.resolve({})
@@ -144,7 +144,27 @@ describe('signIn phoneCode 新契约变量形状', () => {
       return Promise.resolve({})
     })
     const api = new RealMiniProgramApi()
-    await api.signIn({ loginCode: 'c', code: 'tt-callback-code', encryptedData: 'e', iv: 'i' })
+    await api.signIn({ loginCode: 'c', code: 'tt-callback-code' })
+
+    const [, variables] = mocks.graphqlRequest.mock.calls.find(
+      (call: unknown[]) => call[0] === 'SIGN_IN_MUTATION'
+    ) as [string, Record<string, unknown>]
+    expect(variables.phoneCode).toBe('tt-callback-code')
+    expect(variables.encryptedData).toBeNull()
+    expect(variables.iv).toBeNull()
+  })
+
+  it('xhs：code 与 encryptedData/iv 并存 → code 剥离出契约走 legacy（advisor09 F1 gate 收窄至 xhs）', async () => {
+    // TARO_ENV stub 为 xhs：gate 关闭，回调里的 code 字段被剥离出契约
+    vi.stubEnv('TARO_ENV', 'xhs')
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) => {
+      if (doc === 'SIGN_IN_MUTATION') return Promise.resolve({})
+      if (doc === 'SESSION_QUERY') return Promise.resolve(sessionData())
+      return Promise.resolve({})
+    })
+    const api = new RealMiniProgramApi()
+    await api.signIn({ loginCode: 'c', code: 'xhs-callback-code', encryptedData: 'e', iv: 'i' })
 
     const [, variables] = mocks.graphqlRequest.mock.calls.find(
       (call: unknown[]) => call[0] === 'SIGN_IN_MUTATION'
@@ -154,9 +174,10 @@ describe('signIn phoneCode 新契约变量形状', () => {
     expect(variables.iv).toBe('i')
   })
 
-  it('非 weapp：只给 code（无 legacy 字段）→ 参数不完整拒绝，不发起 mutation', async () => {
+  it('xhs：只给 code（无 legacy 字段）→ 参数不完整拒绝，不发起 mutation', async () => {
+    vi.stubEnv('TARO_ENV', 'xhs')
     const api = new RealMiniProgramApi()
-    await expect(api.signIn({ loginCode: 'c', code: 'tt-only-code' })).rejects.toThrow(
+    await expect(api.signIn({ loginCode: 'c', code: 'xhs-only-code' })).rejects.toThrow(
       '平台登录参数不完整'
     )
     expect(mocks.graphqlRequest).not.toHaveBeenCalled()

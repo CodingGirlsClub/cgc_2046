@@ -29,10 +29,13 @@ export async function preparePlatformLogin(
 
   // Taro.login 跨平台转发：weapp→wx.login / tt→tt.login / xhs→xhs.login（runtime 动态映射）
   const login = await Taro.login()
-  // weapp 新契约优先：getPhoneNumber 回调给动态 code（phoneCode）→ 服务端
-  // 经 getuserphonenumber 直取，不要求 encryptedData/iv（也不该再触碰 session_key）
-  const isWeapp = process.env.TARO_ENV === 'weapp'
-  if (isWeapp && phonePayload.code) {
+  // weapp/tt 新契约优先：getPhoneNumber 回调给动态 code（phoneCode）→ 服务端
+  // 直取手机号（wechat getuserphonenumber / tt get_phone_number），不要求
+  // encryptedData/iv（也不该再触碰 session_key）。tt 新版基础库（3.51.0+）
+  // 的 getPhoneNumber 只回 code——legacy 解密路径在抖音真机已不可达。
+  const isNewPhonePlatform =
+    process.env.TARO_ENV === 'weapp' || process.env.TARO_ENV === 'tt'
+  if (isNewPhonePlatform && phonePayload.code) {
     if (!login.code) {
       throw new Error('登录凭证获取失败，请重试')
     }
