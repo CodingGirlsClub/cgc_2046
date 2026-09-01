@@ -25,6 +25,7 @@ import { useTranslations } from "next-intl";
 import { fetchPublicOfferings } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import OfferingRow from "@/components/offering-row";
+import SiteHeader from "@/components/site-header";
 
 const FOUNDED_YEAR = 2016;
 const TARGET_YEAR = 2046;
@@ -175,27 +176,8 @@ export default function LandingPage() {
 
 	return (
 		<main className="ld-root">
-			{/* 顶导：品牌 + 公开入口 + 语言切换 + 登录/注册 */}
-			<header className="ld-nav">
-				<div className="ld-container ld-nav__inner">
-					<Link href="/" className="ld-brand">
-						<BrandLockup />
-					</Link>
-					<nav className="ld-nav__links" aria-label={t("nav.events")}>
-						<Link href="/events">{t("nav.events")}</Link>
-						<Link href="/courses">{t("nav.courses")}</Link>
-					</nav>
-					<div className="ld-nav__right">
-						<LanguageSwitcher className="ld-nav__lang" />
-						<Link href="/login" className="ld-nav__login">
-							{t("nav.login")}
-						</Link>
-						<Link href="/register" className="join-button join-button--primary">
-							{t("nav.join")}
-						</Link>
-					</div>
-				</div>
-			</header>
+			{/* 顶导：全站统一 SiteHeader（与公开目录页同源零跳变） */}
+			<SiteHeader />
 
 			{/* Hero：kicker + 纪念碑式大标题 + 单一主 CTA + 年份刻度条 */}
 			<section aria-labelledby="landing-hero-heading" className="ld-hero">

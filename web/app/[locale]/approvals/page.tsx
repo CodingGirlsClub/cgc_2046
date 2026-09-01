@@ -33,6 +33,7 @@ import {
 } from "@/lib/graphql/approvals";
 import { approveJoinRequest, rejectJoinRequest } from "@/lib/requests";
 import { ApprovalChip } from "@/components/approval-chip";
+import SitePage from "@/components/site-page";
 import {
 	APPROVE_SPONSORSHIP,
 	REJECT_SPONSORSHIP,
@@ -184,9 +185,11 @@ export default function ApprovalsPage() {
 
 	if (!confirmed) {
 		return (
-			<main className="ws-shell-loading">
-				<span>{t("loading")}</span>
-			</main>
+			<SitePage>
+				<div className="approvals-page">
+					<span>{t("loading")}</span>
+				</div>
+			</SitePage>
 		);
 	}
 	if (!authed) {
@@ -195,7 +198,8 @@ export default function ApprovalsPage() {
 	}
 
 	return (
-		<main className="approvals-page">
+		<SitePage>
+			<div className="approvals-page">
 			<nav className="approvals-breadcrumb" aria-label={t("breadcrumbAria")}>
 				<Link href="/">{t("breadcrumbHome")}</Link>
 				<span aria-hidden="true"> &gt; </span>
@@ -343,6 +347,7 @@ export default function ApprovalsPage() {
 					})}
 				</section>
 			)}
-		</main>
+		</div>
+	</SitePage>
 	);
 }
