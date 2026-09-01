@@ -35,6 +35,20 @@
     signed: ""            // version+结构签名(变化才重渲染)
   };
 
+  // 课程状态徽标(区别于教研周期):发布后新 prep 周期从 draft 重计,
+  // 只看周期会误以为未发布——open=学员已可报名
+  function courseStatusBadge(status) {
+    const map = {
+      open: { label: "已发布", cls: "is-open" },
+      draft: { label: "未发布", cls: "is-draft" },
+      closed: { label: "已关报名", cls: "is-draft" },
+      cancelled: { label: "已取消", cls: "is-cancelled" }
+    };
+    const m = map[String(status || "")];
+    if (!m) return "";
+    return '<span class="cgta-course-badge ' + m.cls + '">' + m.label + '</span>';
+  }
+
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -77,6 +91,7 @@
             return {
               courseId: String(c.course_id || ""),
               title: String(c.title || ""),
+              status: String(c.status || ""),
               workspaceId: wsId
             };
           });
@@ -297,6 +312,7 @@
           '<summary class="cgta-course-summary">' +
             '<span class="cgta-course-copy">' +
               '<span class="cgta-course-title">' + escapeHtml(c.title) + '</span>' +
+              courseStatusBadge(c.status) +
               (isSel ? '<span class="cgta-course-now">当前</span>' : "") +
             '</span>' +
             '<span class="cgta-course-chevron">⌄</span>' +
@@ -562,6 +578,10 @@
       ".cgta-course-summary::-webkit-details-marker{display:none}" +
       ".cgta-course-copy{display:flex;flex:1;align-items:center;gap:8px;min-width:0}" +
       ".cgta-course-title{overflow:hidden;flex:1;font-size:0.75rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}" +
+      ".cgta-course-badge{flex-shrink:0;font-size:0.625rem;font-weight:600;padding:1px 6px;border-radius:999px;border:1px solid}" +
+      ".cgta-course-badge.is-open{color:var(--color-success,#16a34a);border-color:var(--color-success,#16a34a)}" +
+      ".cgta-course-badge.is-draft{color:var(--color-text-tertiary,#888);border-color:var(--color-border-primary,#888)}" +
+      ".cgta-course-badge.is-cancelled{color:var(--color-danger,#dc2626);border-color:var(--color-danger,#dc2626)}" +
       ".cgta-course-now{flex:none;font-size:0.5625rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary));border-radius:999px;padding:0 6px;min-height:13px;display:inline-flex;align-items:center}" +
       ".cgta-course-chevron{color:var(--color-text-tertiary);font-size:0.875rem;transition:transform var(--transition-fast)}" +
       ".cgta-course[open] .cgta-course-chevron,.cgta-issue[open] .cgta-course-chevron{transform:rotate(180deg)}" +

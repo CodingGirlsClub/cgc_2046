@@ -365,6 +365,13 @@ class CoursePanelEditTest < Minitest::Test
   end
 
   # prep stepper 引导文案:每个状态一行提示,告诉用户下一步做什么+在哪做
+  # 课程状态徽标(curriculum): open 时显示「已发布 · 报名中」,与教研周期区分
+  def test_curriculum_course_status_badge
+    assert_includes VIEW, "cgt-course-status"
+    assert_includes VIEW, "已发布 · 报名中"
+    assert_includes VIEW, 'data-testid="course-status"'
+  end
+
   def test_prep_stepper_contextual_hints
     assert_includes VIEW, "hint"
     assert_includes VIEW, "教研流程刚启动"
