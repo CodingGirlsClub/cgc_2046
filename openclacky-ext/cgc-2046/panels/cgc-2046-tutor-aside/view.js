@@ -63,19 +63,28 @@
   // ---- 数据 ----
   async function loadCourses() {
     try {
-      const payload = await rawGet("/me/enrollments");
-      const enrollments = (payload.result && payload.result.enrollments) || [];
-      state.courses = enrollments
-        .filter(function (e) { return e.kind === "course" && e.status === "confirmed"; })
-        .map(function (e) {
-          const offering = e.offering || {};
-          const ws = e.workspace || {};
-          return {
-            courseId: String(offering.id || ""),
-            title: String(offering.title || ""),
-            workspaceId: String(ws.id || e.workspace_id || "")
-          };
-        })
+      // 课程发现同教研工作台: tutor 角色工作台的全部课程(list_workspace_courses),
+      // 不再用 /me/enrollments——tutor 有权编辑却不必然报名,报名视角看不到
+      // 被指派的课程(如新课 draft)。只显示自己有权限更新的课。
+      const wsPayload = await rawGet("/me/workspaces");
+      const allWs = (wsPayload.result && wsPayload.result.workspaces) || [];
+      const tutorWsIds = allWs
+        .filter(function (w) { return (w.roles || []).indexOf("tutor") >= 0; })
+        .map(function (w) { return String(w.workspace_id); });
+      const settled = await Promise.allSettled(tutorWsIds.map(function (wsId) {
+        return rawGet("/workspace/courses?workspace_id=" + encodeURIComponent(wsId)).then(function (payload) {
+          return (((payload.result || {}).courses) || []).map(function (c) {
+            return {
+              courseId: String(c.course_id || ""),
+              title: String(c.title || ""),
+              workspaceId: wsId
+            };
+          });
+        });
+      }));
+      state.courses = settled
+        .filter(function (r) { return r.status === "fulfilled"; })
+        .flatMap(function (r) { return r.value; })
         .filter(function (c) { return c.courseId !== ""; });
       const stored = localStorage.getItem("cgc2046.curriculum.courseId") || "";
       const found = state.courses.find(function (c) { return c.courseId === stored; });
