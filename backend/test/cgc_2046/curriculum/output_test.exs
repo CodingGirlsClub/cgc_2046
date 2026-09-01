@@ -34,7 +34,14 @@ defmodule Cgc2046.Curriculum.OutputTest do
                 %{"id" => "c1", "text" => "程序能运行并正确输出"},
                 %{"id" => "c2", "text" => "能把代码逐行讲懂"}
               ]
-            }
+            },
+            "objectives" => [
+              %{
+                "id" => "obj-1",
+                "title" => "掌握本单元核心目标",
+                "rubric" => [%{"id" => "r1", "text" => "能独立完成"}]
+              }
+            ]
           },
           %{
             "id" => "py-variables",
@@ -46,7 +53,14 @@ defmodule Cgc2046.Curriculum.OutputTest do
               "goal" => "理解变量存取",
               "materials" => [],
               "checklist" => [%{"id" => "c1", "text" => "能解释变量的绑定与读出"}]
-            }
+            },
+            "objectives" => [
+              %{
+                "id" => "obj-2",
+                "title" => "掌握变量概念",
+                "rubric" => [%{"id" => "r1", "text" => "能解释绑定与读出"}]
+              }
+            ]
           }
         ]
       },
