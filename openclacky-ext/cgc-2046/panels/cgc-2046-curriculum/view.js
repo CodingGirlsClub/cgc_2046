@@ -216,10 +216,31 @@
   const PREP_STATES = ["draft", "authoring", "quality_check", "review", "published"];
   const PREP_LABELS = { draft: "草稿", authoring: "编写中", quality_check: "质检", review: "审核", published: "已发布" };
   const PREP_ACTIONS = {
-    draft: { label: "开始编写(认领教研)", instruction: "请 claim_prep_authoring 认领本课程教研,然后与我确认课程定位并开始共创内容。" },
-    authoring: { label: "提交质量检查", instruction: "内容已就绪,请检查结构门禁后 submit_prep_for_check 提交质量检查。" },
-    quality_check: { label: "提交质量报告", instruction: "请按结构完整度如实自评,submit_prep_quality_report 提交质量报告(诚实评分,不美化)。" },
-    review: { label: "审核发布 / 驳回", instruction: "我已审阅草稿。等待我的明确指示后 approve_prep 通过发布,或 request_changes_prep 驳回;在此之前不要执行发布。" }
+    draft: {
+      label: "开始编写(认领教研)",
+      hint: "教研流程刚启动——点右侧按钮,和教研助手共创内容;或用「编辑内容」手动编写",
+      instruction: "请 claim_prep_authoring 认领本课程教研,然后与我确认课程定位并开始共创内容。"
+    },
+    authoring: {
+      label: "提交质量检查",
+      hint: "内容编写中——完成后点右侧按钮提交质检;质检会检查结构完整性(缺 rubric 等会被拦下)",
+      instruction: "内容已就绪,请检查结构门禁后 submit_prep_for_check 提交质量检查。"
+    },
+    quality_check: {
+      label: "提交质量报告",
+      hint: "等待质量自评——教研助手会诚实评分;达标进审核,不达标自动回编写",
+      instruction: "请按结构完整度如实自评,submit_prep_quality_report 提交质量报告(诚实评分,不美化)。"
+    },
+    review: {
+      label: "审核发布 / 驳回",
+      hint: "质量达标——审阅内容后点右侧按钮发布;不满意可驳回回编",
+      instruction: "我已审阅草稿。等待我的明确指示后 approve_prep 通过发布,或 request_changes_prep 驳回;在此之前不要执行发布。"
+    },
+    published: {
+      label: null,
+      hint: "已发布——学员可报名学习;如需修改内容,教研流程会自动开启新一轮",
+      instruction: null
+    }
   };
 
   function prepStepper() {
@@ -230,11 +251,14 @@
       return '<span class="cgt-st' + cls + '">' + escapeHtml(PREP_LABELS[s] || s) + '</span>';
     }).join('<span class="cgt-st-sep"></span>');
     const action = PREP_ACTIONS[current];
-    const btn = (action && canEditCourse(state.selectedCourseId))
+    const hint = action && action.hint
+      ? '<div class="cgt-stepper-hint">' + escapeHtml(action.hint) + '</div>'
+      : "";
+    const btn = (action && action.label && canEditCourse(state.selectedCourseId))
       ? ' <button id="cgt-prep-action" class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button"' +
             ' data-testid="prep-action">' + escapeHtml(action.label) + '</button>'
       : "";
-    return '<div class="cgt-stepper" data-testid="prep-stepper">' + dots + btn + '</div>';
+    return '<div class="cgt-stepper" data-testid="prep-stepper">' + dots + btn + hint + '</div>';
   }
 
   function bindPrepAction() {
@@ -746,7 +770,8 @@
       ".cgcc-card-grid{display:grid;grid-template-columns:1fr;gap:10px}",
       ".cgt-issue-card{margin-top:10px;padding:12px;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}",
       ".cgt-issue-key{font-family:ui-monospace,monospace;font-size:0.6875rem;color:var(--color-text-tertiary)}",
-      ".cgt-stepper{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}",
+      ".cgt-stepper{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}" +
+      ".cgt-stepper-hint{width:100%;font-size:0.6875rem;color:var(--color-text-tertiary);margin-top:6px;line-height:1.5}",
       ".cgt-st{font-size:0.6875rem;font-weight:650;padding:2px 8px;border-radius:999px;border:1px solid var(--color-border-secondary);color:var(--color-text-tertiary)}",
       ".cgt-st-done{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}",
       ".cgt-st-current{color:var(--color-accent-primary);border-color:var(--color-accent-primary);background:var(--color-accent-soft)}",
