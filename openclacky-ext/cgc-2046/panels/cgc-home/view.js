@@ -494,6 +494,24 @@
   }
 
   // ---- 我的任务(session-row 行列表风格) ----
+  // 任务 kind → 中文标签 + 目标面板(点击跳转)
+  const TASK_KINDS = {
+    course_prep_review:   { label: "教研审核",   panel: "cgc-2046-curriculum" },
+    enrollment_approval:  { label: "报名审批",   panel: "" },
+    join_request:         { label: "加入申请",   panel: "" },
+    sponsorship_review:   { label: "赞助审核",   panel: "" }
+  };
+
+  function taskKindLabel(kind) {
+    const meta = TASK_KINDS[kind];
+    return meta ? meta.label : kind || "";
+  }
+
+  function taskPanel(kind) {
+    const meta = TASK_KINDS[kind];
+    return meta ? meta.panel : "";
+  }
+
   function taskSummary(t) {
     const requester = t.requester_name ? String(t.requester_name) : "";
     const context = t.context_title ? String(t.context_title) : "";
@@ -536,9 +554,11 @@
         return;
       }
       const rows = tasks.map(function (t) {
+        const panel = taskPanel(t.kind);
+        const clickable = panel ? ' data-task-panel="' + escapeHtml(panel) + '" style="cursor:pointer" data-testid="cgc-task-row"' : '';
         return (
-          '<div class="cgch-row">' +
-            '<span class="cgch-chip">' + escapeHtml(t.kind || "") + '</span>' +
+          '<div class="cgch-row"' + clickable + '>' +
+            '<span class="cgch-chip">' + escapeHtml(taskKindLabel(t.kind)) + '</span>' +
             '<span class="cgch-row-copy">' + escapeHtml(taskSummary(t)) + '</span>' +
             taskDeadline(t) +
             '<span class="cgch-row-arrow">' + icon("arrow") + '</span>' +
@@ -546,6 +566,11 @@
         );
       }).join("");
       tasksEl.innerHTML = '<div class="cgch-row-list">' + rows + '</div>';
+      tasksEl.querySelectorAll("[data-task-panel]").forEach(function (row) {
+        row.addEventListener("click", function () {
+          Clacky.ext.ui.openWorkspace(row.getAttribute("data-task-panel"));
+        });
+      });
     } catch (e) {
       tasksEl.innerHTML = '<div class="cgch-err">加载失败：' + escapeHtml(String(e.message || e)) + '</div>';
     }
