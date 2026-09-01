@@ -364,6 +364,17 @@ class CoursePanelEditTest < Minitest::Test
     refute_includes VIEW, '"/me/enrollments"'
   end
 
+  # prep stepper 引导文案:每个状态一行提示,告诉用户下一步做什么+在哪做
+  def test_prep_stepper_contextual_hints
+    assert_includes VIEW, "hint"
+    assert_includes VIEW, "教研流程刚启动"
+    assert_includes VIEW, "内容编写中"
+    assert_includes VIEW, "等待质量自评"
+    assert_includes VIEW, "质量达标"
+    assert_includes VIEW, "已发布"
+    assert_includes VIEW, "cgt-stepper-hint"
+  end
+
   def test_unsaved_exit_guard
     # 教研拆出新增:取消编辑须确认(防误触丢稿)
     assert_includes VIEW, "放弃未保存的编辑内容?"
