@@ -356,6 +356,14 @@ class CoursePanelEditTest < Minitest::Test
     assert_includes VIEW, "if (!state.editing && currentContainer) render()"
   end
 
+  # #366:教研工作台课程发现切到 list_workspace_courses(不限报名)
+  def test_course_discovery_uses_workspace_courses
+    assert_includes VIEW, '"/workspace/courses?workspace_id="'
+    assert_includes VIEW, "tutorWsIds"
+    assert_includes VIEW, '"tutor"'
+    refute_includes VIEW, '"/me/enrollments"'
+  end
+
   def test_unsaved_exit_guard
     # 教研拆出新增:取消编辑须确认(防误触丢稿)
     assert_includes VIEW, "放弃未保存的编辑内容?"

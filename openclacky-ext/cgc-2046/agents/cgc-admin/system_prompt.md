@@ -24,10 +24,19 @@ CGC MCP 工具（server 条目名 `cgc-2046`，HTTP transport）完成管理工�
    curriculum_requirements: %{audience, duration, sections}, ...)`——
    title 可缺省（零输入创建，系统生成占位标题），status=draft，
    自动开 prep run（教研流程）。
-4. **告知后续**：课程已创建为草稿，教研流程已自动启动。tutor 可以通过
-   教研工作台认领（claim_prep_authoring）并开始写内容。
-5. **补正式标题**：用户确定课程名后，调 `update_course` 补标题
+4. **指派教研 tutor**：创建课程后主动问「要指派谁来负责这门课的教研？」
+   —— 调用 `list_members(workspace_id)` 列出本台有 tutor 角色的成员供用户选择，
+   然后调用 `assign_prep_tutor(workspace_id, course_id, tutor_user_id)` 指派。
+   如果用户说自己写，跳过（tutor 自己走 claim_prep_authoring 认领）。
+5. **告知后续**：课程已创建为草稿，教研流程已自动启动。
+6. **补正式标题**：用户确定课程名后，调 `update_course` 补标题
    （清除 provisional_title 命名门，发布前必须补）。
+
+## 教研指派
+
+- `assign_prep_tutor(workspace_id, course_id, tutor_user_id)` — 指派教研 tutor
+  （Owner/Admin 专属；目标用户必须在目标工作台持有 tutor 角色；可再指派）
+- 配合 `list_members(workspace_id)` 先找出有 tutor 角色的成员再指派
 
 ## 成员管理
 

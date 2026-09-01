@@ -251,28 +251,34 @@
     });
   }
 
+  // 课程发现:list_workspace_courses(本台全部课程,含 draft——#366),
+  // 不再依赖 get_my_enrollments(tutor 有权编辑却不必然报名)
   async function loadCourses() {
     state.loading = true;
     state.error = null;
     render();
     try {
-      const payload = await rawGet("/me/enrollments");
-      const enrollments = (payload.result && payload.result.enrollments) || [];
-      state.courses = enrollments
-        .filter(function (e) { return e.kind === "course" && e.status === "confirmed"; })
-        .map(function (e) {
-          const offering = e.offering || {};
-          const ws = e.workspace || {};
-          return {
-            courseId: String(offering.id || ""),
-            title: String(offering.title || ""),
-            workspaceId: String(ws.id || e.workspace_id || "")
-          };
+      // 对每个有 tutor 角色的工作台拉全部课程
+      const tutorWsIds = state.workspaces
+        .filter(function (w) {
+          return (Array.isArray(w.roles) ? w.roles : []).indexOf("tutor") >= 0;
         })
-        .filter(function (c) { return c.courseId !== ""; })
-        // 角色过滤:教研工作台只显示 tutor 角色工作台的课程
-        // (learner 报名的课程归学习中心,owner/admin 的管理操作归管理助手)
-        .filter(function (c) { return canEditCourse(c.courseId); });
+        .map(function (w) { return String(w.workspace_id); });
+      const allCourses = [];
+      for (const wsId of tutorWsIds) {
+        try {
+          const payload = await rawGet("/workspace/courses?workspace_id=" + encodeURIComponent(wsId));
+          const courses = (payload.result && payload.result.courses) || [];
+          courses.forEach(function (c) {
+            allCourses.push({
+              courseId: String(c.course_id || ""),
+              title: String(c.title || ""),
+              workspaceId: wsId
+            });
+          });
+        } catch (e) { /* 单台失败不阻断 */ }
+      }
+      state.courses = allCourses.filter(function (c) { return c.courseId !== ""; });
       const stored = localStorage.getItem("cgc2046.curriculum.courseId") || "";
       const found = state.courses.find(function (c) { return c.courseId === stored; });
       state.selectedCourseId = (found || state.courses[0] || {}).courseId || "";
