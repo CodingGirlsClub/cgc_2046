@@ -299,6 +299,15 @@ class TutorAsidePanelTest < Minitest::Test
     assert_includes EXT_YML, "attach: [cgc-tutor]"
   end
 
+  # 课程发现同教研工作台: tutor 角色台的 list_workspace_courses(权限=有份更新的课),
+  # 不再用报名视角(/me/enrollments 看不到未报名的被指派课程)
+  def test_aside_course_discovery_by_tutor_role
+    assert_includes VIEW, '"/me/workspaces"'
+    assert_includes VIEW, '"/workspace/courses?workspace_id="'
+    assert_includes VIEW, '(w.roles || []).indexOf("tutor") >= 0'
+    refute_includes VIEW, 'rawGet("/me/enrollments")'
+  end
+
   def test_aside_mount_and_sync
     # attach cgc-tutor 的 session.aside;推拉结合(draft_saved/tool_used 事件 → 防抖拉)
     # + 10s 轮询兜底;version 签名变化才重渲染
