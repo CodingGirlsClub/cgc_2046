@@ -32,7 +32,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   @membership_deferred ~w(save_step_output get_course_content get_course_revision get_enrollment_summary create_enrollment get_order_status start_learning_run submit_learning_attempt get_learning_state)
   @membership_public ~w(list_public_offerings get_public_offering)
   @membership_platform_admin ~w(admin_list_users admin_list_workspaces admin_list_workspace_applications admin_list_audit_logs admin_list_reconciliation_findings admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user)
-  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks) ++
+  @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks list_workspace_courses) ++
                  ~w(create_course update_course launch_course close_course cancel_course list_course_enrollments confirm_enrollment reject_enrollment waive_payment list_workspace_orders refund_order retry_refund update_join_policy) ++
                  ~w(get_prep_status assign_prep_tutor claim_prep_authoring update_prep_policy submit_prep_for_check submit_prep_quality_report override_prep_gate approve_prep request_changes_prep) ++
                  ~w(get_course_learning_analytics)
@@ -115,10 +115,10 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       end
     end
 
-    test "注册工具数 = 61 且名单完备（无未收录工具）" do
+    test "注册工具数 = 62 且名单完备（无未收录工具）" do
       meta_map = tool_meta_map()
 
-      assert map_size(meta_map) == 61
+      assert map_size(meta_map) == 62
 
       assert Map.keys(meta_map) |> Enum.sort() ==
                Enum.sort(
