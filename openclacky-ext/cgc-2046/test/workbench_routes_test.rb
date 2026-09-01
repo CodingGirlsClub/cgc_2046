@@ -339,7 +339,7 @@ class WorkspacePanelViewTest < Minitest::Test
     assert_includes VIEW, "function escapeHtml("
     assert_includes VIEW, "escapeHtml(current.name"
     assert_includes VIEW, "escapeHtml(r)"
-    assert_includes VIEW, "escapeHtml(t.kind"
+    assert_includes VIEW, "escapeHtml(taskKindLabel(t.kind))"
     assert_includes VIEW, "escapeHtml(taskSummary(t))"
   end
 

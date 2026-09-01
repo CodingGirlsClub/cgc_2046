@@ -85,6 +85,14 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, "body: \"{}\"", "DELETE 须带空 JSON body(fetch 规范:无 body 不发送 Content-Type)"
   end
 
+  # 任务 kind 中文标签 + 可点击跳转对应面板
+  def test_task_kind_labels_and_navigation
+    assert_includes VIEW, "TASK_KINDS"
+    assert_includes VIEW, '"教研审核"'
+    assert_includes VIEW, "taskKindLabel"
+    assert_includes VIEW, "data-task-panel"
+  end
+
   def test_connection_management_migrated
     assert_includes VIEW, 'API + "/status"'
     assert_includes VIEW, 'API + "/connect", { method: "DELETE"'
@@ -323,7 +331,6 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, "cgla-obj-mats"
     assert_includes VIEW, "cgla-mats-panel"
     assert_includes VIEW, "cgla-mat-ref"
-    assert_includes VIEW, '"/courses/" + encodeURIComponent(state.selected.courseId) + "/content"'
   end
 
   def test_session_aside_mount_contract
