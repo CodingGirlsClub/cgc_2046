@@ -243,6 +243,20 @@
     }
   };
 
+  // 课程状态徽标(区别于教研周期状态):发布后新一轮 prep 从 draft 重新计,
+  // 只看 stepper 会误以为课程未发布——open=学员已可报名
+  function courseStatusBadge(status) {
+    const map = {
+      open: { label: "已发布 · 报名中", cls: "is-open" },
+      draft: { label: "未发布", cls: "is-draft" },
+      closed: { label: "已关闭报名", cls: "is-draft" },
+      cancelled: { label: "已取消", cls: "is-cancelled" }
+    };
+    const m = map[String(status || "")];
+    if (!m) return "";
+    return '<span class="cgt-course-status ' + m.cls + '" data-testid="course-status">' + m.label + '</span>';
+  }
+
   function prepStepper() {
     const current = (state.prep || {}).prep_state || "draft";
     const idx = PREP_STATES.indexOf(current);
@@ -297,6 +311,7 @@
             allCourses.push({
               courseId: String(c.course_id || ""),
               title: String(c.title || ""),
+              status: String(c.status || ""),
               workspaceId: wsId
             });
           });
@@ -399,10 +414,12 @@
     if (!state.content) { main.innerHTML = '<div class="cgc-card cgch-empty">暂无课程。</div>'; return; }
 
     const isNewDraft = state.content.version === 0 && !(state.content.goals || []).length && !(state.content.issues || []).length;
+    const selCourse = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
     let html =
       '<div class="cgt-head">' +
         '<div class="cgt-title-row">' +
-          '<h3 class="cgt-title">' + escapeHtml(state.content.course_title || (state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "") + '</h3>' +
+          '<h3 class="cgt-title">' + escapeHtml(state.content.course_title || selCourse.title || "") + '</h3>' +
+          courseStatusBadge(selCourse.status) +
           '<button id="cgt-cocreate" class="cgt-cocreate" type="button" data-testid="prep-cocreate">✦ 和教研助手共创</button>' +
           (isNewDraft
             ? '<span class="cgch-chip">新课程 · 未保存草稿</span>'
@@ -748,6 +765,10 @@
       ".cgt-main{min-width:0}",
       ".cgt-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}",
       ".cgt-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}",
+      ".cgt-course-status{font-size:0.6875rem;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid}",
+      ".cgt-course-status.is-open{color:var(--color-success,#16a34a);border-color:var(--color-success,#16a34a);background:color-mix(in srgb,var(--color-success,#16a34a) 10%,transparent)}",
+      ".cgt-course-status.is-draft{color:var(--color-text-tertiary,#888);border-color:var(--color-border-primary,#888);background:transparent}",
+      ".cgt-course-status.is-cancelled{color:var(--color-danger,#dc2626);border-color:var(--color-danger,#dc2626);background:transparent}",
       ".cgt-title{margin:0;font-size:1.125rem;font-weight:700}",
       ".cgt-section-title{font-weight:680;font-size:0.8125rem;margin-bottom:8px}",
       ".cgt-plain-list{margin:0;padding-left:18px;font-size:0.8125rem;line-height:1.8}",

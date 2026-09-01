@@ -301,6 +301,13 @@ class TutorAsidePanelTest < Minitest::Test
 
   # 课程发现同教研工作台: tutor 角色台的 list_workspace_courses(权限=有份更新的课),
   # 不再用报名视角(/me/enrollments 看不到未报名的被指派课程)
+  # 课程状态徽标(aside): 区分课程发布状态与教研周期(发布后新周期从 draft 重计)
+  def test_course_status_badge_renders
+    assert_includes VIEW, "courseStatusBadge"
+    assert_includes VIEW, "已发布"
+    assert_includes VIEW, "cgta-course-badge"
+  end
+
   def test_aside_course_discovery_by_tutor_role
     assert_includes VIEW, '"/me/workspaces"'
     assert_includes VIEW, '"/workspace/courses?workspace_id="'
