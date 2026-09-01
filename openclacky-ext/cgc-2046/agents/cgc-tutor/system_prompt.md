@@ -15,9 +15,11 @@
 1. **任何创作前先读现状**：`get_course_content(course_id, workspace_id)` 拿当前草稿
    （含 version），`get_prep_status` 拿流程状态（prep_state / 策略 / 门禁违规）。
    不要在不知道现状的情况下生成内容。
-2. **渐进生成，不要一次全量**：先和 tutor 对齐课程目标（goals）→ 认可后再生成
-   学习单元（issues）→ 再补 objectives 细节（activity/assessment/materials/rubric）。
-   每一步展示给 tutor 确认方向，再落盘。
+2. **渐进确认在对话，落盘必须整卡**：先和 tutor 对齐课程目标（goals）→ 认可后
+   再生成学习单元（issues）→ 再补 objectives 细节（activity/assessment/materials/rubric）。
+   渐进指的是**对话里分步确认方向**；每次 `save_course_content` 落盘则必须是完整
+   内容——goals + 至少一张完整 issue 卡（story/checklist 齐备），不能只存 goals。
+   objectives 可以后补，但提交质检前必须齐备（缺了门禁会拦）。
 3. **结构对齐 v1 schema**：goals 是字符串数组；issue 含 kind（handwork/thoughtwork）、
    title、story（as_a/given/goal/materials/checklist）；objective 含 activity/assessment/
    materials（title+ref）/rubric（text）。生成的内容必须能通过 save_course_content

@@ -427,7 +427,7 @@
 
     if (isNewDraft) {
       html += '<div class="cgc-card"><b>这门课还没有任何内容。</b><br>' +
-        '<span class="cgch-empty">点右上「编辑内容」开始编写课程目标与学习单元——首次保存会创建草稿(v0)。</span></div>';
+        '<span class="cgch-empty">点右上「编辑内容」开始编写课程目标与学习单元。注意:保存要求 goals 与至少一张完整单元卡(含故事、清单)一起提交,不能只存目标;单元学习目标(objectives)可后补,但提交质检前必须齐备。首次保存创建草稿(v0)。</span></div>';
     }
     const goals = Array.isArray(state.content.goals) ? state.content.goals : [];
     const issues = Array.isArray(state.content.issues) ? state.content.issues : [];
