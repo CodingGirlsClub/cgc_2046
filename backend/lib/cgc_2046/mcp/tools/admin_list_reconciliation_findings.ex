@@ -12,7 +12,12 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   按 last_seen_at 倒序，封顶 50 条。
 
   授权 = Wrapper `:platform_admin` 门控族 + Finding read policy 的
-  PlatformAdmin 放行（/admin/reconciliation 对账页同款口径）。
+  PlatformAdmin 放行（与 /admin/reconciliation 对账页同款）。
+
+  投影与对账页**有意不同**：GraphQL 对账面（人工列表页）v1 决策不暴露
+  detail（graphql_schema.ex `:admin_reconciliation_finding` 注释）；本面
+  供 agent 排查，透出 detail（title/run_id/cause 等排查上下文）作消解
+  方向指引。两面受众不同，口径分叉是 deliberate，非疏漏。
   """
 
   use Anubis.Server.Component,
@@ -29,7 +34,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   schema do
     field(:rule, :string, description: "按规则过滤（可选；如 open_entity_without_research_definition）")
 
-    field(:workspace_id, :uuid, description: "按工作台过滤（可选；全局实体如死信 job 无租户）")
+    field(:workspace_id, :string, description: "按工作台过滤（可选；全局实体如死信 job 无租户）")
   end
 
   @impl true
@@ -37,7 +42,9 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
     result =
       Wrapper.run(frame, params, "admin_list_reconciliation_findings", fn actor, _ws, params ->
         with {:ok, rule} <- parse_rule(params["rule"] || params[:rule]),
-             rows = read_findings(actor, rule, params["workspace_id"] || params[:workspace_id]) do
+             {:ok, workspace_id} <-
+               parse_workspace_id(params["workspace_id"] || params[:workspace_id]),
+             {:ok, rows} <- read_findings(actor, rule, workspace_id) do
           {:ok, %{count: length(rows), findings: rows}}
         end
       end)
@@ -59,6 +66,19 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   end
 
   defp parse_rule(_), do: {:error, "rule must be a string"}
+  # 空串/nil = 不过滤；值须为 UUID 形态（非法串在 filter 前拦截，
+  # 不进 Ash.Query 的 uuid cast 报深层 query error）
+  defp parse_workspace_id(nil), do: {:ok, nil}
+  defp parse_workspace_id(""), do: {:ok, nil}
+
+  defp parse_workspace_id(workspace_id) when is_binary(workspace_id) do
+    case Ecto.UUID.cast(workspace_id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, "invalid workspace_id (expected UUID)"}
+    end
+  end
+
+  defp parse_workspace_id(_), do: {:error, "workspace_id must be a string"}
 
   # 读取纪律同 admin_list_audit_logs：for_read(:read) + actor 授权 + 倒序封顶；
   # 投影白名单在 to_row，detail 为排查上下文（title/run_id 等）原样透出。
@@ -71,7 +91,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
     |> filter_workspace(workspace_id)
     |> Ash.read(actor: actor)
     |> case do
-      {:ok, findings} -> Enum.map(findings, &to_row/1)
+      {:ok, findings} -> {:ok, Enum.map(findings, &to_row/1)}
       {:error, _} = err -> err
     end
   end
