@@ -3,8 +3,9 @@
 import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
 import { useMutation } from "@apollo/client/react";
-import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+	import { useRouter } from "next/navigation";
+	import { useSearchParams } from "next/navigation";
+	import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import {
 	BIND_WECHAT_WITH_PHONE,
@@ -29,6 +30,7 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 	const t = useTranslations("auth.sms");
 	const bindT = useTranslations("auth.wechatCallback");
 	const termsT = useTranslations("auth.terms");
+	const authT = useTranslations("auth");
 
 	// 绑定成功后的跳转目标（/login?bind_ticket=&next= 由 wechat-callback 透传）
 	const nextParam = () =>
@@ -38,6 +40,10 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 	const [bind, bindState] = useMutation(BIND_WECHAT_WITH_PHONE);
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
+	const searchParams = useSearchParams();
+	const nextRaw = searchParams?.get("next") ?? null;
+	const switchHref =
+		"/register" + (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
 
 	const handleSend = async () => {
 		if (!phone.trim()) {
@@ -157,6 +163,13 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 					: (busy ? t("signingIn") : t("submit"))}
 			</button>
 		</form>
+		{!bindMode && (
+			<p className="auth-switch">
+				<Link href={switchHref} className="auth-inline-link auth-switch__action">
+					{authT("switch.createAccount")}
+				</Link>
+			</p>
+		)}
 		{!bindMode && (
 			<p className="auth-terms">
 				{termsT("loginAction")}{termsT("agreePrefix")}

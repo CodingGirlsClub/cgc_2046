@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import LoginPage from "./page";
 
@@ -77,6 +77,8 @@ describe("LoginPage（plan U3 反向断言：登录链路无首公里模态，F2
 		expect(screen.queryByTitle("微信登录二维码")).not.toBeInTheDocument();
 		expect(screen.getByText(/正在验证手机号/)).toBeInTheDocument();
 		expect(screen.getByPlaceholderText("请输入手机号")).toBeInTheDocument();
+		// 绑定流程中不引导跳注册（表单复用但 auth-switch 不渲染）
+		expect(screen.queryByRole("link", { name: "创建账号" })).not.toBeInTheDocument();
 	});
 
 	it("无 bind_ticket：正常登录 tabs", () => {
@@ -84,5 +86,29 @@ describe("LoginPage（plan U3 反向断言：登录链路无首公里模态，F2
 
 		expect(screen.getByRole("tab", { name: "密码登录" })).toBeInTheDocument();
 		expect(screen.getByRole("tab", { name: "验证码登录" })).toBeInTheDocument();
+	});
+
+	it("验证码登录 tab：仍提供「创建账号」入口（与密码 tab 一致）", () => {
+		render(<LoginPage />);
+
+		fireEvent.click(screen.getByRole("tab", { name: "验证码登录" }));
+
+		const registerLink = screen.getByRole("link", { name: "创建账号" });
+		expect(registerLink).toBeInTheDocument();
+		expect(registerLink).toHaveAttribute("href", expect.stringContaining("/register"));
+		// 密码表单卸载后入口不重复
+		expect(screen.queryByPlaceholderText("手机号或邮箱")).not.toBeInTheDocument();
+	});
+
+	it("验证码登录 tab：next 参数透传到注册入口（报名页引导链路不回丢）", () => {
+		searchParams.current = new URLSearchParams({ next: "/join/ws1" });
+
+		render(<LoginPage />);
+		fireEvent.click(screen.getByRole("tab", { name: "验证码登录" }));
+
+		expect(screen.getByRole("link", { name: "创建账号" })).toHaveAttribute(
+			"href",
+			expect.stringContaining(encodeURIComponent("/join/ws1")),
+		);
 	});
 });
