@@ -1,5 +1,11 @@
 allowBuilds:
   '@tarojs/cli': true
+# 2026-09-03：pnpm audit --prod 4 个 high 全为 fast-uri <3.1.6 传递链
+# （@tarojs/taro>webpack>terser>schema-utils>ajv>fast-uri，BSD-3-Clause）。
+# 3.1.6 为补丁版本、上游 range ^3.0.1 本可解析但 lockfile 已锁 3.1.5，
+# update/--depth 均不触碰传递条目——overrides 强制收敛，无 API 变更。
+overrides:
+  "fast-uri@<3.1.6": 3.1.6
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
