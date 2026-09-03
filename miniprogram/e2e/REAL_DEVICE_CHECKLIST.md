@@ -14,7 +14,7 @@
 
 - [ ] 未登录打开「发现」，公开 Club/Event/Course 能加载；点报名进入手机号登录页。
 - [ ] 同意手机号授权后登录成功，响应 `cgc_token` 被保存，后续 GraphQL 请求携带 `Authorization: Bearer`。
-- [ ] 现代 `getPhoneNumber` 的 `event.detail.code` 需待 backend 补齐 `phoneCode` 契约；当前 schema 仅接受 legacy `encryptedData + iv`。
+- [ ] 现代 `getPhoneNumber` 的 `event.detail.code` 走 `phoneCode` 新契约（已落地，PR #224）：weapp 前端优先发 code、legacy `encryptedData + iv` 兜底；真机验证 code 路径登录成功。
 - [ ] 拒绝手机号授权时留在登录页并显示可恢复错误，不创建账号。
 - [ ] 退出后 Bearer token 清除，受保护页面回到未登录空态。
 
