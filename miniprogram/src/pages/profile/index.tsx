@@ -170,6 +170,10 @@ export default function ProfilePage() {
             </View>
           </View>
         )}
+
+        <View className={styles.footer}>
+          <Text className={styles.footerText}>京ICP备16008426号-6X</Text>
+        </View>
       </ScrollView>
       <AppTabBar selected='profile' />
     </View>
