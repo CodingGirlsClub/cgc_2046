@@ -20,7 +20,7 @@
 ## N1 登录
 
 - [ ] `tt.login` / `xhs.login` 拿到 code，后端 `signInWithPlatform` 三平台 code2session 成功建号/挂 Identity
-- [ ] 平台手机号授权返回 **`code`（新契约）而非 encryptedData/iv 时**：当前 schema 仅接受 legacy `encryptedData+iv`，需待 backend 补齐 phoneCode 契约——真机若报「手机号授权数据不完整」，记录响应结构交 backend 侧
+- [ ] 手机号授权 `code` 契约现状：**抖音已落地**（`phone_code` 直传，见下文「抖音 phoneCode 契约已落地」行的真机确认项）；**小红书暂不支持**（后端返回 `phone_code_unsupported`）——真机记录实际授权返回结构
 - [ ] 拒绝手机号授权时留在登录页显示可恢复错误，不创建账号
 - [ ] 登录按钮文案显示「抖音手机号快捷登录」/「小红书手机号快捷登录」（非「微信」）
 

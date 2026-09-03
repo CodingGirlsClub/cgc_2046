@@ -35,3 +35,5 @@
 .openclackyTitle { display: block; font-size: 30rpx; font-weight: 650; }
 .openclackyText { display: block; margin-top: 8rpx; max-width: 520rpx; color: #e4e6ff; font-size: 22rpx; line-height: 1.45; }
 .openclackyArrow { font-size: 38rpx; }
+.footer { padding: 30rpx 0 10rpx; text-align: center; }
+.footerText { color: #98a2b3; font-size: 20rpx; }
