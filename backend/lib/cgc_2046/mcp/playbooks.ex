@@ -20,8 +20,9 @@ defmodule Cgc2046.Mcp.Playbooks do
     随 MCP 管理面（S3）、平台治理工具（S2）、教研流程（S5）与学习循环 v2
     （S8）按切片充实并 bump 版本。
 
-  API：`roles/0`（四角色，分发顺序即展示顺序）、`fetch/1`（原子或字符串角色 →
-  `%{role, version, content}`）、`version/1`（只取版本号）。
+  API：`roles/0`（四角色，分发顺序即展示顺序）、`normalize_role/1`（无 I/O 的角色
+  解析）、`fetch/1`（原子或字符串角色 → `%{role, version, content}`）、
+  `version/1`（只取版本号）。
   """
 
   @learner_content """
@@ -264,29 +265,41 @@ defmodule Cgc2046.Mcp.Playbooks do
   def roles, do: [:platform_admin, :workspace_admin, :tutor, :learner]
 
   @doc """
+  将原子或 MCP 字符串角色收敛为四个公开角色。
+  """
+  @spec normalize_role(role() | String.t() | term()) ::
+          {:ok, role()} | {:error, :unknown_role}
+  def normalize_role(role) when is_binary(role) do
+    case Enum.find(roles(), &(Atom.to_string(&1) == role)) do
+      nil -> {:error, :unknown_role}
+      atom -> {:ok, atom}
+    end
+  end
+
+  def normalize_role(role) when is_atom(role) do
+    if role in roles(), do: {:ok, role}, else: {:error, :unknown_role}
+  end
+
+  def normalize_role(_role), do: {:error, :unknown_role}
+
+  @doc """
   按角色取 playbook。角色可传原子或字符串（MCP 参数面是字符串）；
   未知角色返回 `{:error, :unknown_role}`。
   """
   @spec fetch(role() | String.t() | term()) :: {:ok, playbook()} | {:error, :unknown_role}
-  def fetch(role) when is_binary(role) do
-    case Enum.find(roles(), &(Atom.to_string(&1) == role)) do
-      nil -> {:error, :unknown_role}
-      atom -> fetch(atom)
-    end
-  end
-
-  def fetch(role) when is_atom(role) do
-    case Map.fetch(@playbooks, role) do
-      {:ok, %{version: version, content: content}} ->
-        playbook = %{role: role, version: version, content: content}
-        {:ok, append_tutor_supplement(playbook)}
-
+  def fetch(role) do
+    with {:ok, role} <- normalize_role(role),
+         {:ok, %{version: version, content: content}} <- Map.fetch(@playbooks, role) do
+      playbook = %{role: role, version: version, content: content}
+      {:ok, append_tutor_supplement(playbook)}
+    else
       :error ->
         {:error, :unknown_role}
+
+      {:error, :unknown_role} = error ->
+        error
     end
   end
-
-  def fetch(_role), do: {:error, :unknown_role}
 
   @doc "只取角色 playbook 的版本号（seeds / 探活用）。"
   @spec version(role() | String.t() | term()) :: {:ok, String.t()} | {:error, :unknown_role}
