@@ -31,6 +31,12 @@ vi.mock("@/lib/speaker-invitations", () => ({
 	declineSpeakerInvitation,
 }));
 
+// 套 SitePage 顶导后引入语言切换器（useAuthed 走 @/lib/use-authed，未被
+// 本文件 mock；next-intl useRouter 依赖 app router）：mock 掉，页面行为不受影响
+vi.mock("@/components/language-switcher", () => ({
+	default: () => null,
+}));
+
 const CARD = {
 	status: "invited" as const,
 	topic: "Elixir 实战",

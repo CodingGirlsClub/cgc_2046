@@ -173,6 +173,9 @@ config :cgc_2046, Oban,
        {"*/5 * * * *", Cgc2046.Learning.LearningProgressWorker},
        {"*/5 * * * *", Cgc2046.Curriculum.CurriculumProgressWorker},
        {"17 * * * *", Cgc2046.Admission.Workers.ApprovalReminderWorker},
+       # #203 方案 B 活动开始提醒：starts_at 前 24h 窗口，小时级扫描足够
+       # （args-unique 7 天幂等，重扫不重发）。
+       {"23 * * * *", Cgc2046.Offering.EventReminderWorker},
        # #252 登录支撑表清理：验证码/扫码票 TTL 分钟级，保留 1 天排查窗，
        # 小时级清理粒度足够。
        {"41 * * * *", Cgc2046.Accounts.Workers.LoginArtifactPrunerWorker},

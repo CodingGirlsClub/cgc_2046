@@ -36,6 +36,7 @@ import { InviteTokenInputStep } from "./_steps/invite-token-input-step";
 import { InvitePreviewStep } from "./_steps/invite-preview-step";
 import { InviteInvalidStep } from "./_steps/invite-invalid-step";
 import { JoinErrorStep } from "./_steps/join-error-step";
+import SitePage from "@/components/site-page";
 
 type JoinStep =
   | "input-slug"
@@ -217,30 +218,35 @@ function JoinPageInner() {
 
   if (!confirmed) {
     return (
-      <main className="ws-shell-loading">
-        <div className="join-card">
-          <div className="join-loading">{t("confirming")}</div>
+      <SitePage>
+        <div className="mx-auto w-full max-w-[560px] px-4 py-10">
+          <div className="join-card">
+            <div className="join-loading">{t("confirming")}</div>
+          </div>
         </div>
-      </main>
+      </SitePage>
     );
   }
 
   if (!authed) {
     return (
-      <main className="ws-shell-loading">
-        <div className="join-card">
-          <h1>{t("title")}</h1>
-          <p>{t("loginFirst")}</p>
-          <Link href="/login" className="join-button join-button--primary">
-            {t("goLogin")}
-          </Link>
+      <SitePage>
+        <div className="mx-auto w-full max-w-[560px] px-4 py-10">
+          <div className="join-card">
+            <h1>{t("title")}</h1>
+            <p>{t("loginFirst")}</p>
+            <Link href="/login" className="join-button join-button--primary">
+              {t("goLogin")}
+            </Link>
+          </div>
         </div>
-      </main>
+      </SitePage>
     );
   }
 
   return (
-    <main className="ws-shell-loading">
+    <SitePage>
+      <div className="mx-auto w-full max-w-[560px] px-4 py-10">
       <div className="join-card">
         {/* 面包屑 */}
         <div className="join-breadcrumb">
@@ -366,7 +372,8 @@ function JoinPageInner() {
             </div>
           )}
       </div>
-    </main>
+      </div>
+    </SitePage>
   );
 }
 
@@ -375,11 +382,13 @@ export default function JoinPage() {
   return (
     <Suspense
       fallback={
-        <main className="ws-shell-loading">
-          <div className="join-card">
-            <div className="join-loading">{t("loading")}</div>
+        <SitePage>
+          <div className="mx-auto w-full max-w-[560px] px-4 py-10">
+            <div className="join-card">
+              <div className="join-loading">{t("loading")}</div>
+            </div>
           </div>
-        </main>
+        </SitePage>
       }
     >
       <JoinPageInner />

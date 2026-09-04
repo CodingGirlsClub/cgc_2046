@@ -98,7 +98,8 @@ describe("公开发现页方向 B 信息卡", () => {
 		// 公开发现页不要求登录（游客可浏览）
 		expect(screen.getByRole("heading", { name: "公开活动" })).toBeInTheDocument();
 
-		const nav = screen.getByRole("navigation", { name: "公开内容导航" });
+		// 统一 SiteHeader：aria-label 取 landing.nav.ariaLabel（主导航）
+		const nav = screen.getByRole("navigation", { name: "主导航" });
 		expect(within(nav).getByRole("link", { name: "活动" })).toHaveAttribute(
 			"aria-current",
 			"page",
