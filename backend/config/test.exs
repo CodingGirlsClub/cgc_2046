@@ -31,6 +31,11 @@ config :swoosh, :api_client, false
 # Print only warnings and errors during test
 config :logger, level: :warning
 
+# Test 永远不读取开发机的私有 playbook 目录；用例需要增量时显式覆盖并在退出时恢复。
+config :cgc_2046,
+       :playbooks_dir,
+       Path.expand("../test/support/playbooks-missing", __DIR__)
+
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 
