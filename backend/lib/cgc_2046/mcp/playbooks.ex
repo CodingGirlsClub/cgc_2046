@@ -1,10 +1,13 @@
 defmodule Cgc2046.Mcp.Playbooks do
-  @moduledoc """
-  四角色 playbook 的唯一真源（role-agent-journeys-v2 S1，R2/R6；任务指令模式 D10 的 v1 载体）。
+  require Logger
 
-  角色工作模式文本（版本化，模块常量）由网站保管，经 MCP 工具
-  `get_role_playbook` 分发到 agent 端；DB-backed Agent 资源落地后切库
-  （roadmap plan 020），届时整体替换本模块，不留兼容层。
+  @moduledoc """
+  四角色公开基础 playbook 的唯一真源（role-agent-journeys-v2 S1，R2/R6；任务指令模式
+  D10 的 v1 载体）。
+
+  角色工作模式的公开基础文本（版本化，模块常量）由网站保管，经 MCP 工具
+  `get_role_playbook` 分发到 agent 端；tutor 可追加构建期进入 release 的私有增量。
+  DB-backed Agent 资源落地后切库（roadmap plan 020），届时整体替换本载体，不留兼容层。
 
   落位说明（ADR-0009 地图）：playbook 是「如何经工具面完成角色职责」的说明书，
   属 interface layer 资产，归 `mcp/`——Workflows 是 generic 引擎域，不持角色
@@ -237,6 +240,10 @@ defmodule Cgc2046.Mcp.Playbooks do
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner
   @type playbook :: %{role: role(), version: String.t(), content: String.t()}
 
+  @app :cgc_2046
+  @playbooks_dir_key :playbooks_dir
+  @tutor_supplement "tutor.md"
+
   @doc "全部 playbook 角色（分发顺序即展示顺序）。"
   @spec roles() :: [role()]
   def roles, do: [:platform_admin, :workspace_admin, :tutor, :learner]
@@ -256,7 +263,8 @@ defmodule Cgc2046.Mcp.Playbooks do
   def fetch(role) when is_atom(role) do
     case Map.fetch(@playbooks, role) do
       {:ok, %{version: version, content: content}} ->
-        {:ok, %{role: role, version: version, content: content}}
+        playbook = %{role: role, version: version, content: content}
+        {:ok, append_tutor_supplement(playbook)}
 
       :error ->
         {:error, :unknown_role}
@@ -272,5 +280,63 @@ defmodule Cgc2046.Mcp.Playbooks do
       {:ok, %{version: version}} -> {:ok, version}
       {:error, :unknown_role} -> {:error, :unknown_role}
     end
+  end
+
+  defp append_tutor_supplement(%{role: :tutor} = playbook) do
+    case Application.get_env(@app, @playbooks_dir_key) do
+      dir when is_binary(dir) ->
+        read_tutor_supplement(playbook, Path.join(dir, @tutor_supplement))
+
+      _other ->
+        playbook
+    end
+  end
+
+  defp append_tutor_supplement(playbook), do: playbook
+
+  defp read_tutor_supplement(playbook, path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> read_regular_tutor_supplement(playbook, path)
+      {:ok, %File.Stat{type: :symlink}} -> warn_and_fallback(playbook, path, :symlink)
+      {:ok, %File.Stat{}} -> warn_and_fallback(playbook, path, :not_regular)
+      {:error, :enoent} -> playbook
+      {:error, _reason} -> warn_and_fallback(playbook, path, :metadata_error)
+    end
+  end
+
+  defp read_regular_tutor_supplement(playbook, path) do
+    case File.read(path) do
+      {:ok, supplement} -> validate_tutor_supplement(playbook, path, supplement)
+      {:error, _reason} -> warn_and_fallback(playbook, path, :read_error)
+    end
+  end
+
+  defp validate_tutor_supplement(playbook, path, supplement) do
+    if String.valid?(supplement) do
+      case String.trim(supplement) do
+        "" ->
+          warn_and_fallback(playbook, path, :blank)
+
+        trimmed ->
+          hash =
+            :sha256
+            |> :crypto.hash(supplement)
+            |> Base.encode16(case: :lower)
+            |> binary_part(0, 8)
+
+          %{
+            playbook
+            | version: playbook.version <> "+" <> hash,
+              content: String.trim_trailing(playbook.content) <> "\n\n" <> trimmed
+          }
+      end
+    else
+      warn_and_fallback(playbook, path, :invalid_utf8)
+    end
+  end
+
+  defp warn_and_fallback(playbook, path, category) do
+    Logger.warning("tutor playbook supplement ignored category=#{category} path=#{inspect(path)}")
+    playbook
   end
 end

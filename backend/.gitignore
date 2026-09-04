@@ -22,6 +22,9 @@ erl_crash.dump
 # Temporary files, for example, from tests.
 /tmp/
 
+# Private tutor playbook copied into release artifacts during deployment.
+/priv/playbooks/
+
 # Ignore package tarball (built via "mix hex.build").
 cgc_2046-*.tar
 
