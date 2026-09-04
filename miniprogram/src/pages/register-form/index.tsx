@@ -134,17 +134,17 @@ export default function RegisterFormPage() {
         {target.enrollmentPolicy === 'invite_only' && (
           <View className={styles.field}>
             <Text className={styles.label}>批次码</Text>
-            <Input className={styles.input} placeholder='请输入组织者提供的批次码' value={inviteCode} onInput={(event) => setInviteCode(event.detail.value)} />
+            <Input className={styles.input} placeholder='请输入组织者提供的批次码' defaultValue={inviteCode} onInput={(event) => setInviteCode(event.detail.value)} />
           </View>
         )}
 
         <View className={styles.field}>
           <Text className={styles.label}>姓名</Text>
-          <Input className={styles.input} data-testid='name-input' placeholder='怎么称呼你' value={name} onInput={(event) => setName(event.detail.value)} />
+          <Input className={styles.input} data-testid='name-input' placeholder='怎么称呼你' defaultValue={name} onInput={(event) => setName(event.detail.value)} />
         </View>
         <View className={styles.field}>
           <Text className={styles.label}>邮箱</Text>
-          <Input className={styles.input} data-testid='email-input' type='text' placeholder='用于发送活动材料' value={email} onInput={(event) => setEmail(event.detail.value)} />
+          <Input className={styles.input} data-testid='email-input' type='text' placeholder='用于发送活动材料' defaultValue={email} onInput={(event) => setEmail(event.detail.value)} />
         </View>
         <View className={styles.field}>
           <Text className={styles.label}>为什么想来</Text>

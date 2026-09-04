@@ -49,7 +49,7 @@ export default function JoinPage() {
       <Text className={styles.subtitle}>确认邀请码来自你信任的组织者；scene 一次使用后即失效。</Text>
       <View className={styles.card}>
         <Text className={styles.label}>邀请 scene</Text>
-        <Input className={styles.input} value={scene} placeholder='请输入或扫码带入' onInput={(event) => setScene(event.detail.value)} />
+        <Input className={styles.input} defaultValue={scene} placeholder='请输入或扫码带入' onInput={(event) => setScene(event.detail.value)} />
       </View>
       {error && <Text className={styles.error}>{error}</Text>}
       <Button className={styles.primaryButton} loading={loading || submitting} disabled={loading || submitting || !scene.trim()} onClick={admit}>确认加入</Button>

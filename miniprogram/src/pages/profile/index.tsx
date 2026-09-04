@@ -12,6 +12,7 @@ export default function ProfilePage() {
   const [session, setSession] = useState<SessionSnapshot | null>(null)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [scene, setScene] = useState('')
+  const [sceneInputKey, setSceneInputKey] = useState(0)
   const [code, setCode] = useState<MiniProgramCode | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -40,6 +41,9 @@ export default function ProfilePage() {
       const result = await api.admitMember(scene.trim())
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
       setScene('')
+      // 半受控 Input（iOS 微信受控回写竞态修复,见 register-form 同族修复）:
+      // 状态清空不回写原生组件——换 key 强制重挂载兑现「成功后清空输入框」
+      setSceneInputKey((k) => k + 1)
       await load()
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '加入失败', icon: 'none' })
@@ -133,7 +137,7 @@ export default function ProfilePage() {
             <View className={styles.panel}>
               <Text className={styles.panelText}>输入小程序码携带的一次性 scene。</Text>
               <View className={styles.inlineForm}>
-                <Input className={styles.codeInput} placeholder='邀请 scene' value={scene} onInput={(event) => setScene(event.detail.value)} />
+                <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请 scene' defaultValue={scene} onInput={(event) => setScene(event.detail.value)} />
                 <Button className={styles.inlineButton} size='mini' loading={action === 'admit'} onClick={admit}>确认加入</Button>
               </View>
               <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码识别</Button>
