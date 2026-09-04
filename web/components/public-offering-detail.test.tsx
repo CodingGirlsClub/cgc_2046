@@ -292,7 +292,8 @@ describe("公开详情两栏布局（R7/R9/KTD1）", () => {
     expect(within(info).getByText("标准")).toBeInTheDocument();
     expect(within(info).getByText("¥1.00")).toBeInTheDocument();
 
-    const nav = screen.getByRole("navigation", { name: "公开内容导航" });
+    // 统一 SiteHeader：aria-label 取 landing.nav.ariaLabel（主导航）
+    const nav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(nav).getByRole("link", { name: "活动" })).toHaveAttribute(
       "aria-current",
       "page",

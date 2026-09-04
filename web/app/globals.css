@@ -2093,10 +2093,7 @@ body {
 
 .ld-container { width: min(100% - 40px, 1080px); margin-inline: auto; }
 
-/* ---------- 顶导 ---------- */
-.ld-nav { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--line-soft); background: var(--canvas); }
-.ld-nav__inner { display: flex; align-items: center; gap: 24px; height: 60px; }
-.ld-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); font-size: 15px; font-weight: 590; letter-spacing: -0.01em; text-decoration: none; white-space: nowrap; }
+/* ---------- 顶导：全站统一 .site-nav（见 public-catalog 段），landing 不再自持 ---------- */
 
 /* ---------- 品牌标识（官方火焰圆标 + 双语名，见 components/brand.tsx） ---------- */
 .brand-lockup { display: inline-flex; align-items: center; gap: 8px; line-height: 1; }
@@ -2106,12 +2103,6 @@ body {
 .ws-shell-cgc-brand .brand-lockup__mark { width: 16px; height: 16px; }
 .ld-footer__brand { color: var(--ink); font-size: 14px; font-weight: 590; }
 .ld-footer__brand .brand-lockup__mark { width: 18px; height: 18px; }
-.ld-nav__links { display: flex; align-items: center; gap: 20px; }
-.ld-nav__links a { color: var(--ink-3); font-size: 14px; text-decoration: none; transition: color 120ms ease; }
-.ld-nav__login { color: var(--ink-2); font-size: 14px; text-decoration: none; transition: color 120ms ease; white-space: nowrap; }
-.ld-nav__right { display: flex; align-items: center; gap: 16px; margin-left: auto; }
-.ld-nav__right .join-button { min-height: 36px; padding: 0 14px; font-size: 13px; }
-.ld-nav__lang { white-space: nowrap; }
 
 /* ---------- Hero ---------- */
 .ld-hero { position: relative; overflow: clip; padding: 96px 0 72px; }
@@ -2257,7 +2248,7 @@ body {
 
 /* ---------- hover 仅指针设备（触屏不粘滞） ---------- */
 @media (hover: hover) {
-  .ld-nav__links a:hover, .ld-nav__login:hover, .ld-cta-quiet:hover { color: var(--ink); }
+  .ld-cta-quiet:hover { color: var(--ink); }
   .ld-section__more:hover { color: var(--accent-mention); }
   .ld-offer-row:hover { background: var(--soft-2); }
   .ld-offer-row:hover .ld-offer-row__arrow { color: var(--accent-strong); transform: translateX(3px); }
@@ -2297,9 +2288,6 @@ body {
   .ld-stats { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 640px) {
-  .ld-nav__links { display: none; }
-  .ld-nav__lang { display: none; }
-  .ld-footer__lang { display: inline-flex; }
   .ld-hero { padding: 64px 0 56px; }
   .ld-section { padding: 64px 0; }
   .ld-stats { grid-template-columns: repeat(2, 1fr); gap: 20px; }
@@ -2331,7 +2319,7 @@ body {
     margin-inline: auto;
   }
 
-  .public-catalog-nav {
+  .site-nav {
     position: sticky;
     z-index: 20;
     top: 0;
@@ -2339,14 +2327,16 @@ body {
     background: var(--card);
   }
 
-  .public-catalog-nav__inner {
+  .site-nav__inner {
     display: flex;
     align-items: center;
     gap: 28px;
     min-height: 64px;
+    width: min(100% - 40px, 1080px);
+    margin-inline: auto;
   }
 
-  .public-catalog-nav__brand {
+  .site-nav__brand {
     display: inline-flex;
     align-items: center;
     min-height: 40px;
@@ -2358,13 +2348,13 @@ body {
     white-space: nowrap;
   }
 
-  .public-catalog-nav__links {
+  .site-nav__links {
     display: flex;
     align-self: stretch;
     gap: 6px;
   }
 
-  .public-catalog-nav__link {
+  .site-nav__link {
     display: inline-flex;
     align-items: center;
     min-width: 48px;
@@ -2377,12 +2367,12 @@ body {
     transition: color 120ms ease, box-shadow 120ms ease;
   }
 
-  .public-catalog-nav__link--active {
+  .site-nav__link--active {
     color: var(--ink);
     box-shadow: inset 0 -2px 0 var(--accent);
   }
 
-  .public-catalog-nav__right {
+  .site-nav__right {
     display: flex;
     flex: none;
     align-items: center;
@@ -2390,16 +2380,16 @@ body {
     margin-left: auto;
   }
 
-  .public-catalog-nav__lang {
+  .site-nav__lang {
     white-space: nowrap;
   }
 
-  .public-catalog-nav__lang button {
+  .site-nav__lang button {
     min-width: 40px;
     min-height: 40px;
   }
 
-  .public-catalog-nav__login {
+  .site-nav__login {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -2410,6 +2400,23 @@ body {
     text-decoration: none;
     white-space: nowrap;
     transition: color 120ms ease, transform 120ms ease;
+  }
+
+  .site-nav__right .join-button {
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 13px;
+  }
+
+  .site-page {
+    min-height: 100svh;
+    background: var(--canvas);
+    color: var(--ink);
+  }
+
+  .site-page a,
+  .site-page button {
+    touch-action: manipulation;
   }
 
   .public-catalog-main {
@@ -2820,7 +2827,7 @@ body {
   }
 
   .public-catalog-card:active,
-  .public-catalog-nav__login:active,
+  .site-nav__login:active,
   .public-catalog-heading__switch:active,
   .public-catalog-retry:active,
   .public-detail-back:active,
@@ -2829,11 +2836,11 @@ body {
   }
 
   @media (hover: hover) {
-    .public-catalog-nav__link:hover {
+    .site-nav__link:hover {
       color: var(--ink);
     }
 
-    .public-catalog-nav__login:hover,
+    .site-nav__login:hover,
     .public-catalog-heading__switch:hover,
     .public-detail__browse:hover {
       color: var(--accent-mention);
@@ -2894,12 +2901,12 @@ body {
       width: min(100% - 32px, 1080px);
     }
 
-    .public-catalog-nav__inner {
+    .site-nav__inner {
       gap: 16px;
       min-height: 60px;
     }
 
-    .public-catalog-nav__links {
+    .site-nav__links {
       display: none;
     }
 
@@ -2954,8 +2961,8 @@ body {
 
     .public-catalog-card,
     .public-catalog-card__arrow,
-    .public-catalog-nav__link,
-    .public-catalog-nav__login,
+    .site-nav__link,
+    .site-nav__login,
     .public-catalog-heading__switch,
     .public-catalog-retry,
     .public-detail-back,
@@ -2968,7 +2975,12 @@ body {
 
 /* Tailwind 的 flex utility 位于 utilities layer；极窄屏覆盖需留在 layer 外。 */
 @media (max-width: 480px) {
-  .public-catalog-nav__lang {
+  .site-nav__lang {
     display: none;
+  }
+
+  /* 顶导语言收起后由 landing 页尾接管（仅 ≤480px 显示） */
+  .ld-footer__lang {
+    display: inline-flex;
   }
 }

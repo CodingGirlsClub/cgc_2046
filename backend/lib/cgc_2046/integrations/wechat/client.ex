@@ -14,6 +14,8 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   测试注入：`:cgc_2046, :miniprogram_req_plug` 配置 Req plug（test 环境为
   `{Req.Test, Cgc2046.MiniprogramClientStub}`），未配置时走真实 HTTP。
   """
+  require Logger
+
   alias Cgc2046.Integrations.Wechat.SdkClient
 
   @type platform :: :wechat | :tt | :xhs
@@ -461,17 +463,24 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     {:error, {:code2session_rejected, err_no}}
   end
 
-  defp parse_session(_platform, _body), do: {:error, :code2session_bad_response}
-
   @doc """
-  phoneCode → 手机号（getPhoneNumber 新契约，仅 wechat）。
+  phoneCode → 手机号（getPhoneNumber 新契约，wechat + tt）。
 
-  SDK：POST /wxa/business/getuserphonenumber；成功 body phone_info 含
-  purePhoneNumber/phoneNumber + countryCode——归一化为与 decrypt_phone 相同的
-  `+区号号码` 形（phone-keyed find-or-create 的确定性前提，见 decrypt_phone 注释）。
-  tt/xhs 无等价 API → {:error, :phone_code_unsupported}。
+  wechat：SDK 直取——POST /wxa/business/getuserphonenumber；成功 body
+  phone_info 含 purePhoneNumber/phoneNumber + countryCode——归一化为与
+  decrypt_phone 相同的 `+区号号码` 形（phone-keyed find-or-create 的确定性
+  前提，见 decrypt_phone 注释）。
+
+  tt：POST open.douyin.com/api/apps/v2/get_phone_number（client_token +
+  `%{code}`，code 为前端 getPhoneNumber 回调的动态口令，5 分钟一次性，
+  与 tt.login code 不可混用）。响应 `data.phone_number` 在匿名手机号方案
+  下可能是应用公钥加密的密文——明文（区号可选手动数字串）直接归一化；
+  密文返回 `{:error, :phone_number_encrypted}`（RSA 解密待真机确认响应
+  结构后实现，DOUYIN_REDNOTE_CHECKLIST 挂账）。
+
+  xhs 无等价 API → {:error, :phone_code_unsupported}。
   """
-  @spec fetch_phone_by_code(platform, String.t(), String.t()) ::
+  @spec fetch_phone_by_code(platform, String.t() | nil, String.t()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_phone_by_code(:wechat, openid, phone_code)
       when is_binary(openid) and is_binary(phone_code) do
@@ -486,8 +495,47 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     end
   end
 
+  def fetch_phone_by_code(:tt, _openid, phone_code)
+      when is_binary(phone_code) and phone_code != "" do
+    with {:ok, config} <- platform_config(:tt),
+         {:ok, token} <- fetch_api_access_token(:tt, config),
+         {:ok, %Req.Response{status: 200, body: %{"err_no" => 0, "data" => data}}}
+         when is_map(data) <-
+           "https://open.douyin.com"
+           |> req()
+           |> Req.post(
+             url: "/api/apps/v2/get_phone_number",
+             headers: [{"access-token", token}],
+             json: %{code: phone_code}
+           ),
+         {:ok, phone} <- normalize_tt_phone_number(data) do
+      {:ok, phone}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :phone_fetch_failed}
+    end
+  end
+
   def fetch_phone_by_code(_platform, _openid, _phone_code),
     do: {:error, :phone_code_unsupported}
+
+  # tt phone_number 明文判定：区号可选手动数字串（大陆 11 位 / +86…13 位）。
+  # 匿名手机号方案下该字段是应用公钥加密的 base64 密文——仅记键名不记值
+  # （安全红线：手机号明文/密文不落日志）。
+  defp normalize_tt_phone_number(%{"phone_number" => raw} = data) when is_binary(raw) do
+    if Regex.match?(~r/^\+?\d{5,20}$/, raw) do
+      Cgc2046.Accounts.PhoneNumber.normalize(raw, Map.get(data, "country_code", "86"))
+    else
+      Logger.warning(
+        "[tt get_phone_number] phone_number is not plaintext (anonymous-phone scheme); " <>
+          "response keys: #{inspect(Map.keys(data))}"
+      )
+
+      {:error, :phone_number_encrypted}
+    end
+  end
+
+  defp normalize_tt_phone_number(_), do: {:error, :phone_fetch_failed}
 
   @doc """
   自由文本内容安全检查（v1 wechat-only，plan 2026-08-18-009 D-1；msgSecCheck v2 契约，

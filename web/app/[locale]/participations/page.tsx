@@ -22,6 +22,7 @@ import {
   type ParticipationEnrollment,
   type ParticipationSponsorship,
 } from "@/lib/graphql/participations";
+import SitePage from "@/components/site-page";
 
 const PAGE_SIZE = 20;
 
@@ -400,9 +401,11 @@ export default function ParticipationsPage() {
 
   if (!confirmed) {
     return (
-      <main className="ws-shell-loading">
-        <span>{t("confirming")}</span>
-      </main>
+      <SitePage>
+        <div className="mx-auto w-full max-w-5xl px-4 py-10">
+          <span>{t("confirming")}</span>
+        </div>
+      </SitePage>
     );
   }
   if (!authed) {
@@ -411,7 +414,8 @@ export default function ParticipationsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-10">
+    <SitePage>
+      <div className="mx-auto w-full max-w-5xl px-4 py-10">
       <header className="mb-6">
         <p className="text-[13px] text-ink-3">
           <Link href="/" className="hover:text-ink">
@@ -609,6 +613,7 @@ export default function ParticipationsPage() {
           </section>
         ) : null}
       </div>
-    </main>
+      </div>
+    </SitePage>
   );
 }

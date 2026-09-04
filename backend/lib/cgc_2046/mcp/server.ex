@@ -12,7 +12,8 @@ defmodule Cgc2046.Mcp.Server do
   - 平台治理(S2,R12-R16;membership: :platform_admin 新门控族,is_platform_admin
     全局标记专属,无工作台作用域):
     读 admin_list_users / admin_list_workspaces / admin_list_workspace_applications /
-    admin_list_audit_logs(各封顶 50;审计面三源元数据投影,结构性不读 params/metadata 列)
+    admin_list_audit_logs / admin_list_reconciliation_findings(各封顶 50;审计面
+    三源元数据投影结构性不读 params/metadata 列,对账面当前孤儿清单)
     + 确认流写 admin_approve_workspace_application / admin_reject_workspace_application /
     admin_create_workspace / admin_reassign_workspace_owner / admin_promote_user /
     admin_demote_user(委托 accounts 域既有 action + LogAdminAction 留痕)
@@ -101,6 +102,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminListWorkspaces)
   component(Cgc2046.Mcp.Tools.AdminListWorkspaceApplications)
   component(Cgc2046.Mcp.Tools.AdminListAuditLogs)
+  component(Cgc2046.Mcp.Tools.AdminListReconciliationFindings)
   component(Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication)
   component(Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication)
   component(Cgc2046.Mcp.Tools.AdminCreateWorkspace)
@@ -109,8 +111,10 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminDemoteUser)
   # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
   # 工具面 30 → 43（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
-  # 两段式快速失败，create_course 为唯一直接写——零输入草稿可逆低风险）
+  # 两段式快速失败，create_course 为唯一直接写——零输入草稿可逆低风险；
+  # list_workspace_courses 为 member-only 课程发现面，#366）
   component(Cgc2046.Mcp.Tools.CreateCourse)
+  component(Cgc2046.Mcp.Tools.ListWorkspaceCourses)
   component(Cgc2046.Mcp.Tools.UpdateCourse)
   component(Cgc2046.Mcp.Tools.LaunchCourse)
   component(Cgc2046.Mcp.Tools.CloseCourse)
