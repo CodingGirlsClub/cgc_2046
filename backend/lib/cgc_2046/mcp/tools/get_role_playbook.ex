@@ -24,7 +24,6 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Accounts.Role
-  alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Playbooks
   alias Cgc2046.Mcp.Wrapper
 
@@ -44,8 +43,9 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
       Wrapper.run(frame, params, "get_role_playbook", fn actor, workspace_id, params ->
         role_param = params["role"] || params[:role]
 
-        with {:ok, playbook} <- Playbooks.fetch(role_param),
-             :ok <- authorize(playbook.role, actor, workspace_id) do
+        with {:ok, role} <- Playbooks.normalize_role(role_param),
+             :ok <- authorize(role, actor, workspace_id),
+             {:ok, playbook} <- Playbooks.fetch(role) do
           {:ok, playbook}
         else
           {:error, :unknown_role} ->
@@ -72,7 +72,9 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
 
   defp authorize(:tutor, actor, workspace_id) do
     with {:ok, workspace_id} <- require_workspace_id(workspace_id, :tutor) do
-      if Prep.tutor?(actor, workspace_id) or Prep.manage?(actor, workspace_id) do
+      roles = MembershipContext.role_names(actor, workspace_id)
+
+      if :tutor in roles or Enum.any?(roles, &Role.manage_role?/1) do
         :ok
       else
         {:error,

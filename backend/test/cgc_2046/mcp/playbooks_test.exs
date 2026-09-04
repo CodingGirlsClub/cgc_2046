@@ -191,6 +191,12 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
   end
 
   test "未知角色保持 unknown_role 契约" do
+    assert {:ok, :tutor} = Playbooks.normalize_role(:tutor)
+    assert {:ok, :tutor} = Playbooks.normalize_role("tutor")
+    assert {:error, :unknown_role} = Playbooks.normalize_role(:observer)
+    assert {:error, :unknown_role} = Playbooks.normalize_role("observer")
+    assert {:error, :unknown_role} = Playbooks.normalize_role(nil)
+
     assert {:error, :unknown_role} = Playbooks.fetch(:observer)
     assert {:error, :unknown_role} = Playbooks.fetch("observer")
     assert {:error, :unknown_role} = Playbooks.fetch(nil)
