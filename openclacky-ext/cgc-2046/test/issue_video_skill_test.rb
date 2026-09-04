@@ -102,6 +102,10 @@ class IssueVideoSkillTest < Minitest::Test
     refute_includes t, "requests"
     assert_includes t, '"model": model'
     refute_includes t, 'body["model"]'
+    assert_includes t, "urllib.error.URLError"
+    assert_includes t, "tempfile.NamedTemporaryFile"
+    assert_includes t, "os.replace"
+    assert_includes t, "os.unlink"
     refute_match(/print.*FISH_AUDIO_API_KEY/, t)     # 脚本不打印 key
     assert_includes SKILL, "fish_tts.py"
     assert_includes SKILL, "FISH_AUDIO_API_KEY"

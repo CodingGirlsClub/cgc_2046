@@ -115,4 +115,5 @@ toc.json / full.md / images 等教材解析产物，不存视频：
 -ql/-qm 帧量化差 → 音轨以 -qm 为准 ｜ concat 段数数对 ｜ 对位口播拆段 ｜
 品牌卡 logo 用 `SVGMobject` 吃 SVG 矢量（无分辨率账）；角标是 ffmpeg 位图，只缩不放：
 源图用 SVG 导出的 4x PNG（assets 随包），模糊先查源图尺寸 ｜
-fish_tts.py 只从环境变量读 key，永不打印/落盘；API 报错脚本会带返回体，先看码再排。
+fish_tts.py 只从环境变量读 key，永不打印/落盘；失败只报告 HTTP 状态或错误类型，
+不会输出服务端响应正文，未完成音频不会覆盖既有文件。
