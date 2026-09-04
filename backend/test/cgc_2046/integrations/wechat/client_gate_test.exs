@@ -82,4 +82,32 @@ defmodule Cgc2046.Integrations.Wechat.ClientGateTest do
       assert {:ok, %{openid: "tt-gate-openid"}} = Client.code2session(:tt, "gate-code")
     end
   end
+
+  describe "code2session 异常响应形状（#99 真机:微信边缘错误返回非 JSON）" do
+    test "text/plain 错误页（binary body）→ :code2session_bad_response,不 crash" do
+      Application.put_env(:cgc_2046, :miniprogram_platforms, %{
+        wechat: %{appid: "wx-gate-appid", secret: "wx-gate-secret"}
+      })
+
+      # 绕过 Fixtures.stub_code2session(其固定 JSON content-type)——直接控制
+      # content-type 模拟微信网关层返回的 text/plain 错误页。
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        Req.Test.text(conn, "System Error, please try again later")
+      end)
+
+      assert {:error, :code2session_bad_response} = Client.code2session(:wechat, "c")
+    end
+
+    test "未知 JSON 形状(无 openid/errcode 键)→ :code2session_bad_response,不 crash" do
+      Application.put_env(:cgc_2046, :miniprogram_platforms, %{
+        wechat: %{appid: "wx-gate-appid", secret: "wx-gate-secret"}
+      })
+
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        Req.Test.json(conn, %{"unexpected" => "shape"})
+      end)
+
+      assert {:error, :code2session_bad_response} = Client.code2session(:wechat, "c")
+    end
+  end
 end
