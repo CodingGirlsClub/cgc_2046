@@ -281,14 +281,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
   async createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary> {
     const session = await this.getSession()
     if (!session.user) throw new Error('请先登录')
+    // 对齐 web 一键报名:不传 submissionPayload(web 端本来就不传;
+    // name/email/reason 三键经确认无任何读者)。
     const input: CreateEnrollmentMutationVariables['input'] = {
       userId: session.user.id,
-      submissionPayload: JSON.stringify({
-        name: form.name,
-        email: form.email,
-        reason: form.reason,
-        targetTitle: form.target.title
-      }),
       inviteCode: form.inviteCode || undefined,
       ...(form.target.kind === 'event'
         ? { eventId: form.target.id }
