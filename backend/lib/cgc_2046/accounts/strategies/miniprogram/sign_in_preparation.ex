@@ -39,7 +39,23 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
     end)
   end
 
+  # with 链外的 raise/exit（如 SDK 进程缺失 noproc）不会进入 authentication_failed
+  # ——防枚举静默语义下必留崩溃轨迹，否则生产登录失败无任何可诊断信号。
   defp do_sign_in(query, context) do
+    try do
+      do_sign_in_inner(query, context)
+    rescue
+      error ->
+        Logger.warning("[miniprogram sign_in] crashed: #{Exception.message(error)}")
+        {:error, :sign_in_crashed}
+    catch
+      :exit, reason ->
+        Logger.warning("[miniprogram sign_in] exit: #{inspect(reason)}")
+        {:error, :sign_in_exit}
+    end
+  end
+
+  defp do_sign_in_inner(query, context) do
     platform = Query.get_argument(query, :platform)
     code = Query.get_argument(query, :code)
     phone_code = Query.get_argument(query, :phone_code)
