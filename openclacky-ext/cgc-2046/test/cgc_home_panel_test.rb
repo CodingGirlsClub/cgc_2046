@@ -6,7 +6,7 @@
 #   - 连接管理迁移:状态卡 / DELETE 断开(CSRF 自愈锚在 PanelCsrfSelfHealTest)/ 跳网站;
 #   - 身份区 + Workspace 选择器 + 我的任务(沿用原 LS key,用户选择不丢);
 #   - 角色感知功能目录:全员(和助手对话/发现活动/我的课程)+
-#     tutor|owner|admin(教研工作台)+ platform_admin(平台管理);
+#     tutor(教研工作台)+ platform_admin(平台管理);
 #   - 一键进助手会话:POST /api/sessions {agent_profile}(青狮工作台同款通道);
 #   - 事件订阅 tool_used / mcp_error。
 #
@@ -199,7 +199,7 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, "和助手对话"
     assert_includes VIEW, "发现活动"
     assert_includes VIEW, "我的课程"
-    # 教研卡按角色显隐(tutor|owner|admin,与课程面板 EDIT_ROLES 同口径)
+    # 教研卡按角色显隐(tutor-only,与课程面板 EDIT_ROLES 同口径)
     assert_includes VIEW, 'const EDIT_ROLES = ["tutor"]'
     assert_includes VIEW, "教研工作台"
     # 平台管理卡按 is_platform_admin

@@ -15,7 +15,7 @@
 //   - 和助手对话(全员)——POST /api/sessions {agent_profile: cgc-assistant}
 //     + Clacky.Sessions.select 直接进入会话(青狮工作台 view.js 同款通道);
 //   - 发现活动 / 我的课程(全员)——openWorkspace 隐藏功能页;
-//   - 教研工作台(任一 workspace 角色含 tutor|owner|admin);
+//   - 教研工作台(任一 workspace 角色含 tutor);
 //   - 平台管理(is_platform_admin)——网站管理端外链(面板侧无管理功能页)。
 //
 // 安全红线:只展示 status 布尔/URL 字段与 loopback 透传数据,绝不渲染

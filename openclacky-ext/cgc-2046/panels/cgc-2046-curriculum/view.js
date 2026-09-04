@@ -1,8 +1,8 @@
 // CGC-2046 教研工作台(cgc-2046-curriculum;S2 教研拆出)。
 //
 // 定位:course 面板收敛为学习中心后,教研编辑(草稿编辑器 + 乐观并发 +
-// 教研流程状态区)独立成面板。入口:hub 目录卡「教研工作台」(仅
-// tutor|owner|admin 可见);本面板自身也做 canEdit 门控(双保险)。
+// 教研流程状态区)独立成面板。入口:hub 目录卡「教研工作台」(仅 tutor
+// 可见);本面板自身也做 canEdit 门控(双保险)。
 //
 // 能力(自旧 course 面板原样迁移):
 //   - 课程选择(本人 confirmed 课程报名;编辑走 /content 全量草稿)
@@ -370,7 +370,7 @@
     if (!state.loadingBoot && state.workspaces.length > 0 && !hasAnyEditRole()) {
       currentContainer.innerHTML =
         '<div class="cgt-page"><div class="cgt-main"><div class="cgc-card" data-testid="prep-no-permission">' +
-        '<b>教研工作台仅对 tutor / owner / admin 开放。</b><br>' +
+        '<b>教研工作台仅对 tutor 开放。</b><br>' +
         '<span class="cgch-empty">当前 Workspace 角色不包含教研权限。_RBAC 提示:网站为唯一权限权威。</span></div></div></div>';
       return;
     }
