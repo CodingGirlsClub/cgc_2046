@@ -338,7 +338,10 @@ defmodule Cgc2046.Integrations.Wechat.Client do
         # 防枚举只约束客户端可见性；服务端必须留失败原因（errcode 定位
         # 40029/40163 code 失效、40125 secret、45011 频控），否则真机联调
         # 只见 "Platform sign in failed" 无从排查（#99 真机验收实证）。
-        case parse_session(platform, body) do
+        # 微信 jscode2session 成功响应 content-type 为 text/plain（平台怪癖,
+        # #99 真机实证）——Req 按 content-type 不解码,binary body 先手动 JSON
+        # 解码;非 JSON binary 保持原样交 parse_session 兜底。
+        case parse_session(platform, maybe_decode_json(body)) do
           {:ok, _} = ok ->
             ok
 
@@ -504,6 +507,17 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   end
 
   defp unexpected_body_desc(body), do: inspect(body)
+
+  # text/plain 的 JSON 手动解码（微信怪癖,见 single_call_code2session 注释）;
+  # 非 JSON binary 原样返回（parse_session 兜底打日志）。
+  defp maybe_decode_json(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> body
+    end
+  end
+
+  defp maybe_decode_json(body), do: body
 
   @doc """
   phoneCode → 手机号（getPhoneNumber 新契约，wechat + tt）。
