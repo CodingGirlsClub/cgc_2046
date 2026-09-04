@@ -6,6 +6,7 @@ OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供�
 - **panel**：`cgc`——「程序媛汇 2046」hub 面板（唯一侧栏入口，挂 `sidebar.nav.top` 顶部）：连接管理（状态 / 断开 / 跳转网站）+ 身份区（角色徽章 / Workspace 选择器 / 管理入口）+ 我的任务 + 角色感知功能目录（全员：和助手对话 / 发现活动 / 我的课程；tutor 加教研工作台；owner/admin 加工作台管理；platform_admin 加平台管理）+ 最近活动（事件订阅）。`cgc-2046-course` 与 `cgc-2046-discovery` 为**隐藏功能页**（无侧栏入口，hub 目录卡 `openWorkspace` 直达，页头「← 返回工作台」闭环）：前者是课程学习面板（课程地图 / 草稿编辑 / 待复习队列），后者是发现面板（公开活动/课程列表 + 报名 + 支付轮询）。
 - **agents**：`cgc-assistant`、`cgc-tutor`、`cgc-admin` 都先选择可信 Workspace，再在启动时拉取平台当前部署的角色 playbook 并展示版本。`cgc-tutor` 与 `cgc-admin` 是安全薄壳：角色方法与工具说明由平台下发，扩展只保留 OpenClacky 入口和不可覆盖的安全纪律；前者在教材章节边界重拉 tutor playbook，后者只拉 workspace_admin playbook。三者仍随同一个 AGPL-3.0-only 扩展分发。
 - **skill**：`cgc2046-onboarding`——引导创建 token、经剪贴板管道调 connect、验证状态的连接流程。
+- **skill**：`issue-video`——仅在 tutor 明确要求时，为已确认的课程 issue 卡制作 ManimCE 配套动画；方法、脚本和品牌素材随公开扩展分发。
 - **hooks**（OpenClacky ≥1.5.7 事件能力）：
   - `after_tool_use`——主 agent 每次调用 CGC MCP server（virtual skill `mcp:cgc-2046`，条目名与扩展 id 统一）后推 `ext.cgc-2046.tool_used` 事件（成功 persist: true 进消息流，失败仅实时提示）；subagent 内 curl 连接失败不抛异常、错误文本藏在 subagent summary 里——文本特征命中（MCP server 'cgc 前缀 / Connection refused / Failed to open TCP / localhost:4102 等具体形态）时另推 `ext.cgc-2046.mcp_error`（错误片段截断 + 抹凭证，覆盖 Bearer / cgc_ 前缀 / 裸 JWT 形态）。
   - `on_tool_error`——防御性：工具调用真正抛异常且错误与 CGC MCP 连接相关时推 `ext.cgc-2046.mcp_error`（当前 agent 侧 MCP 走 virtual skill + curl 路径，一般不触发）。
@@ -35,6 +36,11 @@ openclacky-ext/cgc-2046/
     cgc-admin/system_prompt.md     # workspace_admin playbook 安全薄壳
   skills/cgc2046-onboarding/
     SKILL.md                       # 连接引导流程（剪贴板管道主流程）
+  skills/issue-video/
+    SKILL.md                       # ManimCE 配套动画流程与人工确认门
+    scene_template.py              # 16:9 场景骨架
+    check_env.sh                   # Manim/TTS/ffmpeg/LaTeX/品牌素材自检
+    scripts/fish_tts.py            # Fish Audio TTS（stdlib）
   hooks/
     after_tool_use.rb              # CGC MCP 调用后推 tool_used / mcp_error 事件
     on_tool_error.rb               # 工具异常文本命中 CGC 形态时推 mcp_error 事件
@@ -118,6 +124,7 @@ mise exec -- ruby test/mcp_config_test.rb        # mcp.json merge / 原子写 / 
 mise exec -- ruby test/handler_routes_test.rb    # 请求级：422/200/回滚/500/501 + 无 token 泄漏（不落盘）
 mise exec -- ruby test/offering_routes_test.rb   # 发现路由透传/503·502·500 分层 + 面板与 prompt 静态断言
 mise exec -- ruby test/learner_journey_routes_test.rb # Learner 五路由/400·503·502·500 + 面板 v2 静态断言
+mise exec -- ruby test/issue_video_skill_test.rb # issue-video 触发/安全/模板/素材契约
 
 # 或全量
 for f in test/*.rb; do mise exec -- ruby "$f"; done
