@@ -29,6 +29,10 @@ export default function RegisterFormPage() {
     try {
       const [content, session] = await Promise.all([api.getContent(kind, id), api.getSession()])
       setTarget(content)
+      // 收费目标默认选中第一档（用户拍板:有档不该强制手点;可再点换档）
+      if (content.pricingEnabled && content.priceTiers.length > 0) {
+        setTierId(content.priceTiers[0].id)
+      }
       if (enrollmentBlockedNotice(content.enrollmentBadge)) return
       if (!session.user) {
         const returnUrl = `/pages/register-form/index?id=${id}&kind=${kind}`

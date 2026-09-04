@@ -563,6 +563,12 @@ export function OfferingDetailPage({
   // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const [tierId, setTierId] = useState<string | null>(null);
+  // 默认选中第一档（产品拍板:有可售档不该强制手点;可再点换档）。
+  // ?? 保留用户已选,只在未选时补默认值。
+  const firstTierId = priceTiers[0]?.id ?? null;
+  useEffect(() => {
+    setTierId((current) => current ?? firstTierId);
+  }, [firstTierId]);
   const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
   // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），复访承接可不带
   function openCheckoutFor(enrollmentId: string) {
