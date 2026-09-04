@@ -4,8 +4,9 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
   - list_my_workspaces：actor 锚定跨工作台读（成员资格收窄、角色字符串、
     名称排序、is_platform_admin、空成员资格、审计）
-  - get_role_playbook：四角色授权矩阵（learner 全员 / tutor 角色 / workspace_admin
-    owner|admin / platform_admin 全局标记）、workspace_id 必填角色缺参、未知角色、审计
+  - get_role_playbook：四角色授权矩阵（learner 全员 / tutor|owner|admin 可读 tutor /
+    workspace_admin owner|admin / platform_admin 全局标记）、workspace_id 必填角色缺参、
+    未知角色、审计
   - list_my_tasks：member-only 门（非成员 forbidden）、owner 见 pending 加入申请、
     普通成员空集、跨工作台不泄漏（R8 v0 = PendingApprovals 聚合；prep 任务行 S5 接入）
   """
@@ -123,22 +124,22 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert log.result_status == :ok
     end
 
-    test "tutor：非 tutor 成员拒绝；tutor 成员可取" do
+    test "tutor：learner-only 成员拒绝；tutor 成员可取" do
       admin = Fixtures.platform_admin("rw-pb-tutor-admin")
       workspace = Fixtures.create_workspace(admin)
-      member = Fixtures.register_user("rw-pb-tutor-member")
-      Fixtures.add_member(workspace, member, [])
+      learner = Fixtures.register_user("rw-pb-tutor-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
 
       assert {:error, _, _} =
                error =
                GetRolePlaybook.execute(
                  %{"role" => "tutor", "workspace_id" => workspace.id},
-                 frame_for(member)
+                 frame_for(learner)
                )
 
-      assert decode_error(error) =~ "forbidden"
+      assert decode_error(error) =~ "forbidden: tutor, owner or admin required"
 
-      [log] = tool_logs_for(member.id, "get_role_playbook")
+      [log] = tool_logs_for(learner.id, "get_role_playbook")
       assert log.result_status == :forbidden
 
       tutor = Fixtures.register_user("rw-pb-tutor")
@@ -169,6 +170,38 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "数据回流"
       assert payload["content"] =~ "get_course_learning_analytics"
       assert payload["content"] =~ "永不自动修改或发布当前 Revision"
+    end
+
+    test "tutor：owner 成员可取" do
+      platform_admin = Fixtures.platform_admin("rw-pb-tutor-owner-platform")
+      workspace = Fixtures.create_workspace(platform_admin)
+      owner = Fixtures.register_user("rw-pb-tutor-owner")
+      Fixtures.add_member(workspace, owner, [:owner])
+
+      assert {:reply, _, _} =
+               reply =
+               GetRolePlaybook.execute(
+                 %{"role" => "tutor", "workspace_id" => workspace.id},
+                 frame_for(owner)
+               )
+
+      assert decode_reply(reply)["role"] == "tutor"
+    end
+
+    test "tutor：admin 成员可取" do
+      platform_admin = Fixtures.platform_admin("rw-pb-tutor-admin-platform")
+      workspace = Fixtures.create_workspace(platform_admin)
+      admin = Fixtures.register_user("rw-pb-tutor-admin-member")
+      Fixtures.add_member(workspace, admin, [:admin])
+
+      assert {:reply, _, _} =
+               reply =
+               GetRolePlaybook.execute(
+                 %{"role" => "tutor", "workspace_id" => workspace.id},
+                 frame_for(admin)
+               )
+
+      assert decode_reply(reply)["role"] == "tutor"
     end
 
     test "tutor：缺 workspace_id → 明确报错（非 forbidden 审计）" do
