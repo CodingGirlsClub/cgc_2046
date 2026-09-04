@@ -15,6 +15,7 @@
 import json
 import os
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -52,13 +53,30 @@ def main() -> None:
         },
         method="POST",
     )
+    tmp_path = None
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp, open(out_path, "wb") as f:
-            while chunk := resp.read(1 << 16):
-                f.write(chunk)
+        output_dir = os.path.dirname(os.path.abspath(out_path))
+        prefix = f".{os.path.basename(out_path)}."
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=output_dir, prefix=prefix, suffix=".tmp", delete=False
+        ) as output:
+            tmp_path = output.name
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                while chunk := resp.read(1 << 16):
+                    output.write(chunk)
+
+        os.replace(tmp_path, out_path)
+        tmp_path = None
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:300]
-        sys.exit(f"Fish Audio API 报错 {e.code}: {detail}")
+        sys.exit(f"Fish Audio TTS 失败: HTTP {e.code}")
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        sys.exit(f"Fish Audio TTS 失败: {type(e).__name__}")
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     print(f"ok: {out_path} ({os.path.getsize(out_path)} bytes)")
 
