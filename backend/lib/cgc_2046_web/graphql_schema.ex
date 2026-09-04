@@ -798,6 +798,11 @@ defmodule Cgc2046Web.GraphqlSchema do
           end
         rescue
           _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        catch
+          # Elixir rescue 不抓 exit（如依赖进程缺失 noproc）——缺此分支则
+          # 登录失败穿透至 Absinthe/Plug 500 且无统一文案，防枚举语义被绕过。
+          :exit, _ ->
+            {:error, message: "Platform sign in failed", code: "authentication_failed"}
         end
       end)
 
