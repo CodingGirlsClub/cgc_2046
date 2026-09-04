@@ -334,9 +334,25 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     |> req()
     |> Req.request(request)
     |> case do
-      {:ok, %Req.Response{status: 200, body: body}} -> parse_session(platform, body)
-      {:ok, %Req.Response{status: status}} -> {:error, {:platform_http_status, status}}
-      {:error, _reason} -> {:error, :platform_unreachable}
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        # 防枚举只约束客户端可见性；服务端必须留失败原因（errcode 定位
+        # 40029/40163 code 失效、40125 secret、45011 频控），否则真机联调
+        # 只见 "Platform sign in failed" 无从排查（#99 真机验收实证）。
+        case parse_session(platform, body) do
+          {:ok, _} = ok ->
+            ok
+
+          {:error, reason} = error ->
+            Logger.warning("[code2session] #{platform} rejected: #{inspect(reason)}")
+            error
+        end
+
+      {:ok, %Req.Response{status: status}} ->
+        Logger.warning("[code2session] #{platform} http status #{status}")
+        {:error, {:platform_http_status, status}}
+
+      {:error, _reason} ->
+        {:error, :platform_unreachable}
     end
   end
 
