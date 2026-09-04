@@ -157,10 +157,32 @@ jobs:
           key: ${{ runner.os }}-nextjs-${{ hashFiles('web/pnpm-lock.yaml') }}-${{ hashFiles('web/**.[jt]s', 'web/**.[jt]sx') }}
           restore-keys: ${{ runner.os }}-nextjs-${{ hashFiles('web/pnpm-lock.yaml') }}-
       - run: pnpm install --frozen-lockfile
+      # #376：audit 实时依赖 npm 审计 API，服务故障会阻塞所有 PR——仅当本 PR
+      # 变更 web 依赖文件时才联网审计；push 事件无从窄化恒跑（fail-closed）。
+      # rename 由 previous_filename 命中（deploy.yml changes job 同款纪律）。
+      - id: web_dep_changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          changed=true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .base.sha)
+            files=$(gh api "repos/${{ github.repository }}/compare/$BASE...${{ github.sha }}" \
+              --jq '.files[] | .filename, (.previous_filename // empty)' 2>/dev/null || true)
+            [ -n "$files" ] || { echo "changed=true" >> "$GITHUB_OUTPUT"; exit 0; }
+            changed=false
+            while IFS= read -r f; do
+              case "$f" in
+                web/package.json|web/pnpm-lock.yaml) changed=true ;;
+              esac
+            done <<<"$files"
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm check:licenses
       - run: pnpm audit --prod --audit-level high
+        if: steps.web_dep_changed.outputs.changed == 'true'
       - run: pnpm test
         timeout-minutes: 10
       # bb41dcc(#213 AC1) 起 build 缺 BACKEND_URL 显式失败；CI 构建验证传显式占位
@@ -204,7 +226,11 @@ jobs:
       # CLI（e2e/journey.e2e.mjs），CI 无法运行，故只落 mock 构建冒烟。
       # check-graphql 不进 CI：脚本直连 dev 后端 introspection（localhost:4001），
       # CI 无后端在跑；契约漂移已由 codegen+diff 门禁覆盖，故仅留 dev 手工。
+      # #376：GH_TOKEN 传入 audit-if-deps-changed.mjs（PR 场景窄化联网审计；
+      # 缺 token 时脚本恒跑 audit，fail-closed——本地 pnpm check:ci 行为不变）。
       - run: pnpm check:ci
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # CI 耗时实测（2026-08-14 run 31802814605）：backend job ≈10-11min，其中
   # compile 零缓存全量重编 4m45s + dev/test 双环境重复编译。上述缓存与
