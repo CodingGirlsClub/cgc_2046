@@ -90,6 +90,7 @@ contributes:
     - id: cgc-tutor
       title: "CGC 教研助手"
       prompt: agents/cgc-tutor/system_prompt.md
+      skills: [issue-video]
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
@@ -99,6 +100,8 @@ contributes:
       panels: [cgc-2046-learn]
   skills:
     - id: cgc2046-onboarding
+    # tutor 明确要求时才触发的 ManimCE 课程卡配套动画管线
+    - id: issue-video
   hooks:
     - event: on_tool_error
       file: hooks/on_tool_error.rb
