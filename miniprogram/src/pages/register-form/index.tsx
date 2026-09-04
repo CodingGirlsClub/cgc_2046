@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Input, Text, Textarea, View } from '@tarojs/components'
+import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
@@ -9,14 +9,14 @@ import { enrollmentBlockedNotice } from '@/domain/format'
 import { formatAmount, paymentLandingUrl } from '@/domain/payment'
 import styles from './index.module.css'
 
+// 对齐 web 端一键报名：身份=登录账号（user_id），不再收集姓名/邮箱/理由
+// （web 无此表单；submission_payload 三键经三端确认无任何读者）。
+// 仅剩条件字段：收费选档（R5）与 invite_only 批次码——同 web 端条件渲染口径。
 export default function RegisterFormPage() {
   const router = useRouter()
   const id = router.params.id ?? ''
   const kind = (router.params.kind === 'course' ? 'course' : 'event') as ContentKind
   const [target, setTarget] = useState<CatalogItem | null>(null)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [reason, setReason] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [tierId, setTierId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -35,8 +35,6 @@ export default function RegisterFormPage() {
         await Taro.redirectTo({ url: `/pages/login/index?returnUrl=${encodeURIComponent(returnUrl)}` })
         return
       }
-      setName(session.user.displayName)
-      setEmail(session.user.email ?? '')
     } catch (reasonValue) {
       setError(reasonValue instanceof Error ? reasonValue.message : '报名信息加载失败')
     } finally {
@@ -48,10 +46,6 @@ export default function RegisterFormPage() {
 
   const submit = async () => {
     if (!target || submitting) return
-    if (!name.trim() || !email.trim() || !reason.trim()) {
-      Taro.showToast({ title: '请完整填写报名信息', icon: 'none' })
-      return
-    }
     if (target.enrollmentPolicy === 'invite_only' && !inviteCode.trim()) {
       Taro.showToast({ title: '请输入批次码', icon: 'none' })
       return
@@ -66,9 +60,6 @@ export default function RegisterFormPage() {
     try {
       const enrollment = await api.createEnrollment({
         target,
-        name: name.trim(),
-        email: email.trim(),
-        reason: reason.trim(),
         inviteCode: inviteCode.trim() || undefined,
         tierId: target.pricingEnabled ? tierId : undefined
       })
@@ -109,8 +100,8 @@ export default function RegisterFormPage() {
       </View>
 
       <View className={styles.form}>
-        <Text className={styles.formTitle} data-testid='register-title'>报名信息</Text>
-        <Text className={styles.formHint}>信息仅用于本次报名与审批。</Text>
+        <Text className={styles.formTitle} data-testid='register-title'>确认报名</Text>
+        <Text className={styles.formHint}>已登录账号即报名身份，无需重复填写姓名与邮箱。</Text>
 
         {target.pricingEnabled && (
           <View className={styles.field} data-testid='tier-field'>
@@ -134,27 +125,15 @@ export default function RegisterFormPage() {
         {target.enrollmentPolicy === 'invite_only' && (
           <View className={styles.field}>
             <Text className={styles.label}>批次码</Text>
+            {/* 半受控（iOS 微信受控回写竞态修复,#388）：defaultValue 初值 + onInput 收集 */}
             <Input className={styles.input} placeholder='请输入组织者提供的批次码' defaultValue={inviteCode} onInput={(event) => setInviteCode(event.detail.value)} />
           </View>
         )}
-
-        <View className={styles.field}>
-          <Text className={styles.label}>姓名</Text>
-          <Input className={styles.input} data-testid='name-input' placeholder='怎么称呼你' defaultValue={name} onInput={(event) => setName(event.detail.value)} />
-        </View>
-        <View className={styles.field}>
-          <Text className={styles.label}>邮箱</Text>
-          <Input className={styles.input} data-testid='email-input' type='text' placeholder='用于发送活动材料' defaultValue={email} onInput={(event) => setEmail(event.detail.value)} />
-        </View>
-        <View className={styles.field}>
-          <Text className={styles.label}>为什么想来</Text>
-          <Textarea className={styles.textarea} data-testid='reason-input' placeholder='简单介绍你的期待' value={reason} maxlength={300} onInput={(event) => setReason(event.detail.value)} />
-        </View>
       </View>
 
       {error && <Text className={styles.error}>{error}</Text>}
       <Button className={styles.primaryButton} data-testid='submit-enrollment' loading={submitting} disabled={submitting} onClick={submit}>
-        {submitting ? '正在提交…' : '确认提交'}
+        {submitting ? '正在提交…' : '确认报名'}
       </Button>
     </View>
   )
