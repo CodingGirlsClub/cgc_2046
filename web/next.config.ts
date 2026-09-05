@@ -14,9 +14,26 @@ if (process.env.NODE_ENV === "production" && !rawBackendUrl) {
 }
 const BACKEND_URL = rawBackendUrl || "http://localhost:4000";
 
+// #251：真机经 LAN IP 访问 dev server 时，Next 16 默认 block 非 localhost origin 的
+// /_next/* 资源与 HMR，整页 JS 失效（表单退化浏览器原生 GET 提交，密码明文进 URL）。
+// WEB_DEV_ORIGINS 逗号分隔放行来源（如 `192.168.3.100,dev.local`）；仅 dev server 生效，
+// 改动后必须重启 `pnpm dev`。Next 16.3 按请求 hostname 全等/通配匹配（不解析条目），
+// 故此处统一剥掉 scheme 与端口归一为 hostname；未设置时为空数组，保持默认拦截。
+const WEB_DEV_ORIGINS = (process.env.WEB_DEV_ORIGINS ?? "")
+	.split(",")
+	.map((entry) =>
+		entry
+			.trim()
+			.replace(/^https?:\/\//, "")
+			.replace(/\/+$/, "")
+			.replace(/:\d+$/, ""),
+	)
+	.filter(Boolean);
+
 const nextConfig: NextConfig = {
 	// standalone：Docker 镜像只打包运行时产物（web/Dockerfile 依赖此模式）
 	output: "standalone",
+	allowedDevOrigins: WEB_DEV_ORIGINS,
 	async rewrites() {
 		const rules = [
 			{
