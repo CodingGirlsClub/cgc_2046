@@ -18,6 +18,7 @@ const fullPages = [
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/order-pay/index',
+  'pages/privacy/index',
   'pages/my-enrollments/index',
   'pages/workspace/index',
   'pages/profile/index',

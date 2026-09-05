@@ -10,4 +10,5 @@
 .error { display: block; margin-top: 24rpx; padding: 18rpx; color: #eb5757; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
 .loginButton { margin-top: 54rpx; color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
 .agreement { display: block; margin-top: 20rpx; color: #8a8f98; text-align: center; font-size: 21rpx; line-height: 1.5; }
+.agreementLink { color: #ea5504; text-decoration: underline; }
 .tagline { display: block; margin-top: 64rpx; color: #8a8f98; text-align: center; font-size: 21rpx; }
