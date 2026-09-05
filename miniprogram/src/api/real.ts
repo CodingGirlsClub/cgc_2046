@@ -7,6 +7,8 @@ import type {
   CancelEnrollmentMutationVariables,
   CatalogQuery,
   CatalogQueryVariables,
+  CatalogSearchQuery,
+  CatalogSearchQueryVariables,
   ConfirmEnrollmentMutation,
   ConfirmEnrollmentMutationVariables,
   CreateOrderMutation,
@@ -49,6 +51,7 @@ import {
   MyOrdersQueryDocument,
   OrderStatusQueryDocument,
   CatalogQueryDocument,
+  CatalogSearchQueryDocument,
   ConfirmEnrollmentMutationDocument,
   CourseDetailQueryDocument,
   CreateEnrollmentMutationDocument,
@@ -66,6 +69,7 @@ import {
 import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
 import { parsePriceTiers } from '@/domain/payment'
+import { catalogSearchVariables } from './catalogFilter'
 import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
 import type {
   AdmitResult,
@@ -168,8 +172,17 @@ export class SessionExpiredError extends Error {
 
 
 export class RealMiniProgramApi implements MiniProgramApi {
-  async getCatalog(): Promise<CatalogItem[]> {
-    const data = await graphqlRequest<CatalogQuery, CatalogQueryVariables>(CatalogQueryDocument, { first: 50 })
+  // #355 P2-10：keyword 非空走服务端 title ilike 过滤（catalogSearchVariables 构造
+  // filter）；空关键词保持原 CatalogQueryDocument（无 filter 变量，行为不变）。
+  async getCatalog(keyword?: string): Promise<CatalogItem[]> {
+    const filters = catalogSearchVariables(keyword)
+    const data = filters
+      ? await graphqlRequest<CatalogSearchQuery, CatalogSearchQueryVariables>(CatalogSearchQueryDocument, {
+          first: 50,
+          eventFilter: filters.eventFilter,
+          courseFilter: filters.courseFilter
+        })
+      : await graphqlRequest<CatalogQuery, CatalogQueryVariables>(CatalogQueryDocument, { first: 50 })
     // 发现页为匿名目录面：CatalogQuery 不带 myEnrollment（#355 P1-3 仅详情面）
     const events = (data.listEvents?.results ?? []).map((record) => mapContent(record, 'event', null))
     const courses = (data.listCourses?.results ?? []).map((record) => mapContent(record, 'course', null))

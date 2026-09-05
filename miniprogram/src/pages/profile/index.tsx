@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react'
 import { Button, Image, Input, ScrollView, Text, View } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { canManageMembers } from '@/domain/format'
-import type { MiniProgramCode, NotificationItem, SessionSnapshot } from '@/domain/models'
+import { buildJoinSharePath } from '@/domain/share-route'
+import type { MiniProgramCode, NotificationItem, SessionSnapshot, WorkspaceSummary } from '@/domain/models'
 import styles from './index.module.css'
 
 export default function ProfilePage() {
@@ -14,6 +15,7 @@ export default function ProfilePage() {
   const [scene, setScene] = useState('')
   const [sceneInputKey, setSceneInputKey] = useState(0)
   const [code, setCode] = useState<MiniProgramCode | null>(null)
+  const [codeWorkspaceName, setCodeWorkspaceName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [action, setAction] = useState('')
@@ -53,10 +55,11 @@ export default function ProfilePage() {
     }
   }
 
-  const generateCode = async (workspaceId: string) => {
-    setAction(`code-${workspaceId}`)
+  const generateCode = async (workspace: WorkspaceSummary) => {
+    setAction(`code-${workspace.id}`)
     try {
-      setCode(await api.generateMiniProgramCode(workspaceId))
+      setCode(await api.generateMiniProgramCode(workspace.id))
+      setCodeWorkspaceName(workspace.name)
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '生成失败', icon: 'none' })
     } finally {
@@ -84,6 +87,25 @@ export default function ProfilePage() {
       Taro.showToast({ title: '已取消扫码', icon: 'none' })
     }
   }
+
+  // #415 分享出口：复制 scene 码，对方在 join 页粘贴入座
+  const copyScene = async () => {
+    if (!code) return
+    try {
+      await Taro.setClipboardData({ data: code.scene })
+      Taro.showToast({ title: '已复制，对方在加入页粘贴即可', icon: 'none' })
+    } catch {
+      Taro.showToast({ title: '复制失败，请重试', icon: 'none' })
+    }
+  }
+
+  // 页面级 hook 必须无条件注册（open-type='share' 转发卡片取这里）；
+  // 分享按钮仅在 code 存在时渲染，无 code 的兜底仅防御
+  useShareAppMessage(() =>
+    code
+      ? { title: `邀请你加入「${codeWorkspaceName}」`, path: buildJoinSharePath(code.scene) }
+      : { title: 'CGC 2046 社区', path: '/pages/discover/index' }
+  )
 
   // 管理级工作台：复用 canManageMembers 原语（能力下发），不硬编码角色名
   const manageableWorkspaces = session?.workspaces.filter(({ abilities }) =>
@@ -151,7 +173,7 @@ export default function ProfilePage() {
                   {manageableWorkspaces.map((workspace) => (
                     <View key={workspace.id} className={styles.codeRow}>
                       <Text>{workspace.name}</Text>
-                      <Button className={styles.inlineButton} size='mini' loading={action === `code-${workspace.id}`} onClick={() => generateCode(workspace.id)}>生成</Button>
+                      <Button className={styles.inlineButton} size='mini' loading={action === `code-${workspace.id}`} onClick={() => generateCode(workspace)}>生成</Button>
                     </View>
                   ))}
                   {code && (
@@ -159,6 +181,10 @@ export default function ProfilePage() {
                       {code.codeBase64 ? <Image className={styles.codeImage} src={`data:image/png;base64,${code.codeBase64}`} /> : null}
                       <Text className={styles.scene}>邀请码：{code.scene}</Text>
                       <Text className={styles.expires}>有效期至 {new Date(code.expiresAt).toLocaleString()}</Text>
+                      <View className={styles.codeActions}>
+                        <Button className={styles.shareButton} size='mini' openType='share'>转发给好友</Button>
+                        <Button className={styles.copyButton} size='mini' onClick={copyScene}>复制邀请码</Button>
+                      </View>
                     </View>
                   )}
                 </View>

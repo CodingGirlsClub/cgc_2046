@@ -1,11 +1,12 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Button, Image, Input, ScrollView, Text, View } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow } from '@tarojs/taro'
 import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem } from '@/domain/models'
-import { enrollmentBadgeText, venueText } from '@/domain/format'
+import { enrollmentBadgeText } from '@/domain/format'
+import { debounce } from '@/domain/debounce'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
@@ -22,28 +23,37 @@ export default function DiscoverPage() {
   const [error, setError] = useState('')
   const [isVisitor, setIsVisitor] = useState(true)
 
-  const load = useCallback(async () => {
+  const keywordRef = useRef('')
+  const requestSeq = useRef(0)
+
+  // #355 P2-10：搜索服务端化——keyword 进 getCatalog 的 title ilike filter，
+  // 不再前端过滤（Catalog first:50 封顶时第 51 条永远搜不到的契约性缺陷）。
+  // requestSeq 丢弃过期响应：旧请求晚于新请求返回时不覆盖列表。
+  const load = useCallback(async (kw: string) => {
+    const seq = ++requestSeq.current
     setLoading(true)
     setError('')
     try {
-      const [catalog, session] = await Promise.all([api.getCatalog(), api.getSession()])
+      const [catalog, session] = await Promise.all([api.getCatalog(kw), api.getSession()])
+      if (seq !== requestSeq.current) return
       setItems(catalog)
       setIsVisitor(!session.user)
     } catch (reason) {
+      if (seq !== requestSeq.current) return
       setError(reason instanceof Error ? reason.message : '暂时无法加载公开内容')
     } finally {
-      setLoading(false)
+      if (seq === requestSeq.current) setLoading(false)
     }
   }, [])
 
-  useDidShow(() => { void load() })
-  const normalized = keyword.trim().toLowerCase()
-  const filtered = items.filter((item) => !normalized || [
-    item.title,
-    item.venue ? venueText(item.venue) ?? '' : ''
-  ].some((value) => value.toLowerCase().includes(normalized)))
-  const events = filtered.filter(({ kind }) => kind === 'event')
-  const courses = filtered.filter(({ kind }) => kind === 'course')
+  // 击键防抖 300ms，停顿后才发服务端搜索；页面隐藏时丢弃挂起的触发
+  const debouncedSearch = useMemo(() => debounce((kw: string) => { void load(kw) }, 300), [load])
+
+  useDidShow(() => { void load(keywordRef.current) })
+  useDidHide(() => debouncedSearch.cancel())
+
+  const events = items.filter(({ kind }) => kind === 'event')
+  const courses = items.filter(({ kind }) => kind === 'course')
 
   const openDetail = ({ id, kind }: CatalogItem) => {
     Taro.navigateTo({ url: `/pages/event-detail/index?id=${id}&kind=${kind}` })
@@ -60,12 +70,16 @@ export default function DiscoverPage() {
           <Text className={styles.title} data-testid='page-title'>发现</Text>
           <Text className={styles.subtitle}>找到下一场活动，认识一起成长的人。</Text>
           <View className={styles.searchBox}>
-            <Text className={styles.searchIcon}>⌕</Text>
             <Input
               className={styles.searchInput}
-              placeholder='搜索活动、课程、地点'
+              placeholder='搜索活动、课程'
               value={keyword}
-              onInput={(event) => setKeyword(event.detail.value)}
+              onInput={(event) => {
+                const value = event.detail.value
+                setKeyword(value)
+                keywordRef.current = value
+                debouncedSearch(value)
+              }}
             />
           </View>
         </View>
@@ -85,8 +99,8 @@ export default function DiscoverPage() {
         {loading ? (
           <PageState kind='loading' />
         ) : error ? (
-          <PageState kind='error' message={error} onRetry={load} />
-        ) : filtered.length === 0 ? (
+          <PageState kind='error' message={error} onRetry={() => void load(keywordRef.current)} />
+        ) : items.length === 0 ? (
           <PageState kind='empty' message={keyword ? '换个关键词试试' : '还没有公开活动或课程'} />
         ) : (
           <View className={styles.content}>
