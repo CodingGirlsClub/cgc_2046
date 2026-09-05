@@ -45,7 +45,8 @@ defmodule Cgc2046.Notifications.Service do
   # - approval_reminder「待处理申请提醒」：申请单号=character_string1（UUID 去
   #   连字符恰 32 字符）/ 截止日期=time11
   # - event_reminder「活动开始提醒」：活动名称=thing2 / 开始时间=time3 /
-  #   活动地点=thing4（发送方未落地，#203；字段映射先注册）
+  #   活动地点=thing4（发送方已落地：Offering.EventReminderWorker，#203
+  #   方案 B；本映射为其微信字段渲染层）
   # - payment_received「收款成功通知」：活动名称=thing6 / 商品名称=thing8
   #   （档位快照名，空档跳过）/ 订单金额=amount2 / 订单编号=character_string1
   #   （order_id UUID 去连字符）
