@@ -2,7 +2,7 @@ defmodule Cgc2046.Courses.Course do
   @moduledoc """
   课程资源（Slice C #39，阶段 6 教研实例化最小子集）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Course 与 Event 字段同构
+  领域模型：Course 与 Event 字段同构
   （线上课程，无 venue 场地字段；starts_at/ends_at 语义为开课/结课），教研字段一致。
   Phase 2 加入报名策略、容量与报名截止时间；
   `confirmed_count` 为账本投影：原子占位由 Admission.CapacityLedger 条件 UPDATE 承担，本字段经 capacity.synced 信号覆盖式投影跟随。

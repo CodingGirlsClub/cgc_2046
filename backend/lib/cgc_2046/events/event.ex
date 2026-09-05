@@ -2,7 +2,7 @@ defmodule Cgc2046.Events.Event do
   @moduledoc """
   活动资源（Slice C #39，阶段 6 教研实例化最小子集）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Event 是活动实体，
+  领域模型：Event 是活动实体，
   教研字段之外，Phase 2 加入报名策略、容量与报名截止时间。`confirmed_count`
   是账本（Admission.CapacityLedger）投影：创建/确认的原子占位由账本条件 UPDATE 承担（防超卖唯一权威），confirmed_count 经 capacity.synced 信号覆盖式投影跟随。
 

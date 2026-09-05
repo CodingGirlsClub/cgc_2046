@@ -15,7 +15,7 @@ Read the sections below before opening a PR. If your contribution clearly delive
 This project is **documentation-driven**. Before writing code, read:
 
 - **[CONTEXT.md](./CONTEXT.md)** — the **single source of truth for domain terminology**. All code, docs, issues, tests, and commit messages must use exactly these terms. Do not introduce synonyms. If you believe a term is missing, propose it separately and get it added to CONTEXT.md first.
-- **[docs/00-CGC平台设计总纲.md](./docs/00-CGC平台设计总纲.md)** — single source of truth for core design decisions. In case of conflict with other docs, the finalized docs in `docs/01-定稿设计/` win.
+- **[docs/adr/](./docs/adr/)** — Architecture Decision Records (why, including rejected options). In case of conflict, code wins; ADRs explain the why.
 - **[docs/adr/](./docs/adr/)** — Architecture Decision Records. Significant architectural choices go through an ADR, not just a PR.
 
 ## 2. Architecture First

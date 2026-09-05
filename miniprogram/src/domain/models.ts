@@ -111,6 +111,8 @@ export interface EnrollmentSummary {
   status: EnrollmentStatus
   approvalDeadline: string | null
   rejectionReason: string | null
+  /** #411 同活动折叠的分组/排序键（服务端 create_timestamp，ISO 时间串） */
+  insertedAt: string
 }
 
 export interface EnrollmentForm {
@@ -167,7 +169,8 @@ export interface CreatedOrder {
 }
 
 export interface MiniProgramApi {
-  getCatalog(): Promise<CatalogItem[]>
+  /** #355 P2-10：keyword 非空 → 服务端 title ilike 过滤；空/缺省 → 全量公开目录 */
+  getCatalog(keyword?: string): Promise<CatalogItem[]>
   getContent(kind: ContentKind, id: string): Promise<CatalogItem>
   getSession(): Promise<SessionSnapshot>
   signIn(payload: PlatformPhonePayload): Promise<SessionSnapshot>

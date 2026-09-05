@@ -228,8 +228,8 @@ defmodule Cgc2046.Payments.Order do
         description: "支付渠道"
       )
 
-      # unique_active_order 部分索引冲突（已有活跃订单 / 并发下单）转业务错误
-      # order_duplicate_active（enrollment.ex create_enrollment 同款纪律，F1）
+      # unique_active_order 部分索引冲突兜底转业务错误（幂等设计见
+      # prepare_create_for_enrollment：锁内先废旧单，正常路径不再撞索引）
       error_handler({__MODULE__, :handle_create_error, []})
 
       metadata :credential, :map do
@@ -598,6 +598,11 @@ defmodule Cgc2046.Payments.Order do
     with {:ok, enrollment} <- load_enrollment(enrollment_id),
          :ok <- enrollee_only(enrollment, actor),
          :ok <- payment_pending_only(enrollment),
+         # 幂等下单（#405）：重进支付页在锁内废掉该报名的现有 pending 单
+         # （cancelled/reenter_refresh，审计留痕），腾出唯一索引窗口再开新单——
+         # 不再向用户抛 order_duplicate_active 死循环。渠道侧旧 prepay 单自然
+         # 过期，支付回调按新单号路由。
+         :ok <- discard_stale_pending_order(enrollment.id),
          {:ok, target} <- load_target(enrollment),
          {:ok, tier} <- resolve_tier(enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
@@ -832,6 +837,23 @@ defmodule Cgc2046.Payments.Order do
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(order_id)]) do
       {:ok, %{num_rows: 1}} -> :ok
       {:ok, %{num_rows: 0}} -> {:error, :already_processed}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
+  # 幂等下单（#405）：废掉该报名的现有 pending 单，为重进支付页的新单腾出
+  # unique_active_order 索引窗口。调用点已持 enrollment 行 FOR UPDATE 锁
+  # （load_enrollment → lock_for_order），同报名下单串行，num_rows ∈ {0,1}：
+  # 0 = 首单无旧单；1 = 废旧成功。索引兜底保证 >1 不可能。
+  defp discard_stale_pending_order(enrollment_id) do
+    sql = """
+    UPDATE payments_orders
+    SET status = 'cancelled', cancel_reason = 'reenter_refresh', updated_at = NOW()
+    WHERE enrollment_id = $1 AND status = 'pending'
+    """
+
+    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(enrollment_id)]) do
+      {:ok, %{num_rows: n}} when n in [0, 1] -> :ok
       {:error, reason} -> {:error, {:database, reason}}
     end
   end

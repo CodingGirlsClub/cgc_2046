@@ -3,6 +3,7 @@ import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { canManageMembers } from '@/domain/format'
+import { buildJoinSharePath } from '@/domain/share-route'
 import { takePendingScene } from '@/state/accountState'
 import styles from './index.module.css'
 
@@ -36,7 +37,7 @@ export default function JoinPage() {
   useEffect(() => {
     api.getSession().then((session) => {
       if (!session.user) {
-        const returnUrl = `/pages/join/index?scene=${encodeURIComponent(scene)}`
+        const returnUrl = buildJoinSharePath(scene)
         return Taro.redirectTo({ url: `/pages/login/index?returnUrl=${encodeURIComponent(returnUrl)}` })
       }
     }).catch((reason) => setError(reason instanceof Error ? reason.message : '登录状态校验失败'))
