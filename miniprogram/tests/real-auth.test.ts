@@ -5,20 +5,34 @@ const mocks = vi.hoisted(() => ({
   setAuthToken: vi.fn(),
   graphqlRequest: vi.fn(),
   isAuthenticationError: vi.fn(),
+  clearExpiredAuthentication: vi.fn(),
   clearWorkspaceTab: vi.fn(),
   rememberWorkspaceTab: vi.fn(),
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
   appendLocalNotification: vi.fn(),
   readLocalNotifications: vi.fn(),
-  currentPlatform: vi.fn()
+  currentPlatform: vi.fn(),
+  // 与 src/api/client.ts 同构:real.ts instanceof 判定用(真模块有 Taro 副作用,不 importOriginal)
+  GraphQLRequestError: class extends Error {
+    statusCode: number
+    errors: Array<{ message: string; code?: string }>
+    constructor(message: string, statusCode = 0, errors: Array<{ message: string; code?: string }> = []) {
+      super(message)
+      this.name = 'GraphQLRequestError'
+      this.statusCode = statusCode
+      this.errors = errors
+    }
+  }
 }))
 
 vi.mock('../src/api/client', () => ({
   getAuthToken: mocks.getAuthToken,
   setAuthToken: mocks.setAuthToken,
   graphqlRequest: mocks.graphqlRequest,
-  isAuthenticationError: mocks.isAuthenticationError
+  isAuthenticationError: mocks.isAuthenticationError,
+  clearExpiredAuthentication: mocks.clearExpiredAuthentication,
+  GraphQLRequestError: mocks.GraphQLRequestError
 }))
 
 vi.mock('../src/api/operations', () => ({
@@ -241,6 +255,39 @@ describe('getSession 匿名边界', () => {
     expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
   })
 })
+describe('getSession 错误降级(真机事故回归:坏 token 不该拖死发现页)', () => {
+  it('服务端非认证错误(如 forbidden)→ 降级空 session + 清坏 token', async () => {
+    mocks.getAuthToken.mockReturnValue('stale-token')
+    mocks.graphqlRequest.mockRejectedValue(
+      new mocks.GraphQLRequestError('Forbidden', 200, [{ message: 'Forbidden' }])
+    )
+    const result = await new RealMiniProgramApi().getSession()
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    expect(mocks.clearExpiredAuthentication).toHaveBeenCalled()
+  })
+
+  it('网络层失败(未到达服务端)→ 降级空 session 但保留 token', async () => {
+    mocks.getAuthToken.mockReturnValue('good-token')
+    mocks.graphqlRequest.mockRejectedValue(new Error('request:fail timeout'))
+    const result = await new RealMiniProgramApi().getSession()
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    expect(mocks.clearExpiredAuthentication).not.toHaveBeenCalled()
+    expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
+    expect(mocks.clearAccountState).toHaveBeenCalledWith()
+  })
+
+  it('认证错误 → 降级空 session(token 由 client.ts 清,不重复清)', async () => {
+    mocks.getAuthToken.mockReturnValue('expired-token')
+    mocks.isAuthenticationError.mockReturnValue(true)
+    mocks.graphqlRequest.mockRejectedValue(
+      new mocks.GraphQLRequestError('unauthorized', 200, [{ message: 'unauthorized', code: 'unauthorized' }])
+    )
+    const result = await new RealMiniProgramApi().getSession()
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    expect(mocks.clearExpiredAuthentication).not.toHaveBeenCalled()
+  })
+})
+
 
 describe('cancel enrollment', () => {
   it('成功取消报名并传递 enrollment ID', async () => {
