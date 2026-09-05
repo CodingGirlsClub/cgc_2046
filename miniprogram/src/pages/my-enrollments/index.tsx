@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { api } from '@/api'
+import { api, SessionExpiredError } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { enrollmentStatusText, remainingLabel } from '@/domain/format'
@@ -14,6 +14,8 @@ export default function MyEnrollmentsPage() {
   const [items, setItems] = useState<EnrollmentSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // #355 P0-2：登录失效空态（区别于「还没有报名记录」假空态）
+  const [expired, setExpired] = useState(false)
   const [now, setNow] = useState(Date.now)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
 
@@ -22,6 +24,7 @@ export default function MyEnrollmentsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    setExpired(false)
     try {
       const [enrollments, orders] = await Promise.all([api.getEnrollments(), api.getMyOrders()])
       // 缴费态(R16)：confirmed 报名挂最新订单状态展示 paid/refunded;
@@ -35,13 +38,18 @@ export default function MyEnrollmentsPage() {
       setPaymentByEnrollment(byEnrollment)
       setItems(enrollments)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '报名记录加载失败')
+      // 掉线 ≠ 没有报名：SessionExpiredError → 重登空态，其余照常报错
+      if (reason instanceof SessionExpiredError) setExpired(true)
+      else setError(reason instanceof Error ? reason.message : '报名记录加载失败')
     } finally {
       setLoading(false)
     }
   }, [])
 
   useDidShow(() => { void load() })
+
+  // 登录后 navigateBack 回本页，useDidShow 重载列表
+  const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
   useEffect(() => {
     const hasCountdown = items.some((item) => item.status === 'pending' && item.approvalDeadline)
     if (!hasCountdown) return undefined
@@ -95,6 +103,14 @@ export default function MyEnrollmentsPage() {
           <PageState kind='loading' />
         ) : error ? (
           <PageState kind='error' message={error} onRetry={load} />
+        ) : expired ? (
+          <PageState
+            kind='empty'
+            title='登录已过期'
+            message='重新登录后即可查看你的报名记录'
+            action={{ label: '去登录', onClick: goLogin }}
+            testId='session-expired'
+          />
         ) : items.length === 0 ? (
           <PageState kind='empty' message='还没有报名记录，去发现页看看吧' />
         ) : items.map((item) => (
