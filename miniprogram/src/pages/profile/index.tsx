@@ -70,7 +70,7 @@ export default function ProfilePage() {
     } catch {
       Taro.showToast({ title: '已退出本机，服务端注销失败', icon: 'none' })
     } finally {
-      setSession({ user: null, workspaces: [], approvals: [] })
+      setSession({ user: null, workspaces: [], approvals: [], authExpired: false })
       setNotifications([])
     }
   }
