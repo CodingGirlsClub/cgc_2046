@@ -2,8 +2,27 @@ import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
+import { canManageMembers } from '@/domain/format'
 import { takePendingScene } from '@/state/accountState'
 import styles from './index.module.css'
+
+// join 落地页（#355-8）：新入座 workspace 有 manage_members 能力者留工作台；
+// 普通学员工作台只有「当前角色无审批权限」死胡同，落我的报名。裁剪端
+// （tt/xhs）无工作台 Tab，一律我的报名。getSession 失败按学员处理（用户可自行切 Tab）。
+const landingTabAfterJoin = async (workspaceId: string): Promise<string> => {
+  if (process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs') {
+    return '/pages/my-enrollments/index'
+  }
+  try {
+    const session = await api.getSession()
+    const joined = session.workspaces.find((workspace) => workspace.id === workspaceId)
+    return joined && canManageMembers(joined.abilities)
+      ? '/pages/workspace/index'
+      : '/pages/my-enrollments/index'
+  } catch {
+    return '/pages/my-enrollments/index'
+  }
+}
 
 export default function JoinPage() {
   const router = useRouter()
@@ -32,10 +51,7 @@ export default function JoinPage() {
       const result = await api.admitMember(scene.trim())
       // takePendingScene 已在页面初始化时消费并删除持久 scene，这里无需再 remove
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
-      // 裁剪端（抖音/小红书）无工作台 Tab，入座后回落我的报名
-      const nextTab = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
-        ? '/pages/my-enrollments/index'
-        : '/pages/workspace/index'
+      const nextTab = await landingTabAfterJoin(result.workspaceId)
       setTimeout(() => Taro.switchTab({ url: nextTab }), 500)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '邀请码无效或已过期')
