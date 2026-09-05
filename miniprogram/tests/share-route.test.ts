@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveAppShowRoute } from '../src/domain/share-route.ts'
+import { buildJoinSharePath, resolveAppShowRoute } from '../src/domain/share-route.ts'
 
 // P4 热启动路由判定纯函数（plan 011 D-2，F05 复发面闭合）：
 // scene 优先（与 pendingScene/join 链路一致）；query 含 id 才跳 event-detail，
@@ -54,4 +54,10 @@ test('query 无 scene 无 id → null', () => {
 
 test('仅 id 无 kind 且当前在 event-detail → 仍不跳（互斥优先于回落）', () => {
   assert.equal(resolveAppShowRoute({ id: 'evt-9' }, 'pages/event-detail/index'), null)
+})
+
+// #415 分享出口：转发卡片 path 构造（profile 页 useShareAppMessage 消费）
+test('buildJoinSharePath 拼 join 路由并编码 scene', () => {
+  assert.equal(buildJoinSharePath('SC_1'), '/pages/join/index?scene=SC_1')
+  assert.equal(buildJoinSharePath('a b/c&d=e'), '/pages/join/index?scene=a%20b%2Fc%26d%3De')
 })
