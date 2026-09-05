@@ -141,7 +141,8 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     title: enrollment.targetTitle ?? '报名项目',
     status: parseEnrollmentStatus(enrollment.status),
     approvalDeadline: enrollment.approvalDeadline ?? null,
-    rejectionReason: enrollment.rejectionReason ?? null
+    rejectionReason: enrollment.rejectionReason ?? null,
+    insertedAt: enrollment.insertedAt
   }
 }
 function parseOrderStatus(value: string): OrderStatus {
@@ -395,7 +396,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       title: form.target.title,
       status: parseEnrollmentStatus(result.status),
       approvalDeadline: result.approvalDeadline,
-      rejectionReason: null
+      rejectionReason: null,
+      insertedAt: result.insertedAt
     }
   }
 

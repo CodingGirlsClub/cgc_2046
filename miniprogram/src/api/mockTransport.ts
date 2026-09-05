@@ -79,6 +79,7 @@ interface MockEnrollment {
   approvedAt: string | null
   expiredAt: string | null
   cancelledAt: string | null
+  insertedAt: string
 }
 
 let loggedIn = false
@@ -222,7 +223,8 @@ function responseFor(document: string, variables: object): unknown {
       rejectionReason: null,
       approvedAt: null,
       expiredAt: null,
-      cancelledAt: null
+      cancelledAt: null,
+      insertedAt: new Date().toISOString()
     }
     return { createEnrollment: { result: enrollment, errors: [] } }
   }

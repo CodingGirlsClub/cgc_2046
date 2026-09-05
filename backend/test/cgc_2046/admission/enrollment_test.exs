@@ -4,6 +4,8 @@ defmodule Cgc2046.Admission.EnrollmentTest do
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
+  require Ash.Query
+
   alias Cgc2046.Accounts.UserIdentity
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Errors.BusinessError
@@ -184,6 +186,56 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
       assert Exception.message(error) =~ "target does not belong to tenant"
     end
+  end
+
+  describe "read 排序（#411）" do
+    test "my_enrollments 与 graphql 列表 action 按 inserted_at desc 返回（keyset 稳定序）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      event2 = EventFixtures.create_event(workspace, admin)
+      course = EventFixtures.create_course(workspace, admin)
+      learner = Fixtures.register_user("enrollment-sort")
+
+      # 按创建序 e1 → e2 → e3 插入（同目标活跃记录唯一，须三个不同目标）；
+      # 随后回拨 inserted_at 使 e2 最新——创建序与插入时间序刻意错位，
+      # 断言的是显式 sort 而非物理插入序
+      {:ok, e1} = create_enrollment(event, learner)
+      {:ok, e2} = create_enrollment(course, learner)
+      {:ok, e3} = create_enrollment(event2, learner)
+
+      backdate_inserted_at(e1, 3)
+      backdate_inserted_at(e3, 2)
+
+      %{results: mine} =
+        Enrollment
+        |> Ash.Query.for_read(:my_enrollments, %{}, actor: learner)
+        |> Ash.read!()
+
+      assert Enum.map(mine, & &1.id) == [e2.id, e3.id, e1.id]
+
+      # graphql enrollments 列表绑定的 :list_enrollments（#411 显式 sort）
+      %{results: all} =
+        Enrollment
+        |> Ash.Query.for_read(:list_enrollments, %{})
+        |> Ash.Query.filter(id in ^[e1.id, e2.id, e3.id])
+        |> Ash.read!(authorize?: false)
+
+      assert Enum.map(all, & &1.id) == [e2.id, e3.id, e1.id]
+    end
+  end
+
+  # inserted_at 由 create_timestamp 控制不可写，直改库回拨造时间差
+  # （同 learning_analytics_tools_test backdate 先例；UPDATE 恰命中一行）
+  defp backdate_inserted_at(enrollment, hours_ago) do
+    assert %{num_rows: 1} =
+             Cgc2046.Repo.query!(
+               "UPDATE enrollments SET inserted_at = $1 WHERE id = $2",
+               [
+                 DateTime.add(DateTime.utc_now(), -hours_ago * 3600, :second),
+                 Cgc2046.Repo.uuid!(enrollment.id)
+               ]
+             )
   end
 
   describe "信号发布（enrollment.submitted / completed）" do
