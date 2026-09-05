@@ -40,9 +40,9 @@ defmodule Cgc2046.Mcp.Tools.DiscoverOfferings do
     meta: %{workspace_id: :optional, membership: :deferred}
 
   alias Cgc2046.Accounts.{MembershipContext, Workspace}
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
-  alias Cgc2046.Mcp.Tools.LearnerJourney
   alias Cgc2046.Mcp.Wrapper
 
   require Ash.Query
@@ -135,12 +135,12 @@ defmodule Cgc2046.Mcp.Tools.DiscoverOfferings do
     end
   end
 
-  # actor 的活跃报名批量读（LearnerJourney 共享面；无 N+1）
+  # actor 的活跃报名批量读（Enrollment 共享面；无 N+1）
   defp load_my_enrollments(actor, rows) do
     event_ids = for %{kind: :event, entity: e} <- rows, do: e.id
     course_ids = for %{kind: :course, entity: e} <- rows, do: e.id
 
-    LearnerJourney.active_enrollments_by_offering(actor, event_ids, course_ids)
+    Enrollment.active_enrollments_by_offering(actor, event_ids, course_ids)
   end
 
   # registration_deadline 升序（无截止在最后），其次 title。截止时间转 unix

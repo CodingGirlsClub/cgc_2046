@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { EnrollmentSummary, SubscriptionScenario } from '@/domain/models'
@@ -9,12 +9,40 @@ import { requestPlatformSubscription } from '@/platform'
 import { STORAGE_KEYS } from '@/state/storage'
 import styles from './index.module.css'
 
+// #355 P1-4：结果页承担结果查询职责，不再只是提交瞬时回执。数据源优先级：
+// 路由 ?id=（register-form 提交后必带）→ 服务端回查（换设备/清缓存仍可得）；
+// 失败/未登录降级本机 storage lastEnrollment；两者皆空 → 真空态（引导去我的报名）。
 export default function EnrollmentResultPage() {
-  const [enrollment] = useState(() => Taro.getStorageSync<EnrollmentSummary>(STORAGE_KEYS.lastEnrollment))
+  const router = useRouter()
+  const enrollmentId = router.params.id ?? ''
+  const [enrollment, setEnrollment] = useState<EnrollmentSummary | null>(null)
+  const [loading, setLoading] = useState(Boolean(enrollmentId))
   const [submitting, setSubmitting] = useState(false)
   const [subscriptionState, setSubscriptionState] = useState('')
 
-  if (!enrollment) return <PageState kind='empty' message='没有找到刚刚提交的报名' />
+  const load = useCallback(async () => {
+    if (!enrollmentId) {
+      setEnrollment(Taro.getStorageSync<EnrollmentSummary>(STORAGE_KEYS.lastEnrollment) || null)
+      return
+    }
+    setLoading(true)
+    try {
+      // 服务端回查失败（未登录/网络）不致命：本机回执兜底
+      const fetched = await api.getEnrollment(enrollmentId).catch(() => null)
+      setEnrollment(
+        fetched ?? (Taro.getStorageSync<EnrollmentSummary>(STORAGE_KEYS.lastEnrollment) || null)
+      )
+    } finally {
+      setLoading(false)
+    }
+  }, [enrollmentId])
+
+  useEffect(() => { void load() }, [load])
+
+  if (loading) return <PageState kind='loading' />
+  if (!enrollment) {
+    return <PageState kind='empty' message='没有找到这条报名记录，可在「我的报名」中查看' />
+  }
 
   const pending = enrollment.status === 'pending'
   const paymentPending = enrollment.status === 'payment_pending'
