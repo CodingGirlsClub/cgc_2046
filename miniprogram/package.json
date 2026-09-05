@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:diversion": "node scripts/check-no-diversion.mjs",
-    "test:unit": "node --experimental-strip-types --test tests/domain.test.ts tests/payment-domain.test.ts tests/error-copy.test.ts tests/diversion-policy.test.ts tests/license-policy.test.mjs tests/share-route.test.ts && vitest run tests/api-client.test.ts tests/account-state.test.ts tests/real-auth.test.ts tests/real-content.test.ts tests/error-codes.contract.test.ts",
+"test:unit": "node --experimental-strip-types --test tests/domain.test.ts tests/payment-domain.test.ts tests/error-copy.test.ts tests/diversion-policy.test.ts tests/license-policy.test.mjs tests/share-route.test.ts tests/enrollment-group.test.ts tests/debounce.test.ts tests/catalog-filter.test.ts tests/mock-transport.test.ts && vitest run tests/api-client.test.ts tests/account-state.test.ts tests/real-auth.test.ts tests/real-content.test.ts tests/error-codes.contract.test.ts",
     "audit:prod": "node scripts/audit-if-deps-changed.mjs -- pnpm audit --prod --audit-level high",
     "check:ci": "pnpm audit:prod && pnpm codegen && git diff --exit-code -- src/api/generated && pnpm typecheck && pnpm check:licenses && pnpm test:unit && pnpm build:weapp && pnpm build:tt && pnpm build:xhs && pnpm check:diversion && pnpm build:weapp:mock",
     "build:weapp:mock": "CGC_E2E_MOCK=true pnpm build:weapp",

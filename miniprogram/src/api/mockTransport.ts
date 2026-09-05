@@ -79,6 +79,7 @@ interface MockEnrollment {
   approvedAt: string | null
   expiredAt: string | null
   cancelledAt: string | null
+  insertedAt: string
 }
 
 let loggedIn = false
@@ -114,11 +115,26 @@ function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
   }
 }
 
+
+
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
 
   if (document.includes('query Catalog')) {
-    return { listEvents: { results: records }, listCourses: { results: [course] } }
+    // #355 P2-10：CatalogSearch 带 title ilike `%kw%` 过滤变量（大小写不敏感 includes 语义）
+    const filter = values.eventFilter ?? values.courseFilter
+    let keyword: string | null = null
+    if (filter && typeof filter === 'object' && 'title' in filter) {
+      const title = filter.title
+      if (title && typeof title === 'object' && 'ilike' in title && typeof title.ilike === 'string') {
+        keyword = title.ilike.replace(/%/g, '').toLowerCase()
+      }
+    }
+    const matches = (title: string) => !keyword || title.toLowerCase().includes(keyword)
+    return {
+      listEvents: { results: records.filter(({ title }) => matches(title)) },
+      listCourses: { results: [course].filter(({ title }) => matches(title)) }
+    }
   }
   if (document.includes('query EventDetail')) {
     return {
@@ -207,7 +223,8 @@ function responseFor(document: string, variables: object): unknown {
       rejectionReason: null,
       approvedAt: null,
       expiredAt: null,
-      cancelledAt: null
+      cancelledAt: null,
+      insertedAt: new Date().toISOString()
     }
     return { createEnrollment: { result: enrollment, errors: [] } }
   }

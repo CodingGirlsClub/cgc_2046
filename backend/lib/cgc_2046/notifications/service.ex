@@ -21,7 +21,8 @@ defmodule Cgc2046.Notifications.Service do
              platform,
              uid,
              template_id,
-             render(platform, template_key, data)
+             render(platform, template_key, data),
+             template_key
            ) do
         :ok ->
           :ok
@@ -53,6 +54,19 @@ defmodule Cgc2046.Notifications.Service do
   # - payment_expired「订单状态变化通知」：订单号=character_string11 / 商品名
   #   称=thing14（活动名）/ 订单金额=amount8 / 备注=thing10（超时说明，
   #   re_enrollable=true 时提示报名截止前可重新报名）
+  # - enrollment_submitted「预约待审核通知」（#406）：活动名称=thing1 /
+  #   温馨提示=thing5（固定文案；enrollment_id 不下发——管理者点通知进工作台
+  #   处理列表）
+  # - enrollment_completed「活动报名成功通知」（#406）：活动名称=thing1 /
+  #   门票号=character_string10（enrollment_id UUID 去连字符恰 32 字符）
+  # - payment_succeeded「支付成功通知」（#406）：订单号=character_string2 /
+  #   支付金额=amount3
+  # - refund_succeeded「退款成功通知」（#406）：订单号=character_string2 /
+  #   退款金额=amount3 / 退款状态=phrase8（固定「退款成功」；退款时间 time5
+  #   逻辑键无数据源，缺省跳过）
+  # - refund_failed「退款通知」（#406）：订单编号=character_string2 / 退款金额
+  #   =amount1 / 退款原因=thing3（固定文案，渠道错误细节不进用户面）/
+  #   退款状态=phrase5（固定「退款失败」）
   #
   # 缺值字段跳过（微信允许少传）；无映射的平台/模板键原样透传（tt/xhs 模板
   # 未申请，template_not_configured 在更早已拦截，透传仅为不炸兜底路径）。
@@ -98,6 +112,49 @@ defmodule Cgc2046.Notifications.Service do
       "thing14" => thing(data["title"]),
       "amount8" => data["amount"],
       "thing10" => expiry_note(data["re_enrollable"])
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "enrollment_submitted", %{} = data) do
+    %{
+      "thing1" => thing(data["title"]),
+      "thing5" => "有新的待审批报名，请前往工作台处理"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "enrollment_completed", %{} = data) do
+    %{
+      "thing1" => thing(data["title"]),
+      "character_string10" => code(data["enrollment_id"])
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "payment_succeeded", %{} = data) do
+    %{
+      "character_string2" => code(data["order_id"]),
+      "amount3" => data["amount"]
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "refund_succeeded", %{} = data) do
+    %{
+      "character_string2" => code(data["order_id"]),
+      "amount3" => data["amount"],
+      "phrase8" => "退款成功"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "refund_failed", %{} = data) do
+    %{
+      "character_string2" => code(data["order_id"]),
+      "amount1" => data["amount"],
+      "thing3" => "退款未到账，平台将重试或与你联系",
+      "phrase5" => "退款失败"
     }
     |> drop_nils()
   end

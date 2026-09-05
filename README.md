@@ -57,9 +57,9 @@ pnpm build
 
 - **[CONTEXT.md](./CONTEXT.md)** — single source of truth for domain terminology (all code, docs, issues, and tests must use exactly these terms)
 - **[DESIGN.md](./DESIGN.md)** — design overview
-- **[docs/00-CGC平台设计总纲.md](./docs/00-CGC平台设计总纲.md)** — single source of truth for core design decisions
-- **[docs/01-定稿设计/](./docs/01-定稿设计/)** — finalized design: domain model, business workflows, user journeys
-- **[docs/adr/](./docs/adr/)** — Architecture Decision Records
+- **[docs/adr/](./docs/adr/)** — Architecture Decision Records (why, including rejected options)
+- **[docs/agents/](./docs/agents/)** — agent workflow conventions (issue tracker, triage labels, domain docs)
+- **[docs/开源合规/](./docs/开源合规/)** — dependency license rules (AGPL-3.0 compatibility, CI-enforced)
 
 ## Development workflow
 

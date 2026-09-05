@@ -1,6 +1,6 @@
 defmodule Cgc2046.Learning.LearningInstantiator do
   @moduledoc """
-  学习 workflow 实例化（E-7 #122；设计 docs/01-定稿设计/学习workflow详细设计.md v1.0）。
+  学习 workflow 实例化（E-7 #122）。
 
   学习是**协议而非 DAG**：执行在 Learner 侧 OpenClacky（BYO），平台不编排。
   本模块只做触发——`enrollment.completed` → 幂等种 learning run（实例化后即

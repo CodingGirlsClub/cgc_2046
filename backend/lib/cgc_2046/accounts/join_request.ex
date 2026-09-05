@@ -2,7 +2,7 @@ defmodule Cgc2046.Accounts.JoinRequest do
   @moduledoc """
   工作台加入申请资源（#30）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md ER §INVITATION/JOIN_REQUEST）：
+  领域模型：
   JoinRequest 是租户资源（workspace_id），表示用户申请加入工作台的请求。
   审批流程：pending → approved（建 Membership（默认无标签角色））/ rejected / expired。
 

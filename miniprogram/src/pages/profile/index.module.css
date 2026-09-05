@@ -31,6 +31,9 @@
 .codeResult { padding-top: 22rpx; text-align: center; }
 .codeImage { width: 300rpx; height: 300rpx; }
 .scene, .expires { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 22rpx; word-break: break-all; }
+.codeActions { margin-top: 22rpx; display: flex; gap: 14rpx; }
+.shareButton { flex: 1; margin: 0; color: #fff; background: #ea5504; border-radius: 24rpx; font-size: 21rpx; }
+.copyButton { flex: 1; margin: 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 21rpx; }
 .openclacky { padding: 28rpx; display: flex; align-items: center; justify-content: space-between; color: #fff; background: #ea5504; border-radius: 22rpx; }
 .openclackyTitle { display: block; font-size: 30rpx; font-weight: 650; }
 .openclackyText { display: block; margin-top: 8rpx; max-width: 520rpx; color: #ffa375; font-size: 22rpx; line-height: 1.45; }

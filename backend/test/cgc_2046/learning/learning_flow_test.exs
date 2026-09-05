@@ -1,6 +1,6 @@
 defmodule Cgc2046.Learning.LearningFlowTest do
   @moduledoc """
-  学习 workflow 协议落地验收（E-7 #122；设计 docs/01-定稿设计/学习workflow详细设计.md v1.0）。
+  学习 workflow 协议落地验收（E-7 #122）。
 
   覆盖任务书四条验收：
 

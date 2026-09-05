@@ -7,13 +7,12 @@ defmodule Cgc2046.Admission.Workers.ApprovalExpiryWorkerTest do
   - WorkflowRun（workflows）：F7 方案 A 审批超时（definition.approval_timeout）过点的
     waiting run → 既有 `:expire` action（含 checkpoint 清理）
 
-  「POC-2 G1 补测」describe 补测 POC 报告遗留缺口（docs/04-引擎验证/poc-验证报告.md
-  §10 遗留项 2 原文）：
+  「POC-2 G1 补测」describe 补测 POC 报告遗留缺口（报告已归档，git 历史可溯）：
 
   > 报名截止 deadline 的 Schedule Directive 唤醒 → cancel 路径（G1 方案第 4 条建议项）
   > 未验证，建议 v1 用"恢复时检查 deadline → 超时则 Emit cancel"实现并补集成测试
 
-  （另见 §8 G1 方案建议 4：「deadline 触发：验证 Schedule Directive 或"恢复时检查
+  （另见 POC 报告 §8 G1 方案建议 4（已归档）：「deadline 触发：验证 Schedule Directive 或"恢复时检查
   deadline → 超时则 Emit cancel"路径（覆盖开放问题 5）」。开放问题 5：「hibernate 期间
   deadline 到点如何唤醒并 cancel 未验证」。）
 

@@ -225,7 +225,8 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
           rejectionReason: null,
           approvedAt: '2026-09-05T00:00:00Z',
           expiredAt: null,
-          cancelledAt: null
+          cancelledAt: null,
+          insertedAt: '2026-09-01T08:00:00Z'
         }]
       }
     })
@@ -239,7 +240,8 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
       title: 'Python 工作坊',
       status: 'confirmed',
       approvalDeadline: null,
-      rejectionReason: null
+      rejectionReason: null,
+      insertedAt: '2026-09-01T08:00:00Z'
     })
   })
 
