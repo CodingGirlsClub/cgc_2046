@@ -1,7 +1,7 @@
 import { PropsWithChildren, useEffect } from 'react'
 import Taro, { useLaunch } from '@tarojs/taro'
 import { STORAGE_KEYS } from '@/state/storage'
-import { resolveAppShowRoute } from '@/domain/share-route'
+import { buildJoinSharePath, resolveAppShowRoute } from '@/domain/share-route'
 import './app.css'
 
 function App({ children }: PropsWithChildren) {
@@ -9,7 +9,7 @@ function App({ children }: PropsWithChildren) {
     const scene = options.query?.scene
     if (scene) {
       Taro.setStorageSync(STORAGE_KEYS.pendingScene, scene)
-      setTimeout(() => Taro.navigateTo({ url: `/pages/join/index?scene=${encodeURIComponent(scene)}` }), 0)
+      setTimeout(() => Taro.navigateTo({ url: buildJoinSharePath(scene) }), 0)
     }
   })
 
