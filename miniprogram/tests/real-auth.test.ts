@@ -43,6 +43,7 @@ vi.mock('../src/api/operations', () => ({
   EventDetailQueryDocument: 'EVENT_DETAIL',
   CourseDetailQueryDocument: 'COURSE_DETAIL',
   MyEnrollmentsQueryDocument: 'MY_ENROLLMENTS',
+  EnrollmentQueryDocument: 'ENROLLMENT_QUERY',
   CancelEnrollmentMutationDocument: 'CANCEL_ENROLLMENT',
   CreateEnrollmentMutationDocument: 'CREATE_ENROLLMENT',
   ConfirmEnrollmentMutationDocument: 'CONFIRM_ENROLLMENT',

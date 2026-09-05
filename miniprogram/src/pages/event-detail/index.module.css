@@ -20,3 +20,4 @@
 .footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom)); background: #fff; border-top: 1rpx solid #e4e4e7; }
 .primaryButton { color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
 .closedNotice { display: block; color: #4b4d54; font-size: 25rpx; line-height: 1.5; text-align: center; }
+.enrolledNotice { display: block; margin-bottom: 16rpx; color: #1f7a3d; font-size: 25rpx; font-weight: 600; text-align: center; }
