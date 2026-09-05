@@ -306,6 +306,120 @@ defmodule Cgc2046.Notifications.ServiceTest do
                     }}
   end
 
+  # ── #406 五模板渲染映射（模板 ID 与字段编号以公众平台「我的模板 → 详情」为准）──
+
+  test "enrollment_submitted 渲染：thing1 活动名 + thing5 固定提示" do
+    user = Fixtures.register_user("notification-submitted-render")
+    insert_identity(user.id, :wechat, "wx-submitted-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "enrollment_submitted")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "enrollment_submitted", %{
+               "enrollment_id" => "enr-1",
+               "title" => "AI 入门工作坊"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "thing1" => %{"value" => "AI 入门工作坊"},
+                        "thing5" => %{"value" => "有新的待审批报名，请前往工作台处理"}
+                      }
+                    }}
+  end
+
+  test "enrollment_completed 渲染：thing1 活动名 + character_string10 报名号" do
+    user = Fixtures.register_user("notification-completed-render")
+    insert_identity(user.id, :wechat, "wx-completed-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "enrollment_completed")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "enrollment_completed", %{
+               "enrollment_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "title" => "AI 入门工作坊"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "thing1" => %{"value" => "AI 入门工作坊"},
+                        "character_string10" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"}
+                      }
+                    }}
+  end
+
+  test "payment_succeeded 渲染：character_string2 订单号 + amount3 金额" do
+    user = Fixtures.register_user("notification-paid-render")
+    insert_identity(user.id, :wechat, "wx-paid-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "payment_succeeded")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "payment_succeeded", %{
+               "order_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "enrollment_id" => "enr-1",
+               "amount" => "199.00",
+               "provider" => "wechat_jsapi"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "character_string2" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"},
+                        "amount3" => %{"value" => "199.00"}
+                      }
+                    }}
+  end
+
+  test "refund_succeeded 渲染：订单号/金额/状态，退款时间无数据源缺省跳过" do
+    user = Fixtures.register_user("notification-refunded-render")
+    insert_identity(user.id, :wechat, "wx-refunded-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "refund_succeeded")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "refund_succeeded", %{
+               "order_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "enrollment_id" => "enr-1",
+               "amount" => "199.00",
+               "provider" => "wechat_jsapi"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" =>
+                        %{
+                          "character_string2" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"},
+                          "amount3" => %{"value" => "199.00"},
+                          "phrase8" => %{"value" => "退款成功"}
+                        } = data
+                    }}
+
+    refute Map.has_key?(data, "time5")
+  end
+
+  test "refund_failed 渲染：订单编号/金额/固定原因与状态" do
+    user = Fixtures.register_user("notification-refundfail-render")
+    insert_identity(user.id, :wechat, "wx-refundfail-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "refund_failed")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "refund_failed", %{
+               "order_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "enrollment_id" => "enr-1",
+               "amount" => "199.00",
+               "provider" => "wechat_jsapi"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "character_string2" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"},
+                        "amount1" => %{"value" => "199.00"},
+                        "thing3" => %{"value" => "退款未到账，平台将重试或与你联系"},
+                        "phrase5" => %{"value" => "退款失败"}
+                      }
+                    }}
+  end
+
   defp insert_identity(user_id, platform, uid) do
     Cgc2046.Repo.query!(
       """

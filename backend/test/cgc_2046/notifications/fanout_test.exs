@@ -151,24 +151,31 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert args["data"] == %{"enrollment_id" => enrollment_id, "approval_deadline" => deadline}
     end
 
-    test "空 recipients（无身份）→ 不入队，telemetry count 0" do
+    test "空 recipients（无身份）→ 不入队，warning 日志 + telemetry status :skipped（#406）" do
       attach_telemetry()
       user = Fixtures.register_user("fanout-deliver-empty")
 
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, []},
-                 "approval_result",
-                 %{},
-                 %{}
-               )
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   Fanout.deliver(
+                     {user.id, []},
+                     "approval_result",
+                     %{},
+                     %{"enrollment_id" => "e-empty"}
+                   )
 
-      assert :ok = Fanout.deliver(%{}, "approval_result", %{}, %{})
+          assert :ok = Fanout.deliver(%{}, "approval_result", %{}, %{})
+        end)
 
       assert all_enqueued(worker: NotificationWorker) == []
 
+      assert log =~ "notification deliver skipped: no identities"
+      assert log =~ "template_key=approval_result"
+      assert log =~ inspect([user.id])
+
       assert_receive {:fanout_telemetry, _, %{count: 0},
-                      %{status: :ok, template_key: "approval_result", error: nil}}
+                      %{status: :skipped, template_key: "approval_result", error: nil}}
     end
 
     test "成功入队发 telemetry count = 入队条数" do
