@@ -136,7 +136,7 @@ export default function WorkspacePage() {
               </View>
             )}
 
-            <Text className={styles.sectionTitle}>我的 Workspace</Text>
+            <Text className={styles.sectionTitle}>我的工作台</Text>
             {session.workspaces.map((workspace) => (
               <View key={workspace.id} className={styles.workspaceCard}>
                 <View>
