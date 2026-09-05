@@ -27,6 +27,7 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
   alias Cgc2046.Mcp.Tools.LearnerJourney
@@ -132,7 +133,7 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
   defp would_create_status(%{enrollment_policy: :invite_only}), do: nil
 
   defp my_enrollment(actor, kind, offering_id, workspace_id) do
-    case LearnerJourney.active_enrollment(actor, kind, offering_id, workspace_id) do
+    case Enrollment.active_enrollment(actor, kind, offering_id, workspace_id) do
       nil -> nil
       enrollment -> %{id: enrollment.id, status: to_string(enrollment.status)}
     end

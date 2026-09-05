@@ -15,6 +15,8 @@ import type {
   CourseDetailQueryVariables,
   CreateEnrollmentMutation,
   CreateEnrollmentMutationVariables,
+  EnrollmentQuery,
+  EnrollmentQueryVariables,
   EventDetailQuery,
   EventDetailQueryVariables,
   GenerateMiniProgramCodeMutation,
@@ -50,6 +52,7 @@ import {
   ConfirmEnrollmentMutationDocument,
   CourseDetailQueryDocument,
   CreateEnrollmentMutationDocument,
+  EnrollmentQueryDocument,
   EventDetailQueryDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
@@ -71,6 +74,7 @@ import type {
   ContentKind,
   EnrollmentForm,
   EnrollmentSummary,
+  MyEnrollmentState,
   MiniProgramApi,
   MiniProgramCode,
   NotificationItem,
@@ -93,7 +97,21 @@ type CourseRecord = NonNullable<NonNullable<CatalogQuery['listCourses']>['result
 // venue 仅 event 有槽（Course 无位置概念，R3）——两 record 形状在此分叉，故取并集
 type ContentRecord = EventRecord | CourseRecord
 
-function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
+// 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
+type MyEnrollmentRecord = NonNullable<EventDetailQuery['myEnrollment']>
+// enrollments 列表查询行（MyEnrollments/Enrollment 两查询同形状，#355 P1-4）
+type EnrollmentRecord = NonNullable<NonNullable<MyEnrollmentsQuery['enrollments']>['results']>[number]
+
+function mapMyEnrollment(record: MyEnrollmentRecord | null | undefined): MyEnrollmentState | null {
+  if (!record) return null
+  return {
+    id: record.id,
+    status: parseEnrollmentStatus(record.status),
+    approvalDeadline: record.approvalDeadline ?? null
+  }
+}
+
+function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEnrollmentRecord | null | undefined): CatalogItem {
   return {
     id: record.id,
     kind,
@@ -105,7 +123,21 @@ function mapContent(record: ContentRecord, kind: ContentKind): CatalogItem {
     startsAt: record.startsAt,
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
-    enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge)
+    enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge),
+    myEnrollment: mapMyEnrollment(myEnrollment)
+  }
+}
+
+function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
+  return {
+    id: enrollment.id,
+    workspaceId: enrollment.workspaceId,
+    targetId: enrollment.eventId ?? enrollment.courseId ?? '',
+    kind: enrollment.eventId ? 'event' : 'course',
+    title: enrollment.targetTitle ?? '报名项目',
+    status: parseEnrollmentStatus(enrollment.status),
+    approvalDeadline: enrollment.approvalDeadline ?? null,
+    rejectionReason: enrollment.rejectionReason ?? null
   }
 }
 function parseOrderStatus(value: string): OrderStatus {
@@ -128,8 +160,9 @@ function mutationError(errors: Array<{ message?: string | null; code?: string | 
 export class RealMiniProgramApi implements MiniProgramApi {
   async getCatalog(): Promise<CatalogItem[]> {
     const data = await graphqlRequest<CatalogQuery, CatalogQueryVariables>(CatalogQueryDocument, { first: 50 })
-    const events = (data.listEvents?.results ?? []).map((record) => mapContent(record, 'event'))
-    const courses = (data.listCourses?.results ?? []).map((record) => mapContent(record, 'course'))
+    // 发现页为匿名目录面：CatalogQuery 不带 myEnrollment（#355 P1-3 仅详情面）
+    const events = (data.listEvents?.results ?? []).map((record) => mapContent(record, 'event', null))
+    const courses = (data.listCourses?.results ?? []).map((record) => mapContent(record, 'course', null))
     return [...events, ...courses]
   }
 
@@ -140,14 +173,14 @@ export class RealMiniProgramApi implements MiniProgramApi {
         { id }
       )
       if (!data.getEvent) throw new Error('活动不存在或不可访问')
-      return mapContent(data.getEvent, 'event')
+      return mapContent(data.getEvent, 'event', data.myEnrollment)
     }
     const data = await graphqlRequest<CourseDetailQuery, CourseDetailQueryVariables>(
       CourseDetailQueryDocument,
       { id }
     )
     if (!data.getCourse) throw new Error('课程不存在或不可访问')
-    return mapContent(data.getCourse, 'course')
+    return mapContent(data.getCourse, 'course', data.myEnrollment)
   }
 
   async getSession(): Promise<SessionSnapshot> {
@@ -274,16 +307,18 @@ export class RealMiniProgramApi implements MiniProgramApi {
       MyEnrollmentsQueryDocument,
       { userId: session.user.id, first: 100 }
     )
-    return (data.enrollments?.results ?? []).map((enrollment) => ({
-      id: enrollment.id,
-      workspaceId: enrollment.workspaceId,
-      targetId: enrollment.eventId ?? enrollment.courseId ?? '',
-      kind: enrollment.eventId ? 'event' : 'course',
-      title: enrollment.targetTitle ?? '报名项目',
-      status: parseEnrollmentStatus(enrollment.status),
-      approvalDeadline: enrollment.approvalDeadline,
-      rejectionReason: enrollment.rejectionReason
-    }))
+    return (data.enrollments?.results ?? []).map(mapEnrollment)
+  }
+
+  async getEnrollment(id: string): Promise<EnrollmentSummary | null> {
+    // 未登录 → 查无（read policy 本人才可见；结果页据此走 storage 兜底链）
+    if (!getAuthToken()) return null
+    const data = await graphqlRequest<EnrollmentQuery, EnrollmentQueryVariables>(
+      EnrollmentQueryDocument,
+      { id }
+    )
+    const [record] = data.enrollments?.results ?? []
+    return record ? mapEnrollment(record) : null
   }
   async cancelEnrollment(id: string): Promise<void> {
     const data = await graphqlRequest<CancelEnrollmentMutation, CancelEnrollmentMutationVariables>(
