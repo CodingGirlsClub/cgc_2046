@@ -1,9 +1,9 @@
-.page { min-height: 100vh; background: #fff; }
+.page { min-height: 100vh; background: #f7f7f7; }
 .scroll { height: 100vh; padding-bottom: 150rpx; box-sizing: border-box; }
-.header { padding: 54rpx 32rpx 38rpx; background: #222326; color: #fff; }
-.kind { display: block; color: #ffa375; font-size: 20rpx; font-weight: 700; letter-spacing: 4rpx; }
+.header { padding: 54rpx 32rpx 38rpx; background: linear-gradient(145deg, #fdeadf 0%, #f7f7f7 68%); }
+.kind { display: block; color: #ea5504; font-size: 20rpx; font-weight: 700; letter-spacing: 4rpx; }
 .title { display: block; margin-top: 18rpx; font-size: 48rpx; line-height: 1.3; font-weight: 700; }
-.club { display: block; margin-top: 18rpx; color: #e4e4e7; font-size: 25rpx; }
+.club { display: block; margin-top: 18rpx; color: #4b4d54; font-size: 25rpx; }
 .metrics { margin: -18rpx 24rpx 0; padding: 28rpx 12rpx; position: relative; display: flex; background: #fff; border-radius: 22rpx; box-shadow: 0 12rpx 36rpx rgba(34, 35, 38, .1); }
 .metric { flex: 1; display: flex; flex-direction: column; align-items: center; border-right: 1rpx solid #e4e4e7; }
 .metric:last-child { border-right: 0; }
@@ -15,7 +15,7 @@
 .label { width: 150rpx; flex-shrink: 0; color: #4b4d54; font-size: 25rpx; }
 .value { flex: 1; color: #4b4d54; font-size: 27rpx; line-height: 1.55; }
 .policyBlock { margin: 30rpx 32rpx; padding: 26rpx; background: #fdeadf; border-radius: 18rpx; }
-.policyTitle { display: block; color: #3943a2; font-weight: 650; }
+.policyTitle { display: block; color: #c24a02; font-weight: 650; }
 .policyText, .deadline { display: block; margin-top: 9rpx; color: #4b4d54; font-size: 23rpx; }
 .footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom)); background: #fff; border-top: 1rpx solid #e4e4e7; }
 .primaryButton { color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
