@@ -589,6 +589,33 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert enrollment_count(:event, event.id, learner) == 1
     end
 
+    test "#349 B：报名成功 → 截止已过 → 重放 → 幂等重放不报错（前置校验失败同权）" do
+      admin = Fixtures.platform_admin("s7-cre-349")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{})
+      learner = Fixtures.register_user("s7-cre-349-learner")
+      params = enrollment_params(workspace, "event", event.id)
+
+      assert {:reply, _, _} = first = CreateEnrollment.execute(params, frame_for(learner))
+      first_payload = decode_reply(first)
+      assert first_payload["idempotent_replay"] == false
+
+      # 关窗布置：registration_deadline 置于过去 → 重放的 eligible_target 前置
+      # 校验先报 target_not_open_or_registration_closed，到不了唯一索引
+      # （#349 B 的窄缺口场景：首次成功但响应丢失后关窗）。
+      event
+      |> Ash.Changeset.for_update(:update, %{
+        registration_deadline: EventFixtures.days_from_now(-1)
+      })
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      assert {:reply, _, _} = second = CreateEnrollment.execute(params, frame_for(learner))
+      second_payload = decode_reply(second)
+      assert second_payload["idempotent_replay"] == true
+      assert second_payload["enrollment"]["id"] == first_payload["enrollment"]["id"]
+      assert enrollment_count(:event, event.id, learner) == 1
+    end
+
     test "并发双建：双双成功同一 id，全系统恰好一条活跃报名（后到者走幂等重放）" do
       # 被测窗口 = 两个 create_enrollment 同时越过各自的读前检查、在 DB 撞
       # 部分唯一索引（unique_event_user）：DB 裁决恰一条提交，后到者

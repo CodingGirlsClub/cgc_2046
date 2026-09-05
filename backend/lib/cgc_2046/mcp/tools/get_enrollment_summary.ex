@@ -94,7 +94,7 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
       policy: to_string(offering.enrollment_policy),
       pricing: %{enabled: offering.pricing_enabled, tiers: tiers},
       would_create_status: would_create_status(offering),
-      my_enrollment: my_enrollment(actor, kind, offering.id)
+      my_enrollment: my_enrollment(actor, kind, offering.id, workspace_id)
     }
   end
 
@@ -131,8 +131,8 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
   defp would_create_status(%{enrollment_policy: :request}), do: "pending"
   defp would_create_status(%{enrollment_policy: :invite_only}), do: nil
 
-  defp my_enrollment(actor, kind, offering_id) do
-    case LearnerJourney.active_enrollment(actor, kind, offering_id) do
+  defp my_enrollment(actor, kind, offering_id, workspace_id) do
+    case LearnerJourney.active_enrollment(actor, kind, offering_id, workspace_id) do
       nil -> nil
       enrollment -> %{id: enrollment.id, status: to_string(enrollment.status)}
     end
