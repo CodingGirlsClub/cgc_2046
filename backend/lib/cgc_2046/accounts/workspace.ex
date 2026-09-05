@@ -2,7 +2,7 @@ defmodule Cgc2046.Accounts.Workspace do
   @moduledoc """
   全局工作台资源。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md ER §5.2）：
+  领域模型：
   - `slug`：全局唯一、用户可读标识（创建者提供，格式 `^[a-z0-9-]+$`）
   - `join_policy`：加入策略三态 `open`（公开直接加入）/ `request`（公开申请审批）/ `invite_only`（私密仅邀请），默认 `request`
   - `sponsorship_enabled`：是否开放赞助入口，默认开

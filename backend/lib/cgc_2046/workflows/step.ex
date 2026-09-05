@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.Step do
   @moduledoc """
   Workflow 步骤资源（Slice C #34/#36）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：Step 是独立资源（ER 有 STEP 实体 + FK），
+  领域模型：Step 是独立资源（ER 有 STEP 实体 + FK），
   非 node_def 内嵌——这样 StepRole 通过 step_id 直接关联，#38 授权查询高效。
 
   ## 四分类（#36，领域模型定稿 §4.3）
