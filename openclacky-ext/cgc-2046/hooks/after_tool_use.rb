@@ -40,6 +40,18 @@ module Cgc2046HookUse
     (result[:result] || result["result"]).to_s
   end
 
+  # 草稿保存判定:任务描述或 subagent summary 提到 save_course_content
+  # (注入指令模板保证 task 携带该工具名;summary 命中是兜底)
+  DRAFT_SAVED_PATTERN = /save_course_content/
+
+  # @param call [Hash] invoke_skill 调用
+  # @param result [Object] invoke_skill 返回
+  # @return [Boolean] 是否发生了教研草稿保存
+  def self.draft_saved?(call, result)
+    task = call.dig(:arguments, "task") || call.dig(:arguments, :task) || ""
+    task.to_s.match?(DRAFT_SAVED_PATTERN) || summary(result).match?(DRAFT_SAVED_PATTERN)
+  end
+
   # @param text [String] summary 全文
   # @return [String, nil] 错误片段（匹配处前后 120 字符，抹凭证；无命中 nil）
   def self.error_snippet(text)
@@ -74,6 +86,17 @@ Clacky::ExtensionHookRegistry.add do |call, result, agent|
       persist: false,
       tool: skill,
       error: snippet
+    )
+  end
+
+  # P1 AI 辅助教研:草稿保存信号——invoke_skill 的 task 或 subagent summary 特征
+  # 命中 save_course_content 即推 draft_saved(纯信号不带内容;教研侧边栏收到后
+  # 自行经 loopback 拉最新草稿,推拉结合)
+  if ok && Cgc2046HookUse.draft_saved?(call, result)
+    agent&.emit_event(
+      "ext.cgc-2046.draft_saved",
+      persist: false,
+      tool: skill
     )
   end
 end

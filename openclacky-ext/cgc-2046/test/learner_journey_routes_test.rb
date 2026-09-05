@@ -534,15 +534,30 @@ class LearnerJourneyRoutesTest < Minitest::Test
     assert_equal [["cgc-2046", "start_learning_run", { "workspace_id" => WS, "course_id" => OFF }]], registry.calls
   end
 
-  def test_revision_route_transfers_course_id
+  # 实证合同(UAT 真机 -32602):上游 get_course_revision 必填 workspace_id,
+  # 路由层缺参 400(不下发 registry),带参原样透传
+  def test_revision_route_transfers_course_and_workspace
     registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(REVISION_PAYLOAD) }] })
 
-    halt = invoke(:get, "/courses/:course_id/revision", build(registry: registry, params: { course_id: OFF }))
+    halt = invoke(:get, "/courses/:course_id/revision",
+                  build(registry: registry, params: { course_id: OFF }, query: { "workspace_id" => WS }))
 
     assert_equal 200, halt.status
     body = JSON.parse(halt.payload)
     assert_equal "get_course_revision", body["tool"]
     assert_equal REVISION_PAYLOAD, body["result"]
+    assert_equal [["cgc-2046", "get_course_revision", { "course_id" => OFF, "workspace_id" => WS }]],
+                 registry.calls
+  end
+
+  def test_revision_route_missing_workspace_id_400
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/courses/:course_id/revision", build(registry: registry, params: { course_id: OFF }))
+
+    assert_equal 400, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
+    assert_empty registry.calls, "缺参不得下发 registry"
   end
 
   def test_retired_record_routes_not_registered
@@ -619,6 +634,9 @@ end
 class PanelCsrfSelfHealTest < Minitest::Test
   DISCOVERY_VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+  TEACH_VIEW = File.read(File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__))
+  # S4:workspace 面板已删,disconnect 职责迁入 cgc-home hub 面板
+  HOME_VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
   HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
   COURSE_VIEW_PATH = File.expand_path("../panels/cgc-course/view.js", __dir__)
 
@@ -630,9 +648,18 @@ class PanelCsrfSelfHealTest < Minitest::Test
   end
 
   def test_course_api_post_retries_once_on_csrf_403
-    assert_includes COURSE_VIEW, "async function refreshCsrf()"
-    assert_includes COURSE_VIEW, 'res.status === 403 && (await refreshCsrf())'
-    refute_includes COURSE_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+    # 教研拆出后,course 写端点(apiPost)在 teach 面板;学习中心无写面
+    assert_includes TEACH_VIEW, "async function refreshCsrf()"
+    assert_includes TEACH_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes TEACH_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+    # 学习中心无写请求
+    refute_includes COURSE_VIEW, "apiPost"
+  end
+  # workspace 面板 disconnect（DELETE）与 POST 写路由同规：带 token + 403 自愈一次
+  def test_workspace_api_delete_retries_once_on_csrf_403
+    assert_includes HOME_VIEW, "async function refreshCsrf()"
+    assert_includes HOME_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes HOME_VIEW, "refreshCsrf())) && (await refreshCsrf()"
   end
 
   # advisor R3:harness 的 csrf_retry_self_heal 场景已删除——该场景在
@@ -652,16 +679,15 @@ class CoursePanelBehaviorTest < Minitest::Test
 
   def test_zero_member_confirmed_enrollment_lists_course
     # AE8/R35 行为证据(非字符串扫描):零成员身份(/me/workspaces 返回空)下
-    # /me/enrollments 仍无条件拉取,confirmed 公开课报名出现在可学习列表,
-    # 行携带报名 workspace 作用域(data-ws),pending 报名入「报名进行中」区,
+    # /me/enrollments 仍无条件拉取,confirmed 公开课报名进入学习中心
+    # (课程 select 可见),三源数据(learning/content/revision)并行拉取,
     # 无 workspace gate 阻断。
     out, status = Open3.capture2e("node", HARNESS, VIEW, "zero_member_confirmed")
     assert status.success?, "harness 失败: #{out}"
     assert_includes out, "OK zero_member_confirmed"
     assert_includes out, '"enrollments_fetched_without_membership":true'
     assert_includes out, '"confirmed_course_visible":true'
-    assert_includes out, '"row_carries_enrollment_workspace_scope":true'
-    assert_includes out, '"in_flight_section_rendered":true'
+    assert_includes out, '"learning_center_boot":true'
     assert_includes out, '"no_workspace_gate_blocking_list":true'
   end
 end
@@ -706,6 +732,23 @@ class CsrfGuardTest < Minitest::Test
   def test_cross_origin_get_403_zero_registry_calls
     inst, reg = with_fake_server(header: EVIL)
     halt = invoke(:get, "/discover", inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    assert_empty reg.calls
+  end
+  # learning_state / revision 曾漏挂 guard_origin!（相对「全部路由收口」声明的
+  # 回归钉子）：跨源 → 403，零 registry 调用
+  def test_cross_origin_learning_state_403_zero_registry_calls
+    inst, reg = with_fake_server(header: EVIL)
+    halt = invoke(:get, "/learning_state", inst)
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    assert_empty reg.calls
+  end
+
+  def test_cross_origin_course_revision_403_zero_registry_calls
+    inst, reg = with_fake_server(header: EVIL)
+    halt = invoke(:get, "/courses/:course_id/revision", inst)
     assert_equal 403, halt.status
     assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
     assert_empty reg.calls
@@ -928,42 +971,24 @@ class CoursePanelEnrollmentListTest < Minitest::Test
     assert_includes VIEW, 'e.kind === "course"'
     assert_includes VIEW, 'e.status === "confirmed"'
     refute_includes VIEW, "records.length"
-    assert_includes VIEW, 'data-testid="panel-course"'
     assert_includes VIEW, "offering.title"
   end
 
-  def test_in_flight_section_and_workspace_grouping
-    # pending/payment_pending → 报名进行中区(状态徽章,无学习入口);
-    # confirmed 按 workspace 分组(跨 workspace 报名)
-    assert_includes VIEW, 'e.status === "pending" || e.status === "payment_pending"'
-    assert_includes VIEW, "报名进行中"
-    assert_includes VIEW, 'data-testid="panel-inflight"'
-    assert_includes VIEW, "待审批"
-    assert_includes VIEW, "待支付"
-    assert_includes VIEW, 'data-testid="panel-course-group"'
-    assert_includes VIEW, "workspaceName"
-  end
-
-  def test_open_course_switches_workspace_context
-    # 报名跨 workspace:行携带 data-ws,打开时详情读面切到该 workspace
-    assert_includes VIEW, 'data-ws='
-    assert_includes VIEW, "openCourse(courseId, workspaceId)"
-    assert_includes VIEW, 'el.getAttribute("data-ws")'
+  def test_learning_center_select_and_outline
+    # 学习中心:课程切换 select + 大纲树;跨 workspace 报名经 workspaceId 参数
+    assert_includes VIEW, 'data-testid="panel-course-select"'
+    assert_includes VIEW, 'data-testid="panel-outline-tree"'
+    assert_includes VIEW, "workspaceId"
   end
 
   def test_detail_reads_objective_grain
-    # S8:详情切 /learning_state(objective 口径)+ /revision 展示增强;
-    # records 读面整体移除
+    # S8:详情主数据源 /learning_state(objective 口径)+ /content(材料/rubric)
+    # + /revision(大纲分组);records 读面整体移除
     assert_includes VIEW, '"/learning_state?workspace_id="'
     assert_includes VIEW, '"/revision"'
-        assert_includes VIEW, 'data-testid="panel-obj-row"'
-    assert_includes VIEW, 'data-testid="panel-obj-locked"'
-    assert_includes VIEW, 'data-testid="panel-next-action"'
-    assert_includes VIEW, 'data-testid="panel-progress"'
-    assert_includes VIEW, 'data-testid="panel-stale"'
-    assert_includes VIEW, 'data-testid="panel-cta"'
+    assert_includes VIEW, '"/content"'
     assert_includes VIEW, "learningSignature"
-    assert_includes VIEW, "apiPost(\"/learning/start\""
+    assert_includes VIEW, "goLearnObjective"
     refute_includes VIEW, '"/records"'
   end
 end

@@ -21,7 +21,7 @@ defmodule Cgc2046.Mcp.Tools.ApproveJoinRequest do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:join_request_id, {:required, :string}, description: "待批准的加入申请 ID（UUID）")
 
-    field(:role_names, {:array, :string},
+    field(:role_names, {:list, :string},
       description: "批准时授予的角色（可多个，仅 tutor|volunteer|learner；缺省 [] = 无标签入座，Owner 可事后 assign_roles）"
     )
   end
