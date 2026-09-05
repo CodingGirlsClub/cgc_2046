@@ -124,6 +124,15 @@ function mutationError(errors: Array<{ message?: string | null; code?: string | 
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
 
+/** 登录已失效：曾有 token 但会话降级（#355 P0-2）。getEnrollments/getMyOrders
+ * 以此拒绝代替静默 []，页面据「从未报名」与「掉线」两种空态分叉渲染。 */
+export class SessionExpiredError extends Error {
+  constructor(message = '登录已过期，请重新登录') {
+    super(message)
+    this.name = 'SessionExpiredError'
+  }
+}
+
 
 export class RealMiniProgramApi implements MiniProgramApi {
   async getCatalog(): Promise<CatalogItem[]> {
@@ -158,15 +167,19 @@ export class RealMiniProgramApi implements MiniProgramApi {
       // (模拟器残留坏 token → Forbidden → 发现页 Promise.all 全挂的真机事故)。
       // 认证错误 client.ts 已清 token;服务端返回非认证 errors(如 forbidden)
       // → token 可疑,清掉防反复炸;纯网络失败(未到达服务端)→ 保留 token。
+      const serverError = error instanceof GraphQLRequestError && error.errors.length > 0
       if (!isAuthenticationError(error)) {
-        if (error instanceof GraphQLRequestError && error.errors.length > 0) {
-          clearExpiredAuthentication()
-        } else {
+        if (serverError) clearExpiredAuthentication()
+        else {
           clearWorkspaceTab()
           clearAccountState()
         }
       }
-      return { user: null, workspaces: [], approvals: [] }
+      // 掉线标记（#355 P0-2）：此 catch 只在「曾有 token」时进入（fetchSession
+      // 无 token 早退）；auth/服务端错误已清 token = 登录失效。网络瞬态失败
+      // （token 保留）不算掉线，下次加载自愈。
+      const authExpired = isAuthenticationError(error) || serverError
+      return { user: null, workspaces: [], approvals: [], authExpired }
     }
   }
 
@@ -176,7 +189,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       clearWorkspaceTab()
       // 保留 pending scene（clearPendingScene 默认 false），扫码→登录交接继续
       clearAccountState()
-      return { user: null, workspaces: [], approvals: [] }
+      return { user: null, workspaces: [], approvals: [], authExpired: false }
     }
     const data: SessionQuery = await graphqlRequest<SessionQuery, SessionQueryVariables>(
       SessionQueryDocument,
@@ -197,6 +210,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
       workspaceId: approval.workspaceId,
       workspaceName: names.get(approval.workspaceId) ?? '工作台',
       targetId: approval.eventId ?? approval.courseId,
+      requesterName: approval.requesterName ?? '未知用户',
+      contextTitle: approval.contextTitle ?? null,
+      tierName: approval.tierName ?? null,
+      amount: approval.amount ?? null,
       status: approval.status,
       approvalDeadline: approval.approvalDeadline
     }))
@@ -212,7 +229,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
           }
         : null,
       workspaces,
-      approvals
+      approvals,
+      authExpired: false
     }
   }
 
@@ -269,7 +287,11 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   async getEnrollments(): Promise<EnrollmentSummary[]> {
     const session = await this.getSession()
-    if (!session.user) return []
+    if (!session.user) {
+      // 掉线 ≠ 没有报名：拒绝而非静默 []，页面渲染「登录已过期」重登空态
+      if (session.authExpired) throw new SessionExpiredError()
+      return []
+    }
     const data = await graphqlRequest<MyEnrollmentsQuery, MyEnrollmentsQueryVariables>(
       MyEnrollmentsQueryDocument,
       { userId: session.user.id, first: 100 }
@@ -450,7 +472,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   async getMyOrders(): Promise<OrderSummary[]> {
     const session = await this.getSession()
-    if (!session.user) return []
+    if (!session.user) {
+      if (session.authExpired) throw new SessionExpiredError()
+      return []
+    }
     const data = await graphqlRequest<MyOrdersQuery, MyOrdersQueryVariables>(
       MyOrdersQueryDocument,
       {}
