@@ -82,4 +82,45 @@ defmodule Cgc2046.Integrations.Wechat.ClientGateTest do
       assert {:ok, %{openid: "tt-gate-openid"}} = Client.code2session(:tt, "gate-code")
     end
   end
+
+  describe "code2session 异常响应形状（#99 真机:微信边缘错误返回非 JSON）" do
+    test "text/plain 包裹的合法 JSON(微信怪癖)→ 手动解码,登录成功" do
+      Application.put_env(:cgc_2046, :miniprogram_platforms, %{
+        wechat: %{appid: "wx-gate-appid", secret: "wx-gate-secret"}
+      })
+
+      # 绕过 Fixtures.stub_code2session(其固定 JSON content-type)——模拟真机
+      # 实证:jscode2session 成功响应 content-type=text/plain(#99)。
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        Req.Test.text(conn, ~s({"session_key":"k","openid":"wx-plain-openid"}))
+      end)
+
+      assert {:ok, %{openid: "wx-plain-openid", session_key: "k"}} =
+               Client.code2session(:wechat, "c")
+    end
+
+    test "text/plain 非 JSON 错误页 → :code2session_bad_response,不 crash" do
+      Application.put_env(:cgc_2046, :miniprogram_platforms, %{
+        wechat: %{appid: "wx-gate-appid", secret: "wx-gate-secret"}
+      })
+
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        Req.Test.text(conn, "System Error, please try again later")
+      end)
+
+      assert {:error, :code2session_bad_response} = Client.code2session(:wechat, "c")
+    end
+
+    test "未知 JSON 形状(无 openid/errcode 键)→ :code2session_bad_response,不 crash" do
+      Application.put_env(:cgc_2046, :miniprogram_platforms, %{
+        wechat: %{appid: "wx-gate-appid", secret: "wx-gate-secret"}
+      })
+
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        Req.Test.json(conn, %{"unexpected" => "shape"})
+      end)
+
+      assert {:error, :code2session_bad_response} = Client.code2session(:wechat, "c")
+    end
+  end
 end

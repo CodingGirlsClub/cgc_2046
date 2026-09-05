@@ -52,7 +52,7 @@ export default function EventDetailPage() {
   }
 
   useShareAppMessage(() => ({
-    title: item?.title ?? 'CGC · 精选活动',
+    title: item?.title ?? '程序媛汇 · 精选活动',
     path: `/pages/event-detail/index?id=${id}&kind=${kind}`
   }))
 

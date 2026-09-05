@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: space-around;
   background: rgba(255, 255, 255, 0.98);
-  border-top: 1rpx solid #eaecf0;
+  border-top: 1rpx solid #e4e4e7;
 }
 
 .item {
@@ -18,11 +18,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  color: #98a2b3;
+  color: #8a8f98;
 }
 
 .selected {
-  color: #5e6ad2;
+  color: #ea5504;
 }
 
 .icon {

@@ -39,15 +39,18 @@ const fullTabList = [
 
 export default defineAppConfig({
   pages: isCut ? cutPages : fullPages,
+  // 按需注入：启动只注入首页及所需组件代码（微信官方启动性能建议，
+  // devtools 「lazyCodeLoading is not turned on」提示即此）
+  lazyCodeLoading: 'requiredComponents',
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
-    navigationBarTitleText: 'CGC',
+    navigationBarTitleText: '程序媛汇',
     navigationBarTextStyle: 'black'
   },
   tabBar: {
     color: '#7a7e83',
-    selectedColor: '#07c160',
+    selectedColor: '#ea5504',
     backgroundColor: '#ffffff',
     borderStyle: 'black',
     list: isCut ? cutTabList : fullTabList
