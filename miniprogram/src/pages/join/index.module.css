@@ -1,8 +1,8 @@
-.page { min-height: 100vh; padding: 90rpx 40rpx 48rpx; box-sizing: border-box; background: #fff; text-align: center; }
+.page { min-height: 100vh; padding: 90rpx 40rpx 48rpx; box-sizing: border-box; background: #f7f7f7; text-align: center; }
 .icon { width: 110rpx; height: 110rpx; margin: 0 auto; display: flex; align-items: center; justify-content: center; color: #ea5504; background: #fdeadf; border-radius: 28rpx; font-size: 54rpx; }
 .title { display: block; margin-top: 32rpx; font-size: 43rpx; font-weight: 700; }
 .subtitle { display: block; margin-top: 15rpx; color: #4b4d54; font-size: 24rpx; line-height: 1.6; }
-.card { margin-top: 42rpx; padding: 26rpx; text-align: left; background: #f4f5f8; border-radius: 20rpx; }
+.card { margin-top: 42rpx; padding: 26rpx; text-align: left; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); border-radius: 20rpx; }
 .label { display: block; color: #4b4d54; font-size: 24rpx; }
 .input { margin-top: 12rpx; padding: 18rpx; background: #fff; border: 1rpx solid #e4e4e7; border-radius: 14rpx; font-size: 26rpx; }
 .error { display: block; margin-top: 20rpx; color: #eb5757; font-size: 23rpx; }

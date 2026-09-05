@@ -1,4 +1,4 @@
-.page { min-height: 100vh; }
+.page { min-height: 100vh; background: #f7f7f7; }
 .scroll { height: 100vh; padding-bottom: 150rpx; box-sizing: border-box; }
 .header { padding: 48rpx 32rpx 30rpx; background: #fff; }
 .eyebrow { display: block; color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
@@ -8,14 +8,14 @@
 .loggedOutTitle { display: block; margin-top: 80rpx; font-size: 34rpx; font-weight: 650; }
 .loggedOutText { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 24rpx; }
 .primaryButton { margin-top: 34rpx; color: #fff; background: #ea5504; border-radius: 18rpx; }
-.userCard { padding: 26rpx; display: flex; align-items: center; background: #222326; color: #fff; border-radius: 22rpx; }
-.avatar { width: 82rpx; height: 82rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #ea5504; border-radius: 50%; font-size: 32rpx; font-weight: 700; }
+.userCard { padding: 26rpx; display: flex; align-items: center; background: linear-gradient(135deg, #ea5504, #f26a1f); color: #fff; border-radius: 22rpx; box-shadow: 0 12rpx 32rpx rgba(234, 85, 4, .25); }
+.avatar { width: 82rpx; height: 82rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #ea5504; background: #fff; border-radius: 50%; font-size: 32rpx; font-weight: 700; }
 .userMain { flex: 1; margin-left: 20rpx; }
 .userName { display: block; font-size: 31rpx; font-weight: 600; }
 .userMeta { display: block; margin-top: 5rpx; color: #e4e4e7; font-size: 21rpx; }
 .logout { margin: 0; color: #fff; background: rgba(255,255,255,.12); border-radius: 24rpx; font-size: 20rpx; }
 .sectionTitle { display: block; margin: 34rpx 0 16rpx; font-size: 30rpx; font-weight: 650; }
-.panel { padding: 24rpx; background: #fff; border-radius: 20rpx; }
+.panel { padding: 24rpx; background: #fff; border-radius: 20rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
 .notification { padding: 18rpx 0; display: flex; border-bottom: 1rpx solid #e4e4e7; }
 .notification:last-child { border-bottom: 0; }
 .dot { width: 12rpx; height: 12rpx; margin: 12rpx 16rpx 0 0; flex-shrink: 0; background: #ea5504; border-radius: 50%; }
