@@ -286,6 +286,9 @@ export class RealMiniProgramApi implements MiniProgramApi {
     const input: CreateEnrollmentMutationVariables['input'] = {
       userId: session.user.id,
       inviteCode: form.inviteCode || undefined,
+      // 收费必传档(后端校验「收费项请先选择价格档位」)——此前漏传,
+      // 免费活动测试从未暴露。
+      tierId: form.tierId || undefined,
       ...(form.target.kind === 'event'
         ? { eventId: form.target.id }
         : { courseId: form.target.id })
