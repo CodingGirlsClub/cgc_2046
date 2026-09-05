@@ -387,7 +387,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
   - `{:ok, membership}` — 入座成功（或幂等成功时为已有的 membership）
   - `{:error, error}` — existing 守卫 / unique→业务错误 / 真 DB 故障 / MembershipRole 创建失败
   """
-  @spec admit_member(String.t(), String.t(), [atom], keyword) ::
+  @spec admit_member(String.t(), String.t(), [atom | String.t()], keyword) ::
           {:ok, WorkspaceMembership.t()} | {:error, term}
   def admit_member(user_id, workspace_id, role_names, opts \\ []) do
     on_conflict = Keyword.get(opts, :on_conflict, :business_error)
@@ -456,11 +456,13 @@ defmodule Cgc2046.Accounts.MembershipContext do
   end
 
   # 按角色名入座 MembershipRole：reduce_while 短路，任一创建失败返回 {:error, _}。
-  # 角色名在租户内找不到对应 role record → 跳过该角色（与三处原 reduce_while 行为一致，
-  # 容错预授权/审批传入了租户内不存在的角色名）。
+  # 比较口径双向归一为字符串（Role.name 是 :atom 闭集，调用方可传 atom 或 string，
+  # 见 admit_member @spec）——直接 == 比较会让字符串角色名永不命中（#356）。
+  # 角色名在租户内找不到对应 role record → 跳过该角色并 Logger.warning（容错
+  # 预授权/审批传入了租户内不存在的角色名，保留容错语义但可观测，不再静默）。
   defp seat_roles(membership, role_names, roles, workspace_id) do
     Enum.reduce_while(role_names, {:ok, membership}, fn role_name, _acc ->
-      role = Enum.find(roles, &(&1.name == role_name))
+      role = Enum.find(roles, &(to_string(&1.name) == to_string(role_name)))
 
       if role do
         # actor 省略理由同 create_membership_and_roles（authorize?: false，create action 无 actor 依赖）
@@ -474,6 +476,12 @@ defmodule Cgc2046.Accounts.MembershipContext do
           {:error, error} -> {:halt, {:error, error}}
         end
       else
+        Logger.warning(
+          "[MembershipContext] seat_roles skipped unmatched role name " <>
+            "(workspace_id=#{workspace_id}, membership_id=#{membership.id}, " <>
+            "role_name=#{inspect(role_name)})"
+        )
+
         {:cont, {:ok, membership}}
       end
     end)
