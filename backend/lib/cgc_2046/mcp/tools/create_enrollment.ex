@@ -94,7 +94,7 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
   # offering, workspace) 四元组；未命中 → 原样透传域错误（content_rejected /
   # invite_code_required 等）。
   defp handle_create_error(error, actor, workspace_id, kind, offering_id) do
-    case LearnerJourney.active_enrollment(actor, kind, offering_id, workspace_id) do
+    case Enrollment.active_enrollment(actor, kind, offering_id, workspace_id) do
       nil -> domain_error(error, workspace_id)
       enrollment -> {:ok, to_payload(enrollment, kind, true)}
     end

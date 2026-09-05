@@ -51,6 +51,12 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       venue
       enrollmentBadge
     }
+    # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
+    myEnrollment(kind: "event", offeringId: $id) {
+      id
+      status
+      approvalDeadline
+    }
   }
 `
 
@@ -67,6 +73,12 @@ export const CourseDetailQueryDocument = /* GraphQL */ `
       startsAt
       endsAt
       enrollmentBadge
+    }
+    # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
+    myEnrollment(kind: "course", offeringId: $id) {
+      id
+      status
+      approvalDeadline
     }
   }
 `
@@ -108,6 +120,29 @@ export const SessionQueryDocument = /* GraphQL */ `
 export const MyEnrollmentsQueryDocument = /* GraphQL */ `
   query MyEnrollments($userId: ID!, $first: Int) {
     enrollments(first: $first, filter: { userId: { eq: $userId } }) {
+      results {
+        id
+        workspaceId
+        eventId
+        courseId
+        userId
+        status
+        targetTitle
+        approvalDeadline
+        rejectionReason
+        approvedAt
+        expiredAt
+        cancelledAt
+      }
+    }
+  }
+`
+
+// #355 P1-4：结果页按 id 回查单条报名（服务端过滤；enrollments read policy
+// 本人锚定，未登录 → forbidden 由调用方降级处理）
+export const EnrollmentQueryDocument = /* GraphQL */ `
+  query Enrollment($id: ID!) {
+    enrollments(first: 1, filter: { id: { eq: $id } }) {
       results {
         id
         workspaceId
