@@ -79,7 +79,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
       {:wechat, "approval_result", "pages/my-enrollments/index"},
       {:wechat, "payment_succeeded", "pages/my-enrollments/index"},
       {:wechat, "approval_reminder", "pages/workspace/index"},
-      {:wechat, "speaker_accepted", "pages/profile/index"},
+      {:wechat, "speaker_accepted", "pages/workspace/index"},
       {:tt, "approval_result", "pages/my-enrollments/index"},
       {:tt, "approval_reminder", "pages/my-enrollments/index"},
       {:xhs, "enrollment_completed", "pages/my-enrollments/index"}
