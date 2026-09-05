@@ -80,7 +80,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/tasks"]
     assert_includes routes, [:post, "/courses/:course_id/content"]
     assert_includes routes, [:get, "/courses/:course_id/prep"]
-    assert_equal 20, Cgc2046Ext.routes.size
+    assert_equal 22, Cgc2046Ext.routes.size  # +/activity +/workspace/courses
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
@@ -363,6 +363,39 @@ class HandlerRequestTest < Minitest::Test
       assert_equal 0, registry.reload_count, "no-op 时不得 reload"
     end
   end
+  # DELETE 同为写端点（advisor F2 收口）：缺 CSRF token → 403，零写盘零 reload
+  def test_disconnect_requires_csrf_token
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:delete, "/connect",
+                    build(registry: registry, header: { "Content-Type" => "application/json" }))
+
+      assert_equal 403, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "CSRF"
+      assert_empty persisted, "guard 拒绝时不得写盘"
+      assert_equal 0, registry.reload_count, "guard 拒绝时不得 reload"
+    end
+  end
+
+  # 跨源 DELETE（preflight 可借宿主全开 CORS 通过）→ 403，零写盘零 reload
+  def test_disconnect_cross_origin_403
+    old = JSON.generate("mcpServers" => { "cgc-2046" => { "type" => "http", "url" => URL } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:delete, "/connect",
+                    build(registry: registry,
+                          header: write_headers.merge("Origin" => "https://evil.example",
+                                                      "Host" => "127.0.0.1:7070")))
+
+      assert_equal 403, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+      assert_empty persisted
+      assert_equal 0, registry.reload_count
+    end
+  end
 
   def test_disconnect_reload_failure_rolls_back_and_reloads_again
     old = JSON.generate("mcpServers" => { "cgc-2046" => {
@@ -386,6 +419,22 @@ class HandlerRequestTest < Minitest::Test
   end
 
   # ---- skills/sync（D11 留位）----
+
+  # 真机回归:WEBrick header 未发送键 = 空数组(truthy),request_header 须剔除
+  # 空数组再取候选,否则 Content-Type/CSRF 永远读不到(全部写请求 415/403)
+  def test_write_headers_read_through_webrick_empty_array_shape
+    header = {
+      "Content-Type" => [],
+      "content-type" => ["application/json"],
+      "X-CGC-CSRF-Token" => [],
+      "x-cgc-csrf-token" => [Cgc2046Ext.csrf_token]
+    }
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, FakeReq.new("{}", {}, header))
+
+    halt = invoke(:post, "/skills/sync", inst)
+    assert_equal 501, halt.status, "通过 guard(415/403 之外的错误码即 guard 放行)"
+  end
 
   def test_skills_sync_501
     halt = invoke(:post, "/skills/sync", build(body: "{}"))

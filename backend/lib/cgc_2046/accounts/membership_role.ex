@@ -65,9 +65,14 @@ defmodule Cgc2046.Accounts.MembershipRole do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
-    # 读取：仅该 membership 所属用户本人可读（或平台管理员）
+    # 读取：membership 所属用户本人、该工作台 Owner/Admin（管理面）、平台管理员
     policy action_type(:read) do
       authorize_if(expr(membership.user_id == ^actor(:id)))
+      # 管理面：该工作台 Owner/Admin 可读全部成员的角色关联——
+      # 与 WorkspaceMembership read policy「Owner/Admin 见全部成员」对齐
+      # （能看全部成员却看不见其角色是 policy 面自相矛盾）。FilterCheck
+      # 编译进 lateral join，修复 list_members load(:roles) 他人角色滤空。
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesMembershipRoleWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end

@@ -4,6 +4,7 @@ defmodule Cgc2046.Accounts.InvitationTest do
   alias Cgc2046.Accounts.Invitation
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.EventsFixtures
 
   defp create_invitation(workspace, inviter, attrs \\ %{}) do
     changes =
@@ -844,5 +845,165 @@ defmodule Cgc2046.Accounts.InvitationTest do
 
       assert revoked.status == :revoked
     end
+  end
+
+  describe "create invitation with prep courses（邀请即完整意图）" do
+    test "prep_course_ids without tutor preauthorization is rejected" do
+      admin = Fixtures.platform_admin("inv-prep")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventsFixtures.create_course(workspace, admin)
+
+      assert {:error, %Ash.Error.Invalid{} = error} =
+               Invitation
+               |> Ash.Changeset.for_create(:create, %{
+                 workspace_id: workspace.id,
+                 inviter_id: admin.id,
+                 target_email: "t@example.com",
+                 preauthorized_role_names: [:learner],
+                 prep_course_ids: [course.id]
+               })
+               |> Ash.create(actor: admin)
+
+      assert error.errors |> Enum.any?(&(&1.field == :prep_course_ids))
+    end
+
+    test "prep_course_ids with cross-workspace course is rejected" do
+      admin = Fixtures.platform_admin("inv-prep")
+      workspace = Fixtures.create_workspace(admin)
+      other_admin = Fixtures.platform_admin("inv-prep-other")
+      other_workspace = Fixtures.create_workspace(other_admin)
+      other_course = EventsFixtures.create_course(other_workspace, other_admin)
+
+      assert {:error, %Ash.Error.Invalid{} = error} =
+               Invitation
+               |> Ash.Changeset.for_create(:create, %{
+                 workspace_id: workspace.id,
+                 inviter_id: admin.id,
+                 target_email: "t@example.com",
+                 preauthorized_role_names: [:tutor],
+                 prep_course_ids: [other_course.id]
+               })
+               |> Ash.create(actor: admin)
+
+      assert error.errors |> Enum.any?(&(&1.field == :prep_course_ids))
+    end
+
+    test "accept auto-assigns prep tutor to bound courses" do
+      admin = Fixtures.platform_admin("inv-prep")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventsFixtures.create_course(workspace, admin)
+      run = create_prep_run(workspace, course)
+
+      invitation =
+        create_invitation(workspace, admin, %{
+          target_email: "kevin@example.com",
+          preauthorized_role_names: [:tutor],
+          prep_course_ids: [course.id]
+        })
+
+      acceptor = Fixtures.register_user("inv-prep-accept")
+
+      assert {:ok, accepted} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
+               |> Ash.update(actor: acceptor)
+
+      assert accepted.status == :used
+
+      # 入座 + tutor 角色
+      membership =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.read!(tenant: workspace.id, actor: admin)
+        |> Enum.find(&(&1.user_id == acceptor.id))
+
+      loaded = Ash.load!(membership, :roles, tenant: workspace.id, authorize?: false)
+      assert Enum.any?(loaded.roles, &(&1.name == :tutor))
+
+      # 自动指派教研：assignee = 接受人，draft → authoring
+      updated_run = Cgc2046.Curriculum.Prep.fetch_run(course.id, workspace.id)
+      assert updated_run.id == run.id
+      assert Cgc2046.Curriculum.Prep.assignee(updated_run) == acceptor.id
+      assert Cgc2046.Curriculum.Prep.prep_state(updated_run) == "authoring"
+    end
+
+    test "accept skips bound course without active prep run (best-effort)" do
+      admin = Fixtures.platform_admin("inv-prep")
+      workspace = Fixtures.create_workspace(admin)
+      # 课程存在但无 prep run（异步实例化未发生/已终结）
+      course = EventsFixtures.create_course(workspace, admin)
+
+      invitation =
+        create_invitation(workspace, admin, %{
+          target_email: "t@example.com",
+          preauthorized_role_names: [:tutor],
+          prep_course_ids: [course.id]
+        })
+
+      acceptor = Fixtures.register_user("inv-prep-skip")
+
+      # accept 仍然成功——入座已成事实，课程问题不阻断
+      assert {:ok, accepted} =
+               invitation
+               |> Ash.Changeset.for_update(:accept, %{
+                 token: invitation.__metadata__[:plain_token]
+               })
+               |> Ash.update(actor: acceptor)
+
+      assert accepted.status == :used
+
+      membership =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.read!(tenant: workspace.id, actor: admin)
+        |> Enum.find(&(&1.user_id == acceptor.id))
+
+      assert membership != nil
+    end
+  end
+
+  # 构造 course_preparation run（对齐 PrepInstantiator 实例 key 与类型）
+  defp create_prep_run(workspace, course) do
+    alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
+
+    {:ok, defn} =
+      WorkflowDefinition
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "course_preparation #{Ecto.UUID.generate()}",
+          type: :course_preparation,
+          input_schema: %{},
+          node_def: %{"steps" => [%{"id" => "produce_issue_deck", "type" => "manual"}]}
+        },
+        tenant: workspace.id,
+        actor: nil
+      )
+      |> Ash.create(tenant: workspace.id, authorize?: false)
+
+    {:ok, published} =
+      defn
+      |> Ash.Changeset.for_update(:publish, %{}, actor: nil)
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    WorkflowRun
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        definition_id: published.id,
+        definition_version: published.version,
+        input_snapshot: %{
+          "key" => "course_prep_#{course.id}",
+          "course_id" => course.id
+        }
+      },
+      tenant: workspace.id,
+      authorize?: false
+    )
+    |> Ash.create!(tenant: workspace.id, authorize?: false)
+    |> Ash.Changeset.for_update(:start, %{}, tenant: workspace.id, authorize?: false)
+    |> Ash.update!(tenant: workspace.id, authorize?: false)
   end
 end

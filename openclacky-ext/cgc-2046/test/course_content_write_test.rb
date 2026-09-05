@@ -265,27 +265,33 @@ end
 # ---- 面板 view.js S4 静态断言(可测面;DOM 级留手动冒烟) ----
 
 class CoursePanelEditTest < Minitest::Test
-  VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+  # S2 教研拆出:编辑器整体迁移至 cgc-2046-curriculum 面板,锚随迁
+  VIEW = File.read(File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__))
+  COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
 
   def test_workspace_picker_replaces_uuid_input
     # S1 finding 收敛:按名选择器(数据源 /me/workspaces),用户永不手填 UUID
-    assert_includes VIEW, 'id="cgc-ws-switch"'
+    assert_includes VIEW, 'id="cgt-course"'
     assert_includes VIEW, "/me/workspaces"
     refute_includes VIEW, "cgc-ws-input"
   end
 
   def test_edit_toggle_gated_by_roles
-    # 教研侧角色门控:tutor|owner|admin 才出现编辑入口
-    assert_includes VIEW, 'data-testid="panel-edit-toggle"'
+    # 教研权限按课程归属工作台判定(跨台角色:编辑入口随所选课程显隐);
+    # 无权限卡仅在用户任何台都没有教研角色时出现
+    assert_includes VIEW, 'data-testid="prep-edit-toggle"'
     assert_includes VIEW, "编辑内容"
-    assert_includes VIEW, "canEdit"
+    assert_includes VIEW, "canEditCourse"
+    assert_includes VIEW, "hasAnyEditRole"
     assert_includes VIEW, '"tutor"'
-    assert_includes VIEW, '"owner"'
-    assert_includes VIEW, '"admin"'
+    assert_includes VIEW, 'EDIT_ROLES = ["tutor"]'
+    assert_includes VIEW, "教研工作台仅对 tutor 开放。"
+    assert_includes VIEW, "无教研角色,只读"
+    assert_includes VIEW, "function scopeOf(courseId)"
   end
 
   def test_draft_version_badge
-    assert_includes VIEW, 'data-testid="panel-draft-version"'
+    assert_includes VIEW, 'data-testid="prep-draft-version"'
     assert_includes VIEW, "草稿 v"
     # 版本号来自 get_course_content 结果顶层 version(编辑基准 draftContent)
     assert_includes VIEW, "draftContent.version"
@@ -293,20 +299,25 @@ class CoursePanelEditTest < Minitest::Test
 
   def test_editor_shape_and_fields
     # v1 schema:goals 文本域 + issue 卡编辑器(kind/title/as_a/given/goal/materials/checklist)
-    assert_includes VIEW, 'data-testid="panel-editor"'
+    assert_includes VIEW, 'data-testid="curriculum-editor"'
     assert_includes VIEW, 'id="cgc-edit-goals"'
     assert_includes VIEW, 'data-f="kind"'
     assert_includes VIEW, "thoughtwork"
     assert_includes VIEW, "handwork"
     assert_includes VIEW, 'data-f="title"'
     assert_includes VIEW, 'data-f="as_a"'
-    assert_includes VIEW, 'data-f="given"'
     assert_includes VIEW, 'data-f="goal"'
-    assert_includes VIEW, 'data-f="materials"'
-    assert_includes VIEW, 'data-f="checklist"'
-    # 行内文档化的行格式
-    assert_includes VIEW, "标题 | 链接"
-    assert_includes VIEW, "id | 文本"
+    # #347:given/materials/checklist 结构化逐项输入,无分隔符行格式
+    assert_includes VIEW, 'data-f="given-item"'
+    assert_includes VIEW, 'data-f="m-title"'
+    assert_includes VIEW, 'data-f="m-ref"'
+    assert_includes VIEW, 'data-f="c-id"'
+    assert_includes VIEW, 'data-f="c-text"'
+    assert_includes VIEW, "data-add-given"
+    assert_includes VIEW, "data-remove-check"
+    # 行内文档化的逐项格式(不再是「标题 | 链接」分隔符约定)
+    assert_includes VIEW, "每条:标题 + 链接"
+    assert_includes VIEW, "每条:id + 验收文本"
     # 新 issue 稳定 id + 删除按钮
     assert_includes VIEW, '"issue-" + Date.now()'
     assert_includes VIEW, "data-remove-issue"
@@ -323,35 +334,71 @@ class CoursePanelEditTest < Minitest::Test
   def test_save_posts_with_base_version
     assert_includes VIEW, 'method: "POST"'
     assert_includes VIEW, "base_version: draftVersion()"
-    assert_includes VIEW, 'data-testid="panel-save"'
+    assert_includes VIEW, 'id="cgc-save"'
   end
 
   def test_conflict_banner_and_reload_on_409
     # AE2:409 → 红色横幅 + 丢弃本地编辑回只读视图
     assert_includes VIEW, "e.status === 409"
-    assert_includes VIEW, 'data-testid="panel-conflict"'
+    assert_includes VIEW, 'data-testid="prep-conflict"'
     assert_includes VIEW, "内容已被他人更新到更新版本,本地编辑已丢弃;请重新进入编辑,基于最新草稿修改"
   end
 
-  def test_polling_markers
-    # R11:10s 轮询 + 非侵入条 + 编辑态挂起 + 容器脱离自停
-    assert_includes VIEW, "setInterval"
-    assert_includes VIEW, "clearInterval"
-    assert_includes VIEW, "10000"
-    assert_includes VIEW, "state.editing || state.saving"
-    assert_includes VIEW, 'data-testid="panel-update-bar"'
-    assert_includes VIEW, "内容已更新"
-    assert_includes VIEW, 'data-testid="panel-list-update-bar"'
-    assert_includes VIEW, "课程列表已更新"
+  def test_prep_section_structure
+    # S5 教研流程状态区迁移自 course 面板(prep_state/策略/违规/质量报告;只读透传)
+    assert_includes VIEW, 'data-testid="prep-section"'
+    assert_includes VIEW, 'data-testid="prep-state"'
+    assert_includes VIEW, 'data-testid="prep-violations"'
+    assert_includes VIEW, 'data-testid="prep-quality"'
+    assert_includes VIEW, '"/prep"'
+    assert_includes VIEW, "state.prep = null"
   end
 
-  def test_existing_read_markers_kept
-    # S4 不破坏列表/详情/连接引导的既有 testid
-    assert_includes VIEW, 'data-testid="panel-course"'
-    assert_includes VIEW, 'data-testid="panel-obj-row"'
-    assert_includes VIEW, 'data-testid="panel-cta"'
-    assert_includes VIEW, 'data-testid="panel-not-connected"'
-    assert_includes VIEW, 'data-testid="panel-retry"'
+  def test_focus_refresh_skips_rerender_while_editing
+    # 焦点重拉在编辑态只更新快照不重渲染——renderEditor 用 state.draft 重建
+    # DOM,未 collectEditor 的输入会丢(编辑保护)
+    assert_includes VIEW, "document.addEventListener(\"visibilitychange\""
+    assert_includes VIEW, "if (!state.editing && currentContainer) render()"
+  end
+
+  # #366:教研工作台课程发现切到 list_workspace_courses(不限报名)
+  def test_course_discovery_uses_workspace_courses
+    assert_includes VIEW, '"/workspace/courses?workspace_id="'
+    assert_includes VIEW, "tutorWsIds"
+    assert_includes VIEW, '"tutor"'
+    refute_includes VIEW, '"/me/enrollments"'
+  end
+
+  # prep stepper 引导文案:每个状态一行提示,告诉用户下一步做什么+在哪做
+  # 课程状态徽标(curriculum): open 时显示「已发布 · 报名中」,与教研周期区分
+  def test_curriculum_course_status_badge
+    assert_includes VIEW, "cgt-course-status"
+    assert_includes VIEW, "已发布 · 报名中"
+    assert_includes VIEW, 'data-testid="course-status"'
+  end
+
+  def test_prep_stepper_contextual_hints
+    assert_includes VIEW, "hint"
+    assert_includes VIEW, "教研流程刚启动"
+    assert_includes VIEW, "内容编写中"
+    assert_includes VIEW, "等待质量自评"
+    assert_includes VIEW, "质量达标"
+    assert_includes VIEW, "已发布"
+    assert_includes VIEW, "cgt-stepper-hint"
+  end
+
+  def test_unsaved_exit_guard
+    # 教研拆出新增:取消编辑须确认(防误触丢稿)
+    assert_includes VIEW, "放弃未保存的编辑内容?"
+  end
+
+  def test_read_markers_kept_on_learning_center
+    # 学习中心(原列表/详情面)既有 testid 不丢
+    assert_includes COURSE_VIEW, 'data-testid="panel-course-select"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-outline-node"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-resume-btn"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-not-connected"'
+    assert_includes COURSE_VIEW, 'data-testid="panel-retry"'
   end
 
   def test_editor_escapes_server_strings

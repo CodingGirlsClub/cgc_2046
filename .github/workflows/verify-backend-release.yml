@@ -1,0 +1,125 @@
+name: Verify backend release (no deploy)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-backend-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main' && github.ref_protected
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed develop candidate
+        uses: actions/checkout@v7
+        with:
+          ref: develop
+          path: candidate
+          persist-credentials: false
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Record candidate
+        run: git -C candidate rev-parse HEAD
+
+      - name: Checkout private playbook
+        uses: actions/checkout@v7
+        with:
+          repository: CodingGirlsClub/cgc-playbooks
+          ref: main
+          path: candidate/backend/tmp/cgc-playbooks
+          ssh-key: ${{ secrets.CGC_PLAYBOOKS_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Stage private playbook
+        id: playbook
+        run: |
+          git -C candidate/backend/tmp/cgc-playbooks rev-parse HEAD
+          ruby candidate/scripts/test/stage_playbook_test.rb
+          ruby candidate/scripts/stage-playbook.rb "$GITHUB_WORKSPACE/candidate" >> "$GITHUB_OUTPUT"
+          test ! -e candidate/backend/tmp/cgc-playbooks
+          test ! -e candidate/backend/priv/playbooks/.git
+
+      - name: Pull existing amd64 dependencies
+        id: deps
+        env:
+          REGISTRY: ${{ vars.TCR_REGISTRY }}
+          REGISTRY_USER: ${{ vars.TCR_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+        run: |
+          test -n "$REGISTRY" && test -n "$REGISTRY_USER" && test -n "$REGISTRY_PASSWORD"
+          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+          LOCK_HASH=$(sha256sum candidate/backend/mix.lock | cut -c1-16)
+          DEPS_IMAGE="$REGISTRY/codingirlsclub/cgc2046-backend-deps:$LOCK_HASH"
+          docker pull --platform linux/amd64 "$DEPS_IMAGE"
+          test "$(docker image inspect "$DEPS_IMAGE" --format '{{.Architecture}}')" = amd64
+          echo "image=$DEPS_IMAGE" >> "$GITHUB_OUTPUT"
+          docker logout "$REGISTRY"
+
+      - name: Test release verifier with synthetic content
+        env:
+          DEPS_IMAGE: ${{ steps.deps.outputs.image }}
+        run: |
+          docker run --rm --network none --entrypoint elixir \
+            -e VERIFY_CANDIDATE_ROOT=/verification/candidate \
+            -v "$GITHUB_WORKSPACE:/verification:ro" -w /verification \
+            "$DEPS_IMAGE" scripts/test/verify_release_playbook_test.exs
+
+      - name: Build release locally on runner
+        env:
+          DEPS_IMAGE: ${{ steps.deps.outputs.image }}
+        run: |
+          docker build --platform linux/amd64 \
+            --build-arg "BACKEND_DEPS_IMAGE=$DEPS_IMAGE" \
+            -f candidate/backend/Dockerfile -t cgc-release-verify:local candidate \
+            > "$RUNNER_TEMP/release-build.log" 2>&1 || {
+              echo '::error::Release build failed; build output withheld to protect private content'
+              exit 1
+            }
+
+      - name: Verify release without network or production credentials
+        env:
+          EXPECTED_HASH: ${{ steps.playbook.outputs.hash }}
+        run: |
+          test "${#EXPECTED_HASH}" = 8
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            -e EXPECTED_HASH -e RELEASE_TMP=/tmp \
+            -e DATABASE_URL=ecto://verify:verify@localhost/verify \
+            -e CORS_ORIGIN=https://verify.invalid -e WEB_BASE_URL=https://verify.invalid \
+            -e SECRET_KEY_BASE=verification-only-not-a-production-secret-000000000000000000000000 \
+            -e TOKEN_SIGNING_SECRET=verification-only-not-a-production-secret \
+            -e SENDCLOUD_API_USER=verify -e SENDCLOUD_API_KEY=verify \
+            -e SENDCLOUD_FROM=verify@example.invalid -e SENDCLOUD_FROM_NAME=verify \
+            -e SENDCLOUD_SMS_USER=verify -e SENDCLOUD_SMS_KEY=verify \
+            -e SENDCLOUD_SMS_TEMPLATE_ID=verify \
+            -v "$GITHUB_WORKSPACE/scripts/verify-release-playbook.exs:/tmp/verify.exs:ro" \
+            cgc-release-verify:local eval 'Code.eval_file("/tmp/verify.exs")' \
+            > "$RUNNER_TEMP/release-verify.log" 2>&1 || {
+              echo '::error::Release verification failed; output withheld to protect private content'
+              exit 1
+            }
+          echo "Release verification passed: pb$EXPECTED_HASH (no deploy)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove private build material
+        if: always()
+        env:
+          REGISTRY: ${{ vars.TCR_REGISTRY }}
+        run: |
+          rm -rf candidate/backend/tmp/cgc-playbooks candidate/backend/priv/playbooks
+          rm -f "$RUNNER_TEMP/release-build.log" "$RUNNER_TEMP/release-verify.log"
+          docker image rm -f cgc-release-verify:local >/dev/null 2>&1 || true
+          docker builder prune --all --force >/dev/null
+          docker logout "$REGISTRY"
