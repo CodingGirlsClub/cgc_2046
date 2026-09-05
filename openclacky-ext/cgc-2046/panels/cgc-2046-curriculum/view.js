@@ -468,38 +468,23 @@
     bindPrepAction();
   }
 
-  function previewText(kind, raw) {
-    if (kind === "goals") {
-      const items = raw.split("\n").map(trim).filter(Boolean);
-      return items.length ? "解析出 " + items.length + " 条目标,首条: " + items[0] : "空";
-    }
-    const items = kind === "materials" ? parseMaterials(raw) : parseChecklist(raw);
-    return items.length ? "解析出 " + items.length + " 条,首条: " + JSON.stringify(items[0]) : "空";
+  // goals 条数预览(goals 是唯一保留的文本域——换行对多行文本是真分隔符,无损)。
+  // materials/checklist 的解析预览随分隔符行格式一并删除(#347 结构化逐项输入)。
+  function previewGoals(raw) {
+    const items = raw.split("\n").map(trim).filter(Boolean);
+    return items.length ? "解析出 " + items.length + " 条目标,首条: " + items[0] : "空";
   }
 
   function trim(s) { return String(s == null ? "" : s).trim(); }
 
-  function parseMaterials(text) {
-    return text.split("\n").map(trim).filter(Boolean).map(function (line) {
-      const i = line.indexOf("|");
-      return i < 0
-        ? { title: line, ref: "" }
-        : { title: trim(line.slice(0, i)), ref: trim(line.slice(i + 1)) };
-    });
-  }
-
-  function parseChecklist(text) {
-    return text.split("\n").map(trim).filter(Boolean).map(function (line, n) {
-      const i = line.indexOf("|");
-      return i < 0
-        ? { id: "c" + (n + 1), text: line }
-        : { id: trim(line.slice(0, i)), text: trim(line.slice(i + 1)) };
-    });
-  }
-
   // 编辑器 DOM → draft(结构性动作与保存前调用,re-render 不丢输入)。
   // 只写编辑器暴露的已知键——issue/story 上的未知键随深拷贝对象原样保留
   // (无损往返:未来新增字段不被编辑器丢弃)。
+  // #347:given/materials/checklist 为结构化逐项输入,直读行值,无分隔符解析——
+  // 含 /、| 的内容「打开→保存」往返不再损毁。
+  // 行收集**不过滤空行**(仅 trim):数组与 DOM 行保持 1:1,渲染期生成的
+  // 删除钮索引("issueIdx:itemIdx")在 collect 后 splice 仍命中同一行(advisor F1)。
+  // 空条目在 saveDraft 组装 content 时统一深过滤。
   function collectEditor() {
     if (!state.draft || !currentContainer) return;
     const goalsEl = currentContainer.querySelector("#cgc-edit-goals");
@@ -511,10 +496,28 @@
       issue.kind = el.querySelector("[data-f='kind']").value;
       issue.title = trim(el.querySelector("[data-f='title']").value);
       story.as_a = trim(el.querySelector("[data-f='as_a']").value);
-      story.given = el.querySelector("[data-f='given']").value.split("/").map(trim).filter(Boolean);
       story.goal = trim(el.querySelector("[data-f='goal']").value);
-      story.materials = parseMaterials(el.querySelector("[data-f='materials']").value);
-      story.checklist = parseChecklist(el.querySelector("[data-f='checklist']").value);
+      const given = [];
+      el.querySelectorAll("[data-f='given-item']").forEach(function (n) {
+        given.push(trim(n.value));
+      });
+      story.given = given;
+      const materials = [];
+      el.querySelectorAll("[data-material-row]").forEach(function (row) {
+        materials.push({
+          title: trim(row.querySelector("[data-f='m-title']").value),
+          ref: trim(row.querySelector("[data-f='m-ref']").value)
+        });
+      });
+      story.materials = materials;
+      const checklist = [];
+      el.querySelectorAll("[data-check-row]").forEach(function (row) {
+        checklist.push({
+          id: trim(row.querySelector("[data-f='c-id']").value),
+          text: trim(row.querySelector("[data-f='c-text']").value)
+        });
+      });
+      story.checklist = checklist;
     });
   }
 
@@ -522,14 +525,33 @@
     const draft = state.draft || { goals: [], issues: [] };
     const goalRows = (draft.goals || []).join("\n");
 
+    // 结构化逐项行(#347):每个条目一行独立输入 + 删除钮,增删钮按
+    // data-add-*/data-remove-* 定位("issueIdx" / "issueIdx:itemIdx")。
+    function itemRow(rowAttr, inner, removeAttr, removeVal) {
+      return '<div class="cgt-item-row" ' + rowAttr + '>' + inner +
+        '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" ' +
+        removeAttr + '="' + removeVal + '">×</button></div>';
+    }
+
     const issueCards = draft.issues.map(function (issue, idx) {
       const story = issue.story || {};
-      const mats = (Array.isArray(story.materials) ? story.materials : []).map(function (m) {
-        return (m.title || "") + (m.ref ? " | " + m.ref : "");
-      }).join("\n");
-      const checks = (Array.isArray(story.checklist) ? story.checklist : []).map(function (c) {
-        return (c.id || "") + " | " + (c.text || "");
-      }).join("\n");
+      const givenRows = (Array.isArray(story.given) ? story.given : []).map(function (g, gi) {
+        return itemRow('data-given-row',
+          '<input data-f="given-item" type="text" value="' + escapeHtml(g) + '">',
+          'data-remove-given', idx + ':' + gi);
+      }).join("");
+      const matRows = (Array.isArray(story.materials) ? story.materials : []).map(function (m, mi) {
+        return itemRow('data-material-row',
+          '<input data-f="m-title" type="text" placeholder="标题" value="' + escapeHtml(m.title || "") + '">' +
+          '<input data-f="m-ref" type="text" placeholder="链接(可选)" value="' + escapeHtml(m.ref || "") + '">',
+          'data-remove-material', idx + ':' + mi);
+      }).join("");
+      const checkRows = (Array.isArray(story.checklist) ? story.checklist : []).map(function (c, ci) {
+        return itemRow('data-check-row',
+          '<input data-f="c-id" type="text" placeholder="id" value="' + escapeHtml(c.id || "") + '">' +
+          '<input data-f="c-text" type="text" placeholder="验收文本" value="' + escapeHtml(c.text || "") + '">',
+          'data-remove-check', idx + ':' + ci);
+      }).join("");
       return (
         '<div class="cgc-card cgt-issue-edit" data-edit-issue="' + idx + '" data-testid="prep-issue-edit">' +
           '<div class="cgt-edit-row cgt-edit-head">' +
@@ -545,20 +567,17 @@
             '<input data-f="title" type="text" value="' + escapeHtml(issue.title || "") + '"></div>' +
           '<div class="cgt-edit-row"><label>as_a(目标学员画像)</label>' +
             '<input data-f="as_a" type="text" value="' + escapeHtml(story.as_a || "") + '"></div>' +
-          '<div class="cgt-edit-row"><label>given(先修状态,/ 分隔)</label>' +
-            '<input data-f="given" type="text" value="' + escapeHtml((Array.isArray(story.given) ? story.given : []).join(" / ")) + '"></div>' +
+          '<div class="cgt-edit-row"><label>given(先修状态,每项一行)</label>' + givenRows +
+            '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-given="' + idx + '">+ 添加 given</button></div>' +
           '<div class="cgt-edit-row"><label>goal(完成后能独立做到什么)</label>' +
             '<input data-f="goal" type="text" value="' + escapeHtml(story.goal || "") + '"></div>' +
-          '<div class="cgt-edit-row"><label>materials(每行一条,格式:标题 | 链接)</label>' +
-            '<textarea data-f="materials" rows="2">' + escapeHtml(mats) + '</textarea>' +
-            '<div class="cgt-parse-preview" data-preview="materials"></div></div>' +
-          '<div class="cgt-edit-row"><label>checklist(每行一条,格式:id | 文本)</label>' +
-            '<textarea data-f="checklist" rows="3">' + escapeHtml(checks) + '</textarea>' +
-            '<div class="cgt-parse-preview" data-preview="checklist"></div></div>' +
+          '<div class="cgt-edit-row"><label>materials(每条:标题 + 链接)</label>' + matRows +
+            '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-material="' + idx + '">+ 添加材料</button></div>' +
+          '<div class="cgt-edit-row"><label>checklist(每条:id + 验收文本)</label>' + checkRows +
+            '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-check="' + idx + '">+ 添加 checklist</button></div>' +
         '</div>'
       );
     }).join("");
-
     return (
       '<div class="cgc-actions">' +
         '<span class="cgc-badge" data-testid="prep-draft-version">草稿 v' + draftVersion() + '</span>' +
@@ -585,18 +604,10 @@
   }
 
   function bindEditor() {
-    currentContainer.querySelectorAll("[data-f='materials'], [data-f='checklist']").forEach(function (el) {
-      const box = el.parentElement.querySelector(".cgt-parse-preview");
-      if (!box) return;
-      const kind = el.getAttribute("data-f");
-      const update = function () { box.textContent = previewText(kind, el.value); };
-      el.addEventListener("input", update);
-      update();
-    });
     const goalsEl = currentContainer.querySelector("#cgc-edit-goals");
     const goalsBox = currentContainer.querySelector("#cgt-preview-goals");
     if (goalsEl && goalsBox) {
-      const ug = function () { goalsBox.textContent = previewText("goals", goalsEl.value); };
+      const ug = function () { goalsBox.textContent = previewGoals(goalsEl.value); };
       goalsEl.addEventListener("input", ug);
       ug();
     }
@@ -624,16 +635,72 @@
         render();
       });
     });
+    // 逐项增删(#347):与 issue 增删同一模式——先 collectEditor 再改 draft 后重渲。
+    function bindRowAdds(attr, append) {
+      currentContainer.querySelectorAll("[" + attr + "]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          collectEditor();
+          const issue = state.draft.issues[Number(btn.getAttribute(attr))];
+          if (!issue) return;
+          append(issue.story = issue.story || {});
+          render();
+        });
+      });
+    }
+    function bindRowRemoves(attr, removeAt) {
+      currentContainer.querySelectorAll("[" + attr + "]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          collectEditor();
+          const p = String(btn.getAttribute(attr)).split(":");
+          const issue = state.draft.issues[Number(p[0])];
+          if (!issue || !issue.story) return;
+          removeAt(issue.story, Number(p[1]));
+          render();
+        });
+      });
+    }
+    bindRowAdds("data-add-given", function (s) {
+      s.given = (Array.isArray(s.given) ? s.given : []).concat([""]);
+    });
+    bindRowAdds("data-add-material", function (s) {
+      s.materials = (Array.isArray(s.materials) ? s.materials : []).concat([{ title: "", ref: "" }]);
+    });
+    bindRowAdds("data-add-check", function (s) {
+      const list = Array.isArray(s.checklist) ? s.checklist : [];
+      // 默认 id 避让现存 id(删过中间行后 length+1 会撞, advisor F2)
+      let n = list.length + 1;
+      while (list.some(function (x) { return x && x.id === "c" + n; })) n++;
+      s.checklist = list.concat([{ id: "c" + n, text: "" }]);
+    });
+    bindRowRemoves("data-remove-given", function (s, i) { s.given.splice(i, 1); });
+    bindRowRemoves("data-remove-material", function (s, i) { s.materials.splice(i, 1); });
+    bindRowRemoves("data-remove-check", function (s, i) { s.checklist.splice(i, 1); });
   }
 
   async function saveDraft() {
     if (!state.selectedCourseId || !state.draft || state.saving) return;
     const courseId = state.selectedCourseId;
     collectEditor();
-    // 保留 content 上未编辑的键(如 course_title),剥离 version(并发控制走顶层 base_version)
+    // 保留 content 上未编辑的键(如 course_title),剥离 version(并发控制走顶层 base_version)。
+    // 空条目过滤在此落库前统一做(advisor F1/F3):collectEditor 不过滤以保
+    // 删除钮索引 1:1;此处深拷贝过滤,draft 原样保留(保存失败重试不丢行)。
+    const issues = state.draft.issues.map(function (issue) {
+      const story = issue.story || {};
+      return Object.assign({}, issue, {
+        story: Object.assign({}, story, {
+          given: (Array.isArray(story.given) ? story.given : []).filter(function (v) { return trim(v); }),
+          materials: (Array.isArray(story.materials) ? story.materials : []).filter(function (m) {
+            return m && (trim(m.title) || trim(m.ref));
+          }),
+          checklist: (Array.isArray(story.checklist) ? story.checklist : []).filter(function (c) {
+            return c && (trim(c.id) || trim(c.text));
+          })
+        })
+      });
+    });
     const content = Object.assign({}, state.draftContent, {
       goals: state.draft.goals,
-      issues: state.draft.issues
+      issues: issues
     });
     delete content.version;
     state.saving = true;
@@ -803,6 +870,8 @@
       ".cgt-cocreate{padding:7px 14px;border:0;border-radius:var(--radius-md,8px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.75rem;font-weight:700;cursor:pointer}",
       ".cgt-cocreate:hover{filter:brightness(1.1)}",
       ".cgt-parse-preview{margin-top:4px;padding:4px 8px;border-radius:6px;font-size:11px;color:var(--color-text-tertiary);background:var(--color-bg-subtle,rgba(127,127,127,.08))}",
+      ".cgt-item-row{display:flex;gap:6px;align-items:center;margin-bottom:4px}",
+      ".cgt-item-row input{flex:1;min-width:0}",
       ".cgch-row-dot{flex:none;align-self:center;width:7px;height:7px;border-radius:999px;background:var(--color-border-secondary)}"
     ].join("\n");
     document.head.appendChild(css);

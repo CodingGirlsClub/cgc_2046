@@ -692,6 +692,37 @@ class CoursePanelBehaviorTest < Minitest::Test
   end
 end
 
+# ---- #347:教研编辑器分隔符往返回归(Node harness 驱动完整编辑流) ----
+
+class CurriculumEditorRoundtripTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  VIEW = File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__)
+
+  def test_editor_delimiter_roundtrip
+    # #347 行为证据:含 /、| 的草稿「打开编辑 → 原样保存」,POST /content 的
+    # content 必须与原文 deep-equal。旧行格式(given split("/")、materials/checklist
+    # 按 | 切分)下本场景必败:given 被拆多、materials 标题/链接错位。
+    out, status = Open3.capture2e("node", HARNESS, VIEW, "editor_delimiter_roundtrip")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK editor_delimiter_roundtrip"
+    assert_includes out, '"given_roundtrip":true'
+    assert_includes out, '"materials_roundtrip":true'
+    assert_includes out, '"checklist_roundtrip":true'
+    assert_includes out, '"content_deep_equal":true'
+    assert_includes out, '"base_version_pinned":true'
+  end
+  def test_editor_remove_row_with_empty_targets_exact_row
+    # advisor F1 行为证据:given=[AAA,BBB,CCC],清空 AAA 后点 BBB 的删除钮,
+    # 保存落库的 given 必须恰为 ["CCC"](修复前 collectEditor 先过滤空行,
+    # 渲染期索引与 collect 后数组错位 → splice 误删 CCC 留下 BBB)。
+    out, status = Open3.capture2e("node", HARNESS, VIEW, "editor_remove_row_with_empty")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK editor_remove_row_with_empty"
+    assert_includes out, '"remove_targets_exact_row":true'
+  end
+
+end
+
 # ---- advisor F2:loopback 请求来源收口(Origin 同源 / 写路由 Content-Type + CSRF) ----
 
 class CsrfGuardTest < Minitest::Test
