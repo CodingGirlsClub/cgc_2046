@@ -32,6 +32,7 @@ vi.mock('../src/api/operations', () => ({
   EventDetailQueryDocument: 'EVENT_DETAIL',
   CourseDetailQueryDocument: 'COURSE_DETAIL',
   MyEnrollmentsQueryDocument: 'MY_ENROLLMENTS',
+  EnrollmentQueryDocument: 'ENROLLMENT_QUERY',
   CancelEnrollmentMutationDocument: 'CANCEL_ENROLLMENT',
   CreateEnrollmentMutationDocument: 'CREATE_ENROLLMENT',
   ConfirmEnrollmentMutationDocument: 'CONFIRM_ENROLLMENT',
@@ -169,5 +170,90 @@ describe('getCatalog 公开条目平铺（X2：无工作台身份投影）', () 
     const [item] = await api.getCatalog()
     expect(item).not.toHaveProperty('workspaceName')
     expect(item).not.toHaveProperty('workspaceId')
+  })
+})
+
+// #355 P1-3：详情查询同文档带出 myEnrollment（匿名/未报名 → null，在场即已报名态）
+describe('getContent myEnrollment 投影（#355 P1-3）', () => {
+  it('活跃报名在场 → 解析为 MyEnrollmentState（status fail-closed 解析）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: EVENT_RECORD,
+      myEnrollment: { id: 'enr-1', status: 'pending', approvalDeadline: '2026-09-06T00:00:00Z' }
+    })
+    const api = new RealMiniProgramApi()
+    const item = await api.getContent('event', 'event-1')
+    expect(item.myEnrollment).toEqual({
+      id: 'enr-1',
+      status: 'pending',
+      approvalDeadline: '2026-09-06T00:00:00Z'
+    })
+  })
+
+  it('匿名/未报名 → null（详情页回落「立即报名」）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({ getEvent: EVENT_RECORD, myEnrollment: null })
+    const api = new RealMiniProgramApi()
+    const item = await api.getContent('event', 'event-1')
+    expect(item.myEnrollment).toBeNull()
+  })
+
+  it('目录面（getCatalog）恒无 myEnrollment（匿名目录口径）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      listEvents: { results: [{ ...EVENT_RECORD }] },
+      listCourses: { results: [] }
+    })
+    const api = new RealMiniProgramApi()
+    const [item] = await api.getCatalog()
+    expect(item.myEnrollment).toBeNull()
+  })
+})
+
+// #355 P1-4：结果页按 id 回查单条报名
+describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
+  it('命中 → EnrollmentSummary（kind/targetId/title 从记录派生）', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest.mockResolvedValue({
+      enrollments: {
+        results: [{
+          id: 'enr-1',
+          workspaceId: 'ws-1',
+          eventId: 'event-1',
+          courseId: null,
+          userId: 'user-1',
+          status: 'confirmed',
+          targetTitle: 'Python 工作坊',
+          approvalDeadline: null,
+          rejectionReason: null,
+          approvedAt: '2026-09-05T00:00:00Z',
+          expiredAt: null,
+          cancelledAt: null
+        }]
+      }
+    })
+    const api = new RealMiniProgramApi()
+    const enrollment = await api.getEnrollment('enr-1')
+    expect(enrollment).toEqual({
+      id: 'enr-1',
+      workspaceId: 'ws-1',
+      targetId: 'event-1',
+      kind: 'event',
+      title: 'Python 工作坊',
+      status: 'confirmed',
+      approvalDeadline: null,
+      rejectionReason: null
+    })
+  })
+
+  it('查无（记录不存在/跨账号）→ null', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest.mockResolvedValue({ enrollments: { results: [] } })
+    const api = new RealMiniProgramApi()
+    expect(await api.getEnrollment('enr-404')).toBeNull()
+  })
+
+  it('未登录（无 token）→ 直接 null，不发查询', async () => {
+    mocks.getAuthToken.mockReturnValue('')
+    const api = new RealMiniProgramApi()
+    expect(await api.getEnrollment('enr-1')).toBeNull()
+    expect(mocks.graphqlRequest).not.toHaveBeenCalled()
   })
 })
