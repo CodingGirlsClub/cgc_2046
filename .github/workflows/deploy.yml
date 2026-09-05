@@ -70,7 +70,7 @@ jobs:
           backend=false; web=false
           while IFS= read -r f; do
             case "$f" in
-              backend/*) backend=true ;;
+              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml) backend=true ;;
               web/*)     web=true ;;
             esac
           done <<<"$files"
@@ -93,6 +93,36 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+
+      - name: Require protected main
+        env:
+          DEPLOY_REF: ${{ github.ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        run: test "$DEPLOY_REF" = refs/heads/main && test "$REF_PROTECTED" = true
+
+      - name: Checkout private playbook
+        uses: actions/checkout@v7
+        with:
+          repository: CodingGirlsClub/cgc-playbooks
+          ref: main
+          path: backend/tmp/cgc-playbooks
+          ssh-key: ${{ secrets.CGC_PLAYBOOKS_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Test playbook staging
+        run: ruby scripts/test/stage_playbook_test.rb
+
+      - name: Stage tutor playbook
+        id: playbook
+        run: |
+          git -C backend/tmp/cgc-playbooks rev-parse HEAD
+          ruby scripts/stage-playbook.rb "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+          test ! -e backend/tmp/cgc-playbooks
+          test ! -e backend/priv/playbooks/.git
+
+      - name: Clean private checkout
+        if: always()
+        run: rm -rf backend/tmp/cgc-playbooks
 
       - run: gem install kamal --no-document
       - name: Setup SSH
@@ -182,13 +212,12 @@ jobs:
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
       - name: Deploy backend
         working-directory: backend
+        env:
+          PLAYBOOK_HASH: ${{ steps.playbook.outputs.hash }}
+          PUBLIC_SHA: ${{ github.sha }}
         # step 级超时结论是 failure，job 级是 cancelled（后者已两次被误判
         # 为人为取消）——85 < job 90，超时恒先红在 step 上，job 级仅作兜底
         timeout-minutes: 85
-        # 无 env 块：Kamal 的全部 secret（registry.password/env.secret/
-        # accessory）都从 .kamal/secrets 文件解析，进程 env 无消费方——
-        # 此前这里的 env 子集是第三份重复登记，其注释（注入源=进程环境）
-        # 与 Write step 记载的事实相反，一并清除
         run: |
           # sed 到临时副本：工作区保持干净，避免 Kamal dirty tag
           sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
@@ -224,7 +253,8 @@ jobs:
           # 冒出。改为放行但打 warning 注解，日志留痕
           kamal accessory boot postgres -c config/deploy.ci.yml \
             || echo "::warning::postgres accessory boot 非零退出（已在运行则为预期，否则查看上方日志）"
-          kamal deploy -c config/deploy.ci.yml
+          test "${#PLAYBOOK_HASH}" = 8
+          kamal deploy -c config/deploy.ci.yml --version "${PUBLIC_SHA}-pb${PLAYBOOK_HASH}"
 
   # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
   # 各 job 独立 runner：registry login / SSH 不共享，必须各自执行

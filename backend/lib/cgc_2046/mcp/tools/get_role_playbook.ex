@@ -8,7 +8,8 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
   语义，wrapper_gate_test 钉死）：
 
   - `learner`：任何已认证用户；
-  - `tutor`：要求在 workspace_id 所指工作台持有 tutor 角色（workspace_id 必填）；
+  - `tutor`：要求在 workspace_id 所指工作台持有 tutor、owner 或 admin 角色
+    （workspace_id 必填）；
   - `workspace_admin`：要求在该工作台持有 owner 或 admin 角色（workspace_id 必填）；
   - `platform_admin`：要求 `is_platform_admin` 全局标记（与具体工作台无关，workspace_id 不适用）。
 
@@ -42,8 +43,9 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
       Wrapper.run(frame, params, "get_role_playbook", fn actor, workspace_id, params ->
         role_param = params["role"] || params[:role]
 
-        with {:ok, playbook} <- Playbooks.fetch(role_param),
-             :ok <- authorize(playbook.role, actor, workspace_id) do
+        with {:ok, role} <- Playbooks.normalize_role(role_param),
+             :ok <- authorize(role, actor, workspace_id),
+             {:ok, playbook} <- Playbooks.fetch(role) do
           {:ok, playbook}
         else
           {:error, :unknown_role} ->
@@ -70,10 +72,13 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
 
   defp authorize(:tutor, actor, workspace_id) do
     with {:ok, workspace_id} <- require_workspace_id(workspace_id, :tutor) do
-      if :tutor in MembershipContext.role_names(actor, workspace_id) do
+      roles = MembershipContext.role_names(actor, workspace_id)
+
+      if :tutor in roles or Enum.any?(roles, &Role.manage_role?/1) do
         :ok
       else
-        {:error, "forbidden: tutor playbook requires tutor role in workspace #{workspace_id}"}
+        {:error,
+         "forbidden: tutor, owner or admin required to read tutor playbook in workspace #{workspace_id}"}
       end
     end
   end
