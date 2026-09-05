@@ -12,6 +12,7 @@ export default function ProfilePage() {
   const [session, setSession] = useState<SessionSnapshot | null>(null)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [scene, setScene] = useState('')
+  const [sceneInputKey, setSceneInputKey] = useState(0)
   const [code, setCode] = useState<MiniProgramCode | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -34,12 +35,15 @@ export default function ProfilePage() {
   useDidShow(() => { void load() })
 
   const admit = async () => {
-    if (!scene.trim()) return Taro.showToast({ title: '请输入邀请 scene', icon: 'none' })
+    if (!scene.trim()) return Taro.showToast({ title: '请输入邀请码', icon: 'none' })
     setAction('admit')
     try {
       const result = await api.admitMember(scene.trim())
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
       setScene('')
+      // 半受控 Input（iOS 微信受控回写竞态修复,见 register-form 同族修复）:
+      // 状态清空不回写原生组件——换 key 强制重挂载兑现「成功后清空输入框」
+      setSceneInputKey((k) => k + 1)
       await load()
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '加入失败', icon: 'none' })
@@ -109,7 +113,7 @@ export default function ProfilePage() {
               <View className={styles.avatar}>{session.user.displayName.slice(0, 1)}</View>
               <View className={styles.userMain}>
                 <Text className={styles.userName}>{session.user.displayName}</Text>
-                <Text className={styles.userMeta}>{session.user.memberNumber ?? session.user.email ?? 'CGC 成员'}</Text>
+                <Text className={styles.userMeta}>{session.user.memberNumber ?? session.user.email ?? '程序媛汇成员'}</Text>
               </View>
               <Button className={styles.logout} size='mini' onClick={logout}>退出</Button>
             </View>
@@ -129,19 +133,19 @@ export default function ProfilePage() {
               ))}
             </View>
 
-            <Text className={styles.sectionTitle}>邀请 scene 加入</Text>
+            <Text className={styles.sectionTitle}>加入工作台</Text>
             <View className={styles.panel}>
-              <Text className={styles.panelText}>输入小程序码携带的一次性 scene。</Text>
+              <Text className={styles.panelText}>输入组织者分享给你的邀请码，仅可使用一次。</Text>
               <View className={styles.inlineForm}>
-                <Input className={styles.codeInput} placeholder='邀请 scene' value={scene} onInput={(event) => setScene(event.detail.value)} />
+                <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请码' defaultValue={scene} onInput={(event) => setScene(event.detail.value)} />
                 <Button className={styles.inlineButton} size='mini' loading={action === 'admit'} onClick={admit}>确认加入</Button>
               </View>
-              <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码识别</Button>
+              <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码加入</Button>
             </View>
 
             {manageableWorkspaces.length > 0 && (
               <>
-                <Text className={styles.sectionTitle}>邀请小程序码</Text>
+                <Text className={styles.sectionTitle}>邀请新成员</Text>
                 <View className={styles.panel}>
                   {manageableWorkspaces.map((workspace) => (
                     <View key={workspace.id} className={styles.codeRow}>
@@ -152,7 +156,7 @@ export default function ProfilePage() {
                   {code && (
                     <View className={styles.codeResult}>
                       {code.codeBase64 ? <Image className={styles.codeImage} src={`data:image/png;base64,${code.codeBase64}`} /> : null}
-                      <Text className={styles.scene}>scene：{code.scene}</Text>
+                      <Text className={styles.scene}>邀请码：{code.scene}</Text>
                       <Text className={styles.expires}>有效期至 {new Date(code.expiresAt).toLocaleString()}</Text>
                     </View>
                   )}

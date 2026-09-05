@@ -1,10 +1,13 @@
 .page { min-height: 100vh; padding: 110rpx 48rpx 48rpx; box-sizing: border-box; background: #fff; }
-.mark { width: 112rpx; height: 112rpx; display: flex; align-items: center; justify-content: center; color: #fff; background: #5e6ad2; border-radius: 28rpx; font-size: 28rpx; font-weight: 800; letter-spacing: 2rpx; }
+.mark { width: 112rpx; height: 112rpx; }
+.brandName { display: block; margin-top: 24rpx; font-size: 34rpx; font-weight: 700; color: #222326; letter-spacing: 1rpx; }
+.brandYear { font-size: 22rpx; font-weight: 700; color: #ea5504; }
 .title { display: block; margin-top: 42rpx; font-size: 48rpx; font-weight: 700; }
-.description { display: block; margin-top: 20rpx; color: #667085; font-size: 26rpx; line-height: 1.7; }
-.permissions { margin-top: 46rpx; padding: 26rpx; background: #f7f7fb; border-radius: 20rpx; }
-.permission { display: block; margin-bottom: 16rpx; color: #475467; font-size: 25rpx; }
+.description { display: block; margin-top: 20rpx; color: #4b4d54; font-size: 26rpx; line-height: 1.7; }
+.permissions { margin-top: 46rpx; padding: 26rpx; background: #f4f5f8; border-radius: 20rpx; }
+.permission { display: block; margin-bottom: 16rpx; color: #4b4d54; font-size: 25rpx; }
 .permission:last-child { margin-bottom: 0; }
-.error { display: block; margin-top: 24rpx; padding: 18rpx; color: #b42318; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
-.loginButton { margin-top: 54rpx; color: #fff; background: #5e6ad2; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
-.agreement { display: block; margin-top: 20rpx; color: #98a2b3; text-align: center; font-size: 21rpx; line-height: 1.5; }
+.error { display: block; margin-top: 24rpx; padding: 18rpx; color: #eb5757; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
+.loginButton { margin-top: 54rpx; color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
+.agreement { display: block; margin-top: 20rpx; color: #8a8f98; text-align: center; font-size: 21rpx; line-height: 1.5; }
+.tagline { display: block; margin-top: 64rpx; color: #8a8f98; text-align: center; font-size: 21rpx; }

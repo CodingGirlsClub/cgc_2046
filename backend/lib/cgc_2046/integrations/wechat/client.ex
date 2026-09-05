@@ -334,9 +334,28 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     |> req()
     |> Req.request(request)
     |> case do
-      {:ok, %Req.Response{status: 200, body: body}} -> parse_session(platform, body)
-      {:ok, %Req.Response{status: status}} -> {:error, {:platform_http_status, status}}
-      {:error, _reason} -> {:error, :platform_unreachable}
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        # 防枚举只约束客户端可见性；服务端必须留失败原因（errcode 定位
+        # 40029/40163 code 失效、40125 secret、45011 频控），否则真机联调
+        # 只见 "Platform sign in failed" 无从排查（#99 真机验收实证）。
+        # 微信 jscode2session 成功响应 content-type 为 text/plain（平台怪癖,
+        # #99 真机实证）——Req 按 content-type 不解码,binary body 先手动 JSON
+        # 解码;非 JSON binary 保持原样交 parse_session 兜底。
+        case parse_session(platform, maybe_decode_json(body)) do
+          {:ok, _} = ok ->
+            ok
+
+          {:error, reason} = error ->
+            Logger.warning("[code2session] #{platform} rejected: #{inspect(reason)}")
+            error
+        end
+
+      {:ok, %Req.Response{status: status}} ->
+        Logger.warning("[code2session] #{platform} http status #{status}")
+        {:error, {:platform_http_status, status}}
+
+      {:error, _reason} ->
+        {:error, :platform_unreachable}
     end
   end
 
@@ -446,6 +465,15 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     {:error, {:code2session_rejected, errcode}}
   end
 
+  # 微信边缘错误可能返回非 JSON（text/plain 错误页等；Req 按 content-type
+  # 不解码 → binary body）或未知形状——兜底防 FunctionClauseError 击穿登录链
+  # (#99 真机实证)。日志只打形状与错误码:session_key 红线不变(成功形状已被
+  # 上面子句捕获,能走到这里的 body 必不含 session_key)。
+  defp parse_session(:wechat, body) do
+    Logger.warning("[code2session] wechat unexpected body: #{unexpected_body_desc(body)}")
+    {:error, :code2session_bad_response}
+  end
+
   # tt：成功 %{"err_no" => 0, "data" => %{"openid", "session_key", "unionid"?}}
   defp parse_session(:tt, %{"err_no" => 0, "data" => data})
        when is_map(data) do
@@ -462,6 +490,34 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   defp parse_session(:tt, %{"err_no" => err_no}) when is_integer(err_no) do
     {:error, {:code2session_rejected, err_no}}
   end
+
+  defp parse_session(:tt, body) do
+    Logger.warning("[code2session] tt unexpected body: #{unexpected_body_desc(body)}")
+    {:error, :code2session_bad_response}
+  end
+
+  # 异常 body 的脱敏描述——只暴露形状与平台错误码,永不打 session_key 值。
+  defp unexpected_body_desc(body) when is_map(body) do
+    "keys=#{inspect(Map.keys(body))} errcode=#{inspect(Map.get(body, "errcode"))} " <>
+      "errmsg=#{inspect(Map.get(body, "errmsg"))}"
+  end
+
+  defp unexpected_body_desc(body) when is_binary(body) do
+    "binary #{byte_size(body)}B: #{inspect(String.slice(body, 0, 120))}"
+  end
+
+  defp unexpected_body_desc(body), do: inspect(body)
+
+  # text/plain 的 JSON 手动解码（微信怪癖,见 single_call_code2session 注释）;
+  # 非 JSON binary 原样返回（parse_session 兜底打日志）。
+  defp maybe_decode_json(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> body
+    end
+  end
+
+  defp maybe_decode_json(body), do: body
 
   @doc """
   phoneCode → 手机号（getPhoneNumber 新契约，wechat + tt）。

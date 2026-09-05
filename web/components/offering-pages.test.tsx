@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { render } from "@/test-utils";
 import {
@@ -401,7 +401,7 @@ describe("OfferingDetailPage 错误态", () => {
     expect(screen.queryByTestId("price-tier-picker")).not.toBeInTheDocument();
   });
 
-  it("收费活动：渲染可售档位 + 未选档提交被拒 + 选档后 tierId 随报名提交", async () => {
+  it("收费活动：默认选中第一档 + 可换档,tierId 随报名提交", async () => {
     mocks.useWorkspaceBySlug.mockReturnValue({
       ws: WORKSPACE,
       readOnlyVisitor: false,
@@ -438,14 +438,15 @@ describe("OfferingDetailPage 错误态", () => {
     expect(screen.getByText("¥99.00")).toBeInTheDocument();
     expect(screen.getByText("¥199.00")).toBeInTheDocument();
 
-    // 未选档 → 前端拒绝，不触 mutation
-    fireEvent.click(screen.getByRole("button", { name: "报名" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "请先选择价格档位",
-    );
-    expect(submitEnrollment).not.toHaveBeenCalled();
+    // 默认选中第一档：按钮直接带第一档价格,无需手点
+    expect(
+      await screen.findByRole("button", { name: "报名并支付 ¥99.00" }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("price-tier-tier-1")).getByRole("radio"),
+    ).toBeChecked();
 
-    // 选档（radio）→ 提交携带 tierId；payment_pending 态自动弹收银模态框
+    // 换档（radio）→ 提交携带 tierId；payment_pending 态自动弹收银模态框
     fireEvent.click(screen.getByTestId("price-tier-tier-2"));
     fireEvent.click(screen.getByRole("button", { name: "报名并支付 ¥199.00" }));
 

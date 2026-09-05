@@ -1,13 +1,13 @@
 .page { min-height: 100vh; padding: 94rpx 40rpx 50rpx; box-sizing: border-box; text-align: center; background: #fff; }
 .statusMark { width: 120rpx; height: 120rpx; margin: 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 52rpx; font-weight: 700; }
-.pending { color: #b54708; background: #fffaeb; }
+.pending { color: #b45309; background: #fffaeb; }
 .confirmed { color: #027a48; background: #ecfdf3; }
 .title { display: block; margin-top: 34rpx; font-size: 46rpx; font-weight: 700; }
-.subtitle { display: block; margin: 18rpx auto 0; max-width: 590rpx; color: #667085; font-size: 26rpx; line-height: 1.65; }
-.card { margin-top: 52rpx; padding: 30rpx; text-align: left; background: #f7f8fa; border-radius: 22rpx; }
-.cardLabel { display: block; color: #98a2b3; font-size: 21rpx; }
+.subtitle { display: block; margin: 18rpx auto 0; max-width: 590rpx; color: #4b4d54; font-size: 26rpx; line-height: 1.65; }
+.card { margin-top: 52rpx; padding: 30rpx; text-align: left; background: #f4f5f8; border-radius: 22rpx; }
+.cardLabel { display: block; color: #8a8f98; font-size: 21rpx; }
 .cardTitle { display: block; margin-top: 10rpx; font-size: 30rpx; font-weight: 600; }
-.cardMeta { display: block; margin-top: 12rpx; color: #667085; font-size: 23rpx; }
-.subscribeButton { margin-top: 34rpx; color: #fff; background: #5e6ad2; border-radius: 18rpx; font-size: 29rpx; }
-.subscriptionState { display: block; margin-top: 16rpx; color: #5e6ad2; font-size: 23rpx; }
-.secondaryButton { margin-top: 18rpx; color: #475467; background: #fff; border: 1rpx solid #d0d5dd; border-radius: 18rpx; font-size: 28rpx; }
+.cardMeta { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 23rpx; }
+.subscribeButton { margin-top: 34rpx; color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; }
+.subscriptionState { display: block; margin-top: 16rpx; color: #ea5504; font-size: 23rpx; }
+.secondaryButton { margin-top: 18rpx; color: #4b4d54; background: #fff; border: 1rpx solid #e4e4e7; border-radius: 18rpx; font-size: 28rpx; }

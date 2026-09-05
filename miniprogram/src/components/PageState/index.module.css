@@ -6,7 +6,7 @@
   justify-content: center;
   padding: 48rpx;
   box-sizing: border-box;
-  color: #667085;
+  color: #4b4d54;
 }
 
 .icon {
@@ -15,14 +15,14 @@
   line-height: 64rpx;
   text-align: center;
   border-radius: 50%;
-  background: #eef0ff;
-  color: #5e6ad2;
+  background: #fdeadf;
+  color: #ea5504;
   font-weight: 700;
 }
 
 .title {
   margin-top: 20rpx;
-  color: #344054;
+  color: #4b4d54;
   font-weight: 600;
 }
 
@@ -35,7 +35,7 @@
 
 .retry {
   margin-top: 24rpx;
-  color: #5e6ad2;
-  border: 1rpx solid #5e6ad2;
+  color: #ea5504;
+  border: 1rpx solid #ea5504;
   background: #fff;
 }
