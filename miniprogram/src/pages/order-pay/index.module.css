@@ -1,20 +1,20 @@
-.page { min-height: 100vh; }
+.page { min-height: 100vh; background: #f7f7f7; }
 .scroll { height: 100vh; box-sizing: border-box; }
 .header { padding: 48rpx 32rpx 34rpx; background: #fff; }
-.eyebrow { display: block; color: #5e6ad2; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
+.eyebrow { display: block; color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
 .title { display: block; margin-top: 10rpx; font-size: 48rpx; font-weight: 700; }
-.amount { display: block; margin-top: 12rpx; color: #07c160; font-size: 56rpx; font-weight: 700; }
-.countdown { display: block; margin-top: 14rpx; color: #b54708; font-size: 24rpx; }
-.card { margin: 24rpx 28rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; }
+.amount { display: block; margin-top: 12rpx; color: #10b981; font-size: 56rpx; font-weight: 700; }
+.countdown { display: block; margin-top: 14rpx; color: #b45309; font-size: 24rpx; }
+.card { margin: 24rpx 28rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
 .cardTitle { display: block; font-size: 31rpx; font-weight: 600; }
-.cardHint { display: block; margin-top: 10rpx; color: #98a2b3; font-size: 24rpx; }
+.cardHint { display: block; margin-top: 10rpx; color: #8a8f98; font-size: 24rpx; }
 .primaryButton {
   margin-top: 30rpx;
   color: #fff;
-  background: #07c160;
+  background: #10b981;
   border-radius: 24rpx;
   font-size: 27rpx;
   font-weight: 600;
 }
-.textButton { margin: 22rpx 0 0; color: #5e6ad2; background: #eff0ff; border-radius: 24rpx; font-size: 22rpx; }
-.pollingHint { display: block; margin: 0 28rpx; color: #98a2b3; font-size: 22rpx; }
+.textButton { margin: 22rpx 0 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 22rpx; }
+.pollingHint { display: block; margin: 0 28rpx; color: #8a8f98; font-size: 22rpx; }

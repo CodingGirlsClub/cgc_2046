@@ -51,19 +51,21 @@ defmodule Cgc2046.Curriculum.Content do
   def issue_kinds, do: @issue_kinds
 
   @doc """
-  结构性校验 course content(保存时全规则 = v1 形状 + objectives 存在即校验):
+  结构性校验 course content(保存时全规则 = v1 形状 + objectives 强制存在):
 
   - `goals`:非空字符串数组
   - `issues`:非空数组,每张卡 `id`/`kind`/`title`/`story` 必填
     (`kind ∈ thoughtwork | handwork`)
   - `story.checklist`:非空数组,每条含非空 `id`/`text`
   - issue `id` 卡集内唯一;checklist item `id` issue 内唯一
-  - `objectives`(存在时):见 `objective_violations/1`——保存时不强制存在,
-    存在则全部 v2 规则必须过
+  - `objectives`:**强制至少一个**(全课程)且全部 v2 规则必须过——与发布门禁
+    对齐(校验前移):保存时即拦缺 objectives,省掉「存 v1 → 交质检被拦 →
+    补 objectives → 存 v2」的往返。存量 v1-only 数据读取路径仍兼容
+    (`objectives/1` 返回 [])。
   """
   @spec valid?(term()) :: boolean()
   def valid?(content) when is_map(content) do
-    valid_v1?(content) and objective_violations(content) == []
+    valid_v1?(content) and objectives(content) != [] and objective_violations(content) == []
   end
 
   def valid?(_content), do: false
@@ -126,7 +128,7 @@ defmodule Cgc2046.Curriculum.Content do
 
   @doc """
   objectives 规则违例清单(schema v2,R38;content 无 objectives 时返回 []——
-  保存时不强制 objectives,发布门禁另行硬性要求):
+  存在性由 `valid?/1` 强制,presence 违规文案归发布门禁 `require_objectives`):
 
   - per-objective 形状:`id`/`title` 非空字符串;`required` 布尔(缺省 true);
     `prereq_ids` 为字符串数组;`activity`/`assessment` 为字符串(可空串);
@@ -476,7 +478,8 @@ defmodule Cgc2046.Curriculum.ContentValidation do
   `Curriculum.Output.data` 的 course content 形状校验(Ash Resource.Validation)。
 
   非法内容在入库前拒绝(fail-fast),错误挂 `:data` 字段。schema v2(S6):
-  objectives 存在即全规则校验(保存时不强制;发布门禁才硬性要求)。
+  objectives 强制至少一个且全规则校验(与发布门禁对齐,校验前移——UAT
+  journey 发现两级校验不一致导致 v1-only 草稿多一轮往返)。
   """
 
   use Ash.Resource.Validation
@@ -499,7 +502,8 @@ defmodule Cgc2046.Curriculum.ContentValidation do
              "course content must be %{goals: non-empty string list, issues: non-empty list of " <>
                "issue cards (id/kind/title/story required, kind in [thoughtwork, handwork], " <>
                "non-empty checklist with unique-in-issue item ids, issue ids unique in deck; " <>
-               "optional objectives per issue — id unique course-wide, non-empty title, " <>
+               "objectives required (at least one course-wide, non-empty per issue cards) — " <>
+               "id unique course-wide, non-empty title, " <>
                "required boolean (default true), prereq_ids referencing existing objective ids " <>
                "forming a DAG, activity/assessment strings, materials [{title, ref}], " <>
                "non-empty rubric with unique-in-objective criterion ids))"}

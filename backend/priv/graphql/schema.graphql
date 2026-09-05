@@ -2442,6 +2442,9 @@ input CreateInvitationInput {
   "过期时间（可选）"
   expiresAt: DateTime
 
+  "绑定的教研课程 ID 列表（可选；接受时自动指派教研 tutor）"
+  prepCourseIds: [ID!]
+
   "目标工作台 ID"
   workspaceId: ID!
 
@@ -2689,6 +2692,9 @@ type Invitation {
 
   "过期时间（可选）"
   expiresAt: DateTime
+
+  "绑定的教研课程 ID 列表（可选；接受时自动指派教研 tutor）"
+  prepCourseIds: [ID!]
 
   "邀请状态"
   status: String!

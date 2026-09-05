@@ -18,13 +18,15 @@ config:
 contributes:
   api: api/handler.rb
   panels:
-    - id: cgc-2046
-      title: CGC-2046
-      title_zh: CGC-2046
-      description: CGC-2046 平台连接状态
-      description_zh: CGC-2046 平台连接状态
-      view: panels/workspace/view.js
-      order: 8
+    # S1-S4 重构:单一入口 hub 面板(替代原 workspace 连接面板,挂侧栏顶部;
+    # 发现/课程保留为隐藏功能页,经目录卡 openWorkspace 直达)
+    - id: cgc
+      title: CGC 2046
+      title_zh: 程序媛汇 2046
+      description: CGC-2046 hub (connection, identity, role-aware catalog, assistant session)
+      description_zh: 程序媛汇 2046 工作台（连接、身份、角色目录、助手会话入口）
+      view: panels/cgc-home/view.js
+      order: 5
     # U9(plan 001/#180 R15):课程学习面板(纯视图,数据走 loopback MCP 透传)
     - id: cgc-2046-course
       title: CGC Course
@@ -33,6 +35,15 @@ contributes:
       description_zh: CGC-2046 课程学习(学习单元视图与会话唤起)
       view: panels/cgc-course/view.js
       order: 9
+    # S2 教研拆出:草稿编辑器 + prep 状态区独立面板(canEdit 角色入口;
+    # 学习中心不再承载教研)
+    - id: cgc-2046-curriculum
+      title: CGC Curriculum
+      title_zh: CGC 教研工作台
+      description: Curriculum workspace for tutors (draft editor + prep pipeline)
+      description_zh: 教研工作台(课程草稿编辑与教研流程;对齐后端 Curriculum 教研域)
+      view: panels/cgc-2046-curriculum/view.js
+      order: 12
     # U6:发现面板(公开活动/课程,数据走 loopback MCP 透传,公开工具无需 workspace_id)
     - id: cgc-2046-discovery
       title: CGC Discovery
@@ -41,13 +52,56 @@ contributes:
       description_zh: CGC-2046 公开活动与课程发现(条目跳 web 详情页)
       view: panels/cgc-discovery/view.js
       order: 10
+    # 会话伴学侧栏(session.aside,attach cgc-assistant;点目标直接注入会话指令,
+    # 替代课程页「复制学习指令」的剪贴板管道)
+    # 管理侧边栏(session.aside,attach cgc-admin;待办审批 + 管理快捷入口)
+    - id: cgc-2046-admin-aside
+      title: CGC Admin Aside
+      title_zh: 工作台管理
+      description: Admin aside (pending tasks, quick actions)
+      description_zh: 管理侧栏(待办审批/快捷入口)
+      view: panels/cgc-2046-admin-aside/view.js
+      order: 20
+      attach: [cgc-admin]
+    # P1 教研侧边栏(session.aside,attach cgc-tutor;会话内实时显示草稿产出)
+    - id: cgc-2046-tutor-aside
+      title: CGC Tutor Aside
+      title_zh: 教研产出
+      description: Live draft panel beside tutor sessions (goals/issues tree, version, prep state)
+      description_zh: 教研会话侧栏(草稿树/版本/流程状态实时同步)
+      view: panels/cgc-2046-tutor-aside/view.js
+      order: 17
+      attach: [cgc-tutor]
+    - id: cgc-2046-learn
+      title: CGC Learning Map
+      title_zh: 学习地图
+      description: Session-aside learning map (objectives, review queue, inject-and-go)
+      description_zh: 会话侧学习地图(目标地图/待复习/一键注入会话)
+      view: panels/cgc-learn/view.js
+      order: 15
+      attach: [cgc-assistant]
   agents:
+    # 工作台管理专用 agent(Owner/Admin:创建课程/成员/审批/邀请)
+    - id: cgc-admin
+      title: "CGC 管理助手"
+      prompt: agents/cgc-admin/system_prompt.md
+    # P1 AI 辅助教研:教研共创专用 agent(会话语境与学习分离;
+    # 教研侧边栏 attach 本 agent)
+    - id: cgc-tutor
+      title: "CGC 教研助手"
+      prompt: agents/cgc-tutor/system_prompt.md
+      skills: [issue-video]
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
       skills: [cgc2046-onboarding]
+      # 会话伴学侧栏对 CGC 助手会话可见(宿主 panel_agents_map 按 agent.panels
+      # 引用驱动 session 面板可见性,qingclaw 同款)
+      panels: [cgc-2046-learn]
   skills:
     - id: cgc2046-onboarding
+    # tutor 明确要求时才触发的 ManimCE 课程卡配套动画管线
+    - id: issue-video
   hooks:
     - event: on_tool_error
       file: hooks/on_tool_error.rb

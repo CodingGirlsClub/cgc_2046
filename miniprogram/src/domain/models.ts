@@ -90,9 +90,8 @@ export interface EnrollmentSummary {
 
 export interface EnrollmentForm {
   target: CatalogItem
-  name: string
-  email: string
-  reason: string
+  // 对齐 web 端一键报名:身份=登录用户(user_id),不再收集姓名/邮箱/理由
+  // (web 无此表单;submission_payload 键无任何读者——三端确认孤岛)。
   inviteCode?: string
   /** 收费目标必选档（R5：报名选档 → 占位 → payment_pending） */
   tierId?: string

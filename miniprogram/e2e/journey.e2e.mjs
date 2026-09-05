@@ -57,10 +57,8 @@ async function run() {
     await tap(page, '[data-testid="platform-login"]')
 
     page = await miniProgram.currentPage()
-    await expectText(page, '[data-testid="register-title"]', /报名信息/)
-    await (await page.$('[data-testid="name-input"]')).input('小程')
-    await (await page.$('[data-testid="email-input"]')).input('cheng@example.com')
-    await (await page.$('[data-testid="reason-input"]')).input('想系统学习')
+    await expectText(page, '[data-testid="register-title"]', /确认报名/)
+    // 一键报名（对齐 web）：登录即身份,无姓名/邮箱/理由表单
     await tap(page, '[data-testid="submit-enrollment"]')
 
     page = await miniProgram.currentPage()

@@ -30,6 +30,8 @@ defmodule Cgc2046.Accounts.Invitation do
 
   alias Cgc2046.ApprovalClaim
 
+  require Logger
+
   attributes do
     uuid_primary_key(:id)
 
@@ -70,6 +72,17 @@ defmodule Cgc2046.Accounts.Invitation do
       allow_nil?: true,
       public?: true,
       description: "过期时间（可选）"
+    )
+
+    # 邀请即完整意图（R-course-scoped invitation）：绑定的教研课程列表。
+    # 接受时自动 assign_prep_tutor 到这些课程——Admin 创建时一次表达
+    # 「这个人、这个角色、这门课」，被邀请人接受后零等待开始教研。
+    # 创建时校验：非空则 preauthorized_role_names 须含 tutor（不变量：
+    # 被指派者必须持有 tutor 角色），且课程须存在于目标工作台。
+    attribute(:prep_course_ids, {:array, :uuid},
+      allow_nil?: true,
+      public?: true,
+      description: "绑定的教研课程 ID 列表（可选；接受时自动指派教研 tutor）"
     )
 
     attribute(:status, :atom,
@@ -219,7 +232,7 @@ defmodule Cgc2046.Accounts.Invitation do
 
     create :create do
       description("创建邀请（Owner/Admin/Volunteer；Volunteer 不可预授权 Admin 级角色）")
-      accept([:target_email, :preauthorized_role_names, :expires_at])
+      accept([:target_email, :preauthorized_role_names, :expires_at, :prep_course_ids])
 
       argument(:workspace_id, :uuid,
         allow_nil?: false,
@@ -260,10 +273,16 @@ defmodule Cgc2046.Accounts.Invitation do
       # 校验 Volunteer 不可预授权 admin/owner（决策 5）
       change(Cgc2046.Accounts.Changes.ValidateInviterRolePreauthorization)
 
+      # 邀请即完整意图：绑课校验——非空则须含 tutor 预授权角色（不变量：
+      # 被指派者必须持有 tutor 角色），且每门课程须存在于目标工作台。
+      # fail-closed：创建时（Admin 还能修正）报错，而非接受时静默跳过。
+      change(&validate_prep_courses/2)
+
       # after_action 把明文 token 注入 record metadata（AshGraphql 暴露为 mutation result 的 metadata.plainToken）
       change(
         after_action(fn changeset, invitation, _context ->
           token = changeset.context[:plain_token]
+          Cgc2046.Accounts.SendInvitationEmail.deliver_async(invitation, token)
           {:ok, Ash.Resource.put_metadata(invitation, :plain_token, token)}
         end)
       )
@@ -589,9 +608,87 @@ defmodule Cgc2046.Accounts.Invitation do
            on_conflict: :business_error,
            error_message: "你已是该工作台成员"
          ) do
-      {:ok, _membership} -> {:ok, invitation}
-      {:error, _} = error -> error
+      {:ok, _membership} ->
+        assign_prep_courses(invitation, actor)
+        {:ok, invitation}
+
+      {:error, _} = error ->
+        error
     end
+  end
+
+  # 邀请即完整意图：入座成功后对绑定课程自动 assign_prep_tutor。
+  # best-effort——单门课失败不让 accept 失败（入座已成事实）；
+  # 课程不存在/prep run 已终结 → 跳过并 log。意图由邀请行
+  # inviter_id + prep_course_ids 承载（可审计），故 facts 写入
+  # 以接受人(actor)记录触发者即可。
+  defp assign_prep_courses(invitation, actor) do
+    invitation.prep_course_ids
+    |> List.wrap()
+    |> Enum.reject(&is_nil/1)
+    |> Enum.each(fn course_id ->
+      case Cgc2046.Curriculum.Prep.fetch_run(course_id, invitation.workspace_id) do
+        nil ->
+          Logger.warning(
+            "invitation #{invitation.id} prep course #{course_id}: no active run, skipped"
+          )
+
+        run ->
+          case Cgc2046.Curriculum.Prep.assign_tutor(run, actor.id, actor) do
+            {:ok, _updated} ->
+              :ok
+
+            {:error, reason} ->
+              Logger.warning(
+                "invitation #{invitation.id} prep course #{course_id} assign failed: #{reason}"
+              )
+          end
+      end
+    end)
+  end
+
+  # 创建时绑课校验（fail-closed）：
+  # 1. prep_course_ids 非空 → preauthorized_role_names 须含 :tutor
+  # 2. 每门课程须存在且属于目标工作台
+  defp validate_prep_courses(changeset, _context) do
+    course_ids = Ash.Changeset.get_attribute(changeset, :prep_course_ids) || []
+
+    changeset =
+      if course_ids != [] and
+           :tutor not in (Ash.Changeset.get_attribute(changeset, :preauthorized_role_names) || []) do
+        Ash.Changeset.add_error(changeset,
+          field: :prep_course_ids,
+          message: "绑定教研课程时预授权角色须包含 tutor"
+        )
+      else
+        changeset
+      end
+
+    workspace_id = Ash.Changeset.get_argument(changeset, :workspace_id)
+
+    Enum.reduce(course_ids, changeset, fn course_id, cs ->
+      course =
+        Cgc2046.Courses.Course
+        |> Ash.Query.filter(id == ^course_id and workspace_id == ^workspace_id)
+        |> Ash.read_one(authorize?: false, tenant: workspace_id)
+
+      case course do
+        {:ok, nil} ->
+          Ash.Changeset.add_error(cs,
+            field: :prep_course_ids,
+            message: "课程 #{course_id} 不存在于目标工作台"
+          )
+
+        {:ok, _course} ->
+          cs
+
+        {:error, _} ->
+          Ash.Changeset.add_error(cs,
+            field: :prep_course_ids,
+            message: "课程 #{course_id} 校验失败"
+          )
+      end
+    end)
   end
 
   graphql do
