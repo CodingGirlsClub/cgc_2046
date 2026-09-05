@@ -35,7 +35,7 @@ export default function ProfilePage() {
   useDidShow(() => { void load() })
 
   const admit = async () => {
-    if (!scene.trim()) return Taro.showToast({ title: '请输入邀请 scene', icon: 'none' })
+    if (!scene.trim()) return Taro.showToast({ title: '请输入邀请码', icon: 'none' })
     setAction('admit')
     try {
       const result = await api.admitMember(scene.trim())
@@ -133,19 +133,19 @@ export default function ProfilePage() {
               ))}
             </View>
 
-            <Text className={styles.sectionTitle}>邀请 scene 加入</Text>
+            <Text className={styles.sectionTitle}>加入工作台</Text>
             <View className={styles.panel}>
-              <Text className={styles.panelText}>输入小程序码携带的一次性 scene。</Text>
+              <Text className={styles.panelText}>输入组织者分享给你的邀请码，仅可使用一次。</Text>
               <View className={styles.inlineForm}>
-                <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请 scene' defaultValue={scene} onInput={(event) => setScene(event.detail.value)} />
+                <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请码' defaultValue={scene} onInput={(event) => setScene(event.detail.value)} />
                 <Button className={styles.inlineButton} size='mini' loading={action === 'admit'} onClick={admit}>确认加入</Button>
               </View>
-              <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码识别</Button>
+              <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码加入</Button>
             </View>
 
             {manageableWorkspaces.length > 0 && (
               <>
-                <Text className={styles.sectionTitle}>邀请小程序码</Text>
+                <Text className={styles.sectionTitle}>邀请新成员</Text>
                 <View className={styles.panel}>
                   {manageableWorkspaces.map((workspace) => (
                     <View key={workspace.id} className={styles.codeRow}>
@@ -156,7 +156,7 @@ export default function ProfilePage() {
                   {code && (
                     <View className={styles.codeResult}>
                       {code.codeBase64 ? <Image className={styles.codeImage} src={`data:image/png;base64,${code.codeBase64}`} /> : null}
-                      <Text className={styles.scene}>scene：{code.scene}</Text>
+                      <Text className={styles.scene}>邀请码：{code.scene}</Text>
                       <Text className={styles.expires}>有效期至 {new Date(code.expiresAt).toLocaleString()}</Text>
                     </View>
                   )}
