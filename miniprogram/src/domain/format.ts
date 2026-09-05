@@ -34,6 +34,16 @@ export function parseEnrollmentBadge(value: string | null): EnrollmentBadge {
   throw new Error(`服务端返回未知报名标签：${value}`)
 }
 
+/** 报名状态展示文案（my-enrollments 卡片与详情页「已报名」态共用单源） */
+export const enrollmentStatusText: Record<EnrollmentStatus, string> = {
+  pending: '等待审批',
+  payment_pending: '待支付',
+  confirmed: '已通过',
+  rejected: '已拒绝',
+  expired: '审批超时',
+  cancelled: '已取消'
+}
+
 /** badge 展示文案（KTD1；公开面以派生标签替代原始名额计数） */
 export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
   enrolling: '报名中',

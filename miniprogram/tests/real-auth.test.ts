@@ -43,6 +43,7 @@ vi.mock('../src/api/operations', () => ({
   EventDetailQueryDocument: 'EVENT_DETAIL',
   CourseDetailQueryDocument: 'COURSE_DETAIL',
   MyEnrollmentsQueryDocument: 'MY_ENROLLMENTS',
+  EnrollmentQueryDocument: 'ENROLLMENT_QUERY',
   CancelEnrollmentMutationDocument: 'CANCEL_ENROLLMENT',
   CreateEnrollmentMutationDocument: 'CREATE_ENROLLMENT',
   ConfirmEnrollmentMutationDocument: 'CONFIRM_ENROLLMENT',
@@ -70,7 +71,7 @@ vi.mock('../src/platform', () => ({
   currentPlatform: mocks.currentPlatform
 }))
 
-import { RealMiniProgramApi } from '../src/api/real'
+import { RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
 
 const SESSION_USER = {
   id: 'u-42',
@@ -250,7 +251,7 @@ describe('getSession 匿名边界', () => {
     mocks.getAuthToken.mockReturnValue(null)
     const api = new RealMiniProgramApi()
     const result = await api.getSession()
-    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [], authExpired: false })
     expect(mocks.clearAccountState).toHaveBeenCalledWith()
     expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
   })
@@ -262,7 +263,7 @@ describe('getSession 错误降级(真机事故回归:坏 token 不该拖死发�
       new mocks.GraphQLRequestError('Forbidden', 200, [{ message: 'Forbidden' }])
     )
     const result = await new RealMiniProgramApi().getSession()
-    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [], authExpired: true })
     expect(mocks.clearExpiredAuthentication).toHaveBeenCalled()
   })
 
@@ -270,7 +271,8 @@ describe('getSession 错误降级(真机事故回归:坏 token 不该拖死发�
     mocks.getAuthToken.mockReturnValue('good-token')
     mocks.graphqlRequest.mockRejectedValue(new Error('request:fail timeout'))
     const result = await new RealMiniProgramApi().getSession()
-    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    // 网络瞬态（token 保留）不算掉线：下次加载自愈
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [], authExpired: false })
     expect(mocks.clearExpiredAuthentication).not.toHaveBeenCalled()
     expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
     expect(mocks.clearAccountState).toHaveBeenCalledWith()
@@ -283,8 +285,57 @@ describe('getSession 错误降级(真机事故回归:坏 token 不该拖死发�
       new mocks.GraphQLRequestError('unauthorized', 200, [{ message: 'unauthorized', code: 'unauthorized' }])
     )
     const result = await new RealMiniProgramApi().getSession()
-    expect(result).toEqual({ user: null, workspaces: [], approvals: [] })
+    // auth 错误 = 真掉线：快照带 authExpired 供 UI 渲染重登空态
+    expect(result).toEqual({ user: null, workspaces: [], approvals: [], authExpired: true })
     expect(mocks.clearExpiredAuthentication).not.toHaveBeenCalled()
+  })
+})
+
+describe('getEnrollments 掉线空态（#355 P0-2：掉线 ≠ 没有报名）', () => {
+  it('曾有 token 但会话认证失败 → 拒绝 SessionExpiredError 而非静默 []', async () => {
+    mocks.getAuthToken.mockReturnValue('expired-token')
+    mocks.isAuthenticationError.mockReturnValue(true)
+    mocks.graphqlRequest.mockRejectedValue(
+      new mocks.GraphQLRequestError('unauthorized', 200, [{ message: 'unauthorized', code: 'unauthorized' }])
+    )
+    await expect(new RealMiniProgramApi().getEnrollments()).rejects.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it('从未登录（无 token）→ 空数组，维持「还没有报名记录」空态', async () => {
+    mocks.getAuthToken.mockReturnValue(null)
+    await expect(new RealMiniProgramApi().getEnrollments()).resolves.toEqual([])
+  })
+})
+
+describe('myPendingApprovals 审批摘要（#355 P0-1：盲批治理）', () => {
+  it('映射 requesterName/contextTitle/tierName/amount，requesterName 缺省回退「未知用户」', async () => {
+    mocks.getAuthToken.mockReturnValue('token')
+    mocks.graphqlRequest.mockResolvedValue({
+      me: SESSION_USER,
+      meWorkspaces: [{
+        id: 'ws-1', slug: 'beijing', name: '北京 CGC', joinPolicy: 'request',
+        myRoleNames: ['owner'], myMembershipId: 'm-1', canAccess: true,
+        myAbilities: ['manage_members'], memberCount: 2
+      }],
+      myPendingApprovals: [
+        {
+          id: 'ap-1', kind: 'enrollment', workspaceId: 'ws-1', userId: 'u-9',
+          eventId: 'ev-1', courseId: null, status: 'pending', approvalDeadline: null,
+          requesterName: 'Ada', contextTitle: 'Python 工作坊', tierName: null, amount: null
+        },
+        {
+          id: 'ap-2', kind: 'sponsorship', workspaceId: 'ws-1', userId: 'u-10',
+          eventId: null, courseId: null, status: 'pending', approvalDeadline: null,
+          requesterName: null, contextTitle: null, tierName: '金牌赞助', amount: 3000
+        }
+      ]
+    })
+    const { approvals } = await new RealMiniProgramApi().getSession()
+    expect(approvals[0]).toMatchObject({
+      requesterName: 'Ada', contextTitle: 'Python 工作坊',
+      tierName: null, amount: null, workspaceName: '北京 CGC'
+    })
+    expect(approvals[1]).toMatchObject({ requesterName: '未知用户', tierName: '金牌赞助', amount: 3000 })
   })
 })
 describe('admitMember 错误中文化(后端英文消息不得透传 UI)', () => {

@@ -129,8 +129,10 @@ export default function RegisterFormPage() {
         {target.enrollmentPolicy === 'invite_only' && (
           <View className={styles.field}>
             <Text className={styles.label}>批次码</Text>
-            {/* 半受控（iOS 微信受控回写竞态修复,#388）：defaultValue 初值 + onInput 收集 */}
-            <Input className={styles.input} placeholder='请输入组织者提供的批次码' defaultValue={inviteCode} onInput={(event) => setInviteCode(event.detail.value)} />
+            {/* iOS 微信竞态纪律（#388 重修）：defaultValue 绑「随输入变化的 state」等于仍是受控，
+                击键 setState→diff 回写原生框与用户输入竞争致显示重置。初始为空则不声明该属性，
+                值只经 onInput 单向流出，输入框值属性永不参与 diff。 */}
+            <Input className={styles.input} placeholder='请输入组织者提供的批次码' onInput={(event) => setInviteCode(event.detail.value)} />
           </View>
         )}
       </View>

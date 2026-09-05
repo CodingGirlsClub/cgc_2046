@@ -460,6 +460,71 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
+  # ── 活跃报名共享读取面（#355 P1-3；原 MCP LearnerJourney 收编）──────────
+
+  @active_statuses [:pending, :payment_pending, :confirmed]
+
+  @doc """
+  活跃状态集（pending/payment_pending/confirmed，唯一索引 unique_event_user /
+  unique_course_user 的占位状态集，identities 同款口径）：每个 (actor, offering)
+  在活跃集内至多一条。
+  """
+  def active_statuses, do: @active_statuses
+
+  @doc """
+  actor 在目标 workspace 内、目标 offering 上的活跃报名（无 → nil）。带 actor
+  走 read policy（`user_id == ^actor(:id)` 本人可读），actor 锚定无越权面；
+  读取失败按无报名降级（发现/详情面的附挂信息不阻断主读）。
+
+  workspace 过滤（#349 B）：幂等重放回读按 (actor, kind, offering, workspace)
+  四元组钉死；offering UUID 全局唯一下为防御深度，fail-closed。
+  """
+  @spec active_enrollment(term(), :event | :course, String.t(), String.t()) ::
+          __MODULE__.t() | nil
+  def active_enrollment(actor, kind, offering_id, workspace_id) do
+    {event_ids, course_ids} =
+      if kind == :event, do: {[offering_id], []}, else: {[], [offering_id]}
+
+    actor
+    |> active_enrollments_by_offering(event_ids, course_ids, workspace_id)
+    |> Map.get({kind, offering_id})
+  end
+
+  @doc """
+  批量取 actor 在给定 offering id 集上的活跃报名：
+  `%{(:event | :course, offering_id) => %Enrollment{}}`（消 N+1）。
+  """
+  @spec active_enrollments_by_offering(term(), [String.t()], [String.t()], String.t() | nil) ::
+          %{{:event | :course, String.t()} => __MODULE__.t()}
+  def active_enrollments_by_offering(actor, event_ids, course_ids, workspace_id \\ nil) do
+    query =
+      __MODULE__
+      |> Ash.Query.filter(
+        user_id == ^actor.id and status in ^@active_statuses and
+          (event_id in ^event_ids or course_id in ^course_ids)
+      )
+
+    query =
+      if workspace_id,
+        do: Ash.Query.filter(query, workspace_id == ^workspace_id),
+        else: query
+
+    query
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, enrollments} ->
+        Map.new(enrollments, fn enrollment ->
+          {offering_key(enrollment), enrollment}
+        end)
+
+      {:error, _} ->
+        %{}
+    end
+  end
+
+  defp offering_key(%{event_id: event_id}) when is_binary(event_id), do: {:event, event_id}
+  defp offering_key(%{course_id: course_id}) when is_binary(course_id), do: {:course, course_id}
+
   defp snapshot_target_title(%{submission_payload: payload}) when is_map(payload) do
     case Map.get(payload, "targetTitle") || Map.get(payload, :targetTitle) do
       title when is_binary(title) and title != "" -> title

@@ -42,19 +42,19 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type CourseDetailQuery = { getCourse: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null };
+export type CourseDetailQuery = { getCourse: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type SessionQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type SessionQuery = { me: { id: string, email: string | null, displayName: string | null, memberNumber: string | null, joinedAt: string | null, isPlatformAdmin: boolean } | null, meWorkspaces: Array<{ id: string, slug: string, name: string, joinPolicy: string, myRoleNames: Array<string> | null, myMembershipId: string | null, canAccess: boolean | null, myAbilities: Array<string> | null, memberCount: number | null }>, myPendingApprovals: Array<{ id: string, kind: string, workspaceId: string, userId: string, eventId: string | null, courseId: string | null, status: string, approvalDeadline: string | null }> };
+export type SessionQuery = { me: { id: string, email: string | null, displayName: string | null, memberNumber: string | null, joinedAt: string | null, isPlatformAdmin: boolean } | null, meWorkspaces: Array<{ id: string, slug: string, name: string, joinPolicy: string, myRoleNames: Array<string> | null, myMembershipId: string | null, canAccess: boolean | null, myAbilities: Array<string> | null, memberCount: number | null }>, myPendingApprovals: Array<{ id: string, kind: string, workspaceId: string, userId: string, eventId: string | null, courseId: string | null, status: string, approvalDeadline: string | null, requesterName: string | null, contextTitle: string | null, tierName: string | null, amount: number | null }> };
 
 export type MyEnrollmentsQueryVariables = Exact<{
   userId: string | number;
@@ -63,6 +63,13 @@ export type MyEnrollmentsQueryVariables = Exact<{
 
 
 export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null }> | null } | null };
+
+export type EnrollmentQueryVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null }> | null } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
