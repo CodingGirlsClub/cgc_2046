@@ -203,6 +203,49 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
     Ash.get!(Cgc2046.Workflows.WorkflowRun, run_id, tenant: workspace_id, authorize?: false)
   end
 
+  # 他台 run 布置（#349 A）：模拟 course↔workspace 不变量被破坏——run 落在
+  # other_workspace，input_snapshot 指向本台 course + 本台 learner。
+  defp cross_tenant_run(workspace, definition, course, learner) do
+    {:ok, run, :created} =
+      Cgc2046.Workflows.WorkflowRun.find_or_create_and_start(
+        workspace.id,
+        definition,
+        %{"course_id" => course.id, "user_id" => learner.id},
+        key: "cross_tenant_#{course.id}",
+        start_action: :start
+      )
+
+    run
+  end
+
+  describe "learning_run_holder? 租户作用域（#349 A）" do
+    test "他台 run 不构成 holder 授权；本台 run 仍构成" do
+      ctx = learning_ctx("ll-holder-tenant")
+
+      # 掉 confirmed 层（cancel），holder 层成为唯一可能放行层
+      ctx.enrollment
+      |> Ash.Changeset.for_update(:cancel, %{}, authorize?: false)
+      |> Ash.update!(authorize?: false)
+
+      # 他台 run：另一 workspace 的 published 定义 + 指向本台 course/learner 的
+      # input——旧谓词（无租户过滤）会命中并放行
+      admin_b = Fixtures.platform_admin("ll-holder-tenant-b")
+      workspace_b = Fixtures.create_workspace(admin_b)
+      definition_b = create_learning_definition(workspace_b, admin_b)
+      cross_tenant_run(workspace_b, definition_b, ctx.course, ctx.learner)
+
+      refute Runs.learning_run_holder?(ctx.learner, ctx.workspace.id, ctx.course.id)
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = get_state(ctx, ctx.learner)
+      assert msg =~ "forbidden"
+
+      # 本台对照：同款 run 落在本台 → holder 成立，cancel 后仍可读
+      cross_tenant_run(ctx.workspace, ctx.definition, ctx.course, ctx.learner)
+
+      assert Runs.learning_run_holder?(ctx.learner, ctx.workspace.id, ctx.course.id)
+      assert {:reply, _, _} = get_state(ctx, ctx.learner)
+    end
+  end
+
   describe "start_learning_run(R36)" do
     test "未报名 → forbidden;无 published revision → 明确错误" do
       ctx = learning_ctx("ll-start-auth")

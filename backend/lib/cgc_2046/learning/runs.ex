@@ -76,24 +76,25 @@ defmodule Cgc2046.Learning.Runs do
   @doc """
   本人学习 run 持有性（任意状态，含 close/cancel 后）：「曾学过」读面授权——
   替代 S8 删除的 LearningRecord 记忆持有者层。
+
+  租户收紧（#349 A）：与 `active_run_for`/`latest_run_for` 同款 `tenant` 读取
+  （`runs_query/2` 单源）——他台 run（course↔workspace 不变量被未来写路径
+  破坏时）不构成授权，fail-closed。
   """
-  @spec learning_run_holder?(term(), String.t()) :: boolean()
-  def learning_run_holder?(%{id: actor_id}, course_id) when is_binary(course_id) do
-    WorkflowRun
-    |> Ash.Query.filter(
-      definition.type == :learning and
-        input_snapshot["course_id"] == ^course_id and
-        input_snapshot["user_id"] == ^actor_id
-    )
+  @spec learning_run_holder?(term(), String.t(), String.t()) :: boolean()
+  def learning_run_holder?(%{id: _actor_id} = actor, workspace_id, course_id)
+      when is_binary(workspace_id) and is_binary(course_id) do
+    actor
+    |> runs_query(course_id)
     |> Ash.Query.limit(1)
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(authorize?: false, tenant: workspace_id)
     |> case do
       [] -> false
       [_] -> true
     end
   end
 
-  def learning_run_holder?(_actor, _course_id), do: false
+  def learning_run_holder?(_actor, _workspace_id, _course_id), do: false
 
   # --- 启动（R36） ----------------------------------------------------------------
 
