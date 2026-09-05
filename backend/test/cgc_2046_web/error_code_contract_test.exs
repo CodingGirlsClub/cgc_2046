@@ -66,22 +66,21 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
              "已处理订单再操作 code 应为 order_already_processed，实际 #{inspect(error)}"
     end
 
-    test "createOrder 对已有活跃订单的报名再下单 → order_duplicate_active（F1）" do
+    test "createOrder 对已有活跃订单的报名再下单 → 幂等开新单（#405）" do
       %{learner: learner, enrollment_id: enrollment_id} = paid_enrollment()
       token = sign_in_token(learner)
 
       # 第一笔 pending 单占据 unique_active_order 部分索引
-      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => _}}}} =
+      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => first_id}}}} =
                graphql(order_mutation(enrollment_id), token)
 
-      # 再下单：无显式预检查，唯一防线 DB 索引 → error_handler 转 code
-      assert %{"data" => %{"createOrder" => %{"result" => nil, "errors" => [error | _]}}} =
+      # 再下单（重进支付页）：#405 起幂等——撞 unique_active_order 时废掉旧
+      # pending 单开新单成功返回，不再暴露 order_duplicate_active 死循环；该
+      # code 作为防御兜底保留在契约工件（锚定清单仍钉其存在）
+      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => second_id}}}} =
                graphql(order_mutation(enrollment_id), token)
 
-      assert error["code"] == "order_duplicate_active",
-             "已有活跃订单再下单 code 应为 order_duplicate_active，实际 #{inspect(error)}"
-
-      assert error["message"] == "an active order already exists for this enrollment"
+      refute second_id == first_id
     end
 
     test "createOrder 对已确认报名下单 → order_not_payment_pending" do

@@ -173,6 +173,37 @@ defmodule Cgc2046.Payments.OrderTest do
     end
   end
 
+  describe "#405：create_for_enrollment 幂等下单（重进支付页废旧开新）" do
+    test "重复下单不再撞单：旧 pending 置 cancelled(reenter_refresh)、新单携新凭据" do
+      {enrollment, learner} = payment_pending_enrollment("idem-reenter")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+      assert {:ok, second} = checkout(enrollment, learner)
+
+      # 废旧开新：新订单新 id 新单号；旧单 cancelled 留审计痕，终态不再占索引
+      assert second.id != first.id
+      assert second.out_trade_no != first.out_trade_no
+      assert reload(first).status == :cancelled
+      assert reload(first).cancel_reason == "reenter_refresh"
+      assert order_count(enrollment.id) == 2
+
+      # 凭据随每次下单重出且对应当次新单号（Fake 回显 out_trade_no）
+      second_no = second.out_trade_no
+      assert %{"out_trade_no" => ^second_no} = second.__metadata__[:credential]
+    end
+
+    test "旧单已 cancelled 终态后下单开新单（与既有 R11 行为一致）" do
+      {enrollment, learner} = payment_pending_enrollment("idem-after-cancel")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+      assert {:ok, _cancelled} = transition(first, :cancel, %{cancel_reason: "user_cancelled"})
+
+      assert {:ok, second} = checkout(enrollment, learner)
+      assert second.id != first.id
+      assert order_count(enrollment.id) == 2
+    end
+  end
+
   describe "R21：WebhookEvent (provider, event_id) 幂等去重" do
     test "重复 (provider, event_id) 插入被拒；不同 provider 同 event_id 可并存" do
       assert {:ok, _} = create_webhook_event(:wechat, "evt-dup-1")
@@ -201,6 +232,47 @@ defmodule Cgc2046.Payments.OrderTest do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
     |> Ash.create(tenant: event.workspace_id, actor: user)
+  end
+
+  # #405 幂等测试布置：付费活动 + 档位 → 报名落 payment_pending；checkout 走
+  # create_for_enrollment 全链路（本人 actor + Fake 渠道）。
+  @idempotent_tier_id "44444444-4444-4444-4444-444444444444"
+
+  defp payment_pending_enrollment(tag) do
+    admin = Fixtures.platform_admin("payments-idem-admin-#{tag}")
+    workspace = Fixtures.create_workspace(admin)
+
+    event =
+      EventFixtures.create_event(workspace, admin, %{
+        pricing_enabled: true,
+        price_tiers: [
+          %{"id" => @idempotent_tier_id, "name" => "早鸟", "amount_cents" => 9900}
+        ]
+      })
+
+    learner = Fixtures.register_user("payments-idem-learner-#{tag}")
+
+    {:ok, enrollment} =
+      Enrollment
+      |> Ash.Changeset.for_create(:create_enrollment, %{
+        event_id: event.id,
+        user_id: learner.id,
+        tier_id: @idempotent_tier_id
+      })
+      |> Ash.create(tenant: workspace.id, actor: learner)
+
+    assert enrollment.status == :payment_pending
+    {enrollment, learner}
+  end
+
+  # native 渠道无 openid 前置校验（jsapi 需真实微信 openid，测试用户没有）
+  defp checkout(enrollment, actor) do
+    Order
+    |> Ash.Changeset.for_create(:create_for_enrollment, %{
+      enrollment_id: enrollment.id,
+      provider: :wechat_native
+    })
+    |> Ash.create(tenant: enrollment.workspace_id, actor: actor)
   end
 
   defp order_fixture do
