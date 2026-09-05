@@ -287,6 +287,31 @@ describe('getSession 错误降级(真机事故回归:坏 token 不该拖死发�
     expect(mocks.clearExpiredAuthentication).not.toHaveBeenCalled()
   })
 })
+describe('admitMember 错误中文化(后端英文消息不得透传 UI)', () => {
+  it('invalid_or_expired_scene → 邀请码无效或已过期', async () => {
+    mocks.graphqlRequest.mockRejectedValue(
+      new mocks.GraphQLRequestError('Invitation has already been used or scene has expired', 200, [
+        { message: 'Invitation has already been used or scene has expired', code: 'invalid_or_expired_scene' }
+      ])
+    )
+    await expect(new RealMiniProgramApi().admitMember('X')).rejects.toThrow('邀请码无效或已过期')
+  })
+
+  it('invalid_scene → 邀请码格式不正确', async () => {
+    mocks.graphqlRequest.mockRejectedValue(
+      new mocks.GraphQLRequestError('Invalid scene', 200, [
+        { message: 'Invalid scene', code: 'invalid_scene' }
+      ])
+    )
+    await expect(new RealMiniProgramApi().admitMember('!!!')).rejects.toThrow('邀请码格式不正确')
+  })
+
+  it('未识别错误(如网络)→ 原样透传,不吞不译', async () => {
+    mocks.graphqlRequest.mockRejectedValue(new Error('request:fail timeout'))
+    await expect(new RealMiniProgramApi().admitMember('X')).rejects.toThrow('request:fail timeout')
+  })
+})
+
 
 
 describe('cancel enrollment', () => {
