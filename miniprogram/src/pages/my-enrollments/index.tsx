@@ -4,20 +4,11 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
-import { remainingLabel } from '@/domain/format'
-import type { EnrollmentStatus, EnrollmentSummary } from '@/domain/models'
+import { enrollmentStatusText, remainingLabel } from '@/domain/format'
+import type { EnrollmentSummary } from '@/domain/models'
 import { PAYMENT_STATUS_LABEL } from '@/domain/payment'
 import { requestPlatformSubscription } from '@/platform'
 import styles from './index.module.css'
-
-const statusText: Record<EnrollmentStatus, string> = {
-  pending: '等待审批',
-  payment_pending: '待支付',
-  confirmed: '已通过',
-  rejected: '已拒绝',
-  expired: '审批超时',
-  cancelled: '已取消'
-}
 
 export default function MyEnrollmentsPage() {
   const [items, setItems] = useState<EnrollmentSummary[]>([])
@@ -114,7 +105,7 @@ export default function MyEnrollmentsPage() {
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>
             <View className={styles.cardHeader}>
               <Text className={styles.kind}>{item.kind === 'event' ? '活动' : '课程'}</Text>
-              <Text className={`${styles.status} ${styles[item.status]}`}>{statusText[item.status]}</Text>
+              <Text className={`${styles.status} ${styles[item.status]}`}>{enrollmentStatusText[item.status]}</Text>
             </View>
             <Text className={styles.cardTitle}>{item.title}</Text>
             {item.status === 'confirmed' && paymentByEnrollment[item.id] && (

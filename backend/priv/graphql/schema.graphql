@@ -5541,6 +5541,14 @@ type RootQueryType {
   "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
   myLearningRuns: [MyLearningRun!]!
 
+  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
+  myEnrollment(
+    "event | course"
+    kind: String!
+
+    offeringId: ID!
+  ): Enrollment
+
   "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
   courseMap(slug: String!): CourseMap
 
