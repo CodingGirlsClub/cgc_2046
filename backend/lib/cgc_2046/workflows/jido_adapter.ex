@@ -11,7 +11,7 @@ defmodule Cgc2046.Workflows.JidoAdapter do
   执行走 **Workflow 层 runic 原生 runner**（`Runic.Workflow.react_until_satisfied/3`，
   图边状态驱动），不走 Agent 策略层 join——后者有 F1 死锁缺陷
   （jido_runic 1.0 `handle_apply_result` 把 `result=:waiting` 的 join 占位也算
-  「已运行」，第二次 feed 被 ran_nodes 过滤 → 死锁，见 docs/04-引擎验证/poc-验证报告.md §3.3）。
+  「已运行」，第二次 feed 被 ran_nodes 过滤 → 死锁）。
 
   ## 步骤四分类编译（#36）
 

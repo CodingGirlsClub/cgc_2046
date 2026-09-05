@@ -3,8 +3,7 @@ defmodule Cgc2046.Notifications.NotificationWorker do
   异步发送审批结果或提醒订阅消息。
 
   通知类型契约的唯一真源 = 本 module 的 `@notification_types` 表（经 `type/1` /
-  `types/0` 公开读契约，2026-08-18 架构深化候选 D；plan
-  docs/plans/2026-08-18-005-notification-type-registry.md D1-D8 全锁定）。
+  `types/0` 公开读契约，2026-08-18 架构深化候选 D）。
   生产方（subscriber/worker）仍自构建 data/job_meta 值（D4/D6），契约描述引用
   `type/1`；unique 预设由 Notifications.Fanout 缺省查表（D3）；提醒类类型的 stale
   重查由本 module 表驱动解释器统一判定（D2）。

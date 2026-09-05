@@ -2,9 +2,7 @@ defmodule Cgc2046.ApprovalClaim do
   @moduledoc """
   原子抢占（approval claim）唯一真源：把「读到 X 且未过期才置 Y」下推成 DB 原子动作。
 
-  （2026-08-17 架构深化候选 A+B，plan
-  docs/plans/2026-08-17-001-approval-claim-predicate-port.md D1-D10 全锁定；评审
-  docs/reviews/architecture-review-2026-08-16.html 候选 A）
+  （2026-08-17 架构深化候选 A+B）
 
   收敛前，7 资源内联 ~14 份「条件 UPDATE + num_rows 判读」拷贝（join_request /
   workspace_application / invitation / enrollment / sponsorship / speaker_invitation）；

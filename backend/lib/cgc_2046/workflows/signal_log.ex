@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.SignalLog do
   @moduledoc """
   收到的外部信号日志资源（Slice C #37，阶段 4）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.1/§8）：SignalLog 属引擎 context，
+  领域模型：SignalLog 属引擎 context，
   记录引擎 run 收到的外部信号（signal type/payload/时间/发起人），审计与溯源用
   （§8 审计原则：引擎侧事件入 Thread journal，SignalLog 为产品层审计视图）。
 

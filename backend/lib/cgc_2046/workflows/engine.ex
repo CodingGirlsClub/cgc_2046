@@ -10,7 +10,7 @@ defmodule Cgc2046.Workflows.Engine do
 
   执行走 `Cgc2046.Workflows.JidoAdapter.react_until_satisfied/2`（Workflow 层 runic
   runner，图边状态驱动），不走 Agent 策略层 join——后者有 F1 死锁缺陷
-  （见 `JidoAdapter` moduledoc 与 docs/04-引擎验证/poc-验证报告.md §3.3）。
+  （见 `JidoAdapter` moduledoc）。
 
   ## 契约
 
