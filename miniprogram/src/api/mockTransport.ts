@@ -86,6 +86,13 @@ let enrollment: MockEnrollment | null = null
 let order: MockOrder | null = null
 let orderStatusOverride: string | null = null
 
+// 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
+const ACTIVE_STATUSES: Record<string, true> = {
+  pending: true,
+  payment_pending: true,
+  confirmed: true
+}
+
 /** e2e 钩子:测试脚本推进订单态(支付完成模拟) */
 export function __setOrderStatus(status: string | null): void {
   orderStatusOverride = status
@@ -95,6 +102,18 @@ function variablesRecord(variables: object): Record<string, unknown> {
   return variables as Record<string, unknown>
 }
 
+// #355 P1-3：登录且在目标上有活跃报名 → myEnrollment 投影（后端活跃集口径）
+function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
+  if (!loggedIn || !enrollment) return null
+  const targetId = kind === 'event' ? enrollment.eventId : enrollment.courseId
+  if (targetId !== offeringId || !ACTIVE_STATUSES[enrollment.status]) return null
+  return {
+    id: enrollment.id,
+    status: enrollment.status,
+    approvalDeadline: enrollment.approvalDeadline
+  }
+}
+
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
 
@@ -102,10 +121,23 @@ function responseFor(document: string, variables: object): unknown {
     return { listEvents: { results: records }, listCourses: { results: [course] } }
   }
   if (document.includes('query EventDetail')) {
-    return { getEvent: records.find(({ id }) => id === values.id) ?? null }
+    return {
+      getEvent: records.find(({ id }) => id === values.id) ?? null,
+      myEnrollment: myEnrollmentFor('event', String(values.id ?? ''))
+    }
   }
   if (document.includes('query CourseDetail')) {
-    return { getCourse: values.id === course.id ? course : null }
+    return {
+      getCourse: values.id === course.id ? course : null,
+      myEnrollment: myEnrollmentFor('course', String(values.id ?? ''))
+    }
+  }
+  if (document.includes('query Enrollment(')) {
+    return {
+      enrollments: {
+        results: loggedIn && enrollment && enrollment.id === values.id ? [enrollment] : []
+      }
+    }
   }
   if (document.includes('query Session')) {
     // 审批行 contextTitle 查表键（与后端 enrich 的 offering 标题装配同构）
