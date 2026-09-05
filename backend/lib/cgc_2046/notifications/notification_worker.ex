@@ -45,8 +45,9 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       unique: :default,
       stale: nil
     },
-    # 活动开始提醒 → 已报名用户（event_reminder；发送方 #203 未落地，映射层
-    # 已注册——配置齐全即可发送，前端订阅触点在 my-enrollments 页）。
+    # 活动开始提醒 → 已报名用户（event_reminder；发送方已落地：Offering.
+    # EventReminderWorker，#203 方案 B 24h 窗口，cron "23 * * * *"——前端
+    # 订阅触点在 my-enrollments 页）。
     %{
       template_key: "event_reminder",
       id_key: nil,
