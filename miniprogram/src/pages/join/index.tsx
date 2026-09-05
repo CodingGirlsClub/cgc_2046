@@ -7,7 +7,9 @@ import styles from './index.module.css'
 
 export default function JoinPage() {
   const router = useRouter()
-  const [scene, setScene] = useState(() => takePendingScene(router.params.scene))
+  // 路由带入的初始邀请码：mount 后定死，供 defaultValue 绑定（iOS 竞态纪律见 register-form）
+  const [initialScene] = useState(() => takePendingScene(router.params.scene))
+  const [scene, setScene] = useState(initialScene)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -49,7 +51,7 @@ export default function JoinPage() {
       <Text className={styles.subtitle}>邀请码仅可使用一次，请确认来自你信任的组织者。</Text>
       <View className={styles.card}>
         <Text className={styles.label}>邀请码</Text>
-        <Input className={styles.input} defaultValue={scene} placeholder='请输入邀请码' onInput={(event) => setScene(event.detail.value)} />
+        <Input className={styles.input} defaultValue={initialScene} placeholder='请输入邀请码' onInput={(event) => setScene(event.detail.value)} />
       </View>
       {error && <Text className={styles.error}>{error}</Text>}
       <Button className={styles.primaryButton} loading={loading || submitting} disabled={loading || submitting || !scene.trim()} onClick={admit}>确认加入</Button>
