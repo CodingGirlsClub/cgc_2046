@@ -7,7 +7,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   - workspace 成员(tutor/教研编辑/管理面);
   - 本人 confirmed enrollment(事件级参与者,非成员);
   - 本人学习 run 持有者(任意状态,含课程 close/cancel 后——「曾学过」读面,
-    S8 起 `Runs.learning_run_holder?/2`,替代已删除的 LearningRecord 记忆持有者层)。
+    S8 起 `Runs.learning_run_holder?/3`(租户收紧,#349 A),替代已删除的 LearningRecord 记忆持有者层)。
 
   `get_course_content` / `get_learning_state` 共用完整判定。
   """
@@ -38,7 +38,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
     cond do
       member?(actor, workspace_id) -> :ok
       confirmed_enrollment?(actor, workspace_id, course_id) -> :ok
-      Runs.learning_run_holder?(actor, course_id) -> :ok
+      Runs.learning_run_holder?(actor, workspace_id, course_id) -> :ok
       true -> {:error, "forbidden: enrolled learner or learning run holder required"}
     end
   end

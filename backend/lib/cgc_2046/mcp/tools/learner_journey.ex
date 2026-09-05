@@ -51,16 +51,20 @@ defmodule Cgc2046.Mcp.Tools.LearnerJourney do
     do: {:error, "invalid kind: #{inspect(other)} (expected event | course)"}
 
   @doc """
-  actor 在目标 offering 上的活跃报名（无 → nil）。带 actor 走 policy；
-  读取失败按无报名降级（发现/摘要面的附挂信息不阻断主读）。
+  actor 在目标 workspace 内、目标 offering 上的活跃报名（无 → nil）。带 actor
+  走 policy；读取失败按无报名降级（发现/摘要面的附挂信息不阻断主读）。
+
+  workspace 过滤（#349 B）：幂等重放回读按 (actor, kind, offering, workspace)
+  四元组钉死；offering UUID 全局唯一下为防御深度，fail-closed。
   """
-  @spec active_enrollment(term(), :event | :course, String.t()) :: Enrollment.t() | nil
-  def active_enrollment(actor, kind, offering_id) do
+  @spec active_enrollment(term(), :event | :course, String.t(), String.t()) ::
+          Enrollment.t() | nil
+  def active_enrollment(actor, kind, offering_id, workspace_id) do
     {event_ids, course_ids} =
       if kind == :event, do: {[offering_id], []}, else: {[], [offering_id]}
 
     actor
-    |> active_enrollments_by_offering(event_ids, course_ids)
+    |> active_enrollments_by_offering(event_ids, course_ids, workspace_id)
     |> Map.get({kind, offering_id})
   end
 
@@ -68,14 +72,22 @@ defmodule Cgc2046.Mcp.Tools.LearnerJourney do
   批量取 actor 在给定 offering id 集上的活跃报名：
   `%{(:event | :course, offering_id) => %Enrollment{}}`（消 N+1）。
   """
-  @spec active_enrollments_by_offering(term(), [String.t()], [String.t()]) ::
+  @spec active_enrollments_by_offering(term(), [String.t()], [String.t()], String.t() | nil) ::
           %{{:event | :course, String.t()} => Enrollment.t()}
-  def active_enrollments_by_offering(actor, event_ids, course_ids) do
-    Enrollment
-    |> Ash.Query.filter(
-      user_id == ^actor.id and status in ^@active_statuses and
-        (event_id in ^event_ids or course_id in ^course_ids)
-    )
+  def active_enrollments_by_offering(actor, event_ids, course_ids, workspace_id \\ nil) do
+    query =
+      Enrollment
+      |> Ash.Query.filter(
+        user_id == ^actor.id and status in ^@active_statuses and
+          (event_id in ^event_ids or course_id in ^course_ids)
+      )
+
+    query =
+      if workspace_id,
+        do: Ash.Query.filter(query, workspace_id == ^workspace_id),
+        else: query
+
+    query
     |> Ash.read(actor: actor)
     |> case do
       {:ok, enrollments} ->
