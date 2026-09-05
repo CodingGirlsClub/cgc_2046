@@ -54,7 +54,11 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   @learner_templates ~w(approval_result enrollment_completed payment_succeeded
                          payment_expired refund_succeeded refund_failed
                          event_reminder learning_stagnation)
-  @manager_templates ~w(approval_reminder enrollment_submitted payment_received)
+  # speaker_accepted 受众纯管理者（speaker_invitation_worker.ex:46）；advisor
+  # review #422 捕获其误兜底 profile 的断点残留。speaker_completed 双受众
+  # （管理者 + speaker 本人）维持兜底 profile——已知取舍：speaker 侧点开无
+  # 权威页，多数方（管理者）可从 workspace  speakers 面板查看。
+  @manager_templates ~w(approval_reminder enrollment_submitted payment_received speaker_accepted)
 
   defp notification_page(platform, template_key) do
     cond do
@@ -62,7 +66,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       platform in [:tt, :xhs] -> "pages/my-enrollments/index"
       template_key in @learner_templates -> "pages/my-enrollments/index"
       template_key in @manager_templates -> "pages/workspace/index"
-      # speaker_* 与未知模板：维持原落页（profile 本机通知中心）
+      # speaker_completed（双受众）与未知模板：维持原落页（profile 本机通知中心）
       true -> "pages/profile/index"
     end
   end
