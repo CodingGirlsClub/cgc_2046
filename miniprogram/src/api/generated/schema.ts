@@ -3946,6 +3946,7 @@ export type RootQueryType = {
   courseLearningDetail?: Maybe<CourseLearningDetail>;
   /** 公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist */
   courseMap?: Maybe<CourseMap>;
+  /** 报名列表（graphql enrollments；按插入时间倒序） */
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 按 id 获取课程（#40） */
   getCourse?: Maybe<Course>;

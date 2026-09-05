@@ -111,6 +111,8 @@ export interface EnrollmentSummary {
   status: EnrollmentStatus
   approvalDeadline: string | null
   rejectionReason: string | null
+  /** #411 同活动折叠的分组/排序键（服务端 create_timestamp，ISO 时间串） */
+  insertedAt: string
 }
 
 export interface EnrollmentForm {

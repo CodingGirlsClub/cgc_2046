@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { api, SessionExpiredError } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
+import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
 import { enrollmentStatusText, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary } from '@/domain/models'
 import { PAYMENT_STATUS_LABEL } from '@/domain/payment'
@@ -18,6 +19,8 @@ export default function MyEnrollmentsPage() {
   const [expired, setExpired] = useState(false)
   const [now, setNow] = useState(Date.now)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  // #411 折叠历史区的展开态（本地态，按组键=latest.id；刷新/重载后收起）
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
 
   const [paymentByEnrollment, setPaymentByEnrollment] = useState<Record<string, string>>({})
 
@@ -93,6 +96,9 @@ export default function MyEnrollmentsPage() {
       setCancellingId(null)
     }
   }
+  // #411：同 (kind, targetId) 多条折叠——最新条主卡片（全部操作只属于它），
+  // 其余进「历史记录」只读区
+  const groups = groupEnrollmentsByTarget(items)
 
   return (
     <View className={styles.page}>
@@ -117,7 +123,10 @@ export default function MyEnrollmentsPage() {
           />
         ) : items.length === 0 ? (
           <PageState kind='empty' message='还没有报名记录，去发现页看看吧' />
-        ) : items.map((item) => (
+        ) : groups.map((group) => {
+          const item = group.latest
+          const expanded = expandedGroups[item.id] === true
+          return (
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>
             <View className={styles.cardHeader}>
               <Text className={styles.kind}>{item.kind === 'event' ? '活动' : '课程'}</Text>
@@ -183,8 +192,29 @@ export default function MyEnrollmentsPage() {
               </Button>
             )}
             {item.rejectionReason && <Text className={styles.reason}>原因：{item.rejectionReason}</Text>}
+            {group.history.length > 0 && (
+              <View className={styles.historyBlock}>
+                <Text
+                  className={styles.historyToggle}
+                  data-testid={`history-toggle-${item.id}`}
+                  onClick={() => setExpandedGroups((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                >
+                  历史记录({group.history.length}){expanded ? ' · 收起' : ''}
+                </Text>
+                {expanded && group.history.map((record) => (
+                  <View key={record.id} className={styles.historyRow} data-testid={`history-${record.id}`}>
+                    <View className={styles.historyHeader}>
+                      <Text className={`${styles.status} ${styles[record.status]}`}>{enrollmentStatusText[record.status]}</Text>
+                      <Text className={styles.historyTime}>{new Date(record.insertedAt).toLocaleString()}</Text>
+                    </View>
+                    {record.rejectionReason && <Text className={styles.historyReason}>原因：{record.rejectionReason}</Text>}
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
-        ))}
+          )
+        })}
       </ScrollView>
       {process.env.TARO_ENV !== 'weapp' && (
         <Text className={styles.platformTip}>审批结果将通过本端订阅消息通知你</Text>

@@ -168,9 +168,22 @@ defmodule Cgc2046.Admission.Enrollment do
   actions do
     defaults([:read])
 
+    # #411：keyset 分页要求稳定唯一序，而 UUID v4 主键时间无序——
+    # 无显式 sort 时列表顺序契约上无保证（拒绝/重报多条乱序平铺真机回归）。
+    # graphql 的 enrollments 列表改绑本 action（对齐 order.ex 先例，
+    # inserted_at desc + id 兜底：同秒平票时 id 作 tiebreaker 保 keyset 序唯一）；
+    # 默认 :read 保留 defaults 形态——显式重定义同名 action 会丢 graphql
+    # list 的分页形态（KeysetPageOfEnrollment 退化为裸数组）。
+    read :list_enrollments do
+      description("报名列表（graphql enrollments；按插入时间倒序）")
+      prepare(build(sort: [inserted_at: :desc, id: :asc]))
+      pagination(keyset?: true, default_limit: 250)
+    end
+
     read :my_enrollments do
       description("当前用户跨工作台的报名记录")
       filter(expr(user_id == ^actor(:id)))
+      prepare(build(sort: [inserted_at: :desc, id: :asc]))
       pagination(keyset?: true, default_limit: 250)
     end
 
@@ -395,7 +408,7 @@ defmodule Cgc2046.Admission.Enrollment do
     ])
 
     queries do
-      list(:enrollments, :read)
+      list(:enrollments, :list_enrollments)
       list(:my_enrollments, :my_enrollments)
     end
 

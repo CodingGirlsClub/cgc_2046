@@ -5921,6 +5921,7 @@ type RootQueryType {
     slug: String!
   ): Course
 
+  "报名列表（graphql enrollments；按插入时间倒序）"
   enrollments(
     "How to sort the records in the response"
     sort: [EnrollmentSortInput]
