@@ -67,6 +67,14 @@ export interface ApprovalSummary {
   workspaceId: string
   workspaceName: string
   targetId: string | null
+  /** 申请人摘要（后端 enrich：display_name || email；sponsorship 行 = 公司名） */
+  requesterName: string
+  /** 审批对象标题（enrollment = 活动/课程名；join_request/sponsorship = 工作台名） */
+  contextTitle: string | null
+  /** 价格档位名（仅 sponsorship 行携带；enrollment 行为 null） */
+  tierName: string | null
+  /** 金额，单位元（仅 sponsorship 行携带意向金额；enrollment 行为 null） */
+  amount: number | null
   status: string
   approvalDeadline: string | null
 }
@@ -75,6 +83,11 @@ export interface SessionSnapshot {
   user: UserSummary | null
   workspaces: WorkspaceSummary[]
   approvals: ApprovalSummary[]
+  /**
+   * 掉线标记：曾有 token 但会话查询失败被降级（auth 错误或服务端错误清 token）。
+   * UI 据此区分「未登录」与「登录已失效」。网络瞬态失败（token 保留）为 false。
+   */
+  authExpired: boolean
 }
 
 export interface EnrollmentSummary {
