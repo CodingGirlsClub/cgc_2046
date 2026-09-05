@@ -113,6 +113,10 @@ export const SessionQueryDocument = /* GraphQL */ `
       courseId
       status
       approvalDeadline
+      requesterName
+      contextTitle
+      tierName
+      amount
     }
   }
 `
