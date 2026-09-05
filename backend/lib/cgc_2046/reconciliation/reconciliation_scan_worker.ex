@@ -1,6 +1,6 @@
 defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   @moduledoc """
-  对账扫描 worker（E-10 #125；设计 docs/plans/2026-08-15-011-e10-reconciliation-scan.md D2）。
+  对账扫描 worker（E-10 #125）。
 
   Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫十二条规则 →
   落 `reconciliation_findings`（`Cgc2046.Reconciliation.Finding`）。

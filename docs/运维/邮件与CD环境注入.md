@@ -1,6 +1,6 @@
 # 邮件与 CD 环境注入契约
 
-> 关联：issue #164（邮件基建 CD 就绪）；plan `docs/plans/2026-08-15-022-email-infra-cd-readiness-plan.md`
+> 关联：issue #164（邮件基建 CD 就绪）
 >
 > 本文档定义生产环境邮件（SendCloud）相关环境变量的**注入契约**：五个值放在哪、谁消费、上线前检查什么、CI 的边界在哪。它是后续 deployment/release workflow 与运维人员的唯一事实来源。
 

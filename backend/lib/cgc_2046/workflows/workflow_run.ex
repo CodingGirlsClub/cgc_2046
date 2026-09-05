@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   @moduledoc """
   Workflow 执行实例资源（Slice C #35）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：WorkflowRun 是 WorkflowDefinition 的
+  领域模型：WorkflowRun 是 WorkflowDefinition 的
   执行实例，绑定 definition_id + definition_version（D-A2 版本快照：已开始 run 持当时
   published 版本，不随后续版本变动）。
 
