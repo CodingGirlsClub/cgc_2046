@@ -1,0 +1,11 @@
+.page { min-height: 100vh; padding: 40rpx 34rpx 64rpx; box-sizing: border-box; background: #fff; color: #222326; }
+.title { display: block; font-size: 40rpx; font-weight: 700; }
+.meta { margin-top: 20rpx; padding: 22rpx; background: #f4f5f8; border-radius: 16rpx; }
+.metaText { display: block; color: #4b4d54; font-size: 22rpx; line-height: 1.7; }
+.intro { display: block; margin-top: 28rpx; font-size: 26rpx; line-height: 1.8; }
+.section { margin-top: 44rpx; }
+.sectionTitle { display: block; font-size: 30rpx; font-weight: 700; }
+.subsection { margin-top: 8rpx; }
+.subTitle { display: block; margin-top: 22rpx; font-size: 26rpx; font-weight: 650; }
+.item { display: block; margin-top: 12rpx; padding-left: 8rpx; color: #4b4d54; font-size: 24rpx; line-height: 1.7; }
+.paragraph { display: block; margin-top: 16rpx; font-size: 25rpx; line-height: 1.8; }

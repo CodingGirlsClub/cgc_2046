@@ -7,6 +7,10 @@ import { preparePlatformLogin } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
+// 裁剪端（抖音/小红书）不注册 privacy 页（政策原文含「微信」等词，
+// 过不了 CI check:diversion 词表）——协议文案在裁剪端保持纯文本
+const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+
 export default function LoginPage() {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
@@ -62,8 +66,13 @@ export default function LoginPage() {
         {submitting ? '正在登录…' : `${__PLATFORM_NAME__}手机号快捷登录`}
       </Button>
       <Text className={styles.agreement}>
-        登录即表示你同意隐私授权说明
-        {process.env.TARO_ENV !== 'tt' && process.env.TARO_ENV !== 'xhs' ? '；可在「我的」中退出' : ''}。
+        登录即表示你同意
+        {isCut ? (
+          '隐私授权说明'
+        ) : (
+          <Text className={styles.agreementLink} onClick={() => Taro.navigateTo({ url: '/pages/privacy/index' })}>隐私授权说明</Text>
+        )}
+        {!isCut ? '；可在「我的」中退出' : ''}。
       </Text>
       <Text className={styles.tagline}>Coding Girls Club · 程序媛汇 — 2016 → 2046</Text>
     </View>

@@ -46,7 +46,8 @@ export default function ProfilePage() {
       setSceneInputKey((k) => k + 1)
       await load()
     } catch (reason) {
-      Taro.showToast({ title: reason instanceof Error ? reason.message : '加入失败', icon: 'none' })
+      // 兜底文案与 join 页 admit 同款（#355-12：双入口文案统一）
+      Taro.showToast({ title: reason instanceof Error ? reason.message : '邀请码无效或已过期', icon: 'none' })
     } finally {
       setAction('')
     }
@@ -135,7 +136,7 @@ export default function ProfilePage() {
 
             <Text className={styles.sectionTitle}>加入工作台</Text>
             <View className={styles.panel}>
-              <Text className={styles.panelText}>输入组织者分享给你的邀请码，仅可使用一次。</Text>
+              <Text className={styles.panelText}>输入组织者分享给你的邀请码，仅可使用一次，请确认来自你信任的组织者。</Text>
               <View className={styles.inlineForm}>
                 <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请码' defaultValue={scene} onInput={(event) => setScene(event.detail.value)} />
                 <Button className={styles.inlineButton} size='mini' loading={action === 'admit'} onClick={admit}>确认加入</Button>
