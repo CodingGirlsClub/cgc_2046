@@ -47,7 +47,8 @@ defmodule Cgc2046.Notifications.Fanout do
   ## telemetry（Q10）
 
   事件 `[:cgc2046, :notification_fanout, :deliver]`：measurements `%{count: n}`
-  （本次入队条数），metadata `%{status: :ok | :error, template_key, error}`。
+  （本次入队条数），metadata `%{status: :ok | :skipped | :error, template_key, error}`。
+  `:skipped` 表示收件人零身份、未入队（#406，告警可见）。
   """
 
   require Ash.Query
@@ -107,7 +108,8 @@ defmodule Cgc2046.Notifications.Fanout do
   - `unique`：命名预设（见 moduledoc）；缺省 nil 时按 `template_key` 查
     `NotificationWorker.type/1` 的 unique 预设（默认 `:default`）。
 
-  返回 `:ok`（成功或 rescue 内化后）；成功/失败均发 telemetry。
+  返回 `:ok`（成功、零身份跳过或 rescue 内化后）；telemetry status：
+  `:ok` / `:skipped`（零身份，#406）/ `:error`。
   """
   @spec deliver(
           %{String.t() => [UserIdentity.t()]} | {String.t(), [UserIdentity.t()]},
@@ -118,19 +120,37 @@ defmodule Cgc2046.Notifications.Fanout do
         ) :: :ok
   def deliver(recipients, template_key, data, job_meta, unique \\ nil) do
     unique = unique || unique_for(template_key)
+    recipients = normalize_recipients(recipients)
 
-    count =
-      recipients
-      |> normalize_recipients()
-      |> Enum.reduce(0, fn {user_id, identities}, acc ->
-        Enum.reduce(identities, acc, fn identity, acc2 ->
-          insert_notification(identity, user_id, template_key, data, job_meta, unique)
-          acc2 + 1
-        end)
+    total =
+      Enum.reduce(recipients, 0, fn {_user_id, identities}, acc ->
+        acc + length(identities)
       end)
 
-    emit(:ok, template_key, nil, count)
-    :ok
+    # #406 B-1 修复：零身份不再静默丢弃（生产实证 enrollment.approved 因
+    # identities=[] 永久丢失且无人知）。不入队的行为不变，但打 warning 并以
+    # telemetry status :skipped 显式暴露，供告警侧消费。
+    if total == 0 do
+      Logger.warning(
+        "notification deliver skipped: no identities " <>
+          "(template_key=#{template_key}, user_ids=#{inspect(Map.keys(recipients))}, " <>
+          "job_meta=#{inspect(job_meta)})"
+      )
+
+      emit(:skipped, template_key, nil, 0)
+      :ok
+    else
+      count =
+        Enum.reduce(recipients, 0, fn {user_id, identities}, acc ->
+          Enum.reduce(identities, acc, fn identity, acc2 ->
+            insert_notification(identity, user_id, template_key, data, job_meta, unique)
+            acc2 + 1
+          end)
+        end)
+
+      emit(:ok, template_key, nil, count)
+      :ok
+    end
   rescue
     error ->
       Logger.warning("notification deliver failed (#{template_key}): #{Exception.message(error)}")
@@ -194,6 +214,7 @@ defmodule Cgc2046.Notifications.Fanout do
     |> Oban.insert!()
   end
 
+  # status 取值：:ok / :skipped（零身份，#406）/ :error；metadata 原样透传。
   defp emit(status, template_key, error, count) do
     :telemetry.execute(@telemetry_event, %{count: count}, %{
       status: status,
