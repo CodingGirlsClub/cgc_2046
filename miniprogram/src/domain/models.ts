@@ -36,6 +36,18 @@ export interface CatalogItem {
   venue: string | null
   /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
   enrollmentBadge: EnrollmentBadge
+  /**
+   * 当前登录用户在本条目上的活跃报名（#355 P1-3；pending/payment_pending/
+   * confirmed，后端仅返回活跃集——在场即「已报名」）。匿名/未报名 → null。
+   */
+  myEnrollment: MyEnrollmentState | null
+}
+
+/** 详情页「已报名」态的本人活跃报名投影（myEnrollment 查询子集） */
+export interface MyEnrollmentState {
+  id: string
+  status: EnrollmentStatus
+  approvalDeadline: string | null
 }
 
 /** 价格档位（display 层消费形状；解析见 domain/payment.parsePriceTiers） */
@@ -148,6 +160,8 @@ export interface MiniProgramApi {
   signIn(payload: PlatformPhonePayload): Promise<SessionSnapshot>
   signOut(): Promise<void>
   getEnrollments(): Promise<EnrollmentSummary[]>
+  /** #355 P1-4：按 id 回查单条本人报名（服务端过滤）；查无 → null */
+  getEnrollment(id: string): Promise<EnrollmentSummary | null>
   cancelEnrollment(id: string): Promise<void>
   createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary>
   /** U12：JSAPI 下单（provider 固定 wechat_jsapi，R13） */
