@@ -35,6 +35,44 @@ export const CatalogQueryDocument = /* GraphQL */ `
     }
   }
 `
+// #355 P2-10：发现页搜索服务端化。keyword 非空时改用本文档，filter 变量由
+// catalogSearchVariables 构造（status/visibility 钉死 + title ilike `%kw%`）；
+// 拆成两份文档是因为 AshGraphql 对 filter 内的 null 子字段容忍度未验证，
+// 空关键词继续走上方无变量的 CatalogQueryDocument。
+export const CatalogSearchQueryDocument = /* GraphQL */ `
+  query CatalogSearch($first: Int, $eventFilter: EventFilterInput, $courseFilter: CourseFilterInput) {
+    listEvents(first: $first, filter: $eventFilter) {
+      results {
+        id
+        title
+        status
+        enrollmentPolicy
+        registrationDeadline
+        pricingEnabled
+        availablePriceTiers
+        startsAt
+        endsAt
+        venue
+        enrollmentBadge
+      }
+    }
+    listCourses(first: $first, filter: $courseFilter) {
+      results {
+        id
+        title
+        status
+        enrollmentPolicy
+        registrationDeadline
+        pricingEnabled
+        availablePriceTiers
+        startsAt
+        endsAt
+        enrollmentBadge
+      }
+    }
+  }
+`
+
 
 export const EventDetailQueryDocument = /* GraphQL */ `
   query EventDetail($id: ID!) {
