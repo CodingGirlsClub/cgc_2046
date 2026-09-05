@@ -72,10 +72,14 @@ export default function MyEnrollmentsPage() {
   const cancelEnrollment = async (item: EnrollmentSummary) => {
     const modal = await Taro.showModal({
       title: '取消报名',
+      // 已支付分支（#355-7）：用户侧取消只释放名额+作废订单，不触发退款——
+      // 退款由组织者经 refundOrder 发起，文案不承诺自动退款。
       content:
         item.status === 'payment_pending'
           ? '取消后将释放名额并作废待支付订单，此操作不可恢复。'
-          : '取消后名额将即时释放，此操作不可恢复。'
+          : paymentByEnrollment[item.id] === 'paid'
+            ? '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
+            : '取消后名额将即时释放，此操作不可恢复。'
     })
     if (!modal.confirm) return
 

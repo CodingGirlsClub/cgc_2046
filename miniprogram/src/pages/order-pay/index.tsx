@@ -13,6 +13,7 @@ import {
   type RequestPaymentArgs
 } from '@/domain/payment'
 import type { OrderSummary } from '@/domain/models'
+import { requestPlatformSubscription } from '@/platform'
 import styles from './index.module.css'
 
 /**
@@ -132,6 +133,19 @@ export default function OrderPayPage() {
     void pollStatus()
   }
 
+  // paid 态订阅活动提醒（#355-9）：与 my-enrollments 卡片订阅按钮同链路
+  // （requestPlatformSubscription → grantConsent），入口前移到支付成功即时点。
+  const subscribeReminder = async () => {
+    try {
+      if (await requestPlatformSubscription('event_reminder')) {
+        await api.grantConsent('event_reminder')
+        Taro.showToast({ title: '已订阅活动提醒', icon: 'success' })
+      }
+    } catch (reason) {
+      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
+    }
+  }
+
   if (!enrollmentId) return <PageState kind='empty' message='缺少报名信息' />
   if (phase === 'creating' && !error) return <PageState kind='loading' />
 
@@ -160,6 +174,13 @@ export default function OrderPayPage() {
               onClick={() => Taro.reLaunch({ url: '/pages/my-enrollments/index' })}
             >
               查看我的报名
+            </Button>
+            <Button
+              className={styles.textButton}
+              data-testid='subscribe-reminder'
+              onClick={() => void subscribeReminder()}
+            >
+              订阅活动提醒
             </Button>
           </View>
         ) : expired ? (
