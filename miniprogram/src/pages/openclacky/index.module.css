@@ -9,3 +9,6 @@
 .notice { margin-top: 52rpx; padding: 28rpx; color: #222326; background: #fff; border-radius: 22rpx; }
 .noticeTitle { display: block; font-size: 28rpx; font-weight: 650; }
 .noticeText { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 23rpx; line-height: 1.6; }
+.actions { margin-top: 52rpx; }
+.copyButton { color: #222326; background: #fff; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
+.installHint { display: block; margin-top: 26rpx; color: #ffa375; text-align: center; font-size: 23rpx; line-height: 1.6; text-decoration: underline; }
