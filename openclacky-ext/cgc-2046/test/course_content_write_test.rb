@@ -306,13 +306,18 @@ class CoursePanelEditTest < Minitest::Test
     assert_includes VIEW, "handwork"
     assert_includes VIEW, 'data-f="title"'
     assert_includes VIEW, 'data-f="as_a"'
-    assert_includes VIEW, 'data-f="given"'
     assert_includes VIEW, 'data-f="goal"'
-    assert_includes VIEW, 'data-f="materials"'
-    assert_includes VIEW, 'data-f="checklist"'
-    # 行内文档化的行格式
-    assert_includes VIEW, "标题 | 链接"
-    assert_includes VIEW, "id | 文本"
+    # #347:given/materials/checklist 结构化逐项输入,无分隔符行格式
+    assert_includes VIEW, 'data-f="given-item"'
+    assert_includes VIEW, 'data-f="m-title"'
+    assert_includes VIEW, 'data-f="m-ref"'
+    assert_includes VIEW, 'data-f="c-id"'
+    assert_includes VIEW, 'data-f="c-text"'
+    assert_includes VIEW, "data-add-given"
+    assert_includes VIEW, "data-remove-check"
+    # 行内文档化的逐项格式(不再是「标题 | 链接」分隔符约定)
+    assert_includes VIEW, "每条:标题 + 链接"
+    assert_includes VIEW, "每条:id + 验收文本"
     # 新 issue 稳定 id + 删除按钮
     assert_includes VIEW, '"issue-" + Date.now()'
     assert_includes VIEW, "data-remove-issue"
