@@ -45,11 +45,11 @@ export default function JoinPage() {
   return (
     <View className={styles.page}>
       <View className={styles.icon}>＋</View>
-      <Text className={styles.title}>加入 Workspace</Text>
-      <Text className={styles.subtitle}>确认邀请码来自你信任的组织者；scene 一次使用后即失效。</Text>
+      <Text className={styles.title}>加入工作台</Text>
+      <Text className={styles.subtitle}>邀请码仅可使用一次，请确认来自你信任的组织者。</Text>
       <View className={styles.card}>
-        <Text className={styles.label}>邀请 scene</Text>
-        <Input className={styles.input} defaultValue={scene} placeholder='请输入或扫码带入' onInput={(event) => setScene(event.detail.value)} />
+        <Text className={styles.label}>邀请码</Text>
+        <Input className={styles.input} defaultValue={scene} placeholder='请输入邀请码' onInput={(event) => setScene(event.detail.value)} />
       </View>
       {error && <Text className={styles.error}>{error}</Text>}
       <Button className={styles.primaryButton} loading={loading || submitting} disabled={loading || submitting || !scene.trim()} onClick={admit}>确认加入</Button>

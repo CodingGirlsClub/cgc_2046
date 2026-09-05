@@ -242,10 +242,14 @@ end
 class DiscoveryPanelViewTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))
 
+  # S4:发现面板改为隐藏功能页——注册 workspace 但不挂侧栏入口,
+  # 入口在「程序媛汇 2046」hub 目录卡(openWorkspace 直达)
   def test_iife_guard_and_workspace_registration
     assert_includes VIEW, "if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;"
     assert_includes VIEW, "Clacky.ext.ui.registerWorkspace"
     assert_includes VIEW, '"cgc-2046-discovery"'
+    assert_includes VIEW, 'openWorkspace("cgc")'
+    refute_includes VIEW, 'mount("sidebar.nav"', "隐藏功能页不得挂侧栏入口"
   end
 
   def test_state_machine_five_views
@@ -316,12 +320,13 @@ class DiscoveryPanelViewTest < Minitest::Test
     refute_includes VIEW, 'apiGet("/discover?' 
   end
 
-  def test_sidebar_entry_mount
-    # W2:workspace 型面板的宿主入口合同 = sidebar.nav mount(ext.js),
-    # 照首面板先例;data-ext-workspace 供宿主路由高亮。
-    assert_includes VIEW, 'mount("sidebar.nav"'
+  def test_hidden_page_no_sidebar_mount
+    # S4:发现面板为隐藏功能页——不挂侧栏入口(唯一入口 =「程序媛汇 2046」
+    # hub 目录卡 openWorkspace 直达);页头「返回工作台」按钮闭环。
+    refute_includes VIEW, 'mount("sidebar.nav"', "隐藏功能页不得挂侧栏入口"
     assert_includes VIEW, "openWorkspace"
-    assert_includes VIEW, "extWorkspace"
+    assert_includes VIEW, 'openWorkspace("cgc")'
+    assert_includes VIEW, 'cgc-back-home'
   end
 end
 

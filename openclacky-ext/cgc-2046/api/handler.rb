@@ -12,12 +12,14 @@
 
 require "json"
 require "securerandom"
+require "uri"
 require "fileutils"
 require_relative "mcp_config"
 require_relative "course_routes"
 require_relative "offering_routes"
 require_relative "workbench_routes"
 require_relative "learner_routes"
+require_relative "../hooks/credential"
 
 class Cgc2046Ext < Clacky::ApiExtension
   timeout 30
@@ -92,7 +94,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 移除 mcpServers["cgc-2046"] 条目并 reload MCP registry（断开连接）。
   # 事务（snapshot→remove→原子提交→reload→回滚）收在 Cgc2046McpConfig.disconnect_server。
   delete "/connect" do
-    guard_origin!
+    guard_write!
     # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe）
     reloader = -> { @http_server&.send(:mcp_registry)&.reload }
 
@@ -232,6 +234,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 学员学习状态投影(objective 课程地图/先修锁/next_action/进度):
   # 透传 MCP get_learning_state。两参数皆必填,缺一 → 400。
   get "/learning_state" do
+    guard_origin!
     workspace_id = route_params_value("workspace_id")
     course_id    = route_params_value("course_id")
     outcome =
@@ -268,15 +271,21 @@ class Cgc2046Ext < Clacky::ApiExtension
 
   # GET /api/ext/cgc-2046/courses/:course_id/revision
   # 课程当前已发布版本详情(展示增强用:issue 标题/kind;state 为底永不丢
-  # objective):透传 MCP get_course_revision(:course_id 路由捕获)。
+  # objective):透传 MCP get_course_revision。实证合同(UAT 真机 -32602):
+  # 上游工具必填 workspace_id(缺参路由层 400 引导;面板 apiGet 自动附
+  # workspace_id,无需面板侧改动)。
   get "/courses/:course_id/revision" do
-    course_id = route_params_value("course_id")
+    guard_origin!
+    course_id    = route_params_value("course_id")
+    workspace_id = route_params_value("workspace_id")
     outcome =
       if course_id.empty?
         { status: 400, body: { error: "course_id is required" } }
+      elsif workspace_id.empty?
+        { status: 400, body: { error: "workspace_id is required" } }
       else
         Cgc2046LearnerRoutes.call_learner_tool(self, "get_course_revision",
-                                               { "course_id" => course_id })
+                                               { "course_id" => course_id, "workspace_id" => workspace_id })
       end
     json(outcome[:body], status: outcome[:status])
   end
@@ -375,7 +384,70 @@ class Cgc2046Ext < Clacky::ApiExtension
     json(outcome[:body], status: outcome[:status])
   end
 
+
+  # GET /api/ext/cgc-2046/workspace/courses?workspace_id=
+  # 工作台全部课程(含 draft,#366):教研工作台课程发现面——
+  # tutor 有权编辑却不必然报名,get_my_enrollments 看不到未报名的课程
+  get "/workspace/courses" do
+    guard_origin!
+    workspace_id = route_params_value("workspace_id")
+    if workspace_id.empty?
+      json({ error: "workspace_id is required" }, status: 400)
+    else
+      outcome = Cgc2046CourseRoutes.call_course_tool(
+        self, "list_workspace_courses", { "workspace_id" => workspace_id }
+      )
+      json(outcome[:body], status: outcome[:status])
+    end
+  end
+
+  # GET /api/ext/cgc-2046/activity
+  # 最近 CGC 助手调用记录(历史回放):扫描宿主全部会话消息中
+  # invoke_skill(skill_name=mcp:cgc-2046)的工具调用,匹配 role=tool 结果消息
+  # 判定成败(subagent summary 含 "Subagent executed successfully" 为成功——
+  # 与 hooks/after_tool_use 的实时事件互补:实时事件不落盘,本端点补历史)。
+  # task 摘要截断 120 字符 + 凭证脱敏,时间倒序,最近 20 条。
+  get "/activity" do
+    guard_origin!
+    items = []
+    session_manager&.all_sessions&.each do |session|
+      messages = session[:messages] || session["messages"] || []
+      by_call_id = messages.each_with_object({}) do |m, acc|
+        next unless (m[:role] || m["role"]).to_s == "tool"
+        call_id = m[:tool_call_id] || m["tool_call_id"]
+        acc[call_id] = (m[:content] || m["content"]).to_s
+      end
+      messages.each do |m|
+        next unless (m[:role] || m["role"]).to_s == "assistant"
+        Array(m[:tool_calls] || m["tool_calls"]).each do |tc|
+          next unless tc.is_a?(Hash)
+          fn = tc[:function] || tc["function"]
+          next unless fn.is_a?(Hash)
+          next unless (fn[:name] || fn["name"]).to_s == "invoke_skill"
+          raw_args = fn[:arguments] || fn["arguments"]
+          args = raw_args.is_a?(String) ? (JSON.parse(raw_args) rescue {}) : (raw_args || {})
+          next unless args["skill_name"].to_s == "mcp:cgc-2046"
+          call_id = tc[:id] || tc["id"]
+          result_text = by_call_id[call_id].to_s
+          ok = result_text.empty? || result_text.include?("Subagent executed successfully")
+          items << {
+            at: (m[:created_at] || m["created_at"]),
+            status: ok ? "ok" : "error",
+            task: redact_text(args["task"].to_s.gsub(/\s+/, " ")[0, 120])
+          }
+        end
+      end
+    end
+    items.sort_by! { |i| -(i[:at].to_f) }
+    json(ok: true, activity: items.first(20))
+  end
+
   private
+
+  # 凭证脱敏(与 hooks/credential 同一套正则;摘要进响应体前抹 Bearer/cgc_/裸 JWT)
+  def redact_text(text)
+    text.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
+  end
 
   # ---- advisor F2:loopback 请求来源收口(CSRF/跨站借用防线) ----
   # 宿主 http server 对 loopback peer 免 access key + CORS 全开(Allow-Origin: *
@@ -386,6 +458,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   #   2) 写路由(POST):Content-Type 必须 application/json(挡 text/plain 的
   #      cross-site simple request)+ CSRF token 匹配(进程级随机 token 经
   #      GET /status 同源下发;跨站页面读不到 /status——同为 origin 收口面)。
+  #   3) 写路由含 DELETE(断开连接):同样是写端点,与 POST 同规——跨站页面
+  #      可借宿主全开的 preflight 发出 cross-site DELETE,CSRF 一并拦截。
   # 注：同源比对按 host（剥端口后缀）——**同 host 异端口放行是已知残留面**
   # （如 Origin: http://localhost:9999 vs Host: localhost:4114）。攻击前提为
   # 受害者本机已运行恶意 HTTP 服务，风险低；收紧为 host+port 双比对前需先
@@ -433,8 +507,13 @@ class Cgc2046Ext < Clacky::ApiExtension
   def request_header(name)
     h = req.respond_to?(:header) ? req.header : (req.respond_to?(:headers) ? req.headers : {})
     return nil if h.nil?
-    v = h[name] || h[name.downcase] || h[name.upcase] ||
-        h[name.to_sym] || h[name.downcase.to_sym]
+    # WEBrick header 对未发送的键返回空数组(truthy)——直接 || 链会被空数组
+    # 短路,必须先剔除空值再取第一个候选
+    v = [h[name], h[name.downcase], h[name.upcase],
+         h[name.to_sym], h[name.downcase.to_sym]]
+        .compact
+        .reject { |x| x.is_a?(Array) && x.empty? }
+        .first
     v = v.first if v.is_a?(Array)
     v.is_a?(String) ? v : nil
   end

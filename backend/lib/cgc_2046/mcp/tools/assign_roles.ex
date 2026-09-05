@@ -27,7 +27,7 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
       description: "目标成员的 WorkspaceMembership ID（UUID，可从 list_members 获取）"
     )
 
-    field(:role_names, {:required, {:array, :string}},
+    field(:role_names, {:required, {:list, :string}},
       description:
         "替换后的完整角色集（owner|admin|tutor|volunteer|learner；空数组 = 清空全部角色；仅 Owner 可授予/撤销 owner）"
     )

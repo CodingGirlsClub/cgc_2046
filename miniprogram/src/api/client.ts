@@ -39,7 +39,7 @@ export function isAuthenticationError(error: unknown): boolean {
   )
 }
 
-function clearExpiredAuthentication(): void {
+export function clearExpiredAuthentication(): void {
   setAuthToken(null)
   clearWorkspaceTab()
   clearAccountState({ clearPendingScene: true })

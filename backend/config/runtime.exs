@@ -23,6 +23,24 @@ end
 config :cgc_2046, Cgc2046Web.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# 生产只读 release 内构建期复制的私有 tutor 增量；开发环境可显式指向私有仓库的
+# playbooks 子目录。test.exs 使用固定不存在目录，runtime 不得覆盖。
+if config_env() == :prod do
+  config :cgc_2046,
+         :playbooks_dir,
+         Path.join([:code.priv_dir(:cgc_2046), "playbooks"])
+end
+
+if config_env() == :dev do
+  playbooks_dir =
+    case System.get_env("CGC_PLAYBOOKS_DIR") do
+      nil -> nil
+      value -> if String.trim(value) == "", do: nil, else: value
+    end
+
+  config :cgc_2046, :playbooks_dir, playbooks_dir
+end
+
 # CORS origin: comma-separated list from env; defaults to localhost:3000 for dev/test.
 # In production, CORS_ORIGIN is required — deployment must set it to the actual
 # frontend origin (e.g., "https://app.example.com").

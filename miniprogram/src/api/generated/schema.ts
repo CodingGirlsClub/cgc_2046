@@ -761,6 +761,8 @@ export type CreateInvitationInput = {
   inviterId: Scalars['ID']['input'];
   /** 预授权角色名数组（可选） */
   preauthorizedRoleNames?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** 绑定的教研课程 ID 列表（可选；接受时自动指派教研 tutor） */
+  prepCourseIds?: InputMaybe<Array<Scalars['ID']['input']>>;
   /** 目标邮箱（空=公开链接） */
   targetEmail?: InputMaybe<Scalars['String']['input']>;
   /** 目标工作台 ID */
@@ -1786,6 +1788,8 @@ export type Invitation = {
   inviterId: Scalars['ID']['output'];
   /** 预授权角色名数组（可选） */
   preauthorizedRoleNames?: Maybe<Array<Scalars['String']['output']>>;
+  /** 绑定的教研课程 ID 列表（可选；接受时自动指派教研 tutor） */
+  prepCourseIds?: Maybe<Array<Scalars['ID']['output']>>;
   /** 邀请状态 */
   status: Scalars['String']['output'];
   /** 目标邮箱（空=公开链接） */

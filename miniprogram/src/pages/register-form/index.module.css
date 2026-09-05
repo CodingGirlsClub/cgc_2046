@@ -1,17 +1,17 @@
-.page { min-height: 100vh; padding: 28rpx 28rpx 56rpx; box-sizing: border-box; }
-.summary { padding: 30rpx; color: #fff; background: #172033; border-radius: 24rpx; }
-.summaryKind { display: block; color: #aeb6ff; font-size: 21rpx; }
+.page { min-height: 100vh; padding: 28rpx 28rpx 56rpx; box-sizing: border-box; background: #f7f7f7; }
+.summary { padding: 30rpx; color: #fff; background: #222326; border-radius: 24rpx; }
+.summaryKind { display: block; color: #ffa375; font-size: 21rpx; }
 .summaryTitle { display: block; margin-top: 12rpx; font-size: 34rpx; font-weight: 650; }
-.summaryPolicy { display: block; margin-top: 14rpx; color: #cbd1e2; font-size: 23rpx; }
-.form { margin-top: 22rpx; padding: 30rpx; background: #fff; border-radius: 24rpx; }
+.summaryPolicy { display: block; margin-top: 14rpx; color: #e4e4e7; font-size: 23rpx; }
+.form { margin-top: 22rpx; padding: 30rpx; background: #fff; border-radius: 24rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
 .formTitle { display: block; font-size: 34rpx; font-weight: 650; }
-.formHint { display: block; margin-top: 8rpx; color: #98a2b3; font-size: 22rpx; }
+.formHint { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 22rpx; }
 .field { margin-top: 30rpx; }
-.label { display: block; margin-bottom: 12rpx; color: #475467; font-size: 25rpx; font-weight: 550; }
-.input, .textarea { width: 100%; padding: 21rpx 22rpx; box-sizing: border-box; background: #f7f8fa; border: 1rpx solid #eaecf0; border-radius: 15rpx; font-size: 27rpx; }
+.label { display: block; margin-bottom: 12rpx; color: #4b4d54; font-size: 25rpx; font-weight: 550; }
+.input, .textarea { width: 100%; padding: 21rpx 22rpx; box-sizing: border-box; background: #f4f5f8; border: 1rpx solid #e4e4e7; border-radius: 15rpx; font-size: 27rpx; }
 .textarea { min-height: 180rpx; }
-.error { display: block; margin-top: 20rpx; padding: 18rpx; color: #b42318; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
-.primaryButton { margin-top: 28rpx; color: #fff; background: #5e6ad2; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
+.error { display: block; margin-top: 20rpx; padding: 18rpx; color: #eb5757; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
+.primaryButton { margin-top: 28rpx; color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
 
 .tierOption {
   display: flex;
@@ -23,8 +23,8 @@
   margin-top: 12rpx;
 }
 .tierActive {
-  border-color: #07c160;
-  background: rgba(7, 193, 96, 0.06);
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.06);
 }
 .tierName {
   color: #101828;
@@ -32,7 +32,7 @@
   font-weight: 550;
 }
 .tierPrice {
-  color: #07c160;
+  color: #10b981;
   font-size: 27rpx;
   font-weight: 600;
 }

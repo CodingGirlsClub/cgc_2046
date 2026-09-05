@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Button, Input, ScrollView, Text, View } from '@tarojs/components'
+import { Button, Image, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
@@ -7,6 +7,7 @@ import { PageState } from '@/components/PageState'
 import type { CatalogItem } from '@/domain/models'
 import { enrollmentBadgeText, venueText } from '@/domain/format'
 import styles from './index.module.css'
+import flameLogo from '@/assets/brand/cgc-flame.png'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
   open: '开放报名',
@@ -52,7 +53,10 @@ export default function DiscoverPage() {
     <View className={styles.page}>
       <ScrollView className={styles.scroll} scrollY>
         <View className={styles.hero}>
-          <Text className={styles.eyebrow}>CODING GIRLS CLUB</Text>
+          <View className={styles.brandLockup}>
+            <Image className={styles.brandMark} src={flameLogo} mode='aspectFit' />
+            <Text className={styles.brandName}>程序媛汇 <Text className={styles.brandYear}>2046</Text></Text>
+          </View>
           <Text className={styles.title} data-testid='page-title'>发现</Text>
           <Text className={styles.subtitle}>找到下一场活动，认识一起成长的人。</Text>
           <View className={styles.searchBox}>

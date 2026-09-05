@@ -27,7 +27,6 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Mcp.Tools.LearnerJourney
   alias Cgc2046.Mcp.Wrapper
 
@@ -88,18 +87,16 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
     end
   end
 
-  # 幂等重放（TD8）：活跃唯一冲突 → 返回既有活跃报名（非错误）。
-  # 其余域错误原样透传（content_rejected / capacity_full / invite_code_required 等）。
+  # 幂等重放（TD8 + #349 B）：活跃报名存在 → 重放优先于任何创建错误——
+  # 唯一索引冲突（enrollment_duplicate_active）与前置校验失败（截止已过 /
+  # 供给关闭 / 档位失效 / 名额占满——首次成功后重放会在 eligible_target /
+  # reserve_capacity 先挡，到不了唯一索引）同权。回读按 (actor, kind,
+  # offering, workspace) 四元组；未命中 → 原样透传域错误（content_rejected /
+  # invite_code_required 等）。
   defp handle_create_error(error, actor, workspace_id, kind, offering_id) do
-    cond do
-      duplicate_active?(error) ->
-        case LearnerJourney.active_enrollment(actor, kind, offering_id) do
-          nil -> domain_error(error, workspace_id)
-          enrollment -> {:ok, to_payload(enrollment, kind, true)}
-        end
-
-      true ->
-        domain_error(error, workspace_id)
+    case LearnerJourney.active_enrollment(actor, kind, offering_id, workspace_id) do
+      nil -> domain_error(error, workspace_id)
+      enrollment -> {:ok, to_payload(enrollment, kind, true)}
     end
   end
 
@@ -110,15 +107,6 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
     do: {:error, Exception.message(err)}
 
   defp domain_error(_, _workspace_id), do: {:error, "failed to create enrollment"}
-
-  # 唯一冲突判定：error_handler 已把 DB 约束错误转为 BusinessError
-  # （code enrollment_duplicate_active），递归扫 errors 树匹配。
-  defp duplicate_active?(%BusinessError{code: "enrollment_duplicate_active"}), do: true
-
-  defp duplicate_active?(%{errors: errors}) when is_list(errors),
-    do: Enum.any?(errors, &duplicate_active?/1)
-
-  defp duplicate_active?(_), do: false
 
   # reason 自由文本进 submission_payload（域内容安全检查的唯一检查字段）；
   # 缺省 %{} = 无可查内容直通。

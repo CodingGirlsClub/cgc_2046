@@ -322,28 +322,6 @@
     if (changed) paint();
   }
 
-  // ---- 侧边栏入口 ----
-  // 宿主合同(ext.js):registerWorkspace 只注册不开门,workspace 的入口 =
-  // sidebar.nav mount(首面板 workspace/view.js 同款);data-ext-workspace
-  // 供宿主路由在 #ext/<id> 直达时高亮本入口(app.js ext-workspace 视图)。
-  function navRow() {
-    const item = document.createElement("div");
-    item.className = "task-item task-item-summary";
-    item.dataset.extWorkspace = WS_ID;
-    item.innerHTML =
-      '<div class="task-row">' +
-        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" ' +
-             'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
-             'stroke-linejoin="round" class="task-icon">' +
-          '<circle cx="12" cy="12" r="10"/>' +
-          '<polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>' +
-        '</svg>' +
-        '<div class="task-info"><span class="task-name">CGC 发现</span></div>' +
-      '</div>';
-    item.addEventListener("click", function () { Clacky.ext.ui.openWorkspace(WS_ID); });
-    return item;
-  }
-
   // ---- 渲染 ----
   // 宿主每次打开面板调 render:首开(idle)与「NotConnected 连接后重进」都回 Loading 重拉
   function render(container) {
@@ -359,9 +337,15 @@
   function shell(inner) {
     currentContainer.innerHTML =
       '<div class="cgc-panel cgc-discovery-panel">' +
-        '<h3 class="cgc-panel-title">CGC 发现</h3>' +
+        '<div class="cgc-panel-head">' +
+          '<h3 class="cgc-panel-title">CGC 发现</h3>' +
+          '<button id="cgc-back-home" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">← 返回工作台</button>' +
+        '</div>' +
         inner +
       '</div>';
+    // S4:隐藏功能页(无侧栏入口),返回「程序媛汇 2046」hub 目录再进
+    const back = currentContainer.querySelector("#cgc-back-home");
+    if (back) back.addEventListener("click", function () { Clacky.ext.ui.openWorkspace("cgc"); });
   }
 
   function paint() {
@@ -591,6 +575,7 @@
     css.id = "cgc-discovery-styles";
     css.textContent =
       ".cgc-offering-list{margin-top:10px}" +
+      ".cgc-panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}" +
       ".cgc-offering-row{padding:8px 10px;border-radius:8px}" +
       ".cgc-offering-row:hover{background:rgba(127,127,127,.12)}" +
       ".cgc-offering-head{display:flex;justify-content:space-between;align-items:center;gap:8px}" +
@@ -616,5 +601,5 @@
 
   injectStyles();
   Clacky.ext.ui.registerWorkspace(WS_ID, { title: "CGC 发现", render: render });
-  Clacky.ext.ui.mount("sidebar.nav", navRow, { workspace: WS_ID });
+  // S4:不再挂侧栏入口——隐藏功能页,入口在「程序媛汇 2046」hub 目录卡
 })();

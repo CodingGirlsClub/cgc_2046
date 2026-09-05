@@ -152,7 +152,14 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
         "goal" => "目标",
         "materials" => [],
         "checklist" => [%{"id" => "c1", "text" => "完成"}]
-      }
+      },
+      "objectives" => [
+        %{
+          "id" => "obj-goals-1",
+          "title" => "掌握本单元核心目标",
+          "rubric" => [%{"id" => "r1", "text" => "能独立完成"}]
+        }
+      ]
     }
   end
 
@@ -577,6 +584,33 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       second_payload = decode_reply(second)
 
       assert first_payload["idempotent_replay"] == false
+      assert second_payload["idempotent_replay"] == true
+      assert second_payload["enrollment"]["id"] == first_payload["enrollment"]["id"]
+      assert enrollment_count(:event, event.id, learner) == 1
+    end
+
+    test "#349 B：报名成功 → 截止已过 → 重放 → 幂等重放不报错（前置校验失败同权）" do
+      admin = Fixtures.platform_admin("s7-cre-349")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{})
+      learner = Fixtures.register_user("s7-cre-349-learner")
+      params = enrollment_params(workspace, "event", event.id)
+
+      assert {:reply, _, _} = first = CreateEnrollment.execute(params, frame_for(learner))
+      first_payload = decode_reply(first)
+      assert first_payload["idempotent_replay"] == false
+
+      # 关窗布置：registration_deadline 置于过去 → 重放的 eligible_target 前置
+      # 校验先报 target_not_open_or_registration_closed，到不了唯一索引
+      # （#349 B 的窄缺口场景：首次成功但响应丢失后关窗）。
+      event
+      |> Ash.Changeset.for_update(:update, %{
+        registration_deadline: EventFixtures.days_from_now(-1)
+      })
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      assert {:reply, _, _} = second = CreateEnrollment.execute(params, frame_for(learner))
+      second_payload = decode_reply(second)
       assert second_payload["idempotent_replay"] == true
       assert second_payload["enrollment"]["id"] == first_payload["enrollment"]["id"]
       assert enrollment_count(:event, event.id, learner) == 1
