@@ -3991,6 +3991,8 @@ export type RootQueryType = {
   me?: Maybe<User>;
   /** 当前用户可进入的工作台列表（成员资格 + 创建者） */
   meWorkspaces: Array<Workspace>;
+  /** 当前用户在目标活动/课程上的活跃报名（pending/payment_pending/confirmed；无报名或未登录为 null） */
+  myEnrollment?: Maybe<Enrollment>;
   /** 当前用户跨工作台的报名记录 */
   myEnrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 当前用户 confirmed 报名对应的学习 run 进度（非成员可读） */
@@ -4233,6 +4235,12 @@ export type RootQueryTypeListWorkspacesArgs = {
 export type RootQueryTypeMeWorkspacesArgs = {
   filter?: InputMaybe<WorkspaceFilterInput>;
   sort?: InputMaybe<Array<InputMaybe<WorkspaceSortInput>>>;
+};
+
+
+export type RootQueryTypeMyEnrollmentArgs = {
+  kind: Scalars['String']['input'];
+  offeringId: Scalars['ID']['input'];
 };
 
 

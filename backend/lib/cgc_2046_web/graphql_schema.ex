@@ -161,6 +161,23 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # #355 P1-3：详情页「已报名」态数据源——actor 在目标活动/课程上的活跃报名
+    # （pending/payment_pending/confirmed，语义同 MCP discover_offerings.
+    # my_enrollment；读取真源 Enrollment.active_enrollments_by_offering，带
+    # actor 走 read policy 本人锚定）。匿名 → null（公开详情页可匿名访问，
+    # 不落 unauthorized——否则整文档 errors 拖死匿名 getEvent/getCourse）。
+    @desc "当前用户在目标活动/课程上的活跃报名（pending/payment_pending/confirmed；无报名或未登录为 null）"
+    field :my_enrollment, :enrollment do
+      arg(:kind, non_null(:string), description: "event | course")
+      arg(:offering_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor -> resolve_my_enrollment(actor, args) end,
+          on_nil: fn _context -> {:ok, nil} end
+        )
+      end)
+    end
+
     @desc "公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist"
     field :course_map, :course_map do
       arg(:slug, non_null(:string))
@@ -2422,6 +2439,46 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+  # #355 P1-3：myEnrollment 解析。kind 白名单解析（event | course）后委托
+  # Enrollment 活跃报名共享读取面；读取失败按无报名降级（附挂信息不阻断详情
+  # 主读，与 MCP discover_offerings 同纪律）。status 原子显式 to_string——
+  # 手写 :enrollment object 无 ash_graphql 生成查询的枚举转换层。
+  defp resolve_my_enrollment(actor, %{kind: kind, offering_id: offering_id}) do
+    case parse_offering_kind(kind) do
+      {:ok, kind_atom} ->
+        {event_ids, course_ids} =
+          if kind_atom == :event, do: {[offering_id], []}, else: {[], [offering_id]}
+
+        enrollment =
+          actor
+          |> Cgc2046.Admission.Enrollment.active_enrollments_by_offering(event_ids, course_ids)
+          |> Map.get({kind_atom, offering_id})
+
+        {:ok, enrollment && my_enrollment_payload(enrollment)}
+
+      :error ->
+        {:error, [message: "invalid kind (expected event | course)", code: "invalid_input"]}
+    end
+  end
+
+  defp parse_offering_kind("event"), do: {:ok, :event}
+  defp parse_offering_kind("course"), do: {:ok, :course}
+  defp parse_offering_kind(_other), do: :error
+
+  defp my_enrollment_payload(enrollment) do
+    %{
+      id: enrollment.id,
+      workspace_id: enrollment.workspace_id,
+      event_id: enrollment.event_id,
+      course_id: enrollment.course_id,
+      user_id: enrollment.user_id,
+      status: to_string(enrollment.status),
+      approval_deadline: enrollment.approval_deadline,
+      rejection_reason: enrollment.rejection_reason,
+      inserted_at: enrollment.inserted_at
+    }
+  end
+
   # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
   # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
   # workspace_id 一致性校验，RunProjection.project_run 再校验
@@ -2466,9 +2523,10 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # ── Platform Admin Dashboard Phase 5：resolver helpers ─────────────────
 
-  # actor 门控组合子（PR-E）：nil → unauthorized_error()（on_nil 可覆盖——唯一消费方
-  # me 的 auth_uncertain 分支），ok → fun.(actor)。19 处 case context[:actor] 标准门
-  # 收敛于此，错误契约单点（未登录统一 unauthorized message/code）。
+  # actor 门控组合子（PR-E）：nil → unauthorized_error()（on_nil 可覆盖——消费方：
+  # me 的 auth_uncertain 分支与 myEnrollment 匿名→null），ok → fun.(actor)。
+  # 19 处 case context[:actor] 标准门收敛于此，错误契约单点（未登录统一
+  # unauthorized message/code）。
   defp with_actor(context, fun, opts \\ []) do
     on_nil = Keyword.get(opts, :on_nil, fn _context -> {:error, unauthorized_error()} end)
 
