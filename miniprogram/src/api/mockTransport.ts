@@ -140,6 +140,8 @@ function responseFor(document: string, variables: object): unknown {
     }
   }
   if (document.includes('query Session')) {
+    // 审批行 contextTitle 查表键（与后端 enrich 的 offering 标题装配同构）
+    const targetId = enrollment?.eventId ?? enrollment?.courseId ?? null
     return {
       me: loggedIn
         ? {
@@ -161,7 +163,14 @@ function responseFor(document: string, variables: object): unknown {
             eventId: enrollment.eventId,
             courseId: enrollment.courseId,
             status: enrollment.status,
-            approvalDeadline: enrollment.approvalDeadline
+            approvalDeadline: enrollment.approvalDeadline,
+            requesterName: '小程',
+            // 与后端 enrich 的 offering 标题装配同构：按 event/course id 查标题
+            contextTitle: [...records, course].find(
+              ({ id }) => id === targetId
+            )?.title ?? null,
+            tierName: null,
+            amount: null
           }]
         : []
     }

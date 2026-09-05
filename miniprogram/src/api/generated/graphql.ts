@@ -54,7 +54,7 @@ export type CourseDetailQuery = { getCourse: { id: string, title: string, status
 export type SessionQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type SessionQuery = { me: { id: string, email: string | null, displayName: string | null, memberNumber: string | null, joinedAt: string | null, isPlatformAdmin: boolean } | null, meWorkspaces: Array<{ id: string, slug: string, name: string, joinPolicy: string, myRoleNames: Array<string> | null, myMembershipId: string | null, canAccess: boolean | null, myAbilities: Array<string> | null, memberCount: number | null }>, myPendingApprovals: Array<{ id: string, kind: string, workspaceId: string, userId: string, eventId: string | null, courseId: string | null, status: string, approvalDeadline: string | null }> };
+export type SessionQuery = { me: { id: string, email: string | null, displayName: string | null, memberNumber: string | null, joinedAt: string | null, isPlatformAdmin: boolean } | null, meWorkspaces: Array<{ id: string, slug: string, name: string, joinPolicy: string, myRoleNames: Array<string> | null, myMembershipId: string | null, canAccess: boolean | null, myAbilities: Array<string> | null, memberCount: number | null }>, myPendingApprovals: Array<{ id: string, kind: string, workspaceId: string, userId: string, eventId: string | null, courseId: string | null, status: string, approvalDeadline: string | null, requesterName: string | null, contextTitle: string | null, tierName: string | null, amount: number | null }> };
 
 export type MyEnrollmentsQueryVariables = Exact<{
   userId: string | number;

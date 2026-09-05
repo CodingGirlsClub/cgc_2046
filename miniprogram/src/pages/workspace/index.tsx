@@ -13,6 +13,11 @@ const roleText: Record<string, string> = {
   owner: 'Owner', admin: 'Admin', tutor: 'Tutor', volunteer: '志愿者', learner: 'Learner'
 }
 
+// #355 P0-1：审批行 kind 摘要词（后端 myPendingApprovals 三 kind）
+const kindText: Record<string, string> = {
+  enrollment: '报名', join_request: '加入申请', sponsorship: '赞助'
+}
+
 export default function WorkspacePage() {
   const [session, setSession] = useState<SessionSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
@@ -33,6 +38,9 @@ export default function WorkspacePage() {
   }, [])
 
   useDidShow(() => { void load() })
+
+  // 登录后 navigateBack 回本页，useDidShow 重载 session
+  const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
 
   const subscribeReminder = async () => {
     try {
@@ -90,7 +98,17 @@ export default function WorkspacePage() {
         ) : error ? (
           <PageState kind='error' message={error} onRetry={load} />
         ) : !session?.user ? (
-          <PageState kind='empty' message='登录后查看你的工作台' />
+          session?.authExpired ? (
+            <PageState
+              kind='empty'
+              title='登录已过期'
+              message='登录状态已失效，重新登录后查看你的工作台'
+              action={{ label: '去登录', onClick: goLogin }}
+              testId='session-expired'
+            />
+          ) : (
+            <PageState kind='empty' message='登录后查看你的工作台' action={{ label: '去登录', onClick: goLogin }} />
+          )
         ) : (
           <View className={styles.content}>
             {manageable ? (
@@ -111,13 +129,19 @@ export default function WorkspacePage() {
                   <PageState kind='empty' message='暂无待审批' testId='approval-empty' />
                 ) : approvals.map((approval) => {
                   const urgent = isUrgent(approval.approvalDeadline, now)
+                  // #355 P0-1：盲批 → 申请人 + 目标 + 档位/金额（amount 单位元，仅 sponsorship 行携带）
+                  const meta = [
+                    approval.tierName,
+                    approval.amount != null ? `¥${approval.amount}` : null
+                  ].filter(Boolean).join(' · ')
                   return (
                     <View key={approval.id} className={`${styles.approvalCard} ${urgent ? styles.urgentCard : ''}`}>
                       <View className={styles.tags}>
                         <Text className={styles.workspaceTag}>{approval.workspaceName}</Text>
-                        <Text className={styles.kindTag}>{approval.kind === 'enrollment' ? '报名' : approval.kind}</Text>
+                        <Text className={styles.kindTag}>{kindText[approval.kind] ?? approval.kind}</Text>
                       </View>
-                      <Text className={styles.approvalTitle}>新的报名申请</Text>
+                      <Text className={styles.approvalTitle}>{approval.requesterName} · {approval.contextTitle ?? '报名项目'}</Text>
+                      {meta && <Text className={styles.approvalMeta} data-testid={`approval-meta-${approval.id}`}>{meta}</Text>}
                       <Text className={`${styles.deadline} ${urgent ? styles.urgentText : ''}`}>
                         剩余 {remainingLabel(approval.approvalDeadline, now)}
                       </Text>

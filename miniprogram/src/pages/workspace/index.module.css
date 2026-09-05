@@ -17,6 +17,7 @@
 .workspaceTag { color: #3943a2; background: #fdeadf; }
 .kindTag { color: #4b4d54; background: #f4f5f8; }
 .approvalTitle { display: block; margin-top: 17rpx; font-size: 29rpx; font-weight: 600; }
+.approvalMeta { display: block; margin-top: 8rpx; color: #4b4d54; font-size: 23rpx; }
 .deadline { display: block; margin-top: 8rpx; color: #4b4d54; font-size: 23rpx; }
 .actions { margin-top: 20rpx; display: flex; justify-content: flex-end; gap: 14rpx; }
 .reject, .approve { margin: 0; border-radius: 25rpx; font-size: 22rpx; }
