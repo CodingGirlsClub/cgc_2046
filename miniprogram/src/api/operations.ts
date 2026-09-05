@@ -175,6 +175,7 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         approvedAt
         expiredAt
         cancelledAt
+        insertedAt
       }
     }
   }
@@ -198,6 +199,7 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         approvedAt
         expiredAt
         cancelledAt
+        insertedAt
       }
     }
   }
@@ -242,6 +244,7 @@ export const CreateEnrollmentMutationDocument = /* GraphQL */ `
         userId
         status
         approvalDeadline
+        insertedAt
       }
       errors {
         message
