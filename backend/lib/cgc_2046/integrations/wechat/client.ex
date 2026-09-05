@@ -45,14 +45,28 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   def platforms, do: @platforms
 
   # 落页契约：页面必须存在于 miniprogram/src/app.config.ts。
-  # 订阅消息：weapp 有「我的」（profile，本机通知中心）；裁剪端无 profile，
-  # 落「我的报名」（三端都注册的 tab 页）。小程序码：join 三端都注册且消费 scene
-  # （miniprogram/src/app.tsx useLaunch → pendingScene → join）。
-  @notification_page %{
-    wechat: "pages/profile/index",
-    tt: "pages/my-enrollments/index",
-    xhs: "pages/my-enrollments/index"
-  }
+  # #232 调研（2026-09-05）：学员通知点击落 profile 是断点——profile「本机
+  # 通知记录」只存本人操作回执，服务端下发的通知不在其中，点开什么都看不
+  # 到；相关内容（报名状态）在 my-enrollments 有权威展示。故按 template_key
+  # 路由：学员类 → 我的报名；管理类 → 工作台（审批待办在那）；裁剪端无
+  # workspace/profile tab，一律落我的报名。小程序码：join 三端都注册且消费
+  # scene（miniprogram/src/app.tsx useLaunch → pendingScene → join）。
+  @learner_templates ~w(approval_result enrollment_completed payment_succeeded
+                         payment_expired refund_succeeded refund_failed
+                         event_reminder learning_stagnation)
+  @manager_templates ~w(approval_reminder enrollment_submitted payment_received)
+
+  defp notification_page(platform, template_key) do
+    cond do
+      # 裁剪端（tt/xhs）仅注册「发现/我的报名」两 tab（app.config.ts cutPages）
+      platform in [:tt, :xhs] -> "pages/my-enrollments/index"
+      template_key in @learner_templates -> "pages/my-enrollments/index"
+      template_key in @manager_templates -> "pages/workspace/index"
+      # speaker_* 与未知模板：维持原落页（profile 本机通知中心）
+      true -> "pages/profile/index"
+    end
+  end
+
   @code_page "pages/join/index"
 
   @doc """
@@ -88,36 +102,44 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     end
   end
 
-  @doc "发送一次订阅消息；三平台成功信封统一为 `:ok`。"
-  @spec send_notification(platform, String.t(), String.t(), map()) ::
+  @doc "发送一次订阅消息；三平台成功信封统一为 `:ok`。落页按 template_key 路由（#232）。"
+  @spec send_notification(platform, String.t(), String.t(), map(), String.t()) ::
           :ok | {:error, term()}
-  def send_notification(platform, openid, template_id, data)
+  def send_notification(platform, openid, template_id, data, template_key)
       when platform in @platforms and is_binary(openid) and is_binary(template_id) and
-             is_map(data) do
+             is_map(data) and is_binary(template_key) do
     case platform do
       # wechat 走 SDK client：token 由 SDK 内部缓存/刷新，不现取现用
       :wechat ->
-        request_notification(:wechat, openid, template_id, data)
+        request_notification(:wechat, openid, template_id, data, template_key)
 
       _ ->
         with {:ok, config} <- platform_config(platform),
              {:ok, access_token} <- fetch_api_access_token(platform, config) do
-          request_notification(platform, config, access_token, openid, template_id, data)
+          request_notification(
+            platform,
+            config,
+            access_token,
+            openid,
+            template_id,
+            data,
+            template_key
+          )
         end
     end
   end
 
-  defp request_notification(:wechat, openid, template_id, data) do
+  defp request_notification(:wechat, openid, template_id, data, template_key) do
     with {:ok, client} <- SdkClient.fetch() do
       client
       |> WeChat.MiniProgram.SubscribeMessage.send(openid, template_id, data, %{
-        page: @notification_page.wechat
+        page: notification_page(:wechat, template_key)
       })
       |> parse_wechat_envelope()
     end
   end
 
-  defp request_notification(:tt, _config, token, openid, template_id, data) do
+  defp request_notification(:tt, _config, token, openid, template_id, data, template_key) do
     "https://open.douyin.com"
     |> req()
     |> Req.post(
@@ -126,7 +148,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       json: %{
         open_id: openid,
         msg_id: template_id,
-        page: @notification_page.tt,
+        page: notification_page(:tt, template_key),
         data: data
       }
     )
@@ -136,13 +158,26 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     end
   end
 
-  defp request_notification(:xhs, %{notification_path: path}, token, openid, template_id, data) do
+  defp request_notification(
+         :xhs,
+         %{notification_path: path},
+         token,
+         openid,
+         template_id,
+         data,
+         template_key
+       ) do
     "https://miniapp.xiaohongshu.com"
     |> req()
     |> Req.post(
       url: path,
       headers: [{"access-token", token}],
-      json: %{open_id: openid, template_id: template_id, page: @notification_page.xhs, data: data}
+      json: %{
+        open_id: openid,
+        template_id: template_id,
+        page: notification_page(:xhs, template_key),
+        data: data
+      }
     )
     |> case do
       {:ok, %Req.Response{status: 200, body: %{"code" => 0}}} -> :ok

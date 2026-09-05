@@ -72,25 +72,32 @@ defmodule Cgc2046.Notifications.ServiceTest do
   end
 
   test "三平台 adapter 使用 registry 模板并归一成功信封" do
-    expected_pages = %{
-      wechat: "pages/profile/index",
-      tt: "pages/my-enrollments/index",
-      xhs: "pages/my-enrollments/index"
-    }
+    # 落页契约（#232）：学员类通知 → 我的报名（通知内容在那有权威展示）；
+    # 管理类 → 工作台（wechat）/ 我的报名（裁剪端无 workspace tab）；
+    # 未知模板兜底 profile；页面必须存在于 miniprogram/src/app.config.ts
+    cases = [
+      {:wechat, "approval_result", "pages/my-enrollments/index"},
+      {:wechat, "payment_succeeded", "pages/my-enrollments/index"},
+      {:wechat, "approval_reminder", "pages/workspace/index"},
+      {:wechat, "speaker_accepted", "pages/profile/index"},
+      {:tt, "approval_result", "pages/my-enrollments/index"},
+      {:tt, "approval_reminder", "pages/my-enrollments/index"},
+      {:xhs, "enrollment_completed", "pages/my-enrollments/index"}
+    ]
 
-    for platform <- [:wechat, :tt, :xhs] do
+    for {platform, template_key, expected_page} <- cases do
       assert :ok =
                Client.send_notification(
                  platform,
                  "openid-#{platform}",
                  "template-#{platform}",
-                 %{"status" => "confirmed"}
+                 %{"status" => "confirmed"},
+                 template_key
                )
 
       assert_receive {:notification, ^platform, body}
       assert inspect(body) =~ "template-#{platform}"
-      # 落页契约：页面必须存在于 miniprogram/src/app.config.ts（本计划修正项）
-      assert body["page"] == expected_pages[platform]
+      assert body["page"] == expected_page
     end
   end
 
@@ -122,7 +129,13 @@ defmodule Cgc2046.Notifications.ServiceTest do
     end)
 
     assert_raise Tesla.Mock.Error, fn ->
-      Client.send_notification(:wechat, "probe-openid", "probe-template", %{"k" => "v"})
+      Client.send_notification(
+        :wechat,
+        "probe-openid",
+        "probe-template",
+        %{"k" => "v"},
+        "approval_result"
+      )
     end
   end
 
