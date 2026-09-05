@@ -4,7 +4,7 @@ import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
-import { enrollmentBadgeText, enrollmentBlockedNotice, formatDateTime, scheduleText, venueText } from '@/domain/format'
+import { enrollmentBadgeText, enrollmentBlockedNotice, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
 import { formatAmount } from '@/domain/payment'
 import styles from './index.module.css'
 
@@ -38,6 +38,12 @@ export default function EventDetailPage() {
 
   const register = async () => {
     if (!item) return
+    // 已有活跃报名（pending/payment_pending/confirmed）不再进报名漏斗——
+    // 后端唯一索引会拒绝，此处提前收口到「我的报名」（#355 P1-3）
+    if (item.myEnrollment) {
+      await Taro.switchTab({ url: '/pages/my-enrollments/index' })
+      return
+    }
     const target = `/pages/register-form/index?id=${item.id}&kind=${item.kind}`
     try {
       const session = await api.getSession()
@@ -127,7 +133,17 @@ export default function EventDetailPage() {
       </ScrollView>
 
       <View className={styles.footer}>
-        {blockedNotice ? (
+        {item.myEnrollment ? (
+          <>
+            {/* 已报名态优先于截止/满员提示：活跃在手，查看入口比阻断文案更有用 */}
+            <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>
+              已报名 · {enrollmentStatusText[item.myEnrollment.status]}
+            </Text>
+            <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>
+              查看我的报名
+            </Button>
+          </>
+        ) : blockedNotice ? (
           <Text className={styles.closedNotice} data-testid='registration-closed-notice'>
             {blockedNotice}
           </Text>
