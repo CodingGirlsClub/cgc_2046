@@ -469,6 +469,56 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       fetched = MembershipContext.membership_of(member, workspace.id)
       assert Enum.map(fetched.roles, & &1.name) == [:owner]
     end
+
+    test "字符串角色名：admit_member([\"learner\"]) 建 MembershipRole 行并可读回（#356 回归）" do
+      # 回归 #356：Role.name 是 :atom，seat_roles 直接 == 比较时字符串永不命中，
+      # 静默跳过 → {:ok, membership} 但角色为空。修复后字符串与 atom 同口径。
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+
+      assert {:ok, membership} =
+               MembershipContext.admit_member(member.id, workspace.id, ["learner"],
+                 on_conflict: :business_error
+               )
+
+      # DB 层：membership_roles 有行（接本租户的 learner role）
+      {:ok, membership_roles} =
+        Ash.read(Cgc2046.Accounts.MembershipRole, tenant: workspace.id, authorize?: false)
+
+      assert [mr] = Enum.filter(membership_roles, &(&1.membership_id == membership.id))
+
+      {:ok, roles} = Ash.read(Cgc2046.Accounts.Role, tenant: workspace.id, authorize?: false)
+      assert Enum.find(roles, &(&1.id == mr.role_id)).name == :learner
+
+      # 读取面：role_names/2（MCP list_my_workspaces roles 的数据源）返回 [:learner]
+      assert MembershipContext.role_names(member, workspace.id) == [:learner]
+    end
+
+    test "角色不存在：跳过该角色并 Logger.warning 告警（容错可观测，不静默）" do
+      import ExUnit.CaptureLog
+
+      admin = Fixtures.platform_admin("mc-admin")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member")
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:ok, _membership} =
+                   MembershipContext.admit_member(member.id, workspace.id, [:owner, :nonexistent],
+                     on_conflict: :business_error
+                   )
+        end)
+
+      # 容错语义保留：owner 正常入座
+      fetched = MembershipContext.membership_of(member, workspace.id)
+      assert Enum.map(fetched.roles, & &1.name) == [:owner]
+
+      # 可观测：未匹配角色名有 warning，带 workspace_id 与 role_name
+      assert log =~ "seat_roles skipped unmatched role name"
+      assert log =~ workspace.id
+      assert log =~ ":nonexistent"
+    end
   end
 
   describe "admit_to_default_workspace (ADR-0004 默认 workspace 2046)" do
