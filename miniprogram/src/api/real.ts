@@ -38,7 +38,7 @@ import type {
   SignInWithPlatformMutation,
   SignInWithPlatformMutationVariables
 } from './generated/graphql'
-import { getAuthToken, graphqlRequest, isAuthenticationError, setAuthToken } from './client'
+import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -151,19 +151,37 @@ export class RealMiniProgramApi implements MiniProgramApi {
   }
 
   async getSession(): Promise<SessionSnapshot> {
+    try {
+      return await this.fetchSession()
+    } catch (error) {
+      // 统一降级未登录快照:session 是装饰,任何失败都不该拖死公开目录
+      // (模拟器残留坏 token → Forbidden → 发现页 Promise.all 全挂的真机事故)。
+      // 认证错误 client.ts 已清 token;服务端返回非认证 errors(如 forbidden)
+      // → token 可疑,清掉防反复炸;纯网络失败(未到达服务端)→ 保留 token。
+      if (!isAuthenticationError(error)) {
+        if (error instanceof GraphQLRequestError && error.errors.length > 0) {
+          clearExpiredAuthentication()
+        } else {
+          clearWorkspaceTab()
+          clearAccountState()
+        }
+      }
+      return { user: null, workspaces: [], approvals: [] }
+    }
+  }
+
+  // 内部 throw 语义版:signIn 的 hydration 回滚依赖失败可抛。
+  private async fetchSession(): Promise<SessionSnapshot> {
     if (!getAuthToken()) {
       clearWorkspaceTab()
       // 保留 pending scene（clearPendingScene 默认 false），扫码→登录交接继续
       clearAccountState()
       return { user: null, workspaces: [], approvals: [] }
     }
-    let data: SessionQuery
-    try {
-      data = await graphqlRequest<SessionQuery, SessionQueryVariables>(SessionQueryDocument, {})
-    } catch (error) {
-      if (isAuthenticationError(error)) return { user: null, workspaces: [], approvals: [] }
-      throw error
-    }
+    const data: SessionQuery = await graphqlRequest<SessionQuery, SessionQueryVariables>(
+      SessionQueryDocument,
+      {}
+    )
     const workspaces: WorkspaceSummary[] = data.meWorkspaces.map((workspace) => ({
       id: workspace.id,
       slug: workspace.slug,
@@ -227,7 +245,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
     )
     if (!getAuthToken()) throw new Error('登录成功但未收到 Bearer token，请检查响应 cookie 契约')
     try {
-      return await this.getSession()
+      return await this.fetchSession()
     } catch (error) {
       // session hydration 失败：全量回滚，UI 显示失败与设备状态一致
       setAuthToken(null)
