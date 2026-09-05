@@ -2,7 +2,7 @@ defmodule Cgc2046.Accounts.Invitation do
   @moduledoc """
   工作台邀请资源（#31）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md ER §INVITATION/JOIN_REQUEST）：
+  领域模型：
   Invitation 是租户资源（workspace_id），表示工作台成员向外部用户发出的加入邀请。
   邀请流程：active → used（受邀人确认加入）/ revoked / expired。
 

@@ -2,11 +2,10 @@ defmodule Cgc2046.Integrations.Wechat.UrlScheme do
   @moduledoc """
   微信 URL Scheme 生成（spike）：活动分享深链。
 
-  仅 wechat；jump path = pages/event-detail/index，query = id + kind（无敏感值，见
-  docs/01-定稿设计/微信分享与深链-spike结论.md §5）。kind 为 event/course——前端
+  仅 wechat；jump path = pages/event-detail/index，query = id + kind（无敏感值）。kind 为 event/course——前端
   `getContent(kind, id)` 按 kind 分流，缺 kind 会静默回落 event 导致 course 内容加载失败。
 
-  配额契约（spike 核实，见 §2）：临时 scheme 最长有效期 30 天（官方错误码 85401，
+  配额契约（spike 核实）：临时 scheme 最长有效期 30 天（官方错误码 85401，
   SDK moduledoc 的「1 年」为过时表述）。SDK 透传不校验，**调用方必须保证 expires_at
   距今 ≤30 天**；clamp 策略在 `ShareSchemeService` 落地（D-1：min(目标
   registration_deadline + 7d, now + 30d)）。生成端 50 万/日、100 次/秒；

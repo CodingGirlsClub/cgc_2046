@@ -1,7 +1,7 @@
 defmodule Cgc2046.Notifications.NotificationWorkerTest do
   @moduledoc """
   通知类型契约 registry 的表驱动契约测试（2026-08-18 架构深化候选 D；plan
-  docs/plans/2026-08-18-005-notification-type-registry.md D7）。
+  ）。
 
   1. config `:miniprogram_templates` 键集 ↔ `@notification_types` 双射；
   2. 表驱动 stale 重查语义（逐条目与收敛前三子句等价）：

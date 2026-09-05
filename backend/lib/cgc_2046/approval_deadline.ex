@@ -2,8 +2,7 @@ defmodule Cgc2046.ApprovalDeadline do
   @moduledoc """
   审批期限（approval deadline）派生的唯一真源。
 
-  （2026-08-14 审批期限深化，架构评审候选②；plan
-  docs/plans/2026-08-14-005-approval-deadline-deepening.md D1-D8 全锁定）
+  （2026-08-14 审批期限深化，架构评审候选②）
 
   收敛前，deadline 派生公式两份平行拷贝（ApprovalExpiryWorker.approval_overdue?
   与 ApprovalReminderWorker.approval_deadline）、7 天默认常量四份

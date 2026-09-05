@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.StepRole do
   @moduledoc """
   Step 执行角色关联资源（Slice C #38）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：STEP_ROLE 是 Step 与 Role 的多对多关联表。
+  领域模型：STEP_ROLE 是 Step 与 Role 的多对多关联表。
   授权判定 = actor 角色集合 ∩ step 执行角色集合，命中即放行（多角色并集）。
 
   ## ADR-0003 纪律

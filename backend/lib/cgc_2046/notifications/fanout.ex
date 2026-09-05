@@ -2,8 +2,7 @@ defmodule Cgc2046.Notifications.Fanout do
   @moduledoc """
   通知分发面：收件人解析（recipient resolution）+ 通知入队（Oban deliver）的唯一归属。
 
-  （2026-08-14 通知分发收敛，架构评审候选①；plan
-  docs/plans/2026-08-14-004-notification-fanout-deepening.md Q1-Q12 全锁定）
+  （2026-08-14 通知分发收敛，架构评审候选①）
 
   收敛前，`managed_identities_by_user` 三份同构拷贝（Notifications.Subscriber /
   SpeakerSubscriber / ApprovalReminderWorker）、`identities_for_user` 两份、

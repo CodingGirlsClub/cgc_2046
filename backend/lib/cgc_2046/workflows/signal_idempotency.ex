@@ -5,8 +5,7 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   承载 POC-2 G2 B3 硬约束：幂等键去重表**不得由 action 执行进程自建 ETS**
   （进程退出后 named table 随 owner 销毁 → 幂等失效）；生产用 Postgres 唯一
   约束（本表）或 Redis（SETNX/EXPIRE）。报名/赞助/邀请/教研四份 workflow
-  共用本表（docs/00-CGC平台设计总纲.md:177 与 §6 模式库、报名 §4.3、
-  赞助 §8、邀请 §8、教研 §4.3 的共同规定）。
+  共用本表（v1 设计阶段四 workflow 共同规定，出处见 git 历史）。
 
   ## 用法
 

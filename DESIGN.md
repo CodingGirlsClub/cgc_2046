@@ -91,7 +91,7 @@ Linear uses a curated set of status colors that remain vivid against the dark ca
 
 ### Light Theme (Dual-Theme Extension)
 
-This section documents the light theme added under the U3 dual-theme decision (`docs/03-决策记录/前端UI设计决策-2026-08-01.md`). It is not part of the original Sparkbites extraction. Token values are ported from Linear's official brand colors (Mercury White `#F4F5F8`, Nordic Gray `#222326`) and reverse-engineered from the dark spec above. Accent and status colors, font weights, radii, and shadow mechanics are identical across both themes. The authoritative implementation source is the `.light` block in `web/app/globals.css` — this section must stay in sync with it.
+This section documents the light theme added under the U3 dual-theme decision. It is not part of the original Sparkbites extraction. Token values are ported from Linear's official brand colors (Mercury White `#F4F5F8`, Nordic Gray `#222326`) and reverse-engineered from the dark spec above. Accent and status colors, font weights, radii, and shadow mechanics are identical across both themes. The authoritative implementation source is the `.light` block in `web/app/globals.css` — this section must stay in sync with it.
 
 #### Light Background Surfaces
 

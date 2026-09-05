@@ -2,7 +2,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
   @moduledoc """
   Workflow 蓝图资源（Slice C #34）。
 
-  领域模型（docs/01-定稿设计/领域模型定稿.md §5.2 ER）：WorkflowDefinition 是声明式 DAG 蓝图，
+  领域模型：WorkflowDefinition 是声明式 DAG 蓝图，
   带版本管理；改定义不影响已开始 run（D-A2，已开始 run 持当时 published 版本）。
 
   ## ADR-0003 纪律
