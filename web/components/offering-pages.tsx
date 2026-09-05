@@ -563,10 +563,13 @@ export function OfferingDetailPage({
   // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const [tierId, setTierId] = useState<string | null>(null);
-  const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
+  // 默认选中第一档（产品拍板:有可售档不该强制手点;可再点换档）——派生值
+  // 而非 effect 补 setState（react-hooks/set-state-in-effect）;?? 保留用户已选。
+  const effectiveTierId = tierId ?? priceTiers[0]?.id ?? null;
+  const paidTier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
   // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），复访承接可不带
   function openCheckoutFor(enrollmentId: string) {
-    const tier = priceTiers.find((t) => t.id === tierId) ?? null;
+    const tier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
     setCheckout({
       enrollmentId,
       amountCents: tier?.amountCents ?? null,
@@ -901,7 +904,7 @@ export function OfferingDetailPage({
   async function submitForMe() {
     if (!offering || !userId) return;
     // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）
-    if (offering.pricingEnabled && !tierId) {
+    if (offering.pricingEnabled && !effectiveTierId) {
       setSubmitState({ kind: "error", message: t("pickTierFirst") });
       return;
     }
@@ -912,7 +915,7 @@ export function OfferingDetailPage({
         eventId: kind === "event" ? offering.id : undefined,
         courseId: kind === "course" ? offering.id : undefined,
         userId,
-        tierId,
+        tierId: effectiveTierId,
       });
       if (res.result) {
         const status = res.result.status;
@@ -1452,7 +1455,7 @@ export function OfferingDetailPage({
                               <label
                                 key={tier.id}
                                 className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
-                                  tierId === tier.id
+                                  effectiveTierId === tier.id
                                     ? "border-line-strong bg-soft-2 text-ink"
                                     : "border-line bg-card text-ink-2"
                                 }`}
@@ -1463,7 +1466,7 @@ export function OfferingDetailPage({
                                     type="radio"
                                     name="price-tier"
                                     value={tier.id}
-                                    checked={tierId === tier.id}
+                                    checked={effectiveTierId === tier.id}
                                     onChange={() => setTierId(tier.id)}
                                   />
                                   {tier.name}
