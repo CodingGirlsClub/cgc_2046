@@ -45,12 +45,12 @@ export default defineAppConfig({
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
-    navigationBarTitleText: 'CGC',
+    navigationBarTitleText: '程序媛汇',
     navigationBarTextStyle: 'black'
   },
   tabBar: {
     color: '#7a7e83',
-    selectedColor: '#07c160',
+    selectedColor: '#ea5504',
     backgroundColor: '#ffffff',
     borderStyle: 'black',
     list: isCut ? cutTabList : fullTabList

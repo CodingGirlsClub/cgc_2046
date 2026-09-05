@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Button, Text, View } from '@tarojs/components'
+import { Button, Image, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
 import { preparePlatformLogin } from '@/platform'
 import styles from './index.module.css'
+import flameLogo from '@/assets/brand/cgc-flame.png'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -37,12 +38,13 @@ export default function LoginPage() {
 
   return (
     <View className={styles.page}>
-      <View className={styles.mark}>CGC</View>
+      <Image className={styles.mark} src={flameLogo} mode='aspectFit' />
+      <Text className={styles.brandName}>程序媛汇 <Text className={styles.brandYear}>2046</Text></Text>
       <Text className={styles.title} data-testid='login-title'>手机号一键登录</Text>
-      <Text className={styles.description}>用于确认身份、同步报名状态和接收审批结果。CGC 不会向其他人公开你的手机号。</Text>
+      <Text className={styles.description}>用于确认身份、同步报名状态和接收审批结果。程序媛汇不会向其他人公开你的手机号。</Text>
 
       <View className={styles.permissions}>
-        <Text className={styles.permission}>✓ 创建或绑定你的 CGC 账号</Text>
+        <Text className={styles.permission}>✓ 创建或绑定你的程序媛汇账号</Text>
         <Text className={styles.permission}>✓ 保存 7 天登录状态</Text>
         <Text className={styles.permission}>✓ 后续通知仍需你逐次授权</Text>
       </View>
@@ -63,6 +65,7 @@ export default function LoginPage() {
         登录即表示你同意隐私授权说明
         {process.env.TARO_ENV !== 'tt' && process.env.TARO_ENV !== 'xhs' ? '；可在「我的」中退出' : ''}。
       </Text>
+      <Text className={styles.tagline}>Coding Girls Club · 程序媛汇 — 2016 → 2046</Text>
     </View>
   )
 }
