@@ -190,6 +190,8 @@ defmodule Cgc2046.Mcp.Playbooks do
   - 已有成员:list_members(workspace_id) 列出持 tutor 角色的成员,由用户选择后调用 assign_prep_tutor(workspace_id, course_id, tutor_user_id);
   - 外部 tutor:create_invitation(workspace_id, target_email, preauthorized_role_names: ["tutor"], prep_course_ids: [course_id])。对方接受邀请后自动入座、取得 tutor 角色并绑定课程,无需重复指派;若用户自己创作,由其进入 Tutor 模式认领。
 
+  指定邮箱邀请外部 tutor 时,系统自动发送含接受链接的邮件,无需手动转发邀请 token。对方入座后新增负责课程,再单独调用 assign_prep_tutor。
+
   工作面（当前 MCP 工具集，与 web 管理页同源同语义——全部写操作落到同一批 domain action）:
 
   1. 待办:list_my_tasks(workspace_id) 读取本人在该工作台的审批待办(报名/加入申请/赞助,含审批截止时间),从这里开始一天的管理工作;
@@ -248,7 +250,7 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-09-04.1", content: @workspace_admin_content},
+    workspace_admin: %{version: "2026-09-05.1", content: @workspace_admin_content},
     tutor: %{version: "2026-09-04.1", content: @tutor_content},
     learner: %{version: "2026-08-30.2", content: @learner_content}
   }

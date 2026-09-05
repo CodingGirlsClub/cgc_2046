@@ -12,6 +12,27 @@ baseline: origin/develop @ f45eecf5；本地分支 feat/cgc-ext-improvements @ 4
 
 # SOP 平台化与单扩展分发 - Plan
 
+## 执行状态更新（2026-09-05）
+
+用户最新决定覆盖本文 U1/U9/KTD8/DoD 的删除要求：本地敏感旧分支与仓库外 bundle 保留作备份，不删除、不推送；公开提交不得含敏感祖先。
+
+U3/U4 和薄壳代码已实现；U5 补回邀请邮件交付说明，迁移清单见下。U7 搬运脚本、校验测试和 workflow 接线已编写，外部权限、生产部署、镜像内容及 API 哈希闭环尚未验收。U8 ADR 与词条已补。U1/U9 的公开发布状态须另行核对，不能将本地完成记为发布完成。
+
+### U5 非敏感段落迁移对照
+
+| 旧 prompt 段落 | 新归属 |
+|---|---|
+| tutor 身份、可信上下文、建课转介 | tutor 壳身份/启动/宿主入口 |
+| tutor 先读、渐进共创、完整内容、保存版本与冲突 | tutor 基础 playbook 起草/提交/版本纪律 |
+| tutor 教研流程、诚实评分、发布确认 | tutor 基础 playbook 教研旅程/发布；壳保留发布确认 |
+| tutor 作者决策与确认来源 | tutor 基础 playbook 纪律 |
+| admin 身份、权限、待办、安全 | admin 壳启动/待办/安全 |
+| admin 建课字段、草稿、正式标题 | workspace_admin 基础 playbook 从零建课/课程生命周期 |
+| admin 已有 tutor 指派、外部邀请、预授权、绑课、邮件与后续追加 | workspace_admin 基础 playbook 课程创建后分流/邮件交付说明 |
+| admin 成员管理、课程管理 | workspace_admin 基础 playbook 工作面 |
+| 两壳面板、转介、视频技能 | 宿主壳；issue-video 公开 skill |
+
+
 ## Goal Capsule
 
 - **Objective:** OpenClacky 用户只安装一个公开 AGPL 扩展；tutor 在教研工作台、Owner/Admin 在直接开启的 cgc-tutor 会话或其他 MCP 客户端中，均可取得平台当前已部署的教研方法论；教材锚定 SOP 正文与设计稿不进入公开 Git 历史。cgc-tutor、cgc-admin、cgc-assistant 三条 agent 统一为启动拉取 playbook，消除平台与扩展的双份方法论。

@@ -289,13 +289,15 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "已有成员"
       assert payload["content"] =~ "assign_prep_tutor"
       assert payload["content"] =~ "外部 tutor"
+      assert payload["content"] =~ "系统自动发送含接受链接的邮件"
+      assert payload["content"] =~ "无需手动转发邀请 token"
       assert payload["content"] =~ ~s(preauthorized_role_names: ["tutor"])
       assert payload["content"] =~ "prep_course_ids"
       assert payload["content"] =~ "正式标题"
       assert payload["content"] =~ "provisional_title"
       assert payload["content"] =~ "管理模式不创作课程内容"
 
-      assert payload["version"] == "2026-09-04.1"
+      assert payload["version"] == "2026-09-05.1"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do
