@@ -1,25 +1,25 @@
 .page { min-height: 100vh; }
 .header { padding: 48rpx 32rpx 34rpx; background: #fff; }
-.eyebrow { display: block; color: #5e6ad2; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
+.eyebrow { display: block; color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
 .title { display: block; margin-top: 10rpx; font-size: 48rpx; font-weight: 700; }
-.subtitle { display: block; margin-top: 8rpx; color: #98a2b3; font-size: 24rpx; }
+.subtitle { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 24rpx; }
 .list { height: calc(100vh - 210rpx); padding: 24rpx 28rpx 160rpx; box-sizing: border-box; }
 .card { margin-bottom: 18rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; }
 .cardHeader { display: flex; align-items: center; justify-content: space-between; }
-.kind { color: #98a2b3; font-size: 21rpx; }
+.kind { color: #8a8f98; font-size: 21rpx; }
 .status { padding: 5rpx 14rpx; border-radius: 16rpx; font-size: 21rpx; }
-.pending { color: #b54708; background: #fffaeb; }
+.pending { color: #b45309; background: #fffaeb; }
 .confirmed { color: #027a48; background: #ecfdf3; }
-.rejected { color: #b42318; background: #fef3f2; }
-.expired, .cancelled { color: #475467; background: #f2f4f7; }
+.rejected { color: #eb5757; background: #fef3f2; }
+.expired, .cancelled { color: #4b4d54; background: #f4f5f8; }
 .cardTitle { display: block; margin-top: 18rpx; font-size: 31rpx; font-weight: 600; }
 .countdown { margin-top: 22rpx; padding: 18rpx; display: flex; align-items: center; justify-content: space-between; background: #fff8eb; border-radius: 14rpx; }
-.countdownLabel { color: #b54708; font-size: 22rpx; }
+.countdownLabel { color: #b45309; font-size: 22rpx; }
 .countdownValue { color: #93370d; font-size: 24rpx; font-weight: 600; }
-.textButton { margin: 22rpx 0 0; color: #5e6ad2; background: #eff0ff; border-radius: 24rpx; font-size: 22rpx; }
-.reason { display: block; margin-top: 14rpx; color: #667085; font-size: 22rpx; }
-.platformTip { position: fixed; left: 0; right: 0; bottom: 108rpx; padding: 12rpx; color: #667085; background: #fff; text-align: center; font-size: 21rpx; }
-.payment_pending { color: #b54708; background: #fffaeb; }
-.paymentHint { display: block; margin-top: 14rpx; color: #b54708; font-size: 22rpx; }
-.paymentStatus { display: block; margin-top: 12rpx; color: #475467; font-size: 22rpx; }
-.payButton { margin: 18rpx 0 0; color: #fff; background: #07c160; border-radius: 24rpx; font-size: 22rpx; }
+.textButton { margin: 22rpx 0 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 22rpx; }
+.reason { display: block; margin-top: 14rpx; color: #4b4d54; font-size: 22rpx; }
+.platformTip { position: fixed; left: 0; right: 0; bottom: 108rpx; padding: 12rpx; color: #4b4d54; background: #fff; text-align: center; font-size: 21rpx; }
+.payment_pending { color: #b45309; background: #fffaeb; }
+.paymentHint { display: block; margin-top: 14rpx; color: #b45309; font-size: 22rpx; }
+.paymentStatus { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 22rpx; }
+.payButton { margin: 18rpx 0 0; color: #fff; background: #10b981; border-radius: 24rpx; font-size: 22rpx; }

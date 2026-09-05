@@ -386,14 +386,25 @@ export class RealMiniProgramApi implements MiniProgramApi {
   }
 
   async admitMember(scene: string): Promise<AdmitResult> {
-    const data = await graphqlRequest<AdmitMemberByTokenMutation, AdmitMemberByTokenMutationVariables>(
-      AdmitMemberByTokenMutationDocument,
-      { scene }
-    )
-    if (!data.admitMemberByToken) throw new Error('邀请码无效或已过期')
-    return {
-      workspaceId: data.admitMemberByToken.workspaceId,
-      workspaceName: data.admitMemberByToken.workspaceName ?? '工作台'
+    try {
+      const data = await graphqlRequest<AdmitMemberByTokenMutation, AdmitMemberByTokenMutationVariables>(
+        AdmitMemberByTokenMutationDocument,
+        { scene }
+      )
+      if (!data.admitMemberByToken) throw new Error('邀请码无效或已过期')
+      return {
+        workspaceId: data.admitMemberByToken.workspaceId,
+        workspaceName: data.admitMemberByToken.workspaceName ?? '工作台'
+      }
+    } catch (error) {
+      // 服务端业务错误英文透传防泄漏（review 发现的漏网）:按 code 映射中文;
+      // code 顶层/extensions 双轨,与 isAuthenticationError 同读法。
+      if (error instanceof GraphQLRequestError) {
+        const code = error.errors[0]?.code ?? error.errors[0]?.extensions?.code
+        if (code === 'invalid_scene') throw new Error('邀请码格式不正确')
+        if (code === 'invalid_or_expired_scene') throw new Error('邀请码无效或已过期')
+      }
+      throw error
     }
   }
 
