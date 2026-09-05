@@ -24,7 +24,7 @@
 .notificationBody { display: block; margin-top: 6rpx; color: #4b4d54; font-size: 22rpx; line-height: 1.5; }
 .panelText { display: block; color: #4b4d54; font-size: 23rpx; }
 .inlineForm { margin-top: 18rpx; display: flex; align-items: center; gap: 14rpx; }
-.codeInput { flex: 1; padding: 18rpx; background: #f4f5f8; border-radius: 14rpx; font-size: 25rpx; }
+.codeInput { flex: 1; min-height: 80rpx; padding: 22rpx 24rpx; box-sizing: border-box; background: #f4f5f8; border-radius: 14rpx; font-size: 27rpx; }
 .inlineButton { margin: 0; color: #fff; background: #ea5504; border-radius: 24rpx; font-size: 21rpx; }
 .scanButton { margin: 18rpx 0 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 21rpx; }
 .codeRow { padding: 14rpx 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1rpx solid #e4e4e7; }

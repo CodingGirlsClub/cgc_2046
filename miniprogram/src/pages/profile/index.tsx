@@ -41,8 +41,8 @@ export default function ProfilePage() {
       const result = await api.admitMember(scene.trim())
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
       setScene('')
-      // 半受控 Input（iOS 微信受控回写竞态修复,见 register-form 同族修复）:
-      // 状态清空不回写原生组件——换 key 强制重挂载兑现「成功后清空输入框」
+      // iOS 竞态纪律（见 register-form）：Input 不声明 defaultValue（初始为空），
+      // 「成功后清空输入框」由换 key 强制重挂载兑现——状态清空不回写原生组件
       setSceneInputKey((k) => k + 1)
       await load()
     } catch (reason) {
@@ -138,7 +138,7 @@ export default function ProfilePage() {
             <View className={styles.panel}>
               <Text className={styles.panelText}>输入组织者分享给你的邀请码，仅可使用一次，请确认来自你信任的组织者。</Text>
               <View className={styles.inlineForm}>
-                <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请码' defaultValue={scene} onInput={(event) => setScene(event.detail.value)} />
+                <Input key={sceneInputKey} className={styles.codeInput} placeholder='邀请码' onInput={(event) => setScene(event.detail.value)} />
                 <Button className={styles.inlineButton} size='mini' loading={action === 'admit'} onClick={admit}>确认加入</Button>
               </View>
               <Button className={styles.scanButton} size='mini' onClick={scanInvitation}>扫码加入</Button>

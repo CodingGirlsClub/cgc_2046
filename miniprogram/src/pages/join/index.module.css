@@ -4,6 +4,6 @@
 .subtitle { display: block; margin-top: 15rpx; color: #4b4d54; font-size: 24rpx; line-height: 1.6; }
 .card { margin-top: 42rpx; padding: 26rpx; text-align: left; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); border-radius: 20rpx; }
 .label { display: block; color: #4b4d54; font-size: 24rpx; }
-.input { margin-top: 12rpx; padding: 18rpx; background: #fff; border: 1rpx solid #e4e4e7; border-radius: 14rpx; font-size: 26rpx; }
+.input { margin-top: 12rpx; min-height: 88rpx; padding: 24rpx; box-sizing: border-box; background: #fff; border: 1rpx solid #e4e4e7; border-radius: 14rpx; font-size: 28rpx; }
 .error { display: block; margin-top: 20rpx; color: #eb5757; font-size: 23rpx; }
 .primaryButton { margin-top: 30rpx; color: #fff; background: #ea5504; border-radius: 18rpx; }
