@@ -8,7 +8,7 @@
 .formHint { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 22rpx; }
 .field { margin-top: 30rpx; }
 .label { display: block; margin-bottom: 12rpx; color: #4b4d54; font-size: 25rpx; font-weight: 550; }
-.input, .textarea { width: 100%; padding: 21rpx 22rpx; box-sizing: border-box; background: #f4f5f8; border: 1rpx solid #e4e4e7; border-radius: 15rpx; font-size: 27rpx; }
+.input, .textarea { width: 100%; min-height: 88rpx; padding: 26rpx 24rpx; box-sizing: border-box; background: #f4f5f8; border: 1rpx solid #e4e4e7; border-radius: 15rpx; font-size: 28rpx; }
 .textarea { min-height: 180rpx; }
 .error { display: block; margin-top: 20rpx; padding: 18rpx; color: #eb5757; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
 .primaryButton { margin-top: 28rpx; color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
