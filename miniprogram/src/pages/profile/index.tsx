@@ -113,7 +113,7 @@ export default function ProfilePage() {
               <View className={styles.avatar}>{session.user.displayName.slice(0, 1)}</View>
               <View className={styles.userMain}>
                 <Text className={styles.userName}>{session.user.displayName}</Text>
-                <Text className={styles.userMeta}>{session.user.memberNumber ?? session.user.email ?? 'CGC 成员'}</Text>
+                <Text className={styles.userMeta}>{session.user.memberNumber ?? session.user.email ?? '程序媛汇成员'}</Text>
               </View>
               <Button className={styles.logout} size='mini' onClick={logout}>退出</Button>
             </View>
