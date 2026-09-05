@@ -234,6 +234,8 @@
 
 ### 角色 Playbook（Role Playbook / 角色工作模式）
 
+- **私有教研增量（ADR-0012）**：公开四角色基础仍存模块常量；tutor 追加 release 内 `priv/playbooks/tutor.md`，仅开发可用 `CGC_PLAYBOOKS_DIR` 覆盖。tutor/owner/admin 可读取 tutor playbook，其他写权限与 tutor-only 教研入口不变。有效增量版本追加原始内容 SHA-256 前八位；生产镜像使用公开 SHA 与同一哈希标识。私有 PR 后需手动 Deploy；生产验收状态见运维《私有教研Playbook部署》。plan 020 导入 DB 时退役 checkout 与 deploy key。
+
 - **定义**：四角色（`platform_admin` / `workspace_admin` / `tutor` / `learner`）工作模式说明书——「如何经工具面完成角色职责」的版本化文本（role-agent-journeys-v2 S1，R2/R6）。载体 = `Cgc2046.Mcp.Playbooks` 模块常量 + 逐角色版本号（API `roles/0` / `fetch/1` / `version/1`）；分发通道 = MCP `get_role_playbook`（工具层四分支授权：learner 任何已认证用户 / tutor 与 workspace_admin 须持对应工作台角色 / platform_admin 须 `is_platform_admin` 全局标记）。**playbook 只组织用户已有能力**——面板隐藏、Agent 提示、本地缓存都不扩大网站 RBAC 权限（R6）。learner/tutor 两角色核心章节逐字吸收自已删除的 `Learning.AgentInstructions` / `Curriculum.AgentInstructions` 死代码模块。
 - **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。扩展 `system_prompt.md` 静态清单收缩为 7 个跨角色公共工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2 / 确认流 2），角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
 

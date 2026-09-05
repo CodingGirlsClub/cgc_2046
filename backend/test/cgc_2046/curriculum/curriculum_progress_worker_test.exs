@@ -31,7 +31,14 @@ defmodule Cgc2046.Curriculum.CurriculumProgressWorkerTest do
             "goal" => "写问候程序",
             "materials" => [],
             "checklist" => [%{"id" => "c1", "text" => "能运行"}]
-          }
+          },
+          "objectives" => [
+            %{
+              "id" => "obj-1",
+              "title" => "掌握本单元核心目标",
+              "rubric" => [%{"id" => "r1", "text" => "能独立完成"}]
+            }
+          ]
         }
       ]
     }
