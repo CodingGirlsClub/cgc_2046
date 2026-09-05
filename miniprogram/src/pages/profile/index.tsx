@@ -93,9 +93,9 @@ export default function ProfilePage() {
     if (!code) return
     try {
       await Taro.setClipboardData({ data: code.scene })
-      Taro.showToast({ title: '已复制,对方在加入页粘贴即可', icon: 'none' })
+      Taro.showToast({ title: '已复制，对方在加入页粘贴即可', icon: 'none' })
     } catch {
-      Taro.showToast({ title: '复制失败,请重试', icon: 'none' })
+      Taro.showToast({ title: '复制失败，请重试', icon: 'none' })
     }
   }
 
