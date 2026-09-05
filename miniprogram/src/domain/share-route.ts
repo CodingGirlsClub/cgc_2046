@@ -13,10 +13,15 @@ export interface AppShowQuery {
   kind?: string
 }
 
+/** join 页邀请链接 path（#415 分享出口；scene 必须 encodeURIComponent） */
+export function buildJoinSharePath(scene: string): string {
+  return `/pages/join/index?scene=${encodeURIComponent(scene)}`
+}
+
 /** query + 当前栈顶页面 route → 跳转 url；null = 不跳 */
 export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string): string | null {
   const scene = query.scene?.trim()
-  if (scene) return `/pages/join/index?scene=${encodeURIComponent(scene)}`
+  if (scene) return buildJoinSharePath(scene)
 
   const id = query.id?.trim()
   if (!id) return null
