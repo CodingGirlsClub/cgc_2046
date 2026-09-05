@@ -33,7 +33,7 @@ defmodule Cgc2046.Integrations.Wechat.ClientGateTest do
       assert {:error, :platform_not_configured} = Client.generate_code(:xhs, "scene")
 
       assert {:error, :platform_not_configured} =
-               Client.send_notification(:tt, "oX", "tpl", %{})
+               Client.send_notification(:tt, "oX", "tpl", %{}, "approval_result")
 
       assert {:error, :platform_not_configured} =
                Client.decrypt_phone(:wechat, %{session_key: "k"}, "d", "i")
@@ -67,7 +67,7 @@ defmodule Cgc2046.Integrations.Wechat.ClientGateTest do
       assert {:error, :platform_not_configured} = Client.generate_code(:xhs, "scene")
 
       assert {:error, :platform_not_configured} =
-               Client.send_notification(:xhs, "oX", "tpl", %{})
+               Client.send_notification(:xhs, "oX", "tpl", %{}, "approval_result")
     end
 
     test "凭证齐 → 门禁放行，config 注入请求（stub 断言 appid/secret 来源）" do
