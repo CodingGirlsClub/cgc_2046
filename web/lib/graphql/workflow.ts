@@ -3,7 +3,7 @@ import type { TypedDocumentNode } from "@apollo/client";
 
 /**
  * Platform Admin 脱敏 WorkflowRun 审计查询。
- * 原始 listWorkflowRuns/getWorkflowRun GraphQL 面已移除，业务页面不得读取 raw facts。
+ * 平台审计 GraphQL 面只返回脱敏运行元数据，业务页面不得读取 raw facts。
  */
 
 /* ---------------- 类型（对齐 backend/priv/graphql/schema.graphql） ---------------- */
@@ -21,26 +21,16 @@ export type WorkflowRunStatus =
 	| "cancelled"
 	| "expired";
 
-/** WorkflowRun（后端 type WorkflowRun 实测字段） */
+/** Platform audit row: deliberately redacted; facts/input snapshots are not in this shape. */
 export interface WorkflowRun {
 	id: string;
 	workspaceId: string;
-	definitionId: string;
-	definitionVersion: number;
+	definitionType: string;
+	definitionId?: string;
 	status: WorkflowRunStatus;
-	/** JsonString：JSON 编码字符串，数据层 JSON.parse 后使用 */
-	inputSnapshot: string | null;
-	/** JsonString：JSON 编码字符串，数据层 JSON.parse 后使用 */
-	facts: string | null;
-	partitionId: string | null;
-	version: number;
 	startedAt: string | null;
 	finishedAt: string | null;
-	/** plan 020 U3：run 绑定版本的 definition（版本快照，非最新定义） */
-	definition: { type: string } | null;
-	definitionType?: string | null;
-	/** plan 020 U3：JsonString 数组——每项 JSON 编码步骤摘要 {step_key,title,type,output_schema} */
-	steps: string[] | null;
+	insertedAt: string;
 }
 
 /** Legacy-shaped adapter type retained internally for shared audit row mapping. */
@@ -52,11 +42,11 @@ export interface WorkflowRunConnection {
 	endKeyset?: string | null;
 }
 
-/** Legacy filter type retained for callers while audit filters converge. */
+/** Filter shape used by the operational audit adapter. */
 export interface WorkflowRunFilter {
 	workspaceId?: { eq?: string } | null;
 	status?: { eq?: string } | null;
-	/** #117：audit 页时间范围映射到 startedAt（自动 filter 无 insertedAt） */
+	/** Audit time range is applied to the redacted startedAt column. */
 	startedAt?: {
 		greaterThanOrEqual?: string;
 		lessThanOrEqual?: string;
@@ -65,22 +55,20 @@ export interface WorkflowRunFilter {
 
 /* ---------------- redacted audit query ---------------- */
 
-/**
- * #40 listWorkflowRuns：工作台 run 列表（分页对象，filter 用 eq 包装 workspaceId）。
- * 只读展示页消费；run 创建/状态流转不经 GraphQL 暴露（ResearchInstantiator 内部调用）。
- */
+/** Platform Admin operational audit query; the response contains metadata only. */
 export const PLATFORM_WORKFLOW_AUDIT: TypedDocumentNode<
 	{ platformWorkflowAudit: WorkflowRun[] },
-	{ workspaceId?: string; status?: string }
+	{ workspaceId?: string; status?: string; startedAfter?: string; startedBefore?: string }
 > = gql`
-	query PlatformWorkflowAudit($workspaceId: ID, $status: String) {
-		platformWorkflowAudit(workspaceId: $workspaceId, status: $status) {
+	query PlatformWorkflowAudit($workspaceId: ID, $status: String, $startedAfter: DateTime, $startedBefore: DateTime) {
+		platformWorkflowAudit(workspaceId: $workspaceId, status: $status, startedAfter: $startedAfter, startedBefore: $startedBefore) {
 				id
 				workspaceId
 				definitionType
 				status
 				startedAt
 				finishedAt
+				insertedAt
 			}
 	}
 `;

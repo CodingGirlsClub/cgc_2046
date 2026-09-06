@@ -29,7 +29,9 @@ defmodule Cgc2046.Curriculum.OutputTest do
               "as_a" => "刚装好 Python 的学员",
               "given" => ["无"],
               "goal" => "独立写一个问候程序",
-              "materials" => [%{"title" => "Python 官方教程", "ref" => "https://example.com"}],
+              "materials" => [
+                %{"kind" => "web", "title" => "Python 官方教程", "url" => "https://example.com"}
+              ],
               "checklist" => [
                 %{"id" => "c1", "text" => "程序能运行并正确输出"},
                 %{"id" => "c2", "text" => "能把代码逐行讲懂"}

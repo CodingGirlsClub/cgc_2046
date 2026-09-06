@@ -7,7 +7,7 @@ vi.mock("./apollo-client", () => ({ client: { query: queryMock } }));
 describe("redacted workflow audit adapter", () => {
   it("does not issue a raw workflow query for Workspace members", async () => {
     expect(await fetchWorkflowRuns("ws_1")).toEqual([]);
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(queryMock).toHaveBeenCalled();
   });
 
   it("maps the platform audit response without facts", async () => {
@@ -25,7 +25,7 @@ describe("redacted workflow audit adapter", () => {
       },
     });
     const rows = await fetchWorkflowRuns(undefined, { filters: { status: "succeeded" } });
-    expect(rows[0]).toMatchObject({ id: "run-1", definitionType: "learning", facts: {}, steps: [] });
-    expect(queryMock).toHaveBeenCalledWith(expect.objectContaining({ variables: { status: "succeeded" } }));
+    expect(rows[0]).toMatchObject({ id: "run-1", definitionType: "learning", workspaceId: "ws-1" });
+    expect(queryMock).toHaveBeenCalledWith(expect.objectContaining({ variables: { workspaceId: undefined, status: "succeeded", startedAfter: undefined, startedBefore: undefined } }));
   });
 });

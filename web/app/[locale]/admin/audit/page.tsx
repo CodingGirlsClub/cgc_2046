@@ -109,7 +109,7 @@ function workflowRunToRow(run: WorkflowRunItem): AuditRow {
 	return {
 		id: run.id,
 		time: run.startedAt,
-		identity: run.definitionId,
+		identity: run.definitionType ?? run.definitionId ?? "unknown",
 		status: run.status,
 	};
 }
@@ -234,10 +234,11 @@ export default function AdminAuditPage() {
 	};
 
 	return (
-		<section>
+		<section data-testid="platform-audit-page">
 			<div className="admin-page__head">
 				<h1>{t("auditTitle")}</h1>
 			</div>
+			<p className="admin-muted" data-testid="audit-redaction-notice">平台审计仅显示状态、类型、Workspace 和时间；不会显示 facts、输入快照或学习证据正文。</p>
 
 			<div className="admin-toolbar">
 				<div className="admin-tabs">

@@ -23,16 +23,17 @@ export interface WorkflowRunStep {
 export interface WorkflowRunItem {
 	id: string;
 	status: WorkflowRunStatus;
-	definitionId: string;
-	/** run 绑定版本的 definition 类型（learning/research/...；读取失败为 null） */
-	definitionType: string | null;
-	/** 执行产物 facts（JsonString 解析后的对象；无产物为空对象） */
-	facts: Record<string, unknown>;
-	/** 步骤读取面（版本绑定；无/解析失败为空数组） */
-	steps: WorkflowRunStep[];
+	workspaceId?: string;
+	definitionType: string;
 	startedAt: string | null;
 	finishedAt: string | null;
+	insertedAt?: string;
+	/** Deprecated compatibility fields for local type-only helpers; never populated from audit API. */
+	definitionId?: string;
+	facts?: Record<string, unknown>;
+	steps?: WorkflowRunStep[];
 }
+
 
 /** JsonString → 对象；null/空串/非法 JSON 兜底 {}（展示页通用渲染，不假定结构） */
 export function parseJsonString(raw: string | null | undefined): Record<string, unknown> {
@@ -94,14 +95,14 @@ export function mapWorkflowRun(r: WorkflowRun): WorkflowRunItem {
 	return {
 		id: r.id,
 		status: r.status,
-		definitionId: r.definitionId ?? r.id,
-		definitionType: r.definitionType ?? r.definition?.type ?? null,
-		facts: parseJsonString(r.facts),
-		steps: parseSteps(r.steps),
+		workspaceId: r.workspaceId,
+		definitionType: r.definitionType ?? r.definitionId ?? "unknown",
 		startedAt: r.startedAt,
 		finishedAt: r.finishedAt,
+		insertedAt: r.insertedAt,
 	};
 }
+
 
 /**
  * 获取脱敏 audit 列表，仅 admin audit 页免 workspace scope 使用。
@@ -114,16 +115,16 @@ export async function fetchWorkflowRuns(
 	workspaceId?: string,
 	opts?: { first?: number; after?: string; filters?: AuditFilters },
 ): Promise<WorkflowRunItem[]> {
-	if (workspaceId) return [];
-	const variables = { status: opts?.filters?.status };
+	const variables = { workspaceId, status: opts?.filters?.status, startedAfter: opts?.filters?.insertedAfter, startedBefore: opts?.filters?.insertedBefore };
 
-	const { data } = await client.query({
+	const result = await client.query({
 		query: PLATFORM_WORKFLOW_AUDIT,
 		variables,
 		// #23：请求超时——GraphQL 端点挂起时中止请求，让页面落到错误态而非无限 loading。
 		// Apollo 经 context.fetchOptions 把 signal 透传给 fetch（createHttpLink）。
 		context: { fetchOptions: { signal: timeoutSignal() } },
 	});
+	const data = result?.data;
 
 	return Array.isArray(data?.platformWorkflowAudit)
 		? data.platformWorkflowAudit.map(mapWorkflowRun)

@@ -25,7 +25,7 @@ import { Icon } from "@/components/icons";
 import StepHandoffCopy from "@/components/step-handoff-copy";
 import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
-import { fetchWorkflowRuns, type WorkflowRunItem, type WorkflowRunStep } from "@/lib/workflows";
+import type { WorkflowRunItem, WorkflowRunStep } from "@/lib/workflows";
 import { fetchMyMcpTokens, type McpTokenItem } from "@/lib/mcp";
 import { fetchMyWorkspaceToolCalls, type AgentActivityItem } from "@/lib/agents";
 
@@ -55,9 +55,9 @@ export function deriveTodos(runs: WorkflowRunItem[]): TodoItem[] {
 	for (const run of runs) {
 		if (run.definitionType !== "learning") continue;
 		if (run.status !== "running" && run.status !== "waiting") continue;
-		for (const step of run.steps) {
+		for (const step of run.steps ?? []) {
 			if (step.type !== "manual") continue;
-			if (Object.prototype.hasOwnProperty.call(run.facts, step.stepKey)) continue;
+			if (Object.prototype.hasOwnProperty.call(run.facts ?? {}, step.stepKey)) continue;
 			todos.push({ run, step });
 		}
 	}
@@ -209,7 +209,7 @@ export default function WorkspaceAgentsPage() {
 	const { authed, confirmed } = useAuthed();
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
-	const [runs, setRuns] = useState<WorkflowRunItem[]>([]);
+	const [runs] = useState<WorkflowRunItem[]>([]);
 	const [activity, setActivity] = useState<AgentActivityItem[]>([]);
 	const [hasActiveToken, setHasActiveToken] = useState(false);
 	const [loading, setLoading] = useState(true);
@@ -225,13 +225,11 @@ export default function WorkspaceAgentsPage() {
 		let cancelled = false;
 
 		Promise.all([
-			fetchWorkflowRuns(wsId),
 			fetchMyWorkspaceToolCalls(wsId),
 			fetchMyMcpTokens(),
 		])
-			.then(([runsResult, activityResult, tokens]) => {
+			.then(([activityResult, tokens]) => {
 				if (cancelled) return;
-				setRuns(runsResult);
 				setActivity(activityResult);
 				setHasActiveToken(tokens.some((t: McpTokenItem) => t.status === "active"));
 				setRunsWorkspaceId(wsId);

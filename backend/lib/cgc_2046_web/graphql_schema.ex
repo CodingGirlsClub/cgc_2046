@@ -213,6 +213,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :platform_workflow_audit, non_null(list_of(non_null(:platform_workflow_audit))) do
       arg(:workspace_id, :id)
       arg(:status, :string)
+      arg(:started_after, :datetime)
+      arg(:started_before, :datetime)
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->

@@ -50,7 +50,12 @@ defmodule Cgc2046.Curriculum.ContentTest do
         "url" => "https://example.com/a.png",
         "alt_text" => "图"
       },
-      %{"kind" => "video", "title" => "视频", "provider" => "bilibili", "external_id" => "BV1xx"}
+      %{
+        "kind" => "video",
+        "title" => "视频",
+        "provider" => "bilibili",
+        "external_id" => "BV1Q541167Qg"
+      }
     ]
 
     assert Content.valid_v1?(content(materials))

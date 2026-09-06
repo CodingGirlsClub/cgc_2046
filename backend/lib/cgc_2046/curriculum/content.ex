@@ -144,7 +144,7 @@ defmodule Cgc2046.Curriculum.Content do
 
   - per-objective 形状:`id`/`title` 非空字符串;`required` 布尔(缺省 true);
     `prereq_ids` 为字符串数组;`activity`/`assessment` 为字符串(可空串);
-    `materials` 为 `%{title, ref}` 数组;`rubric` 非空且条目 `{id, text}`、
+    `materials` 为 typed Material 数组;`rubric` 非空且条目 `{id, text}`、
     id 在 objective 内唯一;
   - 课程级:objective `id` 全课程唯一;`prereq_ids` 引用必须存在;
     先修关系构成 DAG(无环、无自引用)。
@@ -245,6 +245,46 @@ defmodule Cgc2046.Curriculum.Content do
   end
 
   def checklist_item_ids(_issue), do: []
+
+  @doc "逐条报告材料协议错误；旧 {title, ref} 草稿必须重新保存为 typed Material。"
+  @spec material_violations(term()) :: [String.t()]
+  def material_violations(content) when is_map(content) do
+    content
+    |> issues()
+    |> Enum.flat_map(fn issue ->
+      issue_label = if is_map(issue), do: Map.get(issue, "id", "issue"), else: "issue"
+      materials = if is_map(issue), do: get_in(issue, ["story", "materials"]), else: nil
+
+      objective_materials =
+        if is_map(issue) and is_list(issue["objectives"]) do
+          Enum.flat_map(issue["objectives"], fn objective ->
+            if is_map(objective) and is_list(objective["materials"]),
+              do: objective["materials"],
+              else: []
+          end)
+        else
+          []
+        end
+
+      Enum.with_index(List.wrap(materials) ++ objective_materials)
+      |> Enum.flat_map(fn {material, index} ->
+        cond do
+          is_map(material) and Map.has_key?(material, "ref") ->
+            [
+              "issue \"#{issue_label}\" material ##{index}: legacy_material_ref，需重新保存为 typed Material"
+            ]
+
+          valid_material?(material) ->
+            []
+
+          true ->
+            ["issue \"#{issue_label}\" material ##{index}: invalid_material_source"]
+        end
+      end)
+    end)
+  end
+
+  def material_violations(_content), do: []
 
   # --- 私有实现(v1) ------------------------------------------------------------
 
@@ -387,10 +427,6 @@ defmodule Cgc2046.Curriculum.Content do
     end
   end
 
-  defp valid_material?(%{"title" => title, "ref" => ref})
-       when is_binary(title) and is_binary(ref),
-       do: true
-
   defp valid_material?(%{"kind" => kind} = material) when kind in @material_kinds do
     case kind do
       kind when kind in ["text", "markdown"] ->
@@ -400,14 +436,23 @@ defmodule Cgc2046.Curriculum.Content do
         https_url?(material["url"])
 
       "video" ->
-        material["provider"] in @video_providers and non_empty_string?(material["external_id"])
+        material["provider"] in @video_providers and valid_bilibili_id?(material["external_id"])
     end
   end
 
   defp valid_material?(_), do: false
 
-  defp https_url?(url) when is_binary(url), do: String.starts_with?(url, "https://")
+  defp https_url?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host, userinfo: nil} when is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+
   defp https_url?(_), do: false
+
+  defp valid_bilibili_id?(id) when is_binary(id), do: Regex.match?(~r/^BV[0-9A-Za-z]{10}$/, id)
+  defp valid_bilibili_id?(_), do: false
 
   # 每个 objective 必须配非空 rubric(≥1 条 {id, text},id 组内唯一)——Rubric 是
   # 掌握的判定标准,空 rubric = 不可判定(R38)
@@ -575,7 +620,7 @@ defmodule Cgc2046.Curriculum.ContentValidation do
                "objectives required (at least one course-wide, non-empty per issue cards) — " <>
                "id unique course-wide, non-empty title, " <>
                "required boolean (default true), prereq_ids referencing existing objective ids " <>
-               "forming a DAG, activity/assessment strings, materials [{title, ref}], " <>
+               "forming a DAG, activity/assessment strings, typed materials (kind + constrained source), " <>
                "non-empty rubric with unique-in-objective criterion ids))"}
         end
     end

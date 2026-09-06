@@ -14,6 +14,26 @@ defmodule Cgc2046.Repo.Migrations.AddWorkflowRunSubjectScope do
     create_if_not_exists index(:workflow_runs, [:subject_enrollment_id])
 
     execute """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM workflow_runs AS r
+        JOIN workflow_definitions AS d ON d.id = r.definition_id
+        WHERE d.type = 'learning'
+          AND (
+            (r.input_snapshot ? 'user_id' AND (r.input_snapshot->>'user_id') !~* '^[0-9a-f-]{36}$') OR
+            (r.input_snapshot ? 'enrollment_id' AND (r.input_snapshot->>'enrollment_id') !~* '^[0-9a-f-]{36}$') OR
+            (r.input_snapshot ? 'course_id' AND (r.input_snapshot->>'course_id') !~* '^[0-9a-f-]{36}$') OR
+            (r.input_snapshot ? 'course_revision_id' AND (r.input_snapshot->>'course_revision_id') !~* '^[0-9a-f-]{36}$')
+          )
+      ) THEN
+        RAISE EXCEPTION 'learning workflow run subject preflight found invalid UUID';
+      END IF;
+    END $$;
+    """
+
+    execute """
     UPDATE workflow_runs AS r
     SET subject_user_id = NULLIF(r.input_snapshot->>'user_id', '')::uuid,
         subject_course_id = COALESCE(

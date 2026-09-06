@@ -74,3 +74,24 @@ export function parseCourseContent(raw: string | null | undefined): CourseConten
     return {};
   }
 }
+
+export interface CourseLearningAnalytics {
+  runStats: { totalRuns: number; activeRuns: number; completedRuns: number; completionRate: number | null };
+  objectives: Array<{ objectiveId: string; title: string; required: boolean; mastered: number; developing: number; needsReview: number; unassessed: number; totalAttempts: number; qualifyingPasses: number; lowConfidenceAttempts: number; passRate: number | null; lastActivityAt: string | null }>;
+  dropOff: { staleRunCount: number };
+  generatedAt: string;
+}
+
+export const COURSE_LEARNING_ANALYTICS: TypedDocumentNode<
+  { courseLearningAnalytics: CourseLearningAnalytics | null },
+  { courseId: string }
+> = gql`
+  query CourseLearningAnalytics($courseId: ID!) {
+    courseLearningAnalytics(courseId: $courseId) {
+      runStats { totalRuns activeRuns completedRuns completionRate }
+      objectives { objectiveId title required mastered developing needsReview unassessed totalAttempts qualifyingPasses lowConfidenceAttempts passRate lastActivityAt }
+      dropOff { staleRunCount }
+      generatedAt
+    }
+  }
+`;
