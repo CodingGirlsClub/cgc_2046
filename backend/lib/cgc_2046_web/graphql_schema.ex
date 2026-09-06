@@ -209,6 +209,47 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "平台管理员：脱敏 workflow 运行元数据（不含 facts/input snapshot）"
+    field :platform_workflow_audit, non_null(list_of(non_null(:platform_workflow_audit))) do
+      arg(:workspace_id, :id)
+      arg(:status, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          {:ok,
+           Cgc2046.Workflows.PlatformAudit.list(
+             workspace_id: args[:workspace_id],
+             status: args[:status]
+           )}
+        end)
+      end)
+    end
+
+    @desc "Tutor/Owner/Admin 课程学习聚合（不含 learner evidence）"
+    field :course_learning_analytics, :course_learning_analytics do
+      arg(:course_id, non_null(:id))
+
+      resolve(fn _, %{course_id: course_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Courses.Course
+               |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+               |> Ash.read_one(authorize?: false) do
+            {:ok, %{} = course} ->
+              roles = Cgc2046.Accounts.MembershipContext.role_names(actor, course.workspace_id)
+
+              if Enum.any?(roles, &Cgc2046.Accounts.Role.manage_role?/1) or :tutor in roles do
+                {:ok, Cgc2046.Learning.Analytics.for_course(course)}
+              else
+                {:ok, nil}
+              end
+
+            _ ->
+              {:ok, nil}
+          end
+        end)
+      end)
+    end
+
     @desc "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
     field :my_workspace_tool_calls, non_null(list_of(non_null(:workspace_tool_call))) do
       arg(:workspace_id, non_null(:id))
@@ -438,10 +479,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       )
     end
 
-    # S1（advisor02）：listWorkflowRuns 不手写——WorkflowRun 资源已自动暴露同名 query
-    # （list_workflow_runs: filter/sort/first/before/after，前端 web/lib/graphql/workflow.ts
-    # 在用），platform_admin read policy 已解锁（Phase 2）。自动版 filter.workspaceId.eq
-    # 即真实列过滤，功能与手写版等价，避免同名 field 冲突。
   end
 
   mutation do
@@ -1616,6 +1653,49 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:revision_number, :integer)
     field(:published_at, :datetime)
     field(:content, non_null(:json_string))
+  end
+
+  object :platform_workflow_audit do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:definition_type, non_null(:string))
+    field(:status, non_null(:string))
+    field(:started_at, :datetime)
+    field(:finished_at, :datetime)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :course_learning_analytics do
+    field(:run_stats, non_null(:course_learning_run_stats))
+    field(:objectives, non_null(list_of(non_null(:course_learning_objective_stats))))
+    field(:drop_off, non_null(:course_learning_drop_off))
+    field(:generated_at, non_null(:datetime))
+  end
+
+  object :course_learning_run_stats do
+    field(:total_runs, non_null(:integer))
+    field(:active_runs, non_null(:integer))
+    field(:completed_runs, non_null(:integer))
+    field(:completion_rate, :float)
+  end
+
+  object :course_learning_objective_stats do
+    field(:objective_id, non_null(:string))
+    field(:title, non_null(:string))
+    field(:required, non_null(:boolean))
+    field(:mastered, non_null(:integer))
+    field(:developing, non_null(:integer))
+    field(:needs_review, non_null(:integer))
+    field(:unassessed, non_null(:integer))
+    field(:total_attempts, non_null(:integer))
+    field(:qualifying_passes, non_null(:integer))
+    field(:low_confidence_attempts, non_null(:integer))
+    field(:pass_rate, :float)
+    field(:last_activity_at, :datetime)
+  end
+
+  object :course_learning_drop_off do
+    field(:stale_run_count, non_null(:integer))
   end
 
   object :learning_run_summary do
