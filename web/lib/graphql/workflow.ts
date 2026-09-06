@@ -2,14 +2,8 @@ import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
 
 /**
- * #40 教研产出 GraphQL 契约（对齐 backend/priv/graphql/schema.graphql 实测形态）。
- *
- * 后端字段实测（40a 重生成后）：
- * - listWorkflowRuns(filter: WorkflowRunFilterInput, first: Int, after: String)
- *   → KeysetPageOfWorkflowRun { count, results, startKeyset, endKeyset }
- * - getWorkflowRun(id: ID!) → WorkflowRun | null
- * - WorkflowRun.status 是 String!（非枚举）；facts/inputSnapshot 是 JsonString
- *   （JSON 编码字符串，非对象）——数据层需 JSON.parse 后再渲染。
+ * Platform Admin 脱敏 WorkflowRun 审计查询。
+ * 原始 listWorkflowRuns/getWorkflowRun GraphQL 面已移除，业务页面不得读取 raw facts。
  */
 
 /* ---------------- 类型（对齐 backend/priv/graphql/schema.graphql） ---------------- */
@@ -44,6 +38,7 @@ export interface WorkflowRun {
 	finishedAt: string | null;
 	/** plan 020 U3：run 绑定版本的 definition（版本快照，非最新定义） */
 	definition: { type: string } | null;
+	definitionType?: string | null;
 	/** plan 020 U3：JsonString 数组——每项 JSON 编码步骤摘要 {step_key,title,type,output_schema} */
 	steps: string[] | null;
 }
@@ -68,65 +63,25 @@ export interface WorkflowRunFilter {
 	} | null;
 }
 
-/* ---------------- 真实 query ---------------- */
+/* ---------------- redacted audit query ---------------- */
 
 /**
  * #40 listWorkflowRuns：工作台 run 列表（分页对象，filter 用 eq 包装 workspaceId）。
  * 只读展示页消费；run 创建/状态流转不经 GraphQL 暴露（ResearchInstantiator 内部调用）。
  */
-export const LIST_WORKFLOW_RUNS: TypedDocumentNode<
-	{ listWorkflowRuns: WorkflowRunConnection },
-	{ filter: WorkflowRunFilter; first?: number; after?: string }
+export const PLATFORM_WORKFLOW_AUDIT: TypedDocumentNode<
+	{ platformWorkflowAudit: WorkflowRun[] },
+	{ workspaceId?: string; status?: string }
 > = gql`
-	query ListWorkflowRuns($filter: WorkflowRunFilterInput!, $first: Int, $after: String) {
-		listWorkflowRuns(filter: $filter, first: $first, after: $after) {
-			count
-			results {
+	query PlatformWorkflowAudit($workspaceId: ID, $status: String) {
+		platformWorkflowAudit(workspaceId: $workspaceId, status: $status) {
 				id
 				workspaceId
-				definitionId
-				definitionVersion
+				definitionType
 				status
-				inputSnapshot
-				facts
-				partitionId
-				version
 				startedAt
 				finishedAt
-				definition {
-					type
-				}
-				steps
 			}
-			startKeyset
-			endKeyset
-		}
-	}
-`;
-
-/** #40 getWorkflowRun：按 id 取 run 详情（read_one，非成员经 read policy 拦截） */
-export const GET_WORKFLOW_RUN: TypedDocumentNode<
-	{ getWorkflowRun: WorkflowRun | null },
-	{ id: string }
-> = gql`
-	query GetWorkflowRun($id: ID!) {
-		getWorkflowRun(id: $id) {
-			id
-			workspaceId
-			definitionId
-			definitionVersion
-			status
-			inputSnapshot
-			facts
-			partitionId
-			version
-			startedAt
-			finishedAt
-			definition {
-				type
-			}
-			steps
-		}
 	}
 `;
 

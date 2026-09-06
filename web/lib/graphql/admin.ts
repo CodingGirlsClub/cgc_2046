@@ -9,7 +9,7 @@ import type { JoinPolicy } from "./workspace";
  * 关键约定：
  * - listUsers / listWorkspaces / listWorkspaceApplications 返回裸对象数组，
  *   分页参数 first（默认 50）/ after（offset 字符串）。
- * - listWorkflowRuns 复用 workflow.ts 既有 LIST_WORKFLOW_RUNS（Phase 5 决定不手写，
+ * - workflow audit 复用 workflow.ts 的脱敏 PLATFORM_WORKFLOW_AUDIT（不返回 facts），
  *   WorkflowRun 自动 query + platform_admin read policy）。
  * - approve/rejectWorkspaceApplication + createWorkspace 为 AshGraphql 自动生成，
  *   返回标准 { result, errors } 信封；createWorkspace 的 metadata 携带

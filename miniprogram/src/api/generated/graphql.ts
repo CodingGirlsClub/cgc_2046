@@ -152,7 +152,7 @@ export type CourseFilterInput = {
   title?: CourseFilterTitle | null | undefined;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: CourseFilterVisibility | null | undefined;
-  workflowRun?: WorkflowRunFilterInput | null | undefined;
+  workflowRun?: FilterInput | null | undefined;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: CourseFilterWorkflowRunId | null | undefined;
   /** 所属工作台（租户）ID */
@@ -728,6 +728,278 @@ export type EventFilterWorkspaceId = {
   rangeOverlaps?: string | number | null | undefined;
 };
 
+export type FilterDefinitionId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterDefinitionVersion = {
+  eq?: number | null | undefined;
+  greaterThan?: number | null | undefined;
+  greaterThanOrEqual?: number | null | undefined;
+  in?: Array<number> | null | undefined;
+  isDistinctFrom?: number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: number | null | undefined;
+  lessThan?: number | null | undefined;
+  lessThanOrEqual?: number | null | undefined;
+  notEq?: number | null | undefined;
+  rangeAdjacent?: number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: number | null | undefined;
+};
+
+export type FilterFacts = {
+  eq?: string | null | undefined;
+  greaterThan?: string | null | undefined;
+  greaterThanOrEqual?: string | null | undefined;
+  in?: Array<string | null | undefined> | null | undefined;
+  isDistinctFrom?: string | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | null | undefined;
+  lessThan?: string | null | undefined;
+  lessThanOrEqual?: string | null | undefined;
+  notEq?: string | null | undefined;
+  rangeAdjacent?: string | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | null | undefined;
+};
+
+export type FilterFinishedAt = {
+  eq?: string | null | undefined;
+  greaterThan?: string | null | undefined;
+  greaterThanOrEqual?: string | null | undefined;
+  in?: Array<string | null | undefined> | null | undefined;
+  isDistinctFrom?: string | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | null | undefined;
+  lessThan?: string | null | undefined;
+  lessThanOrEqual?: string | null | undefined;
+  notEq?: string | null | undefined;
+  rangeAdjacent?: string | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | null | undefined;
+};
+
+export type FilterId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterInput = {
+  and?: Array<FilterInput> | null | undefined;
+  definition?: WorkflowDefinitionFilterInput | null | undefined;
+  /** 绑定的 WorkflowDefinition ID */
+  definitionId?: FilterDefinitionId | null | undefined;
+  /** 绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动） */
+  definitionVersion?: FilterDefinitionVersion | null | undefined;
+  /** 执行产物 facts（按 step_key 聚合，引擎执行后写入） */
+  facts?: FilterFacts | null | undefined;
+  /** 结束时间（终态 action 写入） */
+  finishedAt?: FilterFinishedAt | null | undefined;
+  id?: FilterId | null | undefined;
+  /** run 输入快照（创建时固化，执行引擎按此驱动） */
+  inputSnapshot?: FilterInputSnapshot | null | undefined;
+  not?: Array<FilterInput> | null | undefined;
+  or?: Array<FilterInput> | null | undefined;
+  /** Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离） */
+  partitionId?: FilterPartitionId | null | undefined;
+  /** 开始执行时间（start action 写入） */
+  startedAt?: FilterStartedAt | null | undefined;
+  /** 执行状态机：pending/running/waiting/succeeded/failed/cancelled/expired */
+  status?: FilterStatus | null | undefined;
+  subjectCourseId?: FilterSubjectCourseId | null | undefined;
+  subjectCourseRevisionId?: FilterSubjectCourseRevisionId | null | undefined;
+  subjectEnrollmentId?: FilterSubjectEnrollmentId | null | undefined;
+  subjectUserId?: FilterSubjectUserId | null | undefined;
+  /** 乐观锁版本号，每次状态流转 +1 */
+  version?: FilterVersion | null | undefined;
+  /** 所属工作台（租户）ID */
+  workspaceId?: FilterWorkspaceId | null | undefined;
+};
+
+export type FilterInputSnapshot = {
+  eq?: string | null | undefined;
+  greaterThan?: string | null | undefined;
+  greaterThanOrEqual?: string | null | undefined;
+  in?: Array<string | null | undefined> | null | undefined;
+  isDistinctFrom?: string | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | null | undefined;
+  lessThan?: string | null | undefined;
+  lessThanOrEqual?: string | null | undefined;
+  notEq?: string | null | undefined;
+  rangeAdjacent?: string | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | null | undefined;
+};
+
+export type FilterPartitionId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterStartedAt = {
+  eq?: string | null | undefined;
+  greaterThan?: string | null | undefined;
+  greaterThanOrEqual?: string | null | undefined;
+  in?: Array<string | null | undefined> | null | undefined;
+  isDistinctFrom?: string | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | null | undefined;
+  lessThan?: string | null | undefined;
+  lessThanOrEqual?: string | null | undefined;
+  notEq?: string | null | undefined;
+  rangeAdjacent?: string | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | null | undefined;
+};
+
+export type FilterStatus = {
+  eq?: string | null | undefined;
+  greaterThan?: string | null | undefined;
+  greaterThanOrEqual?: string | null | undefined;
+  in?: Array<string> | null | undefined;
+  isDistinctFrom?: string | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | null | undefined;
+  lessThan?: string | null | undefined;
+  lessThanOrEqual?: string | null | undefined;
+  notEq?: string | null | undefined;
+  rangeAdjacent?: string | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | null | undefined;
+};
+
+export type FilterSubjectCourseId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterSubjectCourseRevisionId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterSubjectEnrollmentId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterSubjectUserId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
+export type FilterVersion = {
+  eq?: number | null | undefined;
+  greaterThan?: number | null | undefined;
+  greaterThanOrEqual?: number | null | undefined;
+  in?: Array<number> | null | undefined;
+  isDistinctFrom?: number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: number | null | undefined;
+  lessThan?: number | null | undefined;
+  lessThanOrEqual?: number | null | undefined;
+  notEq?: number | null | undefined;
+  rangeAdjacent?: number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: number | null | undefined;
+};
+
+export type FilterWorkspaceId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
 export type RejectEnrollmentInput = {
   rejectionReason?: string | null | undefined;
 };
@@ -894,210 +1166,6 @@ export type WorkflowDefinitionFilterVersion = {
 };
 
 export type WorkflowDefinitionFilterWorkspaceId = {
-  eq?: string | number | null | undefined;
-  greaterThan?: string | number | null | undefined;
-  greaterThanOrEqual?: string | number | null | undefined;
-  in?: Array<string | number> | null | undefined;
-  isDistinctFrom?: string | number | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | number | null | undefined;
-  lessThan?: string | number | null | undefined;
-  lessThanOrEqual?: string | number | null | undefined;
-  notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
-};
-
-export type WorkflowRunFilterDefinitionId = {
-  eq?: string | number | null | undefined;
-  greaterThan?: string | number | null | undefined;
-  greaterThanOrEqual?: string | number | null | undefined;
-  in?: Array<string | number> | null | undefined;
-  isDistinctFrom?: string | number | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | number | null | undefined;
-  lessThan?: string | number | null | undefined;
-  lessThanOrEqual?: string | number | null | undefined;
-  notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
-};
-
-export type WorkflowRunFilterDefinitionVersion = {
-  eq?: number | null | undefined;
-  greaterThan?: number | null | undefined;
-  greaterThanOrEqual?: number | null | undefined;
-  in?: Array<number> | null | undefined;
-  isDistinctFrom?: number | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: number | null | undefined;
-  lessThan?: number | null | undefined;
-  lessThanOrEqual?: number | null | undefined;
-  notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
-};
-
-export type WorkflowRunFilterFacts = {
-  eq?: string | null | undefined;
-  greaterThan?: string | null | undefined;
-  greaterThanOrEqual?: string | null | undefined;
-  in?: Array<string | null | undefined> | null | undefined;
-  isDistinctFrom?: string | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | null | undefined;
-  lessThan?: string | null | undefined;
-  lessThanOrEqual?: string | null | undefined;
-  notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
-};
-
-export type WorkflowRunFilterFinishedAt = {
-  eq?: string | null | undefined;
-  greaterThan?: string | null | undefined;
-  greaterThanOrEqual?: string | null | undefined;
-  in?: Array<string | null | undefined> | null | undefined;
-  isDistinctFrom?: string | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | null | undefined;
-  lessThan?: string | null | undefined;
-  lessThanOrEqual?: string | null | undefined;
-  notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
-};
-
-export type WorkflowRunFilterId = {
-  eq?: string | number | null | undefined;
-  greaterThan?: string | number | null | undefined;
-  greaterThanOrEqual?: string | number | null | undefined;
-  in?: Array<string | number> | null | undefined;
-  isDistinctFrom?: string | number | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | number | null | undefined;
-  lessThan?: string | number | null | undefined;
-  lessThanOrEqual?: string | number | null | undefined;
-  notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
-};
-
-export type WorkflowRunFilterInput = {
-  and?: Array<WorkflowRunFilterInput> | null | undefined;
-  definition?: WorkflowDefinitionFilterInput | null | undefined;
-  /** 绑定的 WorkflowDefinition ID */
-  definitionId?: WorkflowRunFilterDefinitionId | null | undefined;
-  /** 绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动） */
-  definitionVersion?: WorkflowRunFilterDefinitionVersion | null | undefined;
-  /** 执行产物 facts（按 step_key 聚合，引擎执行后写入） */
-  facts?: WorkflowRunFilterFacts | null | undefined;
-  /** 结束时间（终态 action 写入） */
-  finishedAt?: WorkflowRunFilterFinishedAt | null | undefined;
-  id?: WorkflowRunFilterId | null | undefined;
-  /** run 输入快照（创建时固化，执行引擎按此驱动） */
-  inputSnapshot?: WorkflowRunFilterInputSnapshot | null | undefined;
-  not?: Array<WorkflowRunFilterInput> | null | undefined;
-  or?: Array<WorkflowRunFilterInput> | null | undefined;
-  /** Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离） */
-  partitionId?: WorkflowRunFilterPartitionId | null | undefined;
-  /** 开始执行时间（start action 写入） */
-  startedAt?: WorkflowRunFilterStartedAt | null | undefined;
-  /** 执行状态机：pending/running/waiting/succeeded/failed/cancelled/expired */
-  status?: WorkflowRunFilterStatus | null | undefined;
-  /** 乐观锁版本号，每次状态流转 +1 */
-  version?: WorkflowRunFilterVersion | null | undefined;
-  /** 所属工作台（租户）ID */
-  workspaceId?: WorkflowRunFilterWorkspaceId | null | undefined;
-};
-
-export type WorkflowRunFilterInputSnapshot = {
-  eq?: string | null | undefined;
-  greaterThan?: string | null | undefined;
-  greaterThanOrEqual?: string | null | undefined;
-  in?: Array<string | null | undefined> | null | undefined;
-  isDistinctFrom?: string | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | null | undefined;
-  lessThan?: string | null | undefined;
-  lessThanOrEqual?: string | null | undefined;
-  notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
-};
-
-export type WorkflowRunFilterPartitionId = {
-  eq?: string | number | null | undefined;
-  greaterThan?: string | number | null | undefined;
-  greaterThanOrEqual?: string | number | null | undefined;
-  in?: Array<string | number | null | undefined> | null | undefined;
-  isDistinctFrom?: string | number | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | number | null | undefined;
-  lessThan?: string | number | null | undefined;
-  lessThanOrEqual?: string | number | null | undefined;
-  notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
-};
-
-export type WorkflowRunFilterStartedAt = {
-  eq?: string | null | undefined;
-  greaterThan?: string | null | undefined;
-  greaterThanOrEqual?: string | null | undefined;
-  in?: Array<string | null | undefined> | null | undefined;
-  isDistinctFrom?: string | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | null | undefined;
-  lessThan?: string | null | undefined;
-  lessThanOrEqual?: string | null | undefined;
-  notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
-};
-
-export type WorkflowRunFilterStatus = {
-  eq?: string | null | undefined;
-  greaterThan?: string | null | undefined;
-  greaterThanOrEqual?: string | null | undefined;
-  in?: Array<string> | null | undefined;
-  isDistinctFrom?: string | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: string | null | undefined;
-  lessThan?: string | null | undefined;
-  lessThanOrEqual?: string | null | undefined;
-  notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
-};
-
-export type WorkflowRunFilterVersion = {
-  eq?: number | null | undefined;
-  greaterThan?: number | null | undefined;
-  greaterThanOrEqual?: number | null | undefined;
-  in?: Array<number> | null | undefined;
-  isDistinctFrom?: number | null | undefined;
-  isNil?: boolean | null | undefined;
-  isNotDistinctFrom?: number | null | undefined;
-  lessThan?: number | null | undefined;
-  lessThanOrEqual?: number | null | undefined;
-  notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
-};
-
-export type WorkflowRunFilterWorkspaceId = {
   eq?: string | number | null | undefined;
   greaterThan?: string | number | null | undefined;
   greaterThanOrEqual?: string | number | null | undefined;

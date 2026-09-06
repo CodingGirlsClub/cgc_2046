@@ -1,259 +1,31 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { fetchWorkflowRuns } from "./workflows";
 
-vi.mock("./apollo-client", () => ({
-	client: { query: vi.fn(), mutate: vi.fn(), refetchQueries: vi.fn() },
-}));
+const queryMock = vi.hoisted(() => vi.fn());
+vi.mock("./apollo-client", () => ({ client: { query: queryMock } }));
 
-import { client } from "./apollo-client";
-import {
-	fetchWorkflowRuns,
-	mapWorkflowRun,
-	parseJsonString,
-	parseSteps,
-} from "./workflows";
+describe("redacted workflow audit adapter", () => {
+  it("does not issue a raw workflow query for Workspace members", async () => {
+    expect(await fetchWorkflowRuns("ws_1")).toEqual([]);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
 
-describe("parseJsonString（JsonString → 对象）", () => {
-	it("合法 JSON 对象解析", () => {
-		expect(parseJsonString('{"uppercase":{"text":"HI"}}')).toEqual({
-			uppercase: { text: "HI" },
-		});
-	});
-
-	it("null/undefined/空串 → {}", () => {
-		expect(parseJsonString(null)).toEqual({});
-		expect(parseJsonString(undefined)).toEqual({});
-		expect(parseJsonString("")).toEqual({});
-	});
-
-	it("非法 JSON → {}（不抛异常）", () => {
-		expect(parseJsonString("not-json")).toEqual({});
-		expect(parseJsonString("{broken")).toEqual({});
-	});
-
-	it("JSON 数组/标量 → {}（facts 契约是对象）", () => {
-		expect(parseJsonString("[1,2]")).toEqual({});
-		expect(parseJsonString('"str"')).toEqual({});
-	});
-});
-
-describe("parseSteps（plan 020 U3：steps JsonString 数组 → 步骤条目）", () => {
-	it("正常解析：step_key/title/type/output_schema", () => {
-		const steps = parseSteps([
-			'{"step_key":"module_reading","title":"阅读模块","type":"manual","output_schema":{"name":"reading","type":"string","label":"阅读产出","optional":false}}',
-			'{"step_key":"final_reflection","title":"结课反思","type":"manual","output_schema":null}',
-		]);
-
-		expect(steps).toEqual([
-			{
-				stepKey: "module_reading",
-				title: "阅读模块",
-				type: "manual",
-				outputSchema: {
-					name: "reading",
-					type: "string",
-					label: "阅读产出",
-					optional: false,
-				},
-			},
-			{ stepKey: "final_reflection", title: "结课反思", type: "manual", outputSchema: null },
-		]);
-	});
-
-	it("宽松兼容：null/undefined/非数组 → []；单条非法/缺 step_key 跳过；title 缺省回退 step_key", () => {
-		expect(parseSteps(null)).toEqual([]);
-		expect(parseSteps(undefined)).toEqual([]);
-		expect(parseSteps("nope" as unknown as string[])).toEqual([]);
-		expect(parseSteps(["not-json", '{"step_key":"a","title":"A","type":"manual"}', "[]"])).toEqual([
-			{ stepKey: "a", title: "A", type: "manual", outputSchema: null },
-		]);
-		expect(parseSteps(['{"title":"无key"}'])).toEqual([]);
-		expect(parseSteps(['{"step_key":"b"}'])).toEqual([
-			{ stepKey: "b", title: "b", type: "", outputSchema: null },
-		]);
-	});
-});
-
-describe("mapWorkflowRun（后端 WorkflowRun → 前端展示项）", () => {
-	it("facts JsonString 解析为对象，status/startedAt 直传", () => {
-		const item = mapWorkflowRun({
-			id: "run_1",
-			workspaceId: "ws_1",
-			definitionId: "def_1",
-			definitionVersion: 1,
-			status: "succeeded",
-			inputSnapshot: null,
-			facts: '{"uppercase":{"text":"HI"}}',
-			partitionId: "ws_1",
-			version: 3,
-			startedAt: "2026-08-06T10:00:00Z",
-			finishedAt: "2026-08-06T10:00:05Z",
-			definition: { type: "research" },
-			steps: [
-				'{"step_key":"uppercase","title":"大写","type":"auto","output_schema":null}',
-			],
-		});
-
-		expect(item.id).toBe("run_1");
-		expect(item.status).toBe("succeeded");
-		expect(item.definitionId).toBe("def_1");
-		expect(item.definitionType).toBe("research");
-		expect(item.steps).toEqual([
-			{ stepKey: "uppercase", title: "大写", type: "auto", outputSchema: null },
-		]);
-		expect(item.facts).toEqual({ uppercase: { text: "HI" } });
-		expect(item.startedAt).toBe("2026-08-06T10:00:00Z");
-		expect(item.finishedAt).toBe("2026-08-06T10:00:05Z");
-	});
-
-	it("facts 为 null → {}（无产物 run）", () => {
-		const item = mapWorkflowRun({
-			id: "run_2",
-			workspaceId: "ws_1",
-			definitionId: "def_1",
-			definitionVersion: 1,
-			status: "pending",
-			inputSnapshot: null,
-			facts: null,
-			partitionId: "ws_1",
-			version: 0,
-			startedAt: null,
-			finishedAt: null,
-			definition: null,
-			steps: null,
-		});
-
-		expect(item.definitionType).toBeNull();
-		expect(item.steps).toEqual([]);
-		expect(item.facts).toEqual({});
-		expect(item.startedAt).toBeNull();
-	});
-});
-
-describe("fetchWorkflowRuns（#40：filter eq 包装 + 分页）", () => {
-	const queryMock = vi.mocked(client.query);
-	const opName = (query: unknown): string | undefined => {
-		const q = query as { definitions?: Array<{ name?: { value?: string } }> };
-		return q.definitions?.[0]?.name?.value;
-	};
-
-	beforeEach(() => {
-		queryMock.mockReset();
-	});
-
-	it("默认调用传 first: 50、filter 只含 workspaceId eq，返回映射后的 run 列表", async () => {
-		queryMock.mockImplementation(({ query, variables, context }) => {
-			expect(opName(query)).toBe("ListWorkflowRuns");
-			expect(variables).toEqual({
-				filter: { workspaceId: { eq: "ws_1" } },
-				first: 50,
-			});
-			// #23：signal 必须是 AbortSignal 实例（曾传函数引用——Apollo 对其
-			// addEventListener 会 TypeError，测试 mock 掩盖了该 bug）
-			expect(context?.fetchOptions?.signal).toBeInstanceOf(AbortSignal);
-			return Promise.resolve({
-				data: {
-					listWorkflowRuns: {
-						count: 2,
-						results: [
-							{
-								id: "run_1",
-								workspaceId: "ws_1",
-								definitionId: "def_1",
-								definitionVersion: 1,
-								status: "succeeded",
-								inputSnapshot: null,
-								facts: '{"uppercase":{"text":"HI"}}',
-								partitionId: "ws_1",
-								version: 3,
-								startedAt: "2026-08-06T10:00:00Z",
-								finishedAt: "2026-08-06T10:00:05Z",
-							},
-							{
-								id: "run_2",
-								workspaceId: "ws_1",
-								definitionId: "def_1",
-								definitionVersion: 1,
-								status: "pending",
-								inputSnapshot: null,
-								facts: null,
-								partitionId: "ws_1",
-								version: 0,
-								startedAt: null,
-								finishedAt: null,
-							},
-						],
-						startKeyset: "k1",
-						endKeyset: "k2",
-					},
-				},
-			} as never);
-		});
-
-		const runs = await fetchWorkflowRuns("ws_1");
-		expect(runs).toHaveLength(2);
-		expect(runs[0].facts).toEqual({ uppercase: { text: "HI" } });
-		expect(runs[1].facts).toEqual({});
-	});
-
-	it("带 after 时透传分页游标", async () => {
-		queryMock.mockImplementation(({ variables }) => {
-			expect(variables).toEqual({
-				filter: { workspaceId: { eq: "ws_1" } },
-				first: 50,
-				after: "k1",
-			});
-			return Promise.resolve({
-				data: { listWorkflowRuns: { count: 0, results: [] } },
-			} as never);
-		});
-
-		const runs = await fetchWorkflowRuns("ws_1", { after: "k1" });
-		expect(runs).toEqual([]);
-	});
-
-	it("后端返回空/缺 results → []", async () => {
-		queryMock.mockResolvedValue({ data: { listWorkflowRuns: null } } as never);
-		expect(await fetchWorkflowRuns("ws_1")).toEqual([]);
-	});
-
-	it("#117：免 workspace 全量 + status/时间 filter 组装", async () => {
-		queryMock.mockImplementation(({ variables }) => {
-			expect(variables).toEqual({
-				filter: {
-					status: { eq: "waiting" },
-					startedAt: {
-						greaterThanOrEqual: "2026-08-01T00:00:00Z",
-						lessThanOrEqual: "2026-08-10T00:00:00Z",
-					},
-				},
-				first: 50,
-			});
-			return Promise.resolve({
-				data: { listWorkflowRuns: { count: 0, results: [] } },
-			} as never);
-		});
-
-		const runs = await fetchWorkflowRuns(undefined, {
-			filters: {
-				status: "waiting",
-				insertedAfter: "2026-08-01T00:00:00Z",
-				insertedBefore: "2026-08-10T00:00:00Z",
-			},
-		});
-		expect(runs).toEqual([]);
-	});
-
-	it("#117：workspace 与 filters 可组合", async () => {
-		queryMock.mockImplementation(({ variables }) => {
-			expect(variables).toEqual({
-				filter: { workspaceId: { eq: "ws_1" }, status: { eq: "pending" } },
-				first: 50,
-			});
-			return Promise.resolve({
-				data: { listWorkflowRuns: { count: 0, results: [] } },
-			} as never);
-		});
-
-		await fetchWorkflowRuns("ws_1", { filters: { status: "pending" } });
-	});
+  it("maps the platform audit response without facts", async () => {
+    queryMock.mockResolvedValueOnce({
+      data: {
+        platformWorkflowAudit: [{
+          id: "run-1",
+          workspaceId: "ws-1",
+          definitionType: "learning",
+          status: "succeeded",
+          startedAt: "2026-08-01T00:00:00Z",
+          finishedAt: "2026-08-01T00:01:00Z",
+          insertedAt: "2026-08-01T00:00:00Z",
+        }],
+      },
+    });
+    const rows = await fetchWorkflowRuns(undefined, { filters: { status: "succeeded" } });
+    expect(rows[0]).toMatchObject({ id: "run-1", definitionType: "learning", facts: {}, steps: [] });
+    expect(queryMock).toHaveBeenCalledWith(expect.objectContaining({ variables: { status: "succeeded" } }));
+  });
 });
