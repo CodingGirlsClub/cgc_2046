@@ -127,7 +127,7 @@ export default function ProfilePage() {
         ) : !session?.user ? (
           <View className={styles.loggedOut}>
             <Text className={styles.loggedOutTitle}>登录后管理报名与通知</Text>
-            <Text className={styles.loggedOutText}>手机号一键登录，无需密码。</Text>
+            <Text className={styles.loggedOutText}>手机号快捷登录，无需密码。</Text>
             <Button className={styles.primaryButton} onClick={() => Taro.navigateTo({ url: '/pages/login/index' })}>去登录</Button>
           </View>
         ) : (

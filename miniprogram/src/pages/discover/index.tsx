@@ -88,7 +88,7 @@ export default function DiscoverPage() {
           <View className={styles.visitor} data-testid='visitor-state'>
             <View>
               <Text className={styles.visitorTitle}>先逛逛，登录后可报名</Text>
-              <Text className={styles.visitorText}>手机号一键登录，不需要设置密码。</Text>
+              <Text className={styles.visitorText}>手机号快捷登录，不需要设置密码。</Text>
             </View>
             <Button className={styles.loginButton} size='mini' onClick={() => Taro.navigateTo({ url: '/pages/login/index' })}>
               去登录
