@@ -20,7 +20,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
 
-/* ---------------- OpenClacky（官方下载 + 扩展市场） ---------------- */
+/* ---------------- OpenClacky（CGC OpenClacky 一键安装，扩展已内置） ---------------- */
 
 /** 安装 OpenClacky（官方下载页 iframe embed） */
 export function OpenclackyInstallCard({ stepNo }: { stepNo?: string }) {
@@ -41,15 +41,13 @@ export function OpenclackyInstallCard({ stepNo }: { stepNo?: string }) {
 	);
 }
 
-/** 安装 CGC-2046 连接器扩展（OpenClacky 扩展市场） */
+/** 说明 CGC OpenClacky 已内置 CGC-2046 连接器扩展 */
 export function OpenclackyExtensionCard({ stepNo }: { stepNo?: string }) {
 	const t = useTranslations("agentConnect");
 	return (
 		<div className="connect-step-card">
 			<h2>{stepNo ? `${stepNo} ` : ""}{t("step2Openclacky")}</h2>
-			<p className="connect-step-card__desc">
-				{t("extensionSearchHint")}
-			</p>
+			<p className="connect-step-card__desc">{t("extensionBundledHint")}</p>
 			<ol
 				style={{
 					margin: "0 0 0 18px",
@@ -63,15 +61,10 @@ export function OpenclackyExtensionCard({ stepNo }: { stepNo?: string }) {
 				}}
 			>
 				<li style={{ lineHeight: "20px" }}>
-					{t("openMarket")}
+					{t("installCgcServer")}
 				</li>
 				<li style={{ lineHeight: "20px" }}>
-					{t.rich("searchExtension", {
-						code: (chunks) => <code>{chunks}</code>,
-					})}
-				</li>
-				<li style={{ lineHeight: "20px" }}>
-					{t("installExtension")}
+					{t("bundledExtension")}
 				</li>
 			</ol>
 			<p className="connect-step-card__desc">

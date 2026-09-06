@@ -979,7 +979,7 @@
     "subtitleOpencode": "Connect the opencode client to the CGC-2046 platform.",
     "subtitleOpenclacky": "Connect an Agent to the CGC-2046 platform step by step.",
     "step1Openclacky": "Install OpenClacky",
-    "step2Openclacky": "Install the CGC-2046 connector extension",
+    "step2Openclacky": "CGC-2046 connector included",
     "step3Openclacky": "Generate a connection token",
     "downloadTitle": "Download OpenClacky",
     "extensionSearchHint": "Search and install in the OpenClacky extension marketplace:",
@@ -989,7 +989,12 @@
     "installedPanel": "Once installed, a “CGC-2046” panel appears in the sidebar and a “CGC-2046 assistant” appears in your conversation list.",
     "generateTokenDesc": "Issue a connection token on the MCP page (bound to user, not workspace). Copy it to the clipboard and complete the connection in your OpenClacky CGC assistant session — the assistant reads the clipboard safely and the token never enters the conversation log.",
     "generateToken": "Generate token",
-    "assistantConnectHint": "After copying the token, go back to OpenClacky and open the “CGC-2046 assistant” conversation — tell it you've copied. The assistant reads the clipboard safely and completes the connection; the token never enters the conversation log. Until this step runs, your agent can't reach the platform yet."
+    "assistantConnectHint": "After copying the token, go back to OpenClacky and open the “CGC-2046 assistant” conversation — tell it you've copied. The assistant reads the clipboard safely and completes the connection; the token never enters the conversation log. Until this step runs, your agent can't reach the platform yet.",
+    "extensionBundledHint": "Use the one-click installation link provided by CGC. The CGC-2046 connector is included in the package:",
+    "installCgcServer": "Open the CGC OpenClacky installation link and complete setup",
+    "bundledExtension": "After launch, “CGC-2046” appears in the sidebar; no separate extension install is needed.",
+    "oneClickConnectDesc": "After installing CGC OpenClacky, open the local OpenClacky app and click “Connect website” in the CGC-2046 panel. The assistant will guide you through CGC browser login and configure MCP automatically—no token copy required.",
+    "openCgcOpenclacky": "Open CGC OpenClacky"
   },
   "workspaceAccount": {
     "loadFailed": "Failed to load profile",
