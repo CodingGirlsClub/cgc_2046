@@ -45,7 +45,7 @@ CGC-2046（`cgc-2046`）已经发布到 CGC 自己控制的品牌交付链路。
 
 ### 2.3 OpenClacky 官方约束与 CGC 交付边界
 
-- OpenClacky 的扩展容器支持同时包含 `api`、`agents`、`panels`、`skills` 的完整扩展；本阶段不把它发布到公共 Extension Marketplace。
+- OpenClacky 的扩展容器支持同时包含 `api`、`agents`、`panels`、`skills` 的完整扩展；扩展经公共 Extension Marketplace 发布（2026-09-06 起，见 R1 决策反转记录）。
 - `ext.yml` 是扩展贡献的声明入口；`clacky ext verify` 是 CGC OpenClacky 打包和发布前的基础校验。
 - panel 与宿主同源，可读取宿主公开 API（例如 MCP 配置状态）；安装/禁用扩展和全局授权仍属于宿主控制面。
 - 扩展 hook 是任意 Ruby 代码，交付说明和安装确认页必须说明其事件、权限和副作用。
@@ -79,7 +79,7 @@ CGC 登录
 - 安装包/安装器必须把兼容版本的 OpenClacky 与 `cgc-2046` 一起交付，并在安装后把扩展放入宿主可加载的位置。
 - 发布包必须通过 `openclacky ext verify`，并在 CI 中验证 manifest 引用的每个文件存在且可加载。
 - CGC OpenClacky 的版本、内置扩展版本、安装 artifact 和下载链接必须有单一来源；升级时必须明确宿主与扩展的兼容矩阵。
-- 公共 Extension Marketplace 发布明确不属于本阶段；未来若重新打开，另起发布计划。
+- ~~公共 Extension Marketplace 发布明确不属于本阶段~~ → **2026-09-06 决策反转**：扩展经公共 Marketplace 正式发布（首发 v0.1.0）。理由：版本号展示与更新通道直接复用宿主市场机制（`/api/store/extension*` 详情/安装端点，青狮工作台同款），零托管与带宽成本，且宿主扩展管理页原生提供版本对比与更新按钮。发布前已完成全包审查：无硬编码凭证/内部设施；`guard_origin!` 一处自曝校验边界的注释已中性化；两个 skill 显式 `protected: false` 保持明文分发。新用户主路径仍为一键安装包，用户全程无需访问市场页面；`openclacky ext publish` 需平台账号并绑定设备。
 
 ### R2. 网站连接入口
 

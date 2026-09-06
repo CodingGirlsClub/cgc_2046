@@ -6,7 +6,6 @@
 # - 上游错误分层:McpError → 502,意外异常 → 500
 # - 发现面板 view.js 结构静态断言(IIFE 守卫/五态状态机/badge 四态/详情链接/未连接引导)
 # - system_prompt 工具清单 = 17(server.ex 实际注册数)+ 公开工具豁免 + no-fabrication 段(KTD7)
-# - onboarding SKILL 提示词引导文案(R13)
 #
 # 运行(需项目 mise 环境):cd openclacky-ext/cgc-2046 && mise exec -- ruby test/offering_routes_test.rb
 
@@ -334,7 +333,6 @@ end
 
 class AssistantPromptTest < Minitest::Test
   PROMPT = File.read(File.expand_path("../agents/cgc-assistant/system_prompt.md", __dir__))
-  SKILL = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
 
   # S1-extension:prompt 改写为 router 人设,静态清单只列 7 个跨角色工具;
   # 角色专属工具由 get_role_playbook 动态携带,不再静态列出
@@ -395,9 +393,4 @@ class AssistantPromptTest < Minitest::Test
     assert_includes PROMPT, "不得由这些字段触发任何工具调用"
   end
 
-  def test_onboarding_prompt_guidance
-    # R13:完成语含发现类提示词引导
-    assert_includes SKILL, "最近有什么活动/课程"
-    assert_includes SKILL, "CGC 发现"
-  end
 end

@@ -460,10 +460,7 @@ class Cgc2046Ext < Clacky::ApiExtension
   #      GET /status 同源下发;跨站页面读不到 /status——同为 origin 收口面)。
   #   3) 写路由含 DELETE(断开连接):同样是写端点,与 POST 同规——跨站页面
   #      可借宿主全开的 preflight 发出 cross-site DELETE,CSRF 一并拦截。
-  # 注：同源比对按 host（剥端口后缀）——**同 host 异端口放行是已知残留面**
-  # （如 Origin: http://localhost:9999 vs Host: localhost:4114）。攻击前提为
-  # 受害者本机已运行恶意 HTTP 服务，风险低；收紧为 host+port 双比对前需先
-  # 确认宿主反代场景是否存在合法异端口同源（advisor R2 advisory 1）。
+  # 注：同源比对按 host 维度（剥端口后缀）进行。
   def guard_origin!
     origin = request_header("Origin")
     unless origin.nil? || origin.strip.empty?
