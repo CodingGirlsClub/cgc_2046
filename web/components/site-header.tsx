@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { BrandLockup } from "@/components/brand";
 import LanguageSwitcher from "@/components/language-switcher";
 import { Link } from "@/i18n/navigation";
+import { useAuthed } from "@/lib/use-authed";
 
 export type SiteNavLink = "events" | "courses";
 
@@ -18,6 +19,8 @@ export type SiteNavLink = "events" | "courses";
  */
 export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 	const t = useTranslations("landing.nav");
+	const { authed, confirmed } = useAuthed();
+	const signedIn = confirmed && authed;
 
 	return (
 		<header className="site-nav">
@@ -43,12 +46,25 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 				</nav>
 				<div className="site-nav__right">
 					<LanguageSwitcher className="site-nav__lang" />
-					<Link href="/login" className="site-nav__login">
-						{t("login")} <span aria-hidden="true">→</span>
-					</Link>
-					<Link href="/register" className="join-button join-button--primary">
-						{t("join")}
-					</Link>
+					{signedIn ? (
+						<>
+							<Link href="/learning" className="site-nav__login">
+								我的学习 <span aria-hidden="true">→</span>
+							</Link>
+							<Link href="/" className="join-button join-button--primary">
+								工作台
+							</Link>
+						</>
+					) : (
+						<>
+							<Link href="/login" className="site-nav__login">
+								{t("login")} <span aria-hidden="true">→</span>
+							</Link>
+							<Link href="/register" className="join-button join-button--primary">
+								{t("join")}
+							</Link>
+						</>
+					)}
 				</div>
 			</div>
 		</header>

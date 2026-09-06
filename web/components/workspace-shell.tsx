@@ -383,14 +383,6 @@ export default function WorkspaceShell({
 								<span>{t("navAgents")}</span>
 							</Link>
 							<Link
-								href={`/w/${slug}/workflows`}
-								className={`ws-shell-item ${active === "workflows" ? "ws-shell-item--selected" : ""}`}
-								aria-current={active === "workflows" ? "page" : undefined}
-							>
-								<Icon name="book" />
-								<span>{t("navWorkflows")}</span>
-							</Link>
-							<Link
 								href={`/w/${slug}/events`}
 								className={`ws-shell-item ${active === "events" ? "ws-shell-item--selected" : ""}`}
 								aria-current={active === "events" ? "page" : undefined}
