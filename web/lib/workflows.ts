@@ -1,19 +1,14 @@
 import { client } from "./apollo-client";
 import type { AuditFilters } from "./admin";
 import {
-	LIST_WORKFLOW_RUNS,
+	PLATFORM_WORKFLOW_AUDIT,
 	type WorkflowRun,
-	type WorkflowRunConnection,
-	type WorkflowRunFilter,
 	type WorkflowRunStatus,
 } from "./graphql/workflow";
 
 /**
- * #40 教研产出数据源。
- *
- * 唯一真实路径 = GraphQL listWorkflowRuns（filter 用 { workspaceId: { eq } } 内层包装）。
- * 后端 facts/inputSnapshot 是 JsonString（JSON 编码字符串，非对象）——
- * 映射时 JSON.parse 为对象，解析失败/为空时兜底 {}。
+ * Platform Admin 脱敏 workflow audit 数据源。Workspace 成员不再通过此 adapter
+ * 读取 raw WorkflowRun；学习状态走 myLearningRuns。
  */
 
 /** 步骤读取面条目（plan 020 U3：后端 steps JsonString 解析；output_schema 缺失为 null） */
@@ -99,8 +94,8 @@ export function mapWorkflowRun(r: WorkflowRun): WorkflowRunItem {
 	return {
 		id: r.id,
 		status: r.status,
-		definitionId: r.definitionId,
-		definitionType: r.definition?.type ?? null,
+		definitionId: r.definitionId ?? r.id,
+		definitionType: r.definitionType ?? r.definition?.type ?? null,
 		facts: parseJsonString(r.facts),
 		steps: parseSteps(r.steps),
 		startedAt: r.startedAt,
@@ -109,7 +104,7 @@ export function mapWorkflowRun(r: WorkflowRun): WorkflowRunItem {
 }
 
 /**
- * 获取 run 列表（#40 展示页按 workspace；#117 audit 页可免 workspace 全量 + status/时间筛选）。
+ * 获取脱敏 audit 列表，仅 admin audit 页免 workspace scope 使用。
  * filter 用 eq 内层包装；read policy 经 workspace → memberships 路径，
  * 成员可见本工作台 run，非成员空结果（无需额外 query 内 filter）。
  * #117：filters.status → status.eq；filters.insertedAfter/Before → startedAt 比较器
@@ -119,42 +114,18 @@ export async function fetchWorkflowRuns(
 	workspaceId?: string,
 	opts?: { first?: number; after?: string; filters?: AuditFilters },
 ): Promise<WorkflowRunItem[]> {
-	const first = opts?.first ?? 50;
-	const filter: WorkflowRunFilter = {};
-	if (workspaceId) {
-		filter.workspaceId = { eq: workspaceId };
-	}
-	if (opts?.filters?.status) {
-		filter.status = { eq: opts.filters.status };
-	}
-	if (opts?.filters?.insertedAfter || opts?.filters?.insertedBefore) {
-		filter.startedAt = {
-			...(opts.filters.insertedAfter
-				? { greaterThanOrEqual: opts.filters.insertedAfter }
-				: {}),
-			...(opts.filters.insertedBefore
-				? { lessThanOrEqual: opts.filters.insertedBefore }
-				: {}),
-		};
-	}
-
-	const variables: { filter: WorkflowRunFilter; first?: number; after?: string } = {
-		filter,
-		first,
-	};
-	if (opts?.after) {
-		variables.after = opts.after;
-	}
+	if (workspaceId) return [];
+	const variables = { status: opts?.filters?.status };
 
 	const { data } = await client.query({
-		query: LIST_WORKFLOW_RUNS,
+		query: PLATFORM_WORKFLOW_AUDIT,
 		variables,
 		// #23：请求超时——GraphQL 端点挂起时中止请求，让页面落到错误态而非无限 loading。
 		// Apollo 经 context.fetchOptions 把 signal 透传给 fetch（createHttpLink）。
 		context: { fetchOptions: { signal: timeoutSignal() } },
 	});
 
-	const conn: WorkflowRunConnection | null | undefined = data?.listWorkflowRuns;
-	if (!conn || !Array.isArray(conn.results)) return [];
-	return conn.results.map(mapWorkflowRun);
+	return Array.isArray(data?.platformWorkflowAudit)
+		? data.platformWorkflowAudit.map(mapWorkflowRun)
+		: [];
 }

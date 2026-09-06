@@ -12,7 +12,7 @@
  * ③ 连接引导：无 active token 时展示（fetchMyMcpTokens），链 MCP tab 签发 +
  *    OpenClacky tab 引导（不复制内容）。
  *
- * 数据：listWorkflowRuns（U3 读取面，含 definition.type + steps）+ myMcpTokens +
+ * 数据：myMcpTokens + myWorkspaceToolCalls；学习进度来自 myLearningRuns，
  * myWorkspaceToolCalls。
  */
 
