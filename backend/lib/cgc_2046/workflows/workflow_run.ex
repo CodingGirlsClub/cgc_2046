@@ -97,6 +97,13 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       description: "run 输入快照（创建时固化，执行引擎按此驱动）"
     )
 
+    # Explicit privacy/analytics anchors. New runs mirror the legacy input
+    # snapshot at creation; historical rows are backfilled by migration.
+    attribute(:subject_user_id, :uuid, public?: true, writable?: false)
+    attribute(:subject_course_id, :uuid, public?: true, writable?: false)
+    attribute(:subject_enrollment_id, :uuid, public?: true, writable?: false)
+    attribute(:subject_course_revision_id, :uuid, public?: true, writable?: false)
+
     attribute(:facts, :map,
       public?: true,
       writable?: true,
@@ -177,6 +184,29 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       change(set_attribute(:status, :pending))
       change(set_attribute(:version, 1))
       change(set_attribute(:facts, %{}))
+
+      change(fn changeset, _context ->
+        input = Ash.Changeset.get_attribute(changeset, :input_snapshot) || %{}
+
+        Enum.reduce(
+          [
+            {:subject_user_id, "user_id"},
+            {:subject_course_id, "course_id"},
+            {:subject_enrollment_id, "enrollment_id"},
+            {:subject_course_revision_id, "course_revision_id"}
+          ],
+          changeset,
+          fn {attribute, key}, acc ->
+            case Map.get(input, key) do
+              value when is_binary(value) ->
+                Ash.Changeset.force_change_attribute(acc, attribute, value)
+
+              _ ->
+                acc
+            end
+          end
+        )
+      end)
 
       # partition_id = workspace_id（ADR-0002 决策 6：每 workspace = 一个 Jido partition），
       # 由 tenant 强制，不接受调用方传入
@@ -515,13 +545,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   end
 
   graphql do
-    type(:workflow_run)
-    relationships([:definition])
-
-    queries do
-      list(:list_workflow_runs, :read, description: "工作台的 workflow run 列表（#40 展示页）")
-      read_one(:get_workflow_run, :get_by_id, description: "按 id 获取 workflow run 详情（#40）")
-    end
+    generate_object?(false)
   end
 
   # --- 产品层执行闭环辅助（阶段 4 #37） ---------------------------------------

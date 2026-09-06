@@ -34,7 +34,7 @@ defmodule Cgc2046.Accounts.Policies.ActorReadsLearningAttempt do
     evidence_roles = [:tutor | Role.manage_roles()]
 
     expr(
-      exists(learning_run, input_snapshot["user_id"] == ^actor_id) or
+      exists(learning_run, subject_user_id == ^actor_id or input_snapshot["user_id"] == ^actor_id) or
         exists(
           workspace.memberships,
           user_id == ^actor_id and exists(roles, name in ^evidence_roles)
