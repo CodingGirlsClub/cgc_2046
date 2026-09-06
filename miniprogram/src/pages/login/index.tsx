@@ -13,6 +13,7 @@ const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
 export default function LoginPage() {
   const router = useRouter()
+  const [dialogVisible, setDialogVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -44,8 +45,7 @@ export default function LoginPage() {
     <View className={styles.page}>
       <Image className={styles.mark} src={flameLogo} mode='aspectFit' />
       <Text className={styles.brandName}>程序媛汇 <Text className={styles.brandYear}>2046</Text></Text>
-      <Text className={styles.title} data-testid='login-title'>手机号一键登录</Text>
-      <Text className={styles.description}>用于确认身份、同步报名状态和接收审批结果。程序媛汇不会向其他人公开你的手机号。</Text>
+      <Text className={styles.title} data-testid='login-title'>手机号快捷登录</Text>
 
       <View className={styles.permissions}>
         <Text className={styles.permission}>✓ 创建或绑定你的程序媛汇账号</Text>
@@ -53,27 +53,49 @@ export default function LoginPage() {
         <Text className={styles.permission}>✓ 后续通知仍需你逐次授权</Text>
       </View>
 
-      {error && <Text className={styles.error}>{error}</Text>}
+      {error && <Text className={styles.error} data-testid='login-error'>{error}</Text>}
       <Button
         className={styles.loginButton}
         data-testid='platform-login'
-        openType={__E2E_MOCK__ ? undefined : 'getPhoneNumber'}
-        loading={submitting}
-        disabled={submitting}
-        onClick={__E2E_MOCK__ ? () => login() : undefined}
-        onGetPhoneNumber={(event) => login(event.detail)}
+        onClick={() => setDialogVisible(true)}
       >
-        {submitting ? '正在登录…' : `${__PLATFORM_NAME__}手机号快捷登录`}
+        手机号快捷登录
       </Button>
-      <Text className={styles.agreement}>
-        登录即表示你同意
-        {isCut ? (
-          '隐私授权说明'
-        ) : (
-          <Text className={styles.agreementLink} onClick={() => Taro.navigateTo({ url: '/pages/privacy/index' })}>隐私授权说明</Text>
-        )}
-        {!isCut ? '；可在「我的」中退出' : ''}。
-      </Text>
+      {dialogVisible && (
+        <View className={styles.dialogMask} data-testid='agree-dialog' onClick={() => setDialogVisible(false)}>
+          <View className={styles.dialog} onClick={(event) => event.stopPropagation()}>
+            <Text className={styles.dialogTitle}>隐私授权说明</Text>
+            <Text className={styles.dialogBody}>
+              请阅读并同意
+              {isCut ? (
+                '《隐私授权说明》'
+              ) : (
+                <Text className={styles.agreementLink} onClick={() => Taro.navigateTo({ url: '/pages/privacy/index' })}>《隐私授权说明》</Text>
+              )}
+              。同意后我们将通过手机号创建或绑定你的程序媛汇账号。
+            </Text>
+            <View className={styles.dialogActions}>
+              <Button
+                className={`${styles.dialogButton} ${styles.dialogSecondary}`}
+                onClick={() => setDialogVisible(false)}
+              >
+                不同意
+              </Button>
+              <Button
+                className={`${styles.dialogButton} ${styles.dialogPrimary}`}
+                data-testid='agree-login'
+                openType={__E2E_MOCK__ ? undefined : 'getPhoneNumber'}
+                loading={submitting}
+                disabled={submitting}
+                onClick={__E2E_MOCK__ ? () => { setDialogVisible(false); void login() } : undefined}
+                onGetPhoneNumber={(event) => { setDialogVisible(false); void login(event.detail) }}
+              >
+                {submitting ? '正在登录…' : '同意并登录'}
+              </Button>
+            </View>
+          </View>
+        </View>
+      )}
       <Text className={styles.tagline}>Coding Girls Club · 程序媛汇 — 2016 → 2046</Text>
     </View>
   )

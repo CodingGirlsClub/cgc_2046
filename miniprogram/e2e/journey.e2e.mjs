@@ -53,8 +53,11 @@ async function run() {
 
     await tap(page, '[data-testid="register-action"]')
     page = await miniProgram.currentPage()
-    await expectText(page, '[data-testid="login-title"]', /手机号一键登录/)
+    await expectText(page, '[data-testid="login-title"]', /手机号快捷登录/)
+    // 协议确认弹窗：点登录先弹窗，「同意并登录」才发起授权
     await tap(page, '[data-testid="platform-login"]')
+    await expectText(page, '[data-testid="agree-dialog"]', /隐私授权说明/)
+    await tap(page, '[data-testid="agree-login"]')
 
     page = await miniProgram.currentPage()
     await expectText(page, '[data-testid="register-title"]', /确认报名/)
@@ -77,7 +80,7 @@ async function run() {
     page = await miniProgram.switchTab('/pages/profile/index')
     await expectText(page, '[data-testid="notification-list"]', /审批已完成/)
 
-    assert.equal(assertionCount, 12)
+    assert.equal(assertionCount, 13)
     console.log(`E2E PASS: ${assertionCount} 条页面/状态断言`)
   } finally {
     await miniProgram.close()
