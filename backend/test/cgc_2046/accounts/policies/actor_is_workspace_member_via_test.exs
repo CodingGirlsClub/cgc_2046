@@ -76,10 +76,10 @@ defmodule Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberViaTest do
       assert {:ok, []} = read_run(workspace, run, outsider)
     end
 
-    test "actor 为 nil 时被策略拒绝 Forbidden（官方 relates_to_actor_via 语义：filter 引用 actor，strict_check(nil) → false）" do
+    test "actor 为 nil 时 raw workflow read 过滤为空" do
       %{workspace: workspace, run: run} = create_run_fixture("aimv")
 
-      assert {:error, %Ash.Error.Forbidden{}} = read_run(workspace, run, nil)
+      assert {:ok, []} = read_run(workspace, run, nil)
     end
   end
 

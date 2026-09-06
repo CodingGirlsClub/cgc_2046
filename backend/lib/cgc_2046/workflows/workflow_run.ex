@@ -501,6 +501,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     # 读取（H3/U2）：非 learning run 对工作台成员开放；learning run 仅本人可读，
     # 平台管理员走独立审计分支。业务页面仍应消费专用投影，不把此资源当 Workspace feed。
     policy action_type(:read) do
+      forbid_if(expr(is_nil(^actor(:id))))
       authorize_if(Cgc2046.Workflows.Policies.ActorReadsWorkflowRun)
 
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)

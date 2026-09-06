@@ -43,7 +43,7 @@ export interface WorkflowRun {
 	steps: string[] | null;
 }
 
-/** listWorkflowRuns 分页对象（KeysetPageOfWorkflowRun 实测形态） */
+/** Legacy-shaped adapter type retained internally for shared audit row mapping. */
 export interface WorkflowRunConnection {
 	/** SDL 为 nullable `count: Int`（schema.graphql:19）— 与 SDL 对齐 */
 	count: number | null;
@@ -52,7 +52,7 @@ export interface WorkflowRunConnection {
 	endKeyset?: string | null;
 }
 
-/** listWorkflowRuns filter：比较器内层包装（同 WorkspaceMembersFilter 模式） */
+/** Legacy filter type retained for callers while audit filters converge. */
 export interface WorkflowRunFilter {
 	workspaceId?: { eq?: string } | null;
 	status?: { eq?: string } | null;
