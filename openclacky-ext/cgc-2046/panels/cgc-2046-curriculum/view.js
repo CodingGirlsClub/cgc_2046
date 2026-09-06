@@ -451,12 +451,27 @@
     html += '<div class="cgc-card"><div class="cgt-section-title">课程目标 (' + goals.length + ')</div>' +
       (goals.length ? '<ul class="cgt-plain-list">' + goals.map(function (g) { return '<li>' + escapeHtml(g) + '</li>'; }).join("") + '</ul>' : '<div class="cgch-empty">无</div>') +
       '</div>';
+    var chapters = Array.isArray(state.content.chapters) ? state.content.chapters : [];
+    var chapterTitles = {};
+    chapters.forEach(function (chapter) { chapterTitles[String(chapter.id)] = chapter.title || chapter.id; });
+    var groups = {};
+    issues.forEach(function (issue) {
+      var key = issue.chapter_id ? String(issue.chapter_id) : "_ungrouped";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(issue);
+    });
+    var groupKeys = Object.keys(groups);
     html += '<div class="cgc-card"><div class="cgt-section-title">学习单元 (' + issues.length + ')</div>' +
       (issues.length
-        ? '<div class="cgch-row-list">' + issues.map(function (i) {
-            return '<div class="cgch-row"><span class="cgch-chip">' + escapeHtml(i.kind || "") + '</span>' +
-              '<span class="cgch-row-copy">' + escapeHtml(i.title || i.id) + '</span></div>';
-          }).join("") + '</div>'
+        ? groupKeys.map(function (key) {
+            var title = key === "_ungrouped" ? "未分组" : (chapterTitles[key] || key);
+            return '<div class="cgt-chapter-group" data-testid="curriculum-chapter-group">' +
+              '<div class="cgt-section-title">' + escapeHtml(title) + '</div>' +
+              '<div class="cgch-row-list">' + groups[key].map(function (i) {
+                return '<div class="cgch-row"><span class="cgch-chip">' + escapeHtml(i.kind || "") + '</span>' +
+                  '<span class="cgch-row-copy">' + escapeHtml(i.title || i.id) + '</span></div>';
+              }).join("") + '</div></div>';
+          }).join("")
         : '<div class="cgch-empty">无</div>') +
       '</div>';
 
