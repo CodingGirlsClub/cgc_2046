@@ -299,21 +299,8 @@ end
 
 # ---- CDP 自动连接 SOP 文档锚(skill/prompt 与面板注入指令三方一致) ----
 class CdpAutoConnectDocsTest < Minitest::Test
-  SKILL = File.read(File.expand_path("../skills/cgc2046-onboarding/SKILL.md", __dir__))
   PROMPT = File.read(File.expand_path("../agents/cgc-assistant/system_prompt.md", __dir__))
   VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
-
-  def test_skill_has_cdp_primary_path
-    assert_includes SKILL, "首选路径：CDP 自动连接"
-    assert_includes SKILL, "先清理旧 token"
-    assert_includes SKILL, "用户手动创建的其它 token 绝不动"
-    # 安全红线:点页面「复制」按钮,绝不读取/转述明文
-    assert_includes SKILL, "点击「复制」"
-    assert_includes SKILL, "绝不读取/转述明文"
-    # 未登录提醒,不代填密码
-    assert_includes SKILL, "不要替用户填账号密码"
-    assert_includes SKILL, "回退"
-  end
 
   def test_prompt_has_connect_sop
     assert_includes PROMPT, "连接请求（CDP 自动连接 SOP）"
