@@ -61,7 +61,7 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 			screen.getByRole("heading", { name: "① 安装 OpenClacky" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "② 安装 CGC-2046 连接器扩展" }),
+			screen.getByRole("heading", { name: "② CGC-2046 连接器已内置" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: "③ 生成连接 token" }),
@@ -75,12 +75,11 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 		);
 	});
 
-	it("扩展市场路径：引导文案与搜索关键词（无开发地址链接）", async () => {
+	it("CGC Server 内置扩展路径：引导文案不指向公共市场", async () => {
 		render(<AgentsOpenclackyPage />);
 
-		expect(screen.getByText(/扩展市场中搜索安装/)).toBeInTheDocument();
-		expect(screen.getByText("打开 OpenClacky 扩展市场")).toBeInTheDocument();
-		expect(screen.getByText("CGC-2046")).toBeInTheDocument();
+		expect(screen.getByText(/CGC OpenClacky 提供的一键安装链接/)).toBeInTheDocument();
+		expect(screen.getByText(/无需单独安装扩展/)).toBeInTheDocument();
 		expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
 	});
 

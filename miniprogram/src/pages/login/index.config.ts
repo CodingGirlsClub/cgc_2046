@@ -1,1 +1,1 @@
-export default definePageConfig({ navigationBarTitleText: '一键登录' })
+export default definePageConfig({ navigationBarTitleText: '手机号快捷登录' })

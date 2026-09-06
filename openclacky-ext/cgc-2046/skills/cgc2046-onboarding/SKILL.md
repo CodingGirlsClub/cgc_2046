@@ -1,136 +1,25 @@
 ---
 name: cgc2046-onboarding
-description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CGC-2046、需要配置 MCP token、把 CGC-2046 工作台接入当前 agent，或 CGC MCP 工具调用报连接错误 / 401 时使用。流程：网站创建 token 并复制到剪贴板 → agent 用 stdin 管道命令调 connect 端点（token 不进 argv、不进会话记录）→ 验证状态。
+description: 首次连接 CGC-2046、面板点击「连接网站」、或 MCP 连接错误/401 时使用。优先面板触发的浏览器/CDP 自动连接；自动路径不可用时才使用剪贴板或临时文件 fallback。
 ---
 
 # CGC-2046 连接引导
 
-帮助用户把 CGC-2046 工作台接入本机 OpenClacky。完成后 agent 即可通过 CGC MCP 工具读写工作台。
+目标是让用户在本机 OpenClacky 安全接入 CGC-2046 MCP。
 
-**核心安全约束**：token 的目标落盘点只有 `~/.clacky/mcp.json`（connect 写入期间存在短暂的 0600 临时文件，原子 rename 后即清除）。OpenClacky 会把 tool arguments 全量记入会话文件（`~/.clacky/sessions/*.json`），所以 **token 绝不能出现在对话消息或工具参数里**。下面按环境给出三级通道，能走主流程就不要走 fallback。
+## 安全边界
 
-## 首选路径：CDP 自动连接（用户点面板「连接网站」时）
+- token 只允许落盘到 `~/.clacky/mcp.json`；不得进入对话、工具参数、日志或其他文件。
+- 优先复用用户真实浏览器的登录态；不得代填密码或验证码。
+- 只有 `connect` 返回成功、状态为 `configured:true` 且 MCP 握手成功，才能报告完成。
 
-用户已登录 CGC 网站时，token 的获取与复制可以由 agent 用浏览器自动化（宿主 CDP / browser
-工具，或 computer-use 操作真实浏览器窗口——**必须接管用户日常使用的浏览器**才有登录态，
-自起新浏览器永远是未登录态）自动完成：
+## 路由
 
-1. **工具选择（重要）**：优先用宿主自带的 `browser` 工具——它经 chrome-devtools-mcp
-   `--autoConnect` 驱动**用户真实 Chrome（146+）**，自动发现、零配置，**不需要也不允许
-   让用户手动开启 remote debugging / CDP 端口**。`browser` 工具不可用时才退
-   computer-use（macOS 辅助功能操作真实窗口）。两者都不可用才回退人工引导。
-   工作流：`browser open <URL>` → `browser snapshot`（a11y 树拿 ref）→ `browser act
-   kind=click ref=<...>` 逐步操作。
-2. 打开网站工作台的「MCP」页：`/w/<slug>/settings/integrations/agents/mcp`（slug 不知
-   道就先问用户，或从网站导航定位）。
-3. **登录态判定**：若页面跳到登录页/要求登录——在对话中提醒用户「请先在浏览器登录 CGC
-   网站」，用户登录并说继续后重试本步骤。不要替用户填账号密码。
-4. 已登录：**先清理旧 token**——列表里若已有 `openclacky-auto-*` 命名的历史自动连接
-   token，逐个点「撤销」（页面有两步确认）。**只撤销 `openclacky-auto-*` 命名的**，
-   用户手动创建的其它 token 绝不动。
-5. 「签发新 token」→ 填名称（建议 `openclacky-auto-<YYYYMMDD>`）→ 提交签发。
-6. **关键**：签发成功后页面出现一次性明文横幅和「复制」按钮——**点击「复制」**，token
-   进入剪贴板。绝不读取/转述明文内容（防止 token 进会话记录）。
-7. 剪贴板里已有 token 后，执行下方「主流程」第 2 步的固定管道命令写入配置（token 不进
-   argv、不进会话记录），再走第 3 步断言连接结果。
-8. 失败回退：页面结构对不上/复制失败时，回退到下方人工引导流程（让用户手动复制并配合）。
+1. 检查扩展 API、`cgc-assistant` 与宿主 browser/CDP 是否可用。
+2. 可用时执行面板一键连接：打开 MCP 页、提醒用户登录、自动签发一次性 token、通过 stdin 调用 connect，再验证 status 和 MCP registry。
+3. browser 集成层故障但 Chrome CDP 可用时，读取 [原生 CDP 流程](references/connection-procedure.md)。
+4. 自动路径不可用时，执行 [手工 token 与 fallback 流程](references/connection-procedure.md)。
 
-## 主流程（剪贴板 → stdin 管道）
+## 故障处理
 
-### 1. 让用户创建 token 并只复制到剪贴板
-
-引导用户打开 CGC-2046 网站对应工作台的「MCP」页：
-
-```
-/w/<slug>/settings/integrations/agents/mcp
-```
-
-（`<slug>` 是用户工作台的 slug，不知道就问用户。）
-
-在该页创建新 token 并**复制到剪贴板**。明确告诫用户：
-
-> 请只复制，**不要把 token 粘贴到这个对话里**——对话内容会被保存。token 明文只在网站显示一次，请直接复制。
-
-### 2. 用 stdin 管道命令调 connect（token 不进 argv、不进会话记录）
-
-用户告知已复制后，用 terminal 工具执行固定命令（`ruby` 必有——OpenClacky 即 ruby 运行时）。
-
-**macOS**：
-
-```bash
-CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
-pbpaste | ruby -rjson -e 't = STDIN.read.strip; abort "ERROR: clipboard does not contain a CGC token (expected ^cgc_[A-Za-z0-9_-]+$) — nothing was written; re-copy the token from the MCP page" unless t =~ /\Acgc_[A-Za-z0-9_-]+\z/; print JSON.generate({token: t})' | \
-  curl -sS -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
-  -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @-
-```
-
-**Linux（X11 / Wayland）**：
-
-```bash
-CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
-(xclip -o 2>/dev/null || wl-paste) | ruby -rjson -e 't = STDIN.read.strip; abort "ERROR: clipboard does not contain a CGC token (expected ^cgc_[A-Za-z0-9_-]+$) — nothing was written; re-copy the token from the MCP page" unless t =~ /\Acgc_[A-Za-z0-9_-]+\z/; print JSON.generate({token: t})' | \
-  curl -sS -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
-  -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @-
-```
-
-要点：connect 是写端点，需带 `X-CGC-CSRF-Token` 头——`CGC_CSRF` 变量先经 `GET /status`（无 Origin 的本地 curl 放行）取回进程级 token；跨站网页因 Origin 校验读不到该 token，这是防 CSRF 劫持的通道（伪造 connect 可改写 mcp.json 指向攻击者 URL，最高危写端点，不可豁免）。
-
-其他要点：
-
-- token 全程经管道传递，**不出现在 argv 和命令行字面量里**，不写入会话记录；
-- `JSON.generate` 负责转义，剪贴板内容含引号 / 换行也不会破坏请求；`strip` 去掉首尾空白；
-- **token 形态前置断言**：ruby 段在 POST 前校验输入匹配 `^cgc_[A-Za-z0-9_-]+$`（`\A…\z` 全串锚定）——不匹配即 `abort` 报错退出：错误消息打到 stderr、管道不再产出 JSON，curl 拿到空 body，服务端按缺 token 422 拒绝，**mcp.json 不会被写入**。用户剪贴板里常是误复制的整段对话/表格文本，没有这层断言时会被原样写进 Authorization 头造成静默坏连接（状态端点仍报 `token_configured: true`）。断言失败时**不要把剪贴板内容粘进对话诊断**，让用户回 MCP 页重新复制即可；
-- 命令输出是响应 JSON（不含 token）。
-
-该端点会把 `mcpServers["cgc-2046"]` 条目原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建文件权限 0600）并热重载 MCP registry，不影响其它已有 server 条目。
-
-### 3. 断言连接结果
-
-- connect 返回 `{"ok":true,...}` 才算成功；`created:true` 表示新建，`created:false` 表示更新了已有配置。
-- 再确认状态：
-
-```bash
-curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status"
-```
-
-应返回 `{"ok":true,"configured":true,"url":"..."}`。
-
-### 4. 告诉用户可以开始
-
-连接成功后，告知用户可以直接提问。给新用户的提示词引导（R13）——可以问：
-
-- 「我的工作台现在是什么状态」「有哪些成员」（底层调 `get_workspace_context`、`list_members` 等工具）；
-- 「最近有什么活动/课程」「<地点> 近期有什么活动」（底层调 `list_public_offerings`，公开浏览无需 workspace_id）；
-- 也可以打开侧边栏「CGC 发现」面板，直接浏览公开活动与课程并跳转详情页。
-
-同时提醒：剪贴板里的 token 被新复制内容覆盖即可，无需特殊处理。
-
-## 备选 A（无剪贴板 CLI 时首选：临时文件管道）
-
-若环境没有 `pbpaste` / `xclip` / `wl-paste`（如裸服务器、ssh 终端）：
-
-1. 让用户**用自己的编辑器**把 token 写入 `~/.clacky/cgc-token.txt`，并 `chmod 600 ~/.clacky/cgc-token.txt`（token 由用户亲手落盘，不经过对话）。
-2. agent 执行固定命令（读文件 → stdin 管道 → POST，成功才删除该文件）：
-
-```bash
-CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/status" | ruby -rjson -e 'print (JSON.parse(STDIN.read)["csrf_token"] rescue "")') && \
-ruby -rjson -e 't = File.read(ARGV[0]).strip; abort "ERROR: ~/.clacky/cgc-token.txt does not contain a CGC token (expected ^cgc_[A-Za-z0-9_-]+$) — nothing was written" unless t =~ /\Acgc_[A-Za-z0-9_-]+\z/; print JSON.generate({token: t})' ~/.clacky/cgc-token.txt | \
-  curl -sS --fail-with-body -X POST "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/api/ext/cgc-2046/connect" \
-  -H 'Content-Type: application/json' -H "X-CGC-CSRF-Token: $CGC_CSRF" --data-binary @- && \
-  ruby -e 'File.delete(ARGV[0])' ~/.clacky/cgc-token.txt
-```
-
-3. `--fail-with-body` 保证 HTTP 层失败（4xx/5xx）时 curl 退出码非 0（body 仍打印便于诊断），网络失败同样非 0——这两种情况文件都保留、修好后重跑同一条命令即可；只有成功才删除。**token 形态断言失败同样走保留路径**（ruby `abort` → 管道无产出 → 服务端 422 → curl 非零退出 → `File.delete` 不运行；mcp.json 不被写入），让用户改正文件内容后重跑同一条命令。删除用 ruby `File.delete` 而不用 `rm`：OpenClacky ≥1.5.6 的 terminal 工具会把 `rm` 拦截改送 trash，token 文件会长期留在回收站。
-4. 继续主流程第 3 步断言。token 同样不进对话 / argv / 会话记录。
-
-## 备选 B（最后手段：对话粘贴）
-
-仅在主流程与备选 A 都不可用时，允许用户在对话里粘贴 token，agent 再放进 curl 参数。agent 在发出 curl 前先做同样的形态校验（`^cgc_[A-Za-z0-9_-]+$` 全串匹配，不匹配就请用户重新粘贴，绝不带着可疑内容请求）。**必须事先明示代价**：
-
-> 这种方式 token 会留在本机会话记录文件里。建议连接完成后回到 MCP 页**撤销这个 token**，然后改用剪贴板管道（主流程）或临时文件管道（备选 A）重签一个并完成连接——新通道不留痕，补救真实有效。
-
-## 纪律
-
-- token 的目标落盘点只有 `~/.clacky/mcp.json`（写入期间有短暂 0600 临时文件）；agent 不得主动把 token 写进任何其它文件或日志。
-- 用户没给 token 时**不要编造**；connect 返回 422 就说明 token 缺失或格式不对，如实告诉用户。
-- token 明文只在网站创建时显示一次；用户弄丢了就让他回 MCP 页撤销旧 token、重新签一个。
+遇到浏览器 target 崩溃、连接失败或用户取消时，保留可重试状态并报告下一步；不要跳过安全验证，也不要要求用户把 token 粘贴到对话中。

@@ -48,12 +48,9 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 
 		// ② OpenClacky 内容段（共享组件，与原子页同源）
 		expect(screen.getByTitle("下载 OpenClacky")).toBeInTheDocument();
-		expect(screen.getByText(/扩展市场中搜索安装/)).toBeInTheDocument();
+		expect(screen.getByText(/CGC OpenClacky 提供的一键安装链接/)).toBeInTheDocument();
 
-		// ③ 内嵌签收入口
-		expect(
-			screen.getByRole("button", { name: /签发新 token/ }),
-		).toBeInTheDocument();
+		// ③ OpenClacky 默认路径由宿主内置助手发起；OMP/opencode 仍覆盖 token fallback。
 	});
 
 	it("宿主门控：选中 DSH 呈「即将推出」说明且 ②③ hidden 隐藏（不卸载，AE3/P2）", async () => {
@@ -79,12 +76,13 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 
 	it("回归（P2）：签发后切 DSH 再切回，一次性明文不丢（②③ hidden 隐藏而非卸载）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
+		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: /签发新 token/ }),
 		);
 		fireEvent.change(
-			screen.getByPlaceholderText("如：我的 MacBook · OpenClacky"),
+		screen.getByPlaceholderText("如：我的 MacBook · OMP"),
 			{ target: { value: "新设备" } },
 		);
 		fireEvent.click(screen.getByRole("button", { name: "签发" }));
@@ -96,8 +94,8 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		fireEvent.click(screen.getByRole("radio", { name: /DSH/ }));
 		expect(screen.getByText("cgc_wizard_plain_token")).not.toBeVisible();
 
-		// 切回 OpenClacky：组件未被卸载，明文仍可见
-		fireEvent.click(screen.getByRole("radio", { name: /OpenClacky/ }));
+		// 切回 OMP：组件未被卸载，明文仍可见
+		fireEvent.click(screen.getByRole("radio", { name: /OMP/ }));
 		expect(screen.getByText("cgc_wizard_plain_token")).toBeVisible();
 	});
 
@@ -128,28 +126,27 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		expect(pre).toHaveTextContent("{env:CGC_TOKEN}");
 	});
 
-	it("OpenClacky 路径 ③ 附「回 CGC 助手完成接入」指引；切 OMP 后消失（P1）", async () => {
+	it("OpenClacky 路径提供一键连接入口；切 OMP 后进入手工配置", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
-		// 缺这段：token 只躺在剪贴板，无人触发扩展 /connect 写入 mcp.json，首联必失败
-		expect(
-			await screen.findByText(/回到 OpenClacky 打开「CGC-2046 助手」会话/),
-		).toBeInTheDocument();
+		expect(await screen.findByRole("link", { name: /打开 CGC OpenClacky/ })).toHaveAttribute(
+			"href",
+			"http://127.0.0.1:7070",
+		);
 
 		fireEvent.click(screen.getByRole("radio", { name: /OMP/ }));
-		expect(
-			screen.queryByText(/回到 OpenClacky 打开「CGC-2046 助手」会话/),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /签发新 token/ })).toBeInTheDocument();
 	});
 
 	it("签发成功 → 明文一次性展示 → 「我已保存」→ 完成态（种子话术卡 + 两出口）（AE4 前半）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
+		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
 		fireEvent.click(
-			await screen.findByRole("button", { name: /签发新 token/ }),
+			screen.getByRole("button", { name: /签发新 token/ }),
 		);
 		fireEvent.change(
-			screen.getByPlaceholderText("如：我的 MacBook · OpenClacky"),
+			screen.getByPlaceholderText("如：我的 MacBook · OMP"),
 			{
 				target: { value: "新设备" },
 			},
