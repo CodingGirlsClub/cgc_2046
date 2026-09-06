@@ -478,7 +478,6 @@ defmodule Cgc2046Web.GraphqlSchema do
         )
       )
     end
-
   end
 
   mutation do
