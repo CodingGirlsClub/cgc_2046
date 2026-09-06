@@ -1,6 +1,6 @@
 # CGC-2046 连接器扩展（cgc-2046）
 
-OpenClacky 扩展：把 CGC-2046 工作台接入本机 agent。安装后提供：
+CGC-2046 是 CGC OpenClacky 内置的连接器扩展：把 CGC-2046 工作台接入本机 agent。用户通过 CGC OpenClacky 提供的一键安装链接获得宿主与扩展，无需单独搜索或安装扩展。安装后提供：
 
 - **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（新建 0600，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。全部路由做 Origin/Host 同源校验（无 Origin 的本地 curl 放行）；写路由（POST 及 `DELETE /connect`——同为写端点，跨站可借宿主全开的 preflight 发出 cross-site DELETE）另需 `Content-Type: application/json` + `X-CGC-CSRF-Token`（进程级 token 经 `GET /status` 同源下发，防跨站伪造写——尤其 connect 可改写 mcp.json 指向）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / `get_public_offering`，membership: public，无需 workspace_id），供发现面板使用。
 - **panel**：`cgc`——「程序媛汇 2046」hub 面板（唯一侧栏入口，挂 `sidebar.nav.top` 顶部）：连接管理（状态 / 断开 / 跳转网站）+ 身份区（角色徽章 / Workspace 选择器 / 管理入口）+ 我的任务 + 角色感知功能目录（全员：和助手对话 / 发现活动 / 我的课程；tutor 加教研工作台；owner/admin 加工作台管理；platform_admin 加平台管理）+ 最近活动（事件订阅）。`cgc-2046-course` 与 `cgc-2046-discovery` 为**隐藏功能页**（无侧栏入口，hub 目录卡 `openWorkspace` 直达，页头「← 返回工作台」闭环）：前者是课程学习面板（课程地图 / 草稿编辑 / 待复习队列），后者是发现面板（公开活动/课程列表 + 报名 + 支付轮询）。
@@ -65,19 +65,23 @@ openclacky-ext/cgc-2046/
 # 打包（产物在 openclacky-ext/dist/，已 gitignore）
 openclacky-ext/cgc-2046/bin/pack
 
-# 安装
+### 开发/验收安装
 openclacky ext install openclacky-ext/dist/cgc-2046.zip
+
+### 生产用户安装
+生产用户应使用 CGC OpenClacky 提供的一键安装链接。该安装包负责安装/启动 OpenClacky，并把本目录打包进宿主可加载的扩展目录；用户不需要访问公共 Extension Marketplace，也不需要手动安装 `cgc-2046`。
 ```
 
-`bin/pack` 会把本目录 symlink 到 `~/.clacky/ext/local/cgc-2046`（openclacky 开发层），因此开发期改完文件即生效（handler 按请求热加载），无需重复打包。
+`bin/pack` 仅用于开发和发布前验收，会把本目录 symlink 到 `~/.clacky/ext/local/cgc-2046`（openclacky 开发层），因此开发期改完文件即生效（handler 按请求热加载），无需重复打包。
 
 ## 使用流程
 
-1. 在 CGC-2046 网站工作台的「MCP」页 `/w/<slug>/settings/integrations/agents/mcp` 创建 token 并**复制到剪贴板**（明文只显示一次；不要粘贴进对话）。
-2. 在 OpenClacky 里新建会话，按任务选择 `cgc-assistant`、`cgc-tutor` 或 `cgc-admin`（尚未连接时可在任意带 terminal 的会话触发 `cgc2046-onboarding` skill）。
-3. skill 用「剪贴板 → stdin 管道」命令写入配置（loopback 免 access-key；token 不进 argv、不进入会话记录）。connect 是写端点，需 CSRF token：命令先 `GET /status`（无 Origin 的本地 curl 放行）取 `csrf_token`，再以 `-H "X-CGC-CSRF-Token: $CGC_CSRF"` POST `/connect`——完整命令见 `skills/cgc2046-onboarding/SKILL.md`。
-4. `GET /api/ext/cgc-2046/status` 返回 `configured:true` 后即可提问工作台问题；agent 会从可信上下文选择 Workspace，拉取对应角色 playbook 并展示其 `version`，拉取失败时停止业务操作。
-5. 侧边栏顶部「程序媛汇 2046」入口可随时查看连接状态；「断开连接」移除 `cgc-2046` 条目（`DELETE /api/ext/cgc-2046/connect`），不触碰其它 server 条目。功能目录按角色直达发现/课程功能页或一键进入助手会话。
+1. 通过 CGC OpenClacky 一键安装链接完成宿主安装；确认 OpenClacky 启动后侧边栏已出现「CGC-2046」。
+2. 在 CGC-2046 网站工作台的「MCP」页 `/w/<slug>/settings/integrations/agents/mcp` 创建 token 并**复制到剪贴板**（明文只显示一次；不要粘贴进对话）。
+3. 在 OpenClacky 里新建会话，按任务选择 `cgc-assistant`、`cgc-tutor` 或 `cgc-admin`（尚未连接时可在任意带 terminal 的会话触发 `cgc2046-onboarding` skill）。
+4. skill 用「剪贴板 → stdin 管道」命令写入配置（loopback 免 access-key；token 不进 argv、不进入会话记录）。connect 是写端点，需 CSRF token：命令先 `GET /status`（无 Origin 的本地 curl 放行）取 `csrf_token`，再以 `-H "X-CGC-CSRF-Token: $CGC_CSRF"` POST `/connect`——完整命令见 `skills/cgc2046-onboarding/SKILL.md`。
+5. `GET /api/ext/cgc-2046/status` 返回 `configured:true` 后即可提问工作台问题；agent 会从可信上下文选择 Workspace，拉取对应角色 playbook 并展示其 `version`，拉取失败时停止业务操作。
+6. 侧边栏顶部「程序媛汇 2046」入口可随时查看连接状态；「断开连接」移除 `cgc-2046` 条目（`DELETE /api/ext/cgc-2046/connect`），不触碰其它 server 条目。功能目录按角色直达发现/课程功能页或一键进入助手会话。
 
 ## 配置点
 

@@ -276,6 +276,20 @@ export default function OnboardingWizard({
 									})}
 								</p>
 							</div>
+						) : host === "openclacky" ? (
+							<div className="connect-step-card">
+								<p className="connect-step-card__desc">{tConnect("oneClickConnectDesc")}</p>
+								<div className="connect-step-card__actions">
+									<a
+										href="http://127.0.0.1:7070"
+										target="_blank"
+										rel="noreferrer"
+										className="join-button join-button--primary"
+									>
+										{tConnect("openCgcOpenclacky")}
+									</a>
+								</div>
+							</div>
 						) : (
 							<McpTokenIssuePanel
 								onSaved={() => setCompleted(true)}
