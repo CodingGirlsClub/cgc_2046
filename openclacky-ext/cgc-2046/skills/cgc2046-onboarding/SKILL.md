@@ -1,41 +1,74 @@
 ---
 name: cgc2046-onboarding
-description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CGC-2046、需要配置 MCP token、把 CGC-2046 工作台接入当前 agent，或 CGC MCP 工具调用报连接错误 / 401 时使用。流程：网站创建 token 并复制到剪贴板 → agent 用 stdin 管道命令调 connect 端点（token 不进 argv、不进会话记录）→ 验证状态。
+description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CGC-2046、点击 CGC OpenClacky 面板「连接网站」、需要把工作台接入当前 agent，或 CGC MCP 工具调用报连接错误 / 401 时使用。首选流程：由 CGC-2046 面板创建连接会话，助手用宿主 browser/CDP 引导用户登录 CGC 网站、自动签发 token、写入 mcp.json 并验证 MCP；网站 token + 剪贴板管道仅作为 fallback。
 ---
 
 # CGC-2046 连接引导
 
 帮助用户把 CGC-2046 工作台接入本机 OpenClacky。完成后 agent 即可通过 CGC MCP 工具读写工作台。
 
-**核心安全约束**：token 的目标落盘点只有 `~/.clacky/mcp.json`（connect 写入期间存在短暂的 0600 临时文件，原子 rename 后即清除）。OpenClacky 会把 tool arguments 全量记入会话文件（`~/.clacky/sessions/*.json`），所以 **token 绝不能出现在对话消息或工具参数里**。下面按环境给出三级通道，能走主流程就不要走 fallback。
+**核心安全约束**：token 的目标落盘点只有 `~/.clacky/mcp.json`（connect 写入期间存在短暂的 0600 临时文件，原子 rename 后即清除）。OpenClacky 会把 tool arguments 全量记入会话文件（`~/.clacky/sessions/*.json`），所以 **token 绝不能出现在对话消息或工具参数里**。优先使用面板触发的自动连接；只有宿主能力不可用时才进入手工 fallback。
 
-## 首选路径：CDP 自动连接（用户点面板「连接网站」时）
+## 首选路径：面板一键连接（CGC OpenClacky）
 
-用户已登录 CGC 网站时，token 的获取与复制可以由 agent 用浏览器自动化（宿主 CDP / browser
-工具，或 computer-use 操作真实浏览器窗口——**必须接管用户日常使用的浏览器**才有登录态，
-自起新浏览器永远是未登录态）自动完成：
+用户安装 CGC OpenClacky 后，打开内置的 CGC-2046 面板并点击「连接网站」。面板会创建一个连接会话，把连接请求注入 `cgc-assistant`；助手按本节完成全流程。用户不需要先打开 MCP 页、创建 token 或复制 token。
 
-1. **工具选择（重要）**：优先用宿主自带的 `browser` 工具——它经 chrome-devtools-mcp
-   `--autoConnect` 驱动**用户真实 Chrome（146+）**，自动发现、零配置，**不需要也不允许
-   让用户手动开启 remote debugging / CDP 端口**。`browser` 工具不可用时才退
-   computer-use（macOS 辅助功能操作真实窗口）。两者都不可用才回退人工引导。
-   工作流：`browser open <URL>` → `browser snapshot`（a11y 树拿 ref）→ `browser act
-   kind=click ref=<...>` 逐步操作。
-2. 打开网站工作台的「MCP」页：`/w/<slug>/settings/integrations/agents/mcp`（slug 不知
-   道就先问用户，或从网站导航定位）。
-3. **登录态判定**：若页面跳到登录页/要求登录——在对话中提醒用户「请先在浏览器登录 CGC
-   网站」，用户登录并说继续后重试本步骤。不要替用户填账号密码。
-4. 已登录：**先清理旧 token**——列表里若已有 `openclacky-auto-*` 命名的历史自动连接
-   token，逐个点「撤销」（页面有两步确认）。**只撤销 `openclacky-auto-*` 命名的**，
-   用户手动创建的其它 token 绝不动。
-5. 「签发新 token」→ 填名称（建议 `openclacky-auto-<YYYYMMDD>`）→ 提交签发。
-6. **关键**：签发成功后页面出现一次性明文横幅和「复制」按钮——**点击「复制」**，token
-   进入剪贴板。绝不读取/转述明文内容（防止 token 进会话记录）。
-7. 剪贴板里已有 token 后，执行下方「主流程」第 2 步的固定管道命令写入配置（token 不进
-   argv、不进会话记录），再走第 3 步断言连接结果。
-8. 失败回退：页面结构对不上/复制失败时，回退到下方人工引导流程（让用户手动复制并配合）。
+1. **检查本地宿主**：确认扩展 API、`cgc-assistant` 和宿主 browser 工具可用。若面板已创建连接会话，继续使用当前会话，不要重复创建。
+2. **接管真实浏览器**：优先使用宿主 `browser` 工具（CDP autoConnect），打开 CGC 工作台 MCP 页。必须接管用户日常浏览器，以复用登录态；不要要求用户手动开启 remote debugging。
+3. **处理登录态**：如果页面在登录页，告诉用户“请在刚打开的浏览器里登录 CGC，登录完成后告诉我继续”。不要代填密码或验证码。用户确认后重新检查页面。
+4. **自动签发**：登录成功后，只撤销名称以 `openclacky-auto-` 开头的旧自动 token，保留用户手动创建的 token；签发新的 `openclacky-auto-<YYYYMMDD>` token。
+5. **安全复制**：点击一次性 token 的复制按钮，但不要读取、打印或转述明文；直接把剪贴板通过 stdin 管道交给本地 connect API。
+6. **写入并验证**：调用本扩展 `/api/ext/cgc-2046/connect`，成功后调用 `/status`，再通过 MCP registry 做真实连接检查。只有 `ok:true`、`configured:true` 且 MCP 握手成功才向用户报告完成。
+7. **恢复策略**：浏览器登录失败、用户取消或连接检查失败时，保留可重试状态，说明具体下一步；不要让用户回网站手工配置，除非自动路径确实不可用。
 
-## 主流程（剪贴板 → stdin 管道）
+### browser 工具「Target crashed」排障（先修再用）
+
+`browser` 工具所有调用都报 `Protocol error (Network.enable): Target crashed` 时，
+**不代表浏览器不可用**——chrome-devtools-mcp 集成层与真实 Chrome 的 CDP 连接仍是
+活的（`curl -s http://127.0.0.1:7070/api/browser/status` 返回 `daemon_running:true`），
+通常只是 attach 到了某个已崩溃的旧标签页。按顺序尝试，每步后重试 `browser status`：
+
+1. **新建并激活一个空白 tab 再重试**：用 CDP 直连（见下节）`Target.createTarget`
+   `about:blank` → `Target.activateTarget`，让 chrome-devtools-mcp 下次 attach 到新 tab。
+2. **重启 daemon**：`pkill -f chrome-devtools-mcp`，下一次 `browser` 调用会触发
+   Clacky BrowserManager 重新拉起 daemon。
+3. **升级 chrome-devtools-mcp**：`npm install -g chrome-devtools-mcp@latest`，再 `pkill`
+   重启 daemon。曾遇 1.6.0→1.8.0 修复 Target crashed 类问题。
+4. 以上都不行才按「原生 CDP 中间路径」继续——它不依赖 chrome-devtools-mcp 集成层。
+
+注意：升级/重启后如果仍报错，检查 `~/.clacky/logger/clacky-*.log` 里 BrowserDetector
+解析的 ws 端点是否与 `~/Library/Application Support/Google/Chrome/DevToolsActivePort`
+（macOS）一致——Chrome 重启过时端口会变，daemon 可能还握着旧端点。
+
+### 原生 CDP 中间路径（browser 工具不可用但 CDP 直连正常时）
+
+chrome-devtools-mcp 集成层坏了不代表必须人工引导——**底层 CDP 直连通常完好**，可以
+用 Node 原生 WebSocket（Node ≥22 自带全局 `WebSocket`）直接接管用户真实 Chrome，
+完成与 `browser` 工具相同的操作（打开页面、判定登录、点按钮）。步骤：
+
+1. **取 ws 端点**：读 `~/Library/Application Support/Google/Chrome/DevToolsActivePort`
+   （macOS），第二行即 `ws://127.0.0.1:<port>/devtools/browser/<id>`。先
+   `curl -s http://127.0.0.1:7070/api/browser/status` 确认 server 活着。
+2. **写探测脚本验证 attach**：用全局 `WebSocket` 连 ws 端点，`Target.getTargets`
+   确认能看到页面 target。**关键坑**：`Target.attachToTarget` 用 `flatten:true`，
+   之后所有页面级消息（`Network.enable`、`Runtime.evaluate` 等）必须带
+   `sessionId` 字段，否则报 `'Runtime.evaluate' wasn't found`。
+3. **打开 MCP 页并判定登录态**：`Target.createTarget {url}` 打开
+   `/w/<slug>/settings/integrations/agents/mcp`，等数秒后 attach +
+   `Runtime.evaluate` 检查 `location.href` / `document.title` / 是否出现密码输入框。
+   跳到登录页→按上文「登录态判定」提醒用户登录，等确认后重试。
+4. **已登录后执行 UI 操作**：用 `Runtime.evaluate` 调 DOM（点「撤销」旧
+   `openclacky-auto-*` token、填名称、点签发、点「复制」按钮）。按钮点击可用
+   `el.click()`（多数 SPA 按钮可直接触发），不行再用 `Input.dispatchMouseEvent`
+   按元素 bounding rect 坐标点击。
+5. **点「复制」后**：token 在剪贴板，**绝不读取/转述明文**，直接走下方「备用路径」
+   第 2 步的 `pbpaste` 管道命令写入配置，再断言。
+6. **脚本运行纪律**：Node 脚本输出量小时用文件重定向
+   （`node script.mjs > /tmp/out.txt 2>&1; cat /tmp/out.txt`）而不要用 `head` 管道——
+   管道截断会误判为超时；CDP 消息加超时保护避免 await 永久挂起。
+7. 连 CDP 直连都失败（端口不通、getTargets 空、attach 全崩）才回退人工引导。
+
+## 备用路径：手工 token（仅自动连接不可用时）
 
 ### 1. 让用户创建 token 并只复制到剪贴板
 
@@ -97,7 +130,7 @@ curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/ap
 
 ### 4. 告诉用户可以开始
 
-连接成功后，告知用户可以直接提问。给新用户的提示词引导（R13）——可以问：
+连接成功后，告知用户可以直接提问。自动连接完成后，给新用户的提示词引导（R13）——可以问：
 
 - 「我的工作台现在是什么状态」「有哪些成员」（底层调 `get_workspace_context`、`list_members` 等工具）；
 - 「最近有什么活动/课程」「<地点> 近期有什么活动」（底层调 `list_public_offerings`，公开浏览无需 workspace_id）；
@@ -105,7 +138,7 @@ curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_PORT:-7070}/ap
 
 同时提醒：剪贴板里的 token 被新复制内容覆盖即可，无需特殊处理。
 
-## 备选 A（无剪贴板 CLI 时首选：临时文件管道）
+## 备用路径 A（无剪贴板 CLI 时：临时文件管道）
 
 若环境没有 `pbpaste` / `xclip` / `wl-paste`（如裸服务器、ssh 终端）：
 
@@ -121,9 +154,9 @@ ruby -rjson -e 't = File.read(ARGV[0]).strip; abort "ERROR: ~/.clacky/cgc-token.
 ```
 
 3. `--fail-with-body` 保证 HTTP 层失败（4xx/5xx）时 curl 退出码非 0（body 仍打印便于诊断），网络失败同样非 0——这两种情况文件都保留、修好后重跑同一条命令即可；只有成功才删除。**token 形态断言失败同样走保留路径**（ruby `abort` → 管道无产出 → 服务端 422 → curl 非零退出 → `File.delete` 不运行；mcp.json 不被写入），让用户改正文件内容后重跑同一条命令。删除用 ruby `File.delete` 而不用 `rm`：OpenClacky ≥1.5.6 的 terminal 工具会把 `rm` 拦截改送 trash，token 文件会长期留在回收站。
-4. 继续主流程第 3 步断言。token 同样不进对话 / argv / 会话记录。
+4. 继续备用路径第 3 步断言。token 同样不进对话 / argv / 会话记录。自动路径完成后不需要用户重复执行此 fallback。
 
-## 备选 B（最后手段：对话粘贴）
+## 备用路径 B（最后手段：对话粘贴）
 
 仅在主流程与备选 A 都不可用时，允许用户在对话里粘贴 token，agent 再放进 curl 参数。agent 在发出 curl 前先做同样的形态校验（`^cgc_[A-Za-z0-9_-]+$` 全串匹配，不匹配就请用户重新粘贴，绝不带着可疑内容请求）。**必须事先明示代价**：
 
