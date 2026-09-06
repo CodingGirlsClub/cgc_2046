@@ -198,6 +198,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
+    field :course_content, :course_content do
+      arg(:course_id, non_null(:id))
+
+      resolve(fn _, %{course_id: course_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          resolve_course_content(actor, course_id)
+        end)
+      end)
+    end
+
     @desc "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
     field :my_workspace_tool_calls, non_null(list_of(non_null(:workspace_tool_call))) do
       arg(:workspace_id, non_null(:id))
@@ -1599,6 +1610,14 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:goal, :string)
   end
 
+  object :course_content do
+    field(:course_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:revision_number, :integer)
+    field(:published_at, :datetime)
+    field(:content, non_null(:json_string))
+  end
+
   object :learning_run_summary do
     field(:id, non_null(:id))
     field(:status, non_null(:string))
@@ -2324,6 +2343,32 @@ defmodule Cgc2046Web.GraphqlSchema do
              course.id
            ) do
       {:ok, build_course_learning_detail(actor, course)}
+    else
+      _ -> {:ok, nil}
+    end
+  end
+
+  # Web reader content surface. The authorization decision is made before the
+  # authorize?: false domain read; anonymous callers and non-enrolled outsiders
+  # receive a non-enumerating nil result.
+  defp resolve_course_content(actor, course_id) do
+    with %{} = course <- fetch_course_for_detail(course_id),
+         :ok <-
+           Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
+             actor,
+             course.workspace_id,
+             course.id
+           ),
+         {:ok, revision} <- Cgc2046.Curriculum.latest_revision(course.workspace_id, course.id),
+         %{} = revision <- revision do
+      {:ok,
+       %{
+         course_id: course.id,
+         title: course.title,
+         revision_number: revision.number,
+         published_at: revision.published_at,
+         content: revision.content || %{}
+       }}
     else
       _ -> {:ok, nil}
     end
