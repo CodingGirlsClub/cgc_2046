@@ -45,10 +45,20 @@ defmodule Cgc2046.Curriculum.Content do
   """
 
   @issue_kinds ["thoughtwork", "handwork"]
+  @material_kinds ["text", "markdown", "web", "image", "video"]
+  @video_providers ["bilibili"]
 
   @doc "issue kind 二分(证据在哪为界:thoughtwork 对话 / handwork 产物)。"
   @spec issue_kinds() :: [String.t()]
   def issue_kinds, do: @issue_kinds
+
+  @doc "Typed material kinds accepted by the shared Web/MCP/extension contract."
+  @spec material_kinds() :: [String.t()]
+  def material_kinds, do: @material_kinds
+
+  @doc "Video providers currently supported by the first-party renderer."
+  @spec video_providers() :: [String.t()]
+  def video_providers, do: @video_providers
 
   @doc """
   结构性校验 course content(保存时全规则 = v1 形状 + objectives 强制存在):
@@ -78,6 +88,8 @@ defmodule Cgc2046.Curriculum.Content do
   def valid_v1?(content) when is_map(content) do
     with true <- non_empty_goals?(content),
          {:ok, issues} <- issues_or_error(content),
+         true <- valid_chapters?(content),
+         true <- valid_issue_chapter_refs?(content, issues),
          true <- Enum.all?(issues, &valid_issue?/1),
          true <- unique_issue_ids?(issues) do
       true
@@ -183,6 +195,13 @@ defmodule Cgc2046.Curriculum.Content do
 
   def objectives_with_issue(_content), do: []
 
+  @doc "Return the optional narrative chapters, dropping malformed entries."
+  @spec chapters(term()) :: [map()]
+  def chapters(%{"chapters" => chapters}) when is_list(chapters),
+    do: Enum.filter(chapters, &is_map/1)
+
+  def chapters(_content), do: []
+
   @doc """
   issue key 展示层派生(KTD6):课程 slug 短码大写截短 + issue 序号(1 起,
   补零两位),如 "PY-02"。不入库;Web 与扩展共用此形状约定。
@@ -251,7 +270,8 @@ defmodule Cgc2046.Curriculum.Content do
          true <- issue["kind"] in @issue_kinds,
          true <- non_empty_string?(issue["title"]),
          true <- is_map(issue["story"]),
-         true <- valid_checklist?(issue["story"]["checklist"]) do
+         true <- valid_checklist?(issue["story"]["checklist"]),
+         true <- valid_materials?(issue["story"]["materials"]) do
       true
     else
       _ -> false
@@ -265,6 +285,36 @@ defmodule Cgc2046.Curriculum.Content do
   end
 
   defp valid_checklist?(_checklist), do: false
+
+  defp valid_chapters?(content) do
+    case Map.get(content, "chapters") do
+      nil ->
+        true
+
+      chapters when is_list(chapters) ->
+        ids = Enum.map(chapters, &if(is_map(&1), do: &1["id"], else: nil))
+
+        Enum.all?(chapters, fn chapter ->
+          is_map(chapter) and non_empty_string?(chapter["id"]) and
+            non_empty_string?(chapter["title"])
+        end) and length(ids) == length(Enum.uniq(ids))
+
+      _ ->
+        false
+    end
+  end
+
+  defp valid_issue_chapter_refs?(content, issues) do
+    chapter_ids = MapSet.new(Enum.map(chapters(content), & &1["id"]))
+
+    Enum.all?(issues, fn issue ->
+      case issue["chapter_id"] do
+        nil -> true
+        chapter_id when is_binary(chapter_id) -> MapSet.member?(chapter_ids, chapter_id)
+        _ -> false
+      end
+    end)
+  end
 
   # R2:checklist item id 在 issue 内唯一(学习记录 item_id 的匹配目标)
   defp unique_checklist_ids?(checklist) do
@@ -289,7 +339,7 @@ defmodule Cgc2046.Curriculum.Content do
       {valid_prereq_shape?(objective), "#{label} 的 prereq_ids 须为 objective id 字符串数组"},
       {valid_optional_string?(objective, "activity"), "#{label} 的 activity 须为字符串(可为空串)"},
       {valid_optional_string?(objective, "assessment"), "#{label} 的 assessment 须为字符串(可为空串)"},
-      {valid_materials?(objective), "#{label} 的 materials 须为 %{title, ref} 数组"}
+      {valid_materials?(objective["materials"]), "#{label} 的 materials 形状不合法"}
     ]
 
     for({false, message} <- checks, do: message) ++ rubric_violations(objective, label)
@@ -324,20 +374,40 @@ defmodule Cgc2046.Curriculum.Content do
     end
   end
 
-  defp valid_materials?(objective) do
-    case objective["materials"] do
+  defp valid_materials?(materials) do
+    case materials do
       nil ->
         true
 
       materials when is_list(materials) ->
-        Enum.all?(materials, fn item ->
-          is_map(item) and is_binary(item["title"]) and is_binary(item["ref"])
-        end)
+        Enum.all?(materials, &valid_material?/1)
 
       _ ->
         false
     end
   end
+
+  defp valid_material?(%{"title" => title, "ref" => ref})
+       when is_binary(title) and is_binary(ref),
+       do: true
+
+  defp valid_material?(%{"kind" => kind} = material) when kind in @material_kinds do
+    case kind do
+      kind when kind in ["text", "markdown"] ->
+        is_binary(material["body"])
+
+      kind when kind in ["web", "image"] ->
+        https_url?(material["url"])
+
+      "video" ->
+        material["provider"] in @video_providers and non_empty_string?(material["external_id"])
+    end
+  end
+
+  defp valid_material?(_), do: false
+
+  defp https_url?(url) when is_binary(url), do: String.starts_with?(url, "https://")
+  defp https_url?(_), do: false
 
   # 每个 objective 必须配非空 rubric(≥1 条 {id, text},id 组内唯一)——Rubric 是
   # 掌握的判定标准,空 rubric = 不可判定(R38)

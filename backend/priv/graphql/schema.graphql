@@ -5555,6 +5555,9 @@ type RootQueryType {
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
+  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
+  courseContent(courseId: ID!): CourseContent
+
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
@@ -6100,6 +6103,14 @@ type CourseMapIssue {
   title: String!
   kind: String!
   goal: String
+}
+
+type CourseContent {
+  courseId: ID!
+  title: String!
+  revisionNumber: Int
+  publishedAt: DateTime
+  content: JsonString!
 }
 
 type LearningRunSummary {
