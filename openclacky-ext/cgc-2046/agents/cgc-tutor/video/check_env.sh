@@ -1,13 +1,13 @@
 #!/bin/bash
-# check_env.sh —— issue-video 技能环境自检
+# check_env.sh —— 配套视频管线环境自检
 # 逐项检查依赖，打印 ✓/✗ + 修复提示；任一 ✗ 则整体退出码 1。
 # 用法：./check_env.sh [logo_path]
-#   logo_path 缺省为本 skill 自带资产 assets/cgc_logo_orange_white.svg（随包分发）。
+#   logo_path 缺省为扩展自带资产 assets/cgc_logo_orange_white.svg（随包分发）。
 # 全绿时输出 LOGO_PATH / LOGO_H_PATH 两行绝对路径——抄进 scene.py 常量区。
 
-SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOGO_PATH="${1:-$SKILL_DIR/assets/cgc_logo_orange_white.svg}"
-LOGO_H_PATH="$SKILL_DIR/assets/cgc_logo_horizontal.png"
+PIPELINE_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOGO_PATH="${1:-$PIPELINE_DIR/assets/cgc_logo_orange_white.svg}"
+LOGO_H_PATH="$PIPELINE_DIR/assets/cgc_logo_horizontal.png"
 TEXBIN="/Library/TeX/texbin"
 
 fail=0
@@ -73,13 +73,13 @@ fi
 if [ -f "$LOGO_PATH" ]; then
     ok "logo: $LOGO_PATH"
 else
-    bad "logo 素材不存在：$LOGO_PATH" "skill 包应自带 assets/cgc_logo_orange_white.svg；或传参：./check_env.sh <logo_path>"
+    bad "logo 素材不存在：$LOGO_PATH" "扩展包应自带 assets/cgc_logo_orange_white.svg；或传参：./check_env.sh <logo_path>"
 fi
 
 if [ -f "$LOGO_H_PATH" ]; then
     ok "横排 logo: $LOGO_H_PATH"
 else
-    bad "横排 logo 素材不存在：$LOGO_H_PATH" "skill 包应自带 assets/cgc_logo_horizontal.png（包装层右下角标用）"
+    bad "横排 logo 素材不存在：$LOGO_H_PATH" "扩展包应自带 assets/cgc_logo_horizontal.png（包装层右下角标用）"
 fi
 
 echo
