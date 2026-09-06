@@ -2,7 +2,7 @@
 # id 必须与目录名一致（openclacky ext pack 强制校验）
 id: cgc-2046
 name: CGC-2046
-version: 0.0.1
+version: 0.1.0
 origin: self
 # 与 repo 根 LICENSE 一致（GNU Affero General Public License v3）
 license: AGPL-3.0-only
@@ -90,7 +90,6 @@ contributes:
     - id: cgc-tutor
       title: "CGC 教研助手"
       prompt: agents/cgc-tutor/system_prompt.md
-      skills: [issue-video]
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
@@ -99,9 +98,9 @@ contributes:
       # 引用驱动 session 面板可见性,qingclaw 同款)
       panels: [cgc-2046-learn]
   skills:
+    # 公开市场分发仍保持明文（默认随 origin=marketplace 加密），连接引导须对用户可见
     - id: cgc2046-onboarding
-    # tutor 明确要求时才触发的 ManimCE 课程卡配套动画管线
-    - id: issue-video
+      protected: false
   hooks:
     - event: on_tool_error
       file: hooks/on_tool_error.rb
