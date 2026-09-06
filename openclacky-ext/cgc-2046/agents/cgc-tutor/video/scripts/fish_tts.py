@@ -29,7 +29,7 @@ def main() -> None:
 
     key = os.environ.get("FISH_AUDIO_API_KEY")
     if not key:
-        sys.exit("缺环境变量 FISH_AUDIO_API_KEY（见 SKILL.md 第 3 步）")
+        sys.exit("缺环境变量 FISH_AUDIO_API_KEY")
 
     with open(text_path, encoding="utf-8") as f:
         text = f.read().strip()
