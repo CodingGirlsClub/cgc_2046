@@ -2,7 +2,7 @@
 # id 必须与目录名一致（openclacky ext pack 强制校验）
 id: cgc-2046
 name: CGC-2046
-version: "0.2.0"
+version: 0.0.1
 origin: self
 # 与 repo 根 LICENSE 一致（GNU Affero General Public License v3）
 license: AGPL-3.0-only
