@@ -1,4 +1,4 @@
-"""issue-video 场景骨架模板（从 AvgVelocityV3 蒸馏）。
+"""教研配套视频场景骨架模板（从 AvgVelocityV3 蒸馏）。
 
 用法：抄骨架 → 改文案/公式/数据 → 按「音频驱动时间轴」重设 SCENE_DURATIONS → 出片。
 
@@ -10,7 +10,7 @@
 完整工作流（V3 验证过）：
     1. 写口播脚本（逐场：场号/画面/文案）
     2. 逐场 TTS（默认 Fish Audio：scripts/fish_tts.py，需 FISH_AUDIO_API_KEY；
-       未设 key 或调用失败退回 edge-tts --voice zh-CN-YunjianNeural --rate=-5%，见 SKILL.md 第 3 步）
+       未设 key 或调用失败退回 edge-tts --voice zh-CN-YunjianNeural --rate=-5%）
     3. ffprobe 实测每段时长，回填脚本
     4. 按 SCENE_DURATIONS 账本模式重排动画（本文件所有 wait 都是「场时长 - 已知动画时长」的算术）
     5. manim -qm 出无声视频
