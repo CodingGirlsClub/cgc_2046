@@ -90,7 +90,6 @@ contributes:
     - id: cgc-tutor
       title: "CGC 教研助手"
       prompt: agents/cgc-tutor/system_prompt.md
-      skills: [issue-video]
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
@@ -101,9 +100,6 @@ contributes:
   skills:
     # 公开市场分发仍保持明文（默认随 origin=marketplace 加密），连接引导须对用户可见
     - id: cgc2046-onboarding
-      protected: false
-    # tutor 明确要求时才触发的 ManimCE 课程卡配套动画管线
-    - id: issue-video
       protected: false
   hooks:
     - event: on_tool_error
