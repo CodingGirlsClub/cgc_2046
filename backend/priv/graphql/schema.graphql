@@ -1223,7 +1223,7 @@ input CourseFilterInput {
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: CourseFilterPricingEnabled
 
-  workflowRun: WorkflowRunFilterInput
+  workflowRun: FilterInput
 }
 
 input CourseSortInput {
@@ -1284,8 +1284,6 @@ type Course {
 
   "价格档位配置（PriceTier 形状，见 price_tier.ex）"
   priceTiers: [JsonString!]!
-
-  workflowRun: WorkflowRun
 
   availablePriceTiers: [JsonString!]
 
@@ -5006,36 +5004,7 @@ type Sponsorship {
   targetTitle: String
 }
 
-enum WorkflowRunSortField {
-  ID
-  WORKSPACE_ID
-  DEFINITION_ID
-  DEFINITION_VERSION
-  STATUS
-  INPUT_SNAPSHOT
-  FACTS
-  PARTITION_ID
-  VERSION
-  STARTED_AT
-  FINISHED_AT
-}
-
-"A keyset page of :workflow_run"
-type KeysetPageOfWorkflowRun {
-  "Total count on all pages"
-  count: Int
-
-  "The records contained in the page"
-  results: [WorkflowRun!]
-
-  "The first keyset in the results"
-  startKeyset: String
-
-  "The last keyset in the results"
-  endKeyset: String
-}
-
-input WorkflowRunFilterFinishedAt {
+input FilterFinishedAt {
   isNil: Boolean
   eq: DateTime
   notEq: DateTime
@@ -5051,7 +5020,7 @@ input WorkflowRunFilterFinishedAt {
   rangeOverlaps: DateTime
 }
 
-input WorkflowRunFilterStartedAt {
+input FilterStartedAt {
   isNil: Boolean
   eq: DateTime
   notEq: DateTime
@@ -5067,7 +5036,7 @@ input WorkflowRunFilterStartedAt {
   rangeOverlaps: DateTime
 }
 
-input WorkflowRunFilterVersion {
+input FilterVersion {
   isNil: Boolean
   eq: Int
   notEq: Int
@@ -5083,7 +5052,7 @@ input WorkflowRunFilterVersion {
   rangeOverlaps: Int
 }
 
-input WorkflowRunFilterPartitionId {
+input FilterPartitionId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -5099,7 +5068,7 @@ input WorkflowRunFilterPartitionId {
   rangeOverlaps: ID
 }
 
-input WorkflowRunFilterFacts {
+input FilterFacts {
   isNil: Boolean
   eq: JsonString
   notEq: JsonString
@@ -5115,7 +5084,71 @@ input WorkflowRunFilterFacts {
   rangeOverlaps: JsonString
 }
 
-input WorkflowRunFilterInputSnapshot {
+input FilterSubjectCourseRevisionId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input FilterSubjectEnrollmentId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input FilterSubjectCourseId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input FilterSubjectUserId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input FilterInputSnapshot {
   isNil: Boolean
   eq: JsonString
   notEq: JsonString
@@ -5131,7 +5164,7 @@ input WorkflowRunFilterInputSnapshot {
   rangeOverlaps: JsonString
 }
 
-input WorkflowRunFilterStatus {
+input FilterStatus {
   isNil: Boolean
   eq: String
   notEq: String
@@ -5147,7 +5180,7 @@ input WorkflowRunFilterStatus {
   rangeOverlaps: String
 }
 
-input WorkflowRunFilterDefinitionVersion {
+input FilterDefinitionVersion {
   isNil: Boolean
   eq: Int
   notEq: Int
@@ -5163,7 +5196,7 @@ input WorkflowRunFilterDefinitionVersion {
   rangeOverlaps: Int
 }
 
-input WorkflowRunFilterDefinitionId {
+input FilterDefinitionId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -5179,7 +5212,7 @@ input WorkflowRunFilterDefinitionId {
   rangeOverlaps: ID
 }
 
-input WorkflowRunFilterWorkspaceId {
+input FilterWorkspaceId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -5195,7 +5228,7 @@ input WorkflowRunFilterWorkspaceId {
   rangeOverlaps: ID
 }
 
-input WorkflowRunFilterId {
+input FilterId {
   isNil: Boolean
   eq: ID
   notEq: ID
@@ -5211,90 +5244,54 @@ input WorkflowRunFilterId {
   rangeOverlaps: ID
 }
 
-input WorkflowRunFilterInput {
-  and: [WorkflowRunFilterInput!]
+input FilterInput {
+  and: [FilterInput!]
 
-  or: [WorkflowRunFilterInput!]
+  or: [FilterInput!]
 
-  not: [WorkflowRunFilterInput!]
+  not: [FilterInput!]
 
-  id: WorkflowRunFilterId
+  id: FilterId
 
   "所属工作台（租户）ID"
-  workspaceId: WorkflowRunFilterWorkspaceId
+  workspaceId: FilterWorkspaceId
 
   "绑定的 WorkflowDefinition ID"
-  definitionId: WorkflowRunFilterDefinitionId
+  definitionId: FilterDefinitionId
 
   "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
-  definitionVersion: WorkflowRunFilterDefinitionVersion
+  definitionVersion: FilterDefinitionVersion
 
   "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
-  status: WorkflowRunFilterStatus
+  status: FilterStatus
 
   "run 输入快照（创建时固化，执行引擎按此驱动）"
-  inputSnapshot: WorkflowRunFilterInputSnapshot
+  inputSnapshot: FilterInputSnapshot
+
+  subjectUserId: FilterSubjectUserId
+
+  subjectCourseId: FilterSubjectCourseId
+
+  subjectEnrollmentId: FilterSubjectEnrollmentId
+
+  subjectCourseRevisionId: FilterSubjectCourseRevisionId
 
   "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
-  facts: WorkflowRunFilterFacts
+  facts: FilterFacts
 
   "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
-  partitionId: WorkflowRunFilterPartitionId
+  partitionId: FilterPartitionId
 
   "乐观锁版本号，每次状态流转 +1"
-  version: WorkflowRunFilterVersion
+  version: FilterVersion
 
   "开始执行时间（start action 写入）"
-  startedAt: WorkflowRunFilterStartedAt
+  startedAt: FilterStartedAt
 
   "结束时间（终态 action 写入）"
-  finishedAt: WorkflowRunFilterFinishedAt
+  finishedAt: FilterFinishedAt
 
   definition: WorkflowDefinitionFilterInput
-}
-
-input WorkflowRunSortInput {
-  order: SortOrder
-  field: WorkflowRunSortField!
-}
-
-type WorkflowRun {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "绑定的 WorkflowDefinition ID"
-  definitionId: ID!
-
-  "绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动）"
-  definitionVersion: Int!
-
-  "执行状态机：pending\/running\/waiting\/succeeded\/failed\/cancelled\/expired"
-  status: String!
-
-  "run 输入快照（创建时固化，执行引擎按此驱动）"
-  inputSnapshot: JsonString
-
-  "执行产物 facts（按 step_key 聚合，引擎执行后写入）"
-  facts: JsonString
-
-  "Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离）"
-  partitionId: ID
-
-  "乐观锁版本号，每次状态流转 +1"
-  version: Int!
-
-  "开始执行时间（start action 写入）"
-  startedAt: DateTime
-
-  "结束时间（终态 action 写入）"
-  finishedAt: DateTime
-
-  definition: WorkflowDefinition!
-
-  "run 绑定版本的步骤定义（step_key\/title\/type\/output_schema，plan 020）"
-  steps: [JsonString!]
 }
 
 input WorkflowDefinitionFilterApprovalTimeout {
@@ -5480,34 +5477,6 @@ input WorkflowDefinitionFilterInput {
   approvalTimeout: WorkflowDefinitionFilterApprovalTimeout
 }
 
-type WorkflowDefinition {
-  id: ID!
-
-  "所属工作台（租户）ID"
-  workspaceId: ID!
-
-  "蓝图名称（租户内可读）"
-  name: String!
-
-  "workflow 类型：learning 学习 \/ enrollment 报名 \/ sponsorship 赞助 \/ speaker_invitation 邀请讲者 \/ curriculum 教研 \/ course_preparation 课程教研流程（S5）"
-  type: String!
-
-  "版本号，单调递增；new_version 出 v+1（#34）"
-  version: Int!
-
-  "生命周期：draft 草稿 \/ published 已发布 \/ archived 已归档"
-  status: String!
-
-  "workflow 输入参数 schema"
-  inputSchema: JsonString
-
-  "执行拓扑（步骤顺序\/依赖），声明式数据；Step 字段独立存于 Step 资源"
-  nodeDef: JsonString
-
-  "人工步骤审批超时秒数；nil = 永不超时（不设默认值）"
-  approvalTimeout: Int
-}
-
 type RootQueryType {
   "Placeholder query until the first resource is added"
   ping: String
@@ -5558,6 +5527,12 @@ type RootQueryType {
   "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
   courseContent(courseId: ID!): CourseContent
 
+  "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
+  platformWorkflowAudit(workspaceId: ID, status: String): [PlatformWorkflowAudit!]!
+
+  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
+  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
+
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
@@ -5599,35 +5574,6 @@ type RootQueryType {
 
   "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
   reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
-
-  "工作台的 workflow run 列表（#40 展示页）"
-  listWorkflowRuns(
-    "How to sort the records in the response"
-    sort: [WorkflowRunSortInput]
-
-    "A filter to limit the results"
-    filter: WorkflowRunFilterInput
-
-    "The number of records to return from the beginning. Maximum 250"
-    first: Int
-
-    "Show records before the specified keyset."
-    before: String
-
-    "Show records after the specified keyset."
-    after: String
-
-    "The number of records to return to the end. Maximum 250"
-    last: Int
-  ): KeysetPageOfWorkflowRun
-
-  "按 id 获取 workflow run 详情（#40）"
-  getWorkflowRun(
-    "A filter to limit the results"
-    filter: WorkflowRunFilterInput
-
-    id: ID!
-  ): WorkflowRun
 
   sponsorships(
     "How to sort the records in the response"
@@ -6111,6 +6057,49 @@ type CourseContent {
   revisionNumber: Int
   publishedAt: DateTime
   content: JsonString!
+}
+
+type PlatformWorkflowAudit {
+  id: ID!
+  workspaceId: ID!
+  definitionType: String!
+  status: String!
+  startedAt: DateTime
+  finishedAt: DateTime
+  insertedAt: DateTime!
+}
+
+type CourseLearningAnalytics {
+  runStats: CourseLearningRunStats!
+  objectives: [CourseLearningObjectiveStats!]!
+  dropOff: CourseLearningDropOff!
+  generatedAt: DateTime!
+}
+
+type CourseLearningRunStats {
+  totalRuns: Int!
+  activeRuns: Int!
+  completedRuns: Int!
+  completionRate: Float
+}
+
+type CourseLearningObjectiveStats {
+  objectiveId: String!
+  title: String!
+  required: Boolean!
+  mastered: Int!
+  developing: Int!
+  needsReview: Int!
+  unassessed: Int!
+  totalAttempts: Int!
+  qualifyingPasses: Int!
+  lowConfidenceAttempts: Int!
+  passRate: Float
+  lastActivityAt: DateTime
+}
+
+type CourseLearningDropOff {
+  staleRunCount: Int!
 }
 
 type LearningRunSummary {
