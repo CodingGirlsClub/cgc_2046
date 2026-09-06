@@ -2,42 +2,11 @@
 
 import { useQuery } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
-import { COURSE_CONTENT, parseCourseContent, type TypedMaterial } from "@/lib/graphql/course-content";
+import { COURSE_CONTENT, parseCourseContent } from "@/lib/graphql/course-content";
+import { MaterialRenderer } from "@/components/learning/material-renderer";
 import { COURSE_LEARNING_DETAIL, type LearningObjectiveState } from "@/lib/graphql/participations";
 
-function Material({ material }: { material: TypedMaterial }) {
-  const title = material.title || "材料";
-  if (material.kind === "text" || material.kind === "markdown") {
-    return <p data-testid="course-material-text">{material.body || ""}</p>;
-  }
-  if (material.kind === "image" && material.url) {
-    return <img src={material.url} alt={material.alt_text || title} loading="lazy" />;
-  }
-  const url = material.url || material.ref;
-  if (url) {
-    return (
-      <a href={url} target="_blank" rel="noopener noreferrer" data-testid="course-material-link">
-        {title}
-      </a>
-    );
-  }
-  if (material.kind === "video" && material.provider === "bilibili" && material.external_id) {
-    const src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(material.external_id)}&page=1`;
-    return (
-      <div data-testid="course-material-video">
-        <iframe
-          title={title}
-          src={src}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-presentation"
-          allow="fullscreen; autoplay"
-        />
-      </div>
-    );
-  }
-  return <span data-testid="course-material-unavailable">{title}（暂不可用）</span>;
-}
+
 
 export default function CourseContentViewer({ courseId }: { courseId: string }) {
   const { data, loading, error } = useQuery(COURSE_CONTENT, { variables: { courseId } });
@@ -112,7 +81,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
                   <h3>{issue.title || issue.id}</h3>
                   {issue.story?.goal ? <p className="learning-reader__goal">{issue.story.goal}</p> : null}
                   {(issue.story?.materials || []).map((material, materialIndex) => (
-                    <Material key={materialIndex} material={material} />
+                    <MaterialRenderer key={materialIndex} material={material} />
                   ))}
                   {(issue.objectives || []).map((objective, objectiveIndex) => (
                     <div id={objective.id ? `objective-${objective.id}` : undefined} key={objective.id || objectiveIndex} className="learning-reader__objective" data-testid="course-content-objective">
@@ -136,7 +105,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
                       })()}
                       {objective.activity ? <p>{objective.activity}</p> : null}
                       {(objective.materials || []).map((material, materialIndex) => (
-                        <Material key={materialIndex} material={material} />
+                        <MaterialRenderer key={materialIndex} material={material} />
                       ))}
                     </div>
                   ))}

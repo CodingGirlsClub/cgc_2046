@@ -9,6 +9,8 @@ defmodule Cgc2046.Workflows.PlatformAudit do
   def list(opts \\ []) do
     workspace_id = Keyword.get(opts, :workspace_id)
     status = Keyword.get(opts, :status)
+    started_after = Keyword.get(opts, :started_after)
+    started_before = Keyword.get(opts, :started_before)
 
     query =
       from(r in "workflow_runs",
@@ -31,6 +33,13 @@ defmodule Cgc2046.Workflows.PlatformAudit do
       if workspace_id, do: where(query, [r, _d], r.workspace_id == ^workspace_id), else: query
 
     query = if status, do: where(query, [r, _d], r.status == ^status), else: query
+
+    query =
+      if started_after, do: where(query, [r, _d], r.started_at >= ^started_after), else: query
+
+    query =
+      if started_before, do: where(query, [r, _d], r.started_at <= ^started_before), else: query
+
     Repo.all(query)
   end
 end

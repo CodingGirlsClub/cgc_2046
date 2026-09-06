@@ -115,12 +115,12 @@ defmodule Cgc2046.Mcp.Playbooks do
   3. checklist 可自验措辞:每条是可判定的完成标准;handwork 条目必须指向可检查产物(能运行/能读取/能展示),学习 Agent 会实际检查产物,避免「理解了」「掌握了」这类不可判定措辞;
   4. id 稳定纪律:issue 的 id 与 checklist 条目的 id 一经发布不改不删;修订内容时保 id(学习记录按 id 引用,改 id 会破坏进行中学员的记忆);
   5. id 唯一性:issue id 在卡集内唯一,checklist item id 在单张 issue 内唯一(平台在提交时校验);
-  6. materials 是朴素参考列表({title, ref}),不按 kind 区分形态。
+  6. materials 必须使用 typed Material：text/markdown 使用 body，web/image 使用 HTTPS url，video 使用 provider + external_id；不要提交旧 ref。
   7. objectives(schema v2,掌握单元):每张 issue 卡配 objectives 数组,每个 objective 含
      id(课程级唯一,非仅 issue 内)/title/required(缺省 true 必修,显式 false 为选修——
      全课程至少一个必修)/prereq_ids(先修 objective 的 id 数组,只能引用课程内存在的
      objective,不得成环或自引用)/activity/assessment(字符串,可空串)/materials
-     ({title, ref} 数组)/rubric(至少一条 {id, text},评分标准须可判定——空 rubric 的
+     (typed Material 数组)/rubric(至少一条 {id, text},评分标准须可判定——空 rubric 的
      objective 不可判定掌握,过不了门禁)。objective 的 id 与 issue 的 id 一样发布后不改不删。
 
   提交:整套内容经 save_course_content(workspace_id, course_id, content, base_version) 写入,content 形如

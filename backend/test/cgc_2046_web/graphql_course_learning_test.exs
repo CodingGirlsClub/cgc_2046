@@ -27,7 +27,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
             "as_a" => "学员",
             "given" => ["无"],
             "goal" => "独立写问候程序",
-            "materials" => [%{"title" => "Python 教程", "ref" => "https://ex.io"}],
+            "materials" => [%{"kind" => "web", "title" => "Python 教程", "url" => "https://ex.io"}],
             "checklist" => [
               %{"id" => "c1", "text" => "程序能运行并正确输出"},
               %{"id" => "c2", "text" => "能讲懂代码"}

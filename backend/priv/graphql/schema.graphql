@@ -5528,7 +5528,7 @@ type RootQueryType {
   courseContent(courseId: ID!): CourseContent
 
   "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
-  platformWorkflowAudit(workspaceId: ID, status: String): [PlatformWorkflowAudit!]!
+  platformWorkflowAudit(workspaceId: ID, status: String, startedAfter: DateTime, startedBefore: DateTime): [PlatformWorkflowAudit!]!
 
   "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
   courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
