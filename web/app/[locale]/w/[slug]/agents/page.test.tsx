@@ -153,22 +153,13 @@ describe("Agents 工作面 /w/[slug]/agents（plan 020 U2）", () => {
 
 		expect(await screen.findByRole("heading", { name: "Agents" })).toBeInTheDocument();
 
-		// ① 待办交接：learning running run 的 2 个待办 manual 步骤（facts 空）
-		const todoSection = await screen.findByTestId("agents-todos");
-		const todoItems = todoSection.querySelectorAll('[data-testid="agents-todo-item"]');
-		expect(todoItems.length).toBe(2);
+		// Workspace agents 不再读取 raw WorkflowRun，待办区保持隐私安全的空态。
+		const todoSection = await screen.findByTestId("agents-todos-empty");
+		expect(todoSection).toBeInTheDocument();
 
 		// 每项复制按钮的交接文本：含 workspace slug(id) / run / step / 工具提示
-		const copyButtons = todoSection.querySelectorAll('[data-testid="step-handoff-copy"]');
-		expect(copyButtons.length).toBe(2);
-		const firstHandoff = copyButtons[0].getAttribute("data-handoff") ?? "";
-		expect(firstHandoff).toContain("workspace: cgc-academy(ws_02)");
-		expect(firstHandoff).toContain("run: run_learn_1");
-		expect(firstHandoff).toMatch(/step: (module_reading|final_reflection)/);
-		expect(firstHandoff).toContain("用 save_step_output 写回该 step");
+		expect(screen.queryAllByTestId("step-handoff-copy")).toHaveLength(0);
 
-		// 多宿主文案
-		expect(screen.getByText(/粘贴给你的 OpenClacky \/ opencode \/ omp 助手/)).toBeInTheDocument();
 
 		// ② 活动流：时间轴条目 + status 色点 + 耗时
 		const activitySection = await screen.findByTestId("agents-activity");
@@ -190,17 +181,8 @@ describe("Agents 工作面 /w/[slug]/agents（plan 020 U2）", () => {
 	it("交接按钮点击：copyText 收到含 workspace id 的完整交接文本", async () => {
 		render(<AgentsPage />);
 
-		const copyButton = (await screen.findAllByTestId("step-handoff-copy"))[0];
-		fireEvent.click(copyButton);
-
-		await waitFor(() => expect(copyText).toHaveBeenCalledTimes(1));
-		const copied = vi.mocked(copyText).mock.calls[0][0];
-		expect(copied).toContain("workspace: cgc-academy(ws_02)");
-		expect(copied).toContain("run: run_learn_1");
-		expect(copied).toContain("step:");
-		expect(copied).toContain("save_step_output");
-		// 成功后按钮进入「已复制」态
-		expect(await screen.findByText("已复制")).toBeInTheDocument();
+		expect(screen.queryAllByTestId("step-handoff-copy")).toHaveLength(0);
+		expect(copyText).not.toHaveBeenCalled();
 	});
 
 	it("无待办（learning 终态 + research run）→ 待办空态；活动流仍渲染", async () => {
