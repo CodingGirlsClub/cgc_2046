@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   `get_course_content` / `get_learning_state` 共用完整判定。
   """
 
-  alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Accounts.{MembershipContext, Role}
   alias Cgc2046.Learning.Runs
 
   @doc """
@@ -36,7 +36,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
 
   def authorize(actor, workspace_id, course_id) when is_binary(course_id) do
     cond do
-      member?(actor, workspace_id) -> :ok
+      content_member?(actor, workspace_id) -> :ok
       confirmed_enrollment?(actor, workspace_id, course_id) -> :ok
       Runs.learning_run_holder?(actor, workspace_id, course_id) -> :ok
       true -> {:error, "forbidden: enrolled learner or learning run holder required"}
@@ -48,10 +48,13 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   def confirmed_enrollment?(actor, workspace_id, course_id),
     do: Runs.confirmed_enrollment?(actor, workspace_id, course_id)
 
-  defp member?(actor, workspace_id) do
-    case MembershipContext.membership_of(actor, workspace_id) do
-      nil -> false
-      _membership -> true
+  defp content_member?(actor, workspace_id) do
+    case MembershipContext.role_names(actor, workspace_id) do
+      roles when is_list(roles) -> Enum.any?(roles, &(Role.manage_role?(&1) or &1 == :tutor))
+      _ -> false
     end
   end
+
+  defp member?(actor, workspace_id),
+    do: MembershipContext.membership_of(actor, workspace_id) != nil
 end

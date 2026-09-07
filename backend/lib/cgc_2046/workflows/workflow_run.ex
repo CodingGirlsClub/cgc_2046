@@ -92,6 +92,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     )
 
     attribute(:input_snapshot, :map,
+      sensitive?: true,
       public?: true,
       writable?: true,
       description: "run 输入快照（创建时固化，执行引擎按此驱动）"
@@ -105,6 +106,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     attribute(:subject_course_revision_id, :uuid, public?: true, writable?: false)
 
     attribute(:facts, :map,
+      sensitive?: true,
       public?: true,
       writable?: true,
       default: %{},

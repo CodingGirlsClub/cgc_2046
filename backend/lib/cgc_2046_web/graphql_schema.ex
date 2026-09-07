@@ -221,7 +221,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           {:ok,
            Cgc2046.Workflows.PlatformAudit.list(
              workspace_id: args[:workspace_id],
-             status: args[:status]
+             status: args[:status],
+             started_after: args[:started_after],
+             started_before: args[:started_before]
            )}
         end)
       end)
@@ -2611,7 +2613,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   # enrollment.user_id == actor.id（双重本人锚）。
   defp read_learning_runs(enrollment) do
     Cgc2046.Workflows.WorkflowRun
-    |> Ash.Query.filter(input_snapshot["enrollment_id"] == ^enrollment.id)
+    |> Ash.Query.filter(subject_enrollment_id == ^enrollment.id)
     |> Ash.read(tenant: enrollment.workspace_id, authorize?: false)
     |> case do
       {:ok, runs} ->

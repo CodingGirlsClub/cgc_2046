@@ -260,25 +260,6 @@ export default function WorkspacePage() {
 								</span>
 							</Link>
 							<Link
-								href={`/w/${slug}/workflows`}
-								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
-							>
-								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
-									<Icon name="book" />
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink">
-										{t("workflowTitle")}
-									</span>
-									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										{t("workflowDesc")}
-									</span>
-								</span>
-								<span className="flex-none text-ink-3">
-									<Icon name="arrow" />
-								</span>
-							</Link>
-							<Link
 								href={`/w/${slug}/events`}
 								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
 							>

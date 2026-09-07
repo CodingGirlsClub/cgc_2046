@@ -117,7 +117,7 @@ function parseIssueCards(html) {
     card.querySelectorAll = function (sel) {
       if (!(sel in fieldCache)) {
         if (sel === "[data-f='given-item']") fieldCache[sel] = fieldNodes(seg, "given-item");
-        else if (sel === "[data-material-row]") fieldCache[sel] = rowNodes(seg, "data-material-row", ["m-kind", "m-title", "m-body", "m-url", "m-provider", "m-external-id", "m-alt-text"]);
+        else if (sel === "[data-material-row]") fieldCache[sel] = rowNodes(seg, "data-material-row", ["m-kind", "m-title", "m-body", "m-url", "m-provider", "m-external-id", "m-alt-text", "m-caption"]);
         else if (sel === "[data-check-row]") fieldCache[sel] = rowNodes(seg, "data-check-row", ["c-id", "c-text"]);
         else fieldCache[sel] = [];
       }

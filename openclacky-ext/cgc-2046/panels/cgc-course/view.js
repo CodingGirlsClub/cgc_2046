@@ -60,6 +60,19 @@
     });
   }
 
+  function safeMaterialUrl(material) {
+    if (!material || material.kind === "text" || material.kind === "markdown") return null;
+    const url = material.url;
+    if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
+    return url;
+  }
+
+  function materialLinkMarkup(material) {
+    const url = safeMaterialUrl(material);
+    if (!url) return '<span class="cgch-empty">需重新保存为安全的 typed Material</span>';
+    return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(material.title || url) + '</a>';
+  }
+
   const EDIT_ROLES = ["tutor"];
 
   function computeCanEdit() {
@@ -639,8 +652,7 @@
       (assessment ? '<div class="cglc-kv"><label>评估</label><span>' + escapeHtml(assessment) + '</span></div>' : "") +
       (materials.length
         ? '<div class="cglc-kv"><label>材料</label><span>' + materials.map(function (m) {
-            const ref = m.ref ? ' <a href="' + escapeHtml(m.ref) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.ref) + '</a>' : "";
-            return escapeHtml(m.title || "") + ref;
+            return materialLinkMarkup(m);
           }).join('<br>') + '</span></div>'
         : '<div class="cglc-kv"><label>材料</label><span class="cgch-empty">无</span></div>') +
       '</div>';

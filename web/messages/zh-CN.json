@@ -1346,7 +1346,8 @@
     "createTitle": "新建{label}",
     "createSubtitle": "创建后为草稿，发布后进入开放报名",
     "titleRequired": "标题（必填）",
-    "visibility": "可见性"
+    "visibility": "可见性",
+    "openCurriculum": "打开课程内容治理"
   },
   "checkout": {
     "orderFailed": "下单失败，请重试",

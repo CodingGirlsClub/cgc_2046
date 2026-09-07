@@ -293,9 +293,7 @@ defmodule Cgc2046.Learning.Analytics do
   # 无 user 过滤——Runs 私有 runs_query 带 user 过滤故此处自建)
   defp fetch_runs(workspace_id, course_id) do
     WorkflowRun
-    |> Ash.Query.filter(
-      definition.type == :learning and input_snapshot["course_id"] == ^course_id
-    )
+    |> Ash.Query.filter(definition.type == :learning and subject_course_id == ^course_id)
     |> Ash.read!(authorize?: false, tenant: workspace_id)
   end
 
@@ -325,7 +323,7 @@ defmodule Cgc2046.Learning.Analytics do
   # --- 小工具 ---------------------------------------------------------------------
 
   # v2 适配:run 绑定 revision = input_snapshot["course_revision_id"]
-  defp run_revision_id(%WorkflowRun{input_snapshot: %{"course_revision_id" => revision_id}}),
+  defp run_revision_id(%WorkflowRun{subject_course_revision_id: revision_id}),
     do: revision_id
 
   defp run_revision_id(_run), do: nil

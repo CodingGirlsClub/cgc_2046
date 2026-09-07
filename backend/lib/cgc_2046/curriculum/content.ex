@@ -428,16 +428,23 @@ defmodule Cgc2046.Curriculum.Content do
   end
 
   defp valid_material?(%{"kind" => kind} = material) when kind in @material_kinds do
+    scope_valid? =
+      not Map.has_key?(material, "access_scope") or
+        material["access_scope"] in ["public", "low_sensitivity"]
+
     case kind do
       kind when kind in ["text", "markdown"] ->
         is_binary(material["body"])
 
-      kind when kind in ["web", "image"] ->
+      "web" ->
         https_url?(material["url"])
+
+      "image" ->
+        https_url?(material["url"]) and non_empty_string?(material["alt_text"])
 
       "video" ->
         material["provider"] in @video_providers and valid_bilibili_id?(material["external_id"])
-    end
+    end and scope_valid?
   end
 
   defp valid_material?(_), do: false

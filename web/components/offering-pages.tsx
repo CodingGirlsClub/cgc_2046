@@ -1089,6 +1089,13 @@ export function OfferingDetailPage({
                       </dd>
                     </div>
                   </dl>
+                  <Link
+                    href={`/w/${slug}/courses/${offering.id}/curriculum`}
+                    className="mt-4 inline-flex text-sm text-accent hover:underline"
+                    data-testid="course-governance-link"
+                  >
+                    {t("openCurriculum")} ↗
+                  </Link>
                 </div>
               ) : null}
 

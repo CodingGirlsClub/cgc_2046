@@ -318,6 +318,10 @@ class CoursePanelEditTest < Minitest::Test
     assert_includes VIEW, 'data-f="m-alt-text"'
     assert_includes VIEW, 'data-f="c-id"'
     assert_includes VIEW, 'data-f="c-text"'
+    assert_includes VIEW, 'data-f="chapter-id"'
+    assert_includes VIEW, 'data-f="chapter-title"'
+    assert_includes VIEW, "data-add-chapter"
+    assert_includes VIEW, "章节（叙事分组，不是先修关系）"
     assert_includes VIEW, "data-add-given"
     assert_includes VIEW, "data-remove-check"
     # 行内文档化的逐项格式(不再是「标题 | 链接」分隔符约定)
