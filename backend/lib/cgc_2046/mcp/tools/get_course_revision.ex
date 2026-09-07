@@ -52,6 +52,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
              revision_number: revision.number,
              published_at: DateTime.to_iso8601(revision.published_at),
              goals: content["goals"] || [],
+             chapters: content["chapters"] || [],
              issues: content["issues"] || []
            }}
         end

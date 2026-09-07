@@ -302,7 +302,7 @@ describe("公开详情两栏布局（R7/R9/KTD1）", () => {
       "href",
       "/events",
     );
-    expect(screen.queryByText("工作台")).toBeNull();
+    expect(screen.getByText("工作台")).toBeInTheDocument();
 
     expect(container.querySelector(".public-catalog")).not.toBeNull();
     expect(container.querySelector("main.public-catalog-main.public-detail-main")).not.toBeNull();

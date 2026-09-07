@@ -458,6 +458,141 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
     end
   end
 
+  describe "learning run subject anchor (M1)" do
+    defp create_learning_run(workspace, actor, learner) do
+      {:ok, defn} =
+        create_definition(workspace, actor, %{
+          name: "学习 workflow（测试布景）",
+          type: :learning,
+          input_schema: %{},
+          node_def: %{"steps" => [%{"id" => "s1", "type" => "manual"}]}
+        })
+
+      {:ok, published} = publish_definition(defn, workspace, actor)
+
+      create_run(workspace, actor, published, %{
+        input_snapshot: %{"user_id" => learner.id, "title" => "t"}
+      })
+    end
+
+    # 布置而非被测对象：摘掉 snapshot 的 user_id 键，subject_* 列保持不动。
+    defp strip_snapshot_user_id(run) do
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE workflow_runs SET input_snapshot = input_snapshot - 'user_id' WHERE id = $1",
+          [Ecto.UUID.dump!(run.id)]
+        )
+
+      :ok
+    end
+
+    test "同工作台普通成员读他人 learning run = 空" do
+      admin = Fixtures.platform_admin("wfrun-m1")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("wfrun-m1-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+      {:ok, _run} = create_learning_run(workspace, admin, learner)
+
+      member = Fixtures.register_user("wfrun-m1-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      assert [] =
+               WorkflowRun
+               |> Ash.Query.for_read(:read)
+               |> Ash.read!(tenant: workspace.id, actor: member)
+    end
+
+    test "Owner/Admin/Tutor 读他人 learning run = 空" do
+      admin = Fixtures.platform_admin("wfrun-m1")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("wfrun-m1-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+      {:ok, _run} = create_learning_run(workspace, admin, learner)
+
+      # 工作台角色成员（非 platform admin——平台管理员另有独立审计 policy 分支，
+      # 不在本用例范围）：owner/admin/tutor 角色均不得读他人 learning run
+      staff_users =
+        for {prefix, roles} <- [
+              {"wfrun-m1-owner", [:owner]},
+              {"wfrun-m1-admin", [:admin]},
+              {"wfrun-m1-tutor", [:tutor]}
+            ] do
+          user = Fixtures.register_user(prefix)
+          Fixtures.add_member(workspace, user, roles)
+          user
+        end
+
+      for staff <- staff_users do
+        assert [] =
+                 WorkflowRun
+                 |> Ash.Query.for_read(:read)
+                 |> Ash.read!(tenant: workspace.id, actor: staff)
+      end
+    end
+
+    test "本人可读；snapshot 摘掉 user_id 键后仍可读（subject 列是唯一授权锚）" do
+      admin = Fixtures.platform_admin("wfrun-m1")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("wfrun-m1-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+      {:ok, run} = create_learning_run(workspace, admin, learner)
+
+      strip_snapshot_user_id(run)
+
+      assert [%WorkflowRun{id: id}] =
+               WorkflowRun
+               |> Ash.Query.for_read(:read)
+               |> Ash.read!(tenant: workspace.id, actor: learner)
+
+      assert id == run.id
+    end
+
+    test "成员可读非 learning run（正向对照）" do
+      admin = Fixtures.platform_admin("wfrun-m1")
+      workspace = Fixtures.create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin)
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published)
+
+      member = Fixtures.register_user("wfrun-m1-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      assert [%WorkflowRun{id: id}] =
+               WorkflowRun
+               |> Ash.Query.for_read(:read)
+               |> Ash.read!(tenant: workspace.id, actor: member)
+
+      assert id == run.id
+    end
+
+    test "create learning run 缺 user_id → 报错" do
+      admin = Fixtures.platform_admin("wfrun-m1")
+      workspace = Fixtures.create_workspace(admin)
+
+      {:ok, defn} =
+        create_definition(workspace, admin, %{
+          name: "学习 workflow（测试布景）",
+          type: :learning,
+          input_schema: %{},
+          node_def: %{"steps" => [%{"id" => "s1", "type" => "manual"}]}
+        })
+
+      {:ok, published} = publish_definition(defn, workspace, admin)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               create_run(workspace, admin, published, %{input_snapshot: %{"title" => "t"}})
+
+      assert Enum.any?(errors, fn
+               %{message: message} when is_binary(message) ->
+                 message =~ "learning run requires input_snapshot user_id"
+
+               _ ->
+                 false
+             end)
+    end
+  end
+
   describe "tenant isolation" do
     test "cross-workspace run not visible" do
       admin = Fixtures.platform_admin("wfrun-admin")

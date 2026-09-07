@@ -451,12 +451,27 @@
     html += '<div class="cgc-card"><div class="cgt-section-title">课程目标 (' + goals.length + ')</div>' +
       (goals.length ? '<ul class="cgt-plain-list">' + goals.map(function (g) { return '<li>' + escapeHtml(g) + '</li>'; }).join("") + '</ul>' : '<div class="cgch-empty">无</div>') +
       '</div>';
+    var chapters = Array.isArray(state.content.chapters) ? state.content.chapters : [];
+    var chapterTitles = {};
+    chapters.forEach(function (chapter) { chapterTitles[String(chapter.id)] = chapter.title || chapter.id; });
+    var groups = {};
+    issues.forEach(function (issue) {
+      var key = issue.chapter_id ? String(issue.chapter_id) : "_ungrouped";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(issue);
+    });
+    var groupKeys = Object.keys(groups);
     html += '<div class="cgc-card"><div class="cgt-section-title">学习单元 (' + issues.length + ')</div>' +
       (issues.length
-        ? '<div class="cgch-row-list">' + issues.map(function (i) {
-            return '<div class="cgch-row"><span class="cgch-chip">' + escapeHtml(i.kind || "") + '</span>' +
-              '<span class="cgch-row-copy">' + escapeHtml(i.title || i.id) + '</span></div>';
-          }).join("") + '</div>'
+        ? groupKeys.map(function (key) {
+            var title = key === "_ungrouped" ? "未分组" : (chapterTitles[key] || key);
+            return '<div class="cgt-chapter-group" data-testid="curriculum-chapter-group">' +
+              '<div class="cgt-section-title">' + escapeHtml(title) + '</div>' +
+              '<div class="cgch-row-list">' + groups[key].map(function (i) {
+                return '<div class="cgch-row"><span class="cgch-chip">' + escapeHtml(i.kind || "") + '</span>' +
+                  '<span class="cgch-row-copy">' + escapeHtml(i.title || i.id) + '</span></div>';
+              }).join("") + '</div></div>';
+          }).join("")
         : '<div class="cgch-empty">无</div>') +
       '</div>';
 
@@ -489,6 +504,11 @@
     if (!state.draft || !currentContainer) return;
     const goalsEl = currentContainer.querySelector("#cgc-edit-goals");
     if (goalsEl) state.draft.goals = goalsEl.value.split("\n").map(trim).filter(Boolean);
+    const chapters = [];
+    currentContainer.querySelectorAll("[data-edit-chapter]").forEach(function (el) {
+      chapters.push({ id: trim(el.querySelector("[data-f='chapter-id']").value), title: trim(el.querySelector("[data-f='chapter-title']").value) });
+    });
+    if (chapters.length || Array.isArray(state.draft.chapters)) state.draft.chapters = chapters;
     currentContainer.querySelectorAll("[data-edit-issue]").forEach(function (el) {
       const issue = state.draft.issues[Number(el.getAttribute("data-edit-issue"))];
       if (!issue) return;
@@ -497,17 +517,40 @@
       issue.title = trim(el.querySelector("[data-f='title']").value);
       story.as_a = trim(el.querySelector("[data-f='as_a']").value);
       story.goal = trim(el.querySelector("[data-f='goal']").value);
+      // L5:章节归属下拉——未分组(空值)时删除键而非留空串,保证无损 round-trip
+      const chapterSel = el.querySelector("[data-f='chapter']");
+      const chapterId = chapterSel ? trim(chapterSel.value) : "";
+      if (chapterId) issue.chapter_id = chapterId;
+      else delete issue.chapter_id;
       const given = [];
       el.querySelectorAll("[data-f='given-item']").forEach(function (n) {
         given.push(trim(n.value));
       });
       story.given = given;
       const materials = [];
-      el.querySelectorAll("[data-material-row]").forEach(function (row) {
-        materials.push({
-          title: trim(row.querySelector("[data-f='m-title']").value),
-          ref: trim(row.querySelector("[data-f='m-ref']").value)
-        });
+      const existingMaterials = Array.isArray(story.materials) ? story.materials : [];
+      el.querySelectorAll("[data-material-row]").forEach(function (row, materialIndex) {
+        const kind = trim(row.querySelector("[data-f='m-kind']").value);
+        const material = Object.assign({}, existingMaterials[materialIndex] || {}, { kind: kind, title: trim(row.querySelector("[data-f='m-title']").value) });
+        const body = row.querySelector("[data-f='m-body']");
+        const url = row.querySelector("[data-f='m-url']");
+        const provider = row.querySelector("[data-f='m-provider']");
+        const externalId = row.querySelector("[data-f='m-external-id']");
+        const alt = row.querySelector("[data-f='m-alt-text']");
+        const caption = row.querySelector("[data-f='m-caption']");
+        if (caption && trim(caption.value)) material.caption = trim(caption.value);
+        if (kind === "text" || kind === "markdown") {
+          if (body) material.body = trim(body.value);
+        } else if (kind === "web") {
+          if (url) material.url = trim(url.value);
+        } else if (kind === "image") {
+          if (url) material.url = trim(url.value);
+          if (alt) material.alt_text = trim(alt.value);
+        } else if (kind === "video") {
+          if (provider) material.provider = trim(provider.value);
+          if (externalId) material.external_id = trim(externalId.value);
+        }
+        materials.push(material);
       });
       story.materials = materials;
       const checklist = [];
@@ -533,6 +576,9 @@
         removeAttr + '="' + removeVal + '">×</button></div>';
     }
 
+    const chapterRows = (Array.isArray(draft.chapters) ? draft.chapters : []).map(function (chapter, idx) {
+      return itemRow('data-edit-chapter', '<input data-f="chapter-id" type="text" placeholder="chapter id" value="' + escapeHtml(chapter.id || "") + '">' + '<input data-f="chapter-title" type="text" placeholder="章节标题" value="' + escapeHtml(chapter.title || "") + '">', 'data-remove-chapter', idx);
+    }).join("");
     const issueCards = draft.issues.map(function (issue, idx) {
       const story = issue.story || {};
       const givenRows = (Array.isArray(story.given) ? story.given : []).map(function (g, gi) {
@@ -541,9 +587,26 @@
           'data-remove-given', idx + ':' + gi);
       }).join("");
       const matRows = (Array.isArray(story.materials) ? story.materials : []).map(function (m, mi) {
+        const legacy = m && m.ref && !m.kind;
+        const kind = legacy ? "legacy" : (m.kind || "text");
+        const source = legacy ? ("旧 ref 需要重新保存为 typed Material: " + m.ref) : "";
         return itemRow('data-material-row',
+          '<select data-f="m-kind" aria-label="材料类型">' +
+            '<option value="text"' + (kind === "text" ? " selected" : "") + '>text</option>' +
+            '<option value="markdown"' + (kind === "markdown" ? " selected" : "") + '>markdown</option>' +
+            '<option value="web"' + (kind === "web" ? " selected" : "") + '>web</option>' +
+            '<option value="image"' + (kind === "image" ? " selected" : "") + '>image</option>' +
+            '<option value="video"' + (kind === "video" ? " selected" : "") + '>video</option>' +
+            (legacy ? '<option value="legacy" selected>legacy（需重存）</option>' : '') +
+          '</select>' +
           '<input data-f="m-title" type="text" placeholder="标题" value="' + escapeHtml(m.title || "") + '">' +
-          '<input data-f="m-ref" type="text" placeholder="链接(可选)" value="' + escapeHtml(m.ref || "") + '">',
+          '<textarea data-f="m-body" placeholder="text/markdown 正文">' + escapeHtml(m.body || "") + '</textarea>' +
+          '<input data-f="m-url" type="url" placeholder="web/image HTTPS URL" value="' + escapeHtml(m.url || (legacy ? m.ref : "") || "") + '">' +
+          '<input data-f="m-provider" type="text" placeholder="video provider（bilibili）" value="' + escapeHtml(m.provider || "") + '">' +
+          '<input data-f="m-external-id" type="text" placeholder="video external ID（BV...）" value="' + escapeHtml(m.external_id || "") + '">' +
+          '<input data-f="m-alt-text" type="text" placeholder="image alt_text" value="' + escapeHtml(m.alt_text || "") + '">' +
+          '<input data-f="m-caption" type="text" placeholder="caption" value="' + escapeHtml(m.caption || "") + '">' +
+          (source ? '<small class="cgch-empty" data-testid="legacy-material-warning">' + escapeHtml(source) + '</small>' : ''),
           'data-remove-material', idx + ':' + mi);
       }).join("");
       const checkRows = (Array.isArray(story.checklist) ? story.checklist : []).map(function (c, ci) {
@@ -551,6 +614,12 @@
           '<input data-f="c-id" type="text" placeholder="id" value="' + escapeHtml(c.id || "") + '">' +
           '<input data-f="c-text" type="text" placeholder="验收文本" value="' + escapeHtml(c.text || "") + '">',
           'data-remove-check', idx + ':' + ci);
+      }).join("");
+      // L5:章节归属下拉(选项 = chapters + 未分组;叙事分组,非先修关系)
+      const chapterOptions = (Array.isArray(draft.chapters) ? draft.chapters : []).map(function (chapter) {
+        const cid = String(chapter.id || "");
+        const sel = String(issue.chapter_id || "") === cid && cid !== "" ? " selected" : "";
+        return '<option value="' + escapeHtml(cid) + '"' + sel + '>' + escapeHtml(chapter.title || cid) + '</option>';
       }).join("");
       return (
         '<div class="cgc-card cgt-issue-edit" data-edit-issue="' + idx + '" data-testid="prep-issue-edit">' +
@@ -565,13 +634,18 @@
             '</select></div>' +
           '<div class="cgt-edit-row"><label>标题</label>' +
             '<input data-f="title" type="text" value="' + escapeHtml(issue.title || "") + '"></div>' +
+          '<div class="cgt-edit-row"><label>章节</label>' +
+            '<select data-f="chapter">' +
+              '<option value=""' + (issue.chapter_id ? "" : " selected") + '>未分组</option>' +
+              chapterOptions +
+            '</select></div>' +
           '<div class="cgt-edit-row"><label>as_a(目标学员画像)</label>' +
             '<input data-f="as_a" type="text" value="' + escapeHtml(story.as_a || "") + '"></div>' +
           '<div class="cgt-edit-row"><label>given(先修状态,每项一行)</label>' + givenRows +
             '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-given="' + idx + '">+ 添加 given</button></div>' +
           '<div class="cgt-edit-row"><label>goal(完成后能独立做到什么)</label>' +
             '<input data-f="goal" type="text" value="' + escapeHtml(story.goal || "") + '"></div>' +
-          '<div class="cgt-edit-row"><label>materials(每条:标题 + 链接)</label>' + matRows +
+          '<div class="cgt-edit-row"><label>materials（typed Material：类型 + 受约束来源）</label>' + matRows +
             '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-material="' + idx + '">+ 添加材料</button></div>' +
           '<div class="cgt-edit-row"><label>checklist(每条:id + 验收文本)</label>' + checkRows +
             '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-check="' + idx + '">+ 添加 checklist</button></div>' +
@@ -587,6 +661,7 @@
         '<div class="cgt-edit-row"><label>课程目标 goals(每行一条)</label>' +
           '<textarea id="cgc-edit-goals" rows="3">' + escapeHtml(goalRows) + '</textarea>' +
           '<div class="cgt-parse-preview" id="cgt-preview-goals" data-testid="prep-parse-preview"></div></div>' +
+        '<div class="cgt-edit-row"><label>章节（叙事分组，不是先修关系）</label>' + chapterRows + '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-chapter="1">+ 添加章节</button></div>' +
         issueCards +
         '<div class="cgt-edit-row">' +
           '<button id="cgc-add-issue" class="cgc-btn cgc-btn-secondary" type="button" data-testid="prep-add-issue">+ 添加 issue</button>' +
@@ -659,11 +734,29 @@
         });
       });
     }
+    currentContainer.querySelectorAll("[data-add-chapter]").forEach(function (btn) {
+      btn.addEventListener("click", function () { collectEditor(); state.draft.chapters = (Array.isArray(state.draft.chapters) ? state.draft.chapters : []).concat([{ id: "ch_" + Date.now(), title: "" }]); render(); });
+    });
+    currentContainer.querySelectorAll("[data-remove-chapter]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        collectEditor();
+        const idx = Number(btn.getAttribute("data-remove-chapter"));
+        const removed = state.draft.chapters[idx];
+        state.draft.chapters.splice(idx, 1);
+        // 删除章节 = 解散叙事分组:引用它的 issue 回到未分组,不留悬空 chapter_id
+        if (removed && removed.id) {
+          state.draft.issues.forEach(function (issue) {
+            if (issue && String(issue.chapter_id || "") === String(removed.id)) delete issue.chapter_id;
+          });
+        }
+        render();
+      });
+    });
     bindRowAdds("data-add-given", function (s) {
       s.given = (Array.isArray(s.given) ? s.given : []).concat([""]);
     });
     bindRowAdds("data-add-material", function (s) {
-      s.materials = (Array.isArray(s.materials) ? s.materials : []).concat([{ title: "", ref: "" }]);
+      s.materials = (Array.isArray(s.materials) ? s.materials : []).concat([{ kind: "text", title: "", body: "" }]);
     });
     bindRowAdds("data-add-check", function (s) {
       const list = Array.isArray(s.checklist) ? s.checklist : [];
@@ -690,7 +783,12 @@
         story: Object.assign({}, story, {
           given: (Array.isArray(story.given) ? story.given : []).filter(function (v) { return trim(v); }),
           materials: (Array.isArray(story.materials) ? story.materials : []).filter(function (m) {
-            return m && (trim(m.title) || trim(m.ref));
+            if (!m) return false;
+            if (trim(m.title) || trim(m.body) || trim(m.url) || trim(m.external_id) || trim(m.provider) || trim(m.caption)) return true;
+            // 无损红线:未知键(如 attribution)带内容同样保留,不因表单未覆盖而误删
+            return Object.keys(m).some(function (k) {
+              return k !== "kind" && typeof m[k] === "string" && trim(m[k]);
+            });
           }),
           checklist: (Array.isArray(story.checklist) ? story.checklist : []).filter(function (c) {
             return c && (trim(c.id) || trim(c.text));
@@ -702,6 +800,8 @@
       goals: state.draft.goals,
       issues: issues
     });
+    // 不要在旧内容没有 chapters 时凭空新增空数组，保证严格 round-trip。
+    if (Array.isArray(state.draft.chapters) && (state.draftHasChapters || state.draft.chapters.length)) content.chapters = state.draft.chapters;
     delete content.version;
     state.saving = true;
     state.saveError = null;
@@ -753,8 +853,10 @@
       state.draftContent = content;
       state.draft = {
         goals: Array.isArray(content.goals) ? content.goals.slice() : [],
+        chapters: JSON.parse(JSON.stringify(Array.isArray(content.chapters) ? content.chapters : [])),
         issues: JSON.parse(JSON.stringify(Array.isArray(content.issues) ? content.issues : []))
       };
+      state.draftHasChapters = Array.isArray(content.chapters);
       state.editing = true;
       state.conflict = null;
       state.updateNotice = false;

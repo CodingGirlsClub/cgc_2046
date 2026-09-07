@@ -142,9 +142,18 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
               {group.runs.map((run) => (
                 <div
                   key={run.runId}
-                  className="border-b border-line last:border-b-0"
+                  className="learning-run-row-shell border-b border-line last:border-b-0"
                 >
                   <LearningRunRow run={run} onOpenDrawer={setDrawerCourseId} />
+                  {run.courseId ? (
+                    <Link
+                      href={`/learning/courses/${run.courseId}`}
+                      className="learning-run-row-link"
+                      data-testid="learning-course-link"
+                    >
+                      {t("tab.courseContent")} <span aria-hidden="true">↗</span>
+                    </Link>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -271,6 +280,14 @@ function ObjectiveDrawer({
               {loading ? t("loading") : (detail?.title ?? t("detailTitle"))}
             </h3>
             {detail ? (
+              <Link
+                href={`/learning/courses/${detail.courseId}`}
+                className="mt-1 inline-block text-sm text-accent hover:underline"
+              >
+                {t("tab.courseContent")}
+              </Link>
+            ) : null}
+            {detail ? (
               <p className="mt-1 text-[13px] text-ink-3">
                 {detail.progress.masteredRequired}/{detail.progress.totalRequired}{" "}
                 {t("masteredLabel")}
@@ -330,7 +347,9 @@ function ObjectiveDrawer({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
-                      {objective.title}
+                      <Link href={`/learning/courses/${detail.courseId}#objective-${objective.id}`} className="hover:text-accent">
+                        {objective.title}
+                      </Link>
                       {objective.required ? null : (
                         <span className="rounded-full border border-violet-400 px-2 py-0.5 text-[11px] text-violet-500">
                           {t("electiveLabel")}

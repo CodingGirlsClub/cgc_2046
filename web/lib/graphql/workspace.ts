@@ -44,6 +44,19 @@ export const ROLE_NAMES = [
 export const MANAGE_ROLE_NAMES: MembershipRoleName[] = ["owner", "admin"];
 
 /**
+ * 教研（课程内容治理）角色子集：tutor/owner/admin。
+ *
+ * 能力面（myAbilities）区分不了 tutor 与普通成员（tutor/volunteer/learner
+ * 当前能力集相同，见后端 Rbac matrix），教研可见性必须看角色标签：
+ * `(ws.myRoleNames ?? []).some((r) => TEACHING_ROLE_NAMES.includes(r))`。
+ */
+export const TEACHING_ROLE_NAMES: MembershipRoleName[] = [
+	"owner",
+	"admin",
+	"tutor",
+];
+
+/**
  * 可授予角色子集（邀请预授权 / 加入审批可选角色）= ROLE_NAMES − 管理角色。
  * 管理级角色（owner/admin）不可经邀请/审批授予，Owner 走专门指派。
  */

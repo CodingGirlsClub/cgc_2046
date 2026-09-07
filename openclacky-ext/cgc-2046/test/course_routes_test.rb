@@ -273,10 +273,12 @@ class CoursePanelViewTest < Minitest::Test
   end
 
   def test_panel_uses_learning_state_source
+    # M4:learner 面板数据源 = /learning_state(进度) + /revision(已发布内容);
+    # /content 草稿路由收紧为 tutor/admin 后,学习中心一律不再请求
     assert_includes VIEW, '"/learning_state?workspace_id="'
-    assert_includes VIEW, '"/content"'
     assert_includes VIEW, '"/revision"'
     assert_includes VIEW, "Promise.all"
+    refute_includes VIEW, '"/content"'
     refute_includes VIEW, '"/records"'
   end
 

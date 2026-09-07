@@ -89,7 +89,9 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
                  definition_version: definition.version,
                  input_snapshot: %{
                    "key" => "enrollment_#{enrollment_id}",
-                   "enrollment_id" => enrollment_id
+                   "enrollment_id" => enrollment_id,
+                   # M1 收口:learning run create 强制 user_id 锚(流 A ensure_learning_subject)
+                   "user_id" => actor.id
                  }
                },
                tenant: workspace.id,

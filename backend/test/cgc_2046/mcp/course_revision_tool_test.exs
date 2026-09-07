@@ -33,16 +33,25 @@ defmodule Cgc2046.Mcp.CourseRevisionToolTest do
   defp content_fixture(tag) do
     %{
       "goals" => ["目标 #{tag}"],
+      "chapters" => [%{"id" => "chapter-1", "title" => "章节 #{tag}"}],
       "issues" => [
         %{
           "id" => "issue-1",
           "kind" => "handwork",
           "title" => "卡 #{tag}",
+          "chapter_id" => "chapter-1",
           "story" => %{
             "as_a" => "学员",
             "given" => [],
             "goal" => "目标 #{tag}",
-            "materials" => [],
+            "materials" => [
+              %{
+                "kind" => "image",
+                "title" => "示意图 #{tag}",
+                "url" => "https://example.com/#{tag}.png",
+                "alt_text" => "图示 #{tag}"
+              }
+            ],
             "checklist" => [%{"id" => "c1", "text" => "项 #{tag}"}]
           },
           "objectives" => [
@@ -117,8 +126,12 @@ defmodule Cgc2046.Mcp.CourseRevisionToolTest do
       assert latest["course_id"] == course.id
       assert latest["revision_number"] == 2
       assert latest["goals"] == ["目标 v2"]
+      assert latest["chapters"] == [%{"id" => "chapter-1", "title" => "章节 v2"}]
       assert [issue] = latest["issues"]
       assert issue["id"] == "issue-1"
+
+      assert [%{"kind" => "image", "alt_text" => "图示 v2"}] = issue["story"]["materials"]
+
       assert [%{"id" => "obj-v2"}] = issue["objectives"]
       refute Map.has_key?(issue, "key")
       assert is_binary(latest["published_at"])

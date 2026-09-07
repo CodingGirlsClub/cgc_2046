@@ -92,12 +92,21 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     )
 
     attribute(:input_snapshot, :map,
+      sensitive?: true,
       public?: true,
       writable?: true,
       description: "run 输入快照（创建时固化，执行引擎按此驱动）"
     )
 
+    # Explicit privacy/analytics anchors. New runs mirror the legacy input
+    # snapshot at creation; historical rows are backfilled by migration.
+    attribute(:subject_user_id, :uuid, public?: true, writable?: false)
+    attribute(:subject_course_id, :uuid, public?: true, writable?: false)
+    attribute(:subject_enrollment_id, :uuid, public?: true, writable?: false)
+    attribute(:subject_course_revision_id, :uuid, public?: true, writable?: false)
+
     attribute(:facts, :map,
+      sensitive?: true,
       public?: true,
       writable?: true,
       default: %{},
@@ -178,6 +187,29 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       change(set_attribute(:version, 1))
       change(set_attribute(:facts, %{}))
 
+      change(fn changeset, _context ->
+        input = Ash.Changeset.get_attribute(changeset, :input_snapshot) || %{}
+
+        Enum.reduce(
+          [
+            {:subject_user_id, "user_id"},
+            {:subject_course_id, "course_id"},
+            {:subject_enrollment_id, "enrollment_id"},
+            {:subject_course_revision_id, "course_revision_id"}
+          ],
+          changeset,
+          fn {attribute, key}, acc ->
+            case Map.get(input, key) do
+              value when is_binary(value) ->
+                Ash.Changeset.force_change_attribute(acc, attribute, value)
+
+              _ ->
+                acc
+            end
+          end
+        )
+      end)
+
       # partition_id = workspace_id（ADR-0002 决策 6：每 workspace = 一个 Jido partition），
       # 由 tenant 强制，不接受调用方传入
       change(fn changeset, _context ->
@@ -214,7 +246,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
                  ) do
               {:ok, defn} when defn.workspace_id == tenant and defn.status == :published ->
                 if defn.version == definition_version do
-                  changeset
+                  ensure_learning_subject(changeset, defn)
                 else
                   Ash.Changeset.add_error(
                     changeset,
@@ -468,11 +500,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   end
 
   policies do
-    # 读取（H3）：经 definition → workspace → memberships 路径，仅成员或平台管理员
+    # 读取（H3/U2）：非 learning run 对工作台成员开放；learning run 仅本人可读，
+    # 平台管理员走独立审计分支。业务页面仍应消费专用投影，不把此资源当 Workspace feed。
     policy action_type(:read) do
-      authorize_if(
-        {Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:definition, :workspace]}
-      )
+      forbid_if(expr(is_nil(^actor(:id))))
+      authorize_if(Cgc2046.Workflows.Policies.ActorReadsWorkflowRun)
 
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
@@ -516,13 +548,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   end
 
   graphql do
-    type(:workflow_run)
-    relationships([:definition])
-
-    queries do
-      list(:list_workflow_runs, :read, description: "工作台的 workflow run 列表（#40 展示页）")
-      read_one(:get_workflow_run, :get_by_id, description: "按 id 获取 workflow run 详情（#40）")
-    end
+    generate_object?(false)
   end
 
   # --- 产品层执行闭环辅助（阶段 4 #37） ---------------------------------------
@@ -674,6 +700,18 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         Ash.Changeset.add_error(changeset, "failed to record signal log")
     end
   end
+
+  # M1 收口：learning run 必须解析出学员身份锚（subject_user_id，由上面的镜像
+  # change 自 input_snapshot["user_id"] 写入）。缺失即拒绝创建——learning run 的
+  # 读授权以 subject 列为唯一真源，无锚 run 会沦为授权不可达的孤儿行。
+  defp ensure_learning_subject(changeset, %{type: :learning}) do
+    case Ash.Changeset.get_attribute(changeset, :subject_user_id) do
+      value when is_binary(value) -> changeset
+      _ -> Ash.Changeset.add_error(changeset, "learning run requires input_snapshot user_id")
+    end
+  end
+
+  defp ensure_learning_subject(changeset, _definition), do: changeset
 
   # Engine.resume thaws an older checkpoint; persisted facts win over stale engine facts.
   defp merge_persisted_facts(changeset, engine_facts) do

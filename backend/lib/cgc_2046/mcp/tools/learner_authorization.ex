@@ -9,10 +9,11 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   - 本人学习 run 持有者(任意状态,含课程 close/cancel 后——「曾学过」读面,
     S8 起 `Runs.learning_run_holder?/3`(租户收紧,#349 A),替代已删除的 LearningRecord 记忆持有者层)。
 
-  `get_course_content` / `get_learning_state` 共用完整判定。
+  `get_learning_state`(与 web 学员抽屉)共用完整判定;`get_course_content`
+  自 M4 起收紧为草稿读面 staff-only(`staff?/2`),不再是完整判定的消费面。
   """
 
-  alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Accounts.{MembershipContext, Role}
   alias Cgc2046.Learning.Runs
 
   @doc """
@@ -20,8 +21,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
 
   返回 `:ok | {:error, String.t()}`。course_id 为 nil 时 = 成员(跨台清单类
   调用在学习记录删除后无记忆兜底层——S8 起无 course_id 的完整判定不再放行
-  记忆持有者;消费面 `get_course_content`/`get_learning_state` 均 course_id
-  必填,nil 分支保留仅防御)。
+  记忆持有者;消费面 `get_learning_state` course_id 必填,nil 分支保留仅防御)。
   """
   @spec authorize(term(), String.t(), String.t() | nil) :: :ok | {:error, String.t()}
   def authorize(actor, workspace_id, course_id)
@@ -36,22 +36,29 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
 
   def authorize(actor, workspace_id, course_id) when is_binary(course_id) do
     cond do
-      member?(actor, workspace_id) -> :ok
+      content_member?(actor, workspace_id) -> :ok
       confirmed_enrollment?(actor, workspace_id, course_id) -> :ok
       Runs.learning_run_holder?(actor, workspace_id, course_id) -> :ok
       true -> {:error, "forbidden: enrolled learner or learning run holder required"}
     end
   end
 
+  @doc "课程教研工作面的 staff 判定：Tutor、Owner、Admin。"
+  @spec staff?(term(), String.t()) :: boolean()
+  def staff?(actor, workspace_id), do: content_member?(actor, workspace_id)
+
   @doc "确认过的报名存在性(Runs 单源)。"
   @spec confirmed_enrollment?(term(), String.t(), String.t()) :: boolean()
   def confirmed_enrollment?(actor, workspace_id, course_id),
     do: Runs.confirmed_enrollment?(actor, workspace_id, course_id)
 
-  defp member?(actor, workspace_id) do
-    case MembershipContext.membership_of(actor, workspace_id) do
-      nil -> false
-      _membership -> true
+  defp content_member?(actor, workspace_id) do
+    case MembershipContext.role_names(actor, workspace_id) do
+      roles when is_list(roles) -> Enum.any?(roles, &(Role.manage_role?(&1) or &1 == :tutor))
+      _ -> false
     end
   end
+
+  defp member?(actor, workspace_id),
+    do: MembershipContext.membership_of(actor, workspace_id) != nil
 end

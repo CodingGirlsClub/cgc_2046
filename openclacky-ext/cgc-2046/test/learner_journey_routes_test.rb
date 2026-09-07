@@ -680,7 +680,7 @@ class CoursePanelBehaviorTest < Minitest::Test
   def test_zero_member_confirmed_enrollment_lists_course
     # AE8/R35 行为证据(非字符串扫描):零成员身份(/me/workspaces 返回空)下
     # /me/enrollments 仍无条件拉取,confirmed 公开课报名进入学习中心
-    # (课程 select 可见),三源数据(learning/content/revision)并行拉取,
+    # (课程 select 可见),两源数据(learning_state + 已发布 revision)并行拉取,
     # 无 workspace gate 阻断。
     out, status = Open3.capture2e("node", HARNESS, VIEW, "zero_member_confirmed")
     assert status.success?, "harness 失败: #{out}"
@@ -689,6 +689,21 @@ class CoursePanelBehaviorTest < Minitest::Test
     assert_includes out, '"confirmed_course_visible":true'
     assert_includes out, '"learning_center_boot":true'
     assert_includes out, '"no_workspace_gate_blocking_list":true'
+  end
+
+  def test_learner_typed_materials_render_safely
+    # M2+M4 行为证据:learner 目标详情材料来自 /revision(/content 草稿路由不再
+    # 请求);typed web/video 仅 https 外链,javascript: scheme 与 legacy ref
+    # 永不进 href,legacy 行显示「需重新保存为 typed Material」提示。
+    out, status = Open3.capture2e("node", HARNESS, VIEW, "learner_typed_materials")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK learner_typed_materials"
+    assert_includes out, '"typed_web_https_link":true'
+    assert_includes out, '"typed_video_bilibili_link":true'
+    assert_includes out, '"no_javascript_scheme_anywhere":true'
+    assert_includes out, '"legacy_notice_shown":true'
+    assert_includes out, '"content_route_not_fetched":true'
+    assert_includes out, '"revision_route_fetched":true'
   end
 end
 
@@ -708,9 +723,13 @@ class CurriculumEditorRoundtripTest < Minitest::Test
     assert_includes out, '"given_roundtrip":true'
     assert_includes out, '"materials_roundtrip":true'
     assert_includes out, '"checklist_roundtrip":true'
+    # M3/L5:caption + 未知键(attribution) + chapters/chapter_id 随往返存活
+    assert_includes out, '"chapters_roundtrip":true'
+    assert_includes out, '"chapter_id_roundtrip":true'
     assert_includes out, '"content_deep_equal":true'
     assert_includes out, '"base_version_pinned":true'
   end
+
   def test_editor_remove_row_with_empty_targets_exact_row
     # advisor F1 行为证据:given=[AAA,BBB,CCC],清空 AAA 后点 BBB 的删除钮,
     # 保存落库的 given 必须恰为 ["CCC"](修复前 collectEditor 先过滤空行,
@@ -721,6 +740,15 @@ class CurriculumEditorRoundtripTest < Minitest::Test
     assert_includes out, '"remove_targets_exact_row":true'
   end
 
+  def test_editor_remove_chapter_clears_issue_refs
+    # L5 行为证据:删除被引用的章节后,引用它的 issue.chapter_id 清为未分组
+    # (posted issue 不再携带该键),chapters 恰剩未被删的一章。
+    out, status = Open3.capture2e("node", HARNESS, VIEW, "editor_remove_chapter_clears_refs")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK editor_remove_chapter_clears_refs"
+    assert_includes out, '"chapter_removed":true'
+    assert_includes out, '"issue_refs_cleared":true'
+  end
 end
 
 # ---- advisor F2:loopback 请求来源收口(Origin 同源 / 写路由 Content-Type + CSRF) ----
@@ -1013,11 +1041,11 @@ class CoursePanelEnrollmentListTest < Minitest::Test
   end
 
   def test_detail_reads_objective_grain
-    # S8:详情主数据源 /learning_state(objective 口径)+ /content(材料/rubric)
-    # + /revision(大纲分组);records 读面整体移除
+    # M4:详情主数据源 /learning_state(objective 口径)+ /revision(已发布:
+    # 大纲分组 + 材料/rubric);/content 草稿路由收紧为 tutor/admin,面板不再请求
     assert_includes VIEW, '"/learning_state?workspace_id="'
     assert_includes VIEW, '"/revision"'
-    assert_includes VIEW, '"/content"'
+    refute_includes VIEW, '"/content"'
     assert_includes VIEW, "learningSignature"
     assert_includes VIEW, "goLearnObjective"
     refute_includes VIEW, '"/records"'
