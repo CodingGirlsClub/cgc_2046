@@ -101,5 +101,20 @@ defmodule Cgc2046.Curriculum.ContentTest do
                }
              ])
            )
+
+    refute Content.valid_v1?(
+             content([%{"kind" => "image", "title" => "图", "url" => "https://example.com/a.png"}])
+           )
+
+    refute Content.valid_v1?(
+             content([
+               %{
+                 "kind" => "web",
+                 "title" => "私有",
+                 "url" => "https://example.com",
+                 "access_scope" => "enrolled"
+               }
+             ])
+           )
   end
 end
