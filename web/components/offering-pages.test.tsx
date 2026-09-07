@@ -104,8 +104,8 @@ vi.mock("@/lib/public-offerings", async (importOriginal) => ({
 }));
 
 vi.mock("next/link", () => ({
-  default: ({ href, children }: { href: string; children: ReactNode }) =>
-    createElement("a", { href }, children),
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) =>
+    createElement("a", { href, ...rest }, children),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -456,6 +456,49 @@ describe("OfferingDetailPage 错误态", () => {
     );
 
     expect(await screen.findByTestId("checkout-dialog")).toBeInTheDocument();
+  });
+});
+
+describe("OfferingDetailPage 课程内容治理入口（H6：教研角色可见）", () => {
+  const courseRow = () =>
+    offeringRow({ id: "course-1", title: "Python 入门", curriculumRequirements: null });
+
+  it("Owner 见治理入口链接；U8 run 状态行已随隐私切换退役", async () => {
+    await renderManageDetail("course", courseRow());
+    const link = screen.getByTestId("course-governance-link");
+    expect(link.getAttribute("href")).toContain("/courses/course-1/curriculum");
+    expect(screen.queryByTestId("research-run-status")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("research-content-status")).not.toBeInTheDocument();
+  });
+
+  it("Tutor（无 manage_events 能力的教研角色）同样见治理入口", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: {
+        ...WORKSPACE,
+        myRoleNames: ["tutor"],
+        myAbilities: ["view_workspace", "access_invite_only"],
+      },
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce(courseRow());
+    render(<OfferingDetailPage slug="demo" id="course-1" kind="course" />);
+    await screen.findByRole("heading", { name: "Python 入门" });
+    expect(screen.getByTestId("course-governance-link")).toBeInTheDocument();
+  });
+
+  it("无教研角色成员（learner/无标签）不见治理入口", async () => {
+    mocks.fetchOffering.mockResolvedValueOnce(courseRow());
+    render(<OfferingDetailPage slug="demo" id="course-1" kind="course" />);
+    await screen.findByRole("heading", { name: "Python 入门" });
+    expect(screen.queryByTestId("course-governance-link")).not.toBeInTheDocument();
+  });
+
+  it("event 详情页不渲染治理入口", async () => {
+    await renderManageDetail("event", offeringRow({ id: "event-1" }));
+    expect(screen.queryByTestId("course-governance-link")).not.toBeInTheDocument();
   });
 });
 

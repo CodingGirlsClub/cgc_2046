@@ -316,6 +316,116 @@ defmodule Cgc2046.Curriculum.OutputTest do
     end
   end
 
+  describe "材料协议错误码(H3/H4,保存错误带结构化码与位置路径)" do
+    defp with_story_materials(content, issue_id, materials) do
+      update_in(content["issues"], fn issues ->
+        Enum.map(issues, fn
+          %{"id" => ^issue_id} = issue -> put_in(issue, ["story", "materials"], materials)
+          issue -> issue
+        end)
+      end)
+    end
+
+    defp with_objective_materials(content, issue_id, materials) do
+      update_in(content["issues"], fn issues ->
+        Enum.map(issues, fn
+          %{"id" => ^issue_id} = issue ->
+            update_in(issue, ["objectives"], fn
+              [objective | rest] -> [Map.put(objective, "materials", materials) | rest]
+              other -> other
+            end)
+
+          issue ->
+            issue
+        end)
+      end)
+    end
+
+    test "image 缺 alt_text → 拒存,错误码 missing_material_metadata + story 位置路径" do
+      admin = Fixtures.platform_admin("ro-m-alt")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      content =
+        with_story_materials(content_fixture(), "py-first-program", [
+          %{"kind" => "image", "title" => "图", "url" => "https://example.com/a.png"}
+        ])
+
+      assert {:error, error} = upsert(workspace, admin, course, content)
+      message = Exception.message(error)
+      assert message =~ "missing_material_metadata"
+      assert message =~ ~s(issue "py-first-program" story.materials[0])
+    end
+
+    test "旧 {title, ref} 材料 → 拒存,错误码 legacy_material_ref + 位置路径" do
+      admin = Fixtures.platform_admin("ro-m-legacy")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      content =
+        with_story_materials(content_fixture(), "py-first-program", [
+          %{"title" => "旧链接", "ref" => "https://example.com"}
+        ])
+
+      assert {:error, error} = upsert(workspace, admin, course, content)
+      message = Exception.message(error)
+      assert message =~ "legacy_material_ref"
+      assert message =~ ~s(issue "py-first-program" story.materials[0])
+    end
+
+    test "javascript: 来源 → 拒存,错误码 invalid_material_source + objective 位置路径" do
+      admin = Fixtures.platform_admin("ro-m-js")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      content =
+        with_objective_materials(content_fixture(), "py-first-program", [
+          %{"kind" => "web", "title" => "危险", "url" => "javascript:alert(1)"}
+        ])
+
+      assert {:error, error} = upsert(workspace, admin, course, content)
+      message = Exception.message(error)
+      assert message =~ "invalid_material_source"
+      assert message =~ ~s(issue "py-first-program" objective "obj-1" materials[0])
+    end
+
+    test "enrolled scope 的 video → 拒存,错误码 invalid_material_access_scope;public 放行" do
+      admin = Fixtures.platform_admin("ro-m-scope")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      video = fn scope ->
+        Map.merge(
+          %{
+            "kind" => "video",
+            "title" => "视频",
+            "provider" => "bilibili",
+            "external_id" => "BV1Q541167Qg"
+          },
+          scope
+        )
+      end
+
+      rejected =
+        with_objective_materials(content_fixture(), "py-first-program", [
+          video.(%{"access_scope" => "enrolled"})
+        ])
+
+      assert {:error, error} = upsert(workspace, admin, course, rejected)
+      message = Exception.message(error)
+      assert message =~ "invalid_material_access_scope"
+      assert message =~ ~s(issue "py-first-program" objective "obj-1" materials[0])
+
+      allowed =
+        with_objective_materials(content_fixture(), "py-first-program", [
+          video.(%{"access_scope" => "public"})
+        ])
+
+      assert {:ok, output} = upsert(workspace, admin, course, allowed)
+      assert output.key == Output.course_key(course.id)
+    end
+  end
+
   describe "租户 policy" do
     test "非成员(非平台管理员)读写被拒" do
       admin = Fixtures.platform_admin("ro-tenant")

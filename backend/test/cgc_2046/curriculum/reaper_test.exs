@@ -180,6 +180,10 @@ defmodule Cgc2046.Curriculum.ReaperTest do
     event = EventFixtures.create_event(workspace, admin)
 
     learning_defn = create_definition(workspace, admin, :learning)
+    # M1 起 learning run 必须有学员身份锚(input_snapshot["user_id"] →
+    # subject_user_id)——布景带锚,不改变「同 instance key 非 curriculum run 不被
+    # 回收」的负向意图
+    learner = Fixtures.register_user("reaper-learning")
 
     learning_run =
       WorkflowRun
@@ -188,7 +192,7 @@ defmodule Cgc2046.Curriculum.ReaperTest do
         %{
           definition_id: learning_defn.id,
           definition_version: learning_defn.version,
-          input_snapshot: %{"key" => "event_#{event.id}"}
+          input_snapshot: %{"key" => "event_#{event.id}", "user_id" => learner.id}
         },
         tenant: workspace.id,
         authorize?: false

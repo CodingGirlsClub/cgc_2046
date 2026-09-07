@@ -19,13 +19,13 @@ defmodule Cgc2046.Workflows.PlatformAudit do
         order_by: [desc: r.inserted_at],
         limit: 100,
         select: %{
-          id: r.id,
-          workspace_id: r.workspace_id,
+          id: type(r.id, Ecto.UUID),
+          workspace_id: type(r.workspace_id, Ecto.UUID),
           definition_type: d.type,
           status: r.status,
-          started_at: r.started_at,
-          finished_at: r.finished_at,
-          inserted_at: r.inserted_at,
+          started_at: type(r.started_at, :utc_datetime_usec),
+          finished_at: type(r.finished_at, :utc_datetime_usec),
+          inserted_at: type(r.inserted_at, :utc_datetime_usec),
           error_summary:
             fragment(
               "CASE WHEN ? = ? THEN ? ELSE NULL END",

@@ -95,3 +95,34 @@ export const COURSE_LEARNING_ANALYTICS: TypedDocumentNode<
     }
   }
 `;
+
+/**
+ * 课程内容草稿（教研面，H6）。nil 语义（与后端 resolve_course_draft 一致）：
+ * courseDraft 为 null = 无权（非 tutor/owner/admin）或课程不存在；
+ * 对象非空但 version/content/updatedAt 为 null = 有权但尚无草稿。
+ */
+export interface CourseDraft {
+  courseId: string;
+  title: string;
+  version: number | null;
+  prepState: string | null;
+  updatedAt: string | null;
+  /** JsonString：draft 的 goals/issues/chapters，结构同 CourseContentDocument */
+  content: string | null;
+}
+
+export const COURSE_DRAFT: TypedDocumentNode<
+  { courseDraft: CourseDraft | null },
+  { courseId: string }
+> = gql`
+  query CourseDraft($courseId: ID!) {
+    courseDraft(courseId: $courseId) {
+      courseId
+      title
+      version
+      prepState
+      updatedAt
+      content
+    }
+  }
+`;

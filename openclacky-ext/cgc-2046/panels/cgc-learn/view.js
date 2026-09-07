@@ -34,7 +34,7 @@
     courses: [],      // [{ courseId, title, workspaceId, workspaceName }]
     selected: null,   // 选中的 course 对象
     learning: null,   // /learning_state result
-    content: null,    // /content result(材料数据源)
+    revision: null,   // /revision result(已发布内容 = 材料数据源;null = 课程尚未发布)
     lastRefresh: ""
   };
 
@@ -61,22 +61,29 @@
     }).join("");
   }
 
+  // M2 typed 分派 + scheme 门:web/image 仅 https: 进链接/img;video 仅
+  // bilibili + 合法 BV 号出外链;text/markdown 标题+正文;legacy {title,ref}
+  // 只显示标题 + 重存提示,ref 永不进 href。插值一律 escapeHtml。
   function materialMarkup(material) {
-    if (!material || material.ref || !material.kind) return '<span class="cgch-empty">材料需要重新保存为 typed Material</span>';
+    if (!material) return "";
     var title = escapeHtml(material.title || "材料");
+    if (material.ref || !material.kind) {
+      return '<span class="cgla-material">' + title +
+        ' <span class="cgch-empty">需重新保存为 typed Material</span></span>';
+    }
     if (material.kind === "text") return '<div class="cgla-material"><strong>' + title + '</strong><p>' + escapeHtml(material.body || "") + '</p></div>';
     if (material.kind === "markdown") return '<div class="cgla-material"><strong>' + title + '</strong>' + markdownMarkup(material.body) + '</div>';
     if (material.kind === "image") {
       var imageUrl = safeMaterialUrl(material);
-      if (!imageUrl || !material.alt_text) return '<span class="cgch-empty">图片来源或 alt_text 无效</span>';
+      if (!imageUrl || !material.alt_text) return '<span class="cgla-material">' + title + '</span>';
       return '<figure class="cgla-material"><img src="' + escapeHtml(imageUrl) + '" alt="' + escapeHtml(material.alt_text) + '" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>图片加载失败</span><figcaption>' + title + '</figcaption></figure>';
     }
     if (material.kind === "video") {
-      if (material.provider !== "bilibili" || !/^BV[0-9A-Za-z]{10,12}$/.test(String(material.external_id || ""))) return '<span class="cgch-empty">视频来源或 ID 无效</span>';
+      if (material.provider !== "bilibili" || !/^BV[0-9A-Za-z]{10}$/.test(String(material.external_id || ""))) return '<span class="cgla-material">' + title + '</span>';
       return '<a class="cgla-material cgla-mat-ref" href="https://www.bilibili.com/video/' + encodeURIComponent(material.external_id) + '" target="_blank" rel="noopener noreferrer">▶ ' + title + '</a>';
     }
     var url = safeMaterialUrl(material);
-    return url ? '<a class="cgla-material cgla-mat-ref" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : '<span class="cgch-empty">材料来源无效</span>';
+    return url ? '<a class="cgla-material cgla-mat-ref" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : '<span class="cgla-material">' + title + '</span>';
   }
 
   function materialLinkMarkup(material) {
@@ -138,15 +145,17 @@
     state.loading = true;
     rerender();
     try {
-      const [learningRes, contentRes] = await Promise.all([
+      // M4:材料数据源 = 已发布 revision;/content 草稿路由收紧为 tutor/admin 后
+      // learner 请求只会 403,这里直接不再发
+      const [learningRes, revisionRes] = await Promise.all([
         apiGet("/learning_state?workspace_id=" +
           encodeURIComponent(state.selected.workspaceId) +
           "&course_id=" + encodeURIComponent(state.selected.courseId)),
-        apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/content?workspace_id=" + encodeURIComponent(state.selected.workspaceId))
+        apiGet("/courses/" + encodeURIComponent(state.selected.courseId) + "/revision?workspace_id=" + encodeURIComponent(state.selected.workspaceId))
           .catch(function () { return { result: null }; })
       ]);
       state.learning = learningRes.result || null;
-      state.content = contentRes.result || null;
+      state.revision = revisionRes.result || null;
       state.lastRefresh = new Date().toLocaleTimeString();
       state.error = null;
       state.lastRefresh = new Date().toLocaleTimeString();
@@ -190,9 +199,9 @@
     return o ? (o.title || o.id) : String(objectiveId);
   }
 
-  // 从 content 中取指定 objective 的 materials(id → issue.objectives 匹配)
+  // 从已发布 revision 中取指定 objective 的 materials(id → issue.objectives 匹配)
   function materialsOf(objectiveId) {
-    const issues = (state.content && state.content.issues) || [];
+    const issues = (state.revision && state.revision.issues) || [];
     for (var i = 0; i < issues.length; i++) {
       var objs = issues[i].objectives || [];
       for (var j = 0; j < objs.length; j++) {
@@ -316,6 +325,11 @@
     const done = Number(progress.mastered_required) || 0;
     const pct = total > 0 ? Math.round((done * 100) / total) : 0;
     inner += '<div class="cgla-progress"><div class="cgla-progress-bar"><div style="width:' + pct + '%"></div></div></div>';
+
+    // M4:revision 为 null = 课程尚未发布——明示状态,材料区不留空白
+    if (state.revision === null) {
+      inner += '<div class="cgla-empty" data-testid="learn-unpublished">课程尚未发布,发布后这里会展示学习材料。</div>';
+    }
 
     // Resume 置顶大卡(渐变+eyebrow;到期复习优先)
     const dueReview = (learning.review_queue || [])[0];

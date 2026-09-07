@@ -289,7 +289,7 @@ defmodule Cgc2046.Learning.Analytics do
 
   # --- 读取(IO) -------------------------------------------------------------------
 
-  # 课程全部 learning run(任意状态;课程级锚定 = input_snapshot["course_id"],
+  # 课程全部 learning run(任意状态;课程级锚定 = subject_course_id 列,M1 收口;
   # 无 user 过滤——Runs 私有 runs_query 带 user 过滤故此处自建)
   defp fetch_runs(workspace_id, course_id) do
     WorkflowRun

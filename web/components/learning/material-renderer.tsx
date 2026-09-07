@@ -16,23 +16,57 @@ function safeHttpsUrl(value: string | undefined): string | null {
   }
 }
 
+/**
+ * 刻意小的 Markdown 子集（escape-first：任何 HTML 先实体转义，永不进入 DOM）：
+ * - `# `/`## `/`### ` 行 → <h2>/<h3>/<h4>
+ * - 连续 `- ` 行 → 单个 <ul> 内多条 <li>
+ * - 行内 **粗体**、`行内代码`
+ * - 普通行之间换行 → <br />
+ * 不支持链接/图片/嵌套列表；富格式走 typed Material 的其它 kind。
+ */
 function markdownToSafeHtml(source: string): string {
-  // Deliberately small Markdown subset. Escape first, then add formatting tags.
   const escaped = source
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-  return escaped
-    .replace(/^### (.+)$/gm, "<h4>$1</h4>")
-    .replace(/^## (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^# (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^(?:- )(.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>)(?:<br \/>)?/g, "$1")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\n/g, "<br />");
+  const inline = (text: string) =>
+    text
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  const HEADING_TAG: Record<number, string> = { 1: "h2", 2: "h3", 3: "h4" };
+  const out: string[] = [];
+  let listOpen = false;
+  let prevPlain = false;
+  for (const line of escaped.split("\n")) {
+    const heading = /^(#{1,3}) (.+)$/.exec(line);
+    const item = /^- (.+)$/.exec(line);
+    if (item) {
+      if (!listOpen) {
+        out.push("<ul>");
+        listOpen = true;
+      }
+      out.push(`<li>${inline(item[1])}</li>`);
+      prevPlain = false;
+      continue;
+    }
+    if (listOpen) {
+      out.push("</ul>");
+      listOpen = false;
+    }
+    if (heading) {
+      const tag = HEADING_TAG[heading[1].length];
+      out.push(`<${tag}>${inline(heading[2])}</${tag}>`);
+      prevPlain = false;
+      continue;
+    }
+    if (prevPlain) out.push("<br />");
+    out.push(inline(line));
+    prevPlain = true;
+  }
+  if (listOpen) out.push("</ul>");
+  return out.join("");
 }
 
 export function MaterialRenderer({ material }: { material: TypedMaterial }) {
@@ -97,7 +131,7 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
           />
         ) : (
           <button type="button" onClick={() => setPlaying(true)} data-testid="course-material-video-play">
-            ▶ {title}
+            ▶ {t("playVideo")} · {title}
           </button>
         )}
         <a href={`https://www.bilibili.com/video/${encodeURIComponent(material.external_id)}`} target="_blank" rel="noopener noreferrer">

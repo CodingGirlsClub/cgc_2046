@@ -5,7 +5,7 @@ const queryMock = vi.hoisted(() => vi.fn());
 vi.mock("./apollo-client", () => ({ client: { query: queryMock } }));
 
 describe("redacted workflow audit adapter", () => {
-  it("does not issue a raw workflow query for Workspace members", async () => {
+  it("workspace 作用域发脱敏 platformWorkflowAudit 查询（非 raw WorkflowRun 字段查询）", async () => {
     expect(await fetchWorkflowRuns("ws_1")).toEqual([]);
     expect(queryMock).toHaveBeenCalled();
   });

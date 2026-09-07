@@ -246,7 +246,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
                  ) do
               {:ok, defn} when defn.workspace_id == tenant and defn.status == :published ->
                 if defn.version == definition_version do
-                  changeset
+                  ensure_learning_subject(changeset, defn)
                 else
                   Ash.Changeset.add_error(
                     changeset,
@@ -700,6 +700,18 @@ defmodule Cgc2046.Workflows.WorkflowRun do
         Ash.Changeset.add_error(changeset, "failed to record signal log")
     end
   end
+
+  # M1 收口：learning run 必须解析出学员身份锚（subject_user_id，由上面的镜像
+  # change 自 input_snapshot["user_id"] 写入）。缺失即拒绝创建——learning run 的
+  # 读授权以 subject 列为唯一真源，无锚 run 会沦为授权不可达的孤儿行。
+  defp ensure_learning_subject(changeset, %{type: :learning}) do
+    case Ash.Changeset.get_attribute(changeset, :subject_user_id) do
+      value when is_binary(value) -> changeset
+      _ -> Ash.Changeset.add_error(changeset, "learning run requires input_snapshot user_id")
+    end
+  end
+
+  defp ensure_learning_subject(changeset, _definition), do: changeset
 
   # Engine.resume thaws an older checkpoint; persisted facts win over stale engine facts.
   defp merge_persisted_facts(changeset, engine_facts) do

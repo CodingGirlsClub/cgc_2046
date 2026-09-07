@@ -236,8 +236,7 @@ export default function WorkspacePage() {
 								</div>
 							)}
 
-						{/* 教研产出入口（切片 C 已落地，见 workflows 页；plan 016 替换过期占位卡）。
-						    报名/赞助（切片 E）仍为占位：视觉降级虚线边框 + 「即将开放」角标 */}
+						{/* 工作区入口卡：Agents 协作引导 + 活动/课程列表（plan 016 占位卡已全退役） */}
 						<div className="mt-4 grid gap-4 sm:grid-cols-2">
 							{/* plan 020 U1：Agents 与助手协作引导卡 → /w/[slug]/agents */}
 							<Link

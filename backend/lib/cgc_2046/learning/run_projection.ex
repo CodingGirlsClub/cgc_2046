@@ -78,11 +78,10 @@ defmodule Cgc2046.Learning.RunProjection do
 
   defp fetch_course(_workspace_id, _course_id), do: nil
 
-  defp anchored_to_enrollment?(%{input_snapshot: input}, %{id: enrollment_id})
-       when is_map(input) do
-    Map.get(input, "enrollment_id") == enrollment_id or
-      Map.get(input, :enrollment_id) == enrollment_id
-  end
+  # M1 收口：enrollment 锚 = subject_enrollment_id 列（迁移已保证 learning run
+  # subject 非空，create 亦强制 user_id 锚），不再从 input_snapshot 键推导授权。
+  defp anchored_to_enrollment?(%{subject_enrollment_id: id}, %{id: id}) when is_binary(id),
+    do: true
 
   defp anchored_to_enrollment?(_run, _enrollment), do: false
 

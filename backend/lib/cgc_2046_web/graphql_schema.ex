@@ -209,6 +209,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "Tutor/Owner/Admin 课程草稿（不向 learner 暴露；无权/课程不存在统一 null，不泄露存在性）"
+    field :course_draft, :course_draft do
+      arg(:course_id, non_null(:id))
+
+      resolve(fn _, %{course_id: course_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          resolve_course_draft(actor, course_id)
+        end)
+      end)
+    end
+
     @desc "平台管理员：脱敏 workflow 运行元数据（不含 facts/input snapshot）"
     field :platform_workflow_audit, non_null(list_of(non_null(:platform_workflow_audit))) do
       arg(:workspace_id, :id)
@@ -1658,6 +1669,15 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:content, non_null(:json_string))
   end
 
+  object :course_draft do
+    field(:course_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:version, :integer)
+    field(:prep_state, :string)
+    field(:updated_at, :datetime)
+    field(:content, :json_string)
+  end
+
   object :platform_workflow_audit do
     field(:id, non_null(:id))
     field(:workspace_id, non_null(:id))
@@ -2456,6 +2476,39 @@ defmodule Cgc2046Web.GraphqlSchema do
     else
       _ -> {:ok, nil}
     end
+  end
+
+  # H6 课程草稿读面：课程 fetch 与角色判定同 course_learning_analytics（tutor ∪
+  # owner/admin），无权/课程不存在统一 nil（不泄露存在性）。数据源 = Curriculum
+  # Output 活文档草稿（content_output/2 单一读入口，无草稿 → version/content
+  # 为 nil）。prepState 取 Prep 现有读面 fetch_run/2 + prep_state/1——纯读零
+  # 副作用：不沿用 get_prep_status 的 ensure_active_run 懒开（GraphQL query 不
+  # 得带写效应），无活动 prep run → null。
+  defp resolve_course_draft(actor, course_id) do
+    with %{} = course <- fetch_course_for_detail(course_id),
+         true <- course_staff_actor?(actor, course.workspace_id),
+         {:ok, output} <- Cgc2046.Curriculum.content_output(course.workspace_id, course.id) do
+      prep_run = Cgc2046.Curriculum.Prep.fetch_run(course.id, course.workspace_id)
+
+      {:ok,
+       %{
+         course_id: course.id,
+         title: course.title,
+         version: output && output.version,
+         prep_state: prep_run && Cgc2046.Curriculum.Prep.prep_state(prep_run),
+         updated_at: output && output.updated_at,
+         content: output && (output.data || %{})
+       }}
+    else
+      _ -> {:ok, nil}
+    end
+  end
+
+  # tutor ∪ owner/admin 判定（course_learning_analytics resolver 同款口径）
+  defp course_staff_actor?(actor, workspace_id) do
+    actor
+    |> Cgc2046.Accounts.MembershipContext.role_names(workspace_id)
+    |> Enum.any?(&(&1 == :tutor or Cgc2046.Accounts.Role.manage_role?(&1)))
   end
 
   # 学习详情 = Runs.learning_state 投影组装（objective 口径；S8 全量切换——

@@ -10,7 +10,7 @@ export default function CourseGovernancePanel({ courseId }: { courseId: string }
   if (loading) return <section className="learning-governance" data-testid="course-governance-loading">{t("loading")}</section>;
   if (error) return <section className="learning-governance" role="alert">{t("error")}</section>;
   const analytics = data?.courseLearningAnalytics;
-  if (!analytics) return <section className="learning-governance" data-testid="course-governance-empty">{t("forbidden")}</section>;
+  if (!analytics) return <section className="learning-governance" data-testid="course-governance-empty">{t("unavailable")}</section>;
   const { runStats, dropOff } = analytics;
   const rate = runStats.completionRate == null ? "—" : `${Math.round(runStats.completionRate * 100)}%`;
   return (

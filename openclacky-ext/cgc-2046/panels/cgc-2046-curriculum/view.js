@@ -517,6 +517,11 @@
       issue.title = trim(el.querySelector("[data-f='title']").value);
       story.as_a = trim(el.querySelector("[data-f='as_a']").value);
       story.goal = trim(el.querySelector("[data-f='goal']").value);
+      // L5:章节归属下拉——未分组(空值)时删除键而非留空串,保证无损 round-trip
+      const chapterSel = el.querySelector("[data-f='chapter']");
+      const chapterId = chapterSel ? trim(chapterSel.value) : "";
+      if (chapterId) issue.chapter_id = chapterId;
+      else delete issue.chapter_id;
       const given = [];
       el.querySelectorAll("[data-f='given-item']").forEach(function (n) {
         given.push(trim(n.value));
@@ -610,6 +615,12 @@
           '<input data-f="c-text" type="text" placeholder="验收文本" value="' + escapeHtml(c.text || "") + '">',
           'data-remove-check', idx + ':' + ci);
       }).join("");
+      // L5:章节归属下拉(选项 = chapters + 未分组;叙事分组,非先修关系)
+      const chapterOptions = (Array.isArray(draft.chapters) ? draft.chapters : []).map(function (chapter) {
+        const cid = String(chapter.id || "");
+        const sel = String(issue.chapter_id || "") === cid && cid !== "" ? " selected" : "";
+        return '<option value="' + escapeHtml(cid) + '"' + sel + '>' + escapeHtml(chapter.title || cid) + '</option>';
+      }).join("");
       return (
         '<div class="cgc-card cgt-issue-edit" data-edit-issue="' + idx + '" data-testid="prep-issue-edit">' +
           '<div class="cgt-edit-row cgt-edit-head">' +
@@ -623,6 +634,11 @@
             '</select></div>' +
           '<div class="cgt-edit-row"><label>标题</label>' +
             '<input data-f="title" type="text" value="' + escapeHtml(issue.title || "") + '"></div>' +
+          '<div class="cgt-edit-row"><label>章节</label>' +
+            '<select data-f="chapter">' +
+              '<option value=""' + (issue.chapter_id ? "" : " selected") + '>未分组</option>' +
+              chapterOptions +
+            '</select></div>' +
           '<div class="cgt-edit-row"><label>as_a(目标学员画像)</label>' +
             '<input data-f="as_a" type="text" value="' + escapeHtml(story.as_a || "") + '"></div>' +
           '<div class="cgt-edit-row"><label>given(先修状态,每项一行)</label>' + givenRows +
@@ -719,10 +735,22 @@
       });
     }
     currentContainer.querySelectorAll("[data-add-chapter]").forEach(function (btn) {
-      btn.addEventListener("click", function () { collectEditor(); state.draft.chapters = (Array.isArray(state.draft.chapters) ? state.draft.chapters : []).concat([{ id: "chapter-" + Date.now(), title: "" }]); render(); });
+      btn.addEventListener("click", function () { collectEditor(); state.draft.chapters = (Array.isArray(state.draft.chapters) ? state.draft.chapters : []).concat([{ id: "ch_" + Date.now(), title: "" }]); render(); });
     });
     currentContainer.querySelectorAll("[data-remove-chapter]").forEach(function (btn) {
-      btn.addEventListener("click", function () { collectEditor(); state.draft.chapters.splice(Number(btn.getAttribute("data-remove-chapter")), 1); render(); });
+      btn.addEventListener("click", function () {
+        collectEditor();
+        const idx = Number(btn.getAttribute("data-remove-chapter"));
+        const removed = state.draft.chapters[idx];
+        state.draft.chapters.splice(idx, 1);
+        // 删除章节 = 解散叙事分组:引用它的 issue 回到未分组,不留悬空 chapter_id
+        if (removed && removed.id) {
+          state.draft.issues.forEach(function (issue) {
+            if (issue && String(issue.chapter_id || "") === String(removed.id)) delete issue.chapter_id;
+          });
+        }
+        render();
+      });
     });
     bindRowAdds("data-add-given", function (s) {
       s.given = (Array.isArray(s.given) ? s.given : []).concat([""]);
@@ -755,7 +783,12 @@
         story: Object.assign({}, story, {
           given: (Array.isArray(story.given) ? story.given : []).filter(function (v) { return trim(v); }),
           materials: (Array.isArray(story.materials) ? story.materials : []).filter(function (m) {
-            return m && (trim(m.title) || trim(m.body) || trim(m.url) || trim(m.external_id) || trim(m.provider));
+            if (!m) return false;
+            if (trim(m.title) || trim(m.body) || trim(m.url) || trim(m.external_id) || trim(m.provider) || trim(m.caption)) return true;
+            // 无损红线:未知键(如 attribution)带内容同样保留,不因表单未覆盖而误删
+            return Object.keys(m).some(function (k) {
+              return k !== "kind" && typeof m[k] === "string" && trim(m[k]);
+            });
           }),
           checklist: (Array.isArray(story.checklist) ? story.checklist : []).filter(function (c) {
             return c && (trim(c.id) || trim(c.text));

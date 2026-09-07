@@ -132,7 +132,7 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
     refute log =~ secret
   end
 
-  test "未配置目录与缺失 tutor.md 返回基础版本并记录 warning", %{
+  test "未配置目录与缺失 tutor.md 返回基础版本并记录 warning（L6:enoent 走 warn_and_fallback）", %{
     tmp_dir: tmp_dir
   } do
     Application.delete_env(@app, @config_key)
@@ -148,11 +148,16 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
     log =
       capture_log(fn ->
         for {role, baseline} <- baselines do
-          assert {:ok, ^baseline} = Playbooks.fetch(role)
+          assert {:ok, playbook} = Playbooks.fetch(role)
+          # 回退 base:内容与版本与基础 playbook 完全一致,版本无 +hash 后缀
+          assert playbook == baseline
+          refute playbook.version =~ "+"
         end
       end)
 
-    assert log =~ "missing"
+    # warning 注明 tutor playbook 增量缺失(category=missing)与回退 base 语义
+    assert log =~ "category=missing"
+    assert log =~ "falling back to base playbook"
   end
 
   test "非 tutor 角色从不读取目录中的同名私有文件", %{tmp_dir: tmp_dir} do

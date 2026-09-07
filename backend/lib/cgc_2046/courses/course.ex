@@ -851,8 +851,10 @@ defmodule Cgc2046.Courses.Course do
 
   graphql do
     type(:course)
-    # U8/R12:教研状态露出(run 状态行)
-    relationships([:workflow_run])
+    # L1 收回 workflowRun 面：WorkflowRun generate_object?(false)，该关系本不可
+    # 查询（仅在 CourseFilterInput 残留 FilterInput 疣）。显式空列表——缺省 =
+    # 全部 public 关系，仅删选项等于没删。
+    relationships([])
 
     queries do
       list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")

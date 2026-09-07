@@ -76,10 +76,18 @@ const workflowRuns = [
 	{
 		id: "run1",
 		status: "succeeded",
-		definitionId: "def_lesson_plan",
-		facts: {},
+		definitionType: "lesson_plan",
 		startedAt: "2026-08-02T00:00:00Z",
 		finishedAt: "2026-08-02T00:05:00Z",
+		errorSummary: null,
+	},
+	{
+		id: "run2",
+		status: "failed",
+		definitionType: "event_ops",
+		startedAt: "2026-08-02T01:00:00Z",
+		finishedAt: "2026-08-02T01:05:00Z",
+		errorSummary: "workflow_failed",
 	},
 ];
 
@@ -125,13 +133,15 @@ describe("/admin/audit 审计仪表盘", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: /工作流运行/ }));
 
-		expect(await screen.findByText("def_lesson_plan")).toBeInTheDocument();
+		expect(await screen.findByText("lesson_plan")).toBeInTheDocument();
 		// #117 状态下拉也含 "succeeded" option——断言精确到表格 cell
 		expect(screen.getByRole("cell", { name: "succeeded" })).toBeInTheDocument();
 		// startedAt（2026-08-02T00:00:00Z）必须渲染为真实日期；字段擦除时代码取
 		// row.insertedAt（WorkflowRun 无此字段）→ 时间列空/Invalid Date，此处断言年份出现。
-		expect(screen.getByText(/2026/)).toBeInTheDocument();
+		expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
 		expect(screen.queryByText("Invalid Date")).not.toBeInTheDocument();
+		// L4:失败 run 的脱敏错误摘要经 summary 副行渲染
+		expect(screen.getByText("workflow_failed")).toBeInTheDocument();
 	});
 
 	it("SignalLog tab：workspace 过滤传 workspaceId", async () => {
@@ -165,7 +175,7 @@ describe("/admin/audit 审计仪表盘", () => {
 		// 不输入 workspace，直接切 tab → 全量加载
 		fireEvent.click(screen.getByRole("button", { name: /工作流运行/ }));
 
-		expect(await screen.findByText("def_lesson_plan")).toBeInTheDocument();
+		expect(await screen.findByText("lesson_plan")).toBeInTheDocument();
 		await vi.waitFor(() =>
 			expect(fetchWorkflowRuns).toHaveBeenCalledWith(undefined, {
 				first: 50,

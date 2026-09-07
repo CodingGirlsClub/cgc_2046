@@ -29,3 +29,4 @@ openclacky-ext/dist/
 !backend/.envrc
 .ml-cache/
 .mainline/local.toml
+__pycache__/

@@ -21,26 +21,16 @@ export type WorkflowRunStatus =
 	| "cancelled"
 	| "expired";
 
-/** Platform audit row: deliberately redacted; facts/input snapshots are not in this shape. */
+/** Platform audit 行：刻意脱敏；facts/输入快照不在该形状内。 */
 export interface WorkflowRun {
 	id: string;
 	workspaceId: string;
 	definitionType: string;
-	definitionId?: string;
 	status: WorkflowRunStatus;
 	startedAt: string | null;
 	finishedAt: string | null;
 	insertedAt: string;
 	errorSummary?: string | null;
-}
-
-/** Legacy-shaped adapter type retained internally for shared audit row mapping. */
-export interface WorkflowRunConnection {
-	/** SDL 为 nullable `count: Int`（schema.graphql:19）— 与 SDL 对齐 */
-	count: number | null;
-	results: WorkflowRun[];
-	startKeyset?: string | null;
-	endKeyset?: string | null;
 }
 
 /** Filter shape used by the operational audit adapter. */

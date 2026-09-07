@@ -39,8 +39,26 @@ class VideoPipelineAssetsTest < Minitest::Test
     t = File.read(File.join(VIDEO, "scene_template.py"))
     assert_includes t, "from manim import *"
     assert_includes t, "PingFang SC"
-    assert_includes t, "SCENE_DURATIONS"
+    # L7:SCENE_DURATIONS 必须是真常量并被代码消费,不再只是 docstring 提及
+    assert_match(/^SCENE_DURATIONS\s*=\s*\[/, t)
+    assert_includes t, "SCENE_DURATIONS[0]"
+    refute_match(/^D1,\s*D2/, t)
+    # L7:类名按课程场景泛化,全引用同步
+    assert_includes t, "class CourseSceneTemplate(Scene):"
+    refute_includes t, "IssueVideoTemplate"
     refute_includes t, "manimlib"
+  end
+
+  # L7:模块 docstring 只留用途一行 + 私有 playbook 指引;ffmpeg 拼轨命令链、
+  # 六步方法论散文全部下线(文件底部 assemble 注释块的功能性说明不受此限)
+  def test_docstring_slimmed_to_purpose_and_playbook_pointer
+    t = File.read(File.join(VIDEO, "scene_template.py"))
+    doc = t[/\A"""(.*?)"""/m, 1].to_s
+    refute_includes doc, "ffmpeg"
+    refute_includes doc, "manim -q"
+    refute_includes doc, "完整工作流"
+    assert_includes doc, "tutor playbook"
+    assert_includes doc, "配套视频"
   end
 
   # 品牌卡中文「程序媛汇」（2026-09-03 反馈修订）

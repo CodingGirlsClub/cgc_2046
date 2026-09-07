@@ -890,11 +890,6 @@
     "activityStatusError": "失败",
     "activityStatusPending": "待确认",
     "activityStatusForbidden": "被拒",
-    "todosTitle": "待办交接",
-    "todosHint": "本工作台学习 run 等待助手产出的步骤",
-    "todosEmpty": "当前没有待办步骤 🎉",
-    "todosHandoffHint": "把待办步骤交接给你的助手执行",
-    "multihostHint": "粘贴给你的 OpenClacky / opencode / omp 助手",
     "activityTitle": "活动流",
     "activityHint": "本工作台内你自己的工具调用（隐私最小面）",
     "activityEmpty": "暂无活动——在 OpenClacky / opencode / omp 里调用平台工具后，记录会显示在这里。",
@@ -1245,13 +1240,6 @@
     "empty": "还没有{label}。",
     "emptyCreateHint": "点击右上角「新建{label}」创建第一个。",
     "emptyWaitHint": "等待 Owner 创建。",
-    "runStatusPending": "待启动",
-    "runStatusRunning": "教研中",
-    "runStatusWaiting": "教研中(等待产出)",
-    "runStatusSucceeded": "已完成",
-    "runStatusFailed": "失败",
-    "runStatusCancelled": "已取消",
-    "runStatusExpired": "已过期",
     "saved": "已保存",
     "saveFailedRetry": "保存失败，请重试",
     "actionFailedRetry": "操作失败，请重试",
@@ -1271,12 +1259,6 @@
     "capacityCount": "{confirmed} / {capacity}",
     "fieldPending": "待审批报名",
     "researchTitle": "教研",
-    "runStatusLabel": "教研 run 状态:",
-    "linked": "已关联",
-    "notInstantiated": "未实例化",
-    "contentCompletion": "课程内容完成度:",
-    "issueSubmitted": "issue 卡已提交",
-    "awaitResearch": "待教研产出",
     "editMeta": "编辑元数据",
     "fieldTitle": "标题",
     "capacityHint": "名额上限（留空 = 不限）",
@@ -1956,12 +1938,6 @@
   "schemaOutput": {
     "otherLabel": "其他"
   },
-  "stepHandoff": {
-    "toolHint": "工具提示：用 save_step_output 写回该 step",
-    "copied": "已复制",
-    "failed": "复制失败",
-    "copy": "复制交接文本"
-  },
   "themeToggle": {
     "toggleLight": "切换为浅色主题",
     "toggleDark": "切换为深色主题",
@@ -1997,13 +1973,27 @@
     "masteredGoals": "已掌握目标",
     "progressNote": "完成一个目标后，进度会在这里更新。",
     "openLearning": "打开我的学习",
-    "thoughtwork": "思考型",
-    "handwork": "动手型"
+    "kind": {
+      "thoughtwork": "思考型",
+      "handwork": "动手型"
+    }
   },
   "courseGovernance": {
     "loading": "课程治理数据加载中…",
     "error": "课程治理数据暂时不可用",
-    "forbidden": "当前角色无权查看治理统计",
+    "unavailable": "课程治理数据暂不可用或暂无数据",
+    "draft": {
+      "aria": "课程内容草稿预览",
+      "eyebrow": "课程内容草稿",
+      "meta": "草稿版本 {version} · 更新于 {time}",
+      "state": {
+        "draft": "草稿",
+        "authoring": "撰写中",
+        "qualityCheck": "质量检查",
+        "review": "评审中",
+        "published": "已发布"
+      }
+    },
     "aria": "课程治理统计",
     "eyebrow": "课程治理 / 教学投影",
     "title": "发布版本与学习概览",
@@ -2027,6 +2017,7 @@
     "externalVideo": "（外部视频）",
     "providerUnavailable": "（视频提供方暂不支持，请联系教研重新保存）",
     "openBilibili": "无法播放？打开 Bilibili",
+    "playVideo": "播放视频",
     "legacy": "（旧材料需要重新保存为 typed Material）"
   },
   "learningHome": {

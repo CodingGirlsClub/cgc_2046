@@ -60,9 +60,8 @@ export interface OfferingItem {
   venue?: string | null;
   /** 教研需求(自由文本;仅 course、成员可见;U8/R12) */
   curriculumRequirements?: string | null;
-  /** 教研 run 引用(仅 course;U8 教研状态露出) */
+  /** 教研 run 引用标量（仅 course；SDL 保留关联 id，成员面不再露出 run 状态对象） */
   workflowRunId?: string | null;
-  workflowRun?: { id: string; status: string } | null;
   /** 是否收费（默认免费；收费报名须选档并支付，R4 免费路径零变化） */
   pricingEnabled?: boolean | null;
   /** 可售价格档位（JsonString 数组，后端已过滤过期档，R2）；解析见 lib/payment.parsePriceTiers */
@@ -221,11 +220,7 @@ export const GET_EVENT: TypedDocumentNode<
 `;
 
 export const GET_COURSE: TypedDocumentNode<
-  {
-    getCourse: OfferingItem & {
-      workflowRun: { id: string; status: string } | null;
-    };
-  },
+  { getCourse: OfferingItem },
   { id: string }
 > = gql`
   query GetCourse($id: ID!) {
@@ -243,10 +238,6 @@ export const GET_COURSE: TypedDocumentNode<
       endsAt
       curriculumRequirements
       workflowRunId
-      workflowRun {
-        id
-        status
-      }
       pricingEnabled
       availablePriceTiers
       priceTiers

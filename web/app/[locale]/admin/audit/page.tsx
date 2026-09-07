@@ -109,7 +109,9 @@ function workflowRunToRow(run: WorkflowRunItem): AuditRow {
 	return {
 		id: run.id,
 		time: run.startedAt,
-		identity: run.definitionType ?? run.definitionId ?? "unknown",
+		identity: run.definitionType,
+		// L4:失败 run 的脱敏错误摘要(后端仅对 status=failed 返回常量 "workflow_failed")
+		summary: run.errorSummary ?? undefined,
 		status: run.status,
 	};
 }
