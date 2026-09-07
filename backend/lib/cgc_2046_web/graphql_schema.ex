@@ -1666,6 +1666,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:started_at, :datetime)
     field(:finished_at, :datetime)
     field(:inserted_at, non_null(:datetime))
+    field(:error_summary, :string)
   end
 
   object :course_learning_analytics do
