@@ -20,8 +20,8 @@ defmodule Cgc2046Web.GraphqlPlatformAuditTest do
 
     query = """
     query {
-      platformWorkflowAudit {
-        id workspaceId definitionType status startedAt finishedAt insertedAt
+      platformWorkflowAudit(startedAfter: "2026-01-01T00:00:00Z", startedBefore: "2027-01-01T00:00:00Z") {
+        id workspaceId definitionType status startedAt finishedAt insertedAt errorSummary
       }
     }
     """
