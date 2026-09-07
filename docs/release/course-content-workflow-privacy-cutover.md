@@ -38,7 +38,7 @@ Clean database migration completed successfully. Current development inventory a
 - workflow runs: 2
 - learning runs missing `subject_user_id` or `subject_enrollment_id`: 0
 
-The migration contains a UUID preflight and unresolved-subject sentinel. A static migration contract test verifies those guards. A production-like poisoned-row rollback probe and a durable inventory of legacy material identifiers remain required before release.
+The migration contains a UUID preflight and unresolved-subject sentinel. A static migration contract test verifies those guards. Poisoned-row rollback probe was executed on the isolated test database: an invalid UUID learning run caused migration failure with `learning workflow run subject preflight found invalid UUID`; afterward `subject_*` columns=0, subject indexes=0, poisoned rows=1. The test database was then rebuilt from zero. Durable inventory of legacy material identifiers remains required before release.
 
 ## Cutover steps
 
@@ -53,7 +53,7 @@ The migration contains a UUID preflight and unresolved-subject sentinel. A stati
 
 ## Release blockers still open
 
-- Real poisoned-row migration rollback test and durable inventory artifact.
+- Durable inventory of legacy material identifiers and production database confirmation.
 - Deploy change detection for external private Tutor playbook changes (tracked by Issue #432).
 - Connected OpenClacky runtime/package install evidence and private playbook round-trip evidence.
 - Final independent code review and Mainline seal/PR/CI.
