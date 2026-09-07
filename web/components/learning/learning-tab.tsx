@@ -151,7 +151,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
                       className="learning-run-row-link"
                       data-testid="learning-course-link"
                     >
-                      查看课程内容 <span aria-hidden="true">↗</span>
+                      {t("courseContent")} <span aria-hidden="true">↗</span>
                     </Link>
                   ) : null}
                 </div>
@@ -284,7 +284,7 @@ function ObjectiveDrawer({
                 href={`/learning/courses/${detail.courseId}`}
                 className="mt-1 inline-block text-sm text-accent hover:underline"
               >
-                查看课程内容
+                {t("courseContent")}
               </Link>
             ) : null}
             {detail ? (

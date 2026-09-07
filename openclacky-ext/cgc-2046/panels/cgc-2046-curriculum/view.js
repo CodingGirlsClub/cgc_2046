@@ -519,10 +519,25 @@
       story.given = given;
       const materials = [];
       el.querySelectorAll("[data-material-row]").forEach(function (row) {
-        materials.push({
-          title: trim(row.querySelector("[data-f='m-title']").value),
-          ref: trim(row.querySelector("[data-f='m-ref']").value)
-        });
+        const kind = trim(row.querySelector("[data-f='m-kind']").value);
+        const material = { kind: kind, title: trim(row.querySelector("[data-f='m-title']").value) };
+        const body = row.querySelector("[data-f='m-body']");
+        const url = row.querySelector("[data-f='m-url']");
+        const provider = row.querySelector("[data-f='m-provider']");
+        const externalId = row.querySelector("[data-f='m-external-id']");
+        const alt = row.querySelector("[data-f='m-alt-text']");
+        if (kind === "text" || kind === "markdown") {
+          if (body) material.body = trim(body.value);
+        } else if (kind === "web") {
+          if (url) material.url = trim(url.value);
+        } else if (kind === "image") {
+          if (url) material.url = trim(url.value);
+          if (alt) material.alt_text = trim(alt.value);
+        } else if (kind === "video") {
+          if (provider) material.provider = trim(provider.value);
+          if (externalId) material.external_id = trim(externalId.value);
+        }
+        materials.push(material);
       });
       story.materials = materials;
       const checklist = [];
@@ -556,9 +571,25 @@
           'data-remove-given', idx + ':' + gi);
       }).join("");
       const matRows = (Array.isArray(story.materials) ? story.materials : []).map(function (m, mi) {
+        const legacy = m && m.ref && !m.kind;
+        const kind = legacy ? "legacy" : (m.kind || "text");
+        const source = legacy ? ("旧 ref 需要重新保存为 typed Material: " + m.ref) : "";
         return itemRow('data-material-row',
+          '<select data-f="m-kind" aria-label="材料类型">' +
+            '<option value="text"' + (kind === "text" ? " selected" : "") + '>text</option>' +
+            '<option value="markdown"' + (kind === "markdown" ? " selected" : "") + '>markdown</option>' +
+            '<option value="web"' + (kind === "web" ? " selected" : "") + '>web</option>' +
+            '<option value="image"' + (kind === "image" ? " selected" : "") + '>image</option>' +
+            '<option value="video"' + (kind === "video" ? " selected" : "") + '>video</option>' +
+            (legacy ? '<option value="legacy" selected>legacy（需重存）</option>' : '') +
+          '</select>' +
           '<input data-f="m-title" type="text" placeholder="标题" value="' + escapeHtml(m.title || "") + '">' +
-          '<input data-f="m-ref" type="text" placeholder="链接(可选)" value="' + escapeHtml(m.ref || "") + '">',
+          '<textarea data-f="m-body" placeholder="text/markdown 正文">' + escapeHtml(m.body || "") + '</textarea>' +
+          '<input data-f="m-url" type="url" placeholder="web/image HTTPS URL" value="' + escapeHtml(m.url || (legacy ? m.ref : "") || "") + '">' +
+          '<input data-f="m-provider" type="text" placeholder="video provider（bilibili）" value="' + escapeHtml(m.provider || "") + '">' +
+          '<input data-f="m-external-id" type="text" placeholder="video external ID（BV...）" value="' + escapeHtml(m.external_id || "") + '">' +
+          '<input data-f="m-alt-text" type="text" placeholder="image alt_text" value="' + escapeHtml(m.alt_text || "") + '">' +
+          (source ? '<small class="cgch-empty" data-testid="legacy-material-warning">' + escapeHtml(source) + '</small>' : ''),
           'data-remove-material', idx + ':' + mi);
       }).join("");
       const checkRows = (Array.isArray(story.checklist) ? story.checklist : []).map(function (c, ci) {
@@ -586,7 +617,7 @@
             '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-given="' + idx + '">+ 添加 given</button></div>' +
           '<div class="cgt-edit-row"><label>goal(完成后能独立做到什么)</label>' +
             '<input data-f="goal" type="text" value="' + escapeHtml(story.goal || "") + '"></div>' +
-          '<div class="cgt-edit-row"><label>materials(每条:标题 + 链接)</label>' + matRows +
+          '<div class="cgt-edit-row"><label>materials（typed Material：类型 + 受约束来源）</label>' + matRows +
             '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-material="' + idx + '">+ 添加材料</button></div>' +
           '<div class="cgt-edit-row"><label>checklist(每条:id + 验收文本)</label>' + checkRows +
             '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-check="' + idx + '">+ 添加 checklist</button></div>' +
@@ -678,7 +709,7 @@
       s.given = (Array.isArray(s.given) ? s.given : []).concat([""]);
     });
     bindRowAdds("data-add-material", function (s) {
-      s.materials = (Array.isArray(s.materials) ? s.materials : []).concat([{ title: "", ref: "" }]);
+      s.materials = (Array.isArray(s.materials) ? s.materials : []).concat([{ kind: "text", title: "", body: "" }]);
     });
     bindRowAdds("data-add-check", function (s) {
       const list = Array.isArray(s.checklist) ? s.checklist : [];
@@ -705,7 +736,7 @@
         story: Object.assign({}, story, {
           given: (Array.isArray(story.given) ? story.given : []).filter(function (v) { return trim(v); }),
           materials: (Array.isArray(story.materials) ? story.materials : []).filter(function (m) {
-            return m && (trim(m.title) || trim(m.ref));
+            return m && (trim(m.title) || trim(m.body) || trim(m.url) || trim(m.external_id) || trim(m.provider));
           }),
           checklist: (Array.isArray(story.checklist) ? story.checklist : []).filter(function (c) {
             return c && (trim(c.id) || trim(c.text));

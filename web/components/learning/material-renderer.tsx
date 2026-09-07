@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { TypedMaterial } from "@/lib/graphql/course-content";
 
 const BILIBILI_ID = /^BV[0-9A-Za-z]{10}$/;
@@ -30,7 +31,8 @@ function markdownToSafeHtml(source: string): string {
 }
 
 export function MaterialRenderer({ material }: { material: TypedMaterial }) {
-  const title = material.title || "材料";
+  const t = useTranslations("material");
+  const title = material.title || t("title");
   const [imageState, setImageState] = useState<"loading" | "loaded" | "error">("loading");
 
   if (material.kind === "text") {
@@ -48,12 +50,12 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
   if (material.kind === "image") {
     const url = safeHttpsUrl(material.url);
     if (!url || !material.alt_text?.trim()) {
-      return <span data-testid="course-material-unavailable">{title}（图片材料缺少安全地址或替代文本）</span>;
+      return <span data-testid="course-material-unavailable">{title}{t("imageUnavailable")}</span>;
     }
     return (
       <figure className="learning-material learning-material--image" data-testid="course-material-image">
-        {imageState === "loading" ? <span data-testid="course-material-image-loading">图片加载中…</span> : null}
-        {imageState === "error" ? <span data-testid="course-material-image-error">图片暂时无法加载</span> : null}
+        {imageState === "loading" ? <span data-testid="course-material-image-loading">{t("imageLoading")}</span> : null}
+        {imageState === "error" ? <span data-testid="course-material-image-error">{t("imageError")}</span> : null}
         <img
           src={url}
           alt={material.alt_text}
@@ -71,9 +73,9 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
       const fallback = safeHttpsUrl(material.url);
       return fallback ? (
         <a href={fallback} target="_blank" rel="noopener noreferrer" data-testid="course-material-link">
-          {title}（外部视频）
+          {title}{t("externalVideo")}
         </a>
-      ) : <span data-testid="course-material-unavailable">{title}（视频提供方暂不支持，请联系教研重新保存）</span>;
+      ) : <span data-testid="course-material-unavailable">{title}{t("providerUnavailable")}</span>;
     }
     const src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(material.external_id)}&page=1`;
     return (
@@ -87,7 +89,7 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
           allow="fullscreen; autoplay"
         />
         <a href={`https://www.bilibili.com/video/${encodeURIComponent(material.external_id)}`} target="_blank" rel="noopener noreferrer">
-          无法播放？打开 Bilibili
+          {t("openBilibili")}
         </a>
       </div>
     );
@@ -95,5 +97,5 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
   const url = safeHttpsUrl(material.url);
   return url ? (
     <a href={url} target="_blank" rel="noopener noreferrer" data-testid="course-material-link">{title}</a>
-  ) : <span data-testid="course-material-unavailable">{title}（旧材料需要重新保存为 typed Material）</span>;
+  ) : <span data-testid="course-material-unavailable">{title}{t("legacy")}</span>;
 }

@@ -22,8 +22,8 @@ const ROUNDTRIP_ORIGINAL = {
       given: ["熟悉 C/C++ 基础", "完成 读写/入门"],
       goal: "独立配置 a/b 环境",
       materials: [
-        { title: "HTTP/2 | 图解", ref: "https://example.com/http2" },
-        { title: "纯标题无链接", ref: "" }
+        { kind: "web", title: "HTTP/2 | 图解", url: "https://example.com/http2" },
+        { kind: "text", title: "纯标题无链接", body: "" }
       ],
       checklist: [
         { id: "c1", text: "配置 a/b 环境" },
@@ -81,7 +81,13 @@ function rowNodes(segment, rowAttr, fields) {
     const row = makeEl("div");
     row.querySelector = function (sel) {
       const fm = /^\[data-f='([^']+)'\]$/.exec(sel);
-      if (fm && fields.indexOf(fm[1]) >= 0) return fieldNodes(part, fm[1])[0] || null;
+      if (fm && fields.indexOf(fm[1]) >= 0) {
+        if (fm[1] === "m-kind") {
+          const km = /data-f="m-kind"[\s\S]*?value="([^"]+)" selected/.exec(part);
+          return valueNode(km ? km[1] : "text");
+        }
+        return fieldNodes(part, fm[1])[0] || null;
+      }
       return null;
     };
     return row;
@@ -111,7 +117,7 @@ function parseIssueCards(html) {
     card.querySelectorAll = function (sel) {
       if (!(sel in fieldCache)) {
         if (sel === "[data-f='given-item']") fieldCache[sel] = fieldNodes(seg, "given-item");
-        else if (sel === "[data-material-row]") fieldCache[sel] = rowNodes(seg, "data-material-row", ["m-title", "m-ref"]);
+        else if (sel === "[data-material-row]") fieldCache[sel] = rowNodes(seg, "data-material-row", ["m-kind", "m-title", "m-body", "m-url", "m-provider", "m-external-id", "m-alt-text"]);
         else if (sel === "[data-check-row]") fieldCache[sel] = rowNodes(seg, "data-check-row", ["c-id", "c-text"]);
         else fieldCache[sel] = [];
       }
