@@ -24,7 +24,7 @@ defmodule Cgc2046.Workflows.Policies.ActorReadsWorkflowRun do
 
     expr(
       exists(definition.workspace.memberships, user_id == ^actor_id) and
-        (definition.type != :learning or input_snapshot["user_id"] == ^actor_id)
+        (definition.type != :learning or subject_user_id == ^actor_id)
     )
   end
 end

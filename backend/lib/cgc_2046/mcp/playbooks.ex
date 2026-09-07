@@ -329,7 +329,7 @@ defmodule Cgc2046.Mcp.Playbooks do
       {:ok, %File.Stat{type: :regular}} -> read_regular_tutor_supplement(playbook, path)
       {:ok, %File.Stat{type: :symlink}} -> warn_and_fallback(playbook, path, :symlink)
       {:ok, %File.Stat{}} -> warn_and_fallback(playbook, path, :not_regular)
-      {:error, :enoent} -> playbook
+      {:error, :enoent} -> warn_and_fallback(playbook, path, :missing)
       {:error, _reason} -> warn_and_fallback(playbook, path, :metadata_error)
     end
   end

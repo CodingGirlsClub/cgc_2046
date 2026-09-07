@@ -25,6 +25,11 @@ function markdownToSafeHtml(source: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
   return escaped
+    .replace(/^### (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^## (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^# (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^(?:- )(.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>)(?:<br \/>)?/g, "$1")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n/g, "<br />");
@@ -34,6 +39,7 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
   const t = useTranslations("material");
   const title = material.title || t("title");
   const [imageState, setImageState] = useState<"loading" | "loaded" | "error">("loading");
+  const [playing, setPlaying] = useState(false);
 
   if (material.kind === "text") {
     return <p data-testid="course-material-text">{material.body || ""}</p>;
@@ -80,14 +86,20 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
     const src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(material.external_id)}&page=1`;
     return (
       <div className="learning-material learning-material--video" data-testid="course-material-video">
-        <iframe
-          title={title}
-          src={src}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-presentation"
-          allow="fullscreen; autoplay"
-        />
+        {playing ? (
+          <iframe
+            title={title}
+            src={src}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            sandbox="allow-scripts allow-same-origin allow-presentation"
+            allow="fullscreen; autoplay"
+          />
+        ) : (
+          <button type="button" onClick={() => setPlaying(true)} data-testid="course-material-video-play">
+            ▶ {title}
+          </button>
+        )}
         <a href={`https://www.bilibili.com/video/${encodeURIComponent(material.external_id)}`} target="_blank" rel="noopener noreferrer">
           {t("openBilibili")}
         </a>

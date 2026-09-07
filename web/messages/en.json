@@ -1346,7 +1346,8 @@
     "createTitle": "New {label}",
     "createSubtitle": "Created as draft; published to open enrollment",
     "titleRequired": "Title (required)",
-    "visibility": "Visibility"
+    "visibility": "Visibility",
+    "openCurriculum": "Open course governance"
   },
   "checkout": {
     "orderFailed": "Failed to place the order. Please try again.",

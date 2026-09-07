@@ -51,6 +51,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
              course_title: course.title,
              version: output.version,
              goals: content["goals"] || [],
+             chapters: content["chapters"] || [],
              issues: issues
            }}
         end

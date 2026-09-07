@@ -418,9 +418,7 @@ defmodule Cgc2046.Learning.Runs do
     WorkflowRun
     |> Ash.Query.filter(
       definition.type == :learning and
-        ((subject_course_id == ^course_id and subject_user_id == ^actor_id) or
-           (input_snapshot["course_id"] == ^course_id and
-              input_snapshot["user_id"] == ^actor_id))
+        subject_course_id == ^course_id and subject_user_id == ^actor_id
     )
   end
 

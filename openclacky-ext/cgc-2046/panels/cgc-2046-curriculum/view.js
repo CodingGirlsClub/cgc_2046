@@ -504,6 +504,11 @@
     if (!state.draft || !currentContainer) return;
     const goalsEl = currentContainer.querySelector("#cgc-edit-goals");
     if (goalsEl) state.draft.goals = goalsEl.value.split("\n").map(trim).filter(Boolean);
+    const chapters = [];
+    currentContainer.querySelectorAll("[data-edit-chapter]").forEach(function (el) {
+      chapters.push({ id: trim(el.querySelector("[data-f='chapter-id']").value), title: trim(el.querySelector("[data-f='chapter-title']").value) });
+    });
+    if (chapters.length || Array.isArray(state.draft.chapters)) state.draft.chapters = chapters;
     currentContainer.querySelectorAll("[data-edit-issue]").forEach(function (el) {
       const issue = state.draft.issues[Number(el.getAttribute("data-edit-issue"))];
       if (!issue) return;
@@ -518,14 +523,17 @@
       });
       story.given = given;
       const materials = [];
-      el.querySelectorAll("[data-material-row]").forEach(function (row) {
+      const existingMaterials = Array.isArray(story.materials) ? story.materials : [];
+      el.querySelectorAll("[data-material-row]").forEach(function (row, materialIndex) {
         const kind = trim(row.querySelector("[data-f='m-kind']").value);
-        const material = { kind: kind, title: trim(row.querySelector("[data-f='m-title']").value) };
+        const material = Object.assign({}, existingMaterials[materialIndex] || {}, { kind: kind, title: trim(row.querySelector("[data-f='m-title']").value) });
         const body = row.querySelector("[data-f='m-body']");
         const url = row.querySelector("[data-f='m-url']");
         const provider = row.querySelector("[data-f='m-provider']");
         const externalId = row.querySelector("[data-f='m-external-id']");
         const alt = row.querySelector("[data-f='m-alt-text']");
+        const caption = row.querySelector("[data-f='m-caption']");
+        if (caption && trim(caption.value)) material.caption = trim(caption.value);
         if (kind === "text" || kind === "markdown") {
           if (body) material.body = trim(body.value);
         } else if (kind === "web") {
@@ -563,6 +571,9 @@
         removeAttr + '="' + removeVal + '">×</button></div>';
     }
 
+    const chapterRows = (Array.isArray(draft.chapters) ? draft.chapters : []).map(function (chapter, idx) {
+      return itemRow('data-edit-chapter', '<input data-f="chapter-id" type="text" placeholder="chapter id" value="' + escapeHtml(chapter.id || "") + '">' + '<input data-f="chapter-title" type="text" placeholder="章节标题" value="' + escapeHtml(chapter.title || "") + '">', 'data-remove-chapter', idx);
+    }).join("");
     const issueCards = draft.issues.map(function (issue, idx) {
       const story = issue.story || {};
       const givenRows = (Array.isArray(story.given) ? story.given : []).map(function (g, gi) {
@@ -589,6 +600,7 @@
           '<input data-f="m-provider" type="text" placeholder="video provider（bilibili）" value="' + escapeHtml(m.provider || "") + '">' +
           '<input data-f="m-external-id" type="text" placeholder="video external ID（BV...）" value="' + escapeHtml(m.external_id || "") + '">' +
           '<input data-f="m-alt-text" type="text" placeholder="image alt_text" value="' + escapeHtml(m.alt_text || "") + '">' +
+          '<input data-f="m-caption" type="text" placeholder="caption" value="' + escapeHtml(m.caption || "") + '">' +
           (source ? '<small class="cgch-empty" data-testid="legacy-material-warning">' + escapeHtml(source) + '</small>' : ''),
           'data-remove-material', idx + ':' + mi);
       }).join("");
@@ -633,6 +645,7 @@
         '<div class="cgt-edit-row"><label>课程目标 goals(每行一条)</label>' +
           '<textarea id="cgc-edit-goals" rows="3">' + escapeHtml(goalRows) + '</textarea>' +
           '<div class="cgt-parse-preview" id="cgt-preview-goals" data-testid="prep-parse-preview"></div></div>' +
+        '<div class="cgt-edit-row"><label>章节（叙事分组，不是先修关系）</label>' + chapterRows + '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-chapter="1">+ 添加章节</button></div>' +
         issueCards +
         '<div class="cgt-edit-row">' +
           '<button id="cgc-add-issue" class="cgc-btn cgc-btn-secondary" type="button" data-testid="prep-add-issue">+ 添加 issue</button>' +
@@ -705,6 +718,12 @@
         });
       });
     }
+    currentContainer.querySelectorAll("[data-add-chapter]").forEach(function (btn) {
+      btn.addEventListener("click", function () { collectEditor(); state.draft.chapters = (Array.isArray(state.draft.chapters) ? state.draft.chapters : []).concat([{ id: "chapter-" + Date.now(), title: "" }]); render(); });
+    });
+    currentContainer.querySelectorAll("[data-remove-chapter]").forEach(function (btn) {
+      btn.addEventListener("click", function () { collectEditor(); state.draft.chapters.splice(Number(btn.getAttribute("data-remove-chapter")), 1); render(); });
+    });
     bindRowAdds("data-add-given", function (s) {
       s.given = (Array.isArray(s.given) ? s.given : []).concat([""]);
     });
@@ -746,6 +765,7 @@
     });
     const content = Object.assign({}, state.draftContent, {
       goals: state.draft.goals,
+      chapters: state.draft.chapters || [],
       issues: issues
     });
     delete content.version;
@@ -799,6 +819,7 @@
       state.draftContent = content;
       state.draft = {
         goals: Array.isArray(content.goals) ? content.goals.slice() : [],
+        chapters: JSON.parse(JSON.stringify(Array.isArray(content.chapters) ? content.chapters : [])),
         issues: JSON.parse(JSON.stringify(Array.isArray(content.issues) ? content.issues : []))
       };
       state.editing = true;

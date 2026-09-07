@@ -44,6 +44,19 @@
     });
   }
 
+  function safeMaterialUrl(material) {
+    if (!material || material.kind === "text" || material.kind === "markdown") return null;
+    const url = material.url;
+    if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
+    return url;
+  }
+
+  function materialLinkMarkup(material) {
+    const url = safeMaterialUrl(material);
+    if (!url) return '<span class="cgch-empty">需重新保存为安全的 typed Material</span>';
+    return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(material.title || url) + '</a>';
+  }
+
   function toast(message) {
     if (Clacky.Modal && typeof Clacky.Modal.toast === "function") {
       Clacky.Modal.toast(message, "info");
@@ -367,14 +380,7 @@
         const panel = document.createElement("div");
         panel.className = "cgla-mats-panel";
         panel.innerHTML = mats.map(function (m) {
-          const ref = m.ref || "";
-          return (
-            '<div class="cgla-mat-item">' +
-              '<span class="cgla-mat-title">' + escapeHtml(m.title || m.ref || "材料") + '</span>' +
-              (ref ? ' <a href="' + escapeHtml(ref) + '" target="_blank" rel="noopener noreferrer" class="cgla-mat-ref">' +
-                escapeHtml(ref.length > 30 ? ref.slice(0, 30) + "…" : ref) + '</a>' : "") +
-            '</div>'
-          );
+          return '<div class="cgla-mat-item"><span class="cgla-mat-title">' + materialLinkMarkup(m) + '</span></div>';
         }).join("");
         wrap.appendChild(panel);
       });

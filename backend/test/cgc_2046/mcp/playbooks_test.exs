@@ -132,7 +132,7 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
     refute log =~ secret
   end
 
-  test "未配置目录与缺失 tutor.md 均返回四角色公开基础版本且缺失不记 warning", %{
+  test "未配置目录与缺失 tutor.md 返回基础版本并记录 warning", %{
     tmp_dir: tmp_dir
   } do
     Application.delete_env(@app, @config_key)
@@ -152,7 +152,7 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
         end
       end)
 
-    assert log == ""
+    assert log =~ "missing"
   end
 
   test "非 tutor 角色从不读取目录中的同名私有文件", %{tmp_dir: tmp_dir} do
