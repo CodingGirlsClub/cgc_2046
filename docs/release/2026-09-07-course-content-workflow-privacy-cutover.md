@@ -211,3 +211,80 @@ migration → assert rollback residue via `information_schema` / `pg_indexes` /
   non-learning poison rows untouched, records the guard boundary (valid
   `user_id` + dangling `enrollment_id` passes — informational scan in §2.2),
   and replays idempotently after deleting the `schema_migrations` row.
+
+## 7. Issue #432 — private tutor playbook deploy wiring (receiver side only)
+
+Context: the `changes` job in `.github/workflows/deploy.yml` classifies a
+release by the compare-API diff of **this** repo. The private tutor supplement
+lives in `CodingGirlsClub/cgc-playbooks` (`playbooks/tutor.md`) and never shows
+up in that diff, so a playbook-only change is silently skipped by a normal
+develop→main release (#432, observed 2026-09-06). This PR ships the receiver
+side; the sender side lives in the private repo and is **not** in this branch.
+#432 stays open until §7.3 has been proven once end to end.
+
+### 7.1 Shipped here (cgc_2046)
+
+- `deploy.yml` accepts `repository_dispatch` with `types: [tutor-playbook-updated]`.
+  GitHub runs dispatch-triggered workflows from the default branch, so
+  `github.sha` is the current `main` head and the public image is rebuilt from it.
+- On that event the `changes` job forces `backend=true`, `web=false` and writes
+  `外部 tutor playbook 变更事件：仅部署 backend` to the step summary. The
+  `push` path is unchanged and remains blind to playbook content by design.
+- The backend job checks out `cgc-playbooks`; `scripts/stage-playbook.rb` copies
+  `playbooks/tutor.md` → `backend/priv/playbooks/tutor.md` (mode 0600, staging
+  dir removed, refuses symlinks / extra files) and prints
+  `hash=<first 8 hex of SHA-256(tutor.md)>`.
+- Kamal deploys with `--version "${PUBLIC_SHA}-pb${PLAYBOOK_HASH}"` (the step
+  asserts the hash is exactly 8 chars), so a playbook-only change produces a
+  distinct image version even when the public SHA is unchanged.
+
+### 7.2 Required in cgc-playbooks (not in this repo)
+
+1. Sender workflow, triggered on push to its default branch when
+   `playbooks/tutor.md` changes:
+
+   ```yaml
+   on:
+     push:
+       branches: [main]
+       paths: [playbooks/tutor.md]
+   jobs:
+     notify-cgc-2046:
+       runs-on: ubuntu-latest
+       steps:
+         - env:
+             GH_TOKEN: ${{ secrets.CGC_2046_DISPATCH_TOKEN }}
+           run: |
+             gh api repos/CodingGirlsClub/cgc_2046/dispatches \
+               -f event_type=tutor-playbook-updated \
+               -f "client_payload[playbook_sha]=${GITHUB_SHA}"
+   ```
+
+2. Token. The sender repo's own `GITHUB_TOKEN` cannot dispatch into another
+   repository. Store a dedicated secret in cgc-playbooks: a classic PAT with the
+   `repo` scope (GitHub REST docs for "Create a repository dispatch event"), or
+   a fine-grained PAT / GitHub App installation token restricted to `cgc_2046`
+   with `Contents: write` (confirm the fine-grained permission in the current
+   GitHub docs when minting). Prefer a machine account or App over a personal
+   account; rotate it like any deploy credential. Never put it in cgc_2046.
+
+3. `event_type` must stay `tutor-playbook-updated`; renaming it on either side
+   silently disconnects the trigger (deploy.yml filters on `types`).
+
+### 7.3 One-time end-to-end proof (then close #432)
+
+1. Merge a trivial `tutor.md` change in cgc-playbooks.
+2. A `Deploy` run appears in cgc_2046 with event `repository_dispatch`; the
+   `changes` step summary shows the playbook-only line and the `web` job is
+   skipped.
+3. The `Stage tutor playbook` step logs a `hash=` different from the previous
+   successful run, and the kamal version suffix `-pb<hash>` differs.
+4. Production tutor prompt serves the new supplement text.
+5. Paste the run URL into #432 and close it. Until step 5 is done, the PR that
+   carries this packet only "partially addresses #432".
+
+### 7.4 Interim fallback
+
+Until §7.2 is wired: after any cgc-playbooks merge, start `Deploy` manually via
+`workflow_dispatch` (fail-closed → full deploy, ~8-15 min). Do not rely on the
+next unrelated develop→main release to carry the playbook change.
