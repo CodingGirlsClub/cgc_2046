@@ -663,7 +663,6 @@
       "backToOverview": "Back to overview",
       "navOverview": "Overview",
       "navAgents": "Agents",
-      "navWorkflows": "Research output",
       "navEvents": "Events",
       "navCourses": "Courses",
       "navGroup": "Workspace navigation",
@@ -1997,7 +1996,9 @@
     "currentCourse": "This course",
     "masteredGoals": "Mastered objectives",
     "progressNote": "Your progress will update here after completing an objective.",
-    "openLearning": "Open my learning"
+    "openLearning": "Open my learning",
+    "thoughtwork": "Thoughtwork",
+    "handwork": "Handwork"
   },
   "courseGovernance": {
     "loading": "Loading governance data…",

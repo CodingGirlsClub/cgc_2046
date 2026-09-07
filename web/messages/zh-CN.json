@@ -663,7 +663,6 @@
       "backToOverview": "返回概览",
       "navOverview": "概览",
       "navAgents": "Agents",
-      "navWorkflows": "教研产出",
       "navEvents": "活动",
       "navCourses": "课程",
       "navGroup": "工作区导航",
@@ -1997,7 +1996,9 @@
     "currentCourse": "本课程",
     "masteredGoals": "已掌握目标",
     "progressNote": "完成一个目标后，进度会在这里更新。",
-    "openLearning": "打开我的学习"
+    "openLearning": "打开我的学习",
+    "thoughtwork": "思考型",
+    "handwork": "动手型"
   },
   "courseGovernance": {
     "loading": "课程治理数据加载中…",

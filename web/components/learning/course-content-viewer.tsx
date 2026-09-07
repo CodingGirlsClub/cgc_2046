@@ -20,6 +20,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   const content = parseCourseContent(detail.content);
   const chapters = content.chapters || [];
   const issues = content.issues || [];
+  const kindLabel = (kind?: string) => kind === "thoughtwork" ? t("thoughtwork") : kind === "handwork" ? t("handwork") : kind || t("units");
   const chapterTitle = new Map(chapters.map((chapter) => [chapter.id, chapter.title || chapter.id || t("chapter")]));
   const grouped = new Map<string, typeof issues>();
   for (const issue of issues) {
@@ -79,7 +80,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
               <h2 id={`course-chapter-${chapterId}`}>{chapterId === "_ungrouped" ? t("ungrouped") : chapterTitle.get(chapterId)}</h2>
               {rows.map((issue, issueIndex) => (
                 <div id={`course-issue-${issue.id || issueIndex}`} key={issue.id || issueIndex} className="learning-reader__issue" data-testid="course-content-issue">
-                  <div className="learning-reader__issue-meta">{t("unitMeta", { kind: issue.kind || t("units") })}</div>
+                  <div className="learning-reader__issue-meta">{t("unitMeta", { kind: kindLabel(issue.kind) })}</div>
                   <h3>{issue.title || issue.id}</h3>
                   {issue.story?.goal ? <p className="learning-reader__goal">{issue.story.goal}</p> : null}
                   {(issue.story?.materials || []).map((material, materialIndex) => (

@@ -10,7 +10,7 @@
  * - AdminActionLog（治理操作）：平台级日志，无 workspace/状态维度，仅时间范围生效
  */
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
 	fetchAdminActionLogs,
 	fetchPendingOperations,
@@ -155,6 +155,7 @@ const TABS: Array<{ id: AuditTab; label: string }> = [
 
 export default function AdminAuditPage() {
 	const t = useTranslations("admin");
+	const locale = useLocale();
 	const [tab, setTab] = useState<AuditTab>("tool");
 	const [workspaceId, setWorkspaceId] = useState("");
 	const [status, setStatus] = useState("");
@@ -332,7 +333,7 @@ export default function AdminAuditPage() {
 								<tr key={row.id}>
 									<td>
 										{row.time
-											? new Date(row.time).toLocaleString("zh-CN")
+											? new Date(row.time).toLocaleString(locale === "en" ? "en-US" : "zh-CN")
 											: "—"}
 									</td>
 									<td>
