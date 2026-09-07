@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, waitFor } from "@testing-library/react";
-import { fireEvent } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import AgentsPage from "./page";
 import type { WorkflowRunItem } from "@/lib/workflows";
