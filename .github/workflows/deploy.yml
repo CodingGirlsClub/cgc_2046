@@ -20,11 +20,19 @@ name: Deploy
 on:
   push:
     branches: [main]
+  # cgc-playbooks 私有仓库变更后，由其 sender workflow 以
+  #   gh workflow run deploy.yml -R <repo> --ref main -f playbook_only=true
+  # 触发后端重建，避免 tutor supplement 内容变化无法进入部署流水线（#432）。
+  # 不用 repository_dispatch：它恒从默认分支运行，而本仓库默认分支是
+  # develop —— github.ref 会是 refs/heads/develop，必然撞死在 backend job
+  # 的「Require protected main」守卫上；放松那道守卫等于把 develop 部署
+  # 上生产。workflow_dispatch 可显式 --ref main，守卫原样复用。
   workflow_dispatch:
-  # cgc-playbooks 在私有仓库变更后通过 repository_dispatch 触发后端重建，
-  # 避免 tutor supplement 内容变化无法进入部署流水线（Issue #432）。
-  repository_dispatch:
-    types: [tutor-playbook-updated]
+    inputs:
+      playbook_only:
+        description: 仅重建 backend（私有 tutor playbook 内容变更）
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-production
@@ -56,9 +64,11 @@ jobs:
         run: |
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "web=true" >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+          # playbook_only 只在 workflow_dispatch 下有值；push 事件下 inputs
+          # 为空，比较自然为假，全量判定逻辑不受影响
+          if [ "${{ inputs.playbook_only }}" = "true" ]; then
             echo "web=false" >> "$GITHUB_OUTPUT"
-            echo "外部 tutor playbook 变更事件：仅部署 backend" >> "$GITHUB_STEP_SUMMARY"
+            echo "私有 tutor playbook 变更：仅部署 backend" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           [ "${{ github.event_name }}" = "push" ] || exit 0
