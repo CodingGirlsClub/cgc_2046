@@ -3,12 +3,11 @@ defmodule Cgc2046.Workflows.Policies.ActorReadsWorkflowRun do
   WorkflowRun 读取过滤器。
 
   普通工作台成员可以读取非 learning 的流程元数据；learning run 的原始
-  facts/input snapshot/steps 只对 input_snapshot 中绑定的本人开放。平台管理员
+  facts/input snapshot/steps 只对显式 subject_user_id 绑定的本人开放。平台管理员
   仍由 WorkflowRun 的独立 platform-admin policy 分支读取审计面。
 
-  这是过渡性的数据库过滤边界：业务页面应继续使用专用投影，不把此资源当作
-  Workspace feed。`input_snapshot["user_id"]` 是当前存量 learning run 的锚，待
-  显式 subject migration 完成后由该字段切换到显式关系。
+  业务页面应继续使用专用投影，不把此资源当作 Workspace feed。learning run 的
+  subject_* 字段是迁移后的授权真源，不再从任意 input_snapshot 键推导权限。
   """
 
   use Ash.Policy.FilterCheck

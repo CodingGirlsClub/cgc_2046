@@ -3,7 +3,7 @@ defmodule Cgc2046.Learning.Analytics do
   课程学习分析聚合(role-agent-journeys-v2 S10,R49/R50;AE14):
   tutor ∪ owner/admin 的教学数据回流聚合读面。
 
-  数据范围:课程全部 learning run(`input_snapshot["course_id"]` 锚定的课程级
+  数据范围:课程全部 learning run（`subject_course_id` 锚定的课程级
   查询——无 user 过滤)+ 这些 run 的全部不可变 LearningAttempt + 课程**当前
   published revision** 的 objectives。
 
@@ -322,7 +322,7 @@ defmodule Cgc2046.Learning.Analytics do
 
   # --- 小工具 ---------------------------------------------------------------------
 
-  # v2 适配:run 绑定 revision = input_snapshot["course_revision_id"]
+  # v2 适配:run 绑定 revision = subject_course_revision_id
   defp run_revision_id(%WorkflowRun{subject_course_revision_id: revision_id}),
     do: revision_id
 
