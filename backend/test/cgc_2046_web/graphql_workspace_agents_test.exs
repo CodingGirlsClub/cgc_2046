@@ -139,7 +139,9 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
 
     # 学习 run 协议路径：:start（pending → running，不经 Engine）
     {:ok, run, :created} =
-      WorkflowRun.find_or_create_and_start(workspace.id, published, %{}, start_action: :start)
+      WorkflowRun.find_or_create_and_start(workspace.id, published, %{"user_id" => admin.id},
+        start_action: :start
+      )
 
     {admin, workspace, published, run}
   end

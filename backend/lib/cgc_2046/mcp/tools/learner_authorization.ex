@@ -9,7 +9,8 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   - 本人学习 run 持有者(任意状态,含课程 close/cancel 后——「曾学过」读面,
     S8 起 `Runs.learning_run_holder?/3`(租户收紧,#349 A),替代已删除的 LearningRecord 记忆持有者层)。
 
-  `get_course_content` / `get_learning_state` 共用完整判定。
+  `get_learning_state`(与 web 学员抽屉)共用完整判定;`get_course_content`
+  自 M4 起收紧为草稿读面 staff-only(`staff?/2`),不再是完整判定的消费面。
   """
 
   alias Cgc2046.Accounts.{MembershipContext, Role}
@@ -20,8 +21,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
 
   返回 `:ok | {:error, String.t()}`。course_id 为 nil 时 = 成员(跨台清单类
   调用在学习记录删除后无记忆兜底层——S8 起无 course_id 的完整判定不再放行
-  记忆持有者;消费面 `get_course_content`/`get_learning_state` 均 course_id
-  必填,nil 分支保留仅防御)。
+  记忆持有者;消费面 `get_learning_state` course_id 必填,nil 分支保留仅防御)。
   """
   @spec authorize(term(), String.t(), String.t() | nil) :: :ok | {:error, String.t()}
   def authorize(actor, workspace_id, course_id)

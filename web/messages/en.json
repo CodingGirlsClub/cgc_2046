@@ -890,11 +890,6 @@
     "activityStatusError": "Failed",
     "activityStatusPending": "Needs confirmation",
     "activityStatusForbidden": "Rejected",
-    "todosTitle": "Handoffs",
-    "todosHint": "Steps in this workspace's learning runs awaiting assistant output",
-    "todosEmpty": "No pending handoffs 🎉",
-    "todosHandoffHint": "Hand off pending steps to your assistant",
-    "multihostHint": "Paste into your OpenClacky / opencode / omp assistant",
     "activityTitle": "Activity feed",
     "activityHint": "Your own tool calls within this workspace (minimal privacy surface)",
     "activityEmpty": "No activity yet — calls made in OpenClacky / opencode / omp will show up here.",
@@ -1245,13 +1240,6 @@
     "empty": "No {label} yet.",
     "emptyCreateHint": "Click “New {label}” in the top right to create the first one.",
     "emptyWaitHint": "Waiting for the Owner to create one.",
-    "runStatusPending": "Pending",
-    "runStatusRunning": "In progress",
-    "runStatusWaiting": "In progress (awaiting output)",
-    "runStatusSucceeded": "Completed",
-    "runStatusFailed": "Failed",
-    "runStatusCancelled": "Cancelled",
-    "runStatusExpired": "Expired",
     "saved": "Saved",
     "saveFailedRetry": "Save failed. Please try again.",
     "actionFailedRetry": "Action failed. Please try again.",
@@ -1271,12 +1259,6 @@
     "capacityCount": "{confirmed} / {capacity}",
     "fieldPending": "Pending enrollments",
     "researchTitle": "Research",
-    "runStatusLabel": "Research run status:",
-    "linked": "Linked",
-    "notInstantiated": "Not instantiated",
-    "contentCompletion": "Course content completion:",
-    "issueSubmitted": "Issue card submitted",
-    "awaitResearch": "Awaiting research output",
     "editMeta": "Edit metadata",
     "fieldTitle": "Title",
     "capacityHint": "Capacity limit (blank = unlimited)",
@@ -1956,12 +1938,6 @@
   "schemaOutput": {
     "otherLabel": "Other"
   },
-  "stepHandoff": {
-    "toolHint": "Tool hint: write back to this step with save_step_output",
-    "copied": "Copied",
-    "failed": "Copy failed",
-    "copy": "Copy handoff text"
-  },
   "themeToggle": {
     "toggleLight": "Switch to light theme",
     "toggleDark": "Switch to dark theme",
@@ -1997,13 +1973,27 @@
     "masteredGoals": "Mastered objectives",
     "progressNote": "Your progress will update here after completing an objective.",
     "openLearning": "Open my learning",
-    "thoughtwork": "Thoughtwork",
-    "handwork": "Handwork"
+    "kind": {
+      "thoughtwork": "Thoughtwork",
+      "handwork": "Handwork"
+    }
   },
   "courseGovernance": {
     "loading": "Loading governance data…",
     "error": "Governance data is temporarily unavailable",
-    "forbidden": "This role cannot view governance statistics",
+    "unavailable": "Governance data is temporarily unavailable or has no data yet",
+    "draft": {
+      "aria": "Course content draft preview",
+      "eyebrow": "Content draft",
+      "meta": "Draft version {version} · Updated {time}",
+      "state": {
+        "draft": "Draft",
+        "authoring": "Authoring",
+        "qualityCheck": "Quality check",
+        "review": "In review",
+        "published": "Published"
+      }
+    },
     "aria": "Course governance statistics",
     "eyebrow": "Course governance / teaching projection",
     "title": "Published version and learning overview",
@@ -2027,6 +2017,7 @@
     "externalVideo": " (external video)",
     "providerUnavailable": " (video provider unavailable; resave the material)",
     "openBilibili": "Playback issue? Open Bilibili",
+    "playVideo": "Play video",
     "legacy": " (legacy material must be resaved as typed Material)"
   },
   "learningHome": {

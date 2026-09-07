@@ -365,8 +365,14 @@ defmodule Cgc2046.Mcp.Playbooks do
     end
   end
 
+  # L6:所有不可用类别(含 enoent/missing)同一收口——warning 注明 tutor 增量
+  # 缺失/被拒原因与回退语义(回退 base playbook,版本保持基础号、无 +hash 后缀)。
   defp warn_and_fallback(playbook, path, category) do
-    Logger.warning("tutor playbook supplement ignored category=#{category} path=#{inspect(path)}")
+    Logger.warning(
+      "tutor playbook supplement ignored category=#{category} path=#{inspect(path)}; " <>
+        "falling back to base playbook (version unchanged, no +hash suffix)"
+    )
+
     playbook
   end
 end

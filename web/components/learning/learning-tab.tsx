@@ -30,7 +30,7 @@ import {
 type Tab = "learning" | "enrollments" | "sponsorships";
 
 export function ParticipationsTabs({ tab }: { tab: Tab }) {
-  const t = useTranslations("learning.tab");
+  const t = useTranslations("learning");
   const tabs: Array<{ key: Tab; label: string; href: string }> = [
     { key: "learning", label: t("tabLearning"), href: "/participations" },
     {
@@ -72,7 +72,7 @@ export function ParticipationsTabs({ tab }: { tab: Tab }) {
 }
 
 /** 学习任务指令文本（Rsk3 降级：复制后粘贴到 OpenClacky 会话；S8 objective 口径）。
- * 组件内传 useTranslations("learning.tab") 的 t；无 provider 的纯函数直调(测试)用
+ * 组件内传 useTranslations("learning") 的 t；无 provider 的纯函数直调(测试)用
  * zh-CN 源文案的降级 translator。 */
 type LearningTranslate = ReturnType<typeof useTranslations<"learning">>;
 
@@ -95,7 +95,7 @@ export function learningSessionPrompt(
 }
 
 export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
-  const t = useTranslations("learning.tab");
+  const t = useTranslations("learning");
   const tRoot = useTranslations();
   // 按课程分组(courseId 为空的事件型 run 归「其他学习」组);组序 = runs 顺序
   const groups: Array<{ courseId: string | null; runs: MyLearningRun[] }> = [];
@@ -151,7 +151,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
                       className="learning-run-row-link"
                       data-testid="learning-course-link"
                     >
-                      {t("courseContent")} <span aria-hidden="true">↗</span>
+                      {t("tab.courseContent")} <span aria-hidden="true">↗</span>
                     </Link>
                   ) : null}
                 </div>
@@ -178,7 +178,7 @@ function LearningRunRow({
   run: MyLearningRun;
   onOpenDrawer: (courseId: string) => void;
 }) {
-  const t = useTranslations("learning.tab");
+  const t = useTranslations("learning");
   // 行级进度 = run 的 objective 掌握进度(投影单源);点行开抽屉看逐条
   const mastery: ObjectiveMastery = run.progress.complete
     ? "mastered"
@@ -235,7 +235,7 @@ function ObjectiveDrawer({
   });
   const detail = data?.courseLearningDetail ?? null;
 
-  const t = useTranslations("learning.tab");
+  const t = useTranslations("learning");
 
   const [copied, setCopied] = useState(false);
 
@@ -284,7 +284,7 @@ function ObjectiveDrawer({
                 href={`/learning/courses/${detail.courseId}`}
                 className="mt-1 inline-block text-sm text-accent hover:underline"
               >
-                {t("courseContent")}
+                {t("tab.courseContent")}
               </Link>
             ) : null}
             {detail ? (
