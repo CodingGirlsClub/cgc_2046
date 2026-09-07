@@ -27,7 +27,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
             "as_a" => "学员",
             "given" => ["无"],
             "goal" => "独立写问候程序",
-            "materials" => [%{"title" => "Python 教程", "ref" => "https://ex.io"}],
+            "materials" => [%{"kind" => "web", "title" => "Python 教程", "url" => "https://ex.io"}],
             "checklist" => [
               %{"id" => "c1", "text" => "程序能运行并正确输出"},
               %{"id" => "c2", "text" => "能讲懂代码"}
@@ -676,6 +676,87 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
       outsider = Fixtures.register_user("u7-detail-outsider")
       response2 = graphql(detail_query(course.id), sign_in_token(outsider))
       assert %{"data" => %{"courseLearningDetail" => nil}} = response2
+    end
+  end
+
+  describe "courseDraft 草稿预览（H6：tutor∪owner/admin 专属）" do
+    defp course_draft_query(course_id) do
+      """
+      query {
+        courseDraft(courseId: "#{course_id}") {
+          courseId title version prepState updatedAt content
+        }
+      }
+      """
+    end
+
+    test "owner/tutor 得 draft：version/prepState/updatedAt/content 含 goals" do
+      admin = Fixtures.platform_admin("h6-draft")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "草稿课程"})
+      save_content(workspace, admin, course)
+
+      # 活动 prep run 就位（纯读面 fetch_run 取 state；布景置位保证确定性）
+      {:ok, _run} = Cgc2046.Curriculum.Prep.ensure_active_run(course, actor: admin)
+
+      tutor = Fixtures.register_user("h6-draft-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      for staff <- [admin, tutor] do
+        response = graphql(course_draft_query(course.id), sign_in_token(staff))
+
+        assert %{"data" => %{"courseDraft" => draft}} = response
+        assert draft["courseId"] == course.id
+        assert draft["title"] == "草稿课程"
+        assert draft["version"] == 1
+        assert draft["prepState"] == "draft"
+        assert is_binary(draft["updatedAt"])
+        assert %{"goals" => ["能写程序"]} = Jason.decode!(draft["content"])
+      end
+    end
+
+    test "learner/普通成员/跨工作台成员 → null（不泄存在性）" do
+      admin = Fixtures.platform_admin("h6-null")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "草稿课程"})
+      save_content(workspace, admin, course)
+
+      learner = Fixtures.register_user("h6-null-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+      enroll(course, learner)
+
+      member = Fixtures.register_user("h6-null-member")
+      Fixtures.add_member(workspace, member, [])
+
+      outsider = Fixtures.register_user("h6-null-outsider")
+      other_admin = Fixtures.platform_admin("h6-null-other")
+      other_workspace = Fixtures.create_workspace(other_admin)
+      Fixtures.add_member(other_workspace, outsider, [:tutor])
+
+      for user <- [learner, member, outsider] do
+        response = graphql(course_draft_query(course.id), sign_in_token(user))
+        assert %{"data" => %{"courseDraft" => nil}} = response
+      end
+    end
+
+    test "无草稿 → version/content 为 null，courseId/title 仍在；课程不存在 → null" do
+      admin = Fixtures.platform_admin("h6-empty")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "空草稿课程"})
+      {:ok, _run} = Cgc2046.Curriculum.Prep.ensure_active_run(course, actor: admin)
+
+      response = graphql(course_draft_query(course.id), sign_in_token(admin))
+
+      assert %{"data" => %{"courseDraft" => draft}} = response
+      assert draft["courseId"] == course.id
+      assert draft["title"] == "空草稿课程"
+      assert is_nil(draft["version"])
+      assert draft["prepState"] == "draft"
+      assert is_nil(draft["updatedAt"])
+      assert is_nil(draft["content"])
+
+      missing = graphql(course_draft_query(Ecto.UUID.generate()), sign_in_token(admin))
+      assert %{"data" => %{"courseDraft" => nil}} = missing
     end
   end
 end

@@ -6,8 +6,7 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
 
   - myWorkspaceToolCalls：workspace 成员 + 仅本人（本人可见 / 他人不可见 /
     非成员拒 / params 不在返回形状）
-  - listWorkflowRuns / getWorkflowRun 扩展读取面：definition { type } +
-    steps { step_key title type output_schema }（成员可读 / 跨租户拒 / 版本绑定）
+  - learning 状态不通过 raw WorkflowRun 查询面暴露
 
   端到端解析走 ConnCase /api/graphql（完整 AshGraphQL pipeline + read policy）。
   """
@@ -140,7 +139,9 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
 
     # 学习 run 协议路径：:start（pending → running，不经 Engine）
     {:ok, run, :created} =
-      WorkflowRun.find_or_create_and_start(workspace.id, published, %{}, start_action: :start)
+      WorkflowRun.find_or_create_and_start(workspace.id, published, %{"user_id" => admin.id},
+        start_action: :start
+      )
 
     {admin, workspace, published, run}
   end
@@ -252,138 +253,6 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
 
       assert %{"errors" => errors} = res
       assert Enum.any?(errors, &(&1["message"] == "forbidden"))
-    end
-  end
-
-  describe "steps 读取面（plan 020 U3：definition{type} + steps）" do
-    test "成员可读：definition.type + steps（step_key/title/type/output_schema）" do
-      {admin, _workspace, _defn, run} = seeded_learning_run()
-      token = sign_in_token(admin.email, Fixtures.password())
-
-      query = """
-      query {
-        getWorkflowRun(id: "#{run.id}") {
-          id
-          definition { type version }
-          steps
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), query, token)
-
-      assert %{
-               "data" => %{
-                 "getWorkflowRun" => %{
-                   "id" => id,
-                   "definition" => %{"type" => "learning", "version" => 1},
-                   "steps" => steps
-                 }
-               }
-             } = res
-
-      assert id == run.id
-      assert is_list(steps) and length(steps) == 2
-
-      # steps 是 JsonString 数组：解析后为 step_key/title/type/output_schema
-      parsed = Enum.map(steps, &Jason.decode!/1)
-
-      assert %{
-               "step_key" => "module_reading",
-               "title" => "module_reading",
-               "type" => "manual",
-               "output_schema" => %{
-                 "name" => "reading",
-                 "type" => "string",
-                 "label" => "阅读产出",
-                 "optional" => false
-               }
-             } = Enum.find(parsed, &(&1["step_key"] == "module_reading"))
-
-      # 旧数据兼容：无 output_schema 的步骤 → null
-      assert %{"step_key" => "final_reflection", "output_schema" => nil} =
-               Enum.find(parsed, &(&1["step_key"] == "final_reflection"))
-    end
-
-    test "跨租户拒：非成员读不到 run（列表空 + getWorkflowRun null）" do
-      {_admin, workspace, _defn, run} = seeded_learning_run()
-      outsider = Fixtures.register_user("agents-outsider2")
-      token = sign_in_token(outsider.email, Fixtures.password())
-
-      list_query = """
-      query {
-        listWorkflowRuns(filter: {workspaceId: {eq: "#{workspace.id}"}}) {
-          count
-          results { id definition { type } steps }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), list_query, token)
-
-      assert %{
-               "data" => %{
-                 "listWorkflowRuns" => %{"count" => 0, "results" => []}
-               }
-             } = res
-
-      get_query = """
-      query {
-        getWorkflowRun(id: "#{run.id}") {
-          id definition { type } steps
-        }
-      }
-      """
-
-      res2 = graphql_post(build_conn(), get_query, token)
-      assert %{"data" => %{"getWorkflowRun" => nil}} = res2
-    end
-
-    test "版本绑定：run 按创建时绑定版本读 steps，不读最新定义" do
-      {admin, workspace, defn_v1, run} = seeded_learning_run()
-
-      # new_version → draft v2（复制 v1 步骤），追加 extra_step 后发布
-      {:ok, draft_v2} =
-        WorkflowDefinition
-        |> Ash.Changeset.for_create(
-          :new_version,
-          %{source_definition_id: defn_v1.id},
-          tenant: workspace.id,
-          actor: admin
-        )
-        |> Ash.create(tenant: workspace.id, actor: admin)
-
-      create_step(workspace, admin, draft_v2, "extra_step")
-      published_v2 = publish_definition(draft_v2, workspace, admin)
-
-      assert published_v2.version == 2
-
-      token = sign_in_token(admin.email, Fixtures.password())
-
-      query = """
-      query {
-        getWorkflowRun(id: "#{run.id}") {
-          definition { type version }
-          steps
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), query, token)
-
-      assert %{
-               "data" => %{
-                 "getWorkflowRun" => %{
-                   "definition" => %{"type" => "learning", "version" => 1},
-                   "steps" => steps
-                 }
-               }
-             } = res
-
-      # v1 绑定：只有 module_reading + final_reflection，无 v2 新增的 extra_step
-      parsed = Enum.map(steps, &Jason.decode!/1)
-      step_keys = Enum.map(parsed, & &1["step_key"]) |> Enum.sort()
-      assert step_keys == ["final_reflection", "module_reading"]
     end
   end
 end

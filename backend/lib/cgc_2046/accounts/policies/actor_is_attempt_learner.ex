@@ -34,8 +34,8 @@ defmodule Cgc2046.Accounts.Policies.ActorIsAttemptLearner do
          {:ok, %WorkflowRun{} = run} <-
            Ash.get(WorkflowRun, run_id, tenant: tenant, authorize?: false) do
       run.workspace_id == tenant and
-        is_map(run.input_snapshot) and
-        Map.get(run.input_snapshot, "user_id") == actor.id
+        (run.subject_user_id == actor.id or
+           (is_map(run.input_snapshot) and Map.get(run.input_snapshot, "user_id") == actor.id))
     else
       _ -> false
     end

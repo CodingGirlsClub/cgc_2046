@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import LearningTab, {
 	ParticipationsTabs,
@@ -171,6 +171,25 @@ describe("LearningTab（S8 objective 口径）", () => {
 		expect(screen.getByText(/有新版/)).toBeTruthy();
 		// 进度文本
 		expect(screen.getByText(/必修已掌握 1\/2/)).toBeTruthy();
+	});
+
+	it("回归（H7）：课程内容链接渲染真实 zh-CN 文案，不出现裸 key", async () => {
+		render(<LearningTab runs={[RUN_DONE]} />);
+
+		// 行内链接（原 learning-tab.tsx:154 裸 key 位）
+		const rowLink = screen.getByTestId("learning-course-link");
+		expect(rowLink.textContent).toContain("查看课程内容");
+		expect(rowLink.textContent).not.toContain("learning.courseContent");
+		expect(rowLink.textContent).not.toContain("learning.tab.courseContent");
+
+		// 抽屉内链接（原 :287 同 key 位）
+		fireEvent.click(screen.getAllByTestId("learning-run-row")[0]);
+		await waitFor(() => {
+			expect(screen.getByTestId("objective-drawer")).toBeTruthy();
+		});
+		const drawer = screen.getByTestId("objective-drawer");
+		const drawerLink = within(drawer).getByRole("link", { name: "查看课程内容" });
+		expect(drawerLink.textContent).not.toContain("learning.courseContent");
 	});
 
 	it("抽屉渲染四态地图/锁定先修/选修 chip/尝试次数/next_action/CTA", async () => {

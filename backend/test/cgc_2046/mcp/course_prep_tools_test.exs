@@ -1645,6 +1645,50 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert %{passed: false, violations: [msg]} = PrepGate.check(course, no_rubric)
       assert msg =~ "rubric 为空"
     end
+
+    test "材料协议违规复用 Content.material_violations 报告（位置路径 + 错误码，H3/H4）" do
+      course = %Course{provisional_title: false}
+
+      issue = %{
+        "id" => "i1",
+        "kind" => "handwork",
+        "title" => "卡",
+        "story" => %{
+          "checklist" => [%{"id" => "c1", "text" => "项"}],
+          "materials" => [%{"title" => "旧链接", "ref" => "https://example.com"}]
+        },
+        "objectives" => [
+          %{
+            "id" => "o1",
+            "title" => "单元一",
+            "rubric" => [%{"id" => "r1", "text" => "达标"}],
+            "materials" => [
+              %{
+                "kind" => "video",
+                "title" => "视频",
+                "provider" => "bilibili",
+                "external_id" => "BV1Q541167Qg",
+                "access_scope" => "enrolled"
+              }
+            ]
+          }
+        ]
+      }
+
+      output = %Output{data: %{"goals" => ["目标"], "issues" => [issue]}}
+
+      assert %{passed: false, violations: violations} = PrepGate.check(course, output)
+
+      assert Enum.any?(
+               violations,
+               &(&1 =~ ~s(issue "i1" story.materials[0]: legacy_material_ref))
+             )
+
+      assert Enum.any?(
+               violations,
+               &(&1 =~ ~s(issue "i1" objective "o1" materials[0]: invalid_material_access_scope))
+             )
+    end
   end
 
   # ── 低于阈值与覆盖（R27/AE5） ---------------------------------------------------

@@ -12,7 +12,7 @@ defmodule Cgc2046.Curriculum.Content do
         "title" => "写你的第一个程序",
         "story" => %{
           "as_a" => ..., "given" => [...], "goal" => ...,
-          "materials" => [%{"title" => ..., "ref" => ...}],
+          "materials" => [%{"kind" => "web", "title" => ..., "url" => "https://..."}],
           "checklist" => [%{"id" => "c1", "text" => ...}]
         },
         "objectives" => [
@@ -21,7 +21,7 @@ defmodule Cgc2046.Curriculum.Content do
             "title" => "能独立运行问候程序",
             "required" => true,
             "prereq_ids" => [],
-            "materials" => [%{"title" => ..., "ref" => ...}],
+            "materials" => [%{"kind" => "web", "title" => ..., "url" => "https://..."}],
             "activity" => "...", "assessment" => "...",
             "rubric" => [%{"id" => "r1", "text" => "程序能运行并输出问候"}]
           }
@@ -45,10 +45,20 @@ defmodule Cgc2046.Curriculum.Content do
   """
 
   @issue_kinds ["thoughtwork", "handwork"]
+  @material_kinds ["text", "markdown", "web", "image", "video"]
+  @video_providers ["bilibili"]
 
   @doc "issue kind 二分(证据在哪为界:thoughtwork 对话 / handwork 产物)。"
   @spec issue_kinds() :: [String.t()]
   def issue_kinds, do: @issue_kinds
+
+  @doc "Typed material kinds accepted by the shared Web/MCP/extension contract."
+  @spec material_kinds() :: [String.t()]
+  def material_kinds, do: @material_kinds
+
+  @doc "Video providers currently supported by the first-party renderer."
+  @spec video_providers() :: [String.t()]
+  def video_providers, do: @video_providers
 
   @doc """
   结构性校验 course content(保存时全规则 = v1 形状 + objectives 强制存在):
@@ -78,6 +88,8 @@ defmodule Cgc2046.Curriculum.Content do
   def valid_v1?(content) when is_map(content) do
     with true <- non_empty_goals?(content),
          {:ok, issues} <- issues_or_error(content),
+         true <- valid_chapters?(content),
+         true <- valid_issue_chapter_refs?(content, issues),
          true <- Enum.all?(issues, &valid_issue?/1),
          true <- unique_issue_ids?(issues) do
       true
@@ -132,7 +144,7 @@ defmodule Cgc2046.Curriculum.Content do
 
   - per-objective 形状:`id`/`title` 非空字符串;`required` 布尔(缺省 true);
     `prereq_ids` 为字符串数组;`activity`/`assessment` 为字符串(可空串);
-    `materials` 为 `%{title, ref}` 数组;`rubric` 非空且条目 `{id, text}`、
+    `materials` 为 typed Material 数组;`rubric` 非空且条目 `{id, text}`、
     id 在 objective 内唯一;
   - 课程级:objective `id` 全课程唯一;`prereq_ids` 引用必须存在;
     先修关系构成 DAG(无环、无自引用)。
@@ -183,6 +195,13 @@ defmodule Cgc2046.Curriculum.Content do
 
   def objectives_with_issue(_content), do: []
 
+  @doc "Return the optional narrative chapters, dropping malformed entries."
+  @spec chapters(term()) :: [map()]
+  def chapters(%{"chapters" => chapters}) when is_list(chapters),
+    do: Enum.filter(chapters, &is_map/1)
+
+  def chapters(_content), do: []
+
   @doc """
   issue key 展示层派生(KTD6):课程 slug 短码大写截短 + issue 序号(1 起,
   补零两位),如 "PY-02"。不入库;Web 与扩展共用此形状约定。
@@ -227,6 +246,102 @@ defmodule Cgc2046.Curriculum.Content do
 
   def checklist_item_ids(_issue), do: []
 
+  @doc """
+  逐条报告材料协议错误（保存校验 ContentValidation 与发布门禁 PrepGate 共用
+  的同一份违规报告，H3/H4）；旧 {title, ref} 草稿必须重新保存为 typed Material。
+
+  每条格式 `<位置路径>: <错误码>，<说明>`——位置路径精确到
+  `issue "<id>" story.materials[<i>]` 或 `issue "<id>" objective "<id>" materials[<i>]`；
+  错误码机读：
+
+  - `legacy_material_ref`：旧 `{title, ref}` 材料，需重新保存为 typed Material；
+  - `invalid_material_access_scope`：显式 `access`/`access_scope` 键仅允许 `"public"`；
+  - `missing_material_metadata`：image 材料缺 trim 后非空的 `alt_text`；
+  - `invalid_material_source`：来源/形状不合法（非 https URL、未知 provider、
+    缺 body、未知或缺失 kind 等）。
+  """
+  @spec material_violations(term()) :: [String.t()]
+  def material_violations(content) when is_map(content) do
+    content
+    |> issues()
+    |> Enum.flat_map(fn issue ->
+      issue_label = if is_map(issue), do: Map.get(issue, "id", "issue"), else: "issue"
+      story_materials = if is_map(issue), do: get_in(issue, ["story", "materials"]), else: nil
+
+      story_violations =
+        story_materials
+        |> List.wrap()
+        |> Enum.with_index()
+        |> Enum.flat_map(fn {material, index} ->
+          material_violation(material, ~s(issue "#{issue_label}" story.materials[#{index}]))
+        end)
+
+      objective_violations =
+        if is_map(issue) and is_list(issue["objectives"]) do
+          Enum.flat_map(issue["objectives"], fn objective ->
+            objective_label =
+              if is_map(objective), do: Map.get(objective, "id", "objective"), else: "objective"
+
+            materials =
+              if is_map(objective) and is_list(objective["materials"]),
+                do: objective["materials"],
+                else: []
+
+            materials
+            |> Enum.with_index()
+            |> Enum.flat_map(fn {material, index} ->
+              material_violation(
+                material,
+                ~s(issue "#{issue_label}" objective "#{objective_label}" materials[#{index}])
+              )
+            end)
+          end)
+        else
+          []
+        end
+
+      story_violations ++ objective_violations
+    end)
+  end
+
+  def material_violations(_content), do: []
+
+  # 单条材料的协议违规分类（nil = 合规）。优先级：legacy 整条重存 >
+  # 显式 access scope 语义键 > image 元数据 > 来源/形状——每条材料报一行,
+  # 首要违规即行动指引。
+  defp material_violation(material, path) do
+    case material_error_code(material) do
+      nil -> []
+      {code, detail} -> ["#{path}: #{code}，#{detail}"]
+    end
+  end
+
+  defp material_error_code(material) do
+    cond do
+      is_map(material) and Map.has_key?(material, "ref") ->
+        {:legacy_material_ref, "旧 {title, ref} 材料需重新保存为 typed Material"}
+
+      not valid_material_scope?(material) ->
+        {:invalid_material_access_scope, ~s/access\/access_scope 仅允许 "public"/}
+
+      image_missing_alt?(material) ->
+        {:missing_material_metadata, "image 材料须含 trim 后非空的 alt_text"}
+
+      not valid_material?(material) ->
+        {:invalid_material_source, "材料来源不合法（kind/URL/provider/body 约束）"}
+
+      true ->
+        nil
+    end
+  end
+
+  defp image_missing_alt?(material) when is_map(material) do
+    material["kind"] == "image" and https_url?(material["url"]) and
+      not non_blank_string?(material["alt_text"])
+  end
+
+  defp image_missing_alt?(_material), do: false
+
   # --- 私有实现(v1) ------------------------------------------------------------
 
   defp non_empty_goals?(content) do
@@ -251,7 +366,8 @@ defmodule Cgc2046.Curriculum.Content do
          true <- issue["kind"] in @issue_kinds,
          true <- non_empty_string?(issue["title"]),
          true <- is_map(issue["story"]),
-         true <- valid_checklist?(issue["story"]["checklist"]) do
+         true <- valid_checklist?(issue["story"]["checklist"]),
+         true <- valid_materials?(issue["story"]["materials"]) do
       true
     else
       _ -> false
@@ -265,6 +381,36 @@ defmodule Cgc2046.Curriculum.Content do
   end
 
   defp valid_checklist?(_checklist), do: false
+
+  defp valid_chapters?(content) do
+    case Map.get(content, "chapters") do
+      nil ->
+        true
+
+      chapters when is_list(chapters) ->
+        ids = Enum.map(chapters, &if(is_map(&1), do: &1["id"], else: nil))
+
+        Enum.all?(chapters, fn chapter ->
+          is_map(chapter) and non_empty_string?(chapter["id"]) and
+            non_empty_string?(chapter["title"])
+        end) and length(ids) == length(Enum.uniq(ids))
+
+      _ ->
+        false
+    end
+  end
+
+  defp valid_issue_chapter_refs?(content, issues) do
+    chapter_ids = MapSet.new(Enum.map(chapters(content), & &1["id"]))
+
+    Enum.all?(issues, fn issue ->
+      case issue["chapter_id"] do
+        nil -> true
+        chapter_id when is_binary(chapter_id) -> MapSet.member?(chapter_ids, chapter_id)
+        _ -> false
+      end
+    end)
+  end
 
   # R2:checklist item id 在 issue 内唯一(学习记录 item_id 的匹配目标)
   defp unique_checklist_ids?(checklist) do
@@ -289,7 +435,7 @@ defmodule Cgc2046.Curriculum.Content do
       {valid_prereq_shape?(objective), "#{label} 的 prereq_ids 须为 objective id 字符串数组"},
       {valid_optional_string?(objective, "activity"), "#{label} 的 activity 须为字符串(可为空串)"},
       {valid_optional_string?(objective, "assessment"), "#{label} 的 assessment 须为字符串(可为空串)"},
-      {valid_materials?(objective), "#{label} 的 materials 须为 %{title, ref} 数组"}
+      {valid_materials?(objective["materials"]), "#{label} 的 materials 形状不合法"}
     ]
 
     for({false, message} <- checks, do: message) ++ rubric_violations(objective, label)
@@ -324,20 +470,65 @@ defmodule Cgc2046.Curriculum.Content do
     end
   end
 
-  defp valid_materials?(objective) do
-    case objective["materials"] do
+  defp valid_materials?(materials) do
+    case materials do
       nil ->
         true
 
       materials when is_list(materials) ->
-        Enum.all?(materials, fn item ->
-          is_map(item) and is_binary(item["title"]) and is_binary(item["ref"])
-        end)
+        Enum.all?(materials, &valid_material?/1)
 
       _ ->
         false
     end
   end
+
+  # H3/H4：image 除 https URL 外须带 trim 后非空的 alt_text（无 alt 的图对读屏
+  # 与弱网均为死内容）；显式语义键 access/access_scope 仅允许 "public"（材料随
+  # 内容公开分发，enrolled/workspace 等收窄值拒绝）——缺键放行（向后兼容既有
+  # typed 材料），未知展示键不参与判定（保 round-trip）。
+  defp valid_material?(%{"kind" => kind} = material) when kind in @material_kinds do
+    kind_valid? =
+      case kind do
+        kind when kind in ["text", "markdown"] ->
+          is_binary(material["body"])
+
+        "web" ->
+          https_url?(material["url"])
+
+        "image" ->
+          https_url?(material["url"]) and non_blank_string?(material["alt_text"])
+
+        "video" ->
+          material["provider"] in @video_providers and valid_bilibili_id?(material["external_id"])
+      end
+
+    kind_valid? and valid_material_scope?(material)
+  end
+
+  defp valid_material?(_), do: false
+
+  defp valid_material_scope?(material) when is_map(material) do
+    Enum.all?(["access", "access_scope"], fn key ->
+      not Map.has_key?(material, key) or material[key] == "public"
+    end)
+  end
+
+  defp valid_material_scope?(_material), do: true
+
+  defp non_blank_string?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp https_url?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host, userinfo: nil} when is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+
+  defp https_url?(_), do: false
+
+  defp valid_bilibili_id?(id) when is_binary(id), do: Regex.match?(~r/^BV[0-9A-Za-z]{10}$/, id)
+  defp valid_bilibili_id?(_), do: false
 
   # 每个 objective 必须配非空 rubric(≥1 条 {id, text},id 组内唯一)——Rubric 是
   # 掌握的判定标准,空 rubric = 不可判定(R38)
@@ -480,11 +671,25 @@ defmodule Cgc2046.Curriculum.ContentValidation do
   非法内容在入库前拒绝(fail-fast),错误挂 `:data` 字段。schema v2(S6):
   objectives 强制至少一个且全规则校验(与发布门禁对齐,校验前移——UAT
   journey 发现两级校验不一致导致 v1-only 草稿多一轮往返)。
+
+  材料协议违规(H3/H4)随保存错误透出 `Content.material_violations/1` 的同一份
+  报告——结构化错误码(legacy_material_ref / invalid_material_access_scope /
+  missing_material_metadata / invalid_material_source)+ issue/objective/
+  material 位置路径,教研 Agent 可按码定位修复。
   """
 
   use Ash.Resource.Validation
 
   alias Cgc2046.Curriculum.Content
+
+  @base_message "course content must be %{goals: non-empty string list, issues: non-empty list of " <>
+                  "issue cards (id/kind/title/story required, kind in [thoughtwork, handwork], " <>
+                  "non-empty checklist with unique-in-issue item ids, issue ids unique in deck; " <>
+                  "objectives required (at least one course-wide, non-empty per issue cards) — " <>
+                  "id unique course-wide, non-empty title, " <>
+                  "required boolean (default true), prereq_ids referencing existing objective ids " <>
+                  "forming a DAG, activity/assessment strings, typed materials (kind + constrained source), " <>
+                  "non-empty rubric with unique-in-objective criterion ids))"
 
   @impl true
   def validate(changeset, _opts, _context) do
@@ -496,18 +701,15 @@ defmodule Cgc2046.Curriculum.ContentValidation do
         if Content.valid?(content) do
           :ok
         else
-          {:error,
-           field: :data,
-           message:
-             "course content must be %{goals: non-empty string list, issues: non-empty list of " <>
-               "issue cards (id/kind/title/story required, kind in [thoughtwork, handwork], " <>
-               "non-empty checklist with unique-in-issue item ids, issue ids unique in deck; " <>
-               "objectives required (at least one course-wide, non-empty per issue cards) — " <>
-               "id unique course-wide, non-empty title, " <>
-               "required boolean (default true), prereq_ids referencing existing objective ids " <>
-               "forming a DAG, activity/assessment strings, materials [{title, ref}], " <>
-               "non-empty rubric with unique-in-objective criterion ids))"}
+          {:error, field: :data, message: message(content)}
         end
+    end
+  end
+
+  defp message(content) do
+    case Content.material_violations(content) do
+      [] -> @base_message
+      violations -> @base_message <> "; material violations: " <> Enum.join(violations, "; ")
     end
   end
 end

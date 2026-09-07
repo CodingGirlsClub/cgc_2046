@@ -355,23 +355,17 @@ describe("工作区概览页 /w/[slug] (#74)", () => {
 		expect(link).toHaveAttribute("href", "/w/cgc-academy/settings/permissions");
 	});
 
-	it("Workflow 产出、活动与课程为真实链接卡（切片 C/E 已落地，plan 016 替换过期占位卡）", async () => {
+	it("活动与课程为真实链接卡", async () => {
 		render(<WorkspacePage />);
 		const main = await content();
-		const link = main.getByRole("link", { name: /Workflow 产出/ });
-		expect(link).toHaveAttribute("href", "/w/cgc-academy/workflows");
+		expect(main.queryByText("Workflow 产出")).not.toBeInTheDocument();
 		const agentsLink = main.getByRole("link", { name: /Agents 与助手协作/ });
 		expect(agentsLink).toHaveAttribute("href", "/w/cgc-academy/agents");
-		// plan 020 U1 新增 Agents 卡后 /活动/ 会同时命中「查看助手活动…」——锚定卡片名前缀
 		const eventsLink = main.getByRole("link", { name: /^活动/ });
 		expect(eventsLink).toHaveAttribute("href", "/w/cgc-academy/events");
 		const coursesLink = main.getByRole("link", { name: /课程/ });
 		expect(coursesLink).toHaveAttribute("href", "/w/cgc-academy/courses");
 		expect(main.queryByText("报名 / 赞助")).not.toBeInTheDocument();
-		expect(main.queryByText(/切片 E|即将开放|草稿/)).not.toBeInTheDocument();
-		expect(eventsLink).toHaveTextContent("活动");
-		expect(eventsLink).toHaveTextContent("报名");
-		expect(eventsLink.textContent).not.toMatch(/管理/);
 	});
 
 	it("member 视角同样渲染活动与课程入口卡且无 jargon", async () => {

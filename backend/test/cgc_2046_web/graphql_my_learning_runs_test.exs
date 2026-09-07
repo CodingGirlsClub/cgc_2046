@@ -117,7 +117,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
         %{
           definition_id: definition_b.id,
           definition_version: definition_b.version,
-          input_snapshot: %{"enrollment_id" => enrollment_a.id}
+          input_snapshot: %{"enrollment_id" => enrollment_a.id, "user_id" => learner_b.id}
         },
         tenant: workspace_b.id,
         authorize?: false
@@ -174,7 +174,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
       %{
         definition_id: definition.id,
         definition_version: definition.version,
-        input_snapshot: %{"enrollment_id" => enrollment.id}
+        input_snapshot: %{"enrollment_id" => enrollment.id, "user_id" => enrollment.user_id}
       },
       tenant: workspace.id,
       authorize?: false
