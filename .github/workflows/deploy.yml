@@ -21,6 +21,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # cgc-playbooks 在私有仓库变更后通过 repository_dispatch 触发后端重建，
+  # 避免 tutor supplement 内容变化无法进入部署流水线（Issue #432）。
+  repository_dispatch:
+    types: [tutor-playbook-updated]
 
 concurrency:
   group: deploy-production
@@ -52,6 +56,11 @@ jobs:
         run: |
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "web=true" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "web=false" >> "$GITHUB_OUTPUT"
+            echo "外部 tutor playbook 变更事件：仅部署 backend" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           [ "${{ github.event_name }}" = "push" ] || exit 0
           # 基线 = 最后一次成功 Deploy run 的 headSha，而非 event.before：
           # event.before 隐含「上次部署成功」假设——上次失败时，失败未上线

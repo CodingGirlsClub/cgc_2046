@@ -31,8 +31,8 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
         with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
              {:ok, course} <- fetch_course(workspace_id, course_id),
-             {:ok, output} <- fetch_content(workspace_id, course_id) do
-          content = output.data || %{}
+             {:ok, source} <- fetch_visible_content(actor, workspace_id, course_id) do
+          {content, version} = source
 
           issues =
             (content["issues"] || [])
@@ -49,7 +49,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
            %{
              course_id: course_id,
              course_title: course.title,
-             version: output.version,
+             version: version,
              goals: content["goals"] || [],
              chapters: content["chapters"] || [],
              issues: issues
@@ -87,6 +87,23 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
 
       {:error, _} ->
         {:error, "failed to load course content"}
+    end
+  end
+
+  # Staff reads the mutable draft; enrolled learners and prior run holders only
+  # read the immutable latest published revision. This prevents the draft from
+  # becoming an accidental learner API.
+  defp fetch_visible_content(actor, workspace_id, course_id) do
+    if LearnerAuthorization.staff?(actor, workspace_id) do
+      with {:ok, output} <- fetch_content(workspace_id, course_id) do
+        {:ok, {output.data || %{}, output.version}}
+      end
+    else
+      case Cgc2046.Curriculum.latest_revision(workspace_id, course_id) do
+        {:ok, nil} -> {:error, "no published revision for course #{course_id}"}
+        {:ok, revision} -> {:ok, {revision.content || %{}, revision.number}}
+        {:error, _} -> {:error, "failed to load course revision"}
+      end
     end
   end
 end

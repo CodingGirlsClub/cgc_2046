@@ -427,7 +427,6 @@ export type CourseFilterInput = {
   title?: InputMaybe<CourseFilterTitle>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<CourseFilterVisibility>;
-  workflowRun?: InputMaybe<FilterInput>;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: InputMaybe<CourseFilterWorkflowRunId>;
   /** 所属工作台（租户）ID */

@@ -51,10 +51,36 @@
     return url;
   }
 
+  function markdownMarkup(body) {
+    return String(body || "").split(/\n+/).map(function (line) {
+      var s = escapeHtml(line.trim()); if (!s) return "";
+      s = s.replace(/^###\s+(.+)$/, "<h5>$1</h5>").replace(/^##\s+(.+)$/, "<h4>$1</h4>").replace(/^#\s+(.+)$/, "<h3>$1</h3>");
+      s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+      s = s.replace(/\[([^\]]+)\]\((https:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      return /^[-*]\s+/.test(s) ? "<li>" + s.replace(/^[-*]\s+/, "") + "</li>" : "<p>" + s + "</p>";
+    }).join("");
+  }
+
+  function materialMarkup(material) {
+    if (!material || material.ref || !material.kind) return '<span class="cgch-empty">材料需要重新保存为 typed Material</span>';
+    var title = escapeHtml(material.title || "材料");
+    if (material.kind === "text") return '<div class="cgla-material"><strong>' + title + '</strong><p>' + escapeHtml(material.body || "") + '</p></div>';
+    if (material.kind === "markdown") return '<div class="cgla-material"><strong>' + title + '</strong>' + markdownMarkup(material.body) + '</div>';
+    if (material.kind === "image") {
+      var imageUrl = safeMaterialUrl(material);
+      if (!imageUrl || !material.alt_text) return '<span class="cgch-empty">图片来源或 alt_text 无效</span>';
+      return '<figure class="cgla-material"><img src="' + escapeHtml(imageUrl) + '" alt="' + escapeHtml(material.alt_text) + '" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>图片加载失败</span><figcaption>' + title + '</figcaption></figure>';
+    }
+    if (material.kind === "video") {
+      if (material.provider !== "bilibili" || !/^BV[0-9A-Za-z]{10,12}$/.test(String(material.external_id || ""))) return '<span class="cgch-empty">视频来源或 ID 无效</span>';
+      return '<a class="cgla-material cgla-mat-ref" href="https://www.bilibili.com/video/' + encodeURIComponent(material.external_id) + '" target="_blank" rel="noopener noreferrer">▶ ' + title + '</a>';
+    }
+    var url = safeMaterialUrl(material);
+    return url ? '<a class="cgla-material cgla-mat-ref" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : '<span class="cgch-empty">材料来源无效</span>';
+  }
+
   function materialLinkMarkup(material) {
-    const url = safeMaterialUrl(material);
-    if (!url) return '<span class="cgch-empty">需重新保存为安全的 typed Material</span>';
-    return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(material.title || url) + '</a>';
+    return materialMarkup(material);
   }
 
   function toast(message) {

@@ -152,7 +152,6 @@ export type CourseFilterInput = {
   title?: CourseFilterTitle | null | undefined;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: CourseFilterVisibility | null | undefined;
-  workflowRun?: FilterInput | null | undefined;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: CourseFilterWorkflowRunId | null | undefined;
   /** 所属工作台（租户）ID */

@@ -765,9 +765,10 @@
     });
     const content = Object.assign({}, state.draftContent, {
       goals: state.draft.goals,
-      chapters: state.draft.chapters || [],
       issues: issues
     });
+    // 不要在旧内容没有 chapters 时凭空新增空数组，保证严格 round-trip。
+    if (Array.isArray(state.draft.chapters) && (state.draftHasChapters || state.draft.chapters.length)) content.chapters = state.draft.chapters;
     delete content.version;
     state.saving = true;
     state.saveError = null;
@@ -822,6 +823,7 @@
         chapters: JSON.parse(JSON.stringify(Array.isArray(content.chapters) ? content.chapters : [])),
         issues: JSON.parse(JSON.stringify(Array.isArray(content.issues) ? content.issues : []))
       };
+      state.draftHasChapters = Array.isArray(content.chapters);
       state.editing = true;
       state.conflict = null;
       state.updateNotice = false;

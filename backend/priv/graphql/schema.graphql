@@ -1223,7 +1223,6 @@ input CourseFilterInput {
   "是否收费（默认免费；true 时报名须选档并完成支付，R4）"
   pricingEnabled: CourseFilterPricingEnabled
 
-  workflowRun: FilterInput
 }
 
 input CourseSortInput {
