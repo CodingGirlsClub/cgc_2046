@@ -10,7 +10,7 @@
  * - AdminActionLog（治理操作）：平台级日志，无 workspace/状态维度，仅时间范围生效
  */
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
 	fetchAdminActionLogs,
 	fetchPendingOperations,
@@ -109,7 +109,9 @@ function workflowRunToRow(run: WorkflowRunItem): AuditRow {
 	return {
 		id: run.id,
 		time: run.startedAt,
-		identity: run.definitionId,
+		identity: run.definitionType,
+		// L4:失败 run 的脱敏错误摘要(后端仅对 status=failed 返回常量 "workflow_failed")
+		summary: run.errorSummary ?? undefined,
 		status: run.status,
 	};
 }
@@ -155,6 +157,7 @@ const TABS: Array<{ id: AuditTab; label: string }> = [
 
 export default function AdminAuditPage() {
 	const t = useTranslations("admin");
+	const locale = useLocale();
 	const [tab, setTab] = useState<AuditTab>("tool");
 	const [workspaceId, setWorkspaceId] = useState("");
 	const [status, setStatus] = useState("");
@@ -234,10 +237,11 @@ export default function AdminAuditPage() {
 	};
 
 	return (
-		<section>
+		<section data-testid="platform-audit-page">
 			<div className="admin-page__head">
 				<h1>{t("auditTitle")}</h1>
 			</div>
+			<p className="admin-muted" data-testid="audit-redaction-notice">{t("auditRedactionNotice")}</p>
 
 			<div className="admin-toolbar">
 				<div className="admin-tabs">
@@ -331,7 +335,7 @@ export default function AdminAuditPage() {
 								<tr key={row.id}>
 									<td>
 										{row.time
-											? new Date(row.time).toLocaleString("zh-CN")
+											? new Date(row.time).toLocaleString(locale === "en" ? "en-US" : "zh-CN")
 											: "—"}
 									</td>
 									<td>

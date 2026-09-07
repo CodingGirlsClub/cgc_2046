@@ -236,8 +236,7 @@ export default function WorkspacePage() {
 								</div>
 							)}
 
-						{/* 教研产出入口（切片 C 已落地，见 workflows 页；plan 016 替换过期占位卡）。
-						    报名/赞助（切片 E）仍为占位：视觉降级虚线边框 + 「即将开放」角标 */}
+						{/* 工作区入口卡：Agents 协作引导 + 活动/课程列表（plan 016 占位卡已全退役） */}
 						<div className="mt-4 grid gap-4 sm:grid-cols-2">
 							{/* plan 020 U1：Agents 与助手协作引导卡 → /w/[slug]/agents */}
 							<Link
@@ -253,25 +252,6 @@ export default function WorkspacePage() {
 									</span>
 									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
 										{t("agentsDesc")}
-									</span>
-								</span>
-								<span className="flex-none text-ink-3">
-									<Icon name="arrow" />
-								</span>
-							</Link>
-							<Link
-								href={`/w/${slug}/workflows`}
-								className="flex items-center gap-4 rounded-large border border-line bg-card p-6"
-							>
-								<span className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-line-strong bg-soft-2 text-accent">
-									<Icon name="book" />
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="block text-sm font-medium text-ink">
-										{t("workflowTitle")}
-									</span>
-									<span className="mt-1 block text-[13px] leading-5 text-ink-3">
-										{t("workflowDesc")}
 									</span>
 								</span>
 								<span className="flex-none text-ink-3">

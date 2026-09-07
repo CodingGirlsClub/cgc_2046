@@ -90,7 +90,7 @@ export function serializeSponsorshipTier(tier: SponsorshipTierConfig): string {
 /**
  * E-3 #48：sponsorshipTiers 是 JsonString 数组（每项 JSON 编码字符串），
  * 逐项 JSON.parse 为 SponsorshipTierConfig；解析失败/结构非法项静默丢弃
- * （展示层不假定结构，同 workflows.ts parseJsonString 纪律）。
+ * （展示层不假定结构：宽松解析，非法项不拖垮整批）。
  */
 export function parseSponsorshipTiers(
 	raw: string[] | null | undefined,

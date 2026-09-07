@@ -76,17 +76,29 @@ defmodule Cgc2046.Curriculum.PrepGate do
     end
   end
 
-  # goals/issues 均非空才做整形状复核（空集违规已各报一条，避免同因多报）。
-  # 只复核 v1 形状——objective 违规由 check_objectives 逐条另报（可执行清单）。
+  # goals/issues 均非空才做形状复核（空集违规已各报一条，避免同因多报）。
+  # v1 形状违规报通用文案；材料协议违规（story 与 objective 两侧）复用
+  # Content.material_violations/1 同一份报告（H3/H4）——带位置路径与机读错误码,
+  # 与保存校验 ContentValidation 同一来源,发布门禁不出现第二种材料文案。
   defp check_shape(violations, content) do
-    if shape_checkable?(content) and not Content.valid_v1?(content) do
-      violations ++
-        [
-          "课程内容结构不合法：issue 须含非空 id/kind（thoughtwork|handwork）/title/story，" <>
-            "issue id 在卡集内唯一"
-        ]
+    if shape_checkable?(content) do
+      violations
+      |> Kernel.++(shape_violation(content))
+      |> Kernel.++(Content.material_violations(content))
     else
       violations
+    end
+  end
+
+  # 只复核 v1 形状——objective 违规由 check_objectives 逐条另报（可执行清单）。
+  defp shape_violation(content) do
+    if Content.valid_v1?(content) do
+      []
+    else
+      [
+        "课程内容结构不合法：issue 须含非空 id/kind（thoughtwork|handwork）/title/story，" <>
+          "issue id 在卡集内唯一"
+      ]
     end
   end
 

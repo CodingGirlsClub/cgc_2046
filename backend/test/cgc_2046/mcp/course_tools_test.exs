@@ -11,6 +11,8 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   5. run succeeded 后 save_learning_records 成功(AE3 缝级前置)
   6. get_learning_records 缺省 course_id 多课程;带 course_id 过滤
   7. server 注册工具数 = 60 契约断言(S10 学习分析工具后)
+  8. get_course_content 收紧为 tutor ∪ owner/admin(M4:学员/普通成员 forbidden);
+    chapters + 五类 typed materials 随草稿透出(H2,逐字段形状)
   """
   use Cgc2046.DataCase, async: true
 
@@ -158,6 +160,151 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
                save_content(learner_member, workspace, course)
 
       assert msg =~ "forbidden"
+    end
+  end
+
+  describe "场景 8:get_course_content(M4 staff-only 收紧 + H2 chapters 透出)" do
+    test "tutor 读出含 chapters 与五类非空 typed materials 的草稿(逐字段形状断言)" do
+      admin = Fixtures.platform_admin("ct-get-admin")
+      workspace = Fixtures.create_workspace(admin)
+      tutor = Fixtures.register_user("ct-get-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      course = EventFixtures.create_course(workspace, admin, %{title: "形状课"})
+
+      materials = [
+        %{"kind" => "text", "title" => "说明", "body" => "正文"},
+        %{"kind" => "markdown", "title" => "笔记", "body" => "**重点**"},
+        %{"kind" => "web", "title" => "文档", "url" => "https://example.com"},
+        %{
+          "kind" => "image",
+          "title" => "图片",
+          "url" => "https://example.com/a.png",
+          "alt_text" => "示意图"
+        },
+        %{
+          "kind" => "video",
+          "title" => "视频",
+          "provider" => "bilibili",
+          "external_id" => "BV1Q541167Qg",
+          "access_scope" => "public"
+        }
+      ]
+
+      draft = %{
+        "goals" => ["能写简单程序"],
+        "chapters" => [%{"id" => "chapter-1", "title" => "第一章"}],
+        "issues" => [
+          %{
+            "id" => "py-first-program",
+            "kind" => "handwork",
+            "title" => "写你的第一个程序",
+            "chapter_id" => "chapter-1",
+            "story" => %{
+              "as_a" => "学员",
+              "given" => [],
+              "goal" => "独立写问候程序",
+              "materials" => materials,
+              "checklist" => [%{"id" => "c1", "text" => "程序能运行"}]
+            },
+            "objectives" => [
+              %{
+                "id" => "obj-1",
+                "title" => "掌握本单元核心目标",
+                "materials" => materials,
+                "rubric" => [%{"id" => "r1", "text" => "能独立完成"}]
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:reply, _, _} = save_content(tutor, workspace, course, draft)
+
+      assert {:reply, _, _} =
+               reply =
+               GetCourseContent.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      payload = decode(reply)
+      assert payload["course_id"] == course.id
+      assert payload["course_title"] == "形状课"
+      assert payload["version"] == 1
+      assert payload["goals"] == ["能写简单程序"]
+      assert payload["chapters"] == [%{"id" => "chapter-1", "title" => "第一章"}]
+
+      assert [issue] = payload["issues"]
+      assert issue["id"] == "py-first-program"
+      assert issue["key"] =~ ~r/-01$/
+      assert issue["chapter_id"] == "chapter-1"
+
+      # 五类 typed materials 逐字段 round-trip(story 与 objective 两侧同形状)
+      assert issue["story"]["materials"] == [
+               %{"kind" => "text", "title" => "说明", "body" => "正文"},
+               %{"kind" => "markdown", "title" => "笔记", "body" => "**重点**"},
+               %{"kind" => "web", "title" => "文档", "url" => "https://example.com"},
+               %{
+                 "kind" => "image",
+                 "title" => "图片",
+                 "url" => "https://example.com/a.png",
+                 "alt_text" => "示意图"
+               },
+               %{
+                 "kind" => "video",
+                 "title" => "视频",
+                 "provider" => "bilibili",
+                 "external_id" => "BV1Q541167Qg",
+                 "access_scope" => "public"
+               }
+             ]
+
+      assert [%{"id" => "obj-1", "materials" => objective_materials}] = issue["objectives"]
+      assert objective_materials == issue["story"]["materials"]
+    end
+
+    test "confirmed 学员与非 staff 成员 → forbidden;owner/admin → 放行且含 chapters" do
+      owner = Fixtures.platform_admin("ct-m4-owner")
+      workspace = Fixtures.create_workspace(owner)
+      admin_member = Fixtures.register_user("ct-m4-admin")
+      Fixtures.add_member(workspace, admin_member, [:admin])
+      plain_member = Fixtures.register_user("ct-m4-plain")
+      Fixtures.add_member(workspace, plain_member, [])
+      learner_member = Fixtures.register_user("ct-m4-lmember")
+      Fixtures.add_member(workspace, learner_member, [:learner])
+      course = EventFixtures.create_course(workspace, owner, %{})
+
+      assert {:reply, _, _} = save_content(owner, workspace, course)
+
+      get = fn user ->
+        GetCourseContent.execute(
+          %{"workspace_id" => workspace.id, "course_id" => course.id},
+          frame_for(user)
+        )
+      end
+
+      # confirmed 学员(非成员)→ forbidden(M4:草稿读面不再是学员 API,
+      # 学员内容读面在 get_course_revision)
+      learner = Fixtures.register_user("ct-m4-learner")
+      assert %{status: :confirmed} = enroll(course, learner)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = get.(learner)
+      assert msg =~ "forbidden: tutor, owner or admin required"
+
+      # 普通 member(无差异标签)→ forbidden
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = get.(plain_member)
+      assert msg =~ "forbidden: tutor, owner or admin required"
+
+      # learner 角色成员(非 staff)→ forbidden
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = get.(learner_member)
+      assert msg =~ "forbidden: tutor, owner or admin required"
+
+      # owner(创建工作台即入座 Owner 成员)/ admin 角色成员 → 放行且含 chapters 键
+      assert {:reply, _, _} = reply = get.(owner)
+      assert Map.has_key?(decode(reply), "chapters")
+
+      assert {:reply, _, _} = reply = get.(admin_member)
+      assert Map.has_key?(decode(reply), "chapters")
     end
   end
 

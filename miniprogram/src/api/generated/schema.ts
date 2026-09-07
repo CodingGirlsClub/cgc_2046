@@ -263,11 +263,27 @@ export type Course = {
   title: Scalars['String']['output'];
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility: Scalars['String']['output'];
-  workflowRun?: Maybe<WorkflowRun>;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: Maybe<Scalars['ID']['output']>;
   /** 所属工作台（租户）ID */
   workspaceId: Scalars['ID']['output'];
+};
+
+export type CourseContent = {
+  content: Scalars['JsonString']['output'];
+  courseId: Scalars['ID']['output'];
+  publishedAt?: Maybe<Scalars['DateTime']['output']>;
+  revisionNumber?: Maybe<Scalars['Int']['output']>;
+  title: Scalars['String']['output'];
+};
+
+export type CourseDraft = {
+  content?: Maybe<Scalars['JsonString']['output']>;
+  courseId: Scalars['ID']['output'];
+  prepState?: Maybe<Scalars['String']['output']>;
+  title: Scalars['String']['output'];
+  updatedAt?: Maybe<Scalars['DateTime']['output']>;
+  version?: Maybe<Scalars['Int']['output']>;
 };
 
 export type CourseFilterCapacity = {
@@ -420,7 +436,6 @@ export type CourseFilterInput = {
   title?: InputMaybe<CourseFilterTitle>;
   /** 可见性：public 公开可见 / workspace 仅工作台可见（可随时双向切换，D9） */
   visibility?: InputMaybe<CourseFilterVisibility>;
-  workflowRun?: InputMaybe<WorkflowRunFilterInput>;
   /** 教研 workflow 产物引用（领域模型 §5.2 ER） */
   workflowRunId?: InputMaybe<CourseFilterWorkflowRunId>;
   /** 所属工作台（租户）ID */
@@ -597,6 +612,13 @@ export type CourseFilterWorkspaceId = {
   rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
+export type CourseLearningAnalytics = {
+  dropOff: CourseLearningDropOff;
+  generatedAt: Scalars['DateTime']['output'];
+  objectives: Array<CourseLearningObjectiveStats>;
+  runStats: CourseLearningRunStats;
+};
+
 export type CourseLearningDetail = {
   courseId: Scalars['ID']['output'];
   nextAction?: Maybe<LearningNextAction>;
@@ -608,6 +630,32 @@ export type CourseLearningDetail = {
   slug?: Maybe<Scalars['String']['output']>;
   staleRevision: Scalars['Boolean']['output'];
   title: Scalars['String']['output'];
+};
+
+export type CourseLearningDropOff = {
+  staleRunCount: Scalars['Int']['output'];
+};
+
+export type CourseLearningObjectiveStats = {
+  developing: Scalars['Int']['output'];
+  lastActivityAt?: Maybe<Scalars['DateTime']['output']>;
+  lowConfidenceAttempts: Scalars['Int']['output'];
+  mastered: Scalars['Int']['output'];
+  needsReview: Scalars['Int']['output'];
+  objectiveId: Scalars['String']['output'];
+  passRate?: Maybe<Scalars['Float']['output']>;
+  qualifyingPasses: Scalars['Int']['output'];
+  required: Scalars['Boolean']['output'];
+  title: Scalars['String']['output'];
+  totalAttempts: Scalars['Int']['output'];
+  unassessed: Scalars['Int']['output'];
+};
+
+export type CourseLearningRunStats = {
+  activeRuns: Scalars['Int']['output'];
+  completedRuns: Scalars['Int']['output'];
+  completionRate?: Maybe<Scalars['Float']['output']>;
+  totalRuns: Scalars['Int']['output'];
 };
 
 export type CourseMap = {
@@ -2566,18 +2614,6 @@ export type KeysetPageOfSponsorship = {
   startKeyset?: Maybe<Scalars['String']['output']>;
 };
 
-/** A keyset page of :workflow_run */
-export type KeysetPageOfWorkflowRun = {
-  /** Total count on all pages */
-  count?: Maybe<Scalars['Int']['output']>;
-  /** The last keyset in the results */
-  endKeyset?: Maybe<Scalars['String']['output']>;
-  /** The records contained in the page */
-  results?: Maybe<Array<WorkflowRun>>;
-  /** The first keyset in the results */
-  startKeyset?: Maybe<Scalars['String']['output']>;
-};
-
 /** A keyset page of :workspace_application */
 export type KeysetPageOfWorkspaceApplication = {
   /** Total count on all pages */
@@ -3155,6 +3191,17 @@ export type PhoneCodePurpose =
   | 'LOGIN'
   | 'REGISTER'
   | 'WECHAT_BIND';
+
+export type PlatformWorkflowAudit = {
+  definitionType: Scalars['String']['output'];
+  errorSummary?: Maybe<Scalars['String']['output']>;
+  finishedAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  startedAt?: Maybe<Scalars['DateTime']['output']>;
+  status: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
 
 export type PortfolioItem = {
   description?: Maybe<Scalars['String']['output']>;
@@ -3942,6 +3989,12 @@ export type RootMutationTypeWechatLoginStartArgs = {
 };
 
 export type RootQueryType = {
+  /** 当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun） */
+  courseContent?: Maybe<CourseContent>;
+  /** Tutor/Owner/Admin 课程草稿（不向 learner 暴露；无权/课程不存在统一 null，不泄露存在性） */
+  courseDraft?: Maybe<CourseDraft>;
+  /** Tutor/Owner/Admin 课程学习聚合（不含 learner evidence） */
+  courseLearningAnalytics?: Maybe<CourseLearningAnalytics>;
   /** 当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面） */
   courseLearningDetail?: Maybe<CourseLearningDetail>;
   /** 公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist */
@@ -3957,8 +4010,6 @@ export type RootQueryType = {
   /** 按 slug 获取（E-5 公开宿主页） */
   getEventBySlug?: Maybe<Event>;
   getSponsorship?: Maybe<Sponsorship>;
-  /** 按 id 获取 workflow run 详情（#40） */
-  getWorkflowRun?: Maybe<WorkflowRun>;
   /** 按 slug 获取工作台（需登录） */
   getWorkspace?: Maybe<Workspace>;
   /** 按 id 获取工作台（需登录） */
@@ -3982,8 +4033,6 @@ export type RootQueryType = {
   listToolCallLogs: Array<AdminToolCallLog>;
   /** 平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after） */
   listUsers: Array<AdminUser>;
-  /** 工作台的 workflow run 列表（#40 展示页） */
-  listWorkflowRuns?: Maybe<KeysetPageOfWorkflowRun>;
   /** 平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after） */
   listWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after） */
@@ -4023,6 +4072,8 @@ export type RootQueryType = {
   permissionMatrix?: Maybe<PermissionMatrixPayload>;
   /** Placeholder query until the first resource is added */
   ping?: Maybe<Scalars['String']['output']>;
+  /** 平台管理员：脱敏 workflow 运行元数据（不含 facts/input snapshot） */
+  platformWorkflowAudit: Array<PlatformWorkflowAudit>;
   /** 平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after） */
   reconciliationFindings: Array<AdminReconciliationFinding>;
   /** 邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息 + viewerIsInviter；无效/过期/已用 token 统一错误，不泄露其它邀请 */
@@ -4042,6 +4093,21 @@ export type RootQueryType = {
   workspacePaymentStats: Scalars['JsonString']['output'];
   /** 当前用户在某工作台的公开资料（ADR-0004 per-workspace；按 visibility 授权） */
   workspaceProfile?: Maybe<WorkspaceProfile>;
+};
+
+
+export type RootQueryTypeCourseContentArgs = {
+  courseId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeCourseDraftArgs = {
+  courseId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeCourseLearningAnalyticsArgs = {
+  courseId: Scalars['ID']['input'];
 };
 
 
@@ -4091,12 +4157,6 @@ export type RootQueryTypeGetEventBySlugArgs = {
 
 export type RootQueryTypeGetSponsorshipArgs = {
   filter?: InputMaybe<SponsorshipFilterInput>;
-  id: Scalars['ID']['input'];
-};
-
-
-export type RootQueryTypeGetWorkflowRunArgs = {
-  filter?: InputMaybe<WorkflowRunFilterInput>;
   id: Scalars['ID']['input'];
 };
 
@@ -4209,16 +4269,6 @@ export type RootQueryTypeListUsersArgs = {
 };
 
 
-export type RootQueryTypeListWorkflowRunsArgs = {
-  after?: InputMaybe<Scalars['String']['input']>;
-  before?: InputMaybe<Scalars['String']['input']>;
-  filter?: InputMaybe<WorkflowRunFilterInput>;
-  first?: InputMaybe<Scalars['Int']['input']>;
-  last?: InputMaybe<Scalars['Int']['input']>;
-  sort?: InputMaybe<Array<InputMaybe<WorkflowRunSortInput>>>;
-};
-
-
 export type RootQueryTypeListWorkspaceApplicationsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
@@ -4299,6 +4349,14 @@ export type RootQueryTypeOfferingReadinessArgs = {
 export type RootQueryTypeOrderStatusArgs = {
   filter?: InputMaybe<OrderFilterInput>;
   id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypePlatformWorkflowAuditArgs = {
+  startedAfter?: InputMaybe<Scalars['DateTime']['input']>;
+  startedBefore?: InputMaybe<Scalars['DateTime']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -5302,447 +5360,6 @@ export type WechatLoginStartResult = {
 export type WechatSignInStatus =
   | 'NEEDS_BINDING'
   | 'SIGNED_IN';
-
-export type WorkflowDefinition = {
-  /** 人工步骤审批超时秒数；nil = 永不超时（不设默认值） */
-  approvalTimeout?: Maybe<Scalars['Int']['output']>;
-  id: Scalars['ID']['output'];
-  /** workflow 输入参数 schema */
-  inputSchema?: Maybe<Scalars['JsonString']['output']>;
-  /** 蓝图名称（租户内可读） */
-  name: Scalars['String']['output'];
-  /** 执行拓扑（步骤顺序/依赖），声明式数据；Step 字段独立存于 Step 资源 */
-  nodeDef?: Maybe<Scalars['JsonString']['output']>;
-  /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
-  status: Scalars['String']['output'];
-  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 / course_preparation 课程教研流程（S5） */
-  type: Scalars['String']['output'];
-  /** 版本号，单调递增；new_version 出 v+1（#34） */
-  version: Scalars['Int']['output'];
-  /** 所属工作台（租户）ID */
-  workspaceId: Scalars['ID']['output'];
-};
-
-export type WorkflowDefinitionFilterApprovalTimeout = {
-  eq?: InputMaybe<Scalars['Int']['input']>;
-  greaterThan?: InputMaybe<Scalars['Int']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['Int']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  lessThan?: InputMaybe<Scalars['Int']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
-};
-
-export type WorkflowDefinitionFilterId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<Scalars['ID']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type WorkflowDefinitionFilterInput = {
-  and?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
-  /** 人工步骤审批超时秒数；nil = 永不超时（不设默认值） */
-  approvalTimeout?: InputMaybe<WorkflowDefinitionFilterApprovalTimeout>;
-  id?: InputMaybe<WorkflowDefinitionFilterId>;
-  /** workflow 输入参数 schema */
-  inputSchema?: InputMaybe<WorkflowDefinitionFilterInputSchema>;
-  /** 蓝图名称（租户内可读） */
-  name?: InputMaybe<WorkflowDefinitionFilterName>;
-  /** 执行拓扑（步骤顺序/依赖），声明式数据；Step 字段独立存于 Step 资源 */
-  nodeDef?: InputMaybe<WorkflowDefinitionFilterNodeDef>;
-  not?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
-  or?: InputMaybe<Array<WorkflowDefinitionFilterInput>>;
-  /** 生命周期：draft 草稿 / published 已发布 / archived 已归档 */
-  status?: InputMaybe<WorkflowDefinitionFilterStatus>;
-  /** workflow 类型：learning 学习 / enrollment 报名 / sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 / course_preparation 课程教研流程（S5） */
-  type?: InputMaybe<WorkflowDefinitionFilterType>;
-  /** 版本号，单调递增；new_version 出 v+1（#34） */
-  version?: InputMaybe<WorkflowDefinitionFilterVersion>;
-  /** 所属工作台（租户）ID */
-  workspaceId?: InputMaybe<WorkflowDefinitionFilterWorkspaceId>;
-};
-
-export type WorkflowDefinitionFilterInputSchema = {
-  eq?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
-};
-
-export type WorkflowDefinitionFilterName = {
-  contains?: InputMaybe<Scalars['String']['input']>;
-  eq?: InputMaybe<Scalars['String']['input']>;
-  greaterThan?: InputMaybe<Scalars['String']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  ilike?: InputMaybe<Scalars['String']['input']>;
-  in?: InputMaybe<Array<Scalars['String']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  lessThan?: InputMaybe<Scalars['String']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  like?: InputMaybe<Scalars['String']['input']>;
-  notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
-  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
-  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
-};
-
-export type WorkflowDefinitionFilterNodeDef = {
-  eq?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
-};
-
-export type WorkflowDefinitionFilterStatus = {
-  eq?: InputMaybe<Scalars['String']['input']>;
-  greaterThan?: InputMaybe<Scalars['String']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  in?: InputMaybe<Array<Scalars['String']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  lessThan?: InputMaybe<Scalars['String']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
-};
-
-export type WorkflowDefinitionFilterType = {
-  eq?: InputMaybe<Scalars['String']['input']>;
-  greaterThan?: InputMaybe<Scalars['String']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  in?: InputMaybe<Array<Scalars['String']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  lessThan?: InputMaybe<Scalars['String']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
-};
-
-export type WorkflowDefinitionFilterVersion = {
-  eq?: InputMaybe<Scalars['Int']['input']>;
-  greaterThan?: InputMaybe<Scalars['Int']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  in?: InputMaybe<Array<Scalars['Int']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  lessThan?: InputMaybe<Scalars['Int']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
-};
-
-export type WorkflowDefinitionFilterWorkspaceId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<Scalars['ID']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type WorkflowRun = {
-  definition: WorkflowDefinition;
-  /** 绑定的 WorkflowDefinition ID */
-  definitionId: Scalars['ID']['output'];
-  /** 绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动） */
-  definitionVersion: Scalars['Int']['output'];
-  /** 执行产物 facts（按 step_key 聚合，引擎执行后写入） */
-  facts?: Maybe<Scalars['JsonString']['output']>;
-  /** 结束时间（终态 action 写入） */
-  finishedAt?: Maybe<Scalars['DateTime']['output']>;
-  id: Scalars['ID']['output'];
-  /** run 输入快照（创建时固化，执行引擎按此驱动） */
-  inputSnapshot?: Maybe<Scalars['JsonString']['output']>;
-  /** Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离） */
-  partitionId?: Maybe<Scalars['ID']['output']>;
-  /** 开始执行时间（start action 写入） */
-  startedAt?: Maybe<Scalars['DateTime']['output']>;
-  /** 执行状态机：pending/running/waiting/succeeded/failed/cancelled/expired */
-  status: Scalars['String']['output'];
-  /** run 绑定版本的步骤定义（step_key/title/type/output_schema，plan 020） */
-  steps?: Maybe<Array<Scalars['JsonString']['output']>>;
-  /** 乐观锁版本号，每次状态流转 +1 */
-  version: Scalars['Int']['output'];
-  /** 所属工作台（租户）ID */
-  workspaceId: Scalars['ID']['output'];
-};
-
-export type WorkflowRunFilterDefinitionId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<Scalars['ID']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type WorkflowRunFilterDefinitionVersion = {
-  eq?: InputMaybe<Scalars['Int']['input']>;
-  greaterThan?: InputMaybe<Scalars['Int']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  in?: InputMaybe<Array<Scalars['Int']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  lessThan?: InputMaybe<Scalars['Int']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
-};
-
-export type WorkflowRunFilterFacts = {
-  eq?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
-};
-
-export type WorkflowRunFilterFinishedAt = {
-  eq?: InputMaybe<Scalars['DateTime']['input']>;
-  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
-  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
-  notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
-};
-
-export type WorkflowRunFilterId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<Scalars['ID']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type WorkflowRunFilterInput = {
-  and?: InputMaybe<Array<WorkflowRunFilterInput>>;
-  definition?: InputMaybe<WorkflowDefinitionFilterInput>;
-  /** 绑定的 WorkflowDefinition ID */
-  definitionId?: InputMaybe<WorkflowRunFilterDefinitionId>;
-  /** 绑定的定义版本号（D-A2 版本快照，已开始 run 不随后续版本变动） */
-  definitionVersion?: InputMaybe<WorkflowRunFilterDefinitionVersion>;
-  /** 执行产物 facts（按 step_key 聚合，引擎执行后写入） */
-  facts?: InputMaybe<WorkflowRunFilterFacts>;
-  /** 结束时间（终态 action 写入） */
-  finishedAt?: InputMaybe<WorkflowRunFilterFinishedAt>;
-  id?: InputMaybe<WorkflowRunFilterId>;
-  /** run 输入快照（创建时固化，执行引擎按此驱动） */
-  inputSnapshot?: InputMaybe<WorkflowRunFilterInputSnapshot>;
-  not?: InputMaybe<Array<WorkflowRunFilterInput>>;
-  or?: InputMaybe<Array<WorkflowRunFilterInput>>;
-  /** Jido partition（= workspace_id，ADR-0002 决策 6 运行时隔离） */
-  partitionId?: InputMaybe<WorkflowRunFilterPartitionId>;
-  /** 开始执行时间（start action 写入） */
-  startedAt?: InputMaybe<WorkflowRunFilterStartedAt>;
-  /** 执行状态机：pending/running/waiting/succeeded/failed/cancelled/expired */
-  status?: InputMaybe<WorkflowRunFilterStatus>;
-  /** 乐观锁版本号，每次状态流转 +1 */
-  version?: InputMaybe<WorkflowRunFilterVersion>;
-  /** 所属工作台（租户）ID */
-  workspaceId?: InputMaybe<WorkflowRunFilterWorkspaceId>;
-};
-
-export type WorkflowRunFilterInputSnapshot = {
-  eq?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThan?: InputMaybe<Scalars['JsonString']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['JsonString']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThan?: InputMaybe<Scalars['JsonString']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
-  notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
-};
-
-export type WorkflowRunFilterPartitionId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['ID']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type WorkflowRunFilterStartedAt = {
-  eq?: InputMaybe<Scalars['DateTime']['input']>;
-  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
-  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
-  notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
-};
-
-export type WorkflowRunFilterStatus = {
-  eq?: InputMaybe<Scalars['String']['input']>;
-  greaterThan?: InputMaybe<Scalars['String']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  in?: InputMaybe<Array<Scalars['String']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  lessThan?: InputMaybe<Scalars['String']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
-};
-
-export type WorkflowRunFilterVersion = {
-  eq?: InputMaybe<Scalars['Int']['input']>;
-  greaterThan?: InputMaybe<Scalars['Int']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  in?: InputMaybe<Array<Scalars['Int']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['Int']['input']>;
-  lessThan?: InputMaybe<Scalars['Int']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
-  notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
-};
-
-export type WorkflowRunFilterWorkspaceId = {
-  eq?: InputMaybe<Scalars['ID']['input']>;
-  greaterThan?: InputMaybe<Scalars['ID']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  in?: InputMaybe<Array<Scalars['ID']['input']>>;
-  isDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['ID']['input']>;
-  lessThan?: InputMaybe<Scalars['ID']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
-  notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type WorkflowRunSortField =
-  | 'DEFINITION_ID'
-  | 'DEFINITION_VERSION'
-  | 'FACTS'
-  | 'FINISHED_AT'
-  | 'ID'
-  | 'INPUT_SNAPSHOT'
-  | 'PARTITION_ID'
-  | 'STARTED_AT'
-  | 'STATUS'
-  | 'VERSION'
-  | 'WORKSPACE_ID';
-
-export type WorkflowRunSortInput = {
-  field: WorkflowRunSortField;
-  order?: InputMaybe<SortOrder>;
-};
 
 export type Workspace = {
   /** 当前用户是否可进入该工作台（成员/创建者） */

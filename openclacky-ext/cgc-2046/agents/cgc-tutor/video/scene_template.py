@@ -1,20 +1,6 @@
-"""教研配套视频场景骨架模板（从 AvgVelocityV3 蒸馏）。
+"""教研配套视频场景骨架模板（ManimCE）：标题卡 + 内容场 + 品牌卡骨架，占位内容直接可渲染。
 
-用法：抄骨架 → 改文案/公式/数据 → 按「音频驱动时间轴」重设 SCENE_DURATIONS → 出片。
-
-渲染（必须先保证 LaTeX 在 PATH）：
-    export PATH="/Library/TeX/texbin:$PATH"
-    manim -ql scene_template.py IssueVideoTemplate   # 快速迭代
-    manim -qm scene_template.py IssueVideoTemplate   # 最终出片
-
-完整工作流（V3 验证过）：
-    1. 写口播脚本（逐场：场号/画面/文案）
-    2. 逐场 TTS（默认 Fish Audio：scripts/fish_tts.py，需 FISH_AUDIO_API_KEY；
-       未设 key 或调用失败退回 edge-tts --voice zh-CN-YunjianNeural --rate=-5%）
-    3. ffprobe 实测每段时长，回填脚本
-    4. 按 SCENE_DURATIONS 账本模式重排动画（本文件所有 wait 都是「场时长 - 已知动画时长」的算术）
-    5. manim -qm 出无声视频
-    6. ffmpeg 拼轨合成（见文件底部 assemble 注释块）
+制作方法论见私有 tutor playbook 配套视频章节。
 """
 
 from manim import *
@@ -50,14 +36,15 @@ LOGO_PATH = "/replace-with-LOGO_PATH-from-check_env/cgc_logo_orange_white.svg"
 #
 # 坑：-ql(15fps) 与 -qm(30fps) 帧量化不同，同一代码成片时长差 ~0.1s。
 #     时长账本必须以最终 -qm 产物为准，音轨最后用 apad+atrim 反向对齐（别反过来）。
-D1, D2, D3, D4, D5, D6, D7 = 5.512, 13.432, 18.472, 20.6, 15.208, 10.864, 6.916
+# D1..D7 收拢为单一常量；消费处一律按下标取（SCENE_DURATIONS[0] = 场 1）。
+SCENE_DURATIONS = [5.512, 13.432, 18.472, 20.6, 15.208, 10.864, 6.916]
 
 
 def T(s, size=SIZE_BODY, color=INK, **kwargs):
     return Text(s, font=FONT, font_size=size, color=color, **kwargs)
 
 
-class IssueVideoTemplate(Scene):
+class CourseSceneTemplate(Scene):
     """骨架 = 场 1 标题卡 + N 内容场 + 末场品牌卡：头尾两场固定必有，内容场数量随脚本。
     本文件给 5 个内容场示例（情境/问题/公式推导/直觉化/小结），占位内容直接可渲染。
     每场只证明一件事；品牌卡不可被包装层角标替代。"""
@@ -87,7 +74,7 @@ class IssueVideoTemplate(Scene):
         self.play(FadeIn(over, shift=UP * 0.3), run_time=0.7, rate_func=smooth)
         self.play(Write(title), run_time=1.2)
         self.play(Create(rule), run_time=0.6)
-        self.wait(D1 - 0.7 - 1.2 - 0.6 - 0.7)  # 账本：剩余时间留白
+        self.wait(SCENE_DURATIONS[0] - 0.7 - 1.2 - 0.6 - 0.7)  # 账本：剩余时间留白
         self.play(FadeOut(g, shift=UP * 0.5), run_time=0.7)
 
     # ------------------------------------------------------------------
@@ -136,7 +123,7 @@ class IssueVideoTemplate(Scene):
         )
         train.clear_updaters()
 
-        self.wait(D2 - 0.5 - 1.0 - 1.2 - 0.4 - 6.5 - 0.8)
+        self.wait(SCENE_DURATIONS[1] - 0.5 - 1.0 - 1.2 - 0.4 - 6.5 - 0.8)
         self.play(
             *[FadeOut(m) for m in (head, route, st_a, st_b, lab_a, lab_b, train, table)],
             run_time=0.8,
@@ -216,7 +203,7 @@ class IssueVideoTemplate(Scene):
         # 坑：always_redraw 的对象不能 FadeOut —— 每帧重建会用 lambda 里的
         # fill_opacity=1 盖掉淡出动画。用完必须 self.remove()。
         self.remove(probe, g_fill)
-        self.wait(D3 - 0.9 - 3.9 - 0.4 - 2.2 - 0.4 - 1.6 - 0.4 - 3.4 - 1.2 - 0.4 - 1.4 - 0.8)
+        self.wait(SCENE_DURATIONS[2] - 0.9 - 3.9 - 0.4 - 2.2 - 0.4 - 1.6 - 0.4 - 3.4 - 1.2 - 0.4 - 1.4 - 0.8)
         self.play(
             *[FadeOut(m) for m in (head, route, st_a, st_b, lab_a, lab_b, train, gauge, q)],
             run_time=0.8,
@@ -261,7 +248,7 @@ class IssueVideoTemplate(Scene):
         box = SurroundingRectangle(eq3, color=C_V, buff=0.28, corner_radius=0.18, stroke_width=2.5)
         self.play(Create(box), run_time=0.6)
         self.play(eq3.animate.scale(1.1), rate_func=there_and_back, run_time=0.7)
-        self.wait(D4 - 0.6 - 2.8 - 1.4 - 6.4 - 1.8 - 4.2 - 1.6 - 0.6 - 0.7)
+        self.wait(SCENE_DURATIONS[3] - 0.6 - 2.8 - 1.4 - 6.4 - 1.8 - 4.2 - 1.6 - 0.6 - 0.7)
         self._formula_outro = (cap, eq3, box)
 
     # ------------------------------------------------------------------
@@ -300,7 +287,7 @@ class IssueVideoTemplate(Scene):
             run_time=6.0,
         )
         self.play(LaggedStart(*[FadeIn(v) for v in vals], lag_ratio=0.3), run_time=1.0)
-        self.wait(D5 - 0.6 - 0.8 - 2.4 - 6.0 - 1.0 - 0.8)
+        self.wait(SCENE_DURATIONS[4] - 0.6 - 0.8 - 2.4 - 6.0 - 1.0 - 0.8)
         # 淡化成背景，留给小结卡
         self.play(
             FadeOut(head),
@@ -324,7 +311,7 @@ class IssueVideoTemplate(Scene):
         self.play(FadeIn(card, shift=UP * 0.3, scale=0.95), run_time=1.0)
         self.wait(4.9)  # 副句随口播后半句出现
         self.play(FadeIn(sub, shift=UP * 0.2), run_time=0.9)
-        self.wait(D6 - 1.0 - 4.9 - 0.9)
+        self.wait(SCENE_DURATIONS[5] - 1.0 - 4.9 - 0.9)
         self._closing = g
 
     # ------------------------------------------------------------------
@@ -333,8 +320,9 @@ class IssueVideoTemplate(Scene):
     def scene_7_brand(self):
         logo = SVGMobject(LOGO_PATH)  # 方形 SVG 矢量（check_env.sh 输出值填充），任意分辨率锐利
         logo.height = 2.0
-        logo.move_to([0, 0.6, 0])
+        logo.move_to([0, 0.9, 0])
         brand = T("程序媛汇", SIZE_BODY, MUTED).next_to(logo, DOWN, buff=0.5)
+        url = T("https://codingirlsclub.com", SIZE_LABEL, C_S).next_to(brand, DOWN, buff=0.35)
 
         self.play(
             FadeOut(self._closing),
@@ -344,7 +332,8 @@ class IssueVideoTemplate(Scene):
             rate_func=smooth,
         )
         self.play(FadeIn(brand, shift=UP * 0.2), run_time=0.9)
-        self.wait(D7 - 1.2 - 0.9)
+        self.play(FadeIn(url, shift=UP * 0.1), run_time=0.7)
+        self.wait(SCENE_DURATIONS[6] - 1.2 - 0.9 - 0.7)
 
 
 # ---------------------------------------------------------------------------

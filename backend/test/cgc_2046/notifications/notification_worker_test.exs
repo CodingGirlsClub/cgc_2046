@@ -351,7 +351,7 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
         %{
           definition_id: published.id,
           definition_version: published.version,
-          input_snapshot: %{"title" => "t"}
+          input_snapshot: %{"title" => "t", "user_id" => owner.id}
         },
         tenant: workspace.id,
         actor: owner
