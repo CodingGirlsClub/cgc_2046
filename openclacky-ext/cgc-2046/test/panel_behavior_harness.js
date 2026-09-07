@@ -11,19 +11,23 @@ const scenario = process.argv[3] || "zero_member_confirmed";
 // 「打开编辑 → 原样保存」往返，POST body 必须与原文 deep-equal（结构化逐项
 // 输入消除分隔符解析;旧行格式下 given 被 split("/") 拆开、materials 标题/链接
 // 错位——本场景在旧代码上必败）。
+// M3/L5:web 材料带 caption + 未知键(attribution),章节与 issue.chapter_id
+// 一并进 round-trip——编辑器未覆盖的键必须原样存活(deep-equal 断言兜底)。
 const ROUNDTRIP_ORIGINAL = {
   version: 3,
   course_title: "分隔符 | 压力课",
   goals: ["掌握 C/C++ 基础", "能读 HTTP/2 文档"],
+  chapters: [{ id: "ch-1", title: "第一章 · 读 | 写" }],
   issues: [{
-    id: "issue-1", kind: "handwork", title: "环境 | 配置",
+    id: "issue-1", kind: "handwork", title: "环境 | 配置", chapter_id: "ch-1",
     story: {
       as_a: "有 HTTP/2 经验的学员",
       given: ["熟悉 C/C++ 基础", "完成 读写/入门"],
       goal: "独立配置 a/b 环境",
       materials: [
-        { title: "HTTP/2 | 图解", ref: "https://example.com/http2" },
-        { title: "纯标题无链接", ref: "" }
+        { kind: "web", title: "HTTP/2 | 图解", url: "https://example.com/http2",
+          caption: "RFC 7540 配插图解", attribution: "示例来源标注(编辑器未覆盖的未知键)" },
+        { kind: "text", title: "纯标题无链接", body: "" }
       ],
       checklist: [
         { id: "c1", text: "配置 a/b 环境" },
@@ -47,6 +51,55 @@ const REMOVE_ORIGINAL = {
     }
   }]
 };
+
+// L5 场景 editor_remove_chapter_clears_refs:删除被引用的章节后,引用它的
+// issue.chapter_id 必须清为未分组(键消失),不留悬空 id
+const CHAPTER_ORIGINAL = {
+  version: 1,
+  course_title: "章节清理课",
+  goals: ["目标一"],
+  chapters: [
+    { id: "ch-1", title: "第一章" },
+    { id: "ch-2", title: "第二章" }
+  ],
+  issues: [{
+    id: "issue-1", kind: "handwork", title: "单元一", chapter_id: "ch-1",
+    story: {
+      as_a: "", given: [], goal: "",
+      materials: [], checklist: [{ id: "c1", text: "验收一" }]
+    }
+  }]
+};
+
+// M2 场景 learner_typed_materials:已发布 revision 携带 typed/legacy 混合材料,
+// 学习目标详情页只渲染 https 外链,legacy ref 永不进 href
+const TYPED_REVISION = {
+  version: 2,
+  course_title: "零成员公开课",
+  issues: [{
+    id: "issue-1", kind: "handwork", title: "第一章 环境配置",
+    objectives: [{
+      id: "obj-1", title: "配置开发环境",
+      materials: [
+        { kind: "web", title: "MDN 文档", url: "https://example.com/docs" },
+        { kind: "video", title: "配置演示", provider: "bilibili", external_id: "BV1xx411c7mD" },
+        { kind: "web", title: "危险链接", url: "javascript:alert(1)" },
+        { title: "旧行材料", ref: "javascript:alert(2)" }
+      ],
+      rubric: [{ id: "r1", text: "能独立跑通" }]
+    }]
+  }]
+};
+
+// 各场景共用的 deep-equal(键序不敏感,数组保序)
+function deepEq(a, b) {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every(function (k) { return deepEq(a[k], b[k]); });
+}
 
 // ---- DOM/宿主 stub（最小面，覆盖 view.js 触达面） ----
 // 假元素支持 innerHTML 赋值 + 按 id 的 querySelector(学习中心按 id 挂子块);
@@ -81,7 +134,27 @@ function rowNodes(segment, rowAttr, fields) {
     const row = makeEl("div");
     row.querySelector = function (sel) {
       const fm = /^\[data-f='([^']+)'\]$/.exec(sel);
-      if (fm && fields.indexOf(fm[1]) >= 0) return fieldNodes(part, fm[1])[0] || null;
+      if (fm && fields.indexOf(fm[1]) >= 0) {
+        if (fm[1] === "m-kind") {
+          const km = /data-f="m-kind"[\s\S]*?value="([^"]+)" selected/.exec(part);
+          return valueNode(km ? km[1] : "text");
+        }
+        return fieldNodes(part, fm[1])[0] || null;
+      }
+      return null;
+    };
+    return row;
+  });
+}
+// 章节编辑行:[data-edit-chapter] 裸标记切分,行内取 chapter-id/chapter-title 输入
+function chapterRowNodes(html) {
+  return html.split("data-edit-chapter").slice(1).map(function (part) {
+    const row = makeEl("div");
+    row.querySelector = function (sel) {
+      const fm = /^\[data-f='([^']+)'\]$/.exec(sel);
+      if (fm && (fm[1] === "chapter-id" || fm[1] === "chapter-title")) {
+        return fieldNodes(part, fm[1])[0] || null;
+      }
       return null;
     };
     return row;
@@ -103,6 +176,12 @@ function parseIssueCards(html) {
         const km = /data-f="kind"[\s\S]*?value="([^"]+)" selected/.exec(seg);
         return valueNode(km ? km[1] : "handwork");
       }
+      // 章节归属 <select>:选中项取 value;未分组 option value="" 不匹配 [^"]+,
+      // 兜底空串 = 未分组
+      if (fm[1] === "chapter") {
+        const km = /data-f="chapter"[\s\S]*?value="([^"]+)" selected/.exec(seg);
+        return valueNode(km ? km[1] : "");
+      }
       return fieldNodes(seg, fm[1])[0] || null;
     };
     // 行节点按选择器缓存:驱动对输入 value 的改动(等价用户输入)须在
@@ -111,7 +190,7 @@ function parseIssueCards(html) {
     card.querySelectorAll = function (sel) {
       if (!(sel in fieldCache)) {
         if (sel === "[data-f='given-item']") fieldCache[sel] = fieldNodes(seg, "given-item");
-        else if (sel === "[data-material-row]") fieldCache[sel] = rowNodes(seg, "data-material-row", ["m-title", "m-ref"]);
+        else if (sel === "[data-material-row]") fieldCache[sel] = rowNodes(seg, "data-material-row", ["m-kind", "m-title", "m-body", "m-url", "m-provider", "m-external-id", "m-alt-text", "m-caption"]);
         else if (sel === "[data-check-row]") fieldCache[sel] = rowNodes(seg, "data-check-row", ["c-id", "c-text"]);
         else fieldCache[sel] = [];
       }
@@ -182,7 +261,26 @@ function makeEl(tag) {
       if (!node._cards || node._cards.html !== html) node._cards = { html: html, nodes: parseIssueCards(html) };
       return node._cards.nodes;
     }
-    const rm = /^\[(data-(?:add|remove)-(?:given|material|check))\]$/.exec(sel);
+    // 章节编辑行挂在容器层(issue 卡之外),同按 html 快照缓存
+    if (sel === "[data-edit-chapter]") {
+      if (!node._chapterRows || node._chapterRows.html !== html) node._chapterRows = { html: html, nodes: chapterRowNodes(html) };
+      return node._chapterRows.nodes;
+    }
+    // 学习中心大纲树节点(cgc-course renderTree 绑定点击 → 目标详情)
+    if (sel === "[data-node]") {
+      if (!node._treeNodes || node._treeNodes.html !== html) {
+        const re = /data-node="([^"]+)"/g;
+        const out = []; let m;
+        while ((m = re.exec(html))) {
+          const b = makeEl("div");
+          b.dataset["data-node"] = m[1];
+          out.push(b);
+        }
+        node._treeNodes = { html: html, nodes: out };
+      }
+      return node._treeNodes.nodes;
+    }
+    const rm = /^\[(data-(?:add|remove)-(?:given|material|check|chapter))\]$/.exec(sel);
     if (rm) {
       if (!node._rowOps || node._rowOps.html !== html) node._rowOps = { html: html, btns: {} };
       if (!node._rowOps.btns[sel]) {
@@ -250,9 +348,10 @@ globalThis.fetch = async (url, opts) => {
   const path = String(url).split("?")[0];
   calls.fetches.push(path);
 
-  // 编辑器场景(editor_delimiter_roundtrip / editor_remove_row_with_empty):
-  // tutor 台 + 一门课 + 场景草稿;POST 捕获 body
-  if (scenario === "editor_delimiter_roundtrip" || scenario === "editor_remove_row_with_empty") {
+  // 编辑器场景(editor_delimiter_roundtrip / editor_remove_row_with_empty /
+  // editor_remove_chapter_clears_refs):tutor 台 + 一门课 + 场景草稿;POST 捕获 body
+  if (scenario === "editor_delimiter_roundtrip" || scenario === "editor_remove_row_with_empty" ||
+      scenario === "editor_remove_chapter_clears_refs") {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [{ workspace_id: "ws-t1", name: "教研台", roles: ["tutor"] }] } }) };
     }
@@ -267,8 +366,13 @@ globalThis.fetch = async (url, opts) => {
         roundtripPosted = JSON.parse(String(opts.body || "{}"));
         return { ok: true, status: 200, json: async () => ({ ok: true, status: "saved" }) };
       }
-      return { ok: true, status: 200, json: async () => ({ ok: true, result: scenario === "editor_remove_row_with_empty" ? REMOVE_ORIGINAL : ROUNDTRIP_ORIGINAL }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: scenario === "editor_remove_row_with_empty" ? REMOVE_ORIGINAL : scenario === "editor_remove_chapter_clears_refs" ? CHAPTER_ORIGINAL : ROUNDTRIP_ORIGINAL }) };
     }
+  }
+  // learner_typed_materials:已发布 revision 携带 typed/legacy 混合材料
+  if (scenario === "learner_typed_materials" &&
+      path.startsWith("/api/ext/cgc-2046/courses/") && path.endsWith("/revision")) {
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: TYPED_REVISION }) };
   }
   if (path.startsWith("/api/ext/cgc-2046/learning_state")) {
     return {
@@ -341,14 +445,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     for (const fn of saveHandlers) await fn();
     await sleep(100);
 
-    const deepEq = function (a, b) {
-      if (a === b) return true;
-      if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
-      if (Array.isArray(a) !== Array.isArray(b)) return false;
-      const ka = Object.keys(a), kb = Object.keys(b);
-      if (ka.length !== kb.length) return false;
-      return ka.every(function (k) { return deepEq(a[k], b[k]); });
-    };
+    // deepEq 用顶部共享实现
     const expected = JSON.parse(JSON.stringify(ROUNDTRIP_ORIGINAL));
     delete expected.version;          // version 剥离走顶层 base_version
     const posted = roundtripPosted || {};
@@ -361,6 +458,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       base_version_pinned: posted.base_version === 3,
       version_key_stripped: !!roundtripPosted && !("version" in content),
       goals_roundtrip: deepEq(content.goals, expected.goals),
+      chapters_roundtrip: deepEq(content.chapters, expected.chapters),
+      chapter_id_roundtrip: ((content.issues || [])[0] || {}).chapter_id === "ch-1",
       given_roundtrip: deepEq(story0.given, expected.issues[0].story.given),
       materials_roundtrip: deepEq(story0.materials, expected.issues[0].story.materials),
       checklist_roundtrip: deepEq(story0.checklist, expected.issues[0].story.checklist),
@@ -407,14 +506,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     for (const fn of saveHandlers) await fn();
     await sleep(100);
 
-    const deepEq = function (a, b) {
-      if (a === b) return true;
-      if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
-      if (Array.isArray(a) !== Array.isArray(b)) return false;
-      const ka = Object.keys(a), kb = Object.keys(b);
-      if (ka.length !== kb.length) return false;
-      return ka.every(function (k) { return deepEq(a[k], b[k]); });
-    };
+    // deepEq 用顶部共享实现
     const posted = roundtripPosted || {};
     const given = (((((posted.content || {}).issues || [])[0] || {}).story) || {}).given;
 
@@ -428,6 +520,89 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("posted given: " + JSON.stringify(given));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // L5:chapters [ch-1,ch-2]、issue.chapter_id=ch-1 → 点 ch-1 删除钮 → 保存;
+  // posted chapters 必须恰剩 ch-2,且 issue 不再携带 chapter_id(未分组)
+  if (scenario === "editor_remove_chapter_clears_refs") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);
+    spec.render(container);
+    await sleep(50);
+
+    const toggle = container.querySelector("#cgt-edit-toggle");
+    ((toggle && toggle.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(100);
+
+    const btn = container.querySelectorAll("[data-remove-chapter]").filter(function (b) {
+      return b.getAttribute("data-remove-chapter") === "0";
+    })[0];
+    if (!btn) { console.error("FAIL: 未渲染章节删除钮"); process.exit(1); }
+    (btn.listeners.click || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+
+    const saveBtn = container.querySelector("#cgc-save");
+    const saveHandlers = (saveBtn && saveBtn.listeners.click) || [];
+    for (const fn of saveHandlers) await fn();
+    await sleep(100);
+
+    const posted = roundtripPosted || {};
+    const content = posted.content || {};
+    const issue0 = (content.issues || [])[0] || {};
+    const checks = {
+      save_posted: !!roundtripPosted,
+      chapter_removed: deepEq(content.chapters, [{ id: "ch-2", title: "第二章" }]),
+      issue_refs_cleared: !("chapter_id" in issue0),
+    };
+
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("posted: " + JSON.stringify(posted).slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // M2+M4:learner 面板目标详情——材料来自 /revision(不再请求 /content);
+  // typed web/video 仅 https 外链,javascript: scheme 与 legacy ref 永不进 DOM
+  if (scenario === "learner_typed_materials") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);
+    spec.render(container);
+    await sleep(50);
+
+    // 点大纲树 obj-1 节点进入目标详情(材料渲染面)
+    const tree = container.querySelector("#cglc-tree");
+    const node = (tree ? tree.querySelectorAll("[data-node]") : []).filter(function (b) {
+      return b.getAttribute("data-node") === "obj-1";
+    })[0];
+    if (!node) { console.error("FAIL: 大纲树未渲染 obj-1 节点"); process.exit(1); }
+    (node.listeners.click || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+
+    const html = container.innerHTML;
+    const checks = {
+      typed_web_https_link: html.includes('href="https://example.com/docs"'),
+      typed_video_bilibili_link: html.includes('href="https://www.bilibili.com/video/BV1xx411c7mD"'),
+      no_javascript_scheme_anywhere: html.indexOf("javascript:") === -1,
+      legacy_notice_shown: html.includes("需重新保存为 typed Material") && html.includes("旧行材料"),
+      bad_scheme_web_plain_title: html.includes("危险链接"),
+      content_route_not_fetched: !calls.fetches.some(function (p) { return /\/content$/.test(p); }),
+      revision_route_fetched: calls.fetches.some(function (p) { return /\/revision$/.test(p); }),
+    };
+
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 1200));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));

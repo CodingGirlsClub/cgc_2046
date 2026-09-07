@@ -4,7 +4,7 @@ defmodule Cgc2046.Learning.AttemptTest do
 
   - 不可变账本面:仅 create+read 两个 action,无 updated_at;默认值
     (rubric_results [] / agent_meta %{})与 confidence 0..1 约束;
-  - 读面(R48):学员本人(run input_snapshot 锚定,JSONB exists 下推)∪
+  - 读面(R48):学员本人(run subject_user_id 列锚定,exists 下推)∪
     本工作台 tutor/owner/admin;outsider 与**平台管理员**(非成员)读不到;
   - 写面:仅学员本人(ActorIsAttemptLearner;tutor/他人学员/租户错配均拒)。
   """
@@ -200,7 +200,7 @@ defmodule Cgc2046.Learning.AttemptTest do
     outsider = Fixtures.register_user("la-read-outsider")
     platform_admin = Fixtures.platform_admin("la-read-platform")
 
-    # 学员本人(exists(learning_run, input_snapshot["user_id"]) JSONB 下推)
+    # 学员本人(exists(learning_run, subject_user_id) 列锚定,M1 收口)
     assert [%{id: ^attempt_id}] =
              Ash.read!(Attempt, actor: ctx.learner, tenant: ctx.workspace.id)
 

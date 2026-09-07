@@ -222,7 +222,9 @@
       "events": "活动",
       "courses": "课程",
       "login": "登录",
-      "join": "加入我们"
+      "join": "加入我们",
+      "myLearning": "我的学习",
+      "workspace": "工作台"
     },
     "hero": {
       "tagline": "从 2016 到 2046，程序媛汇，在女性与编程之间架起一座桥梁。",
@@ -661,7 +663,6 @@
       "backToOverview": "返回概览",
       "navOverview": "概览",
       "navAgents": "Agents",
-      "navWorkflows": "教研产出",
       "navEvents": "活动",
       "navCourses": "课程",
       "navGroup": "工作区导航",
@@ -889,11 +890,6 @@
     "activityStatusError": "失败",
     "activityStatusPending": "待确认",
     "activityStatusForbidden": "被拒",
-    "todosTitle": "待办交接",
-    "todosHint": "本工作台学习 run 等待助手产出的步骤",
-    "todosEmpty": "当前没有待办步骤 🎉",
-    "todosHandoffHint": "把待办步骤交接给你的助手执行",
-    "multihostHint": "粘贴给你的 OpenClacky / opencode / omp 助手",
     "activityTitle": "活动流",
     "activityHint": "本工作台内你自己的工具调用（隐私最小面）",
     "activityEmpty": "暂无活动——在 OpenClacky / opencode / omp 里调用平台工具后，记录会显示在这里。",
@@ -1244,13 +1240,6 @@
     "empty": "还没有{label}。",
     "emptyCreateHint": "点击右上角「新建{label}」创建第一个。",
     "emptyWaitHint": "等待 Owner 创建。",
-    "runStatusPending": "待启动",
-    "runStatusRunning": "教研中",
-    "runStatusWaiting": "教研中(等待产出)",
-    "runStatusSucceeded": "已完成",
-    "runStatusFailed": "失败",
-    "runStatusCancelled": "已取消",
-    "runStatusExpired": "已过期",
     "saved": "已保存",
     "saveFailedRetry": "保存失败，请重试",
     "actionFailedRetry": "操作失败，请重试",
@@ -1270,12 +1259,6 @@
     "capacityCount": "{confirmed} / {capacity}",
     "fieldPending": "待审批报名",
     "researchTitle": "教研",
-    "runStatusLabel": "教研 run 状态:",
-    "linked": "已关联",
-    "notInstantiated": "未实例化",
-    "contentCompletion": "课程内容完成度:",
-    "issueSubmitted": "issue 卡已提交",
-    "awaitResearch": "待教研产出",
     "editMeta": "编辑元数据",
     "fieldTitle": "标题",
     "capacityHint": "名额上限（留空 = 不限）",
@@ -1344,7 +1327,8 @@
     "createTitle": "新建{label}",
     "createSubtitle": "创建后为草稿，发布后进入开放报名",
     "titleRequired": "标题（必填）",
-    "visibility": "可见性"
+    "visibility": "可见性",
+    "openCurriculum": "打开课程内容治理"
   },
   "checkout": {
     "orderFailed": "下单失败，请重试",
@@ -1670,7 +1654,8 @@
     "allRules": "全部规则",
     "noOrphans": "暂无孤儿发现。",
     "openclackyDesc": "OpenClacky 是 Coding Girls Club 的 AI 协作平台企业版，面向团队深度研究协作。它运行在独立服务器（oc.codingirlsclub.com），拥有独立的认证体系——本平台的账号权限与 OpenClacky 互不影响。",
-    "goOpenclacky": "前往 OpenClacky（oc.codingirlsclub.com）"
+    "goOpenclacky": "前往 OpenClacky（oc.codingirlsclub.com）",
+    "auditRedactionNotice": "平台审计仅显示状态、类型、Workspace 和时间；不会显示 facts、输入快照或学习证据正文。"
   },
   "permissions": {
     "ability": {
@@ -1938,7 +1923,10 @@
     "attemptCountLabel": "尝试 {count} 次",
     "lockedLabel": "需先修：{titles}",
     "learnThisObjective": "学这个目标",
-    "agentObjectiveId": "(objective_id: {id})"
+    "agentObjectiveId": "(objective_id: {id})",
+    "tab": {
+      "courseContent": "查看课程内容"
+    }
   },
   "profileAvatar": {
     "typeError": "仅支持 {types} 格式",
@@ -1950,12 +1938,6 @@
   "schemaOutput": {
     "otherLabel": "其他"
   },
-  "stepHandoff": {
-    "toolHint": "工具提示：用 save_step_output 写回该 step",
-    "copied": "已复制",
-    "failed": "复制失败",
-    "copy": "复制交接文本"
-  },
   "themeToggle": {
     "toggleLight": "切换为浅色主题",
     "toggleDark": "切换为深色主题",
@@ -1965,5 +1947,86 @@
     "currentDark": "当前主题：深色",
     "light": "浅色",
     "dark": "深色"
+  },
+  "courseReader": {
+    "loading": "加载课程内容…",
+    "loadFailed": "课程内容加载失败",
+    "empty": "暂无可读课程内容",
+    "chapter": "章节",
+    "eyebrow": "我的学习 / 课程阅读",
+    "intro": "按章节阅读课程内容，选择一个目标开始学习。",
+    "version": "版本",
+    "overview": "课程概览",
+    "units": "学习单元",
+    "objectives": "学习目标",
+    "materials": "份材料",
+    "outline": "课程目录",
+    "ungrouped": "未分组",
+    "unitMeta": "学习单元 · {kind}",
+    "mastered": "已掌握",
+    "learning": "学习中",
+    "review": "待复习",
+    "notStarted": "未开始",
+    "assessment": "验收",
+    "progress": "学习进度",
+    "currentCourse": "本课程",
+    "masteredGoals": "已掌握目标",
+    "progressNote": "完成一个目标后，进度会在这里更新。",
+    "openLearning": "打开我的学习",
+    "kind": {
+      "thoughtwork": "思考型",
+      "handwork": "动手型"
+    }
+  },
+  "courseGovernance": {
+    "loading": "课程治理数据加载中…",
+    "error": "课程治理数据暂时不可用",
+    "unavailable": "课程治理数据暂不可用或暂无数据",
+    "draft": {
+      "aria": "课程内容草稿预览",
+      "eyebrow": "课程内容草稿",
+      "meta": "草稿版本 {version} · 更新于 {time}",
+      "state": {
+        "draft": "草稿",
+        "authoring": "撰写中",
+        "qualityCheck": "质量检查",
+        "review": "评审中",
+        "published": "已发布"
+      }
+    },
+    "aria": "课程治理统计",
+    "eyebrow": "课程治理 / 教学投影",
+    "title": "发布版本与学习概览",
+    "privacy": "不含学习证据正文",
+    "runs": "学习运行",
+    "active": "进行中",
+    "completed": "已完成",
+    "rate": "完成率",
+    "stale": "超过 7 天未活动",
+    "objectiveState": "目标教学状态",
+    "noObjectives": "当前发布版本暂无目标统计。",
+    "required": "必修",
+    "elective": "选修",
+    "counts": "已掌握 {mastered} · 学习中 {developing} · 待复习 {needsReview} · 未评估 {unassessed}"
+  },
+  "material": {
+    "title": "材料",
+    "imageUnavailable": "（图片材料缺少安全地址或替代文本）",
+    "imageLoading": "图片加载中…",
+    "imageError": "图片暂时无法加载",
+    "externalVideo": "（外部视频）",
+    "providerUnavailable": "（视频提供方暂不支持，请联系教研重新保存）",
+    "openBilibili": "无法播放？打开 Bilibili",
+    "playVideo": "播放视频",
+    "legacy": "（旧材料需要重新保存为 typed Material）"
+  },
+  "learningHome": {
+    "eyebrow": "我的学习",
+    "title": "继续你的课程",
+    "subtitle": "从上次停下的地方继续，按目标掌握每一章内容。",
+    "catalog": "发现课程",
+    "courses": "我的课程",
+    "loading": "正在加载课程…",
+    "error": "课程加载失败，请刷新重试。"
   }
 }

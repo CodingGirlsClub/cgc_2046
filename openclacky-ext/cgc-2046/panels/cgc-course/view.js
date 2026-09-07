@@ -44,8 +44,7 @@
     courses: [],        // confirmed 课程报名 → { courseId, title, workspaceId, workspaceName }
     selectedCourseId: "",  // 学习中心选中的课程
     learning: null,     // /learning_state result
-    content: null,      // /content result(材料/rubric 详情用)
-    revision: null,     // /revision result(issue 标题分组用)
+    revision: null,     // /revision result(已发布内容:大纲分组 + 材料/rubric;null = 课程尚未发布)
     view: "overview",   // overview | objective
     currentObjectiveId: "",
     progresses: {},     // courseId → 概览摘要(未选中课程的卡片信息)
@@ -58,6 +57,54 @@
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
+  }
+
+  function safeMaterialUrl(material) {
+    if (!material || material.kind === "text" || material.kind === "markdown") return null;
+    const url = material.url;
+    if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
+    return url;
+  }
+
+  function markdownMarkup(body) {
+    return String(body || "").split(/\n+/).map(function (line) {
+      var s = escapeHtml(line.trim());
+      if (!s) return "";
+      s = s.replace(/^###\s+(.+)$/, "<h5>$1</h5>").replace(/^##\s+(.+)$/, "<h4>$1</h4>").replace(/^#\s+(.+)$/, "<h3>$1</h3>");
+      s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+      s = s.replace(/\[([^\]]+)\]\((https:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      return /^[-*]\s+/.test(s) ? "<li>" + s.replace(/^[-*]\s+/, "") + "</li>" : "<p>" + s + "</p>";
+    }).join("");
+  }
+
+  // M2 typed 分派 + scheme 门:web/image 仅 https: 进链接/img;video 仅
+  // bilibili + 合法 BV 号出外链;text/markdown 标题+正文;legacy {title,ref}
+  // 只显示标题 + 重存提示,ref 永不进 href。插值一律 escapeHtml。
+  function materialMarkup(material) {
+    if (!material) return "";
+    var title = escapeHtml(material.title || "材料");
+    if (material.ref || !material.kind) {
+      return '<span class="cglc-material">' + title +
+        ' <span class="cgch-empty">需重新保存为 typed Material</span></span>';
+    }
+    if (material.kind === "text") return '<div class="cglc-material cglc-material-text"><strong>' + title + '</strong><p>' + escapeHtml(material.body || "") + '</p></div>';
+    if (material.kind === "markdown") return '<div class="cglc-material cglc-material-markdown"><strong>' + title + '</strong>' + markdownMarkup(material.body) + '</div>';
+    if (material.kind === "image") {
+      var imageUrl = safeMaterialUrl(material);
+      if (!imageUrl || !material.alt_text) return '<span class="cglc-material">' + title + '</span>';
+      return '<figure class="cglc-material"><img src="' + escapeHtml(imageUrl) + '" alt="' + escapeHtml(material.alt_text) + '" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>图片加载失败</span><figcaption>' + title + (material.caption ? "：" + escapeHtml(material.caption) : "") + '</figcaption></figure>';
+    }
+    if (material.kind === "video") {
+      if (material.provider !== "bilibili" || !/^BV[0-9A-Za-z]{10}$/.test(String(material.external_id || ""))) return '<span class="cglc-material">' + title + '</span>';
+      var videoUrl = "https://www.bilibili.com/video/" + encodeURIComponent(material.external_id);
+      return '<a class="cglc-material cgch-mat-ref cglc-video" href="' + videoUrl + '" target="_blank" rel="noopener noreferrer">▶ ' + title + '</a>';
+    }
+    var url = safeMaterialUrl(material);
+    return url ? '<a class="cglc-material cgch-mat-ref" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : '<span class="cglc-material">' + title + '</span>';
+  }
+
+  function materialLinkMarkup(material) {
+    return materialMarkup(material);
   }
 
   const EDIT_ROLES = ["tutor"];
@@ -197,19 +244,18 @@
     return (course && course.workspaceId) || state.workspaceId;
   }
 
-  // 选中课程的三源并行(learning_state 主 / content 材料与 rubric / revision 大纲分组)
+  // 选中课程的两源并行(learning_state 进度主 / revision 已发布内容:大纲分组 +
+  // 材料与 rubric)。M4:/content 草稿路由收紧为 tutor/admin,learner 不再请求。
   async function loadCourseData(courseId, silent) {
     if (!silent) { state.loading = true; state.error = null; render(); }
     try {
       const ws = scopeOf(courseId);
-      const [learningRes, contentRes, revRes] = await Promise.all([
+      const [learningRes, revRes] = await Promise.all([
         apiGet("/learning_state?workspace_id=" + encodeURIComponent(ws) +
           "&course_id=" + encodeURIComponent(courseId)),
-        apiGet("/courses/" + encodeURIComponent(courseId) + "/content").catch(function () { return { result: {} }; }),
         apiGet("/courses/" + encodeURIComponent(courseId) + "/revision").catch(function () { return { result: null }; })
       ]);
       state.learning = learningRes.result || {};
-      state.content = contentRes.result || {};
       state.revision = revRes.result || null;
       state.signed = learningSignature(state.learning);
       state.error = null;
@@ -241,12 +287,11 @@
     loadCourseData(courseId);
   }
 
-  // ---- 大纲树数据:objectives 按 issue 分组(标题取 revision/content,缺省用 id) ----
+  // ---- 大纲树数据:objectives 按 issue 分组(标题取已发布 revision,缺省用 id) ----
   function outlineGroups() {
     const learning = state.learning || {};
     const objectives = learning.objectives || [];
-    const issues = (state.revision && state.revision.issues) ||
-      (state.content && state.content.issues) || [];
+    const issues = (state.revision && state.revision.issues) || [];
     const issueTitle = {};
     issues.forEach(function (i) {
       if (i && i.id != null) issueTitle[String(i.id)] = i.title || i.key || String(i.id);
@@ -529,8 +574,8 @@
       '<div class="cglc-head">' +
         '<div class="cglc-title-row">' +
           '<h3 class="cglc-title">' + escapeHtml((state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "") + '</h3>' +
-          (Number.isInteger(state.content && state.content.version)
-            ? '<span class="cgch-chip">草稿 v' + escapeHtml(state.content.version) + '</span>' : "") +
+          (state.revision && Number.isInteger(state.revision.version)
+            ? '<span class="cgch-chip">已发布 v' + escapeHtml(state.revision.version) + '</span>' : "") +
           (progress.complete ? '<span class="cgch-chip cgch-chip-admin">已结业</span>' : "") +
         '</div>' +
         '<div class="cglc-progress" data-testid="panel-progress">' +
@@ -544,6 +589,11 @@
       html +=
         '<div class="cgc-banner" data-testid="panel-stale">课程已发布新版本,你正在学旧版(进度保留)。' +
           '点「继续学习」将开新版 run。</div>';
+    }
+    // M4:revision 为 null = 课程尚未发布——明示状态,不留空白
+    if (state.revision === null) {
+      html +=
+        '<div class="cgc-banner" data-testid="panel-unpublished">课程尚未发布,大纲与材料将在发布后可见。</div>';
     }
 
     // Resume 卡:最显眼动作 = 继续上次
@@ -597,12 +647,13 @@
       return e && String(e.objective_id) === String(o.id);
     });
 
-    // 材料/rubric 取自 content(按 objective id 对齐;S8 后 learner 材料可见性在此恢复)
+    // 材料/rubric 取自已发布 revision(按 objective id 对齐;M4 后 learner
+    // 不再读 /content 草稿——草稿路由已收紧为 tutor/admin)
     let materials = [];
     let rubric = [];
     let activity = "";
     let assessment = "";
-    ((state.content && state.content.issues) || []).forEach(function (issue) {
+    ((state.revision && state.revision.issues) || []).forEach(function (issue) {
       ((issue && issue.objectives) || []).forEach(function (co) {
         if (co && String(co.id) === String(o.id)) {
           materials = Array.isArray(co.materials) ? co.materials : [];
@@ -633,26 +684,30 @@
 
     html += '<div class="cglc-obj-grid">';
 
-    html += '<div class="cgc-card">' +
-      '<div class="cglc-section-title">学习活动</div>' +
-      (activity ? '<div class="cglc-kv"><label>活动</label><span>' + escapeHtml(activity) + '</span></div>' : "") +
-      (assessment ? '<div class="cglc-kv"><label>评估</label><span>' + escapeHtml(assessment) + '</span></div>' : "") +
-      (materials.length
-        ? '<div class="cglc-kv"><label>材料</label><span>' + materials.map(function (m) {
-            const ref = m.ref ? ' <a href="' + escapeHtml(m.ref) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.ref) + '</a>' : "";
-            return escapeHtml(m.title || "") + ref;
-          }).join('<br>') + '</span></div>'
-        : '<div class="cglc-kv"><label>材料</label><span class="cgch-empty">无</span></div>') +
-      '</div>';
+    if (state.revision === null) {
+      // M4:未发布态明示——材料与评价标准随发布可见,不渲染空白卡
+      html += '<div class="cgc-card"><div class="cgch-empty" data-testid="panel-unpublished">课程尚未发布,材料与评价标准将在发布后可见。</div></div>';
+    } else {
+      html += '<div class="cgc-card">' +
+        '<div class="cglc-section-title">学习活动</div>' +
+        (activity ? '<div class="cglc-kv"><label>活动</label><span>' + escapeHtml(activity) + '</span></div>' : "") +
+        (assessment ? '<div class="cglc-kv"><label>评估</label><span>' + escapeHtml(assessment) + '</span></div>' : "") +
+        (materials.length
+          ? '<div class="cglc-kv"><label>材料</label><span>' + materials.map(function (m) {
+              return materialLinkMarkup(m);
+            }).join('<br>') + '</span></div>'
+          : '<div class="cglc-kv"><label>材料</label><span class="cgch-empty">无</span></div>') +
+        '</div>';
 
-    html += '<div class="cgc-card">' +
-      '<div class="cglc-section-title">评价标准 (rubric)</div>' +
-      (rubric.length
-        ? '<ul class="cglc-rubric">' + rubric.map(function (r) {
-            return '<li>' + escapeHtml(r.text || r.id) + '</li>';
-          }).join("") + '</ul>'
-        : '<div class="cgch-empty">无</div>') +
-      '</div>';
+      html += '<div class="cgc-card">' +
+        '<div class="cglc-section-title">评价标准 (rubric)</div>' +
+        (rubric.length
+          ? '<ul class="cglc-rubric">' + rubric.map(function (r) {
+              return '<li>' + escapeHtml(r.text || r.id) + '</li>';
+            }).join("") + '</ul>'
+          : '<div class="cgch-empty">无</div>') +
+        '</div>';
+    }
 
     html += '</div>';
 

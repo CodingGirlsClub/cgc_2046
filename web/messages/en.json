@@ -222,7 +222,9 @@
       "events": "Events",
       "courses": "Courses",
       "login": "Sign in",
-      "join": "Join us"
+      "join": "Join us",
+      "myLearning": "My learning",
+      "workspace": "Workspace"
     },
     "hero": {
       "tagline": "From 2016 to 2046, Coding Girls Club builds a bridge between women and programming.",
@@ -661,7 +663,6 @@
       "backToOverview": "Back to overview",
       "navOverview": "Overview",
       "navAgents": "Agents",
-      "navWorkflows": "Research output",
       "navEvents": "Events",
       "navCourses": "Courses",
       "navGroup": "Workspace navigation",
@@ -889,11 +890,6 @@
     "activityStatusError": "Failed",
     "activityStatusPending": "Needs confirmation",
     "activityStatusForbidden": "Rejected",
-    "todosTitle": "Handoffs",
-    "todosHint": "Steps in this workspace's learning runs awaiting assistant output",
-    "todosEmpty": "No pending handoffs 🎉",
-    "todosHandoffHint": "Hand off pending steps to your assistant",
-    "multihostHint": "Paste into your OpenClacky / opencode / omp assistant",
     "activityTitle": "Activity feed",
     "activityHint": "Your own tool calls within this workspace (minimal privacy surface)",
     "activityEmpty": "No activity yet — calls made in OpenClacky / opencode / omp will show up here.",
@@ -1244,13 +1240,6 @@
     "empty": "No {label} yet.",
     "emptyCreateHint": "Click “New {label}” in the top right to create the first one.",
     "emptyWaitHint": "Waiting for the Owner to create one.",
-    "runStatusPending": "Pending",
-    "runStatusRunning": "In progress",
-    "runStatusWaiting": "In progress (awaiting output)",
-    "runStatusSucceeded": "Completed",
-    "runStatusFailed": "Failed",
-    "runStatusCancelled": "Cancelled",
-    "runStatusExpired": "Expired",
     "saved": "Saved",
     "saveFailedRetry": "Save failed. Please try again.",
     "actionFailedRetry": "Action failed. Please try again.",
@@ -1270,12 +1259,6 @@
     "capacityCount": "{confirmed} / {capacity}",
     "fieldPending": "Pending enrollments",
     "researchTitle": "Research",
-    "runStatusLabel": "Research run status:",
-    "linked": "Linked",
-    "notInstantiated": "Not instantiated",
-    "contentCompletion": "Course content completion:",
-    "issueSubmitted": "Issue card submitted",
-    "awaitResearch": "Awaiting research output",
     "editMeta": "Edit metadata",
     "fieldTitle": "Title",
     "capacityHint": "Capacity limit (blank = unlimited)",
@@ -1344,7 +1327,8 @@
     "createTitle": "New {label}",
     "createSubtitle": "Created as draft; published to open enrollment",
     "titleRequired": "Title (required)",
-    "visibility": "Visibility"
+    "visibility": "Visibility",
+    "openCurriculum": "Open course governance"
   },
   "checkout": {
     "orderFailed": "Failed to place the order. Please try again.",
@@ -1670,7 +1654,8 @@
     "allRules": "All rules",
     "noOrphans": "No orphans found.",
     "openclackyDesc": "OpenClacky is the enterprise edition of Coding Girls Club's AI collaboration platform, built for deep team research collaboration. It runs on a separate server (oc.codingirlsclub.com) with its own authentication — platform accounts don't affect OpenClacky.",
-    "goOpenclacky": "Go to OpenClacky (oc.codingirlsclub.com)"
+    "goOpenclacky": "Go to OpenClacky (oc.codingirlsclub.com)",
+    "auditRedactionNotice": "Platform audit shows status, type, Workspace and timing only; facts, input snapshots and learning evidence are excluded."
   },
   "permissions": {
     "ability": {
@@ -1938,7 +1923,10 @@
     "attemptCountLabel": "{count} attempts",
     "lockedLabel": "Locked — prerequisites: {titles}",
     "learnThisObjective": "Learn this objective",
-    "agentObjectiveId": "(objective_id: {id})"
+    "agentObjectiveId": "(objective_id: {id})",
+    "tab": {
+      "courseContent": "View course content"
+    }
   },
   "profileAvatar": {
     "typeError": "Only {types} formats are supported",
@@ -1950,12 +1938,6 @@
   "schemaOutput": {
     "otherLabel": "Other"
   },
-  "stepHandoff": {
-    "toolHint": "Tool hint: write back to this step with save_step_output",
-    "copied": "Copied",
-    "failed": "Copy failed",
-    "copy": "Copy handoff text"
-  },
   "themeToggle": {
     "toggleLight": "Switch to light theme",
     "toggleDark": "Switch to dark theme",
@@ -1965,5 +1947,86 @@
     "currentDark": "Current theme: dark",
     "light": "Light",
     "dark": "Dark"
+  },
+  "courseReader": {
+    "loading": "Loading course content…",
+    "loadFailed": "Failed to load course content",
+    "empty": "No readable course content",
+    "chapter": "Chapter",
+    "eyebrow": "My learning / Course reader",
+    "intro": "Read by chapter and choose an objective to start learning.",
+    "version": "Version",
+    "overview": "Course overview",
+    "units": "Learning units",
+    "objectives": "Objectives",
+    "materials": "materials",
+    "outline": "Course outline",
+    "ungrouped": "Ungrouped",
+    "unitMeta": "Learning unit · {kind}",
+    "mastered": "Mastered",
+    "learning": "Learning",
+    "review": "Needs review",
+    "notStarted": "Not started",
+    "assessment": "Assessment",
+    "progress": "Progress",
+    "currentCourse": "This course",
+    "masteredGoals": "Mastered objectives",
+    "progressNote": "Your progress will update here after completing an objective.",
+    "openLearning": "Open my learning",
+    "kind": {
+      "thoughtwork": "Thoughtwork",
+      "handwork": "Handwork"
+    }
+  },
+  "courseGovernance": {
+    "loading": "Loading governance data…",
+    "error": "Governance data is temporarily unavailable",
+    "unavailable": "Governance data is temporarily unavailable or has no data yet",
+    "draft": {
+      "aria": "Course content draft preview",
+      "eyebrow": "Content draft",
+      "meta": "Draft version {version} · Updated {time}",
+      "state": {
+        "draft": "Draft",
+        "authoring": "Authoring",
+        "qualityCheck": "Quality check",
+        "review": "In review",
+        "published": "Published"
+      }
+    },
+    "aria": "Course governance statistics",
+    "eyebrow": "Course governance / teaching projection",
+    "title": "Published version and learning overview",
+    "privacy": "No learner evidence text",
+    "runs": "Learning runs",
+    "active": "Active",
+    "completed": "Completed",
+    "rate": "Completion rate",
+    "stale": "Inactive for more than 7 days",
+    "objectiveState": "Objective teaching state",
+    "noObjectives": "No objective statistics for the current revision.",
+    "required": "Required",
+    "elective": "Elective",
+    "counts": "Mastered {mastered} · Learning {developing} · Needs review {needsReview} · Unassessed {unassessed}"
+  },
+  "material": {
+    "title": "Material",
+    "imageUnavailable": " (image needs a safe URL and alt text)",
+    "imageLoading": "Loading image…",
+    "imageError": "Image could not be loaded",
+    "externalVideo": " (external video)",
+    "providerUnavailable": " (video provider unavailable; resave the material)",
+    "openBilibili": "Playback issue? Open Bilibili",
+    "playVideo": "Play video",
+    "legacy": " (legacy material must be resaved as typed Material)"
+  },
+  "learningHome": {
+    "eyebrow": "My learning",
+    "title": "Continue your courses",
+    "subtitle": "Pick up where you left off and master each chapter by objective.",
+    "catalog": "Discover courses",
+    "courses": "My courses",
+    "loading": "Loading courses…",
+    "error": "Failed to load courses. Try again."
   }
 }

@@ -5,8 +5,7 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
   覆盖 6 个新查询的端到端解析（ConnCase 经 /api/graphql 走完整 AshGraphQL
   pipeline：filter + read policy，无 tenant——同 workspaceMembers 既有模式）：
 
-  - listWorkflowRuns：成员可见本工作台 run；非成员空结果
-  - getWorkflowRun：按 id 取 run 详情
+  - 旧 raw WorkflowRun GraphQL 查询面已移除
   - listEvents / getEvent / listCourses / getCourse：成员可见；非成员空结果
 
   这是 #40 查询面的唯一真实解析证明（schema 重生成只证明编译，不证明解析）。
@@ -143,85 +142,6 @@ defmodule Cgc2046Web.GraphqlWorkflowTest do
              )
 
     {admin, workspace, run}
-  end
-
-  describe "listWorkflowRuns / getWorkflowRun（#40）" do
-    test "成员可见本工作台 run（count + results + status）" do
-      {admin, workspace, run} = seeded_run()
-      token = sign_in_token(admin.email, Fixtures.password())
-
-      query = """
-      query {
-        listWorkflowRuns(filter: {workspaceId: {eq: "#{workspace.id}"}}) {
-          count
-          results { id status }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), query, token)
-
-      assert %{
-               "data" => %{
-                 "listWorkflowRuns" => %{"count" => count, "results" => results}
-               }
-             } = res
-
-      assert count == 1
-      assert [%{"id" => id, "status" => status}] = results
-      assert id == run.id
-      assert status == "succeeded"
-    end
-
-    test "非成员空结果（read policy 过滤）" do
-      {_admin, workspace, _run} = seeded_run()
-      outsider = Fixtures.register_user("gql-wf-outsider")
-      token = sign_in_token(outsider.email, Fixtures.password())
-
-      query = """
-      query {
-        listWorkflowRuns(filter: {workspaceId: {eq: "#{workspace.id}"}}) {
-          count
-          results { id }
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), query, token)
-
-      assert %{
-               "data" => %{
-                 "listWorkflowRuns" => %{"count" => 0, "results" => []}
-               }
-             } = res
-    end
-
-    test "getWorkflowRun 按 id 取详情（含 facts JsonString）" do
-      {admin, _workspace, run} = seeded_run()
-      token = sign_in_token(admin.email, Fixtures.password())
-
-      query = """
-      query {
-        getWorkflowRun(id: "#{run.id}") {
-          id status facts
-        }
-      }
-      """
-
-      res = graphql_post(build_conn(), query, token)
-
-      assert %{
-               "data" => %{
-                 "getWorkflowRun" => %{"id" => id, "status" => status, "facts" => facts}
-               }
-             } = res
-
-      assert id == run.id
-      assert status == "succeeded"
-      # facts 是 JsonString（JSON 编码字符串），可解析为 map
-      assert is_binary(facts)
-      assert %{"uppercase" => %{"text" => "HI"}} = Jason.decode!(facts)
-    end
   end
 
   describe "listEvents / getEvent / listCourses / getCourse（#40）" do

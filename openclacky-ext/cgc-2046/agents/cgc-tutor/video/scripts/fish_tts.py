@@ -9,6 +9,8 @@
     FISH_AUDIO_VOICE_ID  可选，tutor 在 fish.audio 克隆或收藏的声音 id；
                          不设则用平台默认声音
     FISH_AUDIO_MODEL     可选，请求 header 的模型 id（默认 s2-pro）
+    FISH_AUDIO_SPEED     可选，语速倍率（prosody.speed，1=原速，1.08≈快一点）；
+                         不设或等于 1 时不发送 prosody 字段，行为与旧版一致
 
 零第三方依赖（只用标准库），口播文本走文件传入，避免 shell/JSON 双重转义。
 """
@@ -40,6 +42,9 @@ def main() -> None:
     voice = os.environ.get("FISH_AUDIO_VOICE_ID")
     if voice:
         body["reference_id"] = voice
+    speed = float(os.environ.get("FISH_AUDIO_SPEED", "1") or 1)
+    if speed != 1:
+        body["prosody"] = {"speed": speed, "volume": 0, "normalize_loudness": True}
     # Fish Audio OpenAPI 把 model 定义为请求 header，不是 JSON body 字段。
     model = os.environ.get("FISH_AUDIO_MODEL", "s2-pro")
 

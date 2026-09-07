@@ -42,6 +42,7 @@ import {
   VISIBILITIES,
   VISIBILITY_LABEL,
 } from "@/lib/graphql/events";
+import { TEACHING_ROLE_NAMES } from "@/lib/graphql/workspace";
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import WorkspaceShell from "@/components/workspace-shell";
@@ -395,17 +396,6 @@ function buildCurriculumJson(text: string): string {
   return JSON.stringify({ note: text });
 }
 
-/** 教研 run 状态展示词(U8 教研状态露出) */
-const RESEARCH_RUN_STATUS_LABEL: Record<string, string> = {
-  pending: "runStatusPending",
-  running: "runStatusRunning",
-  waiting: "runStatusWaiting",
-  succeeded: "runStatusSucceeded",
-  failed: "runStatusFailed",
-  cancelled: "runStatusCancelled",
-  expired: "runStatusExpired",
-};
-
 interface OfferingState {
   id: string;
   row: OfferingItem | null;
@@ -580,6 +570,10 @@ export function OfferingDetailPage({
 
   const loadError = stale ? null : state.error;
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
+  // 教研角色（tutor/owner/admin）可见课程内容治理入口；能力面无法区分 tutor 与普通成员，须看角色标签
+  const teachingStaff = (ws?.myRoleNames ?? []).some((role) =>
+    TEACHING_ROLE_NAMES.includes(role),
+  );
 
   // pending 报名数（报名数据视图：request 策略待审批；仅管理视角发起，
   // 普通成员/匿名不发请求——U2 #127）
@@ -1049,46 +1043,21 @@ export function OfferingDetailPage({
                 </div>
               </div>
 
-              {manage && kind === "course" ? (
+              {teachingStaff && kind === "course" ? (
                 <div
                   className="rounded-large border border-line bg-card p-6"
-                  data-testid="research-status"
+                  data-testid="course-governance-card"
                 >
                   <h2 className="text-sm font-medium text-ink">
                     {t("researchTitle")}
                   </h2>
-                  <dl className="mt-3 grid gap-2 text-sm">
-                    <div className="flex items-center gap-2">
-                      <dt className="text-ink-3">{t("runStatusLabel")}</dt>
-                      <dd
-                        className="text-ink"
-                        data-testid="research-run-status"
-                      >
-                        {offering.workflowRun?.status
-                          ? (t(
-                              RESEARCH_RUN_STATUS_LABEL[
-                                offering.workflowRun.status
-                              ],
-                            ) ?? offering.workflowRun.status)
-                          : offering.workflowRunId
-                            ? t("linked")
-                            : t("notInstantiated")}
-                      </dd>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <dt className="text-ink-3">
-                        {t("contentCompletion")}
-                      </dt>
-                      <dd
-                        className="text-ink"
-                        data-testid="research-content-status"
-                      >
-                        {offering.workflowRun?.status === "succeeded"
-                          ? t("issueSubmitted")
-                          : t("awaitResearch")}
-                      </dd>
-                    </div>
-                  </dl>
+                  <Link
+                    href={`/w/${slug}/courses/${offering.id}/curriculum`}
+                    className="mt-4 inline-flex text-sm text-accent hover:underline"
+                    data-testid="course-governance-link"
+                  >
+                    {t("openCurriculum")} ↗
+                  </Link>
                 </div>
               ) : null}
 

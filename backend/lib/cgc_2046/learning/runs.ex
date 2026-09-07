@@ -418,8 +418,7 @@ defmodule Cgc2046.Learning.Runs do
     WorkflowRun
     |> Ash.Query.filter(
       definition.type == :learning and
-        input_snapshot["course_id"] == ^course_id and
-        input_snapshot["user_id"] == ^actor_id
+        subject_course_id == ^course_id and subject_user_id == ^actor_id
     )
   end
 
@@ -443,6 +442,9 @@ defmodule Cgc2046.Learning.Runs do
         end
     end
   end
+
+  defp bound_revision_id(%WorkflowRun{subject_course_revision_id: revision_id})
+       when is_binary(revision_id), do: revision_id
 
   defp bound_revision_id(%WorkflowRun{input_snapshot: snapshot}) when is_map(snapshot),
     do: snapshot["course_revision_id"]

@@ -185,6 +185,13 @@ describe("成员读写面（U5/R14：Owner 表单预填与保存回读）", () =
 		expect(courseDoc).not.toContain("venue");
 	});
 
+	it("GET_COURSE 不再选择 workflowRun 对象（SDL 已删 WorkflowRun 对象类型；保留 workflowRunId 标量）", () => {
+		const courseDoc = print(GET_COURSE);
+		expect(courseDoc).toContain("workflowRunId");
+		// 对象选择集 `workflowRun {` 必须消失——否则查询校验失败整页空白
+		expect(courseDoc).not.toMatch(/workflowRun\s*\{/);
+	});
+
 	it("UPDATE_EVENT / UPDATE_COURSE：result 带回 startsAt/endsAt（event 另带 venue）供局部状态更新", () => {
 		const eventDoc = print(UPDATE_EVENT);
 		for (const field of ["startsAt", "endsAt", "venue"]) {

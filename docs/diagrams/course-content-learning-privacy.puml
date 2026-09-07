@@ -1,0 +1,62 @@
+@startuml cgc_course_content_learning_privacy
+
+title CGC Course Content, Learning and Workflow Privacy
+left to right direction
+hide methods
+hide stereotypes
+skinparam linetype ortho
+skinparam entity { BackgroundColor #F8FAFC; BorderColor #475569 }
+
+entity User
+entity Workspace
+entity Membership
+entity Course
+entity CurriculumDraft
+entity CourseRevision
+entity Chapter
+entity Issue
+entity Objective
+entity Material
+entity Enrollment
+entity LearningRun
+entity WorkflowRun
+entity LearnerProgressProjection
+entity TutorTeachingProjection
+entity PlatformAuditProjection
+
+User ||--o{ Membership
+Workspace ||--o{ Membership
+Workspace ||--o{ Course
+Course ||--o| CurriculumDraft
+Course ||--o{ CourseRevision
+CourseRevision ||--o{ Chapter
+Chapter ||--o{ Issue
+Issue ||--o{ Objective
+Objective }o--o{ Material
+User ||--o{ Enrollment
+Course ||--o{ Enrollment
+Enrollment ||--o{ LearningRun
+CourseRevision ||--o{ LearningRun : bound revision
+
+WorkflowRun ..> CurriculumDraft : produces
+LearningRun ..> LearnerProgressProjection : self only
+LearningRun ..> TutorTeachingProjection : assigned course
+WorkflowRun ..> PlatformAuditProjection : redacted metadata only
+
+note right of WorkflowRun
+Raw execution record.
+Never a Workspace feed.
+end note
+
+note right of CourseRevision
+Published immutable snapshot.
+Web reader source of truth.
+end note
+
+note right of Material
+text / markdown / web / image / video
+Video first adapter: Bilibili.
+No arbitrary iframe HTML.
+end note
+
+@enduml
