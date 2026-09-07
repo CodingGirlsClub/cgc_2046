@@ -84,4 +84,22 @@ defmodule Cgc2046.Curriculum.ContentTest do
              ])
            )
   end
+
+  test "reports legacy materials and rejects malformed Bilibili IDs" do
+    legacy = content([%{"title" => "旧链接", "ref" => "https://example.com"}])
+    messages = Content.material_violations(legacy)
+    assert length(messages) == 2
+    assert Enum.all?(messages, &String.contains?(&1, "legacy_material_ref"))
+
+    refute Content.valid_v1?(
+             content([
+               %{
+                 "kind" => "video",
+                 "title" => "视频",
+                 "provider" => "bilibili",
+                 "external_id" => "BV1xx"
+               }
+             ])
+           )
+  end
 end

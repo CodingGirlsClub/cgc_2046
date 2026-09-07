@@ -49,10 +49,10 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 					{signedIn ? (
 						<>
 							<Link href="/learning" className="site-nav__login">
-								我的学习 <span aria-hidden="true">→</span>
+								{t("myLearning")} <span aria-hidden="true">→</span>
 							</Link>
 							<Link href="/" className="join-button join-button--primary">
-								工作台
+								{t("workspace")}
 							</Link>
 						</>
 					) : (

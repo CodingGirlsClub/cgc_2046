@@ -12,7 +12,7 @@ defmodule Cgc2046.Curriculum.Content do
         "title" => "写你的第一个程序",
         "story" => %{
           "as_a" => ..., "given" => [...], "goal" => ...,
-          "materials" => [%{"title" => ..., "ref" => ...}],
+          "materials" => [%{"kind" => "web", "title" => ..., "url" => "https://..."}],
           "checklist" => [%{"id" => "c1", "text" => ...}]
         },
         "objectives" => [
@@ -21,7 +21,7 @@ defmodule Cgc2046.Curriculum.Content do
             "title" => "能独立运行问候程序",
             "required" => true,
             "prereq_ids" => [],
-            "materials" => [%{"title" => ..., "ref" => ...}],
+            "materials" => [%{"kind" => "web", "title" => ..., "url" => "https://..."}],
             "activity" => "...", "assessment" => "...",
             "rubric" => [%{"id" => "r1", "text" => "程序能运行并输出问候"}]
           }
