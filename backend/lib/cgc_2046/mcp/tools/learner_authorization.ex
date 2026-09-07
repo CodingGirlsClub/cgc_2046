@@ -43,6 +43,10 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
     end
   end
 
+  @doc "课程教研工作面的 staff 判定：Tutor、Owner、Admin。"
+  @spec staff?(term(), String.t()) :: boolean()
+  def staff?(actor, workspace_id), do: content_member?(actor, workspace_id)
+
   @doc "确认过的报名存在性(Runs 单源)。"
   @spec confirmed_enrollment?(term(), String.t(), String.t()) :: boolean()
   def confirmed_enrollment?(actor, workspace_id, course_id),
