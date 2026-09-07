@@ -25,7 +25,14 @@ defmodule Cgc2046.Workflows.PlatformAudit do
           status: r.status,
           started_at: r.started_at,
           finished_at: r.finished_at,
-          inserted_at: r.inserted_at
+          inserted_at: r.inserted_at,
+          error_summary:
+            fragment(
+              "CASE WHEN ? = ? THEN ? ELSE NULL END",
+              r.status,
+              "failed",
+              "workflow_failed"
+            )
         }
       )
 

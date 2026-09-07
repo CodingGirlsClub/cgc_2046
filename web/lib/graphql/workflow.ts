@@ -31,6 +31,7 @@ export interface WorkflowRun {
 	startedAt: string | null;
 	finishedAt: string | null;
 	insertedAt: string;
+	errorSummary?: string | null;
 }
 
 /** Legacy-shaped adapter type retained internally for shared audit row mapping. */
@@ -69,6 +70,7 @@ export const PLATFORM_WORKFLOW_AUDIT: TypedDocumentNode<
 				startedAt
 				finishedAt
 				insertedAt
+				errorSummary
 			}
 	}
 `;

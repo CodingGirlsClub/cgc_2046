@@ -28,6 +28,7 @@ export interface WorkflowRunItem {
 	startedAt: string | null;
 	finishedAt: string | null;
 	insertedAt?: string;
+	errorSummary?: string | null;
 	/** Deprecated compatibility fields for local type-only helpers; never populated from audit API. */
 	definitionId?: string;
 	facts?: Record<string, unknown>;
@@ -100,6 +101,7 @@ export function mapWorkflowRun(r: WorkflowRun): WorkflowRunItem {
 		startedAt: r.startedAt,
 		finishedAt: r.finishedAt,
 		insertedAt: r.insertedAt,
+		errorSummary: r.errorSummary,
 	};
 }
 
