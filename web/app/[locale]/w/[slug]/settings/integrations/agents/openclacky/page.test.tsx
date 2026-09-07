@@ -78,7 +78,7 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 	it("CGC Server 内置扩展路径：引导文案不指向公共市场", async () => {
 		render(<AgentsOpenclackyPage />);
 
-		expect(screen.getByText(/CGC 提供的一键安装链接/)).toBeInTheDocument();
+		expect(screen.getByText(/CGC OpenClacky 提供的一键安装链接/)).toBeInTheDocument();
 		expect(screen.getByText(/无需单独安装扩展/)).toBeInTheDocument();
 		expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
 	});
