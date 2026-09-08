@@ -21,8 +21,9 @@
 (() => {
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
-  const API = "/api/ext/cgc-2046";
   const AGENT = "cgc-assistant";
 
   // ---- 状态(每次会话挂载时初始化) ----
@@ -38,57 +39,12 @@
     lastRefresh: ""
   };
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
-
-  function safeMaterialUrl(material) {
-    if (!material || material.kind === "text" || material.kind === "markdown") return null;
-    const url = material.url;
-    if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
-    return url;
-  }
-
-  function markdownMarkup(body) {
-    return String(body || "").split(/\n+/).map(function (line) {
-      var s = escapeHtml(line.trim()); if (!s) return "";
-      s = s.replace(/^###\s+(.+)$/, "<h5>$1</h5>").replace(/^##\s+(.+)$/, "<h4>$1</h4>").replace(/^#\s+(.+)$/, "<h3>$1</h3>");
-      s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
-      s = s.replace(/\[([^\]]+)\]\((https:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      return /^[-*]\s+/.test(s) ? "<li>" + s.replace(/^[-*]\s+/, "") + "</li>" : "<p>" + s + "</p>";
-    }).join("");
-  }
-
-  // M2 typed 分派 + scheme 门:web/image 仅 https: 进链接/img;video 仅
-  // bilibili + 合法 BV 号出外链;text/markdown 标题+正文;legacy {title,ref}
-  // 只显示标题 + 重存提示,ref 永不进 href。插值一律 escapeHtml。
-  function materialMarkup(material) {
-    if (!material) return "";
-    var title = escapeHtml(material.title || "材料");
-    if (material.ref || !material.kind) {
-      return '<span class="cgla-material">' + title +
-        ' <span class="cgch-empty">需重新保存为 typed Material</span></span>';
-    }
-    if (material.kind === "text") return '<div class="cgla-material"><strong>' + title + '</strong><p>' + escapeHtml(material.body || "") + '</p></div>';
-    if (material.kind === "markdown") return '<div class="cgla-material"><strong>' + title + '</strong>' + markdownMarkup(material.body) + '</div>';
-    if (material.kind === "image") {
-      var imageUrl = safeMaterialUrl(material);
-      if (!imageUrl || !material.alt_text) return '<span class="cgla-material">' + title + '</span>';
-      return '<figure class="cgla-material"><img src="' + escapeHtml(imageUrl) + '" alt="' + escapeHtml(material.alt_text) + '" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>图片加载失败</span><figcaption>' + title + '</figcaption></figure>';
-    }
-    if (material.kind === "video") {
-      if (material.provider !== "bilibili" || !/^BV[0-9A-Za-z]{10}$/.test(String(material.external_id || ""))) return '<span class="cgla-material">' + title + '</span>';
-      return '<a class="cgla-material cgla-mat-ref" href="https://www.bilibili.com/video/' + encodeURIComponent(material.external_id) + '" target="_blank" rel="noopener noreferrer">▶ ' + title + '</a>';
-    }
-    var url = safeMaterialUrl(material);
-    return url ? '<a class="cgla-material cgla-mat-ref" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : '<span class="cgla-material">' + title + '</span>';
-  }
-
-  function materialLinkMarkup(material) {
-    return materialMarkup(material);
-  }
+  const escapeHtml = Kit.escapeHtml;
+  // typed Material 渲染走共享骨架;cgla- 为本面板 CSS 命名空间。
+  // 归一行为:image 的 figcaption 现渲染 caption(以 course 面板 42e2b8c2 版为准,
+  // 本面板拷贝当时漏同步——共享后不再漂移)
+  function materialMarkup(material) { return Kit.materialMarkup(material, "cgla"); }
+  function materialLinkMarkup(material) { return materialMarkup(material); }
 
   function toast(message) {
     if (Clacky.Modal && typeof Clacky.Modal.toast === "function") {
@@ -99,12 +55,7 @@
   }
 
   // ---- 数据加载 ----
-  async function apiGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || ("HTTP " + res.status)), { status: res.status });
-    return body;
-  }
+  const apiGet = Kit.apiGet;
 
   async function boot() {
     state.loading = true;
@@ -229,25 +180,12 @@
     // textContent——value 赋值只是 expando 属性,Composer.text 读不到,
     // _sendMessage 会因内容为空直接 return(真机实证)。
     // 注入保草稿(qingclaw 精髓 3):输入框已有内容追加为「我的补充问题」,
-    // 不覆盖用户打到一半的话
+    // 不覆盖用户打到一半的话;填值/点发/disabled 补发走共享骨架(8s 上限)
     const draft = (input.textContent || "").trim();
     const finalText = draft && draft !== text
       ? text + "\n\n我的补充问题:\n" + draft
       : text;
-    input.textContent = finalText;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    // 宿主在会话订阅确认前禁用发送按钮(app.js:btn-send disabled until
-    // subscribe confirmed)——此时 click 无效,待启用后补发(5s 上限)
-    if (send.disabled) {
-      var timer = setInterval(function () {
-        if (!send.disabled) {
-          clearInterval(timer);
-          send.click();
-        }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 5000);
-    }
+    Kit.injectIntoComposer(input, send, finalText);
   }
 
   // ---- 渲染 ----

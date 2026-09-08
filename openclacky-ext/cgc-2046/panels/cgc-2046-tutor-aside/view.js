@@ -16,13 +16,14 @@
 (() => {
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
-  const API = "/api/ext/cgc-2046";
   const AGENT = "cgc-tutor";
   const POLL_MS = 10000;
   let root = null;
   let refreshTimer = null;
-  let pollTimer = null;
+  let pollStop = null;
 
   const state = {
     courses: [],          // [{ courseId, title, workspaceId }]
@@ -49,18 +50,9 @@
     return '<span class="cgta-course-badge ' + m.cls + '">' + m.label + '</span>';
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
+  const escapeHtml = Kit.escapeHtml;
+  const rawGet = Kit.rawGet;
 
-  async function rawGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || ("HTTP " + res.status)), { status: res.status });
-    return body;
-  }
 
   function scopeOf(courseId) {
     const course = state.courses.find(function (c) { return c.courseId === (courseId || state.selectedCourseId); });
@@ -538,15 +530,7 @@
       window.prompt("复制以下指令到教研会话:", text);
       return;
     }
-    input.textContent = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    if (send.disabled) {
-      const timer = setInterval(function () {
-        if (!send.disabled) { clearInterval(timer); send.click(); }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 8000);
-    }
+    Kit.injectIntoComposer(input, send, text);
   }
 
   function bindHead() {
@@ -654,12 +638,12 @@ document.head.appendChild(css);
     root.className = "cgta-root";
     container.appendChild(root);
     loadCourses();
-    pollTimer = setInterval(async function () {
-      if (!root || !document.contains(root) || document.hidden) return;
+    if (pollStop) pollStop();  // 重复 mount(多 cgc-tutor 会话)不叠加轮询
+    pollStop = Kit.poll(POLL_MS, async function () {
       const before = signature();
       await refreshDraft();
       if (signature() !== before) flashVersion();
-    }, POLL_MS);
+    }, { container: function () { return root; } });
   }, {
     agents: [AGENT],
     order: 17,
