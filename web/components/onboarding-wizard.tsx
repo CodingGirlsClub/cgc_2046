@@ -4,10 +4,9 @@
  * 首公里接入向导（plan 2026-08-22 first-mile-onboarding U4，R4–R7）。
  *
  * 结构：开场（欢迎 + 为什么接入）+ 纵向 stepper 三步，无硬门、进度不落库：
- * ① 选宿主：OpenClacky（默认推荐）/ OMP / opencode 单选 + DSH「即将推出」占位卡
- *    （选中 DSH 只展示说明，②③ 以 hidden 隐藏而非卸载——③ 签发面的一次性明文
- *    与在途签发请求是组件内 state，卸载会让服务端已签发 token 的明文永久丢失，
- *    AE3/P2）；
+ * ① 选宿主：OpenClacky（默认推荐）/ OMP / opencode / DSH 单选
+ *    （DSH 自 plan 2026-09-08 DSH parity U10 / R17 起正式开放，手动流：
+ *    装插件家族 → ③ 签发 token → 面板粘贴，无自动连接等价物）；
  * ② 安装与配置：内容按宿主映射共享内容卡（@/components/agent-connect-sections，
  *    与原子页同一内容源，per R4）；
  * ③ 生成连接 token：内嵌 McpTokenIssuePanel（与 mcp 页同一签出面），
@@ -15,6 +14,10 @@
  *    （种子话术卡 + 出口：去概览 / 看活动）。完成态仅当次会话（组件 state）。
  *    OpenClacky 路径附「回 CGC 助手完成接入」指引段（OpenclackyAssistantHint）——
  *    缺它 token 只躺在剪贴板，无人触发扩展 /connect 写入 mcp.json，首联必失败。
+ *
+ * ②③ 对所有宿主始终渲染且可见（不卸载、不 hidden）：③ 签发面的一次性明文
+ * 与在途签发请求是组件内 state，卸载/隐藏语义曾让服务端已签发 token 的明文
+ * 面临丢失风险（P2）；DSH 启用后四宿主统一此行为。
  *
  * readOnly（管理态「重新查看引导」回看）：stepper 内容在，但无签发面——
  * ③ 只给 MCP 页链接（签发归 mcp tab）。
@@ -24,8 +27,8 @@
  * 本组件不再二次 fetch）。
  *
  * stepper 当前步（aria-current + 左侧品牌色条）：①②无完成信号可追踪
- * （宿主默认已选、安装为自助阅读），唯一可判定「待办」的动作步是 ③ 签发；
- * 选中 DSH 时 ②③ hidden 隐藏（不卸载），当前步停在 ①，隐藏项不带 aria-current。
+ * （宿主默认已选、安装为自助阅读），唯一可判定「待办」的动作步是 ③ 签发，
+ * 四种宿主一致。
  */
 
 import { useState } from "react";
@@ -38,6 +41,7 @@ import {
 	WriteConfigStepCard,
 	ConfigureTokenStepCard,
 	ConfigNotesStepCard,
+	DshInstallCard,
 } from "@/components/agent-connect-sections";
 import McpTokenIssuePanel from "@/components/mcp-token-issue-panel";
 
@@ -60,12 +64,10 @@ export default function OnboardingWizard({
 	const [host, setHost] = useState<WizardHost>("openclacky");
 	const [completed, setCompleted] = useState(false);
 
-	// stepper 当前步：选中 DSH（②③ hidden 隐藏）停在 ①；其余情况 ③ 是唯一
-	// 带完成信号的动作步（签发 + 「我已保存」），①② 为自助阅读。
+	// stepper 当前步：③ 是唯一带完成信号的动作步（签发 + 「我已保存」），
+	// ①② 为自助阅读，四种宿主一致停在 ③。
 	// 高亮 = 左侧品牌色条；card 步（①）自带内边距，只描边不补 padding
-	// 显式 number 标注：阻止 TS 在 host!=="dsh" 分支内把 currentStep 收窄成 3
-	// （② 永非当前步是今天的语义，类型上保留 2 的合法位）
-	const currentStep: number = host === "dsh" ? 1 : 3;
+	const currentStep: number = 3;
 	const stepStyle = (n: number, card = false) =>
 		currentStep === n
 			? {
@@ -129,12 +131,10 @@ export default function OnboardingWizard({
 		{
 			key: "dsh",
 			name: t("hostDsh"),
-			badge: t("dshComingSoon"),
 			desc: t("hostDshDesc"),
 		},
 	];
-	// ③ 签发面备注命名建议随已选宿主；host==="dsh" 时签发面 hidden 隐藏但仍在渲染
-	// （不卸载，保住一次性明文与在途请求），hostName 只影响不可见的 placeholder，无害
+	// ③ 签发面备注命名建议随已选宿主
 	const hostName = HOST_CARDS.find((h) => h.key === host)?.name;
 
 	return (
@@ -212,19 +212,10 @@ export default function OnboardingWizard({
 							</label>
 						))}
 					</div>
-					{host === "dsh" && (
-						<p className="connect-step-card__desc" style={{ marginTop: 12 }}>
-							{t("dshComingSoonDesc")}
-						</p>
-					)}
 				</li>
 
-				{/* ②③ 始终渲染、DSH 时仅 hidden 隐藏（不卸载）：③ 签发面的一次性明文
-				    与在途签发请求是组件内 state，卸载会让服务端已签发 token 的明文
-				    永久丢失（P2）；li 内联样式不含 display，hidden 的 display:none 生效 */}
 				<li
 					data-testid="onboarding-step-2"
-					hidden={host === "dsh"}
 					aria-current={currentStep === 2 ? "step" : undefined}
 					style={stepStyle(2)}
 				>
@@ -250,12 +241,12 @@ export default function OnboardingWizard({
 								<ConfigNotesStepCard />
 							</>
 						)}
+						{host === "dsh" && <DshInstallCard />}
 					</div>
 				</li>
 
 				<li
 					data-testid="onboarding-step-3"
-					hidden={host === "dsh"}
 					aria-current={currentStep === 3 ? "step" : undefined}
 					style={stepStyle(3)}
 				>
