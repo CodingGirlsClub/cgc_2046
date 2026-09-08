@@ -417,7 +417,8 @@ defmodule Cgc2046.Admission.Enrollment do
       update(:confirm_enrollment, :confirm_enrollment)
       update(:reject_enrollment, :reject_enrollment)
       update(:cancel_enrollment, :cancel)
-      update(:waive_payment, :waive_payment)
+      # waive_payment 的 web 面入口改为手写两段确认 mutation
+      # （graphql_schema.ex + Cgc2046Web.PaymentConfirmation，复用 Mcp.PendingOperation）
     end
   end
 
