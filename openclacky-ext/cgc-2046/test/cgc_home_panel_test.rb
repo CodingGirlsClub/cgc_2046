@@ -487,6 +487,16 @@ class AdminAsidePanelTest < Minitest::Test
     assert_includes VIEW, "state.coursesError && state.eventsError"
     assert_includes VIEW, "课程加载失败。"
     assert_includes VIEW, "活动加载失败。"
+    # P4 对象级动作排:生命周期按状态门注入(launch/close/cancel × course/event
+    # 工具名拼接) + 对话轻改注入 + 网站编辑深链(复用 data-link-url handler)
+    assert_includes VIEW, "LIFECYCLE_ACTIONS"
+    assert_includes VIEW, "renderOfferingActions"
+    assert_includes VIEW, "lifecyclePrompt"
+    assert_includes VIEW, "editPrompt"
+    assert_includes VIEW, "data-lc-action"
+    assert_includes VIEW, "data-edit-inject"
+    assert_includes VIEW, '"/courses/"'
+    assert_includes VIEW, '"/events/"'
   end
   def test_p1_routes_registered
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))

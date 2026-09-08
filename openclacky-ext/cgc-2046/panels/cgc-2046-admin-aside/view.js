@@ -91,6 +91,14 @@
   };
   const KIND_LABEL = { course: "课程", event: "活动" };
 
+  // 对象级生命周期动作(状态门:draft 可发布/取消,open 可结束/取消,终态无动作;
+  // 动词与 web 端 offerings 文案同款:发布(开放报名)/结束/取消)
+  const LIFECYCLE_ACTIONS = {
+    draft: [{ key: "launch", label: "发布" }, { key: "cancel", label: "取消" }],
+    open: [{ key: "close", label: "结束" }, { key: "cancel", label: "取消" }]
+  };
+  const LC_VERB = { launch: "发布", close: "结束", cancel: "取消" };
+
   // 报名状态(管理视角:pending/payment_pending 是可行动行)
   const ENROLL_STATUS = {
     pending: { label: "待审批", actionable: true },
@@ -284,6 +292,22 @@
       "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。";
   }
 
+  // 生命周期动作 → 注入指令(带 MCP 来源 id;提醒 agent 两段式:先看确认摘要)
+  function lifecyclePrompt(kind, action, offeringId) {
+    const offering = offeringById(offeringId) || {};
+    const tool = action + "_" + kind;
+    return "请" + LC_VERB[action] + KIND_LABEL[kind] + "「" + oneLine(offering.title || "") + "」" +
+      "(" + kind + "_id=" + offeringId + "；调用 " + tool + " 先给我看确认摘要，我同意后再执行）。";
+  }
+
+  // 对话轻改 → 注入指令(单字段轻改走对话;重编辑由「网站编辑」深链承接)
+  function editPrompt(kind, offeringId) {
+    const offering = offeringById(offeringId) || {};
+    return "我想修改" + KIND_LABEL[kind] + "「" + oneLine(offering.title || "") + "」的设置" +
+      "(" + kind + "_id=" + offeringId + "；先告诉我 update_" + kind +
+      " 可改哪些字段，我说一项你改一项，走确认流）。";
+  }
+
   // 可行动报名行(pending/payment_pending) → 处理指令(offering_id 来自 MCP
   // 返回,可信标识直接带上,agent 无需先列表)
   function enrollPrompt(kind, offeringId, row) {
@@ -466,7 +490,7 @@
         '<span class="cgaa-badge cgaa-badge-' + st.cls + '">' + escapeHtml(st.label) + '</span>' +
         '<span class="cgaa-task-go">' + (expanded ? "⌄" : "›") + '</span>' +
       '</button>';
-    if (expanded) row += renderEnrollments(kind, id);
+    if (expanded) row += renderEnrollments(kind, id) + renderOfferingActions(kind, item, id);
     return row;
   }
 
@@ -492,6 +516,27 @@
       return '<div class="cgaa-enroll">' + inner + '</div>';
     }).join("");
     return '<div class="cgaa-enrolls">' + rows + '</div>';
+  }
+
+  // 展开区动作排(生命周期按状态门渲染 + 对话轻改注入 + 网站编辑深链;
+  // 深链复用 [data-link-url] 既有 handler——scheme 白名单 + noopener 已在)
+  function renderOfferingActions(kind, item, id) {
+    const acts = LIFECYCLE_ACTIONS[item.status] || [];
+    let html = '<div class="cgaa-rowacts">' + acts.map(function (a) {
+      return '<button class="cgaa-rowact" type="button" data-lc-action="' + a.key +
+        '" data-lc-kind="' + kind + '" data-lc-id="' + escapeHtml(id) + '">' +
+        escapeHtml(a.label) + '</button>';
+    }).join("");
+    html += '<button class="cgaa-rowact" type="button" data-edit-inject="' + kind + '"' +
+      ' data-lc-id="' + escapeHtml(id) + '">✎ 对话修改</button>';
+    const ws = selectedWorkspace();
+    if (state.webUrl && ws && ws.slug) {
+      const url = state.webUrl.replace(/\/+$/, "") + "/w/" + encodeURIComponent(ws.slug) +
+        (kind === "event" ? "/events/" : "/courses/") + encodeURIComponent(id);
+      html += '<button class="cgaa-rowact" type="button" data-link-url="' + escapeHtml(url) +
+        '">↗ 网站编辑</button>';
+    }
+    return html + '</div>';
   }
 
   // 订单区(非终态优先;无订单不渲染——管理员不需要被「没有订单」打扰)
@@ -597,6 +642,20 @@
         if (row) injectIntoComposer(enrollPrompt(kind, offeringId, row));
       });
     });
+    root.querySelectorAll("[data-lc-action]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        injectIntoComposer(lifecyclePrompt(
+          btn.getAttribute("data-lc-kind") || "course",
+          btn.getAttribute("data-lc-action"),
+          btn.getAttribute("data-lc-id")));
+      });
+    });
+    root.querySelectorAll("[data-edit-inject]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        injectIntoComposer(editPrompt(
+          btn.getAttribute("data-edit-inject"), btn.getAttribute("data-lc-id")));
+      });
+    });
     root.querySelectorAll("[data-order-idx]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const o = state.orders[parseInt(btn.getAttribute("data-order-idx"), 10)];
@@ -668,6 +727,9 @@
       ".cgaa-enroll-who{flex:1;min-width:0;word-break:break-all}",
       ".cgaa-enroll-meta{flex:none;font-size:0.5625rem;color:var(--color-text-tertiary)}",
       ".cgaa-enroll-loading{padding:6px 18px;font-size:0.625rem;color:var(--color-text-tertiary)}",
+      ".cgaa-rowacts{display:flex;gap:6px;align-items:center;padding:6px 10px 8px 18px;background:var(--color-bg-subtle);border-bottom:1px solid var(--color-border-secondary)}",
+      ".cgaa-rowact{padding:3px 8px;border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);background:transparent;color:var(--color-text-secondary);font-size:0.625rem;font-weight:650;cursor:pointer;font-family:inherit;transition:border-color var(--transition-fast),color var(--transition-fast)}",
+      ".cgaa-rowact:hover{border-color:var(--color-accent-primary);color:var(--color-accent-primary)}",
       ".cgaa-order-list{display:flex;flex-direction:column;border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px);overflow:hidden;background:var(--color-bg-card)}",
       ".cgaa-order{display:flex;gap:6px;align-items:center;width:100%;padding:7px 10px;border:0;border-bottom:1px solid var(--color-border-secondary);background:transparent;color:inherit;font:inherit;font-size:0.6875rem;text-align:left;cursor:pointer;transition:background var(--transition-fast)}",
       ".cgaa-order:hover{background:var(--color-bg-subtle)}",
