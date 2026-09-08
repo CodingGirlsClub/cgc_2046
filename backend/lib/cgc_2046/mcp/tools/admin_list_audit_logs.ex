@@ -22,11 +22,11 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Accounts.AdminActionLog
+  alias Cgc2046.AdminList
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
   alias Cgc2046.Mcp.Wrapper
 
   @sources ~w(tool_calls pending_operations admin_actions)
-  @limit 50
 
   schema do
     field(:source, {:required, :string},
@@ -62,8 +62,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
 
     resource
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-    |> Ash.Query.limit(@limit)
+    |> AdminList.recent()
     |> Ash.read(actor: actor)
     |> case do
       {:ok, records} ->
