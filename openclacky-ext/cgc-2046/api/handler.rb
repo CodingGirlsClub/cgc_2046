@@ -9,6 +9,11 @@
 # 写入加固：读-merge-写-reload 事务收在 Cgc2046McpConfig（connect_server/disconnect_server，
 # 模块级互斥 + 0600 排他 tmp + 原子 rename；reload 失败逐字节回滚并二次 reload）。
 # 本 adapter 只保留请求校验与结果翻译。
+#
+# 数据面(各面板 → MCP 工具透传)收进 ROUTES 声明表：一条声明 = method + path +
+# face + 工具名 + 字段契约，dispatch_route 统一走「guard → 逐字段 400 校验 →
+# Cgc2046CourseRoutes.call_tool(503/502/500/409 分层)透传 → json」。
+# 特殊路由(connect/status/skills sync/activity)非透传骨架，保持手写。
 
 require "json"
 require "securerandom"
@@ -16,9 +21,6 @@ require "uri"
 require "fileutils"
 require_relative "mcp_config"
 require_relative "course_routes"
-require_relative "offering_routes"
-require_relative "workbench_routes"
-require_relative "learner_routes"
 require_relative "../hooks/credential"
 
 class Cgc2046Ext < Clacky::ApiExtension
@@ -114,345 +116,124 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("skills sync ships in a later slice", status: 501)
   end
 
-  # ── U9 课程学习面板数据面(读透传 + S4 草稿写回;学习评价写回发生在 session) ──
-  # workspace_id 为必填 query(平台 D12 无状态作用域);面板侧经选择器记忆。
+  # ── 数据面面孔:一族面板透传路由共享的 503 引导文案与 500 前缀 ──────────
+  # (原 offering/workbench/learner_routes 单行转发浅层收编于此;
+  #  管道本体 = Cgc2046CourseRoutes.call_tool 的 503/502/500/409 错误分层。)
+  FACES = {
+    course: {
+      not_connected: Cgc2046CourseRoutes::NOT_CONNECTED,
+      error_prefix: "course route failed"
+    },
+    offering: {
+      not_connected: {
+        error: "cgc-2046 MCP server not connected",
+        hint: "请先在 CGC-2046 面板完成连接(生成 token 并连接),再使用发现面板"
+      }.freeze,
+      error_prefix: "offering route failed"
+    },
+    workbench: {
+      not_connected: {
+        error: "cgc-2046 MCP server not connected",
+        hint: "请先在 CGC-2046 面板完成连接(生成 token 并连接),再使用工作台功能"
+      }.freeze,
+      error_prefix: "workbench route failed"
+    },
+    learner: {
+      not_connected: {
+        error: "cgc-2046 MCP server not connected",
+        hint: "请先在 CGC-2046 面板完成连接(生成 token 并连接),再使用报名/支付功能"
+      }.freeze,
+      error_prefix: "learner route failed"
+    }
+  }.freeze
 
-  # GET /api/ext/cgc-2046/courses/:course_id/content?workspace_id=...
-  # 课程内容(issue 卡集草稿):透传 MCP get_course_content。
-  # 结果顶层 version 随透传自动流动(S4 乐观并发的读侧)。
-  get "/courses/:course_id/content" do
-    guard_origin!
-    outcome = course_tool("get_course_content", { "course_id" => route_params_value("course_id") })
-    json(outcome[:body], status: outcome[:status])
-  end
+  # ── 数据面路由声明表(U6 发现 / U9 课程 / S1 工作台 / S4 草稿写回 / S5 教研 /
+  #   S7·S8 learner / P1·P3 管理读面) ────────────────────────────────────
+  # 字段契约:[源, key, 校验]
+  #   源     :param — route_params_value(route capture + query 三层兜底,smoke01 实证:
+  #                   真实宿主 GET query 不进 @params)
+  #          :body  — json_body(string/symbol 双键;字符串字段 strip)
+  #   校验   :pass     — 原样透传不查空(route capture 恒在,如 course_id)
+  #          :required — 空 → 400 "<key> is required"
+  #          :optional — 空不下发(缺省口径留服务端)
+  #          :object   — 必须 Hash → "<key> must be an object"
+  #          :integer  — 必须 Integer → "<key> must be an integer"
+  #          { enum: [...] } — 枚举 → "<key> must be a or b"
+  # conflict_409: true 时上游 version_conflict: → 409(S4 乐观并发,面板冲突 UX)。
+  # missing_join: 收集全部缺参一次性报出(替代逐字段首个失败即报;
+  #   两种报错口径与各路由原拷贝一一对应)。
+  ROUTES = [
+    # U9 课程内容(issue 卡集草稿;顶层 version 随透传自动流动 = S4 乐观并发读侧)
+    { method: :get, path: "/courses/:course_id/content", face: :course, tool: "get_course_content",
+      fields: [[:param, "course_id", :pass], [:param, "workspace_id", :required]] },
+    # S4 课程草稿保存:base_version 必填整数(首存 0);版本冲突 → 409
+    { method: :post, path: "/courses/:course_id/content", face: :course, tool: "save_course_content",
+      conflict_409: true,
+      fields: [[:body, "workspace_id", :required], [:param, "course_id", :pass],
+               [:body, "content", :object], [:body, "base_version", :integer]] },
+    # S5 教研流程状态;存量课程无 prep run 时上游报错,面板按 prep=null 处理
+    { method: :get, path: "/courses/:course_id/prep", face: :course, tool: "get_prep_status",
+      fields: [[:param, "course_id", :pass], [:param, "workspace_id", :required]] },
+    # U6 公开浏览(KTD9:无 workspace_id 硬要求;四过滤参数可选,空值不下发,
+    # 全缺省 = 服务端「近期」口径)
+    { method: :get, path: "/offerings", face: :offering, tool: "list_public_offerings",
+      fields: [[:param, "kind", :optional], [:param, "city", :optional],
+               [:param, "starts_after", :optional], [:param, "starts_before", :optional]] },
+    { method: :get, path: "/offerings/:id", face: :offering, tool: "get_public_offering",
+      fields: [[:param, "id", :pass], [:param, "kind", :optional]] },
+    # S1 工作台身份上下文
+    { method: :get, path: "/me/workspaces", face: :workbench, tool: "list_my_workspaces" },
+    # role 必填(平台管理模式 = platform_admin),workspace_id 可选
+    { method: :get, path: "/playbook", face: :workbench, tool: "get_role_playbook",
+      fields: [[:param, "role", :required], [:param, "workspace_id", :optional]] },
+    { method: :get, path: "/tasks", face: :workbench, tool: "list_my_tasks",
+      fields: [[:param, "workspace_id", :required]] },
+    # S8 学习状态投影(objective 课程地图/先修锁/next_action/进度),两参必填
+    { method: :get, path: "/learning_state", face: :learner, tool: "get_learning_state",
+      fields: [[:param, "workspace_id", :required], [:param, "course_id", :required]] },
+    # 启动(或幂等续学)学习 run:同版重进 resume,新版自动开新 run
+    { method: :post, path: "/learning/start", face: :learner, tool: "start_learning_run",
+      fields: [[:body, "workspace_id", :required], [:body, "course_id", :required]] },
+    # 课程当前已发布版本详情;实证合同(UAT 真机 -32602):上游必填 workspace_id
+    { method: :get, path: "/courses/:course_id/revision", face: :learner, tool: "get_course_revision",
+      fields: [[:param, "course_id", :required], [:param, "workspace_id", :required]] },
+    # 合并发现流(公开 ∪ 本人各 workspace 可访问,已去重);无参数
+    { method: :get, path: "/discover", face: :learner, tool: "discover_offerings" },
+    # 报名确认卡摘要:三参必填,缺参一次性报出(", " 连接)
+    { method: :get, path: "/enrollment_summary", face: :learner, tool: "get_enrollment_summary",
+      missing_join: ", ",
+      fields: [[:param, "workspace_id", :required], [:param, "kind", :required],
+               [:param, "offering_id", :required]] },
+    # 创建报名(AE3 幂等:同一意图重放返回既有 enrollment,永不报错);
+    # kind 枚举 event|course;reason/tier_id 可选,空不下发;
+    # 收费条目返回 payment_pending + checkout_url,面板据此跳外部支付
+    { method: :post, path: "/enrollments", face: :learner, tool: "create_enrollment",
+      fields: [[:body, "workspace_id", :required], [:body, "kind", :required],
+               [:body, "kind", { enum: %w[event course] }], [:body, "offering_id", :required],
+               [:body, "reason", :optional], [:body, "tier_id", :optional]] },
+    # 本人全部报名(AE8/R35):confirmed 课程报名 = 可学习课程;无参数
+    { method: :get, path: "/me/enrollments", face: :learner, tool: "get_my_enrollments" },
+    # 订单安全摘要(无渠道敏感数据)+ checkout_url;两参必填
+    { method: :get, path: "/order_status", face: :learner, tool: "get_order_status",
+      fields: [[:param, "workspace_id", :required], [:param, "enrollment_id", :required]] },
+    # P1/P3 管理读面(含 draft):教研工作台课程发现面(#366)/ 活动供给区 /
+    # 订单区(keyset 首页封顶 200,more 透传)/ 供给报名队列(三参必填," / " 连接)
+    { method: :get, path: "/workspace/courses", face: :course, tool: "list_workspace_courses",
+      fields: [[:param, "workspace_id", :required]] },
+    { method: :get, path: "/workspace/events", face: :workbench, tool: "list_workspace_events",
+      fields: [[:param, "workspace_id", :required]] },
+    { method: :get, path: "/workspace/orders", face: :workbench, tool: "list_workspace_orders",
+      fields: [[:param, "workspace_id", :required]] },
+    { method: :get, path: "/workspace/enrollments", face: :workbench, tool: "list_enrollments",
+      missing_join: " / ",
+      fields: [[:param, "workspace_id", :required], [:param, "kind", :required],
+               [:param, "offering_id", :required]] }
+  ].freeze
 
-  # POST /api/ext/cgc-2046/courses/:course_id/content
-  # 课程草稿保存(S4-extension):透传 MCP save_course_content。
-  # body { workspace_id, content, base_version } 皆必填,base_version 必须整数
-  # (首存 0,之后为当前版本);版本冲突 → 409(面板据此加载最新草稿并提示重编)。
-  post "/courses/:course_id/content" do
-    guard_write!
-    body         = json_body
-    workspace_id = (body["workspace_id"] || body[:workspace_id]).to_s.strip
-    content      = body["content"] || body[:content]
-    base_version = body["base_version"] || body[:base_version]
-
-    outcome =
-      if workspace_id.empty?
-        { status: 400, body: { error: "workspace_id is required" } }
-      elsif !content.is_a?(Hash)
-        { status: 400, body: { error: "content must be an object" } }
-      elsif !base_version.is_a?(Integer)
-        { status: 400, body: { error: "base_version must be an integer" } }
-      else
-        Cgc2046CourseRoutes.call_course_save_tool(self, {
-          "workspace_id" => workspace_id,
-          "course_id"    => route_params_value("course_id"),
-          "content"      => content,
-          "base_version" => base_version
-        })
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-
-  # GET /api/ext/cgc-2046/courses/:course_id/prep?workspace_id=...
-  # 课程教研流程状态(role-agent-journeys-v2 S5-extension):透传 MCP get_prep_status。
-  # 课程无 prep run(存量课程)时上游报「no preparation run found」——面板按
-  # prep=null 处理(不置错误态),仅 canEdit 视图拉取本端点。
-  get "/courses/:course_id/prep" do
-    guard_origin!
-    outcome = course_tool("get_prep_status", { "course_id" => route_params_value("course_id") })
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # ── U6 发现面板数据面(公开浏览,纯读透传;无需 workspace_id,KTD9) ──────────
-
-  # GET /api/ext/cgc-2046/offerings?kind=&city=&starts_after=&starts_before=
-  # 公开活动/课程列表:透传 MCP list_public_offerings。四个过滤参数皆可选,
-  # 空值不下发;全缺省 = 服务端「近期」口径(未来条目 + 时间待定条目)。
-  get "/offerings" do
-    guard_origin!
-    outcome = Cgc2046OfferingRoutes.call_offering_tool(self, "list_public_offerings", offering_filters)
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/offerings/:id?kind=
-  # 单个公开条目详情:透传 MCP get_public_offering(id 必填走 route capture,kind 可选)。
-  get "/offerings/:id" do
-    guard_origin!
-    args = { "id" => route_params_value("id") }
-    kind = route_params_value("kind")
-    args["kind"] = kind unless kind.empty?
-    outcome = Cgc2046OfferingRoutes.call_offering_tool(self, "get_public_offering", args)
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # ── S1-extension 工作台数据面(身份上下文;纯读透传) ─────────────────────
-  # query 读取走 route_params_value 三层兜底(真实宿主 GET query 不进 @params)。
-
-  # GET /api/ext/cgc-2046/me/workspaces
-  # 本人可访问 Workspace 列表 + 各处角色 + is_platform_admin:
-  # 透传 MCP list_my_workspaces(无参数)。
-  get "/me/workspaces" do
-    guard_origin!
-    outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "list_my_workspaces", {})
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/playbook?role=...&workspace_id=...
-  # 角色工作模式 playbook:透传 MCP get_role_playbook。
-  # role 必填(平台管理模式 = platform_admin),workspace_id 可选。
-  get "/playbook" do
-    guard_origin!
-    role = route_params_value("role")
-    if role.empty?
-      outcome = { status: 400, body: { error: "role is required" } }
-    else
-      args = { "role" => role }
-      workspace_id = route_params_value("workspace_id")
-      args["workspace_id"] = workspace_id unless workspace_id.empty?
-      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "get_role_playbook", args)
-    end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/tasks?workspace_id=...
-  # 本人在该 Workspace 的待办列表:透传 MCP list_my_tasks(workspace_id 必填)。
-  get "/tasks" do
-    guard_origin!
-    workspace_id = route_params_value("workspace_id")
-    if workspace_id.empty?
-      outcome = { status: 400, body: { error: "workspace_id is required" } }
-    else
-      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(self, "list_my_tasks", { "workspace_id" => workspace_id })
-    end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/learning_state?workspace_id=&course_id=
-  # 学员学习状态投影(objective 课程地图/先修锁/next_action/进度):
-  # 透传 MCP get_learning_state。两参数皆必填,缺一 → 400。
-  get "/learning_state" do
-    guard_origin!
-    workspace_id = route_params_value("workspace_id")
-    course_id    = route_params_value("course_id")
-    outcome =
-      if workspace_id.empty?
-        { status: 400, body: { error: "workspace_id is required" } }
-      elsif course_id.empty?
-        { status: 400, body: { error: "course_id is required" } }
-      else
-        Cgc2046LearnerRoutes.call_learner_tool(self, "get_learning_state",
-                                               { "workspace_id" => workspace_id, "course_id" => course_id })
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # POST /api/ext/cgc-2046/learning/start
-  # 启动(或幂等续学)学习 run:透传 MCP start_learning_run。
-  # body { workspace_id, course_id } 必填;同版重进 resume,新版自动开新 run。
-  post "/learning/start" do
-    guard_write!
-    body         = json_body
-    workspace_id = (body["workspace_id"] || body[:workspace_id]).to_s.strip
-    course_id    = (body["course_id"] || body[:course_id]).to_s.strip
-    outcome =
-      if workspace_id.empty?
-        { status: 400, body: { error: "workspace_id is required" } }
-      elsif course_id.empty?
-        { status: 400, body: { error: "course_id is required" } }
-      else
-        Cgc2046LearnerRoutes.call_learner_tool(self, "start_learning_run",
-                                               { "workspace_id" => workspace_id, "course_id" => course_id })
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/courses/:course_id/revision
-  # 课程当前已发布版本详情(展示增强用:issue 标题/kind;state 为底永不丢
-  # objective):透传 MCP get_course_revision。实证合同(UAT 真机 -32602):
-  # 上游工具必填 workspace_id(缺参路由层 400 引导;面板 apiGet 自动附
-  # workspace_id,无需面板侧改动)。
-  get "/courses/:course_id/revision" do
-    guard_origin!
-    course_id    = route_params_value("course_id")
-    workspace_id = route_params_value("workspace_id")
-    outcome =
-      if course_id.empty?
-        { status: 400, body: { error: "course_id is required" } }
-      elsif workspace_id.empty?
-        { status: 400, body: { error: "workspace_id is required" } }
-      else
-        Cgc2046LearnerRoutes.call_learner_tool(self, "get_course_revision",
-                                               { "course_id" => course_id, "workspace_id" => workspace_id })
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/discover
-  # 合并发现流(公开 ∪ 本人各 workspace 可访问,逐条按可见性过滤,已去重):
-  # 透传 MCP discover_offerings(无参数)。
-  get "/discover" do
-    guard_origin!
-    outcome = Cgc2046LearnerRoutes.call_learner_tool(self, "discover_offerings", {})
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/enrollment_summary?workspace_id=&kind=&offering_id=
-  # 报名确认卡摘要(目标/价格/策略/deadline/将创建的 enrollment 状态):
-  # 透传 MCP get_enrollment_summary。三参数皆必填,缺一 → 400(不下发 registry)。
-  get "/enrollment_summary" do
-    guard_origin!
-    args = {}
-    missing = []
-    %w[workspace_id kind offering_id].each do |key|
-      value = route_params_value(key)
-      if value.empty?
-        missing << key
-      else
-        args[key] = value
-      end
-    end
-    outcome =
-      if missing.any?
-        { status: 400, body: { error: "#{missing.join(", ")} is required" } }
-      else
-        Cgc2046LearnerRoutes.call_learner_tool(self, "get_enrollment_summary", args)
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # POST /api/ext/cgc-2046/enrollments
-  # 创建报名(幂等:同一意图重放返回既有 enrollment,永不报错——AE3):
-  # 透传 MCP create_enrollment。body { workspace_id, kind, offering_id } 必填,
-  # kind 枚举 event|course;reason/tier_id 可选,空值不下发。
-  # 收费条目返回 payment_pending + checkout_url(web 结算页),面板据此跳外部支付。
-  post "/enrollments" do
-    guard_write!
-    body         = json_body
-    workspace_id = (body["workspace_id"] || body[:workspace_id]).to_s.strip
-    kind         = (body["kind"] || body[:kind]).to_s.strip
-    offering_id  = (body["offering_id"] || body[:offering_id]).to_s.strip
-
-    outcome =
-      if workspace_id.empty?
-        { status: 400, body: { error: "workspace_id is required" } }
-      elsif kind.empty?
-        { status: 400, body: { error: "kind is required" } }
-      elsif !%w[event course].include?(kind)
-        { status: 400, body: { error: "kind must be event or course" } }
-      elsif offering_id.empty?
-        { status: 400, body: { error: "offering_id is required" } }
-      else
-        args = { "workspace_id" => workspace_id, "kind" => kind, "offering_id" => offering_id }
-        reason  = (body["reason"] || body[:reason]).to_s.strip
-        tier_id = (body["tier_id"] || body[:tier_id]).to_s.strip
-        args["reason"] = reason unless reason.empty?
-        args["tier_id"] = tier_id unless tier_id.empty?
-        Cgc2046LearnerRoutes.call_learner_tool(self, "create_enrollment", args)
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/me/enrollments
-  # 本人全部报名(所有状态,跨 workspace):透传 MCP get_my_enrollments(无参数)。
-  # 课程面板列表数据源(AE8/R35):confirmed 课程报名 = 可学习课程
-  # (新报名零学习记录也必须出现);pending/payment_pending 入「报名进行中」区。
-  get "/me/enrollments" do
-    guard_origin!
-    outcome = Cgc2046LearnerRoutes.call_learner_tool(self, "get_my_enrollments", {})
-    json(outcome[:body], status: outcome[:status])
-  end
-
-  # GET /api/ext/cgc-2046/order_status?workspace_id=&enrollment_id=
-  # 订单安全摘要(金额/状态/过期时间,无渠道敏感数据)+ checkout_url:
-  # 透传 MCP get_order_status。两参数皆必填,缺一 → 400。
-  get "/order_status" do
-    guard_origin!
-    workspace_id  = route_params_value("workspace_id")
-    enrollment_id = route_params_value("enrollment_id")
-    outcome =
-      if workspace_id.empty?
-        { status: 400, body: { error: "workspace_id is required" } }
-      elsif enrollment_id.empty?
-        { status: 400, body: { error: "enrollment_id is required" } }
-      else
-        Cgc2046LearnerRoutes.call_learner_tool(self, "get_order_status",
-                                               { "workspace_id" => workspace_id, "enrollment_id" => enrollment_id })
-      end
-    json(outcome[:body], status: outcome[:status])
-  end
-
-
-  # GET /api/ext/cgc-2046/workspace/courses?workspace_id=
-  # 工作台全部课程(含 draft,#366):教研工作台课程发现面——
-  # tutor 有权编辑却不必然报名,get_my_enrollments 看不到未报名的课程
-  get "/workspace/courses" do
-    guard_origin!
-    workspace_id = route_params_value("workspace_id")
-    if workspace_id.empty?
-      json({ error: "workspace_id is required" }, status: 400)
-    else
-      outcome = Cgc2046CourseRoutes.call_course_tool(
-        self, "list_workspace_courses", { "workspace_id" => workspace_id }
-      )
-      json(outcome[:body], status: outcome[:status])
-    end
-  end
-
-  # GET /api/ext/cgc-2046/workspace/events?workspace_id=
-  # 工作台全部活动(含 draft;P3 起与课程同面):管理侧栏供给区的活动数据源。
-  get "/workspace/events" do
-    guard_origin!
-    workspace_id = route_params_value("workspace_id")
-    if workspace_id.empty?
-      json({ error: "workspace_id is required" }, status: 400)
-    else
-      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(
-        self, "list_workspace_events", { "workspace_id" => workspace_id }
-      )
-      json(outcome[:body], status: outcome[:status])
-    end
-  end
-
-  # GET /api/ext/cgc-2046/workspace/orders?workspace_id=
-  # 工作台订单(Owner/Admin 管理读,role-agent-journeys-v2 S3):管理侧栏订单区
-  # 数据源。keyset 首页封顶 200,more 透传(超出走 web 管理页深挖);非终态
-  # 排序是面板侧展示逻辑,不在本端点。
-  get "/workspace/orders" do
-    guard_origin!
-    workspace_id = route_params_value("workspace_id")
-    if workspace_id.empty?
-      json({ error: "workspace_id is required" }, status: 400)
-    else
-      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(
-        self, "list_workspace_orders", { "workspace_id" => workspace_id }
-      )
-      json(outcome[:body], status: outcome[:status])
-    end
-  end
-
-  # GET /api/ext/cgc-2046/workspace/enrollments?workspace_id=&kind=&offering_id=
-  # 供给报名队列(Owner/Admin 管理读):管理侧栏供给区的下钻数据源。
-  # kind=course|event 必填分派(P2 起活动同面),三参缺一 → 400(不下发 registry)。
-  get "/workspace/enrollments" do
-    guard_origin!
-    workspace_id = route_params_value("workspace_id")
-    kind         = route_params_value("kind")
-    offering_id  = route_params_value("offering_id")
-    missing = []
-    missing << "workspace_id" if workspace_id.empty?
-    missing << "kind" if kind.empty?
-    missing << "offering_id" if offering_id.empty?
-    if missing.any?
-      json({ error: missing.join(" / ") + " is required" }, status: 400)
-    else
-      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(
-        self, "list_enrollments",
-        { "workspace_id" => workspace_id, "kind" => kind, "offering_id" => offering_id }
-      )
-      json(outcome[:body], status: outcome[:status])
+  # 表驱动注册:路由列表与手写 DSL 完全同构(Cgc2046Ext.routes 25 条不变)
+  ROUTES.each do |decl|
+    send(decl[:method], decl[:path]) do
+      dispatch_route(decl)
     end
   end
 
@@ -498,6 +279,73 @@ class Cgc2046Ext < Clacky::ApiExtension
   end
 
   private
+
+  # 声明表统一派发:guard → 逐字段校验装配参数 → call_tool 透传 → json。
+  def dispatch_route(decl)
+    decl[:method] == :post ? guard_write! : guard_origin!
+    args = {}
+    outcome = collect_route_args(decl, args)
+    unless outcome
+      face = FACES.fetch(decl[:face])
+      outcome = Cgc2046CourseRoutes.call_tool(
+        self, decl[:tool], args,
+        not_connected: face[:not_connected],
+        error_prefix: face[:error_prefix],
+        conflict_409: decl[:conflict_409] || false
+      )
+    end
+    json(outcome[:body], status: outcome[:status])
+  end
+
+  # 按 fields 声明顺序取值校验,装配 args;失败返回 { status: 400, body: },
+  # 通过返回 nil。missing_join 声明的路由收集全部缺参一次性报出。
+  def collect_route_args(decl, args)
+    join = decl[:missing_join]
+    missing = []
+    (decl[:fields] || []).each do |(src, key, check)|
+      value = route_field_value(src, key, check)
+      case check
+      when :pass
+        args[key] = value
+      when :required
+        if value.empty?
+          join ? (missing << key) : (return bad_request("#{key} is required"))
+        else
+          args[key] = value
+        end
+      when :optional
+        args[key] = value unless value.empty?
+      when :object
+        return bad_request("#{key} must be an object") unless value.is_a?(Hash)
+        args[key] = value
+      when :integer
+        return bad_request("#{key} must be an integer") unless value.is_a?(Integer)
+        args[key] = value
+      when Hash
+        allowed = check.fetch(:enum)
+        return bad_request("#{key} must be #{allowed.join(" or ")}") unless allowed.include?(value)
+        args[key] = value
+      end
+    end
+    return bad_request("#{missing.join(join)} is required") if join && missing.any?
+
+    nil
+  end
+
+  def bad_request(message)
+    { status: 400, body: { error: message } }
+  end
+
+  # 字段取值::param 走三层兜底(已 to_s,不 strip);:body 取 string/symbol
+  # 双键,字符串字段 strip,object/integer 校验保留原始类型。
+  def route_field_value(src, key, check)
+    if src == :param
+      route_params_value(key)
+    else
+      raw = json_body[key] || json_body[key.to_sym]
+      (check == :object || check == :integer) ? raw : raw.to_s.strip
+    end
+  end
 
   # 凭证脱敏(与 hooks/credential 同一套正则;摘要进响应体前抹 Bearer/cgc_/裸 JWT)
   def redact_text(text)
@@ -580,25 +428,5 @@ class Cgc2046Ext < Clacky::ApiExtension
     v = p.is_a?(Hash) ? (p[key] || p[key.to_sym] || p[key.to_s]) : nil
     v = query[key] if v.nil? || v.to_s.empty?
     v.to_s
-  end
-
-  # 组装 workspace_id(query 必填)+ 透传;缺参 → 400 引导
-  def course_tool(tool_name, extra)
-    workspace_id = route_params_value("workspace_id").to_s
-    return { status: 400, body: { error: "workspace_id is required" } } if workspace_id.empty?
-
-    Cgc2046CourseRoutes.call_course_tool(
-      self,
-      tool_name,
-      extra.merge("workspace_id" => workspace_id)
-    )
-  end
-
-  # 发现列表过滤参数收集:kind/city/starts_after/starts_before 皆可选,空串不下发
-  def offering_filters
-    %w[kind city starts_after starts_before].each_with_object({}) do |key, args|
-      value = route_params_value(key)
-      args[key] = value unless value.empty?
-    end
   end
 end
