@@ -55,6 +55,22 @@ function fromLocalInput(value: string): string | null {
 	return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+/**
+ * 创建/重发失败文案映射（同 offering 面纪律：不透传后端原文）：
+ * 已知模式 → i18n 键；未知 → 调用方兜底键。
+ */
+function friendlyPanelError(
+	message: string | null | undefined,
+	t: ReturnType<typeof useTranslations>,
+	fallbackKey: "createFailed" | "resendFailed",
+): string {
+	const raw = message ?? "";
+	if (/active invitation .* already exists/i.test(raw)) {
+		return t("duplicateInvitation");
+	}
+	return t(fallbackKey);
+}
+
 export default function SpeakerInvitationPanel({
 	eventId,
 	eventSlug,
@@ -132,7 +148,7 @@ export default function SpeakerInvitationPanel({
 				setListState({ id: eventId, status: "ok" });
 				setMessage(t("created"));
 			} else {
-				setMessage(res.errors[0]?.message ?? t("createFailed"));
+				setMessage(friendlyPanelError(res.errors[0]?.message, t, "createFailed"));
 			}
 		} catch (e: unknown) {
 			setMessage(e instanceof Error ? e.message : t("createFailed"));
@@ -164,7 +180,7 @@ export default function SpeakerInvitationPanel({
 					});
 				}, 30_000);
 			} else {
-				setMessage(res.errors[0]?.message ?? t("resendFailed"));
+				setMessage(friendlyPanelError(res.errors[0]?.message, t, "resendFailed"));
 			}
 		} catch (e: unknown) {
 			setMessage(e instanceof Error ? e.message : t("resendFailed"));
