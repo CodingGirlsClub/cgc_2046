@@ -41,7 +41,7 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_role_playbook", fn actor, workspace_id, params ->
-        role_param = params["role"] || params[:role]
+        role_param = params["role"]
 
         with {:ok, role} <- Playbooks.normalize_role(role_param),
              :ok <- authorize(role, actor, workspace_id),

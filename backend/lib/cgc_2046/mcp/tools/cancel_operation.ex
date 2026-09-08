@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.Tools.CancelOperation do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "cancel_operation", fn actor, _workspace_id, params ->
-        Confirmation.cancel(actor, params["pending_id"] || params[:pending_id])
+        Confirmation.cancel(actor, params["pending_id"])
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)

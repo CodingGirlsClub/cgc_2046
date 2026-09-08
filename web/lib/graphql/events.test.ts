@@ -34,7 +34,7 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 	it("LIST_EVENTS：keyset 分页 + filter 参数（真实 schema：filter 包裹 + results）", () => {
 		const doc = print(LIST_EVENTS);
 		expect(doc).toContain("query ListEvents($workspaceId: ID!)");
-		expect(doc).toContain("listEvents(filter: { workspaceId: { eq: $workspaceId } })");
+		expect(doc).toContain("listEvents(first: 250, filter: { workspaceId: { eq: $workspaceId } })");
 		expect(doc).toContain("results {");
 		expect(doc).toContain("status");
 		expect(doc).toContain("visibility");
@@ -45,7 +45,7 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 	});
 
 	it("LIST_COURSES / GET_EVENT / GET_COURSE 同构齐全", () => {
-		expect(print(LIST_COURSES)).toContain("listCourses(filter: { workspaceId: { eq: $workspaceId } })");
+		expect(print(LIST_COURSES)).toContain("listCourses(first: 250, filter: { workspaceId: { eq: $workspaceId } })");
 		expect(print(GET_EVENT)).toContain("getEvent(id: $id)");
 		expect(print(GET_COURSE)).toContain("getCourse(id: $id)");
 	});
@@ -126,9 +126,8 @@ describe("events 展示词表", () => {
 describe("公开面查询（R10 同一匿名通道扩展字段；R6 badge；R3 时间/venue 可空）", () => {
 	it("PUBLIC_LIST_EVENTS：带 startsAt/endsAt/enrollmentBadge/venue", () => {
 		const doc = print(PUBLIC_LIST_EVENTS);
-		expect(doc).toContain(
-			'listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } })',
-		);
+		expect(doc).toContain("first: 250");
+		expect(doc).toContain('filter: { status: { eq: "open" }, visibility: { eq: "public" } }');
 		for (const field of [
 			"startsAt",
 			"endsAt",
@@ -141,9 +140,8 @@ describe("公开面查询（R10 同一匿名通道扩展字段；R6 badge；R3 �
 
 	it("PUBLIC_LIST_COURSES：带 startsAt/endsAt/enrollmentBadge（course 无 venue 槽）", () => {
 		const doc = print(PUBLIC_LIST_COURSES);
-		expect(doc).toContain(
-			'listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } })',
-		);
+		expect(doc).toContain("first: 250");
+		expect(doc).toContain('filter: { status: { eq: "open" }, visibility: { eq: "public" } }');
 		for (const field of ["startsAt", "endsAt", "enrollmentBadge"]) {
 			expect(doc).toContain(field);
 		}

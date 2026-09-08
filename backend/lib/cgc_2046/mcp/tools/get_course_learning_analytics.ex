@@ -20,7 +20,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseLearningAnalytics do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course
   alias Cgc2046.Learning.Analytics
   alias Cgc2046.Mcp.Tools.Response
@@ -37,10 +37,10 @@ defmodule Cgc2046.Mcp.Tools.GetCourseLearningAnalytics do
       Wrapper.run(frame, params, "get_course_learning_analytics", fn actor,
                                                                      workspace_id,
                                                                      params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id) do
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id) do
           {:ok, Analytics.for_course(course)}
         end
       end)
@@ -51,23 +51,10 @@ defmodule Cgc2046.Mcp.Tools.GetCourseLearningAnalytics do
   # tutor ∪ owner/admin(R49):管理角色豁免 + tutor 显式放行;
   # learner/volunteer/无差异标签成员拒(同 save_course_content 口径)
   defp authorize(actor, workspace_id) do
-    roles = MembershipContext.role_names(actor, workspace_id)
-
-    if Enum.any?(roles, &Role.manage_role?/1) or :tutor in roles do
+    if Rbac.staff?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: tutor, owner or admin required to read course learning analytics"}
-    end
-  end
-
-  # tenant 收紧课程归属:他租户 course_id 与不存在同一「not found」,不泄露存在性
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 end

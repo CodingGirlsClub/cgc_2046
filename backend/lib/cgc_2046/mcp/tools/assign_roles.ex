@@ -16,7 +16,7 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role, WorkspaceMembership}
+  alias Cgc2046.Accounts.{Rbac, Role, WorkspaceMembership}
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
@@ -39,8 +39,8 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "assign_roles", fn actor, workspace_id, params ->
-        membership_id = params["membership_id"] || params[:membership_id]
-        role_names = params["role_names"] || params[:role_names] || []
+        membership_id = params["membership_id"]
+        role_names = params["role_names"] || []
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, role_names} <- parse_role_names(role_names),
@@ -98,7 +98,7 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
 
   # Owner/Admin 专属（#240）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to assign roles"}

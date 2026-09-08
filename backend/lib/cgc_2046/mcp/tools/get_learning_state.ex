@@ -24,12 +24,14 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
 
   授权(`membership: :deferred`,工具层判定):workspace 成员 ∪ 本人
   confirmed enrollment ∪ 本人学习 run 持有者(「曾学过」读面,含课程
-  close/cancel 后)——`LearnerAuthorization.authorize/3`。
+  close/cancel 后)——`Authorization.authorize/3`。
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Learning.Runs
-  alias Cgc2046.Mcp.Tools.{LearnerAuthorization, Response}
+  alias Cgc2046.Learning.Authorization
+  alias Cgc2046.Mcp.Tools.Response
   alias Cgc2046.Mcp.Wrapper
 
   schema do
@@ -41,27 +43,15 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_learning_state", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
-        with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id) do
+        with :ok <- Authorization.authorize(actor, workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id) do
           {:ok, serialize(Runs.learning_state(actor, course))}
         end
       end)
 
     Response.to_response(result, frame)
-  end
-
-  # 课程存在性(租户收紧);授权已在工具层发生,authorize?: false 直读
-  # (get_course_revision fetch_course 同款纪律)
-  defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Courses.Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
-    end
   end
 
   # DateTime → ISO8601;atom kind/state 已在投影层 to_string(mastery),

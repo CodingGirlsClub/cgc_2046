@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
+import { formatDeadline } from "@/lib/events";
 import {
 	createSpeakerInvitation,
 	fetchSpeakerInvitations,
@@ -54,17 +55,20 @@ function fromLocalInput(value: string): string | null {
 	return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-function formatScheduledAt(datetime: string | null, undecidedLabel: string): string {
-	if (!datetime) return undecidedLabel;
-	const d = new Date(datetime);
-	if (Number.isNaN(d.getTime())) return undecidedLabel;
-	return d.toLocaleString("zh-CN", {
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
+/**
+ * 创建/重发失败文案映射（同 offering 面纪律：不透传后端原文）：
+ * 已知模式 → i18n 键；未知 → 调用方兜底键。
+ */
+function friendlyPanelError(
+	message: string | null | undefined,
+	t: ReturnType<typeof useTranslations>,
+	fallbackKey: "createFailed" | "resendFailed",
+): string {
+	const raw = message ?? "";
+	if (/active invitation .* already exists/i.test(raw)) {
+		return t("duplicateInvitation");
+	}
+	return t(fallbackKey);
 }
 
 export default function SpeakerInvitationPanel({
@@ -77,6 +81,7 @@ export default function SpeakerInvitationPanel({
 	workspaceId: string;
 }) {
 	const t = useTranslations("speakerInvitePanel");
+	const locale = useLocale();
 	const [draft, setDraft] = useState<InviteDraft>(EMPTY_DRAFT);
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
@@ -143,7 +148,7 @@ export default function SpeakerInvitationPanel({
 				setListState({ id: eventId, status: "ok" });
 				setMessage(t("created"));
 			} else {
-				setMessage(res.errors[0]?.message ?? t("createFailed"));
+				setMessage(friendlyPanelError(res.errors[0]?.message, t, "createFailed"));
 			}
 		} catch (e: unknown) {
 			setMessage(e instanceof Error ? e.message : t("createFailed"));
@@ -175,7 +180,7 @@ export default function SpeakerInvitationPanel({
 					});
 				}, 30_000);
 			} else {
-				setMessage(res.errors[0]?.message ?? t("resendFailed"));
+				setMessage(friendlyPanelError(res.errors[0]?.message, t, "resendFailed"));
 			}
 		} catch (e: unknown) {
 			setMessage(e instanceof Error ? e.message : t("resendFailed"));
@@ -294,7 +299,7 @@ export default function SpeakerInvitationPanel({
 										<p className="mt-0.5 truncate text-[13px] text-ink-3">
 											{item.topic ? t("topicLabel", { topic: item.topic }) : t("noTopic")}
 											<span className="mx-1.5">·</span>
-											{formatScheduledAt(item.scheduledAt, t("undecided"))}
+											{formatDeadline(item.scheduledAt, t("undecided"), locale)}
 										</p>
 									</div>
 									<SpeakerStatusTag status={item.status} />

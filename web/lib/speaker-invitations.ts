@@ -57,7 +57,7 @@ export async function createSpeakerInvitation(
 
 	return (
 		data?.createSpeakerInvitation ??
-		({ result: null, plainToken: null, errors: [{ message: "errors.noResponse" }] } as CreateSpeakerInvitationResult)
+		{ result: null, plainToken: null, errors: [] }
 	);
 }
 
@@ -69,7 +69,7 @@ export async function acceptSpeakerInvitation(
 		variables: { token },
 	});
 
-	return data?.acceptSpeakerInvitation ?? { result: null, errors: [{ message: "errors.noResponse" }] };
+	return data?.acceptSpeakerInvitation ?? { result: null, errors: [] };
 }
 
 export async function declineSpeakerInvitation(
@@ -80,7 +80,7 @@ export async function declineSpeakerInvitation(
 		variables: { token },
 	});
 
-	return data?.declineSpeakerInvitation ?? { result: null, errors: [{ message: "errors.noResponse" }] };
+	return data?.declineSpeakerInvitation ?? { result: null, errors: [] };
 }
 // 重发/重新生成链接：新 plainToken 仅此一次返回；有邮箱的同时后端异步发新邮件
 export async function resendSpeakerInvitation(
@@ -93,6 +93,6 @@ export async function resendSpeakerInvitation(
 
 	return (
 		data?.resendSpeakerInvitation ??
-		({ result: null, plainToken: null, errors: [{ message: "errors.noResponse" }] } as ResendSpeakerInvitationResult)
+		{ result: null, plainToken: null, errors: [] }
 	);
 }

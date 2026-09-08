@@ -27,7 +27,7 @@ defmodule Cgc2046.Mcp.Tools.AdminPromoteUser do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_promote_user", fn actor, _workspace_id, params ->
-        user_id = params["user_id"] || params[:user_id]
+        user_id = params["user_id"]
 
         with {:ok, user} <- fetch_user(actor, user_id) do
           # 幂等快速失败：已是管理员的用户不值得建 pending

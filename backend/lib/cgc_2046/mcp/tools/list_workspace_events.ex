@@ -35,7 +35,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_workspace_events", fn _actor, workspace_id, params ->
-        with {:ok, status} <- parse_status(params["status"] || params[:status]),
+        with {:ok, status} <- parse_status(params["status"]),
              {:ok, rows} <- read_events(workspace_id, status) do
           {:ok, %{count: length(rows), events: rows}}
         end
