@@ -318,10 +318,13 @@ export async function fetchMyEnrollment(
 	kind: OfferingKind,
 	userId: string,
 ): Promise<{ id: string; status: string } | null> {
+	// network-only（P3/F4 同款纪律）：支付成功后 onPaid 就地刷新若命中
+	// cache-first 的 payment_pending 旧值，报名区会一直停在「待支付」。
 	if (kind === "event") {
 		const { data } = await client.query({
 			query: MY_EVENT_ENROLLMENT,
 			variables: { eventId: id, userId },
+			fetchPolicy: "network-only",
 		});
 		return data?.enrollments?.results?.[0] ?? null;
 	}
@@ -329,6 +332,7 @@ export async function fetchMyEnrollment(
 	const { data } = await client.query({
 		query: MY_COURSE_ENROLLMENT,
 		variables: { courseId: id, userId },
+		fetchPolicy: "network-only",
 	});
 	return data?.enrollments?.results?.[0] ?? null;
 }

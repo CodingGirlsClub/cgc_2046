@@ -122,7 +122,7 @@ export default function TierEditor({
 				drafts.map((d) => (
 					<div
 						key={d.id}
-						className="grid grid-cols-[1fr_100px_150px_auto] items-center gap-2"
+						className="grid items-center gap-2 sm:grid-cols-[1fr_100px_150px_auto]"
 						data-testid={`tier-row-${d.id}`}
 					>
 						<input
