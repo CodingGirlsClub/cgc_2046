@@ -66,15 +66,15 @@ defmodule Cgc2046.Mcp.Tools.ListPublicOfferings do
   # ---- 参数解析 ----
 
   defp parse_filters(params) do
-    with {:ok, kind} <- PublicOffering.parse_kind(params["kind"] || params[:kind]),
+    with {:ok, kind} <- PublicOffering.parse_kind(params["kind"]),
          {:ok, starts_after} <-
-           parse_dt("starts_after", params["starts_after"] || params[:starts_after]),
+           parse_dt("starts_after", params["starts_after"]),
          {:ok, starts_before} <-
-           parse_dt("starts_before", params["starts_before"] || params[:starts_before]) do
+           parse_dt("starts_before", params["starts_before"]) do
       {:ok,
        %{
          kind: kind,
-         city: normalize_city(params["city"] || params[:city]),
+         city: normalize_city(params["city"]),
          starts_after: starts_after,
          starts_before: starts_before
        }}

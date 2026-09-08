@@ -32,9 +32,9 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_public_offering", fn _actor, _workspace_id, params ->
-        id = params["id"] || params[:id]
+        id = params["id"]
 
-        with {:ok, kind} <- PublicOffering.parse_kind(params["kind"] || params[:kind]),
+        with {:ok, kind} <- PublicOffering.parse_kind(params["kind"]),
              {:ok, found} <- fetch_public(kind, id) do
           {:ok, to_detail(found)}
         end

@@ -60,7 +60,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "update_event", fn actor, workspace_id, params ->
-        event_id = params["event_id"] || params[:event_id]
+        event_id = params["event_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, event} <- fetch_event(actor, workspace_id, event_id),
@@ -155,10 +155,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   defp collect_changes(params) do
     changes =
       Enum.flat_map(@updatable_fields, fn field ->
-        value =
-          if Map.has_key?(params, field),
-            do: params[field],
-            else: Map.get(params, String.to_existing_atom(field))
+        value = Map.get(params, field)
 
         case value do
           nil -> []

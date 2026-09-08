@@ -30,8 +30,8 @@ defmodule Cgc2046.Mcp.Tools.ApproveJoinRequest do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "approve_join_request", fn actor, workspace_id, params ->
-        join_request_id = params["join_request_id"] || params[:join_request_id]
-        role_names = params["role_names"] || params[:role_names] || []
+        join_request_id = params["join_request_id"]
+        role_names = params["role_names"] || []
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, role_names} <- parse_grantable_roles(role_names),

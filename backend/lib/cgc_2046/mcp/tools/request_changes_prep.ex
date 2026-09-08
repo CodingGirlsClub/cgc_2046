@@ -25,8 +25,8 @@ defmodule Cgc2046.Mcp.Tools.RequestChangesPrep do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "request_changes_prep", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        reason = params["reason"] || params[:reason]
+        course_id = params["course_id"]
+        reason = params["reason"]
 
         with {:ok, reason} <- require_reason(reason),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),

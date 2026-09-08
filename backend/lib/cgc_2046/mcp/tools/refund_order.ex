@@ -32,7 +32,7 @@ defmodule Cgc2046.Mcp.Tools.RefundOrder do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "refund_order", fn actor, workspace_id, params ->
-        order_id = params["order_id"] || params[:order_id]
+        order_id = params["order_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, order} <- fetch_order(actor, workspace_id, order_id) do

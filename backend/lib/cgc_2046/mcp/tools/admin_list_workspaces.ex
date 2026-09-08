@@ -29,7 +29,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaces do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_list_workspaces", fn actor, _workspace_id, params ->
-        search = params["search"] || params[:search]
+        search = params["search"]
 
         Workspace
         |> Ash.Query.for_read(:read)

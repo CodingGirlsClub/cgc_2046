@@ -27,7 +27,7 @@ defmodule Cgc2046.Mcp.Tools.CloseEvent do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "close_event", fn actor, workspace_id, params ->
-        event_id = params["event_id"] || params[:event_id]
+        event_id = params["event_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, event} <- fetch_event(actor, workspace_id, event_id) do

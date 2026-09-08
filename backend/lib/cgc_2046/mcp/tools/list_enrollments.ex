@@ -48,11 +48,11 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_enrollments", fn actor, workspace_id, params ->
-        offering_id = params["offering_id"] || params[:offering_id]
-        status = params["status"] || params[:status]
+        offering_id = params["offering_id"]
+        status = params["status"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"] || params[:kind]),
+             {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"]),
              {:ok, offering} <- fetch_offering(actor, workspace_id, kind, offering_id),
              {:ok, status} <- parse_status(status) do
           # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计
