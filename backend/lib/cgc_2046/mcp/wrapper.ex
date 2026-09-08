@@ -116,7 +116,9 @@ defmodule Cgc2046.Mcp.Wrapper do
 
     map =
       Cgc2046.Mcp.Server.__components__(:tool)
-      |> Map.new(fn %Tool{name: name, meta: meta} -> {name, meta} end)
+      |> Map.new(fn %Tool{name: name, meta: meta, handler: handler} ->
+        {name, %{meta: meta, handler: handler}}
+      end)
 
     :persistent_term.put(@gate_map_key, {%{md5: md5}, map})
     map
@@ -124,7 +126,28 @@ defmodule Cgc2046.Mcp.Wrapper do
 
   defp server_md5, do: Cgc2046.Mcp.Server.__info__(:md5)
 
-  defp meta_for(tool_name), do: Map.get(tool_gate_map(), tool_name)
+  defp meta_for(tool_name) do
+    case Map.get(tool_gate_map(), tool_name) do
+      %{meta: meta} -> meta
+      nil -> nil
+    end
+  end
+
+  # 确认流执行器派生（2026-09-08 架构评审候选②）：注册表 name → handler module，
+  # 且 module 导出 execute_confirmed/2 才视为确认流工具。派生自组件注册表——
+  # 「工具已注册但 Confirmation.execute/3 漏加子句」的状态在结构上不可能存在
+  # （原 22 子句分派表的机械同步点随之退役）。兜底 `:error` 覆盖数据异常
+  # （pending.tool 指向已下线/未注册工具），不泄露 params/actor 结构。
+  @spec executor_for(String.t()) :: {:ok, module()} | :error
+  def executor_for(tool_name) do
+    with %{handler: handler} when is_atom(handler) <- Map.get(tool_gate_map(), tool_name),
+         true <- Code.ensure_loaded?(handler),
+         true <- function_exported?(handler, :execute_confirmed, 2) do
+      {:ok, handler}
+    else
+      _ -> :error
+    end
+  end
 
   defp workspace_id_optional?(tool_name),
     do: match?(%{workspace_id: :optional}, meta_for(tool_name))
