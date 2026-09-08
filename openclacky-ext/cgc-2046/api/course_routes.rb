@@ -35,9 +35,8 @@ module Cgc2046CourseRoutes
   end
 
   # MCP 工具调用管道:connected_registry → call_tool → 200 包装;错误分层:
-  # 未连接 503(各面板自带 not_connected 引导文案)/ 上游 McpError 502 /
-  # 意外 500(error_prefix 区分面板)。offering 数据面整体委托本函数
-  # (call_offering_tool 单行转发,仅 not_connected 文案与 error_prefix 不同)。
+  # 未连接 503(各面板自带 not_connected 引导文案,由 handler 声明表 FACES 下发)/
+  # 上游 McpError 502 / 意外 500(error_prefix 区分面板)。
   # conflict_409: true 时,上游 version_conflict: 错误映射为 409
   # (S4 乐观并发冲突,§B#23 错误分层,面板据此走冲突 UX),其余 McpError 保持 502。
   # 宿主 client(openclacky gem lib/clacky/mcp/client.rb)把上游 JSON-RPC error 包装为
@@ -57,20 +56,6 @@ module Cgc2046CourseRoutes
     end
   rescue StandardError => e
     { status: 500, body: { error: "#{error_prefix}: #{e.message}" } }
-  end
-
-  # MCP 工具结果 → loopback JSON 形状:{ ok: true, tool: ..., result: ... }
-  def call_course_tool(handler, tool_name, arguments)
-    call_tool(handler, tool_name, arguments,
-              not_connected: NOT_CONNECTED, error_prefix: "course route failed")
-  end
-
-  # S4-extension 课程草稿写回:透传 save_course_content(base_version 必填整数
-  # 乐观并发,版本冲突 → 409 {error: "version_conflict", message: 上游消息})。
-  def call_course_save_tool(handler, arguments)
-    call_tool(handler, "save_course_content", arguments,
-              not_connected: NOT_CONNECTED, error_prefix: "course route failed",
-              conflict_409: true)
   end
 
   # 宿主 client 返回形态收敛:content 数组取 text 拼接后 JSON 解析(失败原样)

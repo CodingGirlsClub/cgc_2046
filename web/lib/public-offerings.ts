@@ -68,7 +68,7 @@ export async function submitEnrollment(input: {
 	});
 
 	return (
-		data?.createEnrollment ?? { result: null, errors: [{ message: "errors.noResponse" }] }
+		data?.createEnrollment ?? { result: null, errors: [] }
 	);
 }
 
