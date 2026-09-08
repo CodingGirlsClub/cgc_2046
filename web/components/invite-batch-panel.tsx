@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
+import { formatDateTime } from "@/lib/format";
 import { OFFERING_LABEL, type OfferingKind } from "@/lib/graphql/events";
 import {
 	CREATE_INVITE_BATCH,
@@ -88,17 +89,10 @@ function fromLocalDateTimeInput(value: string): string | null {
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function formatDateTime(t: InviteBatchTranslate, value: string | null): string {
+function formatInviteExpiry(t: InviteBatchTranslate, value: string | null): string {
 	if (!value) return t("noExpiry");
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return t("invalidTime");
-	return date.toLocaleString("zh-CN", {
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
+	if (Number.isNaN(new Date(value).getTime())) return t("invalidTime");
+	return formatDateTime(value);
 }
 
 function generateInviteCode(length = 10): string {
@@ -547,7 +541,7 @@ export default function InviteBatchPanel({
 													total: item.quota,
 												})}
 												<span className="mx-1.5">·</span>
-												{formatDateTime(t, item.expiresAt)}
+												{formatInviteExpiry(t, item.expiresAt)}
 											</p>
 											{item.remark ? (
 												<p className="mt-0.5 truncate text-[12px] text-ink-3">
