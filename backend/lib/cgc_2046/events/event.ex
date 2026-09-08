@@ -421,6 +421,22 @@ defmodule Cgc2046.Events.Event do
         end
       end)
 
+      # 发布后 slug 锁定（2026-09-08 拍板）：公开 URL 段发布即契约——已分发链接
+      # （微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。draft 随便改；
+      # 无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      change(fn changeset, _context ->
+        if Ash.Changeset.changing_attribute?(changeset, :slug) and
+             Ash.Changeset.get_data(changeset, :status) != :draft do
+          Ash.Changeset.add_error(
+            changeset,
+            field: :slug,
+            message: "slug is locked once the offering is published (editable in draft only)"
+          )
+        else
+          changeset
+        end
+      end)
+
       # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
       # 同事务对 payment_pending 报名逐条复用免缴三元组。
       change({Cgc2046.Admission.Changes.WaivePendingOnPricingDisable, kind: :event})

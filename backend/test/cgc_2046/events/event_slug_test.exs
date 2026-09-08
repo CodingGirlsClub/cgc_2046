@@ -153,4 +153,89 @@ defmodule Cgc2046.Events.EventSlugTest do
 
     assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
   end
+
+  test "open 后改 slug 拒绝（Event）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, event} = create_event(workspace, admin, %{slug: "lock-open-event"})
+    {:ok, launched} = launch(event, workspace, admin)
+    assert launched.status == :open
+
+    assert {:error, error} =
+             launched
+             |> Ash.Changeset.for_update(:update, %{slug: "new-slug"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug is locked"
+
+    assert Ash.get!(Event, event.id, tenant: workspace.id, authorize?: false).slug ==
+             "lock-open-event"
+  end
+
+  test "closed 后改 slug 仍拒绝（Event）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, event} = create_event(workspace, admin, %{slug: "lock-closed-event"})
+    {:ok, launched} = launch(event, workspace, admin)
+    {:ok, closed} = close(launched, workspace, admin)
+    assert closed.status == :closed
+
+    assert {:error, error} =
+             closed
+             |> Ash.Changeset.for_update(:update, %{slug: "new-slug"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug is locked"
+
+    assert Ash.get!(Event, event.id, tenant: workspace.id, authorize?: false).slug ==
+             "lock-closed-event"
+  end
+
+  test "Course 同构：open 后改 slug 拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+
+    {:ok, course} =
+      Course
+      |> Ash.Changeset.for_create(
+        :create,
+        %{title: "Slug Course", enrollment_policy: :open, slug: "lock-open-course"},
+        tenant: workspace.id
+      )
+      |> Ash.create(tenant: workspace.id, actor: admin)
+
+    {:ok, launched} = launch(course, workspace, admin)
+    assert launched.status == :open
+
+    assert {:error, error} =
+             launched
+             |> Ash.Changeset.for_update(:update, %{slug: "new-slug"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug is locked"
+
+    assert Ash.get!(Course, course.id, tenant: workspace.id, authorize?: false).slug ==
+             "lock-open-course"
+  end
+
+  defp launch(entity, workspace, actor) do
+    entity
+    |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id, actor: actor)
+    |> Ash.update(tenant: workspace.id, actor: actor)
+  end
+
+  defp close(entity, workspace, actor) do
+    entity
+    |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: actor)
+    |> Ash.update(tenant: workspace.id, actor: actor)
+  end
 end
