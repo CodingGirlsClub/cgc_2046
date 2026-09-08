@@ -195,7 +195,7 @@ defmodule Cgc2046.Accounts.Rbac do
   # 工具层「Owner/Admin 专属」「tutor ∪ 管理」两族判定曾以私有函数散于 21 个
   # 工具文件，靠注释互相指认；收敛于此，判定语义真源仍在 Rbac（MembershipContext
   # 为数据 seam 不变）。消费方：mcp/tools 各工具 authorize + Curriculum.Prep.
-  # manage?/LearnerAuthorization.staff?（委托）。
+  # manage?/Learning.Authorization.staff?（委托）。
 
   @doc "actor 在目标工作台是否持任一管理角色（owner/admin，多角色并集）。"
   @spec manage?(term(), String.t()) :: boolean()
