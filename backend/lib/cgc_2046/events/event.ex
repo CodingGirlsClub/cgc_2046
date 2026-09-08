@@ -616,6 +616,14 @@ defmodule Cgc2046.Events.Event do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
 
+  identities do
+    # all_tenants?：slug 全局唯一（公开路由段无 workspace 前缀）；否则 :attribute
+    # 多租户会把 workspace_id 并入冲突目标，与 events_slug_index 全局索引不匹配
+    # （42P10；Curriculum.CourseRevision.unique_course_number 同款判据）。
+    # 名 :slug ↔ 既有索引 events_slug_index，保 generate_migrations --check 零漂移。
+    identity(:slug, [:slug], all_tenants?: true)
+  end
+
   postgres do
     table("events")
     repo(Cgc2046.Repo)

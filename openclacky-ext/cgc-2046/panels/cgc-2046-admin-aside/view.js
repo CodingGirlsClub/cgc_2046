@@ -484,7 +484,7 @@
     let row =
       '<button class="cgaa-course" type="button" data-offering-kind="' + kind + '"' +
         ' data-offering-id="' + escapeHtml(id) + '" data-testid="cgaa-course">' +
-        '<span class="cgaa-badge cgaa-badge-kind">' + KIND_LABEL[kind] + '</span>' +
+        '<span class="cgaa-badge cgaa-badge-kind-' + kind + '">' + KIND_LABEL[kind] + '</span>' +
         '<span class="cgaa-course-title">' + escapeHtml(item.title || (kind === "event" ? "未命名活动" : "未命名课程")) + '</span>' +
         (extra ? '<span class="cgaa-badge cgaa-badge-prep">' + escapeHtml(extra) + '</span>' : "") +
         '<span class="cgaa-badge cgaa-badge-' + st.cls + '">' + escapeHtml(st.label) + '</span>' +
@@ -710,7 +710,8 @@
       ".cgaa-task-go{flex:none;color:var(--color-text-tertiary);font-size:0.75rem}",
       ".cgaa-task:hover .cgaa-task-go{color:var(--color-accent-primary)}",
       ".cgaa-badge{flex:none;font-size:0.5625rem;font-weight:700;padding:0 5px;min-height:14px;display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--color-border-secondary);color:var(--color-text-secondary)}",
-      ".cgaa-badge-kind{border-color:var(--color-border-strong);color:var(--color-text-primary);background:var(--color-bg-subtle)}",
+      ".cgaa-badge-kind-course{border-color:transparent;background:var(--color-accent-primary);color:var(--color-text-inverse,#fff)}",
+      ".cgaa-badge-kind-event{border-color:color-mix(in srgb,var(--color-warning,#fbbf24) 45%,transparent);background:color-mix(in srgb,var(--color-warning,#fbbf24) 22%,var(--color-bg-card));color:color-mix(in srgb,var(--color-warning,#f59e0b) 82%,var(--color-text-primary))}",
       ".cgaa-badge-open{border-color:color-mix(in srgb,var(--color-success,#34d399) 40%,var(--color-border-primary));color:var(--color-success,#34d399)}",
       ".cgaa-badge-draft{border-color:color-mix(in srgb,var(--color-warning,#fbbf24) 40%,var(--color-border-primary));color:var(--color-warning,#fbbf24)}",
       ".cgaa-badge-prep{border-color:color-mix(in srgb,var(--color-accent-primary) 35%,var(--color-border-primary));color:var(--color-accent-primary)}",

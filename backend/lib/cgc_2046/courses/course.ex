@@ -805,6 +805,12 @@ defmodule Cgc2046.Courses.Course do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :courses, to_status)
 
+  identities do
+    # all_tenants?：slug 全局唯一；否则 :attribute 多租户会把 workspace_id 并入
+    # 冲突目标，与 courses_slug_index 全局索引不匹配（42P10，event.ex 同款）。
+    identity(:slug, [:slug], all_tenants?: true)
+  end
+
   postgres do
     table("courses")
     repo(Cgc2046.Repo)
