@@ -38,7 +38,7 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_order_status", fn actor, workspace_id, params ->
-        enrollment_id = params["enrollment_id"] || params[:enrollment_id]
+        enrollment_id = params["enrollment_id"]
 
         with {:ok, enrollment} <- fetch_enrollment(workspace_id, enrollment_id),
              :ok <- enrollee_only(enrollment, actor),
@@ -57,7 +57,7 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
 
   # 报名存在性 + 工作台作用域收紧（他工作台报名与不存在同一拒绝，不泄存在性）；
   # 归属判定在工具层（enrollee_only），读取 authorize?: false
-  # （get_course_content fetch_course 同款纪律）。
+  # （租户收紧纪律单源 `Course.fetch_scoped/3`）。
   defp fetch_enrollment(workspace_id, enrollment_id) do
     case Ash.get(Enrollment, enrollment_id, authorize?: false) do
       {:ok, %Enrollment{workspace_id: ^workspace_id} = enrollment} ->
@@ -83,7 +83,7 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   defp latest_order(enrollment, actor) do
     Order
     |> Ash.Query.filter(enrollment_id == ^enrollment.id)
-    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.Query.limit(50)
     |> Ash.read(actor: actor)
     |> case do

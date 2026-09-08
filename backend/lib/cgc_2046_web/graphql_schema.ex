@@ -5,6 +5,8 @@ defmodule Cgc2046Web.GraphqlSchema do
   require Ash.Query
   require Ash.Expr
 
+  alias Cgc2046.AdminList
+
   use AshGraphql,
     domains: [
       Cgc2046.Admission,
@@ -86,7 +88,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :my_phone, :string do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn actor ->
-          {:ok, mask_phone(actor.phone)}
+          {:ok, Cgc2046.Accounts.PhoneNumber.mask(actor.phone)}
         end)
       end)
     end
@@ -157,7 +159,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
     field :my_learning_runs, non_null(list_of(non_null(:my_learning_run))) do
       resolve(fn _, _, %{context: context} ->
-        with_actor(context, &resolve_my_learning_runs/1)
+        with_actor(context, &Cgc2046.Learning.Runs.my_learning_runs/1)
       end)
     end
 
@@ -183,7 +185,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:slug, non_null(:string))
 
       resolve(fn _, args, _ ->
-        resolve_course_map(args[:slug])
+        Cgc2046.Courses.CourseProjection.map_by_slug(args[:slug])
       end)
     end
 
@@ -193,7 +195,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
-          resolve_course_learning_detail(actor, args[:course_id])
+          Cgc2046.Courses.CourseProjection.learning_detail(actor, args[:course_id])
         end)
       end)
     end
@@ -204,7 +206,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{course_id: course_id}, %{context: context} ->
         with_actor(context, fn actor ->
-          resolve_course_content(actor, course_id)
+          Cgc2046.Courses.CourseProjection.content(actor, course_id)
         end)
       end)
     end
@@ -215,7 +217,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{course_id: course_id}, %{context: context} ->
         with_actor(context, fn actor ->
-          resolve_course_draft(actor, course_id)
+          Cgc2046.Courses.CourseProjection.draft(actor, course_id)
         end)
       end)
     end
@@ -250,9 +252,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                |> Ash.Query.for_read(:get_by_id, %{id: course_id})
                |> Ash.read_one(authorize?: false) do
             {:ok, %{} = course} ->
-              roles = Cgc2046.Accounts.MembershipContext.role_names(actor, course.workspace_id)
-
-              if Enum.any?(roles, &Cgc2046.Accounts.Role.manage_role?/1) or :tutor in roles do
+              if Cgc2046.Accounts.Rbac.staff?(actor, course.workspace_id) do
                 {:ok, Cgc2046.Learning.Analytics.for_course(course)}
               else
                 {:ok, nil}
@@ -330,7 +330,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(
         admin_list(
           Cgc2046.Accounts.User,
-          fn q, args -> maybe_user_search(q, args[:search]) end,
+          fn q, args -> AdminList.maybe_user_search(q, args[:search]) end,
           &load_membership_counts/2
         )
       )
@@ -345,7 +345,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(
         admin_list(
           Cgc2046.Accounts.Workspace,
-          fn q, args -> maybe_workspace_search(q, args[:search]) end,
+          fn q, args -> AdminList.maybe_workspace_search(q, args[:search]) end,
           admin_result(Cgc2046.Accounts.Workspace, Cgc2046.Accounts),
           pre_read: fn q -> Ash.Query.load(q, :member_count) end
         )
@@ -362,7 +362,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(
         admin_list(
           Cgc2046.Accounts.WorkspaceApplication,
-          fn q, args -> maybe_status_filter(q, args[:status]) end,
+          fn q, args -> AdminList.maybe_status_filter(q, args[:status]) end,
           admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
         )
       )
@@ -395,9 +395,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Mcp.ToolCallLog,
           fn q, args ->
             q
-            |> maybe_workspace_filter(args[:workspace_id])
-            |> maybe_status_filter(args[:status], :result_status)
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_workspace_filter(args[:workspace_id])
+            |> AdminList.maybe_status_filter(args[:status], :result_status)
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
         )
@@ -418,9 +418,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Mcp.PendingOperation,
           fn q, args ->
             q
-            |> maybe_workspace_filter(args[:workspace_id])
-            |> maybe_pending_status_filter(args[:status])
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_workspace_filter(args[:workspace_id])
+            |> AdminList.maybe_pending_status_filter(args[:status])
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
         )
@@ -441,9 +441,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Workflows.SignalLog,
           fn q, args ->
             q
-            |> maybe_real_workspace_filter(args[:workspace_id])
-            |> maybe_signal_type_filter(args[:signal_type])
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
+            |> AdminList.maybe_signal_type_filter(args[:signal_type])
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Workflows)
         )
@@ -463,8 +463,8 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Accounts.AdminActionLog,
           fn q, args ->
             q
-            |> maybe_action_filter(args[:action])
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_action_filter(args[:action])
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.Accounts)
         )
@@ -484,10 +484,10 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Reconciliation.Finding,
           fn q, args ->
             q
-            # atom 约束字段精确过滤（非枚举值静默忽略，同 maybe_status_filter 语义）
-            |> maybe_status_filter(args[:rule], :rule)
-            |> maybe_status_filter(args[:entity_type], :entity_type)
-            |> maybe_real_workspace_filter(args[:workspace_id])
+            # atom 约束字段精确过滤（非枚举值静默忽略，同 AdminList.maybe_status_filter 语义）
+            |> AdminList.maybe_status_filter(args[:rule], :rule)
+            |> AdminList.maybe_status_filter(args[:entity_type], :entity_type)
+            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
           end,
           admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation)
         )
@@ -503,7 +503,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       middleware(Cgc2046Web.Plugs.RateLimit,
         key_path: [:login],
-        normalize: &normalize_login/1
+        normalize: &Cgc2046.Accounts.WebAuthFlow.normalize_login/1
       )
 
       resolve(fn _, %{login: login, password: password}, _ ->
@@ -568,7 +568,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{phone: raw_phone, purpose: purpose}, %{context: context} ->
         with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
              :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_request_limits(context, phone) do
-          request_phone_code(phone, purpose)
+          Cgc2046.Accounts.WebAuthFlow.request_phone_code(phone, purpose)
         else
           {:error, :invalid} ->
             {:error, message: "Invalid phone number", code: "invalid_phone"}
@@ -775,11 +775,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       middleware(
         Cgc2046Web.Plugs.RateLimit,
         key_path: [:email],
-        normalize: &normalize_email/1
+        normalize: &Cgc2046.Accounts.WebAuthFlow.normalize_email/1
       )
 
       resolve(fn _, %{email: email}, %{context: context} ->
-        email = normalize_email(email)
+        email = Cgc2046.Accounts.WebAuthFlow.normalize_email(email)
 
         case Cgc2046.Accounts.WebAuthFlow.check_password_reset_request_limits(context, email) do
           :ok ->
@@ -995,10 +995,12 @@ defmodule Cgc2046Web.GraphqlSchema do
           # 两个条件都匹配才放行（token 是凭证，与 validateInvitation 信息面一致），
           # 不匹配返回 not_found，不泄露邀请存在性。accept action 的
           # authorize_if(actor_present()) 与 before_action token 复验仍完整生效。
-          # token_credential_fetch 以 extra_filter: [id: id] 保留双因子，nil 塌缩为
+          # TokenCredential.fetch 以 extra_filter: [id: id] 保留双因子，nil 塌缩为
           # :invalid_token，由调用方映射回 accept_not_found_errors（not_found 语义）。
           with {:ok, invitation} <-
-                 token_credential_fetch(Cgc2046.Accounts.Invitation, token, id: id),
+                 Cgc2046.Accounts.TokenCredential.fetch(Cgc2046.Accounts.Invitation, token,
+                   id: id
+                 ),
                {:ok, accepted} <-
                  invitation
                  |> Ash.Changeset.for_update(:accept, %{token: token})
@@ -2015,79 +2017,6 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
 
-  defp normalize_email(email) do
-    email
-    |> to_string()
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  # ── 手机验证码（plan 002 U3）───────────────────────────────────────────
-
-  # 发码统一响应：SendCloud 失败外的所有分支 sent: true（防枚举）；
-  # deliver 失败冒泡为 sent:false + retryAfterSeconds（plan U3.4——M4 修复：
-  # 此前结果被丢弃恒 sent:true，用户看到已发送但短信不存在）。
-  defp request_phone_code(phone, purpose) do
-    purpose_atom = phone_code_purpose_atom(purpose)
-
-    case Cgc2046.Accounts.PhoneVerificationCode.issue(phone, purpose_atom) do
-      {:ok, code, send_request_id} ->
-        case deliver_phone_code(phone, code, send_request_id) do
-          :ok ->
-            {:ok, %{sent: true, retry_after_seconds: 60}}
-
-          {:error, reason} ->
-            Logger.warning("[request_phone_code] sms deliver failed: #{inspect(reason)}")
-            {:ok, %{sent: false, retry_after_seconds: 60}}
-        end
-
-      {:error, reason} ->
-        Logger.warning("[request_phone_code] issue failed: #{inspect(reason)}")
-        {:error, message: "Failed to send verification code", code: "sms_send_failed"}
-    end
-  end
-
-  # Absinthe enum 内部值（"login"/"wechat_bind"/"register"/"change_phone"）→ 资源原子
-  defp phone_code_purpose_atom(:login), do: :login
-  defp phone_code_purpose_atom(:wechat_bind), do: :wechat_bind
-  defp phone_code_purpose_atom(:register), do: :register
-  defp phone_code_purpose_atom(:change_phone), do: :change_phone
-  defp phone_code_purpose_atom("login"), do: :login
-  defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
-  defp phone_code_purpose_atom("register"), do: :register
-  defp phone_code_purpose_atom("change_phone"), do: :change_phone
-
-  defp deliver_phone_code(phone, code, send_request_id) do
-    sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
-
-    if Cgc2046.Integrations.SendCloud.Sms.configured?() do
-      template_id = Keyword.fetch!(sms, :template_id)
-
-      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
-        phone,
-        template_id,
-        %{"code" => code},
-        send_request_id
-      )
-    else
-      # dev/test：SMS 凭证缺席，Logger 出码供本地联调（prod 启动时 raise，不可达）
-      Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
-      :ok
-    end
-  end
-
-  # 掩码：前 6 字符 + **** + 后 4（+8615578793094 → +86155****3094）；
-  # 异常短号（normalize 已保证 +区号号码，理论不可达）全掩码防泄露。
-  defp mask_phone(nil), do: nil
-
-  defp mask_phone(phone) when is_binary(phone) do
-    if String.length(phone) > 10 do
-      String.slice(phone, 0, 6) <> "****" <> String.slice(phone, -4, 4)
-    else
-      String.duplicate("*", String.length(phone))
-    end
-  end
-
   defp sign_in_with_phone_code(phone, code, context) do
     case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
       {:ok, user} ->
@@ -2108,22 +2037,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # signIn 限流 key 归一化（plan 002 U2）：email → downcase（与 normalize_email 同）；
-  # 手机号 → PhoneNumber 规范形（"138…" 与 "+86138…" 同 key，防换写法绕过限流）；
-  # 非法输入原样保留（保持与认证失败路径一致的计数语义）。
-  defp normalize_login(login) do
-    login = to_string(login)
-
-    if String.contains?(login, "@") do
-      String.downcase(String.trim(login))
-    else
-      case Cgc2046.Accounts.PhoneNumber.normalize(login) do
-        {:ok, phone} -> phone
-        {:error, :invalid} -> login
-      end
-    end
-  end
-
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
   # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
@@ -2140,25 +2053,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
   end
 
-  # SpeakerInvitation 决策（accept/decline）：token 即凭据——按 token_hash 定位邀请
-  # （read policy 不适用：token 持有者非成员），action 内复验 token 有效/未过期/未使用
-  # （统一错误，不防枚举）。无效 token 与已用/过期同形返回 payload errors。
+  # SpeakerInvitation 决策（accept/decline）的 SDL adapter：领域编排在
+  # `Events.SpeakerInvitation.decide/3`（token 即凭据定位 + action 复验）；
+  # 此处只映射 payload 形状——无效 token 与已用/过期同形返回 payload errors
+  # （不防枚举），未登录走 unauthorized 顶层 error。
   defp decide_speaker_invitation(%{context: context}, token, action) do
-    with %{actor: actor} when not is_nil(actor) <- context,
-         {:ok, invitation} <-
-           token_credential_fetch(Cgc2046.Events.SpeakerInvitation, token) do
-      invitation
-      |> Ash.Changeset.for_update(action, %{token: token},
-        actor: actor,
-        tenant: invitation.workspace_id
-      )
-      |> Ash.update(tenant: invitation.workspace_id, actor: actor)
-      |> speaker_invitation_action_result(context, action)
-    else
-      %{} ->
+    case Cgc2046.Events.SpeakerInvitation.decide(context[:actor], token, action) do
+      {:ok, invitation} ->
+        {:ok, %{result: invitation, errors: []}}
+
+      {:error, :unauthorized} ->
         {:error, unauthorized_error()}
 
-      _ ->
+      {:error, :invalid_token} ->
         {:ok,
          %{
            result: nil,
@@ -2169,34 +2076,11 @@ defmodule Cgc2046Web.GraphqlSchema do
              }
            ]
          }}
+
+      {:error, error} ->
+        speaker_invitation_action_result({:error, error}, context, action)
     end
   end
-
-  # 持 token 资源定位组合子（PR-E D4）：token 即凭据——sha256(hex lower) 哈希 →
-  # token_hash 精确匹配 → read_one(authorize?: false)（不走 read policy）。
-  # token 空/非 binary 或未命中任何记录 → {:error, :invalid_token}（nil 塌缩，不泄露
-  # 存在性）；真实读错误原样上抛（流① accept_invitation 需区分 invalid_token 与
-  # real error）。extra_filter 追加双因子（accept_invitation 的 [id: id]）。
-  # 消费方：accept_invitation（流①）/ decide_speaker_invitation（流②）。
-  defp token_credential_fetch(resource, token, extra_filter \\ :none) do
-    with {:ok, hash} <- credential_hash(token) do
-      filters = if extra_filter == :none, do: [], else: extra_filter
-
-      resource
-      |> Ash.Query.do_filter(filters ++ [token_hash: hash])
-      |> Ash.read_one(authorize?: false)
-      |> case do
-        {:ok, nil} -> {:error, :invalid_token}
-        result -> result
-      end
-    end
-  end
-
-  defp credential_hash(token) when is_binary(token) and token != "" do
-    {:ok, :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)}
-  end
-
-  defp credential_hash(_), do: {:error, :invalid_token}
 
   # SpeakerInvitation action 结果 → payload（result + errors 两段式，同 sign_up 错误协议）
   defp speaker_invitation_action_result({:ok, invitation}, _context, _action) do
@@ -2373,40 +2257,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
-  # U7(#180/R10):公开课程地图。可见性硬编码 open+public(resolver 显式判定,
-  # 匿名面);成员视角走管理页/工作台课程列表,不经本查询;其余 → {:ok, nil}。
-  # goal-only 投影(object :course_map_issue 无 checklist 字段)。
-  defp resolve_course_map(slug) do
-    case Cgc2046.Courses.Course
-         |> Ash.Query.for_read(:get_by_slug, %{slug: slug})
-         |> Ash.read_one(authorize?: false) do
-      {:ok, %{} = course} ->
-        if course.status == :open and course.visibility == :public do
-          {:ok, build_course_map(course)}
-        else
-          {:ok, nil}
-        end
-
-      _ ->
-        {:ok, nil}
-    end
-  end
-
-  defp build_course_map(course) do
-    # S6（R29）：内容源 = 当前 published CourseRevision（发布即冻结，草稿后续
-    # 编辑不影响公开面）；无 revision 的存量课程回退草稿读面（旧行为）。
-    # 投影形状（goal-only）不变——公开 SDL 零 diff。
-    content = Cgc2046.Courses.Course.published_content(course) || %{}
-
-    %{
-      course_id: course.id,
-      title: course.title,
-      slug: course.slug,
-      goals: content["goals"] || [],
-      issues: Cgc2046.Curriculum.issue_map_rows(course, content)
-    }
-  end
-
   # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI；metadata v1 不暴露，落 DB 备用）
   object :admin_action_log do
     field(:id, non_null(:id))
@@ -2430,125 +2280,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:last_seen_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
   end
-
-  # U7(#180/R11):学员视角课程学习详情(抽屉数据)。恒 actor——授权 = 学员侧
-  # 三层(成员 ∪ confirmed enrollment ∪ 记忆持有者,LearnerAuthorization 同源);
-  # 无他人视角可构造(查询无 user_id 参数)。无权限/无课程 → {:ok, nil}
-  # (404 语义,不泄露存在性)。
-  # S8（ADR-0011）：薄壳直调 Runs.learning_state/2（与 MCP get_learning_state
-  # 同源单源）；三层授权（成员 ∪ confirmed enrollment ∪ 学习 run 持有者）；
-  # 无权限/无课程 → {:ok, nil}（不泄存在性）。
-  defp resolve_course_learning_detail(actor, course_id) do
-    with %{} = course <- fetch_course_for_detail(course_id),
-         :ok <-
-           Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
-             actor,
-             course.workspace_id,
-             course.id
-           ) do
-      {:ok, build_course_learning_detail(actor, course)}
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  # Web reader content surface. The authorization decision is made before the
-  # authorize?: false domain read; anonymous callers and non-enrolled outsiders
-  # receive a non-enumerating nil result.
-  defp resolve_course_content(actor, course_id) do
-    with %{} = course <- fetch_course_for_detail(course_id),
-         :ok <-
-           Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
-             actor,
-             course.workspace_id,
-             course.id
-           ),
-         {:ok, revision} <- Cgc2046.Curriculum.latest_revision(course.workspace_id, course.id),
-         %{} = revision <- revision do
-      {:ok,
-       %{
-         course_id: course.id,
-         title: course.title,
-         revision_number: revision.number,
-         published_at: revision.published_at,
-         content: revision.content || %{}
-       }}
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  # H6 课程草稿读面：课程 fetch 与角色判定同 course_learning_analytics（tutor ∪
-  # owner/admin），无权/课程不存在统一 nil（不泄露存在性）。数据源 = Curriculum
-  # Output 活文档草稿（content_output/2 单一读入口，无草稿 → version/content
-  # 为 nil）。prepState 取 Prep 现有读面 fetch_run/2 + prep_state/1——纯读零
-  # 副作用：不沿用 get_prep_status 的 ensure_active_run 懒开（GraphQL query 不
-  # 得带写效应），无活动 prep run → null。
-  defp resolve_course_draft(actor, course_id) do
-    with %{} = course <- fetch_course_for_detail(course_id),
-         true <- course_staff_actor?(actor, course.workspace_id),
-         {:ok, output} <- Cgc2046.Curriculum.content_output(course.workspace_id, course.id) do
-      prep_run = Cgc2046.Curriculum.Prep.fetch_run(course.id, course.workspace_id)
-
-      {:ok,
-       %{
-         course_id: course.id,
-         title: course.title,
-         version: output && output.version,
-         prep_state: prep_run && Cgc2046.Curriculum.Prep.prep_state(prep_run),
-         updated_at: output && output.updated_at,
-         content: output && (output.data || %{})
-       }}
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  # tutor ∪ owner/admin 判定（course_learning_analytics resolver 同款口径）
-  defp course_staff_actor?(actor, workspace_id) do
-    actor
-    |> Cgc2046.Accounts.MembershipContext.role_names(workspace_id)
-    |> Enum.any?(&(&1 == :tutor or Cgc2046.Accounts.Role.manage_role?(&1)))
-  end
-
-  # 学习详情 = Runs.learning_state 投影组装（objective 口径；S8 全量切换——
-  # issue/checklist 学习语义随 LearningRecord 退役）
-  defp build_course_learning_detail(actor, course) do
-    state = Cgc2046.Learning.Runs.learning_state(actor, course)
-
-    %{
-      course_id: course.id,
-      title: course.title,
-      slug: course.slug,
-      run: state.run,
-      revision_number: state.revision_number,
-      stale_revision: state.stale_revision,
-      review_queue: state.review_queue,
-      objectives: state.objectives,
-      next_action: state.next_action,
-      progress: state.progress
-    }
-  end
-
-  # #217 旁路读取（D 类·显式判定前置）：Course 直读定位，门禁由调用方
-  # resolve_course_learning_detail 的 LearnerAuthorization 三层判定
-  # （成员 ∪ confirmed enrollment ∪ 记忆持有者）承担，无权限 → nil。
-  defp fetch_course_for_detail(course_id) do
-    Cgc2046.Courses.Course
-    |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %{} = course} -> course
-      _ -> nil
-    end
-  end
-
-  # #217 旁路读取（D 类·本人锚）：filter user_id == actor.id 仅读本人学习
-  # 记录，且仅在 LearnerAuthorization 判定通过后到达。
-
-  # 抽屉形状:course 元信息 + goals + issues(story 全文 + checklist 逐条与
-  # 本人记录合成:done/evidence/recorded_at)+ 汇总 progress(同 myLearningRuns
-  # 投影单源 LearningProgress)。
 
   # plan 020 U2.1：本人 MCP 工具调用活动流。
   # policy（显式判定，与 Wrapper 成员门槛同源）：workspace 成员 + 仅本人。
@@ -2586,38 +2317,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end
     else
       {:error, [message: "forbidden", code: "forbidden"]}
-    end
-  end
-
-  defp resolve_my_learning_runs(actor) do
-    case read_confirmed_enrollments(actor) do
-      {:ok, enrollments} ->
-        rows =
-          Enum.flat_map(enrollments, fn enrollment ->
-            enrollment
-            |> read_learning_runs()
-            |> Enum.map(&Cgc2046.Learning.RunProjection.project_run(&1, enrollment, actor))
-            |> Enum.reject(&is_nil/1)
-          end)
-
-        {:ok, rows}
-
-      {:error, _reason} ->
-        {:ok, []}
-    end
-  end
-
-  defp read_confirmed_enrollments(actor) do
-    Cgc2046.Admission.Enrollment
-    |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
-    |> Ash.Query.filter(status == :confirmed)
-    |> Ash.Query.load(:target_title)
-    |> Ash.Query.limit(250)
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, %{results: results}} -> {:ok, results}
-      {:ok, results} when is_list(results) -> {:ok, results}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -2659,39 +2358,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       rejection_reason: enrollment.rejection_reason,
       inserted_at: enrollment.inserted_at
     }
-  end
-
-  # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
-  # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
-  # workspace_id 一致性校验，RunProjection.project_run 再校验
-  # enrollment.user_id == actor.id（双重本人锚）。
-  defp read_learning_runs(enrollment) do
-    Cgc2046.Workflows.WorkflowRun
-    |> Ash.Query.filter(subject_enrollment_id == ^enrollment.id)
-    |> Ash.read(tenant: enrollment.workspace_id, authorize?: false)
-    |> case do
-      {:ok, runs} ->
-        Enum.flat_map(runs, fn run ->
-          if run.workspace_id != enrollment.workspace_id do
-            []
-          else
-            # #217 旁路读取（D 类）：run 关系加载（definition 投影元数据），
-            # 本人锚同 read_learning_runs（enrollment.user_id == actor.id）。
-            case Ash.load(
-                   run,
-                   [definition: [:type, :node_def, steps: [:step_key, :title]]],
-                   tenant: run.workspace_id,
-                   authorize?: false
-                 ) do
-              {:ok, loaded_run} -> [loaded_run]
-              {:error, _reason} -> []
-            end
-          end
-        end)
-
-      {:error, _reason} ->
-        []
-    end
   end
 
   # id / is_platform_admin 可空：update 失败时承载错误 payload（errors 非空、业务字段为 nil），
@@ -2748,7 +2414,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         |> Ash.Query.for_read(:read)
         |> filter_fn.(args)
         |> pre_read.()
-        |> paginate(args[:first], args[:after])
+        |> AdminList.paginate(args[:first], args[:after])
         |> Ash.read(actor: actor)
         |> post_fn.(context)
       end)
@@ -2758,135 +2424,6 @@ defmodule Cgc2046Web.GraphqlSchema do
   # admin 列表 read 结果 → map_error（统一 :read action；resource/domain 按 query 闭包）
   defp admin_result(resource, domain) do
     fn result, context -> map_error(result, context, :read, resource, domain) end
-  end
-
-  # search 模糊过滤（字段静态，search 运行时值经 ^ pin 注入）：
-  # - maybe_user_search：email（ci_string）/ display_name contains OR
-  # - maybe_workspace_search：name / slug contains OR
-  defp maybe_user_search(query, nil), do: query
-  defp maybe_user_search(query, ""), do: query
-
-  defp maybe_user_search(query, search) do
-    Ash.Query.filter(
-      query,
-      contains(email, ^search) or contains(display_name, ^search)
-    )
-  end
-
-  defp maybe_workspace_search(query, nil), do: query
-  defp maybe_workspace_search(query, ""), do: query
-
-  defp maybe_workspace_search(query, search) do
-    Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
-  end
-
-  # status 过滤（atom 约束字段；非枚举值静默忽略过滤——to_existing_atom 防 atom 表污染）。
-  # field 参数化：WorkspaceApplication/PendingOperation 是 :status，ToolCallLog 是 :result_status。
-  defp maybe_status_filter(query, status, field \\ :status)
-
-  defp maybe_status_filter(query, nil, _field), do: query
-
-  defp maybe_status_filter(query, status, field) do
-    case String.to_existing_atom(status) do
-      # keyword 整体 ^ pin：字段名运行时化（宏模板内未 pin 变量会被当字段引用）
-      atom -> Ash.Query.filter(query, ^[{field, atom}])
-    end
-  rescue
-    ArgumentError -> query
-  end
-
-  # #117 PendingOperation 状态过滤：expired 不落库（读时派生 calculation，不能下推 SQL），
-  # 特判为 status == :pending and expires_at < now（与 effective_status 同语义）；
-  # 其余枚举值走通用 maybe_status_filter。
-  defp maybe_pending_status_filter(query, nil), do: query
-
-  defp maybe_pending_status_filter(query, "expired") do
-    now = DateTime.utc_now()
-    Ash.Query.filter(query, status == :pending and expires_at < ^now)
-  end
-
-  defp maybe_pending_status_filter(query, status), do: maybe_status_filter(query, status)
-
-  # #117 SignalLog 信号类型过滤（自由 string 精确匹配，如 "workflow.approval"；空串忽略）
-  defp maybe_signal_type_filter(query, nil), do: query
-  defp maybe_signal_type_filter(query, ""), do: query
-
-  defp maybe_signal_type_filter(query, signal_type) do
-    Ash.Query.filter(query, signal_type == ^signal_type)
-  end
-
-  # #117 时间范围过滤（inserted_at）：inserted_after → >=，inserted_before → <=。
-  # Absinthe :datetime 标量已把 ISO8601 解析为 DateTime；nil 分支不过滤。
-  defp maybe_time_range_filter(query, args) do
-    query
-    |> maybe_inserted_after(args[:inserted_after])
-    |> maybe_inserted_before(args[:inserted_before])
-  end
-
-  defp maybe_inserted_after(query, nil), do: query
-
-  defp maybe_inserted_after(query, dt) do
-    Ash.Query.filter(query, inserted_at >= ^dt)
-  end
-
-  defp maybe_inserted_before(query, nil), do: query
-
-  defp maybe_inserted_before(query, dt) do
-    Ash.Query.filter(query, inserted_at <= ^dt)
-  end
-
-  # #116 action 过滤（AdminActionLog.action 是 atom 约束；非枚举值静默忽略过滤，
-  # 与 maybe_status_filter 的 rescue 回退一致——to_existing_atom 防 atom 表污染）
-  defp maybe_action_filter(query, nil), do: query
-
-  defp maybe_action_filter(query, action) do
-    case String.to_existing_atom(action) do
-      atom -> Ash.Query.filter(query, action == ^atom)
-    end
-  rescue
-    ArgumentError -> query
-  end
-
-  # D5：ToolCallLog / PendingOperation 的 workspace_id 在 params JSONB 内
-  defp maybe_workspace_filter(query, nil), do: query
-
-  defp maybe_workspace_filter(query, workspace_id) do
-    # params->>'workspace_id' 是 JSONB text 提取，与 uuid 字符串比较。
-    # 不显式调 expr/1（非宏函数无法处理 ^ pin）——filter/2 宏的 expression
-    # 分支内部 require Ash.Expr 并解析 pin，故直接传 fragment 表达式。
-    ws_id = to_string(workspace_id)
-    Ash.Query.filter(query, fragment("params->>'workspace_id' = ?", ^ws_id))
-  end
-
-  # B1（advisor02）：SignalLog / WorkflowRun 有真实 workspace_id 列（非 params JSONB），
-  # 用真实列过滤（区别于 maybe_workspace_filter 的 JSONB 版本）。
-  defp maybe_real_workspace_filter(query, nil), do: query
-
-  defp maybe_real_workspace_filter(query, workspace_id) do
-    Ash.Query.filter(query, workspace_id == ^workspace_id)
-  end
-
-  # 分页：first 限条数（默认 50），after 为上一页已返回的条数（offset）。
-  # offset 分页对 admin 内部列表足够（数据量有限），避免手写 keyset cursor
-  # 的 datetime 解析复杂度；排序按 inserted_at+id 稳定。
-  defp paginate(query, first, after_offset) do
-    query
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-    |> Ash.Query.limit(first || 50)
-    |> maybe_offset(after_offset)
-  end
-
-  defp maybe_offset(query, nil), do: query
-
-  # B2（advisor02）：GraphQL arg(:after, :string) 声明为 string，Ash.Query.offset
-  # 期望 integer——这里显式转换；非法值（非数字）rescue 回退 0（忽略分页偏移）。
-  defp maybe_offset(query, offset) when is_integer(offset), do: Ash.Query.offset(query, offset)
-
-  defp maybe_offset(query, offset) when is_binary(offset) do
-    case Integer.parse(offset) do
-      {n, ""} when n >= 0 -> Ash.Query.offset(query, n)
-      _ -> query
-    end
   end
 
   # Ash.read 结果 → Absinthe 结果（错误统一走 to_ash_graphql_errors）

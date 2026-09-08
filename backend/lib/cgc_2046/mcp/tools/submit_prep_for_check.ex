@@ -29,9 +29,9 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "submit_prep_for_check", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
-        with {:ok, course} <- fetch_course(workspace_id, course_id),
+        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course, actor),
              :ok <- authorize(actor, workspace_id, run),
              {:ok, updated, gate} <- Prep.submit_for_check(run, actor) do
@@ -55,16 +55,6 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
       :ok
     else
       {:error, "forbidden: assigned tutor, owner or admin required to submit for quality check"}
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

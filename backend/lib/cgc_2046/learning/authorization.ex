@@ -1,19 +1,23 @@
-defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
+defmodule Cgc2046.Learning.Authorization do
   @moduledoc """
-  课程学习工具的授权判定(切片 H U3, #180;KTD2;S8 第三层切 run 持有者)。
+  学员侧学习读面的授权判定（切片 H U3, #180;KTD2;S8 第三层切 run 持有者；
+  2026-09-08 架构评审候选③自 `Mcp.Tools` 迁域侧——web 学员抽屉曾跨 seam
+  反向依赖 mcp/tools 命名空间，归位后 MCP 工具与 web 投影同为消费方）。
 
-  三层授权的工具层(工具 `meta: %{membership: :deferred}` 声明、Wrapper 派生门控之后):
+  三层授权（MCP 面在工具 `meta: %{membership: :deferred}` 声明、Wrapper
+  派生门控之后；web 面由 `Courses.CourseProjection` 直接消费）：
 
   - workspace 成员(tutor/教研编辑/管理面);
   - 本人 confirmed enrollment(事件级参与者,非成员);
   - 本人学习 run 持有者(任意状态,含课程 close/cancel 后——「曾学过」读面,
     S8 起 `Runs.learning_run_holder?/3`(租户收紧,#349 A),替代已删除的 LearningRecord 记忆持有者层)。
 
-  `get_learning_state`(与 web 学员抽屉)共用完整判定;`get_course_content`
-  自 M4 起收紧为草稿读面 staff-only(`staff?/2`),不再是完整判定的消费面。
+  `get_learning_state` 与 web 学员抽屉（`CourseProjection.learning_detail/2`）
+  共用完整判定;`get_course_content` 自 M4 起收紧为草稿读面 staff-only
+  (`staff?/2`),不再是完整判定的消费面。
   """
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.{MembershipContext, Rbac}
   alias Cgc2046.Learning.Runs
 
   @doc """
@@ -52,12 +56,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   def confirmed_enrollment?(actor, workspace_id, course_id),
     do: Runs.confirmed_enrollment?(actor, workspace_id, course_id)
 
-  defp content_member?(actor, workspace_id) do
-    case MembershipContext.role_names(actor, workspace_id) do
-      roles when is_list(roles) -> Enum.any?(roles, &(Role.manage_role?(&1) or &1 == :tutor))
-      _ -> false
-    end
-  end
+  defp content_member?(actor, workspace_id), do: Rbac.staff?(actor, workspace_id)
 
   defp member?(actor, workspace_id),
     do: MembershipContext.membership_of(actor, workspace_id) != nil

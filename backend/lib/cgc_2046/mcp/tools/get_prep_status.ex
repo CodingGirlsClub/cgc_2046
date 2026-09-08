@@ -27,9 +27,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_prep_status", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
-        with {:ok, course} <- fetch_course(workspace_id, course_id),
+        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course, actor) do
           gate = Prep.gate(course)
           assignee_id = Prep.assignee(run)
@@ -49,18 +49,6 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
-  end
-
-  # tenant 收紧课程归属（他租户 course_id 与不存在同一「not found」）；
-  # authorize?: false——成员门槛已由 Wrapper member-only 门保证
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
-    end
   end
 
   # S6：惰性 ensure_active_run——run 已终态（发布后次周期）时懒开新 run

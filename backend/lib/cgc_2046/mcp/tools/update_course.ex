@@ -18,7 +18,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
@@ -52,10 +52,10 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "update_course", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(actor, workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id, actor: actor),
              {:ok, changes} <- collect_changes(params) do
           summary =
             "更新课程「#{course.title}」（#{course.id}）字段：" <>
@@ -84,7 +84,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
     workspace_id = params["workspace_id"]
     course_id = params["course_id"]
 
-    with {:ok, course} <- fetch_course(actor, workspace_id, course_id),
+    with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id, actor: actor),
          {:ok, changes} <- collect_changes(params) do
       attrs = Map.new(changes, fn {field, value} -> {String.to_existing_atom(field), value} end)
 
@@ -115,30 +115,10 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to update courses"}
-    end
-  end
-
-  # tenant 收紧课程归属（save_course_content 同款纪律）：他租户 course_id 与不存在
-  # 同一「not found」，不泄露存在性
-  defp fetch_course(actor, workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(actor: actor, tenant: workspace_id) do
-      {:ok, nil} ->
-        {:error, "course not found: #{course_id}"}
-
-      {:ok, course} ->
-        {:ok, course}
-
-      {:error, %Ash.Error.Forbidden{}} ->
-        {:error, "forbidden: not allowed to read course #{course_id}"}
-
-      {:error, _} ->
-        {:error, "failed to load course"}
     end
   end
 
@@ -147,10 +127,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
   defp collect_changes(params) do
     changes =
       Enum.flat_map(@updatable_fields, fn field ->
-        value =
-          if Map.has_key?(params, field),
-            do: params[field],
-            else: Map.get(params, String.to_existing_atom(field))
+        value = Map.get(params, field)
 
         case value do
           nil -> []

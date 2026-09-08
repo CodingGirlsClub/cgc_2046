@@ -24,12 +24,11 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
+  alias Cgc2046.AdminList
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Reconciliation.Finding
 
   require Ash.Query
-
-  @limit 50
 
   schema do
     field(:rule, :string, description: "按规则过滤（可选；如 open_entity_without_research_definition）")
@@ -41,9 +40,9 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_list_reconciliation_findings", fn actor, _ws, params ->
-        with {:ok, rule} <- parse_rule(params["rule"] || params[:rule]),
+        with {:ok, rule} <- parse_rule(params["rule"]),
              {:ok, workspace_id} <-
-               parse_workspace_id(params["workspace_id"] || params[:workspace_id]),
+               parse_workspace_id(params["workspace_id"]),
              {:ok, rows} <- read_findings(actor, rule, workspace_id) do
           {:ok, %{count: length(rows), findings: rows}}
         end
@@ -85,8 +84,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   defp read_findings(actor, rule, workspace_id) do
     Finding
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.sort(last_seen_at: :desc, id: :desc)
-    |> Ash.Query.limit(@limit)
+    |> AdminList.recent(:last_seen_at)
     |> filter_rule(rule)
     |> filter_workspace(workspace_id)
     |> Ash.read(actor: actor)

@@ -52,9 +52,9 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
 
     result =
       Wrapper.run(frame, log_params, "create_enrollment", fn actor, workspace_id, params ->
-        offering_id = params["offering_id"] || params[:offering_id]
+        offering_id = params["offering_id"]
 
-        with {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"] || params[:kind]) do
+        with {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"]) do
           do_create(actor, workspace_id, kind, offering_id, params, reason)
         end
       end)
@@ -63,12 +63,11 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
   end
 
   defp pop_reason(params) do
-    {Map.get(params, "reason") || Map.get(params, :reason),
-     params |> Map.delete("reason") |> Map.delete(:reason)}
+    {Map.get(params, "reason"), Map.delete(params, "reason")}
   end
 
   defp do_create(actor, workspace_id, kind, offering_id, params, reason) do
-    tier_id = params["tier_id"] || params[:tier_id]
+    tier_id = params["tier_id"]
     target_key = if kind == :event, do: :event_id, else: :course_id
 
     attrs =

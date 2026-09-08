@@ -16,7 +16,7 @@ defmodule Cgc2046.Mcp.Tools.RejectEnrollment do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
@@ -30,8 +30,8 @@ defmodule Cgc2046.Mcp.Tools.RejectEnrollment do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "reject_enrollment", fn actor, workspace_id, params ->
-        enrollment_id = params["enrollment_id"] || params[:enrollment_id]
-        reason = params["rejection_reason"] || params[:rejection_reason]
+        enrollment_id = params["enrollment_id"]
+        reason = params["rejection_reason"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, enrollment_id) do
@@ -78,6 +78,7 @@ defmodule Cgc2046.Mcp.Tools.RejectEnrollment do
              status: to_string(rejected.status),
              user_id: rejected.user_id,
              course_id: rejected.course_id,
+             event_id: rejected.event_id,
              rejection_reason: rejected.rejection_reason
            }}
 
@@ -96,7 +97,7 @@ defmodule Cgc2046.Mcp.Tools.RejectEnrollment do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to reject enrollments"}

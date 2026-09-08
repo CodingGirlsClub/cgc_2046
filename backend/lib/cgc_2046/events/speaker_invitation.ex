@@ -410,11 +410,40 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
   end
 
-  @doc "SHA256 哈希（hex，与 Invitation/Mcp.Token 同模式）"
+  @doc "SHA256 哈希（hex）——实现单源 `Accounts.TokenCredential.hash/1`（候选③收编）。"
   @spec hash_token(String.t()) :: String.t()
   def hash_token(token) when is_binary(token) and token != "" do
-    :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    {:ok, hash} = Cgc2046.Accounts.TokenCredential.hash(token)
+    hash
   end
+
+  @doc """
+  SpeakerInvitation 决策（accept/decline，2026-09-08 架构评审候选③自
+  GraphqlSchema 抽离）：token 即凭据——按 token_hash 定位邀请
+  （`Accounts.TokenCredential.fetch/2`；read policy 不适用：token 持有者
+  非成员），action 内复验 token 有效/未过期/未使用（统一错误，不防枚举）。
+
+  返回 `{:ok, invitation}` | `{:error, :unauthorized}`（actor 缺失）|
+  `{:error, :invalid_token}`（未命中，含已用/过期由 action 复验失败上抛的
+  update error 不在此列）| `{:error, update_error}`。payload 形状映射留在
+  GraphQL resolver（SDL adapter）。
+  """
+  @spec decide(term(), term(), :accept_invitation | :decline_invitation) ::
+          {:ok, __MODULE__.t()} | {:error, term()}
+  def decide(actor, token, action) do
+    with {:ok, actor} <- require_actor(actor),
+         {:ok, invitation} <- Cgc2046.Accounts.TokenCredential.fetch(__MODULE__, token) do
+      invitation
+      |> Ash.Changeset.for_update(action, %{token: token},
+        actor: actor,
+        tenant: invitation.workspace_id
+      )
+      |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+    end
+  end
+
+  defp require_actor(nil), do: {:error, :unauthorized}
+  defp require_actor(actor), do: {:ok, actor}
 
   @doc """
   Owner/Admin 重发 / 重新生成邀请链接（KD2/KD3）：重新生成 token——旧链接
@@ -753,9 +782,11 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   # - extra_where token_hash CAS：并发 resend（resend 不改 status，双方都满足
   #   status='invited'）时旧哈希复验使败者 not_claimed——否则败者拿到「成功」
   #   但邮件里的链接即刻作废（静默死信，review M1）；
-  # - 重发即续期：原子清空 expires_at（不设过期）。过期邀请若被拒绝重发，
-  #   会与「同邮箱未终态唯一索引挡住重邀」叠加成新死锁，违背 R6「一键自救」
-  #   （review HIGH）；清空后新链接即刻可用，新邮件不再携带死链。
+  # - 重发按需续期：原 expires_at 仍在未来 → 保留操作者设定；已过期 → 续期
+  #   now+7d（清空为 nil 会把「N 天有效」的过期意图静默变成永久能力链接，不取）。
+  #   过期邀请必须能被重发救活：若拒绝重发，会与「同邮箱未终态唯一索引挡住重邀」
+  #   叠加成新死锁，违背 R6「一键自救」（review HIGH）；续期后新链接即刻可用，
+  #   新邮件不再携带死链。
   # 输家（已决策/完成）统一 :not_invited（R6/AE7）。
   defp prepare_resend(changeset) do
     actor = changeset.context[:private][:actor]
@@ -771,22 +802,45 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       true ->
         now = DateTime.utc_now()
 
+        # 按需续期：原 expires_at 仍在未来 → :keep（保留操作者设定）；
+        # 已过期 → 续期 now+7d。不清空为 nil（会把「N 天有效」静默变永久链接）。
+        new_expires_at =
+          case changeset.data.expires_at do
+            %DateTime{} = exp ->
+              if DateTime.compare(exp, now) == :gt, do: :keep, else: DateTime.add(now, 7, :day)
+
+            nil ->
+              :keep
+          end
+
+        set =
+          [
+            token_hash: {:arg, :token_hash},
+            updated_at: {:arg, :now}
+          ] ++
+            case new_expires_at do
+              :keep -> []
+              %DateTime{} = renewed -> [expires_at: renewed]
+            end
+
         case ApprovalClaim.claim(changeset.data,
                table: :speaker_invitations,
                from: [:invited],
-               set: [
-                 token_hash: {:arg, :token_hash},
-                 expires_at: nil,
-                 updated_at: {:arg, :now}
-               ],
+               set: set,
                extra_where: {"token_hash = $1", [changeset.data.token_hash]},
                token_hash: token_hash,
                now: now
              ) do
           {:ok, _returned} ->
-            changeset
-            |> Ash.Changeset.force_change_attribute(:token_hash, token_hash)
-            |> Ash.Changeset.force_change_attribute(:expires_at, nil)
+            changeset = Ash.Changeset.force_change_attribute(changeset, :token_hash, token_hash)
+
+            case new_expires_at do
+              :keep ->
+                changeset
+
+              %DateTime{} = renewed ->
+                Ash.Changeset.force_change_attribute(changeset, :expires_at, renewed)
+            end
 
           {:error, :not_claimed} ->
             add_domain_error(changeset, :not_invited)

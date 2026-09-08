@@ -13,7 +13,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Payments.Order
 
@@ -28,7 +28,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_workspace_orders", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id) do
           # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计。
@@ -71,7 +71,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to list orders"}

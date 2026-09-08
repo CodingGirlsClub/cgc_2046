@@ -43,9 +43,9 @@ defmodule Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner do
       Wrapper.run(frame, params, "admin_reassign_workspace_owner", fn actor,
                                                                       _workspace_id,
                                                                       params ->
-        workspace_id = params["workspace_id"] || params[:workspace_id]
-        new_owner_user_id = params["new_owner_user_id"] || params[:new_owner_user_id]
-        new_owner_email = params["new_owner_email"] || params[:new_owner_email]
+        workspace_id = params["workspace_id"]
+        new_owner_user_id = params["new_owner_user_id"]
+        new_owner_email = params["new_owner_email"]
 
         with :ok <- validate_designation(new_owner_user_id, new_owner_email),
              {:ok, workspace} <- fetch_workspace(actor, workspace_id),

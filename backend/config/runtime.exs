@@ -156,8 +156,10 @@ if config_env() == :prod do
     xhs: %{
       appid: System.get_env("XHS_MP_APPID"),
       secret: System.get_env("XHS_MP_SECRET"),
-      qrcode_path: System.get_env("XHS_MP_QRCODE_PATH"),
-      notification_path: System.get_env("XHS_MP_NOTIFICATION_PATH")
+      # prod 分支整体覆盖 config.exs，无默认将致半配置被门禁拦截
+      # (client_gate_test.exs);兜底值与 config.exs dev 默认值一致。
+      qrcode_path: System.get_env("XHS_MP_QRCODE_PATH") || "/api/rmp/qrcode/unlimited",
+      notification_path: System.get_env("XHS_MP_NOTIFICATION_PATH") || "/api/rmp/subscribe/send"
     }
   }
 

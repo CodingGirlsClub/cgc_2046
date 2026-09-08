@@ -131,6 +131,7 @@
 
 - **定义**：平台自研的授权模型：角色（租户内 Role 实体）× 操作 × 资源；多角色取并集，命中任一角色即放行。
 - **架构位置**：MCP 调用 = 用户本人身份 + 网站 RBAC 强制（D6）。Agent 权限 = 用户权限，越权被拒。不采用编译期写死的 `ash_rbac`。
+- **工具层角色谓词单源（2026-09-08 架构评审候选①）**：MCP 工具 authorize 两族判定收编于 `Cgc2046.Accounts.Rbac`——`manage?(actor, workspace_id)`（owner/admin 并集）与 `staff?(actor, workspace_id)`（tutor ∪ 管理，课程教研工作面）。此前以私有函数散于 21 个工具文件靠注释互相指认；`Curriculum.Prep.manage?/2` 与 `Learning.Authorization.staff?/2`（候选③自 `Mcp.Tools.LearnerAuthorization` 迁域侧；web/MCP 两 seam 消费）保留 interface 改为委托。判定语义真源在 Rbac 不变，MembershipContext 仍为数据 seam。
 
 ### Agent 两层授权（取并集）
 
@@ -237,7 +238,7 @@
 - **私有教研增量（ADR-0012）**：公开四角色基础仍存模块常量；tutor 追加 release 内 `priv/playbooks/tutor.md`，仅开发可用 `CGC_PLAYBOOKS_DIR` 覆盖。tutor/owner/admin 可读取 tutor playbook，其他写权限与 tutor-only 教研入口不变。有效增量版本追加原始内容 SHA-256 前八位；生产镜像使用公开 SHA 与同一哈希标识。私有 PR 后需手动 Deploy；生产验收状态见运维《私有教研Playbook部署》。plan 020 导入 DB 时退役 checkout 与 deploy key。
 
 - **定义**：四角色（`platform_admin` / `workspace_admin` / `tutor` / `learner`）工作模式说明书——「如何经工具面完成角色职责」的版本化文本（role-agent-journeys-v2 S1，R2/R6）。载体 = `Cgc2046.Mcp.Playbooks` 模块常量 + 逐角色版本号（API `roles/0` / `fetch/1` / `version/1`）；分发通道 = MCP `get_role_playbook`（工具层四分支授权：learner 任何已认证用户 / tutor 与 workspace_admin 须持对应工作台角色 / platform_admin 须 `is_platform_admin` 全局标记）。**playbook 只组织用户已有能力**——面板隐藏、Agent 提示、本地缓存都不扩大网站 RBAC 权限（R6）。learner/tutor 两角色核心章节逐字吸收自已删除的 `Learning.AgentInstructions` / `Curriculum.AgentInstructions` 死代码模块。
-- **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。扩展 `system_prompt.md` 静态清单收缩为 7 个跨角色公共工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2 / 确认流 2），角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
+- **架构位置**：interface layer 资产，归 `mcp/`（playbook 是工具面使用说明书，非领域逻辑；Workflows 引擎域不持角色内容）；DB-backed Agent 资源落地（roadmap plan 020）时整体替换，不留兼容层。**架构评审裁决（2026-09-08）**：「内容即代码」中间态（prose 抽 `priv/playbooks/*.md` + 版本号改内容哈希派生）**跳过**——载体终局是 plan 020 整体 DB 化，中间态会被整体替换，编辑频率（~每月 2 次）不值一次弃置改造；若 playbook 编辑转高频（周级以上）再复议。扩展 `system_prompt.md` 静态清单收缩为 7 个跨角色公共工具（`list_my_workspaces` / `get_role_playbook` / `list_my_tasks` / 公开浏览 2 / 确认流 2），角色专属工具由 playbook 携带——「平台加工具必须手改扩展 system_prompt」的脆点收敛为 playbook 单点维护。
 
 ### MCP 工具集（MCP Tool Set）
 
@@ -245,7 +246,7 @@
   - **读 9**：`get_workspace_context` / `get_workflow` / `get_step_output` / `list_members` / `list_join_requests`（成员管理 #240）/ `get_course_content` / `get_learning_records`（后两个为切片 H #180 课程学习闭环，已实现）/ `list_public_offerings` / `get_public_offering`（公开浏览 #293，`membership: :public` 豁免家族：任何持连接 token 的登录用户，跨工作区匿名白名单口径，KTD2/KTD3）
   - **角色工作台基座 3（role-agent-journeys-v2 S1，R2/R3/R8）**：`list_my_workspaces`（actor 的工作台列表 + 各台角色并集 + `is_platform_admin`，按名排序，`workspace_id: :optional` 族——上下文选择器数据源，用户永不手填 UUID）/ `get_role_playbook`（按角色分发版本化 playbook，`optional+deferred` 双键，工具层四分支授权）/ `list_my_tasks`（member-only，PendingApprovals 聚合；课程教研任务行 S5 接入）
   - **平台治理族 10（role-agent-journeys-v2 S2，R12–R16；`workspace_id: :optional` + `membership: :platform_admin` 双键，`is_platform_admin` 全局标记专属，无工作台作用域）**：读 `admin_list_users` / `admin_list_workspaces` / `admin_list_workspace_applications` / `admin_list_audit_logs`（各封顶 50；审计面三源元数据投影，结构性不读 params/metadata 列）+ 确认流写 `admin_approve_workspace_application` / `admin_reject_workspace_application` / `admin_create_workspace`（Owner 二选一：现有用户入座 / pending-owner 预授权邀请，明文 token 仅 confirm 结果一次性返回）/ `admin_reassign_workspace_owner`（仅 pending-owner 期间）/ `admin_promote_user` / `admin_demote_user`（最后一名管理员不变量原文透传）——全部委托 accounts 域既有 action + LogAdminAction 留痕，与网站 /admin 后台同源同语义
-  - **工作台管理面 13（role-agent-journeys-v2 S3，R17–R19 + R21 前半；member-only 无 meta 声明 = fail-closed 默认 + 工具层 Owner/Admin 判定）**：课程生命周期 `create_course`（唯一直接写；零输入草稿合法——title 缺省生成临时占位标题并打 `provisional_title` 标记，R21/AE1）/ `update_course`（设置正式标题即清标记；`pricing_enabled` true→false 摘要含将批量免缴的待支付报名笔数，R9）/ `launch_course`（命名门：`provisional_title` 课程不能发布）/ `close_course` / `cancel_course`（终态不可逆，摘要含终态提示）+ 报名管理读 `list_course_enrollments` 与确认流 `confirm_enrollment` / `reject_enrollment` / `waive_payment`（免缴：报名 → confirmed + 关联 pending 订单同事务作废 + 逐笔留痕）+ 订单读 `list_workspace_orders` 与确认流 `refund_order` / `retry_refund`（委托 Payments 域既有退款 action + 异步 worker）+ 加入策略 `update_join_policy`——与 web 管理页同源同语义（同一批 domain action），他租户 id ≡ not found
+  - **工作台管理面 19（role-agent-journeys-v2 S3，R17–R19 + R21 前半；member-only 无 meta 声明 = fail-closed 默认 + 工具层 Owner/Admin 判定）**：课程生命周期 `create_course`（直接写；零输入草稿合法——title 缺省生成临时占位标题并打 `provisional_title` 标记，R21/AE1）/ `update_course`（设置正式标题即清标记；`pricing_enabled` true→false 摘要含将批量免缴的待支付报名笔数，R9）/ `launch_course`（命名门：`provisional_title` 课程不能发布）/ `close_course` / `cancel_course`（终态不可逆，摘要含终态提示）+ 活动生命周期 `create_event`（直接写，title 必填；`venue`/`sponsorship_*` 为活动独有概念）/ `update_event` / `launch_event` / `close_event` / `cancel_event`（镜像课程同款确认流与终态提示）+ 发现面 `list_workspace_courses`（#366 既有面，不入本面 19 计数）/ `list_workspace_events`（含报名状态徽章）+ 报名管理读 `list_enrollments`（`kind` 必填 event|course 分派）与确认流 `confirm_enrollment` / `reject_enrollment` / `waive_payment`（免缴：报名 → confirmed + 关联 pending 订单同事务作废 + 逐笔留痕）+ 订单读 `list_workspace_orders` 与确认流 `refund_order` / `retry_refund`（委托 Payments 域既有退款 action + 异步 worker）+ 加入策略 `update_join_policy`——与 web 管理页同源同语义（同一批 domain action），他租户 id ≡ not found
   - **写 3**：`save_step_output` / `save_learning_records` / `save_course_content`
   - **确认流 5**：`create_invitation` + `approve_join_request` / `assign_roles`（成员管理主循环——Owner/Admin「批加入 + 给角色」，#211 裁决 1/3 拍板、#240 实现为确认流 two-tool 写）+ 内置 `confirm_operation` / `cancel_operation`
   - **挂 Agent 资源 roadmap**（与 §4 AgentRun 重启条件同钩子）：`create_agent` / `create_workflow` / `get_agent_instruction`——上游实体/输入形状不存在，落地时机随 Agent 资源
@@ -352,6 +353,7 @@
 
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
+- **租户收紧读取端口（2026-09-08 架构评审候选①）**：MCP 工具层的课程存在性读取唯一入口 = `Course.fetch_scoped(workspace_id, course_id, opts \\ [])`（取代 18 份工具内私有 fetch_course 拷贝）。不变量 = 必带 `tenant:`（Course 全局资源，不带 tenant 全表读即跨租户越权面；他租户 id ≡ not found 不泄存在性）。两变体语义逐工具保真：默认 `authorize?: false`（授权已在工具层发生）；`actor: actor` 走授权读（lifecycle 工具原样，Forbidden 映 forbidden 文案）。错误字符串是 interface 的一部分。
 
 ### provisional_title（课程临时占位标题标记，Course-only）
 
@@ -414,7 +416,7 @@
 
 ### Learning（学习上下文）
 
-- **定义**：学员侧学习的限界上下文（ADR-0010 A3 归位；S8 起为 ADR-0011 Learning v2）：`Attempt`（不可变评价账本）+ `Mastery`/`NextAction`（派生投影纯函数族）+ `Runs`（run×revision 投影单源）+ `LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死；S8 起 key 含 revision、course 报名绑 `Course.current_revision_id` 进 input_snapshot）+ `RunProjection`（GraphQL myLearningRuns 行组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁；S8 切 objective 口径薄壳 `Runs.learning_state`）+ `LearningProgressWorker`（停滞扫描/完课判定，就地改逻辑不改名——Oban jobs.worker 字符串雷区）。`Learning.Progress` 与 `LearningRecord` 已随 S8 删除（issue/checklist 口径投影由 Mastery/Runs 取代）。
+- **定义**：学员侧学习的限界上下文（ADR-0010 A3 归位；S8 起为 ADR-0011 Learning v2）：`Attempt`（不可变评价账本）+ `Mastery`/`NextAction`（派生投影纯函数族）+ `Runs`（run×revision 投影单源；候选③起并持 `my_learning_runs/1`——myLearningRuns 的 enrollment→run→投影编排自 graphql_schema 抽离归此）+ `Authorization`（学员侧三层授权判定单源：成员 ∪ confirmed enrollment ∪ run 持有者；候选③自 `Mcp.Tools.LearnerAuthorization` 迁域侧，斩断 web→mcp/tools 反向 seam，MCP 工具与 web `Courses.CourseProjection` 同为消费面）+ `LearningInstantiator`（订阅 enrollment.completed 种 learning run；SignalSubscriber，consumer_key `learning_instantiator` 钉死；S8 起 key 含 revision、course 报名绑 `Course.current_revision_id` 进 input_snapshot）+ `RunProjection`（GraphQL myLearningRuns 行组装，⑥a 自 graphql_schema 抽离，#217 旁路读取锚链注释随迁；S8 切 objective 口径薄壳 `Runs.learning_state`）+ `LearningProgressWorker`（停滞扫描/完课判定，就地改逻辑不改名——Oban jobs.worker 字符串雷区）。`Learning.Progress` 与 `LearningRecord` 已随 S8 删除（issue/checklist 口径投影由 Mastery/Runs 取代）。web 课程读者投影四姿态（公开 course_map / 学员三层 learning_detail+content / staff draft）= `Courses.CourseProjection`（候选③同批自 graphql_schema 抽离，仿 RunProjection 先例）。
 - **架构位置**：独立 context（`learning/`）；消费 Curriculum 已发布内容（revision 经 `Curriculum.revision_by_id/2` 读契约），被 GraphQL/MCP 消费。
 
 ### Enrollment（报名 / 事件级参与者）

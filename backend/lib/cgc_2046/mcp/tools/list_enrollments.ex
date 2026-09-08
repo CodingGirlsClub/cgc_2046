@@ -1,15 +1,18 @@
-defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
+defmodule Cgc2046.Mcp.Tools.ListEnrollments do
   @moduledoc """
-  列出某课程的报名记录（role-agent-journeys-v2 S3，Owner/Admin 管理读工具）。
+  列出某活动/课程的报名记录（role-agent-journeys-v2 S3，Owner/Admin 管理读工具）。
+
+  `kind` 必填（event | course，复用 `LearnerJourney.parse_required_kind/1`），
+  `offering_id` 按 kind 分派 Event/Course 查询（tenant 收紧归属——他租户
+  offering_id 与不存在同一「not found」，不泄露存在性）。
 
   数据面同 web 管理页（`Admission.Enrollment` read policy：Owner/Admin 见本租户
   全部）。授权锚 = workspace：默认 fail-closed member 门之外，本工具层再做
-  Owner/Admin 判定（`Role.manage_role?/1`），非管理角色成员快速拒绝并落
-  ToolCallLog 审计。课程经 tenant 收紧归属——他租户 course_id 与不存在同一
-  「not found」。
+  Owner/Admin 判定（`Rbac.manage?/2` 单源），非管理角色成员快速拒绝并落
+  ToolCallLog 审计。
 
   返回紧凑行：enrollment_id / 报名人摘要（id/email/display_name）/ 状态 /
-  档位（收费报名的 tier_id 快照，可按课程当前 price_tiers 解析出名称与金额）/
+  档位（收费报名的 tier_id 快照，可按供给当前 price_tiers 解析出名称与金额）/
   approval_deadline / inserted_at。
 
   报名人摘要投影：User read policy 仅本人/平台管理员（ADR-0004），本工具不向
@@ -20,9 +23,11 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role, User}
+  alias Cgc2046.Accounts.{Rbac, User}
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
+  alias Cgc2046.Events.Event
+  alias Cgc2046.Mcp.Tools.LearnerJourney
   alias Cgc2046.Mcp.Wrapper
 
   require Ash.Query
@@ -31,7 +36,8 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
-    field(:course_id, {:required, :string}, description: "课程 ID（UUID）")
+    field(:kind, {:required, :string}, description: "供给类型：event | course")
+    field(:offering_id, {:required, :string}, description: "活动或课程 ID（UUID）")
 
     field(:status, :string,
       description: "按状态过滤（pending|payment_pending|confirmed|rejected|expired|cancelled；缺省 = 全部）"
@@ -41,17 +47,18 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
   @impl true
   def execute(params, frame) do
     result =
-      Wrapper.run(frame, params, "list_course_enrollments", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        status = params["status"] || params[:status]
+      Wrapper.run(frame, params, "list_enrollments", fn actor, workspace_id, params ->
+        offering_id = params["offering_id"]
+        status = params["status"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(actor, workspace_id, course_id),
+             {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"]),
+             {:ok, offering} <- fetch_offering(actor, workspace_id, kind, offering_id),
              {:ok, status} <- parse_status(status) do
           # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计
           query =
             Enrollment
-            |> Ash.Query.filter(course_id == ^course.id)
+            |> scope_offering(kind, offering.id)
             |> maybe_filter_status(status)
             |> Ash.Query.sort(inserted_at: :desc)
 
@@ -62,11 +69,12 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
               {:ok,
                %{
                  workspace_id: workspace_id,
-                 course_id: course.id,
-                 course_title: course.title,
+                 kind: to_string(kind),
+                 offering_id: offering.id,
+                 offering_title: offering.title,
                  status: status || "all",
                  count: length(enrollments),
-                 enrollments: Enum.map(enrollments, &to_row(&1, course, users))
+                 enrollments: Enum.map(enrollments, &to_row(&1, offering, users))
                }}
 
             {:error, %Ash.Error.Forbidden{}} ->
@@ -83,29 +91,32 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to list enrollments"}
     end
   end
 
-  # tenant 收紧课程归属：他租户 course_id 与不存在同一「not found」，不泄露存在性
-  defp fetch_course(actor, workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+  # tenant 收紧供给归属（kind 分派 Event/Course）：他租户 offering_id 与不存在
+  # 同一「not found」，不泄露存在性
+  defp fetch_offering(actor, workspace_id, kind, offering_id) do
+    resource = if kind == :event, do: Event, else: Course
+
+    case resource
+         |> Ash.Query.for_read(:get_by_id, %{id: offering_id})
          |> Ash.read_one(actor: actor, tenant: workspace_id) do
       {:ok, nil} ->
-        {:error, "course not found: #{course_id}"}
+        {:error, "#{kind} not found: #{offering_id}"}
 
-      {:ok, course} ->
-        {:ok, course}
+      {:ok, offering} ->
+        {:ok, offering}
 
       {:error, %Ash.Error.Forbidden{}} ->
-        {:error, "forbidden: not allowed to read course #{course_id}"}
+        {:error, "forbidden: not allowed to read #{kind} #{offering_id}"}
 
       {:error, _} ->
-        {:error, "failed to load course"}
+        {:error, "failed to load #{kind}"}
     end
   end
 
@@ -114,6 +125,13 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
 
   defp parse_status(_status),
     do: {:error, "invalid status (expected one of #{Enum.join(@statuses, "|")})"}
+
+  # filter 宏不接受任意控制流（if AST 不被识别）——kind 分支在宏外
+  defp scope_offering(query, :event, offering_id),
+    do: Ash.Query.filter(query, event_id == ^offering_id)
+
+  defp scope_offering(query, :course, offering_id),
+    do: Ash.Query.filter(query, course_id == ^offering_id)
 
   # 白名单校验后才 to_existing_atom（不污染 atom 表）
   defp maybe_filter_status(query, nil), do: query
@@ -132,7 +150,7 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
     |> Map.new(fn user -> {user.id, user} end)
   end
 
-  defp to_row(enrollment, course, users) do
+  defp to_row(enrollment, offering, users) do
     user = Map.get(users, enrollment.user_id)
 
     %{
@@ -143,21 +161,21 @@ defmodule Cgc2046.Mcp.Tools.ListCourseEnrollments do
         display_name: user && user.display_name
       },
       status: to_string(enrollment.status),
-      tier: tier_row(enrollment, course),
+      tier: tier_row(enrollment, offering),
       approval_deadline: enrollment.approval_deadline,
       inserted_at: enrollment.inserted_at
     }
   end
 
-  # 收费报名的档位快照（KTD9 报名时写入 submission_payload.tier_id）；按课程
+  # 收费报名的档位快照（KTD9 报名时写入 submission_payload.tier_id）；按供给
   # 当前 price_tiers 解析名称与金额（档位被删/改名时回退裸 tier_id）
-  defp tier_row(enrollment, course) do
+  defp tier_row(enrollment, offering) do
     case enrollment.submission_payload["tier_id"] do
       nil ->
         nil
 
       tier_id ->
-        tier = Enum.find(course.price_tiers || [], &(&1["id"] == tier_id))
+        tier = Enum.find(offering.price_tiers || [], &(&1["id"] == tier_id))
 
         case tier do
           nil ->
