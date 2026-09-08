@@ -16,7 +16,7 @@ require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
 require_relative "../api/handler"
 
 class HandlerRequestTest < Minitest::Test
-  TOKEN = "tok_test_secret_aaa"
+  TOKEN = "cgc_" + "a" * 43  # 平台生成器形态：'cgc_' + Base.url_encode64(32字节, padding:false) → 43 字符
   URL   = "http://localhost:4102/mcp"
 
   FakeReq = Struct.new(:body, :query, :header) do
@@ -127,6 +127,52 @@ class HandlerRequestTest < Minitest::Test
 
       assert_equal 422, halt.status
       assert_includes JSON.parse(halt.payload)["error"], "url"
+    end
+  end
+
+  # ---- connect 字符集校验（中危 #2：非法字符写进多 client 共享的 mcp.json →
+  #      所有 client 静默坏连接，status 仍报 token_configured:true）----
+
+  # token 形态断言：CRLF/空格/引号/无 cgc_ 前缀/裸 JWT → 422，零写盘，不回显输入
+  def test_connect_token_bad_charset_422_no_write
+    bad_tokens = {
+      "crlf"      => "cgc_ZzMarkCRLF\r\nX-Injected: 1",
+      "space"     => "cgc_ZzMarkSpace extra",
+      "quote"     => "cgc_ZzMarkQuote\"",
+      "no_prefix" => "ZzMarkNoPrefix" + "a" * 40,
+      "bare_jwt"  => "ZzMarkJWT#{"e" * 21}.#{"f" * 30}.#{"g" * 30}"
+    }
+
+    bad_tokens.each do |name, tok|
+      stub_fs(old_text: nil) do |persisted, restored|
+        halt = invoke(:post, "/connect", build(body: JSON.generate("token" => tok, "url" => URL)))
+
+        assert_equal 422, halt.status, "#{name}: 非法 token 必须在 connect_server 之前 422"
+        assert_empty persisted, "#{name}: 校验失败不得写盘"
+        assert_empty restored, "#{name}: 校验失败不得产生回滚写"
+        refute_includes halt.payload, "ZzMark", "#{name}: 错误响应不得回显输入值"
+      end
+    end
+  end
+
+  # url 解析校验：CRLF/userinfo/空白/无 host → 422，零写盘，不回显输入
+  def test_connect_url_bad_shape_422_no_write
+    bad_urls = {
+      "crlf"     => "http://localhost:4102/mcp\r\nX-ZzMarkInjected: 1",
+      "userinfo" => "http://ZzMarkEvil@127.0.0.1/mcp",
+      "space"    => "http://ZzMark Space.example/mcp",
+      "no_host"  => "http:///ZzMarkPath"
+    }
+
+    bad_urls.each do |name, bad_url|
+      stub_fs(old_text: nil) do |persisted, restored|
+        halt = invoke(:post, "/connect", build(body: JSON.generate("token" => TOKEN, "url" => bad_url)))
+
+        assert_equal 422, halt.status, "#{name}: 非法 url 必须在 connect_server 之前 422"
+        assert_empty persisted, "#{name}: 校验失败不得写盘"
+        assert_empty restored, "#{name}: 校验失败不得产生回滚写"
+        refute_includes halt.payload, "ZzMark", "#{name}: 错误响应不得回显输入值"
+      end
     end
   end
 
