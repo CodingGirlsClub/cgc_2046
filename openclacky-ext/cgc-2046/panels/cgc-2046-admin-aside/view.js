@@ -289,7 +289,7 @@
   function enrollPrompt(kind, offeringId, row) {
     const offering = offeringById(offeringId) || {};
     const who = oneLine((row.user && (row.user.display_name || row.user.email)) || "该报名人");
-    return "请处理" + (KIND_LABEL[kind] || "供给") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
+    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
       "（list_enrollments kind=" + kind + " offering_id=" + offeringId +
       " 确认详情后，按确认流处理，enrollment_id=" + row.enrollment_id + "）。";
   }
@@ -432,9 +432,9 @@
   // 任一源失败不拖死另一源;双源皆败才整体报错)
   function renderSupplySection() {
     const total = state.courses.length + state.events.length;
-    let html = '<div class="cgaa-sec-label">供给(' + total + ')</div>';
+    let html = '<div class="cgaa-sec-label">课程与活动(' + total + ')</div>';
     if (state.coursesError && state.eventsError) {
-      return html + '<div class="cgaa-empty">供给加载失败。</div>';
+      return html + '<div class="cgaa-empty">课程与活动加载失败。</div>';
     }
     if (total === 0 && !state.coursesError && !state.eventsError) {
       return html + '<div class="cgaa-empty">当前工作台暂无课程或活动。</div>';
@@ -521,7 +521,7 @@
   }
 
   const ACTION_GROUPS = [
-    { label: "供给", actions: [
+    { label: "课程与活动", actions: [
       { key: "create-course", label: "+ 创建课程" },
       { key: "create-event", label: "+ 创建活动" }
     ]},
