@@ -9,7 +9,7 @@
 - [ ] 小红书：执行 `pnpm build:xhs` 后，开发者工具导入 `dist/xhs/`；不要使用微信 `project.config.json`。
 - [ ] 手机与开发机可访问 4001（或将 `CGC_GRAPHQL_ENDPOINT` 设为已配置合法域名的测试后端）
 - [ ] 后端已配置抖音/小红书 appid/secret；平台后台把 GraphQL 域名加入 request 合法域名
-- [ ] 抖音订阅消息模板 ID 配 `CGC_DOUYIN_TEMPLATE_APPROVAL_RESULT` / `CGC_DOUYIN_TEMPLATE_EVENT_REMINDER`；小红书走服务通知——前端无授权弹窗，**无需前端模板 ID**；但后端服务通知仍需配置 `XHS_MP_TEMPLATE_*`（10 键，`fetch_env!` 缺一 boot 失败）
+- [ ] 抖音订阅消息模板 ID 配 `CGC_DOUYIN_TEMPLATE_APPROVAL_RESULT` / `CGC_DOUYIN_TEMPLATE_EVENT_REMINDER`；小红书走服务通知——前端无授权弹窗，**无需前端模板 ID**；但后端服务通知仍需配置 `XHS_MP_TEMPLATE_*`（13 键，与 `backend/config/runtime.exs` xhs registry 一一对应；缺键发送侧 `template_not_configured` 静默跳过，boot 不受影响）
 
 ## 裁剪 IA（构建证据：dist/tt、dist/xhs 的 app.json）
 
@@ -55,6 +55,9 @@
 
 ## 已知缺口（待 backend/平台契约，非本端可解）
 
-- [ ] 抖音 phoneCode 契约已落地（`get_phone_number` code 换号，前端 weapp/tt 同 gate 发送）；**待真机确认**：若线上 `data.phone_number` 为匿名手机号方案密文，需在抖音后台配置应用公私钥并补 RSA 解密（当前后端返回 `phone_number_encrypted` 拒绝并记脱敏日志）；小红书 `code` 契约仍待定
+- [ ] 抖音 phoneCode 契约已落地（`get_phone_number` code 换号，前端 weapp/tt 同 gate 发送）；**待真机确认**：若线上 `data.phone_number` 为匿名手机号方案密文，需在抖音后台配置应用公私钥并补 RSA 解密（当前后端返回 `phone_number_encrypted` 拒绝并记脱敏日志）；小红书契约已定（legacy `encryptedData/iv` 解密路径，`phone_code_unsupported` 为预期拒绝），待定项收敛为下方 Q1/Q4/Q5
+- [ ] Q1（真机裁决）：小红书官方《开放数据校验与解密》写「AES-128-CBC」却注「AESKey 24 字节」（24 字节对应 AES-192，自相矛盾）；后端 `decrypt_phone` 按 AES-128-CBC 实现（微信同构），首次登录若解密失败以官方 Java 示例为裁决依据修订后端算法
+- [ ] Q4（真机观察）：Taro `@tarojs/plugin-platform-xhs` 1.2.2 的 `getPhoneNumber` 回调透传行为（旧版 ≤0.0.4 有回调丢失 bug，0.0.7 修复；1.2.2 属 Taro 4 版本线，预期已含修复）；登录按钮回调不触发时先查插件事件透传，不怀疑业务代码
+- [ ] Q5（真机裁决）：小红书 token 交换（code2session）请求参数与响应形状系社区样本假设、无官方文档（`backend/lib/cgc_2046/integrations/wechat/client.ex` 注释挂账）；真机首调若在 token 交换即失败，以官方渠道核实后调整
 - [ ] 小红书服务通知的授权交互与下发语义（平台文档 + 真机确认后回写）
 - [ ] 抖音/小红书模板 ID 申请与运维归属（§9 Q3 human 项）
