@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { fetchReconciliationFindings } from "@/lib/admin";
+import { formatDateTime } from "@/lib/format";
 import {
 	RECONCILIATION_ENTITY_LABEL,
 	RECONCILIATION_RULE_LABEL,
@@ -123,8 +124,8 @@ export default function AdminReconciliationPage() {
 									</td>
 									<td className="l-mono">{row.entityId}</td>
 									<td className="l-mono">{row.workspaceId ?? "—"}</td>
-									<td>{new Date(row.firstSeenAt).toLocaleString("zh-CN")}</td>
-									<td>{new Date(row.lastSeenAt).toLocaleString("zh-CN")}</td>
+									<td>{formatDateTime(row.firstSeenAt)}</td>
+									<td>{formatDateTime(row.lastSeenAt)}</td>
 								</tr>
 							))}
 						</tbody>

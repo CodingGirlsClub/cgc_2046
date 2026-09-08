@@ -97,6 +97,10 @@ function friendlyOfferingError(
   if (/failed: status changed concurrently/.test(raw)) {
     return "saveConcurrentError";
   }
+  // slug 撞全局唯一索引(#447 identity 化后的字段级错误)→ 可操作指引
+  if (/already been taken/.test(raw)) {
+    return "saveSlugTaken";
+  }
   return fallback;
 }
 
