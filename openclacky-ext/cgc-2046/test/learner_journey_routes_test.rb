@@ -757,6 +757,40 @@ class CurriculumEditorRoundtripTest < Minitest::Test
   end
 end
 
+# ---- 安全评审中危 #1:UGC 字段 prompt-injection 中和(Node harness 行为证据) ----
+
+class PanelUgcInjectionNeutralizationTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  LEARN_VIEW = File.expand_path("../panels/cgc-learn/view.js", __dir__)
+  ADMIN_ASIDE_VIEW = File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__)
+
+  def test_learn_instruction_neutralizes_malicious_ugc
+    # 含换行的课程/目标标题(伪造多行指令)→ 注入文本折单行且带 DATA_NOTE;
+    # 非法 objective_id(空格/换行/中文)→ 该参数不下发,原文不出现
+    out, status = Open3.capture2e("node", HARNESS, LEARN_VIEW, "learn_ugc_injection")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK learn_ugc_injection"
+    assert_includes out, '"course_title_folded":true'
+    assert_includes out, '"objective_title_folded":true'
+    assert_includes out, '"no_forged_instruction_line":true'
+    assert_includes out, '"valid_objective_id_kept":true'
+    assert_includes out, '"data_note_appended":true'
+    assert_includes out, '"invalid_id_param_dropped":true'
+    assert_includes out, '"invalid_id_raw_absent":true'
+  end
+
+  def test_admin_aside_instruction_neutralizes_malicious_ugc
+    # 恶意待办标题/未知 kind 折行,非法 order_id 不下发,全部带 DATA_NOTE
+    out, status = Open3.capture2e("node", HARNESS, ADMIN_ASIDE_VIEW, "admin_aside_ugc")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK admin_aside_ugc"
+    assert_includes out, '"task_title_folded":true'
+    assert_includes out, '"unknown_kind_folded":true'
+    assert_includes out, '"bad_order_id_dropped":true'
+    assert_includes out, '"order_prompt_intact":true'
+  end
+end
+
 # ---- advisor F2:loopback 请求来源收口(Origin 同源 / 写路由 Content-Type + CSRF) ----
 
 class CsrfGuardTest < Minitest::Test
