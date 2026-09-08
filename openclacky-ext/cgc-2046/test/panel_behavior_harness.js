@@ -295,13 +295,32 @@ function makeEl(tag) {
       }
       return node._rowOps.btns[sel];
     }
+    // 通用 [data-x] 属性选择器 fallback(admin-aside 待办行/动作钮/深链钮):
+    // 同按 html 快照缓存;匹配整个标签并提取全部 data-* 属性(兄弟属性如
+    // data-enroll-idx 与选择器属性共存,bind handler 按属性组合取数)
+    const gm = /^\[(data-[a-z-]+)\]$/.exec(sel);
+    if (gm) {
+      if (!node._dataBtns || node._dataBtns.html !== html) node._dataBtns = { html: html, btns: {} };
+      if (!node._dataBtns.btns[sel]) {
+        const re = new RegExp('<[^>]*' + gm[1] + '="[^"]*"[^>]*>', "g");
+        const out = []; let m;
+        while ((m = re.exec(html))) {
+          const b = makeEl("button");
+          const attrRe = /(data-[a-z-]+)="([^"]*)"/g; let am;
+          while ((am = attrRe.exec(m[0]))) b.dataset[am[1]] = am[2];
+          out.push(b);
+        }
+        node._dataBtns.btns[sel] = out;
+      }
+      return node._dataBtns.btns[sel];
+    }
     return [];
   };
   return node;
 }
 function el(tag) { return makeEl(tag); }
 
-const calls = { fetches: [] };
+const calls = { fetches: [], urls: [] };
 const RESPONDERS = {
   "/api/ext/cgc-2046/learning_state?workspace_id=": null, // 占位说明:实际匹配按 path 前缀在 fetch stub 内处理
   "/api/ext/cgc-2046/me/workspaces": () => ({
@@ -327,6 +346,11 @@ const RESPONDERS = {
 };
 
 globalThis.window = globalThis;
+// admin-aside 注入路径 stub:宿主输入框缺席时 injectIntoComposer 走 window.prompt
+// fallback——harness 不 stub 输入框,断言等价物 __prompted 文案
+globalThis.prompt = (label, text) => { globalThis.__prompted = String(text == null ? "" : text); };
+// 深链打开捕获
+globalThis.open = (url) => { (globalThis.__opened = globalThis.__opened || []).push(String(url)); };
 globalThis.document = {
   hidden: false,
   addEventListener() {},
@@ -347,7 +371,65 @@ globalThis.localStorage = {
 globalThis.fetch = async (url, opts) => {
   const path = String(url).split("?")[0];
   calls.fetches.push(path);
+  calls.urls.push(String(url));   // 完整 url(P3 断言 query 里的 kind 分派)
 
+  // admin_aside 场景:一个 owner 台(编程少女台/acme) + 一个 member-only 台(应被
+  // ADMIN_ROLES 过滤);待办含报名审批/加入申请两行;status 透传 web_url(深链基址)
+  if (scenario === "admin_aside") {
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
+        { workspace_id: "ws-a1", name: "编程少女台", slug: "acme", roles: ["owner"] },
+        { workspace_id: "ws-b2", name: "普通成员台", slug: "plain", roles: ["member"] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/tasks") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { tasks: [
+        { kind: "enrollment_approval", context_title: "Python 入门营", requester_name: "小安" },
+        { kind: "join_request", requester_name: "阿珍" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/status") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, configured: true, web_url: "https://codingirlsclub.com" }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/courses") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { courses: [
+        { course_id: "c-1", title: "Python 入门", status: "draft", prep_state: "review" },
+        { course_id: "c-2", title: "数据科学营", status: "open", prep_state: null },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/events") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { count: 1, events: [
+        { event_id: "ev-1", title: "线下沙龙", status: "open", enrollment_badge: "enrolling", slug: "salon-1" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/enrollments") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+        count: 2, offering_title: "Python 入门",
+        enrollments: [
+          { enrollment_id: "e-1", user: { id: "u1", email: "an@x.com", display_name: "小安" },
+            status: "pending", tier: { id: "t1", name: "标准档", amount_cents: 19900 } },
+          { enrollment_id: "e-2", user: { id: "u2", email: "zhen@x.com", display_name: "阿珍" },
+            status: "confirmed", tier: null },
+        ],
+      } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/orders") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+        count: 3, more: false,
+        orders: [
+          { order_id: "o-1", status: "paid", amount_cents: 19900, tier_name: "标准档",
+            enrollment: { enrollment_id: "e-9", learner_email: "a@x.com", enrollment_status: "confirmed" },
+            offering: { course_id: "c-2", event_id: null }, provider: "alipay" },
+          { order_id: "o-2", status: "refund_failed", amount_cents: 9900, tier_name: "早鸟",
+            enrollment: { enrollment_id: "e-8", learner_email: "b@x.com", enrollment_status: "cancelled" },
+            offering: { course_id: "c-1", event_id: null }, provider: "alipay" },
+          { order_id: "o-3", status: "pending", amount_cents: 5000, tier_name: "标准档",
+            enrollment: { enrollment_id: "e-7", learner_email: "c@x.com", enrollment_status: "payment_pending" },
+            offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
+        ],
+      } }) };
+    }
+  }
   // 编辑器场景(editor_delimiter_roundtrip / editor_remove_row_with_empty /
   // editor_remove_chapter_clears_refs):tutor 台 + 一门课 + 场景草稿;POST 捕获 body
   if (scenario === "editor_delimiter_roundtrip" || scenario === "editor_remove_row_with_empty" ||
@@ -409,8 +491,14 @@ globalThis.Clacky = {
     pure: false,
     ui: {
       registerWorkspace(id, spec) { globalThis.__registered = { id, spec }; },
-      mount() {},
+      // admin-aside 等 session.aside 面板:捕获 mount 回调与 opts,场景段手动驱动
+      mount(slot, cb, opts) { globalThis.__mounted = { slot, cb, opts }; },
       openWorkspace() {},
+    },
+    // 事件订阅捕获(ext.cgc-2046.tool_used / mcp_error):场景段手动触发
+    subscribe(event, fn) {
+      globalThis.__subs = globalThis.__subs || {};
+      (globalThis.__subs[event] = globalThis.__subs[event] || []).push(fn);
     },
   },
 };
@@ -420,8 +508,9 @@ require(require("path").resolve(viewPath));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
+  // session.aside 面板(admin-aside)走 mount 捕获,不经 registerWorkspace
   const { spec } = globalThis.__registered || {};
-  if (!spec || typeof spec.render !== "function") {
+  if (scenario !== "admin_aside" && (!spec || typeof spec.render !== "function")) {
     console.error("FAIL: registerWorkspace 未捕获 render");
     process.exit(1);
   }
@@ -603,6 +692,133 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + html.slice(0, 1200));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // admin_aside(P0):session.aside 挂载 + 待办行可点注入 + 动作分组注入 +
+  // web 深链 + tool_used 事件驱动刷新(debounce 后 /tasks 重拉)
+  if (scenario === "admin_aside") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    if (mounted.slot !== "session.aside") { console.error("FAIL: slot ≠ session.aside"); process.exit(1); }
+
+    // agentProfile 不匹配不渲染(attach cgc-admin 纪律)
+    const stray = el("div");
+    mounted.cb(stray, { agentProfile: "cgc-tutor", sessionId: "s-x" });
+
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-admin", sessionId: "s1" });
+    await sleep(50);   // boot:workspaces → tasks + status
+
+    // 查询锚在面板根(container.children[0] = view.js 的 root)——bind 绑定的
+    // listener 缓存在同一节点的 html 快照上,从容器层查询拿到的是另一批节点
+    const panel = container.children[0];
+    const html = container.innerHTML;
+    const taskRows = panel.querySelectorAll("[data-task-idx]");
+    const actions = panel.querySelectorAll("[data-action]");
+    const links = panel.querySelectorAll("[data-link-url]");
+
+
+    // 点击第一行待办(报名审批) → prompt fallback 注入处理指令
+    ((taskRows[0] && taskRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const taskInject = globalThis.__prompted || "";
+    // 点击「加入申请」动作钮 → 注入
+    const joinBtn = actions.filter(function (b) { return b.getAttribute("data-action") === "join-requests"; })[0];
+    ((joinBtn && joinBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const actionInject = globalThis.__prompted || "";
+    // 点击首个深链(成员) → window.open
+    ((links[0] && links[0].listeners.click) || []).forEach(function (fn) { fn(); });
+
+    // 事件驱动刷新:ok 事件 debounce 后重拉 /tasks;error 事件不触发
+    const tasksFetches = function () {
+      return calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/tasks"; }).length;
+    };
+    const beforeOk = tasksFetches();
+    (globalThis.__subs["ext.cgc-2046.tool_used"] || []).forEach(function (fn) { fn({ status: "error" }); });
+    await sleep(500);
+    const afterError = tasksFetches();
+    (globalThis.__subs["ext.cgc-2046.tool_used"] || []).forEach(function (fn) { fn({ status: "ok" }); });
+    await sleep(500);  // debounce 400ms
+    const afterOk = tasksFetches();
+
+    // P3:供给区统一投影(课程+活动,kind 徽章;draft 课叠教研徽章,open 活动叠报名徽章)
+    const supplyOk = html.includes("供给（3）") &&
+      html.includes("Python 入门") && html.includes("数据科学营") && html.includes("线下沙龙") &&
+      html.includes("草稿") && html.includes("待审核") && html.includes("报名中") &&
+      html.includes(">课程</span>") && html.includes(">活动</span>");
+    // P1:订单区非终态优先(refund_failed 首行)
+    const ordersOk = html.indexOf("退款失败") >= 0 &&
+      html.indexOf("退款失败") < html.indexOf("待支付") &&
+      html.indexOf("待支付") < html.indexOf("已支付") &&
+      html.includes("¥99.00");
+    // P1:课程行点击展开报名队列(懒加载 /workspace/enrollments)
+    const offeringBtns = panel.querySelectorAll("[data-offering-id]");
+    const c1 = offeringBtns.filter(function (b) { return b.getAttribute("data-offering-id") === "c-1"; })[0];
+    ((c1 && c1.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+    const html2 = container.innerHTML;
+    const enrollFetched = calls.fetches.includes("/api/ext/cgc-2046/workspace/enrollments");
+    const courseKindFetch = calls.urls.some(function (u) {
+      return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=course") >= 0;
+    });
+    // P1:可行动报名行(pending)点击 → 注入含 list_enrollments + enrollment_id
+    const enrollRows = panel.querySelectorAll("[data-enroll-offering]");
+    ((enrollRows[0] && enrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const enrollInject = globalThis.__prompted || "";
+    // P3:活动行点击下钻(kind=event 分派);活动报名行注入带 event 语义
+    const ev1 = panel.querySelectorAll("[data-offering-id]")
+      .filter(function (b) { return b.getAttribute("data-offering-id") === "ev-1"; })[0];
+    ((ev1 && ev1.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+    const eventKindFetch = calls.urls.some(function (u) {
+      return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=event") >= 0;
+    });
+    const evEnrollRows = panel.querySelectorAll("[data-enroll-offering]")
+      .filter(function (b) { return b.getAttribute("data-enroll-kind") === "event"; });
+    ((evEnrollRows[0] && evEnrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const evEnrollInject = globalThis.__prompted || "";
+    // P3:创建活动动作注入
+    const eventBtn = panel.querySelectorAll("[data-action]")
+      .filter(function (b) { return b.getAttribute("data-action") === "create-event"; })[0];
+    ((eventBtn && eventBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const eventInject = globalThis.__prompted || "";
+    // P1:订单首行(refund_failed o-2)点击 → 注入查看指令
+    const orderRows = panel.querySelectorAll("[data-order-idx]");
+    ((orderRows[0] && orderRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const orderInject = globalThis.__prompted || "";
+    const checks = {
+      wrong_agent_not_rendered: stray.innerHTML === "",
+
+      admin_workspace_rendered: html.includes("编程少女台"),
+      member_only_filtered: !html.includes("普通成员台"),
+      task_rows_clickable: taskRows.length === 2,
+      task_row_injects_prompt: taskInject.includes("报名审批") && taskInject.includes("Python 入门营") &&
+        taskInject.includes("[编程少女台]") && taskInject.includes("list_my_tasks"),
+      action_group_injects: actionInject.includes("待审批加入申请"),
+      deeplinks_rendered: links.length === 8 &&
+        (links[0].getAttribute("data-link-url") || "").includes("/w/acme/settings/members"),
+      deeplink_opens: (globalThis.__opened || []).some(function (u) { return u.indexOf("/w/acme/settings/members") >= 0; }),
+      error_event_no_refresh: afterError === beforeOk,
+      supply_section_rendered: supplyOk,
+      orders_attention_sorted: ordersOk,
+      course_drilldown_fetches_enrollments: enrollFetched && html2.includes("小安") && html2.includes("待审批"),
+      course_drilldown_kind: courseKindFetch,
+      event_drilldown_kind: eventKindFetch,
+      event_enroll_injects: evEnrollInject.includes("活动") && evEnrollInject.includes("kind=event"),
+      create_event_action_injects: eventInject.includes("创建一场新活动"),
+      pending_enroll_injects: enrollInject.includes("list_enrollments") && enrollInject.includes("e-1"),
+      order_row_injects: orderInject.includes("o-2"),
+      ok_event_refreshes: afterOk > afterError,
+    };
+
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 1000));
+      console.error("prompted: " + taskInject);
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
