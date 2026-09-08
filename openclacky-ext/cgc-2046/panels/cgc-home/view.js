@@ -246,7 +246,7 @@
       specs.push({ key: "tutor", ic: "edit", title: "教研工作台",
         desc: "课程草稿编辑与教研流程", action: "workspace", target: TEACH_ID });
     }
-    if (isPlatformAdmin) {
+    if (isPlatformAdmin && webUrl) {
       specs.push({ key: "admin", ic: "shield", title: "平台管理",
         desc: "网站管理端(成员/工作台)", action: "web" });
     }
@@ -764,7 +764,9 @@
 
     configured = !!st.configured;
     Kit.csrfFromStatus(st);
-    webUrl = st.web_url || "";
+    // scheme 门(安全评审低危#4):非法 scheme ≡ 未配置——下游(打开网站锚/管理
+    // 深链/平台管理卡)全部走既有"隐藏"降级;合法 localhost http 联调放行
+    webUrl = Kit.safeWebUrl(st.web_url) || "";
 
     setPill(configured ? "MCP 已连接" : "未连接", configured ? "cgch-pill-on" : "cgch-pill-off");
     // 原 workspace 面板状态卡信息(端点/Token)透出到副标题,重构不再丢失
@@ -781,8 +783,8 @@
     discEl.className = "cgch-btn " + (configured ? "cgch-btn-danger" : "");
     discEl.disabled = false;
     discEl.dataset.mode = configured ? "disconnect" : "connect";
-    if (st.web_url) {
-      webEl.href = st.web_url;
+    if (webUrl) {
+      webEl.href = webUrl;
       webEl.style.display = "";
     } else {
       webEl.style.display = "none";

@@ -997,8 +997,9 @@ class DiscoveryPanelV2Test < Minitest::Test
     assert_includes VIEW, 'data-testid="panel-pay-link"'
     assert_includes VIEW, 'target="_blank"'
     assert_includes VIEW, 'rel="noopener noreferrer"'
-    assert_includes VIEW, '/^https?:\/\//'
-    assert_includes VIEW, 'window.open(result.checkout_url, "_blank", "noopener")'
+    # 安全评审低危#4:scheme 门归一 Kit.safeWebUrl(https 或 loopback http)
+    assert_includes VIEW, "Kit.safeWebUrl"
+    assert_includes VIEW, 'window.open(safeCheckout, "_blank", "noopener")'
   end
 
   def test_detail_link_and_refresh_kept
@@ -1058,5 +1059,68 @@ class CoursePanelEnrollmentListTest < Minitest::Test
     assert_includes VIEW, "learningSignature"
     assert_includes VIEW, "goLearnObjective"
     refute_includes VIEW, '"/records"'
+  end
+end
+
+# ---- 安全评审低危#4:web_url/checkout_url scheme 门(harness 三场景驱动 + 静态锚) ----
+
+class WebUrlSchemeGateTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  SHARED_VIEW = File.expand_path("../panels/shared/view.js", __dir__)
+  HOME_VIEW = File.expand_path("../panels/cgc-home/view.js", __dir__)
+  DISCOVERY_VIEW = File.expand_path("../panels/cgc-discovery/view.js", __dir__)
+  ADMIN_ASIDE_VIEW = File.read(File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__))
+
+  def run_harness(view, scenario)
+    out, status = Open3.capture2e("node", HARNESS, view, scenario)
+    assert status.success?, "harness 失败: #{out}"
+    out
+  end
+
+  def assert_all_checks(out, keys)
+    keys.each { |k| assert_includes out, "\"#{k}\":true" }
+  end
+
+  def test_kit_safe_url_truth_table
+    # 纯谓词真值表:https 任意 host;http 仅 loopback;javascript:/data:/file:/
+    # 相对路径/无协议/非字符串一律 null;tab 走私按浏览器实际行为拒
+    out = run_harness(SHARED_VIEW, "kit_safe_url")
+    assert_all_checks(out, [
+      "helper_exported", "https_ok", "https_uppercase_ok", "localhost_http_ok",
+      "loopback_ip_http_ok", "ipv6_loopback_http_ok", "plain_http_rejected",
+      "lan_ip_http_rejected", "localhost_subdomain_rejected", "javascript_rejected",
+      "javascript_comment_smuggle_rejected", "tab_smuggle_javascript_rejected",
+      "data_rejected", "file_rejected", "relative_rejected", "protocol_less_rejected",
+      "non_string_rejected",
+    ])
+  end
+
+  def test_home_panel_gates_web_url_sinks
+    # 行为证据:javascript: web_url → 打开网站锚隐藏/管理深链不渲染/平台管理卡
+    # 不渲染(非法 ≡ 未配置);http://localhost:3000(README 联调形态)→ 全部放行,
+    # 平台管理卡点击 window.open localhost
+    out = run_harness(HOME_VIEW, "home_weburl_gate")
+    assert_all_checks(out, [
+      "bad_scheme_anchor_hidden", "bad_scheme_manage_hidden", "platform_admin_card_hidden",
+      "localhost_anchor_shown", "localhost_manage_link", "platform_admin_card_shown",
+      "admin_card_opens_localhost",
+    ])
+  end
+
+  def test_discovery_panel_gates_detail_and_escapes_href
+    # 行为证据:javascript: web_url → 条目标题退化纯文本(无锚);合法 https 但含
+    # 引号 → href 必须转义(属性逃逸),详情路径 /events/<slug> 正确
+    out = run_harness(DISCOVERY_VIEW, "discovery_weburl_gate")
+    assert_all_checks(out, [
+      "bad_scheme_no_anchor", "title_degrades_plain", "detail_anchor_rendered",
+      "attr_breakout_escaped", "detail_url_correct",
+    ])
+  end
+
+  def test_admin_aside_deep_link_gate_unified
+    # 口径归一:深链 click 门从 /^https?:\/\// 收紧为 Kit.safeWebUrl
+    # (admin_aside harness 场景的 https 深链路径回归由既有场景覆盖)
+    assert_includes ADMIN_ASIDE_VIEW, "Kit.safeWebUrl"
+    refute_includes ADMIN_ASIDE_VIEW, "/^https?:\/\//"
   end
 end

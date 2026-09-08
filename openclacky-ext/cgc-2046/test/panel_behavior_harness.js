@@ -583,6 +583,46 @@ globalThis.fetch = async (url, opts) => {
       path.startsWith("/api/ext/cgc-2046/courses/") && path.endsWith("/revision")) {
     return { ok: true, status: 200, json: async () => ({ ok: true, result: TYPED_REVISION }) };
   }
+  // web_url scheme 门(安全评审低危#4):home/discovery 两阶段 status(计数器切响应)——
+  // #1 javascript: 走私(无门旧代码必败),#2 合法形态(home=README 联调 localhost http;
+  // discovery=https 但带引号,过门后考 href 属性转义)
+  if (scenario === "home_weburl_gate") {
+    if (path === "/api/ext/cgc-2046/status") {
+      globalThis.__statusCount = (globalThis.__statusCount || 0) + 1;
+      return { ok: true, status: 200, json: async () => (globalThis.__statusCount === 1
+        ? { ok: true, configured: true, web_url: "javascript:alert(1)//https://codingirlsclub.com", csrf_token: "tok-1" }
+        : { ok: true, configured: true, web_url: "http://localhost:3000", csrf_token: "tok-1" }) };
+    }
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { is_platform_admin: true, workspaces: [
+        { workspace_id: "ws-g1", name: "门测台", slug: "gate", roles: ["owner"] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/tasks") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { tasks: [] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/activity") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, activity: [] }) };
+    }
+    if (path === "/api/sessions") {
+      return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+    }
+  }
+  if (scenario === "discovery_weburl_gate") {
+    if (path === "/api/ext/cgc-2046/discover") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { offerings: [
+        { id: "ev-g1", slug: "salon-gate", title: "门测沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-g1", name: "门测台" }, pricing: { enabled: false },
+          registration_deadline: null, my_enrollment: null },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/status") {
+      globalThis.__statusCount = (globalThis.__statusCount || 0) + 1;
+      return { ok: true, status: 200, json: async () => (globalThis.__statusCount === 1
+        ? { ok: true, configured: true, web_url: "javascript:alert(1)//x" }
+        : { ok: true, configured: true, web_url: 'https://gate.example.com/"onmouseover="alert(1)' }) };
+    }
+  }
   if (path.startsWith("/api/ext/cgc-2046/learning_state")) {
     return {
       ok: true, status: 200,
@@ -652,6 +692,38 @@ require(require("path").resolve(viewPath));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
+  // web_url scheme 门·纯谓词真值表(安全评审低危#4):viewPath = panels/shared/view.js,
+  // 无面板 spec——须在任何 registerWorkspace 检查前 early-return
+  if (scenario === "kit_safe_url") {
+    const safe = globalThis.CgcKit.safeWebUrl;
+    const checks = {
+      helper_exported: typeof safe === "function",
+      https_ok: safe("https://codingirlsclub.com") === "https://codingirlsclub.com",
+      https_uppercase_ok: !!safe("HTTPS://CODINGIRLSCLUB.COM"),
+      localhost_http_ok: !!safe("http://localhost:3000"),
+      loopback_ip_http_ok: !!safe("http://127.0.0.1:3000"),
+      ipv6_loopback_http_ok: !!safe("http://[::1]:3000"),
+      plain_http_rejected: safe("http://evil.example.com") === null,
+      lan_ip_http_rejected: safe("http://192.168.1.5:3000") === null,
+      localhost_subdomain_rejected: safe("http://localhost.evil.com") === null,
+      javascript_rejected: safe("javascript:alert(1)") === null,
+      javascript_comment_smuggle_rejected: safe("javascript:alert(1)//https://x.com") === null,
+      tab_smuggle_javascript_rejected: safe("java\tscript:alert(1)") === null,
+      data_rejected: safe("data:text/html,<script>1</script>") === null,
+      file_rejected: safe("file:///etc/passwd") === null,
+      relative_rejected: safe("/w/acme/settings") === null && safe("codingirlsclub.com") === null,
+      protocol_less_rejected: safe("//evil.com") === null,
+      non_string_rejected: safe(null) === null && safe(undefined) === null && safe(123) === null,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
   // session.aside 面板(admin-aside/learn/tutor-aside)走 mount 捕获,不经 registerWorkspace
   const MOUNT_SCENARIOS = { admin_aside: 1, learn_boot_and_inject: 1, tutor_aside_boot: 1 };
   const { spec } = globalThis.__registered || {};
@@ -1122,6 +1194,84 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     console.log("OK " + scenario + " " + JSON.stringify(checks));
     return;
   }
+  // web_url scheme 门(安全评审低危#4):非法 scheme 必须等同未配置(锚隐藏/深链不渲染/
+  // 目录卡隐藏);http://localhost(README 联调形态)必须放行。无门旧代码三断言必败。
+  if (scenario === "home_weburl_gate") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(150);
+    const phase1 = container.innerHTML;
+    const webEl1 = container.querySelector("#cgc-open-web");
+    const checks1 = {
+      bad_scheme_anchor_hidden: !!webEl1 && webEl1.style.display === "none",
+      bad_scheme_manage_hidden: phase1.indexOf("/settings/members") < 0,
+      platform_admin_card_hidden: phase1.indexOf('data-catalog="admin"') < 0,
+    };
+
+    // 第二次 render → refresh 重拉 status(#2 = http://localhost:3000 合法联调形态)
+    spec.render(container);
+    await sleep(150);
+    const phase2 = container.innerHTML;
+    const webEl2 = container.querySelector("#cgc-open-web");
+    const catalogEl = container.querySelector("#cgc-catalog");
+    const adminCard = catalogEl.querySelectorAll("[data-catalog]")
+      .filter(function (b) { return b.getAttribute("data-catalog") === "admin"; })[0];
+    ((adminCard && adminCard.listeners.click) || []).forEach(function (fn) { fn(); });
+    const checks2 = {
+      localhost_anchor_shown: !!webEl2 && webEl2.style.display !== "none" &&
+        webEl2.href === "http://localhost:3000",
+      localhost_manage_link: phase2.indexOf('href="http://localhost:3000/w/gate/settings/members"') >= 0,
+      platform_admin_card_shown: !!adminCard,
+      admin_card_opens_localhost: (globalThis.__opened || []).indexOf("http://localhost:3000") >= 0,
+    };
+
+    const checks = Object.assign({}, checks1, checks2);
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("phase1: " + phase1.slice(0, 600));
+      console.error("phase2: " + phase2.slice(0, 600));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // web_url scheme 门(安全评审低危#4):discovery 详情链接——非法 scheme 标题退化纯文本;
+  // 合法 https 但含引号必须转义(属性逃逸,旧代码必败)。两阶段经 #cgc-refresh 切换。
+  if (scenario === "discovery_weburl_gate") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(150);
+    const phase1 = container.innerHTML;
+    const checks1 = {
+      bad_scheme_no_anchor: phase1.indexOf("cgc-offering-link") < 0,
+      title_degrades_plain: phase1.indexOf('<span class="task-name">门测沙龙</span>') >= 0,
+    };
+
+    // 刷新钮 → loadOfferings → status#2(https + 引号走私,过 scheme 门后考转义)
+    const refresh = container.querySelector("#cgc-refresh");
+    ((refresh && refresh.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(150);
+    const phase2 = container.innerHTML;
+    const checks2 = {
+      detail_anchor_rendered: phase2.indexOf("cgc-offering-link") >= 0,
+      attr_breakout_escaped: phase2.indexOf('"onmouseover="') < 0 && phase2.indexOf("&quot;onmouseover=") >= 0,
+      detail_url_correct: phase2.indexOf("https://gate.example.com/") >= 0 && phase2.indexOf("/events/salon-gate") >= 0,
+    };
+
+    const checks = Object.assign({}, checks1, checks2);
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("phase1: " + phase1.slice(0, 600));
+      console.error("phase2: " + phase2.slice(0, 600));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
   // ⑧ learn_boot_and_inject(cgc-learn 行为迁移):boot 列表渲染(掌握度/复习/锁定)
   // + 学习目标注入(草稿保留追加 + 发送点击) + 复习注入(到期复习文案)
   if (scenario === "learn_boot_and_inject") {
