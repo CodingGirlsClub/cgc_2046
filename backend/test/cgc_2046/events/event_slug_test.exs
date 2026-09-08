@@ -90,4 +90,67 @@ defmodule Cgc2046.Events.EventSlugTest do
              )
              |> Ash.create(tenant: workspace.id, actor: admin)
   end
+
+  test "create 撞 slug（同 workspace）拒绝并给字段级错误" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+
+    assert {:ok, _event} = create_event(workspace, admin, %{slug: "taken-same-ws"})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             create_event(workspace, admin, %{slug: "taken-same-ws"})
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "create 撞 slug（跨 workspace）拒绝：slug 全局唯一而非 per-workspace 唯一" do
+    admin = Fixtures.platform_admin()
+    workspace_a = Fixtures.create_workspace(admin)
+    workspace_b = Fixtures.create_workspace(admin)
+
+    assert {:ok, _event} = create_event(workspace_a, admin, %{slug: "taken-across-ws"})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             create_event(workspace_b, admin, %{slug: "taken-across-ws"})
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "update 撞 slug 拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, _a} = create_event(workspace, admin, %{slug: "taken-update-a"})
+    {:ok, b} = create_event(workspace, admin, %{slug: "taken-update-b"})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             b
+             |> Ash.Changeset.for_update(:update, %{slug: "taken-update-a"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "Course create 撞 slug 拒绝并给字段级错误" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+
+    create_course = fn ->
+      Course
+      |> Ash.Changeset.for_create(
+        :create,
+        %{title: "Slug Course", enrollment_policy: :open, slug: "taken-course-slug"},
+        tenant: workspace.id
+      )
+      |> Ash.create(tenant: workspace.id, actor: admin)
+    end
+
+    assert {:ok, _course} = create_course.()
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} = create_course.()
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
 end
