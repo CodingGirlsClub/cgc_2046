@@ -289,7 +289,7 @@
   function enrollPrompt(kind, offeringId, row) {
     const offering = offeringById(offeringId) || {};
     const who = oneLine((row.user && (row.user.display_name || row.user.email)) || "该报名人");
-    return "请处理" + (KIND_LABEL[kind] || "供给") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
+    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
       "（list_enrollments kind=" + kind + " offering_id=" + offeringId +
       " 确认详情后，按确认流处理，enrollment_id=" + row.enrollment_id + "）。";
   }
@@ -427,19 +427,25 @@
   }
 
   // 供给区(课程+活动统一投影,kind 徽章区分;课程在前活动在后,组内保持后端序。
-  // 行点击展开/收起报名队列,可行动报名行可点注入)
+  // 行点击展开/收起报名队列,可行动报名行可点注入。
+  // 课程/活动错误隔离:扩展与后端部署天然不同步(新扩展连旧后端时活动面报错),
+  // 任一源失败不拖死另一源;双源皆败才整体报错)
   function renderSupplySection() {
     const total = state.courses.length + state.events.length;
-    let html = '<div class="cgaa-sec-label">供给（' + total + '）</div>';
-    if (state.coursesError || state.eventsError) {
-      return html + '<div class="cgaa-empty">供给加载失败。</div>';
+    let html = '<div class="cgaa-sec-label">课程与活动(' + total + ')</div>';
+    if (state.coursesError && state.eventsError) {
+      return html + '<div class="cgaa-empty">课程与活动加载失败。</div>';
     }
-    if (total === 0) {
+    if (total === 0 && !state.coursesError && !state.eventsError) {
       return html + '<div class="cgaa-empty">当前工作台暂无课程或活动。</div>';
     }
-    const rows = state.courses.map(function (c) { return supplyRow("course", c); })
-      .concat(state.events.map(function (e) { return supplyRow("event", e); }));
-    return html + '<div class="cgaa-course-list">' + rows.join("") + '</div>';
+    const courseRows = state.coursesError
+      ? ['<div class="cgaa-empty">课程加载失败。</div>']
+      : state.courses.map(function (c) { return supplyRow("course", c); });
+    const eventRows = state.eventsError
+      ? ['<div class="cgaa-empty">活动加载失败。</div>']
+      : state.events.map(function (e) { return supplyRow("event", e); });
+    return html + '<div class="cgaa-course-list">' + courseRows.concat(eventRows).join("") + '</div>';
   }
 
   // 单个供给行 + 展开时的报名队列
@@ -515,7 +521,7 @@
   }
 
   const ACTION_GROUPS = [
-    { label: "供给", actions: [
+    { label: "课程与活动", actions: [
       { key: "create-course", label: "+ 创建课程" },
       { key: "create-event", label: "+ 创建活动" }
     ]},
