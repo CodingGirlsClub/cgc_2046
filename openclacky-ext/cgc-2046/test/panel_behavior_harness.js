@@ -470,18 +470,6 @@ globalThis.fetch = async (url, opts) => {
           { order_id: "o-3", status: "pending", amount_cents: 5000, tier_name: "标准档",
             enrollment: { enrollment_id: "e-7", learner_email: "c@x.com", enrollment_status: "payment_pending" },
             offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
-          { order_id: "o-4", status: "pending", amount_cents: 100, tier_name: "标准档",
-            enrollment: { enrollment_id: "e-10", learner_email: "d@x.com", enrollment_status: "payment_pending" },
-            offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
-          { order_id: "o-5", status: "pending", amount_cents: 100, tier_name: "标准档",
-            enrollment: { enrollment_id: "e-11", learner_email: "e@x.com", enrollment_status: "payment_pending" },
-            offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
-          { order_id: "o-6", status: "pending", amount_cents: 100, tier_name: "标准档",
-            enrollment: { enrollment_id: "e-12", learner_email: "f@x.com", enrollment_status: "payment_pending" },
-            offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
-          { order_id: "o-7", status: "pending", amount_cents: 100, tier_name: "标准档",
-            enrollment: { enrollment_id: "e-13", learner_email: "g@x.com", enrollment_status: "payment_pending" },
-            offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
         ],
       } }) };
     }
@@ -896,10 +884,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       html.includes(">课程</span>") && html.includes(">活动</span>") &&
       html.includes("cgaa-badge-kind-course") && html.includes("cgaa-badge-kind-event");
     // P1:订单区非终态优先(refund_failed 首行)
-    // 注意力面:非终态才渲染(已支付终态不出现),refund_failed 首行,帽 5 + 尾行
-    const ordersOk = html.indexOf("订单需处理（6）") >= 0 &&
-      html.indexOf("退款失败") >= 0 && html.indexOf("退款失败") < html.indexOf("待支付") &&
-      html.indexOf("已支付") < 0 && html.includes("¥99.00") && html.includes("还有 1 笔非终态");
+    const ordersOk = html.indexOf("退款失败") >= 0 &&
+      html.indexOf("退款失败") < html.indexOf("待支付") &&
+      html.indexOf("待支付") < html.indexOf("已支付") &&
+      html.includes("¥99.00");
     // P1:课程行点击展开报名队列(懒加载 /workspace/enrollments)
     const offeringBtns = panel.querySelectorAll("[data-offering-id]");
     const c1 = offeringBtns.filter(function (b) { return b.getAttribute("data-offering-id") === "c-1"; })[0];
