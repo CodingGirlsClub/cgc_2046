@@ -13,7 +13,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   自 M4 起收紧为草稿读面 staff-only(`staff?/2`),不再是完整判定的消费面。
   """
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.{MembershipContext, Rbac}
   alias Cgc2046.Learning.Runs
 
   @doc """
@@ -52,12 +52,7 @@ defmodule Cgc2046.Mcp.Tools.LearnerAuthorization do
   def confirmed_enrollment?(actor, workspace_id, course_id),
     do: Runs.confirmed_enrollment?(actor, workspace_id, course_id)
 
-  defp content_member?(actor, workspace_id) do
-    case MembershipContext.role_names(actor, workspace_id) do
-      roles when is_list(roles) -> Enum.any?(roles, &(Role.manage_role?(&1) or &1 == :tutor))
-      _ -> false
-    end
-  end
+  defp content_member?(actor, workspace_id), do: Rbac.staff?(actor, workspace_id)
 
   defp member?(actor, workspace_id),
     do: MembershipContext.membership_of(actor, workspace_id) != nil

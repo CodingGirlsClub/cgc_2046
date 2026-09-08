@@ -25,7 +25,7 @@ defmodule Cgc2046.Mcp.Tools.ClaimPrepAuthoring do
         course_id = params["course_id"] || params[:course_id]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
              {:ok, claimed} <- Prep.claim(run, actor.id, actor) do
           {:ok,
@@ -46,16 +46,6 @@ defmodule Cgc2046.Mcp.Tools.ClaimPrepAuthoring do
       :ok
     else
       {:error, "forbidden: tutor, owner or admin required to claim prep authoring"}
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

@@ -887,4 +887,46 @@ defmodule Cgc2046.Courses.Course do
       :inserted_at
     ])
   end
+
+  # ── 租户收紧读取端口（MCP 工具面单源，2026-09-08 架构评审候选①）────────────
+
+  @doc """
+  按租户收紧读取课程（MCP 工具层唯一入口，取代 18 份工具内私有 fetch_course
+  拷贝）。**不变量：必须带 `tenant: workspace_id`**——Course 为全局资源，
+  不带 tenant 会全表读，A 租户成员可用 B 租户 course_id 越权（他租户 id 与
+  不存在同一 `not found`，不泄露存在性）。
+
+  两变体（语义逐工具保真，勿合并）：
+  - 默认 `authorize?: false`——授权已在工具层完成（Wrapper member-only 门 +
+    工具内角色判定），读取只取存在性/字段；
+  - `actor: actor`——走授权读（lifecycle 工具 cancel/close/launch/update 原样），
+    命中 field policy 拒绝时映到 forbidden 文案。
+
+  错误字符串是 interface 的一部分（全部消费方为 MCP 工具，文案契约逐字保留）。
+  """
+  @spec fetch_scoped(String.t(), String.t(), keyword()) ::
+          {:ok, t()} | {:error, String.t()}
+  def fetch_scoped(workspace_id, course_id, opts \\ []) do
+    read_opts =
+      case Keyword.fetch(opts, :actor) do
+        {:ok, actor} -> [actor: actor, tenant: workspace_id]
+        :error -> [authorize?: false, tenant: workspace_id]
+      end
+
+    case __MODULE__
+         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+         |> Ash.read_one(read_opts) do
+      {:ok, nil} ->
+        {:error, "course not found: #{course_id}"}
+
+      {:ok, course} ->
+        {:ok, course}
+
+      {:error, %Ash.Error.Forbidden{}} ->
+        {:error, "forbidden: not allowed to read course #{course_id}"}
+
+      {:error, _} ->
+        {:error, "failed to load course"}
+    end
+  end
 end
