@@ -680,6 +680,15 @@ defmodule Cgc2046.Courses.Course do
     read :get_by_slug do
       get_by([:slug])
     end
+
+    # list_courses 专用（#411/enrollment.ex:177-181 同款）：keyset 分页要求稳定
+    # 唯一序，UUID v4 主键时间无序——无显式 sort 时列表顺序契约上无保证。
+    # inserted_at desc + id 兜底（同秒平票 tiebreaker 保 keyset 序唯一）。
+    read :list_courses do
+      description("课程列表（graphql list_courses；按插入时间倒序）")
+      prepare(build(sort: [inserted_at: :desc, id: :asc]))
+      pagination(keyset?: true, default_limit: 250)
+    end
   end
 
   # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
@@ -879,7 +888,7 @@ defmodule Cgc2046.Courses.Course do
     relationships([])
 
     queries do
-      list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")
+      list(:list_courses, :list_courses, description: "工作台的课程列表（#40 展示页）")
       read_one(:get_course, :get_by_id, description: "按 id 获取课程（#40）")
       read_one(:get_course_by_slug, :get_by_slug, description: "按 slug 获取（E-5 公开宿主页）")
     end
