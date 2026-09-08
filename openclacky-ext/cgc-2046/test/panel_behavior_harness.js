@@ -765,7 +765,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=course") >= 0;
     });
     // P1:可行动报名行(pending)点击 → 注入含 list_enrollments + enrollment_id
-    const enrollRows = panel.querySelectorAll("[data-enroll-course]");
+    const enrollRows = panel.querySelectorAll("[data-enroll-offering]");
     ((enrollRows[0] && enrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
     const enrollInject = globalThis.__prompted || "";
     // P3:活动行点击下钻(kind=event 分派);活动报名行注入带 event 语义
@@ -776,7 +776,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const eventKindFetch = calls.urls.some(function (u) {
       return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=event") >= 0;
     });
-    const evEnrollRows = panel.querySelectorAll("[data-enroll-course]")
+    const evEnrollRows = panel.querySelectorAll("[data-enroll-offering]")
       .filter(function (b) { return b.getAttribute("data-enroll-kind") === "event"; });
     ((evEnrollRows[0] && evEnrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
     const evEnrollInject = globalThis.__prompted || "";

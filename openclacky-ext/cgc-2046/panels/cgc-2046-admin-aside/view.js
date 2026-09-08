@@ -250,6 +250,12 @@
     }
   }
 
+  // 用户可控文本(姓名/标题/邮箱)进注入指令前中性化:换行/制表等折成空格,
+  // 防伪造多行指令结构(写操作仍由 agent 两段式确认门兜底)
+  function oneLine(s) {
+    return String(s == null ? "" : s).replace(/[\r\n\t\u2028\u2029]+/g, " ").trim();
+  }
+
   // 注入管理指令(当前已在 cgc-admin 会话,直接注入不创建)
   function injectIntoComposer(text) {
     const input = document.getElementById("user-input");
@@ -272,8 +278,8 @@
   // 待办行 → 处理指令(台名前缀消歧:待办跨台聚合,agent 按名称切换上下文;
   // 行只带语义,id 由 agent 调 list_my_tasks 自取)
   function taskPrompt(t) {
-    const ws = t._ws_name ? "[" + t._ws_name + "] " : "";
-    const title = t.context_title || t.title || t.requester_name || "";
+    const ws = t._ws_name ? "[" + oneLine(t._ws_name) + "] " : "";
+    const title = oneLine(t.context_title || t.title || t.requester_name || "");
     return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办：" + title +
       "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。";
   }
@@ -282,8 +288,8 @@
   // 返回,可信标识直接带上,agent 无需先列表)
   function enrollPrompt(kind, offeringId, row) {
     const offering = offeringById(offeringId) || {};
-    const who = (row.user && (row.user.display_name || row.user.email)) || "该报名人";
-    return "请处理" + (KIND_LABEL[kind] || "供给") + "「" + (offering.title || "") + "」中 " + who + " 的报名" +
+    const who = oneLine((row.user && (row.user.display_name || row.user.email)) || "该报名人");
+    return "请处理" + (KIND_LABEL[kind] || "供给") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
       "（list_enrollments kind=" + kind + " offering_id=" + offeringId +
       " 确认详情后，按确认流处理，enrollment_id=" + row.enrollment_id + "）。";
   }
@@ -473,7 +479,7 @@
         '<span class="cgaa-enroll-meta">' + escapeHtml(st.label + tier) + '</span>';
       if (st.actionable) {
         return '<button class="cgaa-enroll cgaa-enroll-act" type="button"' +
-          ' data-enroll-kind="' + kind + '" data-enroll-course="' + escapeHtml(offeringId) +
+          ' data-enroll-kind="' + kind + '" data-enroll-offering="' + escapeHtml(offeringId) +
           '" data-enroll-idx="' + idx + '">' +
           inner + '<span class="cgaa-task-go">›</span></button>';
       }
@@ -576,9 +582,9 @@
         loadEnrollments(kind, id).then(renderPanel);
       });
     });
-    root.querySelectorAll("[data-enroll-course]").forEach(function (btn) {
+    root.querySelectorAll("[data-enroll-offering]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        const offeringId = btn.getAttribute("data-enroll-course");
+        const offeringId = btn.getAttribute("data-enroll-offering");
         const kind = btn.getAttribute("data-enroll-kind") || "course";
         const enr = state.enrollments[offeringId];
         const row = enr && enr.rows[parseInt(btn.getAttribute("data-enroll-idx"), 10)];
@@ -601,7 +607,8 @@
     root.querySelectorAll("[data-link-url]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const url = btn.getAttribute("data-link-url");
-        if (url) window.open(url, "_blank");
+        // scheme 白名单 + noopener(webUrl 来自 /status 透传,防配置污染注入 javascript:)
+        if (url && /^https?:\/\//.test(url)) window.open(url, "_blank", "noopener,noreferrer");
       });
     });
   }
@@ -693,6 +700,7 @@
     root.className = "cgaa-root";
     container.appendChild(root);
     boot();
+    if (pollTimer) clearInterval(pollTimer);  // 重复 mount(多 cgc-admin 会话)不叠加轮询
     pollTimer = setInterval(async function () {
       if (!root || !document.contains(root) || document.hidden) return;
       try { await refreshData(); } catch (e) { /* 静默 */ }

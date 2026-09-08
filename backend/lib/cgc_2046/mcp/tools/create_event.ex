@@ -102,15 +102,19 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   end
 
   # 白名单取参（string/atom 键双兼容；固定字段名 to_existing_atom 不污染 atom 表）；
-  # nil 值视为未提供（本工具不支持显式置空）
+  # nil 值视为未提供（本工具不支持显式置空）。false 是合法显式值
+  # （sponsorship_enabled/curriculum_enabled 域默认 true，用户明确传 false 必须
+  # 落库），不能用 || 收集（false || nil → nil 会被当未提供丢弃）；判别法与
+  # UpdateEvent.collect_changes 同款：字符串键优先，Map.has_key? 区分「未提供」。
   defp take_fields(params, fields) do
     fields
-    |> Enum.filter(fn field ->
-      value = params[field] || params[String.to_existing_atom(field)]
-      not is_nil(value)
-    end)
-    |> Map.new(fn field ->
-      {String.to_existing_atom(field), params[field] || params[String.to_existing_atom(field)]}
-    end)
+    |> Enum.filter(fn field -> not is_nil(take_value(params, field)) end)
+    |> Map.new(fn field -> {String.to_existing_atom(field), take_value(params, field)} end)
+  end
+
+  defp take_value(params, field) do
+    if Map.has_key?(params, field),
+      do: params[field],
+      else: Map.get(params, String.to_existing_atom(field))
   end
 end

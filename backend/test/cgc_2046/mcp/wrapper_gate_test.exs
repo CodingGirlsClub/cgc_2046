@@ -5,8 +5,8 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   - 派生门控集合恰为 26 个豁免工具（精确名单：3 × workspace_id: :optional +
     3 × optional+deferred 双键 + 8 × membership: :deferred + 2 × membership: :public +
     10 × workspace_id: :optional + membership: :platform_admin）
-  - member-only 工具不携带豁免 meta（S3 event 管理面后 39 个：原 10 + 工作台管理面 19 +
-    课程教研流程 9 + 学习分析 1）
+  - member-only 工具不携带豁免 meta（S3 event 管理面后 40 个：原 11（含 #366 发现面
+    list_workspace_courses）+ 工作台管理面 19 + 课程教研流程 9 + 学习分析 1）
   - 未声明 meta 的工具默认门控 = member-only + workspace_id 必填（fail-closed）
   - 两个公开工具命中 `:public` 分支而非落入 optional 分支（map 子集匹配下
     子句顺序即语义，KTD3）；optional+deferred 双键工具命中 `:optional` 分支
