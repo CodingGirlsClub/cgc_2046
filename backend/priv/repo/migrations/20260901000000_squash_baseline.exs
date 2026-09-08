@@ -811,45 +811,6 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
       add :updated_at, :utc_datetime_usec, null: false
     end
 
-    create table(:learning_records, primary_key: false) do
-      add :id, :uuid, default: fragment("gen_random_uuid()"), null: false, primary_key: true
-
-      add :workspace_id,
-          references(:workspaces,
-            column: :id,
-            type: :uuid,
-            name: "learning_records_workspace_id_fkey",
-            on_delete: :delete_all
-          ),
-          null: false
-
-      add :course_id,
-          references(:courses,
-            column: :id,
-            type: :uuid,
-            name: "learning_records_course_id_fkey",
-            on_delete: :delete_all
-          ),
-          null: false
-
-      add :user_id, :uuid, null: false
-      add :issue_id, :text, null: false
-      add :item_id, :text, null: false
-      add :done, :boolean, default: false, null: false
-      add :evidence, :text
-      add :recorded_at, :utc_datetime_usec, null: false
-      add :enrollment_id, :uuid
-      add :run_id, :uuid
-
-      add :inserted_at, :utc_datetime_usec,
-        default: fragment("(now() AT TIME ZONE 'utc')"),
-        null: false
-
-      add :updated_at, :utc_datetime_usec,
-        default: fragment("(now() AT TIME ZONE 'utc')"),
-        null: false
-    end
-
     create table(:speaker_invitations, primary_key: false) do
       add :id, :uuid, default: fragment("gen_random_uuid()"), null: false, primary_key: true
 
@@ -1314,13 +1275,6 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
              check: "((quota > 0) AND (remaining_quota >= 0) AND (remaining_quota <= quota))"
            )
 
-    create unique_index(:learning_records, [:course_id, :user_id, :issue_id, :item_id],
-             name: "learning_records_unique_key_index"
-           )
-
-    create index(:learning_records, [:user_id], name: "learning_records_user_id_index")
-    create index(:learning_records, [:workspace_id], name: "learning_records_workspace_id_index")
-
     create index(:speaker_invitations, [:event_id], name: "speaker_invitations_event_id_index")
 
     create unique_index(:speaker_invitations, [:event_id, :speaker_email],
@@ -1412,7 +1366,6 @@ defmodule Cgc2046.Repo.Migrations.SquashBaseline do
     drop table(:enrollments)
     drop table(:sponsorships)
     drop table(:speaker_invitations)
-    drop table(:learning_records)
     drop table(:invite_batches)
     drop table(:workflow_step_roles)
     drop table(:events)
